@@ -171,7 +171,7 @@ final class Updater {
             UpdateManifest.Check check = UpdateManifest.checkFeed(document,
                 new String(signature, StandardCharsets.US_ASCII));
 
-            if (check != UpdateManifest.Check.SIGNED) {
+            if (!UpdateManifest.feedUsable(check)) {
                 android.util.Log.i(LOG_TAG, "update: the " + channel + " channel's list was not used: "
                     + (check == UpdateManifest.Check.NOT_CHECKED ? "no Ed25519 before Android 13" : "not signed"));
                 return null;
@@ -333,8 +333,13 @@ final class Updater {
             try (InputStream stream = connection.getInputStream()) {
                 String tag = new JSONObject(new String(readAll(stream), StandardCharsets.UTF_8)).optString("tag_name");
 
-                // (a version goes into the download's address: letters, digits and . _ + - only)
-                return tag.matches("v[0-9A-Za-z_+-][0-9A-Za-z._+-]{0,30}") ? tag.substring(1) : null;
+                // (a version goes into the download's address: letters, digits and . _ + - only;
+                // and the latest release's is a release's, never a test build's or a nightly's)
+                if (!tag.matches("v[0-9A-Za-z_+-][0-9A-Za-z._+-]{0,30}") || !UpdateManifest.release(tag.substring(1))) {
+                    android.util.Log.i(LOG_TAG, "update: the latest release's tag " + tag + " is not used");
+                    return null;
+                }
+                return tag.substring(1);
             } finally {
                 connection.disconnect();
             }
@@ -423,6 +428,9 @@ final class Updater {
                 File zip = new File(directory, "update.zip");
                 File apk = new File(directory, UpdateProvider.APK);
 
+                // (the release path takes a release's version alone)
+                if (feed == null && !UpdateManifest.release(latest))
+                    throw new IOException("version " + latest + " is not a release's");
                 UpdateManifest.Entry listed = feed != null ? feedFile(feed, latest, configuration, assetBase)
                     : listedFile(directory, latest, configuration, assetBase);
                 String address = listed != null

@@ -43,8 +43,17 @@ def release_build() -> bool:
 
 
 # a nightly's or a test build's version: <VERSION>-nightly.<serial>,
-# <VERSION>-testing.<serial> (VERSION's numbers and hotfix letters)
-PRERELEASE_VERSION = re.compile(r"^\d+\.\d+\.\d+[a-z]*-(nightly|testing)\.\d{1,18}$")
+# <VERSION>-testing.<serial>, in the one version grammar
+# (port/linux/src/update_manifest.h; the command repository's signing.py),
+# the serial the UTC time it was built, YYYYMMDDHHMM
+PRERELEASE_VERSION = re.compile(
+    r"^\d{1,9}\.\d{1,9}\.\d{1,9}[a-z]{0,15}-(testing|nightly)\.((\d{4})(\d{2})(\d{2})(\d{2})(\d{2}))$")
+
+
+def serial_valid(match) -> bool:
+    """the serial's time: 2026 to 2099, each field in its range"""
+    year, month, day, hour, minute = (int(match.group(index)) for index in range(3, 8))
+    return 2026 <= year <= 2099 and 1 <= month <= 12 and 1 <= day <= 31 and hour <= 23 and minute <= 59
 
 
 def update_channel() -> str:
@@ -54,7 +63,7 @@ def update_channel() -> str:
     if release_build():
         return ""
     match = PRERELEASE_VERSION.match(version())
-    return match.group(1) if match else ""
+    return match.group(1) if match and serial_valid(match) else ""
 
 
 def channel() -> str:

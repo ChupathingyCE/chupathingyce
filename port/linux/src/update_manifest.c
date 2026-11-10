@@ -491,20 +491,30 @@ static int manifest_release_tag(const char *tag, const char *version)
 	return tag[0] == 'v' && !strncmp(tag + 1, version, length) && (!tag[1 + length] || tag[1 + length] == '-');
 }
 
-/* a test build's file is on a testing pre-release (v0.9.1-testing,
-v0.9.1-testing-debug); a nightly's on the nightly one (nightly,
-nightly-debug). The file's SHA-256 in the signed list is what makes it the
-build: the tag is only where it is downloaded from, a word either way */
+/* a test build's file is on its version's testing pre-release:
+v<base>-testing, or v<base>-testing<digits> (a second set), each with or
+without -debug, <base> being the version without its label and serial
+(v0.9.1a-testing for 0.9.1a-testing.202611101530). A nightly's is on the
+nightly pre-release, "nightly" (or "nightly-debug"). The file's SHA-256 in
+the signed list is what makes it the build: the tag is only where it is
+downloaded from */
 static int manifest_testing_tag(const char *tag, const char *version)
 {
-	(void)version;
-	return tag[0] == 'v' && strstr(tag, "-testing") != NULL;
+	const char *label = strstr(version, "-testing.");
+	size_t base = label ? (size_t)(label - version) : 0;
+
+	if (!label || tag[0] != 'v' || strncmp(tag + 1, version, base) || strncmp(tag + 1 + base, "-testing", 8))
+		return 0;
+	tag += 1 + base + 8;
+	while (*tag >= '0' && *tag <= '9')
+		tag++;
+	return !*tag || !strcmp(tag, "-debug");
 }
 
 static int manifest_nightly_tag(const char *tag, const char *version)
 {
 	(void)version;
-	return !strcmp(tag, "nightly") || !strncmp(tag, "nightly-", 8);
+	return !strcmp(tag, "nightly") || !strcmp(tag, "nightly-debug");
 }
 
 int update_manifest_find(const char *text, size_t length, const char *version, const char *platform,
@@ -534,7 +544,13 @@ int update_manifest_find(const char *text, size_t length, const char *version, c
 		return _update_manifest_refused;
 	}
 	/* (a release's list: one from before the channels has none; a testing
-	or nightly list is never a release's) */
+	or nightly list, or a list of a test build's or a nightly's version, is
+	never a release's) */
+	if (!update_version_release(list.version))
+	{
+		snprintf(error, error_size, "the list's version %s is not a release's", list.version);
+		return _update_manifest_refused;
+	}
 	if (list.channel[0] && strcmp(list.channel, "release"))
 	{
 		snprintf(error, error_size, "the list is the %s channel's, not a release's", list.channel);
@@ -645,6 +661,17 @@ static int version_number(const char **text, unsigned long long *number, int mos
 	return digits > 0;
 }
 
+/* whether a serial is a time: YYYYMMDDHHMM, its year 2026 to 2099, and each
+field in its range */
+static int version_serial_valid(unsigned long long serial)
+{
+	unsigned long long year = serial / 100000000ULL, month = serial / 1000000ULL % 100, day = serial / 10000ULL % 100,
+		hour = serial / 100ULL % 100, minute = serial % 100;
+
+	return year >= 2026 && year <= 2099 && month >= 1 && month <= 12 && day >= 1 && day <= 31 && hour <= 23 &&
+		minute <= 59;
+}
+
 static int version_parse(const char *text, struct update_version *version)
 {
 	size_t length;
@@ -683,9 +710,20 @@ static int version_parse(const char *text, struct update_version *version)
 		return 0;
 	memcpy(version->label, text, length);
 	version->label[length] = 0;
-	text += length + 1;
-	if (!version_number(&text, &version->serial, 18) || *text)
+	/* (only the two channels' labels) */
+	if (strcmp(version->label, "testing") && strcmp(version->label, "nightly"))
 		return 0;
+	text += length + 1;
+	/* (the serial: exactly 12 digits, the UTC time it was built,
+	YYYYMMDDHHMM, 2026 to 2099) */
+	for (length = 0; text[length] >= '0' && text[length] <= '9'; length++)
+	{
+	}
+	if (length != 12 || text[length] || !version_number(&text, &version->serial, 12) ||
+		!version_serial_valid(version->serial))
+	{
+		return 0;
+	}
 	version->prerelease = 1;
 	return 1;
 }
@@ -721,6 +759,17 @@ int update_version_newer(const char *version, const char *current)
 	int comparable;
 
 	return update_version_compare(version, current, &comparable) > 0 && comparable;
+}
+
+int update_version_release(const char *text)
+{
+	char label[16];
+
+	/* (as before the channels: a version with a suffix of another shape,
+	0.9.0-dev, is no prerelease of a channel, and the release path decides
+	by its order) */
+	return !update_version_prerelease(text, label, sizeof(label)) && !strstr(text ? text : "", "-testing") &&
+		!strstr(text ? text : "", "-nightly");
 }
 
 int update_version_prerelease(const char *text, char *label, size_t label_size)

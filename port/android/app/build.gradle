@@ -27,8 +27,13 @@ def releaseBuild = System.getenv("HALO_RELEASE_BUILD") == "1"
 // a nightly's or a test build's update channel (tools/version.py's
 // update_channel: <VERSION>-nightly.<serial>, <VERSION>-testing.<serial>),
 // whose builds look for updates there (Updater.java); "" for any other
-def channelMatch = (haloVersion =~ /^\d+\.\d+\.\d+[a-z]*-(nightly|testing)\.\d{1,18}$/)
-def updateChannel = (!releaseBuild && channelMatch.matches()) ? channelMatch.group(1) : ""
+// (the one version grammar, update_manifest.h's, its serial a valid UTC time)
+def channelMatch = (haloVersion =~ /^\d{1,9}\.\d{1,9}\.\d{1,9}[a-z]{0,15}-(testing|nightly)\.((\d{4})(\d{2})(\d{2})(\d{2})(\d{2}))$/)
+def serialValid = channelMatch.matches() && {
+    def (year, month, day, hour, minute) = (3..7).collect { channelMatch.group(it).toInteger() }
+    year >= 2026 && year <= 2099 && month >= 1 && month <= 12 && day >= 1 && day <= 31 && hour <= 23 && minute <= 59
+}()
+def updateChannel = (!releaseBuild && serialValid) ? channelMatch.group(1) : ""
 
 // versionCode, as Butter and Jelly makes it: major * 10000 + minor * 100 +
 // patch, from the version's numbers (0.6.2b is 602). What follows them (the

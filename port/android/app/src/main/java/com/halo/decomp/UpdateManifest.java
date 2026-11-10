@@ -134,7 +134,10 @@ final class UpdateManifest {
         // (a list signed for another release is not this one's)
         if (!version.equals(list.get("version")))
             throw new Refused("the list is version " + list.get("version") + "'s, not " + version + "'s");
-        // (a release's list: one from before the channels has none)
+        // (a release's list: one from before the channels has none; never a
+        // test build's or a nightly's version)
+        if (!release(version))
+            throw new Refused("the list's version " + version + " is not a release's");
         if (list.containsKey("channel") && !"release".equals(list.get("channel")))
             throw new Refused("the list is the " + list.get("channel") + " channel's, not a release's");
         Map<?, ?> found = file(list, platform, configuration, kind);
@@ -176,8 +179,9 @@ final class UpdateManifest {
             return null;
         Object tag = found.get("tag");
         boolean allowed = word(tag) && (channel.equals("nightly")
-            ? tag.equals("nightly") || ((String) tag).startsWith("nightly-")
-            : ((String) tag).startsWith("v") && ((String) tag).contains("-testing"));
+            ? tag.equals("nightly") || tag.equals("nightly-debug")
+            : ((String) tag).matches(java.util.regex.Pattern.quote("v" + version.substring(0,
+                version.indexOf("-testing."))) + "-testing[0-9]*(-debug)?"));
         if (!allowed)
             throw new Refused("the list's " + kind + " file for " + platform + " " + configuration + " is not one");
         return entry(found, platform, configuration, kind);
@@ -185,8 +189,42 @@ final class UpdateManifest {
 
     /* ---------- versions (update_manifest.h's order) */
 
-    private static final java.util.regex.Pattern VERSION = java.util.regex.Pattern.compile(
-        "v?(\\d{1,9})\\.(\\d{1,9})\\.(\\d{1,9})([a-z]{0,15})(?:-([a-z]{1,15})\\.(\\d{1,18}))?");
+    /**
+     * the one version grammar (update_manifest.h's; the command repository's
+     * signing.py and build.gradle have the same), the serial a valid time
+     * besides (serialValid)
+     */
+    static final java.util.regex.Pattern VERSION = java.util.regex.Pattern.compile(
+        "v?(\\d{1,9})\\.(\\d{1,9})\\.(\\d{1,9})([a-z]{0,15})(?:-(testing|nightly)\\.(\\d{12}))?");
+
+    /** a serial is the UTC time it was built: YYYYMMDDHHMM, 2026 to 2099 */
+    static boolean serialValid(String serial) {
+        int year = Integer.parseInt(serial.substring(0, 4)), month = Integer.parseInt(serial.substring(4, 6)),
+            day = Integer.parseInt(serial.substring(6, 8)), hour = Integer.parseInt(serial.substring(8, 10)),
+            minute = Integer.parseInt(serial.substring(10, 12));
+
+        return year >= 2026 && year <= 2099 && month >= 1 && month <= 12 && day >= 1 && day <= 31 && hour <= 23
+            && minute <= 59;
+    }
+
+    private static java.util.regex.Matcher version(String text) {
+        java.util.regex.Matcher matcher = VERSION.matcher(text);
+
+        return matcher.matches() && (matcher.group(6) == null || serialValid(matcher.group(6))) ? matcher : null;
+    }
+
+    /**
+     * whether version can be a release's: no -testing or -nightly in it at
+     * all (update_version_release); the release path takes only these
+     */
+    static boolean release(String version) {
+        return !version.contains("-testing") && !version.contains("-nightly");
+    }
+
+    /** whether a feed's check lets its list be used: only a signature that checked */
+    static boolean feedUsable(Check check) {
+        return check == Check.SIGNED;
+    }
 
     /**
      * 1 when a is newer than b, -1 when older, 0 the same; null when either
@@ -195,9 +233,9 @@ final class UpdateManifest {
      * they were built (their serial), whatever their channel.
      */
     static Integer compare(String a, String b) {
-        java.util.regex.Matcher first = VERSION.matcher(a), second = VERSION.matcher(b);
+        java.util.regex.Matcher first = version(a), second = version(b);
 
-        if (!first.matches() || !second.matches())
+        if (first == null || second == null)
             return null;
         for (int part = 1; part <= 3; part++) {
             int order = Long.compare(Long.parseLong(first.group(part)), Long.parseLong(second.group(part)));
@@ -226,9 +264,9 @@ final class UpdateManifest {
 
     /** a test build's or a nightly's label (testing, nightly), else null */
     static String label(String version) {
-        java.util.regex.Matcher matcher = VERSION.matcher(version);
+        java.util.regex.Matcher matcher = version(version);
 
-        return matcher.matches() ? matcher.group(5) : null;
+        return matcher != null ? matcher.group(5) : null;
     }
 
     /* ---------- the list */

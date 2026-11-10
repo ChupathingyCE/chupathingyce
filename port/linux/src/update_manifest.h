@@ -43,8 +43,13 @@ list is found as above (the latest release, v<version>/updates.json). The
 testing and nightly channels each have one list at a fixed address, their
 feed (the "testing" and "nightly" pre-releases' updates.json), whose version
 is <version>-testing.<serial> or <version>-nightly.<serial>, the serial being
-the time the build was made (202611101530), and whose files are on the test
-build's own pre-release (v0.9.1-testing) or the nightly's. A feed's list is
+the UTC time the build was made, exactly 12 digits (YYYYMMDDHHMM, 2026 to
+2099), and whose files are on the test build's own pre-release
+(v<version>-testing, or v<version>-testing<digits>, with or without -debug)
+or the nightly's ("nightly"). One grammar, the same in the command
+repository's tools/signing.py, UpdateManifest.java and build.gradle:
+
+	^v?(\d{1,9})\.(\d{1,9})\.(\d{1,9})([a-z]{0,15})(?:-(testing|nightly)\.(\d{12}))?$ A feed's list is
 signed by the prerelease key or a release key (update_signature.h), and is
 used only when its channel and its version's label are the feed's: a release
 is never offered from a feed.
@@ -109,6 +114,11 @@ int update_version_compare(const char *a, const char *b, int *comparable);
 
 /* whether version is newer than current (both of the shape above) */
 int update_version_newer(const char *version, const char *current);
+
+/* whether version can be a release's: not a test build's or a nightly's (no
+-testing or -nightly in it at all, of the shape above or not). The release
+path (the latest release, its list, its zip's .sig) takes only these */
+int update_version_release(const char *version);
 
 /* whether version is a test build's or a nightly's: its label (testing,
 nightly) into label */

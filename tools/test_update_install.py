@@ -712,3 +712,20 @@ def test_release_list_signed_by_the_prerelease_key_refused(keys, builds, server,
     lines = run(tmp_path, folder, server, f"{OLD} halo", {"HALO_UPDATE_TEST_CHANNEL": "testing"})
     assert has(lines, f"{OLD} halo update: failed: the release's list of update files was not used")
     assert snapshot(folder) == before
+
+
+def test_latest_release_tag_of_a_prerelease_refused(keys, builds, server, tmp_path):
+    """a test build marked latest by mistake (or by anyone) is never taken on
+    the release path: not from its list, not from its zip's own .sig"""
+    folder = install(tmp_path, builds)
+    before = snapshot(folder)
+    release = tmp_path / "release"
+    zip_path = release_zip(release, builds, version=TESTING)
+    update_sign.sign(keys[0][0], TESTING, [zip_path])
+    update_sign.manifest(keys[0][0], TESTING, f"v{TESTING}", f"v{TESTING}-debug", "0" * 40, [zip_path], "release")
+    server.release(TESTING, release, [ASSET, f"{ASSET}.sig", "updates.json", "updates.json.sig"])
+    server.latest = TESTING
+    lines = run(tmp_path, folder, server, f"{OLD} halo")
+    assert has(lines, f"{OLD} halo update: the latest release's tag v{TESTING} is not a release's version")
+    assert not any(path.startswith("/files/") for path in server.requests)
+    assert snapshot(folder) == before

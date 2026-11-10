@@ -18,6 +18,7 @@ does what it is told and prints the answer:
 	              the same, by a release key or the prerelease key
 	              (HALO_UPDATE_TEST_PRERELEASE_KEY)
 	compare A B   "newer", "older", "same" or "not versions"
+	release V     "release" or "not a release" (update_version_release)
 	zip FILE ASSET VERSION SIGNATURE
 	              "signed" or "not signed: WHY" (a zip's .sig, as before the list)
 	sha256 FILE   the file's SHA-256
@@ -108,6 +109,11 @@ int main(int argc, char **argv)
 		int comparable, order = update_version_compare(argv[2], argv[3], &comparable);
 
 		printf("%s\n", !comparable ? "not versions" : order > 0 ? "newer" : order < 0 ? "older" : "same");
+		return 0;
+	}
+	if (argc == 3 && !strcmp(argv[1], "release"))
+	{
+		printf("%s\n", update_version_release(argv[2]) ? "release" : "not a release");
 		return 0;
 	}
 	if (argc == 4 && !strcmp(argv[1], "feed"))

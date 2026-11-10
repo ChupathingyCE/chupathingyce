@@ -240,6 +240,14 @@ for the download (updater_find_file) */
 static int updater_latest_channel;
 static char *updater_feed_list;
 static size_t updater_feed_size;
+/* (the check's results above, and updater_latest_version, are published by
+the check's thread under this lock, all at once at its end; an install
+takes its own copy of them under it, and refuses while a check runs) */
+static SDL_Mutex *updater_lock;
+/* the install's copy of the feed's list (updater_take_results) */
+static char *updater_install_list;
+static size_t updater_install_size;
+static int updater_install_channel;
 /* (a feed's build's page, for the macOS download page: its file's tag) */
 static char updater_feed_tag[160];
 static char updater_directory[1024];
@@ -598,6 +606,24 @@ static int updater_newer(const char *version)
 	return update_version_newer(version, HALO_VERSION);
 }
 
+/* the lock, made on the game's thread before the first check starts */
+static void updater_make_lock(void)
+{
+	if (!updater_lock)
+		updater_lock = SDL_CreateMutex();
+}
+
+static void updater_locked(int lock)
+{
+	if (updater_lock)
+	{
+		if (lock)
+			SDL_LockMutex(updater_lock);
+		else
+			SDL_UnlockMutex(updater_lock);
+	}
+}
+
 /* the channel the player chose (update.channel; this build's own by
 default: port_config.c), and on a build without channels (a console port's)
 the release channel */
@@ -666,6 +692,13 @@ static int updater_latest_release(char *version, size_t size)
 				/* (a version goes into the download's address: letters,
 				digits and . _ + - only) */
 				found = zip_name_allowed(version);
+				/* (the latest release's tag is a release's: never a test
+				build's or a nightly's version, whoever marked it latest) */
+				if (found && !update_version_release(version))
+				{
+					platform_log("update: the latest release's tag v%s is not a release's version: not used", version);
+					found = 0;
+				}
 			}
 		}
 	}
@@ -742,16 +775,11 @@ static int SDLCALL updater_check_thread(void *context)
 {
 	char latest[sizeof(updater_latest_version)];
 	char candidate[sizeof(updater_latest_version)];
-	int found, channel, chosen = updater_chosen_channel(), best = _channel_release;
-	char *list = NULL;
-	size_t list_size = 0;
+	int found, channel, chosen = updater_chosen_channel(), best = _channel_release, answer, state;
+	char *list = NULL, *best_list = NULL, *old_list;
+	size_t list_size = 0, best_size = 0;
 
 	(void)context;
-	SDL_free(updater_feed_list);
-	updater_feed_list = NULL;
-	updater_feed_size = 0;
-	updater_feed_tag[0] = 0;
-	updater_latest_channel = _channel_release;
 	found = updater_latest_release(latest, sizeof(latest));
 	/* (Testing and Nightly: each feed more stable than the chosen one too,
 	the newest of them all offered) */
@@ -769,9 +797,9 @@ static int SDLCALL updater_check_thread(void *context)
 		if (!found || !comparable || order > 0)
 		{
 			snprintf(latest, sizeof(latest), "%s", candidate);
-			SDL_free(updater_feed_list);
-			updater_feed_list = list;
-			updater_feed_size = list_size;
+			SDL_free(best_list);
+			best_list = list;
+			best_size = list_size;
 			best = channel;
 			found = 1;
 		}
@@ -783,33 +811,72 @@ static int SDLCALL updater_check_thread(void *context)
 	}
 	if (best == _channel_release)
 	{
-		SDL_free(updater_feed_list);
-		updater_feed_list = NULL;
-		updater_feed_size = 0;
+		SDL_free(best_list);
+		best_list = NULL;
+		best_size = 0;
 	}
-	updater_latest_channel = best;
-	SDL_SetAtomicInt(&updater_answer, !found ? -1 : updater_newer(latest) ? 1 : 0);
+	answer = !found ? -1 : updater_newer(latest) ? 1 : 0;
 	if (found && updater_newer(latest))
 	{
 		platform_log("update: version %s is available (this is %s; %s)", latest, HALO_VERSION,
 			best == _channel_release ? "the latest release" : best == _channel_testing ? "the testing channel" :
 			"the nightly channel");
-		snprintf(updater_latest_version, sizeof(updater_latest_version), "%s", latest);
-		SDL_SetAtomicInt(&updater_state, _updater_available);
+		state = _updater_available;
 	}
 	else if (found && updater_offer_64bit && best == _channel_release && !strcmp(latest, HALO_VERSION))
 	{
 		/* (no newer version, but this one's 64-bit build to offer) */
 		platform_log("update: this is the latest version (%s); its 64-bit build is offered", HALO_VERSION);
-		snprintf(updater_latest_version, sizeof(updater_latest_version), "%s", latest);
-		SDL_SetAtomicInt(&updater_state, _updater_available);
+		state = _updater_available;
 	}
 	else
 	{
 		platform_log("update: this is the latest version (%s)", HALO_VERSION);
-		SDL_SetAtomicInt(&updater_state, _updater_handled);
+		state = _updater_handled;
 	}
+	/* (published all at once: an install reads them only under the lock) */
+	updater_locked(1);
+	old_list = updater_feed_list;
+	updater_feed_list = best_list;
+	updater_feed_size = best_size;
+	updater_feed_tag[0] = 0;
+	updater_latest_channel = best;
+	if (state == _updater_available)
+		snprintf(updater_latest_version, sizeof(updater_latest_version), "%s", latest);
+	SDL_SetAtomicInt(&updater_answer, answer);
+	SDL_SetAtomicInt(&updater_state, state);
+	updater_locked(0);
+	SDL_free(old_list);
 	return 0;
+}
+
+/* the check's results, copied for an install (updater_find_file,
+updater_page): 0 while a check runs, which an install never races */
+static int updater_take_results(void)
+{
+	int taken = 0;
+
+	updater_locked(1);
+	if (SDL_GetAtomicInt(&updater_state) != _updater_checking)
+	{
+		SDL_free(updater_install_list);
+		updater_install_list = NULL;
+		updater_install_size = 0;
+		updater_install_channel = updater_latest_channel;
+		if (updater_feed_list)
+		{
+			updater_install_list = SDL_malloc(updater_feed_size + 1);
+			if (updater_install_list)
+			{
+				memcpy(updater_install_list, updater_feed_list, updater_feed_size);
+				updater_install_list[updater_feed_size] = 0;
+				updater_install_size = updater_feed_size;
+			}
+		}
+		taken = !updater_feed_list || updater_install_list;
+	}
+	updater_locked(0);
+	return taken;
 }
 
 /* ---------- updating */
@@ -987,6 +1054,14 @@ static int updater_unpack(const char *zip_path, char names[][256], int *executab
 		}
 		platform_log("update: the download's SHA-256 is the release list's");
 	}
+	else if (!update_version_release(updater_latest_version))
+	{
+		/* (a zip's own .sig is a release's alone: a test build's or a
+		nightly's comes only with its feed's list) */
+		snprintf(error, error_size, "the download was not installed: version %s is not a release's",
+			updater_latest_version);
+		goto done;
+	}
 	else if (update_signature_required())
 	{
 		char url[512], reason[256] = "";
@@ -1048,16 +1123,16 @@ static int updater_find_file(char *error, size_t error_size)
 	/* (a feed's build: from the list checked when it was found, which must
 	name this platform's file; there is no zip by an older name to fall back
 	on) */
-	if (updater_latest_channel != _channel_release)
+	if (updater_install_channel != _channel_release)
 	{
-		const char *channel = updater_channel_names[updater_latest_channel];
+		const char *channel = updater_channel_names[updater_install_channel];
 
-		if (!updater_feed_list)
+		if (!updater_install_list)
 		{
 			snprintf(error, error_size, "the %s channel's list is gone: look again at the next start", channel);
 			return 0;
 		}
-		result = update_manifest_find_channel(updater_feed_list, updater_feed_size, channel, updater_latest_version,
+		result = update_manifest_find_channel(updater_install_list, updater_install_size, channel, updater_latest_version,
 			updater_platform, HALO_BUILD_FLAVOR, updater_appimage ? "appimage" : "zip", updater_file.tag,
 			sizeof(updater_file.tag), updater_file.name, sizeof(updater_file.name), &updater_file.size,
 			updater_file.sha256, sizeof(updater_file.sha256), updater_file.main_name, sizeof(updater_file.main_name),
@@ -1077,6 +1152,14 @@ static int updater_find_file(char *error, size_t error_size)
 		platform_log("update: the %s channel's list names %s (%s, %llu bytes%s%s)", channel, updater_file.name,
 			updater_file.tag, updater_file.size, updater_file.main_name[0] ? ", main " : "", updater_file.main_name);
 		return 1;
+	}
+	/* (the release path: a release's version only, never a test build's or a
+	nightly's, with the list or with its zip's own .sig) */
+	if (!update_version_release(updater_latest_version))
+	{
+		snprintf(error, error_size, "version %s is not a release's: not installed from the release path",
+			updater_latest_version);
+		return 0;
 	}
 	snprintf(updater_file.tag, sizeof(updater_file.tag), "v%s", updater_latest_version);
 	snprintf(updater_file.name, sizeof(updater_file.name), "%s", updater_asset());
@@ -1316,7 +1399,11 @@ static void updater_update(void)
 	updater_path(partial, sizeof(partial), UPDATE_DIRECTORY);
 	updater_partial_path(zip_path, sizeof(zip_path), updater_appimage ? UPDATE_APPIMAGE_ASSET : updater_asset());
 	platform_log("update: downloading version %s", updater_latest_version);
-	if (!update_make_directory(partial))
+	if (!updater_take_results())
+	{
+		snprintf(error, sizeof(error), "a check for updates is running: try again when it is done");
+	}
+	else if (!update_make_directory(partial))
 	{
 		snprintf(error, sizeof(error), "could not make %s (is the %s folder read-only?)", partial,
 			updater_appimage ? "AppImage's" : "game's");
@@ -1527,6 +1614,7 @@ void updater_start(void)
 	if (updater_offer_64bit)
 		platform_log("update: this is the 32-bit build on 64-bit Windows: the 64-bit build will be offered");
 #endif
+	updater_make_lock();
 	SDL_SetAtomicInt(&updater_state, _updater_checking);
 	{
 		SDL_Thread *thread = SDL_CreateThread(updater_check_thread, "update check", NULL);
@@ -1568,6 +1656,7 @@ void updater_console_check(void)
 	}
 	if (!UPDATER_LOOKS || !config_boolean("update.auto"))
 		return;
+	updater_make_lock();
 	SDL_SetAtomicInt(&updater_state, _updater_checking);
 	thread = SDL_CreateThread(updater_check_thread, "update check", NULL);
 	if (!thread)
@@ -1607,13 +1696,13 @@ static const char *updater_page(void)
 {
 	static char page[300];
 
-	if (updater_latest_channel != _channel_release && updater_feed_list)
+	if (updater_take_results() && updater_install_channel != _channel_release && updater_install_list)
 	{
 		char name[160], sha256[UPDATE_SHA256_TEXT_SIZE], main_name[160], reason[256];
 		unsigned long long size = 0;
 
-		if (update_manifest_find_channel(updater_feed_list, updater_feed_size,
-			updater_channel_names[updater_latest_channel], updater_latest_version, updater_platform,
+		if (update_manifest_find_channel(updater_install_list, updater_install_size,
+			updater_channel_names[updater_install_channel], updater_latest_version, updater_platform,
 			HALO_BUILD_FLAVOR, "zip", updater_feed_tag, sizeof(updater_feed_tag), name, sizeof(name), &size, sha256,
 			sizeof(sha256), main_name, sizeof(main_name), reason, sizeof(reason)) == _update_manifest_found)
 		{
@@ -1638,6 +1727,7 @@ int updater_check_now(void)
 		return 0;
 	if (!updater_directory[0])
 		snprintf(updater_directory, sizeof(updater_directory), "%s", platform_save_root());
+	updater_make_lock();
 	SDL_SetAtomicInt(&updater_state, _updater_checking);
 	thread = SDL_CreateThread(updater_check_thread, "update check", NULL);
 	if (!thread)
@@ -1681,8 +1771,11 @@ nothing in a packaged install (0), else downloaded and started (this one
 then quits) */
 int updater_install(void)
 {
-	if (SDL_GetAtomicInt(&updater_answer) != 1 || platform_packaged())
+	if (SDL_GetAtomicInt(&updater_answer) != 1 || platform_packaged() ||
+		SDL_GetAtomicInt(&updater_state) == _updater_checking)
+	{
 		return 0;
+	}
 	if (UPDATER_DOWNLOAD_PAGE_ONLY)
 		return SDL_OpenURL(updater_page());
 	if (!updater_executable[0])

@@ -8,6 +8,7 @@ and by the Android updater's (UpdateManifest.java), and a list with the new
 
 The keys are made for these tests (OpenSSL 3's openssl); never a real key."""
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -122,35 +123,50 @@ def listed(**fields):
 
 ORDER = [
     # (a, b, a against b)
-    ("0.9.1-testing.5", "0.9.1", "older"),
-    ("0.9.1", "0.9.1-testing.5", "newer"),
-    ("0.9.2-testing.1", "0.9.1", "newer"),
-    ("0.9.1", "0.9.2-testing.1", "older"),
+    ("0.9.1-testing.202611101200", "0.9.1", "older"),
+    ("0.9.1", "0.9.1-testing.202611101200", "newer"),
+    ("0.9.2-testing.202611200900", "0.9.1", "newer"),
+    ("0.9.1", "0.9.2-testing.202611200900", "older"),
     # (prereleases of one version by their serial, whatever their label)
     ("0.9.1-nightly.202611100400", "0.9.1-testing.202611101200", "older"),
     ("0.9.1-testing.202611101200", "0.9.1-nightly.202611110400", "older"),
-    ("0.9.1-nightly.500", "0.9.1-testing.1", "newer"),
+    ("0.9.1-nightly.202612010400", "0.9.1-testing.202611300000", "newer"),
     ("0.9.1-testing.202611101200", "0.9.1-nightly.202611101200", "same"),
-    ("0.9.1-testing.7", "0.9.1-testing.7", "same"),
+    ("0.9.1-testing.202611101200", "0.9.1-testing.202611101200", "same"),
     # (a release beats every prerelease of its version, however late)
-    ("0.9.1", "0.9.1-nightly.999999999999999999", "newer"),
+    ("0.9.1", "0.9.1-nightly.209912312359", "newer"),
     # (the hotfix letters, as before the channels)
     ("0.9.0d", "0.9.0c", "newer"),
     ("0.9.0", "0.9.0a", "older"),
-    ("0.9.0d", "0.9.1-nightly.1", "older"),
-    ("0.9.0d-testing.3", "0.9.0d", "older"),
-    ("0.9.0d-testing.3", "0.9.0c", "newer"),
+    ("0.9.0d", "0.9.1-nightly.202611100400", "older"),
+    ("0.9.0d-testing.202611100400", "0.9.0d", "older"),
+    ("0.9.0d-testing.202611100400", "0.9.0c", "newer"),
     ("v0.9.1", "0.9.1", "same"),
     ("0.10.0", "0.9.9", "newer"),
-    # (what is not a version is never newer, nor older)
+    ("999999999.0.0", "0.9.9", "newer"),
+    # (what is not a version is never newer, nor older: one grammar, the
+    # serial exactly 12 digits and a time, only the two labels)
     ("0.9.1-dev", "0.9.0", "not versions"),
     ("0.9.1-testing", "0.9.0", "not versions"),
+    ("0.9.1-testing.5", "0.9.0", "not versions"),
+    ("0.9.1-nightly.500", "0.9.0", "not versions"),
+    ("0.9.1-testing.2026111012000", "0.9.0", "not versions"),
+    ("0.9.1-testing.20261110120", "0.9.0", "not versions"),
+    ("0.9.1-testing.202511101200", "0.9.0", "not versions"),
+    ("0.9.1-testing.210011101200", "0.9.0", "not versions"),
+    ("0.9.1-testing.202613101200", "0.9.0", "not versions"),
+    ("0.9.1-testing.202611001200", "0.9.0", "not versions"),
+    ("0.9.1-testing.202611322400", "0.9.0", "not versions"),
+    ("0.9.1-testing.202611102400", "0.9.0", "not versions"),
+    ("0.9.1-testing.202611101260", "0.9.0", "not versions"),
+    ("0.9.1-custom.202611101200", "0.9.0", "not versions"),
     ("0.9.1-testing.x", "0.9.0", "not versions"),
-    ("0.9.1-Testing.5", "0.9.0", "not versions"),
-    ("0.9.1-testing.5.6", "0.9.0", "not versions"),
+    ("0.9.1-Testing.202611101200", "0.9.0", "not versions"),
+    ("0.9.1-testing.202611101200.6", "0.9.0", "not versions"),
     ("0.9.1+meta", "0.9.0", "not versions"),
     ("0.9", "0.8.0", "not versions"),
-    ("0.9.1-testing.1234567890123456789", "0.9.0", "not versions"),
+    ("1234567890.0.0", "0.9.0", "not versions"),
+    ("0.9.1abcdefghijklmnop", "0.9.0", "not versions"),
     ("", "0.9.0", "not versions"),
 ]
 
@@ -253,6 +269,14 @@ SHAPES = [
     (listed(entry={"tag": "nightly"}), "refused"),
     (listed(entry={"tag": "../v0.9.1-testing"}), "refused"),
     (listed(entry={"tag": "v0.9.1-testing-debug"}), "found"),
+    (listed(entry={"tag": "v0.9.1-testing2"}), "found"),
+    (listed(entry={"tag": "v0.9.1-testing2-debug"}), "found"),
+    (listed(entry={"tag": "nightly-testing"}), "refused"),
+    (listed(entry={"tag": "v0.9.0-testing"}), "refused"),
+    (listed(entry={"tag": "v0.9.1a-testing"}), "refused"),
+    (listed(entry={"tag": "v0.9.1-testing-extra"}), "refused"),
+    (listed(entry={"tag": "v0.9.1-testingx"}), "refused"),
+    (listed(entry={"tag": "xv0.9.1-testing"}), "refused"),
     (listed(entry={"name": "../chupathingy"}), "refused"),
     (listed(entry={"size": -1}), "refused"),
     (listed(entry={"sha256": "cd" * 31}), "refused"),
@@ -284,7 +308,7 @@ def test_android_and_desktop_agree_on_feeds(checker, java_classes, tmp_path, ind
 def test_nightly_tags(checker, java_classes, tmp_path):
     path = tmp_path / "updates.json"
     for tag, answer in (("nightly", "found"), ("nightly-debug", "found"), ("v0.9.1-testing", "refused"),
-                        ("v0.9.1", "refused")):
+                        ("v0.9.1", "refused"), ("nightly-testing", "refused"), ("nightly-2", "refused")):
         path.write_text(listed(version=NIGHTLY, channel="nightly", entry={"tag": tag}))
         assert check(checker, "channel", path, "nightly", NIGHTLY, "linux64", "release", "zip").split(" ")[0].rstrip(
             ":") == answer, tag
@@ -325,8 +349,9 @@ def test_old_updater_never_takes_a_feed(keys, old_checker, tmp_path):
 
 @pytest.mark.parametrize("version, release, channel", [
     ("0.9.1", "1", ""), ("0.9.1-testing.202611101530", "0", "testing"), ("0.9.0d-nightly.202611100400", "0", "nightly"),
-    ("0.9.1-nightly.42", "0", "nightly"), ("0.9.1-dev", "0", ""), ("0.9.1-testing", "0", ""),
-    ("0.9.1-testing.5", "1", ""), ("0.9.1-custom.5", "0", "")])
+    ("0.9.1-nightly.42", "0", ""), ("0.9.1-dev", "0", ""), ("0.9.1-testing", "0", ""),
+    ("0.9.1-testing.202611101530", "1", ""), ("0.9.1-custom.202611101530", "0", ""),
+    ("0.9.1-testing.202613101530", "0", "")])
 def test_build_update_channel(monkeypatch, version, release, channel):
     """only the nightly and test workflows' builds look on their channels
     (HALO_UPDATE_CHANNEL), and port_config.c's default follows it"""
@@ -354,7 +379,6 @@ def test_the_channel_setting():
     android = (ROOT / "port/android/app/src/main/java/com/halo/decomp/UpdateManifest.java").read_text()
     header = (ROOT / "port/linux/src/update_prerelease_key.h").read_text()
     pinned = android[android.index("PRERELEASE_KEYS"):].split("};", 1)[0]
-    import re
     android_keys = re.findall(r'"([0-9a-f]{64})"', pinned)
     header_keys = [bytes(int(v, 16) for v in re.findall(r"0x([0-9a-fA-F]{2})", block)).hex()
                    for block in re.findall(r"\{([^{}]*)\}", header.split("#elif defined(HALO_UPDATE_TEST_PRERELEASE_KEY)")[0]
@@ -363,3 +387,65 @@ def test_the_channel_setting():
     assert android_keys == header_keys
     # (never a release key pinned as the prerelease key)
     assert not set(header_keys) & {key.hex() for key in update_sign.header_keys()}
+
+
+# ---------- the release path, and the checks the review asked for
+
+
+@pytest.mark.parametrize("version, answer", [
+    ("0.9.1", "release"), ("0.9.0d", "release"), ("0.9.1-testing.202611101530", "not a release"),
+    ("0.9.1-nightly.202611110400", "not a release"), ("0.9.1-testing.5", "not a release"),
+    ("0.9.1-nightly", "not a release")])
+def test_release_path_versions(checker, java_classes, version, answer):
+    """the latest release's tag, its list and its zip's .sig are a release's
+    only: a test build's or a nightly's version (of any shape) never is"""
+    assert check(checker, "release", version) == answer
+    assert java(java_classes, "release", version) == answer
+
+
+def test_release_list_of_a_prerelease_version_refused(keys, checker, tmp_path):
+    """a release-key-signed list whose version is a test build's is not taken
+    on the release path"""
+    path, signature = feed(keys, tmp_path / "r", TESTING, "release", "v0.9.1-testing", key="release")
+    assert check(checker, "document", path, signature) == "signed"
+    assert check(checker, "find", path, TESTING, "linux64", "release", "zip").startswith("refused:")
+
+
+@pytest.fixture(scope="module")
+def zero_checker(keys, tmp_path_factory):
+    """a build whose prerelease key is all zero (none made yet), as today's"""
+    cc = compiler()
+    if not cc:
+        pytest.skip("no C compiler")
+    program = tmp_path_factory.mktemp("zero_check") / "update_check"
+    return build(cc, SOURCES, [f"-DHALO_UPDATE_TEST_KEY={key_define(keys['release'][1])}"], program)
+
+
+def test_zero_prerelease_key_is_none(keys, zero_checker, tmp_path):
+    """an all-zero prerelease key is no key: a feed signed by another key
+    (the stand-in prerelease key here) is refused; one signed by the release
+    key, the interim, is taken"""
+    by_other, other_signature = feed(keys, tmp_path / "a", TESTING, "testing", "v0.9.1-testing")
+    assert check(zero_checker, "feed", by_other, other_signature).startswith("not signed:")
+    by_release, release_signature = feed(keys, tmp_path / "b", TESTING, "testing", "v0.9.1-testing", key="release")
+    assert check(zero_checker, "feed", by_release, release_signature) == "signed"
+
+
+def test_the_shipped_prerelease_key_is_zero_or_pinned():
+    """until the key is made, update_prerelease_key.h's key is all zero, and
+    Android's too (UpdateManifest's filter skips it: UpdateManifestTest)"""
+    header = (ROOT / "port/linux/src/update_prerelease_key.h").read_text()
+    shipped = header.split("#elif !defined(HALO_UPDATE_TEST_KEY)", 1)[1].split("#elif", 1)[0]
+    values = re.findall(r"0x([0-9a-fA-F]{2})", shipped)
+    assert len(values) % 32 == 0 and values
+
+
+def test_grammar_is_the_same_everywhere():
+    """C (update_manifest.c), Java (UpdateManifest.VERSION), gradle and
+    tools/version.py share one grammar"""
+    java_text = (ROOT / "port/android/app/src/main/java/com/halo/decomp/UpdateManifest.java").read_text()
+    assert '"v?(\\\\d{1,9})\\\\.(\\\\d{1,9})\\\\.(\\\\d{1,9})([a-z]{0,15})(?:-(testing|nightly)\\\\.(\\\\d{12}))?"' in java_text
+    gradle = (ROOT / "port/android/app/build.gradle").read_text()
+    assert r"/^\d{1,9}\.\d{1,9}\.\d{1,9}[a-z]{0,15}-(testing|nightly)\.((\d{4})(\d{2})(\d{2})(\d{2})(\d{2}))$/" in gradle
+    assert version_tool.PRERELEASE_VERSION.pattern == \
+        r"^\d{1,9}\.\d{1,9}\.\d{1,9}[a-z]{0,15}-(testing|nightly)\.((\d{4})(\d{2})(\d{2})(\d{2})(\d{2}))$"
