@@ -818,6 +818,8 @@ void server_roles_account_source(const unsigned char *account, const char *handl
 	int best = CONTROL_ROLE_NONE;
 	int index;
 
+	/* (by the account alone: the handle names nothing here) */
+	(void)handle;
 	if (text_size <= 0)
 		return;
 	text[0] = 0;
