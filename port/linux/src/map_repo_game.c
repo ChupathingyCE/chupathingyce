@@ -60,8 +60,12 @@ enum
 {
 	CHUNK_SIZE = 64 * 1024,
 	/* an index or mirror list's body, at most: the connection is shared
-	with the game list, stats, updater and control link while it is open */
-	DOCUMENT_DEADLINE_MILLISECONDS = 90 * 1000,
+	with the game list, stats, updater and control link while it is open.
+	A host that stops sending is already given up on after ten seconds of
+	silence (each read's own limit, posix_browser.c TIMEOUT_MILLISECONDS),
+	so this only bounds one that keeps sending slowly: ten minutes lets an
+	index near its 8 MB cap through at about 14 KB/s */
+	DOCUMENT_DEADLINE_MILLISECONDS = 10 * 60 * 1000,
 };
 
 /* ---------- globals */

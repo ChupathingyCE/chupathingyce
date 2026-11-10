@@ -67,11 +67,16 @@ def test_updater_is_https_only():
 
 def test_documents_get_a_short_body_deadline_and_no_second_open():
     """The map repository's index and mirror list hold the shared TLS lock
-    only ninety seconds at most, and a thread that has a download open
-    can't open another (it would wait on itself)."""
+    ten minutes at most (a slow link still gets a full index through), a
+    host that goes silent is given up on after each read's ten seconds,
+    and a thread that has a download open can't open another (it would
+    wait on itself)."""
     game = (SOURCE / "map_repo_game.c").read_text()
-    assert "DOCUMENT_DEADLINE_MILLISECONDS = 90 * 1000" in game
+    assert "DOCUMENT_DEADLINE_MILLISECONDS = 10 * 60 * 1000" in game
     assert "posix_browser_download_deadline(download, deadline)" in game
     text = (SOURCE / "posix_browser.c").read_text()
+    assert "#define TIMEOUT_MILLISECONDS 10000" in text
+    assert "mbedtls_ssl_conf_read_timeout(&connection->config, TIMEOUT_MILLISECONDS)" in text
+    assert "receive_until_deadline(connection, buffer, size, TIMEOUT_MILLISECONDS)" in text
     body = re.search(r"^int posix_browser_download_open\(.*?^\}", text, re.M | re.S).group(0)
     assert body.index("download.owner == thread_token()") < body.index("posix_browser_lock();")
