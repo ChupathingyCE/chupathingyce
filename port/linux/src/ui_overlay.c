@@ -751,7 +751,7 @@ int ui_overlay_plasma_from_texture(const void *hardware_format)
 	/* (serial 1: the game's own, never read again) */
 	ui_overlay_plasma_source(1, pixels, (int)width, (int)height);
 	free(pixels);
-	platform_log("Guide: the plasma is drawn from ui.map's (%lux%lu)", width, height);
+	platform_log("DELTA: the plasma is drawn from ui.map's (%lux%lu)", width, height);
 	return 1;
 #endif
 }

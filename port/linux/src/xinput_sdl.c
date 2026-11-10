@@ -495,7 +495,7 @@ int platform_guide_toggles(void)
 	return toggles;
 }
 
-/* controls.guide's key, read again when config.toml changes (-1: none) */
+/* controls.delta's key, read again when config.toml changes (-1: none) */
 static int guide_key(void)
 {
 	static unsigned long read_at = (unsigned long)-1;
@@ -504,7 +504,7 @@ static int guide_key(void)
 	if (read_at != config_changes())
 	{
 		read_at = config_changes();
-		key = halo_input_from_name(config_string("controls.guide"));
+		key = halo_input_from_name(config_string("controls.delta"));
 		/* (a key alone, not a mouse button) */
 		if (key < 0 || key >= SDL_SCANCODE_COUNT)
 			key = -1;
@@ -513,7 +513,7 @@ static int guide_key(void)
 }
 
 /* the asks to open or close the Guide this poll: its key and the Guide
-button pressed, Back held in the menus with guide.hold_back (pad: port 0's,
+button pressed, Back held in the menus with delta.hold_back (pad: port 0's,
 everything merged). The Guide is the first player's: only their gamepads
 (port 0's, and those sharing its player) ask, never split screen's others,
 and nothing opens it over chat's or a field's typing */
@@ -530,7 +530,7 @@ static void guide_asks(const struct platform_input_state *input, SDL_Gamepad *ga
 	if (key_down && !key_was)
 		guide_toggles++;
 	key_was = key_down;
-	if (config_boolean("controls.guide_button") && typing_free && !console_is_active())
+	if (config_boolean("controls.delta_button") && typing_free && !console_is_active())
 	{
 		for (index = 0; index < count; index++)
 			button_down = button_down || (gamepads[index] && SDL_GetGamepadButton(gamepads[index], SDL_GAMEPAD_BUTTON_GUIDE));
@@ -540,7 +540,7 @@ static void guide_asks(const struct platform_input_state *input, SDL_Gamepad *ga
 	button_was = button_down;
 	/* (Back held in the menus, once a hold; never in a game, where Back is
 	the scoreboard) */
-	if (!guide_capture && input->menus && (pad->wButtons & XINPUT_GAMEPAD_BACK) && config_boolean("guide.hold_back"))
+	if (!guide_capture && input->menus && (pad->wButtons & XINPUT_GAMEPAD_BACK) && config_boolean("delta.hold_back"))
 	{
 		if (!back_since)
 			back_since = SDL_GetTicks();

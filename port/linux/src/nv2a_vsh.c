@@ -360,6 +360,8 @@ static const char shader_prologue[] =
 	"	int z = int(p) >> 22;\n"
 	"	return vec4(float(x) / 1023.0, float(y) / 1023.0, float(z) / 511.0, 1.0);\n"
 	"}\n"
+	/* NV2A_FINITE (nv2a_psh.c's too) */
+	NV2A_FINITE
 	"vec4 nv2a_rcc(float x)\n"
 	"{\n"
 	"	float r = 1.0 / x;\n"
@@ -602,15 +604,18 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 	}
 	xgpu_text_append(&text,
 		"\tgl_PointSize = oPts.x;\n"
-		"\txD0 = clamp(oD0, 0.0, 1.0);\n"
-		"\txD1 = clamp(oD1, 0.0, 1.0);\n"
-		"\txB0 = clamp(oB0, 0.0, 1.0);\n"
-		"\txB1 = clamp(oB1, 0.0, 1.0);\n"
-		"\txT0 = oT0;\n"
-		"\txT1 = oT1;\n"
-		"\txT2 = oT2;\n"
-		"\txT3 = oT3;\n"
-		"\txFog = oFog.x;\n"
+		/* (no color, coordinate or fog not a number: nv2a_finite). The
+		colors are clamped after it; the texture coordinates and fog are not,
+		so an infinite one goes on as it is, as it did before */
+		"\txD0 = clamp(nv2a_finite(oD0), 0.0, 1.0);\n"
+		"\txD1 = clamp(nv2a_finite(oD1), 0.0, 1.0);\n"
+		"\txB0 = clamp(nv2a_finite(oB0), 0.0, 1.0);\n"
+		"\txB1 = clamp(nv2a_finite(oB1), 0.0, 1.0);\n"
+		"\txT0 = nv2a_finite(oT0);\n"
+		"\txT1 = nv2a_finite(oT1);\n"
+		"\txT2 = nv2a_finite(oT2);\n"
+		"\txT3 = nv2a_finite(oT3);\n"
+		"\txFog = nv2a_finite(oFog).x;\n"
 		"}\n");
 	return text.buffer;
 }

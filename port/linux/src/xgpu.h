@@ -220,6 +220,19 @@ struct nv2a_pixel_shader_key
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
 
+/* nv2a_finite, in the vertex and pixel shaders: a component that is not a
+number made 0, by its bits (a driver's fast math may drop a float test such as
+isnan). The NV2A made none, and a GPU draws one as anything: black, white or
+blocks. An infinite one is kept, for the clamps after it to take to the end of
+the range, as the NV2A did. A named function, so that a console that writes
+the GLSL into another language can give it its own body (the Xbox 360's has no
+integer bit operations) */
+#define NV2A_FINITE \
+	"vec4 nv2a_finite(vec4 v)\n" \
+	"{\n" \
+	"	return mix(v, vec4(0.0), greaterThan(floatBitsToUint(v) & uvec4(0x7fffffffu), uvec4(0x7f800000u)));\n" \
+	"}\n"
+
 #ifdef HALO_GL_ES
 /* ES samplers have no LOD bias of their own */
 #define XGPU_PIXEL_UNIFORMS_ES "uniform vec4 texture_lod_bias;\n"

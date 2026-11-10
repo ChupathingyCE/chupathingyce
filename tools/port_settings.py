@@ -122,6 +122,8 @@ SCREENS = {
                  [("AUTO", "auto"), ("HIGH", "high"), ("LOW", "low"), ("OFF", "off")],
                  "Light from shots, muzzle flashes and glowing things.\nAuto turns it off where the graphics are too slow.",
                  "desktop"),
+                ("DOORS BLOCK LIGHT:", "display.doors_block_light", ON_OFF,
+                 "A closed door stops light from the other side.\nOff lets it through, as on the Xbox.", None),
                 ("FULL MODEL DETAIL:", "display.full_model_detail", ON_OFF,
                  "Always draw models at their highest detail.", None),
                 ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",

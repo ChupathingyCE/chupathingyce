@@ -670,6 +670,7 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 	if (key->per_pixel_lighting)
 		model_lighting(&text, key->per_pixel_lighting == 2, key->plasma_model);
 	xgpu_text_append(&text,
+		NV2A_FINITE
 		"float signed_byte(float x)\n"
 		"{\n"
 		"	float b = floor(x * 255.0 + 0.5);\n"
@@ -796,6 +797,9 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 #endif
 	if (replaces_depth(key))
 		xgpu_text_append(&text, "\tgl_FragDepth = replaced_depth;\n");
-	xgpu_text_append(&text, "\tfragment_color = clamp(result, 0.0, 1.0);\n}\n");
+	/* (no component not a number: nv2a_finite, xgpu.h) */
+	xgpu_text_append(&text,
+		"\tresult = nv2a_finite(result);\n"
+		"\tfragment_color = clamp(result, 0.0, 1.0);\n}\n");
 	return text.buffer;
 }

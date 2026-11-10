@@ -250,7 +250,10 @@ def capture(build, poses, out, display, settle, environment, maps_ce, scratch):
             env = dict(os.environ, DISPLAY=display, HOME=str(save), HALO_SAVE_ROOT=str(save), HALO_DATA_ROOT=str(data),
                        HALO_UPDATE_AUTO="false", HALO_DISPLAY_MODE="windowed", HALO_WINDOW_SIZE=f"{WIDTH}x{HEIGHT}",
                        HALO_EXIT_AFTER="900", SDL_AUDIODRIVER="dummy", HALO_TELNET_CONSOLE="true",
-                       HALO_TELNET_CONSOLE_PORT=str(port), HALO_SOLO_GAME="1", HALO_SKIP_INTRO="true")
+                       HALO_TELNET_CONSOLE_PORT=str(port), HALO_SOLO_GAME="1", HALO_SKIP_INTRO="true",
+                       # (bgfx on Mesa's software Vulkan, which the blocklist
+                       # would otherwise skip for OpenGL)
+                       HALO_VULKAN_BLOCKLIST="false")
             env.update(environment)
             game = subprocess.Popen([str(build)], cwd=str(data), env=env, stdout=log, stderr=subprocess.STDOUT)
             if not console_ready(port, time.time() + 180):
