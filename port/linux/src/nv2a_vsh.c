@@ -334,11 +334,8 @@ static const char shader_prologue[] =
 	/* the #version line comes first, from the context's capabilities */
 	"precision highp float;\n"
 	"precision highp int;\n"
-#elif defined(__APPLE__)
-	"#version 410 core\n"
-#else
-	"#version 450 core\n"
 #endif
+	/* (the desktop's #version line comes first too: XGPU_GL_VERSION_LINE) */
 	"uniform vec4 c[192];\n"
 	"uniform vec4 viewport_scale;\n"
 	"uniform vec4 viewport_offset;\n"
@@ -404,6 +401,8 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 
 #ifdef HALO_GL_ES
 	xgpu_text_append(&text, "#version %s\n", xgpu_capabilities.shading_language);
+#else
+	xgpu_text_append(&text, "%s", XGPU_GL_VERSION_LINE);
 #endif
 	xgpu_text_append(&text, "%s", shader_prologue);
 	/* (the pixel shader's model_lighting; the normal's length in w) */
@@ -580,14 +579,18 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		which the clipper also takes. */
 		"\tif (!(abs(position.w) > 0.0))\n"
 		"\t\tposition = vec4(0.0, 0.0, 0.0, -1.0);\n"
-		"\tgl_Position = position;\n"
-#ifdef HALO_GL_NO_CLIP_CONTROL
-		/* what glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE) does on desktop
-		GL 4.5: rows from the top, depth 0..1 (OpenGL ES and macOS's 4.1 have
-		no glClipControl) */
-		"\tgl_Position.y = -gl_Position.y;\n"
-		"\tgl_Position.z = 2.0 * gl_Position.z - gl_Position.w;\n"
-#endif
+		"\tgl_Position = position;\n",
+		XGPU_VERTEX_CONSTANT_BIAS - 38, XGPU_VERTEX_CONSTANT_BIAS - 37);
+	/* what glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE) does on desktop GL
+	4.5: rows from the top, depth 0..1 (OpenGL ES, macOS's 4.1 and an older
+	driver's path have no glClipControl: xgpu.h) */
+	if (XGPU_GL_LEGACY)
+	{
+		xgpu_text_append(&text,
+			"\tgl_Position.y = -gl_Position.y;\n"
+			"\tgl_Position.z = 2.0 * gl_Position.z - gl_Position.w;\n");
+	}
+	xgpu_text_append(&text,
 		"\tgl_PointSize = oPts.x;\n"
 		"\txD0 = clamp(oD0, 0.0, 1.0);\n"
 		"\txD1 = clamp(oD1, 0.0, 1.0);\n"
@@ -598,7 +601,6 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		"\txT2 = oT2;\n"
 		"\txT3 = oT3;\n"
 		"\txFog = oFog.x;\n"
-		"}\n",
-		XGPU_VERTEX_CONSTANT_BIAS - 38, XGPU_VERTEX_CONSTANT_BIAS - 37);
+		"}\n");
 	return text.buffer;
 }

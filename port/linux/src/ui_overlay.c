@@ -1063,10 +1063,8 @@ static GLuint compile(GLenum type, const char *body)
 #ifdef HALO_GL_ES
 	snprintf(source, sizeof(source), "#version %s\nprecision highp float;\nprecision highp sampler2DArray;\n%s",
 		xgpu_capabilities.shading_language, body);
-#elif defined(__APPLE__)
-	snprintf(source, sizeof(source), "#version 410 core\n%s", body);
 #else
-	snprintf(source, sizeof(source), "#version 450 core\n%s", body);
+	snprintf(source, sizeof(source), "%s%s", XGPU_GL_VERSION_LINE, body);
 #endif
 	glShaderSource(shader, 1, &pointer, NULL);
 	glCompileShader(shader);
