@@ -3339,7 +3339,11 @@ static void client_identity_receive(struct delta_peer *peer, delta_u32 now, cons
 			peer->dropped++;
 			return;
 		}
-		identity.bound = (card.proof.flags & DELTA_WIRE_IDENTITY_BOUND) && peer->identity_challenge.binding_length > 0;
+		/* (bound only when this machine joined through that invite: a card
+		replayed from an invite game to a host joined by its address keeps
+		its flag, and is shown unbound) */
+		identity.bound = (card.proof.flags & DELTA_WIRE_IDENTITY_BOUND) && peer->identity_challenge.binding_length > 0 &&
+			client_identity_binding(peer) > 0;
 		/* (one identity, one player: a card naming one already shown for
 		another player is not taken, but for a bound card where an unbound
 		one was) */

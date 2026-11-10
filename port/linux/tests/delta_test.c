@@ -3654,6 +3654,18 @@ static void test_identity_bound(void)
 	CHECK(identity_host.account[0][0] == 1);
 	/* (client 2 checks cards with the binding: shown) */
 	CHECK(delta_peer_identity(&nodes[2].peer, 1, 0, &identity) && identity.bound);
+	/* (the same bound cards heard by a client that joined by address: their
+	flag is the host's, and proves nothing to it: shown unbound) */
+	nodes[2].binding_result = 0;
+	memset(nodes[2].peer.cards, 0, sizeof(nodes[2].peer.cards));
+	for (step = 0; step * 300 < DELTA_PEER_IDENTITY_CARD_INTERVAL + 1200; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[2].peer, 1, 0, &identity) && !identity.bound);
+	nodes[2].binding_result = 1;
+	memset(nodes[2].peer.cards, 0, sizeof(nodes[2].peer.cards));
+	for (step = 0; step * 300 < DELTA_PEER_IDENTITY_CARD_INTERVAL + 1200; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[2].peer, 1, 0, &identity) && identity.bound);
 
 	/* a client reached by address (no invite to check): shows, no role */
 	nodes[2].proves = 1;
