@@ -3990,7 +3990,7 @@ that, and keeps the message boxes there */
 static int drawable(int early)
 {
 #ifdef HALO_BGFX
-	return !early || strcmp(config_string("display.renderer"), "bgfx") != 0;
+	return !early || !platform_bgfx_chosen();
 #else
 	(void)early;
 	return 1;

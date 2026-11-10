@@ -165,7 +165,7 @@ convert D3D's clip space themselves (nv2a_vsh.c) */
 #endif
 
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting);
+	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting, BOOL plasma_model);
 
 /* ---------- pixel shaders */
 
@@ -213,6 +213,9 @@ struct nv2a_pixel_shader_key
 	/* Discrete meter thresholds in texture 0's red are read at level zero,
 	without filtering. Coverage/brightness still use the filtered lookup. */
 	unsigned char point_threshold;
+	/* a model lighting program's draw the Light effects light
+	(plasma_model_shader.c): their falloff and walls in model_lighting */
+	unsigned char plasma_model;
 };
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
@@ -365,11 +368,14 @@ the picture's place (x, y its lower left corner) and the window saved to
 screenshot (a .bmp's path, or NULL); FALSE if bgfx does not start */
 BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int height, const char *screenshot);
 /* the overlay's quads (ui_overlay.c) over the window's picture at Present
-(plasma_shift: the plasma's second map's place, then its threads' color) */
-void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
+(plasma_shift: the plasma's second map's place, then its threads' color;
+medals: the medals' atlas, premultiplied, while one is drawn, NULL before);
+whether the medals' atlas is the GPU's now (its pixels may be let go) */
+int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
 	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[8],
+	const unsigned char *medals, int medals_width, int medals_height,
 	const float cutouts[4][4], int window_width, int window_height);
 #endif
 
