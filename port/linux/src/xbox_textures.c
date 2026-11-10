@@ -1468,6 +1468,28 @@ void xgpu_texture_cache_reload(GLuint texture)
 	}
 }
 
+unsigned long xgpu_texture_cache_reload_missing(int (*missing)(GLuint texture))
+{
+	unsigned long index, reloaded = 0;
+
+	for (index = 0; index < TEXTURE_BUCKET_COUNT; index++)
+	{
+		struct texture_entry *entry;
+
+		for (entry = texture_buckets[index]; entry; entry = entry->next)
+		{
+			if (missing(entry->texture))
+			{
+				entry->generation = 0;
+				reloaded++;
+			}
+		}
+	}
+	if (reloaded)
+		texture_drop_serial++;
+	return reloaded;
+}
+
 void xgpu_texture_cache_begin_frame(void)
 {
 	unsigned long idle_since;
