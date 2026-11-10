@@ -16,7 +16,7 @@ deko3d).
 #include "ui_overlay.h"
 
 #include <string.h>
-#include <strings.h>
+#include <SDL3/SDL.h>
 
 /* the palette's named colors (ui_style_color, by UI_COLOR_*), a table a
 theme: Halo Blue, the Chupathingy menus' blues (the Guide's mockups), and
@@ -164,7 +164,7 @@ int ui_style_theme_current(void)
 
 int ui_style_theme_named(const char *name)
 {
-	return name && strcasecmp(name, "red") == 0 ? UI_THEME_RED : UI_THEME_BLUE;
+	return name && SDL_strcasecmp(name, "red") == 0 ? UI_THEME_RED : UI_THEME_BLUE;
 }
 
 static unsigned int fade(unsigned int color, float share);
