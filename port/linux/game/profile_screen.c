@@ -278,6 +278,9 @@ static struct
 	short code_slot;
 	boolean code_sent;
 	struct browser_approve approve;
+	/* when the device to approve first showed: A and B only after
+	DIALOG_SETTLE, so a press meant for the code doesn't answer it */
+	unsigned long approve_shown_time;
 	/* the emblem the Chupathingy menus' panel asked for (where, and when) */
 	float card_x, card_y, card_size;
 	unsigned long card_time;
@@ -1449,6 +1452,8 @@ static void approve_dialog_button(
 		/* (the device shown: A approves, B denies, and the code is dead) */
 		if (state == BROWSER_APPROVE_SHOWN)
 		{
+			if (system_milliseconds() - profile_screen.approve_shown_time < DIALOG_SETTLE)
+				return;
 			if (button == _gamepad_analog_button_a || button == _gamepad_analog_button_b)
 			{
 				browser_approve_answer(button == _gamepad_analog_button_a);
@@ -1714,7 +1719,13 @@ void profile_screen_process(
 		}
 	}
 	if (profile_screen.dialog == _dialog_approve && profile_screen.code_sent)
+	{
+		int before = profile_screen.approve.state;
+
 		browser_approve_get(&profile_screen.approve);
+		if (profile_screen.approve.state == BROWSER_APPROVE_SHOWN && before != BROWSER_APPROVE_SHOWN)
+			profile_screen.approve_shown_time = system_milliseconds();
+	}
 	/* (the list emptied under the devices dialog: its row back in it) */
 	if (profile_screen.dialog == _dialog_devices && profile_screen.dialog_row >= profile_screen.profile.device_count)
 		profile_screen.dialog_row = (short)MAX(0, profile_screen.profile.device_count - 1);
