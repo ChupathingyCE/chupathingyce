@@ -96,6 +96,13 @@ enum
 	DELTA_PEER_TRAITS_INTERVAL = 5000,
 	/* ... and the host's rules (HOST_RULES) */
 	DELTA_PEER_HOST_RULES_INTERVAL = 5000,
+	/* a client's party tag (PARTY_TAG): at once when it changes, and again
+	this often (a datagram lost) */
+	DELTA_PEER_PARTY_TAG_INTERVAL = 5000,
+	/* (host) a machine's party tag, once it has one, changes no sooner than
+	this after its last change: a tag is the client's word, and flipping it
+	must not keep the host rearranging teams */
+	DELTA_PEER_PARTY_TAG_HOLD = 30000,
 
 	/* moderation (milliseconds where a time): the host takes MOD_ACTION
 	from a machine at most this often (and at once); checks a machine's
@@ -127,6 +134,18 @@ enum
 	own rules space them out further: team_change.c) */
 	DELTA_PEER_TEAM_RATE = 1,
 	DELTA_PEER_TEAM_BURST = 3,
+
+	/* server badges (docs/server-badges.md): the client asks its host this
+	often, at most this many times a session; the host answers one machine
+	at most this often (and at once) */
+	DELTA_PEER_BADGE_INTERVAL = 2000,
+	DELTA_PEER_BADGE_ASKS = 3,
+	DELTA_PEER_BADGE_RATE = 1,
+	DELTA_PEER_BADGE_BURST = 1,
+	/* reports: REPORT a host takes from one machine (the host's own rules,
+	server_reports.c, take fewer still) */
+	DELTA_PEER_REPORT_RATE = 1,
+	DELTA_PEER_REPORT_BURST = 3,
 
 	/* voice (docs/delta.md, Voice), budgets of its own beside the ones
 	above (50 frames a second would take a machine's whole budget): VOICE_UP
@@ -179,6 +198,21 @@ enum
 	DELTA_PEER_IDENTITY_HOST_AGE = 600,
 	DELTA_PEER_IDENTITY_CARD_AGE = 1800,
 	DELTA_PEER_IDENTITY_KEPT_AGE = 1500
+};
+
+/* a client's badge check with its host (delta_peer_client_badge) */
+enum delta_peer_badge_state
+{
+	/* not asked: the host did not agree to server_badge, or no handshake */
+	_delta_peer_badge_none = 0,
+	/* BADGE_ASK sent, no answer yet */
+	_delta_peer_badge_asking,
+	/* BADGE heard for this session's nonce (checked by server_badge.c,
+	not here) */
+	_delta_peer_badge_answered,
+	/* the handshake is done and the host did not agree to server_badge:
+	it has no badge to show */
+	_delta_peer_badge_unoffered
 };
 
 /* the verified players' cards a session keeps: one for each player the game
@@ -317,6 +351,10 @@ struct delta_peer_moderation_host
 	its permissions and its longest timed ban */
 	int (*machine_role)(void *context, int machine_index, const unsigned char *key, delta_u32 *permissions,
 		delta_u32 *ban_minutes);
+	/* (may be NULL: none) the actions it takes beyond the first and their
+	state, MOD_STATE's DELTA_WIRE_MOD_STATE_* (lock and unlock, joins
+	locked now); a change goes out with delta_peer_moderation_roles_changed */
+	int (*actions)(void *context);
 };
 
 /* a host's chat (the game's: delta_peer_game.c routes lines by team and
@@ -341,6 +379,20 @@ struct delta_peer_team_host
 	delta_team_result), the player's team now in team, and with too soon the
 	seconds to wait in seconds */
 	int (*request)(void *context, int machine_index, int player, int team, int *team_now, int *seconds);
+};
+
+/* a host's reports (the dedicated server's: server/src/server_reports.c); a
+host with none does not offer reports */
+struct delta_peer_report_host
+{
+	void *context;
+	/* a machine's player reports another: its answer (enum
+	delta_report_result), and in flags DELTA_WIRE_REPORT_SEND_CLIP when the
+	clip should go to the site, with the token the host made for it in
+	clip_token (DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE bytes; the report it sends
+	the site names it) */
+	int (*report)(void *context, int machine_index, const struct delta_wire_report *report, int *flags,
+		unsigned char *clip_token);
 };
 
 /* voice: where a game's machines' players are, as the host's game has them
@@ -400,6 +452,31 @@ struct delta_peer_objects_client
 	void *context;
 	void (*vitals)(void *context, const struct delta_wire_unit_vitals *vitals);
 	void (*names)(void *context, const struct delta_wire_object_names *names);
+};
+
+/* a host's server badge (the dedicated server's: its certificate and its
+link key, server/src/server_link.h); a host with none does not offer
+server_badge */
+struct delta_peer_badge_host
+{
+	void *context;
+	/* the certificate (at most size bytes) and the key's signature of the
+	nonce, the host's invite and the client's session (server_badge.h's
+	proof message, DELTA_WIRE_BADGE_PROOF_BOUND): the certificate's length,
+	0 if there is none now */
+	int (*answer)(void *context, const unsigned char *nonce, delta_u32 session, unsigned char *signature,
+		unsigned char *certificate, int size);
+};
+
+/* a client's badge check with its host */
+struct delta_peer_client_badge
+{
+	/* enum delta_peer_badge_state */
+	int state;
+	int asks;
+	delta_u32 ask_time;
+	unsigned char nonce[DELTA_WIRE_BADGE_NONCE_SIZE];
+	struct delta_wire_badge badge;
 };
 
 /* the host's chat with a client's session */
@@ -599,6 +676,9 @@ struct delta_peer_host_peer
 	/* team changes: the last TEAM_REQUEST's sequence, and their rate */
 	delta_u32 team_sequence;
 	struct delta_rate team_rate;
+	/* reports: the last REPORT's sequence, and their rate */
+	delta_u32 report_sequence;
+	struct delta_rate report_rate;
 	struct delta_peer_host_voice voice;
 	/* verified names: its proofs' rate, the challenge last said, and each
 	card's generation as last sent to it (0: not sent), and when every card
@@ -611,6 +691,14 @@ struct delta_peer_host_peer
 	delta_u32 identity_challenge_time;
 	delta_u32 identity_card_sent[DELTA_PEER_IDENTITY_CARDS];
 	delta_u32 identity_cards_time;
+	/* BADGE_ASK's rate */
+	struct delta_rate badge_rate;
+	/* party teams: the party tag it sent (zeros: none), and when it last
+	changed (party_tag_changes: how often, so the first one isn't held) */
+	int has_party_tag;
+	unsigned char party_tag[DELTA_WIRE_PARTY_TAG_SIZE];
+	delta_u32 party_tag_time;
+	int party_tag_changes;
 };
 
 /* the room for a signed legacy table going out or coming in: the console
@@ -745,6 +833,18 @@ struct delta_peer
 	delta_u32 team_sequence;
 	delta_u32 team_results;
 	struct delta_wire_team_result team_result;
+	/* reports: the host's (NULL: none, not offered); the client's last
+	REPORT's sequence, and the results heard (how many, the last) */
+	const struct delta_peer_report_host *report_host;
+	delta_u32 report_sequence;
+	delta_u32 report_results;
+	struct delta_wire_report_result report_result;
+
+	/* party teams: the client's party tag (zeros: none) and when it last
+	went to the host (0: not since it changed) */
+	unsigned char party_tag[DELTA_WIRE_PARTY_TAG_SIZE];
+	delta_u32 party_tag_time;
+	int party_tag_sent;
 
 	/* object sync: the client's (NULL: none, and what the host says of its
 	objects is dropped) */
@@ -798,6 +898,10 @@ struct delta_peer
 	struct delta_wire_id_challenge identity_challenge;
 	unsigned char identity_sent[DELTA_WIRE_IDENTITY_LOCAL_PLAYERS];
 	delta_u32 identity_sent_time[DELTA_WIRE_IDENTITY_LOCAL_PLAYERS];
+	/* server badges: the host's (NULL: none, not offered); the client's
+	check with its host */
+	const struct delta_peer_badge_host *badge_host;
+	struct delta_peer_client_badge client_badge;
 
 	/* counted for the tests and the log */
 	unsigned long dropped;
@@ -965,6 +1069,36 @@ delta_u32 delta_peer_client_team_request(struct delta_peer *peer, int player, in
 last in result */
 delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct delta_wire_team_result *result);
 
+/* ---------- party teams (docs/delta.md, Party teams)
+
+A client in a party sends its host the party's tag (PARTY_TAG, both agreed
+to party_teams), as it changes and every DELTA_PEER_PARTY_TAG_INTERVAL; the
+host keeps each machine's last. What the host does with it is the game's
+(port/linux/game/party_teams.c). */
+
+/* (client) its party's tag (NULL or zeros: in no party) */
+void delta_peer_client_set_party_tag(struct delta_peer *peer, const unsigned char *tag);
+/* (host) a machine's party tag into tag: 1, or 0 for none (no session,
+not agreed, in no party) */
+int delta_peer_machine_party_tag(const struct delta_peer *peer, int machine_index, unsigned char *tag);
+
+/* ---------- reports (docs/delta.md, Reports)
+
+A client's player reports another (REPORT, both agreed to reports); the
+host checks the session, the rising sequence and its budget, then asks its
+report host, and answers REPORT_RESULT. */
+
+/* (host) its reports (NULL: none; reports is then not offered to clients
+that say HELLO from now) */
+void delta_peer_set_report_host(struct delta_peer *peer, const struct delta_peer_report_host *host);
+/* (client) whether the host agreed to reports */
+int delta_peer_client_report_ready(const struct delta_peer *peer);
+/* (client) a report (its sequence is set here): the sequence, 0 if not sent */
+delta_u32 delta_peer_client_report(struct delta_peer *peer, const struct delta_wire_report *report);
+/* (client) the results heard so far (a count that only grows), and the
+last in result */
+delta_u32 delta_peer_client_report_result(const struct delta_peer *peer, struct delta_wire_report_result *result);
+
 /* ---------- object sync (docs/delta.md, Object sync)
 
 The host's game says what the game's own messages leave out of its objects:
@@ -1047,6 +1181,20 @@ of no other). */
 identity (may be NULL), else 0 */
 int delta_peer_identity(const struct delta_peer *peer, int machine_index, int local_player,
 	struct delta_peer_identity *identity);
+/* ---------- server badges (docs/server-badges.md)
+
+A client whose host agreed to server_badge asks it once (BADGE_ASK, a fresh
+nonce, said again a few times while unanswered); the host answers with its
+certificate and its signature of the nonce (BADGE). What the answer proves
+is server_badge.c's to check: here it is only kept, for this session's
+nonce alone. */
+
+/* (host) its badge (NULL: none; server_badge is then not offered to
+clients that say HELLO from now) */
+void delta_peer_set_badge_host(struct delta_peer *peer, const struct delta_peer_badge_host *host);
+/* (client) the check's state (enum delta_peer_badge_state), the answer in
+badge once answered, and when the handshake began (the session's time) */
+int delta_peer_client_badge(const struct delta_peer *peer, struct delta_wire_badge *badge, delta_u32 *handshake_start);
 
 /* what is known of a machine (0 if nothing) */
 int delta_peer_machine(const struct delta_peer *peer, int machine_index, struct delta_peer_machine *machine);
@@ -1192,9 +1340,29 @@ int delta_peer_game_client_state(void);
 none); the client's request for its player (the game's player list index)
 and the results heard (a count that grows, and the last) */
 void delta_peer_game_set_team_host(const struct delta_peer_team_host *host);
+/* party teams: this machine's party tag, the Guide's (NULL: in no party),
+and, on the host, a machine's (delta_peer_machine_party_tag) */
+void delta_peer_game_set_party_tag(const unsigned char *tag);
+int delta_peer_game_machine_party_tag(int machine_index, unsigned char *tag);
 int delta_peer_game_team_ready(void);
 unsigned int delta_peer_game_team_request(int player, int team);
 unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result);
+
+/* server badges (docs/server-badges.md): the joined host's badge as it
+proved it on joining. 1 and its fields in badge; 0 not known yet; -1 none
+(not offered, not answered, or a proof that failed) */
+struct server_badge;
+int delta_peer_game_server_badge(struct server_badge *badge);
+
+/* reports (port/linux/game/report_player.c, server/src/server_reports.c):
+the host's report host (NULL: none); the client's report of a machine's
+player (the absolute index of their player datum), with clip when the
+reporter would attach one, and the results heard (a clip goes with the
+token the host sent back) */
+void delta_peer_game_set_report_host(const struct delta_peer_report_host *host);
+int delta_peer_game_report_ready(void);
+unsigned int delta_peer_game_report(int machine_index, int player, int reason, int clip);
+unsigned int delta_peer_game_report_result(struct delta_wire_report_result *result);
 
 /* object sync (port/linux/game/network_objects.c): the host's, the clients
 that agreed to it and what goes to them; the client's, where what its host
@@ -1205,6 +1373,11 @@ int delta_peer_game_send_unit_vitals(int machine_index, const struct delta_wire_
 int delta_peer_game_objects_ready(void);
 int delta_peer_game_send_object_names(int machine_index, const struct delta_wire_object_names *names);
 void delta_peer_game_set_objects_client(const struct delta_peer_objects_client *client);
+
+/* server badges: the client's check with its host (enum
+delta_peer_badge_state; the answer in badge, the host's address in
+host_ipv4, and the milliseconds since the handshake began in waited) */
+int delta_peer_game_client_badge(struct delta_wire_badge *badge, delta_u32 *host_ipv4, delta_u32 *waited);
 
 /* voice (port/linux/game/voice_game.c): the host's rules (NULL: none),
 its game's players each frame, its own player's frames and what it hears;

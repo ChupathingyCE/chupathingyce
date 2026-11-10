@@ -202,6 +202,10 @@ symbols in this file:
 #include "networking/network_game_manager.h"
 #include "networking/network_game_protocol.h"
 #include "networking/network_messages.h"
+#ifdef HALO_GAME_BROWSER
+#include "networking/network_connection.h"
+#include "map_share.h" /* port: map sharing's messages to the map bot's fetch */
+#endif
 
 /* port/linux/game/network_distributed.c's */
 void network_distributed_handle_message(long machine_index, word const *message, word size);
@@ -741,6 +745,13 @@ boolean network_game_client_handle_message(
 				address */
 				if (network_game_client_address_matches_server(client, source_address))
 				{
+#ifdef HALO_GAME_BROWSER
+					/* port: map sharing's (83 to 86), to a map fetch alone
+					(port/linux/game/map_share_client.c); anything else's
+					dropped below, as ever */
+					if (!map_share_client_message(message, message_size,
+						!network_connection_last_read_was_unreliable()))
+#endif
 					network_distributed_handle_message(NONE, message, message_size);
 				}
 				else
@@ -1555,6 +1566,13 @@ static boolean network_game_client_handle_message_server_begin_game(
 				the message carries 16 bits of it: the rest from the first
 				game update, network_game_client_handle_game_update) */
 				network_game_client_late_join_time = (long)((unsigned long)begin_game.unused & 0xFFFF);
+#ifdef HALO_GAME_BROWSER
+				/* port: a map fetch's machine never loads the game: it stays
+				in the lobby until it leaves (port/linux/game/map_share_client.c) */
+				if (map_share_fetching())
+					result = TRUE;
+				else
+#endif
 				result = network_game_client_game_has_started(client);
 				if (!result)
 				{

@@ -389,6 +389,9 @@ static const struct config_setting config_settings[] =
 		"Which menus to use: \"chupathingy\", \"xbox\" or \"gearbox\".\n"
 		"Put your own menus in a menus folder next to config.toml.\n"
 		"Restart Chupathingy after a change." },
+	{ "display.theme", _config_string, "\"blue\"", "HALO_THEME", _environment_value, _platform_all,
+		"The colors of DELTA and the setup screen: \"blue\" (Halo Blue) or\n"
+		"\"red\" (Chupathingy Red). A change shows at once." },
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the text and titles of the menus and the HUD with sharp,\n"
 		"high-res fonts." },
@@ -411,12 +414,23 @@ static const struct config_setting config_settings[] =
 		"you aim at, as on the Xbox." },
 	{ "display.player_name_scale", _config_real, "1.0", "HALO_PLAYER_NAME_SCALE", _environment_value, _platform_all,
 		"The size of player names, from 0.25 to 4." },
-	{ "display.match_timer", _config_boolean, "false", "HALO_MATCH_TIMER", _environment_value, _platform_all | _platform_xbox,
-		"Show the time left at the top of the screen in a multiplayer game\n"
-		"with a time limit." },
+	{ "display.match_timer", _config_string, "\"off\"", "HALO_MATCH_TIMER", _environment_value, _platform_all | _platform_xbox,
+		"A multiplayer game's clock on screen: \"off\", \"remaining\" (the time\n"
+		"left, or the time played in a game with no time limit) or \"elapsed\"\n"
+		"(the time played). An older true is \"remaining\", false is \"off\"." },
+	{ "display.match_timer_position", _config_string, "\"top\"", "HALO_MATCH_TIMER_POSITION", _environment_value,
+		_platform_all | _platform_xbox,
+		"Where display.match_timer draws the clock: \"top\" (centered at the top\n"
+		"of the view) or \"bottom_right\" (the view's bottom right corner)." },
 	{ "display.powerup_timers", _config_boolean, "false", "HALO_POWERUP_TIMERS", _environment_value, _platform_all | _platform_xbox,
 		"Show the seconds left on your active camouflage, overshield and\n"
 		"full spectrum vision." },
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
+	{ "display.medals", _config_boolean, "false", "HALO_MEDALS", _environment_value, _platform_all | _platform_xbox,
+		"Show your medals on the HUD as you earn them in multiplayer (Double\n"
+		"Kill, Killing Spree). Off by default, as Halo shows none. Your medals\n"
+		"are counted in your service record either way." },
+#endif
 	{ "display.follow_camera", _config_string, "\"off\"", "HALO_FOLLOW_CAMERA", _environment_value,
 		_platform_all | _platform_xbox,
 		"After you die, watch a living player's view, where the host allows it\n"
@@ -797,9 +811,19 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Show the Guide's notifications during a game. They always show in\n"
 		"the menus." },
-	{ "guide.notify_online", _config_boolean, "false", "HALO_GUIDE_NOTIFY_ONLINE", _environment_value,
+	{ "delta.notify_online", _config_boolean, "false", "HALO_DELTA_NOTIFY_ONLINE", _environment_value,
 		_platform_all,
 		"Show a notification in the menus when a friend comes online." },
+	{ "delta.bring_party", _config_boolean, "true", "HALO_DELTA_BRING_PARTY", _environment_value,
+		_platform_all,
+		"When you lead a party, it follows you into the games you join or\n"
+		"host." },
+	{ "delta.follow_leader", _config_string, "\"ask\"", "HALO_DELTA_FOLLOW_LEADER", _environment_value,
+		_platform_all,
+		"When you're in a party and its leader goes to a game: \"ask\" (a few\n"
+		"seconds to stay, then you follow; in a game you stay unless you press\n"
+		"join), \"always\" (you follow when the seconds run out, in a game\n"
+		"too) or \"never\"." },
 #endif
 #ifdef HALO_CAPTURE
 	/* ---- screenshots (capture.c) */
@@ -935,7 +959,16 @@ static const struct config_setting config_settings[] =
 	{ "network.map_downloads", _config_string, "\"ask\"", "HALO_NET_MAP_DOWNLOADS", _environment_value,
 		_platform_all,
 		"Download a missing Custom Edition map from the community repositories:\n"
-		"\"ask\", \"always\" or \"never\"." },
+		"\"ask\", \"always\" or \"never\". \"never\" downloads no maps, but the\n"
+		"blacklist of maps that crash games is still fetched and checked (see\n"
+		"network.maps_url)." },
+	{ "network.maps_url", _config_string, "\"https://maps.chupathingy.org\"", "HALO_NET_MAPS_URL", _environment_value,
+		_platform_all,
+		"Chupathingy maps, where a missing map is looked for when the community\n"
+		"repositories don't have it, and where the blacklist of maps that crash\n"
+		"games comes from. Its index is signed, so a copy of it elsewhere works\n"
+		"too. Leave it empty to turn it off: nothing is fetched from it and no\n"
+		"map is blocked." },
 	{ "network.playlist_downloads", _config_string, "\"ask\"", "HALO_NET_PLAYLIST_DOWNLOADS", _environment_value,
 		_platform_all,
 		"When you join a playlist's game, offer its missing maps from the\n"
@@ -961,6 +994,10 @@ static const struct config_setting config_settings[] =
 	{ "network.chat_legacy", _config_boolean, "true", "HALO_NET_CHAT_LEGACY", _environment_value, _platform_all,
 		"In games you host, let OpenCE players chat too while network.chat is\n"
 		"on. Their own text chat is bridged in." },
+	{ "network.keep_parties_together", _config_boolean, "true", "HALO_NET_KEEP_PARTIES_TOGETHER", _environment_value,
+		_platform_all,
+		"In team games you host, put a party's players on one team when the\n"
+		"teams stay even." },
 	{ "network.team_change", _config_string, "\"off\"", "HALO_NET_TEAM_CHANGE", _environment_value,
 		_platform_all,
 		"Team changes in team games you host: \"off\" (players keep their team,\n"
@@ -978,6 +1015,10 @@ static const struct config_setting config_settings[] =
 		"In games you host, let players watch a living player's view while\n"
 		"they wait to respawn (display.follow_camera). Off plays as the Xbox\n"
 		"did: the death camera alone." },
+	{ "network.late_join_hold", _config_boolean, "false", "HALO_NET_LATE_JOIN_HOLD", _environment_value,
+		_platform_all,
+		"In games you host, players who join a game in progress watch until\n"
+		"the next game starts. Off spawns them at once, as Halo does." },
 #ifdef HALO_PORT_VOICE
 	/* ---- voice chat in games you host (port/linux/game/voice_game.c) */
 	{ "network.voice", _config_boolean, "true", "HALO_NET_VOICE", _environment_value, _platform_all,
@@ -1067,6 +1108,16 @@ static const struct config_setting config_settings[] =
 	{ "network.report_hosted_games", _config_boolean, "true", "HALO_NET_REPORT_HOSTED", _environment_value,
 		_platform_all | _platform_server,
 		"Send the stats of games you host to the game list." },
+	{ "network.map_share", _config_boolean, "false", "HALO_NET_MAP_SHARE", _environment_value,
+		_platform_all | _platform_server,
+		"Dedicated servers: hand the Custom Edition map the game is on to\n"
+		"players who join without it and ask (map sharing, over TCP port\n"
+		"5153). Only the map file the game is on now, only to machines in\n"
+		"the game. A game you host from the menus never shares, for now." },
+	{ "network.map_share_upload", _config_integer, "1024", "HALO_NET_MAP_SHARE_UPLOAD", _environment_value,
+		_platform_all | _platform_server,
+		"The most map sharing sends, in KB a second, for everyone downloading\n"
+		"together: 16 to 20480." },
 #endif
 	/* (a console's reports of the games it joins too: port/console/reports) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
@@ -1225,6 +1276,12 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_server,
 		"Write full internet addresses in debug.txt and the console. Don't\n"
 		"post a debug.txt written with this on." },
+	{ "debug.log_full_paths", _config_boolean, "false", "HALO_LOG_FULL_PATHS", _environment_set_is_true,
+		_platform_all | _platform_server,
+		"Write folder paths whole in debug.txt and the console, with this\n"
+		"computer's account name. Off, your home folder is written as ~\n"
+		"(%USERPROFILE% on Windows). Don't post a debug.txt written with this\n"
+		"on. Takes effect at the next start." },
 	{ "debug.telnet_console", _config_boolean, "false", "HALO_TELNET_CONSOLE", _environment_set_is_true,
 		_platform_all | _platform_server,
 		"Open a console on 127.0.0.1, at debug.telnet_console_port. It has no\n"
@@ -1235,6 +1292,9 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_test", _config_string, "\"\"", "HALO_NETWORK_TEST", _environment_value, _platform_all,
 		"Automated system link tests: \"host:<map>\" or \"join\". Leave it empty\n"
 		"for none." },
+	{ "debug.map_repositories", _config_string, "\"\"", "HALO_MAP_REPOSITORIES", _environment_value, _platform_all,
+		"Tests: the community map repositories asked for a missing map, their\n"
+		"addresses split by spaces. Leave it empty for HaloNet's." },
 	{ "debug.network_test_start", _config_real, "15.0", "HALO_NETWORK_TEST_START", _environment_value, _platform_all,
 		"Seconds after hosting before an automated test game starts." },
 	{ "debug.network_test_kill", _config_real, "0.0", "HALO_NETWORK_TEST_KILL", _environment_value,
@@ -1325,6 +1385,28 @@ static const struct config_setting config_settings[] =
 		"With debug.network_test's host: a file the host writes its invite link\n"
 		"to once it has one, for a joining machine's command line. Leave it\n"
 		"empty for none." },
+	{ "debug.map_fetch_folder", _config_string, "\"\"", "HALO_MAP_FETCH_FOLDER", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the folder the host's map is written\n"
+		"to (<name>.map.part, then <name>.map)." },
+	{ "debug.map_fetch_result", _config_string, "\"\"", "HALO_MAP_FETCH_RESULT", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the file its result is written to (a\n"
+		"JSON object). Leave it empty for result.json in the fetch's folder." },
+	{ "debug.map_fetch_name", _config_string, "\"\"", "HALO_MAP_FETCH_NAME", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the map it came for (its file's name\n"
+		"without .map). On another map the fetch leaves without asking. Leave\n"
+		"it empty for any." },
+	{ "debug.map_fetch_held", _config_string, "\"\"", "HALO_MAP_FETCH_HELD", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the map versions already held (8 hex\n"
+		"digits each, separated by commas). On one of them the fetch leaves\n"
+		"without asking." },
+	{ "debug.map_fetch_maximum", _config_integer, "512", "HALO_MAP_FETCH_MAXIMUM", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the largest map it takes, in MB (up\n"
+		"to 768)." },
 	{ "debug.network_latency", _config_real, "0.0", "HALO_NETWORK_LATENCY", _environment_value,
 		_platform_all | _platform_server,
 		"Milliseconds to delay everything received. 0 for none." },
@@ -1339,6 +1421,9 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_corrupt_after", _config_real, "0.0", "HALO_NETWORK_CORRUPT_AFTER", _environment_value,
 		_platform_all | _platform_server,
 		"Seconds after the start before anything is damaged." },
+	{ "debug.structure_culling", _config_boolean, "true", "HALO_STRUCTURE_CULLING", _environment_value, _platform_all,
+		"Skip the level's surfaces that are off screen or face away. Turn it off\n"
+		"to draw them as the original game does, to check a missing wall." },
 	{ "debug.touch_targets", _config_boolean, "false", "HALO_TOUCH_TARGETS", _environment_set_is_true, _platform_all,
 		"Outline the menus' tap targets and log each tap." },
 	{ "debug.launcher_test", _config_string, "\"\"", "HALO_LAUNCHER_TEST", _environment_value, _platform_desktop,
@@ -1383,6 +1468,19 @@ static const struct config_setting config_settings[] =
 		"Open the Guide once the menus or a map are up, for tests." },
 	{ "debug.guide_toast", _config_string, "\"\"", "HALO_GUIDE_TOAST", _environment_value, _platform_all,
 		"Show a test notification with this text once. Leave it empty for none." },
+	{ "debug.guide_section", _config_string, "\"\"", "HALO_GUIDE_SECTION", _environment_value, _platform_all,
+		"With debug.guide_open, the section it opens on (\"party\", \"friends\"),\n"
+		"for tests. Leave it empty for the first." },
+	{ "debug.guide_row", _config_integer, "-1", "HALO_GUIDE_ROW", _environment_value, _platform_all,
+		"With debug.guide_open, the row chosen once that section has it, for\n"
+		"tests. -1 for none." },
+	{ "debug.party_test", _config_string, "\"\"", "HALO_PARTY_TEST", _environment_value, _platform_all,
+		"A party step once the menus are up, for tests: \"create\" or\n"
+		"\"join:<code>\". Leave it empty for none." },
+	{ "debug.guide_test", _config_string, "\"\"", "HALO_GUIDE_TEST", _environment_value, _platform_all,
+		"Buttons pressed in the Guide debug.guide_open opened, one at a time,\n"
+		"separated by ; (up, down, left, right, a, b, x, y, lb, rb), for tests.\n"
+		"Debug builds only: a release build ignores it." },
 #endif
 #ifdef HALO_CAPTURE
 	{ "debug.clips_software", _config_boolean, "false", "HALO_CLIPS_SOFTWARE", _environment_set_is_true,
@@ -1694,6 +1792,8 @@ static const struct
 #ifdef HALO_GUIDE
 	{ "guide", 0,
 		"The Guide, which opens over the menus or a game (F3)." },
+	{ "delta", 0,
+		"DELTA's party." },
 #endif
 	{ "game", 0,
 		"How games play. The bomb settings are for Bomb and Grifball games you\n"
@@ -2576,6 +2676,33 @@ enum
 	CONFIG_INDEX_GUESSES = 64
 };
 static long config_index_guesses[CONFIG_INDEX_GUESSES];
+
+/* the first setting named twice in this build's table, or its environment
+variable twice (a second entry is never read: config_setting_index finds
+the first), into name: 1, else 0. tools/test_port_config.py checks every
+kind of build has none */
+int config_duplicate_setting(char *name, size_t size)
+{
+	size_t index, other;
+
+	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+	{
+		for (other = index + 1; other < NUMBER_OF_CONFIG_SETTINGS; other++)
+		{
+			const char *variable = config_settings[index].environment;
+
+			if (strcmp(config_settings[index].name, config_settings[other].name) &&
+				(!variable || !config_settings[other].environment ||
+				strcmp(variable, config_settings[other].environment)))
+			{
+				continue;
+			}
+			snprintf(name, size, "%s", config_settings[other].name);
+			return 1;
+		}
+	}
+	return 0;
+}
 
 static long config_setting_index(const char *name)
 {
@@ -3571,6 +3698,7 @@ static const struct
 	const char *otherwise;
 } config_words[] =
 {
+	{ "display.theme", { "blue", "red", NULL }, "\"blue\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
@@ -3579,6 +3707,8 @@ static const struct
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
 	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"off\"" },
+	{ "display.match_timer", { "off", "remaining", "elapsed", NULL }, "\"off\"" },
+	{ "display.match_timer_position", { "top", "bottom_right", NULL }, "\"top\"" },
 	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
@@ -3617,6 +3747,11 @@ static const struct
 {
 	{ "network.join_from_clipboard", "true", "always" },
 	{ "network.join_from_clipboard", "false", "never" },
+	/* (on or off until v0.9.1; on was the time left) */
+	{ "display.match_timer", "true", "remaining" },
+	{ "display.match_timer", "false", "off" },
+	{ "display.match_timer", "1", "remaining" },
+	{ "display.match_timer", "0", "off" },
 };
 
 #define NUMBER_OF_CONFIG_OLD_WORDS (sizeof(config_old_words) / sizeof(config_old_words[0]))
@@ -4618,6 +4753,11 @@ int config_packaged_update_check(void)
 	return packaged_update_check;
 }
 #endif
+
+int config_loaded_yet(void)
+{
+	return config_loaded;
+}
 
 int config_boolean(const char *name)
 {

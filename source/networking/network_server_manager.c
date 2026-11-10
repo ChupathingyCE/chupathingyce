@@ -476,11 +476,18 @@ symbols in this file:
 #include "halo_map_families.h" /* port: map_family_parse */
 #ifdef HALO_GAME_BROWSER
 #include "../../port/linux/src/browser.h"
+#include "../../port/linux/game/party_teams.h"
 #endif
 #include "interface/player_ui.h"
 #include "tag_files/tag_files.h"
 
 #include <time.h>
+#ifdef HALO_GAME_BROWSER
+#include "map_share.h" /* port: map sharing's downloading machines (port/linux/game/map_share_host.c) */
+#define NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(machine_index) map_share_host_downloading(machine_index)
+#else
+#define NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(machine_index) FALSE
+#endif
 
 /* port: internet play's Discord presence (port/linux/src/p2p.c), and the
 server browser's listing of a public game (p2p_lobby.c) */
@@ -831,6 +838,10 @@ static boolean network_game_server_countdown_slowed[MAXIMUM_NETWORK_MACHINE_COUN
 
 /* port/linux/game/network_distributed.c's (the host's bans: bans.txt) */
 boolean network_distributed_banned(unsigned long address, char const *hardware_id);
+#ifdef HALO_GAME_BROWSER
+/* (port/linux/game/host_rules.c's: whether the host takes no new machines now) */
+boolean host_rules_joins_locked(void);
+#endif
 /* (its budget for a client machine's lobby messages, full again) */
 void network_distributed_lobby_budget_reset(long machine_index);
 /* (its limit on the machines of one address: network.max_machines_per_address,
@@ -2199,6 +2210,17 @@ boolean network_game_server_accept_client_machine_into_game(
 				return FALSE;
 			}
 		}
+#ifdef HALO_GAME_BROWSER
+		/* (and none while the host's joins are locked: sv_lock, host_rules.c;
+		the host's own client is never kept out) */
+		if (!network_game_server_client_machine_is_local(server, machine) &&
+			address.address.long_words[0] != IPV4_LOOPBACK_ADDRESS && host_rules_joins_locked())
+		{
+			network_event("refusing a machine @ %s: joins are locked (sv_lock)", transport_address_to_string(&address));
+			network_game_server_refusal_code = _rejection_code_game_is_closed;
+			return FALSE;
+		}
+#endif
 		/* (and not one the host banned: its address or hardware id in
 		bans.txt) */
 		/* (the host's own client, which connects from 127.0.0.1, never) */
@@ -4005,7 +4027,9 @@ static boolean network_game_server_client_machine_timed_out(
 	if (!network_game_server_machine_has_players(server, machine->machine_index) &&
 		!network_game_server_machine_has_waiting_players(server, machine->machine_index) &&
 		system_milliseconds() - network_game_server_client_machine_join_times[machine->machine_index] >
-			NETWORK_GAME_SERVER_PLAYERLESS_MACHINE_TIMEOUT)
+			NETWORK_GAME_SERVER_PLAYERLESS_MACHINE_TIMEOUT &&
+		/* (port: not while it downloads the map: map sharing) */
+		!NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(machine->machine_index))
 	{
 		return TRUE;
 	}
@@ -5112,6 +5136,12 @@ static boolean network_game_server_idle_pregame_tasks(
 	{
 		long itr;
 
+#ifdef HALO_GAME_BROWSER
+		/* port: a party kept on one team where the teams stay even
+		(port/linux/game/party_teams.c; the Guide's parties) */
+		if (party_teams_pregame(&server->game))
+			network_game_server_send_game_data_pregame(server);
+#endif
 		/* port: the gametype's auto team balance (game_variant_options):
 		the lobby's teams kept within a player of each other, the bigger
 		team's last player moved */
@@ -5163,6 +5193,8 @@ static boolean network_game_server_idle_pregame_tasks(
 			else if (network_game_server_client_machine_is_joined_to_game(server, client_machine) &&
 				!network_game_server_client_machine_is_local(server, client_machine) &&
 				!network_game_server_machine_has_players(server, client_machine->machine_index) &&
+				/* (port: not while it downloads the map: map sharing) */
+				!NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(client_machine->machine_index) &&
 				(!network_game_has_free_player_slot(&server->game) ||
 					system_milliseconds() - network_game_server_client_machine_join_times[client_machine->machine_index] >
 						NETWORK_GAME_SERVER_PLAYERLESS_MACHINE_TIMEOUT))
@@ -5747,5 +5779,52 @@ static boolean network_game_server_delta_ready(
 		}
 	}
 	return TRUE;
+}
+#endif
+
+#ifdef HALO_GAME_BROWSER
+/* port: map sharing's view of the host's game (port/linux/game/map_share_host.c) */
+
+/* the game's map, as this port names it, and its version; whether it is in
+progress: FALSE with no host */
+boolean network_game_server_map_share_game(
+	char *map_name,
+	long size,
+	unsigned long *version,
+	boolean *in_progress)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	if (!server || size <= 0)
+		return FALSE;
+	csstrncpy(map_name, server->game.map.name, size - 1);
+	map_name[size - 1] = 0;
+	*version = (unsigned long)server->game.map.version;
+	*in_progress = server->state == _network_game_server_state_ingame;
+	return TRUE;
+}
+
+/* a client machine that joined the game (not the host's own): the address
+its connection comes from (IPv4, first byte highest) */
+boolean network_game_server_map_share_machine(
+	long machine_index,
+	unsigned long *address)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_game_server_client_machine *machine;
+	struct transport_address transport = { { { 0 } } };
+
+	if (!server || machine_index < 0 || machine_index >= MAXIMUM_NETWORK_MACHINE_COUNT)
+		return FALSE;
+	machine = &server->client_machines[machine_index];
+	if (!machine->connection || machine->machine_index != machine_index ||
+		!network_game_server_client_machine_is_joined_to_game(server, machine) ||
+		network_game_server_client_machine_is_local(server, machine))
+	{
+		return FALSE;
+	}
+	network_connection_get_address(machine->connection, &transport, NULL);
+	*address = transport.address.ipv4_address;
+	return *address != 0;
 }
 #endif

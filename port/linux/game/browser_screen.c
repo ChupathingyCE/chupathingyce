@@ -100,6 +100,8 @@ the right button is B.
 #include "../src/campaign_levels.h"
 #include "../src/map_art.h"
 #include "../src/map_download.h"
+#include "../src/map_repo.h"
+#include <time.h>
 #include "../src/playlist_download.h"
 #include "../src/ui_overlay.h"
 #include "halo_ui_map_list.h"
@@ -294,6 +296,9 @@ static struct
 	char offer_stock_first[96];
 	char offer_stock_second[160];
 	unsigned long offer_version;
+	/* (Chupathingy maps has it too, as the index held says: the offer names
+	it beside the community repositories) */
+	boolean offer_ours;
 	boolean offer_dont_ask;
 	struct map_download_progress offer_progress;
 	/* when it was offered (the A that joined, still held, answers nothing) */
@@ -655,6 +660,15 @@ static void offer_map(
 	map_archive_display_name(browser_screen.offer_file, browser_screen.offer_display,
 		(int)sizeof(browser_screen.offer_display));
 	browser_screen.offer_version = version;
+	{
+		char base[32];
+		unsigned int prefix = 0;
+
+		if (map_archive_hashed_name(file, base, (int)sizeof(base), &prefix))
+			browser_screen.offer_ours = map_repo_has(base, prefix ? prefix : 1, (long long)time(NULL)) != 0;
+		else
+			browser_screen.offer_ours = map_repo_has(file, (unsigned int)version, (long long)time(NULL)) != 0;
+	}
 	browser_screen.offer_dont_ask = FALSE;
 	browser_screen.offer_time = system_milliseconds();
 	map_download_reset();
@@ -1688,6 +1702,9 @@ void browser_screen_open(
 	void)
 {
 	browser_screen.active = TRUE;
+	/* (Chupathingy maps' index and blacklist, fresh for the games joined
+	from here: map_repo.h) */
+	map_repo_game_refresh_soon();
 	browser_screen.selected = 0;
 	/* (the session's first: the config's view, else CHUPATHINGY + PUBLIC) */
 	if (!browser_screen.view_chosen)
@@ -1794,6 +1811,42 @@ boolean browser_screen_open_map_offer(
 	browser_screen_open();
 	csstrncpy(browser_screen.connecting_name, "the game", sizeof(browser_screen.connecting_name) - 1);
 	offer_map(browser_screen.offer_file, browser_screen.offer_version);
+	return TRUE;
+}
+
+/* a game joined by its invite link from outside the screen (DELTA's party
+following its leader, guide.c): the screen opens over the menus and joins
+it as a pasted link does, saying who it follows. FALSE for text with no
+invite, or with no menus up */
+boolean browser_screen_join_link(
+	char const *link,
+	char const *name)
+{
+	char code[BROWSER_INVITE_LENGTH + 1];
+	char const *start = link;
+	long length = 0;
+
+	if (!link || !main_menu_is_active())
+		return FALSE;
+	if (!_strnicmp(start, "halo://join/", 12))
+		start += 12;
+	while (length < BROWSER_INVITE_LENGTH && ((start[length] >= '0' && start[length] <= '9') ||
+		((start[length] | 0x20) >= 'a' && (start[length] | 0x20) <= 'f')))
+	{
+		code[length] = start[length];
+		length++;
+	}
+	code[length] = 0;
+	if (length != 44 && length != 64)
+		return FALSE;
+	if (!browser_screen.active)
+		browser_screen_open();
+	join_invite(code, NULL, FALSE);
+	if (name && name[0])
+	{
+		csstrncpy(browser_screen.connecting_name, name, sizeof(browser_screen.connecting_name) - 1);
+		browser_screen.connecting_name[sizeof(browser_screen.connecting_name) - 1] = 0;
+	}
 	return TRUE;
 }
 
@@ -2135,6 +2188,8 @@ enum
 	COLOR_DIM = 0x8FA6C8FF,
 	/* a neutral label's plain gray (HOST_LABEL_OPENCE_SERVER) */
 	COLOR_NEUTRAL = 0x9AA0A8FF,
+	/* a server's signed badge */
+	COLOR_BADGE = 0xE8C766FF,
 	COLOR_LABEL = 0x7FB8FFFF,
 	COLOR_RULE = 0x2F6DD0A0,
 	/* the roster's players of each team, the Xbox's softened red and blue */
@@ -2310,7 +2365,7 @@ static char const *host_text(
 		game->host_platform < NUMBEROF(platform_names) ? platform_names[game->host_platform] : NULL;
 	char const *protocol = game->protocol == BROWSER_PROTOCOL_DELTA ? "Delta" :
 		game->protocol == BROWSER_PROTOCOL_OPENCE ? "OpenCE (legacy)" : NULL;
-	char host[48], with_version[40];
+	char host[64], with_version[40];
 
 	/* (its network version: an OpenCE host's always, a Delta host's when it
 	is not this build's) */
@@ -2325,7 +2380,13 @@ static char const *host_text(
 		protocol = with_version;
 	}
 
-	if (game->hosting == BROWSER_HOSTING_DEDICATED || game->hosting == BROWSER_HOSTING_OFFICIAL)
+	/* (a signed badge names the server; else the list's own word) */
+	if (browser_badge_name(game->badge))
+	{
+		snprintf(host, sizeof(host), "%s%s%s%s", browser_badge_name(game->badge), platform ? " (" : "",
+			platform ? platform : "", platform ? ")" : "");
+	}
+	else if (game->hosting == BROWSER_HOSTING_DEDICATED || game->hosting == BROWSER_HOSTING_OFFICIAL)
 	{
 		snprintf(host, sizeof(host), "%s%s%s%s", game->hosting == BROWSER_HOSTING_OFFICIAL ? "Official server" :
 			"Dedicated", platform ? " (" : "", platform ? platform : "", platform ? ")" : "");
@@ -2963,10 +3024,13 @@ static void draw_map_offer(
 		if (text[0] >= 'a' && text[0] <= 'z')
 			text[0] = (char)(text[0] - 32);
 		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 62, UI_ALIGN_CENTER, COLOR_DIM, text);
-		snprintf(text, sizeof(text), "Download %s.map from the", browser_screen.offer_display);
+		/* (where it comes from: the community repositories first, then
+		Chupathingy maps when its index has it) */
+		snprintf(text, sizeof(text), browser_screen.offer_ours ? "Download %s.map from" : "Download %s.map from the",
+			browser_screen.offer_display);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 86, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
-			"community map repository?");
+			browser_screen.offer_ours ? "HaloNet or " MAP_REPO_TITLE "?" : "community map repository?");
 		/* "Don't ask again", ticked or not (Y, or a click on it) */
 		width = ui_overlay_button_width(UI_BUTTON_Y, glyph) + 6 + box + 6 +
 			ui_overlay_text_width(UI_FONT_MENU, 11.0f, "DON'T ASK AGAIN");
@@ -2986,7 +3050,10 @@ static void draw_map_offer(
 		float bar_x = CONNECT_X + 40, bar_width = CONNECT_WIDTH - 80;
 		float done = 0.0f;
 
-		snprintf(text, sizeof(text), "Downloading %s.map", browser_screen.offer_display);
+		if (progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY)
+			snprintf(text, sizeof(text), "Downloading %s.map from " MAP_REPO_TITLE, browser_screen.offer_display);
+		else
+			snprintf(text, sizeof(text), "Downloading %s.map", browser_screen.offer_display);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 88, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		switch (progress->phase)
 		{
@@ -3009,7 +3076,8 @@ static void draw_map_offer(
 			done = 1.0f;
 			break;
 		default:
-			snprintf(text, sizeof(text), "Connecting to the map repository\xE2\x80\xA6");
+			snprintf(text, sizeof(text), progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY ?
+				"Connecting to " MAP_REPO_TITLE "\xE2\x80\xA6" : "Connecting to the map repository\xE2\x80\xA6");
 			break;
 		}
 		ui_overlay_rect(bar_x, CONNECT_Y + 126, bar_width, 12, 6, 0x0A1E44FF);
@@ -3429,6 +3497,17 @@ static void draw_row(
 		width += 5 + ui_overlay_text(UI_FONT_MENU, 6.5f, COLUMN_NAME + width + 5,
 			y + (LIST_ROW - 6.5f) * 0.5f + 0.5f, UI_ALIGN_LEFT, picked ? 0xC8D8F0FF : COLOR_HEAD, "CO-OP");
 	}
+	/* (a server's signed badge: marked, as co-op is) */
+	if (game->badge)
+	{
+		static char const *const tags[] = { "", "OFFICIAL", "DEVELOPER", "COMMUNITY" };
+
+		if (game->badge < NUMBEROF(tags))
+		{
+			width += 5 + ui_overlay_text(UI_FONT_MENU, 6.5f, COLUMN_NAME + width + 5,
+				y + (LIST_ROW - 6.5f) * 0.5f + 0.5f, UI_ALIGN_LEFT, picked ? 0xC8D8F0FF : COLOR_BADGE, tags[game->badge]);
+		}
+	}
 	/* (a game this build can't join, by its network version: marked) */
 	if (version_state)
 	{
@@ -3687,7 +3766,8 @@ the map's name over its family's color (a custom map's) */
 	if (browser_game_version_state(selected))
 		snprintf(text, sizeof(text), "%s", JOIN_REASON_TEXT(JOIN_REASON_OF_VERSION_STATE(browser_game_version_state(selected))));
 	else
-		snprintf(text, sizeof(text), "%s%s", selected->open ? "Accepting players" : "In progress", selected->locked ? ", password" : "");
+		snprintf(text, sizeof(text), "%s%s", selected->joins_locked ? "Locked" : selected->open ? "Accepting players" :
+			"In progress", selected->locked ? ", password" : "");
 	DETAIL_LINE("Status:", text);
 	/* (a host whose console and cheats may change its game, as it says:
 	network.host_cheats) */
@@ -3742,6 +3822,11 @@ the map's name over its family's color (a custom map's) */
 			}
 			ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE, label_x, label_y + 0.5f, UI_ALIGN_LEFT, COLOR_NEUTRAL,
 				HOST_LABEL_OPENCE_SERVER);
+		}
+		/* (a badge's label: the developer or group running it) */
+		if (selected->badge && selected->badge_label[0])
+		{
+			DETAIL_LINE("Run by:", selected->badge_label);
 		}
 	}
 #undef DETAIL_LINE
