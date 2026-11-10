@@ -43,6 +43,7 @@ Called each frame from the main loop (main.c).
 #include "game/game.h"
 #include "game/game_engine.h"
 #include "game/players.h"
+#include "interface/hud_messaging.h"
 #include "memory/data.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
@@ -50,6 +51,7 @@ Called each frame from the main loop (main.c).
 #include "tag_files/tag_files.h"
 #include "../src/browser.h"
 #include "../src/game_report.h"
+#include "../src/medal_rules.h"
 
 #include <limits.h>
 #include <stdarg.h>
@@ -90,6 +92,7 @@ int delta_peer_player_platform(int player_index);
 void game_stats_game_extra(boolean host, char *text, long size);
 /* the platform layer's */
 void platform_log(char const *format, ...);
+int config_boolean(char const *name);
 #ifdef HALO_GAME_BROWSER
 const char *updater_version(void);
 #endif
@@ -120,29 +123,9 @@ memory, and a client's report has them as scoreboard lines) */
 	WEAPON_KEY_LENGTH = 64,
 };
 
-/* the medals, by the site's keys (stats.chupathingy.org's site.js, MEDALS) */
-enum
-{
-	_medal_double_kill,
-	_medal_triple_kill,
-	_medal_killtacular,
-	_medal_killtrocity,
-	_medal_killing_spree,
-	_medal_killing_frenzy,
-	_medal_running_riot,
-	_medal_rampage,
-	_medal_beat_down,
-	_medal_sniper_kill,
-	_medal_grenade_stick,
-	/* (no splatter or assassin: they need their damage tags' names, or a
-	way to tell a kill from behind, confirmed in a real game first) */
-	NUMBER_OF_MEDALS
-};
-
-static char const *const medal_keys[NUMBER_OF_MEDALS] = {
-	"double_kill", "triple_kill", "killtacular", "killtrocity", "killing_spree", "killing_frenzy",
-	"running_riot", "rampage", "beat_down", "sniper_kill", "grenade_stick",
-};
+/* (the medals: medal_rules.h's, by the site's keys. No Splatter or
+Assassin here: they need the damage's category, or a way to tell a kill
+from behind, which only the host's Delta Stats has: event_log.c) */
 
 /* ---------- structures */
 
@@ -170,12 +153,10 @@ struct stats_player
 	long last_tick;
 	/* the statistics as they stood last (a departed player's: when they left) */
 	struct game_statistics statistics;
-	/* from the kills this machine saw */
+	/* from the kills this machine saw: sprees and multikills
+	(medal_rules.h), and the medals they made */
 	short feed_kills;
-	short spree;
-	short best_spree;
-	short chain;
-	long last_kill_tick;
+	struct medal_player medal;
 	short multikills;
 	short medals[NUMBER_OF_MEDALS];
 	short weapon_count;
@@ -205,6 +186,8 @@ static struct
 	boolean client_reported;
 	/* a console's claim of its line (console_claims_game_ended) */
 	boolean console_claimed;
+	/* the game's first kill (First Strike) */
+	struct medal_game medal_game;
 } game_stats = { .recording = FALSE, .kill_damage = NONE };
 
 /* ---------- private code */
@@ -227,6 +210,7 @@ static void stats_reset(
 	game_stats.over = FALSE;
 	game_stats.client_reported = FALSE;
 	game_stats.console_claimed = FALSE;
+	medal_game_reset(&game_stats.medal_game);
 }
 
 /* a new game (the game's time went back: a new map, or the next game) */
@@ -309,6 +293,7 @@ static void stats_track_players(
 		if (!tracked->used)
 		{
 			tracked->used = TRUE;
+			medal_player_reset(&tracked->medal);
 			tracked->identifier = player->identifier;
 			csmemcpy(tracked->name, player->name, sizeof(tracked->name));
 			tracked->first_tick = tick;
@@ -361,45 +346,79 @@ static boolean stats_weapon_has(
 	return strstr(name, part) != NULL;
 }
 
-static void stats_medal(
-	struct stats_player *player,
-	short medal)
+/* a medal of this machine's own player, on their HUD (display.medals, off
+by default: retail Halo shows none) */
+static void stats_medal_popup(
+	long player_index,
+	int medal)
 {
-	if (player->medals[medal] < SHRT_MAX)
-		player->medals[medal]++;
+	struct player_datum *player = player_index != NONE ? player_get(player_index) : NULL;
+	char const *name = medal_rules_name(medal);
+	wchar_t text[48];
+	short index;
+
+	if (!player || player->local_player_index == NONE || !config_boolean("display.medals"))
+		return;
+	for (index = 0; name[index] && index < (short)(NUMBEROF(text) - 1); index++)
+		text[index] = (wchar_t)(unsigned char)name[index];
+	text[index] = 0;
+	hud_print_message(player->local_player_index, text);
 }
 
-/* a kill as the killer's counts have it */
-static void stats_credit_kill(
+/* what a kill's damage was, for its medals (MEDAL_KILL_*): its tag's path */
+static unsigned int stats_kill_kinds(
+	char const *weapon)
+{
+	unsigned int kinds = 0;
+
+	if (!weapon[0])
+		return 0;
+	if (stats_weapon_has(weapon, "melee"))
+		kinds |= MEDAL_KILL_MELEE;
+	if (stats_weapon_is(weapon, "weapons\\sniper rifle\\"))
+		kinds |= MEDAL_KILL_SNIPER;
+	if (stats_weapon_is(weapon, "weapons\\shotgun\\"))
+		kinds |= MEDAL_KILL_SHOTGUN;
+	if (stats_weapon_is(weapon, "weapons\\plasma grenade\\attached"))
+		kinds |= MEDAL_KILL_STICK;
+	return kinds;
+}
+
+/* a death as the players' counts have it: the dead player's sprees end,
+and a kill that counts (not a betrayal or a suicide) is the killer's, with
+its medals (medal_rules.h) and its weapon */
+static void stats_count_kill(
 	struct stats_player *killer,
+	long killer_index,
+	struct stats_player *dead,
+	long dead_index,
+	boolean counts,
 	long definition_index,
 	long tick)
 {
 	char const *weapon = stats_weapon_name(definition_index);
+	struct player_datum *killer_player = killer_index != NONE ? player_get(killer_index) : NULL;
+	unsigned int kinds = stats_kill_kinds(weapon);
+	int medals[MEDAL_RULES_MAXIMUM_PER_KILL];
+	int count, medal;
 	short index;
 
+	/* (dead as the blow landed: a grenade or a rocket of theirs) */
+	if (killer_player && killer_player->unit_index == NONE)
+		kinds |= MEDAL_KILL_FROM_GRAVE;
+	count = medal_rules_kill(&game_stats.medal_game, killer ? &killer->medal : NULL,
+		(int)DATUM_INDEX_TO_ABSOLUTE_INDEX(killer_index), dead ? &dead->medal : NULL,
+		dead_index != NONE ? (int)DATUM_INDEX_TO_ABSOLUTE_INDEX(dead_index) : -1, counts && killer, tick, kinds, medals);
+	if (!counts || !killer)
+		return;
 	killer->feed_kills++;
-	/* a spree: kills without dying */
-	killer->spree++;
-	if (killer->spree > killer->best_spree)
-		killer->best_spree = killer->spree;
-	switch (killer->spree)
+	for (medal = 0; medal < count; medal++)
 	{
-	case 5: stats_medal(killer, _medal_killing_spree); break;
-	case 10: stats_medal(killer, _medal_killing_frenzy); break;
-	case 15: stats_medal(killer, _medal_running_riot); break;
-	case 20: stats_medal(killer, _medal_rampage); break;
-	}
-	/* a multikill: each kill within the window of the one before */
-	if (killer->chain > 0 && tick - killer->last_kill_tick <= MULTIKILL_TICKS)
-		killer->chain++;
-	else
-		killer->chain = 1;
-	killer->last_kill_tick = tick;
-	if (killer->chain >= 2)
-	{
-		stats_medal(killer, (short)(_medal_double_kill + MIN(killer->chain, 5) - 2));
-		killer->multikills++;
+		if (killer->medals[medals[medal]] < SHRT_MAX)
+			killer->medals[medals[medal]]++;
+		if (medals[medal] >= MEDAL_DOUBLE_KILL && medals[medal] <= MEDAL_KILLIONAIRE)
+			killer->multikills++;
+		stats_medal_popup(killer_index, medals[medal]);
 	}
 	/* the weapon (the damage's tag) */
 	if (!weapon[0])
@@ -407,12 +426,6 @@ static void stats_credit_kill(
 		killer->unknown_weapon_kills++;
 		return;
 	}
-	if (stats_weapon_has(weapon, "melee"))
-		stats_medal(killer, _medal_beat_down);
-	if (stats_weapon_is(weapon, "weapons\\sniper rifle\\"))
-		stats_medal(killer, _medal_sniper_kill);
-	if (stats_weapon_is(weapon, "weapons\\plasma grenade\\attached"))
-		stats_medal(killer, _medal_grenade_stick);
 	for (index = 0; index < killer->weapon_count; index++)
 	{
 		if (killer->weapons[index].definition_index == definition_index)
@@ -504,12 +517,12 @@ static long stats_player_members(
 		used = stats_append(text, size, used, ", \"left\": %ld", player->last_tick / TICKS_PER_SECOND);
 	if (!stats_feed_complete(player))
 		return stats_append(text, size, used, ", \"feed_incomplete\": true");
-	used = stats_append(text, size, used, ", \"best_spree\": %d, \"medals\": {", player->best_spree);
+	used = stats_append(text, size, used, ", \"best_spree\": %d, \"medals\": {", player->medal.best_spree);
 	for (index = 0, any = FALSE; index < NUMBER_OF_MEDALS; index++)
 	{
 		if (!player->medals[index])
 			continue;
-		used = stats_append(text, size, used, "%s\"%s\": %d", any ? ", " : "", medal_keys[index], player->medals[index]);
+		used = stats_append(text, size, used, "%s\"%s\": %d", any ? ", " : "", medal_rules_key(index), player->medals[index]);
 		any = TRUE;
 	}
 	used = stats_append(text, size, used, "}, \"weapons\": {");
@@ -709,13 +722,8 @@ void game_stats_player_killed(
 	tick = game_time_get();
 	dead = stats_player(dead_player_index);
 	killer = killing_player_index != dead_player_index ? stats_player(killing_player_index) : NULL;
-	if (dead && dead->used)
-	{
-		dead->spree = 0;
-		dead->chain = 0;
-	}
-	if (killer && killer->used && !friendly_fire)
-		stats_credit_kill(killer, game_stats.kill_damage, tick);
+	stats_count_kill(killer && killer->used ? killer : NULL, killing_player_index, dead && dead->used ? dead : NULL,
+		dead_player_index, !friendly_fire, game_stats.kill_damage, tick);
 	game_stats.kill_damage = NONE;
 }
 

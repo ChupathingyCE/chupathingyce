@@ -407,6 +407,12 @@ static const struct config_setting config_settings[] =
 	{ "display.powerup_timers", _config_boolean, "false", "HALO_POWERUP_TIMERS", _environment_value, _platform_all | _platform_xbox,
 		"Show the seconds left on your active camouflage, overshield and\n"
 		"full spectrum vision." },
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
+	{ "display.medals", _config_boolean, "false", "HALO_MEDALS", _environment_value, _platform_all | _platform_xbox,
+		"Show your medals on the HUD as you earn them in multiplayer (Double\n"
+		"Kill, Killing Spree). Off by default, as Halo shows none. Your medals\n"
+		"are counted in your service record either way." },
+#endif
 	{ "display.follow_camera", _config_string, "\"off\"", "HALO_FOLLOW_CAMERA", _environment_value,
 		_platform_all | _platform_xbox,
 		"After you die, watch a living player's view, where the host allows it\n"

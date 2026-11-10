@@ -1464,10 +1464,8 @@ ignored.
 How each is known: kills and damage at the blow (`damage.c`), shots per
 projectile a trigger makes (`weapons.c`; grenades thrown count as shots of
 the grenade), hits per projectile that damaged another player (melee
-excluded); medals and sprees are worked out from the kills as Halo does
-(multikills within 4 seconds; sprees at 5, 10, 15, 20; Killjoy for ending
-a spree of 5 or more; From the Grave for a kill that lands after its
-killer died; Beat Down, Sniper Kill, Stuck, Splatter); objectives, rides,
+excluded); medals and sprees are worked out from the kills by the rules
+under "Medals"; objectives, rides,
 pickups, powerups and spawns from each player's state each frame; positions
 every `network.events_positions` seconds (2) per living player; ping every
 10 seconds; health each minute (dedicated servers only).
@@ -1487,6 +1485,40 @@ thread; `server/platform/server_events.c` queues it
 (`event_upload_moderation`) for the game's thread. A game that ends with everyone gone is sent as `empty`; a
 server that stops mid-game sends nothing for it. Anti-cheat `flags` are a
 schema slot with nothing filling it yet.
+
+### Medals
+
+One set of rules gives every medal the game reports
+(`port/linux/src/medal_rules.h`): Delta Stats' batch (`"medals"`, each
+player's `"medals": {key: count}`), the game list's carnage reports and a
+console's reports (each line's `"medals"`, from `game_stats.c`), the local
+service record, and the HUD's pop-ups (`display.medals`, off by default).
+They are worked out from the kills the machine saw and change nothing in
+the game. A betrayal or a suicide earns none and ends the dead player's
+sprees. The keys, in their order:
+
+- Multikills, each kill within 4 seconds of the one before (the game's own
+  window): `double_kill` (2), `triple_kill`, `killtacular`, `killtrocity`
+  (5), as Halo: Combat Evolved has them, then Halo 3's `killimanjaro` (6),
+  `killtastrophe`, `killpocalypse` and `killionaire` (9 and every kill
+  after).
+- Sprees, kills without dying: `killing_spree` (5), `killing_frenzy`,
+  `running_riot`, `rampage` (20), `untouchable`, `invincible`,
+  `inconceivable`, `unfriggenbelievable` (40).
+- A kill's: `beat_down` (melee), `sniper_kill`, `grenade_stick` (Stuck),
+  `splatter`, `from_the_grave` (the killer dead as it landed), `killjoy`
+  (the end of a spree of 5 or more), `first_strike` (the game's first
+  kill), `revenge` (the player who killed you last).
+- A weapon's sprees, its kills without dying: `sniper_spree` (5) and
+  `sharpshooter` (10), `shotgun_spree` and `open_season`, `splatter_spree`
+  and `vehicular_manslaughter`, `stick_spree` (5 stuck).
+
+Splatter and its sprees need the damage's category, which only the host's
+Delta Stats has; the carnage reports leave them out. Older builds report
+fewer keys (Halo CE's four multikills and four sprees, Killtrocity for 5
+and more). The site takes any key (at most 64 a line) and counts the ones
+it knows (`site.js`, `MEDALS`); its checks hold a line's multikill medals
+to its kills, and its sprees, five kills each, too.
 
 ### Map facts
 
