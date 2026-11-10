@@ -3789,13 +3789,25 @@ static void test_identity_recheck(void)
 	CHECK(!delta_peer_identity(&nodes[2].peer, 1, 0, NULL) && delta_peer_identity(&nodes[0].peer, 1, 0, NULL));
 	nodes[2].clock -= 2600;
 
-	/* a device revoked since (the host's check now refuses machine 1):
-	withdrawn within the recheck */
-	nodes[0].refuses = 1u << 1;
-	for (step = 0; step < 4; step++, now += DELTA_PEER_IDENTITY_RECHECK / 2)
+	/* a device revoked since (the checks now refuse machine 1): dropped
+	within the minute, and at once when a new revocation list comes
+	(delta_peer_identity_recheck), on a client and on the host */
+	for (step = 0; step < 4; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
 		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && delta_peer_identity(&nodes[2].peer, 1, 0, NULL));
+	nodes[0].refuses = nodes[2].refuses = 1u << 1;
+	frame(now, 4, joined, 1);
+	now += 100;
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && delta_peer_identity(&nodes[2].peer, 1, 0, NULL));
+	delta_peer_identity_recheck(&nodes[2].peer);
+	frame(now, 4, joined, 1);
+	now += 100;
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && !delta_peer_identity(&nodes[2].peer, 1, 0, NULL));
+	delta_peer_identity_recheck(&nodes[0].peer);
+	frame(now, 4, joined, 1);
+	now += 100;
 	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && !delta_peer_identity(&nodes[0].peer, 1, 1, NULL));
-	nodes[0].refuses = 0;
+	nodes[0].refuses = nodes[2].refuses = 0;
 
 	/* someone shows an identity unbound first (joined by address); its
 	owner then proves it bound: the bound one takes its place */

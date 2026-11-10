@@ -344,6 +344,11 @@ int identity_parse_revoked(const unsigned char *data, int size, struct identity_
 	return 1;
 }
 
+int identity_revoked_issuer_usable(int issuer_check, int saved)
+{
+	return issuer_check == IDENTITY_OK || (issuer_check == IDENTITY_EXPIRED && saved);
+}
+
 int identity_check_revoked(const unsigned char *data, int size, const struct identity_issuer *issuer,
 	struct identity_revoked *revoked)
 {

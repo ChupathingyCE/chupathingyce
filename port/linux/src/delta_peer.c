@@ -930,6 +930,11 @@ void delta_peer_set_moderation_host(struct delta_peer *peer, const struct delta_
 	peer->moderation_host = host;
 }
 
+void delta_peer_identity_recheck(struct delta_peer *peer)
+{
+	peer->identity_recheck = 1;
+}
+
 void delta_peer_set_moderation_binding(struct delta_peer *peer, const char *binding)
 {
 	int length = 0;
@@ -3190,7 +3195,7 @@ static void host_identity_frame(struct delta_peer *peer, delta_u32 now)
 		}
 		/* (checked again: a proof grown too old, a certificate past its
 		date, a device revoked since) */
-		if (elapsed(now, card->checked_time, DELTA_PEER_IDENTITY_RECHECK))
+		if (peer->identity_recheck || elapsed(now, card->checked_time, DELTA_PEER_IDENTITY_RECHECK))
 		{
 			struct delta_peer_identity again;
 
@@ -3204,6 +3209,7 @@ static void host_identity_frame(struct delta_peer *peer, delta_u32 now)
 			}
 		}
 	}
+	peer->identity_recheck = 0;
 	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
 	{
 		struct delta_peer_host_peer *client = &peer->peers[index];
@@ -3392,7 +3398,7 @@ static void client_identity_frame(struct delta_peer *peer, delta_u32 now)
 		device revoked since; the host sends the same card again and again,
 		but a card only lasts as long as it checks) */
 		if (!card->used || !card->proof.certificate_length ||
-			!elapsed(now, card->checked_time, DELTA_PEER_IDENTITY_RECHECK))
+			(!peer->identity_recheck && !elapsed(now, card->checked_time, DELTA_PEER_IDENTITY_RECHECK)))
 		{
 			continue;
 		}
@@ -3404,6 +3410,7 @@ static void client_identity_frame(struct delta_peer *peer, delta_u32 now)
 			memset(card, 0, sizeof(*card));
 		}
 	}
+	peer->identity_recheck = 0;
 	if (!peer->identity_challenged || !peer->env.identity_prove || !valid_machine(peer->machine_index))
 		return;
 	binding = client_identity_binding(peer);

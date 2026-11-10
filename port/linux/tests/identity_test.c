@@ -554,6 +554,10 @@ static void test_revoked(void)
 	unsigned char broken[256], other[16];
 
 	CHECK(identity_parse_issuer(issuer_data, IDENTITY_ISSUER_SIZE, &issuer));
+	/* (an issuer past its dates: only the list kept, never one fetched) */
+	CHECK(identity_revoked_issuer_usable(IDENTITY_OK, 0) && identity_revoked_issuer_usable(IDENTITY_OK, 1));
+	CHECK(identity_revoked_issuer_usable(IDENTITY_EXPIRED, 1) && !identity_revoked_issuer_usable(IDENTITY_EXPIRED, 0));
+	CHECK(!identity_revoked_issuer_usable(IDENTITY_NOT_ROOT_SIGNED, 1) && !identity_revoked_issuer_usable(IDENTITY_MALFORMED, 0));
 	CHECK(identity_check_revoked(revoked_data, revoked_size, &issuer, &revoked) == IDENTITY_OK);
 	CHECK(revoked.serial == VECTOR_ISSUED && revoked.issued == VECTOR_ISSUED &&
 		revoked.next_update == VECTOR_ISSUED + 86400 && revoked.count == 2);

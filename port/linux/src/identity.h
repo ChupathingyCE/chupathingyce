@@ -144,6 +144,11 @@ int identity_parse_revoked(const unsigned char *data, int size, struct identity_
 int identity_check_revoked(const unsigned char *data, int size, const struct identity_issuer *issuer,
 	struct identity_revoked *revoked);
 int identity_is_revoked(const struct identity_revoked *revoked, const unsigned char *device_id);
+/* whether a revocation list may be taken given its issuer's check
+(identity_check_issuer's answer): IDENTITY_OK always; IDENTITY_EXPIRED only
+for the list this copy kept (saved 1), taken while its issuer was good,
+never for one fetched; anything else never */
+int identity_revoked_issuer_usable(int issuer_check, int saved);
 
 /* this copy's own certificate and its issuer's, as the site answered: the
 issuer checked against the root keys when any is not all zero (else only

@@ -683,6 +683,8 @@ struct delta_peer
 	withdrawal sent) */
 	struct delta_peer_card cards[DELTA_PEER_IDENTITY_CARDS];
 	delta_u32 identity_generation;
+	/* (every card checked again on the next frame: delta_peer_identity_recheck) */
+	int identity_recheck;
 	/* (the host's own players' nonce, made once it hosts, and the binding
 	they were proved with: proved again when it changes) */
 	int identity_nonce_made;
@@ -775,6 +777,9 @@ clients that say HELLO from now) */
 void delta_peer_set_moderation_host(struct delta_peer *peer, const struct delta_peer_moderation_host *host);
 /* the host's binding: what its challenges carry (none: a LAN host) */
 void delta_peer_set_moderation_binding(struct delta_peer *peer, const char *binding);
+/* every verified player's card kept is checked again on the next frame
+(the revocation list changed: a device on it is withdrawn, or dropped) */
+void delta_peer_identity_recheck(struct delta_peer *peer);
 /* (host) a machine's key proved this session: 1 and it in key */
 int delta_peer_moderation_key(const struct delta_peer *peer, int machine_index, unsigned char *key);
 /* (host) whether a machine's session agreed to moderation */

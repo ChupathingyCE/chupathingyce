@@ -410,6 +410,22 @@ static int game_moderation_binding(void *context, delta_u32 host_ipv4, char *bin
 	return -1;
 }
 
+/* a new revocation list: every verified player kept is checked against it
+on this frame, instead of within the minute */
+static void identity_revoked_changed(void)
+{
+#ifdef HALO_DELTA_PEER_IDENTITY
+	static int changes;
+	int now_changes = browser_identity_revoked_changes();
+
+	if (now_changes != changes)
+	{
+		changes = now_changes;
+		delta_peer_identity_recheck(&delta_game.peer);
+	}
+#endif
+}
+
 #ifdef HALO_DELTA_PEER_IDENTITY
 /* verified names (docs/delta.md, Verified names): a proof checked, as a host
 and as a client of a relayed card: the chain to the root keys, the dates by
@@ -850,6 +866,7 @@ void delta_peer_game_host_frame(const struct delta_peer_game_machine *machines, 
 	}
 #endif
 	receive();
+	identity_revoked_changed();
 	delta_peer_host_frame(&delta_game.peer, GetTickCount(), machines, count, player_machines);
 	host_map();
 	delta_peer_set_traits(&delta_game.peer, delta_game.has_traits ? &delta_game.traits : NULL);
@@ -878,6 +895,7 @@ void delta_peer_game_client_frame(int joined, delta_u32 host_ipv4, int host_spea
 	if (host_speaks_delta && !open_socket(0))
 		host_speaks_delta = 0;
 	receive();
+	identity_revoked_changed();
 	delta_peer_client_frame(&delta_game.peer, GetTickCount(), joined, host_ipv4, DELTA_PEER_PORT, host_speaks_delta,
 		(unsigned char)(machine_index >= 0 && machine_index < DELTA_PEER_MAXIMUM_MACHINES ? machine_index :
 			DELTA_WIRE_NO_MACHINE),
