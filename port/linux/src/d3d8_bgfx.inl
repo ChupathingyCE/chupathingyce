@@ -3703,6 +3703,11 @@ extern struct bgfx_mtl_stats_t bgfx_mtl_stats;
 /* the GPU bgfx draws with, as its renderer names it (the bgfx patch,
 tools/bgfx-patches) */
 extern char bgfx_gpu_name[256];
+/* whether bgfx's Vulkan renderer times each frame on the GPU (the bgfx patch
+0004): only for debug.gpu_stats, which logs it. NVIDIA's driver crashed in
+the frame's first timestamp on Windows (game issue #939), and nothing else
+reads it */
+extern int bgfx_vk_gpu_timer;
 
 /* this frame's shader and vertex work, for debug.gpu_stats's slow frames
 (D3DDevice_Present, after the frame); the next frame's starts */
@@ -4221,6 +4226,7 @@ static BOOL bg_initialize(void)
 		platform_log("bgfx: the window has no handle for %s", bgfx_get_renderer_name(init.type));
 		return FALSE;
 	}
+	bgfx_vk_gpu_timer = config_boolean("debug.gpu_stats");
 	if (!bgfx_init(&init))
 	{
 		platform_log("bgfx: %s does not start", bgfx_get_renderer_name(init.type));

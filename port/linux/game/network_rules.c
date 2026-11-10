@@ -138,9 +138,13 @@ void network_rules_input_head_read(uint8_t const *head, int *player, int *struct
 	*host_time = (int32_t)get32(head + 8);
 }
 
-int network_rules_mouse_is_aim_device(uint64_t mouse_ms, uint64_t stick_ms, uint64_t touch_ms)
+int network_rules_mouse_is_aim_device(uint64_t mouse_ms, uint64_t stick_ms, uint64_t touch_ms,
+	int gamepad_connected)
 {
 	int mouse = stick_ms == 0 || mouse_ms >= stick_ms;
+
+	if (mouse_ms == 0 && stick_ms == 0 && touch_ms == 0)
+		return !gamepad_connected;
 
 	if (touch_ms != 0 && touch_ms >= mouse_ms && touch_ms >= stick_ms)
 		mouse = 0;
