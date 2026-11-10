@@ -12,9 +12,8 @@ and the debug keyboard that the game's console reads.
 #include "platform.h"
 #include "sdl_platform.h"
 #include "gl.h"
-#ifdef HALO_BGFX
+/* (bgfx's switch, and the older drivers' path: XGPU_GL_LEGACY_AT_RUN_TIME) */
 #include "xgpu.h"
-#endif
 #include "port_config.h"
 #include "p2p.h"
 #include "posix.h"
