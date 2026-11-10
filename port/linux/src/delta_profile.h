@@ -26,6 +26,15 @@ PLAYER_INVITES) */
 #define DELTA_PROFILE_CLAN_INVITES 20
 /* a player ID, in hexadecimal */
 #define DELTA_PROFILE_ID_LENGTH 32
+/* the record's medals kept, the most earned first (of the site's
+"medal_counts") */
+#define DELTA_PROFILE_TOP_MEDALS 3
+
+struct delta_profile_medal
+{
+	char key[32];
+	int count;
+};
 
 struct delta_profile_game
 {
@@ -147,6 +156,13 @@ struct delta_profile
 	int record_medals;
 	long long record_seconds;
 	char record_best_type[32];
+	/* (a site with the service record's details: 0 and "" from an older
+	one) */
+	int record_best_spree;
+	char record_favorite_map[48];
+	char record_favorite_weapon[48];
+	int record_top_medal_count;
+	struct delta_profile_medal record_top_medals[DELTA_PROFILE_TOP_MEDALS];
 	int recent_count;
 	struct delta_profile_game recent[DELTA_PROFILE_RECENT];
 	/* (more_*: how many the site left out, its answer being cut to size) */

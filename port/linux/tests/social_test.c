@@ -43,6 +43,7 @@ static void test_sections(void)
 	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_FRIENDS), "FRIENDS"));
 	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_PLAYERS_HERE), "PLAYERS HERE"));
 	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_SETTINGS), "SETTINGS"));
+	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_SERVICE_RECORD), "SERVICE RECORD"));
 	CHECK(!strcmp(social_section_name(-1), ""));
 	CHECK(!strcmp(social_section_name(NUMBER_OF_SOCIAL_SECTIONS), ""));
 }
@@ -385,6 +386,24 @@ static void test_presence(void)
 	CHECK(social_presence_fields(fields, 20, "0123456789abcdef0123456789abcdef0123456789ab") == -1);
 }
 
+/* the service record's details from the site (an older site sends none) */
+static void test_record(void)
+{
+	static struct delta_profile profile;
+
+	CHECK(delta_profile_parse("{\"linked\": true, \"handle\": \"grif\", \"record\": {\"games\": 4, \"kills\": 30, "
+		"\"best_spree\": 7, \"favorite_map\": \"bloodgulch\", \"favorite_weapon\": \"sniper rifle\", "
+		"\"medal_counts\": {\"victory\": 2, \"double_kill\": 9, \"revenge\": 0, \"killjoy\": 3, \"rampage\": 1, "
+		"\"first_strike\": 5}}}", &profile));
+	CHECK(profile.has_record && profile.record_games == 4 && profile.record_best_spree == 7);
+	CHECK(!strcmp(profile.record_favorite_map, "bloodgulch") && !strcmp(profile.record_favorite_weapon, "sniper rifle"));
+	CHECK(profile.record_top_medal_count == 3);
+	CHECK(!strcmp(profile.record_top_medals[0].key, "double_kill") && profile.record_top_medals[0].count == 9);
+	CHECK(!strcmp(profile.record_top_medals[1].key, "first_strike") && profile.record_top_medals[2].count == 3);
+	CHECK(delta_profile_parse("{\"linked\": true, \"handle\": \"grif\", \"record\": {\"games\": 1, \"medals\": 2}}", &profile));
+	CHECK(profile.record_games == 1 && profile.record_top_medal_count == 0 && !profile.record_favorite_map[0]);
+}
+
 int main(void)
 {
 	test_sections();
@@ -394,6 +413,7 @@ int main(void)
 	test_poll();
 	test_presence();
 	test_state();
+	test_record();
 	if (failures)
 	{
 		printf("%d failed\n", failures);

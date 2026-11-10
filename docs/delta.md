@@ -1759,6 +1759,24 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   false` shows everyone by their game name.
 - **Consoles:** `HALO_CONSOLE_NO_DELTA_PROFILE` leaves all of it out. A
   console that has the game list keeps Online Games' Link Profile panel.
+- **Service record:** the profile's `"record"` has the site's totals of
+  its confirmed games (host and verified: only games of linked copies
+  count) and, from a site with them, `"best_spree"`, `"favorite_map"` (a
+  map key), `"favorite_weapon"` (a weapon family, "sniper rifle": the
+  second part of `weapons\...` or `vehicles\...` damage paths) and
+  `"medal_counts"` ({key: count}, most first, the medals the games
+  reported). An older site sends none of these and the game shows what it
+  has. `GET /v1/profiles/ID/record` gives the same record to anyone, except
+  for a locked profile or one that hides its service record (404).
+- **DELTA's SERVICE RECORD** (`port/linux/game/guide_record.c`) shows the
+  first player's Halo profile's own record beside the site's. The game
+  keeps it in the profile's folder (`service_record.txt`,
+  `port/linux/src/service_record.c`): every multiplayer game the profile
+  finished on that device, as `game_stats.c` adds it a few seconds after
+  the end (the host's final statistics, the medals and weapons of the
+  kills it saw). It is never sent. A win is counted as the site counts
+  one (the best team, else first place). Its one row, MEDALS ON HUD, is
+  `display.medals`.
 
 ### Link Profile on a console
 

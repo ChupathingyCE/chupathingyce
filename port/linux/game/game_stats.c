@@ -52,6 +52,11 @@ Called each frame from the main loop (main.c).
 #include "../src/browser.h"
 #include "../src/game_report.h"
 #include "../src/medal_rules.h"
+#ifdef HALO_GAME_BROWSER
+#include "interface/player_ui.h"
+#include "saved games/player_profile.h"
+#include "../src/service_record.h"
+#endif
 
 #include <limits.h>
 #include <stdarg.h>
@@ -82,6 +87,8 @@ int console_claims_game_ended(int hosted, const char *invite, const char *map, c
 	int duration_seconds);
 /* internet play's (port/linux/src/p2p.c) */
 int p2p_joined_invite(char *text, int size);
+#endif
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_CLAIMS)
 /* the hosted game (network_server_manager_internal.h) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 #endif
@@ -95,6 +102,7 @@ void platform_log(char const *format, ...);
 int config_boolean(char const *name);
 #ifdef HALO_GAME_BROWSER
 const char *updater_version(void);
+void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size);
 #endif
 
 /* ---------- constants */
@@ -188,6 +196,10 @@ static struct
 	boolean console_claimed;
 	/* the game's first kill (First Strike) */
 	struct medal_game medal_game;
+#ifdef HALO_GAME_BROWSER
+	/* this machine's players' games added to their service records */
+	boolean service_recorded;
+#endif
 } game_stats = { .recording = FALSE, .kill_damage = NONE };
 
 /* ---------- private code */
@@ -211,6 +223,9 @@ static void stats_reset(
 	game_stats.client_reported = FALSE;
 	game_stats.console_claimed = FALSE;
 	medal_game_reset(&game_stats.medal_game);
+#ifdef HALO_GAME_BROWSER
+	game_stats.service_recorded = FALSE;
+#endif
 }
 
 /* a new game (the game's time went back: a new map, or the next game) */
@@ -690,6 +705,97 @@ static void stats_console_claim(
 }
 #endif
 
+#ifdef HALO_GAME_BROWSER
+/* the game that ended, added to the service record of each of this
+machine's players (service_record.h, in their Halo profile's folder): their
+line as the report has it (the host's statistics, which every client is
+sent), whether they won as the site counts a win (the best team, else first
+place), and the medals and weapons of the kills this machine saw */
+static void stats_service_record(
+	void)
+{
+	struct browser_report_player *lines = stats_lines;
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_game_client *client = server ? NULL : global_network_game_client_get();
+	struct network_game *network = server ? network_game_server_get_game(server) :
+		client ? network_game_client_get_game(client) : NULL;
+	boolean teams = game_engine_get_variant()->universal_variant.teams;
+	long red = teams ? game_engine_get_team_score(0) : 0;
+	long blue = teams ? game_engine_get_team_score(1) : 0;
+	struct data_iterator iterator;
+	struct player_datum *player;
+	long count;
+
+	if (!network)
+		return;
+	count = game_engine_report_lines(lines, MAXIMUM_STATS_PLAYERS);
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		static struct service_record record;
+		struct stats_player *tracked = stats_player(iterator.datum_index);
+		struct service_record_weapon weapons[MAXIMUM_PLAYER_WEAPONS];
+		struct service_record_game game;
+		char folder[512], path[1024];
+		long profile, index;
+		short medal;
+
+		if (player->local_player_index == NONE || !tracked || !tracked->used)
+			continue;
+		for (index = 0; index < count; index++)
+		{
+			if (!csmemcmp(lines[index].name, player->name, sizeof(lines[index].name)))
+				break;
+		}
+		profile = player_ui_get_active_player_profile_index(player->local_player_index);
+		/* (the first player's: the profile used last, as DELTA shows it) */
+		if (profile == NONE && player->local_player_index == 0)
+			profile = player_ui_get_player1_last_used_profile_index();
+		if (index >= count || profile == NONE || !player_profile_get_enclosing_directory_path(profile, folder))
+			continue;
+		platform_translate_path(folder, path, sizeof(path));
+		if (strlen(path) + 1 + strlen(SERVICE_RECORD_FILE_NAME) >= sizeof(path))
+			continue;
+		if (path[0] && path[strlen(path) - 1] != '/' && path[strlen(path) - 1] != '\\')
+			strcat(path, "/");
+		strcat(path, SERVICE_RECORD_FILE_NAME);
+		csmemset(&game, 0, sizeof(game));
+		game.map = network->map.name;
+		if (teams)
+			game.won = red != blue && lines[index].team == (red > blue ? 0 : 1);
+		else
+			game.won = lines[index].place == 1;
+		game.kills = lines[index].kills;
+		game.deaths = lines[index].deaths;
+		game.assists = lines[index].assists;
+		game.betrayals = lines[index].betrayals;
+		game.suicides = lines[index].suicides;
+		game.seconds = (int)((tracked->last_tick - tracked->first_tick) / TICKS_PER_SECOND);
+		game.best_spree = tracked->medal.best_spree;
+		for (medal = 0; medal < NUMBER_OF_MEDALS; medal++)
+			game.medals[medal] = tracked->medals[medal];
+		for (medal = 0; medal < tracked->weapon_count; medal++)
+		{
+			weapons[medal].path = stats_weapon_name(tracked->weapons[medal].definition_index);
+			weapons[medal].kills = tracked->weapons[medal].kills;
+		}
+		game.weapons = weapons;
+		game.weapon_count = tracked->weapon_count;
+		/* (a record that would not read is left alone, not written over) */
+		if (!service_record_load(path, &record))
+		{
+			platform_log("Service record: a profile's record could not be read; this game is not added");
+			continue;
+		}
+		service_record_add_game(&record, &game);
+		if (service_record_save(path, &record))
+			platform_log("Service record: game %ld added", record.games);
+		else
+			platform_log("Service record: could not be saved");
+	}
+}
+#endif
+
 /* ---------- public code */
 
 /* damage.c: the damage of the kill about to be counted (NONE once it is) */
@@ -859,6 +965,17 @@ void game_stats_update(
 		game_stats.client_reported = TRUE;
 		stats_client_report();
 	}
+#ifdef HALO_GAME_BROWSER
+	/* this machine's players' service records, once the host's last
+	statistics are in */
+	if (!game_stats.service_recorded &&
+		(game_connection() == _game_connection_network_client || game_connection() == _game_connection_network_server) &&
+		system_milliseconds() - game_stats.over_time >= CLIENT_REPORT_DELAY_MILLISECONDS)
+	{
+		game_stats.service_recorded = TRUE;
+		stats_service_record();
+	}
+#endif
 #if !defined(HALO_GAME_BROWSER) && defined(HALO_CONSOLE_GAME_CLAIMS)
 	/* a console's claim of its own line, hosted or joined, once its report
 	(a joined game's) is on its way */

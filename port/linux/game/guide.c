@@ -9,7 +9,7 @@ data social.c's.
 
 The panel: the player's card (their name and what they're doing), then
 the sections, switched with LB and RB (Q and E, or a click): FRIENDS,
-PARTY, PLAYERS HERE, RECENT and SETTINGS.
+PARTY, PLAYERS HERE, RECENT, SERVICE RECORD and SETTINGS.
 - PLAYERS HERE lists the game's players: their Delta Tag when they share
   their profile (else their game name), their platform's logo when the game
   is on Delta, and a local Mute (the chat log's, chat.c). No address is ever
@@ -22,6 +22,9 @@ PARTY, PLAYERS HERE, RECENT and SETTINGS.
   (in a game on Delta), REMOVE and BLOCK (each pressed twice); an invite's
   JOIN and DISMISS; a request's ACCEPT and DECLINE. Only Delta profiles,
   never an OpenCE player, never an address.
+- SERVICE RECORD is the first player's own record: this device's
+  (service_record.c, kept as their games end) beside their Delta
+  profile's, and MEDALS ON HUD (guide_record.c).
 - PARTY and RECENT are still empty. Without a Delta profile, FRIENDS,
   PARTY and RECENT offer SIGN IN (Delta Profile's Link Profile).
 
@@ -73,6 +76,7 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "halo_ui_pointer.h"
 #include "halo_profile_screen.h"
 #include "chat.h"
+#include "guide_record.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1176,6 +1180,8 @@ static short section_rows(short section)
 		return (short)guide.players.count;
 	case SOCIAL_SECTION_SETTINGS:
 		return settings_rows();
+	case SOCIAL_SECTION_SERVICE_RECORD:
+		return guide_record_rows();
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
 			return guide.friends_loaded ? guide.item_count : 0;
@@ -1192,6 +1198,8 @@ static void section_go(short section)
 	guide.first_row = 0;
 	guide.options = FALSE;
 	guide.armed = NONE;
+	if (guide.section == SOCIAL_SECTION_SERVICE_RECORD)
+		guide_record_open();
 }
 
 /* A on the chosen row */
@@ -1203,6 +1211,9 @@ static void activate(void)
 	{
 	case SOCIAL_SECTION_PLAYERS_HERE:
 		player_mute_toggle(row);
+		return;
+	case SOCIAL_SECTION_SERVICE_RECORD:
+		guide_record_activate();
 		return;
 	case SOCIAL_SECTION_SETTINGS:
 		if (row >= NUMBER_OF_SETTINGS)
@@ -1737,6 +1748,9 @@ static void render_prompts(void)
 	case SOCIAL_SECTION_SETTINGS:
 		word = guide.row[guide.section] >= NUMBER_OF_SETTINGS ? "OPEN" : "CHANGE";
 		break;
+	case SOCIAL_SECTION_SERVICE_RECORD:
+		word = guide_record_prompt();
+		break;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
 		{
@@ -2128,6 +2142,9 @@ void guide_render(void)
 		break;
 	case SOCIAL_SECTION_SETTINGS:
 		render_settings();
+		break;
+	case SOCIAL_SECTION_SERVICE_RECORD:
+		guide_record_render(CONTENT_LEFT, BODY_Y, CONTENT_RIGHT, BODY_BOTTOM, TRUE);
 		break;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
