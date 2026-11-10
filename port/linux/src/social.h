@@ -466,6 +466,30 @@ int social_party_link(const char *code, char *link, int size);
 int social_party_tag_bytes(const char *tag, unsigned char *bytes);
 /* the party's leader (NULL: none) */
 const struct social_party_member *social_party_leader(const struct social_party *party);
+
+/* a list's chosen item, kept on the same one when the list changes under it
+(PARTY's: a member joins, VOICE shows): its kind and number, and for an item
+that moves around (a member, an invite) its ID */
+enum { SOCIAL_LIST_KEY_ID_SIZE = 20 };
+struct social_list_key
+{
+	int kind;
+	int index;
+	char id[SOCIAL_LIST_KEY_ID_SIZE];
+};
+/* the row to choose now: kept and kept_row, the item chosen and its row as
+last remembered; keys and count, the list now; row, the row chosen now. With
+the row as remembered, the item there or, if the list moved it, wherever it
+went; with the row moved since (by a press, or the code), that row. *changed
+is 1 when the item at the row returned isn't the one remembered (anything
+armed on it no longer applies), else 0 */
+int social_list_keep(const struct social_list_key *kept, int kept_row, const struct social_list_key *keys, int count,
+	int row, int *changed);
+/* whether the item at index now (keys, count) is the one drawn there
+(drawn, drawn_count: the list as last drawn), so a tap on that row, aimed at
+what the player saw, still lands on it (0: the list changed under the tap) */
+int social_list_same_item(const struct social_list_key *drawn, int drawn_count, const struct social_list_key *keys,
+	int count, int index);
 /* "WHO CAN JOIN"'s value as shown (ANYONE, FRIENDS, INVITE ONLY), and the
 next one (A or right; back with a direction below 0) */
 const char *social_party_rule_shown(const char *rule);
