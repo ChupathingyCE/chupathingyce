@@ -2935,6 +2935,20 @@ static int restart_with(const char *mode)
 	return 1;
 }
 
+int launcher_restart_to_setup(void)
+{
+	char path[PATH_SIZE];
+
+	if (!executable_path(path, sizeof(path)) || !update_launch_with(path, "--setup"))
+	{
+		platform_log("launcher: could not start again on the setup screen");
+		return 0;
+	}
+	platform_log("launcher: SETUP: starting again on the setup screen");
+	exit(EXIT_SUCCESS);
+	return 1;
+}
+
 static void play(void)
 {
 	if (!xbox_maps_ready())
