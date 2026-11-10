@@ -23,6 +23,7 @@ GL_OPTIONAL_FUNCTIONS(GL_DEFINE_FUNCTION)
 #version line: set by sdl_platform.c with the context */
 int xgpu_gl_legacy;
 const char *xgpu_gl_version_line = "#version 450 core\n";
+int xgpu_gl_sample_mask = 1;
 #endif
 
 void *gl_function_extra(const char *name)

@@ -49,6 +49,11 @@ driver the newest of 4.1, 4.0 and 3.3 its context has */
 #ifdef XGPU_GL_LEGACY_AT_RUN_TIME
 extern const char *xgpu_gl_version_line;
 #define XGPU_GL_VERSION_LINE xgpu_gl_version_line
+/* (GLSL 3.30's has no gl_SampleMask: alpha tested over the samples, nv2a_psh.c) */
+extern int xgpu_gl_sample_mask;
+#define XGPU_GL_SAMPLE_MASK xgpu_gl_sample_mask
+#else
+#define XGPU_GL_SAMPLE_MASK 1
 #elif defined(__APPLE__)
 #define XGPU_GL_VERSION_LINE "#version 410 core\n"
 #else

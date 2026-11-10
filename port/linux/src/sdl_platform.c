@@ -1600,6 +1600,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		ones macOS's 4.1 path is written for) */
 		xgpu_gl_version_line = major > 4 || (major == 4 && minor >= 1) ? "#version 410 core\n" :
 			major == 4 ? "#version 400 core\n" : "#version 330 core\n";
+		xgpu_gl_sample_mask = major >= 4;
 		platform_log("graphics: OpenGL %d.%d, without OpenGL 4.5: the renderer's older drivers' path (%.17s)",
 			(int)major, (int)minor, xgpu_gl_version_line);
 	}
