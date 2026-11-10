@@ -99,6 +99,8 @@ F11 full screen, F12 the mouse) */
 static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", NULL };
 /* display.theme's: the Guide's and the setup screen's colors (ui_style_theme) */
 static const char *const theme_choices[] = { "blue", "red", NULL };
+/* display.light_effects' (port/linux/game/lighting_config.c) */
+static const char *const light_effects_choices[] = { "auto", "high", "low", "off", NULL };
 static const char *const theme_names[] = { "HALO BLUE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
@@ -115,6 +117,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_display, "ANTI-ALIASING", "display.anti_aliasing", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_display, "MENU STYLE", "display.menus", _kind_choices, menus_choices, NULL, 0, 0 },
 	{ _in_display, "PERFORMANCE", "display.particle_limit", _kind_preset, NULL, NULL, 0, 0 },
+	{ _in_display, "LIGHT EFFECTS", "display.light_effects", _kind_choices, light_effects_choices, NULL, 0, 0 },
 
 #ifdef HALO_LAUNCHER
 	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },
@@ -165,6 +168,7 @@ static const struct
 	{ "display.anisotropic_filtering", "0" },
 	{ "display.anti_aliasing", "off" },
 	{ "display.per_pixel_lighting", "false" },
+	{ "display.light_effects", "off" },
 	{ "display.resolution_scaling", "original" },
 };
 

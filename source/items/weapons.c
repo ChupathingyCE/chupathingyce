@@ -240,6 +240,8 @@ symbols in this file:
 /* port/linux/game/pal_tags.c's */
 short pal_tags_first_person_frames(long graph_index, short animation_index, short frames);
 
+#include "muzzle_lighting.h" /* port: port/linux/game/muzzle_lighting.c */
+
 /* ---------- constants */
 
 enum weapon_trigger_flags
@@ -2929,6 +2931,9 @@ static void weapon_trigger_fire(
 			else
 			{
 				trigger_create_projectiles(weapon_index, trigger_index);
+				/* port: the Light effects' muzzle flash; drawn only, nothing
+				of the game changes (port/linux/game/muzzle_lighting.c) */
+				muzzle_lighting_shot(weapon_index, trigger_index);
 				ai_handle_unit_effect(owner_object_index, _ai_unit_effect_shooting, trigger_definition->firing_noise);
 			}
 		}
