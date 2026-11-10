@@ -130,6 +130,8 @@ enum
 	OPTION_GAP = 4,
 	/* a refusal's line, shown this long */
 	MESSAGE_TIME = 6000,
+	/* (as Delta Profile's dialogs: DIALOG_SETTLE) */
+	CONFIRM_SETTLE = 400,
 	/* the browser thread told where the player is this often */
 	WHERE_INTERVAL = 1000,
 
@@ -176,6 +178,20 @@ enum
 	COLOR_DOT_AWAY = 0xE0A53AFF,
 	COLOR_DOT_OFFLINE = 0x4A5A70FF,
 	COLOR_MUTED = 0xFF9F9FFF,
+};
+
+/* SETTINGS' rows after the settings, signed in: the devices (Delta
+Profile's devices dialog) and Link a device (another device's code) */
+enum
+{
+	_device_row_devices,
+	_device_row_link,
+	NUMBER_OF_DEVICE_ROWS
+};
+
+static char const *const device_row_labels[NUMBER_OF_DEVICE_ROWS] =
+{
+	"DEVICES", "LINK A DEVICE",
 };
 
 /* what a click or tap lands on */
@@ -318,6 +334,14 @@ static struct
 	short dismissed_next;
 
 	int plasma_tries;
+
+	/* SIGN IN here (Quick Connect, browser.c's Link Profile): its code
+asked for, and what it came to */
+	boolean signing_in;
+	struct browser_connect connect;
+	/* when its question first showed: A only after CONFIRM_SETTLE, so a
+	press meant for something else doesn't answer it */
+	unsigned long confirm_shown;
 
 	struct guide_target targets[MAXIMUM_TARGETS];
 	short target_count;
@@ -526,6 +550,8 @@ static void player_mute_toggle(short row)
 	players_update();
 }
 
+static void message_set(char const *text);
+
 /* ---------- SETTINGS */
 
 /* (settings_rows.h's: the rows the setup screen's Settings shares) */
@@ -544,6 +570,70 @@ static void setting_change(short setting, short direction)
 
 	if (row)
 		settings_row_change(row, direction < 0 ? -1 : 1);
+}
+
+/* SETTINGS' rows: the settings, then the devices' rows when signed in */
+static short settings_rows(void)
+{
+	return (short)(settings_count() + (guide.linked && profile_screen_available() ? NUMBER_OF_DEVICE_ROWS : 0));
+}
+
+/* a device row's A: Delta Profile's dialog, over what was under DELTA */
+static void device_row_activate(short row)
+{
+	guide_close();
+	if (!(row == _device_row_devices ? profile_screen_open_devices() : profile_screen_open_link_a_device()))
+	{
+		guide_open();
+		message_set(row == _device_row_devices ? "Your devices aren't loaded yet." :
+			"Sign in on this device first.");
+	}
+}
+
+/* ---------- SIGN IN: Quick Connect's code, shown here */
+
+static void sign_in_start(void)
+{
+	browser_connect_start(NULL);
+	browser_connect_get(&guide.connect);
+	guide.signing_in = TRUE;
+}
+
+static void sign_in_stop(void)
+{
+	if (guide.signing_in)
+		browser_connect_stop();
+	guide.signing_in = FALSE;
+}
+
+/* the section shows SIGN IN (FRIENDS, PARTY, RECENT) */
+static boolean signing_in_here(void)
+{
+	return guide.section != SOCIAL_SECTION_SETTINGS && guide.section != SOCIAL_SECTION_PLAYERS_HERE;
+}
+
+/* SIGN IN's A: a code, the player's yes, or a new code after one ran out */
+static void sign_in_activate(void)
+{
+	struct browser_connect const *connect = &guide.connect;
+
+	if (!guide.signing_in)
+		sign_in_start();
+	else if (connect->state == BROWSER_CONNECT_CONFIRM && !connect->answered)
+	{
+		if (system_milliseconds() - guide.confirm_shown >= CONFIRM_SETTLE)
+			browser_connect_answer(TRUE);
+	}
+	else if (connect->state == BROWSER_CONNECT_EXPIRED || connect->state == BROWSER_CONNECT_DECLINED ||
+		connect->state == BROWSER_CONNECT_FAILED)
+	{
+		sign_in_start();
+	}
+	else if (connect->state == BROWSER_CONNECT_CONNECTED)
+	{
+		sign_in_stop();
+		browser_profile_load(TRUE);
+	}
 }
 
 /* ---------- FRIENDS: the site's friends (browser.c polls them) */
@@ -1032,7 +1122,7 @@ static short section_rows(short section)
 	case SOCIAL_SECTION_PLAYERS_HERE:
 		return (short)guide.players.count;
 	case SOCIAL_SECTION_SETTINGS:
-		return settings_count();
+		return settings_rows();
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
 			return guide.friends_loaded ? guide.item_count : 0;
@@ -1062,7 +1152,10 @@ static void activate(void)
 		player_mute_toggle(row);
 		return;
 	case SOCIAL_SECTION_SETTINGS:
-		setting_change(row, 1);
+		if (row >= settings_count())
+			device_row_activate((short)(row - settings_count()));
+		else
+			setting_change(row, 1);
 		return;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
@@ -1073,15 +1166,9 @@ static void activate(void)
 		}
 		break;
 	}
+	/* (Quick Connect's code, shown here) */
 	if (!friends_signed_in() && sign_in_section() != NONE)
-	{
-		short section = sign_in_section();
-
-		/* (Delta Profile's Link Profile, its dialog over what was under
-		the Guide) */
-		guide_close();
-		profile_screen_section_action(section);
-	}
+		sign_in_activate();
 }
 
 static void move(short step)
@@ -1455,6 +1542,16 @@ static void render_settings(void)
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;
 	}
+	for (setting = settings_count(); setting < settings_rows(); setting++)
+	{
+		ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f,
+			device_row_labels[setting - settings_count()], NULL, "\xE2\x80\xBA",
+			setting == guide.row[SOCIAL_SECTION_SETTINGS]);
+		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
+		y += SETTING_HEIGHT + ROW_GAP;
+	}
+	if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
+		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + 12, y + 4, UI_ALIGN_LEFT, guide.message);
 }
 
 /* FRIENDS, PARTY and RECENT: SIGN IN without a Delta profile; nothing yet
@@ -1466,6 +1563,46 @@ static void render_coming(void)
 
 	if (friends_signed_in() || sign_in_section() == NONE)
 		return;
+	if (guide.signing_in)
+	{
+		struct browser_connect const *connect = &guide.connect;
+		char text[160];
+
+		switch (connect->state)
+		{
+		case BROWSER_CONNECT_WAITING:
+			snprintf(text, sizeof(text), "Enter this code at %s", connect->page);
+			ui_style_text(UI_TEXT_LINE, center, y - 18, UI_ALIGN_CENTER, text);
+			ui_style_row(center - 110, y + 2, 220, 50, TRUE);
+			ui_overlay_text_glow(UI_FONT_MENU, 26.0f, center, y + 10, UI_ALIGN_CENTER, 0xFFFFFFFF, COLOR_PROMPT_GLOW,
+				connect->code);
+			snprintf(text, sizeof(text), "Expires in %d:%02d", connect->seconds / 60, connect->seconds % 60);
+			ui_style_text(UI_TEXT_LINE, center, y + 62, UI_ALIGN_CENTER, text);
+			break;
+		case BROWSER_CONNECT_CONFIRM:
+			snprintf(text, sizeof(text), connect->previous[0] ? "Sign in as @%s (from @%s)?" : "Sign in as @%s?",
+				connect->handle, connect->previous);
+			ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y + 10, UI_ALIGN_CENTER, 0xFFFFFFFF, COLOR_PROMPT_GLOW, text);
+			if (connect->answered)
+				ui_style_text(UI_TEXT_LINE, center, y + 40, UI_ALIGN_CENTER, "Sending your answer\xE2\x80\xA6");
+			break;
+		case BROWSER_CONNECT_CONNECTED:
+			snprintf(text, sizeof(text), "Signed in as @%s", connect->handle);
+			ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y + 10, UI_ALIGN_CENTER, 0xFFFFFFFF, COLOR_PROMPT_GLOW, text);
+			break;
+		case BROWSER_CONNECT_EXPIRED:
+		case BROWSER_CONNECT_DECLINED:
+		case BROWSER_CONNECT_FAILED:
+			ui_style_text(UI_TEXT_LINE, center, y + 10, UI_ALIGN_CENTER,
+				connect->state == BROWSER_CONNECT_EXPIRED ? "The code expired." :
+				connect->state == BROWSER_CONNECT_DECLINED ? "Not signed in." : connect->message);
+			break;
+		default:
+			ui_style_text(UI_TEXT_LINE, center, y + 10, UI_ALIGN_CENTER, "Getting a code\xE2\x80\xA6");
+			break;
+		}
+		return;
+	}
 	ui_style_text(UI_TEXT_LINE, center, y, UI_ALIGN_CENTER, "Sign in to Delta to see friends");
 	ui_style_row(center - width * 0.5f, y + 22, width, 26, TRUE);
 	ui_overlay_text_glow(UI_FONT_MENU, 11.0f, center, y + 29, UI_ALIGN_CENTER, 0xFFFFFFFF, COLOR_PROMPT_GLOW,
@@ -1485,6 +1622,28 @@ static short shortcut_option(unsigned int button)
 		return NONE;
 	}
 	return option;
+}
+
+/* SIGN IN's A: its word as the sign-in goes (NULL: none now); B goes back
+while signing in */
+static char const *sign_in_word(boolean *back)
+{
+	if (!guide.signing_in)
+		return "SIGN IN";
+	*back = TRUE;
+	switch (guide.connect.state)
+	{
+	case BROWSER_CONNECT_CONFIRM:
+		return guide.connect.answered ? NULL : "YES";
+	case BROWSER_CONNECT_CONNECTED:
+		return "DONE";
+	case BROWSER_CONNECT_EXPIRED:
+	case BROWSER_CONNECT_DECLINED:
+	case BROWSER_CONNECT_FAILED:
+		return "NEW CODE";
+	default:
+		return NULL;
+	}
 }
 
 static void prompt_add(struct ui_style_prompt *prompts, short *count, int button, char const *key, char const *word)
@@ -1512,7 +1671,7 @@ static void render_prompts(void)
 		}
 		break;
 	case SOCIAL_SECTION_SETTINGS:
-		word = "CHANGE";
+		word = guide.row[guide.section] >= settings_count() ? "OPEN" : "CHANGE";
 		break;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
@@ -1530,11 +1689,11 @@ static void render_prompts(void)
 			break;
 		}
 		if (section_rows(guide.section))
-			word = "SIGN IN";
+			word = sign_in_word(&back);
 		break;
 	default:
 		if (section_rows(guide.section))
-			word = "SIGN IN";
+			word = sign_in_word(&back);
 		break;
 	}
 	if (word)
@@ -1543,7 +1702,8 @@ static void render_prompts(void)
 		prompt_add(prompts, &count, UI_BUTTON_Y, "TAB", "JOIN");
 	if (shortcut_option(GUIDE_INPUT_X) != NONE)
 		prompt_add(prompts, &count, UI_BUTTON_X, "M", "INVITE");
-	prompt_add(prompts, &count, UI_BUTTON_B, "ESC", back ? "BACK" : "CLOSE");
+	prompt_add(prompts, &count, UI_BUTTON_B, "ESC", guide.signing_in && signing_in_here() &&
+		guide.connect.state == BROWSER_CONNECT_CONFIRM && !guide.connect.answered ? "NO" : back ? "BACK" : "CLOSE");
 	ui_style_prompts(CONTENT_RIGHT, PROMPTS_Y, 15.0f, prompts, count, starts, ends);
 	for (index = 0; index < count; index++)
 		target_add(starts[index] - 4, PROMPTS_Y - 4, ends[index] + 4, PROMPTS_Y + 19, _target_prompt, (short)prompts[index].button);
@@ -1651,6 +1811,7 @@ void guide_close(void)
 		return;
 	guide.open = FALSE;
 	guide.target_count = 0;
+	sign_in_stop();
 	platform_guide_capture(FALSE);
 	event_manager_flush();
 	if (guide.paused_game)
@@ -1739,12 +1900,20 @@ static void handle(unsigned int pressed)
 
 	if (pressed & GUIDE_INPUT_B)
 	{
-		/* (in FRIENDS' options panel: back to the list) */
+		/* (in FRIENDS' options panel: back to the list; signing in: a no, or
+		the code dropped) */
 		if (guide.options)
 		{
 			guide.options = FALSE;
 			guide.armed = NONE;
 		}
+		else if (guide.signing_in && signing_in_here() && guide.connect.state == BROWSER_CONNECT_CONFIRM &&
+			!guide.connect.answered)
+		{
+			browser_connect_answer(FALSE);
+		}
+		else if (guide.signing_in && signing_in_here())
+			sign_in_stop();
 		else
 			guide_close();
 		return;
@@ -1757,7 +1926,8 @@ static void handle(unsigned int pressed)
 		move(-1);
 	if (pressed & GUIDE_INPUT_DOWN)
 		move(1);
-	if (guide.section == SOCIAL_SECTION_SETTINGS && (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
+	if (guide.section == SOCIAL_SECTION_SETTINGS && guide.row[guide.section] < settings_count() &&
+		(pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
 		setting_change(guide.row[guide.section], (pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
 	if (pressed & GUIDE_INPUT_A)
 		activate();
@@ -1773,6 +1943,17 @@ void guide_process(void)
 {
 	if (!guide.open)
 		return;
+	if (guide.signing_in)
+	{
+		int before = guide.connect.state;
+
+		browser_connect_get(&guide.connect);
+		if (guide.connect.state == BROWSER_CONNECT_CONFIRM && before != BROWSER_CONNECT_CONFIRM)
+			guide.confirm_shown = system_milliseconds();
+		/* (signed in: the card and the friends follow) */
+		if (guide.connect.state == BROWSER_CONNECT_CONNECTED && guide.linked)
+			guide.signing_in = FALSE;
+	}
 	handle(presses());
 }
 
@@ -1824,7 +2005,10 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			break;
 		case _target_setting:
 			guide.row[guide.section] = target->index;
-			setting_change(target->index, 1);
+			if (target->index >= settings_count())
+				device_row_activate((short)(target->index - settings_count()));
+			else
+				setting_change(target->index, 1);
 			break;
 		case _target_option:
 			guide.options = TRUE;

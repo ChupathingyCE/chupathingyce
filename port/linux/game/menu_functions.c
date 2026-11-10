@@ -1790,6 +1790,24 @@ static boolean color_list_initialize(struct widget_instance *list)
 	return TRUE;
 }
 
+#ifndef HALO_XBOX_CONSOLE
+/* (ui_widget.c) whether the pointer moved the menus' focus last */
+boolean ui_widget_port_pointer_focused(void);
+#endif
+
+/* Whether a list whose focus is on its first or last row moves on: when the
+d-pad put it there. The pointer resting there would make it move every
+frame, the row under it taking the focus back each time, until the list
+ran through all its items; the wheel scrolls it instead. */
+static boolean list_scrolls_at_end(void)
+{
+#ifdef HALO_XBOX_CONSOLE
+	return TRUE;
+#else
+	return !ui_widget_port_pointer_focused();
+#endif
+}
+
 /* a list of more items than its rows: the row chosen kept off its ends
 while there are more past them, the list moving instead; the item chosen,
 or NONE (its buttons) */
@@ -1797,12 +1815,12 @@ static short list_scroll(struct widget_instance *list, short *first, short count
 {
 	short row = focused_row(list);
 
-	if (row == rows - 1 && *first + rows < count)
+	if (row == rows - 1 && *first + rows < count && list_scrolls_at_end())
 	{
 		(*first)++;
 		focus_row(list, --row);
 	}
-	else if (row == 0 && *first > 0)
+	else if (row == 0 && *first > 0 && list_scrolls_at_end())
 	{
 		(*first)--;
 		focus_row(list, ++row);
@@ -3683,13 +3701,13 @@ static void gametype_list_update(struct widget_instance *list)
 		if (row == list->focused_child && row_index >= 1 && row_index <= GAMETYPE_ROWS)
 			focused = (short)(row_index - 1);
 	}
-	if (focused == count - 1 && multiplayer.gametype_first + count < multiplayer.bank_count)
+	if (focused == count - 1 && multiplayer.gametype_first + count < multiplayer.bank_count && list_scrolls_at_end())
 	{
 		multiplayer.gametype_first++;
 		focus_row(list, (short)focused);
 		focused--;
 	}
-	else if (focused == 0 && multiplayer.gametype_first > 0)
+	else if (focused == 0 && multiplayer.gametype_first > 0 && list_scrolls_at_end())
 	{
 		multiplayer.gametype_first--;
 		focus_row(list, 2);
@@ -4647,12 +4665,13 @@ static short lobby_browser_rows_place(struct widget_instance *list)
 		focused = (short)(found - lobby_browser.first);
 		lobby_browser_focus_row(list, focused);
 	}
-	else if (focused == BROWSER_ROWS - 1 && lobby_browser.first + BROWSER_ROWS < lobby_browser.count)
+	else if (focused == BROWSER_ROWS - 1 && lobby_browser.first + BROWSER_ROWS < lobby_browser.count &&
+		list_scrolls_at_end())
 	{
 		lobby_browser.first++;
 		lobby_browser_focus_row(list, --focused);
 	}
-	else if (focused == 0 && lobby_browser.first > 0)
+	else if (focused == 0 && lobby_browser.first > 0 && list_scrolls_at_end())
 	{
 		lobby_browser.first--;
 		lobby_browser_focus_row(list, ++focused);
@@ -8178,7 +8197,7 @@ static void host_update(struct widget_instance *list)
 		if (row == list->focused_child)
 			focused = slot;
 	}
-	if (focused != NONE && host_setup.row_count > slots)
+	if (focused != NONE && host_setup.row_count > slots && list_scrolls_at_end())
 	{
 		if (focused == 0 && host_setup.focused == slots - 1)
 			host_setup.first = 0;
@@ -8808,7 +8827,7 @@ static void delta_profile_update(struct widget_instance *list)
 	struct widget_instance *row;
 
 	rows_update(list, profile_screen_section_count(), delta_section_text);
-	/* (Linked Copies and Roles greyed while there is no profile to show) */
+	/* (Devices and Roles greyed while there is no profile to show) */
 	for (row = list->child, index = 0; row && index < profile_screen_section_count(); row = row->next, index++)
 	{
 		if (!profile_screen_section_open(index))

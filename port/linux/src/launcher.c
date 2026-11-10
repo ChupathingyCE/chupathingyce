@@ -2764,6 +2764,7 @@ static const char *dump_platform(void)
 	const char *platform = build_identity_platform();
 	const char *deck = getenv("SteamDeck");
 
+	/* (SteamOS: the site still takes it by its old name) */
 	if (deck && !strcmp(deck, "1"))
 		return "Steam Deck";
 	if (!strcmp(platform, "macOS"))
