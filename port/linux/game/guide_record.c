@@ -13,8 +13,10 @@ own record beside their Delta profile's.
   (browser_profile_get: confirmed games only, the host's and verified
   ones, as the site's own service record page counts them). Without a
   Delta profile it says so.
-- Under them, the medals this profile earned most, and its one row: MEDALS
-  ON HUD (display.medals), the medal pop-ups, off by default.
+- Under them, the medals this profile earned most, each with its icon,
+  name and count, as the site's medal case shows them (medal_icons.h, the
+  site's medals and icons), and its one row: MEDALS ON HUD
+  (display.medals), the medals on the HUD, off by default.
 
 Drawn with the Chupathingy menus' look (ui_style_*), in the Guide's panel.
 Nothing here is sent anywhere, and no other player is shown.
@@ -30,6 +32,7 @@ Nothing here is sent anywhere, and no other player is shown.
 #include "saved games/player_profile.h"
 #include "../src/browser.h"
 #include "../src/delta_profile.h"
+#include "../src/medal_icons.h"
 #include "../src/medal_rules.h"
 #include "../src/service_record.h"
 #include "../src/ui_overlay.h"
@@ -54,11 +57,14 @@ enum
 	SITE_INTERVAL = 500,
 
 	PANE_GAP = 12,
-	PANE_HEIGHT = 198,
+	PANE_HEIGHT = 184,
 	LINE_TOP = 40,
-	LINE_HEIGHT = 12,
+	LINE_HEIGHT = 11,
 	MEDALS_SHOWN = 5,
 	ROW_HEIGHT = 24,
+	/* a medal's tile under the panes: its height, and its icon's size */
+	TILE_HEIGHT = 40,
+	TILE_ICON = 32,
 };
 
 enum
@@ -66,6 +72,7 @@ enum
 	COLOR_PANE_EDGE = 0x50A0FF40,
 	COLOR_VALUE = 0xFFFFFFFF,
 	COLOR_SETTING = 0x9FD0FFFF,
+	COLOR_COUNT = 0x9FB7D0FF,
 };
 
 /* ---------- globals */
@@ -164,14 +171,14 @@ static void time_text(long long seconds, char *text, int size)
 		snprintf(text, (size_t)size, "%lldh %02lldm", seconds / 3600, (seconds % 3600) / 60);
 }
 
-/* a medal's name from a key: ours, else the site's own awards' ("most_kills"
-is "Most Kills") */
+/* a medal's name from a key: the site's (medal_icons.h, the game's own and
+the site's awards: "most_kills" is "Most Kills"), else the key's words */
 static void medal_text(char const *key, char *text, int size)
 {
-	int medal = medal_rules_find(key);
+	int medal = medal_icon_find(key);
 
 	if (medal >= 0)
-		snprintf(text, (size_t)size, "%s", medal_rules_name(medal));
+		snprintf(text, (size_t)size, "%s", medal_icon(medal)->name);
 	else
 		service_record_title(key, text, size);
 }
@@ -309,6 +316,13 @@ static void render_site(float x, float y, float width)
 	else
 		weapon_text(site->record_favorite_weapon, value, sizeof(value));
 	line(x + 12, right, at, site->record_top_medal_count > 0 ? "TOP MEDAL" : "FAVORITE WEAPON", value);
+	/* (the top medal's icon, before its name) */
+	if (site->record_top_medal_count > 0 && ui_overlay_medals_available() &&
+		medal_icon_find(site->record_top_medals[0].key) >= 0)
+	{
+		ui_overlay_medal(medal_icon_find(site->record_top_medals[0].key),
+			right - ui_overlay_text_width(UI_FONT_MENU_SMALL, 9.0f, value) - 14, at - 1, 12, 0xFFFFFFFF);
+	}
 	if (site->hidden)
 		ui_style_text(UI_TEXT_STATUS, x + 12, y + PANE_HEIGHT - 16, UI_ALIGN_LEFT, "Hidden from everyone else.");
 }
@@ -319,25 +333,41 @@ static void render_medals(float left, float right, float y)
 	int medals[MEDALS_SHOWN];
 	long counts[MEDALS_SHOWN];
 	int count = service_record_top_medals(&guide_record.record, medals, counts, MEDALS_SHOWN);
-	float x = left + ui_style_text(UI_TEXT_HEADING, left, y + 5, UI_ALIGN_LEFT, "TOP MEDALS") + 10;
+	float x = left + ui_style_text(UI_TEXT_HEADING, left, y + TILE_HEIGHT * 0.5f - 5, UI_ALIGN_LEFT, "TOP MEDALS") + 10;
 	float width;
 	int index;
 
 	if (!count)
 	{
-		ui_style_text(UI_TEXT_STATUS, x, y + 6, UI_ALIGN_LEFT, "None yet");
+		ui_style_text(UI_TEXT_STATUS, x, y + TILE_HEIGHT * 0.5f - 4, UI_ALIGN_LEFT, "None yet");
 		return;
 	}
 	width = (right - x - (count - 1) * 6) / count;
-	if (width > 110)
-		width = 110;
+	if (width > 120)
+		width = 120;
 	for (index = 0; index < count; index++)
 	{
 		char text[64];
+		int icon = medal_icon_find(medal_rules_key(medals[index]));
 
-		snprintf(text, sizeof(text), "%s  %ld", medal_rules_name(medals[index]), counts[index]);
-		ui_style_glass(x, y, width, 20, 6, ui_style_color(UI_COLOR_PANE), COLOR_PANE_EDGE);
-		ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, x + width * 0.5f, y + 6, UI_ALIGN_CENTER, COLOR_VALUE, text);
+		ui_style_glass(x, y, width, TILE_HEIGHT, 6, ui_style_color(UI_COLOR_PANE), COLOR_PANE_EDGE);
+		if (icon >= 0 && ui_overlay_medals_available())
+		{
+			/* its icon, then its name and count, as the site's medal case */
+			float text_x = x + 6 + TILE_ICON + 5;
+
+			ui_overlay_medal(icon, x + 5, y + (TILE_HEIGHT - TILE_ICON) * 0.5f, TILE_ICON, 0xFFFFFFFF);
+			ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, text_x, y + 10, UI_ALIGN_LEFT, COLOR_VALUE,
+				medal_icon(icon)->name);
+			number_text(counts[index], text, sizeof(text));
+			ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, text_x, y + 22, UI_ALIGN_LEFT, COLOR_COUNT, text);
+		}
+		else
+		{
+			snprintf(text, sizeof(text), "%s  %ld", medal_rules_name(medals[index]), counts[index]);
+			ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, x + width * 0.5f, y + (TILE_HEIGHT - 8) * 0.5f,
+				UI_ALIGN_CENTER, COLOR_VALUE, text);
+		}
 		x += width + 6;
 	}
 }

@@ -441,8 +441,9 @@ static const struct config_setting config_settings[] =
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 	{ "display.medals", _config_boolean, "false", "HALO_MEDALS", _environment_value, _platform_all | _platform_xbox,
 		"Show your medals on the HUD as you earn them in multiplayer (Double\n"
-		"Kill, Killing Spree). Off by default, as Halo shows none. Your medals\n"
-		"are counted in your service record either way." },
+		"Kill, Killing Spree): their icons in a row on the left, or their\n"
+		"names on a build without the icons. Off by default, as Halo shows\n"
+		"none. Your medals are counted in your service record either way." },
 #endif
 	{ "display.follow_camera", _config_string, "\"off\"", "HALO_FOLLOW_CAMERA", _environment_value,
 		_platform_all | _platform_xbox,
@@ -1351,6 +1352,10 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_test_moderate_time", _config_real, "20.0", "HALO_NETWORK_TEST_MODERATE_TIME", _environment_value,
 		_platform_all,
 		"Seconds into a test game before the host takes its Moderation action." },
+	{ "debug.medal_test", _config_string, "\"\"", "HALO_MEDAL_TEST", _environment_value, _platform_all,
+		"Tests: medals shown on the first player's HUD every 4 seconds, by\n"
+		"their keys split by spaces (\"double_kill killing_spree\"), with\n"
+		"display.medals on. Leave it empty for none." },
 	{ "debug.network_test_local_players", _config_integer, "1", "HALO_NETWORK_TEST_LOCAL_PLAYERS", _environment_value,
 		_platform_all,
 		"A test machine's players, from 1 to 4." },

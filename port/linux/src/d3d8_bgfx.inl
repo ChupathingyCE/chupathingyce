@@ -310,8 +310,9 @@ static struct
 	/* the overlay's (xgpu_bgfx_overlay_draw) */
 	bgfx_program_handle_t overlay;
 	bgfx_vertex_layout_t overlay_layout;
-	bgfx_texture_handle_t overlay_atlas, overlay_icons, overlay_picture, overlay_plasma;
-	bgfx_uniform_handle_t overlay_uniforms[4], overlay_samplers[4];
+	bgfx_texture_handle_t overlay_atlas, overlay_icons, overlay_picture, overlay_plasma, overlay_medals;
+	bgfx_uniform_handle_t overlay_uniforms[4], overlay_samplers[5];
+	BOOL overlay_medals_ready;
 	int overlay_picture_serial, overlay_plasma_serial;
 	BOOL overlay_failed;
 
@@ -3502,6 +3503,7 @@ static const char bg_overlay_fragment_source[] =
 	"uniform sampler2DArray icons;\n"
 	"uniform sampler2D picture;\n"
 	"uniform sampler2D plasma;\n"
+	"uniform sampler2D medals;\n"
 	"uniform vec4 plasma_shift;\n"
 	"uniform vec4 plasma_thread;\n"
 	"uniform vec4 cutouts[4];\n"
@@ -3513,6 +3515,13 @@ static const char bg_overlay_fragment_source[] =
 	"\tfor (int i = 0; i < 4; i++)\n"
 	"\t\tif (p.x >= cutouts[i].x && p.y >= cutouts[i].y && p.x < cutouts[i].z && p.y < cutouts[i].w)\n"
 	"\t\t\tdiscard;\n"
+	/* (a medal: ui_overlay.c's) */
+	"\tif (xT2.x < -4.5)\n"
+	"\t{\n"
+	"\t\tvec4 texel = texture(medals, xT0.xy);\n"
+	"\t\tfragment_color = vec4(texel.rgb / max(texel.a, 0.001), texel.a) * xD0;\n"
+	"\t\treturn;\n"
+	"\t}\n"
 	/* (the plasma: ui_overlay.c's) */
 	"\tif (xT2.x < -3.5)\n"
 	"\t{\n"
@@ -3554,7 +3563,7 @@ static const char bg_overlay_fragment_source[] =
 static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int icon_size, int icon_count)
 {
 	struct bg_shader *vertex, *fragment;
-	static const char *const samplers[4] = { "atlas", "icons", "picture", "plasma" };
+	static const char *const samplers[5] = { "atlas", "icons", "picture", "plasma", "medals" };
 	int index;
 
 	if (BGFX_HANDLE_IS_VALID(bg.overlay) || bg.overlay_failed)
@@ -3565,7 +3574,7 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	bg.overlay_uniforms[1] = bgfx_create_uniform("cutouts", BGFX_UNIFORM_TYPE_VEC4, 4);
 	bg.overlay_uniforms[2] = bgfx_create_uniform("plasma_shift", BGFX_UNIFORM_TYPE_VEC4, 1);
 	bg.overlay_uniforms[3] = bgfx_create_uniform("plasma_thread", BGFX_UNIFORM_TYPE_VEC4, 1);
-	for (index = 0; index < 4; index++)
+	for (index = 0; index < 5; index++)
 		bg.overlay_samplers[index] = bgfx_create_uniform(samplers[index], BGFX_UNIFORM_TYPE_SAMPLER, 1);
 	vertex = bg_shader_get(bg_overlay_vertex_source, FALSE, 0, "overlay vertex", TRUE);
 	fragment = bg_shader_get(bg_overlay_fragment_source, TRUE, 0, "overlay pixel", TRUE);
@@ -3621,15 +3630,18 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 			bgfx_copy(zero, 4), 0);
 		bg.overlay_plasma = bgfx_create_texture_2d(1, 1, false, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
 			bgfx_copy(zero, 4), 0);
+		bg.overlay_medals = bgfx_create_texture_2d(1, 1, false, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
+			bgfx_copy(zero, 4), 0);
 	}
 	bg.overlay_failed = FALSE;
 	return TRUE;
 }
 
-void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
+int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
 	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[8],
+	const unsigned char *medals, int medals_width, int medals_height,
 	const float cutouts[4][4], int window_width, int window_height)
 {
 	bgfx_transient_vertex_buffer_t buffer;
@@ -3638,7 +3650,7 @@ void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, c
 	if (!bg.ready || !count || !atlas || !bg_overlay_prepare(atlas_size, icons, icon_size, icon_count) ||
 		vertex_bytes != (int)bg.overlay_layout.stride ||
 		bgfx_get_avail_transient_vertex_buffer((uint32_t)count, &bg.overlay_layout) < (uint32_t)count)
-		return;
+		return bg.overlay_medals_ready;
 	if (dirty_bottom > dirty_top)
 		bgfx_update_texture_2d(bg.overlay_atlas, 0, 0, 0, (uint16_t)dirty_top, (uint16_t)atlas_size,
 			(uint16_t)(dirty_bottom - dirty_top),
@@ -3661,6 +3673,39 @@ void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, c
 			bgfx_copy(plasma, (uint32_t)(plasma_width * plasma_height * 4)), 0);
 		bg.overlay_plasma_serial = plasma_serial;
 	}
+	/* (the medals' atlas, once a medal is drawn: with smaller levels, as
+	the icons have) */
+	if (medals && !bg.overlay_medals_ready && medals_width > 0 && medals_height > 0)
+	{
+		unsigned long width = (unsigned long)medals_width, height = (unsigned long)medals_height;
+		unsigned char *level = malloc(width * height * 4);
+		int mip = 0;
+
+		bg.overlay_medals_ready = TRUE;
+		bgfx_destroy_texture(bg.overlay_medals);
+		bg.overlay_medals = bgfx_create_texture_2d((uint16_t)medals_width, (uint16_t)medals_height, true, 1,
+			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE, NULL, 0);
+		if (level)
+			memcpy(level, medals, width * height * 4);
+		while (level)
+		{
+			unsigned char *next;
+
+			bgfx_update_texture_2d(bg.overlay_medals, 0, (uint8_t)mip, 0, 0, (uint16_t)width, (uint16_t)height,
+				bgfx_copy(level, (uint32_t)(width * height * 4)), UINT16_MAX);
+			if (width == 1 && height == 1)
+				break;
+			next = malloc((width > 1 ? width / 2 : 1) * (height > 1 ? height / 2 : 1) * 4);
+			if (next)
+				bg_downsample(level, width, height, next);
+			free(level);
+			level = next;
+			width = width > 1 ? width / 2 : 1;
+			height = height > 1 ? height / 2 : 1;
+			mip++;
+		}
+		free(level);
+	}
 	bgfx_alloc_transient_vertex_buffer(&buffer, (uint32_t)count, &bg.overlay_layout);
 	memcpy(buffer.data, vertices, (size_t)count * (size_t)vertex_bytes);
 	scale[0] = 2.0f / (float)window_width;
@@ -3674,10 +3719,12 @@ void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, c
 	bgfx_set_texture(1, bg.overlay_samplers[1], bg.overlay_icons, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_texture(2, bg.overlay_samplers[2], bg.overlay_picture, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_texture(3, bg.overlay_samplers[3], bg.overlay_plasma, BGFX_SAMPLER_NONE);
+	bgfx_set_texture(4, bg.overlay_samplers[4], bg.overlay_medals, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_transient_vertex_buffer(0, &buffer, 0, (uint32_t)count);
 	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA,
 		BGFX_STATE_BLEND_INV_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA), 0);
 	bgfx_submit(bg.present_view, bg.overlay, 0, BGFX_DISCARD_ALL);
+	return bg.overlay_medals_ready;
 }
 
 static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,
