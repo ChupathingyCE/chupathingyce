@@ -115,3 +115,24 @@ int gl_functions_load(void)
 #endif
 	return success;
 }
+
+#if defined(HALO_SHADER_PREP) && !defined(HALO_GL_ES)
+/* whether the driver compiles shaders on threads of its own, asked without
+waiting (GL_KHR_parallel_shader_compile, or ARB's), with as many threads as
+it will (d3d8_shader_prep.inl) */
+int gl_parallel_compile_start(void)
+{
+	typedef void (GLAPIENTRY *threads_function)(GLuint count);
+	threads_function threads = NULL;
+
+	if (SDL_GL_ExtensionSupported("GL_KHR_parallel_shader_compile"))
+		threads = (threads_function)SDL_GL_GetProcAddress("glMaxShaderCompilerThreadsKHR");
+	else if (SDL_GL_ExtensionSupported("GL_ARB_parallel_shader_compile"))
+		threads = (threads_function)SDL_GL_GetProcAddress("glMaxShaderCompilerThreadsARB");
+	else
+		return FALSE;
+	if (threads)
+		threads(0xffffffffU);
+	return TRUE;
+}
+#endif

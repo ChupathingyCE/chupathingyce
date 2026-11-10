@@ -178,6 +178,10 @@ struct bg_program
 	struct bg_program *next;
 	struct bg_shader *vertex, *fragment;
 	bgfx_program_handle_t program;
+#ifdef HALO_SHADER_PREP
+	/* the map whose shader key list has it (d3d8_shader_prep.inl) */
+	unsigned long noted;
+#endif
 };
 
 struct bg_texture
@@ -1580,7 +1584,14 @@ static void bg_warm(void)
 	}
 }
 
+static struct bg_program *bg_program_entry(struct bg_shader *vertex, struct bg_shader *fragment);
+
 static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_shader *fragment)
+{
+	return bg_program_entry(vertex, fragment)->program;
+}
+
+static struct bg_program *bg_program_entry(struct bg_shader *vertex, struct bg_shader *fragment)
 {
 	unsigned long hash = (unsigned long)(((uintptr_t)vertex >> 4) ^ ((uintptr_t)fragment >> 2) * 31);
 	struct bg_program **bucket = &bg.programs[hash % BG_SHADER_BUCKETS], *entry;
@@ -1588,7 +1599,7 @@ static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_
 	for (entry = *bucket; entry; entry = entry->next)
 	{
 		if (entry->vertex == vertex && entry->fragment == fragment)
-			return entry->program;
+			return entry;
 	}
 	entry = calloc(1, sizeof(*entry));
 	entry->vertex = vertex;
@@ -1598,7 +1609,7 @@ static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_
 	entry->next = *bucket;
 	*bucket = entry;
 	bg_pair_record(vertex->hash, fragment->hash);
-	return entry->program;
+	return entry;
 }
 
 /* ---------- state (Xbox render states hold OpenGL's enumerants) */
@@ -3012,8 +3023,19 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	vertex_shader = bg_vertex_shader(program, immediate);
 	fragment_shader = bg_fragment_shader(&key, has_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE] ?
 		_bg_shader_depth_bias : 0);
-	handle = vertex_shader && fragment_shader ? bg_program_get(vertex_shader, fragment_shader) :
-		(bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	{
+		struct bg_program *entry = vertex_shader && fragment_shader ? bg_program_entry(vertex_shader, fragment_shader) :
+			NULL;
+
+		handle = entry ? entry->program : (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+#ifdef HALO_SHADER_PREP
+		if (entry && entry->noted != shader_prep_serial)
+		{
+			prep_note(&entry->noted, program, immediate, FALSE,
+				has_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE], declaration->packed_mask, &key);
+		}
+#endif
+	}
 	native = !indices && type != D3DPT_QUADLIST && type != D3DPT_TRIANGLEFAN && type != D3DPT_POLYGON &&
 		type != D3DPT_LINELOOP;
 	generated = native ? 0 : bg_index_count(type, indices ? index_count : vertex_count);

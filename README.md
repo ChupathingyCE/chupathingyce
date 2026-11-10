@@ -248,7 +248,9 @@ with their authors credited in each commit.
 - [startupfoundry](https://github.com/startupfoundry) and
   [pastudan](https://github.com/pastudan) (OpenH1): camera shake, particle
   streams, change colors and camo smoothed between ticks, a faster audio
-  resampler and limiter, and a lighter scope zoom at high resolutions.
+  resampler and limiter, a lighter scope zoom at high resolutions, and a
+  map's first frame drawn through every shader, which lists the stock maps'
+  shaders and makes bgfx's pipelines before play.
 - chestahh (GulchCE): lens flares and light
   glows back on AMD graphics, less stutter the first time a texture is drawn
   on Windows, and host cheat and shadow setup fixes.

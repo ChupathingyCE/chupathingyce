@@ -487,6 +487,25 @@ leave it out with the rest of HALO_CONSOLE_NO_DELTA_IDENTITY */
 #define HALO_CONSOLE_NO_LOADING_PICTURE 1
 #endif
 
+/* a map's shaders made while its loading screen is up, from its shader key
+list (port/linux/src/d3d8_shader_prep.inl, xgpu_shader_keys.c;
+display.prepare_shaders): the OpenGL and bgfx renderers of the desktop
+builds and Android. A console's renderer can take it later (the Switch's
+has its own, HALO_CONSOLE_MAP_LOAD_HOOKS); HALO_CONSOLE_NO_SHADER_PREP
+leaves it out */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_SHADER_PREP)
+#define HALO_CONSOLE_NO_SHADER_PREP 1
+#endif
+#if !defined(HALO_CONSOLE_NO_SHADER_PREP) && !defined(HALO_SERVER)
+#define HALO_SHADER_PREP 1
+#endif
+/* (the game's calls into a renderer as a map loads: d3d8_gl_map_loading,
+d3d8_gl_map_progress, d3d8_gl_map_waiting, d3d8_gl_map_loaded) */
+#if defined(HALO_SHADER_PREP) || defined(HALO_CONSOLE_MAP_LOAD_HOOKS)
+#define HALO_MAP_LOAD_HOOKS 1
+#endif
+
 #ifdef HALO_CONSOLE_WAIT_POLL
 /* (defined by the port) */
 void console_wait_poll(void);

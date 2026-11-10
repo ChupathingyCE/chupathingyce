@@ -477,6 +477,14 @@ static const struct config_setting config_settings[] =
 		"The same for every other game, up to 5: split screen multiplayer,\n"
 		"system link, online and network co-op. The network waits while the\n"
 		"loading screen is up." },
+#ifdef HALO_SHADER_PREP
+	{ "display.prepare_shaders", _config_boolean, "true", "HALO_PREPARE_SHADERS", _environment_value, _platform_all,
+		"Make a map's shaders while its loading screen is up, so that the game\n"
+		"does not stop to make one in the middle of play. The loading screen\n"
+		"waits up to 5 seconds for them; the rest are made as you play. The\n"
+		"stock maps' list comes with the game, and any other map's is kept\n"
+		"from its first time. false makes each one when it is first drawn." },
+#endif
 #ifndef HALO_CONSOLE_NO_LOADING_PICTURE
 	{ "display.xbox_loading_picture", _config_boolean, "true", "HALO_XBOX_LOADING_PICTURE", _environment_value,
 		_platform_all,
@@ -1552,6 +1560,17 @@ static const struct config_setting config_settings[] =
 		"them on the CPU except on NVIDIA. cpu or buffer forces one." },
 	{ "debug.door_portals_log", _config_boolean, "false", "HALO_DOOR_PORTALS_LOG", _environment_set_is_true, _platform_all,
 		"Log which level portals each door covers, as it is paired with them." },
+#ifdef HALO_SHADER_PREP
+	{ "debug.draw_every_shader", _config_boolean, "false", "HALO_DRAW_EVERY_SHADER", _environment_set_is_true,
+		_platform_all,
+		"Draw a map's first frame first, unseen, through every shader its tags\n"
+		"hold, so that its shader key list has them all: how the stock maps' list\n"
+		"is made (tools/shader_keys.py)." },
+	{ "debug.frame_hitches", _config_integer, "0", "HALO_FRAME_HITCHES", _environment_value, _platform_all,
+		"Log every frame in a map's first minute that comes more than this many\n"
+		"milliseconds after the one before it, and how many there were. 33 is\n"
+		"two frames at 60 Hz. 0 for none." },
+#endif
 	{ "debug.gpu_stats", _config_boolean, "false", "HALO_GPU_STATS", _environment_set_is_true, _platform_all,
 		"Log the renderer's draw counts once a second." },
 	{ "debug.gpu_trace_frame", _config_integer, "-1", "HALO_GPU_TRACE", _environment_value, _platform_all,

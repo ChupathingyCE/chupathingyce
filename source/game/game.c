@@ -875,8 +875,9 @@ void game_precache_new_map(
 		if (blocking)
 		{
 			struct game_runtime_globals_prefix *globals = game_globals;
-#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
-			/* port: the console's renderer (the Switch's: port/switch/guest/dk_shaders.c) */
+#ifdef HALO_MAP_LOAD_HOOKS
+			/* port: the renderer's (the desktop's and Android's: port/linux/src/d3d8_shader_prep.inl; the
+			Switch's: port/switch/guest/dk_shaders.c) */
 			extern int d3d8_gl_map_waiting(void);
 			extern float d3d8_gl_map_progress(void);
 #endif
@@ -890,10 +891,10 @@ void game_precache_new_map(
 					cache_files_precache_is_copying_map(map_name));
 			ui_widget_load_progress_widget();
 			progress_bar_begin(global_scenario_index != NONE);
-#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
+#ifdef HALO_MAP_LOAD_HOOKS
 			/* port: the map's shaders are compiled under the loading screen,
-			which stays up for them once the map is read, for ten seconds at
-			most from here (port/switch/guest/dk_shaders.c) */
+			which stays up for them once the map is read, for some seconds at
+			most from here (port/linux/src/d3d8_shader_prep.inl, port/switch/guest/dk_shaders.c) */
 			{
 				extern void d3d8_gl_map_loading(const char *name);
 
@@ -909,9 +910,9 @@ void game_precache_new_map(
 					map_status = cache_files_precache_map_status(
 						&game_globals->loading_progress);
 				}
-#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
+#ifdef HALO_MAP_LOAD_HOOKS
 				/* port: the loading screen's progress is half the map's copy and half its shaders
-				(port/switch/guest/dk_shaders.c), never going back, so that its light sweeps across the whole
+				(d3d8_shader_prep.inl, port/switch/guest/dk_shaders.c), never going back, so that its light sweeps across the whole
 				time it is up and not across the copy alone, then dark through the shaders' wait */
 				{
 					static real shown;
@@ -938,7 +939,7 @@ void game_precache_new_map(
 				main_present_frame();
 			}
 			while (!map_status ||
-#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
+#ifdef HALO_MAP_LOAD_HOOKS
 				(map_status == _cached_map_file_success && d3d8_gl_map_waiting()) ||
 #endif
 				(map_status != _cached_map_file_failed &&
