@@ -44,7 +44,13 @@ PARTY, PLAYERS HERE, RECENT and SETTINGS.
   (its confirmed report lines) and those verified in games this run, newest
   first. A on a row: ADD FRIEND (Y too), BLOCK (pressed twice) and VIEW
   PROFILE (the site's page, /u/HANDLE). Never an OpenCE player.
-- Without a Delta profile, FRIENDS and RECENT offer SIGN IN (Delta
+- CLAN is the profile's clan (browser.c: the profile, its roster asked
+  for with the friends): its members by rank with where they are, and for
+  the leader and officers the invites out, INVITE FRIENDS (FRIENDS, where
+  a friend has INVITE TO CLAN) and A on a member of a lower rank, KICK
+  (pressed twice). LEAVE CLAN last (pressed twice). With no clan: the
+  clans' invites (JOIN CLAN, DECLINE). Making a clan stays on the site.
+- Without a Delta profile, FRIENDS, CLAN and RECENT offer SIGN IN (Delta
   Profile's Link Profile).
 
 It takes the first player's input while open (guide_input.h): the game
@@ -91,6 +97,7 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "../src/about.h"
 #include "../src/browser.h"
 #include "../src/delta_peer.h"
+#include "../src/clan_emblem.h"
 #include "../src/delta_profile.h"
 #include "../src/discord_activity.h"
 #include "../src/guide_input.h"
@@ -107,6 +114,7 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "report_player.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -203,6 +211,12 @@ enum
 	PLASMA_TRIES = 240,
 
 	MAXIMUM_TARGETS = 48,
+
+	/* CLAN: the profile (and its clan) looked at this often while it's
+	open or an action is out; the emblem's pixels */
+	CLAN_LOOK_INTERVAL = 250,
+	CLAN_LOOK_CLOSED = 2000,
+	EMBLEM_PIXELS = 64,
 };
 
 /* the Chupathingy menus' blues (the mockups': review/guide-mockup) */
@@ -314,8 +328,45 @@ enum
 	_option_decline,
 	_option_dismiss,
 	_option_party_invite,
-	MAXIMUM_OPTIONS = 5
+	/* a friend asked into the clan (a leader's or officer's) */
+	_option_clan_invite,
+	/* CLAN's: a clan's invite answered, a member kicked */
+	_option_clan_join,
+	_option_clan_decline,
+	_option_kick,
+	MAXIMUM_OPTIONS = 6
 };
+
+/* CLAN's items, top to bottom: the members, the invites out (a leader's
+or officer's), INVITE FRIENDS and LEAVE CLAN; with no clan, the clans'
+invites */
+enum
+{
+	_clan_heading,
+	_clan_member,
+	_clan_invited,
+	_clan_invite,
+	_clan_action,
+};
+
+enum
+{
+	_clan_heading_members,
+	_clan_heading_invited,
+	_clan_heading_invites,
+};
+
+enum
+{
+	_clan_action_invite,
+	_clan_action_leave,
+};
+
+/* guide.armed for LEAVE CLAN's first press (past every _option_*) */
+#define ARMED_LEAVE 100
+
+#define MAXIMUM_CLAN_ITEMS (5 + 2 * DELTA_PROFILE_CLAN_MEMBERS + DELTA_PROFILE_CLAN_INVITES)
+
 
 /* what a toast leads to */
 enum
@@ -431,6 +482,9 @@ static struct
 	boolean toast_always;
 	boolean debug_toast_done;
 	boolean debug_open_done;
+	/* debug.guide_test: the next step, and when the last one ran */
+	short debug_step;
+	unsigned long debug_step_time;
 	boolean debug_row_done;
 	boolean debug_party_done;
 	/* the toast's item (an invite's ID, a handle) and its sender's initial */
@@ -495,6 +549,22 @@ static struct
 	long long follow_seen;
 	char follow_party[SOCIAL_PARTY_CODE_SIZE];
 
+	/* CLAN: the profile's state (browser_profile_get) and serial, when it
+	was last looked at, its items and the chosen one (by what it is), and
+	an action out (browser_profile_clan*) */
+	int clan_state;
+	int clan_serial;
+	boolean clan_loaded;
+	unsigned long clan_time;
+	struct friend_item clan_items[MAXIMUM_CLAN_ITEMS];
+	short clan_count;
+	short clan_chosen_kind;
+	char clan_chosen_key[SOCIAL_TAG_SIZE];
+	boolean clan_acting;
+	/* the emblem's pixels, made again when it changes */
+	unsigned char *emblem_pixels;
+	int emblem_serial;
+
 	int plasma_tries;
 
 	/* SIGN IN here (Quick Connect, browser.c's Link Profile): its code
@@ -527,6 +597,13 @@ static void party_link_offer(void);
 static void section_go(short section);
 static void recent_build(void);
 static void toast_from(short kind, char const *key, char const *title, char const *line, char const *name);
+
+/* CLAN: the Delta profile as browser.c keeps it (its clan, its invites) */
+static struct delta_profile clan_profile;
+
+static boolean clan_can_invite(void);
+static void clan_act_started(void);
+static void debug_steps(void);
 
 /* ---------- private code */
 
@@ -1231,6 +1308,8 @@ static short item_options(struct friend_item const *item, short *options)
 		{
 			options[count++] = _option_party_invite;
 		}
+		if (clan_can_invite())
+			options[count++] = _option_clan_invite;
 		options[count++] = _option_remove;
 		options[count++] = _option_block;
 		break;
@@ -1269,6 +1348,10 @@ static char const *option_label(short option, boolean armed)
 	case _option_accept: return "ACCEPT";
 	case _option_decline: return "DECLINE";
 	case _option_party_invite: return "INVITE TO PARTY";
+	case _option_clan_invite: return "INVITE TO CLAN";
+	case _option_clan_join: return "JOIN CLAN";
+	case _option_clan_decline: return "DECLINE";
+	case _option_kick: return armed ? "CONFIRM KICK" : "KICK";
 	default: return "DISMISS";
 	}
 }
@@ -1334,6 +1417,10 @@ static void option_run(short option)
 	case _option_decline: friend_act(BROWSER_SOCIAL_DECLINE, item_handle(item)); break;
 	case _option_dismiss: invite_dismiss(item_key(item)); break;
 	case _option_party_invite: party_act("invite", item_handle(item)); guide.options = FALSE; break;
+	case _option_clan_invite:
+		if (!guide.clan_acting && browser_profile_clan_member("invite", item_handle(item)))
+			clan_act_started();
+		break;
 	}
 }
 
@@ -2257,6 +2344,287 @@ static void party_link_offer(void)
 	platform_log("Guide: a party link, asking first");
 }
 
+
+/* ---------- CLAN: the profile's clan (browser.c keeps the profile; its
+roster, with handles and where each member is, comes with the friends) */
+
+static boolean clan_in(void)
+{
+	return guide.clan_loaded && clan_profile.linked && clan_profile.has_clan;
+}
+
+static boolean clan_can_invite(void)
+{
+	return clan_in() && social_clan_can_invite(clan_profile.clan.rank);
+}
+
+static void clan_act_started(void)
+{
+	guide.clan_acting = TRUE;
+	guide.message[0] = 0;
+}
+
+static void clan_item_add(short kind, short index)
+{
+	if (guide.clan_count >= MAXIMUM_CLAN_ITEMS)
+		return;
+	guide.clan_items[guide.clan_count].kind = kind;
+	guide.clan_items[guide.clan_count].index = index;
+	guide.clan_count++;
+}
+
+/* an item's key, to keep it chosen as the list changes: a member's handle
+(their name before the roster comes), an invite's clan tag, a handle out */
+static char const *clan_item_key(struct friend_item const *item)
+{
+	switch (item->kind)
+	{
+	case _clan_member:
+	{
+		struct delta_profile_clan_member const *member = &clan_profile.clan.members[item->index];
+
+		return member->handle[0] ? member->handle : member->display;
+	}
+	case _clan_invited: return clan_profile.clan_invited[item->index];
+	case _clan_invite: return clan_profile.invites[item->index].tag;
+	case _clan_action: return item->index == _clan_action_invite ? "invite" : "leave";
+	default: return "";
+	}
+}
+
+static boolean clan_item_selectable(short index)
+{
+	return index >= 0 && index < guide.clan_count && guide.clan_items[index].kind != _clan_heading;
+}
+
+static struct friend_item const *clan_chosen_item(void)
+{
+	short row = guide.row[SOCIAL_SECTION_CLAN];
+
+	return row >= 0 && row < guide.clan_count ? &guide.clan_items[row] : NULL;
+}
+
+static void clan_chosen_remember(void)
+{
+	struct friend_item const *item = clan_chosen_item();
+
+	if (!item)
+		return;
+	guide.clan_chosen_kind = item->kind;
+	social_copy_text(guide.clan_chosen_key, sizeof(guide.clan_chosen_key), clan_item_key(item));
+}
+
+static void clan_items_build(void)
+{
+	short index, found = NONE;
+	short *row = &guide.row[SOCIAL_SECTION_CLAN];
+
+	guide.clan_count = 0;
+	if (clan_in())
+	{
+		clan_item_add(_clan_heading, _clan_heading_members);
+		for (index = 0; index < clan_profile.clan.member_count; index++)
+			clan_item_add(_clan_member, index);
+		if (social_clan_can_invite(clan_profile.clan.rank) && clan_profile.clan_invited_count > 0)
+		{
+			clan_item_add(_clan_heading, _clan_heading_invited);
+			for (index = 0; index < clan_profile.clan_invited_count; index++)
+				clan_item_add(_clan_invited, index);
+		}
+		if (social_clan_can_invite(clan_profile.clan.rank))
+			clan_item_add(_clan_action, _clan_action_invite);
+		clan_item_add(_clan_action, _clan_action_leave);
+	}
+	else if (guide.clan_loaded && clan_profile.linked && clan_profile.invite_count > 0)
+	{
+		clan_item_add(_clan_heading, _clan_heading_invites);
+		for (index = 0; index < clan_profile.invite_count; index++)
+			clan_item_add(_clan_invite, index);
+	}
+	for (index = 0; index < guide.clan_count && found == NONE; index++)
+	{
+		if (clan_item_selectable(index) && guide.clan_items[index].kind == guide.clan_chosen_kind &&
+			!strcmp(clan_item_key(&guide.clan_items[index]), guide.clan_chosen_key))
+		{
+			found = index;
+		}
+	}
+	if (found != NONE)
+		*row = found;
+	else
+	{
+		if (guide.section == SOCIAL_SECTION_CLAN)
+			guide.options = FALSE;
+		*row = (short)PIN(*row, 0, MAX(0, guide.clan_count - 1));
+		while (*row > 0 && !clan_item_selectable(*row))
+			(*row)--;
+		while (*row < guide.clan_count - 1 && !clan_item_selectable(*row))
+			(*row)++;
+		clan_chosen_remember();
+	}
+}
+
+/* an item's options (_option_*): their count */
+static short clan_item_options(struct friend_item const *item, short *options)
+{
+	short count = 0;
+
+	if (item->kind == _clan_member)
+	{
+		struct delta_profile_clan_member const *member = &clan_profile.clan.members[item->index];
+
+		if (!member->you && member->handle[0] && social_clan_can_kick(clan_profile.clan.rank, member->rank))
+			options[count++] = _option_kick;
+	}
+	else if (item->kind == _clan_invite)
+	{
+		options[count++] = _option_clan_join;
+		options[count++] = _option_clan_decline;
+	}
+	return count;
+}
+
+static void clan_option_run(short option)
+{
+	struct friend_item const *item = clan_chosen_item();
+	short options[MAXIMUM_OPTIONS], count, index;
+	boolean found = FALSE;
+
+	if (!item || guide.clan_acting)
+		return;
+	count = clan_item_options(item, options);
+	for (index = 0; index < count; index++)
+		found |= options[index] == option;
+	if (!found)
+		return;
+	/* (KICK takes a second press) */
+	if (option == _option_kick && guide.armed != option)
+	{
+		guide.armed = option;
+		return;
+	}
+	guide.armed = NONE;
+	if (option == _option_kick)
+	{
+		if (browser_profile_clan_member("kick", clan_profile.clan.members[item->index].handle))
+			clan_act_started();
+	}
+	else
+	{
+		browser_profile_clan(option == _option_clan_join ? "accept" : "decline", clan_profile.invites[item->index].id);
+		clan_act_started();
+	}
+}
+
+/* A on CLAN: the chosen item's options, INVITE FRIENDS, LEAVE CLAN */
+static void clan_activate(void)
+{
+	struct friend_item const *item = clan_chosen_item();
+	short options[MAXIMUM_OPTIONS], count;
+
+	if (!item)
+		return;
+	if (guide.options)
+	{
+		count = clan_item_options(item, options);
+		if (guide.option >= 0 && guide.option < count)
+			clan_option_run(options[guide.option]);
+		return;
+	}
+	if (item->kind == _clan_action)
+	{
+		if (item->index == _clan_action_invite)
+		{
+			/* (FRIENDS, where a friend has INVITE TO CLAN) */
+			guide.section = SOCIAL_SECTION_FRIENDS;
+			guide.first_row = 0;
+			guide.armed = NONE;
+			return;
+		}
+		/* (LEAVE CLAN takes a second press) */
+		if (guide.armed != ARMED_LEAVE)
+		{
+			guide.armed = ARMED_LEAVE;
+			return;
+		}
+		guide.armed = NONE;
+		if (!guide.clan_acting)
+		{
+			browser_profile_clan("leave", 0);
+			clan_act_started();
+		}
+		return;
+	}
+	if (clan_item_options(item, options) > 0)
+	{
+		guide.options = TRUE;
+		guide.option = 0;
+		guide.armed = NONE;
+	}
+}
+
+static void clan_move(short step)
+{
+	short *row = &guide.row[SOCIAL_SECTION_CLAN];
+	short next = *row;
+	struct friend_item const *item = clan_chosen_item();
+
+	if (guide.options && item)
+	{
+		short options[MAXIMUM_OPTIONS], count = clan_item_options(item, options);
+
+		guide.option = (short)PIN(guide.option + step, 0, MAX(0, count - 1));
+		guide.armed = NONE;
+		return;
+	}
+	do
+		next = (short)(next + step);
+	while (next > 0 && next < guide.clan_count && !clan_item_selectable(next));
+	if (clan_item_selectable(next))
+	{
+		*row = next;
+		guide.armed = NONE;
+		guide.message[0] = 0;
+		clan_chosen_remember();
+	}
+}
+
+/* the profile looked at (often while the Guide is open or an action is
+out, now and then while it's closed, for the pause row's count): a new one,
+the items again; an action's answer, its line */
+static void clan_update(void)
+{
+	struct browser_profile_status status;
+	unsigned long now = system_milliseconds();
+	unsigned long interval = guide.open || guide.clan_acting ? CLAN_LOOK_INTERVAL : CLAN_LOOK_CLOSED;
+
+	if (guide.clan_time && now - guide.clan_time < interval)
+		return;
+	guide.clan_time = now ? now : 1;
+	browser_profile_get(&status, &clan_profile);
+	guide.clan_state = status.state;
+	if (status.serial != guide.clan_serial || guide.clan_loaded != (status.has_profile != 0))
+	{
+		guide.clan_serial = status.serial;
+		guide.clan_loaded = status.has_profile != 0;
+		clan_items_build();
+	}
+	if (!guide.clan_acting || status.action == BROWSER_PROFILE_ACTION_WORKING)
+		return;
+	guide.clan_acting = FALSE;
+	if (status.message[0])
+		message_set(status.message);
+	if (guide.section == SOCIAL_SECTION_CLAN)
+		guide.options = FALSE;
+	browser_profile_action_seen();
+}
+
+/* the clans' invites waiting (the pause row's count) */
+static short clan_invites_waiting(void)
+{
+	return guide.clan_loaded && clan_profile.linked && !clan_profile.has_clan ? (short)clan_profile.invite_count : 0;
+}
+
 /* ---------- the sections' rows */
 
 static short section_rows(short section)
@@ -2280,6 +2648,10 @@ static short section_rows(short section)
 	case SOCIAL_SECTION_RECENT:
 		if (friends_signed_in())
 			return guide.friends_loaded ? guide.recent_count : 0;
+		return sign_in_section() != NONE ? 1 : 0;
+	case SOCIAL_SECTION_CLAN:
+		if (friends_signed_in())
+			return guide.clan_loaded ? guide.clan_count : 0;
 		return sign_in_section() != NONE ? 1 : 0;
 	default:
 		/* (SIGN IN, without a Delta profile) */
@@ -2338,6 +2710,14 @@ static void activate(void)
 			return;
 		}
 		break;
+	case SOCIAL_SECTION_CLAN:
+		if (friends_signed_in())
+		{
+			if (guide.clan_loaded)
+				clan_activate();
+			return;
+		}
+		break;
 	}
 	/* (Quick Connect's code, shown here) */
 	if (!friends_signed_in() && sign_in_section() != NONE)
@@ -2370,6 +2750,11 @@ static void move(short step)
 
 		if (count > 0)
 			guide.option = (short)PIN(guide.option + step, 0, count - 1);
+		return;
+	}
+	if (guide.section == SOCIAL_SECTION_CLAN && friends_signed_in())
+	{
+		clan_move(step);
 		return;
 	}
 	*row = (short)PIN(*row + step, 0, rows - 1);
@@ -2668,7 +3053,7 @@ static void render_friend_detail(struct friend_item const *item)
 	if (line[0])
 		ui_style_text(UI_TEXT_LABEL, x + 12, BODY_Y + 48, UI_ALIGN_LEFT, line);
 	count = item_options(item, options);
-	busy = guide.acting;
+	busy = guide.acting || guide.clan_acting;
 	y = BODY_Y + 68;
 	for (index = 0; index < count; index++)
 	{
@@ -2741,6 +3126,215 @@ static void render_friends(void)
 		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + LIST_WIDTH * 0.5f, y + 14, UI_ALIGN_CENTER, "No friends yet");
 	if (chosen >= 0 && chosen < guide.item_count)
 		render_friend_detail(&guide.items[chosen]);
+}
+
+
+/* the clan's emblem, size square at x, y (its pixels made again only when
+it changes) */
+static void render_emblem(float x, float y, float size)
+{
+	int const *fields = clan_profile.clan.emblem;
+	struct clan_emblem emblem;
+	int serial;
+
+	emblem.foreground = fields[0];
+	emblem.background = fields[1];
+	emblem.primary = fields[2];
+	emblem.secondary = fields[3];
+	emblem.background_color = fields[4];
+	serial = clan_emblem_serial(&emblem);
+	if (!guide.emblem_pixels)
+	{
+		guide.emblem_pixels = malloc(EMBLEM_PIXELS * EMBLEM_PIXELS * 4);
+		if (!guide.emblem_pixels)
+			return;
+		guide.emblem_serial = 0;
+	}
+	if (serial != guide.emblem_serial)
+	{
+		clan_emblem_render(&emblem, EMBLEM_PIXELS, guide.emblem_pixels);
+		guide.emblem_serial = serial;
+	}
+	ui_overlay_picture(serial, guide.emblem_pixels, EMBLEM_PIXELS, EMBLEM_PIXELS, x, y, size, size, 0xFFFFFFFF);
+}
+
+/* a CLAN item's row as the list draws it */
+static void clan_item_row(struct friend_item const *item, struct social_row *row)
+{
+	csmemset(row, 0, sizeof(*row));
+	switch (item->kind)
+	{
+	case _clan_member:
+	{
+		struct delta_profile_clan_member const *member = &clan_profile.clan.members[item->index];
+
+		social_copy_text(row->tag, sizeof(row->tag), social_name(member->display, member->handle));
+		social_clan_status(member->rank, member->you, member->online, member->playing, &member->game, row->status,
+			sizeof(row->status));
+		row->state = member->playing ? SOCIAL_STATE_IN_GAME : member->you || member->online ? SOCIAL_STATE_ONLINE :
+			SOCIAL_STATE_OFFLINE;
+		break;
+	}
+	case _clan_invited:
+		social_copy_text(row->tag, sizeof(row->tag), clan_profile.clan_invited[item->index]);
+		social_copy_text(row->status, sizeof(row->status), "Invited");
+		row->state = -1;
+		break;
+	case _clan_invite:
+	{
+		struct delta_profile_invite const *invite = &clan_profile.invites[item->index];
+
+		snprintf(row->tag, sizeof(row->tag), "[%s] %s", invite->tag, invite->name);
+		snprintf(row->status, sizeof(row->status), invite->count == 1 ? "%d member" : "%d members", invite->count);
+		row->state = -1;
+		break;
+	}
+	}
+}
+
+/* the clan's card in the detail pane: its emblem, tag and name, motto and
+members */
+static float render_clan_card(float x, float width)
+{
+	char line[SOCIAL_STATUS_SIZE];
+	float size = 48;
+
+	render_emblem(x + width - size - 12, BODY_Y + 12, size);
+	snprintf(line, sizeof(line), "[%s]", clan_profile.clan.tag);
+	ui_style_text(UI_TEXT_TITLE, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, line);
+	ui_style_text(UI_TEXT_NAME, x + 12, BODY_Y + 32, UI_ALIGN_LEFT, clan_profile.clan.name);
+	if (clan_profile.clan.motto[0])
+		ui_style_text(UI_TEXT_LINE, x + 12, BODY_Y + 48, UI_ALIGN_LEFT, clan_profile.clan.motto);
+	snprintf(line, sizeof(line), clan_profile.clan.count == 1 ? "%d member" : "%d members", clan_profile.clan.count);
+	ui_style_text(UI_TEXT_LABEL, x + 12, BODY_Y + 66, UI_ALIGN_LEFT, line);
+	return BODY_Y + 88;
+}
+
+static void render_clan_detail(struct friend_item const *item)
+{
+	struct social_row row;
+	float x = DETAIL_LEFT, width = CONTENT_RIGHT - DETAIL_LEFT, y;
+	short options[MAXIMUM_OPTIONS], count = 0, index;
+
+	ui_style_glass(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, ui_style_color(UI_COLOR_PANE), COLOR_ROW_EDGE);
+	/* (the clan's card: on its actions, and on the player's own line) */
+	if (!item || item->kind == _clan_action ||
+		(item->kind == _clan_member && clan_profile.clan.members[item->index].you))
+	{
+		y = clan_in() ? render_clan_card(x, width) : BODY_Y + 12;
+	}
+	else
+	{
+		clan_item_row(item, &row);
+		ui_style_text(UI_TEXT_TITLE, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, row.tag);
+		if (row.status[0])
+			ui_style_text(UI_TEXT_LINE, x + 12, BODY_Y + 32, UI_ALIGN_LEFT, row.status);
+		if (item->kind == _clan_member && clan_profile.clan.members[item->index].handle[0])
+		{
+			char handle[SOCIAL_HANDLE_SIZE + 2];
+
+			snprintf(handle, sizeof(handle), "@%s", clan_profile.clan.members[item->index].handle);
+			ui_style_text(UI_TEXT_LABEL, x + 12, BODY_Y + 48, UI_ALIGN_LEFT, handle);
+		}
+		count = clan_item_options(item, options);
+		y = BODY_Y + 68;
+	}
+	for (index = 0; index < count; index++)
+	{
+		boolean on = guide.options && index == guide.option;
+
+		ui_style_row(x + 12, y, width - 24, OPTION_HEIGHT, on);
+		ui_overlay_text(UI_FONT_MENU, 10.0f, x + 22, y + 7, UI_ALIGN_LEFT,
+			guide.clan_acting ? fade(COLOR_VALUE, 0.5f) : COLOR_VALUE, option_label(options[index], guide.armed == options[index]));
+		target_add(x + 12, y, x + width - 12, y + OPTION_HEIGHT, _target_option, index);
+		y += OPTION_HEIGHT + OPTION_GAP;
+	}
+	if (guide.clan_acting)
+		ui_style_text(UI_TEXT_LINE, x + 12, y + 4, UI_ALIGN_LEFT, "Sending");
+	else if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
+		ui_style_text(UI_TEXT_WARNING, x + 12, y + 4, UI_ALIGN_LEFT, guide.message);
+}
+
+static void render_clan(void)
+{
+	short index, chosen = guide.row[SOCIAL_SECTION_CLAN];
+	float y = BODY_Y, center = (CONTENT_LEFT + CONTENT_RIGHT) * 0.5f;
+	char heading[48];
+
+	if (!guide.clan_loaded)
+	{
+		ui_style_text(UI_TEXT_LINE, center, (BODY_Y + BODY_BOTTOM) * 0.5f - 6, UI_ALIGN_CENTER,
+			guide.clan_state == BROWSER_PROFILE_FAILED ? "Can't reach the site" : "Loading");
+		return;
+	}
+	if (!guide.clan_count)
+	{
+		char page[160];
+		unsigned char modules[BROWSER_CONNECT_QR_SIZE * BROWSER_CONNECT_QR_SIZE];
+
+		ui_style_text(UI_TEXT_LINE, center, (BODY_Y + BODY_BOTTOM) * 0.5f - 16, UI_ALIGN_CENTER, "No clan");
+		if (browser_page_qr("/clans", page, sizeof(page), modules) > 0)
+		{
+			char line[200];
+
+			snprintf(line, sizeof(line), "Start one at %s", page);
+			ui_style_text(UI_TEXT_LABEL, center, (BODY_Y + BODY_BOTTOM) * 0.5f + 4, UI_ALIGN_CENTER, line);
+		}
+		return;
+	}
+	/* (the chosen item in view, as FRIENDS scrolls) */
+	if (guide.first_row > chosen)
+		guide.first_row = chosen;
+	if (guide.first_row == chosen && chosen > 0 && guide.clan_items[chosen - 1].kind == _clan_heading)
+		guide.first_row = (short)(chosen - 1);
+	for (;;)
+	{
+		float used = 0;
+
+		for (index = guide.first_row; index <= chosen && index < guide.clan_count; index++)
+			used += item_height(guide.clan_items[index].kind == _clan_heading ? _item_heading : _item_friend);
+		if (used <= BODY_BOTTOM - BODY_Y + ROW_GAP || guide.first_row >= chosen)
+			break;
+		guide.first_row++;
+	}
+	for (index = guide.first_row; index < guide.clan_count; index++)
+	{
+		struct friend_item const *item = &guide.clan_items[index];
+		float height = item_height(item->kind == _clan_heading ? _item_heading : _item_friend);
+		boolean on = index == chosen && !guide.options;
+
+		if (y + height - (item->kind == _clan_heading ? 0 : ROW_GAP) > BODY_BOTTOM)
+			break;
+		if (item->kind == _clan_heading)
+		{
+			if (item->index == _clan_heading_members)
+				snprintf(heading, sizeof(heading), "MEMBERS (%d)", clan_profile.clan.count);
+			else if (item->index == _clan_heading_invited)
+				snprintf(heading, sizeof(heading), "INVITES OUT (%d)", clan_profile.clan_invited_count);
+			else
+				snprintf(heading, sizeof(heading), "CLAN INVITES (%d)", clan_profile.invite_count);
+			ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, y + 2, UI_ALIGN_LEFT, heading);
+		}
+		else if (item->kind == _clan_action)
+		{
+			boolean leave = item->index == _clan_action_leave;
+
+			ui_style_row(CONTENT_LEFT, y, LIST_WIDTH, ROW_HEIGHT, on);
+			ui_overlay_text(UI_FONT_MENU, 10.0f, CONTENT_LEFT + 12, y + (ROW_HEIGHT - 10.0f) * 0.5f, UI_ALIGN_LEFT,
+				leave && guide.armed == ARMED_LEAVE ? COLOR_MUTED : COLOR_VALUE,
+				!leave ? "INVITE FRIENDS" : guide.armed == ARMED_LEAVE ? "CONFIRM LEAVE" : "LEAVE CLAN");
+			target_add(CONTENT_LEFT, y, CONTENT_LEFT + LIST_WIDTH, y + ROW_HEIGHT, _target_row, index);
+		}
+		else
+		{
+			struct social_row row;
+
+			clan_item_row(item, &row);
+			render_row(&row, CONTENT_LEFT, y, LIST_WIDTH, on, index);
+		}
+		y += height;
+	}
+	render_clan_detail(clan_chosen_item());
 }
 
 /* RECENT: the players, newest first; the chosen one's panel and options */
@@ -3250,6 +3844,25 @@ static void render_prompts(void)
 		if (section_rows(guide.section))
 			word = sign_in_word(&back);
 		break;
+	case SOCIAL_SECTION_CLAN:
+		if (friends_signed_in())
+		{
+			struct friend_item const *item = guide.clan_loaded ? clan_chosen_item() : NULL;
+			short options[MAXIMUM_OPTIONS];
+
+			if (item && guide.options)
+				word = "SELECT";
+			else if (item && item->kind == _clan_action)
+				word = item->index == _clan_action_invite ? "INVITE" : guide.armed == ARMED_LEAVE ?
+					"CONFIRM" : "LEAVE";
+			else if (item && clan_item_options(item, options) > 0)
+				word = "SELECT";
+			back = guide.options;
+			break;
+		}
+		if (section_rows(guide.section))
+			word = "SIGN IN";
+		break;
 	case SOCIAL_SECTION_PARTY:
 	{
 		struct party_item item;
@@ -3469,7 +4082,7 @@ wchar_t const *guide_pause_label(long string_list_tag)
 	long tag = pc_menu_pause_guide_label();
 	short waiting, index;
 
-	if (tag == NONE || string_list_tag != tag || (waiting = friends_waiting()) <= 0)
+	if (tag == NONE || string_list_tag != tag || (waiting = (short)(friends_waiting() + clan_invites_waiting())) <= 0)
 		return NULL;
 	snprintf(text, sizeof(text), "GUIDE %d", MIN(waiting, 99));
 	for (index = 0; text[index] && index < (short)NUMBEROF(label) - 1; index++)
@@ -3502,6 +4115,7 @@ void guide_update(boolean menu_open)
 	capture_update();
 #endif
 	friends_update();
+	clan_update();
 	recent_notice();
 	/* (a report's answer, and its clip: report_player.c) */
 	report_player_update();
@@ -3577,6 +4191,7 @@ void guide_update(boolean menu_open)
 				section_go(SOCIAL_SECTION_PLAYERS_HERE);
 		}
 	}
+	debug_steps();
 	if (guide.open)
 	{
 		/* (a game that ended under it lets go of its pause) */
@@ -3589,6 +4204,57 @@ void guide_update(boolean menu_open)
 		players_update();
 	}
 }
+
+static void handle(unsigned int pressed);
+
+/* debug.guide_test: once the Guide opened by itself (debug.guide_open),
+its steps pressed one at a time, DEBUG_STEP_INTERVAL apart, from
+DEBUG_STEP_WAIT after it opened ("down;down;a":
+up, down, left, right, a, b, x, y, lb, rb). Debug builds only: a release
+build never presses the Guide's buttons for anyone (accepting an invite,
+kicking from a clan) */
+#define DEBUG_STEP_INTERVAL 600
+#define DEBUG_STEP_WAIT 8000
+#ifdef HALO_RELEASE
+static void debug_steps(void)
+{
+}
+#else
+static void debug_steps(void)
+{
+	static char const *const words[] = { "up", "down", "left", "right", "a", "b", "x", "y", "lb", "rb" };
+	char const *steps = config_string("debug.guide_test");
+	unsigned long now = system_milliseconds();
+	short step = 0, index;
+
+	/* (the first a few seconds after it opened: the site's answers in) */
+	if (!guide.open || !guide.debug_open_done || !steps[0] || now - guide.debug_step_time < DEBUG_STEP_INTERVAL ||
+		now - guide.opened_time < DEBUG_STEP_WAIT)
+	{
+		return;
+	}
+	while (*steps && step < guide.debug_step)
+	{
+		if (*steps++ == ';')
+			step++;
+	}
+	if (!*steps)
+		return;
+	guide.debug_step_time = now;
+	guide.debug_step++;
+	for (index = 0; index < (short)NUMBEROF(words); index++)
+	{
+		size_t length = strlen(words[index]);
+
+		if (!strncmp(steps, words[index], length) && (steps[length] == ';' || !steps[length]))
+		{
+			handle(1u << index);
+			platform_log("Guide: test step %s", words[index]);
+			return;
+		}
+	}
+}
+#endif
 
 /* what was pressed (or clicked on the prompt bar) */
 static void handle(unsigned int pressed)
@@ -3760,6 +4426,19 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			break;
 		case _target_row:
 			/* (a tap chooses the row; on the one chosen, it is its A) */
+			if (guide.section == SOCIAL_SECTION_CLAN)
+			{
+				boolean again = guide.row[guide.section] == target->index && !guide.options;
+
+				if (!again)
+					guide.armed = NONE;
+				guide.options = FALSE;
+				guide.row[guide.section] = target->index;
+				clan_chosen_remember();
+				if (again || guide.clan_items[target->index].kind == _clan_action)
+					activate();
+				break;
+			}
 			if (guide.section == SOCIAL_SECTION_PARTY)
 			{
 				struct party_item items[MAXIMUM_PARTY_ITEMS];
@@ -3901,6 +4580,12 @@ void guide_render(void)
 	case SOCIAL_SECTION_RECENT:
 		if (friends_signed_in())
 			render_recent();
+		else
+			render_coming();
+		break;
+	case SOCIAL_SECTION_CLAN:
+		if (friends_signed_in())
+			render_clan();
 		else
 			render_coming();
 		break;

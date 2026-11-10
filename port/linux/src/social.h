@@ -24,6 +24,7 @@ enum
 {
 	SOCIAL_SECTION_FRIENDS = 0,
 	SOCIAL_SECTION_PARTY,
+	SOCIAL_SECTION_CLAN,
 	SOCIAL_SECTION_PLAYERS_HERE,
 	SOCIAL_SECTION_RECENT,
 	SOCIAL_SECTION_SETTINGS,
@@ -380,6 +381,21 @@ int social_recent_merge(const struct social_state *state, const struct social_re
 now in Unix time */
 void social_recent_status(const struct social_recent *player, long long now, char *text, int size);
 
+/* ---------- DELTA's CLAN: a clan's ranks as the site has them ("leader",
+"officer", "member") */
+
+/* a rank's order: 3 the leader, 2 an officer, 1 a member, 0 anything else */
+int social_clan_rank(const char *rank);
+/* whether a rank may invite (the leader and officers), and kick a member of
+another rank (the leader anyone but themself, an officer members) */
+int social_clan_can_invite(const char *rank);
+int social_clan_can_kick(const char *rank, const char *their_rank);
+/* a member's line: their rank, then their game's line, "In a game",
+"Online" or "Offline" ("Officer \xC2\xB7 Online"); "You \xC2\xB7 Leader"
+for the player's own */
+void social_clan_status(const char *rank, int you, int online, int playing, const struct social_game *game, char *text,
+	int size);
+
 /* what changed between two states, for the toasts: the first invite and
 the first request that are new (-1: none), and the first friend who came
 online (-1: none), as indexes in fresh */
@@ -392,7 +408,9 @@ struct social_news
 void social_news(const struct social_state *old, const struct social_state *fresh, struct social_news *news);
 
 /* the requests' members besides the key (browser.c's game_request): -1
-when they do not fit, or for a handle the site could not have given */
+when they do not fit, or for a handle the site could not have given. The
+state asks for the profile's clan too ("clan": DELTA's CLAN, its roster
+with presence; a site from before it leaves it out) */
 int social_state_fields(char *fields, int size, const char *cursor, int limit);
 /* action: "accept", "decline", "remove", "block" or "request"
 (/v1/game/friends) */

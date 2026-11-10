@@ -554,6 +554,8 @@ static void read_emblem(struct reader *reader, int *emblem)
 	}
 }
 
+static void read_social_game(struct reader *reader, struct social_game *game);
+
 static void read_clan_member(struct reader *reader, struct delta_profile_clan_member *line)
 {
 	char key[16];
@@ -569,10 +571,18 @@ static void read_clan_member(struct reader *reader, struct delta_profile_clan_me
 	{
 		if (!strcmp(key, "display"))
 			text_value(reader, line->display, sizeof(line->display));
+		else if (!strcmp(key, "handle"))
+			text_value(reader, line->handle, sizeof(line->handle));
 		else if (!strcmp(key, "rank"))
 			text_value(reader, line->rank, sizeof(line->rank));
 		else if (!strcmp(key, "you"))
 			line->you = boolean_value(reader);
+		else if (!strcmp(key, "online"))
+			line->online = boolean_value(reader);
+		else if (!strcmp(key, "playing"))
+			line->playing = boolean_value(reader);
+		else if (!strcmp(key, "game"))
+			read_social_game(reader, &line->game);
 		else
 			skip_value(reader, 1);
 	}
@@ -651,6 +661,26 @@ static void read_invite(struct reader *reader, struct delta_profile_invite *invi
 	}
 }
 
+/* an invite a clan has out ({"handle", "time"}): its handle */
+static void read_invited(struct reader *reader, char *handle, int size)
+{
+	char key[16];
+	int first = 1;
+
+	handle[0] = 0;
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "handle"))
+			text_value(reader, handle, size);
+		else
+			skip_value(reader, 1);
+	}
+}
 
 int delta_profile_parse(const char *text, struct delta_profile *profile)
 {
@@ -760,8 +790,9 @@ int delta_profile_parse_clan(const char *text, struct delta_profile *profile)
 	struct reader reader;
 	struct delta_profile_clan clan;
 	struct delta_profile_invite invites[DELTA_PROFILE_CLAN_INVITES];
+	char invited[DELTA_PROFILE_CLAN_MEMBERS][24];
 	char key[32];
-	int first = 1, has_clan = 0, invite_count = 0, seen = 0;
+	int first = 1, has_clan = 0, invite_count = 0, invited_count = 0, seen = 0;
 
 	memset(&clan, 0, sizeof(clan));
 	reader.at = text;
@@ -777,6 +808,9 @@ int delta_profile_parse_clan(const char *text, struct delta_profile *profile)
 		}
 		else if (!strcmp(key, "clan_invites"))
 			READ_ARRAY(&reader, DELTA_PROFILE_CLAN_INVITES, invite_count, read_invite(&reader, &invites[invite_count]));
+		else if (!strcmp(key, "clan_invited"))
+			READ_ARRAY(&reader, DELTA_PROFILE_CLAN_MEMBERS, invited_count,
+				read_invited(&reader, invited[invited_count], (int)sizeof(invited[0])));
 		else
 			skip_value(&reader, 1);
 	}
@@ -786,6 +820,9 @@ int delta_profile_parse_clan(const char *text, struct delta_profile *profile)
 	profile->has_clan = has_clan;
 	profile->invite_count = invite_count;
 	memcpy(profile->invites, invites, sizeof(invites));
+	/* (a member's answer has none: none out) */
+	profile->clan_invited_count = invited_count;
+	memcpy(profile->clan_invited, invited, sizeof(invited));
 	return 1;
 }
 

@@ -41,6 +41,7 @@ static struct social_row make_row(const char *tag, int state, int key)
 static void test_sections(void)
 {
 	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_FRIENDS), "FRIENDS"));
+	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_CLAN), "CLAN"));
 	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_PLAYERS_HERE), "PLAYERS HERE"));
 	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_SETTINGS), "SETTINGS"));
 	CHECK(!strcmp(social_section_name(-1), ""));
@@ -276,8 +277,8 @@ static void test_state(void)
 
 	/* the requests' fields */
 	CHECK(social_state_fields(text, sizeof(text), "89ab01cd23ef4567", 200) > 0);
-	CHECK(!strcmp(text, "\"since\": \"89ab01cd23ef4567\", \"limit\": 200"));
-	CHECK(social_state_fields(text, sizeof(text), "", 200) > 0 && !strcmp(text, "\"limit\": 200"));
+	CHECK(!strcmp(text, "\"since\": \"89ab01cd23ef4567\", \"limit\": 200, \"clan\": true"));
+	CHECK(social_state_fields(text, sizeof(text), "", 200) > 0 && !strcmp(text, "\"limit\": 200, \"clan\": true"));
 	CHECK(social_state_fields(text, sizeof(text), "\"}", 200) == -1);
 	CHECK(social_action_fields(text, sizeof(text), "accept", "donut") > 0);
 	CHECK(!strcmp(text, "\"action\": \"accept\", \"handle\": \"donut\""));
@@ -301,6 +302,59 @@ static void test_state(void)
 	CHECK(delta_profile_parse_join("{\"join\": \"halo://join/0123abcd\", \"friend\": \"grif\"}", link, sizeof(link)));
 	CHECK(!strcmp(link, "halo://join/0123abcd"));
 	CHECK(!delta_profile_parse_join("{\"join\": \"http://example.com\"}", link, sizeof(link)) && !link[0]);
+}
+
+static void test_clan(void)
+{
+	static const char roster[] = "{\"clan\": {\"id\": 7, \"name\": \"Gray Matter\", \"tag\": \"GM\", \"motto\": \"\", "
+		"\"emblem\": {\"fg\": 1, \"bg\": 2, \"c1\": 3, \"c2\": 4, \"c3\": 5}, \"created\": 1, \"rank\": \"officer\", "
+		"\"count\": 3, \"hidden\": 0, \"more\": 0, \"members\": [{\"handle\": \"walter\", \"display\": \"Walter\", "
+		"\"rank\": \"leader\", \"online\": true, \"playing\": true, \"game\": {\"map\": \"bloodgulch\", \"engine\": 2, "
+		"\"teams\": false, \"players\": 5, \"maximum_players\": 16}}, {\"handle\": \"jesse\", \"display\": \"Jesse\", "
+		"\"rank\": \"officer\", \"you\": true}, {\"handle\": \"skinny\", \"display\": \"\", \"rank\": \"member\", "
+		"\"online\": false, \"playing\": false, \"game\": null}]}, \"clan_invites\": [], "
+		"\"clan_invited\": [{\"handle\": \"badger\", \"time\": 5}], \"friends\": [], \"cursor\": \"ab\"}";
+	static struct delta_profile profile;
+	char line[SOCIAL_STATUS_SIZE];
+	struct social_game none;
+
+	memset(&none, 0, sizeof(none));
+	memset(&profile, 0, sizeof(profile));
+	/* (the roster, from /v1/game/clan or the friends poll) */
+	CHECK(delta_profile_parse_clan(roster, &profile) == 1);
+	CHECK(profile.has_clan && profile.clan.member_count == 3 && !strcmp(profile.clan.tag, "GM"));
+	CHECK(!strcmp(profile.clan.members[0].handle, "walter") && profile.clan.members[0].online &&
+		profile.clan.members[0].playing && profile.clan.members[0].game.listed &&
+		!strcmp(profile.clan.members[0].game.map, "bloodgulch"));
+	CHECK(profile.clan.members[1].you && !profile.clan.members[2].game.listed);
+	CHECK(profile.clan_invited_count == 1 && !strcmp(profile.clan_invited[0], "badger"));
+	/* (an answer with no clan part leaves the profile's as it was) */
+	CHECK(delta_profile_parse_clan("{\"friends\": [], \"cursor\": \"ab\"}", &profile) == 0);
+	CHECK(profile.has_clan);
+	/* (a member's answer: none out) */
+	CHECK(delta_profile_parse_clan("{\"clan\": null, \"clan_invites\": []}", &profile) == 1);
+	CHECK(!profile.has_clan && !profile.clan_invited_count);
+	/* ranks */
+	CHECK(social_clan_rank("leader") == 3 && social_clan_rank("officer") == 2 && social_clan_rank("member") == 1);
+	CHECK(social_clan_rank("admin") == 0 && social_clan_rank(NULL) == 0);
+	CHECK(social_clan_can_invite("leader") && social_clan_can_invite("officer") && !social_clan_can_invite("member"));
+	CHECK(social_clan_can_kick("leader", "officer") && social_clan_can_kick("leader", "member"));
+	CHECK(!social_clan_can_kick("leader", "leader") && social_clan_can_kick("officer", "member"));
+	CHECK(!social_clan_can_kick("officer", "officer") && !social_clan_can_kick("member", "member"));
+	/* lines */
+	social_clan_status("officer", 0, 1, 0, &none, line, sizeof(line));
+	CHECK(!strcmp(line, "Officer \xC2\xB7 Online"));
+	social_clan_status("member", 0, 0, 0, &none, line, sizeof(line));
+	CHECK(!strcmp(line, "Member \xC2\xB7 Offline"));
+	social_clan_status("leader", 0, 1, 1, &none, line, sizeof(line));
+	CHECK(!strcmp(line, "Leader \xC2\xB7 In a game"));
+	social_clan_status("leader", 1, 1, 1, &none, line, sizeof(line));
+	CHECK(!strcmp(line, "You \xC2\xB7 Leader"));
+	CHECK(delta_profile_parse_clan(roster, &profile) == 1);
+	social_clan_status("leader", 0, 1, 1, &profile.clan.members[0].game, line, sizeof(line));
+	CHECK(!strncmp(line, "Leader \xC2\xB7 Slayer \xC2\xB7 ", 20) && strstr(line, "5/16") != NULL);
+	social_clan_status("leader", 0, 1, 1, &profile.clan.members[0].game, line, 12);
+	CHECK(strlen(line) < 12);
 }
 
 static void test_presence(void)
@@ -583,6 +637,7 @@ int main(void)
 	test_state();
 	test_party();
 	test_recent();
+	test_clan();
 	if (failures)
 	{
 		printf("%d failed\n", failures);

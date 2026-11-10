@@ -589,6 +589,12 @@ void browser_profile_action_seen(void);
 /* a clan's invite answered ("accept" or "decline", clan its ID), or the
 clan left ("leave"): the site's /v1/game/clan, its result the action's */
 void browser_profile_clan(const char *action, int clan);
+/* a member of the profile's clan kicked, or a player invited to it
+("kick" or "invite", by handle: a leader's or officer's, DELTA's CLAN);
+the site's /v1/game/clan, its result the action's. 0 for a handle the site
+could not have given. Not on the consoles (no DELTA there yet) */
+int browser_profile_clan_member(const char *action, const char *handle);
+
 /* the devices (docs/delta.md, Devices): this device signed out (its
 certificate dropped, its key kept; nothing goes to the site as the account
 until it signs in again by code), and another device of the account revoked

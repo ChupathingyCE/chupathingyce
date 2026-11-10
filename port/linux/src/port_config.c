@@ -1345,6 +1345,10 @@ static const struct config_setting config_settings[] =
 	{ "debug.party_test", _config_string, "\"\"", "HALO_PARTY_TEST", _environment_value, _platform_all,
 		"A party step once the menus are up, for tests: \"create\" or\n"
 		"\"join:<code>\". Leave it empty for none." },
+	{ "debug.guide_test", _config_string, "\"\"", "HALO_GUIDE_TEST", _environment_value, _platform_all,
+		"Buttons pressed in the Guide debug.guide_open opened, one at a time,\n"
+		"separated by ; (up, down, left, right, a, b, x, y, lb, rb), for tests.\n"
+		"Debug builds only: a release build ignores it." },
 #endif
 #ifdef HALO_CAPTURE
 	{ "debug.clips_software", _config_boolean, "false", "HALO_CLIPS_SOFTWARE", _environment_set_is_true,

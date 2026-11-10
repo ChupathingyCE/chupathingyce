@@ -2873,8 +2873,19 @@ signout signature   f579b26e3db2c34573a7a4e9842d85ef6646513dbf73706aeae41c825a44
 Clans are groups of Delta profiles, kept by the game list (its
 `clans.py`). A clan has a name, a tag of 2 to 8 letters and digits, a
 motto, an emblem and ranked members (leader, officers, members). Making a
-clan, inviting, ranks, kicking, handing the clan to another member and
-the emblem are on the site (`/profile#clan`, `/clans/TAG`).
+clan, ranks, handing the clan to another member and the emblem are on the
+site (`/profile#clan`, `/clans/TAG`). Inviting and kicking are on the site
+and in DELTA.
+
+- **In DELTA:** the CLAN section shows the clan's members by rank, each
+  with where they are (in a game, online or offline, worked out as a
+  friend's: hidden while they appear offline or hide their game). The
+  leader and officers also see the invites they have out, and get INVITE
+  FRIENDS (it opens FRIENDS, where a friend has INVITE TO CLAN) and, on a
+  member of a lower rank, KICK (pressed twice). Everyone has LEAVE CLAN
+  (pressed twice). With no clan, CLAN lists the clans' invites: JOIN CLAN
+  and DECLINE. The clan's card (emblem, tag, name, motto) shows beside the
+  player's own line.
 
 - **In the game:** Delta Profile's CLAN section shows the profile's clan:
   its emblem, name, tag, member count and motto, then its members by rank
@@ -2889,7 +2900,12 @@ the emblem are on the site (`/profile#clan`, `/clans/TAG`).
   them the way the site does.
 - **Requests:** `/v1/game/profile` carries `clan` and `clan_invites`, and
   its privacy `show_clan_tag`; `POST /v1/game/clan` (the player key, an
-  action: `accept`, `decline` or `leave`) answers with the same two.
+  action: `accept`, `decline` or `leave` with the clan, `invite` or `kick`
+  with a handle, or `roster`) answers with the same two, the members'
+  handles and presence, and a leader's or officer's `clan_invited`. The
+  friends poll (`/v1/social/state` with `"clan": true`) carries the same
+  roster, so DELTA spends no extra requests on it. A site from before
+  these leaves them out, and the game shows what `/v1/game/profile` has.
 - **Tags in games:** a verified player ("Verified names") who shows their
   clan tag is "[TAG] Name" on the scoreboard, the postgame report and the
   lobby, the name cut to fit with "...". The public card (`/v1/game/players`) carries
