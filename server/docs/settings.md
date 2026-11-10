@@ -23,6 +23,11 @@ the file.
 | `HALO_DEDICATED_TEAM_CHANGE` | `off` | Players changing teams during a team game (the pause menu's CHANGE TEAMS, [below](#team-changes)): `off` (players keep their team, as on the Xbox), `balanced` or `allow` (`0`, `1` or `2`; the settings file's `team_change`). Chupathingy players see CHANGE TEAMS only when it is on. |
 | `HALO_DEDICATED_TEAM_CHANGE_MARGIN` | `1` | With `balanced`, the most players one team may have over the other after a change, 0 to 16 (`team_change_margin`). |
 | `HALO_DEDICATED_ALLOW_PLAYER_NAMES` | `false` | `true`: Chupathingy players may show names above other players' heads (their `display.player_names`). `false` plays as the Xbox did: a name shows only on the player aimed at (`allow_player_names`; the host's rules, [docs/delta.md](../../docs/delta.md#host-rules)). |
+| `HALO_DEDICATED_VOICE` | `false` | Relay voice chat between Chupathingy players who turned it on (`voice`). Off by default, since every talker costs the server upload; turn it on with `voice = true` in the settings file, `sv_set voice 1`, or the control panel's Settings. The server never decodes, plays or keeps it, and relays 8 talkers at once at most. |
+| `HALO_DEDICATED_VOICE_TEAM`, `_PROXIMITY`, `_EVERYONE`, `_PARTY` | `true`, `true`, `false`, `true` | The channels players may talk on (`voice_team`, `voice_proximity`, `voice_everyone`, `voice_party`). |
+| `HALO_DEDICATED_VOICE_LOBBY` | `true` | Everyone hears everyone in the lobby and after a game (`voice_lobby`). |
+| `HALO_DEDICATED_VOICE_RANGE` | `15` | How near is near for proximity voice, 5 to 100 world units (`voice_range`). |
+| `HALO_DEDICATED_VOICE_KBPS` | `24` | Voice quality, 8 to 64 kbps (`voice_kbps`). Each talker costs the server about 5 KB/s of upload for each player hearing them at 24. |
 | `HALO_DEDICATED_ALLOW_FOLLOW_CAMERA` | `false` | `true`: Chupathingy players may watch a living player's view while they wait to respawn (their `display.follow_camera`). `false` plays as the Xbox did: the death camera alone (`allow_follow_camera`). |
 | `HALO_DEDICATED_LATE_JOIN_HOLD` | `false` | `true`: a player who joins a game in progress watches through the follow camera until the next game starts (everyone, OpenCE players too). `false` spawns them at once, as Halo does (`late_join_hold`). |
 | `HALO_DEDICATED_BAN_SHARE` | `false` | `true`: while linked, your bans that name a Delta account or device go to your shared ban list on the site (`ban_share`). Never an address. |
@@ -55,7 +60,7 @@ The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
 `public` (from the next start), `name_filter`, `chat`, `chat_filter`,
 `welcome`, `postgame_seconds`, `skip_lobby`, `chat_cooldown`, `team_change`
-(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, `max_machines_per_address`, `betrayal_kick`, `afk_kick_minutes`, `keep_parties_together`, `late_join_hold`, `ban_share`, and the playlist
+(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, `max_machines_per_address`, `betrayal_kick`, `afk_kick_minutes`, `keep_parties_together`, `late_join_hold`, `ban_share`, `voice`, `voice_team`, `voice_proximity`, `voice_everyone`, `voice_party`, `voice_lobby`, `voice_range`, `voice_kbps`, and the playlist
 `sv_playlist_use` chose. `sv_set welcome Hello and welcome` takes
 the rest of the line as the value (quotes optional).
 

@@ -659,6 +659,12 @@ int delta_peer_protocol(void)
 		local.capabilities |= (delta_u32)1 << _delta_capability_team_change;
 #endif
 #ifdef HALO_GAME_BROWSER
+#ifdef HALO_PORT_VOICE
+		/* (voice: a host relays it by its rules, voice_game.c, and offers it
+		once they are set; a client says and hears it; a dedicated server
+		relays it without decoding it) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_voice;
+#endif
 		/* (units' shield and health and objects' names, as the host has
 		them: network_objects.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_object_sync;
@@ -766,9 +772,12 @@ static int open_socket(unsigned short port)
 static void receive(void)
 {
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM + 1];
-	int count;
+	int count = 0, voice = 0;
 
-	for (count = 0; count < DELTA_PEER_FRAME_DATAGRAMS && delta_game.socket != INVALID_SOCKET; count++)
+	/* (voice frames are read beside the rest, up to their own count, so that
+	a room full of talkers never starves the handshake or the roster) */
+	while (count < DELTA_PEER_FRAME_DATAGRAMS && voice < DELTA_PEER_VOICE_FRAME_DATAGRAMS &&
+		delta_game.socket != INVALID_SOCKET)
 	{
 		struct sockaddr_in from;
 		int length = sizeof(from);
@@ -777,6 +786,10 @@ static void receive(void)
 
 		if (size == SOCKET_ERROR)
 			break;
+		if (size > 3 && (data[3] == _delta_message_voice_up || data[3] == _delta_message_voice_down))
+			voice++;
+		else
+			count++;
 		if (length < (int)sizeof(from) || from.sin_family != AF_INET)
 			continue;
 		/* (one too big is dropped by the session: read as one byte more) */
@@ -1711,6 +1724,70 @@ int delta_peer_game_read_save_file(const char *name, char *text, int size)
 #endif
 
 /* ---------- team changes (team_change.c) */
+
+/* ---------- voice (port/linux/game/voice_game.c) */
+
+void delta_peer_game_set_voice_rules(const struct delta_wire_voice_config *rules)
+{
+	delta_peer_protocol();
+	delta_peer_set_voice_rules(&delta_game.peer, rules);
+}
+
+void delta_peer_game_set_voice_world(const struct delta_peer_voice_world *world)
+{
+	if (delta_game.ready && delta_game.role == _role_host)
+		delta_peer_set_voice_world(&delta_game.peer, world);
+}
+
+void delta_peer_game_set_voice_client(const struct delta_peer_voice_client *client)
+{
+	delta_peer_protocol();
+	delta_peer_set_voice_client(&delta_game.peer, client);
+}
+
+void delta_peer_game_set_voice_hears(int hears, const unsigned char *party)
+{
+	if (!delta_game.ready)
+		return;
+	if (delta_game.role == _role_host)
+		delta_peer_set_voice_local(&delta_game.peer, hears, party);
+	else if (delta_game.role == _role_client)
+		delta_peer_client_set_voice_hears(&delta_game.peer, hears, party);
+}
+
+int delta_peer_game_voice_say(int channel, unsigned short sequence, const unsigned char *packet, int length)
+{
+	if (!delta_game.ready)
+		return 0;
+	if (delta_game.role == _role_host)
+		return delta_peer_host_voice_say(&delta_game.peer, GetTickCount(), channel, sequence, packet, length);
+	if (delta_game.role == _role_client)
+		return delta_peer_client_voice_say(&delta_game.peer, GetTickCount(), channel, sequence, packet, length);
+	return 0;
+}
+
+int delta_peer_game_voice_config(struct delta_wire_voice_config *config)
+{
+	if (!delta_game.ready)
+		return 0;
+	if (delta_game.role == _role_host)
+	{
+		if (!delta_game.peer.voice_hosting || !delta_game.port)
+			return 0;
+		if (config)
+			*config = delta_game.peer.voice_rules;
+		return 1;
+	}
+	if (delta_game.role == _role_client)
+		return delta_peer_client_voice_config(&delta_game.peer, GetTickCount(), config);
+	return 0;
+}
+
+int delta_peer_game_voice_talking(int machine_index)
+{
+	return delta_game.ready && delta_game.role == _role_host &&
+		delta_peer_voice_talking(&delta_game.peer, GetTickCount(), machine_index);
+}
 
 void delta_peer_game_set_team_host(const struct delta_peer_team_host *host)
 {

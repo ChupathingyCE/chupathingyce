@@ -39,6 +39,7 @@ given both (dedicated.c). Nothing a client is sent is new.
 #include "dedicated.h"
 #include "server_admin.h"
 #include "server_config.h"
+#include "voice_game.h"
 #include "server_conduct.h"
 #include "server_gametype_variant.h"
 
@@ -1677,6 +1678,36 @@ static void setting_now(
 	case SERVER_SETTING_KEEP_PARTIES_TOGETHER:
 		snprintf(text, (size_t)size, "%s", party_teams_host_on() ? "true" : "false");
 		break;
+#ifdef HALO_PORT_VOICE
+	case SERVER_SETTING_VOICE:
+	case SERVER_SETTING_VOICE_TEAM:
+	case SERVER_SETTING_VOICE_PROXIMITY:
+	case SERVER_SETTING_VOICE_EVERYONE:
+	case SERVER_SETTING_VOICE_PARTY:
+	case SERVER_SETTING_VOICE_LOBBY:
+	case SERVER_SETTING_VOICE_RANGE:
+	case SERVER_SETTING_VOICE_KBPS:
+	{
+		struct voice_host_rules rules;
+		long number;
+
+		voice_game_host_get(&rules);
+		number = setting == SERVER_SETTING_VOICE_RANGE ? rules.range : setting == SERVER_SETTING_VOICE_KBPS ?
+			rules.kbps : -1;
+		if (number >= 0)
+			snprintf(text, (size_t)size, "%ld", number);
+		else
+		{
+			boolean value = setting == SERVER_SETTING_VOICE ? rules.on : setting == SERVER_SETTING_VOICE_TEAM ?
+				rules.team : setting == SERVER_SETTING_VOICE_PROXIMITY ? rules.proximity :
+				setting == SERVER_SETTING_VOICE_EVERYONE ? rules.everyone : setting == SERVER_SETTING_VOICE_PARTY ?
+				rules.party : rules.lobby;
+
+			snprintf(text, (size_t)size, "%s", value ? "true" : "false");
+		}
+		break;
+	}
+#endif
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING: snprintf(text, (size_t)size, "%s", server_gamespy_enabled() ? "true" : "false"); break;
 	case SERVER_SETTING_GAMESPY_PORT: snprintf(text, (size_t)size, "%ld", server_gamespy_port()); break;
@@ -1731,7 +1762,8 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_ALLOW_FOLLOW_CAMERA || setting == SERVER_SETTING_MAX_MACHINES_PER_ADDRESS ||
 		setting == SERVER_SETTING_BETRAYAL_KICK || setting == SERVER_SETTING_AFK_KICK_MINUTES ||
 		setting == SERVER_SETTING_CE_WELCOME || setting == SERVER_SETTING_KEEP_PARTIES_TOGETHER ||
-		setting == SERVER_SETTING_LATE_JOIN_HOLD || setting == SERVER_SETTING_BAN_SHARE;
+		setting == SERVER_SETTING_LATE_JOIN_HOLD || setting == SERVER_SETTING_BAN_SHARE ||
+		(setting >= SERVER_SETTING_VOICE && setting <= SERVER_SETTING_VOICE_KBPS);
 }
 
 static char const *environment_value(
@@ -1847,7 +1879,8 @@ boolean server_admin_set(
 				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
 				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port, ce_joins, "
 				"allow_player_names, allow_follow_camera, max_machines_per_address, betrayal_kick, "
-				"afk_kick_minutes, ce_welcome, keep_parties_together, late_join_hold, ban_share)\n");
+				"afk_kick_minutes, ce_welcome, keep_parties_together, late_join_hold, ban_share, voice, voice_team, "
+				"voice_proximity, voice_everyone, voice_party, voice_lobby, voice_range, voice_kbps)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1904,6 +1937,35 @@ boolean server_admin_set(
 	case SERVER_SETTING_BETRAYAL_KICK: server_conduct_set_betrayal_limit(change.values[setting]); break;
 	case SERVER_SETTING_AFK_KICK_MINUTES: server_conduct_set_afk_minutes(change.values[setting]); break;
 	case SERVER_SETTING_KEEP_PARTIES_TOGETHER: party_teams_host_set(change.values[setting] ? TRUE : FALSE); break;
+#ifdef HALO_PORT_VOICE
+	case SERVER_SETTING_VOICE:
+	case SERVER_SETTING_VOICE_TEAM:
+	case SERVER_SETTING_VOICE_PROXIMITY:
+	case SERVER_SETTING_VOICE_EVERYONE:
+	case SERVER_SETTING_VOICE_PARTY:
+	case SERVER_SETTING_VOICE_LOBBY:
+	case SERVER_SETTING_VOICE_RANGE:
+	case SERVER_SETTING_VOICE_KBPS:
+	{
+		struct voice_host_rules rules;
+		boolean on = change.values[setting] ? TRUE : FALSE;
+
+		voice_game_host_get(&rules);
+		switch (setting)
+		{
+		case SERVER_SETTING_VOICE: rules.on = on; break;
+		case SERVER_SETTING_VOICE_TEAM: rules.team = on; break;
+		case SERVER_SETTING_VOICE_PROXIMITY: rules.proximity = on; break;
+		case SERVER_SETTING_VOICE_EVERYONE: rules.everyone = on; break;
+		case SERVER_SETTING_VOICE_PARTY: rules.party = on; break;
+		case SERVER_SETTING_VOICE_LOBBY: rules.lobby = on; break;
+		case SERVER_SETTING_VOICE_RANGE: rules.range = change.values[setting]; break;
+		default: rules.kbps = change.values[setting]; break;
+		}
+		voice_game_host_set(&rules);
+		break;
+	}
+#endif
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING:
 		server_gamespy_configure(change.values[setting] ? TRUE : FALSE, server_gamespy_port());
