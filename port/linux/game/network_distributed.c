@@ -4539,6 +4539,49 @@ boolean network_distributed_identity_banned(
 }
 #endif
 
+/* (the dedicated server's sv_ban_account) a Delta account banned that need
+not be in the game: a line of BANS_FILE with only its account (32 hex
+digits), for ever (until 0) or until then, its handle as the players';
+docs/delta.md, "Shared ban lists". TRUE if written */
+boolean network_distributed_ban_account(
+	char const *account,
+	char const *handle,
+	char const *reason,
+	unsigned long until)
+{
+	char kept_handle[64];
+	char kept_reason[96];
+	char when[32] = "";
+	time_t now = time(NULL);
+	struct tm *local = localtime(&now);
+	FILE *file;
+	long index;
+
+	for (index = 0; index < 32; index++)
+	{
+		if (!account || !((account[index] >= '0' && account[index] <= '9') ||
+			(account[index] >= 'a' && account[index] <= 'f')))
+		{
+			return FALSE;
+		}
+	}
+	if (account[32])
+		return FALSE;
+	distributed_printable(kept_handle, sizeof(kept_handle), handle && handle[0] ? handle : "-");
+	distributed_printable(kept_reason, sizeof(kept_reason), reason);
+	if (local)
+		strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", local);
+	file = fopen(BANS_FILE, "a");
+	if (!file)
+		return FALSE;
+	fprintf(file, "%s\tip=none\thwid=none\tplayers=%s\treason=%s", when, kept_handle, kept_reason);
+	if (until)
+		fprintf(file, "\tuntil=%lu", until);
+	fprintf(file, "\taccount=%s\n", account);
+	fclose(file);
+	return TRUE;
+}
+
 /* (the host: network_server_manager.c, its ban command; the dedicated
 server's sv_ban, server/src/server_commands.c) a machine banned: its line
 in BANS_FILE, for ever (until 0) or until then (seconds since 1970), and

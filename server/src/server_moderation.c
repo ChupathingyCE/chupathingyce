@@ -28,9 +28,12 @@ kicks and bans are the server's, through the game's own protocol.
 #include "command_line.h"
 #include "dedicated.h"
 #include "server_moderation.h"
+#include "server_bans.h"
+#include "server_reports.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 /* (Delta Peer's own headers: the moderation host's hooks and the verified
 player they pass, shared with delta_peer.c so the layout can't drift; and
@@ -48,6 +51,11 @@ void chat_set_moderator_check(int (*check)(int machine_index));
 /* (network_distributed.c's: whether a machine's verified account or device
 is banned in bans.txt) */
 boolean network_distributed_identity_banned(long machine_index);
+/* (delta_peer_game.c's: a machine's verified accounts, device and handles as
+a ban line's fields; 0 when it has none) */
+int delta_peer_game_machine_identity_text(int machine_index, char *text, int size);
+/* (host_rules.c's: whether the host's joins are locked) */
+boolean host_rules_joins_locked(void);
 
 /* ---------- globals */
 
@@ -205,6 +213,10 @@ static void hook_machine_identity(
 	{
 		return;
 	}
+	/* (Delta Peer gives moderation bound proofs alone; one that is not
+	bound is never kept, here too) */
+	if (identity && !identity->bound)
+		identity = NULL;
 	if (identity)
 	{
 		moderation.identities[machine_index][local_player] = *identity;
@@ -314,6 +326,12 @@ static int hook_action(
 	case _delta_moderation_action_next_map:
 		snprintf(line, sizeof(line), "sv_mapcycle_next");
 		break;
+	case _delta_moderation_action_lock:
+		snprintf(line, sizeof(line), "sv_lock");
+		break;
+	case _delta_moderation_action_unlock:
+		snprintf(line, sizeof(line), "sv_unlock");
+		break;
 	default:
 		snprintf(result, (size_t)result_size, "not an action this server takes");
 		return 0;
@@ -337,6 +355,15 @@ static int hook_action(
 		}
 	}
 	return server_commands_run_as(line, "game", actor, role, permissions, result, result_size) ? 1 : 0;
+}
+
+/* MOD_STATE's actions byte: lock and unlock taken, and whether joins are
+locked now */
+static int hook_actions(
+	void *context)
+{
+	(void)context;
+	return DELTA_WIRE_MOD_STATE_LOCK | (host_rules_joins_locked() ? DELTA_WIRE_MOD_STATE_LOCKED : 0);
 }
 
 static void hook_bind_answer(
@@ -405,7 +432,7 @@ void server_moderation_update(
 		static struct delta_peer_moderation_host const host =
 		{
 			NULL, hook_machine_key, hook_key_role, hook_action, hook_bind_answer, hook_machine_identity,
-			hook_machine_role
+			hook_machine_role, hook_actions
 		};
 
 		moderation.registered = TRUE;
@@ -434,21 +461,72 @@ void server_moderation_update(
 			}
 		}
 	}
+	/* players' reports (server_reports.c) */
+	server_reports_update();
+	/* the shared lists changed (the site's, an exception here): every
+	machine that proved someone is checked again */
+	if (server_bans_take_changed())
+	{
+		long machine;
+		long local;
+
+		for (machine = 0; machine < HALO_PORT_MAXIMUM_NETWORK_MACHINES; machine++)
+		{
+			for (local = 0; local < LOCAL_PLAYERS; local++)
+			{
+				if (moderation.verified[machine][local])
+					moderation.check_bans[machine] = TRUE;
+			}
+		}
+	}
 	/* a machine that proved who its players are: dropped when one of their
-	accounts, or the device, is banned (bans.txt's account= and device=) */
+	accounts, or the device, is banned (bans.txt's account= and device=, or
+	a shared list's entry this server takes) */
 	{
 		long machine;
 
 		for (machine = 0; machine < HALO_PORT_MAXIMUM_NETWORK_MACHINES; machine++)
 		{
 			long number;
-			char line[64], result[160];
+			char line[192], result[160];
 
 			if (!moderation.check_bans[machine])
 				continue;
 			moderation.check_bans[machine] = FALSE;
 			if (!network_distributed_identity_banned(machine))
+			{
+				char identity[256], list_name[SERVER_BAN_LIST_NAME_SIZE], ref[SERVER_BAN_REF_SIZE];
+				char reason[96];
+
+				if (delta_peer_game_machine_identity_text((int)machine, identity, (int)sizeof(identity)) <= 0 ||
+					!server_bans_shared_match(identity, (long long)time(NULL), list_name, (int)sizeof(list_name), ref,
+						(int)sizeof(ref)))
+				{
+					continue;
+				}
+				number = server_commands_machine_player(machine, NULL, 0);
+				if (!number)
+					continue;
+				error(_error_silent, "dedicated: machine %ld's verified account or device is on the shared list %s: "
+					"dropped", machine, list_name);
+				/* (the list's name kept to what a command's reason takes) */
+				{
+					char *cursor;
+
+					snprintf(reason, sizeof(reason), "Banned on %s", list_name);
+					for (cursor = reason; *cursor; cursor++)
+					{
+						if (*cursor == '"' || *cursor == ';' || (unsigned char)*cursor < 0x20 ||
+							(unsigned char)*cursor > 0x7E)
+						{
+							*cursor = ' ';
+						}
+					}
+				}
+				snprintf(line, sizeof(line), "sv_kick %ld \"%s\"", number, reason);
+				server_commands_run_as(line, "game", "shared ban list", 3, 0xFFFFFFFFu, result, sizeof(result));
 				continue;
+			}
 			number = server_commands_machine_player(machine, NULL, 0);
 			if (!number)
 				continue;

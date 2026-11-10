@@ -639,12 +639,19 @@ them for split screen, whose HUD it scaled. Drawn at any other size they are
 scaled too, and point sampling gives them blocky, uneven edges (the most on a
 Custom Edition map's HUD, whose high resolution bitmaps are drawn at half
 their size): filtered then, as split screen's were.
-display.resolution_scaling = "original" draws at 640x480, texel for pixel. */
+display.resolution_scaling = "original" draws at 640x480, texel for pixel.
+A console's widescreen (HALO_CONSOLE_ANAMORPHIC_SCREEN) lays the HUD out
+wider than its 640 pixels and draws it narrower by as much: scaled across,
+so filtered too (point sampled, the Xbox's bars and ammunition ticks were
+rough and uneven in widescreen). */
 static boolean hud_point_sampled(
 	real_vector2d const *xy_scale)
 {
 	return local_player_count() == 1 &&
 		halo_screen_scale() == 1.0f &&
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		halo_screen_width() == 640 &&
+#endif
 		xy_scale->i == 1.0f &&
 		xy_scale->j == 1.0f;
 }

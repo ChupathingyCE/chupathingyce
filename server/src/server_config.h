@@ -320,6 +320,15 @@ enum
 	/* the line each Custom Edition player gets in their chat as they join
 	(server/src/server_ce.c; empty: none) */
 	SERVER_SETTING_CE_WELCOME,
+	/* a party's players kept on one team where the teams stay even
+	(port/linux/game/party_teams.h; Delta Peer's party teams) */
+	SERVER_SETTING_KEEP_PARTIES_TOGETHER,
+	/* a player who joins a game in progress waits for the next game
+	(port/linux/game/late_join.h) */
+	SERVER_SETTING_LATE_JOIN_HOLD,
+	/* the bans that name a Delta account or device sent to the site's shared
+	ban lists while linked (server_bans.h) */
+	SERVER_SETTING_BAN_SHARE,
 	/* voice chat (port/linux/game/voice_game.h): relayed at all, its
 	channels (team, proximity, everyone, party), everyone heard in the
 	lobby, how near is near (world units) and its quality (kbps). The server

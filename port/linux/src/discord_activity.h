@@ -146,6 +146,10 @@ Blood Gulch · 11/16", "Campaign · Halo", "In the menus"; its length, or -1
 if it does not fit */
 int discord_activity_status_line(const struct discord_activity_game *game, char *text, int size);
 
+/* a map's name as the status lines show it ("Blood Gulch"; a campaign
+level's with campaign set; "a custom map" for one with no name) */
+void discord_activity_map_name(const char *map, int campaign, char *text, int size);
+
 /* discord.presence's value, by its word ("full", "minimal", "off"; any other:
 full) */
 int discord_activity_presence(const char *word);

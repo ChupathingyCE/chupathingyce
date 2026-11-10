@@ -2807,6 +2807,11 @@ static int join_invite_text(const char *text, int public)
 	/* (a restored player key's link, not an invite: browser.c) */
 	if (browser_key_link(text))
 		return 1;
+#ifndef HALO_CONSOLE_NO_GUIDE
+	/* (a party's link: the Guide's party joins it, browser.c) */
+	if (browser_party_link(text))
+		return 1;
+#endif
 	if (browser_dedicated())
 	{
 		platform_log("dedicated server: the invite is not joined");
@@ -2851,6 +2856,12 @@ int p2p_join_listed_invite(const char *text)
 
 void p2p_invite_received(const char *text, int public)
 {
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE)
+	/* (a party's link opened while the game runs: the Guide asks about it,
+	browser.c; join_invite alone would drop it) */
+	if (browser_party_link(text))
+		return;
+#endif
 	/* (an older version's is logged as such) */
 	if (!join_invite(text, public))
 		platform_log("Internet play: that is not an invite");
