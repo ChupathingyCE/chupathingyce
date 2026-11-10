@@ -35,10 +35,12 @@ they approve every device themselves, and they can revoke it.
 
 1. Make a Delta profile on the site and sign in with your password (a
    session opened from the game can't register apps).
-2. Open `/delta/clients` and fill in:
+2. Open `/delta/clients` (For developers, in the site's footer) and fill in:
    - **Name**: your app's own name, 3 to 32 plain characters. It can't be
-     or look like Chupathingy, Delta, Warthog or another app's name (we
-     compare names the way they read, so `Chupath1ngy` counts).
+     or look like Chupathingy, Warthog or another app's name (we compare
+     names the way they read, so `Chupath1ngy` counts). A name with "Delta"
+     or "Chupa" in it, like "Deltarune Port", is held: you can register it,
+     and an admin looks at the name when approving the app.
    - **Homepage**: an `https://` address. Players see its host on the
      approval page.
    - **Contact**: an email address or an `https://` address. Only the site's
@@ -46,7 +48,8 @@ they approve every device themselves, and they can revoke it.
    - **Platforms**: the platform keys your builds report (see
      [delta.md](delta.md), "Platform keys"). A device that reports another
      platform is refused. Need a new key? Ask us, as for a platform number.
-   - **Scopes**: what your app needs (below).
+   - **Scopes**: what your app needs (below). `moderate` isn't on the
+     form: ask us once your app is approved.
 3. You get a client ID like `vita-port-3fa91c`. A profile can register 3.
 
 A new app is **pending**: its devices can sign in only to your own profile,
@@ -91,7 +94,7 @@ to the certificate for apps; a device of yours just gets fewer bits.
 | `stats` | 0x02 | Send your games to your stats | `/v1/claim`, `/v1/client_report` |
 | `profile` | 0x04 | See and change your profile's settings (privacy, clan, friends) and see your devices | `/v1/game/profile`, `/unlink`, `/privacy`, `/clan`, `/friends`, `/v1/link`, `/v1/identity/devices` |
 | `social` | 0x10 | See your friends, show them you're online, and send invites | `/v1/presence`, `/v1/social/*` |
-| `moderate` | 0x08 | Sign you in to moderate on servers where you have a role | moderation sign-in (the server still checks the role) |
+| `moderate` | 0x08 | Sign you in to moderate on servers where you have a role | moderation sign-in (the server still checks the role). Only we give it, to an approved app |
 | `devices` | 0x20 | (never for apps) | approving and revoking other devices stays with Chupathingy's own builds |
 
 What a device ends up with is the smallest of: what it asked for, what your
