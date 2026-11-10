@@ -3637,8 +3637,8 @@ static void events(void)
 		{
 		case SDL_EVENT_QUIT:
 		case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-			platform_log("window closed");
-			exit(EXIT_SUCCESS);
+			platform_exit_window_closed();
+			break;
 		case SDL_EVENT_KEY_DOWN:
 		{
 			int button = key_button(event.key.scancode);
