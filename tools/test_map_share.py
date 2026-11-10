@@ -101,3 +101,18 @@ def test_hash_vectors_of_the_specification():
     files = read("port/linux/src/map_share_files.c")
     assert 'static const char tag[] = "OpenCE map 1";' in files
     assert "MAP_SHARE_PIECE_SIZE = 0x40000" in read("port/linux/src/map_share_files.h")
+
+
+def test_a_download_cannot_keep_a_machine_forever():
+    host = (GAME / "map_share_host.c").read_text(encoding="utf-8")
+    # asking again restarts nothing; the stay grows with bytes really sent
+    assert "if (!machine->offered_once || machine->total != host.serving_size)" in host
+    assert "host_served(stream->address, (unsigned long)size);" in host
+    assert "machine->growth_time = now;" not in host.split("case MAP_SHARE_MESSAGE_PROGRESS:")[1]
+    assert "(long)(now - machine->started) >= (long)host_download_limit(machine->total)" in host
+    assert "DOWNLOADERS = 8," in host and "DOWNLOADERS_PER_ADDRESS = 2," in host
+
+
+def test_file_names_are_plain():
+    wire = (GAME / "map_share_wire.c").read_text(encoding="utf-8")
+    assert "character == '_' || character == '.' || character == '-'" in wire

@@ -1319,8 +1319,13 @@ What the host serves, and to whom:
 - at `network.map_share_upload` KB a second in all;
 - one request a machine every 5 seconds.
 
-A machine that is downloading isn't refused or timed out for having no
-player, in the lobby or in a game in progress. Its download doesn't hold
+Only maps whose file names use letters, digits, `_`, `.` and `-` are
+shared. At most 8 machines download at once, 2 from one address. A machine
+that is downloading isn't refused or timed out for having no player, in the
+lobby or in a game in progress, while the host keeps sending it data: its
+stay grows with the bytes the host really sends, not with what the machine
+says it has, and ends after the map's size at 16 KB a second plus two
+minutes, however often it asks again. Its download doesn't hold
 the game up. The host's log says who asked, the progress in tenths and
 each stream closed, with addresses as tags (`debug.log_addresses`).
 

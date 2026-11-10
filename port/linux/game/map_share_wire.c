@@ -133,8 +133,13 @@ boolean map_share_level_file(
 	{
 		unsigned char character = (unsigned char)level[index];
 
-		if (character < 0x20 || character > 0x7E || strchr("\\/:*?\"<>|", character))
+		/* letters, digits, _ . and - alone: the name reaches file paths and
+		the map bot's copy, never a shell, but nothing else is needed */
+		if (!((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || character == '_' || character == '.' || character == '-'))
+		{
 			return FALSE;
+		}
 	}
 	if (level[0] == '.' || level[0] == ' ' || level[length - 1] == '.' || level[length - 1] == ' ')
 		return FALSE;

@@ -21,9 +21,12 @@ network.map_share (off by default; the host's call):
   16 KiB blocks out of one token bucket for all of them
   (network.map_share_upload KB/s, 16 to 20480);
 - a machine that is downloading (its request answered, not done or failed,
-  heard from in the last 20 seconds, and grown by a piece in the last 80)
-  is not refused or timed out for having no player
-  (network_server_manager.c: map_share_host_downloading).
+  heard from in the last 20 seconds, sent a piece's worth of bytes by this
+  host in the last 80, and within its map's size at 16 KB a second plus two
+  minutes from the first offer, which asking again doesn't move) is not
+  refused or timed out for having no player
+  (network_server_manager.c: map_share_host_downloading); at most 8
+  machines download at once, 2 from one address.
 
 Each request and each stream closed is logged, the peer's address through
 log_address (a tag for a public one).
@@ -64,6 +67,13 @@ enum
 	REQUEST_INTERVAL = 5000,
 	HEARD_WINDOW = 20000,
 	GROWTH_WINDOW = 80000,
+	/* the longest a download may keep a machine with no player: its size at
+	16 KB a second, and this much more */
+	DOWNLOAD_SLACK = 120000,
+	DOWNLOAD_SLOWEST = 16 * 1024,
+	/* machines downloading at once: in all, and from one address */
+	DOWNLOADERS = 8,
+	DOWNLOADERS_PER_ADDRESS = 2,
 	SOURCES_INTERVAL = 10000,
 	LISTEN_RETRY = 10000,
 
@@ -105,6 +115,13 @@ struct host_machine
 	unsigned long growth_time;
 	unsigned long sources_time;
 	short tenth;
+	/* the first offer of the map (asking again doesn't move it), and the
+	bytes this host really sent the machine's address since, as of the
+	last growth */
+	boolean offered_once;
+	unsigned long started;
+	unsigned long served;
+	unsigned long served_mark;
 };
 
 struct host_stream
@@ -279,15 +296,89 @@ static void host_offer(
 		host_send(machine_index, MAP_SHARE_MESSAGE_SOURCES, sources, sizeof(sources));
 		machine->answered = TRUE;
 		machine->finished = FALSE;
-		machine->total = host.serving_size;
-		machine->had = 0;
-		machine->tenth = 0;
-		machine->growth_time = host_now();
-		machine->sources_time = machine->growth_time;
+		machine->sources_time = host_now();
+		/* (asking again restarts nothing: the time and the bytes count from
+		the first offer, so a machine can't stay by asking) */
+		if (!machine->offered_once || machine->total != host.serving_size)
+		{
+			machine->offered_once = TRUE;
+			machine->total = host.serving_size;
+			machine->had = 0;
+			machine->tenth = 0;
+			machine->started = machine->sources_time;
+			machine->growth_time = machine->sources_time;
+			machine->served = 0;
+			machine->served_mark = 0;
+		}
 	}
 	platform_log("map sharing: machine %ld asked for %s: %s", machine_index, level,
 		result == MAP_SHARE_OFFER_OK ? "offered" : result == MAP_SHARE_OFFER_SHARING_OFF ? "sharing is off" :
 		"unavailable");
+}
+
+/* ---------- downloads: the time they may take and how many at once */
+
+static unsigned long host_download_limit(
+	unsigned long size)
+{
+	return (unsigned long)((unsigned long long)size * 1000 / DOWNLOAD_SLOWEST) + DOWNLOAD_SLACK;
+}
+
+static boolean host_machine_downloading_now(
+	struct host_machine const *machine,
+	unsigned long now)
+{
+	return machine->known && machine->answered && !machine->finished &&
+		(long)(now - machine->last_heard) < HEARD_WINDOW &&
+		(long)(now - machine->started) < (long)host_download_limit(machine->total) &&
+		(long)(now - machine->growth_time) < GROWTH_WINDOW;
+}
+
+/* whether one more machine may start a download: DOWNLOADERS in all,
+DOWNLOADERS_PER_ADDRESS from one address */
+static boolean host_room_for(
+	long machine_index)
+{
+	unsigned long now = host_now();
+	long in_all = 0;
+	long from_address = 0;
+	long index;
+
+	for (index = 0; index < MACHINES; index++)
+	{
+		struct host_machine const *other = &host.machines[index];
+
+		if (index == machine_index || !host_machine_downloading_now(other, now))
+			continue;
+		in_all++;
+		if (other->address == host.machines[machine_index].address)
+			from_address++;
+	}
+	return in_all < DOWNLOADERS && from_address < DOWNLOADERS_PER_ADDRESS;
+}
+
+/* bytes sent on a stream from an address: the growth of the downloads of
+the machines at that address, a piece at a time */
+static void host_served(
+	unsigned long address,
+	unsigned long size)
+{
+	unsigned long now = host_now();
+	long index;
+
+	for (index = 0; index < MACHINES; index++)
+	{
+		struct host_machine *machine = &host.machines[index];
+
+		if (!machine->known || machine->address != address || !machine->answered || machine->finished)
+			continue;
+		machine->served += size;
+		if (machine->served >= machine->served_mark + MAP_SHARE_PIECE_SIZE || machine->served >= machine->total)
+		{
+			machine->served_mark = machine->served;
+			machine->growth_time = now;
+		}
+	}
 }
 
 /* a machine's waiting request, in its turn: answered, or left waiting for
@@ -335,6 +426,13 @@ static void host_answer(
 	host.serving_size = size;
 	csmemcpy(host.serving_hash, hash, sizeof(hash));
 	csstrncpy(host.serving_level, level, sizeof(host.serving_level) - 1);
+	if (!machine->offered_once && !host_room_for(machine_index))
+	{
+		platform_log("map sharing: machine %ld asked, but %s", machine_index,
+			"too many machines are downloading (in all or from its address)");
+		host_offer(machine_index, level, MAP_SHARE_OFFER_UNAVAILABLE, in_progress);
+		return;
+	}
 	host_offer(machine_index, level, MAP_SHARE_OFFER_OK, in_progress);
 }
 
@@ -612,6 +710,7 @@ static void host_send_block(
 	stream->output_used += 14 + size;
 	stream->piece_sent += (unsigned long)size;
 	stream->bytes_sent += (unsigned long)size;
+	host_served(stream->address, (unsigned long)size);
 	if (stream->piece_sent >= stream->piece_size)
 	{
 		stream->piece_loaded = FALSE;
@@ -948,11 +1047,10 @@ boolean map_share_host_message(
 		had = map_share_get32(body + 4);
 		if (had > machine->total)
 			had = machine->total;
-		if (had >= machine->had + MAP_SHARE_PIECE_SIZE || (had == machine->total && had > machine->had))
-		{
+		/* (what it says it has is for the log alone: its stay grows only
+		with the bytes this host really sends it, host_served) */
+		if (had > machine->had)
 			machine->had = had;
-			machine->growth_time = now;
-		}
 		tenth = (short)(machine->total ? (unsigned long)((unsigned long long)had * 10 / machine->total) : 0);
 		if (body[0] == MAP_SHARE_PROGRESS_DOWNLOADING && tenth > machine->tenth)
 		{
@@ -986,7 +1084,11 @@ boolean map_share_host_downloading(
 		return FALSE;
 	if ((long)(now - machine->last_heard) >= HEARD_WINDOW)
 		return FALSE;
-	return !machine->answered || (long)(now - machine->growth_time) < GROWTH_WINDOW;
+	if (!machine->answered)
+		return TRUE;
+	if ((long)(now - machine->started) >= (long)host_download_limit(machine->total))
+		return FALSE;
+	return (long)(now - machine->growth_time) < GROWTH_WINDOW;
 }
 
 #endif /* HALO_GAME_BROWSER */
