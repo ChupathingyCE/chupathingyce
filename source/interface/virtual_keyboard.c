@@ -702,6 +702,35 @@ static void virtual_keyboard_render_internal(
 			1046,
 			bitmap);
 		draw_bitmap_in_rect(bitmap, &bounds, &bounds, NULL, 0xffffffff, NULL, FALSE);
+#ifdef HALO_PORT_WIDE_INTERFACE
+		/* port: on a wide screen the picture's band and lines carried on
+		to the screen's edges, as the other screens' bands are, rather than
+		ending at the 640 columns (#497): a column near each of its edges,
+		which is the band's and the lines' alone, stretched over that side */
+		if (halo_screen_width() > 640 && bitmap->width > 16)
+		{
+			short extra = (short)((halo_screen_width() - 640) / 2);
+			short side;
+
+			for (side = 0; side < 2; side++)
+			{
+				rectangle2d side_bounds = bounds;
+				rectangle2d texels;
+
+				side_bounds.x0 = side ? 640 : (short)-extra;
+				side_bounds.x1 = side ? (short)(640 + extra) : 0;
+				texels.x0 = 0;
+				texels.y0 = 0;
+				texels.x1 = 1;
+				texels.y1 = bounds.y1 - bounds.y0;
+				/* (the picture is the bitmap's first 640 columns, of a
+				power of two wider) */
+				draw_bitmap_texel_x = side ? (short)(MIN(bitmap->width, bounds.x1) - 9) : 8;
+				draw_bitmap_in_rect(bitmap, &side_bounds, &texels, NULL, 0xffffffff, NULL, FALSE);
+				draw_bitmap_texel_x = 0;
+			}
+		}
+#endif
 	}
 
 	draw_string_set_draw_mode(virtual_keyboard_globals.keyboard->font_tag.index, NONE, 0, 0, &caption_color);
