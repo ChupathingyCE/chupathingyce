@@ -1417,7 +1417,9 @@ static void settings_rows_build(void)
 
 		row = row_add(_action_none, "THIS VERSION");
 		snprintf(row->value, sizeof(row->value), "%s", build_identity_version());
-		row = row_add(_action_none, "CHANNEL");
+		/* (the build's own channel; the one it updates from is CHANNEL,
+		update.channel, below) */
+		row = row_add(_action_none, "BUILD");
 		snprintf(row->value, sizeof(row->value), "%s", updater_channel());
 		upper(row->value);
 		if (state != UPDATER_NOT_CHECKED)
@@ -1428,6 +1430,21 @@ static void settings_rows_build(void)
 				state == UPDATER_NEWER ? latest : state == UPDATER_LATEST ? "You have it" : "Couldn't check");
 		}
 		group_rows(SETTINGS_GROUP_UPDATES);
+		/* (update.channel's: what Testing and Nightly mean, and that going
+		back never installs an older build) */
+		{
+			int index;
+
+			for (index = 0; index < launcher.row_count; index++)
+			{
+				if (launcher.rows[index].setting &&
+					!strcmp(settings_row_key(launcher.rows[index].setting), "update.channel"))
+				{
+					snprintf(launcher.rows[index].help, sizeof(launcher.rows[index].help), "%s",
+						UPDATE_CHANNEL_HELP);
+				}
+			}
+		}
 		row = row_add(_action_check_updates, "CHECK NOW");
 		row->gap = 1;
 		if (state == UPDATER_NEWER)
