@@ -95,6 +95,9 @@ symbols in this file:
 #include "text/unicode.h"
 
 #include <xtl.h>
+#ifdef HALO_GAME_BROWSER
+#include "map_share.h" /* port: the map bot's machine name */
+#endif
 
 #ifdef HALO_64BIT
 /* (declared for the 64-bit build, which takes no implicit declarations; the
@@ -258,6 +261,15 @@ void network_game_generate_local_machine_name(
 	char ascii_machine_name[32];
 	HANDLE find_handle;
 
+#ifdef HALO_GAME_BROWSER
+	/* port: the map bot's machine says what it is (port/linux/game/map_share_client.c) */
+	if (map_share_fetch_machine_name())
+	{
+		ascii_to_wide(map_share_fetch_machine_name(), machine_name, 32 * sizeof(wchar_t));
+		machine_name[31] = 0;
+		return;
+	}
+#endif
 	/* port: a machine that brings one player to the game (the one who
 	joined multiplayer on it) is named after that player's profile, not the
 	system's random nickname: the system link list shows a host's game by it */
