@@ -853,6 +853,16 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 
 /* ---------- downloads (map_download.c): a response's body read as it comes */
 
+/* the calling thread, as a number */
+static unsigned long long thread_token(void)
+{
+#ifdef _WIN32
+	return (unsigned long long)GetCurrentThreadId();
+#else
+	return (unsigned long long)(uintptr_t)pthread_self();
+#endif
+}
+
 enum
 {
 	MAXIMUM_REDIRECTS = 5,
@@ -869,7 +879,7 @@ static struct
 	size_t pending, pending_used;
 	/* the thread that holds it open, to refuse that thread's second open
 	(it would wait on itself forever) */
-	pthread_t owner;
+	unsigned long long owner;
 	int owner_set;
 } download;
 
@@ -994,7 +1004,7 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 	*status = 0;
 	*length = -1;
 	error[0] = 0;
-	if (download.open && download.owner_set && pthread_equal(download.owner, pthread_self()))
+	if (download.open && download.owner_set && download.owner == thread_token())
 	{
 		set_error(error, error_size, "this thread has a download open already", 0);
 		return 0;
@@ -1021,7 +1031,7 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 			/* (the body: a long one, a map, but never forever) */
 			download.connection.deadline = monotonic_milliseconds() + DOWNLOAD_DEADLINE_MILLISECONDS;
 			download.open = 1;
-			download.owner = pthread_self();
+			download.owner = thread_token();
 			download.owner_set = 1;
 			return 1;
 		}
