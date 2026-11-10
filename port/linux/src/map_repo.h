@@ -13,8 +13,8 @@ checked); it finds a map by the host's name and version, and downloads it
 from the mirrors in their order until one gives the file of the index's
 size and SHA-256. The index's kill switch (halt) stops every download from
 it; its blacklist refuses a file by its SHA-256 or its map hash, from any
-source, and a map already here when a game on it is joined
-(map_repo_game.c).
+source, and a map already here when a network game on it is joined or
+hosted (map_repo_game.c).
 
 Its requests and files go through a transport: the game's (map_repo_game.c:
 the game list's HTTPS and the game's files), or a test's. Plain types only;
@@ -105,9 +105,12 @@ void map_repo_game_refresh_soon(void);
 int map_repo_game_refresh_now(void);
 /* whether the map file at path (a game path, d:\...) may not be played in
 another host's game, its map hash on the blacklist: 1 with what the player
-is told in message (size bytes), naming the map (map_name), else 0. (A host
-plays its own maps: the blacklist is for what we offer and what joins
-load) */
+is told in message (size bytes), naming the map (map_name), else 0 */
 int map_repo_file_refused(const char *path, const char *map_name, char *message, int size);
+/* the same for a network game this machine would host on it (the menus' or
+the dedicated server's): 1 with what the host is told in message, else 0.
+Playing it alone or in split screen isn't asked about: the player's own copy
+is theirs to play */
+int map_repo_host_refused(const char *path, const char *map_name, char *message, int size);
 
 #endif

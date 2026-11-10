@@ -137,8 +137,13 @@ downloads from the host aren't part of this.
 **The blacklist.** Chupathingy maps also keeps a list of maps that crash
 games or break the engine, by their hashes. A map on it isn't downloaded from
 anywhere, HaloNet included ("<name>.map is blocked by Chupathingy maps", and
-the reason). If you already have it, you can't join someone else's game on
-it: the game tells you why. You can still play it in your own games. If
+the reason). If you already have it, Chupathingy won't play it in network
+games: you can't join someone else's game on it or host one on it, and the
+game tells you why when you pick it. A dedicated server skips it in its
+playlist and refuses it for `sv_map`, with the reason in its log. You can
+still play it by yourself or in split screen. The game fetches the list when
+it starts and about once an hour after that, unless `network.map_downloads`
+is `"never"`; the dedicated server fetches it whatever that setting says. If
 Chupathingy maps ever has to stop all downloads at once, the game takes
 nothing from it until it's back. `network.maps_url` in `config.toml` says
 where the lists come from. Builds without the repository's key (all of them,

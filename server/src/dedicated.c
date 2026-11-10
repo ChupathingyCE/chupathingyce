@@ -160,6 +160,9 @@ boolean cache_files_map_can_open(char const *map_name);
 #endif
 /* (server_commands.c's) */
 void server_commands_update(void);
+/* (port/linux/src/map_repo_game.c's: Chupathingy maps' index, whose
+blacklist server_map_playable holds every map to) */
+int map_repo_game_refresh_now(void);
 
 enum
 {
@@ -621,6 +624,9 @@ static void initialize(
 				server_conduct_afk_minutes());
 		}
 	}
+	/* Chupathingy maps' blacklist, before the first map is chosen: a map on
+	it is skipped (server_map_playable), refetched hourly after this */
+	map_repo_game_refresh_now();
 	dedicated.active = dedicated.entry_count > 0;
 }
 
@@ -870,7 +876,7 @@ static boolean set_entry(
 	/* (and a map that is there, and opens: one missing or refused as it
 	loads would stop the server on the damaged disc error) */
 	{
-		static char scratch[160];
+		static char scratch[320];
 		struct command_output output;
 
 		command_output_begin(&output, scratch, sizeof(scratch));

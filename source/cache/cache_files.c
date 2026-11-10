@@ -1265,6 +1265,38 @@ void cache_files_show_multiplayer_unavailable(
 	return;
 }
 
+/* port: whether a network game this machine hosts may not be on the named
+map, a Custom Edition, HaloMD or Halo PC map whose file is on Chupathingy
+maps' blacklist (port/linux/src/map_repo_game.c, map_repo_host_refused):
+TRUE with what the host is told in message. The menus ask as a hosted game's
+map is chosen (not split screen's), the dedicated server for every map it
+would play (server/src/server_commands.c, server_map_playable). A map played
+alone or in split screen isn't asked about: the player's copy is theirs */
+boolean cache_files_map_host_refused(
+	char const *map_name,
+	char *message,
+	long size)
+{
+#if defined(HALO_GAME_BROWSER) && defined(HALO_CUSTOM_EDITION)
+	int map_repo_host_refused(char const *path, char const *map_name, char *message, int size);
+	char file[64];
+	char path[256];
+	short family;
+
+	if (!map_name || !map_name[0])
+		return FALSE;
+	family = map_family_parse(tag_name_strip_path(map_name), file, sizeof(file));
+	if (family == _map_family_xbox || family == _map_family_pack || !map_family_find(family, file, path, sizeof(path)))
+		return FALSE;
+	return map_repo_host_refused(path, file, message, (int)size) != 0;
+#else
+	(void)map_name;
+	(void)message;
+	(void)size;
+	return FALSE;
+#endif
+}
+
 /* port: the version of the map a network game is on, which the host sends
 in its game record's map version (which the Xbox game left 0): a Custom
 Edition map's whole-file hash's first 32 bits, as OpenCE's hosts of network
@@ -1500,7 +1532,8 @@ boolean cache_files_map_present(
 #ifdef HALO_GAME_BROWSER
 			/* (a map on Chupathingy maps' blacklist, however it came here, is
 			not played in another's game: port/linux/src/map_repo_game.c says
-			why. The host's own map is the player's to play) */
+			why. A host was refused it as it chose it, unless it plays alone
+			or in split screen: cache_files_map_host_refused) */
 			{
 				int map_repo_file_refused(char const *path, char const *map_name, char *message, int size);
 				struct network_game_server *global_network_game_server_get(void);

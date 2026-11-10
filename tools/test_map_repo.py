@@ -531,16 +531,20 @@ def zipped(name: str, data: bytes) -> bytes:
     return buffer.getvalue()
 
 
-def run_game(tmp_path, repository, name, version):
-    """the game's download of name (debug.network_test "download:"), its
-    own data and save folders in tmp_path: (its exit code, its log)"""
+def run_game(tmp_path, repository, name, version, network_test=None, have_map=False):
+    """the game's download of name (debug.network_test "download:", or
+    network_test), its own data and save folders in tmp_path, the map in its
+    maps_ce (a link to HALO_MAP_REPO_MAP, never a copy) when have_map: (its
+    exit code, its log)"""
     data, save = tmp_path / "data", tmp_path / "save"
     (data / "maps_ce").mkdir(parents=True)
     save.mkdir()
     (data / "maps").symlink_to(Path(GAME_MAPS).resolve())
+    if have_map:
+        (data / "maps_ce" / f"{name}.map").symlink_to(Path(GAME_MAP).resolve())
     environment = dict(os.environ, HALO_DATA_ROOT=str(data), HALO_SAVE_ROOT=str(save), HALO_NULL_RENDERER="1",
                        HALO_HIDDEN_WINDOW="1", HALO_NET_MAP_DOWNLOADS="always",
-                       HALO_NETWORK_TEST=f"download:{name}:{version}",
+                       HALO_NETWORK_TEST=network_test or f"download:{name}:{version}",
                        HALO_MAP_REPOSITORIES=repository.url + "/hac2", HALO_NET_MAPS_URL=repository.url + "/ours")
     result = subprocess.run([GAME], env=environment, capture_output=True, text=True, timeout=300)
     logs = sorted(tmp_path.rglob("debug*.txt"))
@@ -610,3 +614,19 @@ def test_game_refuses_a_blacklisted_community_map(repository, game_map, tmp_path
     assert "crashes the server on load" in log
     assert not (folder / f"{name}.map").exists()
     assert not [path for path in repository.asked if path.startswith("/mirror/")]
+
+
+def test_game_refuses_to_host_a_blacklisted_map(repository, game_map, tmp_path):
+    """A map on the blacklist that the player already has isn't hosted
+    (debug.network_test "host:", which asks as the menus' map choice does,
+    cache_files_map_host_refused): the game says why and quits with 2. A
+    dedicated server holds every map it would play to the same blacklist
+    (server_map_playable)."""
+    name, data = game_map
+    blacklist = [{"hash": map_hash(data), "kind": "map_hash", "name": name, "reason": "crashes the server on load",
+                  "since": NOW}]
+    publish_for_game(repository, name, data, blacklist)
+    code, log, _ = run_game(tmp_path, repository, name, 0, network_test=f"host:{name}@ce", have_map=True)
+    assert code == 2, log[-3000:]
+    assert "Chupathingy won't host network games on it" in log
+    assert "crashes the server on load" in log

@@ -16,7 +16,8 @@ Automated system link sessions for testing the netcode without the menus
   may also be named as the menus name it (putput@ce). Maps joined by
   "+" (bloodgulch+putput@ce) are the games' maps in turn, the
   last for the games past them, as a dedicated server's playlist moves its
-  players to the next map;
+  players to the next map; a map the menus refuse a hosted game (one on
+  Chupathingy maps' blacklist) ends the test with exit code 2;
 - "join" searches for games and joins the first it finds, as picking it in
   the system link list does;
 - "watch" (a dedicated server's) logs the game each second and plays the
@@ -1703,6 +1704,19 @@ void network_test_update(
 				}
 				else
 				{
+					/* (a map the menus refuse a hosted game, one on Chupathingy
+					maps' blacklist: said, and the game quit, as the menus' list
+					would stay) */
+					{
+						extern boolean cache_files_map_host_refused(char const *map_name, char *message, long size);
+						char refused[320];
+
+						if (cache_files_map_host_refused(path, refused, sizeof(refused)))
+						{
+							platform_log("network test: not hosted: %s", refused);
+							exit(2);
+						}
+					}
 					network_game_server_change_map_name(global_network_game_server_get(), path);
 					/* the variant, as picking the game settings does */
 					variant = *game_engine_get_variant_by_name(&variant, variant_name);
