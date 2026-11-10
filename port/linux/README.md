@@ -695,6 +695,7 @@ the setting for one start of the game. It has priority over the file.
 | `discord.accept_join_requests` | `false` | `HALO_DISCORD_ACCEPT_JOIN_REQUESTS` | `true`: the game accepts every Ask to Join for the public game you host. `false`: Discord handles the request. |
 | `discord.register_launch` | `true` | `HALO_DISCORD_REGISTER_LAUNCH` | `true`: once connected to Discord, the game tells it how to start Chupathingy, as Discord's own SDK does. Then Discord shows Join to friends whose game is closed, and starts the game for it. Windows: `HKEY_CURRENT_USER\Software\Classes\discord-<application>`. Linux and FreeBSD: `discord-<application>.desktop` in `~/.local/share/applications`. macOS: the app becomes the handler of `discord-<application>://`. An entry of another program's is left alone. `false`: nothing is registered. |
 | `update.auto` | `true` | `HALO_UPDATE_AUTO` | `true`: at start-up, the game looks for a new version. Refer to "Updates". `false`: the game does not look. |
+| `update.offer_64bit` | `true` | `HALO_UPDATE_OFFER_64BIT` | The 32-bit Windows build only. `true`: on 64-bit Windows, when the game looks for a new version, it offers the 64-bit build once. `false`: it doesn't, and "Keep 32-bit" writes this. |
 | `crash_reports.upload` | `"ask"` | `HALO_CRASH_REPORTS` | Desktop builds (releases and nightlies). `"yes"`: the game sends a report of each crash to the developers, through `network.browser_url`. `"no"`: the game sends no reports. `"ask"`: the game asks after the next crash (on Linux and macOS, when it starts the next time) and writes the answer here. On the Privacy screen (Gearbox menus). Refer to "Crash reports" below and in [port/windows/README.md](../windows/README.md#crash-reports). |
 | `debug.update_answer` | `""` | `HALO_UPDATE_ANSWER` | The answer to the update question, for automatic tests: `yes`, `no` or `never`. Empty: the game asks. |
 | `debug.exit_after` | `0.0` | `HALO_EXIT_AFTER` | The game stops after this number of seconds. `0`: never. |
@@ -745,6 +746,12 @@ If the latest release is newer, the game asks: "Do you want to update?"
 - Select "Do not ask again", then "Yes", to stop the questions. The game
   writes `auto = false` in the `[update]` section of `config.toml`. To get
   the questions again, set `auto = true`.
+
+The 32-bit Windows build on 64-bit Windows also offers the 64-bit build,
+once. The 32-bit graphics drivers crash much more often. "Yes" installs the
+64-bit build of the new version, or of the version you have, and your saves
+and settings stay. "Keep 32-bit" writes `offer_64bit = false` in the
+`[update]` section of `config.toml`, and the game doesn't ask again.
 
 Under gamescope (the Game Mode of the Steam Deck), the game does not ask,
 because a system dialog stops the game there. The game writes the new
