@@ -172,6 +172,15 @@ boolean ce_repairs_scenario_group(void *tag_instances, long tag_count, unsigned 
 /* ---------- globals */
 
 static char ce_refusal[256];
+/* the tag header and tag index no conversion writes over (ce_tags_guard_begin),
+and whether one conversion logged what it passed over */
+static struct
+{
+	byte const *header;
+	byte const *instances;
+	unsigned long instances_size;
+	boolean logged;
+} ce_guard;
 /* the reason in a player's words, when the refusal is one a player can act
 on (ce_refusal_explain), and the message the game shows */
 static char ce_explanation[192];
@@ -568,6 +577,9 @@ static boolean ce_map_check_tags(
 	}
 	if (!ce_tag_index_check(&image, instances, tag_count))
 		goto done;
+	/* (what the checks repair, as loading does, writes nothing over the tag
+	header or tag index, which they read on from: ce_tags_writable) */
+	ce_tags_guard_begin(image.data, instances, tag_count);
 	/* (a protected map's scenario may have another group: ce_repairs.c) */
 	ce_repairs_scenario_group(instances, tag_count, header.scenario_tag_index);
 	scenario_instance = ce_tag_instance_get(instances, tag_count, header.scenario_tag_index);
@@ -663,6 +675,7 @@ static boolean ce_map_check_tags(
 		ce_animations_check(&tags, instances, tag_count) && ce_weapons_check(&tags, instances, tag_count);
 
 done:
+	ce_tags_guard_end();
 	ce_model_data_end(&models);
 	if (model_data)
 		free(model_data);
@@ -757,6 +770,173 @@ char const *ce_image_tag_name(
 
 	/* (checked to be terminated: ce_tag_index_check) */
 	return name ? name : "<unnamed>";
+}
+
+/* the loaded map's tags: where they end, and the blocks of tag data the
+conversions placed past them (ce_loaded_tags_add: the most a map's button
+icons take, four allocations for each of four bitmaps) */
+enum
+{
+	CE_LOADED_MAXIMUM_PLACED = 32,
+};
+
+static struct
+{
+	unsigned long end;
+	/* the lowest of its BSPs, as it loads (cache_files.c): where its BSPs
+	begin, which ce_loaded_bsp_pointer reads from (on a 64 MB console the
+	BSPs' window, with a megabyte that is no memory below it) */
+	unsigned long bsp_low;
+	long placed_count;
+	unsigned long placed[CE_LOADED_MAXIMUM_PLACED][2];
+} ce_loaded_tags;
+
+void ce_loaded_tags_end(
+	unsigned long end)
+{
+	ce_loaded_tags.end = end;
+	if (!end)
+		ce_loaded_tags.placed_count = 0;
+}
+
+void ce_loaded_bsps_low(
+	unsigned long bsp_low)
+{
+	ce_loaded_tags.bsp_low = bsp_low;
+}
+
+void ce_loaded_tags_add(
+	unsigned long address,
+	unsigned long size)
+{
+	if (address && ce_loaded_tags.placed_count < CE_LOADED_MAXIMUM_PLACED)
+	{
+		ce_loaded_tags.placed[ce_loaded_tags.placed_count][0] = address;
+		ce_loaded_tags.placed[ce_loaded_tags.placed_count][1] = size;
+		ce_loaded_tags.placed_count++;
+	}
+}
+
+void *ce_loaded_pointer(
+	unsigned long address,
+	unsigned long size)
+{
+	long index;
+
+	if (address >= CE_IMAGE_TAG_CACHE_BASE && ce_loaded_tags.end > CE_IMAGE_TAG_CACHE_BASE &&
+		ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, size, ce_loaded_tags.end - CE_IMAGE_TAG_CACHE_BASE))
+	{
+		return xbox_pointer(address);
+	}
+	for (index = 0; index < ce_loaded_tags.placed_count; index++)
+	{
+		unsigned long base = ce_loaded_tags.placed[index][0];
+
+		if (address >= base && ce_range_within(address - base, size, ce_loaded_tags.placed[index][1]))
+			return xbox_pointer(address);
+	}
+	return NULL;
+}
+
+void *ce_loaded_bsp_pointer(
+	unsigned long address,
+	unsigned long size)
+{
+	unsigned long end = CE_IMAGE_TAG_CACHE_BASE + CE_IMAGE_TAG_CACHE_SIZE;
+
+	/* (from the lowest BSP up: the top of the tag cache, which a 64 MB
+	console's BSPs' window ends at too) */
+	if (!ce_loaded_tags.bsp_low || address < ce_loaded_tags.bsp_low || address < ce_loaded_tags.end || address > end ||
+		size > end - address)
+	{
+		return NULL;
+	}
+	return xbox_pointer(address);
+}
+
+char const *ce_loaded_tag_name(
+	void const *instance)
+{
+	unsigned long address = ((struct ce_tag_instance const *)instance)->name;
+	unsigned long end = ce_loaded_tags.end;
+	char const *name = address >= CE_IMAGE_TAG_CACHE_BASE && address < end ? ce_loaded_pointer(address, 1) : NULL;
+
+	/* (terminated within a tag's path's length, and in the tags) */
+	if (!name || !memchr(name, 0, MIN(end - address, (unsigned long)CE_MAXIMUM_TAG_NAME_LENGTH)))
+		return "<unnamed>";
+	return name;
+}
+
+void ce_tags_guard_begin(
+	void const *tags,
+	void const *instances,
+	long tag_count)
+{
+	ce_guard.header = tags;
+	ce_guard.instances = instances;
+	ce_guard.instances_size = tag_count > 0 ? (unsigned long)tag_count * CE_TAG_INSTANCE_SIZE : 0;
+	ce_guard.logged = FALSE;
+}
+
+void ce_tags_guard_begin_loaded(
+	void const *instances,
+	long tag_count)
+{
+	ce_tags_guard_begin(xbox_pointer(CE_IMAGE_TAG_CACHE_BASE), instances, tag_count);
+}
+
+void ce_tags_guard_end(
+	void)
+{
+	ce_guard.header = NULL;
+	ce_guard.instances = NULL;
+	ce_guard.instances_size = 0;
+	ce_guard.logged = FALSE;
+}
+
+/* whether [at, at + size) and [other, other + other_size) share a byte (as
+addresses: they need not be of one object) */
+static boolean ce_overlaps(
+	byte const *at,
+	unsigned long size,
+	byte const *other,
+	unsigned long other_size)
+{
+	size_t first = (size_t)at, second = (size_t)other;
+
+	return size && other_size && first < second + other_size && second < first + size;
+}
+
+boolean ce_tags_writable(
+	void const *field,
+	unsigned long size)
+{
+	if (!ce_guard.header)
+		return TRUE;
+	if (ce_overlaps(field, size, ce_guard.header, CE_TAG_HEADER_SIZE) ||
+		ce_overlaps(field, size, ce_guard.instances, ce_guard.instances_size))
+	{
+		ce_contained("a tag's field lies over its tag header or tag index (%lu bytes at %lu in its tags)", size,
+			(unsigned long)((size_t)field - (size_t)ce_guard.header));
+		return FALSE;
+	}
+	return TRUE;
+}
+
+void ce_contained(
+	char const *format,
+	...)
+{
+	char what[192];
+	va_list arguments;
+
+	if (ce_checking || ce_guard.logged)
+		return;
+	ce_guard.logged = TRUE;
+	va_start(arguments, format);
+	vsnprintf(what, sizeof(what), format, arguments);
+	va_end(arguments);
+	error(_error_silent, "%s map: %s; passed over (and any more like it)", ce_map_family_name(), what);
 }
 
 boolean ce_room_add(

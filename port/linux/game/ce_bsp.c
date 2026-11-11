@@ -283,12 +283,22 @@ void ce_bsp_loaded(
 			long lightmap_vertex_count = material->lightmap_vertices.count;
 			long environment_size = vertex_count * ENVIRONMENT_VERTEX_COMPRESSED_SIZE;
 			long size = environment_size + lightmap_vertex_count * LIGHTMAP_VERTEX_COMPRESSED_SIZE;
-			byte *uncompressed = xbox_pointer(material->uncompressed_vertex_data.address);
+			byte *uncompressed;
 			byte *compressed;
 
-			if (material->vertices.type != _rasterizer_vertex_type_environment_uncompressed || vertex_count <= 0 ||
-				!uncompressed)
+			if (material->vertices.type != _rasterizer_vertex_type_environment_uncompressed || vertex_count <= 0)
+				continue;
+			/* (its vertices, all of them, in the tag cache, as ce_bsp_check
+			found them in the BSP: else passed over, ce_map_checks.h) */
+			uncompressed = vertex_count <= CE_MAXIMUM_MATERIAL_VERTICES &&
+				(!lightmap_vertex_count || lightmap_vertex_count == vertex_count) ?
+				ce_loaded_bsp_pointer(material->uncompressed_vertex_data.address,
+					(unsigned long)vertex_count * ENVIRONMENT_VERTEX_UNCOMPRESSED_SIZE +
+					(unsigned long)lightmap_vertex_count * LIGHTMAP_VERTEX_UNCOMPRESSED_SIZE) : NULL;
+			if (!uncompressed)
 			{
+				ce_contained("a structure BSP material's %ld vertices at %08lx are outside its tag cache", vertex_count,
+					(unsigned long)material->uncompressed_vertex_data.address);
 				continue;
 			}
 			compressed = XPhysicalAlloc(size, -1, 0, PAGE_READWRITE);

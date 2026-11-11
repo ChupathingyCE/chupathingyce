@@ -271,6 +271,53 @@ def ce_map_bsp_materials(lightmaps, materials):
     return bytes(data)
 
 
+def ce_map_of_tags(extra):
+    """a Custom Edition map of a scenario, one empty structure BSP and the
+    tags in extra (each a group and its data's size, zeroed): the map, and
+    the offsets in it of its tag index and of each extra tag's data"""
+    base = TAG_CACHE["ce"]
+    tag_count = 2 + len(extra)
+    tags = bytearray(0x28)
+    instances = len(tags)
+    tags += bytes(0x20 * tag_count)
+    names = len(tags)
+    tags += b"fuzz\0"
+    bsp_name = len(tags)
+    tags += b"fuzz_bsp\0" + bytes((-(len(tags) + 9)) % 4)
+    scenario = len(tags)
+    tags += bytes(0x5B0)
+    bsps = len(tags)
+    tags += bytes(0x20)
+    syntax = len(tags)
+    tags += bytes(0x38)
+    datas = []
+    for group, size in extra:
+        datas.append(len(tags))
+        tags += bytes(size + (-size) % 16)
+    tags += bytes((-len(tags)) % 16)
+    tag_data_size = len(tags)
+    bsp_offset = 0x800 + tag_data_size
+    bsp = bytearray(0x18 + 0x288 + 0x40)
+    struct.pack_into("<I", bsp, 0, base + 0x100000 + 0x18)
+    struct.pack_into("<4s", bsp, 0x14, b"psbs")
+    model_offset = bsp_offset + len(bsp)
+    struct.pack_into("<IIIIIIIII4s", tags, 0, base + instances, 0xE1740000, 0, tag_count, 0, model_offset, 0, 0, 0,
+                     b"sgat")
+    for index, (group, address) in enumerate([(b"scnr", base + scenario), (b"sbsp", 0)] +
+                                             [(group, base + data) for (group, _), data in zip(extra, datas)]):
+        struct.pack_into("<4s4s4sIIIII", tags, instances + 0x20 * index, group[::-1], b"\xff\xff\xff\xff",
+                         b"\xff\xff\xff\xff", ((0xE174 + index) << 16) | index, base + names, address, 0, 0)
+    # (the structure BSP's own name)
+    struct.pack_into("<I", tags, instances + 0x20 + 0x10, base + bsp_name)
+    struct.pack_into("<iIII", tags, scenario + 0x474, 0x38, 0, 0, base + syntax)
+    struct.pack_into("<hh", tags, syntax + 0x20, 0, 0x14)
+    struct.pack_into("<iII", tags, scenario + 0x5A4, 1, base + bsps, 0)
+    struct.pack_into("<iiII4sIiI", tags, bsps, bsp_offset, len(bsp), base + 0x100000, 0, b"psbs", base + bsp_name,
+                     8, 0xE1750001)
+    data = header(609, model_offset, 0x800, tag_data_size) + tags + bsp
+    return bytearray(data), {"instances": 0x800 + instances, "tags": [0x800 + data for data in datas]}
+
+
 def seeds(target):
     if target == "xbox":
         return {"minimal_xbox.map": xbox_map()}
@@ -426,6 +473,28 @@ def test_tags_checked_again_as_they_load(built, tmp_path):
     assert "refused as it loaded: its scripts' syntax" in result.stderr, result.stderr[-4000:]
 
 
+def test_conversions_read_only_the_tags(built, tmp_path):
+    """an object whose functions' block lies past the map's tags, where its
+    structure BSP loads, or in the room above the tag cache: the conversions
+    read and write only where the map's tags are, and pass it over"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    for address in (base + 0x100000, base + 0x1700000):
+        data = bytearray(ce_map(sound=[(1, 36, 0, 0x800)]))
+        instances = struct.unpack_from("<I", data, 0x800)[0] - base
+        tag = struct.unpack_from("<I", data, 0x800 + instances + 0x40 + 0x14)[0] - base
+        # (the sound's tag made an object, its functions' block, 0x158 in,
+        # one function there)
+        data[0x800 + instances + 0x40:0x800 + instances + 0x44] = b"ejbo"
+        struct.pack_into("<iI", data, 0x800 + tag + 0x158, 1, address)
+        path = tmp_path / "functions_past_tags.map"
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
+        assert "0 periodic and 0 transition functions" in result.stderr, result.stderr[-4000:]
+
+
 def test_sound_samples_in_sounds_map(built, tmp_path):
     """a Custom Edition map's own sound (not indexed): each permutation's
     samples read from the file Halo PC's flag on them names, sounds.map's or
@@ -459,6 +528,55 @@ def test_sound_samples_in_sounds_map(built, tmp_path):
             assert expected in result.stderr, (name, result.stderr[-4000:])
         if unexpected:
             assert unexpected not in result.stderr, (name, result.stderr[-4000:])
+
+
+WIDE_FORMAT_TEST = r"""
+#include <stdio.h>
+#include <string.h>
+typedef unsigned short wide;
+int msvc_snwprintf(wide *buffer, size_t count, const wide *format, ...);
+unsigned int D3D__RenderState[512];
+static void widen(wide *to, const char *from) { while ((*to++ = (unsigned char)*from++)) ; }
+static void show(const wide *text) { while (*text) putchar((char)*text++); putchar(10); }
+int main(void)
+{
+    wide format[400], buffer[300];
+    char flags[300];
+    int count = 12345;
+
+    memset(flags, '0', 250); flags[0] = '%'; flags[250] = 'd'; flags[251] = 0;
+    widen(format, flags); msvc_snwprintf(buffer, 300, format, 42); show(buffer);
+    widen(format, "a%nb"); msvc_snwprintf(buffer, 300, format, &count); show(buffer); printf("%d\n", count);
+    widen(format, "%99999999999d|"); msvc_snwprintf(buffer, 300, format, 7); printf("%d\n", (int)buffer[299]);
+    widen(format, "%5d|%-4s|%.2f"); { wide s[3] = { 'h', 'i', 0 }; msvc_snwprintf(buffer, 300, format, 42, s, 3.14159); }
+    show(buffer);
+    return 0;
+}
+"""
+
+
+def test_conversions_write_nothing_over_the_tag_index(built, tmp_path):
+    """a tag placed over the tag index, so that a conversion's write (a
+    damage effect's transition made a valid one) lands on another tag's
+    address: the write is passed over, and the other tag (an extended
+    chicago shader) is still found where it is and converted"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"jpt!", 0x100), (b"scex", 0x200)])
+    damage_effect, shader = offsets["tags"]
+    # (the shader's type, Halo PC's extended chicago)
+    struct.pack_into("<h", data, shader + 0x24, 7)
+    # (the damage effect's screen flash fade, at 0x38, over the high half of
+    # the shader's instance's address: 0x4044, no transition there is one of)
+    shader_address = offsets["instances"] + 3 * 0x20 + 0x14
+    struct.pack_into("<I", data, offsets["instances"] + 2 * 0x20 + 0x14, base + (shader_address + 2 - 0x38 - 0x800))
+    path = tmp_path / "functions_over_index.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused" not in result.stderr, result.stderr[-4000:]
+    assert "over its tag header or tag index" in result.stderr, result.stderr[-4000:]
+    assert "1 extended chicago shaders made chicago ones" in result.stderr, result.stderr[-4000:]
 
 
 WIDE_FORMAT_TEST = r"""
