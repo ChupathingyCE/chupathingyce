@@ -822,6 +822,267 @@ static void test_layout_record(void)
 	CHECK(memcmp(wire, record + 0x3300, 0x40) == 0);
 }
 
+/* the facts of OpenCE's network version 43 as a table row says them
+(docs/delta.md, "Layouts"): the record 64 bytes longer, the join request's
+version word, the 12-byte header with its checkpoint epoch and boundary (96), the unit
+state's deck (bit 7, 28 bytes after the up) and scripted pose (bit 6, 30
+bytes last), riders thrown from a vehicle on its side, and the MCC-only
+kinds and 107 dropped */
+static void test_fact_43(struct delta_layout_fact *fact)
+{
+	static const int dropped[] = { 97, 98, 99, 100, 103, 104, 105, 106, 107 };
+	size_t index;
+
+	fact->settings_size = 13200;
+	fact->join_request_said = 1;
+	fact->join_request_extra = 236;
+	fact->join_request_version_said = 1;
+	fact->join_request_version_at = 234;
+	fact->header_extra = 4;
+	fact->epoch_kind = 96;
+	fact->unit_part_size[7] = 28;
+	fact->unit_part_at[7] = DELTA_LAYOUT_PART_AFTER_UP;
+	fact->unit_part_size[6] = 30;
+	fact->unit_part_at[6] = DELTA_LAYOUT_PART_LAST;
+	fact->rider_ejection_up = 200;
+	for (index = 0; index < sizeof(dropped) / sizeof(dropped[0]); index++)
+		fact->dropped[dropped[index] >> 3] |= (uint8_t)(1 << (dropped[index] & 7));
+}
+
+static void test_layouts_43(void)
+{
+	struct network_rules_layout layout;
+	uint8_t tail[NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT];
+	int index;
+
+	test_fact_count = 0;
+	test_fact_43(test_fact(43));
+	network_rules_set_layout_source(test_source);
+
+	network_rules_layout(43, &layout);
+	CHECK(layout.refused == 0);
+	CHECK(layout.settings_size == 0x3390 && layout.options_size == 0x2C);
+	CHECK(layout.join_request_extra == 236 && layout.join_request_version_at == 234);
+	CHECK(layout.header_extra == 4 && layout.epoch_kind == 96);
+	CHECK(layout.unit_part_size[7] == 28 && layout.unit_part_at[7] == DELTA_LAYOUT_PART_AFTER_UP);
+	CHECK(layout.unit_part_size[6] == 30 && layout.unit_part_at[6] == DELTA_LAYOUT_PART_LAST);
+	CHECK(network_rules_rider_ejection_up(&layout) > 0.1999f && network_rules_rider_ejection_up(&layout) < 0.2001f);
+	CHECK(network_rules_layout_drops(&layout, 97) && network_rules_layout_drops(&layout, 100) &&
+		!network_rules_layout_drops(&layout, 101) && !network_rules_layout_drops(&layout, 102) &&
+		network_rules_layout_drops(&layout, 103) && network_rules_layout_drops(&layout, 107) &&
+		!network_rules_layout_drops(&layout, 96));
+	/* (the settings: 4 pieces of 0xE00, the last 2,448 bytes) */
+	CHECK(network_rules_settings_size(43) == 13200 && 13200 - 3 * 0xE00 == 2448);
+	CHECK(network_rules_settings_size_taken(43, 13200) && !network_rules_settings_size_taken(43, 13136));
+	CHECK(network_rules_host_settings_size(43, 0, 0) == 13200);
+	/* (the join request: 0x70 + 236 = 0x15C, the version word last) */
+	CHECK(NETWORK_RULES_JOIN_REQUEST_SIZE + network_rules_join_request_tail(43, tail, sizeof(tail)) == 0x15C);
+	CHECK(tail[234] == 0x2B && tail[235] == 0x00);
+	for (index = 0; index < 234; index++)
+	{
+		if (tail[index])
+			break;
+	}
+	CHECK(index == 234);
+	CHECK(network_rules_join_request_tail(43, tail, 235) == -1);
+	CHECK(network_rules_join_request_tail(44, tail, sizeof(tail)) == 236 && tail[234] == 44);
+	CHECK(network_rules_join_request_tail(41, tail, sizeof(tail)) == 234);
+	CHECK(network_rules_join_request_tail(NETWORK_RULES_VERSION_UNKNOWN, tail, sizeof(tail)) == 0);
+
+	/* (41 and the build's own versions: none of them) */
+	network_rules_layout(41, &layout);
+	CHECK(layout.header_extra == 0 && layout.epoch_kind == 0 && layout.join_request_version_at == -1);
+	CHECK(layout.unit_part_size[6] == 0 && layout.unit_part_size[7] == 0 && layout.rider_ejection_up == 0);
+	CHECK(network_rules_rider_ejection_up(&layout) == 0.0f);
+	network_rules_set_layout_source(NULL);
+	network_rules_layout(43, &layout);
+	CHECK(layout.header_extra == 0 && layout.epoch_kind == 0 && layout.join_request_version_at == -1);
+}
+
+static void test_layouts_43_hostile(void)
+{
+	struct network_rules_layout layout;
+	struct delta_layout_fact *fact;
+
+	test_fact_count = 0;
+	/* 42: an epoch without the header's bytes for it, a boundary kind this
+	build knows, a built-in part's bit, a part too long, of no place */
+	fact = test_fact(42);
+	fact->epoch_kind = 96;
+	fact->unit_part_size[2] = 4;
+	fact->unit_part_at[2] = DELTA_LAYOUT_PART_LAST;
+	fact->unit_part_size[7] = NETWORK_RULES_UNIT_PART_LIMIT + 1;
+	fact->unit_part_at[7] = DELTA_LAYOUT_PART_LAST;
+	fact->unit_part_size[6] = 4;
+	fact->unit_part_at[6] = 3;
+	network_rules_set_layout_source(test_source);
+	network_rules_layout(42, &layout);
+	CHECK(layout.refused == 4 && layout.epoch_kind == 0 && layout.unit_part_size[2] == 0 &&
+		layout.unit_part_size[7] == 0 && layout.unit_part_size[6] == 0);
+	/* 43: too many header bytes, the version word past the request's end,
+	the ejection past its limit; 44: the header's bytes, a kind of 91 */
+	fact = test_fact(43);
+	fact->header_extra = NETWORK_RULES_HEADER_EXTRA_LIMIT + 1;
+	fact->join_request_version_said = 1;
+	fact->join_request_version_at = 233;
+	fact->rider_ejection_up = NETWORK_RULES_RIDER_EJECTION_LIMIT + 1;
+	fact = test_fact(44);
+	fact->header_extra = 4;
+	fact->epoch_kind = 91;
+	fact->join_request_version_said = 1;
+	fact->join_request_version_at = 232;
+	network_rules_layout(43, &layout);
+	CHECK(layout.refused == 7 && layout.header_extra == 0 && layout.join_request_version_at == -1 &&
+		layout.rider_ejection_up == 0);
+	network_rules_layout(44, &layout);
+	CHECK(layout.header_extra == 4 && layout.epoch_kind == 0 && layout.join_request_version_at == 232);
+	/* 45: the request shorter, the version word gone with it */
+	fact = test_fact(45);
+	fact->join_request_said = 1;
+	fact->join_request_extra = 100;
+	network_rules_layout(45, &layout);
+	CHECK(layout.join_request_extra == 100 && layout.join_request_version_at == -1);
+	network_rules_set_layout_source(NULL);
+}
+
+/* a message header word as the transport gives it (this machine's order):
+the size in bits 4 to 15, the data type (2) in bits 2 and 3 */
+static void test_header_word(uint8_t *message, int size)
+{
+	uint16_t word = (uint16_t)((size << 4) | (2 << 2));
+
+	memcpy(message, &word, sizeof(word));
+}
+
+static int test_header_size(uint8_t const *message)
+{
+	uint16_t word;
+
+	memcpy(&word, message, sizeof(word));
+	return word >> 4;
+}
+
+static void test_header_extension(void)
+{
+	/* the shield effects message (12 bytes) to 16, its epoch at 8 */
+	uint8_t message[12], wide[64], narrow[64], batch[64], batch_wide[96];
+	uint32_t epoch = 0;
+	int size, at;
+
+	network_rules_shield_effects_write(message, 3, 0x01020304);
+	test_header_word(message, 12);
+	size = network_rules_header_expand(message, 12, wide, sizeof(wide), 4, 1, 0xA1B2C3D4u);
+	CHECK(size == 16 && test_header_size(wide) == 16);
+	CHECK(wide[2] == 91 && wide[3] == 1 && wide[4] == 0x04 && wide[7] == 0x01);
+	CHECK(wide[8] == 0xD4 && wide[9] == 0xC3 && wide[10] == 0xB2 && wide[11] == 0xA1);
+	CHECK(wide[12] == 3 && wide[13] == 0 && wide[14] == 0 && wide[15] == 0);
+	CHECK(network_rules_header_strip(wide, 16, narrow, 4, 1, 0, 0, &epoch) == 12 && epoch == 0xA1B2C3D4u);
+	CHECK(test_header_size(narrow) == 12 && !memcmp(narrow + 2, message + 2, 10));
+	/* (no room, too short, an epoch without its bytes) */
+	CHECK(network_rules_header_expand(message, 12, wide, 15, 4, 1, 1) == 0);
+	CHECK(network_rules_header_expand(message, 7, wide, sizeof(wide), 4, 1, 1) == 0);
+	CHECK(network_rules_header_expand(message, 12, wide, sizeof(wide), 2, 1, 1) == 0);
+	CHECK(network_rules_header_strip(wide, 11, narrow, 4, 1, 0, 0, &epoch) == 0);
+	/* (the message 96 boundary: the 12-byte header alone, no entries) */
+	{
+		uint8_t boundary[8] = { 0, 0, 96, 0, 0x10, 0, 0, 0 };
+
+		test_header_word(boundary, 8);
+		CHECK(network_rules_header_expand(boundary, 8, wide, sizeof(wide), 4, 1, 7) == 12);
+		CHECK(wide[2] == 96 && wide[3] == 0 && wide[8] == 7 && test_header_size(wide) == 12);
+		CHECK(network_rules_header_strip(wide, 12, narrow, 4, 1, 0, 0, &epoch) == 8 && epoch == 7);
+		CHECK(network_rules_boundary_taken(8, 0, 1, 0, epoch, 0));
+		CHECK(network_rules_boundary_taken(8, 0, 1, 0, 8, 7) && !network_rules_boundary_taken(8, 0, 1, 0, 7, 7));
+		CHECK(!network_rules_boundary_taken(8, 0, 0, 0, 8, 7) && !network_rules_boundary_taken(8, 0, 1, 1, 8, 7));
+		CHECK(!network_rules_boundary_taken(8, 1, 1, 0, 8, 7) && !network_rules_boundary_taken(12, 0, 1, 0, 8, 7));
+		CHECK(!network_rules_boundary_taken(8, 0, 1, 0, 0, 0));
+	}
+	/* (epochs: past 0 on rollover, newer by the signed difference) */
+	CHECK(network_rules_epoch_next(0) == 1 && network_rules_epoch_next(0xFFFFFFFFu) == 1);
+	CHECK(network_rules_epoch_newer(1, 0xFFFFFFFFu) && !network_rules_epoch_newer(0xFFFFFFFFu, 1));
+	CHECK(network_rules_epoch_newer(5, 0) && !network_rules_epoch_newer(5, 5));
+
+	/* a batch: its header, then two messages (a size word, the header's 6
+	bytes past the message header, entries) */
+	memset(batch, 0, sizeof(batch));
+	batch[2] = NETWORK_RULES_BATCH_KIND;
+	batch[4] = 0x11;
+	at = 8;
+	batch[at] = 6 + 3; /* kind 2, one entry of 3 bytes */
+	batch[at + 2] = 2;
+	batch[at + 3] = 1;
+	batch[at + 4] = 0x22;
+	batch[at + 8] = 0xA;
+	batch[at + 9] = 0xB;
+	batch[at + 10] = 0xC;
+	at += 2 + 9;
+	batch[at] = 6 + 4; /* kind 13, 4 bytes */
+	batch[at + 2] = 13;
+	batch[at + 3] = 1;
+	batch[at + 8] = 0xD;
+	batch[at + 11] = 0xE;
+	at += 2 + 10;
+	test_header_word(batch, at);
+	size = network_rules_header_expand(batch, at, batch_wide, sizeof(batch_wide), 4, 1, 9);
+	CHECK(size == at + 12 && test_header_size(batch_wide) == size);
+	CHECK(batch_wide[2] == NETWORK_RULES_BATCH_KIND && batch_wide[8] == 9);
+	/* (the first message: its size 13, kind, its epoch, then its entry) */
+	CHECK(batch_wide[12] == 13 && batch_wide[13] == 0 && batch_wide[14] == 2 && batch_wide[16] == 0x22);
+	CHECK(batch_wide[20] == 9 && batch_wide[24] == 0xA && batch_wide[26] == 0xC);
+	CHECK(batch_wide[27] == 14 && batch_wide[29] == 13 && batch_wide[35] == 9 && batch_wide[39] == 0xD &&
+		batch_wide[42] == 0xE);
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == at && epoch == 9);
+	CHECK(!memcmp(narrow, batch, (size_t)at));
+	/* (a message of another epoch left out, but the kind kept) */
+	batch_wide[35] = 8;
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == 8 + 11);
+	CHECK(!memcmp(narrow + 2, batch + 2, 8 + 11 - 2));
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 13, &epoch) == at);
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 7, 0, &epoch) == 8);
+	/* (malformed: a size word past the end, one shorter than the header) */
+	batch_wide[27] = 200;
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == 0);
+	batch_wide[27] = 8;
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == 0);
+	batch[19] = 200;
+	CHECK(network_rules_header_expand(batch, at, batch_wide, sizeof(batch_wide), 4, 1, 9) == 0);
+	/* (further bytes without an epoch: zeros) */
+	batch[19] = 6 + 4;
+	size = network_rules_header_expand(batch, at, batch_wide, sizeof(batch_wide), 2, 0, 9);
+	CHECK(size == at + 6 && batch_wide[8] == 0 && batch_wide[9] == 0 && batch_wide[10] == 11);
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 2, 0, 0, 0, &epoch) == at && epoch == 0);
+	CHECK(!memcmp(narrow, batch, (size_t)at));
+}
+
+static void test_unit_parts(void)
+{
+	struct network_rules_layout layout;
+
+	test_fact_count = 0;
+	test_fact_43(test_fact(43));
+	network_rules_set_layout_source(test_source);
+	network_rules_layout(43, &layout);
+	/* (the built-in parts alone: none further, anywhere) */
+	CHECK(network_rules_unit_part_bytes(&layout, 0x3F, DELTA_LAYOUT_PART_AFTER_UP, 1, 1) == 0);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x3F, DELTA_LAYOUT_PART_LAST, 0, 0) == 0);
+	/* (the deck after the up, alive and placed; the pose last, alive) */
+	CHECK(network_rules_unit_part_bytes(&layout, 0xC0, DELTA_LAYOUT_PART_AFTER_UP, 1, 1) == 28);
+	CHECK(network_rules_unit_part_bytes(&layout, 0xC0, DELTA_LAYOUT_PART_LAST, 1, 1) == 30);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x40, DELTA_LAYOUT_PART_AFTER_UP, 1, 0) == 0);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x40, DELTA_LAYOUT_PART_LAST, 1, 0) == 30);
+	/* (unreadable: the deck not placed or dead, the pose dead) */
+	CHECK(network_rules_unit_part_bytes(&layout, 0x80, DELTA_LAYOUT_PART_AFTER_UP, 1, 0) == -1);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x80, DELTA_LAYOUT_PART_AFTER_UP, 0, 1) == -1);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x40, DELTA_LAYOUT_PART_LAST, 0, 0) == -1);
+	/* (the bound on one state: the old most, 28 and 30 more) */
+	CHECK(layout.unit_part_size[6] + layout.unit_part_size[7] == 58);
+	/* (a layout without them: a bit not built in is unreadable) */
+	network_rules_layout(41, &layout);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x80, DELTA_LAYOUT_PART_AFTER_UP, 1, 1) == -1);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x01, DELTA_LAYOUT_PART_AFTER_UP, 1, 1) == 0);
+	network_rules_set_layout_source(NULL);
+}
+
 int main(void)
 {
 	test_aim_assist_message();
@@ -843,6 +1104,10 @@ int main(void)
 	test_layouts_hostile();
 	test_layouts_join_request();
 	test_layout_record();
+	test_layouts_43();
+	test_layouts_43_hostile();
+	test_header_extension();
+	test_unit_parts();
 	if (failures)
 	{
 		printf("network_rules_test: %d failure(s)\n", failures);

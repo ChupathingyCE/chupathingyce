@@ -2601,6 +2601,9 @@ void network_coop_reverted(
 
 	if (!coop_host())
 		return;
+	/* (a game whose layout has a checkpoint epoch: the next, said to every
+	loaded client before anything of the reverted game) */
+	network_distributed_checkpoint_boundary();
 	ticks = now - game_time_get();
 	if (ticks > 0)
 	{

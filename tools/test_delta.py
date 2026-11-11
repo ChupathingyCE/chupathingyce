@@ -696,7 +696,8 @@ def test_loader_says_once_that_no_table_is_published(checker, tmp_path):
 # each released wire's newest version (DELTA_WIRE_LEGACY_NEWEST): never
 # changed once released, a build that learns a newer version's rules has a
 # new wire (docs/delta.md, "When the wire changes")
-RELEASED_WIRE_NEWEST = {"chupa-28a": 28, "chupa-29a": 29, "chupa-32a": 33, "chupa-38a": 38, "chupa-39a": 39}
+RELEASED_WIRE_NEWEST = {"chupa-28a": 28, "chupa-29a": 29, "chupa-32a": 33, "chupa-38a": 38, "chupa-39a": 39,
+                       "chupa-41a": 41}
 
 
 def test_wire_changes_with_the_rules():
@@ -967,6 +968,68 @@ def test_loader_drops_bad_layouts(keys, checker, tmp_path, name, layouts):
     output = run_checker(checker, tmp_path, "offer", write_signed(keys, tmp_path / "bad", data), "state")
     assert "offer 0" in output, name
     assert " serial 0 " in state_line(output)[0], name
+
+
+# OpenCE's 43 as a row of the table (chupa-43a's facts; docs/delta.md, "Layouts")
+FACT_43 = {"settings_size": 13200, "join_request_extra": 236, "join_request_fill": "zeros",
+           "join_request_version_at": 234, "header_extra": 4, "epoch_kind": 96,
+           "unit_state_parts": [{"bit": 7, "size": 28, "at": "after_up"}, {"bit": 6, "size": 30, "at": "last"}],
+           "rider_ejection_up": 200, "dropped_messages": [97, 98, 99, 100, 103, 104, 105, 106, 107]}
+
+
+def test_loader_reads_generic_layouts(keys, checker, tmp_path):
+    """chupa-43a's facts: read from this wire's row, a part of a later
+    build's place and keys it does not know passed over"""
+    later = dict(FACT_43, unit_state_parts=FACT_43["unit_state_parts"] + [{"bit": 5, "size": 2, "at": "x"}])
+    row = dict(floor(), layouts={"43": FACT_43, "44": {"later": [1], "header_extra": 6},
+                                  "45": {"unit_state_parts": [{"bit": 6, "size": 30, "at": "middle"}]}})
+    table = write_signed(keys, tmp_path / "t12", document(serial=12, row=row))
+    output = run_checker(checker, tmp_path, "offer", table, "layout43", 41, "layout43", 43, "layout", 43,
+                         "layout43", 44, "layout43", 45, "state")
+    assert "offer 1" in output
+    lines = [line for line in output.splitlines() if line.startswith("layout43 ")]
+    assert lines[0] == "layout43 41 version_at -1 header 0 epoch 0 ejection 0 parts refused 0"
+    assert lines[1] == "layout43 43 version_at 234 header 4 epoch 96 ejection 200 parts 6:30@2 7:28@1 refused 0"
+    assert layout_line(output, 43).startswith("layout 43 settings 13200 options 44 shield 6 "
+                                              "dropped 78,79,91,94,95,97,98,99,100,103,104,105,106,107 ")
+    assert layout_line(output, 43).endswith(" join 236")
+    assert lines[2].startswith("layout43 44 version_at 234 header 6 epoch 96 ")
+    # (a place this build does not know: that part not taken, the rest kept)
+    assert " 6:30@2 " in lines[3] and lines[3].endswith(" refused 1")
+    # (a part of a later build's place, in a list this build otherwise reads)
+    table = write_signed(keys, tmp_path / "t13", document(serial=13, row=dict(floor(), layouts={"43": later})))
+    output = run_checker(checker, tmp_path, "offer", table, "layout43", 43)
+    assert "offer 1" in output and " 5:2@255 " not in output and "refused 1" in output
+
+
+@pytest.mark.parametrize("fact", [
+    {"header_extra": 9}, {"header_extra": 4, "epoch_kind": 91}, {"epoch_kind": 96},
+    {"rider_ejection_up": 1000}, {"join_request_version_at": 233},
+    {"unit_state_parts": [{"bit": 2, "size": 4, "at": "last"}]},
+    {"unit_state_parts": [{"bit": 7, "size": 65, "at": "after_up"}]},
+    {"unit_state_parts": [{"bit": 7, "size": 28, "at": "middle"}]},
+    {"unit_state_parts": [{"bit": 7, "size": 28}]},
+    {"unit_state_parts": [{"bit": 7, "size": 28, "at": "last"}, {"bit": 7, "size": 2, "at": "last"}]},
+])
+def test_bad_generic_layouts(fact):
+    with pytest.raises(delta_table.TableError):
+        delta_table.parse(document(extra={"chupa-43a": {"announce": 32, "minimum": 11, "maximum": 43,
+                                                         "layouts": {"43": fact}}}))
+
+
+def test_generic_layouts_row():
+    """the 43 row is a valid table row; --layout makes it field by field"""
+    delta_table.parse(document(extra={"chupa-43a": {"announce": 32, "minimum": 11, "maximum": 44,
+                                                     "layouts": {"43": FACT_43}}}))
+    wire, version, fact = delta_table.parse_layout(
+        "chupa-43a=43:settings_size=13200,join_request_extra=236,join_request_version_at=234,header_extra=4,"
+        "epoch_kind=96,unit_part_after_up=7+28,unit_part_last=6+30,rider_ejection_up=200,"
+        "dropped_messages=97+98+99+100+103+104+105+106+107")
+    assert (wire, version) == ("chupa-43a", "43") and fact == FACT_43
+    for bad in ("chupa-41a=43:header_extra=4", "chupa-43a=43:header_extra=9", "chupa-43a=43:epoch_kind=96",
+                "chupa-43a=43:unit_part_last=1+4"):
+        with pytest.raises(delta_table.TableError):
+            delta_table.parse_layout(bad)
 
 
 def test_loader_override_layouts(checker, tmp_path):

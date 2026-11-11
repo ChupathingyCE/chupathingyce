@@ -429,9 +429,78 @@ static int json_kinds(struct json *json, struct delta_layout_fact *fact)
 	return json_take(json, ']');
 }
 
+/* a layout fact's "unit_state_parts" (chupa-43a on): [{"bit": B, "size":
+S, "at": "after_up" or "last"}, ...], a part this build passes over; another
+place is a later build's (its part then not taken), other keys passed over */
+static int json_unit_parts(struct json *json, struct delta_layout_fact *fact)
+{
+	int count = 0;
+
+	if (!json_take(json, '['))
+		return 0;
+	if (json_take(json, ']'))
+		return 1;
+	do
+	{
+		long long bit = -1, size = -1;
+		unsigned char at = 0;
+		int seen = 0;
+
+		if (++count > 8 || !json_take(json, '{'))
+			return 0;
+		json->depth++;
+		if (!json_take(json, '}'))
+		{
+			do
+			{
+				const char *key;
+				int length, escaped, mark = 0, ok;
+
+				if (!json_string(json, &key, &length, &escaped) || !json_take(json, ':'))
+					return 0;
+				if (!escaped && json_is(key, length, "bit"))
+					mark = 1, ok = json_integer(json, 0, 7, &bit);
+				else if (!escaped && json_is(key, length, "size"))
+					mark = 2, ok = json_integer(json, 0, 255, &size);
+				else if (!escaped && json_is(key, length, "at"))
+				{
+					const char *place;
+					int place_length, place_escaped;
+
+					mark = 4, ok = json_string(json, &place, &place_length, &place_escaped);
+					if (ok)
+					{
+						at = 0xFF;
+						if (!place_escaped && json_is(place, place_length, "after_up"))
+							at = DELTA_LAYOUT_PART_AFTER_UP;
+						else if (!place_escaped && json_is(place, place_length, "last"))
+							at = DELTA_LAYOUT_PART_LAST;
+					}
+				}
+				else
+					ok = json_skip(json);
+				if (!ok || (seen & mark))
+					return 0;
+				seen |= mark;
+			} while (json_take(json, ','));
+			if (!json_take(json, '}'))
+				return 0;
+		}
+		json->depth--;
+		/* (a part without its bit, size and place says nothing) */
+		if (bit < 0 || size <= 0 || !at)
+			return 0;
+		fact->unit_part_size[bit] = (unsigned char)size;
+		fact->unit_part_at[bit] = at;
+	} while (json_take(json, ','));
+	return json_take(json, ']');
+}
+
 /* a layout fact: {"settings_size": S, "options_size": O,
 "shield_effects_maximum": E, "dropped_messages": [K, ...],
-"join_request_extra": J, "join_request_fill": "zeros"}, each optional,
+"join_request_extra": J, "join_request_fill": "zeros"}, and from chupa-43a
+"join_request_version_at": V, "header_extra": H, "epoch_kind": K,
+"unit_state_parts": [...] and "rider_ejection_up": R, each optional,
 others passed over (a later build's) */
 static int json_fact(struct json *json, struct delta_layout_fact *fact)
 {
@@ -473,6 +542,35 @@ static int json_fact(struct json *json, struct delta_layout_fact *fact)
 				fact->join_request_extra = (unsigned short)value;
 				fact->join_request_said = 1;
 			}
+		}
+		else if (!escaped && json_is(key, length, "join_request_version_at"))
+		{
+			bit = 64, ok = json_integer(json, 0, MAXIMUM_VERSION, &value);
+			if (ok)
+			{
+				fact->join_request_version_at = (unsigned short)value;
+				fact->join_request_version_said = 1;
+			}
+		}
+		else if (!escaped && json_is(key, length, "header_extra"))
+		{
+			bit = 128, ok = json_integer(json, 0, 255, &value);
+			if (ok)
+				fact->header_extra = (unsigned char)value;
+		}
+		else if (!escaped && json_is(key, length, "epoch_kind"))
+		{
+			bit = 256, ok = json_integer(json, 0, MAXIMUM_KIND, &value);
+			if (ok)
+				fact->epoch_kind = (unsigned char)value;
+		}
+		else if (!escaped && json_is(key, length, "unit_state_parts"))
+			bit = 512, ok = json_unit_parts(json, fact);
+		else if (!escaped && json_is(key, length, "rider_ejection_up"))
+		{
+			bit = 1024, ok = json_integer(json, 0, MAXIMUM_VERSION, &value);
+			if (ok)
+				fact->rider_ejection_up = (unsigned short)value;
 		}
 		else if (!escaped && json_is(key, length, "join_request_fill"))
 		{

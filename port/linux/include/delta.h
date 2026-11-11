@@ -357,8 +357,13 @@ no longer OpenCE's flag 0x04 and byte 3), hosts' message 91, co-op's ally
 switch honored, and 39's dedicated flag on dedicated servers that announce
 it. chupa-41a: the join request 234 bytes longer to hosts of 40 and later
 (network_rules_join_request_extra), the refusals 8 to 13 said plainly, and
-41's vote messages (78, 79, 94, 95) dropped quietly. */
-#define DELTA_WIRE "chupa-41a"
+41's vote messages (78, 79, 94, 95) dropped quietly. chupa-43a: a table's
+layouts say more by data (network_rules.h, "chupa-43a's facts": the join
+request's version word, the distributed header's further bytes and
+checkpoint epoch with its boundary message, a unit state's further parts,
+the riders' ejection), so that OpenCE's 43 is a table row; the game as
+chupa-41a's with every older number. */
+#define DELTA_WIRE "chupa-43a"
 
 /* Wire compatibility ranges: the oldest wire each one plays the game with,
 without a desync and without losing what the older wire has (a feature the
@@ -382,7 +387,8 @@ has shipped a newer wire. */
 	X("chupa-32a", "chupa-28a") /* 30 to 32 are additive; a host of 32 plays with 28 to 31 (docs/delta.md) */ \
 	X("chupa-38a", "chupa-28a") /* 33 to 38 played by the host's number; a host announcing 32 plays as chupa-32a's */ \
 	X("chupa-39a", "chupa-28a") /* the tagged advertisement and 39's dedicated flag; the game's messages as chupa-38a's, a host announcing 32 plays as chupa-32a's */ \
-	X("chupa-41a", "chupa-28a") /* the longer join request to hosts of 40 on; the game's messages as chupa-39a's */
+	X("chupa-41a", "chupa-28a") /* the longer join request to hosts of 40 on; the game's messages as chupa-39a's */ \
+	X("chupa-43a", "chupa-28a") /* chupa-43a's facts, used only with a host of a version a table's layout gives them; the game's messages as chupa-41a's */
 
 /* Each wire's newest OpenCE network version that every build of it plays by
 its own rules (DELTA_LEGACY_NEWEST when it was made): the most a signed
@@ -396,7 +402,8 @@ version's rules has a new wire. */
 	X("chupa-32a", 33) \
 	X("chupa-38a", 38) \
 	X("chupa-39a", 39) \
-	X("chupa-41a", 41)
+	X("chupa-41a", 41) \
+	X("chupa-43a", 41)
 
 /* the oldest network version a build that reads the tagged advertisement
 says in its HELLO: chupa-39a's row above, the first such wire. A host whose
@@ -568,8 +575,11 @@ A wire from chupa-38a on reads "layouts" in its row: for a network version,
 the facts a host of it sends that this build reads by data, not code (the
 game settings record's size, the gametype's options' length, the distributed
 messages a machine that does not know them drops, the shield effects
-message's largest value, and from chupa-41a the join request's length past
-0x70 and its fill; docs/delta.md, "Layouts"). A fact holds for its
+message's largest value, from chupa-41a the join request's length past
+0x70 and its fill, and from chupa-43a where the join request carries the
+version, the distributed header's further bytes and checkpoint epoch, a
+unit state's further parts and the riders' ejection; docs/delta.md,
+"Layouts"). A fact holds for its
 version and every later one until the next fact, and is used only for
 versions past DELTA_LEGACY_NEWEST (the build's own rules are the built-in
 facts) and only within the limits network_rules.c sets (port/linux/game/
@@ -599,9 +609,33 @@ struct delta_layout_fact
 	unsigned short join_request_extra;
 	unsigned char join_request_said;
 	unsigned char join_request_fill;
+	/* (chupa-43a on) where in those bytes the client writes its network
+	version (the host's number), 16 bits little-endian:
+	join_request_version_said when the fact says it */
+	unsigned short join_request_version_at;
+	unsigned char join_request_version_said;
+	/* (chupa-43a on) the bytes every distributed message's header has after
+	its first 8 (in a batch, each message's too), 0 for not said; and the
+	kind of the host's checkpoint boundary when the first 4 of them are a
+	checkpoint epoch, 0 for none */
+	unsigned char header_extra;
+	unsigned char epoch_kind;
+	/* (chupa-43a on) a unit state's parts this build does not write, by
+	bit: their size (0 none) and where they are (DELTA_LAYOUT_PART_...),
+	which a reader passes over */
+	unsigned char unit_part_size[8];
+	unsigned char unit_part_at[8];
+	/* (chupa-43a on) riders leave a vehicle on the ground whose up's height
+	is below this, in thousandths (0: not said; the built-in rule is upside
+	down, below 0) */
+	unsigned short rider_ejection_up;
 };
 #define DELTA_LAYOUT_FILL_ZEROS 0
 #define DELTA_LAYOUT_FILL_UNKNOWN 1
+/* where a unit state's further part is: after its up (alive and placed
+alone), or last (alive alone) */
+#define DELTA_LAYOUT_PART_AFTER_UP 1
+#define DELTA_LAYOUT_PART_LAST 2
 
 /* the table in use's facts for this build's wire (its own row's, or the
 local override's), oldest first, into facts (at most count): how many */

@@ -269,7 +269,13 @@ an older one. Version 41 adds a refusal 13 (too many machines from one
 address), lays out the vote messages 78 and 79 anew, and adds 94 and 95 (map
 votes); this build drops all four unread, and its hosts tell an OpenCE player
 who votes, the first time in a game, that the host has no votes. Refusals 8 to 13 are said
-plainly to the player.
+plainly to the player. Versions past 41 are played by a signed table's
+layout facts, generic ones from wire `chupa-43a` (`docs/delta.md`,
+"Layouts"): a version word in the join request, more bytes in every
+distributed header (a checkpoint epoch, with the host's boundary message
+before its objects and at each co-op revert), unit state parts a reader
+passes over, and the height of a vehicle's up that throws its riders. A
+game whose version's layout has none of them plays as before.
 
 A host plays by the number it announces (`delta_legacy_announce()`: the
 built-in one, or a legacy table's), which is the number of every OpenCE
