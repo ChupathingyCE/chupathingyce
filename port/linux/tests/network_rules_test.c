@@ -888,6 +888,18 @@ static void test_layouts_43(void)
 	CHECK(network_rules_join_request_tail(44, tail, sizeof(tail)) == 236 && tail[234] == 44);
 	CHECK(network_rules_join_request_tail(41, tail, sizeof(tail)) == 234);
 	CHECK(network_rules_join_request_tail(NETWORK_RULES_VERSION_UNKNOWN, tail, sizeof(tail)) == 0);
+	/* (a host of 43: its own number taken, another refused; a request
+	without the word, an older build's or a console's, not refused here) */
+	network_rules_join_request_tail(43, tail, sizeof(tail));
+	CHECK(!network_rules_join_request_refused(43, tail, 236));
+	tail[234] = 42;
+	CHECK(network_rules_join_request_refused(43, tail, 236));
+	tail[234] = 43;
+	tail[235] = 1;
+	CHECK(network_rules_join_request_refused(43, tail, 236));
+	CHECK(!network_rules_join_request_refused(43, tail, 234) && !network_rules_join_request_refused(43, tail, 0));
+	CHECK(!network_rules_join_request_refused(41, tail, 236) && !network_rules_join_request_refused(41, tail, 234));
+	CHECK(!network_rules_join_request_refused(NETWORK_RULES_VERSION_UNKNOWN, tail, 236));
 
 	/* (41 and the build's own versions: none of them) */
 	network_rules_layout(41, &layout);

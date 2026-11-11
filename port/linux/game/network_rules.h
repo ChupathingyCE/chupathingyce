@@ -398,6 +398,12 @@ of the version (its layout's), into tail (room bytes): zeros, and the
 version word where the layout says. Returns how many, or -1 if room is
 too small */
 int network_rules_join_request_tail(unsigned version, uint8_t *tail, int room);
+/* (a host announcing the version) whether it refuses a join request whose
+bytes past NETWORK_RULES_JOIN_REQUEST_SIZE are tail (tail_size of them): one
+of the layout's length whose version word is not the version. A request
+without the word (shorter, or a layout with none) is not refused here: an
+older build's or a console's, as before */
+int network_rules_join_request_refused(unsigned version, uint8_t const *tail, int tail_size);
 /* a distributed message (or a batch of them) of size bytes, its first word
 the message header in this machine's order (the size in bits 4 to 15), as
 a layout with extra further header bytes has it, into out (room bytes):

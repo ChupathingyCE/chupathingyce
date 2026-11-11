@@ -3541,7 +3541,7 @@ sends that the build reads by number (`network_rules.h`, "layouts"):
 | `dropped_messages` | distributed message kinds a host of the version sends that a machine that doesn't know them drops (91 from 36 built in; 78, 79, 94 and 95, OpenCE's votes, from 41) | kinds 1 to 255; only kinds the build doesn't know are affected |
 | `join_request_extra` | (`chupa-41a` on) the bytes a client's join request carries after its first 0x70 (the Xbox's 0x50 and the hardware id) to a host of the version: 234 from 40 built in (OpenCE's pass and proof, sent as zeros), none before. A host of 40 or later drops a request of another length without a reply; an older host reads the 0x70 and ignores the rest | 0 to 1,024; it may shrink as well as grow |
 | `join_request_fill` | what fills those bytes: `"zeros"`, the only fill a build writes (and the default). A fact naming another fill is not taken, and the build keeps the length before | `"zeros"` |
-| `join_request_version_at` | (`chupa-43a` on) where in those bytes the client writes the host's network version, 16 bits little-endian (OpenCE's 42 on: their host admits only its own number, silently) | within the request's bytes past 0x70 |
+| `join_request_version_at` | (`chupa-43a` on) where in those bytes the client writes the host's network version, 16 bits little-endian (OpenCE's 42 on: their host admits only its own number, silently). A host of ours announcing the version drops, without a reply, a request of the layout's length whose word is another number; a shorter request (an older build's, a console's) is taken as before | within the request's bytes past 0x70 |
 | `header_extra` | (`chupa-43a` on) the bytes every distributed message's header has after its 8, a batch's and each message in it too (whose size word counts them); zeros, but for an epoch's | 1 to 8 |
 | `epoch_kind` | (`chupa-43a` on) the first 4 of those bytes are the checkpoint epoch, and this is the kind of the host's boundary message (OpenCE's 96): a host counts the epoch up (never 0) at each map and co-op revert, and sends the boundary (the header alone) over its stream to a client at its ready, before its objects, and to every loaded client at a revert; a client takes nothing of another epoch than the last boundary's (none before the first), stamps its own messages with it and says its identity again; a host takes its clients' messages of its own epoch, and a ready of any | a kind from 93 (past every kind a build knows), with `header_extra` of 4 or more |
 | `unit_state_parts` | (`chupa-43a` on) a unit state's parts a build passes over: `[{"bit": 7, "size": 28, "at": "after_up"}, ...]`; `after_up` (after the up, before the predicted time: alive and placed alone) or `last` (after the camouflage: alive alone); a state with a part where it cannot have one, or a bit neither built in nor said, is unreadable | bits 6 and 7 (0 to 5 are built in), 1 to 64 bytes; a place a build doesn't know is not taken |
@@ -3569,6 +3569,10 @@ another row):
 }
 ```
 
+`tools/legacy_rows/chupa-43a.json` is that row for the wire (clients to
+43's hosts, hosts announcing 41), and `chupa-43a-hosting-43.json` the same
+with 43 in `hosting`, which moves our hosts to 43 and so away from OpenCE's
+41 machines and our older builds and consoles (none of which join 43).
 (`tools/delta_table.py make --layout chupa-43a=43:settings_size=13200,join_request_extra=236,join_request_version_at=234,header_extra=4,epoch_kind=96,unit_part_after_up=7+28,unit_part_last=6+30,rider_ejection_up=200,dropped_messages=97+98+99+100+103+104+105+106+107`.)
 The row's maximum takes clients to 43's hosts; 43 in its `hosting` list takes
 its hosts there too, only after the cross-play gate proves each. Rows of older

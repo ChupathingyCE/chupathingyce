@@ -785,6 +785,21 @@ int network_rules_join_request_tail(unsigned version, uint8_t *tail, int room)
 	return layout.join_request_extra;
 }
 
+int network_rules_join_request_refused(unsigned version, uint8_t const *tail, int tail_size)
+{
+	struct network_rules_layout layout;
+
+	if (version == NETWORK_RULES_VERSION_UNKNOWN || !tail)
+		return 0;
+	network_rules_layout(version, &layout);
+	if (layout.join_request_version_at < 0 || tail_size != layout.join_request_extra ||
+		layout.join_request_version_at + 2 > tail_size)
+	{
+		return 0;
+	}
+	return rules_word(tail + layout.join_request_version_at) != version;
+}
+
 int network_rules_header_expand(uint8_t const *message, int size, uint8_t *out, int room, int extra, int has_epoch,
 	uint32_t epoch)
 {
