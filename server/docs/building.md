@@ -1,6 +1,6 @@
 # Building the server
 
-The releases are built by ChupathingyCE's release workflow; this is for
+The releases are built by Chupathingy's release workflow; this is for
 building one yourself, or working on it.
 
 ## Targets
