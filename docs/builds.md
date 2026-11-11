@@ -1,6 +1,6 @@
 # Platforms
 
-What each build of the game has. The downloads are in [docs/install.md](install.md#download). The console builds have repositories of their own: see [docs/building.md](building.md#console-ports).
+What each build of the game has. FreeBSD has what the Linux build has, without bgfx. The downloads are in [docs/install.md](install.md#download). The console builds have repositories of their own: see [docs/building.md](building.md#console-ports).
 
 | | Windows | Mac | Linux | Android |
 | --- | --- | --- | --- | --- |
@@ -10,6 +10,10 @@ What each build of the game has. The downloads are in [docs/install.md](install.
 | Updates itself | Yes | Opens the download page | Yes, the AppImage too | Yes |
 | Halo PC (Custom Edition) maps | Yes | Yes | Yes | Yes, see [docs/maps.md](maps.md#halo-pc-maps) |
 | HaloMD maps | Yes | Yes | Yes | Yes, see [docs/maps.md](maps.md#halo-pc-maps) |
+| Renderer | OpenGL; Vulkan or Direct3D 11 to test (64-bit) | OpenGL; Metal to test | OpenGL; Vulkan to test (64-bit) | OpenGL ES |
+| The Guide: friends, parties, clans, service record | Yes | Yes | Yes | Yes |
+| Voice chat | Yes | Yes | Yes | Yes |
+| Light effects (`display.light_effects`) | Yes | Yes | Yes | No |
 | Server Browser in the PC menus | Yes | Yes | Yes | Yes |
 | Halo PC CD and CE installer import at first start | Yes | Yes | Yes | Not yet |
 | Setup screen before the game (maps, logs) | Yes | Yes | Yes | Not yet (its own first-start screens) |

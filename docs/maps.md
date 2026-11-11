@@ -16,8 +16,15 @@ The folders it makes, and what goes in each, are below.
 ## The setup screen
 
 On Windows, Mac and Linux the first-start screen is part of a setup screen that runs before the game.
-It opens by itself when your Xbox maps are missing. To open it any other time, hold **Shift** (or **Back**/**View**
-on a controller) while the game starts, or start the game with `--setup`.
+It opens by itself when your Xbox maps are missing. To open it any other time:
+
+- hold **Shift** (or **Back**/**View** on a controller) while the game starts,
+- pick **SETUP** in the game's settings, or
+- start the game with `--setup`.
+
+In Steam Deck Game Mode it only opens when you ask for it.
+
+**Settings** has the settings you may want before the game starts, such as the renderer and the update channel.
 
 **Maps** lists every kind of map you have, with its state: Ready, how many maps, or what's missing. Pick one to open
 its folder, check its maps, or add maps from a disc image or installer. You can also drop a disc image on the window.

@@ -47,6 +47,45 @@ recorded from the reports of the Chupathingy players in them; a game only
 one player reported counts only on that player's own record. Their hosts can
 still list them on the site (Host a Game).
 
+## The Guide: friends and parties
+
+The Guide is Delta in the game. Open it with **F3** (on a Mac, F3 or the
+backslash key), a controller's Guide button, or **DELTA** in the main menu,
+the Multiplayer menu or the pause menu. **LB** and **RB** (**Q** and **E**)
+switch its sections:
+
+- **FRIENDS**: who's online, invites and friend requests. Pick a friend to
+  join their game or invite them to yours.
+- **PARTY**: play together as a group of up to 8. Start a party, invite
+  friends, or join with a code. When the leader joins or hosts a game, the
+  party follows.
+- **PLAYERS HERE**: the players in your game. Mute someone, or add them
+  as a friend.
+- **RECENT**: Delta players from your last games.
+- **CLAN**: your clan, if you're in one. Clans are made on the site.
+- **SERVICE RECORD**: your stats and medals.
+- **SETTINGS**: the Guide's own settings, and ABOUT.
+
+Friends, clans and recent players need a Delta profile. Sign in from the
+Guide, or see the table above.
+
+### Party links
+
+**COPY PARTY LINK** in PARTY copies a link like
+`https://stats.chupathingy.org/party/ABCDEF`. Paste it in Discord or any chat.
+Your friends open it, and the game joins your party. The same screen shows
+the link as a QR code for phones.
+
+## Voice chat
+
+Voice chat is off until you turn it on. Pick PUSH TO TALK or OPEN MIC on
+the VOICE CHAT row of the Guide's SETTINGS. With push to talk, hold **V**,
+or the D-pad right, to talk. **B**, or the D-pad left, switches who hears you: your party,
+your team, players near you, or everyone if the host allows it. Voice goes
+through the game's host and is never recorded. Voice chat works between
+Chupathingy players on Windows, Mac, Linux and Android. Every voice setting
+is in [docs/settings.md](settings.md).
+
 ## Hosting rules
 
 Games you host play like the Xbox by default: no names above heads, no
