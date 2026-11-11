@@ -31,6 +31,9 @@ unsigned char render_interpolation_particle_later(struct new_particle_data const
 	short node_index, float fraction);
 void render_interpolation_particles_due(void);
 void render_interpolation_object_point(long object_index, union real_point3d *point);
+union real_vector3d;
+void render_interpolation_flashlight(long light_index, long unit_index, union real_vector3d *forward,
+	union real_vector3d *up);
 struct observer_result const *render_interpolation_camera(short local_player_index,
 	struct observer_result const *observer);
 void render_interpolation_first_person(short local_player_index, struct real_matrix4x3 *node_matrices,
