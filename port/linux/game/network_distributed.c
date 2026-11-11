@@ -4009,7 +4009,9 @@ static boolean distributed_message_stale(
 	case _distributed_message_damage_animations:
 	case _distributed_message_coop_screen_effect:
 	case _distributed_message_coop_device_states:
+#ifdef HALO_MCC_NETWORK
 	case _distributed_message_mcc_grenades:
+#endif
 		break;
 	default:
 		return FALSE;
@@ -5006,7 +5008,9 @@ void network_distributed_handle_message(
 	case _distributed_message_unit_states: entry_size = DISTRIBUTED_UNIT_STATE_MINIMUM_SIZE; break;
 	case _distributed_message_player_statistics: entry_size = sizeof(struct distributed_player_statistics); break;
 	case _distributed_message_pings: entry_size = sizeof(struct distributed_player_ping); break;
+#ifdef HALO_MCC_NETWORK
 	case _distributed_message_mcc_grenades: entry_size = mcc_network_inventory_entry_size(); break;
+#endif
 	case _distributed_message_actor_states: entry_size = network_actors_entry_size(); break;
 	case _distributed_message_structure_bsp: entry_size = sizeof(struct distributed_structure_bsp); break;
 	case _distributed_message_coop_presentation: entry_size = network_coop_presentation_entry_size(); break;
@@ -5220,9 +5224,11 @@ void network_distributed_handle_message(
 	case _distributed_message_inventories:
 		network_objects_handle_inventories(entries, header.count);
 		break;
+#ifdef HALO_MCC_NETWORK
 	case _distributed_message_mcc_grenades:
 		mcc_network_handle_inventories(entries, header.count);
 		break;
+#endif
 	case _distributed_message_object_changes:
 		network_objects_handle_changes(entries, header.count);
 		break;

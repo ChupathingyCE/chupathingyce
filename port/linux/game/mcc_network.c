@@ -47,6 +47,11 @@ static void mcc_network_observe_clock(long now)
 
 word mcc_network_inventory_entry_size(void) { return sizeof(struct mcc_network_inventory); }
 
+/* port: the extra grenades go to the clients only with HALO_MCC_NETWORK,
+which no build defines: GulchCE's message number is not on our wire. MCC
+maps' messages go over Delta when they come; until then each machine keeps
+its own count. */
+#ifdef HALO_MCC_NETWORK
 void mcc_network_host_tick(void)
 {
     struct {
@@ -84,6 +89,11 @@ void mcc_network_host_tick(void)
     if (count) distributed_send(&message, _distributed_message_mcc_grenades, count,
         (word)(sizeof(message.header) + count * sizeof(message.entries[0])), _distributed_to_clients);
 }
+#else
+void mcc_network_host_tick(void)
+{
+}
+#endif
 
 static struct mcc_network_history *mcc_network_note_own(long unit_index, boolean compare)
 {

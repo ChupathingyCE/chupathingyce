@@ -127,8 +127,12 @@ enum
 	(network_shield_effects). A host announcing 36 or later sends it: stock,
 	or from 38 each machine's own (6) */
 	_distributed_message_shield_effects = 91,
-	/* MCC-only extra grenade slots; ordinary inventory packets stay exact. */
+#ifdef HALO_MCC_NETWORK
+	/* MCC-only extra grenade slots; ordinary inventory packets stay exact.
+	(GulchCE's number: off our wire. MCC maps' messages go over Delta when
+	they come; until then HALO_MCC_NETWORK stays undefined.) */
 	_distributed_message_mcc_grenades = 83,
+#endif
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };
