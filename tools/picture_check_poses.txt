@@ -13,6 +13,48 @@ bloodgulch mid_far_cliffs 68 -118 5 200 6
 bloodgulch blue_canyon 44 -86 3 -54 2
 bloodgulch blue_cliffs 55 -100 2.5 105 5
 
+# Every Xbox multiplayer map: a spawn's view ahead, to the left and back,
+# a little above the eyes (picture_check.py --find-poses)
+beavercreek spawn 0.15 10.56 0.72 0 0
+beavercreek spawn_left 0.15 10.56 0.72 90 0
+beavercreek spawn_back 0.15 10.56 0.72 -180 0
+bloodgulch spawn 61.28 -65.60 2.58 -87 0
+bloodgulch spawn_left 61.28 -65.60 2.58 3 0
+bloodgulch spawn_back 61.28 -65.60 2.58 93 0
+boardingaction spawn -0.58 8.22 1.09 90 0
+boardingaction spawn_left -0.58 8.22 1.09 -180 0
+boardingaction spawn_back -0.58 8.22 1.09 -90 0
+carousel spawn 0.08 12.46 -2.49 -93 0
+carousel spawn_left 0.08 12.46 -2.49 -3 0
+carousel spawn_back 0.08 12.46 -2.49 87 0
+chillout spawn -1.83 4.08 1.62 0 0
+chillout spawn_left -1.83 4.08 1.62 90 0
+chillout spawn_back -1.83 4.08 1.62 -180 0
+damnation spawn -10.79 9.82 0.47 0 0
+damnation spawn_left -10.79 9.82 0.47 90 0
+damnation spawn_back -10.79 9.82 0.47 -180 0
+hangemhigh spawn 13.07 10.23 -5.57 89 0
+hangemhigh spawn_left 13.07 10.23 -5.57 179 0
+hangemhigh spawn_back 13.07 10.23 -5.57 -91 0
+longest spawn -11.93 -18.60 0.27 95 0
+longest spawn_left -11.93 -18.60 0.27 -175 0
+longest spawn_back -11.93 -18.60 0.27 -85 0
+prisoner spawn -5.55 2.17 2.26 0 0
+prisoner spawn_left -5.55 2.17 2.26 90 0
+prisoner spawn_back -5.55 2.17 2.26 -180 0
+putput spawn -18.67 -19.07 1.77 92 0
+putput spawn_left -18.67 -19.07 1.77 -178 0
+putput spawn_back -18.67 -19.07 1.77 -88 0
+ratrace spawn 4.26 -25.68 -2.74 35 0
+ratrace spawn_left 4.26 -25.68 -2.74 125 0
+ratrace spawn_back 4.26 -25.68 -2.74 -145 0
+sidewinder spawn -25.11 -27.64 -2.97 87 0
+sidewinder spawn_left -25.11 -27.64 -2.97 177 0
+sidewinder spawn_back -25.11 -27.64 -2.97 -93 0
+wizard spawn -9.88 6.47 -1.88 -49 0
+wizard spawn_left -9.88 6.47 -1.88 41 0
+wizard spawn_back -9.88 6.47 -1.88 131 0
+
 # Timberland (Custom Edition): trees, cliffs and fog
 timberland@ce center_north 0 0 10 0 -10
 timberland@ce center_east 0 0 10 90 -10
