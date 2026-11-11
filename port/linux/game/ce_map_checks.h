@@ -139,6 +139,10 @@ char const *ce_map_refusal_message(void);
 /* whether a map is being checked (ce_map_check) rather than loaded */
 boolean ce_map_checking(void);
 
+/* whether a structure BSP's reference (32 bytes, the scenario's) is one the
+map open was checked with, unchanged: a BSP loads only from one */
+boolean ce_map_bsp_reference_checked(void const *reference);
+
 /* the cache version of the map being checked or loaded (ce_map_checks.c):
 Custom Edition's (609), or Halo PC retail's (7: HaloMD's maps, played as
 <name>@md, whose bitmaps' pixels and sounds' samples are at offsets in Halo

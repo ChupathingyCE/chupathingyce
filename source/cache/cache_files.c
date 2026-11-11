@@ -2106,6 +2106,23 @@ boolean scenario_structure_bsp_load(
 	{
 		return FALSE;
 	}
+#ifdef HALO_CUSTOM_EDITION
+	/* port: and a Custom Edition map's only as it was checked: the
+	conversions of its tags as they loaded wrote in place, and one whose
+	block lay over the reference could have moved the BSP's read to bytes,
+	or memory, that nothing checked */
+	if (cache_file_is_ce)
+	{
+		extern boolean ce_map_bsp_reference_checked(void const *reference);
+
+		if (!ce_map_bsp_reference_checked(reference))
+		{
+			error(_error_silent, "Custom Edition map: structure BSP %08lx is not where it was checked; it is not loaded",
+				(unsigned long)reference->structure_bsp.index);
+			return FALSE;
+		}
+	}
+#endif
 
 	tag_cache_base_address = physical_memory_get_tag_cache_base_address();
 #ifdef HALO_CUSTOM_EDITION
