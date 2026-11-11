@@ -132,6 +132,13 @@ void ce_refusal_explain(char const *format, ...);
 whose tag cache is the Xbox's, that it needs more memory */
 void ce_refusal_explain_room(void);
 
+/* more bytes of the room the conversions take, added to *bytes as a map is
+checked: FALSE (refused, naming what) once that is more than the tag cache
+and the room above it hold, which no map that fits needs. So the count
+cannot wrap around (a block counted over and over, shared by many models or
+lightmaps), and a check of such a map stops at once */
+boolean ce_room_add(unsigned long *bytes, unsigned long more, char const *what);
+
 /* the message for a player about the map ce_map_check refused last ("" if
 it was accepted): the map, and the reason when ce_refusal_explain gave one */
 char const *ce_map_refusal_message(void);

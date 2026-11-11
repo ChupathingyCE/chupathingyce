@@ -230,6 +230,44 @@ def ce_map(name=b"fuzz", sound=None):
     return bytes(data)
 
 
+def ce_map_bsp_materials(lightmaps, materials):
+    """ce_map's map with a structure BSP of that many lightmaps, every one of
+    them the same block of that many materials, each of one vertex and one
+    lightmap vertex (their uncompressed vertices the same 0x4c bytes)"""
+    base = TAG_CACHE["ce"]
+    data = bytearray(ce_map())
+    tag_data_size = struct.unpack_from("<i", data, 0x14)[0]
+    instances = struct.unpack_from("<I", data, 0x800)[0] - base
+    scenario = struct.unpack_from("<I", data, 0x800 + instances + 0x14)[0] - base
+    bsps = struct.unpack_from("<I", data, 0x800 + scenario + 0x5A8)[0] - base
+    bsp_offset, _, bsp_base = struct.unpack_from("<iiI", data, 0x800 + bsps)
+    del data[bsp_offset:]
+    # (structure_bsp_definitions.h: the header, the structure (its lightmaps
+    # at 0x104), the lightmaps (their materials at 0x14), the materials (their
+    # vertices at 0xb0 and 0xc4, their uncompressed vertices at 0xd8))
+    structure = 0x18
+    lightmap_block = structure + 0x288
+    material_block = lightmap_block + 0x20 * lightmaps
+    vertices = material_block + 0x100 * materials
+    bsp = bytearray(vertices + 0x50)
+    struct.pack_into("<I", bsp, 0, bsp_base + structure)
+    struct.pack_into("<4s", bsp, 0x14, b"psbs")
+    struct.pack_into("<iI", bsp, structure + 0x104, lightmaps, bsp_base + lightmap_block)
+    for lightmap in range(lightmaps):
+        struct.pack_into("<iI", bsp, lightmap_block + 0x20 * lightmap + 0x14, materials, bsp_base + material_block)
+    for material in range(materials):
+        at = material_block + 0x100 * material
+        struct.pack_into("<hhi", bsp, at + 0xB0, 0, 0, 1)
+        struct.pack_into("<hhi", bsp, at + 0xC4, 1, 0, 1)
+        struct.pack_into("<iIiI", bsp, at + 0xD8, 0x4C, 0, 0, bsp_base + vertices)
+    data += bsp
+    struct.pack_into("<i", data, 0x800 + bsps + 4, len(bsp))
+    struct.pack_into("<i", data, 8, len(data))
+    struct.pack_into("<I", data, 0x800 + 0x14, len(data))
+    assert tag_data_size + 0x800 == bsp_offset
+    return bytes(data)
+
+
 def seeds(target):
     if target == "xbox":
         return {"minimal_xbox.map": xbox_map()}
@@ -309,6 +347,25 @@ def test_long_tag_names(built, tmp_path):
         path.write_bytes(data)
         result = run(binaries[target], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
         assert "has no name" not in result.stderr and "longer than" not in result.stderr, result.stderr[-4000:]
+
+
+def test_room_counted_without_wrapping(built, tmp_path):
+    """a structure BSP whose lightmaps all name one block of materials: each
+    material's vertex buffers counted every time (the room the conversions
+    take of the tag cache), until that is more than the tag cache holds,
+    when the map is refused then and there (the count, 32 bits on the 32-bit
+    builds, once wrapped around for such a map, and the check went on through
+    every lightmap)"""
+    binaries, _ = built
+    path = tmp_path / "shared_materials.map"
+    path.write_bytes(ce_map_bsp_materials(2700, 341))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "vertex buffers need more than the tag cache's" in result.stderr, result.stderr[-4000:]
+    path.write_bytes(ce_map_bsp_materials(4, 3))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert "fuzz: checked" in result.stderr and "3 BSP materials' vertices compressed" in result.stderr, \
+        result.stderr[-4000:]
 
 
 def test_sound_samples_in_sounds_map(built, tmp_path):

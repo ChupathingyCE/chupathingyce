@@ -1036,12 +1036,16 @@ static boolean ce_part_check(
 			}
 		}
 	}
-	*bytes += CE_ALIGNED(index_count * sizeof(word)) + 2 * CE_BUFFER_HEADER_ROOM;
+	if (!ce_room_add(bytes, CE_ALIGNED(index_count * sizeof(word)) + 2 * CE_BUFFER_HEADER_ROOM, "its models"))
+		return FALSE;
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 	/* (on a 64 MB console its vertices are in the tag cache too: port/xbox's
 	xbox_ce_files.c) */
-	if (platform_ce_alias)
-		*bytes += CE_ALIGNED((unsigned long)vertex_count * XBOX_VERTEX_SIZE);
+	if (platform_ce_alias && !ce_room_add(bytes, CE_ALIGNED((unsigned long)vertex_count * XBOX_VERTEX_SIZE),
+		"its models"))
+	{
+		return FALSE;
+	}
 #endif
 	return TRUE;
 }
@@ -1156,7 +1160,8 @@ boolean ce_models_check(
 			{
 				return FALSE;
 			}
-			*bytes += CE_ALIGNED((unsigned long)part_count * XBOX_PART_SIZE);
+			if (!ce_room_add(bytes, CE_ALIGNED((unsigned long)part_count * XBOX_PART_SIZE), "its models"))
+				return FALSE;
 			for (part = 0; part < part_count; part++)
 			{
 				byte const *at = parts + part * CE_PART_SIZE;
