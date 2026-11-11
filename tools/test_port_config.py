@@ -35,6 +35,7 @@ Needs only a C compiler. Usage: test_port_config.py [--cc clang]
 import argparse
 import os
 import re
+import resource
 import shutil
 import subprocess
 import sys
@@ -197,6 +198,13 @@ STUB_SDL = """#include <stdbool.h>
 const char *SDL_GetBasePath(void);
 bool SDL_CreateDirectory(const char *path);
 void *SDL_LoadFile(const char *path, size_t *size);
+typedef struct SDL_IOStream SDL_IOStream;
+SDL_IOStream *SDL_IOFromFile(const char *file, const char *mode);
+size_t SDL_WriteIO(SDL_IOStream *context, const void *data, size_t size);
+bool SDL_FlushIO(SDL_IOStream *context);
+bool SDL_CloseIO(SDL_IOStream *context);
+bool SDL_RenamePath(const char *old_path, const char *new_path);
+bool SDL_RemovePath(const char *path);
 bool SDL_SaveFile(const char *path, const void *data, size_t size);
 void SDL_free(void *memory);
 enum { SDL_PATHTYPE_NONE, SDL_PATHTYPE_FILE, SDL_PATHTYPE_DIRECTORY, SDL_PATHTYPE_OTHER };
@@ -881,6 +889,39 @@ def test_delta_renamed(program, directory, defaults, kind):
 	check(values["controls.delta"] == "F7", f"delta/environment both: {values}")
 
 
+def test_interrupted_write(program, directory, defaults, kind):
+	"""a write stopped part way (the process killed as the file grows past a
+	limit, as a crash or a power loss stops it) leaves the old file whole:
+	the text goes to config.toml.new, and only a finished one is renamed
+	over config.toml; the next write takes the stray one's place"""
+	# (a console on the shared GL layer still writes in place: its own
+	# repository's SDL stand-ins have no SDL_RenamePath yet, port_config.c)
+	if kind == "console":
+		return
+	case = Case(program, directory / "interrupted")
+	fresh_file(case, kind)
+	case.run("write", "network.tunnel_port", "2310")
+	before = case.text()
+	limit = len(before.encode()) // 2
+
+	def small_files():
+		resource.setrlimit(resource.RLIMIT_FSIZE, (limit, limit))
+
+	environment = {key: value for key, value in os.environ.items()
+		if not key.startswith("HALO_") and key != "APPIMAGE"}
+	environment["PORT_CONFIG_TEST_FOLDER"] = str(case.folder)
+	environment["HALO_DATA_ROOT"] = str(case.folder)
+	result = subprocess.run([str(case.program), "write", "network.tunnel_port", "2320"], capture_output=True,
+		env=environment, preexec_fn=small_files)
+	check(result.returncode != 0, f"interrupted: the write was not stopped ({limit} bytes of {len(before)})")
+	check(case.text() == before, "interrupted: config.toml changed by a write that did not finish")
+	values, _ = case.get("network.tunnel_port")
+	check(values["network.tunnel_port"] == "2310", f"interrupted: tunnel_port is {values['network.tunnel_port']}")
+	values, _ = case.run("write", "network.tunnel_port", "2330")
+	check(values["network.tunnel_port"] == "2330", f"after: tunnel_port is {values['network.tunnel_port']}")
+	check(not (case.folder / "config.toml.new").exists(), "after: config.toml.new left beside the file")
+
+
 def test_layout(program, directory, defaults, kind):
 	"""A new file's layout: the top block, each section once with its note,
 	the everyday sections first, and the advanced ones ([debug], and
@@ -1110,7 +1151,7 @@ def main():
 			for test in (test_unique_settings, test_new_file, test_previous_release_file, test_answered_first_question,
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
-				test_retired_setting, test_delta_renamed, test_layout, test_old_browser_address, test_packaged_install,
+				test_retired_setting, test_delta_renamed, test_interrupted_write, test_layout, test_old_browser_address, test_packaged_install,
 				test_server_file, test_follow_file):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
