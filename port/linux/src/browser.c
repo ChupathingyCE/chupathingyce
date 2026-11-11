@@ -3868,6 +3868,8 @@ static void update_party(void)
 		action[0] = value[0] = 0;
 	if (social_party_fields(fields, sizeof(fields), action, value, name, local_platform_name()) < 0)
 	{
+		/* (nothing sent: said, so a refusal like this is never silent) */
+		platform_log("DELTA: party %s not sent: the game can't send that", wanted ? action : "read");
 		pthread_mutex_lock(&browser_lock);
 		if (wanted)
 		{
@@ -3895,12 +3897,18 @@ static void update_party(void)
 	{
 		browser.party_result.state = parsed ? BROWSER_SOCIAL_DONE : BROWSER_SOCIAL_REFUSED;
 		snprintf(browser.party_result.message, sizeof(browser.party_result.message), "%s",
-			parsed ? "" : no_key || !status ? SOCIAL_NOT_ANSWERING : social_party_refusal(text, status));
+			parsed ? "" : no_key || !status ? SOCIAL_NOT_ANSWERING : social_party_action_refusal(action, text, status));
 	}
 	pthread_mutex_unlock(&browser_lock);
 	if (wanted || going)
 	{
-		platform_log("DELTA: party %s %s", action, parsed ? "done" : status ? "refused" : "no answer");
+		/* (the site's status and reason, never a handle or a key) */
+		if (parsed)
+			platform_log("DELTA: party %s done", action);
+		else if (status)
+			platform_log("DELTA: party %s refused (%d %s)", action, status, text[0] ? text : "no reason");
+		else
+			platform_log("DELTA: party %s no answer%s", action, no_key ? " (no player key)" : "");
 	}
 }
 

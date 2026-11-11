@@ -524,7 +524,8 @@ static struct
 	short debug_step;
 	unsigned long debug_step_time;
 	boolean debug_row_done;
-	boolean debug_party_done;
+	/* debug.party_test's next step (its steps one after another) */
+	short debug_party_step;
 	/* the toast's item (an invite's ID, a handle) and its sender's initial */
 	short toast_kind;
 	char toast_key[SOCIAL_INVITE_ID_SIZE];
@@ -552,6 +553,14 @@ static struct
 	boolean acting;
 	int action_serial;
 	char message[96];
+	/* the message is good news (said plainly, not as a warning) */
+	boolean message_ok;
+	/* FRIENDS' INVITE TO PARTY on its way (the friend's handle), and
+	whether a party is being started for it first */
+	char party_invite_handle[SOCIAL_HANDLE_SIZE];
+	boolean party_invite_starting;
+	/* the invites this player sent (INVITED on a friend's row) */
+	struct social_sent_list sent;
 	unsigned long message_time;
 	/* the invites dismissed (by ID) */
 	char dismissed[SOCIAL_MAXIMUM_INVITES][SOCIAL_INVITE_ID_SIZE];
@@ -638,7 +647,7 @@ asked for, and what it came to */
 static struct social_state friends_state;
 static struct social_state friends_fresh;
 
-static void party_act(char const *action, char const *value);
+static boolean party_act(char const *action, char const *value);
 static void party_update(void);
 static void party_where(void);
 static boolean party_has_leader(void);
@@ -1445,7 +1454,8 @@ static short item_options(struct friend_item const *item, short *options)
 			options[count++] = _option_join;
 		if (can_invite())
 			options[count++] = _option_invite;
-		if (guide.party.has && guide.party.member_count < guide.party.largest &&
+		/* (with no party yet, it starts one first: START PARTY AND INVITE) */
+		if ((!guide.party.has || (guide.party.leader || guide.party.member_count < guide.party.largest)) &&
 			!party_has_handle(friends_state.friends[item->index].handle))
 		{
 			options[count++] = _option_party_invite;
@@ -1489,7 +1499,7 @@ static char const *option_label(short option, boolean armed)
 	case _option_block: return armed ? "CONFIRM BLOCK" : "BLOCK";
 	case _option_accept: return "ACCEPT";
 	case _option_decline: return "DECLINE";
-	case _option_party_invite: return "INVITE TO PARTY";
+	case _option_party_invite: return guide.party.has ? "INVITE TO PARTY" : "START PARTY AND INVITE";
 	case _option_clan_invite: return "INVITE TO CLAN";
 	case _option_clan_join: return "JOIN CLAN";
 	case _option_clan_decline: return "DECLINE";
@@ -1509,16 +1519,63 @@ static void message_set(char const *text)
 {
 	social_copy_text(guide.message, sizeof(guide.message), text);
 	guide.message_time = system_milliseconds();
+	guide.message_ok = FALSE;
 }
+
+/* good news: "Invite sent to Grif" */
+static void message_ok_set(char const *text)
+{
+	message_set(text);
+	guide.message_ok = TRUE;
+}
+
+/* the message's look: good news plainly, else a warning */
+static short message_style(void)
+{
+	return guide.message_ok ? UI_TEXT_LINE : UI_TEXT_WARNING;
+}
+
+/* a friend's name as their row shows it (their handle when not a friend) */
+static char const *friend_name(char const *handle)
+{
+	short index;
+
+	for (index = 0; index < friends_state.friend_count; index++)
+	{
+		if (!strcmp(friends_state.friends[index].handle, handle))
+			return social_name(friends_state.friends[index].display, friends_state.friends[index].handle);
+	}
+	return handle;
+}
+
+static boolean friend_online(char const *handle)
+{
+	short index;
+
+	for (index = 0; index < friends_state.friend_count; index++)
+	{
+		if (!strcmp(friends_state.friends[index].handle, handle))
+			return friends_state.friends[index].online;
+	}
+	return FALSE;
+}
+
+#define STILL_SENDING "Still sending the last one. Try again in a moment."
 
 static void friend_act(short action, char const *handle)
 {
 	struct browser_social_result result;
 
 	if (guide.acting)
+	{
+		message_set(STILL_SENDING);
 		return;
+	}
 	if (!browser_social_act(action, handle))
+	{
+		message_set(STILL_SENDING);
 		return;
+	}
 	browser_social_result(&result);
 	guide.acting = TRUE;
 	guide.action_serial = result.serial;
@@ -1534,6 +1591,8 @@ static void invite_dismiss(char const *id)
 	guide.options = FALSE;
 	items_build();
 }
+
+static void party_invite_send(char const *handle);
 
 /* an option of the chosen item */
 static void option_run(short option)
@@ -1558,7 +1617,7 @@ static void option_run(short option)
 	case _option_accept: friend_act(BROWSER_SOCIAL_ACCEPT, item_handle(item)); break;
 	case _option_decline: friend_act(BROWSER_SOCIAL_DECLINE, item_handle(item)); break;
 	case _option_dismiss: invite_dismiss(item_key(item)); break;
-	case _option_party_invite: party_act("invite", item_handle(item)); guide.options = FALSE; break;
+	case _option_party_invite: party_invite_send(item_handle(item)); guide.options = FALSE; break;
 	case _option_clan_invite:
 		if (!guide.clan_acting && browser_profile_clan_member("invite", item_handle(item)))
 			clan_act_started();
@@ -1772,14 +1831,25 @@ static void friends_update(void)
 		return;
 	}
 	if (result.action == BROWSER_SOCIAL_INVITE)
-		message_set("Invite sent");
+	{
+		char line[128];
+
+		/* (INVITED on their row while the site keeps it) */
+		social_sent_add(&guide.sent, result.handle, SOCIAL_SENT_GAME, system_milliseconds());
+		social_sent_line(line, sizeof(line), SOCIAL_SENT_GAME, friend_name(result.handle), friend_online(result.handle), "");
+		message_ok_set(line);
+		guide.options = FALSE;
+	}
 	else if (result.action == BROWSER_SOCIAL_REQUEST)
 	{
+		char line[128];
+
 		/* (asked: no ADD FRIEND for them again this run) */
 		social_copy_text(guide.asked[guide.asked_next], SOCIAL_HANDLE_SIZE, result.handle);
 		guide.asked_next = (short)((guide.asked_next + 1) % MAXIMUM_ASKED);
 		guide.recent_options = FALSE;
-		message_set("Request sent");
+		social_sent_line(line, sizeof(line), SOCIAL_SENT_REQUEST, result.handle, 1, "");
+		message_ok_set(line);
 		recent_build();
 	}
 	else
@@ -2005,21 +2075,76 @@ static void party_message_set(char const *text)
 	guide.party_message_time = system_milliseconds();
 }
 
-/* an action on the party (browser_party_act), one at a time */
-static void party_act(char const *action, char const *value)
+/* an action on the party (browser_party_act), one at a time: whether it
+was taken (FALSE: one is on its way still, said on PARTY) */
+static boolean party_act(char const *action, char const *value)
 {
 	struct browser_social_result result;
 
-	if (guide.party_acting)
-		return;
 	/* (a copy with no profile goes by its game name) */
-	if (!browser_party_act(action, value, guide.name))
-		return;
+	if (guide.party_acting || !browser_party_act(action, value, guide.name))
+	{
+		party_message_set(STILL_SENDING);
+		return FALSE;
+	}
 	browser_party_result(&result);
 	guide.party_acting = TRUE;
 	guide.party_result_seen = result.serial;
 	guide.party_message[0] = 0;
 	guide.party_armed = NONE;
+	return TRUE;
+}
+
+/* FRIENDS' INVITE TO PARTY: the invite, or with no party yet, a party
+started and then the invite (party_invite_answer). What came of it is said
+under the friend's options, and INVITED marks their row */
+static void party_invite_send(char const *handle)
+{
+	if (guide.party_invite_handle[0] || guide.party_acting)
+	{
+		message_set(STILL_SENDING);
+		return;
+	}
+	guide.party_invite_starting = !guide.party.has;
+	social_copy_text(guide.party_invite_handle, sizeof(guide.party_invite_handle), handle);
+	if (!party_act(guide.party_invite_starting ? "create" : "invite", guide.party_invite_starting ? "" : handle))
+	{
+		guide.party_invite_handle[0] = 0;
+		message_set(STILL_SENDING);
+		return;
+	}
+	guide.message[0] = 0;
+}
+
+/* the answer to FRIENDS' INVITE TO PARTY's request: a party started goes
+on to the invite; an invite sent or refused is said */
+static void party_invite_answer(struct browser_social_result const *result)
+{
+	char handle[SOCIAL_HANDLE_SIZE], line[128];
+
+	social_copy_text(handle, sizeof(handle), guide.party_invite_handle);
+	if (result->state == BROWSER_SOCIAL_REFUSED)
+	{
+		guide.party_invite_handle[0] = 0;
+		social_sent_line(line, sizeof(line), SOCIAL_SENT_PARTY, friend_name(handle), 1,
+			result->message[0] ? result->message : "Couldn't send the invite. Try again.");
+		message_set(line);
+		return;
+	}
+	if (guide.party_invite_starting)
+	{
+		guide.party_invite_starting = FALSE;
+		if (!party_act("invite", handle))
+		{
+			guide.party_invite_handle[0] = 0;
+			message_set(STILL_SENDING);
+		}
+		return;
+	}
+	guide.party_invite_handle[0] = 0;
+	social_sent_add(&guide.sent, handle, SOCIAL_SENT_PARTY, system_milliseconds());
+	social_sent_line(line, sizeof(line), SOCIAL_SENT_PARTY, friend_name(handle), friend_online(handle), "");
+	message_ok_set(line);
 }
 
 /* the party's own buttons, in the order they show */
@@ -2476,6 +2601,10 @@ static void party_update(void)
 			guide.party_member = NONE;
 		if (!guide.party.has)
 			guide.go_sent[0] = 0;
+		/* (a party left or a new one: its invites out are no longer
+		this player's to show) */
+		if (!guide.party.has || (before.has && strcmp(before.id, guide.party.id)))
+			social_sent_forget(&guide.sent, NULL, SOCIAL_SENT_PARTY);
 		/* (a new party's go is new; an older one's isn't followed again) */
 		if (!before.has || strcmp(before.id, guide.party.id))
 			guide.follow_seen = guide.party.go.has ? guide.party.go.serial : 0;
@@ -2488,6 +2617,8 @@ static void party_update(void)
 		guide.party_acting = FALSE;
 		if (result.state == BROWSER_SOCIAL_REFUSED)
 			party_message_set(result.message);
+		if (guide.party_invite_handle[0])
+			party_invite_answer(&result);
 	}
 	else if (result.serial != guide.party_result_seen && result.state != BROWSER_SOCIAL_BUSY)
 	{
@@ -3235,7 +3366,7 @@ static void render_players(void)
 			else if (message[0])
 				ui_style_text(UI_TEXT_LINE, x + 12, option_y + 4, UI_ALIGN_LEFT, message);
 			else if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
-				ui_style_text(UI_TEXT_WARNING, x + 12, option_y + 4, UI_ALIGN_LEFT, guide.message);
+				ui_style_text(message_style(), x + 12, option_y + 4, UI_ALIGN_LEFT, guide.message);
 		}
 	}
 }
@@ -3351,7 +3482,7 @@ static void render_friend_detail(struct friend_item const *item)
 	if (line[0])
 		ui_style_text(UI_TEXT_LABEL, x + 12, BODY_Y + 48, UI_ALIGN_LEFT, line);
 	count = item_options(item, options);
-	busy = guide.acting || guide.clan_acting;
+	busy = guide.acting || guide.clan_acting || guide.party_invite_handle[0];
 	y = BODY_Y + 68;
 	for (index = 0; index < count; index++)
 	{
@@ -3367,7 +3498,23 @@ static void render_friend_detail(struct friend_item const *item)
 	if (busy)
 		ui_style_text(UI_TEXT_LINE, x + 12, y + 4, UI_ALIGN_LEFT, "Sending");
 	else if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
-		ui_style_text(UI_TEXT_WARNING, x + 12, y + 4, UI_ALIGN_LEFT, guide.message);
+		ui_style_text(message_style(), x + 12, y + 4, UI_ALIGN_LEFT, guide.message);
+}
+
+/* a friend's row's mark, at its right: IN PARTY, else INVITED while an
+invite of this player's waits for them */
+static void render_friend_mark(char const *handle, float y)
+{
+	unsigned long now = system_milliseconds();
+	char const *mark = party_has_handle(handle) ? "IN PARTY" :
+		social_sent_has(&guide.sent, handle, SOCIAL_SENT_PARTY, now) ||
+		social_sent_has(&guide.sent, handle, SOCIAL_SENT_GAME, now) ? "INVITED" : NULL;
+
+	if (mark)
+	{
+		ui_overlay_text(UI_FONT_MENU, 9.5f, CONTENT_LEFT + LIST_WIDTH - 14, y + (ROW_HEIGHT - 9.5f) * 0.5f, UI_ALIGN_RIGHT,
+			ui_style_color(UI_COLOR_NAME), mark);
+	}
 }
 
 static void render_friends(void)
@@ -3417,6 +3564,8 @@ static void render_friends(void)
 
 			item_row(item, &row);
 			render_row(&row, CONTENT_LEFT, y, LIST_WIDTH, index == chosen && !guide.options, index);
+			if (item->kind == _item_friend)
+				render_friend_mark(friends_state.friends[item->index].handle, y);
 		}
 		y += height;
 	}
@@ -3584,7 +3733,7 @@ static void render_clan_detail(struct friend_item const *item)
 	if (guide.clan_acting)
 		ui_style_text(UI_TEXT_LINE, x + 12, y + 4, UI_ALIGN_LEFT, "Sending");
 	else if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
-		ui_style_text(UI_TEXT_WARNING, x + 12, y + 4, UI_ALIGN_LEFT, guide.message);
+		ui_style_text(message_style(), x + 12, y + 4, UI_ALIGN_LEFT, guide.message);
 }
 
 static void render_clan(void)
@@ -3741,7 +3890,7 @@ static void render_recent(void)
 		if (guide.acting)
 			ui_style_text(UI_TEXT_LINE, x + 12, y + 4, UI_ALIGN_LEFT, "Sending");
 		else if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
-			ui_style_text(UI_TEXT_WARNING, x + 12, y + 4, UI_ALIGN_LEFT, guide.message);
+			ui_style_text(message_style(), x + 12, y + 4, UI_ALIGN_LEFT, guide.message);
 	}
 }
 
@@ -4669,17 +4818,38 @@ void guide_update(boolean menu_open)
 		if (guide.section == SOCIAL_SECTION_FRIENDS)
 			chosen_remember();
 	}
-	/* (debug.party_test: a party step, once, for tests) */
-	if (!guide.debug_party_done && config_string("debug.party_test")[0] && main_menu_is_active() && menu_open)
+	/* (debug.party_test: party steps, one after another as each is
+answered, for tests: "create,invite:grif") */
+	if (guide.debug_party_step >= 0 && config_string("debug.party_test")[0] && main_menu_is_active() && menu_open &&
+		!guide.party_acting && !guide.party_invite_handle[0])
 	{
-		char const *step = config_string("debug.party_test");
+		char const *steps = config_string("debug.party_test");
+		char step[64];
+		short index = 0;
+		size_t length;
 
-		guide.debug_party_done = TRUE;
-		card_update();
-		if (!strncmp(step, "join:", 5))
-			party_act("join", step + 5);
+		while (*steps && index < guide.debug_party_step)
+		{
+			if (*steps++ == ',')
+				index++;
+		}
+		length = strcspn(steps, ",");
+		if (!*steps || length >= sizeof(step))
+			guide.debug_party_step = NONE;
 		else
-			party_act(step, "");
+		{
+			memcpy(step, steps, length);
+			step[length] = 0;
+			guide.debug_party_step++;
+			card_update();
+			platform_log("DELTA: party test step %s", !strncmp(step, "invite:", 7) ? "invite" : step);
+			if (!strncmp(step, "join:", 5))
+				party_act("join", step + 5);
+			else if (!strncmp(step, "invite:", 7))
+				party_invite_send(step + 7);
+			else
+				party_act(step, "");
+		}
 	}
 	if (!guide.debug_toast_done && config_string("debug.delta_toast")[0] && main_menu_is_active() &&
 		menu_open)

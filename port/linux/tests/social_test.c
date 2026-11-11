@@ -625,7 +625,16 @@ static void test_party(void)
 	CHECK(social_party_fields(text, sizeof(text), "go", "0123456789abcdef0123456789abcdef0123456789ab", "", "") > 0);
 	CHECK(social_party_fields(text, sizeof(text), "go", "192.168.1.1", "", "") == -1);
 	CHECK(social_party_fields(text, sizeof(text), "dance", "", "", "") == -1);
-	CHECK(social_party_fields(text, sizeof(text), "create", "", "Lo\"pez", "") == -1);
+	/* (a quote in a game name is left out, not a reason to send nothing) */
+	CHECK(social_party_fields(text, sizeof(text), "create", "", "Lo\"pe\\z", "") > 0);
+	CHECK(!strcmp(text, "\"action\": \"create\", \"name\": \"Lopez\""));
+	/* (NEW PARTY CODE's) */
+	CHECK(social_party_fields(text, sizeof(text), "code", "", "", "") > 0);
+	CHECK(!strcmp(text, "\"action\": \"code\""));
+	CHECK(!strcmp(social_party_action_refusal("invite", "no_party", 404), "Start a party first."));
+	CHECK(!strcmp(social_party_action_refusal("invite", "member", 409), "They're in your party already."));
+	CHECK(!strcmp(social_party_action_refusal("invite", "", 429), "Too many invites. Wait a minute."));
+	CHECK(!strcmp(social_party_action_refusal("join", "friends_only", 403), "Only the leader's friends can join."));
 	CHECK(!strcmp(social_party_refusal("friends_only", 403), "Only the leader's friends can join."));
 	CHECK(!strcmp(social_party_refusal("", 500), "Can't do that right now."));
 
@@ -839,8 +848,92 @@ static void test_recent(void)
 	CHECK(!strcmp(text, "A while ago"));
 }
 
+/* every action /v1/party takes, with a value of its kind, makes fields (a
+table, so DELTA's actions and the request builder can't drift apart:
+tools/test_social.py checks guide.c's against social_party_actions) */
+static void test_party_actions(void)
+{
+	static const struct
+	{
+		const char *action;
+		const char *value;
+	} samples[] =
+	{
+		{ "create", "" }, { "invite", "grif" }, { "accept", "0123456789abcdef" }, { "decline", "0123456789abcdef" },
+		{ "join", "GQ7RTX" }, { "leave", "" }, { "kick", "aa11bb22" }, { "lead", "aa11bb22" }, { "rule", "friends" },
+		{ "code", "" }, { "go", "0123456789abcdef0123456789abcdef0123456789ab" },
+	};
+	char text[320];
+	int index, found;
+	size_t sample;
+
+	for (index = 0; social_party_actions[index]; index++)
+	{
+		found = 0;
+		for (sample = 0; sample < sizeof(samples) / sizeof(samples[0]); sample++)
+		{
+			if (strcmp(samples[sample].action, social_party_actions[index]))
+				continue;
+			found = 1;
+			if (social_party_fields(text, sizeof(text), samples[sample].action, samples[sample].value, "Sarge",
+				"pc_macos") <= 0)
+			{
+				printf("party action %s: no fields\n", samples[sample].action);
+				failures++;
+			}
+		}
+		if (!found)
+		{
+			printf("party action %s: no sample\n", social_party_actions[index]);
+			failures++;
+		}
+	}
+	CHECK(index == (int)(sizeof(samples) / sizeof(samples[0])));
+}
+
+/* the invites sent, and the lines said for them */
+static void test_sent(void)
+{
+	static struct social_sent_list list;
+	char text[128];
+	int index;
+
+	memset(&list, 0, sizeof(list));
+	social_sent_add(&list, "grif", SOCIAL_SENT_PARTY, 1000);
+	CHECK(social_sent_has(&list, "grif", SOCIAL_SENT_PARTY, 2000));
+	CHECK(!social_sent_has(&list, "grif", SOCIAL_SENT_GAME, 2000));
+	CHECK(!social_sent_has(&list, "simmons", SOCIAL_SENT_PARTY, 2000));
+	/* (as long as the site keeps it) */
+	CHECK(!social_sent_has(&list, "grif", SOCIAL_SENT_PARTY, 1000 + SOCIAL_SENT_LIFETIME));
+	/* (again: one entry, its time new) */
+	social_sent_add(&list, "grif", SOCIAL_SENT_PARTY, 1000 + SOCIAL_SENT_LIFETIME);
+	CHECK(list.count == 1 && social_sent_has(&list, "grif", SOCIAL_SENT_PARTY, 2000 + SOCIAL_SENT_LIFETIME));
+	social_sent_add(&list, "grif", SOCIAL_SENT_GAME, 5);
+	social_sent_forget(&list, "grif", SOCIAL_SENT_PARTY);
+	CHECK(list.count == 1 && social_sent_has(&list, "grif", SOCIAL_SENT_GAME, 6));
+	for (index = 0; index < SOCIAL_MAXIMUM_SENT + 3; index++)
+	{
+		snprintf(text, sizeof(text), "player%d", index);
+		social_sent_add(&list, text, SOCIAL_SENT_PARTY, 10);
+	}
+	CHECK(list.count == SOCIAL_MAXIMUM_SENT && social_sent_has(&list, "player18", SOCIAL_SENT_PARTY, 11));
+	social_sent_forget(&list, NULL, SOCIAL_SENT_PARTY);
+	CHECK(list.count == 0);
+
+	social_sent_line(text, sizeof(text), SOCIAL_SENT_PARTY, "Grif", 1, "");
+	CHECK(!strcmp(text, "Invite sent to Grif"));
+	social_sent_line(text, sizeof(text), SOCIAL_SENT_PARTY, "Grif", 0, NULL);
+	CHECK(!strcmp(text, "Invite sent to Grif. It waits 5 minutes for them."));
+	social_sent_line(text, sizeof(text), SOCIAL_SENT_REQUEST, "Grif", 1, "");
+	CHECK(!strcmp(text, "Request sent to Grif"));
+	social_sent_line(text, sizeof(text), SOCIAL_SENT_PARTY, "Grif", 1, "Your party is full.");
+	CHECK(!strcmp(text, "Your party is full."));
+}
+
 int main(void)
 {
+	test_party_actions();
+	test_sent();
 	test_sections();
 	test_copy_text();
 	test_list();

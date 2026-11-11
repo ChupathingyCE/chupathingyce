@@ -1542,8 +1542,9 @@ static const struct config_setting config_settings[] =
 		"With debug.delta_open, the row chosen once that section has it, for\n"
 		"tests. -1 for none." },
 	{ "debug.party_test", _config_string, "\"\"", "HALO_PARTY_TEST", _environment_value, _platform_all,
-		"A party step once the menus are up, for tests: \"create\" or\n"
-		"\"join:<code>\". Leave it empty for none." },
+		"Party steps once the menus are up, one after another, separated by\n"
+		"commas, for tests: \"create\", \"join:<code>\", \"invite:<handle>\"\n"
+		"(FRIENDS' INVITE TO PARTY), or another action. Leave it empty for none." },
 	{ "debug.delta_test", _config_string, "\"\"", "HALO_DELTA_TEST", _environment_value, _platform_all,
 		"Buttons pressed in DELTA once debug.delta_open opened it, one at a time,\n"
 		"separated by ; (up, down, left, right, a, b, x, y, lb, rb), for tests.\n"
