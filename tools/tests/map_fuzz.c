@@ -52,6 +52,15 @@ give Xbox addresses) is poisoned between allocations for AddressSanitizer.
 #include <string.h>
 #include <sys/mman.h>
 
+/* (the game's units are built as strict ISO C, which hides these on Linux:
+its values) */
+#if defined(__linux__) && !defined(MAP_ANONYMOUS)
+#define MAP_ANONYMOUS 0x20
+#endif
+#if defined(__linux__) && !defined(MAP_NORESERVE)
+#define MAP_NORESERVE 0x4000
+#endif
+
 #include <sanitizer/asan_interface.h>
 
 /* (the harness's own memory is the host's: cseries.h gives the game's units
