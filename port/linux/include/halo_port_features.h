@@ -124,13 +124,6 @@ a console shakes once a tick, as retail */
 #define HALO_CONSOLE_NO_SMOOTH_SHAKE
 #endif
 
-/* a filtered HUD meter's darkening faded over its edge, in two more combiner
-stages (source/rasterizer/xbox/rasterizer_xbox_dynavobgeom.c): a console
-draws its meters with retail's four stages, scaled or not */
-#ifndef HALO_CONSOLE_NO_SMOOTH_METER_EDGES
-#define HALO_CONSOLE_NO_SMOOTH_METER_EDGES
-#endif
-
 /* the Controls screen (port/linux/game/controls_screen.c), the pause menu's
 CONTROLS and the controller's custom layout (port/linux/src/controller_layout.c):
 a console keeps its profile's layouts; the switch also leaves out
@@ -190,6 +183,17 @@ whose game list sends it), and a console's that sends its own reports
 (HALO_CONSOLE_GAME_REPORTS: port/console/reports/console_reports.h) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 #define HALO_PORT_GAME_REPORTS
+#endif
+
+/* a filtered HUD meter's darkening faded over its edge, in two more combiner
+stages (source/rasterizer/xbox/rasterizer_xbox_dynavobgeom.c): a console
+draws its meters with retail's four stages, scaled or not. Every console's
+build, whichever switches it sets on its own: the original Xbox doesn't set
+HALO_CONSOLE, and its widescreen HUD drew the six stages */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!defined(HALO_CONSOLE_NO_SMOOTH_METER_EDGES)
+#define HALO_CONSOLE_NO_SMOOTH_METER_EDGES
 #endif
 
 /* the Light effects (display.light_effects, port/linux/game/plasma_lighting.c):
