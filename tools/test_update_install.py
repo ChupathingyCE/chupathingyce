@@ -796,7 +796,7 @@ def test_where_to_update_under_gamescope():
     INSTALL UPDATE (tools/port_settings.py), in both menu styles"""
     import port_settings
     header = (ROOT / "port/linux/src/update.h").read_text()
-    assert '#define UPDATER_GAMESCOPE_WHERE "in Settings > Network > Updates"' in header
+    assert '#define UPDATER_GAMESCOPE_WHERE "in Settings > Online > Updates"' in header
     assert '"from Desktop Mode"' not in (ROOT / "port/linux/src/updater.c").read_text()
     assert "build_identity_watermark_update(updater_latest_version, UPDATER_GAMESCOPE_WHERE)" in \
         (ROOT / "port/linux/src/updater.c").read_text()
@@ -849,7 +849,7 @@ def test_no_question_under_gamescope(keys, builds, server, tmp_path):
     name = appimage.name
     lines = run_appimage(tmp_path, appimage, server, f"{OLD} {name}", {**GAMESCOPE, **NO_ANSWER})
     assert has(lines, f"{OLD} {name} update: {NEW} is out (this is {OLD}); not asking under gamescope")
-    assert has(lines, f"{OLD} {name} watermark: {OLD} - {NEW} is out: update in Settings > Network > Updates")
+    assert has(lines, f"{OLD} {name} watermark: {OLD} - {NEW} is out: update in Settings > Online > Updates")
     assert shown_nothing(lines)
     assert not has(lines, "downloading") and snapshot(folder) == before
 
@@ -889,7 +889,7 @@ def test_page_install_under_gamescope(keys, builds, server, tmp_path):
     server.release(NEW, release, [ASSET, APPIMAGE, "updates.json", "updates.json.sig"])
     name = appimage.name
     lines = run_appimage(tmp_path, appimage, server, f"{NEW} {name}", {**GAMESCOPE, **NO_ANSWER, **PAGE})
-    assert has(lines, f"{OLD} {name} watermark: {OLD} - {NEW} is out: update in Settings > Network > Updates")
+    assert has(lines, f"{OLD} {name} watermark: {OLD} - {NEW} is out: update in Settings > Online > Updates")
     assert has(lines, f"{OLD} {name} page: installing")
     assert has(lines, f"{OLD} {name} update: installing version {NEW} from the game's own page (under gamescope")
     assert has(lines, f"{OLD} {name} page: Downloading {NEW}")

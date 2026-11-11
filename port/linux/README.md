@@ -819,7 +819,7 @@ and settings stay. "Keep 32-bit" writes `offer_64bit = false` in the
 Under gamescope (the Game Mode of the Steam Deck), the game does not ask,
 because a system dialog stops the game there. The main menu's version line
 says the new version is out, and the log has it. To update, pick INSTALL
-UPDATE in Settings > Network > Updates (it shows up once a new version is
+UPDATE in Settings > Online > Updates (it shows up once a new version is
 found), or UPDATE on the setup screen's UPDATES tab. Both show the download
 and any error on the page itself, with no window or dialog, so they work in
 Game Mode too.

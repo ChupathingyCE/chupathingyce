@@ -1612,7 +1612,7 @@ static boolean install_update_begin(struct widget_instance *widget)
 		ui_play_audio_feedback_sound(SOUND_ERROR);
 		return TRUE;
 	}
-	platform_log("menus: installing the update (Settings > Network > Updates)");
+	platform_log("menus: installing the update (Settings > Online > Updates)");
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return TRUE;
 }

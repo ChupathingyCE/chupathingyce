@@ -25,7 +25,7 @@ computers and off on 32-bit ones and Android, and the Mac starts in a window
 instead of fullscreen. The movies are the ones on your disc's `bink` folder,
 which the first-start import copies; a movie that is missing is skipped. On a Steam Deck in Game Mode, the game
 shows no system dialogs (they can crash there): the main menu's version line
-says when a new version is out, and you update in Settings > Network >
+says when a new version is out, and you update in Settings > Online >
 Updates (INSTALL UPDATE) or on the setup screen's UPDATES tab. The game
 restarts into the new version without leaving Game Mode.
 
