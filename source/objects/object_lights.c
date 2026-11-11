@@ -1418,6 +1418,14 @@ void lights_preprocess_scene(
 							light_parameters.forward = drawn_marker.matrix.forward;
 							light_parameters.up = drawn_marker.matrix.up;
 						}
+						/* another player's flashlight's beam evened out
+						where their input came late (render_interpolation.c) */
+						if (TEST_FLAG(definition->flags, _light_definition_is_first_person_flashlight_bit) &&
+							TEST_FLAG(_object_mask_unit, object->object.type))
+						{
+							render_interpolation_flashlight(scene_light_handle, light->object_index,
+								&light_parameters.forward, &light_parameters.up);
+						}
 					}
 
 					if (light->parent_light_index == NONE)

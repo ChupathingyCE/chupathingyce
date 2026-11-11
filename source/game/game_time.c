@@ -113,6 +113,10 @@ struct game_time_globals_struct
 /* ---------- globals */
 
 static struct game_time_globals_struct *game_time_globals;
+/* port: ticks were due and none could run (a client's clock held for the
+host, as while Online Games or System Link searches from the main menu): the
+frames drawn meanwhile stay on the last tick (game_time_get_tick_fraction) */
+static boolean game_time_ticks_waiting = FALSE;
 
 /* ---------- public code */
 
@@ -137,6 +141,7 @@ void game_time_initialize_for_new_map(
 	match_assert("c:\\halo\\SOURCE\\game\\game_time.c", 131, game_time_globals && !game_time_globals->initialized);
 	memset(game_time_globals, 0, sizeof(*game_time_globals));
 	game_time_globals->initialized = TRUE;
+	game_time_ticks_waiting = FALSE;
 
 	return;
 }
@@ -277,6 +282,11 @@ real game_time_get_tick_fraction(
 	real fraction;
 
 	if (!game_time_globals || !game_time_globals->active || game_time_globals->paused)
+		return 1.0f;
+	/* (no tick to blend toward: the clock running on into one that never
+	came drew the last two ticks' poses back and forth, a judder where the
+	Xbox's background stood still; #477) */
+	if (game_time_ticks_waiting)
 		return 1.0f;
 	fraction = game_time_globals->leftover_dt * game_time_globals->speed * TICKS_PER_SECOND;
 	return PIN(fraction, 0.0f, 1.0f);
@@ -486,6 +496,7 @@ void game_time_update(
 				}
 				else
 					maximum_possible_server_time = update_client_get_maximum_possible_server_time();
+				game_time_ticks_waiting = maximum_possible_server_time <= game_time_globals->server_time;
 				if (maximum_possible_server_time > game_time_globals->server_time)
 				{
 					long final_server_time = MIN(maximum_possible_server_time, final_local_time);

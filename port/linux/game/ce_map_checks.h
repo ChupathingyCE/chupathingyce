@@ -120,6 +120,55 @@ boolean ce_image_data(struct ce_image const *image, void const *field, char cons
 /* a tag instance's name, for messages */
 char const *ce_image_tag_name(struct ce_image const *image, void const *instance);
 
+/* the bytes at address where the loaded map's tags are (its own and its
+resource maps' copied in after them: ce_loaded_tags_end), or in a block of
+tag data the conversions placed elsewhere (ce_loaded_tags_add), if all size
+of them are there; else NULL. What the conversions read through when a map
+loads: its tags were checked, but one conversion's write may land on
+another's field, and an address read after it is not trusted. Nothing else
+in the tag cache or above it (a BSP, the conversions' vertices and strips)
+is a tag's */
+void *ce_loaded_pointer(unsigned long address, unsigned long size);
+
+/* the same in the tag cache from the loaded map's lowest BSP up, where its
+BSPs are (a 64 MB console's BSPs' window, with no memory below it) */
+void *ce_loaded_bsp_pointer(unsigned long address, unsigned long size);
+
+/* where the loaded map's tags end (ce_resources.c, as they load; 0 once
+they unload: then no address is one of them), and a block of tag data a
+conversion placed past them (ce_hud.c's button icons) */
+void ce_loaded_tags_end(unsigned long end);
+
+/* the lowest of the loaded map's BSPs (cache_files.c, as its tags load; 0
+once they unload), which ce_loaded_bsp_pointer reads from */
+void ce_loaded_bsps_low(unsigned long bsp_low);
+void ce_loaded_tags_add(unsigned long address, unsigned long size);
+
+/* a loaded map's tag instance's name, for messages ("<unnamed>" if it is
+not one in its tag cache) */
+char const *ce_loaded_tag_name(void const *instance);
+
+/* the tag header and tag index (instances, tag_count of them) of the map
+being checked or loaded, which no conversion writes over: from begin to
+end, ce_tags_writable says whether a write lands on neither. The checks
+(ce_map_checks.c) and each conversion at load (cache_files.c's) begin and
+end it, so that a repair made when a map is checked is made, or passed over,
+as it is when it loads */
+void ce_tags_guard_begin(void const *tags, void const *instances, long tag_count);
+void ce_tags_guard_end(void);
+/* the same, for the loaded map's tag cache */
+void ce_tags_guard_begin_loaded(void const *instances, long tag_count);
+
+/* whether size bytes at field (a tag's, in the image or tag cache) lie off
+the tag header and tag index while they are guarded (always, if they are
+not); if not, the first is logged (ce_contained) */
+boolean ce_tags_writable(void const *field, unsigned long size);
+
+/* what a conversion passed over, a map's data outside its tags or over its
+tag index: logged as the map loads (not as it is checked), the first only
+for each conversion (ce_tags_guard_begin) */
+void ce_contained(char const *format, ...);
+
 /* the map being checked refused: the first reason given is kept (and
 logged by ce_map_check); returns FALSE */
 boolean ce_refuse(char const *format, ...);
@@ -132,12 +181,29 @@ void ce_refusal_explain(char const *format, ...);
 whose tag cache is the Xbox's, that it needs more memory */
 void ce_refusal_explain_room(void);
 
+/* more bytes of the room the conversions take, added to *bytes as a map is
+checked: FALSE (refused, naming what) once that is more than the tag cache
+and the room above it hold, which no map that fits needs. So the count
+cannot wrap around (a block counted over and over, shared by many models or
+lightmaps), and a check of such a map stops at once */
+boolean ce_room_add(unsigned long *bytes, unsigned long more, char const *what);
+
 /* the message for a player about the map ce_map_check refused last ("" if
 it was accepted): the map, and the reason when ce_refusal_explain gave one */
 char const *ce_map_refusal_message(void);
 
 /* whether a map is being checked (ce_map_check) rather than loaded */
 boolean ce_map_checking(void);
+
+/* a map's tags as they loaded, after their conversions (cache_files.c): what
+the game reads of them trusting the checks checked again where it now is;
+FALSE (logged and shown) if any of it has moved */
+boolean ce_map_check_loaded(void *tag_instances, long tag_count, unsigned long scenario_tag_index,
+	char const *map_name);
+
+/* whether a structure BSP's reference (32 bytes, the scenario's) is one the
+map open was checked with, unchanged: a BSP loads only from one */
+boolean ce_map_bsp_reference_checked(void const *reference);
 
 /* the cache version of the map being checked or loaded (ce_map_checks.c):
 Custom Edition's (609), or Halo PC retail's (7: HaloMD's maps, played as
