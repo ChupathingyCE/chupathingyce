@@ -902,6 +902,12 @@ long game_engine_remap_weapon(long weapon_definition_index);
 
 boolean game_engine_allow_integrated_lights(
 	long object_index);
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+/* port: the match's flashlight beams left undrawn (a drawing choice only:
+game_engine_build_lighting, object_lights.c) */
+boolean game_engine_flashlight_beams_hidden(
+	void);
+#endif
 
 void game_engine_player_killed(
 	long killing_player_index,

@@ -573,6 +573,9 @@ symbols in this file:
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
 #include "late_join.h" /* port: port/linux/game/late_join.c */
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+#include "match_light_limits.h" /* port: the original Xbox's match light rule */
+#endif
 /* (network_server_manager_internal.h's: the host's game record) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 #include "objects.h"
@@ -4257,12 +4260,25 @@ static void game_engine_update_player_no_shield(
 	return;
 }
 
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+/* port: the match's flashlight beams not drawn (match_light_limits.h): a
+drawing choice only, never the integrated light's simulation */
+static boolean game_engine_hide_flashlight_beams = FALSE;
+
+boolean game_engine_flashlight_beams_hidden(
+	void)
+{
+	return game_engine && game_engine_hide_flashlight_beams;
+}
+#endif
+
 static void game_engine_build_lighting(
 	void)
 {
 	long player_count = 0;
 #ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
 	long object_count = 0;
+	struct match_light_limits limits;
 #endif
 
 	{
@@ -4273,12 +4289,20 @@ static void game_engine_build_lighting(
 			player_count++;
 	}
 
-	/* port: the Xbox turned dynamic lights off past 13 players, or past 8
-	with two vehicles, and the flashlight off past 4 players or 4 vehicles.
-	A match on a map with a few vehicles then had a flashlight, and the next
-	one did not. The beam is a dynamic light, so both stay on - on the
-	desktop. A console that keeps the Xbox's rule for its GPU's sake
-	(HALO_CONSOLE_MATCH_LIGHT_LIMITS: the original Xbox) has it as retail. */
+	/* port: the Xbox turned dynamic lights off at 13 or more players (or 9
+	or more with two vehicles), and the flashlight off past 4 players or
+	with 4 vehicles. A match on a map with a few vehicles then had a
+	flashlight, and the next one did not. The beam is a dynamic light, so
+	both stay on - on the desktop.
+
+	A console that keeps the Xbox's rule for its GPU's sake
+	(HALO_CONSOLE_MATCH_LIGHT_LIMITS: the original Xbox) draws as retail
+	did: dynamic lights off by the game engine's flag, which only the
+	drawing reads (object_lights.c, should_render_lights), and the
+	flashlights' beams not drawn. The flashlight's own bit
+	(_game_engine_disable_integrated_lights_bit) is never set: unit_update
+	reads it for the flashlight's toggle, battery and effect, which every
+	machine in a game has to run alike (a PC host, OpenCE players). */
 #ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
 	if (global_variant.universal_variant.vehicle_set != _game_engine_vehicles_none)
 	{
@@ -4317,18 +4341,10 @@ static void game_engine_build_lighting(
 		}
 	}
 
-	if ((player_count > 8 && object_count >= 2) ||
-		player_count >= 13)
-	{
+	limits = match_light_limits_for(player_count, object_count);
+	if (limits.no_dynamic_lights)
 		SET_FLAG(game_engine_globals.flags, _game_engine_disable_dynamic_light_bit, TRUE);
-	}
-
-	if (player_count > 4 ||
-		object_count >= 4 ||
-		TEST_FLAG(game_engine_globals.flags, _game_engine_disable_dynamic_light_bit))
-	{
-		SET_FLAG(game_engine_globals.flags, _game_engine_disable_integrated_lights_bit, TRUE);
-	}
+	game_engine_hide_flashlight_beams = limits.no_flashlights ? TRUE : FALSE;
 #endif
 
 	if (player_count >= 5)
