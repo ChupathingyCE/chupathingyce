@@ -445,6 +445,12 @@ boolean network_game_has_free_player_slot(
 
 	if (game->player_count >= game->maximum_players)
 		return FALSE;
+#ifdef HALO_CONSOLE_HOST_PLAYERS
+	/* port: a console's own hosting limit, whatever the game's settings
+	say (halo_console_features.h: the original Xbox hosts 16) */
+	if (game->player_count >= HALO_CONSOLE_HOST_PLAYERS)
+		return FALSE;
+#endif
 #ifdef HALO_GAME_BROWSER
 	/* port: no more players than a Delta machine of the hosted game says it
 	takes (its platform key: a console; port/linux/src/delta_peer.h). No

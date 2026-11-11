@@ -313,6 +313,12 @@ HALO_PORT_WIDE_INTERFACE
 	columns: every native build, and a console with
 	HALO_CONSOLE_ANAMORPHIC_SCREEN. The HUD's zoomed view and the menus'
 	full-screen fades have code for it (hud_draw.c, ui_widget.c)
+HALO_CONSOLE_HOST_PLAYERS
+	the most players a game this console hosts takes, whatever its network
+	tables hold (HALO_CONSOLE_PLAYERS) and whatever Delta says: the original
+	Xbox hosts 16, on LAN or online, and joins games of up to 32 in its
+	builds of 32 (network_server_manager.c's hosted maximum; docs/delta.md,
+	"Platform policy"). Without it a host takes as many as its tables hold
 HALO_CONSOLE_SERVER_CLOSE_GRACE
 	the original game's one-second wait when a hosted game ends, before the
 	host's transport closes (network_game_server_dispose, source/
@@ -407,6 +413,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_MATCH_LIGHT_LIMITS 1
 #define HALO_CONSOLE_NO_HALOMD_MAPS "the Xbox"
 #define HALO_CONSOLE_SERVER_CLOSE_GRACE 1
+#define HALO_CONSOLE_HOST_PLAYERS 16
 #define HALO_CONSOLE_ANAMORPHIC_SCREEN 1
 #define HALO_CONSOLE_FRAME_RATE 1
 #define HALO_CONSOLE_VIEW_INTERPOLATION 1
