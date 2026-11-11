@@ -1424,7 +1424,9 @@ boolean ce_resources_tags_loaded(
 	ce_free_next = ce_free_end = 0;
 	ce_room_next = 0;
 	/* (the map's own tags, until its resource maps' are copied in after
-	them: what the conversions read is in these, ce_loaded_pointer) */
+	them: what the conversions read is in these, ce_loaded_pointer; and no
+	blocks placed past them yet, the last map's let go) */
+	ce_loaded_tags_end(0);
 	ce_loaded_tags_end(first_free);
 	if (!ce_indexed_tags)
 		return FALSE;
@@ -1970,6 +1972,7 @@ void ce_resources_tags_unloaded(
 	ce_free_next = ce_free_end = 0;
 	ce_room_next = 0;
 	ce_loaded_tags_end(0);
+	ce_loaded_bsps_low(0);
 }
 
 #endif

@@ -1829,6 +1829,13 @@ long scenario_tags_load(
 
 					ce_map_cache_version = cache_file_globals.header.version;
 				}
+				/* (where its BSPs begin: the conversions read a BSP's
+				vertices only above it, port/linux/game/ce_map_checks.c) */
+				{
+					extern void ce_loaded_bsps_low(unsigned long bsp_low);
+
+					ce_loaded_bsps_low(end_free);
+				}
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 				/* (the BSPs' window made, and the room below what isn't memory) */
 				end_free = platform_ce_room_end(end_free);

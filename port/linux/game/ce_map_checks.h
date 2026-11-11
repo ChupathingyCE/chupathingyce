@@ -138,6 +138,10 @@ void *ce_loaded_bsp_pointer(unsigned long address, unsigned long size);
 they unload: then no address is one of them), and a block of tag data a
 conversion placed past them (ce_hud.c's button icons) */
 void ce_loaded_tags_end(unsigned long end);
+
+/* the lowest of the loaded map's BSPs (cache_files.c, as its tags load; 0
+once they unload), which ce_loaded_bsp_pointer reads from */
+void ce_loaded_bsps_low(unsigned long bsp_low);
 void ce_loaded_tags_add(unsigned long address, unsigned long size);
 
 /* a loaded map's tag instance's name, for messages ("<unnamed>" if it is

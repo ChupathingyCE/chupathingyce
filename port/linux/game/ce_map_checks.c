@@ -172,12 +172,6 @@ boolean ce_repairs_scenario_group(void *tag_instances, long tag_count, unsigned 
 /* ---------- globals */
 
 static char ce_refusal[256];
-/* the lowest of the BSPs of the map being checked, and of the map open
-(once it passed): where its BSPs begin, which ce_loaded_bsp_pointer reads
-from (on a 64 MB console the BSPs' window: below it is a megabyte that is no
-memory, platform_ce_room_end) */
-static unsigned long ce_checking_bsp_low;
-static unsigned long ce_checked_bsp_low;
 /* the tag header and tag index no conversion writes over (ce_tags_guard_begin),
 and whether one conversion logged what it passed over */
 static struct
@@ -591,7 +585,6 @@ static boolean ce_map_check_tags(
 	{
 		goto done;
 	}
-	ce_checking_bsp_low = end_free;
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 	/* (and on a 64 MB console, below what isn't memory beneath the BSPs) */
 	end_free = platform_ce_room_end(end_free);
@@ -780,6 +773,10 @@ enum
 static struct
 {
 	unsigned long end;
+	/* the lowest of its BSPs, as it loads (cache_files.c): where its BSPs
+	begin, which ce_loaded_bsp_pointer reads from (on a 64 MB console the
+	BSPs' window, with a megabyte that is no memory below it) */
+	unsigned long bsp_low;
 	long placed_count;
 	unsigned long placed[CE_LOADED_MAXIMUM_PLACED][2];
 } ce_loaded_tags;
@@ -790,6 +787,12 @@ void ce_loaded_tags_end(
 	ce_loaded_tags.end = end;
 	if (!end)
 		ce_loaded_tags.placed_count = 0;
+}
+
+void ce_loaded_bsps_low(
+	unsigned long bsp_low)
+{
+	ce_loaded_tags.bsp_low = bsp_low;
 }
 
 void ce_loaded_tags_add(
@@ -833,7 +836,7 @@ void *ce_loaded_bsp_pointer(
 
 	/* (from the lowest BSP up: the top of the tag cache, which a 64 MB
 	console's BSPs' window ends at too) */
-	if (!ce_checked_bsp_low || address < ce_checked_bsp_low || address < ce_loaded_tags.end || address > end ||
+	if (!ce_loaded_tags.bsp_low || address < ce_loaded_tags.bsp_low || address < ce_loaded_tags.end || address > end ||
 		size > end - address)
 	{
 		return NULL;
@@ -1072,7 +1075,6 @@ boolean ce_map_check(
 	ce_explanation[0] = 0;
 	ce_message[0] = 0;
 	ce_checking = TRUE;
-	ce_checking_bsp_low = 0;
 	if (file_size == INVALID_FILE_SIZE || file_size_high || file_size > CE_MAXIMUM_FILE_SIZE)
 		valid = ce_refuse("its size could not be read, or is over 2 GB");
 	else if (file_length < CE_HEADER_SIZE || (unsigned long)file_length > file_size)
@@ -1104,8 +1106,6 @@ boolean ce_map_check(
 	}
 	else
 	{
-		/* (the map that passed is the one opened: cache_files_windows.c) */
-		ce_checked_bsp_low = ce_checking_bsp_low;
 		error(_error_silent, "%s map %s: checked (%lu ms)", family, map_name, system_milliseconds() - started);
 	}
 	return valid;

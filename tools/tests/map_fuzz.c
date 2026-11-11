@@ -173,6 +173,7 @@ boolean ce_models_tags_loaded(void *tag_instances, long tag_count, byte const *m
 void ce_functions_tags_loaded(void *tag_instances, long tag_count);
 void ce_shaders_tags_loaded(void *tag_instances, long tag_count);
 void ce_hud_tags_loaded(void *tag_instances, long tag_count);
+void ce_loaded_bsps_low(unsigned long bsp_low);
 void ce_bsp_loaded(void *structure);
 void ce_repairs_bsp_loaded(void *structure);
 void ce_bsp_unloaded(void);
@@ -905,6 +906,7 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 		if (base > CE_TAG_CACHE_BASE && base < end_free)
 			end_free = base;
 	}
+	ce_loaded_bsps_low(end_free);
 	ce_resources_tags_loaded(instances, (long)tag_count, CE_TAG_CACHE_BASE + header->tag_data_size, end_free);
 	ce_repairs_tags_loaded(instances, (long)tag_count, scenario_tag_index);
 	model_data = system_malloc((long)model_data_size);
