@@ -2071,9 +2071,12 @@ static DWORD connected_gamepads(void)
 }
 
 /* the gamepads on each port, in the game's log (debug.txt: the 32-bit builds'
-platform_log reaches standard error alone), when they change (Android's
-guest has neither SDL_GetGamepadID nor SDL_GetGamepadName) */
-#ifndef HALO_ANDROID
+platform_log reaches standard error alone), when they change, each with
+SDL's mapping on a line of its own: which of the device's axes are the
+sticks (a stick that turns too slowly on one axis, Android's #977, shows
+there). Android's 32-bit guest has neither SDL_GetGamepadID nor
+SDL_GetGamepadName; the native 64-bit build has SDL itself */
+#if !defined(HALO_ANDROID) || defined(HALO_64BIT)
 static void gamepads_log(void)
 {
 	static SDL_JoystickID logged[PORT_COUNT];
@@ -2109,6 +2112,15 @@ static void gamepads_log(void)
 	}
 #ifdef HALO_64BIT
 	platform_log("%s", line);
+	for (port = 0; port < PORT_COUNT; port++)
+	{
+		SDL_Gamepad *gamepad = port_gamepad(gamepads, count, port);
+		char *mapping = gamepad ? SDL_GetGamepadMapping(gamepad) : NULL;
+
+		if (mapping)
+			platform_log("gamepads: port %d's mapping: %s", port + 1, mapping);
+		SDL_free(mapping);
+	}
 #else
 	{
 		void error(short priority, const char *format, ...);
@@ -2130,7 +2142,7 @@ BOOL WINAPI XGetDeviceChanges(PXPP_DEVICE_TYPE device_type, PDWORD insertions, P
 
 		*insertions = connected & ~reported_gamepads;
 		*removals = reported_gamepads & ~connected;
-#ifndef HALO_ANDROID
+#if !defined(HALO_ANDROID) || defined(HALO_64BIT)
 		gamepads_log();
 #endif
 		reported_gamepads = connected;
