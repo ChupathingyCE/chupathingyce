@@ -40,6 +40,9 @@ static void network_distributed_tick(void) {}
 static void render_interpolation_frame_begin(void) {}
 static void render_interpolation_frame_end(void) {}
 static void game_frame(real seconds) { (void)seconds; }
+/* port: chester's MCC game speed (mcc_game_speed.c): off without an MCC map */
+static real mcc_game_speed_client(real speed) { return speed; }
+static void mcc_game_speed_frame(void) {}
 
 #include "under_test.inc"
 

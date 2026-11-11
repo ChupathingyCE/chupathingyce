@@ -10,10 +10,11 @@ from tools.harness import build, read, run, structure, enum_with, function
 @pytest.fixture(scope="module")
 def thread_tool(tmp_path_factory):
     runtime = read("source/hs/hs_runtime.c")
-    types = "\n".join(structure(runtime, name) for name in ("hs_stack_frame", "hs_thread_datum"))
+    # port: (the stack's size first: our hs_thread_datum is sized by it)
+    types = enum_with(runtime, "HS_THREAD_STACK_SIZE =")
+    types += "\n" + "\n".join(structure(runtime, name) for name in ("hs_stack_frame", "hs_thread_datum"))
     types += "\n" + structure(read("source/memory/data.h"), "data_array")
     types += "\n" + enum_with(runtime, "_hs_thread_type_script =")
-    types += "\n" + enum_with(runtime, "HS_THREAD_STACK_SIZE =")
     types += "\n" + enum_with(runtime, "_hs_thread_in_function_call_bit =")
     checkpoint = read("port/linux/game/mcc_checkpoint.c")
     definitions = "\n".join(line for line in checkpoint.splitlines() if line.startswith("#define MCC_CHECKPOINT_"))

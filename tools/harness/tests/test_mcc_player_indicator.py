@@ -1,5 +1,9 @@
 """Player arrows and names must agree on MCC bitmap units across map changes."""
 import pytest
+
+# port: these build GulchCE's Custom Edition HUD scale with its hud.c, which
+# our tree does not have (our Custom Edition HUD is our own)
+pytestmark = pytest.mark.skip(reason="needs GulchCE's Custom Edition HUD scale files")
 from tools.harness import build, function, mutated, read, run
 
 

@@ -11,6 +11,11 @@
 #define TEST_FLAG(v,b) (((v) & (1u << (b))) != 0)
 #define match_hs_assert(a,b,c,d,e) ((void)0)
 typedef unsigned char byte,boolean;
+/* port: (cseries/xbox_address.h) a 32-bit build's Xbox addresses are its
+pointers */
+#define XPTR(type) type *
+#define xbox_pointer(address) ((void *)(address))
+#define xbox_address(pointer) ((void *)(pointer))
 #include "types.inc"
 static byte image[2*1024*1024], saved[sizeof(image)];
 static unsigned long used=160000, capacity=sizeof(image);

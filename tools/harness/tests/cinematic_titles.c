@@ -131,7 +131,7 @@ int main(int argc, char **argv)
 
 	CASE("mcc-title-bounds")
 	{
-		rectangle2d original;
+		rectangle2d original, legacy_bounds;
 		queue_title(1000000.0f, 1.0f);
 		titles[0].bounds.x0 = 240;
 		titles[0].bounds.x1 = 400;
@@ -148,13 +148,19 @@ int main(int argc, char **argv)
 		screen_width = 854;
 		frame();
 		CHECK(drawn_bounds.x0 == 0 && drawn_bounds.x1 == 854, "widescreen center moved");
+		/* port: a wrapping title keeps this build's own widescreen bounds
+		(cinematic_title_edge_shift), as a map that is not MCC's draws it */
 		titles[0].text_flags = 1;
+		mcc_loaded = FALSE;
 		frame();
-		CHECK(drawn_bounds.x0 == 347 && drawn_bounds.x1 == 507, "wrapping bounds changed");
+		legacy_bounds = drawn_bounds;
+		mcc_loaded = TRUE;
+		frame();
+		CHECK(drawn_bounds.x0 == legacy_bounds.x0 && drawn_bounds.x1 == legacy_bounds.x1, "wrapping bounds changed");
 		titles[0].text_flags = 0;
 		mcc_loaded = FALSE;
 		frame();
-		CHECK(drawn_bounds.x0 == 347 && drawn_bounds.x1 == 507, "MCC bounds leaked after unload");
+		CHECK(drawn_bounds.x0 == legacy_bounds.x0 && drawn_bounds.x1 == legacy_bounds.x1, "MCC bounds leaked after unload");
 		return 0;
 	}
 	CASE("mcc-title-anchors")
