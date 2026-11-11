@@ -1,7 +1,9 @@
 /*
 MAP_SHARE_CLIENT.C
 
-The map bot's fetch (map_share.h, port/linux/README.md, "Map sharing"): a headless run with
+The map bot's fetch (map_share.h, port/linux/README.md, "Map sharing"), and a
+player's download of a missing map from the game's host (below); the bot's
+is a headless run with
 debug.network_test = "fetch:<host>" joins one host's game, takes its
 current Custom Edition map from it, writes it and a result, leaves and
 quits. It takes the least it can from the host:
@@ -30,6 +32,21 @@ words for a fetch that failed (refused, full, sharing off, unavailable, not
 shared, timed out, too large, bad data, not reachable, failed); the level,
 the version, the size and the file's hash (hex) when known; the players the
 host's game record listed. The exit code: 0 fetched, 10 held, 1 any other.
+
+A player's download from the host (map_share_player_start, HALO_HOST_MAP_
+DOWNLOADS: the desktops and Android) is the same fetch run by the Online
+Games screen (browser_screen.c) for a map the repositories didn't give,
+only as network.map_downloads_from_host allows (map_download.c, "From the
+host"). It joins the host the player was joining as a machine with no
+player, under the player's own machine name, asks for the map named in the
+offer alone, and leaves for the game to be joined again once it is done.
+On top of the bot's checks: the offered map hash is held to the blacklist
+before anything is downloaded; the size cap is the player's
+(network.map_downloads_from_host_limit); the file goes into the quarantine
+folder (maps_quarantine), never into maps_ce, and map_download.c checks it
+and moves it in. Its progress is map_download_get's (the screen's bar), and
+the player's cancel (map_download_cancel) ends it within a frame. Nothing
+it logs names an address.
 */
 
 #ifdef HALO_GAME_BROWSER
@@ -43,6 +60,9 @@ host's game record listed. The exit code: 0 fetched, 10 held, 1 any other.
 #include "networking/network_client_manager.h"
 #include "map_share.h"
 #include "../src/map_share_files.h"
+#ifdef HALO_HOST_MAP_DOWNLOADS
+#include "../src/map_download.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,6 +81,12 @@ long network_game_client_join_invite_host(char const *invite);
 /* network_game_globals.c's */
 boolean network_distributed_client_send_reliably(void *message, word size);
 void game_connection_set(short connection);
+#ifdef HALO_HOST_MAP_DOWNLOADS
+/* (ui_widget_event_handler_functions.c's: the network searching anew, the
+host's game left; platform.h's) */
+boolean ui_online_games_start_network(void);
+void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size);
+#endif
 
 /* ---------- constants */
 
@@ -102,6 +128,12 @@ enum
 static struct
 {
 	short fetching;
+	/* a player's download from the host (map_share_player_start), not the
+	bot's */
+	boolean player;
+	boolean cancelled;
+	/* (the blacklist refused the map offered) */
+	boolean blocked;
 	short state;
 	unsigned long state_time;
 	unsigned long started;
@@ -161,6 +193,8 @@ static struct
 } fetch;
 
 /* ---------- private code */
+
+static void fetch_joined_update(unsigned long now);
 
 static unsigned long fetch_now(
 	void)
@@ -275,6 +309,23 @@ static void fetch_finish(
 	if (fetch.offered && strcmp(result, "fetched"))
 		fetch_progress(MAP_SHARE_PROGRESS_FAILED);
 	fetch_release();
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	/* (a player's: map_download.c takes the file, or why it failed) */
+	if (fetch.player)
+	{
+		if (!strcmp(result, "fetched"))
+		{
+			platform_log("map download: %s.map from the host is whole (%lu bytes, every piece checked): checking it",
+				fetch.wanted, fetch.size);
+			map_download_host_received(fetch.hash);
+		}
+		else
+			map_download_host_failed(detail && detail[0] ? detail : "the host did not give the map", fetch.cancelled,
+				fetch.blocked);
+		fetch_state(_fetch_leaving);
+		return;
+	}
+#endif
 	hash[0] = 0;
 	if (fetch.offered)
 	{
@@ -440,13 +491,28 @@ static void fetch_ask(
 		fetch_finish("held", "", "that version is held: left without asking");
 		return;
 	}
-	if (!fetch.folder[0])
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	/* (a player's: into the quarantine folder, by the name the offer was
+	for, map_download.c having emptied its files) */
+	if (fetch.player)
 	{
-		fetch_finish("failed", "failed", "no folder for the map (debug.map_fetch_folder)");
-		return;
+		char part[300], whole[300];
+
+		map_download_host_paths(fetch.wanted, part, whole, (int)sizeof(part));
+		platform_translate_path(part, fetch.part_path, sizeof(fetch.part_path));
+		platform_translate_path(whole, fetch.final_path, sizeof(fetch.final_path));
 	}
-	snprintf(fetch.final_path, sizeof(fetch.final_path), "%s/%s.map", fetch.folder, fetch.file);
-	snprintf(fetch.part_path, sizeof(fetch.part_path), "%s/%s.map.part", fetch.folder, fetch.file);
+	else
+#endif
+	{
+		if (!fetch.folder[0])
+		{
+			fetch_finish("failed", "failed", "no folder for the map (debug.map_fetch_folder)");
+			return;
+		}
+		snprintf(fetch.final_path, sizeof(fetch.final_path), "%s/%s.map", fetch.folder, fetch.file);
+		snprintf(fetch.part_path, sizeof(fetch.part_path), "%s/%s.map.part", fetch.folder, fetch.file);
+	}
 	if (map_share_file_exists(fetch.final_path))
 	{
 		fetch_finish("failed", "failed", "a file of the map's name is in the folder already");
@@ -611,6 +677,10 @@ static boolean fetch_block(
 	fetch.slots[index].used = FALSE;
 	fetch.had += piece_size;
 	fetch.last_piece = fetch_now();
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	if (fetch.player)
+		map_download_host_progress(MAP_DOWNLOAD_RECEIVING, fetch.had, fetch.size);
+#endif
 	if (fetch.had >= fetch.size)
 	{
 		void *part = fetch.part;
@@ -701,6 +771,10 @@ static boolean fetch_handle_frame(
 				return FALSE;
 			}
 			platform_log("map fetch: %lu piece hashes check; downloading %lu bytes", fetch.piece_count, fetch.size);
+#ifdef HALO_HOST_MAP_DOWNLOADS
+			if (fetch.player)
+				map_download_host_progress(MAP_DOWNLOAD_RECEIVING, 0, fetch.size);
+#endif
 			fetch_ask_pieces();
 			return fetch.state == _fetch_streaming;
 		}
@@ -771,7 +845,8 @@ static void fetch_stream(
 
 /* ---------- public code */
 
-boolean map_share_fetching(
+/* whether this run is the bot's fetch */
+static boolean fetch_bot(
 	void)
 {
 	if (!fetch.fetching)
@@ -779,10 +854,17 @@ boolean map_share_fetching(
 	return fetch.fetching > 0;
 }
 
+boolean map_share_fetching(
+	void)
+{
+	return fetch_bot() || fetch.player;
+}
+
 char const *map_share_fetch_machine_name(
 	void)
 {
-	return map_share_fetching() ? MAP_FETCH_MACHINE_NAME : NULL;
+	/* (a player's download keeps the player's machine name) */
+	return fetch_bot() ? MAP_FETCH_MACHINE_NAME : NULL;
 }
 
 void map_share_fetch_update(
@@ -830,45 +912,136 @@ void map_share_fetch_update(
 		}
 		break;
 	default:
-		/* (joined: dropped by the host, the map changed, or a wait run out) */
-		if (network_game_client_map_fetch_state() < 2)
-		{
-			short rejection = network_game_client_map_fetch_rejection();
-
-			fetch_finish("failed", rejection == 1 ? "full" : "refused",
-				fetch.state == _fetch_streaming ? "the host dropped the machine during the download" :
-				"the host dropped the machine");
-			break;
-		}
-		if (fetch.record_changed && fetch.state >= _fetch_asked)
-		{
-			fetch_finish("failed", "unavailable", "the host changed maps");
-			break;
-		}
-		if (fetch.state == _fetch_waiting_for_record)
-		{
-			if (fetch.record)
-				fetch_ask();
-			else if ((long)(now - fetch.state_time) > RECORD_TIMEOUT)
-				fetch_finish("failed", "timed out", "the host sent no game record");
-		}
-		else if (fetch.state == _fetch_asked)
-		{
-			if (fetch.offered)
-				fetch_connect();
-			else if ((long)(now - fetch.state_time) > OFFER_TIMEOUT)
-				fetch_finish("failed", "timed out", "the host did not answer the request in 30 seconds");
-		}
-		else if (fetch.state == _fetch_streaming)
-			fetch_stream(now);
-		if ((fetch.state == _fetch_asked || fetch.state == _fetch_streaming) && fetch.offered &&
-			(long)(fetch_now() - fetch.last_progress) >= PROGRESS_INTERVAL)
-		{
-			fetch_progress(MAP_SHARE_PROGRESS_DOWNLOADING);
-		}
+		fetch_joined_update(now);
 		break;
 	}
 }
+
+/* ---------- private code: joined */
+
+/* each frame once joined: dropped by the host, the map changed, or a wait
+run out, else the next step */
+static void fetch_joined_update(
+	unsigned long now)
+{
+	if (network_game_client_map_fetch_state() < 2)
+	{
+		short rejection = network_game_client_map_fetch_rejection();
+
+		fetch_finish("failed", rejection == 1 ? "full" : "refused",
+			fetch.state == _fetch_streaming ? "the host dropped the machine during the download" :
+			"the host dropped the machine");
+		return;
+	}
+	if (fetch.record_changed && fetch.state >= _fetch_asked)
+	{
+		fetch_finish("failed", "unavailable", "the host changed maps");
+		return;
+	}
+	if (fetch.state == _fetch_waiting_for_record)
+	{
+		if (fetch.record)
+			fetch_ask();
+		else if ((long)(now - fetch.state_time) > RECORD_TIMEOUT)
+			fetch_finish("failed", "timed out", "the host sent no game record");
+	}
+	else if (fetch.state == _fetch_asked)
+	{
+		if (fetch.offered)
+			fetch_connect();
+		else if ((long)(now - fetch.state_time) > OFFER_TIMEOUT)
+			fetch_finish("failed", "timed out", "the host did not answer the request in 30 seconds");
+	}
+	else if (fetch.state == _fetch_streaming)
+		fetch_stream(now);
+	if ((fetch.state == _fetch_asked || fetch.state == _fetch_streaming) && fetch.offered &&
+		(long)(fetch_now() - fetch.last_progress) >= PROGRESS_INTERVAL)
+	{
+		fetch_progress(MAP_SHARE_PROGRESS_DOWNLOADING);
+	}
+}
+
+/* ---------- public code: a player's download from the host */
+
+#ifdef HALO_HOST_MAP_DOWNLOADS
+boolean map_share_player_start(
+	char const *host,
+	char const *file,
+	unsigned long version)
+{
+	short fetching;
+
+	if (fetch.player || map_share_fetching() || !host || !host[0])
+		return FALSE;
+	/* (the network searching, as the screen's join has it: no game joined) */
+	if (network_game_client_map_fetch_state() < 0)
+		ui_online_games_start_network();
+	if (network_game_client_map_fetch_state() != 0)
+	{
+		platform_log("map download: the host can't be asked for %s.map: a game is joined", file);
+		return FALSE;
+	}
+	if (!map_download_host_begin(file, (unsigned int)version))
+		return FALSE;
+	fetching = fetch.fetching;
+	csmemset(&fetch, 0, sizeof(fetch));
+	fetch.fetching = fetching;
+	fetch.player = TRUE;
+	fetch.invite = TRUE;
+	snprintf(fetch.target, sizeof(fetch.target), "%s", host);
+	snprintf(fetch.wanted, sizeof(fetch.wanted), "%s", file);
+	fetch.maximum = map_download_host_limit();
+	fetch.started = fetch_now();
+	/* (the rejection of a join before this one forgotten) */
+	network_game_client_map_fetch_rejection();
+	platform_log("map download: joining the host's game to ask it for %s.map (no player)", file);
+	fetch_state(_fetch_joining);
+	return TRUE;
+}
+
+boolean map_share_player_busy(
+	void)
+{
+	return fetch.player;
+}
+
+void map_share_player_update(
+	void)
+{
+	unsigned long now;
+
+	if (!fetch.player)
+		return;
+	now = fetch_now();
+	if (fetch.state != _fetch_leaving && map_download_host_cancelled())
+	{
+		fetch.cancelled = TRUE;
+		fetch_finish("failed", "cancelled", "cancelled");
+	}
+	switch (fetch.state)
+	{
+	case _fetch_joining:
+		fetch_join(now);
+		break;
+	case _fetch_leaving:
+		/* (a moment for the last progress to reach the host, then the game
+		left: the network searching again, for the game to be joined) */
+		if ((long)(now - fetch.state_time) >= LEAVE_DELAY)
+		{
+			short fetching = fetch.fetching;
+
+			ui_online_games_start_network();
+			platform_log("map download: left the host's game");
+			csmemset(&fetch, 0, sizeof(fetch));
+			fetch.fetching = fetching;
+		}
+		break;
+	default:
+		fetch_joined_update(now);
+		break;
+	}
+}
+#endif
 
 boolean map_share_fetch_game_record(
 	char const *wire_level,
@@ -950,12 +1123,44 @@ boolean map_share_client_message(
 		}
 		fetch.size = map_share_get32(body + MAP_SHARE_OFFER_SIZE + 4);
 		csmemcpy(fetch.hash, body + MAP_SHARE_OFFER_SIZE + 8, MAP_SHARE_HASH_SIZE);
-		if (!fetch.size || fetch.size > MAP_LIMIT || map_share_hash_version(fetch.hash) != fetch.version)
+		if (fetch.size > MAP_LIMIT)
+		{
+			char text[160];
+
+			snprintf(text, sizeof(text), "the map is %lu MB, more than the %d MB any map may be", fetch.size >> 20,
+				MAP_LIMIT >> 20);
+			fetch_finish("failed", "too large", text);
+			return TRUE;
+		}
+		if (!fetch.size || map_share_hash_version(fetch.hash) != fetch.version)
 		{
 			fetch_finish("failed", "failed", "the host's offer was not of this map");
 			return TRUE;
 		}
 		fetch.offered = TRUE;
+#ifdef HALO_HOST_MAP_DOWNLOADS
+		/* (a player's: the blacklist, by the map hash offered, before a byte
+		of it comes; and the player's own size cap) */
+		if (fetch.player)
+		{
+			char reason[160], text[240];
+
+			if (map_download_host_refused(fetch.hash, reason, (int)sizeof(reason)))
+			{
+				snprintf(text, sizeof(text), "%s.map is on the blacklist: %s", fetch.wanted, reason);
+				fetch.blocked = TRUE;
+				fetch_finish("failed", "blocked", text);
+				return TRUE;
+			}
+			if (fetch.size > fetch.maximum)
+			{
+				snprintf(text, sizeof(text), "the map is %lu MB, more than the %lu MB you allow", fetch.size >> 20,
+					fetch.maximum >> 20);
+				fetch_finish("failed", "too large", text);
+				return TRUE;
+			}
+		}
+#endif
 		if (fetch.size > fetch.maximum)
 		{
 			fetch_finish("failed", "too large", "the map is larger than the size cap");

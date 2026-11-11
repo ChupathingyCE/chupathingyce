@@ -115,6 +115,10 @@ the entry's reason in reason (size bytes), else 0 */
 int map_repo_blocked(const unsigned char *sha256, const unsigned char *map_hash, long long now, char *reason,
 	int reason_size);
 
+/* whether an index is held, expired or not: its blacklist is in force (a
+map from a game's host is never downloaded without one) */
+int map_repo_index_held(void);
+
 /* whether the index held (unexpired, not halted) has the Custom Edition map
 name of the host's version (map_index_find) */
 int map_repo_has(const char *name, unsigned int version, long long now);

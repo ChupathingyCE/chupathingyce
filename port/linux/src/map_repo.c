@@ -604,6 +604,16 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 	return index_due || held;
 }
 
+int map_repo_index_held(void)
+{
+	int held;
+
+	pthread_mutex_lock(&map_repo_lock);
+	held = map_repo.index != NULL;
+	pthread_mutex_unlock(&map_repo_lock);
+	return held;
+}
+
 int map_repo_blocked(const unsigned char *sha256, const unsigned char *map_hash, long long now, char *reason,
 	int reason_size)
 {

@@ -229,6 +229,12 @@ SCREENS = {
              "Ask the router to forward the game's port.", NOT_CONSOLE),
             ("MAP DOWNLOADS:", "network.map_downloads", [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
              "Download missing Custom Edition maps.", NOT_CONSOLE),
+            # (port/linux/src/map_download.c, "From the host": its help is the
+            # disclaimer, the one place besides the download's own question
+            # where ALWAYS can be picked)
+            ("MAPS FROM HOSTS:", "network.map_downloads_from_host",
+             [("OFF", "off"), ("ASK", "ask"), ("ALWAYS", "always")],
+             "From the host, not us, and we haven't checked them.", "desktop android"),
             ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard",
              [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
              "Join a game from an invite link on the clipboard.", NOT_CONSOLE),

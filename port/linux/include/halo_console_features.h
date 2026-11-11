@@ -55,6 +55,12 @@ HALO_CONSOLE_NO_DELTA_IDENTITY
 	verified names in games (Delta Peer's identity capability, never
 	offered: "Verified names"): every console for now, until their own
 	endpoints come; the player key alone, and game names, as before
+HALO_CONSOLE_NO_HOST_MAP_DOWNLOADS
+	no Custom Edition map downloaded from a game's host, peer to peer
+	(network.map_downloads_from_host, port/linux/src/map_download.c "From
+	the host"): every console, which has no game list (HALO_GAME_BROWSER)
+	anyway; the desktops and Android have it, off until the player turns
+	it on
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads
@@ -455,6 +461,19 @@ console gets them sized to its limits later */
 server's, which has no player) */
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE) && !defined(HALO_SERVER)
 #define HALO_GUIDE 1
+#endif
+
+/* a missing Custom Edition map downloaded from the game's host, peer to
+peer, when the player allows it (network.map_downloads_from_host,
+port/linux/src/map_download.c "From the host", map_share_client.c): the
+game list's builds with a player (the desktops and Android), not the
+consoles nor the dedicated server, which downloads nothing */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_HOST_MAP_DOWNLOADS)
+#define HALO_CONSOLE_NO_HOST_MAP_DOWNLOADS 1
+#endif
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_HOST_MAP_DOWNLOADS) && !defined(HALO_SERVER)
+#define HALO_HOST_MAP_DOWNLOADS 1
 #endif
 
 /* the medals' icons (port/assets/medals, tools/medal_assets.py: the site's

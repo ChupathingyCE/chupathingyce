@@ -314,7 +314,7 @@ static int unpack_entry(const struct map_archive_io *io, int method, unsigned in
 }
 
 /* (a Windows device name, in any case, before the first '.': CON, PRN, AUX,
-NUL, COM1-COM9, LPT1-LPT9. Refused on every platform, since a map named so
+NUL, COM0-COM9, LPT0-LPT9. Refused on every platform, since a map named so
 here travels to players on Windows) */
 static int device_name(const char *name)
 {
@@ -340,7 +340,7 @@ static int device_name(const char *name)
 		}
 		return 0;
 	}
-	return (!strncmp(base, "COM", 3) || !strncmp(base, "LPT", 3)) && base[3] >= '1' && base[3] <= '9';
+	return (!strncmp(base, "COM", 3) || !strncmp(base, "LPT", 3)) && base[3] >= '0' && base[3] <= '9';
 }
 
 /* ---------- public code */

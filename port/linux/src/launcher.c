@@ -40,6 +40,7 @@ upload, which have threads of their own.
 #include "build_identity.h"
 #include "about.h"
 #include "settings_rows.h"
+#include "map_download.h"
 #include "update.h"
 
 #include <SDL3/SDL.h>
@@ -1398,6 +1399,21 @@ static void settings_rows_build(void)
 		break;
 	case _tab_network:
 		group_rows(SETTINGS_GROUP_NETWORK);
+		/* (network.map_downloads_from_host's: the disclaimer, the one place
+		besides the download's own question where "always" is picked) */
+		{
+			int index;
+
+			for (index = 0; index < launcher.row_count; index++)
+			{
+				if (launcher.rows[index].setting &&
+					!strcmp(settings_row_key(launcher.rows[index].setting), "network.map_downloads_from_host"))
+				{
+					snprintf(launcher.rows[index].help, sizeof(launcher.rows[index].help), "%s",
+						MAP_HOST_DISCLAIMER_SETTING);
+				}
+			}
+		}
 		break;
 	case _tab_paths:
 	{
