@@ -49,12 +49,16 @@ def test_rows_only_with_the_setting():
     assert '<child widget="chupathingy/main_menu_delta"' not in main_menu
     config = (ROOT / "port" / "linux" / "src" / "port_config.c").read_text()
     assert re.search(r'\{ "delta\.menu_item", _config_boolean, "false"', config)
+    # (on Android, on: a touch screen has no Guide button, so the rows are
+    # the way in there)
+    android = config[config.index("#ifdef HALO_ANDROID\n\t/* (a touch screen has no Guide button"):]
+    assert re.match(r'#ifdef HALO_ANDROID\n(\t/\*[^*]*\*/\n)\t\{ "delta\.menu_item", _config_boolean, "true"', android)
     assert re.search(r'\{ "delta\.hint_shown", _config_integer, "0"', config)
     menu_tags = (ROOT / "port" / "linux" / "game" / "menu_tags.c").read_text()
     offered = menu_tags[menu_tags.index("static boolean main_menu_delta_offered(void)"):]
     offered = offered[:offered.index("\n}\n")]
     assert 'config_boolean("delta.menu_item")' in offered
-    for patch in ("static void main_menu_delta_patch_gearbox(void)", "static void multiplayer_delta_patch_gearbox(void)"):
+    for patch in ("static void main_menu_delta_patch(void)", "static void multiplayer_delta_patch_gearbox(void)"):
         body = menu_tags[menu_tags.index(patch):]
         body = body[:body.index("\n}\n")]
         assert "main_menu_delta_offered()" in body, patch

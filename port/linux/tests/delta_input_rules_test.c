@@ -159,6 +159,13 @@ static void test_hint(void)
 	CHECK(!strcmp(text, "Press F4 for DELTA"));
 	delta_hint_text(text, sizeof(text), 0, "", 0, 0);
 	CHECK(!strcmp(text, "Press F3 for DELTA"));
+	/* (a Mac: never Guide, which macOS keeps) */
+	delta_hint_text_for(text, sizeof(text), 1, "\\", 1, 0, 1);
+	CHECK(!strcmp(text, "Press \\ for DELTA"));
+	delta_hint_text_for(text, sizeof(text), 1, "\\", 1, 1, 1);
+	CHECK(!strcmp(text, "Hold Back for DELTA"));
+	delta_hint_text_for(text, sizeof(text), 1, "F3", 1, 0, 0);
+	CHECK(!strcmp(text, "Press Guide for DELTA"));
 }
 
 int main(void)

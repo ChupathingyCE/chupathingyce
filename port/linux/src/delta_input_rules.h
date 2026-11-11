@@ -87,5 +87,8 @@ on), else "Press Guide for DELTA" (delta.delta_button on), else the
 keyboard's "Press F3 for DELTA"; key is the
 keyboard's key as its prompts show it (F3, or \ on a Mac) */
 void delta_hint_text(char *text, int size, int pad, const char *key, int guide_button, int hold_back);
+/* the same for a Mac (apple), where macOS often keeps the controller's Home
+button: Hold Back, else the keyboard's key, never Guide */
+void delta_hint_text_for(char *text, int size, int pad, const char *key, int guide_button, int hold_back, int apple);
 
 #endif

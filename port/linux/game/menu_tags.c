@@ -2334,7 +2334,7 @@ static boolean list_row_insert(struct ui_widget_definition *list, long at, long 
 before QUIT */
 #define CHUPATHINGY_MAIN_MENU_LIST "chupathingy/main_menu_list"
 
-static void main_menu_delta_patch_gearbox(void)
+static void main_menu_delta_patch(void)
 {
 	long list = widget_named(menus_chosen() == _menus_chupathingy ? CHUPATHINGY_MAIN_MENU_LIST : GEARBOX_MAIN_MENU_LIST);
 	long row = widget_named(DELTA_ROW);
@@ -2622,11 +2622,11 @@ void menu_tags_loaded(
 		host_setup_patch();
 	if (menus_chosen() == _menus_pc && !game_map)
 	{
-		main_menu_delta_patch_gearbox();
+		main_menu_delta_patch();
 		multiplayer_delta_patch_gearbox();
 	}
 	else if (menus_chosen() == _menus_chupathingy && !game_map)
-		main_menu_delta_patch_gearbox();
+		main_menu_delta_patch();
 	platform_log("menus: %ld widgets, %ld string lists and %ld bitmaps added to the map's %ld tags",
 		widget_count, own_lists + menus->string_list_count, menus->bitmap_count, build.first_index);
 	goto done;

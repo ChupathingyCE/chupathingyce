@@ -548,6 +548,8 @@ static struct
 	boolean debug_row_done;
 	/* debug.party_test's next step (its steps one after another) */
 	short debug_party_step;
+	/* the main menu's note counted as shown (it is once drawn) */
+	boolean toast_counted;
 	/* the toast's item (an invite's ID, a handle) and its sender's initial */
 	short toast_kind;
 	char toast_key[SOCIAL_INVITE_ID_SIZE];
@@ -1209,7 +1211,12 @@ static void setting_change(short setting, short direction)
 	}
 #endif
 	if (row)
+	{
 		settings_row_change(row, direction < 0 ? -1 : 1);
+		/* (the menus' DELTA rows are put in as the menus load) */
+		if (!strcmp(settings_row_key(row), "delta.menu_item"))
+			message_set("Takes effect next time the menus load");
+	}
 }
 
 /* SETTINGS' rows: the settings, then the devices' rows when signed in,
@@ -1745,6 +1752,7 @@ static void toast_from(short kind, char const *key, char const *title, char cons
 		guide.toast_initial[1] = 0;
 	}
 	guide.toast_kind = kind;
+	guide.toast_counted = FALSE;
 	social_copy_text(guide.toast_key, sizeof(guide.toast_key), key);
 	guide.toast_time = system_milliseconds();
 	guide.toast_shown = TRUE;
@@ -3159,15 +3167,19 @@ static void hint_update(boolean menu_open)
 	shown = (int)config_integer("delta.hint_shown");
 	if (delta_hint_due(shown, config_boolean("delta.menu_item")))
 	{
-		char key[DELTA_KEY_NAME_SIZE], title[64], count[16];
+		char key[DELTA_KEY_NAME_SIZE], title[64];
 
 		guide_key_shown(key, sizeof(key));
-		delta_hint_text(title, sizeof(title), !ui_overlay_keyboard(), key, config_boolean("controls.delta_button"),
-			config_boolean("delta.hold_back"));
+#ifdef __APPLE__
+		/* (macOS often keeps the controller's Home button) */
+		delta_hint_text_for(title, sizeof(title), !ui_overlay_keyboard(), key, config_boolean("controls.delta_button"),
+			config_boolean("delta.hold_back"), 1);
+#else
+		delta_hint_text_for(title, sizeof(title), !ui_overlay_keyboard(), key, config_boolean("controls.delta_button"),
+			config_boolean("delta.hold_back"), 0);
+#endif
+		/* (counted once it is drawn: render_toast) */
 		social_toast_push(&guide.toasts, _toast_hint, "hint", title, "Friends, party and settings", "");
-		snprintf(count, sizeof(count), "%d", shown + 1);
-		config_write("delta.hint_shown", count);
-		platform_log("DELTA: the main menu's note, %d of %d", shown + 1, DELTA_HINT_TIMES);
 	}
 }
 
@@ -4722,6 +4734,25 @@ static void render_toast(void)
 	ui_style_clock((unsigned int)system_milliseconds());
 	ui_style_glass(x, y, TOAST_WIDTH, TOAST_HEIGHT, 8, fade(ui_style_color(UI_COLOR_GLASS_TOP), share),
 		fade(COLOR_PANEL_EDGE, share));
+	/* the main menu's note: its words alone (they name the key), counted
+	once drawn (delta.hint_shown) */
+	if (guide.toast_kind == _toast_hint)
+	{
+		if (!guide.toast_counted)
+		{
+			char count[16];
+			int shown = (int)config_integer("delta.hint_shown") + 1;
+
+			guide.toast_counted = TRUE;
+			snprintf(count, sizeof(count), "%d", shown);
+			config_write("delta.hint_shown", count);
+			platform_log("DELTA: the main menu's note, %d of %d", shown, DELTA_HINT_TIMES);
+		}
+		ui_style_text_faded(UI_TEXT_NAME, share, x + 12, y + 5, UI_ALIGN_LEFT, guide.toast_title);
+		ui_style_text_faded(UI_TEXT_STATUS, share, x + 12, y + 20, UI_ALIGN_LEFT, guide.toast_line);
+		ui_overlay_layer(0);
+		return;
+	}
 	/* (a friend's: their initial on gold; else the player's own color) */
 	if (guide.toast_kind != _toast_none)
 	{

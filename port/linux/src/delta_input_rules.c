@@ -139,3 +139,8 @@ void delta_hint_text(char *text, int size, int pad, const char *key, int guide_b
 	else
 		snprintf(text, (size_t)size, "Press %s for DELTA", key && key[0] ? key : "F3");
 }
+
+void delta_hint_text_for(char *text, int size, int pad, const char *key, int guide_button, int hold_back, int apple)
+{
+	delta_hint_text(text, size, pad, key, guide_button && !apple, hold_back);
+}

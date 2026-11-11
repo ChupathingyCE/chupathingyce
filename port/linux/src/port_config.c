@@ -869,9 +869,19 @@ static const struct config_setting config_settings[] =
 		"Off by default: the Xbox's Back acts on press." },
 	{ "delta.pause_menu", _config_boolean, "true", "HALO_DELTA_PAUSE_MENU", _environment_value, _platform_all,
 		"Put DELTA in the pause menu, in every menu set." },
+#ifdef HALO_ANDROID
+	/* (a touch screen has no Guide button, and its controls hide in the
+	menus: the rows are the way in there) */
+	{ "delta.menu_item", _config_boolean, "true", "HALO_DELTA_MENU_ITEM", _environment_value, _platform_all,
+		"Put DELTA on the main menu and the Multiplayer menu, in every menu\n"
+		"set. On by default on Android, where a touch screen has no Guide\n"
+		"button. Takes effect the next time the menus load." },
+#else
 	{ "delta.menu_item", _config_boolean, "false", "HALO_DELTA_MENU_ITEM", _environment_value, _platform_all,
 		"Put DELTA on the main menu and the Multiplayer menu, in every menu\n"
-		"set. Off by default: a note on the main menu says how to open it." },
+		"set. Off by default: a note on the main menu says how to open it.\n"
+		"Takes effect the next time the menus load." },
+#endif
 	{ "delta.hint_shown", _config_integer, "0", "HALO_DELTA_HINT_SHOWN", _environment_value, _platform_all,
 		"How many times the main menu has said how to open DELTA (it says so\n"
 		"three times, then no more)." },
