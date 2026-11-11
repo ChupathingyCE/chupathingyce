@@ -138,6 +138,8 @@ static const struct settings_row settings_rows[] =
 	{ _in_network, "UPNP PORT FORWARDING", "network.allow_upnp", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "PROTOCOL", "network.protocol", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "MAP DOWNLOADS", "network.map_downloads", _kind_words, NULL, NULL, 0, 0 },
+	/* (the setup screen's help line for it is the disclaimer: launcher.c) */
+	{ _in_network, "MAPS FROM HOSTS", "network.map_downloads_from_host", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "LIST MY GAMES", "network.list_hosted_games", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "HOSTED GAME STATS", "network.report_hosted_games", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "JOINED GAME STATS", "network.report_joined_games", _kind_toggle, NULL, NULL, 0, 0 },

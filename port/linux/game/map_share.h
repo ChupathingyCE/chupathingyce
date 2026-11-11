@@ -16,7 +16,10 @@ over a TCP stream to the host's port 5153.
   map bot's: a headless run joins one host as a machine with no player,
   reads the map's name and version from the game record, asks for the map
   file alone, downloads it from the host alone, writes it and a result,
-  leaves and quits.
+  leaves and quits. The same fetch is a player's download of a missing map
+  from the host (map_share_player_start), into the quarantine folder, when
+  network.map_downloads_from_host allows it (port/linux/src/map_download.c,
+  "From the host").
 - map_share_wire.c: what both write and read.
 
 A build that does not know 83 to 86 drops them, as ours did (network_
@@ -137,5 +140,20 @@ if the fetch took it */
 boolean map_share_client_message(void const *message, long size, boolean reliable);
 /* the fetch's machine's name (network_game_manager.c) */
 char const *map_share_fetch_machine_name(void);
+
+#ifdef HALO_HOST_MAP_DOWNLOADS
+/* a player's download of the map file (its file's name, the advertised
+map's) of the host's version from the host (host: its invite, or its
+identifier, as network_game_client_join_invite_host takes them), the
+network searching and the game not joined: TRUE if it began (its progress
+map_download_get's). The game is joined as a machine with no player, and
+left again once the file is whole or the download failed */
+boolean map_share_player_start(char const *host, char const *file, unsigned long version);
+/* whether one is under way (until the game is left) */
+boolean map_share_player_busy(void);
+/* each frame while one is (browser_screen_host_download_update's, from the
+main loop) */
+void map_share_player_update(void);
+#endif
 
 #endif

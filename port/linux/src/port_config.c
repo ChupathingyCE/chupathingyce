@@ -1024,6 +1024,19 @@ static const struct config_setting config_settings[] =
 		"\"ask\", \"always\" or \"never\". \"never\" downloads no maps, but the\n"
 		"blacklist of maps that crash games is still fetched and checked (see\n"
 		"network.maps_url)." },
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	{ "network.map_downloads_from_host", _config_string, "\"off\"", "HALO_NET_MAP_DOWNLOADS_FROM_HOST",
+		_environment_value, _platform_all,
+		"When neither the community repositories nor Chupathingy maps have a\n"
+		"missing Custom Edition map, get it from the game's host: \"off\" (the\n"
+		"default), \"ask\" each time, or \"always\". Maps from hosts come\n"
+		"straight from them, not from us, and we haven't checked them. Turn\n"
+		"this on only if you're OK with that. Blocked maps stay blocked, and\n"
+		"no map comes from a host until the blacklist is loaded." },
+	{ "network.map_downloads_from_host_limit", _config_integer, "512", "HALO_NET_MAP_DOWNLOADS_FROM_HOST_LIMIT",
+		_environment_value, _platform_all,
+		"The largest map taken from a game's host, in MB: 16 to 768." },
+#endif
 	{ "network.maps_url", _config_string, "\"https://maps.chupathingy.org\"", "HALO_NET_MAPS_URL", _environment_value,
 		_platform_all,
 		"Chupathingy maps, where a missing map is looked for when the community\n"
@@ -1177,14 +1190,15 @@ static const struct config_setting config_settings[] =
 		"Send the stats of games you host to the game list." },
 	{ "network.map_share", _config_boolean, "false", "HALO_NET_MAP_SHARE", _environment_value,
 		_platform_all | _platform_server,
-		"Dedicated servers: hand the Custom Edition map the game is on to\n"
-		"players who join without it and ask (map sharing, over TCP port\n"
-		"5153). Only the map file the game is on now, only to machines in\n"
-		"the game. A game you host from the menus never shares, for now." },
+		"Hand the Custom Edition map your game is on to players who join\n"
+		"without it and ask (map sharing, over TCP port 5153): a dedicated\n"
+		"server's game or one you host from the menus. Only the map file the\n"
+		"game is on now, only to machines in the game." },
 	{ "network.map_share_upload", _config_integer, "1024", "HALO_NET_MAP_SHARE_UPLOAD", _environment_value,
 		_platform_all | _platform_server,
 		"The most map sharing sends, in KB a second, for everyone downloading\n"
-		"together: 16 to 20480." },
+		"together: 16 to 20480. A game you host from the menus sends 256 unless\n"
+		"you set it." },
 #endif
 	/* (a console's reports of the games it joins too: port/console/reports) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
@@ -3996,6 +4010,9 @@ static const struct
 	{ "game.move_old_map_folders", { "ask", "yes", "no", NULL }, "\"ask\"" },
 	{ "network.protocol", { "auto", "opence", "delta", NULL }, NULL },
 	{ "network.map_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	{ "network.map_downloads_from_host", { "off", "ask", "always", NULL }, "\"off\"" },
+#endif
 	{ "network.playlist_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
 	{ "network.join_from_clipboard", { "ask", "always", "never", NULL }, "\"never\"" },
 	{ "network.team_change", { "off", "balanced", "allow", NULL }, "\"off\"" },

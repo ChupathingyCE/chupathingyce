@@ -35,10 +35,13 @@ def test_host_clamps_upload_and_reads_its_setting():
     assert "kilobytes < 16 ? 16 : kilobytes > 20480 ? 20480 : kilobytes" in host
 
 
-def test_dedicated_servers_only_and_a_512_mb_fetch_cap():
-    # listen hosts never share for now, whatever the setting says
+def test_listen_hosts_share_as_servers_do_and_a_512_mb_fetch_cap():
+    # a dedicated server's game and a game hosted from the menus alike, as
+    # the setting says (off by default)
     host = (GAME / "map_share_host.c").read_text(encoding="utf-8")
-    assert 'return browser_dedicated() && config_boolean("network.map_share") != 0;' in host
+    assert 'return config_boolean("network.map_share") != 0;' in host
+    sharing = host[host.index("static boolean host_sharing("):]
+    assert "browser_dedicated" not in sharing[:sharing.index("\n}\n")]
     # the bot takes at most 512 MB
     client = (GAME / "map_share_client.c").read_text(encoding="utf-8")
     assert "MIN(maximum, 512)) << 20;" in client

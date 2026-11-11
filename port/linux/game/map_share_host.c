@@ -2,7 +2,8 @@
 MAP_SHARE_HOST.C
 
 The host's side of map sharing (map_share.h, port/linux/README.md, "Map sharing"), behind
-network.map_share (off by default; the host's call):
+network.map_share (off by default; the host's call), for a dedicated
+server's game and a game hosted from the menus alike:
 
 - a request (83) is taken only over the stream of a machine that joined
   the game (in the lobby or in a game in progress, loaded or not), one a
@@ -19,7 +20,8 @@ network.map_share (off by default; the host's call):
   addresses of the game's machines, at most 15 at once, 4 from one address,
   8 that have not said hello; a piece is read when asked for and sent in
   16 KiB blocks out of one token bucket for all of them
-  (network.map_share_upload KB/s, 16 to 20480);
+  (network.map_share_upload KB/s, 16 to 20480; a game hosted from the
+  menus 256 unless the setting is chosen);
 - a machine that is downloading (its request answered, not done or failed,
   heard from in the last 20 seconds, sent a piece's worth of bytes by this
   host in the last 80, and within its map's size at 16 KB a second plus two
@@ -50,6 +52,8 @@ log_address (a tag for a public one).
 /* the platform layer's */
 int config_boolean(char const *name);
 long config_integer(char const *name);
+int config_chosen(char const *name);
+int browser_dedicated(void);
 void platform_log(char const *format, ...);
 const char *log_address(const unsigned char *bytes, int length, int port, char *text, int size);
 int map_archive_stock_name(const char *name);
@@ -79,6 +83,9 @@ enum
 	DOWNLOADERS = 8,
 	DOWNLOADERS_PER_ADDRESS = 2,
 	SOURCES_INTERVAL = 10000,
+	/* a listen host's upload, in KB a second, unless network.map_share_upload
+	is chosen (a dedicated server's default is the setting's, 1024) */
+	LISTEN_HOST_UPLOAD = 256,
 	LISTEN_RETRY = 10000,
 
 	STREAMS = 15,
@@ -186,8 +193,6 @@ static struct
 	short next_stream;
 } host;
 
-int browser_dedicated(void);
-
 /* ---------- private code */
 
 static unsigned long host_now(
@@ -198,18 +203,23 @@ static unsigned long host_now(
 	return now ? now : 1;
 }
 
-/* dedicated servers only for now: a listen host (a player's own game) never
-shares, whatever network.map_share says; listen hosts may come later */
+/* a dedicated server's game, or a game hosted from the menus (a listen
+host), alike: network.map_share says, off by default, with the same limits */
 static boolean host_sharing(
 	void)
 {
-	return browser_dedicated() && config_boolean("network.map_share") != 0;
+	return config_boolean("network.map_share") != 0;
 }
 
 static double host_upload_rate(
 	void)
 {
 	long kilobytes = config_integer("network.map_share_upload");
+
+	/* (a game hosted from the menus shares the player's own upload with
+	their play: LISTEN_HOST_UPLOAD unless the setting is chosen) */
+	if (!browser_dedicated() && !config_chosen("network.map_share_upload"))
+		kilobytes = LISTEN_HOST_UPLOAD;
 
 	return 1024.0 * (double)(kilobytes < 16 ? 16 : kilobytes > 20480 ? 20480 : kilobytes);
 }
