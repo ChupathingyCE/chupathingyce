@@ -158,6 +158,11 @@ enum
 	failure after, to MAXIMUM_RETRY_INTERVAL */
 	RETRY_INTERVAL = 15000,
 	MAXIMUM_RETRY_INTERVAL = 120000,
+	/* a connection the broker took (CONNACK) clears the failures only once
+	it has lasted this long: one it drops at once (a limit on connections,
+	a will or subscription it refuses) is tried less and less often, not
+	again every RETRY_INTERVAL for ever (#1009) */
+	STABLE_CONNECTION_TIME = 60000,
 	/* a publish at least once not acknowledged is sent again */
 	RESEND_INTERVAL = 5000,
 	KEEP_ALIVE_SECONDS = 60,
@@ -260,6 +265,8 @@ struct broker
 	unsigned long sent_time;
 	unsigned long heard_time;
 	int failures;
+	/* when its CONNACK came (STABLE_CONNECTION_TIME) */
+	unsigned long ready_time;
 	unsigned short packet_identifier;
 	/* 5 (MQTT 5), or 4 (3.1.1: the broker refused 5) */
 	int protocol;
@@ -871,6 +878,9 @@ static void broker_connect(struct broker *broker)
 			return;
 		}
 	}
+	/* (never a second connection over one still open) */
+	if (broker->socket >= 0)
+		posix_socket_close(broker->socket);
 	broker->socket = posix_socket(AF_INET, SOCK_STREAM, 0);
 	if (broker->socket < 0)
 	{
@@ -1610,7 +1620,7 @@ static int broker_acknowledged(struct broker *broker, const unsigned char *body,
 		}
 	}
 	broker->state = _broker_ready;
-	broker->failures = 0;
+	broker->ready_time = p2p_now();
 	broker->publish_tokens = PUBLISH_BURST;
 	broker->publish_time = p2p_now();
 	broker_sync_topics(broker);
@@ -2006,6 +2016,8 @@ void p2p_signal_update(const int *read, int read_count, const int *write, int wr
 			broker_readable(broker);
 		if (broker->state != _broker_ready)
 			continue;
+		if (broker->failures && elapsed(broker->ready_time, STABLE_CONNECTION_TIME))
+			broker->failures = 0;
 		if (elapsed(broker->heard_time, (unsigned long)broker->keep_alive * 1500 > SILENCE_TIMEOUT ?
 			(unsigned long)broker->keep_alive * 1500 : SILENCE_TIMEOUT))
 		{

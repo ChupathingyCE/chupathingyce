@@ -51,6 +51,7 @@ frame a tick) nothing is behind.
 #include "camera/director.h"
 #include "camera/observer.h"
 #include "cutscene/cinematics.h"
+#include "game/game.h"
 #include "game/players.h"
 #include "effects/particles.h"
 #include "render/render_cameras.h"
@@ -100,6 +101,15 @@ vehicle is corrected by (3 and 4 world units), short of a snap */
 /* a camera cut: a jump or turn no player or scripted camera makes in 33 ms */
 #define CAMERA_CUT_DISTANCE 3.0f
 #define CAMERA_CUT_COSINE 0.5f
+/* another player's flashlight (render_interpolation_flashlight): the
+flashlights followed at once, the time a beam takes to come most of the way
+(two thirds) to where its unit points it, in ticks, and how far it may turn
+from one frame to the next before it is put there at once (a respawn) */
+#define SMOOTHED_FLASHLIGHT_COUNT 32
+#define SMOOTHED_FLASHLIGHT_TICKS 1.0f
+#define SMOOTHED_FLASHLIGHT_SNAP_COSINE 0.5f
+/* ... and how long one may go undrawn before it starts again where it is */
+#define SMOOTHED_FLASHLIGHT_FORGET_TICKS 15
 /* an object function's change in one tick past which it is a jump (a
 sawtooth starting over, a square wave, a function switched on or off), not
 a sweep: drawn at once, as at 30 Hz */
@@ -161,6 +171,18 @@ struct interpolated_camera
 	struct observer_result previous;
 	struct observer_result latest;
 	struct observer_result blended;
+	/* how far into the next tick the game clock was when each was taken */
+	real previous_fraction;
+	real latest_fraction;
+	/* where each was centered (observer_get_focus), and whether the latest
+	glided there */
+	real_point3d previous_focus;
+	real_point3d latest_focus;
+	boolean focus_glides;
+	/* the director's perspective at each (a change between them, first
+	person to a scripted view or back, is a cut for the focus) */
+	short previous_perspective;
+	short latest_perspective;
 	/* its player's unit (or what it rides) corrected: as an object's */
 	real_vector3d correction;
 	real_vector3d correction_pending;
@@ -212,6 +234,21 @@ struct later_particle
 
 static struct later_particle later_particles[MAXIMUM_LATER_PARTICLES];
 static short later_particle_count;
+#endif
+
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+/* other players' flashlights' beams as drawn (render_interpolation_flashlight) */
+struct smoothed_flashlight
+{
+	long light_index; /* NONE when unused */
+	long tick;
+	real fraction;
+	real_vector3d forward;
+	real_vector3d up;
+};
+
+static struct smoothed_flashlight smoothed_flashlights[SMOOTHED_FLASHLIGHT_COUNT];
+static boolean smoothed_flashlights_ready;
 #endif
 
 static long interpolation_frame;
@@ -593,6 +630,11 @@ void render_interpolation_reset(void)
 			interpolated_objects[index].object_index = NONE;
 	}
 	memset(interpolated_cameras, 0, sizeof(interpolated_cameras));
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+	/* (the flashlights followed are the last map's, their lights' indices
+	another map's lights now) */
+	smoothed_flashlights_ready = FALSE;
+#endif
 #ifndef HALO_CONSOLE_NO_PARTICLE_STREAMS
 	/* (the particles held back are the last map's) */
 	later_particle_count = 0;
@@ -851,6 +893,110 @@ void render_interpolation_object_point(long object_index, real_point3d *point)
 	matrix4x3_transform_point(&drawn[0], &local, point);
 }
 
+/* ---------- flashlights */
+
+/* Another player's flashlight in a network game (lights_preprocess_scene),
+its beam's direction as drawn. Their unit turns as their input comes in, the
+host's from a client or the client's relayed by the host, and that comes a
+tick late now and then, as the clocks and the network have it: the unit
+stands still for a tick and turns twice as far the next. The pose blended
+between the ticks shows that as a hitch, small on the model, but the beam
+swings it across the walls, a tick's stop and a jump every few ticks while
+they look around. The beam follows where their unit points it a little
+behind (two thirds of the way in a tick, SMOOTHED_FLASHLIGHT_TICKS), which
+evens those out. Only the beam drawn: the light the game keeps, its unit and
+what the netcode sends are as they were. This machine's own players' lights,
+and every light in a game on this machine alone or a saved film, are left
+as they are. */
+void render_interpolation_flashlight(
+	long light_index,
+	long unit_index,
+	real_vector3d *forward,
+	real_vector3d *up)
+{
+#ifdef HALO_CONSOLE_VIEW_INTERPOLATION
+	(void)light_index;
+	(void)unit_index;
+	(void)forward;
+	(void)up;
+#else
+	struct smoothed_flashlight *smoothed = NULL;
+	struct smoothed_flashlight *oldest = NULL;
+	real elapsed;
+	short index;
+
+	if (!interpolation_rendering ||
+		(game_connection() != _game_connection_network_client &&
+			game_connection() != _game_connection_network_server) ||
+		unit_get_local_player_index(unit_index) != NONE)
+	{
+		return;
+	}
+	if (!smoothed_flashlights_ready)
+	{
+		for (index = 0; index < SMOOTHED_FLASHLIGHT_COUNT; index++)
+			smoothed_flashlights[index].light_index = NONE;
+		smoothed_flashlights_ready = TRUE;
+	}
+	for (index = 0; index < SMOOTHED_FLASHLIGHT_COUNT && !smoothed; index++)
+	{
+		struct smoothed_flashlight *entry = &smoothed_flashlights[index];
+
+		if (entry->light_index == light_index)
+			smoothed = entry;
+		else if (!oldest || entry->light_index == NONE ||
+			(oldest->light_index != NONE && entry->tick < oldest->tick))
+		{
+			oldest = entry;
+		}
+	}
+	elapsed = smoothed ?
+		(real)(interpolation_tick - smoothed->tick) + interpolation_fraction - smoothed->fraction :
+		0.0f;
+	/* (a light new here, one not drawn for a while, a clock gone back, a
+	turn no one makes between two frames: from where it points now; so
+	written that a direction not a number starts again too) */
+	if (!smoothed || !(elapsed >= 0.0f) || elapsed > (real)SMOOTHED_FLASHLIGHT_FORGET_TICKS ||
+		!(smoothed->forward.i * forward->i + smoothed->forward.j * forward->j + smoothed->forward.k * forward->k >=
+			SMOOTHED_FLASHLIGHT_SNAP_COSINE))
+	{
+		if (!smoothed)
+			smoothed = oldest;
+		smoothed->light_index = light_index;
+		smoothed->forward = *forward;
+		smoothed->up = *up;
+	}
+	else if (elapsed > 0.0f)
+	{
+		real along = 1.0f - (real)exp(-elapsed / SMOOTHED_FLASHLIGHT_TICKS);
+		real square;
+
+		vector_nlerp(&smoothed->forward, forward, along, &smoothed->forward);
+		vector_nlerp(&smoothed->up, up, along, &smoothed->up);
+		/* (up kept square to forward) */
+		square = smoothed->up.i * smoothed->forward.i + smoothed->up.j * smoothed->forward.j +
+			smoothed->up.k * smoothed->forward.k;
+		smoothed->up.i -= smoothed->forward.i * square;
+		smoothed->up.j -= smoothed->forward.j * square;
+		smoothed->up.k -= smoothed->forward.k * square;
+		if (vector_length(&smoothed->up) > 1e-3f)
+		{
+			real length = vector_length(&smoothed->up);
+
+			smoothed->up.i /= length;
+			smoothed->up.j /= length;
+			smoothed->up.k /= length;
+		}
+		else
+			smoothed->up = *up;
+	}
+	smoothed->tick = interpolation_tick;
+	smoothed->fraction = interpolation_fraction;
+	*forward = smoothed->forward;
+	*up = smoothed->up;
+#endif
+}
+
 /* ---------- corrections */
 
 /* the object (and what it carries) moved by the netcode from where it was,
@@ -921,6 +1067,10 @@ void render_interpolation_correct_object(long object_index, real_vector3d const 
 /* ---------- camera */
 
 static struct observer_result direct_cameras[MAXIMUM_LOCAL_PLAYERS];
+/* the frame each local player's view was last turned to where they aim
+(render_interpolation_direct_camera), and the view it was turned from */
+static long direct_camera_frames[MAXIMUM_LOCAL_PLAYERS];
+static struct observer_result direct_camera_from[MAXIMUM_LOCAL_PLAYERS];
 
 static struct observer_result const *render_interpolation_blended_camera(
 	short local_player_index,
@@ -967,7 +1117,85 @@ static struct observer_result const *render_interpolation_direct_camera(
 	*direct = *observer;
 	player_control_get_facing_direction(local_player_index, &direct->forward);
 	observer_up_from_forward(&direct->forward, &direct->up);
+	direct_camera_from[local_player_index] = *observer;
+	direct_camera_frames[local_player_index] = interpolation_frame;
 	return direct;
+}
+
+/* a vector given in the from view's axes (forward, left, up), put in the to
+view's */
+static void view_turn_vector(
+	struct observer_result const *from,
+	struct observer_result const *to,
+	real_vector3d *vector)
+{
+	real_vector3d from_left, to_left;
+	real along_forward, along_left, along_up;
+
+	from_left.i = from->up.j * from->forward.k - from->up.k * from->forward.j;
+	from_left.j = from->up.k * from->forward.i - from->up.i * from->forward.k;
+	from_left.k = from->up.i * from->forward.j - from->up.j * from->forward.i;
+	to_left.i = to->up.j * to->forward.k - to->up.k * to->forward.j;
+	to_left.j = to->up.k * to->forward.i - to->up.i * to->forward.k;
+	to_left.k = to->up.i * to->forward.j - to->up.j * to->forward.i;
+	along_forward = vector->i * from->forward.i + vector->j * from->forward.j + vector->k * from->forward.k;
+	along_left = vector->i * from_left.i + vector->j * from_left.j + vector->k * from_left.k;
+	along_up = vector->i * from->up.i + vector->j * from->up.j + vector->k * from->up.k;
+	vector->i = along_forward * to->forward.i + along_left * to_left.i + along_up * to->up.i;
+	vector->j = along_forward * to->forward.j + along_left * to_left.j + along_up * to->up.j;
+	vector->k = along_forward * to->forward.k + along_left * to_left.k + along_up * to->up.k;
+}
+
+/* A local player's own flashlight that no first-person weapon carries
+(empty-handed, or holding a flag or the oddball, which have no flashlight
+marker: first_person_weapon_center_flashlight) is on their unit's head as
+drawn, a tick behind, while the view turns with the mouse every frame
+(display.direct_camera). Between the ticks the beam fell behind the view and
+caught up again at each tick, so it shook on the screen as they looked
+around. It is turned with the view: where it was against the view the unit
+is drawn with, it is against the view drawn (lights_preprocess_scene). Left
+as it is when the view isn't turned so (a vehicle, a cinematic, third
+person, interpolation off) and on a console that only smooths the view. */
+void render_interpolation_view_turn(
+	long unit_index,
+	real_point3d *position,
+	real_vector3d *forward,
+	real_vector3d *up)
+{
+#ifdef HALO_CONSOLE_VIEW_INTERPOLATION
+	/* (a console that only smooths the view: its view between the ticks is
+	the eased one, not the unit's as drawn, and the beam stays as retail
+	had it) */
+	(void)unit_index;
+	(void)position;
+	(void)forward;
+	(void)up;
+#else
+	short local_player_index;
+	struct observer_result const *from;
+	struct observer_result const *to;
+	real_vector3d offset;
+
+	if (!interpolation_rendering || unit_index == NONE)
+		return;
+	local_player_index = unit_get_local_player_index(unit_index);
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_LOCAL_PLAYERS ||
+		direct_camera_frames[local_player_index] != interpolation_frame)
+	{
+		return;
+	}
+	from = &direct_camera_from[local_player_index];
+	to = &direct_cameras[local_player_index];
+	offset.i = position->x - from->position.x;
+	offset.j = position->y - from->position.y;
+	offset.k = position->z - from->position.z;
+	view_turn_vector(from, to, &offset);
+	position->x = to->position.x + offset.i;
+	position->y = to->position.y + offset.j;
+	position->z = to->position.z + offset.k;
+	view_turn_vector(from, to, forward);
+	view_turn_vector(from, to, up);
+#endif
 }
 
 struct observer_result const *render_interpolation_camera(
@@ -1021,6 +1249,56 @@ static boolean observer_cut(
 	return !(distance_squared(&a->position, &b->position) <= CAMERA_CUT_DISTANCE * CAMERA_CUT_DISTANCE) ||
 		!(a->forward.i * b->forward.i + a->forward.j * b->forward.j + a->forward.k * b->forward.k >= CAMERA_CUT_COSINE);
 }
+
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+/* Two snapshots whose times can be told apart: each taken while the clock
+ran (a paused or stopped clock gives a whole tick, 1.0, at every frame) and
+far enough apart. Written so a fraction or a gap not a number fails. */
+static boolean camera_snapshot_times_usable(
+	real previous_fraction,
+	real latest_fraction,
+	real apart,
+	real least_apart)
+{
+	return previous_fraction < 1.0f && latest_fraction < 1.0f && apart > least_apart;
+}
+
+/* how far from the previous snapshot to the latest the camera is drawn at
+the fraction t, by the times the snapshots were taken (the timed blend in
+render_interpolation_blended_camera); by the fraction alone when their times
+can't be told apart, so the camera never stops for a tick after a pause and
+is never drawn at a division by nothing */
+static real camera_timed_fraction(
+	real t,
+	real previous_fraction,
+	real latest_fraction)
+{
+	real apart = 1.0f + latest_fraction - previous_fraction;
+
+	if (!camera_snapshot_times_usable(previous_fraction, latest_fraction, apart, 0.05f))
+	{
+		return t;
+	}
+	return PIN((t - previous_fraction) / apart, -0.5f, 1.0f);
+}
+
+/* after a long frame (ticks since the last snapshot), how far from the
+last snapshot to the latest the camera stood a tick before the latest */
+static real camera_long_frame_along(
+	real ticks,
+	real previous_fraction,
+	real latest_fraction)
+{
+	real apart = ticks + latest_fraction - previous_fraction;
+
+	if (!camera_snapshot_times_usable(previous_fraction, latest_fraction, apart, 1.0f))
+	{
+		return (ticks - 1.0f) / ticks;
+	}
+	return (apart - 1.0f) / apart;
+}
+
+#endif
 
 static struct observer_result const *render_interpolation_blended_camera(
 	short local_player_index,
@@ -1096,6 +1374,12 @@ static struct observer_result const *render_interpolation_blended_camera(
 		camera->has_previous = camera->valid;
 		camera->previous = camera->latest;
 		camera->latest = *observer;
+		camera->previous_fraction = camera->latest_fraction;
+		camera->latest_fraction = t;
+		camera->previous_focus = camera->latest_focus;
+		camera->focus_glides = observer_get_focus(local_player_index, &camera->latest_focus);
+		camera->previous_perspective = camera->latest_perspective;
+		camera->latest_perspective = (short)director_get_perspective(local_player_index);
 		/* Several ticks since the last snapshot (a long frame): the objects
 		are drawn between the last two ticks, so the camera's previous is
 		where it was a tick ago, as nearly as a steady move from the last
@@ -1107,8 +1391,18 @@ static struct observer_result const *render_interpolation_blended_camera(
 		{
 			real ticks = (real)(interpolation_tick - camera->tick);
 			struct observer_result previous = camera->previous;
+			real_point3d previous_focus = camera->previous_focus;
+			real along = (ticks - 1.0f) / ticks;
 
-			observer_blend(&previous, &camera->latest, (ticks - 1.0f) / ticks, &camera->previous);
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+			/* (the snapshots taken that far apart in time, parts of a tick
+			included: see the timed blend below) */
+			along = camera_long_frame_along(ticks, camera->previous_fraction, camera->latest_fraction);
+#endif
+			observer_blend(&previous, &camera->latest, along, &camera->previous);
+			camera->previous_fraction = camera->latest_fraction;
+			/* (where it is centered moves once a tick) */
+			point_lerp(&previous_focus, &camera->latest_focus, (ticks - 1.0f) / ticks, &camera->previous_focus);
 		}
 		camera->tick = interpolation_tick;
 		camera->valid = TRUE;
@@ -1118,7 +1412,52 @@ static struct observer_result const *render_interpolation_blended_camera(
 		return observer;
 	}
 
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+	/* What moves the camera every frame rather than once a tick (a
+	cutscene's camera animation, a camera point it glides to, the player's
+	facing that turns a vehicle's or a third-person view) is in each
+	snapshot as it was at the frame taken: part of a frame into the tick, a
+	different part each tick. Blended by the fraction alone, it ran ahead
+	one tick and fell back the next, so a cutscene camera moved unevenly
+	and a view turned fast in a vehicle jittered at high frame rates.
+	Blended by the times the snapshots were taken, it is drawn where it was
+	a tick before the frame, as the objects are. Where the camera is
+	centered (the unit it follows) moves once a tick, unless it glides
+	there, and is blended by the fraction, as the objects. A third-person or
+	vehicle view's position stays between its two snapshots (its facing may
+	run a little before the earlier one): both were kept off the walls by the
+	camera's collision, and a point past them could be inside one. Snapshots
+	taken in different perspectives (first person to a scripted view) are
+	not centered on the same thing, so the focus isn't blended between them. */
+	{
+		director_perspective perspective = director_get_perspective(local_player_index);
+		real timed = camera_timed_fraction(t, camera->previous_fraction, camera->latest_fraction);
+		real placed = timed;
+
+		observer_blend(&camera->previous, &camera->latest, timed, &camera->blended);
+		if (perspective != _director_perspective_scripted)
+		{
+			real_point3d focus_at_fraction, focus_at_time;
+
+			camera->blended.field_of_view = lerp(camera->previous.field_of_view, camera->latest.field_of_view, t);
+			if (perspective == _director_perspective_third_person)
+			{
+				placed = PIN(timed, 0.0f, 1.0f);
+				point_lerp(&camera->previous.position, &camera->latest.position, placed, &camera->blended.position);
+			}
+			if (!camera->focus_glides && camera->previous_perspective == camera->latest_perspective)
+			{
+				point_lerp(&camera->previous_focus, &camera->latest_focus, t, &focus_at_fraction);
+				point_lerp(&camera->previous_focus, &camera->latest_focus, placed, &focus_at_time);
+				camera->blended.position.x += focus_at_fraction.x - focus_at_time.x;
+				camera->blended.position.y += focus_at_fraction.y - focus_at_time.y;
+				camera->blended.position.z += focus_at_fraction.z - focus_at_time.z;
+			}
+		}
+	}
+#else
 	observer_blend(&camera->previous, &camera->latest, t, &camera->blended);
+#endif
 	if (correction_significant(&camera->correction) || correction_significant(&camera->correction_pending))
 	{
 		real_vector3d drawn;

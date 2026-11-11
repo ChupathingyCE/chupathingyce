@@ -33,7 +33,7 @@ If your copy is linked to a Delta profile and you share it (`share_profile`), yo
 
 If your copy is linked to a Delta profile, your profile shows which game you're playing. While you're in a Delta game, your game tells stats.chupathingy.org which game it is, about once a minute: your player key and the game's invite, nothing about other players. The site shows that game (its name, map and player count) only to the people you allow, and the invite itself only to people allowed to join you. It keeps this in memory for a few minutes and never stores your address. Nothing is sent from the menus, or for a game whose host doesn't run Delta.
 
-To stop it, turn off SHOW WHEN I'M PLAYING in DELTA's SETTINGS (F3), set `share_presence = false` under `[network]` in `config.toml`, or turn off "Show when I'm playing" on your profile's Privacy page on the site.
+To stop it, turn off SHOW WHEN I'M PLAYING in the Delta Guide's SETTINGS (F3), set `share_presence = false` under `[network]` in `config.toml`, or turn off "Show when I'm playing" on your profile's Privacy page on the site.
 
 ## The doorbell
 
