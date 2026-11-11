@@ -21,8 +21,12 @@ enum
 	UI_FONT_REGULAR,
 	UI_FONT_BOLD,
 	/* the menus' faces: their text's (the fonts of ui\large_ui and
-	ui\small_ui, fonts.json) and their titles' (OpenCE). A character they
-	lack is drawn in Noto Sans Bold */
+	ui\small_ui, fonts.json: Cyborg Interface Gothic) and their titles'
+	(as the menus' title pictures: Chupathingy Titles, or Cyborg Interface
+	Gothic when display.title_font is "cyborg", drawn at the same capital
+	height and baseline). A character they lack is drawn in Noto Sans Bold.
+	UI_FONT_REGULAR and UI_FONT_BOLD are Noto Sans itself: no screen draws
+	its text in them, which would show the player another face */
 	UI_FONT_MENU,
 	UI_FONT_MENU_SMALL,
 	UI_FONT_TITLE,

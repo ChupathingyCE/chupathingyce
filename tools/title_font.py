@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Builds OpenCE (Open Community Edition), the typeface of the menus' titles
+"""Builds Chupathingy Titles, the typeface of the menus' classic titles
 (port/assets/fonts):
 
-    python tools/title_font.py             # port/assets/fonts/OpenCE-Regular.ttf
+    python tools/title_font.py             # port/assets/fonts/ChupathingyTitles-Regular.ttf
     python tools/title_font.py --measure   # its spacing, measured from titles.json
 
 The maps' titles are set in a commercial typeface, which cannot be shipped.
-OpenCE is Newtown (Roger White, 1994), a typeface in the same style that its
+Chupathingy Titles is Newtown (Roger White, 1994), a typeface in the same style that its
 author released into the public domain (port/assets/fonts/Newtown-LICENSE.txt),
 respaced to set the titles as the maps do. Only its spacing is changed: its
 outlines are Newtown's (port/assets/fonts/Newtown-Regular.ttf, unmodified),
@@ -22,7 +22,8 @@ SPACE and KERNING. Newtown's own kerning pairs between letters left as they
 were are kept; its pairs with a respaced letter are replaced by the measured
 ones.
 
-OpenCE is under the SIL Open Font License 1.1 (OpenCE-OFL.txt). Needs
+Chupathingy Titles is under the SIL Open Font License 1.1
+(ChupathingyTitles-OFL.txt), without a Reserved Font Name. Needs
 fontTools (and NumPy for --measure).
 """
 
@@ -33,11 +34,12 @@ from fontTools.ttLib import TTFont
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "port/assets/fonts/Newtown-Regular.ttf"
-OUTPUT = ROOT / "port/assets/fonts/OpenCE-Regular.ttf"
+OUTPUT = ROOT / "port/assets/fonts/ChupathingyTitles-Regular.ttf"
 TITLES = ROOT / "port/assets/titles/titles.json"
-FAMILY = "OpenCE"
+FAMILY = "Chupathingy Titles"
+POSTSCRIPT = "ChupathingyTitles"
 VERSION = "2.000"
-COPYRIGHT = ("OpenCE: Newtown, by Roger White (1994), released by its author into the public domain; "
+COPYRIGHT = ("Chupathingy Titles: Newtown, by Roger White (1994), released by its author into the public domain; "
              "respaced by The OpenCE Project Authors (2026)")
 
 # the space beside each respaced character (left, right of its ink), in font
@@ -90,10 +92,10 @@ def build(output: Path = OUTPUT) -> Path:
         0: COPYRIGHT,
         1: FAMILY,
         2: "Regular",
-        3: f"{FAMILY}-Regular;{VERSION}",
+        3: f"{POSTSCRIPT}-Regular;{VERSION}",
         4: f"{FAMILY} Regular",
         5: f"Version {VERSION}",
-        6: f"{FAMILY}-Regular",
+        6: f"{POSTSCRIPT}-Regular",
         13: "This Font Software is licensed under the SIL Open Font License, Version 1.1.",
         14: "https://openfontlicense.org",
     }
