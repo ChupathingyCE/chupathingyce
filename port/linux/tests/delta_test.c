@@ -2832,7 +2832,8 @@ static void test_limits(void)
 	delta_u32 now = 20000;
 	int step;
 
-	/* an Xbox: hosts 16, joins 16, 128 if its player opted in */
+	/* a stock Xbox build of 16 players: its key claims 16 joined (its row
+	joins 32), 128 if its player opted in */
 	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT, _delta_platform_pc_linux, 0, 0);
 	node_start(1, 0x0300007F, 40001, PLATFORM_BIT, _delta_platform_xbox, 0, 0);
 	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_windows, 0, 0);
@@ -2864,7 +2865,7 @@ static void test_limits(void)
 		struct delta_platform_key key;
 
 		delta_platform_policy_default(_delta_platform_xbox, &key);
-		CHECK(key.memory_class == 6 && key.host_players == 16);
+		CHECK(key.memory_class == 6 && key.host_players == 16 && key.join_players == 32);
 		delta_platform_policy_default(_delta_platform_xbox360, &key);
 		CHECK(key.memory_class == 9 && key.host_players == 32 && key.join_players == 32);
 		delta_platform_policy_default(_delta_platform_wiiu, &key);
@@ -2878,6 +2879,8 @@ static void test_limits(void)
 		struct delta_platform_key key;
 
 		pc_key(&key, _delta_platform_xbox);
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 32);
+		key.join_players = 16;
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 16);
 		key.join_players = 8;
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 8);
@@ -2918,9 +2921,23 @@ static void test_limits(void)
 	/* (a host that ignores the limits offers co-op too) */
 	CHECK(delta_peer_room_coop(&nodes[0].peer));
 
-	/* an Xbox host keeps its own game to its row's 16 */
+	/* an Xbox build of 32 players joins a PC's game of 32 */
+	delta_peer_stop(&nodes[1].peer);
+	deliver(now);
+	nodes[0].peer.local.ignore_platform_limits = 0;
+	nodes[1].peer.local.key.host_players = 32;
+	nodes[1].peer.local.key.join_players = 32;
+	for (step = 0; step < 8; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(nodes[1].peer.client_state == _delta_peer_client_delta);
+	CHECK(delta_peer_room_limit(&nodes[0].peer, _delta_peer_limit_players) == 32);
+	CHECK(!delta_peer_room_coop(&nodes[0].peer));
+
+	/* an Xbox host keeps its own game to its row's 16, though its build
+	holds 32 */
 	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT, _delta_platform_xbox, 0, 0);
-	nodes[0].peer.local.key.host_players = 16;
+	nodes[0].peer.local.key.host_players = 32;
+	nodes[0].peer.local.key.join_players = 32;
 	delta_peer_host_frame(&nodes[0].peer, now, game_machines, game_machine_count, player_machines);
 	CHECK(delta_peer_room_limit(&nodes[0].peer, _delta_peer_limit_players) == 16);
 	CHECK(!delta_peer_room_coop(&nodes[0].peer));
