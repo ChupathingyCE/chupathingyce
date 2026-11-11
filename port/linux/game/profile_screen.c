@@ -65,6 +65,15 @@ int config_write(char const *name, char const *value);
 void platform_log(char const *format, ...);
 short pc_menus_set(void);
 void browser_screen_open(void);
+/* the screens drawn over this one (ui_widget.c's, after it) */
+boolean moderation_screen_active(void);
+boolean invite_prompt_active(void);
+#ifndef HALO_CONSOLE_NO_CONTROLS
+boolean controls_screen_active(void);
+#endif
+#ifdef HALO_GUIDE
+boolean guide_active(void);
+#endif
 boolean ui_widget_port_open_screen(char const *name);
 
 /* ---------- constants */
@@ -2007,8 +2016,26 @@ static float wrapped_text(
 	return y;
 }
 
+/* whether a screen drawn after this one covers it: the Guide, the controls,
+moderation or an invite. A cut-out is the whole overlay's, not this
+screen's, so the game's picture under it would show through them */
+static boolean profile_screen_covered(
+	void)
+{
+#ifdef HALO_GUIDE
+	if (guide_active())
+		return TRUE;
+#endif
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	if (controls_screen_active())
+		return TRUE;
+#endif
+	return moderation_screen_active() || invite_prompt_active();
+}
+
 /* the first player's Spartan, in their armor's color, centered in its
-frame (the menus' own picture of it: ui\shell\bitmaps\colors_sm) */
+frame (the menus' own picture of it: ui\shell\bitmaps\colors_sm); not
+while another screen covers this one (profile_screen_covered) */
 static void draw_spartan(
 	float x,
 	float y,
@@ -2033,7 +2060,7 @@ static void draw_spartan(
 		frame = (short)MAX(0, profile.primary_color_index);
 	}
 	bitmap = bitmap_index != NONE ? bitmap_group_get_bitmap_from_sequence(bitmap_index, 0, frame) : NULL;
-	if (!bitmap)
+	if (!bitmap || profile_screen_covered())
 		return;
 	/* (the picture 112 by 136 of the bitmap's top left, its shape kept, its
 	middle the frame's on both axes) */

@@ -5126,6 +5126,79 @@ static boolean network_game_server_have_all_machines_have_precached(
 	return all_machines_have_precached;
 }
 
+/* port: the pregame load timeout. Once the countdown is over, the game
+starts when every machine with a player has said it has the map loaded
+(its precache report, network_game_server_client_machine_is_precached). A
+machine that never says so held the lobby for good: one that had joined
+the game before in progress held a dedicated server's lobby for 45 minutes,
+until it left (#1049). After network.pregame_load_timeout seconds past the
+countdown's end (90 by default, at most an hour, 0 for no limit), each
+machine still not loaded is dropped, as a machine that times out is, and the
+game starts with the others. The host's own machine is never dropped. */
+static unsigned long network_game_server_pregame_load_held_since;
+
+static unsigned long network_game_server_pregame_load_timeout_milliseconds(
+	void)
+{
+	static unsigned long milliseconds = 90UL * MILLISECONDS_PER_SECOND;
+	static unsigned long read_at = (unsigned long)-1;
+
+	if (read_at != config_changes())
+	{
+		long seconds = config_integer("network.pregame_load_timeout");
+
+		read_at = config_changes();
+		milliseconds = (unsigned long)(seconds < 0 ? 0 : seconds > 3600 ? 3600 : seconds) * MILLISECONDS_PER_SECOND;
+	}
+	return milliseconds;
+}
+
+/* each frame of the pregame's countdown: held, whether it is over (and not
+paused), so that the start waits for the machines' precache reports (or a
+machine's settings record, network_game_server_settings_owed, which it
+needs before it can precache) */
+static void network_game_server_pregame_load_timeout(
+	struct network_game_server *server,
+	boolean held)
+{
+	unsigned long now = system_milliseconds();
+	unsigned long timeout = network_game_server_pregame_load_timeout_milliseconds();
+	long i;
+
+	if (!held || !timeout || network_game_server_have_all_machines_have_precached(server))
+	{
+		network_game_server_pregame_load_held_since = 0;
+		return;
+	}
+	if (!network_game_server_pregame_load_held_since)
+	{
+		network_game_server_pregame_load_held_since = now ? now : 1;
+		return;
+	}
+	if (now - network_game_server_pregame_load_held_since < timeout)
+		return;
+	network_game_server_pregame_load_held_since = 0;
+	for (i = 0; i < MAXIMUM_NETWORK_MACHINE_COUNT; i++)
+	{
+		struct network_game_server_client_machine *machine = server->client_machines + i;
+		short machine_index = machine->machine_index;
+
+		/* (the machines have_all_machines_have_precached waits for) */
+		if (!network_game_server_client_machine_is_joined_to_game(server, machine) ||
+			network_game_server_client_machine_is_local(server, machine) ||
+			!network_game_server_machine_has_players(server, machine_index) ||
+			TEST_FLAG(machine->flags, _network_client_machine_precached_bit))
+		{
+			continue;
+		}
+		/* (its index, never its address: the log may be shared) */
+		network_event("machine #%d has not loaded the map %lu seconds after the countdown ended; "
+			"dropping it (network.pregame_load_timeout)", machine_index, timeout / MILLISECONDS_PER_SECOND);
+		if (!network_game_server_drop_client_machine(server, machine))
+			network_event("failed to remove client machine %x from game", machine_index);
+	}
+}
+
 static boolean network_game_server_idle_pregame_tasks(
 	struct network_game_server *server)
 {
@@ -5208,7 +5281,14 @@ static boolean network_game_server_idle_pregame_tasks(
 		if (server->countdown_state.active == TRUE)
 		{
 			boolean send_countdown_update = FALSE;
-			boolean ok_to_countdown = server_ok_to_countdown(server);
+			boolean ok_to_countdown;
+
+			/* (port: a machine whose map never loads holds the start no
+			longer than the pregame load timeout, above) */
+			network_game_server_pregame_load_timeout(server,
+				countdown_timer_get_time_remaining(&server->countdown_state.timer) == 0 &&
+				server->countdown_state.paused == FALSE);
+			ok_to_countdown = server_ok_to_countdown(server);
 
 			if (!ok_to_countdown)
 			{
@@ -5277,6 +5357,7 @@ static boolean network_game_server_idle_pregame_tasks(
 		}
 		else
 		{
+			network_game_server_pregame_load_timeout(server, FALSE);
 			if ((unsigned long)now - (unsigned long)server->time_of_last_keep_alive >
 				5UL * MILLISECONDS_PER_SECOND)
 			{
@@ -5375,6 +5456,7 @@ boolean network_game_server_reset_to_pregame(
 	server->queued_player_valid = FALSE;
 	server->waiting_player_count = 0;
 	csmemset(network_game_server_ingame_additions, 0, sizeof(network_game_server_ingame_additions));
+	network_game_server_pregame_load_held_since = 0;
 	/* Preserve January's 32-bit wrap without overflowing signed arithmetic.
 	 * VC7 converts the unsigned result back to the same signed bit pattern.
 	 */
@@ -5446,6 +5528,22 @@ boolean network_game_server_reset_to_pregame(
 					server->client_machines[i].flags,
 					_network_client_machine_started_late_bit,
 					FALSE);
+				/* port: and the rest of a machine's state of the last game,
+				a machine that joined it in progress the same as one there
+				from its start (#1049): its precache report is of the last
+				map until it says it has the next (network_game_server_change_map_name
+				clears it only when the map changes), its late join's wait is
+				over, and a new lobby is a new budget for its lobby messages
+				(a machine that says it switched did so already,
+				network_game_server_switch_machine_from_postgame_to_pregame) */
+				SET_FLAG(
+					server->client_machines[i].flags,
+					_network_client_machine_precached_bit,
+					FALSE);
+				network_game_server_late_joiner_waiting[i] = FALSE;
+				network_game_server_late_joiner_first_added[i] = 0;
+				if (network_game_server_client_machine_is_joined_to_game(server, &server->client_machines[i]))
+					network_distributed_lobby_budget_reset(server->client_machines[i].machine_index);
 				server->client_machines[i].last_received_update_sequence_number = 0;
 			}
 

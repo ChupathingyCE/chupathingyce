@@ -3631,14 +3631,13 @@ enum
 	ONLINE_GAMES_MAP_BROWSER_ADDED = 0,
 #endif
 #ifdef HALO_GUIDE
-	/* DELTA (port/linux/game/guide.c), another copy, last: a party
-	started and friends invited from the menus */
+	/* DELTA (port/linux/game/guide.c), another copy, last, with
+	delta.menu_item (as it is when the tags load: online_games.added) */
 	DELTA_ITEM_POSITION = ONLINE_GAMES_POSITION + 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
-	ONLINE_GAMES_DELTA_ADDED = 1,
+	ONLINE_GAMES_ITEMS_MOST = 2 + ONLINE_GAMES_MAP_BROWSER_ADDED,
 #else
-	ONLINE_GAMES_DELTA_ADDED = 0,
+	ONLINE_GAMES_ITEMS_MOST = 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
 #endif
-	ONLINE_GAMES_ITEMS_ADDED = 1 + ONLINE_GAMES_MAP_BROWSER_ADDED + ONLINE_GAMES_DELTA_ADDED,
 	/* the items' spacing (their vertical offset, -33) */
 	ONLINE_GAMES_ROW = 33,
 };
@@ -3654,8 +3653,14 @@ static struct
 #endif
 #ifdef HALO_GUIDE
 	boolean delta_described;
+	/* the DELTA row is in the list */
+	boolean delta;
 #endif
+	/* the items added (ONLINE GAMES, MAP BROWSER, DELTA) */
+	short added;
 } online_games = { NONE, NONE, NULL, FALSE };
+
+#define ONLINE_GAMES_ITEMS_ADDED online_games.added
 
 #ifdef HALO_GAME_BROWSER
 static void ui_widget_setup_entry_tags_loaded(void);
@@ -3687,7 +3692,18 @@ void ui_widget_online_games_tags_loaded(
 	/* (the tags are loaded again with each map: the last copy goes) */
 	if (online_games.children)
 		system_free(online_games.children);
-	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ITEMS_ADDED) * sizeof(*children));
+#ifdef HALO_GUIDE
+	{
+		/* (menu_tags.c's: delta.menu_item, the menus' DELTA rows) */
+		extern boolean pc_menu_delta_item_offered(void);
+
+		online_games.delta = pc_menu_delta_item_offered();
+	}
+	online_games.added = (short)(ONLINE_GAMES_ITEMS_MOST - (online_games.delta ? 0 : 1));
+#else
+	online_games.added = ONLINE_GAMES_ITEMS_MOST;
+#endif
+	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ITEMS_MOST) * sizeof(*children));
 	online_games.children = children;
 	if (!children)
 		return;
@@ -3698,7 +3714,8 @@ void ui_widget_online_games_tags_loaded(
 	children[MAP_BROWSER_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
 #endif
 #ifdef HALO_GUIDE
-	children[DELTA_ITEM_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+	if (online_games.delta)
+		children[DELTA_ITEM_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
 #endif
 	csmemcpy(&children[ONLINE_GAMES_POSITION + ONLINE_GAMES_ITEMS_ADDED], &old_children[ONLINE_GAMES_POSITION],
 		(ONLINE_GAMES_MENU_ITEMS - ONLINE_GAMES_POSITION) * sizeof(*children));
@@ -3903,7 +3920,7 @@ boolean ui_widget_online_games_item(
 boolean ui_widget_delta_item(
 	struct widget_instance *widget)
 {
-	return online_games.list_tag != NONE && widget && widget->parent &&
+	return online_games.list_tag != NONE && online_games.delta && widget && widget->parent &&
 		widget->parent->definition_tag_index == online_games.list_tag &&
 		ui_widget_list_position(widget) == DELTA_ITEM_POSITION;
 }
@@ -3998,7 +4015,7 @@ short ui_widget_online_games_description(
 	}
 #endif
 #ifdef HALO_GUIDE
-	if (index == DELTA_ITEM_POSITION)
+	if (online_games.delta && index == DELTA_ITEM_POSITION)
 	{
 		online_games.delta_described = TRUE;
 		return ONLINE_GAMES_SYSTEM_LINK;
