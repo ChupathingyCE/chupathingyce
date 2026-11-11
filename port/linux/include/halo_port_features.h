@@ -121,6 +121,13 @@ a console shakes once a tick, as retail */
 #define HALO_CONSOLE_NO_SMOOTH_SHAKE
 #endif
 
+/* a filtered HUD meter's darkening faded over its edge, in two more combiner
+stages (source/rasterizer/xbox/rasterizer_xbox_dynavobgeom.c): a console
+draws its meters with retail's four stages, scaled or not */
+#ifndef HALO_CONSOLE_NO_SMOOTH_METER_EDGES
+#define HALO_CONSOLE_NO_SMOOTH_METER_EDGES
+#endif
+
 /* the Controls screen (port/linux/game/controls_screen.c), the pause menu's
 CONTROLS and the controller's custom layout (port/linux/src/controller_layout.c):
 a console keeps its profile's layouts; the switch also leaves out
