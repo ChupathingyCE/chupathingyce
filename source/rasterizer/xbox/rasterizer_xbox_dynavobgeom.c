@@ -736,6 +736,24 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 	}
 	IDirect3DDevice8_End(global_d3d_device);
 
+	/* port: a meter's stages past the Xbox's four (the smoothed edges' and a
+	Halo PC meter's, above) taken back out of the shared pixel shader, which
+	the Xbox's four-stage meter left empty there. The model shader reuses it
+	and sets only the color half of stages 4 and 5 (rasterizer_xbox_models.c),
+	so a meter's alpha there went on into the next frame's models: r1.a, their
+	reflection mask, became four times the base map's alpha, and the models
+	were drawn as chrome */
+	if (meter)
+	{
+		for (combiner_index = 4; combiner_index < 6; combiner_index++)
+		{
+			pixel_shader.alpha_inputs[combiner_index] = 0;
+			pixel_shader.alpha_outputs[combiner_index] = 0;
+			pixel_shader.rgb_inputs[combiner_index] = 0;
+			pixel_shader.rgb_outputs[combiner_index] = 0;
+		}
+	}
+
 	IDirect3DDevice8_SetTextureStageState(
 		global_d3d_device,
 		0,

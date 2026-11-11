@@ -8,6 +8,9 @@ A desktop build (Linux, macOS, Windows, Android) defines none of these and
 compiles every extra, as before. A console's build defines HALO_CONSOLE
 (its prefix header) to leave them all out, or any of the
 HALO_CONSOLE_NO_* switches below on its own to leave out only that one.
+The original Xbox's build doesn't define HALO_CONSOLE (its own switches are
+in warthog-xbox's halo_xbox_features.h), so HALO_XBOX_CONSOLE leaves them
+all out too: a switch added here reaches it without a change there.
 The code stays in the tree either way: each switch only compiles it out.
 
 Two extras already have switches of their own, which the desktop build
@@ -46,7 +49,7 @@ maps_screen_open
 #ifndef __HALO_PORT_FEATURES_H
 #define __HALO_PORT_FEATURES_H
 
-#ifdef HALO_CONSOLE
+#if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE)
 
 /* the telnet script console (source/networking/telnet_console.c): a
 console has no local machine to reach it from */
@@ -121,13 +124,6 @@ a console shakes once a tick, as retail */
 #define HALO_CONSOLE_NO_SMOOTH_SHAKE
 #endif
 
-/* a filtered HUD meter's darkening faded over its edge, in two more combiner
-stages (source/rasterizer/xbox/rasterizer_xbox_dynavobgeom.c): a console
-draws its meters with retail's four stages, scaled or not */
-#ifndef HALO_CONSOLE_NO_SMOOTH_METER_EDGES
-#define HALO_CONSOLE_NO_SMOOTH_METER_EDGES
-#endif
-
 /* the Controls screen (port/linux/game/controls_screen.c), the pause menu's
 CONTROLS and the controller's custom layout (port/linux/src/controller_layout.c):
 a console keeps its profile's layouts; the switch also leaves out
@@ -160,7 +156,7 @@ says it hears voices, so no host sends it any */
 #define HALO_CONSOLE_NO_VOICE
 #endif
 
-#endif /* HALO_CONSOLE */
+#endif /* HALO_CONSOLE || HALO_XBOX_CONSOLE */
 
 /* voice chat over Delta Peer (docs/delta.md, Voice): the desktop builds'
 and Android's (HALO_GAME_BROWSER), as host and client, and the dedicated
@@ -187,6 +183,17 @@ whose game list sends it), and a console's that sends its own reports
 (HALO_CONSOLE_GAME_REPORTS: port/console/reports/console_reports.h) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 #define HALO_PORT_GAME_REPORTS
+#endif
+
+/* a filtered HUD meter's darkening faded over its edge, in two more combiner
+stages (source/rasterizer/xbox/rasterizer_xbox_dynavobgeom.c): a console
+draws its meters with retail's four stages, scaled or not. Every console's
+build, whichever switches it sets on its own: the original Xbox doesn't set
+HALO_CONSOLE, and its widescreen HUD drew the six stages */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!defined(HALO_CONSOLE_NO_SMOOTH_METER_EDGES)
+#define HALO_CONSOLE_NO_SMOOTH_METER_EDGES
 #endif
 
 /* the Light effects (display.light_effects, port/linux/game/plasma_lighting.c):
