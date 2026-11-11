@@ -1841,6 +1841,14 @@ static const struct config_setting config_settings[] =
 		"timed part of the render. Each part's time is then what the chip spent\n"
 		"drawing it, not only the processor's share. It slows the game down.\n"
 		"Read when Chupathingy starts." },
+	{ "console.frame_overlap", _config_boolean, "false", NULL, _environment_value, _platform_console_gl,
+		"A test for the frame rate: start the next frame while the graphics\n"
+		"chip still draws this one and the screen waits to show it, as most\n"
+		"Wii U games do. A scene whose processor and chip work, one after the\n"
+		"other, take more than a sixtieth of a second can then still hold 60\n"
+		"frames a second, with the picture shown one frame later. false, the\n"
+		"default, waits for each frame to be on the screen before the next\n"
+		"starts. Read when it changes." },
 	{ "console.visibility_test_runs", _config_boolean, "true", NULL, _environment_value, _platform_console_gl,
 		"Draw the lens flares' visibility tests as one run. After the first,\n"
 		"each test keeps the first one's state and is only a query and a draw\n"
@@ -2325,21 +2333,26 @@ static void config_append_setting(struct config_text *text, const struct config_
 		if (*line)
 			line++;
 	}
-#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
-	/* (Android apps and the console have no environment to set) */
-	switch (setting->environment_style)
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_WIIU_CONSOLE) && \
+	!defined(HALO_XBOX360_CONSOLE)
+	/* (Android apps and the consoles have no environment to set, and a
+	setting without a variable has no line) */
+	if (setting->environment)
 	{
-	case _environment_value:
-		snprintf(buffer, sizeof(buffer), "# (one run: %s=<value>)\n", setting->environment);
-		break;
-	case _environment_set_is_true:
-		snprintf(buffer, sizeof(buffer), "# (one run: %s=1 turns it on)\n", setting->environment);
-		break;
-	case _environment_set_is_false:
-		snprintf(buffer, sizeof(buffer), "# (one run: %s=1 turns it off)\n", setting->environment);
-		break;
+		switch (setting->environment_style)
+		{
+		case _environment_value:
+			snprintf(buffer, sizeof(buffer), "# (one run: %s=<value>)\n", setting->environment);
+			break;
+		case _environment_set_is_true:
+			snprintf(buffer, sizeof(buffer), "# (one run: %s=1 turns it on)\n", setting->environment);
+			break;
+		case _environment_set_is_false:
+			snprintf(buffer, sizeof(buffer), "# (one run: %s=1 turns it off)\n", setting->environment);
+			break;
+		}
+		config_append(text, buffer);
 	}
-	config_append(text, buffer);
 #endif
 	snprintf(buffer, sizeof(buffer), "# %s = %s\n", dot + 1, setting->default_value);
 	config_append(text, buffer);
