@@ -598,14 +598,15 @@ static int kenney_device(int device)
 		device == PROMPT_SCHEME_WIIU;
 }
 
-/* Kenney's glyphs fill a box as wide as their advance, about half their
-font's line (its ascent and descent), from about 0.3 of the line down to
-the baseline. Drawn at the line's size they came out half as big as the
-icons; here a glyph is four fifths of size high (as snapchipper's icons
-fill theirs), centered on it: its font at KENNEY_LINE times size, raised
-by KENNEY_RAISE times size */
-#define KENNEY_LINE 1.6f
-#define KENNEY_RAISE 0.45f
+/* Kenney's glyphs (a face button's, at a font size of 100: stb_truetype's,
+by the font's ascent and descent) fill the line from 27 down to its
+baseline at 99, and 74 across: drawn at the button's size they were 72
+percent of it, from 27 down. Here a glyph fills four fifths of the
+button, centered on it, as snapchipper's icons fill theirs (10 to 90):
+its font at KENNEY_LINE times size, raised by KENNEY_RAISE times size
+(tools/test_prompt_schemes.py measures it) */
+#define KENNEY_LINE 1.12f
+#define KENNEY_RAISE 0.21f
 
 static float kenney_width(int device, int button, float size)
 {

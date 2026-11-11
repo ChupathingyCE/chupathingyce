@@ -153,5 +153,65 @@ def test_unknown_prompt_font_is_refused(tmp_path):
     assert result.returncode != 0 and "gamecube" in result.stderr
 
 
+GLYPH_PROGRAM = r"""
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+/* argv: font, line, raise, code points (hex): each glyph's top and bottom,
+in hundredths of a button 100 high, drawn as ui_overlay.c's draw_kenney
+(the line's top at y - raise * size, its baseline an ascent below) */
+int main(int argc, char **argv)
+{
+	FILE *file = fopen(argv[1], "rb");
+	long length;
+	unsigned char *data;
+	stbtt_fontinfo info;
+	float line = (float)atof(argv[2]) * 100.0f, raise = (float)atof(argv[3]) * 100.0f, scale;
+	int ascent, descent, gap, index;
+
+	fseek(file, 0, SEEK_END);
+	length = ftell(file);
+	rewind(file);
+	data = malloc((size_t)length);
+	if (fread(data, 1, (size_t)length, file) != (size_t)length || !stbtt_InitFont(&info, data, 0))
+		return 1;
+	scale = stbtt_ScaleForPixelHeight(&info, line);
+	stbtt_GetFontVMetrics(&info, &ascent, &descent, &gap);
+	for (index = 4; index < argc; index++)
+	{
+		int x0, y0, x1, y1;
+
+		stbtt_GetCodepointBitmapBox(&info, (int)strtoul(argv[index], NULL, 16), scale, scale, &x0, &y0, &x1, &y1);
+		printf("%.1f %.1f\n", -raise + ascent * scale + y0, -raise + ascent * scale + y1);
+	}
+	return 0;
+}
+"""
+
+
+def test_kenney_glyphs_fill_the_button_as_the_icons(tmp_path):
+    # (a face button's glyph, drawn size high, covers about 10 to 90 of it,
+    # as snapchipper's icons do: not 27 to 99, as before, nor past its box)
+    source = OVERLAY.read_text()
+    line = float(re.search(r"#define KENNEY_LINE ([0-9.]+)f", source).group(1))
+    raise_ = float(re.search(r"#define KENNEY_RAISE ([0-9.]+)f", source).group(1))
+    program = tmp_path / "glyphs.c"
+    program.write_text(GLYPH_PROGRAM)
+    binary = tmp_path / "glyphs"
+    subprocess.run([compiler(), "-O1", "-w", "-I", str(ROOT / "port" / "third_party" / "stb"), str(program), "-o",
+                    str(binary), "-lm"], check=True)
+    rows = glyph_tables()
+    for scheme in ("playstation", "steam_deck", "wiiu", "steam_controller"):
+        index = SCHEMES.index(scheme)
+        faces = [f"{code:x}" for code in rows[index][:4]]
+        out = subprocess.run([str(binary), str(FONTS / SCHEME_FONTS[index]), str(line), str(raise_), *faces],
+                             check=True, capture_output=True, text=True).stdout.split("\n")
+        for code, box in zip(faces, out):
+            top, bottom = (float(value) for value in box.split())
+            assert 5 <= top <= 15 and 85 <= bottom <= 95, f"{scheme} {code}: {top}..{bottom}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
