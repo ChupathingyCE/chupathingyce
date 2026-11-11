@@ -241,14 +241,19 @@ than sphere_intersects_cluster_portal projects into an array on the stack */
 				return ce_refuse("a structure BSP's material's vertices (%lu bytes) are fewer than its counts (%lu)",
 					data_size, needed);
 			}
-			*bytes += (lightmap_vertex_count ? 2 : 1) * CE_BUFFER_HEADER_ROOM;
+			if (!ce_room_add(bytes, (lightmap_vertex_count ? 2 : 1) * CE_BUFFER_HEADER_ROOM,
+				"a structure BSP's vertex buffers"))
+			{
+				return FALSE;
+			}
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 			/* (on a 64 MB console the compressed vertices are in the tag cache
 			too: port/xbox's xbox_ce_files.c) */
-			if (platform_ce_alias)
+			if (platform_ce_alias && !ce_room_add(bytes, ((unsigned long)vertex_count *
+				ENVIRONMENT_VERTEX_COMPRESSED_SIZE + (unsigned long)lightmap_vertex_count *
+				LIGHTMAP_VERTEX_COMPRESSED_SIZE + 15) & ~15UL, "a structure BSP's vertices"))
 			{
-				*bytes += ((unsigned long)vertex_count * ENVIRONMENT_VERTEX_COMPRESSED_SIZE +
-					(unsigned long)lightmap_vertex_count * LIGHTMAP_VERTEX_COMPRESSED_SIZE + 15) & ~15UL;
+				return FALSE;
 			}
 #endif
 		}
