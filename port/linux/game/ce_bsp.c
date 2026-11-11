@@ -241,14 +241,19 @@ than sphere_intersects_cluster_portal projects into an array on the stack */
 				return ce_refuse("a structure BSP's material's vertices (%lu bytes) are fewer than its counts (%lu)",
 					data_size, needed);
 			}
-			*bytes += (lightmap_vertex_count ? 2 : 1) * CE_BUFFER_HEADER_ROOM;
+			if (!ce_room_add(bytes, (lightmap_vertex_count ? 2 : 1) * CE_BUFFER_HEADER_ROOM,
+				"a structure BSP's vertex buffers"))
+			{
+				return FALSE;
+			}
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 			/* (on a 64 MB console the compressed vertices are in the tag cache
 			too: port/xbox's xbox_ce_files.c) */
-			if (platform_ce_alias)
+			if (platform_ce_alias && !ce_room_add(bytes, ((unsigned long)vertex_count *
+				ENVIRONMENT_VERTEX_COMPRESSED_SIZE + (unsigned long)lightmap_vertex_count *
+				LIGHTMAP_VERTEX_COMPRESSED_SIZE + 15) & ~15UL, "a structure BSP's vertices"))
 			{
-				*bytes += ((unsigned long)vertex_count * ENVIRONMENT_VERTEX_COMPRESSED_SIZE +
-					(unsigned long)lightmap_vertex_count * LIGHTMAP_VERTEX_COMPRESSED_SIZE + 15) & ~15UL;
+				return FALSE;
 			}
 #endif
 		}
@@ -278,12 +283,22 @@ void ce_bsp_loaded(
 			long lightmap_vertex_count = material->lightmap_vertices.count;
 			long environment_size = vertex_count * ENVIRONMENT_VERTEX_COMPRESSED_SIZE;
 			long size = environment_size + lightmap_vertex_count * LIGHTMAP_VERTEX_COMPRESSED_SIZE;
-			byte *uncompressed = xbox_pointer(material->uncompressed_vertex_data.address);
+			byte *uncompressed;
 			byte *compressed;
 
-			if (material->vertices.type != _rasterizer_vertex_type_environment_uncompressed || vertex_count <= 0 ||
-				!uncompressed)
+			if (material->vertices.type != _rasterizer_vertex_type_environment_uncompressed || vertex_count <= 0)
+				continue;
+			/* (its vertices, all of them, in the tag cache, as ce_bsp_check
+			found them in the BSP: else passed over, ce_map_checks.h) */
+			uncompressed = vertex_count <= CE_MAXIMUM_MATERIAL_VERTICES &&
+				(!lightmap_vertex_count || lightmap_vertex_count == vertex_count) ?
+				ce_loaded_bsp_pointer(material->uncompressed_vertex_data.address,
+					(unsigned long)vertex_count * ENVIRONMENT_VERTEX_UNCOMPRESSED_SIZE +
+					(unsigned long)lightmap_vertex_count * LIGHTMAP_VERTEX_UNCOMPRESSED_SIZE) : NULL;
+			if (!uncompressed)
 			{
+				ce_contained("a structure BSP material's %ld vertices at %08lx are outside its tag cache", vertex_count,
+					(unsigned long)material->uncompressed_vertex_data.address);
 				continue;
 			}
 			compressed = XPhysicalAlloc(size, -1, 0, PAGE_READWRITE);
