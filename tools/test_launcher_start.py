@@ -129,3 +129,51 @@ def test_bgfx_overlay_inputs_have_no_gap():
     # (in ui_overlay.c's struct vertex order: position, texture coordinate,
     # shape, edge, color)
     assert added == ["POSITION", "TANGENT", "NORMAL", "BITANGENT", "COLOR0"]
+
+
+RESOURCE_SKIP_TEST = r"""
+#include <stdio.h>
+#include <strings.h>
+#define SDL_strcasecmp strcasecmp
+enum { _family_xbox, _family_custom_edition, _family_halo_pc, _family_halomd, _family_pack };
+struct family { int kind; };
+%s
+%s
+int main(void)
+{
+	static const char *const names[] = { "bitmaps.map", "Sounds.map", "loc.map", "bloodgulch.map" };
+	int kind, index;
+
+	for (kind = _family_xbox; kind <= _family_pack; kind++)
+	{
+		struct family family = { kind };
+
+		for (index = 0; index < 4; index++)
+			putchar(family_needs_resources(&family) && resource_map(names[index]) ? 's' : '-');
+		putchar('\n');
+	}
+	return 0;
+}
+"""
+
+
+def test_resource_maps_are_not_broken_maps():
+    """#1043: bitmaps.map, sounds.map and loc.map have no map header, so
+    each folder that uses them skips them by name before the header check:
+    Custom Edition's and also HaloMD's and Halo PC's, where they were
+    counted as broken maps"""
+    scan = body("static void family_scan(struct family *family, int list)")
+    skip = scan.index("if (family_needs_resources(family) && resource_map(name))")
+    assert skip < scan.index("version = map_version(path);")
+    assert "family->kind == _family_custom_edition && resource_map(name)" not in scan
+    cc = shutil.which("clang") or shutil.which("cc")
+    if not cc:
+        pytest.skip("no C compiler")
+    source = Path(__import__("tempfile").mkdtemp()) / "resource_skip.c"
+    source.write_text(RESOURCE_SKIP_TEST % (body("static int resource_map(const char *name)"),
+                                            body("static int family_needs_resources(const struct family *family)")))
+    program = source.with_suffix("")
+    subprocess.run([cc, "-std=c99", "-Wall", "-Werror", "-o", str(program), str(source)], check=True)
+    out = subprocess.run([str(program)], check=True, capture_output=True, text=True).stdout.split()
+    # (Xbox, Custom Edition, Halo PC, HaloMD, a pack's folder)
+    assert out == ["----", "sss-", "sss-", "sss-", "----"]

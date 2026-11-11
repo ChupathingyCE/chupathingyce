@@ -4050,6 +4050,17 @@ static void event_handler_dispatch(
 		browser_screen_open();
 		return;
 	}
+	/* (Gearbox's SERVER BROWSER too: one game list in every menu set, not
+	Halo PC's own Server Browser screen. Its LAN and DIRECT LINK keep their
+	Join Game screen) */
+	if (widget->name && pc_menu_tag(widget->definition_tag_index) &&
+		strstr(widget->name, "multiplayer_type_join_internet") &&
+		(handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start))
+	{
+		ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+		browser_screen_open();
+		return;
+	}
 #ifdef HALO_GUIDE
 	/* DELTA (System Link's item copied): DELTA over the menu, on PARTY */
 	if (ui_widget_delta_item(widget) &&

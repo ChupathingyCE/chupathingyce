@@ -102,6 +102,7 @@ index and tag, since the map placed them at the same index everywhere.
 #include "physics/breakable_surfaces.h"
 #include "structures/structure_bsp_definitions.h"
 #include "physics/collisions.h"
+#include "physics/collision_usage.h"
 #include "rasterizer/rasterizer_cinematics.h"
 #include "saved games/game_state.h"
 #include "scenario/scenario.h"
@@ -123,6 +124,8 @@ toward it each tick. */
 #define WATCH_HOST_DISTANCE 3.0f
 #define WATCH_HOST_HEIGHT 1.0f
 #define WATCH_HOST_FOLLOW 0.2f
+/* how far in front of a wall behind the host that view stays */
+#define WATCH_HOST_WALL_GAP 0.25f
 
 /* how often the host sends again the state a client that joined since, or
 missed a message, would lack (host_resend) */
@@ -1513,6 +1516,29 @@ static boolean client_watch_host_from_behind(
 	}
 	if (normalize3d(&coop_presentation.watching_host_forward) == 0.0f)
 		return FALSE;
+	/* (a wall or ceiling between the host's eyes and the camera: the camera
+	comes in front of it, rather than showing the view from inside it) */
+	{
+		real_vector3d reach;
+		struct collision_result collision;
+		boolean blocked;
+
+		vector_from_points3d(position, &coop_presentation.watching_host_position, &reach);
+		match_assert("port\\linux\\game\\network_coop.c", __LINE__,
+			global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
+		global_current_collision_users[global_current_collision_user_depth++] = _collision_user_observer;
+		blocked = collision_test_vector(
+			FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit),
+			position, &reach, NONE, &collision);
+		--global_current_collision_user_depth;
+		if (blocked)
+		{
+			real length = magnitude3d(&reach);
+			real t = length > WATCH_HOST_WALL_GAP ? collision.t - WATCH_HOST_WALL_GAP / length : 0.0f;
+
+			point_from_line3d(position, &reach, MAX(t, 0.0f), &coop_presentation.watching_host_position);
+		}
+	}
 	*position = coop_presentation.watching_host_position;
 	*forward = coop_presentation.watching_host_forward;
 	/* World up is not square to a host looking up or down. Rebuild up from

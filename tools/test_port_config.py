@@ -865,7 +865,7 @@ def test_delta_renamed(program, directory, defaults, kind):
 	check(len(value_lines(text, "pause_menu")[1]) == 1 and not value_lines(text, "pause_menu")[0],
 		"delta: pause_menu is not commented out once")
 	# (the moved value with its help text, and a blank line before each section)
-	check(re.search(r"^# Open DELTA by holding Back[^\n]*\n(# [^\n]*\n)*hold_back = true$", delta, re.M),
+	check(re.search(r"^# Open the Delta Guide by holding Back[^\n]*\n(# [^\n]*\n)*hold_back = true$", delta, re.M),
 		"delta: hold_back has no help text")
 	check(not re.search(r"[^\n]\n\[[a-z_]+\]$", text, re.M), "delta: a section without a blank line before it")
 	before = text
