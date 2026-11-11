@@ -528,6 +528,9 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 
 			pixel_shader.final_combiner_inputs_abcd = 0x0C080000;
 		}
+#endif
+#ifndef HALO_CONSOLE_NO_SMOOTH_METER_EDGES
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
 		else
 #endif
 		/* port: a filtered meter (hud_point_sampled, hud_draw.c: the HUD
@@ -542,8 +545,9 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 		shape is taken as four times its alpha, up to 1 (r1.a), and the screen
 		is scaled by 1 where none of it is and by the Xbox's alpha where all
 		of it is. A texel inside the shape (alpha a quarter or more) draws as
-		before; point sampled at 640x480, every texel the alpha kill keeps is
-		inside, and the meter keeps the Xbox's four stages. */
+		before; point sampled, every texel the alpha kill keeps is inside, and
+		the meter keeps the Xbox's four stages. A console's build keeps them
+		in every case (halo_port_features.h), as retail drew its meters. */
 		if (!parameters->point_sampled)
 		{
 			pixel_shader.combiner_count = 0x00011106;
@@ -558,6 +562,7 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 			pixel_shader.rgb_inputs[5] = 0x00000000;
 			pixel_shader.rgb_outputs[5] = 0x00000000;
 		}
+#endif
 	}
 	else if (parameters->map[0])
 	{
