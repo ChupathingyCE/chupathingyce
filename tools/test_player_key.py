@@ -54,12 +54,15 @@ static int crypto_ready = 1;
 static void posix_browser_lock(void) {}
 static void posix_browser_unlock(void) {}
 static void set_up(void) {}
+void platform_log(const char *format, ...);
+void platform_log(const char *format, ...) { (void)format; }
 static int psa_generate_random(unsigned char *key, size_t size)
 {
 	memset(key, 0x5a, size);
 	return 0;
 }
-''' + macro + function(posix, "posix_browser_private_key") + r'''
+''' + macro + function(posix, "private_key") + "\n"
+            + function(posix, "posix_browser_private_key") + r'''
 int main(int argc, char **argv)
 {
 	unsigned char key[32];
@@ -94,13 +97,16 @@ def test_player_key_made_then_read(tmp_path, android):
 
 @pytest.mark.parametrize("android", [False, True])
 def test_player_key_readable_by_others(tmp_path, android):
-    """A key others may read (0664, as Android's launcher made it) is read
-    on Android, where the app's storage is its own, and refused elsewhere."""
+    """A key of the player's own that others may read (0664, as Android's
+    launcher or a copied backup leaves it) is read: on Android as it is,
+    since the app's storage is its own; elsewhere made private again first,
+    never refused (a refused key made players delete their identity)."""
     binary = build(tmp_path, "key", private_key_source(android))
     key = tmp_path / "game_list_player.key"
     key.write_bytes(bytes(KEY_SIZE))
     key.chmod(0o664)
-    assert (subprocess.run([str(binary), str(key)]).returncode == 0) == android
+    assert subprocess.run([str(binary), str(key)]).returncode == 0
+    assert key.stat().st_mode & 0o777 == (0o664 if android else 0o600)
 
 
 @pytest.mark.parametrize("android", [False, True])
