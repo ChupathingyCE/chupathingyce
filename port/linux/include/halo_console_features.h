@@ -30,6 +30,15 @@ HALO_CONSOLE_LIGHT_LIMITS
 	specular highlights (display.dynamic_light_limit and
 	display.specular_light_limit, source/objects/object_lights.c). The
 	desktop builds default both to 0, every light lit as before, and opt in
+HALO_CONSOLE_MATCH_LIGHT_LIMITS
+	the Xbox's rule for what a multiplayer match draws, as retail: no
+	dynamic lights with 13 or more players (or 9 or more with two or more
+	vehicles), no flashlight beams with 5 or more players or 4 or more
+	vehicles, decided at the match's start (port/linux/game/
+	match_light_limits.h, game_engine_build_lighting). Drawing only: the
+	flashlight's toggle, battery and effect run as on every other machine
+	in the game. For a GPU of the original Xbox's size: the desktop builds
+	draw every light
 HALO_CONSOLE_WIDGET_POOL_SIZE
 	the menus' widget memory, in bytes, for a console that shows only the
 	Xbox's menus: the desktop's 256 KB is for the PC menus' screens
@@ -395,6 +404,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_XBOX_MAP_SIZES 1
+#define HALO_CONSOLE_MATCH_LIGHT_LIMITS 1
 #define HALO_CONSOLE_NO_HALOMD_MAPS "the Xbox"
 #define HALO_CONSOLE_SERVER_CLOSE_GRACE 1
 #define HALO_CONSOLE_ANAMORPHIC_SCREEN 1
