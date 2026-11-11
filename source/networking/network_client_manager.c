@@ -840,6 +840,9 @@ static short network_game_client_fetch_rejection;
 /* port/linux/game/network_rules.c's: the zero bytes a join request to a host
 of the version carries after the Xbox's and the hardware id */
 int network_rules_join_request_extra(unsigned version);
+/* ... and its bytes: zeros, and a version word where the host's layout has
+one (a table's chupa-43a facts) */
+int network_rules_join_request_tail(unsigned version, unsigned char *tail, int room);
 
 unsigned int network_game_client_host_network_version(
 	void)
@@ -3198,17 +3201,22 @@ static boolean network_game_client_idle_joining(
 				this build never has. A host of an older or unknown version
 				takes the request as the Xbox's was, 0x70 bytes) */
 				{
-					int extra = network_rules_join_request_extra(network_game_client_joined_version);
+					static unsigned char tail[1024];
+					int extra = network_rules_join_request_tail(network_game_client_joined_version, tail,
+						(int)sizeof(tail));
 
+					if (extra < 0)
+						extra = 0;
 					if (extra)
 					{
 						network_event("joining a host of network version %u: the join request carries %d more bytes",
 							network_game_client_joined_version, extra);
 					}
-					message = create_network_game_message_with_tail(
+					message = create_network_game_message_with_tail_bytes(
 						_message_client_join_game_request,
 						&join_game_request,
 						sizeof(join_game_request),
+						tail,
 						(short)extra);
 				}
 				if (message)

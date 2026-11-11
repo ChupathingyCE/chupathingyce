@@ -1662,8 +1662,9 @@ Since 0.8.0a a wire is not an island. `DELTA_WIRE_COMPATIBILITY` in
 `delta.h` gives each wire the oldest wire it plays the game with, without a
 desync and without losing what the older wire has: a feature the older wire
 lacks is dropped or unused with it, and content it can't play ends the join
-cleanly. `chupa-41a` (0.8.1d on: the longer join request to OpenCE hosts
-of 40 and later) and `chupa-39a` (0.8.1b and 0.8.1c: the Delta tag below)
+cleanly. `chupa-43a` (the generic layout facts, "Layouts": OpenCE's 43 as
+a table row; its game with every older number as `chupa-41a`'s), `chupa-41a`
+(0.8.1d on: the longer join request to OpenCE hosts of 40 and later) and `chupa-39a` (0.8.1b and 0.8.1c: the Delta tag below)
 play with `chupa-28a` and newer, and send the game's messages as
 `chupa-38a`'s. `chupa-38a` (the builds with OpenCE's 33 to 38) plays with
 `chupa-28a` and newer, as `chupa-32a` does: a host of 32 is the same game to
@@ -3347,7 +3348,7 @@ check it too):
 - **`serial`**: 1 to 4294967294 (0xFFFFFFFF says "takes no tables" on the wire); each table published gets a higher one.
   **`issued`**: when it was made (Unix seconds), for people; optional.
 - **Rows by wire, not by build.** Each build has a wire ID (`DELTA_WIRE` in
-  `delta.h`, `chupa-41a` today, from 0.8.1d; `chupa-39a` was 0.8.1b's and 0.8.1c's, `chupa-38a` 0.8.0h's; `chupa-32a` was 0.8.0's to 0.8.0g's and the original Xbox build of 2026-10-21's; `chupa-29a` came before it; `chupa-28a` was 0.7.4e's and 0.7.5's, `chupa-26a` was 0.7.2e's and 0.7.3e's, `chupa-24a` was 0.7.1e's, `chupa-23a` 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
+  `delta.h`, `chupa-43a` today, from 0.9.1; `chupa-41a` from 0.8.1d; `chupa-39a` was 0.8.1b's and 0.8.1c's, `chupa-38a` 0.8.0h's; `chupa-32a` was 0.8.0's to 0.8.0g's and the original Xbox build of 2026-10-21's; `chupa-29a` came before it; `chupa-28a` was 0.7.4e's and 0.7.5's, `chupa-26a` was 0.7.2e's and 0.7.3e's, `chupa-24a` was 0.7.1e's, `chupa-23a` 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
   actually speaks. A row says which OpenCE numbers that wire was proven to
   play with: the number a host announces, and the range of hosts' numbers a
   client joins (each 1 to 65535, `minimum <= announce <= maximum`). An old
@@ -3540,6 +3541,11 @@ sends that the build reads by number (`network_rules.h`, "layouts"):
 | `dropped_messages` | distributed message kinds a host of the version sends that a machine that doesn't know them drops (91 from 36 built in; 78, 79, 94 and 95, OpenCE's votes, from 41) | kinds 1 to 255; only kinds the build doesn't know are affected |
 | `join_request_extra` | (`chupa-41a` on) the bytes a client's join request carries after its first 0x70 (the Xbox's 0x50 and the hardware id) to a host of the version: 234 from 40 built in (OpenCE's pass and proof, sent as zeros), none before. A host of 40 or later drops a request of another length without a reply; an older host reads the 0x70 and ignores the rest | 0 to 1,024; it may shrink as well as grow |
 | `join_request_fill` | what fills those bytes: `"zeros"`, the only fill a build writes (and the default). A fact naming another fill is not taken, and the build keeps the length before | `"zeros"` |
+| `join_request_version_at` | (`chupa-43a` on) where in those bytes the client writes the host's network version, 16 bits little-endian (OpenCE's 42 on: their host admits only its own number, silently) | within the request's bytes past 0x70 |
+| `header_extra` | (`chupa-43a` on) the bytes every distributed message's header has after its 8, a batch's and each message in it too (whose size word counts them); zeros, but for an epoch's | 1 to 8 |
+| `epoch_kind` | (`chupa-43a` on) the first 4 of those bytes are the checkpoint epoch, and this is the kind of the host's boundary message (OpenCE's 96): a host counts the epoch up (never 0) at each map and co-op revert, and sends the boundary (the header alone) over its stream to a client at its ready, before its objects, and to every loaded client at a revert; a client takes nothing of another epoch than the last boundary's (none before the first), stamps its own messages with it and says its identity again; a host takes its clients' messages of its own epoch, and a ready of any | a kind from 93 (past every kind a build knows), with `header_extra` of 4 or more |
+| `unit_state_parts` | (`chupa-43a` on) a unit state's parts a build passes over: `[{"bit": 7, "size": 28, "at": "after_up"}, ...]`; `after_up` (after the up, before the predicted time: alive and placed alone) or `last` (after the camouflage: alive alone); a state with a part where it cannot have one, or a bit neither built in nor said, is unreadable | bits 6 and 7 (0 to 5 are built in), 1 to 64 bytes; a place a build doesn't know is not taken |
+| `rider_ejection_up` | (`chupa-43a` on) riders leave a vehicle on the ground whose up's height is below this, in thousandths (built in: below 0, upside down); only in a network game of the version | 1 to 999 |
 
 So when OpenCE changes the join request's length again, a row like
 `"43": { "join_request_extra": 300, "join_request_fill": "zeros" }` for
@@ -3547,6 +3553,27 @@ So when OpenCE changes the join request's length again, a row like
 --layout chupa-41a=43:join_request_extra=300`). Builds of older wires pass
 over the field; a `chupa-41a` build reading a table without it goes by its
 built-in 234 from 40.
+
+With `chupa-43a`'s fields, OpenCE's 43 is a row too, with no code of its
+own in the build (the facts are generic, so a later change of these is
+another row):
+
+```json
+"43": {
+  "settings_size": 13200, "join_request_extra": 236, "join_request_fill": "zeros",
+  "join_request_version_at": 234, "header_extra": 4, "epoch_kind": 96,
+  "unit_state_parts": [{"bit": 7, "size": 28, "at": "after_up"},
+                       {"bit": 6, "size": 30, "at": "last"}],
+  "rider_ejection_up": 200,
+  "dropped_messages": [97, 98, 99, 100, 103, 104, 105, 106, 107]
+}
+```
+
+(`tools/delta_table.py make --layout chupa-43a=43:settings_size=13200,join_request_extra=236,join_request_version_at=234,header_extra=4,epoch_kind=96,unit_part_after_up=7+28,unit_part_last=6+30,rider_ejection_up=200,dropped_messages=97+98+99+100+103+104+105+106+107`.)
+The row's maximum takes clients to 43's hosts; 43 in its `hosting` list takes
+its hosts there too, only after the cross-play gate proves each. Rows of older
+wires never name 43: their builds have none of these fields and would play a
+43 game wrongly.
 
 A fact holds for its version and every later one until the next. A build
 uses facts only for versions past its own rules (`DELTA_LEGACY_NEWEST`, 38
