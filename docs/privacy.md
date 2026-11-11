@@ -23,7 +23,7 @@ Your service record is on [stats.chupathingy.org](https://stats.chupathingy.org)
 
 On a console linked to a Delta profile, the game also claims your own line after each online game, hosted or joined: your name, team, score, kills and deaths, the game's name, map and length, signed by the console. That puts the game on your profile. `report_joined_games = false` turns this off as well.
 
-If your Halo profile plays as a guest, your line is never claimed and your copy sends no report of games it joined. If your copy isn't linked to a Delta profile, the site doesn't take its claims. Games your copy reported itself still count if you link it later.
+If your Halo profile plays as a guest, your line is never claimed and your copy sends no report of games it joined. If your copy isn't linked to a Delta profile, the site doesn't take its claims. Games from before you link your copy wait in "Past games from this device" for your profile to claim.
 
 ## Your verified name in games
 
@@ -33,7 +33,15 @@ If your copy is linked to a Delta profile and you share it (`share_profile`), yo
 
 If your copy is linked to a Delta profile, your profile shows which game you're playing. While you're in a Delta game, your game tells stats.chupathingy.org which game it is, about once a minute: your player key and the game's invite, nothing about other players. The site shows that game (its name, map and player count) only to the people you allow, and the invite itself only to people allowed to join you. It keeps this in memory for a few minutes and never stores your address. Nothing is sent from the menus, or for a game whose host doesn't run Delta.
 
-To stop it, turn off SHOW WHEN I'M PLAYING in the Guide's SETTINGS (F3), set `share_presence = false` under `[network]` in `config.toml`, or turn off "Show when I'm playing" on your profile's Privacy page on the site.
+To stop it, turn off SHOW WHEN I'M PLAYING in DELTA's SETTINGS (F3), set `share_presence = false` under `[network]` in `config.toml`, or turn off "Show when I'm playing" on your profile's Privacy page on the site.
+
+## The doorbell
+
+If your copy is linked to a Delta profile, it listens for a "doorbell" so invites, friend requests and friends coming online show up right away instead of on the next check. It listens over the connection internet play already keeps to our own brokers (mqtt.chupathingy.org and doorbell.chupathingy.org), on a topic only your copy knows: a random-looking code the site works out from your player ID with a key only the site has, so nobody can tell whose it is or guess anyone else's.
+
+When something changes for you, the site sends one byte to that topic: what kind of change it was (friends, invite, party or presence). Your game then asks stats.chupathingy.org for your friends as it always does. The ring carries no name, handle, game or message, and the brokers store nothing. Like any server, a broker sees the address your copy connects from while it's connected (as it does for internet play); it doesn't log or keep it. The code is your copy's MQTT user name there, and that connection isn't encrypted, as internet play's never was: someone on your network could see the code and that something changed, never what.
+
+To turn it off, set `doorbell = false` under `[network]` in `config.toml`. Your friends list then updates on the usual schedule.
 
 ## Your device key
 

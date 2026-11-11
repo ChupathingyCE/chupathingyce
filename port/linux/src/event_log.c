@@ -20,13 +20,15 @@ is counted in the batch's "limits". Totals (each player's kills, weapons,
 damage, sprees, medals) are counted as events come, before any is dropped,
 so they stay exact.
 
-Medals are worked out here from the kills, as Halo announces them: a
-multikill is each kill within four seconds of the one before (the game's
-own window, game_statistics_record_kill), a spree kills without dying; and
-the kinds of kill the site has medals for (melee, sniper, stuck, splatter).
+Medals are worked out here from the kills by medal_rules.h's rules, the
+same as the game list's reports have them: multikills (each kill within
+four seconds of the one before, the game's own window), sprees (kills
+without dying), a weapon's sprees, and the kinds of kill (melee, sniper,
+stuck, splatter, from the grave, Killjoy, First Strike, Revenge).
 */
 
 #include "event_log.h"
+#include "medal_rules.h"
 
 #include <math.h>
 #include <stdarg.h>
@@ -48,8 +50,6 @@ enum
 {
 	/* the samples thinned at most this often (2^20 seconds: all of them) */
 	MAXIMUM_SAMPLE_LEVEL = 20,
-	/* the game's multikill window: 4 seconds */
-	MULTIKILL_TICKS = 4 * EVENT_LOG_TICKS_PER_SECOND,
 	/* the sessions a player's line keeps (joined and left again) */
 	MAXIMUM_SESSIONS = 8,
 };
@@ -83,17 +83,6 @@ static char const *const moderation_names[EVENT_LOG_NUMBER_OF_MODERATIONS] = {
 static char const *const end_names[EVENT_LOG_NUMBER_OF_ENDS] = { "score", "time", "admin", "empty", "error", "other" };
 
 static char const *const client_names[EVENT_LOG_NUMBER_OF_CLIENTS] = { "other", "chupathingyce" };
-
-/* the multikills' medals (2 kills to 5 and more), the sprees' (5, 10, 15,
-20 kills) */
-static char const *const multikill_medals[] = { "double_kill", "triple_kill", "killtacular", "killtrocity" };
-static char const *const spree_medals[] = { "killing_spree", "killing_frenzy", "running_riot", "rampage" };
-/* every medal this file gives, for the players' totals */
-static char const *const medal_keys[] = {
-	"double_kill", "triple_kill", "killtacular", "killtrocity", "killing_spree", "killing_frenzy", "running_riot",
-	"rampage", "beat_down", "sniper_kill", "grenade_stick", "splatter", "killjoy", "from_the_grave",
-};
-enum { NUMBER_OF_MEDALS = sizeof(medal_keys) / sizeof(medal_keys[0]) };
 
 /* ---------- structures */
 
@@ -149,10 +138,8 @@ struct log_player
 	/* from the kills */
 	int kills_counted;
 	int deaths_counted;
-	int spree;
-	int best_spree;
-	int chain;
-	int last_kill_tick;
+	/* sprees and multikills (medal_rules.h), and the medals they made */
+	struct medal_player medal;
 	int medals[NUMBER_OF_MEDALS];
 	/* a moderator's kick or ban of them, which their leaving is then
 	(EVENT_LOG_LEFT_*; 0 none) */
@@ -195,6 +182,8 @@ static struct
 	int player_count;
 	struct log_player players[EVENT_LOG_MAXIMUM_PLAYERS];
 	int players_full;
+	/* the game's first kill (First Strike) */
+	struct medal_game medal_game;
 } event_log = { .capacity_wanted = EVENT_LOG_DEFAULT_EVENTS };
 
 /* ---------- private code */
@@ -505,23 +494,21 @@ static int keep(struct event_log_record const *record)
 	return 1;
 }
 
-/* a medal: its event (its totals are the batch's own count of them) */
-static void add_medal(int tick, int slot, char const *key)
+/* a medal (medal_rules.h's): its total and its event */
+static void add_medal(int tick, int slot, int kind)
 {
 	struct event_log_record medal;
-	int index;
 
-	for (index = 0; index < NUMBER_OF_MEDALS; index++)
-	{
-		if (!strcmp(medal_keys[index], key) && valid_slot(slot))
-			event_log.players[slot].medals[index] = clamp_add(event_log.players[slot].medals[index], 1);
-	}
+	if (kind < 0 || kind >= NUMBER_OF_MEDALS)
+		return;
+	if (valid_slot(slot))
+		event_log.players[slot].medals[kind] = clamp_add(event_log.players[slot].medals[kind], 1);
 	memset(&medal, 0, sizeof(medal));
 	medal.tick = tick;
 	medal.type = EVENT_LOG_MEDAL;
 	medal.player = (short)slot;
 	medal.other = EVENT_LOG_NONE;
-	medal.tag[0] = (short)event_log_tag(key);
+	medal.tag[0] = (short)event_log_tag(medal_rules_key(kind));
 	medal.tag[1] = medal.tag[2] = EVENT_LOG_NONE;
 	if (medal.tag[0] != EVENT_LOG_NONE)
 		keep(&medal);
@@ -548,22 +535,35 @@ static int tag_is(int tag, char const *prefix)
 }
 
 /* a kill counted: the killer's and the victim's totals, sprees, and the
-medals it earns */
+medals it earns (medal_rules.h) */
 static void count_kill(struct event_log_record const *record)
 {
 	struct log_player *killer = valid_slot(record->player) ? &event_log.players[record->player] : NULL;
 	struct log_player *victim = valid_slot(record->other) ? &event_log.players[record->other] : NULL;
 	int counts = killer && killer != victim && !(record->bits & (EVENT_LOG_KILL_SUICIDE | EVENT_LOG_KILL_BETRAYAL));
+	unsigned int kinds = 0;
+	int medals[MEDAL_RULES_MAXIMUM_PER_KILL];
+	int count, index;
 
-	/* a killjoy: the end of someone else's spree of five or more */
-	if (victim && counts && victim->spree >= 5)
-		add_medal(record->tick, record->player, "killjoy");
 	if (victim)
-	{
 		victim->deaths_counted++;
-		victim->spree = 0;
-		victim->chain = 0;
+	if (counts)
+	{
+		if (record->value[0] == EVENT_LOG_DAMAGE_MELEE)
+			kinds |= MEDAL_KILL_MELEE;
+		if (tag_is(record->tag[0], "weapons\\sniper rifle\\"))
+			kinds |= MEDAL_KILL_SNIPER;
+		if (tag_is(record->tag[0], "weapons\\shotgun\\"))
+			kinds |= MEDAL_KILL_SHOTGUN;
+		if (record->bits & EVENT_LOG_KILL_STICK)
+			kinds |= MEDAL_KILL_STICK;
+		if (record->value[0] == EVENT_LOG_DAMAGE_VEHICLE && valid_tag(record->tag[1]))
+			kinds |= MEDAL_KILL_SPLATTER;
+		if (record->bits & EVENT_LOG_KILL_FROM_GRAVE)
+			kinds |= MEDAL_KILL_FROM_GRAVE;
 	}
+	count = medal_rules_kill(&event_log.medal_game, killer ? &killer->medal : NULL, record->player,
+		victim ? &victim->medal : NULL, victim ? record->other : -1, counts, record->tick, kinds, medals);
 	if (!counts)
 		return;
 	killer->kills_counted++;
@@ -574,31 +574,8 @@ static void count_kill(struct event_log_record const *record)
 		if (record->bits & EVENT_LOG_KILL_HEADSHOT)
 			weapon->headshots = clamp_add(weapon->headshots, 1);
 	}
-	/* a spree: kills without dying */
-	killer->spree++;
-	if (killer->spree > killer->best_spree)
-		killer->best_spree = killer->spree;
-	if (killer->spree % 5 == 0 && killer->spree <= 20)
-		add_medal(record->tick, record->player, spree_medals[killer->spree / 5 - 1]);
-	/* a multikill: each kill within the window of the one before */
-	if (killer->chain > 0 && record->tick - killer->last_kill_tick <= MULTIKILL_TICKS)
-		killer->chain++;
-	else
-		killer->chain = 1;
-	killer->last_kill_tick = record->tick;
-	if (killer->chain >= 2)
-		add_medal(record->tick, record->player, multikill_medals[(killer->chain > 5 ? 5 : killer->chain) - 2]);
-	/* the kinds of kill */
-	if (record->value[0] == EVENT_LOG_DAMAGE_MELEE)
-		add_medal(record->tick, record->player, "beat_down");
-	if (tag_is(record->tag[0], "weapons\\sniper rifle\\"))
-		add_medal(record->tick, record->player, "sniper_kill");
-	if (record->bits & EVENT_LOG_KILL_STICK)
-		add_medal(record->tick, record->player, "grenade_stick");
-	if (record->value[0] == EVENT_LOG_DAMAGE_VEHICLE && valid_tag(record->tag[1]))
-		add_medal(record->tick, record->player, "splatter");
-	if (record->bits & EVENT_LOG_KILL_FROM_GRAVE)
-		add_medal(record->tick, record->player, "from_the_grave");
+	for (index = 0; index < count; index++)
+		add_medal(record->tick, record->player, medals[index]);
 }
 
 /* a record's totals, counted whether or not it is kept */
@@ -923,7 +900,7 @@ static void write_player(struct text *text, int slot, int end_tick)
 		player->has_totals ? totals->kills : player->kills_counted,
 		player->has_totals ? totals->deaths : player->deaths_counted,
 		totals->assists < 0 ? 0 : totals->assists, totals->betrayals < 0 ? 0 : totals->betrayals,
-		totals->suicides < 0 ? 0 : totals->suicides, player->best_spree);
+		totals->suicides < 0 ? 0 : totals->suicides, player->medal.best_spree);
 	if (player->has_totals && totals->place > 0)
 		text_append(text, ", \"place\": %d", totals->place);
 	text_append(text, ", \"damage_dealt\": %.1f, \"damage_taken\": %.1f", json_number(player->damage_dealt),
@@ -983,7 +960,7 @@ static void write_player(struct text *text, int slot, int end_tick)
 	{
 		if (!player->medals[index])
 			continue;
-		text_append(text, "%s\"%s\": %d", any ? ", " : "", medal_keys[index], player->medals[index]);
+		text_append(text, "%s\"%s\": %d", any ? ", " : "", medal_rules_key(index), player->medals[index]);
 		any = 1;
 	}
 	text_append(text, "}}");
@@ -1049,6 +1026,7 @@ void event_log_begin(struct event_log_game const *game, unsigned char const rand
 			event_log.capacity = 0;
 	}
 	event_log.recording = 1;
+	medal_game_reset(&event_log.medal_game);
 	event_log.game = *game;
 	event_log.map_info[0] = 0;
 	event_log.game.map[sizeof(event_log.game.map) - 1] = 0;
@@ -1139,6 +1117,7 @@ int event_log_player(int tick, struct event_log_player_identity const *identity)
 	player->sessions[0].left = -1;
 	player->session_count = 1;
 	player->other_weapons.tag = EVENT_LOG_NONE;
+	medal_player_reset(&player->medal);
 	if (tick > event_log.last_tick)
 		event_log.last_tick = tick;
 	return event_log.player_count++;
@@ -1165,8 +1144,8 @@ void event_log_player_left(int slot, int tick, int how)
 		player->sessions[player->session_count - 1].how = player->removed && how == EVENT_LOG_LEFT_QUIT ? player->removed : how;
 	}
 	player->removed = 0;
-	player->spree = 0;
-	player->chain = 0;
+	player->medal.spree = 0;
+	player->medal.chain = 0;
 }
 
 void event_log_player_rejoined(int slot, int tick)

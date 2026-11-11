@@ -1161,6 +1161,7 @@ boolean scenario_switch_structure_bsp(
 			scenario_globals->structure_bsp_index = structure_bsp_index;
 			global_structure_bsp_index = structure_bsp_index;
 			/* port: cache buckets while the newly current bsp's tags are loaded */
+			structure_culling_load_settings();
 			structure_culling_structure_bsp_loaded();
 
 			if (had_old_structure_bsp)
@@ -1225,11 +1226,11 @@ boolean scenario_load(
 				tag_loaded(GAME_GLOBALS_TAG, "globals\\globals"));
 			if (scenario_switch_structure_bsp(0))
 				result = TRUE;
-#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
-			/* port: a console's renderer (the Switch's deko3d renderer, the
-			first) puts this map's shaders first in its compile queue and loads them now, under the loading
-			screen, rather than at their first draw (port/switch/guest,
-			dk_shaders.c); the OpenGL renderer does nothing with it */
+#ifdef HALO_MAP_LOAD_HOOKS
+			/* port: the renderer puts this map's shaders first in its compile queue and loads them now,
+			under the loading screen, rather than at their first draw (port/linux/src/d3d8_shader_prep.inl;
+			the Switch's deko3d renderer: port/switch/guest, dk_shaders.c), and keeps the map's own list
+			of them from here */
 			if (result)
 			{
 				extern void d3d8_gl_map_loaded(const char *name);

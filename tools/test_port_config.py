@@ -21,6 +21,8 @@ player's can have:
   goes on under the new one, and the old name's lines are taken out;
 - a file with a retired setting (debug.solo_game): it loads, its value
   carries over to the setting that took its place once, and its lines go;
+- a 0.9.0 file with the Guide's names (controls.guide, [guide]): each value
+  goes on under DELTA's name, unasked, and [guide] goes;
 - a new file's layout: the top block, each section once with its note, and
   the Advanced part ([debug], [console]) last;
 - the per-platform defaults of each build (DEFAULTS below).
@@ -329,6 +331,15 @@ def previous_release_file(case, kind):
 		text = re.sub(rf"^# {key} = .*$", f"# {key} = {old_value_text(name)}", text, flags=re.M)
 	case.path.write_text(text)
 	return text
+
+
+def test_unique_settings(program, directory, defaults, kind):
+	"""no setting, and no environment variable, is named twice in a kind of
+	build's table: a second entry would never be read (the first is found),
+	and the setting it shadows would read the wrong type"""
+	case = Case(program, directory / "unique")
+	_, output = case.run("duplicates")
+	check("duplicates=none" in output, f"named twice: {output.strip()}")
 
 
 def test_new_file(program, directory, defaults, kind):
@@ -795,6 +806,81 @@ def test_retired_setting(program, directory, defaults, kind):
 	check(values["game.start_with_one_player"] == "false", f"retired/environment 0: {values}")
 
 
+def test_delta_renamed(program, directory, defaults, kind):
+	"""The Guide's settings, named DELTA's in v0.9.1 (config_renamed in
+	port_config.c): a 0.9.0 file with controls.guide, controls.guide_button
+	and a [guide] section loads without a word about an unknown setting or a
+	question, each value the player chose goes on under its new name
+	(controls.delta, controls.delta_button, delta.*), a value already under
+	the new name is the one kept, a line only commented out is taken out, and
+	the emptied [guide] section goes. The next start changes nothing. The old
+	environment variables still work, under the new ones."""
+	values, _ = Case(program, directory / "delta_probe").get("controls.delta")
+	if "controls.delta" not in values:
+		return
+	moved = ("controls.delta_button", "delta.hold_back", "delta.pause_menu", "delta.notify_in_game")
+	case = Case(program, directory / "delta_renamed")
+	text = fresh_file(case, kind)
+	# (the file as 0.9.0 wrote it: the new names not there yet)
+	for key in ("delta", "delta_button", "hold_back", "pause_menu", "notify_in_game"):
+		text = re.sub(rf"\n(# [^\n]*\n)*# {key} = [^\n]*\n", "", text)
+	text = text.replace("\n[controls]\n", "\n[controls]\n"
+		"\n# The key that opens and closes the Guide: F3 to F8.\n"
+		"# (one run: HALO_KEY_GUIDE=<value>)\nguide = \"F5\"\n"
+		"\n# Open the Guide with the controller's Guide button.\n"
+		"# (one run: HALO_GUIDE_BUTTON=<value>)\nguide_button = false\n", 1)
+	text = text.replace("\n[delta]\n", "\n[guide]\n"
+		"# The Guide, which opens over the menus or a game (F3).\n"
+		"\n# Open the Guide by holding Back for about half a second in the menus.\n"
+		"# (one run: HALO_GUIDE_HOLD_BACK=<value>)\nhold_back = true\n"
+		"\n# Put GUIDE in the pause menu, in every menu set.\n"
+		"# (one run: HALO_GUIDE_PAUSE_MENU=<value>)\n# pause_menu = true\n"
+		"\n# Show the Guide's notifications during a game.\n"
+		"# (one run: HALO_GUIDE_NOTIFY_IN_GAME=<value>)\nnotify_in_game = true\n"
+		"\n[delta]\n", 1)
+	# (and one already under its new name, which is kept)
+	text = re.sub(r"(\n\[delta\]\n(# [^\n]*\n)*)", r"\1\nnotify_in_game = false\n", text, count=1)
+	check("[guide]" in text and "\nguide = " in text, "delta: the 0.9.0 file was not made")
+	case.path.write_text(text)
+	asked = pending(case)[0]
+	values, output = case.get("controls.delta", *moved)
+	expected = {"controls.delta": "F5", "controls.delta_button": "false", "delta.hold_back": "true",
+		"delta.pause_menu": "true", "delta.notify_in_game": "false"}
+	check(values == expected, f"delta: {values}, not {expected}")
+	check("unknown setting" not in output and "cannot be read" not in output, f"delta: {output}")
+	check(pending(case)[0] == asked, "delta: the rename asks a question")
+	text = case.text()
+	check("[guide]" not in text and "The Guide, which opens" not in text, "delta: [guide] stays")
+	check(not re.search(r"^#?\s*guide(_button)?\s*=", text, re.M), "delta: the old controls lines stay")
+	check("HALO_GUIDE" not in text and "HALO_KEY_GUIDE" not in text, "delta: the old help text stays")
+	controls = text[text.index("\n[controls]\n"):]
+	controls = controls[:controls.index("\n[", 1)]
+	check(re.search(r'^delta = "F5"$', controls, re.M) and re.search(r"^delta_button = false$", controls, re.M),
+		"delta: the keys are not in [controls]")
+	delta = text[text.index("\n[delta]\n"):]
+	delta = delta[:delta.index("\n[", 1)] if "\n[" in delta[1:] else delta
+	check(re.search(r"^hold_back = true$", delta, re.M), "delta: hold_back is not in [delta]")
+	check(re.findall(r"^notify_in_game = .*$", delta, re.M) == ["notify_in_game = false"],
+		"delta: notify_in_game is not the new name's")
+	check(len(value_lines(text, "pause_menu")[1]) == 1 and not value_lines(text, "pause_menu")[0],
+		"delta: pause_menu is not commented out once")
+	# (the moved value with its help text, and a blank line before each section)
+	check(re.search(r"^# Open DELTA by holding Back[^\n]*\n(# [^\n]*\n)*hold_back = true$", delta, re.M),
+		"delta: hold_back has no help text")
+	check(not re.search(r"[^\n]\n\[[a-z_]+\]$", text, re.M), "delta: a section without a blank line before it")
+	before = text
+	case.get("controls.delta")
+	check(case.text() == before, "delta: the file changed on the next start")
+	# (the old environment variables, and the new over the old)
+	case = Case(program, directory / "delta_environment")
+	values, _ = case.run("get", "controls.delta", "delta.hold_back", "debug.delta_row",
+		environment_extra={"HALO_KEY_GUIDE": "F6", "HALO_GUIDE_HOLD_BACK": "true", "HALO_GUIDE_ROW": "2"})
+	check(values["controls.delta"] == "F6" and values["delta.hold_back"] == "true" and values["debug.delta_row"] == "2",
+		f"delta/environment: {values}")
+	values, _ = case.run("get", "controls.delta", environment_extra={"HALO_KEY_GUIDE": "F6", "HALO_KEY_DELTA": "F7"})
+	check(values["controls.delta"] == "F7", f"delta/environment both: {values}")
+
+
 def test_layout(program, directory, defaults, kind):
 	"""A new file's layout: the top block, each section once with its note,
 	the everyday sections first, and the advanced ones ([debug], and
@@ -1021,10 +1107,10 @@ def main():
 			if kind == "desktop32":
 				global OLD_SERVER_FILE
 				OLD_SERVER_FILE = make_old_server_file(program, directory / kind / "cases")
-			for test in (test_new_file, test_previous_release_file, test_answered_first_question,
+			for test in (test_unique_settings, test_new_file, test_previous_release_file, test_answered_first_question,
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
-				test_retired_setting, test_layout, test_old_browser_address, test_packaged_install,
+				test_retired_setting, test_delta_renamed, test_layout, test_old_browser_address, test_packaged_install,
 				test_server_file, test_follow_file):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)

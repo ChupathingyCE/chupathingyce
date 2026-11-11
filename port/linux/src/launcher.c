@@ -17,8 +17,8 @@ with its state read from the files' headers; a family's own screen opens
 its folder, checks its maps and adds them from a file (xiso.c, pc_disc.c,
 ce_installer.c, through sdl_platform.c's import thread). Logs & help sends
 debug.txt and the last crash report (and config.toml, if the player says
-so) to the log dump site, with addresses taken out first
-(crash_report_redact), and copies the version.
+so) to the log dump site, with addresses and the home folder taken out
+first (crash_report_redact), and copies the version.
 
 Everything here runs on the game's main thread, but the import and the
 upload, which have threads of their own.
@@ -40,6 +40,7 @@ upload, which have threads of their own.
 #include "build_identity.h"
 #include "about.h"
 #include "settings_rows.h"
+#include "map_download.h"
 #include "update.h"
 
 #include <SDL3/SDL.h>
@@ -1398,6 +1399,21 @@ static void settings_rows_build(void)
 		break;
 	case _tab_network:
 		group_rows(SETTINGS_GROUP_NETWORK);
+		/* (network.map_downloads_from_host's: the disclaimer, the one place
+		besides the download's own question where "always" is picked) */
+		{
+			int index;
+
+			for (index = 0; index < launcher.row_count; index++)
+			{
+				if (launcher.rows[index].setting &&
+					!strcmp(settings_row_key(launcher.rows[index].setting), "network.map_downloads_from_host"))
+				{
+					snprintf(launcher.rows[index].help, sizeof(launcher.rows[index].help), "%s",
+						MAP_HOST_DISCLAIMER_SETTING);
+				}
+			}
+		}
 		break;
 	case _tab_paths:
 	{
@@ -1412,12 +1428,17 @@ static void settings_rows_build(void)
 	}
 	case _tab_updates:
 	{
-		char latest[32];
+		char latest[32], progress[sizeof(launcher.status)];
 		int state = updater_check_state(latest, sizeof(latest));
+		/* (an install begun here: how it goes, in the status line, on this
+		page, with no window or dialog, so under gamescope too) */
+		int installing = updater_install_status(progress, sizeof(progress));
 
 		row = row_add(_action_none, "THIS VERSION");
 		snprintf(row->value, sizeof(row->value), "%s", build_identity_version());
-		row = row_add(_action_none, "CHANNEL");
+		/* (the build's own channel; the one it updates from is CHANNEL,
+		update.channel, below) */
+		row = row_add(_action_none, "BUILD");
 		snprintf(row->value, sizeof(row->value), "%s", updater_channel());
 		upper(row->value);
 		if (state != UPDATER_NOT_CHECKED)
@@ -1428,14 +1449,43 @@ static void settings_rows_build(void)
 				state == UPDATER_NEWER ? latest : state == UPDATER_LATEST ? "You have it" : "Couldn't check");
 		}
 		group_rows(SETTINGS_GROUP_UPDATES);
+		/* (update.channel's: what Testing and Nightly mean, and that going
+		back never installs an older build) */
+		{
+			int index;
+
+			for (index = 0; index < launcher.row_count; index++)
+			{
+				if (launcher.rows[index].setting &&
+					!strcmp(settings_row_key(launcher.rows[index].setting), "update.channel"))
+				{
+					snprintf(launcher.rows[index].help, sizeof(launcher.rows[index].help), "%s",
+						UPDATE_CHANNEL_HELP);
+				}
+			}
+		}
+		if (installing != UPDATER_INSTALL_IDLE)
+		{
+			snprintf(launcher.status, sizeof(launcher.status), "%s", progress);
+			launcher.status_color = installing == UPDATER_INSTALL_FAILED ? COLOR_AMBER : COLOR_GREEN;
+		}
 		row = row_add(_action_check_updates, "CHECK NOW");
 		row->gap = 1;
-		if (state == UPDATER_NEWER)
+		/* (in UPDATE's place while it installs, with no second check or
+		install: the selection stays where it was) */
+		if (installing == UPDATER_INSTALL_DOWNLOADING || installing == UPDATER_INSTALL_INSTALLING)
+		{
+			row = row_add(_action_none, "UPDATING");
+			row->value_color = COLOR_GREEN;
+			snprintf(row->value, sizeof(row->value), "%s", installing == UPDATER_INSTALL_INSTALLING ?
+				"Restarting" : updater_install_amount(progress, sizeof(progress)));
+		}
+		else if (state == UPDATER_NEWER || updater_ready(NULL, 0))
 		{
 #ifdef __APPLE__
 			row_add(_action_install_update, "OPEN THE DOWNLOAD PAGE");
 #else
-			row_add(_action_install_update, "UPDATE");
+			row_add(_action_install_update, installing == UPDATER_INSTALL_FAILED ? "TRY AGAIN" : "UPDATE");
 #endif
 		}
 		break;
@@ -2166,6 +2216,11 @@ static void draw_prompts(void)
 		prompt_add(UI_BUTTON_A, "OK", 1, _button_a);
 		return;
 	}
+	if (launcher.dialog == _dialog_picking)
+	{
+		prompt_add(UI_BUTTON_B, "CANCEL", 1, _button_b);
+		return;
+	}
 	if (launcher.dialog)
 		return;
 	switch (launcher.screen)
@@ -2321,6 +2376,7 @@ static void draw(void)
 
 	launcher.target_count = 0;
 	ui_style_clock((unsigned int)SDL_GetTicks());
+	ui_style_theme(ui_style_theme_named(config_string("display.theme")));
 	build_rows();
 	draw_backdrop();
 	draw_header();
@@ -2349,6 +2405,17 @@ static void open_folder(const char *path)
 	const unsigned char *cursor;
 
 	make_directories(path);
+	/* (under gamescope, the Steam Deck's Game Mode, there is no file manager
+	to show it, and the system's dialogs can stop the game: Desktop Mode
+	has it) */
+	if (updater_gamescope())
+	{
+		char shown[PATH_SIZE];
+
+		shown_path(path, shown, sizeof(shown));
+		set_status(COLOR_AMBER, "Open this folder in Desktop Mode. It's at %s", shown);
+		return;
+	}
 	length = (size_t)snprintf(url, sizeof(url), "file://%s", path[0] == '/' ? "" : "/");
 	for (cursor = (const unsigned char *)path; *cursor && length + 4 < sizeof(url); cursor++)
 	{
@@ -2464,6 +2531,13 @@ static void choose(int purpose)
 		{ "All files", "*" },
 	};
 
+	/* (no file dialog under gamescope, the Steam Deck's Game Mode: it would
+	never show, and the screen would wait for it) */
+	if (updater_gamescope())
+	{
+		set_status(COLOR_AMBER, "Do this in Desktop Mode. Game Mode can't show the file picker.");
+		return;
+	}
 	memset(&launcher.chooser, 0, sizeof(launcher.chooser));
 	launcher.chooser_purpose = purpose;
 	launcher.dialog = _dialog_picking;
@@ -2671,7 +2745,7 @@ static void text_string(struct text *text, const char *string)
 }
 
 /* a file's text, its last maximum bytes from the start of a line, with
-its addresses taken out; NULL when there is none */
+its addresses and home folder taken out; NULL when there is none */
 static char *redacted_file(const char *path, size_t maximum, size_t *length)
 {
 	FILE *file = fopen(path, "rb");
@@ -2955,6 +3029,15 @@ static int restart_with(const char *mode)
 		return 0;
 	}
 	snprintf(argument, sizeof(argument), "--mode=%s", mode);
+#ifdef __linux__
+	/* (this same process, as an update's restart: Steam and gamescope keep
+	the game, rather than a second one beside it) */
+	if (update_start_in_place_with(path, argument))
+	{
+		platform_log("launcher: starting again in this same process for the settings that need it");
+		return 1;
+	}
+#endif
 	if (!update_launch_with(path, argument))
 	{
 		platform_log("launcher: could not start again for the settings that need it");
@@ -2968,7 +3051,20 @@ int launcher_restart_to_setup(void)
 {
 	char path[PATH_SIZE];
 
-	if (!executable_path(path, sizeof(path)) || !update_launch_with(path, "--setup"))
+	if (!executable_path(path, sizeof(path)))
+	{
+		platform_log("launcher: could not start again on the setup screen");
+		return 0;
+	}
+#ifdef __linux__
+	/* (this same process: see restart_with) */
+	if (update_start_in_place_with(path, "--setup"))
+	{
+		platform_log("launcher: SETUP: starting again on the setup screen in this same process");
+		exit(EXIT_SUCCESS);
+	}
+#endif
+	if (!update_launch_with(path, "--setup"))
 	{
 		platform_log("launcher: could not start again on the setup screen");
 		return 0;
@@ -3118,12 +3214,21 @@ static void act(const struct row *row)
 			open_folder(platform_folder((enum port_folder)row->argument));
 		break;
 	case _action_check_updates:
+		/* (not while an update installs: the tab shows it) */
+		if (updater_install_status(NULL, 0) == UPDATER_INSTALL_DOWNLOADING ||
+			updater_install_status(NULL, 0) == UPDATER_INSTALL_INSTALLING)
+		{
+			break;
+		}
 		if (!updater_check_now() && updater_check_state(NULL, 0) != UPDATER_CHECKING)
 			set_status(COLOR_GREY, "This build doesn't update itself.");
 		break;
 	case _action_install_update:
-		if (!updater_install())
+		/* (on its own thread: the tab shows how it goes, updater_install_status) */
+		if (!updater_install_begin())
 			set_status(COLOR_AMBER, "That didn't work. Get it from the release page.");
+		else
+			launcher.status[0] = '\0';
 		break;
 	case _action_discord:
 		if (!SDL_OpenURL(LAUNCHER_DISCORD_URL))
@@ -3254,6 +3359,17 @@ static void open_tab(int tab)
 
 static void dialog_input(int button)
 {
+	/* (B gives up on a file dialog that never came, or that is behind the
+	window: its answer, if it comes, is not taken) */
+	if (launcher.dialog == _dialog_picking)
+	{
+		if (button == _button_b)
+		{
+			launcher.dialog = _dialog_none;
+			platform_log("launcher: the file dialog was given up on");
+		}
+		return;
+	}
 	if (launcher.dialog == _dialog_message)
 	{
 		if (button == _button_a || button == _button_b)
@@ -3754,6 +3870,9 @@ static void poll_work(void)
 	}
 	if (launcher.dialog == _dialog_sending && SDL_GetAtomicInt(&launcher.upload.done))
 		upload_finished();
+	/* (an update begun on UPDATES, once it is ready: put in place, and the
+	game restarts) */
+	updater_install_restart();
 }
 
 /* ---------- debug.launcher_test: scripted input and screenshots, for the
@@ -3895,8 +4014,11 @@ static void frame(void)
 		if (launcher.screenshot[0] && *config_string("debug.screenshot_directory"))
 			snprintf(path, sizeof(path), "%s/%s.bmp", config_string("debug.screenshot_directory"), launcher.screenshot);
 		launcher.screenshot[0] = '\0';
-		xgpu_bgfx_launcher_frame(ui_style_color(UI_COLOR_CLEAR), launcher.picture_x, launcher.picture_y, launcher.picture_width,
-			launcher.picture_height, path);
+		/* (bgfx that does not start, a blocklisted Vulkan driver say:
+		OpenGL, once, rather than trying again each frame) */
+		if (!xgpu_bgfx_launcher_frame(ui_style_color(UI_COLOR_CLEAR), launcher.picture_x, launcher.picture_y,
+			launcher.picture_width, launcher.picture_height, path))
+			platform_video_reopen_for_gl();
 		return;
 	}
 #endif
@@ -3969,7 +4091,7 @@ that, and keeps the message boxes there */
 static int drawable(int early)
 {
 #ifdef HALO_BGFX
-	return !early || strcmp(config_string("display.renderer"), "bgfx") != 0;
+	return !early || !platform_bgfx_chosen();
 #else
 	(void)early;
 	return 1;
@@ -4036,13 +4158,53 @@ static void command_line(int *setup, int *play, char *mode, size_t mode_size, in
 	}
 }
 
+/* whether the setup screen may open at start by itself (the mode question,
+launcher.show_at_start, "ask each time"): not under gamescope, the Steam
+Deck's Game Mode, where it opens only when asked for (Back held, --setup,
+SETUP in the menus) */
+static int launcher_opens_by_itself(void)
+{
+	return !updater_gamescope();
+}
+
+/* whether the game runs where Steam Input brings its controllers, which can
+take a moment or two to show them: gamescope (the Steam Deck's Game Mode)
+or the Deck's Desktop Mode (SteamDeck). Not a desktop's Steam
+(SteamAppId alone), where a player with no controller would wait each
+start */
+static int launcher_started_by_steam(void)
+{
+	const char *deck = getenv("SteamDeck");
+
+	return updater_gamescope() || (deck && deck[0] && strcmp(deck, "0"));
+}
+
+/* how long held_at_start waits for a held button: a pad's first report,
+and where the system can't say, the window's keyboard focus, take a moment
+(shift_unknown: posix_shift_key_held can't say). Under Steam, until a pad
+shows up (Steam Input's, up to 2 s) and then its first report; elsewhere
+no wait at all with no pad, as the desktop's start is not slowed */
+#define HELD_WAIT_FOR_A_PAD_UNDER_STEAM_MS 2000
+#define HELD_WAIT_FOR_A_REPORT_MS 120
+#define HELD_WAIT_FOR_THE_KEYBOARD_MS 250
+
+static Uint64 held_wait(int steam, int pads, int shift_unknown)
+{
+	if (!pads && steam)
+		return HELD_WAIT_FOR_A_PAD_UNDER_STEAM_MS;
+	if (!pads && !shift_unknown)
+		return 0;
+	return shift_unknown ? HELD_WAIT_FOR_THE_KEYBOARD_MS : HELD_WAIT_FOR_A_REPORT_MS;
+}
+
 /* Shift, or a controller's Back (View), held as the game starts */
 static int held_at_start(void)
 {
 	int shift = posix_shift_key_held();
+	int steam = launcher_started_by_steam();
 	SDL_JoystickID *pads;
-	int count = 0, index, held = shift > 0;
-	Uint64 until;
+	int count = 0, index, held = shift > 0, had_pads;
+	Uint64 started = SDL_GetTicks(), now, until;
 
 	if (held)
 		return 1;
@@ -4050,11 +4212,10 @@ static int held_at_start(void)
 	for (index = 0; pads && index < count; index++)
 		SDL_OpenGamepad(pads[index]);
 	SDL_free(pads);
-	/* (a pad's first report, and where the system can't say, the window's
-	keyboard focus, take a moment) */
-	if (!count && shift >= 0)
+	had_pads = count > 0;
+	until = SDL_GetTicks() + held_wait(steam, count, shift < 0);
+	if (until <= SDL_GetTicks() && !count && shift >= 0)
 		return 0;
-	until = SDL_GetTicks() + (shift < 0 ? 250 : 120);
 	while (!held && SDL_GetTicks() < until)
 	{
 		SDL_PumpEvents();
@@ -4062,12 +4223,25 @@ static int held_at_start(void)
 		pads = SDL_GetGamepads(&count);
 		for (index = 0; pads && index < count; index++)
 		{
+			/* (one that showed up as it waited: opened, and its first
+			report waited for) */
 			SDL_Gamepad *gamepad = SDL_GetGamepadFromID(pads[index]);
 
+			if (!gamepad)
+				gamepad = SDL_OpenGamepad(pads[index]);
 			if (gamepad && SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_BACK))
 				held = 1;
 		}
 		SDL_free(pads);
+		if (count && !had_pads)
+		{
+			had_pads = 1;
+			now = SDL_GetTicks();
+			if (now + HELD_WAIT_FOR_A_REPORT_MS < until)
+				until = now + HELD_WAIT_FOR_A_REPORT_MS;
+			platform_log("launcher: a controller showed up %llu ms into the start",
+				(unsigned long long)(now - started));
+		}
 		if (shift < 0 && (SDL_GetModState() & SDL_KMOD_SHIFT))
 			held = 1;
 		SDL_Delay(10);
@@ -4098,8 +4272,9 @@ void launcher_at_start(void)
 {
 	int setup, play_now, joining, open = 0, question = 0;
 	char mode[64];
+	const char *because = "";
 
-	if (launcher.shown || platform_run_is_quiet() || !drawable(0))
+	if (launcher.shown || platform_run_is_unwatched() || !drawable(0))
 		return;
 	command_line(&setup, &play_now, mode, sizeof(mode), &joining);
 	set_root(platform_data_root());
@@ -4115,19 +4290,54 @@ void launcher_at_start(void)
 			platform_log("launcher: --mode %s: no such mode here; playing the default", mode);
 	}
 	if (launcher.open_on_maps)
+	{
 		open = 2;
+		because = "the maps folder isn't the Xbox maps";
+	}
 	else if (setup)
+	{
 		open = 1;
+		because = "of --setup (SETUP in the menus starts it so)";
+	}
 	else if (!joining && !play_now && !mode[0])
 	{
-		if (!strcmp(config_string("launcher.show_at_start"), "always"))
+		/* (under gamescope, the Steam Deck's Game Mode, only when asked for:
+		a held Back or Shift, --setup, SETUP in the menus. The mode question,
+		show_at_start and "ask each time" play the default there, as before
+		0.9.1: launcher_opens_by_itself) */
+		int always = !strcmp(config_string("launcher.show_at_start"), "always");
+		int asked = launcher.installed_modes > 1 && !config_chosen("launcher.mode_choice");
+		int asks = launcher.installed_modes > 1 && mode_asks();
+
+		if ((always || asked || asks) && !launcher_opens_by_itself())
+		{
+			platform_log("launcher: under gamescope, not opened by itself (%s): playing %s; hold Back as it "
+				"starts, or SETUP in the menus, for the setup screen",
+				always ? "launcher.show_at_start is always" : asked ? "the mode question" : "ask each time",
+				launcher.mode >= 0 && launcher.mode < launcher.mode_count ? launcher.modes[launcher.mode].id :
+				"vanilla");
+			always = asked = asks = 0;
+		}
+		if (always)
+		{
 			open = 1;
+			because = "launcher.show_at_start is always";
+		}
 		else if (config_boolean("launcher.hold_to_open") && held_at_start())
+		{
 			open = 1;
-		else if (launcher.installed_modes > 1 && !config_chosen("launcher.mode_choice"))
+			because = "Back or Shift was held";
+		}
+		else if (asked)
+		{
 			open = question = 1;
-		else if (launcher.installed_modes > 1 && mode_asks())
+			because = "of the mode question";
+		}
+		else if (asks)
+		{
 			open = 1;
+			because = "launcher.mode_choice asks each time";
+		}
 	}
 	if (!open)
 	{
@@ -4135,6 +4345,8 @@ void launcher_at_start(void)
 		mode_apply(launcher.mode, mode[0] != '\0');
 		return;
 	}
+	if (updater_gamescope())
+		platform_log("launcher: opened at start under gamescope because %s", because);
 	launcher.welcome = 0;
 	launcher.in_panel = 1;
 	if (open == 2)

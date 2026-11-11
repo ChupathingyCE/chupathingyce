@@ -19,6 +19,8 @@
     "advapi32",
     "winhttp",
     "crypt32",
-    "dbghelp"
+    "dbghelp",
+    "dxguid",
+    "version"
   ]
 }

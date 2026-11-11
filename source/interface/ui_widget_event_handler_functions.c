@@ -929,6 +929,7 @@ symbols in this file:
 #include "interface/ui_widget_definitions.h"
 #include "interface/ui_widget_instance.h"
 #include "saved games/saved_game_files.h"
+#include "saved games/player_profile_list.h" /* port: the profile list's start */
 #ifdef HALO_64BIT
 /* port: (saved games/playlist_profile.h's, whose other prototypes this unit
 declares its own way; the 64-bit build takes no implicit declarations) */
@@ -1079,6 +1080,21 @@ static boolean network_game_start_new_server(
 	boolean *widget_deleted);
 
 extern byte cached_player_profile[0x9C];
+
+/* port: whether a network game this machine hosts may be on the map; if
+not (a map on Chupathingy maps' blacklist: cache_files_map_host_refused),
+the player is told why */
+static boolean ui_widget_port_map_hostable(
+	char const *map_name)
+{
+	void platform_show_message(char const *title, char const *message);
+	char message[320];
+
+	if (!cache_files_map_host_refused(map_name, message, sizeof(message)))
+		return TRUE;
+	platform_show_message("Halo: map blocked", message);
+	return FALSE;
+}
 
 long playlist_profile_new(
 	short local_player_index,
@@ -3426,7 +3442,9 @@ static boolean multiplayer_profiles_list_initialize(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1385,
 		definition->child_count == 3,
 		"expected 3 list items for 'multiplayer settings list' widget");
-	widget->parameters.list.list_items = ui_widget_realloc(widget->parameters.list.list_items, 0x190,
+	/* port: room for 100 profile indices, a long each (400 bytes on the Xbox;
+	twice that where a long is 8 bytes) */
+	widget->parameters.list.list_items = ui_widget_realloc(widget->parameters.list.list_items, (word)(100 * sizeof(long)),
 		"c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1390);
 	profile_indices = widget->parameters.list.list_items;
 	if (profile_indices)
@@ -4216,8 +4234,11 @@ static boolean player_profile_set_for_game_1wide(
 		name (one made before names were checked: player_name_valid) */
 		if (!player_name_valid(profile.player_name, NUMBEROF(profile.player_name)))
 		{
+			/* (a built-in one, Default or Inverted, has no name to rename) */
 			display_error_text_deferred(
-				L"Sorry, this profile's\r\nname can't be used in\r\nmultiplayer. Please\r\nrename the profile.",
+				player_profile_list_built_in(available_profiles[spinner_list->parameters.list.selected_index]) ?
+					L"Sorry, built-in\r\nprofiles can't be\r\nused in multiplayer.\r\nPlease pick your own." :
+					L"Sorry, this profile's\r\nname can't be used in\r\nmultiplayer. Please\r\nrename the profile.",
 				controller_index);
 			ui_play_audio_feedback_sound(4);
 			return FALSE;
@@ -4553,7 +4574,9 @@ static boolean player_profiles_list_initialize(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1688,
 		definition->child_count == 0 || definition->child_count == required_profile_count,
 		"expected either 1 or 3 list items for 'player settings list' widget");
-	widget->parameters.list.list_items = ui_widget_realloc(widget->parameters.list.list_items, 400,
+	/* port: room for 100 profile indices, a long each (400 bytes on the Xbox;
+	twice that where a long is 8 bytes) */
+	widget->parameters.list.list_items = ui_widget_realloc(widget->parameters.list.list_items, (word)(100 * sizeof(long)),
 		"c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1693);
 	if (widget->parameters.list.list_items)
 	{
@@ -4588,20 +4611,13 @@ static boolean player_profiles_list_initialize(
 		}
 		widget->parameters.list.number_of_items = (word)profile_count;
 		last_profile_index = player_ui_get_player1_last_used_profile_index();
-		if (last_profile_index != NONE)
-		{
-			byte *profile_indices;
-
-			profile_indices = widget->parameters.list.list_items;
-			for (profile_index = 0; profile_index < (word)widget->parameters.list.number_of_items; profile_index++)
-			{
-				if (*(long *)(profile_indices + profile_index * sizeof(long)) == last_profile_index)
-				{
-					widget->parameters.list.selected_index = (short)profile_index;
-					break;
-				}
-			}
-		}
+		/* port: the one player 1 last used, else (with none: a profile made
+		or renamed in Settings) the first of the player's own; the list began
+		on the built-in Default, whose empty name multiplayer refuses */
+		profile_index = player_profile_list_start(widget->parameters.list.list_items,
+			(short)widget->parameters.list.number_of_items, last_profile_index);
+		if (profile_index != NONE)
+			widget->parameters.list.selected_index = (short)profile_index;
 	}
 	return TRUE;
 }
@@ -5912,6 +5928,13 @@ static boolean multiplayer_level_select(
 			return FALSE;
 		}
 	}
+	/* port: nor a map on Chupathingy maps' blacklist: said, and the list
+	stays (cache_files_map_host_refused; alone or in split screen it plays) */
+	if (global_network_game_server_get() && !network_game_is_splitscreen_local() &&
+		!ui_widget_port_map_hostable(map_name))
+	{
+		return FALSE;
+	}
 	main_set_multiplayer_map_name(map_name);
 	game_engine_override_map_name(map_name);
 	{
@@ -6225,6 +6248,8 @@ boolean ui_widget_port_multiplayer_map_choose(
 			return FALSE;
 		}
 	}
+	if (server && !network_game_is_splitscreen_local() && !ui_widget_port_map_hostable(map_name))
+		return FALSE;
 	main_set_multiplayer_map_name(map_name);
 	game_engine_override_map_name(map_name);
 	if (server)
@@ -6409,7 +6434,9 @@ boolean ui_widget_port_multiplayer_player(
 	if (!player_name_valid(profile.player_name, NUMBEROF(profile.player_name)))
 	{
 		display_error_text_deferred(
-			L"Sorry, this profile's\r\nname can't be used in\r\nmultiplayer. Please\r\nrename the profile.",
+			player_profile_list_built_in(profile_index) ?
+				L"Sorry, built-in\r\nprofiles can't be\r\nused in multiplayer.\r\nPlease pick your own." :
+				L"Sorry, this profile's\r\nname can't be used in\r\nmultiplayer. Please\r\nrename the profile.",
 			controller_index);
 		ui_play_audio_feedback_sound(4);
 		return FALSE;

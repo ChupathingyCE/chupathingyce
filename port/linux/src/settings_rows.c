@@ -76,10 +76,16 @@ struct settings_row
 };
 
 #ifdef HALO_BGFX
-static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
 #ifdef __APPLE__
+static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
 static const char *const renderer_names[] = { "OPENGL", "METAL", NULL };
+#elif defined(_WIN32)
+/* ("d3d11": bgfx on Direct3D 11, for testing; each falls back to
+OpenGL) */
+static const char *const renderer_choices[] = { "gl", "bgfx", "d3d11", NULL };
+static const char *const renderer_names[] = { "OPENGL", "VULKAN", "DIRECT3D 11", NULL };
 #else
+static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
 static const char *const renderer_names[] = { "OPENGL", "VULKAN", NULL };
 #endif
 #endif
@@ -87,10 +93,21 @@ static const char *const menus_choices[] = { "xbox", "gearbox", "chupathingy", N
 static const char *const channels_choices[] = { "auto", "stereo", "5.1", "7.1", NULL };
 static const char *const hrtf_choices[] = { "on", "off", "auto", NULL };
 static const char *const buffer_choices[] = { "256", "512", "1024", "2048", "4096", NULL };
-/* controls.guide's: the F keys the game leaves free (F1 is Back, F2 Start,
+/* controls.delta's: the F keys the game leaves free (F1 is Back, F2 Start,
 F11 full screen, F12 the mouse) */
 /* (F9 takes a screenshot and F10 a clip: capture.c) */
+#ifdef __APPLE__
+/* (a Mac's: F3 is Mission Control unless fn is held, so the backslash key
+too, the default) */
+static const char *const guide_key_choices[] = { "F3, Backslash", "Backslash", "F3", "F4", "F5", "F6", "F7", "F8", NULL };
+#else
 static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", NULL };
+#endif
+/* display.theme's: the Guide's and the setup screen's colors (ui_style_theme) */
+static const char *const theme_choices[] = { "blue", "red", NULL };
+/* display.light_effects' (port/linux/game/lighting_config.c) */
+static const char *const light_effects_choices[] = { "auto", "high", "low", "off", NULL };
+static const char *const theme_names[] = { "HALO BLUE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
 {
@@ -106,6 +123,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_display, "ANTI-ALIASING", "display.anti_aliasing", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_display, "MENU STYLE", "display.menus", _kind_choices, menus_choices, NULL, 0, 0 },
 	{ _in_display, "PERFORMANCE", "display.particle_limit", _kind_preset, NULL, NULL, 0, 0 },
+	{ _in_display, "LIGHT EFFECTS", "display.light_effects", _kind_choices, light_effects_choices, NULL, 0, 0 },
 
 #ifdef HALO_LAUNCHER
 	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },
@@ -120,20 +138,25 @@ static const struct settings_row settings_rows[] =
 	{ _in_network, "UPNP PORT FORWARDING", "network.allow_upnp", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "PROTOCOL", "network.protocol", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "MAP DOWNLOADS", "network.map_downloads", _kind_words, NULL, NULL, 0, 0 },
+	/* (the setup screen's help line for it is the disclaimer: launcher.c) */
+	{ _in_network, "MAPS FROM HOSTS", "network.map_downloads_from_host", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "LIST MY GAMES", "network.list_hosted_games", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "HOSTED GAME STATS", "network.report_hosted_games", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "JOINED GAME STATS", "network.report_joined_games", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "DELTA STATS", "network.report_events", _kind_toggle, NULL, NULL, 0, 0 },
 	/* (the Guide's own, then the one it shares with Network) */
-	{ _in_guide, "OPEN KEY", "controls.guide", _kind_choices, guide_key_choices, NULL, 0, 0 },
-	{ _in_guide, "GUIDE BUTTON", "controls.guide_button", _kind_toggle, NULL, NULL, 0, 0 },
-	{ _in_guide, "NOTIFICATIONS IN GAME", "guide.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
-	{ _in_guide, "FRIEND ONLINE ALERTS", "guide.notify_online", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "OPEN KEY", "controls.delta", _kind_choices, guide_key_choices, NULL, 0, 0 },
+	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "SHOW IN MENUS", "delta.menu_item", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "NOTIFICATIONS IN GAME", "delta.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "FRIEND ONLINE ALERTS", "delta.notify_online", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "SHOW WHEN I'M PLAYING", "network.share_presence", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_display | _in_guide, "THEME", "display.theme", _kind_choices, theme_choices, theme_names, 0, 0 },
 	{ _in_network, "DISCORD", "discord.presence", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "CRASH REPORTS", "crash_reports.upload", _kind_words, NULL, NULL, 0, 0 },
 
 	{ _in_updates, "CHECK FOR UPDATES", "update.auto", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_updates, "CHANNEL", "update.channel", _kind_words, NULL, NULL, 0, 0 },
 
 };
 
@@ -154,6 +177,7 @@ static const struct
 	{ "display.anisotropic_filtering", "0" },
 	{ "display.anti_aliasing", "off" },
 	{ "display.per_pixel_lighting", "false" },
+	{ "display.light_effects", "off" },
 	{ "display.resolution_scaling", "original" },
 };
 

@@ -99,6 +99,18 @@ the program). The game leaves an old one where it is.
 ## Which build
 
 - **Releases** are the stable builds, on the [Releases page](https://github.com/ChupathingyCE/chupathingyce/releases/latest). The game updates itself from them.
-- **Nightly** is the [`nightly` pre-release](https://github.com/ChupathingyCE/chupathingyce/releases/tag/nightly): main, built every day at 04:00 UTC when it has changed. For early birds; it doesn't update itself.
+- **Nightly** is the [`nightly` pre-release](https://github.com/ChupathingyCE/chupathingyce/releases/tag/nightly): main, built every day at 04:00 UTC when it has changed. For early birds.
 - **Testing** builds are hand-rolled builds of a branch, published as pre-releases named "(test builds)" on the [Releases page](https://github.com/ChupathingyCE/chupathingyce/releases).
+
+### Update channels
+
+The update channel picks which builds the game updates to. Set it in Settings > Online > Updates, on the setup screen's Updates tab, or as `channel` in the `[update]` section of `config.toml`:
+
+| Channel | Gets |
+|---|---|
+| `release` (the default) | releases |
+| `testing` | test builds and releases |
+| `nightly` | nightlies, test builds and releases |
+
+A test build or a nightly starts on its own channel. Each channel offers the newest build it can get, and never one older than the build you have. So switching from Testing back to Release keeps your test build until the next release that is newer. The consoles don't update themselves and have no channels.
 - **What's coming** is on the [milestones](https://github.com/ChupathingyCE/chupathingyce/milestones) and in the [release notes](release-notes) of the next version.

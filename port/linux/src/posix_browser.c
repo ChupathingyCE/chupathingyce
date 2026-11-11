@@ -42,13 +42,16 @@ platform.
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <pthread.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <strings.h>
 #define close_socket close
 #endif
+#include <stdint.h>
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,7 +63,18 @@ void platform_log(const char *format, ...);
 #endif
 
 #define BROWSER_USER_AGENT "chupathingyce-browser"
+/* a read's longest wait, and a connection's (as connect() would wait for a
+host that doesn't answer for minutes) */
 #define TIMEOUT_MILLISECONDS 10000
+#define CONNECT_TIMEOUT_MILLISECONDS 10000
+/* a request's whole answer, from its handshake on (a server that sends a
+byte every few seconds never holds a thread longer); a download's head,
+and its whole body */
+#define REQUEST_DEADLINE_MILLISECONDS 30000LL
+/* a host name's lookup (getaddrinfo has no timeout of its own: a resolver
+that never answers would hold the thread, and the Mbed TLS lock with it) */
+#define RESOLVE_TIMEOUT_MILLISECONDS 10000
+#define DOWNLOAD_DEADLINE_MILLISECONDS (2LL * 3600 * 1000)
 
 #ifndef _WIN32
 /* where systems keep their certificate authorities */
@@ -238,10 +252,47 @@ static int parse_url(const char *url, int *secure, char *host, size_t host_size,
 struct connection
 {
 	int secure;
+	/* (when its reads give up: monotonic_milliseconds, 0 for never) */
+	long long deadline;
 	mbedtls_net_context net;
 	mbedtls_ssl_context ssl;
 	mbedtls_ssl_config config;
 };
+
+static long long monotonic_milliseconds(void)
+{
+#ifdef _WIN32
+	return (long long)GetTickCount64();
+#else
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (long long)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+#endif
+}
+
+/* a connection's reads (TLS's and plain), each no longer than timeout nor
+past the connection's deadline */
+static int receive_until_deadline(void *context, unsigned char *buffer, size_t size, uint32_t timeout)
+{
+	struct connection *connection = (struct connection *)context;
+
+	if (connection->deadline)
+	{
+		long long left = connection->deadline - monotonic_milliseconds();
+
+		if (left <= 0)
+			return MBEDTLS_ERR_SSL_TIMEOUT;
+		if (!timeout || (long long)timeout > left)
+			timeout = (uint32_t)left;
+	}
+	return mbedtls_net_recv_timeout(&connection->net, buffer, size, timeout);
+}
+
+static int send_on(void *context, const unsigned char *buffer, size_t size)
+{
+	return mbedtls_net_send(&((struct connection *)context)->net, buffer, size);
+}
 
 static void connection_free(struct connection *connection)
 {
@@ -254,11 +305,240 @@ static void connection_free(struct connection *connection)
 	mbedtls_net_free(&connection->net);
 }
 
+#ifdef _WIN32
+typedef SOCKET socket_type;
+#else
+typedef int socket_type;
+#endif
+
+/* a connect() given up after CONNECT_TIMEOUT_MILLISECONDS, and the socket's
+sends after TIMEOUT_MILLISECONDS each: 1 when connected */
+static int connect_within(socket_type descriptor, const struct sockaddr *address, int length)
+{
+	int connected, error = 0;
+#ifdef _WIN32
+	u_long blocking = 1;
+	DWORD send_timeout = TIMEOUT_MILLISECONDS;
+	int size = (int)sizeof(error);
+
+	ioctlsocket(descriptor, FIONBIO, &blocking);
+	connected = connect(descriptor, address, length) == 0;
+	if (!connected && WSAGetLastError() == WSAEWOULDBLOCK)
+	{
+		fd_set writable, failed;
+		struct timeval wait;
+
+		FD_ZERO(&writable);
+		FD_ZERO(&failed);
+		FD_SET(descriptor, &writable);
+		FD_SET(descriptor, &failed);
+		wait.tv_sec = CONNECT_TIMEOUT_MILLISECONDS / 1000;
+		wait.tv_usec = (CONNECT_TIMEOUT_MILLISECONDS % 1000) * 1000;
+		connected = select(0, NULL, &writable, &failed, &wait) > 0 && FD_ISSET(descriptor, &writable) &&
+			getsockopt(descriptor, SOL_SOCKET, SO_ERROR, (char *)&error, &size) == 0 && !error;
+	}
+	blocking = 0;
+	ioctlsocket(descriptor, FIONBIO, &blocking);
+	setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, (const char *)&send_timeout, (int)sizeof(send_timeout));
+#else
+	int flags = fcntl(descriptor, F_GETFL, 0);
+	socklen_t size = (socklen_t)sizeof(error);
+	struct timeval send_timeout;
+
+	fcntl(descriptor, F_SETFL, flags | O_NONBLOCK);
+	connected = connect(descriptor, address, (socklen_t)length) == 0;
+	if (!connected && errno == EINPROGRESS)
+	{
+		struct pollfd wait;
+		int ready;
+
+		wait.fd = descriptor;
+		wait.events = POLLOUT;
+		wait.revents = 0;
+		do
+			ready = poll(&wait, 1, CONNECT_TIMEOUT_MILLISECONDS);
+		while (ready < 0 && errno == EINTR);
+		connected = ready == 1 && getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &error, &size) == 0 && !error;
+	}
+	fcntl(descriptor, F_SETFL, flags);
+	send_timeout.tv_sec = TIMEOUT_MILLISECONDS / 1000;
+	send_timeout.tv_usec = (TIMEOUT_MILLISECONDS % 1000) * 1000;
+	setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &send_timeout, sizeof(send_timeout));
+#endif
+	return connected;
+}
+
+/* ---------- host name lookups, given up after RESOLVE_TIMEOUT_MILLISECONDS
+
+getaddrinfo runs on a thread of its own, waited for until the timeout. A
+lookup given up on is left to finish there (it frees itself), so a resolver
+that hangs costs a sleeping thread, never the caller's. */
+
+/* resolve_within's answer when the time was up */
+#define RESOLVE_TIMED_OUT (-0x7fff0001)
+
+struct lookup
+{
+	char host[256], port[16];
+	struct addrinfo *addresses;
+	int result, done;
+	/* (the caller and the thread: freed by the last done with it) */
+	int references;
+};
+
+#ifdef _WIN32
+static SRWLOCK lookup_lock = SRWLOCK_INIT;
+static CONDITION_VARIABLE lookup_done = CONDITION_VARIABLE_INIT;
+#else
+static pthread_mutex_t lookup_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t lookup_done = PTHREAD_COND_INITIALIZER;
+#endif
+
+static void lookup_enter(void)
+{
+#ifdef _WIN32
+	AcquireSRWLockExclusive(&lookup_lock);
+#else
+	pthread_mutex_lock(&lookup_lock);
+#endif
+}
+
+static void lookup_leave(void)
+{
+#ifdef _WIN32
+	ReleaseSRWLockExclusive(&lookup_lock);
+#else
+	pthread_mutex_unlock(&lookup_lock);
+#endif
+}
+
+/* (lookup_lock held) one of its two holders done with it */
+static void lookup_release(struct lookup *lookup)
+{
+	if (--lookup->references)
+		return;
+	if (lookup->addresses)
+		freeaddrinfo(lookup->addresses);
+	free(lookup);
+}
+
+static void lookup_run(struct lookup *lookup)
+{
+	struct addrinfo hints, *addresses = NULL;
+	int result;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+	result = getaddrinfo(lookup->host, lookup->port, &hints, &addresses);
+	lookup_enter();
+	lookup->result = result;
+	lookup->addresses = result == 0 ? addresses : NULL;
+	lookup->done = 1;
+#ifdef _WIN32
+	WakeAllConditionVariable(&lookup_done);
+#else
+	pthread_cond_broadcast(&lookup_done);
+#endif
+	lookup_release(lookup);
+	lookup_leave();
+}
+
+#ifdef _WIN32
+static DWORD WINAPI lookup_thread(LPVOID argument)
+{
+	lookup_run((struct lookup *)argument);
+	return 0;
+}
+#else
+static void *lookup_thread(void *argument)
+{
+	lookup_run((struct lookup *)argument);
+	return NULL;
+}
+#endif
+
+/* host's IPv4 addresses (getaddrinfo's, freed with freeaddrinfo) into
+*addresses: 0, else getaddrinfo's error or RESOLVE_TIMED_OUT */
+static int resolve_within(const char *host, const char *port, struct addrinfo **addresses)
+{
+	struct lookup *lookup = (struct lookup *)calloc(1, sizeof(*lookup));
+	long long deadline = monotonic_milliseconds() + RESOLVE_TIMEOUT_MILLISECONDS;
+	int started, result;
+
+	*addresses = NULL;
+	if (!lookup)
+		return EAI_MEMORY;
+	snprintf(lookup->host, sizeof(lookup->host), "%s", host);
+	snprintf(lookup->port, sizeof(lookup->port), "%s", port);
+	lookup->references = 2;
+#ifdef _WIN32
+	{
+		HANDLE thread = CreateThread(NULL, 0, lookup_thread, lookup, 0, NULL);
+
+		started = thread != NULL;
+		if (thread)
+			CloseHandle(thread);
+	}
+#else
+	{
+		pthread_attr_t attributes;
+		pthread_t thread;
+
+		pthread_attr_init(&attributes);
+		pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
+		started = pthread_create(&thread, &attributes, lookup_thread, lookup) == 0;
+		pthread_attr_destroy(&attributes);
+	}
+#endif
+	/* (no thread to be had: looked up here, as before) */
+	if (!started)
+		lookup_run(lookup);
+	lookup_enter();
+	while (!lookup->done)
+	{
+		long long left = deadline - monotonic_milliseconds();
+
+		if (left <= 0)
+			break;
+#ifdef _WIN32
+		SleepConditionVariableSRW(&lookup_done, &lookup_lock, (DWORD)left, 0);
+#else
+		{
+			struct timespec until;
+
+			clock_gettime(CLOCK_REALTIME, &until);
+			until.tv_sec += (time_t)(left / 1000);
+			until.tv_nsec += (long)(left % 1000) * 1000000L;
+			if (until.tv_nsec >= 1000000000L)
+			{
+				until.tv_sec++;
+				until.tv_nsec -= 1000000000L;
+			}
+			pthread_cond_timedwait(&lookup_done, &lookup_lock, &until);
+		}
+#endif
+	}
+	if (lookup->done)
+	{
+		result = lookup->result;
+		*addresses = lookup->addresses;
+		lookup->addresses = NULL;
+	}
+	else
+		result = RESOLVE_TIMED_OUT;
+	lookup_release(lookup);
+	lookup_leave();
+	return result;
+}
+
 /* a TCP connection over IPv4 alone: the game list matches a player's
 address as their game's host saw it, which internet play (IPv4) has */
 static int connect_ipv4(mbedtls_net_context *net, const char *host, const char *port)
 {
-	struct addrinfo hints, *addresses, *address;
+	struct addrinfo *addresses, *address;
+	int resolved;
 #ifdef _WIN32
 	SOCKET descriptor = INVALID_SOCKET;
 #define NO_SOCKET INVALID_SOCKET
@@ -267,18 +547,17 @@ static int connect_ipv4(mbedtls_net_context *net, const char *host, const char *
 #define NO_SOCKET (-1)
 #endif
 
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_protocol = IPPROTO_TCP;
-	if (getaddrinfo(host, port, &hints, &addresses) != 0)
+	resolved = resolve_within(host, port, &addresses);
+	if (resolved == RESOLVE_TIMED_OUT)
+		return RESOLVE_TIMED_OUT;
+	if (resolved != 0)
 		return MBEDTLS_ERR_NET_UNKNOWN_HOST;
 	for (address = addresses; address && descriptor == NO_SOCKET; address = address->ai_next)
 	{
 		descriptor = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
 		if (descriptor == NO_SOCKET)
 			continue;
-		if (connect(descriptor, address->ai_addr, (int)address->ai_addrlen) != 0)
+		if (!connect_within(descriptor, address->ai_addr, (int)address->ai_addrlen))
 		{
 			close_socket(descriptor);
 			descriptor = NO_SOCKET;
@@ -301,7 +580,8 @@ static int connection_open(struct connection *connection, const char *host, cons
 
 	if ((result = connect_ipv4(&connection->net, host, port)) != 0)
 	{
-		set_error(error, error_size, "could not connect", result);
+		set_error(error, error_size, result == RESOLVE_TIMED_OUT ? "could not connect (looking up the host name took "
+			"too long)" : "could not connect", result == RESOLVE_TIMED_OUT ? 0 : result);
 		return 0;
 	}
 	if (!connection->secure)
@@ -325,7 +605,7 @@ static int connection_open(struct connection *connection, const char *host, cons
 		set_error(error, error_size, "could not set up TLS", result);
 		return 0;
 	}
-	mbedtls_ssl_set_bio(&connection->ssl, &connection->net, mbedtls_net_send, NULL, mbedtls_net_recv_timeout);
+	mbedtls_ssl_set_bio(&connection->ssl, connection, send_on, NULL, receive_until_deadline);
 	while ((result = mbedtls_ssl_handshake(&connection->ssl)) != 0)
 	{
 		if (result != MBEDTLS_ERR_SSL_WANT_READ && result != MBEDTLS_ERR_SSL_WANT_WRITE)
@@ -375,7 +655,7 @@ static int connection_read(struct connection *connection, unsigned char *buffer,
 	{
 		int count = connection->secure
 			? mbedtls_ssl_read(&connection->ssl, buffer, size)
-			: mbedtls_net_recv_timeout(&connection->net, buffer, size, TIMEOUT_MILLISECONDS);
+			: receive_until_deadline(connection, buffer, size, TIMEOUT_MILLISECONDS);
 
 		if (count == MBEDTLS_ERR_SSL_WANT_READ || count == MBEDTLS_ERR_SSL_WANT_WRITE)
 			continue;
@@ -523,6 +803,7 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 	}
 	memset(&connection, 0, sizeof(connection));
 	connection.secure = secure;
+	connection.deadline = monotonic_milliseconds() + REQUEST_DEADLINE_MILLISECONDS;
 	mbedtls_net_init(&connection.net);
 	mbedtls_ssl_init(&connection.ssl);
 	mbedtls_ssl_config_init(&connection.config);
@@ -544,6 +825,9 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 		{
 			int count;
 
+			/* (the answer's own time, from the request sent: a long body
+			uploaded first doesn't use it up) */
+			connection.deadline = monotonic_milliseconds() + REQUEST_DEADLINE_MILLISECONDS;
 			while (used < capacity && (count = connection_read(&connection, (unsigned char *)buffer + used,
 				capacity - used)) > 0)
 			{
@@ -570,6 +854,17 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 
 /* ---------- downloads (map_download.c): a response's body read as it comes */
 
+/* the calling thread, as a number (pointer-sized: atomic without help
+on every target, 32-bit ones too) */
+static uintptr_t thread_token(void)
+{
+#ifdef _WIN32
+	return (uintptr_t)GetCurrentThreadId();
+#else
+	return (uintptr_t)pthread_self();
+#endif
+}
+
 enum
 {
 	MAXIMUM_REDIRECTS = 5,
@@ -584,7 +879,23 @@ static struct
 	/* the body's first bytes, read with the head */
 	unsigned char head[MAXIMUM_HEAD];
 	size_t pending, pending_used;
+	/* the thread that holds it open (thread_token; 0: none), to refuse that
+	thread's second open (it would wait on itself forever). Read before the
+	lock is taken, so only through owner_get and owner_put: a thread can
+	only ever find its own token there while it holds the download itself,
+	as it alone stores that token and puts 0 back before it lets go */
+	uintptr_t owner;
 } download;
+
+static uintptr_t owner_get(void)
+{
+	return __atomic_load_n(&download.owner, __ATOMIC_RELAXED);
+}
+
+static void owner_put(uintptr_t token)
+{
+	__atomic_store_n(&download.owner, token, __ATOMIC_RELAXED);
+}
 
 /* a header's value (name ends in ':'), trimmed, into value; 0 if the head
 has none */
@@ -662,6 +973,7 @@ static int download_request(const char *url, const char *user_agent, char *locat
 		return 0;
 	}
 	download.connection.secure = secure;
+	download.connection.deadline = monotonic_milliseconds() + REQUEST_DEADLINE_MILLISECONDS;
 	if (!connection_open(&download.connection, host, port, error, error_size))
 		return 0;
 	if (!connection_write(&download.connection, request, (size_t)count))
@@ -669,6 +981,7 @@ static int download_request(const char *url, const char *user_agent, char *locat
 		set_error(error, error_size, "could not send the request", 0);
 		return 0;
 	}
+	download.connection.deadline = monotonic_milliseconds() + REQUEST_DEADLINE_MILLISECONDS;
 	/* the head, and whatever of the body came with it */
 	while (!end && used < sizeof(download.head) - 1)
 	{
@@ -705,14 +1018,21 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 	*status = 0;
 	*length = -1;
 	error[0] = 0;
-	if (download.open)
+	if (owner_get() == thread_token())
 	{
-		set_error(error, error_size, "a download is open already", 0);
+		set_error(error, error_size, "this thread has a download open already", 0);
 		return 0;
 	}
 	/* (held until it is closed: one Mbed TLS user at a time, as the
-	requests are) */
+	requests are; another thread's download is waited for, as a request
+	waits for it) */
 	posix_browser_lock();
+	if (download.open)
+	{
+		posix_browser_unlock();
+		set_error(error, error_size, "a download is open already", 0);
+		return 0;
+	}
 	snprintf(current, sizeof(current), "%s", url);
 	for (redirect = 0; redirect <= MAXIMUM_REDIRECTS; redirect++)
 	{
@@ -722,7 +1042,10 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 		if (*status == 200)
 		{
 			*length = size >= 0 && size <= 0x7fffffff ? (int)size : -1;
+			/* (the body: a long one, a map, but never forever) */
+			download.connection.deadline = monotonic_milliseconds() + DOWNLOAD_DEADLINE_MILLISECONDS;
 			download.open = 1;
+			owner_put(thread_token());
 			return 1;
 		}
 		connection_free(&download.connection);
@@ -781,7 +1104,15 @@ void posix_browser_download_close(int handle)
 		return;
 	connection_free(&download.connection);
 	download.open = 0;
+	owner_put(0);
 	download_unlock();
+}
+
+void posix_browser_download_deadline(int handle, int milliseconds)
+{
+	if (handle != 1 || !download.open || milliseconds <= 0)
+		return;
+	download.connection.deadline = monotonic_milliseconds() + milliseconds;
 }
 
 

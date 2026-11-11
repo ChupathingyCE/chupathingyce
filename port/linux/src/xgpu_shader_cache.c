@@ -50,6 +50,11 @@ struct cached_shader
 	unsigned long length;
 	/* in the file already */
 	BOOL saved;
+#ifdef HALO_SHADER_PREP
+	/* compiled for a map's loading screen and not asked about yet
+	(xgpu_shader_cache_submit): source holds its text until then */
+	BOOL submitted;
+#endif
 #ifdef HALO_CONSOLE_GL_LAYER
 	/* compiled once and refused: not tried again for every draw (a
 	console's GL layer compiles on the console, slowly) */
@@ -361,6 +366,12 @@ static void cache_initialize(void)
 	if (!root || !*root)
 		return;
 	snprintf(cache.path, sizeof(cache.path), "%s/" SHADER_CACHE_FILE, root);
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+	/* (an older driver's path has shaders of its own, xgpu.h: kept apart,
+	so neither kind is compiled for the other) */
+	if (xgpu_gl_legacy)
+		snprintf(cache.path, sizeof(cache.path), "%s/shader_cache_older_gl.bin", root);
+#endif
 	if (!file_read())
 	{
 		/* (cut short, or another layout: what was read whole is kept) */
@@ -379,6 +390,10 @@ GLuint xgpu_shader_cache_compile(GLenum type, const char *source, const char *wh
 
 	cache_initialize();
 	entry = shader_find(hash);
+#ifdef HALO_SHADER_PREP
+	if (entry && entry->submitted)
+		xgpu_shader_cache_finish(entry->shader, TRUE);
+#endif
 	if (entry && entry->shader)
 		return entry->shader;
 #ifdef HALO_CONSOLE_GL_LAYER
@@ -415,6 +430,92 @@ void xgpu_shader_cache_linked(GLuint vertex_shader, GLuint fragment_shader)
 	if (file_has_room(17) && write_pair_record(cache.file, vertex->hash, fragment->hash))
 		file_flush();
 }
+
+#ifdef HALO_SHADER_PREP
+/* a driver that compiles in parallel (GL_KHR_parallel_shader_compile or
+GL_ARB_parallel_shader_compile: d3d8_gl.c sets it): COMPLETION_STATUS can be
+asked without waiting */
+BOOL xgpu_parallel_compile;
+
+#define COMPLETION_STATUS 0x91B1
+
+GLuint xgpu_shader_cache_submit(GLenum type, const char *source)
+{
+	unsigned long length = (unsigned long)strlen(source);
+	unsigned long long hash = text_hash(type, source, length);
+	struct cached_shader *entry;
+
+	cache_initialize();
+	entry = shader_find(hash);
+	if (entry && entry->shader)
+		return entry->shader;
+	if (!entry && !(entry = shader_add(hash, type)))
+		return 0;
+	if (!entry->source && !(entry->source = malloc(length + 1)))
+		return 0;
+	memcpy(entry->source, source, length + 1);
+	entry->length = length;
+	entry->shader = glCreateShader(type);
+	glShaderSource(entry->shader, 1, (const GLchar *const *)&entry->source, NULL);
+	glCompileShader(entry->shader);
+	entry->submitted = TRUE;
+	shader_name_set(entry);
+	return entry->shader;
+}
+
+int xgpu_shader_cache_finish(GLuint shader, BOOL wait)
+{
+	struct cached_shader *entry = shader_by_name(shader);
+	GLint status = 0;
+
+	if (!entry || entry->shader != shader || !entry->submitted)
+		return shader != 0;
+	if (!wait && xgpu_parallel_compile)
+	{
+		glGetShaderiv(shader, COMPLETION_STATUS, &status);
+		if (!status)
+			return -1;
+	}
+	entry->submitted = FALSE;
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+	if (!status)
+	{
+		char log[4096];
+
+		/* (kept: the renderer holds its name, and a program linked of it
+		fails, so that its draws are left out as they would be; never
+		saved, so compiled again by the next run) */
+		glGetShaderInfoLog(shader, sizeof(log), NULL, log);
+		platform_log("cannot compile a %s shader made for the loading screen: %s",
+			entry->type == GL_VERTEX_SHADER ? "vertex" : "pixel", log);
+		free(entry->source);
+		entry->source = NULL;
+		return 0;
+	}
+	if (!entry->saved && file_has_room(17 + entry->length) && write_shader_record(cache.file, entry, entry->source))
+	{
+		entry->saved = TRUE;
+		file_flush();
+	}
+	free(entry->source);
+	entry->source = NULL;
+	return 1;
+}
+
+int xgpu_program_finish(GLuint program, BOOL wait)
+{
+	GLint status = 0;
+
+	if (!wait && xgpu_parallel_compile)
+	{
+		glGetProgramiv(program, COMPLETION_STATUS, &status);
+		if (!status)
+			return -1;
+	}
+	glGetProgramiv(program, GL_LINK_STATUS, &status);
+	return status ? 1 : 0;
+}
+#endif
 
 #ifdef HALO_CONSOLE_CACHE_SCREEN
 /* (d3d8_gl.c: the ring, for the seconds the box takes over these) */

@@ -235,6 +235,13 @@ typedef char rasterizer_dynamic_geometry_camera_offset_assert[
 static void submit_screen_vertex(
 	struct dynamic_screen_vertex const *vertex);
 
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
+/* the port's: whether a Custom Edition HUD meter's bitmap still has Halo
+PC's channels (halo_port_features.h, HALO_CONSOLE_CE_BITMAPS) */
+boolean platform_ce_meter_in_pc_channels(
+	struct bitmap_data const *bitmap);
+#endif
+
 /* ---------- globals */
 
 
@@ -489,6 +496,39 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 
 		pixel_shader.final_combiner_inputs_abcd = 0x0C180000;
 		pixel_shader.final_combiner_inputs_efg = 0x00001C00;
+
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
+		/* port: a Custom Edition map's meter whose bitmap the console left in
+		Halo PC's channels (platform_ce_meter_in_pc_channels: a compressed
+		one, as Custom Edition's own shield and health meters are, which
+		can't have its channels swapped as it loads): the fill order is in
+		its alpha and its shape in its color, so the meter reads them from
+		there. The fill order is compared where the color was (stage 0) and
+		makes the edge (stage 2); the shape, where alpha was, darkens the
+		color (the final combiner) and, as the alpha kill no longer can,
+		leaves the screen as it was outside the meter (a fifth stage: the
+		alpha that scales what's behind goes to 1 where there's no shape) */
+		if (platform_ce_meter_in_pc_channels(parameters->map[0]))
+		{
+			IDirect3DDevice8_SetTextureStageState(
+				global_d3d_device,
+				0,
+				D3DTSS_ALPHAKILL,
+				D3DTALPHAKILL_DISABLE);
+
+			pixel_shader.combiner_count = 0x00011105;
+			pixel_shader.alpha_inputs[0] = 0x12181218;
+			pixel_shader.rgb_inputs[0] = 0x1120F820;
+			pixel_shader.alpha_inputs[2] = 0x1820B220;
+
+			pixel_shader.alpha_inputs[4] = 0x081C2820;
+			pixel_shader.alpha_outputs[4] = 0x00000C00;
+			pixel_shader.rgb_inputs[4] = 0x00000000;
+			pixel_shader.rgb_outputs[4] = 0x00000000;
+
+			pixel_shader.final_combiner_inputs_abcd = 0x0C080000;
+		}
+#endif
 	}
 	else if (parameters->map[0])
 	{
@@ -671,6 +711,27 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 	return;
 }
 
+/* port: the depth the transparent queue sorts a run of sprites of this
+shader at, its centroid there (the group's z_sort, below), so that
+render_particles can cut a run where the queue's other groups sort */
+real rasterizer_dynamic_unlit_geometry_z_sort(
+	struct shader const *shader,
+	real_point3d const *centroid)
+{
+	real_vector3d forward;
+	real z_sort;
+
+	vector_from_points3d(&global_window_parameters.camera.position, centroid, &forward);
+	z_sort = -dot_product3d(&global_window_parameters.camera.forward, &forward);
+	if (shader->base.type == _shader_type_effect &&
+		TEST_FLAG(SHADER_GET_EFFECT(shader)->flags, _shader_effect_sort_bias_bit))
+	{
+		z_sort += SHADER_EFFECT_SORT_BIAS;
+	}
+
+	return z_sort;
+}
+
 void _rasterizer_dynamic_unlit_geometry_draw(
 	struct shader const *shader,
 	struct bitmap_data const *primary_map,
@@ -682,7 +743,6 @@ void _rasterizer_dynamic_unlit_geometry_draw(
 	unsigned long geometry_flags)
 {
 	struct transparent_geometry_group *group;
-	real_vector3d forward;
 	real_plane3d zero_plane;
 	static boolean warned = FALSE;
 
@@ -711,8 +771,6 @@ void _rasterizer_dynamic_unlit_geometry_draw(
 		52,
 		centroid);
 
-	vector_from_points3d(&global_window_parameters.camera.position, centroid, &forward);
-
 	group = rasterizer_transparent_geometry_new_group();
 	if (group)
 	{
@@ -734,7 +792,9 @@ void _rasterizer_dynamic_unlit_geometry_draw(
 		group->dynamic_vertex_buffer_index = dynamic_vertex_buffer_index;
 		group->vertex_buffer = NULL;
 		group->lightmap = primary_map;
-		group->z_sort = -dot_product3d(&global_window_parameters.camera.forward, &forward);
+		/* port: (rasterizer_dynamic_unlit_geometry_z_sort, the bias below
+		with it) */
+		group->z_sort = rasterizer_dynamic_unlit_geometry_z_sort(shader, centroid);
 		group->centroid = *centroid;
 		group->plane = zero_plane;
 		group->model_base_map_scale.i = group->model_base_map_scale.j = 1.0f;
@@ -743,16 +803,16 @@ void _rasterizer_dynamic_unlit_geometry_draw(
 		group->active_camouflage_transparent_source_object_index = 0;
 		group->cortana_hack = FALSE;
 
-		if (shader->base.type == _shader_type_effect &&
-			TEST_FLAG(SHADER_GET_EFFECT(shader)->flags, _shader_effect_sort_bias_bit))
-		{
-			group->z_sort += SHADER_EFFECT_SORT_BIAS;
-		}
-
 		group->node_matrices = NULL;
 		group->node_matrix_count = 0;
 		group->lighting = NULL;
 		group->animation = NULL;
+		/* port: the radius the shader holds now, its run's (render_particles
+		and particle_systems set it before each run; the zsprite draw reads it
+		later, when the shader holds the last run's) */
+		rasterizer_transparent_geometry_group_set_secondary_map_radius(
+			group,
+			SHADER_GET_EFFECT(shader)->secondary_map_radius);
 
 		if (rasterizer_debug_options.statistics_mode == _rasterizer_statistics_mode_geometry)
 		{

@@ -49,6 +49,9 @@ SMAA_FILES = (("SMAA.hlsl", "xgpu_smaa_shader"), ("area_tex.zlib", "xgpu_smaa_ar
               ("search_tex.zlib", "xgpu_smaa_search_texture"))
 # the head-related impulse responses (dsound_sdl.c's hrtf)
 HRTF_FILE = Path("port/assets/hrtf/sadie_d2_48k.hrtf")
+# the stock maps' shader key list (port/linux/src/xgpu_shader_keys.c; made
+# by tools/shader_keys.py)
+SHADER_KEYS_FILE = Path("port/assets/shaders/stock.keys")
 # Chupathingy's loading picture (port/linux/game/loading_picture.c)
 LOADING_PICTURE_FILE = Path("port/assets/loading/chupathingy_loading.tga")
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -78,6 +81,11 @@ UI_FONT_FILES += [UI_FONTS / "platform_icons.ttf"]
 PROMPT_ICONS = [Path("port/assets/prompts") / f"{name}.png" for name in (
     "button-a", "button-b", "button-x", "button-y", "button-start", "trigger-left", "trigger-right", "bumper-left",
     "bumper-right", "button-back")]
+# the medals' icons (port/assets/medals, tools/medal_assets.py from the site's
+# medals): the 64-pixel atlas, in the builds with them (HALO_MEDAL_ICONS:
+# halo_console_features.h). The 32-pixel one is kept for a console later
+MEDAL_ATLAS = Path("port/assets/medals/medals-64.png")
+MEDAL_ATLAS_CELL = 64
 
 
 def font_files() -> List[str]:
@@ -117,7 +125,8 @@ def hud_asset_inputs() -> List[Path]:
             *(FONT_ASSETS / name for name in font_files()), *(MENU_ASSETS / name for name in menu_files()),
             *(SMAA_ASSETS / name for name, _ in smaa_files()),
             *([HRTF_FILE] if (ROOT / HRTF_FILE).is_file() else []),
-            *([LOADING_PICTURE_FILE] if (ROOT / LOADING_PICTURE_FILE).is_file() else [])]
+            *([LOADING_PICTURE_FILE] if (ROOT / LOADING_PICTURE_FILE).is_file() else []),
+            *([SHADER_KEYS_FILE] if (ROOT / SHADER_KEYS_FILE).is_file() else [])]
 
 
 def hud_configure_inputs() -> List[Path]:
@@ -169,7 +178,8 @@ def ui_fonts_build(n: Any, prefix: str, output: Path, sln: Any) -> List[Path]:
         description=f"{prefix.upper()} EMBED $out",
     )
     n.build(outputs=output, rule=f"{prefix}_embed_fonts",
-            implicit=[Path("tools/embed_assets.py"), FONT_LIST, *UI_FONT_FILES, *PROMPT_ICONS])
+            implicit=[Path("tools/embed_assets.py"), FONT_LIST, *UI_FONT_FILES, *PROMPT_ICONS,
+                      MEDAL_ATLAS])
     return [output]
 
 
@@ -227,6 +237,19 @@ def overlay_fonts(output: Path) -> None:
     lines.append("{")
     lines.append("\t" + ", ".join(f"icon{index}" for index in range(len(PROMPT_ICONS))) + ",")
     lines.append("};")
+    lines.append("")
+    # the medals' icons: one atlas, RGBA, rows from the top, a cell each
+    # (medal_icons.h's order)
+    width, height, pixels = png_rgba((ROOT / MEDAL_ATLAS).read_bytes(), str(MEDAL_ATLAS))
+    lines.append("/* (ui_overlay.c's: the medals' atlas, ui_medal_atlas_cell pixels a medal) */")
+    lines.append("#ifdef HALO_MEDAL_ICONS")
+    lines.append("static const unsigned int medal_atlas[] = {")
+    lines.extend(words(pixels))
+    lines.append("};")
+    lines.append(f"const int ui_medal_atlas_cell = {MEDAL_ATLAS_CELL}, ui_medal_atlas_width = {width}, "
+                 f"ui_medal_atlas_height = {height};")
+    lines.append("const unsigned int *const ui_medal_atlas = medal_atlas;")
+    lines.append("#endif")
     write(output, lines)
 
 
@@ -399,6 +422,18 @@ def main() -> None:
     lines.extend(words(data) if data else ["\t0,"])
     lines.append("};")
     lines.append(f"const unsigned long loading_picture_data_size = {len(data)};")
+    # the stock maps' shader key list, deflated (xgpu_shader_keys.c), of size
+    # 0 if the checkout does not have it; only where it is used
+    text = (ROOT / SHADER_KEYS_FILE).read_bytes() if (ROOT / SHADER_KEYS_FILE).is_file() else b""
+    data = zlib.compress(text, 9) if text else b""
+    lines.append("")
+    lines.append("#ifdef HALO_SHADER_PREP")
+    lines.append("const unsigned int xgpu_shader_keys_stock_data[] = {")
+    lines.extend(words(data) if data else ["\t0,"])
+    lines.append("};")
+    lines.append(f"const unsigned long xgpu_shader_keys_stock_data_size = {len(data)};")
+    lines.append(f"const unsigned long xgpu_shader_keys_stock_text_size = {len(text)};")
+    lines.append("#endif")
     write(Path(sys.argv[1]), lines)
 
 

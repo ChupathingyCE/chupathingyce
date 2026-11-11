@@ -162,7 +162,13 @@ The dedicated server runs a playlist of games around the clock. It runs on Linux
 
 ## Builds
 
-Releases are the stable builds, and the game updates itself from them. Want the newest changes early? Try the [nightly build](https://github.com/ChupathingyCE/chupathingyce/releases/tag/nightly). More in [docs/install.md](docs/install.md#which-build).
+Releases are the stable builds, and the game updates itself from them. Want the newest changes early? Pick an update channel in Settings > Online > Updates, or on the setup screen's Updates tab:
+
+- **Release** (the default) gets releases only.
+- **Testing** gets test builds first, and may have bugs.
+- **Nightly** gets a build of main every night, and the test builds too.
+
+Testing and Nightly still get each release. You can switch back to Release anytime. The game never installs an older build, so after a test build you stay on it until the next release comes out. More in [docs/install.md](docs/install.md#which-build).
 
 ## Help
 
@@ -248,7 +254,9 @@ with their authors credited in each commit.
 - [startupfoundry](https://github.com/startupfoundry) and
   [pastudan](https://github.com/pastudan) (OpenH1): camera shake, particle
   streams, change colors and camo smoothed between ticks, a faster audio
-  resampler and limiter, and a lighter scope zoom at high resolutions.
+  resampler and limiter, a lighter scope zoom at high resolutions, and a
+  map's first frame drawn through every shader, which lists the stock maps'
+  shaders and makes bgfx's pipelines before play.
 - chestahh (GulchCE): lens flares and light
   glows back on AMD graphics, less stutter the first time a texture is drawn
   on Windows, and host cheat and shadow setup fixes.
@@ -271,6 +279,10 @@ with their authors credited in each commit.
   domain), plus our own Xbox 360 ring and Wii U GamePad; the names and logos
   are their owners' trademarks, used only to identify platforms. The same
   marks make the platform badges at the top of this page.
+- The service record (DELTA's SERVICE RECORD, `port/linux/src/service_record.c`)
+  follows the career record of mOTA-lEV's
+  [OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber), used under
+  GPL-3.0 with his permission.
 - Controller button icons by snapchipper, CC0 (`port/assets/prompts`).
 - Headphone 3D sound (`audio.hrtf`): head-related impulse responses from the
   [SADIE II database](https://www.york.ac.uk/sadie-project/database.html)

@@ -2,7 +2,9 @@
 
 `ninja linux` compiles the game with clang for 32-bit x86 Linux. The result
 is a native executable, `build/linux/chupathingy`. The game shows its graphics with
-OpenGL 4.5. It plays sound through SDL3. It accepts keyboard, mouse and
+OpenGL 4.5, or OpenGL 3.3 to 4.4 on an older driver (the path macOS's
+OpenGL 4.1 takes; `HALO_GL_LEGACY=1` forces it, to test). It plays sound
+through SDL3. It accepts keyboard, mouse and
 gamepad input.
 
 The game is 32-bit code because its data (tags, cache files, saved games)
@@ -540,24 +542,27 @@ the setting for one start of the game. It has priority over the file.
 | `display.mode` | `""` | `HALO_DISPLAY_MODE` | `"fullscreen"`: the display, taken at the mode of `display.resolution` (the nearest the display has), or at its desktop mode. `"borderless"`: a window over the whole desktop, whose mode does not change. `"windowed"`: a window of `display.window_size`. Empty: `display.fullscreen` decides (`true`: borderless). When it is set, `display.fullscreen` is ignored, and the log says so if both are set. F11 changes between the window and the fullscreen mode. Video Setup sets it. |
 | `display.fullscreen` | `true` (macOS: `false`) | `HALO_FULLSCREEN` | `true`: borderless, as `display.mode = "borderless"`. `false`: a window, as `display.mode = "windowed"`. Used only when `display.mode` is empty. |
 | `display.resolution` | `"native"` | `HALO_RESOLUTION` | What fullscreen and borderless draw at: `"native"`, the display's own resolution, or `"<width>x<height>"`, such as `"1920x1080"`, 640x480 or more. Fullscreen sets the display to it. Borderless draws at it and scales the picture to the display, where the display has room for it. The picture has 480 lines of the game and the width of the resolution's shape. A window draws at its own size instead. Video Setup's Resolution sets it, from the display's modes; it shows with Fullscreen and Borderless. |
+| `display.refresh_rate` | `0.0` | `HALO_REFRESH_RATE` | Fullscreen's refresh rate in Hz: the display's mode nearest it, at `display.resolution` (or the display's own size). `0`: the display's own rate. Only Windows and X11 can change it. Wayland, XWayland, gamescope, macOS and Android keep their own rate. Borderless and windowed keep the desktop's. The log names the mode taken. config.toml only. |
 | `display.resolution_scaling` | `"native"` | `HALO_RESOLUTION_SCALING` | `"native"`: the game draws at the resolution of the window, or of the display (or `display.resolution`) fullscreen. `"original"`: the game draws the 640x480 picture of the Xbox and scales it up to the window or the display, whatever `display.mode` is. Video Setup sets it. |
 | `display.window_size` | `""` | `HALO_WINDOW_SIZE` | The size of the window, as `"<width>x<height>"`, such as `"1920x1080"`, 640x480 or more. You can change the size of the window; the game's picture takes its shape. Empty: `display.window_scale` decides. Video Setup's Window Size sets it, from sizes of each shape (4:3, 16:10, 16:9 and 21:9) that fit the desktop; it shows with Windowed. |
 | `display.window_scale` | `2` | `HALO_WINDOW_SCALE` | Used when `display.window_size` is empty: the size of the window, as a multiple of 640x480. |
 | `display.vsync` | `true` | `HALO_NO_VSYNC=1` sets `false` | `true`: each frame waits for the display. |
 | `display.skip_intro` | `false` | `HALO_SKIP_INTRO` | `true`: skip the intro movie on startup and load straight into the main menu. |
-| `display.max_fps` | `0` | `HALO_MAX_FPS` | With vsync off, the most frames each second. `0`: twice the display's refresh rate (on Android, 120). `-1`: no limit, which can hang some Intel graphics (Raptor Lake), resetting the desktop's graphics too, and heats a phone. |
+| `display.max_fps` | `0` | `HALO_MAX_FPS` | With vsync off, the most frames each second. `0`: twice the display's refresh rate (on Android, 120). `-1`: no limit, which can hang some Intel graphics (Raptor Lake), resetting the desktop's graphics too, and heats a phone. Under gamescope (the Steam Deck's Game Mode) with OpenGL, a limit at the display's refresh rate is given to the window as vsync, so the frames stay in step with the display and don't judder. A whole fraction of it (30 at 60 Hz) works the same way with SDL's x11 driver. With the Wayland driver the clock keeps the limit, because SDL takes any interval above 1 as 1 there. The log says when this applies. Everywhere else, and with bgfx, the clock keeps the limit as before. |
 | `display.stats_log` | `false` | `HALO_STATS_LOG` | `true`: a line a second in the log with the frame rate, the mode, the map, the renderer and the size of the 3D view (`STATS fps=120.2 mode=Slayer map=bloodgulch gpu="Adreno (TM) 735" res=1068x480`), for a bug report or to compare two builds. Nothing is drawn and nothing is sent. |
 | `display.anti_aliasing` | `"msaa2x"` on 64-bit computers, `"off"` on 32-bit ones, Android and the server | `HALO_ANTI_ALIASING` | The smoothing of jagged edges, which the Xbox did not have. `"off"`: none, as on the Xbox. `"fxaa"` or `"smaa"`: a pass over the 3D view after the game draws it. The HUD and the menus stay sharp. SMAA is the sharper and costs more. `"ssaa2x"`: the game draws at two times the resolution in each direction (at most the GPU's largest texture), and the picture is scaled down. The GPU does four times the work. Not with `display.resolution_scaling = "original"`. `"msaa2x"`, `"msaa4x"` or `"msaa8x"`: each pixel of the 3D view has that many samples (at most the GPU's). On Android, `"smaa"` gives FXAA and `"ssaa2x"` none. A change applies from the next frame. Refer to "Anti-aliasing" in "What operates". |
-| `display.renderer` | `"gl"` | `HALO_RENDERER` | What draws the game. `"gl"`: OpenGL. `"bgfx"`: an experimental test renderer under the same D3D8 interface, config-only with no menu row: Metal on macOS, Vulkan on Windows and Linux. It is in every 64-bit desktop build (macOS, Windows x64, Linux x64; not the 32-bit builds, Android or consoles). If bgfx can't start (no working Vulkan driver, say), the game says so in the log and draws with OpenGL instead. The log names the backend and the GPU. Known differences: the Halo PC ammo and health meters, a brighter first-person pistol and grainy water. FXAA, SMAA and supersampling are OpenGL only, so with bgfx they become `"msaa2x"` and one line says so in the log. Read at start-up. |
+| `display.renderer` | `"gl"` | `HALO_RENDERER` | What draws the game. `"gl"`: OpenGL. `"bgfx"`: an experimental test renderer under the same D3D8 interface, config-only with no menu row: Metal on macOS, Vulkan on Windows and Linux. On Windows, `"d3d11"` draws with Direct3D 11 instead, for testing on computers whose Vulkan is missing or bad; it is only used when chosen, and falls back to OpenGL. A Vulkan driver `display.vulkan_blocklist` skips goes to OpenGL. It is in every 64-bit desktop build (macOS, Windows x64, Linux x64; not the 32-bit builds, Android or consoles). If bgfx can't start (no working Vulkan driver, say), the game says so in the log and draws with OpenGL instead. The log names the backend and the GPU. Known differences: the Halo PC ammo and health meters, a brighter first-person pistol and grainy water. FXAA, SMAA and supersampling are OpenGL only, so with bgfx they become `"msaa2x"` and one line says so in the log. Read at start-up. |
 | `debug.gpu_flush_draws` | `-1` | `HALO_GPU_FLUSH_DRAWS` | Flush the GPU's pipeline every this many draws. `-1`: every 3 on Intel graphics with Mesa's driver, which can otherwise hang in the game's long runs of small draws and reset the desktop's graphics too. `0`: never. |
 | `debug.gpu_visibility_readback` | `"auto"` | `HALO_GPU_VISIBILITY_READBACK` | How the lens flare and light glow tests get their results. `auto`: read on the CPU, except on NVIDIA's driver, which copies them into a mapped buffer. AMD's driver loses results that way (no sun flares or light glows). `cpu` or `buffer` forces one. |
+| `debug.door_portals_log` | `false` | `HALO_DOOR_PORTALS_LOG` | Logs the level portals each door covers when it is paired with them (`source/objects/door_portals.c`). |
 | `display.interpolation` | `true` | `HALO_INTERPOLATION` | `true`: one frame for each refresh of the display. `false`: 30 frames each second, as on the Xbox. Video Setup's Frame Rate sets it (30 (Xbox) is `false`, the others `true`). Refer to "Frame rate". |
 | `display.direct_camera` | `true` | `HALO_DIRECT_CAMERA` | `true`: in first person, on foot, the view points where the player aims in each frame, not where the last tick left it. Refer to "Frame rate". Not in Video Setup: config.toml only. |
 | `display.field_of_view` | `70.0` | `HALO_FIELD_OF_VIEW` | How wide the first-person view is, in degrees across a 4:3 picture: `70`, as on the Xbox, from `50` to `120`. On a wider screen the view shows more at the sides, as before. Scopes zoom in by as much as before. Only the first-person view changes: cutscenes, the third-person views and the game itself (aim, auto-aim, what each machine sends) do not. Video Setup's Field of View sets it in the menus. |
 | `display.viewmodel_field_of_view` | `0.0` | `HALO_VIEWMODEL_FIELD_OF_VIEW` | How wide the first-person weapon and arms are drawn, in degrees as `display.field_of_view`: `0` (the default) follows `display.field_of_view`, as before; `50` to `120` draws them at that width whatever the view's, so a wide view does not stretch them. `70`: the weapon as on the Xbox. Drawing only. |
 | `display.reticle_scales_with_fov` | `true` | `HALO_RETICLE_SCALES_WITH_FOV` | `true`: the weapon's reticle is drawn smaller in a wider `display.field_of_view` and larger in a narrower one, as the world is, so it still covers the weapon's spread. At `70`, the Xbox's, it is the Xbox's size. Only in first person; while zoomed, the scope's picture (its mask, ticks, brackets and zoom label) keeps the Xbox's size, so its parts stay together. `false`: the reticle keeps the Xbox's size at any field of view. Video Setup's Reticle Follows FOV sets it. |
 | `display.far_clip_distance` | `1024.0` | `HALO_FAR_CLIP_DISTANCE` | How far the world is drawn, in world units: `1024`, as on the Xbox, up to `10000`. Raise it on large maps that cut off in the distance (Extinction, Hugeass). It is a floor under the map's own far clip, so it holds across map loads and joins, in single player and multiplayer; scripts and `init.txt` can raise the clip further but not below it. Only the picture changes: the game itself, what each machine sends and the near clip do not. Fog can still end the view sooner. Depth precision at a distance gets coarser as the value grows (about 9 units at 3000, 95 at 10000), so distant overlapping surfaces may flicker at the largest values. |
-| `display.match_timer` | `false` | `HALO_MATCH_TIMER` | `true`: in a multiplayer game with a time limit, the time left is drawn at the top of the screen. `false`: the time left shows only on the scoreboard (hold BACK, or tab), as on the Xbox. |
+| `display.match_timer` | `"off"` | `HALO_MATCH_TIMER` | A multiplayer game's clock on screen. `"remaining"`: the time left, or the time played when the game has no time limit, so it shows on every server. `"elapsed"`: the time played. `"off"`: the time left shows only on the scoreboard (hold BACK, or tab), as on the Xbox. An older `true` reads as `"remaining"` and `false` as `"off"`. |
+| `display.match_timer_position` | `"top"` | `HALO_MATCH_TIMER_POSITION` | Where the match timer goes: `"top"` (centered at the top of the view) or `"bottom_right"` (the view's bottom right corner, like later Halo games). Each split-screen player gets their own. |
 | `display.high_res_hud` | `true` | `HALO_HIGH_RES_HUD` | `true`: the HUD (meters, counters, panels and their outlines, the motion sensor, reticles, waypoints, scopes) is drawn from the high-res assets in `port/assets/hud`, 8x the size of the maps' bitmaps. The bitmaps with English text keep the maps' own. `false`: the maps' own bitmaps. |
 | `display.high_res_text` | `true` | `HALO_HIGH_RES_TEXT` | `true`: the menus' and HUD's text is drawn with the fonts in `port/assets/fonts` (Cyborg Interface Gothic, in place of the maps' Interstate) at the resolution the game draws at, laid out as before, and the menus' titles are drawn from the high-res pictures in `port/assets/titles`. `false`: the maps' bitmap fonts and titles. It covers the game's own text only: the Server Browser and the moderation overlays use the system's fonts in any case. For the blocky look of the Xbox, also set `display.resolution_scaling = "original"`. |
 | `display.high_res_font` | `""` | `HALO_HIGH_RES_FONT` | The player's own font file (`.ttf` or `.otf`) for the high-res text and the menu text of Online Games, in place of the built-in fonts (`port/assets/fonts/fonts.json`). A relative path is in `data/fonts/` in the data root (a path that leaves that folder is refused); an absolute path is used as it is. A file that is missing or is not a font is logged, and the built-in font is drawn. A change applies while the game runs. |
@@ -572,9 +577,11 @@ the setting for one start of the game. It has priority over the file.
 | `display.follow_camera` | `"off"` | `HALO_FOLLOW_CAMERA` | In multiplayer, when a dead player's camera follows a living player from behind once the original death camera is done (3 seconds): a teammate in a team game, the killer (or the leader) in a game without teams. LB and RB (Q and E, or the mouse wheel, on the keyboard) switch who, and a "FOLLOWING" line near the bottom says who; it returns to the player's own view on respawn. `"long_waits"`: only when the wait to respawn is long (`display.follow_camera_after`), the player is out of lives or odd man out, or the game type holds spawns until its next round; a short respawn keeps the original death camera. `"always"`: after every death. `"off"`: the original death camera only, as on the Xbox. Only where the game's host allows it (its `network.allow_follow_camera`, a dedicated server's `allow_follow_camera`); a host that says nothing (OpenCE's, an older build) allows none. Split screen: each player's own. |
 | `display.follow_camera_after` | `5.0` | `HALO_FOLLOW_CAMERA_AFTER` | For `display.follow_camera`'s `"long_waits"`: how many seconds of the wait to respawn must be left once the death camera is done for the camera to follow someone. |
 | `display.powerup_timers` | `false` | `HALO_POWERUP_TIMERS` | `true`: a small line of the HUD's text near the top of the view shows the seconds left on the player's active camouflage, overshield and full spectrum vision while one is on ("CAMO 12   OVERSHIELD 41"). The overshield's time is what is left of it above full: it counts down only in multiplayer, where it drains, so in campaign it shows none. Split screen: each player's own. `false`: none, as the original game. |
+| `display.medals` | `false` | `HALO_MEDALS` | `true`: in a multiplayer game, each medal you earn shows as its icon at the end of the kill's line in the HUD's messages ("You killed Sarge" and a Double Kill after it), by the rules of `port/linux/src/medal_rules.h`, with the site's icons (`port/assets/medals`). Medals no kill's line took get a line of their own. A build without the icons (every console build: they need the game list) shows each medal's name as a line instead. Off by default, as Halo shows none; nothing in the game changes. DELTA's SERVICE RECORD has the same switch. Medals are counted for the reports and your service record either way. |
 | `display.loading_screen` | `true` | `HALO_LOADING_SCREEN` | Keep the original loading screen (the picture with the glow that crosses it) up for a while when a level loads, as loading from the Xbox's disc did; the port's loads are usually over before it shows. How long is set for each kind of game below; the default is no wait. Press A (Space or Enter on the keyboard) to skip the rest of the wait; a load that is still running finishes first. Also when the level is already loaded (a restart). Never for the main menu or a saved film. `false`: every level loads as fast as it can. |
 | `display.loading_screen_campaign_seconds` | `0.0` | `HALO_LOADING_SCREEN_CAMPAIGN_SECONDS` | The least seconds the loading screen stays up when a campaign level loads on this machine alone, split screen co-op too, up to 30. A load that takes longer shows for as long as it takes. `0`: no wait. A value set in 0.8.0's `display.loading_screen_min_seconds` is moved to this setting the first time the game starts. |
 | `display.loading_screen_multiplayer_seconds` | `0.0` | `HALO_LOADING_SCREEN_MULTIPLAYER_SECONDS` | The same for every other game: split screen multiplayer, system link, online and network co-op, on a machine that joins and on one that hosts and plays, up to 5: while the loading screen is held, the machine hears nothing from the network, and a host drops a machine it hears nothing from for 15 seconds. Machines already finish loading at their own times. Never on the dedicated server. `0`: no wait. |
+| `display.prepare_shaders` | `true` | `HALO_PREPARE_SHADERS` | Make a map's shaders while its loading screen is up, so the game doesn't stop for a moment to make one the first time something new is drawn: a new area, a weapon, an effect. Each map has a list of what it draws: the stock maps' comes with the game (`port/assets/shaders/stock.keys`), and the game keeps every map's own list in `cache/shader_keys`, so a custom map's shaders are ready from its second load on. The loading screen waits up to 5 seconds for them, its glow showing how far they are. What's left is made in play by bgfx's compile threads, or by an OpenGL driver that compiles in parallel; other drivers make it at its first draw, as before. The OpenGL and bgfx renderers; not the consoles yet. `false`: each shader is made when it is first drawn. |
 | `display.xbox_loading_picture` | `true` | `HALO_XBOX_LOADING_PICTURE` | `true`: the loading screen shows the Xbox's own picture, `xbox_loading.tga` in your maps folder (a PAL disc's `loading.tga` works too; NTSC discs have none), and Chupathingy's own when there is none, as after a manual install without the disc's file. `false`: always Chupathingy's. The setup screen's disc import saves a PAL disc's picture as `maps/xbox_loading.tga`. A picture that is not an uncompressed 24-bit TGA of 320 by 240 is skipped. Not on the consoles, which show the disc's picture. |
 | `display.scoreboard_team_layout` | `"teams"` | `HALO_SCOREBOARD_TEAM_LAYOUT` | How the multiplayer scoreboard (hold BACK, or tab) lists a team game's players. `"teams"`: a column for each team, red on the left and blue on the right. `"score"`: all the players in order of score. With more players than fit, the mouse wheel and Page Up / Page Down scroll the scoreboard. |
 | `display.scoreboard_background` | `true` | `HALO_SCOREBOARD_BACKGROUND` | `true`: the multiplayer scoreboard (hold BACK, or tab) has a panel behind its text, for clearer text. |
@@ -599,11 +606,13 @@ the setting for one start of the game. It has priority over the file.
 | `chat.streamer_mode` | `false` | `HALO_CHAT_STREAMER_MODE` | `true`: other players' names in chat show as their team (or "Player"), and blocked words are starred out even with `chat.filter = "show"`. |
 | `chat.quick_messages` | `"Nice shot\|Need backup\|On my way\|Thanks\|Good game\|Sorry"` | `HALO_CHAT_QUICK_MESSAGES` | A controller's quick lines, separated by `\|`: D-pad up shows the next, D-pad down says it (to your team in a team game). Empty: none. |
 | `display.per_pixel_lighting` | `false` | `HALO_PER_PIXEL_LIGHTING` | `false`: the models (characters, weapons, vehicles, scenery) are lit at each vertex and the light is blended between them, as on the Xbox. The light across a curved surface then shows facets, and a point light that passes close lights only the vertices it reaches. `true`: the models are lit at each pixel by the same lights (the ambient light, two distant lights and two point lights), which changes their look. |
+| `display.doors_block_light` | `true` | `HALO_DOORS_BLOCK_LIGHT` | `true`: a closed door stops a dynamic light behind it (a plasma bolt, an explosion, a flashlight in the next room) from lighting the walls and objects on your side. Each door is matched with the level portals it covers once it has rested at each end of its travel; a moving door lets light through. Drawing only: the AI's sense of light and the network are unchanged (`source/objects/door_portals.c`). `false`: the light comes through the door, as on the Xbox. This replaces the old `debug.doors_pass_light` key, which is gone. |
 | `display.particle_limit` | `4096` (the Switch: `2048`, the Xbox 360: `1024`) | `HALO_PARTICLE_LIMIT` | The most particles alive at once (sparks, smoke, casings, debris). When it is full, the oldest makes room for a new one. The Xbox had 1024. `0`: the port's own 8192. Changes at once. |
 | `display.particle_ticks` | `false` (consoles: `true`) | `HALO_PARTICLE_TICKS` | `true`: particles not attached to an object move once a 30 Hz tick, as on the Xbox, and are drawn smoothly between ticks. That saves collision tests. `false`: they move every frame, which is smoother at high refresh rates. Takes effect at the next map. |
 | `display.dynamic_light_limit` | `0` (consoles: `8`; the original Xbox: `0`) | `HALO_DYNAMIC_LIGHT_LIMIT` | The most dynamic lights (muzzle flashes, plasma, explosions) that light the level at once. The biggest on screen light the walls and floor; the rest light only the objects near them. `0`: no limit, as on the Xbox. Changes at once. |
 | `display.specular_light_limit` | `0` (consoles: `2`; the original Xbox: `0`) | `HALO_SPECULAR_LIGHT_LIMIT` | Of those lights, the most that also add their shine to metal and wet floors. The first-person weapon's go first. `0`: no limit, as on the Xbox. Changes at once. |
 | `display.crt_filter` | `false` | `HALO_CRT_FILTER=1` sets `true` | `true`: a CRT look over the picture (scanlines, curvature, a phosphor mask). Only the `bgfx` renderer has it for now. |
+| `display.vulkan_blocklist` | `true` | `HALO_VULKAN_BLOCKLIST` | Windows and Linux, with the `bgfx` renderer: skip Vulkan drivers known to be broken or slow on older computers (nouveau's Vulkan before Turing, NVIDIA older than 470, Mesa's Vulkan for Ivy Bridge, Haswell and Bay Trail, software Vulkan) and draw with OpenGL. `false` tries Vulkan anyway. |
 | `audio.enabled` | `true` | `HALO_NO_AUDIO=1` sets `false` | `false`: no audio device. The sound continues without output. |
 | `audio.volume` | `1.0` | `HALO_VOLUME` | The master volume. |
 | `audio.music_volume` | `1.0` | `HALO_MUSIC_VOLUME` | The music's volume, of the master volume. |
@@ -648,6 +657,11 @@ the setting for one start of the game. It has priority over the file.
 | `network.join_from_clipboard` | `"never"` | `HALO_NET_JOIN_FROM_CLIPBOARD` | An invite link on the clipboard when the game comes to the front: `"ask"` asks over the menus whether to join its game (with its name and map when the game list knows them; No is kept for that invite), `"always"` joins it, `"never"` leaves it. `true` and `false`, from older versions, mean `"always"` and `"never"`. Network Settings in the Chupathingy and Gearbox menus. |
 | `network.copy_to_clipboard` | `false` | `HALO_NET_COPY_TO_CLIPBOARD` | `true`: when this copy starts to host a game, its invite link goes on the clipboard. `false`: the game leaves the clipboard alone; the link is in the log, and INVITE LINK in the Gearbox menus' Server Settings copies it. Network Settings in the Chupathingy and Gearbox menus. |
 | `network.map_downloads` | `"ask"` | `HALO_NET_MAP_DOWNLOADS` | A Custom Edition map a game you join needs and you don't have, from the community map repositories (maps.halonet.net and its mirrors, as Chimera downloads from them). `"ask"`: the Online Games screen offers to download it (Yes, No, Don't ask again, which writes `"always"` or `"never"` here). `"always"`: downloaded without asking. `"never"`: the game only says which map is missing. Network Settings in the PC menus. The map is checked before it goes in `maps_ce`: refer to "Halo PC maps" in [docs/maps.md](../../docs/maps.md#halo-pc-maps). Not on the dedicated server. |
+| `network.maps_url` | `"https://maps.chupathingy.org"` | `HALO_NET_MAPS_URL` | Chupathingy maps, asked for a missing Custom Edition map when the community map repositories don't have it, and whose blacklist every map is held to. Its lists are signed, so a copy of them elsewhere works too. Empty: none. Refer to "Chupathingy maps" in [docs/maps.md](../../docs/maps.md#halo-pc-maps). Desktop and Android. |
+| `network.map_downloads_from_host` | `"off"` | `HALO_NET_MAP_DOWNLOADS_FROM_HOST` | A missing Custom Edition map from the game's host, peer to peer, when neither the community repositories nor Chupathingy maps give it: `"off"`, `"ask"` (each time, with the disclaimer: the map comes straight from the host, not from us, and we haven't checked it; Don't ask again writes `"always"` or `"off"`) or `"always"`. The file goes into `maps_quarantine`, and into `maps_ce` only after quick checks and the blacklist. MAPS FROM HOSTS in Network Settings and the setup screen. Refer to "From the host" in [docs/maps.md](../../docs/maps.md#halo-pc-maps). Desktop and Android. |
+| `network.map_downloads_from_host_limit` | `512` | `HALO_NET_MAP_DOWNLOADS_FROM_HOST_LIMIT` | The largest map taken from a host, in MB (16 to 768). |
+| `network.map_share` | `false` | `HALO_NET_MAP_SHARE` | Map sharing: a player who joins without your Custom Edition map, and asks for it, gets it from your game, a dedicated server's or one you host from the menus. Only the map your game is on now, only the map file (never `bitmaps.map`, `sounds.map` or `loc.map`), only to machines in your game, over TCP port 5153. Off by default. Refer to "Map sharing". |
+| `network.map_share_upload` | `1024` | `HALO_NET_MAP_SHARE_UPLOAD` | The most map sharing sends, in KB a second, shared by everyone downloading at once (16 to 20480). A game you host from the menus sends 256 unless you set it. |
 | `network.playlist_downloads` | `"ask"` | `HALO_NET_PLAYLIST_DOWNLOADS` | When you join a game of a verified playlist, its map set (refer to [docs/playlist-maps.md](../../docs/playlist-maps.md)): `"ask"` says which of its maps you don't have and offers to download them (Yes, No, Don't ask again, which writes `"always"` or `"never"` here); `"always"` downloads them without asking; `"never"` doesn't check. Each file is checked against the signed list before it goes in its folder. Separate from `network.map_downloads`. Desktop and Android. |
 | `network.tunnel_port` | `2302` on the desktop and Android, `0` on the consoles and the server | `HALO_NET_TUNNEL_PORT` | The UDP port for internet play. At its default, every copy of the game starts on a port it selects, and moves to 2302 when it hosts an internet game (Server Setup, or the game's start); if another program has 2302, the next free port up to 2306; if all are taken, the selected port stays. The log names the port. A port that you set (in the file, Server Setup's PORT, or the environment variable) is used from the start, to join as well as to host, and no other is tried. `0`: the game selects a port each run, also to host. Refer to "Internet play". |
 | `network.allow_upnp` | `true` | `HALO_NET_ALLOW_UPNP` | `true`: internet play can ask the router to forward its port (UPnP). `false`: the game does not ask. Refer to "Internet play". |
@@ -655,8 +669,10 @@ the setting for one start of the game. It has priority over the file.
 | `network.chat` | `"on"` | `HALO_NET_CHAT` | Text chat in the games this copy hosts: `"on"`, `"team"` (team lines alone) or `"off"`. |
 | `network.team_change` | `"off"` | `HALO_NET_TEAM_CHANGE` | In the team games this copy hosts, whether players may change teams during the game: `"off"` (players keep their team, as on the Xbox), `"balanced"` (only while neither team ends up more than `network.team_change_margin` players bigger) or `"allow"`. Chupathingy players see CHANGE TEAMS in the pause menu only when it is on. A player changes at most every 10 seconds and never leaves a team empty; they respawn on the new team with no death or penalty counted. |
 | `network.team_change_margin` | `1` | `HALO_NET_TEAM_CHANGE_MARGIN` | With `"balanced"`, the most players one team may have over the other after a change (0 to 16). |
+| `network.keep_parties_together` | `true` | `HALO_NET_KEEP_PARTIES_TOGETHER` | In team games this copy hosts, a party's players go to one team where the teams stay within one player of each other (Delta Peer's party teams; docs/delta.md). Late joiners move only before they spawn. |
 | `network.allow_follow_camera` | `false` | `HALO_NET_ALLOW_FOLLOW_CAMERA` | In the games this copy hosts, whether players may watch a living player's view while they wait to respawn (`display.follow_camera`). `false` plays as the Xbox did: the death camera alone. Chupathingy clients are told over Delta Peer (the host's rules). |
 | `network.allow_player_names` | `false` | `HALO_NET_ALLOW_PLAYER_NAMES` | In the games this copy hosts, whether players may show names above heads (`display.player_names`). `false` plays as the Xbox did: a name shows only on the player aimed at. Chupathingy clients are told over Delta Peer (the host's rules). |
+| `network.late_join_hold` | `false` | `HALO_NET_LATE_JOIN_HOLD` | In the games this copy hosts, whether a player who joins a game in progress waits for the next game, watching through the follow camera (at most 5 minutes). `false` spawns them at once, as Halo does. Not the split-screen wait (`network.late_join_wait`). Chupathingy clients are told over Delta Peer (the host's rules). |
 | `network.max_machines_per_address` | `0` | `HALO_NET_MAX_MACHINES_PER_ADDRESS` | In the games this copy hosts, the most machines that may join from one internet address (1 to 16); a machine past it is refused with OpenCE's "too many players from your address" code (13). `0`: no limit. Local network addresses (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16) are never limited; carrier-grade NAT (100.64/10) is counted. Internet play's peers are counted by the address their tunnel comes from, not their stand-in address. A dedicated server uses its own `max_machines_per_address` (8 by default). |
 | `network.chat_legacy` | `true` | `HALO_NET_CHAT_LEGACY` | In the games this copy hosts, OpenCE players chat too, over their own text chat, which the host bridges to Delta chat (`docs/delta.md`, Chat): they see every line and theirs reach everyone, under the same rules. Follows `network.chat` (off there is off for them too). `false`: OpenCE players get no chat here. |
 | `network.chat_filter` | `true` | `HALO_NET_CHAT_FILTER` | In the games this copy hosts, a line with a blocked word (the blocked names list's) is not passed on, and its sender is told. Nobody is kicked. |
@@ -665,12 +681,14 @@ the setting for one start of the game. It has priority over the file.
 | `network.platform_limits` | `"on"` | `HALO_NET_PLATFORM_LIMITS` | `"on"`: Delta hosts keep a game to the players this platform takes (an original Xbox: 16). `"off"`: this machine joins games of any size. |
 | `network.host_platform_limits` | `true` | `HALO_NET_HOST_PLATFORM_LIMITS` | `true`: a game this machine hosts keeps to the players its Delta machines' platforms take. `false`: their limits are ignored, for testing. |
 | `network.public_lobby` | `true` | `HALO_NET_PUBLIC_LOBBY` | `true`: the server browser. Public games are listed, and Join Game > Server Browser shows them. `false`: no games are listed or shown. Refer to "Server browser". |
+| `network.doorbell` | `true` | `HALO_NET_DOORBELL` | `true`: with this copy linked to Delta, invites, friend requests and friends coming online show up right away. Internet play's connections to our own brokers (mqtt.chupathingy.org, doorbell.chupathingy.org in `brokers.txt`) also listen for a ring from the site; the ring carries nothing personal and only makes the copy ask the site sooner. `false`: friends are checked on the usual schedule only. Refer to docs/delta.md, "The doorbell". |
 | `network.ping_games` | `true` | `HALO_NET_PING_GAMES` | `true`: Online Games pings the listed games whose hosts answer pings, before joining (the host sees your public address, as when you join). `false`: no pings; only the estimated ones (`~85`). Refer to docs/delta.md, "Pings before joining". |
 | `network.host_public` | `true` | `HALO_NET_HOST_PUBLIC` | `true`: a new game of Create Game > Internet starts as PUBLIC. `false`: it starts as PRIVATE. LISTING in Server Setup changes it for each game. Refer to "Server browser". |
 | `network.coop_friendly_fire` | `"on"` | `HALO_NET_COOP_FRIENDLY_FIRE` | Whether the players of an online co-op game hurt each other: `"off"`, `"on"`, `"shields_only"` or `"explosives_only"`. FRIENDLY FIRE in co-op's Server Setup writes its choice here. Their AI allies they always can, as in the campaign. |
 | `network.block_mouse_aim_assist` | `false` | `HALO_NET_BLOCK_MOUSE_AIM_ASSIST` | The host's policy on aiming assist for the mouse and keyboard in a game this machine hosts. `false`: each player's own `input.mouse_aim_assist` decides. `true`: the view's magnetism is off for a player aiming with the mouse, whatever their setting, in the game; the players' own settings are never changed. Clients are told when they join and when it changes (network version 32); a client honors the policy of any host that sends one, and, until a host of version 32 or later speaks, treats the mouse's magnetism as blocked. The bullets' autoaim is unaffected. |
 | `network.hit_line_of_sight` | `true` | `HALO_NET_HIT_LINE_OF_SIGHT` | In a game this machine hosts, a client's hit on a target with a wall between them is refused, as a hit the shooter could not have made. A shot needs a clear line from where the host had the shooter (their view, their head, or the gun of the vehicle seat they drive or gun) to the target where the shooter saw it, its edges included; an explosion needs one from where it went off, so a grenade thrown around a corner still hits. Glass and what the projectile goes through don't block it, and a projectile that homes in or falls in an arc may go around or over. Melee and vehicle hits are not checked. The host's log counts these refusals with the others. `false`: no line is looked for, as before. Only the host checks; nothing changes for the players who join. Refer to `NETCODE.md`. |
 | `network.late_join_wait` | `5` | `HALO_NET_LATE_JOIN_WAIT` | In the games this copy hosts, how many seconds a machine that joins a game in progress waits after its first player is in, so the players on its other controllers can join too (split screen), 0 to 30. It starts sooner when the machine has four players; 0 starts it at once. Only the host reads it. |
+| `network.pregame_load_timeout` | `90` | `HALO_NET_PREGAME_LOAD_TIMEOUT` | In the games this copy hosts, how many seconds past the end of the lobby's countdown the game waits for a machine that hasn't said it has the map loaded. Then that machine is dropped (as a machine that times out is) and the game starts without it, so one machine can't hold the lobby. The log names it by its machine number. 0 to 3600; `0` waits for ever, as before. Only the host reads it. |
 | `network.host_cheats` | `false` | `HALO_NET_HOST_CHEATS` | `false`: in a public internet game you host, once another machine is in it, your developer console and cheats cannot change the game. `true`: they can, and Online Games shows "Host cheats on" for the game. LAN and private games always allow them. |
 | `network.host_console_objects` | `32` | `HALO_NET_HOST_CONSOLE_OBJECTS` | How many objects your console and cheats may make in each network game you host (`cheat_all_vehicles`, `object_create` and the like). Past it they are refused. At most 8 while an original Xbox plays. `0`: no limit. |
 | `network.coop_player_collisions` | `true` | `HALO_NET_COOP_PLAYER_COLLISIONS` | Whether the players of an online co-op game bump into each other. `false`: they walk through each other, so that one cannot block a doorway or stand on another; they still bump into the AI's characters. PLAYER COLLISIONS in co-op's Server Setup writes its choice here. |
@@ -680,7 +698,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.coop_enemies_multiplier` | `2` | `HALO_NET_COOP_ENEMIES_MULTIPLIER` | The static multiplier of the enemies, `2` to `32`: each squad of enemies is this many times as large. MULTIPLIER in co-op's Server Setup writes its choice here. |
 | `network.coop_public` | `false` | `HALO_NET_COOP_PUBLIC` | `true`: an online co-op game (Create Game > Internet, a SINGLEPLAYER map) starts as PUBLIC. `false`: it starts as PRIVATE. LISTING in co-op's Server Setup writes its choice here. Refer to "Server browser". |
 | `network.browser_url` | `"https://stats.chupathingy.org"` | `HALO_NET_BROWSER` | The game list server: Online Games, the Server Browser's listed games, Link Profile, stats and crash reports. Empty: none. A file that still names `https://halo.milenko.org`, the old default, follows the new one. |
-| `network.brokers_file` | `"brokers.txt"` | `HALO_NET_BROKERS_FILE` | The file of the public MQTT brokers that let the machines of an invite find each other, and that carry the listings of the server browser: next to `config.toml`, unless a full path. One `host:port` on each line, up to 4; `#` starts a comment. |
+| `network.brokers_file` | `"brokers.txt"` | `HALO_NET_BROKERS_FILE` | The file of the public MQTT brokers that let the machines of an invite find each other, and that carry the listings of the server browser: next to `config.toml`, unless a full path. One `host:port` on each line, up to 5; `#` starts a comment. |
 | `network.stun_servers` | Google and Cloudflare | `HALO_NET_STUN` | The public STUN servers (`host:port`, with commas between them) that give the internet address of a machine. |
 | `network.announce` | `"latest"` | `HALO_NET_ANNOUNCE` | The OpenCE network version that the games you host announce. `"latest"` follows the newest one the signed legacy table proves for hosting, between games and with no restart. A number pins it, such as `32`. Refer to `docs/delta.md`, "Auto-announce". |
 | `network.legacy_table` | `""` | `HALO_LEGACY_TABLE` | For testing, and for admins: a legacy table file, not signed, next to `config.toml` unless a full path. Its row for the wire of the build sets the OpenCE network versions that the game announces and joins, in place of the signed tables. The log shows a warning at start. Refer to `docs/delta.md`. Empty: none. |
@@ -695,6 +713,7 @@ the setting for one start of the game. It has priority over the file.
 | `discord.accept_join_requests` | `false` | `HALO_DISCORD_ACCEPT_JOIN_REQUESTS` | `true`: the game accepts every Ask to Join for the public game you host. `false`: Discord handles the request. |
 | `discord.register_launch` | `true` | `HALO_DISCORD_REGISTER_LAUNCH` | `true`: once connected to Discord, the game tells it how to start Chupathingy, as Discord's own SDK does. Then Discord shows Join to friends whose game is closed, and starts the game for it. Windows: `HKEY_CURRENT_USER\Software\Classes\discord-<application>`. Linux and FreeBSD: `discord-<application>.desktop` in `~/.local/share/applications`. macOS: the app becomes the handler of `discord-<application>://`. An entry of another program's is left alone. `false`: nothing is registered. |
 | `update.auto` | `true` | `HALO_UPDATE_AUTO` | `true`: at start-up, the game looks for a new version. Refer to "Updates". `false`: the game does not look. |
+| `update.channel` | `"release"` (a test build: `"testing"`, a nightly: `"nightly"`) | `HALO_UPDATE_CHANNEL` | Which builds to update to. `"release"`: releases. `"testing"`: test builds and releases. `"nightly"`: nightlies, test builds and releases. Refer to "Update channels". |
 | `update.offer_64bit` | `true` | `HALO_UPDATE_OFFER_64BIT` | The 32-bit Windows build only. `true`: on 64-bit Windows, when the game looks for a new version, it offers the 64-bit build once. `false`: it doesn't, and "Keep 32-bit" writes this. |
 | `crash_reports.upload` | `"ask"` | `HALO_CRASH_REPORTS` | Desktop builds (releases and nightlies). `"yes"`: the game sends a report of each crash to the developers, through `network.browser_url`. `"no"`: the game sends no reports. `"ask"`: the game asks after the next crash (on Linux and macOS, when it starts the next time) and writes the answer here. On the Privacy screen (Gearbox menus). Refer to "Crash reports" below and in [port/windows/README.md](../windows/README.md#crash-reports). |
 | `debug.update_answer` | `""` | `HALO_UPDATE_ANSWER` | The answer to the update question, for automatic tests: `yes`, `no` or `never`. Empty: the game asks. |
@@ -702,28 +721,40 @@ the setting for one start of the game. It has priority over the file.
 | `debug.screenshot_directory`, `debug.screenshot_every` | `""`, `0` | `HALO_SCREENSHOT_DIR`, `HALO_SCREENSHOT_EVERY` | The game writes each Nth frame to this folder as a BMP file. |
 | `debug.screenshot_window` | `false` | `HALO_SCREENSHOT_WINDOW` | `true`: those screenshots are of the window as shown, with the overlay's screens (Online Games and others) on the frame. |
 | `debug.hidden_window`, `debug.null_renderer` | `false` | `HALO_HIDDEN_WINDOW`, `HALO_NULL_RENDERER` | `true`: no visible window, or no graphics. |
+| `debug.frame_hitches` | `0` | `HALO_FRAME_HITCHES` | Log each frame in a map's first minute that comes more than this many milliseconds after the one before it, then how many there were: the measure of what was still made in play. `33` is two frames at 60 Hz; a software renderer needs more. `0`: none. |
+| `debug.draw_every_shader` | `false` | `HALO_DRAW_EVERY_SHADER` | Draw a map's first frame first, unseen, through every shader its tags hold, so its shader list (`display.prepare_shaders`) has them all: how `tools/shader_keys.py` makes the stock maps' list. Based on work by goatbutt and the OpenH1 team. |
 | `debug.gpu_stats`, `debug.gpu_trace_frame`, `debug.gpu_trace_constants`, `debug.gpu_dump_shaders`, `debug.texture_dump_directory`, `debug.texture_log`, `debug.gl_debug`, `debug.texture_no_cache` | off | `HALO_GPU_STATS`, `HALO_GPU_TRACE`, `HALO_GPU_TRACE_CONSTANTS`, `HALO_GPU_DUMP_SHADERS`, `HALO_TEXTURE_DUMP`, `HALO_TEXTURE_LOG`, `HALO_GL_DEBUG`, `HALO_TEXTURE_NO_CACHE` | Tools to find problems in the graphics: counts for each frame, all the GL state of one frame, the GLSL code, the textures. |
 | `debug.discord_log` | `false` | `HALO_DISCORD_LOG` | Log each activity sent to Discord, without the invite. |
 | `debug.menu_open` | `""` | `HALO_MENU_OPEN` | Start on this screen of the menus (`main_menu/settings_select/...`, as `port/assets/menus` names it), a player profile being edited, to look at it. |
 | `debug.gpu_skip_vertex_shaders`, `debug.gpu_debug_expression`, `debug.gpu_debug_flat`, `debug.gpu_debug_texture0` | off | `HALO_GPU_SKIP_VS`, `HALO_GPU_DEBUG_EXPR`, `HALO_GPU_DEBUG_FLAT`, `HALO_GPU_DEBUG_T0` | Tools to find problems in the graphics: skip the draws of a vertex shader, or replace the output of all pixel shaders with a GLSL expression (for example `t0.rgb`). |
+| `debug.map_repositories` | `""` | `HALO_MAP_REPOSITORIES` | Tests: the community map repositories a missing map is asked from, their addresses split by spaces (`tools/test_map_repo.py`'s fake one). Empty: HaloNet's. |
 | `debug.network_test`, `debug.network_test_start`, `debug.network_test_kill`, `debug.network_test_score`, `debug.network_test_shoot`, `debug.network_test_shoot_walls`, `debug.network_test_vehicle`, `debug.network_test_pickup`, `debug.network_test_pickup_weapon`, `debug.network_test_fall`, `debug.network_test_bomb_in_goal`, `debug.network_test_bomb_throw`, `debug.network_test_bomb_keep`, `debug.network_test_team_change`, `debug.network_test_pause`, `debug.network_test_moderate`, `debug.network_test_moderate_time`, `debug.network_test_local_players`, `debug.network_test_password`, `debug.network_test_invite_file`, `debug.test_input` | off | `HALO_NETWORK_TEST`, `HALO_NETWORK_TEST_START`, `HALO_NETWORK_TEST_KILL`, `HALO_NETWORK_TEST_SCORE`, `HALO_NETWORK_TEST_SHOOT`, `HALO_NETWORK_TEST_SHOOT_WALLS`, `HALO_NETWORK_TEST_VEHICLE`, `HALO_NETWORK_TEST_PICKUP`, `HALO_NETWORK_TEST_PICKUP_WEAPON`, `HALO_NETWORK_TEST_FALL`, `HALO_NETWORK_TEST_BOMB_IN_GOAL`, `HALO_NETWORK_TEST_BOMB_THROW`, `HALO_NETWORK_TEST_BOMB_KEEP`, `HALO_NETWORK_TEST_TEAM_CHANGE`, `HALO_NETWORK_TEST_PAUSE`, `HALO_NETWORK_TEST_MODERATE`, `HALO_NETWORK_TEST_MODERATE_TIME`, `HALO_NETWORK_TEST_LOCAL_PLAYERS`, `HALO_NETWORK_TEST_PASSWORD`, `HALO_NETWORK_TEST_INVITE_FILE`, `HALO_TEST_INPUT` | Automatic tests of system link (`game/network_test.c`). Refer to `NETCODE.md`. |
+| `debug.map_fetch_folder`, `debug.map_fetch_result`, `debug.map_fetch_name`, `debug.map_fetch_held`, `debug.map_fetch_maximum` | `""`, `""`, `""`, `""`, `512` | `HALO_MAP_FETCH_FOLDER`, `HALO_MAP_FETCH_RESULT`, `HALO_MAP_FETCH_NAME`, `HALO_MAP_FETCH_HELD`, `HALO_MAP_FETCH_MAXIMUM` | The map bot's fetch (`debug.network_test = "fetch:<host>"`): the folder the map goes in, the result file (empty: `result.json` in the folder), the map it came for (its file's name; empty for any), the map versions already held (8 hex digits each, commas between), and the largest map taken in MB (up to 512). Refer to "Map sharing". |
 | `debug.test_gamepads` | 0 | `HALO_TEST_GAMEPADS` | Virtual gamepads (SDL's, up to 4) for tests of split screen: `debug.test_input`'s `menu:` script presses their buttons and sticks as `pad<n>:<button>` (`pad2:a`, `pad1:rs_left`) and takes them out and back with `pad<n>:unplug` and `pad<n>:plug`. |
 | `debug.determinism`, `debug.determinism_hashes`, `debug.determinism_positions`, `debug.determinism_ticks`, `debug.determinism_seed` | off | `HALO_DETERMINISM`, `HALO_DETERMINISM_HASHES`, `HALO_DETERMINISM_POSITIONS`, `HALO_DETERMINISM_TICKS`, `HALO_DETERMINISM_SEED` | The input-replay check of the simulation (`game/determinism_check.c`, `tools/test_determinism.py`): `record:<file>` writes every tick's player actions, `replay:<file>` plays them back, with a line of hashes of the game's state after each tick, and each player's unit position, velocity and vitality (for the trick replays, `tools/test_tricks.py`). |
-| `controls.guide` | `"F3"` | `HALO_KEY_GUIDE` | The key that opens and closes the Guide (`game/guide.c`): `"F3"` to `"F8"` (F9 and F10 are the screenshot and clip keys). Not on the consoles yet. |
-| `controls.guide_button` | `true` | `HALO_GUIDE_BUTTON` | The first player's controller Guide button opens the Guide, where SDL can read it (Steam and the Xbox Game Bar may keep it). Split screen's other players never open it, and it doesn't open over chat typing. |
-| `controls.screenshot` | `"F9"` | `HALO_KEY_SCREENSHOT` | Saves a screenshot (`src/capture.c`): the game's frame at full size with the HUD, without the DELTA overlay or toasts, as a PNG in `<data root>/screenshots/`, named `<map>_<YYYY-MM-DD_HH-MM-SS>.png`. Print Screen always works too. Read back without waiting for the GPU and written on a thread of its own. Desktop only (`HALO_CONSOLE_NO_CAPTURE`). |
+| `controls.delta` | `"F3"` (macOS: `"F3, Backslash"`) | `HALO_KEY_DELTA` | The keys that open and close DELTA (`game/guide.c`), separated by commas: `"F3"` to `"F8"` (F9 and F10 are the screenshot and clip keys), or another key the game doesn't use (never \`, the console's). On a Mac, F3 is Mission Control and the F keys are the Mac's own unless fn is held, so the Mac's default adds the backslash key (`Backslash`), and DELTA's prompts there show it. DELTA's SETTINGS has OPEN KEY to pick. Not on the consoles yet. |
+| `controls.delta_button` | `true` | `HALO_DELTA_BUTTON` | The first player's controller Guide button opens DELTA, where SDL can read it (Steam and the Xbox Game Bar may keep it). Split screen's other players never open it, and it doesn't open over chat typing. |
+| `controls.screenshot` | `"F9"` | `HALO_KEY_SCREENSHOT` | Saves a screenshot (`src/capture.c`): what the window shows, the HUD, DELTA, Online Games and the other overlay screens included (not the black bars, and not the toast of the screenshot before), at the window's size, as a PNG in `<data root>/screenshots/`, named `<map>_<YYYY-MM-DD_HH-MM-SS>.png`. Print Screen always works too. With OpenGL it is read back without waiting for the GPU; the bgfx renderer's screenshot of the window waits for it, a one-frame hitch per screenshot. Written on a thread of its own. Desktop only (`HALO_CONSOLE_NO_CAPTURE`). |
 | `controls.capture_buttons` | `false` | `HALO_CAPTURE_BUTTONS` | A controller takes screenshots too: its Share button, or Back and the right stick together. Back and the left stick save a clip. |
 | `controls.clip` | `"F10"` | `HALO_KEY_CLIP` | Saves the last `clips.seconds` as an MP4 in `<data root>/clips/`, named as screenshots are, when `clips.enabled` is on (`src/capture_clips.c`). |
 | `clips.enabled`, `clips.seconds` | `false`, `30` | `HALO_CLIPS`, `HALO_CLIPS_SECONDS` | Keep the last 5 to 120 seconds of the game encoded in memory, picture and sound, for `controls.clip`: the hardware's H.264 on macOS (VideoToolbox, up to 1920x1080 at 60), else FFmpeg's MPEG-4 Part 2 (up to 1280x720 at 30); AAC sound. The renderer scales and reads the frame back behind fences and lends it to an encoder thread; nothing runs while off. Read at start. `debug.clips_software` forces the software encoder, for tests. |
-| `guide.hold_back` | `false` | `HALO_GUIDE_HOLD_BACK` | Holding Back about 0.6 s in the menus opens the Guide. Off by default, since the menus get the Back press first, which isn't the Xbox's behavior. |
-| `guide.pause_menu` | `true` | `HALO_GUIDE_PAUSE_MENU` | GUIDE in the pause menu, after CONTROLS, in all three menu sets. |
-| `guide.notify_in_game` | `false` | `HALO_GUIDE_NOTIFY_IN_GAME` | The Guide's notifications (a new invite or friend request) during a game. They always show in the menus. |
-| `guide.notify_online` | `false` | `HALO_GUIDE_NOTIFY_ONLINE` | A notification in the menus when a friend comes online. Never during a game. |
-| `debug.guide_open` | `false` | `HALO_GUIDE_OPEN` | Opens the Guide once the menus or a map are up, for tests and screenshots. |
-| `debug.guide_toast` | `""` | `HALO_GUIDE_TOAST` | Shows a test notification with this text once the main menu is up. |
+| `delta.hold_back` | `false` | `HALO_DELTA_HOLD_BACK` | Holding Back (a controller's, or F1) about 0.6 s in the menus opens DELTA. While it is on, the menus get Back only once it is let go (a tap), never for a hold, so a hold on the main menu doesn't also ask to quit. Off by default, as the Xbox's Back acts on press. |
+| `delta.menu_item` | `false` (Android: `true`) | `HALO_DELTA_MENU_ITEM` | The Delta Guide on the main menu (DELTA before QUIT, in the Chupathingy and Gearbox menus), under ONLINE GAMES in the Multiplayer menu, and beside BACK in Gearbox's Multiplayer menu, each opening it on PARTY. Off by default: the Delta Guide is summoned like an overlay (its key, the Guide button, Back held), and the main menu says so instead (`delta.hint_shown`). On by default on Android, where a touch screen has no Guide button. The Delta Guide's SETTINGS has SHOW IN MENUS. It takes effect the next time the menus load. |
+| `delta.hint_shown` | `0` | `HALO_DELTA_HINT_SHOWN` | How many times the main menu has said how to open the Delta Guide ("Press F3 for the Delta Guide", or a controller's way when one was used last: "Hold Back for the Delta Guide" with `delta.hold_back`, else "Press the Guide button", never on a Mac, where macOS often keeps the Home button). It says so the first 3 times the main menu is reached (counted once drawn), then no more, and never with `delta.menu_item` on. |
+| `delta.pause_menu` | `true` | `HALO_DELTA_PAUSE_MENU` | DELTA in the pause menu, after CONTROLS, in all three menu sets. |
+| `delta.notify_in_game` | `false` | `HALO_DELTA_NOTIFY_IN_GAME` | DELTA's notifications (a new invite or friend request) during a game. They always show in the menus. |
+| `delta.notify_online` | `false` | `HALO_DELTA_NOTIFY_ONLINE` | A notification in the menus when a friend comes online. Never during a game. |
+| `delta.bring_party` | `true` | `HALO_DELTA_BRING_PARTY` | DELTA's BRING PARTY TO MY GAME: when you lead a party, the games you join or host are told to its members, who follow you (each can stay with B). |
+| `debug.delta_open` | `false` | `HALO_DELTA_OPEN` | Opens DELTA once the menus or a map are up, for tests and screenshots. |
+| `debug.delta_toast` | `""` | `HALO_DELTA_TOAST` | Shows a test notification with this text once the main menu is up. |
+| `debug.delta_section` | `""` | `HALO_DELTA_SECTION` | The section `debug.delta_open` opens on, by name (`PARTY`, `CLAN`). Empty: the first. |
+| `debug.delta_row` | `-1` | `HALO_DELTA_ROW` | With `debug.delta_open`, chooses this row of the section it opened on once the row is there, for screenshots. |
+| `debug.delta_test` | `""` | `HALO_DELTA_TEST` | Buttons pressed in DELTA once `debug.delta_open` opened it, one at a time, separated by `;` (`up`, `down`, `left`, `right`, `a`, `b`, `x`, `y`, `lb`, `rb`), for tests. Debug builds only: a release build (`--release`) ignores it. |
 | `debug.chat_test` | `""` | `HALO_CHAT_TEST` | A script of text chat for the tests (`game/chat.c`): `"<seconds>:<what>[:<text>]"` steps separated by `;`, from when this copy is in a game: `all` and `team` say a line, `server` says one as the host's server, `mute` and `unmute` mute a machine as a moderator does (the host), `localmute` mutes one for this copy, `log` and `close` open and close the log, `type` shows a line being typed. |
+| `debug.structure_culling` | `true` | `HALO_STRUCTURE_CULLING` | Skips the level's surfaces that are off screen or face away. Turn it off to draw them as the original game does, to check whether a missing wall comes from this. Read as each map loads. |
 | `debug.touch_targets` | `false` | `HALO_TOUCH_TARGETS` | Outlines the tap targets of the menus (item green, value blue, list slot yellow, legend button red, the band beside the slots of a list orange, keys of the on-screen keyboard white), marks where the last finger went down and the last tap landed for 3 seconds, and logs each tap with the target that it hit (for a value, also where it splits into previous and next): to judge the accuracy of touch. |
 | `debug.solo_game` | retired | `HALO_SOLO_GAME` | The older name of `game.start_with_one_player`. An old config.toml that has it still loads: a `true` moves to `game.start_with_one_player` once, and the old line is taken out. `HALO_SOLO_GAME=1` still turns `game.start_with_one_player` on for one run. |
+| `controls.guide`, `controls.guide_button`, `guide.*`, `debug.guide_*` | retired | `HALO_KEY_GUIDE`, `HALO_GUIDE_*` | The names of DELTA's settings until 0.9.1. An old config.toml that has them still loads: each value a player chose moves to its new name (`controls.delta`, `controls.delta_button`, `delta.*`, `debug.delta_*`) once, the old lines and the empty `[guide]` section are taken out, and nothing is asked. The old environment variables still work when the new one isn't set. |
 | `debug.network_latency`, `debug.network_loss`, `debug.network_corrupt`, `debug.network_corrupt_stream`, `debug.network_corrupt_after` | `0` | `HALO_NETWORK_LATENCY`, `HALO_NETWORK_LOSS`, `HALO_NETWORK_CORRUPT`, `HALO_NETWORK_CORRUPT_STREAM`, `HALO_NETWORK_CORRUPT_AFTER` | The game holds all the data that it receives for this number of milliseconds, ignores this percentage of the datagrams, and damages this percentage of the datagrams it receives, and this percentage of its reads of streams, at random (bytes changed, cut short, stretched or replaced), from this many seconds after the start. Use the first two to test the netcode as on the internet, and the others to test that nothing another machine sends can crash the game (a damaged stream is closed, so a little goes a long way; a host's messages to its own client are damaged too, so start damaging once the game has started). |
 | `debug.telnet_console`, `debug.telnet_console_port` | `false`, `2323` | `HALO_TELNET_CONSOLE`, `HALO_TELNET_CONSOLE_PORT` | The game listens on 127.0.0.1, on this port, for a script console (connect with telnet). The console has no password, so only this computer can reach it. |
 
@@ -747,6 +778,43 @@ If the latest release is newer, the game asks: "Do you want to update?"
   writes `auto = false` in the `[update]` section of `config.toml`. To get
   the questions again, set `auto = true`.
 
+### Update channels
+
+`update.channel` picks the builds the game updates to: `"release"` (the
+default), `"testing"` or `"nightly"`. The test builds and the nightlies look
+for updates too, and start on their own channel.
+
+- Release reads the latest release, as above.
+- Testing also reads the testing channel's list,
+  `releases/download/testing/updates.json`, on the fixed `testing`
+  pre-release. The list names the newest test build's files on its own
+  pre-release (`v0.9.1-testing`).
+- Nightly also reads the nightly channel's list,
+  `releases/download/nightly/updates.json`.
+
+The game offers the newest of these, and never a build older than the one it
+runs. Versions are in this order: by their numbers, then the hotfix letter,
+then a release before all test builds and nightlies of its version. The test
+builds and the nightlies are `<version>-testing.<serial>` and
+`<version>-nightly.<serial>`. The serial is the time the build was made
+(`202611101530`, UTC). They are in the order they were built, whatever their
+channel:
+
+    0.9.0d < 0.9.1-nightly.202611100400 < 0.9.1-testing.202611101200
+           < 0.9.1-nightly.202611110400 < 0.9.1 < 0.9.2-testing.202611200900
+
+So after a test build, a player who goes back to Release keeps it until the
+next release newer than it.
+
+A channel's list has `"channel": "testing"` or `"nightly"`, and its version
+must be that channel's. It is signed like a release's (`updates.json.sig`),
+by the prerelease key (`src/update_prerelease_key.h`) or a release key. The
+prerelease key is trusted for the testing and nightly lists only, never for a
+release's list or zip. A release's list says `"channel": "release"` from
+0.9.1 on; the builds before it skip that field. Android checks a channel's
+list only on Android 13 or later (Ed25519); before that it offers releases
+only.
+
 The 32-bit Windows build on 64-bit Windows also offers the 64-bit build,
 once. The 32-bit graphics drivers crash much more often. "Yes" installs the
 64-bit build of the new version, or of the version you have, and your saves
@@ -754,9 +822,25 @@ and settings stay. "Keep 32-bit" writes `offer_64bit = false` in the
 `[update]` section of `config.toml`, and the game doesn't ask again.
 
 Under gamescope (the Game Mode of the Steam Deck), the game does not ask,
-because a system dialog stops the game there. The game writes the new
-version in the log. To update, start the game from the desktop, or set
-`update_answer = "yes"` in the `[debug]` section of `config.toml`.
+because a system dialog stops the game there. The main menu's version line
+says the new version is out, and the log has it. To update, pick INSTALL
+UPDATE in Settings > Online > Updates (it shows up once a new version is
+found), or UPDATE on the setup screen's UPDATES tab. Both show the download
+and any error on the page itself, with no window or dialog, so they work in
+Game Mode too.
+
+An update that finishes downloading during a game waits: the files are put
+in place and the game restarts only once you are back at the main menu (a
+host's game would otherwise end for everyone). The page and the version line
+say so meanwhile.
+
+After an update, the game restarts as the same process (on Linux it
+`execve`s the new version, with the same arguments, as it exits), so Steam
+and gamescope keep the game's window. If the game dies before that, a small
+watcher process it left behind starts the new version instead. An AppImage is replaced by the new one under its own name and
+mode, and the old one waits as `<name>.old` until the new version starts. If
+the new version can't be started (its folder is mounted `noexec`, say), the
+game says so on the page and keeps running.
 
 A packaged install (a package manager's, such as the AUR's
 `chupathingy-bin`) never updates itself. A package turns it on with a file
@@ -921,7 +1005,13 @@ Machines with an invite link can play system link on the internet. This
 project has no server.
 
 When a copy of the game starts to host a system link game, it makes an
-invite link: `halo://join/<64 hexadecimal digits>`. The game writes the link
+invite link: `halo://join/<64 hexadecimal digits>`. What the game copies
+(INVITE LINK, `network.copy_to_clipboard`) is the site's join page for it,
+`https://chupathingy.org/join/<digits>`, since Discord and chat programs
+make no link of `halo://`; the page's button opens the `halo://` link. The
+game reads both forms wherever it reads an invite. In the same way, DELTA's
+COPY PARTY LINK copies `https://stats.chupathingy.org/party/<CODE>`, whose
+page opens `halo://party/<CODE>`. The game writes the link
 to the standard error. With `network.copy_to_clipboard` set to `true`, it
 also puts the link on the clipboard; INVITE LINK in the Gearbox menus'
 Server Settings copies it at any time. The game reads the clipboard only when you paste (PASTE
@@ -932,8 +1022,14 @@ when it gets one.
 
 To join a game, do one of these steps:
 
-- Open the link. The game is the handler of `halo://` links. If the game
-  already operates, the new copy gives the link to it and stops. A key in a
+- Open the link. The game is the handler of `halo://` links: at start it
+  registers itself (on Windows, `HKEY_CURRENT_USER\Software\Classes\halo`;
+  on Linux and FreeBSD, `chupathingy-links.desktop` in the user's
+  applications folder, made the default with `xdg-mime`; on macOS, the
+  bundle's `Info.plist`). It never replaces another program's handler; the
+  log says when it leaves one (`src/link_register.h`). If the game already
+  operates, the new copy gives the link (an invite, or a party's
+  `halo://party/` link) to it and stops. A key in a
   file that only the user can read (`halo-ce-universal.key` in
   `$XDG_RUNTIME_DIR`, else `~/.halo-ce-universal.key`; on Windows in
   `%LOCALAPPDATA%`) encrypts the link, so the programs of other users cannot
@@ -1019,7 +1115,7 @@ as for any public server.
 The brokers are in `brokers.txt` next to the executable (from
 `port/assets/network/brokers.txt`; on Android, the app writes it next to
 `config.toml` at each start), one `host:port` on each line. The game uses
-all of them at once (up to 4), so one that works is enough. Without the
+all of them at once (up to 5), so one that works is enough. Without the
 file (the dedicated server's container, the macOS application, whose
 `config.toml` is in Application Support), the game uses its own copy of the
 list. An update replaces `brokers.txt`: to use brokers of your own, put them in another
@@ -1301,6 +1397,79 @@ name of the profile) gives `ok <code> <seconds> <token>`.
 `connected <name>`, `declined` or `expired`. The QR code is from
 `port/third_party/qrcodegen`.
 
+### Map sharing
+
+A host with `network.map_share` on (off by default) hands the Custom
+Edition map its game is on to a machine that joined and asks for it, as
+OpenCE's hosts do: players missing the map get it from the game. That's a
+dedicated server's game or a game hosted from the menus (a listen host),
+with the same limits. Over an invite, port 5153 goes through the invite's
+tunnel like the game's own traffic. Our [C] servers turn it on only after
+the map bot's first invite test. The
+request, the offer, the list of other sources and the progress ride the
+game's connection as distributed messages 83 to 86; the file goes over TCP
+port 5153 on the host, in 256 KiB pieces, each checked against its hash.
+Builds that don't know the messages drop them, and nothing here changes the
+network version.
+
+What the host serves, and to whom:
+
+- the map its game is on now, as a Custom Edition map
+  (`custom_maps\<name>`), and only the map file. Halo PC's own maps and the
+  Xbox maps are never shared, nor a map whose file changed since the game
+  started;
+- only to machines in its game: port 5153 takes connections only from
+  their addresses, 15 at once at most, 4 from one address;
+- from the host alone: the list of other sources it sends is empty, so no
+  player's address goes to anyone;
+- at `network.map_share_upload` KB a second in all (a game hosted from
+  the menus: 256 unless the setting is set);
+- one request a machine every 5 seconds.
+
+Only maps whose file names use letters, digits, `_`, `.` and `-` are
+shared. At most 8 machines download at once, 2 from one address. A machine
+that is downloading isn't refused or timed out for having no player, in the
+lobby or in a game in progress, while the host keeps sending it data: its
+stay grows with the bytes the host really sends, not with what the machine
+says it has, and ends after the map's size at 16 KB a second plus two
+minutes, and never after more than 30 minutes, however often it asks
+again. A machine that leaves before the host sent its address the whole
+map keeps that address from starting another download for 15 minutes, so
+a few addresses can't hold every slot by joining again. Its download doesn't hold
+the game up. The host's log says who asked, the progress in tenths and
+each stream closed, with addresses as tags (`debug.log_addresses`).
+
+The map bot of maps.chupathingy.org fetches with this build:
+`debug.network_test = "fetch:<host>"` (`HALO_NETWORK_TEST`), headless
+(`SDL_VIDEO_DRIVER=dummy`). `<host>` is a system link address
+(`a.b.c.d`, or `a.b.c.d:port`) or an internet invite. It joins the game as
+a machine named "Chupathingy map bot" and never adds a player or loads the
+game. It reads the map's name and version from the game's settings and
+leaves at once if `debug.map_fetch_held` lists that version, or if the map
+isn't the one `debug.map_fetch_name` names. Otherwise it
+asks for the map file alone, downloads it from the host alone, reports its
+progress every 2 seconds, and writes `<name>.map.part` in
+`debug.map_fetch_folder`, renamed to `<name>.map` once every piece and the
+whole file check. It listens on no port. Its result is a JSON object in
+`debug.map_fetch_result`: `result` (`fetched`, `held` or `failed`),
+`reason` for a failure (`refused`, `full`, `sharing off`, `unavailable`,
+`not shared`, `timed out`, `too large`, `bad data`, `not reachable`,
+`failed`), `level`, `version`, `size`, `map_hash` and `players`. It exits
+with 0 when it fetched, 10 when it held the version, 1 otherwise.
+
+A player gets a missing map from the host with the same fetch, when
+`network.map_downloads_from_host` allows it ("From the host" in
+[docs/maps.md](../../docs/maps.md#halo-pc-maps)). The Online Games screen
+runs it after the community repositories and Chupathingy maps failed. It
+joins the host as a machine with no player, under the player's own machine
+name. It asks for the map the player was offered and nothing else, checks
+the offered map hash against the blacklist before anything comes, and
+writes into `maps_quarantine`. `map_download.c` then runs the quick checks
+(`map_quick_check.c`) and the blacklist again before it moves the map into
+`maps_ce`. The fetch leaves, and the screen joins the game again. The
+transfer runs on the game's thread; the checks run on a thread of their
+own. Its progress is the screen's download bar, and B cancels it.
+
 ## Map checks
 
 The game reads a map's tags straight into memory and uses them as its own
@@ -1356,7 +1525,7 @@ crafted file) is refused, and the level starts over.
 | Area | Status |
 | --- | --- |
 | Game code | All 466 C files of the game. The changes are in "Game source changes". |
-| Graphics | Direct3D 8 on OpenGL 4.5 core through SDL3 (`src/d3d8_gl.c`). The port translates the NV2A vertex shaders and register combiners to GLSL. It decodes all the Xbox texture formats. The vertex and index buffers come from a GL copy of the Xbox memory. |
+| Graphics | Direct3D 8 on OpenGL 4.5 core through SDL3 (`src/d3d8_gl.c`), or 3.3 core and up without the 4.3-4.5 functions on an older driver (`src/xgpu.h`). The port translates the NV2A vertex shaders and register combiners to GLSL. It decodes all the Xbox texture formats. The vertex and index buffers come from a GL copy of the Xbox memory. |
 | High-res HUD | The HUD is drawn from high-res assets: redraws at 8x the size of the maps' bitmaps (4x for the largest), in `port/assets/hud`. They cover the meters, counters, panels and their outlines, the motion sensor, reticles, waypoints and scopes, but no bitmap with English text. `tools/hud_assets.py` makes them from the SVG redraws, and the build embeds them in the executable. When the game uploads one of those bitmaps, `src/hud_hires.c` gives the high-res texture in its place, if the bitmap's pixels are those of the English maps: another language's maps keep their own. The game sizes and places the HUD from its tags as before. `display.high_res_hud = false` turns this off. |
 | High-res text | The menus' and HUD's text is drawn with Cyborg Interface Gothic (`port/assets/fonts`, by fizzy, SIL Open Font License) in place of the maps' bitmap fonts, which are Interstate. `src/text_hires.c` rasterizes each glyph with stb_truetype (`port/third_party/stb`) at the resolution the game draws at, into an atlas that a placeholder bitmap of the game stands for. The game lays the text out from its font tags as before. The menus' titles (the screens' headers and the main menu's items) are pictures of text in the maps, so they are drawn as the high-res HUD is: `tools/title_assets.py` sets each one again in OpenCE, Roger White's public-domain Newtown respaced to match the maps' commercial title typeface (`tools/title_font.py`), at 4x the bitmap's size over its own plate or glow, each letter placed where the map's letter is, in `port/assets/titles`. The postgame carnage report's title is set over a hand-made SVG redraw of its panel (`port/assets/titles/svg`) instead. `display.high_res_text = false` turns it off. |
 | Anti-aliasing | Off unless `display.anti_aliasing` is set (`src/d3d8_gl.c`, `src/xgpu_post.c`). FXAA (written in the port) and SMAA (`port/third_party/smaa`, MIT licensed, at its HIGH preset, compiled as GLSL) are passes over the 3D view of each window, after the lens flares and before the HUD and the menus (`render/render.c`). Their programs are built when the setting is chosen. Supersampling draws the render targets the size of the screen at two times the resolution in each direction, and the display blit scales them down. Multisampling draws the back buffer and its depth buffer into multisampled renderbuffers, and with them any target that is drawn together with one of them (a mirror's view, in the secondary target with the back buffer's depth buffer), so that the attachments of a framebuffer are all multisampled or none is. A target's pixels are resolved into its texture before something reads the texture (as a texture, or at the display blit). Visibility tests count samples, divided by the samples of a pixel. An alpha-tested surface (foliage, grates) covers the samples of a pixel in proportion to its alpha past the reference (`gl_SampleMask`, not on Android). |
@@ -1447,7 +1616,9 @@ Custom Edition maps on a console (`HALO_CUSTOM_EDITION` with the port's
 hooks):
 
 - `HALO_CONSOLE_CE_BITMAPS`: a Custom Edition map's bitmaps are made the
-  console's as they are read (`platform_ce_bitmap_loaded`).
+  console's as they are read (`platform_ce_bitmap_loaded`); a HUD meter
+  whose bitmap keeps Halo PC's channels (`platform_ce_meter_in_pc_channels`)
+  is read from them by the meter shader.
 - `HALO_CONSOLE_CE_SHARED_TAG_CACHE`: a console with no room for a second
   tag cache lends its own to the map while it plays (the `platform_ce_*`
   hooks).

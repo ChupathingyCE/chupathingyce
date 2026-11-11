@@ -1,0 +1,28 @@
+{
+  "about": "a map from a game's host: the quick checks before it leaves the quarantine folder, and the install into maps_ce",
+  "harness": "port/linux/tests/map_quick_check_fuzz.c",
+  "sources": [
+    "port/linux/src/map_quick_check.c",
+    "port/linux/src/map_host_download.c",
+    "port/linux/src/map_archive.c",
+    "port/third_party/zlib/adler32.c",
+    "port/third_party/zlib/crc32.c",
+    "port/third_party/zlib/inffast.c",
+    "port/third_party/zlib/inflate.c",
+    "port/third_party/zlib/inftrees.c",
+    "port/third_party/zlib/zutil.c",
+    "port/third_party/monocypher/monocypher.c"
+  ],
+  "includes": [
+    "port/linux/src",
+    "port/third_party/zlib",
+    "port/third_party/monocypher"
+  ],
+  "flags": [
+    "-std=gnu11",
+    "-w",
+    "-DZ_PREFIX",
+    "-Dz_errmsg=z_port_errmsg"
+  ],
+  "max_len": 12000
+}

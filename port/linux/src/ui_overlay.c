@@ -56,12 +56,21 @@ enum
 	PICTURE_MARK = -3,
 	/* (the plasma's: ui_overlay_plasma) */
 	PLASMA_MARK = -4,
+	/* (a medal's: ui_overlay_medal) */
+	MEDAL_MARK = -5,
 	/* the overlay's own noise for the plasma, when the player's ui.map gave
 	none: this many texels square, tiling */
 	PLASMA_NOISE_SIZE = 128,
 };
 extern const int ui_prompt_icon_size;
 extern const unsigned int *const ui_prompt_icons[NUMBER_OF_ICONS];
+#ifdef HALO_MEDAL_ICONS
+/* the medals' icons (port/assets/medals, generated with the fonts): one
+atlas, RGBA, a cell of ui_medal_atlas_cell pixels each, MEDAL_ICON_COLUMNS
+to a row, in medal_icons.h's order */
+extern const int ui_medal_atlas_cell, ui_medal_atlas_width, ui_medal_atlas_height;
+extern const unsigned int *const ui_medal_atlas;
+#endif
 
 enum
 {
@@ -124,11 +133,19 @@ static struct
 	place from the first's this frame (x, y, then its scale), and whether a
 	plasma is drawn this frame */
 	GLuint plasma;
-	GLint plasma_location, plasma_shift_location;
+	GLint plasma_location, plasma_shift_location, plasma_thread_location;
 	int plasma_serial, plasma_width, plasma_height, plasma_uploaded;
 	unsigned char *plasma_pixels;
-	float plasma_shift[4];
+	/* (the second map's place, then its threads' color: ui_overlay_plasma_thread) */
+	float plasma_shift[8];
 	int plasma_drawn;
+	/* the medals' atlas (ui_overlay_medal), premultiplied as the icons are,
+	made when a medal is first drawn (the GL texture filled from it, then it
+	is let go), and whether one is drawn this frame */
+	GLuint medals;
+	GLint medals_location;
+	unsigned char *medal_texels;
+	int medals_uploaded, medals_drawn;
 	/* each icon's drawn columns (from its left, of ui_prompt_icon_size) */
 	int icon_left[NUMBER_OF_ICONS], icon_right[NUMBER_OF_ICONS];
 	int icons_measured;
@@ -652,6 +669,78 @@ void ui_overlay_picture(int serial, const unsigned char *pixels, int width, int 
 	quad->v1 = 1.0f;
 }
 
+/* ---------- the medals */
+
+/* the atlas's texels, premultiplied (so that its smaller levels keep no
+dark fringe), made once; NULL without them */
+static const unsigned char *medal_texels(void)
+{
+#ifdef HALO_MEDAL_ICONS
+	if (!overlay.medal_texels && !overlay.medals_uploaded)
+	{
+		size_t texels = (size_t)ui_medal_atlas_width * (size_t)ui_medal_atlas_height, texel;
+		const unsigned char *from = (const unsigned char *)ui_medal_atlas;
+		unsigned char *to = malloc(texels * 4);
+
+		if (!to)
+			return NULL;
+		for (texel = 0; texel < texels; texel++)
+		{
+			unsigned int alpha = from[texel * 4 + 3];
+
+			to[texel * 4] = (unsigned char)(from[texel * 4] * alpha / 255);
+			to[texel * 4 + 1] = (unsigned char)(from[texel * 4 + 1] * alpha / 255);
+			to[texel * 4 + 2] = (unsigned char)(from[texel * 4 + 2] * alpha / 255);
+			to[texel * 4 + 3] = (unsigned char)alpha;
+		}
+		overlay.medal_texels = to;
+	}
+#endif
+	return overlay.medal_texels;
+}
+
+int ui_overlay_medals_available(void)
+{
+#ifdef HALO_MEDAL_ICONS
+	return ui_overlay_available();
+#else
+	return 0;
+#endif
+}
+
+void ui_overlay_medal(int medal, float x, float y, float size, unsigned int color)
+{
+#ifdef HALO_MEDAL_ICONS
+	struct quad *quad;
+	float cell_width = (float)ui_medal_atlas_cell / (float)ui_medal_atlas_width;
+	float cell_height = (float)ui_medal_atlas_cell / (float)ui_medal_atlas_height;
+	int columns = ui_medal_atlas_width / ui_medal_atlas_cell;
+
+	if (medal < 0 || medal >= columns * (ui_medal_atlas_height / ui_medal_atlas_cell) || !(color & 0xFF))
+		return;
+	quad = new_quad();
+	if (!quad)
+		return;
+	quad->x = x;
+	quad->y = y;
+	quad->width = quad->height = size;
+	quad->radius = MEDAL_MARK;
+	quad->thickness = 0.0f;
+	quad->top = quad->bottom = color;
+	quad->u0 = (float)(medal % columns) * cell_width;
+	quad->v0 = (float)(medal / columns) * cell_height;
+	quad->u1 = quad->u0 + cell_width;
+	quad->v1 = quad->v0 + cell_height;
+	overlay.medals_drawn = 1;
+#else
+	(void)medal;
+	(void)x;
+	(void)y;
+	(void)size;
+	(void)color;
+#endif
+}
+
 /* ---------- the plasma */
 
 /* the overlay's own noise: smooth value noise in octaves, tiling (from a
@@ -750,7 +839,7 @@ int ui_overlay_plasma_from_texture(const void *hardware_format)
 	/* (serial 1: the game's own, never read again) */
 	ui_overlay_plasma_source(1, pixels, (int)width, (int)height);
 	free(pixels);
-	platform_log("Guide: the plasma is drawn from ui.map's (%lux%lu)", width, height);
+	platform_log("DELTA: the plasma is drawn from ui.map's (%lux%lu)", width, height);
 	return 1;
 #endif
 }
@@ -794,7 +883,18 @@ void ui_overlay_plasma(float x, float y, float width, float height, float radius
 	overlay.plasma_shift[1] = second_y - first_y * first / second;
 	overlay.plasma_shift[2] = first / second;
 	overlay.plasma_shift[3] = 0.0f;
+	/* (no theme set: Halo Blue's) */
+	if (overlay.plasma_shift[7] == 0.0f)
+		ui_overlay_plasma_thread(0x3373FFFF);
 	overlay.plasma_drawn = 1;
+}
+
+void ui_overlay_plasma_thread(unsigned int color)
+{
+	overlay.plasma_shift[4] = (float)((color >> 24) & 0xFF) / 255.0f;
+	overlay.plasma_shift[5] = (float)((color >> 16) & 0xFF) / 255.0f;
+	overlay.plasma_shift[6] = (float)((color >> 8) & 0xFF) / 255.0f;
+	overlay.plasma_shift[7] = 1.0f;
 }
 
 static int face_button(int button)
@@ -984,7 +1084,9 @@ static const char fragment_source[] =
 #endif
 	"uniform sampler2D picture;\n"
 	"uniform sampler2D plasma;\n"
+	"uniform sampler2D medals;\n"
 	"uniform vec4 plasma_shift;\n"
+	"uniform vec4 plasma_thread;\n"
 	"uniform vec4 cutouts[4];\n"
 	"uniform float window_height;\n"
 #ifdef HALO_CONSOLE_GLES2
@@ -1004,6 +1106,13 @@ static const char fragment_source[] =
 	"\tfor (int i = 0; i < 4; i++)\n"
 	"\t\tif (p.x >= cutouts[i].x && p.y >= cutouts[i].y && p.x < cutouts[i].z && p.y < cutouts[i].w)\n"
 	"\t\t\tdiscard;\n"
+	/* a medal (premultiplied, as an icon) */
+	"\tif (v_edge.x < -4.5)\n"
+	"\t{\n"
+	"\t\tvec4 texel = texture(medals, v_texture_coordinate);\n"
+	"\t\tfragment = vec4(texel.rgb / max(texel.a, 0.001), texel.a) * v_color;\n"
+	"\t\treturn;\n"
+	"\t}\n"
 	/* the plasma: the noise map twice, at the menus' two scales, its bright
 	threads where the two meet, in a rounded rectangle (edge.y its corners'
 	radius) */
@@ -1016,7 +1125,7 @@ static const char fragment_source[] =
 	"\t\tfloat a0 = t0.a * dot(t0.rgb, vec3(0.3333));\n"
 	"\t\tfloat a1 = t1.a * dot(t1.rgb, vec3(0.3333));\n"
 	"\t\tfloat thread = pow(clamp(1.0 - abs(a0 - a1) * 3.0, 0.0, 1.0), 8.0);\n"
-	"\t\tvec3 color = v_color.rgb * (0.8 + 0.6 * a0 * a1) + vec3(0.2, 0.45, 1.0) * thread * 0.18;\n"
+	"\t\tvec3 color = v_color.rgb * (0.8 + 0.6 * a0 * a1) + plasma_thread.rgb * thread * 0.18;\n"
 	"\t\tfragment = vec4(color, v_color.a * clamp(0.5 - d, 0.0, 1.0) * (0.92 + 0.08 * thread));\n"
 	"\t\treturn;\n"
 	"\t}\n"
@@ -1063,10 +1172,8 @@ static GLuint compile(GLenum type, const char *body)
 #ifdef HALO_GL_ES
 	snprintf(source, sizeof(source), "#version %s\nprecision highp float;\nprecision highp sampler2DArray;\n%s",
 		xgpu_capabilities.shading_language, body);
-#elif defined(__APPLE__)
-	snprintf(source, sizeof(source), "#version 410 core\n%s", body);
 #else
-	snprintf(source, sizeof(source), "#version 450 core\n%s", body);
+	snprintf(source, sizeof(source), "%s%s", XGPU_GL_VERSION_LINE, body);
 #endif
 	glShaderSource(shader, 1, &pointer, NULL);
 	glCompileShader(shader);
@@ -1165,7 +1272,9 @@ static int set_up(void)
 #endif
 	overlay.picture_location = glGetUniformLocation(overlay.program, "picture");
 	overlay.plasma_location = glGetUniformLocation(overlay.program, "plasma");
+	overlay.medals_location = glGetUniformLocation(overlay.program, "medals");
 	overlay.plasma_shift_location = glGetUniformLocation(overlay.program, "plasma_shift");
+	overlay.plasma_thread_location = glGetUniformLocation(overlay.program, "plasma_thread");
 	overlay.cutouts_location = glGetUniformLocation(overlay.program, "cutouts");
 	overlay.window_height_location = glGetUniformLocation(overlay.program, "window_height");
 
@@ -1262,6 +1371,14 @@ static int set_up(void)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	overlay.plasma_uploaded = 0;
+	/* the medals' (filled when a medal is first drawn) */
+	glGenTextures(1, &overlay.medals);
+	glBindTexture(GL_TEXTURE_2D, overlay.medals);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &zero_texel);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glBindVertexArray((GLuint)saved_vertex_array);
 	glBindBuffer(GL_ARRAY_BUFFER, (GLuint)saved_array_buffer);
 	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_texture);
@@ -1465,7 +1582,8 @@ static int build_vertices(int shape_count, float scale, float origin_x, float or
 
 		if (quad->layer != layer)
 			continue;
-		if (index < shape_count && (quad->radius == ICON_MARK || quad->radius == PICTURE_MARK))
+		if (index < shape_count && (quad->radius == ICON_MARK || quad->radius == PICTURE_MARK ||
+			quad->radius == MEDAL_MARK))
 		{
 			/* an icon: layout to window pixels, its layer in shape.x (the
 			picture: the same, marked as the picture's) */
@@ -1619,17 +1737,30 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 			cutouts[cutout][2] = origin_x + overlay.cutouts[cutout][2] * scale;
 			cutouts[cutout][3] = origin_y + overlay.cutouts[cutout][3] * scale;
 		}
-		xgpu_bgfx_overlay_draw(overlay.vertices, count, (int)sizeof(struct vertex), overlay.atlas_texels, ATLAS_SIZE,
+		/* (the medals' atlas let go once bgfx has it) */
+		if (xgpu_bgfx_overlay_draw(overlay.vertices, count, (int)sizeof(struct vertex), overlay.atlas_texels, ATLAS_SIZE,
 			overlay.dirty_top, overlay.dirty_bottom, overlay.icon_texels, ui_prompt_icon_size, NUMBER_OF_ICONS,
 			overlay.picture_pixels, overlay.picture_width, overlay.picture_height, overlay.picture_serial,
 			overlay.plasma_drawn ? overlay.plasma_pixels : NULL, overlay.plasma_width, overlay.plasma_height,
-			overlay.plasma_serial, overlay.plasma_shift, (const float (*)[4])cutouts, window_width, window_height);
+			overlay.plasma_serial, overlay.plasma_shift,
+#ifdef HALO_MEDAL_ICONS
+			overlay.medals_drawn ? medal_texels() : NULL, ui_medal_atlas_width, ui_medal_atlas_height,
+#else
+			NULL, 0, 0,
+#endif
+			(const float (*)[4])cutouts, window_width, window_height) && overlay.medal_texels)
+		{
+			free(overlay.medal_texels);
+			overlay.medal_texels = NULL;
+			overlay.medals_uploaded = 1;
+		}
 		overlay.dirty_top = ATLAS_SIZE;
 		overlay.dirty_bottom = 0;
 		overlay.quad_count = overlay.text_count = overlay.text_used = 0;
 		overlay.cutout_count = 0;
 		overlay.layer = 0;
 		overlay.plasma_drawn = 0;
+		overlay.medals_drawn = 0;
 		if (atlas_full)
 			forget_glyphs();
 		return;
@@ -1642,7 +1773,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	/* (the game's renderer binds a sampler to each unit, which would filter
 	the atlas as it filters its textures) */
 	GLint saved_sampler = 0, saved_icons = 0, saved_icons_sampler = 0, saved_picture = 0, saved_picture_sampler = 0;
-	GLint saved_plasma = 0, saved_plasma_sampler = 0;
+	GLint saved_plasma = 0, saved_plasma_sampler = 0, saved_medals = 0, saved_medals_sampler = 0;
 	GLint saved_viewport[4] = { 0, 0, 0, 0 };
 	GLboolean saved_blend = glIsEnabled(GL_BLEND), saved_depth = glIsEnabled(GL_DEPTH_TEST),
 		saved_stencil = glIsEnabled(GL_STENCIL_TEST), saved_cull = glIsEnabled(GL_CULL_FACE),
@@ -1693,7 +1824,8 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 
 		if (quad->layer != layer)
 			continue;
-		if (index < shape_count && (quad->radius == ICON_MARK || quad->radius == PICTURE_MARK))
+		if (index < shape_count && (quad->radius == ICON_MARK || quad->radius == PICTURE_MARK ||
+			quad->radius == MEDAL_MARK))
 		{
 			/* an icon: layout to window pixels, its layer in shape.x (the
 			picture: the same, marked as the picture's) */
@@ -1824,7 +1956,33 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 		overlay.plasma_uploaded = overlay.plasma_serial;
 	}
 	glUniform1i(overlay.plasma_location, 3);
+	/* the medals' atlas, on the fifth (filled when a medal is first drawn,
+	with smaller levels but for ES 2's, which may not be a power of two) */
+	glActiveTexture(GL_TEXTURE4);
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved_medals);
+	glGetIntegerv(GL_SAMPLER_BINDING, &saved_medals_sampler);
+	glBindSampler(4, 0);
+	glBindTexture(GL_TEXTURE_2D, overlay.medals);
+#ifdef HALO_MEDAL_ICONS
+	if (overlay.medals_drawn && !overlay.medals_uploaded && medal_texels())
+	{
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, ui_medal_atlas_width, ui_medal_atlas_height, 0, GL_RGBA,
+			GL_UNSIGNED_BYTE, overlay.medal_texels);
+#ifndef HALO_CONSOLE_GLES2
+		/* (a few levels: the cells' margins keep them apart that far) */
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 2);
+		glGenerateMipmap(GL_TEXTURE_2D);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+#endif
+		free(overlay.medal_texels);
+		overlay.medal_texels = NULL;
+		overlay.medals_uploaded = 1;
+	}
+#endif
+	glUniform1i(overlay.medals_location, 4);
 	glUniform4fv(overlay.plasma_shift_location, 1, overlay.plasma_shift);
+	glUniform4fv(overlay.plasma_thread_location, 1, overlay.plasma_shift + 4);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, overlay.atlas);
 	glUniform1i(overlay.atlas_location, 0);
@@ -1852,6 +2010,9 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	glBindVertexArray((GLuint)saved_vertex_array);
 	glBindBuffer(GL_ARRAY_BUFFER, (GLuint)saved_array_buffer);
 	glUseProgram((GLuint)saved_program);
+	glActiveTexture(GL_TEXTURE4);
+	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_medals);
+	glBindSampler(4, (GLuint)saved_medals_sampler);
 	glActiveTexture(GL_TEXTURE3);
 	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_plasma);
 	glBindSampler(3, (GLuint)saved_plasma_sampler);
@@ -1883,6 +2044,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	overlay.cutout_count = 0;
 	overlay.layer = 0;
 	overlay.plasma_drawn = 0;
+	overlay.medals_drawn = 0;
 	if (atlas_full)
 		forget_glyphs();
 }

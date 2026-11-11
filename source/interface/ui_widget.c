@@ -734,7 +734,7 @@ void guide_update(boolean menu_open);
 void guide_process(void);
 void guide_pointer(struct halo_ui_pointer const *pointer);
 void guide_render(void);
-/* the pause menu's GUIDE with what waits in the Guide ("GUIDE 2"), for
+/* the pause menu's DELTA with what waits in it ("DELTA 2"), for
 its text's string list; NULL to leave it */
 wchar_t const *guide_pause_label(long string_list_tag);
 #endif
@@ -1460,6 +1460,17 @@ boolean pc_menu_button_key_cap(
 	short x1,
 	short y1,
 	float alpha);
+#ifdef HALO_GAME_BROWSER
+/* port: the keyboard's key in a menu text's prompt ("[Enter]") drawn as a
+key cap at x on the line from y0 to y1 (port/linux/game/menu_tags.c): its
+width, or 0 when none is drawn (it is written as text then) */
+short pc_menu_text_key_cap(
+	wchar_t const *key_text,
+	short x,
+	short y0,
+	short y1,
+	float alpha);
+#endif
 /* port: the left edge of the key cap pc_menu_button_key_cap draws in
 these bounds, or x0 when it draws none */
 short pc_menu_button_key_cap_left(
@@ -1635,6 +1646,9 @@ short local_player_index_for_draw_string_and_hack_in_icons;
 /* port: draw_string_and_hack_in_icons draws a widget's text (the menus'
 keys for the buttons, not the game's: input_abstraction_port_icon_key) */
 static boolean draw_string_icons_for_menus = FALSE;
+/* port: and the keyboard's keys in them drawn as key caps (a menu text
+box's text: widget_instance_render_text_box) */
+static boolean draw_string_key_caps = FALSE;
 short draw_string_and_hack_in_icons_end_x = 0;
 
 /* port: draw_string_and_hack_in_icons draws the menus' keys for the buttons
@@ -3612,9 +3626,17 @@ enum
 	/* MAP BROWSER, a second copy of System Link's, under ONLINE GAMES
 	(port/xbox/game/xbox_maps_screen.c) */
 	MAP_BROWSER_POSITION = ONLINE_GAMES_POSITION + 1,
-	ONLINE_GAMES_ITEMS_ADDED = 2,
+	ONLINE_GAMES_MAP_BROWSER_ADDED = 1,
 #else
-	ONLINE_GAMES_ITEMS_ADDED = 1,
+	ONLINE_GAMES_MAP_BROWSER_ADDED = 0,
+#endif
+#ifdef HALO_GUIDE
+	/* DELTA (port/linux/game/guide.c), another copy, last, with
+	delta.menu_item (as it is when the tags load: online_games.added) */
+	DELTA_ITEM_POSITION = ONLINE_GAMES_POSITION + 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
+	ONLINE_GAMES_ITEMS_MOST = 2 + ONLINE_GAMES_MAP_BROWSER_ADDED,
+#else
+	ONLINE_GAMES_ITEMS_MOST = 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
 #endif
 	/* the items' spacing (their vertical offset, -33) */
 	ONLINE_GAMES_ROW = 33,
@@ -3629,7 +3651,16 @@ static struct
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	boolean map_browser_described;
 #endif
+#ifdef HALO_GUIDE
+	boolean delta_described;
+	/* the DELTA row is in the list */
+	boolean delta;
+#endif
+	/* the items added (ONLINE GAMES, MAP BROWSER, DELTA) */
+	short added;
 } online_games = { NONE, NONE, NULL, FALSE };
+
+#define ONLINE_GAMES_ITEMS_ADDED online_games.added
 
 #ifdef HALO_GAME_BROWSER
 static void ui_widget_setup_entry_tags_loaded(void);
@@ -3661,7 +3692,18 @@ void ui_widget_online_games_tags_loaded(
 	/* (the tags are loaded again with each map: the last copy goes) */
 	if (online_games.children)
 		system_free(online_games.children);
-	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ITEMS_ADDED) * sizeof(*children));
+#ifdef HALO_GUIDE
+	{
+		/* (menu_tags.c's: delta.menu_item, the menus' DELTA rows) */
+		extern boolean pc_menu_delta_item_offered(void);
+
+		online_games.delta = pc_menu_delta_item_offered();
+	}
+	online_games.added = (short)(ONLINE_GAMES_ITEMS_MOST - (online_games.delta ? 0 : 1));
+#else
+	online_games.added = ONLINE_GAMES_ITEMS_MOST;
+#endif
+	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ITEMS_MOST) * sizeof(*children));
 	online_games.children = children;
 	if (!children)
 		return;
@@ -3670,6 +3712,10 @@ void ui_widget_online_games_tags_loaded(
 	children[ONLINE_GAMES_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	children[MAP_BROWSER_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+#endif
+#ifdef HALO_GUIDE
+	if (online_games.delta)
+		children[DELTA_ITEM_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
 #endif
 	csmemcpy(&children[ONLINE_GAMES_POSITION + ONLINE_GAMES_ITEMS_ADDED], &old_children[ONLINE_GAMES_POSITION],
 		(ONLINE_GAMES_MENU_ITEMS - ONLINE_GAMES_POSITION) * sizeof(*children));
@@ -3869,6 +3915,17 @@ boolean ui_widget_online_games_item(
 		ui_widget_list_position(widget) == ONLINE_GAMES_POSITION;
 }
 
+#ifdef HALO_GUIDE
+/* the Multiplayer menu's DELTA (a copy of System Link's item) */
+boolean ui_widget_delta_item(
+	struct widget_instance *widget)
+{
+	return online_games.list_tag != NONE && online_games.delta && widget && widget->parent &&
+		widget->parent->definition_tag_index == online_games.list_tag &&
+		ui_widget_list_position(widget) == DELTA_ITEM_POSITION;
+}
+#endif
+
 #ifdef HALO_CONSOLE_ONLINE_GAMES
 #ifdef HALO_CONSOLE_MAP_BROWSER
 boolean ui_widget_map_browser_item(
@@ -3940,6 +3997,9 @@ short ui_widget_online_games_description(
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	online_games.map_browser_described = FALSE;
 #endif
+#ifdef HALO_GUIDE
+	online_games.delta_described = FALSE;
+#endif
 	if (online_games.list_tag == NONE || list_widget->definition_tag_index != online_games.list_tag)
 		return index;
 	if (index == ONLINE_GAMES_POSITION)
@@ -3951,6 +4011,13 @@ short ui_widget_online_games_description(
 	if (index == MAP_BROWSER_POSITION)
 	{
 		online_games.map_browser_described = TRUE;
+		return ONLINE_GAMES_SYSTEM_LINK;
+	}
+#endif
+#ifdef HALO_GUIDE
+	if (online_games.delta && index == DELTA_ITEM_POSITION)
+	{
+		online_games.delta_described = TRUE;
 		return ONLINE_GAMES_SYSTEM_LINK;
 	}
 #endif
@@ -3983,6 +4050,18 @@ static void event_handler_dispatch(
 		browser_screen_open();
 		return;
 	}
+#ifdef HALO_GUIDE
+	/* DELTA (System Link's item copied): DELTA over the menu, on PARTY */
+	if (ui_widget_delta_item(widget) &&
+		(handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start))
+	{
+		extern void guide_open_party(void);
+
+		ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+		guide_open_party();
+		return;
+	}
+#endif
 #ifdef HALO_GAME_BROWSER
 	/* SETUP (CHANGE COLOR's row copied): the setup screen, none of CHANGE
 	COLOR's */
@@ -4910,7 +4989,28 @@ void draw_string_and_hack_in_icons(
 						key_text,
 						NUMBEROF(key_text)))
 				{
-					render_state_text(bounds, &cursor_bounds, key_text);
+					short cap_width = 0;
+
+#ifdef HALO_GAME_BROWSER
+					/* (a menu's text: the key as a key cap, as the menus'
+					footers draw theirs) */
+					if (draw_string_key_caps)
+					{
+						real_argb_color text_color;
+
+						draw_string_get_color(&text_color);
+						cap_width = pc_menu_text_key_cap(
+							key_text,
+							(short)(cursor_bounds.x0 + 2),
+							cursor_bounds.y0,
+							cursor_bounds.y1,
+							text_color.alpha);
+					}
+#endif
+					if (cap_width > 0)
+						cursor_bounds.x0 = (short)(cursor_bounds.x0 + 2 + cap_width - 4);
+					else
+						render_state_text(bounds, &cursor_bounds, key_text);
 					continue;
 				}
 			}
@@ -6072,6 +6172,12 @@ static void widget_instance_render_text_box(
 		/* (ONLINE GAMES' item and description share System Link's tags) */
 		if (ui_widget_online_games_item(widget))
 			string = L"ONLINE GAMES";
+#ifdef HALO_GUIDE
+		else if (ui_widget_delta_item(widget))
+			string = L"DELTA";
+		else if (online_games.delta_described && widget->definition_tag_index == online_games.description_text_tag)
+			string = L"Start a party, invite your \r\nfriends and bring them to \r\nyour game.";
+#endif
 #ifdef HALO_GAME_BROWSER
 		else if (ui_widget_setup_entry_item(widget))
 			string = L"SETUP";
@@ -6099,7 +6205,7 @@ static void widget_instance_render_text_box(
 #endif
 #ifdef HALO_GUIDE
 		{
-			/* port: the pause menu's GUIDE, with a count ("GUIDE 2") */
+			/* port: the pause menu's DELTA, with a count ("DELTA 2") */
 			wchar_t const *guide_label = guide_pause_label(definition->text_label_string_list.index);
 
 			if (guide_label)
@@ -6262,7 +6368,9 @@ static void widget_instance_render_text_box(
 	if (string_has_icons_to_draw(*text))
 	{
 		draw_string_icons_for_menus = TRUE;
+		draw_string_key_caps = TRUE;
 		draw_string_and_hack_in_icons(&bounds, &clip, NULL, 0, *text, FALSE);
+		draw_string_key_caps = FALSE;
 		draw_string_icons_for_menus = FALSE;
 	}
 	else

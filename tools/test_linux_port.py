@@ -303,8 +303,8 @@ def test_menu_settings_exist():
     for path in (MENUS / "ce").glob("*.xml"):
         for setting in re.findall(r'setting="([^"]+)"', path.read_text()):
             assert setting in known | profile, f"{path.name}: {setting}"
-    # (the Guide's key and button: its own Settings set them, not the Controls screen; game/guide.c)
-    guide = {"controls.guide", "controls.guide_button"}
+    # (DELTA's key and button: its own Settings set them, not the Controls screen; game/guide.c)
+    guide = {"controls.delta", "controls.delta_button"}
     # (and the screenshot and clip keys, desktop-only and set in config.toml:
     # port/linux/src/capture.c)
     guide |= {"controls.screenshot", "controls.capture_buttons", "controls.clip"}
@@ -600,3 +600,14 @@ def test_menus_quit_on_android():
     pump = re.search(r"^void platform_pump_events\(.*?^\}", platform, re.M | re.S).group(0)
     assert re.search(r"if \(android_quit_requested\)\s*\{[^}]*exit\(EXIT_SUCCESS\);", pump)
     assert "SDL_PushEvent" not in (root / "port/android/host_imports.list").read_text()
+
+
+def test_guide_test_steps_are_for_debug_builds_only():
+    """debug.delta_test presses DELTA's buttons (accepting an invite,
+    kicking from a clan): a release build (HALO_RELEASE) compiles that out
+    and keeps the setting harmless"""
+    guide = (Path(__file__).resolve().parent.parent / "port/linux/game/guide.c").read_text()
+    gated = re.search(r"#ifdef HALO_RELEASE\nstatic void debug_steps\(void\)\n\{\n\}\n#else\n(.*?)\n#endif\n", guide, re.S)
+    assert gated, "debug_steps has no empty release version"
+    assert 'config_string("debug.delta_test")' in gated.group(1)
+    assert guide.count('"debug.delta_test"') == 1

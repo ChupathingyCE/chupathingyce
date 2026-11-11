@@ -384,7 +384,7 @@ static char const *const port_function_names[] =
 	"port pause end game",
 	"port pause change teams",
 	"port pause moderation",
-	"port pause controls", "port pause guide", "port about open", "controller screen init", "controller screen defaults", "controller begin binding",
+	"port pause controls", "port pause guide", "port about open", "port delta open", "controller screen init", "controller screen defaults", "controller begin binding",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
 	"port lobby player list initialize", "port lobby player choose",
@@ -415,6 +415,8 @@ static char const *const port_function_names[] =
 	"port controls init", "port controls defaults", "port controls accept", "port controls closed",
 	/* (SETUP: menu_functions.c) */
 	"port setup open",
+	/* (Network Setup's INSTALL UPDATE: menu_functions.c) */
+	"port update install",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -1512,7 +1514,7 @@ static void instance_set(struct cache_file_tag_instance *instances, long group_t
 	instance->base_address = XBOX_ADDRESS(definition);
 }
 
-/* the pause menus' GUIDE's text (its string list's tag), for the count
+/* the pause menus' DELTA's text (its string list's tag), for the count
 of what waits in the Guide (guide_pause_label); NONE in a map without it */
 static long pause_guide_label = NONE;
 
@@ -1555,8 +1557,8 @@ static void menu_tags_release(void)
 /* ---------- the in-game pause menus (a campaign map's, a multiplayer map's)
 
 Their list gets SETTINGS after RESUME GAME, the menus' settings (as the
-main menu's SETTINGS opens them), CONTROLS, and GUIDE (the Guide over the
-pause menu, guide.pause_menu); a multiplayer map's, for
+main menu's SETTINGS opens them), CONTROLS, and DELTA (DELTA over the
+pause menu, delta.pause_menu); a multiplayer map's, for
 the host, MODERATION, the host's kick and ban of its players
 (moderation_screen.c, the builds with it), and END GAME, which ends the game
 as its time limit would: its players stay, and the host picks the next map
@@ -1712,8 +1714,8 @@ static boolean pause_controls_offered(void)
 #endif
 }
 
-/* whether the pause menus have GUIDE (the Guide over the pause menu,
-port/linux/game/guide.c), as guide.pause_menu says, in every menu set */
+/* whether the pause menus have DELTA (DELTA over the pause menu,
+port/linux/game/guide.c), as delta.pause_menu says, in every menu set */
 static boolean pause_guide_offered(void)
 {
 #ifdef HALO_GUIDE
@@ -1721,7 +1723,7 @@ static boolean pause_guide_offered(void)
 	row would be dead in the others' pause menus) */
 	extern unsigned char pc_menu_split_players(void);
 
-	return config_boolean("guide.pause_menu") != 0 && !pc_menu_split_players();
+	return config_boolean("delta.pause_menu") != 0 && !pc_menu_split_players();
 #else
 	return FALSE;
 #endif
@@ -1876,7 +1878,7 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 	{
 		names[added] = "pause/guide_button";
 		tags[added] = next_tag();
-		buttons[added++] = pause_button(instances, model, "pause/guide_button", "GUIDE",
+		buttons[added++] = pause_button(instances, model, "pause/guide_button", "DELTA",
 			function_index("port pause guide", "pause", 0), NONE, FALSE);
 		if (buttons[added - 1])
 			pause_guide_label = ((struct ui_widget_definition *)buttons[added - 1])->text_label_string_list.index;
@@ -2206,7 +2208,7 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	{
 		platform_log("menus: the pause menu has%s%s%s%s%s%s", change_teams ? " CHANGE TEAMS" : "",
 			settings ? " SETTINGS" : "", pause_controls_offered() ? " CONTROLS" : "",
-			pause_guide_offered() ? " GUIDE" : "",
+			pause_guide_offered() ? " DELTA" : "",
 			solo_screen == NONE && pause_moderation_offered(host) ? " MODERATION" : "",
 			host && solo_screen == NONE ? " END GAME" : "");
 	}
@@ -2260,6 +2262,126 @@ static void pause_patch_xbox(void)
 	memset(&build, 0, sizeof(build));
 }
 
+
+/* ---------- the main menus' DELTA (delta.menu_item, off by default: the
+main menu's note says how to open DELTA instead, guide.c)
+
+With it, each main menu has DELTA (DELTA over it, on PARTY: a party started, friends
+invited, the party brought to a game), in every menu set: the row in
+chupathingy/main_menu.xml put in the main menu's list before QUIT here, in
+the Chupathingy menus' and Gearbox's (its list is tools/ce_menus.py's, from
+the PC version's tags), and DELTA in Gearbox's Multiplayer button bar. The
+lists are patched as the menus load, so a change shows the next time they
+do. The Xbox's main menu stays the Xbox's (its
+rows are ui.map's pictures): there DELTA is the Multiplayer menu's row
+(ui_widget.c), the key and the Guide button. Not on the consoles (no DELTA
+there yet) nor with split screen's players (DELTA is the first player's). */
+
+#define DELTA_ROW "chupathingy/main_menu_delta"
+#define GEARBOX_MAIN_MENU_LIST "main_menu/main_menu_select_list"
+
+/* (delta.menu_item, as it is when the menus load: a change shows the
+next time they do) */
+static boolean main_menu_delta_offered(void)
+{
+#ifdef HALO_GUIDE
+	extern unsigned char pc_menu_split_players(void);
+
+	return config_boolean("delta.menu_item") != 0 && !pc_menu_split_players();
+#else
+	return FALSE;
+#endif
+}
+
+/* ui_widget.c's: whether the Multiplayer menu gets its DELTA row now */
+boolean pc_menu_delta_item_offered(void)
+{
+	return main_menu_delta_offered();
+}
+
+/* a row put in a list at "at" (the rows from there a row lower, the
+row's spacing the list's own) */
+static boolean list_row_insert(struct ui_widget_definition *list, long at, long row_tag)
+{
+	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
+	long count = list->child_widgets.count, child;
+	struct ui_widget_child_reference *grown;
+	short spacing;
+
+	if (count < 2 || at < 0 || at > count || row_tag == NONE)
+		return FALSE;
+	spacing = (short)(children[count - 1].vertical_offset - children[count - 2].vertical_offset);
+	grown = allocate((count + 1) * sizeof(*grown));
+	if (!grown || spacing <= 0)
+		return FALSE;
+	for (child = 0; child < at; child++)
+		grown[child] = children[child];
+	grown[at] = children[at < count ? at : count - 1];
+	reference_set(&grown[at].widget_tag, UI_WIDGET_DEFINITION_TAG, row_tag);
+	if (at == count)
+		grown[at].vertical_offset = (short)(children[count - 1].vertical_offset + spacing);
+	for (child = at; child < count; child++)
+	{
+		grown[child + 1] = children[child];
+		grown[child + 1].vertical_offset = (short)(grown[child + 1].vertical_offset + spacing);
+	}
+	list->child_widgets.address = XBOX_ADDRESS(grown);
+	list->child_widgets.count = count + 1;
+	return TRUE;
+}
+
+/* the main menu (Gearbox's or the Chupathingy menus' list): the DELTA row
+before QUIT */
+#define CHUPATHINGY_MAIN_MENU_LIST "chupathingy/main_menu_list"
+
+static void main_menu_delta_patch(void)
+{
+	long list = widget_named(menus_chosen() == _menus_chupathingy ? CHUPATHINGY_MAIN_MENU_LIST : GEARBOX_MAIN_MENU_LIST);
+	long row = widget_named(DELTA_ROW);
+	struct ui_widget_definition *definition;
+
+	if (!main_menu_delta_offered() || list == NONE || row == NONE)
+		return;
+	definition = tag_get(UI_WIDGET_DEFINITION_TAG, build.widget_tags[list]);
+	if (!definition || definition->type != _widget_type_column_list ||
+		!list_row_insert(definition, definition->child_widgets.count - 1, build.widget_tags[row]))
+	{
+		platform_log("menus: the main menu's DELTA not added");
+	}
+}
+
+/* Gearbox's Multiplayer menu: DELTA in its button bar, left of BACK (its
+list has no room for another row) */
+#define DELTA_BUTTON "chupathingy/button_delta"
+#define GEARBOX_MULTIPLAYER_BAR "main_menu/multiplayer_type_select/multiplayer_type_button_bar"
+
+static void multiplayer_delta_patch_gearbox(void)
+{
+	long bar = widget_named(GEARBOX_MULTIPLAYER_BAR), button = widget_named(DELTA_BUTTON);
+	struct ui_widget_definition *definition;
+	struct ui_widget_child_reference *children, *grown;
+	long count, child;
+
+	if (!main_menu_delta_offered() || bar == NONE || button == NONE)
+		return;
+	definition = tag_get(UI_WIDGET_DEFINITION_TAG, build.widget_tags[bar]);
+	count = definition ? definition->child_widgets.count : 0;
+	grown = count > 0 ? allocate((count + 1) * sizeof(*grown)) : NULL;
+	if (!grown)
+	{
+		platform_log("menus: the Multiplayer menu's DELTA not added");
+		return;
+	}
+	children = xbox_pointer(definition->child_widgets.address);
+	/* (first, so left and right go DELTA, BACK as they read) */
+	grown[0] = children[0];
+	reference_set(&grown[0].widget_tag, UI_WIDGET_DEFINITION_TAG, build.widget_tags[button]);
+	grown[0].horizontal_offset = (short)(children[0].horizontal_offset - 130);
+	for (child = 0; child < count; child++)
+		grown[child + 1] = children[child];
+	definition->child_widgets.address = XBOX_ADDRESS(grown);
+	definition->child_widgets.count = count + 1;
+}
 
 /* which display.menus asks for, in any case ("gearbox" or the older "pc"
 for Gearbox's; a value that is none of them is said once in the log, and is
@@ -2498,6 +2620,13 @@ void menu_tags_loaded(
 	menu_tags.chupathingy = menus_chosen() == _menus_chupathingy;
 	if (menu_tags.chupathingy && !game_map)
 		host_setup_patch();
+	if (menus_chosen() == _menus_pc && !game_map)
+	{
+		main_menu_delta_patch();
+		multiplayer_delta_patch_gearbox();
+	}
+	else if (menus_chosen() == _menus_chupathingy && !game_map)
+		main_menu_delta_patch();
 	platform_log("menus: %ld widgets, %ld string lists and %ld bitmaps added to the map's %ld tags",
 		widget_count, own_lists + menus->string_list_count, menus->bitmap_count, build.first_index);
 	goto done;
@@ -2794,6 +2923,59 @@ boolean pc_menu_button_key_cap(
 	(void)alpha;
 #endif
 	return FALSE;
+}
+
+/* the keyboard's key in a menu text's prompt ("Press [Enter] to Join",
+input_abstraction_port_icon_key's text) drawn as a key cap, as the footers'
+pictures are, at x on the line from y0 (its top) to y1 (its bottom), centered
+on its capital letters: its width, or 0 when it is written as text (no key
+caps here, or a name the menus' font may not have) */
+short pc_menu_text_key_cap(
+	wchar_t const *key_text,
+	short x,
+	short y0,
+	short y1,
+	float alpha)
+{
+#ifdef HALO_GAME_BROWSER
+	extern boolean moderation_screen_active(void);
+	char label[32];
+	int length = 0;
+	int index;
+	float height = (float)(y1 - y0);
+	float size;
+	float width;
+	unsigned int shade;
+
+	if (!key_text || key_text[0] != L'[' || height <= 0.f)
+		return 0;
+	for (index = 1; key_text[index] && key_text[index] != L']'; index++)
+	{
+		wchar_t character = key_text[index];
+
+		if (character < 0x20 || character > 0x7E || length >= (int)sizeof(label) - 1)
+			return 0;
+		label[length++] = (char)(character >= 'a' && character <= 'z' ? character - 'a' + 'A' : character);
+	}
+	label[length] = 0;
+	if (!length || key_text[index] != L']')
+		return 0;
+	size = height * 0.9f;
+	width = ui_overlay_key_width(label, size);
+	/* (hidden with the menu under the Moderation screen) */
+	if (moderation_screen_active())
+		return (short)ceilf(width);
+	shade = (unsigned int)(alpha < 0.f ? 0.f : alpha > 1.f ? 255.f : alpha * 255.f);
+	ui_overlay_key(label, size, (float)x, (float)y0 + height * 0.47f - size * 0.5f, 0xFFFFFF00 | shade);
+	return (short)ceilf(width);
+#else
+	(void)key_text;
+	(void)x;
+	(void)y0;
+	(void)y1;
+	(void)alpha;
+	return 0;
+#endif
 }
 
 /* the left edge of the key cap pc_menu_button_key_cap draws for a prompt

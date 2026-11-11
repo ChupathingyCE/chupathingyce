@@ -3044,6 +3044,10 @@ static void client_presentation_apply(
 
 			if (!(coop_presentation.cinematic_started && presentation->camera_scripted))
 				camera_ready = client_watch_host_from_behind(&position, &forward, &up);
+			/* (the cutscene's own camera: watching from behind starts over
+			afterward, not from where it was before the cutscene) */
+			else
+				coop_presentation.watching_host_valid = FALSE;
 			if (camera_ready && valid_real_vector3d_axes2(&forward, &up))
 				scripted_camera_set_camera_point_relative(&position, &forward, &up,
 					PIN((real)presentation->camera_field_of_view / FIELD_OF_VIEW_SCALE, CAMERA_MINIMUM_FIELD_OF_VIEW,

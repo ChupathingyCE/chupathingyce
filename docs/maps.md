@@ -113,13 +113,105 @@ there. Then the game joins, and the map's own checks run as for any map. A
 downloaded map is listed in `maps_ce/downloaded_maps.txt`: its scripts are
 held to a downloaded map's tighter rules. `network.map_downloads` in
 `config.toml` (or Network Settings in the PC menus) says `"ask"` (the
-default), `"always"` or `"never"`. Desktop and Android builds download maps;
+default), `"always"` or `"never"`. `"never"` means no map is ever
+downloaded, but the game still fetches Chupathingy maps' small signed index
+for its blacklist (below) and checks your maps against it. Desktop and Android builds download maps;
 the dedicated server doesn't. HaloMD and Halo PC retail maps aren't
 downloaded, and neither are Halo PC's own maps and files (Blood Gulch, Putput,
 the campaign's levels, `ui`, `bitmaps` and the rest, also under a hashed
 name), though the repositories have copies: they're Microsoft's and
 Gearbox's, so the game asks you to copy them from your own Halo PC or Custom
 Edition install instead ("Install this map yourself").
+
+**Chupathingy maps.** If the community repositories don't have the map (or
+not the host's version of it), the game asks Chupathingy maps
+(maps.chupathingy.org) next. It's our own map repository, for the maps HaloNet
+doesn't have. When its list has the map, the question says so: "Download
+<name>.map from HaloNet or Chupathingy maps?", and the download says where
+it's coming from. The game downloads from the repository only when its list
+of maps and its list of mirrors are signed with its key and not expired. It refetches
+them about once an hour and never goes back to an older list. It finds the map
+by its name and the host's version, and downloads it from the first working
+mirror. The file must have the list's size and SHA-256, or the next mirror is
+asked. Then the same checks run as for a map from HaloNet.
+
+**From the host.** Some maps aren't on HaloNet or Chupathingy maps. The game
+can get those from the game's host instead, peer to peer, but only if you
+turn it on. `network.map_downloads_from_host` in `config.toml` (MAPS FROM
+HOSTS in Network Settings, and in the setup screen's Network tab) is
+`"off"` by default. With `"ask"`, the game asks each time: "Download
+<name>.map from the host?", with this under it:
+
+> This map comes straight from the host, not from us,
+> and we haven't checked it.
+
+Yes downloads it. Don't ask again with Yes switches the setting to
+`"always"`, and with No to `"off"`. `"always"` downloads from the host
+without asking. Either way the host comes last: HaloNet first, then
+Chupathingy maps, then the host. The host isn't asked when the blacklist
+refused the map, when you cancelled, or when `network.map_downloads` is
+`"never"`. No map comes from a host until the game has loaded the
+blacklist from Chupathingy maps; without it (the site not reached yet, or
+`network.maps_url` set to `""`), the game says so and doesn't download.
+
+The game joins the host's game without a player, asks for the map file
+alone and downloads it from the host alone, over the host's TCP port 5153.
+Before any of it comes, the map's hash is checked against the blacklist.
+Each 256 KiB piece is checked against its hash, and the whole file against
+the hash the host offered. The file goes into `maps_quarantine` (beside
+`maps_ce`), never straight into `maps_ce`; anything a stopped run left there is
+deleted when the game starts. Once it's whole, the game runs
+quick checks that take a few milliseconds: a sane file name, no larger
+than `network.map_downloads_from_host_limit` (512 MB by default, 16 to
+768), a Custom Edition multiplayer map's header with the map's own name,
+and its tag data's offsets and tables inside the file. It must be the
+host's version, and neither of its hashes may be on the blacklist. A file
+that fails any of these is deleted, never changed. A file that passes is
+moved into `maps_ce` as a downloaded map, and the game joins again. The
+game's own checks still read all of it before it's played. The download
+shows its progress and B cancels it. Nothing about the host's address goes
+in the log. Desktop and Android only; the consoles and the dedicated server
+don't download from hosts.
+
+The game logs the map's name, size and hashes after a download from a
+host. It doesn't send them to Chupathingy maps yet: the site has no way to
+take them from the game. Until it does, its map bot finds the same maps on
+the hosts it sees.
+
+**The blacklist.** Chupathingy maps also keeps a list of maps that crash
+games or break the engine, by their hashes. A map on it isn't downloaded from
+anywhere, HaloNet included ("<name>.map is blocked by Chupathingy maps", and
+the reason). If you already have it, Chupathingy won't play it in network
+games: you can't join someone else's game on it or host one on it, and the
+game tells you why when you pick it. A dedicated server skips it in its
+playlist and refuses it for `sv_map`, with the reason in its log. You can
+still play it by yourself or in split screen. The game fetches the list when
+it starts and about once an hour after that, whatever `network.map_downloads`
+says: the list is a public file, and the request carries nothing about you.
+With `"never"` (and on the dedicated server) only that list is fetched, not
+the mirror list. Switch back to `"ask"` or `"always"` and the mirror list is
+fetched the next time the game checks, not an hour later. The game keeps the last list it took in its save folder
+and reads it back when it starts, so the blacklist holds before the first
+fetch and while the site can't be reached. A kept list that has expired
+still blocks its maps until a newer one comes, but nothing is downloaded on
+its word. The game never takes a list older than one it has taken, nor a
+different one with the same number. If the site can't be reached, the game
+writes one line in its log and tries again later (5 minutes, then longer,
+up to an hour); you see nothing and nothing waits on it. A dedicated server
+waits for the list a few seconds at most as it starts. If Chupathingy maps
+ever has to stop all downloads at once, the game takes nothing from it
+until it's back. `network.maps_url` in `config.toml` says where the lists
+come from. Set it to `""` to turn Chupathingy maps off: nothing is fetched
+from it, and no map is blocked.
+
+**Testing Chupathingy maps.** `tools/test_map_repo.py` checks the list
+reader and the downloader against a fake repository on your machine. Its
+last tests run the real game. Build it with a test key in
+`port/linux/src/maps_key.h`, then set `HALO_MAP_REPO_GAME` (the executable),
+`HALO_MAP_REPO_KEY` (the key's PEM file), `HALO_MAP_REPO_MAP` (a Custom
+Edition map) and `HALO_MAP_REPO_XBOX_MAPS` (your Xbox maps folder). The game
+uses its own data folder, and `debug.map_repositories` points it at the fake
+repository in place of HaloNet's.
 
 **When the host changes map.** If a game you're in moves on to a Custom
 Edition map you don't have (a dedicated server's playlist going to its next

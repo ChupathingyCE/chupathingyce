@@ -42,3 +42,23 @@ def test_social(tmp_path):
     assert build.returncode == 0, build.stdout + build.stderr
     result = subprocess.run([str(binary)], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_guide_party_actions_are_sent():
+    """Every party action DELTA asks for (guide.c's party_act calls, and
+    what debug.party_test may name) is one social_party_fields builds and
+    the site takes (social.c's social_party_actions): NEW PARTY CODE's
+    "code" once went nowhere, refused before it was sent."""
+    import re
+
+    social = (ROOT / "port" / "linux" / "src" / "social.c").read_text()
+    table = re.search(r"social_party_actions\[\] =\s*\{(.*?)\};", social, re.S)
+    assert table, "social.c has no social_party_actions table"
+    taken = set(re.findall(r'"([a-z]+)"', table.group(1)))
+    guide = (ROOT / "port" / "linux" / "game" / "guide.c").read_text()
+    sent = set(re.findall(r'party_act\("([a-z]*)"', guide))
+    # (and a choice of two: party_act(kick ? "kick" : "lead", ...))
+    for pair in re.findall(r'party_act\([^;]*\?\s*"([a-z]+)"\s*:\s*"([a-z]+)"', guide):
+        sent |= set(pair)
+    assert sent, "no party_act calls found in guide.c"
+    assert sent <= taken, f"guide.c sends party actions social.c refuses: {sorted(sent - taken)}"

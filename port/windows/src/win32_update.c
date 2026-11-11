@@ -270,6 +270,33 @@ int update_launch_with(const char *path, const char *argument)
 	return 1;
 }
 
+/* (Windows has no noexec: a file put in place runs) */
+int update_can_start(const char *path, char *reason, int reason_size)
+{
+	wchar_t wide[MAX_PATH * 2];
+
+	if (wide_from_utf8(path, wide, MAX_PATH * 2) && GetFileAttributesW(wide) != INVALID_FILE_ATTRIBUTES)
+		return 1;
+	snprintf(reason, (size_t)reason_size, "it is not there");
+	return 0;
+}
+
+/* (no execve on Windows: the new game is a process of its own,
+update_launch, which Steam follows under Proton as it does any program in
+its Wine prefix) */
+int update_start_in_place(const char *path)
+{
+	(void)path;
+	return 0;
+}
+
+int update_start_in_place_with(const char *path, const char *argument)
+{
+	(void)path;
+	(void)argument;
+	return 0;
+}
+
 int update_windows_runs_64bit(void)
 {
 #ifdef _WIN64
