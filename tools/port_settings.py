@@ -842,7 +842,7 @@ CHUPATHINGY_ONLY = {
         # (the friends' privacy, the site's friends.py: a list of its own,
         # so every row keeps the page's spacing)
         "views": [
-            ("friends", "FRIENDS", "Who can reach you and see you on DELTA.", [
+            ("friends", "FRIENDS", "Who can reach you and see you on Delta.", [
                 ("APPEAR OFFLINE:", "site.appear_offline", [("NO", "false"), ("YES", "true")],
                  "Show as offline to your friends.", None),
                 ("FRIEND REQUESTS FROM:", "site.friend_requests",
@@ -850,7 +850,7 @@ CHUPATHINGY_ONLY = {
                  "FRIENDS+ means your friends' friends too.", None),
                 ("WHO CAN JOIN ME:", "site.who_can_join",
                  [("FRIENDS", "friends"), ("ANYONE", "anyone"), ("INVITE ONLY", "invite")],
-                 "Who can join your game from DELTA.", None),
+                 "Who can join your game from Delta.", None),
                 ("SHOW MY STATUS TO:", "site.clan_presence",
                  [("FRIENDS", "friends"), ("FRIENDS+CLAN", "friends_and_clan")],
                  "Who sees when you're on and what you play.", None),
