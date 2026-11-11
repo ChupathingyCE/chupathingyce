@@ -2230,6 +2230,15 @@ static int config_write_file(const char *path, const char *text)
 		host_storage_commit();
 #endif
 	return written;
+#elif defined(HALO_CONSOLE)
+	/* (a console on the shared GL layer, the Wii U's and the 360's: their
+	repositories' SDL stand-ins, warthog-wiiu's wiiu_sdl.c and warthog-360's
+	x360_system.c, have SDL_SaveFile alone, and the 360's file names are its
+	own (halo_xbox360_fopen). Written in place there until they have
+	SDL_IOFromFile, SDL_FlushIO and SDL_RenamePath too) */
+	(void)temporary;
+	(void)written;
+	return SDL_SaveFile(path, text, length);
 #else
 	{
 		/* (SDL's files, for UTF-8 paths on Windows; SDL_FlushIO is fdatasync,

@@ -117,6 +117,17 @@ bool SDL_RemovePath(const char *path)
 	return remove(path) == 0;
 }
 
+bool SDL_SaveFile(const char *path, const void *data, size_t size)
+{
+	FILE *file = fopen(path, "wb");
+	int written;
+
+	if (!file)
+		return false;
+	written = fwrite(data, 1, size, file) == size;
+	return fclose(file) == 0 && written;
+}
+
 bool SDL_GetPathInfo(const char *path, SDL_PathInfo *info)
 {
 	struct stat status;
