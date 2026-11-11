@@ -38,8 +38,9 @@ enum
 /* a controller's button, drawn as the device the player last used names
 it: an Xbox-like pad's by snapchipper's icons (port/assets/prompts), a
 Nintendo pad's as grey buttons with its own letters, a PlayStation pad's
-face buttons by Kenney's Input Prompts, the others' as dark pills, and the
-keyboard's as light key caps */
+face buttons by Kenney's Input Prompts, a Steam Deck's, a Steam
+Controller's and a Wii U pad's every button by Kenney's, the others' as
+dark pills, and the keyboard's as light key caps */
 enum
 {
 	UI_BUTTON_A,
