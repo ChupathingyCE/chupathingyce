@@ -414,7 +414,7 @@ void ui_style_card(float left, float right, float y, const char *name, const cha
 	char initial[2];
 
 	if (title && title[0])
-		ui_overlay_text_glow(UI_FONT_TITLE, 37.5f, right, y - 0.5f, UI_ALIGN_RIGHT, PALETTE(TITLE), PALETTE(TITLE), title);
+		ui_overlay_text_glow(UI_FONT_TITLE, 17.0f, right, y + 6, UI_ALIGN_RIGHT, PALETTE(TITLE), PALETTE(TITLE), title);
 	ui_overlay_rect(left - 4, y + 42, right - left + 8, 1, 0, PALETTE(RULE));
 	if (!name || !name[0])
 		return;

@@ -889,7 +889,7 @@ void controls_screen_render(
 		return;
 	controls_screen.target_count = 0;
 	ui_overlay_rect(-400, -100, 1440, 680, 0, COLOR_SHADE);
-	ui_overlay_text_glow(UI_FONT_TITLE, 46.0f, TITLE_X, 25, UI_ALIGN_LEFT, COLOR_LABEL, 0x2E8BFF90,
+	ui_overlay_text_glow(UI_FONT_TITLE, 21.0f, TITLE_X, 33, UI_ALIGN_LEFT, COLOR_LABEL, 0x2E8BFF90,
 		controls_screen.page == _page_controller ? "CONTROLLER SETUP" : "CONTROLS SETUP");
 	ui_overlay_band(-400, 1040, 68, BAR_TOP - 2);
 	ui_overlay_prompt_bar(-400, 1040, BAR_TOP, BAR_TOP + 36);

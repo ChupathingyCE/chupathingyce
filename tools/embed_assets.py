@@ -39,6 +39,13 @@ HUD_ASSETS = Path("port/assets/hud")
 LAYOUT = HUD_ASSETS / "layout.json"
 TITLE_ASSETS = Path("port/assets/titles")
 TITLE_LIST = TITLE_ASSETS / "titles.json"
+# the other set of titles, display.title_font = "cyborg" (tools/title_assets.py
+# --set cyborg), with the menus' files of that set (ce/port_cyborg): only in
+# the builds with HALO_TITLE_CHOICE (halo_console_features.h), so not on the
+# consoles
+TITLE_CYBORG_ASSETS = Path("port/assets/titles_cyborg")
+TITLE_CYBORG_LIST = TITLE_CYBORG_ASSETS / "titles.json"
+MENU_CYBORG_PREFIX = "ce/port_cyborg/"
 FONT_ASSETS = Path("port/assets/fonts")
 FONT_LIST = FONT_ASSETS / "fonts.json"
 MENU_ASSETS = Path("port/assets/menus")
@@ -70,10 +77,11 @@ def role_font(role: str) -> str:
 
 
 # (then the menus' faces, which the text's fonts are too, by their roles in
-# fonts.json: Online Games is drawn in them; the titles' is the large one,
-# as the menus' title pictures are set in it: tools/title_assets.py)
+# fonts.json: Online Games is drawn in them; then the titles' in each of
+# display.title_font's sets, as the menus' title pictures are set:
+# Chupathingy Titles, and the large role's font)
 UI_FONT_FILES += [FONT_ASSETS / role_font("large"), FONT_ASSETS / role_font("small"),
-                  FONT_ASSETS / role_font("large")]
+                  FONT_ASSETS / "ChupathingyTitles-Regular.ttf", FONT_ASSETS / role_font("large")]
 # (then the scoreboard's platform logos)
 UI_FONT_FILES += [UI_FONTS / "platform_icons.ttf"]
 # the controller's button icons the overlay's prompts draw (port/assets/prompts,
@@ -99,9 +107,10 @@ def font_files() -> List[str]:
 
 def textures() -> List[tuple]:
     """The textures: each one's folder, its entry in its list, and whether
-    it is a title."""
+    it is a title (0: the HUD's, 1: a classic title, 2: a cyborg one)."""
     result = []
-    for folder, listing, title in ((HUD_ASSETS, LAYOUT, False), (TITLE_ASSETS, TITLE_LIST, True)):
+    for folder, listing, title in ((HUD_ASSETS, LAYOUT, 0), (TITLE_ASSETS, TITLE_LIST, 1),
+                                   (TITLE_CYBORG_ASSETS, TITLE_CYBORG_LIST, 2)):
         if (ROOT / listing).is_file():
             result += [(folder, asset, title) for asset in json.loads((ROOT / listing).read_text())["assets"]]
     return result
@@ -121,7 +130,8 @@ def smaa_files() -> List[tuple]:
 
 def hud_asset_inputs() -> List[Path]:
     """The files the generated source is made from."""
-    inputs = [listing for listing in (LAYOUT, TITLE_LIST, FONT_LIST, MENU_LIST) if (ROOT / listing).is_file()]
+    inputs = [listing for listing in (LAYOUT, TITLE_LIST, TITLE_CYBORG_LIST, FONT_LIST, MENU_LIST)
+              if (ROOT / listing).is_file()]
     return [*inputs, *(folder / f"{asset['name']}.png" for folder, asset, _ in textures()),
             *(FONT_ASSETS / name for name in font_files()), *(MENU_ASSETS / name for name in menu_files()),
             *(SMAA_ASSETS / name for name, _ in smaa_files()),
@@ -135,7 +145,8 @@ def hud_configure_inputs() -> List[Path]:
     folders, for files added or removed), not each file, which a change of a
     list may rename or remove."""
     inputs = []
-    for folder, listing in ((HUD_ASSETS, LAYOUT), (TITLE_ASSETS, TITLE_LIST), (FONT_ASSETS, FONT_LIST),
+    for folder, listing in ((HUD_ASSETS, LAYOUT), (TITLE_ASSETS, TITLE_LIST), (TITLE_CYBORG_ASSETS, TITLE_CYBORG_LIST),
+                            (FONT_ASSETS, FONT_LIST),
                             (MENU_ASSETS, MENU_LIST)):
         if (ROOT / listing).is_file():
             inputs += [folder, listing]
@@ -330,22 +341,30 @@ def main() -> None:
         scale = asset["scale"]
         if (width, height) != (asset["width"] * scale, asset["height"] * scale):
             sys.exit(f"{name}: {width}x{height}, not {scale}x its bitmap's {asset['width']}x{asset['height']}")
+        # (the cyborg titles only with HALO_TITLE_CHOICE)
+        choice = ["#ifdef HALO_TITLE_CHOICE"] if title == 2 else []
+        lines.extend(choice)
         lines.append(f"static const unsigned int asset{index}[] = {{")
         lines.extend(words(data))
         lines.append("};")
+        lines.extend(["#endif"] if choice else [])
         lines.append("")
         tag = asset["tag"].replace("\\", "\\\\")
         coverage = int(any(cell["kind"] == "meter" for cell in asset.get("cells", [])))
         point_threshold = int(any(cell.get("thresholds") for cell in asset.get("cells", [])))
+        table.extend(choice)
         table.append(f'\t{{ "{tag}", {asset["bitmap"]}, {width}, {height}, 0x{asset["crc"]:08x}u, {coverage}, '
-                     f'{point_threshold}, {int(title)}, asset{index}, {len(data)} }},')
+                     f'{point_threshold}, {title}, asset{index}, {len(data)} }},')
+        table.extend(["#endif"] if choice else [])
     lines.append("const struct hud_hires_embedded hud_hires_embedded[] =")
     lines.append("{")
     lines.extend(table)
     if not table:
         lines.append("\t{ 0 },")
     lines.append("};")
-    lines.append(f"const unsigned int hud_hires_embedded_count = {len(table)};")
+    # (counted, as entries are left out of some builds)
+    lines.append("const unsigned int hud_hires_embedded_count = " +
+                 ("sizeof(hud_hires_embedded) / sizeof(hud_hires_embedded[0]);" if table else "0;"))
     lines.append("")
     # the fonts, and which draws each font tag (text_hires.h)
     lines.append('#include "text_hires.h"')
@@ -379,19 +398,27 @@ def main() -> None:
         data = (ROOT / MENU_ASSETS / name).read_bytes()
         if name.endswith(".png"):
             png_size(data, name)
+        # (the cyborg titles only with HALO_TITLE_CHOICE)
+        choice = name.startswith(MENU_CYBORG_PREFIX)
+        lines.extend(["#ifdef HALO_TITLE_CHOICE"] if choice else [])
         lines.append(f"static const unsigned int menu{index}[] = {{")
         lines.extend(words(data))
         lines.append("};")
+        lines.extend(["#endif"] if choice else [])
         lines.append("")
     lines.append("const struct menu_file_embedded menu_files_embedded[] =")
     lines.append("{")
     for index, name in enumerate(menus):
         size = (ROOT / MENU_ASSETS / name).stat().st_size
+        choice = name.startswith(MENU_CYBORG_PREFIX)
+        lines.extend(["#ifdef HALO_TITLE_CHOICE"] if choice else [])
         lines.append(f'\t{{ "{name}", menu{index}, {size} }},')
+        lines.extend(["#endif"] if choice else [])
     if not menus:
         lines.append("\t{ 0 },")
     lines.append("};")
-    lines.append(f"const unsigned int menu_files_embedded_count = {len(menus)};")
+    lines.append("const unsigned int menu_files_embedded_count = " +
+                 ("sizeof(menu_files_embedded) / sizeof(menu_files_embedded[0]);" if menus else "0;"))
     lines.append("")
     # SMAA's shader, as text a GLSL compiler takes (ASCII, ending in a NUL),
     # and its lookup textures (xgpu_post.c); each of size 0 that the

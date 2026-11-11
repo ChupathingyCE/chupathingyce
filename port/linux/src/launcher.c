@@ -1839,7 +1839,7 @@ static void draw_header(void)
 	float corner = launcher.right - width * 0.05f;
 	char line[96];
 
-	text_fit(UI_FONT_TITLE, 34.0f, launcher.left + width * 0.086f, 19.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW,
+	text_fit(UI_FONT_TITLE, 15.5f, launcher.left + width * 0.086f, 25.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW,
 		width * 0.62f, screen_title());
 	snprintf(line, sizeof(line), "Chupathingy %s", build_identity_version());
 	ui_overlay_text(UI_FONT_MENU, 8.5f, corner, 27.0f, UI_ALIGN_RIGHT, COLOR_WHITE, line);
@@ -2312,7 +2312,7 @@ static void draw_dialog(void)
 	ui_overlay_layer(2);
 	ui_overlay_rect(launcher.left, 0, width, 480.0f, 0, COLOR_SHADE);
 	ui_style_panel(x0, y0, dialog_width, height, 1.0f);
-	text_fit(UI_FONT_TITLE, 25.5f, x, y0 + 13.5f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, inner,
+	text_fit(UI_FONT_TITLE, 11.5f, x, y0 + 18.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, inner,
 		launcher.dialog_title);
 	y = y0 + 46.0f;
 	switch (launcher.dialog)

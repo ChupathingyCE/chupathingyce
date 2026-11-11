@@ -90,6 +90,8 @@ static const char *const renderer_names[] = { "OPENGL", "VULKAN", NULL };
 #endif
 #endif
 static const char *const menus_choices[] = { "xbox", "gearbox", "chupathingy", NULL };
+/* display.title_font's (hud_hires.c, menu_files.c, ui_overlay.c) */
+static const char *const title_font_choices[] = { "classic", "cyborg", NULL };
 static const char *const channels_choices[] = { "auto", "stereo", "5.1", "7.1", NULL };
 static const char *const hrtf_choices[] = { "on", "off", "auto", NULL };
 static const char *const buffer_choices[] = { "256", "512", "1024", "2048", "4096", NULL };
@@ -122,6 +124,9 @@ static const struct settings_row settings_rows[] =
 	{ _in_display, "V-SYNC", "display.vsync", _kind_toggle, NULL, NULL, 0, 1 },
 	{ _in_display, "ANTI-ALIASING", "display.anti_aliasing", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_display, "MENU STYLE", "display.menus", _kind_choices, menus_choices, NULL, 0, 0 },
+#ifdef HALO_TITLE_CHOICE
+	{ _in_display, "TITLE FONT", "display.title_font", _kind_choices, title_font_choices, NULL, 0, 0 },
+#endif
 	{ _in_display, "PERFORMANCE", "display.particle_limit", _kind_preset, NULL, NULL, 0, 0 },
 	{ _in_display, "LIGHT EFFECTS", "display.light_effects", _kind_choices, light_effects_choices, NULL, 0, 0 },
 

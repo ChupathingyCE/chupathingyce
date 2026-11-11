@@ -269,9 +269,11 @@ with their authors credited in each commit.
 
 </details>
 
-- Fonts: Cyborg Interface Gothic, the font of the game's text and titles
-  and of our own screens, by fizzy, made to match Halo's interface font
-  from Overpass and glyphs of their own (SIL OFL);
+- Fonts: Cyborg Interface Gothic, the font of the game's text and of our
+  own screens, by fizzy, made to match Halo's interface font from Overpass
+  and glyphs of their own (SIL OFL); the menus' titles in Chupathingy
+  Titles, Newtown by Roger White (public domain), respaced to sit where
+  Halo's titles do (SIL OFL);
   [Overpass](https://github.com/RedHatOfficial/Overpass) (SIL OFL);
   [Noto Sans](https://fonts.google.com/noto) (SIL OFL), for the letters
   Cyborg lacks, and

@@ -57,7 +57,15 @@ MENUS = ROOT / "port/assets/menus"
 CE = MENUS / "ce"
 SVG_COPIES = MENUS / "svg"
 MAIN_MENU = "ui\\shell\\main_menu\\main_menu"
-TITLE_FONT = ROOT / "port/assets/fonts/CyborgInterfaceGothic-Regular.ttf"
+# the titles this port adds, in each of display.title_font's sets (as
+# tools/title_assets.py's): the font, where the pictures go (in MENUS: the
+# menus' files name the classic ones, ce/port/..., and the game draws the
+# same path in ce/port_cyborg/ for the cyborg set), and where their
+# backdrops' SVGs go
+TITLE_SETS = {
+    "classic": (ROOT / "port/assets/fonts/ChupathingyTitles-Regular.ttf", "ce/port", "port_svg"),
+    "cyborg": (ROOT / "port/assets/fonts/CyborgInterfaceGothic-Regular.ttf", "ce/port_cyborg", "port_svg_cyborg"),
+}
 # the widgets left out, with their pictures (and all they alone lead to):
 # the server browser's GameSpy logo, which the port has no use for, and the
 # main menu's Credits, which the Xbox's game has not
@@ -287,18 +295,19 @@ def bounds_text(bounds: tuple) -> str:
 # ---------- the art
 
 
-def draw_title(name: str, text: str) -> str:
+def draw_title(name: str, text: str, title_set: str = "classic") -> str:
     """a title this port has that the PC version has not, as a picture (its
-    path in MENUS): the text set in Cyborg Interface Gothic (the menus' text's
-    font, as the port's titles are: tools/title_assets.py) over the PC
-    headers' backdrop"""
+    path in MENUS): the text set in the set's font (TITLE_SETS: Chupathingy
+    Titles, the respaced Newtown, or Cyborg Interface Gothic, as the port's
+    titles are: tools/title_assets.py) over the PC headers' backdrop"""
     from PIL import ImageDraw, ImageFont
+    title_font, folder, svg_folder = TITLE_SETS[title_set]
     scale = SCALE
-    probe = ImageFont.truetype(str(TITLE_FONT), 1000)
+    probe = ImageFont.truetype(str(title_font), 1000)
     left, top, right, bottom = probe.getbbox("H")
-    font = ImageFont.truetype(str(TITLE_FONT), round(port_settings.TITLE_CAP * scale * 1000 / (bottom - top)))
+    font = ImageFont.truetype(str(title_font), round(port_settings.TITLE_CAP * scale * 1000 / (bottom - top)))
     width = font.getlength(text) / scale
-    svg = MENUS / "port_svg" / f"{name}.svg"
+    svg = MENUS / svg_folder / f"{name}.svg"
     svg.parent.mkdir(parents=True, exist_ok=True)
     svg.write_text(port_settings.title_backdrop(width))
     image = Image.fromarray(render_svg(svg, scale), "RGBA")
@@ -306,7 +315,7 @@ def draw_title(name: str, text: str) -> str:
     cap_top = font.getbbox("H")[1]
     draw.text((port_settings.TITLE_LEFT * scale, port_settings.TITLE_TOP * scale - cap_top), text,
               font=font, fill=port_settings.TITLE_COLOR)
-    png = f"ce/port/{name}.png"
+    png = f"{folder}/{name}.png"
     (MENUS / png).parent.mkdir(parents=True, exist_ok=True)
     image.save(MENUS / png, optimize=True)
     return png
@@ -326,7 +335,7 @@ class Art:
         """a <bitmap> of a title this port has that the PC version has not
         (draw_title)"""
         png = draw_title(name, text)
-        self.pngs.append(png)
+        self.pngs += [png, draw_title(name, text, "cyborg")]
         return "\n".join([f"\t<bitmap{attributes([('name', name)])}>",
                           f"\t\t<frame{attributes([('png', png), ('width', 512), ('height', 64)])}/>",
                           "\t</bitmap>"])
@@ -558,16 +567,31 @@ def engine_names(source: Path, start: str, count: int) -> list:
 
 def draw_titles() -> list:
     """the titles of the Chupathingy menus' own screens (their files name
-    them: port_settings.CHUPATHINGY_TITLES), drawn again"""
-    return [draw_title(name, text) for name, text in sorted(port_settings.CHUPATHINGY_TITLES.items())]
+    them: port_settings.CHUPATHINGY_TITLES), drawn again in both sets"""
+    return [draw_title(name, text, title_set) for name, text in sorted(port_settings.CHUPATHINGY_TITLES.items())
+            for title_set in sorted(TITLE_SETS)]
+
+
+def write_settings() -> None:
+    """the settings screens tools/port_settings.py writes"""
+    for name, lines in [*port_settings.settings_files().items(), *port_settings.multiplayer_files().items()]:
+        (CE / name).write_text("\n".join(lines))
+    (MENUS / "chupathingy" / "settings_pages.xml").write_text("\n".join(port_settings.chupathingy_settings_pages()))
 
 
 def main() -> None:
     if sys.argv[1:] == ["--titles"]:
-        # (the titles alone, which need none of the PC version's files: after
-        # a change to their font or text; bitmaps.xml names the same files)
+        # (the titles alone, in both sets, which need none of the PC
+        # version's files: after a change to their font or text; bitmaps.xml
+        # and menus.json name the same files)
         for name, text in sorted({**port_settings.TITLES, **port_settings.CHUPATHINGY_TITLES}.items()):
-            print(draw_title(name, text))
+            for title_set in sorted(TITLE_SETS):
+                print(draw_title(name, text, title_set))
+        return
+    if sys.argv[1:] == ["--settings"]:
+        # (the settings screens alone, which need none of the PC version's
+        # files either: after a change to tools/port_settings.py's rows)
+        write_settings()
         return
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tags", type=Path, required=True)
@@ -585,7 +609,7 @@ def main() -> None:
     functions[:102] = engine_names(ROOT / "source/interface/ui_widget_event_handler_functions.c",
                                    '\t{\n\t\t"NULL",', 102)
     inputs[:41] = engine_names(ROOT / "port/linux/game/menu_tags.c", "game_data_input_names[] =", 41)
-    for folder in (CE, SVG_COPIES, MENUS / "port_svg"):
+    for folder in (CE, SVG_COPIES, MENUS / "port_svg", MENUS / "port_svg_cyborg"):
         if folder.exists():
             shutil.rmtree(folder)
     CE.mkdir(parents=True)
@@ -626,9 +650,7 @@ def main() -> None:
             lines += widget_xml(tag, widgets[tag], tags, functions, inputs, fonts, {})
         lines.append("</menus>")
         (CE / f"{folder.replace('/', '.')}.xml").write_text("\n".join(lines) + "\n")
-    for name, lines in [*port_settings.settings_files().items(), *port_settings.multiplayer_files().items()]:
-        (CE / name).write_text("\n".join(lines))
-    (MENUS / "chupathingy" / "settings_pages.xml").write_text("\n".join(port_settings.chupathingy_settings_pages()))
+    write_settings()
     # their strings
     lines = ['<?xml version="1.0" encoding="UTF-8"?>',
              "<!-- The PC version's menus' text (tools/ce_menus.py) -->", "<menus>"]

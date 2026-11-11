@@ -3,12 +3,19 @@
 the screens' headers and the main menu's items, which the maps hold as
 pictures of text, set again in a font at 4x their size:
 
-    python tools/title_assets.py --map assets/maps/ui.map
+    python tools/title_assets.py --map assets/maps/ui.map               # classic
+    python tools/title_assets.py --map assets/maps/ui.map --set cyborg
 
-The maps' titles are set in a commercial typeface; they are set here in
-Cyborg Interface Gothic (port/assets/fonts/CyborgInterfaceGothic-Regular.ttf,
-by fizzy, SIL Open Font License), the font the menus' text is drawn with,
-so that the titles and the text are one face. Each title keeps the rest of its picture: the text is taken out of the map's
+The maps' titles are set in a commercial typeface. There are two sets of
+pictures, which display.title_font chooses between (SETS):
+- classic (port/assets/titles): Chupathingy Titles
+  (port/assets/fonts/ChupathingyTitles-Regular.ttf, SIL Open Font License),
+  Roger White's public-domain Newtown respaced to set them as the maps do
+  (tools/title_font.py), each letter where the old one is;
+- cyborg (port/assets/titles_cyborg): Cyborg Interface Gothic, the menus'
+  text's font (by fizzy, SIL Open Font License), at its own even spacing,
+  the text as a whole where the old text is.
+Each title keeps the rest of its picture: the text is taken out of the map's
 bitmap (filled in from around it), that background (soft plates and glows)
 is enlarged, and the text set in the font, in its colour, goes over it.
 Where the project has a hand-made SVG redraw of the picture (BACKGROUNDS,
@@ -18,9 +25,12 @@ Each letter is placed where the old one is (Layout): the text is set with
 the font's spacing, moved and tracked as a whole to cover the old text
 best, and then each letter is moved by up to four texels, in eighths of a
 texel, to cover its old letter best; letters left nearly touching where the
-old ones have a gap between them are parted to the old gap. A selected menu
+old ones have a gap between them are parted to the old gap (the cyborg set's
+letters are not moved one by one: that spaces a face other than the maps'
+unevenly, so its words are tracked as its letters are). A selected menu
 item uses its unselected picture's layout (the same letters, read more
-surely). titles.json records where each letter went.
+surely). titles.json records where each letter went, which
+tools/title_font.py's spacing is measured from.
 
 The pictures are drawn in place of the maps' bitmaps as the high-res HUD's
 are (port/linux/src/hud_hires.c), and only for the bitmaps of the English
@@ -42,17 +52,22 @@ from hud_assets import FORMATS, XboxMap, decode_bitmap, level0_size, render_svg 
 
 ROOT = Path(__file__).resolve().parent.parent
 TITLES = ROOT / "port/assets/titles"
-FONT = ROOT / "port/assets/fonts/CyborgInterfaceGothic-Regular.ttf"
+# the sets of pictures (display.title_font): where each is written, its font,
+# and whether its letters are moved one by one to the old letters
+SETS = {
+    "classic": (TITLES, ROOT / "port/assets/fonts/ChupathingyTitles-Regular.ttf", True),
+    "cyborg": (ROOT / "port/assets/titles_cyborg", ROOT / "port/assets/fonts/CyborgInterfaceGothic-Regular.ttf", False),
+}
+# (the set being made: main sets them)
+OUTPUT, FONT, LETTER_MOVES = SETS["classic"]
 SCALE = 4
 MAXIMUM_SIZE = 2048
 # the precision letters are placed with: eighths of the map's texels
 SUPER = 8
-# how far a letter may be moved from the font's spacing (and never past the
-# middle of its neighbours, so that like letters, as U and L, cannot trade
-# places): not at all, since the font is not the maps' face, and matching its
-# letters one by one to theirs spaces it unevenly; the text as a whole is
-# moved, tracked and sized to cover the old text
-MAXIMUM_MOVE = 0
+# how far a letter may be moved from the font's spacing: four texels (and
+# never past the middle of its neighbours, so that like letters, as U and L,
+# cannot trade places)
+MAXIMUM_MOVE = 4 * SUPER
 # how far (texels) the gap between two letters is looked for, and how much
 # more matching the old letters' gaps counts than covering them best
 GAP_SEARCH = 6
@@ -239,7 +254,7 @@ class Layout:
         glyphs = self.glyphs
         natural_left = pens[0] + glyphs[0][1]
         natural_right = pens[-1] + glyphs[-1][1] + glyphs[-1][0].shape[1]
-        gaps = max(1, len(pens) - 1 + sum(self.spaced))
+        gaps = max(1, len(pens) - 1 + (0 if LETTER_MOVES else sum(self.spaced)))
         track = ((right + 1 - left) * SUPER - (natural_right - natural_left)) / gaps
         self.base = [left * SUPER - natural_left + pen for pen in pens]
         self.spread(0.0, track)
@@ -249,9 +264,9 @@ class Layout:
         """The glyphs at the font's spacing, moved offset and tracking track
         (in eighths of a texel) further apart."""
         self.offset, self.track = offset, track
-        # (a word's space is tracked as a letter's gap is, so that words
-        # stay apart as the letters spread)
-        words = np.cumsum(self.spaced)
+        # (without letter moves, a word's space is tracked as a letter's gap
+        # is, so that words stay apart as the letters spread)
+        words = [0] * len(self.base) if LETTER_MOVES else list(np.cumsum(self.spaced))
         self.pens = [round(pen + offset + (index + words[index]) * track) for index, pen in enumerate(self.base)]
 
     def load(self):
@@ -339,7 +354,8 @@ class Layout:
                         both, either = self.sums(a, b, self.compose(a, b))
                         best = (both / max(either, 1e-9), pen)
                         for candidate in (pen - step, pen + step):
-                            if abs(candidate - self.natural[index]) > MAXIMUM_MOVE or not self.in_order(index, candidate):
+                            if (not LETTER_MOVES or abs(candidate - self.natural[index]) > MAXIMUM_MOVE or
+                                    not self.in_order(index, candidate)):
                                 continue
                             both, either = self.sums(a, b, self.compose(a, b, index, candidate))
                             if both / max(either, 1e-9) > best[0] + 1e-6:
@@ -538,6 +554,8 @@ def build_title(bitmap: dict, text: str, scale: int, layout=None, region=None, s
     opacity = np.median(image[solid][:, 3].astype(float)) / 255
     if layout is None:
         layout = Layout(text, coverage_old, box).fit()
+        if LETTER_MOVES:
+            layout.match_gaps()
     letters = layout.render(scale, (image.shape[0] * scale, image.shape[1] * scale))
     edge = ndimage.binary_dilation(mask, iterations=1)
     if svg:
@@ -567,10 +585,13 @@ def build_title(bitmap: dict, text: str, scale: int, layout=None, region=None, s
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--map", required=True)
+    parser.add_argument("--set", choices=sorted(SETS), default="classic")
     arguments = parser.parse_args()
+    global OUTPUT, FONT, LETTER_MOVES
+    OUTPUT, FONT, LETTER_MOVES = SETS[arguments.set]
     xbox_map = XboxMap(Path(arguments.map))
-    TITLES.mkdir(parents=True, exist_ok=True)
-    for stale in TITLES.glob("*.png"):
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    for stale in OUTPUT.glob("*.png"):
         stale.unlink()
     entries = []
     layouts = {}
@@ -588,7 +609,7 @@ def main() -> None:
             image, layout = build_title(bitmap, text, scale, layouts.get((tag, text)), TEXT_BOXES.get(tag),
                                         BACKGROUNDS.get(tag))
             layouts.setdefault((tag, text), layout)
-            Image.fromarray(image, "RGBA").save(TITLES / f"{name}.png", optimize=True)
+            Image.fromarray(image, "RGBA").save(OUTPUT / f"{name}.png", optimize=True)
             entries.append({
                 "name": name,
                 "tag": tag,
@@ -599,14 +620,15 @@ def main() -> None:
                 "scale": scale,
                 "crc": zlib.crc32(bitmap["pixels"][:level0_size(bitmap)]),
                 "text": text,
-                # where each letter's ink starts, and the capitals' height (texels)
+                # where each letter's ink starts, and the capitals' height (texels):
+                # tools/title_font.py --measure reads them
                 "lefts": layout.lefts(),
                 "cap": layout.cap / SUPER,
             })
             moved = np.abs(layout.corrections())
             print(f"{name}: '{text}' {width}x{height} at {scale}x, covers {layout.overlap():.3f}; "
                   f"letters moved {moved.mean():.2f} texels on average, {moved.max():.2f} at most")
-    (TITLES / "titles.json").write_text(json.dumps({"font": FONT.name, "assets": entries}, indent=1) + "\n")
+    (OUTPUT / "titles.json").write_text(json.dumps({"font": FONT.name, "assets": entries}, indent=1) + "\n")
 
 
 if __name__ == "__main__":

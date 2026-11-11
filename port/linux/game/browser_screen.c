@@ -2995,7 +2995,7 @@ static void dialog_frame(
 	for (index = 0; title[index] && index < NUMBEROF(capitals) - 1; index++)
 		capitals[index] = title[index] >= 'a' && title[index] <= 'z' ? (char)(title[index] - 32) : title[index];
 	capitals[index] = 0;
-	ui_overlay_text_glow(UI_FONT_TITLE, 24.0f, x + 22, y + 18, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, capitals);
+	ui_overlay_text_glow(UI_FONT_TITLE, 11.0f, x + 22, y + 22, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, capitals);
 }
 
 /* the dialog's buttons (count of them), centred along its foot, B before A
@@ -3497,7 +3497,7 @@ static void draw_header(
 	players = browser_screen.listed_players;
 	ui_overlay_band(left, right, BAND_Y, BAR_Y);
 	/* (the size and place of the Xbox screens' titles, MULTIPLAYER's) */
-	ui_overlay_text_glow(UI_FONT_TITLE, 29.5f, 64, 40.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, "ONLINE GAMES");
+	ui_overlay_text_glow(UI_FONT_TITLE, 13.5f, 64, 45.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, "ONLINE GAMES");
 
 	/* servers and players, then the list they come from, at the right (a
 	dark halo keeps them clear of a bright background) */

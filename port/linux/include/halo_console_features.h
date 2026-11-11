@@ -296,6 +296,12 @@ HALO_CONSOLE_NO_LOADING_PICTURE
 	instead of Chupathingy's picture (port/linux/game/loading_picture.c,
 	display.xbox_loading_picture): every console, whose packaging has no
 	step for the picture
+HALO_CONSOLE_NO_TITLE_CHOICE
+	only the classic titles (port/assets/titles, Chupathingy Titles), not
+	the second set display.title_font = "cyborg" draws (port/assets/
+	titles_cyborg and the menus' ce/port_cyborg, about 2.5 MB of pictures):
+	every console, for its memory; the desktop builds and the phones have
+	both (HALO_TITLE_CHOICE)
 HALO_CONSOLE_ANAMORPHIC_SCREEN
 	a console that draws 640x480 and can show it on a 16:9 television,
 	which stretches the picture to fit (display.widescreen). The port says
@@ -532,6 +538,17 @@ leave it out with the rest of HALO_CONSOLE_NO_DELTA_IDENTITY */
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
 #define HALO_CONSOLE_NO_LOADING_PICTURE 1
+#endif
+
+/* the titles' second set, display.title_font = "cyborg" (the generated
+hud_hires_assets.c's titles and menus' files, hud_hires.c, menu_files.c):
+not on the consoles, HALO_CONSOLE_NO_TITLE_CHOICE */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_TITLE_CHOICE)
+#define HALO_CONSOLE_NO_TITLE_CHOICE 1
+#endif
+#if !defined(HALO_CONSOLE_NO_TITLE_CHOICE) && !defined(HALO_SERVER)
+#define HALO_TITLE_CHOICE 1
 #endif
 
 /* a map's shaders made while its loading screen is up, from its shader key

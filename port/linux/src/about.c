@@ -103,6 +103,7 @@ static const struct about_entry licenses[] =
 	{ _line_text, "glslang: BSD-3-Clause. SPIRV-Cross: Apache-2.0." },
 	{ _line_gap, NULL },
 	{ _line_text, "Cyborg Interface Gothic (fizzy): SIL OFL." },
+	{ _line_text, "Chupathingy Titles (Newtown by Roger White, public domain): SIL OFL." },
 	{ _line_text, "Overpass: SIL OFL." },
 	{ _line_text, "Noto Sans (letters Cyborg lacks): SIL OFL." },
 	{ _line_text, "Kenney's Input Prompts: CC0." },
