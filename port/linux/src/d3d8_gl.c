@@ -349,7 +349,7 @@ void console_warm_screen(unsigned long done, unsigned long total)
 	xgpu_gl_state_invalidate();
 #ifdef HALO_GAME_BROWSER
 	snprintf(percent, sizeof(percent), "%d%%", (int)(fraction * 100.0f));
-	ui_overlay_text_glow(UI_FONT_TITLE, 21.0f, 320.0f, 338.0f, UI_ALIGN_CENTER, 0xa8ccffffu, 0x3c78ff80u, "CHUPATHINGYCE");
+	ui_overlay_text_glow(UI_FONT_TITLE, 21.0f, 320.0f, 338.0f, UI_ALIGN_CENTER, 0xa8ccffffu, 0x3c78ff80u, "CHUPATHINGY");
 	ui_overlay_text(UI_FONT_MENU, 24.0f, 320.0f, 376.0f, UI_ALIGN_CENTER, 0xffffffffu, percent);
 	ui_overlay_text(UI_FONT_MENU_SMALL, 15.0f, 320.0f, 420.0f, UI_ALIGN_CENTER, 0x8ca8d0ffu, "GETTING THE SHADERS READY.");
 	ui_overlay_present(x, y, width, height, window_width, window_height);

@@ -468,7 +468,7 @@ void invite_prompt_render(
 		/* (over the game, below where a server's message shows) */
 		ui_overlay_rect(150, 60, 340, 26, 6, COLOR_BANNER);
 		ui_overlay_outline(150, 60, 340, 26, 6, 1.0f, COLOR_BANNER_EDGE);
-		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 320, 67, UI_ALIGN_CENTER, COLOR_TEXT,
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, 320, 67, UI_ALIGN_CENTER, COLOR_TEXT,
 			invite_prompt.password ? "Invite to a game with a password. Pause to type it." :
 			"Invite on your clipboard. Pause to answer.");
 		return;

@@ -61,9 +61,10 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (close together, for the eleven rows of INTERFACE to fit above a
-        # help line)
+        # (close together, for the twelve rows of INTERFACE to fit above a
+        # help line, which sits lower than other screens' for them)
         "spacing": 24,
+        "help_top": 362,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's resolution and anti-aliasing in
@@ -182,6 +183,12 @@ SCREENS = {
                  "While dead, follow a player's view, if the host allows it.", None),
                 ("VERSION WATERMARK:", "display.version_watermark", ON_OFF,
                  "Show the version while playing.", None),
+                ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg")],
+                 "Classic looks like Halo's own titles.\nCyborg matches the menu text.",
+                 # (not on the consoles, the Switch included, which have the
+                 # classic titles only: HALO_CONSOLE_NO_TITLE_CHOICE; last,
+                 # so the Switch's list has no gap)
+                 "desktop android"),
             ]),
         ],
     },
@@ -1190,10 +1197,18 @@ TITLES = {
     f"{MT}/server_settings/header_host_options": "HOST OPTIONS",
 }
 
+# the titles of the Chupathingy menus' own screens, which their files name
+# (port/assets/menus/chupathingy/delta_profile.xml): drawn as TITLES are
+CHUPATHINGY_TITLES = {
+    "chupathingy/delta_profile/header_delta_profile": "DELTA PROFILE",
+    "chupathingy/delta_profile/header_privacy": "PRIVACY",
+}
+
 
 def title_backdrop(width: float) -> str:
     """a header's dark backdrop, as the PC headers' redraws have it, for text
-    width units wide (the text is set over it in OpenCE: ce_menus.py)"""
+    width units wide (the text is set over it in Cyborg Interface Gothic:
+    ce_menus.py)"""
     return "\n".join([
         '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="64" viewBox="0 0 512 64">',
         "  <defs>",

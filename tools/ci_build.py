@@ -209,8 +209,9 @@ def main() -> int:
     # SIL Open Font License asks each copy to carry it
     shutil.copy2(ROOT / "port/assets/fonts/Overpass-OFL.txt", dist / "Overpass-OFL.txt")
     shutil.copy2(ROOT / "port/assets/fonts/CyborgInterfaceGothic-OFL.txt", dist / "CyborgInterfaceGothic-OFL.txt")
-    # (OpenCE, the menus' titles' face, which Online Games draws its title in)
-    shutil.copy2(ROOT / "port/assets/fonts/OpenCE-OFL.txt", dist / "OpenCE-OFL.txt")
+    # (Chupathingy Titles, the classic titles' face, which the overlay's
+    # screens draw their titles in, and Newtown's public-domain statement)
+    shutil.copy2(ROOT / "port/assets/fonts/ChupathingyTitles-OFL.txt", dist / "ChupathingyTitles-OFL.txt")
     # the overlay's fonts (port/linux/ui/fonts), in every build: Noto Sans's
     # license asks the same; Kenney's Input Prompts are CC0, credited all
     # the same
@@ -356,7 +357,7 @@ def server_dist(platform: str, config: str, output: str) -> int:
                          ("port/third_party/expat/COPYING", "expat-COPYING.txt"),
                          ("port/assets/fonts/Overpass-OFL.txt", "Overpass-OFL.txt"),
                          ("port/assets/fonts/CyborgInterfaceGothic-OFL.txt", "CyborgInterfaceGothic-OFL.txt"),
-                         ("port/assets/fonts/OpenCE-OFL.txt", "OpenCE-OFL.txt"),
+                         ("port/assets/fonts/ChupathingyTitles-OFL.txt", "ChupathingyTitles-OFL.txt"),
                          ("port/linux/ui/fonts/OFL.txt", "NotoSans-OFL.txt"),
                          ("port/linux/ui/fonts/KENNEY-CC0.txt", "Kenney-Input-Prompts-CC0.txt")):
         shutil.copy2(ROOT / source, dist / name)

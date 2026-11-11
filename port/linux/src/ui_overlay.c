@@ -335,6 +335,60 @@ static int posix_font(int font)
 	}
 }
 
+/* hud_hires.c's: whether display.title_font is "cyborg" */
+int hud_hires_title_font_cyborg(void);
+
+/* a face's capitals' height, and its baseline below a line's top (as
+lay_out_text places it), at a size of 1; 0 if it cannot be read */
+static int face_lines(int face, float *capitals, float *baseline)
+{
+	static int read[POSIX_UI_FONT_COUNT];
+	static float capitals_of[POSIX_UI_FONT_COUNT], baseline_of[POSIX_UI_FONT_COUNT];
+
+	if (face < 0 || face >= POSIX_UI_FONT_COUNT)
+		return 0;
+	if (!read[face])
+	{
+		float ascent, descent;
+		int width, height, x, y;
+		unsigned char *bitmap = posix_ui_font_glyph(face, 100.0f, 'H', &width, &height, &x, &y);
+
+		read[face] = -1;
+		if (bitmap && height > 0 && posix_ui_font_metrics(face, 100.0f, &ascent, &descent))
+		{
+			capitals_of[face] = (float)height / 100.0f;
+			baseline_of[face] = ((100.0f - (ascent + descent)) * 0.5f + ascent) / 100.0f;
+			read[face] = 1;
+		}
+		posix_ui_font_free(bitmap);
+	}
+	*capitals = capitals_of[face];
+	*baseline = baseline_of[face];
+	return read[face] > 0;
+}
+
+/* the face a font draws with: for the titles, display.title_font's, the
+cyborg one (Cyborg Interface Gothic) sized to the classic one's capitals
+and set on its baseline, so a screen lays its title out once (size and y
+changed to match; y may be NULL) */
+static int font_face(int font, float *size, float *y)
+{
+	int face = posix_font(font);
+	float classic_capitals, classic_baseline, capitals, baseline, cyborg_size;
+
+	if (face != POSIX_UI_FONT_TITLE || !hud_hires_title_font_cyborg() ||
+		!face_lines(POSIX_UI_FONT_TITLE, &classic_capitals, &classic_baseline) ||
+		!face_lines(POSIX_UI_FONT_TITLE_CYBORG, &capitals, &baseline))
+	{
+		return face;
+	}
+	cyborg_size = *size * classic_capitals / capitals;
+	if (y)
+		*y += *size * classic_baseline - cyborg_size * baseline;
+	*size = cyborg_size;
+	return POSIX_UI_FONT_TITLE_CYBORG;
+}
+
 static void forget_glyphs(void);
 
 /* the menus' faces from the player's font files (display.high_res_font,
@@ -370,7 +424,8 @@ static void player_fonts_check(void)
 static int glyph_font(int font, unsigned int codepoint)
 {
 	player_fonts_check();
-	if ((font == POSIX_UI_FONT_MENU || font == POSIX_UI_FONT_MENU_SMALL || font == POSIX_UI_FONT_TITLE) &&
+	if ((font == POSIX_UI_FONT_MENU || font == POSIX_UI_FONT_MENU_SMALL || font == POSIX_UI_FONT_TITLE ||
+		font == POSIX_UI_FONT_TITLE_CYBORG) &&
 		codepoint > ' ' && !posix_ui_font_has(font, codepoint))
 	{
 		return POSIX_UI_FONT_BOLD;
@@ -400,7 +455,12 @@ static float measure(int font, float size, const char *text)
 
 float ui_overlay_text_width(int font, float size, const char *text)
 {
-	return text ? measure(posix_font(font), size, text) : 0.0f;
+	int face;
+
+	if (!text)
+		return 0.0f;
+	face = font_face(font, &size, NULL);
+	return measure(face, size, text);
 }
 
 static float add_skewed_text(int font, float size, float x, float y, int align, unsigned int color, float skew,
@@ -436,7 +496,12 @@ static float add_text(int font, float size, float x, float y, int align, unsigne
 
 float ui_overlay_text(int font, float size, float x, float y, int align, unsigned int color, const char *text)
 {
-	return text && *text ? add_text(posix_font(font), size, x, y, align, color, text) : 0.0f;
+	int face;
+
+	if (!text || !*text)
+		return 0.0f;
+	face = font_face(font, &size, &y);
+	return add_text(face, size, x, y, align, color, text);
 }
 
 /* (a color's alpha times a share of it) */
@@ -457,8 +522,9 @@ float ui_overlay_text_glow(int font, float size, float x, float y, int align, un
 		{ 1.0f, 0.0f }, { -1.0f, 0.0f }, { 0.0f, 1.0f }, { 0.0f, -1.0f },
 		{ 0.7f, 0.7f }, { -0.7f, 0.7f }, { 0.7f, -0.7f }, { -0.7f, -0.7f },
 	};
+	/* (the glow's spread by the size asked for, whatever the face) */
 	float spread = size * 0.06f > 0.6f ? size * 0.06f : 0.6f;
-	int face = posix_font(font);
+	int face = font_face(font, &size, &y);
 	int index;
 
 	if (!text || !*text)
