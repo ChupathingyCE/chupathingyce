@@ -193,6 +193,8 @@ enum
 	/* the site keeps 200 friends at most, 50 requests waiting */
 	SOCIAL_MAXIMUM_FRIENDS = 200,
 	SOCIAL_MAXIMUM_REQUESTS = 50,
+	/* (the handles this player blocks: FRIENDS' BLOCKED) */
+	SOCIAL_MAXIMUM_BLOCKED = 50,
 	SOCIAL_MAXIMUM_INVITES = 20,
 };
 
@@ -370,6 +372,12 @@ struct social_state
 	struct social_friend friends[SOCIAL_MAXIMUM_FRIENDS];
 	int request_count;
 	struct social_request requests[SOCIAL_MAXIMUM_REQUESTS];
+	/* the requests this player sent (CANCEL), and the players they block
+	(UNBLOCK), newest first */
+	int outgoing_count;
+	struct social_request outgoing[SOCIAL_MAXIMUM_REQUESTS];
+	int blocked_count;
+	char blocked[SOCIAL_MAXIMUM_BLOCKED][SOCIAL_HANDLE_SIZE];
 	int invite_count;
 	struct social_invite invites[SOCIAL_MAXIMUM_INVITES];
 	/* the party this player is in (has 0: none), and invites to others */
@@ -436,6 +444,40 @@ struct social_news
 };
 void social_news(const struct social_state *old, const struct social_state *fresh, struct social_news *news);
 
+/* ---------- toasts waiting (DELTA's): news that came with other news
+in one poll shows after the toast before it, not never. A key already
+waiting isn't queued twice; a full queue drops its oldest. */
+
+enum
+{
+	SOCIAL_TOAST_QUEUE_MOST = 6,
+	SOCIAL_TOAST_TEXT_SIZE = 96,
+};
+
+struct social_toast
+{
+	/* the Guide's toast kind, and its item (an invite's ID, a handle) */
+	int kind;
+	char key[SOCIAL_TOAST_TEXT_SIZE];
+	char title[SOCIAL_TOAST_TEXT_SIZE];
+	char line[SOCIAL_TOAST_TEXT_SIZE];
+	/* whose initial the toast shows ("" for none) */
+	char name[SOCIAL_TOAST_TEXT_SIZE];
+};
+
+struct social_toast_queue
+{
+	struct social_toast toasts[SOCIAL_TOAST_QUEUE_MOST];
+	int count;
+};
+
+void social_toast_push(struct social_toast_queue *queue, int kind, const char *key, const char *title, const char *line,
+	const char *name);
+/* the next (1), or none waiting (0) */
+int social_toast_pop(struct social_toast_queue *queue, struct social_toast *toast);
+/* one answered elsewhere (its kind and key): no longer waiting */
+void social_toast_forget(struct social_toast_queue *queue, int kind, const char *key);
+
 /* the requests' members besides the key (browser.c's game_request): -1
 when they do not fit, or for a handle the site could not have given. The
 state asks for the profile's clan too ("clan": DELTA's CLAN, its roster
@@ -445,6 +487,11 @@ int social_state_fields(char *fields, int size, const char *cursor, int limit);
 (/v1/game/friends) */
 int social_action_fields(char *fields, int size, const char *action, const char *handle);
 int social_join_fields(char *fields, int size, const char *handle);
+/* /v1/game/friends' privacy change: who may send requests, who may join,
+who sees this player's status (each NULL or "" left as it is); -1 for a
+value the site doesn't take, or none */
+int social_friends_privacy_fields(char *fields, int size, const char *requests, const char *join,
+	const char *clan_presence);
 /* invite: the game's invite (social_presence_invite_valid), or "" for the
 one presence told the site */
 int social_invite_fields(char *fields, int size, const char *handle, const char *invite);
@@ -505,13 +552,64 @@ const char *social_party_rule_next(const char *rule, int direction);
 
 /* /v1/party's request members besides the key: an action ("create",
 "invite" a handle, "accept" or "decline" a party ID, "join" a code,
-"leave", "kick" or "lead" a member ID, "rule" (who can join), "go" an
-invite), with this copy's name and platform; -1 when something is not
+"leave", "kick" or "lead" a member ID, "rule" (who can join), "code" (a
+new party code), "go" an invite), with this copy's name (a quote or a
+backslash in it left out) and platform; -1 when something is not
 what the site could take, or does not fit */
 int social_party_fields(char *fields, int size, const char *action, const char *value, const char *name,
 	const char *platform);
+/* ---------- invites this player sent (DELTA's INVITED on a friend's row)
+
+Kept on this machine alone, as long as the site keeps an invite
+(SOCIAL_SENT_LIFETIME, party.py's and friends.py's INVITE_LIFETIME), or
+until the friend answers by joining (social_sent_forget). */
+
+enum
+{
+	SOCIAL_SENT_PARTY,
+	SOCIAL_SENT_GAME,
+	SOCIAL_SENT_REQUEST,
+	NUMBER_OF_SOCIAL_SENT_KINDS
+};
+
+enum
+{
+	SOCIAL_MAXIMUM_SENT = 16,
+	/* (ms) */
+	SOCIAL_SENT_LIFETIME = 5 * 60000,
+};
+
+struct social_sent
+{
+	char handle[SOCIAL_HANDLE_SIZE];
+	int kind;
+	unsigned long time;
+};
+
+struct social_sent_list
+{
+	struct social_sent sent[SOCIAL_MAXIMUM_SENT];
+	int count;
+};
+
+/* an invite sent now (the same one again starts its time over; a full
+list drops its oldest) */
+void social_sent_add(struct social_sent_list *list, const char *handle, int kind, unsigned long now);
+/* whether one of that kind is out to them still */
+int social_sent_has(const struct social_sent_list *list, const char *handle, int kind, unsigned long now);
+/* one answered (or all of a kind, handle NULL) */
+void social_sent_forget(struct social_sent_list *list, const char *handle, int kind);
+/* the line an invite's answer shows: "Invite sent to Grif" (with the
+offline friend's wait said), a request's "Request sent to Grif", or the
+refusal as the site's answer says it (refusal: "" when it went) */
+void social_sent_line(char *text, int size, int kind, const char *name, int online, const char *refusal);
+
+/* the actions /v1/party takes, NULL after the last */
+extern const char *const social_party_actions[];
 /* the line a refusal shows (/v1/party's "reason", else by status) */
 const char *social_party_refusal(const char *reason, int status);
+/* the same for an action: an invite's said as its sender sees it */
+const char *social_party_action_refusal(const char *action, const char *reason, int status);
 
 /* what a member's copy does with the leader's game (social_follow_decide) */
 enum

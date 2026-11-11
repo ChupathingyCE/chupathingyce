@@ -197,6 +197,15 @@ static struct privacy_row const privacy_rows[] =
 		"Hide your heatmaps from other players." },
 	{ "SHOW CLAN TAG", _privacy_site, "show_clan_tag", { "true", "false" }, { "ON", "OFF" },
 		"Show your clan tag to Chupathingy players." },
+	/* (the friends' privacy, the site's friends.py) */
+	{ "APPEAR OFFLINE", _privacy_site, "appear_offline", { "false", "true" }, { "NO", "YES" },
+		"Show as offline to your friends." },
+	{ "FRIEND REQUESTS FROM", _privacy_site, "friend_requests", { "everyone", "friends_of_friends", "nobody" },
+		{ "EVERYONE", "FRIENDS OF FRIENDS", "NOBODY" }, "Who can send you friend requests." },
+	{ "WHO CAN JOIN ME", _privacy_site, "who_can_join", { "friends", "anyone", "invite" },
+		{ "FRIENDS", "ANYONE", "INVITE ONLY" }, "Who can join your game from DELTA." },
+	{ "SHOW MY STATUS TO", _privacy_site, "clan_presence", { "friends", "friends_and_clan" },
+		{ "FRIENDS", "FRIENDS AND CLAN" }, "Who sees when you're on and what you play." },
 #ifndef HALO_CONSOLE_NO_DISCORD
 	{ "DISCORD STATUS", _privacy_game, "discord.presence", { "full", "minimal", "off" }, { "FULL", "MINIMAL", "OFF" },
 		"What Discord shows while you play." },
@@ -1163,6 +1172,14 @@ boolean profile_screen_site_setting(
 		snprintf(text, (size_t)size, "%s", profile_screen.profile.show_presence ? "true" : "false");
 	else if (!strcmp(field, "show_clan_tag"))
 		snprintf(text, (size_t)size, "%s", profile_screen.profile.show_clan_tag ? "true" : "false");
+	else if (!strcmp(field, "appear_offline"))
+		snprintf(text, (size_t)size, "%s", profile_screen.profile.appear_offline ? "true" : "false");
+	else if (!strcmp(field, "friend_requests") && profile_screen.profile.friend_requests[0])
+		snprintf(text, (size_t)size, "%s", profile_screen.profile.friend_requests);
+	else if (!strcmp(field, "who_can_join") && profile_screen.profile.who_can_join[0])
+		snprintf(text, (size_t)size, "%s", profile_screen.profile.who_can_join);
+	else if (!strcmp(field, "clan_presence") && profile_screen.profile.clan_presence[0])
+		snprintf(text, (size_t)size, "%s", profile_screen.profile.clan_presence);
 	else
 		return FALSE;
 	return TRUE;
@@ -1174,7 +1191,11 @@ boolean profile_screen_site_setting_write(
 {
 	if (!linked() || profile_screen.profile.locked)
 		return FALSE;
-	browser_profile_privacy(field, !strcmp(value, "true"));
+	/* (the friends' rules are words, sent with the friends' privacy) */
+	if (!strcmp(field, "friend_requests") || !strcmp(field, "who_can_join") || !strcmp(field, "clan_presence"))
+		browser_profile_friends_privacy(field, value);
+	else
+		browser_profile_privacy(field, !strcmp(value, "true"));
 	return TRUE;
 }
 

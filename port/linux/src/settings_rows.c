@@ -96,7 +96,13 @@ static const char *const buffer_choices[] = { "256", "512", "1024", "2048", "409
 /* controls.delta's: the F keys the game leaves free (F1 is Back, F2 Start,
 F11 full screen, F12 the mouse) */
 /* (F9 takes a screenshot and F10 a clip: capture.c) */
+#ifdef __APPLE__
+/* (a Mac's: F3 is Mission Control unless fn is held, so the backslash key
+too, the default) */
+static const char *const guide_key_choices[] = { "F3, Backslash", "Backslash", "F3", "F4", "F5", "F6", "F7", "F8", NULL };
+#else
 static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", NULL };
+#endif
 /* display.theme's: the Guide's and the setup screen's colors (ui_style_theme) */
 static const char *const theme_choices[] = { "blue", "red", NULL };
 /* display.light_effects' (port/linux/game/lighting_config.c) */
