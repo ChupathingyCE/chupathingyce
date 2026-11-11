@@ -759,6 +759,22 @@ char const *ce_image_tag_name(
 	return name ? name : "<unnamed>";
 }
 
+boolean ce_room_add(
+	unsigned long *bytes,
+	unsigned long more,
+	char const *what)
+{
+	unsigned long limit = CE_IMAGE_TAG_CACHE_SIZE + CE_CONVERSION_ROOM;
+
+	if (more > limit || *bytes > limit - more)
+	{
+		ce_refusal_explain_room();
+		return ce_refuse("%s need more than the tag cache's %lu bytes", what, limit);
+	}
+	*bytes += more;
+	return TRUE;
+}
+
 boolean ce_refuse(
 	char const *format,
 	...)
