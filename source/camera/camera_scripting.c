@@ -370,6 +370,71 @@ short scripted_camera_time(
 	return (short)(camera_script_globals.timer * 30.f);
 }
 
+#if defined(HALO_PORT_FRAMES_BETWEEN_TICKS) && !defined(HALO_CONSOLE_VIEW_INTERPOLATION)
+/* port: a camera animation is played by the director every frame, from a
+timer the frames count down, and the frame it shows is the whole frame the
+timer has reached. At one frame a tick (the Xbox) that is a new frame of the
+animation every frame. With frames drawn between ticks the shown frame
+changed on whichever drawn frame the timer crossed it, out of step with the
+ticks the camera is blended between (render_interpolation.c), so a cutscene
+camera moved by two frames of its animation one tick and none the next.
+Here the camera is placed between the animation's frame and the next one by
+how far the timer is between them, so it moves smoothly with the timer. Two
+frames too far apart to be one move (a cut inside the animation) are not
+blended. */
+static void scripted_camera_animation_between_frames(
+	struct animation *animation,
+	real position,
+	real_matrix4x3 *root_matrix)
+{
+	long frame_count = animation->frame_count;
+	short frame;
+	real along;
+	real_matrix4x3 next;
+	real_vector3d moved;
+	real dot;
+
+	if (!(position >= 0.f) || position >= (real)(frame_count - 1))
+	{
+		return;
+	}
+	frame = (short)position;
+	along = position - (real)frame;
+	if (along <= 0.f)
+	{
+		return;
+	}
+	animation_get_root_matrix(NULL, animation, (short)(frame + 1), &next);
+	moved.i = next.position.x - root_matrix->position.x;
+	moved.j = next.position.y - root_matrix->position.y;
+	moved.k = next.position.z - root_matrix->position.z;
+	if (!(dot_product3d(&moved, &moved) <= 3.f * 3.f) ||
+		!(dot_product3d(&root_matrix->forward, &next.forward) >= 0.5f))
+	{
+		return;
+	}
+	root_matrix->position.x += moved.i * along;
+	root_matrix->position.y += moved.j * along;
+	root_matrix->position.z += moved.k * along;
+	root_matrix->forward.i += (next.forward.i - root_matrix->forward.i) * along;
+	root_matrix->forward.j += (next.forward.j - root_matrix->forward.j) * along;
+	root_matrix->forward.k += (next.forward.k - root_matrix->forward.k) * along;
+	root_matrix->up.i += (next.up.i - root_matrix->up.i) * along;
+	root_matrix->up.j += (next.up.j - root_matrix->up.j) * along;
+	root_matrix->up.k += (next.up.k - root_matrix->up.k) * along;
+	normalize3d(&root_matrix->forward);
+	/* (up kept square to forward) */
+	dot = dot_product3d(&root_matrix->up, &root_matrix->forward);
+	root_matrix->up.i -= root_matrix->forward.i * dot;
+	root_matrix->up.j -= root_matrix->forward.j * dot;
+	root_matrix->up.k -= root_matrix->forward.k * dot;
+	normalize3d(&root_matrix->up);
+	cross_product3d(&root_matrix->up, &root_matrix->forward, &root_matrix->left);
+
+	return;
+}
+
+#endif
 void scripted_camera_update(
 	struct dead_camera *camera,
 	struct camera_control const *controls,
@@ -475,6 +540,15 @@ void scripted_camera_update(
 				animation,
 				frame < 0 ? 0 : MIN(frame, frame_count - 1),
 				&root_matrix);
+#if defined(HALO_PORT_FRAMES_BETWEEN_TICKS) && !defined(HALO_CONSOLE_VIEW_INTERPOLATION)
+			if (halo_interpolation_enabled())
+			{
+				scripted_camera_animation_between_frames(
+					animation,
+					(real)frame_count - camera_script_globals.timer * 30.f,
+					&root_matrix);
+			}
+#endif
 			result->forward = root_matrix.forward;
 			result->up = root_matrix.up;
 			result->field_of_view = DEGREES_TO_RADIANS(70.f);
