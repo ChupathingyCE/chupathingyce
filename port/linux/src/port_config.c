@@ -2134,6 +2134,18 @@ static char *config_read_file(const char *path, size_t *size)
 	char *text = NULL;
 	long length;
 
+#ifdef HALO_XBOX_CONSOLE
+	/* (a write that stopped between removing the old file and renaming the
+	new one, config_write_file: the new one is whole, and put in place) */
+	if (!file)
+	{
+		char temporary[1100];
+
+		snprintf(temporary, sizeof(temporary), "%s.new", path);
+		if (rename(temporary, path) == 0)
+			file = fopen(path, "rb");
+	}
+#endif
 	if (!file)
 		return NULL;
 	if (fseek(file, 0, SEEK_END) == 0 && (length = ftell(file)) >= 0 && fseek(file, 0, SEEK_SET) == 0)
@@ -2170,29 +2182,71 @@ static char *config_read_file(const char *path, size_t *size)
 #endif
 }
 
+/* config.toml written whole or not at all: the text goes to config.toml.new
+beside it, is flushed to the disk, and is then renamed over the old file in
+one step (rename; MoveFileExW with MOVEFILE_REPLACE_EXISTING on Windows,
+SDL_RenamePath), so a crash or power loss mid-write leaves the old settings
+and not a cut-off file. One small file and one flush a write: cheap enough
+for a setting changed in a menu or a counter kept in the file */
 static int config_write_file(const char *path, const char *text)
 {
-#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
-	FILE *file = fopen(path, "wb");
+	char temporary[1100];
+	size_t length = strlen(text);
 	int written;
 
-	if (!file)
+	if ((size_t)snprintf(temporary, sizeof(temporary), "%s.new", path) >= sizeof(temporary))
 		return 0;
-	written = fwrite(text, 1, strlen(text), file) == strlen(text);
+#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
+	{
+		FILE *file = fopen(temporary, "wb");
+
+		if (!file)
+			return 0;
+		written = fwrite(text, 1, length, file) == length && fflush(file) == 0;
+#if defined(HALO_ANDROID) || defined(HALO_SWITCH_CONSOLE)
+		/* (on the Switch, leaving the game is _exit, which does not flush the
+		card; without a commit here a setting is kept for this run and gone
+		on the next. A file system that cannot sync still gets the rename) */
+		if (written)
+			fsync(fileno(file));
+#endif
+		written = fclose(file) == 0 && written;
+	}
+#ifdef HALO_XBOX_CONSOLE
+	/* (a console's rename may not replace a file: the old one goes first,
+	and config_read_file takes config.toml.new when config.toml is gone) */
+	if (written && rename(temporary, path) != 0)
+	{
+		remove(path);
+		written = rename(temporary, path) == 0;
+	}
+#else
+	written = written && rename(temporary, path) == 0;
+#endif
+	if (!written)
+		remove(temporary);
 #ifdef HALO_SWITCH_CONSOLE
-	/* leaving the game is _exit, which does not flush the card; without a
-	commit here a setting is kept for this run and gone on the next */
-	if (written)
-		fsync(fileno(file));
-	written = fclose(file) == 0 && written;
 	if (written)
 		host_storage_commit();
+#endif
 	return written;
 #else
-	return fclose(file) == 0 && written;
-#endif
-#else
-	return SDL_SaveFile(path, text, strlen(text));
+	{
+		/* (SDL's files, for UTF-8 paths on Windows; SDL_FlushIO is fdatasync,
+		or FlushFileBuffers on Windows) */
+		SDL_IOStream *stream = SDL_IOFromFile(temporary, "wb");
+
+		if (!stream)
+			return 0;
+		written = SDL_WriteIO(stream, text, length) == length;
+		if (written)
+			SDL_FlushIO(stream);
+		written = SDL_CloseIO(stream) && written;
+	}
+	written = written && SDL_RenamePath(temporary, path);
+	if (!written)
+		SDL_RemovePath(temporary);
+	return written;
 #endif
 }
 

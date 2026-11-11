@@ -87,15 +87,34 @@ void *SDL_LoadFile(const char *path, size_t *size)
 	return data;
 }
 
-bool SDL_SaveFile(const char *path, const void *data, size_t size)
+SDL_IOStream *SDL_IOFromFile(const char *file, const char *mode)
 {
-	FILE *file = fopen(path, "wb");
-	int written;
+	return (SDL_IOStream *)fopen(file, mode);
+}
 
-	if (!file)
-		return false;
-	written = fwrite(data, 1, size, file) == size;
-	return fclose(file) == 0 && written;
+size_t SDL_WriteIO(SDL_IOStream *context, const void *data, size_t size)
+{
+	return fwrite(data, 1, size, (FILE *)context);
+}
+
+bool SDL_FlushIO(SDL_IOStream *context)
+{
+	return fflush((FILE *)context) == 0 && fsync(fileno((FILE *)context)) == 0;
+}
+
+bool SDL_CloseIO(SDL_IOStream *context)
+{
+	return fclose((FILE *)context) == 0;
+}
+
+bool SDL_RenamePath(const char *old_path, const char *new_path)
+{
+	return rename(old_path, new_path) == 0;
+}
+
+bool SDL_RemovePath(const char *path)
+{
+	return remove(path) == 0;
 }
 
 bool SDL_GetPathInfo(const char *path, SDL_PathInfo *info)
