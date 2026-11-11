@@ -13,7 +13,7 @@ The fuzz target for the quick checks is tools/tests/host_fuzz/map_quick_check
 (tools/test_host_fuzz.py).
 
 With HALO_MAP_HOST_E2E (a game binary) and HALO_MAP_HOST_E2E_DATA (a data
-folder from ~/halo-maps/new-data-root.sh), test_dedicated_server_shares_the_map
+folder of links to your own maps), test_dedicated_server_shares_the_map
 runs a dedicated server with network.map_share on a Custom Edition map and a
 client without it, network.map_downloads_from_host "always", which joins,
 gets the map from the host and joins again. It needs loopback addresses

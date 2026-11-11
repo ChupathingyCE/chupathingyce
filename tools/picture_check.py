@@ -25,8 +25,8 @@ The reference is one of:
 - --reference DIR: captures kept from an earlier run (<map>_<pose>.png).
 
 Without a reference it only captures, so a run makes the reference for the
-next. Maps come only from a data root of links (~/halo-maps/new-data-root.sh
-on the Mac, ~/emulators/new-data-root.sh on boogerflix-1); never copies.
+next. Maps come only from a data root of links, made by the script that
+HALO_DATA_ROOT_SCRIPT names (it takes the folder to make); never copies.
 --maps-ce links a folder of Custom Edition maps into it when the data root
 script does not. Saves and settings go to a scratch folder, never the
 player's. Needs Xvfb, ImageMagick (import, convert) and Python 3 alone.
@@ -44,7 +44,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 POSES = ROOT / "tools" / "picture_check_poses.txt"
-DATA_ROOT_SCRIPTS = [Path.home() / "halo-maps" / "new-data-root.sh", Path.home() / "emulators" / "new-data-root.sh"]
+DATA_ROOT_SCRIPT = os.environ.get("HALO_DATA_ROOT_SCRIPT", "")
 WIDTH, HEIGHT = 1280, 720
 CHANGED = 40
 
@@ -198,9 +198,9 @@ def console_ready(port, deadline):
 
 
 def make_data_root(directory, maps_ce):
-    script = next((path for path in DATA_ROOT_SCRIPTS if path.exists()), None)
-    if not script:
-        sys.exit("no new-data-root.sh in ~/halo-maps or ~/emulators: maps are only used through one")
+    script = Path(DATA_ROOT_SCRIPT).expanduser() if DATA_ROOT_SCRIPT else None
+    if not script or not script.exists():
+        sys.exit("set HALO_DATA_ROOT_SCRIPT to a script that makes a data root of links to your maps: maps are only used through one")
     subprocess.run(["bash", str(script), str(directory)], check=True, stdout=subprocess.DEVNULL)
     if maps_ce and not (directory / "maps_ce").exists():
         (directory / "maps_ce").symlink_to(Path(maps_ce).resolve())
