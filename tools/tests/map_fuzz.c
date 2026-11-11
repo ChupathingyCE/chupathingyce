@@ -78,6 +78,8 @@ enum
 	CE_TAG_CACHE_SIZE = 0x1700000,
 	/* (and the room above it: platform.h) */
 	CE_CONVERSION_ROOM_SIZE = 0x4c0000,
+	/* (its tags' header: cache_files.c's cache_file_ce_tag_header) */
+	CE_TAG_HEADER_SIZE = 0x28,
 	/* the game's heap and contiguous memory, as far as these units use them
 	(xbox_heap.c's range) */
 	ARENA_BASE = 0x42000000,
@@ -877,6 +879,8 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 	long bsp_count, bsp_index;
 	unsigned long bsps, end_free = CE_TAG_CACHE_BASE + CE_TAG_CACHE_SIZE;
 	byte *model_data;
+	/* (the tag header, which no conversion writes over: ce_tags_writable) */
+	byte tag_header[CE_TAG_HEADER_SIZE];
 
 	memset(tag_cache, 0xCD, CE_TAG_CACHE_SIZE);
 	memcpy(tag_cache, data + header->tag_data_offset, (size_t)header->tag_data_size);
@@ -886,6 +890,7 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 	memcpy(&model_data_file_offset, tag_cache + 0x14, 4);
 	memcpy(&vertex_data_size, tag_cache + 0x1C, 4);
 	memcpy(&model_data_size, tag_cache + 0x20, 4);
+	memcpy(tag_header, tag_cache, sizeof(tag_header));
 	instances = xbox_pointer(tag_instances);
 	fuzz_tags_are_ce = TRUE;
 
@@ -912,6 +917,11 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 		system_free(model_data);
 	}
 	ce_hud_tags_loaded(instances, (long)tag_count);
+	if (memcmp(tag_header, tag_cache, sizeof(tag_header)))
+	{
+		fprintf(stderr, "map_fuzz: a conversion wrote over the tag header\n");
+		abort();
+	}
 
 	/* each BSP, read where it loads (checked: ce_bsps_check) */
 	for (bsp_index = 0; bsp_index < bsp_count; bsp_index++)

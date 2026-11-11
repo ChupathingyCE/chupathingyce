@@ -230,6 +230,53 @@ def ce_map(name=b"fuzz", sound=None):
     return bytes(data)
 
 
+def ce_map_of_tags(extra):
+    """a Custom Edition map of a scenario, one empty structure BSP and the
+    tags in extra (each a group and its data's size, zeroed): the map, and
+    the offsets in it of its tag index and of each extra tag's data"""
+    base = TAG_CACHE["ce"]
+    tag_count = 2 + len(extra)
+    tags = bytearray(0x28)
+    instances = len(tags)
+    tags += bytes(0x20 * tag_count)
+    names = len(tags)
+    tags += b"fuzz\0"
+    bsp_name = len(tags)
+    tags += b"fuzz_bsp\0" + bytes((-(len(tags) + 9)) % 4)
+    scenario = len(tags)
+    tags += bytes(0x5B0)
+    bsps = len(tags)
+    tags += bytes(0x20)
+    syntax = len(tags)
+    tags += bytes(0x38)
+    datas = []
+    for group, size in extra:
+        datas.append(len(tags))
+        tags += bytes(size + (-size) % 16)
+    tags += bytes((-len(tags)) % 16)
+    tag_data_size = len(tags)
+    bsp_offset = 0x800 + tag_data_size
+    bsp = bytearray(0x18 + 0x288 + 0x40)
+    struct.pack_into("<I", bsp, 0, base + 0x100000 + 0x18)
+    struct.pack_into("<4s", bsp, 0x14, b"psbs")
+    model_offset = bsp_offset + len(bsp)
+    struct.pack_into("<IIIIIIIII4s", tags, 0, base + instances, 0xE1740000, 0, tag_count, 0, model_offset, 0, 0, 0,
+                     b"sgat")
+    for index, (group, address) in enumerate([(b"scnr", base + scenario), (b"sbsp", 0)] +
+                                             [(group, base + data) for (group, _), data in zip(extra, datas)]):
+        struct.pack_into("<4s4s4sIIIII", tags, instances + 0x20 * index, group[::-1], b"\xff\xff\xff\xff",
+                         b"\xff\xff\xff\xff", ((0xE174 + index) << 16) | index, base + names, address, 0, 0)
+    # (the structure BSP's own name)
+    struct.pack_into("<I", tags, instances + 0x20 + 0x10, base + bsp_name)
+    struct.pack_into("<iIII", tags, scenario + 0x474, 0x38, 0, 0, base + syntax)
+    struct.pack_into("<hh", tags, syntax + 0x20, 0, 0x14)
+    struct.pack_into("<iII", tags, scenario + 0x5A4, 1, base + bsps, 0)
+    struct.pack_into("<iiII4sIiI", tags, bsps, bsp_offset, len(bsp), base + 0x100000, 0, b"psbs", base + bsp_name,
+                     8, 0xE1750001)
+    data = header(609, model_offset, 0x800, tag_data_size) + tags + bsp
+    return bytearray(data), {"instances": 0x800 + instances, "tags": [0x800 + data for data in datas]}
+
+
 def seeds(target):
     if target == "xbox":
         return {"minimal_xbox.map": xbox_map()}
@@ -344,6 +391,30 @@ def test_sound_samples_in_sounds_map(built, tmp_path):
             assert expected in result.stderr, (name, result.stderr[-4000:])
         if unexpected:
             assert unexpected not in result.stderr, (name, result.stderr[-4000:])
+
+
+def test_conversions_write_nothing_over_the_tag_index(built, tmp_path):
+    """a tag placed over the tag index, so that a conversion's write (a
+    damage effect's transition made a valid one) lands on another tag's
+    address: the write is passed over, and the other tag (an extended
+    chicago shader) is still found where it is and converted"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"jpt!", 0x100), (b"scex", 0x200)])
+    damage_effect, shader = offsets["tags"]
+    # (the shader's type, Halo PC's extended chicago)
+    struct.pack_into("<h", data, shader + 0x24, 7)
+    # (the damage effect's screen flash fade, at 0x38, over the high half of
+    # the shader's instance's address: 0x4044, no transition there is one of)
+    shader_address = offsets["instances"] + 3 * 0x20 + 0x14
+    struct.pack_into("<I", data, offsets["instances"] + 2 * 0x20 + 0x14, base + (shader_address + 2 - 0x38 - 0x800))
+    path = tmp_path / "functions_over_index.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused" not in result.stderr, result.stderr[-4000:]
+    assert "over its tag header or tag index" in result.stderr, result.stderr[-4000:]
+    assert "1 extended chicago shaders made chicago ones" in result.stderr, result.stderr[-4000:]
 
 
 WIDE_FORMAT_TEST = r"""

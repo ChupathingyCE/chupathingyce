@@ -172,6 +172,15 @@ boolean ce_repairs_scenario_group(void *tag_instances, long tag_count, unsigned 
 /* ---------- globals */
 
 static char ce_refusal[256];
+/* the tag header and tag index no conversion writes over (ce_tags_guard_begin),
+and whether one conversion logged what it passed over */
+static struct
+{
+	byte const *header;
+	byte const *instances;
+	unsigned long instances_size;
+	boolean logged;
+} ce_guard;
 /* the reason in a player's words, when the refusal is one a player can act
 on (ce_refusal_explain), and the message the game shows */
 static char ce_explanation[192];
@@ -558,6 +567,9 @@ static boolean ce_map_check_tags(
 	}
 	if (!ce_tag_index_check(&image, instances, tag_count))
 		goto done;
+	/* (what the checks repair, as loading does, writes nothing over the tag
+	header or tag index, which they read on from: ce_tags_writable) */
+	ce_tags_guard_begin(image.data, instances, tag_count);
 	/* (a protected map's scenario may have another group: ce_repairs.c) */
 	ce_repairs_scenario_group(instances, tag_count, header.scenario_tag_index);
 	scenario_instance = ce_tag_instance_get(instances, tag_count, header.scenario_tag_index);
@@ -653,6 +665,7 @@ static boolean ce_map_check_tags(
 		ce_animations_check(&tags, instances, tag_count) && ce_weapons_check(&tags, instances, tag_count);
 
 done:
+	ce_tags_guard_end();
 	ce_model_data_end(&models);
 	if (model_data)
 		free(model_data);
@@ -747,6 +760,103 @@ char const *ce_image_tag_name(
 
 	/* (checked to be terminated: ce_tag_index_check) */
 	return name ? name : "<unnamed>";
+}
+
+void *ce_loaded_pointer(
+	unsigned long address,
+	unsigned long size)
+{
+	if (address < CE_IMAGE_TAG_CACHE_BASE ||
+		!ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, size, CE_IMAGE_TAG_CACHE_SIZE + CE_CONVERSION_ROOM))
+	{
+		return NULL;
+	}
+	return xbox_pointer(address);
+}
+
+char const *ce_loaded_tag_name(
+	void const *instance)
+{
+	unsigned long address = ((struct ce_tag_instance const *)instance)->name;
+	unsigned long end = CE_IMAGE_TAG_CACHE_BASE + CE_IMAGE_TAG_CACHE_SIZE + CE_CONVERSION_ROOM;
+	char const *name = ce_loaded_pointer(address, 1);
+
+	/* (terminated within a tag's path's length, and in the tag cache) */
+	if (!name || !memchr(name, 0, MIN(end - address, (unsigned long)CE_MAXIMUM_TAG_NAME_LENGTH)))
+		return "<unnamed>";
+	return name;
+}
+
+void ce_tags_guard_begin(
+	void const *tags,
+	void const *instances,
+	long tag_count)
+{
+	ce_guard.header = tags;
+	ce_guard.instances = instances;
+	ce_guard.instances_size = tag_count > 0 ? (unsigned long)tag_count * CE_TAG_INSTANCE_SIZE : 0;
+	ce_guard.logged = FALSE;
+}
+
+void ce_tags_guard_begin_loaded(
+	void const *instances,
+	long tag_count)
+{
+	ce_tags_guard_begin(xbox_pointer(CE_IMAGE_TAG_CACHE_BASE), instances, tag_count);
+}
+
+void ce_tags_guard_end(
+	void)
+{
+	ce_guard.header = NULL;
+	ce_guard.instances = NULL;
+	ce_guard.instances_size = 0;
+	ce_guard.logged = FALSE;
+}
+
+/* whether [at, at + size) and [other, other + other_size) share a byte (as
+addresses: they need not be of one object) */
+static boolean ce_overlaps(
+	byte const *at,
+	unsigned long size,
+	byte const *other,
+	unsigned long other_size)
+{
+	size_t first = (size_t)at, second = (size_t)other;
+
+	return size && other_size && first < second + other_size && second < first + size;
+}
+
+boolean ce_tags_writable(
+	void const *field,
+	unsigned long size)
+{
+	if (!ce_guard.header)
+		return TRUE;
+	if (ce_overlaps(field, size, ce_guard.header, CE_TAG_HEADER_SIZE) ||
+		ce_overlaps(field, size, ce_guard.instances, ce_guard.instances_size))
+	{
+		ce_contained("a tag's field lies over its tag header or tag index (%lu bytes at %lu in its tags)", size,
+			(unsigned long)((size_t)field - (size_t)ce_guard.header));
+		return FALSE;
+	}
+	return TRUE;
+}
+
+void ce_contained(
+	char const *format,
+	...)
+{
+	char what[192];
+	va_list arguments;
+
+	if (ce_checking || ce_guard.logged)
+		return;
+	ce_guard.logged = TRUE;
+	va_start(arguments, format);
+	vsnprintf(what, sizeof(what), format, arguments);
+	va_end(arguments);
+	error(_error_silent, "%s map: %s; passed over (and any more like it)", ce_map_family_name(), what);
 }
 
 boolean ce_refuse(
