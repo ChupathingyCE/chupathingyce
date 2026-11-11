@@ -4225,11 +4225,10 @@ static const char bg_shot_path[] = "capture:screenshot";
 
 /* a player's screenshot: the window as this frame shows it, the overlay's
 screens, DELTA and the toasts on the picture, asked of bgfx (letterbox: the
-picture's part of the window, from its top left) */
+picture's part of the window, from its top left, never empty: bg_present
+keeps the ask until a frame has one) */
 static void bg_shot_start(const int letterbox[4])
 {
-	if (letterbox[2] <= 0 || letterbox[3] <= 0)
-		return;
 	memcpy(bg.shot_crop, letterbox, sizeof(bg.shot_crop));
 	bgfx_request_screen_shot((bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE, bg_shot_path);
 	bg.shot_pending = TRUE;
@@ -4416,8 +4415,9 @@ static void bg_present(void)
 	}
 #ifdef HALO_CAPTURE
 	/* (a player's screenshot: the window as shown, so only a frame that
-	goes to it; the ask waits for one that does) */
-	if (window && !bg.shot_pending && capture_screenshot_take())
+	goes to it with a picture, which bg_blit leaves out of a minimized
+	window's; the ask waits for one that does) */
+	if (window && letterbox[2] > 0 && letterbox[3] > 0 && !bg.shot_pending && capture_screenshot_take())
 		bg_shot_start(letterbox);
 	bg_clip_start();
 #endif

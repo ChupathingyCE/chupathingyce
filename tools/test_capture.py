@@ -55,6 +55,14 @@ def test_bgfx_screenshot_after_overlay():
 	assert "bg_shot_taken(" in callback
 
 
+def test_no_picture_keeps_the_ask():
+	# (a minimized window: the ask is taken only by a frame with a picture)
+	gl = function_body(read(SRC / "d3d8_gl.c"), "static void gl_capture_frame(")
+	assert "if (width <= 0 || height <= 0 || !capture_screenshot_take())" in gl
+	bgfx = function_body(read(SRC / "d3d8_bgfx.inl"), "static void bg_present(")
+	assert "window && letterbox[2] > 0 && letterbox[3] > 0 && !bg.shot_pending && capture_screenshot_take()" in bgfx
+
+
 def test_screenshot_toast_left_out():
 	guide = read(ROOT / "port" / "linux" / "game" / "guide.c")
 	body = function_body(guide, "static void render_toast(")

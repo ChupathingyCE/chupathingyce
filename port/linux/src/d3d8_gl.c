@@ -6508,11 +6508,11 @@ static void gl_capture_frame(int x, int y, int width, int height)
 		}
 		return;
 	}
-	if (!capture_screenshot_take())
+	/* (a window with no picture, minimized: the ask waits for one that has
+	one) */
+	if (width <= 0 || height <= 0 || !capture_screenshot_take())
 		return;
 	gl_capture_look_up();
-	if (width <= 0 || height <= 0)
-		return;
 	gl_capture.width = (unsigned long)width;
 	gl_capture.height = (unsigned long)height;
 	if (!gl_capture.buffer)
