@@ -36,7 +36,7 @@ class Action(tuple):
         return super().__new__(cls, (label, None, run, help_text, platform, key))
 
 
-# update.h's UPDATER_GAMESCOPE_WHERE names the page: Settings > Network >
+# update.h's UPDATER_GAMESCOPE_WHERE names the page: Settings > Online >
 # Updates (tools/test_update_install.py checks they agree)
 INSTALL_UPDATE = Action("INSTALL UPDATE:", "install_update", "port update install",
                         "Download the new version. Chupathingy restarts.", "desktop")
@@ -138,7 +138,7 @@ SCREENS = {
                  "Light models per pixel instead of per vertex.", None),
                 ("LIGHT EFFECTS:", "display.light_effects",
                  [("AUTO", "auto"), ("HIGH", "high"), ("LOW", "low"), ("OFF", "off")],
-                 "Light from shots, muzzle flashes and glowing things.\nAuto turns it off where the graphics are too slow.",
+                 "Light from shots, muzzle flashes and glowing things.\nOff looks like the Xbox. Auto turns it off when slow.",
                  "desktop"),
                 ("DOORS BLOCK LIGHT:", "display.doors_block_light", ON_OFF,
                  "A closed door stops light from the other side.\nOff lets it through, as on the Xbox.", None),

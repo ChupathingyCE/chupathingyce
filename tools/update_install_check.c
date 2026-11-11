@@ -21,7 +21,7 @@ HALO_UPDATE_TEST_ANSWER is the answer to the question (debug.update_answer:
 "yes" when it is not set; "" asks, which under gamescope, with
 GAMESCOPE_WAYLAND_DISPLAY set, only puts it on the version line). With
 HALO_UPDATE_TEST_PAGE=1 the update is installed as the game's own pages
-install it (the setup screen's UPDATE, Settings > Network > Updates'
+install it (the setup screen's UPDATE, Settings > Online > Updates'
 INSTALL UPDATE: updater_install_begin), on its own thread, each line the
 page would show logged as "page: <line>". A dialog or a window the updater
 opens is logged as "dialog: <title>" or "window: <title>", the version

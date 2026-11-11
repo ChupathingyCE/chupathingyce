@@ -437,7 +437,7 @@
 		<string text="The menus, HUD and scoreboard."/>
 		<string text="The detail of object shadows."/>
 		<string text="Light models per pixel instead of per vertex."/>
-		<string text="Light from shots, muzzle flashes and glowing things.\nAuto turns it off where the graphics are too slow."/>
+		<string text="Light from shots, muzzle flashes and glowing things.\nOff looks like the Xbox. Auto turns it off when slow."/>
 		<string text="A closed door stops light from the other side.\nOff lets it through, as on the Xbox."/>
 		<string text="Always draw models at their highest detail."/>
 		<string text="Sharper textures seen at an angle."/>

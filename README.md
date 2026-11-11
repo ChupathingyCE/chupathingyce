@@ -162,7 +162,7 @@ The dedicated server runs a playlist of games around the clock. It runs on Linux
 
 ## Builds
 
-Releases are the stable builds, and the game updates itself from them. Want the newest changes early? Pick an update channel in Settings > Network > Updates, or on the setup screen's Updates tab:
+Releases are the stable builds, and the game updates itself from them. Want the newest changes early? Pick an update channel in Settings > Online > Updates, or on the setup screen's Updates tab:
 
 - **Release** (the default) gets releases only.
 - **Testing** gets test builds first, and may have bugs.
