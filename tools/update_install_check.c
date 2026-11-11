@@ -239,6 +239,17 @@ int main(int argc, char **argv)
 	}
 	/* (the process: an update's new version is this one, in its place) */
 	platform_log("pid %ld, parent %ld, group %ld", (long)getpid(), (long)getppid(), (long)getpgrp());
+	/* (the launcher's restarts, SETUP's and a mode's: this same process
+started again with the one argument given, HALO_UPDATE_TEST_RESTART_WITH,
+and none of its own; once, as the new one has it) */
+	if (getenv("HALO_UPDATE_TEST_RESTART_WITH") && argc < 2 && length > 0)
+	{
+		platform_log("restarting with %s", getenv("HALO_UPDATE_TEST_RESTART_WITH"));
+		if (!update_start_in_place_with(path, getenv("HALO_UPDATE_TEST_RESTART_WITH")))
+			platform_log("restart refused");
+		SDL_Quit();
+		exit(EXIT_SUCCESS);
+	}
 	/* (what an update's AppImage was started with: update_launch) */
 	platform_log("library path: %s", getenv("LD_LIBRARY_PATH") ? getenv("LD_LIBRARY_PATH") : "(none)");
 	updater_start();

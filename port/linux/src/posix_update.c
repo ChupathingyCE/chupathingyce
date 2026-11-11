@@ -717,6 +717,13 @@ int update_start_in_place(const char *path)
 	(void)path;
 	return 0;
 }
+
+int update_start_in_place_with(const char *path, const char *argument)
+{
+	(void)path;
+	(void)argument;
+	return 0;
+}
 #else
 /* the environment for the new game: an AppImage's AppRun put its own
 mount's libraries first in LD_LIBRARY_PATH, keeping the caller's in
@@ -822,6 +829,9 @@ static char *start_in_place_arguments[65];
 /* whether a watcher waits to start the new version should this process end
 without becoming it (start_in_place_watch) */
 static int start_in_place_watched;
+/* the argument a process of its own is started with should the execve fail
+and no watcher waits (update_start_in_place_with's; none for an update) */
+static const char *start_in_place_fallback_argument;
 
 /* every file descriptor from first on closed (close-on-exec: on_exec), with
 close_range where the kernel has it (Linux 5.9 and later; 5.11 for
@@ -992,7 +1002,7 @@ static void start_in_place_at_exit(void)
 	fprintf(stderr, "update: could not start %s in place (%s): %s\n", start_in_place_path, strerror(errno),
 		start_in_place_watched ? "the watcher starts it as this one ends" : "starting it as a process of its own");
 	if (!start_in_place_watched)
-		update_launch(start_in_place_path);
+		update_launch_with(start_in_place_path, start_in_place_fallback_argument);
 }
 
 __attribute__((constructor)) static void start_in_place_register(void)
@@ -1009,6 +1019,32 @@ int update_start_in_place(const char *path)
 #ifdef __linux__
 	start_in_place_watched = start_in_place_watch(launch_environment());
 #endif
+	return 1;
+}
+
+int update_start_in_place_with(const char *path, const char *argument)
+{
+	int count = 0;
+
+	if (!path || !*path || strlen(path) >= sizeof(start_in_place_path) ||
+		(argument && strlen(argument) >= sizeof(start_in_place_command_line)))
+	{
+		return 0;
+	}
+	snprintf(start_in_place_path, sizeof(start_in_place_path), "%s", path);
+	start_in_place_arguments[count++] = start_in_place_path;
+	if (argument)
+	{
+		snprintf(start_in_place_command_line, sizeof(start_in_place_command_line), "%s", argument);
+		start_in_place_arguments[count++] = start_in_place_command_line;
+	}
+	start_in_place_arguments[count] = NULL;
+	start_in_place_fallback_argument = argument ? start_in_place_command_line : NULL;
+	/* (no watcher: it tells the new program from the old by its file, and
+	this one is the same file, so it would start it again as the new one
+	ends. Should the execve fail, it is started as a process of its own,
+	start_in_place_at_exit) */
+	start_in_place_watched = 0;
 	return 1;
 }
 #endif

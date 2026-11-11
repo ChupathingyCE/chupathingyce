@@ -68,6 +68,9 @@ group too, which Steam and gamescope follow to keep the game's window, in
 the Steam Deck's Game Mode). 1 when arranged, and the caller then exits;
 0 where a system cannot (Windows, tvOS: update_launch then) */
 int update_start_in_place(const char *path);
+/* the same, with one argument for it (NULL: none) in place of this
+process's own, as "--setup": the launcher's restarts (launcher.c) */
+int update_start_in_place_with(const char *path, const char *argument);
 
 #ifdef _WIN32
 /* whether this program runs on 64-bit Windows on an x64 processor, where

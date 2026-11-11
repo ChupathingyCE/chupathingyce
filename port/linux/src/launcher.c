@@ -3013,6 +3013,15 @@ static int restart_with(const char *mode)
 		return 0;
 	}
 	snprintf(argument, sizeof(argument), "--mode=%s", mode);
+#ifdef __linux__
+	/* (this same process, as an update's restart: Steam and gamescope keep
+	the game, rather than a second one beside it) */
+	if (update_start_in_place_with(path, argument))
+	{
+		platform_log("launcher: starting again in this same process for the settings that need it");
+		return 1;
+	}
+#endif
 	if (!update_launch_with(path, argument))
 	{
 		platform_log("launcher: could not start again for the settings that need it");
@@ -3026,7 +3035,20 @@ int launcher_restart_to_setup(void)
 {
 	char path[PATH_SIZE];
 
-	if (!executable_path(path, sizeof(path)) || !update_launch_with(path, "--setup"))
+	if (!executable_path(path, sizeof(path)))
+	{
+		platform_log("launcher: could not start again on the setup screen");
+		return 0;
+	}
+#ifdef __linux__
+	/* (this same process: see restart_with) */
+	if (update_start_in_place_with(path, "--setup"))
+	{
+		platform_log("launcher: SETUP: starting again on the setup screen in this same process");
+		exit(EXIT_SUCCESS);
+	}
+#endif
+	if (!update_launch_with(path, "--setup"))
 	{
 		platform_log("launcher: could not start again on the setup screen");
 		return 0;
@@ -4120,13 +4142,59 @@ static void command_line(int *setup, int *play, char *mode, size_t mode_size, in
 	}
 }
 
+/* whether the setup screen may open at start by itself (the mode question,
+launcher.show_at_start, "ask each time"): not under gamescope, the Steam
+Deck's Game Mode, where it opens only when asked for (Back held, --setup,
+SETUP in the menus) */
+static int launcher_opens_by_itself(void)
+{
+	return !updater_gamescope();
+}
+
+/* whether Steam started the game (its SteamAppId or SteamGameId, a Deck's
+SteamDeck, gamescope's GAMESCOPE_WAYLAND_DISPLAY): there its controllers
+come through Steam Input, which can take a moment or two to show them */
+static int launcher_started_by_steam(void)
+{
+	static const char *const names[] = { "SteamAppId", "SteamGameId", "SteamDeck", "GAMESCOPE_WAYLAND_DISPLAY" };
+	size_t index;
+
+	for (index = 0; index < sizeof(names) / sizeof(*names); index++)
+	{
+		const char *value = getenv(names[index]);
+
+		if (value && value[0] && strcmp(value, "0"))
+			return 1;
+	}
+	return 0;
+}
+
+/* how long held_at_start waits for a held button: a pad's first report,
+and where the system can't say, the window's keyboard focus, take a moment
+(shift_unknown: posix_shift_key_held can't say). Under Steam, until a pad
+shows up (Steam Input's, up to 2 s) and then its first report; elsewhere
+no wait at all with no pad, as the desktop's start is not slowed */
+#define HELD_WAIT_FOR_A_PAD_UNDER_STEAM_MS 2000
+#define HELD_WAIT_FOR_A_REPORT_MS 120
+#define HELD_WAIT_FOR_THE_KEYBOARD_MS 250
+
+static Uint64 held_wait(int steam, int pads, int shift_unknown)
+{
+	if (!pads && steam)
+		return HELD_WAIT_FOR_A_PAD_UNDER_STEAM_MS;
+	if (!pads && !shift_unknown)
+		return 0;
+	return shift_unknown ? HELD_WAIT_FOR_THE_KEYBOARD_MS : HELD_WAIT_FOR_A_REPORT_MS;
+}
+
 /* Shift, or a controller's Back (View), held as the game starts */
 static int held_at_start(void)
 {
 	int shift = posix_shift_key_held();
+	int steam = launcher_started_by_steam();
 	SDL_JoystickID *pads;
-	int count = 0, index, held = shift > 0;
-	Uint64 until;
+	int count = 0, index, held = shift > 0, had_pads;
+	Uint64 started = SDL_GetTicks(), now, until;
 
 	if (held)
 		return 1;
@@ -4134,11 +4202,10 @@ static int held_at_start(void)
 	for (index = 0; pads && index < count; index++)
 		SDL_OpenGamepad(pads[index]);
 	SDL_free(pads);
-	/* (a pad's first report, and where the system can't say, the window's
-	keyboard focus, take a moment) */
-	if (!count && shift >= 0)
+	had_pads = count > 0;
+	until = SDL_GetTicks() + held_wait(steam, count, shift < 0);
+	if (until <= SDL_GetTicks() && !count && shift >= 0)
 		return 0;
-	until = SDL_GetTicks() + (shift < 0 ? 250 : 120);
 	while (!held && SDL_GetTicks() < until)
 	{
 		SDL_PumpEvents();
@@ -4146,12 +4213,25 @@ static int held_at_start(void)
 		pads = SDL_GetGamepads(&count);
 		for (index = 0; pads && index < count; index++)
 		{
+			/* (one that showed up as it waited: opened, and its first
+			report waited for) */
 			SDL_Gamepad *gamepad = SDL_GetGamepadFromID(pads[index]);
 
+			if (!gamepad)
+				gamepad = SDL_OpenGamepad(pads[index]);
 			if (gamepad && SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_BACK))
 				held = 1;
 		}
 		SDL_free(pads);
+		if (count && !had_pads)
+		{
+			had_pads = 1;
+			now = SDL_GetTicks();
+			if (now + HELD_WAIT_FOR_A_REPORT_MS < until)
+				until = now + HELD_WAIT_FOR_A_REPORT_MS;
+			platform_log("launcher: a controller showed up %llu ms into the start",
+				(unsigned long long)(now - started));
+		}
 		if (shift < 0 && (SDL_GetModState() & SDL_KMOD_SHIFT))
 			held = 1;
 		SDL_Delay(10);
@@ -4182,6 +4262,7 @@ void launcher_at_start(void)
 {
 	int setup, play_now, joining, open = 0, question = 0;
 	char mode[64];
+	const char *because = "";
 
 	if (launcher.shown || platform_run_is_unwatched() || !drawable(0))
 		return;
@@ -4199,19 +4280,54 @@ void launcher_at_start(void)
 			platform_log("launcher: --mode %s: no such mode here; playing the default", mode);
 	}
 	if (launcher.open_on_maps)
+	{
 		open = 2;
+		because = "the maps folder isn't the Xbox maps";
+	}
 	else if (setup)
+	{
 		open = 1;
+		because = "of --setup (SETUP in the menus starts it so)";
+	}
 	else if (!joining && !play_now && !mode[0])
 	{
-		if (!strcmp(config_string("launcher.show_at_start"), "always"))
+		/* (under gamescope, the Steam Deck's Game Mode, only when asked for:
+		a held Back or Shift, --setup, SETUP in the menus. The mode question,
+		show_at_start and "ask each time" play the default there, as before
+		0.9.1: launcher_opens_by_itself) */
+		int always = !strcmp(config_string("launcher.show_at_start"), "always");
+		int asked = launcher.installed_modes > 1 && !config_chosen("launcher.mode_choice");
+		int asks = launcher.installed_modes > 1 && mode_asks();
+
+		if ((always || asked || asks) && !launcher_opens_by_itself())
+		{
+			platform_log("launcher: under gamescope, not opened by itself (%s): playing %s; hold Back as it "
+				"starts, or SETUP in the menus, for the setup screen",
+				always ? "launcher.show_at_start is always" : asked ? "the mode question" : "ask each time",
+				launcher.mode >= 0 && launcher.mode < launcher.mode_count ? launcher.modes[launcher.mode].id :
+				"vanilla");
+			always = asked = asks = 0;
+		}
+		if (always)
+		{
 			open = 1;
+			because = "launcher.show_at_start is always";
+		}
 		else if (config_boolean("launcher.hold_to_open") && held_at_start())
+		{
 			open = 1;
-		else if (launcher.installed_modes > 1 && !config_chosen("launcher.mode_choice"))
+			because = "Back or Shift was held";
+		}
+		else if (asked)
+		{
 			open = question = 1;
-		else if (launcher.installed_modes > 1 && mode_asks())
+			because = "of the mode question";
+		}
+		else if (asks)
+		{
 			open = 1;
+			because = "launcher.mode_choice asks each time";
+		}
 	}
 	if (!open)
 	{
@@ -4219,6 +4335,8 @@ void launcher_at_start(void)
 		mode_apply(launcher.mode, mode[0] != '\0');
 		return;
 	}
+	if (updater_gamescope())
+		platform_log("launcher: opened at start under gamescope because %s", because);
 	launcher.welcome = 0;
 	launcher.in_panel = 1;
 	if (open == 2)
