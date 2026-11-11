@@ -111,8 +111,12 @@ void mcc_network_host_tick(void)
         message.entries[count].counts[0] = counts[0]; message.entries[count].counts[1] = counts[1];
         message.entries[count].reserved[0] = message.entries[count].reserved[1] = 0;
         if (++count == limit) {
+#ifdef HALO_MCC_NETWORK /* port: off our wire (mcc_network.c) */
             distributed_send(&message, _distributed_message_mcc_grenades, count,
                 (word)(sizeof(message.header) + count * sizeof(message.entries[0])), _distributed_to_clients);
+#else
+            (void)message;
+#endif
             count = 0;
         }
     }

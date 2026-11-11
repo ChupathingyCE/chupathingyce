@@ -1,6 +1,7 @@
 /* MCC owns its decoded pictures and a bounded four-entry texture cache.
  * Failed reads are cached too; rescanning and menu unload discard both. */
 #include "cseries.h"
+#include "tag_files/tag_files.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
 #include "interface/ui_widget.h"

@@ -7,8 +7,9 @@
 #define MCC_PROTOCOL_VERSION 65
 #define MCC_PROTOCOL_ADVERTISED_FLAG 0x08
 #define MCC_PROTOCOL_ADVERTISED_VERSION_OFFSET 4
-#define MCC_PROTOCOL_JOIN_KIND 98
-#define MCC_PROTOCOL_JOIN_MAX 256
+#define MCC_PROTOCOL_JOIN_KIND 100
+/* The upstream 41 join carries a 170-byte pass and a 64-byte proof. */
+#define MCC_PROTOCOL_JOIN_MAX 512
 
 struct network_game;
 struct network_game_server;

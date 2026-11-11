@@ -10,7 +10,6 @@
 #include "rasterizer/rasterizer_model_types.h"
 #include "structures/structure_bsp_definitions.h"
 #include "mcc_runtime.h"
-#include "mcc_loading.h"
 
 /* (rasterizer_xbox_hardware_geometry.c's) */
 boolean rasterizer_vertex_buffer_new(struct vertex_buffer *vertex_buffer, long vertex_type, long count,
@@ -19,6 +18,7 @@ void rasterizer_vertex_buffer_delete(struct vertex_buffer *vertex_buffer);
 boolean rasterizer_triangle_buffer_new(struct triangle_buffer *triangle_buffer, short triangle_type, long count,
     void const *triangles);
 void rasterizer_triangle_buffer_delete(struct triangle_buffer *triangle_buffer);
+#include "mcc_loading.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -332,7 +332,7 @@ int mcc_geometry_part_valid(struct mcc_runtime *r,void const *address) {
     if (!vertices || !indices || vertices->bytes!=count*32 || indices->bytes!=(triangles+2)*2 ||
         vertices->payload!=vertices->allocation || indices->payload!=indices->allocation ||
         vertices->allocation_bytes!=vertices->bytes || indices->allocation_bytes!=indices->bytes ||
-        part->vertices.base_address!=vertices->payload || part->indices.base_address!=indices->payload)
+        xbox_pointer(part->vertices.base_address)!=vertices->payload || xbox_pointer(part->indices.base_address)!=indices->payload)
         return 0;
     stream=indices->payload;
     for (i=0;i<triangles+2;i++) if (stream[i]>=count) return 0;

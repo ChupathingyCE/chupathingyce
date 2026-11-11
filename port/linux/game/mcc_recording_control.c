@@ -12,8 +12,8 @@ void mcc_recording_control_begin(long unit_index,
 {
     struct unit_datum *unit;
     if (!mcc_cache_tags_loaded() || !animation || !control ||
-        !mcc_cache_contains(animation->event_stream.address, animation->event_stream.size) ||
-        !mcc_recording_weapon_only(animation->event_stream.address, animation->event_stream.size,
+        !mcc_cache_contains(xbox_pointer(animation->event_stream.address), animation->event_stream.size) ||
+        !mcc_recording_weapon_only(xbox_pointer(animation->event_stream.address), animation->event_stream.size,
             animation->version, animation->unit_control_data_version)) return;
     unit = unit_try_and_get(unit_index);
     if (!unit || !valid_real_normal3d(&unit->object.forward) ||

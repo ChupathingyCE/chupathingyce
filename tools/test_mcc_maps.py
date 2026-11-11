@@ -5,6 +5,7 @@ The stubs require every discovery/open operation to name d:\\mcc_maps\\, so
 an accidental fallback to Xbox or CE directories fails the executable.
 """
 import os
+import re
 from pathlib import Path
 import shutil
 import struct

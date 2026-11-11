@@ -16,14 +16,22 @@
 #include "mcc_cache.h"
 #include "mcc_hud_draw.h"
 #include "hud_button_layout.h"
+/* port: GulchCE's controller glyphs (controller_glyphs.c) are not ours yet:
+MCC prompts draw the stock style (2) and no controller glyphs */
+#define controller_glyph_style() 2
+#define controller_glyph_draw(style, entry, icon, cursor, color, unbind) FALSE
 #include <string.h>
 
 long halo_screen_width(void);
 int config_boolean(char const *name);
-char const *config_string(char const *name);
 long hud_hires_asset_count(void);
 char const *hud_hires_asset_tag(long asset);
-void hud_hires_register_placeholder(long asset, unsigned long const *texture);
+/* port: GulchCE's high-res HUD registers these buttons as placeholders,
+which ours does not do yet: MCC maps keep their own button art here */
+static void hud_hires_register_placeholder(long asset, unsigned long const *texture)
+{
+    (void)asset; (void)texture;
+}
 void xgpu_mcc_texture_unbind(unsigned long const *resource);
 
 static struct {
@@ -70,7 +78,7 @@ void mcc_hud_glyphs_dispose(void)
     long i;
     for (i=0;i<14;i++) if (mcc_buttons[i].bitmap) {
         hud_hires_register_placeholder(mcc_buttons[i].asset,NULL);
-        xgpu_mcc_texture_unbind(mcc_buttons[i].bitmap->hardware_format);
+        xgpu_mcc_texture_unbind(xbox_pointer(mcc_buttons[i].bitmap->hardware_format));
         bitmap_delete(mcc_buttons[i].bitmap);
     }
     memset(mcc_buttons,0,sizeof(mcc_buttons));
@@ -78,12 +86,20 @@ void mcc_hud_glyphs_dispose(void)
 
 /* Identify the controller entry, not its sequence: custom weapon/pickup
  * icons can use the same sequence numbers and must retain their artwork. */
+/* port: the middle of the text line's capitals, which GulchCE's draw_string
+measures (draw_unicode_string_capital_middle); here the middle of the line's
+bounds, near enough for a button drawn beside the text */
+static real mcc_hud_capital_middle(rectangle2d const *cursor)
+{
+    return ((real)cursor->y0+(real)cursor->y1)*0.5f;
+}
+
 static short mcc_hud_button_index(struct icon_hud_element_definition const *icon)
 {
     short i;
     struct icon_hud_element_definition const *buttons;
     if (!hud_globals) return NONE;
-    buttons=hud_globals->messaging.button_icons.address;
+    buttons=xbox_pointer(hud_globals->messaging.button_icons.address);
     if (!buttons) return NONE;
     for (i=0;i<18 && i<hud_globals->messaging.button_icons.count;i++)
         if (icon==buttons+i) return i<6 ? i :
@@ -107,9 +123,14 @@ static struct bitmap_data const *mcc_hud_button_bitmap(short index)
     struct bitmap_data *bitmap;
     short style;
     if (index<0 || index>=14 || (index>=6 && !config_boolean("display.high_res_hud"))) return NULL;
+#ifndef HALO_MCC_HIRES_BUTTONS
+    /* port: (until our high-res HUD takes placeholders: hud_hires_register_placeholder) */
+    (void)names; (void)classic_names; (void)gem_names; (void)asset; (void)bitmap; (void)style;
+    return NULL;
+#endif
     /* Keep the established MCC low-res path; the style belongs to High-Res HUD. */
-    style=!config_boolean("display.high_res_hud") || (!strcmp(config_string("display.hud_button_style"), "dark_gems") || !strcmp(config_string("display.hud_button_style"), "menu_gems")) ? 2 :
-        !strcmp(config_string("display.hud_button_style"),"gems");
+    style=config_boolean("display.high_res_hud") ? controller_glyph_style() : 2;
+    if (style>=3) style=0;
     if (style!=mcc_buttons_style) {
         mcc_hud_glyphs_dispose();
         mcc_buttons_style=style;
@@ -124,7 +145,7 @@ static struct bitmap_data const *mcc_hud_button_bitmap(short index)
         bitmap=bitmap_2d_new(index>=6 ? 64 : 32,index>=6 ? 64 : 32,0,11);
         if (!bitmap) return NULL;
         if (!rasterizer_bitmap_new(bitmap)) {bitmap_delete(bitmap);return NULL;}
-        hud_hires_register_placeholder(asset,bitmap->hardware_format);
+        hud_hires_register_placeholder(asset,xbox_pointer(bitmap->hardware_format));
         mcc_buttons[index].asset=asset;
         mcc_buttons[index].bitmap=bitmap;
         return bitmap;
@@ -206,15 +227,27 @@ boolean mcc_hud_icon_draw(long bitmap_group_index, struct bitmap_data const *bit
     if (!mcc_cache_tags_loaded()) return FALSE;
     viewport_scale=!menu && local_player_count()>1 ? 0.75f : 1.0f;
     if (!menu) {
-        short button_index=mcc_hud_button_index(icon);
-        struct bitmap_data const *button=mcc_hud_button_bitmap(button_index);
+        short button_index;
+        struct bitmap_data const *button;
+        /* MCC identifies its own entries; authored pickup/weapon icons retain
+         * their map artwork. The optional glyph service owns only new styles. */
+        if (config_boolean("display.high_res_hud") && hud_globals &&
+            hud_globals->messaging.button_icons.address) {
+            short entry;
+            struct icon_hud_element_definition const *buttons=xbox_pointer(hud_globals->messaging.button_icons.address);
+            for (entry=0;entry<18 && entry<hud_globals->messaging.button_icons.count;entry++)
+                if (icon==buttons+entry && controller_glyph_draw(controller_glyph_style(),entry,icon,cursor,color,xgpu_mcc_texture_unbind))
+                    return TRUE;
+        }
+        button_index=mcc_hud_button_index(icon);
+        button=mcc_hud_button_bitmap(button_index);
         if (button) {
             /* Match the native High-Res HUD's 21x26 face, capital center
              * and text advance. Low-res MCC retains its existing geometry. */
             boolean high_res=config_boolean("display.high_res_hud");
             real button_scale=viewport_scale*(high_res ? 1.0f : 20.0f/26.0f);
             real x=cursor->x0+(high_res ? 4.0f : 2.0f)*viewport_scale;
-            real bottom=draw_unicode_string_capital_middle(cursor,L"")+
+            real bottom=mcc_hud_capital_middle(cursor)+
                 (high_res ? 13.0f : 10.0f)*viewport_scale;
             if (!high_res) {x=(short)x;bottom=(short)bottom;}
             /* Preserve the icon opacity override used by the bitmap path. */
@@ -244,7 +277,7 @@ boolean mcc_hud_icon_draw(long bitmap_group_index, struct bitmap_data const *bit
          * glyphs to its capitals, without resizing or changing the font. The
          * empty string measures this same line without introducing wrapping. */
         real height=(clip ? clip->y1-clip->y0 : 1.0f)*bitmap->height*pixel_scale;
-        point.y=(short)(draw_unicode_string_capital_middle(cursor,L"")+height*0.5f);
+        point.y=(short)(mcc_hud_capital_middle(cursor)+height*0.5f);
     }
     hud_draw_bitmap_direct(bitmap,_hud_anchor_bottom_left,&point,clip,pixel_scale,0.0f,
         icon->flags&2 ? icon->color : color,FALSE);

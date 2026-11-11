@@ -141,8 +141,10 @@ static struct bitmap_group group;
 static struct {struct bitmap_data *bitmap;long asset;boolean attempted;} mcc_buttons[14];
 static short mcc_buttons_style;
 static int high_res,style;
+static short controller_glyph_style(void) {return (short)style;}
+#define controller_glyph_draw(style,index,icon,cursor,color,unbind) 0
+#define controller_glyphs_dispose() ((void)0)
 static int config_boolean(char const *name) {(void)name;return high_res;}
-static char const *config_string(char const *name) {(void)name;return style==2 ? "menu_gems" : style==1 ? "gems" : "classic";}
 static struct {struct {struct {long count;void *address;} button_icons;} messaging;} globals,*hud_globals;
 static int allocations,registrations,deletions;
 static struct bitmap_data native_bitmap;

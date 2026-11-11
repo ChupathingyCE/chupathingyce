@@ -10,11 +10,21 @@
 #include "mcc_runtime.h"
 #include "mcc_loading.h"
 #include "mcc_resources.h"
+#include "mcc_texture_cache.h"
+#include "../src/mcc_texture_bridge.h"
+#include "../src/port_config.h"
 #include <stdlib.h>
 #include <string.h>
 #define BCDEC_STATIC
 #define BCDEC_IMPLEMENTATION
 #include "../../third_party/bcdec/bcdec.h"
+
+/* port: GulchCE's dedicated server switch (config_server_mode_enabled); ours
+is HALO_DEDICATED, which runs no renderer */
+static boolean mcc_bitmaps_server(void)
+{
+    return getenv("HALO_DEDICATED")!=NULL;
+}
 
 #define MCC_BITMAP_BASE 0x60000000u
 #define MCC_BITMAP_LIMIT 0x1FFFFFFFu
@@ -705,6 +715,51 @@ void const *mcc_bitmaps_pixels(struct mcc_runtime *runtime,struct bitmap_data co
         return texture->pixels;
     }
     return NULL;
+}
+
+#ifndef HALO_GLES
+static int mcc_bitmap_prepare_order(void const *left,void const *right)
+{
+    struct mcc_texture const *a=*(struct mcc_texture const *const *)left;
+    struct mcc_texture const *b=*(struct mcc_texture const *const *)right;
+    return a->size>b->size ? -1 : a->size<b->size ? 1 : 0;
+}
+#endif
+
+/* Only this module can enumerate the validated, converted MCC allocations.
+ * Register through the existing adapter; no Xbox/CE bitmap cache is touched. */
+void mcc_bitmaps_prepare_gpu(struct mcc_runtime *runtime)
+{
+#ifndef HALO_GLES
+    struct mcc_textures *textures=runtime ? runtime->bitmaps : NULL;
+    struct mcc_texture **ordered;
+    long megabytes=config_integer("display.mcc_texture_prepare_mb");
+    unsigned long budget,spent=0,prepared=0;
+    uint32_t index,count=0;
+    if (!textures || megabytes<=0 || config_boolean("debug.null_renderer") || mcc_bitmaps_server()) return;
+    if (megabytes>512) megabytes=512;
+    budget=(unsigned long)megabytes*1024*1024;
+    if (textures->count>SIZE_MAX/sizeof(*ordered)) return;
+    ordered=malloc(textures->count*sizeof(*ordered));
+    if (!ordered) return;
+    for (index=0;index<textures->count;index++) {
+        struct mcc_texture *texture=&textures->items[index];
+        if (texture->size>=256*1024 && texture->bitmap->format!=17) ordered[count++]=texture;
+    }
+    qsort(ordered,count,sizeof(*ordered),mcc_bitmap_prepare_order);
+    for (index=0;index<count && budget-spent>=256*1024;index++) {
+        unsigned long charge;
+        if (!mcc_texture_cache_get(ordered[index]->bitmap,TRUE)) continue;
+        charge=mcc_texture_bridge_prepare(ordered[index]->bitmap,budget-spent);
+        spent+=charge;
+        if (charge) prepared++;
+        mcc_loading_pulse();
+    }
+    free(ordered);
+    error(_error_silent,"mcc textures: prepared %lu large textures (%lu KiB estimated GPU storage)",prepared,spent/1024);
+#else
+    (void)runtime;
+#endif
 }
 
 void mcc_bitmaps_dispose(struct mcc_runtime *runtime)

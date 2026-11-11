@@ -114,7 +114,7 @@ static int mcc_threads_array_valid(struct data_array const *array,
     if (array->signature!='d@t@' || array->maximum_count!=MCC_SCRIPT_THREAD_COUNT ||
         array->size!=stride || array->valid!=1 || array->identifier_zero_invalid>1 ||
         !array->next_identifier || !memchr(array->name,0,sizeof(array->name)) ||
-        array->data!=live+1 || array->count<0 || array->count>MCC_SCRIPT_THREAD_COUNT ||
+        xbox_pointer(array->data)!=live+1 || array->count<0 || array->count>MCC_SCRIPT_THREAD_COUNT ||
         array->actual_count<0 || array->actual_count>array->count ||
         array->first_free_absolute_index<0 || array->first_free_absolute_index>MCC_SCRIPT_THREAD_COUNT) return 0;
     for (i=0;i<MCC_SCRIPT_THREAD_COUNT;i++) {
@@ -183,7 +183,7 @@ int mcc_script_threads_restore(void *image, unsigned long used, unsigned long ca
         memset(storage,0,MCC_SCRIPT_THREAD_STORAGE);
         memcpy(array,native,sizeof(*array));
         array->size=MCC_SCRIPT_THREAD_BYTES;
-        array->data=mcc_threads.array+1;
+        array->data=xbox_address(mcc_threads.array+1);
         for (i=0;i<native->count;i++) {
             struct hs_thread_datum const *old=(void const *)((byte const *)(native+1)+i*sizeof(*old));
             struct hs_thread_datum const *old_live=(void const *)((byte const *)(mcc_threads.native+1)+i*sizeof(*old));

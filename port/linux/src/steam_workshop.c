@@ -1,3 +1,8 @@
+/* port: this file reads its JSON with GulchCE's server_json, which came
+from OpenCE after its license changed and is not ours to use; until it reads
+with our own json_reader.h, HALO_MCC_STEAM (which no build defines) leaves
+it out and these stand in */
+#ifdef HALO_MCC_STEAM
 /*
 STEAM_WORKSHOP.C
 
@@ -244,19 +249,19 @@ static char *read_file(const char *path, int *length)
 
 	*length = 0;
 	if (!file)
-		return NULL;
+		return (void *)0;
 	text = malloc(STEAM_WORKSHOP_MAXIMUM_JSON + 2);
 	if (!text)
 	{
 		fclose(file);
-		return NULL;
+		return (void *)0;
 	}
 	got = fread(text, 1, STEAM_WORKSHOP_MAXIMUM_JSON + 1, file);
 	fclose(file);
 	if (!got)
 	{
 		free(text);
-		return NULL;
+		return (void *)0;
 	}
 	text[got] = 0;
 	/* one byte past the limit is "too large": the parser refuses it */
@@ -563,7 +568,7 @@ static const struct steam_workshop_map *item_map(const char *item_id)
 		if (!strcmp(catalog.maps[index].item_id, item_id))
 			return &catalog.maps[index];
 	}
-	return NULL;
+	return (void *)0;
 }
 
 int steam_workshop_package_folder(const char *item_id, char *folder, unsigned long size)
@@ -660,3 +665,21 @@ int steam_workshop_item_title(const char *item_id, char *title, unsigned long si
 	copy_text(title, (unsigned)size, map->item_title);
 	return 1;
 }
+#else
+#include "steam_workshop.h"
+int steam_workshop_read_item(const char *text, int length, struct steam_workshop_item_text *item)
+{ (void)text; (void)length; (void)item; return 0; }
+int steam_workshop_read_map(const char *text, int length, struct steam_workshop_map_text *map)
+{ (void)text; (void)length; (void)map; return 0; }
+int steam_workshop_read_libraries(const char *text, int length, char (*paths)[STEAM_WORKSHOP_PATH_SIZE], int maximum)
+{ (void)text; (void)length; (void)paths; (void)maximum; return 0; }
+int steam_workshop_scan(void) { return 0; }
+int steam_workshop_count(void) { return 0; }
+const struct steam_workshop_map *steam_workshop_map(int index) { (void)index; return (void *)0; }
+int steam_workshop_package_folder(const char *item_id, char *folder, unsigned long size)
+{ (void)item_id; (void)folder; (void)size; return 0; }
+int steam_workshop_resource_path(const char *request, const char *data_root, char *path, unsigned long size)
+{ (void)request; (void)data_root; (void)path; (void)size; return 0; }
+int steam_workshop_item_title(const char *item_id, char *title, unsigned long size)
+{ (void)item_id; (void)title; (void)size; return 0; }
+#endif

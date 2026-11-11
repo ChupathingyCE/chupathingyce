@@ -95,6 +95,33 @@ int mcc_identity_prepare_host(char const *map)
     return 1;
 }
 
+static int mcc_identity_matches(char const *name,unsigned char const digest[32],
+    struct mcc_precache_snapshot *validated)
+{
+    struct mcc_precache_snapshot before,after;
+    unsigned char actual[32];
+    int ok;
+    if (!mcc_precache_snapshot(name,&before)) return 0;
+    /* The host's loopback client admits the very package just fingerprinted
+     * for these settings. Rehashing it here stalls remote join requests.
+     * Reuse only the exact identity and unchanged complete file snapshot;
+     * actual loading still fingerprints the opened content independently. */
+    if (mcc_host_identity.valid && !strcmp(name,mcc_host_identity.name) &&
+        !memcmp(digest,mcc_host_identity.digest,32) &&
+        !memcmp(&before,&mcc_host_identity.files,sizeof(before))) {
+        if (validated) *validated=before;
+        return 1;
+    }
+    ok=mcc_content_probe(name,actual) &&
+        !memcmp(actual,digest,32) && mcc_precache_snapshot(name,&after) &&
+        !memcmp(&before,&after,sizeof(before));
+    if (ok && validated) *validated=after;
+    return ok;
+}
+
+/* port: the host's MCC content fingerprint travels in its game settings,
+which our wire does not change: with HALO_MCC_NETWORK only (mcc_network.c) */
+#ifdef HALO_MCC_NETWORK
 void const *mcc_identity_host_settings(void const *settings,long bytes,struct network_game *copy)
 {
     struct network_game const *game=settings;
@@ -123,29 +150,6 @@ void const *mcc_identity_host_settings(void const *settings,long bytes,struct ne
     return copy;
 }
 
-static int mcc_identity_matches(char const *name,unsigned char const digest[32],
-    struct mcc_precache_snapshot *validated)
-{
-    struct mcc_precache_snapshot before,after;
-    unsigned char actual[32];
-    int ok;
-    if (!mcc_precache_snapshot(name,&before)) return 0;
-    /* The host's loopback client admits the very package just fingerprinted
-     * for these settings. Rehashing it here stalls remote join requests.
-     * Reuse only the exact identity and unchanged complete file snapshot;
-     * actual loading still fingerprints the opened content independently. */
-    if (mcc_host_identity.valid && !strcmp(name,mcc_host_identity.name) &&
-        !memcmp(digest,mcc_host_identity.digest,32) &&
-        !memcmp(&before,&mcc_host_identity.files,sizeof(before))) {
-        if (validated) *validated=before;
-        return 1;
-    }
-    ok=mcc_content_probe(name,actual) &&
-        !memcmp(actual,digest,32) && mcc_precache_snapshot(name,&after) &&
-        !memcmp(&before,&after,sizeof(before));
-    if (ok && validated) *validated=after;
-    return ok;
-}
 
 /* Only a known item ID establishes presence. Its older package may not yet
  * contain the requested level, so search independently of the filename. */
@@ -222,6 +226,15 @@ int mcc_identity_accept(struct network_game const *game)
     error(_error_silent,"mcc identity: %s resolved to %s (SHA-256 matched)",session,selected);
     return 1;
 }
+
+#else
+int mcc_identity_accept(struct network_game const *game)
+{
+    memset(&mcc_client_identity,0,sizeof(mcc_client_identity));
+    mcc_cache_precache_clear();
+    return !mcc_level_name(game->map.name);
+}
+#endif
 
 int mcc_identity_check(char const *name)
 {

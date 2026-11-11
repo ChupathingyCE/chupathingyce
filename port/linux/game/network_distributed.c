@@ -4975,9 +4975,11 @@ void network_distributed_handle_message(
 	}
 #endif
 	csmemcpy(&header, message, sizeof(header));
+#ifdef HALO_MCC_NETWORK
 	/* MCC messages never execute in an ordinary OpenCE session, even in a batch. */
 	if (header.type >= _distributed_message_mcc_grenades && !mcc_cache_tags_loaded())
 		return;
+#endif
 	/* a tick's messages in one: each as if it came alone */
 	if (header.type == _distributed_message_batch)
 	{

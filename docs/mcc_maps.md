@@ -1,5 +1,14 @@
 # Halo 1 MCC custom maps
 
+> **In Chupathingy (work in progress).** This work is chester's (and
+> PeterRichardsonGolf's Workshop and sharing parts), from GulchCE. Here MCC
+> maps go in `maps_mcc` beside `maps`, `maps_ce`, `maps_pc` and `maps_md`
+> (GulchCE's `mcc_maps` is read when there is no `maps_mcc`). The MCC menus,
+> MCC pause menus and Steam Workshop listing below are not in Chupathingy
+> yet, and MCC maps play offline only: their network messages and settings
+> are off until they go over Delta. The rest of this page describes the
+> GulchCE work.
+
 This branch adds an independent loader for modern Halo 1 MCC version-13
 caches and **MCC SINGLEPLAYER** / **MCC MULTIPLAYER** choices in the map
 menus. It is an experimental

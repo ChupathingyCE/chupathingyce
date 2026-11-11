@@ -4,6 +4,7 @@
 #include "math/integer_math.h"
 #include "math/real_math.h"
 #include "tag_files/tag_groups.h"
+#include "tag_files/tag_files.h"
 #include "text/draw_string.h"
 #include "rasterizer/rasterizer.h"
 #include "mcc_maps.h"

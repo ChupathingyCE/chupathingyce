@@ -1,3 +1,7 @@
+/* port: chester's MCC network protocol (its join envelope, advertisement
+bytes and settings record) is not on our wire: MCC maps' messages go over
+Delta when they come. With HALO_MCC_NETWORK only, which no build defines */
+#ifdef HALO_MCC_NETWORK
 #include "cseries.h"
 #include "mcc_protocol.h"
 #include "mcc_cache.h"
@@ -6,10 +10,10 @@
 #include "bungie_net/common/message_header.h"
 #include <stddef.h>
 
-/* The base record is exactly OpenCE version 29, through local_data. */
+/* The base record is exactly the pinned OpenCE layout, through local_data. */
 typedef char mcc_protocol_base_layout[
     offsetof(struct network_game, mcc_content_sha256) ==
-        HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x2A ? 1 : -1];
+        HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x3A ? 1 : -1];
 
 static struct network_game_server_client_machine *mcc_protocol_peers[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
 static int mcc_protocol_client_capable;
@@ -130,3 +134,6 @@ void mcc_protocol_prune(struct network_game_server *server, struct network_game 
             network_game_server_remove_client_machine_from_game(server, machine);
     }
 }
+#else
+typedef int mcc_protocol_off;
+#endif

@@ -69,7 +69,9 @@ struct object_datum {struct {int type;}object;}object;
 static long player_handles[4]={0x10000,0x10001,0x10002,0x10003};
 static long unit_handles[4]={0x20000,0x20001,0x20002,0x20003};
 struct data_iterator {int i;long datum_index;};
-struct {int auto_team_balance,friendly_fire_penalty;}options;
+struct {int auto_team_balance,friendly_fire_penalty,infection_respawn_time;}options;
+static boolean infection_enabled(void){return FALSE;}
+static void game_modes_player_killed(long killer,long dead,boolean friendly){(void)killer;(void)dead;(void)friendly;}
 static int player_data,mcc=1,bad_decode,legacy,send_count,kill_count,killed,decoded;
 static int connection=2,score,death_broadcast,death_friendly,engine_active=1;
 static long death_killer,death_object;

@@ -1,3 +1,8 @@
+/* port: this file reads its JSON with GulchCE's server_json, which came
+from OpenCE after its license changed and is not ours to use; until it reads
+with our own json_reader.h, HALO_MCC_STEAM (which no build defines) leaves
+it out and these stand in */
+#ifdef HALO_MCC_STEAM
 /* CampaignMaps order is authoritative. Independently implemented from the
  * public Excession package format and locally inspected Halo 1 manifests. */
 #include "mcc_manifest.h"
@@ -179,3 +184,13 @@ int mcc_manifest_for_level(const char *level, struct mcc_manifest *manifest, cha
 	memset(manifest, 0, sizeof(*manifest)); reason[0] = 0;
 	return mcc_manifest_package_root(level, path) ? mcc_manifest_load(path, manifest, reason) : 0;
 }
+#else
+#include "steam_workshop.h"
+#include "mcc_manifest.h"
+int mcc_manifest_default_kind(const char *kind) { (void)kind; return 0; }
+int mcc_manifest_load(const char *folder, struct mcc_manifest *manifest, char reason[128])
+{ (void)folder; (void)manifest; if (reason) reason[0] = 0; return 0; }
+int mcc_manifest_for_level(const char *level, struct mcc_manifest *manifest, char reason[128])
+{ (void)level; (void)manifest; if (reason) reason[0] = 0; return 0; }
+int mcc_manifest_package_root(const char *level, char path[1024]) { (void)level; (void)path; return 0; }
+#endif

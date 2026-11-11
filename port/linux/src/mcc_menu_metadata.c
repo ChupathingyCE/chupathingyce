@@ -1,3 +1,8 @@
+/* port: this file reads its JSON with GulchCE's server_json, which came
+from OpenCE after its license changed and is not ours to use; until it reads
+with our own json_reader.h, HALO_MCC_STEAM (which no build defines) leaves
+it out and these stand in */
+#ifdef HALO_MCC_STEAM
 #include "mcc_menu_metadata.h"
 #include "mcc_manifest.h"
 #include "posix.h"
@@ -73,3 +78,11 @@ int mcc_menu_metadata_load(const char *root, int campaign, struct mcc_menu_metad
 done:
     free(item); free(text); return valid;
 }
+#else
+#include "steam_workshop.h"
+#include "mcc_menu_metadata.h"
+int mcc_menu_metadata_load(const char *root, int campaign, struct mcc_menu_metadata *metadata)
+{ (void)root; (void)campaign; (void)metadata; return 0; }
+const struct steam_workshop_map_text *mcc_menu_metadata_find(const struct mcc_menu_metadata *metadata, const char *name)
+{ (void)metadata; (void)name; return (void *)0; }
+#endif

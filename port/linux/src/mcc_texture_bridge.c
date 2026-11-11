@@ -3,6 +3,8 @@
  * A header's exact registered identity, never its Data word, grants access. */
 #include "xgpu.h"
 #include "mcc_texture_bridge.h"
+#include "hud_hires.h"
+#include "zlib_prefixed.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -19,9 +21,41 @@ struct mcc_gpu_texture {
     BOOL palette_present;
     GLenum target;
     struct xgpu_texture_description description;
+    long hud_asset;
 };
 static struct mcc_gpu_texture *mcc_gpu_textures[MCC_TEXTURE_BUCKETS];
 static struct mcc_gpu_texture *mcc_gpu_hardware[MCC_TEXTURE_BUCKETS];
+
+int config_boolean(char const *name);
+
+/* These are the complete, converted stock MCC sheets, including the _r
+ * variants. Names alone cannot distinguish custom art. Match dimensions,
+ * format and immutable pixel fingerprints before using an MCC-only atlas.
+ * Registration happens once; the setting is checked at draw time so turning
+ * High-Res HUD off immediately restores the original GPU texture. */
+static long mcc_hud_texture_asset(struct xgpu_texture_description const *description,
+    void const *pixels,unsigned long bytes)
+{
+    static struct {unsigned long format,bytes,crc;char const *tag;} const known[]={
+        {D3DFMT_A8L8,131072,1892071729UL,"mcc\\hud\\rocket_reticle"},
+        {D3DFMT_A8R8G8B8,262144,3704827890UL,"mcc\\hud\\rocket_reticle"},
+        {D3DFMT_A8L8,131072,2149244368UL,"mcc\\hud\\sniper_scope"},
+        {D3DFMT_A8R8G8B8,262144,1422780498UL,"mcc\\hud\\sniper_scope"}
+    };
+    unsigned long i,crc=0;
+    int checked=0;
+    long asset;
+    if (!pixels || description->width!=256 || description->height!=256 ||
+        description->depth!=1 || description->levels!=1 || description->cube_map || description->linear) return -1;
+    for (i=0;i<sizeof(known)/sizeof(known[0]);i++) {
+        if (description->format!=known[i].format || bytes!=known[i].bytes) continue;
+        if (!checked) {crc=crc32(0L,pixels,(uInt)bytes);checked=1;}
+        if (crc!=known[i].crc) continue;
+        for (asset=0;asset<(long)hud_hires_embedded_count;asset++)
+            if (!strcmp(hud_hires_embedded[asset].tag,known[i].tag)) return asset;
+    }
+    return -1;
+}
 
 static unsigned long mcc_texture_bucket(void const *bitmap)
 {
@@ -82,6 +116,7 @@ static void *mcc_texture_register(void const *bitmap,unsigned long format,
     if (!entry) return NULL;
     entry->bitmap=bitmap;entry->pixels=pixels;entry->bytes=bytes;
     entry->description=description;
+    entry->hud_asset=mcc_hud_texture_asset(&description,pixels,bytes);
     entry->target=description.cube_map ? GL_TEXTURE_CUBE_MAP :
         description.depth>1 ? GL_TEXTURE_3D : GL_TEXTURE_2D;
     entry->header[0]=D3DCOMMON_TYPE_TEXTURE|1;
@@ -110,6 +145,15 @@ void *mcc_texture_bridge_register_linear(void const *bitmap,unsigned long format
     return mcc_texture_register(bitmap,format,0,pixels,bytes,width,height,pitch);
 }
 
+/* Metadata-only lookup for loading-time shader selection. No texture upload. */
+BOOL xgpu_mcc_texture_describe(DWORD const *resource,struct xgpu_texture_description *description)
+{
+    struct mcc_gpu_texture *entry;
+    for (entry=mcc_gpu_hardware[mcc_texture_bucket(resource)];entry;entry=entry->hardware_next)
+        if (entry->header==resource) {*description=entry->description;return TRUE;}
+    return FALSE;
+}
+
 BOOL xgpu_mcc_texture_get(DWORD const *resource,D3DCOLOR const *palette,
     GLuint *texture,GLenum *target,struct xgpu_texture_description *description)
 {
@@ -119,6 +163,15 @@ BOOL xgpu_mcc_texture_get(DWORD const *resource,D3DCOLOR const *palette,
     for (entry=mcc_gpu_hardware[mcc_texture_bucket(resource)];entry;entry=entry->hardware_next) {
         if (entry->header!=resource) continue;
         *description=entry->description;*target=entry->target;
+        if (entry->hud_asset>=0 && config_boolean("display.high_res_hud")) {
+            GLuint replacement=hud_hires_override_texture(entry->hud_asset,&description->levels);
+            if (replacement) {
+                description->hires=TRUE;*texture=replacement;
+                return TRUE;
+            }
+            /* Allocation/upload failure retains the original descriptor. */
+            *description=entry->description;
+        }
         if (entry->texture && entry->description.format==0x0b &&
             (entry->palette_present!=(palette!=NULL) ||
              (palette && memcmp(entry->palette,palette,sizeof(entry->palette))))) {
@@ -126,7 +179,7 @@ BOOL xgpu_mcc_texture_get(DWORD const *resource,D3DCOLOR const *palette,
         }
         if (!entry->texture) {
             GLuint created=0;
-            glGenTextures(1,&created);
+            glGenTextures(1,&created); /* port: (GulchCE's xgpu_texture_name_new) */
             if (created && xgpu_mcc_texture_upload(created,entry->target,
                 &entry->description,entry->pixels,entry->bytes,palette)) {
                 entry->texture=created;
@@ -156,4 +209,46 @@ void mcc_texture_bridge_dispose(void)
             free(entry);entry=next;
         }
     }
+}
+
+unsigned long mcc_texture_bridge_prepare(void const *bitmap, unsigned long budget)
+{
+#ifndef HALO_GLES
+    struct mcc_gpu_texture *entry;
+    for (entry=mcc_gpu_textures[mcc_texture_bucket(bitmap)];entry;entry=entry->next) {
+        struct xgpu_texture_description const *description=&entry->description;
+        unsigned long long estimate=0;
+        unsigned long width,height,depth,level;
+        GLuint created=0;
+        if (entry->bitmap!=bitmap) continue;
+        /* Paletted textures need their draw's palette. HUD replacements are
+         * independently owned and must not be charged to this budget. */
+        if (entry->texture || description->format==0x0b ||
+            (entry->hud_asset>=0 && config_boolean("display.high_res_hud"))) return 0;
+        width=description->width;height=description->height;depth=description->depth;
+        if (!width || !height || !depth || !description->levels || description->levels>14) return 0;
+        if (description->compressed) estimate=(unsigned long long)xgpu_texture_face_size(description)*(description->cube_map?6:1);
+        else {
+            for (level=0;level<description->levels;level++) {
+                estimate+=(unsigned long long)width*height*depth*4*(description->cube_map?6:1);
+                if (estimate>budget) return 0;
+                if (width>1) width>>=1;
+                if (height>1) height>>=1;
+                if (depth>1) depth>>=1;
+            }
+        }
+        if (estimate<256*1024 || estimate>budget) return 0;
+        glGenTextures(1,&created); /* port: (GulchCE's xgpu_texture_name_new) */
+        if (created && xgpu_mcc_texture_upload(created,entry->target,description,entry->pixels,entry->bytes,NULL)) {
+            entry->texture=created;entry->palette_present=FALSE;
+            return (unsigned long)estimate;
+        }
+        if (created) glDeleteTextures(1,&created);
+        xgpu_gl_state_invalidate();
+        return 0;
+    }
+#else
+    (void)bitmap;(void)budget;
+#endif
+    return 0;
 }

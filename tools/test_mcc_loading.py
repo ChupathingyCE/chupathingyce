@@ -128,18 +128,19 @@ def test_menu_probe_never_opens_a_loading_screen(tmp_path):
 #include <stdlib.h>
 #include <string.h>
 #include "mcc_cache_format.h"
+#include "mcc_errors.c"
 struct mcc_runtime {char level_name[64];struct mcc_cache_source source;
-    struct {int external_bitmap_count,external_sound_count;} report;};
+    struct {int external_bitmap_count,external_sound_count;} report;char failure[320];};
 static int owns,starts,ends,last_success,fail;
 static int mcc_package_name(char const *name,char *out) {(void)name;out[0]=0;return 1;}
 enum mcc_cache_status mcc_cache_identify(void const *h,size_t b,uint64_t s,struct mcc_cache_identity *i) {
-    (void)h;(void)b;(void)s;i->tag_data_size=16;return MCC_CACHE_OK;
+    (void)h;(void)b;(void)s;i->tag_data_size=16;return fail==5 ? MCC_CACHE_WRONG_VERSION : MCC_CACHE_OK;
 }
-static int read_source(void *c,uint32_t o,uint32_t b,void *out) {(void)c;(void)o;memset(out,0,b);return 1;}
+static int read_source(void *c,uint32_t o,uint32_t b,void *out) {(void)c;(void)o;memset(out,0,b);return fail!=4;}
 static int mcc_loading_begin(char const *name) {(void)name;starts++;return owns;}
 static void mcc_loading_end(int success) {assert(owns);ends++;last_success=success;}
 static enum mcc_cache_status load_stub(struct mcc_cache_source const *s,void *r,uint32_t n,void *report) {
-    (void)s;(void)r;(void)n;(void)report;return MCC_CACHE_OK;
+    (void)s;(void)r;(void)n;(void)report;return fail==6 ? MCC_CACHE_BAD_SOUND : MCC_CACHE_OK;
 }
 #define mcc_cache_load load_stub
 static int mcc_resources_select(struct mcc_runtime *r,void *raw) {(void)r;(void)raw;return fail!=1;}
@@ -148,9 +149,9 @@ static int mcc_resources_checksum(struct mcc_runtime *r,unsigned bits,uint32_t *
 static void mcc_resources_dispose(struct mcc_runtime *r) {(void)r;}
 ''' + function(implementation, "mcc_resources_inspect") + r'''
 int main(void) {
-    struct mcc_cache_source source;unsigned char digest[32];uint32_t sum;int expected;
+    struct mcc_cache_source source;unsigned char digest[32];uint32_t sum;int expected,started;char reason[320];
     source.context=NULL;source.read=read_source;source.size=2048;
-    for(owns=0;owns<=1;owns++)for(fail=0;fail<4;fail++) {
+    for(owns=0;owns<=1;owns++)for(fail=0;fail<7;fail++) {
         starts=ends=0;last_success=-1;expected=fail==0;
         started=fail!=4 && fail!=5;strcpy(reason,"stale failure");
         assert(mcc_resources_inspect("mcc_maps/a10",&source,&sum,digest,reason,sizeof(reason))==expected);

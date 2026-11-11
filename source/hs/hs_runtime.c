@@ -760,6 +760,7 @@ boolean debug_trigger_volumes;
 
 /* ---------- public code */
 
+#include "mcc_cache.h"
 #include "mcc_script_threads.inl" /* port: MCC-only bounded thread storage. */
 #include "mcc_script_runtime.inl"
 

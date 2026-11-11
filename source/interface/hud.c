@@ -77,6 +77,8 @@ symbols in this file:
 
 #include "cseries/cseries.h"
 #include "mcc_grenades.h"
+#include "mcc_cache.h"
+#include "mcc_hud_draw.h"
 #include "bitmaps/bitmap_group.h"
 #include "camera/director.h"
 #include "cache/texture_cache.h"

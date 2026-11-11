@@ -6,6 +6,44 @@
 #include <errno.h>
 #include <string.h>
 
+#ifdef HALO_64BIT
+/* port: a 64-bit build has the Xbox address space reserved already
+(xbox_memory.c), and the window MCC maps are linked to lies in its heap's
+range (xbox_heap.c): the tags go at their Xbox address, xbox_pointer's,
+with the heap kept below them while they are loaded */
+BOOL xbox_heap_limit(unsigned int address);
+
+void *mcc_memory_reserve(uint32_t address, uint32_t size)
+{
+    void *wanted = xbox_pointer(address);
+
+    if ((address & 0xFFFFu) || size != 0x04000000u ||
+        address < 0x42000000u || address > 0x70000000u) {
+        errno = EINVAL;
+        return NULL;
+    }
+    if (!xbox_heap_limit(address)) {
+        errno = EBUSY;
+        return NULL;
+    }
+    /* (fresh pages: the heap's, never used, or a map's before) */
+    if (mmap(wanted, size, PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) != wanted) {
+        xbox_heap_limit(0);
+        return NULL;
+    }
+    return wanted;
+}
+
+void mcc_memory_release(void *allocation, uint32_t size)
+{
+    if (!allocation)
+        return;
+    mmap(allocation, size, PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0);
+    xbox_heap_limit(0);
+}
+#else
 #ifdef HALO_ANDROID
 #include "guest_host.h"
 #endif
@@ -59,41 +97,6 @@ static void mcc_window_dispose(void)
 }
 #endif
 
-#ifdef HALO_64BIT
-/* port: a 64-bit build has the Xbox address space reserved already
-(xbox_memory.c), and the window MCC maps are linked to lies in its heap's
-range (xbox_heap.c): the tags go at their Xbox address, xbox_pointer's,
-with the heap kept below them while they are loaded */
-BOOL xbox_heap_limit(unsigned int address);
-
-void *mcc_memory_reserve(uint32_t address, uint32_t size)
-{
-    void *wanted = xbox_pointer(address);
-
-    if ((address & 0xFFFFu) || size != 0x04000000u ||
-        address < 0x42000000u || address > 0x70000000u)
-        return NULL;
-    if (!xbox_heap_limit(address))
-        return NULL;
-    /* (fresh pages: the heap's, never used, or a map's before) */
-    if (mmap(wanted, size, PROT_READ | PROT_WRITE,
-        MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) != wanted)
-    {
-        xbox_heap_limit(0);
-        return NULL;
-    }
-    return wanted;
-}
-
-void mcc_memory_release(void *allocation, uint32_t size)
-{
-    if (!allocation)
-        return;
-    mmap(allocation, size, PROT_READ | PROT_WRITE,
-        MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0);
-    xbox_heap_limit(0);
-}
-#else
 void *mcc_memory_reserve(uint32_t address, uint32_t size)
 {
 #ifdef HALO_ANDROID

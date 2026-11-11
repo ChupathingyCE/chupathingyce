@@ -410,6 +410,25 @@ int mcc_maps_next_mission(char const *level_name, char next[64])
 	return target != NONE && mcc_menu_catalog.maps[target].campaign ? 1 : -1;
 }
 
+/* port: the folder MCC maps are read from: maps_mcc, or GulchCE's mcc_maps
+when only it is there */
+char const *mcc_maps_directory(void)
+{
+    WIN32_FIND_DATAA data;
+    HANDLE find=FindFirstFileA("d:\\maps_mcc",&data);
+
+    if (find!=INVALID_HANDLE_VALUE) {CloseHandle(find);return MCC_MAPS_FOLDER;}
+    find=FindFirstFileA("d:\\mcc_maps",&data);
+    if (find!=INVALID_HANDLE_VALUE) {CloseHandle(find);return MCC_MAPS_FALLBACK_FOLDER;}
+    return MCC_MAPS_FOLDER;
+}
+
+/* (its name: maps_mcc or mcc_maps) */
+char const *mcc_maps_folder(void)
+{
+    return mcc_maps_directory()==MCC_MAPS_FALLBACK_FOLDER ? "mcc_maps" : "maps_mcc";
+}
+
 void mcc_maps_rescan(void)
 {
 	mcc_menu_preview_clear();
