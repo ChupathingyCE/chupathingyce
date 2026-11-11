@@ -340,6 +340,9 @@ enum
 	_item_friend,
 	_item_offline,
 	_item_request,
+	/* a request this player sent (CANCEL), a player they block (UNBLOCK) */
+	_item_outgoing,
+	_item_blocked,
 };
 
 enum
@@ -347,6 +350,8 @@ enum
 	_heading_invites,
 	_heading_online,
 	_heading_requests,
+	_heading_sent,
+	_heading_blocked,
 };
 
 struct friend_item
@@ -357,7 +362,8 @@ struct friend_item
 	short index;
 };
 
-#define MAXIMUM_FRIEND_ITEMS (4 + SOCIAL_MAXIMUM_INVITES + SOCIAL_MAXIMUM_FRIENDS + SOCIAL_MAXIMUM_REQUESTS)
+#define MAXIMUM_FRIEND_ITEMS (6 + SOCIAL_MAXIMUM_INVITES + SOCIAL_MAXIMUM_FRIENDS + 2 * SOCIAL_MAXIMUM_REQUESTS + \
+	SOCIAL_MAXIMUM_BLOCKED)
 
 /* what a FRIENDS item's options are */
 enum
@@ -376,6 +382,9 @@ enum
 	_option_clan_join,
 	_option_clan_decline,
 	_option_kick,
+	/* a request sent taken back, a player unblocked */
+	_option_cancel,
+	_option_unblock,
 	MAXIMUM_OPTIONS = 6
 };
 
@@ -1333,6 +1342,8 @@ static char const *item_key(struct friend_item const *item)
 	case _item_invite: return friends_state.invites[item->index].id;
 	case _item_friend: return friends_state.friends[item->index].handle;
 	case _item_request: return friends_state.requests[item->index].handle;
+	case _item_outgoing: return friends_state.outgoing[item->index].handle;
+	case _item_blocked: return friends_state.blocked[item->index];
 	default: return "";
 	}
 }
@@ -1412,6 +1423,18 @@ static void items_build(void)
 		for (index = 0; index < friends_state.request_count; index++)
 			item_add(_item_request, index);
 	}
+	if (friends_state.outgoing_count)
+	{
+		item_add(_item_heading, _heading_sent);
+		for (index = 0; index < friends_state.outgoing_count; index++)
+			item_add(_item_outgoing, index);
+	}
+	if (friends_state.blocked_count)
+	{
+		item_add(_item_heading, _heading_blocked);
+		for (index = 0; index < friends_state.blocked_count; index++)
+			item_add(_item_blocked, index);
+	}
 	/* (the chosen item, where it is now; else the row where it was) */
 	for (index = 0; index < guide.item_count && found == NONE; index++)
 	{
@@ -1490,6 +1513,12 @@ static short item_options(struct friend_item const *item, short *options)
 		options[count++] = _option_accept;
 		options[count++] = _option_decline;
 		break;
+	case _item_outgoing:
+		options[count++] = _option_cancel;
+		break;
+	case _item_blocked:
+		options[count++] = _option_unblock;
+		break;
 	}
 	return count;
 }
@@ -1521,6 +1550,8 @@ static char const *option_label(short option, boolean armed)
 	case _option_clan_join: return "JOIN CLAN";
 	case _option_clan_decline: return "DECLINE";
 	case _option_kick: return armed ? "CONFIRM KICK" : "KICK";
+	case _option_cancel: return "CANCEL REQUEST";
+	case _option_unblock: return "UNBLOCK";
 	default: return "DISMISS";
 	}
 }
@@ -1634,6 +1665,8 @@ static void option_run(short option)
 	case _option_block: friend_act(BROWSER_SOCIAL_BLOCK, item_handle(item)); break;
 	case _option_accept: friend_act(BROWSER_SOCIAL_ACCEPT, item_handle(item)); break;
 	case _option_decline: friend_act(BROWSER_SOCIAL_DECLINE, item_handle(item)); break;
+	case _option_cancel: friend_act(BROWSER_SOCIAL_CANCEL, item_handle(item)); break;
+	case _option_unblock: friend_act(BROWSER_SOCIAL_UNBLOCK, item_handle(item)); break;
 	case _option_dismiss: invite_dismiss(item_key(item)); break;
 	case _option_party_invite: party_invite_send(item_handle(item)); guide.options = FALSE; break;
 	case _option_clan_invite:
@@ -1876,6 +1909,14 @@ static void friends_update(void)
 	}
 	else
 	{
+		if (result.action == BROWSER_SOCIAL_CANCEL || result.action == BROWSER_SOCIAL_UNBLOCK)
+		{
+			char line[128];
+
+			snprintf(line, sizeof(line), result.action == BROWSER_SOCIAL_CANCEL ? "Request to %s taken back" :
+				"%s unblocked", result.handle);
+			message_ok_set(line);
+		}
 		if (result.action == BROWSER_SOCIAL_BLOCK)
 		{
 			social_recent_forget(&guide.recent_seen, result.handle);
@@ -3483,6 +3524,20 @@ static void item_row(struct friend_item const *item, struct social_row *row)
 	csmemset(row, 0, sizeof(*row));
 	switch (item->kind)
 	{
+	case _item_outgoing:
+	{
+		struct social_request const *request = &friends_state.outgoing[item->index];
+
+		social_copy_text(row->tag, sizeof(row->tag), social_name(request->display, request->handle));
+		social_copy_text(row->status, sizeof(row->status), "Request sent");
+		row->state = -1;
+		break;
+	}
+	case _item_blocked:
+		social_copy_text(row->tag, sizeof(row->tag), friends_state.blocked[item->index]);
+		social_copy_text(row->status, sizeof(row->status), "Blocked");
+		row->state = -1;
+		break;
 	case _item_invite:
 	{
 		struct social_invite const *invite = &friends_state.invites[item->index];
@@ -3620,6 +3675,10 @@ static void render_friends(void)
 				snprintf(heading, sizeof(heading), "INVITES (%d)", invites_waiting());
 			else if (item->index == _heading_online)
 				snprintf(heading, sizeof(heading), "ONLINE (%d OF %d)", online, friends_state.friend_count);
+			else if (item->index == _heading_sent)
+				snprintf(heading, sizeof(heading), "REQUESTS SENT (%d)", friends_state.outgoing_count);
+			else if (item->index == _heading_blocked)
+				snprintf(heading, sizeof(heading), "BLOCKED (%d)", friends_state.blocked_count);
 			else
 				snprintf(heading, sizeof(heading), "REQUESTS (%d)", friends_state.request_count);
 			ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, y + 2, UI_ALIGN_LEFT, heading);

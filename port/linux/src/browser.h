@@ -484,6 +484,10 @@ enum
 	BROWSER_SOCIAL_JOIN,
 	/* /v1/social/invite, to this copy's game */
 	BROWSER_SOCIAL_INVITE,
+	/* a request this player sent taken back, a player unblocked
+	(/v1/game/friends, as ACCEPT to REQUEST) */
+	BROWSER_SOCIAL_CANCEL,
+	BROWSER_SOCIAL_UNBLOCK,
 	NUMBER_OF_BROWSER_SOCIAL_ACTIONS
 };
 enum
@@ -604,6 +608,9 @@ privacy setting of the site's changed ("hide_stats", "hide_heatmaps",
 "show_presence", "show_clan_tag"); the action's result shown (no longer kept) */
 void browser_profile_unlink(void);
 void browser_profile_privacy(const char *field, int value);
+/* a friends' privacy rule changed (friend_requests, who_can_join,
+clan_presence: the site's values) */
+void browser_profile_friends_privacy(const char *field, const char *value);
 void browser_profile_action_seen(void);
 /* a clan's invite answered ("accept" or "decline", clan its ID), or the
 clan left ("leave"): the site's /v1/game/clan, its result the action's */

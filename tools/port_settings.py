@@ -807,7 +807,10 @@ CHUPATHINGY_ONLY = {
         # not packed for them)
         "consoles": False,
         "header": ("header_privacy", "chupathingy/delta_profile/header_privacy"),
-        "spacing": 30,
+        # (closer than the others: thirteen rows, and the help line under
+        # them, above the prompts)
+        "spacing": 24,
+        "help_top": 386,
         "rows": [
             ("SHARE MY PROFILE:", "network.share_profile", ON_OFF,
              "Show your Delta name to Chupathingy players.", None),
@@ -823,6 +826,16 @@ CHUPATHINGY_ONLY = {
              "Hide your heatmaps from other players.", None),
             ("SHOW CLAN TAG:", "site.show_clan_tag", ON_OFF,
              "Show your clan tag to Chupathingy players.", None),
+            # (the friends' privacy: the site's friends.py)
+            ("APPEAR OFFLINE:", "site.appear_offline", [("NO", "false"), ("YES", "true")],
+             "Show as offline to your friends.", None),
+            ("FRIEND REQUESTS FROM:", "site.friend_requests",
+             [("EVERYONE", "everyone"), ("FRIENDS OF FRIENDS", "friends_of_friends"), ("NOBODY", "nobody")],
+             "Who can send you friend requests.", None),
+            ("WHO CAN JOIN ME:", "site.who_can_join", [("FRIENDS", "friends"), ("ANYONE", "anyone"), ("INVITE ONLY", "invite")],
+             "Who can join your game from DELTA.", None),
+            ("SHOW MY STATUS TO:", "site.clan_presence", [("FRIENDS", "friends"), ("FRIENDS AND CLAN", "friends_and_clan")],
+             "Who sees when you're on and what you play.", None),
             ("DISCORD STATUS:", "discord.presence", [("FULL", "full"), ("MINIMAL", "minimal"), ("OFF", "off")],
              "What Discord shows while you play.", "desktop"),
             ("SHOW PROFILE NAMES:", "display.profile_names", ON_OFF,

@@ -317,6 +317,25 @@ static void test_state(void)
 	CHECK(!strcmp(state.friends[2].display, "Church\xC3\xA9"));
 	CHECK(!state.friends[1].game.listed && state.friends[1].playing);
 	CHECK(state.request_count == 1 && !strcmp(state.requests[0].handle, "donut"));
+	/* (the requests sent, CANCEL's, and the blocked, UNBLOCK's) */
+	CHECK(state.outgoing_count == 1 && !strcmp(state.outgoing[0].handle, "lopez") &&
+		!strcmp(state.outgoing[0].display, "Lopez"));
+	CHECK(state.blocked_count == 1 && !strcmp(state.blocked[0], "tex"));
+	CHECK(social_action_fields(text, sizeof(text), "cancel", "lopez") > 0);
+	CHECK(social_action_fields(text, sizeof(text), "unblock", "tex") > 0);
+	CHECK(social_action_fields(text, sizeof(text), "dance", "tex") == -1);
+	/* (the friends' privacy, from MY PROFILE's PRIVACY) */
+	{
+		char privacy[160];
+
+		CHECK(social_friends_privacy_fields(privacy, sizeof(privacy), "", "invite", NULL) > 0);
+		CHECK(!strcmp(privacy, "\"action\": \"privacy\", \"join\": \"invite\""));
+		CHECK(social_friends_privacy_fields(privacy, sizeof(privacy), "friends_of_friends", "", "friends_and_clan") > 0);
+		CHECK(!strcmp(privacy, "\"action\": \"privacy\", \"requests\": \"friends_of_friends\", "
+			"\"clan_presence\": \"friends_and_clan\""));
+		CHECK(social_friends_privacy_fields(privacy, sizeof(privacy), "", "everybody", "") == -1);
+		CHECK(social_friends_privacy_fields(privacy, sizeof(privacy), "", "", "") == -1);
+	}
 	CHECK(state.invite_count == 1 && !strcmp(state.invites[0].id, "0a1b2c3d4e5f6a7b") && state.invites[0].game.coop);
 	CHECK(social_online_count(&state) == 2);
 	CHECK(!strcmp(social_name(state.friends[1].display, state.friends[1].handle), "simmons"));

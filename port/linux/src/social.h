@@ -193,6 +193,8 @@ enum
 	/* the site keeps 200 friends at most, 50 requests waiting */
 	SOCIAL_MAXIMUM_FRIENDS = 200,
 	SOCIAL_MAXIMUM_REQUESTS = 50,
+	/* (the handles this player blocks: FRIENDS' BLOCKED) */
+	SOCIAL_MAXIMUM_BLOCKED = 50,
 	SOCIAL_MAXIMUM_INVITES = 20,
 };
 
@@ -370,6 +372,12 @@ struct social_state
 	struct social_friend friends[SOCIAL_MAXIMUM_FRIENDS];
 	int request_count;
 	struct social_request requests[SOCIAL_MAXIMUM_REQUESTS];
+	/* the requests this player sent (CANCEL), and the players they block
+	(UNBLOCK), newest first */
+	int outgoing_count;
+	struct social_request outgoing[SOCIAL_MAXIMUM_REQUESTS];
+	int blocked_count;
+	char blocked[SOCIAL_MAXIMUM_BLOCKED][SOCIAL_HANDLE_SIZE];
 	int invite_count;
 	struct social_invite invites[SOCIAL_MAXIMUM_INVITES];
 	/* the party this player is in (has 0: none), and invites to others */
@@ -479,6 +487,11 @@ int social_state_fields(char *fields, int size, const char *cursor, int limit);
 (/v1/game/friends) */
 int social_action_fields(char *fields, int size, const char *action, const char *handle);
 int social_join_fields(char *fields, int size, const char *handle);
+/* /v1/game/friends' privacy change: who may send requests, who may join,
+who sees this player's status (each NULL or "" left as it is); -1 for a
+value the site doesn't take, or none */
+int social_friends_privacy_fields(char *fields, int size, const char *requests, const char *join,
+	const char *clan_presence);
 /* invite: the game's invite (social_presence_invite_valid), or "" for the
 one presence told the site */
 int social_invite_fields(char *fields, int size, const char *handle, const char *invite);

@@ -586,12 +586,50 @@ int social_action_fields(char *fields, int size, const char *action, const char 
 	fields[0] = 0;
 	if (!social_handle_valid(handle) || !action ||
 		(strcmp(action, "accept") && strcmp(action, "decline") && strcmp(action, "remove") && strcmp(action, "block") &&
-			strcmp(action, "request")))
+			strcmp(action, "request") && strcmp(action, "cancel") && strcmp(action, "unblock")))
 	{
 		return -1;
 	}
 	return fields_done(fields, size, snprintf(fields, (size_t)size, "\"action\": \"%s\", \"handle\": \"%s\"",
 		action, handle));
+}
+
+/* a value among a rule's (NULL after the last) */
+static int one_of(const char *value, const char *const *values)
+{
+	for (; *values; values++)
+	{
+		if (!strcmp(value, *values))
+			return 1;
+	}
+	return 0;
+}
+
+int social_friends_privacy_fields(char *fields, int size, const char *requests, const char *join,
+	const char *clan_presence)
+{
+	static const char *const request_rules[] = { "everyone", "friends_of_friends", "nobody", NULL };
+	static const char *const join_rules[] = { "anyone", "friends", "invite", NULL };
+	static const char *const presence_rules[] = { "friends", "friends_and_clan", NULL };
+	int length;
+
+	if (size <= 0)
+		return -1;
+	fields[0] = 0;
+	if ((requests && requests[0] && !one_of(requests, request_rules)) || (join && join[0] && !one_of(join, join_rules)) ||
+		(clan_presence && clan_presence[0] && !one_of(clan_presence, presence_rules)) ||
+		!((requests && requests[0]) || (join && join[0]) || (clan_presence && clan_presence[0])))
+	{
+		return -1;
+	}
+	length = snprintf(fields, (size_t)size, "\"action\": \"privacy\"");
+	if (requests && requests[0] && length > 0 && length < size)
+		length += snprintf(fields + length, (size_t)(size - length), ", \"requests\": \"%s\"", requests);
+	if (join && join[0] && length > 0 && length < size)
+		length += snprintf(fields + length, (size_t)(size - length), ", \"join\": \"%s\"", join);
+	if (clan_presence && clan_presence[0] && length > 0 && length < size)
+		length += snprintf(fields + length, (size_t)(size - length), ", \"clan_presence\": \"%s\"", clan_presence);
+	return fields_done(fields, size, length);
 }
 
 int social_join_fields(char *fields, int size, const char *handle)
