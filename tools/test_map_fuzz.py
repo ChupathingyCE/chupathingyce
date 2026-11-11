@@ -314,6 +314,25 @@ def test_long_tag_names(built, tmp_path):
         assert "has no name" not in result.stderr and "longer than" not in result.stderr, result.stderr[-4000:]
 
 
+def test_scenario_of_another_group(built, tmp_path):
+    """a scenario whose instance names another group (a protected map's:
+    ce_repairs.c), here a sound's, its pitch ranges' block outside the tags:
+    given the scenario's group before anything reads the tags as they load,
+    as it is before they are checked, and never read as a sound"""
+    binaries, _ = built
+    data = bytearray(ce_map())
+    instance = 0x800 + 0x28
+    data[instance:instance + 4] = b"!dns"
+    scenario = struct.unpack_from("<I", data, instance + 0x14)[0] - TAG_CACHE["ce"] + 0x800
+    struct.pack_into("<iI", data, scenario + 0x98, 1, 0x50000000)
+    path = tmp_path / "scenario_sound.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
+    assert "scenario given the scenario's group" in result.stderr, result.stderr[-4000:]
+
+
 def test_bsp_reference_written_over(built, tmp_path):
     """a block a conversion writes in place that lies over the scenario's
     structure BSP's reference (a weapon HUD's static element whose placement
