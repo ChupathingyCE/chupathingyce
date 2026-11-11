@@ -2662,7 +2662,7 @@ static void draw_card(
 	}
 }
 
-/* whether a screen drawn after this one covers it: DELTA, the profile, the
+/* whether a screen drawn after this one covers it: the Guide, the profile, the
 controls, moderation or an invite. A cut-out is the whole overlay's, not
 this screen's, so the game's pictures under it would show through them */
 static boolean browser_screen_covered(

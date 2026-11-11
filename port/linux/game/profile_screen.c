@@ -2016,7 +2016,7 @@ static float wrapped_text(
 	return y;
 }
 
-/* whether a screen drawn after this one covers it: DELTA, the controls,
+/* whether a screen drawn after this one covers it: the Guide, the controls,
 moderation or an invite. A cut-out is the whole overlay's, not this
 screen's, so the game's picture under it would show through them */
 static boolean profile_screen_covered(

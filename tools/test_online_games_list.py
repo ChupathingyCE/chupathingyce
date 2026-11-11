@@ -63,7 +63,7 @@ def test_online_games_asks_for_the_password():
 def test_no_cutouts_under_another_screen():
     # (#1048: the pictures from the game's bitmaps are drawn under the
     # overlay, in a hole cut in it, and the hole is the whole overlay's: with
-    # DELTA, or another screen drawn after this one, open over the browser
+    # the Delta Guide, or another screen drawn after this one, open over the browser
     # they showed through it. Neither the hole nor the picture then)
     covered = function(SCREEN, "browser_screen_covered")
     for screen in ("guide_active()", "profile_screen_active()", "controls_screen_active()",
