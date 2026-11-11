@@ -28,7 +28,7 @@ int discord_register_application_valid(const char *application)
 its length, or -1 (a line break, or too long). The quoted argument's
 backslash, quote, backquote and dollar take a backslash, and the value's
 own escapes double the backslashes; a percent is a field code's, doubled */
-static int quoted_argument(char *text, int size, const char *executable)
+int discord_register_exec_argument(char *text, int size, const char *executable)
 {
 	int used = 0;
 
@@ -68,7 +68,7 @@ int discord_register_desktop_entry(char *entry, int size, const char *applicatio
 	int written;
 
 	if (!discord_register_application_valid(application) || !executable || !executable[0] ||
-		quoted_argument(argument, sizeof(argument), executable) < 0)
+		discord_register_exec_argument(argument, sizeof(argument), executable) < 0)
 	{
 		return -1;
 	}

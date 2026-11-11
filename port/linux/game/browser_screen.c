@@ -559,6 +559,7 @@ int p2p_joined_invite(char *text, int size);
 /* p2p.c's: the hosted game's invite link (0: hosting none on the internet),
 and whether players can reach this host */
 int p2p_invite_link(char *link, int size);
+char const *p2p_invite_link_digits(char const *text);
 int p2p_hosting_status(char *text, int size);
 /* p2p.c's: why the invite joined has not reached its host (2: the host
 answered, but no connection got through; p2p.h's P2P_JOIN_NO_CONNECTION) */
@@ -1828,8 +1829,8 @@ boolean browser_screen_join_link(
 
 	if (!link || !main_menu_is_active())
 		return FALSE;
-	if (!_strnicmp(start, "halo://join/", 12))
-		start += 12;
+	if (p2p_invite_link_digits(link))
+		start = p2p_invite_link_digits(link);
 	while (length < BROWSER_INVITE_LENGTH && ((start[length] >= '0' && start[length] <= '9') ||
 		((start[length] | 0x20) >= 'a' && (start[length] | 0x20) <= 'f')))
 	{
@@ -1862,16 +1863,12 @@ boolean browser_screen_invite_game(
 {
 	static struct browser_game games[BROWSER_MAXIMUM_GAMES];
 	char invite[BROWSER_INVITE_LENGTH + 1];
-	char const *start = NULL;
-	char const *search;
+	char const *start;
 	long length = 0;
 	short count, index;
 
-	for (search = link; *search && !start; search++)
-	{
-		if (!_strnicmp(search, "halo://join/", 12))
-			start = search + 12;
-	}
+	/* (halo://join/, or the site's join page) */
+	start = p2p_invite_link_digits(link);
 	if (!start)
 		return FALSE;
 	while (length < BROWSER_INVITE_LENGTH && ((start[length] >= '0' && start[length] <= '9') ||
@@ -1909,20 +1906,13 @@ boolean browser_screen_playlist_offer(
 {
 	char invite[BROWSER_INVITE_LENGTH + 1];
 	char const *start = link;
-	char const *search;
 	long length = 0;
 	short index;
 
 	if (!link || !playlist_download_possible() || browser_screen.active)
 		return FALSE;
-	for (search = link; *search; search++)
-	{
-		if (!_strnicmp(search, "halo://join/", 12))
-		{
-			start = search + 12;
-			break;
-		}
-	}
+	if (p2p_invite_link_digits(link))
+		start = p2p_invite_link_digits(link);
 	while (length < BROWSER_INVITE_LENGTH && ((start[length] >= '0' && start[length] <= '9') ||
 		((start[length] | 0x20) >= 'a' && (start[length] | 0x20) <= 'f')))
 	{

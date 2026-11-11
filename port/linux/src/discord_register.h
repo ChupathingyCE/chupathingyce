@@ -59,6 +59,11 @@ int discord_register_application_valid(const char *application);
 link into entry (size bytes): its length, or -1 if it does not fit */
 int discord_register_desktop_entry(char *entry, int size, const char *application, const char *executable);
 
+/* executable as a desktop entry's quoted Exec argument into text (size
+bytes): its length, or -1 (a line break, or too long). link_register.c's
+entry uses it too */
+int discord_register_exec_argument(char *text, int size, const char *executable);
+
 /* whether a desktop entry's text is this game's own (its mark) */
 int discord_register_desktop_entry_ours(const char *text);
 
