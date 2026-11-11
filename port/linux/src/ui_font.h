@@ -30,6 +30,13 @@ enum
 	/* the scoreboard's platform logos (one-color SVGs, Simple Icons and
 	Wikimedia Commons: tools/platform_icons_font.py) */
 	POSIX_UI_FONT_PLATFORMS,
+	/* more of Kenney's Input Prompts (POSIX_UI_FONT_NINTENDO is the
+	Switch's): the Steam Deck's, the Steam Controller's and the Wii U's.
+	A build may leave them out (tools/embed_assets.py --prompt-fonts): then
+	their buttons are drawn as pills */
+	POSIX_UI_FONT_STEAM_DECK,
+	POSIX_UI_FONT_STEAM_CONTROLLER,
+	POSIX_UI_FONT_WIIU,
 
 	POSIX_UI_FONT_COUNT
 };

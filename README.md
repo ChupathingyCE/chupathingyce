@@ -282,7 +282,7 @@ with their authors credited in each commit.
   [Simple Icons](https://simpleicons.org) (CC0) and Wikimedia Commons (public
   domain), plus our own Xbox 360 ring and Wii U GamePad; the names and logos
   are their owners' trademarks, used only to identify platforms. The same
-  marks make the platform badges at the top of this page.
+  marks make the platform badges at the top of this page. [BSD Daemon used with permission.](http://www.mckusick.com/copyright.html)
 - The service record (the Delta Guide's SERVICE RECORD, `port/linux/src/service_record.c`)
   follows the career record of mOTA-lEV's
   [OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber), used under

@@ -1577,6 +1577,11 @@ static const struct config_setting config_settings[] =
 		"debug.test_input's \"menu:\" script presses their buttons and sticks as\n"
 		"pad<n>:<button>. pad<n>:unplug and pad<n>:plug take one out and put\n"
 		"it back." },
+	{ "debug.prompt_device", _config_string, "\"\"", "HALO_PROMPT_DEVICE", _environment_value, _platform_all,
+		"Draw the button prompts for one device, whatever is used, for\n"
+		"screenshots and tests: \"keyboard\", \"xbox\", \"playstation\",\n"
+		"\"nintendo\", \"steam_deck\", \"wiiu\" or \"steam_controller\". Leave it\n"
+		"empty for the device used last." },
 #ifndef HALO_CONSOLE_NO_UPDATER
 	{ "debug.update_answer", _config_string, "\"\"", "HALO_UPDATE_ANSWER", _environment_value, _platform_desktop,
 		"The answer to the update question, for tests: \"yes\", \"no\" or\n"

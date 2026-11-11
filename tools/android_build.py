@@ -546,7 +546,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         objects.append(guest_object(source, platform_cflags))
     # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c)
     for source in (hud_assets_build(n, "android", gen_dir / "hud_hires_assets.c")
-                   + ui_fonts_build(n, "android", gen_dir / "ui_fonts.c", sln)):
+                   + ui_fonts_build(n, "android", gen_dir / "ui_fonts.c", sln, prompt_fonts="steam_controller")):
         objects.append(guest_object(source, platform_cflags))
     # the settings file's parser (port/third_party/tomlc17)
     objects.append(guest_object(TOML_DIR / "tomlc17.c", platform_cflags))

@@ -515,6 +515,16 @@ enum
 	/* the native builds' session limits (port/linux/include/halo_port_limits.h) */
 	MAXIMUM_NETWORK_MACHINE_COUNT = HALO_PORT_MAXIMUM_NETWORK_MACHINES,
 	MAXIMUM_NETWORK_PLAYER_COUNT = HALO_PORT_MAXIMUM_NETWORK_PLAYERS,
+	/* port: the most players a game this machine hosts takes: a console's
+	own hosting limit (HALO_CONSOLE_HOST_PLAYERS, halo_console_features.h:
+	the original Xbox hosts 16 though its builds of 32 join 32), held in the
+	game itself, so with or without Delta and its settings; and the list
+	shows it */
+#if defined(HALO_CONSOLE_HOST_PLAYERS) && HALO_CONSOLE_HOST_PLAYERS < HALO_PORT_MAXIMUM_NETWORK_PLAYERS
+	MAXIMUM_HOSTED_PLAYER_COUNT = HALO_CONSOLE_HOST_PLAYERS,
+#else
+	MAXIMUM_HOSTED_PLAYER_COUNT = HALO_PORT_MAXIMUM_NETWORK_PLAYERS,
+#endif
 	NETWORK_GAME_NAME_LENGTH = 16,
 	NETWORK_GAME_MAP_NAME_LENGTH = 0x80,
 	NETWORK_PLAYER_NAME_LENGTH = 12,
@@ -4526,7 +4536,7 @@ static void network_game_server_port_settings_apply(
 	if (network_game_server_port_settings.maximum_players > 0)
 	{
 		server->game.maximum_players = (byte)PIN(network_game_server_port_settings.maximum_players, 2,
-			MAXIMUM_NETWORK_PLAYER_COUNT);
+			MAXIMUM_HOSTED_PLAYER_COUNT);
 	}
 }
 
@@ -4617,7 +4627,7 @@ void network_game_server_port_set_cooperative(
 	server->game.difficulty = difficulty;
 	/* (Server Setup's default for co-op, menu_functions.c's
 	COOPERATIVE_DEFAULT_PLAYERS, until it sets its own) */
-	server->game.maximum_players = MIN(16, MAXIMUM_NETWORK_PLAYER_COUNT);
+	server->game.maximum_players = MIN(16, MAXIMUM_HOSTED_PLAYER_COUNT);
 	if (!network_game_server_send_game_data_pregame(server))
 		network_event("network_game_server_port_set_cooperative() failed to send updated game settings to clients");
 
@@ -4698,7 +4708,7 @@ static boolean network_game_server_setup_game_from_playlist(
 		server->game.name[NETWORK_GAME_NAME_LENGTH - 1] = L'\0';
 		server->game.map.version = (long)cache_files_map_choose(server->game.map.name, sizeof(server->game.map.name));
 		server->game.minimum_players = network_game_solo_game() ? 1 : 2;
-		server->game.maximum_players = MAXIMUM_NETWORK_PLAYER_COUNT;
+		server->game.maximum_players = MAXIMUM_HOSTED_PLAYER_COUNT;
 		network_game_server_port_settings_apply(server);
 		network_game_server_variant_options(&server->game.variant, &server->game.variant_options);
 
