@@ -2840,6 +2840,16 @@ static boolean players_coop_unit_grounded_anywhere(
 	return biped && !TEST_FLAG(biped->biped.flags, _biped_airborne_bit);
 }
 
+/* TRUE if a biped rides an elevator (bipeds.c keeps the one it last stood
+on for a moment after it steps off) */
+static boolean players_coop_unit_on_elevator(
+	long unit_index)
+{
+	struct biped_datum *biped = biped_try_and_get(unit_index);
+
+	return biped && biped->biped.elevator_object_index != NONE;
+}
+
 /* TRUE if the unit is outside the loaded structure BSP, where it would fall
 forever: on foot, or in a vehicle that is empty or player-driven. AI-driven
 vehicles are ignored because the intro Pelicans fly outside the BSP. */
@@ -2851,10 +2861,11 @@ static boolean players_coop_unit_stranded(
 
 	if (players_coop_unit_in_structure(unit_index))
 		return FALSE;
-	/* (on foot: only while falling, not standing on something the BSP
-	doesn't hold, such as an elevator in its shaft) */
+	/* (on foot: while falling, or standing on nothing but the void, as
+	someone the scripts left in the last BSP is; not riding an elevator
+	through its shaft, which the BSP doesn't hold) */
 	if (vehicle_index == unit_index)
-		return !players_coop_unit_grounded_anywhere(unit_index);
+		return !players_coop_unit_grounded_anywhere(unit_index) || !players_coop_unit_on_elevator(unit_index);
 	driver_index = object_try_and_get_and_verify_type(vehicle_index, _object_mask_unit) ?
 		unit_get(vehicle_index)->unit.driver_object_index : NONE;
 	return driver_index == NONE || unit_get(driver_index)->unit.player_index != NONE;
