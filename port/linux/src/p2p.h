@@ -163,6 +163,20 @@ void p2p_set_hosting_allowed(int allowed);
 /* the invite link of the game this machine hosts (empty, 0: none, or LAN
 only) */
 int p2p_invite_link(char *link, int size);
+/* the site's join page, before an invite's digits: the link a copied invite
+is (p2p_invite_share_link), which opens halo://join/<digits> in the game */
+#define P2P_INVITE_PAGE "https://chupathingy.org/join/"
+/* the hosts (and the hosts under them) whose /join/<digits> pages are read
+as invites, as halo://join/ links are */
+#define P2P_INVITE_PAGE_HOSTS "chupathingy.org", "halo.milenko.org"
+/* where an invite's digits start in text: after its halo://join/, or after a
+join page's https://chupathingy.org/join/; NULL if text has neither */
+const char *p2p_invite_link_digits(const char *text);
+/* the link to share for an invite (a copy for the clipboard): a
+halo://join/ link as its join page (P2P_INVITE_PAGE), which Discord and
+chat programs make a link of, anything else as it is. 1, or 0 if it does
+not fit */
+int p2p_invite_share_link(const char *invite, char *link, int size);
 /* an invite (a link or a code, or any text holding one) as the log shows
 it: its first digits only, since players post their logs and an invite lets
 anyone join; the dedicated server's log, its operator's, has it whole */

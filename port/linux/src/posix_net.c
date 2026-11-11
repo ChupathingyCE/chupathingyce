@@ -47,6 +47,10 @@ kernel (3.8) no system call for it: /dev/urandom, below */
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#ifdef __FreeBSD__
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#endif
 #include <time.h>
 #include <sys/un.h>
 #include <sys/wait.h>
@@ -54,6 +58,7 @@ kernel (3.8) no system call for it: /dev/urandom, below */
 
 #include "posix.h"
 #include "discord_register.h"
+#include "link_register.h"
 
 #ifdef __APPLE__
 #include <TargetConditionals.h>
@@ -919,6 +924,16 @@ static int launch_executable(char *executable, size_t size)
 	const char *appimage = getenv("APPIMAGE");
 	ssize_t length = readlink("/proc/self/exe", executable, size - 1);
 
+#ifdef __FreeBSD__
+	/* (FreeBSD mounts no /proc of its own by default: the kernel says) */
+	if (length <= 0)
+	{
+		int name[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
+		size_t used = size;
+
+		length = sysctl(name, 4, executable, &used, NULL, 0) == 0 && used > 1 ? (ssize_t)used - 1 : -1;
+	}
+#endif
 	if (length <= 0)
 		return 0;
 	executable[length] = '\0';
@@ -944,6 +959,84 @@ static int applications_directory(char *directory, size_t size)
 }
 #endif
 
+#if !defined(__ANDROID__) && !defined(__APPLE__)
+/* a small text file's text (cut at size - 1 bytes): 1, or 0 if it can't be
+read */
+static int read_small_file(const char *path, char *text, size_t size)
+{
+	FILE *file = fopen(path, "r");
+	size_t length;
+
+	if (!file)
+		return 0;
+	length = fread(text, 1, size - 1, file);
+	fclose(file);
+	text[length] = 0;
+	return 1;
+}
+
+static int file_exists(const char *path)
+{
+	return access(path, F_OK) == 0;
+}
+
+/* the text of the desktop entry name in the user's applications folder
+(directory) or the system's ($XDG_DATA_DIRS' applications), into text: 1,
+or 0 if none has it */
+static int find_desktop_entry(const char *directory, const char *name, char *text, size_t size)
+{
+	const char *data_dirs = getenv("XDG_DATA_DIRS");
+	char path[1200];
+	const char *cursor;
+
+	if (!name[0])
+		return 0;
+	snprintf(path, sizeof(path), "%s/%s", directory, name);
+	if (read_small_file(path, text, size))
+		return 1;
+	if (!data_dirs || !*data_dirs)
+		data_dirs = "/usr/local/share:/usr/share";
+	for (cursor = data_dirs; *cursor;)
+	{
+		size_t length = strcspn(cursor, ":");
+
+		if (length && length < 1024)
+		{
+			snprintf(path, sizeof(path), "%.*s/applications/%s", (int)length, cursor, name);
+			if (read_small_file(path, text, size))
+				return 1;
+		}
+		cursor += length;
+		if (*cursor == ':')
+			cursor++;
+	}
+	return 0;
+}
+
+/* the default handler of x-scheme-handler/halo the user's mimeapps.list
+names ($XDG_CONFIG_HOME's, else ~/.config's; then the applications
+folder's, an older place), "" for none */
+static void current_link_handler(const char *directory, char *name, int size)
+{
+	const char *config_home = getenv("XDG_CONFIG_HOME");
+	const char *home = getenv("HOME");
+	char path[1200], text[16384];
+
+	name[0] = 0;
+	if (config_home && *config_home)
+		snprintf(path, sizeof(path), "%s/mimeapps.list", config_home);
+	else if (home && *home)
+		snprintf(path, sizeof(path), "%s/.config/mimeapps.list", home);
+	else
+		path[0] = 0;
+	if (path[0] && read_small_file(path, text, sizeof(text)) && link_register_mimeapps_default(text, name, size))
+		return;
+	snprintf(path, sizeof(path), "%s/mimeapps.list", directory);
+	if (read_small_file(path, text, sizeof(text)))
+		link_register_mimeapps_default(text, name, size);
+}
+#endif
+
 int posix_register_url_scheme(const char *scheme, const char *description)
 {
 #if defined(__ANDROID__) || defined(__APPLE__)
@@ -956,48 +1049,34 @@ int posix_register_url_scheme(const char *scheme, const char *description)
 	return 0;
 #endif
 #else
-	/* a desktop entry declaring the executable as the scheme's handler, and
-	the scheme's default application set to it (as xdg-open reads it) */
-	char executable[1024], directory[1024], path[1200], name[128], entry[2048], existing[2048];
-	FILE *file;
-	size_t existing_length = 0;
+	/* chupathingy-links.desktop, the scheme's handler (as xdg-open reads it),
+	unless the user's handler is another program's (link_register.h) */
+	char executable[1024], directory[1024], current[256], text[4096];
+	int make_default = 0;
+	int result;
 
-	if (!launch_executable(executable, sizeof(executable)) || !applications_directory(directory, sizeof(directory)))
-		return 0;
-	snprintf(name, sizeof(name), "halo-ce-universal-%s.desktop", scheme);
-	snprintf(path, sizeof(path), "%s/%s", directory, name);
-	snprintf(entry, sizeof(entry),
-		"[Desktop Entry]\n"
-		"Type=Application\n"
-		"Name=%s\n"
-		"Exec=\"%s\" %%u\n"
-		"NoDisplay=true\n"
-		"MimeType=x-scheme-handler/%s;\n",
-		description, executable, scheme);
-	/* unchanged since the last start: nothing to do */
-	file = fopen(path, "r");
-	if (file)
+	(void)description;
+	if (strcmp(scheme, LINK_REGISTER_SCHEME) || !launch_executable(executable, sizeof(executable)) ||
+		!applications_directory(directory, sizeof(directory)))
 	{
-		existing_length = fread(existing, 1, sizeof(existing) - 1, file);
-		fclose(file);
-		existing[existing_length] = '\0';
-		if (!strcmp(existing, entry))
-			return 1;
+		return 0;
 	}
 	mkdir(directory, 0755);
-	file = fopen(path, "w");
-	if (!file)
-		return 0;
-	fputs(entry, file);
-	fclose(file);
+	current_link_handler(directory, current, sizeof(current));
+	result = link_register_desktop_file(directory, current,
+		find_desktop_entry(directory, current, text, sizeof(text)) ? text : NULL, executable, file_exists,
+		&make_default);
+	if (make_default)
 	{
-		char mime_type[160];
+		char mime_type[] = LINK_REGISTER_MIME_TYPE;
+		char name[] = LINK_REGISTER_DESKTOP_NAME;
 		char *arguments[] = { "xdg-mime", "default", name, mime_type, NULL };
 
-		snprintf(mime_type, sizeof(mime_type), "x-scheme-handler/%s", scheme);
 		run_program(arguments);
 	}
-	return 1;
+	if (result == DISCORD_REGISTER_LEFT)
+		return -1;
+	return result == DISCORD_REGISTER_WRITTEN || result == DISCORD_REGISTER_UNCHANGED;
 #endif
 }
 

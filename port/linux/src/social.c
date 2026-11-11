@@ -665,10 +665,51 @@ const char *social_invite_refusal(const char *reason, int status)
 
 static const char code_letters[] = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
+/* the length of text's start that is prefix, ignoring case (0 if it isn't) */
+static size_t starts_with(const char *text, const char *prefix)
+{
+	size_t index;
+
+	for (index = 0; prefix[index]; index++)
+	{
+		char c = text[index] >= 'A' && text[index] <= 'Z' ? (char)(text[index] - 'A' + 'a') : text[index];
+
+		if (c != prefix[index])
+			return 0;
+	}
+	return index;
+}
+
+/* the length of a party page's address at text's start
+(https://stats.chupathingy.org/party/, any site's: http or https, a host,
+then /party/), 0 if it isn't one */
+static size_t party_page_prefix(const char *text)
+{
+	size_t length = starts_with(text, "https://");
+	size_t host;
+
+	if (!length)
+		length = starts_with(text, "http://");
+	if (!length)
+		return 0;
+	for (host = 0; text[length + host] && text[length + host] != '/'; host++)
+	{
+		char c = text[length + host];
+
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' ||
+			c == ':'))
+		{
+			return 0;
+		}
+	}
+	if (!host || !starts_with(text + length + host, "/party/"))
+		return 0;
+	return length + host + strlen("/party/");
+}
+
 int social_party_code_clean(const char *text, char *code)
 {
-	static const char prefix[] = "halo://party/";
-	size_t index;
+	size_t prefix;
 	int length = 0;
 
 	code[0] = 0;
@@ -676,15 +717,11 @@ int social_party_code_clean(const char *text, char *code)
 		return 0;
 	while (*text == ' ')
 		text++;
-	for (index = 0; index < sizeof(prefix) - 1; index++)
-	{
-		char c = text[index] >= 'A' && text[index] <= 'Z' ? (char)(text[index] - 'A' + 'a') : text[index];
-
-		if (c != prefix[index])
-			break;
-	}
-	if (index == sizeof(prefix) - 1)
-		text += index;
+	/* (a link: the game's, or the site's party page) */
+	prefix = starts_with(text, "halo://party/");
+	if (!prefix)
+		prefix = party_page_prefix(text);
+	text += prefix;
 	for (; *text; text++)
 	{
 		char c = *text >= 'a' && *text <= 'z' ? (char)(*text - 'a' + 'A') : *text;
@@ -726,7 +763,8 @@ void social_party_code_shown(const char *code, char *text, int size)
 		snprintf(text, (size_t)size, "%.3s-%.3s", code, code + 3);
 }
 
-int social_party_link(const char *code, char *link, int size)
+/* a party's link in form ("...%s": the code goes there) */
+static int party_link(const char *code, char *link, int size, const char *form)
 {
 	char clean[SOCIAL_PARTY_CODE_SIZE];
 
@@ -735,7 +773,19 @@ int social_party_link(const char *code, char *link, int size)
 	link[0] = 0;
 	if (!social_party_code_clean(code, clean))
 		return 0;
-	return fields_done(link, size, snprintf(link, (size_t)size, "halo://party/%s", clean)) >= 0;
+	return fields_done(link, size, snprintf(link, (size_t)size, form, clean)) >= 0;
+}
+
+int social_party_link(const char *code, char *link, int size)
+{
+	/* (a web page's address: Discord and chat programs make it a link and
+	show a preview, which they never do for halo://) */
+	return party_link(code, link, size, SOCIAL_PARTY_PAGE "%s");
+}
+
+int social_party_app_link(const char *code, char *link, int size)
+{
+	return party_link(code, link, size, "halo://party/%s");
 }
 
 int social_party_tag_bytes(const char *tag, unsigned char *bytes)

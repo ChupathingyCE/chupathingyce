@@ -456,12 +456,20 @@ const char *social_invite_refusal(const char *reason, int status);
 
 /* ---------- parties' helpers */
 
-/* a code as typed or linked ("abc-def", "halo://party/ABCDEF") in its 6
-capitals into code (SOCIAL_PARTY_CODE_SIZE): 1, or 0 if it can't be one */
+/* the site's party page, before the code: the link COPY PARTY LINK copies
+and the party's QR code holds (the page opens halo://party/CODE in the game) */
+#define SOCIAL_PARTY_PAGE "https://stats.chupathingy.org/party/"
+
+/* a code as typed or linked ("abc-def", "halo://party/ABCDEF", the party
+page's https://stats.chupathingy.org/party/ABCDEF) in its 6 capitals into
+code (SOCIAL_PARTY_CODE_SIZE): 1, or 0 if it can't be one */
 int social_party_code_clean(const char *text, char *code);
-/* a code as shown ("ABC-DEF"), and its link ("halo://party/ABCDEF") */
+/* a code as shown ("ABC-DEF"); its link to share, the party page
+(SOCIAL_PARTY_PAGE "ABCDEF"); and the game's own link ("halo://party/ABCDEF"),
+which the page opens */
 void social_party_code_shown(const char *code, char *text, int size);
 int social_party_link(const char *code, char *link, int size);
+int social_party_app_link(const char *code, char *link, int size);
 /* whether a 16-digit tag (Delta Peer's party_teams) reads as 8 bytes */
 int social_party_tag_bytes(const char *tag, unsigned char *bytes);
 /* the party's leader (NULL: none) */

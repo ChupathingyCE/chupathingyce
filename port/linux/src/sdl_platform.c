@@ -2326,21 +2326,8 @@ bool SDL_ShowAndroidToast(const char *message, int duration, int gravity, int xo
 /* whether the text has an invite link in it (its prefix, in any case) */
 static BOOL platform_text_has_invite_link(const char *text)
 {
-	static const char prefix[] = "halo://join/";
-	size_t length = sizeof(prefix) - 1;
-
-	for (; *text; text++)
-	{
-		size_t index;
-
-		for (index = 0; index < length && text[index] &&
-			(text[index] | 0x20) == prefix[index]; index++)
-		{
-		}
-		if (index == length)
-			return TRUE;
-	}
-	return FALSE;
+	/* (halo://join/, or the site's join page: p2p.h) */
+	return p2p_invite_link_digits(text) != NULL;
 }
 
 /* the clipboard's text (the menus' text fields' Ctrl+V), and text put on it
@@ -2418,11 +2405,16 @@ static void platform_invite_clipboard(BOOL look)
 #endif
 	if (invite)
 	{
-		/* (the game's own invite is never joined, copied or not) */
-		snprintf(seen, sizeof(seen), "%s", invite);
+		char shared[256];
+
+		/* (the game's own invite is never joined, copied or not; it goes as
+		the site's join page, which chat programs make a link of) */
+		if (!p2p_invite_share_link(invite, shared, sizeof(shared)))
+			snprintf(shared, sizeof(shared), "%s", invite);
+		snprintf(seen, sizeof(seen), "%s", shared);
 		if (config_boolean("network.copy_to_clipboard"))
 		{
-			SDL_SetClipboardText(invite);
+			SDL_SetClipboardText(shared);
 			platform_log("Internet play: the invite link is on the clipboard");
 #ifdef HALO_ANDROID
 			SDL_ShowAndroidToast("Invite link copied", 1, -1, 0, 0);

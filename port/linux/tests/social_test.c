@@ -606,7 +606,23 @@ static void test_party(void)
 	CHECK(!social_party_code_clean("halo://party/GQ7RTX/more", code));
 	social_party_code_shown("GQ7RTX", text, sizeof(text));
 	CHECK(!strcmp(text, "GQ7-RTX"));
-	CHECK(social_party_link("gq7rtx", text, sizeof(text)) && !strcmp(text, "halo://party/GQ7RTX"));
+	/* the link shared is the site's party page (chat programs make a link of
+	it, never of halo://); the page opens the game's own */
+	CHECK(social_party_link("gq7rtx", text, sizeof(text)) &&
+		!strcmp(text, "https://stats.chupathingy.org/party/GQ7RTX"));
+	CHECK(social_party_link("GQ7-RTX", text, sizeof(text)) && !strcmp(text, SOCIAL_PARTY_PAGE "GQ7RTX"));
+	CHECK(!social_party_link("GQ0RTX", text, sizeof(text)) && !text[0]);
+	CHECK(!social_party_link("gq7rtx", text, 20) && !text[0]);
+	CHECK(social_party_app_link("gq7rtx", text, sizeof(text)) && !strcmp(text, "halo://party/GQ7RTX"));
+	/* both read back as the code, as do other sites' party pages */
+	CHECK(social_party_code_clean("https://stats.chupathingy.org/party/GQ7RTX", code) && !strcmp(code, "GQ7RTX"));
+	CHECK(social_party_code_clean("HTTPS://STATS.CHUPATHINGY.ORG/PARTY/gq7rtx/", code) && !strcmp(code, "GQ7RTX"));
+	CHECK(social_party_code_clean("http://localhost:8080/party/GQ7-RTX", code) && !strcmp(code, "GQ7RTX"));
+	CHECK(!social_party_code_clean("https://stats.chupathingy.org/party/GQ7RTX/more", code));
+	CHECK(!social_party_code_clean("https://stats.chupathingy.org/players/GQ7RTX", code));
+	CHECK(!social_party_code_clean("https:///party/GQ7RTX", code));
+	CHECK(!social_party_code_clean("https://a b/party/GQ7RTX", code));
+	CHECK(!social_party_code_clean("https://stats.chupathingy.org/party/GQ7RTX?x=1", code));
 	CHECK(!strcmp(social_party_rule_shown("invite"), "INVITE ONLY"));
 	CHECK(!strcmp(social_party_rule_next("friends", 1), "invite"));
 	CHECK(!strcmp(social_party_rule_next("anyone", -1), "invite"));

@@ -35,6 +35,7 @@ void platform_log(char const *format, ...);
 int platform_take_clipboard_invite(char *text, int size);
 void platform_text_field(int typing);
 int p2p_join_invite(char const *text);
+char const *p2p_invite_link_digits(char const *text);
 int p2p_locked_invite_waiting(void);
 int p2p_locked_invite_unlock(char const *password);
 void p2p_locked_invite_cancel(void);
@@ -125,34 +126,29 @@ static struct
 
 /* ---------- private code */
 
-/* the invite's code: what follows "halo://join/" in the text, up to the
-first character no invite has */
+/* the invite's code: what follows "halo://join/" (or the site's join page,
+p2p_invite_link_digits) in the text, up to the first character no invite
+has */
 static void invite_code(
 	char const *text,
 	char *code,
 	long size)
 {
-	char const *search;
+	char const *search = p2p_invite_link_digits(text);
 	long length = 0;
 
 	code[0] = 0;
-	for (search = text; *search; search++)
+	if (!search)
+		return;
+	while (length < size - 1 && search[length] && search[length] != ' ' && search[length] != '\n' &&
+		search[length] != '\r' && search[length] != '\t' && search[length] != '/')
 	{
-		if (!_strnicmp(search, "halo://join/", 12))
-		{
-			search += 12;
-			while (length < size - 1 && search[length] && search[length] != ' ' && search[length] != '\n' &&
-				search[length] != '\r' && search[length] != '\t')
-			{
-				char c = search[length];
+		char c = search[length];
 
-				code[length] = c >= 'A' && c <= 'Z' ? (char)(c + 32) : c;
-				length++;
-			}
-			code[length] = 0;
-			return;
-		}
+		code[length] = c >= 'A' && c <= 'Z' ? (char)(c + 32) : c;
+		length++;
 	}
+	code[length] = 0;
 }
 
 static boolean invite_declined(
