@@ -586,12 +586,50 @@ int social_action_fields(char *fields, int size, const char *action, const char 
 	fields[0] = 0;
 	if (!social_handle_valid(handle) || !action ||
 		(strcmp(action, "accept") && strcmp(action, "decline") && strcmp(action, "remove") && strcmp(action, "block") &&
-			strcmp(action, "request")))
+			strcmp(action, "request") && strcmp(action, "cancel") && strcmp(action, "unblock")))
 	{
 		return -1;
 	}
 	return fields_done(fields, size, snprintf(fields, (size_t)size, "\"action\": \"%s\", \"handle\": \"%s\"",
 		action, handle));
+}
+
+/* a value among a rule's (NULL after the last) */
+static int one_of(const char *value, const char *const *values)
+{
+	for (; *values; values++)
+	{
+		if (!strcmp(value, *values))
+			return 1;
+	}
+	return 0;
+}
+
+int social_friends_privacy_fields(char *fields, int size, const char *requests, const char *join,
+	const char *clan_presence)
+{
+	static const char *const request_rules[] = { "everyone", "friends_of_friends", "nobody", NULL };
+	static const char *const join_rules[] = { "anyone", "friends", "invite", NULL };
+	static const char *const presence_rules[] = { "friends", "friends_and_clan", NULL };
+	int length;
+
+	if (size <= 0)
+		return -1;
+	fields[0] = 0;
+	if ((requests && requests[0] && !one_of(requests, request_rules)) || (join && join[0] && !one_of(join, join_rules)) ||
+		(clan_presence && clan_presence[0] && !one_of(clan_presence, presence_rules)) ||
+		!((requests && requests[0]) || (join && join[0]) || (clan_presence && clan_presence[0])))
+	{
+		return -1;
+	}
+	length = snprintf(fields, (size_t)size, "\"action\": \"privacy\"");
+	if (requests && requests[0] && length > 0 && length < size)
+		length += snprintf(fields + length, (size_t)(size - length), ", \"requests\": \"%s\"", requests);
+	if (join && join[0] && length > 0 && length < size)
+		length += snprintf(fields + length, (size_t)(size - length), ", \"join\": \"%s\"", join);
+	if (clan_presence && clan_presence[0] && length > 0 && length < size)
+		length += snprintf(fields + length, (size_t)(size - length), ", \"clan_presence\": \"%s\"", clan_presence);
+	return fields_done(fields, size, length);
 }
 
 int social_join_fields(char *fields, int size, const char *handle)
@@ -921,6 +959,36 @@ static int hex_of_length(const char *text, size_t length)
 	return 1;
 }
 
+/* the actions /v1/party takes (puma's PARTY_ACTIONS, "" the read aside):
+each one DELTA sends is one of these (tools/test_social.py checks guide.c) */
+const char *const social_party_actions[] =
+{
+	"create", "invite", "accept", "decline", "join", "leave", "kick", "lead", "rule", "code", "go", NULL,
+};
+
+/* text copied as plain_text would take it: what it wouldn't, left out */
+static void plain_copy(char *to, int size, const char *text)
+{
+	int length = 0;
+
+	if (size <= 0)
+		return;
+	for (; text && *text && length < size - 1; text++)
+	{
+		if ((unsigned char)*text >= 0x20 && *text != '"' && *text != '\\')
+			to[length++] = *text;
+	}
+	/* (a UTF-8 character cut at the end goes too) */
+	if (text && ((unsigned char)*text & 0xC0) == 0x80)
+	{
+		while (length > 0 && ((unsigned char)to[length - 1] & 0xC0) == 0x80)
+			length--;
+		if (length > 0 && ((unsigned char)to[length - 1] & 0xC0) == 0xC0)
+			length--;
+	}
+	to[length] = 0;
+}
+
 int social_party_fields(char *fields, int size, const char *action, const char *value, const char *name,
 	const char *platform)
 {
@@ -931,7 +999,7 @@ int social_party_fields(char *fields, int size, const char *action, const char *
 		return -1;
 	fields[0] = 0;
 	extra[0] = 0;
-	if (!action || !plain_text(name) || !plain_text(platform))
+	if (!action || !plain_text(platform))
 		return -1;
 	if (!strcmp(action, "invite"))
 	{
@@ -969,9 +1037,11 @@ int social_party_fields(char *fields, int size, const char *action, const char *
 			return -1;
 		snprintf(extra, sizeof(extra), ", \"invite\": \"%s\"", value);
 	}
-	else if (strcmp(action, "") && strcmp(action, "create") && strcmp(action, "leave"))
+	else if (strcmp(action, "") && strcmp(action, "create") && strcmp(action, "leave") && strcmp(action, "code"))
 		return -1;
-	social_copy_text(who, sizeof(who), name ? name : "");
+	/* (a game name is the player's own typing: a quote or a backslash in it
+	is left out, not a reason to send nothing) */
+	plain_copy(who, sizeof(who), name ? name : "");
 	length = snprintf(fields, (size_t)size, "\"action\": \"%s\"%s", action, extra);
 	if (length > 0 && length < size && who[0])
 		length += snprintf(fields + length, (size_t)(size - length), ", \"name\": \"%s\"", who);
@@ -1010,6 +1080,159 @@ const char *social_party_refusal(const char *reason, int status)
 	if (status == 429)
 		return "Too many tries. Wait a minute.";
 	return "Can't do that right now.";
+}
+
+/* an invite's refusals say it as the sender sees it (the same reasons, the
+site's party.py and list_server.py, read for the one who invited) */
+static const char *const party_invite_reasons[][2] =
+{
+	{ "no_party", "Start a party first." },
+	{ "signed_out", "Sign in to invite friends." },
+	{ "you", "That's you." },
+	{ "friends_only", "You can invite friends only." },
+	{ "member", "They're in your party already." },
+	{ "full", "Your party is full." },
+	{ "busy", "Too many invites. Wait a minute." },
+	{ "unknown", "No profile has that handle." },
+};
+
+const char *social_party_action_refusal(const char *action, const char *reason, int status)
+{
+	size_t index;
+
+	if (action && !strcmp(action, "invite"))
+	{
+		for (index = 0; reason && index < sizeof(party_invite_reasons) / sizeof(party_invite_reasons[0]); index++)
+		{
+			if (!strcmp(reason, party_invite_reasons[index][0]))
+				return party_invite_reasons[index][1];
+		}
+		if (status == 403)
+			return "You can invite friends only.";
+		if (status == 429)
+			return "Too many invites. Wait a minute.";
+		return "Couldn't send the invite. Try again.";
+	}
+	return social_party_refusal(reason, status);
+}
+
+/* ---------- toasts waiting */
+
+void social_toast_forget(struct social_toast_queue *queue, int kind, const char *key)
+{
+	int index = 0;
+
+	while (queue && key && index < queue->count)
+	{
+		if (queue->toasts[index].kind == kind && !strcmp(queue->toasts[index].key, key))
+		{
+			memmove(&queue->toasts[index], &queue->toasts[index + 1],
+				(size_t)(queue->count - index - 1) * sizeof(queue->toasts[0]));
+			queue->count--;
+		}
+		else
+			index++;
+	}
+}
+
+void social_toast_push(struct social_toast_queue *queue, int kind, const char *key, const char *title, const char *line,
+	const char *name)
+{
+	struct social_toast *toast;
+
+	if (!queue)
+		return;
+	social_toast_forget(queue, kind, key ? key : "");
+	if (queue->count >= SOCIAL_TOAST_QUEUE_MOST)
+	{
+		memmove(&queue->toasts[0], &queue->toasts[1], (SOCIAL_TOAST_QUEUE_MOST - 1) * sizeof(queue->toasts[0]));
+		queue->count = SOCIAL_TOAST_QUEUE_MOST - 1;
+	}
+	toast = &queue->toasts[queue->count++];
+	toast->kind = kind;
+	social_copy_text(toast->key, sizeof(toast->key), key ? key : "");
+	social_copy_text(toast->title, sizeof(toast->title), title ? title : "");
+	social_copy_text(toast->line, sizeof(toast->line), line ? line : "");
+	social_copy_text(toast->name, sizeof(toast->name), name ? name : "");
+}
+
+int social_toast_pop(struct social_toast_queue *queue, struct social_toast *toast)
+{
+	if (!queue || queue->count <= 0)
+		return 0;
+	*toast = queue->toasts[0];
+	memmove(&queue->toasts[0], &queue->toasts[1], (size_t)(queue->count - 1) * sizeof(queue->toasts[0]));
+	queue->count--;
+	return 1;
+}
+
+/* ---------- invites this player sent */
+
+void social_sent_add(struct social_sent_list *list, const char *handle, int kind, unsigned long now)
+{
+	int index;
+
+	if (!list || !handle || !handle[0])
+		return;
+	social_sent_forget(list, handle, kind);
+	if (list->count >= SOCIAL_MAXIMUM_SENT)
+	{
+		memmove(&list->sent[0], &list->sent[1], (SOCIAL_MAXIMUM_SENT - 1) * sizeof(list->sent[0]));
+		list->count = SOCIAL_MAXIMUM_SENT - 1;
+	}
+	index = list->count++;
+	social_copy_text(list->sent[index].handle, sizeof(list->sent[index].handle), handle);
+	list->sent[index].kind = kind;
+	list->sent[index].time = now;
+}
+
+int social_sent_has(const struct social_sent_list *list, const char *handle, int kind, unsigned long now)
+{
+	int index;
+
+	for (index = 0; list && handle && index < list->count; index++)
+	{
+		const struct social_sent *sent = &list->sent[index];
+
+		if (sent->kind == kind && !strcmp(sent->handle, handle) && now - sent->time < SOCIAL_SENT_LIFETIME)
+			return 1;
+	}
+	return 0;
+}
+
+void social_sent_forget(struct social_sent_list *list, const char *handle, int kind)
+{
+	int index = 0;
+
+	while (list && index < list->count)
+	{
+		if (list->sent[index].kind == kind && (!handle || !strcmp(list->sent[index].handle, handle)))
+		{
+			memmove(&list->sent[index], &list->sent[index + 1], (size_t)(list->count - index - 1) * sizeof(list->sent[0]));
+			list->count--;
+		}
+		else
+			index++;
+	}
+}
+
+void social_sent_line(char *text, int size, int kind, const char *name, int online, const char *refusal)
+{
+	if (!text || size <= 0)
+		return;
+	if (refusal && refusal[0])
+	{
+		social_copy_text(text, size, refusal);
+		return;
+	}
+	if (!name || !name[0])
+		name = "them";
+	if (kind == SOCIAL_SENT_REQUEST)
+		snprintf(text, (size_t)size, "Request sent to %s", name);
+	else if (!online)
+		snprintf(text, (size_t)size, "Invite sent to %s. It waits 5 minutes for them.", name);
+	else
+		snprintf(text, (size_t)size, "Invite sent to %s", name);
 }
 
 /* the code of an invite or a halo://join link ("" for none) */

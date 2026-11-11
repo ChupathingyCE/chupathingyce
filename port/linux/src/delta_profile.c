@@ -559,6 +559,14 @@ static void read_privacy(struct reader *reader, struct delta_profile *profile)
 			profile->show_presence = boolean_value(reader);
 		else if (!strcmp(key, "show_clan_tag"))
 			profile->show_clan_tag = boolean_value(reader);
+		else if (!strcmp(key, "appear_offline"))
+			profile->appear_offline = boolean_value(reader);
+		else if (!strcmp(key, "friend_requests"))
+			text_value(reader, profile->friend_requests, sizeof(profile->friend_requests));
+		else if (!strcmp(key, "who_can_join"))
+			text_value(reader, profile->who_can_join, sizeof(profile->who_can_join));
+		else if (!strcmp(key, "clan_presence"))
+			text_value(reader, profile->clan_presence, sizeof(profile->clan_presence));
 		else
 			skip_value(reader, 1);
 	}
@@ -840,6 +848,14 @@ int delta_profile_parse_privacy(const char *text, struct delta_profile *profile)
 	profile->hide_heatmaps = read.hide_heatmaps;
 	profile->show_presence = read.show_presence;
 	profile->show_clan_tag = read.show_clan_tag;
+	profile->appear_offline = read.appear_offline;
+	/* (the friends' rules where the answer has them) */
+	if (read.friend_requests[0])
+		memcpy(profile->friend_requests, read.friend_requests, sizeof(profile->friend_requests));
+	if (read.who_can_join[0])
+		memcpy(profile->who_can_join, read.who_can_join, sizeof(profile->who_can_join));
+	if (read.clan_presence[0])
+		memcpy(profile->clan_presence, read.clan_presence, sizeof(profile->clan_presence));
 	return 1;
 }
 
@@ -1468,7 +1484,12 @@ int delta_profile_parse_social(const char *text, struct social_state *state)
 
 			while (!reader.failed && member(&reader, part, sizeof(part), &part_first))
 			{
-				if (strcmp(part, "incoming") || !take(&reader, '['))
+				/* (those sent to this player, and those it sent) */
+				int outgoing = !strcmp(part, "outgoing");
+				int *count = outgoing ? &state->outgoing_count : &state->request_count;
+				struct social_request *requests = outgoing ? state->outgoing : state->requests;
+
+				if ((strcmp(part, "incoming") && !outgoing) || !take(&reader, '['))
 				{
 					skip_value(&reader, 2);
 					continue;
@@ -1478,15 +1499,28 @@ int delta_profile_parse_social(const char *text, struct social_state *state)
 				{
 					struct social_request skipped;
 
-					if (state->request_count < SOCIAL_MAXIMUM_REQUESTS)
+					if (*count < SOCIAL_MAXIMUM_REQUESTS)
 					{
-						read_social_request(&reader, &state->requests[state->request_count]);
-						if (state->requests[state->request_count].handle[0])
-							state->request_count++;
+						read_social_request(&reader, &requests[*count]);
+						if (requests[*count].handle[0])
+							(*count)++;
 					}
 					else
 						read_social_request(&reader, &skipped);
 				}
+			}
+		}
+		else if (!strcmp(key, "blocked") && take(&reader, '['))
+		{
+			/* (handles alone) */
+			item_first = 1;
+			while (!reader.failed && item(&reader, &item_first))
+			{
+				char handle[SOCIAL_HANDLE_SIZE];
+
+				text_value(&reader, handle, sizeof(handle));
+				if (social_handle_valid(handle) && state->blocked_count < SOCIAL_MAXIMUM_BLOCKED)
+					snprintf(state->blocked[state->blocked_count++], SOCIAL_HANDLE_SIZE, "%s", handle);
 			}
 		}
 		else if (!read_party_member_of_state(&reader, key, state))

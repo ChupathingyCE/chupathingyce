@@ -848,14 +848,25 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_GUIDE
 	/* ---- DELTA (port/linux/game/guide.c); an older version's guide.* and
 	controls.guide names go on under these (config_renamed) */
+#ifdef __APPLE__
+	/* (a Mac keeps F3 for Mission Control and the F keys for itself unless
+	fn is held: the backslash key too, which nothing else takes) */
+	{ "controls.delta", _config_string, "\"F3, Backslash\"", "HALO_KEY_DELTA", _environment_value, _platform_all,
+		"The keys that open and close DELTA, separated by commas: F3 to F8, or\n"
+		"another key the game doesn't use. A Mac takes F3 for Mission Control\n"
+		"unless fn is held, so the backslash key (Backslash) opens it too." },
+#else
 	{ "controls.delta", _config_string, "\"F3\"", "HALO_KEY_DELTA", _environment_value, _platform_all,
-		"The key that opens and closes DELTA: F3 to F8." },
+		"The keys that open and close DELTA, separated by commas: F3 to F8, or\n"
+		"another key the game doesn't use." },
+#endif
 	{ "controls.delta_button", _config_boolean, "true", "HALO_DELTA_BUTTON", _environment_value, _platform_all,
 		"Open DELTA with the controller's Guide button, where Chupathingy can\n"
 		"read it (Steam and the Xbox Game Bar may keep it for themselves)." },
 	{ "delta.hold_back", _config_boolean, "false", "HALO_DELTA_HOLD_BACK", _environment_value, _platform_all,
 		"Open DELTA by holding Back for about half a second in the menus.\n"
-		"Off by default: the menus get the Back press first, as on the Xbox." },
+		"While on, the menus get a Back tap once it is let go, never a hold.\n"
+		"Off by default: the Xbox's Back acts on press." },
 	{ "delta.pause_menu", _config_boolean, "true", "HALO_DELTA_PAUSE_MENU", _environment_value, _platform_all,
 		"Put DELTA in the pause menu, in every menu set." },
 	{ "delta.notify_in_game", _config_boolean, "false", "HALO_DELTA_NOTIFY_IN_GAME", _environment_value,
@@ -1556,8 +1567,9 @@ static const struct config_setting config_settings[] =
 		"With debug.delta_open, the row chosen once that section has it, for\n"
 		"tests. -1 for none." },
 	{ "debug.party_test", _config_string, "\"\"", "HALO_PARTY_TEST", _environment_value, _platform_all,
-		"A party step once the menus are up, for tests: \"create\" or\n"
-		"\"join:<code>\". Leave it empty for none." },
+		"Party steps once the menus are up, one after another, separated by\n"
+		"commas, for tests: \"create\", \"join:<code>\", \"invite:<handle>\"\n"
+		"(FRIENDS' INVITE TO PARTY), or another action. Leave it empty for none." },
 	{ "debug.delta_test", _config_string, "\"\"", "HALO_DELTA_TEST", _environment_value, _platform_all,
 		"Buttons pressed in DELTA once debug.delta_open opened it, one at a time,\n"
 		"separated by ; (up, down, left, right, a, b, x, y, lb, rb), for tests.\n"

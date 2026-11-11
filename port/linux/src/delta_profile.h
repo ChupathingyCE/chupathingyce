@@ -195,6 +195,14 @@ struct delta_profile
 	/* the clan tag shows before the profile's name in games (the site's
 	show_clan_tag; known with has_privacy) */
 	int show_clan_tag;
+	/* its friends' privacy (friends.py): appearing offline, who may send
+	requests ("everyone", "friends_of_friends", "nobody"), who may join
+	("anyone", "friends", "invite") and who sees its status ("friends",
+	"friends_and_clan"); "" while the site doesn't say */
+	int appear_offline;
+	char friend_requests[24];
+	char who_can_join[24];
+	char clan_presence[24];
 	/* its clan (has_clan), and the clans that invited it */
 	int has_clan;
 	struct delta_profile_clan clan;

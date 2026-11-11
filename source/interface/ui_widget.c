@@ -3626,10 +3626,19 @@ enum
 	/* MAP BROWSER, a second copy of System Link's, under ONLINE GAMES
 	(port/xbox/game/xbox_maps_screen.c) */
 	MAP_BROWSER_POSITION = ONLINE_GAMES_POSITION + 1,
-	ONLINE_GAMES_ITEMS_ADDED = 2,
+	ONLINE_GAMES_MAP_BROWSER_ADDED = 1,
 #else
-	ONLINE_GAMES_ITEMS_ADDED = 1,
+	ONLINE_GAMES_MAP_BROWSER_ADDED = 0,
 #endif
+#ifdef HALO_GUIDE
+	/* DELTA (port/linux/game/guide.c), another copy, last: a party
+	started and friends invited from the menus */
+	DELTA_ITEM_POSITION = ONLINE_GAMES_POSITION + 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
+	ONLINE_GAMES_DELTA_ADDED = 1,
+#else
+	ONLINE_GAMES_DELTA_ADDED = 0,
+#endif
+	ONLINE_GAMES_ITEMS_ADDED = 1 + ONLINE_GAMES_MAP_BROWSER_ADDED + ONLINE_GAMES_DELTA_ADDED,
 	/* the items' spacing (their vertical offset, -33) */
 	ONLINE_GAMES_ROW = 33,
 };
@@ -3642,6 +3651,9 @@ static struct
 	boolean described;
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	boolean map_browser_described;
+#endif
+#ifdef HALO_GUIDE
+	boolean delta_described;
 #endif
 } online_games = { NONE, NONE, NULL, FALSE };
 
@@ -3684,6 +3696,9 @@ void ui_widget_online_games_tags_loaded(
 	children[ONLINE_GAMES_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	children[MAP_BROWSER_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+#endif
+#ifdef HALO_GUIDE
+	children[DELTA_ITEM_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
 #endif
 	csmemcpy(&children[ONLINE_GAMES_POSITION + ONLINE_GAMES_ITEMS_ADDED], &old_children[ONLINE_GAMES_POSITION],
 		(ONLINE_GAMES_MENU_ITEMS - ONLINE_GAMES_POSITION) * sizeof(*children));
@@ -3883,6 +3898,17 @@ boolean ui_widget_online_games_item(
 		ui_widget_list_position(widget) == ONLINE_GAMES_POSITION;
 }
 
+#ifdef HALO_GUIDE
+/* the Multiplayer menu's DELTA (a copy of System Link's item) */
+boolean ui_widget_delta_item(
+	struct widget_instance *widget)
+{
+	return online_games.list_tag != NONE && widget && widget->parent &&
+		widget->parent->definition_tag_index == online_games.list_tag &&
+		ui_widget_list_position(widget) == DELTA_ITEM_POSITION;
+}
+#endif
+
 #ifdef HALO_CONSOLE_ONLINE_GAMES
 #ifdef HALO_CONSOLE_MAP_BROWSER
 boolean ui_widget_map_browser_item(
@@ -3954,6 +3980,9 @@ short ui_widget_online_games_description(
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	online_games.map_browser_described = FALSE;
 #endif
+#ifdef HALO_GUIDE
+	online_games.delta_described = FALSE;
+#endif
 	if (online_games.list_tag == NONE || list_widget->definition_tag_index != online_games.list_tag)
 		return index;
 	if (index == ONLINE_GAMES_POSITION)
@@ -3965,6 +3994,13 @@ short ui_widget_online_games_description(
 	if (index == MAP_BROWSER_POSITION)
 	{
 		online_games.map_browser_described = TRUE;
+		return ONLINE_GAMES_SYSTEM_LINK;
+	}
+#endif
+#ifdef HALO_GUIDE
+	if (index == DELTA_ITEM_POSITION)
+	{
+		online_games.delta_described = TRUE;
 		return ONLINE_GAMES_SYSTEM_LINK;
 	}
 #endif
@@ -3997,6 +4033,18 @@ static void event_handler_dispatch(
 		browser_screen_open();
 		return;
 	}
+#ifdef HALO_GUIDE
+	/* DELTA (System Link's item copied): DELTA over the menu, on PARTY */
+	if (ui_widget_delta_item(widget) &&
+		(handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start))
+	{
+		extern void guide_open_party(void);
+
+		ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+		guide_open_party();
+		return;
+	}
+#endif
 #ifdef HALO_GAME_BROWSER
 	/* SETUP (CHANGE COLOR's row copied): the setup screen, none of CHANGE
 	COLOR's */
@@ -6107,6 +6155,12 @@ static void widget_instance_render_text_box(
 		/* (ONLINE GAMES' item and description share System Link's tags) */
 		if (ui_widget_online_games_item(widget))
 			string = L"ONLINE GAMES";
+#ifdef HALO_GUIDE
+		else if (ui_widget_delta_item(widget))
+			string = L"DELTA";
+		else if (online_games.delta_described && widget->definition_tag_index == online_games.description_text_tag)
+			string = L"Start a party, invite your \r\nfriends and bring them to \r\nyour game.";
+#endif
 #ifdef HALO_GAME_BROWSER
 		else if (ui_widget_setup_entry_item(widget))
 			string = L"SETUP";

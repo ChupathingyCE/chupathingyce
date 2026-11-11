@@ -332,8 +332,13 @@ static struct
 	int game_unlink_wanted;
 	/* the privacy settings to send (one request takes them all) */
 	int game_privacy_count;
-	char game_privacy_fields[4][16];
-	int game_privacy_values[4];
+	char game_privacy_fields[6][16];
+	int game_privacy_values[6];
+	/* the friends' privacy to send (/v1/game/friends' "privacy"): who may
+	send requests, who may join, who sees the status ("": as it is) */
+	char game_friends_requests[24];
+	char game_friends_join[24];
+	char game_friends_presence[24];
 	/* a clan request waiting (/v1/game/clan): its action and clan */
 	char game_clan_action[12];
 	int game_clan_id;
@@ -2115,8 +2120,9 @@ static void update_game_profile(void)
 {
 	static char response[GAME_PROFILE_RESPONSE];
 	static struct delta_profile read;
-	char error[256], fields[160], path[512];
+	char error[256], fields[256], path[512];
 	char clan_action[sizeof(browser.game_clan_action)];
+	char friends_requests[24], friends_join[24], friends_presence[24];
 	char clan_handle[sizeof(browser.game_clan_handle)];
 	char revoke[sizeof(browser.device_revoke)];
 	int wanted, unlink, privacy_count, status, no_key, ok, clan_id, index, sign_out;
@@ -2133,6 +2139,10 @@ static void update_game_profile(void)
 			browser.game_privacy_fields[index], browser.game_privacy_values[index] ? "true" : "false");
 	}
 	browser.game_privacy_count = 0;
+	memcpy(friends_requests, browser.game_friends_requests, sizeof(friends_requests));
+	memcpy(friends_join, browser.game_friends_join, sizeof(friends_join));
+	memcpy(friends_presence, browser.game_friends_presence, sizeof(friends_presence));
+	browser.game_friends_requests[0] = browser.game_friends_join[0] = browser.game_friends_presence[0] = 0;
 	memcpy(clan_action, browser.game_clan_action, sizeof(clan_action));
 	memcpy(clan_handle, browser.game_clan_handle, sizeof(clan_handle));
 	clan_id = browser.game_clan_id;
@@ -2232,6 +2242,48 @@ static void update_game_profile(void)
 		else
 			game_action_done(BROWSER_PROFILE_ACTION_FAILED, NOT_ANSWERING_MESSAGE);
 		pthread_mutex_unlock(&browser_lock);
+	}
+	if (friends_requests[0] || friends_join[0] || friends_presence[0])
+	{
+		char friends_fields[160];
+
+		if (social_friends_privacy_fields(friends_fields, sizeof(friends_fields), friends_requests, friends_join,
+			friends_presence) < 0)
+		{
+			status = -1;
+		}
+		else
+		{
+			status = game_request("/v1/game/friends", friends_fields, response, sizeof(response), error, sizeof(error),
+				&no_key);
+		}
+		pthread_mutex_lock(&browser_lock);
+		if (status < 0)
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, "Can't do that.");
+		else if (no_key)
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, NO_KEY_MESSAGE);
+		else if (status == 200)
+		{
+			/* (its answer is the friends' state: the choice kept as made, and
+			the profile asked for again) */
+			if (friends_requests[0])
+				snprintf(browser.game_profile.friend_requests, sizeof(browser.game_profile.friend_requests), "%s",
+					friends_requests);
+			if (friends_join[0])
+				snprintf(browser.game_profile.who_can_join, sizeof(browser.game_profile.who_can_join), "%s", friends_join);
+			if (friends_presence[0])
+				snprintf(browser.game_profile.clan_presence, sizeof(browser.game_profile.clan_presence), "%s",
+					friends_presence);
+			game_action_done(BROWSER_PROFILE_ACTION_DONE, "Saved on the site.");
+			browser.game_profile_serial++;
+			social_poll_soon(&browser.social_poll);
+		}
+		else if (status == 403)
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, "Profile locked");
+		else
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, NOT_ANSWERING_MESSAGE);
+		pthread_mutex_unlock(&browser_lock);
+		platform_log("Delta Profile: friends privacy %s", status == 200 ? "saved" : status > 0 ? "refused" : "not sent");
 	}
 	if (clan_action[0])
 	{
@@ -3546,7 +3598,16 @@ how many, never who. */
 #define SOCIAL_RESPONSE (256 * 1024)
 #define SOCIAL_NOT_ANSWERING "The site isn't answering."
 
-static const char *const social_action_names[] = { "accept", "decline", "remove", "block", "request" };
+/* the /v1/game/friends actions, by BROWSER_SOCIAL_* ("" for the others) */
+static const char *const social_action_names[NUMBER_OF_BROWSER_SOCIAL_ACTIONS] =
+{
+	"accept", "decline", "remove", "block", "request", "", "", "cancel", "unblock",
+};
+
+static int social_friends_action(int action)
+{
+	return action >= 0 && action < NUMBER_OF_BROWSER_SOCIAL_ACTIONS && social_action_names[action][0];
+}
 
 /* (under the lock) the state changed: the Guide copies it */
 static void social_status_set(int status)
@@ -3606,7 +3667,7 @@ static void social_action(int action, const char *handle, char *response, struct
 	int status, no_key, ok, parsed = 0, logged_status;
 
 	fields[0] = 0;
-	if (action >= BROWSER_SOCIAL_ACCEPT && action <= BROWSER_SOCIAL_REQUEST)
+	if (social_friends_action(action))
 	{
 		path = "/v1/game/friends";
 		ok = social_action_fields(fields, sizeof(fields), social_action_names[action], handle) >= 0;
@@ -3634,7 +3695,7 @@ static void social_action(int action, const char *handle, char *response, struct
 	}
 	response[0] = 0;
 	status = game_request(path, fields, response, SOCIAL_RESPONSE, error, sizeof(error), &no_key);
-	if (status == 200 && action <= BROWSER_SOCIAL_REQUEST)
+	if (status == 200 && social_friends_action(action))
 		parsed = delta_profile_parse_social(response, read);
 	pthread_mutex_lock(&browser_lock);
 	logged_status = browser.social_status;
@@ -3868,6 +3929,8 @@ static void update_party(void)
 		action[0] = value[0] = 0;
 	if (social_party_fields(fields, sizeof(fields), action, value, name, local_platform_name()) < 0)
 	{
+		/* (nothing sent: said, so a refusal like this is never silent) */
+		platform_log("DELTA: party %s not sent: the game can't send that", wanted ? action : "read");
 		pthread_mutex_lock(&browser_lock);
 		if (wanted)
 		{
@@ -3895,12 +3958,18 @@ static void update_party(void)
 	{
 		browser.party_result.state = parsed ? BROWSER_SOCIAL_DONE : BROWSER_SOCIAL_REFUSED;
 		snprintf(browser.party_result.message, sizeof(browser.party_result.message), "%s",
-			parsed ? "" : no_key || !status ? SOCIAL_NOT_ANSWERING : social_party_refusal(text, status));
+			parsed ? "" : no_key || !status ? SOCIAL_NOT_ANSWERING : social_party_action_refusal(action, text, status));
 	}
 	pthread_mutex_unlock(&browser_lock);
 	if (wanted || going)
 	{
-		platform_log("DELTA: party %s %s", action, parsed ? "done" : status ? "refused" : "no answer");
+		/* (the site's status and reason, never a handle or a key) */
+		if (parsed)
+			platform_log("DELTA: party %s done", action);
+		else if (status)
+			platform_log("DELTA: party %s refused (%d %s)", action, status, text[0] ? text : "no reason");
+		else
+			platform_log("DELTA: party %s no answer%s", action, no_key ? " (no player key)" : "");
 	}
 }
 
@@ -5319,7 +5388,7 @@ void browser_profile_privacy(const char *field, int value)
 
 	for (index = 0; index < browser.game_privacy_count && strcmp(browser.game_privacy_fields[index], field); index++)
 		;
-	if (index < 4)
+	if (index < 6)
 	{
 		snprintf(browser.game_privacy_fields[index], sizeof(browser.game_privacy_fields[index]), "%s", field);
 		browser.game_privacy_values[index] = value;
@@ -5328,6 +5397,24 @@ void browser_profile_privacy(const char *field, int value)
 	}
 	browser.game_action = BROWSER_PROFILE_ACTION_WORKING;
 	browser.game_message[0] = 0;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_profile_friends_privacy(const char *field, const char *value)
+{
+	char *pending;
+
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	pending = !strcmp(field, "friend_requests") ? browser.game_friends_requests :
+		!strcmp(field, "who_can_join") ? browser.game_friends_join :
+		!strcmp(field, "clan_presence") ? browser.game_friends_presence : NULL;
+	if (pending)
+	{
+		snprintf(pending, 24, "%s", value ? value : "");
+		browser.game_action = BROWSER_PROFILE_ACTION_WORKING;
+		browser.game_message[0] = 0;
+	}
 	pthread_mutex_unlock(&browser_lock);
 }
 
