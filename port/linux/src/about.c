@@ -108,6 +108,7 @@ static const struct about_entry licenses[] =
 	{ _line_text, "Kenney's Input Prompts: CC0." },
 	{ _line_text, "Controller icons (snapchipper): CC0." },
 	{ _line_text, "Platform logos: Simple Icons (CC0) and Wikimedia Commons (public domain)." },
+	{ _line_text, "BSD Daemon used with permission." },
 	{ _line_text, "SADIE II head-related impulse responses: Apache-2.0." },
 	{ _line_text, "Halo PC Restored HUD art: with Aerocatia's permission." },
 	{ _line_gap, NULL },
