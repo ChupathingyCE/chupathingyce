@@ -132,12 +132,23 @@ void ce_refusal_explain(char const *format, ...);
 whose tag cache is the Xbox's, that it needs more memory */
 void ce_refusal_explain_room(void);
 
+/* more bytes of the room the conversions take, added to *bytes as a map is
+checked: FALSE (refused, naming what) once that is more than the tag cache
+and the room above it hold, which no map that fits needs. So the count
+cannot wrap around (a block counted over and over, shared by many models or
+lightmaps), and a check of such a map stops at once */
+boolean ce_room_add(unsigned long *bytes, unsigned long more, char const *what);
+
 /* the message for a player about the map ce_map_check refused last ("" if
 it was accepted): the map, and the reason when ce_refusal_explain gave one */
 char const *ce_map_refusal_message(void);
 
 /* whether a map is being checked (ce_map_check) rather than loaded */
 boolean ce_map_checking(void);
+
+/* whether a structure BSP's reference (32 bytes, the scenario's) is one the
+map open was checked with, unchanged: a BSP loads only from one */
+boolean ce_map_bsp_reference_checked(void const *reference);
 
 /* the cache version of the map being checked or loaded (ce_map_checks.c):
 Custom Edition's (609), or Halo PC retail's (7: HaloMD's maps, played as
