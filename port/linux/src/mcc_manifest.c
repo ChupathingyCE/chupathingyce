@@ -1,12 +1,7 @@
-/* port: this file reads its JSON with GulchCE's server_json, which came
-from OpenCE after its license changed and is not ours to use; until it reads
-with our own json_reader.h, HALO_MCC_STEAM (which no build defines) leaves
-it out and these stand in */
-#ifdef HALO_MCC_STEAM
 /* CampaignMaps order is authoritative. Independently implemented from the
  * public Excession package format and locally inspected Halo 1 manifests. */
 #include "mcc_manifest.h"
-#include "server_json.h"
+#include "mcc_json.h" /* port: our own JSON lookups, json_reader.h */
 #include "posix.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,18 +73,21 @@ static char *read_relative(const char *root, const char *relative, int *length)
 	return text;
 }
 
-static int document_read(const char *root, const char *relative, struct server_json_document *document, char **text)
+/* port: (mcc_json.h) the file's text, one JSON object, and its length */
+static int document_read(const char *root, const char *relative, int *length, char **text)
 {
-	int length;
-	*text = read_relative(root, relative, &length);
+	*text = read_relative(root, relative, length);
 	if (!*text) return 0;
-	if (!server_json_parse(document, *text, length, 16)) { free(*text); *text = NULL; return 0; }
-	if (!document->count || document->tokens[0].type != _server_json_object)
-	{
-		server_json_document_free(document); free(*text); *text = NULL; return 0;
-	}
+	if (!mcc_json_valid(*text, *length)) { free(*text); *text = NULL; return 0; }
 	return 1;
 }
+
+static const char *const campaign_path[] = { "GameModContents", "HasCampaign", NULL };
+static const char *const engine_path[] = { "Engine", NULL };
+static const char *const missions_path[] = { "CampaignMaps", NULL };
+static const char *const title_path[] = { "Title", "Neutral", NULL };
+static const char *const kind_path[] = { "CampaignMapKind", NULL };
+static const char *const scenario_path[] = { "ScenarioFile", NULL };
 
 int mcc_manifest_default_kind(const char *kind)
 {
@@ -105,46 +103,47 @@ int mcc_manifest_default_kind(const char *kind)
 
 int mcc_manifest_load(const char *folder, struct mcc_manifest *manifest, char reason[128])
 {
-	struct server_json_document document;
+	struct json value;
 	char *text, paths[MCC_MANIFEST_MAXIMUM_MISSIONS][128], engine[32];
 	char found[256];
-	int maps, count, index, other, enabled = 0, token;
+	int length, count, index, other, enabled = 0;
 	memset(manifest, 0, sizeof(*manifest)); reason[0] = 0;
 	if (!posix_find_entry_case_insensitive(folder, "CampaignInfo.json", found, sizeof(found))) return 0;
 	strcpy(reason, "Invalid or incomplete Halo 1 campaign metadata.");
-	if (!document_read(folder, "ModInfo.json", &document, &text)) return -1;
-	token = server_json_member(&document, server_json_member(&document, 0, "GameModContents"), "HasCampaign");
-	server_json_get_boolean(&document, token, &enabled);
-	if (!server_json_get_string(&document, server_json_member(&document, 0, "Engine"), engine, sizeof(engine))) engine[0] = 0;
-	server_json_document_free(&document); free(text);
+	if (!document_read(folder, "ModInfo.json", &length, &text)) return -1;
+	mcc_json_boolean(text, length, campaign_path, &enabled);
+	if (!mcc_json_string(text, length, engine_path, engine, sizeof(engine))) engine[0] = 0;
+	free(text);
 	if (strcmp(engine, "Halo1") || !enabled) return -1;
-	if (!document_read(folder, "CampaignInfo.json", &document, &text)) return -1;
-	maps = server_json_member(&document, 0, "CampaignMaps");
-	count = maps >= 0 && document.tokens[maps].type == _server_json_array ? document.tokens[maps].size : 0;
-	if (count < 1 || count > MCC_MANIFEST_MAXIMUM_MISSIONS) count = 0;
-	server_json_get_string(&document, server_json_member(&document, server_json_member(&document, 0, "Title"), "Neutral"),
-		manifest->title, sizeof(manifest->title));
+	if (!document_read(folder, "CampaignInfo.json", &length, &text)) return -1;
+	/* (an element that is not a string that fits refuses the manifest, as
+	 * the loop below did one by one) */
+	count = mcc_json_strings(text, length, missions_path, paths[0], sizeof(paths[0]), sizeof(paths[0]),
+		MCC_MANIFEST_MAXIMUM_MISSIONS);
+	if (count < 1) count = count == -3 ? -1 : 0;
+	if (!mcc_json_string(text, length, title_path, manifest->title, sizeof(manifest->title)))
+		manifest->title[0] = 0;
 	for (index = 0; index < count; index++)
 	{
-		if (!server_json_get_string(&document, server_json_element(&document, maps, index), paths[index], sizeof(paths[index])) ||
-			!relative_path(paths[index])) break;
+		if (!relative_path(paths[index])) break;
 		for (other = 0; other < index; other++) if (equal(paths[other], paths[index])) break;
 		if (other != index) break;
 	}
-	server_json_document_free(&document); free(text);
-	if (!count || index != count) return -1;
+	free(text);
+	if (count <= 0 || index != count) return -1;
 	for (index = 0; index < count; index++)
 	{
 		char kind[32], scenario[256];
-		int length, valid;
+		int valid;
 		text = read_relative(folder, paths[index], &length);
 		valid = steam_workshop_read_map(text, length, &manifest->missions[index]);
-		if (!valid || !server_json_parse(&document, text, length, 16)) { free(text); break; }
-		token = server_json_member(&document, 0, "CampaignMapKind");
-		valid = token < 0 || (server_json_get_string(&document, token, kind, sizeof(kind)) && mcc_manifest_default_kind(kind));
-		valid = valid && server_json_get_string(&document, server_json_member(&document, 0, "ScenarioFile"), scenario, sizeof(scenario)) &&
+		if (!valid) { free(text); break; }
+		/* (no kind is the default; one that is there must be a string that says so) */
+		valid = !mcc_json_find(text, length, kind_path, &value) ||
+			(mcc_json_string(text, length, kind_path, kind, sizeof(kind)) && mcc_manifest_default_kind(kind));
+		valid = valid && mcc_json_string(text, length, scenario_path, scenario, sizeof(scenario)) &&
 			relative_path(scenario);
-		server_json_document_free(&document); free(text);
+		free(text);
 		if (!valid) { strcpy(reason, "Unsupported campaign mission kind or scenario path."); break; }
 		for (other = 0; other < index; other++)
 			if (equal(manifest->missions[other].name, manifest->missions[index].name)) break;
@@ -184,13 +183,3 @@ int mcc_manifest_for_level(const char *level, struct mcc_manifest *manifest, cha
 	memset(manifest, 0, sizeof(*manifest)); reason[0] = 0;
 	return mcc_manifest_package_root(level, path) ? mcc_manifest_load(path, manifest, reason) : 0;
 }
-#else
-#include "steam_workshop.h"
-#include "mcc_manifest.h"
-int mcc_manifest_default_kind(const char *kind) { (void)kind; return 0; }
-int mcc_manifest_load(const char *folder, struct mcc_manifest *manifest, char reason[128])
-{ (void)folder; (void)manifest; if (reason) reason[0] = 0; return 0; }
-int mcc_manifest_for_level(const char *level, struct mcc_manifest *manifest, char reason[128])
-{ (void)level; (void)manifest; if (reason) reason[0] = 0; return 0; }
-int mcc_manifest_package_root(const char *level, char path[1024]) { (void)level; (void)path; return 0; }
-#endif

@@ -1386,7 +1386,7 @@ static const struct config_setting config_settings[] =
 		"progression. Reopen the map list after changing this." },
 	{ "game.workshop_maps", _config_boolean, "false", "HALO_WORKSHOP_MAPS", _environment_value, _platform_desktop,
 		"Discover installed Halo CE Steam Workshop maps. Read-only desktop\n"
-		"discovery; manually installed mcc_maps packages always remain available." },
+		"discovery; packages installed in maps_mcc are always read." },
 	{ "game.mcc_collections", _config_boolean, "false", "HALO_MCC_COLLECTIONS", _environment_value, _platform_all,
 		"Group identified MCC packages into the bundled Workshop collections.\n"
 		"Works with imported packages without Steam; reopen the map list after changing." },

@@ -1,8 +1,3 @@
-/* port: this file reads its JSON with GulchCE's server_json, which came
-from OpenCE after its license changed and is not ours to use; until it reads
-with our own json_reader.h, HALO_MCC_STEAM (which no build defines) leaves
-it out and these stand in */
-#ifdef HALO_MCC_STEAM
 /*
 STEAM_WORKSHOP.C
 
@@ -11,7 +6,7 @@ The subscribed Steam Workshop items' Halo CE maps, found in place (steam_worksho
 
 #include "steam_workshop.h"
 #include "mcc_manifest.h"
-#include "server_json.h"
+#include "mcc_json.h" /* port: our own JSON lookups, json_reader.h */
 #include "port_config.h"
 #include "posix.h"
 
@@ -57,18 +52,19 @@ static void copy_text(char *out, unsigned size, const char *text)
 	out[length] = 0;
 }
 
-static int parse(struct server_json_document *document, const char *text, int length)
+/* port: (mcc_json.h) a document of a size read, and one JSON object */
+static int parse(const char *text, int length)
 {
-	if (!text || length <= 0 || length > STEAM_WORKSHOP_MAXIMUM_JSON ||
-		!server_json_parse(document, text, length, 16))
-		return 0;
-	if (document->count < 1 || document->tokens[0].type != _server_json_object)
-	{
-		server_json_document_free(document);
-		return 0;
-	}
-	return 1;
+	return text && length > 0 && length <= STEAM_WORKSHOP_MAXIMUM_JSON && mcc_json_valid(text, length);
 }
+
+static const char *const title_path[] = { "Title", "Neutral", NULL };
+static const char *const engine_path[] = { "Engine", NULL };
+static const char *const campaign_path[] = { "GameModContents", "HasCampaign", NULL };
+static const char *const maps_path[] = { "GameModContents", "MultiplayerMaps", NULL };
+static const char *const scenario_path[] = { "ScenarioFile", NULL };
+static const char *const thumbnail_path[] = { "Images", "Thumbnail", NULL };
+static const char *const large_path[] = { "Images", "Large", NULL };
 
 /* a plain item-relative path: not empty, not absolute or drive-lettered, no "..", no control characters */
 static int path_is_plain(const char *path)
@@ -94,50 +90,46 @@ static void slashes(char *path)
 	}
 }
 
-static void neutral_title(struct server_json_document const *document, char *out)
+static void neutral_title(const char *document, int length, char *out)
 {
 	char text[256];
 
 	out[0] = 0;
-	if (server_json_get_string(document, server_json_member(document, server_json_member(document, 0, "Title"),
-		"Neutral"), text, (int)sizeof(text)))
+	if (mcc_json_string(document, length, title_path, text, sizeof(text)))
 		copy_text(out, STEAM_WORKSHOP_TITLE_SIZE, text);
 }
 
 int steam_workshop_read_item(const char *text, int length, struct steam_workshop_item_text *item)
 {
-	struct server_json_document document;
 	char engine[32];
-	int maps, index, count;
+	struct json found;
+	int index, count;
 
 	memset(item, 0, sizeof(*item));
-	if (!parse(&document, text, length))
+	if (!parse(text, length))
 		return 0;
-	neutral_title(&document, item->title);
-	if (server_json_get_string(&document, server_json_member(&document, 0, "Engine"), engine, (int)sizeof(engine)))
+	neutral_title(text, length, item->title);
+	if (mcc_json_string(text, length, engine_path, engine, sizeof(engine)))
 		item->halo1 = !strcmp(engine, "Halo1");
-	server_json_get_boolean(&document, server_json_member(&document,
-		server_json_member(&document, 0, "GameModContents"), "HasCampaign"), &item->has_campaign);
-	maps = server_json_member(&document, server_json_member(&document, 0, "GameModContents"), "MultiplayerMaps");
-	if (maps >= 0)
+	mcc_json_boolean(text, length, campaign_path, &item->has_campaign);
+	if (mcc_json_find(text, length, maps_path, &found))
 	{
-		if (document.tokens[maps].type != _server_json_array || document.tokens[maps].size > STEAM_WORKSHOP_MAXIMUM_ITEM_MAPS)
+		count = mcc_json_strings(text, length, maps_path, item->map_json[0], sizeof(item->map_json[0]),
+			sizeof(item->map_json[0]), STEAM_WORKSHOP_MAXIMUM_ITEM_MAPS);
+		if (count == -2 && item->halo1)
+			fprintf(stderr, "MCC package '%s': MultiplayerMaps has %d entries; the supported limit is %d. Split the collection into smaller packages.\n",
+				item->title, mcc_json_count(text, length, maps_path), STEAM_WORKSHOP_MAXIMUM_ITEM_MAPS);
+		if (count < 0)
 		{
-			if (item->halo1 && document.tokens[maps].type == _server_json_array)
-				fprintf(stderr, "MCC package '%s': MultiplayerMaps has %d entries; the supported limit is %d. Split the collection into smaller packages.\n",
-					item->title, document.tokens[maps].size, STEAM_WORKSHOP_MAXIMUM_ITEM_MAPS);
-			server_json_document_free(&document);
+			memset(item, 0, sizeof(*item));
 			return 0;
 		}
-		count = document.tokens[maps].size;
 		for (index = 0; index < count; index++)
 		{
 			char *path = item->map_json[index];
 
-			if (!server_json_get_string(&document, server_json_element(&document, maps, index), path,
-				(int)sizeof(item->map_json[0])) || !path_is_plain(path))
+			if (!path_is_plain(path))
 			{
-				server_json_document_free(&document);
 				memset(item, 0, sizeof(*item));
 				return 0;
 			}
@@ -145,26 +137,20 @@ int steam_workshop_read_item(const char *text, int length, struct steam_workshop
 		}
 		item->map_count = count;
 	}
-	server_json_document_free(&document);
 	return 1;
 }
 
 int steam_workshop_read_map(const char *text, int length, struct steam_workshop_map_text *map)
 {
-	struct server_json_document document;
 	char scenario[256], thumbnail[128];
 	const char *name, *c;
 	unsigned name_length;
 
 	memset(map, 0, sizeof(*map));
-	if (!parse(&document, text, length))
+	if (!parse(text, length))
 		return 0;
-	if (!server_json_get_string(&document, server_json_member(&document, 0, "ScenarioFile"), scenario,
-		(int)sizeof(scenario)))
-	{
-		server_json_document_free(&document);
+	if (!mcc_json_string(text, length, scenario_path, scenario, sizeof(scenario)))
 		return 0;
-	}
 	name = scenario;
 	for (c = scenario; *c; c++)
 	{
@@ -179,7 +165,6 @@ int steam_workshop_read_map(const char *text, int length, struct steam_workshop_
 	}
 	if (!name[0] || *c || strlen(name) >= sizeof(map->name) || !strcmp(name, ".") || !strcmp(name, ".."))
 	{
-		server_json_document_free(&document);
 		memset(map, 0, sizeof(*map));
 		return 0;
 	}
@@ -188,20 +173,17 @@ int steam_workshop_read_map(const char *text, int length, struct steam_workshop_
 	name_length = (unsigned)strlen(map->name);
 	if (name_length > 4 && !strcmp(map->name + name_length - 4, ".map"))
 		map->name[name_length - 4] = 0;
-	neutral_title(&document, map->title);
-	if (server_json_get_string(&document, server_json_member(&document, server_json_member(&document, 0, "Images"),
-		"Thumbnail"), thumbnail, (int)sizeof(thumbnail)) && path_is_plain(thumbnail))
+	neutral_title(text, length, map->title);
+	if (mcc_json_string(text, length, thumbnail_path, thumbnail, sizeof(thumbnail)) && path_is_plain(thumbnail))
 	{
 		slashes(thumbnail);
 		strcpy(map->thumbnail, thumbnail);
 	}
-	if (server_json_get_string(&document, server_json_member(&document, server_json_member(&document, 0, "Images"),
-		"Large"), thumbnail, (int)sizeof(thumbnail)) && path_is_plain(thumbnail))
+	if (mcc_json_string(text, length, large_path, thumbnail, sizeof(thumbnail)) && path_is_plain(thumbnail))
 	{
 		slashes(thumbnail);
 		strcpy(map->large, thumbnail);
 	}
-	server_json_document_free(&document);
 	return 1;
 }
 
@@ -665,21 +647,3 @@ int steam_workshop_item_title(const char *item_id, char *title, unsigned long si
 	copy_text(title, (unsigned)size, map->item_title);
 	return 1;
 }
-#else
-#include "steam_workshop.h"
-int steam_workshop_read_item(const char *text, int length, struct steam_workshop_item_text *item)
-{ (void)text; (void)length; (void)item; return 0; }
-int steam_workshop_read_map(const char *text, int length, struct steam_workshop_map_text *map)
-{ (void)text; (void)length; (void)map; return 0; }
-int steam_workshop_read_libraries(const char *text, int length, char (*paths)[STEAM_WORKSHOP_PATH_SIZE], int maximum)
-{ (void)text; (void)length; (void)paths; (void)maximum; return 0; }
-int steam_workshop_scan(void) { return 0; }
-int steam_workshop_count(void) { return 0; }
-const struct steam_workshop_map *steam_workshop_map(int index) { (void)index; return (void *)0; }
-int steam_workshop_package_folder(const char *item_id, char *folder, unsigned long size)
-{ (void)item_id; (void)folder; (void)size; return 0; }
-int steam_workshop_resource_path(const char *request, const char *data_root, char *path, unsigned long size)
-{ (void)request; (void)data_root; (void)path; (void)size; return 0; }
-int steam_workshop_item_title(const char *item_id, char *title, unsigned long size)
-{ (void)item_id; (void)title; (void)size; return 0; }
-#endif
