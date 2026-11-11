@@ -312,19 +312,15 @@ def test_long_tag_names(built, tmp_path):
 
 
 def test_tags_checked_again_as_they_load(built, tmp_path):
-    """a damage effect laid over the scenario's scripts' syntax, so that the
-    function field the conversions make valid (ce_functions.c) is the syntax
-    data array's element size, which it zeroes: what the game reads of the
-    tags trusting the checks is checked again once they have loaded, and the
-    map refused"""
+    """a map whose tags the conversions change after they were checked: what
+    the game reads of them trusting the checks is checked again once they have
+    loaded, and the map refused"""
     binaries, _ = built
     base = TAG_CACHE["ce"]
     data = bytearray(ce_map(sound=[(1, 36, 0, 0x800)]))
     instances = struct.unpack_from("<I", data, 0x800)[0] - base
     scenario = struct.unpack_from("<I", data, 0x800 + instances + 0x14)[0] - base
     syntax = struct.unpack_from("<I", data, 0x800 + scenario + 0x474 + 12)[0]
-    # (the sound's tag made a damage effect, its screen flash's fade, 0x38 in,
-    # the syntax's element size, 0x22 in)
     data[0x800 + instances + 0x40:0x800 + instances + 0x44] = b"!tpj"
     struct.pack_into("<I", data, 0x800 + instances + 0x40 + 0x14, syntax + 0x22 - 0x38)
     path = tmp_path / "damage_over_scripts.map"
