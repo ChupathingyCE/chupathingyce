@@ -69,4 +69,26 @@ stick): the press opens nothing and leaves no tap, until it is let go.
 Called before delta_back_hold_step, each read it is taken */
 void delta_back_hold_cancel(struct delta_back_hold *hold);
 
+/* ---------- the hint on reaching the main menu (with delta.menu_item off):
+"Press F3 for the Delta Guide" (its line: friends, party and settings), by the
+device used last, the first
+DELTA_HINT_TIMES times the main menu is reached (delta.hint_shown counts) */
+
+enum
+{
+	DELTA_HINT_TIMES = 3,
+};
+
+/* whether it shows now: fewer than DELTA_HINT_TIMES shown, and no DELTA row
+in the menus */
+int delta_hint_due(int shown, int menu_item);
+/* its title: with a pad used last, "Hold Back for the Delta Guide" (delta.hold_back
+on), else "Press the Guide button" (delta.delta_button on), else the
+keyboard's "Press F3 for the Delta Guide"; key is the
+keyboard's key as its prompts show it (F3, or \ on a Mac) */
+void delta_hint_text(char *text, int size, int pad, const char *key, int guide_button, int hold_back);
+/* the same for a Mac (apple), where macOS often keeps the controller's Home
+button: Hold Back, else the keyboard's key, never Guide */
+void delta_hint_text_for(char *text, int size, int pad, const char *key, int guide_button, int hold_back, int apple);
+
 #endif
