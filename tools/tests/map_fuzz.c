@@ -432,6 +432,10 @@ void xbox_address_out_of_range(void const *pointer)
 	abort();
 }
 
+/* (not traced for coverage: HaloMD's tags are found in the resource maps by
+their paths, thousands of comparisons a run, which tracing made most of a
+run's time) */
+__attribute__((no_sanitize("coverage")))
 int _stricmp(char const *s1, char const *s2)
 {
 	for (;; s1++, s2++)

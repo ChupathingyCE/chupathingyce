@@ -2,14 +2,15 @@
 through the tag validator, a Custom Edition or HaloMD map through its checks
 and then its conversions, and a Custom Edition sound's Ogg Vorbis stream
 through its decoder. Each is built from the 64-bit build's own units, with
-the macOS build's flags (from build.ninja: `python3 configure.py` first) plus
-libFuzzer, AddressSanitizer and UndefinedBehaviorSanitizer (or linux64's:
-MAP_FUZZ_BUILD=linux64).
+its flags (from build.ninja: `python3 configure.py` first; the macOS build's
+on a Mac, linux64's elsewhere, or MAP_FUZZ_BUILD's) plus libFuzzer,
+AddressSanitizer and UndefinedBehaviorSanitizer.
 
 As a test (pytest), each target runs on maps made here (small, whole, of no
 game's data) and on the inputs in tools/tests/map_fuzz_regressions, then for
 a bounded number of runs from them. Where clang has no libFuzzer, the tests
-are skipped.
+are skipped (they fail where HALO_SANITIZERS_REQUIRED=1, as in CI:
+tools/fuzz_support.py).
 
 For longer runs, on the maps in assets/ (read in place, inflated into a
 scratch folder, never copied into the repository):
@@ -26,7 +27,6 @@ tools/tests/map_fuzz_regressions only if it holds no game's data.
 
 import argparse
 import os
-import shutil
 import struct
 import subprocess
 import sys
@@ -52,10 +52,11 @@ except ImportError:
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from tools import fuzz_support  # noqa: E402
 from tools.test_network_messages import compile_command, object_command  # noqa: E402
 
 # the build whose units and flags are used (ninja macos, or linux64)
-BUILD = os.environ.get("MAP_FUZZ_BUILD", "macos")
+BUILD = os.environ.get("MAP_FUZZ_BUILD", "macos" if sys.platform == "darwin" else "linux64")
 HARNESS = ROOT / "tools" / "tests" / "map_fuzz.c"
 REGRESSIONS = ROOT / "tools" / "tests" / "map_fuzz_regressions"
 SANITIZE = ["-DXBOX_ADDRESS_SPACE_BASE=0x300000000000ULL", "-fsanitize=fuzzer-no-link,address,undefined", "-fno-sanitize-recover=all", "-fno-sanitize=alignment,float-cast-overflow", "-fno-omit-frame-pointer",
@@ -84,23 +85,10 @@ TARGETS = {
 }
 
 
-def libfuzzer_compiler(directory):
-    """a clang that links -fsanitize=fuzzer (Apple's does not ship it;
-    Homebrew's LLVM does)"""
-    candidates = [os.environ.get("MAP_FUZZ_CC"), "/opt/homebrew/opt/llvm/bin/clang", "/usr/local/opt/llvm/bin/clang",
-                  "clang"]
-    probe = Path(directory) / "probe.c"
-    probe.write_text("int LLVMFuzzerTestOneInput(const unsigned char *d, unsigned long s)"
-                     " { (void)d; (void)s; return 0; }\n")
-    for candidate in candidates:
-        path = candidate and shutil.which(candidate)
-        if not path:
-            continue
-        result = subprocess.run([path, "-fsanitize=fuzzer", str(probe), "-o", str(Path(directory) / "probe")],
-                                capture_output=True)
-        if result.returncode == 0:
-            return path
-    return None
+def libfuzzer_compiler(directory=None):
+    """a clang that links libFuzzer with the sanitizers (Apple's does not
+    ship it; Homebrew's LLVM and Linux's clang with its runtimes do)"""
+    return fuzz_support.libfuzzer_compiler(os.environ.get("MAP_FUZZ_CC"))
 
 
 def build(target, directory, cc):
@@ -256,9 +244,9 @@ def built(tmp_path_factory):
     directory = tmp_path_factory.mktemp("map_fuzz")
     cc = libfuzzer_compiler(directory)
     if not cc:
-        pytest.skip("no clang with libFuzzer")
+        fuzz_support.skip("no clang with libFuzzer")
     if not (ROOT / "build.ninja").is_file():
-        pytest.skip("needs python3 configure.py")
+        fuzz_support.skip("needs python3 configure.py")
     return {target: build(target, directory, cc) for target in TARGETS}, directory
 
 
