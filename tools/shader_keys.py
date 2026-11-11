@@ -17,8 +17,8 @@ for all the maps. The keys are the translators' input, so one run (OpenGL,
 any machine) makes the list for every renderer and platform; compiled
 shaders can't be shipped, each driver makes its own.
 
-Maps come only from a data root of links (~/halo-maps/new-data-root.sh on
-the Mac, ~/emulators/new-data-root.sh on boogerflix-1); never copies. Saves
+Maps come only from a data root of links, made by the script that
+HALO_DATA_ROOT_SCRIPT names (it takes the folder to make); never copies. Saves
 and settings go to a scratch folder, never the player's. On Linux without a
 display, Xvfb is started (--display). The list's format is in
 port/assets/shaders/README.md.
@@ -36,7 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 STOCK = ROOT / "port" / "assets" / "shaders" / "stock.keys"
 HEADER = "chupathingy shader keys 1"
-DATA_ROOT_SCRIPTS = [Path.home() / "halo-maps" / "new-data-root.sh", Path.home() / "emulators" / "new-data-root.sh"]
+DATA_ROOT_SCRIPT = os.environ.get("HALO_DATA_ROOT_SCRIPT", "")
 CAMPAIGN = re.compile(r"[a-d]\d\d")
 # the maps' files a stock install has that are not played
 NOT_PLAYED = {"fallback_ui"}
@@ -133,9 +133,9 @@ def stage(build, scratch):
 
 def record(args):
     build = Path(args.build).resolve()
-    script = next((path for path in DATA_ROOT_SCRIPTS if path.exists()), None)
-    if not script:
-        sys.exit("no new-data-root.sh in ~/halo-maps or ~/emulators: maps are only used through one")
+    script = Path(DATA_ROOT_SCRIPT).expanduser() if DATA_ROOT_SCRIPT else None
+    if not script or not script.exists():
+        sys.exit("set HALO_DATA_ROOT_SCRIPT to a script that makes a data root of links to your maps: maps are only used through one")
     scratch = Path(tempfile.mkdtemp(prefix="shader-keys-", dir=args.scratch))
     xvfb = None
     try:

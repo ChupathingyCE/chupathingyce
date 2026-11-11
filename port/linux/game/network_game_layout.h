@@ -4,9 +4,9 @@ NETWORK_GAME_LAYOUT.H
 The game settings record (struct network_game, source/networking/
 network_game_manager.h) between the PC builds' layout (128 machines, 128
 players: 13,120 bytes) and the console's (16 and 16: 1,920 bytes), byte for
-byte (docs/cross-play.md). The record is slot-indexed: machines[i] is the
-machine in slot i (its machine_index, i, or NONE), players[i] the player in
-slot i (player_list_index i, or NONE). Folding to fewer slots is exact only
+byte. The record is slot-indexed: machines[i] is the machine in slot i
+(its machine_index, i, or NONE), players[i] the player in slot i
+(player_list_index i, or NONE). Folding to fewer slots is exact only
 while every used slot, and every index a used entry names, fits; else it
 fails and nothing is guessed. Widening fills the new slots as the game
 leaves an empty one (network_game_invalidate_player).

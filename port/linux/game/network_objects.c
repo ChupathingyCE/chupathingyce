@@ -531,8 +531,8 @@ static struct
 indices this machine was told of, against its smaller object array. A PC
 host's indices run to 8,192: one at LOCAL_OBJECTS_FIRST_INDEX or above
 takes the place of this machine's own (a projectile, an effect), one past
-MAXIMUM_TRACKED_OBJECTS is not made here at all (docs/cross-play.md, "Object
-slots"). Logged as the highest grows past each 256, and for each game */
+MAXIMUM_TRACKED_OBJECTS is not made here at all. Logged as the highest
+grows past each 256, and for each game */
 static struct
 {
 	long highest;
