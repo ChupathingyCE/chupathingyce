@@ -1436,12 +1436,25 @@ void lights_preprocess_scene(
 							definition->flags,
 							_light_definition_is_first_person_flashlight_bit))
 						{
+							real_point3d unit_position = light_parameters.position;
+							real_vector3d unit_forward = light_parameters.forward;
+
 							first_person_weapon_center_flashlight(
 								light->object_index,
 								&light_parameters.position,
 								&light_parameters.forward,
 								&light_parameters.up);
 							adjusted = TRUE;
+							/* port: no first-person weapon put it on its
+							flashlight marker (empty-handed, a flag, the
+							oddball): turned with the view drawn between
+							the ticks (render_interpolation.c) */
+							if (!memcmp(&unit_position, &light_parameters.position, sizeof(unit_position)) &&
+								!memcmp(&unit_forward, &light_parameters.forward, sizeof(unit_forward)))
+							{
+								render_interpolation_view_turn(light->object_index,
+									&light_parameters.position, &light_parameters.forward, &light_parameters.up);
+							}
 						}
 						else if (object->object.type == _object_type_weapon
 							&& object->object.parent_object_index != NONE)
