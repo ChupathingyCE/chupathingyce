@@ -177,6 +177,15 @@ on (ce_refusal_explain), and the message the game shows */
 static char ce_explanation[192];
 static char ce_message[320];
 static boolean ce_checking;
+/* the scenario's structure BSPs' references as the map open was checked
+(ce_bsps_check), and those of the map being checked: a BSP loads only from
+one of the first (ce_map_bsp_reference_checked). Its tags' conversions write
+in place as the map loads, and a block that lies over a reference could
+otherwise move a BSP's read to bytes, or to memory, nothing checked */
+static struct ce_bsp_reference ce_checked_bsps[CE_MAXIMUM_BSPS];
+static long ce_checked_bsp_count;
+static struct ce_bsp_reference ce_checking_bsps[CE_MAXIMUM_BSPS];
+static long ce_checking_bsp_count;
 
 long ce_map_cache_version = CE_CACHE_VERSION_CUSTOM_EDITION;
 
@@ -473,6 +482,7 @@ static boolean ce_bsps_check(
 			return ce_refuse("structure BSP %ld could not be read", index);
 		if (bytes > *bsp_bytes)
 			*bsp_bytes = bytes;
+		ce_checking_bsps[ce_checking_bsp_count++] = reference;
 	}
 	return TRUE;
 }
@@ -749,6 +759,22 @@ char const *ce_image_tag_name(
 	return name ? name : "<unnamed>";
 }
 
+boolean ce_room_add(
+	unsigned long *bytes,
+	unsigned long more,
+	char const *what)
+{
+	unsigned long limit = CE_IMAGE_TAG_CACHE_SIZE + CE_CONVERSION_ROOM;
+
+	if (more > limit || *bytes > limit - more)
+	{
+		ce_refusal_explain_room();
+		return ce_refuse("%s need more than the tag cache's %lu bytes", what, limit);
+	}
+	*bytes += more;
+	return TRUE;
+}
+
 boolean ce_refuse(
 	char const *format,
 	...)
@@ -895,6 +921,7 @@ boolean ce_map_check(
 	ce_explanation[0] = 0;
 	ce_message[0] = 0;
 	ce_checking = TRUE;
+	ce_checking_bsp_count = 0;
 	if (file_size == INVALID_FILE_SIZE || file_size_high || file_size > CE_MAXIMUM_FILE_SIZE)
 		valid = ce_refuse("its size could not be read, or is over 2 GB");
 	else if (file_length < CE_HEADER_SIZE || (unsigned long)file_length > file_size)
@@ -926,6 +953,9 @@ boolean ce_map_check(
 	}
 	else
 	{
+		/* (the map that passed is the one opened: cache_files_windows.c) */
+		memcpy(ce_checked_bsps, ce_checking_bsps, sizeof(ce_checked_bsps));
+		ce_checked_bsp_count = ce_checking_bsp_count;
 		error(_error_silent, "%s map %s: checked (%lu ms)", family, map_name, system_milliseconds() - started);
 	}
 	return valid;
@@ -997,6 +1027,29 @@ boolean ce_map_check_loaded(
 			family, ce_map_file_name_length(map_name), map_name);
 	}
 	return valid;
+}
+
+/* whether a structure BSP's reference (the scenario's, as a BSP loads:
+cache_files.c) is one the map open was checked with, unchanged: its place
+in the file, its size, where it loads and its tag */
+boolean ce_map_bsp_reference_checked(
+	void const *reference)
+{
+	struct ce_bsp_reference loading;
+	long index;
+
+	memcpy(&loading, reference, sizeof(loading));
+	for (index = 0; index < ce_checked_bsp_count; index++)
+	{
+		struct ce_bsp_reference const *checked = &ce_checked_bsps[index];
+
+		if (loading.file_offset == checked->file_offset && loading.file_size == checked->file_size &&
+			loading.base_address == checked->base_address && loading.tag_index == checked->tag_index)
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 #endif

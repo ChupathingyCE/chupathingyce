@@ -1833,6 +1833,15 @@ long scenario_tags_load(
 				/* (the BSPs' window made, and the room below what isn't memory) */
 				end_free = platform_ce_room_end(end_free);
 #endif
+				/* (its scenario given the scenario's group first, as it was
+				when it was checked: port/linux/game/ce_repairs.c) */
+				{
+					extern void ce_repairs_scenario_loaded(void *tag_instances, long tag_count,
+						unsigned long scenario_tag_index);
+
+					ce_repairs_scenario_loaded(global_tag_instances, ce_header->tag_count,
+						ce_header->scenario_tag_index);
+				}
 				if (!ce_resources_tags_loaded(global_tag_instances, ce_header->tag_count,
 					CE_TAG_CACHE_BASE + cache_file_globals.header.tag_data_size, end_free))
 				{
@@ -2121,6 +2130,23 @@ boolean scenario_structure_bsp_load(
 	{
 		return FALSE;
 	}
+#ifdef HALO_CUSTOM_EDITION
+	/* port: and a Custom Edition map's only as it was checked: the
+	conversions of its tags as they loaded wrote in place, and one whose
+	block lay over the reference could have moved the BSP's read to bytes,
+	or memory, that nothing checked */
+	if (cache_file_is_ce)
+	{
+		extern boolean ce_map_bsp_reference_checked(void const *reference);
+
+		if (!ce_map_bsp_reference_checked(reference))
+		{
+			error(_error_silent, "Custom Edition map: structure BSP %08lx is not where it was checked; it is not loaded",
+				(unsigned long)reference->structure_bsp.index);
+			return FALSE;
+		}
+	}
+#endif
 
 	tag_cache_base_address = physical_memory_get_tag_cache_base_address();
 #ifdef HALO_CUSTOM_EDITION
