@@ -869,6 +869,22 @@ static const struct config_setting config_settings[] =
 		"Off by default: the Xbox's Back acts on press." },
 	{ "delta.pause_menu", _config_boolean, "true", "HALO_DELTA_PAUSE_MENU", _environment_value, _platform_all,
 		"Put DELTA in the pause menu, in every menu set." },
+#ifdef HALO_ANDROID
+	/* (a touch screen has no Guide button, and its controls hide in the
+	menus: the rows are the way in there) */
+	{ "delta.menu_item", _config_boolean, "true", "HALO_DELTA_MENU_ITEM", _environment_value, _platform_all,
+		"Put the Delta Guide on the main menu and the Multiplayer menu, in\n"
+		"every menu set. On by default on Android, where a touch screen has no\n"
+		"Guide button. Takes effect the next time the menus load." },
+#else
+	{ "delta.menu_item", _config_boolean, "false", "HALO_DELTA_MENU_ITEM", _environment_value, _platform_all,
+		"Put the Delta Guide on the main menu and the Multiplayer menu, in\n"
+		"every menu set. Off by default: a note on the main menu says how to\n"
+		"open it. Takes effect the next time the menus load." },
+#endif
+	{ "delta.hint_shown", _config_integer, "0", "HALO_DELTA_HINT_SHOWN", _environment_value, _platform_all,
+		"How many times the main menu has said how to open the Delta Guide\n"
+		"(it says so three times, then no more)." },
 	{ "delta.notify_in_game", _config_boolean, "false", "HALO_DELTA_NOTIFY_IN_GAME", _environment_value,
 		_platform_all,
 		"Show DELTA's notifications during a game. They always show in the\n"
@@ -1142,6 +1158,11 @@ static const struct config_setting config_settings[] =
 		"progress waits after its first player is in, so the players on its\n"
 		"other controllers can join too (split screen), from 0 to 30. It starts\n"
 		"sooner when it has four players. 0 starts it at once." },
+	{ "network.pregame_load_timeout", _config_integer, "90", "HALO_NET_PREGAME_LOAD_TIMEOUT", _environment_value,
+		_platform_all | _platform_server | _platform_xbox | _platform_console_gl,
+		"In games you host, how many seconds past the lobby's countdown a\n"
+		"machine may take to load the map before it is dropped and the game\n"
+		"starts without it, from 0 to 3600. 0 waits for ever." },
 	{ "network.coop_friendly_fire", _config_string, "\"on\"", "HALO_NET_COOP_FRIENDLY_FIRE", _environment_value,
 		_platform_all,
 		"Friendly fire in online co-op: \"off\", \"on\", \"shields_only\" or\n"
@@ -1825,6 +1846,14 @@ static const struct config_setting config_settings[] =
 		"timed part of the render. Each part's time is then what the chip spent\n"
 		"drawing it, not only the processor's share. It slows the game down.\n"
 		"Read when Chupathingy starts." },
+	{ "console.frame_overlap", _config_boolean, "false", NULL, _environment_value, _platform_console_gl,
+		"A test for the frame rate: start the next frame while the graphics\n"
+		"chip still draws this one and the screen waits to show it, as most\n"
+		"Wii U games do. A scene whose processor and chip work, one after the\n"
+		"other, take more than a sixtieth of a second can then still hold 60\n"
+		"frames a second, with the picture shown one frame later. false, the\n"
+		"default, waits for each frame to be on the screen before the next\n"
+		"starts. Read when it changes." },
 	{ "console.visibility_test_runs", _config_boolean, "true", NULL, _environment_value, _platform_console_gl,
 		"Draw the lens flares' visibility tests as one run. After the first,\n"
 		"each test keeps the first one's state and is only a query and a draw\n"
@@ -2423,21 +2452,26 @@ static void config_append_setting(struct config_text *text, const struct config_
 		if (*line)
 			line++;
 	}
-#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
-	/* (Android apps and the console have no environment to set) */
-	switch (setting->environment_style)
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_WIIU_CONSOLE) && \
+	!defined(HALO_XBOX360_CONSOLE)
+	/* (Android apps and the consoles have no environment to set, and a
+	setting without a variable has no line) */
+	if (setting->environment)
 	{
-	case _environment_value:
-		snprintf(buffer, sizeof(buffer), "# (one run: %s=<value>)\n", setting->environment);
-		break;
-	case _environment_set_is_true:
-		snprintf(buffer, sizeof(buffer), "# (one run: %s=1 turns it on)\n", setting->environment);
-		break;
-	case _environment_set_is_false:
-		snprintf(buffer, sizeof(buffer), "# (one run: %s=1 turns it off)\n", setting->environment);
-		break;
+		switch (setting->environment_style)
+		{
+		case _environment_value:
+			snprintf(buffer, sizeof(buffer), "# (one run: %s=<value>)\n", setting->environment);
+			break;
+		case _environment_set_is_true:
+			snprintf(buffer, sizeof(buffer), "# (one run: %s=1 turns it on)\n", setting->environment);
+			break;
+		case _environment_set_is_false:
+			snprintf(buffer, sizeof(buffer), "# (one run: %s=1 turns it off)\n", setting->environment);
+			break;
+		}
+		config_append(text, buffer);
 	}
-	config_append(text, buffer);
 #endif
 	snprintf(buffer, sizeof(buffer), "# %s = %s\n", dot + 1, setting->default_value);
 	config_append(text, buffer);
