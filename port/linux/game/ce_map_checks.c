@@ -172,11 +172,29 @@ boolean ce_repairs_scenario_group(void *tag_instances, long tag_count, unsigned 
 /* ---------- globals */
 
 static char ce_refusal[256];
+/* the tag header and tag index no conversion writes over (ce_tags_guard_begin),
+and whether one conversion logged what it passed over */
+static struct
+{
+	byte const *header;
+	byte const *instances;
+	unsigned long instances_size;
+	boolean logged;
+} ce_guard;
 /* the reason in a player's words, when the refusal is one a player can act
 on (ce_refusal_explain), and the message the game shows */
 static char ce_explanation[192];
 static char ce_message[320];
 static boolean ce_checking;
+/* the scenario's structure BSPs' references as the map open was checked
+(ce_bsps_check), and those of the map being checked: a BSP loads only from
+one of the first (ce_map_bsp_reference_checked). Its tags' conversions write
+in place as the map loads, and a block that lies over a reference could
+otherwise move a BSP's read to bytes, or to memory, nothing checked */
+static struct ce_bsp_reference ce_checked_bsps[CE_MAXIMUM_BSPS];
+static long ce_checked_bsp_count;
+static struct ce_bsp_reference ce_checking_bsps[CE_MAXIMUM_BSPS];
+static long ce_checking_bsp_count;
 
 long ce_map_cache_version = CE_CACHE_VERSION_CUSTOM_EDITION;
 
@@ -473,6 +491,7 @@ static boolean ce_bsps_check(
 			return ce_refuse("structure BSP %ld could not be read", index);
 		if (bytes > *bsp_bytes)
 			*bsp_bytes = bytes;
+		ce_checking_bsps[ce_checking_bsp_count++] = reference;
 	}
 	return TRUE;
 }
@@ -558,6 +577,9 @@ static boolean ce_map_check_tags(
 	}
 	if (!ce_tag_index_check(&image, instances, tag_count))
 		goto done;
+	/* (what the checks repair, as loading does, writes nothing over the tag
+	header or tag index, which they read on from: ce_tags_writable) */
+	ce_tags_guard_begin(image.data, instances, tag_count);
 	/* (a protected map's scenario may have another group: ce_repairs.c) */
 	ce_repairs_scenario_group(instances, tag_count, header.scenario_tag_index);
 	scenario_instance = ce_tag_instance_get(instances, tag_count, header.scenario_tag_index);
@@ -653,6 +675,7 @@ static boolean ce_map_check_tags(
 		ce_animations_check(&tags, instances, tag_count) && ce_weapons_check(&tags, instances, tag_count);
 
 done:
+	ce_tags_guard_end();
 	ce_model_data_end(&models);
 	if (model_data)
 		free(model_data);
@@ -747,6 +770,189 @@ char const *ce_image_tag_name(
 
 	/* (checked to be terminated: ce_tag_index_check) */
 	return name ? name : "<unnamed>";
+}
+
+/* the loaded map's tags: where they end, and the blocks of tag data the
+conversions placed past them (ce_loaded_tags_add: the most a map's button
+icons take, four allocations for each of four bitmaps) */
+enum
+{
+	CE_LOADED_MAXIMUM_PLACED = 32,
+};
+
+static struct
+{
+	unsigned long end;
+	/* the lowest of its BSPs, as it loads (cache_files.c): where its BSPs
+	begin, which ce_loaded_bsp_pointer reads from (on a 64 MB console the
+	BSPs' window, with a megabyte that is no memory below it) */
+	unsigned long bsp_low;
+	long placed_count;
+	unsigned long placed[CE_LOADED_MAXIMUM_PLACED][2];
+} ce_loaded_tags;
+
+void ce_loaded_tags_end(
+	unsigned long end)
+{
+	ce_loaded_tags.end = end;
+	if (!end)
+		ce_loaded_tags.placed_count = 0;
+}
+
+void ce_loaded_bsps_low(
+	unsigned long bsp_low)
+{
+	ce_loaded_tags.bsp_low = bsp_low;
+}
+
+void ce_loaded_tags_add(
+	unsigned long address,
+	unsigned long size)
+{
+	if (address && ce_loaded_tags.placed_count < CE_LOADED_MAXIMUM_PLACED)
+	{
+		ce_loaded_tags.placed[ce_loaded_tags.placed_count][0] = address;
+		ce_loaded_tags.placed[ce_loaded_tags.placed_count][1] = size;
+		ce_loaded_tags.placed_count++;
+	}
+}
+
+void *ce_loaded_pointer(
+	unsigned long address,
+	unsigned long size)
+{
+	long index;
+
+	if (address >= CE_IMAGE_TAG_CACHE_BASE && ce_loaded_tags.end > CE_IMAGE_TAG_CACHE_BASE &&
+		ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, size, ce_loaded_tags.end - CE_IMAGE_TAG_CACHE_BASE))
+	{
+		return xbox_pointer(address);
+	}
+	for (index = 0; index < ce_loaded_tags.placed_count; index++)
+	{
+		unsigned long base = ce_loaded_tags.placed[index][0];
+
+		if (address >= base && ce_range_within(address - base, size, ce_loaded_tags.placed[index][1]))
+			return xbox_pointer(address);
+	}
+	return NULL;
+}
+
+void *ce_loaded_bsp_pointer(
+	unsigned long address,
+	unsigned long size)
+{
+	unsigned long end = CE_IMAGE_TAG_CACHE_BASE + CE_IMAGE_TAG_CACHE_SIZE;
+
+	/* (from the lowest BSP up: the top of the tag cache, which a 64 MB
+	console's BSPs' window ends at too) */
+	if (!ce_loaded_tags.bsp_low || address < ce_loaded_tags.bsp_low || address < ce_loaded_tags.end || address > end ||
+		size > end - address)
+	{
+		return NULL;
+	}
+	return xbox_pointer(address);
+}
+
+char const *ce_loaded_tag_name(
+	void const *instance)
+{
+	unsigned long address = ((struct ce_tag_instance const *)instance)->name;
+	unsigned long end = ce_loaded_tags.end;
+	char const *name = address >= CE_IMAGE_TAG_CACHE_BASE && address < end ? ce_loaded_pointer(address, 1) : NULL;
+
+	/* (terminated within a tag's path's length, and in the tags) */
+	if (!name || !memchr(name, 0, MIN(end - address, (unsigned long)CE_MAXIMUM_TAG_NAME_LENGTH)))
+		return "<unnamed>";
+	return name;
+}
+
+void ce_tags_guard_begin(
+	void const *tags,
+	void const *instances,
+	long tag_count)
+{
+	ce_guard.header = tags;
+	ce_guard.instances = instances;
+	ce_guard.instances_size = tag_count > 0 ? (unsigned long)tag_count * CE_TAG_INSTANCE_SIZE : 0;
+	ce_guard.logged = FALSE;
+}
+
+void ce_tags_guard_begin_loaded(
+	void const *instances,
+	long tag_count)
+{
+	ce_tags_guard_begin(xbox_pointer(CE_IMAGE_TAG_CACHE_BASE), instances, tag_count);
+}
+
+void ce_tags_guard_end(
+	void)
+{
+	ce_guard.header = NULL;
+	ce_guard.instances = NULL;
+	ce_guard.instances_size = 0;
+	ce_guard.logged = FALSE;
+}
+
+/* whether [at, at + size) and [other, other + other_size) share a byte (as
+addresses: they need not be of one object) */
+static boolean ce_overlaps(
+	byte const *at,
+	unsigned long size,
+	byte const *other,
+	unsigned long other_size)
+{
+	size_t first = (size_t)at, second = (size_t)other;
+
+	return size && other_size && first < second + other_size && second < first + size;
+}
+
+boolean ce_tags_writable(
+	void const *field,
+	unsigned long size)
+{
+	if (!ce_guard.header)
+		return TRUE;
+	if (ce_overlaps(field, size, ce_guard.header, CE_TAG_HEADER_SIZE) ||
+		ce_overlaps(field, size, ce_guard.instances, ce_guard.instances_size))
+	{
+		ce_contained("a tag's field lies over its tag header or tag index (%lu bytes at %lu in its tags)", size,
+			(unsigned long)((size_t)field - (size_t)ce_guard.header));
+		return FALSE;
+	}
+	return TRUE;
+}
+
+void ce_contained(
+	char const *format,
+	...)
+{
+	char what[192];
+	va_list arguments;
+
+	if (ce_checking || ce_guard.logged)
+		return;
+	ce_guard.logged = TRUE;
+	va_start(arguments, format);
+	vsnprintf(what, sizeof(what), format, arguments);
+	va_end(arguments);
+	error(_error_silent, "%s map: %s; passed over (and any more like it)", ce_map_family_name(), what);
+}
+
+boolean ce_room_add(
+	unsigned long *bytes,
+	unsigned long more,
+	char const *what)
+{
+	unsigned long limit = CE_IMAGE_TAG_CACHE_SIZE + CE_CONVERSION_ROOM;
+
+	if (more > limit || *bytes > limit - more)
+	{
+		ce_refusal_explain_room();
+		return ce_refuse("%s need more than the tag cache's %lu bytes", what, limit);
+	}
+	*bytes += more;
+	return TRUE;
 }
 
 boolean ce_refuse(
@@ -895,6 +1101,7 @@ boolean ce_map_check(
 	ce_explanation[0] = 0;
 	ce_message[0] = 0;
 	ce_checking = TRUE;
+	ce_checking_bsp_count = 0;
 	if (file_size == INVALID_FILE_SIZE || file_size_high || file_size > CE_MAXIMUM_FILE_SIZE)
 		valid = ce_refuse("its size could not be read, or is over 2 GB");
 	else if (file_length < CE_HEADER_SIZE || (unsigned long)file_length > file_size)
@@ -926,9 +1133,103 @@ boolean ce_map_check(
 	}
 	else
 	{
+		/* (the map that passed is the one opened: cache_files_windows.c) */
+		memcpy(ce_checked_bsps, ce_checking_bsps, sizeof(ce_checked_bsps));
+		ce_checked_bsp_count = ce_checking_bsp_count;
 		error(_error_silent, "%s map %s: checked (%lu ms)", family, map_name, system_milliseconds() - started);
 	}
 	return valid;
+}
+
+/* a Custom Edition map's tags as they loaded (cache_files.c), after their
+conversions, which write in place: what the game reads of them trusting the
+checks above, checked again where it now is (the tag cache and the room
+above it), so that no block a conversion wrote over can have moved any of
+it: each tag's name and data, the scenario and its scripts, the weapons'
+magazines and triggers, the animation graphs. FALSE, logged and shown as a
+refusal is, if any of it has moved */
+boolean ce_map_check_loaded(
+	void *tag_instances,
+	long tag_count,
+	unsigned long scenario_tag_index,
+	char const *map_name)
+{
+	struct ce_image image;
+	struct ce_tag_instance const *scenario_instance;
+	byte *scenario;
+	long index;
+	boolean valid = TRUE;
+
+	ce_refusal[0] = 0;
+	ce_explanation[0] = 0;
+	ce_message[0] = 0;
+	image.data = xbox_pointer(CE_IMAGE_TAG_CACHE_BASE);
+	image.base = CE_IMAGE_TAG_CACHE_BASE;
+	image.size = CE_IMAGE_TAG_CACHE_SIZE + CE_CONVERSION_ROOM;
+	for (index = 0; valid && index < tag_count; index++)
+	{
+		struct ce_tag_instance const *instance = (struct ce_tag_instance const *)((byte const *)tag_instances +
+			index * CE_TAG_INSTANCE_SIZE);
+		char const *name = ce_image_pointer(&image, instance->name, 1);
+
+		if ((instance->tag_index & 0xffff) != (unsigned long)index || !name ||
+			!memchr(name, 0, MIN(image.base + image.size - instance->name, (unsigned long)CE_MAXIMUM_TAG_NAME_LENGTH)))
+		{
+			valid = ce_refuse("tag %ld's handle or name moved as it loaded", index);
+		}
+		/* (a structure BSP's is placed as it loads: cache_files.c) */
+		else if (instance->group_tag == CE_BSP_GROUP ? instance->base_address != 0 :
+			!ce_image_pointer(&image, instance->base_address, 4))
+		{
+			valid = ce_refuse("%s moved out of the tags as it loaded", name);
+		}
+	}
+	if (valid)
+	{
+		scenario_instance = ce_tag_instance_get(tag_instances, tag_count, scenario_tag_index);
+		scenario = scenario_instance && scenario_instance->group_tag == CE_SCENARIO_GROUP ?
+			ce_image_pointer(&image, scenario_instance->base_address, CE_SCENARIO_BSPS_OFFSET + 0xc) : NULL;
+		if (!scenario)
+			valid = ce_refuse("its scenario moved as it loaded");
+		else
+		{
+			valid = ce_scripts_check(&image, scenario) && ce_weapons_check(&image, tag_instances, tag_count) &&
+				ce_animations_check(&image, tag_instances, tag_count);
+		}
+	}
+	if (!valid)
+	{
+		char const *family = ce_map_family_name();
+
+		error(_error_silent, "%s map %s refused as it loaded: %s", family, map_name, ce_refusal);
+		console_warning("%s map %s refused as it loaded: %s", family, map_name, ce_refusal);
+		snprintf(ce_message, sizeof(ce_message), "The %s map %.*s can't be played: it is damaged or unsupported.",
+			family, ce_map_file_name_length(map_name), map_name);
+	}
+	return valid;
+}
+
+/* whether a structure BSP's reference (the scenario's, as a BSP loads:
+cache_files.c) is one the map open was checked with, unchanged: its place
+in the file, its size, where it loads and its tag */
+boolean ce_map_bsp_reference_checked(
+	void const *reference)
+{
+	struct ce_bsp_reference loading;
+	long index;
+
+	memcpy(&loading, reference, sizeof(loading));
+	for (index = 0; index < ce_checked_bsp_count; index++)
+	{
+		struct ce_bsp_reference const *checked = &ce_checked_bsps[index];
+
+		if (loading.file_offset == checked->file_offset && loading.file_size == checked->file_size &&
+			loading.base_address == checked->base_address && loading.tag_index == checked->tag_index)
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 #endif
