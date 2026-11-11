@@ -135,8 +135,35 @@ static void test_back_hold(void)
 	CHECK(delta_back_hold_step(&hold, 1, 1, (unsigned long)DELTA_BACK_HOLD) == DELTA_BACK_OPEN);
 }
 
+/* the main menu's note */
+static void test_hint(void)
+{
+	char text[64];
+
+	CHECK(delta_hint_due(0, 0) && delta_hint_due(DELTA_HINT_TIMES - 1, 0));
+	CHECK(!delta_hint_due(DELTA_HINT_TIMES, 0));
+	/* (no note with DELTA's rows in the menus) */
+	CHECK(!delta_hint_due(0, 1));
+	CHECK(!delta_hint_due(-1, 0));
+	delta_hint_text(text, sizeof(text), 0, "F3", 1, 1);
+	CHECK(!strcmp(text, "Press F3 for DELTA"));
+	/* (a Mac's key, as its prompts show it) */
+	delta_hint_text(text, sizeof(text), 0, "\\", 1, 0);
+	CHECK(!strcmp(text, "Press \\ for DELTA"));
+	delta_hint_text(text, sizeof(text), 1, "F3", 1, 0);
+	CHECK(!strcmp(text, "Press Guide for DELTA"));
+	delta_hint_text(text, sizeof(text), 1, "F3", 1, 1);
+	CHECK(!strcmp(text, "Hold Back for DELTA"));
+	/* (a pad with neither: the keyboard's way) */
+	delta_hint_text(text, sizeof(text), 1, "F4", 0, 0);
+	CHECK(!strcmp(text, "Press F4 for DELTA"));
+	delta_hint_text(text, sizeof(text), 0, "", 0, 0);
+	CHECK(!strcmp(text, "Press F3 for DELTA"));
+}
+
 int main(void)
 {
+	test_hint();
 	test_keys();
 	test_back_hold();
 	if (failures)

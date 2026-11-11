@@ -33,9 +33,31 @@ def test_embedded_and_wired():
     for state in (0, 1):
         assert f"chupathingy/main_menu/menu_delta__{state}.png" in files
     main_menu = (MENUS / "chupathingy" / "main_menu.xml").read_text()
-    assert re.search(r'<child widget="chupathingy/main_menu_delta"', main_menu)
+    assert re.search(r'<widget name="chupathingy/main_menu_delta"', main_menu)
     assert main_menu.count('run="port delta open"') >= 4
     menu_tags = (ROOT / "port" / "linux" / "game" / "menu_tags.c").read_text()
     assert '"port delta open"' in menu_tags
     functions = (ROOT / "port" / "linux" / "game" / "menu_functions.c").read_text()
     assert '!strcmp(name, "port delta open")' in functions
+
+
+def test_rows_only_with_the_setting():
+    """delta.menu_item (off by default) puts the DELTA rows in the menus:
+    the main menu's list has none of its own, and every place that adds one
+    asks the setting as the menus load"""
+    main_menu = (MENUS / "chupathingy" / "main_menu.xml").read_text()
+    assert '<child widget="chupathingy/main_menu_delta"' not in main_menu
+    config = (ROOT / "port" / "linux" / "src" / "port_config.c").read_text()
+    assert re.search(r'\{ "delta\.menu_item", _config_boolean, "false"', config)
+    assert re.search(r'\{ "delta\.hint_shown", _config_integer, "0"', config)
+    menu_tags = (ROOT / "port" / "linux" / "game" / "menu_tags.c").read_text()
+    offered = menu_tags[menu_tags.index("static boolean main_menu_delta_offered(void)"):]
+    offered = offered[:offered.index("\n}\n")]
+    assert 'config_boolean("delta.menu_item")' in offered
+    for patch in ("static void main_menu_delta_patch_gearbox(void)", "static void multiplayer_delta_patch_gearbox(void)"):
+        body = menu_tags[menu_tags.index(patch):]
+        body = body[:body.index("\n}\n")]
+        assert "main_menu_delta_offered()" in body, patch
+    ui_widget = (ROOT / "source" / "interface" / "ui_widget.c").read_text()
+    assert "pc_menu_delta_item_offered()" in ui_widget
+    assert "online_games.delta &&" in ui_widget

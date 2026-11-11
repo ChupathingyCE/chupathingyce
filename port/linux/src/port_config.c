@@ -869,6 +869,12 @@ static const struct config_setting config_settings[] =
 		"Off by default: the Xbox's Back acts on press." },
 	{ "delta.pause_menu", _config_boolean, "true", "HALO_DELTA_PAUSE_MENU", _environment_value, _platform_all,
 		"Put DELTA in the pause menu, in every menu set." },
+	{ "delta.menu_item", _config_boolean, "false", "HALO_DELTA_MENU_ITEM", _environment_value, _platform_all,
+		"Put DELTA on the main menu and the Multiplayer menu, in every menu\n"
+		"set. Off by default: a note on the main menu says how to open it." },
+	{ "delta.hint_shown", _config_integer, "0", "HALO_DELTA_HINT_SHOWN", _environment_value, _platform_all,
+		"How many times the main menu has said how to open DELTA (it says so\n"
+		"three times, then no more)." },
 	{ "delta.notify_in_game", _config_boolean, "false", "HALO_DELTA_NOTIFY_IN_GAME", _environment_value,
 		_platform_all,
 		"Show DELTA's notifications during a game. They always show in the\n"

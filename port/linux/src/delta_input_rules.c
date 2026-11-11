@@ -122,3 +122,20 @@ void delta_back_hold_cancel(struct delta_back_hold *hold)
 	if (hold->held && !hold->opened)
 		hold->opened = 2;
 }
+
+int delta_hint_due(int shown, int menu_item)
+{
+	return !menu_item && shown >= 0 && shown < DELTA_HINT_TIMES;
+}
+
+void delta_hint_text(char *text, int size, int pad, const char *key, int guide_button, int hold_back)
+{
+	if (size <= 0)
+		return;
+	if (pad && hold_back)
+		snprintf(text, (size_t)size, "Hold Back for DELTA");
+	else if (pad && guide_button)
+		snprintf(text, (size_t)size, "Press Guide for DELTA");
+	else
+		snprintf(text, (size_t)size, "Press %s for DELTA", key && key[0] ? key : "F3");
+}

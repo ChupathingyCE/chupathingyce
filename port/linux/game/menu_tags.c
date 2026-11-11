@@ -2263,13 +2263,16 @@ static void pause_patch_xbox(void)
 }
 
 
-/* ---------- the main menus' DELTA
+/* ---------- the main menus' DELTA (delta.menu_item, off by default: the
+main menu's note says how to open DELTA instead, guide.c)
 
-Each main menu has DELTA (DELTA over it, on PARTY: a party started, friends
-invited, the party brought to a game), in every menu set: the Chupathingy
-menus' in chupathingy/main_menu.xml (before QUIT), and Gearbox's as that
-same row put in its list before QUIT here (its list is tools/ce_menus.py's,
-from the PC version's tags). The Xbox's main menu stays the Xbox's (its
+With it, each main menu has DELTA (DELTA over it, on PARTY: a party started, friends
+invited, the party brought to a game), in every menu set: the row in
+chupathingy/main_menu.xml put in the main menu's list before QUIT here, in
+the Chupathingy menus' and Gearbox's (its list is tools/ce_menus.py's, from
+the PC version's tags), and DELTA in Gearbox's Multiplayer button bar. The
+lists are patched as the menus load, so a change shows the next time they
+do. The Xbox's main menu stays the Xbox's (its
 rows are ui.map's pictures): there DELTA is the Multiplayer menu's row
 (ui_widget.c), the key and the Guide button. Not on the consoles (no DELTA
 there yet) nor with split screen's players (DELTA is the first player's). */
@@ -2277,15 +2280,23 @@ there yet) nor with split screen's players (DELTA is the first player's). */
 #define DELTA_ROW "chupathingy/main_menu_delta"
 #define GEARBOX_MAIN_MENU_LIST "main_menu/main_menu_select_list"
 
+/* (delta.menu_item, as it is when the menus load: a change shows the
+next time they do) */
 static boolean main_menu_delta_offered(void)
 {
 #ifdef HALO_GUIDE
 	extern unsigned char pc_menu_split_players(void);
 
-	return !pc_menu_split_players();
+	return config_boolean("delta.menu_item") != 0 && !pc_menu_split_players();
 #else
 	return FALSE;
 #endif
+}
+
+/* ui_widget.c's: whether the Multiplayer menu gets its DELTA row now */
+boolean pc_menu_delta_item_offered(void)
+{
+	return main_menu_delta_offered();
 }
 
 /* a row put in a list at "at" (the rows from there a row lower, the
@@ -2319,10 +2330,14 @@ static boolean list_row_insert(struct ui_widget_definition *list, long at, long 
 	return TRUE;
 }
 
-/* Gearbox's main menu: the Chupathingy menus' DELTA row before QUIT */
+/* the main menu (Gearbox's or the Chupathingy menus' list): the DELTA row
+before QUIT */
+#define CHUPATHINGY_MAIN_MENU_LIST "chupathingy/main_menu_list"
+
 static void main_menu_delta_patch_gearbox(void)
 {
-	long list = widget_named(GEARBOX_MAIN_MENU_LIST), row = widget_named(DELTA_ROW);
+	long list = widget_named(menus_chosen() == _menus_chupathingy ? CHUPATHINGY_MAIN_MENU_LIST : GEARBOX_MAIN_MENU_LIST);
+	long row = widget_named(DELTA_ROW);
 	struct ui_widget_definition *definition;
 
 	if (!main_menu_delta_offered() || list == NONE || row == NONE)
@@ -2610,6 +2625,8 @@ void menu_tags_loaded(
 		main_menu_delta_patch_gearbox();
 		multiplayer_delta_patch_gearbox();
 	}
+	else if (menus_chosen() == _menus_chupathingy && !game_map)
+		main_menu_delta_patch_gearbox();
 	platform_log("menus: %ld widgets, %ld string lists and %ld bitmaps added to the map's %ld tags",
 		widget_count, own_lists + menus->string_list_count, menus->bitmap_count, build.first_index);
 	goto done;

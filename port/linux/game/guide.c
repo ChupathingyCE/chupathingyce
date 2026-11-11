@@ -432,6 +432,8 @@ enum
 	_toast_party_note,
 	/* a clan's invite (its clan's ID): CLAN */
 	_toast_clan_invite,
+	/* the main menu's note: how to open DELTA (its key opens it) */
+	_toast_hint,
 };
 
 /* PARTY's items: members (or, out of a party, its invites), then its
@@ -1934,6 +1936,11 @@ static boolean toast_go(void)
 	short kind = guide.toast_kind == _toast_invite ? _item_invite : guide.toast_kind == _toast_request ? _item_request :
 		guide.toast_kind == _toast_friend ? _item_friend : NONE;
 
+	if (guide.toast_kind == _toast_hint)
+	{
+		guide.toast_shown = FALSE;
+		return TRUE;
+	}
 	if (guide.toast_kind == _toast_clan_invite)
 	{
 		guide.section = SOCIAL_SECTION_CLAN;
@@ -3115,6 +3122,53 @@ static void clan_invite_news(void)
 	for (index = 0; index < clan_profile.invite_count && index < DELTA_PROFILE_CLAN_INVITES; index++)
 		guide.clan_invites_known[guide.clan_invites_known_count++] = clan_profile.invites[index].id;
 	guide.clan_invites_read = TRUE;
+}
+
+/* the main menu reached (from anywhere else): with no DELTA row in the
+menus (delta.menu_item off), a note says how to open DELTA, the device
+used last's way (delta_hint_text), the first DELTA_HINT_TIMES times in the
+player's history (delta.hint_shown). It waits its turn behind any other
+toast */
+#define HINT_SETTLE 1500
+
+static void hint_update(boolean menu_open)
+{
+	/* (once a visit to the main menu, after it has been up a moment with no
+	video over it: the intro's and the attract's are no new visit) */
+	static boolean noted;
+	static unsigned long since;
+	unsigned long now = system_milliseconds();
+	int shown;
+
+	if (!menu_open || !main_menu_is_active())
+	{
+		noted = FALSE;
+		since = 0;
+		return;
+	}
+	if (bink_playback_active() || guide.open)
+	{
+		since = 0;
+		return;
+	}
+	if (!since)
+		since = now ? now : 1;
+	if (noted || now - since < HINT_SETTLE)
+		return;
+	noted = TRUE;
+	shown = (int)config_integer("delta.hint_shown");
+	if (delta_hint_due(shown, config_boolean("delta.menu_item")))
+	{
+		char key[DELTA_KEY_NAME_SIZE], title[64], count[16];
+
+		guide_key_shown(key, sizeof(key));
+		delta_hint_text(title, sizeof(title), !ui_overlay_keyboard(), key, config_boolean("controls.delta_button"),
+			config_boolean("delta.hold_back"));
+		social_toast_push(&guide.toasts, _toast_hint, "hint", title, "Friends, party and settings", "");
+		snprintf(count, sizeof(count), "%d", shown + 1);
+		config_write("delta.hint_shown", count);
+		platform_log("DELTA: the main menu's note, %d of %d", shown + 1, DELTA_HINT_TIMES);
+	}
 }
 
 /* the next toast waiting, once the one before it is done (and none is a
@@ -4951,6 +5005,7 @@ void guide_update(boolean menu_open)
 #endif
 	friends_update();
 	clan_update();
+	hint_update(menu_open);
 	toasts_next();
 	recent_notice();
 	/* (a report's answer, and its clip: report_player.c) */
