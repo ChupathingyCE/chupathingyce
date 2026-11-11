@@ -2126,6 +2126,58 @@ static void config_path(char *path, size_t size)
 #endif
 }
 
+#ifdef HALO_XBOX_CONSOLE
+/* a finished config.toml.new put in place on a console, whose rename may
+not replace a file: the old file is moved aside to config.toml.old first,
+the new one renamed in, and only then the old one removed. 1 when it is in
+place; 0 when the old file could not be moved aside (it is still there,
+and the new one can go); -1 when the new one could not be renamed in after
+it (the old file is put back, and the new one is kept). config.toml.old
+beside config.toml.new is what shows the new one was finished:
+config_console_recover */
+static int config_console_replace(const char *path, const char *temporary)
+{
+	char old[1100];
+
+	if (rename(temporary, path) == 0)
+		return 1;
+	snprintf(old, sizeof(old), "%s.old", path);
+	remove(old);
+	if (rename(path, old) != 0)
+		return 0;
+	if (rename(temporary, path) != 0)
+	{
+		rename(old, path);
+		return -1;
+	}
+	remove(old);
+	return 1;
+}
+
+/* config.toml missing: a write that stopped in config_console_replace.
+With config.toml.old there, config.toml.new was finished before the old
+file was moved aside, so it takes the old one's place; without a .new the
+old one goes back. A config.toml.new alone (the first write, cut short)
+may be part of a file and is left alone */
+static void config_console_recover(const char *path)
+{
+	char temporary[1100];
+	char old[1100];
+	FILE *file;
+
+	snprintf(old, sizeof(old), "%s.old", path);
+	file = fopen(old, "rb");
+	if (!file)
+		return;
+	fclose(file);
+	snprintf(temporary, sizeof(temporary), "%s.new", path);
+	if (rename(temporary, path) == 0)
+		remove(old);
+	else
+		rename(old, path);
+}
+#endif
+
 /* the whole file, NUL terminated, or NULL; free() it */
 static char *config_read_file(const char *path, size_t *size)
 {
@@ -2135,15 +2187,11 @@ static char *config_read_file(const char *path, size_t *size)
 	long length;
 
 #ifdef HALO_XBOX_CONSOLE
-	/* (a write that stopped between removing the old file and renaming the
-	new one, config_write_file: the new one is whole, and put in place) */
+	/* (a write that stopped part way through putting the new file in place) */
 	if (!file)
 	{
-		char temporary[1100];
-
-		snprintf(temporary, sizeof(temporary), "%s.new", path);
-		if (rename(temporary, path) == 0)
-			file = fopen(path, "rb");
+		config_console_recover(path);
+		file = fopen(path, "rb");
 	}
 #endif
 	if (!file)
@@ -2213,12 +2261,15 @@ static int config_write_file(const char *path, const char *text)
 		written = fclose(file) == 0 && written;
 	}
 #ifdef HALO_XBOX_CONSOLE
-	/* (a console's rename may not replace a file: the old one goes first,
-	and config_read_file takes config.toml.new when config.toml is gone) */
-	if (written && rename(temporary, path) != 0)
+	if (written)
 	{
-		remove(path);
-		written = rename(temporary, path) == 0;
+		int placed = config_console_replace(path, temporary);
+
+		/* (a finished new file that could not be put in place is kept:
+		config_console_recover) */
+		if (placed < 0)
+			return 0;
+		written = placed > 0;
 	}
 #else
 	written = written && rename(temporary, path) == 0;

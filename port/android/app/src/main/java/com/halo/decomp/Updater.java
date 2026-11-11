@@ -264,10 +264,11 @@ final class Updater {
         StringBuilder text = new StringBuilder();
         for (String line : out)
             text.append(line).append('\n');
-        // (as the game writes it, port_config.c's config_write_file: to
-        // config.toml.new, synced, then renamed over the old file, so a
-        // write cut short leaves the old settings)
-        File temporary = new File(config.getPath() + ".new");
+        // (as the game writes it, port_config.c's config_write_file: to a
+        // new file, synced, then renamed over the old file, so a write cut
+        // short leaves the old settings. Its own name, not the game's
+        // config.toml.new, so the two never write the same temporary file)
+        File temporary = new File(config.getPath() + ".new-launcher");
         try (FileOutputStream stream = new FileOutputStream(temporary)) {
             stream.write(text.toString().getBytes(StandardCharsets.UTF_8));
             stream.flush();

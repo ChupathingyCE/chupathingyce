@@ -174,11 +174,12 @@ bool SDL_CloseIO(SDL_IOStream *stream)
 	return !stream || fclose((FILE *)stream) == 0;
 }
 
-/* (over a file that is there, as SDL's: MoveFileEx on Windows) */
+/* (over a file that is there, as SDL's: MoveFileEx on Windows, here also
+written through to the disk before it returns) */
 bool SDL_RenamePath(const char *old_path, const char *new_path)
 {
 #ifdef _WIN32
-	if (!MoveFileExA(old_path, new_path, MOVEFILE_REPLACE_EXISTING))
+	if (!MoveFileExA(old_path, new_path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
 	{
 		headless_set_error("cannot rename the file");
 		return false;
