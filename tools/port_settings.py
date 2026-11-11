@@ -844,7 +844,7 @@ CHUPATHINGY_ONLY = {
                  "Show as offline to your friends.", None),
                 ("FRIEND REQUESTS FROM:", "site.friend_requests",
                  [("EVERYONE", "everyone"), ("FRIENDS+", "friends_of_friends"), ("NOBODY", "nobody")],
-                 "Who can send you requests. FRIENDS+ adds their friends.", None),
+                 "FRIENDS+ means your friends' friends too.", None),
                 ("WHO CAN JOIN ME:", "site.who_can_join",
                  [("FRIENDS", "friends"), ("ANYONE", "anyone"), ("INVITE ONLY", "invite")],
                  "Who can join your game from DELTA.", None),
