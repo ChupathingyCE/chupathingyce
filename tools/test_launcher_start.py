@@ -5,7 +5,8 @@ Back or Shift held as the game starts, --setup (SETUP in the menus), or a
 maps folder that isn't the Xbox maps. The mode question, show_at_start and
 "ask each time" play the default there, as before 0.9.1, and the log says
 which way it went. Under Steam the held button waits for Steam Input's
-controller (held_wait), and the desktop's start is not slowed.
+controller (held_wait) on the Deck or under gamescope, and the desktop's
+start is not slowed.
 
 Text checks of launcher.c, and held_wait compiled on its own."""
 import re
@@ -54,10 +55,13 @@ def test_every_way_it_opens_says_why():
         assert f'because = "{reason}' in start, reason
 
 
-def test_steam_is_known_by_its_environment():
+def test_long_wait_only_on_the_deck_or_gamescope():
+    """the 2 s wait for a controller is for gamescope or the Deck, not a
+    desktop's Steam, where a player with no controller would wait each
+    start"""
     steam = body("static int launcher_started_by_steam(void)")
-    for name in ("SteamAppId", "SteamGameId", "SteamDeck", "GAMESCOPE_WAYLAND_DISPLAY"):
-        assert f'"{name}"' in steam
+    assert "updater_gamescope()" in steam and '"SteamDeck"' in steam
+    assert "SteamAppId" not in steam and "SteamGameId" not in steam
 
 
 HELD_WAIT_TEST = r"""

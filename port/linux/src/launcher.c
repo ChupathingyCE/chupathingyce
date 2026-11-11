@@ -4151,22 +4151,16 @@ static int launcher_opens_by_itself(void)
 	return !updater_gamescope();
 }
 
-/* whether Steam started the game (its SteamAppId or SteamGameId, a Deck's
-SteamDeck, gamescope's GAMESCOPE_WAYLAND_DISPLAY): there its controllers
-come through Steam Input, which can take a moment or two to show them */
+/* whether the game runs where Steam Input brings its controllers, which can
+take a moment or two to show them: gamescope (the Steam Deck's Game Mode)
+or the Deck's Desktop Mode (SteamDeck). Not a desktop's Steam
+(SteamAppId alone), where a player with no controller would wait each
+start */
 static int launcher_started_by_steam(void)
 {
-	static const char *const names[] = { "SteamAppId", "SteamGameId", "SteamDeck", "GAMESCOPE_WAYLAND_DISPLAY" };
-	size_t index;
+	const char *deck = getenv("SteamDeck");
 
-	for (index = 0; index < sizeof(names) / sizeof(*names); index++)
-	{
-		const char *value = getenv(names[index]);
-
-		if (value && value[0] && strcmp(value, "0"))
-			return 1;
-	}
-	return 0;
+	return updater_gamescope() || (deck && deck[0] && strcmp(deck, "0"));
 }
 
 /* how long held_at_start waits for a held button: a pad's first report,

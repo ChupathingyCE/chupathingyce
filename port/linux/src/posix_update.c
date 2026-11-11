@@ -1015,6 +1015,7 @@ int update_start_in_place(const char *path)
 	if (!path || !*path || strlen(path) >= sizeof(start_in_place_path))
 		return 0;
 	snprintf(start_in_place_path, sizeof(start_in_place_path), "%s", path);
+	start_in_place_fallback_argument = NULL;
 	start_in_place_arguments_read();
 #ifdef __linux__
 	start_in_place_watched = start_in_place_watch(launch_environment());
