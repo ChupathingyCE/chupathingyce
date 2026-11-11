@@ -902,6 +902,10 @@ Each frame shows the world between the last two ticks
   last tick only, as the objects do.
 - In cinematics, a camera that moves with an object (the lifepod in a30,
   a Pelican) moves with the object as it is drawn.
+- In a network game, the beam of another player's flashlight follows their
+  aim a little behind (two thirds of the way in a tick). Their input comes
+  a tick late now and then, so their unit stops for a tick and turns twice
+  as far in the next. The beam on the walls showed each of those as a jump.
 
 Thus the frames are one tick (33 ms) after the calculation. The calculation
 does not change.
@@ -910,7 +914,9 @@ The direction of the view is an exception. The game reads the mouse and the
 sticks in each frame. In first person, on foot, each frame points the view
 where the player aims at that time (`display.direct_camera`). Thus the view
 turns in the frame that the mouse moves. In a vehicle and in cinematics, the
-view mixes as the other things do. On Android, the view mixes as before.
+view mixes as the other things do. Your flashlight turns with the view too
+when no weapon in your hands carries it (empty-handed, or holding the flag
+or the oddball): it hangs on your unit's head, which is drawn a tick behind. On Android, the view mixes as before.
 
 To get 30 frames each second, set `display.interpolation = false`.
 
