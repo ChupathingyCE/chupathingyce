@@ -1779,6 +1779,11 @@ static const struct config_setting config_settings[] =
 		"false keeps System Link's security, with Xboxes only.\n"
 		"tools/xbox_package.py writes true unless you pass --secure. Read when\n"
 		"Chupathingy starts." },
+	{ "console.xnet_pages", _config_integer, "40", NULL, _environment_value, _platform_xbox,
+		"The network's own memory with console.bypass_security on, in 4 KB\n"
+		"pages, 24 to 128. 40 is the default. The retail game's System Link\n"
+		"used 24 and a dashboard uses 64. More can help a busy internet game\n"
+		"and costs a 64 MB console the memory. Read when the network starts." },
 	{ "console.memory_class", _config_string, "\"auto\"", NULL, _environment_value, _platform_xbox,
 		"The console's memory class. \"auto\" uses the console's own. A console\n"
 		"with 128 MB or more, like the common upgrade or a devkit, gets extras:\n"
