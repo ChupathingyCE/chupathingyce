@@ -163,13 +163,16 @@ def xbox_map(name=b"fuzz"):
     return bytes(data)
 
 
-def ce_map(name=b"fuzz", sound=None):
+def ce_map(name=b"fuzz", sound=None, weapon_hud_statics=None, bsp_reference_unused=0):
     """a Custom Edition map of a scenario and one empty structure BSP, its
     scripts' syntax an empty data array; with sound, a list of permutations
     (compression, samples' size, flags, offset), a sound tag of its own (not
-    indexed) of one pitch range of them, mono 22 kHz"""
+    indexed) of one pitch range of them, mono 22 kHz; with weapon_hud_statics,
+    a weapon HUD whose one static element is that many bytes from the
+    scenario's structure BSP's reference (whose unused word is
+    bsp_reference_unused)"""
     base = TAG_CACHE["ce"]
-    tag_count = 3 if sound else 2
+    tag_count = 2 + (1 if sound else 0) + (1 if weapon_hud_statics is not None else 0)
     tags = bytearray(0x28)
     instances = len(tags)
     tags += bytes(0x20 * tag_count)
@@ -186,6 +189,14 @@ def ce_map(name=b"fuzz", sound=None):
     tags += bytes(0x20)
     syntax = len(tags)
     tags += bytes(0x38)
+    if weapon_hud_statics is not None:
+        # (weapon_hud_interface_definitions.h: as far as its overlays' block)
+        weapon_hud = len(tags)
+        tags += bytes(0x9C)
+        struct.pack_into("<iI", tags, weapon_hud + 0x60, 1, base + bsps + weapon_hud_statics)
+        struct.pack_into("<4s4s4sIIIII", tags, instances + 0x20 * (tag_count - 1), b"ihpw", b"\xff\xff\xff\xff",
+                         b"\xff\xff\xff\xff", 0xE1740000 + tag_count - 1 + (tag_count - 1 << 16), base + bsp_name,
+                         base + weapon_hud, 0, 0)
     if sound:
         # (sound_definitions.h: the header, its pitch range, its permutations)
         sound_header = len(tags)
@@ -224,8 +235,8 @@ def ce_map(name=b"fuzz", sound=None):
     struct.pack_into("<iIII", tags, scenario + 0x474, 0x38, 0, 0, base + syntax)
     struct.pack_into("<hh", tags, syntax + 0x20, 0, 0x14)
     struct.pack_into("<iII", tags, scenario + 0x5A4, 1, base + bsps, 0)
-    struct.pack_into("<iiII4sIiI", tags, bsps, bsp_offset, len(bsp), base + 0x100000, 0, b"psbs", base + bsp_name,
-                     8, 0xE1750001)
+    struct.pack_into("<iiII4sIiI", tags, bsps, bsp_offset, len(bsp), base + 0x100000, bsp_reference_unused, b"psbs",
+                     base + bsp_name, 8, 0xE1750001)
     data = header(609, model_offset, 0x800, tag_data_size) + tags + bsp
     return bytes(data)
 
@@ -309,6 +320,22 @@ def test_long_tag_names(built, tmp_path):
         path.write_bytes(data)
         result = run(binaries[target], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
         assert "has no name" not in result.stderr and "longer than" not in result.stderr, result.stderr[-4000:]
+
+
+def test_bsp_reference_written_over(built, tmp_path):
+    """a block a conversion writes in place that lies over the scenario's
+    structure BSP's reference (a weapon HUD's static element whose placement
+    is the reference, flagged for the high resolution scale, which halves
+    its scale: the BSP's size and where it loads): the BSP is not loaded
+    from a reference other than the one checked, which would read it below
+    the tag cache"""
+    binaries, _ = built
+    path = tmp_path / "hud_over_bsp.map"
+    path.write_bytes(ce_map(weapon_hud_statics=-0x24, bsp_reference_unused=4))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
+    assert "not where it was checked" in result.stderr, result.stderr[-4000:]
 
 
 def test_sound_samples_in_sounds_map(built, tmp_path):

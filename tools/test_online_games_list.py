@@ -58,3 +58,27 @@ def test_online_games_asks_for_the_password():
     body = function(SCREEN, "join_selected")
     assert "if (game->locked)" in body and "password_open(game);" in body
     assert "browser_unlock_game(" in function(SCREEN, "password_join")
+
+
+def test_no_cutouts_under_another_screen():
+    # (#1048: the pictures from the game's bitmaps are drawn under the
+    # overlay, in a hole cut in it, and the hole is the whole overlay's: with
+    # the Delta Guide, or another screen drawn after this one, open over the browser
+    # they showed through it. Neither the hole nor the picture then)
+    covered = function(SCREEN, "browser_screen_covered")
+    for screen in ("guide_active()", "profile_screen_active()", "controls_screen_active()",
+                   "moderation_screen_active()", "invite_prompt_active()"):
+        assert screen in covered
+    # (the definition, after a forward declaration over two lines)
+    start = SCREEN.index("static void draw_bitmap_picture(\n")
+    picture = SCREEN[SCREEN.index("\n{", start):SCREEN.index("\n}\n", start)]
+    assert picture.index("if (browser_screen_covered())\n\t\treturn;") < picture.index("ui_overlay_cutout(")
+    assert picture.index("if (browser_screen_covered())") < picture.index("draw_bitmap_in_rect(")
+    # (the browser's only cut-out)
+    assert SCREEN.count("ui_overlay_cutout(") == 1
+    # (the profile screen's Spartan, the other cut-out, the same way)
+    profile = (ROOT / "port" / "linux" / "game" / "profile_screen.c").read_text(encoding="utf-8")
+    assert "guide_active()" in function(profile, "profile_screen_covered")
+    spartan = function(profile, "draw_spartan")
+    assert spartan.index("profile_screen_covered()") < spartan.index("ui_overlay_cutout(")
+    assert profile.count("ui_overlay_cutout(") == 1
