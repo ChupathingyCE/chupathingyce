@@ -142,7 +142,8 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
         ffmpeg_cflags=ffmpeg_cflags,
     )
     generated_sources = (hud_assets_build(n, "android64", build_dir / "generated" / "hud_hires_assets.c")
-                         + ui_fonts_build(n, "android64", build_dir / "generated" / "ui_fonts.c", sln))
+                         + ui_fonts_build(n, "android64", build_dir / "generated" / "ui_fonts.c", sln,
+                                        prompt_fonts="steam_controller"))
     lto_cflags, lto_ldflags = lto_flags(sln, build_dir / "thinlto-cache")
     objects = lp64.objects(host, generated_sources, build_dir / "obj", lto_cflags, ffmpeg_inputs)
 

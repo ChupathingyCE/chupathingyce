@@ -7,11 +7,18 @@ profile):
 | Font | License |
 | --- | --- |
 | `NotoSans-Regular.ttf`, `NotoSans-Bold.ttf` (Google) | SIL Open Font License 1.1, `OFL.txt` |
-| `input_xbox.ttf`, `input_playstation.ttf`, `input_nintendo.ttf`, `input_keyboard.ttf`: Kenney's Input Prompts | CC0, `KENNEY-CC0.txt` |
+| `input_xbox.ttf`, `input_playstation.ttf`, `input_nintendo.ttf` (the Switch's), `input_steam_deck.ttf`, `input_steam_controller.ttf`, `input_wiiu.ttf`, `input_keyboard.ttf`: Kenney's Input Prompts 1.5a | CC0, `KENNEY-CC0.txt` |
 | `platform_icons.ttf`: one-color platform logos from Simple Icons and Wikimedia Commons, `platform_icons/` | CC0 and public domain (see below) |
 
 The Input Prompts fonts draw a controller's (or the keyboard's) buttons as
 glyphs from U+E000, so a prompt names the button of what the player holds.
+Each is the font of its device's folder in Kenney's pack, renamed (its
+glyphs' names are in the pack's `*_map.txt`). The PlayStation's face
+buttons are drawn with them, and every button of the Steam Deck, the Steam
+Controller and the Wii U pads (ui_overlay.c). The Steam and Wii U fonts are
+for a few devices, so a build embeds only the ones it can meet
+(`tools/embed_assets.py --prompt-fonts`): Android the Steam Controller's,
+the dedicated server none.
 
 `platform_icons.ttf` draws the scoreboard's platform logos, one glyph per
 platform at U+E100 plus its number in delta.h's registry (Windows U+E101 up
