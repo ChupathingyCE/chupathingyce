@@ -162,6 +162,7 @@ boolean tag_validate_structure_bsp(long tag_index, void *base, long size);
 long tag_validate_corrections(void);
 
 boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset, long tag_data_size);
+boolean ce_map_bsp_reference_checked(void const *reference);
 extern long ce_map_cache_version;
 boolean ce_resources_tags_loaded(void *tag_instances, long tag_count, unsigned long first_free,
 	unsigned long end_free);
@@ -920,6 +921,13 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 		unsigned long bsp_base;
 
 		memcpy(&reference, (byte *)xbox_pointer(bsps) + bsp_index * BSP_REFERENCE_SIZE, sizeof(reference));
+		/* (only as it was checked: scenario_structure_bsp_load) */
+		if (!ce_map_bsp_reference_checked(&reference))
+		{
+			if (fuzz_verbose)
+				fprintf(stderr, "map_fuzz: structure BSP %ld is not where it was checked\n", (long)bsp_index);
+			continue;
+		}
 		memcpy(xbox_pointer(reference.base_address), data + reference.file_offset, (size_t)reference.file_size);
 		memcpy(&bsp_base, xbox_pointer(reference.base_address), 4);
 		ce_bsp_loaded(xbox_pointer(bsp_base));
