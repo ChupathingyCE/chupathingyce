@@ -825,6 +825,13 @@ static void ce_hud_button_icons(
 				"controller buttons");
 			return;
 		}
+		/* (tag data, which the meters' bitmaps are then read from:
+		ce_loaded_pointer) */
+		ce_loaded_tags_add(new_sequences,
+			(unsigned long)(sequence_count + ce_xbox_button_icons.sequence_count) * BITMAP_SEQUENCE_SIZE);
+		ce_loaded_tags_add(new_sprites, (unsigned long)ce_xbox_button_icons.sprite_count * BITMAP_SPRITE_SIZE);
+		ce_loaded_tags_add(new_bitmaps, (unsigned long)(bitmap_count + ce_xbox_button_icons.bitmap_count) * BITMAP_SIZE);
+		ce_loaded_tags_add(new_icons, (unsigned long)ce_xbox_button_icons.icon_count * HUD_GLOBALS_BUTTON_ICON_SIZE);
 		/* (the map's sequences and bitmaps, then the Xbox's: their sprites'
 		bitmaps after the map's) */
 		if (sequence_count)
@@ -881,6 +888,7 @@ static void ce_hud_button_icons(
 		new_icons = ce_resources_allocate((unsigned long)ce_xbox_button_icons.icon_count * HUD_GLOBALS_BUTTON_ICON_SIZE);
 		if (!new_icons)
 			return;
+		ce_loaded_tags_add(new_icons, (unsigned long)ce_xbox_button_icons.icon_count * HUD_GLOBALS_BUTTON_ICON_SIZE);
 	}
 	/* (the Xbox's button icons, each naming its sequence after the map's) */
 	icons = xbox_pointer(new_icons);

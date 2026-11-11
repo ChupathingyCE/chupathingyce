@@ -358,6 +358,28 @@ def test_long_tag_names(built, tmp_path):
         assert "has no name" not in result.stderr and "longer than" not in result.stderr, result.stderr[-4000:]
 
 
+def test_conversions_read_only_the_tags(built, tmp_path):
+    """an object whose functions' block lies past the map's tags, where its
+    structure BSP loads, or in the room above the tag cache: the conversions
+    read and write only where the map's tags are, and pass it over"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    for address in (base + 0x100000, base + 0x1700000):
+        data = bytearray(ce_map(sound=[(1, 36, 0, 0x800)]))
+        instances = struct.unpack_from("<I", data, 0x800)[0] - base
+        tag = struct.unpack_from("<I", data, 0x800 + instances + 0x40 + 0x14)[0] - base
+        # (the sound's tag made an object, its functions' block, 0x158 in,
+        # one function there)
+        data[0x800 + instances + 0x40:0x800 + instances + 0x44] = b"ejbo"
+        struct.pack_into("<iI", data, 0x800 + tag + 0x158, 1, address)
+        path = tmp_path / "functions_past_tags.map"
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
+        assert "0 periodic and 0 transition functions" in result.stderr, result.stderr[-4000:]
+
+
 def test_sound_samples_in_sounds_map(built, tmp_path):
     """a Custom Edition map's own sound (not indexed): each permutation's
     samples read from the file Halo PC's flag on them names, sounds.map's or

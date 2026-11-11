@@ -287,7 +287,7 @@ void ce_bsp_loaded(
 			found them in the BSP: else passed over, ce_map_checks.h) */
 			uncompressed = vertex_count <= CE_MAXIMUM_MATERIAL_VERTICES &&
 				(!lightmap_vertex_count || lightmap_vertex_count == vertex_count) ?
-				ce_loaded_pointer(material->uncompressed_vertex_data.address,
+				ce_loaded_bsp_pointer(material->uncompressed_vertex_data.address,
 					(unsigned long)vertex_count * ENVIRONMENT_VERTEX_UNCOMPRESSED_SIZE +
 					(unsigned long)lightmap_vertex_count * LIGHTMAP_VERTEX_UNCOMPRESSED_SIZE) : NULL;
 			if (!uncompressed)

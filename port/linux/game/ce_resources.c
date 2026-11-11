@@ -1423,6 +1423,9 @@ boolean ce_resources_tags_loaded(
 	ce_indexed_tag_count = ce_indexed_tags ? tag_count : 0;
 	ce_free_next = ce_free_end = 0;
 	ce_room_next = 0;
+	/* (the map's own tags, until its resource maps' are copied in after
+	them: what the conversions read is in these, ce_loaded_pointer) */
+	ce_loaded_tags_end(first_free);
 	if (!ce_indexed_tags)
 		return FALSE;
 	image.data = xbox_pointer(CE_IMAGE_TAG_CACHE_BASE);
@@ -1478,6 +1481,7 @@ boolean ce_resources_tags_loaded(
 		end_free - next);
 	ce_free_next = next;
 	ce_free_end = end_free;
+	ce_loaded_tags_end(next);
 	ce_sounds_decode(tag_instances, tag_count);
 	ce_tags_guard_end();
 	return TRUE;
@@ -1965,6 +1969,7 @@ void ce_resources_tags_unloaded(
 	ce_indexed_tag_count = 0;
 	ce_free_next = ce_free_end = 0;
 	ce_room_next = 0;
+	ce_loaded_tags_end(0);
 }
 
 #endif

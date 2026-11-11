@@ -120,12 +120,25 @@ boolean ce_image_data(struct ce_image const *image, void const *field, char cons
 /* a tag instance's name, for messages */
 char const *ce_image_tag_name(struct ce_image const *image, void const *instance);
 
-/* the bytes at address in the loaded map's tag cache, or in the room above
-it (CE_CONVERSION_ROOM), if all size of them are there; else NULL. What the
-conversions read through when a map loads: its tags were checked, but one
-conversion's write may land on another's field, and an address read after
-it is not trusted */
+/* the bytes at address where the loaded map's tags are (its own and its
+resource maps' copied in after them: ce_loaded_tags_end), or in a block of
+tag data the conversions placed elsewhere (ce_loaded_tags_add), if all size
+of them are there; else NULL. What the conversions read through when a map
+loads: its tags were checked, but one conversion's write may land on
+another's field, and an address read after it is not trusted. Nothing else
+in the tag cache or above it (a BSP, the conversions' vertices and strips)
+is a tag's */
 void *ce_loaded_pointer(unsigned long address, unsigned long size);
+
+/* the same in the tag cache from the loaded map's lowest BSP up, where its
+BSPs are (a 64 MB console's BSPs' window, with no memory below it) */
+void *ce_loaded_bsp_pointer(unsigned long address, unsigned long size);
+
+/* where the loaded map's tags end (ce_resources.c, as they load; 0 once
+they unload: then no address is one of them), and a block of tag data a
+conversion placed past them (ce_hud.c's button icons) */
+void ce_loaded_tags_end(unsigned long end);
+void ce_loaded_tags_add(unsigned long address, unsigned long size);
 
 /* a loaded map's tag instance's name, for messages ("<unnamed>" if it is
 not one in its tag cache) */
