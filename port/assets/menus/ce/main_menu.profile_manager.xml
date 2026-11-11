@@ -13,7 +13,7 @@
 	<widget name="main_menu/profile_manager/player_profile_extended_desc" width="640" height="480">
 		<child widget="main_menu/current_profile_name"/>
 		<child widget="main_menu/player_profiles_select/player_profile_right_item" x="22" y="2"/>
-		<child widget="main_menu/profile_manager/delta_line" x="428" y="226"/>
+		<child widget="main_menu/profile_manager/delta_line" x="428" y="296"/>
 	</widget>
 	<!-- (the port's: a Halo profile's "Delta:" line, menu_functions.c) -->
 	<widget name="main_menu/profile_manager/delta_line" type="text" controller="1" width="150" height="20" font="ui\small_ui" color="#FF2896FF" align="center">

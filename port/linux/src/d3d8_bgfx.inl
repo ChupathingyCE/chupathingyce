@@ -53,6 +53,9 @@ static void bg_blit_2d(bgfx_view_id_t view, bgfx_texture_handle_t destination, u
 {
 	bgfx_texture_region_t to = { 0 }, from = { 0 };
 
+	if (!BGFX_HANDLE_IS_VALID(destination) || !BGFX_HANDLE_IS_VALID(source))
+		return;
+
 	to.handle = destination;
 	to.mip = level;
 	to.width = width;
@@ -70,6 +73,8 @@ static uint32_t bg_read_texture(bgfx_texture_handle_t texture, void *data)
 {
 	bgfx_texture_region_t region = { 0 };
 
+	if (!BGFX_HANDLE_IS_VALID(texture))
+		return 0;
 	region.handle = texture;
 	region.depth = 1;
 	return bgfx_read_texture(&region, data);
@@ -284,6 +289,10 @@ static struct
 {
 	BOOL ready;
 	SDL_Window *window;
+	/* the depth buffers' format, the first of bg_depth_formats the renderer
+	draws into, and whether it has a stencil (bg_formats_choose) */
+	bgfx_texture_format_t depth_format;
+	BOOL depth_stencil;
 	bgfx_vertex_layout_t layout;
 	bgfx_uniform_handle_t uniforms[BG_UNIFORM_COUNT];
 	bgfx_uniform_handle_t samplers[4];
@@ -1985,7 +1994,7 @@ static uint64_t bg_state(BOOL has_depth, uint32_t *stencil, uint32_t *back_stenc
 			state |= BGFX_STATE_WRITE_Z;
 	}
 	*stencil = *back_stencil = BGFX_STENCIL_NONE;
-	if (has_depth && rs[D3DRS_STENCILENABLE])
+	if (has_depth && bg.depth_stencil && rs[D3DRS_STENCILENABLE])
 	{
 		DWORD mask = rs[D3DRS_STENCILWRITEMASK] & 0xff;
 		unsigned fail = bg_stencil_operation(rs[D3DRS_STENCILFAIL]);
@@ -2100,7 +2109,7 @@ static int bg_screen_samples(void)
 			samples >= 8 ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X8 :
 			samples >= 4 ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X4 : BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X2;
 
-		if ((caps->formats[BGFX_TEXTURE_FORMAT_BGRA8] & bit) && (caps->formats[BGFX_TEXTURE_FORMAT_D24S8] & bit))
+		if ((caps->formats[BGFX_TEXTURE_FORMAT_BGRA8] & bit) && (caps->formats[bg.depth_format] & bit))
 			break;
 	}
 	if (samples < 2)
@@ -2169,9 +2178,11 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	}
 	for (entry = *bg_target_bucket(surface->Data); entry; entry = entry->next)
 	{
+		/* (one bgfx would not make is kept, so it is asked for once, and is
+		no target: what would draw into it is left out) */
 		if (entry->data == surface->Data && entry->width == width && entry->height == height && entry->depth == depth &&
 			entry->scale[0] == scale[0] && entry->scale[1] == scale[1] && entry->samples == samples)
-			return entry;
+			return BGFX_HANDLE_IS_VALID(entry->texture) ? entry : NULL;
 	}
 	entry = calloc(1, sizeof(*entry));
 	entry->data = surface->Data;
@@ -2184,12 +2195,18 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	entry->pixel_width = (unsigned long)(width * scale[0] + 0.5f);
 	entry->pixel_height = (unsigned long)(height * scale[1] + 0.5f);
 	entry->texture = bgfx_create_texture_2d((uint16_t)entry->pixel_width, (uint16_t)entry->pixel_height, false, 1,
-		depth ? BGFX_TEXTURE_FORMAT_D24S8 : BGFX_TEXTURE_FORMAT_BGRA8,
+		depth ? bg.depth_format : BGFX_TEXTURE_FORMAT_BGRA8,
 		bg_samples_flags(samples, depth) | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
 	/* (cleared once: what a new target holds is undefined) */
 	entry->fresh = TRUE;
 	entry->next = *bg_target_bucket(entry->data);
 	*bg_target_bucket(entry->data) = entry;
+	if (!BGFX_HANDLE_IS_VALID(entry->texture))
+	{
+		platform_log("bgfx: a %lux%lu %s target (%d samples) cannot be made, so it is not drawn", entry->pixel_width,
+			entry->pixel_height, depth ? "depth" : "color", samples);
+		return NULL;
+	}
 	return entry;
 }
 
@@ -2234,10 +2251,14 @@ static bgfx_frame_buffer_handle_t bg_framebuffer_get(struct bg_target *color, st
 		if (entry->color == color_index && entry->depth == depth_index)
 			return entry->handle;
 	}
-	if (color)
+	/* (bg_target_get gives only targets with a texture; one without is
+	left out all the same, as bgfx reads its texture by the handle) */
+	if (color && BGFX_HANDLE_IS_VALID(color->texture))
 		attachments[count++] = color->texture;
-	if (depth)
+	if (depth && BGFX_HANDLE_IS_VALID(depth->texture))
 		attachments[count++] = depth->texture;
+	if (!count)
+		return (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	entry = calloc(1, sizeof(*entry));
 	entry->color = color_index;
 	entry->depth = depth_index;
@@ -2285,11 +2306,15 @@ static BOOL bg_bind_targets(BOOL *has_depth)
 	bg.target_height = color ? color->pixel_height : depth->pixel_height;
 	bg.target_samples = color ? color->samples : depth->samples;
 	bg.framebuffer = bg_framebuffer_get(color, depth);
+	/* (one bgfx would not make: nothing is drawn, rather than into the
+	window) */
+	if (!BGFX_HANDLE_IS_VALID(bg.framebuffer))
+		return FALSE;
 	if ((color && color->fresh) || (depth && depth->fresh))
 	{
 		unsigned short rect[4] = { 0, 0, (unsigned short)bg.target_width, (unsigned short)bg.target_height };
 		uint16_t clear = (uint16_t)((color && color->fresh ? BGFX_CLEAR_COLOR : 0) |
-			(depth && depth->fresh ? BGFX_CLEAR_DEPTH | BGFX_CLEAR_STENCIL : 0));
+			(depth && depth->fresh ? BGFX_CLEAR_DEPTH | (bg.depth_stencil ? BGFX_CLEAR_STENCIL : 0) : 0));
 
 		bg_view_set(bg.framebuffer, rect, TRUE);
 		bgfx_set_view_clear(bg.view, clear, 0x000000ff, 1.0f, 0);
@@ -2369,6 +2394,10 @@ static bgfx_texture_handle_t bg_composite_get(const struct xgpu_texture_descript
 		bg.composites = composite;
 		changed = TRUE;
 	}
+	/* (one bgfx would not make: the top level alone, as a target without
+	its levels above) */
+	if (!BGFX_HANDLE_IS_VALID(composite->texture))
+		return first->texture;
 	for (level = 0; level < full; level++)
 	{
 		if (composite->sources[level] != targets[level]->texture.idx || composite->written[level] != targets[level]->written)
@@ -3976,6 +4005,12 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	small prompts) */
 	bg.overlay_icons = bgfx_create_texture_2d((uint16_t)icon_size, (uint16_t)icon_size, true, (uint16_t)icon_count,
 		BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE, NULL, 0);
+	if (!BGFX_HANDLE_IS_VALID(bg.overlay) || !BGFX_HANDLE_IS_VALID(bg.overlay_atlas) ||
+		!BGFX_HANDLE_IS_VALID(bg.overlay_icons))
+	{
+		platform_log("bgfx: the overlay's textures cannot be made, so it is not drawn");
+		return FALSE;
+	}
 	for (index = 0; index < icon_count && icons; index++)
 	{
 		unsigned long width = (unsigned long)icon_size, height = (unsigned long)icon_size;
@@ -4040,7 +4075,8 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 			UINT16_MAX);
 	if (picture && picture_serial != bg.overlay_picture_serial)
 	{
-		bgfx_destroy_texture(bg.overlay_picture);
+		if (BGFX_HANDLE_IS_VALID(bg.overlay_picture))
+			bgfx_destroy_texture(bg.overlay_picture);
 		bg.overlay_picture = bgfx_create_texture_2d((uint16_t)picture_width, (uint16_t)picture_height, false, 1,
 			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
 			bgfx_copy(picture, (uint32_t)(picture_width * picture_height * 4)), 0);
@@ -4049,7 +4085,8 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 	/* (the plasma's noise map, while a plasma is drawn: the Guide's) */
 	if (plasma && plasma_serial != bg.overlay_plasma_serial)
 	{
-		bgfx_destroy_texture(bg.overlay_plasma);
+		if (BGFX_HANDLE_IS_VALID(bg.overlay_plasma))
+			bgfx_destroy_texture(bg.overlay_plasma);
 		bg.overlay_plasma = bgfx_create_texture_2d((uint16_t)plasma_width, (uint16_t)plasma_height, false, 1,
 			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
 			bgfx_copy(plasma, (uint32_t)(plasma_width * plasma_height * 4)), 0);
@@ -4064,9 +4101,15 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 		int mip = 0;
 
 		bg.overlay_medals_ready = TRUE;
-		bgfx_destroy_texture(bg.overlay_medals);
+		if (BGFX_HANDLE_IS_VALID(bg.overlay_medals))
+			bgfx_destroy_texture(bg.overlay_medals);
 		bg.overlay_medals = bgfx_create_texture_2d((uint16_t)medals_width, (uint16_t)medals_height, true, 1,
 			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE, NULL, 0);
+		if (!BGFX_HANDLE_IS_VALID(bg.overlay_medals))
+		{
+			free(level);
+			level = NULL;
+		}
 		if (level)
 			memcpy(level, medals, width * height * 4);
 		while (level)
@@ -4322,7 +4365,7 @@ static void bg_clip_start(void)
 		free(bg.clip[index].pixels);
 		bg.clip[index].pixels = malloc(bg.clip[index].width * bg.clip[index].height * 4);
 	}
-	if (!bg.clip[index].pixels)
+	if (!bg.clip[index].pixels || !BGFX_HANDLE_IS_VALID(bg.clip[index].texture))
 		return;
 	bg_blit_2d(bg.present_view, bg.clip[index].texture, 0, back_buffer->texture, (uint16_t)bg.clip[index].width,
 		(uint16_t)bg.clip[index].height);
@@ -4412,7 +4455,7 @@ static void bg_present(void)
 				free(bg.capture_pixels);
 				bg.capture_pixels = malloc(bg.capture_width * bg.capture_height * 4);
 			}
-			if (bg.capture_pixels)
+			if (bg.capture_pixels && BGFX_HANDLE_IS_VALID(bg.capture))
 			{
 				bg_blit_2d(bg.present_view, bg.capture, 0, back_buffer->texture, (uint16_t)bg.capture_width,
 					(uint16_t)bg.capture_height);
@@ -4703,6 +4746,73 @@ static const char *bg_renderer_name(void)
 
 /* bgfx started on the renderer of type, in the window (width by height
 pixels): whether it did */
+/* the depth buffers' formats, best first: the game's stencil needs D24S8
+(bgfx makes it D32_SFLOAT_S8_UINT on a Vulkan device without
+D24_UNORM_S8_UINT, AMD's: tools/bgfx-patches/0004), and the others draw
+without one (the stencil's tests are left out, bg_state) */
+static const struct
+{
+	bgfx_texture_format_t format;
+	const char *name;
+	BOOL stencil;
+} bg_depth_formats[] = {
+	{ BGFX_TEXTURE_FORMAT_D24S8, "D24S8", TRUE },
+	{ BGFX_TEXTURE_FORMAT_D32F, "D32F", FALSE },
+	{ BGFX_TEXTURE_FORMAT_D24, "D24", FALSE },
+	{ BGFX_TEXTURE_FORMAT_D32, "D32", FALSE },
+	{ BGFX_TEXTURE_FORMAT_D24F, "D24F", FALSE },
+	{ BGFX_TEXTURE_FORMAT_D16, "D16", FALSE },
+};
+
+/* whether bgfx's renderer draws into a texture of the format: its caps, less
+those HALO_BGFX_UNSUPPORTED names (a test's, "D24S8,D32F" say, to try the
+fallbacks on a GPU that has them) */
+static BOOL bg_format_drawable(const bgfx_caps_t *caps, bgfx_texture_format_t format, const char *name)
+{
+	const char *unsupported = getenv("HALO_BGFX_UNSUPPORTED");
+
+	if (unsupported && *unsupported)
+	{
+		size_t length = strlen(name);
+		const char *at;
+
+		for (at = unsupported; (at = strstr(at, name)) != NULL; at += length)
+		{
+			if ((at == unsupported || at[-1] == ',') && (at[length] == ',' || at[length] == '\0'))
+				return FALSE;
+		}
+	}
+	return (caps->formats[format] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER) != 0;
+}
+
+/* the targets' formats from the renderer's caps (bg.depth_format); FALSE
+when it draws into none of them, which leaves the game to OpenGL */
+static BOOL bg_formats_choose(void)
+{
+	const bgfx_caps_t *caps = bgfx_get_caps();
+	size_t index;
+
+	if (!bg_format_drawable(caps, BGFX_TEXTURE_FORMAT_BGRA8, "BGRA8"))
+	{
+		platform_log("bgfx: %s draws into no BGRA8 targets, so OpenGL", bgfx_get_renderer_name(bgfx_get_renderer_type()));
+		return FALSE;
+	}
+	for (index = 0; index < sizeof(bg_depth_formats) / sizeof(bg_depth_formats[0]); index++)
+	{
+		if (!bg_format_drawable(caps, bg_depth_formats[index].format, bg_depth_formats[index].name))
+			continue;
+		bg.depth_format = bg_depth_formats[index].format;
+		bg.depth_stencil = bg_depth_formats[index].stencil;
+		if (index)
+			platform_log("bgfx: depth buffers are %s here (no D24S8)%s", bg_depth_formats[index].name,
+				bg.depth_stencil ? "" : ", without a stencil");
+		return TRUE;
+	}
+	platform_log("bgfx: %s draws into no depth buffer format, so OpenGL",
+		bgfx_get_renderer_name(bgfx_get_renderer_type()));
+	return FALSE;
+}
+
 static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 {
 	bgfx_init_t init;
@@ -4785,6 +4895,11 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 	{
 		platform_log("bgfx: Direct3D 11 would draw in software (%s), so OpenGL",
 			*bgfx_gpu_name ? bgfx_gpu_name : "WARP");
+		bgfx_shutdown();
+		return FALSE;
+	}
+	if (!bg_formats_choose())
+	{
 		bgfx_shutdown();
 		return FALSE;
 	}
