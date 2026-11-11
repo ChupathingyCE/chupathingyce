@@ -243,7 +243,7 @@ defaults every machine's key starts from:
 | Steam Deck | 128 | 128 | 128 | 14 (16 GB) | yes |
 | Android | 128 | 128 | 128 | 11 (2 GB) | yes |
 | unknown | 128 | 128 | 128 | 0 | yes |
-| Xbox | 16 | 16 | 128 | 6 (64 MB) | no |
+| Xbox | 16 | 32 (16 on a stock build) | 128 | 6 (64 MB) | no |
 | Xbox 360, Wii U | 32 | 32 | 128 | 9, 10 (placeholders) | yes |
 | Switch | 16 | 16 | 128 | 12 (placeholder until its port plays) | yes |
 | PSP, Vita | 16 | 16 | 128 | 6, 9 (placeholders) | no |
@@ -259,6 +259,10 @@ Co-op: a host offers no network co-op (the Map screen's campaign levels
 refuse, and say why in the log) while a machine of a platform without it is
 in its game, nor on such a platform itself (`delta_peer_room_coop`). Of the
 platforms that play today, only the original Xbox is kept out.
+
+The original Xbox hosts 16 players at most, on LAN or online, and joins
+games of up to 32. A console build joins no more than its own tables hold
+(`HALO_CONSOLE_PLAYERS`), so a stock Xbox build of 16 claims 16 in its key.
 
 A host protects the weakest machine of its game: it takes no more players
 than the smallest of its own hosting limit and every Delta machine's join
@@ -3279,7 +3283,8 @@ and in the Delta Guide.
 - **Warthog (the consoles):** speaks the legacy protocol with OpenCE's
   layout (the cross-play work) and joins as a Delta Peer client with its
   platform key (`HALO_CONSOLE_DELTA`), so hosts keep games to its limits
-  (16 players on the original Xbox) unless its player opts in.
+  unless its player opts in. The original Xbox hosts 16 players at most and
+  joins games of up to 32. A stock Xbox build holds 16, so it joins 16.
 - **Halo Custom Edition 1.0.10 players:** outside Delta. A dedicated
   server can list itself on the GameSpy masters (`gamespy_listing`), and
   with `ce_joins` (off by default) it answers a Custom Edition client's
