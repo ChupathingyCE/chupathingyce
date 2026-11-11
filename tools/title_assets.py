@@ -58,6 +58,13 @@ SETS = {
     "classic": (TITLES, ROOT / "port/assets/fonts/ChupathingyTitles-Regular.ttf", True),
     "cyborg": (ROOT / "port/assets/titles_cyborg", ROOT / "port/assets/fonts/CyborgInterfaceGothic-Regular.ttf", False),
 }
+# the cyborg set's kerning (Cyborg Interface Gothic has none of its own):
+# pairs set closer, in font units (1000 to the em), where a letter's open
+# side meets another's (MULTIPLAYER's L and T)
+CYBORG_KERNING = {
+    "LT": -110, "LY": -100, "LV": -90, "TA": -60, "AT": -60,
+    "AV": -50, "VA": -50, "AY": -50, "YA": -50,
+}
 # (the set being made: main sets them)
 OUTPUT, FONT, LETTER_MOVES = SETS["classic"]
 SCALE = 4
@@ -251,6 +258,8 @@ class Layout:
             if index + 1 < len(text):
                 pair = text[index:index + 2]
                 pen += self.font.getlength(pair) - self.font.getlength(pair[0]) - self.font.getlength(pair[1])
+                if not LETTER_MOVES:
+                    pen += CYBORG_KERNING.get(pair, 0) * self.font.size / 1000
         glyphs = self.glyphs
         natural_left = pens[0] + glyphs[0][1]
         natural_right = pens[-1] + glyphs[-1][1] + glyphs[-1][0].shape[1]

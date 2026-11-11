@@ -130,8 +130,14 @@ unsigned long hud_hires_settings(void)
 
 int hud_hires_title_font_cyborg(void)
 {
+#ifdef HALO_CONSOLE_NO_TITLE_CHOICE
+	/* (a console has the classic titles alone: a "cyborg" in its
+	config.toml changes nothing, its overlay's titles included) */
+	return 0;
+#else
 	settings_read();
 	return titles_cyborg;
+#endif
 }
 
 /* whether the asset is a title of the cyborg set, which stands in for its
@@ -175,7 +181,7 @@ long hud_hires_override_find(unsigned long address, unsigned long width, unsigne
 	if (!(hud_hires_embedded[asset].title ? titles_enabled : hud_enabled))
 		return -1;
 	/* (display.title_font's set) */
-	if (hud_hires_embedded[asset].title == 1 && titles_cyborg)
+	if (hud_hires_embedded[asset].title == 1 && hud_hires_title_font_cyborg())
 		asset = cyborg_title(asset);
 #ifdef HALO_64BIT
 	/* (an Xbox address: the texture's pixels in the contiguous memory) */
