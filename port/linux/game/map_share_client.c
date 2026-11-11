@@ -132,6 +132,8 @@ static struct
 	bot's */
 	boolean player;
 	boolean cancelled;
+	/* (the blacklist refused the map offered) */
+	boolean blocked;
 	short state;
 	unsigned long state_time;
 	unsigned long started;
@@ -318,7 +320,8 @@ static void fetch_finish(
 			map_download_host_received(fetch.hash);
 		}
 		else
-			map_download_host_failed(detail && detail[0] ? detail : "the host did not give the map", fetch.cancelled);
+			map_download_host_failed(detail && detail[0] ? detail : "the host did not give the map", fetch.cancelled,
+				fetch.blocked);
 		fetch_state(_fetch_leaving);
 		return;
 	}
@@ -1120,7 +1123,16 @@ boolean map_share_client_message(
 		}
 		fetch.size = map_share_get32(body + MAP_SHARE_OFFER_SIZE + 4);
 		csmemcpy(fetch.hash, body + MAP_SHARE_OFFER_SIZE + 8, MAP_SHARE_HASH_SIZE);
-		if (!fetch.size || fetch.size > MAP_LIMIT || map_share_hash_version(fetch.hash) != fetch.version)
+		if (fetch.size > MAP_LIMIT)
+		{
+			char text[160];
+
+			snprintf(text, sizeof(text), "the map is %lu MB, more than the %d MB any map may be", fetch.size >> 20,
+				MAP_LIMIT >> 20);
+			fetch_finish("failed", "too large", text);
+			return TRUE;
+		}
+		if (!fetch.size || map_share_hash_version(fetch.hash) != fetch.version)
 		{
 			fetch_finish("failed", "failed", "the host's offer was not of this map");
 			return TRUE;
@@ -1136,6 +1148,7 @@ boolean map_share_client_message(
 			if (map_download_host_refused(fetch.hash, reason, (int)sizeof(reason)))
 			{
 				snprintf(text, sizeof(text), "%s.map is on the blacklist: %s", fetch.wanted, reason);
+				fetch.blocked = TRUE;
 				fetch_finish("failed", "blocked", text);
 				return TRUE;
 			}

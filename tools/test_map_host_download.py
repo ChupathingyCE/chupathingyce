@@ -175,7 +175,7 @@ def test_host_comes_last_and_only_as_allowed(harness, setting, state, source, bl
 
 
 @pytest.mark.parametrize("megabytes,cap", [(512, 512 * MB), (0, 512 * MB), (-5, 512 * MB), (1, 16 * MB),
-                                           (16, 16 * MB), (1024, 1024 * MB), (4000, 1024 * MB), (100, 100 * MB)])
+                                           (16, 16 * MB), (768, 768 * MB), (1024, 768 * MB), (4000, 768 * MB), (100, 100 * MB)])
 def test_size_cap(harness, megabytes, cap):
     assert int(run(harness, "limit", megabytes)) == cap
 
@@ -400,6 +400,77 @@ def test_screen_asks_the_host_only_after_the_repositories():
     assert "map_download_host_next" not in follow[:follow.index("case MAP_DOWNLOAD_FAILED:")]
 
 
+def test_the_fetch_is_driven_every_frame_and_never_left_alone():
+    """map_share_fetching() is read by the game's networking whenever a
+    player's fetch is set, so it is driven from the main loop whatever screen
+    is up, and cancelled once the screen no longer shows it"""
+    main = read("source/main/main.c")
+    assert ("#ifdef HALO_HOST_MAP_DOWNLOADS\n\t\t\t/* a player's download of a map from the host, whatever screen is\n"
+            "\t\t\tup (port/linux/game/browser_screen.c) */\n\t\t\tMAIN_STAGE(\"browser_screen_host_download_update\");\n"
+            "\t\t\tbrowser_screen_host_download_update();") in main
+    screen = read("port/linux/game/browser_screen.c")
+    hook = screen[screen.index("void browser_screen_host_download_update("):]
+    hook = hook[:hook.index("\n}\n")]
+    assert "(!browser_screen.active || browser_screen.offer != _offer_downloading)" in hook
+    assert hook.index("map_download_cancel();") < hook.index("map_share_player_update();")
+    assert "map_download_host_sweep();" in hook
+    # (the screen itself only reads its progress now)
+    assert screen.count("map_share_player_update();") == 1
+    client = read("port/linux/game/map_share_client.c")
+    update = client[client.index("void map_share_player_update("):]
+    assert update.index("map_download_host_cancelled()") < update.index("switch (fetch.state)")
+
+
+def test_no_host_download_without_the_blacklist():
+    download = read("port/linux/src/map_download.c")
+    allowed = download[download.index("int map_download_host_allowed("):]
+    allowed = allowed[:allowed.index("\n}\n")]
+    assert "if (map_repo_index_held())\n\t\treturn 1;" in allowed
+    begin = download[download.index("int map_download_host_begin("):]
+    assert "!map_download_host_allowed(why, (int)sizeof(why))" in begin[:600]
+    screen = read("port/linux/game/browser_screen.c")
+    start = screen[screen.index("static void start_host_download("):]
+    assert start.index("map_download_host_allowed(") < start.index("map_share_player_start(")
+    repo = read("port/linux/src/map_repo.c")
+    assert "held = map_repo.index != NULL;" in repo
+
+
+def test_a_blacklist_refusal_before_the_transfer_is_marked_blocked():
+    client = read("port/linux/game/map_share_client.c")
+    refusal = client[client.index("if (map_download_host_refused(fetch.hash"):]
+    assert refusal.index("fetch.blocked = TRUE;") < refusal.index("fetch_finish(")
+    assert "fetch.cancelled,\n\t\t\t\tfetch.blocked);" in client
+    download = read("port/linux/src/map_download.c")
+    assert "finish_blocked(MAP_DOWNLOAD_FAILED, message, blocked);" in download
+
+
+def test_the_transfer_limit_and_the_setting_agree():
+    client = read("port/linux/game/map_share_client.c")
+    assert "MAP_LIMIT = 0x30000000," in client
+    header = read("port/linux/src/map_quick_check.h")
+    assert "MAP_QUICK_CHECK_MAXIMUM_LIMIT_MB = 768," in header
+    assert "more than the %d MB any map may be" in client
+    assert "16 to 768" in read("port/linux/src/port_config.c")
+
+
+def test_shared_state_is_read_under_the_lock():
+    download = read("port/linux/src/map_download.c")
+    cancelled = download[download.index("int map_download_host_cancelled("):]
+    cancelled = cancelled[:cancelled.index("\n}\n")]
+    assert "pthread_mutex_lock(&map_download.lock);" in cancelled
+    thread = download[download.index("static void *host_install_thread("):]
+    thread = thread[:thread.index("\n}\n")]
+    assert "version = map_download.version;" in thread and "map_download.version" not in thread.replace(
+        "version = map_download.version;", "")
+
+
+def test_listen_hosts_share_slower_unless_set():
+    host = read("port/linux/game/map_share_host.c")
+    assert "LISTEN_HOST_UPLOAD = 256," in host
+    assert ('if (!browser_dedicated() && !config_chosen("network.map_share_upload"))\n'
+            "\t\tkilobytes = LISTEN_HOST_UPLOAD;") in host
+
+
 def test_listen_hosts_share_behind_the_same_setting():
     host = read("port/linux/game/map_share_host.c")
     sharing = host[host.index("static boolean host_sharing("):]
@@ -441,7 +512,7 @@ def e2e_copy(folder, address, other, environment, ce_map=None):
 
 
 @pytest.mark.skipif(not E2E_BINARY or not E2E_DATA, reason="HALO_MAP_HOST_E2E and _DATA not set")
-@pytest.mark.parametrize("setting", ["always", "off"])
+@pytest.mark.parametrize("setting", ["always", "off", "no_index"])
 def test_dedicated_server_shares_the_map(tmp_path, setting):
     ce_map = next((path for path in (Path(E2E_DATA) / "maps_ce" / f"{E2E_MAP}.map",
                                      Path(E2E_DATA) / "maps_community" / f"{E2E_MAP}.map") if path.exists()), None)
@@ -456,11 +527,15 @@ def test_dedicated_server_shares_the_map(tmp_path, setting):
                        "HALO_NET_MAPS_URL": ""}, ce_map)
     time.sleep(6)
     # (the community repositories asked first: here a port nothing answers
-    # on, so the host comes next; Chupathingy maps off)
-    client = e2e_copy(tmp_path / "client", "127.0.0.3", "127.0.0.2",
-                      {"HALO_NETWORK_TEST": "join", "HALO_NET_MAP_DOWNLOADS": "always",
-                       "HALO_NET_MAP_DOWNLOADS_FROM_HOST": setting, "HALO_NET_MAPS_URL": "",
-                       "HALO_MAP_REPOSITORIES": "http://127.0.0.1:9"})
+    # on; then Chupathingy maps, whose signed index (its blacklist) the host
+    # needs; then the host. "no_index": Chupathingy maps off, so no blacklist,
+    # and nothing comes from the host)
+    client_env = {"HALO_NETWORK_TEST": "join", "HALO_NET_MAP_DOWNLOADS": "always",
+                  "HALO_NET_MAP_DOWNLOADS_FROM_HOST": "always" if setting == "no_index" else setting,
+                  "HALO_MAP_REPOSITORIES": "http://127.0.0.1:9"}
+    if setting == "no_index":
+        client_env["HALO_NET_MAPS_URL"] = ""
+    client = e2e_copy(tmp_path / "client", "127.0.0.3", "127.0.0.2", client_env)
     try:
         time.sleep(E2E_SECONDS)
     finally:
@@ -474,7 +549,13 @@ def test_dedicated_server_shares_the_map(tmp_path, setting):
     if "network test: joining" not in log:
         pytest.skip("the client found no host (loopback addresses 127.0.0.2 and .3?)")
     installed = tmp_path / "client" / "data" / "maps_ce" / f"{E2E_MAP}.map"
-    if setting == "always":
+    if setting == "always" and "blacklist isn't loaded" in log:
+        pytest.skip("Chupathingy maps' index couldn't be fetched")
+    if setting == "no_index":
+        assert "map download: no map from the host: Chupathingy maps' blacklist isn't loaded" in log
+        assert "joining the host's game to ask it" not in log
+        assert not installed.exists()
+    elif setting == "always":
         assert f"map download: joining the host's game to ask it for {E2E_MAP}.map (no player)" in log, log[-4000:]
         assert f"map download: {E2E_MAP}.map from the host passed its checks" in log, log[-4000:]
         assert installed.exists() and installed.read_bytes() == ce_map.read_bytes()

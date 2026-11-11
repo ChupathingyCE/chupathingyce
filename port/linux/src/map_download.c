@@ -895,6 +895,7 @@ static void *host_install_thread(void *argument)
 	char name[sizeof(map_download.progress.name)], installed[MAP_HOST_NAME_SIZE], error[160] = "";
 	unsigned char offered[MAP_ARCHIVE_HASH_SIZE], sha256[MAP_INDEX_HASH_SIZE], map_hash[MAP_ARCHIVE_HASH_SIZE];
 	char part[MAP_HOST_PATH_SIZE], whole[MAP_HOST_PATH_SIZE];
+	unsigned int version;
 	long long size;
 	int blocked = 0;
 
@@ -902,12 +903,13 @@ static void *host_install_thread(void *argument)
 	pthread_mutex_lock(&map_download.lock);
 	snprintf(name, sizeof(name), "%s", map_download.progress.name);
 	memcpy(offered, map_download.offered, sizeof(offered));
+	version = map_download.version;
 	pthread_mutex_unlock(&map_download.lock);
 	set_phase(MAP_DOWNLOAD_CHECKING, 0, 0);
 	map_host_quarantine_paths(name, part, whole);
 	size = host_size(NULL, whole);
 	CreateDirectoryA("d:\\maps_ce", NULL);
-	if (!map_host_install(&files, name, map_download.version, offered, map_download_host_limit(), installed, sha256,
+	if (!map_host_install(&files, name, version, offered, map_download_host_limit(), installed, sha256,
 		map_hash, &blocked, error, (int)sizeof(error)))
 	{
 		platform_log("map download: %s.map from the host refused: %s; deleted", name, error);
@@ -998,7 +1000,9 @@ int map_download_start(const char *name, unsigned int version)
 
 void map_download_cancel(void)
 {
+	pthread_mutex_lock(&map_download.lock);
 	map_download.cancel = 1;
+	pthread_mutex_unlock(&map_download.lock);
 }
 
 void map_download_get(struct map_download_progress *progress)
@@ -1093,8 +1097,9 @@ int map_download_host_begin(const char *name, unsigned int version)
 {
 #ifdef HALO_HOST_MAP_DOWNLOADS
 	char part[MAP_HOST_PATH_SIZE], whole[MAP_HOST_PATH_SIZE];
+	char why[160];
 
-	if (!map_quick_check_name(name))
+	if (!map_quick_check_name(name) || !map_download_host_allowed(why, (int)sizeof(why)))
 		return 0;
 	pthread_mutex_lock(&map_download.lock);
 	if (map_download.running)
@@ -1136,7 +1141,58 @@ void map_download_host_progress(int phase, unsigned int received, unsigned int t
 
 int map_download_host_cancelled(void)
 {
-	return map_download.cancel;
+	int cancelled;
+
+	pthread_mutex_lock(&map_download.lock);
+	cancelled = map_download.cancel;
+	pthread_mutex_unlock(&map_download.lock);
+	return cancelled;
+}
+
+int map_download_host_allowed(char *why, int why_size)
+{
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	/* (the blacklist must be in force: no map from a host without it) */
+	if (map_repo_index_held())
+		return 1;
+	snprintf(why, (size_t)why_size, "maps from hosts need the blacklist from %s, and it isn't loaded",
+		MAP_REPO_TITLE);
+	platform_log("map download: no map from the host: %s' blacklist isn't loaded (not reached yet, or "
+		"network.maps_url is empty)", MAP_REPO_TITLE);
+	return 0;
+#else
+	snprintf(why, (size_t)why_size, "this build doesn't download maps from hosts");
+	return 0;
+#endif
+}
+
+void map_download_host_sweep(void)
+{
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	WIN32_FIND_DATAA data;
+	HANDLE find;
+	int count = 0;
+
+	/* (what a run that stopped mid-download left in the quarantine folder:
+	nothing in it is ever kept between runs) */
+	find = FindFirstFileA(MAP_HOST_QUARANTINE_FOLDER "\\*", &data);
+	if (find == INVALID_HANDLE_VALUE)
+		return;
+	do
+	{
+		char path[MAP_HOST_PATH_SIZE + 64];
+
+		if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+			continue;
+		snprintf(path, sizeof(path), "%s\\%s", MAP_HOST_QUARANTINE_FOLDER, data.cFileName);
+		if (DeleteFileA(path))
+			count++;
+	}
+	while (FindNextFileA(find, &data));
+	CloseHandle(find);
+	if (count)
+		platform_log("map download: deleted %d file%s left in maps_quarantine", count, count == 1 ? "" : "s");
+#endif
 }
 
 int map_download_host_refused(const unsigned char *map_hash, char *reason, int reason_size)
@@ -1171,7 +1227,7 @@ void map_download_host_received(const unsigned char *map_hash)
 	set_phase(MAP_DOWNLOAD_CHECKING, 0, 0);
 	if (pthread_create(&thread, NULL, host_install_thread, NULL) != 0)
 	{
-		map_download_host_failed("could not check the map", 0);
+		map_download_host_failed("could not check the map", 0, 0);
 		return;
 	}
 	pthread_detach(thread);
@@ -1180,7 +1236,7 @@ void map_download_host_received(const unsigned char *map_hash)
 #endif
 }
 
-void map_download_host_failed(const char *message, int cancelled)
+void map_download_host_failed(const char *message, int cancelled, int blocked)
 {
 	char part[MAP_HOST_PATH_SIZE], whole[MAP_HOST_PATH_SIZE], name[sizeof(map_download.progress.name)];
 
@@ -1199,6 +1255,6 @@ void map_download_host_failed(const char *message, int cancelled)
 	else
 	{
 		platform_log("map download: %s.map from the host failed: %s", name, message);
-		finish(MAP_DOWNLOAD_FAILED, message);
+		finish_blocked(MAP_DOWNLOAD_FAILED, message, blocked);
 	}
 }

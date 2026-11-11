@@ -169,7 +169,14 @@ thread of its own (the quick checks, the host's version, the blacklist
 again, by its SHA-256 and map hash), else deleted; the progress then DONE
 or FAILED */
 void map_download_host_received(const unsigned char *map_hash);
-/* it ended without the file: why (cancelled: the player's cancel) */
-void map_download_host_failed(const char *message, int cancelled);
+/* it ended without the file: why (cancelled: the player's cancel;
+blocked: the blacklist refused the map the host offered) */
+void map_download_host_failed(const char *message, int cancelled, int blocked);
+/* whether a map may come from a host at all: Chupathingy maps' blacklist
+must be held (map_repo_index_held), else 0 with why in why */
+int map_download_host_allowed(char *why, int why_size);
+/* the quarantine folder emptied of what an earlier run left (once, at
+start) */
+void map_download_host_sweep(void);
 
 #endif

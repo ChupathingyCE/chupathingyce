@@ -698,6 +698,9 @@ void team_change_update(void);
 void host_rules_update(void);
 void party_teams_update(void);
 void map_share_update(void);
+#ifdef HALO_HOST_MAP_DOWNLOADS
+void browser_screen_host_download_update(void);
+#endif
 #endif
 #ifdef HALO_PORT_CHAT
 void chat_update(void);
@@ -3745,6 +3748,12 @@ void main_loop(
 			/* map sharing's host (port/linux/game/map_share_host.c) */
 			MAIN_STAGE("map_share_update");
 			map_share_update();
+#endif
+#ifdef HALO_HOST_MAP_DOWNLOADS
+			/* a player's download of a map from the host, whatever screen is
+			up (port/linux/game/browser_screen.c) */
+			MAIN_STAGE("browser_screen_host_download_update");
+			browser_screen_host_download_update();
 #endif
 #ifdef HALO_PORT_CHAT
 			/* text chat (port/linux/game/chat.c; on a console, its client's

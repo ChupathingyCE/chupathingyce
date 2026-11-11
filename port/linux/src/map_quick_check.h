@@ -36,7 +36,8 @@ enum
 	most and least it takes */
 	MAP_QUICK_CHECK_DEFAULT_LIMIT_MB = 512,
 	MAP_QUICK_CHECK_MINIMUM_LIMIT_MB = 16,
-	MAP_QUICK_CHECK_MAXIMUM_LIMIT_MB = 1024,
+	/* (the transfer's own limit, map_share_client.c's MAP_LIMIT: 768 MiB) */
+	MAP_QUICK_CHECK_MAXIMUM_LIMIT_MB = 768,
 	/* the game's tag cache (ce_map_checks.h's CE_IMAGE_TAG_CACHE_SIZE):
 	no map's tag data is larger */
 	MAP_QUICK_CHECK_TAG_CACHE_SIZE = 0x01700000,

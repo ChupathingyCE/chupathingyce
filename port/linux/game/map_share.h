@@ -151,7 +151,8 @@ left again once the file is whole or the download failed */
 boolean map_share_player_start(char const *host, char const *file, unsigned long version);
 /* whether one is under way (until the game is left) */
 boolean map_share_player_busy(void);
-/* each frame while one is (the Online Games screen's) */
+/* each frame while one is (browser_screen_host_download_update's, from the
+main loop) */
 void map_share_player_update(void);
 #endif
 

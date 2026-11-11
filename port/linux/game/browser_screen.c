@@ -641,7 +641,21 @@ static void start_host_download(
 	void)
 {
 	char const *host = browser_screen.rejoin_pending ? browser_screen.rejoin_host : browser_screen.connecting_invite;
+	char why[160];
 
+	/* (no map from a host without the blacklist in force) */
+	if (!map_download_host_allowed(why, (int)sizeof(why)))
+	{
+		if (browser_screen.rejoin_pending)
+			rejoin_given_up(why);
+		else
+		{
+			browser_screen.offer = _offer_failed;
+			csmemset(&browser_screen.offer_progress, 0, sizeof(browser_screen.offer_progress));
+			snprintf(browser_screen.offer_progress.message, sizeof(browser_screen.offer_progress.message), "%s", why);
+		}
+		return;
+	}
 	if (browser_screen.rejoin_pending && browser_screen.rejoin_invite[0])
 		browser_join(browser_screen.rejoin_invite, FALSE);
 	if (map_share_player_start(host, browser_screen.offer_file, browser_screen.offer_version))
@@ -658,6 +672,33 @@ static void start_host_download(
 		snprintf(browser_screen.offer_progress.message, sizeof(browser_screen.offer_progress.message),
 			"the host's game could not be joined to ask for it");
 	}
+}
+#endif
+
+#ifdef HALO_HOST_MAP_DOWNLOADS
+/* each frame, from the main loop (main.c), whatever screen is up: the
+quarantine folder swept once, at start, and a download from the host
+driven (map_share_player_update). One the screen no longer shows (it
+closed, or its panel moved on) is cancelled: the host's game is left
+within a frame or two, and nothing is left joined without a player */
+void browser_screen_host_download_update(
+	void)
+{
+	static boolean swept;
+
+	if (!swept)
+	{
+		swept = TRUE;
+		map_download_host_sweep();
+	}
+	if (!map_share_player_busy())
+		return;
+	if ((!browser_screen.active || browser_screen.offer != _offer_downloading) && !map_download_host_cancelled())
+	{
+		platform_log("map download: the download from the host is no longer shown: cancelling it");
+		map_download_cancel();
+	}
+	map_share_player_update();
 }
 #endif
 
@@ -778,9 +819,9 @@ static void follow_download(
 	char text[96];
 
 #ifdef HALO_HOST_MAP_DOWNLOADS
-	/* (a download from the host: its transfer runs on this thread, and what
-	it ended in waits until the host's game is left) */
-	map_share_player_update();
+	/* (a download from the host: its transfer runs each frame from the main
+	loop, browser_screen_host_download_update, and what it ended in waits
+	until the host's game is left) */
 	map_download_get(&browser_screen.offer_progress);
 	if (map_share_player_busy())
 		return;

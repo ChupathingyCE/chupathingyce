@@ -150,17 +150,20 @@ Yes downloads it. Don't ask again with Yes switches the setting to
 without asking. Either way the host comes last: HaloNet first, then
 Chupathingy maps, then the host. The host isn't asked when the blacklist
 refused the map, when you cancelled, or when `network.map_downloads` is
-`"never"`.
+`"never"`. No map comes from a host until the game has loaded the
+blacklist from Chupathingy maps; without it (the site not reached yet, or
+`network.maps_url` set to `""`), the game says so and doesn't download.
 
 The game joins the host's game without a player, asks for the map file
 alone and downloads it from the host alone, over the host's TCP port 5153.
 Before any of it comes, the map's hash is checked against the blacklist.
 Each 256 KiB piece is checked against its hash, and the whole file against
 the hash the host offered. The file goes into `maps_quarantine` (beside
-`maps_ce`), never straight into `maps_ce`. Once it's whole, the game runs
+`maps_ce`), never straight into `maps_ce`; anything a stopped run left there is
+deleted when the game starts. Once it's whole, the game runs
 quick checks that take a few milliseconds: a sane file name, no larger
 than `network.map_downloads_from_host_limit` (512 MB by default, 16 to
-1024), a Custom Edition multiplayer map's header with the map's own name,
+768), a Custom Edition multiplayer map's header with the map's own name,
 and its tag data's offsets and tables inside the file. It must be the
 host's version, and neither of its hashes may be on the blacklist. A file
 that fails any of these is deleted, never changed. A file that passes is

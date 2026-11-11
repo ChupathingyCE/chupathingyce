@@ -1020,10 +1020,11 @@ static const struct config_setting config_settings[] =
 		"missing Custom Edition map, get it from the game's host: \"off\" (the\n"
 		"default), \"ask\" each time, or \"always\". Maps from hosts come\n"
 		"straight from them, not from us, and we haven't checked them. Turn\n"
-		"this on only if you're OK with that. Blocked maps stay blocked." },
+		"this on only if you're OK with that. Blocked maps stay blocked, and\n"
+		"no map comes from a host until the blacklist is loaded." },
 	{ "network.map_downloads_from_host_limit", _config_integer, "512", "HALO_NET_MAP_DOWNLOADS_FROM_HOST_LIMIT",
 		_environment_value, _platform_all,
-		"The largest map taken from a game's host, in MB: 16 to 1024." },
+		"The largest map taken from a game's host, in MB: 16 to 768." },
 #endif
 	{ "network.maps_url", _config_string, "\"https://maps.chupathingy.org\"", "HALO_NET_MAPS_URL", _environment_value,
 		_platform_all,
@@ -1185,7 +1186,8 @@ static const struct config_setting config_settings[] =
 	{ "network.map_share_upload", _config_integer, "1024", "HALO_NET_MAP_SHARE_UPLOAD", _environment_value,
 		_platform_all | _platform_server,
 		"The most map sharing sends, in KB a second, for everyone downloading\n"
-		"together: 16 to 20480." },
+		"together: 16 to 20480. A game you host from the menus sends 256 unless\n"
+		"you set it." },
 #endif
 	/* (a console's reports of the games it joins too: port/console/reports) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
