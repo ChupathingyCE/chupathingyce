@@ -1833,6 +1833,15 @@ long scenario_tags_load(
 				/* (the BSPs' window made, and the room below what isn't memory) */
 				end_free = platform_ce_room_end(end_free);
 #endif
+				/* (its scenario given the scenario's group first, as it was
+				when it was checked: port/linux/game/ce_repairs.c) */
+				{
+					extern void ce_repairs_scenario_loaded(void *tag_instances, long tag_count,
+						unsigned long scenario_tag_index);
+
+					ce_repairs_scenario_loaded(global_tag_instances, ce_header->tag_count,
+						ce_header->scenario_tag_index);
+				}
 				if (!ce_resources_tags_loaded(global_tag_instances, ce_header->tag_count,
 					CE_TAG_CACHE_BASE + cache_file_globals.header.tag_data_size, end_free))
 				{

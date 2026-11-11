@@ -165,6 +165,7 @@ boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long t
 extern long ce_map_cache_version;
 boolean ce_resources_tags_loaded(void *tag_instances, long tag_count, unsigned long first_free,
 	unsigned long end_free);
+void ce_repairs_scenario_loaded(void *tag_instances, long tag_count, unsigned long scenario_tag_index);
 void ce_repairs_tags_loaded(void *tag_instances, long tag_count, unsigned long scenario_tag_index);
 boolean ce_models_tags_loaded(void *tag_instances, long tag_count, byte const *model_data,
 	unsigned long vertex_data_size);
@@ -900,6 +901,7 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 		if (base > CE_TAG_CACHE_BASE && base < end_free)
 			end_free = base;
 	}
+	ce_repairs_scenario_loaded(instances, (long)tag_count, scenario_tag_index);
 	ce_resources_tags_loaded(instances, (long)tag_count, CE_TAG_CACHE_BASE + header->tag_data_size, end_free);
 	ce_repairs_tags_loaded(instances, (long)tag_count, scenario_tag_index);
 	model_data = system_malloc((long)model_data_size);
