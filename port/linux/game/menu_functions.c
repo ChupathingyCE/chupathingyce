@@ -4269,14 +4269,15 @@ static boolean server_name_edit(struct widget_instance *row)
 	return TRUE;
 }
 
-/* "ss copy invite" */
+/* "ss copy invite": the site's join page (p2p_invite_share_link), which chat
+programs make a link of */
 static boolean invite_copy(void)
 {
-	char link[TEXT_FIELD_LENGTH];
+	char link[TEXT_FIELD_LENGTH], shared[TEXT_FIELD_LENGTH];
 
 	if (!p2p_invite_link(link, sizeof(link)))
 		return campaign_fail();
-	platform_clipboard_set(link);
+	platform_clipboard_set(p2p_invite_share_link(link, shared, sizeof(shared)) ? shared : link);
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return TRUE;
 }
