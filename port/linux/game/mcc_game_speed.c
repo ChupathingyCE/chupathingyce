@@ -10,6 +10,7 @@
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
 #include "network_distributed.h"
+#include "mcc_network_messages.h"
 #include "errors.h"
 #include <stdint.h>
 #include <string.h>

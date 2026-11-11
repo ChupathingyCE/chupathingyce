@@ -9,6 +9,7 @@
 #include "objects/objects.h"
 #include "units/units.h"
 #include "network_distributed.h"
+#include "mcc_network_messages.h"
 #include <math.h>
 
 struct mcc_network_inventory {

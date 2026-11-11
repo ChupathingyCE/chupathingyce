@@ -77,6 +77,7 @@ machine (their datum identifiers need not be).
 #include "host_evidence.h"
 #include "conduct_rules.h"
 #include "network_distributed.h"
+#include "mcc_network_messages.h"
 #include "network_rules.h"
 #include "../src/delta_chat_bridge.h"
 #ifdef HALO_GAME_BROWSER
