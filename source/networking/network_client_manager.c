@@ -1408,9 +1408,12 @@ boolean network_game_client_game_settings_updated(
 			csmemcpy(message_packet->map.name, map_name, sizeof(map_name));
 		}
 		if (csstrcmp(message_packet->map.name, client->game.map.name) ||
-			message_packet->map.version != client->game.map.version ||
+			message_packet->map.version != client->game.map.version
+#ifdef HALO_MCC_NETWORK
 			/* port: the host's MCC content may change without changing its stored checksum */
-			memcmp(message_packet->mcc_content_sha256, client->game.mcc_content_sha256, 32))
+			|| memcmp(message_packet->mcc_content_sha256, client->game.mcc_content_sha256, 32)
+#endif
+			)
 		{
 			char build[0x20];
 

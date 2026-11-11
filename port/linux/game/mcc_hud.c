@@ -168,7 +168,7 @@ static int mcc_hud_default(struct mcc_runtime *r,struct hud_globals_definition *
         *empty=0xE1740000u|count;
         entry=(uint32_t *)(index+count*32);
         entry[0]='wphi';entry[1]=entry[2]=UINT32_MAX;entry[3]=*empty;
-        entry[4]=(uint32_t)(uintptr_t)owned_name;entry[5]=(uint32_t)(uintptr_t)hud;
+        entry[4]=MCC_ADDRESS(owned_name);entry[5]=MCC_ADDRESS(hud);
         r->tag_index=index;r->report.tag_count=count+1;
         error(_error_silent,"mcc hud: omitted unarmed HUD represented by an empty definition");
     }

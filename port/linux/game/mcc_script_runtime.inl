@@ -24,7 +24,7 @@ void mcc_script_finished_evaluate(short function, long thread_index, boolean ini
     long target=NONE;
     short script;
     if (!args) return;
-    script=args[0] ? hs_find_script_by_name((char const *)args[0]) : NONE;
+    script=args[0] ? hs_find_script_by_name((char const *)xbox_pointer((unsigned int)args[0])) : NONE;
     if (script!=NONE) target=hs_find_thread_by_script(script);
     /* Dormant and sleep_forever threads use -2. Only -1 means that the
      * native script thread has terminated; sleeping is not completion. */

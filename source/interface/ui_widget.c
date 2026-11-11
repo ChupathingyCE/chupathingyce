@@ -2701,6 +2701,7 @@ static struct widget_instance *ui_widget_launch_widget(
 	struct widget_instance *new_widget;
 	short local_player_index;
 
+#ifndef HALO_XBOX_CONSOLE
 	/* port: the menus of multiplayer with other machines (not split screen's
 	or co-op's) open only on maps of a build that plays multiplayer with the
 	others (cache_files.c, cache_files_multiplayer_region); otherwise the

@@ -84,9 +84,9 @@ int mcc_syntax_scenario_valid(struct scenario const *scenario)
 {
     if (!mcc_cache_tags_loaded()) return -1;
     if (!scenario || scenario->hs_string_constants.size < 0x400 ||
-        !mcc_cache_contains(scenario->hs_string_constants.address, scenario->hs_string_constants.size) ||
-        !mcc_cache_contains(scenario->hs_syntax_data.address, scenario->hs_syntax_data.size)) return FALSE;
-    return mcc_syntax_graph_valid(scenario->hs_syntax_data.address, scenario->hs_syntax_data.size);
+        !mcc_cache_contains(xbox_pointer(scenario->hs_string_constants.address), scenario->hs_string_constants.size) ||
+        !mcc_cache_contains(xbox_pointer(scenario->hs_syntax_data.address), scenario->hs_syntax_data.size)) return FALSE;
+    return mcc_syntax_graph_valid(xbox_pointer(scenario->hs_syntax_data.address), scenario->hs_syntax_data.size);
 }
 
 static boolean mcc_syntax_expression_valid(struct data_array const *syntax, long root, short type,
@@ -129,7 +129,7 @@ boolean mcc_syntax_functions_check(struct scenario *scenario, struct data_array 
     char const *name, *first_name = NULL, *first_owner = NULL;
     if (!mcc_cache_tags_loaded()) return FALSE;
     for (i = 0; i < scenario->hs_scripts.count; ++i) {
-        struct hs_script const *script = (struct hs_script const *)scenario->hs_scripts.address + i;
+        struct hs_script const *script = (struct hs_script const *)xbox_pointer(scenario->hs_scripts.address) + i;
         if (!mcc_syntax_expression_valid(syntax, script->root_expression_index, script->return_type,
             node_refusal, &name)) {
             BIT_VECTOR_SET_FLAG(disabled_scripts, i, TRUE);
@@ -140,7 +140,7 @@ boolean mcc_syntax_functions_check(struct scenario *scenario, struct data_array 
         }
     }
     for (i = 0; i < scenario->hs_globals.count; ++i) {
-        struct hs_global const *global = (struct hs_global const *)scenario->hs_globals.address + i;
+        struct hs_global const *global = (struct hs_global const *)xbox_pointer(scenario->hs_globals.address) + i;
         if (!mcc_syntax_expression_valid(syntax, global->initialization_expression_index, global->type,
             node_refusal, &name)) {
             BIT_VECTOR_SET_FLAG(disabled_globals, i, TRUE);

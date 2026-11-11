@@ -62,7 +62,11 @@ static void mcc_network_campaign_tick(long now)
     /* Complete replacement snapshots also repair lost packets and late joins.
      * OpenCE's normal host-only transport and stale-tick checks apply. */
     mcc_campaign_snapshot(message.state);
+#ifdef HALO_MCC_NETWORK /* port: off our wire (mcc_network.c) */
     distributed_send(&message,_distributed_message_mcc_campaign,1,sizeof(message),_distributed_to_clients);
+#else
+    (void)message;
+#endif
 }
 
 void mcc_network_handle_campaign(void const *entries, short count)

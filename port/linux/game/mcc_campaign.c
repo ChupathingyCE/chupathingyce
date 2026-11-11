@@ -294,7 +294,7 @@ void mcc_campaign_render(short local_player)
         if (nav->kind==MCC_NAV_FLAG) {
             struct scenario *scenario=global_scenario_get();
             if (nav->reference<0 || nav->reference>=scenario->cutscene_flags.count) continue;
-            position=((struct scenario_cutscene_flag *)scenario->cutscene_flags.address)[nav->reference].position;
+            position=((struct scenario_cutscene_flag *)xbox_pointer(scenario->cutscene_flags.address))[nav->reference].position;
         } else if (nav->kind==MCC_NAV_OBJECT) {
             real radius;
             struct object_datum *object=object_try_and_get(nav->reference);
@@ -360,7 +360,7 @@ static void mcc_position_distance_evaluate(short function, long thread, boolean 
         struct scenario *scenario=global_scenario_get();
         short flag=(short)args[1];
         if (flag<0 || flag>=scenario->cutscene_flags.count) {hs_return(thread,result.bits);return;}
-        target=((struct scenario_cutscene_flag *)scenario->cutscene_flags.address)[flag].position;
+        target=((struct scenario_cutscene_flag *)xbox_pointer(scenario->cutscene_flags.address))[flag].position;
     } else {
         target.x=mcc_campaign_argument(args[1]);target.y=mcc_campaign_argument(args[2]);target.z=mcc_campaign_argument(args[3]);
     }
@@ -479,7 +479,7 @@ static void mcc_print_if_evaluate(short function, long thread, boolean initializ
     long *args=hs_macro_function_evaluate(function,thread,initialize);
     void hs_print(char const *message);
     if (!args) return;
-    if ((boolean)args[0] && args[1]) hs_print((char const *)args[1]);
+    if ((boolean)args[0] && args[1]) hs_print((char const *)xbox_pointer((unsigned int)args[1]));
     hs_return(thread,0);
 }
 
@@ -494,9 +494,9 @@ static void mcc_impulse_predict_evaluate(short function, long thread, boolean in
     if (args[0]!=NONE) {
         sound=sound_definition_get(args[0]);
         for (range=0;range<sound->pitch_ranges.count;range++) {
-            struct sound_pitch_range *pitch=(struct sound_pitch_range *)sound->pitch_ranges.address+range;
+            struct sound_pitch_range *pitch=(struct sound_pitch_range *)xbox_pointer(sound->pitch_ranges.address)+range;
             for (permutation=0;permutation<pitch->permutations.count;permutation++)
-                _sound_cache_sound_request((struct sound_permutation *)pitch->permutations.address+permutation,
+                _sound_cache_sound_request((struct sound_permutation *)xbox_pointer(pitch->permutations.address)+permutation,
                     (boolean)args[1],TRUE,FALSE);
         }
     }
@@ -574,9 +574,9 @@ static void mcc_nav_evaluate(short function, long thread, boolean initialize)
     case 7: {
         real_point3d position;
         position.x=mcc_campaign_argument(args[2]);position.y=mcc_campaign_argument(args[3]);position.z=mcc_campaign_argument(args[4]);
-        mcc_campaign_nav_change(MCC_NAV_POSITION,(short)args[1],(short)args[0],NONE,(char const *)args[5],&position,mcc_campaign_argument(args[6]));break;
+        mcc_campaign_nav_change(MCC_NAV_POSITION,(short)args[1],(short)args[0],NONE,(char const *)xbox_pointer((unsigned int)args[5]),&position,mcc_campaign_argument(args[6]));break;
     }
-    case 8: { real_point3d unused={0};mcc_campaign_nav_change(MCC_NAV_POSITION,(short)args[0],NONE,NONE,(char const *)args[1],&unused,0);break; }
+    case 8: { real_point3d unused={0};mcc_campaign_nav_change(MCC_NAV_POSITION,(short)args[0],NONE,NONE,(char const *)xbox_pointer((unsigned int)args[1]),&unused,0);break; }
     case 9: mcc_campaign_nav_change(MCC_NAV_FLAG,(short)args[1],(short)args[0],(short)args[2],NULL,NULL,mcc_campaign_argument(args[3]));break;
     case 10: mcc_campaign_nav_change(MCC_NAV_FLAG,(short)args[0],NONE,(short)args[1],NULL,NULL,0);break;
     case 11: mcc_campaign_nav_change(MCC_NAV_OBJECT,(short)args[1],(short)args[0],args[2],NULL,NULL,mcc_campaign_argument(args[3]));break;

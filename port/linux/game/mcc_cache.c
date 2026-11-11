@@ -3,6 +3,7 @@
 #include "cseries.h"
 #include "errors.h"
 #include "cache/cache_files.h"
+#include "game/game.h"
 #include "scenario/scenario_definitions.h"
 #include "interface/ui_widget.h"
 #include "mcc_cache.h"
@@ -25,8 +26,22 @@
 #include <string.h>
 #include <stdint.h>
 
+#if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE)
+/* port: no MCC maps on the consoles: their memory has no room for an MCC
+map's 64 MB of tags, and they have no mcc_memory.c */
+static void *mcc_memory_reserve(uint32_t address, uint32_t size)
+{
+    (void)address; (void)size;
+    return NULL;
+}
+static void mcc_memory_release(void *allocation, uint32_t size)
+{
+    (void)allocation; (void)size;
+}
+#else
 void *mcc_memory_reserve(uint32_t address, uint32_t size);
 void mcc_memory_release(void *allocation, uint32_t size);
+#endif
 int mcc_tags_prepare(struct mcc_runtime *runtime);
 int mcc_scripts_prepare(struct mcc_runtime *runtime);
 short mcc_geometry_part_palette(struct mcc_runtime *runtime, void const *buffer, byte const **nodes);
@@ -79,7 +94,7 @@ static int mcc_scenario_identity(struct mcc_runtime *runtime, char const *name)
     memcpy(identity, MCC_MAPS_LEVEL_PREFIX, sizeof(MCC_MAPS_LEVEL_PREFIX) - 1);
     memcpy(identity + sizeof(MCC_MAPS_LEVEL_PREFIX) - 1,
         name + sizeof(MCC_MAPS_LEVEL_PREFIX) - 1, length + 1);
-    address = (uint32_t)(uintptr_t)identity;
+    address = MCC_ADDRESS(identity);
     memcpy(runtime->tag_index + index * 32 + 16, &address, sizeof(address));
     return TRUE;
 }
@@ -263,6 +278,14 @@ struct cache_file_tag_header *mcc_cache_tags_load(char const *name, void *header
     uint32_t package_checksum;
     char const *problem = "the map could not be opened";
     mcc_cache_tags_unload();
+#ifndef HALO_MCC_NETWORK
+    /* port: offline games only for now: MCC maps' own network messages are
+     * off our wire (mcc_network.c) until they go over Delta */
+    problem = "MCC maps play offline for now";
+    if (game_connection() == _game_connection_network_client ||
+        game_connection() == _game_connection_network_server) goto failed;
+    problem = "the map could not be opened";
+#endif
     mcc_stream = mcc_open(mcc_identity_local_name(name), &runtime->source, &identity);
     if (!mcc_stream) goto failed;
     if (!mcc_package_name(mcc_identity_local_name(name), runtime->level_name)) goto failed;
@@ -352,12 +375,12 @@ boolean mcc_cache_bsp_load(struct scenario_structure_bsp_reference const *refere
     for (i = 0; mcc_loaded && i < mcc_loaded_cache.report.bsp_count; ++i) {
         struct mcc_cache_bsp const *bsp = &mcc_loaded_cache.report.bsps[i];
         if (bsp->tag_handle != (uint32_t)reference->structure_bsp.index) continue;
-        if (bsp->address != (uint32_t)(uintptr_t)reference->base_address ||
+        if (bsp->address != reference->base_address ||
             bsp->file_offset != (uint32_t)reference->file_offset || bsp->size != (uint32_t)reference->file_size)
             return FALSE;
         if (!mcc_geometry_bsp_load(&mcc_loaded_cache, bsp->tag_handle, bsp->file_offset,
-            bsp->size, reference->base_address, structure)) return FALSE;
-        *header = reference->base_address;
+            bsp->size, xbox_pointer(reference->base_address), structure)) return FALSE;
+        *header = xbox_pointer(reference->base_address);
         if (!mcc_bsp_validate(&mcc_loaded_cache, (long)bsp->tag_handle, *header, (long)bsp->size)) {
             mcc_geometry_bsp_unload(&mcc_loaded_cache);
             return FALSE;

@@ -13299,7 +13299,7 @@ static char const *hs_scenario_syntax_data_problem(
 		extern int mcc_syntax_scenario_valid(struct scenario const *scenario);
 		int mcc_valid = mcc_syntax_scenario_valid(scenario);
 		if (mcc_valid >= 0)
-			return mcc_valid != 0;
+			return mcc_valid ? NULL : "its MCC script syntax data is damaged";
 	}
 	long const syntax_data_size =
 		sizeof(struct data_array)+MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO*sizeof(struct hs_syntax_node);

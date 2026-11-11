@@ -664,9 +664,9 @@ int mcc_bitmaps_group_valid(struct mcc_runtime *runtime,void *address)
     long i;
     if (group->pixel_data.file_offset!=0) return 0;
     for (i=0;i<group->bitmaps.count;i++)
-        if (!mcc_bitmaps_valid(runtime,(struct bitmap_data *)group->bitmaps.address+i)) return 0;
+        if (!mcc_bitmaps_valid(runtime,(struct bitmap_data *)xbox_pointer(group->bitmaps.address)+i)) return 0;
     for (i=0;i<group->sequences.count;i++) {
-        struct bitmap_group_sequence *sequence=(struct bitmap_group_sequence *)group->sequences.address+i;
+        struct bitmap_group_sequence *sequence=(struct bitmap_group_sequence *)xbox_pointer(group->sequences.address)+i;
         if (sequence->first_bitmap_index<0 || sequence->bitmap_count<0 ||
             sequence->first_bitmap_index>group->bitmaps.count ||
             sequence->bitmap_count>group->bitmaps.count-sequence->first_bitmap_index) {
@@ -702,8 +702,8 @@ void mcc_bitmaps_dispose(struct mcc_runtime *runtime)
     if (!textures) return;
     for (index=0;index<textures->count;index++) {
         struct mcc_texture *texture=&textures->items[index];
-        if (texture->bitmap && texture->bitmap->base_address==texture->pixels)
-            texture->bitmap->base_address=NULL;
+        if (texture->bitmap && xbox_pointer(texture->bitmap->base_address)==texture->pixels)
+            texture->bitmap->base_address=XBOX_NULL;
         if (texture->pixels) free(texture->pixels);
     }
     if (textures->items) free(textures->items);

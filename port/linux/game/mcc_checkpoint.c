@@ -172,7 +172,7 @@ static int mcc_checkpoint_names_validate(void const *image, void const *current,
     array = mcc_checkpoint_incoming(image, current, used, object_header_data, sizeof(*array));
     if (!array || !array->valid || array->size != sizeof(*headers) || array->count < 0 ||
         array->count > 8192 || array->count > array->maximum_count) return 0;
-    headers = mcc_checkpoint_incoming(image, current, used, array->data,
+    headers = mcc_checkpoint_incoming(image, current, used, xbox_pointer(array->data),
         (unsigned long)array->count * sizeof(*headers));
     if (!headers) return 0;
     for (i = 0; i < bytes; i += 4) {

@@ -1439,3 +1439,11 @@ static void clear_profile_edit_data(
 	}
 	return;
 }
+
+/* port: the profile being edited, for chester's MCC Settings screens
+(port/linux/game/mcc_ui.c) */
+long player_ui_get_edit_profile_index(
+	void)
+{
+	return player_ui_globals.edit_profile_index;
+}

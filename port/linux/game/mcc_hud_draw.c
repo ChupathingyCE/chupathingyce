@@ -17,7 +17,12 @@
 long halo_screen_width(void);
 long hud_hires_asset_count(void);
 char const *hud_hires_asset_tag(long asset);
-void hud_hires_register_placeholder(long asset, unsigned long const *texture);
+/* port: GulchCE's high-res HUD registers these buttons as placeholders,
+which ours does not do yet: MCC maps keep their own button art here */
+static void hud_hires_register_placeholder(long asset, unsigned long const *texture)
+{
+    (void)asset; (void)texture;
+}
 void xgpu_mcc_texture_unbind(unsigned long const *resource);
 
 static struct {
@@ -31,7 +36,7 @@ void mcc_hud_glyphs_dispose(void)
     long i;
     for (i=0;i<6;i++) if (mcc_buttons[i].bitmap) {
         hud_hires_register_placeholder(mcc_buttons[i].asset,NULL);
-        xgpu_mcc_texture_unbind(mcc_buttons[i].bitmap->hardware_format);
+        xgpu_mcc_texture_unbind(xbox_pointer(mcc_buttons[i].bitmap->hardware_format));
         bitmap_delete(mcc_buttons[i].bitmap);
     }
     memset(mcc_buttons,0,sizeof(mcc_buttons));
@@ -39,12 +44,20 @@ void mcc_hud_glyphs_dispose(void)
 
 /* Identify the controller entry, not its sequence: custom weapon/pickup
  * icons can use the same sequence numbers and must retain their artwork. */
+/* port: the middle of the text line's capitals, which GulchCE's draw_string
+measures (draw_unicode_string_capital_middle); here the middle of the line's
+bounds, near enough for a button drawn beside the text */
+static real mcc_hud_capital_middle(rectangle2d const *cursor)
+{
+    return ((real)cursor->y0+(real)cursor->y1)*0.5f;
+}
+
 static short mcc_hud_button_index(struct icon_hud_element_definition const *icon)
 {
     short i;
     struct icon_hud_element_definition const *buttons;
     if (!hud_globals) return NONE;
-    buttons=hud_globals->messaging.button_icons.address;
+    buttons=xbox_pointer(hud_globals->messaging.button_icons.address);
     if (!buttons) return NONE;
     for (i=0;i<6 && i<hud_globals->messaging.button_icons.count;i++)
         if (icon==buttons+i) return i;
@@ -59,6 +72,10 @@ static struct bitmap_data const *mcc_hud_button_bitmap(short index)
     long asset;
     struct bitmap_data *bitmap;
     if (index<0 || index>=6) return NULL;
+#ifndef HALO_MCC_HIRES_BUTTONS
+    (void)names; (void)asset; (void)bitmap;
+    return NULL;
+#endif
     if (mcc_buttons[index].attempted) return mcc_buttons[index].bitmap;
     mcc_buttons[index].attempted=TRUE;
     for (asset=0;asset<hud_hires_asset_count();asset++) {
@@ -68,7 +85,7 @@ static struct bitmap_data const *mcc_hud_button_bitmap(short index)
         bitmap=bitmap_2d_new(32,32,0,11);
         if (!bitmap) return NULL;
         if (!rasterizer_bitmap_new(bitmap)) {bitmap_delete(bitmap);return NULL;}
-        hud_hires_register_placeholder(asset,bitmap->hardware_format);
+        hud_hires_register_placeholder(asset,xbox_pointer(bitmap->hardware_format));
         mcc_buttons[index].asset=asset;
         mcc_buttons[index].bitmap=bitmap;
         return bitmap;
@@ -146,7 +163,7 @@ boolean mcc_hud_icon_draw(long bitmap_group_index, struct bitmap_data const *bit
              * the map's modern-controller cell width. */
             real button_scale=viewport_scale*(20.0f/26.0f);
             point.x=(short)(cursor->x0+2.0f*viewport_scale);
-            point.y=(short)(draw_unicode_string_capital_middle(cursor,L"")+10.0f*viewport_scale);
+            point.y=(short)(mcc_hud_capital_middle(cursor)+10.0f*viewport_scale);
             mcc_hud_button_draw(button,&point,button_scale,color);
             cursor->x0=(short)(point.x+21.0f*button_scale-3.0f*viewport_scale);
             return TRUE;
@@ -164,7 +181,7 @@ boolean mcc_hud_icon_draw(long bitmap_group_index, struct bitmap_data const *bit
          * glyphs to its capitals, without resizing or changing the font. The
          * empty string measures this same line without introducing wrapping. */
         real height=(clip ? clip->y1-clip->y0 : 1.0f)*bitmap->height*pixel_scale;
-        point.y=(short)(draw_unicode_string_capital_middle(cursor,L"")+height*0.5f);
+        point.y=(short)(mcc_hud_capital_middle(cursor)+height*0.5f);
     }
     hud_draw_bitmap_direct(bitmap,_hud_anchor_bottom_left,&point,clip,pixel_scale,0.0f,
         icon->flags&2 ? icon->color : color,FALSE);

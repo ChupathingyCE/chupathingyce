@@ -48,8 +48,12 @@ void mcc_object_names_host_tick(void)
         for (i = 0; i < message.chunk.count; ++i)
             if (mcc_object_names_get((short)(first + i)) != NONE)
                 message.chunk.present[i / 8] |= (byte)(1u << (i % 8));
+#ifdef HALO_MCC_NETWORK /* port: off our wire (mcc_network.c) */
         distributed_send(&message, _distributed_message_mcc_object_names, 1,
             sizeof(message), _distributed_to_clients);
+#else
+        (void)message;
+#endif
     }
 }
 

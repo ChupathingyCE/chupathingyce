@@ -30,11 +30,11 @@
 
 /* Only the public prefix shared by every widget is needed here. */
 struct mcc_ui_widget_prefix {
-    long definition;
+    int definition; /* port: widget_instance's definition_tag_index (ui_widget_instance.h) */
     char const *name;
     short controller;
 };
-typedef char mcc_ui_controller_offset[offsetof(struct mcc_ui_widget_prefix, controller) == 8 ? 1 : -1];
+typedef char mcc_ui_controller_offset[offsetof(struct mcc_ui_widget_prefix, controller) == 2 * sizeof(void *) ? 1 : -1];
 
 char const *config_string(char const *name);
 boolean pc_menu_tag(long tag_index);

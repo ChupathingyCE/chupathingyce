@@ -1,5 +1,7 @@
 /* One optional package directory, with explicit MCC-root resource fallback. */
+#include "cseries.h"
 #include "mcc_package.h"
+#include "mcc_maps.h"
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -37,7 +39,8 @@ int mcc_package_map_path(char const *name, char path[128])
 {
     char canonical[64];
     if (!mcc_package_name(name,canonical)) return 0;
-    sprintf(path,"d:\\%s.map",canonical);
+    /* port: (in maps_mcc: mcc_maps_folder; the name keeps GulchCE's mcc_maps) */
+    sprintf(path,"d:\\%s%s.map",mcc_maps_folder(),canonical+8);
     return 1;
 }
 
@@ -49,7 +52,8 @@ int mcc_package_resource_path(char const *name, unsigned type, char path[128])
     separator=strrchr(canonical,'\\');
     *separator=0;
     for (i=0;canonical[i];i++) if (canonical[i]=='\\') canonical[i]='/';
-    sprintf(path,"%s/%s.map",canonical,type==1 ? "bitmaps" : "sounds");
+    /* port: (in maps_mcc: mcc_maps_folder) */
+    sprintf(path,"%s%s/%s.map",mcc_maps_folder(),canonical+8,type==1 ? "bitmaps" : "sounds");
     return 1;
 }
 

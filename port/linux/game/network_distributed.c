@@ -88,11 +88,9 @@ int delta_peer_game_machine_identity_text(int machine_index, char *text, int siz
 #endif
 #include "mcc_network.h"
 #include "mcc_script_effects.h"
+#include "mcc_game_speed.h"
 #ifdef HALO_MCC_NETWORK
 #include "mcc_object_names_network.h"
-#include "mcc_game_speed.h"
-#include "map_share.h"
-#include "profile_sections.h"
 #endif
 
 #include <limits.h>

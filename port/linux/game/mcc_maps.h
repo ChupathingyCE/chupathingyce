@@ -12,6 +12,7 @@ GulchCE's mcc_maps is read when there is no maps_mcc (mcc_maps_directory) */
 #define MCC_MAPS_MAXIMUM 1024
 
 char const *mcc_maps_directory(void);
+char const *mcc_maps_folder(void);
 void mcc_maps_rescan(void);
 short mcc_maps_count(boolean multiplayer_only);
 short mcc_maps_index(short row, boolean multiplayer_only);

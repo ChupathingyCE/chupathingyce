@@ -25,7 +25,7 @@ static struct mcc_gpu_texture *mcc_gpu_hardware[MCC_TEXTURE_BUCKETS];
 
 static unsigned long mcc_texture_bucket(void const *bitmap)
 {
-    return (((unsigned long)bitmap >> 4) * 2654435761UL) % MCC_TEXTURE_BUCKETS;
+    return (((unsigned long)(uintptr_t)bitmap >> 4) * 2654435761UL) % MCC_TEXTURE_BUCKETS;
 }
 
 void *mcc_texture_bridge_find(void const *bitmap)

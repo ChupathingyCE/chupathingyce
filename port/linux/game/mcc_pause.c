@@ -1,6 +1,7 @@
 /* MCC-owned native pause definitions. The layouts follow the stock Xbox
  * logical viewport sizes; no embedded map widget or CE converter is edited. */
 #include "cseries.h"
+#include "cseries_windows.h"
 #include "tag_files/tag_groups.h"
 #include "text/text_group.h"
 #include "mcc_pause.h"
@@ -175,7 +176,7 @@ static void mcc_pause_events(long handle, short action, long target, long flags,
     events = mcc_pause_allocate(count * sizeof(*events));
     if (!events) return;
     widget->events.count = count;
-    widget->events.address = events;
+    widget->events.address = xbox_address(events);
     for (i = 0; i < count; ++i) {
         events[i].event = back ? (i ? 13 : 1) : (i ? 28 : 0);
         events[i].flags = flags;
@@ -194,7 +195,7 @@ static void mcc_pause_children(long handle, long const *children, short const *x
     references = mcc_pause_allocate(count * sizeof(*references));
     if (!references) return;
     widget->children.count = count;
-    widget->children.address = references;
+    widget->children.address = xbox_address(references);
     for (i = 0; i < count; ++i) {
         mcc_pause_reference(&references[i].widget, 'DeLa', children[i]);
         references[i].x = x[i];
@@ -370,7 +371,7 @@ static long mcc_pause_screen(short mode, short layout)
             widget->font.index = mcc_pause.assets.small_font[layout];
             widget->color[1] = 0.0f; widget->color[2] = 0.5f;
             input->function = 18; /* Native objective text, driven by the scenario. */
-            widget->inputs.count = 1; widget->inputs.address = input;
+            widget->inputs.count = 1; widget->inputs.address = xbox_address(input);
         }
         children[child_count] = caption; xs[child_count] = layout == MCC_PAUSE_QUARTER ? 28 : 302;
         ys[child_count++] = layout == MCC_PAUSE_FULL ? 166 : (layout == MCC_PAUSE_HALF ? 46 : 130);
@@ -395,7 +396,7 @@ static long mcc_pause_screen(short mode, short layout)
 
 void mcc_pause_dispose(void)
 {
-    if (mcc_pause.arena) free(mcc_pause.arena);
+    if (mcc_pause.arena) system_free(mcc_pause.arena);
     memset(&mcc_pause, 0, sizeof(mcc_pause));
 }
 
@@ -409,20 +410,20 @@ boolean mcc_pause_build(long first_index, short first_salt, struct mcc_pause_ass
     for (layout = 0; layout < MCC_PAUSE_LAYOUT_COUNT; ++layout)
         if (assets->font[layout] == NONE || assets->small_font[layout] == NONE) return FALSE;
     mcc_pause.first = first_index; mcc_pause.salt = (unsigned short)first_salt; mcc_pause.assets = *assets;
-    mcc_pause.arena = malloc(MCC_PAUSE_ARENA_BYTES);
+    mcc_pause.arena = system_malloc(MCC_PAUSE_ARENA_BYTES);
     if (!mcc_pause.arena) return FALSE;
     memset(mcc_pause.confirm, 0xFF, sizeof(mcc_pause.confirm));
     memset(mcc_pause.team, 0xFF, sizeof(mcc_pause.team));
     strings = mcc_pause_allocate(sizeof(*strings));
     entries = mcc_pause_allocate(LABEL_COUNT * sizeof(*entries));
     if (!strings || !entries) goto failed;
-    strings->strings.count = LABEL_COUNT; strings->strings.address = entries;
+    strings->strings.count = LABEL_COUNT; strings->strings.address = xbox_address(entries);
     for (label = 0; label < LABEL_COUNT; ++label) {
         size_t i, length = strlen(mcc_pause_labels[label]);
         unsigned short *text = mcc_pause_allocate((unsigned long)(length + 1) * 2);
         if (!text) goto failed;
         for (i = 0; i < length; ++i) text[i] = (unsigned char)mcc_pause_labels[label][i];
-        entries[label].string.size = (long)(length + 1) * 2; entries[label].string.address = text;
+        entries[label].string.size = (long)(length + 1) * 2; entries[label].string.address = xbox_address(text);
     }
     mcc_pause.strings = mcc_pause_add('ustr', "strings", strings);
     for (mode = 0; mode < MODE_COUNT && !mcc_pause.failed; ++mode)

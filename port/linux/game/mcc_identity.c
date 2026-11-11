@@ -60,6 +60,12 @@ static unsigned char const *mcc_identity_expected(char const *name)
     return NULL;
 }
 
+static int mcc_identity_matches(char const *name,unsigned char const digest[32],
+    struct mcc_precache_snapshot *validated);
+
+/* port: the host's MCC content fingerprint travels in its game settings,
+which our wire does not change: with HALO_MCC_NETWORK only (mcc_network.c) */
+#ifdef HALO_MCC_NETWORK
 void const *mcc_identity_host_settings(void const *settings,long bytes,struct network_game *copy)
 {
     struct network_game const *game=settings;
@@ -91,17 +97,6 @@ void const *mcc_identity_host_settings(void const *settings,long bytes,struct ne
     return copy;
 }
 
-static int mcc_identity_matches(char const *name,unsigned char const digest[32],
-    struct mcc_precache_snapshot *validated)
-{
-    struct mcc_precache_snapshot before,after;
-    unsigned char actual[32];
-    int ok=mcc_precache_snapshot(name,&before) && mcc_content_probe(name,actual) &&
-        !memcmp(actual,digest,32) && mcc_precache_snapshot(name,&after) &&
-        !memcmp(&before,&after,sizeof(before));
-    if (ok && validated) *validated=after;
-    return ok;
-}
 
 int mcc_identity_accept(struct network_game const *game)
 {
@@ -150,6 +145,26 @@ int mcc_identity_accept(struct network_game const *game)
     return 1;
 }
 
+#else
+int mcc_identity_accept(struct network_game const *game)
+{
+    memset(&mcc_client_identity,0,sizeof(mcc_client_identity));
+    mcc_cache_precache_clear();
+    return !mcc_level_name(game->map.name);
+}
+#endif
+
+static int mcc_identity_matches(char const *name,unsigned char const digest[32],
+    struct mcc_precache_snapshot *validated)
+{
+    struct mcc_precache_snapshot before,after;
+    unsigned char actual[32];
+    int ok=mcc_precache_snapshot(name,&before) && mcc_content_probe(name,actual) &&
+        !memcmp(actual,digest,32) && mcc_precache_snapshot(name,&after) &&
+        !memcmp(&before,&after,sizeof(before));
+    if (ok && validated) *validated=after;
+    return ok;
+}
 int mcc_identity_check(char const *name)
 {
     unsigned char const *expected=mcc_identity_expected(name);
