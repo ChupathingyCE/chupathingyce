@@ -219,6 +219,9 @@ SCREENS = {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
         "spacing": 30,
+        # (the help line under the ten rows, as Privacy's: the last,
+        # PRIVACY, ends at 371)
+        "help_top": 376,
         # (its help is its own text, which menu_functions.c reads from its
         # help_strings, and sets to how INSTALL UPDATE's install goes)
         "help_text": True,

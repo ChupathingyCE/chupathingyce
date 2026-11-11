@@ -685,7 +685,12 @@ static void hud_message_text_place(
 		{
 			short shift = hud_message_round(ink_x0 - (hud_message_icon_x1 + hud_message_icon_gap));
 
-			if (shift != 0)
+			/* (never left of the line's start, as hud_message_text_place_lines:
+			a measure gone wrong, 0.9.0d's of a text of more lines, put the
+			words past the screen's left edge, "Look" of the Pillar of
+			Autumn's move and look prompt on a wide phone, and a negative
+			indent halts a debug build in draw_string_set_indents) */
+			if (shift != 0 && start - shift >= bounds->x0)
 			{
 				start -= shift;
 				ink_x1 -= shift;

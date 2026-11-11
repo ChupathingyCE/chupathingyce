@@ -2,20 +2,21 @@
 through the tag validator, a Custom Edition or HaloMD map through its checks
 and then its conversions, and a Custom Edition sound's Ogg Vorbis stream
 through its decoder. Each is built from the 64-bit build's own units, with
-the macOS build's flags (from build.ninja: `python3 configure.py` first) plus
-libFuzzer, AddressSanitizer and UndefinedBehaviorSanitizer (or linux64's:
-MAP_FUZZ_BUILD=linux64).
+its flags (from build.ninja: `python3 configure.py` first; the macOS build's
+on a Mac, linux64's elsewhere, or MAP_FUZZ_BUILD's) plus libFuzzer,
+AddressSanitizer and UndefinedBehaviorSanitizer.
 
 As a test (pytest), each target runs on maps made here (small, whole, of no
 game's data) and on the inputs in tools/tests/map_fuzz_regressions, then for
 a bounded number of runs from them. Where clang has no libFuzzer, the tests
-are skipped.
+are skipped (they fail where HALO_SANITIZERS_REQUIRED=1, as in CI:
+tools/fuzz_support.py).
 
 For longer runs, on the maps in assets/ (read in place, inflated into a
 scratch folder, never copied into the repository):
 
     python3 tools/test_map_fuzz.py --target xbox --seconds 1800 [--base MAP] [--corpus DIR]
-    python3 tools/test_map_fuzz.py --target ce --seconds 1800 --base maps_ce/foo.map --resources maps_ce
+    python3 tools/test_map_fuzz.py --target ce --seconds 1800 --base maps_ce/foo.map --resources maps_ce [--xbox-ui maps/ui.map]
     python3 tools/test_map_fuzz.py --target vorbis --seconds 600 --corpus DIR
 
 With --base, each input is a list of changes to that map (map_fuzz.c), which
@@ -26,7 +27,6 @@ tools/tests/map_fuzz_regressions only if it holds no game's data.
 
 import argparse
 import os
-import shutil
 import struct
 import subprocess
 import sys
@@ -52,10 +52,11 @@ except ImportError:
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from tools import fuzz_support  # noqa: E402
 from tools.test_network_messages import compile_command, object_command  # noqa: E402
 
 # the build whose units and flags are used (ninja macos, or linux64)
-BUILD = os.environ.get("MAP_FUZZ_BUILD", "macos")
+BUILD = os.environ.get("MAP_FUZZ_BUILD", "macos" if sys.platform == "darwin" else "linux64")
 HARNESS = ROOT / "tools" / "tests" / "map_fuzz.c"
 REGRESSIONS = ROOT / "tools" / "tests" / "map_fuzz_regressions"
 SANITIZE = ["-DXBOX_ADDRESS_SPACE_BASE=0x300000000000ULL", "-fsanitize=fuzzer-no-link,address,undefined", "-fno-sanitize-recover=all", "-fno-sanitize=alignment,float-cast-overflow", "-fno-omit-frame-pointer",
@@ -74,6 +75,7 @@ CUSTOM_EDITION = [
     "port/linux/game/ce_functions.c",
     "source/bitmaps/bitmaps.c",
     "source/rasterizer/rasterizer_geometry.c",
+    "source/rasterizer/rasterizer_swizzle.c",
     # (ce_hud.c's PNG button icons)
     *(f"port/third_party/zlib/{name}.c" for name in ("adler32", "crc32", "inffast", "inflate", "inftrees", "zutil")),
 ]
@@ -84,23 +86,10 @@ TARGETS = {
 }
 
 
-def libfuzzer_compiler(directory):
-    """a clang that links -fsanitize=fuzzer (Apple's does not ship it;
-    Homebrew's LLVM does)"""
-    candidates = [os.environ.get("MAP_FUZZ_CC"), "/opt/homebrew/opt/llvm/bin/clang", "/usr/local/opt/llvm/bin/clang",
-                  "clang"]
-    probe = Path(directory) / "probe.c"
-    probe.write_text("int LLVMFuzzerTestOneInput(const unsigned char *d, unsigned long s)"
-                     " { (void)d; (void)s; return 0; }\n")
-    for candidate in candidates:
-        path = candidate and shutil.which(candidate)
-        if not path:
-            continue
-        result = subprocess.run([path, "-fsanitize=fuzzer", str(probe), "-o", str(Path(directory) / "probe")],
-                                capture_output=True)
-        if result.returncode == 0:
-            return path
-    return None
+def libfuzzer_compiler(directory=None):
+    """a clang that links libFuzzer with the sanitizers (Apple's does not
+    ship it; Homebrew's LLVM and Linux's clang with its runtimes do)"""
+    return fuzz_support.libfuzzer_compiler(os.environ.get("MAP_FUZZ_CC"))
 
 
 def build(target, directory, cc):
@@ -113,6 +102,9 @@ def build(target, directory, cc):
     def compile_unit(source, output, extra_source=None):
         command = compile_command(BUILD, source, output, {"flags": [f"-D{define}", *SANITIZE],
                                                           **({"source": extra_source} if extra_source else {})})
+        # (the build's compiler, after a launcher if it has one: ccache in CI)
+        if Path(command[0]).name in ("ccache", "sccache"):
+            command = command[1:]
         command[0] = cc
         subprocess.run(command, cwd=ROOT, check=True)
 
@@ -163,13 +155,16 @@ def xbox_map(name=b"fuzz"):
     return bytes(data)
 
 
-def ce_map(name=b"fuzz", sound=None):
+def ce_map(name=b"fuzz", sound=None, weapon_hud_statics=None, bsp_reference_unused=0):
     """a Custom Edition map of a scenario and one empty structure BSP, its
     scripts' syntax an empty data array; with sound, a list of permutations
     (compression, samples' size, flags, offset), a sound tag of its own (not
-    indexed) of one pitch range of them, mono 22 kHz"""
+    indexed) of one pitch range of them, mono 22 kHz; with weapon_hud_statics,
+    a weapon HUD whose one static element is that many bytes from the
+    scenario's structure BSP's reference (whose unused word is
+    bsp_reference_unused)"""
     base = TAG_CACHE["ce"]
-    tag_count = 3 if sound else 2
+    tag_count = 2 + (1 if sound else 0) + (1 if weapon_hud_statics is not None else 0)
     tags = bytearray(0x28)
     instances = len(tags)
     tags += bytes(0x20 * tag_count)
@@ -186,6 +181,14 @@ def ce_map(name=b"fuzz", sound=None):
     tags += bytes(0x20)
     syntax = len(tags)
     tags += bytes(0x38)
+    if weapon_hud_statics is not None:
+        # (weapon_hud_interface_definitions.h: as far as its overlays' block)
+        weapon_hud = len(tags)
+        tags += bytes(0x9C)
+        struct.pack_into("<iI", tags, weapon_hud + 0x60, 1, base + bsps + weapon_hud_statics)
+        struct.pack_into("<4s4s4sIIIII", tags, instances + 0x20 * (tag_count - 1), b"ihpw", b"\xff\xff\xff\xff",
+                         b"\xff\xff\xff\xff", 0xE1740000 + tag_count - 1 + (tag_count - 1 << 16), base + bsp_name,
+                         base + weapon_hud, 0, 0)
     if sound:
         # (sound_definitions.h: the header, its pitch range, its permutations)
         sound_header = len(tags)
@@ -224,8 +227,8 @@ def ce_map(name=b"fuzz", sound=None):
     struct.pack_into("<iIII", tags, scenario + 0x474, 0x38, 0, 0, base + syntax)
     struct.pack_into("<hh", tags, syntax + 0x20, 0, 0x14)
     struct.pack_into("<iII", tags, scenario + 0x5A4, 1, base + bsps, 0)
-    struct.pack_into("<iiII4sIiI", tags, bsps, bsp_offset, len(bsp), base + 0x100000, 0, b"psbs", base + bsp_name,
-                     8, 0xE1750001)
+    struct.pack_into("<iiII4sIiI", tags, bsps, bsp_offset, len(bsp), base + 0x100000, bsp_reference_unused, b"psbs",
+                     base + bsp_name, 8, 0xE1750001)
     data = header(609, model_offset, 0x800, tag_data_size) + tags + bsp
     return bytes(data)
 
@@ -256,9 +259,9 @@ def built(tmp_path_factory):
     directory = tmp_path_factory.mktemp("map_fuzz")
     cc = libfuzzer_compiler(directory)
     if not cc:
-        pytest.skip("no clang with libFuzzer")
+        fuzz_support.skip("no clang with libFuzzer")
     if not (ROOT / "build.ninja").is_file():
-        pytest.skip("needs python3 configure.py")
+        fuzz_support.skip("needs python3 configure.py")
     return {target: build(target, directory, cc) for target in TARGETS}, directory
 
 
@@ -309,6 +312,22 @@ def test_long_tag_names(built, tmp_path):
         path.write_bytes(data)
         result = run(binaries[target], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
         assert "has no name" not in result.stderr and "longer than" not in result.stderr, result.stderr[-4000:]
+
+
+def test_bsp_reference_written_over(built, tmp_path):
+    """a block a conversion writes in place that lies over the scenario's
+    structure BSP's reference (a weapon HUD's static element whose placement
+    is the reference, flagged for the high resolution scale, which halves
+    its scale: the BSP's size and where it loads): the BSP is not loaded
+    from a reference other than the one checked, which would read it below
+    the tag cache"""
+    binaries, _ = built
+    path = tmp_path / "hud_over_bsp.map"
+    path.write_bytes(ce_map(weapon_hud_statics=-0x24, bsp_reference_unused=4))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
+    assert "not where it was checked" in result.stderr, result.stderr[-4000:]
 
 
 def test_sound_samples_in_sounds_map(built, tmp_path):
@@ -408,6 +427,7 @@ def main():
     parser.add_argument("--seconds", type=int, default=600)
     parser.add_argument("--base", type=Path, help="a map to change (patch mode)")
     parser.add_argument("--resources", type=Path, help="Custom Edition's resource maps' folder")
+    parser.add_argument("--xbox-ui", type=Path, help="the Xbox's ui.map, whose button icons HUDs are given")
     parser.add_argument("--corpus", type=Path, help="a corpus folder (kept)")
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--build-dir", type=Path, help="where the fuzzer is built (kept)")
@@ -433,6 +453,8 @@ def main():
         environment["MAP_FUZZ_BASE"] = str(base)
     if options.resources:
         environment["MAP_FUZZ_CE_RESOURCES"] = str(options.resources)
+    if options.xbox_ui:
+        environment["MAP_FUZZ_XBOX_UI"] = str(options.xbox_ui)
     if options.inputs:
         result = run(binary, options.inputs, environment=environment)
         sys.stdout.write(result.stdout)

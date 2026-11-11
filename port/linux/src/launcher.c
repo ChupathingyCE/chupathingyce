@@ -826,7 +826,10 @@ static void family_scan(struct family *family, int list)
 		if (!ends_with(name, ".map"))
 			continue;
 		snprintf(path, sizeof(path), "%s/%s", folder, name);
-		if (family->kind == _family_custom_edition && resource_map(name))
+		/* (bitmaps.map, sounds.map and loc.map are resources, not maps: no
+		map header, so not broken. Custom Edition's are checked below; the
+		copies HaloMD and Halo PC keep beside their maps are not used) */
+		if (family_needs_resources(family) && resource_map(name))
 			continue;
 		version = map_version(path);
 		if (family->kind == _family_xbox && !SDL_strcasecmp(name, "ui.map"))
