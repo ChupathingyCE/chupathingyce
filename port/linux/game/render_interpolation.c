@@ -921,6 +921,10 @@ void render_interpolation_correct_object(long object_index, real_vector3d const 
 /* ---------- camera */
 
 static struct observer_result direct_cameras[MAXIMUM_LOCAL_PLAYERS];
+/* the frame each local player's view was last turned to where they aim
+(render_interpolation_direct_camera), and the view it was turned from */
+static long direct_camera_frames[MAXIMUM_LOCAL_PLAYERS];
+static struct observer_result direct_camera_from[MAXIMUM_LOCAL_PLAYERS];
 
 static struct observer_result const *render_interpolation_blended_camera(
 	short local_player_index,
@@ -967,7 +971,75 @@ static struct observer_result const *render_interpolation_direct_camera(
 	*direct = *observer;
 	player_control_get_facing_direction(local_player_index, &direct->forward);
 	observer_up_from_forward(&direct->forward, &direct->up);
+	direct_camera_from[local_player_index] = *observer;
+	direct_camera_frames[local_player_index] = interpolation_frame;
 	return direct;
+}
+
+/* a vector given in the from view's axes (forward, left, up), put in the to
+view's */
+static void view_turn_vector(
+	struct observer_result const *from,
+	struct observer_result const *to,
+	real_vector3d *vector)
+{
+	real_vector3d from_left, to_left;
+	real along_forward, along_left, along_up;
+
+	from_left.i = from->up.j * from->forward.k - from->up.k * from->forward.j;
+	from_left.j = from->up.k * from->forward.i - from->up.i * from->forward.k;
+	from_left.k = from->up.i * from->forward.j - from->up.j * from->forward.i;
+	to_left.i = to->up.j * to->forward.k - to->up.k * to->forward.j;
+	to_left.j = to->up.k * to->forward.i - to->up.i * to->forward.k;
+	to_left.k = to->up.i * to->forward.j - to->up.j * to->forward.i;
+	along_forward = vector->i * from->forward.i + vector->j * from->forward.j + vector->k * from->forward.k;
+	along_left = vector->i * from_left.i + vector->j * from_left.j + vector->k * from_left.k;
+	along_up = vector->i * from->up.i + vector->j * from->up.j + vector->k * from->up.k;
+	vector->i = along_forward * to->forward.i + along_left * to_left.i + along_up * to->up.i;
+	vector->j = along_forward * to->forward.j + along_left * to_left.j + along_up * to->up.j;
+	vector->k = along_forward * to->forward.k + along_left * to_left.k + along_up * to->up.k;
+}
+
+/* A local player's own flashlight that no first-person weapon carries
+(empty-handed, or holding a flag or the oddball, which have no flashlight
+marker: first_person_weapon_center_flashlight) is on their unit's head as
+drawn, a tick behind, while the view turns with the mouse every frame
+(display.direct_camera). Between the ticks the beam fell behind the view and
+caught up again at each tick, so it shook on the screen as they looked
+around. It is turned with the view: where it was against the view the unit
+is drawn with, it is against the view drawn (lights_preprocess_scene). Left
+as it is when the view isn't turned so (a vehicle, a cinematic, third
+person, interpolation off). */
+void render_interpolation_view_turn(
+	long unit_index,
+	real_point3d *position,
+	real_vector3d *forward,
+	real_vector3d *up)
+{
+	short local_player_index;
+	struct observer_result const *from;
+	struct observer_result const *to;
+	real_vector3d offset;
+
+	if (!interpolation_rendering || unit_index == NONE)
+		return;
+	local_player_index = unit_get_local_player_index(unit_index);
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_LOCAL_PLAYERS ||
+		direct_camera_frames[local_player_index] != interpolation_frame)
+	{
+		return;
+	}
+	from = &direct_camera_from[local_player_index];
+	to = &direct_cameras[local_player_index];
+	offset.i = position->x - from->position.x;
+	offset.j = position->y - from->position.y;
+	offset.k = position->z - from->position.z;
+	view_turn_vector(from, to, &offset);
+	position->x = to->position.x + offset.i;
+	position->y = to->position.y + offset.j;
+	position->z = to->position.z + offset.k;
+	view_turn_vector(from, to, forward);
+	view_turn_vector(from, to, up);
 }
 
 struct observer_result const *render_interpolation_camera(

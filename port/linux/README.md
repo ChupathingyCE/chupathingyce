@@ -909,7 +909,9 @@ The direction of the view is an exception. The game reads the mouse and the
 sticks in each frame. In first person, on foot, each frame points the view
 where the player aims at that time (`display.direct_camera`). Thus the view
 turns in the frame that the mouse moves. In a vehicle and in cinematics, the
-view mixes as the other things do. On Android, the view mixes as before.
+view mixes as the other things do. Your flashlight turns with the view too
+when no weapon in your hands carries it (empty-handed, or holding the flag
+or the oddball): it hangs on your unit's head, which is drawn a tick behind. On Android, the view mixes as before.
 
 To get 30 frames each second, set `display.interpolation = false`.
 
