@@ -3183,8 +3183,8 @@ rings, and the game asks at once.
   `doorbell/+`. Signalling on 1883 is unchanged for every client, OpenCE's
   included.
 - **Ringing:** a ring is QoS 0, not retained, one byte: what changed (1
-  friends, 2 invite, 3 party, 4 presence; anything else, or none, is a ring
-  all the same). No handle, no name, no game. The site rings both brokers.
+  friends, 2 invite, 3 party, 4 presence, 5 clan; anything else, or none,
+  is a ring all the same). No handle, no name, no game. The site rings both brokers.
 - **Who hears what:** the site rings only copies that asked for their
   friends in the last 3 minutes, at most 12 times a minute each. A friend
   request rings the one it went to (never when they block the sender: a
@@ -3194,7 +3194,10 @@ rings, and the game asks at once.
   online, going into a game or turning "appear offline" off rings its
   friends (never while it appears offline or hides what it plays; turning
   it on rings nobody, and friends see it on their next poll).
-  Parties ring with kind 3 once they're on the site.
+  A party invite rings the friend invited; someone joining, leaving or
+  kicked out, a new leader, rule or code, and the leader's go ring the
+  other members (and the one kicked out), with kind 3. A clan's invite
+  rings the player invited, with kind 5.
 - **On a ring:** the game polls at once, at least 2 seconds after the last
   poll, and only while fewer than 2 polls went out early for a ring and
   fewer than 5 went out at all in the last minute. The schedule's own

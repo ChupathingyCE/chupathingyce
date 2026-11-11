@@ -2,13 +2,14 @@
 CAPTURE.H
 
 Screenshots (capture.c): the player's key (controls.screenshot, Print
-Screen) asks for one, the renderer reads the game's finished frame back
-without waiting for the GPU (d3d8_gl.c's pixel buffer and fence, bgfx's
-read-back texture), and a thread of its own writes it as a PNG to
-<data root>/screenshots/<map>_<YYYY-MM-DD_HH-MM-SS>.png. The frame is the
-game's back buffer at its full size, the HUD and menus in it, without the
-port's overlay (DELTA, toasts, the game list's screens). A toast says
-when it is saved.
+Screen) asks for one, the renderer reads the picture back as the window
+shows it (d3d8_gl.c's pixel buffer and fence, without waiting for the GPU;
+bgfx's screenshot of the window), and a thread of its own writes it as a
+PNG to <data root>/screenshots/<map>_<YYYY-MM-DD_HH-MM-SS>.png. The shot is
+what is on screen: the game's frame with the HUD and menus, and the port's
+overlay over it (DELTA, the game list's screens, the Chupathingy menus), at
+the window's size without its black bars. A toast says when it is saved;
+the screenshots' own toasts are left out of the next shot (guide.c).
 
 Nothing runs until the first screenshot: no thread, no buffers. The
 desktop builds' only (HALO_CAPTURE: halo_console_features.h).
@@ -22,19 +23,23 @@ desktop builds' only (HALO_CAPTURE: halo_console_features.h).
 /* the input's: asks for a screenshot of the next frame (any thread) */
 void capture_request_screenshot(void);
 
+/* whether a screenshot has been asked for and not yet taken (the game's,
+as it draws: the frame it draws then is the one the shot is of) */
+int capture_screenshot_wanted(void);
 /* the renderer's, at each present: whether a screenshot is wanted, which
 clears the ask */
 int capture_screenshot_take(void);
-/* the renderer's: the frame read back, width by height, its rows from the
-top, `pitch` bytes apart; four bytes a pixel, blue first when bgra (else
-red first). The pixels are malloc'd and become capture.c's */
-void capture_screenshot_submit(unsigned char *pixels, long width, long height, long pitch, int bgra);
+/* the renderer's: the frame read back, width by height, its rows `pitch`
+bytes apart, from the top (or from the bottom when bottom_up: a window's
+read by OpenGL); four bytes a pixel, blue first when bgra (else red
+first). The pixels are malloc'd and become capture.c's */
+void capture_screenshot_submit(unsigned char *pixels, long width, long height, long pitch, int bgra, int bottom_up);
 /* the same with pixels the renderer only lends (a mapped pixel buffer):
 the writer copies them and then sets *released, after which the renderer
 may let them go; until then they must stay where they are. 0 when they
 were not taken (*released is set then too) */
 int capture_screenshot_lend(const unsigned char *pixels, long width, long height, long pitch, int bgra,
-	volatile int *released);
+	int bottom_up, volatile int *released);
 
 /* ---------- clips (capture_clips.c): with clips.enabled, the last
 clips.seconds of the game's picture and sound kept encoded in memory, and
