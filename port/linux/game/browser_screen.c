@@ -124,6 +124,15 @@ the right button is B.
 boolean pc_menus_chupathingy(void);
 boolean pc_menu_delta_profile_open(void);
 #endif
+/* the screens drawn over this one (ui_widget.c's, after it) */
+boolean moderation_screen_active(void);
+boolean invite_prompt_active(void);
+#ifndef HALO_CONSOLE_NO_CONTROLS
+boolean controls_screen_active(void);
+#endif
+#ifdef HALO_GUIDE
+boolean guide_active(void);
+#endif
 
 /* ---------- constants */
 
@@ -2653,7 +2662,29 @@ static void draw_card(
 	}
 }
 
-/* a picture (or none: the box alone), in a cut-out of the overlay */
+/* whether a screen drawn after this one covers it: the Guide, the profile, the
+controls, moderation or an invite. A cut-out is the whole overlay's, not
+this screen's, so the game's pictures under it would show through them */
+static boolean browser_screen_covered(
+	void)
+{
+#ifdef HALO_GUIDE
+	if (guide_active())
+		return TRUE;
+#endif
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+	if (profile_screen_active())
+		return TRUE;
+#endif
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	if (controls_screen_active())
+		return TRUE;
+#endif
+	return moderation_screen_active() || invite_prompt_active();
+}
+
+/* a picture (or none: the box alone), in a cut-out of the overlay; nothing
+while another screen covers this one (browser_screen_covered) */
 static void draw_bitmap_picture(
 	struct bitmap_data *bitmap,
 	short art_width,
@@ -2665,6 +2696,8 @@ static void draw_bitmap_picture(
 {
 	rectangle2d bounds;
 
+	if (browser_screen_covered())
+		return;
 	ui_overlay_cutout(x0, y0, (float)(x1 - x0), (float)(y1 - y0));
 	bounds.x0 = x0;
 	bounds.y0 = y0;

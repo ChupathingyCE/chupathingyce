@@ -682,6 +682,20 @@ boolean ce_bitmap_is_bc7(
 	return format == BITMAP_FORMAT_DXT5 && mark == BITMAP_PORT_BC7_MARK;
 }
 
+/* the map's tags loaded (cache_files.c), before anything else reads them:
+its scenario given the scenario's group, as it was before the checks
+(ce_map_checks.c), which read the map's tags so. Its resource maps' tags are
+copied in next, and a scenario of another group would be read as a tag of
+that group there (a sound's or a bitmap's), which nothing checked it as */
+void ce_repairs_scenario_loaded(
+	void *tag_instances,
+	long tag_count,
+	unsigned long scenario_tag_index)
+{
+	if (ce_repairs_scenario_group(tag_instances, tag_count, scenario_tag_index))
+		error(_error_silent, "Custom Edition map: its scenario given the scenario's group");
+}
+
 /* the map's tags loaded (cache_files.c), its resource maps' tags copied in:
 repaired in place, in its tag cache */
 void ce_repairs_tags_loaded(
@@ -696,8 +710,6 @@ void ce_repairs_tags_loaded(
 	image.size = CE_IMAGE_TAG_CACHE_SIZE;
 	ce_loaded_instances = tag_instances;
 	ce_loaded_tag_count = tag_count;
-	if (ce_repairs_scenario_group(tag_instances, tag_count, scenario_tag_index))
-		error(_error_silent, "Custom Edition map: its scenario given the scenario's group");
 	ce_repairs_apply(&image, tag_instances, tag_count, scenario_tag_index);
 }
 

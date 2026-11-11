@@ -42,7 +42,12 @@ map keeps its channels, which the renderer has one order of. So does the
 multipurpose map of a model shader with MCC's flag for the Xbox's channel
 order (bit 6 of its flags, "multipurpose map uses og xbox channel order",
 which Halo PC leaves unused): tags made from the Xbox's carry it, their
-masks already where the Xbox's model shaders read them.
+masks already where the Xbox's model shaders read them. A model shader
+drawing such a bitmap as a multipurpose map in Halo PC's order (the fuel rod
+gun's first-person metal and the flamethrower's screen use their base map as
+their multipurpose map too) draws it from a copy of its bitmap_data that is
+listed, with a cache block, a texture and channels of its own
+(ce_models_multipurpose_bitmap, rasterizer_xbox_models.c).
 */
 
 #ifdef HALO_CUSTOM_EDITION
@@ -51,6 +56,7 @@ masks already where the Xbox's model shaders read them.
 #include "cseries_windows.h"
 #include "errors.h"
 #include "math/real_math.h"
+#include "bitmaps/bitmap_group.h"
 #include "rasterizer/rasterizer_geometry.h"
 #include "ce_map_checks.h"
 
@@ -162,6 +168,15 @@ static long ce_vertex_memory_count;
 channels are Halo PC's */
 static void const **ce_multipurpose_bitmaps;
 static long ce_multipurpose_bitmap_count;
+
+/* the bitmaps drawn both in Halo PC's multipurpose order and in another
+way, each with the copy drawn as the multipurpose map (listed above) */
+static struct ce_multipurpose_copy
+{
+	void const *bitmap;
+	void *copy;
+} *ce_multipurpose_copies;
+static long ce_multipurpose_copy_count;
 
 /* ---------- private code */
 
@@ -359,6 +374,32 @@ static boolean ce_multipurpose_bitmap_listed(
 	return FALSE;
 }
 
+/* a copy of a bitmap a model shader draws as its multipurpose map in Halo
+PC's order, which is also drawn another way and so keeps its channels: the
+copy has no cache block (it is loaded into one of its own, as a texture of
+its own) and is listed once the shaders have all been looked at
+(ce_multipurpose_bitmaps_find) */
+static void ce_multipurpose_copy_make(
+	void const *bitmap)
+{
+	struct ce_multipurpose_copy *copies;
+	struct bitmap_data *copy;
+
+	copies = realloc(ce_multipurpose_copies, (ce_multipurpose_copy_count + 1) * sizeof(*copies));
+	if (!copies)
+		return;
+	ce_multipurpose_copies = copies;
+	copy = malloc(sizeof(*copy));
+	if (!copy)
+		return;
+	memcpy(copy, bitmap, sizeof(*copy));
+	copy->cache_block_index = NONE;
+	copy->base_address = XBOX_NULL;
+	copies[ce_multipurpose_copy_count].bitmap = bitmap;
+	copies[ce_multipurpose_copy_count].copy = copy;
+	ce_multipurpose_copy_count++;
+}
+
 /* a bitmap group's bitmaps listed as multipurpose maps (once), or, with
 remove, taken off the list: the number listed or taken off */
 static long ce_multipurpose_bitmaps_list(
@@ -384,6 +425,7 @@ static long ce_multipurpose_bitmaps_list(
 				if (ce_multipurpose_bitmaps[listed] == bitmap)
 				{
 					ce_multipurpose_bitmaps[listed] = ce_multipurpose_bitmaps[--ce_multipurpose_bitmap_count];
+					ce_multipurpose_copy_make(bitmap);
 					changed++;
 					break;
 				}
@@ -465,10 +507,22 @@ static long ce_multipurpose_bitmaps_find(
 				kept += ce_multipurpose_bitmaps_list(group, TRUE);
 		}
 	}
+	/* (the copies listed: their bitmaps' addresses are no tag's, so the
+	second pass took none of them off) */
+	for (index = 0; index < ce_multipurpose_copy_count; index++)
+	{
+		void const **bitmaps = realloc((void *)ce_multipurpose_bitmaps,
+			(ce_multipurpose_bitmap_count + 1) * sizeof(void const *));
+
+		if (!bitmaps)
+			break;
+		ce_multipurpose_bitmaps = bitmaps;
+		ce_multipurpose_bitmaps[ce_multipurpose_bitmap_count++] = ce_multipurpose_copies[index].copy;
+	}
 	if (kept)
 	{
 		error(_error_silent, "Custom Edition maps: %ld multipurpose bitmaps also drawn as base or detail maps keep "
-			"their channels", kept);
+			"their channels there (%ld drawn as multipurpose maps from a copy)", kept, ce_multipurpose_copy_count);
 	}
 	if (xbox_order)
 	{
@@ -795,6 +849,13 @@ void ce_models_tags_unloaded(
 		free((void *)ce_multipurpose_bitmaps);
 	ce_multipurpose_bitmaps = NULL;
 	ce_multipurpose_bitmap_count = 0;
+	/* (after the texture cache closed, which wrote to the copies it had
+	loaded: scenario_tags_unload) */
+	for (index = 0; index < ce_multipurpose_copy_count; index++)
+		free(ce_multipurpose_copies[index].copy);
+	free(ce_multipurpose_copies);
+	ce_multipurpose_copies = NULL;
+	ce_multipurpose_copy_count = 0;
 }
 
 /* whether a bitmap (bitmap_data) of the map loaded is a Custom Edition model
@@ -803,6 +864,22 @@ boolean ce_models_bitmap_is_multipurpose(
 	void const *bitmap)
 {
 	return ce_multipurpose_bitmap_listed(bitmap);
+}
+
+/* the copy of a bitmap to draw as a model shader's multipurpose map in Halo
+PC's order (rasterizer_xbox_models.c), or NULL to draw the bitmap itself: a
+copy for each bitmap also drawn another way (ce_multipurpose_copy_make) */
+void const *ce_models_multipurpose_bitmap(
+	void const *bitmap)
+{
+	long index;
+
+	for (index = 0; index < ce_multipurpose_copy_count; index++)
+	{
+		if (ce_multipurpose_copies[index].bitmap == bitmap)
+			return ce_multipurpose_copies[index].copy;
+	}
+	return NULL;
 }
 
 /* ---------- checks (ce_map_checks.c) */

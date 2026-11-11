@@ -826,7 +826,7 @@ def test_install_row_wiring():
         assert text.index(row) < text.index(f'<child widget="{base}/view_chat"')
     assert f'<widget name="{base}/op_install_update"' in gearbox
     assert '<on event="a" run="port update install"/>' in gearbox
-    assert f'<widget name="{base}/help" type="text" controller="1" left="68" top="350" width="482" height="60" ' \
+    assert f'<widget name="{base}/help" type="text" controller="1" left="68" top="376" width="482" height="60" ' \
            'font="ui\\large_ui"' in gearbox
     assert '<string text="INSTALL UPDATE:"/>' in gearbox
     functions = (ROOT / "port/linux/game/menu_functions.c").read_text()

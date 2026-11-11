@@ -190,6 +190,11 @@ static struct
 	char final_path[600];
 	/* the end */
 	int exit_code;
+	/* a player's: the host the game client was joined to (or joining) as
+	the fetch ended, and whether it was, for the leave to tell the fetch's
+	client from one the player started in the second after */
+	boolean left_connected;
+	struct transport_address left_host;
 } fetch;
 
 /* ---------- private code */
@@ -290,6 +295,44 @@ static void fetch_release(
 	fetch.hashes = NULL;
 }
 
+#ifdef HALO_HOST_MAP_DOWNLOADS
+/* a player's fetch ending: the host its client is joined to or joining, if
+any */
+static void fetch_note_left_host(
+	void)
+{
+	struct network_game_client *client = global_network_game_client_get();
+
+	csmemset(&fetch.left_host, 0, sizeof(fetch.left_host));
+	fetch.left_connected = client && network_game_client_map_fetch_state() >= 1;
+	if (fetch.left_connected)
+		network_game_client_get_remote_server_address(client, &fetch.left_host);
+}
+
+/* whether the game's network is still the fetch's, as it ended: no game of
+this machine's, the client there, and joined to (or joining) the same host,
+or still searching if the fetch never got that far. A player who hosted,
+joined a game or reset the network from the menus in the second the leave
+waits has a network the fetch must not reset (#1041) */
+static boolean fetch_network_still_ours(
+	void)
+{
+	struct network_game_client *client = global_network_game_client_get();
+	struct transport_address host;
+	long state = network_game_client_map_fetch_state();
+
+	if (!client || global_network_game_server_get())
+		return FALSE;
+	if (!fetch.left_connected)
+		return state == 0;
+	if (state < 1)
+		return FALSE;
+	csmemset(&host, 0, sizeof(host));
+	network_game_client_get_remote_server_address(client, &host);
+	return !memcmp(&host, &fetch.left_host, sizeof(host));
+}
+#endif
+
 /* the end: the result written, the host told if it was answering, and the
 game left a moment later */
 static void fetch_finish(
@@ -322,6 +365,7 @@ static void fetch_finish(
 		else
 			map_download_host_failed(detail && detail[0] ? detail : "the host did not give the map", fetch.cancelled,
 				fetch.blocked);
+		fetch_note_left_host();
 		fetch_state(_fetch_leaving);
 		return;
 	}
@@ -1030,8 +1074,13 @@ void map_share_player_update(
 		{
 			short fetching = fetch.fetching;
 
-			ui_online_games_start_network();
-			platform_log("map download: left the host's game");
+			if (fetch_network_still_ours())
+			{
+				ui_online_games_start_network();
+				platform_log("map download: left the host's game");
+			}
+			else
+				platform_log("map download: done; the network was started anew from the menus, left as it is");
 			csmemset(&fetch, 0, sizeof(fetch));
 			fetch.fetching = fetching;
 		}
