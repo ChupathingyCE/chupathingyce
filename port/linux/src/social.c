@@ -1030,6 +1030,56 @@ const char *social_party_action_refusal(const char *action, const char *reason, 
 	return social_party_refusal(reason, status);
 }
 
+/* ---------- toasts waiting */
+
+void social_toast_forget(struct social_toast_queue *queue, int kind, const char *key)
+{
+	int index = 0;
+
+	while (queue && key && index < queue->count)
+	{
+		if (queue->toasts[index].kind == kind && !strcmp(queue->toasts[index].key, key))
+		{
+			memmove(&queue->toasts[index], &queue->toasts[index + 1],
+				(size_t)(queue->count - index - 1) * sizeof(queue->toasts[0]));
+			queue->count--;
+		}
+		else
+			index++;
+	}
+}
+
+void social_toast_push(struct social_toast_queue *queue, int kind, const char *key, const char *title, const char *line,
+	const char *name)
+{
+	struct social_toast *toast;
+
+	if (!queue)
+		return;
+	social_toast_forget(queue, kind, key ? key : "");
+	if (queue->count >= SOCIAL_TOAST_QUEUE_MOST)
+	{
+		memmove(&queue->toasts[0], &queue->toasts[1], (SOCIAL_TOAST_QUEUE_MOST - 1) * sizeof(queue->toasts[0]));
+		queue->count = SOCIAL_TOAST_QUEUE_MOST - 1;
+	}
+	toast = &queue->toasts[queue->count++];
+	toast->kind = kind;
+	social_copy_text(toast->key, sizeof(toast->key), key ? key : "");
+	social_copy_text(toast->title, sizeof(toast->title), title ? title : "");
+	social_copy_text(toast->line, sizeof(toast->line), line ? line : "");
+	social_copy_text(toast->name, sizeof(toast->name), name ? name : "");
+}
+
+int social_toast_pop(struct social_toast_queue *queue, struct social_toast *toast)
+{
+	if (!queue || queue->count <= 0)
+		return 0;
+	*toast = queue->toasts[0];
+	memmove(&queue->toasts[0], &queue->toasts[1], (size_t)(queue->count - 1) * sizeof(queue->toasts[0]));
+	queue->count--;
+	return 1;
+}
+
 /* ---------- invites this player sent */
 
 void social_sent_add(struct social_sent_list *list, const char *handle, int kind, unsigned long now)

@@ -421,6 +421,8 @@ enum
 	too: following the leader, or why not) */
 	_toast_party_invite,
 	_toast_party_note,
+	/* a clan's invite (its clan's ID): CLAN */
+	_toast_clan_invite,
 };
 
 /* PARTY's items: members (or, out of a party, its invites), then its
@@ -567,6 +569,12 @@ static struct
 	boolean party_invite_starting;
 	/* the invites this player sent (INVITED on a friend's row) */
 	struct social_sent_list sent;
+	/* news waiting for the toast before it to end */
+	struct social_toast_queue toasts;
+	/* the clans' invites known (their IDs), and whether they were read once */
+	int clan_invites_known[DELTA_PROFILE_CLAN_INVITES];
+	int clan_invites_known_count;
+	boolean clan_invites_read;
 	unsigned long message_time;
 	/* the invites dismissed (by ID) */
 	char dismissed[SOCIAL_MAXIMUM_INVITES][SOCIAL_INVITE_ID_SIZE];
@@ -1594,6 +1602,7 @@ static void invite_dismiss(char const *id)
 	guide.dismissed_next = (short)((guide.dismissed_next + 1) % SOCIAL_MAXIMUM_INVITES);
 	if (guide.toast_kind == _toast_invite && !strcmp(guide.toast_key, id))
 		guide.toast_shown = FALSE;
+	social_toast_forget(&guide.toasts, _toast_invite, id);
 	guide.options = FALSE;
 	items_build();
 }
@@ -1733,6 +1742,8 @@ static void friends_news(boolean first)
 	short party_invite = first ? NONE : party_invite_news();
 
 	social_news(&friends_state, &friends_fresh, &news);
+	/* (each piece of news queued: all of one poll's show, one after
+	another, social_toast_push) */
 	if (news.invite >= 0 && !invite_dismissed(friends_fresh.invites[news.invite].id))
 	{
 		struct social_invite const *invite = &friends_fresh.invites[news.invite];
@@ -1744,10 +1755,10 @@ static void friends_news(boolean first)
 			snprintf(title, sizeof(title), "%s invited you", name);
 		if (social_game_line(&invite->game, line, sizeof(line)) < 0)
 			snprintf(line, sizeof(line), "Game invite");
-		toast_from(_toast_invite, invite->id, title, line, streamer ? "" : name);
+		social_toast_push(&guide.toasts, _toast_invite, invite->id, title, line, streamer ? "" : name);
 		platform_log("DELTA: a new invite");
 	}
-	else if (party_invite != NONE)
+	if (party_invite != NONE)
 	{
 		struct social_party_invite const *invite = &friends_fresh.party_invites[party_invite];
 		char const *name = social_name(invite->display, invite->from);
@@ -1757,25 +1768,26 @@ static void friends_news(boolean first)
 		else
 			snprintf(title, sizeof(title), "%s invited you", name);
 		snprintf(line, sizeof(line), "Party of %d", invite->size);
-		toast_from(_toast_party_invite, invite->party, title, line, streamer ? "" : name);
+		social_toast_push(&guide.toasts, _toast_party_invite, invite->party, title, line, streamer ? "" : name);
 		platform_log("DELTA: a new party invite");
 	}
-	else if (news.request >= 0 && !first)
+	if (news.request >= 0 && !first)
 	{
 		struct social_request const *request = &friends_fresh.requests[news.request];
 		char const *name = social_name(request->display, request->handle);
 
-		toast_from(_toast_request, request->handle, streamer ? "Friend request" : name, streamer ? "" : "Friend request",
-			streamer ? "" : name);
+		social_toast_push(&guide.toasts, _toast_request, request->handle, streamer ? "Friend request" : name,
+			streamer ? "" : "Friend request", streamer ? "" : name);
 		platform_log("DELTA: a new friend request");
 	}
-	else if (news.online >= 0 && !first && !in_game() && config_boolean("delta.notify_online"))
+	if (news.online >= 0 && !first && !in_game() && config_boolean("delta.notify_online"))
 	{
 		struct social_friend const *buddy = &friends_fresh.friends[news.online];
 		char const *name = social_name(buddy->display, buddy->handle);
 
 		social_friend_status(buddy, line, sizeof(line));
-		toast_from(_toast_friend, buddy->handle, streamer ? "Friend online" : name, line, streamer ? "" : name);
+		social_toast_push(&guide.toasts, _toast_friend, buddy->handle, streamer ? "Friend online" : name, line,
+			streamer ? "" : name);
 	}
 }
 
@@ -1877,6 +1889,13 @@ static boolean toast_go(void)
 	short kind = guide.toast_kind == _toast_invite ? _item_invite : guide.toast_kind == _toast_request ? _item_request :
 		guide.toast_kind == _toast_friend ? _item_friend : NONE;
 
+	if (guide.toast_kind == _toast_clan_invite)
+	{
+		guide.section = SOCIAL_SECTION_CLAN;
+		guide.first_row = 0;
+		guide.toast_shown = FALSE;
+		return TRUE;
+	}
 	if (guide.toast_kind == _toast_party_invite || guide.toast_kind == _toast_party_note)
 	{
 		guide.section = SOCIAL_SECTION_PARTY;
@@ -2174,7 +2193,9 @@ static short party_actions(short *actions)
 	if (friends_signed_in() && guide.party.member_count < guide.party.largest)
 		actions[count++] = _party_action_invite_friends;
 	actions[count++] = _party_action_copy_link;
-	actions[count++] = _party_action_bring;
+	/* (the leader's: a member's game is never the party's) */
+	if (guide.party.leader)
+		actions[count++] = _party_action_bring;
 	actions[count++] = _party_action_who;
 	if (guide.party.leader)
 		actions[count++] = _party_action_new_code;
@@ -3020,6 +3041,49 @@ static void clan_move(short step)
 /* the profile looked at (often while the Guide is open or an action is
 out, now and then while it's closed, for the pause row's count): a new one,
 the items again; an action's answer, its line */
+/* a clan's invite new since the last read (none the first time: those
+waited before this run) gets a toast */
+static void clan_invite_news(void)
+{
+	boolean streamer = config_boolean("chat.streamer_mode") != 0;
+	int index, known;
+
+	for (index = 0; guide.clan_invites_read && index < clan_profile.invite_count; index++)
+	{
+		struct delta_profile_invite const *invite = &clan_profile.invites[index];
+		boolean seen = FALSE;
+		char key[16], title[96];
+
+		for (known = 0; known < guide.clan_invites_known_count && !seen; known++)
+			seen = guide.clan_invites_known[known] == invite->id;
+		if (seen)
+			continue;
+		snprintf(key, sizeof(key), "%d", invite->id);
+		if (streamer || !invite->tag[0])
+			snprintf(title, sizeof(title), "Clan invite");
+		else
+			snprintf(title, sizeof(title), "[%s] invited you", invite->tag);
+		social_toast_push(&guide.toasts, _toast_clan_invite, key, title, streamer ? "Clan invite" : invite->name, "");
+		platform_log("DELTA: a new clan invite");
+	}
+	guide.clan_invites_known_count = 0;
+	for (index = 0; index < clan_profile.invite_count && index < DELTA_PROFILE_CLAN_INVITES; index++)
+		guide.clan_invites_known[guide.clan_invites_known_count++] = clan_profile.invites[index].id;
+	guide.clan_invites_read = TRUE;
+}
+
+/* the next toast waiting, once the one before it is done (and none is a
+follow offer's) */
+static void toasts_next(void)
+{
+	struct social_toast toast;
+
+	if ((guide.toast_shown && system_milliseconds() - guide.toast_time < TOAST_TIME) || guide.follow_active)
+		return;
+	if (social_toast_pop(&guide.toasts, &toast))
+		toast_from((short)toast.kind, toast.key, toast.title, toast.line, toast.name);
+}
+
 static void clan_update(void)
 {
 	struct browser_profile_status status;
@@ -3036,6 +3100,8 @@ static void clan_update(void)
 		guide.clan_serial = status.serial;
 		guide.clan_loaded = status.has_profile != 0;
 		clan_items_build();
+		if (guide.clan_loaded)
+			clan_invite_news();
 	}
 	if (!guide.clan_acting || status.action == BROWSER_PROFILE_ACTION_WORKING)
 		return;
@@ -4814,6 +4880,7 @@ void guide_update(boolean menu_open)
 #endif
 	friends_update();
 	clan_update();
+	toasts_next();
 	recent_notice();
 	/* (a report's answer, and its clip: report_player.c) */
 	report_player_update();

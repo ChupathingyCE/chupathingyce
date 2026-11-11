@@ -436,6 +436,40 @@ struct social_news
 };
 void social_news(const struct social_state *old, const struct social_state *fresh, struct social_news *news);
 
+/* ---------- toasts waiting (DELTA's): news that came with other news
+in one poll shows after the toast before it, not never. A key already
+waiting isn't queued twice; a full queue drops its oldest. */
+
+enum
+{
+	SOCIAL_TOAST_QUEUE_MOST = 6,
+	SOCIAL_TOAST_TEXT_SIZE = 96,
+};
+
+struct social_toast
+{
+	/* the Guide's toast kind, and its item (an invite's ID, a handle) */
+	int kind;
+	char key[SOCIAL_TOAST_TEXT_SIZE];
+	char title[SOCIAL_TOAST_TEXT_SIZE];
+	char line[SOCIAL_TOAST_TEXT_SIZE];
+	/* whose initial the toast shows ("" for none) */
+	char name[SOCIAL_TOAST_TEXT_SIZE];
+};
+
+struct social_toast_queue
+{
+	struct social_toast toasts[SOCIAL_TOAST_QUEUE_MOST];
+	int count;
+};
+
+void social_toast_push(struct social_toast_queue *queue, int kind, const char *key, const char *title, const char *line,
+	const char *name);
+/* the next (1), or none waiting (0) */
+int social_toast_pop(struct social_toast_queue *queue, struct social_toast *toast);
+/* one answered elsewhere (its kind and key): no longer waiting */
+void social_toast_forget(struct social_toast_queue *queue, int kind, const char *key);
+
 /* the requests' members besides the key (browser.c's game_request): -1
 when they do not fit, or for a handle the site could not have given. The
 state asks for the profile's clan too ("clan": DELTA's CLAN, its roster

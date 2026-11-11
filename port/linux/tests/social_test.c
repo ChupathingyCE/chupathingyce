@@ -930,9 +930,43 @@ static void test_sent(void)
 	CHECK(!strcmp(text, "Your party is full."));
 }
 
+/* news in one poll: each shows, one after another */
+static void test_toast_queue(void)
+{
+	static struct social_toast_queue queue;
+	struct social_toast toast;
+	int index;
+
+	memset(&queue, 0, sizeof(queue));
+	CHECK(!social_toast_pop(&queue, &toast));
+	social_toast_push(&queue, 1, "inv1", "Sarge invited you", "Blood Gulch", "Sarge");
+	social_toast_push(&queue, 3, "grif", "Grif", "Friend request", "Grif");
+	/* (the same one again: still one) */
+	social_toast_push(&queue, 3, "grif", "Grif", "Friend request", "Grif");
+	CHECK(queue.count == 2);
+	CHECK(social_toast_pop(&queue, &toast) && toast.kind == 1 && !strcmp(toast.key, "inv1"));
+	CHECK(social_toast_pop(&queue, &toast) && toast.kind == 3 && !strcmp(toast.title, "Grif"));
+	CHECK(!social_toast_pop(&queue, &toast));
+	/* (answered before it showed) */
+	social_toast_push(&queue, 3, "simmons", "Simmons", "Friend request", "Simmons");
+	social_toast_forget(&queue, 3, "simmons");
+	CHECK(queue.count == 0);
+	/* (full: the oldest goes) */
+	for (index = 0; index < SOCIAL_TOAST_QUEUE_MOST + 2; index++)
+	{
+		char key[8];
+
+		snprintf(key, sizeof(key), "k%d", index);
+		social_toast_push(&queue, 2, key, "t", "l", "");
+	}
+	CHECK(queue.count == SOCIAL_TOAST_QUEUE_MOST);
+	CHECK(social_toast_pop(&queue, &toast) && !strcmp(toast.key, "k2"));
+}
+
 int main(void)
 {
 	test_party_actions();
+	test_toast_queue();
 	test_sent();
 	test_sections();
 	test_copy_text();
