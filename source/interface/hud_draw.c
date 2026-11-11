@@ -777,7 +777,7 @@ static void hud_draw_multitexture_overlay(
 			parameters.map_offset[map_index] = &texture_offset[map_index];
 			if (mcc_cache_tags_loaded())
 			{
-				boolean mcc_linear = TEST_FLAG(parameters.map[map_index]->flags, _bitmap_linear_bit);
+				boolean mcc_linear = TEST_FLAG(parameters.map[map_index]->flags, 4); /* (_bitmap_linear_bit: xbox_texture_cache.c) */
 				parameters.map_texture_scale[map_index].i = mcc_linear ? (real)parameters.map[map_index]->width : 1.0f;
 				parameters.map_texture_scale[map_index].j = mcc_linear ? (real)parameters.map[map_index]->height : 1.0f;
 			}

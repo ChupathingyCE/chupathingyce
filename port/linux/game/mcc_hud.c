@@ -82,7 +82,7 @@ static int mcc_hud_multiplayer_text(struct mcc_runtime *r,uint32_t const *entry)
     replacement=mcc_runtime_allocate(r,(uint32_t)characters*2);
     if (!replacement || mcc_hud_score_text(source,bytes/2,config_string("controls.scoreboard"),
         replacement,(uint32_t)characters)!=characters) return 0;
-    bytes=(uint32_t)characters*2;address=(uint32_t)(uintptr_t)replacement;
+    bytes=(uint32_t)characters*2;address=MCC_ADDRESS(replacement);
     memcpy(hint,&bytes,4);memcpy(hint+12,&address,4);
     return 1;
 }

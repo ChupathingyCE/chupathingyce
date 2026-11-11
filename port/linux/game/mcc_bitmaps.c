@@ -59,13 +59,13 @@ static int mcc_bitmap_clone_block(struct mcc_runtime *runtime,struct tag_block *
 {
     void *source,*copy;
     uint32_t bytes;
-    if (!block->count) {block->address=NULL;return 1;}
+    if (!block->count) {block->address=XBOX_NULL;return 1;}
     source=mcc_bitmap_block(runtime,block,stride);
     if (!source) return 0;
     bytes=(uint32_t)block->count*stride;
     copy=mcc_runtime_allocate(runtime,bytes);
     if (!copy) return 0;
-    memcpy(copy,source,bytes);block->address=copy;
+    memcpy(copy,source,bytes);block->address=xbox_address(copy);
     return 1;
 }
 
@@ -93,7 +93,7 @@ static int mcc_bitmap_specialize(struct mcc_runtime *runtime,struct mcc_textures
     *copy=*source;
     if (!mcc_bitmap_clone_block(runtime,&copy->sequences,sizeof(*sequences)) ||
         !mcc_bitmap_clone_block(runtime,&copy->bitmaps,sizeof(*bitmaps))) return 0;
-    sequences=copy->sequences.address;
+    sequences=xbox_pointer(copy->sequences.address);
     for (i=0;i<(uint32_t)copy->sequences.count;i++) {
         if (!mcc_bitmap_clone_block(runtime,&sequences[i].sprites,sizeof(struct bitmap_group_sprite))) return 0;
     }
@@ -107,8 +107,8 @@ static int mcc_bitmap_specialize(struct mcc_runtime *runtime,struct mcc_textures
     entry=(uint32_t *)(runtime->tag_index+runtime->report.tag_count*32);
     memcpy(entry,runtime->tag_index+(*handle&0xFFFF)*32,32);
     new_handle=(*handle&0xFFFF0000u)|runtime->report.tag_count;
-    entry[3]=new_handle;entry[4]=(uint32_t)name;entry[5]=(uint32_t)copy;
-    bitmaps=copy->bitmaps.address;
+    entry[3]=new_handle;entry[4]=MCC_ADDRESS(name);entry[5]=MCC_ADDRESS(copy);
+    bitmaps=xbox_pointer(copy->bitmaps.address);
     for (i=0;i<(uint32_t)copy->bitmaps.count;i++) {
         struct mcc_texture *texture;
         if (textures->count>=textures->capacity) return 0;
@@ -428,8 +428,8 @@ static int mcc_texture_prepare(struct mcc_runtime *runtime,struct mcc_textures *
     bitmap->pixels_size=allocation;
     bitmap->tag_index=texture->handle;
     bitmap->cache_block_index=NONE;
-    bitmap->hardware_format=NULL;
-    bitmap->base_address=NULL;
+    bitmap->hardware_format=XBOX_NULL;
+    bitmap->base_address=XBOX_NULL;
     texture->offset=bitmap->pixels_offset;texture->size=allocation;texture->pixels=pixels;
     textures->end+=allocation;
     return 1;

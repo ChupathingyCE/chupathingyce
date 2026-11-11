@@ -701,7 +701,6 @@ void scenario_tags_unload(
 		mcc_cache_tags_unload();
 		cache_file_globals.tags_loaded = FALSE;
 		global_tag_instances = NULL;
-		global_tag_count = 0;
 		return;
 	}
 #ifdef HALO_CUSTOM_EDITION
@@ -1763,12 +1762,9 @@ long scenario_tags_load(
 		if (cache_file_globals.tag_header)
 		{
 			extern void menu_tags_loaded(char const *map_name);
-			extern void loose_sounds_tags_loaded(void);
-			global_tag_instances = cache_file_globals.tag_header->tag_instances;
-			global_tag_count = cache_file_globals.tag_header->tag_count;
+			global_tag_instances = xbox_pointer(cache_file_globals.tag_header->tag_instances);
 			cache_file_globals.tags_loaded = TRUE;
 			menu_tags_loaded(cache_file_globals.header.name);
-			loose_sounds_tags_loaded();
 			result = cache_file_globals.tag_header->scenario_tag_index;
 		}
 		else
@@ -2164,11 +2160,10 @@ boolean scenario_structure_bsp_load(
 	if (mcc_cache_tags_loaded())
 	{
 		void *mcc_header, *mcc_structure;
-		if (!cache_file_structure_bsp_tag_valid(reference) ||
-			!mcc_cache_bsp_load(reference, &mcc_header, &mcc_structure))
+		if (!mcc_cache_bsp_load(reference, &mcc_header, &mcc_structure))
 			return FALSE;
 		cache_file_globals.structure_bsp_header = mcc_header;
-		cache_get_tag_instance(reference->structure_bsp.index)->base_address = mcc_structure;
+		cache_get_tag_instance(reference->structure_bsp.index)->base_address = xbox_address(mcc_structure);
 		return TRUE;
 	}
 
@@ -2355,7 +2350,7 @@ void scenario_structure_bsp_unload(
 	if (mcc_cache_tags_loaded())
 	{
 		mcc_cache_bsp_unload();
-		cache_get_tag_instance(reference->structure_bsp.index)->base_address = NULL;
+		cache_get_tag_instance(reference->structure_bsp.index)->base_address = XBOX_NULL;
 		cache_file_globals.structure_bsp_header = NULL;
 		return;
 	}

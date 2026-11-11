@@ -229,19 +229,19 @@ static int mcc_animation_graph_check(struct mcc_validation_context *context,
     if (nodes->count < 0 || nodes->count > 64 || animations->count < 0 || animations->count > 32767) return 0;
     memset(reached, 0, sizeof(reached)); head = tail = 0;
     if (nodes->count) {
-        byte const *root = nodes->address;
+        byte const *root = xbox_pointer(nodes->address);
         /* Root parent is unused, and MCC commonly stores zero there. */
         if (mcc_integer(root + sibling->offset, 2, 0) != NONE) return 0;
         queue[tail++] = 0; reached[0] = 1;
     }
     while (head < tail) {
         long index = queue[head++];
-        byte const *node = (byte const *)nodes->address + index * nodes_schema->size;
+        byte const *node = (byte const *)xbox_pointer(nodes->address) + index * nodes_schema->size;
         long child_index = mcc_integer(node + child->offset, 2, 0);
         while (child_index != NONE) {
             byte const *descendant;
             if (child_index < 0 || child_index >= nodes->count || reached[child_index] || tail >= 64) return 0;
-            descendant = (byte const *)nodes->address + child_index * nodes_schema->size;
+            descendant = (byte const *)xbox_pointer(nodes->address) + child_index * nodes_schema->size;
             if (mcc_integer(descendant + parent->offset, 2, 0) != index) return 0;
             reached[child_index] = 1; queue[tail++] = (short)child_index;
             child_index = mcc_integer(descendant + sibling->offset, 2, 0);
@@ -255,7 +255,7 @@ static int mcc_animation_graph_check(struct mcc_validation_context *context,
     for (first = 0; first < animations->count; ++first) {
         long index = first;
         while (index != NONE && !states[index]) {
-            byte const *animation = (byte const *)animations->address + index * animations_schema->size;
+            byte const *animation = (byte const *)xbox_pointer(animations->address) + index * animations_schema->size;
             states[index] = 1;
             index = mcc_integer(animation + next->offset, 2, 0);
             if (index != NONE && (index < 0 || index >= animations->count)) { free(states); return 0; }
@@ -263,7 +263,7 @@ static int mcc_animation_graph_check(struct mcc_validation_context *context,
         if (index != NONE && states[index] == 1) { free(states); return 0; }
         index = first;
         while (index != NONE && states[index] == 1) {
-            byte const *animation = (byte const *)animations->address + index * animations_schema->size;
+            byte const *animation = (byte const *)xbox_pointer(animations->address) + index * animations_schema->size;
             states[index] = 2; index = mcc_integer(animation + next->offset, 2, 0);
         }
     }
@@ -308,14 +308,14 @@ static void mcc_fields(struct mcc_validation_context *context, byte *address,
                 if (stage == 0) {
                     unsigned long bytes;
                     long maximum = field->maximum;
-                    block->definition = NULL;
+                    block->definition = XBOX_NULL;
                     if (!element || element->size <= 0 || block->count < 0 ||
                         (unsigned long)block->count > context->length / (unsigned long)element->size) {
                         mcc_problem(context, 1, "invalid block count"); break;
                     }
                     bytes = (unsigned long)block->count * (unsigned long)element->size;
-                    if (bytes && (!mcc_range(context->region, context->length, block->address, bytes) ||
-                        !mcc_claim(block->address, bytes))) {
+                    if (bytes && (!mcc_range(context->region, context->length, xbox_pointer(block->address), bytes) ||
+                        !mcc_claim(xbox_pointer(block->address), bytes))) {
                         mcc_problem(context, 1, "block leaves loaded data or overlaps another allocation"); break;
                     }
                     if (schema->name && !strcmp(schema->name, "game_globals") && !strcmp(field->name, "grenades")) {
@@ -333,32 +333,32 @@ static void mcc_fields(struct mcc_validation_context *context, byte *address,
                         block->count = maximum;
                         mcc_problem(context, 0, "block reduced to engine capacity");
                     }
-                    if (!block->count) block->address = NULL;
+                    if (!block->count) block->address = XBOX_NULL;
                 } else {
                     long item;
                     for (item = 0; item < block->count && !context->rejected; ++item)
-                        mcc_walk(context, (byte *)block->address + item * element->size, element, stage == 2);
+                        mcc_walk(context, (byte *)xbox_pointer(block->address) + item * element->size, element, stage == 2);
                 }
             } else if (field->type == _tag_schema_data || field->type == _tag_schema_file_data) {
                 if (stage == 0) {
                     struct tag_data *data = (struct tag_data *)member;
-                    data->definition = NULL;
+                    data->definition = XBOX_NULL;
                     if (data->size < 0) { mcc_problem(context, 1, "negative data size"); break; }
                     if (field->type == _tag_schema_file_data) {
                         if (!mcc_validation_file_contains((struct tag_validation *)context, data->file_offset, data->size))
                             mcc_problem(context, 1, "file data leaves MCC stream");
                     } else if (data->size) {
-                        if (mcc_range(context->region, context->length, data->address, data->size)) {
-                            if (!mcc_claim(data->address, (unsigned long)data->size))
+                        if (mcc_range(context->region, context->length, xbox_pointer(data->address), data->size)) {
+                            if (!mcc_claim(xbox_pointer(data->address), (unsigned long)data->size))
                                 mcc_problem(context, 1, "data overlaps another allocation");
-                        } else if (!mcc_geometry_contains(mcc_validation.runtime, data->address, data->size)) {
+                        } else if (!mcc_geometry_contains(mcc_validation.runtime, xbox_pointer(data->address), data->size)) {
                             mcc_problem(context, 1, "data leaves loaded bytes and owned geometry");
                         }
                     }
                     if (field->maximum > 0 && data->size > field->maximum) {
                         data->size = field->maximum; mcc_problem(context, 0, "data reduced to engine capacity");
                     }
-                    if (!data->size && field->type == _tag_schema_data) data->address = NULL;
+                    if (!data->size && field->type == _tag_schema_data) data->address = XBOX_NULL;
                 }
             } else if (field->type == _tag_schema_check) {
                 if (stage == 2) {
@@ -389,10 +389,10 @@ static void mcc_fields(struct mcc_validation_context *context, byte *address,
                     if (field->type == _tag_schema_reference) {
                         if (*handle != NONE && instance) {
                             reference->group_tag = instance->group;
-                            reference->name = instance->name;
+                            reference->name = xbox_address(instance->name);
                             reference->name_length = (long)strlen(instance->name);
                         } else {
-                            reference->name = mcc_validation_empty_name;
+                            reference->name = xbox_address(mcc_validation_empty_name);
                             reference->name_length = 0;
                         }
                     }

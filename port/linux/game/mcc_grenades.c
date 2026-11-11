@@ -42,7 +42,7 @@ short mcc_grenades_type_count(void)
 static struct game_globals_grenade *mcc_grenade_definition(short type)
 {
     if (type<0 || type>=mcc_grenades_type_count()) return NULL;
-    return (struct game_globals_grenade *)scenario_get_game_globals()->grenades.address+type;
+    return (struct game_globals_grenade *)xbox_pointer(scenario_get_game_globals()->grenades.address)+type;
 }
 
 static struct mcc_grenade_inventory *mcc_grenade_inventory(long unit,int create)

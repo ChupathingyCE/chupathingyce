@@ -178,6 +178,6 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
         syntax->maximum_count = 19001;
         scenario->hs_syntax_data.size = sizeof(*syntax) + 19001 * sizeof(*nodes);
     }
-    syntax->data = nodes;
+    syntax->data = xbox_address(nodes);
     return missing == 0 && mcc_parameters_prepare(runtime, scenario, syntax);
 }

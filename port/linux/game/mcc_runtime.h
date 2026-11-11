@@ -6,6 +6,12 @@
 #include "mcc_cache_format.h"
 struct bitmap_data;
 
+/* port: a pointer into the MCC tags as the 32-bit address their data holds,
+and back: the Xbox address in a 64-bit build (cseries/xbox_address.h), the
+pointer itself in a 32-bit one */
+#define MCC_ADDRESS(pointer) ((uint32_t)(uintptr_t)xbox_address(pointer))
+#define MCC_POINTER(address) xbox_pointer(address)
+
 struct mcc_runtime {
     unsigned char *tags;
     unsigned char *tag_index;

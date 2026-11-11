@@ -223,7 +223,7 @@ int mcc_audio_prepare(struct mcc_runtime *runtime)
                 permutation->unknown1=0;
                 permutation->unknown2=entry[3];
                 permutation->unknown3=entry[3];
-                permutation->samples.address=NULL;
+                permutation->samples.address=XBOX_NULL;
                 permutation->sample_buffer_size=0;
                 if (!permutation->samples.size) continue;
                 data=malloc(permutation->samples.size);
