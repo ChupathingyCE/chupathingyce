@@ -97,6 +97,38 @@ static void test_back_hold(void)
 	CHECK(delta_back_hold_step(&hold, 1, 1, now + 7000) == DELTA_BACK_PASS);
 	CHECK(delta_back_hold_step(&hold, 0, 1, now + 7016) == 0);
 
+	/* a tap's press lasts at least DELTA_BACK_TAP_READS reads, however long
+	a read takes */
+	memset(&hold, 0, sizeof(hold));
+	CHECK(delta_back_hold_step(&hold, 1, 1, now) == 0);
+	CHECK(delta_back_hold_step(&hold, 0, 1, now + 50) == DELTA_BACK_PASS);
+	CHECK(delta_back_hold_step(&hold, 0, 1, now + 500) == DELTA_BACK_PASS);
+	CHECK(delta_back_hold_step(&hold, 0, 1, now + 1000) == 0);
+
+	/* the capture buttons' Back and a stick (the capture clears Back from the
+	pad and cancels the hold, each read): no DELTA, no tap, while it lasts
+	and once it is let go */
+	memset(&hold, 0, sizeof(hold));
+	opens = passes = 0;
+	for (held = 0; held < 200; held += 16)
+		passes += (delta_back_hold_step(&hold, 1, 1, now + held) & DELTA_BACK_PASS) != 0;
+	for (held = 200; held < 2000; held += 16)
+	{
+		int step;
+
+		delta_back_hold_cancel(&hold);
+		step = delta_back_hold_step(&hold, 0, 1, now + held);
+		opens += (step & DELTA_BACK_OPEN) != 0;
+		passes += (step & DELTA_BACK_PASS) != 0;
+	}
+	for (held = 2000; held < 2500; held += 16)
+		passes += (delta_back_hold_step(&hold, 0, 1, now + held) & DELTA_BACK_PASS) != 0;
+	CHECK(opens == 0);
+	CHECK(passes == 0);
+	/* (and the next tap is a tap again) */
+	CHECK(delta_back_hold_step(&hold, 1, 1, now + 3000) == 0);
+	CHECK(delta_back_hold_step(&hold, 0, 1, now + 3050) == DELTA_BACK_PASS);
+
 	/* the clock wrapping during a hold */
 	memset(&hold, 0, sizeof(hold));
 	CHECK(delta_back_hold_step(&hold, 1, 1, (unsigned long)-100) == 0);

@@ -1495,7 +1495,7 @@ static short item_options(struct friend_item const *item, short *options)
 		if (can_invite())
 			options[count++] = _option_invite;
 		/* (with no party yet, it starts one first: START PARTY AND INVITE) */
-		if ((!guide.party.has || (guide.party.leader || guide.party.member_count < guide.party.largest)) &&
+		if ((!guide.party.has || guide.party.member_count < guide.party.largest) &&
 			!party_has_handle(friends_state.friends[item->index].handle))
 		{
 			options[count++] = _option_party_invite;

@@ -99,14 +99,26 @@ int delta_back_hold_step(struct delta_back_hold *hold, int back_down, int armed,
 		{
 			hold->tapping = 1;
 			hold->tap_since = now;
+			hold->tap_reads = 0;
 		}
 		hold->opened = 0;
 	}
 	if (hold->tapping)
 	{
-		if (now - hold->tap_since < DELTA_BACK_TAP)
+		if (now - hold->tap_since < DELTA_BACK_TAP || hold->tap_reads < DELTA_BACK_TAP_READS)
+		{
+			hold->tap_reads++;
 			return DELTA_BACK_PASS;
+		}
 		hold->tapping = 0;
 	}
 	return 0;
+}
+
+void delta_back_hold_cancel(struct delta_back_hold *hold)
+{
+	hold->tapping = 0;
+	/* (the press is someone else's: no DELTA, no tap when it ends) */
+	if (hold->held && !hold->opened)
+		hold->opened = 2;
 }

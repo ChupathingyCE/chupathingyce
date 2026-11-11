@@ -550,6 +550,12 @@ button pressed, Back held in the menus with delta.hold_back (pad: port 0's,
 everything merged). The Guide is the first player's: only their gamepads
 (port 0's, and those sharing its player) ask, never split screen's others,
 and nothing opens it over chat's or a field's typing */
+#ifdef HALO_CAPTURE
+/* capture_asks': the capture buttons' Back and a stick held, taken from the
+menus (and from DELTA's hold of Back) */
+static BOOL capture_combination;
+#endif
+
 static void guide_asks(const struct platform_input_state *input, SDL_Gamepad *gamepads[], int count,
 	XINPUT_GAMEPAD *pad)
 {
@@ -575,6 +581,12 @@ static void guide_asks(const struct platform_input_state *input, SDL_Gamepad *ga
 	the scoreboard. While it is down the menus don't get it: a tap reaches
 	them once let go, a hold never, so the main menu's Back doesn't quit
 	under DELTA) */
+#ifdef HALO_CAPTURE
+	/* (Back taken by the capture buttons: their press is no hold and no tap,
+	cleared from the pad before this read it) */
+	if (capture_combination)
+		delta_back_hold_cancel(&back_hold);
+#endif
 	back = delta_back_hold_step(&back_hold, (pad->wButtons & XINPUT_GAMEPAD_BACK) != 0,
 		!guide_capture && input->menus && config_boolean("delta.hold_back"), (unsigned long)SDL_GetTicks());
 	if (back & DELTA_BACK_OPEN)
@@ -618,7 +630,8 @@ them (pad) */
 static void capture_asks(const struct platform_input_state *input, SDL_Gamepad *gamepads[], int count,
 	XINPUT_GAMEPAD *pad)
 {
-	static BOOL shot_was, clip_was, combination;
+	static BOOL shot_was, clip_was;
+	BOOL combination = capture_combination;
 	BOOL back_held = FALSE;
 	int shot_key = capture_key(0), clip_key = capture_key(1), index;
 	BOOL typing = chat_typing || text_typing || console_is_active();
@@ -649,6 +662,7 @@ static void capture_asks(const struct platform_input_state *input, SDL_Gamepad *
 	}
 	if (!back_held)
 		combination = FALSE;
+	capture_combination = combination;
 	if (combination)
 		pad->wButtons &= (WORD)~(XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_LEFT_THUMB | XINPUT_GAMEPAD_RIGHT_THUMB);
 	if (shot_down && !shot_was)
@@ -2248,7 +2262,9 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 					own[own_count++] = port_gamepad(gamepads, count, other);
 			}
 #ifdef HALO_CAPTURE
-			/* (first: a capture's Back is not DELTA's hold) */
+			/* (first: a capture's Back is not DELTA's hold, nor, cleared from
+			the pad, a release that would make a tap: guide_asks cancels the
+			hold while capture_combination is set) */
 			capture_asks(&input, own, own_count, &state->Gamepad);
 #endif
 			guide_asks(&input, own, own_count, &state->Gamepad);

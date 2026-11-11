@@ -26,8 +26,10 @@ enum
 	DELTA_KEY_NAME_SIZE = 24,
 	/* (ms) Back held this long in the menus opens DELTA */
 	DELTA_BACK_HOLD = 600,
-	/* (ms) a tap's Back press as the menus get it, once it is let go */
+	/* (ms) a tap's Back press as the menus get it, once it is let go, and
+	for at least this many reads of the pad (a slow frame still sees it) */
 	DELTA_BACK_TAP = 120,
+	DELTA_BACK_TAP_READS = 2,
 };
 
 /* controls.delta's keys' names, trimmed (at most "most"): their count */
@@ -44,9 +46,10 @@ struct delta_back_hold
 	int held;
 	unsigned long since;
 	int opened;
-	/* a tap's press for the menus, until then */
+	/* a tap's press for the menus, since when, and the reads it was in */
 	int tapping;
 	unsigned long tap_since;
+	int tap_reads;
 };
 
 enum
@@ -61,5 +64,9 @@ enum
 on, in the menus, DELTA not open), and a millisecond clock: DELTA_BACK_*
 flags */
 int delta_back_hold_step(struct delta_back_hold *hold, int back_down, int armed, unsigned long now);
+/* Back taken by something else this read (the capture buttons' Back and a
+stick): the press opens nothing and leaves no tap, until it is let go.
+Called before delta_back_hold_step, each read it is taken */
+void delta_back_hold_cancel(struct delta_back_hold *hold);
 
 #endif
