@@ -27,7 +27,7 @@ logo is the PSP's, the Vita's, the PS3's, the PS4's and the PS5's. A player
 whose platform isn't known, or has no logo yet (the Nintendo 64, the Legacy
 PC, the Steam Link, iOS and the Apple TV), gets none. The sources are the SVGs in `platform_icons/`, and
 `tools/platform_icons_font.py` builds the font from them (its `PLATFORMS`
-says which numbers each SVG draws):
+says which numbers each SVG draws). [BSD Daemon used with permission.](http://www.mckusick.com/copyright.html)
 
 - Windows, Apple (Mac), Linux, FreeBSD, Android, Steam Deck, Nintendo
   Switch, PlayStation (`playstation.svg`) and Xbox (the Xbox Series' sphere,
