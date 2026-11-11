@@ -899,6 +899,10 @@ Each frame shows the world between the last two ticks
   last tick only, as the objects do.
 - In cinematics, a camera that moves with an object (the lifepod in a30,
   a Pelican) moves with the object as it is drawn.
+- In a network game, the beam of another player's flashlight follows their
+  aim a little behind (two thirds of the way in a tick). Their input comes
+  a tick late now and then, so their unit stops for a tick and turns twice
+  as far in the next. The beam on the walls showed each of those as a jump.
 
 Thus the frames are one tick (33 ms) after the calculation. The calculation
 does not change.

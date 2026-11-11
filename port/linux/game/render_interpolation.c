@@ -51,6 +51,7 @@ frame a tick) nothing is behind.
 #include "camera/director.h"
 #include "camera/observer.h"
 #include "cutscene/cinematics.h"
+#include "game/game.h"
 #include "game/players.h"
 #include "effects/particles.h"
 #include "render/render_cameras.h"
@@ -100,6 +101,15 @@ vehicle is corrected by (3 and 4 world units), short of a snap */
 /* a camera cut: a jump or turn no player or scripted camera makes in 33 ms */
 #define CAMERA_CUT_DISTANCE 3.0f
 #define CAMERA_CUT_COSINE 0.5f
+/* another player's flashlight (render_interpolation_flashlight): the
+flashlights followed at once, the time a beam takes to come most of the way
+(two thirds) to where its unit points it, in ticks, and how far it may turn
+from one frame to the next before it is put there at once (a respawn) */
+#define SMOOTHED_FLASHLIGHT_COUNT 32
+#define SMOOTHED_FLASHLIGHT_TICKS 1.0f
+#define SMOOTHED_FLASHLIGHT_SNAP_COSINE 0.5f
+/* ... and how long one may go undrawn before it starts again where it is */
+#define SMOOTHED_FLASHLIGHT_FORGET_TICKS 15
 /* an object function's change in one tick past which it is a jump (a
 sawtooth starting over, a square wave, a function switched on or off), not
 a sweep: drawn at once, as at 30 Hz */
@@ -849,6 +859,121 @@ void render_interpolation_object_point(long object_index, real_point3d *point)
 	nodes = (real_matrix4x3 const *)object_header_block_get(object_index, &object_get(object_index)->object.node_matrices);
 	matrix4x3_inverse_transform_point(&nodes[0], point, &local);
 	matrix4x3_transform_point(&drawn[0], &local, point);
+}
+
+/* ---------- flashlights */
+
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+struct smoothed_flashlight
+{
+	long light_index; /* NONE when unused */
+	long tick;
+	real fraction;
+	real_vector3d forward;
+	real_vector3d up;
+};
+
+static struct smoothed_flashlight smoothed_flashlights[SMOOTHED_FLASHLIGHT_COUNT];
+static boolean smoothed_flashlights_ready;
+#endif
+
+/* Another player's flashlight in a network game (lights_preprocess_scene),
+its beam's direction as drawn. Their unit turns as their input comes in, the
+host's from a client or the client's relayed by the host, and that comes a
+tick late now and then, as the clocks and the network have it: the unit
+stands still for a tick and turns twice as far the next. The pose blended
+between the ticks shows that as a hitch, small on the model, but the beam
+swings it across the walls, a tick's stop and a jump every few ticks while
+they look around. The beam follows where their unit points it a little
+behind (two thirds of the way in a tick, SMOOTHED_FLASHLIGHT_TICKS), which
+evens those out. Only the beam drawn: the light the game keeps, its unit and
+what the netcode sends are as they were. This machine's own players' lights,
+and every light in a game on this machine alone, are left as they are. */
+void render_interpolation_flashlight(
+	long light_index,
+	long unit_index,
+	real_vector3d *forward,
+	real_vector3d *up)
+{
+#ifdef HALO_CONSOLE_VIEW_INTERPOLATION
+	(void)light_index;
+	(void)unit_index;
+	(void)forward;
+	(void)up;
+#else
+	struct smoothed_flashlight *smoothed = NULL;
+	struct smoothed_flashlight *oldest = NULL;
+	real elapsed;
+	short index;
+
+	if (!interpolation_rendering || game_connection() == _game_connection_local ||
+		unit_get_local_player_index(unit_index) != NONE)
+	{
+		return;
+	}
+	if (!smoothed_flashlights_ready)
+	{
+		for (index = 0; index < SMOOTHED_FLASHLIGHT_COUNT; index++)
+			smoothed_flashlights[index].light_index = NONE;
+		smoothed_flashlights_ready = TRUE;
+	}
+	for (index = 0; index < SMOOTHED_FLASHLIGHT_COUNT && !smoothed; index++)
+	{
+		struct smoothed_flashlight *entry = &smoothed_flashlights[index];
+
+		if (entry->light_index == light_index)
+			smoothed = entry;
+		else if (!oldest || entry->light_index == NONE ||
+			(oldest->light_index != NONE && entry->tick < oldest->tick))
+		{
+			oldest = entry;
+		}
+	}
+	elapsed = smoothed ?
+		(real)(interpolation_tick - smoothed->tick) + interpolation_fraction - smoothed->fraction :
+		0.0f;
+	/* (a light new here, one not drawn for a while, a clock gone back, a
+	turn no one makes between two frames: from where it points now; so
+	written that a direction not a number starts again too) */
+	if (!smoothed || !(elapsed >= 0.0f) || elapsed > (real)SMOOTHED_FLASHLIGHT_FORGET_TICKS ||
+		!(smoothed->forward.i * forward->i + smoothed->forward.j * forward->j + smoothed->forward.k * forward->k >=
+			SMOOTHED_FLASHLIGHT_SNAP_COSINE))
+	{
+		if (!smoothed)
+			smoothed = oldest;
+		smoothed->light_index = light_index;
+		smoothed->forward = *forward;
+		smoothed->up = *up;
+	}
+	else if (elapsed > 0.0f)
+	{
+		real along = 1.0f - (real)exp(-elapsed / SMOOTHED_FLASHLIGHT_TICKS);
+		real square;
+
+		vector_nlerp(&smoothed->forward, forward, along, &smoothed->forward);
+		vector_nlerp(&smoothed->up, up, along, &smoothed->up);
+		/* (up kept square to forward) */
+		square = smoothed->up.i * smoothed->forward.i + smoothed->up.j * smoothed->forward.j +
+			smoothed->up.k * smoothed->forward.k;
+		smoothed->up.i -= smoothed->forward.i * square;
+		smoothed->up.j -= smoothed->forward.j * square;
+		smoothed->up.k -= smoothed->forward.k * square;
+		if (vector_length(&smoothed->up) > 1e-3f)
+		{
+			real length = vector_length(&smoothed->up);
+
+			smoothed->up.i /= length;
+			smoothed->up.j /= length;
+			smoothed->up.k /= length;
+		}
+		else
+			smoothed->up = *up;
+	}
+	smoothed->tick = interpolation_tick;
+	smoothed->fraction = interpolation_fraction;
+	*forward = smoothed->forward;
+	*up = smoothed->up;
+#endif
 }
 
 /* ---------- corrections */
