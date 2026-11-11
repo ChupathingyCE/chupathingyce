@@ -503,7 +503,7 @@ def write_report(out, rows, checked, reference, arguments):
         return f"{row['changed'] * 100:.2f}% changed, {row['holes']} hole pixels"
 
     md = [f"# Picture check: {checked} against {reference}", "", f"{len(rows)} spots: {summary}.", "",
-          f"Each {limits}.", "", "| Spot | Result | Numbers | Note |", "|---|---|---|---|"]
+          f"{limits[0].upper()}{limits[1:]}.", "", "| Spot | Result | Numbers | Note |", "|---|---|---|---|"]
     for row in rows:
         md.append(f"| {row['key']} | {row['verdict']} | {numbers(row)} | {row.get('note', '')} |")
     for row in rows:
@@ -563,7 +563,7 @@ figcaption {{ color: var(--muted); font-size: 13px; }}
 .v-ok {{ color: var(--good); }} .v-skipped {{ color: var(--muted); }}
 </style></head><body>
 <h1>Picture check: {html.escape(str(checked))} against {html.escape(str(reference))}</h1>
-<p>{len(rows)} spots: {html.escape(summary)}. Each {html.escape(limits)}.
+<p>{len(rows)} spots: {html.escape(summary)}. {html.escape(limits[0].upper() + limits[1:])}.
 The difference shows the reference faded, with the pixels that changed in red.</p>
 {"".join(sections)}
 </body></html>
