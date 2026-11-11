@@ -1524,6 +1524,8 @@ static boolean client_watch_host_from_behind(
 		boolean blocked;
 
 		vector_from_points3d(position, &coop_presentation.watching_host_position, &reach);
+		match_assert("port\\linux\\game\\network_coop.c", __LINE__,
+			global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
 		global_current_collision_users[global_current_collision_user_depth++] = _collision_user_observer;
 		blocked = collision_test_vector(
 			FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit),
