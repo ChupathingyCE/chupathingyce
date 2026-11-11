@@ -264,12 +264,24 @@ final class Updater {
         StringBuilder text = new StringBuilder();
         for (String line : out)
             text.append(line).append('\n');
-        try (OutputStream stream = new FileOutputStream(config)) {
+        // (as the game writes it, port_config.c's config_write_file: to a
+        // new file, synced, then renamed over the old file, so a write cut
+        // short leaves the old settings. Its own name, not the game's
+        // config.toml.new, so the two never write the same temporary file)
+        File temporary = new File(config.getPath() + ".new-launcher");
+        try (FileOutputStream stream = new FileOutputStream(temporary)) {
             stream.write(text.toString().getBytes(StandardCharsets.UTF_8));
-            return true;
+            stream.flush();
+            stream.getFD().sync();
         } catch (IOException e) {
+            temporary.delete();
             return false;
         }
+        if (!temporary.renameTo(config)) {
+            temporary.delete();
+            return false;
+        }
+        return true;
     }
 
     private static boolean isKey(String trimmed, String key) {

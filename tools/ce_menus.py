@@ -19,7 +19,8 @@ in the PC bitmaps' layout), copied to port/assets/menus/svg, at up to 4
 times their size. The pictures with no redraw (renders, screenshots, logos)
 are the Xbox map's bitmap of the same name, where it has the same pictures
 in the same order (XBOX_BITMAPS: the player's own ui.map draws them, and
-nothing is shipped), else the --placeholder image, fitted to each frame
+nothing is shipped), else the --placeholder image (an empty, clear one, so
+that nothing is drawn there until a redraw), fitted to each frame
 where the PC version's picture is (--pictures: only their bounds are read),
 else to the part of it the widgets show;
 port/assets/menus/NON_HANDDRAWN.md lists both, the placeholders as ones to
@@ -673,7 +674,7 @@ def main() -> None:
         "## Placeholders, to be redrawn",
         "",
         "The Xbox's map has none of these (or other pictures under the name), so each frame is a placeholder",
-        "until it is redrawn.",
+        "until it is redrawn. The placeholder is an empty, clear picture, so the panel shows nothing there.",
         "",
         "| File | Size | The PC version's picture |",
         "| --- | --- | --- |",
