@@ -961,6 +961,74 @@ boolean ce_map_check(
 	return valid;
 }
 
+/* a Custom Edition map's tags as they loaded (cache_files.c), after their
+conversions, which write in place: what the game reads of them trusting the
+checks above, checked again where it now is (the tag cache and the room
+above it), so that no block a conversion wrote over can have moved any of
+it: each tag's name and data, the scenario and its scripts, the weapons'
+magazines and triggers, the animation graphs. FALSE, logged and shown as a
+refusal is, if any of it has moved */
+boolean ce_map_check_loaded(
+	void *tag_instances,
+	long tag_count,
+	unsigned long scenario_tag_index,
+	char const *map_name)
+{
+	struct ce_image image;
+	struct ce_tag_instance const *scenario_instance;
+	byte *scenario;
+	long index;
+	boolean valid = TRUE;
+
+	ce_refusal[0] = 0;
+	ce_explanation[0] = 0;
+	ce_message[0] = 0;
+	image.data = xbox_pointer(CE_IMAGE_TAG_CACHE_BASE);
+	image.base = CE_IMAGE_TAG_CACHE_BASE;
+	image.size = CE_IMAGE_TAG_CACHE_SIZE + CE_CONVERSION_ROOM;
+	for (index = 0; valid && index < tag_count; index++)
+	{
+		struct ce_tag_instance const *instance = (struct ce_tag_instance const *)((byte const *)tag_instances +
+			index * CE_TAG_INSTANCE_SIZE);
+		char const *name = ce_image_pointer(&image, instance->name, 1);
+
+		if ((instance->tag_index & 0xffff) != (unsigned long)index || !name ||
+			!memchr(name, 0, MIN(image.base + image.size - instance->name, (unsigned long)CE_MAXIMUM_TAG_NAME_LENGTH)))
+		{
+			valid = ce_refuse("tag %ld's handle or name moved as it loaded", index);
+		}
+		/* (a structure BSP's is placed as it loads: cache_files.c) */
+		else if (instance->group_tag == CE_BSP_GROUP ? instance->base_address != 0 :
+			!ce_image_pointer(&image, instance->base_address, 4))
+		{
+			valid = ce_refuse("%s moved out of the tags as it loaded", name);
+		}
+	}
+	if (valid)
+	{
+		scenario_instance = ce_tag_instance_get(tag_instances, tag_count, scenario_tag_index);
+		scenario = scenario_instance && scenario_instance->group_tag == CE_SCENARIO_GROUP ?
+			ce_image_pointer(&image, scenario_instance->base_address, CE_SCENARIO_BSPS_OFFSET + 0xc) : NULL;
+		if (!scenario)
+			valid = ce_refuse("its scenario moved as it loaded");
+		else
+		{
+			valid = ce_scripts_check(&image, scenario) && ce_weapons_check(&image, tag_instances, tag_count) &&
+				ce_animations_check(&image, tag_instances, tag_count);
+		}
+	}
+	if (!valid)
+	{
+		char const *family = ce_map_family_name();
+
+		error(_error_silent, "%s map %s refused as it loaded: %s", family, map_name, ce_refusal);
+		console_warning("%s map %s refused as it loaded: %s", family, map_name, ce_refusal);
+		snprintf(ce_message, sizeof(ce_message), "The %s map %.*s can't be played: it is damaged or unsupported.",
+			family, ce_map_file_name_length(map_name), map_name);
+	}
+	return valid;
+}
+
 /* whether a structure BSP's reference (the scenario's, as a BSP loads:
 cache_files.c) is one the map open was checked with, unchanged: its place
 in the file, its size, where it loads and its tag */

@@ -1941,6 +1941,21 @@ long scenario_tags_load(
 
 				ce_hud_tags_loaded(global_tag_instances, ce_header->tag_count);
 			}
+			/* port: what the game reads of its tags trusting the checks,
+			checked again now that the conversions have written them in
+			place (port/linux/game/ce_map_checks.c): a map whose tags moved
+			under them is unloaded and refused */
+			{
+				extern boolean ce_map_check_loaded(void *tag_instances, long tag_count,
+					unsigned long scenario_tag_index, char const *map_name);
+
+				if (!ce_map_check_loaded(global_tag_instances, ce_header->tag_count, ce_header->scenario_tag_index,
+					scenario_name))
+				{
+					scenario_tags_unload();
+					return NONE;
+				}
+			}
 			/* port: the pause menu's rows, as a stock map's get them
 			(port/linux/game/menu_tags.c: Halo PC's CHANGE SETTINGS and GAME
 			OPTIONS give way to the menus' own) */

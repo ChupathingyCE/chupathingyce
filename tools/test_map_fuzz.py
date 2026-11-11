@@ -406,6 +406,26 @@ def test_bsp_reference_written_over(built, tmp_path):
     assert "not where it was checked" in result.stderr, result.stderr[-4000:]
 
 
+def test_tags_checked_again_as_they_load(built, tmp_path):
+    """a map whose tags the conversions change after they were checked: what
+    the game reads of them trusting the checks is checked again once they have
+    loaded, and the map refused"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data = bytearray(ce_map(sound=[(1, 36, 0, 0x800)]))
+    instances = struct.unpack_from("<I", data, 0x800)[0] - base
+    scenario = struct.unpack_from("<I", data, 0x800 + instances + 0x14)[0] - base
+    syntax = struct.unpack_from("<I", data, 0x800 + scenario + 0x474 + 12)[0]
+    data[0x800 + instances + 0x40:0x800 + instances + 0x44] = b"!tpj"
+    struct.pack_into("<I", data, 0x800 + instances + 0x40 + 0x14, syntax + 0x22 - 0x38)
+    path = tmp_path / "damage_over_scripts.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
+    assert "refused as it loaded: its scripts' syntax" in result.stderr, result.stderr[-4000:]
+
+
 def test_sound_samples_in_sounds_map(built, tmp_path):
     """a Custom Edition map's own sound (not indexed): each permutation's
     samples read from the file Halo PC's flag on them names, sounds.map's or
