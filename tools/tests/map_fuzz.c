@@ -184,6 +184,8 @@ boolean ce_models_tags_loaded(void *tag_instances, long tag_count, byte const *m
 void ce_functions_tags_loaded(void *tag_instances, long tag_count);
 void ce_shaders_tags_loaded(void *tag_instances, long tag_count);
 void ce_hud_tags_loaded(void *tag_instances, long tag_count);
+boolean ce_map_check_loaded(void *tag_instances, long tag_count, unsigned long scenario_tag_index,
+	char const *map_name);
 void ce_bsp_loaded(void *structure);
 void ce_repairs_bsp_loaded(void *structure);
 void ce_bsp_unloaded(void);
@@ -950,6 +952,9 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 		system_free(model_data);
 	}
 	ce_hud_tags_loaded(instances, (long)tag_count);
+	/* (checked again as they loaded: scenario_tags_load refuses them if not) */
+	if (!ce_map_check_loaded(instances, (long)tag_count, scenario_tag_index, "fuzz"))
+		return;
 
 	/* each BSP, read where it loads (checked: ce_bsps_check) */
 	for (bsp_index = 0; bsp_index < bsp_count; bsp_index++)
