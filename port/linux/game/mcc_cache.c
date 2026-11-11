@@ -3,6 +3,7 @@
 #include "cseries.h"
 #include "errors.h"
 #include "cache/cache_files.h"
+#include "game/game.h"
 #include "scenario/scenario_definitions.h"
 #include "interface/ui_widget.h"
 #include "mcc_cache.h"
@@ -17,8 +18,22 @@
 #include <string.h>
 #include <stdint.h>
 
+#if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE)
+/* port: no MCC maps on the consoles: their memory has no room for an MCC
+map's 64 MB of tags, and they have no mcc_memory.c */
+static void *mcc_memory_reserve(uint32_t address, uint32_t size)
+{
+    (void)address; (void)size;
+    return NULL;
+}
+static void mcc_memory_release(void *allocation, uint32_t size)
+{
+    (void)allocation; (void)size;
+}
+#else
 void *mcc_memory_reserve(uint32_t address, uint32_t size);
 void mcc_memory_release(void *allocation, uint32_t size);
+#endif
 int mcc_tags_prepare(struct mcc_runtime *runtime);
 int mcc_scripts_prepare(struct mcc_runtime *runtime);
 short mcc_geometry_part_palette(struct mcc_runtime *runtime, void const *buffer, byte const **nodes);
@@ -230,6 +245,11 @@ struct cache_file_tag_header *mcc_cache_tags_load(char const *name, void *header
     enum mcc_cache_status status;
     char const *problem = "the map could not be opened";
     mcc_cache_tags_unload();
+    /* port: offline games only for now: MCC maps' own network messages are
+     * off our wire (mcc_network.c) until they go over Delta */
+    problem = "MCC maps play offline for now";
+    if (game_connection() == _game_connection_network_client ||
+        game_connection() == _game_connection_network_server) goto failed;
     mcc_stream = mcc_open(name, &runtime->source, &identity);
     if (!mcc_stream) goto failed;
     /* The virtual streams are disjoint from the on-disk file. */
