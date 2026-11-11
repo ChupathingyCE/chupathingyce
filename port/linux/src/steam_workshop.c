@@ -529,6 +529,39 @@ int steam_workshop_scan(void)
 	return catalog.count;
 }
 
+/* the maps folders of the Workshop items found (steam_workshop_scan's,
+scanned now if not yet), each once, with its item's id: their count, at
+most maximum; 0 when game.workshop_maps is off. For the map lists and their
+folder watcher: these are the folders to watch */
+int steam_workshop_map_folders(char (*folders)[STEAM_WORKSHOP_PATH_SIZE],
+	char (*item_ids)[STEAM_WORKSHOP_ID_SIZE], int maximum)
+{
+	int index, count = 0, other;
+
+	if (!catalog.scanned)
+		steam_workshop_scan();
+	for (index = 0; index < catalog.count && count < maximum; index++)
+	{
+		char folder[STEAM_WORKSHOP_PATH_SIZE], *separator;
+
+		snprintf(folder, sizeof(folder), "%s", catalog.maps[index].path);
+		slashes(folder);
+		separator = strrchr(folder, '/');
+		if (!separator)
+			continue;
+		*separator = 0;
+		for (other = 0; other < count && strcmp(folders[other], folder); other++)
+			;
+		if (other < count)
+			continue;
+		snprintf(folders[count], STEAM_WORKSHOP_PATH_SIZE, "%s", folder);
+		if (item_ids)
+			snprintf(item_ids[count], STEAM_WORKSHOP_ID_SIZE, "%s", catalog.maps[index].item_id);
+		count++;
+	}
+	return count;
+}
+
 int steam_workshop_count(void)
 {
 	if (!catalog.scanned || catalog.enabled != discovery_enabled())
@@ -572,6 +605,26 @@ int steam_workshop_package_folder(const char *item_id, char *folder, unsigned lo
 
 /* Only the two resource names in MCC package/shared namespaces are redirected.
  * Keep validation, complete-reference matching and fingerprints in mcc_resources.c. */
+/* port: the data root's own copy of relative (and resource in it, when
+named) in maps_mcc or GulchCE's mcc_maps (mcc_maps.h) */
+static int local_mcc(const char *data_root, const char *relative, const char *resource, char *found, unsigned size)
+{
+	static const char *const folders[] = { "maps_mcc", "mcc_maps" };
+	char local[200];
+	int index;
+
+	for (index = 0; index < 2; index++)
+	{
+		if (resource)
+			snprintf(local, sizeof(local), "%s/%s/%s", folders[index], relative, resource);
+		else
+			snprintf(local, sizeof(local), "%s/%s", folders[index], relative);
+		if (resolve(data_root, local, found, size))
+			return 1;
+	}
+	return 0;
+}
+
 int steam_workshop_resource_path(const char *request, const char *data_root, char *path, unsigned long size)
 {
 	char relative[128], local[160], package[STEAM_WORKSHOP_PATH_SIZE];
@@ -599,8 +652,7 @@ int steam_workshop_resource_path(const char *request, const char *data_root, cha
 	{
 		/* A manually installed package, or any beside-level resource entry,
 		 * stays authoritative even when incomplete, invalid or unreadable. */
-		snprintf(local, sizeof(local), "mcc_maps/%s", relative);
-		if (resolve(data_root, local, found, sizeof(found)) ||
+		if (local_mcc(data_root, relative, NULL, found, sizeof(found)) ||
 			!steam_workshop_package_folder(relative, package, sizeof(package)) ||
 			resolve(package, resource, found, sizeof(found)))
 			return 0;
@@ -617,8 +669,7 @@ int steam_workshop_resource_path(const char *request, const char *data_root, cha
 		installed = "steamapps/common/Halo The Master Chief Collection/halo1/maps/custom_edition";
 	else
 		return 0;
-	snprintf(local, sizeof(local), "mcc_maps/%s/%s", relative, resource);
-	if (resolve(data_root, local, found, sizeof(found)))
+	if (local_mcc(data_root, relative, resource, found, sizeof(found)))
 		return 0;
 	/* The same ordered Steam libraries as map discovery. An explicit local
 	 * shared file wins; no other Workshop item's resources are searched. */

@@ -87,6 +87,10 @@ int steam_workshop_windows_roots(char (*paths)[STEAM_WORKSHOP_PATH_SIZE], int ma
 and the libraries their libraryfolders.vdf names). Returns how many maps were found. Each item once, by its id */
 int steam_workshop_scan(void);
 /* the same, the first time only; then the last scan's count */
+/* the Workshop items' maps folders, each once, with their item ids (item_ids
+may be NULL): their count, at most maximum; 0 with game.workshop_maps off */
+int steam_workshop_map_folders(char (*folders)[STEAM_WORKSHOP_PATH_SIZE],
+	char (*item_ids)[STEAM_WORKSHOP_ID_SIZE], int maximum);
 int steam_workshop_count(void);
 const struct steam_workshop_map *steam_workshop_map(int index);
 /* the folder holding the .map files of an item (the package folder of mcc_maps\<item id>); 1 and the path, or 0
