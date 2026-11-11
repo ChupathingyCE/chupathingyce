@@ -1158,6 +1158,11 @@ static const struct config_setting config_settings[] =
 		"progress waits after its first player is in, so the players on its\n"
 		"other controllers can join too (split screen), from 0 to 30. It starts\n"
 		"sooner when it has four players. 0 starts it at once." },
+	{ "network.pregame_load_timeout", _config_integer, "90", "HALO_NET_PREGAME_LOAD_TIMEOUT", _environment_value,
+		_platform_all | _platform_server | _platform_xbox | _platform_console_gl,
+		"In games you host, how many seconds past the lobby's countdown a\n"
+		"machine may take to load the map before it is dropped and the game\n"
+		"starts without it, from 0 to 3600. 0 waits for ever." },
 	{ "network.coop_friendly_fire", _config_string, "\"on\"", "HALO_NET_COOP_FRIENDLY_FIRE", _environment_value,
 		_platform_all,
 		"Friendly fire in online co-op: \"off\", \"on\", \"shields_only\" or\n"
