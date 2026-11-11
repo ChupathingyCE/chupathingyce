@@ -1,5 +1,13 @@
 # Halo 1 MCC custom maps
 
+> **In Chupathingy (work in progress).** This loader is chester's, from
+> GulchCE. Here the maps go in `maps_mcc` beside `maps`, `maps_ce`,
+> `maps_pc` and `maps_md` (GulchCE's `mcc_maps` is read when there is no
+> `maps_mcc`). The **MCC MAPS** menus below are not in Chupathingy's menus
+> yet, and MCC maps' network messages are off: online play with them comes
+> later, over Delta. The rest of this page is chester's description of the
+> GulchCE work.
+
 This branch adds an independent loader for modern Halo 1 MCC version-13
 caches and an **MCC MAPS** choice in the map menus. It is an experimental
 runtime adapter, with explicit format limits below. A successful menu

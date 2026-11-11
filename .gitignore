@@ -41,3 +41,4 @@ port/android/keystore.properties
 /debug.txt
 # User-supplied Halo 1 MCC maps and resources
 mcc_maps/
+maps_mcc/

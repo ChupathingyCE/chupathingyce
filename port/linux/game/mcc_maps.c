@@ -173,7 +173,20 @@ static void mcc_maps_scan(void)
 		mcc_map_register(name);
 	}
 	qsort(mcc_menu_catalog.maps, (size_t)mcc_menu_catalog.count, sizeof(mcc_menu_catalog.maps[0]), mcc_map_order);
-	error(_error_silent, "mcc maps: %d maps found in mcc_maps", mcc_menu_catalog.count);
+	error(_error_silent, "mcc maps: %d maps found in %s", mcc_menu_catalog.count, MCC_MAPS_DIRECTORY);
+}
+
+/* port: the folder MCC maps are read from: maps_mcc, or GulchCE's
+mcc_maps when only it is there */
+char const *mcc_maps_directory(void)
+{
+	struct file_reference folder;
+
+	file_reference_create_from_path(&folder, MCC_MAPS_FOLDER, TRUE);
+	if (file_exists(&folder))
+		return MCC_MAPS_FOLDER;
+	file_reference_create_from_path(&folder, MCC_MAPS_FALLBACK_FOLDER, TRUE);
+	return file_exists(&folder) ? MCC_MAPS_FALLBACK_FOLDER : MCC_MAPS_FOLDER;
 }
 
 void mcc_maps_rescan(void)
