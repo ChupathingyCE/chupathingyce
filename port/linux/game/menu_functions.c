@@ -6009,6 +6009,26 @@ static boolean pause_guide(struct widget_instance *widget)
 #endif
 }
 
+/* "port delta open" (the main menus' DELTA, menu_tags.c and
+chupathingy/main_menu.xml): DELTA over the menu, on PARTY, which B closes
+back to it */
+static boolean delta_open(struct widget_instance *widget)
+{
+#ifdef HALO_GUIDE
+	extern void guide_open_party(void);
+
+	/* (the main menu is any controller's: NONE there; a split screen
+	player's own screen, the first player's alone) */
+	if (widget->local_player_index > 0)
+		return FALSE;
+	guide_open_party();
+	return TRUE;
+#else
+	(void)widget;
+	return FALSE;
+#endif
+}
+
 /* "port about open" (Settings' ABOUT, in the Gearbox and Chupathingy
 menus): the About screen, in the Guide (guide.c), which B closes back to
 Settings. Without the Guide (the consoles), the Chupathingy menus' picture
@@ -9404,6 +9424,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port about open"))
 		{
 			return about_open(widget);
+		}
+		else if (!strcmp(name, "port delta open"))
+		{
+			return delta_open(widget);
 		}
 		else if (!strcmp(name, "port pause controls"))
 		{

@@ -45,6 +45,7 @@ drive the controller.
 #include "halo_keyboard.h"
 #ifdef HALO_GUIDE
 #include "guide_input.h"
+#include "delta_input_rules.h"
 #endif
 #ifdef HALO_CAPTURE
 #include "capture.h"
@@ -495,21 +496,36 @@ int platform_guide_toggles(void)
 	return toggles;
 }
 
-/* controls.delta's key, read again when config.toml changes (-1: none) */
-static int guide_key(void)
+/* controls.delta's keys, read again when config.toml changes: whether one
+of them is down now */
+static BOOL guide_key_down(const struct platform_input_state *input)
 {
 	static unsigned long read_at = (unsigned long)-1;
-	static int key = -1;
+	static int keys[DELTA_KEYS_MOST], key_count;
+	int index;
 
 	if (read_at != config_changes())
 	{
+		char names[DELTA_KEYS_MOST][DELTA_KEY_NAME_SIZE];
+		int count = delta_keys_split(config_string("controls.delta"), names, DELTA_KEYS_MOST);
+
 		read_at = config_changes();
-		key = halo_input_from_name(config_string("controls.delta"));
-		/* (a key alone, not a mouse button) */
-		if (key < 0 || key >= SDL_SCANCODE_COUNT)
-			key = -1;
+		key_count = 0;
+		for (index = 0; index < count; index++)
+		{
+			int key = halo_input_from_name(names[index]);
+
+			/* (a key alone, not a mouse button; never the console's `) */
+			if (key >= 0 && key < SDL_SCANCODE_COUNT && key != SDL_SCANCODE_GRAVE)
+				keys[key_count++] = key;
+		}
 	}
-	return key;
+	for (index = 0; index < key_count; index++)
+	{
+		if (input->keys[keys[index]])
+			return TRUE;
+	}
+	return FALSE;
 }
 
 /* the asks to open or close the Guide this poll: its key and the Guide
@@ -518,13 +534,13 @@ everything merged). The Guide is the first player's: only their gamepads
 (port 0's, and those sharing its player) ask, never split screen's others,
 and nothing opens it over chat's or a field's typing */
 static void guide_asks(const struct platform_input_state *input, SDL_Gamepad *gamepads[], int count,
-	const XINPUT_GAMEPAD *pad)
+	XINPUT_GAMEPAD *pad)
 {
-	static BOOL key_was, button_was, back_asked;
-	static Uint64 back_since;
-	int key = guide_key(), index;
+	static BOOL key_was, button_was;
+	static struct delta_back_hold back_hold;
+	int index, back;
 	BOOL typing_free = guide_capture || (!chat_typing && !text_typing);
-	BOOL key_down = key >= 0 && input->keys[key] && !console_is_active() && typing_free;
+	BOOL key_down = !console_is_active() && typing_free && guide_key_down(input);
 	BOOL button_down = FALSE;
 
 	if (key_down && !key_was)
@@ -539,22 +555,17 @@ static void guide_asks(const struct platform_input_state *input, SDL_Gamepad *ga
 		guide_toggles++;
 	button_was = button_down;
 	/* (Back held in the menus, once a hold; never in a game, where Back is
-	the scoreboard) */
-	if (!guide_capture && input->menus && (pad->wButtons & XINPUT_GAMEPAD_BACK) && config_boolean("delta.hold_back"))
-	{
-		if (!back_since)
-			back_since = SDL_GetTicks();
-		else if (!back_asked && SDL_GetTicks() - back_since >= GUIDE_HOLD_BACK)
-		{
-			back_asked = TRUE;
-			guide_toggles++;
-		}
-	}
+	the scoreboard. While it is down the menus don't get it: a tap reaches
+	them once let go, a hold never, so the main menu's Back doesn't quit
+	under DELTA) */
+	back = delta_back_hold_step(&back_hold, (pad->wButtons & XINPUT_GAMEPAD_BACK) != 0,
+		!guide_capture && input->menus && config_boolean("delta.hold_back"), (unsigned long)SDL_GetTicks());
+	if (back & DELTA_BACK_OPEN)
+		guide_toggles++;
+	if (back & DELTA_BACK_PASS)
+		pad->wButtons |= XINPUT_GAMEPAD_BACK;
 	else
-	{
-		back_since = 0;
-		back_asked = FALSE;
-	}
+		pad->wButtons &= (WORD)~XINPUT_GAMEPAD_BACK;
 }
 
 #ifdef HALO_CAPTURE
@@ -751,6 +762,9 @@ static const struct
 	at commas, cannot hold) */
 	{ "Comma", SDL_SCANCODE_COMMA },
 	{ "Keypad Comma", SDL_SCANCODE_KP_COMMA },
+	/* (SDL's is "\\", which a TOML string holds only escaped: controls.delta's
+	Mac default names it) */
+	{ "Backslash", SDL_SCANCODE_BACKSLASH },
 	{ "Mouse Left", INPUT_MOUSE + SDL_BUTTON_LEFT },
 	{ "Mouse Right", INPUT_MOUSE + SDL_BUTTON_RIGHT },
 	{ "Mouse Middle", INPUT_MOUSE + SDL_BUTTON_MIDDLE },

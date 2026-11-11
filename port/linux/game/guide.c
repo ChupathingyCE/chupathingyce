@@ -62,10 +62,15 @@ gets a controller at rest, and their player stands still
 alone pauses as it does under the pause menu. B closes it, back to what was
 under it as it was.
 
-It opens with controls.delta (F3), the first player's Guide button
-(controls.delta_button, where SDL reads it), Back held in the menus with
-delta.hold_back (off by default), or the first player's pause menu's DELTA
-(menu_tags.c, delta.pause_menu); the same key or button, or B, closes it.
+It opens with controls.delta (F3; on a Mac the backslash key too, as macOS
+keeps F3), the first player's Guide button (controls.delta_button, where
+SDL reads it), Back held in the menus with delta.hold_back (off by default;
+the menus never get a hold's Back), the main menu's and the Multiplayer
+menu's DELTA (on PARTY: menu_tags.c, ui_widget.c), or the first player's
+pause menu's DELTA (menu_tags.c, delta.pause_menu); the same key or button,
+or B, closes it. FRIENDS' INVITE TO PARTY (START PARTY AND INVITE with no
+party yet) says what came of it under the options, and marks the friend's
+row INVITED, then IN PARTY.
 
 Toasts show for a few seconds (in the menus in the bottom left corner,
 clear of their items; in a game low in the middle): a new
@@ -122,6 +127,7 @@ DELTA counts what waits ("DELTA 2": invites and requests).
 #include "../src/delta_wire.h"
 #include "../src/delta_chat_game.h"
 #endif
+#include "../src/delta_input_rules.h"
 #include "guide_record.h"
 #include "report_player.h"
 
@@ -4473,6 +4479,22 @@ static void render_prompts(void)
 		target_add(starts[index] - 4, PROMPTS_Y - 4, ends[index] + 4, PROMPTS_Y + 19, _target_prompt, (short)prompts[index].button);
 }
 
+/* the key DELTA's prompts show (controls.delta's; on a Mac one that isn't
+an F key, which macOS keeps for itself) */
+void guide_key_shown(char *key, int size)
+{
+	void halo_input_shown_name(const char *binding, char *shown, size_t size);
+	char name[DELTA_KEY_NAME_SIZE];
+
+#ifdef __APPLE__
+	delta_key_shown(config_string("controls.delta"), 1, name, sizeof(name));
+#else
+	delta_key_shown(config_string("controls.delta"), 0, name, sizeof(name));
+#endif
+	/* (as the keyboard labels it: Backslash shows as \) */
+	halo_input_shown_name(name, key, (size_t)size);
+}
+
 /* the toast on screen now: in the menus, in a game only with
 delta.notify_in_game, a friend online's in the menus alone */
 static boolean toast_visible(void)
@@ -4523,9 +4545,9 @@ static void render_toast(void)
 		/* (the key that opens it) */
 		if (ui_overlay_keyboard())
 		{
-			char const *key = config_string("controls.delta");
+			char key[DELTA_KEY_NAME_SIZE];
 
-			key = key[0] ? key : "F3";
+			guide_key_shown(key, sizeof(key));
 			text_right -= ui_overlay_key_width(key, 12.0f) + 6;
 			ui_overlay_key(key, 12.0f, text_right + 6, y + 11, fade(ui_style_color(UI_COLOR_NAME), share));
 		}
@@ -4679,6 +4701,15 @@ void guide_open(void)
 	if (guide.paused_game)
 		ui_widgets_port_pause_game(TRUE);
 	platform_log("DELTA: opened");
+}
+
+/* opened on PARTY (the menus' DELTA rows): start a party, invite friends,
+bring the party to a game */
+void guide_open_party(void)
+{
+	guide_open();
+	if (guide.open)
+		section_go(SOCIAL_SECTION_PARTY);
 }
 
 void guide_about_open(void)

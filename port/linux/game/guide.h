@@ -22,9 +22,14 @@ struct halo_ui_pointer;
 gives the input back to what was under it */
 void guide_open(void);
 void guide_close(void);
+/* opened on PARTY (the menus' DELTA rows) */
+void guide_open_party(void);
 /* opened on the About screen (the menus' ABOUT rows): B closes it */
 void guide_about_open(void);
 boolean guide_active(void);
+/* the key its prompts show (controls.delta's; on a Mac the backslash key,
+not the F3 macOS takes) */
+void guide_key_shown(char *key, int size);
 
 /* each frame from the menus (ui_widget.c's process_ui_widgets), whether a
 menu is up: what opens or closes it, and its toasts' time */
