@@ -6403,10 +6403,10 @@ void halo_draw_picture(const unsigned char *rgba, long width, long height)
 }
 
 #ifdef HALO_CAPTURE
-/* ---------- screenshots (capture.c): the back buffer copied into a pixel
-buffer by the GPU, and read once its fence says the copy is done, a frame
-or two later; the frame never waits for it. Nothing is made until the
-first one. */
+/* ---------- screenshots (capture.c): the window's picture, the overlay
+over it, copied into a pixel buffer by the GPU just before the swap, and
+read once its fence says the copy is done, a frame or two later; the frame
+never waits for it. Nothing is made until the first one. */
 
 typedef GLsync (GLAPIENTRY *gl_fence_sync_proc)(GLenum condition, GLbitfield flags);
 typedef GLenum (GLAPIENTRY *gl_client_wait_sync_proc)(GLsync sync, GLbitfield flags, GLuint64 timeout);
@@ -6455,7 +6455,9 @@ static BOOL gl_capture_fence_done(GLsync fence, unsigned long frames)
 	return state == GL_ALREADY_SIGNALED || state == GL_CONDITION_SATISFIED || state == GL_WAIT_FAILED;
 }
 
-static void gl_capture_frame(struct render_target_entry *target)
+/* (x, y, width by height: the picture's part of the window, y from its
+bottom as OpenGL counts, the black bars left out) */
+static void gl_capture_frame(int x, int y, int width, int height)
 {
 	if (gl_capture.mapped)
 	{
@@ -6496,7 +6498,7 @@ static void gl_capture_frame(struct render_target_entry *target)
 			/* (the writer copies it on its own thread; it stays mapped, and
 			unused, until then) */
 			if (mapped && capture_screenshot_lend(mapped, (long)gl_capture.width, (long)gl_capture.height,
-				(long)gl_capture.width * 4, TRUE, &gl_capture.released))
+				(long)gl_capture.width * 4, TRUE, TRUE, &gl_capture.released))
 			{
 				gl_capture.mapped = TRUE;
 			}
@@ -6506,13 +6508,13 @@ static void gl_capture_frame(struct render_target_entry *target)
 		}
 		return;
 	}
-	if (!capture_screenshot_take())
+	/* (a window with no picture, minimized: the ask waits for one that has
+	one) */
+	if (width <= 0 || height <= 0 || !capture_screenshot_take())
 		return;
 	gl_capture_look_up();
-	gl_capture.width = target->target.gl_width;
-	gl_capture.height = target->target.gl_height;
-	if (!gl_capture.width || !gl_capture.height)
-		return;
+	gl_capture.width = (unsigned long)width;
+	gl_capture.height = (unsigned long)height;
 	if (!gl_capture.buffer)
 		glGenBuffers(1, &gl_capture.buffer);
 	glBindBuffer(GL_PIXEL_PACK_BUFFER, gl_capture.buffer);
@@ -6521,11 +6523,11 @@ static void gl_capture_frame(struct render_target_entry *target)
 		gl_capture.buffer_size = gl_capture.width * gl_capture.height * 4;
 		glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)gl_capture.buffer_size, NULL, GL_STREAM_READ);
 	}
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_get(target->target.texture, 0));
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, platform_window_framebuffer());
 	glPixelStorei(GL_PACK_ALIGNMENT, 4);
-	/* (the render target's row 0 is the picture's top: the rows come top
-	first) */
-	glReadPixels(0, 0, (GLsizei)gl_capture.width, (GLsizei)gl_capture.height, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+	/* (the window's row 0 is the picture's bottom: the rows come bottom
+	first, capture.c turns them over) */
+	glReadPixels(x, y, (GLsizei)gl_capture.width, (GLsizei)gl_capture.height, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
 	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 	gl_capture.fence = gl_capture.fence_sync ? gl_capture.fence_sync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0) : NULL;
 	gl_capture.frames = 0;
@@ -6734,8 +6736,8 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		if (screenshot_every > 0 && !screenshot_window && device.frame % (unsigned long)screenshot_every == 0)
 			write_screenshot(back_buffer);
 #ifdef HALO_CAPTURE
-		/* (the game's frame, the HUD in it, before the overlay goes over) */
-		gl_capture_frame(back_buffer);
+		/* (a clip's frame: the game's, the HUD in it, before the overlay goes
+		over; a screenshot is the window's, below) */
 		gl_clip_frame(back_buffer);
 #endif
 
@@ -6847,6 +6849,11 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+#endif
+#ifdef HALO_CAPTURE
+		/* (a player's screenshot: the window as shown, the overlay's screens,
+		DELTA and the toasts on the picture, before it is swapped away) */
+		gl_capture_frame(x, y, width, height);
 #endif
 		/* (the window as shown, before it is swapped away; and the one
 		debug.test_input's shot asks for) */
