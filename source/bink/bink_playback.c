@@ -454,6 +454,7 @@ void bink_playback_stop(
 	void)
 {
 	boolean saved_frame_rate_throttle;
+	unsigned long flags;
 
 	if (!bink_globals.initialized)
 		return;
@@ -469,12 +470,18 @@ void bink_playback_stop(
 
 	bink_free_texture_cache();
 
-	if (TEST_FLAG(bink_globals.flags, _bink_playback_return_to_main_menu_when_finished_bit))
-		main_menu_load();
-
+	/* port: the movie's flags and frame rate throttle let go before the main
+	menu loads, not after: a movie the load starts keeps its own. Cleared
+	after, its flags would be lost and the menus' input left suppressed with
+	nothing to lift it (#267, the D-pad and stick dead after the intro) */
+	flags = bink_globals.flags;
 	saved_frame_rate_throttle = bink_saved_frame_rate_throttle;
 	bink_globals.flags = 0;
 	global_frame_rate_throttle = saved_frame_rate_throttle;
+
+	if (TEST_FLAG(flags, _bink_playback_return_to_main_menu_when_finished_bit))
+		main_menu_load();
+
 	attract_mode_reset_timer();
 
 	return;

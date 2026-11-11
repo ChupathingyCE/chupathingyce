@@ -353,6 +353,22 @@ def test_joined_invite_follows_the_joined_host():
     assert "!p2p.hosting" in joined
 
 
+
+def test_movie_lets_go_of_its_flags_before_the_main_menu_loads():
+    """#267: a movie that returns to the main menu (the intro) lifts the
+    menus' input suppression, and lets go of its flags and frame rate
+    throttle before main_menu_load, so a movie that load starts keeps its
+    own flags (and the suppression it set stays its to lift)."""
+    root = Path(__file__).resolve().parent.parent
+    bink = (root / "source/bink/bink_playback.c").read_text()
+    stop = re.search(r"^void bink_playback_stop\(.*?^\}", bink, re.M | re.S).group(0)
+    assert stop.index("event_manager_suppress(FALSE);") < stop.index("main_menu_load();")
+    assert stop.index("flags = bink_globals.flags;") < stop.index("bink_globals.flags = 0;")
+    assert stop.index("bink_globals.flags = 0;") < stop.index("main_menu_load();")
+    assert stop.index("global_frame_rate_throttle = saved_frame_rate_throttle;") < stop.index("main_menu_load();")
+    assert "TEST_FLAG(flags, _bink_playback_return_to_main_menu_when_finished_bit)" in stop
+    assert stop.count("bink_globals.flags = 0;") == 1
+
 def test_report_hosted_games_keeps_listing():
     """network.report_hosted_games = false stops what a host sends the game
     list about its games (the carnage report, the Delta Stats batch and its
