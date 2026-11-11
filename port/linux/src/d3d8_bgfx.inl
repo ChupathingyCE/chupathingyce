@@ -378,12 +378,16 @@ static struct
 	BOOL capture_pending;
 	char capture_path[512];
 #ifdef HALO_CAPTURE
-	/* a player's screenshot (capture.c), the same way */
-	bgfx_texture_handle_t shot;
-	unsigned long shot_width, shot_height;
-	unsigned char *shot_pixels;
-	uint32_t shot_ready;
+	/* a player's screenshot (capture.c): bgfx's screenshot of the window,
+the overlay on the picture, asked for at a present (bg_shot_start), cut to
+the picture's part of the window when bgfx hands it over (bg_shot_taken),
+and passed on after the frame (bg_present) */
 	BOOL shot_pending;
+	int shot_frames;
+	int shot_crop[4];
+	unsigned char *shot_pixels;
+	long shot_width, shot_height;
+	int shot_bgra;
 	/* the clips' frames (capture_clips.c): the back buffer read back whole
 	into one of a few buffers, each lent to the encoder once bgfx has
 	filled it (bgfx's blit cannot scale; the encoder scales) */
@@ -4215,31 +4219,60 @@ static BOOL bg_window_hidden(void)
 }
 
 #ifdef HALO_CAPTURE
-/* a player's screenshot: the back buffer copied to a texture the CPU can
-read and read back when bgfx says the frame that has it is done
-(bg_present), the HUD in it and the overlay not */
-static void bg_shot_start(void)
-{
-	struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
+/* (the path bgfx is asked for a player's screenshot by, which its callback
+knows as no file's) */
+static const char bg_shot_path[] = "capture:screenshot";
 
-	if (!back_buffer || !back_buffer->pixel_width || !back_buffer->pixel_height)
+/* a player's screenshot: the window as this frame shows it, the overlay's
+screens, DELTA and the toasts on the picture, asked of bgfx (letterbox: the
+picture's part of the window, from its top left) */
+static void bg_shot_start(const int letterbox[4])
+{
+	if (letterbox[2] <= 0 || letterbox[3] <= 0)
 		return;
-	if (!BGFX_HANDLE_IS_VALID(bg.shot) || bg.shot_width != back_buffer->pixel_width ||
-		bg.shot_height != back_buffer->pixel_height)
-	{
-		if (BGFX_HANDLE_IS_VALID(bg.shot))
-			bgfx_destroy_texture(bg.shot);
-		bg.shot_width = back_buffer->pixel_width;
-		bg.shot_height = back_buffer->pixel_height;
-		bg.shot = bgfx_create_texture_2d((uint16_t)bg.shot_width, (uint16_t)bg.shot_height, false, 1,
-			BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK, NULL, 0);
-	}
-	bg.shot_pixels = malloc(bg.shot_width * bg.shot_height * 4);
-	if (!bg.shot_pixels)
-		return;
-	bg_blit_2d(bg.present_view, bg.shot, 0, back_buffer->texture, (uint16_t)bg.shot_width, (uint16_t)bg.shot_height);
-	bg.shot_ready = bg_read_texture(bg.shot, bg.shot_pixels);
+	memcpy(bg.shot_crop, letterbox, sizeof(bg.shot_crop));
+	bgfx_request_screen_shot((bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE, bg_shot_path);
 	bg.shot_pending = TRUE;
+	bg.shot_frames = 0;
+}
+
+/* bgfx's screenshot of the window (bg_callback_screen_shot, as bgfx_frame
+draws): the picture's part copied out, its rows from the top */
+static void bg_shot_taken(uint32_t width, uint32_t height, uint32_t pitch, bgfx_texture_format_t format,
+	const void *data, bool flip)
+{
+	long x = bg.shot_crop[0], y = bg.shot_crop[1], crop_width = bg.shot_crop[2], crop_height = bg.shot_crop[3];
+	long row;
+	unsigned char *pixels;
+
+	if (!bg.shot_pending || bg.shot_pixels)
+		return;
+	if (format != BGFX_TEXTURE_FORMAT_BGRA8 && format != BGFX_TEXTURE_FORMAT_RGBA8)
+	{
+		platform_log("screenshot: the window's format (%d) is not one a screenshot can be made of", (int)format);
+		return;
+	}
+	/* (the window may have changed size since the ask) */
+	if (x < 0 || y < 0 || x + crop_width > (long)width || y + crop_height > (long)height)
+	{
+		x = y = 0;
+		crop_width = (long)width;
+		crop_height = (long)height;
+	}
+	pixels = malloc((size_t)crop_width * (size_t)crop_height * 4);
+	if (!pixels)
+		return;
+	for (row = 0; row < crop_height; row++)
+	{
+		long source = flip ? (long)height - 1 - (y + row) : y + row;
+
+		memcpy(pixels + row * crop_width * 4, (const unsigned char *)data + source * (long)pitch + x * 4,
+			(size_t)crop_width * 4);
+	}
+	bg.shot_pixels = pixels;
+	bg.shot_width = crop_width;
+	bg.shot_height = crop_height;
+	bg.shot_bgra = format == BGFX_TEXTURE_FORMAT_BGRA8;
 }
 
 #endif
@@ -4382,8 +4415,10 @@ static void bg_present(void)
 		}
 	}
 #ifdef HALO_CAPTURE
-	if (!bg.shot_pending && capture_screenshot_take())
-		bg_shot_start();
+	/* (a player's screenshot: the window as shown, so only a frame that
+	goes to it; the ask waits for one that does) */
+	if (window && !bg.shot_pending && capture_screenshot_take())
+		bg_shot_start(letterbox);
 	bg_clip_start();
 #endif
 	frame_start = stats_seconds();
@@ -4424,12 +4459,20 @@ static void bg_present(void)
 		bg.capture_pending = FALSE;
 	}
 #ifdef HALO_CAPTURE
-	if (bg.shot_pending && frame_number >= bg.shot_ready)
+	if (bg.shot_pending && bg.shot_pixels)
 	{
 		/* (the pixels are capture.c's now: the next gets new ones) */
-		capture_screenshot_submit(bg.shot_pixels, (long)bg.shot_width, (long)bg.shot_height, (long)bg.shot_width * 4,
-			TRUE);
+		capture_screenshot_submit(bg.shot_pixels, bg.shot_width, bg.shot_height, bg.shot_width * 4, bg.shot_bgra,
+			FALSE);
 		bg.shot_pixels = NULL;
+		bg.shot_pending = FALSE;
+	}
+	else if (bg.shot_pending && ++bg.shot_frames > 8)
+	{
+		/* (bgfx draws as each frame is submitted, so it comes with the
+		frame; a window it could not read never does) */
+		platform_log("screenshot: the renderer gave no picture");
+		capture_notice("Screenshot not saved", "The renderer gave no picture");
 		bg.shot_pending = FALSE;
 	}
 	bg_clip_finish(frame_number);
@@ -4568,6 +4611,13 @@ static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char 
 	FILE *file;
 
 	(void)self, (void)format, (void)size;
+#ifdef HALO_CAPTURE
+	if (path && !strcmp(path, bg_shot_path))
+	{
+		bg_shot_taken(width, height, pitch, format, data, flip);
+		return;
+	}
+#endif
 	file = fopen(path, "wb");
 	if (!file)
 		return;
@@ -4749,7 +4799,6 @@ static BOOL bg_initialize(void)
 	bg.overlay = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.capture = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
 #ifdef HALO_CAPTURE
-	bg.shot = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
 	for (index = 0; index < 3; index++)
 		bg.clip[index].texture = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
 #endif
