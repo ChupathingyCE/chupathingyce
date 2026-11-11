@@ -454,7 +454,7 @@
 		<string text="Show players by their Delta names."/>
 		<string text="Who can reach you and see you on DELTA."/>
 		<string text="Show as offline to your friends."/>
-		<string text="Who can send you friend requests.\nFRIENDS+ is your friends and their friends."/>
+		<string text="Who can send you requests. FRIENDS+ adds their friends."/>
 		<string text="Who can join your game from DELTA."/>
 		<string text="Who sees when you're on and what you play."/>
 	</strings>
