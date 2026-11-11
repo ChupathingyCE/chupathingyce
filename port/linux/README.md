@@ -658,7 +658,9 @@ the setting for one start of the game. It has priority over the file.
 | `network.copy_to_clipboard` | `false` | `HALO_NET_COPY_TO_CLIPBOARD` | `true`: when this copy starts to host a game, its invite link goes on the clipboard. `false`: the game leaves the clipboard alone; the link is in the log, and INVITE LINK in the Gearbox menus' Server Settings copies it. Network Settings in the Chupathingy and Gearbox menus. |
 | `network.map_downloads` | `"ask"` | `HALO_NET_MAP_DOWNLOADS` | A Custom Edition map a game you join needs and you don't have, from the community map repositories (maps.halonet.net and its mirrors, as Chimera downloads from them). `"ask"`: the Online Games screen offers to download it (Yes, No, Don't ask again, which writes `"always"` or `"never"` here). `"always"`: downloaded without asking. `"never"`: the game only says which map is missing. Network Settings in the PC menus. The map is checked before it goes in `maps_ce`: refer to "Halo PC maps" in [docs/maps.md](../../docs/maps.md#halo-pc-maps). Not on the dedicated server. |
 | `network.maps_url` | `"https://maps.chupathingy.org"` | `HALO_NET_MAPS_URL` | Chupathingy maps, asked for a missing Custom Edition map when the community map repositories don't have it, and whose blacklist every map is held to. Its lists are signed, so a copy of them elsewhere works too. Empty: none. Refer to "Chupathingy maps" in [docs/maps.md](../../docs/maps.md#halo-pc-maps). Desktop and Android. |
-| `network.map_share` | `false` | `HALO_NET_MAP_SHARE` | Map sharing, for the dedicated server only for now (a game you host from the menus never shares; that may come later): a player who joins without your Custom Edition map, and asks for it, gets it from your game. Only the map your game is on now, only the map file (never `bitmaps.map`, `sounds.map` or `loc.map`), only to machines in your game, over TCP port 5153. Off by default. Refer to "Map sharing". |
+| `network.map_downloads_from_host` | `"off"` | `HALO_NET_MAP_DOWNLOADS_FROM_HOST` | A missing Custom Edition map from the game's host, peer to peer, when neither the community repositories nor Chupathingy maps give it: `"off"`, `"ask"` (each time, with the disclaimer: the map comes straight from the host, not from us, and we haven't checked it; Don't ask again writes `"always"` or `"off"`) or `"always"`. The file goes into `maps_quarantine`, and into `maps_ce` only after quick checks and the blacklist. MAPS FROM HOSTS in Network Settings and the setup screen. Refer to "From the host" in [docs/maps.md](../../docs/maps.md#halo-pc-maps). Desktop and Android. |
+| `network.map_downloads_from_host_limit` | `512` | `HALO_NET_MAP_DOWNLOADS_FROM_HOST_LIMIT` | The largest map taken from a host, in MB (16 to 1024). |
+| `network.map_share` | `false` | `HALO_NET_MAP_SHARE` | Map sharing: a player who joins without your Custom Edition map, and asks for it, gets it from your game, a dedicated server's or one you host from the menus. Only the map your game is on now, only the map file (never `bitmaps.map`, `sounds.map` or `loc.map`), only to machines in your game, over TCP port 5153. Off by default. Refer to "Map sharing". |
 | `network.map_share_upload` | `1024` | `HALO_NET_MAP_SHARE_UPLOAD` | The most map sharing sends, in KB a second, shared by everyone downloading at once (16 to 20480). |
 | `network.playlist_downloads` | `"ask"` | `HALO_NET_PLAYLIST_DOWNLOADS` | When you join a game of a verified playlist, its map set (refer to [docs/playlist-maps.md](../../docs/playlist-maps.md)): `"ask"` says which of its maps you don't have and offers to download them (Yes, No, Don't ask again, which writes `"always"` or `"never"` here); `"always"` downloads them without asking; `"never"` doesn't check. Each file is checked against the signed list before it goes in its folder. Separate from `network.map_downloads`. Desktop and Android. |
 | `network.tunnel_port` | `2302` on the desktop and Android, `0` on the consoles and the server | `HALO_NET_TUNNEL_PORT` | The UDP port for internet play. At its default, every copy of the game starts on a port it selects, and moves to 2302 when it hosts an internet game (Server Setup, or the game's start); if another program has 2302, the next free port up to 2306; if all are taken, the selected port stays. The log names the port. A port that you set (in the file, Server Setup's PORT, or the environment variable) is used from the start, to join as well as to host, and no other is tried. `0`: the game selects a port each run, also to host. Refer to "Internet play". |
@@ -1382,11 +1384,12 @@ name of the profile) gives `ok <code> <seconds> <token>`.
 
 ### Map sharing
 
-A dedicated server with `network.map_share` on (off by default) hands the
-Custom Edition map its game is on to a machine that joined and asks for it,
-as OpenCE's hosts do: players missing the map get it from the game. A game
-hosted from the menus (a listen host) never shares for now, whatever the
-setting says; that may come later. Our [C] servers turn it on only after
+A host with `network.map_share` on (off by default) hands the Custom
+Edition map its game is on to a machine that joined and asks for it, as
+OpenCE's hosts do: players missing the map get it from the game. That's a
+dedicated server's game or a game hosted from the menus (a listen host),
+with the same limits. Over an invite, port 5153 goes through the invite's
+tunnel like the game's own traffic. Our [C] servers turn it on only after
 the map bot's first invite test. The
 request, the offer, the list of other sources and the progress ride the
 game's connection as distributed messages 83 to 86; the file goes over TCP
@@ -1437,6 +1440,19 @@ whole file check. It listens on no port. Its result is a JSON object in
 `not shared`, `timed out`, `too large`, `bad data`, `not reachable`,
 `failed`), `level`, `version`, `size`, `map_hash` and `players`. It exits
 with 0 when it fetched, 10 when it held the version, 1 otherwise.
+
+A player gets a missing map from the host with the same fetch, when
+`network.map_downloads_from_host` allows it ("From the host" in
+[docs/maps.md](../../docs/maps.md#halo-pc-maps)). The Online Games screen
+runs it after the community repositories and Chupathingy maps failed. It
+joins the host as a machine with no player, under the player's own machine
+name. It asks for the map the player was offered and nothing else, checks
+the offered map hash against the blacklist before anything comes, and
+writes into `maps_quarantine`. `map_download.c` then runs the quick checks
+(`map_quick_check.c`) and the blacklist again before it moves the map into
+`maps_ce`. The fetch leaves, and the screen joins the game again. The
+transfer runs on the game's thread; the checks run on a thread of their
+own. Its progress is the screen's download bar, and B cancels it.
 
 ## Map checks
 

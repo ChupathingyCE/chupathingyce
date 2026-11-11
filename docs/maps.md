@@ -133,8 +133,47 @@ of maps and its list of mirrors are signed with its key and not expired. It refe
 them about once an hour and never goes back to an older list. It finds the map
 by its name and the host's version, and downloads it from the first working
 mirror. The file must have the list's size and SHA-256, or the next mirror is
-asked. Then the same checks run as for a map from HaloNet. Peer-to-peer
-downloads from the host aren't part of this.
+asked. Then the same checks run as for a map from HaloNet.
+
+**From the host.** Some maps aren't on HaloNet or Chupathingy maps. The game
+can get those from the game's host instead, peer to peer, but only if you
+turn it on. `network.map_downloads_from_host` in `config.toml` (MAPS FROM
+HOSTS in Network Settings, and in the setup screen's Network tab) is
+`"off"` by default. With `"ask"`, the game asks each time: "Download
+<name>.map from the host?", with this under it:
+
+> This map comes straight from the host, not from us,
+> and we haven't checked it.
+
+Yes downloads it. Don't ask again with Yes switches the setting to
+`"always"`, and with No to `"off"`. `"always"` downloads from the host
+without asking. Either way the host comes last: HaloNet first, then
+Chupathingy maps, then the host. The host isn't asked when the blacklist
+refused the map, when you cancelled, or when `network.map_downloads` is
+`"never"`.
+
+The game joins the host's game without a player, asks for the map file
+alone and downloads it from the host alone, over the host's TCP port 5153.
+Before any of it comes, the map's hash is checked against the blacklist.
+Each 256 KiB piece is checked against its hash, and the whole file against
+the hash the host offered. The file goes into `maps_quarantine` (beside
+`maps_ce`), never straight into `maps_ce`. Once it's whole, the game runs
+quick checks that take a few milliseconds: a sane file name, no larger
+than `network.map_downloads_from_host_limit` (512 MB by default, 16 to
+1024), a Custom Edition multiplayer map's header with the map's own name,
+and its tag data's offsets and tables inside the file. It must be the
+host's version, and neither of its hashes may be on the blacklist. A file
+that fails any of these is deleted, never changed. A file that passes is
+moved into `maps_ce` as a downloaded map, and the game joins again. The
+game's own checks still read all of it before it's played. The download
+shows its progress and B cancels it. Nothing about the host's address goes
+in the log. Desktop and Android only; the consoles and the dedicated server
+don't download from hosts.
+
+The game logs the map's name, size and hashes after a download from a
+host. It doesn't send them to Chupathingy maps yet: the site has no way to
+take them from the game. Until it does, its map bot finds the same maps on
+the hosts it sees.
 
 **The blacklist.** Chupathingy maps also keeps a list of maps that crash
 games or break the engine, by their hashes. A map on it isn't downloaded from

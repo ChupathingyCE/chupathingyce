@@ -2,7 +2,8 @@
 MAP_SHARE_HOST.C
 
 The host's side of map sharing (map_share.h, port/linux/README.md, "Map sharing"), behind
-network.map_share (off by default; the host's call):
+network.map_share (off by default; the host's call), for a dedicated
+server's game and a game hosted from the menus alike:
 
 - a request (83) is taken only over the stream of a machine that joined
   the game (in the lobby or in a game in progress, loaded or not), one a
@@ -186,8 +187,6 @@ static struct
 	short next_stream;
 } host;
 
-int browser_dedicated(void);
-
 /* ---------- private code */
 
 static unsigned long host_now(
@@ -198,12 +197,12 @@ static unsigned long host_now(
 	return now ? now : 1;
 }
 
-/* dedicated servers only for now: a listen host (a player's own game) never
-shares, whatever network.map_share says; listen hosts may come later */
+/* a dedicated server's game, or a game hosted from the menus (a listen
+host), alike: network.map_share says, off by default, with the same limits */
 static boolean host_sharing(
 	void)
 {
-	return browser_dedicated() && config_boolean("network.map_share") != 0;
+	return config_boolean("network.map_share") != 0;
 }
 
 static double host_upload_rate(

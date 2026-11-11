@@ -35,7 +35,16 @@ downloaded from the community map repositories (map_download.c, as
 network.map_downloads says): A joins the game's invite, and once its host
 advertises the game, the screen offers the map (Yes, No, Don't ask again),
 downloads it with its progress shown (B cancels), checks it against the
-host's version of it, and joins. A game left for want of such a map
+host's version of it, and joins. When the repositories don't give it, the
+game's host may, as network.map_downloads_from_host says (off unless the
+player turns it on: map_download.c, "From the host"): "ask" offers it from
+the host with a word that the file comes from the host, not from us, and
+isn't checked as our site checks maps (Yes, No, Don't ask again, which
+turns "always" on); "always" goes on without asking. That download
+(map_share_client.c's map_share_player_start) joins the host as a machine
+with no player, shows its progress the same way (B cancels), leaves the
+host's game once the file is whole, and joins again once it passes its
+checks. A game left for want of such a map
 (cache_files_map_present: a join through another screen, or the host moving
 its game on to the map, as a dedicated server's playlist does) opens this
 screen over the main menu with the same offer, and joins that host again,
@@ -106,6 +115,9 @@ the right button is B.
 #include "../src/ui_overlay.h"
 #include "halo_ui_map_list.h"
 #include "halo_ui_pointer.h"
+#ifdef HALO_HOST_MAP_DOWNLOADS
+#include "map_share.h"
+#endif
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
 #include "halo_profile_screen.h"
 
@@ -165,6 +177,9 @@ enum
 	_offer_none,
 	/* asking whether to download it */
 	_offer_asking,
+	/* the repositories didn't give it: asking whether to download it from
+	the game's host (network.map_downloads_from_host "ask") */
+	_offer_asking_host,
 	_offer_downloading,
 	/* the download failed: why, until B */
 	_offer_failed,
@@ -618,6 +633,34 @@ static void start_offered_download(
 	}
 }
 
+#ifdef HALO_HOST_MAP_DOWNLOADS
+/* the map downloaded from the game's host (map_share_player_start): the
+host of the game being joined, or of the one left for want of the map
+(through its invite again, as rejoin does) */
+static void start_host_download(
+	void)
+{
+	char const *host = browser_screen.rejoin_pending ? browser_screen.rejoin_host : browser_screen.connecting_invite;
+
+	if (browser_screen.rejoin_pending && browser_screen.rejoin_invite[0])
+		browser_join(browser_screen.rejoin_invite, FALSE);
+	if (map_share_player_start(host, browser_screen.offer_file, browser_screen.offer_version))
+	{
+		browser_screen.offer = _offer_downloading;
+		map_download_get(&browser_screen.offer_progress);
+	}
+	else if (browser_screen.rejoin_pending)
+		rejoin_given_up("the host's game could not be joined to ask for it");
+	else
+	{
+		browser_screen.offer = _offer_failed;
+		csmemset(&browser_screen.offer_progress, 0, sizeof(browser_screen.offer_progress));
+		snprintf(browser_screen.offer_progress.message, sizeof(browser_screen.offer_progress.message),
+			"the host's game could not be joined to ask for it");
+	}
+}
+#endif
+
 /* one of Halo PC's own maps a game needs: its panel says to copy it from
 the player's install (never downloaded) */
 static void offer_stock(
@@ -734,7 +777,16 @@ static void follow_download(
 {
 	char text[96];
 
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	/* (a download from the host: its transfer runs on this thread, and what
+	it ended in waits until the host's game is left) */
+	map_share_player_update();
 	map_download_get(&browser_screen.offer_progress);
+	if (map_share_player_busy())
+		return;
+#else
+	map_download_get(&browser_screen.offer_progress);
+#endif
 	switch (browser_screen.offer_progress.state)
 	{
 	case MAP_DOWNLOAD_DONE:
@@ -750,6 +802,22 @@ static void follow_download(
 			browser_screen.connecting_time = system_milliseconds();
 		break;
 	case MAP_DOWNLOAD_FAILED:
+#ifdef HALO_HOST_MAP_DOWNLOADS
+		/* (the repositories didn't give it: the host next, if the player
+		allows it, network.map_downloads_from_host) */
+		switch (map_download_host_next(&browser_screen.offer_progress))
+		{
+		case MAP_HOST_STEP_ASK:
+			browser_screen.offer = _offer_asking_host;
+			browser_screen.offer_dont_ask = FALSE;
+			browser_screen.offer_time = system_milliseconds();
+			return;
+		case MAP_HOST_STEP_START:
+			start_host_download();
+			return;
+		default: break;
+		}
+#endif
 		/* (a game left for want of it: the main menu's error at once) */
 		if (browser_screen.rejoin_pending)
 			rejoin_given_up(browser_screen.offer_progress.message[0] ? browser_screen.offer_progress.message :
@@ -788,6 +856,27 @@ static void offer_button(
 		else if (button == _gamepad_analog_button_y)
 			browser_screen.offer_dont_ask = !browser_screen.offer_dont_ask;
 		break;
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	/* (from the host: A downloads, B doesn't; "Don't ask again" ticked
+	with A turns network.map_downloads_from_host to "always", with B to
+	"off", the disclaimer having been on the screen) */
+	case _offer_asking_host:
+		if (button == _gamepad_analog_button_a)
+		{
+			if (browser_screen.offer_dont_ask)
+				map_download_host_set_setting(MAP_HOST_DOWNLOADS_ALWAYS);
+			start_host_download();
+		}
+		else if (button == _gamepad_analog_button_b)
+		{
+			if (browser_screen.offer_dont_ask)
+				map_download_host_set_setting(MAP_HOST_DOWNLOADS_OFF);
+			offer_given_up(NULL);
+		}
+		else if (button == _gamepad_analog_button_y)
+			browser_screen.offer_dont_ask = !browser_screen.offer_dont_ask;
+		break;
+#endif
 	case _offer_downloading:
 		if (button == _gamepad_analog_button_b)
 			map_download_cancel();
@@ -2990,6 +3079,26 @@ static void draw_link_profile(
 void console_ring_picture(float fraction);
 #endif
 
+/* the offer's "Don't ask again" at y, ticked or not (Y, or a click on it) */
+static void draw_dont_ask(
+	float y)
+{
+	float center = CONNECT_X + CONNECT_WIDTH / 2;
+	float glyph = 15.0f, box = 10.0f;
+	float width, x;
+
+	width = ui_overlay_button_width(UI_BUTTON_Y, glyph) + 6 + box + 6 +
+		ui_overlay_text_width(UI_FONT_MENU, 11.0f, "DON'T ASK AGAIN");
+	x = center - width / 2;
+	x += ui_overlay_button(UI_BUTTON_Y, glyph, x, y, 0xFFFFFFFF) + 6;
+	ui_overlay_outline(x, y + (glyph - box) / 2, box, box, 2, 1.0f, COLOR_PROMPT);
+	if (browser_screen.offer_dont_ask)
+		ui_overlay_rect(x + 2.5f, y + (glyph - box) / 2 + 2.5f, box - 5, box - 5, 1, COLOR_PROMPT);
+	ui_overlay_text_glow(UI_FONT_MENU, 11.0f, x + box + 6, y + (glyph - 11.0f) / 2 + 0.5f, UI_ALIGN_LEFT,
+		COLOR_PROMPT, 0x3D8BFF60, "DON'T ASK AGAIN");
+	add_target(center - width / 2 - 6, y - 6, center + width / 2 + 6, y + glyph + 6, UI_BUTTON_Y);
+}
+
 static void draw_map_offer(
 	void)
 {
@@ -3016,8 +3125,7 @@ static void draw_map_offer(
 	{
 		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
 		static char const *const words[] = { "=NO", "=YES" };
-		float glyph = 15.0f, box = 10.0f;
-		float width, x, y = CONNECT_Y + 196;
+		float y = CONNECT_Y + 196;
 
 		snprintf(text, sizeof(text), "%s plays a map you don't have.", browser_screen.connecting_name);
 		/* (the game being joined, or "the game": a sentence's start) */
@@ -3031,20 +3139,31 @@ static void draw_map_offer(
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 86, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
 			browser_screen.offer_ours ? "HaloNet or " MAP_REPO_TITLE "?" : "community map repository?");
-		/* "Don't ask again", ticked or not (Y, or a click on it) */
-		width = ui_overlay_button_width(UI_BUTTON_Y, glyph) + 6 + box + 6 +
-			ui_overlay_text_width(UI_FONT_MENU, 11.0f, "DON'T ASK AGAIN");
-		x = center - width / 2;
-		x += ui_overlay_button(UI_BUTTON_Y, glyph, x, y, 0xFFFFFFFF) + 6;
-		ui_overlay_outline(x, y + (glyph - box) / 2, box, box, 2, 1.0f, COLOR_PROMPT);
-		if (browser_screen.offer_dont_ask)
-			ui_overlay_rect(x + 2.5f, y + (glyph - box) / 2 + 2.5f, box - 5, box - 5, 1, COLOR_PROMPT);
-		ui_overlay_text_glow(UI_FONT_MENU, 11.0f, x + box + 6, y + (glyph - 11.0f) / 2 + 0.5f, UI_ALIGN_LEFT,
-			COLOR_PROMPT, 0x3D8BFF60, "DON'T ASK AGAIN");
-		add_target(center - width / 2 - 6, y - 6, center + width / 2 + 6, y + glyph + 6, UI_BUTTON_Y);
+		draw_dont_ask(y);
 		dialog_prompts(NUMBEROF(buttons), buttons, words);
 		break;
 	}
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	case _offer_asking_host:
+	{
+		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+		static char const *const words[] = { "=NO", "=YES" };
+
+		/* (the disclaimer: where the file comes from, and that we don't check
+		it as we do our site's maps) */
+		snprintf(text, sizeof(text), "The map sites don't have %s.map.", browser_screen.offer_display);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 62, UI_ALIGN_CENTER, COLOR_DIM, text);
+		snprintf(text, sizeof(text), "Download %s.map from the host?", browser_screen.offer_display);
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 128, UI_ALIGN_CENTER, COLOR_WARN,
+			MAP_HOST_DISCLAIMER_FIRST);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 144, UI_ALIGN_CENTER, COLOR_WARN,
+			MAP_HOST_DISCLAIMER_SECOND);
+		draw_dont_ask(CONNECT_Y + 196);
+		dialog_prompts(NUMBEROF(buttons), buttons, words);
+		break;
+	}
+#endif
 	case _offer_downloading:
 	{
 		float bar_x = CONNECT_X + 40, bar_width = CONNECT_WIDTH - 80;
@@ -3052,6 +3171,8 @@ static void draw_map_offer(
 
 		if (progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY)
 			snprintf(text, sizeof(text), "Downloading %s.map from " MAP_REPO_TITLE, browser_screen.offer_display);
+		else if (progress->source == MAP_DOWNLOAD_SOURCE_HOST)
+			snprintf(text, sizeof(text), "Downloading %s.map from the host", browser_screen.offer_display);
 		else
 			snprintf(text, sizeof(text), "Downloading %s.map", browser_screen.offer_display);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 88, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
@@ -3077,7 +3198,8 @@ static void draw_map_offer(
 			break;
 		default:
 			snprintf(text, sizeof(text), progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY ?
-				"Connecting to " MAP_REPO_TITLE "\xE2\x80\xA6" : "Connecting to the map repository\xE2\x80\xA6");
+				"Connecting to " MAP_REPO_TITLE "\xE2\x80\xA6" : progress->source == MAP_DOWNLOAD_SOURCE_HOST ?
+				"Joining the host's game\xE2\x80\xA6" : "Connecting to the map repository\xE2\x80\xA6");
 			break;
 		}
 		ui_overlay_rect(bar_x, CONNECT_Y + 126, bar_width, 12, 6, 0x0A1E44FF);

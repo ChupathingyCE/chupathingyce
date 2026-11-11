@@ -41,7 +41,26 @@ it, or not the host's version, or it fails its checks), Chupathingy maps
 name and version, and its mirrors give the file, which must have the
 index's size and SHA-256, then the same checks as above. A map from either
 whose SHA-256 or map hash is on Chupathingy maps' blacklist is refused, and
-no other source is asked. Peer-to-peer downloads from the host aren't here.
+no other source is asked.
+
+From the host: when neither has the map (or not the host's version, or it
+failed its checks, but not when the blacklist refused it), the game's host
+may give it, peer to peer, only as network.map_downloads_from_host says:
+"off" (the default) never, "ask" asks each time with a word that the file
+comes from the host, not from us, and isn't checked as our site checks
+maps, "always" without asking (map_download_host_step). The transfer is
+map_share_client.c's, on the game's thread, over the host's map sharing
+port: its offer's map hash is held to the blacklist before a byte comes,
+every piece is checked against its hash and the whole file against the
+offer's. The file is written into the quarantine folder (maps_quarantine,
+beside maps_ce), never into maps_ce, and only once whole is it checked on a
+thread of its own: the quick checks (map_quick_check.h: the name, the
+player's size cap, the header, the tag data's offsets and tables), the
+host's version, and the blacklist again by its SHA-256 and map hash. A file
+that fails any of them is deleted, never changed. One that passes is moved
+into maps_ce as a repository's map is, marked as downloaded, and its hashes
+logged for Chupathingy maps (map_host_report: there is no way to send them
+yet). The game's own checks still read all of it before it is played.
 
 The log (debug.txt) has each request's address (the map's name alone, no
 player's), the sizes, which checks passed or failed, and the result.
@@ -53,6 +72,8 @@ player's), the sizes, which checks passed or failed, and the result.
 #include "map_compressed.h"
 #include "map_download.h"
 #include "map_file_hash.h"
+#include "map_host_download.h"
+#include "map_quick_check.h"
 #include "map_repo.h"
 #include "playlist_manifest.h"
 #include "halo_map_families.h"
@@ -103,6 +124,8 @@ static struct
 	and its hash's digits; a hashed name's: its base's, or its own) */
 	int remembered;
 	char installed[48];
+	/* the map hash the host offered (a download from the host) */
+	unsigned char offered[MAP_ARCHIVE_HASH_SIZE];
 } map_download = { PTHREAD_MUTEX_INITIALIZER };
 
 /* ---------- private code */
@@ -123,13 +146,19 @@ static void set_source(int source)
 	pthread_mutex_unlock(&map_download.lock);
 }
 
-static void finish(int state, const char *message)
+static void finish_blocked(int state, const char *message, int blocked)
 {
 	pthread_mutex_lock(&map_download.lock);
 	map_download.progress.state = state;
+	map_download.progress.blocked = blocked;
 	snprintf(map_download.progress.message, sizeof(map_download.progress.message), "%s", message ? message : "");
 	map_download.running = 0;
 	pthread_mutex_unlock(&map_download.lock);
+}
+
+static void finish(int state, const char *message)
+{
+	finish_blocked(state, message, 0);
 }
 
 static void paths(const char *name, char *archive, char *partial)
@@ -631,11 +660,53 @@ static int from_chupathingy(const char *name, const char *asked, int hashed, uns
 	return 1;
 }
 
+/* (in place, never over a file that is there: MoveFileA refuses one. A
+map is put in its own name's file, as the repositories name it; if
+another version of it is there, in a file of its name and its hash's
+first digits (a hashed name's: that name), so both are kept: the game
+finds the host's version by its hash, map_families.c). The file it went
+in (name, asked, or beside), else NULL with why in error */
+static const char *put_in_place(const char *name, const char *asked, int hashed, const char *partial_path,
+	char *beside, char *error, int error_size)
+{
+	const char *installed = hashed ? asked : name;
+	char path[MAP_DOWNLOAD_PATH_SIZE];
+
+	final_path(installed, path);
+	if (!MoveFileA(partial_path, path))
+	{
+		unsigned int found = 0;
+
+		installed = NULL;
+		if (hashed)
+			snprintf(beside, sizeof(map_download.installed), "%s", name);
+		else if (map_download.version && map_file_hash_prefix(partial_path, &found))
+			snprintf(beside, sizeof(map_download.installed), "%s_%08x", name, found);
+		else
+			beside[0] = 0;
+		if (beside[0])
+		{
+			platform_log("map download: maps_ce/%s.map is there already, another version: putting this one in "
+				"%s.map", hashed ? asked : name, beside);
+			installed = beside;
+			final_path(installed, path);
+			if (!MoveFileA(partial_path, path))
+				installed = NULL;
+		}
+	}
+	if (!installed)
+	{
+		snprintf(error, (size_t)error_size, "maps_ce/%s.map could not be put in place (is it there already?)", name);
+		platform_log("map download: %s", error);
+	}
+	return installed;
+}
+
 static void *download_thread(void *argument)
 {
 	char name[sizeof(map_download.progress.name)];
 	char asked[sizeof(name)];
-	char archive_path[MAP_DOWNLOAD_PATH_SIZE], partial_path[MAP_DOWNLOAD_PATH_SIZE], path[MAP_DOWNLOAD_PATH_SIZE];
+	char archive_path[MAP_DOWNLOAD_PATH_SIZE], partial_path[MAP_DOWNLOAD_PATH_SIZE];
 	char error[160] = "";
 	const char *installed = NULL;
 	char beside[sizeof(map_download.installed)];
@@ -704,42 +775,10 @@ static void *download_thread(void *argument)
 				asked);
 	}
 	DeleteFileA(archive_path);
-	/* (in place, never over a file that is there: MoveFileA refuses one. A
-	map is put in its own name's file, as the repositories name it; if
-	another version of it is there, in a file of its name and its hash's
-	first digits (a hashed name's: that name), so both are kept: the game
-	finds the host's version by its hash, map_families.c) */
 	if (received)
 	{
-		installed = hashed ? asked : name;
-		final_path(installed, path);
-		if (!MoveFileA(partial_path, path))
-		{
-			unsigned int found = 0;
-
-			installed = NULL;
-			if (hashed)
-				snprintf(beside, sizeof(beside), "%s", name);
-			else if (map_download.version && map_file_hash_prefix(partial_path, &found))
-				snprintf(beside, sizeof(beside), "%s_%08x", name, found);
-			else
-				beside[0] = 0;
-			if (beside[0])
-			{
-				platform_log("map download: maps_ce/%s.map is there already, another version: putting this one in "
-					"%s.map", hashed ? asked : name, beside);
-				installed = beside;
-				final_path(installed, path);
-				if (!MoveFileA(partial_path, path))
-					installed = NULL;
-			}
-		}
-		if (!installed)
-		{
-			snprintf(error, sizeof(error), "maps_ce/%s.map could not be put in place (is it there already?)", name);
-			platform_log("map download: %s", error);
-			received = 0;
-		}
+		installed = put_in_place(name, asked, hashed, partial_path, beside, error, (int)sizeof(error));
+		received = installed != NULL;
 	}
 	if (!received)
 	{
@@ -752,7 +791,7 @@ static void *download_thread(void *argument)
 		else
 		{
 			platform_log("map download: %s.map failed", name);
-			finish(MAP_DOWNLOAD_FAILED, error);
+			finish_blocked(MAP_DOWNLOAD_FAILED, error, blocked);
 		}
 		return NULL;
 	}
@@ -766,6 +805,126 @@ static void *download_thread(void *argument)
 	finish(MAP_DOWNLOAD_DONE, NULL);
 	return NULL;
 }
+
+#ifdef HALO_HOST_MAP_DOWNLOADS
+
+/* ---------- from the host: the quarantine folder's files, as
+map_host_install reads and moves them (the game's d:\ files) */
+
+static long long host_size(void *context, const char *path)
+{
+	HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	DWORD high = 0, low;
+
+	(void)context;
+	if (file == INVALID_HANDLE_VALUE)
+		return -1;
+	low = GetFileSize(file, &high);
+	CloseHandle(file);
+	return high || low == INVALID_FILE_SIZE ? -1 : (long long)low;
+}
+
+static int host_read(void *context, const char *path, unsigned int offset, void *buffer, unsigned int size)
+{
+	HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	DWORD read = 0;
+	int ok;
+
+	(void)context;
+	if (file == INVALID_HANDLE_VALUE)
+		return 0;
+	ok = SetFilePointer(file, (LONG)offset, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER &&
+		ReadFile(file, buffer, size, &read, NULL) && read == size;
+	CloseHandle(file);
+	return ok;
+}
+
+static int host_move(void *context, const char *path, const char *target)
+{
+	(void)context;
+	/* (MoveFileA never replaces a file there) */
+	return MoveFileA(path, target) != 0;
+}
+
+static void host_remove(void *context, const char *path)
+{
+	(void)context;
+	DeleteFileA(path);
+}
+
+static int host_hashes(void *context, const char *path, unsigned char *sha256, unsigned char *map_hash)
+{
+	(void)context;
+	return file_hashes(path, sha256, map_hash);
+}
+
+static int host_blocked(void *context, const unsigned char *sha256, const unsigned char *map_hash, char *reason,
+	int reason_size)
+{
+	(void)context;
+	return map_repo_enabled() && map_repo_blocked(sha256, map_hash, (long long)time(NULL), reason, reason_size);
+}
+
+/* a map from the host, for Chupathingy maps: its name, size and hashes
+(nothing about the host or any player), so the next player gets it from
+us once it passes the site's checks */
+static void map_host_report(const char *name, unsigned int size, const unsigned char *sha256,
+	const unsigned char *map_hash)
+{
+	char sha256_text[2 * MAP_INDEX_HASH_SIZE + 1], map_hash_text[2 * MAP_ARCHIVE_HASH_SIZE + 1];
+	int index;
+
+	for (index = 0; index < MAP_INDEX_HASH_SIZE; index++)
+		snprintf(sha256_text + 2 * index, 3, "%02x", sha256[index]);
+	for (index = 0; index < MAP_ARCHIVE_HASH_SIZE; index++)
+		snprintf(map_hash_text + 2 * index, 3, "%02x", map_hash[index]);
+	/* TODO(maps.chupathingy.org): send these (name, size, SHA-256, map hash;
+	never an address) to Chupathingy maps once it takes sightings from the
+	game: it has no such request yet (its /v1/submit wants a signed-in
+	upload). Until then they are in the log alone */
+	platform_log("map download: %s.map from the host: %u bytes, SHA-256 %s, map hash %s (not sent to %s: it takes "
+		"no reports from the game yet)", name, size, sha256_text, map_hash_text, MAP_REPO_TITLE);
+}
+
+static void *host_install_thread(void *argument)
+{
+	static const struct map_host_files files =
+	{
+		NULL, host_size, host_read, host_move, host_remove, host_hashes, host_blocked,
+	};
+	char name[sizeof(map_download.progress.name)], installed[MAP_HOST_NAME_SIZE], error[160] = "";
+	unsigned char offered[MAP_ARCHIVE_HASH_SIZE], sha256[MAP_INDEX_HASH_SIZE], map_hash[MAP_ARCHIVE_HASH_SIZE];
+	char part[MAP_HOST_PATH_SIZE], whole[MAP_HOST_PATH_SIZE];
+	long long size;
+	int blocked = 0;
+
+	(void)argument;
+	pthread_mutex_lock(&map_download.lock);
+	snprintf(name, sizeof(name), "%s", map_download.progress.name);
+	memcpy(offered, map_download.offered, sizeof(offered));
+	pthread_mutex_unlock(&map_download.lock);
+	set_phase(MAP_DOWNLOAD_CHECKING, 0, 0);
+	map_host_quarantine_paths(name, part, whole);
+	size = host_size(NULL, whole);
+	CreateDirectoryA("d:\\maps_ce", NULL);
+	if (!map_host_install(&files, name, map_download.version, offered, map_download_host_limit(), installed, sha256,
+		map_hash, &blocked, error, (int)sizeof(error)))
+	{
+		platform_log("map download: %s.map from the host refused: %s; deleted", name, error);
+		finish_blocked(MAP_DOWNLOAD_FAILED, error, blocked);
+		return NULL;
+	}
+	pthread_mutex_lock(&map_download.lock);
+	snprintf(map_download.installed, sizeof(map_download.installed), "%s", installed);
+	pthread_mutex_unlock(&map_download.lock);
+	platform_log("map download: %s.map from the host passed its checks; installed in maps_ce as %s.map", name,
+		installed);
+	map_host_report(name, (unsigned int)size, sha256, map_hash);
+	finish(MAP_DOWNLOAD_DONE, NULL);
+	return NULL;
+}
+
+#endif
 
 #endif
 
@@ -879,4 +1038,167 @@ void map_download_reset(void)
 	if (!map_download.running)
 		memset(&map_download.progress, 0, sizeof(map_download.progress));
 	pthread_mutex_unlock(&map_download.lock);
+}
+
+/* ---------- from the host */
+
+int map_download_host_setting_from(const char *text)
+{
+	return map_host_setting_from(text);
+}
+
+const char *map_download_host_setting_word(int setting)
+{
+	return map_host_setting_word(setting);
+}
+
+int map_download_host_setting(void)
+{
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	return map_host_setting_from(config_string("network.map_downloads_from_host"));
+#else
+	return MAP_HOST_DOWNLOADS_OFF;
+#endif
+}
+
+void map_download_host_set_setting(int setting)
+{
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	config_write("network.map_downloads_from_host", map_host_setting_word(setting));
+#else
+	(void)setting;
+#endif
+}
+
+unsigned int map_download_host_limit(void)
+{
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	return map_quick_check_limit(config_integer("network.map_downloads_from_host_limit"));
+#else
+	return map_quick_check_limit(0);
+#endif
+}
+
+int map_download_host_step(int host_setting, const struct map_download_progress *progress)
+{
+	return map_host_step(host_setting, progress->state, progress->source, progress->blocked);
+}
+
+int map_download_host_next(const struct map_download_progress *progress)
+{
+	return map_download_host_step(map_download_host_setting(), progress);
+}
+
+int map_download_host_begin(const char *name, unsigned int version)
+{
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	char part[MAP_HOST_PATH_SIZE], whole[MAP_HOST_PATH_SIZE];
+
+	if (!map_quick_check_name(name))
+		return 0;
+	pthread_mutex_lock(&map_download.lock);
+	if (map_download.running)
+	{
+		pthread_mutex_unlock(&map_download.lock);
+		return 0;
+	}
+	memset(&map_download.progress, 0, sizeof(map_download.progress));
+	map_download.progress.state = MAP_DOWNLOAD_RUNNING;
+	map_download.progress.source = MAP_DOWNLOAD_SOURCE_HOST;
+	map_download.progress.phase = MAP_DOWNLOAD_CONNECTING;
+	snprintf(map_download.progress.name, sizeof(map_download.progress.name), "%s", name);
+	map_download.version = version;
+	map_download.cancel = 0;
+	map_download.running = 1;
+	map_download.remembered = 0;
+	map_download.installed[0] = 0;
+	memset(map_download.offered, 0, sizeof(map_download.offered));
+	pthread_mutex_unlock(&map_download.lock);
+	/* (the quarantine folder, and nothing of this map left in it) */
+	CreateDirectoryA(MAP_HOST_QUARANTINE_FOLDER, NULL);
+	map_host_quarantine_paths(name, part, whole);
+	DeleteFileA(part);
+	DeleteFileA(whole);
+	platform_log("map download: %s.map from the host (its version %08x), as network.map_downloads_from_host allows",
+		name, version);
+	return 1;
+#else
+	(void)name;
+	(void)version;
+	return 0;
+#endif
+}
+
+void map_download_host_progress(int phase, unsigned int received, unsigned int total)
+{
+	set_phase(phase, received, total);
+}
+
+int map_download_host_cancelled(void)
+{
+	return map_download.cancel;
+}
+
+int map_download_host_refused(const unsigned char *map_hash, char *reason, int reason_size)
+{
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	return map_repo_enabled() && map_repo_blocked(NULL, map_hash, (long long)time(NULL), reason, reason_size);
+#else
+	(void)map_hash;
+	(void)reason;
+	(void)reason_size;
+	return 0;
+#endif
+}
+
+void map_download_host_paths(const char *name, char *part, char *whole, int size)
+{
+	char game_part[MAP_HOST_PATH_SIZE], game_whole[MAP_HOST_PATH_SIZE];
+
+	map_host_quarantine_paths(name, game_part, game_whole);
+	snprintf(part, (size_t)size, "%s", game_part);
+	snprintf(whole, (size_t)size, "%s", game_whole);
+}
+
+void map_download_host_received(const unsigned char *map_hash)
+{
+#ifdef HALO_HOST_MAP_DOWNLOADS
+	pthread_t thread;
+
+	pthread_mutex_lock(&map_download.lock);
+	memcpy(map_download.offered, map_hash, sizeof(map_download.offered));
+	pthread_mutex_unlock(&map_download.lock);
+	set_phase(MAP_DOWNLOAD_CHECKING, 0, 0);
+	if (pthread_create(&thread, NULL, host_install_thread, NULL) != 0)
+	{
+		map_download_host_failed("could not check the map", 0);
+		return;
+	}
+	pthread_detach(thread);
+#else
+	(void)map_hash;
+#endif
+}
+
+void map_download_host_failed(const char *message, int cancelled)
+{
+	char part[MAP_HOST_PATH_SIZE], whole[MAP_HOST_PATH_SIZE], name[sizeof(map_download.progress.name)];
+
+	pthread_mutex_lock(&map_download.lock);
+	snprintf(name, sizeof(name), "%s", map_download.progress.name);
+	pthread_mutex_unlock(&map_download.lock);
+	/* (nothing of it kept) */
+	map_host_quarantine_paths(name, part, whole);
+	DeleteFileA(part);
+	DeleteFileA(whole);
+	if (cancelled)
+	{
+		platform_log("map download: %s.map from the host cancelled", name);
+		finish(MAP_DOWNLOAD_CANCELLED, "cancelled");
+	}
+	else
+	{
+		platform_log("map download: %s.map from the host failed: %s", name, message);
+		finish(MAP_DOWNLOAD_FAILED, message);
+	}
 }
