@@ -104,7 +104,7 @@ the program). The game leaves an old one where it is.
 
 ### Update channels
 
-The update channel picks which builds the game updates to. Set it in Settings > Network > Updates, on the setup screen's Updates tab, or as `channel` in the `[update]` section of `config.toml`:
+The update channel picks which builds the game updates to. Set it in Settings > Online > Updates, on the setup screen's Updates tab, or as `channel` in the `[update]` section of `config.toml`:
 
 | Channel | Gets |
 |---|---|

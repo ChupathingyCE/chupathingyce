@@ -569,9 +569,9 @@ static const struct config_setting config_settings[] =
 		"Light from projectiles, muzzle flashes, glowing emitters and held\n"
 		"weapons, with soft falloff, and blocked by walls. \"high\" is all of\n"
 		"it, \"low\" only the shots and muzzle flashes, \"off\" the game's own\n"
-		"lighting. \"auto\" is \"high\", or \"off\" on a software renderer.\n"
-		"It changes only what is drawn, and players are lit by it only a\n"
-		"little. Based on chester's dynamic lighting in GulchCE." },
+		"lighting, as on the Xbox. \"auto\" is \"high\", or \"off\" on a software\n"
+		"renderer. It changes only what is drawn, and players are lit by it\n"
+		"only a little. Based on chester's dynamic lighting in GulchCE." },
 	{ "display.doors_block_light", _config_boolean, "true", "HALO_DOORS_BLOCK_LIGHT", _environment_value,
 		_platform_all,
 		"A closed door stops a light behind it from lighting your side, such as\n"

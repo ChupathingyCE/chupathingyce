@@ -53,7 +53,7 @@ Under gamescope (the Steam Deck's Game Mode: updater_gamescope) a system
 dialog crashes the game, so nothing is asked: the main menu's version line
 says where to update (UPDATER_GAMESCOPE_WHERE), and no download window or
 failure dialog is shown either. The game's own pages install it, there and
-everywhere else: the setup screen's UPDATES and Settings > Network >
+everywhere else: the setup screen's UPDATES and Settings > Online >
 Updates' INSTALL UPDATE (updater_install_begin) download and put it in
 place on a thread of their own, the page showing how it goes and why it
 failed (updater_install_status), and the game's thread then starts the new

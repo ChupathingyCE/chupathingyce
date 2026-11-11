@@ -100,7 +100,7 @@ int updater_install(void);
 const char *updater_channel(void);
 
 /* ---------- an install from the game's own pages (the setup screen's
-UPDATES, the menus' Settings > Network > Updates), with no window or dialog:
+UPDATES, the menus' Settings > Online > Updates), with no window or dialog:
 what is shown is the page's, so it works under gamescope (the Steam Deck's
 Game Mode), where a dialog crashes the game */
 
@@ -136,9 +136,9 @@ void updater_install_restart(void);
 int updater_gamescope(void);
 
 /* where the main menu's version line says to update under gamescope ("0.9.1
-is out: update in Settings > Network > Updates"), in place of the question
+is out: update in Settings > Online > Updates"), in place of the question
 a dialog would ask */
-#define UPDATER_GAMESCOPE_WHERE "in Settings > Network > Updates"
+#define UPDATER_GAMESCOPE_WHERE "in Settings > Online > Updates"
 /* the version line while an update waits for the game in progress to end */
 #define UPDATER_WAITING_NOTE "the update restarts Chupathingy when you leave the game"
 
