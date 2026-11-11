@@ -407,8 +407,8 @@ static const struct config_setting config_settings[] =
 		"Put your own menus in a menus folder next to config.toml.\n"
 		"Restart Chupathingy after a change." },
 	{ "display.theme", _config_string, "\"blue\"", "HALO_THEME", _environment_value, _platform_all,
-		"The colors of DELTA and the setup screen: \"blue\" (Halo Blue) or\n"
-		"\"red\" (Chupathingy Red). A change shows at once." },
+		"The colors of the Delta Guide and the setup screen: \"blue\" (Halo\n"
+		"Blue) or \"red\" (Chupathingy Red). A change shows at once." },
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the text and titles of the menus and the HUD with sharp,\n"
 		"high-res fonts." },
@@ -852,27 +852,29 @@ static const struct config_setting config_settings[] =
 	/* (a Mac keeps F3 for Mission Control and the F keys for itself unless
 	fn is held: the backslash key too, which nothing else takes) */
 	{ "controls.delta", _config_string, "\"F3, Backslash\"", "HALO_KEY_DELTA", _environment_value, _platform_all,
-		"The keys that open and close DELTA, separated by commas: F3 to F8, or\n"
-		"another key the game doesn't use. A Mac takes F3 for Mission Control\n"
-		"unless fn is held, so the backslash key (Backslash) opens it too." },
+		"The keys that open and close the Delta Guide, separated by commas: F3\n"
+		"to F8, or another key the game doesn't use. A Mac takes F3 for Mission\n"
+		"Control unless fn is held, so the backslash key (Backslash) opens it\n"
+		"too." },
 #else
 	{ "controls.delta", _config_string, "\"F3\"", "HALO_KEY_DELTA", _environment_value, _platform_all,
-		"The keys that open and close DELTA, separated by commas: F3 to F8, or\n"
-		"another key the game doesn't use." },
+		"The keys that open and close the Delta Guide, separated by commas: F3\n"
+		"to F8, or another key the game doesn't use." },
 #endif
 	{ "controls.delta_button", _config_boolean, "true", "HALO_DELTA_BUTTON", _environment_value, _platform_all,
-		"Open DELTA with the controller's Guide button, where Chupathingy can\n"
-		"read it (Steam and the Xbox Game Bar may keep it for themselves)." },
+		"Open the Delta Guide with the controller's Guide button, where\n"
+		"Chupathingy can read it (Steam and the Xbox Game Bar may keep it for\n"
+		"themselves)." },
 	{ "delta.hold_back", _config_boolean, "false", "HALO_DELTA_HOLD_BACK", _environment_value, _platform_all,
-		"Open DELTA by holding Back for about half a second in the menus.\n"
-		"While on, the menus get a Back tap once it is let go, never a hold.\n"
-		"Off by default: the Xbox's Back acts on press." },
+		"Open the Delta Guide by holding Back for about half a second in the\n"
+		"menus. While on, the menus get a Back tap once it is let go, never a\n"
+		"hold. Off by default: the Xbox's Back acts on press." },
 	{ "delta.pause_menu", _config_boolean, "true", "HALO_DELTA_PAUSE_MENU", _environment_value, _platform_all,
-		"Put DELTA in the pause menu, in every menu set." },
+		"Put the Delta Guide in the pause menu, in every menu set." },
 	{ "delta.notify_in_game", _config_boolean, "false", "HALO_DELTA_NOTIFY_IN_GAME", _environment_value,
 		_platform_all,
-		"Show DELTA's notifications during a game. They always show in the\n"
-		"menus." },
+		"Show the Delta Guide's notifications during a game. They always show\n"
+		"in the menus." },
 	{ "delta.notify_online", _config_boolean, "false", "HALO_DELTA_NOTIFY_ONLINE", _environment_value,
 		_platform_all,
 		"Show a notification in the menus when a friend comes online." },
@@ -1902,7 +1904,8 @@ static const struct
 		"in [network]." },
 #ifdef HALO_GUIDE
 	{ "delta", 0,
-		"DELTA, which opens over the menus or a game (F3), and its party." },
+		"The Delta Guide, which opens over the menus or a game (F3), and its\n"
+		"party." },
 #endif
 	{ "game", 0,
 		"How games play. The bomb settings are for Bomb and Grifball games you\n"

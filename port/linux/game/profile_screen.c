@@ -203,7 +203,7 @@ static struct privacy_row const privacy_rows[] =
 	{ "FRIEND REQUESTS FROM", _privacy_site, "friend_requests", { "everyone", "friends_of_friends", "nobody" },
 		{ "EVERYONE", "FRIENDS OF FRIENDS", "NOBODY" }, "Who can send you friend requests." },
 	{ "WHO CAN JOIN ME", _privacy_site, "who_can_join", { "friends", "anyone", "invite" },
-		{ "FRIENDS", "ANYONE", "INVITE ONLY" }, "Who can join your game from DELTA." },
+		{ "FRIENDS", "ANYONE", "INVITE ONLY" }, "Who can join your game from Delta." },
 	{ "SHOW MY STATUS TO", _privacy_site, "clan_presence", { "friends", "friends_and_clan" },
 		{ "FRIENDS", "FRIENDS AND CLAN" }, "Who sees when you're on and what you play." },
 #ifndef HALO_CONSOLE_NO_DISCORD
