@@ -224,6 +224,21 @@ static struct later_particle later_particles[MAXIMUM_LATER_PARTICLES];
 static short later_particle_count;
 #endif
 
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+/* other players' flashlights' beams as drawn (render_interpolation_flashlight) */
+struct smoothed_flashlight
+{
+	long light_index; /* NONE when unused */
+	long tick;
+	real fraction;
+	real_vector3d forward;
+	real_vector3d up;
+};
+
+static struct smoothed_flashlight smoothed_flashlights[SMOOTHED_FLASHLIGHT_COUNT];
+static boolean smoothed_flashlights_ready;
+#endif
+
 static long interpolation_frame;
 static boolean interpolation_rendering;
 static real interpolation_fraction = 1.0f;
@@ -603,6 +618,11 @@ void render_interpolation_reset(void)
 			interpolated_objects[index].object_index = NONE;
 	}
 	memset(interpolated_cameras, 0, sizeof(interpolated_cameras));
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+	/* (the flashlights followed are the last map's, their lights' indices
+	another map's lights now) */
+	smoothed_flashlights_ready = FALSE;
+#endif
 #ifndef HALO_CONSOLE_NO_PARTICLE_STREAMS
 	/* (the particles held back are the last map's) */
 	later_particle_count = 0;
@@ -863,20 +883,6 @@ void render_interpolation_object_point(long object_index, real_point3d *point)
 
 /* ---------- flashlights */
 
-#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
-struct smoothed_flashlight
-{
-	long light_index; /* NONE when unused */
-	long tick;
-	real fraction;
-	real_vector3d forward;
-	real_vector3d up;
-};
-
-static struct smoothed_flashlight smoothed_flashlights[SMOOTHED_FLASHLIGHT_COUNT];
-static boolean smoothed_flashlights_ready;
-#endif
-
 /* Another player's flashlight in a network game (lights_preprocess_scene),
 its beam's direction as drawn. Their unit turns as their input comes in, the
 host's from a client or the client's relayed by the host, and that comes a
@@ -888,7 +894,8 @@ they look around. The beam follows where their unit points it a little
 behind (two thirds of the way in a tick, SMOOTHED_FLASHLIGHT_TICKS), which
 evens those out. Only the beam drawn: the light the game keeps, its unit and
 what the netcode sends are as they were. This machine's own players' lights,
-and every light in a game on this machine alone, are left as they are. */
+and every light in a game on this machine alone or a saved film, are left
+as they are. */
 void render_interpolation_flashlight(
 	long light_index,
 	long unit_index,
@@ -906,7 +913,9 @@ void render_interpolation_flashlight(
 	real elapsed;
 	short index;
 
-	if (!interpolation_rendering || game_connection() == _game_connection_local ||
+	if (!interpolation_rendering ||
+		(game_connection() != _game_connection_network_client &&
+			game_connection() != _game_connection_network_server) ||
 		unit_get_local_player_index(unit_index) != NONE)
 	{
 		return;
