@@ -1009,13 +1009,22 @@ caught up again at each tick, so it shook on the screen as they looked
 around. It is turned with the view: where it was against the view the unit
 is drawn with, it is against the view drawn (lights_preprocess_scene). Left
 as it is when the view isn't turned so (a vehicle, a cinematic, third
-person, interpolation off). */
+person, interpolation off) and on a console that only smooths the view. */
 void render_interpolation_view_turn(
 	long unit_index,
 	real_point3d *position,
 	real_vector3d *forward,
 	real_vector3d *up)
 {
+#ifdef HALO_CONSOLE_VIEW_INTERPOLATION
+	/* (a console that only smooths the view: its view between the ticks is
+	the eased one, not the unit's as drawn, and the beam stays as retail
+	had it) */
+	(void)unit_index;
+	(void)position;
+	(void)forward;
+	(void)up;
+#else
 	short local_player_index;
 	struct observer_result const *from;
 	struct observer_result const *to;
@@ -1040,6 +1049,7 @@ void render_interpolation_view_turn(
 	position->z = to->position.z + offset.k;
 	view_turn_vector(from, to, forward);
 	view_turn_vector(from, to, up);
+#endif
 }
 
 struct observer_result const *render_interpolation_camera(
