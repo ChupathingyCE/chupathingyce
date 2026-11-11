@@ -873,18 +873,18 @@ static const struct config_setting config_settings[] =
 	/* (a touch screen has no Guide button, and its controls hide in the
 	menus: the rows are the way in there) */
 	{ "delta.menu_item", _config_boolean, "true", "HALO_DELTA_MENU_ITEM", _environment_value, _platform_all,
-		"Put DELTA on the main menu and the Multiplayer menu, in every menu\n"
-		"set. On by default on Android, where a touch screen has no Guide\n"
-		"button. Takes effect the next time the menus load." },
+		"Put the Delta Guide on the main menu and the Multiplayer menu, in\n"
+		"every menu set. On by default on Android, where a touch screen has no\n"
+		"Guide button. Takes effect the next time the menus load." },
 #else
 	{ "delta.menu_item", _config_boolean, "false", "HALO_DELTA_MENU_ITEM", _environment_value, _platform_all,
-		"Put DELTA on the main menu and the Multiplayer menu, in every menu\n"
-		"set. Off by default: a note on the main menu says how to open it.\n"
-		"Takes effect the next time the menus load." },
+		"Put the Delta Guide on the main menu and the Multiplayer menu, in\n"
+		"every menu set. Off by default: a note on the main menu says how to\n"
+		"open it. Takes effect the next time the menus load." },
 #endif
 	{ "delta.hint_shown", _config_integer, "0", "HALO_DELTA_HINT_SHOWN", _environment_value, _platform_all,
-		"How many times the main menu has said how to open DELTA (it says so\n"
-		"three times, then no more)." },
+		"How many times the main menu has said how to open the Delta Guide\n"
+		"(it says so three times, then no more)." },
 	{ "delta.notify_in_game", _config_boolean, "false", "HALO_DELTA_NOTIFY_IN_GAME", _environment_value,
 		_platform_all,
 		"Show DELTA's notifications during a game. They always show in the\n"

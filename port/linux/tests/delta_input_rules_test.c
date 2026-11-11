@@ -146,26 +146,26 @@ static void test_hint(void)
 	CHECK(!delta_hint_due(0, 1));
 	CHECK(!delta_hint_due(-1, 0));
 	delta_hint_text(text, sizeof(text), 0, "F3", 1, 1);
-	CHECK(!strcmp(text, "Press F3 for DELTA"));
+	CHECK(!strcmp(text, "Press F3 for the Delta Guide"));
 	/* (a Mac's key, as its prompts show it) */
 	delta_hint_text(text, sizeof(text), 0, "\\", 1, 0);
-	CHECK(!strcmp(text, "Press \\ for DELTA"));
+	CHECK(!strcmp(text, "Press \\ for the Delta Guide"));
 	delta_hint_text(text, sizeof(text), 1, "F3", 1, 0);
-	CHECK(!strcmp(text, "Press Guide for DELTA"));
+	CHECK(!strcmp(text, "Press the Guide button"));
 	delta_hint_text(text, sizeof(text), 1, "F3", 1, 1);
-	CHECK(!strcmp(text, "Hold Back for DELTA"));
+	CHECK(!strcmp(text, "Hold Back for the Delta Guide"));
 	/* (a pad with neither: the keyboard's way) */
 	delta_hint_text(text, sizeof(text), 1, "F4", 0, 0);
-	CHECK(!strcmp(text, "Press F4 for DELTA"));
+	CHECK(!strcmp(text, "Press F4 for the Delta Guide"));
 	delta_hint_text(text, sizeof(text), 0, "", 0, 0);
-	CHECK(!strcmp(text, "Press F3 for DELTA"));
+	CHECK(!strcmp(text, "Press F3 for the Delta Guide"));
 	/* (a Mac: never Guide, which macOS keeps) */
 	delta_hint_text_for(text, sizeof(text), 1, "\\", 1, 0, 1);
-	CHECK(!strcmp(text, "Press \\ for DELTA"));
+	CHECK(!strcmp(text, "Press \\ for the Delta Guide"));
 	delta_hint_text_for(text, sizeof(text), 1, "\\", 1, 1, 1);
-	CHECK(!strcmp(text, "Hold Back for DELTA"));
+	CHECK(!strcmp(text, "Hold Back for the Delta Guide"));
 	delta_hint_text_for(text, sizeof(text), 1, "F3", 1, 0, 0);
-	CHECK(!strcmp(text, "Press Guide for DELTA"));
+	CHECK(!strcmp(text, "Press the Guide button"));
 }
 
 int main(void)
