@@ -57,7 +57,7 @@ MENUS = ROOT / "port/assets/menus"
 CE = MENUS / "ce"
 SVG_COPIES = MENUS / "svg"
 MAIN_MENU = "ui\\shell\\main_menu\\main_menu"
-TITLE_FONT = ROOT / "port/assets/fonts/OpenCE-Regular.ttf"
+TITLE_FONT = ROOT / "port/assets/fonts/CyborgInterfaceGothic-Regular.ttf"
 # the widgets left out, with their pictures (and all they alone lead to):
 # the server browser's GameSpy logo, which the port has no use for, and the
 # main menu's Credits, which the Xbox's game has not
@@ -287,6 +287,31 @@ def bounds_text(bounds: tuple) -> str:
 # ---------- the art
 
 
+def draw_title(name: str, text: str) -> str:
+    """a title this port has that the PC version has not, as a picture (its
+    path in MENUS): the text set in Cyborg Interface Gothic (the menus' text's
+    font, as the port's titles are: tools/title_assets.py) over the PC
+    headers' backdrop"""
+    from PIL import ImageDraw, ImageFont
+    scale = SCALE
+    probe = ImageFont.truetype(str(TITLE_FONT), 1000)
+    left, top, right, bottom = probe.getbbox("H")
+    font = ImageFont.truetype(str(TITLE_FONT), round(port_settings.TITLE_CAP * scale * 1000 / (bottom - top)))
+    width = font.getlength(text) / scale
+    svg = MENUS / "port_svg" / f"{name}.svg"
+    svg.parent.mkdir(parents=True, exist_ok=True)
+    svg.write_text(port_settings.title_backdrop(width))
+    image = Image.fromarray(render_svg(svg, scale), "RGBA")
+    draw = ImageDraw.Draw(image)
+    cap_top = font.getbbox("H")[1]
+    draw.text((port_settings.TITLE_LEFT * scale, port_settings.TITLE_TOP * scale - cap_top), text,
+              font=font, fill=port_settings.TITLE_COLOR)
+    png = f"ce/port/{name}.png"
+    (MENUS / png).parent.mkdir(parents=True, exist_ok=True)
+    image.save(MENUS / png, optimize=True)
+    return png
+
+
 class Art:
     def __init__(self, tags: Tags, redraws: Path, placeholder: Path, shown: dict, pictures: Optional[Path]):
         self.tags, self.redraws, self.shown, self.pictures_folder = tags, redraws, shown, pictures
@@ -298,27 +323,9 @@ class Art:
         self.pngs = []
 
     def title(self, name: str, text: str) -> str:
-        """a <bitmap> of a title this port has that the PC version has not:
-        the text set in OpenCE (the public-domain Newtown respaced, as the
-        port's titles are: tools/title_assets.py) over the PC headers'
-        backdrop"""
-        from PIL import ImageDraw, ImageFont
-        scale = SCALE
-        probe = ImageFont.truetype(str(TITLE_FONT), 1000)
-        left, top, right, bottom = probe.getbbox("H")
-        font = ImageFont.truetype(str(TITLE_FONT), round(port_settings.TITLE_CAP * scale * 1000 / (bottom - top)))
-        width = font.getlength(text) / scale
-        svg = MENUS / "port_svg" / f"{name}.svg"
-        svg.parent.mkdir(parents=True, exist_ok=True)
-        svg.write_text(port_settings.title_backdrop(width))
-        image = Image.fromarray(render_svg(svg, scale), "RGBA")
-        draw = ImageDraw.Draw(image)
-        cap_top = font.getbbox("H")[1]
-        draw.text((port_settings.TITLE_LEFT * scale, port_settings.TITLE_TOP * scale - cap_top), text,
-                  font=font, fill=port_settings.TITLE_COLOR)
-        png = f"ce/port/{name}.png"
-        (MENUS / png).parent.mkdir(parents=True, exist_ok=True)
-        image.save(MENUS / png, optimize=True)
+        """a <bitmap> of a title this port has that the PC version has not
+        (draw_title)"""
+        png = draw_title(name, text)
         self.pngs.append(png)
         return "\n".join([f"\t<bitmap{attributes([('name', name)])}>",
                           f"\t\t<frame{attributes([('png', png), ('width', 512), ('height', 64)])}/>",
@@ -549,7 +556,19 @@ def engine_names(source: Path, start: str, count: int) -> list:
     return re.findall(r'"([^"\\]*)"', text[:text.index("}")])[:count]
 
 
+def draw_titles() -> list:
+    """the titles of the Chupathingy menus' own screens (their files name
+    them: port_settings.CHUPATHINGY_TITLES), drawn again"""
+    return [draw_title(name, text) for name, text in sorted(port_settings.CHUPATHINGY_TITLES.items())]
+
+
 def main() -> None:
+    if sys.argv[1:] == ["--titles"]:
+        # (the titles alone, which need none of the PC version's files: after
+        # a change to their font or text; bitmaps.xml names the same files)
+        for name, text in sorted({**port_settings.TITLES, **port_settings.CHUPATHINGY_TITLES}.items()):
+            print(draw_title(name, text))
+        return
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tags", type=Path, required=True)
     parser.add_argument("--definitions", type=Path, required=True)
@@ -712,7 +731,7 @@ def main() -> None:
     report += ["", "Wired: " + ", ".join(f"`{name}`" for name in sorted(WIRED)) + ".", ""]
     (MENUS / "UNWIRED.md").write_text("\n".join(report))
     files = sorted(path.relative_to(MENUS).as_posix() for path in MENUS.rglob("*.xml"))
-    files += sorted(art.pngs)
+    files += sorted(art.pngs + draw_titles())
     # (the Chupathingy menus' own pictures, drawn by hand: kept)
     files += sorted(path.relative_to(MENUS).as_posix() for path in (MENUS / "chupathingy").rglob("*.png"))
     (MENUS / "menus.json").write_text(json.dumps({

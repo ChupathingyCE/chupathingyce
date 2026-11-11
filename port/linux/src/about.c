@@ -104,7 +104,7 @@ static const struct about_entry licenses[] =
 	{ _line_gap, NULL },
 	{ _line_text, "Cyborg Interface Gothic (fizzy): SIL OFL." },
 	{ _line_text, "Overpass: SIL OFL." },
-	{ _line_text, "Noto Sans: SIL OFL." },
+	{ _line_text, "Noto Sans (letters Cyborg lacks): SIL OFL." },
 	{ _line_text, "Kenney's Input Prompts: CC0." },
 	{ _line_text, "Controller icons (snapchipper): CC0." },
 	{ _line_text, "Platform logos: Simple Icons (CC0) and Wikimedia Commons (public domain)." },

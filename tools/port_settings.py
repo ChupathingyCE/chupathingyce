@@ -1190,10 +1190,18 @@ TITLES = {
     f"{MT}/server_settings/header_host_options": "HOST OPTIONS",
 }
 
+# the titles of the Chupathingy menus' own screens, which their files name
+# (port/assets/menus/chupathingy/delta_profile.xml): drawn as TITLES are
+CHUPATHINGY_TITLES = {
+    "chupathingy/delta_profile/header_delta_profile": "DELTA PROFILE",
+    "chupathingy/delta_profile/header_privacy": "PRIVACY",
+}
+
 
 def title_backdrop(width: float) -> str:
     """a header's dark backdrop, as the PC headers' redraws have it, for text
-    width units wide (the text is set over it in OpenCE: ce_menus.py)"""
+    width units wide (the text is set over it in Cyborg Interface Gothic:
+    ce_menus.py)"""
     return "\n".join([
         '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="64" viewBox="0 0 512 64">',
         "  <defs>",

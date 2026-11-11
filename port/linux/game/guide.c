@@ -4759,7 +4759,7 @@ static void render_toast(void)
 		ui_overlay_rect(x + 8, y + 7, 20, 20, 4, fade(ui_style_color(UI_COLOR_EMBLEM_FRIEND), share));
 		if (guide.toast_initial[0])
 		{
-			ui_overlay_text(UI_FONT_BOLD, 11.0f, x + 18, y + 11, UI_ALIGN_CENTER, fade(ui_style_color(UI_COLOR_EMBLEM_LETTER), share),
+			ui_overlay_text(UI_FONT_MENU, 9.5f, x + 18, y + 11, UI_ALIGN_CENTER, fade(ui_style_color(UI_COLOR_EMBLEM_LETTER), share),
 				guide.toast_initial);
 		}
 		/* (the key that opens it) */

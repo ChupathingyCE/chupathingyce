@@ -1839,12 +1839,12 @@ static void draw_header(void)
 	float corner = launcher.right - width * 0.05f;
 	char line[96];
 
-	text_fit(UI_FONT_TITLE, 15.5f, launcher.left + width * 0.086f, 25.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW,
+	text_fit(UI_FONT_TITLE, 34.0f, launcher.left + width * 0.086f, 19.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW,
 		width * 0.62f, screen_title());
 	snprintf(line, sizeof(line), "Chupathingy %s", build_identity_version());
-	ui_overlay_text(UI_FONT_BOLD, 10.0f, corner, 27.0f, UI_ALIGN_RIGHT, COLOR_WHITE, line);
+	ui_overlay_text(UI_FONT_MENU, 8.5f, corner, 27.0f, UI_ALIGN_RIGHT, COLOR_WHITE, line);
 	snprintf(line, sizeof(line), "%s %s", build_identity_platform(), sizeof(void *) == 8 ? "64-bit" : "32-bit");
-	ui_overlay_text(UI_FONT_BOLD, 8.7f, corner, 41.0f, UI_ALIGN_RIGHT, COLOR_FAINT, line);
+	ui_overlay_text(UI_FONT_MENU, 7.5f, corner, 41.0f, UI_ALIGN_RIGHT, COLOR_FAINT, line);
 	draw_rule(75.0f);
 }
 
@@ -1963,7 +1963,7 @@ static float draw_row(const struct row *row, int index, float x, float y, float 
 	{
 		text_fit(UI_FONT_MENU, 15.0f, label_x, y + 3.0f, UI_ALIGN_LEFT, label_color, picked && lit ? COLOR_ROW_GLOW : 0,
 			x + width - 11.0f - value_width - label_x, row->label);
-		text_fit(UI_FONT_BOLD, 9.0f, label_x, y + 21.5f, UI_ALIGN_LEFT, COLOR_GREY, 0,
+		text_fit(UI_FONT_MENU, 8.0f, label_x, y + 21.5f, UI_ALIGN_LEFT, COLOR_GREY, 0,
 			x + width - 11.0f - label_x, row->sub);
 	}
 	else
@@ -2053,10 +2053,10 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 
 		root_path(launcher.families[launcher.family].folder, folder, sizeof(folder));
 		shown_path(folder, shown, sizeof(shown));
-		path_lines = ui_overlay_text_width(UI_FONT_BOLD, 10.0f, shown) > inner - 16.0f ? 2 : 1;
+		path_lines = ui_overlay_text_width(UI_FONT_MENU, 8.5f, shown) > inner - 16.0f ? 2 : 1;
 		ui_overlay_rect(x, y, inner, 8.0f + 13.0f * (float)path_lines, 6.0f, COLOR_PATH_FIELD);
 		ui_overlay_outline(x, y, inner, 8.0f + 13.0f * (float)path_lines, 6.0f, 0.75f, COLOR_EDGE);
-		text_wrapped(UI_FONT_BOLD, 10.0f, x + 8.0f, y + 4.5f, inner - 16.0f, 13.0f, 2, COLOR_WHITE, shown);
+		text_wrapped(UI_FONT_MENU, 8.5f, x + 8.0f, y + 4.5f, inner - 16.0f, 13.0f, 2, COLOR_WHITE, shown);
 		y += 14.0f + 13.0f * (float)path_lines;
 	}
 	rows_top = y;
@@ -2141,7 +2141,7 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 		char shown[PATH_SIZE];
 
 		shown_path(launcher.root, shown, sizeof(shown));
-		text_wrapped(UI_FONT_BOLD, 9.5f, x + 2.0f, y1 - 12.0f - 26.0f, inner, 13.0f, 2, COLOR_GREY, shown);
+		text_wrapped(UI_FONT_MENU, 8.5f, x + 2.0f, y1 - 12.0f - 26.0f, inner, 13.0f, 2, COLOR_GREY, shown);
 	}
 }
 
@@ -2312,7 +2312,7 @@ static void draw_dialog(void)
 	ui_overlay_layer(2);
 	ui_overlay_rect(launcher.left, 0, width, 480.0f, 0, COLOR_SHADE);
 	ui_style_panel(x0, y0, dialog_width, height, 1.0f);
-	text_fit(UI_FONT_TITLE, 11.5f, x, y0 + 18.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, inner,
+	text_fit(UI_FONT_TITLE, 25.5f, x, y0 + 13.5f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, inner,
 		launcher.dialog_title);
 	y = y0 + 46.0f;
 	switch (launcher.dialog)
@@ -2326,7 +2326,7 @@ static void draw_dialog(void)
 		float fraction = launcher.import_total ? (float)((double)launcher.import_done /
 			(double)launcher.import_total) : 0.0f;
 
-		text_fit(UI_FONT_BOLD, 11.0f, x, y, UI_ALIGN_LEFT, COLOR_WHITE, 0, inner,
+		text_fit(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_LEFT, COLOR_WHITE, 0, inner,
 			launcher.import_file[0] ? launcher.import_file : "Reading the file...");
 		y += 26.0f;
 		ui_overlay_rect(x, y, inner, 12.0f, 6.0f, COLOR_PATH_FIELD);
@@ -2338,7 +2338,7 @@ static void draw_dialog(void)
 		if (launcher.import_total)
 		{
 			snprintf(line, sizeof(line), "%llu of %llu MB", launcher.import_done >> 20, launcher.import_total >> 20);
-			ui_overlay_text(UI_FONT_BOLD, 10.0f, x, y, UI_ALIGN_LEFT, COLOR_GREY, line);
+			ui_overlay_text(UI_FONT_MENU, 8.5f, x, y, UI_ALIGN_LEFT, COLOR_GREY, line);
 		}
 		break;
 	}

@@ -414,7 +414,7 @@ void ui_style_card(float left, float right, float y, const char *name, const cha
 	char initial[2];
 
 	if (title && title[0])
-		ui_overlay_text_glow(UI_FONT_TITLE, 17.0f, right, y + 6, UI_ALIGN_RIGHT, PALETTE(TITLE), PALETTE(TITLE), title);
+		ui_overlay_text_glow(UI_FONT_TITLE, 37.5f, right, y - 0.5f, UI_ALIGN_RIGHT, PALETTE(TITLE), PALETTE(TITLE), title);
 	ui_overlay_rect(left - 4, y + 42, right - left + 8, 1, 0, PALETTE(RULE));
 	if (!name || !name[0])
 		return;
@@ -424,7 +424,7 @@ void ui_style_card(float left, float right, float y, const char *name, const cha
 	initial[0] = name[0] >= 'a' && name[0] <= 'z' ? (char)(name[0] - 32) : name[0];
 	initial[1] = 0;
 	if ((unsigned char)initial[0] < 0x80)
-		ui_overlay_text(UI_FONT_BOLD, 17.0f, left + 16, y + 6, UI_ALIGN_CENTER, 0xFFFFFFFF, initial);
+		ui_overlay_text(UI_FONT_MENU, 15.0f, left + 16, y + 6, UI_ALIGN_CENTER, 0xFFFFFFFF, initial);
 	ui_overlay_text(UI_FONT_MENU, 15.0f, left + 44, y + 1, UI_ALIGN_LEFT, PALETTE(NAME), name);
 	if (status && status[0])
 		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, left + 44, y + 20, UI_ALIGN_LEFT, PALETTE(STATUS), status);

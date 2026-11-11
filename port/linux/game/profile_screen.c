@@ -2135,7 +2135,7 @@ static void draw_header(
 	float x;
 
 	ui_overlay_band(left, right, BAND_Y, BAR_Y);
-	ui_overlay_text_glow(UI_FONT_TITLE, 13.5f, 64, 45.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, "DELTA PROFILE");
+	ui_overlay_text_glow(UI_FONT_TITLE, 29.5f, 64, 40.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, "DELTA PROFILE");
 	/* the profile, then the site, at the right */
 	x = PROMPTS_RIGHT;
 	if (linked())
@@ -2473,7 +2473,7 @@ static void dialog_frame(
 	char const *title)
 {
 	ui_overlay_panel(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, TRUE);
-	ui_overlay_text_glow(UI_FONT_TITLE, 11.0f, DIALOG_X + 22, DIALOG_Y + 22, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, title);
+	ui_overlay_text_glow(UI_FONT_TITLE, 24.0f, DIALOG_X + 22, DIALOG_Y + 18, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, title);
 }
 
 static void dialog_prompts(

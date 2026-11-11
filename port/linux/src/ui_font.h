@@ -20,7 +20,8 @@ enum
 	POSIX_UI_FONT_KEYBOARD,
 	/* the menus' faces (port/assets/fonts): the fonts fonts.json gives the
 	large and small roles, as text_hires.c draws ui\large_ui and
-	ui\small_ui, and OpenCE, the titles' */
+	ui\small_ui, and the titles' (the large role's font, as the menus'
+	title pictures: tools/title_assets.py) */
 	POSIX_UI_FONT_MENU,
 	POSIX_UI_FONT_MENU_SMALL,
 	POSIX_UI_FONT_TITLE,

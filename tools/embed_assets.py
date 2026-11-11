@@ -70,9 +70,10 @@ def role_font(role: str) -> str:
 
 
 # (then the menus' faces, which the text's fonts are too, by their roles in
-# fonts.json: Online Games is drawn in them)
+# fonts.json: Online Games is drawn in them; the titles' is the large one,
+# as the menus' title pictures are set in it: tools/title_assets.py)
 UI_FONT_FILES += [FONT_ASSETS / role_font("large"), FONT_ASSETS / role_font("small"),
-                  FONT_ASSETS / "OpenCE-Regular.ttf"]
+                  FONT_ASSETS / role_font("large")]
 # (then the scoreboard's platform logos)
 UI_FONT_FILES += [UI_FONTS / "platform_icons.ttf"]
 # the controller's button icons the overlay's prompts draw (port/assets/prompts,
@@ -208,7 +209,9 @@ def overlay_fonts(output: Path) -> None:
         "",
         *WORD_MACRO,
     ]
-    for index, name in enumerate(UI_FONT_FILES):
+    # (each file once: one face can be several of the overlay's fonts)
+    unique = list(dict.fromkeys(UI_FONT_FILES))
+    for index, name in enumerate(unique):
         lines.append(f"static const unsigned int font{index}[] = {{")
         lines.extend(words((ROOT / name).read_bytes()))
         lines.append("};")
@@ -216,7 +219,7 @@ def overlay_fonts(output: Path) -> None:
     lines.append("/* (posix_ui_font.c's: each font's data, as words) */")
     lines.append(f"const unsigned int *const ui_font_files[{len(UI_FONT_FILES)}] =")
     lines.append("{")
-    lines.append("\t" + ", ".join(f"font{index}" for index in range(len(UI_FONT_FILES))) + ",")
+    lines.append("\t" + ", ".join(f"font{unique.index(name)}" for name in UI_FONT_FILES) + ",")
     lines.append("};")
     lines.append("")
     # the prompts' icons, as their pixels (RGBA, rows from the top), each

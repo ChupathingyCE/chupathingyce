@@ -2,7 +2,9 @@
 
 Built into the game (port/linux/src/ui_overlay.c), for the screens it draws
 over the game's own (the game list's Online Games, its filters, the
-profile):
+profile). Their text is Cyborg Interface Gothic (`port/assets/fonts`);
+Noto Sans Bold draws only the letters Cyborg lacks (other scripts, in
+players' names). Noto Sans Regular draws nothing now.
 
 | Font | License |
 | --- | --- |

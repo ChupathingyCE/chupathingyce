@@ -269,10 +269,12 @@ with their authors credited in each commit.
 
 </details>
 
-- Fonts: Cyborg Interface Gothic, the high-res text's font, by fizzy, made
-  to match Halo's interface font from Overpass and glyphs of their own
-  (SIL OFL); [Overpass](https://github.com/RedHatOfficial/Overpass) (SIL OFL);
-  [Noto Sans](https://fonts.google.com/noto) (SIL OFL) and
+- Fonts: Cyborg Interface Gothic, the font of the game's text and titles
+  and of our own screens, by fizzy, made to match Halo's interface font
+  from Overpass and glyphs of their own (SIL OFL);
+  [Overpass](https://github.com/RedHatOfficial/Overpass) (SIL OFL);
+  [Noto Sans](https://fonts.google.com/noto) (SIL OFL), for the letters
+  Cyborg lacks, and
   [Kenney's Input Prompts](https://kenney.nl/assets/input-prompts) (CC0); the
   scoreboard's platform logos are one-color marks from
   [Simple Icons](https://simpleicons.org) (CC0) and Wikimedia Commons (public

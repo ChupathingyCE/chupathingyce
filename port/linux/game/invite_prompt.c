@@ -321,7 +321,7 @@ static void password_render(
 		ui_overlay_rect(-200, 0, 1040, 480, 0, XBOX_SHADE);
 		ui_overlay_gradient(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, 0, XBOX_BOX_TOP, XBOX_BOX_BOTTOM);
 		ui_overlay_outline(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, 0, 1.0f, XBOX_EDGE);
-		ui_overlay_text(UI_FONT_TITLE, 11.0f, DIALOG_X + 12, DIALOG_Y + 10, UI_ALIGN_LEFT, XBOX_TEXT, "PASSWORD");
+		ui_overlay_text(UI_FONT_TITLE, 24.0f, DIALOG_X + 12, DIALOG_Y + 6, UI_ALIGN_LEFT, XBOX_TEXT, "PASSWORD");
 		ui_overlay_rect(DIALOG_X + 12, DIALOG_Y + 30, DIALOG_WIDTH - 24, 1, 0, XBOX_EDGE);
 		ui_overlay_text(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 48, UI_ALIGN_CENTER, XBOX_TEXT, JOIN_REASON_PASSWORD);
 	}
@@ -329,7 +329,7 @@ static void password_render(
 	{
 		ui_overlay_rect(-200, 0, 1040, 480, 0, COLOR_SHADE);
 		ui_overlay_panel(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, TRUE);
-		ui_overlay_text_glow(UI_FONT_TITLE, 11.0f, DIALOG_X + 22, DIALOG_Y + 22, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE,
+		ui_overlay_text_glow(UI_FONT_TITLE, 24.0f, DIALOG_X + 22, DIALOG_Y + 18, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE,
 			"PASSWORD");
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 50, UI_ALIGN_CENTER, COLOR_TEXT, COLOR_TEXT_GLOW,
 			JOIN_REASON_PASSWORD);
@@ -468,7 +468,7 @@ void invite_prompt_render(
 		/* (over the game, below where a server's message shows) */
 		ui_overlay_rect(150, 60, 340, 26, 6, COLOR_BANNER);
 		ui_overlay_outline(150, 60, 340, 26, 6, 1.0f, COLOR_BANNER_EDGE);
-		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 320, 67, UI_ALIGN_CENTER, COLOR_TEXT,
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, 320, 67, UI_ALIGN_CENTER, COLOR_TEXT,
 			invite_prompt.password ? "Invite to a game with a password. Pause to type it." :
 			"Invite on your clipboard. Pause to answer.");
 		return;
@@ -485,7 +485,7 @@ void invite_prompt_render(
 		ui_overlay_rect(-200, 0, 1040, 480, 0, XBOX_SHADE);
 		ui_overlay_gradient(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, 0, XBOX_BOX_TOP, XBOX_BOX_BOTTOM);
 		ui_overlay_outline(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, 0, 1.0f, XBOX_EDGE);
-		ui_overlay_text(UI_FONT_TITLE, 11.0f, DIALOG_X + 12, DIALOG_Y + 10, UI_ALIGN_LEFT, XBOX_TEXT, "INVITE");
+		ui_overlay_text(UI_FONT_TITLE, 24.0f, DIALOG_X + 12, DIALOG_Y + 6, UI_ALIGN_LEFT, XBOX_TEXT, "INVITE");
 		ui_overlay_rect(DIALOG_X + 12, DIALOG_Y + 30, DIALOG_WIDTH - 24, 1, 0, XBOX_EDGE);
 		ui_overlay_text(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 52, UI_ALIGN_CENTER, XBOX_TEXT,
 			"Join the game from your clipboard?");
@@ -495,7 +495,7 @@ void invite_prompt_render(
 	{
 		ui_overlay_rect(-200, 0, 1040, 480, 0, COLOR_SHADE);
 		ui_overlay_panel(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, TRUE);
-		ui_overlay_text_glow(UI_FONT_TITLE, 11.0f, DIALOG_X + 22, DIALOG_Y + 22, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE,
+		ui_overlay_text_glow(UI_FONT_TITLE, 24.0f, DIALOG_X + 22, DIALOG_Y + 18, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE,
 			"INVITE");
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 56, UI_ALIGN_CENTER, COLOR_TEXT, COLOR_TEXT_GLOW,
 			"Join the game from your clipboard?");

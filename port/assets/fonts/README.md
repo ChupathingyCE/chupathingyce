@@ -11,11 +11,9 @@ instead (`display.high_res_font`, from `data/fonts/` beside the maps).
 
 | File | Draws | From |
 | --- | --- | --- |
-| `CyborgInterfaceGothic-Regular.ttf` | `ui\large_ui`, `ui\interstate`, `ui\small_ui`, and Online Games' menu text | Cyborg Interface Gothic by fizzy (below) |
+| `CyborgInterfaceGothic-Regular.ttf` | `ui\large_ui`, `ui\interstate`, `ui\small_ui`, the menus' titles (as pictures, `port/assets/titles`), our own screens' text and titles, and Chupathingy's loading picture | Cyborg Interface Gothic by fizzy (below) |
 | `Overpass-900.ttf` | (drew the large tags until 0.8.0) | Overpass, weight 900 (Black) |
 | `Overpass-750.ttf` | (drew `ui\small_ui` until 0.8.0) | Overpass, weight 750 |
-| `OpenCE-Regular.ttf` | the menus' titles, as pictures (`port/assets/titles`) | OpenCE: Newtown, respaced for this project (`tools/title_font.py`) |
-| `Newtown-Regular.ttf` | (OpenCE's source) | Newtown by Roger White, unmodified |
 
 The maps' fonts are Interstate (Tobias Frere-Jones, The Font Bureau), a
 commercial typeface that cannot be shipped.
@@ -41,22 +39,16 @@ Reserved Font Name. Matched against the maps' glyphs, its weights 900 and 750 ov
 them as much as Interstate Bold does, at the same letter widths.
 
 The menus' titles are pictures of text in the maps, set in another
-commercial typeface. OpenCE (Open Community Edition) stands in for it:
-Newtown, a typeface in the same style by Roger White (1994), which its author
-released into the public domain (`Newtown-LICENSE.txt` quotes his statement
-and where it is archived), respaced for this project. Only its spacing is
-changed, its outlines are Newtown's: each letter's side spaces and the
-kerning pairs are measured from where the letters sit in the maps' titles.
-OpenCE is under the SIL Open Font License 1.1 (`OpenCE-OFL.txt`), without a
-Reserved Font Name. `tools/title_assets.py` draws the menus' titles with it,
-and the builds embed those pictures; the overlay's screens (Online Games)
-draw their titles with it too, so the builds embed it, and the release
-packages carry `OpenCE-OFL.txt`. To measure its spacing
-again and rebuild it:
+commercial typeface. They are set again in Cyborg Interface Gothic, so the
+titles and the text are one face: `tools/title_assets.py` draws the Xbox
+menus' titles over their own plates, at the old text's place, width and
+capital height, and `tools/ce_menus.py --titles` draws the titles our menus
+add (the Gearbox and Chupathingy menus' own screens). The overlay's screens
+(Online Games, the Delta Profile, the setup screen) draw their titles in it
+too. To draw them again:
 
-    python3 tools/title_font.py --measure    # paste the values into tools/title_font.py
-    python3 tools/title_font.py
     python3 tools/title_assets.py --map assets/maps/ui.map
+    python3 tools/ce_menus.py --titles
 
 The Overpass files are static instances of Google Fonts' variable Overpass
 (`ofl/overpass/Overpass[wght].ttf`, google/fonts commit
