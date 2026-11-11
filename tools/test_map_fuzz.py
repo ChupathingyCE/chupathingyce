@@ -16,7 +16,7 @@ For longer runs, on the maps in assets/ (read in place, inflated into a
 scratch folder, never copied into the repository):
 
     python3 tools/test_map_fuzz.py --target xbox --seconds 1800 [--base MAP] [--corpus DIR]
-    python3 tools/test_map_fuzz.py --target ce --seconds 1800 --base maps_ce/foo.map --resources maps_ce
+    python3 tools/test_map_fuzz.py --target ce --seconds 1800 --base maps_ce/foo.map --resources maps_ce [--xbox-ui maps/ui.map]
     python3 tools/test_map_fuzz.py --target vorbis --seconds 600 --corpus DIR
 
 With --base, each input is a list of changes to that map (map_fuzz.c), which
@@ -75,6 +75,7 @@ CUSTOM_EDITION = [
     "port/linux/game/ce_functions.c",
     "source/bitmaps/bitmaps.c",
     "source/rasterizer/rasterizer_geometry.c",
+    "source/rasterizer/rasterizer_swizzle.c",
     # (ce_hud.c's PNG button icons)
     *(f"port/third_party/zlib/{name}.c" for name in ("adler32", "crc32", "inffast", "inflate", "inftrees", "zutil")),
 ]
@@ -101,6 +102,9 @@ def build(target, directory, cc):
     def compile_unit(source, output, extra_source=None):
         command = compile_command(BUILD, source, output, {"flags": [f"-D{define}", *SANITIZE],
                                                           **({"source": extra_source} if extra_source else {})})
+        # (the build's compiler, after a launcher if it has one: ccache in CI)
+        if Path(command[0]).name in ("ccache", "sccache"):
+            command = command[1:]
         command[0] = cc
         subprocess.run(command, cwd=ROOT, check=True)
 
@@ -396,6 +400,7 @@ def main():
     parser.add_argument("--seconds", type=int, default=600)
     parser.add_argument("--base", type=Path, help="a map to change (patch mode)")
     parser.add_argument("--resources", type=Path, help="Custom Edition's resource maps' folder")
+    parser.add_argument("--xbox-ui", type=Path, help="the Xbox's ui.map, whose button icons HUDs are given")
     parser.add_argument("--corpus", type=Path, help="a corpus folder (kept)")
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--build-dir", type=Path, help="where the fuzzer is built (kept)")
@@ -421,6 +426,8 @@ def main():
         environment["MAP_FUZZ_BASE"] = str(base)
     if options.resources:
         environment["MAP_FUZZ_CE_RESOURCES"] = str(options.resources)
+    if options.xbox_ui:
+        environment["MAP_FUZZ_XBOX_UI"] = str(options.xbox_ui)
     if options.inputs:
         result = run(binary, options.inputs, environment=environment)
         sys.stdout.write(result.stdout)
