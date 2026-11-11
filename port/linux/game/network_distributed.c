@@ -509,6 +509,7 @@ static void distributed_send_boundary(long machine_index);
 revert), a client's as the host's boundary message last said (0: none yet,
 when it takes nothing of the host's) */
 static uint32_t distributed_epoch = 0;
+static uint8_t const distributed_no_parts[sizeof(((struct network_rules_layout *)0)->unit_part_size)] = { 0 };
 
 /* how each player last died, by absolute index: the host's own, which it
 sends its clients, and a client's copy of the host's */
@@ -1699,8 +1700,13 @@ static word distributed_unit_state_read(
 
 			after_up = network_rules_unit_part_bytes(layout, parts, DELTA_LAYOUT_PART_AFTER_UP, alive, placed);
 			last = network_rules_unit_part_bytes(layout, parts, DELTA_LAYOUT_PART_LAST, alive, placed);
-			if ((after_up < 0 || last < 0) && (layout->unit_part_size[6] || layout->unit_part_size[7]))
+			/* (a layout that says further parts: one it does not say is
+			unreadable; without any, read as ever) */
+			if ((after_up < 0 || last < 0) &&
+				csmemcmp(layout->unit_part_size, distributed_no_parts, sizeof(distributed_no_parts)))
+			{
 				return 0;
+			}
 			if (after_up < 0 || last < 0)
 				after_up = last = 0;
 		}
