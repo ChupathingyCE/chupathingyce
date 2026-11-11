@@ -37,7 +37,7 @@ struct capture_job
 	const unsigned char *lent;
 	volatile int *released;
 	long width, height, pitch;
-	int bgra;
+	int bgra, bottom_up;
 	char name[160];
 };
 
@@ -173,7 +173,7 @@ static void write_screenshot(struct capture_job *job)
 	}
 	for (y = 0; y < job->height; y++)
 	{
-		const unsigned char *source = job->pixels + y * job->pitch;
+		const unsigned char *source = job->pixels + (job->bottom_up ? job->height - 1 - y : y) * job->pitch;
 		unsigned char *destination = rgb + y * job->width * 3;
 
 		for (x = 0; x < job->width; x++, source += 4, destination += 3)
@@ -254,6 +254,11 @@ void capture_request_screenshot(void)
 	pthread_mutex_unlock(&capture.lock);
 }
 
+int capture_screenshot_wanted(void)
+{
+	return capture.screenshot_wanted;
+}
+
 int capture_screenshot_take(void)
 {
 	int wanted;
@@ -269,7 +274,7 @@ int capture_screenshot_take(void)
 }
 
 static int queue_job(unsigned char *pixels, const unsigned char *lent, volatile int *released, long width,
-	long height, long pitch, int bgra)
+	long height, long pitch, int bgra, int bottom_up)
 {
 	int queued = 0;
 
@@ -298,6 +303,7 @@ static int queue_job(unsigned char *pixels, const unsigned char *lent, volatile 
 		job->height = height;
 		job->pitch = pitch;
 		job->bgra = bgra;
+		job->bottom_up = bottom_up;
 		snprintf(job->name, sizeof(job->name), "%s", capture.wanted_name);
 		pthread_cond_signal(&capture.wake);
 		queued = 1;
@@ -308,17 +314,17 @@ static int queue_job(unsigned char *pixels, const unsigned char *lent, volatile 
 	return queued;
 }
 
-void capture_screenshot_submit(unsigned char *pixels, long width, long height, long pitch, int bgra)
+void capture_screenshot_submit(unsigned char *pixels, long width, long height, long pitch, int bgra, int bottom_up)
 {
-	if (pixels && !queue_job(pixels, NULL, NULL, width, height, pitch, bgra))
+	if (pixels && !queue_job(pixels, NULL, NULL, width, height, pitch, bgra, bottom_up))
 		free(pixels);
 }
 
 int capture_screenshot_lend(const unsigned char *pixels, long width, long height, long pitch, int bgra,
-	volatile int *released)
+	int bottom_up, volatile int *released)
 {
 	*released = 0;
-	if (pixels && queue_job(NULL, pixels, released, width, height, pitch, bgra))
+	if (pixels && queue_job(NULL, pixels, released, width, height, pitch, bgra, bottom_up))
 		return 1;
 	*released = 1;
 	return 0;

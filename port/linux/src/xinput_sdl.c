@@ -382,6 +382,23 @@ static void typing_gamepad(const struct platform_input_state *input, XINPUT_GAME
 	pad->bAnalogButtons[XINPUT_GAMEPAD_B] |= analog(k[SDL_SCANCODE_ESCAPE]);
 }
 
+#ifdef HALO_CAPTURE
+static int capture_key(int clip);
+#endif
+
+/* whether a key is one that takes a screenshot or a clip (Print Screen,
+controls.screenshot's, controls.clip's): pressing one is not using the
+keyboard, so the prompts stay the controller's */
+static BOOL capture_scancode(int scancode)
+{
+#ifdef HALO_CAPTURE
+	return scancode == SDL_SCANCODE_PRINTSCREEN || scancode == capture_key(0) || scancode == capture_key(1);
+#else
+	(void)scancode;
+	return FALSE;
+#endif
+}
+
 static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GAMEPAD *pad)
 {
 	const unsigned char *k = input->keys;
@@ -398,12 +415,12 @@ static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GA
 	{
 		int scancode;
 
-		/* (not a system shortcut: Command held, as a screenshot's; and the
-		modifiers alone do not count) */
+		/* (not a system shortcut: Command held, as a screenshot's; not the
+		screenshot's and clip's keys; and the modifiers alone do not count) */
 		for (scancode = SDL_SCANCODE_A; scancode < SDL_SCANCODE_LCTRL && !k[SDL_SCANCODE_LGUI] &&
 			!k[SDL_SCANCODE_RGUI]; scancode++)
 		{
-			if (k[scancode])
+			if (k[scancode] && !capture_scancode(scancode))
 			{
 				last_input_scheme = 0;
 				last_input_seen = TRUE;
@@ -595,10 +612,14 @@ static int capture_key(int clip)
 controls.screenshot's key, controls.clip's (neither while typing, should it
 be a letter's), or with controls.capture_buttons the first player's Share
 button or Back with the right stick pressed, and Back with the left stick
-for a clip */
-static void capture_asks(const struct platform_input_state *input, SDL_Gamepad *gamepads[], int count)
+for a clip. Back and the sticks' clicks of those, until Back is let go,
+are the capture's alone: the menus and DELTA's hold of Back do not get
+them (pad) */
+static void capture_asks(const struct platform_input_state *input, SDL_Gamepad *gamepads[], int count,
+	XINPUT_GAMEPAD *pad)
 {
-	static BOOL shot_was, clip_was;
+	static BOOL shot_was, clip_was, combination;
+	BOOL back_held = FALSE;
 	int shot_key = capture_key(0), clip_key = capture_key(1), index;
 	BOOL typing = chat_typing || text_typing || console_is_active();
 	BOOL shot_down = input->keys[SDL_SCANCODE_PRINTSCREEN] || (shot_key >= 0 && input->keys[shot_key] && !typing);
@@ -618,8 +639,18 @@ static void capture_asks(const struct platform_input_state *input, SDL_Gamepad *
 			}
 			if (back && SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_LEFT_STICK))
 				clip_down = TRUE;
+			if (back && (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_LEFT_STICK) ||
+				SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_RIGHT_STICK)))
+			{
+				combination = TRUE;
+			}
+			back_held = back_held || back;
 		}
 	}
+	if (!back_held)
+		combination = FALSE;
+	if (combination)
+		pad->wButtons &= (WORD)~(XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_LEFT_THUMB | XINPUT_GAMEPAD_RIGHT_THUMB);
 	if (shot_down && !shot_was)
 		capture_request_screenshot();
 	shot_was = shot_down;
@@ -2216,10 +2247,11 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 				if (port_gamepad_shared[other] && port_gamepad(gamepads, count, other))
 					own[own_count++] = port_gamepad(gamepads, count, other);
 			}
-			guide_asks(&input, own, own_count, &state->Gamepad);
 #ifdef HALO_CAPTURE
-			capture_asks(&input, own, own_count);
+			/* (first: a capture's Back is not DELTA's hold) */
+			capture_asks(&input, own, own_count, &state->Gamepad);
 #endif
+			guide_asks(&input, own, own_count, &state->Gamepad);
 		}
 		guide_take(&state->Gamepad);
 #endif

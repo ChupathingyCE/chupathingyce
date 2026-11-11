@@ -526,6 +526,9 @@ static struct
 	/* (a toast for something the player just did, as a screenshot: shown
 	in a game too) */
 	boolean toast_always;
+	/* (a screenshot's or clip's own, capture.c's: left out of the next
+	screenshot) */
+	boolean toast_capture;
 	boolean debug_toast_done;
 	boolean debug_open_done;
 	/* debug.delta_test: the next step, and when the last one ran */
@@ -1711,6 +1714,7 @@ static void toast_from(short kind, char const *key, char const *title, char cons
 	guide.toast_time = system_milliseconds();
 	guide.toast_shown = TRUE;
 	guide.toast_always = FALSE;
+	guide.toast_capture = FALSE;
 }
 
 /* the first party invite in fresh that was not in the state shown (-1:
@@ -4593,6 +4597,12 @@ static void render_toast(void)
 	/* (never over the loading screen) */
 	if (!toast_visible())
 		return;
+#ifdef HALO_CAPTURE
+	/* (a screenshot's toast is not in the next screenshot: the frame drawn
+	while one is asked for is the one it is of) */
+	if (guide.toast_capture && capture_screenshot_wanted())
+		return;
+#endif
 	share = age < TOAST_FADE ? (float)age / TOAST_FADE :
 		age > TOAST_TIME - TOAST_FADE ? (float)(TOAST_TIME - age) / TOAST_FADE : 1.0f;
 	ui_overlay_layer(4);
@@ -4818,6 +4828,7 @@ void guide_toast(char const *title, char const *line)
 	guide.toast_time = system_milliseconds();
 	guide.toast_shown = TRUE;
 	guide.toast_always = FALSE;
+	guide.toast_capture = FALSE;
 }
 
 #ifdef HALO_CAPTURE
@@ -4835,6 +4846,7 @@ static void capture_update(void)
 	{
 		guide_toast(title, line);
 		guide.toast_always = TRUE;
+		guide.toast_capture = TRUE;
 	}
 }
 #endif
