@@ -165,8 +165,11 @@ posix_ulong posix_process_id(void);
 its window has the keyboard) */
 int posix_shift_key_held(void);
 /* registers this executable as the desktop's handler of links with this
-scheme (scheme://...); returns 0 where there is no such thing (Android,
-whose app declares its links in its manifest). May wait for a program */
+scheme (scheme://...: halo, link_register.h, on Windows, Linux and
+FreeBSD), never in place of another program's: 1 when it is (or already
+was) this game's, -1 when another program's handler was left as it is, 0
+where there is no such thing (Android, whose app declares its links in its
+manifest) or it failed. May wait for a program */
 int posix_register_url_scheme(const char *scheme, const char *description);
 /* registers how Discord starts this executable for a Join of the Discord
 application (digits): discord-<application>, as discord_register.h says

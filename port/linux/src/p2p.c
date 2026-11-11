@@ -506,13 +506,20 @@ void p2p_register_url_scheme(const char *scheme, const char *description)
 	(void)scheme;
 	(void)description;
 #else
+	int result;
+
 	if (config_real("debug.exit_after") > 0.0 || config_boolean("debug.hidden_window") ||
 		config_boolean("debug.null_renderer"))
 		return;
 	/* it may run a program and wait for it */
 	pthread_mutex_unlock(&p2p_lock);
-	posix_register_url_scheme(scheme, description);
+	result = posix_register_url_scheme(scheme, description);
 	pthread_mutex_lock(&p2p_lock);
+	if (result < 0)
+	{
+		platform_log("Internet play: another program opens %s:// links; it is left as it is (party and game "
+			"links open that program)", scheme);
+	}
 #endif
 }
 
@@ -3428,6 +3435,35 @@ static int command_line_invite(char *text, int size)
 	return 0;
 }
 
+#ifndef HALO_ANDROID
+/* the first command line argument a copy of the game started for a link
+hands over to the one running: an invite (command_line_invite), or a
+party's link (halo://party/CODE, which the running copy's Guide asks about:
+p2p_invite_received) */
+static int command_line_link(char *text, int size)
+{
+	int index;
+
+	if (command_line_invite(text, size))
+		return 1;
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE)
+	for (index = 1; posix_command_line_argument(index, text, (posix_ulong)size); index++)
+	{
+		static const char prefix[] = "halo://party/";
+		int length;
+
+		for (length = 0; prefix[length] && (text[length] | 0x20) == prefix[length]; length++)
+			;
+		if (!prefix[length] && strlen(text) < 64)
+			return 1;
+	}
+#else
+	(void)index;
+#endif
+	return 0;
+}
+#endif
+
 /* the key of this user's copies of the game, from a secret only they can
 read: another user's program may have the port, and must neither read the
 invites nor pass its own */
@@ -3466,7 +3502,7 @@ int p2p_hand_off_invite(void)
 	int attempt;
 	int result = 0;
 
-	if (!command_line_invite(invite, sizeof(invite)) || !handoff_key(key))
+	if (!command_line_link(invite, sizeof(invite)) || !handoff_key(key))
 		return 0;
 	socket = open_socket(SOCK_DGRAM, network_long(0x7F000001), 0, NULL);
 	if (socket < 0)
@@ -3491,7 +3527,7 @@ int p2p_hand_off_invite(void)
 	}
 	posix_socket_close(socket);
 	if (result)
-		platform_log("Internet play: passed the invite to the copy of the game already running");
+		platform_log("Internet play: passed the link to the copy of the game already running");
 	return result;
 #endif
 }
@@ -3971,7 +4007,7 @@ static void *p2p_thread(void *unused)
 	pthread_mutex_lock(&p2p_lock);
 #ifndef HALO_ANDROID
 	/* (here: it may wait for a program) */
-	p2p_register_url_scheme("halo", "Halo: Combat Evolved invite");
+	p2p_register_url_scheme("halo", "Chupathingy link");
 #endif
 	/* (until the game's end asks the platform layer's threads to stop,
 	thread_stop.h: a pass at most LOOP_INTERVAL * 5 away) */

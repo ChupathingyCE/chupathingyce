@@ -1002,7 +1002,13 @@ Machines with an invite link can play system link on the internet. This
 project has no server.
 
 When a copy of the game starts to host a system link game, it makes an
-invite link: `halo://join/<64 hexadecimal digits>`. The game writes the link
+invite link: `halo://join/<64 hexadecimal digits>`. What the game copies
+(INVITE LINK, `network.copy_to_clipboard`) is the site's join page for it,
+`https://chupathingy.org/join/<digits>`, since Discord and chat programs
+make no link of `halo://`; the page's button opens the `halo://` link. The
+game reads both forms wherever it reads an invite. In the same way, DELTA's
+COPY PARTY LINK copies `https://stats.chupathingy.org/party/<CODE>`, whose
+page opens `halo://party/<CODE>`. The game writes the link
 to the standard error. With `network.copy_to_clipboard` set to `true`, it
 also puts the link on the clipboard; INVITE LINK in the Gearbox menus'
 Server Settings copies it at any time. The game reads the clipboard only when you paste (PASTE
@@ -1013,8 +1019,14 @@ when it gets one.
 
 To join a game, do one of these steps:
 
-- Open the link. The game is the handler of `halo://` links. If the game
-  already operates, the new copy gives the link to it and stops. A key in a
+- Open the link. The game is the handler of `halo://` links: at start it
+  registers itself (on Windows, `HKEY_CURRENT_USER\Software\Classes\halo`;
+  on Linux and FreeBSD, `chupathingy-links.desktop` in the user's
+  applications folder, made the default with `xdg-mime`; on macOS, the
+  bundle's `Info.plist`). It never replaces another program's handler; the
+  log says when it leaves one (`src/link_register.h`). If the game already
+  operates, the new copy gives the link (an invite, or a party's
+  `halo://party/` link) to it and stops. A key in a
   file that only the user can read (`halo-ce-universal.key` in
   `$XDG_RUNTIME_DIR`, else `~/.halo-ce-universal.key`; on Windows in
   `%LOCALAPPDATA%`) encrypts the link, so the programs of other users cannot
