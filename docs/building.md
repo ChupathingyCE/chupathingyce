@@ -184,5 +184,5 @@ console repository then moves its submodule to it.
 
 | Option | What it does |
 | --- | --- |
-| `--console-limits` | a desktop build with the original Xbox's network and object limits, to test the console's side of cross-play on one computer ([cross-play.md](cross-play.md)); never a build to ship |
+| `--console-limits` | a desktop build with the original Xbox's network and object limits, to test the console's side of cross-play on one computer; never a build to ship |
 | `--window-rebase` | the 32-bit Linux build with its Xbox memory window wherever `HALO_WINDOW_BASE` puts it, as the Switch's guest has it; never a build to ship |

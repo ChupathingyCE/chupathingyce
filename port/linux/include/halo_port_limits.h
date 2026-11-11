@@ -52,7 +52,7 @@ players are machines #1 to #16 */
 /* the slots on the network: the PC builds' (128 and 128 since network
 version 11; network version 28 keeps them), which never change; a build with the console's limits folds the PCs' game settings
 record and game type states into its own slots as they arrive
-(port/linux/game/network_game_layout.c, docs/cross-play.md) */
+(port/linux/game/network_game_layout.c) */
 #define HALO_PORT_WIRE_NETWORK_PLAYERS 128
 #define HALO_PORT_WIRE_NETWORK_MACHINES 128
 

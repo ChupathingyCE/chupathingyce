@@ -1032,7 +1032,7 @@ def test_game_takes_ours_when_the_community_lacks_it(repository, game_map, tmp_p
     """The game (HALO_MAP_REPO_GAME, its executable, built with
     port/linux/src/maps_key.h's primary key set to HALO_MAP_REPO_KEY's public
     half, a PEM file) downloads HALO_MAP_REPO_MAP (a Custom Edition map, read
-    from ~/halo-maps, never copied into the repository) with debug.network_test
+    from your own maps folder, never copied into the repository) with debug.network_test
     "download:<name>:<version>", HALO_MAP_REPO_XBOX_MAPS its maps folder: the
     community repositories (debug.map_repositories, here the fake's /hac2) are
     asked first and don't have it, then Chupathingy maps gives it."""
