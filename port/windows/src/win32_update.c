@@ -290,6 +290,13 @@ int update_start_in_place(const char *path)
 	return 0;
 }
 
+int update_start_in_place_with(const char *path, const char *argument)
+{
+	(void)path;
+	(void)argument;
+	return 0;
+}
+
 int update_windows_runs_64bit(void)
 {
 #ifdef _WIN64
