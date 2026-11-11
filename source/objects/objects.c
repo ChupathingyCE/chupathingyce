@@ -3844,9 +3844,18 @@ void object_attach_to_node(
 	return;
 }
 
+/* port: muzzle shots must exclude their shooter during the safety check. */
 boolean object_force_inside_bsp(
 	long object_index,
 	real_point3d const *known_good_point)
+{
+	return object_force_inside_bsp_ignoring(object_index, known_good_point, NONE);
+}
+
+boolean object_force_inside_bsp_ignoring(
+	long object_index,
+	real_point3d const *known_good_point,
+	long ignore_object_index)
 {
 	struct collision_result collision;
 
@@ -3856,7 +3865,7 @@ boolean object_force_inside_bsp(
 	match_assert("c:\\halo\\SOURCE\\objects\\objects.c", 2365, global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
 	global_current_collision_users[global_current_collision_user_depth++] = 19;
 	
-	if (collision_test_line(_collision_test_for_projectiles_flags, known_good_point, &object->object.position, NONE, &collision) ||
+	if (collision_test_line(_collision_test_for_projectiles_flags, known_good_point, &object->object.position, ignore_object_index, &collision) ||
 		object->object.location.cluster_index==NONE)
 	{
 		if (collision.location.cluster_index!=NONE)

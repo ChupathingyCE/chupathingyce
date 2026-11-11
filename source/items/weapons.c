@@ -2692,7 +2692,10 @@ static void trigger_create_projectiles(
 						real_point3d camera_position;
 
 						unit_get_camera_position(owner_object_index, &camera_position);
-						object_force_inside_bsp(projectile_object_index, &camera_position);
+						/* port: keep MCC spawns off their owner (chester's, without
+						his shoulder camera's muzzle shots, which we don't have) */
+						object_force_inside_bsp_ignoring(projectile_object_index, &camera_position,
+							mcc_ray ? owner_object_index : NONE);
 					}
 					if (target_object_index!=NONE)
 					{
