@@ -1029,6 +1029,44 @@ def test_restart_keeps_the_arguments(keys, builds, server, tmp_path):
     assert has(lines, f"{NEW} halo arguments: --setup two words")
 
 
+def test_launcher_restart_in_the_same_process(builds, tmp_path):
+    """the launcher's restarts (SETUP in the menus: --setup; a mode that
+    needs one: --mode=<id>) start the game again in this same process
+    (update_start_in_place_with), with that one argument and not the old
+    run's, so Steam and gamescope see one game, not two"""
+    folder = install(tmp_path, builds)
+    log = tmp_path / "update.log"
+    home = tmp_path / "home"
+    (home / "saves").mkdir(parents=True, exist_ok=True)
+    for argument in ("--setup", "--mode=ce_plus"):
+        log.write_text("")
+        environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home),
+                       "HALO_SAVE_ROOT": str(home / "saves"), "HALO_UPDATE_TEST_LOG": str(log),
+                       "HALO_UPDATE_TEST_SERVER": "https://127.0.0.1:9", "HALO_UPDATE_TEST_RESTART_WITH": argument}
+        subprocess.run([str(folder / "halo")], cwd=folder, env=environment, timeout=120, capture_output=True)
+        deadline = time.time() + 60
+        lines = []
+        while time.time() < deadline:
+            lines = log.read_text().splitlines()
+            if sum(line.endswith(" done") for line in lines) >= 1:
+                break
+            time.sleep(0.2)
+        # (and no third run after it: a watcher that took the same program for
+        # the old one would start it again as it ends)
+        time.sleep(2)
+        lines = log.read_text().splitlines()
+        assert has(lines, f"{OLD} halo restarting with {argument}"), "\n".join(lines)
+        assert has(lines, f"{OLD} halo arguments: {argument}"), "\n".join(lines)
+        runs = pids(lines, OLD, "halo")
+        assert len(runs) == 2 and runs[0] == runs[1], runs
+    launcher = (ROOT / "port/linux/src/launcher.c").read_text()
+    for function in ("static int restart_with(const char *mode)", "int launcher_restart_to_setup(void)"):
+        body = launcher[launcher.index(function):]
+        body = body[:body.index("\n}\n")]
+        assert body.index("update_start_in_place_with(") < body.index("update_launch_with(")
+        assert "#ifdef __linux__" in body
+
+
 def test_restart_waits_for_lobbies_too():
     """the game restarts into an update only at the main menu with no network
     game: the pregame lobby and the carnage report are main menu screens

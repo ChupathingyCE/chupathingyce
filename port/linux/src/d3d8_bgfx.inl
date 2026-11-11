@@ -3846,11 +3846,19 @@ resolution: its vertices and atlas as ui_overlay.c makes them, its shaders
 in the translators' dialect (in window pixels from the top, as Metal's
 fragment coordinates are) */
 
+/* (its inputs at locations 0 to 4, with no gap: bgfx's Vulkan renderer takes
+an unused location in the container's list (bg_vulkan_container's 0xffff)
+for instance data, and gives each such one a stand-in input after the
+layout's own, at locations 5 on, which landed on the texture coordinates'
+10 and 11 when they were there: every shape and glyph lost its texture
+coordinates, and the setup screen on bgfx showed only its shapes' left
+edges. The texture coordinates are bgfx's tangent and bitangent slots, as
+xgpu_bgfx_overlay_draw's layout gives them) */
 static const char bg_overlay_vertex_source[] =
 	"layout(location = 0) in vec2 a_position;\n"
-	"layout(location = 10) in vec2 a_texcoord0;\n"
+	"layout(location = 2) in vec2 a_tangent;\n"
 	"layout(location = 1) in vec4 a_normal;\n"
-	"layout(location = 11) in vec2 a_texcoord1;\n"
+	"layout(location = 3) in vec2 a_bitangent;\n"
 	"layout(location = 4) in vec4 a_color0;\n"
 	"uniform vec2 scale;\n"
 	"out vec4 xT0;\n"
@@ -3859,9 +3867,9 @@ static const char bg_overlay_vertex_source[] =
 	"out vec4 xD0;\n"
 	"void main()\n"
 	"{\n"
-	"\txT0 = vec4(a_texcoord0, 0.0, 0.0);\n"
+	"\txT0 = vec4(a_tangent, 0.0, 0.0);\n"
 	"\txT1 = a_normal;\n"
-	"\txT2 = vec4(a_texcoord1, 0.0, 0.0);\n"
+	"\txT2 = vec4(a_bitangent, 0.0, 0.0);\n"
 	"\txD0 = a_color0;\n"
 	"\tgl_Position = vec4(a_position * scale - vec2(1.0, -1.0), 0.0, 1.0);\n"
 	"}\n";
@@ -3955,9 +3963,11 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	bg.overlay = bgfx_create_program(vertex->shader, fragment->shader, false);
 	bgfx_vertex_layout_begin(&bg.overlay_layout, BGFX_RENDERER_TYPE_NOOP);
 	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_POSITION, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_TEXCOORD0, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+	/* (the texture coordinates in the tangent and bitangent slots: locations
+	2 and 3, bg_overlay_vertex_source) */
+	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_TANGENT, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
 	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_NORMAL, 4, BGFX_ATTRIB_TYPE_FLOAT, false, false);
-	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_TEXCOORD1, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_BITANGENT, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
 	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_COLOR0, 4, BGFX_ATTRIB_TYPE_UINT8, true, false);
 	bgfx_vertex_layout_end(&bg.overlay_layout);
 	bg.overlay_atlas = bgfx_create_texture_2d((uint16_t)atlas_size, (uint16_t)atlas_size, false, 1,
