@@ -196,6 +196,27 @@ int main(void)
 			snprintf(text, sizeof(text), "https://chupathingy.org.example.com/join/%s", code);
 			check(p2p_invite_link_digits(text) == NULL, "the site's name inside another host is not the site");
 			check(p2p_invite_link_digits("https://chupathingy.org/party/ABCDEF") == NULL, "a party page is no invite");
+			/* a host ends at the path: ?, #, @, a backslash or a port in it is
+			no join page of the site's */
+			{
+				static const char *const tricks[] = {
+					"https://evil.com?.chupathingy.org/join/%s",
+					"https://evil.com#.chupathingy.org/join/%s",
+					"https://chupathingy.org@evil.com/join/%s",
+					"https://evil.com@chupathingy.org/join/%s",
+					"https://evil.com\\.chupathingy.org/join/%s",
+					"https://chupathingy.org:443/join/%s",
+					"https://chupathingy.org%%2F/join/%s",
+					"https://_x.chupathingy.org/join/%s",
+				};
+				int trick;
+
+				for (trick = 0; trick < (int)(sizeof(tricks) / sizeof(*tricks)); trick++)
+				{
+					snprintf(text, sizeof(text), tricks[trick], code);
+					check(p2p_invite_link_digits(text) == NULL, tricks[trick]);
+				}
+			}
 
 			/* a locked game's link goes as its page too, and reads back locked */
 			check(p2p_invite_share_link(link, shared, sizeof(shared)), "a locked invite has a link to share");

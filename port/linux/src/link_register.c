@@ -126,6 +126,17 @@ int link_register_desktop_exec(const char *text, char *executable, int size)
 	return used > 0;
 }
 
+int link_register_path_absolute(const char *path)
+{
+	if (!path)
+		return 0;
+	/* /..., C:\... or C:/..., \\server\... */
+	return path[0] == '/' ||
+		(((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) && path[1] == ':' &&
+			(path[2] == '\\' || path[2] == '/')) ||
+		(path[0] == '\\' && path[1] == '\\');
+}
+
 int link_register_program_ours(const char *named, const char *executable, link_register_exists exists,
 	int ignore_case)
 {
@@ -152,8 +163,10 @@ int link_register_program_ours(const char *named, const char *executable, link_r
 	/* another copy of this game, by its name */
 	if (strlen(base) >= sizeof(prefix) - 1 && same_text(base, prefix, sizeof(prefix) - 1, 1))
 		return 1;
-	/* a program that is gone: nothing runs it */
-	return exists && !exists(named);
+	/* a program that is gone: nothing runs it. Only a whole path tells
+	(a bare name, opence or flatpak, is found on PATH, and an unquoted
+	Windows command's first word, C:\Program, is not its program) */
+	return exists && link_register_path_absolute(named) && !exists(named);
 }
 
 int link_register_desktop_entry_ours(const char *text, const char *executable, link_register_exists exists)
@@ -173,41 +186,32 @@ int link_register_desktop_entry_ours(const char *text, const char *executable, l
 		link_register_program_ours(named, executable, exists, 0);
 }
 
-int link_register_mimeapps_default(const char *text, char *name, int size)
+int link_register_query_answer(const char *text, char *name, int size)
 {
-	static const char key[] = LINK_REGISTER_MIME_TYPE "=";
-	const char *line;
-	int in_defaults = 0;
+	size_t start, length;
+	static const char suffix[] = ".desktop";
 
 	if (size <= 0)
 		return 0;
 	name[0] = 0;
-	for (line = text; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL)
+	if (!text)
+		return 0;
+	start = strspn(text, " \t\r\n");
+	length = strcspn(text + start, " \t\r\n;");
+	if (!length || (int)length >= size || length <= sizeof(suffix) - 1 ||
+		strncmp(text + start + length - (sizeof(suffix) - 1), suffix, sizeof(suffix) - 1))
 	{
-		size_t length = strcspn(line, "\r\n");
-
-		if (line[0] == '[')
-			in_defaults = length == strlen("[Default Applications]") &&
-				!strncmp(line, "[Default Applications]", length);
-		else if (in_defaults && !strncmp(line, key, sizeof(key) - 1))
-		{
-			const char *value = line + sizeof(key) - 1;
-			size_t value_length = strcspn(value, ";\r\n");
-
-			if (!value_length || (int)value_length >= size)
-				return 0;
-			memcpy(name, value, value_length);
-			name[value_length] = 0;
-			/* (a file's name, never a path) */
-			if (strchr(name, '/'))
-			{
-				name[0] = 0;
-				return 0;
-			}
-			return 1;
-		}
+		return 0;
 	}
-	return 0;
+	memcpy(name, text + start, length);
+	name[length] = 0;
+	/* (a file's name, never a path) */
+	if (strchr(name, '/') || strchr(name, '\\'))
+	{
+		name[0] = 0;
+		return 0;
+	}
+	return 1;
 }
 
 static int read_text(const char *path, char *text, int size)
@@ -241,10 +245,13 @@ int link_register_desktop_file(const char *directory, const char *current_defaul
 	{
 		return DISCORD_REGISTER_FAILED;
 	}
-	/* the handler the user has: another program's is left (one that no
-	applications folder has any more runs nothing) */
-	if (current_default[0] && strcmp(current_default, LINK_REGISTER_DESKTOP_NAME) && current_text &&
-		!link_register_desktop_entry_ours(current_text, executable, exists))
+	/* the handler the user has: another program's is left. One this game
+	can't find is another program's too (a Flatpak's export, a folder a
+	Steam runtime leaves out of XDG_DATA_DIRS), unless it has the name this
+	game's earlier versions gave theirs */
+	if (current_default[0] && strcmp(current_default, LINK_REGISTER_DESKTOP_NAME) &&
+		(current_text ? !link_register_desktop_entry_ours(current_text, executable, exists) :
+			strcmp(current_default, LINK_REGISTER_OLD_DESKTOP_NAME) != 0))
 	{
 		return DISCORD_REGISTER_LEFT;
 	}
@@ -286,13 +293,16 @@ int link_register_desktop_file(const char *directory, const char *current_defaul
 	return result;
 }
 
-/* the program a Windows command runs (its first argument) into named */
-static int command_program(const char *command, char *named, int size)
+/* the program a Windows command runs (its first argument) into named; quoted
+says whether it was quoted (an unquoted one's first word may be only the
+start of its path, which Windows reads word by word) */
+static int command_program(const char *command, char *named, int size, int *quoted)
 {
 	const char *end;
 	size_t length;
 
-	if (command[0] == '"')
+	*quoted = command[0] == '"';
+	if (*quoted)
 	{
 		command++;
 		end = strchr(command, '"');
@@ -320,7 +330,7 @@ int link_register_windows(const struct discord_registry *registry, const char *e
 	static const char command_key[] = "Software\\Classes\\" LINK_REGISTER_SCHEME "\\shell\\open\\command";
 	static const char icon_key[] = "Software\\Classes\\" LINK_REGISTER_SCHEME "\\DefaultIcon";
 	char command[VALUE_SIZE], existing[VALUE_SIZE], label[VALUE_SIZE], named[VALUE_SIZE], mark[32];
-	int has_command, has_mark, ok = 1;
+	int has_command, has_mark, quoted, ok = 1;
 
 	if (!registry || !executable || !executable[0] || strchr(executable, '"'))
 		return DISCORD_REGISTER_FAILED;
@@ -328,19 +338,27 @@ int link_register_windows(const struct discord_registry *registry, const char *e
 		return DISCORD_REGISTER_FAILED;
 	has_command = registry->get(registry->context, command_key, NULL, existing, sizeof(existing)) && existing[0];
 	has_mark = registry->get(registry->context, key, DISCORD_REGISTER_REGISTRY_MARK, mark, sizeof(mark));
-	if (has_command && !has_mark)
+	if (has_command && has_mark && !strcmp(existing, command))
+		return DISCORD_REGISTER_UNCHANGED;
+	if (has_command)
 	{
-		/* an earlier version's (its label, and a program of this game's or
-		one that is gone), or another program's, which is left */
-		if (!registry->get(registry->context, key, NULL, label, sizeof(label)) ||
-			strcmp(label, "URL:" LINK_REGISTER_OLD_NAME) || !command_program(existing, named, sizeof(named)) ||
-			!link_register_program_ours(named, executable, exists, 1))
+		/* a command other than this one: this game's only if it runs a
+		program of this game's (or one that is gone). The mark alone does
+		not tell: a program that writes the key over (OpenCE, as this game's
+		0.9.0 did) leaves the mark there. Unmarked, it must be an earlier
+		version's too (its label); anything else is another program's,
+		which is left */
+		if (!has_mark && (!registry->get(registry->context, key, NULL, label, sizeof(label)) ||
+			strcmp(label, "URL:" LINK_REGISTER_OLD_NAME)))
+		{
+			return DISCORD_REGISTER_LEFT;
+		}
+		if (!command_program(existing, named, sizeof(named), &quoted) ||
+			!link_register_program_ours(named, executable, quoted ? exists : NULL, 1))
 		{
 			return DISCORD_REGISTER_LEFT;
 		}
 	}
-	if (has_command && has_mark && !strcmp(existing, command))
-		return DISCORD_REGISTER_UNCHANGED;
 	ok &= registry->set(registry->context, key, NULL, LINK_REGISTER_WINDOWS_LABEL);
 	ok &= registry->set(registry->context, key, "URL Protocol", "");
 	ok &= registry->set(registry->context, key, DISCORD_REGISTER_REGISTRY_MARK, "links");

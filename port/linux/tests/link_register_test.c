@@ -128,6 +128,20 @@ static void test_program_ours(void)
 		fake_exists, 1));
 	/* (another program in the same folder is not this game's) */
 	CHECK(!link_register_program_ours("/usr/bin/other-game", "/usr/bin/chupathingy", fake_exists, 0));
+	/* only a whole path can be gone: a bare name is found on PATH */
+	CHECK(!link_register_program_ours("opence", game, fake_exists, 0));
+	CHECK(!link_register_program_ours("env", game, fake_exists, 0));
+	CHECK(!link_register_program_ours("flatpak", game, fake_exists, 0));
+	CHECK(link_register_program_ours("/gone/opence", game, fake_exists, 0));
+	CHECK(link_register_program_ours("E:\\Gone\\halo.exe", "C:\\Games\\Chupathingy\\chupathingy.exe", fake_exists, 1));
+	CHECK(link_register_program_ours("\\\\server\\gone\\opence.exe", "C:\\Games\\Chupathingy\\chupathingy.exe",
+		fake_exists, 1));
+	/* (and none at all without exists) */
+	CHECK(!link_register_program_ours("/gone/opence", game, NULL, 0));
+	CHECK(link_register_path_absolute("/a") && link_register_path_absolute("C:\\a") &&
+		link_register_path_absolute("c:/a") && link_register_path_absolute("\\\\s\\a"));
+	CHECK(!link_register_path_absolute("a") && !link_register_path_absolute("C:a") &&
+		!link_register_path_absolute("") && !link_register_path_absolute(NULL));
 	/* a path's case counts on Linux */
 	CHECK(!link_register_program_ours("/OPT/bin/game", "/opt/bin/game", NULL, 0));
 	CHECK(!link_register_program_ours("", game, fake_exists, 0));
@@ -154,29 +168,22 @@ static void test_entry_ours(void)
 	CHECK(!link_register_desktop_entry_ours(NULL, game, fake_exists));
 }
 
-static void test_mimeapps(void)
+static void test_query_answer(void)
 {
 	char name[256];
 
-	CHECK(link_register_mimeapps_default("[Default Applications]\ntext/html=firefox.desktop\n"
-		"x-scheme-handler/halo=other.desktop;chupathingy-links.desktop;\n", name, sizeof(name)) &&
-		!strcmp(name, "other.desktop"));
-	CHECK(link_register_mimeapps_default("[Added Associations]\nx-scheme-handler/halo=a.desktop;\n"
-		"[Default Applications]\r\nx-scheme-handler/halo=chupathingy-links.desktop\r\n", name, sizeof(name)) &&
+	/* xdg-mime query default's answer: a desktop entry's name, or nothing */
+	CHECK(link_register_query_answer("chupathingy-links.desktop\n", name, sizeof(name)) &&
 		!strcmp(name, "chupathingy-links.desktop"));
-	/* (only the defaults; not a longer scheme of the same start; never a
-	path) */
-	CHECK(!link_register_mimeapps_default("[Added Associations]\nx-scheme-handler/halo=a.desktop;\n", name,
-		sizeof(name)) && !name[0]);
-	CHECK(!link_register_mimeapps_default("[Default Applications]\nx-scheme-handler/halo2=a.desktop\n", name,
-		sizeof(name)));
-	CHECK(!link_register_mimeapps_default("[Default Applications]\nx-scheme-handler/halo=../../x.desktop\n", name,
-		sizeof(name)) && !name[0]);
-	CHECK(!link_register_mimeapps_default("[Default Applications]\nx-scheme-handler/halo=\n", name, sizeof(name)));
-	CHECK(!link_register_mimeapps_default("", name, sizeof(name)));
-	CHECK(!link_register_mimeapps_default(NULL, name, sizeof(name)));
-	CHECK(!link_register_mimeapps_default("[Default Applications]\nx-scheme-handler/halo=a-long-name.desktop\n", name,
-		8));
+	CHECK(link_register_query_answer("  com.example.OpenCE.desktop;\n", name, sizeof(name)) &&
+		!strcmp(name, "com.example.OpenCE.desktop"));
+	CHECK(!link_register_query_answer("\n", name, sizeof(name)) && !name[0]);
+	CHECK(!link_register_query_answer("", name, sizeof(name)));
+	CHECK(!link_register_query_answer(NULL, name, sizeof(name)));
+	CHECK(!link_register_query_answer("xdg-mime: no method available\n", name, sizeof(name)));
+	CHECK(!link_register_query_answer(".desktop\n", name, sizeof(name)));
+	CHECK(!link_register_query_answer("../../x.desktop\n", name, sizeof(name)) && !name[0]);
+	CHECK(!link_register_query_answer("a-long-name.desktop\n", name, 8));
 }
 
 static void test_desktop_file(const char *directory)
@@ -223,11 +230,21 @@ static void test_desktop_file(const char *directory)
 	CHECK(link_register_desktop_file(directory, LINK_REGISTER_OLD_DESKTOP_NAME, old_other, game, fake_exists,
 		&make_default) == DISCORD_REGISTER_LEFT);
 
-	/* a default no applications folder has any more runs nothing: taken */
-	CHECK(link_register_desktop_file(directory, "gone.desktop", NULL, game, fake_exists, &make_default) ==
-		DISCORD_REGISTER_WRITTEN);
+	/* a default this game can't find (a Flatpak's export, a folder left out
+	of XDG_DATA_DIRS) is another program's: left */
+	CHECK(link_register_desktop_file(directory, "com.example.OpenCE.desktop", NULL, game, fake_exists,
+		&make_default) == DISCORD_REGISTER_LEFT);
+	CHECK(!make_default);
+	CHECK(!read_file(path, text, sizeof(text)));
+	/* unless it has the name of this game's earlier entries: taken */
+	CHECK(link_register_desktop_file(directory, LINK_REGISTER_OLD_DESKTOP_NAME, NULL, game, fake_exists,
+		&make_default) == DISCORD_REGISTER_WRITTEN);
 	CHECK(make_default);
 	remove(path);
+	/* (an entry that runs a bare name is never taken for gone) */
+	CHECK(link_register_desktop_file(directory, LINK_REGISTER_OLD_DESKTOP_NAME,
+		"[Desktop Entry]\nName=Halo: Combat Evolved invite\nExec=flatpak run com.example.OpenCE %u\n", game,
+		fake_exists, &make_default) == DISCORD_REGISTER_LEFT);
 
 	/* an earlier version's entry of this game's, the default: replaced by
 	this one, which is made the default, and the old file goes */
@@ -368,6 +385,31 @@ static void test_windows(void)
 	value = fake_value(command_key, NULL);
 	CHECK(value && !strcmp(value, "\"D:\\Chupathingy\\chupathingy.exe\" \"%1\""));
 
+	/* our mark, but the key written over by another program that is there
+	(OpenCE, as 0.9.0 did, leaves the mark): left */
+	memset(&registry_values, 0, sizeof(registry_values));
+	CHECK(link_register_windows(&registry, exe, fake_exists) == DISCORD_REGISTER_WRITTEN);
+	fake_set(&registry_values, key, NULL, "URL:Halo: Combat Evolved invite");
+	fake_set(&registry_values, command_key, NULL, "\"C:\\Games\\Other\\halo.exe\" \"%1\"");
+	registry_values.sets = 0;
+	CHECK(link_register_windows(&registry, exe, fake_exists) == DISCORD_REGISTER_LEFT);
+	CHECK(registry_values.sets == 0);
+	value = fake_value(command_key, NULL);
+	CHECK(value && !strcmp(value, "\"C:\\Games\\Other\\halo.exe\" \"%1\""));
+	/* (marked, another copy of this game's that is there: taken) */
+	fake_set(&registry_values, command_key, NULL, "\"C:\\Games\\Chupathingy\\halo.exe\" \"%1\"");
+	CHECK(link_register_windows(&registry, exe, fake_exists) == DISCORD_REGISTER_WRITTEN);
+	/* (marked, a program that is gone: taken) */
+	fake_set(&registry_values, command_key, NULL, "\"E:\\Gone\\opence.exe\" \"%1\"");
+	CHECK(link_register_windows(&registry, exe, fake_exists) == DISCORD_REGISTER_WRITTEN);
+	/* (an unquoted command's first word, C:\\Program, is not taken for
+	gone) */
+	fake_set(&registry_values, command_key, NULL, "C:\\Program Files\\OpenCE\\halo.exe \"%1\"");
+	CHECK(link_register_windows(&registry, exe, fake_exists) == DISCORD_REGISTER_LEFT);
+	/* (nor a bare name) */
+	fake_set(&registry_values, command_key, NULL, "opence.exe \"%1\"");
+	CHECK(link_register_windows(&registry, exe, fake_exists) == DISCORD_REGISTER_LEFT);
+
 	/* an earlier version's (no mark, its label) for this install's halo.exe:
 	taken, and marked */
 	memset(&registry_values, 0, sizeof(registry_values));
@@ -428,7 +470,7 @@ int main(int argc, char **argv)
 	test_desktop_entry();
 	test_program_ours();
 	test_entry_ours();
-	test_mimeapps();
+	test_query_answer();
 	test_desktop_file(argv[1]);
 	test_windows();
 	if (failures)

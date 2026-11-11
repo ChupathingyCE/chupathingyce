@@ -617,7 +617,9 @@ static void test_party(void)
 	/* both read back as the code, as do other sites' party pages */
 	CHECK(social_party_code_clean("https://stats.chupathingy.org/party/GQ7RTX", code) && !strcmp(code, "GQ7RTX"));
 	CHECK(social_party_code_clean("HTTPS://STATS.CHUPATHINGY.ORG/PARTY/gq7rtx/", code) && !strcmp(code, "GQ7RTX"));
-	CHECK(social_party_code_clean("http://localhost:8080/party/GQ7-RTX", code) && !strcmp(code, "GQ7RTX"));
+	CHECK(social_party_code_clean("http://localhost/party/GQ7-RTX", code) && !strcmp(code, "GQ7RTX"));
+	CHECK(!social_party_code_clean("https://evil.example?.chupathingy.org/party/GQ7RTX", code));
+	CHECK(!social_party_code_clean("https://stats.chupathingy.org@evil.example/party/GQ7RTX", code));
 	CHECK(!social_party_code_clean("https://stats.chupathingy.org/party/GQ7RTX/more", code));
 	CHECK(!social_party_code_clean("https://stats.chupathingy.org/players/GQ7RTX", code));
 	CHECK(!social_party_code_clean("https:///party/GQ7RTX", code));

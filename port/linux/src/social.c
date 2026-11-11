@@ -692,15 +692,13 @@ static size_t party_page_prefix(const char *text)
 		length = starts_with(text, "http://");
 	if (!length)
 		return 0;
-	for (host = 0; text[length + host] && text[length + host] != '/'; host++)
+	/* (a host's own letters, digits, dots and dashes, then the path) */
+	for (host = 0;; host++)
 	{
 		char c = text[length + host];
 
-		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' ||
-			c == ':'))
-		{
-			return 0;
-		}
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-'))
+			break;
 	}
 	if (!host || !starts_with(text + length + host, "/party/"))
 		return 0;

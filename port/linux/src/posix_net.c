@@ -937,8 +937,18 @@ static int launch_executable(char *executable, size_t size)
 	if (length <= 0)
 		return 0;
 	executable[length] = '\0';
-	if (appimage && *appimage)
-		snprintf(executable, size, "%s", appimage);
+	/* (APPIMAGE only for the executable its own mount runs: APPDIR's, which
+	the AppImage's runtime sets beside it) */
+	if (appimage && *appimage && appimage[0] == '/')
+	{
+		const char *appdir = getenv("APPDIR");
+		size_t appdir_length = appdir ? strlen(appdir) : 0;
+
+		while (appdir_length > 1 && appdir[appdir_length - 1] == '/')
+			appdir_length--;
+		if (appdir_length > 1 && !strncmp(executable, appdir, appdir_length) && executable[appdir_length] == '/')
+			snprintf(executable, size, "%s", appimage);
+	}
 	return 1;
 }
 
@@ -1013,27 +1023,74 @@ static int find_desktop_entry(const char *directory, const char *name, char *tex
 	return 0;
 }
 
-/* the default handler of x-scheme-handler/halo the user's mimeapps.list
-names ($XDG_CONFIG_HOME's, else ~/.config's; then the applications
-folder's, an older place), "" for none */
-static void current_link_handler(const char *directory, char *name, int size)
+/* runs a program with its arguments, its standard output into text (size
+bytes, cut there); its exit status, or -1 if it could not be run */
+static int run_program_output(char *const arguments[], char *text, size_t size)
 {
-	const char *config_home = getenv("XDG_CONFIG_HOME");
-	const char *home = getenv("HOME");
-	char path[1200], text[16384];
+	extern char **environ;
+	posix_spawn_file_actions_t actions;
+	pid_t process;
+	int ends[2], status, spawned;
+	size_t used = 0;
+
+	text[0] = 0;
+	if (pipe(ends) != 0)
+		return -1;
+	posix_spawn_file_actions_init(&actions);
+	posix_spawn_file_actions_adddup2(&actions, ends[1], STDOUT_FILENO);
+	posix_spawn_file_actions_addclose(&actions, ends[0]);
+	posix_spawn_file_actions_addclose(&actions, ends[1]);
+	spawned = posix_spawnp(&process, arguments[0], &actions, NULL, arguments, environ);
+	posix_spawn_file_actions_destroy(&actions);
+	close(ends[1]);
+	if (spawned != 0)
+	{
+		close(ends[0]);
+		return -1;
+	}
+	for (;;)
+	{
+		char buffer[256];
+		ssize_t count = read(ends[0], buffer, sizeof(buffer));
+
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0)
+			break;
+		if (used + 1 < size)
+		{
+			size_t kept = (size_t)count < size - 1 - used ? (size_t)count : size - 1 - used;
+
+			memcpy(text + used, buffer, kept);
+			used += kept;
+		}
+	}
+	text[used] = 0;
+	close(ends[0]);
+	while (waitpid(process, &status, 0) < 0)
+	{
+		if (errno != EINTR)
+			return -1;
+	}
+	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+/* the default handler of x-scheme-handler/halo, as xdg-open finds it (xdg-mime
+query default: the desktop's own mimeapps.list, the system's, and the
+handlers' caches), "" for none: 1, or 0 if it can't be asked (no xdg-mime) */
+static int current_link_handler(char *name, int size)
+{
+	char mime_type[] = LINK_REGISTER_MIME_TYPE;
+	char *arguments[] = { "xdg-mime", "query", "default", mime_type, NULL };
+	char text[512];
+	int status = run_program_output(arguments, text, sizeof(text));
 
 	name[0] = 0;
-	if (config_home && *config_home)
-		snprintf(path, sizeof(path), "%s/mimeapps.list", config_home);
-	else if (home && *home)
-		snprintf(path, sizeof(path), "%s/.config/mimeapps.list", home);
-	else
-		path[0] = 0;
-	if (path[0] && read_small_file(path, text, sizeof(text)) && link_register_mimeapps_default(text, name, size))
-		return;
-	snprintf(path, sizeof(path), "%s/mimeapps.list", directory);
-	if (read_small_file(path, text, sizeof(text)))
-		link_register_mimeapps_default(text, name, size);
+	/* (127: the shell's "not found", for a posix_spawnp that runs one) */
+	if (status < 0 || status == 127)
+		return 0;
+	link_register_query_answer(text, name, size);
+	return 1;
 }
 #endif
 
@@ -1061,8 +1118,11 @@ int posix_register_url_scheme(const char *scheme, const char *description)
 	{
 		return 0;
 	}
+	/* (without xdg-mime nothing can say which handler is the user's, nor
+	make this one theirs: nothing is written) */
+	if (!current_link_handler(current, sizeof(current)))
+		return 0;
 	mkdir(directory, 0755);
-	current_link_handler(directory, current, sizeof(current));
 	result = link_register_desktop_file(directory, current,
 		find_desktop_entry(directory, current, text, sizeof(text)) ? text : NULL, executable, file_exists,
 		&make_default);

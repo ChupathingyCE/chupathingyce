@@ -802,7 +802,8 @@ static int invite_prefix(const char *text, const char *prefix)
 }
 
 /* the length of a join page's address at text's start (http or https, a
-host of the site's, P2P_INVITE_PAGE_HOSTS, then /join/), 0 if it isn't one */
+host of the site's, P2P_INVITE_PAGE_HOSTS, of letters, digits, dots and
+dashes only, then /join/), 0 if it isn't one */
 static int invite_page_prefix(const char *text)
 {
 	static const char *const hosts[] = { P2P_INVITE_PAGE_HOSTS };
@@ -813,8 +814,17 @@ static int invite_page_prefix(const char *text)
 		length = invite_prefix(text, "http://");
 	if (!length)
 		return 0;
-	while (text[length + host] && text[length + host] != '/')
-		host++;
+	/* (a host's own letters only: it ends at the path, and anything else
+	there, ?, #, @ or a backslash, is no join page of the site's) */
+	for (;; host++)
+	{
+		char c = text[length + host];
+
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-'))
+			break;
+	}
+	if (text[length + host] != '/')
+		return 0;
 	for (index = 0; index < (int)(sizeof(hosts) / sizeof(*hosts)); index++)
 	{
 		int size = (int)strlen(hosts[index]);

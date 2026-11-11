@@ -59,9 +59,14 @@ quotes and escapes taken off) into executable (size bytes): 1, or 0 if
 there is none */
 int link_register_desktop_exec(const char *text, char *executable, int size);
 
-/* whether named (the program an unmarked entry runs) is this game:
-executable itself, a file in its folder, a program named chupathingy..., or
-a file that is gone (exists says so). ignore_case: Windows' paths */
+/* whether path is a whole path (/..., C:\..., \\server\...), not a name
+found on PATH */
+int link_register_path_absolute(const char *path);
+
+/* whether named (the program an entry runs) is this game: executable itself,
+the earlier name (halo, halo.exe) in its folder, a program named
+chupathingy..., or a whole path to a file that is gone (exists says so;
+NULL: never gone). ignore_case: Windows' paths */
 int link_register_program_ours(const char *named, const char *executable, link_register_exists exists,
 	int ignore_case);
 
@@ -69,15 +74,16 @@ int link_register_program_ours(const char *named, const char *executable, link_r
 version's entry whose program is this game (link_register_program_ours) */
 int link_register_desktop_entry_ours(const char *text, const char *executable, link_register_exists exists);
 
-/* the default handler of x-scheme-handler/halo in a mimeapps.list's text
-(its [Default Applications], the first of its list) into name (size
-bytes): 1, or 0 if it names none */
-int link_register_mimeapps_default(const char *text, char *name, int size);
+/* the desktop entry's name in xdg-mime query default's answer (its first
+word, a .desktop file's name) into name (size bytes): 1, or 0 if it names
+none */
+int link_register_query_answer(const char *text, char *name, int size);
 
 /* writes chupathingy-links.desktop into directory (which exists), unless the
 scheme's handler is another program's: current_default is the desktop
-entry the user's mimeapps.list names ("" for none) and current_text its
-text (NULL if no applications folder has it). An earlier version's entry
+entry xdg-mime query default names ("" for none) and current_text its
+text (NULL if no applications folder has it: another program's, unless it
+is the name earlier versions gave this game's). An earlier version's entry
 of this game's in directory goes. *make_default: whether xdg-mime default
 should make this game's entry the handler. DISCORD_REGISTER_* */
 int link_register_desktop_file(const char *directory, const char *current_default, const char *current_text,
