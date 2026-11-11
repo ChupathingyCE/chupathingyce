@@ -29,7 +29,9 @@ of changes to that map (each 8 bytes: what to change and a value), which
 reaches deeper into a real map than whole-file mutations do. Custom Edition
 maps' resource maps (bitmaps.map, sounds.map, loc.map) are read from the
 folder MAP_FUZZ_CE_RESOURCES names, if any: without them, a map that keeps
-tags there is refused as the game refuses it.
+tags there is refused as the game refuses it. The Xbox's ui.map, whose button
+icons a map's HUD is given (ce_hud.c), is read from MAP_FUZZ_XBOX_UI, if it
+names one: without it, HUD messages are left without them, as in the game.
 
 The Xbox address space the 64-bit build keeps its tags in (xbox_address.h) is
 reserved as the game reserves it (port/linux/src/xbox_memory.c); only the
@@ -195,6 +197,9 @@ static struct
 	unsigned char *data;
 	unsigned long size;
 } fuzz_resources[] = { { "bitmaps" }, { "sounds" }, { "loc" } };
+/* the Xbox's ui.map (MAP_FUZZ_XBOX_UI) */
+static unsigned char *fuzz_xbox_ui;
+static unsigned long fuzz_xbox_ui_size;
 static struct fuzz_file fuzz_map_file;
 static struct fuzz_file fuzz_open_files[8];
 static boolean fuzz_tags_are_ce;
@@ -523,14 +528,14 @@ void D3DDevice_SetRenderState_Deferred(D3DRENDERSTATETYPE state, unsigned long v
 void D3DDevice_SetRenderState_Simple(unsigned long method, unsigned long value) {}
 
 /* (bitmaps.c's, which ce_resources.c checks bitmaps with: no texture is
-made, no compressed block decoded) */
+made, no compressed block decoded; swizzling is the game's own,
+rasterizer_swizzle.c, which ce_hud.c reads ui.map's button icons with) */
 void rasterizer_bitmap_changed(void *bitmap) {}
 void rasterizer_bitmap_delete(void *bitmap) {}
 boolean rasterizer_bitmap_new(void *bitmap) { return TRUE; }
 void DecodeBlockAlpha3__single_pixel(void) {}
 void DecodeBlockAlpha4__single_pixel(void) {}
 void DecodeBlockRGB__single_pixel(void) {}
-void bitmap_swizzle_vector2d(void) {}
 
 short floor_log2(unsigned long value)
 {
@@ -561,6 +566,14 @@ HANDLE CreateFileA(char const *path, DWORD access, DWORD share, LPSECURITY_ATTRI
 		if (strstr(path, "ce_sounds"))
 		{
 			file->writable = TRUE;
+			return file;
+		}
+		if (!strcmp(path, "ui.map"))
+		{
+			if (!fuzz_xbox_ui)
+				return INVALID_HANDLE_VALUE;
+			file->data = fuzz_xbox_ui;
+			file->size = fuzz_xbox_ui_size;
 			return file;
 		}
 		{
@@ -744,6 +757,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 {
 	char const *base = getenv("MAP_FUZZ_BASE");
 	char const *resources = getenv("MAP_FUZZ_CE_RESOURCES");
+	char const *xbox_ui = getenv("MAP_FUZZ_XBOX_UI");
 
 	fuzz_verbose = getenv("MAP_FUZZ_VERBOSE") != NULL;
 	fuzz_address_space_reserve();
@@ -757,6 +771,8 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 		}
 		fuzz_work = malloc(fuzz_base_size);
 	}
+	if (xbox_ui && *xbox_ui)
+		fuzz_xbox_ui = fuzz_file_read(xbox_ui, &fuzz_xbox_ui_size);
 	if (resources && *resources)
 	{
 		long index;
