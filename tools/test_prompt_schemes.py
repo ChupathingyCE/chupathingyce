@@ -128,9 +128,13 @@ def test_a_build_embeds_only_its_prompt_fonts(tmp_path):
         subprocess.run([sys.executable, str(ROOT / "tools" / "embed_assets.py"), "--fonts", *arguments, str(output)],
                        check=True, cwd=ROOT)
         text = output.read_text()
+        # (each of the overlay's fonts by the data ui_font_files gives it: a
+        # file several fonts share is embedded once)
+        table = text[text.index("ui_font_files["):]
+        arrays = re.findall(r"\b(font\d+)\b", table[table.index("{"):table.index("};")])
         result = []
-        for index in range(len(embed_assets.UI_FONT_FILES)):
-            body = text[text.index(f"font{index}[] = {{"):]
+        for array in arrays:
+            body = text[text.index(f"{array}[] = {{"):]
             result.append(body[:body.index("};")].count(","))
         return result
 
