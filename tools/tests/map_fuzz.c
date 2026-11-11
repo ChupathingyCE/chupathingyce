@@ -396,6 +396,12 @@ void display_assert(char *condition, char *file, long line, boolean fatal)
 	abort();
 }
 
+/* (a release build's asserts, cseries.h: the same) */
+void release_assert_failed(char const *information, char const *file, long line, boolean fatal)
+{
+	display_assert((char *)information, (char *)file, line, fatal);
+}
+
 char temporary[256];
 
 char *csprintf(char *buffer, char *format, ...)
