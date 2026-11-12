@@ -587,6 +587,11 @@ def test_failure_labels():
     screen = (ROOT / "port" / "linux" / "game" / "browser_screen.c").read_text(encoding="utf-8")
     assert "map_download_refusal_label(progress->refusal)" in screen
     assert "progress->message" not in screen
+    # (after the failure screen: no "Copy it in" for a map that can't be played anyway)
+    given_up = screen[screen.index("static void rejoin_given_up("):]
+    given_up = given_up[:given_up.index("\n}\n")]
+    assert "refusal == MAP_DOWNLOAD_REFUSAL_BLOCKED" in given_up
+    assert '"Could not download %.31s.map. %s."' in given_up
     # (the reasons map_download.c sorts by: map_repo.c's and map_host_download.c's words)
     repo = (ROOT / "port" / "linux" / "src" / "map_repo.c").read_text(encoding="utf-8")
     assert '"it is blocked: %s"' in repo and "(its SHA-256 differs)" in repo and "gave %u bytes, not %u" in repo

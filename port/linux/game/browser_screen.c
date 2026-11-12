@@ -608,6 +608,10 @@ static void rejoin_given_up(
 	static wchar_t message[256];
 	char text[256];
 	long index;
+	/* (what a failed download failed on: a map you can't copy in yourself
+	is never told to be copied) */
+	int refusal = browser_screen.offer == _offer_failed ? browser_screen.offer_progress.refusal :
+		MAP_DOWNLOAD_REFUSAL_NONE;
 
 	platform_log("map download: %s.map not downloaded (%s): the game is not joined again", browser_screen.offer_file,
 		why ? why : "not wanted");
@@ -618,9 +622,14 @@ static void rejoin_given_up(
 	map_download_reset();
 	/* (the words the error has without the downloader: why the download
 	failed is in the log, the dialog having no room for more) */
-	snprintf(text, sizeof(text), "You don't have the %s map %.31s. Copy %.31s.map into %s.",
-		map_family_badge(_map_family_custom_edition), browser_screen.offer_file, browser_screen.offer_file,
-		map_family_folder(_map_family_custom_edition));
+	if (refusal == MAP_DOWNLOAD_REFUSAL_BLOCKED || refusal == MAP_DOWNLOAD_REFUSAL_MISMATCH ||
+		refusal == MAP_DOWNLOAD_REFUSAL_DAMAGED)
+		snprintf(text, sizeof(text), "Could not download %.31s.map. %s.", browser_screen.offer_display,
+			map_download_refusal_label(refusal));
+	else
+		snprintf(text, sizeof(text), "You don't have the %s map %.31s. Copy %.31s.map into %s.",
+			map_family_badge(_map_family_custom_edition), browser_screen.offer_file, browser_screen.offer_file,
+			map_family_folder(_map_family_custom_edition));
 	for (index = 0; text[index] && index < NUMBEROF(message) - 1; index++)
 		message[index] = (wchar_t)(unsigned char)text[index];
 	message[index] = 0;
