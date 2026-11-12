@@ -212,6 +212,8 @@ static short options_of(struct workshop_browser_item const *item, short *options
 	return count;
 }
 
+static boolean link_needed(void);
+
 static char const *option_label(struct workshop_browser_item const *item, short option)
 {
 	static char word[24];
@@ -238,7 +240,7 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	{
 	case _option_search: return "SEARCH";
 	case _option_play: return "PLAY";
-	case _option_update: return "UPDATE";
+	case _option_update: return link_needed() ? "LINK STEAM" : "UPDATE";
 	case _option_remove: return workshop_view.confirm_remove ? "CONFIRM" : "REMOVE";
 	case _option_show_maps: return "TURN ON";
 	case _option_unsubscribe: return "REMOVE";
@@ -251,7 +253,9 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	}
 	if (item->setup)
 		return workshop_browser_setup_button(workshop_view.row);
-	/* (installed, or on its way: its page in Steam) */
+	/* (installed, or on its way: its page in Steam; GET needs the Steam link) */
+	if (item->state == WORKSHOP_ITEM_NOT_INSTALLED && link_needed())
+		return "LINK STEAM";
 	return item->state == WORKSHOP_ITEM_NOT_INSTALLED ? "GET" : "OPEN";
 }
 
@@ -351,6 +355,21 @@ static void search_type(void)
 	}
 }
 
+/* the built-in Steam download is the installer here, and Steam isn't linked:
+GET and UPDATE need it (playing what is installed never does) */
+static boolean link_needed(void)
+{
+	return workshop_browser_link_offered() && !steam_link_linked(NULL, 0);
+}
+
+/* Settings' STEAM ACCOUNT, its QR up at once */
+static void link_go(void)
+{
+	workshop_view.page = FALSE;
+	steam_link_start();
+	guide_open_setting("game.workshop_steam");
+}
+
 static void option_run(short option)
 {
 	if (option >= _option_filter && option < _option_sort)
@@ -375,6 +394,11 @@ static void option_run(short option)
 			guide_close();
 		return;
 	case _option_update:
+		if (link_needed())
+		{
+			link_go();
+			return;
+		}
 		if (workshop_browser_update(workshop_view.row))
 			workshop_view.waiting = TRUE;
 		return;
@@ -449,6 +473,12 @@ static void option_run(short option)
 		return;
 	default:
 		break;
+	}
+	/* (GET without the Steam link: to Settings' STEAM ACCOUNT, its QR up) */
+	if (!chosen()->setup && chosen()->state == WORKSHOP_ITEM_NOT_INSTALLED && link_needed())
+	{
+		link_go();
+		return;
 	}
 	if (workshop_browser_subscribe(workshop_view.row))
 		workshop_view.waiting = TRUE;

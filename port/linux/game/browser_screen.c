@@ -3070,8 +3070,36 @@ static void text_with_button(
 
 /* ---------- drawing: the list's pieces */
 
+/* (an MCC map's badge, MCC: not a family of its own on the wire) */
+#define BADGE_FAMILY_MCC (-2)
+
+/* the Workshop item of an MCC map (mcc_maps\<item id>\<map>): 1 and its id */
+static boolean mcc_map_item(
+	char const *map,
+	char *id,
+	long size)
+{
+	long length = 0;
+
+	if (!map || strncmp(map, "mcc_maps\\", 9))
+		return FALSE;
+	for (map += 9; map[length] >= '0' && map[length] <= '9' && length < size - 1; length++)
+		id[length] = map[length];
+	id[length] = 0;
+	return length > 0 && map[length] == '\\';
+}
+
+/* a game's map's badge family: the map's (map_family), or BADGE_FAMILY_MCC for an MCC map */
+static short badge_family(
+	char const *map)
+{
+	if (map && !strncmp(map, "mcc_maps\\", 9))
+		return BADGE_FAMILY_MCC;
+	return map_family(map);
+}
+
 /* a game's map's tag (XBX, HCE, HMD, GBX: map_family_tag; a pack's map its
-pack's, CE+: ui_map_list_map_tag), by the map's name (NULL: the family's) */
+pack's, CE+: ui_map_list_map_tag; MCC), by the map's name (NULL: the family's) */
 static char const *family_badge_tag(
 	short family,
 	char const *map)
@@ -3079,6 +3107,8 @@ static char const *family_badge_tag(
 	static char tag[16];
 	char title[64];
 
+	if (family == BADGE_FAMILY_MCC)
+		return MAP_FAMILY_TAG_MCC;
 	if (!map || family != _map_family_pack)
 		return map_family_tag(family);
 	ui_map_list_map_tag(map, tag, sizeof(tag), title, sizeof(title));
@@ -3887,7 +3917,7 @@ static void draw_row(
 	int version_state = browser_game_version_state(game);
 	unsigned int color = picked ? COLOR_ROW_SELECTED : game->open && !version_state ? COLOR_ROW : COLOR_ROW_DIM;
 	unsigned int glow = picked ? 0x6FB2FFC0 : 0;
-	short family = map_family(game->map);
+	short family = badge_family(game->map);
 	float badge_x = COLUMN_TYPE - 10 - family_badge_width(family, game->map, BADGE_SIZE);
 	float size, width;
 
@@ -4085,6 +4115,7 @@ static void draw_details(
 	short map_frame = NUMBEROF(map_picture_order);
 	char file[BROWSER_MAP_LENGTH], map_name[64], text[160], name[64];
 	char const *map_label;
+	char item_id[24];
 	short family = map_family(selected->map);
 	float y = DETAIL_Y + DETAIL_FIRST_LINE;
 	float x, line_y;
@@ -4134,6 +4165,29 @@ the map's name over its family's color (a custom map's) */
 			}
 		}
 #endif
+		/* (an MCC map: the site's picture of its Workshop item, else the
+		item's own, kept or Steam's, before it is downloaded too) */
+		if (!drawn && mcc_map_item(selected->map, item_id, sizeof(item_id)))
+		{
+			unsigned char const *pixels;
+			int width, height, serial;
+			char site_path[48];
+
+			/* (the site's picture of it first, maps/mcc/<item id>; then Steam's) */
+			if (snprintf(site_path, sizeof(site_path), "maps/mcc/%s", item_id) < (int)sizeof(site_path) &&
+				map_art_get(site_path, &pixels, &width, &height, &serial) == MAP_ART_READY)
+			{
+				draw_art_picture(pixels, width, height, serial, MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_WIDTH,
+					PICTURE_HEIGHT);
+				drawn = TRUE;
+			}
+			else if ((pixels = workshop_browser_picture_of(item_id, &width, &height, &serial)) != NULL)
+			{
+				draw_art_picture(pixels, width, height, serial, MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_WIDTH,
+					PICTURE_HEIGHT);
+				drawn = TRUE;
+			}
+		}
 		/* (a map pack's map has its stock file's name, not its art: a card;
 		a custom map's is the site's own picture of it, if it has one) */
 		if (!drawn && family != _map_family_pack &&
@@ -4198,7 +4252,8 @@ the map's name over its family's color (a custom map's) */
 	}
 	DETAIL_LINE("Map:", map_label);
 	/* (its family, spelled out beside its tag) */
-	draw_family_badge(family, selected->map, BADGE_SIZE, x + 6, line_y, DETAIL_SIZE, FALSE);
+	draw_family_badge(mcc_map_item(selected->map, item_id, sizeof(item_id)) ? BADGE_FAMILY_MCC : family, selected->map,
+		BADGE_SIZE, x + 6, line_y, DETAIL_SIZE, FALSE);
 	{
 		char tag[16], title[64];
 
@@ -4206,7 +4261,10 @@ the map's name over its family's color (a custom map's) */
 		/* (an Xbox map pack's as its host names it) */
 		if (family == _map_family_pack && selected->map_pack[0])
 			snprintf(title, sizeof(title), "%s", selected->map_pack);
-		ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE - 1.0f, x + 10 + family_badge_width(family, selected->map, BADGE_SIZE),
+		if (mcc_map_item(selected->map, item_id, sizeof(item_id)))
+			snprintf(title, sizeof(title), "%s", MAP_FAMILY_TITLE_MCC);
+		ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE - 1.0f, x + 10 + family_badge_width(
+			mcc_map_item(selected->map, item_id, sizeof(item_id)) ? BADGE_FAMILY_MCC : family, selected->map, BADGE_SIZE),
 			line_y + 0.5f, UI_ALIGN_LEFT, COLOR_DIM, title);
 	}
 	type_name(selected, text, sizeof(text));

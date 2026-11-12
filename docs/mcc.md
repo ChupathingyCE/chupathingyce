@@ -32,29 +32,34 @@ item's page and confirm. Steam then shows MCC as running while the Workshop
 tab is open, and only then. Without it, **GET** opens the item's page in
 Steam and you subscribe there.
 
-### Mac, and Linux without the Steam client
+### Mac, Linux, and Windows without MCC in Steam
 
-MCC has no Mac version, so the game uses steamcmd, Valve's command-line Steam
-tool, to download the Windows files it needs.
+The game downloads Workshop items itself, straight from Steam, with no Steam
+client and no steamcmd.
 
-1. **steamcmd**: on a Mac, open Terminal and run
-   `brew install --cask steamcmd`. **COPY** puts that line on the clipboard.
-   On Linux, install steamcmd from your distribution.
-2. **Sign in**: press **SIGN IN**. A Terminal window opens. Type your Steam
-   name, password and Steam Guard code there, then come back. steamcmd keeps
-   the sign-in. The game never sees your password.
+1. **Steam account**: in the Guide's **Settings**, choose **STEAM ACCOUNT**.
+   A QR code shows. Open the Steam app on your phone, go to **Steam Guard**,
+   scan it and approve. The game never sees your password. It keeps the
+   sign-in in the macOS Keychain (Windows: a file sealed to your Windows
+   account; Linux: your desktop's keyring, else a private file in the data
+   folder). Choose **STEAM ACCOUNT** again and confirm to unlink: the game
+   forgets the sign-in and tells Steam to revoke it.
+2. **MCC**: own Halo: The Master Chief Collection on Steam.
 
-   ![Sign in](screenshots/mcc-setup-signin.jpg)
+Your running Steam app stays signed in while the game downloads.
 
-3. **MCC**: own Halo: The Master Chief Collection on Steam.
-4. **Halo CE files**: press **GET**. The game downloads only MCC's Halo CE
-   multiplayer files (about 4.3 GB), not the whole game.
+Only **GET** and **UPDATE** need the Steam account; they say **LINK STEAM**
+until it is linked. Items already downloaded never need it: after you
+unlink, with Steam closed and no internet, they still show under
+**Installed** and in the map lists, and they load, host and join as before.
 
 ## Getting items
 
-Pick an item and press **GET**. It shows **Downloading**, then **Installed**,
-and its maps join the map lists. An installed item offers **OPEN** (its
-Steam page). With the Steam client, **REMOVE** unsubscribes.
+Pick an item and press **GET**. It shows **Downloading** with its progress,
+then **Installed**, and its maps join the map lists. An installed item
+offers **PLAY**, **UPDATE** when Steam has a newer version, and **REMOVE**.
+The list is Steam's, a page at a time: **More items** at the end of a page
+shows the next.
 
 The **Search** row filters the list by Steam's tags (**Multiplayer**,
 **Campaign**) or **Installed**, and sorts it **Popular**, **New**,
@@ -68,11 +73,14 @@ are offered.
 - With the Steam client: Steam's own Workshop folder,
   `steamapps/workshop/content/976730/<item>` in the Steam library that has
   MCC.
-- With steamcmd: the `steam` folder inside the game's data folder. Set
-  `paths.steam_downloads` in `config.toml` to put it on another drive.
+- Downloaded by the game: the `steam` folder inside the game's data folder,
+  `steam/steamapps/workshop/content/976730/<item>`, the same layout as
+  Steam's. Set `paths.steam_downloads` in `config.toml` (Settings shows it
+  as **WORKSHOP FOLDER**) to put it on another drive. A download in
+  progress sits in `steam/steamapps/workshop/downloads/976730/<item>` and
+  moves into place when every file is checked.
 
-To remove an item downloaded with steamcmd, delete its folder,
-`steam/steamapps/workshop/content/976730/<item>`.
+**REMOVE** deletes the game's own copy, never anything in Steam's folders.
 
 ## What the game sends
 
@@ -80,3 +88,9 @@ The list and item details come from Steam's public Workshop pages, without
 a Steam key or sign-in. Item pictures come from Steam's picture server, only
 for the item you look at, and are kept in the cache folder. Nothing about
 you is sent with them.
+
+A download talks to Steam only: it signs in with your linked account and
+fetches the item from Steam's content servers. Your Steam name is shown in
+Settings on this computer and is never sent to Delta, game servers, logs or
+crash reports. Online Games shows an MCC game's map picture from our site's
+copy of it, else from Steam's picture server, before you download the map.

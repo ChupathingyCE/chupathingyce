@@ -758,6 +758,8 @@ static struct
 struct preview_job
 {
 	char id[WORKSHOP_BROWSER_ID_SIZE];
+	/* (no address known: Steam's details asked for it first) */
+	int ask_details;
 	char url[200];
 	char local[STEAM_WORKSHOP_PATH_SIZE];
 	char cache[STEAM_WORKSHOP_PATH_SIZE];
@@ -867,6 +869,22 @@ static void *preview_thread(void *context)
 	if (!data && job->cache[0])
 		data = file_read(job->cache, &size);
 #ifdef HALO_GAME_BROWSER
+	/* (an item the list hasn't shown: its picture's address from Steam's details) */
+	if (!data && !job->url[0] && job->ask_details)
+	{
+		static struct workshop_browser_item found;
+		char *answer = malloc(DETAILS_DOCUMENT + 1), form[96], error[128];
+
+		snprintf(form, sizeof(form), "itemcount=1&publishedfileids%%5B0%%5D=%s", job->id);
+		if (answer && posix_browser_request_as(DETAILS_URL, form, "application/x-www-form-urlencoded",
+			build_identity_user_agent(), answer, DETAILS_DOCUMENT + 1, error, sizeof(error)) == 200 &&
+			workshop_browser_read_details(answer, (int)strlen(answer), &found, 1) == 1 &&
+			!strncmp(found.preview_url, "https://", 8))
+		{
+			snprintf(job->url, sizeof(job->url), "%s", found.preview_url);
+		}
+		free(answer);
+	}
 	if (!data && job->url[0] && (data = download(job->url, &size)) != NULL && job->cache[0])
 	{
 		FILE *file = fopen(job->cache, "wb");
@@ -978,6 +996,99 @@ const unsigned char *workshop_browser_preview(int index, int *width, int *height
 	{
 		free(job);
 		return NULL;
+	}
+	preview.busy = 1;
+	if (pthread_create(&thread, NULL, preview_thread, job) == 0)
+		pthread_detach(thread);
+	else
+	{
+		preview.busy = 0;
+		free(job);
+	}
+	return NULL;
+#endif
+}
+
+/* the picture of any Workshop item, by its id (a game's MCC map, mcc_maps\<id>\<map>, in Online
+Games): its own installed picture, else the one kept in the cache, else Steam's (its details asked
+for, then the picture, kept in the cache): one at a time, each id tried once a run. RGBA pixels as
+workshop_browser_preview's; NULL until there is one */
+const unsigned char *workshop_browser_picture_of(const char *id, int *width, int *height, int *serial)
+{
+#if defined(HALO_ANDROID) || defined(HALO_WEB)
+	(void)id; (void)width; (void)height; (void)serial;
+	return NULL;
+#else
+	struct preview_job *job;
+	pthread_t thread;
+	int tried;
+	const char *save = platform_save_root();
+	char folder[STEAM_WORKSHOP_PATH_SIZE], name[256];
+
+	if (!workshop_browser_id_valid(id))
+		return NULL;
+	pthread_mutex_lock(&workshop.lock);
+	if (preview.done)
+	{
+		preview.done = 0;
+		free(preview.shown);
+		preview.shown = preview.pixels;
+		preview.pixels = NULL;
+		preview.shown_width = preview.width;
+		preview.shown_height = preview.height;
+		snprintf(preview.shown_id, sizeof(preview.shown_id), "%s", preview.id);
+		preview.serial++;
+	}
+	pthread_mutex_unlock(&workshop.lock);
+	if (preview.shown && !strcmp(preview.shown_id, id))
+	{
+		*width = preview.shown_width;
+		*height = preview.shown_height;
+		*serial = 0x57000000 + preview.serial;
+		return preview.shown;
+	}
+	for (tried = 0; tried < preview.tried_count && strcmp(preview.tried[tried], id); tried++)
+		;
+	if (tried < preview.tried_count || preview.busy || !(job = calloc(1, sizeof(*job))))
+		return NULL;
+	if (preview.tried_count < WORKSHOP_BROWSER_MAXIMUM_ITEMS)
+		snprintf(preview.tried[preview.tried_count++], WORKSHOP_BROWSER_ID_SIZE, "%s", id);
+	else
+		preview.tried_count = 0;
+	snprintf(job->id, sizeof(job->id), "%s", id);
+	local_preview(id, job->local, sizeof(job->local));
+	{
+		struct details_entry *known = details_find(id);
+
+		if (known && known->filled)
+			snprintf(job->url, sizeof(job->url), "%s", known->item.preview_url);
+	}
+	job->ask_details = !job->url[0] && !config_boolean("debug.workshop_no_steam");
+	if (save && snprintf(folder, sizeof(folder), "%s/cache/workshop", save) < (int)sizeof(folder))
+	{
+		void *directory;
+
+		/* (any picture of the item's kept, else a new one under its id) */
+		if ((directory = posix_directory_open(folder)) != NULL)
+		{
+			size_t length = strlen(id);
+
+			while (!job->cache[0] && posix_directory_next(directory, name, sizeof(name)))
+			{
+				if (!strncmp(name, id, length) && name[length] == '-' && strstr(name, ".picture"))
+					snprintf(job->cache, sizeof(job->cache), "%s/%s", folder, name);
+			}
+			posix_directory_close(directory);
+		}
+		if (!job->cache[0])
+		{
+			char cache_folder[STEAM_WORKSHOP_PATH_SIZE];
+
+			if (snprintf(cache_folder, sizeof(cache_folder), "%s/cache", save) < (int)sizeof(cache_folder))
+				posix_make_directory(cache_folder);
+			posix_make_directory(folder);
+			snprintf(job->cache, sizeof(job->cache), "%s/%s-0.picture", folder, id);
+		}
 	}
 	preview.busy = 1;
 	if (pthread_create(&thread, NULL, preview_thread, job) == 0)
@@ -1634,11 +1745,7 @@ static void view_build(void)
 	int index, other, count = 0;
 
 	find_row_make();
-	if (link_offered() && !steam_link_linked(NULL, 0))
-	{
-		link_row_make();
-		workshop.view[count++] = -3;
-	}
+	/* (no row for Steam's link: only GET and UPDATE need it, and say so) */
 	for (index = 0; index < workshop.count; index++)
 	{
 		if (workshop.items[index].setup)

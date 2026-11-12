@@ -5574,9 +5574,12 @@ static void lobby_browser_map_mark(struct p2p_listing const *game, short family,
 	short index;
 
 	mark[0] = 0;
-	if (family == _map_family_xbox)
+	/* (an MCC map: MCC, as Online Games and the site mark it) */
+	if (!strncmp(game->map, "mcc_maps\\", 9))
+		snprintf(tag, sizeof(tag), "%s", MAP_FAMILY_TAG_MCC);
+	else if (family == _map_family_xbox)
 		return;
-	if (family == _map_family_pack)
+	else if (family == _map_family_pack)
 		ui_map_list_map_tag(game->map, tag, sizeof(tag), title, sizeof(title));
 	else
 		snprintf(tag, sizeof(tag), "%s", family == _map_family_halomd ? (long_mark ? "HALOMD" : "MD") :

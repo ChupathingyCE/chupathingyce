@@ -1764,7 +1764,7 @@ boolean ui_map_list_map_present(
 	return ui_map_list_family_present(family, file);
 }
 
-/* a game's map's tag (map_family_tag; a pack's map its pack's: CE+), and
+/* a game's map's tag (map_family_tag; a pack's map its pack's: CE+; an MCC map MCC), and
 what it stands for (map_family_title; a pack's map its pack's name), into
 text */
 void ui_map_list_map_tag(
@@ -1777,6 +1777,13 @@ void ui_map_list_map_tag(
 	char pack[MAP_PACK_ID_LENGTH + 1];
 	short family = map_family_parse_listed(map, NULL, 0);
 
+	/* (an MCC map, mcc_maps\<package>\<map>: MCC, as the site marks it) */
+	if (map && !strncmp(map, "mcc_maps\\", 9))
+	{
+		snprintf(tag, (size_t)tag_size, "%s", MAP_FAMILY_TAG_MCC);
+		snprintf(title, (size_t)title_size, "%s", MAP_FAMILY_TITLE_MCC);
+		return;
+	}
 	if (family == _map_family_pack && map_family_pack_id(map, pack, sizeof(pack)))
 	{
 		map_pack_tag(pack, tag, tag_size);
