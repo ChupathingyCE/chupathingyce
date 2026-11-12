@@ -661,6 +661,77 @@ static int local_mcc(const char *data_root, const char *relative, const char *re
 	return 0;
 }
 
+/* MCC's install folder in a Steam library: its app manifest's installdir
+(steamapps/appmanifest_976730.acf: any name, "Halo-MCC" too), else Steam's
+default, "Halo The Master Chief Collection" */
+static int mcc_install_folder(const char *library, char *out, unsigned size)
+{
+	char manifest[STEAM_WORKSHOP_PATH_SIZE], folder[256], common[STEAM_WORKSHOP_PATH_SIZE];
+	char *text, *at;
+	int length;
+
+	snprintf(folder, sizeof(folder), "%s", "Halo The Master Chief Collection");
+	if (join(manifest, sizeof(manifest), library, "steamapps/appmanifest_" STEAM_APP ".acf") &&
+		(text = read_file(manifest, &length)))
+	{
+		/* "installdir"<white space>"<name>": a plain folder name, no
+		separators, dots alone or control characters */
+		at = strstr(text, "\"installdir\"");
+		if (at)
+		{
+			unsigned used = 0;
+
+			at += 12;
+			while (*at == ' ' || *at == '\t')
+				at++;
+			if (*at == '"')
+			{
+				for (at++; *at && *at != '"' && *at != '\n' && used + 1 < sizeof(folder); at++)
+				{
+					if ((unsigned char)*at < 0x20 || *at == '/' || *at == '\\' || *at == ':')
+						break;
+					folder[used++] = *at;
+				}
+				if (*at == '"' && used && strspn(folder, ".") != used)
+					folder[used] = 0;
+				else
+					snprintf(folder, sizeof(folder), "%s", "Halo The Master Chief Collection");
+			}
+		}
+		free(text);
+	}
+	if (join(common, sizeof(common), library, "steamapps/common") && resolve(common, folder, out, size) &&
+		is_directory(out))
+		return 1;
+	/* (steamcmd's force_install_dir: an install folder holding its own
+	steamapps/appmanifest_976730.acf, the library itself or a folder in its
+	steamapps/common, whatever its name) */
+	if (join(manifest, sizeof(manifest), library, "halo1/maps") && is_directory(manifest) &&
+		join(manifest, sizeof(manifest), library, "steamapps/appmanifest_" STEAM_APP ".acf") && is_file(manifest))
+	{
+		snprintf(out, size, "%s", library);
+		return strlen(library) < size;
+	}
+	{
+		void *directory = join(common, sizeof(common), library, "steamapps/common") ? posix_directory_open(common) : NULL;
+		char name[256], candidate[STEAM_WORKSHOP_PATH_SIZE];
+		int found = 0;
+
+		while (directory && !found && posix_directory_next(directory, name, sizeof(name)))
+		{
+			if (name[0] == '.' || !join(candidate, sizeof(candidate), common, name) ||
+				!join(manifest, sizeof(manifest), candidate, "steamapps/appmanifest_" STEAM_APP ".acf") ||
+				!is_file(manifest) || strlen(candidate) >= size)
+				continue;
+			snprintf(out, size, "%s", candidate);
+			found = 1;
+		}
+		if (directory)
+			posix_directory_close(directory);
+		return found;
+	}
+}
+
 int steam_workshop_resource_path(const char *request, const char *data_root, char *path, unsigned long size)
 {
 	char relative[128], local[160], package[STEAM_WORKSHOP_PATH_SIZE];
@@ -700,9 +771,9 @@ int steam_workshop_resource_path(const char *request, const char *data_root, cha
 		return resolve(package, local, path, size);
 	}
 	if (!strcmp(relative, "_shared/singleplayer"))
-		installed = "steamapps/common/Halo The Master Chief Collection/halo1/maps";
+		installed = "halo1/maps";
 	else if (!strcmp(relative, "_shared/multiplayer"))
-		installed = "steamapps/common/Halo The Master Chief Collection/halo1/maps/custom_edition";
+		installed = "halo1/maps/custom_edition";
 	else
 		return 0;
 	if (local_mcc(data_root, relative, resource, found, sizeof(found)))
@@ -714,7 +785,10 @@ int steam_workshop_resource_path(const char *request, const char *data_root, cha
 	count = libraries(paths, 2 * STEAM_WORKSHOP_MAXIMUM_LIBRARIES);
 	for (library = 0; library < count; library++)
 	{
-		if (resolve(paths[library], installed, package, sizeof(package)) &&
+		char install[STEAM_WORKSHOP_PATH_SIZE];
+
+		if (mcc_install_folder(paths[library], install, sizeof(install)) &&
+			resolve(install, installed, package, sizeof(package)) &&
 			resolve(package, resource, path, size))
 		{
 			result = 1;

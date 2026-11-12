@@ -521,6 +521,105 @@ def test_stock_message_in_the_missing_map_paths():
     assert "MAP_ARCHIVE_STOCK_TITLE" in browser and "map_family_stock_need(" in browser
 
 
+# ---------- the repository's listing (index.php?fulllist=y): the files'
+# spellings, for the maps the locator doesn't know (#639)
+
+LISTING = (
+    '<table><tr><th>Name</th></tr>'
+    '<tr><td><a href="/maps/BattleCraft.zip">BattleCraft</a></td><td>CE</td></tr>'
+    '<tr><td><a href="/maps/battlecraft%5Bhac2-re-release%5D.zip">battlecraft[hac2-re-release]</a></td></tr>'
+    '<tr><td><a href="/maps/battlecraft_hd.zip">battlecraft_hd</a></td></tr>'
+    '<tr><td><a href="/maps/Outpost_Rio_Classic.zip">x</a></td></tr>'
+    '<tr><td><a href="/maps/outpost_rio_classic.zip">x</a></td></tr>'
+    '<tr><td><a href="/maps/BattleCraft.zip">again</a></td></tr>'
+    '<tr><td><a href="/maps/../Frost_1.zip">x</a></td></tr>'
+    '<tr><td><a href="/maps/con.zip">x</a></td></tr>'
+    '<tr><td><a href="/maps/abcdefghijabcdefghijabcdefghijabc.zip">x</a></td></tr>'
+    '<tr><td><a href="/maps/Frost_1.7z">x</a></td></tr>'
+    '<tr><td><a href="/maps/Frost_1.zip">Frost_1</a></td></tr>'
+    '<tr><td><a href="/maps/Snow'
+)
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("battlecraft", "1 BattleCraft"),
+    ("BATTLECRAFT", "1 BattleCraft"),
+    ("outpost_rio_classic", "2 Outpost_Rio_Classic outpost_rio_classic"),
+    ("frost_1", "1 Frost_1"),
+    ("battlecraft_h", "0"),
+    ("con", "0"),
+    ("abcdefghijabcdefghijabcdefghijabc", "0"),
+    ("snow", "0"),
+    ("../frost_1", "0"),
+])
+def test_listing_spellings(harness, tmp_path, name, expected):
+    listing = write(tmp_path, LISTING.encode("ascii"), "listing.html")
+    assert run(harness, "listing", listing, name) == expected
+
+
+def test_listing_at_most_four(harness, tmp_path):
+    rows = "".join(f'<a href="/maps/{spelling}.zip">' for spelling in
+                   ("Maze", "MAZE", "maze", "mAze", "maZe", "Maze"))
+    listing = write(tmp_path, rows.encode("ascii"), "listing.html")
+    assert run(harness, "listing", listing, "maze") == "4 Maze MAZE maze mAze"
+
+
+def test_listing_empty_and_cut(harness, tmp_path):
+    assert run(harness, "listing", write(tmp_path, b"", "empty.html"), "maze") == "0"
+    assert run(harness, "listing", write(tmp_path, b'href="/maps/', "cut.html"), "maze") == "0"
+    assert run(harness, "listing", write(tmp_path, b'href="/maps/Maze.zip', "open.html"), "maze") == "0"
+
+
+def test_downloader_reads_the_listing():
+    download = (ROOT / "port" / "linux" / "src" / "map_download.c").read_text(encoding="utf-8")
+    assert "/index.php?fulllist=y" in download and "map_archive_listing_files(" in download
+    # (repository downloads land in the quarantine folder and get the quick checks)
+    assert '"%s\\\\%s.map.download", MAP_HOST_QUARANTINE_FOLDER' in download
+    assert "map_quick_check(quarantined_read" in download
+
+
+def test_failure_labels():
+    """a failed download shows a word or two (map_download_refusal_label),
+    never the log's reason"""
+    download = (ROOT / "port" / "linux" / "src" / "map_download.c").read_text(encoding="utf-8")
+    for label in ('"Not found"', '"Blocked"', '"Doesn\'t match"', '"Damaged"', '"Failed"'):
+        assert label in download
+    screen = (ROOT / "port" / "linux" / "game" / "browser_screen.c").read_text(encoding="utf-8")
+    assert "map_download_refusal_label(progress->refusal)" in screen
+    assert "progress->message" not in screen
+    # (after the failure screen: no "Copy it in" for a map that can't be played anyway)
+    given_up = screen[screen.index("static void rejoin_given_up("):]
+    given_up = given_up[:given_up.index("\n}\n")]
+    assert "refusal == MAP_DOWNLOAD_REFUSAL_BLOCKED" in given_up
+    assert '"Could not download %.31s.map. %s."' in given_up
+    # (the reasons map_download.c sorts by: map_repo.c's and map_host_download.c's words)
+    repo = (ROOT / "port" / "linux" / "src" / "map_repo.c").read_text(encoding="utf-8")
+    assert '"it is blocked: %s"' in repo and "(its SHA-256 differs)" in repo and "gave %u bytes, not %u" in repo
+    # (refusals come back as codes, not read out of the reasons' words)
+    assert "strstr(why" not in download and "strstr(error" not in download
+    assert "MAP_REPO_REFUSED_MISMATCH" in download and "&mismatched" in download
+
+
+def test_consoles_download_as_before():
+    """the consoles' builds (HALO_CONSOLE; the original Xbox's
+    HALO_XBOX_CONSOLE; the Switch's HALO_SWITCH_CONSOLE) leave out the
+    listing's 8 MB, the quarantine folder and the quick checks"""
+    download = (ROOT / "port" / "linux" / "src" / "map_download.c").read_text(encoding="utf-8")
+    assert ("#if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE) || defined(HALO_SWITCH_CONSOLE)\n"
+            "#define MAP_DOWNLOAD_CONSOLE 1") in download
+    listing = download[download.index("static int listed_files("):]
+    assert download[:download.index("static int listed_files(")].rstrip().endswith("*/")
+    gate = download.rindex("#ifndef MAP_DOWNLOAD_CONSOLE", 0, download.index("static int listed_files("))
+    assert "#endif" not in download[gate:download.index("static int listed_files(")]
+    assert listing.index("#endif") < listing.index("static int from_community(")
+    call = download.index("listed = listed_files(")
+    assert download.rindex("#ifndef MAP_DOWNLOAD_CONSOLE", 0, call) > download.rindex("#endif", 0, call)
+    create = download.index("\tCreateDirectoryA(MAP_HOST_QUARANTINE_FOLDER, NULL);")
+    assert download.rindex("#ifndef MAP_DOWNLOAD_CONSOLE", 0, create) > download.rindex("#endif", 0, create)
+    check = download.index("if (!quick_check(file, partial_path")
+    assert download.rindex("#ifndef MAP_DOWNLOAD_CONSOLE", 0, check) > download.rindex("#endif", 0, check)
+
+
 # ---------- the real repository
 
 
@@ -540,6 +639,23 @@ def test_real_repository_map(harness, tmp_path):
     assert output.startswith("ok "), output
     assert run(harness, "header", out, ONLINE_MAP, ONLINE_CHECKSUM) == "ok"
     assert "another version" in run(harness, "header", out, ONLINE_MAP, "00000001")
+
+
+def test_real_listing_spelling(harness, tmp_path):
+    """#639: the locator has no battlecraft, the listing has BattleCraft.zip"""
+    if os.environ.get("HALO_MAP_DOWNLOAD_ONLINE") == "0":
+        pytest.skip("HALO_MAP_DOWNLOAD_ONLINE=0")
+    request = urllib.request.Request("https://maps.halonet.net/index.php?fulllist=y",
+                                     headers={"User-Agent": "ChupathingyCE tests"})
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            data = response.read(8 * 1024 * 1024 + 1)
+    except OSError as failure:
+        pytest.skip(f"the repository can't be reached: {failure}")
+    assert len(data) <= 8 * 1024 * 1024
+    listing = write(tmp_path, data, "listing.html")
+    assert run(harness, "listing", listing, "battlecraft") == "1 BattleCraft"
+    assert run(harness, "listing", listing, "sneak").split()[0] != "0"
 
 
 def download(name, tmp_path):

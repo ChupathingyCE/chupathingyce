@@ -259,7 +259,12 @@ with their authors credited in each commit.
   shaders and makes bgfx's pipelines before play.
 - chestahh (GulchCE): lens flares and light
   glows back on AMD graphics, less stutter the first time a texture is drawn
-  on Windows, and host cheat and shadow setup fixes.
+  on Windows, host cheat and shadow setup fixes, and the Halo MCC map
+  loader: MCC Workshop and MCC install maps, their scripts, HUDs, effects
+  and campaigns.
+- PeterRichardsonGolf and the other GulchCE contributors: the Steam
+  Workshop catalog with its items' titles and collections, and the MCC
+  sharing rules.
 - mOTA-lEV ([OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber)):
   projectiles and damage that forget objects deleted under them.
 - [bitmoda](https://github.com/bitmoda) (mastercheese's OpenCE fork): the

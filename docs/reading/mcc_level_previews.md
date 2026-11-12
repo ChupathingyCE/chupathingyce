@@ -105,18 +105,8 @@ native list untouched. X no longer opens campaigns from the main menu.
 Back first leaves difficulty selection, then the campaign folder, then returns
 to profile selection. It never selects a mission by an Xbox level number.
 
-The native multiplayer map selector gains an X **MCC Maps** prompt. This opens
-the separate MCC browser and returns a selected MCC identity to the existing
-native gametype flow. The Xbox/CE map selector remains available and unchanged.
-
-[mcc_xbox_menu.inl](../../port/linux/game/mcc_xbox_menu.inl) owns browser state,
-selection and routing. It uses the existing frontend instance-attachment and
-session-reset services; no widget pointers survive a screen change. The
-input hooks are necessary because generated XML cannot append an entry to the native root or consume
-X before its native handlers. [mcc_xbox_menu.py](../../tools/mcc_xbox_menu.py),
-called by the frontend generator, owns the additional XML and heading redraw.
-Geometry was checked against the Xbox build's `solo_level_select` widget tags
-in the local `ui.map`; retail tag contents and images are not shipped.
+MCC maps are listed in the existing map screens beside the Xbox and Custom
+Edition maps; there is no separate MCC browser.
 
 ## MCC completion badges
 
@@ -161,20 +151,9 @@ network downloads, execute code, or change MCC redistribution/map-sharing policy
 The decoder was independently implemented against the
 [PNG specification](https://www.w3.org/TR/png-3/).
 
-[test_mcc_previews.py](../../tools/test_mcc_previews.py) executes the real
-decoder and file reader with generated assets, including all five PNG filters,
-malformed files, path/link escapes, metadata fallback and local precedence.
-[test_mcc_preview_menu.py](../../tools/test_mcc_preview_menu.py) exercises the
-real presentation against deterministic font/GPU services, checking bounds,
-cache eviction/reset, wrapping and unaffected Xbox/CE indices. The
-[Android importer tests](../../tools/tests/MccPackageImporterTest.java) verify
-that folder and ZIP imports retain metadata and image bytes. CI runs preview
-reader checks on Windows and Linux, including Linux address/undefined-behavior
-sanitizers. These automated checks do not replace rendered menu inspection or
-Android device testing.
+Rendered menu inspection and Android device testing check this work; the
+port carries no automated preview tests yet.
 
-[test_mcc_xbox_menu.py](../../tools/test_mcc_xbox_menu.py) checks the native
-geometry, profile/folder/difficulty/back routes, host handoff and entry guards.
 [test_mcc_progress.py](../../tools/test_mcc_progress.py) executes journal reads
 and writes, profile/mission isolation, duplicate awards, corruption, capacity
 and profile-rename copying. The existing MCC lifecycle test checks that awards
