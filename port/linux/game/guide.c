@@ -5638,7 +5638,7 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			guide_close();
 			break;
 		case _target_page:
-			guide_workshop_page_step(target->index ? 1 : -1);
+			guide_workshop_page_step(target->index == 2 ? 0 : target->index ? 1 : -1);
 			break;
 		case _target_modal:
 			guide_workshop_link_modal_press();

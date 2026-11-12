@@ -659,6 +659,10 @@ static void rejoin_given_up(
 	int refusal = browser_screen.offer == _offer_failed ? browser_screen.offer_progress.refusal :
 		MAP_DOWNLOAD_REFUSAL_NONE;
 
+	/* (a Workshop item's own reason, when the caller had none: "Link Steam
+	first", "Steam didn't answer") */
+	if (!why && browser_screen.offer_workshop && browser_screen.offer_workshop_why[0])
+		why = browser_screen.offer_workshop_why;
 	platform_log("map download: %s not downloaded (%s): the game is not joined again", browser_screen.offer_display,
 		why ? why : "not wanted");
 	browser_screen.offer = _offer_none;
@@ -668,7 +672,9 @@ static void rejoin_given_up(
 	map_download_reset();
 	/* (the words the error has without the downloader: why the download
 	failed is in the log, the dialog having no room for more) */
-	if (browser_screen.offer_workshop)
+	if (browser_screen.offer_workshop && why)
+		snprintf(text, sizeof(text), "Couldn't get %.40s. %.120s", browser_screen.offer_display, why);
+	else if (browser_screen.offer_workshop)
 		snprintf(text, sizeof(text), "You don't have %.40s. Get it in the Delta Guide's Workshop.",
 			browser_screen.offer_display);
 	else if (refusal == MAP_DOWNLOAD_REFUSAL_BLOCKED || refusal == MAP_DOWNLOAD_REFUSAL_MISMATCH ||
@@ -920,7 +926,7 @@ static void offer_given_up(
 
 	if (browser_screen.rejoin_pending)
 	{
-		rejoin_given_up(NULL);
+		rejoin_given_up(why);
 		return;
 	}
 	browser_screen.offer = _offer_none;
@@ -2177,10 +2183,20 @@ void browser_screen_workshop_missing(
 	}
 	csstrncpy(browser_screen.offer_workshop_id, id, sizeof(browser_screen.offer_workshop_id) - 1);
 	browser_screen.offer_workshop_id[sizeof(browser_screen.offer_workshop_id) - 1] = 0;
-	/* (the host's name for it only in the log: the dialog shows Steam's
-	own title once Steam has answered for the item) */
-	csstrncpy(browser_screen.offer_display, id, sizeof(browser_screen.offer_display) - 1);
-	browser_screen.offer_display[sizeof(browser_screen.offer_display) - 1] = 0;
+	/* (the host's name for it until Steam answers with its own title, never
+	the bare number; printable characters only) */
+	{
+		long index, used = 0;
+
+		for (index = 0; title && title[index] && used < (long)sizeof(browser_screen.offer_display) - 1; index++)
+		{
+			if ((unsigned char)title[index] >= ' ' && (unsigned char)title[index] < 0x7F)
+				browser_screen.offer_display[used++] = title[index];
+		}
+		browser_screen.offer_display[used] = 0;
+		if (!used)
+			snprintf(browser_screen.offer_display, sizeof(browser_screen.offer_display), "a Workshop map");
+	}
 	browser_screen.offer_file[0] = 0;
 	browser_screen.offer_workshop = TRUE;
 	browser_screen.offer_workshop_size = 0;
@@ -3893,12 +3909,22 @@ static void draw_header(
 	snprintf(text, sizeof(text), "%d", browser_screen.listed);
 	x -= ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_TEXT, COLOR_HALO, text) + 3;
 	ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_HEAD, COLOR_HALO, "SERVERS");
-	/* (the game list's address, in capitals as the rest) */
+	/* (the game list's name, in capitals as the rest: a site's name only,
+	never an address or a port; a list at an address goes unnamed) */
 	browser_server_name(text, sizeof(text));
-	for (index = 0; text[index]; index++)
 	{
-		if (text[index] >= 'a' && text[index] <= 'z')
-			text[index] = (char)(text[index] - 32);
+		boolean named = FALSE;
+
+		text[strcspn(text, ":/")] = 0;
+		for (index = 0; text[index]; index++)
+		{
+			if ((text[index] >= 'a' && text[index] <= 'z') || (text[index] >= 'A' && text[index] <= 'Z'))
+				named = TRUE;
+			if (text[index] >= 'a' && text[index] <= 'z')
+				text[index] = (char)(text[index] - 32);
+		}
+		if (!named || !strchr(text, '.') || !strcmp(text, "LOCALHOST"))
+			text[0] = 0;
 	}
 	/* (no list: no line; the list itself says why it is empty) */
 	if (text[0])

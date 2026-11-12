@@ -98,6 +98,7 @@ tools/test_playlist_maps.py
 tools/test_prompt_schemes.py
 tools/test_rename_stub.py
 tools/test_report_clip.py
+tools/test_retry_backoff.py
 tools/test_save_folder.py
 tools/test_server_badge.py
 tools/test_server_bans.py

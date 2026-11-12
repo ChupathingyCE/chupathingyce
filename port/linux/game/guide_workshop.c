@@ -123,6 +123,8 @@ enum
 	_option_remove,
 	/* the content client couldn't get it ("Not owned"): the item's page in Steam */
 	_option_open_steam,
+	/* the list failed: asked again */
+	_option_retry,
 	/* the link row's LINK (to SETTINGS' STEAM ACCOUNT, its QR shown) */
 	_option_link,
 	/* the page row's */
@@ -208,6 +210,8 @@ static short options_of(struct workshop_browser_item const *item, short *options
 	{
 		short index;
 
+		if (workshop_browser_status() == WORKSHOP_LIST_FAILED)
+			options[count++] = _option_retry;
 		options[count++] = _option_search;
 		/* (the chips Steam's tags give, and Installed, only when some item has it) */
 		for (index = 0; index < WORKSHOP_FILTER_COUNT; index++)
@@ -240,8 +244,11 @@ static short options_of(struct workshop_browser_item const *item, short *options
 	{
 		/* (in a game or a lobby too: PLAY asks before leaving it) */
 		options[count++] = _option_play;
-		if (bridge && workshop_browser_update_offered(workshop_view.row))
+		if ((bridge || (workshop_browser_link_offered() && !link_needed())) &&
+			workshop_browser_update_offered(workshop_view.row))
+		{
 			options[count++] = _option_update;
+		}
 		if (count < 2 && workshop_browser_removable(workshop_view.row))
 			options[count++] = _option_remove;
 		return count;
@@ -302,11 +309,12 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	{
 	case _option_search: return "SEARCH";
 	case _option_play: return "PLAY";
-	case _option_update: return link_needed() ? "LINK STEAM" : "UPDATE";
+	case _option_update: return link_needed() ? "LINK STEAM" : item->steam_error[0] ? "RETRY" : "UPDATE";
 	case _option_remove: return workshop_view.confirm_remove ? "CONFIRM" : "REMOVE";
 	case _option_show_maps: return "TURN ON";
 	case _option_unsubscribe: return "CANCEL";
 	case _option_open_steam: return "OPEN IN STEAM";
+	case _option_retry: return "RETRY";
 	case _option_sign_in: return steam_link_available() ? "LINK STEAM" : "SIGN IN";
 	case _option_link: return "LINK";
 	case _option_page_next: return "NEXT PAGE";
@@ -459,6 +467,9 @@ static short find_row(void)
 
 boolean guide_workshop_page_step(short step)
 {
+	/* (step 0: the heading's RETRY) */
+	if (!step)
+		return workshop_browser_retry() != 0;
 	if (workshop_view.searching || !(step > 0 ? workshop_browser_page_next() : workshop_browser_page_previous()))
 		return FALSE;
 	/* (the new page's first item chosen, the list from its top) */
@@ -554,6 +565,10 @@ static void option_run(short option)
 		return;
 	case _option_open_steam:
 		workshop_browser_open_in_steam(workshop_view.row);
+		return;
+	case _option_retry:
+		workshop_browser_retry();
+		workshop_view.option = 0;
 		return;
 	case _option_page_next:
 	case _option_page_previous:
@@ -1154,7 +1169,7 @@ static char const *page_note(struct workshop_browser_item const *item, char *lin
 	{
 		return "Sign in to steamcmd";
 	}
-	if (item->steam_error[0] && item->state != WORKSHOP_ITEM_INSTALLED)
+	if (item->steam_error[0])
 		return item->steam_error;
 	if (item->state == WORKSHOP_ITEM_DOWNLOADING && item->total > 0)
 	{
@@ -1193,10 +1208,29 @@ static void heading_render(float left, float top, short status,
 	else
 		snprintf(heading, sizeof(heading), "MCC WORKSHOP - INSTALLED");
 	ui_style_text(UI_TEXT_HEADING, left, top, UI_ALIGN_LEFT, heading);
-	if (status == WORKSHOP_LIST_LOADING || status == WORKSHOP_LIST_FAILED)
+	if (status == WORKSHOP_LIST_LOADING)
 	{
-		ui_style_text(UI_TEXT_LABEL, right, top + 1, UI_ALIGN_RIGHT, status == WORKSHOP_LIST_LOADING ? "Loading" :
-			"Offline");
+		ui_style_text(UI_TEXT_LABEL, right, top + 1, UI_ALIGN_RIGHT, "Loading");
+		return;
+	}
+	/* (failed: why, and RETRY; a busy Steam's wait counted down instead) */
+	if (status == WORKSHOP_LIST_FAILED)
+	{
+		int busy = workshop_browser_busy_seconds();
+		char word[40];
+		float width;
+
+		if (busy)
+		{
+			snprintf(word, sizeof(word), "Steam is busy, %ds", busy);
+			ui_style_text(UI_TEXT_LABEL, right, top + 1, UI_ALIGN_RIGHT, word);
+			return;
+		}
+		width = ui_overlay_text_width(UI_FONT_MENU, 8.5f, "RETRY");
+		ui_overlay_text(UI_FONT_MENU, 8.5f, right, top, UI_ALIGN_RIGHT, COLOR_VALUE, "RETRY");
+		ui_style_text(UI_TEXT_LABEL, right - width - 8, top + 1, UI_ALIGN_RIGHT, "Can't reach Steam");
+		if (target)
+			target(right - width - 4, top - 3, right + 2, top + 12, GUIDE_WORKSHOP_TARGET_PAGE, 2);
 		return;
 	}
 	if (!guide_workshop_pages())
