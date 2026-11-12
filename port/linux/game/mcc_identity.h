@@ -8,6 +8,11 @@ struct network_game;
 struct mcc_runtime;
 struct mcc_cache_source;
 int mcc_identity_prepare_host(char const *name);
+/* port: whether the host's settings for the map may go out (an MCC map's
+once its identity is prepared, #1129), and the identity let go with its
+server */
+int mcc_identity_host_ready(char const *map);
+void mcc_identity_host_clear(void);
 /* port: (network_server_message_handler.c) the host's MCC bytes of a 43-layout
 settings record, over a fragment of it */
 void mcc_identity_host_overlay(char const *map, long record_size, long name_offset, long offset, long length,
@@ -30,6 +35,8 @@ the shared code calls do nothing, their arguments unevaluated */
 #define mcc_identity_accept(a0) ((void)sizeof(a0), (int)1)
 #define mcc_identity_disconnect() ((void)0)
 #define mcc_identity_prepare_host(a0) ((void)sizeof(a0), (int)0)
+#define mcc_identity_host_ready(a0) ((void)sizeof(a0), (int)1)
+#define mcc_identity_host_clear() ((void)0)
 #define mcc_identity_host_overlay(a0, a1, a2, a3, a4, a5) \
 	((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)sizeof(a5))
 #define mcc_identity_wire_record(a0, a1) ((void)sizeof(a0), (void)sizeof(a1))

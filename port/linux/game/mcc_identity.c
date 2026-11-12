@@ -7,6 +7,7 @@
 #include "errors.h"
 #include "game/game.h"
 #include "networking/network_game_manager.h"
+#include "networking/network_game_globals.h"
 #include "interface/ui_widget.h"
 #include "mcc_cache.h"
 #include "mcc_identity.h"
@@ -42,13 +43,21 @@ static int mcc_identity_error(char const *message)
     return 0;
 }
 
+/* port: a client's leaving clears only its own binding. This machine may
+still host (its lobby keeps the server while the menus make a new client, a
+dedicated server's next game): the host's identity goes with its server
+(mcc_identity_host_clear), and so does a check its lobby waits for (#1129) */
 void mcc_identity_disconnect(void)
 {
-    mcc_validation_cancel();
+    if (!global_network_game_server_get()) mcc_validation_cancel();
     mcc_cache_validation_clear();
     memset(&mcc_client_identity,0,sizeof(mcc_client_identity));
-    memset(&mcc_host_identity,0,sizeof(mcc_host_identity));
     mcc_cache_precache_clear();
+}
+
+void mcc_identity_host_clear(void)
+{
+    memset(&mcc_host_identity,0,sizeof(mcc_host_identity));
 }
 
 char const *mcc_identity_local_name(char const *name)
@@ -69,6 +78,22 @@ static unsigned char const *mcc_identity_expected(char const *name)
     return NULL;
 }
 
+static int mcc_identity_host_current(char const *name,struct mcc_precache_snapshot const *files)
+{
+    return mcc_host_identity.valid && !strcmp(name,mcc_host_identity.name) &&
+        !memcmp(files,&mcc_host_identity.files,sizeof(*files));
+}
+
+static void mcc_identity_host_set(char const *name,unsigned char const digest[32],
+    struct mcc_precache_snapshot const *files)
+{
+    strcpy(mcc_host_identity.name,name);
+    memcpy(mcc_host_identity.digest,digest,32);
+    mcc_host_identity.files=*files;
+    mcc_workshop_local_item(name,&mcc_host_identity.item);
+    mcc_host_identity.valid=1;
+}
+
 /* Prepare alongside the map version, before sending its settings. Initial
  * MCC host setup does this before opening the lobby; mcc_ui_network defers
  * early map changes until the host's loopback client has joined. */
@@ -81,22 +106,46 @@ int mcc_identity_prepare_host(char const *map)
         mcc_host_identity.valid=0;
         return 0;
     }
-    if (!mcc_host_identity.valid || strcmp(name,mcc_host_identity.name) ||
-        memcmp(&before,&mcc_host_identity.files,sizeof(before))) {
+    if (!mcc_identity_host_current(name,&before)) {
         mcc_host_identity.valid=0;
         if (mcc_validation_request(name,NULL,digest)!=1) return 0;
         if (!mcc_precache_snapshot(name,&after) ||
             memcmp(&before,&after,sizeof(before))) {
-            mcc_identity_error("The host's MCC map or resources could not be fingerprinted, or changed during validation.");
+            mcc_identity_error("Couldn't check this MCC map: its files changed while it was checked. Try again once it has finished installing.");
             return 0;
         }
-        strcpy(mcc_host_identity.name,name);
-        memcpy(mcc_host_identity.digest,digest,32);
-        mcc_host_identity.files=after;
-        mcc_workshop_local_item(name,&mcc_host_identity.item);
-        mcc_host_identity.valid=1;
+        mcc_identity_host_set(name,digest,&after);
     }
     return 1;
+}
+
+/* port: whether the host's settings for this map may go out (#1129): any
+ * other map's always; an MCC map's once its identity is prepared, taken here
+ * from a finished check of its package (never starting one: the lobby's
+ * update does, mcc_ui_network_update_map). Until then every machine's
+ * record is held, not sent with an all-zero digest that every joiner,
+ * the host's own client too, refuses */
+int mcc_identity_host_ready(char const *map)
+{
+    struct mcc_precache_snapshot files;
+    char name[64];
+    unsigned char digest[32];
+    static char held[64];
+    if (!map || !mcc_level_name(map)) return 1;
+    if (mcc_package_name(map,name) && mcc_precache_snapshot(name,&files)) {
+        if (mcc_identity_host_current(name,&files)) {held[0]=0;return 1;}
+        if (mcc_validation_lookup(name,NULL,digest)) {
+            mcc_identity_host_set(name,digest,&files);
+            held[0]=0;
+            return 1;
+        }
+    }
+    if (strncmp(held,map,sizeof(held)-1)) {
+        strncpy(held,map,sizeof(held)-1);
+        held[sizeof(held)-1]=0;
+        error(_error_silent,"mcc identity: holding the game settings until %s is checked",map);
+    }
+    return 0;
 }
 
 /* port: the host's MCC part of a 43-layout settings record (13,200 bytes:
@@ -248,7 +297,7 @@ int mcc_identity_accept(struct network_game const *game)
     if (!mcc_level_name(game->map.name)) return 1;
 #endif
     if (!mcc_package_name(game->map.name,session) || !memcmp(digest,zero,32))
-        return mcc_identity_error("The host did not supply a valid MCC content identity.");
+        return mcc_identity_error("Couldn't check this game's MCC map. The host may need to restart the game.");
     /* A verified exact installation is unambiguous even with duplicate copies. */
     if (mcc_identity_matches(session,digest,&selected_files)) {
         strcpy(selected,session);
