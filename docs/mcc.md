@@ -17,8 +17,6 @@ While something is missing, rows at the top of the list say what to do
 next. Each row shows **Ready**, **To do**, **Working** or **Not available**,
 and has one button.
 
-![Setup rows](screenshots/mcc-setup-files.jpg)
-
 ### Windows, and Linux with MCC in Steam
 
 1. **Steam**: install Steam and sign in.

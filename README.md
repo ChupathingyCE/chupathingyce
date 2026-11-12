@@ -320,8 +320,9 @@ with their authors credited in each commit.
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
-  Expat, Monocypher, zlib, Zstandard, the LZMA SDK's decoder (Igor Pavlov,
-  public domain), SMAA, and Project Nayuki's QR Code generator. Their licenses are
+  Expat, Monocypher, zlib, Zstandard (BSD-3-Clause), the LZMA SDK's decoder
+  (Igor Pavlov, public domain), SMAA, and Project Nayuki's QR Code generator
+  (MIT). Their licenses are
   beside them in `port/third_party`. The 64-bit desktop builds' test
   renderer uses bgfx, bx and bimg by Branimir Karadžić (BSD-2-Clause), with
   glslang and SPIRV-Cross (Khronos, BSD-3-Clause and Apache-2.0), fetched
