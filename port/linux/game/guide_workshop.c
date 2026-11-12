@@ -638,6 +638,19 @@ static void text_line(int kind, float x, float y, float width, int align, char c
 	char shown[GUIDE_LAYOUT_LINE_SIZE];
 
 	text_fit(kind, text, width, shown, sizeof(shown));
+#ifndef HALO_RELEASE
+	/* (the drawn text in the menus' own font past its box: said once, for
+	the screenshot runs to catch what the layout test's font can't) */
+	{
+		static boolean said;
+
+		if (!said && kind_width(kind, shown) > width + 0.5f)
+		{
+			said = TRUE;
+			platform_log("Guide: text past its box (%.0f of %.0f): %s", kind_width(kind, shown), width, shown);
+		}
+	}
+#endif
 	ui_style_text(kind, x, y, align, shown);
 }
 

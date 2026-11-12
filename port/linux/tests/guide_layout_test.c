@@ -15,6 +15,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "../src/guide_layout.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int failures;
@@ -248,8 +249,105 @@ static void check_modal(void)
 	}
 }
 
+/* (each a valid UTF-8 run: no character cut short) */
+static int utf8_whole(const char *text)
+{
+	const unsigned char *at = (const unsigned char *)text;
+
+	while (*at)
+	{
+		int need = *at >= 0xF0 ? 4 : *at >= 0xE0 ? 3 : *at >= 0xC0 ? 2 : 1, index;
+
+		if ((*at & 0xC0) == 0x80)
+			return 0;
+		for (index = 1; index < need; index++)
+		{
+			if ((at[index] & 0xC0) != 0x80)
+				return 0;
+		}
+		at += need;
+	}
+	return 1;
+}
+
+/* the review's cases: past the line's buffer and the output's end, a cut
+character, a picture's tag swallowing the words after another tag (run
+under AddressSanitizer by tools/test_guide_layout.py) */
+static void check_bounds(void)
+{
+	char word[600], lines[8][GUIDE_LAYOUT_LINE_SIZE];
+	int offset, index, count, cut;
+
+	/* (a word longer than a line, a 2, 3 or 4 byte character about the
+	line's size, with room for all of it and for little) */
+	for (offset = GUIDE_LAYOUT_LINE_SIZE - 6; offset <= GUIDE_LAYOUT_LINE_SIZE + 2; offset++)
+	{
+		static const char *const characters[] = { "\xC3\xA9", "\xE2\x80\xA6", "\xF0\x9F\x98\x80" };
+		int which;
+
+		for (which = 0; which < 3; which++)
+		{
+			float widths[] = { 100000, 300, 10 };
+			int width;
+
+			memset(word, 'a', (size_t)offset);
+			word[offset] = 0;
+			strcat(word, characters[which]);
+			for (index = (int)strlen(word); index < 400; index++)
+				word[index] = 'b';
+			word[400] = 0;
+			for (width = 0; width < 3; width++)
+			{
+				count = guide_layout_wrap(word, widths[width], 9, measure, NULL, 8, lines, &cut);
+				CHECK(count > 0, "a long word wrapped to nothing");
+				for (index = 0; index < count; index++)
+				{
+					CHECK(strlen(lines[index]) < GUIDE_LAYOUT_LINE_SIZE, "line %d too long", index);
+					CHECK(utf8_whole(lines[index]), "line %d cut inside a character (at %d, %d)", index, offset,
+						which);
+				}
+			}
+		}
+	}
+	/* (a markdown link right where the output ends: exactly size bytes) */
+	{
+		int size;
+
+		for (size = 1; size <= 12; size++)
+		{
+			char *out = malloc((size_t)size);
+
+			guide_layout_plain("ab [cd](https://x) ef [gh](y)", out, size);
+			CHECK((int)strlen(out) < size, "plain past its %d bytes", size);
+			free(out);
+			out = malloc((size_t)size);
+			guide_layout_plain("ab \xC3\xA9\xE2\x80\xA6 [\xC3\xA9\xC3\xA9](x)", out, size);
+			CHECK(utf8_whole(out), "plain ended inside a character at %d bytes", size);
+			free(out);
+		}
+	}
+	{
+		char out[4];
+
+		guide_layout_plain("ab\xC3\xA9", out, sizeof(out));
+		CHECK(!strcmp(out, "ab"), "a cut character kept: %s", out);
+	}
+	/* (a picture's tag: up to its own closing tag, not another's) */
+	{
+		char out[128];
+
+		guide_layout_plain("[img]https://example.com/a[/url]leak[/img]after", out, sizeof(out));
+		CHECK(!strcmp(out, "after"), "a picture's tag let words through: %s", out);
+		guide_layout_plain("[b]bold[/b] [img]no closing tag", out, sizeof(out));
+		CHECK(strstr(out, "bold") != NULL && strstr(out, "[") == NULL, "an unclosed picture: %s", out);
+		guide_layout_plain("[IMG]x[/IMG]kept [previewyoutube=a;full][/previewyoutube]too", out, sizeof(out));
+		CHECK(!strcmp(out, "kept too"), "capitals or a video: %s", out);
+	}
+}
+
 int main(void)
 {
+	check_bounds();
 	check_plain();
 	check_fit();
 	check_wrap();
