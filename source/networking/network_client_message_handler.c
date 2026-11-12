@@ -206,10 +206,10 @@ symbols in this file:
 #ifdef HALO_GAME_BROWSER
 #include "networking/network_connection.h"
 #include "map_share.h" /* port: map sharing's messages to the map bot's fetch */
+#endif
 unsigned delta_peer_game_host_number(void); /* port/linux/src/delta_peer_game.c */
 boolean network_game_client_host_speaks_delta(void); /* network_client_manager.c */
 #include "mcc_identity.h" /* port: the host's MCC content digest in a 43 record */
-#endif
 
 /* port/linux/game/network_distributed.c's */
 void network_distributed_handle_message(long machine_index, word const *message, word size);

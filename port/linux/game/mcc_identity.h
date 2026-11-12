@@ -1,6 +1,9 @@
 /* MCC session identity is independent of a client's installation folder. */
 #ifndef MCC_IDENTITY_H
 #define MCC_IDENTITY_H
+#ifndef HALO_MCC
+#include "halo_port_features.h" /* HALO_MCC */
+#endif
 struct network_game;
 struct mcc_runtime;
 struct mcc_cache_source;
@@ -27,6 +30,9 @@ the shared code calls do nothing, their arguments unevaluated */
 #define mcc_identity_accept(a0) ((void)sizeof(a0), (int)1)
 #define mcc_identity_disconnect() ((void)0)
 #define mcc_identity_prepare_host(a0) ((void)sizeof(a0), (int)0)
+#define mcc_identity_host_overlay(a0, a1, a2, a3, a4, a5) \
+	((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)sizeof(a5))
+#define mcc_identity_wire_record(a0, a1) ((void)sizeof(a0), (void)sizeof(a1))
 #endif
 
 #endif

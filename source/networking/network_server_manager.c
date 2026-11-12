@@ -1414,10 +1414,11 @@ messages carry MCC's (mcc_network_messages.h), whatever this machine
 announces otherwise; any other map at the usual number. Asked as the map is
 chosen (network_game_server_change_map_name), each lobby frame, and undone as
 hosting ends; said once if this build can't */
-int delta_legacy_host_game_at(int version); /* (port/linux/src/delta.c) */
 /* (network_server_message_handler.c) */
 unsigned network_game_server_machine_joined_number(struct network_game_server *server,
 	struct network_game_server_client_machine *machine);
+#if defined(HALO_MCC) && HALO_MCC
+int delta_legacy_host_game_at(int version); /* (port/linux/src/delta.c) */
 boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
 long dedicated_playlist_count(void);
 char const *dedicated_playlist_map(long entry);
@@ -1468,11 +1469,17 @@ void network_game_server_mcc_playlist_changed(
 {
 	network_game_server_mcc_version("");
 }
+#else
+/* (no MCC maps in this build: HALO_MCC) */
+#define network_game_server_mcc_version(map_name) ((void)sizeof(map_name))
+void network_game_server_mcc_playlist_changed(void) {}
+#endif
 
 void network_game_server_dispose(
 	struct network_game_server *server)
 {
 	mcc_ui_network_server_dispose(server);
+#if defined(HALO_MCC) && HALO_MCC
 	/* (the usual number again; a dedicated server keeps its playlist's) */
 	if (!dedicated_server_active())
 	{
@@ -1480,6 +1487,7 @@ void network_game_server_dispose(
 			delta_legacy_host_game_at(0);
 		network_game_server_mcc_asked = -1;
 	}
+#endif
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x120, server);
 
 	/* port: a won co-op round's next level belongs to this server alone */
@@ -1695,6 +1703,7 @@ boolean network_game_server_idle(
 		!mcc_ui_network_map_pending(server))
 	{
 		network_game_server_mcc_version(server->game.map.name);
+#if defined(HALO_MCC) && HALO_MCC
 		/* (the record again, 2 and 5 seconds after the number changed: by
 		then its followers have HOST_NUMBER) */
 		if (network_game_server_mcc_resends > 0 &&
@@ -1704,6 +1713,7 @@ boolean network_game_server_idle(
 			network_game_server_mcc_resends--;
 			network_game_server_send_game_data_pregame(server);
 		}
+#endif
 	}
 	mcc_ui_network_update_map(server); /* port: apply pending MCC selection after local admission */
 	/* (what Discord shows of a game hosted for internet play, and the
