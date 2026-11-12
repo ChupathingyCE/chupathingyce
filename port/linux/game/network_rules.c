@@ -431,6 +431,7 @@ void network_rules_layout_built_in(unsigned version, struct network_rules_layout
 	memset(layout, 0, sizeof(*layout));
 	layout->version = version;
 	layout->shield_effects_maximum = NETWORK_RULES_SHIELD_EFFECTS_MAXIMUM;
+	layout->join_request_version_at = -1;
 	if (version == NETWORK_RULES_VERSION_UNKNOWN)
 	{
 		/* (either record; 36's message) */
@@ -457,6 +458,29 @@ void network_rules_layout_built_in(unsigned version, struct network_rules_layout
 		layout_drop(layout, NETWORK_RULES_VOTE_STATUS_KIND);
 		layout_drop(layout, NETWORK_RULES_MAP_VOTE_STATUS_KIND);
 		layout_drop(layout, NETWORK_RULES_MAP_VOTE_CHOICE_KIND);
+	}
+	if (rules >= NETWORK_RULES_EPOCH_VERSION)
+	{
+		/* (the MCC-only kinds: 97 to 100, 103 to 106) */
+		static const unsigned mcc_kinds[] = { 97, 98, 99, 100, 103, 104, 105, 106 };
+		unsigned index;
+
+		layout->settings_size = NETWORK_RULES_EPOCH_SETTINGS_SIZE;
+		layout->join_request_extra = NETWORK_RULES_EPOCH_JOIN_REQUEST_EXTRA;
+		layout->join_request_version_at = NETWORK_RULES_EPOCH_JOIN_VERSION_AT;
+		layout->header_extra = NETWORK_RULES_EPOCH_HEADER_EXTRA;
+		layout->epoch_kind = NETWORK_RULES_BOUNDARY_KIND;
+		layout->unit_part_size[NETWORK_RULES_POSE_PART_BIT] = NETWORK_RULES_POSE_PART_SIZE;
+		layout->unit_part_at[NETWORK_RULES_POSE_PART_BIT] = DELTA_LAYOUT_PART_LAST;
+		for (index = 0; index < sizeof(mcc_kinds) / sizeof(mcc_kinds[0]); index++)
+			layout_drop(layout, mcc_kinds[index]);
+	}
+	if (rules >= NETWORK_RULES_DECK_VERSION)
+	{
+		layout->unit_part_size[NETWORK_RULES_DECK_PART_BIT] = NETWORK_RULES_DECK_PART_SIZE;
+		layout->unit_part_at[NETWORK_RULES_DECK_PART_BIT] = DELTA_LAYOUT_PART_AFTER_UP;
+		layout->rider_ejection_up = NETWORK_RULES_SIDE_EJECTION_UP;
+		layout_drop(layout, NETWORK_RULES_RIDING_KIND);
 	}
 }
 
@@ -531,6 +555,74 @@ void network_rules_layout_apply(struct network_rules_layout *layout, struct delt
 				fact->join_request_extra <= NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT)
 			{
 				layout->join_request_extra = fact->join_request_extra;
+				/* (a version word no longer within it is gone) */
+				if (layout->join_request_version_at + 2 > layout->join_request_extra)
+					layout->join_request_version_at = -1;
+				layout->learned++;
+			}
+			else
+				layout->refused++;
+		}
+		if (fact->join_request_version_said)
+		{
+			/* (the version word within the request's bytes past 0x70) */
+			if ((int)fact->join_request_version_at + 2 <= layout->join_request_extra)
+			{
+				layout->join_request_version_at = fact->join_request_version_at;
+				layout->learned++;
+			}
+			else
+				layout->refused++;
+		}
+		if (fact->header_extra)
+		{
+			/* (never fewer than an epoch has, once there is one) */
+			if (fact->header_extra <= NETWORK_RULES_HEADER_EXTRA_LIMIT &&
+				!(layout->epoch_kind && fact->header_extra < NETWORK_RULES_EPOCH_SIZE))
+			{
+				layout->header_extra = fact->header_extra;
+				layout->learned++;
+			}
+			else
+				layout->refused++;
+		}
+		if (fact->epoch_kind)
+		{
+			/* (the epoch is the header's first 4 further bytes; its
+			boundary's kind one this build does not know) */
+			if (layout->header_extra >= NETWORK_RULES_EPOCH_SIZE && fact->epoch_kind >= NETWORK_RULES_EPOCH_KIND_FIRST &&
+				fact->epoch_kind <= 255)
+			{
+				layout->epoch_kind = fact->epoch_kind;
+				layout->learned++;
+			}
+			else
+				layout->refused++;
+		}
+		{
+			int bit;
+
+			for (bit = 0; bit < 8; bit++)
+			{
+				if (!fact->unit_part_size[bit] && !fact->unit_part_at[bit])
+					continue;
+				if (!(NETWORK_RULES_UNIT_PARTS_BUILT_IN & (1u << bit)) && fact->unit_part_size[bit] &&
+					fact->unit_part_size[bit] <= NETWORK_RULES_UNIT_PART_LIMIT &&
+					(fact->unit_part_at[bit] == DELTA_LAYOUT_PART_AFTER_UP || fact->unit_part_at[bit] == DELTA_LAYOUT_PART_LAST))
+				{
+					layout->unit_part_size[bit] = fact->unit_part_size[bit];
+					layout->unit_part_at[bit] = fact->unit_part_at[bit];
+					layout->learned++;
+				}
+				else
+					layout->refused++;
+			}
+		}
+		if (fact->rider_ejection_up)
+		{
+			if (fact->rider_ejection_up <= NETWORK_RULES_RIDER_EJECTION_LIMIT)
+			{
+				layout->rider_ejection_up = fact->rider_ejection_up;
 				layout->learned++;
 			}
 			else
@@ -664,4 +756,332 @@ int network_rules_address_full(uint32_t address, uint32_t const *others, int cou
 			same++;
 	}
 	return same >= maximum;
+}
+
+/* ---------- chupa-43a's facts */
+
+static unsigned rules_word(uint8_t const *bytes)
+{
+	return (unsigned)bytes[0] | ((unsigned)bytes[1] << 8);
+}
+
+static void rules_put_word(uint8_t *bytes, unsigned value)
+{
+	bytes[0] = (uint8_t)value;
+	bytes[1] = (uint8_t)(value >> 8);
+}
+
+/* (the join request's version word: the packet codec's order, big-endian) */
+static unsigned rules_codec_word(uint8_t const *bytes)
+{
+	return ((unsigned)bytes[0] << 8) | (unsigned)bytes[1];
+}
+
+static void rules_put_codec_word(uint8_t *bytes, unsigned value)
+{
+	bytes[0] = (uint8_t)(value >> 8);
+	bytes[1] = (uint8_t)value;
+}
+
+static uint32_t rules_long(uint8_t const *bytes)
+{
+	return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) | ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
+}
+
+static void rules_put_long(uint8_t *bytes, uint32_t value)
+{
+	bytes[0] = (uint8_t)value;
+	bytes[1] = (uint8_t)(value >> 8);
+	bytes[2] = (uint8_t)(value >> 16);
+	bytes[3] = (uint8_t)(value >> 24);
+}
+
+/* the message header's size (in this machine's order, as the transport
+gives it) set */
+static void rules_header_size(uint8_t *message, int size)
+{
+	uint16_t header;
+
+	memcpy(&header, message, sizeof(header));
+	header = (uint16_t)((header & 0xF) | ((unsigned)size << 4));
+	memcpy(message, &header, sizeof(header));
+}
+
+int network_rules_join_request_tail(unsigned version, uint8_t *tail, int room)
+{
+	struct network_rules_layout layout;
+
+	if (version == NETWORK_RULES_VERSION_UNKNOWN)
+		return 0;
+	network_rules_layout(version, &layout);
+	if (layout.join_request_extra > room)
+		return -1;
+	memset(tail, 0, (size_t)layout.join_request_extra);
+	if (layout.join_request_version_at >= 0 && layout.join_request_version_at + 2 <= layout.join_request_extra)
+		rules_put_codec_word(tail + layout.join_request_version_at, version);
+	return layout.join_request_extra;
+}
+
+int network_rules_snapshot_due(int never_sent, int again_due, int players_changed, uint32_t sent_epoch,
+	uint32_t epoch)
+{
+	return never_sent || again_due || players_changed || sent_epoch != epoch;
+}
+
+int network_rules_host_takes(uint32_t epoch, uint32_t host_epoch, int kind, int size, int count, int from_stream,
+	int in_batch)
+{
+	if (epoch == host_epoch && host_epoch)
+		return 1;
+	return kind == NETWORK_RULES_CLIENT_READY_KIND && size == NETWORK_RULES_HEADER_SIZE && count >= 0 && count <= 1 &&
+		from_stream && !in_batch;
+}
+
+int network_rules_client_held_back(int epoch_layout, int client, int synchronized, int kind)
+{
+	return epoch_layout && client && !synchronized && kind != NETWORK_RULES_CLIENT_READY_KIND;
+}
+
+int network_rules_client_takes_unsynchronized(int kind, int from_stream, int in_batch)
+{
+	return kind == NETWORK_RULES_OBJECT_CHANGES_KIND || kind == NETWORK_RULES_OBJECTS_SYNCHRONIZED_KIND ||
+		(kind == NETWORK_RULES_INVENTORIES_KIND && from_stream && !in_batch);
+}
+
+int network_rules_reliable_split(int size, int count, int entry_size, int extra, int maximum)
+{
+	if (size + extra <= maximum)
+		return 0;
+	if (entry_size <= 0 || count < 2 || size - NETWORK_RULES_HEADER_SIZE != count * entry_size ||
+		NETWORK_RULES_HEADER_SIZE + (count - count / 2) * entry_size + extra > maximum)
+	{
+		return -1;
+	}
+	return count / 2;
+}
+
+int network_rules_unit_state_length(struct network_rules_layout const *layout, uint8_t const *record, int size,
+	int powerups)
+{
+	/* (network_distributed.c's bits: flags alive 0, placed 1, predicted 7;
+	parts riding 0, up 1, damage 2, powerups 3, camouflage 4, killer 5) */
+	int length = 3, alive, placed, after_up, last;
+	unsigned parts;
+
+	if (size < 3)
+		return 0;
+	alive = record[1] & 1;
+	placed = (record[1] >> 1) & 1;
+	parts = record[2];
+	after_up = network_rules_unit_part_bytes(layout, parts, DELTA_LAYOUT_PART_AFTER_UP, alive, placed);
+	last = network_rules_unit_part_bytes(layout, parts, DELTA_LAYOUT_PART_LAST, alive, placed);
+	if (after_up < 0 || last < 0)
+		return 0;
+	if (alive)
+	{
+		length += 4;
+		if (parts & 1)
+			length += 4 + 2;
+		if (placed)
+			length += 12 + 6 + 6 + ((parts & 2) ? 6 : 0) + after_up;
+		if (record[1] & 0x80)
+			length += 2;
+		length += 2 + 2;
+		if (parts & 4)
+			length += 8;
+		if (parts & 8)
+			length += 2 * powerups;
+		if (parts & 16)
+			length += 2;
+		length += last;
+	}
+	else if (parts & 32)
+		length += 1;
+	return length <= size ? length : 0;
+}
+
+int network_rules_revert_boundary_to(int client, int local, int ready)
+{
+	return client && !local && ready;
+}
+
+unsigned network_rules_client_settings_version(unsigned joined, int hosting, unsigned announce)
+{
+	return hosting ? announce : joined;
+}
+
+unsigned network_rules_client_noted_version(unsigned joined, int hosting, unsigned at_least)
+{
+	return !hosting && joined == NETWORK_RULES_VERSION_UNKNOWN ? at_least : joined;
+}
+
+unsigned network_rules_join_retry_version(unsigned joined, int hosting, unsigned long waited)
+{
+	struct network_rules_layout layout;
+	unsigned newest;
+
+	if (joined != NETWORK_RULES_VERSION_UNKNOWN || hosting || waited < NETWORK_RULES_JOIN_RETRY_MS)
+		return 0;
+	newest = network_rules_layout_newest();
+	network_rules_layout(newest, &layout);
+	return layout.join_request_version_at >= 0 ? newest : 0;
+}
+
+int network_rules_join_request_refused(unsigned version, uint8_t const *tail, int tail_size)
+{
+	struct network_rules_layout layout;
+
+	if (version == NETWORK_RULES_VERSION_UNKNOWN)
+		return 0;
+	network_rules_layout(version, &layout);
+	if (!tail)
+		tail_size = 0;
+	if (layout.join_request_version_at < 0)
+		return 0;
+	if (tail_size != layout.join_request_extra || layout.join_request_version_at + 2 > tail_size)
+		return 1;
+	return rules_codec_word(tail + layout.join_request_version_at) != version;
+}
+
+int network_rules_header_expand(uint8_t const *message, int size, uint8_t *out, int room, int extra, int has_epoch,
+	uint32_t epoch)
+{
+	int in = NETWORK_RULES_HEADER_SIZE, at;
+
+	if (size < NETWORK_RULES_HEADER_SIZE || extra < 0 || extra > NETWORK_RULES_HEADER_EXTRA_LIMIT ||
+		size + extra > room || (has_epoch && extra < NETWORK_RULES_EPOCH_SIZE))
+	{
+		return 0;
+	}
+	memcpy(out, message, NETWORK_RULES_HEADER_SIZE);
+	memset(out + NETWORK_RULES_HEADER_SIZE, 0, (size_t)extra);
+	if (has_epoch)
+		rules_put_long(out + NETWORK_RULES_HEADER_SIZE, epoch);
+	at = NETWORK_RULES_HEADER_SIZE + extra;
+	if (message[2] != NETWORK_RULES_BATCH_KIND)
+	{
+		memcpy(out + at, message + in, (size_t)(size - in));
+		at += size - in;
+	}
+	else
+	{
+		/* (each message: its size word, then its header past the message
+		header (6 bytes), the further bytes, its entries) */
+		while (in < size)
+		{
+			unsigned length;
+
+			if (size - in < 2)
+				return 0;
+			length = rules_word(message + in);
+			if (length < NETWORK_RULES_HEADER_SIZE - 2 || (int)length > size - in - 2 ||
+				at + 2 + (int)length + extra > room)
+			{
+				return 0;
+			}
+			rules_put_word(out + at, length + (unsigned)extra);
+			memcpy(out + at + 2, message + in + 2, NETWORK_RULES_HEADER_SIZE - 2);
+			memset(out + at + NETWORK_RULES_HEADER_SIZE, 0, (size_t)extra);
+			if (has_epoch)
+				rules_put_long(out + at + NETWORK_RULES_HEADER_SIZE, epoch);
+			memcpy(out + at + NETWORK_RULES_HEADER_SIZE + extra, message + in + NETWORK_RULES_HEADER_SIZE,
+				length - (NETWORK_RULES_HEADER_SIZE - 2));
+			at += 2 + (int)length + extra;
+			in += 2 + (int)length;
+		}
+	}
+	if (at > 0xFFF)
+		return 0;
+	rules_header_size(out, at);
+	return at;
+}
+
+int network_rules_header_strip(uint8_t const *message, int size, uint8_t *out, int extra, int has_epoch, uint32_t want,
+	int keep_kind, uint32_t *epoch)
+{
+	int in, at = NETWORK_RULES_HEADER_SIZE;
+
+	*epoch = 0;
+	if (size < NETWORK_RULES_HEADER_SIZE + extra || (has_epoch && extra < NETWORK_RULES_EPOCH_SIZE))
+		return 0;
+	if (has_epoch)
+		*epoch = rules_long(message + NETWORK_RULES_HEADER_SIZE);
+	memcpy(out, message, NETWORK_RULES_HEADER_SIZE);
+	in = NETWORK_RULES_HEADER_SIZE + extra;
+	if (message[2] != NETWORK_RULES_BATCH_KIND)
+	{
+		memcpy(out + at, message + in, (size_t)(size - in));
+		at += size - in;
+	}
+	else
+	{
+		while (in < size)
+		{
+			unsigned length;
+			uint32_t inner = 0;
+
+			/* (reading stops at a size word past the end, or shorter than a
+			message's header: the messages before it are kept) */
+			if (size - in < 2)
+				break;
+			length = rules_word(message + in);
+			if ((int)length < NETWORK_RULES_HEADER_SIZE - 2 + extra || (int)length > size - in - 2)
+				break;
+			if (has_epoch)
+				inner = rules_long(message + in + NETWORK_RULES_HEADER_SIZE);
+			if (!has_epoch || inner == want || (keep_kind && message[in + 2] == keep_kind))
+			{
+				rules_put_word(out + at, length - (unsigned)extra);
+				memcpy(out + at + 2, message + in + 2, NETWORK_RULES_HEADER_SIZE - 2);
+				memcpy(out + at + NETWORK_RULES_HEADER_SIZE, message + in + NETWORK_RULES_HEADER_SIZE + extra,
+					length - (unsigned)extra - (NETWORK_RULES_HEADER_SIZE - 2));
+				at += 2 + (int)length - extra;
+			}
+			in += 2 + (int)length;
+		}
+	}
+	rules_header_size(out, at);
+	return at;
+}
+
+int network_rules_epoch_newer(uint32_t epoch, uint32_t current)
+{
+	return (int32_t)(epoch - current) > 0;
+}
+
+uint32_t network_rules_epoch_next(uint32_t current)
+{
+	return current + 1 ? current + 1 : 1;
+}
+
+int network_rules_boundary_taken(int size, int count, int from_stream, int in_batch, uint32_t epoch,
+	uint32_t current)
+{
+	return size == NETWORK_RULES_HEADER_SIZE && count == 0 && from_stream && !in_batch && epoch &&
+		network_rules_epoch_newer(epoch, current);
+}
+
+int network_rules_unit_part_bytes(struct network_rules_layout const *layout, unsigned parts, int where, int alive,
+	int placed)
+{
+	int bit, bytes = 0;
+
+	for (bit = 0; bit < 8; bit++)
+	{
+		if (!(parts & (1u << bit)) || (NETWORK_RULES_UNIT_PARTS_BUILT_IN & (1u << bit)))
+			continue;
+		if (!layout->unit_part_size[bit])
+			return -1;
+		if (layout->unit_part_at[bit] != where)
+			continue;
+		if (!alive || (where == DELTA_LAYOUT_PART_AFTER_UP && !placed))
+			return -1;
+		bytes += layout->unit_part_size[bit];
+	}
+	return bytes;
+}
+
+float network_rules_rider_ejection_up(struct network_rules_layout const *layout)
+{
+	return (float)layout->rider_ejection_up / 1000.0f;
 }
