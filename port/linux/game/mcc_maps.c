@@ -124,12 +124,16 @@ static char const *mcc_map_register(char const *name, char const **detail)
 	boolean start_word = TRUE;
 
 	if (!name_length || name_length > MCC_MAP_FILENAME_MAXIMUM)
+	{
 		*detail = "its file name is too long for a level name";
 		return "Name too long";
+	}
 	snprintf(candidate, sizeof(candidate), "%s%s", MCC_MAPS_LEVEL_PREFIX, name);
 	if (!mcc_package_name(candidate, canonical))
+	{
 		*detail = "its file name has characters a level name can't";
 		return "Name not usable";
+	}
 	name = canonical + sizeof(MCC_MAPS_LEVEL_PREFIX) - 1;
 	for (index = 0; index < (size_t)mcc_menu_catalog.count; index++)
 	{
@@ -137,13 +141,17 @@ static char const *mcc_map_register(char const *name, char const **detail)
 			return NULL;
 	}
 	if (mcc_menu_catalog.count == MCC_MAPS_MAXIMUM)
+	{
 		*detail = "the MCC catalog is full";
 		return "Too many maps";
+	}
 	snprintf(path, sizeof(path), "%s%s.map", MCC_MAPS_DIRECTORY, name);
 	file = fopen(path, "rb");
 	if (!file)
+	{
 		*detail = "its .map file can't be opened";
 		return "Map unreadable";
+	}
 	if (fseek(file, 0, SEEK_END) || (file_size = ftell(file)) < 0 || fseek(file, 0, SEEK_SET) ||
 		fread(header, 1, sizeof(header), file) != sizeof(header))
 	{
