@@ -218,3 +218,27 @@ def test_mcc_network_hooks_are_halo_mccs():
     peer = (ROOT / "port" / "linux" / "src" / "delta_peer_game.c").read_text()
     offer = peer.index("local.capabilities |= (delta_u32)1 << _delta_capability_mcc_maps;")
     assert peer.rfind("#if defined(HALO_MCC) && HALO_MCC", 0, offer) > peer.rfind("#endif", 0, offer)
+
+
+def test_workshop_play_hooks_are_the_guides():
+    """the Delta Guide's Workshop PLAY's hooks in the shared code (the
+    pause menu's QUIT, a lobby ended, a solo campaign, the screen it opened)
+    build only where the Guide and MCC maps are: no console builds them"""
+    gate = "#if defined(HALO_GUIDE) && (!defined(HALO_MCC) || HALO_MCC)"
+    for path, names in (("source/interface/ui_widget_event_handler_functions.c",
+                         ("void ui_widget_port_quit_to_main_menu(", "void ui_widget_port_end_network_game(",
+                          "void ui_widget_port_campaign_solo(")),
+                        ("source/interface/ui_widget.c",
+                         ("long ui_widget_port_active_screen_tag(", "boolean ui_widget_port_screen_shown_or_behind(")),
+                        ("port/linux/game/menu_functions.c",
+                         ("boolean pc_menu_workshop_play(", "void pc_menu_workshop_play_update("))):
+        text = (ROOT / path).read_text(encoding="latin-1")
+        for name in names:
+            at = text.index(name)
+            start = text.rfind(gate, 0, at)
+            assert start != -1, "{} in {} isn't gated".format(name, path)
+            # (the gate still open at the function: its own #if ... #endif inside it counted)
+            depth = 0
+            for directive in re.findall(r"^\s*#\s*(if|ifdef|ifndef|endif)\b", text[start:at], re.M):
+                depth += -1 if directive == "endif" else 1
+                assert depth > 0, "{} in {} isn't gated".format(name, path)

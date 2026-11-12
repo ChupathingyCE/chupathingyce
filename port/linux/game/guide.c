@@ -5488,6 +5488,11 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 	}
 	/* (the wheel over a list: the d-pad, a row a notch, so the mouse reaches
 	every row, WORKSHOP's last with its pages too) */
+	/* (over a Workshop page's description: it scrolls, the focus kept) */
+	else if (pointer->wheel_steps && guide.section == SOCIAL_SECTION_WORKSHOP && !guide_workshop_link_modal() &&
+		guide_workshop_wheel(pointer->x, pointer->y, pointer->wheel_steps))
+	{
+	}
 	else if (pointer->wheel_steps && !guide_workshop_link_modal())
 	{
 		short step;
@@ -5502,6 +5507,12 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		pointer->click_y >= guide.about_view.licenses_y0 && pointer->click_y < guide.about_view.licenses_y1)
 	{
 		about_input(&guide.about_view, ABOUT_INPUT_A);
+		return;
+	}
+	/* (a click on a Workshop page's description: its focus) */
+	if (guide.section == SOCIAL_SECTION_WORKSHOP && !guide_workshop_link_modal() &&
+		guide_workshop_click(pointer->click_x, pointer->click_y))
+	{
 		return;
 	}
 	for (index = 0; index < guide.target_count; index++)

@@ -1218,6 +1218,10 @@ static boolean view_matches(struct ui_map_entry const *entry)
 
 	if (entry->source == _ui_map_list_source_mcc && !ui_map_list_mcc_offered())
 		return FALSE;
+	/* (the Workshop item the Guide's PLAY handed over: shown whatever the
+	view, mcc_maps_set_first_item) */
+	if (entry->source == _ui_map_list_source_mcc && mcc_maps_level_first(entry->map_name))
+		return TRUE;
 	if (view.source != _ui_map_list_source_all && entry->source != view.source)
 		return FALSE;
 	if (!view.search[0])
@@ -1316,6 +1320,21 @@ static void view_apply(void)
 	shown = rows;
 	if (view.sort != _ui_map_list_sort_default)
 		qsort(ui_map_list_view, (size_t)shown, sizeof(ui_map_list_view[0]), view_compare);
+	/* (and first, in their order) */
+	{
+		long first = 0, row;
+
+		for (row = 0; row < shown; row++)
+		{
+			short kept = ui_map_list_view[row];
+
+			if (ui_map_list[kept].source == _ui_map_list_source_mcc && mcc_maps_level_first(ui_map_list[kept].map_name))
+			{
+				memmove(&ui_map_list_view[first + 1], &ui_map_list_view[first], (size_t)(row - first) * sizeof(ui_map_list_view[0]));
+				ui_map_list_view[first++] = kept;
+			}
+		}
+	}
 	/* (the campaign's rows, less MCC's while they aren't offered) */
 	for (entry = ui_map_list_found_multiplayer; entry < ui_map_list_found_campaign_end; entry++)
 	{

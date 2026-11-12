@@ -938,6 +938,7 @@ boolean playlist_profile_get_options(long playlist_profile_index, struct game_va
 #include "text/unicode.h"
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
 #include "mcc_ui.h"
+#include "mcc_maps.h" /* port: the Workshop item PLAY handed over */
 
 #ifdef HALO_MAP_LIST
 #include "halo_ui_map_list.h"
@@ -3133,6 +3134,13 @@ static boolean multiplayer_level_list_initialize(
 		if (widget->parameters.list.selected_index == level_count)
 			widget->parameters.list.selected_index = 0;
 	}
+#ifdef HALO_MAP_LIST
+	/* port: on the Workshop item the Delta Guide's PLAY handed over, which
+	leads the list (mcc_maps_set_first_item): this visit's choice, the map
+	used last left as it is */
+	if (level_count && mcc_maps_level_first(level_names[0]))
+		widget->parameters.list.selected_index = 0;
+#endif
 #if defined(HALO_MAP_LIST) && !defined(HALO_CONSOLE_NO_DEBUG_TOOLS)
 	/* port: debug.menu_open's "#multiplayer_last": on the last map, for
 	screenshots */
@@ -6170,6 +6178,10 @@ static boolean solo_level_initialize_list_single_player(
 		extern char const *config_string(char const *name);
 
 		widget->parameters.list.number_of_items = (short)(10 + ui_widget_port_mcc_campaign_count());
+		/* (on the Workshop item the Delta Guide's PLAY handed over: its
+		levels lead the MCC rows, mcc_maps.c) */
+		if (mcc_maps_take_first_focus() && ui_widget_port_mcc_campaign_count())
+			widget->parameters.list.selected_index = 10;
 #ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 		/* (debug.menu_open's "#singleplayer_last": on the last, for screenshots) */
 		if (strstr(config_string("debug.menu_open"), "#singleplayer_last"))
@@ -6281,6 +6293,12 @@ short ui_widget_port_multiplayer_maps(
 				*last_used = level_index;
 		}
 	}
+#ifdef HALO_MAP_LIST
+	/* port: on the Workshop item the Delta Guide's PLAY handed over, which
+	leads the list (mcc_maps_set_first_item), for this visit */
+	if (level_count && mcc_maps_level_first((*names)[0]))
+		*last_used = 0;
+#endif
 #ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 	/* port: debug.menu_open's "#multiplayer_last": the list on its last
 	map, for screenshots */
@@ -6293,6 +6311,53 @@ short ui_widget_port_multiplayer_maps(
 #endif
 	return level_count;
 }
+
+#if defined(HALO_GUIDE) && (!defined(HALO_MCC) || HALO_MCC)
+/* port: the Delta Guide's Workshop PLAY (port/linux/game/menu_functions.c's
+pc_menu_workshop_play), through what the menus do themselves: */
+
+/* the pause menu's QUIT for the game under way: a network game's (host or
+client) as the multiplayer pause menu leaves it, every player of this
+machine out (network_game_remove_local_player, mcc_ui.c's QUIT), co-op's
+and a campaign's as the campaign's pause menu does */
+void ui_widget_port_quit_to_main_menu(
+	void)
+{
+	boolean deleted = FALSE;
+
+	if (!network_coop_active() && global_network_game_client_get())
+	{
+		short controller_index;
+
+		for (controller_index = 0; controller_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; controller_index++)
+			network_game_client_local_player_quit(controller_index);
+		return;
+	}
+	pause_game_quit_to_main_menu(NULL, NULL, &deleted);
+}
+
+/* the Multiplayer menu's ending of a network game left behind (a lobby
+hosted or joined: multiplayer_type_menu_initialize) */
+void ui_widget_port_end_network_game(
+	void)
+{
+	boolean deleted = FALSE;
+
+	network_game_cancel(NULL, NULL, &deleted);
+#ifdef HALO_GAME_BROWSER
+	network_game_accept_remote_connections(FALSE);
+#endif
+}
+
+/* a campaign of one player, as the main menu's Campaign starts one before
+its level select */
+void ui_widget_port_campaign_solo(
+	void)
+{
+	player_spawn_count = 1;
+	player_ui_reset_single_player_local_player_controllers();
+}
+#endif
 
 /* the map chosen (as multiplayer_level_select), the server's if there is
 one; FALSE if this build cannot play it with others (said) */

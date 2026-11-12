@@ -44,6 +44,10 @@ void guide_workshop_move(short step);
 void guide_workshop_activate(void);
 boolean guide_workshop_back(void);
 void guide_workshop_row_click(short row, boolean touch);
+/* the wheel over an item page's description scrolls it (TRUE: taken), a
+click on it gives it the focus (TRUE: taken); x and y as the targets are */
+boolean guide_workshop_wheel(short x, short y, short steps);
+boolean guide_workshop_click(short x, short y);
 void guide_workshop_option_click(short option);
 char const *guide_workshop_prompt(void);
 /* B's word is BACK on an item's page */
@@ -77,6 +81,8 @@ calls do nothing, their arguments unevaluated */
 #define guide_workshop_update(a0) ((void)sizeof(a0), (void)0)
 #define guide_workshop_rows() ((short)0)
 #define guide_workshop_move(a0) ((void)sizeof(a0), (void)0)
+#define guide_workshop_wheel(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (boolean)0)
+#define guide_workshop_click(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (boolean)0)
 #define guide_workshop_activate() ((void)0)
 #define guide_workshop_back() ((boolean)0)
 #define guide_workshop_row_click(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (void)0)
