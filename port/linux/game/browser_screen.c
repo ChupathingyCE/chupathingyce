@@ -2375,6 +2375,15 @@ static void create_game(
 		set_status("Could not create a game.");
 }
 
+/* port: the Delta Guide's Workshop PLAY of a multiplayer item
+(menu_functions.c's pc_menu_workshop_play): Create Game, as Y makes one */
+boolean browser_screen_create_game(
+	void)
+{
+	join_first_player();
+	return ui_widget_online_games_create_game();
+}
+
 /* the selection moved by move games, kept on the list */
 static void step(
 	short move)

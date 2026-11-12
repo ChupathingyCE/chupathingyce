@@ -28,6 +28,12 @@ boolean mcc_maps_level_campaign(char const *level_name);
 /* 0 standalone/disabled, 1 next mission, 2 completed, -1 unavailable next
  * mission. Only the explicit manifest supplies an order. */
 int mcc_maps_next_mission(char const *level_name, char next[64]);
+/* the Workshop item the Delta Guide's PLAY handed to the menus (NULL: none):
+its maps lead mcc_maps_type_index's lists (and so the map lists), and the
+campaign list opens once on its first (mcc_maps_take_first_focus) */
+void mcc_maps_set_first_item(char const *item_id);
+boolean mcc_maps_level_first(char const *level_name);
+boolean mcc_maps_take_first_focus(void);
 /* The title of the Steam Workshop item with this id when it is subscribed here and has one. */
 boolean mcc_maps_workshop_title(char const *item_id, char *title, unsigned size);
 
@@ -66,6 +72,9 @@ the shared code calls do nothing, their arguments unevaluated */
 #define mcc_maps_name(a0) ((void)sizeof(a0), (wchar_t const *)L"")
 #define mcc_maps_type_count(a0) ((void)sizeof(a0), (short)0)
 #define mcc_maps_type_index(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (short)NONE)
+#define mcc_maps_set_first_item(a0) ((void)sizeof(a0))
+#define mcc_maps_level_first(a0) ((void)sizeof(a0), (boolean)0)
+#define mcc_maps_take_first_focus() ((boolean)0)
 #endif
 
 #endif

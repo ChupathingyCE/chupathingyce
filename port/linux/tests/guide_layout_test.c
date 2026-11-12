@@ -125,6 +125,16 @@ static void check_wrap(void)
 			CHECK(strstr(lines[count - 1], "...") != NULL, "a cut text's last line without dots: %s",
 				lines[count - 1]);
 	}
+	/* (a blank line between paragraphs: an empty line, no control
+	character left in any line to be drawn as a box) */
+	count = guide_layout_wrap("Words here\n\nMaps in this pack (3):\nUnderground", 214, 9, measure, NULL, 8, lines,
+		&cut);
+	CHECK(count == 4 && !cut, "a blank line's text in %d lines", count);
+	CHECK(count >= 3 && !strcmp(lines[0], "Words here") && lines[1][0] == 0 &&
+		!strcmp(lines[2], "Maps in this pack (3):"), "a blank line not empty: [%s] [%s] [%s]", lines[0], lines[1],
+		lines[2]);
+	for (index = 0; index < count; index++)
+		CHECK(strpbrk(lines[index], "\n\r\t") == NULL, "a control character in line %d", index);
 	count = guide_layout_wrap("Two words", 214, 9, measure, NULL, 4, lines, &cut);
 	CHECK(count == 1 && !cut && !strcmp(lines[0], "Two words"), "short text wrapped: %d %s", count, lines[0]);
 }
@@ -345,8 +355,77 @@ static void check_bounds(void)
 	}
 }
 
+/* a focused line too long for its box reads left to right: its start
+first, then a character at a time, then its end, then its start again;
+always within width, never with "..."; one that fits doesn't move */
+static void check_marquee(void)
+{
+	char out[256], first[256];
+	float width = 120;
+	unsigned long end_time;
+	int moved;
+
+	moved = guide_layout_marquee(long_title, width, 14, measure, NULL, 0, first, sizeof(first));
+	CHECK(moved && !strncmp(first, long_title, strlen(first)) && strlen(first) > 0, "the marquee's start: %s", first);
+	guide_layout_marquee(long_title, width, 14, measure, NULL, GUIDE_MARQUEE_HOLD - 1, out, sizeof(out));
+	CHECK(!strcmp(out, first), "the marquee moved during its hold: %s", out);
+	guide_layout_marquee(long_title, width, 14, measure, NULL, GUIDE_MARQUEE_HOLD + GUIDE_MARQUEE_STEP * 3, out,
+		sizeof(out));
+	CHECK(!strncmp(out, long_title + 3, strlen(out)), "three steps in, not three characters on: %s", out);
+	/* (past its end and hold, every so often) */
+	end_time = GUIDE_MARQUEE_HOLD + (unsigned long)strlen(long_title) * GUIDE_MARQUEE_STEP;
+	for (unsigned long time = 0; time < end_time * 2; time += 37)
+	{
+		guide_layout_marquee(long_title, width, 14, measure, NULL, time, out, sizeof(out));
+		CHECK(measure(NULL, 14, out) <= width, "the marquee past its box at %lu: %s", time, out);
+		CHECK(strstr(out, "...") == NULL, "the marquee with dots: %s", out);
+		CHECK(strstr(long_title, out) != NULL, "the marquee not a piece of its text: %s", out);
+	}
+	{
+		int found_end = 0;
+
+		for (unsigned long time = 0; time < end_time * 2; time += 37)
+		{
+			guide_layout_marquee(long_title, width, 14, measure, NULL, time, out, sizeof(out));
+			if (strlen(out) && !strcmp(out, long_title + strlen(long_title) - strlen(out)))
+				found_end = 1;
+		}
+		CHECK(found_end, "the marquee never showed its end");
+	}
+	CHECK(!guide_layout_marquee("Short", 200, 14, measure, NULL, 5000, out, sizeof(out)) && !strcmp(out, "Short"),
+		"short text moved: %s", out);
+}
+
+/* the description's box scrolls within its lines, and its bar's thumb
+stays in the track, its place following the scroll */
+static void check_scroll(void)
+{
+	struct guide_rect track = { 300, 100, 3, 120 }, thumb, before;
+	int scroll;
+
+	CHECK(guide_layout_scroll_clamp(-3, 40, 10) == 0, "scrolled above the top");
+	CHECK(guide_layout_scroll_clamp(99, 40, 10) == 30, "scrolled past the last line");
+	CHECK(guide_layout_scroll_clamp(5, 8, 10) == 0, "a box that shows it all scrolled");
+	CHECK(!guide_layout_scroll_thumb(track, 8, 10, 0, 8, &thumb), "a bar for words that all show");
+	before = track;
+	before.y = -1;
+	for (scroll = 0; scroll <= 30; scroll++)
+	{
+		CHECK(guide_layout_scroll_thumb(track, 40, 10, scroll, 8, &thumb), "no bar for 40 lines in 10");
+		CHECK(guide_rect_inside(thumb, track), "the thumb out of its track at %d", scroll);
+		CHECK(thumb.height >= 8 && thumb.height < track.height, "the thumb's height %g", thumb.height);
+		CHECK(thumb.y > before.y, "the thumb didn't move down at %d", scroll);
+		before = thumb;
+	}
+	CHECK(thumb.y + thumb.height > track.y + track.height - 0.01f, "the thumb not at the bottom at the end");
+	guide_layout_scroll_thumb(track, 1000, 10, 0, 8, &thumb);
+	CHECK(thumb.height >= 8, "a thumb too small to see: %g", thumb.height);
+}
+
 int main(void)
 {
+	check_marquee();
+	check_scroll();
 	check_bounds();
 	check_plain();
 	check_fit();

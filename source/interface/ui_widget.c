@@ -10481,6 +10481,43 @@ void process_ui_widgets(
 	return;
 }
 
+#if defined(HALO_GUIDE) && (!defined(HALO_MCC) || HALO_MCC)
+/* port: the screen the Delta Guide's Workshop PLAY opened
+(port/linux/game/menu_functions.c): the first player's screen now, and
+whether a screen is still up or behind the one up (its history, which back
+returns to) */
+long ui_widget_port_active_screen_tag(
+	void)
+{
+	return widget_globals.active_widgets[0] ? widget_globals.active_widgets[0]->definition_tag_index : NONE;
+}
+
+boolean ui_widget_port_screen_shown_or_behind(
+	long tag)
+{
+	long local_player_index;
+
+	if (tag == NONE)
+		return FALSE;
+	for (local_player_index = 0; local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; local_player_index++)
+	{
+		struct widget_stack_node *node;
+
+		if (widget_globals.active_widgets[local_player_index] &&
+			widget_globals.active_widgets[local_player_index]->definition_tag_index == tag)
+		{
+			return TRUE;
+		}
+		for (node = widget_globals.widget_stack[local_player_index]; node; node = node->next)
+		{
+			if (node->data.previous_widget_tag == tag)
+				return TRUE;
+		}
+	}
+	return FALSE;
+}
+#endif
+
 #ifdef HALO_GAME_BROWSER
 /* port: a screen by name over the first player's (Online Games' Start, the
 Chupathingy menus' Delta Profile), as an item of it would open it: back

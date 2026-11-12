@@ -2204,15 +2204,8 @@ int workshop_browser_unsubscribe(int index)
 	return 1;
 }
 
-/* ---------- PLAY, REMOVE, UPDATE */
+/* ---------- REMOVE, UPDATE (PLAY: the Guide's, guide_workshop.c) */
 
-void main_set_map_name(char const *map_name);
-void main_defer_map_map_change(void);
-void main_menu_switch_to_single_player(void);
-/* (the game's boolean: one byte) */
-unsigned char main_menu_is_active(void);
-short mcc_maps_count(unsigned char multiplayer_only);
-char const *mcc_maps_level_name(short index);
 void mcc_maps_rescan(void);
 
 /* REMOVE: the install backend's (the client unsubscribes; a downloader
@@ -2278,31 +2271,6 @@ int workshop_browser_update(int index)
 		return 0;
 	}
 	return 1;
-}
-
-int workshop_browser_play(int index)
-{
-	const struct workshop_browser_item *item = workshop_browser_item(index);
-	char prefix[WORKSHOP_BROWSER_ID_SIZE + 16];
-	short map, count;
-
-	if (!item || item->setup || item->state != WORKSHOP_ITEM_INSTALLED || !main_menu_is_active())
-		return 0;
-	snprintf(prefix, sizeof(prefix), "mcc_maps\\%s\\", item->id);
-	count = mcc_maps_count(0);
-	for (map = 0; map < count; map++)
-	{
-		char const *name = mcc_maps_level_name(map);
-
-		if (name && !strncmp(name, prefix, strlen(prefix)))
-		{
-			/* (as the map lists start one: the name, then off the main menu to it) */
-			main_set_map_name(name);
-			main_menu_switch_to_single_player();
-			return 1;
-		}
-	}
-	return 0;
 }
 
 /* ---------- a join's missing Workshop map */
