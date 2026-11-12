@@ -2766,8 +2766,11 @@ static void steam_update(
 				memcpy(id, wanted, (size_t)length);
 				id[length] = 0;
 				snprintf(text, sizeof(text), "sv_workshop_get %s", id);
+				result[0] = 0;
 				server_commands_run_as(text, "startup", "--workshop-get", SERVER_ROLE_OWNER, SERVER_PERMISSION_ALL,
 					result, sizeof(result));
+				result[strcspn(result, "\n")] = 0;
+				platform_log("--workshop-get %s: %s", id, result);
 			}
 			wanted += length;
 			while (*wanted == ',' || *wanted == ' ')
