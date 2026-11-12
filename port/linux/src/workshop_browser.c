@@ -642,6 +642,8 @@ int workshop_browser_setup_press(int index)
 	}
 }
 
+static const char *failed_why(const char *id);
+
 /* an item's state with the bridge's word on it: the folders win for
 Installed (the maps come from them), the bridge tells the rest */
 static int bridge_state(struct workshop_browser_item *item, int folder_state)
@@ -651,6 +653,13 @@ static int bridge_state(struct workshop_browser_item *item, int folder_state)
 	item->steam_subscribed = 0;
 	item->downloaded = item->total = 0;
 	item->steam_error[0] = 0;
+	/* (a GET the game's own download refused: its word stays until asked again) */
+	if (folder_state != WORKSHOP_ITEM_INSTALLED && failed_why(item->id))
+	{
+		snprintf(item->steam_error, sizeof(item->steam_error), "%s", failed_why(item->id));
+		item->subscribed = 0;
+		return folder_state;
+	}
 	if (!bridge_ready() || !steam_bridge_item(item->id, &known))
 		return folder_state;
 	item->steam_subscribed = known.subscribed;
@@ -1921,19 +1930,88 @@ void workshop_browser_set_search(const char *text)
 asked for once it is up (workshop_browser_poll) */
 static char pending_gets[8][WORKSHOP_BROWSER_ID_SIZE];
 
-static void pending_add(const char *id)
+/* GETs the game's own download refused, and its word for each: shown on the
+item (TRY AGAIN, OPEN IN STEAM) until it is asked again */
+static struct
+{
+	char id[WORKSHOP_BROWSER_ID_SIZE];
+	char why[16];
+} failed_gets[8];
+static int failed_next;
+
+static struct workshop_browser_item *item_by_id(const char *id)
+{
+	int index;
+
+	for (index = 0; index < workshop.count; index++)
+	{
+		if (!workshop.items[index].setup && !strcmp(workshop.items[index].id, id))
+			return &workshop.items[index];
+	}
+	return NULL;
+}
+
+static const char *failed_why(const char *id)
+{
+	int slot;
+
+	for (slot = 0; slot < (int)(sizeof(failed_gets) / sizeof(failed_gets[0])); slot++)
+	{
+		if (failed_gets[slot].id[0] && !strcmp(failed_gets[slot].id, id))
+			return failed_gets[slot].why;
+	}
+	return NULL;
+}
+
+static void failed_clear(const char *id)
+{
+	int slot;
+
+	for (slot = 0; slot < (int)(sizeof(failed_gets) / sizeof(failed_gets[0])); slot++)
+	{
+		if (!strcmp(failed_gets[slot].id, id))
+			failed_gets[slot].id[0] = 0;
+	}
+}
+
+/* a GET that didn't go: the item back to Not installed with the word why */
+static void get_failed(const char *id, const char *why)
+{
+	struct workshop_browser_item *item = item_by_id(id);
+	int slot = failed_next;
+
+	failed_clear(id);
+	failed_next = (failed_next + 1) % (int)(sizeof(failed_gets) / sizeof(failed_gets[0]));
+	snprintf(failed_gets[slot].id, sizeof(failed_gets[slot].id), "%s", id);
+	snprintf(failed_gets[slot].why, sizeof(failed_gets[slot].why), "%s", why);
+	platform_log("Workshop: item %s not taken by the Steam download: %s", id, why);
+	if (item)
+	{
+		item->subscribed = 0;
+		item->state = WORKSHOP_ITEM_NOT_INSTALLED;
+		snprintf(item->steam_error, sizeof(item->steam_error), "%s", why);
+	}
+}
+
+/* 1: waiting; 0: no room (the item says so) */
+static int pending_add(const char *id)
 {
 	int slot, free_slot = -1;
 
 	for (slot = 0; slot < (int)(sizeof(pending_gets) / sizeof(pending_gets[0])); slot++)
 	{
 		if (!strcmp(pending_gets[slot], id))
-			return;
+			return 1;
 		if (!pending_gets[slot][0] && free_slot < 0)
 			free_slot = slot;
 	}
-	if (free_slot >= 0)
-		snprintf(pending_gets[free_slot], sizeof(pending_gets[free_slot]), "%s", id);
+	if (free_slot < 0)
+	{
+		get_failed(id, "Too many at once");
+		return 0;
+	}
+	snprintf(pending_gets[free_slot], sizeof(pending_gets[free_slot]), "%s", id);
+	return 1;
 }
 
 static void pending_run(void)
@@ -1947,7 +2025,7 @@ static void pending_run(void)
 		if (!pending_gets[slot][0])
 			continue;
 		if (!steam_bridge_subscribe(pending_gets[slot]))
-			platform_log("Workshop: item %s not taken by the Steam download", pending_gets[slot]);
+			get_failed(pending_gets[slot], "Failed");
 		pending_gets[slot][0] = 0;
 	}
 }
@@ -2005,12 +2083,29 @@ int workshop_browser_subscribe(int index)
 	}
 	/* (the game's own Steam download: linked, it downloads here once its
 	connection is up; never Steam's page) */
-	if (link_offered() && !bridge_ready())
+	if (link_offered())
 	{
 		if (!steam_link_linked(NULL, 0))
 			return 0;
-		workshop_browser_link_follow();
-		pending_add(workshop.items[index].id);
+		failed_clear(workshop.items[index].id);
+		workshop.items[index].steam_error[0] = 0;
+		if (!bridge_ready())
+		{
+			workshop_browser_link_follow();
+			if (pending_add(workshop.items[index].id))
+			{
+				workshop.items[index].subscribed = 1;
+				workshop.items[index].state = WORKSHOP_ITEM_WAITING;
+			}
+			return 1;
+		}
+		/* (refused: Failed on the item, TRY AGAIN; Steam's page only when
+		the player picks OPEN IN STEAM) */
+		if (!steam_bridge_subscribe(workshop.items[index].id))
+		{
+			get_failed(workshop.items[index].id, "Failed");
+			return 1;
+		}
 		workshop.items[index].subscribed = 1;
 		workshop.items[index].state = WORKSHOP_ITEM_WAITING;
 		return 1;

@@ -120,8 +120,12 @@ WORKSHOP_HOOKS = {
     "port/linux/src/steam_client_bridge.h": ["steam_link_available", "steam_link_linked", "steam_link_start",
                                              "steam_link_poll", "steam_link_cancel", "steam_link_set_armed",
                                              "steam_link_armed", "steam_link_unlink", "steam_link_store_secure"],
-    "port/linux/game/guide_workshop.h": ["guide_workshop_shown", "guide_workshop_link_panel",
-                                         "guide_workshop_render", "guide_workshop_update"],
+    "port/linux/game/guide_workshop.h": ["guide_workshop_shown", "guide_workshop_link_modal",
+                                         "guide_workshop_link_modal_press", "guide_workshop_link_modal_back",
+                                         "guide_workshop_link_modal_render", "guide_workshop_link_note",
+                                         "guide_workshop_page_step", "guide_workshop_pages",
+                                         "guide_workshop_page_offered", "guide_workshop_render",
+                                         "guide_workshop_update"],
 }
 
 

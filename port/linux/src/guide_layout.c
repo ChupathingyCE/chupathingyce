@@ -75,18 +75,42 @@ static int bbcode_tag(const char *text, const char **skip_to)
 		end = strchr(at + length, ']');
 		if (!end || end - text > 512)
 			return 0;
-		/* (a picture or a video: nothing to read, its address dropped too) */
+		/* (a picture or a video: nothing to read, its address dropped too, up
+		to its own closing tag; none: the tag alone) */
 		if (!closing && (!strcmp(names[index], "img") || !strcmp(names[index], "previewyoutube")))
 		{
-			const char *close = strstr(end, "[/");
+			const char *close;
 
-			*skip_to = close ? strchr(close, ']') : NULL;
-			if (*skip_to)
-				(*skip_to)++;
+			for (close = end; *close; close++)
+			{
+				if (close[0] == '[' && close[1] == '/' && starts_with(close + 2, names[index]) &&
+					close[2 + length] == ']')
+				{
+					*skip_to = close + 3 + length;
+					break;
+				}
+			}
 		}
 		return (int)(end - text) + 1;
 	}
 	return 0;
+}
+
+/* text's first length bytes, less a last UTF-8 character cut short */
+static int complete_characters(const char *text, int length)
+{
+	int start = length, need;
+	unsigned char lead;
+
+	while (start > 0 && length - start < 4 && ((unsigned char)text[start - 1] & 0xC0) == 0x80)
+		start--;
+	if (start == 0)
+		return length;
+	lead = (unsigned char)text[start - 1];
+	if (lead < 0xC0)
+		return length;
+	need = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : 2;
+	return length - (start - 1) < need ? start - 1 : length;
 }
 
 int guide_layout_plain(const char *text, char *out, int size)
@@ -130,6 +154,9 @@ int guide_layout_plain(const char *text, char *out, int size)
 						if (length && length < size - 1)
 							out[length++] = newlines ? '\n' : ' ';
 						newlines = spaces = 0;
+						/* (the separator took the last room) */
+						if (length >= size - 1)
+							break;
 					}
 					out[length++] = *word;
 				}
@@ -176,6 +203,7 @@ int guide_layout_plain(const char *text, char *out, int size)
 		out[length++] = (char)c;
 		text++;
 	}
+	length = complete_characters(out, length);
 	out[length] = 0;
 	return length;
 }
@@ -261,6 +289,11 @@ int guide_layout_wrap(const char *text, float width, float size, guide_layout_me
 
 			while (text[end] && text[end] != ' ' && text[end] != '\n' && end < GUIDE_LAYOUT_LINE_SIZE - 1)
 				end++;
+			/* (a word cut by the line's size: never inside a character) */
+			if (end == GUIDE_LAYOUT_LINE_SIZE - 1 && text[end] && text[end] != ' ' && text[end] != '\n')
+				end = character_start(text, end);
+			if (end <= length)
+				break;
 			memcpy(line, text, (size_t)end);
 			line[end] = 0;
 			if (measure(context, size, line) > width)
@@ -281,13 +314,23 @@ int guide_layout_wrap(const char *text, float width, float size, guide_layout_me
 
 				while (((unsigned char)text[next] & 0xC0) == 0x80)
 					next++;
+				/* (the line's buffer full: what fits so far) */
+				if (next > GUIDE_LAYOUT_LINE_SIZE - 1)
+					break;
 				memcpy(line, text, (size_t)next);
 				line[next] = 0;
 				if (end && measure(context, size, line) > width)
 					break;
 				end = next;
 			}
-			fits = end ? end : 1;
+			/* (not even one character fits: one anyway, whole) */
+			if (!end)
+			{
+				end = 1;
+				while (end < GUIDE_LAYOUT_LINE_SIZE - 1 && ((unsigned char)text[end] & 0xC0) == 0x80)
+					end++;
+			}
+			fits = end;
 		}
 		memcpy(line, text, (size_t)fits);
 		line[fits] = 0;

@@ -39,3 +39,26 @@ def test_guide_layout(tmp_path):
     assert build.returncode == 0, build.stdout + build.stderr
     result = subprocess.run([str(binary)], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_guide_layout_address_sanitizer(tmp_path):
+    """The same tests under AddressSanitizer and UndefinedBehaviorSanitizer:
+    the wrap past its line's buffer and the plain text past its end the
+    review found stay caught. Skipped where the compiler has no sanitizers."""
+    cc = compiler()
+    if not cc:
+        pytest.skip("no C compiler")
+    binary = tmp_path / "guide_layout_test_asan"
+    build = subprocess.run(
+        [cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1", "-g", "-fno-omit-frame-pointer",
+         "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+         str(ROOT / "port" / "linux" / "tests" / "guide_layout_test.c"),
+         str(ROOT / "port" / "linux" / "src" / "guide_layout.c"),
+         "-o", str(binary)],
+        capture_output=True, text=True,
+    )
+    if build.returncode != 0 and "sanitize" in (build.stdout + build.stderr):
+        pytest.skip("no sanitizers here: " + (build.stdout + build.stderr)[-200:])
+    assert build.returncode == 0, build.stdout + build.stderr
+    result = subprocess.run([str(binary)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
