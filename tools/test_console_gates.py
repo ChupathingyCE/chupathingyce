@@ -12,6 +12,7 @@ models chrome).
 Each console is preprocessed here with only the defines its build gives the
 shared headers, as its prefix header and build.py set them, and the switches
 it gets are compared."""
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -131,7 +132,9 @@ def test_workshop_sources_build_to_nothing_on_a_console():
     for source in WORKSHOP_SOURCES:
         text = source.read_text(encoding="utf-8")
         gate = text.find("#if !defined(HALO_MCC) || HALO_MCC")
-        include = text.find("#include")
+        # (the feature switch's own header may come first, so the gate sees HALO_MCC)
+        include = next((match.start() for match in re.finditer(r"#include ([^\n]*)", text)
+                        if "halo_port_features.h" not in match.group(1)), -1)
         assert gate >= 0 and (include < 0 or gate < include), "{} isn't gated".format(source.relative_to(ROOT))
         assert text.rstrip().endswith("#endif /* HALO_MCC */"), "{} isn't gated to its end".format(
             source.relative_to(ROOT))
