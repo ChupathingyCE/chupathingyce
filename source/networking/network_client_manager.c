@@ -896,17 +896,6 @@ unsigned delta_peer_game_host_number(void);
 unsigned network_rules_layout_newest(void);
 #endif
 
-/* port: whether the joined host's advertisement said it speaks Delta */
-boolean network_game_client_host_speaks_delta(
-	void)
-{
-#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
-	return network_game_client_joined_delta != 0;
-#else
-	return FALSE;
-#endif
-}
-
 struct network_game_client network_game_client_dont_use_directly;
 boolean allow_out_of_sync = FALSE;
 boolean network_game_client_dont_use_directly_in_use = FALSE;
@@ -1450,12 +1439,7 @@ boolean network_game_client_game_settings_updated(
 			csmemcpy(message_packet->map.name, map_name, sizeof(map_name));
 		}
 		if (csstrcmp(message_packet->map.name, client->game.map.name) ||
-			message_packet->map.version != client->game.map.version
-#ifdef HALO_MCC_NETWORK
-			/* port: the host's MCC content may change without changing its stored checksum */
-			|| memcmp(message_packet->mcc_content_sha256, client->game.mcc_content_sha256, 32)
-#endif
-			)
+			message_packet->map.version != client->game.map.version)
 		{
 			char build[0x20];
 

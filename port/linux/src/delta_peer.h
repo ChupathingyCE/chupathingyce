@@ -96,6 +96,10 @@ enum
 	DELTA_PEER_TRAITS_INTERVAL = 5000,
 	/* ... and the host's rules (HOST_RULES) */
 	DELTA_PEER_HOST_RULES_INTERVAL = 5000,
+	/* HOST_NUMBER: every second for this long after it changes, then as
+	the host's rules are */
+	DELTA_PEER_HOST_NUMBER_BURST = 20000,
+	DELTA_PEER_HOST_NUMBER_BURST_INTERVAL = 1000,
 	/* a client's party tag (PARTY_TAG): at once when it changes, and again
 	this often (a datagram lost) */
 	DELTA_PEER_PARTY_TAG_INTERVAL = 5000,
@@ -764,6 +768,11 @@ struct delta_peer
 	each time it changes (0: none set) */
 	unsigned number;
 	delta_u32 number_generation;
+	/* when the host first sent a new number (number_burst_generation's):
+	for DELTA_PEER_HOST_NUMBER_BURST it is sent every second, as a lost
+	datagram would leave a client on the number before */
+	delta_u32 number_burst_generation;
+	delta_u32 number_burst_time;
 	/* each game machine's address and when the host first saw it in the
 	game with it (0 address: not in the game): its handshake's window starts
 	there (delta_peer_machine_lacks) */
@@ -1340,6 +1349,8 @@ void delta_peer_game_set_host_rules(const struct delta_wire_host_rules *rules);
 /* (the client's) the number the host's game is played at, as its HOST_NUMBER
 said last; 0 for none (no Delta host, or one without mcc_maps) */
 unsigned delta_peer_game_host_number(void);
+/* (the client's) whether its host speaks Delta and agreed to mcc_maps */
+int delta_peer_game_host_agreed_mcc_maps(void);
 delta_u32 delta_peer_game_host_rules(struct delta_wire_host_rules *rules);
 int delta_peer_game_machine_lacks(int machine_index, int capability);
 /* whether a player's machine agreed to a capability with the host, as this

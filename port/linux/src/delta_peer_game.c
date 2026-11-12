@@ -1397,6 +1397,13 @@ delta_u32 delta_peer_game_host_traits(struct delta_wire_traits *traits)
 
 /* ---------- the host's rules (host_rules.c) */
 
+int delta_peer_game_host_agreed_mcc_maps(void)
+{
+	return delta_game.ready && delta_game.role == _role_client &&
+		delta_game.peer.client_state == _delta_peer_client_delta &&
+		(delta_game.peer.agreed & ((delta_u32)1 << _delta_capability_mcc_maps)) != 0;
+}
+
 unsigned delta_peer_game_host_number(void)
 {
 	unsigned number = 0;

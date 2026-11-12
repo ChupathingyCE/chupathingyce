@@ -2682,8 +2682,17 @@ static void host_send_number(struct delta_peer *peer, delta_u32 now)
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
 	int index;
 
+	delta_u32 interval = DELTA_PEER_HOST_RULES_INTERVAL;
+
 	if (!peer->number_generation || !(offered(peer) & CAPABILITY(_delta_capability_mcc_maps)))
 		return;
+	if (peer->number_burst_generation != peer->number_generation)
+	{
+		peer->number_burst_generation = peer->number_generation;
+		peer->number_burst_time = now;
+	}
+	if (!elapsed(now, peer->number_burst_time, DELTA_PEER_HOST_NUMBER_BURST))
+		interval = DELTA_PEER_HOST_NUMBER_BURST_INTERVAL;
 	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
 	{
 		struct delta_peer_host_peer *client = &peer->peers[index];
@@ -2692,7 +2701,7 @@ static void host_send_number(struct delta_peer *peer, delta_u32 now)
 		if (!client->used || !(client->agreed & CAPABILITY(_delta_capability_mcc_maps)))
 			continue;
 		if (client->number_sent_generation == peer->number_generation &&
-			!elapsed(now, client->number_time, DELTA_PEER_HOST_RULES_INTERVAL))
+			!elapsed(now, client->number_time, interval))
 		{
 			continue;
 		}

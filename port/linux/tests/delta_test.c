@@ -49,6 +49,7 @@ build 2 or 3's) */
 #define REPORTS_BIT ((delta_u32)1 << _delta_capability_reports)
 #define OBJECT_SYNC_BIT ((delta_u32)1 << _delta_capability_object_sync)
 #define HOST_RULES_BIT ((delta_u32)1 << _delta_capability_host_rules)
+#define MCC_MAPS_BIT ((delta_u32)1 << _delta_capability_mcc_maps)
 #define IDENTITY_BIT ((delta_u32)1 << _delta_capability_identity)
 #define VOICE_BIT ((delta_u32)1 << _delta_capability_voice)
 #define SERVER_BADGE_BIT ((delta_u32)1 << _delta_capability_server_badge)
@@ -1501,6 +1502,41 @@ static void test_host_number_wire(void)
 	data[DELTA_WIRE_HEADER_SIZE] = 1;
 	CHECK(!delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_HOST_NUMBER_SIZE - 1, &number));
 	CHECK(!delta_wire_write_host_number(data, 1, 0) && !delta_wire_write_host_number(data, 1, 0x10000));
+}
+
+/* HOST_NUMBER over a lossy network: the host's first sends after a change
+lost, the client still hears the new number within a few seconds (it goes
+every second for DELTA_PEER_HOST_NUMBER_BURST), and only a client that
+agreed to mcc_maps hears it */
+static void test_host_number_lost(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	delta_u32 now = 5000;
+	unsigned number = 0;
+	int step;
+
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, MCC_MAPS_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, MCC_MAPS_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_macos, 0, 0);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	delta_peer_set_host_number(&nodes[0].peer, 32);
+	for (step = 0; step < 6; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_host_number(&nodes[1].peer, &number) && number == 32);
+	/* (the change, and the host's datagrams lost for the next half second) */
+	delta_peer_set_host_number(&nodes[0].peer, 43);
+	nodes[0].mute = 1;
+	for (step = 0; step < 2; step++, now += 250)
+		frame(now, 3, joined, 1);
+	nodes[0].mute = 0;
+	CHECK(delta_peer_host_number(&nodes[1].peer, &number) && number == 32);
+	for (step = 0; step < 6; step++, now += 250)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_host_number(&nodes[1].peer, &number) && number == 43);
+	CHECK(!delta_peer_host_number(&nodes[2].peer, NULL));
+	delta_peer_set_host_number(&nodes[0].peer, 0);
 }
 
 static void test_host_rules(void)
@@ -5200,6 +5236,7 @@ int main(int argc, char **argv)
 	test_wire_host_rules();
 	test_host_rules();
 	test_host_number_wire();
+	test_host_number_lost();
 	test_wire_badge();
 	test_badge();
 	test_wire_objects();

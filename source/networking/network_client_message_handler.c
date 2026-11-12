@@ -208,7 +208,7 @@ symbols in this file:
 #include "map_share.h" /* port: map sharing's messages to the map bot's fetch */
 #endif
 unsigned delta_peer_game_host_number(void); /* port/linux/src/delta_peer_game.c */
-boolean network_game_client_host_speaks_delta(void); /* network_client_manager.c */
+int delta_peer_game_host_agreed_mcc_maps(void); /* port/linux/src/delta_peer_game.c */
 #include "mcc_identity.h" /* port: the host's MCC content digest in a 43 record */
 
 /* port/linux/game/network_distributed.c's */
@@ -1228,8 +1228,7 @@ static boolean network_game_client_receive_game_settings_piece(
 		lobby (an MCC map's game at 43: delta_legacy_host_game_at), may read
 		the last record of the number before; it takes the next. So does a
 		client of a Delta host with mcc_maps, whose HOST_NUMBER it follows */
-		result = global_network_game_server_get() != NULL || delta_peer_game_host_number() != 0 ||
-			network_game_client_host_speaks_delta();
+		result = global_network_game_server_get() != NULL || delta_peer_game_host_agreed_mcc_maps();
 	}
 	else
 	{

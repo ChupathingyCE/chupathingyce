@@ -1430,6 +1430,11 @@ static int network_game_server_mcc_asked = -1;
 the Delta machines that follow it read at the new number; 0 for none) */
 static unsigned long network_game_server_mcc_resend_time;
 static int network_game_server_mcc_resends;
+/* (every 2 seconds for 20, while HOST_NUMBER goes every second: a client
+that lost one, or a record, takes a later; one that still has the map
+before never starts, the pregame load timeout drops it) */
+#define NETWORK_GAME_SERVER_MCC_RESENDS 10
+#define NETWORK_GAME_SERVER_MCC_RESEND_INTERVAL 2000UL
 
 static void network_game_server_mcc_version(
 	char const *map_name)
@@ -1457,7 +1462,7 @@ static void network_game_server_mcc_version(
 		return;
 	network_game_server_mcc_asked = want;
 	network_game_server_mcc_resend_time = system_milliseconds();
-	network_game_server_mcc_resends = 2;
+	network_game_server_mcc_resends = NETWORK_GAME_SERVER_MCC_RESENDS;
 	if (!delta_legacy_host_game_at(want) && want)
 		error(_error_silent, "mcc: this build can't host OpenCE's 43, which MCC maps need");
 	else if (want)
@@ -1511,6 +1516,11 @@ static long network_game_server_mcc_would_drop(
 /* (the host's answer: yes, the map it picked) */
 static char network_game_server_mcc_confirm_map[NETWORK_GAME_MAP_NAME_LENGTH];
 static boolean network_game_server_mcc_confirmed;
+/* (the hosting the question was asked in: a yes after the host left its
+lobby, or hosts another, changes nothing) */
+static unsigned long network_game_server_mcc_session;
+static unsigned long network_game_server_mcc_confirm_session;
+static struct network_game_server *network_game_server_mcc_confirm_server;
 
 static void network_game_server_mcc_confirm_answer(
 	boolean yes)
@@ -1518,7 +1528,8 @@ static void network_game_server_mcc_confirm_answer(
 	struct network_game_server *server = global_network_game_server_get();
 
 	if (!yes || !server || server->state != _network_game_server_state_pregame ||
-		!network_game_server_mcc_confirm_map[0])
+		!network_game_server_mcc_confirm_map[0] || server != network_game_server_mcc_confirm_server ||
+		network_game_server_mcc_confirm_session != network_game_server_mcc_session)
 	{
 		network_event("the lobby's map stays: the host kept its players");
 		return;
@@ -1541,6 +1552,8 @@ static boolean network_game_server_mcc_confirm(
 
 	if (network_game_server_mcc_confirmed || !(count = network_game_server_mcc_would_drop(server, map_name)))
 		return FALSE;
+	network_game_server_mcc_confirm_server = server;
+	network_game_server_mcc_confirm_session = network_game_server_mcc_session;
 	csstrncpy(network_game_server_mcc_confirm_map, map_name, sizeof(network_game_server_mcc_confirm_map) - 1);
 	network_game_server_mcc_confirm_map[sizeof(network_game_server_mcc_confirm_map) - 1] = 0;
 	snprintf(detail, sizeof(detail), "%ld player%s without MCC maps will leave.", count, count == 1 ? "" : "s");
@@ -1561,6 +1574,15 @@ void network_game_server_dispose(
 {
 	mcc_ui_network_server_dispose(server);
 #if defined(HALO_MCC) && HALO_MCC
+	/* (a question about this lobby's map is taken back, and a yes to it
+	changes nothing) */
+	{
+		extern void invite_prompt_ask_cancel(void (*answer_function)(boolean yes));
+
+		invite_prompt_ask_cancel(network_game_server_mcc_confirm_answer);
+		network_game_server_mcc_session++;
+		network_game_server_mcc_confirm_map[0] = 0;
+	}
 	/* (the usual number again; a dedicated server keeps its playlist's) */
 	if (!dedicated_server_active())
 	{
@@ -1785,13 +1807,13 @@ boolean network_game_server_idle(
 	{
 		network_game_server_mcc_version(server->game.map.name);
 #if defined(HALO_MCC) && HALO_MCC
-		/* (the record again, 2 and 5 seconds after the number changed: by
+		/* (the record again, every 2 seconds for 20 after the number changed: by
 		then its followers have HOST_NUMBER) */
 		if (network_game_server_mcc_resends > 0 &&
-			system_milliseconds() - network_game_server_mcc_resend_time >
-				(network_game_server_mcc_resends == 2 ? 2000UL : 5000UL))
+			system_milliseconds() - network_game_server_mcc_resend_time > NETWORK_GAME_SERVER_MCC_RESEND_INTERVAL)
 		{
 			network_game_server_mcc_resends--;
+			network_game_server_mcc_resend_time = system_milliseconds();
 			network_game_server_send_game_data_pregame(server);
 		}
 #endif

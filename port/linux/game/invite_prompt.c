@@ -125,6 +125,8 @@ static struct
 	/* another question asked the same way (invite_prompt_ask): its title,
 	its line and its detail, and what answers it */
 	boolean asking;
+	/* (asked while an invite's question waited: asked once it is answered) */
+	boolean ask_waiting;
 	char ask_title[24];
 	char ask_question[64];
 	char ask_detail[96];
@@ -386,10 +388,34 @@ void invite_prompt_ask(
 	snprintf(invite_prompt.ask_question, sizeof(invite_prompt.ask_question), "%s", question);
 	snprintf(invite_prompt.ask_detail, sizeof(invite_prompt.ask_detail), "%s", detail ? detail : "");
 	invite_prompt.ask_answer = answer_function;
+	/* (an invite's question waiting is never overwritten: this one waits) */
+	if (invite_prompt.pending && !invite_prompt.asking)
+	{
+		invite_prompt.ask_waiting = TRUE;
+		return;
+	}
 	invite_prompt.asking = TRUE;
+	invite_prompt.ask_waiting = FALSE;
 	invite_prompt.password = FALSE;
 	invite_prompt.pending = TRUE;
 	invite_prompt.active = FALSE;
+}
+
+/* port: the question asked by invite_prompt_ask with this answer, taken back
+unanswered (what it was about is gone: the host left its lobby) */
+void invite_prompt_ask_cancel(
+	void (*answer_function)(boolean yes))
+{
+	if (invite_prompt.ask_answer != answer_function || (!invite_prompt.asking && !invite_prompt.ask_waiting))
+		return;
+	invite_prompt.ask_answer = NULL;
+	invite_prompt.ask_waiting = FALSE;
+	if (invite_prompt.asking)
+	{
+		invite_prompt.asking = FALSE;
+		invite_prompt.pending = FALSE;
+		invite_prompt.active = FALSE;
+	}
 }
 
 boolean invite_prompt_active(
@@ -405,6 +431,15 @@ void invite_prompt_update(
 {
 	char text[INVITE_TEXT_SIZE];
 
+	/* (a question asked while an invite's waited, once that is answered) */
+	if (invite_prompt.ask_waiting && !invite_prompt.pending)
+	{
+		invite_prompt.ask_waiting = FALSE;
+		invite_prompt.asking = TRUE;
+		invite_prompt.password = FALSE;
+		invite_prompt.pending = TRUE;
+		invite_prompt.active = FALSE;
+	}
 	/* (another question waits its answer first) */
 	if (!invite_prompt.asking && platform_take_clipboard_invite(text, sizeof(text)))
 	{
