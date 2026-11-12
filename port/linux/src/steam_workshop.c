@@ -476,6 +476,14 @@ static int libraries(char (*paths)[STEAM_WORKSHOP_PATH_SIZE], int maximum)
 	}
 #else
 	root_count += linux_roots(roots + root_count, MAXIMUM_STEAM_ROOTS - root_count);
+#ifdef __APPLE__
+	/* (macOS's Steam, after the Linux places a Mac never has) */
+	if (root_count < MAXIMUM_STEAM_ROOTS &&
+		linux_root(roots[root_count], getenv("HOME"), "Library/Application Support/Steam"))
+	{
+		root_count++;
+	}
+#endif
 #endif
 	for (root = 0; root < root_count && count < maximum; root++)
 	{
@@ -507,6 +515,11 @@ static int libraries(char (*paths)[STEAM_WORKSHOP_PATH_SIZE], int maximum)
 		free(text);
 	}
 	return count;
+}
+
+int steam_workshop_libraries(char (*paths)[STEAM_WORKSHOP_PATH_SIZE], int maximum)
+{
+	return libraries(paths, maximum);
 }
 
 int steam_workshop_scan(void)
