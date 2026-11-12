@@ -966,7 +966,8 @@ boolean network_distributed_mcc_layout(
 	if (connection != _game_connection_network_client && connection != _game_connection_network_server)
 		return FALSE;
 	distributed_layout_refresh();
-	return distributed_layout.settings_size >= NETWORK_RULES_SETTINGS_MAXIMUM && distributed_layout.epoch_kind;
+	/* (43's record: 64 bytes past 35's, the MCC digests, and an epoch) */
+	return distributed_layout.settings_size >= NETWORK_RULES_SETTINGS_EXTENDED_SIZE + 64 && distributed_layout.epoch_kind;
 }
 
 boolean network_distributed_mcc_session(

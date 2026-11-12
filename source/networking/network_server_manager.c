@@ -1409,10 +1409,36 @@ struct network_game_server *network_game_server_create(
 	return server;
 }
 
+/* port: a game on an MCC map is hosted at OpenCE's 43, whose record and
+messages carry MCC's (mcc_network_messages.h), whatever this machine
+announces otherwise; any other map at the usual number. Asked as the map is
+chosen (network_game_server_change_map_name), each lobby frame, and undone as
+hosting ends; said once if this build can't */
+int delta_legacy_host_game_at(int version); /* (port/linux/src/delta.c) */
+static int network_game_server_mcc_asked = -1;
+
+static void network_game_server_mcc_version(
+	char const *map_name)
+{
+	int want = map_name && mcc_level_name(map_name) ? 43 : 0;
+
+	if (want == network_game_server_mcc_asked)
+		return;
+	network_game_server_mcc_asked = want;
+	if (!delta_legacy_host_game_at(want) && want)
+		error(_error_silent, "mcc: this build can't host OpenCE's 43, which MCC maps need");
+	else if (want)
+		network_event("hosting %s at OpenCE's network version 43 (an MCC map)", map_name);
+}
+
 void network_game_server_dispose(
 	struct network_game_server *server)
 {
 	mcc_ui_network_server_dispose(server);
+	/* (the usual number again) */
+	if (network_game_server_mcc_asked > 0)
+		delta_legacy_host_game_at(0);
+	network_game_server_mcc_asked = -1;
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x120, server);
 
 	/* port: a won co-op round's next level belongs to this server alone */
@@ -1622,6 +1648,11 @@ boolean network_game_server_idle(
 		}
 	}
 
+	/* (not while an MCC map chosen waits for its check: the map in the
+	record is still the one before) */
+	if (server->state == _network_game_server_state_pregame && !server->sent_start_game_message &&
+		!mcc_ui_network_map_pending(server))
+		network_game_server_mcc_version(server->game.map.name);
 	mcc_ui_network_update_map(server); /* port: apply pending MCC selection after local admission */
 	/* (what Discord shows of a game hosted for internet play, and the
 	server browser's listing) */
@@ -3831,6 +3862,8 @@ void network_game_server_change_map_name(
 		server && map_name && map_name[0]);
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x79C,
 		server->state == _network_game_server_state_pregame);
+	/* port: an MCC map's game at 43 (network_game_server_mcc_version) */
+	network_game_server_mcc_version(map_name);
 	/* port: MCC package work waits for local admission; legacy selections remain immediate. */
 	if (mcc_ui_network_defer_map(server, map_name)) return;
 

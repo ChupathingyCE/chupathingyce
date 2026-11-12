@@ -911,6 +911,8 @@ static struct network_game_server_settings_machine
 	long options;
 	boolean owed;
 	boolean marked;
+	/* port: the number this host announced when the size was decided */
+	unsigned announce;
 } network_game_server_settings_machines[MAXIMUM_NETWORK_MACHINE_COUNT];
 
 /* the join mark of the join request being handled, for
@@ -988,12 +990,17 @@ static long network_game_server_settings_layout(
 		csmemset(entry, 0, sizeof(*entry));
 		entry->connection = connection;
 	}
+	/* (port: the host's own machine reads its server's number as it is now,
+	which a game on an MCC map changes in the lobby: delta_legacy_host_game_at) */
+	if (entry->size && entry->announce != announce && network_game_server_client_machine_is_local(server, machine))
+		entry->size = 0;
 	if (entry->size)
 	{
 		if (options)
 			*options = entry->options;
 		return entry->size;
 	}
+	entry->announce = announce;
 	if (!entry->since)
 		entry->since = now ? now : 1;
 	/* (the host's own machine takes either: it joined by no advertisement) */

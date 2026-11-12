@@ -1220,9 +1220,12 @@ static boolean network_game_client_receive_game_settings_piece(
 		piece->length > sizeof(piece->data) ||
 		piece->offset + piece->length > piece->total_size)
 	{
-		network_event("got a message_server_game_settings_update piece for a different game layout");
+		network_event("got a message_server_game_settings_update piece for a different game layout (%u bytes, as %u)", (unsigned)piece->total_size, host_version);
 		network_game_client_settings_staging_size = 0;
-		result = FALSE;
+		/* port: the host's own machine, whose server's number changed in the
+		lobby (an MCC map's game at 43: delta_legacy_host_game_at), may read
+		the last record of the number before; it takes the next */
+		result = global_network_game_server_get() != NULL;
 	}
 	else
 	{
