@@ -186,7 +186,7 @@ static struct
 	/* a line too long for its box, focused: read left to right from when
 	it took the focus (guide_layout_marquee) */
 	int marquee_key;
-	unsigned long marquee_time;
+	unsigned long marquee_time, marquee_drawn;
 } workshop_view;
 
 /* ---------- private code */
@@ -698,6 +698,9 @@ static void text_line(int kind, float x, float y, float width, int align, char c
 	ui_style_text(kind, x, y, align, shown);
 }
 
+/* (a focused line not drawn for this long lost the focus in between) */
+#define MARQUEE_GAP 250
+
 /* a focused line: as text_line, but read left to right when it doesn't
 fit (the same marquee for every focused line: key tells them apart) */
 static void text_line_focused(int kind, float x, float y, float width, int align, char const *text, int key)
@@ -705,11 +708,15 @@ static void text_line_focused(int kind, float x, float y, float width, int align
 	char shown[GUIDE_LAYOUT_LINE_SIZE];
 	unsigned long now = system_milliseconds();
 
-	if (key != workshop_view.marquee_key)
+	/* (from its start each time it takes the focus: another line focused
+	since, or none drawn focused a moment, the Guide closed or the focus
+	gone elsewhere) */
+	if (key != workshop_view.marquee_key || now - workshop_view.marquee_drawn > MARQUEE_GAP)
 	{
 		workshop_view.marquee_key = key;
 		workshop_view.marquee_time = now;
 	}
+	workshop_view.marquee_drawn = now;
 	guide_layout_marquee(text, width, ui_style_text_size(kind), measure_font, (void *)(intptr_t)ui_style_text_font(kind),
 		now - workshop_view.marquee_time, shown, sizeof(shown));
 	ui_style_text(kind, x, y, align, shown);
@@ -1210,6 +1217,8 @@ void guide_workshop_option_click(short option)
 {
 	workshop_view.page = TRUE;
 	workshop_view.option = option;
+	/* (a click on a button presses it, the description's focus or not) */
+	workshop_view.description_on = FALSE;
 	guide_workshop_activate();
 }
 

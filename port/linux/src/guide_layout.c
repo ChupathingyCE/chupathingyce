@@ -282,6 +282,22 @@ int guide_layout_wrap(const char *text, float width, float size, guide_layout_me
 			text++;
 		if (!*text)
 			break;
+		/* (a line break here: an empty line, as a blank line between
+		paragraphs; never the break itself drawn) */
+		if (*text == '\n')
+		{
+			text++;
+			lines[count][0] = 0;
+			/* (the last line, with more after it: its dots) */
+			if (count == maximum - 1 && *text)
+			{
+				memcpy(lines[count], ELLIPSIS, 4);
+				if (cut)
+					*cut = 1;
+			}
+			count++;
+			continue;
+		}
 		/* (as many words as fit) */
 		while (text[length] && text[length] != '\n' && length < GUIDE_LAYOUT_LINE_SIZE - 1)
 		{

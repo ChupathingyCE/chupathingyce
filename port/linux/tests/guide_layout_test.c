@@ -125,6 +125,16 @@ static void check_wrap(void)
 			CHECK(strstr(lines[count - 1], "...") != NULL, "a cut text's last line without dots: %s",
 				lines[count - 1]);
 	}
+	/* (a blank line between paragraphs: an empty line, no control
+	character left in any line to be drawn as a box) */
+	count = guide_layout_wrap("Words here\n\nMaps in this pack (3):\nUnderground", 214, 9, measure, NULL, 8, lines,
+		&cut);
+	CHECK(count == 4 && !cut, "a blank line's text in %d lines", count);
+	CHECK(count >= 3 && !strcmp(lines[0], "Words here") && lines[1][0] == 0 &&
+		!strcmp(lines[2], "Maps in this pack (3):"), "a blank line not empty: [%s] [%s] [%s]", lines[0], lines[1],
+		lines[2]);
+	for (index = 0; index < count; index++)
+		CHECK(strpbrk(lines[index], "\n\r\t") == NULL, "a control character in line %d", index);
 	count = guide_layout_wrap("Two words", 214, 9, measure, NULL, 4, lines, &cut);
 	CHECK(count == 1 && !cut && !strcmp(lines[0], "Two words"), "short text wrapped: %d %s", count, lines[0]);
 }
