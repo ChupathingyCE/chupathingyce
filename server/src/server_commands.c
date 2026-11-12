@@ -80,6 +80,8 @@ types only) */
 #include <string.h>
 #include <time.h>
 
+void platform_log(const char *format, ...);
+
 #ifndef HALO_SERVER
 /* (the game's own dedicated mode, HALO_DEDICATED in the game: no roles,
 audit, link or Delta Control, only the startup commands, the owner's) */
@@ -1180,7 +1182,7 @@ static boolean command_kick(
 	client dropped alone) */
 	if (server_ce_kick(player.machine_index, player.controller_index, NULL))
 	{
-		error(_error_silent, "dedicated: kicked %s (Custom Edition)", player.name);
+		platform_log("kicked %s (Custom Edition)", player.name);
 		command_output_printf(output, "kicked %s\n", player.name);
 		return TRUE;
 	}
@@ -1193,7 +1195,7 @@ static boolean command_kick(
 		command_output_printf(output, "%s cannot be kicked: their machine has not joined\n", player.name);
 		return FALSE;
 	}
-	error(_error_silent, "dedicated: kicked %s", names);
+	platform_log("kicked %s", names);
 	command_output_printf(output, "kicked %s\n", names);
 	return TRUE;
 }
@@ -1236,7 +1238,7 @@ static boolean command_ban(
 		if (server_ce_kick(player.machine_index, player.controller_index, &address))
 		{
 			network_distributed_ban_until(NONE, address, player.name, reason, until);
-			error(_error_silent, "dedicated: banned %s (Custom Edition, %s)", player.name, duration_text);
+			platform_log("banned %s (Custom Edition, %s)", player.name, duration_text);
 			command_output_printf(output, "banned %s %s%s\n", player.name, duration ? "for " : "", duration_text);
 			return TRUE;
 		}
@@ -1251,7 +1253,7 @@ static boolean command_ban(
 	}
 	network_distributed_ban_until(player.machine_index, network_game_server_machine_address(player.machine_index),
 		names, reason, until);
-	error(_error_silent, "dedicated: banned %s (%s)", names, duration_text);
+	platform_log("banned %s (%s)", names, duration_text);
 	command_output_printf(output, "banned %s %s%s\n", names, duration ? "for " : "", duration_text);
 	if (!hardware_id || !hardware_id[0])
 	{
@@ -1294,7 +1296,7 @@ static boolean command_unban(
 			return FALSE;
 		}
 		note_target(ban.handles[0] ? ban.handles : ban.ref, NULL);
-		error(_error_silent, "dedicated: shared ban S%.8s (%s) excepted on this server", ban.ref, ban.list_name);
+		platform_log("shared ban S%.8s (%s) excepted on this server", ban.ref, ban.list_name);
 		command_output_printf(output, "shared ban S%.8s (%s) no longer keeps anyone out here; its list keeps it\n",
 			ban.ref, ban.list_name);
 		return TRUE;
@@ -1310,7 +1312,7 @@ static boolean command_unban(
 		command_output_printf(output, "no ban %ld to take out (sv_banlist)\n", number);
 		return FALSE;
 	}
-	error(_error_silent, "dedicated: ban %ld taken out of bans.txt", number);
+	platform_log("ban %ld taken out of bans.txt", number);
 	command_output_printf(output, "ban %ld taken out (the others' numbers have moved up)\n", number);
 	return TRUE;
 }
@@ -1447,7 +1449,7 @@ static void set_locked(
 #ifdef HALO_GAME_BROWSER
 	delta_peer_game_moderation_roles_changed();
 #endif
-	error(_error_silent, "dedicated: joins %s by %s", locked ? "locked" : "unlocked", actor_display());
+	platform_log("joins %s by %s", locked ? "locked" : "unlocked", actor_display());
 }
 
 static boolean command_lock(
@@ -1526,7 +1528,7 @@ static boolean command_ban_account(
 		command_output_printf(output, "the ban could not be written to bans.txt\n");
 		return FALSE;
 	}
-	error(_error_silent, "dedicated: banned account %.8s... (%s)", account, duration_text);
+	platform_log("banned account %.8s... (%s)", account, duration_text);
 	command_output_printf(output, "banned account %s %s%s\n", account, duration ? "for " : "", duration_text);
 	return TRUE;
 }
@@ -1610,7 +1612,7 @@ static boolean command_map(
 	if (!server_map_playable(line->words[1], output))
 		return FALSE;
 	dedicated_server_play(line->words[1], line->words[2]);
-	error(_error_silent, "dedicated: a command plays %s on %s", line->words[2], line->words[1]);
+	platform_log("a command plays %s on %s", line->words[2], line->words[1]);
 	command_output_printf(output, "%s on %s %s\n", line->words[2], line->words[1],
 		hosting() ? "now" : "once the server hosts");
 	return TRUE;
@@ -1697,7 +1699,7 @@ static boolean command_mapcycle_next(
 	(void)json;
 	dedicated_server_get_status(&status);
 	dedicated_server_skip();
-	error(_error_silent, "dedicated: a command skips to the next entry");
+	platform_log("a command skips to the next entry");
 	if (status.state == _dedicated_state_lobby)
 	{
 		dedicated_server_get_status(&status);
@@ -1757,7 +1759,7 @@ static boolean command_maxplayers(
 	if (server_admin_set_saved(SERVER_SETTING_MAXIMUM_PLAYERS, line->words[1], output, &done))
 		return done;
 	dedicated_server_set_maximum_players(maximum);
-	error(_error_silent, "dedicated: a command sets the most players to %ld", maximum);
+	platform_log("a command sets the most players to %ld", maximum);
 	command_output_printf(output, "a game takes %ld players %s, until a restart (HALO_DEDICATED_MAXIMUM_PLAYERS in the "
 		"server's environment sets it at start)\n", maximum,
 		status.state == _dedicated_state_lobby ? "(now)" : "(from the next lobby)");
@@ -1789,7 +1791,7 @@ static boolean command_name(
 	if (server_admin_set_saved(SERVER_SETTING_NAME, line->words[1], output, &done))
 		return done;
 	dedicated_server_set_name(line->words[1]);
-	error(_error_silent, "dedicated: a command names the server %s", line->words[1]);
+	platform_log("a command names the server %s", line->words[1]);
 	command_output_printf(output, "the server is %s %s, until a restart (HALO_DEDICATED_NAME in the server's "
 		"environment names it at start)\n", line->words[1],
 		status.state == _dedicated_state_lobby ? "(now)" : "(from the next lobby)");
@@ -2000,7 +2002,7 @@ static boolean command_warn(
 	machine_names(player.machine_index, names, sizeof(names));
 	note_target(names, line->words[2]);
 	shown = server_moderation_notice(player.machine_index, TRUE, NULL, line->words[2]);
-	error(_error_silent, "dedicated: warned %s", names);
+	platform_log("warned %s", names);
 	command_output_printf(output, "warned %s%s\n", names, shown ? "" :
 		" (their game cannot show it: not a ChupathingyCE game; the warning is in the audit file)");
 	return TRUE;
@@ -2025,7 +2027,7 @@ static boolean command_say(
 			command_output_printf(output, "said to %d Custom Edition player%s\n", sent_ce, sent_ce == 1 ? "" : "s");
 #endif
 
-		error(_error_silent, "dedicated: a server message to %d machines", sent);
+		platform_log("a server message to %d machines", sent);
 		command_output_printf(output, "said to %d ChupathingyCE machine%s\n", sent, sent == 1 ? "" : "s");
 		return TRUE;
 	}
@@ -2146,7 +2148,7 @@ static boolean command_mute(
 	note_target(names, line->count == 3 ? line->words[2] : NULL);
 #ifdef HALO_GAME_BROWSER
 	delta_peer_game_chat_mute((int)player.machine_index, TRUE, (int)minutes);
-	error(_error_silent, "dedicated: muted %s", names);
+	platform_log("muted %s", names);
 	command_output_printf(output, "muted %s%s%s\n", names, minutes ? " for a while" : " until they leave",
 		delta_peer_game_chat_capable((int)player.machine_index, 0) ? "" :
 		" (an OpenCE game: their lines stay out of the chat)");
@@ -2177,7 +2179,7 @@ static boolean command_unmute(
 		return FALSE;
 	}
 	delta_peer_game_chat_mute((int)player.machine_index, FALSE, 0);
-	error(_error_silent, "dedicated: unmuted %s", names);
+	platform_log("unmuted %s", names);
 	command_output_printf(output, "unmuted %s\n", names);
 	return TRUE;
 #else
@@ -2217,7 +2219,7 @@ static boolean command_team(
 	if (result != 0 && result != 1)
 		return FALSE;
 	note_target(player.name, NULL);
-	error(_error_silent, "dedicated: moved player %ld to the %s team", player.number, team ? "blue" : "red");
+	platform_log("moved player %ld to the %s team", player.number, team ? "blue" : "red");
 	server_moderation_notice(player.machine_index, FALSE, NULL, team ? "An admin moved you to Blue Team" :
 		"An admin moved you to Red Team");
 	return TRUE;
@@ -2581,7 +2583,7 @@ static void load_startup_commands(
 	file = fopen(path, "r");
 	if (!file)
 	{
-		error(_error_silent, "dedicated: cannot read the startup commands %s", path);
+		platform_log("cannot read the startup commands %s", path);
 		return;
 	}
 	while (fgets(line, sizeof(line), file))
@@ -2596,7 +2598,7 @@ static void load_startup_commands(
 		{
 			int character;
 
-			error(_error_silent, "dedicated: a startup command longer than %d characters, skipped",
+			platform_log("a startup command longer than %d characters, skipped",
 				(int)COMMAND_LINE_MAXIMUM_LENGTH);
 			while ((character = fgetc(file)) != EOF && character != '\n')
 				;
@@ -2606,7 +2608,7 @@ static void load_startup_commands(
 			continue;
 		if (server_commands_globals.startup_count >= MAXIMUM_STARTUP_COMMANDS)
 		{
-			error(_error_silent, "dedicated: more than %d startup commands; the rest skipped",
+			platform_log("more than %d startup commands; the rest skipped",
 				(int)MAXIMUM_STARTUP_COMMANDS);
 			break;
 		}
@@ -2614,7 +2616,7 @@ static void load_startup_commands(
 			sizeof(server_commands_globals.startup[0]), "%s", line);
 	}
 	fclose(file);
-	error(_error_silent, "dedicated: %ld startup commands from %s", server_commands_globals.startup_count, path);
+	platform_log("%ld startup commands from %s", server_commands_globals.startup_count, path);
 }
 
 /* a command's output in the log, a line at a time */
@@ -2782,20 +2784,33 @@ static void steam_update(
 			static char lines[16 * 1024];
 
 			snprintf(steam_server.qr, sizeof(steam_server.qr), "%s", qr);
+			/* (on the terminal, a line each, as the server's own lines are) */
 			if (steam_link_qr_text(qr, lines, sizeof(lines)))
-				log_output(lines);
-			error(_error_silent, "dedicated: scan the QR code above with the Steam app (Steam Guard), or open %s "
+			{
+				char *line = lines, *next;
+
+				for (; *line; line = next)
+				{
+					next = strchr(line, '\n');
+					if (next)
+						*next++ = 0;
+					else
+						next = line + strlen(line);
+					platform_log("  %s", line);
+				}
+			}
+			platform_log("scan the QR code above with the Steam app (Steam Guard), or open %s "
 				"on a phone signed in to Steam; it changes every so often", qr);
 		}
 		else if (state == STEAM_LINK_DONE)
 		{
 			steam_server.linking = FALSE;
-			error(_error_silent, "dedicated: Steam linked; sv_workshop_get <item id> downloads Workshop items");
+			platform_log("Steam linked; sv_workshop_get <item id> downloads Workshop items");
 		}
 		else if (state == STEAM_LINK_FAILED)
 		{
 			steam_server.linking = FALSE;
-			error(_error_silent, "dedicated: Steam link: %s", error_word[0] ? error_word : "Failed");
+			platform_log("Steam link: %s", error_word[0] ? error_word : "Failed");
 		}
 	}
 	for (index = 0; index < steam_server.watched_count; index++)
@@ -2807,19 +2822,19 @@ static void steam_update(
 
 		if (state == STEAM_BRIDGE_ITEM_INSTALLED)
 		{
-			error(_error_silent, "dedicated: Workshop item %s installed; sv_maps lists its maps",
+			platform_log("Workshop item %s installed; sv_maps lists its maps",
 				steam_server.watched[index]);
 			mcc_maps_rescan();
 		}
 		else if (state == STEAM_BRIDGE_ITEM_FAILED)
-			error(_error_silent, "dedicated: Workshop item %s: %s", steam_server.watched[index], error_word);
+			platform_log("Workshop item %s: %s", steam_server.watched[index], error_word);
 		else
 		{
 			/* (every tenth of the way) */
 			if (state == STEAM_BRIDGE_ITEM_DOWNLOADING && percent / 10 != steam_server.percent[index] / 10)
 			{
 				steam_server.percent[index] = percent;
-				error(_error_silent, "dedicated: Workshop item %s: %ld%%", steam_server.watched[index], percent);
+				platform_log("Workshop item %s: %ld%%", steam_server.watched[index], percent);
 			}
 			continue;
 		}
