@@ -23,8 +23,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 enum
 {
 	PREVIEW_CACHE_ID_SIZE = 24,
-	/* the pictures kept (each at most 384 by 384 pixels, workshop_browser.c's
-	shrink: 576 KB at most, 4.5 MB for all of them) */
+	/* the pictures kept (each at most 768 by 768 pixels, workshop_browser.c's
+	shrink, a third of a 4K or Retina window's height: about 2.3 MB at most,
+	19 MB for all of them) */
 	PREVIEW_CACHE_KEPT = 8,
 	/* the items whose picture failed, remembered */
 	PREVIEW_CACHE_FAILED = 64,
@@ -80,6 +81,24 @@ int preview_cache_ready(const struct preview_cache *cache, const char *id, unsig
 /* whether an HTTP status is worth asking again after (0: no answer, 408,
 429, 5xx): the rest are for good */
 int preview_cache_transient(int status);
+/* how a picture's download ended (preview_cache_download) */
+enum
+{
+	PREVIEW_DOWNLOAD_WHOLE,
+	/* cut off (the deadline, a read that failed, fewer bytes than its
+	length said, none at all): asked again after a wait, nothing kept */
+	PREVIEW_DOWNLOAD_CUT,
+	/* for good */
+	PREVIEW_DOWNLOAD_TOO_LARGE,
+	PREVIEW_DOWNLOAD_NOT_PICTURE,
+};
+
+/* a download's end: length its stated size (-1: none said), got the bytes
+read, ended_badly 1 when the last read failed or the deadline passed,
+largest the most taken, picture 1 when its first bytes are a PNG's or a
+JPEG's */
+int preview_cache_download(long long length, long long got, int ended_badly, long long largest, int picture);
+
 /* id can't be asked for until something changes: the caller's count of
 changes (the list's, Steam's details') is changes now. One item at a time */
 void preview_cache_wait(struct preview_cache *cache, const char *id, unsigned long changes);

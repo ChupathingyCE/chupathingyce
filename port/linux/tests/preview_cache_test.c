@@ -119,6 +119,25 @@ int main(void)
 	CHECK(!preview_cache_transient(404) && !preview_cache_transient(403) && !preview_cache_transient(410),
 		"404, 403, 410: for good");
 
+	/* (a download's end: cut off by the deadline, a failed read, short of its
+	length or empty is a hiccup, asked again after a wait; too large or not
+	a picture is for good) */
+	CHECK(preview_cache_download(961574, 961574, 0, 8 << 20, 1) == PREVIEW_DOWNLOAD_WHOLE, "whole");
+	CHECK(preview_cache_download(-1, 961574, 0, 8 << 20, 1) == PREVIEW_DOWNLOAD_WHOLE, "whole, no length said");
+	CHECK(preview_cache_download(961574, 400000, 1, 8 << 20, 1) == PREVIEW_DOWNLOAD_CUT, "the deadline cut it");
+	CHECK(preview_cache_download(961574, 400000, 0, 8 << 20, 1) == PREVIEW_DOWNLOAD_CUT, "short of its length");
+	CHECK(preview_cache_download(-1, 400000, 1, 8 << 20, 1) == PREVIEW_DOWNLOAD_CUT, "a failed read, no length");
+	CHECK(preview_cache_download(-1, 0, 0, 8 << 20, 0) == PREVIEW_DOWNLOAD_CUT, "nothing came");
+	CHECK(preview_cache_download(961574, 400000, 1, 8 << 20, 0) == PREVIEW_DOWNLOAD_CUT,
+		"a cut-off picture is never \"not a picture\"");
+	CHECK(preview_cache_download(9 << 20, 0, 0, 8 << 20, 0) == PREVIEW_DOWNLOAD_TOO_LARGE, "too large said");
+	CHECK(preview_cache_download(-1, (8 << 20) + 1, 0, 8 << 20, 1) == PREVIEW_DOWNLOAD_TOO_LARGE, "too large read");
+	CHECK(preview_cache_download(2048, 2048, 0, 8 << 20, 0) == PREVIEW_DOWNLOAD_NOT_PICTURE, "whole, not a picture");
+	/* (cut off: through retry_backoff, not failed for the run) */
+	preview_cache_fail(&cache, "3811976343", 9000, 0, 0, 0);
+	CHECK(preview_cache_failed(&cache, "3811976343") && !preview_cache_ready(&cache, "3811976343", 9000) &&
+		preview_cache_ready(&cache, "3811976343", 11000), "a cut-off download is asked again after 2 s");
+
 	/* (waiting on Steam's details for an address: looked at again only once
 	something changed, not each frame) */
 	preview_cache_wait(&cache, "2894901917", 7);

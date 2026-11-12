@@ -143,6 +143,17 @@ int preview_cache_transient(int status)
 	return status == 0 || status == 408 || status == 429 || status >= 500;
 }
 
+int preview_cache_download(long long length, long long got, int ended_badly, long long largest, int picture)
+{
+	if (length > largest || got > largest)
+		return PREVIEW_DOWNLOAD_TOO_LARGE;
+	/* (the deadline or a failed read before its end: a half picture is a
+	hiccup, never "not a picture") */
+	if (ended_badly || got <= 0 || (length >= 0 && got != length))
+		return PREVIEW_DOWNLOAD_CUT;
+	return picture ? PREVIEW_DOWNLOAD_WHOLE : PREVIEW_DOWNLOAD_NOT_PICTURE;
+}
+
 void preview_cache_wait(struct preview_cache *cache, const char *id, unsigned long changes)
 {
 	if (!id_usable(id))

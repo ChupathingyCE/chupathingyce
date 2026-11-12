@@ -877,7 +877,8 @@ static unsigned char *picture_file(const char *path, int *size, struct preview_f
 static unsigned char *download(const char *url, int *size, struct preview_failure *failure)
 {
 	unsigned char *data;
-	int status = 0, length = -1, handle, got;
+	int status = 0, length = -1, handle, got, ended;
+	unsigned long started;
 	char error[128];
 
 	*size = 0;
@@ -895,7 +896,9 @@ static unsigned char *download(const char *url, int *size, struct preview_failur
 		return NULL;
 	}
 	posix_browser_download_deadline(handle, PREVIEW_DEADLINE);
+	started = system_milliseconds();
 	data = length <= PREVIEW_FILE_LARGEST ? malloc(PREVIEW_FILE_LARGEST + 1) : NULL;
+	got = 0;
 	while (data && (got = posix_browser_download_read(handle, data + *size, PREVIEW_FILE_LARGEST + 1 - *size)) > 0)
 	{
 		*size += got;
@@ -903,14 +906,17 @@ static unsigned char *download(const char *url, int *size, struct preview_failur
 			break;
 	}
 	posix_browser_download_close(handle);
-	if (!data || *size <= 0 || *size > PREVIEW_FILE_LARGEST || !picture_bytes(data, *size))
+	/* (the deadline passed, or a read failed: cut off, not a bad picture) */
+	ended = data ? preview_cache_download(length, *size, got < 0 || system_milliseconds() - started >= PREVIEW_DEADLINE,
+		PREVIEW_FILE_LARGEST, picture_bytes(data, *size)) : PREVIEW_DOWNLOAD_CUT;
+	if (ended != PREVIEW_DOWNLOAD_WHOLE)
 	{
-		if (length > PREVIEW_FILE_LARGEST || *size > PREVIEW_FILE_LARGEST)
+		if (ended == PREVIEW_DOWNLOAD_TOO_LARGE)
 			failure_say(failure, 0, status, 0, "larger than %d MB", PREVIEW_FILE_LARGEST >> 20);
 		else if (!data)
 			failure_say(failure, 1, status, 0, "out of memory");
-		else if (*size <= 0)
-			failure_say(failure, 1, 0, 0, "the download stopped before any of it came");
+		else if (ended == PREVIEW_DOWNLOAD_CUT)
+			failure_say(failure, 1, 0, 0, "the download was cut off (%d of %d bytes)", *size, length);
 		else
 			failure_say(failure, 0, status, 0, "not a PNG or JPEG (%d bytes)", *size);
 		free(data);
@@ -922,7 +928,8 @@ static unsigned char *download(const char *url, int *size, struct preview_failur
 #endif
 
 /* RGBA pixels made at most WORKSHOP_BROWSER_PREVIEW_WIDTH wide and as high
-(box filter): no larger than the picture boxes show, 576 KB at most */
+(box filter): no larger than the picture boxes show on a 4K or Retina
+window, about 2.3 MB at most */
 static unsigned char *shrink(const unsigned char *pixels, int width, int height, int *out_width, int *out_height)
 {
 	int step = (width + WORKSHOP_BROWSER_PREVIEW_WIDTH - 1) / WORKSHOP_BROWSER_PREVIEW_WIDTH, x, y;
@@ -1013,7 +1020,13 @@ static void *preview_thread(void *context)
 				"Steam's details didn't come (HTTP %d)", status);
 		free(answer);
 	}
-	if (!pixels && job->url[0] && (data = download(job->url, &size, &failure)) != NULL)
+	data = NULL;
+	if (!pixels && job->url[0] && !(data = download(job->url, &size, &failure)) && failure.transient && job->cache[0])
+	{
+		/* (cut off or no answer: nothing half kept, the next try starts clean) */
+		remove(job->cache);
+	}
+	if (!pixels && job->url[0] && data)
 	{
 		/* (kept in the cache only once it decodes) */
 		pixels = posix_ui_image_decode(data, size, &width, &height);

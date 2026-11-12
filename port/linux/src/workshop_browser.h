@@ -59,7 +59,7 @@ enum
 	WORKSHOP_BROWSER_DESCRIPTION_SIZE = 400,
 	/* the largest list document read */
 	WORKSHOP_BROWSER_MAXIMUM_DOCUMENT = 128 * 1024,
-	WORKSHOP_BROWSER_PREVIEW_WIDTH = 384,
+	WORKSHOP_BROWSER_PREVIEW_WIDTH = 768,
 };
 
 /* where an item stands on this computer */
