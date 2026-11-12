@@ -55,7 +55,7 @@ enum
 	WORKSHOP_BROWSER_ID_SIZE = 24,
 	WORKSHOP_BROWSER_TITLE_SIZE = 64,
 	WORKSHOP_BROWSER_AUTHOR_SIZE = 48,
-	WORKSHOP_BROWSER_KIND_SIZE = 16,
+	WORKSHOP_BROWSER_KIND_SIZE = 32,
 	WORKSHOP_BROWSER_DESCRIPTION_SIZE = 400,
 	/* the largest list document read */
 	WORKSHOP_BROWSER_MAXIMUM_DOCUMENT = 128 * 1024,
@@ -226,6 +226,11 @@ void workshop_browser_link_follow(void);
 download can't get it ("Not owned"); 0 for a setup row */
 int workshop_browser_open_in_steam(int index);
 int workshop_browser_page_next(void);
+/* the list failed: asked again now (RETRY), 0 while a busy Steam asked to
+be left alone (its seconds left in workshop_browser_busy_seconds, 0 when
+it isn't busy) */
+int workshop_browser_retry(void);
+int workshop_browser_busy_seconds(void);
 /* whether the list can go a page on (step 1) or back (-1) */
 int workshop_browser_page_offered(int step);
 int workshop_browser_page_previous(void);

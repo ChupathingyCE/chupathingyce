@@ -17,6 +17,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #endif
 #if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 
+#include "retry_backoff.h"
 #include "workshop_browser.h"
 #include "steam_workshop.h"
 #include "steam_client_bridge.h"
@@ -136,10 +137,18 @@ static struct
 		struct workshop_browser_item items[BROWSE_PAGE_ITEMS];
 	} pages[PAGE_CACHE];
 	int page_next_slot;
-	/* the browse page: when its list came (0 never), when Steam last said 429 */
+	/* the browse page: when its list came (0 never); asked again after a
+	failure only as retry_backoff.h says (Steam's 429 and Retry-After
+	honored), the thread's last status and Retry-After */
 	unsigned long web_time;
-	unsigned long web_backoff;
+	struct retry_backoff web_retry;
+	int web_status;
+	long web_retry_after;
 	int web_answer;
+	/* Steam's details the same way */
+	struct retry_backoff details_retry;
+	int details_status;
+	long details_retry_after;
 	/* Steam's details: the thread's, then the cache (the main thread's) */
 	int details_fetching;
 	int details_answered;
@@ -653,11 +662,13 @@ static int bridge_state(struct workshop_browser_item *item, int folder_state)
 	item->steam_subscribed = 0;
 	item->downloaded = item->total = 0;
 	item->steam_error[0] = 0;
-	/* (a GET the game's own download refused: its word stays until asked again) */
-	if (folder_state != WORKSHOP_ITEM_INSTALLED && failed_why(item->id))
+	/* (a GET or UPDATE the game's own download refused: its word stays
+	until asked again) */
+	if (failed_why(item->id))
 	{
 		snprintf(item->steam_error, sizeof(item->steam_error), "%s", failed_why(item->id));
-		item->subscribed = 0;
+		if (folder_state != WORKSHOP_ITEM_INSTALLED)
+			item->subscribed = 0;
 		return folder_state;
 	}
 	if (!bridge_ready() || !steam_bridge_item(item->id, &known))
@@ -703,6 +714,8 @@ static void *details_thread(void *context)
 	if (count < 0)
 		platform_log("Workshop: Steam's item details could not be read (HTTP %d)", status);
 	pthread_mutex_lock(&workshop.lock);
+	workshop.details_status = status;
+	workshop.details_retry_after = retry_backoff_after(error);
 	workshop.details_answer_count = count;
 	if (count > 0)
 		memcpy(workshop.details_answer, found, sizeof(found[0]) * (size_t)count);
@@ -1131,6 +1144,12 @@ static void details_step(void)
 	if (workshop.details_answered)
 	{
 		workshop.details_answered = 0;
+		/* (failed: asked again only after a wait, 2 s doubling to a minute) */
+		if (workshop.details_answer_count < 0)
+			retry_backoff_failed(&workshop.details_retry, system_milliseconds(), workshop.details_status,
+				workshop.details_retry_after);
+		else
+			retry_backoff_answered(&workshop.details_retry);
 		for (index = 0; index < workshop.details_asked_count; index++)
 		{
 			struct details_entry *entry = details_find(workshop.details_asked[index]);
@@ -1169,8 +1188,11 @@ static void details_step(void)
 		int length;
 		size_t size;
 
-		if (config_boolean("debug.workshop_no_steam"))
+		if (config_boolean("debug.workshop_no_steam") || !retry_backoff_ready(&workshop.details_retry,
+			system_milliseconds()))
+		{
 			return;
+		}
 		for (index = 0; index < workshop.count && count < DETAILS_BATCH; index++)
 		{
 			struct workshop_browser_item *item = &workshop.items[index];
@@ -1266,6 +1288,8 @@ static void *web_thread(void *context)
 		count = -2;
 	platform_log("Workshop: Steam's browse page: %d Halo CE items (HTTP %d)", count, status);
 	pthread_mutex_lock(&workshop.lock);
+	workshop.web_status = status;
+	workshop.web_retry_after = retry_backoff_after(error);
 	workshop.answer_count = count;
 	if (count > 0)
 		memcpy(workshop.answer, found, sizeof(found[0]) * (size_t)count);
@@ -1340,7 +1364,7 @@ static void web_ask(void)
 		}
 	}
 	if ((workshop.web_time && now - workshop.web_time < BROWSE_KEEP && !strcmp(workshop.web_url, workshop.web_fetched)) ||
-		(workshop.web_backoff && now - workshop.web_backoff < BROWSE_BACKOFF) ||
+		!retry_backoff_ready(&workshop.web_retry, now) ||
 		config_boolean("debug.workshop_no_steam"))
 	{
 		if (workshop.status == WORKSHOP_LIST_LOADING || workshop.status == WORKSHOP_LIST_NOT_SET_UP)
@@ -1476,9 +1500,19 @@ static void list_take(void)
 	{
 		workshop.web_answer = 0;
 		if (workshop.answer_count >= 0)
+		{
 			workshop.web_time = system_milliseconds();
-		else if (workshop.answer_count == -2)
-			workshop.web_backoff = system_milliseconds();
+			retry_backoff_answered(&workshop.web_retry);
+		}
+		else
+		{
+			/* (Steam's 429 without a Retry-After: left alone ten minutes, as before) */
+			long after = workshop.web_retry_after;
+
+			if (workshop.answer_count == -2 && !after)
+				after = BROWSE_BACKOFF / 1000;
+			retry_backoff_failed(&workshop.web_retry, system_milliseconds(), workshop.web_status, after);
+		}
 		/* (a failed page keeps the list it had, if any) */
 		if (workshop.answer_count < 0 && workshop.web_time)
 		{
@@ -1870,6 +1904,26 @@ int workshop_browser_filter_offered(int filter)
 /* (another page of Steam's: asked for, or taken from the pages kept) */
 static void list_again(void);
 
+int workshop_browser_busy_seconds(void)
+{
+	unsigned long left = retry_backoff_left(&workshop.web_retry, system_milliseconds());
+
+	if (!left || !(workshop.web_retry.status == 429 || workshop.web_retry.status >= 500))
+		return 0;
+	return (int)((left + 999) / 1000);
+}
+
+int workshop_browser_retry(void)
+{
+	/* (the player's own try: any wait dropped, but a busy Steam's) */
+	if (workshop_browser_busy_seconds())
+		return 0;
+	retry_backoff_answered(&workshop.web_retry);
+	workshop.web_fetched[0] = 0;
+	list_ask();
+	return 1;
+}
+
 int workshop_browser_page_offered(int step)
 {
 	if (step > 0)
@@ -1987,8 +2041,11 @@ static void get_failed(const char *id, const char *why)
 	platform_log("Workshop: item %s not taken by the Steam download: %s", id, why);
 	if (item)
 	{
-		item->subscribed = 0;
-		item->state = WORKSHOP_ITEM_NOT_INSTALLED;
+		if (item->state != WORKSHOP_ITEM_INSTALLED)
+		{
+			item->subscribed = 0;
+			item->state = WORKSHOP_ITEM_NOT_INSTALLED;
+		}
 		snprintf(item->steam_error, sizeof(item->steam_error), "%s", why);
 	}
 }
@@ -2205,7 +2262,22 @@ int workshop_browser_update(int index)
 {
 	const struct workshop_browser_item *item = workshop_browser_item(index);
 
-	return workshop_browser_update_offered(index) && bridge_ready() && steam_bridge_update(item->id);
+	if (!workshop_browser_update_offered(index))
+		return 0;
+	failed_clear(item->id);
+	/* (not connected yet, or refused: Failed on the item with RETRY, never silence) */
+	if (!bridge_ready())
+	{
+		workshop_browser_link_follow();
+		get_failed(item->id, "Not connected");
+		return 0;
+	}
+	if (!steam_bridge_update(item->id))
+	{
+		get_failed(item->id, "Update failed");
+		return 0;
+	}
+	return 1;
 }
 
 int workshop_browser_play(int index)
