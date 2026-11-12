@@ -399,6 +399,15 @@ of the version (its layout's), into tail (room bytes): zeros, and the
 version word where the layout says. Returns how many, or -1 if room is
 too small */
 int network_rules_join_request_tail(unsigned version, uint8_t *tail, int room);
+/* (a client) the version whose game settings record it takes: the host's
+own machine (hosting), which joined its game at home, always the number
+it announces, whose record its server writes it at every send; another
+machine its host's (joined, NETWORK_RULES_VERSION_UNKNOWN when not known) */
+unsigned network_rules_client_settings_version(unsigned joined, int hosting, unsigned announce);
+/* ... and what joined becomes when a record of the newer options came
+(at_least, 35): a host not known is at least that, but never on the host's
+own machine, whose version is its announced one */
+unsigned network_rules_client_noted_version(unsigned joined, int hosting, unsigned at_least);
 /* (a host announcing the version) whether it refuses a join request whose
 bytes past NETWORK_RULES_JOIN_REQUEST_SIZE are tail (tail_size of them): one
 of the layout's length whose version word is not the version. A request
