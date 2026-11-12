@@ -10189,6 +10189,8 @@ menus' not being the menus up) */
 /* (the longest wait for the main menu after leaving a game) */
 #define WORKSHOP_PLAY_WAIT 60000
 #define WORKSHOP_PLAY_SETTLE 500
+/* (the longest wait for the screen opened to come up) */
+#define WORKSHOP_PLAY_OPEN_WAIT 5000
 
 enum
 {
@@ -10202,10 +10204,16 @@ static struct
 	short state;
 	boolean campaign;
 	char item[32];
-	char first_map[64];
 	unsigned long time;
 	/* when the main menu was first seen back (0: not yet) */
 	unsigned long settled;
+	/* the item's maps lead the lists (mcc_maps_set_first_item) while the
+	screen opened, screen, is up or behind the one up */
+	boolean pinned;
+	long screen;
+	/* (the screen up when it was opened, and when) */
+	long from;
+	unsigned long pinned_time;
 } workshop_play;
 
 void invite_prompt_ask(char const *title, char const *question, char const *detail,
@@ -10213,6 +10221,8 @@ void invite_prompt_ask(char const *title, char const *question, char const *deta
 void ui_widget_port_quit_to_main_menu(void);
 void ui_widget_port_end_network_game(void);
 void ui_widget_port_campaign_solo(void);
+long ui_widget_port_active_screen_tag(void);
+boolean ui_widget_port_screen_shown_or_behind(long tag);
 boolean ui_widget_port_open_screen(char const *name);
 boolean browser_screen_create_game(void);
 void main_screen_shell_load(void);
@@ -10228,15 +10238,12 @@ static boolean workshop_play_leaves_game(void)
 }
 
 /* the item's screen, at the main menu */
-static boolean workshop_play_hand_over(void)
+static boolean workshop_play_open(void)
 {
-	mcc_maps_set_first_item(workshop_play.item);
+	/* (the list opens on the item's first map, which leads it: the map used
+	last is left as it is) */
 	if (!workshop_play.campaign)
-	{
-		/* (the list opens on the map used last: the item's first) */
-		saved_game_file_remember_last_used_multiplayer_map(workshop_play.first_map);
 		return browser_screen_create_game();
-	}
 	/* (player 1's profile, as the level select needs one: the one used
 	last, else the profile screen first, which makes one) */
 	if (player_ui_get_active_player_profile_index(0) == NONE)
@@ -10265,6 +10272,36 @@ static boolean workshop_play_hand_over(void)
 	return ui_widget_port_open_screen(XBOX_SOLO_LEVEL_SELECT);
 }
 
+/* the item's maps lead the lists while the screen opened is up or behind
+the one up (workshop_play_update lets them go) */
+static void workshop_play_unpin(void)
+{
+	if (workshop_play.pinned)
+		platform_log("Workshop: PLAY's item %s no longer leads the map lists", workshop_play.item);
+	workshop_play.pinned = FALSE;
+	workshop_play.screen = NONE;
+	mcc_maps_set_first_item(NULL);
+}
+
+static boolean workshop_play_hand_over(void)
+{
+	/* (the screen opened is known once it is up, in place of the one up
+	now: some open at once, some the next frame) */
+	long from = ui_widget_port_active_screen_tag();
+
+	mcc_maps_set_first_item(workshop_play.item);
+	if (!workshop_play_open())
+	{
+		workshop_play_unpin();
+		return FALSE;
+	}
+	workshop_play.screen = NONE;
+	workshop_play.from = from;
+	workshop_play.pinned_time = system_milliseconds();
+	workshop_play.pinned = TRUE;
+	return TRUE;
+}
+
 static void workshop_play_answer(boolean yes)
 {
 	if (!yes || workshop_play.state != _workshop_play_asking)
@@ -10291,7 +10328,6 @@ boolean pc_menu_workshop_play(char const *item, char const *title)
 {
 	char prefix[48];
 	short index, count = mcc_maps_count(FALSE), campaign = 0, multiplayer = 0;
-	char const *first_campaign = NULL, *first_multiplayer = NULL;
 
 	snprintf(prefix, sizeof(prefix), MCC_MAPS_LEVEL_PREFIX "%s\\", item);
 	for (index = 0; index < count; index++)
@@ -10301,23 +10337,15 @@ boolean pc_menu_workshop_play(char const *item, char const *title)
 		if (!name || _strnicmp(name, prefix, strlen(prefix)))
 			continue;
 		if (mcc_maps_campaign(index))
-		{
-			first_campaign = first_campaign ? first_campaign : name;
 			campaign++;
-		}
 		else
-		{
-			first_multiplayer = first_multiplayer ? first_multiplayer : name;
 			multiplayer++;
-		}
 	}
 	if (!campaign && !multiplayer)
 		return FALSE;
 	/* (a campaign item's own levels lead: its multiplayer maps are extras) */
 	workshop_play.campaign = campaign > 0;
 	snprintf(workshop_play.item, sizeof(workshop_play.item), "%s", item);
-	snprintf(workshop_play.first_map, sizeof(workshop_play.first_map), "%s",
-		workshop_play.campaign ? first_campaign : first_multiplayer);
 	platform_log("Workshop: PLAY item %s: %s (%d campaign, %d multiplayer maps)", item,
 		workshop_play.campaign ? "the level select" : "Create Game", campaign, multiplayer);
 	if (workshop_play_leaves_game())
@@ -10339,12 +10367,28 @@ boolean pc_menu_workshop_play(char const *item, char const *title)
 game left, the item handed over */
 void pc_menu_workshop_play_update(void)
 {
+	/* (the screen opened once it is up; let go once it is left, by back or
+	a game started from it, or if it never came up) */
+	if (workshop_play.pinned && workshop_play.state != _workshop_play_waiting)
+	{
+		long active = ui_widget_port_active_screen_tag();
+
+		if (workshop_play.screen == NONE && active != NONE && active != workshop_play.from)
+			workshop_play.screen = active;
+		if (!main_menu_is_active() || (workshop_play.screen == NONE ?
+			system_milliseconds() - workshop_play.pinned_time > WORKSHOP_PLAY_OPEN_WAIT :
+			!ui_widget_port_screen_shown_or_behind(workshop_play.screen)))
+		{
+			workshop_play_unpin();
+		}
+	}
 	if (workshop_play.state != _workshop_play_waiting)
 		return;
 	if (system_milliseconds() - workshop_play.time > WORKSHOP_PLAY_WAIT)
 	{
 		platform_log("Workshop: PLAY gave up waiting for the main menu");
 		workshop_play.state = _workshop_play_none;
+		workshop_play_unpin();
 		return;
 	}
 	if (workshop_play_leaves_game() || !ui_widgets_active())

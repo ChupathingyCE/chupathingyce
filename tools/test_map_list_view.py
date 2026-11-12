@@ -117,6 +117,9 @@ int main(void)
 	show("first");
 	set(_ui_map_list_source_ce, _ui_map_list_sort_name, "timber");
 	show("first_narrowed");
+	first_item = "";
+	set(_ui_map_list_source_all, _ui_map_list_sort_default, "");
+	show("first_reset");
 	return 0;
 }
 """
@@ -172,3 +175,8 @@ def test_the_item_play_handed_over_leads_the_rows(output):
                                      "|", "a10"]
     # (shown whatever Show and Search say, in the view's order)
     assert rows(output, "first_narrowed") == ["mcc_maps\\7\\alpha", "mcc_maps\\7\\beta", "timberland", "|", "a10"]
+
+
+def test_the_item_let_go_leaves_the_list_as_it_was(output):
+    assert rows(output, "first_reset") == ["bloodgulch", "timberland", "mcc_maps\\7\\beta", "mcc_maps\\7\\alpha",
+                                           "|", "a10"]
