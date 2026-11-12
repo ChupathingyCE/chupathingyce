@@ -797,6 +797,16 @@ int network_rules_join_request_tail(unsigned version, uint8_t *tail, int room)
 	return layout.join_request_extra;
 }
 
+unsigned network_rules_client_settings_version(unsigned joined, int hosting, unsigned announce)
+{
+	return hosting ? announce : joined;
+}
+
+unsigned network_rules_client_noted_version(unsigned joined, int hosting, unsigned at_least)
+{
+	return !hosting && joined == NETWORK_RULES_VERSION_UNKNOWN ? at_least : joined;
+}
+
 int network_rules_join_request_refused(unsigned version, uint8_t const *tail, int tail_size)
 {
 	struct network_rules_layout layout;
