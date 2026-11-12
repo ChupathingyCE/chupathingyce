@@ -114,10 +114,6 @@ env:
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_BASEDIR: ${{ github.workspace }}
   CCACHE_MAXSIZE: 1G
-  # (a compiler is known by its version, not its file's date: a runner
-  # image's update re-dates the NDK's clang, which made every compile a miss
-  # although the compiler was the same)
-  CCACHE_COMPILERCHECK: "%compiler% --version"
   # the caches (README of this file, "Kept cheap"): restored by every run
   # that builds no version; saved only by a run on main that builds main's
   # own head (no commit given, or that commit) and no version
