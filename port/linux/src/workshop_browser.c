@@ -14,6 +14,7 @@ with game.workshop_steam on, through the Steam bridge
 #include "steam_client_bridge.h"
 #include "posix.h"
 #include "ui_font.h"
+#include "mcc_preview_image.h"
 #ifdef HALO_GAME_BROWSER
 #include "browser_http.h"
 #include "build_identity.h"
@@ -342,6 +343,11 @@ static int bridge_ready(void)
 /* steamcmd does the installing here (macOS; Linux without MCC from Steam) */
 static int setup_steamcmd(void)
 {
+	const char *debug = config_string("debug.workshop_setup");
+
+	/* (debug.workshop_setup with "client": the Steam client's rows, for screenshots) */
+	if (debug && strstr(debug, "client"))
+		return 0;
 #if defined(_WIN32)
 	return 0;
 #elif defined(__APPLE__)
@@ -453,9 +459,10 @@ static void setup_rows_update(void)
 	}
 	else
 	{
-		steam = steam_bridge_steam_present();
-		setup_row(&rows[count++], WORKSHOP_SETUP_STEAM, steam ? WORKSHOP_STEP_READY : WORKSHOP_STEP_TO_DO, "Steam",
-			"Install Steam and sign in.\nCome back here.");
+		steam = steam_bridge_steam_present() && !steam_bridge_offline();
+		setup_row(&rows[count++], WORKSHOP_SETUP_STEAM, steam ? WORKSHOP_STEP_READY : WORKSHOP_STEP_TO_DO,
+			steam_bridge_offline() ? "Steam offline" : "Steam", steam_bridge_offline() ?
+			"Open Steam and sign in.\nCome back here." : "Install Steam and sign in.\nCome back here.");
 		setup_row(&rows[count++], WORKSHOP_SETUP_MCC, workshop.client_mcc_count ? WORKSHOP_STEP_READY :
 			WORKSHOP_STEP_TO_DO, "MCC", "Get Halo: The Master Chief Collection on Steam.");
 		if (steam_workshop_shared_missing() || setup_forced(WORKSHOP_SETUP_FILES, -1) >= 0)
@@ -1625,9 +1632,8 @@ int workshop_browser_subscribe(int index)
 	if (bridge_ready() && steam_bridge_subscribe(workshop.items[index].id))
 	{
 		/* (steamcmd downloads, but only the Steam client subscribes: its page
-		too, as the bridge's own subscribe doesn't take where steamcmd is
-		needed (macOS) or the bridge couldn't reach the client) */
-		if ((!(steam_bridge_connected() & CLIENT_CONNECTED) || bridge_uses_steamcmd()) && steam_bridge_steam_present() &&
+		too when the bridge couldn't reach the client) */
+		if (!(steam_bridge_connected() & CLIENT_CONNECTED) && steam_bridge_steam_present() &&
 			!config_boolean("debug.workshop_no_steam"))
 		{
 			platform_open_url(url);
@@ -1908,4 +1914,57 @@ void workshop_join_cancel(void)
 	if (joining.state == WORKSHOP_JOIN_CONNECTING || joining.state == WORKSHOP_JOIN_DOWNLOADING)
 		steam_bridge_close();
 	joining.state = WORKSHOP_JOIN_IDLE;
+}
+
+/* ---------- the map lists' pictures */
+
+int workshop_browser_cached_picture(const char *level, struct mcc_preview_image *image)
+{
+	const char *save = platform_save_root(), *start;
+	char id[WORKSHOP_BROWSER_ID_SIZE], folder[STEAM_WORKSHOP_PATH_SIZE], name[256], path[STEAM_WORKSHOP_PATH_SIZE];
+	unsigned char *data, *pixels;
+	void *directory;
+	int length = 0, size = 0, width = 0, height = 0, found = 0;
+	unsigned index;
+
+	memset(image, 0, sizeof(*image));
+	if (!level || strncmp(level, "mcc_maps\\", 9) || !save)
+		return 0;
+	for (start = level + 9; start[length] >= '0' && start[length] <= '9' && length < (int)sizeof(id) - 1; length++)
+		id[length] = start[length];
+	id[length] = 0;
+	if (!length || start[length] != '\\' ||
+		snprintf(folder, sizeof(folder), "%s/cache/workshop", save) >= (int)sizeof(folder) ||
+		!(directory = posix_directory_open(folder)))
+	{
+		return 0;
+	}
+	/* (<id>-<update time>.picture: any one of the item's) */
+	while (!found && posix_directory_next(directory, name, sizeof(name)))
+	{
+		found = !strncmp(name, id, (size_t)length) && name[length] == '-' && strstr(name, ".picture") &&
+			snprintf(path, sizeof(path), "%s/%s", folder, name) < (int)sizeof(path);
+	}
+	posix_directory_close(directory);
+	if (!found || !(data = file_read(path, &size)))
+		return 0;
+	pixels = picture_bytes(data, size) ? posix_ui_image_decode(data, size, &width, &height) : NULL;
+	free(data);
+	if (!pixels)
+		return 0;
+	image->pixels = malloc((size_t)width * (size_t)height * sizeof(*image->pixels));
+	if (image->pixels)
+	{
+		/* (RGBA bytes to the native ARGB words the map lists draw) */
+		for (index = 0; index < (unsigned)(width * height); index++)
+		{
+			const unsigned char *pixel = pixels + (size_t)index * 4;
+
+			image->pixels[index] = (uint32_t)pixel[3] << 24 | (uint32_t)pixel[0] << 16 | (uint32_t)pixel[1] << 8 | pixel[2];
+		}
+		image->width = (unsigned)width;
+		image->height = (unsigned)height;
+	}
+	posix_ui_image_free(pixels);
+	return image->pixels != NULL;
 }

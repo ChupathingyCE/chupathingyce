@@ -25,8 +25,10 @@ Two backends, behind the same calls, one or both in a session:
   reads item states and progress (the list itself is Steam's public
   Workshop page, the same everywhere: workshop_browser.c). Windows, and
   Linux with MCC from Steam (under Proton, Steam downloads its items
-  itself). Not on macOS: there Steam.app starts as MCC but refuses MCC's
-  Workshop queries and subscriptions, as MCC has no macOS build.
+  itself), and macOS when a library loads there (Steam.app subscribes to
+  MCC's items but doesn't download them: steamcmd does). Each call's own
+  answer is waited on (manual dispatch, or ISteamUtils' call results), and
+  a Steam that isn't signed on is "Steam offline".
 - STEAM_BRIDGE_BACKEND_STEAMCMD (macOS, and Linux without MCC from Steam):
   the player's own steamcmd, run as a child process with their saved
   sign-in only (steam_bridge_cmd.c), as the download step. The game never
@@ -116,6 +118,10 @@ taken too long or neither connected */
 int steam_bridge_status(void);
 /* which backends connected: STEAM_BRIDGE_BACKEND_CLIENT and/or STEAMCMD bits (1 << kind) */
 int steam_bridge_connected(void);
+/* the Steam client is running but not signed on (offline): the last
+connect found so, and the tab says "Steam offline" */
+int steam_bridge_offline(void);
+int steam_bridge_api_offline(void);
 /* steamcmd needs a sign-in before it can download */
 int steam_bridge_sign_in_needed(void);
 /* what the bridge knows of an item, which it watches from now on: 0 (and

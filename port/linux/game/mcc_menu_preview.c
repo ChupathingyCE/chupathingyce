@@ -9,6 +9,7 @@
 #include "mcc_maps.h"
 #include "mcc_menu_preview.h"
 #include "../src/mcc_preview_image.h"
+#include "../src/workshop_browser.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -46,7 +47,10 @@ static struct preview_entry *picture(short index)
     entry=&previews[next_preview++ % NUMBEROF(previews)];
     if (entry->bitmap) bitmap_delete(entry->bitmap);
     memset(entry,0,sizeof(*entry)); strcpy(entry->level,level);
-    if (!mcc_preview_image_load(level,mcc_maps_campaign(index),&image)) return entry;
+    /* port: a Workshop item's map without a picture of its own: Steam's
+     * picture of the item, when the Delta Guide's Workshop kept one */
+    if (!mcc_preview_image_load(level,mcc_maps_campaign(index),&image) &&
+        !workshop_browser_cached_picture(level,&image)) return entry;
     source_width=image.width; source_height=image.height;
     /* Every frontend uses the native 140x114 question-mark rectangle.
      * draw_bitmap_in_rect samples from texture origin, regardless of the

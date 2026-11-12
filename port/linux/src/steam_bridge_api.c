@@ -49,6 +49,16 @@ typedef unsigned int (*item_state_function)(steam_interface ugc, steam_id64 item
 typedef unsigned char (*download_info_function)(steam_interface ugc, steam_id64 item, steam_id64 *downloaded,
 	steam_id64 *total);
 typedef unsigned char (*download_function)(steam_interface ugc, steam_id64 item, unsigned char high_priority);
+typedef steam_interface (*client_user_function)(steam_interface client, int user, int pipe, const char *version);
+typedef steam_interface (*client_utils_function)(steam_interface client, int pipe, const char *version);
+typedef unsigned char (*logged_on_function)(steam_interface user);
+typedef unsigned char (*call_completed_function)(steam_interface utils, steam_id64 call, unsigned char *failed);
+typedef unsigned char (*call_result_function)(steam_interface utils, steam_id64 call, void *result, int size,
+	int callback, unsigned char *failed);
+typedef void (*pipe_function)(int pipe);
+typedef unsigned char (*next_callback_function)(int pipe, void *message);
+typedef unsigned char (*dispatch_result_function)(int pipe, steam_id64 call, void *result, int size, int callback,
+	unsigned char *failed);
 
 /* EItemState (ISteamUGC::GetItemState) */
 enum
@@ -65,6 +75,23 @@ enum
 	/* ESteamAPIInitResult's OK; SteamErrMsg is 1024 bytes */
 	INIT_OK = 0,
 	INIT_MESSAGE_SIZE = 1024,
+	/* RemoteStorageSubscribePublishedFileResult_t and its unsubscribe twin
+	(k_iSteamRemoteStorageCallbacks + 13, + 15): EResult, then the item's
+	id, at 8 with Windows' packing and at 4 with the others' */
+	SUBSCRIBE_RESULT_CALLBACK = 1313,
+	UNSUBSCRIBE_RESULT_CALLBACK = 1315,
+#ifdef _WIN32
+	SUBSCRIBE_RESULT_SIZE = 16,
+#else
+	SUBSCRIBE_RESULT_SIZE = 12,
+#endif
+	/* EResult's OK */
+	RESULT_OK = 1,
+	MAXIMUM_PENDING = 32,
+	/* a call Steam never answers, given up after this many turns (about a minute) */
+	PENDING_TURNS = 120,
+	/* CallbackMsg_t, room for it */
+	CALLBACK_MESSAGE_SIZE = 32,
 };
 
 
@@ -81,7 +108,36 @@ static struct
 	item_state_function item_state;
 	download_info_function download_info;
 	download_function download;
+	/* sign-on and call results (ISteamUser, ISteamUtils), or the manual
+	dispatch of newer libraries */
+	client_user_function get_user;
+	logged_on_function logged_on;
+	call_completed_function call_completed;
+	call_result_function call_result;
+	void_function dispatch_init;
+	pipe_function dispatch_run_frame;
+	next_callback_function dispatch_next;
+	pipe_function dispatch_free_last;
+	dispatch_result_function dispatch_result;
+	handle_function get_pipe;
+	int manual;
+	int pipe;
 	steam_interface ugc;
+	steam_interface user;
+	steam_interface utils;
+	/* Steam isn't signed on (the last connect found so) */
+	int offline;
+	/* the async calls waiting on Steam's answer, and the items it refused */
+	int pending_count;
+	struct
+	{
+		steam_id64 call;
+		steam_id64 item;
+		int callback;
+		int turns;
+	} pending[MAXIMUM_PENDING];
+	int refused_count;
+	steam_id64 refused[MAXIMUM_PENDING];
 } api;
 
 static void *symbol(const char *name)
@@ -118,7 +174,20 @@ static int bind_functions(void)
 	api.item_state = (item_state_function)symbol("SteamAPI_ISteamUGC_GetItemState");
 	api.download_info = (download_info_function)symbol("SteamAPI_ISteamUGC_GetItemDownloadInfo");
 	api.download = (download_function)symbol("SteamAPI_ISteamUGC_DownloadItem");
-	return (api.init_flat || api.init) && api.shutdown && api.subscribe && api.item_state && api.download_info;
+	api.logged_on = (logged_on_function)symbol("SteamAPI_ISteamUser_BLoggedOn");
+	api.call_completed = (call_completed_function)symbol("SteamAPI_ISteamUtils_IsAPICallCompleted");
+	api.call_result = (call_result_function)symbol("SteamAPI_ISteamUtils_GetAPICallResult");
+	api.dispatch_init = (void_function)symbol("SteamAPI_ManualDispatch_Init");
+	api.dispatch_run_frame = (pipe_function)symbol("SteamAPI_ManualDispatch_RunFrame");
+	api.dispatch_next = (next_callback_function)symbol("SteamAPI_ManualDispatch_GetNextCallback");
+	api.dispatch_free_last = (pipe_function)symbol("SteamAPI_ManualDispatch_FreeLastCallback");
+	api.dispatch_result = (dispatch_result_function)symbol("SteamAPI_ManualDispatch_GetAPICallResult");
+	api.get_pipe = (handle_function)symbol("SteamAPI_GetHSteamPipe");
+	/* (manual dispatch when the library has it whole: every answer is ours to take) */
+	api.manual = api.dispatch_init && api.dispatch_run_frame && api.dispatch_next && api.dispatch_free_last &&
+		api.dispatch_result && api.get_pipe;
+	return (api.init_flat || api.init) && api.shutdown && api.subscribe && api.item_state && api.download_info &&
+		api.logged_on;
 }
 
 /* ISteamUGC of the started library */
@@ -151,7 +220,38 @@ static int find_interfaces(void)
 		else
 			platform_log("Workshop: this steam_api library's Workshop version is not one the bridge knows");
 	}
-	return api.ugc != NULL;
+	{
+		accessor_function user = (accessor_function)versioned("SteamAPI_SteamUser_v%03d", 40, 1);
+		accessor_function utils = (accessor_function)versioned("SteamAPI_SteamUtils_v%03d", 30, 1);
+
+		api.user = user ? user() : NULL;
+		api.utils = utils ? utils() : NULL;
+	}
+	if (!api.user || !api.utils)
+	{
+		/* (older libraries: ISteamUser's BLoggedOn and ISteamUtils' call
+		results sit early in them and keep their places in every version) */
+		accessor_function client = (accessor_function)symbol("SteamClient");
+		handle_function user = (handle_function)symbol("SteamAPI_GetHSteamUser");
+		handle_function pipe = (handle_function)symbol("SteamAPI_GetHSteamPipe");
+		client_user_function get_user = (client_user_function)symbol("SteamAPI_ISteamClient_GetISteamUser");
+		client_utils_function get_utils = (client_utils_function)symbol("SteamAPI_ISteamClient_GetISteamUtils");
+		steam_interface instance = client ? client() : NULL;
+		char version[48];
+		int number;
+
+		for (number = 23; instance && user && pipe && get_user && !api.user && number >= 17; number--)
+		{
+			snprintf(version, sizeof(version), "SteamUser%03d", number);
+			api.user = get_user(instance, user(), pipe(), version);
+		}
+		for (number = 10; instance && pipe && get_utils && !api.utils && number >= 5; number--)
+		{
+			snprintf(version, sizeof(version), "SteamUtils%03d", number);
+			api.utils = get_utils(instance, pipe(), version);
+		}
+	}
+	return api.ugc != NULL && api.user != NULL && (api.manual || (api.utils && api.call_completed && api.call_result));
 }
 
 static int api_connect(void)
@@ -184,6 +284,11 @@ static int api_connect(void)
 	}
 	/* (never steam_appid.txt: the environment only, this process's) */
 	steam_bridge_platform_set_app_id(MCC_APP_ID);
+	/* (manual dispatch is asked for before SteamAPI_Init, as its page says) */
+	if (api.manual)
+		api.dispatch_init();
+	api.pending_count = api.refused_count = 0;
+	api.offline = 0;
 	if (api.init_flat)
 	{
 		char message[INIT_MESSAGE_SIZE];
@@ -207,7 +312,18 @@ static int api_connect(void)
 	if (!find_interfaces())
 	{
 		api.shutdown();
+		api.ugc = NULL;
 		platform_log("Workshop: Steam gave no Workshop interface");
+		return STEAM_BRIDGE_FAILED;
+	}
+	api.pipe = api.get_pipe ? api.get_pipe() : 0;
+	/* (a Steam that is running but offline answers nothing: Steam offline) */
+	if (!api.logged_on(api.user))
+	{
+		api.offline = 1;
+		api.shutdown();
+		api.ugc = NULL;
+		platform_log("Workshop: Steam is offline");
 		return STEAM_BRIDGE_FAILED;
 	}
 	return STEAM_BRIDGE_READY;
@@ -223,10 +339,63 @@ static void api_disconnect(void)
 	}
 }
 
+/* an async call's answer waited on (api_tick) */
+static void pending_add(steam_id64 call, steam_id64 item, int callback)
+{
+	if (!call || api.pending_count >= MAXIMUM_PENDING)
+		return;
+	api.pending[api.pending_count].call = call;
+	api.pending[api.pending_count].item = item;
+	api.pending[api.pending_count].callback = callback;
+	api.pending[api.pending_count].turns = 0;
+	api.pending_count++;
+}
+
+static void refused_set(steam_id64 item, int refused)
+{
+	int index;
+
+	for (index = 0; index < api.refused_count && api.refused[index] != item; index++)
+		;
+	if (refused && index == api.refused_count && api.refused_count < MAXIMUM_PENDING)
+		api.refused[api.refused_count++] = item;
+	else if (!refused && index < api.refused_count)
+		api.refused[index] = api.refused[--api.refused_count];
+}
+
+static int refused(steam_id64 item)
+{
+	int index;
+
+	for (index = 0; index < api.refused_count; index++)
+	{
+		if (api.refused[index] == item)
+			return 1;
+	}
+	return 0;
+}
+
 static int api_subscribe(unsigned long long id)
 {
-	if (!api.ugc || !api.subscribe(api.ugc, id))
+	steam_id64 call;
+
+	if (!api.ugc)
 		return 0;
+	/* (signed on still: an offline Steam takes the call and never answers) */
+	if (!api.logged_on(api.user))
+	{
+		api.offline = 1;
+		refused_set(id, 1);
+		return 0;
+	}
+	refused_set(id, 0);
+	call = api.subscribe(api.ugc, id);
+	if (!call)
+	{
+		refused_set(id, 1);
+		return 0;
+	}
+	pending_add(call, id, SUBSCRIBE_RESULT_CALLBACK);
 	/* (now, not when MCC next starts) */
 	if (api.download)
 		api.download(api.ugc, id, 1);
@@ -235,7 +404,12 @@ static int api_subscribe(unsigned long long id)
 
 static int api_unsubscribe(unsigned long long id)
 {
-	return api.ugc && api.unsubscribe && api.unsubscribe(api.ugc, id) != 0;
+	steam_id64 call;
+
+	if (!api.ugc || !api.unsubscribe || !api.logged_on(api.user) || !(call = api.unsubscribe(api.ugc, id)))
+		return 0;
+	pending_add(call, id, UNSUBSCRIBE_RESULT_CALLBACK);
+	return 1;
 }
 
 static int api_query(unsigned long long id, struct steam_bridge_item *item)
@@ -245,6 +419,12 @@ static int api_query(unsigned long long id, struct steam_bridge_item *item)
 	memset(item, 0, sizeof(*item));
 	if (!api.ugc)
 		return 0;
+	/* (Steam said no to its subscribe: the call's own answer) */
+	if (refused(id))
+	{
+		item->state = STEAM_BRIDGE_ITEM_FAILED;
+		return 1;
+	}
 	flags = api.item_state(api.ugc, id);
 	item->subscribed = (flags & ITEM_SUBSCRIBED) != 0;
 	if (flags & ITEM_DOWNLOADING)
@@ -269,10 +449,70 @@ static int api_query(unsigned long long id, struct steam_bridge_item *item)
 	return 1;
 }
 
+/* one waiting call's answer: 1 and its EResult once it came */
+static int pending_answer(int index, int *result)
+{
+	unsigned char answer[SUBSCRIBE_RESULT_SIZE + 16], failed = 0;
+	int got;
+
+	memset(answer, 0, sizeof(answer));
+	if (api.manual)
+		got = api.dispatch_result(api.pipe, api.pending[index].call, answer, SUBSCRIBE_RESULT_SIZE,
+			api.pending[index].callback, &failed);
+	else
+	{
+		if (!api.call_completed(api.utils, api.pending[index].call, &failed))
+			return 0;
+		got = api.call_result(api.utils, api.pending[index].call, answer, SUBSCRIBE_RESULT_SIZE,
+			api.pending[index].callback, &failed);
+	}
+	if (!got)
+		return 0;
+	memcpy(result, answer, sizeof(*result));
+	if (failed)
+		*result = 0;
+	return 1;
+}
+
 static void api_tick(void)
 {
-	if (api.ugc && api.run_callbacks)
+	int index;
+
+	if (!api.ugc)
+		return;
+	if (api.manual)
+	{
+		unsigned char message[CALLBACK_MESSAGE_SIZE];
+
+		/* (every callback taken and let go: the calls' answers are asked for by handle) */
+		api.dispatch_run_frame(api.pipe);
+		while (api.dispatch_next(api.pipe, message))
+			api.dispatch_free_last(api.pipe);
+	}
+	else if (api.run_callbacks)
 		api.run_callbacks();
+	for (index = 0; index < api.pending_count; )
+	{
+		int result = 0;
+
+		if (pending_answer(index, &result) || ++api.pending[index].turns > PENDING_TURNS)
+		{
+			if (result != RESULT_OK)
+			{
+				platform_log("Workshop: Steam answered %d for item %llu", result, api.pending[index].item);
+				if (api.pending[index].callback == SUBSCRIBE_RESULT_CALLBACK)
+					refused_set(api.pending[index].item, 1);
+			}
+			api.pending[index] = api.pending[--api.pending_count];
+		}
+		else
+			index++;
+	}
+}
+
+int steam_bridge_api_offline(void)
+{
+	return api.offline;
 }
 
 const struct steam_bridge_backend steam_bridge_api_backend =

@@ -239,6 +239,13 @@ int workshop_browser_update_offered(int index);
 int workshop_browser_update(int index);
 /* PLAY: at the main menu, the item's first map started; 0 if it can't */
 int workshop_browser_play(int index);
+/* the map lists' picture of a Workshop item's map (level mcc_maps\<id>\...)
+whose package has none: Steam's picture of the item, when the Workshop tab
+has kept one in the cache folder (never fetched for this). Pixels as
+mcc_preview_image's, freed with mcc_preview_image_free; 0 if none */
+struct mcc_preview_image;
+int workshop_browser_cached_picture(const char *level, struct mcc_preview_image *image);
+
 /* ---------- a join's missing Workshop map (browser_screen.c's offer) */
 
 enum

@@ -1693,7 +1693,8 @@ static const struct config_setting config_settings[] =
 		"searched, for screenshots. Leave it empty for none." },
 	{ "debug.workshop_setup", _config_string, "\"\"", "HALO_WORKSHOP_SETUP", _environment_value, _platform_desktop,
 		"The Delta Guide Workshop's setup rows shown as given, for screenshots:\n"
-		"\"steam=1,signin=0\" (0 Ready, 1 To do, 2 Working, 3 Not available)." },
+		"\"steam=1,signin=0\" (0 Ready, 1 To do, 2 Working, 3 Not available);\n"
+		"\"client\" shows the Steam client's rows." },
 	{ "debug.workshop_no_steam", _config_boolean, "false", "HALO_WORKSHOP_NO_STEAM", _environment_set_is_true,
 		_platform_desktop,
 		"The Delta Guide's Workshop marks an item subscribed without opening\n"

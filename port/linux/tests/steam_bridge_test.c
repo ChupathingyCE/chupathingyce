@@ -5,8 +5,10 @@ Tests of the Steam bridge (port/linux/src/steam_client_bridge.h) with a
 fake steam_api library and fake platform: every failure falls back (status
 FAILED, nothing asked of Steam), the app id goes only into the environment,
 Steam is shut down when the tab closes, subscribe/state/progress map to the
-tab's words, the list is never asked for without the Halo1 tag, and
-steamcmd's text is read right. Built and run by tools/test_steam_bridge.py.
+tab's words, each call's own answer is waited on (Steam refusing a
+subscribe shows; manual dispatch asked for before SteamAPI_Init), a Steam
+that isn't signed on is offline and asked nothing, and steamcmd's text is
+read right. Built and run by tools/test_steam_bridge.py.
 */
 
 #include "../src/steam_client_bridge.h"
@@ -72,8 +74,14 @@ static struct
 	unsigned int flags;
 	unsigned long long downloaded, total;
 	char app_id[16];
-	char required_tag[32];
-	int query_sent;
+	/* signed on; the subscribe call's answer (EResult); manual dispatch offered,
+	and whether it was asked for before SteamAPI_Init */
+	int logged_on;
+	int subscribe_result;
+	int manual;
+	int manual_before_init;
+	int manual_inits;
+	int next_callbacks;
 } fake;
 
 static int fake_ugc_object, fake_utils_object;
@@ -82,6 +90,7 @@ static unsigned char fake_init(void)
 {
 	const char *app = getenv("SteamAppId");
 
+	fake.manual_before_init = fake.manual_inits > 0;
 	fake.init_calls++;
 	snprintf(fake.app_id, sizeof(fake.app_id), "%s", app ? app : "");
 	if (fake.init_delay)
@@ -138,65 +147,49 @@ static unsigned char fake_download(void *ugc, unsigned long long item, unsigned 
 	return 1;
 }
 
-static unsigned long long fake_create_query(void *ugc, int query, int matching, unsigned int creator,
-	unsigned int consumer, unsigned int page)
-{
-	(void)ugc; (void)query; (void)matching; (void)creator; (void)page;
-	return consumer == 976730 ? 55 : 0;
-}
 
-static unsigned char fake_required_tag(void *ugc, unsigned long long query, const char *tag)
+static int fake_user_object;
+static void *fake_user(void) { return &fake_user_object; }
+static unsigned char fake_logged_on(void *user) { (void)user; return (unsigned char)fake.logged_on; }
+
+/* the subscribe's answer: RemoteStorageSubscribePublishedFileResult_t (EResult first) */
+static int call_answer(unsigned long long call, void *result, int size, int callback)
 {
-	(void)ugc;
-	(void)query;
-	snprintf(fake.required_tag, sizeof(fake.required_tag), "%s", tag);
+	if (call != 7 || (callback != 1313 && callback != 1315) || size < 12)
+		return 0;
+	memset(result, 0, (size_t)size);
+	memcpy(result, &fake.subscribe_result, 4);
 	return 1;
 }
 
-static unsigned long long fake_send_query(void *ugc, unsigned long long query)
-{
-	(void)ugc;
-	(void)query;
-	fake.query_sent++;
-	return 99;
-}
-
-static unsigned char fake_call_completed(void *utils, unsigned long long call, unsigned char *failed)
+static unsigned char fake_completed(void *utils, unsigned long long call, unsigned char *failed)
 {
 	(void)utils;
 	*failed = 0;
-	return call == 99;
+	return call == 7;
 }
 
-static unsigned char fake_call_result(void *utils, unsigned long long call, void *result, int size, int callback,
+static unsigned char fake_utils_result(void *utils, unsigned long long call, void *result, int size, int callback,
 	unsigned char *failed)
 {
-	unsigned int one = 1, two = 2;
-
 	(void)utils;
 	*failed = 0;
-	if (call != 99 || callback != 3401 || size < 24)
-		return 0;
-	memcpy((char *)result + 8, &one, 4);
-	memcpy((char *)result + 12, &two, 4);
-	return 1;
+	return (unsigned char)call_answer(call, result, size, callback);
 }
 
-static unsigned char fake_query_result(void *ugc, unsigned long long query, unsigned int index, void *details)
+static void fake_dispatch_init(void) { fake.manual_inits++; }
+static void fake_run_frame(int pipe) { (void)pipe; }
+static unsigned char fake_next(int pipe, void *message) { (void)pipe; (void)message; return 0; }
+static void fake_free_last(int pipe) { (void)pipe; }
+static int fake_pipe(void) { return 1; }
+
+static unsigned char fake_dispatch_result(int pipe, unsigned long long call, void *result, int size, int callback,
+	unsigned char *failed)
 {
-	unsigned long long id = 4000000000ULL + index;
-	int ok = 1;
-
-	(void)ugc;
-	(void)query;
-	memcpy(details, &id, 8);
-	memcpy((char *)details + 8, &ok, 4);
-	snprintf((char *)details + 24, 129, "Map %u", index);
-	snprintf((char *)details + 24 + 129, 64, "A\nmap");
-	return 1;
+	(void)pipe;
+	*failed = 0;
+	return (unsigned char)call_answer(call, result, size, callback);
 }
-
-static unsigned char fake_release(void *ugc, unsigned long long query) { (void)ugc; (void)query; return 1; }
 
 static int is_missing(const char *name)
 {
@@ -230,13 +223,19 @@ void *steam_bridge_platform_library_symbol(void *library, const char *name)
 		{ "SteamAPI_ISteamUGC_GetItemState", (void *)fake_item_state },
 		{ "SteamAPI_ISteamUGC_GetItemDownloadInfo", (void *)fake_download_info },
 		{ "SteamAPI_ISteamUGC_DownloadItem", (void *)fake_download },
-		{ "SteamAPI_ISteamUGC_CreateQueryAllUGCRequestPage", (void *)fake_create_query },
-		{ "SteamAPI_ISteamUGC_AddRequiredTag", (void *)fake_required_tag },
-		{ "SteamAPI_ISteamUGC_SendQueryUGCRequest", (void *)fake_send_query },
-		{ "SteamAPI_ISteamUGC_GetQueryUGCResult", (void *)fake_query_result },
-		{ "SteamAPI_ISteamUGC_ReleaseQueryUGCRequest", (void *)fake_release },
-		{ "SteamAPI_ISteamUtils_IsAPICallCompleted", (void *)fake_call_completed },
-		{ "SteamAPI_ISteamUtils_GetAPICallResult", (void *)fake_call_result },
+		{ "SteamAPI_ISteamUtils_IsAPICallCompleted", (void *)fake_completed },
+		{ "SteamAPI_ISteamUtils_GetAPICallResult", (void *)fake_utils_result },
+		{ "SteamAPI_SteamUser_v021", (void *)fake_user },
+		{ "SteamAPI_ISteamUser_BLoggedOn", (void *)fake_logged_on },
+		{ "SteamAPI_GetHSteamPipe", (void *)fake_pipe },
+	};
+	static const struct { const char *name; void *function; } manual[] =
+	{
+		{ "SteamAPI_ManualDispatch_Init", (void *)fake_dispatch_init },
+		{ "SteamAPI_ManualDispatch_RunFrame", (void *)fake_run_frame },
+		{ "SteamAPI_ManualDispatch_GetNextCallback", (void *)fake_next },
+		{ "SteamAPI_ManualDispatch_FreeLastCallback", (void *)fake_free_last },
+		{ "SteamAPI_ManualDispatch_GetAPICallResult", (void *)fake_dispatch_result },
 	};
 	int index;
 
@@ -246,6 +245,11 @@ void *steam_bridge_platform_library_symbol(void *library, const char *name)
 	{
 		if (!strcmp(table[index].name, name))
 			return table[index].function;
+	}
+	for (index = 0; fake.manual && index < (int)(sizeof(manual) / sizeof(manual[0])); index++)
+	{
+		if (!strcmp(manual[index].name, name))
+			return manual[index].function;
 	}
 	return NULL;
 }
@@ -299,6 +303,8 @@ static void reset(void)
 	memset(&fake, 0, sizeof(fake));
 	fake.present = 1;
 	fake.init_result = 1;
+	fake.logged_on = 1;
+	fake.subscribe_result = 1;
 	setting_enabled = 1;
 	unsetenv("SteamAppId");
 }
@@ -391,6 +397,50 @@ static void test_fallbacks(void)
 	CHECK(steam_bridge_status() == STEAM_BRIDGE_OFF);
 }
 
+/* Steam running but offline: no Workshop call made, "Steam offline" */
+static void test_offline(void)
+{
+	reset();
+	fake.logged_on = 0;
+	steam_bridge_open(0);
+	CHECK(settled() == STEAM_BRIDGE_FAILED);
+	CHECK(steam_bridge_offline());
+	CHECK(fake.shutdown_calls == 1);
+	CHECK(!steam_bridge_subscribe("123"));
+	CHECK(fake.subscribe_calls == 0);
+}
+
+/* the subscribe's own answer: Steam refusing it shows as failed */
+static void test_subscribe_answers(int manual)
+{
+	struct steam_bridge_item item;
+	int waited = 0;
+
+	reset();
+	fake.manual = manual;
+	fake.subscribe_result = 2;
+	steam_bridge_open(0);
+	CHECK(settled() == STEAM_BRIDGE_READY);
+	CHECK(!steam_bridge_offline());
+	/* (manual dispatch asked for before SteamAPI_Init, when the library has it) */
+	CHECK(manual ? fake.manual_before_init : !fake.manual_inits);
+	CHECK(steam_bridge_subscribe("2906110850"));
+	CHECK(item_when("2906110850", STEAM_BRIDGE_ITEM_FAILED, &item));
+	/* (signed off since: the call isn't made) */
+	fake.logged_on = 0;
+	CHECK(steam_bridge_subscribe("3496468566"));
+	CHECK(item_when("3496468566", STEAM_BRIDGE_ITEM_FAILED, &item));
+	CHECK(fake.subscribe_calls == 1);
+	/* (an answer of OK: subscribed) */
+	fake.logged_on = 1;
+	fake.subscribe_result = 1;
+	CHECK(steam_bridge_subscribe("2906110850"));
+	while (fake.subscribe_calls < 2 && waited++ < 300)
+		usleep(10000);
+	CHECK(item_when("2906110850", STEAM_BRIDGE_ITEM_QUEUED, &item) && item.subscribed);
+	reset();
+}
+
 static void test_session(void)
 {
 	struct steam_bridge_item item;
@@ -477,6 +527,9 @@ int main(void)
 	test_steamcmd_text();
 	test_fallbacks();
 	test_session();
+	test_offline();
+	test_subscribe_answers(0);
+	test_subscribe_answers(1);
 	if (failures)
 		fprintf(stderr, "%d failed\n", failures);
 	else

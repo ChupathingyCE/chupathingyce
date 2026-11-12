@@ -141,15 +141,7 @@ static void session(int use_steamcmd)
 	const struct steam_bridge_backend *steamcmd = use_steamcmd ? steamcmd_functions() : NULL;
 	int client_status;
 
-#if defined(__APPLE__) && !defined(STEAM_BRIDGE_TESTS)
-	/* (tried on a Mac: Steam.app starts as MCC and reads item states, but
-	refuses MCC's Workshop queries (EResult 2, 3) and doesn't record a
-	SubscribeItem, as MCC has no macOS build. So no client: Steam would only
-	show MCC as running for nothing. Its page subscribes; steamcmd downloads) */
-	client_status = STEAM_BRIDGE_FAILED;
-#else
-	client_status = client->connect();
-#endif
+client_status = client->connect();
 	int steamcmd_status = steamcmd ? steamcmd->connect() : STEAM_BRIDGE_FAILED;
 	int status, connected = 0, live;
 
@@ -384,6 +376,11 @@ int steam_bridge_connected(void)
 	connected = bridge.status == STEAM_BRIDGE_READY ? bridge.connected : 0;
 	pthread_mutex_unlock(&bridge.lock);
 	return connected;
+}
+
+int steam_bridge_offline(void)
+{
+	return steam_bridge_api_offline();
 }
 
 int steam_bridge_sign_in_needed(void)
