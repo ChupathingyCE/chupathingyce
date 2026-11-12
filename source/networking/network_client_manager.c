@@ -3269,7 +3269,13 @@ static boolean network_game_client_idle_joining(
 		{
 			if (!TEST_FLAG(client->flags, _network_game_client_join_request_sent_bit))
 			{
-				network_game_client_send_join_request(client, network_game_client_joined_version);
+				/* port: the host's own machine is of the number its server
+				announces, never told by an advertisement: its request carries
+				that number's word, which its server checks before the machine
+				has joined */
+				network_game_client_send_join_request(client,
+					network_game_client_joined_version == 0xFFFF && global_network_game_server_get() ?
+						(unsigned int)delta_legacy_announce() : network_game_client_joined_version);
 				network_game_client_join_sent_time = system_milliseconds();
 				network_game_client_join_retried = FALSE;
 			}
