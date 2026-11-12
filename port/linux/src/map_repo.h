@@ -123,12 +123,24 @@ int map_repo_index_held(void);
 name of the host's version (map_index_find) */
 int map_repo_has(const char *name, unsigned int version, long long now);
 
+/* what map_repo_download refused a map for, beside why's words */
+enum
+{
+	MAP_REPO_REFUSED_NONE,
+	/* on the blacklist */
+	MAP_REPO_REFUSED_BLOCKED,
+	/* a mirror's file wasn't the index's size or SHA-256 */
+	MAP_REPO_REFUSED_MISMATCH,
+};
+
 /* the Custom Edition map name of the host's version (map_index_find) from
 the mirrors into the file at path: 1 with the index's entry for it in
-entry, else 0 with why in why and *missing 1 when the index doesn't have
-it (not a failure of the download) */
+entry, else 0 with why in why, *missing 1 when the index doesn't have it
+(not a failure of the download) and *refused what it was refused for
+(MAP_REPO_REFUSED_*; NULL for none) */
 int map_repo_download(const struct map_repo_transport *transport, const char *name, unsigned int version,
-	const char *path, long long now, struct map_index_entry *entry, int *missing, char *why, int why_size);
+	const char *path, long long now, struct map_index_entry *entry, int *missing, int *refused, char *why,
+	int why_size);
 
 /* everything held forgotten (the tests') */
 void map_repo_reset(void);

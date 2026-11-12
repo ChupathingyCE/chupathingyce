@@ -102,9 +102,14 @@ map you don't have, the game offers to download it from the community map
 repositories (the public map repositories Halo PC players have used for
 years, as Chimera downloads from them: maps.halonet.net, then its mirrors
 maps2 and maps1, over HTTPS): "Download <name>.map from the community map
-repository?", with Yes, No and Don't ask again. The download shows its
-progress and can be cancelled. Before the map goes in `maps_ce`, the game
-checks it: no more than 200 MB, downloaded and unpacked; only `<name>.map`
+repository?", with Yes, No and Don't ask again. HaloNet's locator only
+finds files whose names are all lowercase, so when it doesn't have the map
+the game also asks for `maps/<name>.zip` by each spelling HaloNet's own
+listing has (`BattleCraft.zip` for a host playing `battlecraft`). The
+download shows its progress and can be cancelled. Every download is written
+into `maps_quarantine` (beside `maps_ce`) and stays there until it passes.
+Before the map goes in `maps_ce`, the game checks it: the quick checks a map
+from a host gets (its tag data's offsets and tables), and no more than 200 MB, downloaded and unpacked; only `<name>.map`
 taken from the archive, never a path from it; its size and CRC-32 as the
 archive states them; a Custom Edition multiplayer map whose header names the
 map asked for; and the host's version of it (the checksum in its header,
@@ -134,6 +139,11 @@ them about once an hour and never goes back to an older list. It finds the map
 by its name and the host's version, and downloads it from the first working
 mirror. The file must have the list's size and SHA-256, or the next mirror is
 asked. Then the same checks run as for a map from HaloNet.
+
+When a download fails, the screen says what it failed on in a word or two:
+Not found, Blocked (on the blacklist), Doesn't match (another version of the
+map, or not the file the signed list names), Damaged (it fails the checks)
+or Failed (no answer). The full reason is in `logs/debug.txt`.
 
 **From the host.** Some maps aren't on HaloNet or Chupathingy maps. The game
 can get those from the game's host instead, peer to peer, but only if you

@@ -161,6 +161,9 @@ enum
 	/* whether the selected game's Halo PC map is in its family's folders,
 	asked again this often */
 	CE_MAP_CHECK_INTERVAL = 1000,
+	/* a failed download of the map a game was left for, shown this long
+	before the join is given up (A or B sooner) */
+	OFFER_FAILED_REJOIN_MILLISECONDS = 8000,
 	/* the places the pointer presses a button, drawn each frame */
 	MAXIMUM_TARGETS = 24,
 };
@@ -637,6 +640,10 @@ static void rejoin_given_up(
 	static wchar_t message[256];
 	char text[256];
 	long index;
+	/* (what a failed download failed on: a map you can't copy in yourself
+	is never told to be copied) */
+	int refusal = browser_screen.offer == _offer_failed ? browser_screen.offer_progress.refusal :
+		MAP_DOWNLOAD_REFUSAL_NONE;
 
 	platform_log("map download: %s.map not downloaded (%s): the game is not joined again", browser_screen.offer_file,
 		why ? why : "not wanted");
@@ -647,9 +654,14 @@ static void rejoin_given_up(
 	map_download_reset();
 	/* (the words the error has without the downloader: why the download
 	failed is in the log, the dialog having no room for more) */
-	snprintf(text, sizeof(text), "You don't have the %s map %.31s. Copy %.31s.map into %s.",
-		map_family_badge(_map_family_custom_edition), browser_screen.offer_file, browser_screen.offer_file,
-		map_family_folder(_map_family_custom_edition));
+	if (refusal == MAP_DOWNLOAD_REFUSAL_BLOCKED || refusal == MAP_DOWNLOAD_REFUSAL_MISMATCH ||
+		refusal == MAP_DOWNLOAD_REFUSAL_DAMAGED)
+		snprintf(text, sizeof(text), "Could not download %.31s.map. %s.", browser_screen.offer_display,
+			map_download_refusal_label(refusal));
+	else
+		snprintf(text, sizeof(text), "You don't have the %s map %.31s. Copy %.31s.map into %s.",
+			map_family_badge(_map_family_custom_edition), browser_screen.offer_file, browser_screen.offer_file,
+			map_family_folder(_map_family_custom_edition));
 	for (index = 0; text[index] && index < NUMBEROF(message) - 1; index++)
 		message[index] = (wchar_t)(unsigned char)text[index];
 	message[index] = 0;
@@ -672,6 +684,7 @@ static void start_offered_download(
 		csmemset(&browser_screen.offer_progress, 0, sizeof(browser_screen.offer_progress));
 		snprintf(browser_screen.offer_progress.message, sizeof(browser_screen.offer_progress.message),
 			"another download is running");
+		platform_log("map download: %s.map not downloaded: another download is running", browser_screen.offer_file);
 	}
 }
 
@@ -695,6 +708,7 @@ static void start_host_download(
 			browser_screen.offer = _offer_failed;
 			csmemset(&browser_screen.offer_progress, 0, sizeof(browser_screen.offer_progress));
 			snprintf(browser_screen.offer_progress.message, sizeof(browser_screen.offer_progress.message), "%s", why);
+			platform_log("map download: %s.map not downloaded from the host: %s", browser_screen.offer_file, why);
 		}
 		return;
 	}
@@ -713,6 +727,8 @@ static void start_host_download(
 		csmemset(&browser_screen.offer_progress, 0, sizeof(browser_screen.offer_progress));
 		snprintf(browser_screen.offer_progress.message, sizeof(browser_screen.offer_progress.message),
 			"the host's game could not be joined to ask for it");
+		platform_log("map download: %s.map not downloaded from the host: its game could not be joined",
+			browser_screen.offer_file);
 	}
 }
 #endif
@@ -901,12 +917,14 @@ static void follow_download(
 		default: break;
 		}
 #endif
-		/* (a game left for want of it: the main menu's error at once) */
-		if (browser_screen.rejoin_pending)
-			rejoin_given_up(browser_screen.offer_progress.message[0] ? browser_screen.offer_progress.message :
-				"the repositories did not answer");
-		else
-			browser_screen.offer = _offer_failed;
+		/* (what it failed on, in a word, until it is closed or a few
+		seconds pass; a game left for want of it then gives up, the main
+		menu's error: offer_given_up) */
+		platform_log("map download: %s.map: %s (%s)", browser_screen.offer_file,
+			map_download_refusal_label(browser_screen.offer_progress.refusal),
+			browser_screen.offer_progress.message[0] ? browser_screen.offer_progress.message : "no answer");
+		browser_screen.offer = _offer_failed;
+		browser_screen.offer_time = system_milliseconds();
 		break;
 	case MAP_DOWNLOAD_CANCELLED:
 		offer_given_up("Download cancelled.");
@@ -2307,6 +2325,9 @@ void browser_screen_process(
 	fetch_games();
 	if (browser_screen.offer == _offer_downloading)
 		follow_download();
+	else if (browser_screen.offer == _offer_failed && browser_screen.rejoin_pending &&
+		system_milliseconds() - browser_screen.offer_time > OFFER_FAILED_REJOIN_MILLISECONDS)
+		offer_given_up(NULL);
 	else if (browser_screen.playlist_offer != _playlist_none)
 		playlist_offer_follow();
 	else if (browser_screen.connecting && browser_screen.offer == _offer_none)
@@ -3358,13 +3379,9 @@ static void draw_map_offer(
 	default:
 		snprintf(text, sizeof(text), "Could not download %s.map", browser_screen.offer_display);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, COLOR_WARN, 0xF0A07060, text);
-		/* (why, as a sentence) */
-		snprintf(text, sizeof(text), "%s.", progress->message[0] ? progress->message : "the repositories did not answer");
-		if (text[0] >= 'a' && text[0] <= 'z')
-			text[0] = (char)(text[0] - 32);
-		ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 126, UI_ALIGN_CENTER, COLOR_TEXT, text);
-		snprintf(text, sizeof(text), "Or copy %s.map into maps_ce.", browser_screen.offer_display);
-		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, CONNECT_Y + 160, UI_ALIGN_CENTER, COLOR_DIM, text);
+		/* (what it failed on, in a word or two: why in full is the log's) */
+		ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 126, UI_ALIGN_CENTER, COLOR_TEXT,
+			map_download_refusal_label(progress->refusal));
 		dialog_prompt(UI_BUTTON_B, "=CLOSE");
 		break;
 	}

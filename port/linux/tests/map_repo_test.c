@@ -512,7 +512,7 @@ int main(int count, char **arguments)
 			now = atoll(getenv("MAP_REPO_TEST_USE_AT"));
 		printf("has %d\n", map_repo_has(arguments[4], (unsigned int)strtoul(arguments[5], NULL, 16), now));
 		if (!map_repo_download(&transport, arguments[4], (unsigned int)strtoul(arguments[5], NULL, 16), arguments[6], now,
-			&entry, &missing, why, (int)sizeof(why)))
+			&entry, &missing, NULL, why, (int)sizeof(why)))
 		{
 			printf("failed %d %s\n", missing, why);
 			return 0;

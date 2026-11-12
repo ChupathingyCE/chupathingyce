@@ -183,3 +183,69 @@ def test_elevator_carry_of_the_tick_is_for_network_games_only():
     # objects.c samples through the same gate (the sample is refused locally)
     assert "machine_elevator_sample(object_index, &elevator_sample)" in \
         (ROOT / "source/objects/objects.c").read_text(encoding="utf-8")
+
+
+def _function(source, name):
+    """a function's definition (its name, then its parameters on lines of
+    their own), to its closing brace"""
+    at = source.index(name + "(\n")
+    # (past a prototype, whose parameters end in ");": the definition's in ")\n{")
+    while source[source.index(")", at) + 1] == ";":
+        at = source.index(name + "(\n", at + 1)
+    body = source[at:]
+    return body[:body.index("\n}\n")]
+
+
+def test_epoch_glue_uses_the_rules():
+    """network_distributed.c's glue for a layout with a checkpoint epoch goes
+    by network_rules.c's tested rules: what a client holds back and takes
+    before the host's snapshot ends, the host's taking of a client's ready
+    (over its stream alone), the split of a reliable message on its kind's
+    entries alone, the queue flushed before a revert's epoch, and a machine
+    gone told no boundary"""
+    source = DISTRIBUTED_C.read_text(encoding="utf-8")
+    assert "network_rules_client_held_back(" in _function(source, "static boolean distributed_held_back")
+    send = _function(source, "void distributed_send")
+    assert send.index("distributed_held_back(type)") < send.index("distributed_fill_header(")
+    assert "distributed_held_back(packer->type)" in _function(source, "static void distributed_packer_flush")
+    handle = _function(source, "static void distributed_handle_message")
+    assert "network_rules_client_takes_unsynchronized(header.type" in handle
+    entry = _function(source, "void network_distributed_handle_message")
+    assert "network_rules_host_takes(epoch, distributed_epoch, type, narrow_size" in entry
+    assert "distributed_handling_stream_message, FALSE)" in entry
+    assert "has_epoch, distributed_epoch, 0, &epoch)" in entry
+    wire = _function(source, "static void distributed_wire_send")
+    assert "distributed_kind_entry_size(bytes[2], &uniform)" in wire
+    assert "network_rules_reliable_split(size, bytes[3], uniform ? entry_size : 0" in wire
+    boundary = _function(source, "void network_distributed_checkpoint_boundary")
+    assert boundary.index("distributed_batches_flush();") < boundary.index("network_rules_epoch_next(")
+    assert "network_rules_revert_boundary_to(" in boundary
+    assert "distributed_machine_ready[machine_index] = FALSE;" in _function(source, "void network_distributed_machine_gone")
+    manager = (ROOT / "source/networking/network_server_manager.c").read_text(encoding="utf-8")
+    assert "network_distributed_machine_gone(client->machine_index);" in \
+        _function(manager, "boolean network_game_server_remove_client_machine_from_game")
+    # (the unit state reader checks its length against the rules' walk)
+    assert "network_rules_unit_state_length(layout, buffer" in _function(source, "static word distributed_unit_state_read")
+
+
+def test_join_paths_know_the_hosts_number():
+    """every join of another machine's game goes by an advertisement (the
+    LAN, the list, an invite once its host's game is advertised through the
+    tunnel), whose number the join request's tail is made for; an address
+    alone (no advertisement) sends the plain request, and once more with the
+    newest version word after a silence; the host's own machine is never
+    refused for its request"""
+    manager = (ROOT / "source/networking/network_client_manager.c").read_text(encoding="utf-8")
+    invite = _function(manager, "long network_game_client_join_invite_host")
+    assert "struct network_advertised_game *game = &client->available_games[game_index];" in invite
+    assert "network_game_client_initiate_join_game(client, game, &join_parameters, &address)" in invite
+    initiate = _function(manager, "boolean network_game_client_initiate_join_game")
+    assert "network_game_client_advertised_versions[advertised_index].version" in initiate
+    joining = _function(manager, "static boolean network_game_client_idle_joining")
+    assert "network_game_client_send_join_request(client, network_game_client_joined_version);" in joining
+    assert "network_game_client_send_join_request(client, retry);" in joining
+    assert "network_game_client_join_retried = TRUE;" in joining
+    request = _function(manager, "static void network_game_client_send_join_request")
+    assert "network_rules_join_request_tail(version, tail," in request
+    server = (ROOT / "source/networking/network_server_message_handler.c").read_text(encoding="utf-8")
+    assert "!network_game_server_client_machine_is_local(server, server_client_machine) &&\n\t\t\tnetwork_rules_join_request_refused(" in server

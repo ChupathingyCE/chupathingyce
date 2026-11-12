@@ -553,7 +553,9 @@ void network_rules_layout_apply(struct network_rules_layout *layout, struct delt
 		}
 		if (fact->header_extra)
 		{
-			if (fact->header_extra <= NETWORK_RULES_HEADER_EXTRA_LIMIT)
+			/* (never fewer than an epoch has, once there is one) */
+			if (fact->header_extra <= NETWORK_RULES_HEADER_EXTRA_LIMIT &&
+				!(layout->epoch_kind && fact->header_extra < NETWORK_RULES_EPOCH_SIZE))
 			{
 				layout->header_extra = fact->header_extra;
 				layout->learned++;
@@ -797,6 +799,89 @@ int network_rules_join_request_tail(unsigned version, uint8_t *tail, int room)
 	return layout.join_request_extra;
 }
 
+int network_rules_snapshot_due(int never_sent, int again_due, int players_changed, uint32_t sent_epoch,
+	uint32_t epoch)
+{
+	return never_sent || again_due || players_changed || sent_epoch != epoch;
+}
+
+int network_rules_host_takes(uint32_t epoch, uint32_t host_epoch, int kind, int size, int count, int from_stream,
+	int in_batch)
+{
+	if (epoch == host_epoch && host_epoch)
+		return 1;
+	return kind == NETWORK_RULES_CLIENT_READY_KIND && size == NETWORK_RULES_HEADER_SIZE && count >= 0 && count <= 1 &&
+		from_stream && !in_batch;
+}
+
+int network_rules_client_held_back(int epoch_layout, int client, int synchronized, int kind)
+{
+	return epoch_layout && client && !synchronized && kind != NETWORK_RULES_CLIENT_READY_KIND;
+}
+
+int network_rules_client_takes_unsynchronized(int kind, int from_stream, int in_batch)
+{
+	return kind == NETWORK_RULES_OBJECT_CHANGES_KIND || kind == NETWORK_RULES_OBJECTS_SYNCHRONIZED_KIND ||
+		(kind == NETWORK_RULES_INVENTORIES_KIND && from_stream && !in_batch);
+}
+
+int network_rules_reliable_split(int size, int count, int entry_size, int extra, int maximum)
+{
+	if (size + extra <= maximum)
+		return 0;
+	if (entry_size <= 0 || count < 2 || size - NETWORK_RULES_HEADER_SIZE != count * entry_size ||
+		NETWORK_RULES_HEADER_SIZE + (count - count / 2) * entry_size + extra > maximum)
+	{
+		return -1;
+	}
+	return count / 2;
+}
+
+int network_rules_unit_state_length(struct network_rules_layout const *layout, uint8_t const *record, int size,
+	int powerups)
+{
+	/* (network_distributed.c's bits: flags alive 0, placed 1, predicted 7;
+	parts riding 0, up 1, damage 2, powerups 3, camouflage 4, killer 5) */
+	int length = 3, alive, placed, after_up, last;
+	unsigned parts;
+
+	if (size < 3)
+		return 0;
+	alive = record[1] & 1;
+	placed = (record[1] >> 1) & 1;
+	parts = record[2];
+	after_up = network_rules_unit_part_bytes(layout, parts, DELTA_LAYOUT_PART_AFTER_UP, alive, placed);
+	last = network_rules_unit_part_bytes(layout, parts, DELTA_LAYOUT_PART_LAST, alive, placed);
+	if (after_up < 0 || last < 0)
+		return 0;
+	if (alive)
+	{
+		length += 4;
+		if (parts & 1)
+			length += 4 + 2;
+		if (placed)
+			length += 12 + 6 + 6 + ((parts & 2) ? 6 : 0) + after_up;
+		if (record[1] & 0x80)
+			length += 2;
+		length += 2 + 2;
+		if (parts & 4)
+			length += 8;
+		if (parts & 8)
+			length += 2 * powerups;
+		if (parts & 16)
+			length += 2;
+		length += last;
+	}
+	else if (parts & 32)
+		length += 1;
+	return length <= size ? length : 0;
+}
+
+int network_rules_revert_boundary_to(int client, int local, int ready)
+{
+	return client && !local && ready;
+}
+
 unsigned network_rules_client_settings_version(unsigned joined, int hosting, unsigned announce)
 {
 	return hosting ? announce : joined;
@@ -807,18 +892,31 @@ unsigned network_rules_client_noted_version(unsigned joined, int hosting, unsign
 	return !hosting && joined == NETWORK_RULES_VERSION_UNKNOWN ? at_least : joined;
 }
 
+unsigned network_rules_join_retry_version(unsigned joined, int hosting, unsigned long waited)
+{
+	struct network_rules_layout layout;
+	unsigned newest;
+
+	if (joined != NETWORK_RULES_VERSION_UNKNOWN || hosting || waited < NETWORK_RULES_JOIN_RETRY_MS)
+		return 0;
+	newest = network_rules_layout_newest();
+	network_rules_layout(newest, &layout);
+	return layout.join_request_version_at >= 0 ? newest : 0;
+}
+
 int network_rules_join_request_refused(unsigned version, uint8_t const *tail, int tail_size)
 {
 	struct network_rules_layout layout;
 
-	if (version == NETWORK_RULES_VERSION_UNKNOWN || !tail)
+	if (version == NETWORK_RULES_VERSION_UNKNOWN)
 		return 0;
 	network_rules_layout(version, &layout);
-	if (layout.join_request_version_at < 0 || tail_size != layout.join_request_extra ||
-		layout.join_request_version_at + 2 > tail_size)
-	{
+	if (!tail)
+		tail_size = 0;
+	if (layout.join_request_version_at < 0)
 		return 0;
-	}
+	if (tail_size != layout.join_request_extra || layout.join_request_version_at + 2 > tail_size)
+		return 1;
 	return rules_codec_word(tail + layout.join_request_version_at) != version;
 }
 

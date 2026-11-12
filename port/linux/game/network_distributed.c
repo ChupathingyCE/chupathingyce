@@ -509,7 +509,17 @@ tick; a game of a version without them is played as it always was */
 static struct network_rules_layout distributed_layout;
 static boolean distributed_layout_valid = FALSE;
 typedef char distributed_layout_kinds_assert[NETWORK_RULES_BATCH_KIND == _distributed_message_batch &&
-	NETWORK_RULES_CLIENT_READY_KIND == _distributed_message_client_ready ? 1 : -1];
+	NETWORK_RULES_CLIENT_READY_KIND == _distributed_message_client_ready &&
+	NETWORK_RULES_INVENTORIES_KIND == _distributed_message_inventories &&
+	NETWORK_RULES_OBJECT_CHANGES_KIND == _distributed_message_object_changes &&
+	NETWORK_RULES_OBJECTS_SYNCHRONIZED_KIND == _distributed_message_objects_synchronized ? 1 : -1];
+static word distributed_kind_entry_size(byte type, boolean *uniform);
+/* (network_rules_unit_state_length walks a record by these bits) */
+typedef char distributed_unit_bits_assert[_distributed_unit_alive_bit == 0 && _distributed_unit_placed_bit == 1 &&
+	_distributed_unit_predicted_bit == 7 && _distributed_unit_part_riding_bit == 0 &&
+	_distributed_unit_part_up_bit == 1 && _distributed_unit_part_damage_bit == 2 &&
+	_distributed_unit_part_powerups_bit == 3 && _distributed_unit_part_camouflage_bit == 4 &&
+	_distributed_unit_part_killer_bit == 5 && NUMBER_OF_PLAYER_POWERUPS == 2 ? 1 : -1];
 static void distributed_send_boundary(long machine_index);
 static boolean distributed_held_back(byte type);
 static void distributed_checkpoint_reset(boolean keep_receive_times);
@@ -605,6 +615,9 @@ static real distributed_own_round_trip;
 /* the host: the players each machine had when it last told the host that it
 had loaded (a machine new at its index has none of the old one's state) */
 static long distributed_machine_players[HALO_PORT_MAXIMUM_NETWORK_MACHINES][MAXIMUM_LOCAL_PLAYERS];
+/* (the host) the client machines that have said their ready this game: a
+co-op revert's checkpoint boundary goes to each */
+static boolean distributed_machine_ready[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
 /* the host: what each player's unit was last sent as (a change goes to
 every client at once) */
 static struct
@@ -1048,16 +1061,30 @@ static void distributed_wire_send(
 		distributed_wire_write(route, machine_index, message, size);
 		return;
 	}
-	if (size + layout->header_extra > MAXIMUM_MESSAGE_SIZE && bytes[2] != _distributed_message_batch && bytes[3] > 1 &&
-		(size - sizeof(struct distributed_message_header)) % bytes[3] == 0)
+	if (size + layout->header_extra > MAXIMUM_MESSAGE_SIZE && bytes[2] != _distributed_message_batch)
 	{
-		/* (in two: the first half of the entries, then the rest) */
+		/* (in two on its entries' boundaries: a kind whose entries are all
+		one size, by the size its reader takes; any other is dropped) */
 		static byte half[sizeof(message_header) + MAXIMUM_MESSAGE_SIZE];
-		word entry_size = (word)((size - sizeof(struct distributed_message_header)) / bytes[3]);
-		byte first = (byte)(bytes[3] / 2);
-		byte rest = (byte)(bytes[3] - first);
-		word first_size = (word)(sizeof(struct distributed_message_header) + first * entry_size);
-		word rest_size = (word)(sizeof(struct distributed_message_header) + rest * entry_size);
+		boolean uniform = FALSE;
+		word entry_size = distributed_kind_entry_size(bytes[2], &uniform);
+		int split = network_rules_reliable_split(size, bytes[3], uniform ? entry_size : 0, layout->header_extra,
+			MAXIMUM_MESSAGE_SIZE);
+		byte first;
+		byte rest;
+		word first_size;
+		word rest_size;
+
+		if (split <= 0)
+		{
+			error(_error_silent, "distributed message of type #%d (#%d bytes) has no room for the header's further "
+				"bytes and no entries to split on; dropped", bytes[2], size);
+			return;
+		}
+		first = (byte)split;
+		rest = (byte)(bytes[3] - first);
+		first_size = (word)(sizeof(struct distributed_message_header) + first * entry_size);
+		rest_size = (word)(sizeof(struct distributed_message_header) + rest * entry_size);
 
 		csmemcpy(half, bytes, first_size);
 		half[3] = first;
@@ -1508,6 +1535,7 @@ static boolean distributed_machine_loaded(
 	}
 	csmemcpy(distributed_machine_players[machine_index], player_list,
 		sizeof(distributed_machine_players[machine_index]));
+	distributed_machine_ready[machine_index] = FALSE;
 	for (type = 0; type < NUMBER_OF_DISTRIBUTED_MESSAGES; type++)
 		distributed_received_times[machine_index][type] = NONE;
 	distributed_sender_times[machine_index] = NONE;
@@ -1850,6 +1878,18 @@ static word distributed_unit_state_read(
 		!distributed_take(&cursor, end, &state->killing_player_index, sizeof(state->killing_player_index)))
 	{
 		return 0;
+	}
+	/* (a layout with further parts: the record's length as network_rules.c
+	walks it, or none) */
+	{
+		struct network_rules_layout const *layout = distributed_wire_layout();
+
+		if (csmemcmp(layout->unit_part_size, distributed_no_parts, sizeof(distributed_no_parts)) &&
+			network_rules_unit_state_length(layout, buffer, (int)(end - buffer), NUMBER_OF_PLAYER_POWERUPS) !=
+				(int)(cursor - buffer))
+		{
+			return 0;
+		}
 	}
 	return (word)(cursor - buffer);
 }
@@ -4055,6 +4095,7 @@ void network_distributed_new_game(
 	distributed_own_round_trip = 0.0f;
 	csmemset(distributed_player_pings, 0xFF, sizeof(distributed_player_pings));
 	csmemset(distributed_machine_players, 0xFF, sizeof(distributed_machine_players));
+	csmemset(distributed_machine_ready, 0, sizeof(distributed_machine_ready));
 	distributed_machines.in_tick = FALSE;
 	distributed_machines.valid = FALSE;
 	distributed_host_time = NONE;
@@ -4648,6 +4689,13 @@ static struct
 
 /* (the host: network_server_manager.c) a machine joined the game, or came
 back to its lobby from the carnage report: its budget full again */
+void network_distributed_machine_gone(
+	long machine_index)
+{
+	if (machine_index >= 0 && machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+		distributed_machine_ready[machine_index] = FALSE;
+}
+
 void network_distributed_lobby_budget_reset(
 	long machine_index)
 {
@@ -5212,6 +5260,60 @@ static boolean distributed_handling_batch;
 
 /* a message of the distributed kind; machine_index is the sender's on the
 host, NONE on a client */
+/* a kind's entries' bytes as its reader takes them (the least, for those
+of sizes of their own), and in *uniform whether every entry is that size
+with nothing else after the header (a message of it splits on them) */
+static word distributed_kind_entry_size(
+	byte type,
+	boolean *uniform)
+{
+	word size;
+
+	switch (type)
+	{
+	case _distributed_message_player_prediction:
+	case _distributed_message_unit_states: size = DISTRIBUTED_UNIT_STATE_MINIMUM_SIZE; break;
+	case _distributed_message_player_statistics: size = sizeof(struct distributed_player_statistics); break;
+	case _distributed_message_pings: size = sizeof(struct distributed_player_ping); break;
+	case _distributed_message_actor_states: size = network_actors_entry_size(); break;
+	case _distributed_message_structure_bsp: size = sizeof(struct distributed_structure_bsp); break;
+	case _distributed_message_coop_presentation: size = network_coop_presentation_entry_size(); break;
+	case _distributed_message_coop_events: size = network_coop_event_entry_size(); break;
+	case _distributed_message_coop_skip_vote: size = network_coop_skip_vote_entry_size(); break;
+	case _distributed_message_coop_device_groups: size = network_coop_device_group_entry_size(); break;
+	case _distributed_message_coop_object_names: size = network_coop_object_names_entry_size(); break;
+	case _distributed_message_coop_object_transforms: size = network_coop_object_transform_entry_size(); break;
+	case _distributed_message_actor_damage: size = network_actors_damage_entry_size(); break;
+	case _distributed_message_coop_object_looks: size = network_coop_object_look_entry_size(); break;
+	case _distributed_message_damage_animations: size = network_objects_damage_animation_entry_size(); break;
+	case _distributed_message_coop_screen_effect: size = network_coop_screen_effect_entry_size(); break;
+	case _distributed_message_coop_device_states: size = network_coop_device_state_entry_size(); break;
+	case _distributed_message_pickups: size = sizeof(struct distributed_pickup); break;
+	case _distributed_message_aim_assist_policy: size = NETWORK_RULES_AIM_ASSIST_SIZE - sizeof(struct distributed_message_header); break;
+	case _distributed_message_shield_effects: size = NETWORK_RULES_SHIELD_EFFECTS_SIZE - sizeof(struct distributed_message_header); break;
+	case _distributed_message_chat_up:
+	case _distributed_message_chat_down: size = DELTA_CHAT_BRIDGE_LINE_SIZE; break;
+	case _distributed_message_chat_config: size = DELTA_CHAT_BRIDGE_CONFIG_SIZE; break;
+	case _distributed_message_player_inputs: size = sizeof(struct distributed_player_input); break;
+	case _distributed_message_relayed_actions: size = DISTRIBUTED_RELAYED_ACTION_MINIMUM_SIZE; break;
+	case _distributed_message_game_state:
+	case _distributed_message_objects_synchronized:
+	case _distributed_message_notice:
+	case _distributed_message_client_ready: size = 0; break;
+	case _distributed_message_client_identity: size = sizeof(struct distributed_client_identity); break;
+	case _distributed_message_damage_events:
+	case _distributed_message_hit_reports: size = network_damage_entry_size(type); break;
+	default: size = network_objects_entry_size(type); break;
+	}
+	if (uniform)
+	{
+		*uniform = size != 0 && type != _distributed_message_player_prediction &&
+			type != _distributed_message_unit_states && type != _distributed_message_relayed_actions &&
+			type != _distributed_message_game_state && type != _distributed_message_notice;
+	}
+	return size;
+}
+
 static void distributed_handle_message(
 	long machine_index,
 	word const *message,
@@ -5289,53 +5391,7 @@ static void distributed_handle_message(
 	}
 	/* (entries of a size of their own: their least here, and each read no
 	further than the message's end) */
-	switch (header.type)
-	{
-	case _distributed_message_player_prediction:
-	case _distributed_message_unit_states: entry_size = DISTRIBUTED_UNIT_STATE_MINIMUM_SIZE; break;
-	case _distributed_message_player_statistics: entry_size = sizeof(struct distributed_player_statistics); break;
-	case _distributed_message_pings: entry_size = sizeof(struct distributed_player_ping); break;
-#ifdef HALO_MCC_NETWORK
-	case _distributed_message_mcc_grenades: entry_size = mcc_network_inventory_entry_size(); break;
-	case _distributed_message_mcc_campaign: entry_size = mcc_network_campaign_entry_size(); break;
-	case _distributed_message_mcc_game_speed:
-		/* A clock command is host-only and ordered, never accepted from datagrams. */
-		if (machine_index != NONE || network_connection_last_read_was_unreliable() ||
-			header.count != 1 || size != sizeof(header) + sizeof(real)) return;
-		entry_size = sizeof(real);
-		break;
-	case _distributed_message_mcc_object_names: entry_size = mcc_object_names_entry_size(); break;
-#endif
-	case _distributed_message_actor_states: entry_size = network_actors_entry_size(); break;
-	case _distributed_message_structure_bsp: entry_size = sizeof(struct distributed_structure_bsp); break;
-	case _distributed_message_coop_presentation: entry_size = network_coop_presentation_entry_size(); break;
-	case _distributed_message_coop_events: entry_size = network_coop_event_entry_size(); break;
-	case _distributed_message_coop_skip_vote: entry_size = network_coop_skip_vote_entry_size(); break;
-	case _distributed_message_coop_device_groups: entry_size = network_coop_device_group_entry_size(); break;
-	case _distributed_message_coop_object_names: entry_size = network_coop_object_names_entry_size(); break;
-	case _distributed_message_coop_object_transforms: entry_size = network_coop_object_transform_entry_size(); break;
-	case _distributed_message_actor_damage: entry_size = network_actors_damage_entry_size(); break;
-	case _distributed_message_coop_object_looks: entry_size = network_coop_object_look_entry_size(); break;
-	case _distributed_message_damage_animations: entry_size = network_objects_damage_animation_entry_size(); break;
-	case _distributed_message_coop_screen_effect: entry_size = network_coop_screen_effect_entry_size(); break;
-	case _distributed_message_coop_device_states: entry_size = network_coop_device_state_entry_size(); break;
-	case _distributed_message_pickups: entry_size = sizeof(struct distributed_pickup); break;
-	case _distributed_message_aim_assist_policy: entry_size = NETWORK_RULES_AIM_ASSIST_SIZE - sizeof(header); break;
-	case _distributed_message_shield_effects: entry_size = NETWORK_RULES_SHIELD_EFFECTS_SIZE - sizeof(header); break;
-	case _distributed_message_chat_up:
-	case _distributed_message_chat_down: entry_size = DELTA_CHAT_BRIDGE_LINE_SIZE; break;
-	case _distributed_message_chat_config: entry_size = DELTA_CHAT_BRIDGE_CONFIG_SIZE; break;
-	case _distributed_message_player_inputs: entry_size = sizeof(struct distributed_player_input); break;
-	case _distributed_message_relayed_actions: entry_size = DISTRIBUTED_RELAYED_ACTION_MINIMUM_SIZE; break;
-	case _distributed_message_game_state:
-	case _distributed_message_objects_synchronized:
-	case _distributed_message_notice:
-	case _distributed_message_client_ready: entry_size = 0; break;
-	case _distributed_message_client_identity: entry_size = sizeof(struct distributed_client_identity); break;
-	case _distributed_message_damage_events:
-	case _distributed_message_hit_reports: entry_size = network_damage_entry_size(header.type); break;
-	default: entry_size = network_objects_entry_size(header.type); break;
-	}
+	entry_size = distributed_kind_entry_size(header.type, NULL);
 	if (header.type == 0 || header.type >= NUMBER_OF_DISTRIBUTED_MESSAGES ||
 		size < sizeof(header) + header.count * entry_size)
 	{
@@ -5424,9 +5480,8 @@ static void distributed_handle_message(
 	stream; nothing else until then) */
 	if (machine_index == NONE && distributed_wire_layout()->epoch_kind &&
 		game_connection() == _game_connection_network_client && !network_objects_client_synchronized() &&
-		header.type != _distributed_message_object_changes && header.type != _distributed_message_objects_synchronized &&
-		(header.type != _distributed_message_inventories || distributed_handling_batch ||
-			network_connection_last_read_was_unreliable()))
+		!network_rules_client_takes_unsynchronized(header.type, !network_connection_last_read_was_unreliable(),
+			distributed_handling_batch))
 	{
 		return;
 	}
@@ -5652,7 +5707,9 @@ static void distributed_handle_message(
 		boolean loaded = distributed_machine_loaded(machine_index);
 
 		/* (a layout with a checkpoint epoch: the boundary first, before the
-		host's objects) */
+		host's objects; a revert's goes to it from now on) */
+		if (machine_index >= 0 && machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+			distributed_machine_ready[machine_index] = TRUE;
 		distributed_send_boundary(machine_index);
 		/* (its count 1: the client asks again, having failed to make one of
 		the host's objects) */
@@ -5814,8 +5871,8 @@ is held back: until it has the host's objects again, all but its ready */
 static boolean distributed_held_back(
 	byte type)
 {
-	return type != _distributed_message_client_ready && distributed_wire_layout()->epoch_kind &&
-		game_connection() == _game_connection_network_client && !network_objects_client_synchronized();
+	return network_rules_client_held_back(distributed_wire_layout()->epoch_kind != 0,
+		game_connection() == _game_connection_network_client, network_objects_client_synchronized(), type);
 }
 
 /* (a host whose layout has a checkpoint epoch) its boundary to a client
@@ -5830,6 +5887,8 @@ static void distributed_send_boundary(
 	if (!layout->epoch_kind || game_connection() != _game_connection_network_server)
 		return;
 	distributed_send_to_machine_reliably(machine_index, &message, (byte)layout->epoch_kind, 0, (word)sizeof(message));
+	error(_error_log, "network: checkpoint boundary (message %d, epoch %lu) to machine %ld", layout->epoch_kind,
+		(unsigned long)distributed_epoch, machine_index);
 }
 
 void network_distributed_checkpoint_boundary(
@@ -5841,13 +5900,23 @@ void network_distributed_checkpoint_boundary(
 
 	if (!distributed_wire_layout()->epoch_kind || game_connection() != _game_connection_network_server)
 		return;
+	/* (what is queued goes first, of the epoch it was made in) */
+	distributed_batches_flush();
 	distributed_epoch = network_rules_epoch_next(distributed_epoch);
 	error(_error_log, "network: the checkpoint epoch is now %lu (a co-op revert)", (unsigned long)distributed_epoch);
+	/* (every client machine in the game that has said its ready: one that
+	has not takes it at its ready) */
 	machine_count = distributed_client_machines(machine_indices, HALO_PORT_MAXIMUM_NETWORK_MACHINES);
 	for (index = 0; index < machine_count; index++)
 	{
-		if (distributed_machine_loaded(machine_indices[index]))
-			distributed_send_boundary(machine_indices[index]);
+		long machine_index = machine_indices[index];
+
+		if (machine_index >= 0 && machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES &&
+			network_rules_revert_boundary_to(TRUE, distributed_machine_is_local(machine_index),
+				distributed_machine_ready[machine_index]))
+		{
+			distributed_send_boundary(machine_index);
+		}
 	}
 }
 
@@ -5915,7 +5984,7 @@ void network_distributed_handle_message(
 	/* (in a batch, a message of another epoch is left out: a host keeps a
 	client's ready of any) */
 	narrow_size = network_rules_header_strip((uint8_t const *)message, size, (uint8_t *)narrow, layout->header_extra,
-		has_epoch, distributed_epoch, machine_index == NONE ? 0 : NETWORK_RULES_CLIENT_READY_KIND, &epoch);
+		has_epoch, distributed_epoch, 0, &epoch);
 	if (!narrow_size)
 		return;
 	if (has_epoch && type != _distributed_message_batch)
@@ -5928,16 +5997,20 @@ void network_distributed_handle_message(
 		/* (a client takes the host's messages of its epoch alone, none before
 		the first boundary; a host its clients' of its own, and a client's
 		ready of any: the header alone, its count 0 or 1) */
-		if (epoch != distributed_epoch || !distributed_epoch)
+		if (machine_index == NONE ? epoch != distributed_epoch || !distributed_epoch :
+			!network_rules_host_takes(epoch, distributed_epoch, type, narrow_size, ((byte const *)narrow)[3],
+				distributed_handling_stream_message, FALSE))
 		{
-			if (machine_index == NONE || type != _distributed_message_client_ready ||
-				narrow_size != sizeof(struct distributed_message_header) || ((byte const *)narrow)[3] > 1)
-			{
-				return;
-			}
+			return;
 		}
 	}
 	distributed_handle_message(machine_index, narrow, (word)narrow_size);
+}
+
+unsigned int network_distributed_epoch(
+	void)
+{
+	return (unsigned int)distributed_epoch;
 }
 
 real network_distributed_rider_ejection_up(
