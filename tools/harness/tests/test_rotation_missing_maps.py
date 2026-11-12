@@ -11,15 +11,23 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from harness import CHECK_FAILED, build, constant, function, mutated, read, run  # noqa: E402
 
-CASES = ['middle-skipped', 'last-missing-wraps', 'none-installed', 'host-keeps-its-map', 'playlist-none-playable',
+CASES = ['middle-skipped', 'last-missing-holds', 'none-installed', 'host-keeps-its-map', 'playlist-none-playable',
          'playlist-playable']
 CONTROLS = {
     # the old behavior: the host sets a game on any map it is given
     'host-sets-missing-map': ('if (!cache_files_map_installed(map_name))\n\t{',
                               'if (0)\n\t{', 'host-keeps-its-map'),
     # the test host's list not skipping a missing map
-    'list-not-skipped': ('if (cache_files_map_installed(path))\n\t\t\treturn TRUE;',
-                         'return TRUE;', 'middle-skipped'),
+    'list-not-skipped': ('entry < count; entry++)\n\t{\n\t\tnetwork_test_map_path(entry, path, size);\n'
+                         '\t\tif (cache_files_map_installed(path))',
+                         'entry < count; entry++)\n\t{\n\t\tnetwork_test_map_path(entry, path, size);\n\t\tif (1)',
+                         'middle-skipped'),
+    # the list wrapping to its first map past its end
+    'list-wraps': ('for (entry = network_test.map_entry - 1; entry >= 0; entry--)',
+                   'for (entry = 0; entry < 0; entry++)', 'last-missing-holds'),
+    # the refusal not told to the caller
+    'refusal-hidden': ('\t\treturn FALSE;\n\t}\n\n\tfor (client_machine_index',
+                       '\t\treturn TRUE;\n\t}\n\n\tfor (client_machine_index', 'host-keeps-its-map'),
     # a dedicated server starting a playlist with nothing to play
     'playlist-started-anyway': ('\tdedicated.none_playable = TRUE;\n\treturn FALSE;\n}',
                                 '\tdedicated.none_playable = TRUE;\n\treturn TRUE;\n}', 'playlist-none-playable'),

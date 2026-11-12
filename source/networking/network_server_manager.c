@@ -3801,7 +3801,9 @@ void network_game_server_pause_countdown(
 	return;
 }
 
-void network_game_server_change_map_name(
+/* port: FALSE when the map was refused (not installed on this machine,
+#1106): the game stays on its map, and the caller skips to its next */
+boolean network_game_server_change_map_name(
 	struct network_game_server *server,
 	char const *map_name)
 {
@@ -3826,7 +3828,7 @@ void network_game_server_change_map_name(
 			main_set_multiplayer_map_name(server->game.map.name);
 			game_engine_override_map_name(server->game.map.name);
 		}
-		return;
+		return FALSE;
 	}
 
 	for (client_machine_index = 0;
@@ -3868,7 +3870,7 @@ void network_game_server_change_map_name(
 			"network_game_server_change_map_name() failed to send updated game settings to clients");
 	}
 
-	return;
+	return TRUE;
 }
 
 void network_game_server_change_game_variant(

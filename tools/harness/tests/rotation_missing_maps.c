@@ -118,12 +118,20 @@ int main(int argc, char **argv)
 		CHECK(!strcmp(path, "levels\\test\\hangemhigh\\hangemhigh"), "game 3 is %s", path);
 		return 0;
 	}
-	CASE("last-missing-wraps")
+	CASE("last-missing-holds")
 	{
-		set_list("bloodgulch+dangercanyon");
+		/* (past the list's end its last installed map, as normal play holds
+		on the last map: not the list's first again) */
+		set_list("bloodgulch+hangemhigh+dangercanyon");
 		next_game();
 		CHECK(network_test_playable_map(path, sizeof(path)), "no second map");
-		CHECK(!strcmp(path, "levels\\test\\bloodgulch\\bloodgulch"), "game 2 is %s", path);
+		CHECK(!strcmp(path, "levels\\test\\hangemhigh\\hangemhigh"), "game 2 is %s", path);
+		next_game();
+		CHECK(network_test_playable_map(path, sizeof(path)), "no third map");
+		CHECK(!strcmp(path, "levels\\test\\hangemhigh\\hangemhigh"), "game 3 is %s", path);
+		next_game();
+		CHECK(network_test_playable_map(path, sizeof(path)), "no fourth map");
+		CHECK(!strcmp(path, "levels\\test\\hangemhigh\\hangemhigh"), "game 4 is %s", path);
 		return 0;
 	}
 	CASE("none-installed")
@@ -139,14 +147,16 @@ int main(int argc, char **argv)
 		strcpy(server.game.map.name, "levels\\test\\bloodgulch\\bloodgulch");
 		server.client_machines[1].machine_index = 1;
 		server.client_machines[1].flags = FLAG(_network_client_machine_precached_bit);
-		network_game_server_change_map_name(&server, "levels\\test\\dangercanyon\\dangercanyon");
+		CHECK(!network_game_server_change_map_name(&server, "levels\\test\\dangercanyon\\dangercanyon"),
+			"the refusal wasn't told to the caller");
 		CHECK(!strcmp(server.game.map.name, "levels\\test\\bloodgulch\\bloodgulch"), "the game's map is now %s",
 			server.game.map.name);
 		CHECK(!strcmp(host_map, "levels\\test\\bloodgulch\\bloodgulch"), "the host loads %s", host_map);
 		CHECK(!sends, "the missing map was sent to the players");
 		CHECK(TEST_FLAG(server.client_machines[1].flags, _network_client_machine_precached_bit),
 			"the players were asked to precache again");
-		network_game_server_change_map_name(&server, "levels\\test\\hangemhigh\\hangemhigh");
+		CHECK(network_game_server_change_map_name(&server, "levels\\test\\hangemhigh\\hangemhigh"),
+			"an installed map was told refused");
 		CHECK(!strcmp(server.game.map.name, "levels\\test\\hangemhigh\\hangemhigh"), "an installed map was refused");
 		CHECK(sends == 1, "the installed map wasn't sent");
 		return 0;

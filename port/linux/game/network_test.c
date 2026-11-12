@@ -284,25 +284,36 @@ static void network_test_map_path(
 }
 
 /* the map of this game (network_test.map_entry, copied to path), past maps
-that aren't installed here, each said: the list goes on with its next (from
-its first after the last), as a dedicated server's playlist skips them. A
-host that set a game on a map it lacks would leave its own game (#1106).
-FALSE if none of the list's maps is installed */
+that aren't installed here, each said: the list goes on with its next, and
+past its last holds on its last installed one, as the games past the list
+play its last map. A host that set a game on a map it lacks would leave its
+own game (#1106). FALSE if none of the list's maps is installed */
 static boolean network_test_playable_map(
 	char *path,
 	size_t size)
 {
 	short count = network_test_map_count();
-	short tries;
+	short entry;
 
-	for (tries = 0; tries < count; tries++)
+	for (entry = network_test.map_entry; entry < count; entry++)
 	{
-		network_test_map_path(network_test.map_entry, path, size);
+		network_test_map_path(entry, path, size);
 		if (cache_files_map_installed(path))
+		{
+			network_test.map_entry = entry;
 			return TRUE;
+		}
 		platform_log("network test: game %d: %s isn't installed here; skipping it", network_test.variant_index + 1,
 			path);
-		network_test.map_entry = network_test.map_entry + 1 < count ? network_test.map_entry + 1 : 0;
+	}
+	for (entry = network_test.map_entry - 1; entry >= 0; entry--)
+	{
+		network_test_map_path(entry, path, size);
+		if (cache_files_map_installed(path))
+		{
+			network_test.map_entry = entry;
+			return TRUE;
+		}
 	}
 	return FALSE;
 }

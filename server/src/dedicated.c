@@ -149,7 +149,7 @@ enum
 /* (network_server_manager_internal.h's, and the menus') */
 word network_game_server_get_state(struct network_game_server *server, short *state_data);
 struct network_game *network_game_server_get_game(struct network_game_server *server);
-void network_game_server_change_map_name(struct network_game_server *server, char const *map_name);
+boolean network_game_server_change_map_name(struct network_game_server *server, char const *map_name);
 void network_game_server_change_game_variant(struct network_game_server *server, struct game_variant *variant);
 void network_game_server_pause_countdown(struct network_game_server *server, boolean pause_countdown);
 void network_game_server_dedicated_start_countdown(struct network_game_server *server);
@@ -1079,7 +1079,13 @@ static boolean set_entry(
 	}
 	main_set_multiplayer_map_name(map);
 	game_engine_override_map_name(map);
-	network_game_server_change_map_name(server, map);
+	/* (refused when this machine hasn't got the map after all: skipped, the
+	game type left as it was, #1106) */
+	if (!network_game_server_change_map_name(server, map))
+	{
+		skip_entry(map, variant_name, "the map isn't installed on this server");
+		return FALSE;
+	}
 	/* (the game type's PC options too, as the game's gametype editor gives
 	them: the server's change of game type takes the menus' when they are
 	for the same variant) */
@@ -1194,8 +1200,9 @@ void dedicated_server_update(
 		}
 #endif
 		/* (a playlist with no map this server has: nothing hosted, unless
-		a command has chosen a game or another playlist) */
-		if (!dedicated.chosen_pending && !dedicated.pending && !playlist_playable())
+		a command has chosen a game (one being played too, whose lobby
+		closed) or another playlist) */
+		if (!dedicated.chosen_pending && !dedicated.chosen_playing && !dedicated.pending && !playlist_playable())
 			return;
 		dedicated.tried = TRUE;
 		dedicated.tried_time = system_milliseconds();
