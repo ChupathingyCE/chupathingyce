@@ -333,6 +333,8 @@ static struct
 	id; offer_display is its title */
 	boolean offer_workshop;
 	char offer_workshop_id[24];
+	/* (why a Workshop item wasn't fetched: the Workshop's own short sentence) */
+	char offer_workshop_why[96];
 	boolean offer_dont_ask;
 	struct map_download_progress offer_progress;
 	/* when it was offered (the A that joined, still held, answers nothing) */
@@ -682,16 +684,15 @@ static void start_offered_download(
 {
 	if (browser_screen.offer_workshop)
 	{
-		char why[96];
-
 		csmemset(&browser_screen.offer_progress, 0, sizeof(browser_screen.offer_progress));
-		if (workshop_join_start(browser_screen.offer_workshop_id, why, (int)sizeof(why)))
-			browser_screen.offer = _offer_downloading;
-		else
+		browser_screen.offer_workshop_why[0] = 0;
+		if (workshop_join_start(browser_screen.offer_workshop_id, browser_screen.offer_workshop_why,
+			(int)sizeof(browser_screen.offer_workshop_why)))
 		{
-			browser_screen.offer = _offer_failed;
-			snprintf(browser_screen.offer_progress.message, sizeof(browser_screen.offer_progress.message), "%s", why);
+			browser_screen.offer = _offer_downloading;
 		}
+		else
+			browser_screen.offer = _offer_failed;
 		return;
 	}
 	if (map_download_start(browser_screen.offer_file, (unsigned int)browser_screen.offer_version))
@@ -905,7 +906,8 @@ static void follow_download(
 		unsigned long long done, total;
 		struct map_download_progress *progress = &browser_screen.offer_progress;
 
-		switch (workshop_join_poll(&done, &total, progress->message, (int)sizeof(progress->message)))
+		switch (workshop_join_poll(&done, &total, browser_screen.offer_workshop_why,
+			(int)sizeof(browser_screen.offer_workshop_why)))
 		{
 		case WORKSHOP_JOIN_INSTALLED:
 			browser_screen.offer = _offer_none;
@@ -918,7 +920,7 @@ static void follow_download(
 			break;
 		case WORKSHOP_JOIN_FAILED:
 			if (browser_screen.rejoin_pending)
-				rejoin_given_up(progress->message);
+				rejoin_given_up(browser_screen.offer_workshop_why);
 			else
 				browser_screen.offer = _offer_failed;
 			break;
@@ -3576,7 +3578,7 @@ static void draw_map_offer(
 			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, COLOR_WARN, 0xF0A07060,
 				text);
 			ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 126, UI_ALIGN_CENTER, COLOR_TEXT,
-				progress->message[0] ? progress->message : "Steam didn't answer.");
+				browser_screen.offer_workshop_why[0] ? browser_screen.offer_workshop_why : "Steam didn't answer.");
 			dialog_prompt(UI_BUTTON_B, "=CLOSE");
 			break;
 		}
