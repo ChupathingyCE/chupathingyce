@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include "mcc_host_memory.h"
 unsigned long system_milliseconds(void);
 
 /* Logging includes the game's allocation macros. This reader owns libc

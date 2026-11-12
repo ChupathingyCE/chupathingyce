@@ -267,6 +267,8 @@ game list entry): -1 older, 1 newer, 0 joinable. Every build */
 int browser_version_state(int version);
 /* whether a game's map (a scenario's name or path) is a campaign level: a
 co-op game */
+/* (browser.c) an MCC map's kind, from the game's MCC catalog (NULL: none) */
+extern int (*browser_mcc_campaign)(const char *map);
 int browser_map_is_campaign(const char *map);
 /* the game lists' filter, kept for the session: all games, multiplayer
 games, or co-op games (a campaign level). Every build */

@@ -95,6 +95,8 @@ static void mg_allocation_free(void *allocation,int bsp) {
     if (!allocation) return;
     if (bsp) system_free(allocation); else free(allocation);
 }
+/* (this unit's malloc is the game's heap, cseries.h's: a triangle buffer
+keeps its indices where the rasterizer reads them, by a 32-bit address) */
 
 static struct mcc_geometry_buffer *mg_record(struct mcc_runtime *r,void *descriptor,
     void *payload,uint32_t bytes,void *allocation,uint32_t allocation_bytes,int index,int bsp) {

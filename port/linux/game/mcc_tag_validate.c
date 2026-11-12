@@ -12,36 +12,44 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include "mcc_host_memory.h"
 
 #define MCC_VALIDATION_DEPTH 32
 #define MCC_VALIDATION_CAPACITY 0x04000000UL
 
+/* port: the tags' own layouts, 32 bits a field: their pointers are the
+addresses the tags hold (cseries/xbox_address.h), and a 64-bit build's long
+is 64 bits */
 struct mcc_validation_instance {
-    unsigned long group, parents[2];
-    long handle;
-    char *name;
-    void *root;
-    unsigned long unused[2];
+    uint32_t group, parents[2];
+    int32_t handle;
+    XPTR(char) name;
+    XPTR(void) root;
+    uint32_t unused[2];
 };
 struct mcc_validation_header {
-    struct mcc_validation_instance *instances;
-    long scenario;
-    unsigned long checksum;
-    long count;
-    long vertex_count;
-    byte *vertices;
-    long index_count;
-    byte *indices;
-    unsigned long signature;
+    XPTR(struct mcc_validation_instance) instances;
+    int32_t scenario;
+    uint32_t checksum;
+    int32_t count;
+    int32_t vertex_count;
+    XPTR(byte) vertices;
+    int32_t index_count;
+    XPTR(byte) indices;
+    uint32_t signature;
 };
 struct mcc_validation_bsp_header {
-    void *root;
-    long vertex_count;
-    byte *vertices;
-    long index_count;
-    byte *indices;
-    unsigned long signature;
+    XPTR(void) root;
+    int32_t vertex_count;
+    XPTR(byte) vertices;
+    int32_t index_count;
+    XPTR(byte) indices;
+    uint32_t signature;
 };
+typedef char mcc_validation_instance_size[sizeof(struct mcc_validation_instance) == 32 ? 1 : -1];
+#define MCC_INSTANCES(header) ((struct mcc_validation_instance *)xbox_pointer((header)->instances))
+#define MCC_ROOT(instance) ((void *)xbox_pointer((instance)->root))
+#define MCC_NAME(instance) ((char *)xbox_pointer((instance)->name))
 struct mcc_validation_frame {
     byte *address;
     struct tag_schema_definition const *schema;
@@ -73,6 +81,9 @@ static struct {
     unsigned long claim_bytes;
     long corrections;
     struct mcc_validation_context *active;
+    /* port: the empty name as a reference holds it: in the tags, where a
+     * 32-bit address names it (cseries/xbox_address.h) */
+    char *empty_name;
 } mcc_validation;
 static char mcc_validation_empty_name[] = "";
 static struct mcc_validation_dispatch const mcc_callbacks = {
@@ -235,7 +246,7 @@ static struct mcc_validation_instance *mcc_instance(long handle)
 {
     unsigned long slot = (unsigned long)handle & 0xffffUL;
     if (handle == NONE || !mcc_validation.header || slot >= (unsigned long)mcc_validation.header->count) return NULL;
-    return mcc_validation.header->instances[slot].handle == handle ? &mcc_validation.header->instances[slot] : NULL;
+    return MCC_INSTANCES(mcc_validation.header)[slot].handle == handle ? &MCC_INSTANCES(mcc_validation.header)[slot] : NULL;
 }
 
 static int mcc_is_group(struct mcc_validation_instance const *instance, unsigned long const *groups)
@@ -439,17 +450,17 @@ static int mcc_animation_model_tree(struct mcc_validation_context *context,
     }
     if (mcc_integer((byte *)xbox_pointer(nodes->address)+32,2,0)!=NONE) return 0;
     for (i=0;i<header->count;i++) {
-        struct mcc_validation_instance *object=header->instances+i,*model;
+        struct mcc_validation_instance *object=MCC_INSTANCES(header)+i,*model;
         struct tag_block const *model_nodes;
         long model_handle,graph_handle;
         if (object->parents[0]!='obje' && object->parents[1]!='obje') continue;
-        if (!mcc_range(context->region,context->length,object->root,72)) return 0;
-        memcpy(&graph_handle,(byte *)object->root+68,4);
+        if (!mcc_range(context->region,context->length,MCC_ROOT(object),72)) return 0;
+        memcpy(&graph_handle,(byte *)MCC_ROOT(object)+68,4);
         if (graph_handle!=context->handle) continue;
-        memcpy(&model_handle,(byte *)object->root+52,4);
+        memcpy(&model_handle,(byte *)MCC_ROOT(object)+52,4);
         model=mcc_instance(model_handle);
-        if (!model || model->group!='mode' || !mcc_range(context->region,context->length,model->root,232)) return 0;
-        model_nodes=(struct tag_block const *)((byte *)model->root+184);
+        if (!model || model->group!='mode' || !mcc_range(context->region,context->length,MCC_ROOT(model),232)) return 0;
+        model_nodes=(struct tag_block const *)((byte *)MCC_ROOT(model)+184);
         if (model_nodes->count!=nodes->count ||
             !mcc_range(context->region,context->length,xbox_pointer(model_nodes->address),nodes->count*156)) return 0;
         for (j=0;j<nodes->count;j++) {
@@ -787,10 +798,11 @@ static void mcc_fields(struct mcc_validation_context *context, byte *address,
                     if (field->type == _tag_schema_reference) {
                         if (*handle != NONE && instance) {
                             reference->group_tag = instance->group;
-                            reference->name = xbox_address(instance->name);
-                            reference->name_length = (long)strlen(instance->name);
+                            reference->name = instance->name;
+                            reference->name_length = (long)strlen(MCC_NAME(instance));
                         } else {
-                            reference->name = xbox_address(mcc_validation_empty_name);
+                            reference->name = xbox_address(mcc_validation.empty_name ?
+                                mcc_validation.empty_name : mcc_validation_empty_name);
                             reference->name_length = 0;
                         }
                     }
@@ -867,7 +879,7 @@ static int mcc_root_compare(void const *a, void const *b)
 {
     struct mcc_validation_instance const *x=*(struct mcc_validation_instance const *const *)a;
     struct mcc_validation_instance const *y=*(struct mcc_validation_instance const *const *)b;
-    uintptr_t first=(uintptr_t)x->root, second=(uintptr_t)y->root;
+    uintptr_t first=(uintptr_t)x->root, second=(uintptr_t)y->root; /* (Xbox addresses) */
     return first<second ? -1 : first>second;
 }
 
@@ -883,6 +895,11 @@ int mcc_tags_validate(struct mcc_runtime *runtime)
         runtime->capacity > MCC_VALIDATION_CAPACITY) return 0;
     mcc_validation_dispose(mcc_validation.runtime);
     mcc_validation.runtime = runtime;
+    mcc_validation.empty_name = NULL;
+#ifdef HALO_ADDRESS_TRANSLATED
+    mcc_validation.empty_name = mcc_runtime_allocate(runtime, 4);
+    if (mcc_validation.empty_name) mcc_validation.empty_name[0] = 0;
+#endif
     header = mcc_validation.header = (struct mcc_validation_header *)runtime->tags;
     mcc_validation.claim_bytes = (runtime->capacity + 7) / 8;
     mcc_validation.claims = malloc(mcc_validation.claim_bytes);
@@ -891,9 +908,9 @@ int mcc_tags_validate(struct mcc_runtime *runtime)
     memset(&context, 0, sizeof(context)); context.region = runtime->tags; context.length = runtime->used;
     context.handle = NONE;
     if (header->signature != 'tags' || header->count <= 0 || header->count > 65535 ||
-        ((uintptr_t)header->instances & 3) ||
-        !mcc_range(runtime->tags, runtime->used, header->instances, (unsigned long)header->count * sizeof(*header->instances)) ||
-        !mcc_claim(header, sizeof(*header)) || !mcc_claim(header->instances, header->count * sizeof(*header->instances))) {
+        ((uintptr_t)MCC_INSTANCES(header) & 3) /* (as its address: 4 GB aligned base) */ ||
+        !mcc_range(runtime->tags, runtime->used, MCC_INSTANCES(header), (unsigned long)header->count * sizeof(*MCC_INSTANCES(header))) ||
+        !mcc_claim(header, sizeof(*header)) || !mcc_claim(MCC_INSTANCES(header), header->count * sizeof(*MCC_INSTANCES(header)))) {
         mcc_problem(&context, 1, "invalid tag header or instance table"); return 0;
     }
     roots=malloc(header->count*sizeof(*roots));
@@ -901,47 +918,47 @@ int mcc_tags_validate(struct mcc_runtime *runtime)
     if (!roots || !mcc_validation.aliases) {free(roots);return 0;}
     memset(mcc_validation.aliases,0,header->count);
     for (i = 0; i < header->count && !context.rejected; ++i) {
-        struct mcc_validation_instance *instance = &header->instances[i];
+        struct mcc_validation_instance *instance = &MCC_INSTANCES(header)[i];
         struct tag_schema_group const *group = mcc_group(instance->group);
         context.handle = instance->handle;
         if (((unsigned long)instance->handle & 65535UL) != (unsigned long)i || !group) {
             mcc_problem(&context, 1, "invalid tag handle or unsupported tag group"); break;
         }
         instance->parents[0] = group->parent_group_tags[0]; instance->parents[1] = group->parent_group_tags[1];
-        if (!mcc_name_valid(&context, instance->name)) instance->name = mcc_validation_empty_name;
-        if (instance->group == 'sbsp') { instance->root = NULL; continue; }
+        if (!mcc_name_valid(&context, MCC_NAME(instance))) instance->name = xbox_address(mcc_validation.empty_name ? mcc_validation.empty_name : mcc_validation_empty_name);
+        if (instance->group == 'sbsp') { instance->root = XBOX_NULL; continue; }
         if (!group->definition) {
-            if (!mcc_range(context.region, context.length, instance->root, 1)) mcc_problem(&context, 1, "tag root outside cache");
+            if (!mcc_range(context.region, context.length, MCC_ROOT(instance), 1)) mcc_problem(&context, 1, "tag root outside cache");
             continue;
         }
-        if (!mcc_range(context.region, context.length, instance->root, group->definition->size))
+        if (!mcc_range(context.region, context.length, MCC_ROOT(instance), group->definition->size))
             mcc_problem(&context, 1, "tag root outside cache");
     }
-    for (i=0;i<header->count;i++) roots[i]=header->instances+i;
+    for (i=0;i<header->count;i++) roots[i]=MCC_INSTANCES(header)+i;
     qsort(roots,header->count,sizeof(*roots),mcc_root_compare);
     for (i=0;i<header->count && !context.rejected;i++) {
         struct mcc_validation_instance *instance=roots[i];
         struct tag_schema_group const *group=mcc_group(instance->group);
         context.handle=instance->handle;
-        if (!instance->root || !group || !group->definition) continue;
+        if (!MCC_ROOT(instance) || !group || !group->definition) continue;
         /* Compiled MCC caches can deduplicate complete tags (BioHalo's
          * landing-beacon lens flares). Validate each same-group root once;
          * partial overlaps and roots interpreted as different groups fail. */
         if (i && roots[i-1]->root==instance->root && roots[i-1]->group==instance->group)
-            mcc_validation.aliases[instance-header->instances]=1;
-        else if (!mcc_claim(instance->root,group->definition->size))
+            mcc_validation.aliases[instance-MCC_INSTANCES(header)]=1;
+        else if (!mcc_claim(MCC_ROOT(instance),group->definition->size))
             mcc_problem(&context,1,"tag root overlaps another allocation");
     }
     free(roots);
     for (pass = 0; pass < 2 && !context.rejected; ++pass)
         for (i = 0; i < header->count && !context.rejected; ++i) {
-            struct mcc_validation_instance *instance = &header->instances[i];
+            struct mcc_validation_instance *instance = &MCC_INSTANCES(header)[i];
             struct tag_schema_group const *group = mcc_group(instance->group);
             context.handle = instance->handle;
             mcc_loading_update(MCC_LOADING_VALIDATION,
                 (unsigned long)pass * header->count + i, (unsigned long)header->count * 2);
-            if (instance->root && group && group->definition && !mcc_validation.aliases[i])
-                mcc_walk(&context, instance->root, group->definition, pass);
+            if (MCC_ROOT(instance) && group && group->definition && !mcc_validation.aliases[i])
+                mcc_walk(&context, MCC_ROOT(instance), group->definition, pass);
         }
     if (!mcc_instance(header->scenario) || mcc_instance(header->scenario)->group != 'scnr')
         mcc_problem(&context, 1, "scenario handle does not identify a scenario");
@@ -966,11 +983,11 @@ int mcc_bsp_validate(struct mcc_runtime *runtime, long handle, void *address, lo
     for (bit = runtime->used; bit < runtime->capacity; ++bit) mcc_validation.claims[bit >> 3] &= (byte)~(1U << (bit & 7));
     memset(&context, 0, sizeof(context)); context.region = address; context.length = size; context.handle = handle;
     if (header->signature != 'sbsp' || !mcc_claim(header, sizeof(*header)) ||
-        !mcc_range(address, size, header->root, schema->definition->size) || !mcc_claim(header->root, schema->definition->size)) {
+        !mcc_range(address, size, xbox_pointer(header->root), schema->definition->size) || !mcc_claim(xbox_pointer(header->root), schema->definition->size)) {
         mcc_problem(&context, 1, "invalid BSP header or root"); return 0;
     }
-    mcc_walk(&context, header->root, schema->definition, 0);
-    if (!context.rejected) mcc_walk(&context, header->root, schema->definition, 1);
+    mcc_walk(&context, xbox_pointer(header->root), schema->definition, 0);
+    if (!context.rejected) mcc_walk(&context, xbox_pointer(header->root), schema->definition, 1);
     return !context.rejected;
 }
 
@@ -1017,7 +1034,7 @@ void *mcc_validation_tag_get(struct tag_validation *validation, long handle, uns
 {
     struct mcc_validation_instance *instance = mcc_instance(handle);
     unsigned long groups[2]; (void)validation; groups[0] = group; groups[1] = 0;
-    return instance && mcc_is_group(instance, groups) ? instance->root : NULL;
+    return instance && mcc_is_group(instance, groups) ? MCC_ROOT(instance) : NULL;
 }
 void *mcc_validation_buffer_data(struct tag_validation *validation, void const *buffer, boolean indices)
 {

@@ -16,6 +16,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "mcc_host_memory.h"
 
 #define MCC_CHECKPOINT_PAYLOAD_LIMIT (8u + 8192u * 8u)
 #define MCC_CHECKPOINT_CAMPAIGN_BYTES MCC_CAMPAIGN_SNAPSHOT_V5_BYTES
