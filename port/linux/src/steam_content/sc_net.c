@@ -85,8 +85,14 @@ static mbedtls_x509_crt *certificates(void)
 		return (mbedtls_x509_crt *)sc_host.certificates();
 	if (!own_certificates_state)
 	{
+		const char *named = getenv("SSL_CERT_FILE");
+
 		own_certificates_state = -1;
 		mbedtls_x509_crt_init(&own_certificates);
+		/* (a bundle named in the environment first, as OpenSSL reads it: the
+		tools and tests outside the game, which has the system's own) */
+		if (named && named[0] && mbedtls_x509_crt_parse_file(&own_certificates, named) >= 0)
+			own_certificates_state = 1;
 		for (index = 0; index < sizeof(bundles) / sizeof(bundles[0]); index++)
 		{
 			if (mbedtls_x509_crt_parse_file(&own_certificates, bundles[index]) >= 0)
@@ -292,6 +298,19 @@ struct sc_connection *sc_connect(const char *host, int port, int tls, int timeou
 	int pass;
 
 	error[0] = 0;
+#ifdef _WIN32
+	/* (Winsock started once by us too: the game has, a tool may not have) */
+	{
+		static LONG started;
+
+		if (!InterlockedExchange(&started, 1))
+		{
+			WSADATA data;
+
+			WSAStartup(MAKEWORD(2, 2), &data);
+		}
+	}
+#endif
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;

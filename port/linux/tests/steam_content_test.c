@@ -299,6 +299,28 @@ static void test_errors(void)
 	CHECK(steam_content_error_from_result(STEAM_CONTENT_STEP_DEPOT_KEY, SC_RESULT_OK) == STEAM_CONTENT_OK);
 }
 
+/* the system's secret store, when asked (STEAM_CONTENT_TEST_SECRET=1: it may
+ask the player on a Mac, so not by default): a token put, read back and
+deleted (Windows: DPAPI; Linux: libsecret where there is a keyring) */
+static void test_secret_store(void)
+{
+	char token[64];
+
+	if (!getenv("STEAM_CONTENT_TEST_SECRET"))
+		return;
+	snprintf(sc_host.data_folder, sizeof(sc_host.data_folder), ".");
+	if (!sc_secret_store_name())
+	{
+		printf("no secret store here\n");
+		return;
+	}
+	printf("secret store: %s\n", sc_secret_store_name());
+	CHECK(sc_secret_put("test-account", "token-123.abc"));
+	CHECK(sc_secret_get("test-account", token, sizeof(token)) && !strcmp(token, "token-123.abc"));
+	sc_secret_delete("test-account");
+	CHECK(!sc_secret_get("test-account", token, sizeof(token)));
+}
+
 int main(void)
 {
 	test_proto();
@@ -307,6 +329,7 @@ int main(void)
 	test_names();
 	test_logon();
 	test_errors();
+	test_secret_store();
 	if (failures)
 	{
 		fprintf(stderr, "%d failed\n", failures);
