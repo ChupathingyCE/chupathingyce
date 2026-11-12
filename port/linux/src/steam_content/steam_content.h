@@ -70,7 +70,15 @@ enum
 	/* anything else (why: the log) */
 	STEAM_CONTENT_FAILED,
 	STEAM_CONTENT_CANCELLED,
+	/* the item, or one of its files, is over the size limit (steam_content_host) */
+	STEAM_CONTENT_TOO_LARGE,
+	/* not enough free space on the disk for it */
+	STEAM_CONTENT_DISK_FULL,
 };
+
+/* the size limits when the program gives none: an item's files together, and one file */
+#define STEAM_CONTENT_DEFAULT_ITEM_LIMIT (8ull * 1024 * 1024 * 1024)
+#define STEAM_CONTENT_DEFAULT_FILE_LIMIT (4ull * 1024 * 1024 * 1024)
 
 /* the QR sign-in */
 enum
@@ -122,6 +130,10 @@ struct steam_content_host
 	void (*log)(const char *format, ...);
 	/* 1: the token only in the sign-in file, never the system's secret store (tests) */
 	int file_only;
+	/* the largest item (its files together) and file a download takes, in
+	bytes; 0 for STEAM_CONTENT_DEFAULT_ITEM_LIMIT and _FILE_LIMIT */
+	unsigned long long item_limit;
+	unsigned long long file_limit;
 };
 
 void steam_content_init(const struct steam_content_host *host);
@@ -150,6 +162,9 @@ void steam_content_cancel(unsigned long long id);
 /* where the sign-in's token is kept, for the player ("the macOS Keychain",
 "a private file in the data folder") */
 const char *steam_content_store(void);
+/* 0 when the stored token is linked but only in the private file (no
+secret store took it), so the program can say so; 1 otherwise */
+int steam_content_store_secure(void);
 /* stop everything, forget the sign-in (the file and the stored token
 deleted, LoginID with them) and revoke the token at Steam (in the background) */
 void steam_content_sign_out(void);

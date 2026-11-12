@@ -38,6 +38,7 @@ SPDX-License-Identifier: MIT
 const char *platform_data_root(void);
 void platform_log(const char *format, ...);
 int config_boolean(const char *name);
+long config_integer(const char *name);
 const char *config_string(const char *name);
 
 static char pipe_folder[STEAM_BRIDGE_PATH_SIZE];
@@ -65,6 +66,11 @@ static void pipe_init(void)
 #endif
 	host.log = platform_log;
 	host.file_only = config_boolean("debug.steam_link_file");
+	/* (the size limits, in MB: 0 or less keeps the content client's defaults) */
+	if (config_integer("game.workshop_item_limit_mb") > 0)
+		host.item_limit = (unsigned long long)config_integer("game.workshop_item_limit_mb") << 20;
+	if (config_integer("game.workshop_file_limit_mb") > 0)
+		host.file_limit = (unsigned long long)config_integer("game.workshop_file_limit_mb") << 20;
 	steam_content_init(&host);
 	pipe_ready = 1;
 }
@@ -338,6 +344,12 @@ const char *steam_link_store(void)
 	return steam_content_store();
 }
 
+int steam_link_store_secure(void)
+{
+	pipe_init();
+	return steam_content_store_secure();
+}
+
 void steam_link_unlink(void)
 {
 	pipe_init();
@@ -401,6 +413,7 @@ int steam_link_poll(char *qr_text, int size, char *error, int error_size)
 }
 void steam_link_cancel(void) {}
 const char *steam_link_store(void) { return ""; }
+int steam_link_store_secure(void) { return 1; }
 void steam_link_set_armed(int value) { (void)value; }
 int steam_link_armed(void) { return 0; }
 void steam_link_unlink(void) {}

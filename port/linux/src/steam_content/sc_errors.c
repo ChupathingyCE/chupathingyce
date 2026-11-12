@@ -21,6 +21,8 @@ const char *steam_content_error_text(int error)
 	case STEAM_CONTENT_SIGN_IN: return "Sign in";
 	case STEAM_CONTENT_OFFLINE: return "Offline";
 	case STEAM_CONTENT_CANCELLED: return "Cancelled";
+	case STEAM_CONTENT_TOO_LARGE: return "Too large";
+	case STEAM_CONTENT_DISK_FULL: return "Disk full";
 	default: return "Failed";
 	}
 }

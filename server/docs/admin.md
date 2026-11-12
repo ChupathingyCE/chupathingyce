@@ -80,12 +80,17 @@ The server can fetch MCC Workshop items itself, for its map cycle, with no
 Steam client or steamcmd. The account that links must own Halo: The Master
 Chief Collection on Steam.
 
-1. On the console, run `sv_steam_link`. The log prints a QR code made of
-   text, and its address. Open the Steam app on your phone, go to
+1. On the console, run `sv_steam_link`. The server's terminal shows a QR
+   code made of text, and its address (only the terminal: never the log
+   file or the control panel). Open the Steam app on your phone, go to
    **Steam Guard**, scan the code and approve. The server never sees a
-   password. The code changes every so often; the log prints each new one.
+   password. The code changes every so often; the terminal shows each new
+   one.
 2. Run `sv_workshop_get <item id>` (the number in the item's Steam page
-   address). The log shows its progress and when it is installed. Or start
+   address; admins and the console only). The log shows its progress and
+   when it is installed. An item over 8 GB, or with a file over 4 GB, is
+   refused (`game.workshop_item_limit_mb`, `game.workshop_file_limit_mb`),
+   as is one the disk has no room for. Or start
    the server with `--workshop-get <item id>` (more than once for more
    items).
 3. Its maps are listed by `sv_maps` as `mcc_maps\<item id>\<map>`. Put them

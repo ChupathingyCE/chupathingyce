@@ -1228,6 +1228,10 @@ static const struct config_setting config_settings[] =
 		_platform_desktop,
 		"Get a game's missing MCC Workshop map through your Steam when you join:\n"
 		"\"ask\", \"always\" or \"never\"." },
+	{ "network.workshop_downloads_limit_mb", _config_integer, "1024", "HALO_NET_WORKSHOP_DOWNLOADS_LIMIT_MB",
+		_environment_value, _platform_desktop,
+		"With network.workshop_downloads \"always\": the largest Workshop item, in MB,\n"
+		"got without asking. A bigger one asks first." },
 	{ "network.workshop_url", _config_string, "\"\"", "HALO_WORKSHOP_URL", _environment_value, _platform_desktop,
 		"The list of MCC Workshop items the Delta Guide's Workshop shows (with\n"
 		"MCC on this computer). Empty shows only the items Steam has installed." },
@@ -1421,6 +1425,12 @@ static const struct config_setting config_settings[] =
 	{ "paths.steamcmd", _config_string, "\"\"", "HALO_STEAMCMD", _environment_value, _platform_desktop,
 		"steamcmd, for the Workshop on macOS and Linux. Empty looks in the PATH and the\n"
 		"usual places." },
+	{ "game.workshop_item_limit_mb", _config_integer, "8192", "HALO_WORKSHOP_ITEM_LIMIT_MB", _environment_value,
+		_platform_desktop,
+		"The largest Workshop item, in MB, the game's own Steam download takes." },
+	{ "game.workshop_file_limit_mb", _config_integer, "4096", "HALO_WORKSHOP_FILE_LIMIT_MB", _environment_value,
+		_platform_desktop,
+		"The largest single file, in MB, the game's own Steam download takes." },
 	{ "paths.steam_downloads", _config_string, "\"\"", "HALO_STEAM_DOWNLOADS", _environment_value, _platform_desktop,
 		"Where the game puts the Workshop items it downloads, and MCC's Halo CE files.\n"
 		"Empty is steam/ in the data folder. Use a big drive for MCC's files." },

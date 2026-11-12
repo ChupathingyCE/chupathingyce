@@ -33,6 +33,7 @@ SPDX-License-Identifier: MIT
 #else
 #include <dirent.h>
 #include <fcntl.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 #define make_folder(path) mkdir(path, 0755)
 #define remove_file unlink
@@ -100,6 +101,8 @@ static struct
 	char persona[STEAM_CONTENT_PERSONA_SIZE];
 	/* an unlink's revoke at Steam still under way */
 	int revoking;
+	/* the stored token is in the system's secret store (0: the private file) */
+	int token_in_store;
 } client = { PTHREAD_MUTEX_INITIALIZER };
 
 /* ---------- small things */
@@ -172,6 +175,7 @@ static int sign_in_read(struct sign_in *sign_in)
 	}
 	memset(line, 0, sizeof(line));
 	fclose(file);
+	client.token_in_store = sign_in->in_store;
 	if (sign_in->in_store && sign_in->account[0] && !sign_in->token[0] &&
 		!sc_secret_get(sign_in->account, sign_in->token, sizeof(sign_in->token)))
 	{
@@ -204,7 +208,9 @@ static int sign_in_write(const struct sign_in *sign_in)
 	if (!file)
 		return 0;
 	/* (the token in the system's store when it takes it; else in this file only) */
-	if (!sc_host.file_only && sc_secret_store_name() && sc_secret_put(sign_in->account, sign_in->token))
+	client.token_in_store = !sc_host.file_only && sc_secret_store_name() &&
+		sc_secret_put(sign_in->account, sign_in->token);
+	if (client.token_in_store)
 		ok = fprintf(file, "account=%s\nstore=system\nlogin_id=%08x\npersona=%s\n", sign_in->account,
 			(unsigned)sign_in->login_id, sign_in->persona) > 0;
 	else
@@ -657,6 +663,34 @@ static int file_path(const struct download *download, const struct sc_file *file
 	return !is_link(path);
 }
 
+/* the free bytes on the disk that has path; 0 when unknown */
+static unsigned long long disk_free(const char *path)
+{
+#ifdef _WIN32
+	ULARGE_INTEGER available;
+
+	if (GetDiskFreeSpaceExA(path, &available, NULL, NULL))
+		return available.QuadPart;
+	return 0;
+#else
+	struct statvfs information;
+
+	if (statvfs(path, &information) == 0)
+		return (unsigned long long)information.f_bavail * (unsigned long long)information.f_frsize;
+	return 0;
+#endif
+}
+
+static unsigned long long item_limit(void)
+{
+	return sc_host.item_limit ? sc_host.item_limit : STEAM_CONTENT_DEFAULT_ITEM_LIMIT;
+}
+
+static unsigned long long file_limit(void)
+{
+	return sc_host.file_limit ? sc_host.file_limit : STEAM_CONTENT_DEFAULT_FILE_LIMIT;
+}
+
 /* the file made at its full size (its chunks then written into it) */
 static int file_prepare(const char *path, unsigned long long size)
 {
@@ -885,7 +919,9 @@ static void *fetch_thread(void *context)
 					last_status) : STEAM_CONTENT_OFFLINE, "a chunk could not be fetched from any content server");
 			break;
 		}
-		if (!file_path(download, file, path, sizeof(path)) || !file_write_at(path, chunk->offset, plain, chunk->size))
+		/* (inside its file, as the manifest was checked for: never past it) */
+		if (chunk->offset > file->size || chunk->size > file->size - chunk->offset ||
+			!file_path(download, file, path, sizeof(path)) || !file_write_at(path, chunk->offset, plain, chunk->size))
 		{
 			download_fail(download, STEAM_CONTENT_FAILED, "a file could not be written");
 			break;
@@ -1101,6 +1137,22 @@ static int download_item(struct download *download, const char *library, char *w
 		snprintf(why, why_size, "%s", error);
 		return STEAM_CONTENT_FAILED;
 	}
+	/* (the limits: an item, and each of its files) */
+	if (download->manifest.total > item_limit())
+	{
+		snprintf(why, why_size, "the item is %llu MB, over the %llu MB limit",
+			(unsigned long long)(download->manifest.total >> 20), item_limit() >> 20);
+		return STEAM_CONTENT_TOO_LARGE;
+	}
+	for (index = 0; index < download->manifest.file_count; index++)
+	{
+		if (!(download->manifest.files[index].flags & SC_FILE_DIRECTORY) &&
+			download->manifest.files[index].size > file_limit())
+		{
+			snprintf(why, why_size, "a file of the item is over the %llu MB limit", file_limit() >> 20);
+			return STEAM_CONTENT_TOO_LARGE;
+		}
+	}
 	download->chunk_file = (int *)malloc(sizeof(int) * (size_t)(download->manifest.chunk_count + 1));
 	if (!download->chunk_file)
 		return STEAM_CONTENT_FAILED;
@@ -1159,6 +1211,16 @@ static int download_item(struct download *download, const char *library, char *w
 			}
 			for (chunk = 0; chunk < file->chunk_count; chunk++)
 				download->chunk_file[file->first_chunk + chunk] = whole ? -1 : index;
+		}
+		/* (room on the disk for what is still to come, and a little more) */
+		{
+			unsigned long long needed = download->manifest.total - kept, room = disk_free(download->folder);
+
+			if (room && room < needed + (64ull << 20))
+			{
+				snprintf(why, why_size, "%llu MB is needed and the disk has %llu MB free", needed >> 20, room >> 20);
+				return STEAM_CONTENT_DISK_FULL;
+			}
 		}
 		download->done = kept;
 		sc_log("Steam: item %llu: %d files, %d chunks, %llu bytes; %d files already whole", download->id,
@@ -1527,8 +1589,23 @@ static void *revoke_thread(void *context)
 
 const char *steam_content_store(void)
 {
-	return !sc_host.file_only && sc_secret_store_name() ? sc_secret_store_name() :
-		"a private file in the data folder";
+	int in_store;
+
+	pthread_mutex_lock(&client.lock);
+	in_store = client.linked ? client.token_in_store : !sc_host.file_only && sc_secret_store_name();
+	pthread_mutex_unlock(&client.lock);
+	return in_store && sc_secret_store_name() ? sc_secret_store_name() :
+		"a private file in the data folder (not encrypted)";
+}
+
+int steam_content_store_secure(void)
+{
+	int secure;
+
+	pthread_mutex_lock(&client.lock);
+	secure = !client.linked || client.token_in_store;
+	pthread_mutex_unlock(&client.lock);
+	return secure;
 }
 
 void steam_content_sign_out(void)

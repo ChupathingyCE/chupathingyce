@@ -232,6 +232,20 @@ static void test_names(void)
 	CHECK(!sc_name_safe("maps/"));
 	CHECK(!sc_name_safe("a\\b"));
 	CHECK(!sc_name_safe("bad\nname"));
+	/* (Windows: devices with any extension, trailing dots and spaces, streams, its reserved marks) */
+	CHECK(!sc_name_safe("CON"));
+	CHECK(!sc_name_safe("maps/nul.txt"));
+	CHECK(!sc_name_safe("Aux.map"));
+	CHECK(!sc_name_safe("com1"));
+	CHECK(!sc_name_safe("LPT9.log"));
+	CHECK(sc_name_safe("COM0"));
+	CHECK(sc_name_safe("console.txt"));
+	CHECK(sc_name_safe("maps/null.map"));
+	CHECK(!sc_name_safe("maps/a."));
+	CHECK(!sc_name_safe("maps /a"));
+	CHECK(!sc_name_safe("a.map:stream"));
+	CHECK(!sc_name_safe("a?.map"));
+	CHECK(!sc_name_safe("a|b"));
 }
 
 static void test_logon(void)

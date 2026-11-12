@@ -24,6 +24,7 @@ SPDX-License-Identifier: MIT
 #include "sc_internal.h"
 #include "sc_proto.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -279,10 +280,39 @@ int sc_chunk_decode(const unsigned char key[32], const unsigned char *data, size
 
 /* ---------- the manifest */
 
+/* a part Windows keeps for a device (CON, PRN, AUX, NUL, COM1-9, LPT1-9),
+with any extension: "nul.txt" opens the device too */
+static int device_name(const char *part, size_t length)
+{
+	static const char *const devices[] = { "CON", "PRN", "AUX", "NUL" };
+	char base[5];
+	size_t base_length = 0, index;
+
+	while (base_length < length && part[base_length] != '.' && base_length < 5)
+		base_length++;
+	if (base_length < length && part[base_length] != '.')
+		return 0;
+	if (base_length != 3 && base_length != 4)
+		return 0;
+	for (index = 0; index < base_length; index++)
+		base[index] = (char)toupper((unsigned char)part[index]);
+	if (base_length == 3)
+	{
+		for (index = 0; index < sizeof(devices) / sizeof(devices[0]); index++)
+		{
+			if (!memcmp(base, devices[index], 3))
+				return 1;
+		}
+		return 0;
+	}
+	return (!memcmp(base, "COM", 3) || !memcmp(base, "LPT", 3)) && base[3] >= '1' && base[3] <= '9';
+}
+
 int sc_name_safe(const char *name)
 {
 	const char *part = name;
 
+	/* (no root, no drive or alternate data stream, one separator) */
 	if (!name[0] || name[0] == '/' || strchr(name, ':') || strchr(name, '\\'))
 		return 0;
 	for (;;)
@@ -292,15 +322,54 @@ int sc_name_safe(const char *name)
 
 		if (!length || (length == 1 && part[0] == '.') || (length == 2 && part[0] == '.' && part[1] == '.'))
 			return 0;
+		/* (Windows drops a part's last dots and spaces: "a." would be "a") */
+		if (part[length - 1] == '.' || part[length - 1] == ' ')
+			return 0;
+		if (device_name(part, length))
+			return 0;
 		for (index = 0; index < length; index++)
 		{
-			if ((unsigned char)part[index] < 0x20 || part[index] == 0x7F)
+			if ((unsigned char)part[index] < 0x20 || part[index] == 0x7F || strchr("<>\"|?*", part[index]))
 				return 0;
 		}
 		if (!part[length])
 			return 1;
 		part += length + 1;
 	}
+}
+
+static int name_order(const void *a, const void *b)
+{
+	const char *left = *(const char *const *)a, *right = *(const char *const *)b;
+
+	for (;; left++, right++)
+	{
+		int l = tolower((unsigned char)*left), r = tolower((unsigned char)*right);
+
+		if (l != r || !l)
+			return l - r;
+	}
+}
+
+/* two files whose names differ only in case: one would overwrite the
+other on a case-insensitive disk (Windows, macOS) */
+static int names_unique(const struct sc_manifest *manifest)
+{
+	const char **names;
+	int index, unique = 1;
+
+	if (manifest->file_count < 2)
+		return 1;
+	names = (const char **)malloc((size_t)manifest->file_count * sizeof(*names));
+	if (!names)
+		return 0;
+	for (index = 0; index < manifest->file_count; index++)
+		names[index] = manifest->files[index].name;
+	qsort(names, (size_t)manifest->file_count, sizeof(*names), name_order);
+	for (index = 1; index < manifest->file_count && unique; index++)
+		unique = name_order(&names[index - 1], &names[index]) != 0;
+	free(names);
+	return unique;
 }
 
 static int file_name(const unsigned char *bytes, size_t length, int encrypted, const unsigned char key[32],
@@ -431,6 +500,7 @@ int sc_manifest_parse(const unsigned char *data, size_t length, const unsigned c
 		struct sc_file *file;
 		struct pb_reader inner;
 		struct pb_field part;
+		int index;
 
 		if (field.number != 1 || field.wire != PB_BYTES)
 			continue;
@@ -479,10 +549,29 @@ int sc_manifest_parse(const unsigned char *data, size_t length, const unsigned c
 			snprintf(why, (size_t)why_size, "a file name in the manifest is not safe");
 			return 0;
 		}
+		/* (each chunk inside its file: no write past the size Steam gave) */
+		for (index = file->first_chunk; index < file->first_chunk + file->chunk_count; index++)
+		{
+			const struct sc_chunk *chunk = &manifest->chunks[index];
+
+			if (chunk->offset > file->size || chunk->size > file->size - chunk->offset)
+			{
+				free(raw);
+				sc_manifest_free(manifest);
+				snprintf(why, (size_t)why_size, "a chunk in the manifest lies outside its file");
+				return 0;
+			}
+		}
 		if (!(file->flags & SC_FILE_DIRECTORY))
 			manifest->total += file->size;
 	}
 	free(raw);
+	if (!names_unique(manifest))
+	{
+		sc_manifest_free(manifest);
+		snprintf(why, (size_t)why_size, "two file names in the manifest differ only in case");
+		return 0;
+	}
 	return 1;
 }
 #endif /* HALO_MCC */
