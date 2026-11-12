@@ -82,6 +82,11 @@ void ui_overlay_outline(float x, float y, float width, float height, float radiu
 top; its width */
 float ui_overlay_text(int font, float size, float x, float y, int align, unsigned int color, const char *text);
 float ui_overlay_text_width(int font, float size, const char *text);
+/* text as a font shows it: the characters neither it nor Noto Sans Bold
+has (Chinese, Japanese and Korean, among others) left out, as they are
+drawn (none, rather than empty boxes), and the spaces around them made
+one, none at either end. Its length */
+int ui_overlay_text_shown(int font, const char *text, char *out, int size);
 /* text as the Xbox menus draw it: a soft glow of glow's color around it and
 a drop shadow under it */
 float ui_overlay_text_glow(int font, float size, float x, float y, int align, unsigned int color,

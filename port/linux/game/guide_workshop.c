@@ -658,6 +658,21 @@ static unsigned int item_color(struct workshop_browser_item const *item)
 	}
 }
 
+/* an item's title as drawn: the menus' fonts have no Chinese, Japanese or
+Korean letters, which are left out rather than drawn as boxes, with the
+spaces around them (ui_overlay_text_shown); a title of only those is the
+item's number */
+static char const *shown_title(struct workshop_browser_item const *item)
+{
+	static char shown[sizeof(item->title)];
+
+	if (item->setup)
+		return item->title;
+	if (!ui_overlay_text_shown(UI_FONT_MENU, item->title, shown, sizeof(shown)))
+		snprintf(shown, sizeof(shown), "Workshop item %s", item->id);
+	return shown;
+}
+
 /* text measured in a font (guide_layout.h's measure: the font its context) */
 static float measure_font(void *context, float size, char const *text)
 {
@@ -1077,7 +1092,7 @@ void guide_workshop_update(boolean showing)
 
 			if (item->subscribed && item->state == WORKSHOP_ITEM_INSTALLED)
 			{
-				guide_toast("WORKSHOP", item->title);
+				guide_toast("WORKSHOP", shown_title(item));
 				break;
 			}
 		}
@@ -1482,11 +1497,14 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 		state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 8.0f, state) + 8 : 0;
 		ui_style_row(left, y, LIST_WIDTH, ROW_HEIGHT, on);
 		if (on)
-			text_line_focused(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, item->title, 1 + index);
+			text_line_focused(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, shown_title(item),
+				1 + index);
 		else
-			text_line(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, item->title);
-		if (item->author[0])
-			snprintf(line, sizeof(line), "%s - %s", kind_text(item), item->author);
+			text_line(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, shown_title(item));
+		/* (an author's name of letters the font lacks: left out, as a title's) */
+		ui_overlay_text_shown(UI_FONT_MENU, item->author, shown, sizeof(shown));
+		if (shown[0])
+			snprintf(line, sizeof(line), "%s - %s", kind_text(item), shown);
 		else
 			snprintf(line, sizeof(line), "%s", kind_text(item));
 		text_line(UI_TEXT_STATUS, left + 10, y + 17, LIST_WIDTH - 20 - state_width, UI_ALIGN_LEFT, line);
@@ -1547,9 +1565,10 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 		/* (its title; its kind and size, and where it stands) */
 		if (workshop_view.page)
 			text_line_focused(UI_TEXT_TITLE, layout.title.x, layout.title.y, layout.title.width, UI_ALIGN_LEFT,
-				item->title, -1 - workshop_view.row);
+				shown_title(item), -1 - workshop_view.row);
 		else
-			text_line(UI_TEXT_TITLE, layout.title.x, layout.title.y, layout.title.width, UI_ALIGN_LEFT, item->title);
+			text_line(UI_TEXT_TITLE, layout.title.x, layout.title.y, layout.title.width, UI_ALIGN_LEFT,
+				shown_title(item));
 		workshop_browser_size_text(item->size, size, sizeof(size));
 		snprintf(line, sizeof(line), "%s%s%s", kind_text(item), size[0] ? " - " : "", size);
 		state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 9.0f, state) + 8 : 0;

@@ -433,6 +433,14 @@ static int glyph_font(int font, unsigned int codepoint)
 	return font;
 }
 
+/* whether a character is left out: one neither the face nor Noto Sans
+Bold has (Chinese, Japanese and Korean, among others) takes no room and
+draws nothing, rather than the font's empty box */
+static int glyph_missing(int face, unsigned int codepoint)
+{
+	return codepoint > ' ' && !posix_ui_font_has(face, codepoint);
+}
+
 /* a string's width in the layout at a size: measured at the layout's own
 scale (Present lays it out again at the window's) */
 static float measure(int font, float size, const char *text)
@@ -446,11 +454,45 @@ static float measure(int font, float size, const char *text)
 	{
 		int face = glyph_font(font, codepoint);
 
+		if (glyph_missing(face, codepoint))
+			continue;
 		width += posix_ui_font_advance(face, size, codepoint, face == previous_font ? previous : 0);
 		previous = codepoint;
 		previous_font = face;
 	}
 	return width;
+}
+
+int ui_overlay_text_shown(int font, const char *text, char *out, int size)
+{
+	const char *cursor = text, *start;
+	float scale = 10.0f;
+	int face = font_face(font, &scale, NULL), length = 0, space = 0;
+	unsigned int codepoint;
+
+	if (size <= 0)
+		return 0;
+	while (text && (start = cursor, codepoint = next_codepoint(&cursor)) != 0)
+	{
+		int bytes = (int)(cursor - start);
+
+		if (codepoint == ' ' || codepoint == '\t')
+		{
+			space = length > 0;
+			continue;
+		}
+		if (glyph_missing(glyph_font(face, codepoint), codepoint))
+			continue;
+		if (space && length + 1 < size)
+			out[length++] = ' ';
+		space = 0;
+		if (length + bytes >= size)
+			break;
+		memcpy(out + length, start, (size_t)bytes);
+		length += bytes;
+	}
+	out[length] = 0;
+	return length;
 }
 
 float ui_overlay_text_width(int font, float size, const char *text)
@@ -1635,6 +1677,8 @@ static void lay_out_text(int index, float scale, float origin_x, float origin_y,
 		struct quad *quad;
 		int face = glyph_font(font, codepoint);
 
+		if (glyph_missing(face, codepoint))
+			continue;
 		if (previous && face == previous_font)
 			pen_x += posix_ui_font_advance(face, (float)pixel_size, codepoint, previous) -
 				posix_ui_font_advance(face, (float)pixel_size, codepoint, 0);

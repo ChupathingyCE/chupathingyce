@@ -86,6 +86,12 @@ static void check_plain(void)
 	CHECK(!strcmp(plain, "Plain words, a [bracket] and 3 * 4."), "plain text changed: %s", plain);
 	/* (a small buffer: ends in its room) */
 	CHECK(guide_layout_plain(steam_description, plain, 16) == 15, "the small buffer's length");
+	/* (a description ending in blank lines of no-break, ideographic or
+	zero-width spaces: no line left after its words) */
+	guide_layout_plain("Last words.\r\n\xC2\xA0\r\n\xE3\x80\x80\n\xE2\x80\x8B\n\xEF\xBB\xBF\n", plain, sizeof(plain));
+	CHECK(!strcmp(plain, "Last words."), "a blank ending kept: [%s]", plain);
+	guide_layout_plain("Two\xC2\xA0words", plain, sizeof(plain));
+	CHECK(!strcmp(plain, "Two words"), "a no-break space: [%s]", plain);
 }
 
 static void check_fit(void)
@@ -135,6 +141,11 @@ static void check_wrap(void)
 		lines[2]);
 	for (index = 0; index < count; index++)
 		CHECK(strpbrk(lines[index], "\n\r\t") == NULL, "a control character in line %d", index);
+	/* (a text ending in blank lines: none of them a line to scroll to) */
+	count = guide_layout_wrap("Words here\n\nMore words\n\n\n \n", 214, 9, measure, NULL, 8, lines, &cut);
+	CHECK(count == 3 && !cut && !strcmp(lines[2], "More words"), "trailing blank lines kept: %d lines", count);
+	count = guide_layout_wrap("Words here\n\nMore words\n\nLast", 214, 4, measure, NULL, 4, lines, &cut);
+	CHECK(count == 4 && !strcmp(lines[3], "..."), "a cut text's blank line: %d [%s]", count, lines[3]);
 	count = guide_layout_wrap("Two words", 214, 9, measure, NULL, 4, lines, &cut);
 	CHECK(count == 1 && !cut && !strcmp(lines[0], "Two words"), "short text wrapped: %d %s", count, lines[0]);
 }
