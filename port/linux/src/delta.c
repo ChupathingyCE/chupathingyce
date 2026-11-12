@@ -182,6 +182,9 @@ static struct
 	int held;
 	int pin;
 	int pin_refused;
+	/* (delta_legacy_host_game_at) the number the next games this machine
+	hosts announce, 0 for the usual */
+	int host_game_at;
 } delta;
 
 /* ---------- the document (JSON, hostile) */
@@ -1044,6 +1047,8 @@ not */
 static int delta_announce_target(int *refused)
 {
 	*refused = 0;
+	if (delta.host_game_at)
+		return delta.host_game_at;
 	if (!delta.pin)
 		return delta.hosting_newest;
 	if (delta.pin < delta.minimum || delta.pin > delta.hosting_newest)
@@ -1570,6 +1575,36 @@ int delta_legacy_announce(void)
 	if (was || refused)
 		delta_settle_said(number, was, refused);
 	return number;
+}
+
+int delta_legacy_host_game_at(int version)
+{
+	int taken;
+
+	pthread_once(&delta_once, delta_load);
+	pthread_mutex_lock(&delta_lock);
+	/* (a number this build plays, by its rules or a table's layouts: from the
+	oldest it joins to the newest it knows) */
+	{
+		int newest = DELTA_LEGACY_NEWEST, index;
+
+		for (index = 0; index < delta.layout_count; index++)
+		{
+			if (delta.layouts[index].version > newest)
+				newest = delta.layouts[index].version;
+		}
+		taken = !version || (version >= delta.minimum && version <= delta.maximum && version <= newest);
+	}
+	if (taken)
+		delta.host_game_at = version;
+	pthread_mutex_unlock(&delta_lock);
+	if (taken && version)
+		platform_log("Delta: the next games this machine hosts announce OpenCE network version %d", version);
+	else if (taken)
+		platform_log("Delta: the next games this machine hosts announce the usual number");
+	else
+		platform_log("Delta: not hosting at OpenCE network version %d: not one this build plays", version);
+	return taken;
 }
 
 int delta_legacy_hosting_newest(void)

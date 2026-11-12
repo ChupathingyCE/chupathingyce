@@ -158,9 +158,9 @@ def test_the_version_and_the_wire():
     delta = (ROOT / "port/linux/include/delta.h").read_text(encoding="utf-8")
     assert "#define HALO_PORT_NETWORK_VERSION 32\n" in limits
     assert '#define DELTA_WIRE "chupa-43a"' in delta
-    for number in (30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41):
+    for number in (30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43):
         assert re.search(rf'X\({number}, "build-\d+", additive\)', delta)
-    assert "#define HALO_PORT_NETWORK_VERSION_MAXIMUM 42\n" in limits
+    assert "#define HALO_PORT_NETWORK_VERSION_MAXIMUM 44\n" in limits
 
 
 def test_elevator_carry_of_the_tick_is_for_network_games_only():
@@ -233,8 +233,8 @@ def test_join_paths_know_the_hosts_number():
     LAN, the list, an invite once its host's game is advertised through the
     tunnel), whose number the join request's tail is made for; an address
     alone (no advertisement) sends the plain request, and once more with the
-    newest version word after a silence; the host's own machine is never
-    refused for its request"""
+    newest version word after a silence; the host's own machine sends the
+    word of the number it announces"""
     manager = (ROOT / "source/networking/network_client_manager.c").read_text(encoding="utf-8")
     invite = _function(manager, "long network_game_client_join_invite_host")
     assert "struct network_advertised_game *game = &client->available_games[game_index];" in invite
@@ -247,5 +247,7 @@ def test_join_paths_know_the_hosts_number():
     assert "network_game_client_join_retried = TRUE;" in joining
     request = _function(manager, "static void network_game_client_send_join_request")
     assert "network_rules_join_request_tail(version, tail," in request
-    server = (ROOT / "source/networking/network_server_message_handler.c").read_text(encoding="utf-8")
-    assert "!network_game_server_client_machine_is_local(server, server_client_machine) &&\n\t\t\tnetwork_rules_join_request_refused(" in server
+    # (the host's own game, joined at home with no advertisement: its
+    # request made for the number it announces, which tools/test_net43_host.py
+    # runs for real)
+    assert "else if (global_network_game_server_get())\n\t\t\tnetwork_game_client_joined_version = (unsigned int)delta_legacy_announce();" in initiate

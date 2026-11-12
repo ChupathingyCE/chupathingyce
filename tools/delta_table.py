@@ -141,6 +141,10 @@ VOTES_VERSION, VOTE_KINDS = 41, (78, 79, 94, 95)
 # version 40's join request: the bytes after its first 0x70 (network_rules.h),
 # and the one fill builds write
 JOIN_REQUEST_VERSION, JOIN_REQUEST_EXTRA, JOIN_REQUEST_FILL = 40, 234, "zeros"
+# versions 42 and 43, built in (network_rules.h): the record, the join
+# request's length, the MCC-only kinds and 43's riding message, dropped
+EPOCH_VERSION, DECK_VERSION, EPOCH_SETTINGS_SIZE, EPOCH_JOIN_REQUEST_EXTRA = 42, 43, 13200, 236
+MCC_KINDS, RIDING_KIND = (97, 98, 99, 100, 103, 104, 105, 106), 107
 # chupa-43a's facts (network_rules.h, "chupa-43a's facts"): the first wire
 # whose builds read them, their one-number fields, and a unit state's further
 # parts' places and the bits this build's own parts have
@@ -294,12 +298,16 @@ def reads_layouts(name: str) -> bool:
 def built_in_layout(version: int, own_newest: int = None) -> dict:
     """a version's built-in layout (network_rules_layout_built_in)"""
     rules = min(version, newest() if own_newest is None else own_newest)
-    return {"settings_size": SETTINGS_EXTENDED_SIZE if rules >= EXTENDED_OPTIONS_VERSION else SETTINGS_SIZE,
+    return {"settings_size": EPOCH_SETTINGS_SIZE if rules >= EPOCH_VERSION else
+            SETTINGS_EXTENDED_SIZE if rules >= EXTENDED_OPTIONS_VERSION else SETTINGS_SIZE,
             "options_size": OPTIONS_EXTENDED_SIZE if rules >= EXTENDED_OPTIONS_VERSION else OPTIONS_SIZE,
             "shield_effects_maximum": limits()["shield_built_in"],
             "dropped_messages": sorted(([SHIELD_EFFECTS_KIND] if rules >= SHIELD_EFFECTS_VERSION else []) +
-                                       (list(VOTE_KINDS) if rules >= VOTES_VERSION else [])),
-            "join_request_extra": JOIN_REQUEST_EXTRA if rules >= JOIN_REQUEST_VERSION else 0}
+                                       (list(VOTE_KINDS) if rules >= VOTES_VERSION else []) +
+                                       (list(MCC_KINDS) if rules >= EPOCH_VERSION else []) +
+                                       ([RIDING_KIND] if rules >= DECK_VERSION else [])),
+            "join_request_extra": EPOCH_JOIN_REQUEST_EXTRA if rules >= EPOCH_VERSION else
+            JOIN_REQUEST_EXTRA if rules >= JOIN_REQUEST_VERSION else 0}
 
 
 def apply_layouts(version: int, facts: dict, own_newest: int) -> tuple:
@@ -352,6 +360,12 @@ def built_in_facts() -> dict:
         if version >= JOIN_REQUEST_VERSION:
             fact["join_request_extra"] = layout["join_request_extra"]
             fact["join_request_fill"] = JOIN_REQUEST_FILL
+        if version >= EPOCH_VERSION:
+            fact.update({"join_request_version_at": 234, "header_extra": 4, "epoch_kind": 96,
+                         "unit_state_parts": [{"bit": 6, "size": 30, "at": "last"}]})
+        if version >= DECK_VERSION:
+            fact["unit_state_parts"].append({"bit": 7, "size": 28, "at": "after_up"})
+            fact["rider_ejection_up"] = 200
         facts[str(version)] = fact
     return facts
 

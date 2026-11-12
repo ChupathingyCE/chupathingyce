@@ -2259,6 +2259,11 @@ boolean network_game_client_initiate_join_game(
 			if (wire && wire < 32)
 				network_game_client_joined_version = 0xFFFF;
 		}
+		/* (the host's own game, joined at home with no advertisement: of the
+		number this machine announces, its request made for it, whose word a
+		host of a version that needs one checks) */
+		else if (global_network_game_server_get())
+			network_game_client_joined_version = (unsigned int)delta_legacy_announce();
 	}
 	/* (whether an advertised game's host speaks Delta; the host's own game, joined through
 	127.0.0.1, is no advertised one) */

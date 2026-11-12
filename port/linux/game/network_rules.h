@@ -307,7 +307,7 @@ buffers every build has room for); a fact's field past them is not taken. */
 #define NETWORK_RULES_SETTINGS_HEAD_SIZE (NETWORK_RULES_SETTINGS_SIZE - 4 - NETWORK_RULES_OPTIONS_SIZE)
 /* how many bytes a table may add past 35's record (the options and the
 bytes after the local data together) */
-#define NETWORK_RULES_LAYOUT_GROWTH_MAXIMUM 64
+#define NETWORK_RULES_LAYOUT_GROWTH_MAXIMUM 128
 #define NETWORK_RULES_SETTINGS_MAXIMUM (NETWORK_RULES_SETTINGS_EXTENDED_SIZE + NETWORK_RULES_LAYOUT_GROWTH_MAXIMUM)
 /* the most the shield effects message's largest value may be raised to (a
 value this build has no look for is drawn as stock) */
@@ -380,6 +380,25 @@ boundary kind over its stream to a client before its objects; a client
 takes nothing of another epoch than the one it last took from a boundary,
 and stamps its own messages with it. A unit state's further parts: passed
 over by a reader (this build never writes them), where the fact says. */
+/* OpenCE's 42 and 43, built in (DELTA_LEGACY_NEWEST): 42 the join request's
+word (236 bytes past 0x70, the word at 234), the header's 4 further bytes
+with the epoch and 96 its boundary, the scripted pose (bit 6, 30 bytes,
+last), the settings record 13,200 bytes, the MCC-only kinds dropped; 43 also
+the deck (bit 7, 28 bytes after the up), 107 dropped and riders thrown from
+a vehicle on its side (0.2) */
+#define NETWORK_RULES_EPOCH_VERSION 42
+#define NETWORK_RULES_DECK_VERSION 43
+#define NETWORK_RULES_EPOCH_SETTINGS_SIZE 13200
+#define NETWORK_RULES_EPOCH_JOIN_REQUEST_EXTRA 236
+#define NETWORK_RULES_EPOCH_JOIN_VERSION_AT 234
+#define NETWORK_RULES_EPOCH_HEADER_EXTRA 4
+#define NETWORK_RULES_BOUNDARY_KIND 96
+#define NETWORK_RULES_POSE_PART_BIT 6
+#define NETWORK_RULES_POSE_PART_SIZE 30
+#define NETWORK_RULES_DECK_PART_BIT 7
+#define NETWORK_RULES_DECK_PART_SIZE 28
+#define NETWORK_RULES_SIDE_EJECTION_UP 200
+#define NETWORK_RULES_RIDING_KIND 107
 #define NETWORK_RULES_HEADER_EXTRA_LIMIT 8
 #define NETWORK_RULES_EPOCH_SIZE 4
 /* the boundary's kind is past every kind this build knows or drops by name
