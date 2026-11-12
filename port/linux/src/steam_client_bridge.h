@@ -29,7 +29,10 @@ Two backends, behind the same calls, one or both in a session:
   MCC's items but doesn't download them: steamcmd does). Each call's own
   answer is waited on (manual dispatch, or ISteamUtils' call results), and
   a Steam that isn't signed on is "Steam offline".
-- STEAM_BRIDGE_BACKEND_STEAMCMD (macOS, and Linux without MCC from Steam):
+- STEAM_BRIDGE_BACKEND_STEAMCMD, the downloader (macOS, and Linux without
+  MCC from Steam): the game's own Steam content client
+  (steam_bridge_pipe.c, steam_content/), signed in by a QR code the Steam
+  app scans. Before it, and still behind debug.workshop_steamcmd:
   the player's own steamcmd, run as a child process with their saved
   sign-in only (steam_bridge_cmd.c), as the download step. The game never
   asks for, keeps or passes a password: without a saved sign-in,
@@ -97,6 +100,8 @@ struct steam_bridge_item
 	int subscribed;
 	unsigned long long downloaded;
 	unsigned long long total;
+	/* FAILED: the player's word for it ("Not owned", "Sign in", "Offline", "Failed"); "" none */
+	char error[16];
 };
 
 /* ---------- the interface the Workshop tab uses */
@@ -176,6 +181,9 @@ struct steam_bridge_backend
 };
 
 extern const struct steam_bridge_backend steam_bridge_api_backend;
+/* the game's own Steam content client as the downloader (steam_bridge_pipe.c) */
+extern const struct steam_bridge_backend steam_bridge_pipe_backend;
+void steam_bridge_pipe_set_folder(const char *path);
 #ifndef _WIN32
 extern const struct steam_bridge_backend steam_bridge_cmd_backend;
 #endif
@@ -231,6 +239,40 @@ int steamcmd_account_valid(const char *name);
 account, or game.steamcmd_account is set): looked at again at most every
 few seconds; 0 without steamcmd, and on Windows */
 int steamcmd_signed_in(void);
+
+/* ---------- linking Steam: the built-in client's QR sign-in (steam_bridge_pipe.c)
+
+The Guide shows "Linked to Steam: <name>" with UNLINK, or "Link Steam" with
+LINK, which draws the QR for the Steam app to scan. The name is for this
+screen only. Not available where the built-in client isn't built (it then
+says 0 and the steamcmd rows show). */
+
+enum
+{
+	STEAM_LINK_IDLE = 0,
+	STEAM_LINK_STARTING,
+	/* the QR's text is ready to draw */
+	STEAM_LINK_WAITING,
+	/* the phone has seen it: approve there */
+	STEAM_LINK_SCANNED,
+	STEAM_LINK_DONE,
+	STEAM_LINK_FAILED,
+};
+
+int steam_link_available(void);
+/* a link is stored: 1, with the Steam name to show ("" until the first logon) */
+int steam_link_linked(char *persona, int size);
+void steam_link_start(void);
+/* STEAM_LINK_*, the QR's text while WAITING or SCANNED, the error's word when FAILED */
+int steam_link_poll(char *qr_text, int size, char *error, int error_size);
+void steam_link_cancel(void);
+/* where the link's token is kept, in words ("the macOS Keychain", "a private file in the data folder") */
+const char *steam_link_store(void);
+/* UNLINK pressed once (SETTINGS' STEAM ACCOUNT): the next press unlinks */
+void steam_link_set_armed(int value);
+int steam_link_armed(void);
+/* UNLINK: the stored sign-in deleted (its LoginID with it) */
+void steam_link_unlink(void);
 
 /* ---------- the platform (posix_steam_bridge.c, win32_steam_bridge.c) */
 

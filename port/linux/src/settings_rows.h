@@ -47,6 +47,8 @@ void settings_row_reset(const struct settings_row *row);
 in words, and a step of it (a boolean turned, a word the next, a number up
 or down; text that takes any value is not changed: 0) */
 void settings_key_value(const char *key, char *text, int size);
+/* what the STEAM row does when changed (the Guide: its Workshop's link row); unset, the row is hidden */
+void settings_rows_set_steam_link_action(void (*action)(void));
 int settings_key_change(const char *key, int step);
 
 #endif

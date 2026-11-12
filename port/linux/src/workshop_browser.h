@@ -84,6 +84,10 @@ enum
 	WORKSHOP_SETUP_FILES,
 	/* the row of search, filters and sorts (not a setup step) */
 	WORKSHOP_ROW_FIND,
+	/* what blocks GET (no Steam link): LINK goes to SETTINGS' STEAM ACCOUNT */
+	WORKSHOP_ROW_LINK,
+	/* the list's end: Steam's next page (and the one before) */
+	WORKSHOP_ROW_PAGE,
 };
 
 /* Steam's own tags on Halo CE's items, the ones that are something to play */
@@ -149,6 +153,8 @@ struct workshop_browser_item
 	int steam_subscribed;
 	unsigned long long downloaded;
 	unsigned long long total;
+	/* the download's failure in a word or two ("Not owned"); "" none */
+	char steam_error[16];
 	/* Steam's tags it has (WORKSHOP_TAG_*) */
 	int tags;
 	/* a setup row (WORKSHOP_SETUP_*), not a Workshop item: 0 for an item */
@@ -208,6 +214,13 @@ const struct workshop_browser_item *workshop_browser_item(int index);
 item's Steam page opened (platform_open_url); 0 for a bad index. For the
 MCC row, steamcmd asked to install MCC's Halo CE files */
 int workshop_browser_subscribe(int index);
+/* the game's own Steam download is the downloader here (Steam's link is in SETTINGS) */
+int workshop_browser_link_offered(void);
+/* Steam's browse page shown (1 the first), and the next or the one before
+asked for (each kept ten minutes); 0 when there is none that way */
+int workshop_browser_page(void);
+int workshop_browser_page_next(void);
+int workshop_browser_page_previous(void);
 /* a setup row's button: its word ("SIGN IN"), NULL for none; and pressing it */
 const char *workshop_browser_setup_button(int index);
 int workshop_browser_setup_press(int index);

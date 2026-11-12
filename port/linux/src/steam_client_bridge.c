@@ -107,8 +107,12 @@ static struct watched_item *watch(const char *id)
 	return item;
 }
 
+/* the downloader: the built-in client, or steamcmd (debug.workshop_steamcmd,
+or where the built-in client isn't built) */
 static const struct steam_bridge_backend *steamcmd_functions(void)
 {
+	if (steam_link_available() && !config_boolean("debug.workshop_steamcmd"))
+		return &steam_bridge_pipe_backend;
 #ifndef _WIN32
 	return &steam_bridge_cmd_backend;
 #else
@@ -293,6 +297,9 @@ int steam_bridge_backend(void)
 		bridge.backend = STEAM_BRIDGE_BACKEND_NONE;
 		if (steam_bridge_api_library_paths(paths, 1, 0))
 			bridge.backend = STEAM_BRIDGE_BACKEND_CLIENT;
+		/* (the built-in client: always there to download) */
+		else if (steam_link_available() && !config_boolean("debug.workshop_steamcmd"))
+			bridge.backend = STEAM_BRIDGE_BACKEND_STEAMCMD;
 #ifndef _WIN32
 		else if (steam_bridge_platform_find_steamcmd(path, sizeof(path)))
 			bridge.backend = STEAM_BRIDGE_BACKEND_STEAMCMD;
@@ -496,6 +503,12 @@ int steam_bridge_unsubscribe(const char *id)
 
 int steam_bridge_sign_in(void)
 {
+	/* (the built-in client: the Guide's QR, steam_link_start) */
+	if (steamcmd_functions() == &steam_bridge_pipe_backend)
+	{
+		steam_link_start();
+		return 1;
+	}
 #ifndef _WIN32
 	char steamcmd[STEAM_BRIDGE_PATH_SIZE];
 

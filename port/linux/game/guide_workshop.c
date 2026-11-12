@@ -40,6 +40,8 @@ folders but what Steam or steamcmd write.
 #include "../src/ui_overlay.h"
 #include "../src/workshop_browser.h"
 #include "../src/steam_client_bridge.h"
+#include "../src/browser.h"
+#include "../src/settings_rows.h"
 #include "guide_workshop.h"
 #include "mcc_maps.h"
 #include "input/input.h"
@@ -93,6 +95,11 @@ enum
 	_option_play,
 	_option_update,
 	_option_remove,
+	/* the link row's LINK (to SETTINGS' STEAM ACCOUNT, its QR shown) */
+	_option_link,
+	/* the page row's */
+	_option_page_next,
+	_option_page_previous,
 	/* the find row's: a filter's chip, a sort (+ its WORKSHOP_FILTER_* / WORKSHOP_SORT_*) */
 	_option_filter,
 	_option_sort = _option_filter + WORKSHOP_FILTER_COUNT,
@@ -113,6 +120,10 @@ static struct
 	boolean confirm;
 	/* REMOVE pressed once: CONFIRM deletes the files */
 	boolean confirm_remove;
+	/* LINK's QR: Steam's text for it, and its modules (made again when the text changes) */
+	char link_text[256];
+	short link_qr_size;
+	unsigned char link_qr[BROWSER_CONNECT_QR_SIZE * BROWSER_CONNECT_QR_SIZE];
 	/* SEARCH's text box: typing into it (enter keeps, escape drops) */
 	boolean searching;
 	char search[64];
@@ -139,6 +150,18 @@ static short options_of(struct workshop_browser_item const *item, short *options
 
 	if (!item)
 		return 0;
+	if (item->setup == WORKSHOP_ROW_LINK)
+	{
+		options[count++] = _option_link;
+		return count;
+	}
+	if (item->setup == WORKSHOP_ROW_PAGE)
+	{
+		options[count++] = _option_page_next;
+		if (workshop_browser_page() > 1)
+			options[count++] = _option_page_previous;
+		return count;
+	}
 	if (item->setup == WORKSHOP_ROW_FIND)
 	{
 		short index;
@@ -172,8 +195,12 @@ static short options_of(struct workshop_browser_item const *item, short *options
 		if (workshop_browser_removable(workshop_view.row))
 			options[count++] = _option_remove;
 	}
-	if (item->state != WORKSHOP_ITEM_INSTALLED && !(bridge && item->steam_subscribed))
+	/* (GET; the built-in download shows its progress instead of Steam's page while it works) */
+	if (item->state != WORKSHOP_ITEM_INSTALLED && !(bridge && item->steam_subscribed) &&
+		!(workshop_browser_link_offered() && item->state != WORKSHOP_ITEM_NOT_INSTALLED))
+	{
 		options[count++] = _option_steam;
+	}
 	if (bridge && item->steam_subscribed && steam_bridge_can_unsubscribe())
 		options[count++] = _option_unsubscribe;
 	if (bridge && steam_bridge_sign_in_needed())
@@ -215,7 +242,10 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	case _option_remove: return workshop_view.confirm_remove ? "CONFIRM" : "REMOVE";
 	case _option_show_maps: return "TURN ON";
 	case _option_unsubscribe: return "REMOVE";
-	case _option_sign_in: return "SIGN IN";
+	case _option_sign_in: return steam_link_available() ? "LINK STEAM" : "SIGN IN";
+	case _option_link: return "LINK";
+	case _option_page_next: return "NEXT PAGE";
+	case _option_page_previous: return "PREVIOUS";
 	case _option_use_steam: return workshop_view.confirm ? "CONFIRM" : "USE STEAM";
 	default: break;
 	}
@@ -367,7 +397,44 @@ static void option_run(short option)
 		workshop_browser_unsubscribe(workshop_view.row);
 		return;
 	case _option_sign_in:
+		/* (the built-in download: to the link row, its QR shown) */
+		if (workshop_browser_link_offered())
+		{
+			workshop_view.row = 0;
+			workshop_view.page = TRUE;
+			workshop_view.option = 0;
+			steam_link_start();
+			return;
+		}
 		steam_bridge_sign_in();
+		return;
+	case _option_link:
+		/* (SETTINGS' STEAM ACCOUNT, its QR up at once) */
+		workshop_view.page = FALSE;
+		steam_link_start();
+		guide_open_setting("game.workshop_steam");
+		return;
+	case _option_page_next:
+	case _option_page_previous:
+		if (option == _option_page_next ? workshop_browser_page_next() : workshop_browser_page_previous())
+		{
+			/* (the new page's first item chosen: the row under the find row) */
+			short index;
+
+			for (index = 0; index < (short)workshop_browser_count(); index++)
+			{
+				struct workshop_browser_item const *row = workshop_browser_item(index);
+
+				if (row && row->setup == WORKSHOP_ROW_FIND)
+				{
+					workshop_view.row = (short)(index + 1);
+					workshop_view.first = index;
+					break;
+				}
+			}
+			workshop_view.page = FALSE;
+			workshop_view.option = 0;
+		}
 		return;
 	case _option_use_steam:
 		if (!workshop_view.confirm)
@@ -402,13 +469,19 @@ static unsigned int state_color(int state)
 /* a row's kind: the find row's filter and sort as they are */
 static char const *kind_text(struct workshop_browser_item const *item)
 {
-	return item->setup == WORKSHOP_ROW_FIND ? item->kind : workshop_browser_kind_name(item->kind);
+	return item->setup == WORKSHOP_ROW_FIND || item->setup == WORKSHOP_ROW_LINK || item->setup == WORKSHOP_ROW_PAGE ?
+		item->kind :
+		workshop_browser_kind_name(item->kind);
 }
 
 /* a row's word and color: a setup row's step, an item's state */
 static char const *item_word(struct workshop_browser_item const *item)
 {
 	if (item->setup == WORKSHOP_ROW_FIND)
+		return "";
+	if (item->setup == WORKSHOP_ROW_LINK)
+		return "To do";
+	if (item->setup == WORKSHOP_ROW_PAGE)
 		return "";
 	return item->setup ? workshop_browser_step_name(item->step) : workshop_browser_state_name(item->state);
 }
@@ -480,6 +553,100 @@ static float text_wrapped(char const *text, float x, float y, float width, short
 	return y;
 }
 
+/* LINK's QR, while Steam waits for the scan: dark on white with the quiet
+edge readers need, and the step in words under it. Its bottom; y if none */
+static float link_qr_render(float x, float y, float width, float bottom)
+{
+	char text[256], error[24];
+	int link = steam_link_poll(text, sizeof(text), error, sizeof(error));
+	float side, module;
+	short qr_x, qr_y, run, size;
+
+	if (link == STEAM_LINK_STARTING)
+	{
+		ui_style_text(UI_TEXT_LABEL, x, y + 4, UI_ALIGN_LEFT, "Getting a code");
+		return y + 20;
+	}
+	if (link == STEAM_LINK_FAILED)
+	{
+		ui_style_text(UI_TEXT_LABEL, x, y + 4, UI_ALIGN_LEFT, error[0] ? error : "Failed");
+		return y + 20;
+	}
+	if (link != STEAM_LINK_WAITING && link != STEAM_LINK_SCANNED)
+		return y;
+	if (strcmp(text, workshop_view.link_text))
+	{
+		snprintf(workshop_view.link_text, sizeof(workshop_view.link_text), "%s", text);
+		workshop_view.link_qr_size = (short)browser_text_qr(text, workshop_view.link_qr);
+	}
+	size = workshop_view.link_qr_size;
+	side = MIN(width, bottom - y - 24);
+	if (size <= 0 || side < 60)
+		return y;
+	module = side / (size + 8);
+	ui_overlay_rect(x, y, side, side, 4, 0xFFFFFFFF);
+	for (qr_y = 0; qr_y < size; qr_y++)
+	{
+		for (qr_x = 0; qr_x < size; qr_x = (short)(qr_x + run))
+		{
+			unsigned char dark = workshop_view.link_qr[qr_y * size + qr_x];
+
+			for (run = 0; qr_x + run < size && workshop_view.link_qr[qr_y * size + qr_x + run] == dark; run++)
+				;
+			if (dark)
+				ui_overlay_rect(x + (qr_x + 4) * module, y + (qr_y + 4) * module, run * module + 0.3f, module + 0.3f, 0,
+					0x0A1A33FF);
+		}
+	}
+	ui_style_text(UI_TEXT_LABEL, x, y + side + 6, UI_ALIGN_LEFT,
+		link == STEAM_LINK_SCANNED ? "Approve on your phone" : "Scan with the Steam app");
+	return y + side + 22;
+}
+
+/* SETTINGS' STEAM ACCOUNT pressed: LINK (its QR beside it), CANCEL while
+it waits, UNLINK twice when linked */
+static void link_settings_press(void)
+{
+	int link = steam_link_poll(NULL, 0, NULL, 0);
+
+	if (steam_link_linked(NULL, 0))
+	{
+		if (!steam_link_armed())
+		{
+			steam_link_set_armed(1);
+			return;
+		}
+		steam_link_set_armed(0);
+		steam_link_unlink();
+		return;
+	}
+	if (link == STEAM_LINK_STARTING || link == STEAM_LINK_WAITING || link == STEAM_LINK_SCANNED)
+		steam_link_cancel();
+	else
+		steam_link_start();
+}
+
+void guide_workshop_link_panel(float x, float y, float width, float bottom)
+{
+	int link = steam_link_poll(NULL, 0, NULL, 0);
+	float height;
+
+	if (steam_link_armed() && steam_link_linked(NULL, 0))
+	{
+		ui_style_glass(x, y, width, 70, 8, ui_style_color(UI_COLOR_PANE), ui_style_color(UI_COLOR_ROW_EDGE));
+		text_wrapped("Press again to unlink. The game forgets it here and at Steam.", x + 12, y + 14, width - 24, 3);
+		return;
+	}
+	if (link != STEAM_LINK_STARTING && link != STEAM_LINK_WAITING && link != STEAM_LINK_SCANNED &&
+		link != STEAM_LINK_FAILED)
+	{
+		return;
+	}
+	height = MIN(width + 40, bottom - y);
+	ui_style_glass(x, y, width, height, 8, ui_style_color(UI_COLOR_PANE), ui_style_color(UI_COLOR_ROW_EDGE));
+	link_qr_render(x + 12, y + 12, width - 24, y + height - 6);
+}
+
 /* ---------- public code */
 
 boolean guide_workshop_shown(void)
@@ -513,6 +680,7 @@ void guide_workshop_update(boolean showing)
 	short index, installed;
 
 	workshop_browser_own_library();
+	settings_rows_set_steam_link_action(workshop_browser_link_offered() ? link_settings_press : NULL);
 	/* (the on-screen keyboard done: its words searched, the Guide back on WORKSHOP) */
 #if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
 	if (workshop_view.keyboard && !virtual_keyboard_active())
@@ -689,7 +857,10 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 			"No Workshop items");
 		return;
 	}
-	snprintf(heading, sizeof(heading), "MCC WORKSHOP (%d)", count);
+	if (workshop_browser_filter() != WORKSHOP_FILTER_INSTALLED)
+		snprintf(heading, sizeof(heading), "MCC WORKSHOP - PAGE %d", workshop_browser_page());
+	else
+		snprintf(heading, sizeof(heading), "MCC WORKSHOP - INSTALLED");
 	ui_style_text(UI_TEXT_HEADING, left, top, UI_ALIGN_LEFT, heading);
 	if (status == WORKSHOP_LIST_LOADING || status == WORKSHOP_LIST_FAILED)
 		ui_style_text(UI_TEXT_LABEL, left + LIST_WIDTH, top + 1, UI_ALIGN_RIGHT,
@@ -767,7 +938,7 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 		}
 	}
 	y = text_wrapped(item->description, x + 12, y + 4, width - 24,
-		(short)MAX(2, MIN(DESCRIPTION_LINES, (bottom - 12 - 3 * (OPTION_HEIGHT + OPTION_GAP) - 20 - y) /
+		(short)MAX(1, MIN(DESCRIPTION_LINES, (bottom - 12 - 3 * (OPTION_HEIGHT + OPTION_GAP) - 20 - y) /
 		(DESCRIPTION_SIZE + 4))));
 	{
 		short options[MAXIMUM_OPTIONS], option_count = options_of(item, options);
@@ -786,13 +957,28 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Delete its files?");
 		else if (workshop_view.confirm)
 			text_wrapped(use_steam_note(), x + 12, y - 4 - NOTE_LINES * (DESCRIPTION_SIZE + 4), width - 24, NOTE_LINES);
-		else if (workshop_browser_bridge_status() == STEAM_BRIDGE_READY && steam_bridge_sign_in_needed())
-			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Sign in to steamcmd");
+		else if (!item->setup && workshop_browser_bridge_status() == STEAM_BRIDGE_READY && steam_bridge_sign_in_needed())
+			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT,
+				workshop_browser_link_offered() ? "Link Steam first" : "Sign in to steamcmd");
+		else if (!item->setup && item->steam_error[0] && item->state != WORKSHOP_ITEM_INSTALLED)
+			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, item->steam_error);
 		else if (item->state == WORKSHOP_ITEM_DOWNLOADING && item->total > 0)
 		{
-			snprintf(line, sizeof(line), "Downloading %d%%", (int)(item->downloaded * 100 / item->total));
-			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, line);
+			/* (its words, and a bar under them) */
+			float bar_y = option_count ? y - 14 : bottom - 24, fraction = (float)item->downloaded / (float)item->total;
+			char done[24], total[24];
+
+			workshop_browser_size_text((long long)item->downloaded, done, sizeof(done));
+			workshop_browser_size_text((long long)item->total, total, sizeof(total));
+			snprintf(line, sizeof(line), "Downloading %d%% - %s of %s", (int)(item->downloaded * 100 / item->total),
+				done, total);
+			ui_style_text(UI_TEXT_LABEL, x + 12, bar_y - 18, UI_ALIGN_LEFT, line);
+			fraction = fraction < 0 ? 0 : fraction > 1 ? 1 : fraction;
+			ui_overlay_rect(x + 12, bar_y, width - 24, 6, 3, 0xFFFFFF26);
+			ui_overlay_rect(x + 12, bar_y, (width - 24) * fraction, 6, 3, COLOR_WAITING);
 		}
+		else if (item->state == WORKSHOP_ITEM_WAITING && workshop_browser_link_offered())
+			ui_style_text(UI_TEXT_LABEL, x + 12, (option_count ? y : bottom - 8) - 16, UI_ALIGN_LEFT, "Starting download");
 		else if (item->state == WORKSHOP_ITEM_WAITING && workshop_browser_bridge_status() != STEAM_BRIDGE_READY)
 			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Open Steam to subscribe");
 		else if (!item->setup && !config_boolean("game.workshop_maps"))

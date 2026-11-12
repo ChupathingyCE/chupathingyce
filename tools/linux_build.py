@@ -146,6 +146,9 @@ ZSTD_SOURCES = (
 )
 # (no assembly, no legacy formats, no multithreading, no tracing)
 ZSTD_DEFINES = ("-DZSTD_DISABLE_ASM=1", "-DZSTD_LEGACY_SUPPORT=0", "-DZSTD_TRACE=0", "-DDEBUGLEVEL=0")
+# the LZMA SDK's decoder (port/third_party/lzma, public domain): the Steam
+# content client's chunks (port/linux/src/steam_content, lp64_build.py)
+LZMA_DIR = Path("port/third_party/lzma")
 # the self-updater's TLS (port/linux/src/posix_update.c)
 MBEDTLS_DIR = Path("port/third_party/mbedtls")
 STB_DIR = Path("port/third_party/stb")

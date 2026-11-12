@@ -706,6 +706,13 @@ void posix_browser_unlock(void)
 #endif
 }
 
+void *posix_browser_certificates(void)
+{
+	/* (loaded once; the caller holds posix_browser_lock while Mbed TLS uses them) */
+	set_up();
+	return certificates_loaded ? &certificates : NULL;
+}
+
 static int locked_request(const char *url, const char *body_data, size_t body_length, const char *content_type,
 	const char *user_agent, const char *headers, char *response, int response_size, char *error, int error_size)
 {

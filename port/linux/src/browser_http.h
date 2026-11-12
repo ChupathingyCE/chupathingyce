@@ -48,6 +48,10 @@ its own: the requests above take it themselves; the self-updater's
 downloads (posix_update.c) take it too */
 void posix_browser_lock(void);
 void posix_browser_unlock(void);
+/* the certificate authorities the requests above check servers against (an
+mbedtls_x509_crt *, NULL if none could be loaded), for other Mbed TLS users
+(the Steam content client: steam_bridge_pipe.c), with the lock held */
+void *posix_browser_certificates(void);
 
 int posix_browser_private_key(const char *path, unsigned char *key, int size);
 /* the same for the device key (its own log lines: it can always be made again) */

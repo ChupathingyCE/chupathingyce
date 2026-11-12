@@ -216,6 +216,7 @@ static char download_folder[STEAM_BRIDGE_PATH_SIZE];
 void steam_bridge_set_download_folder(const char *path)
 {
 	snprintf(download_folder, sizeof(download_folder), "%s", path ? path : "");
+	steam_bridge_pipe_set_folder(path);
 }
 
 static struct

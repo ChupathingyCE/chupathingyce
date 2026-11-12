@@ -4181,6 +4181,16 @@ static void render_settings(void)
 	}
 	if (first + shown < rows)
 		ui_overlay_text(UI_FONT_MENU, 11.0f, CONTENT_RIGHT - 12, y - ROW_GAP + 1, UI_ALIGN_RIGHT, COLOR_LABEL, "MORE");
+	/* (STEAM ACCOUNT's QR while a link waits for the scan, over the rows' right side) */
+	{
+		struct settings_row const *row = settings_row_at(SETTINGS_GROUP_GUIDE, chosen);
+
+		/* (under the row, so its words show: SCAN THE CODE, APPROVE ON PHONE) */
+		float row_bottom = BODY_Y + (chosen - first + 1) * (SETTING_HEIGHT + ROW_GAP);
+
+		if (row && !strcmp(settings_row_key(row), "game.workshop_steam"))
+			guide_workshop_link_panel(CONTENT_RIGHT - 236, row_bottom, 224, BODY_BOTTOM - 4);
+	}
 	if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
 		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + 12, y + 4, UI_ALIGN_LEFT, guide.message);
 #ifdef HALO_PORT_VOICE_AUDIO
@@ -4981,6 +4991,25 @@ void guide_open_workshop(void)
 	guide_open();
 	if (guide.open)
 		section_go(SOCIAL_SECTION_WORKSHOP);
+}
+
+void guide_open_setting(char const *key)
+{
+	short index;
+	struct settings_row const *row;
+
+	guide_open();
+	if (!guide.open)
+		return;
+	section_go(SOCIAL_SECTION_SETTINGS);
+	for (index = 0; (row = settings_row_at(SETTINGS_GROUP_GUIDE, index)) != NULL; index++)
+	{
+		if (!strcmp(settings_row_key(row), key))
+		{
+			guide.row[SOCIAL_SECTION_SETTINGS] = index;
+			break;
+		}
+	}
 }
 
 void guide_about_open(void)

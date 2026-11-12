@@ -60,6 +60,8 @@ enum
 	BROWSE_PAGE_DOCUMENT = 2 * 1024 * 1024,
 	BROWSE_PAGE_ITEMS = 32,
 	BROWSE_KEEP = 10 * 60 * 1000,
+	/* Steam's pages kept (each BROWSE_KEEP) */
+	PAGE_CACHE = 6,
 	BROWSE_BACKOFF = 10 * 60 * 1000,
 };
 
@@ -67,7 +69,7 @@ enum
 trending first; only the item ids are taken from it (the details call
 gives everything shown) */
 #define BROWSE_PAGE_URL "https://steamcommunity.com/workshop/browse/?appid=976730&requiredtags%5B%5D=Halo1" \
-	"&section=readytouseitems&p=1"
+	"&section=readytouseitems"
 #define DETAILS_URL "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
 
 /* an item's details from Steam's public, keyless GetPublishedFileDetails:
@@ -109,9 +111,23 @@ static struct
 	char web_url[512];
 	char web_fetched[512];
 	/* the list as shown: indices into items, -1 the find row */
-	int view[WORKSHOP_BROWSER_MAXIMUM_ITEMS + 1];
+	int view[WORKSHOP_BROWSER_MAXIMUM_ITEMS + 3];
 	int view_count;
 	struct workshop_browser_item find_row;
+	/* what blocks GET (no Steam link), first when it does */
+	struct workshop_browser_item link_row;
+	/* Steam's browse page: which (1 the first), the list's end row, and the
+	pages seen in the last ten minutes, by their address */
+	int page;
+	struct workshop_browser_item page_row;
+	struct
+	{
+		char url[512];
+		unsigned long time;
+		int count;
+		struct workshop_browser_item items[BROWSE_PAGE_ITEMS];
+	} pages[PAGE_CACHE];
+	int page_next_slot;
 	/* the browse page: when its list came (0 never), when Steam last said 429 */
 	unsigned long web_time;
 	unsigned long web_backoff;
@@ -334,6 +350,67 @@ static int bridge_ready(void)
 		steam_bridge_status() == STEAM_BRIDGE_READY;
 }
 
+/* ---------- Steam's link (the built-in downloader) */
+
+/* the link row shows: the game's own Steam download is the downloader here */
+static int link_offered(void)
+{
+	return steam_link_available() && !config_boolean("debug.workshop_steamcmd") &&
+		bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD;
+}
+
+static void link_row_make(void)
+{
+	struct workshop_browser_item *item = &workshop.link_row;
+
+	memset(item, 0, sizeof(*item));
+	snprintf(item->id, sizeof(item->id), "link");
+	snprintf(item->title, sizeof(item->title), "Link Steam");
+	snprintf(item->kind, sizeof(item->kind), "Steam");
+	snprintf(item->description, sizeof(item->description), "Downloads need your Steam account.\nLINK goes to "
+		"Settings: scan the code there with the Steam app.\nThe game never sees your password.");
+	item->size = -1;
+	item->setup = WORKSHOP_ROW_LINK;
+	item->step = WORKSHOP_STEP_TO_DO;
+}
+
+/* the list's end: Steam's page, and the way to the next */
+static int page_row_offered(void)
+{
+	const char *setting = config_string("network.workshop_url");
+
+	return workshop.filter != WORKSHOP_FILTER_INSTALLED && (!setting || !setting[0]) &&
+		workshop.status == WORKSHOP_LIST_LOADED && (workshop.page > 1 || workshop.count >= 20);
+}
+
+static void page_row_make(void)
+{
+	struct workshop_browser_item *item = &workshop.page_row;
+
+	memset(item, 0, sizeof(*item));
+	snprintf(item->id, sizeof(item->id), "page");
+	snprintf(item->title, sizeof(item->title), "More items");
+	snprintf(item->kind, sizeof(item->kind), "Page %d", workshop.page > 0 ? workshop.page : 1);
+	snprintf(item->description, sizeof(item->description), "Steam's list, a page at a time. NEXT PAGE shows the "
+		"next; the pages seen are kept for ten minutes.");
+	item->size = -1;
+	item->setup = WORKSHOP_ROW_PAGE;
+	item->step = -1;
+}
+
+int workshop_browser_page(void)
+{
+	return workshop.page > 0 ? workshop.page : 1;
+}
+
+int workshop_browser_page_next(void);
+int workshop_browser_page_previous(void);
+
+int workshop_browser_link_offered(void)
+{
+	return link_offered();
+}
+
 /* ---------- the setup rows */
 
 #define STEAMCMD_BREW "brew install --cask steamcmd"
@@ -429,7 +506,15 @@ static void setup_rows_update(void)
 	int files = workshop.mcc_count > 0, steam;
 
 	setup_rows_remove();
-	if (steamcmd)
+	if (steamcmd && link_offered())
+	{
+		/* (the built-in download: no setup rows in the list; Steam's link,
+		what blocks GET, is the link row's, and lives in SETTINGS) */
+		(void)files;
+		(void)mcc_state;
+		return;
+	}
+	else if (steamcmd)
 	{
 #ifdef __APPLE__
 		steam = steam_bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD;
@@ -483,7 +568,8 @@ const char *workshop_browser_setup_button(int index)
 {
 	const struct workshop_browser_item *item = workshop_browser_item(index);
 
-	if (!item || !item->setup || item->setup == WORKSHOP_ROW_FIND || item->step == WORKSHOP_STEP_READY ||
+	if (!item || !item->setup || item->setup == WORKSHOP_ROW_FIND || item->setup == WORKSHOP_ROW_LINK ||
+		item->step == WORKSHOP_STEP_READY ||
 		item->step == WORKSHOP_STEP_WORKING)
 	{
 		return NULL;
@@ -548,9 +634,12 @@ static int bridge_state(struct workshop_browser_item *item, int folder_state)
 
 	item->steam_subscribed = 0;
 	item->downloaded = item->total = 0;
+	item->steam_error[0] = 0;
 	if (!bridge_ready() || !steam_bridge_item(item->id, &known))
 		return folder_state;
 	item->steam_subscribed = known.subscribed;
+	if (known.state == STEAM_BRIDGE_ITEM_FAILED)
+		snprintf(item->steam_error, sizeof(item->steam_error), "%s", known.error);
 	switch (known.state)
 	{
 	case STEAM_BRIDGE_ITEM_DOWNLOADING:
@@ -1055,8 +1144,8 @@ trend, mostrecent, toprated, lastupdated; searchtext) */
 static void web_url_make(void)
 {
 	static const char *const sorts[] = { "trend", "mostrecent", "toprated", "lastupdated", "trend" };
-	int length = snprintf(workshop.web_url, sizeof(workshop.web_url), "%s&browsesort=%s", BROWSE_PAGE_URL,
-		sorts[workshop.sort]);
+	int length = snprintf(workshop.web_url, sizeof(workshop.web_url), "%s&p=%d&browsesort=%s", BROWSE_PAGE_URL,
+		workshop.page > 0 ? workshop.page : 1, sorts[workshop.sort]);
 	const unsigned char *c;
 
 	if (workshop.search[0] && length < (int)sizeof(workshop.web_url) - 16)
@@ -1085,6 +1174,30 @@ static void web_ask(void)
 	pthread_t thread;
 
 	web_url_make();
+	/* (a page seen in the last ten minutes: taken as it was) */
+	{
+		int slot;
+
+		for (slot = 0; slot < PAGE_CACHE; slot++)
+		{
+			if (workshop.pages[slot].time && now - workshop.pages[slot].time < BROWSE_KEEP &&
+				!strcmp(workshop.pages[slot].url, workshop.web_url) && strcmp(workshop.web_url, workshop.web_fetched))
+			{
+				pthread_mutex_lock(&workshop.lock);
+				if (!workshop.fetching)
+				{
+					workshop.answer_count = workshop.pages[slot].count;
+					memcpy(workshop.answer, workshop.pages[slot].items,
+						sizeof(workshop.answer[0]) * (size_t)workshop.pages[slot].count);
+					workshop.answered = 1;
+					workshop.web_answer = 1;
+					snprintf(workshop.web_fetched, sizeof(workshop.web_fetched), "%s", workshop.web_url);
+				}
+				pthread_mutex_unlock(&workshop.lock);
+				return;
+			}
+		}
+	}
 	if ((workshop.web_time && now - workshop.web_time < BROWSE_KEEP && !strcmp(workshop.web_url, workshop.web_fetched)) ||
 		(workshop.web_backoff && now - workshop.web_backoff < BROWSE_BACKOFF) ||
 		config_boolean("debug.workshop_no_steam"))
@@ -1234,6 +1347,26 @@ static void list_take(void)
 		}
 	}
 	memcpy(before, workshop.items, sizeof(before[0]) * (size_t)before_count);
+	/* (a page of Steam's kept for the next ten minutes) */
+	if (workshop.answer_count >= 0 && workshop.answer_count <= BROWSE_PAGE_ITEMS && workshop.web_fetched[0])
+	{
+		int slot, found = -1;
+
+		for (slot = 0; slot < PAGE_CACHE; slot++)
+		{
+			if (!strcmp(workshop.pages[slot].url, workshop.web_fetched))
+				found = slot;
+		}
+		if (found < 0)
+		{
+			found = workshop.page_next_slot;
+			workshop.page_next_slot = (workshop.page_next_slot + 1) % PAGE_CACHE;
+			snprintf(workshop.pages[found].url, sizeof(workshop.pages[found].url), "%s", workshop.web_fetched);
+			workshop.pages[found].time = system_milliseconds();
+		}
+		workshop.pages[found].count = workshop.answer_count;
+		memcpy(workshop.pages[found].items, workshop.answer, sizeof(workshop.answer[0]) * (size_t)workshop.answer_count);
+	}
 	if (workshop.answer_count >= 0)
 	{
 		workshop.count = workshop.answer_count;
@@ -1496,6 +1629,11 @@ static void view_build(void)
 	int index, other, count = 0;
 
 	find_row_make();
+	if (link_offered() && !steam_link_linked(NULL, 0))
+	{
+		link_row_make();
+		workshop.view[count++] = -3;
+	}
 	for (index = 0; index < workshop.count; index++)
 	{
 		if (workshop.items[index].setup)
@@ -1525,10 +1663,15 @@ static void view_build(void)
 			workshop.view[other] = value;
 		}
 	}
+	if (page_row_offered() && count < (int)(sizeof(workshop.view) / sizeof(workshop.view[0])))
+	{
+		page_row_make();
+		workshop.view[count++] = -4;
+	}
 	workshop.view_count = count;
 }
 
-/* a shown row's index into items: -1 the find row, -2 none */
+/* a shown row's index into items: -1 the find row, -3 the link row, -2 none */
 static int real_index(int index)
 {
 	return index >= 0 && index < workshop.view_count ? workshop.view[index] : -2;
@@ -1544,6 +1687,10 @@ const struct workshop_browser_item *workshop_browser_item(int index)
 {
 	int real = real_index(index);
 
+	if (real == -3)
+		return &workshop.link_row;
+	if (real == -4)
+		return &workshop.page_row;
 	return real == -1 ? &workshop.find_row : real >= 0 && real < workshop.count ? &workshop.items[real] : NULL;
 }
 
@@ -1580,6 +1727,27 @@ int workshop_browser_filter_offered(int filter)
 	return filter == WORKSHOP_FILTER_ALL;
 }
 
+/* (another page of Steam's: asked for, or taken from the pages kept) */
+static void list_again(void);
+
+int workshop_browser_page_next(void)
+{
+	if (!page_row_offered() || workshop.page >= 100)
+		return 0;
+	workshop.page = workshop_browser_page() + 1;
+	list_again();
+	return 1;
+}
+
+int workshop_browser_page_previous(void)
+{
+	if (workshop_browser_page() <= 1)
+		return 0;
+	workshop.page = workshop_browser_page() - 1;
+	list_again();
+	return 1;
+}
+
 void workshop_browser_set_filter(int filter)
 {
 	workshop.filter = filter >= 0 && filter < WORKSHOP_FILTER_COUNT ? filter : WORKSHOP_FILTER_ALL;
@@ -1599,12 +1767,14 @@ static void list_again(void)
 
 void workshop_browser_set_sort(int sort)
 {
+	workshop.page = 1;
 	workshop.sort = sort >= 0 && sort < WORKSHOP_SORT_COUNT ? sort : WORKSHOP_SORT_POPULAR;
 	list_again();
 }
 
 void workshop_browser_set_search(const char *text)
 {
+	workshop.page = 1;
 	snprintf(workshop.search, sizeof(workshop.search), "%s", text ? text : "");
 	list_again();
 }
@@ -1669,6 +1839,7 @@ int workshop_browser_unsubscribe(int index)
 
 void main_set_map_name(char const *map_name);
 void main_defer_map_map_change(void);
+void main_menu_switch_to_single_player(void);
 /* (the game's boolean: one byte) */
 unsigned char main_menu_is_active(void);
 short mcc_maps_count(unsigned char multiplayer_only);
@@ -1741,8 +1912,9 @@ int workshop_browser_play(int index)
 
 		if (name && !strncmp(name, prefix, strlen(prefix)))
 		{
+			/* (as the map lists start one: the name, then off the main menu to it) */
 			main_set_map_name(name);
-			main_defer_map_map_change();
+			main_menu_switch_to_single_player();
 			return 1;
 		}
 	}
@@ -1808,7 +1980,15 @@ int workshop_join_start(const char *id, char *why, int size)
 		return 1;
 	}
 	/* (the step that is missing, as the setup rows name it) */
-	if (setup_steamcmd())
+	if (setup_steamcmd() && link_offered())
+	{
+		if (!steam_link_linked(NULL, 0))
+		{
+			snprintf(why, (size_t)size, "Link Steam first (Workshop tab).");
+			return 0;
+		}
+	}
+	else if (setup_steamcmd())
 	{
 		if (steam_bridge_backend() != STEAM_BRIDGE_BACKEND_STEAMCMD)
 		{
@@ -1862,7 +2042,7 @@ int workshop_join_poll(unsigned long long *done, unsigned long long *total, char
 	{
 		if (steam_bridge_sign_in_needed())
 		{
-			join_fail("Sign in to steamcmd first.");
+			join_fail(link_offered() ? "Link Steam first." : "Sign in to steamcmd first.");
 			return joining.state;
 		}
 		if (!steam_bridge_subscribe(joining.id))
@@ -1879,7 +2059,8 @@ int workshop_join_poll(unsigned long long *done, unsigned long long *total, char
 		*total = known.total;
 		if (known.state == STEAM_BRIDGE_ITEM_FAILED)
 		{
-			join_fail(steam_bridge_sign_in_needed() ? "Sign in to steamcmd first." : "Download failed.");
+			join_fail(steam_bridge_sign_in_needed() ? (link_offered() ? "Link Steam first." : "Sign in to steamcmd first.") :
+				known.error[0] ? known.error : "Download failed.");
 			return joining.state;
 		}
 	}

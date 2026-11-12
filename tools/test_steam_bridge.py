@@ -23,6 +23,7 @@ def test_steam_bridge(tmp_path):
         [cc, "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-O1", "-Wno-missing-field-initializers", "-pthread", "-DSTEAM_BRIDGE_TESTS",
          str(ROOT / "port" / "linux" / "tests" / "steam_bridge_test.c"),
          str(SRC / "steam_client_bridge.c"), str(SRC / "steam_bridge_api.c"), str(SRC / "steam_bridge_cmd.c"),
+         str(SRC / "steam_bridge_pipe.c"),
          "-o", str(binary)],
         capture_output=True, text=True,
     )

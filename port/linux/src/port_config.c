@@ -1411,10 +1411,10 @@ static const struct config_setting config_settings[] =
 		"Discover installed Halo CE Steam Workshop maps. Read-only desktop\n"
 		"discovery; packages installed in maps_mcc are always read." },
 	{ "game.workshop_steam", _config_boolean, "false", "HALO_WORKSHOP_STEAM", _environment_value, _platform_desktop,
-		"Let the Delta Guide's Workshop subscribe to MCC Workshop items itself, through\n"
-		"your own Steam (Windows: the Steam client; macOS and Linux without it: your\n"
-		"steamcmd and its saved sign-in). Only while the Workshop tab is open; with the\n"
-		"Steam client, Steam shows MCC as running then. Off opens each item's page in Steam." },
+		"Let the Delta Guide's Workshop get MCC Workshop items itself: through the Steam\n"
+		"client where it downloads them (Windows), else with the game's own Steam\n"
+		"download, signed in once by scanning a QR code with the Steam app. Only while\n"
+		"the Workshop tab is open. Off opens each item's page in Steam." },
 	{ "game.steamcmd_account", _config_string, "\"\"", "HALO_STEAMCMD_ACCOUNT", _environment_value, _platform_desktop,
 		"The Steam account steamcmd signs in with for the Workshop. Empty uses the one\n"
 		"steamcmd saved. Never a password: steamcmd keeps its own sign-in." },
@@ -1422,7 +1422,7 @@ static const struct config_setting config_settings[] =
 		"steamcmd, for the Workshop on macOS and Linux. Empty looks in the PATH and the\n"
 		"usual places." },
 	{ "paths.steam_downloads", _config_string, "\"\"", "HALO_STEAM_DOWNLOADS", _environment_value, _platform_desktop,
-		"Where steamcmd puts Workshop items and MCC's Halo CE files for the game.\n"
+		"Where the game puts the Workshop items it downloads, and MCC's Halo CE files.\n"
 		"Empty is steam/ in the data folder. Use a big drive for MCC's files." },
 	{ "paths.steam_api", _config_string, "\"\"", "HALO_STEAM_API", _environment_value, _platform_desktop,
 		"A steam_api library for the Workshop to use. Empty uses MCC's own on Windows." },
@@ -1711,6 +1711,14 @@ static const struct config_setting config_settings[] =
 		"The Delta Guide Workshop's setup rows shown as given, for screenshots:\n"
 		"\"steam=1,signin=0\" (0 Ready, 1 To do, 2 Working, 3 Not available);\n"
 		"\"client\" shows the Steam client's rows." },
+	{ "debug.workshop_steamcmd", _config_boolean, "false", "HALO_WORKSHOP_STEAMCMD", _environment_set_is_true,
+		_platform_desktop,
+		"Workshop downloads with steamcmd (paths.steamcmd) instead of the game's own\n"
+		"Steam download, as before it had one. A fallback for tests." },
+	{ "debug.steam_link_file", _config_boolean, "false", "HALO_STEAM_LINK_FILE", _environment_set_is_true,
+		_platform_desktop,
+		"Keep the Steam link's token in its file in the data folder, never the\n"
+		"system's secret store (the Keychain), for tests." },
 	{ "debug.workshop_no_steam", _config_boolean, "false", "HALO_WORKSHOP_NO_STEAM", _environment_set_is_true,
 		_platform_desktop,
 		"The Delta Guide's Workshop marks an item subscribed without opening\n"
