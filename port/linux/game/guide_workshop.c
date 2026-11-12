@@ -1401,10 +1401,6 @@ static char const *page_note(struct workshop_browser_item const *item, char *lin
 		return "Starting download";
 	if (item->state == WORKSHOP_ITEM_WAITING && workshop_browser_bridge_status() != STEAM_BRIDGE_READY)
 		return "Open Steam to subscribe";
-	if (!config_boolean("game.workshop_maps"))
-		return "Workshop maps are off";
-	if (item->state == WORKSHOP_ITEM_NOT_INSTALLED && link_needed())
-		return "Link Steam to download in the game";
 	return NULL;
 }
 
@@ -1427,24 +1423,18 @@ static void heading_render(float left, float top, short status,
 		ui_style_text(UI_TEXT_LABEL, right, top + 1, UI_ALIGN_RIGHT, "Loading");
 		return;
 	}
-	/* (failed: why, and RETRY; a busy Steam's wait counted down instead) */
+	/* (failed: why (the find row's page has RETRY); a busy Steam's wait
+	counted down instead) */
 	if (status == WORKSHOP_LIST_FAILED)
 	{
 		int busy = workshop_browser_busy_seconds();
 		char word[40];
-		float width;
 
 		if (busy)
-		{
 			snprintf(word, sizeof(word), "Steam is busy, %ds", busy);
-			ui_style_text(UI_TEXT_LABEL, right, top + 1, UI_ALIGN_RIGHT, word);
-			return;
-		}
-		width = ui_overlay_text_width(UI_FONT_MENU, 8.5f, "RETRY");
-		ui_overlay_text(UI_FONT_MENU, 8.5f, right, top, UI_ALIGN_RIGHT, COLOR_VALUE, "RETRY");
-		ui_style_text(UI_TEXT_LABEL, right - width - 8, top + 1, UI_ALIGN_RIGHT, "Can't reach Steam");
-		if (target)
-			target(right - width - 4, top - 3, right + 2, top + 12, GUIDE_WORKSHOP_TARGET_PAGE, 2);
+		else
+			snprintf(word, sizeof(word), "Can't reach Steam");
+		ui_style_text(UI_TEXT_LABEL, right, top + 1, UI_ALIGN_RIGHT, word);
 		return;
 	}
 	if (!guide_workshop_pages())
@@ -1627,8 +1617,19 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 			struct guide_rect button = layout.buttons[index];
 			boolean on = workshop_view.page && index == workshop_view.option && !workshop_view.description_on;
 
+			float value_width = 0;
+
 			ui_style_row(button.x, button.y, button.width, button.height, on);
-			text_fit(UI_TEXT_NAME, option_label(item, options[index]), button.width - 20, shown, sizeof(shown));
+			/* (Workshop maps off: the row says so, as a setting's row does,
+			and turns them on) */
+			if (options[index] == _option_show_maps)
+			{
+				value_width = ui_overlay_text_width(UI_FONT_MENU, 10.0f, "OFF") + 10;
+				ui_overlay_text(UI_FONT_MENU, 10.0f, button.x + button.width - 10, button.y + (button.height - 10) * 0.5f,
+					UI_ALIGN_RIGHT, COLOR_NOT_INSTALLED, "OFF");
+			}
+			text_fit(UI_TEXT_NAME, option_label(item, options[index]), button.width - 20 - value_width, shown,
+				sizeof(shown));
 			ui_overlay_text(UI_FONT_MENU, 10.0f, button.x + 10, button.y + (button.height - 10) * 0.5f, UI_ALIGN_LEFT,
 				COLOR_VALUE, shown);
 			if (target)
