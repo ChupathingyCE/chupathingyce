@@ -5827,6 +5827,12 @@ void network_distributed_handle_message(
 	distributed_handle_message(machine_index, narrow, (word)narrow_size);
 }
 
+unsigned int network_distributed_epoch(
+	void)
+{
+	return (unsigned int)distributed_epoch;
+}
+
 real network_distributed_rider_ejection_up(
 	void)
 {

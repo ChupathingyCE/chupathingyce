@@ -1144,6 +1144,44 @@ static void test_host_own_machine_43(void)
 	network_rules_set_layout_source(NULL);
 }
 
+/* a co-op client present across two reverts of a 43 host: at each revert
+the host's epoch moves on and the boundary goes to the client; the client
+takes it (newer), asks again with its ready, and the host's next ready
+answer is the full snapshot, not "objects synchronized" alone; a second
+ready at the same epoch is not; a client joining after a revert takes it
+once */
+static void test_client_across_reverts(void)
+{
+	uint32_t host = 0, client = 0, sent = 0;
+	int never = 1, revert;
+
+	host = network_rules_epoch_next(host);
+	/* (its ready at the map's start: epoch 0 accepted, the boundary, then
+	the snapshot) */
+	CHECK(network_rules_boundary_taken(8, 0, 1, 0, host, client));
+	client = host;
+	CHECK(network_rules_snapshot_due(never, 0, 0, sent, host));
+	never = 0;
+	sent = host;
+	CHECK(!network_rules_snapshot_due(never, 0, 0, sent, host));
+	for (revert = 0; revert < 2; revert++)
+	{
+		uint32_t late_sent = 0;
+
+		host = network_rules_epoch_next(host);
+		CHECK(network_rules_boundary_taken(8, 0, 1, 0, host, client));
+		client = host;
+		/* (the boundary again at its ready: the same epoch, not taken) */
+		CHECK(!network_rules_boundary_taken(8, 0, 1, 0, host, client));
+		CHECK(network_rules_snapshot_due(never, 0, 0, sent, host));
+		sent = host;
+		CHECK(!network_rules_snapshot_due(never, 0, 0, sent, host));
+		/* (a machine that joins right after the revert: its first) */
+		CHECK(network_rules_snapshot_due(1, 0, 0, late_sent, host));
+	}
+	CHECK(host == 3 && client == 3);
+}
+
 int main(void)
 {
 	test_aim_assist_message();
@@ -1170,6 +1208,7 @@ int main(void)
 	test_header_extension();
 	test_unit_parts();
 	test_host_own_machine_43();
+	test_client_across_reverts();
 	if (failures)
 	{
 		printf("network_rules_test: %d failure(s)\n", failures);

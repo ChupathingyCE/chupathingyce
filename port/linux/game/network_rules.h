@@ -399,6 +399,14 @@ of the version (its layout's), into tail (room bytes): zeros, and the
 version word where the layout says. Returns how many, or -1 if room is
 too small */
 int network_rules_join_request_tail(unsigned version, uint8_t *tail, int room);
+/* (a host) whether a client machine's ready takes the full snapshot of the
+host's objects (else "objects synchronized" alone): one it has never had,
+one asked again (again_due: its count 1, the resend's wait over), one of
+other players at its place, or (a layout with a checkpoint epoch) one last
+sent at an older epoch than the host's: every client present at a co-op
+revert takes the snapshot again at its next ready */
+int network_rules_snapshot_due(int never_sent, int again_due, int players_changed, uint32_t sent_epoch,
+	uint32_t epoch);
 /* (a client) the version whose game settings record it takes: the host's
 own machine (hosting), which joined its game at home, always the number
 it announces, whose record its server writes it at every send; another

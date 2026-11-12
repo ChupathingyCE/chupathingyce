@@ -207,6 +207,8 @@ a longer message is split where a batch is full */
 "chupa-43a's facts") a co-op revert: the next epoch, and its boundary to
 every loaded client before anything of it */
 void network_distributed_checkpoint_boundary(void);
+/* the checkpoint epoch: the host's, a client's last taken (0 none) */
+unsigned int network_distributed_epoch(void);
 /* the height of a vehicle's up below which its riders leave it on the
 ground: 0 (upside down) but in a network game whose layout says another */
 real network_distributed_rider_ejection_up(void);

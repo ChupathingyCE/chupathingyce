@@ -66,6 +66,7 @@ same datum index (identifier and all), so that any message can name one:
 #include "network_coop.h"
 #include "host_evidence.h"
 #include "network_distributed.h"
+#include "network_rules.h"
 #ifdef HALO_PORT_CONSOLE_LIMITS
 #include "cseries/errors.h"
 #endif
@@ -404,6 +405,8 @@ static struct
 {
 	long time;
 	long player_indices[MAXIMUM_LOCAL_PLAYERS];
+	/* (the host's checkpoint epoch then: network_distributed_epoch) */
+	unsigned int epoch;
 } objects_host_machines[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
 /* ... each client's player's latest vehicle prediction, taken at the next
 tick; the vehicle it last took (NONE: none), at which of the client's ticks
@@ -1317,12 +1320,16 @@ void network_objects_client_asked(
 		return;
 	player_list = machine_get_player_list(machine_index);
 	/* (another machine in its place has other players) */
-	if ((again && game_time_get() - objects_host_machines[machine_index].time >= HOST_OBJECTS_RESEND_TICKS) ||
-		objects_host_machines[machine_index].time == NONE ||
+	/* (and a machine told them at an older checkpoint epoch: a co-op revert
+	since, network_rules_snapshot_due) */
+	if (network_rules_snapshot_due(objects_host_machines[machine_index].time == NONE,
+		again && game_time_get() - objects_host_machines[machine_index].time >= HOST_OBJECTS_RESEND_TICKS,
 		csmemcmp(objects_host_machines[machine_index].player_indices, player_list,
-			sizeof(objects_host_machines[machine_index].player_indices)) != 0)
+			sizeof(objects_host_machines[machine_index].player_indices)) != 0,
+		objects_host_machines[machine_index].epoch, network_distributed_epoch()))
 	{
 		objects_host_machines[machine_index].time = game_time_get();
+		objects_host_machines[machine_index].epoch = network_distributed_epoch();
 		csmemcpy(objects_host_machines[machine_index].player_indices, player_list,
 			sizeof(objects_host_machines[machine_index].player_indices));
 	}

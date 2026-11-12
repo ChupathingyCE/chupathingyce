@@ -797,6 +797,12 @@ int network_rules_join_request_tail(unsigned version, uint8_t *tail, int room)
 	return layout.join_request_extra;
 }
 
+int network_rules_snapshot_due(int never_sent, int again_due, int players_changed, uint32_t sent_epoch,
+	uint32_t epoch)
+{
+	return never_sent || again_due || players_changed || sent_epoch != epoch;
+}
+
 unsigned network_rules_client_settings_version(unsigned joined, int hosting, unsigned announce)
 {
 	return hosting ? announce : joined;
