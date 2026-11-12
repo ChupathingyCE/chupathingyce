@@ -62,6 +62,8 @@ int main(int argc, char **argv)
 	if (!strcmp(argv[2], "signout"))
 	{
 		steam_content_sign_out();
+		/* (the revoke at Steam waited for) */
+		steam_content_shutdown();
 		return 0;
 	}
 	if (!strcmp(argv[2], "signin"))

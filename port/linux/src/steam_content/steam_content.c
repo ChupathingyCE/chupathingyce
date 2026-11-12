@@ -96,6 +96,8 @@ static struct
 	/* what the sign-in file says (the lock held to read or change) */
 	int linked;
 	char persona[STEAM_CONTENT_PERSONA_SIZE];
+	/* an unlink's revoke at Steam still under way */
+	int revoking;
 } client = { PTHREAD_MUTEX_INITIALIZER };
 
 /* ---------- small things */
@@ -1407,9 +1409,16 @@ static void *revoke_thread(void *context)
 		}
 		sc_cm_close(&cm);
 	}
-	sc_log("Steam: the link %s at Steam", eresult == SC_RESULT_OK ? "was revoked" : "could not be revoked");
+	if (eresult == SC_RESULT_OK)
+		sc_log("Steam: the link was revoked at Steam");
+	else
+		sc_log("Steam: the link could not be revoked at Steam (EResult %d); it is deleted here, and Steam lets it "
+			"lapse unused", eresult);
 	memset(sign_in, 0, sizeof(*sign_in));
 	free(sign_in);
+	pthread_mutex_lock(&client.lock);
+	client.revoking = 0;
+	pthread_mutex_unlock(&client.lock);
 	return NULL;
 }
 
@@ -1450,10 +1459,16 @@ void steam_content_sign_out(void)
 		remove_file(path);
 	pthread_mutex_unlock(&client.lock);
 	/* (Steam told to forget the token too: the copy goes with the thread) */
+	pthread_mutex_lock(&client.lock);
+	client.revoking = old && old->token[0];
+	pthread_mutex_unlock(&client.lock);
 	if (old && old->token[0] && pthread_create(&thread, NULL, revoke_thread, old) == 0)
 		pthread_detach(thread);
 	else if (old)
 	{
+		pthread_mutex_lock(&client.lock);
+		client.revoking = 0;
+		pthread_mutex_unlock(&client.lock);
 		memset(old, 0, sizeof(*old));
 		free(old);
 	}
@@ -1462,7 +1477,8 @@ void steam_content_sign_out(void)
 
 void steam_content_shutdown(void)
 {
-	long long end = sc_milliseconds() + 3000;
+	/* (an unlink's revoke given its time: it is the player's ask of Steam) */
+	long long end = sc_milliseconds() + 15000;
 	int running = 1;
 
 	pthread_mutex_lock(&client.lock);
@@ -1473,7 +1489,7 @@ void steam_content_shutdown(void)
 	while (running && sc_milliseconds() < end)
 	{
 		pthread_mutex_lock(&client.lock);
-		running = client.worker_running || client.qr_running;
+		running = client.worker_running || client.qr_running || client.revoking;
 		pthread_mutex_unlock(&client.lock);
 		if (running)
 			sleep_milliseconds(20);
