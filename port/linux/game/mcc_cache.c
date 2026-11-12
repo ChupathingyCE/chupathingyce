@@ -194,6 +194,7 @@ static FILE *mcc_open(char const *name, struct mcc_cache_source *source,
 }
 
 #include "mcc_validation.inl"
+#include "mcc_host_memory.h"
 
 boolean mcc_cache_available(char const *name)
 {
