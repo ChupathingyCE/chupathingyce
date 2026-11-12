@@ -1203,20 +1203,13 @@ static char const *view_package_text(char const *level)
 	return text;
 }
 
-/* whether the lists offer MCC maps now: not while hosting a network game,
-whose machines can't load them yet (mcc_cache.c refuses them; HALO_MCC_NETWORK
-lifts that). Offline and split screen games have them */
+/* whether the lists offer MCC maps now: in every game, offline, split
+screen and network (a network game on one is hosted at OpenCE's 43:
+network_game_server_mcc_version); a build without MCC maps lists none */
 boolean ui_map_list_mcc_offered(
 	void)
 {
-#ifdef HALO_MCC_NETWORK
 	return TRUE;
-#else
-	extern void *global_network_game_server_get(void);
-	extern boolean network_game_is_splitscreen_local(void);
-
-	return !global_network_game_server_get() || network_game_is_splitscreen_local();
-#endif
 }
 
 static boolean view_matches(struct ui_map_entry const *entry)

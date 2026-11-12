@@ -2222,15 +2222,11 @@ void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget)
 }
 #endif
 
-/* (no MCC maps for a network game yet: its machines can't load them,
-mcc_cache.c; HALO_MCC_NETWORK lifts that. Offline and split screen have them) */
+/* (MCC maps for every game of a build that has them: a network game on one
+is hosted at OpenCE's 43, network_game_server_mcc_version) */
 static boolean ui_widget_port_mcc_offered(void)
 {
-#ifdef HALO_MCC_NETWORK
 	return TRUE;
-#else
-	return !global_network_game_server_get() || network_game_is_splitscreen_local();
-#endif
 }
 
 /* MCC maps are selected by their full namespaced path. They do not enter
