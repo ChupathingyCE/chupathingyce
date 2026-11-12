@@ -152,3 +152,15 @@ void mcc_workshop_refusal_text(enum mcc_workshop_refusal kind, struct mcc_worksh
         break;
     }
 }
+
+int mcc_workshop_listing(char const name[128], struct mcc_workshop_item *item)
+{
+    char level[64];
+    memset(item,0,sizeof(*item));
+    if (mcc_workshop_wire_unpack(name,item)) return 1;
+    memset(item,0,sizeof(*item));
+    /* (the name proper: its first 64 bytes, ended) */
+    memcpy(level,name,sizeof(level)-1);
+    level[sizeof(level)-1]=0;
+    return mcc_workshop_local_item(level,item) && item->id[0];
+}

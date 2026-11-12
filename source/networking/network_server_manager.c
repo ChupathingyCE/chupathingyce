@@ -470,6 +470,7 @@ symbols in this file:
 #include "networking/network_server_manager_internal.h"
 #include "networking/network_server_message_handler.h"
 #include "mcc_ui_network.h"
+#include "mcc_workshop.h" /* port: an MCC map's Workshop item in the listing */
 #include "mcc_cache.h" /* port: mcc_level_name */
 #include "saved games/player_profile.h"
 #include "text/unicode.h"
@@ -1742,6 +1743,15 @@ boolean network_game_server_idle(
 				csmemcpy(roster[roster_count].name, player->name, sizeof(roster[roster_count].name));
 				roster[roster_count].team = game->variant.universal_variant.teams == TRUE ? (short)player->team_index : -1;
 				roster_count++;
+			}
+			/* (an MCC map's Workshop item, for the listing) */
+			{
+				struct mcc_workshop_item item;
+
+				if (mcc_workshop_listing(game->map.name, &item))
+					browser_host_workshop(item.id, item.title);
+				else
+					browser_host_workshop("", "");
 			}
 			browser_host_update(
 				(unsigned short const *)game->name,

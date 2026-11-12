@@ -41,6 +41,10 @@ void mcc_workshop_title_from_level(char const *name, char title[MCC_WORKSHOP_TIT
 void mcc_workshop_wire_pack(char name[128], struct mcc_workshop_item const *item);
 /* The item a map name record carries; 1 when it carries a valid one. */
 int mcc_workshop_wire_unpack(char const name[128], struct mcc_workshop_item *item);
+/* port: (listings: a host's announcement, the probe) the item of a game's map
+ * name record: its Workshop tail, else, for an MCC level in a folder named by
+ * an item id, that item; 1 when there is one with an id */
+int mcc_workshop_listing(char const name[128], struct mcc_workshop_item *item);
 /* The joiner's text; title is the host's, or the level's readable name. */
 void mcc_workshop_refusal_text(enum mcc_workshop_refusal kind, struct mcc_workshop_item const *item,
     char const *level, char *text, unsigned size);
