@@ -1147,6 +1147,7 @@ static void details_step(void)
 	{
 		char *body;
 		int length;
+		size_t size;
 
 		if (config_boolean("debug.workshop_no_steam"))
 			return;
@@ -1174,12 +1175,14 @@ static void details_step(void)
 		}
 		if (!count)
 			return;
-		body = malloc(64 + (size_t)count * (WORKSHOP_BROWSER_ID_SIZE + 32));
+		size = 64 + (size_t)count * (WORKSHOP_BROWSER_ID_SIZE + 32);
+		body = malloc(size);
 		if (!body)
 			return;
-		length = sprintf(body, "itemcount=%d", count);
+		length = snprintf(body, size, "itemcount=%d", count);
 		for (index = 0; index < count; index++)
-			length += sprintf(body + length, "&publishedfileids%%5B%d%%5D=%s", index, workshop.details_asked[index]);
+			length += snprintf(body + length, size - (size_t)length, "&publishedfileids%%5B%d%%5D=%s", index,
+				workshop.details_asked[index]);
 		pthread_mutex_lock(&workshop.lock);
 		workshop.details_asked_count = count;
 		workshop.details_fetching = 1;
@@ -1213,6 +1216,7 @@ static void *web_thread(void *context)
 	static char ids[BROWSE_PAGE_ITEMS][WORKSHOP_BROWSER_ID_SIZE];
 	char *response = malloc(BROWSE_PAGE_DOCUMENT + 1), *body = NULL, error[128];
 	int status = 0, count = -1, id_count = 0, index, length;
+	size_t size;
 
 	error[0] = 0;
 	if (response)
@@ -1226,11 +1230,12 @@ static void *web_thread(void *context)
 	busy page or another one; the list kept) */
 	if (status == 200 && id_count == 0 && strstr(url, "searchtext="))
 		count = 0;
-	if (id_count > 0 && (body = malloc(64 + (size_t)id_count * (WORKSHOP_BROWSER_ID_SIZE + 32))) != NULL)
+	size = 64 + (size_t)id_count * (WORKSHOP_BROWSER_ID_SIZE + 32);
+	if (id_count > 0 && (body = malloc(size)) != NULL)
 	{
-		length = sprintf(body, "itemcount=%d", id_count);
+		length = snprintf(body, size, "itemcount=%d", id_count);
 		for (index = 0; index < id_count; index++)
-			length += sprintf(body + length, "&publishedfileids%%5B%d%%5D=%s", index, ids[index]);
+			length += snprintf(body + length, size - (size_t)length, "&publishedfileids%%5B%d%%5D=%s", index, ids[index]);
 		status = posix_browser_request_as(DETAILS_URL, body, "application/x-www-form-urlencoded",
 			build_identity_user_agent(), response, BROWSE_PAGE_DOCUMENT + 1, error, sizeof(error));
 		if (status == 200)
