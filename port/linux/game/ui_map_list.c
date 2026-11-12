@@ -1166,7 +1166,7 @@ static char const *view_package_text(char const *level)
 		used += length;
 		text[used] = 0;
 	}
-#if !defined(HALO_MCC) || HALO_MCC
+#if defined(HALO_MCC) && HALO_MCC
 	/* (a Workshop item: its folder's, the maps folder's parent) */
 	if (!used)
 	{
@@ -1197,10 +1197,28 @@ static char const *view_package_text(char const *level)
 	return text;
 }
 
+/* whether the lists offer MCC maps now: not while hosting a network game,
+whose machines can't load them yet (mcc_cache.c refuses them; HALO_MCC_NETWORK
+lifts that). Offline and split screen games have them */
+boolean ui_map_list_mcc_offered(
+	void)
+{
+#ifdef HALO_MCC_NETWORK
+	return TRUE;
+#else
+	extern void *global_network_game_server_get(void);
+	extern boolean network_game_is_splitscreen_local(void);
+
+	return !global_network_game_server_get() || network_game_is_splitscreen_local();
+#endif
+}
+
 static boolean view_matches(struct ui_map_entry const *entry)
 {
 	char name[DISPLAY_NAME_LENGTH * 2];
 
+	if (entry->source == _ui_map_list_source_mcc && !ui_map_list_mcc_offered())
+		return FALSE;
 	if (view.source != _ui_map_list_source_all && entry->source != view.source)
 		return FALSE;
 	if (!view.search[0])
@@ -1280,9 +1298,11 @@ static int view_compare(void const *a, void const *b)
 
 /* the rows: the view's multiplayer maps, the campaign's co-op levels, the
 multiplayer maps the view leaves out, then the MCC campaign maps */
+static boolean view_mcc_offered = TRUE;
+
 static void view_apply(void)
 {
-	long entry, rows = 0, shown;
+	long entry, rows = 0, shown, campaign_shown;
 	short source;
 
 	for (source = 0; source < NUMBER_OF_UI_MAP_LIST_SOURCES; source++)
@@ -1297,8 +1317,13 @@ static void view_apply(void)
 	shown = rows;
 	if (view.sort != _ui_map_list_sort_default)
 		qsort(ui_map_list_view, (size_t)shown, sizeof(ui_map_list_view[0]), view_compare);
+	/* (the campaign's rows, less MCC's while they aren't offered) */
 	for (entry = ui_map_list_found_multiplayer; entry < ui_map_list_found_campaign_end; entry++)
-		ui_map_list_view[rows++] = (short)entry;
+	{
+		if (ui_map_list[entry].source != _ui_map_list_source_mcc || ui_map_list_mcc_offered())
+			ui_map_list_view[rows++] = (short)entry;
+	}
+	campaign_shown = rows - shown;
 	for (entry = 0; entry < ui_map_list_found_multiplayer; entry++)
 	{
 		long other;
@@ -1308,13 +1333,27 @@ static void view_apply(void)
 		if (other == shown)
 			ui_map_list_view[rows++] = (short)entry;
 	}
+	for (entry = ui_map_list_found_multiplayer; entry < ui_map_list_found_campaign_end; entry++)
+	{
+		if (ui_map_list[entry].source == _ui_map_list_source_mcc && !ui_map_list_mcc_offered())
+			ui_map_list_view[rows++] = (short)entry;
+	}
 	for (entry = ui_map_list_found_campaign_end; entry < ui_map_list_count_value; entry++)
 		ui_map_list_view[rows++] = (short)entry;
 	for (entry = 0; entry < ui_map_list_count_value; entry++)
 		ui_map_list_names_array[entry] = ROW(entry)->map_name;
 	ui_map_list_multiplayer_count = shown;
-	ui_map_list_campaign_end = shown + ui_map_list_found_campaign_end - ui_map_list_found_multiplayer;
+	ui_map_list_campaign_end = shown + campaign_shown;
+	view_mcc_offered = ui_map_list_mcc_offered();
 	view.serial++;
+}
+
+/* the view again when hosting began or ended since it was made (MCC's rows) */
+static void view_refresh(
+	void)
+{
+	if (ui_map_list_count_value && view_mcc_offered != ui_map_list_mcc_offered())
+		view_apply();
 }
 
 void ui_map_list_view_set(
@@ -1516,6 +1555,7 @@ void ui_map_list_refresh(
 long ui_map_list_count(
 	void)
 {
+	view_refresh();
 	return ui_map_list_multiplayer_count;
 }
 
@@ -1523,6 +1563,7 @@ long ui_map_list_count(
 long ui_map_list_count_with_campaign(
 	void)
 {
+	view_refresh();
 	return ui_map_list_campaign_end;
 }
 
@@ -1543,6 +1584,7 @@ long ui_map_list_count_all(
 char **ui_map_list_names(
 	void)
 {
+	view_refresh();
 	return ui_map_list_names_array;
 }
 

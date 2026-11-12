@@ -2221,6 +2221,17 @@ void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget)
 }
 #endif
 
+/* (no MCC maps for a network game yet: its machines can't load them,
+mcc_cache.c; HALO_MCC_NETWORK lifts that. Offline and split screen have them) */
+static boolean ui_widget_port_mcc_offered(void)
+{
+#ifdef HALO_MCC_NETWORK
+	return TRUE;
+#else
+	return !global_network_game_server_get() || network_game_is_splitscreen_local();
+#endif
+}
+
 /* MCC maps are selected by their full namespaced path. They do not enter
 the Xbox/CE multiplayer level-index list. */
 boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name)
@@ -2228,7 +2239,7 @@ boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name)
 	short index = mcc_maps_find(level_name);
 	struct network_game_server *server = global_network_game_server_get();
 
-	if (index == NONE || mcc_maps_campaign(index))
+	if (index == NONE || mcc_maps_campaign(index) || !ui_widget_port_mcc_offered())
 		return FALSE;
 	main_set_multiplayer_map_name(level_name);
 	game_engine_override_map_name(level_name);
@@ -2245,12 +2256,14 @@ many: their level names, by row from 0 */
 
 short ui_widget_port_mcc_campaign_count(void)
 {
+	if (!ui_widget_port_mcc_offered())
+		return 0;
 	return (short)MIN(mcc_maps_type_count(TRUE), UI_WIDGET_PORT_MCC_CAMPAIGN_ROWS);
 }
 
 char const *ui_widget_port_mcc_campaign_level(short row)
 {
-	short index = mcc_maps_type_index(row, TRUE);
+	short index = ui_widget_port_mcc_offered() ? mcc_maps_type_index(row, TRUE) : NONE;
 
 	return index != NONE ? mcc_maps_level_name(index) : NULL;
 }
@@ -2260,7 +2273,7 @@ boolean ui_widget_port_mcc_cooperative_level_choose(char const *level_name, shor
 	struct network_game_server *server = global_network_game_server_get();
 	struct game_variant variant;
 
-	if (!server || !mcc_maps_level_campaign(level_name) ||
+	if (!server || !ui_widget_port_mcc_offered() || !mcc_maps_level_campaign(level_name) ||
 		difficulty < 0 || difficulty >= NUMBER_OF_GAME_DIFFICULTY_LEVELS)
 		return FALSE;
 	csmemset(&variant, 0, sizeof(variant));
