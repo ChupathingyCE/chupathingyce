@@ -209,6 +209,8 @@ enum
 	box over the picture shows about this many of the menus' font) */
 	PANE_NAME_LINE = 13,
 	PANE_NAME_LINES = 2,
+	/* and of a line of the map lists' cards' and boxes' names */
+	CARD_NAME_LINE = 15,
 	/* bitmap frames from here are Halo PC's map pictures */
 	UI_MAP_LIST_PICTURE_BASE = 0x4000,
 	/* and from here the campaign's level pictures (ui.map's sp_levels, a
@@ -844,14 +846,16 @@ static void add_mcc_entry(
 }
 #endif
 
-/* the description pane's name: name without its tag (the description
-under it says MCC), its lines broken between words at PANE_NAME_LINE
-characters, as many as the pane's box shows (PANE_NAME_LINES); a word
-longer than a line keeps its own line, whole, and words past the last
-line are left for "..." after it */
+/* a name broken between words into at most line_count lines of
+line_characters (the description pane's name: PANE_NAME_LINE and
+PANE_NAME_LINES; a card's first line: CARD_NAME_LINE); a word longer than a
+line keeps its own line, whole, and words past the last line are left for
+"..." after it */
 static void pane_name_wrap(
 	wchar_t *pane_name,
-	wchar_t const *name)
+	wchar_t const *name,
+	long line_characters,
+	long line_count)
 {
 	long out = 0, line = 0, at = 0, lines = 1;
 
@@ -863,9 +867,9 @@ static void pane_name_wrap(
 
 		while (name[at + word] && name[at + word] != ' ')
 			word++;
-		if (line && line + 1 + word > PANE_NAME_LINE)
+		if (line && line + 1 + word > line_characters)
 		{
-			if (lines == PANE_NAME_LINES)
+			if (lines == line_count)
 			{
 				for (index = 0; index < 3 && out < DISPLAY_NAME_LENGTH - 1; index++)
 					pane_name[out++] = '.';
@@ -912,12 +916,25 @@ static void add_mcc_catalog_entry(
 	wide_copy(name, DISPLAY_NAME_LENGTH - 7, mcc_maps_name(index));
 	wide_copy(lobby_name, DISPLAY_NAME_LENGTH, name);
 	wide_append(lobby_name, DISPLAY_NAME_LENGTH, L" [MCC]");
-	wide_copy(display_name, DISPLAY_NAME_LENGTH, name);
+	/* (the map lists' cards: the name on the first line, whole words, then
+	[MCC] on the second, as a Custom Edition map's [CE]) */
+	pane_name_wrap(display_name, name, CARD_NAME_LINE, 1);
 	wide_append(display_name, DISPLAY_NAME_LENGTH, L"\r\n[MCC]");
 	wide_copy(description, DESCRIPTION_LENGTH, own && own[0] ? own : L"A Halo MCC map");
-	add_entry(level, display_name, lobby_name, description, NONE, 9);
+	/* (Halo PC's picture for an unknown level, as a Custom Edition map of
+	another's making has; without Halo PC's ui.map, the Xbox's frame 9) */
+	{
+		short picture_index = 9;
+
+#ifdef HALO_CUSTOM_EDITION
+		ce_ui_read();
+		if (CE_UNKNOWN_LEVEL < ce_ui.picture_count)
+			picture_index = (short)(UI_MAP_LIST_PICTURE_BASE + CE_UNKNOWN_LEVEL);
+#endif
+		add_entry(level, display_name, lobby_name, description, NONE, picture_index);
+	}
 	if (ui_map_list_count_value && !strcmp(ui_map_list[ui_map_list_count_value - 1].map_name, level))
-		pane_name_wrap(ui_map_list[ui_map_list_count_value - 1].pane_name, name);
+		pane_name_wrap(ui_map_list[ui_map_list_count_value - 1].pane_name, name, PANE_NAME_LINE, PANE_NAME_LINES);
 }
 
 /* the files found of a family's maps, while the list is filled */

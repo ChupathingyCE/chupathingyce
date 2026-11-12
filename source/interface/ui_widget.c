@@ -2116,6 +2116,23 @@ boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name)
 	return TRUE;
 }
 
+/* the MCC catalog's campaign maps, after the campaign's ten levels in the
+Xbox's level select (ui_widget_event_handler_functions.c), at most this
+many: their level names, by row from 0 */
+#define UI_WIDGET_PORT_MCC_CAMPAIGN_ROWS 64
+
+short ui_widget_port_mcc_campaign_count(void)
+{
+	return (short)MIN(mcc_maps_type_count(TRUE), UI_WIDGET_PORT_MCC_CAMPAIGN_ROWS);
+}
+
+char const *ui_widget_port_mcc_campaign_level(short row)
+{
+	short index = mcc_maps_type_index(row, TRUE);
+
+	return index != NONE ? mcc_maps_level_name(index) : NULL;
+}
+
 boolean ui_widget_port_mcc_cooperative_level_choose(char const *level_name, short difficulty)
 {
 	struct network_game_server *server = global_network_game_server_get();

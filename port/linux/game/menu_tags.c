@@ -2680,6 +2680,24 @@ char const *pc_menus_root_name(
 		}
 		platform_log("menus: debug.menu_open: there is no widget named %s", open);
 	}
+	/* (the Xbox's menus: debug.menu_open names one of their screens, as
+	"ui/shell/main_menu/...") */
+	if (!menu_tags.loaded && *open && !strncmp(open, "ui/", 3))
+	{
+		static char name[300];
+		long index;
+
+		snprintf(name, sizeof(name), "%s", open);
+		name[strcspn(name, "#")] = 0;
+		for (index = 0; name[index]; index++)
+		{
+			if (name[index] == '/')
+				name[index] = '\\';
+		}
+		if (tag_loaded(UI_WIDGET_DEFINITION_TAG, name) != NONE)
+			return name;
+		platform_log("menus: debug.menu_open: there is no widget named %s", open);
+	}
 	return menu_tags.loaded && menu_tags.root[0] ? menu_tags.root : "ui\\shell\\main_menu\\main_menu";
 }
 
