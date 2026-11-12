@@ -283,6 +283,39 @@ char const *network_rules_kind_name(int kind, int engine, int short_form)
 	return NULL;
 }
 
+void network_rules_gametype_name(const char *name, int engine, int teams, char *text, size_t size)
+{
+	static char const *const engines[] = { "CTF", "Slayer", "Oddball", "King", "Race", "Bomb" };
+	size_t length = 0;
+
+	if (!size)
+		return;
+	/* (its own name: printable ASCII, no spaces at either end) */
+	if (name)
+	{
+		while (*name == ' ')
+			name++;
+		for (; *name && length < size - 1; name++)
+			text[length++] = *name >= 0x20 && *name < 0x7F ? *name : '?';
+		while (length && text[length - 1] == ' ')
+			length--;
+	}
+	text[length] = 0;
+	if (length || engine < 1 || engine > (int)(sizeof(engines) / sizeof(engines[0])))
+		return;
+	/* (else the engine's, in teams but for CTF and Bomb) */
+	if (teams && engine != 1 && engine != 6)
+	{
+		static char const team[] = "Team ";
+
+		for (; length < sizeof(team) - 1 && length < size - 1; length++)
+			text[length] = team[length];
+	}
+	for (name = engines[engine - 1]; *name && length < size - 1; name++)
+		text[length++] = *name;
+	text[length] = 0;
+}
+
 void network_rules_shield_effects_write(uint8_t *message, int effects, int32_t game_time)
 {
 	put16(message, (NETWORK_RULES_SHIELD_EFFECTS_SIZE << 4) | (NETWORK_RULES_MESSAGE_TYPE_DATA << 2));

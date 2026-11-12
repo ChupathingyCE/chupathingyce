@@ -435,6 +435,42 @@ static void test_shield_effects_message(void)
 	CHECK(message[8] == 6 && message[9] == 0);
 }
 
+static void test_gametype_name(void)
+{
+	char text[25];
+
+	/* a variant's own name, as it is (trimmed, printable) */
+	network_rules_gametype_name("Ranked TS", 2, 1, text, sizeof(text));
+	CHECK(strcmp(text, "Ranked TS") == 0);
+	network_rules_gametype_name("  SWAT ", 2, 0, text, sizeof(text));
+	CHECK(strcmp(text, "SWAT") == 0);
+	network_rules_gametype_name("Co-op Legend", 0, 0, text, sizeof(text));
+	CHECK(strcmp(text, "Co-op Legend") == 0);
+	network_rules_gametype_name("a\tb", 2, 0, text, sizeof(text));
+	CHECK(strcmp(text, "a?b") == 0);
+	/* a built-in's (no name): its engine's, Team before it in teams */
+	network_rules_gametype_name(NULL, 2, 0, text, sizeof(text));
+	CHECK(strcmp(text, "Slayer") == 0);
+	network_rules_gametype_name("", 2, 1, text, sizeof(text));
+	CHECK(strcmp(text, "Team Slayer") == 0);
+	network_rules_gametype_name("   ", 4, 1, text, sizeof(text));
+	CHECK(strcmp(text, "Team King") == 0);
+	network_rules_gametype_name(NULL, 1, 1, text, sizeof(text));
+	CHECK(strcmp(text, "CTF") == 0);
+	network_rules_gametype_name(NULL, 6, 1, text, sizeof(text));
+	CHECK(strcmp(text, "Bomb") == 0);
+	/* no known engine: none */
+	network_rules_gametype_name(NULL, 0, 0, text, sizeof(text));
+	CHECK(text[0] == 0);
+	network_rules_gametype_name(NULL, 9, 0, text, sizeof(text));
+	CHECK(text[0] == 0);
+	/* cut to the size */
+	network_rules_gametype_name(NULL, 2, 1, text, 6);
+	CHECK(strcmp(text, "Team ") == 0);
+	network_rules_gametype_name("Capture the Flag Classic Long", 1, 1, text, sizeof(text));
+	CHECK(strlen(text) == sizeof(text) - 1);
+}
+
 static void test_listing_kind(void)
 {
 	/* a mode only on the Slayer engine (2) */
@@ -1356,6 +1392,7 @@ int main(void)
 	test_extended_options();
 	test_shield_effects_message();
 	test_listing_kind();
+	test_gametype_name();
 	test_static_reach();
 	test_host_settings();
 	test_layouts_built_in();
