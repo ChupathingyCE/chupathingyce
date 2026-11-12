@@ -366,7 +366,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: ["pytest 1 2", "pytest 2 2", "other"]
+        part: ["pytest 1 3", "pytest 2 3", "pytest 3 3", "other"]
     name: linux-tests (${{ matrix.part }})
     steps:
       - name: Install the toolchain
@@ -423,6 +423,8 @@ jobs:
           tar -I zstd -xf "$RUNNER_TEMP/linux-build-tree.tar.zst"
           rm "$RUNNER_TEMP/linux-build-tree.tar.zst"
           git ls-files -z | xargs -0 touch -h -d '2000-01-01 00:00:00 UTC'
+          # (and the checkout's HEAD log, which build.ninja is configured from)
+          touch -d '2000-01-01 00:00:00 UTC' "$(git rev-parse --git-path logs/HEAD)"
           left=$(ninja -n linux | grep -c '^\[' || true)
           if [ "$left" -gt 0 ]; then
             echo "::warning::ninja would rebuild $left steps of the unpacked build"
@@ -449,8 +451,28 @@ jobs:
           set -- $PART
           case "$1" in
             pytest)
-              # (shard $2 of $3: every $3-th file of the list)
-              tests=$(present .ci-lists/tools/ci_tests.txt | awk -v shard="$2" -v shards="$3" '(NR - 1) % shards == shard - 1')
+              # (shard $2 of $3: the files dealt out longest first to the
+              # shard with the least so far; the few long ones, the fuzzers,
+              # weighed by their seconds on a runner, every other file as 2)
+              tests=$(present .ci-lists/tools/ci_tests.txt | awk -v shard="$2" -v shards="$3" '
+                BEGIN {
+                  weight["tools/test_map_fuzz.py"] = 200; weight["tools/test_host_fuzz.py"] = 180
+                  weight["tools/test_steam_content.py"] = 160; weight["tools/test_server_control.py"] = 90
+                  weight["tools/test_delta_peer.py"] = 70; weight["tools/test_workshop_list.py"] = 25
+                  weight["tools/test_steam_bridge.py"] = 20
+                }
+                { files[NR] = $0; w[NR] = ($0 in weight) ? weight[$0] : 2 }
+                END {
+                  for (i = 1; i <= NR; i++) order[i] = i
+                  for (i = 1; i <= NR; i++) for (j = i + 1; j <= NR; j++)
+                    if (w[order[j]] > w[order[i]]) { t = order[i]; order[i] = order[j]; order[j] = t }
+                  for (i = 1; i <= NR; i++) {
+                    best = 1
+                    for (k = 2; k <= shards; k++) if (load[k] < load[best]) best = k
+                    load[best] += w[order[i]]
+                    if (best == shard) print files[order[i]]
+                  }
+                }')
               echo "$tests"
               python3 -m pytest -q -n auto --durations=15 $tests
               ;;
