@@ -203,7 +203,8 @@ static short options_of(struct workshop_browser_item const *item, short *options
 	}
 	if (bridge && item->steam_subscribed && steam_bridge_can_unsubscribe())
 		options[count++] = _option_unsubscribe;
-	if (bridge && steam_bridge_sign_in_needed())
+	/* (steamcmd's sign-in; the built-in download's LINK STEAM is on GET itself) */
+	if (bridge && steam_bridge_sign_in_needed() && !workshop_browser_link_offered())
 		options[count++] = _option_sign_in;
 	if (!steam_bridge_enabled() && workshop_browser_bridge_backend() != STEAM_BRIDGE_BACKEND_NONE)
 		options[count++] = _option_use_steam;
@@ -987,7 +988,8 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Delete its files?");
 		else if (workshop_view.confirm)
 			text_wrapped(use_steam_note(), x + 12, y - 4 - NOTE_LINES * (DESCRIPTION_SIZE + 4), width - 24, NOTE_LINES);
-		else if (!item->setup && workshop_browser_bridge_status() == STEAM_BRIDGE_READY && steam_bridge_sign_in_needed())
+		else if (!item->setup && workshop_browser_bridge_status() == STEAM_BRIDGE_READY && steam_bridge_sign_in_needed() &&
+			!workshop_browser_link_offered())
 			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT,
 				workshop_browser_link_offered() ? "Link Steam first" : "Sign in to steamcmd");
 		else if (!item->setup && item->steam_error[0] && item->state != WORKSHOP_ITEM_INSTALLED)
