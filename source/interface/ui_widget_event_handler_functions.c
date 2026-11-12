@@ -937,6 +937,7 @@ boolean playlist_profile_get_options(long playlist_profile_index, struct game_va
 #endif
 #include "text/unicode.h"
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
+#include "mcc_ui.h"
 
 #ifdef HALO_MAP_LIST
 #include "halo_ui_map_list.h"
@@ -3542,7 +3543,6 @@ static boolean ui_widget_function_denied(
 
 	/* Only exact MCC-owned pause widgets may use their private actions. */
 	{
-		extern boolean mcc_ui_trusted_action(struct widget_instance *, word);
 		if (mcc_ui_trusted_action(widget, function_index)) return FALSE;
 	}
 	if (pc_menu_tag(widget->definition_tag_index))
@@ -3588,8 +3588,6 @@ boolean ui_widget_event_handler_function_invoke(
 		return FALSE;
 	/* MCC's additional in-map callbacks have their own dispatcher. */
 	{
-		extern boolean mcc_ui_event_function(struct widget_instance *, struct event_record *, word,
-			boolean *, boolean *);
 		if (mcc_ui_event_function(widget, event, function_index, widget_deleted, &result))
 			return result;
 	}

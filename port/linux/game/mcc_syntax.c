@@ -2,6 +2,7 @@
  * remain in the map's tag allocation, so handles and checkpoint layout keep
  * their existing representation. The shared interpreter's signed indices
  * support this format's 32767 slots without widening any engine structure. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "math/real_math.h"
@@ -153,3 +154,4 @@ boolean mcc_syntax_functions_check(struct scenario *scenario, struct data_array 
         first_owner, first_name ? first_name : "damaged expression", scripts, globals);
     return TRUE;
 }
+#endif /* HALO_MCC */

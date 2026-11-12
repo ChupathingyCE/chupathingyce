@@ -2,6 +2,7 @@
  * syntax primitive/global/local flags 0x15 and zero-based slot in data.
  * Public schema: Invader scenario.json and scenario/pre_compile.cpp.
  * Only signatures/scope are retained here; live values belong to HS stacks. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "math/real_math.h"
@@ -214,3 +215,4 @@ fail:
     error(_error_silent, "mcc: invalid %s at entry #%u, argument #%u",stage,i,j);
     return 0;
 }
+#endif /* HALO_MCC */

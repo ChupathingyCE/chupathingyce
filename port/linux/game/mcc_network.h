@@ -10,4 +10,12 @@ word mcc_network_inventory_entry_size(void);
 void mcc_network_handle_inventories(void const *entries, short count);
 word mcc_network_campaign_entry_size(void);
 void mcc_network_handle_campaign(void const *entries, short count);
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_network_client_tick() ((void)0)
+#define mcc_network_host_tick() ((void)0)
+#define mcc_network_new_game() ((void)0)
+#endif
+
 #endif

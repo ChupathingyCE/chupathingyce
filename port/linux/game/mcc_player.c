@@ -1,5 +1,6 @@
 /* MCC player input/profile extensions. Native action and profile layouts
  * remain unchanged; extra counts belong to the MCC inventory sidecar. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "math/real_math.h"
 #include "game/players.h"
@@ -68,3 +69,4 @@ void mcc_player_add_equipment(long unit_index, short profile_index, boolean rese
      * do not expand one player's profile to the legacy co-op followers. */
     player_add_equipment(unit_index, profile_index, reset);
 }
+#endif /* HALO_MCC */

@@ -1,5 +1,6 @@
 /* MCC adds two grenade/ability slots without changing the native unit or
  * save-game layout. Every extra count belongs to a full salted object ID. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "mcc_cache.h"
@@ -318,3 +319,4 @@ int mcc_grenades_restore(void const *in,uint32_t bytes)
     }
     return 1;
 }
+#endif /* HALO_MCC */

@@ -1,3 +1,4 @@
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "mcc_errors.h"
 #include <stdio.h>
 #include <string.h>
@@ -63,3 +64,4 @@ void mcc_error_text(char const *name, char const *reason, wchar_t *out, size_t s
     for (i = 0; message[i] && i < size - 1; i++) out[i] = (unsigned char)message[i];
     out[i] = 0;
 }
+#endif /* HALO_MCC */

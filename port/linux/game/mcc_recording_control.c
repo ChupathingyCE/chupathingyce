@@ -1,5 +1,6 @@
 /* MCC weapon-only recordings have no direction to pass to native unit control.
  * Inherit the target's current directions; preserve all events and timing. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "mcc_cache.h"
 #include "mcc_recordings.h"
@@ -23,3 +24,4 @@ void mcc_recording_control_begin(long unit_index,
     control->aiming_vector = unit->unit.aiming_vector;
     control->looking_vector = unit->unit.looking_vector;
 }
+#endif /* HALO_MCC */

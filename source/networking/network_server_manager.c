@@ -5941,4 +5941,6 @@ boolean network_game_server_map_share_machine(
 }
 #endif
 /* Independent MCC pause-menu round restart. */
+#if !defined(HALO_MCC) || HALO_MCC
 #include "mcc_ui_network.inl"
+#endif

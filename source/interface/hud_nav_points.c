@@ -128,6 +128,7 @@ symbols in this file:
 #include "cseries/errors.h"
 #endif
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "mcc_campaign.h"
 
 /* ---------- constants */
 
@@ -1035,7 +1036,6 @@ void hud_render_nav_points(
 	game_engine_render_nav_points(local_player_index);
 	/* port: MCC campaign markers have separate state (mcc_campaign.c). */
 	{
-		extern void mcc_campaign_render(short local_player);
 		mcc_campaign_render(local_player_index);
 	}
 

@@ -1,3 +1,4 @@
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "mcc_share_rules.h"
 #include "mcc_package.h"
 #include <string.h>
@@ -101,3 +102,4 @@ int mcc_share_file_allowed(char const *leaf, size_t length)
     name[length]=0;
     return mcc_share_same(name,"bitmaps.map") || mcc_share_same(name,"sounds.map");
 }
+#endif /* HALO_MCC */

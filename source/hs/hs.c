@@ -2847,6 +2847,9 @@ symbols in this file:
 #ifdef HALO_BIG_ENDIAN
 #include "console_endian.h" /* port: the maps' byte order (hs_syntax_data_byte_swap) */
 #endif
+#include "mcc_script_parameters.h"
+#include "mcc_scripts.h"
+#include "mcc_syntax.h"
 
 /* ---------- constants */
 
@@ -13296,7 +13299,6 @@ static char const *hs_scenario_syntax_data_problem(
 	struct scenario const *scenario)
 {
 	{
-		extern int mcc_syntax_scenario_valid(struct scenario const *scenario);
 		int mcc_valid = mcc_syntax_scenario_valid(scenario);
 		if (mcc_valid >= 0)
 			return mcc_valid ? NULL : "its MCC script syntax data is damaged";
@@ -13578,8 +13580,6 @@ static short hs_syntax_node_refusal(
 
 	function_index = expression->function_index;
 	{
-		extern struct hs_function_definition *mcc_script_function(short index);
-		extern boolean mcc_script_call_valid(struct hs_syntax_node const *call, struct data_array *syntax);
 		struct hs_function_definition *mcc_function = mcc_script_function(function_index);
 		if (mcc_function)
 		{
@@ -13656,7 +13656,6 @@ static short hs_syntax_node_refusal(
 	{
 		short designator = (short)first_argument->data;
 		{
-			extern int mcc_parameter_set_valid(struct hs_syntax_node const *node, struct hs_syntax_node const *value);
 			int mcc_parameter = mcc_parameter_set_valid(first_argument,
 				hs_syntax_try_get(first_argument->next_node_index));
 			if (mcc_parameter >= 0)
@@ -13848,9 +13847,6 @@ static void hs_scenario_functions_check(
 	struct scenario *scenario)
 {
 	{
-		extern boolean mcc_syntax_functions_check(struct scenario *scenario, struct data_array *syntax,
-			short (*node_refusal)(struct hs_syntax_node const *, char const **),
-			unsigned long *disabled_scripts, unsigned long *disabled_globals);
 		if (mcc_syntax_functions_check(scenario, hs_syntax_data, hs_syntax_node_refusal,
 			hs_scenario_disabled_scripts, hs_scenario_disabled_globals))
 			return;
@@ -14064,7 +14060,6 @@ static void hs_allocate(
 
 	scenario = global_scenario_index != NONE ? global_scenario_get() : NULL;
 	{
-		extern int mcc_syntax_scenario_valid(struct scenario const *scenario);
 		if (mcc_syntax_scenario_valid(scenario) > 0)
 			return;
 	}
@@ -14464,7 +14459,6 @@ struct hs_function_definition *hs_function_get(
 	short function_index)
 {
 	{
-		extern struct hs_function_definition *mcc_script_function(short index);
 		struct hs_function_definition *mcc_function = mcc_script_function(function_index);
 		if (mcc_function)
 			return mcc_function;
@@ -14609,7 +14603,6 @@ short hs_find_function_by_name(
 	short function_index;
 
 	{
-		extern short mcc_script_find(char const *name);
 		short mcc_index = mcc_script_find(name);
 		if (mcc_index != NONE)
 			return mcc_index;

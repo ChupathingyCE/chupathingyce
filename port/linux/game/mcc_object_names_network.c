@@ -1,5 +1,6 @@
 /* MCC-only bounded name snapshots. Moving units/items retain native replication;
  * this supplies named scenery/devices that scripts create or destroy. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "mcc_object_names.h"
 #include "mcc_object_names_network.h"
@@ -110,3 +111,4 @@ void mcc_object_names_receive(void const *entries, short count, long host_time)
         else if (!mcc_names_holds_player(object)) object_delete(object);
     }
 }
+#endif /* HALO_MCC */

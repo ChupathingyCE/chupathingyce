@@ -1,4 +1,5 @@
 /* One optional package directory, with explicit MCC-root resource fallback. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "mcc_package.h"
 #include "mcc_maps.h"
@@ -73,3 +74,4 @@ FILE *mcc_package_resource_open(char const *name,unsigned type,char path[128])
     }
     return file;
 }
+#endif /* HALO_MCC */

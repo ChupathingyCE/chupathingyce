@@ -1,6 +1,7 @@
 /* port: chester's MCC network protocol (its join envelope, advertisement
 bytes and settings record) is not on our wire: MCC maps' messages go over
 Delta when they come. With HALO_MCC_NETWORK only, which no build defines */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #ifdef HALO_MCC_NETWORK
 #include "cseries.h"
 #include "mcc_protocol.h"
@@ -137,3 +138,4 @@ void mcc_protocol_prune(struct network_game_server *server, struct network_game 
 #else
 typedef int mcc_protocol_off;
 #endif
+#endif /* HALO_MCC */

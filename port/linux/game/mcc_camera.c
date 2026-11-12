@@ -1,5 +1,6 @@
 /* MCC's weapon-authored camera uses the engine's existing following camera.
  * Inventory replication supplies the equipped weapon on both peers. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "units/units.h"
 #include "items/weapons.h"
@@ -31,3 +32,4 @@ boolean mcc_camera_weapon_following(long unit_index)
      * format reference and present on Spasm Playground's Digsite weapons. */
     return (definition->weapon.flags & 0x20000UL) != 0;
 }
+#endif /* HALO_MCC */

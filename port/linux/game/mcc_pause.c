@@ -1,5 +1,6 @@
 /* MCC-owned native pause definitions. The layouts follow the stock Xbox
  * logical viewport sizes; no embedded map widget or CE converter is edited. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "cseries_windows.h"
 #include "tag_files/tag_groups.h"
@@ -511,3 +512,4 @@ long mcc_pause_select(boolean campaign, boolean network, boolean host, boolean t
         !network ? MP_LOCAL : host ? MP_HOST : MP_CLIENT;
     return mcc_pause.roots[mode][layout];
 }
+#endif /* HALO_MCC */

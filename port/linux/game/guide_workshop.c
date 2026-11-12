@@ -21,6 +21,7 @@ each stands in the player's own Steam libraries.
 The section shows only on a computer with MCC from Steam. No Steamworks,
 no Steam password, nothing written to Steam's folders.
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "cseries.h"
 #include "cseries/cseries_windows.h"
@@ -390,3 +391,4 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 }
 
 #endif
+#endif /* HALO_MCC */

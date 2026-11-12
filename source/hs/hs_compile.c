@@ -420,6 +420,8 @@ symbols in this file:
 #include "memory/data.h"
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
+#include "mcc_script_parameters.h"
+#include "mcc_scripts.h"
 #ifdef HALO_CUSTOM_EDITION
 #include "cseries/errors.h"
 
@@ -2304,7 +2306,6 @@ static boolean hs_parse_primitive(
 	boolean result = FALSE;
 
 	{
-		extern int mcc_script_parse_ai(struct hs_syntax_node *node, char const *text);
 		int mcc_result = mcc_script_parse_ai(expression,
 			hs_compile_globals.compiled_source);
 		if (mcc_result >= 0)
@@ -2854,8 +2855,6 @@ boolean hs_compile_postprocess(
 	{
 		struct hs_syntax_node *expression = hs_syntax_get(expression_index);
 		{
-			extern int mcc_parameter_compile(struct hs_syntax_node const *node);
-			extern void mcc_parameter_compile_skipped(struct hs_syntax_node const *node, long expression_index);
 			int mcc_parameter = mcc_parameter_compile(expression);
 			if (mcc_parameter >= 0)
 			{

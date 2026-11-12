@@ -16,4 +16,13 @@ boolean mcc_script_effect_enabled(short effect);
 boolean mcc_script_effects_bump(long source, long target);
 boolean mcc_script_effects_host_movement(void);
 boolean mcc_script_effects_preserve_body(void);
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_script_effect_enabled(a0) ((void)sizeof(a0), (boolean)0)
+#define mcc_script_effects_bump(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (boolean)0)
+#define mcc_script_effects_host_movement() ((boolean)0)
+#define mcc_script_effects_preserve_body() ((boolean)0)
+#endif
+
 #endif

@@ -36,4 +36,14 @@ void mcc_ui_settings_close(short controller);
  * A successful transition synchronously deletes the active widget tree. */
 boolean mcc_ui_new_game(struct widget_instance *widget, boolean *deleted);
 
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_ui_event_function(a0, a1, a2, a3, a4) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (boolean)0)
+#define mcc_ui_new_game(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (boolean)0)
+#define mcc_ui_settings_close(a0) ((void)sizeof(a0), (void)0)
+#define mcc_ui_settings_profile_released() ((void)0)
+#define mcc_ui_trusted_action(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (boolean)0)
+#endif
+
 #endif

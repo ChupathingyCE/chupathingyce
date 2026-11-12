@@ -686,6 +686,10 @@ struct widget_instance;
 #ifdef HALO_MAP_LIST
 #include "halo_ui_map_list.h"
 #endif
+#include "mcc_pause.h"
+#include "mcc_pause_runtime.h"
+#include "mcc_ui.h"
+#include "mcc_ui_network.h"
 #ifndef HALO_CONSOLE_NO_CONTROLS
 /* port: Controller Buttons asking for a button (menu_functions.c) */
 boolean pc_menu_controller_capture(void);
@@ -3393,7 +3397,6 @@ void ui_widgets_close_all(
 	}
 	/* Release only an editor opened by MCC after its widgets are gone. */
 	{
-		extern void mcc_ui_settings_close(short);
 		mcc_ui_settings_close(NONE);
 	}
 
@@ -3424,7 +3427,6 @@ void ui_widgets_close_all_for_local_player(
 		}
 	}
 	{
-		extern void mcc_ui_settings_close(short);
 		mcc_ui_settings_close(local_player_index);
 	}
 
@@ -4383,7 +4385,6 @@ static void event_handler_dispatch(
 		/* MCC New Game can synchronously close every widget. Finish the event
 		with its deletion result before any navigation can reuse that tree. */
 		{
-			extern boolean mcc_ui_new_game(struct widget_instance *, boolean *);
 			if (TEST_FLAG(handler->flags, _event_handler_open_widget_bit) &&
 				!widget_deleted && handler->widget_tag.index != NONE &&
 				mcc_ui_new_game(widget, &widget_deleted))
@@ -5773,7 +5774,6 @@ void network_game_reset_to_pregame_ui(
 	/* An MCC restart retains this round's settings and returns directly to
 	 * the ready lobby. The ordinary host map picker pauses its countdown. */
 	{
-		extern boolean mcc_ui_network_restart_pregame(void);
 		if (mcc_ui_network_restart_pregame())
 		{
 			char const *screen = network_game_is_splitscreen_local() ?
@@ -6588,7 +6588,6 @@ static void widget_instance_render_text_box(
 	/* MCC owns these text boxes; wrap their instance copies to the panel
 	 * width without changing the map's objective strings or other menus. */
 	{
-		extern boolean mcc_pause_text_wrap_needed(long);
 		if (mcc_pause_text_wrap_needed(widget->definition_tag_index))
 		{
 			ui_widget_port_text_wrap(*text, &bounds, (short)(bounds.x1 - bounds.x0));
@@ -9952,8 +9951,6 @@ static boolean ui_check_for_pause_game(
 		/* MCC selects its owned stock-style pause tree; embedded map menus
 		 * remain available to custom scripts but are never the pause entry. */
 		{
-			extern boolean mcc_pause_runtime_active(void);
-			extern long mcc_pause_runtime_screen(short, boolean);
 			if (mcc_pause_runtime_active())
 			{
 				if ((!network_game || game_engine_allow_pause()) &&

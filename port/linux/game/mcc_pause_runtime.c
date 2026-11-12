@@ -1,6 +1,7 @@
 /* MCC-owned stock-style pause resources. The map's widgets, HUD and objective
  * tags are never overwritten. A copied tag table is published only once the
  * complete menu and its independently allocated art are ready. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "bitmaps/bitmap_group.h"
 #include "game/game.h"
@@ -329,3 +330,4 @@ long mcc_pause_runtime_screen(short local_count, boolean first_player)
     return NONE;
 }
 #endif
+#endif /* HALO_MCC */

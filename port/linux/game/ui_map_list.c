@@ -1166,7 +1166,7 @@ static char const *view_package_text(char const *level)
 		used += length;
 		text[used] = 0;
 	}
-#ifndef HALO_XBOX_CONSOLE
+#if !defined(HALO_MCC) || HALO_MCC
 	/* (a Workshop item: its folder's, the maps folder's parent) */
 	if (!used)
 	{

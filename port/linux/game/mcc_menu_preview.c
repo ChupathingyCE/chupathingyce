@@ -1,5 +1,6 @@
 /* MCC owns its decoded pictures and a bounded four-entry texture cache.
  * Failed reads are cached too; rescanning and menu unload discard both. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "tag_files/tag_files.h"
 #include "bitmaps/bitmap_group.h"
@@ -90,3 +91,4 @@ boolean mcc_menu_preview_draw(short index, rectangle2d const *box, rectangle2d c
         draw_bitmap_in_rect(entry->bitmap,&bounds,&texels,&clip,color,parameters,FALSE);
     return TRUE;
 }
+#endif /* HALO_MCC */
