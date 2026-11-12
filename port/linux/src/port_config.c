@@ -1208,6 +1208,10 @@ static const struct config_setting config_settings[] =
 	{ "network.browser_url", _config_string, "\"https://stats.chupathingy.org\"", "HALO_NET_BROWSER", _environment_value,
 		_platform_all | _platform_server,
 		"The game list server. Leave it empty for none." },
+	{ "network.workshop_downloads", _config_string, "\"ask\"", "HALO_NET_WORKSHOP_DOWNLOADS", _environment_value,
+		_platform_desktop,
+		"Get a game's missing MCC Workshop map through your Steam when you join:\n"
+		"\"ask\", \"always\" or \"never\"." },
 	{ "network.workshop_url", _config_string, "\"\"", "HALO_WORKSHOP_URL", _environment_value, _platform_desktop,
 		"The list of MCC Workshop items the Delta Guide's Workshop shows (with\n"
 		"MCC on this computer). Empty shows only the items Steam has installed." },
@@ -1681,6 +1685,9 @@ static const struct config_setting config_settings[] =
 		"Run without a window, and draw nothing." },
 	{ "debug.gl_debug", _config_boolean, "false", "HALO_GL_DEBUG", _environment_set_is_true, _platform_all,
 		"Report OpenGL errors in the log." },
+	{ "debug.workshop_offer", _config_string, "\"\"", "HALO_WORKSHOP_OFFER", _environment_value, _platform_desktop,
+		"A join's missing Workshop map offered over the main menu once, as\n"
+		"\"<item id>:<title>\", for tests. Leave it empty for none." },
 	{ "debug.workshop_search", _config_string, "\"\"", "HALO_WORKSHOP_SEARCH", _environment_value, _platform_desktop,
 		"The Delta Guide Workshop's search box shown with these words, then\n"
 		"searched, for screenshots. Leave it empty for none." },
@@ -4220,6 +4227,7 @@ static const struct
 	{ "game.move_old_map_folders", { "ask", "yes", "no", NULL }, "\"ask\"" },
 	{ "network.protocol", { "auto", "opence", "delta", NULL }, NULL },
 	{ "network.map_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
+	{ "network.workshop_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
 #ifdef HALO_HOST_MAP_DOWNLOADS
 	{ "network.map_downloads_from_host", { "off", "ask", "always", NULL }, "\"off\"" },
 #endif

@@ -110,6 +110,7 @@ the right button is B.
 #include "../src/map_art.h"
 #include "../src/map_download.h"
 #include "../src/map_repo.h"
+#include "../src/workshop_browser.h"
 #include <time.h>
 #include "../src/playlist_download.h"
 #include "../src/ui_overlay.h"
@@ -323,6 +324,10 @@ static struct
 	/* (Chupathingy maps has it too, as the index held says: the offer names
 	it beside the community repositories) */
 	boolean offer_ours;
+	/* the map is an MCC Workshop item (browser_screen_workshop_missing): its
+	id; offer_display is its title */
+	boolean offer_workshop;
+	char offer_workshop_id[24];
 	boolean offer_dont_ask;
 	struct map_download_progress offer_progress;
 	/* when it was offered (the A that joined, still held, answers nothing) */
@@ -606,7 +611,7 @@ static void rejoin_given_up(
 	char text[256];
 	long index;
 
-	platform_log("map download: %s.map not downloaded (%s): the game is not joined again", browser_screen.offer_file,
+	platform_log("map download: %s not downloaded (%s): the game is not joined again", browser_screen.offer_display,
 		why ? why : "not wanted");
 	browser_screen.offer = _offer_none;
 	browser_screen.connecting = FALSE;
@@ -615,9 +620,14 @@ static void rejoin_given_up(
 	map_download_reset();
 	/* (the words the error has without the downloader: why the download
 	failed is in the log, the dialog having no room for more) */
-	snprintf(text, sizeof(text), "You don't have the %s map %.31s. Copy %.31s.map into %s.",
-		map_family_badge(_map_family_custom_edition), browser_screen.offer_file, browser_screen.offer_file,
-		map_family_folder(_map_family_custom_edition));
+	if (browser_screen.offer_workshop)
+		snprintf(text, sizeof(text), "You don't have %.40s. Get it in the Delta Guide's Workshop.",
+			browser_screen.offer_display);
+	else
+		snprintf(text, sizeof(text), "You don't have the %s map %.31s. Copy %.31s.map into %s.",
+			map_family_badge(_map_family_custom_edition), browser_screen.offer_file, browser_screen.offer_file,
+			map_family_folder(_map_family_custom_edition));
+	browser_screen.offer_workshop = FALSE;
 	for (index = 0; text[index] && index < NUMBEROF(message) - 1; index++)
 		message[index] = (wchar_t)(unsigned char)text[index];
 	message[index] = 0;
@@ -627,6 +637,20 @@ static void rejoin_given_up(
 static void start_offered_download(
 	void)
 {
+	if (browser_screen.offer_workshop)
+	{
+		char why[96];
+
+		csmemset(&browser_screen.offer_progress, 0, sizeof(browser_screen.offer_progress));
+		if (workshop_join_start(browser_screen.offer_workshop_id, why, (int)sizeof(why)))
+			browser_screen.offer = _offer_downloading;
+		else
+		{
+			browser_screen.offer = _offer_failed;
+			snprintf(browser_screen.offer_progress.message, sizeof(browser_screen.offer_progress.message), "%s", why);
+		}
+		return;
+	}
 	if (map_download_start(browser_screen.offer_file, (unsigned int)browser_screen.offer_version))
 	{
 		browser_screen.offer = _offer_downloading;
@@ -806,8 +830,9 @@ static void rejoin(
 	void)
 {
 	browser_screen.rejoin_pending = FALSE;
-	platform_log("map download: %s.map in place: joining the game again%s", browser_screen.offer_file,
+	platform_log("map download: %s in place: joining the game again%s", browser_screen.offer_display,
 		browser_screen.rejoin_invite[0] ? " (through its invite)" : " (on the local network)");
+	browser_screen.offer_workshop = FALSE;
 	join_first_player();
 	if (browser_screen.rejoin_invite[0] && !browser_join(browser_screen.rejoin_invite, FALSE))
 	{
@@ -827,6 +852,38 @@ static void follow_download(
 	void)
 {
 	char text[96];
+
+	if (browser_screen.offer_workshop)
+	{
+		unsigned long long done, total;
+		struct map_download_progress *progress = &browser_screen.offer_progress;
+
+		switch (workshop_join_poll(&done, &total, progress->message, (int)sizeof(progress->message)))
+		{
+		case WORKSHOP_JOIN_INSTALLED:
+			browser_screen.offer = _offer_none;
+			snprintf(text, sizeof(text), "Got %s", browser_screen.offer_display);
+			set_status(text);
+			if (browser_screen.rejoin_pending)
+				rejoin();
+			else
+				browser_screen.connecting_time = system_milliseconds();
+			break;
+		case WORKSHOP_JOIN_FAILED:
+			if (browser_screen.rejoin_pending)
+				rejoin_given_up(progress->message);
+			else
+				browser_screen.offer = _offer_failed;
+			break;
+		default:
+			/* (Steam's bytes, in KB past 4 GB's reach) */
+			progress->phase = total ? MAP_DOWNLOAD_RECEIVING : 0;
+			progress->received = (unsigned int)(done > 0xFFFFFFFFull ? 0xFFFFFFFFu : done);
+			progress->total = (unsigned int)(total > 0xFFFFFFFFull ? 0xFFFFFFFFu : total);
+			break;
+		}
+		return;
+	}
 
 #ifdef HALO_HOST_MAP_DOWNLOADS
 	/* (a download from the host: its transfer runs each frame from the main
@@ -894,13 +951,17 @@ static void offer_button(
 	case _offer_asking:
 		if (button == _gamepad_analog_button_a)
 		{
-			if (browser_screen.offer_dont_ask)
+			if (browser_screen.offer_dont_ask && browser_screen.offer_workshop)
+				workshop_join_set_setting(WORKSHOP_JOIN_ALWAYS);
+			else if (browser_screen.offer_dont_ask)
 				map_download_set_setting(MAP_DOWNLOADS_ALWAYS);
 			start_offered_download();
 		}
 		else if (button == _gamepad_analog_button_b)
 		{
-			if (browser_screen.offer_dont_ask)
+			if (browser_screen.offer_dont_ask && browser_screen.offer_workshop)
+				workshop_join_set_setting(WORKSHOP_JOIN_NEVER);
+			else if (browser_screen.offer_dont_ask)
 				map_download_set_setting(MAP_DOWNLOADS_NEVER);
 			offer_given_up(NULL);
 		}
@@ -929,7 +990,12 @@ static void offer_button(
 		break;
 #endif
 	case _offer_downloading:
-		if (button == _gamepad_analog_button_b)
+		if (button == _gamepad_analog_button_b && browser_screen.offer_workshop)
+		{
+			workshop_join_cancel();
+			offer_given_up("Cancelled.");
+		}
+		else if (button == _gamepad_analog_button_b)
 			map_download_cancel();
 		break;
 	case _offer_failed:
@@ -1874,13 +1940,13 @@ void browser_screen_open(
 	fetch_games();
 }
 
+static void browser_screen_map_rejoin_set(void);
+
 void browser_screen_map_missing(
 	char const *file,
 	unsigned long version)
 {
 #if defined(HALO_CUSTOM_EDITION) && !defined(HALO_SERVER)
-	char invite[BROWSER_INVITE_LENGTH + 1];
-
 	if (browser_screen.offer != _offer_none)
 		return;
 	/* (one of Halo PC's own maps: its panel says where to copy it from, in
@@ -1900,6 +1966,24 @@ void browser_screen_map_missing(
 	map_archive_display_name(browser_screen.offer_file, browser_screen.offer_display,
 		(int)sizeof(browser_screen.offer_display));
 	browser_screen.offer_version = version;
+	browser_screen.offer_workshop = FALSE;
+	browser_screen_map_rejoin_set();
+	error(_error_silent, "map download: the join left for %s.map; offered over the main menu, then the game joined again%s",
+		file, browser_screen.rejoin_invite[0] ? " (through its invite)" : " (on the local network)");
+#else
+	(void)file;
+	(void)version;
+#endif
+}
+
+/* the host left, to join again once the map is here: its identifier, and its
+invite when the one last joined is its */
+static void browser_screen_map_rejoin_set(
+	void)
+{
+#if defined(HALO_CUSTOM_EDITION) && !defined(HALO_SERVER)
+	char invite[BROWSER_INVITE_LENGTH + 1];
+
 	network_game_client_joined_host_identifier(browser_screen.rejoin_host, sizeof(browser_screen.rejoin_host));
 	browser_screen.rejoin_invite[0] = 0;
 	/* (the invite last joined, if it is this host's: its first 12 hex
@@ -1923,11 +2007,34 @@ void browser_screen_map_missing(
 	}
 	browser_screen.rejoin_invite[sizeof(browser_screen.rejoin_invite) - 1] = 0;
 	browser_screen.rejoin_pending = TRUE;
-	error(_error_silent, "map download: the join left for %s.map; offered over the main menu, then the game joined again%s",
-		file, browser_screen.rejoin_invite[0] ? " (through its invite)" : " (on the local network)");
+#endif
+}
+
+/* a join refused for want of an MCC Workshop map (mcc_identity.c): offered
+over the main menu as a missing Custom Edition map is, through the player's
+own Steam (network.workshop_downloads), then the game joined again */
+void browser_screen_workshop_missing(
+	char const *id,
+	char const *title)
+{
+#if defined(HALO_CUSTOM_EDITION) && !defined(HALO_SERVER) && !defined(HALO_ANDROID)
+	if (browser_screen.offer != _offer_none || browser_screen.rejoin_pending ||
+		workshop_join_setting() == WORKSHOP_JOIN_NEVER || !workshop_browser_offered())
+	{
+		return;
+	}
+	csstrncpy(browser_screen.offer_workshop_id, id, sizeof(browser_screen.offer_workshop_id) - 1);
+	browser_screen.offer_workshop_id[sizeof(browser_screen.offer_workshop_id) - 1] = 0;
+	csstrncpy(browser_screen.offer_display, title && title[0] ? title : id, sizeof(browser_screen.offer_display) - 1);
+	browser_screen.offer_display[sizeof(browser_screen.offer_display) - 1] = 0;
+	browser_screen.offer_file[0] = 0;
+	browser_screen.offer_workshop = TRUE;
+	/* (the host joined again as browser_screen_map_missing has it) */
+	browser_screen_map_rejoin_set();
+	error(_error_silent, "workshop: the join left for item %s; offered over the main menu, then the game joined again", id);
 #else
-	(void)file;
-	(void)version;
+	(void)id;
+	(void)title;
 #endif
 }
 
@@ -1950,6 +2057,16 @@ boolean browser_screen_open_map_offer(
 		return FALSE;
 	browser_screen_open();
 	csstrncpy(browser_screen.connecting_name, "the game", sizeof(browser_screen.connecting_name) - 1);
+	if (browser_screen.offer_workshop)
+	{
+		browser_screen.offer_dont_ask = FALSE;
+		browser_screen.offer_time = system_milliseconds();
+		if (workshop_join_setting() == WORKSHOP_JOIN_ALWAYS)
+			start_offered_download();
+		else
+			browser_screen.offer = _offer_asking;
+		return TRUE;
+	}
 	offer_map(browser_screen.offer_file, browser_screen.offer_version);
 	return TRUE;
 }
@@ -2239,9 +2356,33 @@ offer's while it is) */
 	}
 }
 
+/* debug.workshop_offer "<id>:<title>": the join's Workshop offer over the
+main menu once, as a refused join leaves it, for tests and screenshots
+(each frame: guide_workshop.c) */
+void browser_screen_debug_workshop_offer(
+	void)
+{
+	static boolean debug_offer_done;
+	char const *offer = config_string("debug.workshop_offer");
+	boolean main_menu_is_active(void);
+
+	if (!debug_offer_done && offer && offer[0] && main_menu_is_active())
+	{
+		char id[24], title[48];
+		char const *colon = strchr(offer, ':');
+
+		debug_offer_done = TRUE;
+		snprintf(id, sizeof(id), "%.*s", colon ? (int)(colon - offer) : (int)strlen(offer), offer);
+		snprintf(title, sizeof(title), "%s", colon ? colon + 1 : "");
+		browser_screen_workshop_missing(id, title);
+		browser_screen_open_map_offer();
+	}
+}
+
 void browser_screen_process(
 	void)
 {
+
 	struct event_record event;
 
 	fetch_games();
@@ -3179,9 +3320,13 @@ static void draw_map_offer(
 
 	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT,
 		browser_screen.offer == _offer_stock ? MAP_ARCHIVE_STOCK_TITLE : "MISSING MAP");
-	draw_family_badge(_map_family_custom_edition, NULL, BADGE_SIZE + 1.5f,
-		CONNECT_X + CONNECT_WIDTH - 22 - family_badge_width(_map_family_custom_edition, NULL, BADGE_SIZE + 1.5f), CONNECT_Y + 20,
-		12.0f, FALSE);
+	/* (a Workshop item is no Custom Edition map: no badge) */
+	if (!browser_screen.offer_workshop)
+	{
+		draw_family_badge(_map_family_custom_edition, NULL, BADGE_SIZE + 1.5f,
+			CONNECT_X + CONNECT_WIDTH - 22 - family_badge_width(_map_family_custom_edition, NULL, BADGE_SIZE + 1.5f),
+			CONNECT_Y + 20, 12.0f, FALSE);
+	}
 
 	switch (browser_screen.offer)
 	{
@@ -3196,6 +3341,18 @@ static void draw_map_offer(
 		if (text[0] >= 'a' && text[0] <= 'z')
 			text[0] = (char)(text[0] - 32);
 		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 62, UI_ALIGN_CENTER, COLOR_DIM, text);
+		/* (an MCC Workshop item: through the player's own Steam) */
+		if (browser_screen.offer_workshop)
+		{
+			snprintf(text, sizeof(text), "Get %s", browser_screen.offer_display);
+			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 86, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
+				text);
+			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
+				"from the Steam Workshop?");
+			draw_dont_ask(y);
+			dialog_prompts(NUMBEROF(buttons), buttons, words);
+			break;
+		}
 		/* (where it comes from: the community repositories first, then
 		Chupathingy maps when its index has it) */
 		snprintf(text, sizeof(text), browser_screen.offer_ours ? "Download %s.map from" : "Download %s.map from the",
@@ -3233,7 +3390,9 @@ static void draw_map_offer(
 		float bar_x = CONNECT_X + 40, bar_width = CONNECT_WIDTH - 80;
 		float done = 0.0f;
 
-		if (progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY)
+		if (browser_screen.offer_workshop)
+			snprintf(text, sizeof(text), "Getting %s", browser_screen.offer_display);
+		else if (progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY)
 			snprintf(text, sizeof(text), "Downloading %s.map from " MAP_REPO_TITLE, browser_screen.offer_display);
 		else if (progress->source == MAP_DOWNLOAD_SOURCE_HOST)
 			snprintf(text, sizeof(text), "Downloading %s.map from the host", browser_screen.offer_display);
@@ -3261,6 +3420,11 @@ static void draw_map_offer(
 			done = 1.0f;
 			break;
 		default:
+			if (browser_screen.offer_workshop)
+			{
+				snprintf(text, sizeof(text), "Asking Steam\xE2\x80\xA6");
+				break;
+			}
 			snprintf(text, sizeof(text), progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY ?
 				"Connecting to " MAP_REPO_TITLE "\xE2\x80\xA6" : progress->source == MAP_DOWNLOAD_SOURCE_HOST ?
 				"Joining the host's game\xE2\x80\xA6" : "Connecting to the map repository\xE2\x80\xA6");
@@ -3296,6 +3460,16 @@ static void draw_map_offer(
 		break;
 	}
 	default:
+		if (browser_screen.offer_workshop)
+		{
+			snprintf(text, sizeof(text), "Could not get %s", browser_screen.offer_display);
+			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, COLOR_WARN, 0xF0A07060,
+				text);
+			ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 126, UI_ALIGN_CENTER, COLOR_TEXT,
+				progress->message[0] ? progress->message : "Steam didn't answer.");
+			dialog_prompt(UI_BUTTON_B, "=CLOSE");
+			break;
+		}
 		snprintf(text, sizeof(text), "Could not download %s.map", browser_screen.offer_display);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, COLOR_WARN, 0xF0A07060, text);
 		/* (why, as a sentence) */

@@ -239,6 +239,31 @@ int workshop_browser_update_offered(int index);
 int workshop_browser_update(int index);
 /* PLAY: at the main menu, the item's first map started; 0 if it can't */
 int workshop_browser_play(int index);
+/* ---------- a join's missing Workshop map (browser_screen.c's offer) */
+
+enum
+{
+	WORKSHOP_JOIN_IDLE = 0,
+	WORKSHOP_JOIN_CONNECTING,
+	WORKSHOP_JOIN_DOWNLOADING,
+	WORKSHOP_JOIN_INSTALLED,
+	WORKSHOP_JOIN_FAILED,
+};
+
+/* network.workshop_downloads: WORKSHOP_JOIN_ASK, ALWAYS or NEVER */
+enum { WORKSHOP_JOIN_ASK = 0, WORKSHOP_JOIN_ALWAYS, WORKSHOP_JOIN_NEVER };
+int workshop_join_setting(void);
+void workshop_join_set_setting(int setting);
+/* the item fetched through the player's Steam (the client: subscribed;
+steamcmd: downloaded), the bridge turned on for it (the player's yes):
+0 with why (one or two words and what to do) when it can't be */
+int workshop_join_start(const char *id, char *why, int size);
+/* where it stands (WORKSHOP_JOIN_*), its bytes when Steam says, and why it
+failed; INSTALLED once its folder has its ModInfo.json (the maps read
+again: the join then checks the host's map as for any map) */
+int workshop_join_poll(unsigned long long *done, unsigned long long *total, char *why, int size);
+void workshop_join_cancel(void);
+
 /* UNSUBSCRIBE (the bridge's Steam client backend only) */
 int workshop_browser_unsubscribe(int index);
 /* the picture of an item for its page, RGBA rows from the top, at most

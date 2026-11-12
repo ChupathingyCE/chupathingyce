@@ -124,6 +124,8 @@ static struct
 	struct workshop_browser_item details_answer[DETAILS_BATCH];
 	int details_count;
 	struct details_entry details[DETAILS_CACHE];
+	/* the section shows (workshop_browser_open until _close) */
+	int tab_open;
 	/* GET on the Halo CE files row: asked of steamcmd once the bridge is up */
 	int install_pending;
 	/* the libraries holding MCC: from the Steam client (its app manifest), or its Halo CE files at all */
@@ -1008,7 +1010,9 @@ static void *web_thread(void *context)
 		id_count = workshop_browser_read_browse_ids(response, (int)strlen(response), ids, BROWSE_PAGE_ITEMS);
 	if (status == 200 && !id_count)
 		platform_log("Workshop: Steam's browse page had no items (%d bytes)", response ? (int)strlen(response) : 0);
-	if (status == 200 && id_count == 0)
+	/* (no item on a page without a search: not Steam's list after all, a
+	busy page or another one; the list kept) */
+	if (status == 200 && id_count == 0 && strstr(url, "searchtext="))
 		count = 0;
 	if (id_count > 0 && (body = malloc(64 + (size_t)id_count * (WORKSHOP_BROWSER_ID_SIZE + 32))) != NULL)
 	{
@@ -1310,6 +1314,7 @@ void workshop_browser_own_library(void)
 
 void workshop_browser_close(void)
 {
+	workshop.tab_open = 0;
 	steam_bridge_close();
 }
 
@@ -1318,6 +1323,7 @@ void workshop_browser_open(int force)
 	int index;
 
 	libraries_look(1);
+	workshop.tab_open = 1;
 	/* (only while the section shows: Steam shows MCC as running then) */
 	if (steam_bridge_enabled() && bridge_backend() != STEAM_BRIDGE_BACKEND_NONE)
 		steam_bridge_open(bridge_uses_steamcmd());
@@ -1745,4 +1751,161 @@ int workshop_browser_play(int index)
 		}
 	}
 	return 0;
+}
+
+/* ---------- a join's missing Workshop map */
+
+static struct
+{
+	int state;
+	int asked;
+	char id[WORKSHOP_BROWSER_ID_SIZE];
+	char why[64];
+	unsigned long time;
+	unsigned long started;
+} joining;
+
+enum { JOIN_LOOK_INTERVAL = 1000, JOIN_TIMEOUT = 45 * 60 * 1000 };
+
+int workshop_join_setting(void)
+{
+	const char *setting = config_string("network.workshop_downloads");
+
+	if (setting && !strcmp(setting, "always"))
+		return WORKSHOP_JOIN_ALWAYS;
+	if (setting && !strcmp(setting, "never"))
+		return WORKSHOP_JOIN_NEVER;
+	return WORKSHOP_JOIN_ASK;
+}
+
+int config_write(const char *name, const char *value);
+
+void workshop_join_set_setting(int setting)
+{
+	config_write("network.workshop_downloads", setting == WORKSHOP_JOIN_ALWAYS ? "always" :
+		setting == WORKSHOP_JOIN_NEVER ? "never" : "ask");
+}
+
+static void join_fail(const char *why)
+{
+	joining.state = WORKSHOP_JOIN_FAILED;
+	snprintf(joining.why, sizeof(joining.why), "%s", why);
+	platform_log("Workshop: the join's item %s not fetched: %s", joining.id, why);
+}
+
+int workshop_join_start(const char *id, char *why, int size)
+{
+	why[0] = 0;
+	memset(&joining, 0, sizeof(joining));
+	if (!workshop_browser_id_valid(id))
+	{
+		snprintf(why, (size_t)size, "Not a Workshop item.");
+		return 0;
+	}
+	snprintf(joining.id, sizeof(joining.id), "%s", id);
+	own_library();
+	libraries_look(1);
+	joining.started = joining.time = system_milliseconds();
+	if (item_state(id) == WORKSHOP_ITEM_INSTALLED)
+	{
+		joining.state = WORKSHOP_JOIN_INSTALLED;
+		return 1;
+	}
+	/* (the step that is missing, as the setup rows name it) */
+	if (setup_steamcmd())
+	{
+		if (steam_bridge_backend() != STEAM_BRIDGE_BACKEND_STEAMCMD)
+		{
+			snprintf(why, (size_t)size, "Install steamcmd first (Workshop tab).");
+			return 0;
+		}
+		if (!steamcmd_signed_in())
+		{
+			snprintf(why, (size_t)size, "Sign in to steamcmd first (Workshop tab).");
+			return 0;
+		}
+	}
+	else if (bridge_backend() == STEAM_BRIDGE_BACKEND_NONE)
+	{
+		snprintf(why, (size_t)size, "Open Steam first.");
+		return 0;
+	}
+	/* (the player's yes: the bridge on, as USE STEAM turns it on) */
+	if (!steam_bridge_enabled())
+		config_write_boolean("game.workshop_steam", 1);
+	steam_bridge_open(bridge_uses_steamcmd());
+	joining.state = WORKSHOP_JOIN_CONNECTING;
+	return 1;
+}
+
+int workshop_join_poll(unsigned long long *done, unsigned long long *total, char *why, int size)
+{
+	unsigned long now = system_milliseconds();
+	struct steam_bridge_item known;
+	int status;
+
+	*done = *total = 0;
+	if (why && size > 0)
+		snprintf(why, (size_t)size, "%s", joining.why);
+	if (joining.state != WORKSHOP_JOIN_CONNECTING && joining.state != WORKSHOP_JOIN_DOWNLOADING)
+		return joining.state;
+	if (now - joining.started > JOIN_TIMEOUT)
+	{
+		join_fail("Steam took too long.");
+		return joining.state;
+	}
+	status = steam_bridge_status();
+	if (status == STEAM_BRIDGE_CONNECTING)
+		return joining.state;
+	if (status != STEAM_BRIDGE_READY)
+	{
+		join_fail("Steam closed.");
+		return joining.state;
+	}
+	if (!joining.asked)
+	{
+		if (steam_bridge_sign_in_needed())
+		{
+			join_fail("Sign in to steamcmd first.");
+			return joining.state;
+		}
+		if (!steam_bridge_subscribe(joining.id))
+		{
+			join_fail("Steam didn't take it.");
+			return joining.state;
+		}
+		joining.asked = 1;
+		joining.state = WORKSHOP_JOIN_DOWNLOADING;
+	}
+	if (steam_bridge_item(joining.id, &known))
+	{
+		*done = known.downloaded;
+		*total = known.total;
+		if (known.state == STEAM_BRIDGE_ITEM_FAILED)
+		{
+			join_fail(steam_bridge_sign_in_needed() ? "Sign in to steamcmd first." : "Download failed.");
+			return joining.state;
+		}
+	}
+	if (now - joining.time >= JOIN_LOOK_INTERVAL)
+	{
+		joining.time = now;
+		libraries_look(0);
+		if (item_state(joining.id) == WORKSHOP_ITEM_INSTALLED)
+		{
+			joining.state = WORKSHOP_JOIN_INSTALLED;
+			platform_log("Workshop: the join's item %s installed", joining.id);
+			mcc_maps_rescan();
+			if (!workshop.tab_open)
+				steam_bridge_close();
+		}
+	}
+	return joining.state;
+}
+
+void workshop_join_cancel(void)
+{
+	if (joining.state == WORKSHOP_JOIN_CONNECTING || joining.state == WORKSHOP_JOIN_DOWNLOADING)
+		steam_bridge_close();
+	joining.state = WORKSHOP_JOIN_IDLE;
 }

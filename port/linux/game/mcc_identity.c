@@ -169,6 +169,14 @@ static int mcc_identity_refusal(struct network_game const *game,char const *sess
         }
     }
     mcc_workshop_refusal_text(kind,&host,leaf,text,sizeof(text));
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_SERVER)
+    /* port: a Workshop item this player lacks: offered over the main menu,
+     * through their own Steam, then the game joined again (browser_screen.c) */
+    if (kind==MCC_WORKSHOP_MISSING) {
+        void browser_screen_workshop_missing(char const *id, char const *title);
+        browser_screen_workshop_missing(host.id,host.title);
+    }
+#endif
     return mcc_identity_error(text);
 }
 

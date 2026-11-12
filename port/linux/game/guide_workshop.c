@@ -486,6 +486,11 @@ void guide_workshop_update(boolean showing)
 	short index, installed;
 
 	workshop_browser_own_library();
+	{
+		void browser_screen_debug_workshop_offer(void);
+
+		browser_screen_debug_workshop_offer();
+	}
 	if (workshop_view.searching && workshop_view.debug_search_time &&
 		system_milliseconds() - workshop_view.debug_search_time > 10000)
 	{
