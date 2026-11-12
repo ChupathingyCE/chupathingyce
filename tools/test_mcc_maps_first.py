@@ -64,7 +64,12 @@ int main(void)
 	mcc_maps_set_first_item("3");
 	show("first_mp", FALSE);
 	show("first_campaign", TRUE);
-	printf("focus: %d %d\n", mcc_maps_take_first_focus(), mcc_maps_take_first_focus());
+	{
+		/* (in turn: a call's arguments are evaluated in no set order) */
+		int first = mcc_maps_take_first_focus(), second = mcc_maps_take_first_focus();
+
+		printf("focus: %d %d\n", first, second);
+	}
 	mcc_maps_set_first_item(NULL);
 	show("reset_mp", FALSE);
 	show("reset_campaign", TRUE);
