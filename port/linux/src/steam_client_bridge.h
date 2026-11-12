@@ -271,6 +271,14 @@ int steam_link_poll(char *qr_text, int size, char *error, int error_size);
 void steam_link_cancel(void);
 /* where the link's token is kept, in words ("the macOS Keychain", "a private file in the data folder") */
 const char *steam_link_store(void);
+/* a dedicated server's (sv_workshop_get): an item downloaded into the
+game's own library, without the Workshop tab; its STEAM_BRIDGE_ITEM_* with
+bytes and the error's word */
+int steam_link_get(const char *id_text);
+int steam_link_progress(const char *id_text, unsigned long long *done, unsigned long long *total, char *error,
+	int error_size);
+/* a QR code as text for a terminal (UTF-8 half blocks, two rows a line): 1 and the lines in out */
+int steam_link_qr_text(const char *text, char *out, int size);
 /* UNLINK pressed once (SETTINGS' STEAM ACCOUNT): the next press unlinks */
 void steam_link_set_armed(int value);
 int steam_link_armed(void);

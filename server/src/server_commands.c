@@ -68,6 +68,8 @@ types only) */
 #include "server_moderation.h"
 #include "server_names.h"
 #include "host_evidence.h"
+/* (the Steam link and Workshop downloads: plain types) */
+#include "../../port/linux/src/steam_client_bridge.h"
 #ifdef HALO_SERVER
 #include "server_bans.h"
 #include "server_reports.h"
@@ -225,6 +227,10 @@ static boolean command_reports(struct command_line const *line, boolean json, st
 static boolean command_report_close(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_ban_lists(struct command_line const *line, boolean json, struct command_output *output);
 #endif
+static boolean command_steam_link(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_steam_unlink(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_workshop_get(struct command_line const *line, boolean json, struct command_output *output);
+static void steam_update(void);
 static void note_target(char const *target, char const *reason);
 static void log_output(char const *output);
 static char const *actor_display(void);
@@ -242,6 +248,14 @@ static boolean command_link_status(struct command_line const *line, boolean json
 static struct server_command const server_commands[] =
 {
 	{ "help", "help [command]", "Lists the commands, or tells what one does.", 1, 2, FALSE, command_help },
+	{ "sv_steam_link", "sv_steam_link [cancel]", "Links a Steam account for Workshop downloads: prints a QR code to "
+		"scan with the Steam app (Steam Guard), and its address. The server never sees a password.", 1, 2, FALSE,
+		command_steam_link },
+	{ "sv_steam_unlink", "sv_steam_unlink", "Forgets the Steam account here and revokes it at Steam. Maps already "
+		"downloaded keep working.", 1, 1, FALSE, command_steam_unlink },
+	{ "sv_workshop_get", "sv_workshop_get <item id>", "Downloads an MCC Workshop item (its id from its Steam page) "
+		"into the server's data folder; its maps then go in sv_mapcycle_add as mcc_maps\\<id>\\<map>.", 2, 2, FALSE,
+		command_workshop_get },
 	{ "sv_status", "sv_status", "The server: its name, version, map and game type, players and uptime.", 1, 1, FALSE,
 		command_status },
 	{ "sv_players", "sv_players", "The players: number, name, team, score, ping and hardware id.", 1, 1, FALSE,
@@ -2604,6 +2618,221 @@ static void load_startup_commands(
 }
 
 /* a command's output in the log, a line at a time */
+/* ---------- the Steam link and Workshop downloads (steam_bridge_pipe.c) */
+
+enum { STEAM_WATCHED = 8 };
+
+static struct
+{
+	boolean linking;
+	char qr[256];
+	char watched[STEAM_WATCHED][24];
+	long watched_count;
+	long percent[STEAM_WATCHED];
+	boolean startup_done;
+} steam_server;
+
+static boolean command_steam_link(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	char persona[64];
+
+	(void)json;
+	if (!steam_link_available())
+	{
+		command_output_printf(output, "This build has no Steam download.\n");
+		return FALSE;
+	}
+	if (line->count == 2 && !strcmp(line->words[1], "cancel"))
+	{
+		steam_link_cancel();
+		steam_server.linking = FALSE;
+		command_output_printf(output, "Linking stopped.\n");
+		return TRUE;
+	}
+	if (steam_link_linked(persona, sizeof(persona)))
+	{
+		/* (the account's name is the operator's to see here, never sent anywhere) */
+		command_output_printf(output, "Already linked. sv_steam_unlink first to link another account.\n");
+		return TRUE;
+	}
+	steam_link_start();
+	steam_server.linking = TRUE;
+	steam_server.qr[0] = 0;
+	command_output_printf(output, "Getting a code from Steam; the QR code follows in the log.\n");
+	return TRUE;
+}
+
+static boolean command_steam_unlink(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	(void)line;
+	(void)json;
+	steam_link_cancel();
+	steam_server.linking = FALSE;
+	if (!steam_link_linked(NULL, 0))
+	{
+		command_output_printf(output, "Not linked.\n");
+		return TRUE;
+	}
+	steam_link_unlink();
+	command_output_printf(output, "Unlinked: the sign-in is deleted here, and Steam is asked to revoke it. "
+		"Downloaded maps keep working.\n");
+	return TRUE;
+}
+
+static void steam_watch(
+	char const *id)
+{
+	long index;
+
+	for (index = 0; index < steam_server.watched_count; index++)
+	{
+		if (!strcmp(steam_server.watched[index], id))
+		{
+			steam_server.percent[index] = -1;
+			return;
+		}
+	}
+	if (steam_server.watched_count < STEAM_WATCHED)
+	{
+		snprintf(steam_server.watched[steam_server.watched_count], sizeof(steam_server.watched[0]), "%s", id);
+		steam_server.percent[steam_server.watched_count++] = -1;
+	}
+}
+
+static boolean command_workshop_get(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	char const *id = line->words[1];
+	long length = (long)strlen(id), index;
+
+	(void)json;
+	for (index = 0; index < length; index++)
+	{
+		if (id[index] < '0' || id[index] > '9')
+			break;
+	}
+	if (!length || index < length || length > 20)
+	{
+		command_output_printf(output, "usage: sv_workshop_get <item id> (digits, from the item's Steam page)\n");
+		return FALSE;
+	}
+	if (!steam_link_linked(NULL, 0))
+	{
+		command_output_printf(output, "Link Steam first: sv_steam_link.\n");
+		return FALSE;
+	}
+	if (!steam_link_get(id))
+	{
+		command_output_printf(output, "The download could not start.\n");
+		return FALSE;
+	}
+	steam_watch(id);
+	command_output_printf(output, "Downloading Workshop item %s; its progress follows in the log.\n", id);
+	return TRUE;
+}
+
+/* each frame: the QR shown as it comes (and again when Steam changes it),
+the link's end, the downloads' progress; and once, --workshop-get's items */
+static void steam_update(
+	void)
+{
+	long index;
+
+	if (!steam_server.startup_done)
+	{
+		char const *wanted = getenv("HALO_WORKSHOP_GET");
+		char result[256];
+
+		steam_server.startup_done = TRUE;
+		while (wanted && *wanted)
+		{
+			char id[24];
+			long length = (long)strcspn(wanted, ", ");
+
+			if (length > 0 && length < (long)sizeof(id))
+			{
+				char text[64];
+
+				memcpy(id, wanted, (size_t)length);
+				id[length] = 0;
+				snprintf(text, sizeof(text), "sv_workshop_get %s", id);
+				server_commands_run_as(text, "startup", "--workshop-get", SERVER_ROLE_OWNER, SERVER_PERMISSION_ALL,
+					result, sizeof(result));
+			}
+			wanted += length;
+			while (*wanted == ',' || *wanted == ' ')
+				wanted++;
+		}
+	}
+	if (steam_server.linking)
+	{
+		char qr[256], error_word[24];
+		int state = steam_link_poll(qr, sizeof(qr), error_word, sizeof(error_word));
+
+		if ((state == STEAM_LINK_WAITING || state == STEAM_LINK_SCANNED) && qr[0] && strcmp(qr, steam_server.qr))
+		{
+			static char lines[16 * 1024];
+
+			snprintf(steam_server.qr, sizeof(steam_server.qr), "%s", qr);
+			if (steam_link_qr_text(qr, lines, sizeof(lines)))
+				log_output(lines);
+			error(_error_silent, "dedicated: scan the QR code above with the Steam app (Steam Guard), or open %s "
+				"on a phone signed in to Steam; it changes every so often", qr);
+		}
+		else if (state == STEAM_LINK_DONE)
+		{
+			steam_server.linking = FALSE;
+			error(_error_silent, "dedicated: Steam linked; sv_workshop_get <item id> downloads Workshop items");
+		}
+		else if (state == STEAM_LINK_FAILED)
+		{
+			steam_server.linking = FALSE;
+			error(_error_silent, "dedicated: Steam link: %s", error_word[0] ? error_word : "Failed");
+		}
+	}
+	for (index = 0; index < steam_server.watched_count; index++)
+	{
+		unsigned long long done = 0, total = 0;
+		char error_word[24];
+		int state = steam_link_progress(steam_server.watched[index], &done, &total, error_word, sizeof(error_word));
+		long percent = total ? (long)(done * 100 / total) : 0;
+
+		if (state == STEAM_BRIDGE_ITEM_INSTALLED)
+		{
+			error(_error_silent, "dedicated: Workshop item %s installed; sv_maps lists its maps",
+				steam_server.watched[index]);
+			mcc_maps_rescan();
+		}
+		else if (state == STEAM_BRIDGE_ITEM_FAILED)
+			error(_error_silent, "dedicated: Workshop item %s: %s", steam_server.watched[index], error_word);
+		else
+		{
+			/* (every tenth of the way) */
+			if (state == STEAM_BRIDGE_ITEM_DOWNLOADING && percent / 10 != steam_server.percent[index] / 10)
+			{
+				steam_server.percent[index] = percent;
+				error(_error_silent, "dedicated: Workshop item %s: %ld%%", steam_server.watched[index], percent);
+			}
+			continue;
+		}
+		/* (done: no longer watched) */
+		memmove(&steam_server.watched[index], &steam_server.watched[index + 1],
+			sizeof(steam_server.watched[0]) * (size_t)(steam_server.watched_count - index - 1));
+		memmove(&steam_server.percent[index], &steam_server.percent[index + 1],
+			sizeof(steam_server.percent[0]) * (size_t)(steam_server.watched_count - index - 1));
+		steam_server.watched_count--;
+		index--;
+	}
+}
+
 static void log_output(
 	char const *output)
 {
@@ -2860,6 +3089,7 @@ void server_commands_update(
 	}
 	server_moderation_update();
 	names_update();
+	steam_update();
 	server_conduct_update();
 #ifdef HALO_SERVER
 	server_gamespy_update();

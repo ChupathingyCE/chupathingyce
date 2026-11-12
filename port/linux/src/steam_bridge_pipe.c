@@ -30,10 +30,14 @@ SPDX-License-Identifier: MIT
 #ifdef HALO_GAME_BROWSER
 #include "browser_http.h"
 #endif
+#include "qrcodegen.h"
+
+#include <stdlib.h>
 
 const char *platform_data_root(void);
 void platform_log(const char *format, ...);
 int config_boolean(const char *name);
+const char *config_string(const char *name);
 
 static char pipe_folder[STEAM_BRIDGE_PATH_SIZE];
 static int pipe_ready;
@@ -187,6 +191,100 @@ int steam_link_available(void)
 	return 1;
 }
 
+/* the game's own library, where the Workshop tab hasn't set it (a dedicated
+server): paths.steam_downloads, else steam/ in the data folder */
+static void folder_default(void)
+{
+	const char *setting = config_string("paths.steam_downloads"), *data = platform_data_root();
+
+	if (pipe_folder[0])
+		return;
+	if (setting && setting[0])
+		snprintf(pipe_folder, sizeof(pipe_folder), "%s", setting);
+	else if (data && data[0])
+		snprintf(pipe_folder, sizeof(pipe_folder), "%s/steam", data);
+}
+
+static int id_of(const char *text, unsigned long long *id)
+{
+	char *end;
+
+	if (!text || !text[0] || strlen(text) > 20)
+		return 0;
+	*id = strtoull(text, &end, 10);
+	return !*end && *id;
+}
+
+int steam_link_get(const char *id_text)
+{
+	unsigned long long id;
+
+	pipe_init();
+	folder_default();
+	return id_of(id_text, &id) && pipe_folder[0] && steam_content_get_item(id, pipe_folder);
+}
+
+int steam_link_progress(const char *id_text, unsigned long long *done, unsigned long long *total, char *error,
+	int error_size)
+{
+	struct steam_content_progress progress;
+	unsigned long long id;
+
+	if (error && error_size > 0)
+		error[0] = 0;
+	if (!id_of(id_text, &id) || !steam_content_progress(id, &progress))
+		return STEAM_BRIDGE_ITEM_UNKNOWN;
+	*done = progress.done;
+	*total = progress.total;
+	switch (progress.state)
+	{
+	case STEAM_CONTENT_ITEM_QUEUED: return STEAM_BRIDGE_ITEM_QUEUED;
+	case STEAM_CONTENT_ITEM_DOWNLOADING: return STEAM_BRIDGE_ITEM_DOWNLOADING;
+	case STEAM_CONTENT_ITEM_INSTALLED: return STEAM_BRIDGE_ITEM_INSTALLED;
+	case STEAM_CONTENT_ITEM_FAILED:
+		if (error && error_size > 0)
+			snprintf(error, (size_t)error_size, "%s", steam_content_error_text(progress.error));
+		return STEAM_BRIDGE_ITEM_FAILED;
+	default: return STEAM_BRIDGE_ITEM_NONE;
+	}
+}
+
+int steam_link_qr_text(const char *text, char *out, int size)
+{
+	uint8_t qr[qrcodegen_BUFFER_LEN_MAX], work[qrcodegen_BUFFER_LEN_MAX];
+	int modules, x, y, used = 0;
+
+	if (!out || size <= 0)
+		return 0;
+	out[0] = 0;
+	if (!qrcodegen_encodeText(text, work, qr, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
+		qrcodegen_Mask_AUTO, true))
+	{
+		return 0;
+	}
+	modules = qrcodegen_getSize(qr);
+	/* (two rows a line, light modules drawn: a dark terminal's background is
+	the dark modules; a quiet edge of two modules around) */
+	for (y = -2; y < modules + 2; y += 2)
+	{
+		for (x = -2; x < modules + 2; x++)
+		{
+			int top = !(y >= 0 && y < modules && x >= 0 && x < modules && qrcodegen_getModule(qr, x, y));
+			int bottom = !(y + 1 >= 0 && y + 1 < modules && x >= 0 && x < modules && qrcodegen_getModule(qr, x, y + 1));
+			const char *cell = top && bottom ? "\xE2\x96\x88" : top ? "\xE2\x96\x80" : bottom ? "\xE2\x96\x84" : " ";
+			int length = (int)strlen(cell);
+
+			if (used + length + 2 >= size)
+				return 0;
+			memcpy(out + used, cell, (size_t)length);
+			used += length;
+		}
+		out[used++] = '\n';
+	}
+	out[used] = 0;
+	return 1;
+}
+
 int steam_link_linked(char *persona, int size)
 {
 	pipe_init();
@@ -269,6 +367,22 @@ const struct steam_bridge_backend steam_bridge_pipe_backend =
 };
 
 int steam_link_available(void) { return 0; }
+int steam_link_get(const char *id_text) { (void)id_text; return 0; }
+int steam_link_progress(const char *id_text, unsigned long long *done, unsigned long long *total, char *error,
+	int error_size)
+{
+	(void)id_text; (void)done; (void)total;
+	if (error && error_size > 0)
+		error[0] = 0;
+	return STEAM_BRIDGE_ITEM_UNKNOWN;
+}
+int steam_link_qr_text(const char *text, char *out, int size)
+{
+	(void)text;
+	if (out && size > 0)
+		out[0] = 0;
+	return 0;
+}
 int steam_link_linked(char *persona, int size)
 {
 	if (persona && size > 0)
