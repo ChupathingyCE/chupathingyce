@@ -239,21 +239,22 @@ enum
 	EMBLEM_PIXELS = 64,
 };
 
-/* the colors: the theme's (ui_style_color: Halo Blue or Chupathingy Red),
-and those the same in both */
+/* the colors: the theme's (ui_style_color: Halo Blue, Chupathingy Red or
+Dashboard Green), and those the same in all */
 #define COLOR_PANEL_EDGE ui_style_color(UI_COLOR_PANEL_EDGE)
 #define COLOR_LABEL ui_style_color(UI_COLOR_LABEL_SOFT)
 #define COLOR_ROW_EDGE ui_style_color(UI_COLOR_ROW_EDGE)
 #define COLOR_PROMPT_GLOW ui_style_color(UI_COLOR_PROMPT_GLOW)
 #define COLOR_DOT_GAME ui_style_color(UI_COLOR_DOT_GAME)
 #define COLOR_DOT_OFFLINE ui_style_color(UI_COLOR_DOT_OFFLINE)
+#define COLOR_DOT_ONLINE ui_style_color(UI_COLOR_GOOD)
+#define COLOR_DIMMED ui_style_color(UI_COLOR_TEXT_OFF)
+#define COLOR_PLAYER ui_style_color(UI_COLOR_PLAYER)
 enum
 {
 	COLOR_VALUE = 0xFFFFFFFF,
-	COLOR_DOT_ONLINE = 0x7FE39AFF,
 	COLOR_DOT_AWAY = 0xE0A53AFF,
 	COLOR_MUTED = 0xFF9F9FFF,
-	COLOR_DIMMED = 0x6F829AFF,
 };
 
 /* SETTINGS' rows after the settings, signed in: the devices (Delta
@@ -790,7 +791,7 @@ static void card_update(void)
 		social_copy_text(guide.name, sizeof(guide.name), social_name(friends_state.display, friends_state.handle));
 	else if (guide.linked && handle[0])
 		social_copy_text(guide.name, sizeof(guide.name), handle);
-	guide.color = 0x2F6DD0FF;
+	guide.color = COLOR_PLAYER;
 	if (player_ui_get_active_player_profile_index(0) != NONE)
 	{
 		struct player_profile profile;
@@ -4267,7 +4268,7 @@ static void render_party_qr(float left, float top)
 			if (guide.qr[y * size + x])
 			{
 				ui_overlay_rect(left + (x + 4) * module, top + (y + 4) * module, run * module + 0.3f, module + 0.3f, 0,
-					0x0A1A33FF);
+					ui_style_color(UI_COLOR_EMBLEM_LETTER));
 			}
 		}
 	}
@@ -4842,7 +4843,7 @@ static void render_toast(void)
 		}
 	}
 	else
-		ui_overlay_rect(x + 8, y + 7, 20, 20, 4, fade(guide.color ? guide.color : 0x2F6DD0FF, share));
+		ui_overlay_rect(x + 8, y + 7, 20, 20, 4, fade(guide.color ? guide.color : COLOR_PLAYER, share));
 	ui_style_text_faded(UI_TEXT_NAME, share, x + 36, y + 5, UI_ALIGN_LEFT, guide.toast_title);
 	ui_style_text_faded(UI_TEXT_STATUS, share, x + 36, y + 20, UI_ALIGN_LEFT, guide.toast_line);
 	ui_overlay_layer(0);

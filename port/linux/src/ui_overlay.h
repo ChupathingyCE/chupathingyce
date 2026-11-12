@@ -242,6 +242,13 @@ enum
 	UI_COLOR_LABEL_SOFT,
 	UI_COLOR_DOT_GAME,
 	UI_COLOR_DOT_OFFLINE,
+	/* the Guide's panes' text (guide_record.c, guide_workshop.c): a softer
+	line (a medal's count), a pale one (a description), a value that can't
+	be used now, and the player's square before their profile's color */
+	UI_COLOR_TEXT_SOFT,
+	UI_COLOR_TEXT_PALE,
+	UI_COLOR_TEXT_OFF,
+	UI_COLOR_PLAYER,
 	NUMBER_OF_UI_COLORS
 };
 unsigned int ui_style_color(int name);
