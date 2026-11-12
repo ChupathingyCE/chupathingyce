@@ -76,9 +76,30 @@ void platform_log(const char *format, ...)
 		char folder[1024], path[1100];
 
 		handle = platform_log_path[0] ? fopen(platform_log_path, "a") : NULL;
-		/* (before then, the logs folder in the application's folder, when
-		it has one: the macOS application's, or an AppImage's, port_config.c) */
-		if (!platform_log_path[0] && platform_app_folder(folder, sizeof(folder)))
+		/* (before then, HALO_LOG_ROOT, else a named save root's logs/, as
+		platform_folder will have them: from the environment, as config.toml
+		may still be being read, and logs as it goes) */
+		if (!platform_log_path[0] && port_folder_logs_override(getenv("HALO_LOG_ROOT"),
+				PLATFORM_LOGS_FOLLOW_SAVES ? getenv("HALO_SAVE_ROOT") : NULL, folder, sizeof(folder)))
+		{
+			char *separator;
+
+			/* (each folder along it: the save root may be new) */
+			for (separator = strpbrk(folder + 1, "/\\"); separator; separator = strpbrk(separator + 1, "/\\"))
+			{
+				char kept = *separator;
+
+				*separator = '\0';
+				posix_make_directory(folder);
+				*separator = kept;
+			}
+			posix_make_directory(folder);
+			snprintf(path, sizeof(path), "%s/debug.txt", folder);
+			handle = fopen(path, "a");
+		}
+		/* (else the logs folder in the application's folder, when it has
+		one: the macOS application's, or an AppImage's, port_config.c) */
+		else if (!platform_log_path[0] && platform_app_folder(folder, sizeof(folder)))
 		{
 			snprintf(path, sizeof(path), "%s/logs", folder);
 			posix_make_directory(path);
