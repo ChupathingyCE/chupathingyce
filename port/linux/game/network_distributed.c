@@ -5848,7 +5848,11 @@ static void distributed_handle_boundary(
 	network_objects_checkpoint_reset(FALSE);
 	network_damage_new_game();
 	network_actors_new_game();
+#ifndef HALO_XBOX_CONSOLE
+	/* (the original Xbox plays no network co-op: its port has co-op's stubs
+	alone, port/xbox/game/xbox_coop.c, and nothing of co-op to let go) */
 	network_coop_checkpoint_reset();
+#endif
 	distributed_identity_sent = FALSE;
 }
 
