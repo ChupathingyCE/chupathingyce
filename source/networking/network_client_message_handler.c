@@ -206,6 +206,7 @@ symbols in this file:
 #ifdef HALO_GAME_BROWSER
 #include "networking/network_connection.h"
 #include "map_share.h" /* port: map sharing's messages to the map bot's fetch */
+#include "mcc_identity.h" /* port: the host's MCC content digest in a 43 record */
 #endif
 
 /* port/linux/game/network_distributed.c's */
@@ -1247,6 +1248,10 @@ static boolean network_game_client_receive_game_settings_piece(
 				int options_size;
 
 				network_game_client_settings_staging_size = 0;
+				/* port: the host's MCC content digest, at the end of a 43 record
+				(mcc_identity.c) */
+				mcc_identity_wire_record((unsigned char const *)&network_game_client_settings_staging,
+					(long)piece->total_size);
 				/* port: a record of 35 on made the older layout, its further
 				options kept; an older one's are the defaults. A host not
 				known that sends the newer is taken for one of 35. */

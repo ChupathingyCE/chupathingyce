@@ -10,6 +10,8 @@ settings record, over a fragment of it */
 void mcc_identity_host_overlay(char const *map, long record_size, long name_offset, long offset, long length,
     unsigned char *data);
 void const *mcc_identity_host_settings(void const *game, long bytes, struct network_game *copy);
+/* port: (network_client_message_handler.c) a settings record received whole */
+void mcc_identity_wire_record(unsigned char const *record, long size);
 int mcc_identity_accept(struct network_game const *game);
 void mcc_identity_disconnect(void);
 char const *mcc_identity_local_name(char const *name);
