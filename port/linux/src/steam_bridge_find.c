@@ -15,6 +15,9 @@ Where the bridge's client backend finds a steam_api library
   found in steamapps/common within a bounded walk. One built for another
   architecture (an x86_64-only one under arm64) won't load, and the next
   is tried (steam_bridge_api.c).
+
+SPDX-FileCopyrightText: Milenko x Horrible Dev
+SPDX-License-Identifier: MIT
 */
 
 #include "steam_client_bridge.h"

@@ -1,7 +1,11 @@
 """Runs the C tests of the Delta Guide Workshop's Steam bridge
 (port/linux/src/steam_client_bridge.c, steam_bridge_api.c and steamcmd's text
 in steam_bridge_cmd.c) with a fake steam_api library and the build machine's
-C compiler. No Steam, steamcmd or game is needed."""
+C compiler. No Steam, steamcmd or game is needed.
+
+SPDX-FileCopyrightText: Milenko x Horrible Dev
+SPDX-License-Identifier: MIT
+"""
 import os
 import shutil
 import subprocess

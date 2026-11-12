@@ -7,6 +7,9 @@ Windows has its own (port/windows/src/win32_steam_bridge.c), and Android
 none (steam_client_bridge.c's stand-ins): a
 library loaded at run time, the environment, and steamcmd as a child, its
 sign-in in a terminal, and MCC's depots moved into place.
+
+SPDX-FileCopyrightText: Milenko x Horrible Dev
+SPDX-License-Identifier: MIT
 */
 
 #if !defined(_WIN32) && !defined(__ANDROID__)

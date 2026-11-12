@@ -6,6 +6,9 @@ The bridge's core (steam_client_bridge.h): its thread, its two backends
 download), and what the Workshop tab reads. The thread is the only one
 calling the backends; the tab's calls only take the lock, copy and return,
 so the frame never waits on Steam or steamcmd.
+
+SPDX-FileCopyrightText: Milenko x Horrible Dev
+SPDX-License-Identifier: MIT
 */
 
 #include "steam_client_bridge.h"

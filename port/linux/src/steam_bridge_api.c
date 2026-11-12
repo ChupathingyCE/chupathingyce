@@ -22,6 +22,9 @@ library is in our sources or builds.
 The list is not asked of the client: it is Steam's public Workshop page,
 the same on every computer (workshop_browser.c). A missing function fails
 the connect, and the tab falls back.
+
+SPDX-FileCopyrightText: Milenko x Horrible Dev
+SPDX-License-Identifier: MIT
 */
 
 #include "steam_client_bridge.h"

@@ -26,6 +26,9 @@ Chief Collection, where the game looks for MCC's shared maps.
 
 The text reading at the top has no files or processes: its tests run
 anywhere (port/linux/tests/steam_bridge_test.c).
+
+SPDX-FileCopyrightText: Milenko x Horrible Dev
+SPDX-License-Identifier: MIT
 */
 
 #include "steam_client_bridge.h"

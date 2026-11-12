@@ -9,6 +9,9 @@ tab's words, each call's own answer is waited on (Steam refusing a
 subscribe shows; manual dispatch asked for before SteamAPI_Init), a Steam
 that isn't signed on is offline and asked nothing, and steamcmd's text is
 read right. Built and run by tools/test_steam_bridge.py.
+
+SPDX-FileCopyrightText: Milenko x Horrible Dev
+SPDX-License-Identifier: MIT
 */
 
 #include "../src/steam_client_bridge.h"

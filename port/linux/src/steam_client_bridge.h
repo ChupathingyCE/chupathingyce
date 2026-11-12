@@ -45,6 +45,9 @@ The core (steam_client_bridge.c), the client backend and steamcmd's text
 reading need only the steam_bridge_platform_* functions below
 (posix_steam_bridge.c, port/windows/src/win32_steam_bridge.c), so their
 tests run with a fake library (port/linux/tests/steam_bridge_test.c).
+
+SPDX-FileCopyrightText: Milenko x Horrible Dev
+SPDX-License-Identifier: MIT
 */
 
 #ifndef STEAM_CLIENT_BRIDGE_H

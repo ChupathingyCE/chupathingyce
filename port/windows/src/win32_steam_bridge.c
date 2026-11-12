@@ -6,6 +6,9 @@ MCC's steam_api64.dll loaded from its own folder (so its neighbors load
 with it), and SteamAppId set in this process's environment, both the
 Windows one and the C runtime's. steamcmd isn't used here: Windows players
 have the Steam client.
+
+SPDX-FileCopyrightText: Milenko x Horrible Dev
+SPDX-License-Identifier: MIT
 */
 
 #include <windows.h>
