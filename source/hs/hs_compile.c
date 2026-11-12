@@ -2855,14 +2855,15 @@ boolean hs_compile_postprocess(
 		struct hs_syntax_node *expression = hs_syntax_get(expression_index);
 		{
 			extern int mcc_parameter_compile(struct hs_syntax_node const *node);
+			extern void mcc_parameter_compile_skipped(struct hs_syntax_node const *node, long expression_index);
 			int mcc_parameter = mcc_parameter_compile(expression);
 			if (mcc_parameter >= 0)
 			{
+				/* port: a script parameter no script owns, or of a type its
+				use can't take, is said once and left: a script that reaches it
+				is stopped (hs_syntax_error), never the map's load */
 				if (!mcc_parameter)
-				{
-					hs_compile_globals.error = "invalid MCC script parameter.";
-					success = FALSE;
-				}
+					mcc_parameter_compile_skipped(expression, expression_index);
 				continue;
 			}
 		}

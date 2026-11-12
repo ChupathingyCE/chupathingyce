@@ -30,7 +30,10 @@ struct mcc_resource_file {
     uint32_t count,data_bytes;
     char path[128];
 };
-struct mcc_resources { struct mcc_resource_file files[2]; };
+/* port: each type's file, and (a Workshop item's "InheritSharedFiles":
+"FromMCC") MCC's shared sets its file leaves the rest of its references to:
+the singleplayer set, then the multiplayer set */
+struct mcc_resources { struct mcc_resource_file files[2]; struct mcc_resource_file shared[2][2]; };
 
 static uint32_t mcc_resource_word(unsigned char const *p)
 {
@@ -118,8 +121,20 @@ static struct mcc_resource_file *mcc_resource_get(struct mcc_runtime *runtime,un
     return file;
 }
 
+static int mcc_resource_read_from(struct mcc_resource_file *file,char const *name,
+    uint32_t offset,uint32_t bytes,void *out,char const *group_name,int shared);
+
 static int mcc_resource_read(struct mcc_resource_file *file,char const *name,
     uint32_t offset,uint32_t bytes,void *out,char const *group_name)
+{
+    return mcc_resource_read_from(file,name,offset,bytes,out,group_name,0);
+}
+
+/* port: (shared) a read from one of MCC's shared sets for a Workshop item's
+map: a group of the size read is taken whole wherever the set has it (the
+item's offsets are of its own file's layout, not the set's) */
+static int mcc_resource_read_from(struct mcc_resource_file *file,char const *name,
+    uint32_t offset,uint32_t bytes,void *out,char const *group_name,int shared)
 {
     uint32_t i;
     struct mcc_resource_item const *found=NULL;
@@ -139,7 +154,8 @@ static int mcc_resource_read(struct mcc_resource_file *file,char const *name,
             if (found) return 0;
             found=&file->items[i];
         }
-        if (!found || offset<found->offset || offset-found->offset>found->size ||
+        if (found && shared && bytes==found->size) offset=found->offset;
+        else if (!found || offset<found->offset || offset-found->offset>found->size ||
             bytes>found->size-(offset-found->offset)) return 0;
     }
     return !out || (!fseek(file->stream,(long)offset,SEEK_SET) && fread(out,1,bytes,file->stream)==bytes);
@@ -149,10 +165,16 @@ int mcc_resources_read(struct mcc_runtime *runtime,unsigned type,char const *nam
     uint32_t offset,uint32_t bytes,void *out,char const *group_name)
 {
     struct mcc_resource_file *file=mcc_resource_get(runtime,type);
-    return file && out && mcc_resource_read(file,name,offset,bytes,out,group_name);
+    struct mcc_resources *resources=runtime ? runtime->resources : NULL;
+    int set;
+    if (file && out && mcc_resource_read(file,name,offset,bytes,out,group_name)) return 1;
+    /* port: (a reference the item's file leaves to MCC's shared sets) */
+    for (set=0;resources && out && set<2;set++) if (resources->shared[type-1][set].stream &&
+        mcc_resource_read_from(&resources->shared[type-1][set],name,offset,bytes,out,group_name,1)) return 1;
+    return 0;
 }
 
-struct mcc_resource_probe {struct mcc_resource_file *file;unsigned type;};
+struct mcc_resource_probe {struct mcc_resource_file *file;unsigned type;struct mcc_resource_file *shared;};
 static int mcc_resource_check(void *context,struct mcc_resource_reference const *ref)
 {
     struct mcc_resource_probe *probe=context;
@@ -162,7 +184,9 @@ static int mcc_resource_check(void *context,struct mcc_resource_reference const 
     if (ref->type==1) snprintf(name,sizeof(name),"%s_%lu",ref->tag_name,(unsigned long)ref->first);
     else snprintf(name,sizeof(name),"%s__%lu__%lu",ref->tag_name,(unsigned long)ref->first,(unsigned long)ref->second);
     snprintf(group,sizeof(group),"%s%s",ref->tag_name,ref->type==1 ? "__pixels" : "__permutations");
-    return mcc_resource_read(probe->file,name,ref->offset,ref->bytes,NULL,group);
+    return mcc_resource_read(probe->file,name,ref->offset,ref->bytes,NULL,group) ||
+        (probe->shared && ((probe->shared[0].stream && mcc_resource_read_from(&probe->shared[0],name,ref->offset,ref->bytes,NULL,group,1)) ||
+         (probe->shared[1].stream && mcc_resource_read_from(&probe->shared[1],name,ref->offset,ref->bytes,NULL,group,1))));
 }
 
 static int mcc_resource_equal(FILE *a,FILE *b)
@@ -195,12 +219,36 @@ int mcc_resources_select(struct mcc_runtime *runtime,void *raw)
         struct mcc_resource_probe probe;
         int status,set;
         if (!(type==1 ? runtime->report.external_bitmap_count : runtime->report.external_sound_count)) continue;
-        probe.type=type;probe.file=selected;
+        probe.type=type;probe.file=selected;probe.shared=NULL;
         /* Explicit package and legacy root files are authoritative. */
         status=mcc_resource_open(selected,type,runtime->level_name,NULL,runtime->failure,sizeof(runtime->failure));
         if (!status) return 0;
         if (status==1) {
+            /* port: a Workshop item's own file, with the rest of its references
+             * in MCC's shared sets ("InheritSharedFiles": "FromMCC": Aerial's
+             * h1_spillway's flag base is the singleplayer set's) */
             if (!mcc_cache_visit_resources(raw,&runtime->report,mcc_resource_check,&probe)) {
+                static char const *const folders[]={"maps_mcc","mcc_maps"};
+                struct mcc_resource_file *shared=resources->shared[type-1];
+                int folder;
+                for (set=0;set<2;set++) for (folder=0;folder<2 && !shared[set].stream;folder++) {
+                    char path[128];
+                    snprintf(path,sizeof(path),"%s/_shared/%s/%s.map",folders[folder],set ? "multiplayer" : "singleplayer",
+                        type==1 ? "bitmaps" : "sounds");
+                    if (mcc_resource_open(&shared[set],type,runtime->level_name,path,NULL,0)!=1) mcc_resource_close(&shared[set]);
+                }
+                probe.shared=shared;
+                if ((shared[0].stream || shared[1].stream) &&
+                    mcc_cache_visit_resources(raw,&runtime->report,mcc_resource_check,&probe)) {
+                    error(_error_silent,"mcc resources: %s completed by MCC's shared %s%s%s (required by %s)",selected->path,
+                        shared[0].stream ? shared[0].path : "",shared[0].stream && shared[1].stream ? " and " : "",
+                        shared[1].stream ? shared[1].path : "",runtime->level_name);
+                } else {
+                    mcc_resource_close(&shared[0]);mcc_resource_close(&shared[1]);
+                    probe.shared=NULL;
+                }
+            }
+            if (!probe.shared && !mcc_cache_visit_resources(raw,&runtime->report,mcc_resource_check,&probe)) {
                 error(_error_silent,"mcc resources: %s does not satisfy every external reference in %s",selected->path,runtime->level_name);
                 snprintf(runtime->failure,sizeof(runtime->failure),
                     "%s does not match. Install the matching MCC package resource.",type==1 ? "bitmaps.map" : "sounds.map");
@@ -247,6 +295,8 @@ void mcc_resources_dispose(struct mcc_runtime *runtime)
     struct mcc_resources *resources=runtime->resources;
     if (!resources) return;
     mcc_resource_close(&resources->files[0]);mcc_resource_close(&resources->files[1]);
+    mcc_resource_close(&resources->shared[0][0]);mcc_resource_close(&resources->shared[0][1]);
+    mcc_resource_close(&resources->shared[1][0]);mcc_resource_close(&resources->shared[1][1]);
     free(resources);runtime->resources=NULL;
 }
 int mcc_resources_checksum(struct mcc_runtime *runtime,unsigned resources,uint32_t *checksum)
