@@ -230,6 +230,15 @@ const char *workshop_browser_sort_name(int sort);
 const char *workshop_browser_step_name(int step);
 /* the game's own Steam library and steamcmd's folder set (each frame is fine) */
 void workshop_browser_own_library(void);
+/* an installed item of steamcmd's, in the game's own library: REMOVE deletes
+its folder (after a confirm: the Guide's), UPDATE downloads it again (Steam
+says it changed since). Steam's own folders are never touched here */
+int workshop_browser_removable(int index);
+int workshop_browser_remove(int index);
+int workshop_browser_update_offered(int index);
+int workshop_browser_update(int index);
+/* PLAY: at the main menu, the item's first map started; 0 if it can't */
+int workshop_browser_play(int index);
 /* UNSUBSCRIBE (the bridge's Steam client backend only) */
 int workshop_browser_unsubscribe(int index);
 /* the picture of an item for its page, RGBA rows from the top, at most

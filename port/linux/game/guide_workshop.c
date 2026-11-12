@@ -42,11 +42,20 @@ folders but what Steam or steamcmd write.
 #include "../src/steam_client_bridge.h"
 #include "guide_workshop.h"
 #include "mcc_maps.h"
+#include "input/input.h"
+
+/* (a key stroke's control modifier: input_xbox.c's, as browser_screen.c has it) */
+#define KEY_MODIFIER_CONTROL_BIT 1
 
 #include <stdio.h>
 #include <string.h>
 
 int config_boolean(char const *name);
+char const *config_string(char const *name);
+boolean main_menu_is_active(void);
+void platform_text_field(int typing);
+unsigned long system_milliseconds(void);
+int platform_clipboard_get(char *text, int size);
 int config_write_boolean(char const *name, int value);
 
 enum
@@ -79,6 +88,10 @@ enum
 	_option_sign_in,
 	_option_use_steam,
 	_option_show_maps,
+	_option_search,
+	_option_play,
+	_option_update,
+	_option_remove,
 	/* the find row's: a filter's chip, a sort (+ its WORKSHOP_FILTER_* / WORKSHOP_SORT_*) */
 	_option_filter,
 	_option_sort = _option_filter + WORKSHOP_FILTER_COUNT,
@@ -97,6 +110,12 @@ static struct
 	boolean showing;
 	/* USE STEAM pressed once: its note shows, and CONFIRM turns it on */
 	boolean confirm;
+	/* REMOVE pressed once: CONFIRM deletes the files */
+	boolean confirm_remove;
+	/* SEARCH's text box: typing into it (enter keeps, escape drops) */
+	boolean searching;
+	char search[64];
+	unsigned long debug_search_time;
 } workshop_view;
 
 /* ---------- private code */
@@ -118,6 +137,7 @@ static short options_of(struct workshop_browser_item const *item, short *options
 	{
 		short index;
 
+		options[count++] = _option_search;
 		/* (the chips Steam's tags give, and Installed, only when some item has it) */
 		for (index = 0; index < WORKSHOP_FILTER_COUNT; index++)
 		{
@@ -137,7 +157,16 @@ static short options_of(struct workshop_browser_item const *item, short *options
 			options[count++] = _option_steam;
 		return count;
 	}
-	if ((!item->setup || item->state == WORKSHOP_ITEM_NOT_INSTALLED) && !(bridge && item->steam_subscribed))
+	if (item->state == WORKSHOP_ITEM_INSTALLED)
+	{
+		if (main_menu_is_active())
+			options[count++] = _option_play;
+		if (bridge && workshop_browser_update_offered(workshop_view.row))
+			options[count++] = _option_update;
+		if (workshop_browser_removable(workshop_view.row))
+			options[count++] = _option_remove;
+	}
+	if (item->state != WORKSHOP_ITEM_INSTALLED && !(bridge && item->steam_subscribed))
 		options[count++] = _option_steam;
 	if (bridge && item->steam_subscribed && steam_bridge_can_unsubscribe())
 		options[count++] = _option_unsubscribe;
@@ -174,6 +203,10 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	}
 	switch (option)
 	{
+	case _option_search: return "SEARCH";
+	case _option_play: return "PLAY";
+	case _option_update: return "UPDATE";
+	case _option_remove: return workshop_view.confirm_remove ? "CONFIRM" : "REMOVE";
 	case _option_show_maps: return "TURN ON";
 	case _option_unsubscribe: return "REMOVE";
 	case _option_sign_in: return "SIGN IN";
@@ -200,6 +233,67 @@ static char const *use_steam_note(void)
 #endif
 }
 
+/* the text box: open (the keys typed before it don't count), and closed */
+static void search_start(void)
+{
+	struct key_stroke key;
+
+	workshop_view.searching = TRUE;
+	snprintf(workshop_view.search, sizeof(workshop_view.search), "%s", workshop_browser_search());
+	while (input_get_key(&key))
+		;
+	platform_text_field(TRUE);
+}
+
+static void search_end(boolean keep)
+{
+	workshop_view.searching = FALSE;
+	platform_text_field(FALSE);
+	if (keep)
+	{
+		workshop_browser_set_search(workshop_view.search);
+		workshop_view.page = FALSE;
+		workshop_view.row = 0;
+	}
+}
+
+/* the keys typed since the last frame (Ctrl+V pastes) */
+static void search_type(void)
+{
+	struct key_stroke key;
+
+	while (input_get_key(&key))
+	{
+		size_t length = strlen(workshop_view.search);
+
+		if (key.key_code == _key_backspace)
+		{
+			if (length)
+				workshop_view.search[length - 1] = 0;
+		}
+		else if (TEST_FLAG(key.modifier_flags, KEY_MODIFIER_CONTROL_BIT) && key.key_code == _key_v)
+		{
+			char clipboard[64];
+			char const *character;
+
+			if (!platform_clipboard_get(clipboard, sizeof(clipboard)))
+				continue;
+			for (character = clipboard; *character && length < sizeof(workshop_view.search) - 1; character++)
+			{
+				if (*character >= ' ' && *character <= '~')
+					workshop_view.search[length++] = *character;
+			}
+			workshop_view.search[length] = 0;
+		}
+		else if ((unsigned char)key.ascii_code >= ' ' && (unsigned char)key.ascii_code <= '~' &&
+			length < sizeof(workshop_view.search) - 1)
+		{
+			workshop_view.search[length] = key.ascii_code;
+			workshop_view.search[length + 1] = 0;
+		}
+	}
+}
+
 static void option_run(short option)
 {
 	if (option >= _option_filter && option < _option_sort)
@@ -216,6 +310,28 @@ static void option_run(short option)
 	}
 	switch (option)
 	{
+	case _option_search:
+		search_start();
+		return;
+	case _option_play:
+		if (workshop_browser_play(workshop_view.row))
+			guide_close();
+		return;
+	case _option_update:
+		if (workshop_browser_update(workshop_view.row))
+			workshop_view.waiting = TRUE;
+		return;
+	case _option_remove:
+		/* (twice: the files are deleted) */
+		if (!workshop_view.confirm_remove)
+		{
+			workshop_view.confirm_remove = TRUE;
+			return;
+		}
+		workshop_view.confirm_remove = FALSE;
+		workshop_view.option = 0;
+		workshop_browser_remove(workshop_view.row);
+		return;
 	case _option_show_maps:
 		config_write_boolean("game.workshop_maps", 1);
 		mcc_maps_rescan();
@@ -346,10 +462,23 @@ boolean guide_workshop_shown(void)
 
 void guide_workshop_open(void)
 {
+	static boolean debug_done;
+	char const *debug_search = config_string("debug.workshop_search");
 	workshop_view.page = FALSE;
 	workshop_view.option = 0;
 	workshop_view.confirm = FALSE;
 	workshop_browser_open(0);
+	/* (debug.workshop_search: the find row's text box with these words for a
+	few seconds, then searched, for screenshots) */
+	if (!debug_done && debug_search && debug_search[0])
+	{
+		debug_done = TRUE;
+		search_start();
+		snprintf(workshop_view.search, sizeof(workshop_view.search), "%s", debug_search);
+		workshop_view.debug_search_time = system_milliseconds();
+		workshop_view.page = TRUE;
+		workshop_view.row = 0;
+	}
 }
 
 void guide_workshop_update(boolean showing)
@@ -357,6 +486,19 @@ void guide_workshop_update(boolean showing)
 	short index, installed;
 
 	workshop_browser_own_library();
+	if (workshop_view.searching && workshop_view.debug_search_time &&
+		system_milliseconds() - workshop_view.debug_search_time > 10000)
+	{
+		workshop_view.debug_search_time = 0;
+		search_end(TRUE);
+	}
+	if (workshop_view.searching)
+	{
+		if (showing)
+			search_type();
+		else
+			search_end(FALSE);
+	}
 	/* (the bridge only while the section shows) */
 	if (workshop_view.showing && !showing)
 		workshop_browser_close();
@@ -396,6 +538,8 @@ short guide_workshop_rows(void)
 
 void guide_workshop_move(short step)
 {
+	if (workshop_view.searching)
+		return;
 	short options[MAXIMUM_OPTIONS];
 	short count = (short)workshop_browser_count();
 
@@ -413,6 +557,11 @@ void guide_workshop_move(short step)
 
 void guide_workshop_activate(void)
 {
+	if (workshop_view.searching)
+	{
+		search_end(TRUE);
+		return;
+	}
 	short options[MAXIMUM_OPTIONS];
 	short count = options_of(chosen(), options);
 
@@ -430,10 +579,16 @@ void guide_workshop_activate(void)
 
 boolean guide_workshop_back(void)
 {
+	if (workshop_view.searching)
+	{
+		search_end(FALSE);
+		return TRUE;
+	}
 	if (!workshop_view.page)
 		return FALSE;
 	workshop_view.page = FALSE;
 	workshop_view.confirm = FALSE;
+	workshop_view.confirm_remove = FALSE;
 	return TRUE;
 }
 
@@ -523,6 +678,17 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 	ui_style_text(UI_TEXT_LINE, x + 12, top + 32, UI_ALIGN_LEFT, line);
 	ui_overlay_text(UI_FONT_MENU, 9.0f, x + width - 12, top + 33, UI_ALIGN_RIGHT, item_color(item), item_word(item));
 	y = top + 48;
+	if (workshop_view.searching && item->setup == WORKSHOP_ROW_FIND)
+	{
+		char shown[80];
+		boolean blink = (system_milliseconds() / 500) % 2 == 0;
+
+		snprintf(shown, sizeof(shown), "%s%s", workshop_view.search, blink ? "_" : " ");
+		ui_style_row(x + 12, y + 4, width - 24, OPTION_HEIGHT + 4, TRUE);
+		ui_overlay_text(UI_FONT_MENU, 11.0f, x + 22, y + 11, UI_ALIGN_LEFT, COLOR_VALUE, shown);
+		ui_style_text(UI_TEXT_LABEL, x + 12, y + OPTION_HEIGHT + 14, UI_ALIGN_LEFT, "Type, then Enter");
+		return;
+	}
 	if (item->author[0])
 	{
 		snprintf(line, sizeof(line), "by %s", item->author);
@@ -553,10 +719,20 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 		(DESCRIPTION_SIZE + 4))));
 	{
 		short options[MAXIMUM_OPTIONS], option_count = options_of(item, options);
+		float option_height = OPTION_HEIGHT, option_gap = OPTION_GAP;
 
 		y = bottom - 12 - option_count * (OPTION_HEIGHT + OPTION_GAP) + OPTION_GAP;
+		/* (the find row's many, smaller, from under its title down) */
+		if (item->setup == WORKSHOP_ROW_FIND)
+		{
+			option_height = OPTION_HEIGHT - 4;
+			option_gap = OPTION_GAP - 1;
+			y = top + 50;
+		}
 		/* (an action line over the options: what they do, in a few words) */
-		if (workshop_view.confirm)
+		if (workshop_view.confirm_remove)
+			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Delete its files?");
+		else if (workshop_view.confirm)
 			text_wrapped(use_steam_note(), x + 12, y - 4 - NOTE_LINES * (DESCRIPTION_SIZE + 4), width - 24, NOTE_LINES);
 		else if (workshop_browser_bridge_status() == STEAM_BRIDGE_READY && steam_bridge_sign_in_needed())
 			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Sign in to steamcmd");
@@ -573,11 +749,12 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 		{
 			boolean on = workshop_view.page && index == workshop_view.option;
 
-			ui_style_row(x + 12, y, width - 24, OPTION_HEIGHT, on);
-			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 22, y + 7, UI_ALIGN_LEFT, COLOR_VALUE, option_label(item, options[index]));
+			ui_style_row(x + 12, y, width - 24, option_height, on);
+			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 22, y + (option_height - 10) * 0.5f, UI_ALIGN_LEFT, COLOR_VALUE,
+				option_label(item, options[index]));
 			if (target)
-				target(x + 12, y, x + width - 12, y + OPTION_HEIGHT, 1, index);
-			y += OPTION_HEIGHT + OPTION_GAP;
+				target(x + 12, y, x + width - 12, y + option_height, 1, index);
+			y += option_height + option_gap;
 		}
 	}
 }

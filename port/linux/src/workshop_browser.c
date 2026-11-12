@@ -399,6 +399,19 @@ static void setup_row(struct workshop_browser_item *item, int row, int step, con
 	item->step = setup_forced(row, step);
 }
 
+/* an installed Halo CE item (the account owns MCC: Steam fetched it) */
+static int installed_any(void)
+{
+	int index;
+
+	for (index = 0; index < workshop.count; index++)
+	{
+		if (!workshop.items[index].setup && workshop.items[index].state == WORKSHOP_ITEM_INSTALLED)
+			return 1;
+	}
+	return 0;
+}
+
 /* the setup rows, at the top, while one of them isn't Ready */
 static void setup_rows_update(void)
 {
@@ -423,13 +436,18 @@ static void setup_rows_update(void)
 			steamcmd_signed_in() ? WORKSHOP_STEP_READY : WORKSHOP_STEP_TO_DO, "Sign in",
 			"Press SIGN IN.\nType your Steam name, password and code in the window.\nCome back here.\n"
 			"The game never sees your password.");
-		setup_row(&rows[count++], WORKSHOP_SETUP_MCC, files ? WORKSHOP_STEP_READY : WORKSHOP_STEP_TO_DO, "MCC",
-			"Own Halo: The Master Chief Collection on Steam.");
-		setup_row(&rows[count++], WORKSHOP_SETUP_FILES, files && mcc_state != STEAM_BRIDGE_ITEM_DOWNLOADING ?
-			WORKSHOP_STEP_READY : mcc_state == STEAM_BRIDGE_ITEM_DOWNLOADING || mcc_state == STEAM_BRIDGE_ITEM_QUEUED ||
-			workshop.install_pending ? WORKSHOP_STEP_WORKING : !steam ? WORKSHOP_STEP_NOT_AVAILABLE : WORKSHOP_STEP_TO_DO,
-			"Halo CE files", "Press GET for MCC's Halo CE files (about 4.3 GB).\n"
-			"They go in the steam folder of the game's data folder.");
+		/* (owning MCC: shown by its files, or by an item steamcmd could fetch for it) */
+		setup_row(&rows[count++], WORKSHOP_SETUP_MCC, files || installed_any() ? WORKSHOP_STEP_READY :
+			WORKSHOP_STEP_TO_DO, "MCC", "Own Halo: The Master Chief Collection on Steam.");
+		/* (MCC's shared Halo CE files: most items carry their own; only when one needed them) */
+		if (steam_workshop_shared_missing() || mcc_state == STEAM_BRIDGE_ITEM_DOWNLOADING ||
+			mcc_state == STEAM_BRIDGE_ITEM_QUEUED || workshop.install_pending || setup_forced(WORKSHOP_SETUP_FILES, -1) >= 0)
+		{
+			setup_row(&rows[count++], WORKSHOP_SETUP_FILES, files && mcc_state != STEAM_BRIDGE_ITEM_DOWNLOADING ?
+				WORKSHOP_STEP_READY : mcc_state == STEAM_BRIDGE_ITEM_DOWNLOADING || mcc_state == STEAM_BRIDGE_ITEM_QUEUED ||
+				workshop.install_pending ? WORKSHOP_STEP_WORKING : !steam ? WORKSHOP_STEP_NOT_AVAILABLE :
+				WORKSHOP_STEP_TO_DO, "Halo CE files", "A map needs MCC's Halo CE files.\nPress GET. About 4.3 GB.");
+		}
 	}
 	else
 	{
@@ -438,9 +456,10 @@ static void setup_rows_update(void)
 			"Install Steam and sign in.\nCome back here.");
 		setup_row(&rows[count++], WORKSHOP_SETUP_MCC, workshop.client_mcc_count ? WORKSHOP_STEP_READY :
 			WORKSHOP_STEP_TO_DO, "MCC", "Get Halo: The Master Chief Collection on Steam.");
-		setup_row(&rows[count++], WORKSHOP_SETUP_FILES, files ? WORKSHOP_STEP_READY : WORKSHOP_STEP_TO_DO,
-			"Halo CE files", "In Steam: MCC > Properties > DLC.\nTick Halo: Combat Evolved Anniversary.\n"
-			"Multiplayer is enough.");
+		if (steam_workshop_shared_missing() || setup_forced(WORKSHOP_SETUP_FILES, -1) >= 0)
+			setup_row(&rows[count++], WORKSHOP_SETUP_FILES, files ? WORKSHOP_STEP_READY : WORKSHOP_STEP_TO_DO,
+				"Halo CE files", "A map needs MCC's Halo CE files.\nIn Steam: MCC > Properties > DLC.\n"
+				"Tick Halo: Combat Evolved Anniversary.");
 	}
 	for (index = 0; index < count; index++)
 		ready &= rows[index].step == WORKSHOP_STEP_READY;
@@ -1632,4 +1651,98 @@ int workshop_browser_unsubscribe(int index)
 	workshop.items[index].subscribed = 0;
 	workshop.items[index].steam_subscribed = 0;
 	return 1;
+}
+
+/* ---------- PLAY, REMOVE, UPDATE */
+
+void main_set_map_name(char const *map_name);
+void main_defer_map_map_change(void);
+/* (the game's boolean: one byte) */
+unsigned char main_menu_is_active(void);
+short mcc_maps_count(unsigned char multiplayer_only);
+char const *mcc_maps_level_name(short index);
+void mcc_maps_rescan(void);
+
+/* an item's folder in the game's own library (steamcmd's downloads); 0 elsewhere */
+static int own_item_folder(const struct workshop_browser_item *item, char *path, int size)
+{
+	const char *setting = config_string("paths.steam_downloads"), *data = platform_data_root();
+	char library[STEAM_WORKSHOP_PATH_SIZE];
+
+	if (!item || item->setup || !workshop_browser_id_valid(item->id))
+		return 0;
+	if (setting && setting[0])
+		snprintf(library, sizeof(library), "%s", setting);
+	else if (!data || snprintf(library, sizeof(library), "%s/steam", data) >= (int)sizeof(library))
+		return 0;
+	return snprintf(path, (size_t)size, "%s/" CONTENT_FOLDER "/%s", library, item->id) < size && is_directory(path);
+}
+
+int workshop_browser_removable(int index)
+{
+	char path[STEAM_WORKSHOP_PATH_SIZE];
+
+	return own_item_folder(workshop_browser_item(index), path, sizeof(path));
+}
+
+int workshop_browser_remove(int index)
+{
+	char path[STEAM_WORKSHOP_PATH_SIZE];
+	const struct workshop_browser_item *item = workshop_browser_item(index);
+	int removed;
+
+	if (!own_item_folder(item, path, sizeof(path)))
+		return 0;
+	removed = steam_bridge_platform_remove_folder(path);
+	platform_log("Workshop: item %s %s", item->id, removed ? "removed" : "could not be removed");
+	if (removed)
+	{
+		mcc_maps_rescan();
+		workshop.watch_time = 0;
+	}
+	return removed;
+}
+
+int workshop_browser_update_offered(int index)
+{
+	const struct workshop_browser_item *item = workshop_browser_item(index);
+	char folder[STEAM_WORKSHOP_PATH_SIZE], path[STEAM_WORKSHOP_PATH_SIZE], found[256];
+	struct posix_file_information information;
+
+	/* (Steam's update time after the download's own) */
+	return own_item_folder(item, folder, sizeof(folder)) && item->updated > 0 &&
+		posix_find_entry_case_insensitive(folder, "ModInfo.json", found, sizeof(found)) &&
+		join(path, sizeof(path), folder, found) && posix_stat(path, &information) == 0 &&
+		(long long)information.modification_seconds < item->updated;
+}
+
+int workshop_browser_update(int index)
+{
+	const struct workshop_browser_item *item = workshop_browser_item(index);
+
+	return workshop_browser_update_offered(index) && bridge_ready() && steam_bridge_subscribe(item->id);
+}
+
+int workshop_browser_play(int index)
+{
+	const struct workshop_browser_item *item = workshop_browser_item(index);
+	char prefix[WORKSHOP_BROWSER_ID_SIZE + 16];
+	short map, count;
+
+	if (!item || item->setup || item->state != WORKSHOP_ITEM_INSTALLED || !main_menu_is_active())
+		return 0;
+	snprintf(prefix, sizeof(prefix), "mcc_maps\\%s\\", item->id);
+	count = mcc_maps_count(0);
+	for (map = 0; map < count; map++)
+	{
+		char const *name = mcc_maps_level_name(map);
+
+		if (name && !strncmp(name, prefix, strlen(prefix)))
+		{
+			main_set_map_name(name);
+			main_defer_map_map_change();
+			return 1;
+		}
+	}
+	return 0;
 }

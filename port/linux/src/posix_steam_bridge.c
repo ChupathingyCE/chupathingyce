@@ -388,6 +388,34 @@ int steam_bridge_platform_open_sign_in(const char *steamcmd)
 #endif
 }
 
+/* ---------- removing a download */
+
+int steam_bridge_platform_remove_folder(const char *path)
+{
+	DIR *directory;
+	struct dirent *entry;
+	struct stat information;
+	int result = 1;
+
+	if (lstat(path, &information) != 0)
+		return errno == ENOENT;
+	if (!S_ISDIR(information.st_mode))
+		return unlink(path) == 0;
+	if (!(directory = opendir(path)))
+		return 0;
+	while (result && (entry = readdir(directory)) != NULL)
+	{
+		char child[STEAM_BRIDGE_PATH_SIZE + 256];
+
+		if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+			continue;
+		result = snprintf(child, sizeof(child), "%s/%s", path, entry->d_name) < (int)sizeof(child) &&
+			steam_bridge_platform_remove_folder(child);
+	}
+	closedir(directory);
+	return result && rmdir(path) == 0;
+}
+
 /* ---------- MCC's depots into place */
 
 static int make_folders(const char *path)

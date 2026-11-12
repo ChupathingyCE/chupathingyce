@@ -453,6 +453,8 @@ static int linux_roots(char (*paths)[STEAM_WORKSHOP_PATH_SIZE], int maximum)
 
 /* the Steam folders to look in, then the libraries those name: library paths, each once */
 static char own_library[STEAM_WORKSHOP_PATH_SIZE];
+/* MCC's shared files were asked for, and not found */
+static int shared_missing;
 
 void steam_workshop_set_own_library(const char *path)
 {
@@ -708,7 +710,15 @@ int steam_workshop_resource_path(const char *request, const char *data_root, cha
 		}
 	}
 	free(paths);
+	/* (an item that needs MCC's own shared files, and they aren't here) */
+	if (!result)
+		shared_missing = 1;
 	return result;
+}
+
+int steam_workshop_shared_missing(void)
+{
+	return shared_missing;
 }
 
 int steam_workshop_item_title(const char *item_id, char *title, unsigned long size)

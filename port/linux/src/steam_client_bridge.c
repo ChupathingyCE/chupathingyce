@@ -512,6 +512,7 @@ int steam_bridge_platform_child_line(void *child, char *line, int size, int mill
 void steam_bridge_platform_child_end(void *child) { (void)child; }
 int steam_bridge_platform_open_sign_in(const char *steamcmd) { (void)steamcmd; return 0; }
 int steam_bridge_platform_merge_folder(const char *from, const char *to) { (void)from; (void)to; return 0; }
+int steam_bridge_platform_remove_folder(const char *path) { (void)path; return 0; }
 #endif
 
 #ifdef STEAM_BRIDGE_TESTS

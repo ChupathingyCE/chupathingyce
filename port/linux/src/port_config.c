@@ -1681,6 +1681,9 @@ static const struct config_setting config_settings[] =
 		"Run without a window, and draw nothing." },
 	{ "debug.gl_debug", _config_boolean, "false", "HALO_GL_DEBUG", _environment_set_is_true, _platform_all,
 		"Report OpenGL errors in the log." },
+	{ "debug.workshop_search", _config_string, "\"\"", "HALO_WORKSHOP_SEARCH", _environment_value, _platform_desktop,
+		"The Delta Guide Workshop's search box shown with these words, then\n"
+		"searched, for screenshots. Leave it empty for none." },
 	{ "debug.workshop_setup", _config_string, "\"\"", "HALO_WORKSHOP_SETUP", _environment_value, _platform_desktop,
 		"The Delta Guide Workshop's setup rows shown as given, for screenshots:\n"
 		"\"steam=1,signin=0\" (0 Ready, 1 To do, 2 Working, 3 Not available)." },

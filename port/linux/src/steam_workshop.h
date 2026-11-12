@@ -106,6 +106,9 @@ int steam_workshop_package_folder(const char *item_id, char *folder, unsigned lo
 /* Resolve an MCC-relative package/shared resource in place; zero keeps the existing path.
  * Explicit data-root packages/files and beside-level resources retain precedence. */
 int steam_workshop_resource_path(const char *request, const char *data_root, char *path, unsigned long size);
+/* whether a map has needed MCC's own shared files (halo1/maps) and they
+weren't found this run: the Workshop tab then offers them */
+int steam_workshop_shared_missing(void);
 /* the item's title; 1 if some scanned map belongs to the id (the title may still be "") */
 int steam_workshop_item_title(const char *item_id, char *title, unsigned long size);
 

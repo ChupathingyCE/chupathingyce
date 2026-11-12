@@ -236,6 +236,9 @@ int steam_bridge_platform_child_line(void *child, char *line, int size, int mill
 void steam_bridge_platform_child_end(void *child);
 /* a terminal window running steamcmd's sign-in */
 int steam_bridge_platform_open_sign_in(const char *steamcmd);
+/* a folder and everything in it deleted, links not followed (a steamcmd
+download the player removes); 1 when it is gone */
+int steam_bridge_platform_remove_folder(const char *path);
 /* from's files moved into to, folders merged (MCC's depots into its install) */
 int steam_bridge_platform_merge_folder(const char *from, const char *to);
 #endif
