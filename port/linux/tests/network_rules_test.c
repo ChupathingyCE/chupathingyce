@@ -1051,11 +1051,18 @@ static void test_header_extension(void)
 	CHECK(!memcmp(narrow + 2, batch + 2, 8 + 11 - 2));
 	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 13, &epoch) == at);
 	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 7, 0, &epoch) == 8);
-	/* (malformed: a size word past the end, one shorter than the header) */
+	/* (a size word past the end, one shorter than the header: read to it,
+	the message before it kept) */
+	batch_wide[35] = 9;
 	batch_wide[27] = 200;
-	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == 0);
-	batch_wide[27] = 8;
-	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == 0);
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == 8 + 11);
+	batch_wide[27] = 9;
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == 8 + 11);
+	CHECK(!memcmp(narrow + 2, batch + 2, 8 + 11 - 2));
+	/* (the batch header's own epoch is not checked) */
+	batch_wide[27] = 14;
+	batch_wide[8] = 77;
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == at && epoch == 77);
 	batch[19] = 200;
 	CHECK(network_rules_header_expand(batch, at, batch_wide, sizeof(batch_wide), 4, 1, 9) == 0);
 	/* (further bytes without an epoch: zeros) */

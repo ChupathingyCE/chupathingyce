@@ -414,8 +414,10 @@ int network_rules_header_expand(uint8_t const *message, int size, uint8_t *out, 
 /* ... and back: the message (or batch) without the further bytes, into out
 (at least size bytes), its epoch (0 without one) in *epoch. In a batch, a
 message of another epoch than want is left out, but one of keep_kind (0:
-none); and *epoch is the batch's own. Returns the size, or 0 when the
-message is shorter than its header or the batch is malformed */
+none); and *epoch is the batch's own (not checked). A batch is read to its
+first size word past its end or shorter than a message's header (the
+messages before it kept). Returns the size, or 0 when the message is
+shorter than its header */
 int network_rules_header_strip(uint8_t const *message, int size, uint8_t *out, int extra, int has_epoch, uint32_t want,
 	int keep_kind, uint32_t *epoch);
 /* whether an epoch is newer (a signed 32-bit difference past 0) than current */

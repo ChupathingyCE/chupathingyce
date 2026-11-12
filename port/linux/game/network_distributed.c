@@ -505,6 +505,8 @@ static boolean distributed_layout_valid = FALSE;
 typedef char distributed_layout_kinds_assert[NETWORK_RULES_BATCH_KIND == _distributed_message_batch &&
 	NETWORK_RULES_CLIENT_READY_KIND == _distributed_message_client_ready ? 1 : -1];
 static void distributed_send_boundary(long machine_index);
+static boolean distributed_held_back(byte type);
+static void distributed_checkpoint_reset(boolean keep_receive_times);
 /* the checkpoint epoch: a host's own (counted up at each map and co-op
 revert), a client's as the host's boundary message last said (0: none yet,
 when it takes nothing of the host's) */
@@ -1183,6 +1185,8 @@ void distributed_send(
 	word size,
 	short destination)
 {
+	if (distributed_held_back(type))
+		return;
 	distributed_fill_header(message, type, count, size); WIRE_MESSAGE_OUT(message, size);
 	switch (destination)
 	{
@@ -1255,6 +1259,12 @@ static void distributed_packer_flush(
 
 	if (!packer->count)
 		return;
+	if (distributed_held_back(packer->type))
+	{
+		packer->count = 0;
+		packer->size = packer->prefix_size;
+		return;
+	}
 	distributed_fill_header(&packer->message, packer->type, packer->count, size);
 	distributed_batch_add(packer->sender, WIRE_MESSAGE(&packer->message, size), size, 0);
 	packer->count = 0;
@@ -5310,6 +5320,17 @@ static void distributed_handle_message(
 	}
 	/* (the host: a client's clock, by its messages' ticks; and its players'
 	predictions not taken while its game runs fast) */
+	/* (a client of a layout with a checkpoint epoch, without the host's
+	objects: their changes, their end, and what units carry over the
+	stream; nothing else until then) */
+	if (machine_index == NONE && distributed_wire_layout()->epoch_kind &&
+		game_connection() == _game_connection_network_client && !network_objects_client_synchronized() &&
+		header.type != _distributed_message_object_changes && header.type != _distributed_message_objects_synchronized &&
+		(header.type != _distributed_message_inventories || distributed_handling_batch ||
+			network_connection_last_read_was_unreliable()))
+	{
+		return;
+	}
 	if (machine_index != NONE)
 	{
 		distributed_note_client_clock(machine_index, header.game_time);
@@ -5420,6 +5441,22 @@ static void distributed_handle_message(
 		game_engine_read_network_state((byte const *)entries, size - sizeof(header));
 		break;
 	case _distributed_message_objects_synchronized:
+		/* (a layout with a checkpoint epoch: over the host's stream alone,
+		the header alone, no entries; projectiles, effects and the damage
+		netcode let go again, the checkpoint's state but the receive times,
+		then the identity again) */
+		if (distributed_wire_layout()->epoch_kind)
+		{
+			if (machine_index != NONE || network_connection_last_read_was_unreliable() || distributed_handling_batch ||
+				header.count != 0 || size != sizeof(header) || network_objects_client_synchronized())
+			{
+				break;
+			}
+			network_objects_checkpoint_reset(TRUE);
+			network_damage_new_game();
+			distributed_checkpoint_reset(TRUE);
+			distributed_identity_sent = FALSE;
+		}
 		network_objects_handle_synchronized();
 		break;
 	case _distributed_message_client_identity:
@@ -5613,6 +5650,61 @@ static void distributed_handle_message(
 	}
 }
 
+/* (a client) its netcode's own state at the host's newer checkpoint epoch:
+what it sent and received when, its batches, its predictions and its own
+positions, deaths, seats, what it saw and the host's speeds, and the input
+queues; at the snapshot's end the same, the receive times kept */
+static void distributed_checkpoint_reset(
+	boolean keep_receive_times)
+{
+	short sender;
+	short type;
+	short player_index;
+
+	distributed_last_sent_time = NONE;
+	for (sender = 0; sender < MAXIMUM_SENDERS; sender++)
+	{
+		distributed_batches[sender].size = 0;
+		distributed_batches[sender].messages = 0;
+		if (keep_receive_times)
+			continue;
+		for (type = 0; type < NUMBER_OF_DISTRIBUTED_MESSAGES; type++)
+			distributed_received_times[sender][type] = NONE;
+		distributed_sender_times[sender] = NONE;
+	}
+	csmemset(distributed_deaths, 0, sizeof(distributed_deaths));
+	csmemset(distributed_seat_disagreements, 0, sizeof(distributed_seat_disagreements));
+	csmemset(distributed_predictions, 0, sizeof(distributed_predictions));
+	csmemset(distributed_accepted, 0, sizeof(distributed_accepted));
+	csmemset(distributed_host_speeds, 0, sizeof(distributed_host_speeds));
+	csmemset(distributed_seen, 0, sizeof(distributed_seen));
+	csmemset(distributed_viewers, 0, sizeof(distributed_viewers));
+	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
+	{
+		distributed_deaths[player_index].dead_since = NONE;
+		distributed_predictions[player_index].taken_host_time = NONE;
+		distributed_host_speeds[player_index].unit_index = NONE;
+	}
+	for (sender = 0; sender < MAXIMUM_LOCAL_PLAYERS; sender++)
+	{
+		for (type = 0; type < OWN_POSITION_TICKS; type++)
+		{
+			distributed_own_positions[sender][type].time = NONE;
+			distributed_own_positions[sender][type].unit_index = NONE;
+		}
+	}
+	update_queues_distributed_reset();
+}
+
+/* (a client of a layout with a checkpoint epoch) whether what it would send
+is held back: until it has the host's objects again, all but its ready */
+static boolean distributed_held_back(
+	byte type)
+{
+	return type != _distributed_message_client_ready && distributed_wire_layout()->epoch_kind &&
+		game_connection() == _game_connection_network_client && !network_objects_client_synchronized();
+}
+
 /* (a host whose layout has a checkpoint epoch) its boundary to a client
 machine, over its stream: the header alone, of the layout's kind, before
 anything of the epoch it says */
@@ -5668,8 +5760,16 @@ static void distributed_handle_boundary(
 	distributed_epoch = epoch;
 	error(_error_log, "network: the host's checkpoint epoch %lu (was %lu)", (unsigned long)epoch,
 		(unsigned long)previous);
+	/* (not synchronized: everything replicated is let go and taken again
+	from the host's snapshot, which the client's next ready asks for; until
+	its end only that ready is sent. Its identity goes again after it; this
+	build never sends OpenCE's build report, 92) */
+	distributed_checkpoint_reset(FALSE);
+	network_objects_checkpoint_reset(FALSE);
+	network_damage_new_game();
+	network_actors_new_game();
+	network_coop_checkpoint_reset();
 	distributed_identity_sent = FALSE;
-	distributed_client_send_identity();
 }
 
 void network_distributed_handle_message(
