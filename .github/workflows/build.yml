@@ -506,6 +506,8 @@ jobs:
     # Delta's wire on a big-endian machine, as the Xbox 360 and Wii U are
     # (tools/test_delta_big_endian.py, under QEMU), and structure culling's
     # reads of the map's vertices there. Needs no build: it runs beside them.
+    # (32-bit headers and libraries without gcc-multilib, which the s390x
+    # cross compiler conflicts with: the shader key test builds with -m32)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -530,7 +532,7 @@ jobs:
           }
           apt_try apt-get update -q
           apt_try apt-get install -y -q --no-install-recommends gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user \
-            gcc-multilib libc6-dev-i386 python3-pytest
+            libc6-dev-i386 lib32gcc-13-dev python3-pytest
           DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/test_delta_big_endian.py tools/test_vertex_byte_order.py -rs
           # (the shader key lists read the same on a big-endian machine)
           if [ -f tools/test_shader_keys.py ]; then
