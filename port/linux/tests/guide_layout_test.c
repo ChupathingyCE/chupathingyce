@@ -13,6 +13,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "../src/guide_layout.h"
+#include "../src/text_shown.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -439,8 +440,40 @@ static void check_scroll(void)
 	CHECK(thumb.height >= 8, "a thumb too small to see: %g", thumb.height);
 }
 
+/* (a font with Latin letters only, as the menus' faces: no CJK) */
+static int latin_only(void *context, unsigned int codepoint)
+{
+	(void)context;
+	return codepoint < 0x2000;
+}
+
+static void check_shown(void)
+{
+	char out[128];
+
+	/* (a Workshop title: its CJK letters left out, the spaces around them one) */
+	CHECK(text_shown("\xE7\xA0\x82\xE6\xBC\xA0 Desert Run \xE7\xA0\x82", latin_only, NULL, out, sizeof(out)) &&
+		!strcmp(out, "Desert Run"), "a mixed title: [%s]", out);
+	/* (a Workshop title of only CJK letters: its number, never blank) */
+	text_shown_or("\xE6\xB2\x99\xE6\xBC\xA0\xE7\x96\xA3\xE7\x8C\xAA", latin_only, NULL,
+		"Workshop item 3000000002", out, sizeof(out));
+	CHECK(!strcmp(out, "Workshop item 3000000002"), "an all-CJK title: [%s]", out);
+	/* (a friend's name of only CJK letters: "Player", never blank) */
+	text_shown_name("\xE5\xB0\x8F\xE6\x98\x8E", latin_only, NULL, out, sizeof(out));
+	CHECK(!strcmp(out, "Player"), "an all-CJK name: [%s]", out);
+	/* (a friend's name with some Latin letters: those) */
+	text_shown_name("\xE5\xB0\x8F\xE6\x98\x8E Ming", latin_only, NULL, out, sizeof(out));
+	CHECK(!strcmp(out, "Ming"), "a mixed name: [%s]", out);
+	/* (a name the font draws whole: as it is, accents too) */
+	text_shown_name("Jos\xC3\xA9  Church", latin_only, NULL, out, sizeof(out));
+	CHECK(!strcmp(out, "Jos\xC3\xA9 Church"), "a Latin name: [%s]", out);
+	/* (a small buffer: never half a character) */
+	CHECK(text_shown("Jos\xC3\xA9", latin_only, NULL, out, 5) == 3 && !strcmp(out, "Jos"), "cut: [%s]", out);
+}
+
 int main(void)
 {
+	check_shown();
 	check_marquee();
 	check_scroll();
 	check_bounds();
