@@ -10188,6 +10188,7 @@ menus' not being the menus up) */
 #define GEARBOX_MENUS_UP() (!pc_menus_chupathingy() && tag_loaded('DeLa', GEARBOX_SOLO_LEVEL_SELECT) != NONE)
 /* (the longest wait for the main menu after leaving a game) */
 #define WORKSHOP_PLAY_WAIT 60000
+#define WORKSHOP_PLAY_SETTLE 500
 
 enum
 {
@@ -10203,6 +10204,8 @@ static struct
 	char item[32];
 	char first_map[64];
 	unsigned long time;
+	/* when the main menu was first seen back (0: not yet) */
+	unsigned long settled;
 } workshop_play;
 
 void invite_prompt_ask(char const *title, char const *question, char const *detail,
@@ -10272,6 +10275,7 @@ static void workshop_play_answer(boolean yes)
 	platform_log("Workshop: PLAY leaves the game for item %s", workshop_play.item);
 	workshop_play.state = _workshop_play_waiting;
 	workshop_play.time = system_milliseconds();
+	workshop_play.settled = 0;
 	if (main_menu_is_active())
 	{
 		/* (a lobby: ended as the Multiplayer menu ends one, the main menu again) */
@@ -10344,7 +10348,17 @@ void pc_menu_workshop_play_update(void)
 		return;
 	}
 	if (workshop_play_leaves_game() || !ui_widgets_active())
+	{
+		workshop_play.settled = 0;
 		return;
+	}
+	/* (the main menu settled a moment, and the buttons pressed meanwhile,
+	the question's A among them, not taken by the screen opened) */
+	if (!workshop_play.settled)
+		workshop_play.settled = system_milliseconds() | 1;
+	if (system_milliseconds() - workshop_play.settled < WORKSHOP_PLAY_SETTLE)
+		return;
+	event_manager_flush();
 	workshop_play.state = _workshop_play_none;
 	if (!workshop_play_hand_over())
 		platform_log("Workshop: PLAY could not open the item's screen");
