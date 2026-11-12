@@ -19,6 +19,7 @@ Where the bridge's client backend finds a steam_api library
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "steam_client_bridge.h"
 #include "steam_workshop.h"
@@ -183,3 +184,4 @@ int steam_bridge_steam_present(void)
 	free(libraries);
 	return count > 0;
 }
+#endif /* HALO_MCC */

@@ -19,6 +19,7 @@ A depot's content as the Steam content servers give it (sc_internal.h):
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "sc_internal.h"
 #include "sc_proto.h"
@@ -484,3 +485,4 @@ int sc_manifest_parse(const unsigned char *data, size_t length, const unsigned c
 	free(raw);
 	return 1;
 }
+#endif /* HALO_MCC */

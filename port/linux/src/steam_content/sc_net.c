@@ -8,6 +8,7 @@ call takes the lock only for its own short run.
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "sc_net.h"
 #include "sc_internal.h"
@@ -977,3 +978,4 @@ failed:
 	free(whole);
 	return -1;
 }
+#endif /* HALO_MCC */

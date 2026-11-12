@@ -8,6 +8,7 @@ fetched by a few threads of their own.
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "steam_content.h"
 #include "sc_internal.h"
@@ -1597,3 +1598,4 @@ void steam_content_shutdown(void)
 			sleep_milliseconds(20);
 	}
 }
+#endif /* HALO_MCC */

@@ -30,6 +30,7 @@ anywhere (port/linux/tests/steam_bridge_test.c).
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "steam_client_bridge.h"
 
@@ -636,3 +637,4 @@ void steam_bridge_set_download_folder(const char *path)
 	steam_bridge_pipe_set_folder(path);
 }
 #endif
+#endif /* HALO_MCC */

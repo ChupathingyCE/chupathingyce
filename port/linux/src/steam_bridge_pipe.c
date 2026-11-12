@@ -18,6 +18,7 @@ never logged, never sent to Delta, servers or reports.
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "steam_client_bridge.h"
 
@@ -405,3 +406,4 @@ int steam_link_armed(void) { return 0; }
 void steam_link_unlink(void) {}
 
 #endif
+#endif /* HALO_MCC */

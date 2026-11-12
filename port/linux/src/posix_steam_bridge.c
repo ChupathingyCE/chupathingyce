@@ -11,6 +11,7 @@ sign-in in a terminal, and MCC's depots moved into place.
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #if !defined(_WIN32) && !defined(__ANDROID__)
 
@@ -480,3 +481,4 @@ int steam_bridge_platform_merge_folder(const char *from, const char *to)
 }
 
 #endif
+#endif /* HALO_MCC */

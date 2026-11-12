@@ -26,6 +26,7 @@ the connect, and the tab falls back.
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "steam_client_bridge.h"
 
@@ -540,3 +541,4 @@ const struct steam_bridge_backend steam_bridge_api_backend =
 	api_update,
 	NULL,
 };
+#endif /* HALO_MCC */

@@ -11,6 +11,7 @@ never logged.
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "sc_internal.h"
 
@@ -320,3 +321,4 @@ void sc_secret_delete(const char *account)
 }
 
 #endif
+#endif /* HALO_MCC */

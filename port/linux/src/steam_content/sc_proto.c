@@ -6,6 +6,7 @@ The protocol buffers wire codec (sc_proto.h).
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "sc_proto.h"
 
@@ -219,3 +220,4 @@ int32_t pb_int32(uint64_t value)
 {
 	return (int32_t)(uint32_t)(value & 0xFFFFFFFFu);
 }
+#endif /* HALO_MCC */

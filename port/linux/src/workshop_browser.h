@@ -303,6 +303,19 @@ setting is off) */
 int workshop_browser_bridge_backend(void);
 int workshop_browser_bridge_status(void);
 
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): no Workshop,
+the shared code's calls doing nothing, their arguments unevaluated */
+#define workshop_browser_offered() 0
+#define workshop_browser_picture_of(a0, a1, a2, a3) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (const unsigned char *)0)
+#define workshop_browser_cached_picture(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), 0)
+#define workshop_join_setting() WORKSHOP_JOIN_NEVER
+#define workshop_join_set_setting(a0) ((void)sizeof(a0), (void)0)
+#define workshop_join_start(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), 0)
+#define workshop_join_poll(a0, a1, a2, a3) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), WORKSHOP_JOIN_FAILED)
+#define workshop_join_cancel() ((void)0)
+#endif
+
 #endif
 
 #endif

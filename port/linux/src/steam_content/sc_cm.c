@@ -11,6 +11,7 @@ when size_unzipped is set, each a u32 length and the message.
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "sc_internal.h"
 #include "sc_net.h"
@@ -484,3 +485,4 @@ int sc_cm_depot_key(struct sc_cm *cm, uint32_t depot, uint32_t app, unsigned cha
 		return SC_RESULT_OK;
 	}
 }
+#endif /* HALO_MCC */

@@ -285,6 +285,19 @@ int steam_link_armed(void);
 /* UNLINK: the stored sign-in deleted (its LoginID with it) */
 void steam_link_unlink(void);
 
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, the game's halo_port_features.h):
+no Steam link, the game's calls doing nothing, their arguments unevaluated */
+#define steam_link_available() 0
+#define steam_link_linked(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), 0)
+#define steam_link_start() ((void)0)
+#define steam_link_poll(a0, a1, a2, a3) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), STEAM_LINK_IDLE)
+#define steam_link_cancel() ((void)0)
+#define steam_link_set_armed(a0) ((void)sizeof(a0), (void)0)
+#define steam_link_armed() 0
+#define steam_link_unlink() ((void)0)
+#endif
+
 /* ---------- the platform (posix_steam_bridge.c, win32_steam_bridge.c) */
 
 void *steam_bridge_platform_library_open(const char *path);

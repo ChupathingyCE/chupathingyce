@@ -8,6 +8,7 @@ at each step of a download, mapped to "Not owned", "Sign in", "Offline" or
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "sc_internal.h"
 
@@ -67,3 +68,4 @@ int steam_content_error_from_result(int step, int eresult)
 		return STEAM_CONTENT_FAILED;
 	}
 }
+#endif /* HALO_MCC */

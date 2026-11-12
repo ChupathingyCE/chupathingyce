@@ -11,6 +11,7 @@ and removed without following links. steamcmd isn't used here.
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include <windows.h>
 #include <stdio.h>
@@ -99,3 +100,4 @@ int steam_bridge_platform_remove_folder(const char *path)
 	}
 	return RemoveDirectoryA(path) != 0;
 }
+#endif /* HALO_MCC */

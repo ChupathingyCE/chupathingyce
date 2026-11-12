@@ -10,6 +10,7 @@ so the frame never waits on Steam or steamcmd.
 SPDX-FileCopyrightText: Milenko x Horrible Dev
 SPDX-License-Identifier: MIT
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "steam_client_bridge.h"
 
@@ -598,3 +599,4 @@ int steam_bridge_test_running(void)
 	return running;
 }
 #endif
+#endif /* HALO_MCC */
