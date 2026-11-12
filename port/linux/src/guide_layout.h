@@ -87,4 +87,25 @@ struct guide_modal_layout
 };
 void guide_layout_modal(struct guide_rect area, int qr, struct guide_modal_layout *out);
 
+/* one line of text that doesn't fit, focused, read left to right (a
+marquee): elapsed milliseconds after it took the focus, it holds at its
+start GUIDE_MARQUEE_HOLD, moves a character each GUIDE_MARQUEE_STEP until
+its end shows, holds there, and starts again. out is the part that shows,
+cut to width with no "..."; text that fits is as it is. 1 when it moves */
+enum
+{
+	GUIDE_MARQUEE_HOLD = 1000,
+	GUIDE_MARQUEE_STEP = 120,
+};
+int guide_layout_marquee(const char *text, float width, float size, guide_layout_measure measure, void *context,
+	unsigned long elapsed, char *out, int out_size);
+
+/* a scrolled box of count lines, shown of them at once: the first line
+shown, kept in 0..count - shown; and its scroll bar's thumb in track (the
+bar's length, the thumb's height its share of it, at least min_height).
+0 when everything shows (no bar) */
+int guide_layout_scroll_clamp(int scroll, int count, int shown);
+int guide_layout_scroll_thumb(struct guide_rect track, int count, int shown, int scroll, float min_height,
+	struct guide_rect *thumb);
+
 #endif

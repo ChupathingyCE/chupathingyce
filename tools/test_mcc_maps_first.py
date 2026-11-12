@@ -124,3 +124,68 @@ def test_letting_the_item_go_gives_the_catalog_order_back(output):
     assert output["reset_campaign"] == output["plain_campaign"]
     assert output["reset_focus"] == ["0"]
 
+
+CARD = r"""
+#include <stdio.h>
+#include <string.h>
+#include <wchar.h>
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MCC_MAP_DESCRIPTION_MAXIMUM 255
+"""
+
+CARD_DRIVER = r"""
+int main(int count, char **arguments)
+{
+	int index;
+
+	for (index = 1; index < count; index++)
+	{
+		wchar_t description[MCC_MAP_DESCRIPTION_MAXIMUM + 1];
+		short used = mcc_map_card_lines(arguments[index], description, 0), at;
+
+		for (at = 0; at < used; at++)
+			putchar(description[at] == '\r' ? '|' : description[at] == '\n' ? '/' : (char)description[at]);
+		putchar('\n');
+	}
+	return 0;
+}
+"""
+
+
+@pytest.fixture(scope="module")
+def card_lines(tmp_path_factory):
+    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if not compiler:
+        pytest.skip("no C compiler")
+    code = CARD + re.search(r"#define MCC_MAP_CARD_LINE .*?\n#define MCC_MAP_CARD_LINES .*?\n", SOURCE, re.S).group(0) + \
+        function(SOURCE, "mcc_map_card_lines") + CARD_DRIVER
+    work = tmp_path_factory.mktemp("mcc-card-lines")
+    (work / "card.c").write_text(code)
+    exe = work / "card"
+    build = subprocess.run([compiler, "-std=gnu99", "-w", str(work / "card.c"), "-o", str(exe)],
+                           capture_output=True, text=True)
+    assert build.returncode == 0, build.stderr
+
+    def run(*titles):
+        result = subprocess.run([str(exe), *titles], capture_output=True, text=True, check=True)
+        return [line.split("|/") for line in result.stdout.splitlines()]
+    return run
+
+
+def test_a_map_cards_item_title_breaks_between_words(card_lines):
+    """the cards' lines don't wrap, so the item's title is broken there:
+    whole words a line, nothing cut mid-word"""
+    lines = card_lines("The Excavated Map Pack", "Desert Warthog")
+    assert lines[0] == ["The Excavated Map", "Pack"]
+    assert lines[1] == ["Desert Warthog"]
+
+
+def test_a_long_title_ends_with_dots_in_three_lines(card_lines):
+    [lines] = card_lines("HCE Multiplayer Extended The Complete Collection of Every Classic Map Remastered")
+    assert len(lines) == 3 and lines[-1].endswith("...")
+    assert all(len(line) <= 17 for line in lines)
+
+
+def test_one_long_word_is_split(card_lines):
+    [lines] = card_lines("Supercalifragilisticexpialidocious")
+    assert all(len(line) <= 17 for line in lines) and "".join(lines) == "Supercalifragilisticexpialidocious"

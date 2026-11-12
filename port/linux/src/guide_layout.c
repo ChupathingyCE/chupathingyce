@@ -488,3 +488,95 @@ void guide_layout_modal(struct guide_rect area, int qr, struct guide_modal_layou
 	y += line + 2 * gap;
 	out->button = rect(x + (width - 120) * 0.5f, y, 120, button);
 }
+
+int guide_layout_marquee(const char *text, float width, float size, guide_layout_measure measure, void *context,
+	unsigned long elapsed, char *out, int out_size)
+{
+	int length = (int)strlen(text), last = 0, start, step, steps, end;
+	unsigned long travel, cycle;
+
+	if (out_size <= 0)
+		return 0;
+	if (measure(context, size, text) <= width || length >= GUIDE_LAYOUT_LINE_SIZE)
+	{
+		/* (it fits; or too long to read this way: the usual cut) */
+		if (measure(context, size, text) <= width && length < out_size)
+		{
+			memcpy(out, text, (size_t)length + 1);
+			return 0;
+		}
+		guide_layout_fit(text, width, size, measure, context, 0, out, out_size);
+		return 0;
+	}
+	/* (the first start from which the rest fits: its end showing) */
+	for (last = 0; last < length; last++)
+	{
+		if (((unsigned char)text[last] & 0xC0) != 0x80 && measure(context, size, text + last) <= width)
+			break;
+	}
+	/* (the characters to move past) */
+	for (steps = 0, start = 0; start < last; start++)
+	{
+		if (((unsigned char)text[start] & 0xC0) != 0x80)
+			steps++;
+	}
+	travel = (unsigned long)steps * GUIDE_MARQUEE_STEP;
+	cycle = GUIDE_MARQUEE_HOLD + travel + GUIDE_MARQUEE_HOLD;
+	elapsed %= cycle;
+	step = elapsed < GUIDE_MARQUEE_HOLD ? 0 : elapsed >= GUIDE_MARQUEE_HOLD + travel ? steps :
+		(int)((elapsed - GUIDE_MARQUEE_HOLD) / GUIDE_MARQUEE_STEP);
+	for (start = 0; step > 0 && start < length; start++)
+	{
+		if (((unsigned char)text[start + 1] & 0xC0) != 0x80)
+			step--;
+	}
+	/* (from there, as much as fits, cut between characters) */
+	end = length;
+	while (end > start)
+	{
+		char line[GUIDE_LAYOUT_LINE_SIZE];
+
+		memcpy(line, text + start, (size_t)(end - start));
+		line[end - start] = 0;
+		if (measure(context, size, line) <= width)
+			break;
+		end = character_start(text, end - 1);
+	}
+	if (end - start >= out_size)
+		end = start + character_start(text + start, out_size - 1);
+	memcpy(out, text + start, (size_t)(end - start));
+	out[end - start] = 0;
+	return 1;
+}
+
+int guide_layout_scroll_clamp(int scroll, int count, int shown)
+{
+	int most = count - shown;
+
+	if (most < 0)
+		most = 0;
+	return scroll < 0 ? 0 : scroll > most ? most : scroll;
+}
+
+int guide_layout_scroll_thumb(struct guide_rect track, int count, int shown, int scroll, float min_height,
+	struct guide_rect *thumb)
+{
+	float height;
+
+	if (count <= shown || shown <= 0 || track.height <= 0)
+	{
+		*thumb = track;
+		thumb->height = 0;
+		return 0;
+	}
+	scroll = guide_layout_scroll_clamp(scroll, count, shown);
+	height = track.height * (float)shown / (float)count;
+	if (height < min_height)
+		height = min_height;
+	if (height > track.height)
+		height = track.height;
+	*thumb = track;
+	thumb->height = height;
+	thumb->y = track.y + (track.height - height) * (float)scroll / (float)(count - shown);
+	return 1;
+}

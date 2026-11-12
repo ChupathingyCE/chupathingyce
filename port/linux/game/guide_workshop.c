@@ -175,6 +175,18 @@ static struct
 	on WORKSHOP once it is done */
 	boolean keyboard;
 	wchar_t keyboard_text[64];
+	/* the item page's description (its words, then a pack's maps): the
+	focus on it (the d-pad, the stick and the wheel scroll it), the first
+	line shown, how many lines it has and shows (as last drawn), its box
+	(for the wheel and a click) and whose it is */
+	boolean description_on;
+	short description_scroll, description_count, description_shown;
+	float description_x0, description_y0, description_x1, description_y1;
+	char description_id[WORKSHOP_BROWSER_ID_SIZE];
+	/* a line too long for its box, focused: read left to right from when
+	it took the focus (guide_layout_marquee) */
+	int marquee_key;
+	unsigned long marquee_time;
 } workshop_view;
 
 /* ---------- private code */
@@ -185,6 +197,9 @@ static struct workshop_browser_item const *chosen(void)
 }
 
 static boolean link_needed(void);
+/* (the item page's description: whether it scrolls, and a scroll) */
+static boolean description_scrolls(void);
+static void description_scroll(short step);
 
 static short options_of(struct workshop_browser_item const *item, short *options)
 {
@@ -683,6 +698,23 @@ static void text_line(int kind, float x, float y, float width, int align, char c
 	ui_style_text(kind, x, y, align, shown);
 }
 
+/* a focused line: as text_line, but read left to right when it doesn't
+fit (the same marquee for every focused line: key tells them apart) */
+static void text_line_focused(int kind, float x, float y, float width, int align, char const *text, int key)
+{
+	char shown[GUIDE_LAYOUT_LINE_SIZE];
+	unsigned long now = system_milliseconds();
+
+	if (key != workshop_view.marquee_key)
+	{
+		workshop_view.marquee_key = key;
+		workshop_view.marquee_time = now;
+	}
+	guide_layout_marquee(text, width, ui_style_text_size(kind), measure_font, (void *)(intptr_t)ui_style_text_font(kind),
+		now - workshop_view.marquee_time, shown, sizeof(shown));
+	ui_style_text(kind, x, y, align, shown);
+}
+
 /* text wrapped into width, at most lines lines, from y; the last line's bottom */
 static float text_wrapped(char const *text, float x, float y, float width, short lines)
 {
@@ -1069,6 +1101,19 @@ void guide_workshop_move(short step)
 	{
 		short option_count = options_of(chosen(), options);
 
+		/* (the description: scrolled while it has the focus; it takes it
+		past the first button up or the last down, when it scrolls) */
+		if (workshop_view.description_on)
+		{
+			description_scroll(step);
+			return;
+		}
+		if (description_scrolls() && ((step < 0 && workshop_view.option <= 0) ||
+			(step > 0 && workshop_view.option >= option_count - 1)))
+		{
+			workshop_view.description_on = TRUE;
+			return;
+		}
 		if (option_count > 0)
 			workshop_view.option = (short)PIN(workshop_view.option + step, 0, option_count - 1);
 		return;
@@ -1093,6 +1138,13 @@ void guide_workshop_activate(void)
 	{
 		workshop_view.page = TRUE;
 		workshop_view.option = 0;
+		workshop_view.description_on = FALSE;
+		return;
+	}
+	/* (A on the description gives the buttons the focus again) */
+	if (workshop_view.description_on)
+	{
+		workshop_view.description_on = FALSE;
 		return;
 	}
 	if (workshop_view.option >= 0 && workshop_view.option < count)
@@ -1108,9 +1160,39 @@ boolean guide_workshop_back(void)
 	}
 	if (!workshop_view.page)
 		return FALSE;
+	/* (B on the description: back to the buttons, the page kept) */
+	if (workshop_view.description_on)
+	{
+		workshop_view.description_on = FALSE;
+		return TRUE;
+	}
 	workshop_view.page = FALSE;
 	workshop_view.confirm = FALSE;
 	workshop_view.confirm_remove = FALSE;
+	return TRUE;
+}
+
+/* the wheel over the description: scrolled, the focus where it was (TRUE:
+taken); a click on it gives it the focus */
+static boolean over_description(short x, short y)
+{
+	return workshop_view.page && x >= workshop_view.description_x0 && x < workshop_view.description_x1 &&
+		y >= workshop_view.description_y0 && y < workshop_view.description_y1;
+}
+
+boolean guide_workshop_wheel(short x, short y, short steps)
+{
+	if (!over_description(x, y) || !description_scrolls())
+		return FALSE;
+	description_scroll((short)-steps);
+	return TRUE;
+}
+
+boolean guide_workshop_click(short x, short y)
+{
+	if (!over_description(x, y) || !description_scrolls())
+		return FALSE;
+	workshop_view.description_on = TRUE;
 	return TRUE;
 }
 
@@ -1151,6 +1233,114 @@ static char const *plain_description(struct workshop_browser_item const *item)
 		guide_layout_plain(item->description, workshop_view.plain, sizeof(workshop_view.plain));
 	}
 	return workshop_view.plain;
+}
+
+/* the chosen item's page text: its author's words (never words of ours in
+their place), then, for a pack, the maps in it (the installed item's, from
+the map catalog: mcc_maps\<id>\...; an item not installed lists none) */
+static char const *page_text(struct workshop_browser_item const *item)
+{
+	static char text[WORKSHOP_BROWSER_DESCRIPTION_SIZE + 1024];
+	char prefix[WORKSHOP_BROWSER_ID_SIZE + 16];
+	short index, count, maps = 0;
+	size_t length;
+
+	snprintf(text, sizeof(text), "%s", plain_description(item));
+	if (item->setup || item->state != WORKSHOP_ITEM_INSTALLED)
+		return text;
+	snprintf(prefix, sizeof(prefix), MCC_MAPS_LEVEL_PREFIX "%s\\", item->id);
+	count = mcc_maps_count(FALSE);
+	for (index = 0; index < count; index++)
+	{
+		char const *level = mcc_maps_level_name(index);
+
+		if (level && !_strnicmp(level, prefix, strlen(prefix)))
+			maps++;
+	}
+	if (maps < 2)
+		return text;
+	length = strlen(text);
+	snprintf(text + length, sizeof(text) - length, "%sMaps in this pack (%d):", length ? "\n\n" : "", maps);
+	for (index = 0; index < count; index++)
+	{
+		char const *level = mcc_maps_level_name(index);
+		wchar_t const *name = mcc_maps_name(index);
+		short character;
+
+		if (!level || _strnicmp(level, prefix, strlen(prefix)))
+			continue;
+		length = strlen(text);
+		if (length + 4 >= sizeof(text))
+			break;
+		text[length++] = '\n';
+		/* (the catalog's name, its plain letters) */
+		for (character = 0; name && name[character] && length + 2 < sizeof(text); character++)
+			text[length++] = name[character] < 0x80 ? (char)name[character] : '?';
+		text[length] = 0;
+	}
+	return text;
+}
+
+/* the description's box: its lines from the first scrolled to, a bar at its
+right when they don't all show, its edge lit while it has the focus */
+#define DESCRIPTION_MAXIMUM_LINES 160
+#define DESCRIPTION_BAR 3.0f
+
+static void description_render(struct workshop_browser_item const *item, struct guide_rect box, short lines,
+	void (*target)(float x0, float y0, float x1, float y1, short kind, short index))
+{
+	static char wrapped[DESCRIPTION_MAXIMUM_LINES][GUIDE_LAYOUT_LINE_SIZE];
+	struct guide_rect track, thumb;
+	int count, index;
+	float y = box.y, width = box.width - DESCRIPTION_BAR - 4;
+
+	(void)target;
+	if (strcmp(workshop_view.description_id, item->id))
+	{
+		snprintf(workshop_view.description_id, sizeof(workshop_view.description_id), "%s", item->id);
+		workshop_view.description_scroll = 0;
+		workshop_view.description_on = FALSE;
+	}
+	count = guide_layout_wrap(page_text(item), width, DESCRIPTION_SIZE, measure_font, (void *)(intptr_t)UI_FONT_MENU,
+		DESCRIPTION_MAXIMUM_LINES, wrapped, NULL);
+	workshop_view.description_count = (short)count;
+	workshop_view.description_shown = lines;
+	workshop_view.description_scroll = (short)guide_layout_scroll_clamp(workshop_view.description_scroll, count, lines);
+	workshop_view.description_x0 = box.x;
+	workshop_view.description_y0 = box.y;
+	workshop_view.description_x1 = box.x + box.width;
+	workshop_view.description_y1 = box.y + lines * DESCRIPTION_LINE;
+	if (workshop_view.description_on)
+		ui_overlay_outline(box.x - 4, box.y - 3, box.width + 8, lines * DESCRIPTION_LINE + 4, 4, 1.0f,
+			COLOR_VALUE);
+	for (index = workshop_view.description_scroll; index < count && index < workshop_view.description_scroll + lines;
+		index++)
+	{
+		ui_overlay_text(UI_FONT_MENU, DESCRIPTION_SIZE, box.x, y, UI_ALIGN_LEFT, COLOR_DESCRIPTION, wrapped[index]);
+		y += DESCRIPTION_LINE;
+	}
+	track.x = box.x + box.width - DESCRIPTION_BAR;
+	track.y = box.y;
+	track.width = DESCRIPTION_BAR;
+	track.height = lines * DESCRIPTION_LINE - 2;
+	if (guide_layout_scroll_thumb(track, count, lines, workshop_view.description_scroll, 8.0f, &thumb))
+	{
+		ui_overlay_rect(track.x, track.y, track.width, track.height, 1.5f, 0xFFFFFF1F);
+		ui_overlay_rect(thumb.x, thumb.y, thumb.width, thumb.height, 1.5f,
+			workshop_view.description_on ? COLOR_VALUE : 0xFFFFFF80);
+	}
+}
+
+/* whether the description has more lines than show (it can be scrolled) */
+static boolean description_scrolls(void)
+{
+	return workshop_view.page && workshop_view.description_count > workshop_view.description_shown;
+}
+
+static void description_scroll(short step)
+{
+	workshop_view.description_scroll = (short)guide_layout_scroll_clamp(workshop_view.description_scroll + step,
+		workshop_view.description_count, workshop_view.description_shown);
 }
 
 /* the line over an item's buttons: what is happening, or why the buttons
@@ -1282,7 +1472,10 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 		state = item_word(item);
 		state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 8.0f, state) + 8 : 0;
 		ui_style_row(left, y, LIST_WIDTH, ROW_HEIGHT, on);
-		text_line(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, item->title);
+		if (on)
+			text_line_focused(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, item->title, 1 + index);
+		else
+			text_line(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, item->title);
 		if (item->author[0])
 			snprintf(line, sizeof(line), "%s - %s", kind_text(item), item->author);
 		else
@@ -1343,7 +1536,11 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 
 		guide_layout_page(pane, note != NULL, option_count, DESCRIPTION_LINE, &layout);
 		/* (its title; its kind and size, and where it stands) */
-		text_line(UI_TEXT_TITLE, layout.title.x, layout.title.y, layout.title.width, UI_ALIGN_LEFT, item->title);
+		if (workshop_view.page)
+			text_line_focused(UI_TEXT_TITLE, layout.title.x, layout.title.y, layout.title.width, UI_ALIGN_LEFT,
+				item->title, -1 - workshop_view.row);
+		else
+			text_line(UI_TEXT_TITLE, layout.title.x, layout.title.y, layout.title.width, UI_ALIGN_LEFT, item->title);
 		workshop_browser_size_text(item->size, size, sizeof(size));
 		snprintf(line, sizeof(line), "%s%s%s", kind_text(item), size[0] ? " - " : "", size);
 		state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 9.0f, state) + 8 : 0;
@@ -1380,11 +1577,11 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 					box.y + (box.height - draw_height) * 0.5f, draw_width, draw_height, 0xFFFFFFFF);
 			}
 		}
-		/* (its description: plain words, as many lines as the room has) */
+		/* (its description: the author's words, then a pack's maps, as many
+		lines as the room has, the rest scrolled to) */
 		lines = (short)layout.description_lines;
 		if (lines > 0)
-			text_wrapped(plain_description(item), layout.description.x, layout.description.y, layout.description.width,
-				lines);
+			description_render(item, layout.description, lines, target);
 		if (note)
 		{
 			text_line(UI_TEXT_LABEL, layout.note.x, layout.note.y - (bar >= 0 ? 1 : 0), layout.note.width, UI_ALIGN_LEFT,
@@ -1400,7 +1597,7 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 		for (index = 0; index < layout.button_count; index++)
 		{
 			struct guide_rect button = layout.buttons[index];
-			boolean on = workshop_view.page && index == workshop_view.option;
+			boolean on = workshop_view.page && index == workshop_view.option && !workshop_view.description_on;
 
 			ui_style_row(button.x, button.y, button.width, button.height, on);
 			text_fit(UI_TEXT_NAME, option_label(item, options[index]), button.width - 20, shown, sizeof(shown));

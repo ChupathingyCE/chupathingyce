@@ -279,6 +279,66 @@ static boolean mcc_map_package_is_item(char const *package)
 	return length > 0;
 }
 
+/* the item's title on the map cards, under "Steam Workshop": the cards'
+description lines don't wrap, so it is broken between words into lines of
+at most MCC_MAP_CARD_LINE characters (a longer word split), at most
+MCC_MAP_CARD_LINES of them, the last ending "..." if more is left. Into
+description from used; the new end */
+#define MCC_MAP_CARD_LINE 17
+#define MCC_MAP_CARD_LINES 3
+
+static short mcc_map_card_lines(char const *title, wchar_t *description, short used)
+{
+	short lines = 0, length = (short)strlen(title), start = 0;
+
+	while (start < length && lines < MCC_MAP_CARD_LINES)
+	{
+		short end = (short)MIN(start + MCC_MAP_CARD_LINE, length), index;
+
+		/* (between words: the last space that fits, else the whole line) */
+		if (end < length && title[end] != ' ')
+		{
+			short space = end;
+
+			while (space > start && title[space] != ' ')
+				space--;
+			if (space > start)
+				end = space;
+		}
+		if (lines)
+		{
+			if (used + 2 >= MCC_MAP_DESCRIPTION_MAXIMUM)
+				break;
+			description[used++] = '\r';
+			description[used++] = '\n';
+		}
+		lines++;
+		/* (the last line, more left: its end makes room for "...") */
+		if (lines == MCC_MAP_CARD_LINES && end < length)
+		{
+			while (end > start && end - start > MCC_MAP_CARD_LINE - 3)
+			{
+				short space = (short)(end - 1);
+
+				while (space > start && title[space] != ' ')
+					space--;
+				end = space > start ? space : (short)(start + MCC_MAP_CARD_LINE - 3);
+			}
+		}
+		for (index = start; index < end && used < MCC_MAP_DESCRIPTION_MAXIMUM; index++)
+			description[used++] = (unsigned char)title[index] >= 32 && (unsigned char)title[index] < 127 ? title[index] : '?';
+		if (lines == MCC_MAP_CARD_LINES && end < length)
+		{
+			for (index = 0; index < 3 && used < MCC_MAP_DESCRIPTION_MAXIMUM; index++)
+				description[used++] = '.';
+		}
+		start = end;
+		while (start < length && title[start] == ' ')
+			start++;
+	}
+	return used;
+}
+
 /* The Workshop title and description of a level in an item's package folder: TRUE if the catalog has it. */
 static boolean mcc_map_workshop_title(struct mcc_menu_map *map)
 {
@@ -310,9 +370,7 @@ static boolean mcc_map_workshop_title(struct mcc_menu_map *map)
 
 			for (used = 0; heading[used]; used++)
 				map->description[used] = heading[used];
-			for (index = 0; item_title[index] && used < MCC_MAP_DESCRIPTION_MAXIMUM; index++)
-				map->description[used++] = (unsigned char)item_title[index] >= 32 && (unsigned char)item_title[index] < 127 ?
-					item_title[index] : '?';
+			used = (size_t)mcc_map_card_lines(item_title, map->description, (short)used);
 			map->description[used] = 0;
 		}
 		map->titled = TRUE;
