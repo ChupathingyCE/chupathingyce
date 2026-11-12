@@ -519,7 +519,19 @@ void guide_layout_modal(struct guide_rect area, int qr, struct guide_modal_layou
 	y += out->line.height + 4;
 	out->status = rect(x + padding, y, width - 2 * padding, line);
 	y += line + 2 * gap;
-	out->button = rect(x + (width - 120) * 0.5f, y, 120, button);
+	if (qr)
+	{
+		out->button = rect(x + (width - 120) * 0.5f, y, 120, button);
+		return;
+	}
+	/* (a question: its yes and CANCEL, as wide as each other) */
+	{
+		float each = (width - 2 * padding - gap) * 0.5f;
+
+		each = each > 120 ? 120 : each;
+		out->button = rect(x + width * 0.5f - gap * 0.5f - each, y, each, button);
+		out->cancel = rect(x + width * 0.5f + gap * 0.5f, y, each, button);
+	}
 }
 
 int guide_layout_marquee(const char *text, float width, float size, guide_layout_measure measure, void *context,

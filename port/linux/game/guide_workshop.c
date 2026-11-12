@@ -12,8 +12,9 @@ each stands in the player's own Steam libraries.
   and description. A on an item opens its options: SUBSCRIBE (OPEN once
   Steam has it), which opens the item's page in the
   Steam client, where the player subscribes; Steam downloads it into MCC's
-  own Workshop folder. With game.workshop_maps off, TURN ON turns it
-  on, so the item's maps join the map lists.
+  own Workshop folder. With game.workshop_maps off, the page's one row says
+  so (WORKSHOP MAPS  OFF), and pressing it turns them on, so the item's
+  maps join the map lists.
 - While the section shows, or an item waits on Steam, the item folders are
   looked at every second: an item that becomes installed is rescanned into
   the map lists (mcc_maps_rescan) and gets a toast.
@@ -24,8 +25,11 @@ each stands in the player's own Steam libraries.
   once it's scanned; linked, GET downloads in the game with its progress
   (Installing 45%), never opening Steam. Only when it can't get an item
   ("Not owned") does OPEN IN STEAM show, beside TRY AGAIN.
-- An item's page has one main button for where it stands (TURN ON while
-  Workshop maps are off, PLAY, LINK STEAM, GET) and at most one more.
+- An item's page has one main button for where it stands (WORKSHOP MAPS
+  while they are off, PLAY, LINK STEAM, GET) and at most one more. A
+  question (REMOVE's, CONNECT STEAM's, UNLINK's) has its yes and CANCEL,
+  the focus on CANCEL: B, CANCEL or a click beside UNLINK's window leaves
+  things as they were.
   Where the game's own download isn't built, CONNECT STEAM (after a note)
   turns on the Steam client's bridge instead.
 - Steam's list comes a page at a time: LT and RT (Page Up, Page Down), the
@@ -125,6 +129,8 @@ enum
 	_option_open_steam,
 	/* the list failed: asked again */
 	_option_retry,
+	/* a question's no (REMOVE's, CONNECT STEAM's): nothing done */
+	_option_cancel,
 	/* the link row's LINK (to SETTINGS' STEAM ACCOUNT, its QR shown) */
 	_option_link,
 	/* the page row's */
@@ -148,8 +154,12 @@ static struct
 	boolean showing;
 	/* USE STEAM pressed once: its note shows, and CONFIRM turns it on */
 	boolean confirm;
-	/* REMOVE pressed once: CONFIRM deletes the files */
+	/* REMOVE pressed once: DELETE deletes the files */
 	boolean confirm_remove;
+	/* UNLINK's question: the button with the focus (1: CANCEL, as it opens),
+	and its window, for a click beside it */
+	short modal_option;
+	float modal_x0, modal_y0, modal_x1, modal_y1;
 	/* LINK's QR: Steam's text for it, and its modules (made again when the text changes) */
 	char link_text[256];
 	short link_qr_size;
@@ -248,11 +258,24 @@ static short options_of(struct workshop_browser_item const *item, short *options
 		return count;
 	}
 	/* (one main action for where the item stands, then at most one more:
-	Workshop maps off, TURN ON; installed, PLAY; not linked, LINK STEAM;
-	else GET) */
+	Workshop maps off, the row that says so and turns them on; installed,
+	PLAY; not linked, LINK STEAM; else GET) */
 	if (!config_boolean("game.workshop_maps"))
 	{
 		options[count++] = _option_show_maps;
+		return count;
+	}
+	/* (a question asked: its yes, then CANCEL) */
+	if (workshop_view.confirm_remove && workshop_browser_removable(workshop_view.row))
+	{
+		options[count++] = _option_remove;
+		options[count++] = _option_cancel;
+		return count;
+	}
+	if (workshop_view.confirm)
+	{
+		options[count++] = _option_use_steam;
+		options[count++] = _option_cancel;
 		return count;
 	}
 	if (item->state == WORKSHOP_ITEM_INSTALLED)
@@ -325,8 +348,9 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	case _option_search: return "SEARCH";
 	case _option_play: return "PLAY";
 	case _option_update: return link_needed() ? "LINK STEAM" : item->steam_error[0] ? "RETRY" : "UPDATE";
-	case _option_remove: return workshop_view.confirm_remove ? "CONFIRM" : "REMOVE";
-	case _option_show_maps: return "TURN ON";
+	case _option_remove: return workshop_view.confirm_remove ? "DELETE" : "REMOVE";
+	case _option_show_maps: return "WORKSHOP MAPS";
+	case _option_cancel: return "CANCEL";
 	case _option_unsubscribe: return "CANCEL";
 	case _option_open_steam: return "OPEN IN STEAM";
 	case _option_retry: return "RETRY";
@@ -506,6 +530,15 @@ boolean guide_workshop_page_offered(short step)
 	return workshop_browser_page_offered(step) != 0;
 }
 
+/* a question on the item's page put away, unanswered (CANCEL, B, another
+item or the page left) */
+static void confirms_clear(void)
+{
+	if (workshop_view.confirm || workshop_view.confirm_remove)
+		workshop_view.option = 0;
+	workshop_view.confirm = workshop_view.confirm_remove = FALSE;
+}
+
 static void option_run(short option)
 {
 	if (option >= _option_filter && option < _option_sort)
@@ -549,10 +582,11 @@ static void option_run(short option)
 			workshop_view.waiting = TRUE;
 		return;
 	case _option_remove:
-		/* (twice: the files are deleted) */
+		/* (asked first: DELETE deletes the files, the focus on CANCEL) */
 		if (!workshop_view.confirm_remove)
 		{
 			workshop_view.confirm_remove = TRUE;
+			workshop_view.option = 1;
 			return;
 		}
 		workshop_view.confirm_remove = FALSE;
@@ -560,8 +594,14 @@ static void option_run(short option)
 		workshop_browser_remove(workshop_view.row);
 		return;
 	case _option_show_maps:
+		/* (the row is the setting: pressed, Workshop maps are on, the
+		player's own choice) */
 		config_write_boolean("game.workshop_maps", 1);
 		mcc_maps_rescan();
+		workshop_view.option = 0;
+		return;
+	case _option_cancel:
+		confirms_clear();
 		return;
 	case _option_unsubscribe:
 		workshop_browser_unsubscribe(workshop_view.row);
@@ -590,9 +630,11 @@ static void option_run(short option)
 		guide_workshop_page_step(option == _option_page_next ? 1 : -1);
 		return;
 	case _option_use_steam:
+		/* (asked first: CONFIRM turns it on, the focus on CANCEL) */
 		if (!workshop_view.confirm)
 		{
 			workshop_view.confirm = TRUE;
+			workshop_view.option = 1;
 			return;
 		}
 		workshop_view.confirm = FALSE;
@@ -808,7 +850,10 @@ static void link_settings_press(void)
 {
 	if (steam_link_linked(NULL, 0))
 	{
+		/* (UNLINK's question, the focus on CANCEL: a press by mistake
+		undoes nothing) */
 		steam_link_set_armed(1);
+		workshop_view.modal_option = 1;
 		return;
 	}
 	link_begin(NULL);
@@ -894,6 +939,9 @@ void guide_workshop_link_modal_press(void)
 	if (unlink_asked())
 	{
 		steam_link_set_armed(0);
+		/* (CANCEL: linked as it was) */
+		if (workshop_view.modal_option)
+			return;
 		steam_link_unlink();
 		return;
 	}
@@ -912,6 +960,31 @@ void guide_workshop_link_modal_back(void)
 	if (link_busy(steam_link_poll(NULL, 0, NULL, 0)))
 		steam_link_cancel();
 	link_modal_close();
+}
+
+void guide_workshop_link_modal_move(short step)
+{
+	/* (the question's two buttons: UNLINK left, CANCEL right) */
+	if (unlink_asked())
+		workshop_view.modal_option = (short)(step < 0 ? 0 : 1);
+}
+
+void guide_workshop_link_modal_click(short index)
+{
+	if (unlink_asked())
+		workshop_view.modal_option = index ? 1 : 0;
+	guide_workshop_link_modal_press();
+}
+
+void guide_workshop_link_modal_click_outside(short x, short y)
+{
+	/* (UNLINK's question: a click beside its window is CANCEL; Steam's
+	sign-in keeps waiting for the scan, only its button closes it) */
+	if (unlink_asked() && (x < workshop_view.modal_x0 || x >= workshop_view.modal_x1 || y < workshop_view.modal_y0 ||
+		y >= workshop_view.modal_y1))
+	{
+		steam_link_set_armed(0);
+	}
 }
 
 char const *guide_workshop_link_note(void)
@@ -945,8 +1018,8 @@ void guide_workshop_link_modal_render(float left, float top, float right, float 
 		char lines[2][GUIDE_LAYOUT_LINE_SIZE];
 		int count, index;
 
-		text_line(UI_TEXT_TITLE, center, layout.title.y, layout.title.width, UI_ALIGN_CENTER, "UNLINK STEAM");
-		count = guide_layout_wrap("The game forgets the sign-in here and at Steam.", layout.line.width,
+		text_line(UI_TEXT_TITLE, center, layout.title.y, layout.title.width, UI_ALIGN_CENTER, "UNLINK STEAM?");
+		count = guide_layout_wrap("Workshop downloads will need you to scan again.", layout.line.width,
 			ui_style_text_size(UI_TEXT_LINE), measure_font, (void *)(intptr_t)ui_style_text_font(UI_TEXT_LINE), 2,
 			lines, NULL);
 		for (index = 0; index < count; index++)
@@ -989,13 +1062,31 @@ void guide_workshop_link_modal_render(float left, float top, float right, float 
 		ui_overlay_text(ui_style_text_font(UI_TEXT_LABEL), ui_style_text_size(UI_TEXT_LABEL), center, layout.status.y,
 			UI_ALIGN_CENTER, status_color, shown);
 	}
-	ui_style_row(layout.button.x, layout.button.y, layout.button.width, layout.button.height, TRUE);
+	workshop_view.modal_x0 = layout.window.x;
+	workshop_view.modal_y0 = layout.window.y;
+	workshop_view.modal_x1 = layout.window.x + layout.window.width;
+	workshop_view.modal_y1 = layout.window.y + layout.window.height;
+	ui_style_row(layout.button.x, layout.button.y, layout.button.width, layout.button.height,
+		!question || !workshop_view.modal_option);
 	ui_overlay_text(UI_FONT_MENU, 10.0f, layout.button.x + layout.button.width * 0.5f,
 		layout.button.y + (layout.button.height - 10) * 0.5f, UI_ALIGN_CENTER, COLOR_VALUE, button);
 	if (target)
 	{
 		target(layout.button.x, layout.button.y, layout.button.x + layout.button.width,
 			layout.button.y + layout.button.height, GUIDE_WORKSHOP_TARGET_MODAL, 0);
+	}
+	/* (the question's CANCEL) */
+	if (question && layout.cancel.width > 0)
+	{
+		ui_style_row(layout.cancel.x, layout.cancel.y, layout.cancel.width, layout.cancel.height,
+			workshop_view.modal_option != 0);
+		ui_overlay_text(UI_FONT_MENU, 10.0f, layout.cancel.x + layout.cancel.width * 0.5f,
+			layout.cancel.y + (layout.cancel.height - 10) * 0.5f, UI_ALIGN_CENTER, COLOR_VALUE, "CANCEL");
+		if (target)
+		{
+			target(layout.cancel.x, layout.cancel.y, layout.cancel.x + layout.cancel.width,
+				layout.cancel.y + layout.cancel.height, GUIDE_WORKSHOP_TARGET_MODAL, 1);
+		}
 	}
 }
 
@@ -1142,6 +1233,7 @@ void guide_workshop_move(short step)
 	}
 	if (count > 0)
 		workshop_view.row = (short)PIN(workshop_view.row + step, 0, count - 1);
+	confirms_clear();
 }
 
 void guide_workshop_activate(void)
@@ -1189,8 +1281,7 @@ boolean guide_workshop_back(void)
 		return TRUE;
 	}
 	workshop_view.page = FALSE;
-	workshop_view.confirm = FALSE;
-	workshop_view.confirm_remove = FALSE;
+	confirms_clear();
 	return TRUE;
 }
 
@@ -1222,6 +1313,9 @@ void guide_workshop_row_click(short row, boolean touch)
 {
 	boolean again = row == workshop_view.row && !workshop_view.page;
 
+	/* (another item, or the list: a question put away) */
+	if (row != workshop_view.row || workshop_view.page)
+		confirms_clear();
 	workshop_view.page = FALSE;
 	workshop_view.row = row;
 	if (again || touch)
@@ -1378,11 +1472,9 @@ static char const *page_note(struct workshop_browser_item const *item, char *lin
 		return use_steam_note();
 	if (item->setup)
 		return NULL;
-	if (workshop_browser_bridge_status() == STEAM_BRIDGE_READY && steam_bridge_sign_in_needed() &&
-		!workshop_browser_link_offered())
-	{
-		return "Sign in to steamcmd";
-	}
+	/* (no line that says what the one button does: "Sign in to steamcmd"
+	over SIGN IN, "Workshop maps are off" over WORKSHOP MAPS OFF, "Link
+	Steam to download in the game" over LINK STEAM) */
 	if (item->steam_error[0])
 		return item->steam_error;
 	if (item->state == WORKSHOP_ITEM_DOWNLOADING && item->total > 0)

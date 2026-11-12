@@ -5359,13 +5359,16 @@ static void handle_pressed(unsigned int pressed)
 			about_input(&guide.about_view, ABOUT_INPUT_A);
 		return;
 	}
-	/* (Steam's sign-in window: A its button, B back, nothing under it) */
+	/* (Steam's sign-in window: A its button with the focus, B back, left
+	and right the question's two buttons, nothing under it) */
 	if (guide_workshop_link_modal())
 	{
 		if (pressed & GUIDE_INPUT_A)
 			guide_workshop_link_modal_press();
 		else if (pressed & GUIDE_INPUT_B)
 			guide_workshop_link_modal_back();
+		else if (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT))
+			guide_workshop_link_modal_move((pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
 		return;
 	}
 	/* (WORKSHOP: LT and RT, Page Up and Page Down, a page of Steam's list on or back) */
@@ -5652,14 +5655,18 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			guide_workshop_page_step(target->index == 2 ? 0 : target->index ? 1 : -1);
 			break;
 		case _target_modal:
-			guide_workshop_link_modal_press();
+			guide_workshop_link_modal_click(target->index);
 			break;
 		}
 		return;
 	}
-	/* (Steam's sign-in window: a click beside it does nothing) */
+	/* (Steam's sign-in window: a click beside it does nothing; beside
+	UNLINK's question, CANCEL) */
 	if (guide_workshop_link_modal())
+	{
+		guide_workshop_link_modal_click_outside(pointer->click_x, pointer->click_y);
 		return;
+	}
 	/* (a click outside the panel closes it; outside the leader's offer,
 	nothing) */
 	if (guide.open && (pointer->click_x < PANEL_X || pointer->click_x >= PANEL_RIGHT || pointer->click_y < PANEL_Y ||

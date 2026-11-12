@@ -250,7 +250,7 @@ static void check_modal(void)
 		for (qr = 0; qr <= 1; qr++)
 		{
 			struct guide_modal_layout layout;
-			struct guide_rect rects[5];
+			struct guide_rect rects[6];
 			char what[64];
 
 			guide_layout_modal(areas[area], qr, &layout);
@@ -260,7 +260,13 @@ static void check_modal(void)
 			rects[2] = layout.line;
 			rects[3] = layout.status;
 			rects[4] = layout.button;
-			check_no_overlap(what, rects, 5, layout.window);
+			rects[5] = layout.cancel;
+			check_no_overlap(what, rects, 6, layout.window);
+			/* (a question's two buttons: both there, as wide as each other) */
+			CHECK(qr || (layout.cancel.width >= 80 && layout.cancel.width == layout.button.width &&
+				layout.cancel.y == layout.button.y), "%s: the question's buttons %g and %g", what, layout.button.width,
+				layout.cancel.width);
+			CHECK(!qr || layout.cancel.width == 0, "%s: a CANCEL beside the QR's button", what);
 			CHECK(guide_rect_inside(layout.window, areas[area]), "%s: the window past its area", what);
 			CHECK(!qr || layout.qr.width == layout.qr.height, "%s: the QR not square", what);
 			if (area == 0 && qr)
