@@ -564,6 +564,44 @@ int steamcmd_signed_in(void)
 	return signed_in;
 }
 
+/* the item's folder in the game's own library; 1 if it is there */
+static int own_folder(unsigned long long id, char *path, int size)
+{
+	return download_folder[0] &&
+		snprintf(path, (size_t)size, "%s/steamapps/workshop/content/" MCC_APP_ID "/%llu", download_folder, id) < size &&
+		steam_bridge_platform_is_folder(path);
+}
+
+static int cmd_holds(unsigned long long id)
+{
+	char path[STEAM_BRIDGE_PATH_SIZE + 64];
+
+	return own_folder(id, path, sizeof(path));
+}
+
+/* REMOVE: steamcmd's copy deleted (never anything outside the game's own library) */
+static int cmd_remove(unsigned long long id)
+{
+	char path[STEAM_BRIDGE_PATH_SIZE + 64];
+	int index;
+
+	if (!own_folder(id, path, sizeof(path)))
+		return 0;
+	for (index = 0; index < cmd.known_count; index++)
+	{
+		if (cmd.known[index].id == id)
+			memset(&cmd.known[index].item, 0, sizeof(cmd.known[index].item));
+	}
+	platform_log("Workshop: removing item %llu", id);
+	return steam_bridge_platform_remove_folder(path);
+}
+
+/* UPDATE: downloaded again, over its copy */
+static int cmd_update(unsigned long long id)
+{
+	return cmd_subscribe(id);
+}
+
 const struct steam_bridge_backend steam_bridge_cmd_backend =
 {
 	cmd_connect,
@@ -575,6 +613,9 @@ const struct steam_bridge_backend steam_bridge_cmd_backend =
 	cmd_needs_sign_in,
 	cmd_install_mcc,
 	cmd_mcc_state,
+	cmd_remove,
+	cmd_update,
+	cmd_holds,
 };
 
 #endif

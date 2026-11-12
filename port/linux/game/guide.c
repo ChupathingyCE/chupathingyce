@@ -4976,6 +4976,13 @@ void guide_open_party(void)
 		section_go(SOCIAL_SECTION_PARTY);
 }
 
+void guide_open_workshop(void)
+{
+	guide_open();
+	if (guide.open)
+		section_go(SOCIAL_SECTION_WORKSHOP);
+}
+
 void guide_about_open(void)
 {
 	guide_open();

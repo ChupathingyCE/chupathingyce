@@ -289,6 +289,8 @@ int steam_bridge_platform_child_line(void *child, char *line, int size, int mill
 void steam_bridge_platform_child_end(void *child) { (void)child; }
 int steam_bridge_platform_open_sign_in(const char *steamcmd) { (void)steamcmd; return 0; }
 int steam_bridge_platform_merge_folder(const char *from, const char *to) { (void)from; (void)to; return 0; }
+int steam_bridge_platform_remove_folder(const char *path) { (void)path; return 0; }
+int steam_bridge_platform_is_folder(const char *path) { (void)path; return 0; }
 
 /* ---------- helpers */
 
@@ -469,10 +471,27 @@ static void test_session(void)
 	CHECK(item_when("2886943774", STEAM_BRIDGE_ITEM_QUEUED, &item));
 	fake.flags = 1 | 4;
 	CHECK(item_when("2886943774", STEAM_BRIDGE_ITEM_INSTALLED, &item));
+	/* (UPDATE and REMOVE through the backend that holds it: the client's
+	DownloadItem again, and its unsubscribe) */
+	CHECK(steam_bridge_update("2886943774"));
+	while (fake.download_calls < 2 && waited++ < 300)
+		usleep(10000);
+	CHECK(fake.download_calls == 2);
+	waited = 0;
+	CHECK(steam_bridge_removable("2886943774"));
+	CHECK(!steam_bridge_removable("123"));
 	CHECK(steam_bridge_can_unsubscribe());
+	CHECK(steam_bridge_remove("2886943774"));
+	while (!fake.unsubscribe_calls && waited++ < 300)
+		usleep(10000);
+	CHECK(fake.unsubscribe_calls == 1);
+	waited = 0;
 	CHECK(steam_bridge_unsubscribe("2886943774"));
+	while (fake.unsubscribe_calls < 2 && waited++ < 300)
+		usleep(10000);
+	waited = 0;
 	CHECK(item_when("2886943774", STEAM_BRIDGE_ITEM_NONE, &item));
-	CHECK(fake.unsubscribe_calls == 1 && !item.subscribed);
+	CHECK(fake.unsubscribe_calls == 2 && !item.subscribed);
 	/* steamcmd's calls without steamcmd */
 	CHECK(!steam_bridge_install_mcc());
 	CHECK(!steam_bridge_sign_in_needed());

@@ -43,6 +43,7 @@ folders but what Steam or steamcmd write.
 #include "guide_workshop.h"
 #include "mcc_maps.h"
 #include "input/input.h"
+#include "interface/virtual_keyboard.h"
 
 /* (a key stroke's control modifier: input_xbox.c's, as browser_screen.c has it) */
 #define KEY_MODIFIER_CONTROL_BIT 1
@@ -116,6 +117,11 @@ static struct
 	boolean searching;
 	char search[64];
 	unsigned long debug_search_time;
+	/* a controller's search: the game's on-screen keyboard (as the map
+	choosers' Search has it), the Guide closed under it and opened again
+	on WORKSHOP once it is done */
+	boolean keyboard;
+	wchar_t keyboard_text[64];
 } workshop_view;
 
 /* ---------- private code */
@@ -233,10 +239,31 @@ static char const *use_steam_note(void)
 #endif
 }
 
-/* the text box: open (the keys typed before it don't count), and closed */
+int ui_overlay_keyboard(void);
+
+/* the text box: open (the keys typed before it don't count), and closed;
+with a controller and the menus up, the game's on-screen keyboard instead */
 static void search_start(void)
 {
 	struct key_stroke key;
+
+#if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
+	if (!ui_overlay_keyboard() && main_menu_is_active())
+	{
+		char const *words = workshop_browser_search();
+		short index;
+
+		for (index = 0; words[index] && index < (short)NUMBEROF(workshop_view.keyboard_text) - 1; index++)
+			workshop_view.keyboard_text[index] = (wchar_t)(unsigned char)words[index];
+		workshop_view.keyboard_text[index] = 0;
+		guide_close();
+		workshop_view.keyboard = virtual_keyboard_launch_plain(workshop_view.keyboard_text,
+			sizeof(workshop_view.keyboard_text), L"Search");
+		if (!workshop_view.keyboard)
+			guide_open_workshop();
+		return;
+	}
+#endif
 
 	workshop_view.searching = TRUE;
 	snprintf(workshop_view.search, sizeof(workshop_view.search), "%s", workshop_browser_search());
@@ -486,6 +513,26 @@ void guide_workshop_update(boolean showing)
 	short index, installed;
 
 	workshop_browser_own_library();
+	/* (the on-screen keyboard done: its words searched, the Guide back on WORKSHOP) */
+#if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
+	if (workshop_view.keyboard && !virtual_keyboard_active())
+	{
+		workshop_view.keyboard = FALSE;
+		if (virtual_keyboard_last_exit_saved_text())
+		{
+			char words[64];
+			short index;
+
+			for (index = 0; workshop_view.keyboard_text[index] && index < (short)sizeof(words) - 1; index++)
+				words[index] = workshop_view.keyboard_text[index] < 0x80 ? (char)workshop_view.keyboard_text[index] : '?';
+			words[index] = 0;
+			workshop_browser_set_search(words);
+			workshop_view.row = 0;
+		}
+		workshop_view.page = FALSE;
+		guide_open_workshop();
+	}
+#endif
 	{
 		void browser_screen_debug_workshop_offer(void);
 

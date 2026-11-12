@@ -390,6 +390,13 @@ int steam_bridge_platform_open_sign_in(const char *steamcmd)
 
 /* ---------- removing a download */
 
+int steam_bridge_platform_is_folder(const char *path)
+{
+	struct stat information;
+
+	return lstat(path, &information) == 0 && S_ISDIR(information.st_mode);
+}
+
 int steam_bridge_platform_remove_folder(const char *path)
 {
 	DIR *directory;

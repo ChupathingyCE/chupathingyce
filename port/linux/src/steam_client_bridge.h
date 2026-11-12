@@ -130,6 +130,12 @@ int steam_bridge_item(const char *id, struct steam_bridge_item *item);
 /* subscribe (client: SubscribeItem and a download at once; steamcmd: a
 download queued; both on macOS); 0 when not ready */
 int steam_bridge_subscribe(const char *id);
+/* the install backend's REMOVE and UPDATE, whichever backend it is (the
+Steam client, steamcmd, or another downloader later): removable when the
+connected backend holds the item; 0 when not ready */
+int steam_bridge_removable(const char *id);
+int steam_bridge_remove(const char *id);
+int steam_bridge_update(const char *id);
 /* client only */
 int steam_bridge_unsubscribe(const char *id);
 int steam_bridge_can_unsubscribe(void);
@@ -162,6 +168,11 @@ struct steam_bridge_backend
 	/* steamcmd: MCC's Halo CE depots fetched and placed; its STEAM_BRIDGE_ITEM_* */
 	int (*install_mcc)(void);
 	int (*mcc_state)(void);
+	/* an installed item: removed (the client: unsubscribed; a downloader:
+	its own copy deleted) and fetched again; whether this backend holds it */
+	int (*remove)(unsigned long long id);
+	int (*update)(unsigned long long id);
+	int (*holds)(unsigned long long id);
 };
 
 extern const struct steam_bridge_backend steam_bridge_api_backend;
@@ -245,6 +256,8 @@ int steam_bridge_platform_open_sign_in(const char *steamcmd);
 /* a folder and everything in it deleted, links not followed (a steamcmd
 download the player removes); 1 when it is gone */
 int steam_bridge_platform_remove_folder(const char *path);
+/* whether path is a folder (not following a link) */
+int steam_bridge_platform_is_folder(const char *path);
 /* from's files moved into to, folders merged (MCC's depots into its install) */
 int steam_bridge_platform_merge_folder(const char *from, const char *to);
 #endif

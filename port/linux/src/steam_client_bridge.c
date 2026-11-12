@@ -29,7 +29,7 @@ struct watched_item
 {
 	char id[STEAM_BRIDGE_ID_SIZE];
 	unsigned long long value;
-	/* the tab's ask: 1 subscribe, 2 unsubscribe; taken by the thread */
+	/* the tab's ask: 1 subscribe, 2 unsubscribe, 3 remove, 4 update; taken by the thread */
 	int want;
 	struct steam_bridge_item state;
 };
@@ -196,6 +196,17 @@ client_status = client->connect();
 			}
 			else if (turn[index].want == 2 && client)
 				client->unsubscribe(turn[index].value);
+			else if (turn[index].want == 3 || turn[index].want == 4)
+			{
+				/* (the backend that holds it: the downloader's copy first) */
+				const struct steam_bridge_backend *holder = steamcmd && steamcmd->holds &&
+					steamcmd->holds(turn[index].value) ? steamcmd : client;
+
+				if (holder && turn[index].want == 3 && holder->remove)
+					holder->remove(turn[index].value);
+				else if (holder && turn[index].want == 4 && holder->update)
+					holder->update(turn[index].value);
+			}
 		}
 		if (install && steamcmd && steamcmd->install_mcc)
 			steamcmd->install_mcc();
@@ -438,6 +449,41 @@ int steam_bridge_subscribe(const char *id)
 	return ask(id, 1, steam_bridge_sign_in_needed() ? CLIENT_BIT : CLIENT_BIT | STEAMCMD_BIT);
 }
 
+int steam_bridge_removable(const char *id)
+{
+	struct watched_item *item;
+	unsigned long long value;
+	int removable = 0;
+
+	if (!id_value(id, &value))
+		return 0;
+	pthread_mutex_lock(&bridge.lock);
+	item = find(id);
+	if (bridge.status == STEAM_BRIDGE_READY)
+	{
+		/* (the downloader's own copy, or the client's subscription) */
+		if ((bridge.connected & STEAMCMD_BIT) && steamcmd_functions() && steamcmd_functions()->holds &&
+			steamcmd_functions()->holds(value))
+		{
+			removable = 1;
+		}
+		else if ((bridge.connected & CLIENT_BIT) && item && item->state.subscribed)
+			removable = 1;
+	}
+	pthread_mutex_unlock(&bridge.lock);
+	return removable;
+}
+
+int steam_bridge_remove(const char *id)
+{
+	return steam_bridge_removable(id) && ask(id, 3, CLIENT_BIT | STEAMCMD_BIT);
+}
+
+int steam_bridge_update(const char *id)
+{
+	return ask(id, 4, CLIENT_BIT | STEAMCMD_BIT);
+}
+
 int steam_bridge_can_unsubscribe(void)
 {
 	return (steam_bridge_connected() & CLIENT_BIT) != 0;
@@ -510,6 +556,7 @@ void steam_bridge_platform_child_end(void *child) { (void)child; }
 int steam_bridge_platform_open_sign_in(const char *steamcmd) { (void)steamcmd; return 0; }
 int steam_bridge_platform_merge_folder(const char *from, const char *to) { (void)from; (void)to; return 0; }
 int steam_bridge_platform_remove_folder(const char *path) { (void)path; return 0; }
+int steam_bridge_platform_is_folder(const char *path) { (void)path; return 0; }
 #endif
 
 #ifdef STEAM_BRIDGE_TESTS

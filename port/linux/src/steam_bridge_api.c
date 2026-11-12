@@ -412,6 +412,12 @@ static int api_unsubscribe(unsigned long long id)
 	return 1;
 }
 
+/* UPDATE: Steam asked to fetch it again, at once */
+static int api_update(unsigned long long id)
+{
+	return api.ugc && api.download && api.logged_on(api.user) && api.download(api.ugc, id, 1);
+}
+
 static int api_query(unsigned long long id, struct steam_bridge_item *item)
 {
 	unsigned int flags;
@@ -525,5 +531,9 @@ const struct steam_bridge_backend steam_bridge_api_backend =
 	api_tick,
 	NULL,
 	NULL,
+	NULL,
+	/* (REMOVE: the client's is its unsubscribe) */
+	api_unsubscribe,
+	api_update,
 	NULL,
 };

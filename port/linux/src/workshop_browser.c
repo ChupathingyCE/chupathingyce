@@ -1675,44 +1675,25 @@ short mcc_maps_count(unsigned char multiplayer_only);
 char const *mcc_maps_level_name(short index);
 void mcc_maps_rescan(void);
 
-/* an item's folder in the game's own library (steamcmd's downloads); 0 elsewhere */
-static int own_item_folder(const struct workshop_browser_item *item, char *path, int size)
-{
-	const char *setting = config_string("paths.steam_downloads"), *data = platform_data_root();
-	char library[STEAM_WORKSHOP_PATH_SIZE];
-
-	if (!item || item->setup || !workshop_browser_id_valid(item->id))
-		return 0;
-	if (setting && setting[0])
-		snprintf(library, sizeof(library), "%s", setting);
-	else if (!data || snprintf(library, sizeof(library), "%s/steam", data) >= (int)sizeof(library))
-		return 0;
-	return snprintf(path, (size_t)size, "%s/" CONTENT_FOLDER "/%s", library, item->id) < size && is_directory(path);
-}
-
+/* REMOVE: the install backend's (the client unsubscribes; a downloader
+deletes its own copy), only while the bridge is up */
 int workshop_browser_removable(int index)
 {
-	char path[STEAM_WORKSHOP_PATH_SIZE];
+	const struct workshop_browser_item *item = workshop_browser_item(index);
 
-	return own_item_folder(workshop_browser_item(index), path, sizeof(path));
+	return item && !item->setup && bridge_ready() && steam_bridge_removable(item->id);
 }
 
 int workshop_browser_remove(int index)
 {
-	char path[STEAM_WORKSHOP_PATH_SIZE];
 	const struct workshop_browser_item *item = workshop_browser_item(index);
-	int removed;
 
-	if (!own_item_folder(item, path, sizeof(path)))
+	if (!workshop_browser_removable(index) || !steam_bridge_remove(item->id))
 		return 0;
-	removed = steam_bridge_platform_remove_folder(path);
-	platform_log("Workshop: item %s %s", item->id, removed ? "removed" : "could not be removed");
-	if (removed)
-	{
-		mcc_maps_rescan();
-		workshop.watch_time = 0;
-	}
-	return removed;
+	platform_log("Workshop: item %s asked to be removed", item->id);
+	mcc_maps_rescan();
+	workshop.watch_time = 0;
+	return 1;
 }
 
 int workshop_browser_update_offered(int index)
@@ -1720,19 +1701,28 @@ int workshop_browser_update_offered(int index)
 	const struct workshop_browser_item *item = workshop_browser_item(index);
 	char folder[STEAM_WORKSHOP_PATH_SIZE], path[STEAM_WORKSHOP_PATH_SIZE], found[256];
 	struct posix_file_information information;
+	int library;
 
-	/* (Steam's update time after the download's own) */
-	return own_item_folder(item, folder, sizeof(folder)) && item->updated > 0 &&
-		posix_find_entry_case_insensitive(folder, "ModInfo.json", found, sizeof(found)) &&
-		join(path, sizeof(path), folder, found) && posix_stat(path, &information) == 0 &&
-		(long long)information.modification_seconds < item->updated;
+	/* (Steam's update time after the installed copy's own, in any library) */
+	if (!item || item->setup || item->state != WORKSHOP_ITEM_INSTALLED || item->updated <= 0)
+		return 0;
+	for (library = 0; library < workshop.library_count; library++)
+	{
+		if (snprintf(folder, sizeof(folder), "%s/" CONTENT_FOLDER "/%s", workshop.libraries[library], item->id) <
+			(int)sizeof(folder) && posix_find_entry_case_insensitive(folder, "ModInfo.json", found, sizeof(found)) &&
+			join(path, sizeof(path), folder, found) && posix_stat(path, &information) == 0)
+		{
+			return (long long)information.modification_seconds < item->updated;
+		}
+	}
+	return 0;
 }
 
 int workshop_browser_update(int index)
 {
 	const struct workshop_browser_item *item = workshop_browser_item(index);
 
-	return workshop_browser_update_offered(index) && bridge_ready() && steam_bridge_subscribe(item->id);
+	return workshop_browser_update_offered(index) && bridge_ready() && steam_bridge_update(item->id);
 }
 
 int workshop_browser_play(int index)
