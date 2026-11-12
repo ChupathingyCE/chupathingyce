@@ -407,6 +407,14 @@ sent at an older epoch than the host's: every client present at a co-op
 revert takes the snapshot again at its next ready */
 int network_rules_snapshot_due(int never_sent, int again_due, int players_changed, uint32_t sent_epoch,
 	uint32_t epoch);
+/* (a host of a layout with a checkpoint epoch) whether it takes a client's
+message (stripped: kind, size, count) stamped epoch: of its own epoch, or a
+ready (the header alone, its count 0 or 1) of any */
+int network_rules_host_takes(uint32_t epoch, uint32_t host_epoch, int kind, int size, int count);
+/* (a host of a layout with a checkpoint epoch) whether a revert's boundary
+goes to a machine now: a client machine (not the host's own) that has said
+its ready this game; one that has not takes it at its ready */
+int network_rules_revert_boundary_to(int client, int local, int ready);
 /* (a client) the version whose game settings record it takes: the host's
 own machine (hosting), which joined its game at home, always the number
 it announces, whose record its server writes it at every send; another

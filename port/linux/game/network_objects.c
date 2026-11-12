@@ -67,6 +67,7 @@ same datum index (identifier and all), so that any message can name one:
 #include "host_evidence.h"
 #include "network_distributed.h"
 #include "network_rules.h"
+#include "cseries/errors.h"
 #ifdef HALO_PORT_CONSOLE_LIMITS
 #include "cseries/errors.h"
 #endif
@@ -1330,6 +1331,8 @@ void network_objects_client_asked(
 	{
 		objects_host_machines[machine_index].time = game_time_get();
 		objects_host_machines[machine_index].epoch = network_distributed_epoch();
+		error(_error_log, "network: the host's objects (a full snapshot) to machine %ld, epoch %u", machine_index,
+			network_distributed_epoch());
 		csmemcpy(objects_host_machines[machine_index].player_indices, player_list,
 			sizeof(objects_host_machines[machine_index].player_indices));
 	}

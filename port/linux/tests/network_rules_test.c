@@ -1150,6 +1150,21 @@ takes it (newer), asks again with its ready, and the host's next ready
 answer is the full snapshot, not "objects synchronized" alone; a second
 ready at the same epoch is not; a client joining after a revert takes it
 once */
+/* a client's ready as the wire has it (stamped epoch), and what the host
+makes of it: stripped, and taken */
+static int test_host_takes_ready(uint32_t stamped, uint32_t host)
+{
+	uint8_t ready[8] = { 0, 0, NETWORK_RULES_CLIENT_READY_KIND, 0, 1, 0, 0, 0 };
+	uint8_t wide[16], narrow[16];
+	uint32_t epoch = 0;
+	int size;
+
+	test_header_word(ready, 8);
+	size = network_rules_header_expand(ready, 8, wide, sizeof(wide), 4, 1, stamped);
+	size = network_rules_header_strip(wide, size, narrow, 4, 1, host, NETWORK_RULES_CLIENT_READY_KIND, &epoch);
+	return size == 8 && epoch == stamped && network_rules_host_takes(epoch, host, narrow[2], size, narrow[3]);
+}
+
 static void test_client_across_reverts(void)
 {
 	uint32_t host = 0, client = 0, sent = 0;
@@ -1157,7 +1172,9 @@ static void test_client_across_reverts(void)
 
 	host = network_rules_epoch_next(host);
 	/* (its ready at the map's start: epoch 0 accepted, the boundary, then
-	the snapshot) */
+	the snapshot; no revert's boundary before its ready) */
+	CHECK(!network_rules_revert_boundary_to(1, 0, 0));
+	CHECK(test_host_takes_ready(client, host));
 	CHECK(network_rules_boundary_taken(8, 0, 1, 0, host, client));
 	client = host;
 	CHECK(network_rules_snapshot_due(never, 0, 0, sent, host));
@@ -1168,9 +1185,18 @@ static void test_client_across_reverts(void)
 	{
 		uint32_t late_sent = 0;
 
+		/* (the revert: a new epoch, its boundary to the machine that said
+		its ready, never to the host's own) */
 		host = network_rules_epoch_next(host);
+		CHECK(network_rules_revert_boundary_to(1, 0, 1) && !network_rules_revert_boundary_to(1, 1, 1));
+		/* (meanwhile its other messages, of the old epoch, not taken) */
+		CHECK(!network_rules_host_takes(client, host, 1, 20, 1));
 		CHECK(network_rules_boundary_taken(8, 0, 1, 0, host, client));
 		client = host;
+		/* (5.2: its ready again, of the new epoch, over its stream; taken,
+		as one of an old epoch is too) */
+		CHECK(test_host_takes_ready(client, host) && test_host_takes_ready(client - 1, host));
+		CHECK(network_rules_host_takes(client, host, 1, 20, 1));
 		/* (the boundary again at its ready: the same epoch, not taken) */
 		CHECK(!network_rules_boundary_taken(8, 0, 1, 0, host, client));
 		CHECK(network_rules_snapshot_due(never, 0, 0, sent, host));

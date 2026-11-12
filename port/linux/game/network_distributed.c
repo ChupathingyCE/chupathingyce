@@ -599,6 +599,9 @@ static real distributed_own_round_trip;
 /* the host: the players each machine had when it last told the host that it
 had loaded (a machine new at its index has none of the old one's state) */
 static long distributed_machine_players[HALO_PORT_MAXIMUM_NETWORK_MACHINES][MAXIMUM_LOCAL_PLAYERS];
+/* (the host) the client machines that have said their ready this game: a
+co-op revert's checkpoint boundary goes to each */
+static boolean distributed_machine_ready[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
 /* the host: what each player's unit was last sent as (a change goes to
 every client at once) */
 static struct
@@ -1444,6 +1447,7 @@ static boolean distributed_machine_loaded(
 	}
 	csmemcpy(distributed_machine_players[machine_index], player_list,
 		sizeof(distributed_machine_players[machine_index]));
+	distributed_machine_ready[machine_index] = FALSE;
 	for (type = 0; type < NUMBER_OF_DISTRIBUTED_MESSAGES; type++)
 		distributed_received_times[machine_index][type] = NONE;
 	distributed_sender_times[machine_index] = NONE;
@@ -3987,6 +3991,7 @@ void network_distributed_new_game(
 	distributed_own_round_trip = 0.0f;
 	csmemset(distributed_player_pings, 0xFF, sizeof(distributed_player_pings));
 	csmemset(distributed_machine_players, 0xFF, sizeof(distributed_machine_players));
+	csmemset(distributed_machine_ready, 0, sizeof(distributed_machine_ready));
 	distributed_machines.in_tick = FALSE;
 	distributed_machines.valid = FALSE;
 	distributed_host_time = NONE;
@@ -5539,7 +5544,9 @@ static void distributed_handle_message(
 		boolean loaded = distributed_machine_loaded(machine_index);
 
 		/* (a layout with a checkpoint epoch: the boundary first, before the
-		host's objects) */
+		host's objects; a revert's goes to it from now on) */
+		if (machine_index >= 0 && machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+			distributed_machine_ready[machine_index] = TRUE;
 		distributed_send_boundary(machine_index);
 		/* (its count 1: the client asks again, having failed to make one of
 		the host's objects) */
@@ -5717,6 +5724,8 @@ static void distributed_send_boundary(
 	if (!layout->epoch_kind || game_connection() != _game_connection_network_server)
 		return;
 	distributed_send_to_machine_reliably(machine_index, &message, (byte)layout->epoch_kind, 0, (word)sizeof(message));
+	error(_error_log, "network: checkpoint boundary (message %d, epoch %lu) to machine %ld", layout->epoch_kind,
+		(unsigned long)distributed_epoch, machine_index);
 }
 
 void network_distributed_checkpoint_boundary(
@@ -5730,11 +5739,19 @@ void network_distributed_checkpoint_boundary(
 		return;
 	distributed_epoch = network_rules_epoch_next(distributed_epoch);
 	error(_error_log, "network: the checkpoint epoch is now %lu (a co-op revert)", (unsigned long)distributed_epoch);
+	/* (every client machine in the game that has said its ready: one that
+	has not takes it at its ready) */
 	machine_count = distributed_client_machines(machine_indices, HALO_PORT_MAXIMUM_NETWORK_MACHINES);
 	for (index = 0; index < machine_count; index++)
 	{
-		if (distributed_machine_loaded(machine_indices[index]))
-			distributed_send_boundary(machine_indices[index]);
+		long machine_index = machine_indices[index];
+
+		if (machine_index >= 0 && machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES &&
+			network_rules_revert_boundary_to(TRUE, distributed_machine_is_local(machine_index),
+				distributed_machine_ready[machine_index]))
+		{
+			distributed_send_boundary(machine_index);
+		}
 	}
 }
 
@@ -5815,13 +5832,10 @@ void network_distributed_handle_message(
 		/* (a client takes the host's messages of its epoch alone, none before
 		the first boundary; a host its clients' of its own, and a client's
 		ready of any: the header alone, its count 0 or 1) */
-		if (epoch != distributed_epoch || !distributed_epoch)
+		if (machine_index == NONE ? epoch != distributed_epoch || !distributed_epoch :
+			!network_rules_host_takes(epoch, distributed_epoch, type, narrow_size, ((byte const *)narrow)[3]))
 		{
-			if (machine_index == NONE || type != _distributed_message_client_ready ||
-				narrow_size != sizeof(struct distributed_message_header) || ((byte const *)narrow)[3] > 1)
-			{
-				return;
-			}
+			return;
 		}
 	}
 	distributed_handle_message(machine_index, narrow, (word)narrow_size);

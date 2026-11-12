@@ -803,6 +803,18 @@ int network_rules_snapshot_due(int never_sent, int again_due, int players_change
 	return never_sent || again_due || players_changed || sent_epoch != epoch;
 }
 
+int network_rules_host_takes(uint32_t epoch, uint32_t host_epoch, int kind, int size, int count)
+{
+	if (epoch == host_epoch && host_epoch)
+		return 1;
+	return kind == NETWORK_RULES_CLIENT_READY_KIND && size == NETWORK_RULES_HEADER_SIZE && count <= 1;
+}
+
+int network_rules_revert_boundary_to(int client, int local, int ready)
+{
+	return client && !local && ready;
+}
+
 unsigned network_rules_client_settings_version(unsigned joined, int hosting, unsigned announce)
 {
 	return hosting ? announce : joined;
