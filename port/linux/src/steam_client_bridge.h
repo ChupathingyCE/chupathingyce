@@ -21,8 +21,9 @@ Two backends, behind the same calls, one or both in a session:
   Its app id is MCC's, given in the SteamAppId environment variable before
   it starts; Steam then shows MCC as running while the tab is open. No
   Steamworks SDK is in our sources or builds: the declarations are our
-  own, from Valve's public documentation. It subscribes, reads item states
-  and progress, and lists MCC's Halo CE items (tag Halo1). Windows, and
+  own, from Valve's public documentation. It subscribes, unsubscribes and
+  reads item states and progress (the list itself is Steam's public
+  Workshop page, the same everywhere: workshop_browser.c). Windows, and
   Linux with MCC from Steam (under Proton, Steam downloads its items
   itself). Not on macOS: there Steam.app starts as MCC but refuses MCC's
   Workshop queries and subscriptions, as MCC has no macOS build.
@@ -96,22 +97,6 @@ struct steam_bridge_item
 	unsigned long long total;
 };
 
-/* a Workshop item the Steam client listed (browse or search) */
-struct steam_bridge_listing
-{
-	char id[STEAM_BRIDGE_ID_SIZE];
-	char title[64];
-	char description[400];
-};
-
-enum
-{
-	STEAM_BRIDGE_MAXIMUM_LISTINGS = 50,
-	/* listings: still waiting on Steam */
-	STEAM_BRIDGE_LISTINGS_PENDING = -2,
-	STEAM_BRIDGE_LISTINGS_FAILED = -1,
-};
-
 /* ---------- the interface the Workshop tab uses */
 
 /* game.workshop_steam */
@@ -142,12 +127,6 @@ int steam_bridge_subscribe(const char *id);
 /* client only */
 int steam_bridge_unsubscribe(const char *id);
 int steam_bridge_can_unsubscribe(void);
-/* client only: MCC's Halo CE Workshop items (tag Halo1) asked of Steam,
-most subscribed first, matching search when it isn't empty; 0 without
-the client */
-int steam_bridge_browse(const char *search);
-/* the answer: how many were written, or STEAM_BRIDGE_LISTINGS_PENDING / FAILED */
-int steam_bridge_listings(struct steam_bridge_listing *listings, int maximum);
 /* steamcmd: a terminal opened running steamcmd's sign-in */
 int steam_bridge_sign_in(void);
 /* steamcmd: the Halo CE depots of MCC fetched and placed as MCC's install
@@ -174,9 +153,6 @@ struct steam_bridge_backend
 	/* steamcmd: MCC's Halo CE depots fetched and placed; its STEAM_BRIDGE_ITEM_* */
 	int (*install_mcc)(void);
 	int (*mcc_state)(void);
-	/* client: a query asked (on the worker), and its answer as steam_bridge_listings */
-	int (*browse)(const char *search);
-	int (*listings)(struct steam_bridge_listing *listings, int maximum);
 };
 
 extern const struct steam_bridge_backend steam_bridge_api_backend;
@@ -197,11 +173,6 @@ looked at (steam_bridge_backend, on the game's thread) */
 int steam_bridge_api_library_paths(char (*paths)[STEAM_BRIDGE_PATH_SIZE], int maximum, int search);
 /* whether a Steam folder is on this computer at all (a client to try) */
 int steam_bridge_steam_present(void);
-
-/* the head of ISteamUGC's SteamUGCDetails_t (id, result, file type, apps,
-title[129], description[8000]), the same with Windows' and the others'
-packing: a listing from it; 0 if it is not a usable item */
-int steam_bridge_read_details(const unsigned char *details, struct steam_bridge_listing *listing);
 
 /* ---------- steamcmd's text (steam_bridge_cmd.c; no files, no processes) */
 

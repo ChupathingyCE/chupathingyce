@@ -6,29 +6,22 @@ the player already has (MCC's own steam_api64.dll on Windows; elsewhere one
 an installed game ships), loaded at run time and called through its flat C
 functions, which talk to the running Steam client. Every declaration here
 is our own, written from Valve's public Steamworks documentation (the
-steam_api, ISteamUGC, ISteamUtils and ISteamClient pages): no SDK header or
+steam_api, ISteamUGC and ISteamClient pages): no SDK header or
 library is in our sources or builds.
 
 - SteamAPI_InitFlat (newer libraries), else SteamAPI_Init or
   SteamAPI_InitSafe (older ones), with SteamAppId set to MCC's 976730 in
   the environment first. It fails without a running, signed-in Steam that
   owns MCC: Steam itself checks.
-- ISteamUGC and ISteamUtils from the versioned accessors of newer
-  libraries (SteamAPI_SteamUGC_v0NN, SteamAPI_SteamUtils_v0NN), else from
-  SteamClient()'s GetISteamUGC / GetISteamUtils with their version names.
+- ISteamUGC from the versioned accessor of newer libraries
+  (SteamAPI_SteamUGC_v0NN), else from SteamClient()'s GetISteamUGC with the
+  version name the library was built for.
 - SubscribeItem + DownloadItem (at once), UnsubscribeItem, GetItemState
   and GetItemDownloadInfo; SteamAPI_RunCallbacks each turn;
   SteamAPI_Shutdown when the tab closes.
-- Browse: CreateQueryAllUGCRequest for MCC (made with its Workshop tools'
-  app, 1695795), tag Halo1, most subscribed first or a text search; its
-  answer polled through ISteamUtils' IsAPICallCompleted and
-  GetAPICallResult (SteamUGCQueryCompleted_t), each item read with
-  GetQueryUGCResult (steam_bridge_read_details).
-A missing function the subscribe needs fails the connect, and the tab
-falls back; a missing browse function only leaves browsing out. MCC's
-Workshop holds every MCC game's items: a list is never asked for without
-the Halo1 tag, and items on disk count only with a ModInfo.json whose
-Engine is Halo1 (workshop_browser.c).
+The list is not asked of the client: it is Steam's public Workshop page,
+the same on every computer (workshop_browser.c). A missing function fails
+the connect, and the tab falls back.
 */
 
 #include "steam_client_bridge.h"
@@ -41,13 +34,6 @@ void platform_log(const char *format, ...);
 
 #define MCC_APP_ID "976730"
 
-enum
-{
-	MCC_APP = 976730,
-	/* the app MCC's Workshop items are made with (its Workshop tools) */
-	MCC_CREATOR_APP = 1695795,
-};
-
 typedef unsigned long long steam_id64;
 typedef void *steam_interface;
 
@@ -58,22 +44,11 @@ typedef void (*void_function)(void);
 typedef steam_interface (*accessor_function)(void);
 typedef int (*handle_function)(void);
 typedef steam_interface (*client_interface_function)(steam_interface client, int user, int pipe, const char *version);
-typedef steam_interface (*client_utils_function)(steam_interface client, int pipe, const char *version);
 typedef steam_id64 (*subscribe_function)(steam_interface ugc, steam_id64 item);
 typedef unsigned int (*item_state_function)(steam_interface ugc, steam_id64 item);
 typedef unsigned char (*download_info_function)(steam_interface ugc, steam_id64 item, steam_id64 *downloaded,
 	steam_id64 *total);
 typedef unsigned char (*download_function)(steam_interface ugc, steam_id64 item, unsigned char high_priority);
-typedef steam_id64 (*create_query_function)(steam_interface ugc, int query, int matching, unsigned int creator,
-	unsigned int consumer, unsigned int page);
-typedef unsigned char (*query_text_function)(steam_interface ugc, steam_id64 query, const char *text);
-typedef steam_id64 (*send_query_function)(steam_interface ugc, steam_id64 query);
-typedef unsigned char (*query_result_function)(steam_interface ugc, steam_id64 query, unsigned int index,
-	void *details);
-typedef unsigned char (*release_query_function)(steam_interface ugc, steam_id64 query);
-typedef unsigned char (*call_completed_function)(steam_interface utils, steam_id64 call, unsigned char *failed);
-typedef unsigned char (*call_result_function)(steam_interface utils, steam_id64 call, void *result, int size,
-	int callback, unsigned char *failed);
 
 /* EItemState (ISteamUGC::GetItemState) */
 enum
@@ -90,25 +65,8 @@ enum
 	/* ESteamAPIInitResult's OK; SteamErrMsg is 1024 bytes */
 	INIT_OK = 0,
 	INIT_MESSAGE_SIZE = 1024,
-	/* EUGCQuery: RankedByTextSearch, RankedByTotalUniqueSubscriptions; EUGCMatchingUGCType_Items */
-	QUERY_TEXT_SEARCH = 11,
-	QUERY_MOST_SUBSCRIBED = 12,
-	MATCHING_ITEMS = 0,
-	/* SteamUGCQueryCompleted_t's callback id (k_iSteamUGCCallbacks + 1), and
-	its size: with m_rgchNextCursor[256] (libraries with the cursor
-	query), and before */
-	QUERY_COMPLETED_CALLBACK = 3401,
-	QUERY_COMPLETED_SIZE = 280,
-	QUERY_COMPLETED_OLD_SIZE = 24,
-	/* EResult's OK */
-	RESULT_OK = 1,
-	/* room for any version of SteamUGCDetails_t (about 9.8 KB today) */
-	DETAILS_BUFFER = 16 * 1024,
-	/* the browse's whole time with Steam */
-	BROWSE_TIMEOUT = 15000,
 };
 
-unsigned long system_milliseconds(void);
 
 static struct
 {
@@ -123,21 +81,7 @@ static struct
 	item_state_function item_state;
 	download_info_function download_info;
 	download_function download;
-	create_query_function create_query;
-	query_text_function required_tag;
-	query_text_function search_text;
-	send_query_function send_query;
-	query_result_function query_result;
-	release_query_function release_query;
-	call_completed_function call_completed;
-	call_result_function call_result;
-	int completed_size;
 	steam_interface ugc;
-	steam_interface utils;
-	/* the browse under way */
-	steam_id64 query;
-	steam_id64 call;
-	unsigned long browse_time;
 } api;
 
 static void *symbol(const char *name)
@@ -174,42 +118,24 @@ static int bind_functions(void)
 	api.item_state = (item_state_function)symbol("SteamAPI_ISteamUGC_GetItemState");
 	api.download_info = (download_info_function)symbol("SteamAPI_ISteamUGC_GetItemDownloadInfo");
 	api.download = (download_function)symbol("SteamAPI_ISteamUGC_DownloadItem");
-	api.create_query = (create_query_function)symbol("SteamAPI_ISteamUGC_CreateQueryAllUGCRequestPage");
-	api.completed_size = QUERY_COMPLETED_SIZE;
-	if (!api.create_query)
-	{
-		api.create_query = (create_query_function)symbol("SteamAPI_ISteamUGC_CreateQueryAllUGCRequest");
-		api.completed_size = QUERY_COMPLETED_OLD_SIZE;
-	}
-	api.required_tag = (query_text_function)symbol("SteamAPI_ISteamUGC_AddRequiredTag");
-	api.search_text = (query_text_function)symbol("SteamAPI_ISteamUGC_SetSearchText");
-	api.send_query = (send_query_function)symbol("SteamAPI_ISteamUGC_SendQueryUGCRequest");
-	api.query_result = (query_result_function)symbol("SteamAPI_ISteamUGC_GetQueryUGCResult");
-	api.release_query = (release_query_function)symbol("SteamAPI_ISteamUGC_ReleaseQueryUGCRequest");
-	api.call_completed = (call_completed_function)symbol("SteamAPI_ISteamUtils_IsAPICallCompleted");
-	api.call_result = (call_result_function)symbol("SteamAPI_ISteamUtils_GetAPICallResult");
 	return (api.init_flat || api.init) && api.shutdown && api.subscribe && api.item_state && api.download_info;
 }
 
-/* ISteamUGC and ISteamUtils of the started library */
+/* ISteamUGC of the started library */
 static int find_interfaces(void)
 {
 	accessor_function ugc = (accessor_function)versioned("SteamAPI_SteamUGC_v%03d", 40, 1);
-	accessor_function utils = (accessor_function)versioned("SteamAPI_SteamUtils_v%03d", 30, 1);
 
 	api.ugc = ugc ? ugc() : NULL;
-	api.utils = utils ? utils() : NULL;
-	if (!api.ugc || !api.utils)
+	if (!api.ugc)
 	{
 		/* (older libraries: from ISteamClient, by version name) */
 		accessor_function client = (accessor_function)symbol("SteamClient");
 		handle_function user = (handle_function)symbol("SteamAPI_GetHSteamUser");
 		handle_function pipe = (handle_function)symbol("SteamAPI_GetHSteamPipe");
 		client_interface_function get_ugc = (client_interface_function)symbol("SteamAPI_ISteamClient_GetISteamUGC");
-		client_utils_function get_utils = (client_utils_function)symbol("SteamAPI_ISteamClient_GetISteamUtils");
 		steam_interface instance = client ? client() : NULL;
 		char version[48];
-		int number;
 
 		/* (the version the library was built for: its flat functions call by
 		that version's layout. Only libraries whose exports say which are used:
@@ -221,14 +147,8 @@ static int find_interfaces(void)
 		{
 			snprintf(version, sizeof(version), "STEAMUGC_INTERFACE_VERSION%03d", ugc_version);
 			api.ugc = get_ugc(instance, user(), pipe(), version);
-			/* (ISteamUtils' call results sit early and keep their places) */
-			for (number = 9; get_utils && !api.utils && number >= 5; number--)
-			{
-				snprintf(version, sizeof(version), "SteamUtils%03d", number);
-				api.utils = get_utils(instance, pipe(), version);
-			}
 		}
-		else if (!api.ugc)
+		else
 			platform_log("Workshop: this steam_api library's Workshop version is not one the bridge knows");
 	}
 	return api.ugc != NULL;
@@ -287,29 +207,18 @@ static int api_connect(void)
 	if (!find_interfaces())
 	{
 		api.shutdown();
-		api.utils = NULL;
 		platform_log("Workshop: Steam gave no Workshop interface");
 		return STEAM_BRIDGE_FAILED;
 	}
-	api.query = api.call = 0;
 	return STEAM_BRIDGE_READY;
-}
-
-static void browse_end(void)
-{
-	if (api.query && api.release_query && api.ugc)
-		api.release_query(api.ugc, api.query);
-	api.query = api.call = 0;
 }
 
 static void api_disconnect(void)
 {
 	/* (the library stays loaded: the next open uses it again) */
-	browse_end();
 	if (api.ugc)
 	{
 		api.ugc = NULL;
-		api.utils = NULL;
 		api.shutdown();
 	}
 }
@@ -366,83 +275,6 @@ static void api_tick(void)
 		api.run_callbacks();
 }
 
-static int api_browse(const char *search)
-{
-	browse_end();
-	/* (MCC's Workshop mixes all its games: never a list without the Halo1 tag) */
-	if (!api.ugc || !api.utils || !api.create_query || !api.required_tag || !api.send_query || !api.query_result ||
-		!api.call_completed || !api.call_result)
-	{
-		return 0;
-	}
-	api.query = api.create_query(api.ugc, search[0] ? QUERY_TEXT_SEARCH : QUERY_MOST_SUBSCRIBED, MATCHING_ITEMS,
-		MCC_CREATOR_APP, MCC_APP, 1);
-	/* (0 and ~0 are k_UGCQueryHandleInvalid's) */
-	if (!api.query || api.query == ~0ULL)
-	{
-		api.query = 0;
-		return 0;
-	}
-	if (!api.required_tag(api.ugc, api.query, "Halo1"))
-	{
-		browse_end();
-		return 0;
-	}
-	if (search[0] && api.search_text)
-		api.search_text(api.ugc, api.query, search);
-	api.call = api.send_query(api.ugc, api.query);
-	if (!api.call)
-	{
-		browse_end();
-		return 0;
-	}
-	api.browse_time = system_milliseconds();
-	return 1;
-}
-
-static int api_listings(struct steam_bridge_listing *listings, int maximum)
-{
-	unsigned char completed[QUERY_COMPLETED_SIZE], failed = 0, *details;
-	unsigned int returned, index;
-	int result, count = 0;
-
-	if (!api.call)
-		return STEAM_BRIDGE_LISTINGS_FAILED;
-	if (!api.call_completed(api.utils, api.call, &failed))
-	{
-		if (system_milliseconds() - api.browse_time < BROWSE_TIMEOUT)
-			return STEAM_BRIDGE_LISTINGS_PENDING;
-		platform_log("Workshop: Steam's list took too long");
-		browse_end();
-		return STEAM_BRIDGE_LISTINGS_FAILED;
-	}
-	memset(completed, 0, sizeof(completed));
-	if (failed || !api.call_result(api.utils, api.call, completed, api.completed_size, QUERY_COMPLETED_CALLBACK,
-		&failed) || failed)
-	{
-		browse_end();
-		return STEAM_BRIDGE_LISTINGS_FAILED;
-	}
-	/* (handle, then EResult at 8 and the count returned at 12: the same packed either way) */
-	memcpy(&result, completed + 8, sizeof(result));
-	memcpy(&returned, completed + 12, sizeof(returned));
-	details = result == RESULT_OK ? malloc(DETAILS_BUFFER) : NULL;
-	for (index = 0; details && index < returned && count < maximum; index++)
-	{
-		memset(details, 0, DETAILS_BUFFER);
-		if (api.query_result(api.ugc, api.query, index, details) &&
-			steam_bridge_read_details(details, &listings[count]))
-		{
-			count++;
-		}
-	}
-	free(details);
-	browse_end();
-	if (result != RESULT_OK)
-		platform_log("Workshop: Steam's list failed (%d)", result);
-	return result == RESULT_OK ? count : STEAM_BRIDGE_LISTINGS_FAILED;
-}
-
 const struct steam_bridge_backend steam_bridge_api_backend =
 {
 	api_connect,
@@ -454,51 +286,4 @@ const struct steam_bridge_backend steam_bridge_api_backend =
 	NULL,
 	NULL,
 	NULL,
-	api_browse,
-	api_listings,
 };
-
-/* ---------- SteamUGCDetails_t's head */
-
-enum
-{
-	DETAILS_ID = 0,
-	DETAILS_RESULT = 8,
-	DETAILS_TITLE = 24,
-	DETAILS_TITLE_SIZE = 129,
-	DETAILS_DESCRIPTION = DETAILS_TITLE + DETAILS_TITLE_SIZE,
-	DETAILS_DESCRIPTION_SIZE = 8000,
-};
-
-/* a fixed field's text, cut to size (always ended) */
-static void field_text(const unsigned char *field, int field_size, char *out, int size)
-{
-	int length = 0;
-
-	while (length < field_size && field[length] && length < size - 1)
-	{
-		/* (control characters as spaces: the list draws one line) */
-		out[length] = field[length] < ' ' ? ' ' : (char)field[length];
-		length++;
-	}
-	out[length] = 0;
-}
-
-int steam_bridge_read_details(const unsigned char *details, struct steam_bridge_listing *listing)
-{
-	unsigned long long id;
-	int result;
-
-	memcpy(&id, details + DETAILS_ID, sizeof(id));
-	memcpy(&result, details + DETAILS_RESULT, sizeof(result));
-	memset(listing, 0, sizeof(*listing));
-	if (!id || result != RESULT_OK)
-		return 0;
-	snprintf(listing->id, sizeof(listing->id), "%llu", id);
-	field_text(details + DETAILS_TITLE, DETAILS_TITLE_SIZE, listing->title, sizeof(listing->title));
-	field_text(details + DETAILS_DESCRIPTION, DETAILS_DESCRIPTION_SIZE, listing->description,
-		sizeof(listing->description));
-	if (!listing->title[0])
-		snprintf(listing->title, sizeof(listing->title), "%s", listing->id);
-	return 1;
-}

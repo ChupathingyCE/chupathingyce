@@ -20,8 +20,8 @@ each stands in the player's own Steam libraries.
 
 - With game.workshop_steam on (USE STEAM on an item's page, after a note
   that Steam shows MCC as running while the tab is open), the Steam bridge
-  (steam_client_bridge.h) runs while the section shows: SUBSCRIBE and
-  UNSUBSCRIBE go to Steam from here, items show Downloading and
+  (steam_client_bridge.h) runs while the section shows: GET and REMOVE go to
+  Steam from here, items show Downloading and
   Installed, and without a list of ours the list is the Steam client's.
   With steamcmd (macOS), SIGN IN opens a terminal for steamcmd's own
   sign-in, and a "Halo CE from MCC" row installs MCC's Halo CE files.
@@ -128,17 +128,15 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	switch (option)
 	{
 	case _option_show_maps: return "TURN ON";
-	case _option_unsubscribe: return "UNSUBSCRIBE";
+	case _option_unsubscribe: return "REMOVE";
 	case _option_sign_in: return "SIGN IN";
 	case _option_use_steam: return workshop_view.confirm ? "CONFIRM" : "USE STEAM";
 	default: break;
 	}
 	if (item->mcc_install)
 		return "INSTALL";
-	/* (the bridge's: SUBSCRIBE until Steam has it; the page otherwise) */
-	if (workshop_browser_bridge_status() == STEAM_BRIDGE_READY)
-		return "SUBSCRIBE";
-	return item->state == WORKSHOP_ITEM_NOT_INSTALLED ? "SUBSCRIBE" : "OPEN";
+	/* (installed, or on its way: its page in Steam) */
+	return item->state == WORKSHOP_ITEM_NOT_INSTALLED ? "GET" : "OPEN";
 }
 
 /* the note USE STEAM shows before CONFIRM */

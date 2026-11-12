@@ -530,8 +530,6 @@ const struct steam_bridge_backend steam_bridge_cmd_backend =
 	cmd_needs_sign_in,
 	cmd_install_mcc,
 	cmd_mcc_state,
-	NULL,
-	NULL,
 };
 
 #endif

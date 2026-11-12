@@ -23,7 +23,6 @@ enum
 {
 	CLIENT_BIT = 1 << STEAM_BRIDGE_BACKEND_CLIENT,
 	STEAMCMD_BIT = 1 << STEAM_BRIDGE_BACKEND_STEAMCMD,
-	SEARCH_SIZE = 128,
 };
 
 struct watched_item
@@ -55,11 +54,6 @@ static struct
 	struct watched_item items[STEAM_BRIDGE_MAXIMUM_ITEMS];
 	int install_wanted;
 	int mcc_state;
-	/* a browse asked; its answer */
-	int browse_wanted;
-	char search[SEARCH_SIZE];
-	int listing_count;
-	struct steam_bridge_listing listings[STEAM_BRIDGE_MAXIMUM_LISTINGS];
 } bridge = { PTHREAD_MUTEX_INITIALIZER };
 
 /* ---------- private code */
@@ -143,7 +137,6 @@ static void item_query(const struct steam_bridge_backend *client, const struct s
 static void session(int use_steamcmd)
 {
 	static struct watched_item turn[STEAM_BRIDGE_MAXIMUM_ITEMS];
-	static struct steam_bridge_listing listings[STEAM_BRIDGE_MAXIMUM_LISTINGS];
 	const struct steam_bridge_backend *client = &steam_bridge_api_backend;
 	const struct steam_bridge_backend *steamcmd = use_steamcmd ? steamcmd_functions() : NULL;
 	int client_status;
@@ -158,7 +151,7 @@ static void session(int use_steamcmd)
 	client_status = client->connect();
 #endif
 	int steamcmd_status = steamcmd ? steamcmd->connect() : STEAM_BRIDGE_FAILED;
-	int status, connected = 0, live, browsing = 0;
+	int status, connected = 0, live;
 
 	if (client_status == STEAM_BRIDGE_READY)
 		connected |= CLIENT_BIT;
@@ -184,8 +177,7 @@ static void session(int use_steamcmd)
 		"ready");
 	while (live)
 	{
-		char search[SEARCH_SIZE];
-		int count, index, install, browse, listing_count = STEAM_BRIDGE_LISTINGS_PENDING;
+		int count, index, install;
 
 		pthread_mutex_lock(&bridge.lock);
 		if (bridge.stop)
@@ -200,9 +192,6 @@ static void session(int use_steamcmd)
 			bridge.items[index].want = 0;
 		install = bridge.install_wanted;
 		bridge.install_wanted = 0;
-		browse = bridge.browse_wanted;
-		bridge.browse_wanted = 0;
-		memcpy(search, bridge.search, sizeof(search));
 		pthread_mutex_unlock(&bridge.lock);
 		for (index = 0; index < count; index++)
 		{
@@ -218,22 +207,10 @@ static void session(int use_steamcmd)
 		}
 		if (install && steamcmd && steamcmd->install_mcc)
 			steamcmd->install_mcc();
-		if (browse)
-		{
-			browsing = client && client->browse && client->browse(search);
-			if (!browsing)
-				listing_count = STEAM_BRIDGE_LISTINGS_FAILED;
-		}
 		if (client)
 			client->tick();
 		if (steamcmd)
 			steamcmd->tick();
-		if (browsing)
-		{
-			listing_count = client->listings(listings, STEAM_BRIDGE_MAXIMUM_LISTINGS);
-			if (listing_count != STEAM_BRIDGE_LISTINGS_PENDING)
-				browsing = 0;
-		}
 		for (index = 0; index < count; index++)
 			item_query(client, steamcmd, &turn[index]);
 		pthread_mutex_lock(&bridge.lock);
@@ -248,12 +225,6 @@ static void session(int use_steamcmd)
 		{
 			bridge.mcc_state = steamcmd->mcc_state();
 			bridge.sign_in = steamcmd_status == STEAM_BRIDGE_SIGN_IN || steamcmd->needs_sign_in();
-		}
-		if (listing_count != STEAM_BRIDGE_LISTINGS_PENDING && !bridge.browse_wanted)
-		{
-			bridge.listing_count = listing_count;
-			if (listing_count > 0)
-				memcpy(bridge.listings, listings, sizeof(listings[0]) * (size_t)listing_count);
 		}
 		pthread_mutex_unlock(&bridge.lock);
 		steam_bridge_platform_sleep(STEAM_BRIDGE_POLL_INTERVAL);
@@ -358,7 +329,6 @@ void steam_bridge_open(int use_steamcmd)
 	bridge.use_steamcmd = use_steamcmd;
 	bridge.connected = 0;
 	bridge.sign_in = 0;
-	bridge.listing_count = STEAM_BRIDGE_LISTINGS_PENDING;
 	bridge.status = STEAM_BRIDGE_CONNECTING;
 	bridge.connect_time = system_milliseconds();
 	pthread_mutex_unlock(&bridge.lock);
@@ -481,39 +451,6 @@ int steam_bridge_unsubscribe(const char *id)
 	return ask(id, 2, CLIENT_BIT);
 }
 
-int steam_bridge_browse(const char *search)
-{
-	int asked = 0;
-
-	pthread_mutex_lock(&bridge.lock);
-	if (bridge.status == STEAM_BRIDGE_READY && (bridge.connected & CLIENT_BIT))
-	{
-		bridge.browse_wanted = 1;
-		snprintf(bridge.search, sizeof(bridge.search), "%s", search ? search : "");
-		bridge.listing_count = STEAM_BRIDGE_LISTINGS_PENDING;
-		asked = 1;
-	}
-	pthread_mutex_unlock(&bridge.lock);
-	return asked;
-}
-
-int steam_bridge_listings(struct steam_bridge_listing *listings, int maximum)
-{
-	int count;
-
-	pthread_mutex_lock(&bridge.lock);
-	count = bridge.listing_count;
-	if (count > maximum)
-		count = maximum;
-	if (count > 0)
-		memcpy(listings, bridge.listings, sizeof(listings[0]) * (size_t)count);
-	/* (taken once) */
-	if (count != STEAM_BRIDGE_LISTINGS_PENDING)
-		bridge.listing_count = STEAM_BRIDGE_LISTINGS_PENDING;
-	pthread_mutex_unlock(&bridge.lock);
-	return count;
-}
-
 int steam_bridge_sign_in(void)
 {
 #ifndef _WIN32
@@ -587,7 +524,6 @@ void steam_bridge_test_reset(void)
 	bridge.count = 0;
 	bridge.install_wanted = 0;
 	bridge.mcc_state = 0;
-	bridge.listing_count = STEAM_BRIDGE_LISTINGS_PENDING;
 	pthread_mutex_unlock(&bridge.lock);
 }
 

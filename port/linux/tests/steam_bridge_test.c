@@ -436,63 +436,6 @@ static void test_session(void)
 	CHECK(!steam_bridge_subscribe("2886943774"));
 }
 
-static void test_browse(void)
-{
-	struct steam_bridge_listing listings[STEAM_BRIDGE_MAXIMUM_LISTINGS];
-	int count = STEAM_BRIDGE_LISTINGS_PENDING, waited = 0;
-
-	reset();
-	steam_bridge_open(0);
-	CHECK(settled() == STEAM_BRIDGE_READY);
-	CHECK(steam_bridge_listings(listings, STEAM_BRIDGE_MAXIMUM_LISTINGS) == STEAM_BRIDGE_LISTINGS_PENDING);
-	CHECK(steam_bridge_browse(""));
-	while ((count = steam_bridge_listings(listings, STEAM_BRIDGE_MAXIMUM_LISTINGS)) ==
-		STEAM_BRIDGE_LISTINGS_PENDING && waited++ < 300)
-	{
-		usleep(10000);
-	}
-	/* only Halo CE's items: the query carries the Halo1 tag */
-	CHECK(!strcmp(fake.required_tag, "Halo1"));
-	CHECK(count == 2);
-	CHECK(!strcmp(listings[0].id, "4000000000") && !strcmp(listings[0].title, "Map 0"));
-	CHECK(!strcmp(listings[1].description, "A map"));
-
-	/* a library that can't add the tag gets no list at all (MCC's Workshop mixes its games) */
-	reset();
-	fake.missing[0] = "SteamAPI_ISteamUGC_AddRequiredTag";
-	steam_bridge_open(0);
-	CHECK(settled() == STEAM_BRIDGE_READY);
-	CHECK(steam_bridge_browse(""));
-	waited = 0;
-	while ((count = steam_bridge_listings(listings, STEAM_BRIDGE_MAXIMUM_LISTINGS)) ==
-		STEAM_BRIDGE_LISTINGS_PENDING && waited++ < 300)
-	{
-		usleep(10000);
-	}
-	CHECK(count == STEAM_BRIDGE_LISTINGS_FAILED);
-	CHECK(fake.query_sent == 0);
-	reset();
-}
-
-static void test_details(void)
-{
-	unsigned char details[16 * 1024];
-	struct steam_bridge_listing listing;
-	unsigned long long id = 123;
-	int result = 2;
-
-	memset(details, 0, sizeof(details));
-	memcpy(details, &id, 8);
-	memcpy(details + 8, &result, 4);
-	CHECK(!steam_bridge_read_details(details, &listing));
-	result = 1;
-	memcpy(details + 8, &result, 4);
-	memset(details + 24, 'x', 129);
-	CHECK(steam_bridge_read_details(details, &listing));
-	CHECK(strlen(listing.title) == sizeof(listing.title) - 1);
-	CHECK(!strcmp(listing.id, "123"));
-}
-
 static void test_steamcmd_text(void)
 {
 	struct steamcmd_line line;
@@ -532,10 +475,8 @@ static void test_steamcmd_text(void)
 int main(void)
 {
 	test_steamcmd_text();
-	test_details();
 	test_fallbacks();
 	test_session();
-	test_browse();
 	if (failures)
 		fprintf(stderr, "%d failed\n", failures);
 	else

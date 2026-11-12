@@ -45,6 +45,35 @@ enum
 	WATCH_INTERVAL = 1000,
 	/* a failed list asked for again no sooner than this */
 	RETRY_INTERVAL = 30000,
+	/* Steam's details: ids asked at once, and remembered this run */
+	DETAILS_BATCH = 16,
+	DETAILS_CACHE = 160,
+	DETAILS_DOCUMENT = 1024 * 1024,
+	/* the browse page: its largest, how long its list is kept, and how long
+	Steam's "too many requests" (429) holds it off */
+	BROWSE_PAGE_DOCUMENT = 2 * 1024 * 1024,
+	BROWSE_PAGE_ITEMS = 32,
+	BROWSE_KEEP = 10 * 60 * 1000,
+	BROWSE_BACKOFF = 10 * 60 * 1000,
+};
+
+/* Steam's public Workshop browse page: MCC's Halo CE items (tag Halo1),
+trending first; only the item ids are taken from it (the details call
+gives everything shown) */
+#define BROWSE_PAGE_URL "https://steamcommunity.com/workshop/browse/?appid=976730&requiredtags%5B%5D=Halo1" \
+	"&browsesort=trend&section=readytouseitems&p=1"
+#define DETAILS_URL "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
+
+/* an item's details from Steam's public, keyless GetPublishedFileDetails:
+the item page's text where nothing else gives it (macOS, whose Steam won't
+answer the client's queries; items found only on disk). This run's only */
+struct details_entry
+{
+	char id[WORKSHOP_BROWSER_ID_SIZE];
+	/* asked; answered (filled, or not a Halo CE item: nothing to show) */
+	int answered;
+	int filled;
+	struct workshop_browser_item item;
 };
 
 static struct
@@ -66,8 +95,19 @@ static struct
 	unsigned long libraries_time;
 	int library_count;
 	char libraries[MAXIMUM_LIBRARIES][STEAM_WORKSHOP_PATH_SIZE];
-	/* the list from the Steam client (no network.workshop_url): 1 to ask, 2 asked */
-	int browse;
+	/* the browse page: when its list came (0 never), when Steam last said 429 */
+	unsigned long web_time;
+	unsigned long web_backoff;
+	int web_answer;
+	/* Steam's details: the thread's, then the cache (the main thread's) */
+	int details_fetching;
+	int details_answered;
+	int details_answer_count;
+	char details_asked[DETAILS_BATCH][WORKSHOP_BROWSER_ID_SIZE];
+	int details_asked_count;
+	struct workshop_browser_item details_answer[DETAILS_BATCH];
+	int details_count;
+	struct details_entry details[DETAILS_CACHE];
 	/* the libraries holding MCC: from the Steam client (its app manifest), or its Halo CE files at all */
 	int client_mcc_count;
 	int mcc_count;
@@ -342,6 +382,261 @@ static int bridge_state(struct workshop_browser_item *item, int folder_state)
 	}
 }
 
+/* ---------- Steam's details */
+
+#ifdef HALO_GAME_BROWSER
+static void *details_thread(void *context)
+{
+	char *body = context, *response = malloc(DETAILS_DOCUMENT + 1);
+	static struct workshop_browser_item found[DETAILS_BATCH];
+	char error[128];
+	int status = 0, count = -1;
+
+	error[0] = 0;
+	if (response)
+	{
+		status = posix_browser_request_as(DETAILS_URL, body, "application/x-www-form-urlencoded",
+			build_identity_user_agent(), response, DETAILS_DOCUMENT + 1, error, sizeof(error));
+		if (status == 200)
+			count = workshop_browser_read_details(response, (int)strlen(response), found, DETAILS_BATCH);
+	}
+	if (count < 0)
+		platform_log("Workshop: Steam's item details could not be read (HTTP %d)", status);
+	pthread_mutex_lock(&workshop.lock);
+	workshop.details_answer_count = count;
+	if (count > 0)
+		memcpy(workshop.details_answer, found, sizeof(found[0]) * (size_t)count);
+	workshop.details_answered = 1;
+	workshop.details_fetching = 0;
+	pthread_mutex_unlock(&workshop.lock);
+	free(response);
+	free(body);
+	return NULL;
+}
+#endif
+
+static struct details_entry *details_find(const char *id)
+{
+	int index;
+
+	for (index = 0; index < workshop.details_count; index++)
+	{
+		if (!strcmp(workshop.details[index].id, id))
+			return &workshop.details[index];
+	}
+	return NULL;
+}
+
+/* what Steam said of an item, put on its page where the page lacks it */
+static void details_apply(struct workshop_browser_item *item)
+{
+	struct details_entry *entry = details_find(item->id);
+
+	if (!entry || !entry->filled)
+		return;
+	if (!item->description[0])
+		snprintf(item->description, sizeof(item->description), "%s", entry->item.description);
+	if (item->size < 0)
+		item->size = entry->item.size;
+	if (!item->updated)
+		item->updated = entry->item.updated;
+	if (item->local || !strcmp(item->kind, "item"))
+		snprintf(item->kind, sizeof(item->kind), "%s", entry->item.kind);
+	if (item->local && entry->item.title[0])
+		snprintf(item->title, sizeof(item->title), "%s", entry->item.title);
+}
+
+/* the answer taken in, and the next ids without details asked for */
+static void details_step(void)
+{
+	int index, count = 0;
+
+	pthread_mutex_lock(&workshop.lock);
+	if (workshop.details_answered)
+	{
+		workshop.details_answered = 0;
+		for (index = 0; index < workshop.details_asked_count; index++)
+		{
+			struct details_entry *entry = details_find(workshop.details_asked[index]);
+			int other;
+
+			if (!entry)
+				continue;
+			/* (a failed request: asked again on the next open) */
+			if (workshop.details_answer_count < 0)
+			{
+				entry->id[0] = 0;
+				continue;
+			}
+			entry->answered = 1;
+			for (other = 0; other < workshop.details_answer_count; other++)
+			{
+				if (!strcmp(workshop.details_answer[other].id, entry->id))
+				{
+					entry->item = workshop.details_answer[other];
+					entry->filled = 1;
+				}
+			}
+		}
+		for (index = 0; index < workshop.count; index++)
+			details_apply(&workshop.items[index]);
+	}
+	if (workshop.details_fetching)
+	{
+		pthread_mutex_unlock(&workshop.lock);
+		return;
+	}
+	pthread_mutex_unlock(&workshop.lock);
+#ifdef HALO_GAME_BROWSER
+	{
+		char *body;
+		int length;
+
+		if (config_boolean("debug.workshop_no_steam"))
+			return;
+		for (index = 0; index < workshop.count && count < DETAILS_BATCH; index++)
+		{
+			struct workshop_browser_item *item = &workshop.items[index];
+			struct details_entry *entry;
+
+			if (item->mcc_install || !workshop_browser_id_valid(item->id) || (item->description[0] && item->size >= 0))
+				continue;
+			if ((entry = details_find(item->id)) != NULL)
+				continue;
+			/* (the cache full: its first empty slot, else nothing more asked) */
+			for (entry = NULL, length = 0; length < workshop.details_count && workshop.details[length].id[0]; length++)
+				;
+			if (length < workshop.details_count)
+				entry = &workshop.details[length];
+			else if (workshop.details_count < DETAILS_CACHE)
+				entry = &workshop.details[workshop.details_count++];
+			if (!entry)
+				break;
+			memset(entry, 0, sizeof(*entry));
+			snprintf(entry->id, sizeof(entry->id), "%s", item->id);
+			snprintf(workshop.details_asked[count++], WORKSHOP_BROWSER_ID_SIZE, "%s", item->id);
+		}
+		if (!count)
+			return;
+		body = malloc(64 + (size_t)count * (WORKSHOP_BROWSER_ID_SIZE + 32));
+		if (!body)
+			return;
+		length = sprintf(body, "itemcount=%d", count);
+		for (index = 0; index < count; index++)
+			length += sprintf(body + length, "&publishedfileids%%5B%d%%5D=%s", index, workshop.details_asked[index]);
+		pthread_mutex_lock(&workshop.lock);
+		workshop.details_asked_count = count;
+		workshop.details_fetching = 1;
+		pthread_mutex_unlock(&workshop.lock);
+		{
+			pthread_t thread;
+
+			if (pthread_create(&thread, NULL, details_thread, body) == 0)
+				pthread_detach(thread);
+			else
+			{
+				free(body);
+				pthread_mutex_lock(&workshop.lock);
+				workshop.details_fetching = 0;
+				pthread_mutex_unlock(&workshop.lock);
+			}
+		}
+	}
+#else
+	(void)count;
+#endif
+}
+
+/* ---------- Steam's public browse page */
+
+#ifdef HALO_GAME_BROWSER
+static void *web_thread(void *context)
+{
+	static struct workshop_browser_item found[BROWSE_PAGE_ITEMS];
+	static char ids[BROWSE_PAGE_ITEMS][WORKSHOP_BROWSER_ID_SIZE];
+	char *response = malloc(BROWSE_PAGE_DOCUMENT + 1), *body = NULL, error[128];
+	int status = 0, count = -1, id_count = 0, index, length;
+
+	(void)context;
+	error[0] = 0;
+	if (response)
+		status = posix_browser_request_as(BROWSE_PAGE_URL, NULL, NULL, build_identity_user_agent(), response,
+			BROWSE_PAGE_DOCUMENT + 1, error, sizeof(error));
+	if (status == 200)
+		id_count = workshop_browser_read_browse_ids(response, (int)strlen(response), ids, BROWSE_PAGE_ITEMS);
+	if (status == 200 && !id_count)
+		platform_log("Workshop: Steam's browse page had no items (%d bytes)", response ? (int)strlen(response) : 0);
+	if (status == 200 && id_count == 0)
+		count = 0;
+	if (id_count > 0 && (body = malloc(64 + (size_t)id_count * (WORKSHOP_BROWSER_ID_SIZE + 32))) != NULL)
+	{
+		length = sprintf(body, "itemcount=%d", id_count);
+		for (index = 0; index < id_count; index++)
+			length += sprintf(body + length, "&publishedfileids%%5B%d%%5D=%s", index, ids[index]);
+		status = posix_browser_request_as(DETAILS_URL, body, "application/x-www-form-urlencoded",
+			build_identity_user_agent(), response, BROWSE_PAGE_DOCUMENT + 1, error, sizeof(error));
+		if (status == 200)
+			count = workshop_browser_read_details(response, (int)strlen(response), found, BROWSE_PAGE_ITEMS);
+	}
+	/* (Steam's "too many requests": -2, held off a while) */
+	if (status == 429)
+		count = -2;
+	platform_log("Workshop: Steam's browse page: %d Halo CE items (HTTP %d)", count, status);
+	pthread_mutex_lock(&workshop.lock);
+	workshop.answer_count = count;
+	if (count > 0)
+		memcpy(workshop.answer, found, sizeof(found[0]) * (size_t)count);
+	workshop.answered = 1;
+	workshop.web_answer = 1;
+	workshop.fetching = 0;
+	pthread_mutex_unlock(&workshop.lock);
+	free(body);
+	free(response);
+	return NULL;
+}
+#endif
+
+/* the list from Steam's public browse page: once, then kept ten minutes,
+and not while Steam holds us off */
+static void web_ask(void)
+{
+	unsigned long now = system_milliseconds();
+
+#ifdef HALO_GAME_BROWSER
+	pthread_t thread;
+
+	if ((workshop.web_time && now - workshop.web_time < BROWSE_KEEP) ||
+		(workshop.web_backoff && now - workshop.web_backoff < BROWSE_BACKOFF) ||
+		config_boolean("debug.workshop_no_steam"))
+	{
+		if (workshop.status == WORKSHOP_LIST_LOADING || workshop.status == WORKSHOP_LIST_NOT_SET_UP)
+			workshop.status = workshop.web_time ? WORKSHOP_LIST_LOADED : WORKSHOP_LIST_FAILED;
+		return;
+	}
+	pthread_mutex_lock(&workshop.lock);
+	if (workshop.fetching)
+	{
+		pthread_mutex_unlock(&workshop.lock);
+		return;
+	}
+	workshop.fetching = 1;
+	pthread_mutex_unlock(&workshop.lock);
+	workshop.status = WORKSHOP_LIST_LOADING;
+	if (pthread_create(&thread, NULL, web_thread, NULL) == 0)
+	{
+		pthread_detach(thread);
+		return;
+	}
+	pthread_mutex_lock(&workshop.lock);
+	workshop.fetching = 0;
+	pthread_mutex_unlock(&workshop.lock);
+	workshop.status = WORKSHOP_LIST_FAILED;
+#else
+	(void)now;
+	workshop.status = WORKSHOP_LIST_NOT_SET_UP;
+#endif
+}
+
 /* ---------- the list */
 
 #ifdef HALO_GAME_BROWSER
@@ -415,65 +710,10 @@ static void list_ask(void)
 #else
 	(void)setting;
 #endif
-	/* (no list of ours: the Steam client's, through the bridge, when it connects) */
-	if (steam_bridge_enabled() && bridge_backend() != STEAM_BRIDGE_BACKEND_NONE)
-	{
-		workshop.browse = 1;
-		workshop.status = WORKSHOP_LIST_LOADING;
-		return;
-	}
-	workshop.status = WORKSHOP_LIST_NOT_SET_UP;
+	/* (no list of ours: Steam's public browse page, the same everywhere) */
+	web_ask();
 }
 
-/* the Steam client's list asked for once the bridge connects, and its
-answer taken in as a list document's would be (list_take) */
-static void browse_step(void)
-{
-	static struct steam_bridge_listing listings[STEAM_BRIDGE_MAXIMUM_LISTINGS];
-	int status, count, index;
-
-	if (!workshop.browse)
-		return;
-	status = steam_bridge_status();
-	if (status == STEAM_BRIDGE_CONNECTING)
-		return;
-	if (status != STEAM_BRIDGE_READY || !(steam_bridge_connected() & CLIENT_CONNECTED))
-	{
-		workshop.browse = 0;
-		if (workshop.status == WORKSHOP_LIST_LOADING)
-			workshop.status = WORKSHOP_LIST_NOT_SET_UP;
-		return;
-	}
-	if (workshop.browse == 1)
-	{
-		workshop.browse = steam_bridge_browse("") ? 2 : 0;
-		if (!workshop.browse)
-			workshop.status = WORKSHOP_LIST_NOT_SET_UP;
-		return;
-	}
-	count = steam_bridge_listings(listings, STEAM_BRIDGE_MAXIMUM_LISTINGS);
-	if (count == STEAM_BRIDGE_LISTINGS_PENDING)
-		return;
-	workshop.browse = 0;
-	if (count > WORKSHOP_BROWSER_MAXIMUM_ITEMS)
-		count = WORKSHOP_BROWSER_MAXIMUM_ITEMS;
-	pthread_mutex_lock(&workshop.lock);
-	for (index = 0; index < count; index++)
-	{
-		struct workshop_browser_item *item = &workshop.answer[index];
-
-		memset(item, 0, sizeof(*item));
-		snprintf(item->id, sizeof(item->id), "%s", listings[index].id);
-		snprintf(item->title, sizeof(item->title), "%s", listings[index].title);
-		snprintf(item->description, sizeof(item->description), "%s", listings[index].description);
-		snprintf(item->kind, sizeof(item->kind), "item");
-		item->size = -1;
-	}
-	workshop.answer_count = count;
-	workshop.answered = 1;
-	pthread_mutex_unlock(&workshop.lock);
-	platform_log("Workshop: Steam listed %d Halo CE items", count < 0 ? 0 : count);
-}
 
 /* the thread's answer, kept with what this run knows of each item */
 static void list_take(void)
@@ -488,6 +728,21 @@ static void list_take(void)
 		return;
 	}
 	workshop.answered = 0;
+	if (workshop.web_answer)
+	{
+		workshop.web_answer = 0;
+		if (workshop.answer_count >= 0)
+			workshop.web_time = system_milliseconds();
+		else if (workshop.answer_count == -2)
+			workshop.web_backoff = system_milliseconds();
+		/* (a failed page keeps the list it had, if any) */
+		if (workshop.answer_count < 0 && workshop.web_time)
+		{
+			workshop.status = WORKSHOP_LIST_LOADED;
+			pthread_mutex_unlock(&workshop.lock);
+			return;
+		}
+	}
 	memcpy(before, workshop.items, sizeof(before[0]) * (size_t)before_count);
 	if (workshop.answer_count >= 0)
 	{
@@ -509,6 +764,8 @@ static void list_take(void)
 	}
 	local_items_look();
 	mcc_row_update();
+	for (index = 0; index < workshop.count; index++)
+		details_apply(&workshop.items[index]);
 }
 
 /* ---------- public code */
@@ -557,6 +814,8 @@ void workshop_browser_open(int force)
 		workshop.items[index].state = item_state(workshop.items[index].id);
 	local_items_look();
 	mcc_row_update();
+	for (index = 0; index < workshop.count; index++)
+		details_apply(&workshop.items[index]);
 	workshop.watch_time = system_milliseconds();
 	if (force || !workshop.asked ||
 		(workshop.status == WORKSHOP_LIST_FAILED && system_milliseconds() - workshop.asked_time >= RETRY_INTERVAL))
@@ -572,8 +831,8 @@ int workshop_browser_poll(void)
 
 	/* (the bridge's connect timed out here: steam_bridge_status) */
 	workshop_browser_bridge_status();
-	browse_step();
 	list_take();
+	details_step();
 	if (now - workshop.watch_time < WATCH_INTERVAL)
 		return 0;
 	workshop.watch_time = now;
@@ -600,6 +859,8 @@ int workshop_browser_poll(void)
 	index = workshop.count;
 	local_items_look();
 	installed += workshop.count - index;
+	for (; index < workshop.count; index++)
+		details_apply(&workshop.items[index]);
 	index = workshop.mcc_count;
 	mcc_row_update();
 	/* (MCC's Halo CE files arrived from steamcmd: the maps read again) */
@@ -638,6 +899,13 @@ int workshop_browser_subscribe(int index)
 	}
 	if (!workshop_browser_steam_url(workshop.items[index].id, url, sizeof(url)))
 		return 0;
+	/* (OPEN: an item Steam has, or is fetching: its page, nothing asked) */
+	if (workshop.items[index].state != WORKSHOP_ITEM_NOT_INSTALLED)
+	{
+		if (!config_boolean("debug.workshop_no_steam"))
+			platform_open_url(url);
+		return 1;
+	}
 	/* (the bridge's: subscribed in Steam from here, no page) */
 	if (bridge_ready() && steam_bridge_subscribe(workshop.items[index].id))
 	{

@@ -112,6 +112,14 @@ struct workshop_browser_item
 one (not JSON of this form, or another version). An item without an id of
 digits or a title is passed over */
 int workshop_browser_read_list(const char *text, int length, struct workshop_browser_item *items, int maximum);
+/* Steam's answer to ISteamRemoteStorage/GetPublishedFileDetails (no key):
+how many Halo CE items of MCC's (consumer app 976730, tag Halo1, result 1)
+were written, with their title, kind (campaign / maps), size when Steam
+gives one, update time and a plain description; -1 if it is not one */
+int workshop_browser_read_details(const char *text, int length, struct workshop_browser_item *items, int maximum);
+/* the item ids on a page of Steam's public Workshop browse page (the digits
+after each "filedetails/?id="), each once, in the page's order: how many */
+int workshop_browser_read_browse_ids(const char *text, int length, char (*ids)[WORKSHOP_BROWSER_ID_SIZE], int maximum);
 /* whether text is a Workshop item id: 1 to 20 digits */
 int workshop_browser_id_valid(const char *text);
 /* the page of an item in the Steam client: steam://url/CommunityFilePage/<id>; 0 for a bad id */

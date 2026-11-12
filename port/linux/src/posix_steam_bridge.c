@@ -18,6 +18,7 @@ sign-in in a terminal, and MCC's depots moved into place.
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <pwd.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,6 +57,15 @@ void steam_bridge_platform_sleep(int milliseconds)
 		;
 }
 
+/* the player's own home, not HOME (a test run may move HOME): steamcmd
+keeps its sign-in there */
+static const char *real_home(void)
+{
+	struct passwd *entry = getpwuid(getuid());
+
+	return entry && entry->pw_dir && entry->pw_dir[0] ? entry->pw_dir : getenv("HOME");
+}
+
 static int executable(const char *path)
 {
 	struct stat information;
@@ -76,7 +86,7 @@ int steam_bridge_platform_find_steamcmd(char *path, int size)
 		"/usr/games/steamcmd", "/usr/bin/steamcmd" };
 	static const char *const home_usual[] = { "steamcmd/steamcmd.sh", "Steam/steamcmd.sh",
 		".steam/steamcmd/steamcmd.sh", "Library/Application Support/Steam/steamcmd.sh" };
-	const char *setting = config_string("paths.steamcmd"), *search = getenv("PATH"), *home = getenv("HOME");
+	const char *setting = config_string("paths.steamcmd"), *search = getenv("PATH"), *home = real_home();
 	int index;
 
 	if (setting && setting[0])
@@ -107,7 +117,7 @@ int steam_bridge_platform_find_steamcmd(char *path, int size)
 
 int steam_bridge_platform_steamcmd_root(const char *steamcmd, char *root, int size)
 {
-	const char *home = getenv("HOME");
+	const char *home = real_home();
 	const char *slash = strrchr(steamcmd, '/');
 	int length;
 
@@ -162,9 +172,13 @@ void *steam_bridge_platform_child_start(const char *const *arguments)
 	if (pid == 0)
 	{
 		int empty = open("/dev/null", O_RDONLY);
+		const char *home = real_home();
 
 		/* (its own group: steamcmd.sh's steamcmd ends with it) */
 		setpgid(0, 0);
+		/* (steamcmd's own home: where its saved sign-in is) */
+		if (home)
+			setenv("HOME", home, 1);
 		if (empty >= 0)
 			dup2(empty, 0);
 		dup2(pipes[1], 1);

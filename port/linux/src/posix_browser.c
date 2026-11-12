@@ -801,6 +801,10 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 		set_error(error, error_size, "the request is too long", 0);
 		return 0;
 	}
+	/* (room for the whole answer the caller has room for, and its head: a
+	page of Steam's Workshop is about 500 KB) */
+	if (response_size > 0 && (size_t)response_size + 16384 > capacity)
+		capacity = (size_t)response_size + 16384;
 	memset(&connection, 0, sizeof(connection));
 	connection.secure = secure;
 	connection.deadline = monotonic_milliseconds() + REQUEST_DEADLINE_MILLISECONDS;
