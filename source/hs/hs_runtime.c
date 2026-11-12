@@ -762,7 +762,7 @@ boolean debug_trigger_volumes;
 /* ---------- public code */
 
 #include "mcc_cache.h"
-#if defined(HALO_MCC) && !HALO_MCC
+#if !defined(HALO_MCC) || !HALO_MCC
 /* port: no MCC maps in this build (HALO_MCC): the native threads and
 evaluation, as before */
 #define mcc_hs_stack_end(thread) ((thread)->stack_data+HS_THREAD_STACK_SIZE)
