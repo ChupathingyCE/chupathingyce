@@ -14,16 +14,16 @@
 #include "mcc_hud_draw.h"
 #include <string.h>
 
-char const *config_string(char const *name);
-
-/* MCC's PC score hint contains one formatting argument. The native HUD
- * copies this string verbatim, so resolve that argument in owned UTF-16
- * storage. Keep the configured keyboard binding and the controller label. */
+/* MCC's PC score hint ('Hold "%s" for score') has one formatting argument,
+ * which MCC fills with the scoreboard's key. The native HUD copies the string
+ * verbatim, so put the controller's word BACK in its place, in owned UTF-16
+ * storage: the game's HUD (input_abstraction_port_back_word) swaps BACK for the
+ * keyboard's scoreboard key while the keyboard was used last, so the hint names
+ * one key, the one for the device in use, as the Xbox maps' hint does. */
 static int mcc_hud_score_text(uint16_t const *source,uint32_t characters,
-    char const *binding,uint16_t *out,uint32_t capacity)
+    uint16_t *out,uint32_t capacity)
 {
-    uint32_t length=0,placeholder=UINT32_MAX,i,used=0,key_length=0,needed;
-    char key[49];
+    uint32_t length=0,placeholder=UINT32_MAX,i,used=0,needed;
     static char const controller[]="BACK";
     if (!source || !characters) return -1;
     while (length<characters && source[length]) length++;
@@ -32,22 +32,12 @@ static int mcc_hud_score_text(uint16_t const *source,uint32_t characters,
         if (source[i]=='%' && source[i+1]=='s') {placeholder=i;break;}
     }
     if (placeholder==UINT32_MAX) return 0;
-    if (binding) {
-        while (*binding==' ') binding++;
-        while (*binding && *binding!=',' && key_length<sizeof(key)-1) {
-            unsigned char c=(unsigned char)*binding++;
-            key[key_length++]=(char)(c>=32 && c<127 ? c : '?');
-        }
-        while (key_length && key[key_length-1]==' ') key_length--;
-    }
-    /* The additional text, excluding the two source characters and NUL. */
-    needed=length-2+4+(key_length ? key_length+3 : 0)+1;
+    /* the text less the two source characters, BACK and the NUL */
+    needed=length-2+(uint32_t)(sizeof(controller)-1)+1;
     if (!out) return (int)needed;
     if (capacity<needed) return -1;
     for (i=0;i<placeholder;i++) out[used++]=source[i];
-    for (i=0;i<key_length;i++) out[used++]=(unsigned char)key[i];
-    if (key_length) {out[used++]=' ';out[used++]='/';out[used++]=' ';}
-    for (i=0;i<sizeof(controller)-1;i++) out[used++]=controller[i];
+    for (i=0;i<sizeof(controller)-1;i++) out[used++]=(unsigned char)controller[i];
     for (i=placeholder+2;i<=length;i++) out[used++]=source[i];
     return (int)used;
 }
@@ -86,11 +76,11 @@ static int mcc_hud_multiplayer_text(struct mcc_runtime *r,uint32_t const *entry)
     if (bytes<2 || (bytes&1)) return 0;
     source=mcc_runtime_pointer(r,mcc_hud_word(hint+12),bytes);
     if (!source || ((uintptr_t)source&1)) return 0;
-    characters=mcc_hud_score_text(source,bytes/2,config_string("controls.scoreboard"),NULL,0);
+    characters=mcc_hud_score_text(source,bytes/2,NULL,0);
     if (characters<0) return 0;
     if (!characters) return 1;
     replacement=mcc_runtime_allocate(r,(uint32_t)characters*2);
-    if (!replacement || mcc_hud_score_text(source,bytes/2,config_string("controls.scoreboard"),
+    if (!replacement || mcc_hud_score_text(source,bytes/2,
         replacement,(uint32_t)characters)!=characters) return 0;
     bytes=(uint32_t)characters*2;address=MCC_ADDRESS(replacement);
     memcpy(hint,&bytes,4);memcpy(hint+12,&address,4);
