@@ -175,6 +175,9 @@ int sc_chunk_unpack(const unsigned char *data, size_t length, unsigned char *out
 int sc_manifest_parse(const unsigned char *data, size_t length, const unsigned char key[32],
 	struct sc_manifest *manifest, char *why, int why_size);
 void sc_manifest_free(struct sc_manifest *manifest);
+/* an update's leftovers: what folder/relative has that the manifest doesn't, deleted (links removed, never
+followed; nothing outside folder) */
+void sc_prune(const char *folder, const char *relative, const struct sc_manifest *manifest, int depth);
 /* whether a name from a manifest is safe to write under the item's folder
 (relative, no "..", no drive or control characters) */
 int sc_name_safe(const char *name);

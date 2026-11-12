@@ -30,6 +30,7 @@ SPDX-License-Identifier: MIT
 #define make_folder(path) _mkdir(path)
 #define remove_file _unlink
 #else
+#include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
 #define make_folder(path) mkdir(path, 0755)
@@ -693,6 +694,105 @@ static int file_write_at(const char *path, unsigned long long offset, const void
 	return ok;
 }
 
+/* whether relative is one of the manifest's files or folders (Windows: any case) */
+static int manifest_has(const struct sc_manifest *manifest, const char *relative)
+{
+	int index;
+
+	for (index = 0; index < manifest->file_count; index++)
+	{
+#ifdef _WIN32
+		if (!_stricmp(manifest->files[index].name, relative))
+#else
+		if (!strcmp(manifest->files[index].name, relative))
+#endif
+			return 1;
+	}
+	return 0;
+}
+
+/* what an update's new manifest no longer has, deleted from the item's
+folder (nothing outside it: links are removed themselves, never followed).
+relative is the folder's path inside the item ("" the item's own) */
+void sc_prune(const char *folder, const char *relative, const struct sc_manifest *manifest, int depth)
+{
+	char path[STEAM_CONTENT_PATH_SIZE + SC_MAXIMUM_NAME + 64], inner[SC_MAXIMUM_NAME + 1];
+
+	if (depth > 32)
+		return;
+#ifdef _WIN32
+	{
+		WIN32_FIND_DATAA found;
+		HANDLE search;
+		char pattern[STEAM_CONTENT_PATH_SIZE + SC_MAXIMUM_NAME + 72];
+
+		if (snprintf(pattern, sizeof(pattern), "%s/%s%s*", folder, relative, relative[0] ? "/" : "") >=
+			(int)sizeof(pattern) || (search = FindFirstFileA(pattern, &found)) == INVALID_HANDLE_VALUE)
+		{
+			return;
+		}
+		do
+		{
+			int directory = (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+				!(found.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT);
+			int link = (found.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+			const char *name = found.cFileName;
+#else
+	{
+		DIR *directory_handle;
+		struct dirent *entry;
+
+		if (snprintf(path, sizeof(path), "%s/%s", folder, relative) >= (int)sizeof(path) ||
+			(directory_handle = opendir(path)) == NULL)
+		{
+			return;
+		}
+		while ((entry = readdir(directory_handle)) != NULL)
+		{
+			struct stat information;
+			int directory, link;
+			const char *name = entry->d_name;
+#endif
+			if (!strcmp(name, ".") || !strcmp(name, ".."))
+				continue;
+			if (snprintf(inner, sizeof(inner), "%s%s%s", relative, relative[0] ? "/" : "", name) >= (int)sizeof(inner) ||
+				snprintf(path, sizeof(path), "%s/%s", folder, inner) >= (int)sizeof(path))
+			{
+				continue;
+			}
+#ifndef _WIN32
+			if (lstat(path, &information) != 0)
+				continue;
+			link = S_ISLNK(information.st_mode);
+			directory = S_ISDIR(information.st_mode);
+#endif
+			if (directory)
+			{
+				sc_prune(folder, inner, manifest, depth + 1);
+				/* (a folder the item no longer has: gone once empty) */
+				if (!manifest_has(manifest, inner))
+#ifdef _WIN32
+					_rmdir(path);
+#else
+					rmdir(path);
+#endif
+			}
+			else if (link || !manifest_has(manifest, inner))
+			{
+				sc_log("Steam: a file the item no longer has removed");
+				remove_file(path);
+			}
+#ifdef _WIN32
+		} while (FindNextFileA(search, &found));
+		FindClose(search);
+	}
+#else
+		}
+		closedir(directory_handle);
+	}
+#endif
+}
+
 static void download_fail(struct download *download, int error, const char *why)
 {
 	pthread_mutex_lock(&download->lock);
@@ -1098,6 +1198,8 @@ static int download_item(struct download *download, const char *library, char *w
 			return STEAM_CONTENT_FAILED;
 		}
 	}
+	/* (an update: what the item no longer has deleted) */
+	sc_prune(download->folder, "", &download->manifest, 0);
 	/* (whole: moved to its content folder, where the game reads it) */
 	if (!make_parents(download->final_folder) || is_link(download->final_folder) ||
 		rename(download->folder, download->final_folder) != 0)

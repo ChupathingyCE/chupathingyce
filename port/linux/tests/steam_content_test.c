@@ -302,6 +302,53 @@ static void test_errors(void)
 /* the system's secret store, when asked (STEAM_CONTENT_TEST_SECRET=1: it may
 ask the player on a Mac, so not by default): a token put, read back and
 deleted (Windows: DPAPI; Linux: libsecret where there is a keyring) */
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <unistd.h>
+
+/* an update's leftovers deleted, what the manifest has kept, nothing outside touched */
+static void test_prune(void)
+{
+	static struct sc_file files[3];
+	struct sc_manifest manifest;
+	char folder[] = "prune_test";
+	FILE *file;
+
+	system("rm -rf prune_test prune_outside");
+	mkdir(folder, 0755);
+	mkdir("prune_test/maps", 0755);
+	mkdir("prune_test/old", 0755);
+	mkdir("prune_outside", 0755);
+	file = fopen("prune_test/keep.txt", "w"); fclose(file);
+	file = fopen("prune_test/stale.txt", "w"); fclose(file);
+	file = fopen("prune_test/maps/a.map", "w"); fclose(file);
+	file = fopen("prune_test/maps/gone.map", "w"); fclose(file);
+	file = fopen("prune_test/old/x", "w"); fclose(file);
+	file = fopen("prune_outside/precious", "w"); fclose(file);
+	CHECK(symlink("../prune_outside", "prune_test/link") == 0);
+	memset(&manifest, 0, sizeof(manifest));
+	memset(files, 0, sizeof(files));
+	snprintf(files[0].name, sizeof(files[0].name), "keep.txt");
+	snprintf(files[1].name, sizeof(files[1].name), "maps");
+	files[1].flags = SC_FILE_DIRECTORY;
+	snprintf(files[2].name, sizeof(files[2].name), "maps/a.map");
+	manifest.files = files;
+	manifest.file_count = 3;
+	sc_prune(folder, "", &manifest, 0);
+	CHECK(access("prune_test/keep.txt", F_OK) == 0);
+	CHECK(access("prune_test/maps/a.map", F_OK) == 0);
+	CHECK(access("prune_test/stale.txt", F_OK) != 0);
+	CHECK(access("prune_test/maps/gone.map", F_OK) != 0);
+	CHECK(access("prune_test/old", F_OK) != 0);
+	/* (the link removed, never followed: what it pointed at stays) */
+	CHECK(access("prune_test/link", F_OK) != 0);
+	CHECK(access("prune_outside/precious", F_OK) == 0);
+	system("rm -rf prune_test prune_outside");
+}
+#else
+static void test_prune(void) {}
+#endif
+
 static void test_secret_store(void)
 {
 	char token[64];
@@ -330,6 +377,7 @@ int main(void)
 	test_logon();
 	test_errors();
 	test_secret_store();
+	test_prune();
 	if (failures)
 	{
 		fprintf(stderr, "%d failed\n", failures);
