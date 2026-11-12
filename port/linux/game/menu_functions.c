@@ -1155,7 +1155,7 @@ static void map_description_show(struct widget_instance *description, short leve
 	if (map == NONE)
 		return;
 	if ((widget = named(description, "mp_map_right_name", 0)) != NULL)
-		widget->parameters.text_box.string_list_index = multiplayer_map_string(map, _ui_map_list_string_lobby_name);
+		widget->parameters.text_box.string_list_index = multiplayer_map_string(map, _ui_map_list_string_pane_name);
 	if ((widget = named(description, "mp_map_right_pic", 0)) != NULL)
 		widget->animation.current_frame_index = multiplayer_map_picture(map);
 	if ((widget = named(description, "mp_map_right_data", 0)) != NULL)
