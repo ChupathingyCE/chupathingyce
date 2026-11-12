@@ -843,6 +843,13 @@ int network_rules_join_request_extra(unsigned version);
 /* ... and its bytes: zeros, and a version word where the host's layout has
 one (a table's chupa-43a facts) */
 int network_rules_join_request_tail(unsigned version, unsigned char *tail, int room);
+unsigned network_rules_join_retry_version(unsigned joined, int hosting, unsigned long waited);
+/* port: when the join request went, and whether it went again (to a host
+whose number this client was not told: network_rules_join_retry_version) */
+static unsigned long network_game_client_join_sent_time;
+static boolean network_game_client_join_retried;
+#define network_game_client_join_retry_version(joined, hosting, waited) \
+	network_rules_join_retry_version((joined), (hosting), (unsigned long)(waited))
 
 unsigned int network_game_client_host_network_version(
 	void)
@@ -3157,6 +3164,90 @@ static boolean network_game_client_idle_searching(
 	return success;
 }
 
+/* port: the join request, its bytes past 0x70 those of a host of the
+version (network_rules_join_request_tail) */
+static void network_game_client_send_join_request(
+	struct network_game_client *client,
+	unsigned int version)
+{
+	struct message_client_join_game_request join_game_request;
+	message_header *message;
+
+	csmemset(&join_game_request, 0, sizeof(join_game_request));
+	network_game_generate_local_machine_name(join_game_request.machine_name);
+	csmemcpy(
+		join_game_request.join_token,
+		client->join_parameters.join_token,
+		sizeof(join_game_request.join_token));
+	/* (port: and its hardware id, which a host logs and may have
+	banned: all 32 digits, unended) */
+	{
+		char hardware_id[sizeof(join_game_request.hardware_id) + 1];
+
+		p2p_hardware_id(hardware_id, sizeof(hardware_id));
+		csmemcpy(join_game_request.hardware_id, hardware_id, csstrlen(hardware_id));
+	}
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
+	/* (port: and, to a host that speaks Delta, the join mark past
+	the name's end, so that it waits for this machine's HELLO
+	alone and starts OpenCE's machines at once; the 16-bit wchar_t
+	the message's size assert holds) */
+	if (network_game_client_joined_delta)
+	{
+		delta_compat_join_mark((unsigned short *)join_game_request.machine_name,
+			MAXIMUM_MACHINE_NAME_LENGTH);
+	}
+#endif
+
+	/* (port: to an OpenCE host of 40 or later, 234 zero bytes
+	after the hardware id, which such a host needs to read the
+	request: a pass and a proof for OpenCE's own servers, which
+	this build never has. A host of an older or unknown version
+	takes the request as the Xbox's was, 0x70 bytes) */
+	{
+		static unsigned char tail[1024];
+		int extra = network_rules_join_request_tail(version, tail,
+			(int)sizeof(tail));
+
+		if (extra < 0)
+			extra = 0;
+		if (extra)
+		{
+			network_event("joining a host of network version %u: the join request carries %d more bytes",
+				version, extra);
+		}
+		message = create_network_game_message_with_tail_bytes(
+			_message_client_join_game_request,
+			&join_game_request,
+			sizeof(join_game_request),
+			tail,
+			(short)extra);
+	}
+	if (message)
+	{
+		if (network_game_client_write(
+			client->connection,
+			message,
+			GET_MESSAGE_SIZE(*message),
+			NULL,
+			1))
+		{
+			SET_FLAG(
+				client->flags,
+				_network_game_client_join_request_sent_bit,
+				TRUE);
+		}
+		else
+		{
+			network_event("network_game_client_write() failed to send a message_client_join_game_request message");
+		}
+	}
+	else
+	{
+		network_event("failed to create a message_client_join_game_request message");
+	}
+}
+
 static boolean network_game_client_idle_joining(
 	struct network_game_client *client)
 {
@@ -3168,82 +3259,26 @@ static boolean network_game_client_idle_joining(
 		{
 			if (!TEST_FLAG(client->flags, _network_game_client_join_request_sent_bit))
 			{
-				struct message_client_join_game_request join_game_request;
-				message_header *message;
+				network_game_client_send_join_request(client, network_game_client_joined_version);
+				network_game_client_join_sent_time = system_milliseconds();
+				network_game_client_join_retried = FALSE;
+			}
+			/* (port: a host whose number this client was not told, silent for
+			a while: the request once more, as to a host of the newest number
+			whose layout has a version word, which drops a request without it
+			unanswered; one that took the first answers before this) */
+			else if (!network_game_client_join_retried &&
+				network_game_client_join_retry_version(network_game_client_joined_version,
+					global_network_game_server_get() != NULL,
+					system_milliseconds() - network_game_client_join_sent_time))
+			{
+				unsigned int retry = network_game_client_join_retry_version(network_game_client_joined_version,
+					global_network_game_server_get() != NULL, system_milliseconds() - network_game_client_join_sent_time);
 
-				csmemset(&join_game_request, 0, sizeof(join_game_request));
-				network_game_generate_local_machine_name(join_game_request.machine_name);
-				csmemcpy(
-					join_game_request.join_token,
-					client->join_parameters.join_token,
-					sizeof(join_game_request.join_token));
-				/* (port: and its hardware id, which a host logs and may have
-				banned: all 32 digits, unended) */
-				{
-					char hardware_id[sizeof(join_game_request.hardware_id) + 1];
-
-					p2p_hardware_id(hardware_id, sizeof(hardware_id));
-					csmemcpy(join_game_request.hardware_id, hardware_id, csstrlen(hardware_id));
-				}
-#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
-				/* (port: and, to a host that speaks Delta, the join mark past
-				the name's end, so that it waits for this machine's HELLO
-				alone and starts OpenCE's machines at once; the 16-bit wchar_t
-				the message's size assert holds) */
-				if (network_game_client_joined_delta)
-				{
-					delta_compat_join_mark((unsigned short *)join_game_request.machine_name,
-						MAXIMUM_MACHINE_NAME_LENGTH);
-				}
-#endif
-
-				/* (port: to an OpenCE host of 40 or later, 234 zero bytes
-				after the hardware id, which such a host needs to read the
-				request: a pass and a proof for OpenCE's own servers, which
-				this build never has. A host of an older or unknown version
-				takes the request as the Xbox's was, 0x70 bytes) */
-				{
-					static unsigned char tail[1024];
-					int extra = network_rules_join_request_tail(network_game_client_joined_version, tail,
-						(int)sizeof(tail));
-
-					if (extra < 0)
-						extra = 0;
-					if (extra)
-					{
-						network_event("joining a host of network version %u: the join request carries %d more bytes",
-							network_game_client_joined_version, extra);
-					}
-					message = create_network_game_message_with_tail_bytes(
-						_message_client_join_game_request,
-						&join_game_request,
-						sizeof(join_game_request),
-						tail,
-						(short)extra);
-				}
-				if (message)
-				{
-					if (network_game_client_write(
-						client->connection,
-						message,
-						GET_MESSAGE_SIZE(*message),
-						NULL,
-						1))
-					{
-						SET_FLAG(
-							client->flags,
-							_network_game_client_join_request_sent_bit,
-							TRUE);
-					}
-					else
-					{
-						network_event("network_game_client_write() failed to send a message_client_join_game_request message");
-					}
-				}
-				else
-				{
-					network_event("failed to create a message_client_join_game_request message");
-				}
+				network_game_client_join_retried = TRUE;
+				network_event("the host did not answer a join request of no version: once more as to a host of %u",
+					retry);
+				network_game_client_send_join_request(client, retry);
 			}
 
 			client->connect_process = 0;

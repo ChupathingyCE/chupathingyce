@@ -448,6 +448,15 @@ unsigned network_rules_client_settings_version(unsigned joined, int hosting, uns
 (at_least, 35): a host not known is at least that, but never on the host's
 own machine, whose version is its announced one */
 unsigned network_rules_client_noted_version(unsigned joined, int hosting, unsigned at_least);
+/* (a client) the version to send its join request again as, once, when the
+host was not told it (joined NETWORK_RULES_VERSION_UNKNOWN: an address
+joined without an advertisement), it is not its own host's machine, and the
+host has been silent for NETWORK_RULES_JOIN_RETRY_MS (waited, milliseconds):
+the newest version a layout says, if that layout has a version word, which
+such a host needs; 0 for none (a host of an older version answers the
+first) */
+#define NETWORK_RULES_JOIN_RETRY_MS 3000
+unsigned network_rules_join_retry_version(unsigned joined, int hosting, unsigned long waited);
 /* (a host announcing the version) whether it refuses a join request whose
 bytes past NETWORK_RULES_JOIN_REQUEST_SIZE are tail (tail_size of them):
 where the version's layout has a version word, any request without it (of

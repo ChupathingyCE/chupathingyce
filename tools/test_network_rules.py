@@ -188,7 +188,11 @@ def test_elevator_carry_of_the_tick_is_for_network_games_only():
 def _function(source, name):
     """a function's definition (its name, then its parameters on lines of
     their own), to its closing brace"""
-    body = source[source.index(name + "(\n"):]
+    at = source.index(name + "(\n")
+    # (past a prototype, whose parameters end in ");": the definition's in ")\n{")
+    while source[source.index(")", at) + 1] == ";":
+        at = source.index(name + "(\n", at + 1)
+    body = source[at:]
     return body[:body.index("\n}\n")]
 
 
@@ -222,3 +226,26 @@ def test_epoch_glue_uses_the_rules():
         _function(manager, "boolean network_game_server_remove_client_machine_from_game")
     # (the unit state reader checks its length against the rules' walk)
     assert "network_rules_unit_state_length(layout, buffer" in _function(source, "static word distributed_unit_state_read")
+
+
+def test_join_paths_know_the_hosts_number():
+    """every join of another machine's game goes by an advertisement (the
+    LAN, the list, an invite once its host's game is advertised through the
+    tunnel), whose number the join request's tail is made for; an address
+    alone (no advertisement) sends the plain request, and once more with the
+    newest version word after a silence; the host's own machine is never
+    refused for its request"""
+    manager = (ROOT / "source/networking/network_client_manager.c").read_text(encoding="utf-8")
+    invite = _function(manager, "long network_game_client_join_invite_host")
+    assert "struct network_advertised_game *game = &client->available_games[game_index];" in invite
+    assert "network_game_client_initiate_join_game(client, game, &join_parameters, &address)" in invite
+    initiate = _function(manager, "boolean network_game_client_initiate_join_game")
+    assert "network_game_client_advertised_versions[advertised_index].version" in initiate
+    joining = _function(manager, "static boolean network_game_client_idle_joining")
+    assert "network_game_client_send_join_request(client, network_game_client_joined_version);" in joining
+    assert "network_game_client_send_join_request(client, retry);" in joining
+    assert "network_game_client_join_retried = TRUE;" in joining
+    request = _function(manager, "static void network_game_client_send_join_request")
+    assert "network_rules_join_request_tail(version, tail," in request
+    server = (ROOT / "source/networking/network_server_message_handler.c").read_text(encoding="utf-8")
+    assert "!network_game_server_client_machine_is_local(server, server_client_machine) &&\n\t\t\tnetwork_rules_join_request_refused(" in server

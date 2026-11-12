@@ -1295,6 +1295,36 @@ static void test_unit_state_length(void)
 	network_rules_set_layout_source(NULL);
 }
 
+/* the join paths: a host joined by an advertisement (the LAN, the list, an
+invite through its tunnel, all of which carry the host's number) is sent
+the word at once; one joined by an address alone (no advertisement) is sent
+the plain request, and once more with the newest word after a silence */
+static void test_join_paths(void)
+{
+	uint8_t tail[NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT];
+
+	test_fact_count = 0;
+	test_fact_43(test_fact(43));
+	network_rules_set_layout_source(test_source);
+	/* (an invite's host, advertised at 43 through the tunnel: the word) */
+	CHECK(network_rules_join_request_tail(43, tail, sizeof(tail)) == 236 && tail[234] == 0 && tail[235] == 43);
+	CHECK(!network_rules_join_request_refused(43, tail, 236));
+	CHECK(network_rules_join_retry_version(43, 0, 60000) == 0);
+	/* (an advertised 41 host: no word, never a retry) */
+	CHECK(network_rules_join_request_tail(41, tail, sizeof(tail)) == 234);
+	CHECK(network_rules_join_retry_version(41, 0, 60000) == 0);
+	/* (no advertisement: the plain request, then once 43's after 3 s) */
+	CHECK(network_rules_join_request_tail(NETWORK_RULES_VERSION_UNKNOWN, tail, sizeof(tail)) == 0);
+	CHECK(network_rules_join_request_refused(43, tail, 0));
+	CHECK(network_rules_join_retry_version(NETWORK_RULES_VERSION_UNKNOWN, 0, 2999) == 0);
+	CHECK(network_rules_join_retry_version(NETWORK_RULES_VERSION_UNKNOWN, 0, 3000) == 43);
+	CHECK(network_rules_join_request_tail(43, tail, sizeof(tail)) == 236 && !network_rules_join_request_refused(43, tail, 236));
+	/* (the host's own machine: never; no table: never) */
+	CHECK(network_rules_join_retry_version(NETWORK_RULES_VERSION_UNKNOWN, 1, 60000) == 0);
+	network_rules_set_layout_source(NULL);
+	CHECK(network_rules_join_retry_version(NETWORK_RULES_VERSION_UNKNOWN, 0, 60000) == 0);
+}
+
 int main(void)
 {
 	test_aim_assist_message();
@@ -1324,6 +1354,7 @@ int main(void)
 	test_client_across_reverts();
 	test_reliable_split();
 	test_unit_state_length();
+	test_join_paths();
 	if (failures)
 	{
 		printf("network_rules_test: %d failure(s)\n", failures);

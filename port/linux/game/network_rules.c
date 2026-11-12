@@ -892,6 +892,18 @@ unsigned network_rules_client_noted_version(unsigned joined, int hosting, unsign
 	return !hosting && joined == NETWORK_RULES_VERSION_UNKNOWN ? at_least : joined;
 }
 
+unsigned network_rules_join_retry_version(unsigned joined, int hosting, unsigned long waited)
+{
+	struct network_rules_layout layout;
+	unsigned newest;
+
+	if (joined != NETWORK_RULES_VERSION_UNKNOWN || hosting || waited < NETWORK_RULES_JOIN_RETRY_MS)
+		return 0;
+	newest = network_rules_layout_newest();
+	network_rules_layout(newest, &layout);
+	return layout.join_request_version_at >= 0 ? newest : 0;
+}
+
 int network_rules_join_request_refused(unsigned version, uint8_t const *tail, int tail_size)
 {
 	struct network_rules_layout layout;

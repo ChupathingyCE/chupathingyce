@@ -2316,11 +2316,14 @@ static boolean network_game_server_handle_message_client_join_game_request(
 		{
 			network_event("ignoring redundant join request from machine");
 		}
-		/* (port: a request carrying a version word, where the layout of the
-		number this host announces has one, of another number: dropped
+		/* (port: where the layout of the number this host announces has a
+		version word, a request without it or of another number: dropped
 		without a reply, as such a host of OpenCE's does. The encoded request
 		is its version byte, the 0x70 bytes, the tail, its type byte) */
-		else if (message_size > 2 + 0x70 &&
+		/* (the host's own machine, joined at home, is of the number it
+		announces whatever its request carries) */
+		else if (message_size >= 2 + 0x70 &&
+			!network_game_server_client_machine_is_local(server, server_client_machine) &&
 			network_rules_join_request_refused((unsigned)delta_legacy_announce(), (unsigned char const *)(message + 1) + 1 + 0x70,
 				message_size - 2 - 0x70))
 		{
