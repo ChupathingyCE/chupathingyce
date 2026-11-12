@@ -23,6 +23,12 @@ SPDX-License-Identifier: MIT
 #include <sys/socket.h>
 #include <unistd.h>
 
+#ifdef MSG_NOSIGNAL
+#define FEED_FLAGS MSG_NOSIGNAL
+#else
+#define FEED_FLAGS 0
+#endif
+
 struct sc_connection *sc_fuzz_connection(int fd);
 int sc_fuzz_http(struct sc_connection *connection, unsigned char **body, size_t *length, size_t maximum);
 
@@ -42,7 +48,7 @@ static void *feed_thread(void *context)
 
 	while (at < feed->size)
 	{
-		ssize_t sent = send(feed->fd, feed->data + at, feed->size - at, 0);
+		ssize_t sent = send(feed->fd, feed->data + at, feed->size - at, FEED_FLAGS);
 
 		if (sent <= 0)
 			break;
@@ -71,6 +77,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *input, size_t size)
 
 	if (!size || socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0)
 		return 0;
+#ifdef SO_NOSIGPIPE
+	{
+		int set = 1;
+
+		setsockopt(pair[0], SOL_SOCKET, SO_NOSIGPIPE, &set, sizeof(set));
+		setsockopt(pair[1], SOL_SOCKET, SO_NOSIGPIPE, &set, sizeof(set));
+	}
+#endif
 	feed.fd = pair[1];
 	feed.data = input + 1;
 	feed.size = size - 1;

@@ -58,6 +58,13 @@ struct sc_connection
 	mbedtls_ssl_config config;
 };
 
+/* (a send on a connection the server reset fails, not kills the program: Linux) */
+#ifdef MSG_NOSIGNAL
+#define SEND_FLAGS MSG_NOSIGNAL
+#else
+#define SEND_FLAGS 0
+#endif
+
 /* ---------- the lock and the certificate authorities */
 
 static void lock(void)
@@ -171,6 +178,14 @@ static socket_type connect_address(const struct addrinfo *address, int timeout_m
 
 	if (fd == BAD_SOCKET)
 		return BAD_SOCKET;
+#ifdef SO_NOSIGPIPE
+	/* (a send on a connection the server reset fails, not kills the program: macOS, BSD) */
+	{
+		int set = 1;
+
+		setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &set, sizeof(set));
+	}
+#endif
 	set_nonblocking(fd);
 	if (connect(fd, address->ai_addr, (socklen_t)address->ai_addrlen) != 0)
 	{
@@ -194,7 +209,7 @@ static socket_type connect_address(const struct addrinfo *address, int timeout_m
 static int bio_send(void *context, const unsigned char *data, size_t length)
 {
 	struct sc_connection *connection = (struct sc_connection *)context;
-	int sent = (int)send(connection->fd, (const char *)data, (int)length, 0);
+	int sent = (int)send(connection->fd, (const char *)data, (int)length, SEND_FLAGS);
 
 	if (sent < 0)
 		return WOULD_BLOCK(socket_error()) ? MBEDTLS_ERR_SSL_WANT_WRITE : MBEDTLS_ERR_NET_SEND_FAILED;
