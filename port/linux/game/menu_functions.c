@@ -79,6 +79,7 @@ their handlers open opens.
 #include "interface/event_manager.h"
 #include "interface/player_ui.h"
 #include "interface/ui_widget.h"
+#include "interface/virtual_keyboard.h"
 #include "main/main.h"
 #include "networking/network_game_manager.h"
 #include "saved games/player_profile.h"
@@ -1130,7 +1131,9 @@ static void multiplayer_map_text(short map, wchar_t *text)
 		return;
 	}
 #endif
-	string_get("pc\\main_menu\\mp_map_list", map, text);
+	/* (an Xbox map's own string: its place among the Xbox's, which a map
+	chooser's view may have moved: ui_map_list.c) */
+	string_get("pc\\main_menu\\mp_map_list", multiplayer_map_string(map, _ui_map_list_string_lobby_name), text);
 }
 
 /* the description's map (each list's has both kinds' widgets): a campaign
@@ -1160,6 +1163,211 @@ static void map_description_show(struct widget_instance *description, short leve
 		widget->animation.current_frame_index = multiplayer_map_picture(map);
 	if ((widget = named(description, "mp_map_right_data", 0)) != NULL)
 		widget->parameters.text_box.string_list_index = multiplayer_map_string(map, _ui_map_list_string_description);
+}
+
+/* ---- the map choosers' view (New Game's MULTIPLAYER maps, Create Game's
+Map screen): their first rows Search, Show and Sort, then the maps of the
+menus' map list's view (ui_map_list_view_set). Search: typed on its row (the
+keys type while it is chosen, Backspace deletes), or A on it opens the
+on-screen keyboard; Show: A goes to the next source the list has (All, Xbox,
+CE, MD, MCC); Sort: A goes to the next order (Default order, A-Z, Recently
+added). Show and Sort are kept per chooser in display.map_show_<chooser> and
+display.map_sort_<chooser>; the defaults leave the list as it always was */
+
+enum
+{
+	MAP_VIEW_SEARCH_ROW,
+	MAP_VIEW_SHOW_ROW,
+	MAP_VIEW_SORT_ROW,
+	MAP_VIEW_ROWS
+};
+
+#define MAP_VIEW_SEARCH_LENGTH 32
+
+struct map_view
+{
+	char const *chooser;
+	char search[MAP_VIEW_SEARCH_LENGTH];
+	short source, sort;
+	/* the on-screen keyboard is up for Search */
+	boolean keyboard;
+	wchar_t keyboard_text[MAP_VIEW_SEARCH_LENGTH];
+	/* the keys type into Search (its row chosen) */
+	boolean typing;
+};
+
+static struct map_view new_game_view = { "new_game" };
+static struct map_view create_game_view = { "create_game" };
+/* (while a view types: when it was last shown, to let go of the keys once
+its screen has gone) */
+static struct map_view *map_view_typing;
+static unsigned long map_view_typing_time;
+
+boolean input_get_key(struct key_stroke *key);
+void platform_text_field(int typing);
+int ui_overlay_keyboard(void);
+static boolean text_field_editing(struct widget_instance *row);
+
+static void map_view_apply(struct map_view *view)
+{
+	ui_map_list_view_set(view->source, view->sort, view->search);
+}
+
+static void map_view_setting(struct map_view const *view, char const *what, char *name, size_t size)
+{
+	snprintf(name, size, "display.map_%s_%s", what, view->chooser);
+}
+
+/* the chooser opened: its Show and Sort as they were kept, no search */
+static void map_view_open(struct map_view *view)
+{
+	char name[64];
+
+	map_view_setting(view, "show", name, sizeof(name));
+	view->source = ui_map_list_source_from_key(config_string(name));
+	map_view_setting(view, "sort", name, sizeof(name));
+	view->sort = ui_map_list_sort_from_key(config_string(name));
+	view->search[0] = 0;
+	view->keyboard = FALSE;
+	/* (debug.menu_open's "#search=<words>": a search to start with, for
+	screenshots) */
+	{
+		char const *debug = strstr(config_string("debug.menu_open"), "#search=");
+
+		if (debug)
+		{
+			snprintf(view->search, sizeof(view->search), "%s", debug + 8);
+			view->search[strcspn(view->search, "#")] = 0;
+		}
+	}
+	map_view_apply(view);
+	/* (a source the list no longer has: all of them) */
+	if (!ui_map_list_source_present(view->source))
+	{
+		view->source = _ui_map_list_source_all;
+		map_view_apply(view);
+	}
+}
+
+static void map_view_row_text(struct map_view const *view, short row, wchar_t *text)
+{
+	char line[ROW_TEXT_LENGTH];
+	short index;
+
+	if (row == MAP_VIEW_SEARCH_ROW)
+		snprintf(line, sizeof(line), view->search[0] || view->typing ? "Search: %s%s" : "Search", view->search,
+			view->typing && (system_milliseconds() / 500) % 2 ? "_" : "");
+	else if (row == MAP_VIEW_SHOW_ROW)
+		snprintf(line, sizeof(line), "Show: %s", ui_map_list_source_name(view->source));
+	else
+		snprintf(line, sizeof(line), "Sort: %s", ui_map_list_sort_name(view->sort));
+	for (index = 0; line[index] && index < ROW_TEXT_LENGTH - 1; index++)
+		text[index] = (wchar_t)(unsigned char)line[index];
+	text[index] = 0;
+}
+
+/* A on one of the view's rows */
+static void map_view_activate(struct map_view *view, short row)
+{
+	char name[64];
+
+	if (row == MAP_VIEW_SEARCH_ROW)
+	{
+		/* (the keys type already; a controller gets the on-screen keyboard) */
+		if (ui_overlay_keyboard())
+			return;
+		for (row = 0; view->search[row] && row < MAP_VIEW_SEARCH_LENGTH - 1; row++)
+			view->keyboard_text[row] = (wchar_t)(unsigned char)view->search[row];
+		view->keyboard_text[row] = 0;
+		view->keyboard = virtual_keyboard_launch_plain(view->keyboard_text, sizeof(view->keyboard_text), L"Search");
+		return;
+	}
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	if (row == MAP_VIEW_SHOW_ROW)
+	{
+		do
+			view->source = (short)((view->source + 1) % NUMBER_OF_UI_MAP_LIST_SOURCES);
+		while (view->source != _ui_map_list_source_all && !ui_map_list_source_present(view->source));
+		map_view_setting(view, "show", name, sizeof(name));
+		config_write(name, ui_map_list_source_key(view->source));
+	}
+	else
+	{
+		view->sort = (short)((view->sort + 1) % NUMBER_OF_UI_MAP_LIST_SORTS);
+		map_view_setting(view, "sort", name, sizeof(name));
+		config_write(name, ui_map_list_sort_key(view->sort));
+	}
+	map_view_apply(view);
+}
+
+/* each frame the chooser shows, its row chosen (NONE: none): the on-screen
+keyboard's words taken, the keys typed into Search while its row is chosen.
+TRUE when the view changed (the maps are others) */
+static boolean map_view_update(struct map_view *view, short chosen)
+{
+	boolean changed = FALSE, typing;
+	struct key_stroke key;
+
+	if (view->keyboard && !virtual_keyboard_active())
+	{
+		view->keyboard = FALSE;
+		if (virtual_keyboard_last_exit_saved_text())
+		{
+			short index;
+
+			for (index = 0; view->keyboard_text[index] && index < MAP_VIEW_SEARCH_LENGTH - 1; index++)
+				view->search[index] = view->keyboard_text[index] < 0x80 ? (char)view->keyboard_text[index] : '?';
+			view->search[index] = 0;
+			changed = TRUE;
+		}
+	}
+	typing = chosen == MAP_VIEW_SEARCH_ROW && !virtual_keyboard_active() && !text_field_editing(NULL);
+	if (typing != view->typing)
+	{
+		view->typing = typing;
+		platform_text_field(typing);
+		map_view_typing = typing ? view : NULL;
+		while (input_get_key(&key))
+			;
+	}
+	if (typing)
+	{
+		map_view_typing_time = system_milliseconds();
+		while (input_get_key(&key))
+		{
+			size_t length = strlen(view->search);
+
+			if (key.key_code == _key_backspace)
+			{
+				if (length)
+				{
+					view->search[length - 1] = 0;
+					changed = TRUE;
+				}
+			}
+			else if ((unsigned char)key.ascii_code >= ' ' && (unsigned char)key.ascii_code <= '~' &&
+				length < MAP_VIEW_SEARCH_LENGTH - 1)
+			{
+				view->search[length] = key.ascii_code;
+				view->search[length + 1] = 0;
+				changed = TRUE;
+			}
+		}
+	}
+	if (changed)
+		map_view_apply(view);
+	return changed;
+}
+
+/* the keys given back once a typing view's screen has gone (or a game starts) */
+static void map_view_let_go(void)
+{
+	if (map_view_typing)
+	{
+		map_view_typing->typing = FALSE;
+		map_view_typing = NULL;
+		platform_text_field(FALSE);
+	}
 }
 
 /* New Game's list: SINGLEPLAYER's levels, the profile's reached, or
@@ -1201,6 +1409,9 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 	if (!campaign.levels[level].available)
 		level = 0;
 	campaign.shown_level = level;
+	/* (the list found first, so that the view knows the sources it has) */
+	ui_widget_port_multiplayer_maps(&level_list.map_names, NULL);
+	map_view_open(&new_game_view);
 	level_list.map_count = ui_widget_port_multiplayer_maps(&level_list.map_names, &last_used);
 	level_list.kind = MAP_KIND_SINGLEPLAYER;
 	level_list.chosen = level;
@@ -1211,9 +1422,9 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 	if (strstr(config_string("debug.menu_open"), "#multiplayer"))
 	{
 		level_list.kind = MAP_KIND_MULTIPLAYER;
-		level_list.chosen = strstr(config_string("debug.menu_open"), "#multiplayer_last") ?
-			(short)MAX(level_list.map_count - 1, 0) : 0;
-		level_list.first = map_kind_first(level_list.chosen, level_list.map_count);
+		level_list.chosen = (short)(MAP_VIEW_ROWS + (strstr(config_string("debug.menu_open"), "#multiplayer_last") ?
+			MAX(level_list.map_count - 1, 0) : 0));
+		level_list.first = map_kind_first(level_list.chosen, (short)(MAP_VIEW_ROWS + level_list.map_count));
 	}
 	else if (strstr(config_string("debug.menu_open"), "#singleplayer_last"))
 	{
@@ -1225,6 +1436,15 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 	map_kind_set(list, level_list.kind);
 	map_kind_focus(list, level_list.first, level_list.chosen);
 	return TRUE;
+}
+
+/* MULTIPLAYER's rows: the view's, then the maps */
+static void level_map_row_text(short entry, wchar_t *text)
+{
+	if (entry < MAP_VIEW_ROWS)
+		map_view_row_text(&new_game_view, entry, text);
+	else
+		multiplayer_map_text((short)(entry - MAP_VIEW_ROWS), text);
 }
 
 static void level_row_text(short level, wchar_t *text)
@@ -1254,16 +1474,28 @@ static void level_list_update(struct widget_instance *list)
 	{
 		level_list.kind = kind;
 		level_list.first = level_list.chosen = 0;
+		/* (MULTIPLAYER's on its first map, past the view's rows) */
+		if (kind == MAP_KIND_MULTIPLAYER)
+			level_list.chosen = MAP_VIEW_ROWS;
 	}
+	if (kind == MAP_KIND_MULTIPLAYER && map_view_update(&new_game_view, level_list.chosen))
+	{
+		level_list.map_count = (short)ui_map_list_count();
+		level_list.chosen = (short)MIN(level_list.chosen, MAP_VIEW_ROWS + MAX(level_list.map_count, 1) - 1);
+		level_list.first = (short)MIN(level_list.first, level_list.chosen);
+	}
+	else if (kind != MAP_KIND_MULTIPLAYER)
+		map_view_update(&new_game_view, NONE);
 	count = kind == MAP_KIND_SINGLEPLAYER ? (short)(NUMBER_OF_SINGLE_PLAYER_LEVELS + mcc_level_count()) :
-		level_list.map_count;
+		(short)(MAP_VIEW_ROWS + level_list.map_count);
 	entry = map_kind_rows_update(list, &level_list.first, count,
-		kind == MAP_KIND_SINGLEPLAYER ? level_row_text : multiplayer_map_text);
+		kind == MAP_KIND_SINGLEPLAYER ? level_row_text : level_map_row_text);
 	if (entry != NONE)
 		level_list.chosen = entry;
 	if (kind == MAP_KIND_MULTIPLAYER)
 	{
-		map_description_show(description, NONE, level_list.chosen < count ? level_list.chosen : NONE);
+		map_description_show(description, NONE, level_list.chosen >= MAP_VIEW_ROWS && level_list.chosen < count ?
+			(short)(level_list.chosen - MAP_VIEW_ROWS) : NONE);
 		profile_name_show(description);
 		return;
 	}
@@ -1297,13 +1529,18 @@ static boolean level_choose(short controller)
 	if (level_list.kind == MAP_KIND_MULTIPLAYER)
 	{
 		struct player_profile profile;
+		short map = (short)(level_list.chosen - MAP_VIEW_ROWS);
 
-		if (level_list.chosen < 0 || level_list.chosen >= level_list.map_count ||
-			!campaign_profile(controller, &profile))
+		/* (Search, Show or Sort) */
+		if (level_list.chosen >= 0 && level_list.chosen < MAP_VIEW_ROWS)
 		{
-			return campaign_fail();
+			map_view_activate(&new_game_view, level_list.chosen);
+			return FALSE;
 		}
-		campaign_start(level_list.map_names[level_list.chosen], main_get_difficulty(), controller);
+		if (map < 0 || map >= level_list.map_count || !campaign_profile(controller, &profile))
+			return campaign_fail();
+		map_view_let_go();
+		campaign_start(level_list.map_names[map], main_get_difficulty(), controller);
 		return FALSE;
 	}
 	if (level >= NUMBER_OF_SINGLE_PLAYER_LEVELS)
@@ -3753,7 +3990,8 @@ static short map_step_count(void)
 {
 	if (map_list.step == MAP_STEP_DIFFICULTIES)
 		return NUMBER_OF_GAME_DIFFICULTY_LEVELS;
-	return map_list.kind == MAP_KIND_SINGLEPLAYER ? NUMBER_OF_SINGLE_PLAYER_LEVELS : map_list.map_count;
+	return map_list.kind == MAP_KIND_SINGLEPLAYER ? NUMBER_OF_SINGLE_PLAYER_LEVELS :
+		(short)(MAP_VIEW_ROWS + map_list.map_count);
 }
 
 /* opens a step at the entry given */
@@ -3773,6 +4011,14 @@ static void map_level_text(short level, wchar_t *text)
 	string_get("pc\\main_menu\\map_list", level, text);
 }
 
+static void map_map_row_text(short entry, wchar_t *text)
+{
+	if (entry < MAP_VIEW_ROWS)
+		map_view_row_text(&create_game_view, entry, text);
+	else
+		multiplayer_map_text((short)(entry - MAP_VIEW_ROWS), text);
+}
+
 static void map_difficulty_text(short difficulty, wchar_t *text)
 {
 	string_get("pc\\main_menu\\player_profiles_select\\difficulty_names", difficulty, text);
@@ -3785,10 +4031,13 @@ static boolean map_list_initialize(struct widget_instance *list)
 	short last_used = 0;
 
 	map_list.hosting = global_network_game_server_get() != NULL && !network_game_is_splitscreen_local();
+	/* (the list found first, so that the view knows the sources it has) */
+	ui_widget_port_multiplayer_maps(&names, NULL);
+	map_view_open(&create_game_view);
 	map_list.map_count = ui_widget_port_multiplayer_maps(&names, &last_used);
 	map_list.kind = MAP_KIND_MULTIPLAYER;
 	map_kind_set(list, map_list.kind);
-	map_step_open(list, MAP_STEP_MAPS, last_used);
+	map_step_open(list, MAP_STEP_MAPS, (short)(MAP_VIEW_ROWS + last_used));
 	return TRUE;
 }
 
@@ -3804,10 +4053,23 @@ static void map_list_update(struct widget_instance *list)
 		map_list.kind = kind;
 		map_list.step = MAP_STEP_MAPS;
 		map_list.first = map_list.chosen = 0;
+		if (kind == MAP_KIND_MULTIPLAYER)
+			map_list.chosen = MAP_VIEW_ROWS;
 	}
+	if (map_list.step == MAP_STEP_MAPS && kind == MAP_KIND_MULTIPLAYER)
+	{
+		if (map_view_update(&create_game_view, map_list.chosen))
+		{
+			map_list.map_count = (short)ui_map_list_count();
+			map_list.chosen = (short)MIN(map_list.chosen, MAP_VIEW_ROWS + MAX(map_list.map_count, 1) - 1);
+			map_list.first = (short)MIN(map_list.first, map_list.chosen);
+		}
+	}
+	else
+		map_view_update(&create_game_view, NONE);
 	count = map_step_count();
 	entry = map_kind_rows_update(list, &map_list.first, count, map_list.step == MAP_STEP_DIFFICULTIES ?
-		map_difficulty_text : kind == MAP_KIND_SINGLEPLAYER ? map_level_text : multiplayer_map_text);
+		map_difficulty_text : kind == MAP_KIND_SINGLEPLAYER ? map_level_text : map_map_row_text);
 	if (entry != NONE)
 		map_list.chosen = entry;
 	visible_set(named(description, "mp_map_right_item", 0), map_list.chosen < count);
@@ -3820,7 +4082,8 @@ static void map_list_update(struct widget_instance *list)
 	}
 	else
 	{
-		map_description_show(description, NONE, map_list.chosen < count ? map_list.chosen : NONE);
+		map_description_show(description, NONE, map_list.chosen >= MAP_VIEW_ROWS && map_list.chosen < count ?
+			(short)(map_list.chosen - MAP_VIEW_ROWS) : NONE);
 	}
 	profile_name_show(description);
 }
@@ -3851,7 +4114,16 @@ static boolean map_list_choose(struct widget_instance *list, boolean *widget_del
 		return ui_widget_port_open(list, SERVER_SETUP_NAME, widget_deleted);
 	}
 	if (map_list.kind == MAP_KIND_MULTIPLAYER)
-		return ui_widget_port_multiplayer_map_choose(chosen);
+	{
+		/* (Search, Show or Sort) */
+		if (chosen < MAP_VIEW_ROWS)
+		{
+			map_view_activate(&create_game_view, chosen);
+			return FALSE;
+		}
+		map_view_let_go();
+		return ui_widget_port_multiplayer_map_choose((short)(chosen - MAP_VIEW_ROWS));
+	}
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	map_list.level = chosen;
 	map_step_open(list, MAP_STEP_DIFFICULTIES, (short)PIN(main_get_difficulty(), 0, NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1));
@@ -4573,8 +4845,11 @@ static void map_display_name(char const *map_name, wchar_t *text)
 {
 	char const *const *names;
 	short index;
-	short count = ui_widget_port_multiplayer_maps(&names, NULL);
+	short count;
 
+	/* (every row, a map a map chooser's view leaves out too) */
+	ui_widget_port_multiplayer_maps(&names, NULL);
+	count = (short)ui_map_list_count_all();
 	for (index = 0; index < count; index++)
 	{
 		if (!_stricmp(scenario_name(names[index]), scenario_name(map_name)))
@@ -6497,8 +6772,12 @@ static void lobby_rows_color(struct widget_instance *list, struct network_game c
 static void lobby_map_show(struct widget_instance *description, char const *map_name)
 {
 	char const *const *names;
-	short count = ui_widget_port_multiplayer_maps(&names, NULL), map = 19, index;
+	short count, map = 19, index;
 	short level = campaign_level_of(map_name);
+
+	/* (every row, a map a map chooser's view leaves out too) */
+	ui_widget_port_multiplayer_maps(&names, NULL);
+	count = (short)ui_map_list_count_all();
 	struct widget_instance *widget;
 
 	for (index = 0; index < count; index++)
@@ -9809,9 +10088,12 @@ void pc_menu_game_data_function_invoke(
 
 	if (!name)
 		return;
-	/* (a text field whose screen has gone: let go of) */
+	/* (a text field whose screen has gone: let go of; a map chooser's Search
+	too) */
 	if (text_field.row && system_milliseconds() - text_field_shown_time > 500)
 		text_field_end(FALSE);
+	if (map_view_typing && system_milliseconds() - map_view_typing_time > 500)
+		map_view_let_go();
 	if (!strcmp(name, "solo map list update"))
 		level_list_update(widget);
 	else if (!strcmp(name, "mp map list update"))

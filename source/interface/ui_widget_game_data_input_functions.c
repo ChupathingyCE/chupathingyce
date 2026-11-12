@@ -4412,6 +4412,14 @@ static void mp_level_select_list_update_displayed_items(
 		definition->child_count == 3,
 		"expected 3 children (list items) for 'level select' widget");
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: the Xbox menus' Select Map's search (ui_widget.c) */
+	{
+		extern void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget);
+
+		ui_widget_port_xbox_map_list_sync(list_widget);
+	}
+#endif
 	spinner_list_3wide_determine_displayed_item_indices(
 		list_widget,
 		displayed_item_indices);

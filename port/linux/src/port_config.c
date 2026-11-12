@@ -406,6 +406,22 @@ static const struct config_setting config_settings[] =
 		"Which menus to use: \"chupathingy\", \"xbox\" or \"gearbox\".\n"
 		"Put your own menus in a menus folder next to config.toml.\n"
 		"Restart Chupathingy after a change." },
+	{ "display.map_show_new_game", _config_string, "\"all\"", "HALO_MAP_SHOW_NEW_GAME", _environment_value,
+		_platform_all,
+		"Which maps New Game's multiplayer list shows: \"all\", \"xbox\", \"ce\",\n"
+		"\"md\" or \"mcc\". Show in the list changes it." },
+	{ "display.map_sort_new_game", _config_string, "\"default\"", "HALO_MAP_SORT_NEW_GAME", _environment_value,
+		_platform_all,
+		"The order of New Game's multiplayer list: \"default\", \"az\" or\n"
+		"\"recent\" (recently added first). Sort in the list changes it." },
+	{ "display.map_show_create_game", _config_string, "\"all\"", "HALO_MAP_SHOW_CREATE_GAME", _environment_value,
+		_platform_all,
+		"Which maps Create Game's map list shows: \"all\", \"xbox\", \"ce\",\n"
+		"\"md\" or \"mcc\". Show in the list changes it." },
+	{ "display.map_sort_create_game", _config_string, "\"default\"", "HALO_MAP_SORT_CREATE_GAME",
+		_environment_value, _platform_all,
+		"The order of Create Game's map list: \"default\", \"az\" or \"recent\"\n"
+		"(recently added first). Sort in the list changes it." },
 	{ "display.theme", _config_string, "\"blue\"", "HALO_THEME", _environment_value, _platform_all,
 		"The colors of the Delta Guide and the setup screen: \"blue\" (Halo\n"
 		"Blue) or \"red\" (Chupathingy Red). A change shows at once." },
