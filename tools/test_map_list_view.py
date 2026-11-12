@@ -180,3 +180,62 @@ def test_the_item_play_handed_over_leads_the_rows(output):
 def test_the_item_let_go_leaves_the_list_as_it_was(output):
     assert rows(output, "first_reset") == ["bloodgulch", "timberland", "mcc_maps\\7\\beta", "mcc_maps\\7\\alpha",
                                            "|", "a10"]
+
+
+def test_desktop_list_has_room_for_the_mcc_catalog():
+    """#1137: the MCC catalog's maps come after the Custom Edition, HaloMD and Halo PC ones, its campaign maps
+    last of all; a list of 256 rows left a large Workshop collection and every campaign map out. A computer's
+    list holds the whole catalog beside a large Custom Edition folder, and every row's string index fits"""
+    import re
+    block = SOURCE[SOURCE.index("#ifdef HALO_CONSOLE_MAP_LIST_ROWS\n\tMAXIMUM_MAP_LIST"):]
+    desktop = int(re.search(r"#else[^#]*MAXIMUM_MAP_LIST = (\d+),", block).group(1))
+    header = (ROOT / "port/linux/game/mcc_maps.h").read_text()
+    catalog = int(re.search(r"#define MCC_MAPS_MAXIMUM (\d+)", header).group(1))
+    assert desktop >= 13 + catalog + 1024
+    kinds = (ROOT / "port/linux/include/halo_ui_map_list.h").read_text()
+    per_row = len(re.findall(r"^\s*_ui_map_list_string_\w+,", kinds, re.M))
+    assert per_row == 5
+    assert 0x4000 + desktop * per_row <= 0x7FFF
+
+
+def test_maps_left_out_of_a_full_list_are_counted(tmp_path):
+    """a map with no room left is counted and named for the log (ui_map_list_refresh), never dropped in silence"""
+    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if not compiler:
+        pytest.skip("no C compiler")
+    prelude = r"""
+#include <stdio.h>
+#include <string.h>
+#include <wchar.h>
+typedef int boolean;
+#define FALSE 0
+#define MAXIMUM_MAP_LIST 3
+#define MAP_NAME_LENGTH 64
+#define DISPLAY_NAME_LENGTH 32
+#define DESCRIPTION_LENGTH 32
+struct ui_map_entry { char map_name[MAP_NAME_LENGTH]; wchar_t display_name[DISPLAY_NAME_LENGTH],
+	lobby_name[DISPLAY_NAME_LENGTH], pane_name[DISPLAY_NAME_LENGTH], description[DESCRIPTION_LENGTH];
+	short xbox_index, picture_index; wchar_t const *game_type; short source; boolean added_known; long long added; };
+static struct ui_map_entry ui_map_list[MAXIMUM_MAP_LIST];
+static long ui_map_list_count_value, ui_map_list_left_out;
+static short ui_map_list_adding_source;
+static char ui_map_list_first_left_out[MAP_NAME_LENGTH];
+static void wide_copy(wchar_t *out, long size, wchar_t const *text) { wcsncpy(out, text, (size_t)size - 1); }
+"""
+    driver = r"""
+int main(void)
+{
+	static char const *const names[] = { "a", "b", "c", "mcc_maps\\3477809506\\1", "mcc_maps\\2886943774\\a10" };
+	int index;
+	for (index = 0; index < 5; index++)
+		add_entry(names[index], L"n", L"n", L"d", -1, 0);
+	printf("%ld %ld %s\n", ui_map_list_count_value, ui_map_list_left_out, ui_map_list_first_left_out);
+	return 0;
+}
+"""
+    (tmp_path / "add.c").write_text(prelude + function(SOURCE, "add_entry") + driver)
+    build = subprocess.run([compiler, "-std=gnu99", "-w", str(tmp_path / "add.c"), "-o", str(tmp_path / "add")],
+                           capture_output=True, text=True)
+    assert build.returncode == 0, build.stderr
+    result = subprocess.run([str(tmp_path / "add")], capture_output=True, text=True, check=True)
+    assert result.stdout.split() == ["3", "2", "mcc_maps\\3477809506\\1"]

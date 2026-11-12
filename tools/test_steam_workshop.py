@@ -90,6 +90,14 @@ int main(int argc, char **argv)
 				map->preview);
 		}
 		printf("again=%d\n", steam_workshop_count());
+		for (index = 0; index < steam_workshop_item_unlisted(NULL, 0, NULL, NULL, NULL, NULL); index++)
+		{
+			char id[STEAM_WORKSHOP_ID_SIZE], name[64], reason[STEAM_WORKSHOP_REASON_SIZE];
+			char detail[STEAM_WORKSHOP_DETAIL_SIZE];
+
+			steam_workshop_item_unlisted(NULL, index, id, name, reason, detail);
+			printf("unlisted=%s|%s|%s|%s\n", id, name, reason, detail);
+		}
 		printf("folder=%d %s\n", steam_workshop_package_folder("111", folder, sizeof(folder)), folder);
 		printf("none=%d\n", steam_workshop_package_folder("999", folder, sizeof(folder)));
 		printf("title=%d %s\n", steam_workshop_item_title("222", title, sizeof(title)), title);
@@ -619,11 +627,14 @@ def make_campaign(folder, names=("z10", "a10")):
 def test_campaign_discovery_and_explicit_order(tool, tmp_path, monkeypatch):
     folder = tmp_path / "steamapps/workshop/content/976730/111"
     make_campaign(folder)
-    assert run(tool, "scan", setting=str(tmp_path))[0]["count"] == "0"
-    monkeypatch.setenv("TEST_MCC_CAMPAIGNS", "1")
-    fields, rows = run(tool, "scan", setting=str(tmp_path))
-    assert fields["count"] == "2"
-    assert [row.split("|")[2] for row in rows["map"]] == ["z10", "a10"]
+    # (listed whether or not game.mcc_campaigns is on: it only adds order and progression, mcc_maps.c)
+    for campaigns in (False, True):
+        if campaigns:
+            monkeypatch.setenv("TEST_MCC_CAMPAIGNS", "1")
+        fields, rows = run(tool, "scan", setting=str(tmp_path))
+        assert fields["count"] == "2" and "unlisted" not in rows
+        assert [row.split("|")[2] for row in rows["map"]] == ["z10", "a10"]
+        assert [row.split("|")[3] for row in rows["map"]] == ["Mission z10", "Mission a10"]
     fields, rows = run(tool, "manifest", folder)
     assert fields["result"] == "1" and fields["title"] == "Example campaign"
     assert rows["mission"] == ["z10|Mission z10", "a10|Mission a10"]
@@ -749,7 +760,7 @@ def test_campaign_kind_case_does_not_hide_other_missions(tool, tmp_path, monkeyp
     assert [row.split("|")[2] for row in rows["map"]] == ["z10", "a10"]
     assert path.read_bytes() == original
     monkeypatch.delenv("TEST_MCC_CAMPAIGNS")
-    assert run(tool, "scan", setting=str(tmp_path))[0]["count"] == "0"
+    assert run(tool, "scan", setting=str(tmp_path))[0]["count"] == "2"
 
 
 @pytest.mark.parametrize("kind", ["Hub", "hub", "Flashback", "", " Default", "Default ", "Default/", 0, True, None, [], {}])
@@ -766,3 +777,70 @@ def test_campaign_kind_refusal_is_reported(tool, tmp_path, kind):
     result = subprocess.run([str(tool), "scan"], env=env, capture_output=True, text=True, timeout=20)
     assert result.returncode == 0 and "count=0" in result.stdout
     assert "111" in result.stderr and "Unsupported campaign mission kind" in result.stderr
+
+
+def test_unlisted_maps_say_why(tool, tmp_path):
+    """#1137: a map an item names that can't be listed is logged with its reason and kept for the item's page,
+    never dropped in silence; the item's other maps are still listed"""
+    folder = make_item(tmp_path, "111", maps=(("good", "Good"), ("gone", "No File"), ("broken", "Bad Json")),
+                       preview=False)
+    (folder / "Maps/gone.map").unlink()
+    (folder / "Maps/broken.json").write_text("{not json")
+    names = json.loads((folder / "ModInfo.json").read_text())["GameModContents"]["MultiplayerMaps"]
+    (folder / "ModInfo.json").write_text(item_json(GameModContents={"MultiplayerMaps": names + ["maps\\absent.json"]}))
+    make_item(tmp_path, "222", maps=())
+    (tmp_path / "steamapps/workshop/content/976730/222/ModInfo.json").write_text("not json")
+    env = dict(os.environ, TEST_STEAM_SETTING=str(tmp_path), HOME=str(tmp_path / "none"), XDG_DATA_HOME="",
+               STEAM_COMPAT_CLIENT_INSTALL_PATH="", TEST_DATA_ROOT="/nonexistent")
+    result = subprocess.run([str(tool), "scan"], env=env, capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0
+    lines = result.stdout.splitlines()
+    assert [line.split("|")[2] for line in lines if line.startswith("map=")] == ["good"]
+    unlisted = sorted(line[len("unlisted="):].split("|") for line in lines if line.startswith("unlisted="))
+    # (a word or two for the page, each case its own, no file names; those are the log's)
+    assert [row[:3] for row in unlisted] == [
+        ["111", "absent", "Map info missing"], ["111", "broken", "Map info unreadable"],
+        ["111", "gone", "Map missing"], ["222", "", "Item info unreadable"]]
+    for row in unlisted:
+        assert "." not in row[2] and len(row[2].split()) <= 3
+    assert "Workshop item 111: map gone can't be listed: its .map file is not in the maps folder (Map missing)" \
+        in result.stderr
+    assert "ModInfo.json" in result.stderr
+    # (each once a scan, however often it is asked for)
+    assert result.stderr.count("map gone can't be listed") == 1
+
+
+def test_campaign_without_its_manifest_says_why(tool, tmp_path):
+    folder = tmp_path / "steamapps/workshop/content/976730/111"
+    make_campaign(folder)
+    (folder / "CampaignInfo.json").unlink()
+    fields, rows = run(tool, "scan", setting=str(tmp_path))
+    assert fields["count"] == "0"
+    assert rows["unlisted"] == ["111||Campaign info missing|HasCampaign is set but there is no CampaignInfo.json"]
+
+
+def test_numbered_collection_in_a_second_library(tool, tmp_path):
+    """#1137: a collection named by numbers (Digsite's 1.map ... 75.map) in a library only libraryfolders.vdf
+    names, beside a campaign item and a mixed item in Steam's own folder: every map is listed"""
+    home = tmp_path / "home"
+    steam = home / ".local/share/Steam"
+    other = tmp_path / "Second Library"
+    (steam / "steamapps").mkdir(parents=True)
+    (steam / "steamapps/libraryfolders.vdf").write_text(
+        '"libraryfolders"\n{\n"0"\n{\n"path"\t"%s"\n}\n"1"\n{\n"path"\t"%s"\n}\n}\n' % (steam.as_posix(), other.as_posix()))
+    make_item(other, "3477809506", "CE Digsite Multiplayer", maps=[(str(n), f"Digsite {n}") for n in range(1, 76)],
+              preview=False)
+    make_campaign(steam / "steamapps/workshop/content/976730/2886943774")
+    mixed = steam / "steamapps/workshop/content/976730/3002260635"
+    make_campaign(mixed, ("crashsite",))
+    (mixed / "multiplayer").mkdir()
+    (mixed / "multiplayer/splashsite.json").write_text(json.dumps({"ScenarioFile": "splashsite"}))
+    make_map(mixed / "maps", "splashsite")
+    (mixed / "ModInfo.json").write_text(item_json(GameModContents={"HasCampaign": True,
+        "MultiplayerMaps": ["multiplayer/splashsite.json"]}))
+    fields, rows = run(tool, "scan", home=home)
+    found = [tuple(row.split("|")[i] for i in (0, 2)) for row in rows["map"]]
+    assert fields["count"] == str(75 + 2 + 2) and "unlisted" not in rows
+    assert sorted(name for item, name in found if item == "3477809506") == sorted(str(n) for n in range(1, 76))
+    assert sorted(name for item, name in found if item == "3002260635") == ["crashsite", "splashsite"]
+    assert sorted(name for item, name in found if item == "2886943774") == ["a10", "z10"]

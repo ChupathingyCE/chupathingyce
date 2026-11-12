@@ -1409,8 +1409,9 @@ static const struct config_setting config_settings[] =
 		"Steam/XDG hints, macOS's Steam folder, usual folders and their libraries. Windows paths use single\n"
 		"quotes: 'D:\\Steam'." },
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
-		"Use explicit MCC campaign manifests for mission discovery, ordering and\n"
-		"progression. Reopen the map list after changing this." },
+		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
+		"Workshop campaign maps are listed either way. Reopen the map list after\n"
+		"changing this." },
 	{ "game.mcc_campaigns_asked", _config_boolean, "false", "HALO_MCC_CAMPAIGNS_ASKED", _environment_value,
 		_platform_desktop,
 		"Chupathingy sets this once the Delta Guide's Workshop PLAY asked about\n"
