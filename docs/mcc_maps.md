@@ -176,6 +176,11 @@ unreadable, non-string or oversized registry values are ignored. The detected
 path is not written to the configuration: an empty setting continues to use
 automatic discovery on the next scan.
 
+A map an item names that can't be listed (its json or `.map` file missing or
+unreadable, not a Halo 1 MCC cache, a name too long) is never dropped silently:
+the log says which map and why, and the item's Workshop page shows a short
+status under its description.
+
 On Linux, after the manual override, discovery checks the literal absolute path
 in `STEAM_COMPAT_CLIENT_INSTALL_PATH` when the launch environment supplies it,
 then `$XDG_DATA_HOME/Steam`. It also keeps the home-folder fallbacks above and
@@ -324,8 +329,9 @@ complete campaigns require gameplay testing.
 Without campaign metadata enabled, each selected MCC campaign map remains an
 independent scenario. Enable **CAMPAIGN MISSIONS** under Settings > Network
 Setup > Map Sharing > MCC Packages (`game.mcc_campaigns`, default false) to
-discover Workshop campaigns and use their authored mission order. The same
-screen exposes desktop Steam discovery and optional collection folders.
+use Workshop campaigns' authored mission order and progression. Their missions
+are listed either way. The same screen exposes desktop Steam discovery and
+optional collection folders.
 
 `ModInfo.json` must identify `Halo1` and `GameModContents.HasCampaign = true`.
 `CampaignInfo.json` supplies an explicit `CampaignMaps` list; each referenced

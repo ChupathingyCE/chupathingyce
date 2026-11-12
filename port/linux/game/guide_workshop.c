@@ -52,6 +52,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "../src/ui_overlay.h"
 #include "../src/workshop_browser.h"
+#include "../src/steam_workshop.h"
 #include "../src/steam_client_bridge.h"
 #include "../src/browser.h"
 #include "../src/settings_rows.h"
@@ -1244,6 +1245,53 @@ static char const *plain_description(struct workshop_browser_item const *item)
 	return workshop_view.plain;
 }
 
+/* what of an installed item can't be listed in the map lists, and why
+(steam_workshop_unlisted), after its page's text: a short plain status */
+#define PAGE_UNLISTED_LINES 6
+
+static void page_unlisted(char const *id, char *text, size_t size)
+{
+	char map[64], reason[STEAM_WORKSHOP_REASON_SIZE];
+	int count = steam_workshop_item_unlisted(id, 0, NULL, NULL, NULL), which, pass, maps = 0, shown = 0;
+	size_t length;
+
+	/* (the whole item's first, then its maps') */
+	for (pass = 0; pass < 2; pass++)
+	{
+		for (which = 0; which < count; which++)
+		{
+			steam_workshop_item_unlisted(id, which, NULL, map, reason);
+			if (!map[0] != !pass)
+				continue;
+			length = strlen(text);
+			if (!pass)
+			{
+				snprintf(text + length, size - length, "%sNot listed: %s", length ? "\n\n" : "", reason);
+				continue;
+			}
+			if (!maps++)
+			{
+				int total = 0, other;
+
+				for (other = 0; other < count; other++)
+				{
+					steam_workshop_item_unlisted(id, other, NULL, map, NULL);
+					total += map[0] != 0;
+				}
+				steam_workshop_item_unlisted(id, which, NULL, map, reason);
+				snprintf(text + length, size - length, "%s%d %s can't be listed:", length ? "\n\n" : "", total,
+					total == 1 ? "map" : "maps");
+				length = strlen(text);
+			}
+			if (shown++ < PAGE_UNLISTED_LINES)
+				snprintf(text + length, size - length, "\n%s: %s", map, reason);
+		}
+	}
+	length = strlen(text);
+	if (shown > PAGE_UNLISTED_LINES)
+		snprintf(text + length, size - length, "\n...and %d more", shown - PAGE_UNLISTED_LINES);
+}
+
 /* the chosen item's page text: its author's words (never words of ours in
 their place), then, for a pack, the maps in it (the installed item's, from
 the map catalog: mcc_maps\<id>\...; an item not installed lists none) */
@@ -1266,6 +1314,7 @@ static char const *page_text(struct workshop_browser_item const *item)
 		if (level && !_strnicmp(level, prefix, strlen(prefix)))
 			maps++;
 	}
+	page_unlisted(item->id, text, sizeof(text));
 	if (maps < 2)
 		return text;
 	length = strlen(text);
