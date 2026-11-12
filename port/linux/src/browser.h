@@ -244,11 +244,11 @@ before browser_host_update, which takes it with the game */
 void browser_host_workshop(const char *id, const char *title);
 
 /* the hosted game's game type (its variant's name, NULL for a variant
-without one: then its engine's and teams', "Team Slayer"), for the
-announcement's gametype; called before browser_host_update, which takes it
-with the game */
+without one; a co-op game's difficulty, -1 for none), for the
+announcement's gametype as network_rules_gametype_name names it; called
+before browser_host_update, which takes it with the game */
 #define BROWSER_GAMETYPE_LENGTH 25
-void browser_host_gametype(const char *name, short engine, int teams);
+void browser_host_gametype(const char *name, short engine, int teams, int difficulty);
 
 /* the hosted game, as the game's server has it; called each frame while
 this machine hosts (network_server_manager.c). The listing follows (and is

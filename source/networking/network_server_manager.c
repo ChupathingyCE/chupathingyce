@@ -1965,11 +1965,13 @@ boolean network_game_server_idle(
 			built-in without a name of its own, as the engine and teams
 			name it: MCC Workshop playlists play "slayer" and "ctf") */
 			{
-				char gametype[NETWORK_GAME_SERVER_LISTING_GAMETYPE_SIZE];
+				char gametype[NUMBEROF(game->variant.human_readable_game_description) + 1];
 
-				listing_gametype(game, gametype, sizeof(gametype));
-				browser_host_gametype(gametype[0] ? gametype : NULL,
-					(short)game->variant.game_engine_index, game->variant.universal_variant.teams == TRUE);
+				listing_text(gametype, sizeof(gametype), game->variant.human_readable_game_description,
+					NUMBEROF(game->variant.human_readable_game_description));
+				browser_host_gametype(gametype, (short)game->variant.game_engine_index,
+					game->variant.universal_variant.teams == TRUE,
+					game->variant.game_engine_index ? -1 : (int)game->difficulty);
 			}
 			browser_host_update(
 				(unsigned short const *)game->name,

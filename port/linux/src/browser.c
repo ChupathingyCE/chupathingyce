@@ -4293,9 +4293,10 @@ void browser_host_workshop(const char *id, const char *title)
 
 static char browser_host_gametype_name[BROWSER_GAMETYPE_LENGTH];
 
-void browser_host_gametype(const char *name, short engine, int teams)
+void browser_host_gametype(const char *name, short engine, int teams, int difficulty)
 {
-	network_rules_gametype_name(name, engine, teams, browser_host_gametype_name, sizeof(browser_host_gametype_name));
+	network_rules_gametype_name(name, engine, teams, difficulty, browser_host_gametype_name,
+		sizeof(browser_host_gametype_name));
 }
 
 void browser_host_update(const unsigned short *name, const char *map, short engine, short players,

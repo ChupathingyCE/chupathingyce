@@ -283,9 +283,33 @@ char const *network_rules_kind_name(int kind, int engine, int short_form)
 	return NULL;
 }
 
-void network_rules_gametype_name(const char *name, int engine, int teams, char *text, size_t size)
+/* appends text to text[*length], cut to size - 1 characters */
+static void gametype_append(char *text, size_t size, size_t *length, const char *more)
+{
+	for (; *more && *length < size - 1; more++)
+		text[(*length)++] = *more;
+	text[*length] = 0;
+}
+
+void network_rules_engine_name(int engine, int teams, char *text, size_t size)
 {
 	static char const *const engines[] = { "CTF", "Slayer", "Oddball", "King", "Race", "Bomb" };
+	size_t length = 0;
+
+	if (!size)
+		return;
+	text[0] = 0;
+	if (engine < 1 || engine > (int)(sizeof(engines) / sizeof(engines[0])))
+		return;
+	/* (Capture the Flag is played in teams alone) */
+	if (teams && engine != 1)
+		gametype_append(text, size, &length, "Team ");
+	gametype_append(text, size, &length, engines[engine - 1]);
+}
+
+void network_rules_gametype_name(const char *name, int engine, int teams, int difficulty, char *text, size_t size)
+{
+	static char const *const difficulties[] = { "Easy", "Normal", "Heroic", "Legendary" };
 	size_t length = 0;
 
 	if (!size)
@@ -301,19 +325,17 @@ void network_rules_gametype_name(const char *name, int engine, int teams, char *
 			length--;
 	}
 	text[length] = 0;
-	if (length || engine < 1 || engine > (int)(sizeof(engines) / sizeof(engines[0])))
-		return;
-	/* (else the engine's, in teams but for CTF and Bomb) */
-	if (teams && engine != 1 && engine != 6)
+	/* (a co-op game: its name, "Co-op" for none, and its difficulty) */
+	if (!engine && difficulty >= 0 && difficulty < (int)(sizeof(difficulties) / sizeof(difficulties[0])))
 	{
-		static char const team[] = "Team ";
-
-		for (; length < sizeof(team) - 1 && length < size - 1; length++)
-			text[length] = team[length];
+		if (!length)
+			gametype_append(text, size, &length, "Co-op");
+		gametype_append(text, size, &length, " ");
+		gametype_append(text, size, &length, difficulties[difficulty]);
+		return;
 	}
-	for (name = engines[engine - 1]; *name && length < size - 1; name++)
-		text[length++] = *name;
-	text[length] = 0;
+	if (!length)
+		network_rules_engine_name(engine, teams, text, size);
 }
 
 void network_rules_shield_effects_write(uint8_t *message, int effects, int32_t game_time)
