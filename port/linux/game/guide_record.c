@@ -69,7 +69,7 @@ enum
 
 /* the theme's (ui_style_color), and white the same in all */
 #define COLOR_PANE_EDGE ui_style_color(UI_COLOR_ROW_EDGE)
-#define COLOR_SETTING ui_style_color(UI_COLOR_SELECTED_EDGE)
+#define COLOR_SETTING ui_style_color(UI_COLOR_SETTING_NAME)
 #define COLOR_COUNT ui_style_color(UI_COLOR_TEXT_SOFT)
 enum
 {

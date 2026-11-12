@@ -772,7 +772,7 @@ static void link_qr_draw(struct guide_rect square, char const *text)
 				;
 			if (dark)
 				ui_overlay_rect(square.x + (qr_x + 4) * module, square.y + (qr_y + 4) * module, run * module + 0.3f,
-					module + 0.3f, 0, ui_style_color(UI_COLOR_EMBLEM_LETTER));
+					module + 0.3f, 0, 0x000000FF);
 		}
 	}
 }
@@ -925,7 +925,7 @@ void guide_workshop_link_modal_render(float left, float top, float right, float 
 	/* (the Guide under it dimmed past reading, the window solid) */
 	ui_overlay_rect(-200, 0, 1040, 480, 0, 0x000000E6);
 	ui_overlay_rect(layout.window.x, layout.window.y, layout.window.width, layout.window.height, 10,
-		ui_style_color(UI_COLOR_GLASS_BOTTOM) | 0xFF);
+		ui_style_color(UI_COLOR_WINDOW));
 	ui_style_panel(layout.window.x, layout.window.y, layout.window.width, layout.window.height, 1.0f);
 	if (question)
 	{

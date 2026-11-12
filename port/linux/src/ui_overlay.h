@@ -249,6 +249,10 @@ enum
 	UI_COLOR_TEXT_PALE,
 	UI_COLOR_TEXT_OFF,
 	UI_COLOR_PLAYER,
+	/* a setting's name in a pane (the Service Record's MEDALS ON HUD), and
+	a window's solid ground under its glass (the Steam sign-in's) */
+	UI_COLOR_SETTING_NAME,
+	UI_COLOR_WINDOW,
 	NUMBER_OF_UI_COLORS
 };
 unsigned int ui_style_color(int name);

@@ -777,6 +777,16 @@ static short sign_in_section(void)
 	return NONE;
 }
 
+/* debug.delta_sample (debug_sample_friends) */
+#ifdef HALO_RELEASE
+#define debug_sample() FALSE
+#else
+static boolean debug_sample(void)
+{
+	return config_boolean("debug.delta_sample");
+}
+#endif
+
 /* ---------- the card */
 
 static void card_update(void)
@@ -784,7 +794,7 @@ static void card_update(void)
 	struct discord_activity_game game;
 	char handle[64];
 
-	guide.linked = browser_profile_linked(handle, sizeof(handle)) != 0;
+	guide.linked = debug_sample() || browser_profile_linked(handle, sizeof(handle)) != 0;
 	guide.name[0] = 0;
 	/* (the profile's name as the site shows it, else its handle) */
 	if (guide.linked && guide.friends_loaded && friends_state.handle[0])
@@ -1843,6 +1853,63 @@ static void friends_news(boolean first)
 	}
 }
 
+/* debug.delta_sample: signed in, with made-up friends (one in a game, one
+online, one offline) and a party of two with its code, nothing asked of
+the site, for screenshots of the signed-in look. Debug builds only */
+static void debug_sample_friends(struct social_state *state)
+{
+	static char const *const handles[] = { "sarge", "grif", "simmons" };
+	static char const *const names[] = { "Sarge", "Grif", "Simmons" };
+	short index;
+
+	csmemset(state, 0, sizeof(*state));
+	social_copy_text(state->handle, sizeof(state->handle), "caboose");
+	social_copy_text(state->display, sizeof(state->display), "Caboose");
+	state->friend_count = 3;
+	for (index = 0; index < 3; index++)
+	{
+		struct social_friend *buddy = &state->friends[index];
+
+		social_copy_text(buddy->handle, sizeof(buddy->handle), handles[index]);
+		social_copy_text(buddy->display, sizeof(buddy->display), names[index]);
+		buddy->online = index < 2;
+		buddy->playing = index == 0;
+		buddy->joinable = index == 0;
+		if (index == 0)
+		{
+			buddy->game.listed = TRUE;
+			social_copy_text(buddy->game.name, sizeof(buddy->game.name), "Red Base");
+			social_copy_text(buddy->game.map, sizeof(buddy->game.map), "bloodgulch");
+			buddy->game.engine = 1;
+			buddy->game.teams = TRUE;
+			buddy->game.players = 6;
+			buddy->game.maximum_players = 16;
+		}
+	}
+}
+
+static void debug_sample_party(struct social_party *party)
+{
+	csmemset(party, 0, sizeof(*party));
+	party->has = TRUE;
+	social_copy_text(party->id, sizeof(party->id), "sample");
+	social_copy_text(party->code, sizeof(party->code), "RVB234");
+	party->leader = TRUE;
+	social_copy_text(party->who_can_join, sizeof(party->who_can_join), "friends");
+	party->largest = 4;
+	party->member_count = 2;
+	social_copy_text(party->members[0].id, sizeof(party->members[0].id), "1");
+	social_copy_text(party->members[0].name, sizeof(party->members[0].name), "Caboose");
+	social_copy_text(party->members[0].handle, sizeof(party->members[0].handle), "caboose");
+	social_copy_text(party->members[0].platform, sizeof(party->members[0].platform), "pc_macos");
+	party->members[0].leader = TRUE;
+	party->members[0].you = TRUE;
+	social_copy_text(party->members[1].id, sizeof(party->members[1].id), "2");
+	social_copy_text(party->members[1].name, sizeof(party->members[1].name), "Sarge");
+	social_copy_text(party->members[1].handle, sizeof(party->members[1].handle), "sarge");
+	social_copy_text(party->members[1].platform, sizeof(party->members[1].platform), "pc_windows");
+}
+
 /* each frame: where the player is, told to the browser thread; a new
 state read, its toasts; an action's answer */
 static void friends_update(void)
@@ -1859,7 +1926,17 @@ static void friends_update(void)
 		party_link_offer();
 	}
 	party_update();
-	guide.friends_status = browser_social_get(&friends_fresh, &serial);
+	if (debug_sample())
+	{
+		guide.friends_status = BROWSER_SOCIAL_LOADED;
+		if (!guide.friends_loaded)
+		{
+			debug_sample_friends(&friends_fresh);
+			serial = guide.friends_serial + 1;
+		}
+	}
+	else
+		guide.friends_status = browser_social_get(&friends_fresh, &serial);
 	if (serial != guide.friends_serial)
 	{
 		boolean first = !guide.friends_loaded;
@@ -2671,7 +2748,13 @@ static void party_update(void)
 	unsigned char tag[8];
 	boolean tagged;
 
-	browser_party_get(&guide.party, &serial);
+	if (!debug_sample())
+		browser_party_get(&guide.party, &serial);
+	else if (!guide.party.has)
+	{
+		debug_sample_party(&guide.party);
+		serial = guide.party_serial + 1;
+	}
 	if (serial != guide.party_serial)
 	{
 		guide.party_serial = serial;
@@ -3441,6 +3524,17 @@ static unsigned int dot_color(int state)
 	}
 }
 
+/* the dot drawn at x, y (its 6 by 6 square): in a game, a ring around it
+too, so it stands apart from Online by its shape as well as its color */
+static void dot_draw(float x, float y, int state)
+{
+	unsigned int color = dot_color(state);
+
+	ui_overlay_rect(x, y, 6, 6, 3, color);
+	if (state == SOCIAL_STATE_IN_GAME)
+		ui_overlay_outline(x - 2.5f, y - 2.5f, 11, 11, 5.5f, 1.0f, color);
+}
+
 /* the ui.map's plasma map, read once it is in the texture cache (none:
 the overlay's own noise) */
 static void plasma_look(void)
@@ -3511,7 +3605,7 @@ static void render_row(struct social_row const *row, float x, float y, float wid
 {
 	ui_style_row(x, y, width, ROW_HEIGHT, on);
 	if (row->state >= 0)
-		ui_overlay_rect(x + 9, y + ROW_HEIGHT * 0.5f - 3, 6, 6, 3, dot_color(row->state));
+		dot_draw(x + 9, y + ROW_HEIGHT * 0.5f - 3, row->state);
 	if (row->status[0])
 	{
 		ui_style_text(UI_TEXT_NAME, x + 22, y + 3, UI_ALIGN_LEFT, row->tag);
@@ -4256,7 +4350,7 @@ static void render_party_qr(float left, float top)
 	size = (short)guide.qr_size;
 	if (size <= 0 || top + PARTY_QR_WIDTH > BODY_BOTTOM)
 		return;
-	/* (dark on white, with the quiet edge readers need) */
+	/* (black on white in every theme, with the quiet edge readers need) */
 	module = (float)PARTY_QR_WIDTH / (size + 8);
 	ui_overlay_rect(left, top, PARTY_QR_WIDTH, PARTY_QR_WIDTH, 4, 0xFFFFFFFF);
 	for (y = 0; y < size; y++)
@@ -4268,7 +4362,7 @@ static void render_party_qr(float left, float top)
 			if (guide.qr[y * size + x])
 			{
 				ui_overlay_rect(left + (x + 4) * module, top + (y + 4) * module, run * module + 0.3f, module + 0.3f, 0,
-					ui_style_color(UI_COLOR_EMBLEM_LETTER));
+					0x000000FF);
 			}
 		}
 	}
@@ -4363,7 +4457,7 @@ static void render_party(void)
 		}
 		ui_style_row(CONTENT_LEFT, y, LIST_WIDTH, PARTY_ROW_HEIGHT, on);
 		if (row.state >= 0)
-			ui_overlay_rect(CONTENT_LEFT + 9, y + PARTY_ROW_HEIGHT * 0.5f - 3, 6, 6, 3, dot_color(row.state));
+			dot_draw(CONTENT_LEFT + 9, y + PARTY_ROW_HEIGHT * 0.5f - 3, row.state);
 		party_row_line(CONTENT_LEFT + 22, y, CONTENT_LEFT + LIST_WIDTH - (row.platform > 0 ? 22 : 10), row.tag,
 			row.status);
 		if (row.platform > 0)
