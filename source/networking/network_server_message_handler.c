@@ -988,6 +988,15 @@ static long network_game_server_settings_layout(
 	boolean waiting = FALSE;
 	long machine_index = NONE;
 
+	/* port: an MCC map's record goes out only with the host's content
+	identity: held (owed, network_game_server_settings_frame) until the
+	map's check is done, never sent with an all-zero one that every machine
+	refuses, the host's own too (mcc_identity.c, #1129) */
+	if (network_game_server_get_game(server) &&
+		!mcc_identity_host_ready(network_game_server_get_game(server)->map.name))
+	{
+		return 0;
+	}
 	if (slot == NONE)
 	{
 		if (options)

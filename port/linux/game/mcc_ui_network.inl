@@ -86,7 +86,10 @@ void mcc_ui_network_update_map(struct network_game_server *server)
 
 void mcc_ui_network_server_dispose(struct network_game_server *server)
 {
-    if (server==global_network_game_server_get()) mcc_validation_cancel();
+    if (server==global_network_game_server_get()) {
+        mcc_validation_cancel();
+        mcc_identity_host_clear();
+    }
     if (server==mcc_validation_server) mcc_validation_server=NULL;
     mcc_pending_error_shown=0;
     if (server == mcc_pending_map_server) mcc_pending_map_server = NULL;
