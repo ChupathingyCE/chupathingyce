@@ -18,6 +18,7 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #include "posix.h"
 #include "port_config.h"
 #include "halo_port_limits.h"
+#include "halo_port_features.h" /* HALO_MCC */
 #include "delta.h"
 #include "delta_compat.h"
 #include "delta_peer.h"
@@ -663,8 +664,11 @@ int delta_peer_protocol(void)
 		/* (changing teams during a game: a host offers it once its team
 		host is set, team_change.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_team_change;
-		/* (MCC maps and their messages: mcc_network_messages.h) */
+#if defined(HALO_MCC) && HALO_MCC
+		/* (MCC maps and their messages: mcc_network_messages.h; a build
+		without MCC maps, as a Windows app package's, says it has none) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_mcc_maps;
+#endif
 #endif
 #ifdef HALO_GAME_BROWSER
 #ifdef HALO_PORT_VOICE
