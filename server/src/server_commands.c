@@ -726,7 +726,8 @@ static boolean file_is_multiplayer_map(
 }
 
 /* whether the server has a map (as a command names it) to play: a
-multiplayer map's file, in its family's folders */
+multiplayer map's file, in its family's folders (with Custom Edition's
+resource maps for one past the Xbox's), as cache_files_map_installed has it */
 boolean server_map_playable(
 	char const *map,
 	struct command_output *output)
@@ -765,6 +766,18 @@ boolean server_map_playable(
 	{
 		command_output_printf(output, "no multiplayer map %s in %s\n", map, map_family_folder(family));
 		return FALSE;
+	}
+	/* (nor without Custom Edition's resource maps, which every map past the
+	Xbox's reads as it loads: as cache_files_map_installed, which the host
+	asks before it sets a game on the map, #1106) */
+	{
+		char message[320];
+
+		if (!map_family_resources_ready(message, sizeof(message)))
+		{
+			command_output_printf(output, "%s\n", message);
+			return FALSE;
+		}
 	}
 	/* (nor one on Chupathingy maps' blacklist: a server hosts none of them,
 	as no game of ours does: cache_files_map_host_refused) */

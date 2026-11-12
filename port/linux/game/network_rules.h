@@ -307,7 +307,7 @@ buffers every build has room for); a fact's field past them is not taken. */
 #define NETWORK_RULES_SETTINGS_HEAD_SIZE (NETWORK_RULES_SETTINGS_SIZE - 4 - NETWORK_RULES_OPTIONS_SIZE)
 /* how many bytes a table may add past 35's record (the options and the
 bytes after the local data together) */
-#define NETWORK_RULES_LAYOUT_GROWTH_MAXIMUM 64
+#define NETWORK_RULES_LAYOUT_GROWTH_MAXIMUM 128
 #define NETWORK_RULES_SETTINGS_MAXIMUM (NETWORK_RULES_SETTINGS_EXTENDED_SIZE + NETWORK_RULES_LAYOUT_GROWTH_MAXIMUM)
 /* the most the shield effects message's largest value may be raised to (a
 value this build has no look for is drawn as stock) */
@@ -345,11 +345,177 @@ struct network_rules_layout
 	/* the zero bytes a client sends after its join request's first
 	NETWORK_RULES_JOIN_REQUEST_SIZE to a host of the version (0: none) */
 	int join_request_extra;
+	/* (chupa-43a's facts, network_rules_layout_apply; none built in) where
+	in those bytes the client's network version goes (-1: nowhere); the
+	bytes every distributed message's header has past its 8, and the kind of
+	the host's checkpoint boundary when the first 4 are its epoch (0: no
+	epoch); a unit state's further parts, by bit (their size, 0 for none,
+	and DELTA_LAYOUT_PART_AFTER_UP or _LAST); riders leave a vehicle on the
+	ground whose up's height is below rider_ejection_up thousandths (0: the
+	built-in rule, upside down) */
+	int join_request_version_at;
+	int header_extra;
+	int epoch_kind;
+	uint8_t unit_part_size[8];
+	uint8_t unit_part_at[8];
+	int rider_ejection_up;
 	/* how many of the table's facts' fields were taken, and how many were
 	past the limits and were not */
 	int learned;
 	int refused;
 };
+
+/* ---------- chupa-43a's facts: generic, so that a version's layout of them
+is a table row (docs/delta.md, "Layouts")
+
+The join request's version word: 16 bits in the packet codec's order
+(big-endian, as the request's other shorts), at a fact's offset
+in the bytes past 0x70, the host's network version (a host that checks it
+admits only its own). The distributed header's further bytes: after the 8
+every message has (in a batch, the batch's and each message's, whose size
+word counts them), zeros, but for a layout with an epoch, whose first 4 are
+the checkpoint epoch (unsigned 32-bit): the host counts it up (never 0) at
+each map and, in co-op, each revert, and sends a header alone of the
+boundary kind over its stream to a client before its objects; a client
+takes nothing of another epoch than the one it last took from a boundary,
+and stamps its own messages with it. A unit state's further parts: passed
+over by a reader (this build never writes them), where the fact says. */
+/* OpenCE's 42 and 43, built in (DELTA_LEGACY_NEWEST): 42 the join request's
+word (236 bytes past 0x70, the word at 234), the header's 4 further bytes
+with the epoch and 96 its boundary, the scripted pose (bit 6, 30 bytes,
+last), the settings record 13,200 bytes, the MCC-only kinds dropped; 43 also
+the deck (bit 7, 28 bytes after the up), 107 dropped and riders thrown from
+a vehicle on its side (0.2) */
+#define NETWORK_RULES_EPOCH_VERSION 42
+#define NETWORK_RULES_DECK_VERSION 43
+#define NETWORK_RULES_EPOCH_SETTINGS_SIZE 13200
+#define NETWORK_RULES_EPOCH_JOIN_REQUEST_EXTRA 236
+#define NETWORK_RULES_EPOCH_JOIN_VERSION_AT 234
+#define NETWORK_RULES_EPOCH_HEADER_EXTRA 4
+#define NETWORK_RULES_BOUNDARY_KIND 96
+#define NETWORK_RULES_POSE_PART_BIT 6
+#define NETWORK_RULES_POSE_PART_SIZE 30
+#define NETWORK_RULES_DECK_PART_BIT 7
+#define NETWORK_RULES_DECK_PART_SIZE 28
+#define NETWORK_RULES_SIDE_EJECTION_UP 200
+#define NETWORK_RULES_RIDING_KIND 107
+#define NETWORK_RULES_HEADER_EXTRA_LIMIT 8
+#define NETWORK_RULES_EPOCH_SIZE 4
+/* the boundary's kind is past every kind this build knows or drops by name
+(91 the newest; 92 OpenCE's client build) */
+#define NETWORK_RULES_EPOCH_KIND_FIRST 93
+/* a further part's most bytes, and the bits this build's own parts have */
+#define NETWORK_RULES_UNIT_PART_LIMIT 64
+#define NETWORK_RULES_UNIT_PARTS_BUILT_IN 0x3F
+/* the most the riders' ejection may be raised to (thousandths of up) */
+#define NETWORK_RULES_RIDER_EJECTION_LIMIT 999
+/* the batch kind and a client's ready (network_distributed.h) */
+#define NETWORK_RULES_BATCH_KIND 16
+#define NETWORK_RULES_CLIENT_READY_KIND 9
+#define NETWORK_RULES_INVENTORIES_KIND 4
+#define NETWORK_RULES_OBJECT_CHANGES_KIND 5
+#define NETWORK_RULES_OBJECTS_SYNCHRONIZED_KIND 8
+
+/* the join request's bytes past NETWORK_RULES_JOIN_REQUEST_SIZE to a host
+of the version (its layout's), into tail (room bytes): zeros, and the
+version word where the layout says. Returns how many, or -1 if room is
+too small */
+int network_rules_join_request_tail(unsigned version, uint8_t *tail, int room);
+/* (a host) whether a client machine's ready takes the full snapshot of the
+host's objects (else "objects synchronized" alone): one it has never had,
+one asked again (again_due: its count 1, the resend's wait over), one of
+other players at its place, or (a layout with a checkpoint epoch) one last
+sent at an older epoch than the host's: every client present at a co-op
+revert takes the snapshot again at its next ready */
+int network_rules_snapshot_due(int never_sent, int again_due, int players_changed, uint32_t sent_epoch,
+	uint32_t epoch);
+/* (a host of a layout with a checkpoint epoch) whether it takes a client's
+message (stripped: kind, size, count) stamped epoch: of its own epoch, or a
+ready (the header alone, its count 0 or 1, over the client's stream and not
+in a batch) of any */
+int network_rules_host_takes(uint32_t epoch, uint32_t host_epoch, int kind, int size, int count, int from_stream,
+	int in_batch);
+/* (a client of a layout with a checkpoint epoch, not synchronized: after a
+newer epoch, until the host's snapshot ends) whether it sends a message of
+the kind: its ready alone */
+int network_rules_client_held_back(int epoch_layout, int client, int synchronized, int kind);
+/* ... and whether it takes one of the host's: the objects' changes, their
+end, and units' inventories over the stream (not in a batch) alone */
+int network_rules_client_takes_unsynchronized(int kind, int from_stream, int in_batch);
+/* a reliable message too long for the wire's header bytes (size + extra past
+maximum): the entries of its first part when it splits on its entries'
+boundaries (count of entry_size each, nothing else after the header: a
+kind whose entries are all one size), 0 when it fits as it is, -1 when it
+can be neither (dropped) */
+int network_rules_reliable_split(int size, int count, int entry_size, int extra, int maximum);
+/* the bytes of a unit state record from its 3-byte head (player, flags,
+parts) in a layout, no further than size bytes: the riding, placed, up,
+predicted, damage, powerups, camouflage and killer parts, and the layout's
+further ones; 0 for none that make one */
+int network_rules_unit_state_length(struct network_rules_layout const *layout, uint8_t const *record, int size,
+	int powerups);
+/* (a host of a layout with a checkpoint epoch) whether a revert's boundary
+goes to a machine now: a client machine (not the host's own) that has said
+its ready this game; one that has not takes it at its ready */
+int network_rules_revert_boundary_to(int client, int local, int ready);
+/* (a client) the version whose game settings record it takes: the host's
+own machine (hosting), which joined its game at home, always the number
+it announces, whose record its server writes it at every send; another
+machine its host's (joined, NETWORK_RULES_VERSION_UNKNOWN when not known) */
+unsigned network_rules_client_settings_version(unsigned joined, int hosting, unsigned announce);
+/* ... and what joined becomes when a record of the newer options came
+(at_least, 35): a host not known is at least that, but never on the host's
+own machine, whose version is its announced one */
+unsigned network_rules_client_noted_version(unsigned joined, int hosting, unsigned at_least);
+/* (a client) the version to send its join request again as, once, when the
+host was not told it (joined NETWORK_RULES_VERSION_UNKNOWN: an address
+joined without an advertisement), it is not its own host's machine, and the
+host has been silent for NETWORK_RULES_JOIN_RETRY_MS (waited, milliseconds):
+the newest version a layout says, if that layout has a version word, which
+such a host needs; 0 for none (a host of an older version answers the
+first) */
+#define NETWORK_RULES_JOIN_RETRY_MS 3000
+unsigned network_rules_join_retry_version(unsigned joined, int hosting, unsigned long waited);
+/* (a host announcing the version) whether it refuses a join request whose
+bytes past NETWORK_RULES_JOIN_REQUEST_SIZE are tail (tail_size of them):
+where the version's layout has a version word, any request without it (of
+another length: an older build's or a console's, which can't play the
+version) or with another number; a layout without one refuses none */
+int network_rules_join_request_refused(unsigned version, uint8_t const *tail, int tail_size);
+/* a distributed message (or a batch of them) of size bytes, its first word
+the message header in this machine's order (the size in bits 4 to 15), as
+a layout with extra further header bytes has it, into out (room bytes):
+the epoch in the first 4 when has_epoch, zeros after. Returns the size, or
+0 when it does not fit or the batch is malformed */
+int network_rules_header_expand(uint8_t const *message, int size, uint8_t *out, int room, int extra, int has_epoch,
+	uint32_t epoch);
+/* ... and back: the message (or batch) without the further bytes, into out
+(at least size bytes), its epoch (0 without one) in *epoch. In a batch, a
+message of another epoch than want is left out, but one of keep_kind (0:
+none); and *epoch is the batch's own (not checked). A batch is read to its
+first size word past its end or shorter than a message's header (the
+messages before it kept). Returns the size, or 0 when the message is
+shorter than its header */
+int network_rules_header_strip(uint8_t const *message, int size, uint8_t *out, int extra, int has_epoch, uint32_t want,
+	int keep_kind, uint32_t *epoch);
+/* whether an epoch is newer (a signed 32-bit difference past 0) than current */
+int network_rules_epoch_newer(uint32_t epoch, uint32_t current);
+/* the next epoch a host takes: one more, past 0 */
+uint32_t network_rules_epoch_next(uint32_t current);
+/* whether a boundary message (stripped: size and count its header's) is one
+a client takes: from the host's stream, not in a batch, no entries, the
+header alone, and newer than current */
+int network_rules_boundary_taken(int size, int count, int from_stream, int in_batch, uint32_t epoch,
+	uint32_t current);
+/* a unit state's further parts in parts (the layout's bits) at where
+(DELTA_LAYOUT_PART_...): their bytes; -1 when parts has a bit neither built
+in nor described, or a part whose place the state does not have (after the
+up and not alive and placed, last and not alive) */
+int network_rules_unit_part_bytes(struct network_rules_layout const *layout, unsigned parts, int where, int alive,
+	int placed);
+/* the height of a vehicle's up below which its riders leave it on the
+ground: 0 built in, or the layout's */
+float network_rules_rider_ejection_up(struct network_rules_layout const *layout);
 
 /* the built-in facts of a version */
 void network_rules_layout_built_in(unsigned version, struct network_rules_layout *layout);
@@ -365,7 +531,11 @@ up to the layout's, in order; a size may only grow (the bytes after the local
 data never shrink), to the limits; the shield effects' largest value only
 rise, to NETWORK_RULES_SHIELD_EFFECTS_LIMIT; dropped kinds add; the join
 request's length past 0x70 is set (to NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT,
-zeros alone) */
+zeros alone); and chupa-43a's: the version word's place within that length,
+the header's further bytes to NETWORK_RULES_HEADER_EXTRA_LIMIT, an epoch
+with 4 of them and a kind from NETWORK_RULES_EPOCH_KIND_FIRST, a unit state's
+parts of bits not built in, to NETWORK_RULES_UNIT_PART_LIMIT bytes, the
+riders' ejection to NETWORK_RULES_RIDER_EJECTION_LIMIT */
 void network_rules_layout_apply(struct network_rules_layout *layout, struct delta_layout_fact const *facts,
 	int count);
 /* where the table's facts come from (delta.c's delta_legacy_layouts, told
