@@ -182,9 +182,10 @@ def test_stock_list_whole():
 def test_slots_match_the_game():
     """the tool's and the README's slots are the game's (xgpu_shader_keys.c)."""
     source = SOURCE.read_text()
-    assert "_slot_texture_modes = 100," in source and "_slot_plasma_model,\n\t_slot_last = _slot_plasma_model" in source
+    assert "_slot_texture_modes = 100," in source and "_slot_plasma_model,\n\t_slot_mcc_bump_attenuation,\n" \
+        "\t_slot_last = _slot_mcc_bump_attenuation" in source
     readme = (ROOT / "port" / "assets" / "shaders" / "README.md").read_text()
-    assert "121 the Light effects" in readme.replace("\n  ", " ")
+    assert "121 the Light effects, 122 an MCC map's bump attenuation" in readme.replace("\n  ", " ")
 
 
 def test_embedded_in_every_build():
