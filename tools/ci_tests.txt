@@ -98,6 +98,7 @@ tools/test_ping.py
 tools/test_player_key.py
 tools/test_player_profile_list.py
 tools/test_playlist_maps.py
+tools/test_preview_cache.py
 tools/test_prompt_schemes.py
 tools/test_rename_stub.py
 tools/test_report_clip.py

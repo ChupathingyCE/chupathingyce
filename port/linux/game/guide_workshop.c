@@ -1739,6 +1739,10 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 				ui_overlay_picture(serial, picture, picture_width, picture_height, box.x + (box.width - draw_width) * 0.5f,
 					box.y + (box.height - draw_height) * 0.5f, draw_width, draw_height, 0xFFFFFFFF);
 			}
+			/* (none to be had: said so, not an empty box) */
+			else if (workshop_browser_preview_missing(workshop_view.row))
+				ui_style_text(UI_TEXT_LINE, box.x + box.width * 0.5f,
+					box.y + (box.height - ui_style_text_size(UI_TEXT_LINE)) * 0.5f, UI_ALIGN_CENTER, "No picture");
 		}
 		/* (its description: the author's words, then a pack's maps, as many
 		lines as the room has, the rest scrolled to) */
