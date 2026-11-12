@@ -1,7 +1,10 @@
 /* MCC tags use the engine's published schema descriptions, with their own
  * traversal, ownership bitmap, stream limits and callback context. Neither
  * the Xbox validator state nor any Custom Edition validation mode is used. */
-#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "mcc_tag_validate.h"
 #include "mcc_runtime.h"
 #include "mcc_loading.h"

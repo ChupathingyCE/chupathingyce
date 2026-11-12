@@ -4,7 +4,10 @@ WORKSHOP_LIST.C
 The WORKSHOP section's list document and words (workshop_browser.h): no
 game, SDL or file system.
 */
-#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 
 #define WORKSHOP_LIST_ONLY
 #include "workshop_browser.h"

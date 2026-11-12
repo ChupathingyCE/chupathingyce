@@ -1,6 +1,9 @@
 /* MCC script linking and MCC-only native functions. Unknown functions cause
  * a load failure; silently removing campaign logic would hide broken maps. */
-#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "ai/ai_script.h"

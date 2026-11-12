@@ -1,6 +1,9 @@
 /* MCC-owned native pause definitions. The layouts follow the stock Xbox
  * logical viewport sizes; no embedded map widget or CE converter is edited. */
-#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "cseries_windows.h"
 #include "tag_files/tag_groups.h"
