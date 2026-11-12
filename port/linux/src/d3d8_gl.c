@@ -68,6 +68,7 @@ static void bg_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count);
 static void bg_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOLOR color, float z, DWORD stencil);
 static void bg_present(void);
 static void bg_frame_account(char *text, size_t size);
+static void bg_mcc_texture_forget(const DWORD *resource);
 static void bg_visibility_begin(void);
 static BOOL bg_visibility_end(DWORD index, unsigned long number);
 static UINT bg_visibility_result(DWORD index, unsigned long *number);
@@ -3210,6 +3211,9 @@ void xgpu_mcc_texture_unbind(DWORD const *resource)
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
 		if ((DWORD const *)device.textures[stage] == resource)
 			device.textures[stage] = NULL;
+#ifdef HALO_BGFX
+	bg_mcc_texture_forget(resource);
+#endif
 }
 
 void WINAPI D3DDevice_SetPalette(DWORD stage, D3DPalette *palette)

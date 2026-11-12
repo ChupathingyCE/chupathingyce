@@ -1439,6 +1439,11 @@ static const struct config_setting config_settings[] =
 	{ "game.mcc_collections", _config_boolean, "false", "HALO_MCC_COLLECTIONS", _environment_value, _platform_all,
 		"Group identified MCC packages into the bundled Workshop collections.\n"
 		"Works with imported packages without Steam; reopen the map list after changing." },
+	{ "display.mcc_texture_prepare_mb", _config_integer, "0", "HALO_MCC_TEXTURE_PREPARE_MB", _environment_value,
+		_platform_desktop,
+		"OpenGL only: MB of an MCC map's largest textures to send to the GPU while\n"
+		"it loads (at most 512), instead of the first time each is drawn. 0 sends\n"
+		"each when it is first drawn. Read when a map loads." },
 
 #ifdef HALO_SWITCH_CONSOLE
 	/* ---- performance (the Switch host's: port/switch/host/host_main.c) */

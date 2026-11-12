@@ -296,6 +296,17 @@ BOOL xgpu_mcc_texture_upload(GLuint texture, GLenum target,
 	struct xgpu_texture_description const *description, void const *pixels,
 	unsigned long bytes, D3DCOLOR const *palette);
 void xgpu_mcc_texture_unbind(DWORD const *resource);
+/* an MCC header's description and immutable pixels, for a renderer that
+uploads its own copies (the bgfx renderer); FALSE if resource is not one */
+BOOL xgpu_mcc_texture_source(DWORD const *resource, struct xgpu_texture_description *description,
+	void const **pixels, unsigned long *bytes, long *hud_asset);
+/* an MCC texture a renderer could not make, and why: logged (the first few,
+then the count when the map's textures go: mcc_texture_bridge.c) */
+void xgpu_mcc_texture_failed(struct xgpu_texture_description const *description, char const *reason);
+#if defined(HALO_MCC) && !HALO_MCC
+#define xgpu_mcc_texture_source(a0, a1, a2, a3, a4) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (BOOL)0)
+#define xgpu_mcc_texture_failed(a0, a1) ((void)sizeof(a0), (void)sizeof(a1))
+#endif
 
 /* ---------- render targets */
 
