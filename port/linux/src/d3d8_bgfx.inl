@@ -2585,6 +2585,116 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 	}
 }
 
+/* ---------- MCC maps' textures (mcc_texture_bridge.c): their pixels are
+immutable allocations outside the Xbox's memory, behind headers whose Data
+names nothing, so they are found by the header itself and uploaded once (for
+each palette a paletted one is drawn with) */
+
+#if !defined(HALO_MCC) || HALO_MCC
+#define BG_MCC_TEXTURE_BUCKETS 512
+
+struct bg_mcc_texture
+{
+	struct bg_mcc_texture *next;
+	const DWORD *resource;
+	unsigned long palette_hash;
+	struct bg_texture texture;
+};
+
+static struct bg_mcc_texture *bg_mcc_textures[BG_MCC_TEXTURE_BUCKETS];
+
+static unsigned long bg_mcc_bucket(const DWORD *resource)
+{
+	return (unsigned long)((((uintptr_t)resource >> 4) * 2654435761UL) % BG_MCC_TEXTURE_BUCKETS);
+}
+
+/* an MCC header's texture, as bg_texture_get's (override: its high-res HUD
+stand-in, or -1); -1 if resource is not an MCC texture's header */
+static int bg_mcc_texture_get(const DWORD *resource, const D3DCOLOR *palette,
+	struct xgpu_texture_description *description, bgfx_texture_handle_t *handle, BOOL *mipmapped, long *override)
+{
+	struct xgpu_texture_description source;
+	const void *pixels;
+	unsigned long bytes, hash;
+	long hud_asset;
+	struct bg_mcc_texture *entry;
+
+	if (!xgpu_mcc_texture_source(resource, &source, &pixels, &bytes, &hud_asset))
+		return -1;
+	*description = source;
+	*override = -1;
+	if (hud_asset >= 0 && config_boolean("display.high_res_hud"))
+	{
+		unsigned long levels;
+
+		if (hud_hires_override_texture(hud_asset, &levels))
+		{
+			*override = hud_asset;
+			return TRUE;
+		}
+	}
+	hash = source.format == 0x0b ? bg_palette_hash(palette) : 0;
+	for (entry = bg_mcc_textures[bg_mcc_bucket(resource)]; entry; entry = entry->next)
+	{
+		if (entry->resource == resource && entry->palette_hash == hash)
+			break;
+	}
+	if (!entry)
+	{
+		entry = calloc(1, sizeof(*entry));
+		if (!entry)
+		{
+			xgpu_mcc_texture_failed(&source, "no memory for the bgfx renderer's copy");
+			return FALSE;
+		}
+		entry->resource = resource;
+		entry->palette_hash = hash;
+		entry->texture.description = source;
+		entry->texture.override = -1;
+		entry->next = bg_mcc_textures[bg_mcc_bucket(resource)];
+		bg_mcc_textures[bg_mcc_bucket(resource)] = entry;
+		bg_texture_upload(&entry->texture, (const unsigned char *)pixels, palette);
+		if (entry->texture.failed || !entry->texture.created)
+		{
+			entry->texture.failed = TRUE;
+			xgpu_mcc_texture_failed(&source, "the bgfx renderer could not make it");
+		}
+	}
+	if (entry->texture.failed)
+		return FALSE;
+	*handle = entry->texture.texture;
+	*mipmapped = entry->texture.mipmapped;
+	return TRUE;
+}
+
+/* an MCC header going with its map (xgpu_mcc_texture_unbind): its copies */
+static void bg_mcc_texture_forget(const DWORD *resource)
+{
+	struct bg_mcc_texture **link = &bg_mcc_textures[bg_mcc_bucket(resource)];
+
+	while (*link)
+	{
+		struct bg_mcc_texture *entry = *link;
+
+		if (entry->resource != resource)
+		{
+			link = &entry->next;
+			continue;
+		}
+		*link = entry->next;
+		if (entry->texture.created && bg.ready)
+			bgfx_destroy_texture(entry->texture.texture);
+		free(entry);
+	}
+}
+#else
+#define bg_mcc_texture_get(a0, a1, a2, a3, a4, a5) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)sizeof(a5), -1)
+static void bg_mcc_texture_forget(const DWORD *resource)
+{
+	(void)resource;
+}
+#endif
+
 /* a stage's texture (xgpu_texture_get's), uploaded again when its pages have
 been written; FALSE if it cannot be drawn yet */
 static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struct xgpu_texture_description *description,
@@ -2788,8 +2898,24 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 				const D3DCOLOR *palette = device.palettes[stage] && device.palettes[stage]->Data ?
 					(const D3DCOLOR *)PLATFORM_PHYSICAL_TO_VIRTUAL(device.palettes[stage]->Data) : NULL;
 				long override;
+				int mcc = bg_mcc_texture_get((const DWORD *)texture, palette, &description, &handle, &mipmapped,
+					&override);
 
-				if (!bg_texture_get((const DWORD *)texture, palette, &description, &handle, &mipmapped, &override))
+				if (mcc >= 0)
+				{
+					/* (an MCC map's: its kind from its own description, and a
+					converted meter's coverage, as d3d8_gl.c's bind_textures) */
+					key->sampler_type[stage] = description.cube_map ? _xgpu_sampler_cube :
+						description.depth > 1 ? _xgpu_sampler_3d : _xgpu_sampler_2d;
+					hires = description.hires;
+					if (stage == 0)
+					{
+						key->coverage_alpha = description.hires_coverage != FALSE;
+						key->point_threshold = description.hires_point_threshold != FALSE;
+					}
+				}
+				if (mcc == 0 || (mcc < 0 &&
+					!bg_texture_get((const DWORD *)texture, palette, &description, &handle, &mipmapped, &override)))
 					handle = description.cube_map ? bg.blank_cube : description.depth > 1 ? bg.blank_volume : bg.blank;
 				else if (override >= 0)
 				{
