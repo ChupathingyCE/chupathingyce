@@ -197,3 +197,20 @@ def test_the_consoles_on_halo_console_agree(console):
 def test_the_desktop_leaves_nothing_out():
     assert not gates(DESKTOP)
     assert not gates([])
+
+
+def test_mcc_network_hooks_are_halo_mccs():
+    """the MCC network code (the 43 host switch, a server's playlist check,
+    the digest hooks, the mcc_maps capability) builds only with HALO_MCC 1:
+    a console offers no mcc_maps and calls none of it"""
+    server = (ROOT / "source" / "networking" / "network_server_manager.c").read_text()
+    start = server.index("static void network_game_server_mcc_version(")
+    gate = server.rfind("#if defined(HALO_MCC) && HALO_MCC", 0, start)
+    assert gate != -1 and server.find("#endif", gate) > start
+    assert "#define network_game_server_mcc_version(map_name) ((void)sizeof(map_name))" in server
+    identity = (ROOT / "port" / "linux" / "game" / "mcc_identity.h").read_text()
+    for hook in ("mcc_identity_host_overlay(", "mcc_identity_wire_record("):
+        assert "#define " + hook in identity
+    peer = (ROOT / "port" / "linux" / "src" / "delta_peer_game.c").read_text()
+    offer = peer.index("local.capabilities |= (delta_u32)1 << _delta_capability_mcc_maps;")
+    assert peer.rfind("#if defined(HALO_MCC) && HALO_MCC", 0, offer) > peer.rfind("#endif", 0, offer)

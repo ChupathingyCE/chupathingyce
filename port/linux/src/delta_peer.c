@@ -227,6 +227,8 @@ static void forget_all(struct delta_peer *peer)
 	peer->host_traits_generation = 0;
 	memset(&peer->host_rules, 0, sizeof(peer->host_rules));
 	peer->host_rules_generation = 0;
+	peer->host_number = 0;
+	peer->host_number_generation = 0;
 	memset(peer->machine_seen, 0, sizeof(peer->machine_seen));
 	memset(peer->machine_seen_ipv4, 0, sizeof(peer->machine_seen_ipv4));
 	memset(peer->machine_seen_time, 0, sizeof(peer->machine_seen_time));
@@ -2673,6 +2675,70 @@ static void host_send_rules(struct delta_peer *peer, delta_u32 now)
 	}
 }
 
+/* the host's number to each client that agreed to mcc_maps: at once when it
+changed (or the client is new), then every DELTA_PEER_HOST_RULES_INTERVAL */
+static void host_send_number(struct delta_peer *peer, delta_u32 now)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int index;
+
+	delta_u32 interval = DELTA_PEER_HOST_RULES_INTERVAL;
+
+	if (!peer->number_generation || !(offered(peer) & CAPABILITY(_delta_capability_mcc_maps)))
+		return;
+	if (peer->number_burst_generation != peer->number_generation)
+	{
+		peer->number_burst_generation = peer->number_generation;
+		peer->number_burst_time = now;
+	}
+	if (!elapsed(now, peer->number_burst_time, DELTA_PEER_HOST_NUMBER_BURST))
+		interval = DELTA_PEER_HOST_NUMBER_BURST_INTERVAL;
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		struct delta_peer_host_peer *client = &peer->peers[index];
+		int size;
+
+		if (!client->used || !(client->agreed & CAPABILITY(_delta_capability_mcc_maps)))
+			continue;
+		if (client->number_sent_generation == peer->number_generation &&
+			!elapsed(now, client->number_time, interval))
+		{
+			continue;
+		}
+		size = delta_wire_write_host_number(data, client->session, peer->number);
+		if (!size)
+			return;
+		peer_send(peer, client->ipv4, client->port, data, size);
+		client->number_sent_generation = peer->number_generation;
+		client->number_time = now;
+	}
+}
+
+void delta_peer_set_host_number(struct delta_peer *peer, unsigned number)
+{
+	int index;
+
+	if (!number)
+	{
+		peer->number = 0;
+		peer->number_generation = 0;
+		return;
+	}
+	if (peer->number_generation && peer->number == number)
+		return;
+	peer->number = number;
+	peer->number_generation = peer->number_generation + 1 ? peer->number_generation + 1 : 1;
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+		peer->peers[index].number_sent_generation = 0;
+}
+
+delta_u32 delta_peer_host_number(const struct delta_peer *peer, unsigned *number)
+{
+	if (number)
+		*number = peer->host_number;
+	return peer->host_number_generation;
+}
+
 void delta_peer_set_host_rules(struct delta_peer *peer, const struct delta_wire_host_rules *rules)
 {
 	int index;
@@ -2873,6 +2939,7 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 	host_send_maps(peer, now);
 	host_send_traits(peer, now);
 	host_send_rules(peer, now);
+	host_send_number(peer, now);
 	host_identity_frame(peer, now);
 
 	{
@@ -2991,6 +3058,8 @@ static void client_legacy(struct delta_peer *peer, const char *why)
 	peer->host_traits_generation = 0;
 	memset(&peer->host_rules, 0, sizeof(peer->host_rules));
 	peer->host_rules_generation = 0;
+	peer->host_number = 0;
+	peer->host_number_generation = 0;
 	memset(peer->machines, 0, sizeof(peer->machines));
 	if (valid_machine(own))
 		peer->machines[own] = local;
@@ -3580,6 +3649,26 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 				peer->host_traits_generation + 1 ? peer->host_traits_generation + 1 : 1;
 			say(peer, "Delta Peer: the host's player traits: %s", traits.kind == DELTA_WIRE_TRAITS_BOMB ? "Bomb's" :
 				"none");
+		}
+		break;
+	}
+	case _delta_message_host_number:
+	{
+		unsigned number;
+
+		if (peer->client_state != _delta_peer_client_delta ||
+			!(peer->agreed & offered(peer) & CAPABILITY(_delta_capability_mcc_maps)) ||
+			!delta_wire_read_host_number(payload, header.length, &number))
+		{
+			peer->dropped++;
+			break;
+		}
+		if (!peer->host_number_generation || peer->host_number != number)
+		{
+			peer->host_number = number;
+			peer->host_number_generation =
+				peer->host_number_generation + 1 ? peer->host_number_generation + 1 : 1;
+			say(peer, "Delta Peer: the host's game is played at OpenCE network version %u", number);
 		}
 		break;
 	}

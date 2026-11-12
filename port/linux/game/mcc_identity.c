@@ -99,6 +99,30 @@ int mcc_identity_prepare_host(char const *map)
     return 1;
 }
 
+/* port: the host's MCC part of a 43-layout settings record (13,200 bytes:
+docs/delta.md's chupa-43a), over the bytes of it at offset (length of them)
+in data: the map name's Workshop tail (bytes 64 to 127 of the name, at
+name_offset), and the two digests after the local data, its last 64 bytes:
+the content's (chester's fingerprint), then the package metadata's (zero: not
+made here yet). Nothing for another map, record or a host not prepared */
+void mcc_identity_host_overlay(char const *map, long record_size, long name_offset, long offset, long length,
+    unsigned char *data)
+{
+    char canonical[64], name[128];
+    long index;
+    if (record_size != 13200 || !mcc_level_name(map) || !mcc_host_identity.valid ||
+        !mcc_package_name(map,canonical) || strcmp(canonical,mcc_host_identity.name)) return;
+    memset(name,0,sizeof(name));
+    strncpy(name,map,63);
+    mcc_workshop_wire_pack(name,&mcc_host_identity.item);
+    for (index=0;index<length;index++) {
+        long at=offset+index;
+        if (at>=name_offset+64 && at<name_offset+128) data[index]=(unsigned char)name[at-name_offset];
+        else if (at>=record_size-64 && at<record_size-32) data[index]=mcc_host_identity.digest[at-(record_size-64)];
+        else if (at>=record_size-32 && at<record_size) data[index]=0;
+    }
+}
+
 static int mcc_identity_matches(char const *name,unsigned char const digest[32],
     struct mcc_precache_snapshot *validated)
 {
@@ -153,6 +177,28 @@ void const *mcc_identity_host_settings(void const *settings,long bytes,struct ne
     mcc_workshop_wire_pack(copy->map.name,&mcc_host_identity.item);
     return copy;
 }
+#endif
+
+/* port: the host's content digest, as its settings carry it: our build's own
+record (HALO_MCC_NETWORK), or the 43-layout record's (13,200 bytes), the first
+of the 64 bytes that end it (mcc_identity_host_overlay); zero for none */
+static unsigned char mcc_wire_digest[32];
+
+void mcc_identity_wire_record(unsigned char const *record, long size)
+{
+    if (record && size == 13200) memcpy(mcc_wire_digest,record+size-64,32);
+    else memset(mcc_wire_digest,0,32);
+}
+
+static unsigned char const *mcc_identity_session_digest(struct network_game const *game)
+{
+#ifdef HALO_MCC_NETWORK
+    return game->mcc_content_sha256;
+#else
+    (void)game;
+    return mcc_wire_digest;
+#endif
+}
 
 
 /* Only a known item ID establishes presence. Its older package may not yet
@@ -192,13 +238,19 @@ int mcc_identity_accept(struct network_game const *game)
     short i,count;
     unsigned candidates=0,matches=0;
     struct mcc_precache_snapshot selected_files;
+    unsigned char const *digest=mcc_identity_session_digest(game);
     memset(&mcc_client_identity,0,sizeof(mcc_client_identity));
     mcc_cache_precache_clear();
-    if (!mcc_level_name(game->map.name)) return !memcmp(game->mcc_content_sha256,zero,32);
-    if (!mcc_package_name(game->map.name,session) || !memcmp(game->mcc_content_sha256,zero,32))
+#ifdef HALO_MCC_NETWORK
+    if (!mcc_level_name(game->map.name)) return !memcmp(digest,zero,32);
+#else
+    /* (a legacy map's record is the host's: its last bytes are not ours to judge) */
+    if (!mcc_level_name(game->map.name)) return 1;
+#endif
+    if (!mcc_package_name(game->map.name,session) || !memcmp(digest,zero,32))
         return mcc_identity_error("The host did not supply a valid MCC content identity.");
     /* A verified exact installation is unambiguous even with duplicate copies. */
-    if (mcc_identity_matches(session,game->mcc_content_sha256,&selected_files)) {
+    if (mcc_identity_matches(session,digest,&selected_files)) {
         strcpy(selected,session);
         matches=1;
     } else {
@@ -207,7 +259,7 @@ int mcc_identity_accept(struct network_game const *game)
         count=mcc_maps_count(FALSE);
         /* Discovery may have made the exact package available since the first
          * probe. Prefer it before looking for aliases with the same leaf. */
-        if (mcc_identity_matches(session,game->mcc_content_sha256,&selected_files)) {
+        if (mcc_identity_matches(session,digest,&selected_files)) {
             strcpy(selected,session);
             matches=1;
         }
@@ -223,7 +275,7 @@ int mcc_identity_accept(struct network_game const *game)
                 candidate=mcc_maps_level_name(i);
                 candidate_leaf=strrchr(candidate,'\\')+1;
                 if (csstrcasecmp(leaf,candidate_leaf) || !csstrcasecmp(candidate,session)) continue;
-                if (mcc_identity_matches(candidate,game->mcc_content_sha256,&selected_files)) {
+                if (mcc_identity_matches(candidate,digest,&selected_files)) {
                     strcpy(selected,candidate);
                     if (++matches>1) return mcc_identity_error("Several local MCC packages match the host. Keep one matching copy, or use the host's package folder name.");
                 }
@@ -234,19 +286,11 @@ int mcc_identity_accept(struct network_game const *game)
     mcc_client_identity.files=selected_files;
     strcpy(mcc_client_identity.session,session);
     strcpy(mcc_client_identity.local,selected);
-    memcpy(mcc_client_identity.digest,game->mcc_content_sha256,32);
+    memcpy(mcc_client_identity.digest,digest,32);
     error(_error_silent,"mcc identity: %s resolved to %s (SHA-256 matched)",session,selected);
     return 1;
 }
 
-#else
-int mcc_identity_accept(struct network_game const *game)
-{
-    memset(&mcc_client_identity,0,sizeof(mcc_client_identity));
-    mcc_cache_precache_clear();
-    return !mcc_level_name(game->map.name);
-}
-#endif
 
 int mcc_identity_check(char const *name)
 {

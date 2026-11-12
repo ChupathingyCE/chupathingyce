@@ -26,8 +26,8 @@ CONTROLS = {
     'list-wraps': ('for (entry = network_test.map_entry - 1; entry >= 0; entry--)',
                    'for (entry = 0; entry < 0; entry++)', 'last-missing-holds'),
     # the refusal not told to the caller
-    'refusal-hidden': ('\t\treturn FALSE;\n\t}\n\n\tfor (client_machine_index',
-                       '\t\treturn TRUE;\n\t}\n\n\tfor (client_machine_index', 'host-keeps-its-map'),
+    'refusal-hidden': ('\t\treturn FALSE;\n\t}\n\t/* port: a lobby moving to or from an MCC map',
+                       '\t\treturn TRUE;\n\t}\n\t/* port: a lobby moving to or from an MCC map', 'host-keeps-its-map'),
     # a dedicated server starting a playlist with nothing to play
     'playlist-started-anyway': ('\tdedicated.none_playable = TRUE;\n\treturn FALSE;\n}',
                                 '\tdedicated.none_playable = TRUE;\n\treturn TRUE;\n}', 'playlist-none-playable'),

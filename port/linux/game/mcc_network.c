@@ -59,6 +59,8 @@ word mcc_network_campaign_entry_size(void) { return MCC_CAMPAIGN_SNAPSHOT_BYTES;
 
 static void mcc_network_campaign_tick(long now)
 {
+    /* port: (mcc_network_messages.h) */
+    if (!network_distributed_mcc_session()) return;
     struct {
         struct distributed_message_header header;
         byte state[MCC_CAMPAIGN_SNAPSHOT_BYTES];
@@ -67,11 +69,8 @@ static void mcc_network_campaign_tick(long now)
     /* Complete replacement snapshots also repair lost packets and late joins.
      * OpenCE's normal host-only transport and stale-tick checks apply. */
     mcc_campaign_snapshot(message.state);
-#ifdef HALO_MCC_NETWORK /* port: off our wire (mcc_network.c) */
     distributed_send(&message,_distributed_message_mcc_campaign,1,sizeof(message),_distributed_to_clients);
-#else
-    (void)message;
-#endif
+
 }
 
 void mcc_network_handle_campaign(void const *entries, short count)
@@ -80,13 +79,10 @@ void mcc_network_handle_campaign(void const *entries, short count)
         mcc_campaign_restore(entries,MCC_CAMPAIGN_SNAPSHOT_BYTES);
 }
 
-/* port: the extra grenades go to the clients only with HALO_MCC_NETWORK,
-which no build defines: GulchCE's message number is not on our wire. MCC
-maps' messages go over Delta when they come; until then each machine keeps
-its own count. */
-#ifdef HALO_MCC_NETWORK
 void mcc_network_host_tick(void)
 {
+    /* port: (mcc_network_messages.h) */
+    if (!network_distributed_mcc_session()) return;
     struct {
         struct distributed_message_header header;
         struct mcc_network_inventory entries[64];
@@ -116,23 +112,14 @@ void mcc_network_host_tick(void)
         message.entries[count].counts[0] = counts[0]; message.entries[count].counts[1] = counts[1];
         message.entries[count].reserved[0] = message.entries[count].reserved[1] = 0;
         if (++count == limit) {
-#ifdef HALO_MCC_NETWORK /* port: off our wire (mcc_network.c) */
             distributed_send(&message, _distributed_message_mcc_grenades, count,
                 (word)(sizeof(message.header) + count * sizeof(message.entries[0])), _distributed_to_clients);
-#else
-            (void)message;
-#endif
             count = 0;
         }
     }
     if (count) distributed_send(&message, _distributed_message_mcc_grenades, count,
         (word)(sizeof(message.header) + count * sizeof(message.entries[0])), _distributed_to_clients);
 }
-#else
-void mcc_network_host_tick(void)
-{
-}
-#endif
 
 static struct mcc_network_history *mcc_network_note_own(long unit_index, boolean compare)
 {

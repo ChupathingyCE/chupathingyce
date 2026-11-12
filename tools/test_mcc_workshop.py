@@ -60,6 +60,18 @@ int main(void) {
  memset(&item,0,sizeof(item));memset(name+64,0x55,64);
  mcc_workshop_wire_pack(name,&item);
  CHECK(!name[64] && !mcc_workshop_wire_unpack(name,&back));
+ /* listings: the tail's item, else the folder's; none for a stock map */
+ memset(name,0,sizeof(name));strcpy(name,"mcc_maps\\2899609719\\pat_beavercreek");
+ strcpy(item.id,"2899609719");strcpy(item.title,"Better Creek");
+ mcc_workshop_wire_pack(name,&item);
+ CHECK(mcc_workshop_listing(name,&back) && !strcmp(back.id,"2899609719") && !strcmp(back.title,"Better Creek"));
+ memset(name+64,0,64);
+ CHECK(mcc_workshop_listing(name,&back) && !strcmp(back.id,"2899609719") && !strcmp(back.title,"Pat Beavercreek"));
+ memset(name,0,sizeof(name));strcpy(name,"levels\\test\\bloodgulch\\bloodgulch");
+ CHECK(!mcc_workshop_listing(name,&back) && !back.id[0]);
+ memset(name,0,sizeof(name));strcpy(name,"mcc_maps\\mypack\\level");
+ CHECK(!mcc_workshop_listing(name,&back));
+ memset(name,0,sizeof(name));strcpy(name,"mcc_maps\\2899609719\\pat_beavercreek");
  /* hostile tails are ignored */
  memset(name+64,0x41,64);CHECK(!mcc_workshop_wire_unpack(name,&back));
  memcpy(name+64,"WS\1" "12x",7);memset(name+71,0,57);CHECK(!mcc_workshop_wire_unpack(name,&back));

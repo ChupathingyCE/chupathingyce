@@ -912,6 +912,10 @@ static struct network_game_server_settings_machine
 	long options;
 	boolean owed;
 	boolean marked;
+	/* port: the number this host announced when the size was decided, and
+	when the machine joined */
+	unsigned announce;
+	unsigned joined_number;
 } network_game_server_settings_machines[MAXIMUM_NETWORK_MACHINE_COUNT];
 
 /* the join mark of the join request being handled, for
@@ -946,6 +950,12 @@ static unsigned network_game_server_machine_delta_version(
 #endif
 }
 
+/* port: the number this host announced when the machine joined (0: not
+known) */
+unsigned network_game_server_machine_joined_number(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine);
+
 /* a machine has just been let into the game: its record is decided anew */
 static void network_game_server_settings_machine_joined(
 	struct network_game_server *server,
@@ -958,6 +968,7 @@ static void network_game_server_settings_machine_joined(
 		csmemset(&network_game_server_settings_machines[slot], 0, sizeof(network_game_server_settings_machines[slot]));
 		network_game_server_settings_machines[slot].connection = network_game_server_get_client_connection(machine);
 		network_game_server_settings_machines[slot].marked = network_game_server_join_marked;
+		network_game_server_settings_machines[slot].joined_number = (unsigned)delta_legacy_announce();
 	}
 }
 
@@ -989,12 +1000,20 @@ static long network_game_server_settings_layout(
 		csmemset(entry, 0, sizeof(*entry));
 		entry->connection = connection;
 	}
+	/* (port: the host's own machine reads its server's number as it is now,
+	which a game on an MCC map changes in the lobby: delta_legacy_host_game_at) */
+	/* (and every machine its next record of that number: a Delta machine
+	with mcc_maps follows it, HOST_NUMBER; any other is dropped,
+	network_game_server_delta_refusals) */
+	if (entry->size && entry->announce != announce)
+		entry->size = 0;
 	if (entry->size)
 	{
 		if (options)
 			*options = entry->options;
 		return entry->size;
 	}
+	entry->announce = announce;
 	if (!entry->since)
 		entry->since = now ? now : 1;
 	/* (the host's own machine takes either: it joined by no advertisement) */
@@ -1067,6 +1086,10 @@ static boolean network_game_server_send_settings_pieces(
 		else
 			network_rules_settings_layout_copy((unsigned char const *)wire, further, (int)options, (int)offset,
 				(int)message.length, message.data);
+		/* port: an MCC map's Workshop tail and digests in 43's record
+		(mcc_identity.c) */
+		mcc_identity_host_overlay((char const *)wire + offsetof(struct network_game, map.name), size, (long)offsetof(struct network_game, map.name),
+			offset, (long)message.length, (unsigned char *)message.data);
 		encoded_message = create_network_game_message(_message_server_game_settings_update, &message, sizeof(message));
 		if (!encoded_message || !network_game_server_send_message_to_client_machine(server, machine, encoded_message))
 			return FALSE;
@@ -3359,3 +3382,12 @@ typedef char message_server_game_advertise_wire_assert[
 	offsetof(struct message_server_game_advertise, flags) ==
 		offsetof(struct message_server_game_advertise, engine_type) + 10 ? 1 : -1];
 #endif
+
+unsigned network_game_server_machine_joined_number(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	long slot = network_game_server_settings_slot(server, machine);
+
+	return slot == NONE ? 0 : network_game_server_settings_machines[slot].joined_number;
+}

@@ -1705,8 +1705,11 @@ a console that doesn't play them). A dedicated server asks the same before
 its own checks (server_map_playable). Nothing is shown
 to the player: a host asks before it sets a game on the map (a playlist's next
 entry, network_game_server_change_map_name), for a map it lacks would take
-its own machine, and so the game, down (#1106). An MCC map counts as
-missing: the loaders don't play one yet (map_family_find_mcc) */
+its own machine, and so the game, down (#1106). An MCC level
+(mcc_maps\<package>\<level>: maps_mcc or a Steam Workshop item) is there if
+its map is (mcc_cache_available: its resources, the item's own or MCC's
+shared sets, are checked as it loads); an MCC-format map in another family's
+folder counts as missing (map_family_find_mcc) */
 boolean cache_files_map_installed(
 	char const *map_name)
 {
@@ -1718,6 +1721,8 @@ boolean cache_files_map_installed(
 
 	if (!map_name || !map_name[0])
 		return FALSE;
+	if (mcc_level_name(map_name))
+		return mcc_cache_available(map_name);
 	family = map_family_parse(map_name, file, sizeof(file));
 #ifdef HALO_MAP_LIST
 	if (family == _map_family_pack)

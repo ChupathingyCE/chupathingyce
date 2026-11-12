@@ -1,11 +1,20 @@
 /* MCC session identity is independent of a client's installation folder. */
 #ifndef MCC_IDENTITY_H
 #define MCC_IDENTITY_H
+#ifndef HALO_MCC
+#include "halo_port_features.h" /* HALO_MCC */
+#endif
 struct network_game;
 struct mcc_runtime;
 struct mcc_cache_source;
 int mcc_identity_prepare_host(char const *name);
+/* port: (network_server_message_handler.c) the host's MCC bytes of a 43-layout
+settings record, over a fragment of it */
+void mcc_identity_host_overlay(char const *map, long record_size, long name_offset, long offset, long length,
+    unsigned char *data);
 void const *mcc_identity_host_settings(void const *game, long bytes, struct network_game *copy);
+/* port: (network_client_message_handler.c) a settings record received whole */
+void mcc_identity_wire_record(unsigned char const *record, long size);
 int mcc_identity_accept(struct network_game const *game);
 void mcc_identity_disconnect(void);
 char const *mcc_identity_local_name(char const *name);
@@ -21,6 +30,9 @@ the shared code calls do nothing, their arguments unevaluated */
 #define mcc_identity_accept(a0) ((void)sizeof(a0), (int)1)
 #define mcc_identity_disconnect() ((void)0)
 #define mcc_identity_prepare_host(a0) ((void)sizeof(a0), (int)0)
+#define mcc_identity_host_overlay(a0, a1, a2, a3, a4, a5) \
+	((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)sizeof(a5))
+#define mcc_identity_wire_record(a0, a1) ((void)sizeof(a0), (void)sizeof(a1))
 #endif
 
 #endif
