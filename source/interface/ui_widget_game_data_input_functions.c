@@ -4260,6 +4260,25 @@ static void solo_level_select_list_update_displayed_items(
 		difficulty_marker->animation.current_frame_index = 2;
 		cooperative_marker->animation.current_frame_index = 3;
 
+#ifdef HALO_MAP_LIST
+		/* port: an MCC campaign map's card, after the ten levels: its row of
+		the menus' map list (name, picture, description), no markers */
+		if (displayed_item_indices[item_index] >= 10)
+		{
+			extern char const *ui_widget_port_mcc_campaign_level(short row);
+			char const *level = ui_widget_port_mcc_campaign_level((short)(displayed_item_indices[item_index] - 10));
+			long row = level ? ui_map_list_lookup(level) : NONE;
+
+			map_name->parameters.text_box.string_list_index = ui_map_list_string_index(row, _ui_map_list_string_name);
+			map_bitmap->animation.current_frame_index = ui_map_list_picture_index(row);
+			map_description->parameters.text_box.string_list_index =
+				ui_map_list_string_index(row, _ui_map_list_string_description);
+			completion_marker->visible = FALSE;
+			difficulty_marker->visible = FALSE;
+			cooperative_marker->visible = FALSE;
+			continue;
+		}
+#endif
 		match_vassert(
 			"c:\\halo\\SOURCE\\interface\\ui_widget_game_data_input_functions.c",
 			0x204,
@@ -4393,6 +4412,14 @@ static void mp_level_select_list_update_displayed_items(
 		definition->child_count == 3,
 		"expected 3 children (list items) for 'level select' widget");
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: the Xbox menus' Select Map's search (ui_widget.c) */
+	{
+		extern void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget);
+
+		ui_widget_port_xbox_map_list_sync(list_widget);
+	}
+#endif
 	spinner_list_3wide_determine_displayed_item_indices(
 		list_widget,
 		displayed_item_indices);

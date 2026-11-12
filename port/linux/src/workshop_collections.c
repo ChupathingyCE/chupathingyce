@@ -4,6 +4,10 @@ WORKSHOP_COLLECTIONS.C
 The Halo CE map collections of the Steam Workshop (workshop_collections.h). The names are the collections' own;
 the lists are the item ids each collection holds.
 */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 
 #include "workshop_collections.h"
 
@@ -82,3 +86,4 @@ int workshop_collections_of_item(const char *item_id, int *collections_out, int 
 	}
 	return count;
 }
+#endif /* HALO_MCC */

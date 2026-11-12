@@ -627,6 +627,7 @@ boolean cache_file_tags_are_ce(void);
 #include "mcc_cache.h"
 #include "mcc_objects.h"
 #include "mcc_player.h"
+#include "mcc_ui_teams.h"
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -5124,7 +5125,6 @@ void game_engine_player_killed(
 
 	/* MCC team-change respawns carry neutral attribution to the netcode. */
 	{
-		extern void mcc_ui_team_respawn_death(long *, long *, long, boolean *);
 		mcc_ui_team_respawn_death(&killing_player_index, &killing_object_index, dead_player_index, &friendly_fire);
 	}
 

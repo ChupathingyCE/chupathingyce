@@ -6,6 +6,10 @@ d:\mcc_maps are admitted. The on-disk filename is the level identity; the
 cache's internal scenario name may differ. No Xbox or Custom Edition map
 list, loader, resource directory or display index is used here.
 */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 
 #include "cseries.h"
 #include "errors.h"
@@ -807,3 +811,4 @@ boolean mcc_maps_workshop_title(char const *item_id, char *title, unsigned size)
 {
 	return steam_workshop_item_title(item_id, title, size) && title[0];
 }
+#endif /* HALO_MCC */

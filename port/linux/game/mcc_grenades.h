@@ -24,4 +24,23 @@ void mcc_grenades_hud(short local_player,long unit);
 uint32_t mcc_grenades_snapshot(void *out,uint32_t capacity);
 int mcc_grenades_snapshot_validate(void const *in,uint32_t bytes);
 int mcc_grenades_restore(void const *in,uint32_t bytes);
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_grenades_active() ((boolean)0)
+#define mcc_grenades_add(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (short)0)
+#define mcc_grenades_clear(a0) ((void)sizeof(a0), (void)0)
+#define mcc_grenades_drop_extra(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (void)0)
+#define mcc_grenades_get(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (short)0)
+#define mcc_grenades_hud(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (void)0)
+#define mcc_grenades_initialize_unit(a0) ((void)sizeof(a0), (void)0)
+#define mcc_grenades_move_to_hand(a0) ((void)sizeof(a0), (void)0)
+#define mcc_grenades_next(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (short)NONE)
+#define mcc_grenades_pickup(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (boolean)0)
+#define mcc_grenades_reset() ((void)0)
+#define mcc_grenades_set(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)0)
+#define mcc_grenades_total(a0) ((void)sizeof(a0), (short)0)
+#define mcc_grenades_type_count() ((short)0)
+#endif
+
 #endif

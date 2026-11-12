@@ -1,3 +1,7 @@
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "xgpu.h"
 #include "mcc_environment_shader.h"
 
@@ -16,3 +20,4 @@ void mcc_environment_shader_emit(struct xgpu_text *text)
     xgpu_text_append(text,
         "\t\tvec3 cAB = vec3(max(0.0, 1.0 + dot(cA, cB) - cB.z));\n");
 }
+#endif /* HALO_MCC */

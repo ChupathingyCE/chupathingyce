@@ -21,4 +21,12 @@ int mcc_content_probe(char const *name, unsigned char digest[32]);
 int mcc_resources_fingerprint(struct mcc_runtime *runtime, unsigned char digest[32]);
 int mcc_resources_fingerprint_probe(char const *name, struct mcc_cache_source const *source,
     unsigned char digest[32]);
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_identity_accept(a0) ((void)sizeof(a0), (int)1)
+#define mcc_identity_disconnect() ((void)0)
+#define mcc_identity_prepare_host(a0) ((void)sizeof(a0), (int)0)
+#endif
+
 #endif

@@ -1,6 +1,10 @@
 /* MCC bitmap resources. Convert and pack each resource in MCC-owned memory,
  * then stream its native hardware layout. The common rasterizer supplies
  * descriptor size limits; no CE bitmap state or conversion API is used. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "bitmaps/bitmaps.h"
@@ -778,3 +782,4 @@ void mcc_bitmaps_dispose(struct mcc_runtime *runtime)
     if (textures->clones) free(textures->clones);
     free(textures);runtime->bitmaps=NULL;
 }
+#endif /* HALO_MCC */

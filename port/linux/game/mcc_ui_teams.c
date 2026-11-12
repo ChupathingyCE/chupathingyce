@@ -1,5 +1,9 @@
 /* MCC's in-game team picker uses the existing authenticated settings message.
  * Only its team byte is accepted; the ordinary pregame handler is untouched. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "game/game.h"
 #include "game/players.h"
@@ -152,3 +156,4 @@ boolean mcc_ui_team_request(struct network_game_server *server,
     }
     return TRUE;
 }
+#endif /* HALO_MCC */

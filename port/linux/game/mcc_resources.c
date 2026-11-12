@@ -1,5 +1,9 @@
 /* MCC resource cache reader. The on-disk header and twelve-byte entries are
  * decoded explicitly; no CE resource state or readers are shared. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "mcc_runtime.h"
 #include "mcc_loading.h"
 #include "mcc_resources.h"
@@ -435,3 +439,4 @@ int mcc_resources_fingerprint_probe(char const *name,struct mcc_cache_source con
 }
 
 #include "mcc_resource_check.inl"
+#endif /* HALO_MCC */

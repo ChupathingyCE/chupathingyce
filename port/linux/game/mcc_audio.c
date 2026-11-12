@@ -1,6 +1,10 @@
 /* MCC audio normalization. An MCC-owned Vorbis adapter handles codec differences;
  * no Custom Edition state or sound conversion routine is used. A damaged or
  * unsupported permutation rejects the map, rather than quietly silencing it. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "sound/sound_definitions.h"
@@ -353,3 +357,4 @@ void mcc_audio_dispose(struct mcc_runtime *runtime)
         free(audio);runtime->audio=NULL;
     }
 }
+#endif /* HALO_MCC */

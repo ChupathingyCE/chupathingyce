@@ -351,7 +351,7 @@ static struct virtual_keyboard_globals virtual_keyboard_globals= {0};
 
 /* Keep the computer keyboard's input mode in sync with every open/close
    path. The UI stops processing the virtual keyboard once it is inactive. */
-#ifdef HALO_CONSOLE_MAP_BROWSER
+#if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
 /* (a search's launch: virtual_keyboard_launch_plain) */
 static boolean virtual_keyboard_plain;
 static wchar_t const *virtual_keyboard_plain_caption;
@@ -477,7 +477,7 @@ boolean virtual_keyboard_launch(
 			MAXIMUM_VIRTUAL_KEYBOARD_SAVED_TEXT_LENGTH);
 		virtual_keyboard_globals.saved_text[MAXIMUM_VIRTUAL_KEYBOARD_SAVED_TEXT_LENGTH - 1] = L'\0';
 		virtual_keyboard_globals.last_exit_saved_text = FALSE;
-#ifdef HALO_CONSOLE_MAP_BROWSER
+#if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
 		virtual_keyboard_plain = FALSE;
 #endif
 		ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
@@ -487,8 +487,9 @@ boolean virtual_keyboard_launch(
 	return result;
 }
 
-#ifdef HALO_CONSOLE_MAP_BROWSER
-/* port: a launch for a search (the Map Browser's, port/xbox/game/xbox_maps_screen.c):
+#if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
+/* port: a launch for a search (the Map Browser's, port/xbox/game/xbox_maps_screen.c, and the
+map choosers', port/linux/game/menu_functions.c and ui_widget.c):
 its own caption, and whatever is typed done as it is, empty too (a name's
 checks are a saved game's) */
 
@@ -740,7 +741,7 @@ static void virtual_keyboard_render_internal(
 		wchar_t *caption = unicode_string_list_get_string(
 			virtual_keyboard_globals.keyboard->special_key_labels_string_list_tag.index,
 			virtual_keyboard_globals.caption_index);
-#ifdef HALO_CONSOLE_MAP_BROWSER
+#if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
 		if (virtual_keyboard_plain && virtual_keyboard_plain_caption)
 			caption = (wchar_t *)virtual_keyboard_plain_caption;
 #endif
@@ -1045,7 +1046,7 @@ static boolean virtual_keyboard_select(
 	switch (keycode)
 	{
 	case _vkey_done:
-#ifdef HALO_CONSOLE_MAP_BROWSER
+#if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
 		/* port: a search's words, as they are */
 		if (virtual_keyboard_plain)
 		{

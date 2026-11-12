@@ -1,5 +1,9 @@
 /* MCC catalog text is authored by package makers, not to the fixed line
  * lengths of the original menus. Wrap a draw-local copy in every style. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "math/integer_math.h"
 #include "math/real_math.h"
@@ -121,3 +125,4 @@ boolean mcc_menu_text_draw(long tag, short index, wchar_t const *text, long font
     if (clip.x1>clip.x0 && clip.y1>clip.y0) rasterizer_draw_unicode_string(&area,&clip,NULL,0,wrapped);
     return TRUE;
 }
+#endif /* HALO_MCC */

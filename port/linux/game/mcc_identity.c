@@ -1,4 +1,8 @@
 /* Content-matched local MCC paths; the host's name stays on the wire. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "game/game.h"
@@ -298,3 +302,4 @@ int mcc_identity_loaded(char const *name,struct mcc_runtime *runtime)
         game_connection()!=_game_connection_network_server;
     return mcc_resources_fingerprint(runtime,actual) && !memcmp(actual,expected,32);
 }
+#endif /* HALO_MCC */

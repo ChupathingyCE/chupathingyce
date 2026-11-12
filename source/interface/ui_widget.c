@@ -686,6 +686,10 @@ struct widget_instance;
 #ifdef HALO_MAP_LIST
 #include "halo_ui_map_list.h"
 #endif
+#include "mcc_pause.h"
+#include "mcc_pause_runtime.h"
+#include "mcc_ui.h"
+#include "mcc_ui_network.h"
 #ifndef HALO_CONSOLE_NO_CONTROLS
 /* port: Controller Buttons asking for a button (menu_functions.c) */
 boolean pc_menu_controller_capture(void);
@@ -2099,6 +2103,135 @@ void *ui_widget_realloc(
 		line);
 }
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+/* port: the Xbox menus' Select Map (a search alone, as close to the
+console's screen as one fits): Y opens the on-screen keyboard, whose words
+narrow the cards to the maps that match (ui_map_list_view_set: name, and an
+MCC map's ModInfo.json and CampaignInfo.json); B with a search clears it
+first. Its Show and Sort are the list's own: all of them, in its order */
+#define XBOX_MAP_SELECT_LIST "ui\\shell\\main_menu\\multiplayer_type_select\\mp_map_select\\mp_map_select_list"
+#define XBOX_MAP_SEARCH_LENGTH 32
+
+static struct
+{
+	char search[XBOX_MAP_SEARCH_LENGTH];
+	wchar_t keyboard_text[XBOX_MAP_SEARCH_LENGTH];
+	boolean keyboard;
+	unsigned long serial;
+} xbox_map_search;
+
+static boolean xbox_map_select_list(struct widget_instance *widget)
+{
+	return widget && widget->definition_tag_index != NONE && !pc_menu_tag(widget->definition_tag_index) &&
+		!strcmp(tag_get_name(widget->definition_tag_index), XBOX_MAP_SELECT_LIST);
+}
+
+/* the list opened: all its maps again (another chooser's view let go of) */
+void ui_widget_port_xbox_map_search_reset(void)
+{
+	xbox_map_search.search[0] = 0;
+	xbox_map_search.keyboard = FALSE;
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
+	/* (debug.menu_open's "#search=<words>": a search to start with, for
+	screenshots) */
+	{
+		extern char const *config_string(char const *name);
+		char const *debug = strstr(config_string("debug.menu_open"), "#search=");
+
+		if (debug)
+		{
+			snprintf(xbox_map_search.search, sizeof(xbox_map_search.search), "%s", debug + 8);
+			xbox_map_search.search[strcspn(xbox_map_search.search, "#")] = 0;
+		}
+	}
+#endif
+	ui_map_list_view_set(_ui_map_list_source_all, _ui_map_list_sort_default, xbox_map_search.search);
+}
+
+/* Y and B on the list; TRUE when taken */
+static boolean xbox_map_search_event(struct widget_instance *widget, struct event_record *event)
+{
+	short index;
+
+	if (event->type != _event_type_button || event->data.button.value != 1 || !xbox_map_select_list(widget) ||
+		virtual_keyboard_active())
+	{
+		return FALSE;
+	}
+	if (event->data.button.index == _gamepad_analog_button_y)
+	{
+		for (index = 0; xbox_map_search.search[index] && index < XBOX_MAP_SEARCH_LENGTH - 1; index++)
+			xbox_map_search.keyboard_text[index] = (wchar_t)(unsigned char)xbox_map_search.search[index];
+		xbox_map_search.keyboard_text[index] = 0;
+		xbox_map_search.keyboard = virtual_keyboard_launch_plain(xbox_map_search.keyboard_text,
+			sizeof(xbox_map_search.keyboard_text), L"Search");
+		return xbox_map_search.keyboard;
+	}
+	if (event->data.button.index == _widget_event_b_button && xbox_map_search.search[0])
+	{
+		xbox_map_search.search[0] = 0;
+		ui_map_list_view_set(_ui_map_list_source_all, _ui_map_list_sort_default, NULL);
+		ui_play_audio_feedback_sound(_ui_audio_feedback_back);
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/* each frame the list shows (its cards' update): the keyboard's words
+taken, and the list's maps the view's (a search that matches none is not
+kept: the cards need one) */
+void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget)
+{
+	if (xbox_map_search.keyboard && !virtual_keyboard_active())
+	{
+		xbox_map_search.keyboard = FALSE;
+		if (virtual_keyboard_last_exit_saved_text())
+		{
+			char before[XBOX_MAP_SEARCH_LENGTH];
+			short index;
+
+			snprintf(before, sizeof(before), "%s", xbox_map_search.search);
+			for (index = 0; xbox_map_search.keyboard_text[index] && index < XBOX_MAP_SEARCH_LENGTH - 1; index++)
+			{
+				wchar_t character = xbox_map_search.keyboard_text[index];
+
+				xbox_map_search.search[index] = character < 0x80 ? (char)character : '?';
+			}
+			xbox_map_search.search[index] = 0;
+			ui_map_list_view_set(_ui_map_list_source_all, _ui_map_list_sort_default, xbox_map_search.search);
+			if (!ui_map_list_count())
+			{
+				snprintf(xbox_map_search.search, sizeof(xbox_map_search.search), "%s", before);
+				ui_map_list_view_set(_ui_map_list_source_all, _ui_map_list_sort_default, xbox_map_search.search);
+				ui_play_audio_feedback_sound(_ui_audio_feedback_flag_failure);
+			}
+		}
+	}
+	if (xbox_map_search.serial != ui_map_list_view_serial() && xbox_map_select_list(list_widget))
+	{
+		boolean with_campaign = list_widget->parameters.list.number_of_items > ui_map_list_count();
+
+		xbox_map_search.serial = ui_map_list_view_serial();
+		list_widget->parameters.list.list_items = ui_map_list_names();
+		list_widget->parameters.list.number_of_items = (short)(with_campaign ?
+			ui_map_list_count_with_campaign() : ui_map_list_count());
+		if (list_widget->parameters.list.selected_index >= list_widget->parameters.list.number_of_items)
+			list_widget->parameters.list.selected_index = 0;
+	}
+}
+#endif
+
+/* (no MCC maps for a network game yet: its machines can't load them,
+mcc_cache.c; HALO_MCC_NETWORK lifts that. Offline and split screen have them) */
+static boolean ui_widget_port_mcc_offered(void)
+{
+#ifdef HALO_MCC_NETWORK
+	return TRUE;
+#else
+	return !global_network_game_server_get() || network_game_is_splitscreen_local();
+#endif
+}
+
 /* MCC maps are selected by their full namespaced path. They do not enter
 the Xbox/CE multiplayer level-index list. */
 boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name)
@@ -2106,7 +2239,7 @@ boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name)
 	short index = mcc_maps_find(level_name);
 	struct network_game_server *server = global_network_game_server_get();
 
-	if (index == NONE || mcc_maps_campaign(index))
+	if (index == NONE || mcc_maps_campaign(index) || !ui_widget_port_mcc_offered())
 		return FALSE;
 	main_set_multiplayer_map_name(level_name);
 	game_engine_override_map_name(level_name);
@@ -2116,12 +2249,31 @@ boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name)
 	return TRUE;
 }
 
+/* the MCC catalog's campaign maps, after the campaign's ten levels in the
+Xbox's level select (ui_widget_event_handler_functions.c), at most this
+many: their level names, by row from 0 */
+#define UI_WIDGET_PORT_MCC_CAMPAIGN_ROWS 64
+
+short ui_widget_port_mcc_campaign_count(void)
+{
+	if (!ui_widget_port_mcc_offered())
+		return 0;
+	return (short)MIN(mcc_maps_type_count(TRUE), UI_WIDGET_PORT_MCC_CAMPAIGN_ROWS);
+}
+
+char const *ui_widget_port_mcc_campaign_level(short row)
+{
+	short index = ui_widget_port_mcc_offered() ? mcc_maps_type_index(row, TRUE) : NONE;
+
+	return index != NONE ? mcc_maps_level_name(index) : NULL;
+}
+
 boolean ui_widget_port_mcc_cooperative_level_choose(char const *level_name, short difficulty)
 {
 	struct network_game_server *server = global_network_game_server_get();
 	struct game_variant variant;
 
-	if (!server || !mcc_maps_level_campaign(level_name) ||
+	if (!server || !ui_widget_port_mcc_offered() || !mcc_maps_level_campaign(level_name) ||
 		difficulty < 0 || difficulty >= NUMBER_OF_GAME_DIFFICULTY_LEVELS)
 		return FALSE;
 	csmemset(&variant, 0, sizeof(variant));
@@ -3258,7 +3410,6 @@ void ui_widgets_close_all(
 	}
 	/* Release only an editor opened by MCC after its widgets are gone. */
 	{
-		extern void mcc_ui_settings_close(short);
 		mcc_ui_settings_close(NONE);
 	}
 
@@ -3289,7 +3440,6 @@ void ui_widgets_close_all_for_local_player(
 		}
 	}
 	{
-		extern void mcc_ui_settings_close(short);
 		mcc_ui_settings_close(local_player_index);
 	}
 
@@ -4248,7 +4398,6 @@ static void event_handler_dispatch(
 		/* MCC New Game can synchronously close every widget. Finish the event
 		with its deletion result before any navigation can reuse that tree. */
 		{
-			extern boolean mcc_ui_new_game(struct widget_instance *, boolean *);
 			if (TEST_FLAG(handler->flags, _event_handler_open_widget_bit) &&
 				!widget_deleted && handler->widget_tag.index != NONE &&
 				mcc_ui_new_game(widget, &widget_deleted))
@@ -5638,7 +5787,6 @@ void network_game_reset_to_pregame_ui(
 	/* An MCC restart retains this round's settings and returns directly to
 	 * the ready lobby. The ordinary host map picker pauses its countdown. */
 	{
-		extern boolean mcc_ui_network_restart_pregame(void);
 		if (mcc_ui_network_restart_pregame())
 		{
 			char const *screen = network_game_is_splitscreen_local() ?
@@ -6453,7 +6601,6 @@ static void widget_instance_render_text_box(
 	/* MCC owns these text boxes; wrap their instance copies to the panel
 	 * width without changing the map's objective strings or other menus. */
 	{
-		extern boolean mcc_pause_text_wrap_needed(long);
 		if (mcc_pause_text_wrap_needed(widget->definition_tag_index))
 		{
 			ui_widget_port_text_wrap(*text, &bounds, (short)(bounds.x1 - bounds.x0));
@@ -9273,6 +9420,11 @@ static void widget_instance_process_one_event_recursive(
 		"c:\\halo\\SOURCE\\interface\\ui_widget.c",
 		3067,
 		widget && definition && event && return_widget_deleted);
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: the Xbox menus' Select Map's search (Y; B clears it) */
+	if (event_for_this_widget && xbox_map_search_event(widget, event))
+		return;
+#endif
 #ifndef HALO_XBOX_CONSOLE
 	/* port: the d-pad (keys, a controller, the wheel) moves the focus now,
 	not the pointer */
@@ -9812,8 +9964,6 @@ static boolean ui_check_for_pause_game(
 		/* MCC selects its owned stock-style pause tree; embedded map menus
 		 * remain available to custom scripts but are never the pause entry. */
 		{
-			extern boolean mcc_pause_runtime_active(void);
-			extern long mcc_pause_runtime_screen(short, boolean);
 			if (mcc_pause_runtime_active())
 			{
 				if ((!network_game || game_engine_allow_pause()) &&

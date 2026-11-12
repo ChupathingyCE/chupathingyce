@@ -1,5 +1,9 @@
 /* MCC cache address reservations. A file can request a free 64 MiB window;
  * MAP_FIXED_NOREPLACE never replaces an Xbox, CE or host allocation. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "platform.h"
 #include <sys/mman.h>
 #include <stdint.h>
@@ -169,3 +173,4 @@ void mcc_memory_release(void *allocation, uint32_t size)
 #endif
 }
 #endif
+#endif /* HALO_MCC */

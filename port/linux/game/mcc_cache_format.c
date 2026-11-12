@@ -1,5 +1,9 @@
 /* Halo 1 MCC cache reader. All file integers are explicitly little-endian.
  * Public format references and observed-fixture details: docs/mcc_maps.md. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "mcc_cache_format.h"
 #include <stdlib.h>
 #include <string.h>
@@ -336,3 +340,4 @@ char const *mcc_cache_status_string(enum mcc_cache_status s) {
     };
     return (unsigned)s<sizeof(text)/sizeof(text[0]) ? text[s] : "unknown MCC cache error";
 }
+#endif /* HALO_MCC */

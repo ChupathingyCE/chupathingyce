@@ -1,5 +1,9 @@
 /* MCC conversion runs synchronously on the render thread. Present only the
  * standalone loading effect: normal frames can dereference unfinished tags. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "mcc_cache.h"
@@ -111,3 +115,4 @@ void mcc_loading_end(int success)
     progress_bar_eachframe();
     memset(&mcc_loading, 0, sizeof(mcc_loading));
 }
+#endif /* HALO_MCC */

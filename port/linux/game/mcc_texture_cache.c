@@ -1,5 +1,9 @@
 /* MCC-only hardware descriptors over immutable converted pixel allocations.
  * Neither the Xbox/CE bitmap descriptors nor their LRU state are rewritten. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "bitmaps/bitmaps.h"
 #include "bitmaps/bitmap_group.h"
@@ -84,3 +88,4 @@ void *mcc_texture_cache_get(struct bitmap_data const *bitmap,boolean load)
 }
 
 void mcc_texture_cache_dispose(void) {mcc_texture_bridge_dispose();}
+#endif /* HALO_MCC */

@@ -17,4 +17,10 @@ struct unit_control_data;
 void mcc_recording_control_begin(long unit_index,
     struct recorded_animation_definition const *animation, struct unit_control_data *control);
 
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_recording_control_begin(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)0)
+#endif
+
 #endif

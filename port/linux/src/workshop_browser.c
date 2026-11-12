@@ -6,6 +6,10 @@ asked for on a thread of its own, and the watcher of MCC's Workshop folders
 in the player's Steam libraries. Nothing is downloaded here and nothing is
 written to Steam's folders: Steam does both.
 */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 
 #include "workshop_browser.h"
 #include "steam_workshop.h"
@@ -429,3 +433,4 @@ int workshop_browser_subscribe(int index)
 		workshop.items[index].state = WORKSHOP_ITEM_WAITING;
 	return 1;
 }
+#endif /* HALO_MCC */

@@ -1,5 +1,9 @@
 /* MCC campaign operations. No native function/global table is extended or
  * replaced. State belongs to MCC snapshots, never the Xbox/CE tag data. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "mcc_campaign.h"
 #include "mcc_cache.h"
 #include "mcc_script_effects.h"
@@ -740,3 +744,4 @@ static void mcc_nav_evaluate(short function, long thread, boolean initialize)
     }
     hs_return(thread,0);
 }
+#endif /* HALO_MCC */

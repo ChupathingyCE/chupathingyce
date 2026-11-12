@@ -1,6 +1,10 @@
 /* Append-only, bounded completion records in the player's existing directory.
  * A failed/partial append cannot destroy earlier records. Invalid tails are
  * reported and preserved, rather than overwriting a potentially useful save. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "main/main.h"
@@ -157,3 +161,4 @@ void mcc_progress_complete(char const *level, short difficulty)
             error(_error_silent, "mcc progress: could not record completion of %s for local player %d", level, player);
     }
 }
+#endif /* HALO_MCC */

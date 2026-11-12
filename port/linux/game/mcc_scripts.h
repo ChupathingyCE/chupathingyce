@@ -25,4 +25,15 @@ boolean mcc_script_ai_cast(short actual_type, short desired_type);
 boolean mcc_script_can_cast(short actual_type, short desired_type);
 long mcc_script_cast(short actual_type, short desired_type, long value);
 long mcc_script_cast_ai(short desired_type, long reference);
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_script_call_valid(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (boolean)0)
+#define mcc_script_can_cast(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (boolean)0)
+#define mcc_script_cast(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (long)0)
+#define mcc_script_find(a0) ((void)sizeof(a0), (short)NONE)
+#define mcc_script_function(a0) ((void)sizeof(a0), (struct hs_function_definition *)0)
+#define mcc_script_parse_ai(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (int)-1)
+#endif
+
 #endif

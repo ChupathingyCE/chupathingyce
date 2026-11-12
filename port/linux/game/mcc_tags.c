@@ -1,5 +1,9 @@
 /* MCC metadata normalization. All writes are to an MCC-owned, checked slice;
  * the original map and both established format implementations are untouched. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "mcc_runtime.h"
@@ -223,3 +227,4 @@ int mcc_tags_prepare(struct mcc_runtime *r)
     }
     return TRUE;
 }
+#endif /* HALO_MCC */

@@ -1,5 +1,9 @@
 /* MCC script linking and MCC-only native functions. Unknown functions cause
  * a load failure; silently removing campaign logic would hide broken maps. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "ai/ai_script.h"
@@ -469,3 +473,4 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
     syntax->data = xbox_address(nodes);
     return missing == 0 && mcc_parameters_prepare(runtime, scenario, syntax);
 }
+#endif /* HALO_MCC */

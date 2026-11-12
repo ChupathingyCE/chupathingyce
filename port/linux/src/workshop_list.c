@@ -4,6 +4,10 @@ WORKSHOP_LIST.C
 The WORKSHOP section's list document and words (workshop_browser.h): no
 game, SDL or file system.
 */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 
 #define WORKSHOP_LIST_ONLY
 #include "workshop_browser.h"
@@ -226,3 +230,4 @@ void workshop_browser_size_text(long long size, char *text, int size_of_text)
 	else
 		snprintf(text, (size_t)size_of_text, "%lld KB", (size + 1023) / 1024);
 }
+#endif /* HALO_MCC */

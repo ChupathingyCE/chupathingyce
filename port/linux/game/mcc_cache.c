@@ -1,5 +1,9 @@
 /* Independent MCC cache lifetime and I/O. Source files are opened read-only.
  * Conversion uses exclusively MCC-owned memory and a separate tag window. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "cache/cache_files.h"
@@ -519,3 +523,4 @@ void const *mcc_cache_bitmap_pixels(struct bitmap_data const *bitmap,unsigned lo
     if (bytes) *bytes=size;
     return pixels;
 }
+#endif /* HALO_MCC */

@@ -2,6 +2,10 @@
  * values from the public UIEventHandlerReferenceFunction definition:
  * https://github.com/SnowyMouse/invader/blob/master/src/tag/hek/definition/ui_widget_definition.json
  * No Xbox/CE tag, callback table or settings implementation is rewritten. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "game/game.h"
 #include "game/game_engine.h"
@@ -378,3 +382,4 @@ boolean mcc_ui_event_function(struct widget_instance *widget,
     }
     return TRUE;
 }
+#endif /* HALO_MCC */

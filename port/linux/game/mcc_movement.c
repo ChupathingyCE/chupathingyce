@@ -1,5 +1,9 @@
 /* MCC weapon penalties operate on local forward/sideways input, not on
  * world velocity. Knockback, gravity and vehicle physics stay unchanged. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "mcc_movement.h"
 #include "mcc_cache.h"
 #include "units/units.h"
@@ -39,3 +43,4 @@ void mcc_movement_apply(long unit_index, real_vector3d *desired)
     if (forward>=0.0f && forward<=2.0f) desired->i*=1.0f-forward;
     if (sideways>=0.0f && sideways<=2.0f) desired->j*=1.0f-sideways;
 }
+#endif /* HALO_MCC */

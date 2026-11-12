@@ -1,5 +1,9 @@
 /* MCC transitions use the native menu lifecycle, without selecting Xbox
  * campaign progression or its credits movie for a standalone MCC scenario. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "main/main.h"
@@ -93,3 +97,4 @@ boolean mcc_main_network_load_failed(char const *name)
     main_goto_main_menu();
     return TRUE;
 }
+#endif /* HALO_MCC */

@@ -1,3 +1,7 @@
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "mcc_object_names.h"
 #include "mcc_cache.h"
@@ -70,3 +74,4 @@ int mcc_object_names_restore(void const *in, unsigned long bytes)
     if (bytes) memcpy(mcc_names, in, bytes);
     return 1;
 }
+#endif /* HALO_MCC */

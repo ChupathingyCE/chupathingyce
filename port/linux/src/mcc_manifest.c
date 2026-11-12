@@ -1,5 +1,9 @@
 /* CampaignMaps order is authoritative. Independently implemented from the
  * public Excession package format and locally inspected Halo 1 manifests. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "mcc_manifest.h"
 #include "mcc_json.h" /* port: our own JSON lookups, json_reader.h */
 #include "posix.h"
@@ -183,3 +187,4 @@ int mcc_manifest_for_level(const char *level, struct mcc_manifest *manifest, cha
 	memset(manifest, 0, sizeof(*manifest)); reason[0] = 0;
 	return mcc_manifest_package_root(level, path) ? mcc_manifest_load(path, manifest, reason) : 0;
 }
+#endif /* HALO_MCC */

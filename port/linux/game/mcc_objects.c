@@ -1,5 +1,9 @@
 /* MCC object compatibility: colors, placement and boat controls.
  * The legacy object paths and game variants remain unchanged. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "game/game_engine.h"
 #include "mcc_cache.h"
@@ -70,3 +74,4 @@ boolean mcc_vehicle_placement_allowed(struct scenario_object_datum const *placem
     memcpy(&flags, (unsigned char const *)placement + 0x5A, sizeof(flags));
     return (flags & mask) != 0;
 }
+#endif /* HALO_MCC */

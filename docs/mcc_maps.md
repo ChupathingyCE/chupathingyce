@@ -184,8 +184,7 @@ progression retains its independent 64-mission limit.
 unrelated package identities, late malformed paths, catalog saturation and
 disable/re-enable/rescan behavior through the real reader and discovery code.
 Local menu metadata and previews use the same multiplayer bound, including
-Android/web packages; `tools/test_mcc_previews.py` checks titles and images
-from entries beyond the old limit. Discovery does not establish that every
+Android/web packages. Discovery does not establish that every
 map's gameplay content is supported.
 
 Discovery defaults to off. Android and web use installed `mcc_maps` packages;
@@ -237,8 +236,6 @@ bounded, conventional resource paths and the reader validates the contents;
 that metadata flag does not override an installed package resource. The synthetic
 regressions in `tools/test_steam_workshop.py` exercise unrelated item identities,
 case-insensitive paths, overrides, missing types, library roots and bounds.
-`tools/test_mcc_resources.py` checks complete-reference matching, ambiguity,
-malformed resources, independent bitmap/sound selection and content identity.
 
 The catalog is read the first time MCC maps are needed, and again when a joiner
 cannot find the host's map (so an item subscribed just now is found). The json
@@ -741,12 +738,7 @@ retain their existing geometry. Mercury Falling's pistol, ability counters
 and vehicle prompts exposed these separate cases; the rules do not depend
 on map or weapon names. Descent's custom layouts remain separate.
 
-The asset-free layout, channel and texture-ownership tests are in
-`tools/test_mcc_hud_layout.py`, `tools/test_mcc_shader_channels.py` and
-`tools/test_mcc_texture_bridge.py`. `tools/test_mcc_hud_meter_render.py` renders
-synthetic converted meters through the production GPU shader, checking full,
-empty and partial fill with fractional coverage and placement. Visual checks
-must also cover real stock/custom MCC HUDs at native resolution; synthetic
+Visual checks must cover real stock/custom MCC HUDs at native resolution; synthetic
 tests alone cannot establish that every authored layout matches MCC.
 
 MCC Chicago shaders that explicitly request Custom Edition blending (extra
@@ -1365,26 +1357,15 @@ above apply to their named commits, not these changes.
 Run the isolated tests with a C compiler and Python/pytest available:
 
 ```text
-python -m pytest -q tools/test_mcc_cache_format.py
-python -m pytest -q tools/test_mcc_geometry.py
-python -m pytest -q tools/test_mcc_media.py tools/test_mcc_tag_validation.py
-python -m pytest -q tools/test_mcc_hud.py tools/test_mcc_shader_channels.py tools/test_mcc_vorbis.py
-python -m pytest -q tools/test_mcc_texture_bridge.py
-python -m pytest -q tools/test_mcc_ui.py tools/test_mcc_ui_teams.py tools/test_mcc_ui_network.py
-python -m pytest -q tools/test_mcc_pause.py tools/test_mcc_pause_runtime.py
-python -m pytest -q tools/test_mcc_maps.py
-python -m pytest -q tools/test_mcc_menu.py
-python -m pytest -q tools/test_mcc_saved_games.py
-python -m pytest -q tools/test_mcc_checkpoint.py tools/test_mcc_grenades.py tools/test_mcc_network.py
-python -m pytest -q tools/test_mcc_parameters.py tools/test_mcc_scripts.py tools/test_mcc_syntax.py
-python -m pytest -q tools/test_mcc_campaign.py tools/test_mcc_resources.py
-python -m pytest -q tools/test_mcc_lifecycle.py
-python -m pytest -q tools/test_mcc_recordings.py tools/test_mcc_native_smoke.py
+python -m pytest -q tools/test_mcc_cache_format.py tools/test_mcc_identity.py
+python -m pytest -q tools/test_mcc_cameras.py tools/test_mcc_damage_tags.py tools/test_mcc_movement.py
+python -m pytest -q tools/test_mcc_particles.py tools/test_mcc_projectiles.py tools/test_mcc_seats.py
+python -m pytest -q tools/test_mcc_recordings.py tools/test_mcc_native_smoke.py tools/test_mcc_validation.py
+python -m pytest -q tools/test_steam_workshop.py tools/test_mcc_workshop.py tools/test_workshop_list.py
 ```
 
 Set `MCC_TEST_MAP` to an existing map path to opt into the real-fixture
-checks. The parser tests are portable; the geometry harness currently
-requires the x86 Windows game headers/toolchain and skips elsewhere.
+checks.
 `port/tools/mcc_cache_report.c` builds with `mcc_cache_format.c` and only
 the C standard library, so files can also be audited outside the game.
 None of these commands downloads or bundles a game map.

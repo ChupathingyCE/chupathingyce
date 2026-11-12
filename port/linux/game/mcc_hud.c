@@ -1,6 +1,10 @@
 /* MCC HUD normalization. Unflagged placements use a 960p canvas; legacy
  * high-resolution placements retain their 480p offsets. Bitmap half-HUD flags
  * apply independently of anchor conversion. Keep the original bitmap pixels and sprite texture coordinates. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "bitmaps/bitmap_group.h"
 #include "interface/unit_hud_interface_definition.h"
@@ -267,3 +271,4 @@ int mcc_hud_bitmaps_prepare(struct mcc_runtime *r)
     }
     return 1;
 }
+#endif /* HALO_MCC */

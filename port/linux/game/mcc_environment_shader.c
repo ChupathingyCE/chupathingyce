@@ -1,3 +1,7 @@
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "mcc_cache.h"
 #include "mcc_environment_shader.h"
@@ -13,3 +17,4 @@ void mcc_environment_shader_end(void)
 {
     mcc_environment_shader_set(0);
 }
+#endif /* HALO_MCC */

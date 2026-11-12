@@ -206,4 +206,22 @@ build to nothing (plasma_occlusion.c's fields alone are 130 KB) */
 #define HALO_CONSOLE_NO_LIGHT_EFFECTS
 #endif
 
+/* Halo MCC maps (port/linux/game/mcc_*.c, docs/mcc_maps.md): the desktop
+builds' and Android's, by a list of their systems, and on no console (any
+console's build, whichever switches it sets on its own: the original Xbox
+and the Switch don't set HALO_CONSOLE), nor in a Windows app package (UWP,
+warthog-uwp). HALO_MCC is 1 or 0; at 0 the MCC headers turn the hooks the
+shared code calls into no-ops, and the MCC sources build to nothing */
+#ifndef HALO_MCC
+#if (defined(__linux__) || defined(__APPLE__) || defined(_WIN32) || defined(__FreeBSD__) || \
+	defined(HALO_ANDROID)) && \
+	!(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!(defined(WINAPI_FAMILY) && WINAPI_FAMILY != 100 /* WINAPI_FAMILY_DESKTOP_APP */)
+#define HALO_MCC 1
+#else
+#define HALO_MCC 0
+#endif
+#endif
+
 #endif /* __HALO_PORT_FEATURES_H */

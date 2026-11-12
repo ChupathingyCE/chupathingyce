@@ -904,6 +904,7 @@ symbols in this file:
 #include "physics/collision_debug.h"
 #include "rasterizer/rasterizer.h"
 #include "rasterizer/rasterizer_console_vars.h"
+#include "mcc_campaign.h"
 
 /* ---------- constants */
 
@@ -2984,7 +2985,6 @@ boolean hs_external_global_settable_by_maps(
 {
 	/* port: MCC's separately scoped campaign controls (mcc_campaign.c). */
 	{
-		extern boolean mcc_campaign_global_settable(short index);
 		if (mcc_campaign_global_settable(global_index))
 			return TRUE;
 	}

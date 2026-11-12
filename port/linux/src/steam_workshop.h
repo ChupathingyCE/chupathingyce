@@ -105,4 +105,11 @@ int steam_workshop_resource_path(const char *request, const char *data_root, cha
 /* the item's title; 1 if some scanned map belongs to the id (the title may still be "") */
 int steam_workshop_item_title(const char *item_id, char *title, unsigned long size);
 
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define steam_workshop_package_folder(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), 0)
+#define steam_workshop_resource_path(a0, a1, a2, a3) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), 0)
+#endif
+
 #endif

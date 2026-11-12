@@ -1,6 +1,10 @@
 /* MCC's game_speed_value uses the native host clock, which already belongs
  * to checkpoints. Clients keep a separate, host-only clock multiplier:
  * cheats_network_client_enforce still resets their native speed to one. */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "mcc_game_speed.h"
 #include "cseries_windows.h"
 #include "mcc_cache.h"
@@ -109,3 +113,4 @@ void mcc_game_speed_receive(void const *entries, short count)
     memcpy(&value,entries,sizeof(value));
     if (value>=0.0f && value<=100.0f) mcc_remote_speed=value;
 }
+#endif /* HALO_MCC */

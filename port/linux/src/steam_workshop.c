@@ -3,6 +3,10 @@ STEAM_WORKSHOP.C
 
 The subscribed Steam Workshop items' Halo CE maps, found in place (steam_workshop.h).
 */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 
 #include "steam_workshop.h"
 #include "mcc_manifest.h"
@@ -785,3 +789,4 @@ int steam_workshop_item_title(const char *item_id, char *title, unsigned long si
 	copy_text(title, (unsigned)size, map->item_title);
 	return 1;
 }
+#endif /* HALO_MCC */

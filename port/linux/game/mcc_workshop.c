@@ -1,3 +1,7 @@
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include <stddef.h>
 #include "cseries.h"
 #include "mcc_workshop.h"
@@ -164,3 +168,4 @@ int mcc_workshop_listing(char const name[128], struct mcc_workshop_item *item)
     level[sizeof(level)-1]=0;
     return mcc_workshop_local_item(level,item) && item->id[0];
 }
+#endif /* HALO_MCC */

@@ -26,4 +26,11 @@ boolean mcc_syntax_functions_check(struct scenario *scenario,
     short (*node_refusal)(struct hs_syntax_node const *, char const **),
     unsigned long *disabled_scripts, unsigned long *disabled_globals);
 
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_syntax_functions_check(a0, a1, a2, a3, a4) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (boolean)0)
+#define mcc_syntax_scenario_valid(a0) ((void)sizeof(a0), (int)-1)
+#endif
+
 #endif

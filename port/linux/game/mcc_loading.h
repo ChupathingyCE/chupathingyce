@@ -21,4 +21,11 @@ void mcc_loading_update(enum mcc_loading_stage stage, unsigned long done, unsign
 void mcc_loading_pulse(void);
 void mcc_loading_end(int success);
 
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_loading_begin(a0) ((void)sizeof(a0), (int)0)
+#define mcc_loading_end(a0) ((void)sizeof(a0), (void)0)
+#endif
+
 #endif

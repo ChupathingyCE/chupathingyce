@@ -1,3 +1,7 @@
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "mcc_menu_metadata.h"
 #include "mcc_manifest.h"
 #include "posix.h"
@@ -70,3 +74,4 @@ int mcc_menu_metadata_load(const char *root, int campaign, struct mcc_menu_metad
 done:
     free(item); free(text); return valid;
 }
+#endif /* HALO_MCC */
