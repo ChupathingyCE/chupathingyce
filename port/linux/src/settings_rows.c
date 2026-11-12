@@ -160,6 +160,9 @@ static const struct settings_row settings_rows[] =
 	/* (the Workshop's: Steam's link, where items go, a join's missing map) */
 	{ _in_network | _in_guide, "STEAM ACCOUNT", "game.workshop_steam", _kind_steam_link, NULL, NULL, 0, 0 },
 	{ _in_guide, "WORKSHOP FOLDER", "paths.steam_downloads", _kind_folder, NULL, NULL, 0, 0 },
+	/* (the Workshop's maps in the map lists: the Guide's WORKSHOP turns them
+	on from an item's page, and here is where they go off again) */
+	{ _in_guide, "WORKSHOP MAPS", "game.workshop_maps", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "MAPS WHEN JOINING", "network.workshop_downloads", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "SHOW IN MENUS", "delta.menu_item", _kind_toggle, NULL, NULL, 0, 0 },
@@ -363,10 +366,16 @@ static void preset_set(int preset)
 /* ---------- public code */
 
 static void (*steam_link_action)(void);
+static int workshop_offered;
 
 void settings_rows_set_steam_link_action(void (*action)(void))
 {
 	steam_link_action = action;
+}
+
+void settings_rows_set_workshop_offered(int offered)
+{
+	workshop_offered = offered;
 }
 
 const struct settings_row *settings_row_at(int group, int index)
@@ -383,6 +392,9 @@ const struct settings_row *settings_row_at(int group, int index)
 		{
 			continue;
 		}
+		/* (Workshop maps: where the Guide has WORKSHOP, MCC on this computer) */
+		if (!workshop_offered && !strcmp(settings_rows[row].key, "game.workshop_maps"))
+			continue;
 		if (!index--)
 			return &settings_rows[row];
 	}

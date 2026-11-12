@@ -42,20 +42,31 @@ def test_unlink_has_cancel_and_click_outside():
     assert "guide_workshop_link_modal_click(target->index);" in GUIDE
 
 
-def test_page_questions_have_cancel_focused():
+def test_page_questions_put_cancel_where_the_press_was():
+    """REMOVE (second of PLAY, REMOVE) and CONNECT STEAM (often the only
+    button): CANCEL takes the asking button's place and the focus, so a
+    second press or click there answers no"""
     options = body(WORKSHOP, "static short options_of(")
-    for question in ("workshop_view.confirm_remove", "workshop_view.confirm)"):
-        start = options.index(question)
-        assert "options[count++] = _option_cancel;" in options[start:start + 300], question
+    assert "workshop_view.confirm_slot ? yes : _option_cancel" in options
+    assert "workshop_view.confirm_slot ? _option_cancel : yes" in options
     run = body(WORKSHOP, "static void option_run(short option)")
     for arm in ("workshop_view.confirm_remove = TRUE;", "workshop_view.confirm = TRUE;"):
         start = run.index(arm)
-        assert "workshop_view.option = 1;" in run[start:start + 80], arm
+        after = run[start:start + 200]
+        assert "workshop_view.confirm_slot = workshop_view.option ? 1 : 0;" in after, arm
+        assert "workshop_view.option = workshop_view.confirm_slot;" in after, arm
     assert "case _option_cancel:" in run
+    assert '"CONNECT" : "CONNECT STEAM"' in WORKSHOP and '"CONFIRM"' not in WORKSHOP
 
 
 def test_workshop_maps_row_is_the_switch():
+    """the page's row, drawn as a setting, turns them on; SETTINGS' row turns
+    them off again (port/linux/src/settings_rows.c)"""
     assert 'case _option_show_maps: return "WORKSHOP MAPS";' in WORKSHOP
+    assert 'ui_style_setting(button.x, button.y, button.width, button.height, 0.9f, "WORKSHOP MAPS", NULL, "OFF", on);' \
+        in WORKSHOP
+    rows = (ROOT / "port" / "linux" / "src" / "settings_rows.c").read_text()
+    assert '{ _in_guide, "WORKSHOP MAPS", "game.workshop_maps", _kind_toggle,' in rows
     assert '"TURN ON"' not in WORKSHOP
     assert 'return "Workshop maps are off"' not in body(WORKSHOP, "static char const *page_note(")
 

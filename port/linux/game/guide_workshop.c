@@ -1127,6 +1127,7 @@ void guide_workshop_update(boolean showing)
 
 	workshop_browser_own_library();
 	settings_rows_set_steam_link_action(workshop_browser_link_offered() ? link_settings_press : NULL);
+	settings_rows_set_workshop_offered(workshop_browser_offered());
 	link_follow();
 	/* (the on-screen keyboard done: its words searched, the Guide back on WORKSHOP) */
 #if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
@@ -1709,21 +1710,17 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 			struct guide_rect button = layout.buttons[index];
 			boolean on = workshop_view.page && index == workshop_view.option && !workshop_view.description_on;
 
-			float value_width = 0;
-
-			ui_style_row(button.x, button.y, button.width, button.height, on);
-			/* (Workshop maps off: the row says so, as a setting's row does,
-			and turns them on) */
+			/* (Workshop maps off: the row is the setting, drawn as SETTINGS'
+			rows are, its value between their arrows; pressed, it turns them on) */
 			if (options[index] == _option_show_maps)
+				ui_style_setting(button.x, button.y, button.width, button.height, 0.9f, "WORKSHOP MAPS", NULL, "OFF", on);
+			else
 			{
-				value_width = ui_overlay_text_width(UI_FONT_MENU, 10.0f, "OFF") + 10;
-				ui_overlay_text(UI_FONT_MENU, 10.0f, button.x + button.width - 10, button.y + (button.height - 10) * 0.5f,
-					UI_ALIGN_RIGHT, COLOR_NOT_INSTALLED, "OFF");
+				ui_style_row(button.x, button.y, button.width, button.height, on);
+				text_fit(UI_TEXT_NAME, option_label(item, options[index]), button.width - 20, shown, sizeof(shown));
+				ui_overlay_text(UI_FONT_MENU, 10.0f, button.x + 10, button.y + (button.height - 10) * 0.5f, UI_ALIGN_LEFT,
+					COLOR_VALUE, shown);
 			}
-			text_fit(UI_TEXT_NAME, option_label(item, options[index]), button.width - 20 - value_width, shown,
-				sizeof(shown));
-			ui_overlay_text(UI_FONT_MENU, 10.0f, button.x + 10, button.y + (button.height - 10) * 0.5f, UI_ALIGN_LEFT,
-				COLOR_VALUE, shown);
 			if (target)
 				target(button.x, button.y, button.x + button.width, button.y + button.height, GUIDE_WORKSHOP_TARGET_OPTION,
 					index);
