@@ -84,6 +84,13 @@ void *create_network_game_message_with_tail(
 	const void *message_struct,
 	short message_struct_size,
 	short tail_size);
+/* port: ... with tail's bytes (tail_size of them, NULL for zeros) there */
+void *create_network_game_message_with_tail_bytes(
+	enum network_game_message_type message_type,
+	const void *message_struct,
+	short message_struct_size,
+	const void *tail,
+	short tail_size);
 
 boolean decode_network_game_message(
 	void *message_struct,

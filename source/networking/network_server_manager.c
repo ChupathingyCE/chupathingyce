@@ -833,6 +833,7 @@ static boolean network_game_server_countdown_slowed[MAXIMUM_NETWORK_MACHINE_COUN
 boolean network_distributed_banned(unsigned long address, char const *hardware_id);
 /* (its budget for a client machine's lobby messages, full again) */
 void network_distributed_lobby_budget_reset(long machine_index);
+void network_distributed_machine_gone(long machine_index);
 /* (its limit on the machines of one address: network.max_machines_per_address,
 a dedicated server's max_machines_per_address) */
 boolean network_distributed_address_full(unsigned long address, unsigned long const *others, short count);
@@ -3858,6 +3859,8 @@ boolean network_game_server_remove_client_machine_from_game(
 	{
 		network_game_server_send_player_quit_messages_ingame(server, client);
 	}
+	/* port: a machine gone is told no checkpoint boundary (network_distributed.c) */
+	network_distributed_machine_gone(client->machine_index);
 
 	for (i = 0; i < MAXIMUM_NETWORK_MACHINE_COUNT; i++)
 	{

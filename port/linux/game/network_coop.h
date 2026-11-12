@@ -112,4 +112,7 @@ void network_coop_skip_done(void);
 /* the vote count to show, if a skippable cinematic is playing */
 boolean network_coop_skip_vote_status(short *votes, short *voters, boolean *voted);
 
+/* (a client) the host's newer checkpoint epoch: network_coop.c */
+void network_coop_checkpoint_reset(void);
+
 #endif

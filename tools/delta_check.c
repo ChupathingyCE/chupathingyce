@@ -172,6 +172,8 @@ int main(int count, char **arguments)
 			delta_legacy_hold(atoi(arguments[++index]));
 		else if (!strcmp(arguments[index], "hosting"))
 			printf("hosting %d pinned %d\n", delta_legacy_hosting_newest(), delta_legacy_pinned());
+		else if (!strcmp(arguments[index], "host_at") && index + 1 < count)
+			printf("host_at %d\n", delta_legacy_host_game_at(atoi(arguments[++index])));
 		else if (!strcmp(arguments[index], "start"))
 			delta_legacy_start();
 		else if (!strcmp(arguments[index], "layout") && index + 1 < count)
@@ -196,6 +198,24 @@ int main(int count, char **arguments)
 			}
 			printf("%s learned %d refused %d facts %d join %d\n", any ? "" : "-", layout.learned, layout.refused,
 				delta_legacy_layouts(facts, DELTA_LAYOUT_FACTS), layout.join_request_extra);
+		}
+		else if (!strcmp(arguments[index], "layout43") && index + 1 < count)
+		{
+			/* (chupa-43a's facts of a version's layout) */
+			struct network_rules_layout layout;
+			unsigned version = (unsigned)strtoul(arguments[++index], NULL, 10);
+			int bit;
+
+			network_rules_set_layout_source(delta_legacy_layouts);
+			network_rules_layout(version, &layout);
+			printf("layout43 %u version_at %d header %d epoch %d ejection %d parts", version,
+				layout.join_request_version_at, layout.header_extra, layout.epoch_kind, layout.rider_ejection_up);
+			for (bit = 0; bit < 8; bit++)
+			{
+				if (layout.unit_part_size[bit])
+					printf(" %d:%d@%d", bit, layout.unit_part_size[bit], layout.unit_part_at[bit]);
+			}
+			printf(" refused %d\n", layout.refused);
 		}
 		else if (!strcmp(arguments[index], "wait") && index + 1 < count)
 		{
