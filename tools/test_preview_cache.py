@@ -1,6 +1,7 @@
 """Runs the C tests of the Workshop's pictures kept for showing
 (port/linux/src/preview_cache.c): an item gone back to shows its picture
-again, an item with none isn't asked for each frame. The unit has no SDL or
+again, a failed one is asked again after retry_backoff.h's wait (or never,
+when it failed for good), never each frame. The unit has no SDL or
 game dependency, so it compiles anywhere."""
 import shutil
 import subprocess
@@ -33,6 +34,7 @@ def test_preview_cache(tmp_path):
         [cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
          str(ROOT / "port" / "linux" / "tests" / "preview_cache_test.c"),
          str(ROOT / "port" / "linux" / "src" / "preview_cache.c"),
+         str(ROOT / "port" / "linux" / "src" / "retry_backoff.c"),
          "-o", str(binary)],
         capture_output=True, text=True,
     )
@@ -53,6 +55,7 @@ def test_preview_cache_address_sanitizer(tmp_path):
          "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
          str(ROOT / "port" / "linux" / "tests" / "preview_cache_test.c"),
          str(ROOT / "port" / "linux" / "src" / "preview_cache.c"),
+         str(ROOT / "port" / "linux" / "src" / "retry_backoff.c"),
          "-o", str(binary)],
         capture_output=True, text=True,
     )

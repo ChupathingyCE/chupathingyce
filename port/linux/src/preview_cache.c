@@ -73,6 +73,12 @@ int preview_cache_put(struct preview_cache *cache, const char *id, unsigned char
 	}
 	if (picture->pixels != pixels)
 		free(picture->pixels);
+	/* (had at last: its failures forgotten) */
+	for (index = 0; index < PREVIEW_CACHE_FAILED; index++)
+	{
+		if (!strcmp(cache->failed[index].id, id))
+			memset(&cache->failed[index], 0, sizeof(cache->failed[index]));
+	}
 	snprintf(picture->id, sizeof(picture->id), "%s", id);
 	picture->pixels = pixels;
 	picture->width = width;
@@ -85,26 +91,69 @@ int preview_cache_put(struct preview_cache *cache, const char *id, unsigned char
 	return 1;
 }
 
-void preview_cache_fail(struct preview_cache *cache, const char *id)
-{
-	if (!id_usable(id) || preview_cache_failed(cache, id))
-		return;
-	snprintf(cache->failed[cache->failed_next], PREVIEW_CACHE_ID_SIZE, "%s", id);
-	cache->failed_next = (cache->failed_next + 1) % PREVIEW_CACHE_FAILED;
-}
-
-int preview_cache_failed(const struct preview_cache *cache, const char *id)
+static struct preview_cache_failure *failure_find(const struct preview_cache *cache, const char *id)
 {
 	int index;
 
 	if (!id_usable(id))
-		return 0;
+		return NULL;
 	for (index = 0; index < PREVIEW_CACHE_FAILED; index++)
 	{
-		if (!strcmp(cache->failed[index], id))
-			return 1;
+		if (!strcmp(cache->failed[index].id, id))
+			return (struct preview_cache_failure *)&cache->failed[index];
 	}
-	return 0;
+	return NULL;
+}
+
+void preview_cache_fail(struct preview_cache *cache, const char *id, unsigned long now, int permanent, int status,
+	long retry_after)
+{
+	struct preview_cache_failure *failure;
+
+	if (!id_usable(id))
+		return;
+	/* (one already failing keeps its wait, which grows; else the oldest place) */
+	if (!(failure = failure_find(cache, id)))
+	{
+		failure = &cache->failed[cache->failed_next];
+		cache->failed_next = (cache->failed_next + 1) % PREVIEW_CACHE_FAILED;
+		memset(failure, 0, sizeof(*failure));
+		snprintf(failure->id, sizeof(failure->id), "%s", id);
+	}
+	if (permanent)
+		failure->permanent = 1;
+	else
+		retry_backoff_failed(&failure->backoff, now, status, retry_after);
+}
+
+int preview_cache_failed(const struct preview_cache *cache, const char *id)
+{
+	return failure_find(cache, id) != NULL;
+}
+
+int preview_cache_ready(const struct preview_cache *cache, const char *id, unsigned long now)
+{
+	const struct preview_cache_failure *failure = failure_find(cache, id);
+
+	return !failure || (!failure->permanent && retry_backoff_ready(&failure->backoff, now));
+}
+
+int preview_cache_transient(int status)
+{
+	return status == 0 || status == 408 || status == 429 || status >= 500;
+}
+
+void preview_cache_wait(struct preview_cache *cache, const char *id, unsigned long changes)
+{
+	if (!id_usable(id))
+		return;
+	snprintf(cache->waiting, sizeof(cache->waiting), "%s", id);
+	cache->waiting_changes = changes;
+}
+
+int preview_cache_waiting(const struct preview_cache *cache, const char *id, unsigned long changes)
+{
+	return id_usable(id) && !strcmp(cache->waiting, id) && cache->waiting_changes == changes;
 }
 
 void preview_cache_clear(struct preview_cache *cache)

@@ -310,10 +310,10 @@ void workshop_join_cancel(void);
 /* UNSUBSCRIBE (the bridge's Steam client backend only) */
 int workshop_browser_unsubscribe(int index);
 /* the picture of an item for its page, RGBA rows from the top, at most
-WORKSHOP_BROWSER_PREVIEW_WIDTH wide: an installed item's own (its first
-map's thumbnail), else Steam's (its CDN), fetched only when asked for here,
-on a thread, kept in the cache folder by item and update time. NULL while
-there is none (yet); serial changes with the picture */
+WORKSHOP_BROWSER_PREVIEW_WIDTH wide and as high: an installed item's own (its
+first map's thumbnail), else Steam's (its CDN), fetched only when asked for
+here, on a thread, kept in the cache folder by item and update time. NULL
+while there is none (yet); serial changes with the picture */
 const unsigned char *workshop_browser_preview(int index, int *width, int *height, int *serial);
 /* 1 when the item's picture can't be had this run (none kept, Steam's
 wouldn't come; debug.txt says why): its page says "No picture" */

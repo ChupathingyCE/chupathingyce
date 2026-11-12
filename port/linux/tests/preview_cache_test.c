@@ -73,18 +73,60 @@ int main(void)
 	got = preview_cache_get(&cache, "1007", &width, &height, &serial);
 	CHECK(got && got[0] == 17, "the last kept is there");
 
-	/* (no picture to be had: remembered, not asked for again) */
-	CHECK(!preview_cache_failed(&cache, "3822459106"), "not failed yet");
-	preview_cache_fail(&cache, "3822459106");
-	preview_cache_fail(&cache, "3822459106");
+	/* (for good: a 404, too large, not a picture: never asked again this run) */
+	CHECK(!preview_cache_failed(&cache, "3822459106") && preview_cache_ready(&cache, "3822459106", 0),
+		"not failed yet");
+	preview_cache_fail(&cache, "3822459106", 1000, 1, 404, 0);
+	preview_cache_fail(&cache, "3822459106", 1000, 1, 404, 0);
 	CHECK(preview_cache_failed(&cache, "3822459106"), "failed");
+	CHECK(!preview_cache_ready(&cache, "3822459106", 1000 + 24UL * 3600000), "for good is for the run");
 	CHECK(!preview_cache_failed(&cache, "382245910"), "only that id");
 	for (index = 0; index < PREVIEW_CACHE_FAILED; index++)
 	{
 		snprintf(id, sizeof(id), "200%d", index);
-		preview_cache_fail(&cache, id);
+		preview_cache_fail(&cache, id, 1000, 1, 404, 0);
 	}
 	CHECK(!preview_cache_failed(&cache, "3822459106"), "the oldest failure goes when the list is full");
+	preview_cache_clear(&cache);
+
+	/* (a hiccup: no answer, a busy host: asked again after 2 s, doubling to a
+	minute, never each frame; had at last, forgotten) */
+	{
+		unsigned long now = 5000, waits[] = { 2000, 4000, 8000, 16000, 32000, 60000, 60000 };
+		int step;
+
+		for (step = 0; step < (int)(sizeof(waits) / sizeof(waits[0])); step++)
+		{
+			preview_cache_fail(&cache, "3806571482", now, 0, step % 2 ? 503 : 0, 0);
+			CHECK(preview_cache_failed(&cache, "3806571482"), "failing shows so");
+			CHECK(!preview_cache_ready(&cache, "3806571482", now + 16), "not asked again the next frame");
+			CHECK(!preview_cache_ready(&cache, "3806571482", now + waits[step] - 1), "still waiting (%d)", step);
+			CHECK(preview_cache_ready(&cache, "3806571482", now + waits[step]), "asked again after %lu ms",
+				waits[step]);
+			now += waits[step];
+		}
+		CHECK(preview_cache_put(&cache, "3806571482", pixels(5), 4, 4), "had at last");
+		CHECK(!preview_cache_failed(&cache, "3806571482") && preview_cache_ready(&cache, "3806571482", now),
+			"its failures forgotten");
+
+		/* (a 429's Retry-After: its two minutes, not 2 s) */
+		preview_cache_fail(&cache, "3659420567", now, 0, 429, 120);
+		CHECK(!preview_cache_ready(&cache, "3659420567", now + 119999), "Retry-After honored");
+		CHECK(preview_cache_ready(&cache, "3659420567", now + 120000), "asked again after Retry-After");
+	}
+	CHECK(preview_cache_transient(0) && preview_cache_transient(408) && preview_cache_transient(429) &&
+		preview_cache_transient(500) && preview_cache_transient(503), "no answer, 408, 429, 5xx: asked again");
+	CHECK(!preview_cache_transient(404) && !preview_cache_transient(403) && !preview_cache_transient(410),
+		"404, 403, 410: for good");
+
+	/* (waiting on Steam's details for an address: looked at again only once
+	something changed, not each frame) */
+	preview_cache_wait(&cache, "2894901917", 7);
+	CHECK(preview_cache_waiting(&cache, "2894901917", 7), "nothing changed: still waiting");
+	CHECK(!preview_cache_waiting(&cache, "2894901917", 8), "the details changed: looked at again");
+	CHECK(!preview_cache_waiting(&cache, "3806571482", 7), "another item isn't waiting");
+	preview_cache_wait(&cache, "3806571482", 8);
+	CHECK(!preview_cache_waiting(&cache, "2894901917", 8), "one item waits at a time");
 
 	/* (bad arguments: refused, the pixels freed, nothing kept) */
 	CHECK(!preview_cache_put(&cache, "", pixels(4), 4, 4), "no id");

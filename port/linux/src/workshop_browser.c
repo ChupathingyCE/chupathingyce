@@ -31,6 +31,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #endif
 
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -775,6 +776,14 @@ enum
 	PREVIEW_SERIAL_BASE = 0x57000000,
 };
 
+/* why a picture wasn't had (failure_say) */
+struct preview_failure
+{
+	char why[64];
+	int transient, status;
+	long retry_after;
+};
+
 static struct
 {
 	/* the thread's: asked for, and its answer (the pixels, else why not) */
@@ -783,10 +792,13 @@ static struct
 	char id[WORKSHOP_BROWSER_ID_SIZE];
 	unsigned char *pixels;
 	int width, height;
-	char why[64];
+	struct preview_failure failure;
 	/* the main thread's: the pictures kept, so that an item gone back to
-	shows its picture again, and the items with none to be had (this run) */
+	shows its picture again, and the items whose picture failed */
 	struct preview_cache cache;
+	/* counted up each time the list or Steam's details change (an item
+	waiting on them for its picture's address looked at again then) */
+	unsigned long changes;
 } preview;
 
 struct preview_job
@@ -827,15 +839,32 @@ static int picture_bytes(const unsigned char *data, int size)
 		(data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF));
 }
 
+/* why a picture wasn't had: its words for debug.txt (never an address:
+Steam's are Steam's to give), and whether to ask again after a wait (no
+answer, a busy host: retry_backoff.h's, its Retry-After honored) or never
+this run (404, too large, not a picture) */
+static void failure_say(struct preview_failure *failure, int transient, int status, long retry_after,
+	const char *format, ...)
+{
+	va_list arguments;
+
+	va_start(arguments, format);
+	vsnprintf(failure->why, sizeof(failure->why), format, arguments);
+	va_end(arguments);
+	failure->transient = transient;
+	failure->status = status;
+	failure->retry_after = retry_after;
+}
+
 /* a kept file's picture (the item's own, or the cache's): NULL when it
 isn't there or isn't a PNG or JPEG, so that the next place is tried */
-static unsigned char *picture_file(const char *path, int *size, char *why, int why_size)
+static unsigned char *picture_file(const char *path, int *size, struct preview_failure *failure)
 {
 	unsigned char *data = path[0] ? file_read(path, size) : NULL;
 
 	if (data && !picture_bytes(data, *size))
 	{
-		snprintf(why, (size_t)why_size, "a kept file is not a PNG or JPEG");
+		failure_say(failure, 0, 0, 0, "a kept file is not a PNG or JPEG");
 		free(data);
 		data = NULL;
 		*size = 0;
@@ -844,21 +873,25 @@ static unsigned char *picture_file(const char *path, int *size, char *why, int w
 }
 
 #ifdef HALO_GAME_BROWSER
-/* Steam's picture; why not in why (never its address: it is Steam's to give) */
-static unsigned char *download(const char *url, int *size, char *why, int why_size)
+/* Steam's picture; why not in failure */
+static unsigned char *download(const char *url, int *size, struct preview_failure *failure)
 {
 	unsigned char *data;
 	int status = 0, length = -1, handle, got;
 	char error[128];
 
 	*size = 0;
+	error[0] = 0;
 	handle = posix_browser_download_open(url, build_identity_user_agent(), &status, &length, error, sizeof(error));
 	if (!handle)
 	{
+		long after = retry_backoff_after(error);
+
 		if (status)
-			snprintf(why, (size_t)why_size, "Steam's picture host answered HTTP %d", status);
+			failure_say(failure, preview_cache_transient(status), status, after,
+				"Steam's picture host answered HTTP %d", status);
 		else
-			snprintf(why, (size_t)why_size, "no answer from Steam's picture host");
+			failure_say(failure, 1, 0, after, "no answer from Steam's picture host");
 		return NULL;
 	}
 	posix_browser_download_deadline(handle, PREVIEW_DEADLINE);
@@ -873,13 +906,13 @@ static unsigned char *download(const char *url, int *size, char *why, int why_si
 	if (!data || *size <= 0 || *size > PREVIEW_FILE_LARGEST || !picture_bytes(data, *size))
 	{
 		if (length > PREVIEW_FILE_LARGEST || *size > PREVIEW_FILE_LARGEST)
-			snprintf(why, (size_t)why_size, "larger than %d MB", PREVIEW_FILE_LARGEST >> 20);
+			failure_say(failure, 0, status, 0, "larger than %d MB", PREVIEW_FILE_LARGEST >> 20);
 		else if (!data)
-			snprintf(why, (size_t)why_size, "out of memory");
+			failure_say(failure, 1, status, 0, "out of memory");
 		else if (*size <= 0)
-			snprintf(why, (size_t)why_size, "the download stopped before any of it came");
+			failure_say(failure, 1, 0, 0, "the download stopped before any of it came");
 		else
-			snprintf(why, (size_t)why_size, "not a PNG or JPEG (%d bytes)", *size);
+			failure_say(failure, 0, status, 0, "not a PNG or JPEG (%d bytes)", *size);
 		free(data);
 		*size = 0;
 		return NULL;
@@ -888,12 +921,16 @@ static unsigned char *download(const char *url, int *size, char *why, int why_si
 }
 #endif
 
-/* RGBA pixels made at most WORKSHOP_BROWSER_PREVIEW_WIDTH wide (box filter) */
+/* RGBA pixels made at most WORKSHOP_BROWSER_PREVIEW_WIDTH wide and as high
+(box filter): no larger than the picture boxes show, 576 KB at most */
 static unsigned char *shrink(const unsigned char *pixels, int width, int height, int *out_width, int *out_height)
 {
 	int step = (width + WORKSHOP_BROWSER_PREVIEW_WIDTH - 1) / WORKSHOP_BROWSER_PREVIEW_WIDTH, x, y;
+	int high = (height + WORKSHOP_BROWSER_PREVIEW_WIDTH - 1) / WORKSHOP_BROWSER_PREVIEW_WIDTH;
 	unsigned char *out;
 
+	if (step < high)
+		step = high;
 	if (step < 1)
 		step = 1;
 	*out_width = width / step;
@@ -922,13 +959,14 @@ static unsigned char *shrink(const unsigned char *pixels, int width, int height,
 	return out;
 }
 
-/* a picture's bytes decoded (and let go of); why not in why */
-static unsigned char *picture_decode(unsigned char *data, int size, int *width, int *height, char *why, int why_size)
+/* a picture's bytes decoded (and let go of); why not in failure */
+static unsigned char *picture_decode(unsigned char *data, int size, int *width, int *height,
+	struct preview_failure *failure)
 {
 	unsigned char *pixels = data ? posix_ui_image_decode(data, size, width, height) : NULL;
 
 	if (data && !pixels)
-		snprintf(why, (size_t)why_size, "it couldn't be decoded (%d bytes)", size);
+		failure_say(failure, 0, 0, 0, "it couldn't be decoded (%d bytes)", size);
 	free(data);
 	return pixels;
 }
@@ -938,16 +976,17 @@ static void *preview_thread(void *context)
 	struct preview_job *job = context;
 	unsigned char *data, *pixels = NULL, *small = NULL;
 	int size = 0, width = 0, height = 0, small_width = 0, small_height = 0;
-	char why[64] = "";
+	struct preview_failure failure;
 
+	memset(&failure, 0, sizeof(failure));
 	/* (the item's own picture first, then the cache, then Steam's: one that
 	can't be read or decoded leaves it to the next) */
-	data = picture_file(job->local, &size, why, sizeof(why));
-	pixels = picture_decode(data, size, &width, &height, why, sizeof(why));
+	data = picture_file(job->local, &size, &failure);
+	pixels = picture_decode(data, size, &width, &height, &failure);
 	if (!pixels)
 	{
-		data = picture_file(job->cache, &size, why, sizeof(why));
-		pixels = picture_decode(data, size, &width, &height, why, sizeof(why));
+		data = picture_file(job->cache, &size, &failure);
+		pixels = picture_decode(data, size, &width, &height, &failure);
 	}
 #ifdef HALO_GAME_BROWSER
 	/* (an item the list hasn't shown: its picture's address from Steam's details) */
@@ -957,6 +996,7 @@ static void *preview_thread(void *context)
 		char *answer = malloc(DETAILS_DOCUMENT + 1), form[96], error[128];
 		int status = 0;
 
+		error[0] = 0;
 		snprintf(form, sizeof(form), "itemcount=1&publishedfileids%%5B0%%5D=%s", job->id);
 		if (answer)
 			status = posix_browser_request_as(DETAILS_URL, form, "application/x-www-form-urlencoded",
@@ -967,17 +1007,18 @@ static void *preview_thread(void *context)
 			snprintf(job->url, sizeof(job->url), "%s", found.preview_url);
 		}
 		else if (status == 200)
-			snprintf(why, sizeof(why), "Steam's details have no picture for it");
+			failure_say(&failure, 0, status, 0, "Steam's details have no picture for it");
 		else
-			snprintf(why, sizeof(why), "Steam's details didn't come (HTTP %d)", status);
+			failure_say(&failure, !answer || preview_cache_transient(status), status, retry_backoff_after(error),
+				"Steam's details didn't come (HTTP %d)", status);
 		free(answer);
 	}
-	if (!pixels && job->url[0] && (data = download(job->url, &size, why, sizeof(why))) != NULL)
+	if (!pixels && job->url[0] && (data = download(job->url, &size, &failure)) != NULL)
 	{
 		/* (kept in the cache only once it decodes) */
 		pixels = posix_ui_image_decode(data, size, &width, &height);
 		if (!pixels)
-			snprintf(why, sizeof(why), "Steam's picture couldn't be decoded (%d bytes)", size);
+			failure_say(&failure, 0, 0, 0, "Steam's picture couldn't be decoded (%d bytes)", size);
 		else if (job->cache[0])
 		{
 			FILE *file = fopen(job->cache, "wb");
@@ -991,13 +1032,13 @@ static void *preview_thread(void *context)
 		free(data);
 	}
 #endif
-	if (!pixels && !why[0])
-		snprintf(why, sizeof(why), "none kept and no address to fetch it from");
+	if (!pixels && !failure.why[0])
+		failure_say(&failure, 0, 0, 0, "none kept and no address to fetch it from");
 	if (pixels)
 	{
 		small = shrink(pixels, width, height, &small_width, &small_height);
 		if (!small)
-			snprintf(why, sizeof(why), "out of memory (%dx%d)", width, height);
+			failure_say(&failure, 1, 0, 0, "out of memory (%dx%d)", width, height);
 		posix_ui_image_free(pixels);
 	}
 	pthread_mutex_lock(&workshop.lock);
@@ -1005,7 +1046,7 @@ static void *preview_thread(void *context)
 	preview.pixels = small;
 	preview.width = small_width;
 	preview.height = small_height;
-	snprintf(preview.why, sizeof(preview.why), "%s", small ? "" : why);
+	preview.failure = failure;
 	preview.done = 1;
 	preview.busy = 0;
 	pthread_mutex_unlock(&workshop.lock);
@@ -1014,10 +1055,12 @@ static void *preview_thread(void *context)
 }
 
 /* the thread's answer taken in: its picture kept, or the item remembered as
-having none, with one line in debug.txt saying why (main thread) */
+having none (for good, or until its wait is over), with one line in
+debug.txt saying why (main thread) */
 static void preview_take(void)
 {
-	char id[WORKSHOP_BROWSER_ID_SIZE] = "", why[sizeof(preview.why)] = "";
+	char id[WORKSHOP_BROWSER_ID_SIZE] = "";
+	struct preview_failure failure;
 	unsigned char *pixels = NULL;
 	int width = 0, height = 0, done;
 
@@ -1027,7 +1070,7 @@ static void preview_take(void)
 	{
 		preview.done = 0;
 		snprintf(id, sizeof(id), "%s", preview.id);
-		snprintf(why, sizeof(why), "%s", preview.why);
+		failure = preview.failure;
 		pixels = preview.pixels;
 		width = preview.width;
 		height = preview.height;
@@ -1040,8 +1083,10 @@ static void preview_take(void)
 		preview_cache_put(&preview.cache, id, pixels, width, height);
 	else
 	{
-		preview_cache_fail(&preview.cache, id);
-		platform_log("Workshop: item %s's picture couldn't be shown: %s", id, why);
+		preview_cache_fail(&preview.cache, id, system_milliseconds(), !failure.transient, failure.status,
+			failure.retry_after);
+		platform_log("Workshop: item %s's picture couldn't be shown: %s%s", id, failure.why,
+			failure.transient ? " (asked again later)" : "");
 	}
 }
 
@@ -1110,9 +1155,14 @@ const unsigned char *workshop_browser_preview(int index, int *width, int *height
 	preview_take();
 	if ((kept = preview_kept(item->id, width, height, serial)) != NULL)
 		return kept;
-	/* (one at a time; an item with none isn't asked for again) */
-	if (preview.busy || preview_cache_failed(&preview.cache, item->id) || !(job = calloc(1, sizeof(*job))))
+	/* (one at a time; a failed item only once its wait is over, never when
+	it failed for good; one waiting on Steam's details once they changed) */
+	if (preview.busy || !preview_cache_ready(&preview.cache, item->id, system_milliseconds()) ||
+		preview_cache_waiting(&preview.cache, item->id, preview.changes) ||
+		!(job = calloc(1, sizeof(*job))))
+	{
 		return NULL;
+	}
 	snprintf(job->id, sizeof(job->id), "%s", item->id);
 	if (item->state == WORKSHOP_ITEM_INSTALLED)
 		local_preview(item->id, job->local, sizeof(job->local));
@@ -1141,9 +1191,13 @@ const unsigned char *workshop_browser_preview(int index, int *width, int *height
 			(entry ? !entry->answered : !(item->description[0] && item->size >= 0));
 
 		free(job);
-		if (!coming)
+		if (coming)
 		{
-			preview_cache_fail(&preview.cache, item->id);
+			preview_cache_wait(&preview.cache, item->id, preview.changes);
+		}
+		else
+		{
+			preview_cache_fail(&preview.cache, item->id, system_milliseconds(), 1, 0, 0);
 			platform_log("Workshop: item %s's picture couldn't be shown: Steam gave no address for it", item->id);
 		}
 		return NULL;
@@ -1162,7 +1216,7 @@ int workshop_browser_preview_missing(int index)
 
 /* the picture of any Workshop item, by its id (a game's MCC map, mcc_maps\<id>\<map>, in Online
 Games): its own installed picture, else the one kept in the cache, else Steam's (its details asked
-for, then the picture, kept in the cache): one at a time, each id with none tried once a run. RGBA
+for, then the picture, kept in the cache): one at a time, a failed id again only once its wait is over. RGBA
 pixels as workshop_browser_preview's; NULL until there is one */
 const unsigned char *workshop_browser_picture_of(const char *id, int *width, int *height, int *serial)
 {
@@ -1180,8 +1234,11 @@ const unsigned char *workshop_browser_picture_of(const char *id, int *width, int
 	preview_take();
 	if ((kept = preview_kept(id, width, height, serial)) != NULL)
 		return kept;
-	if (preview.busy || preview_cache_failed(&preview.cache, id) || !(job = calloc(1, sizeof(*job))))
+	if (preview.busy || !preview_cache_ready(&preview.cache, id, system_milliseconds()) ||
+		!(job = calloc(1, sizeof(*job))))
+	{
 		return NULL;
+	}
 	snprintf(job->id, sizeof(job->id), "%s", id);
 	local_preview(id, job->local, sizeof(job->local));
 	{
@@ -1231,6 +1288,7 @@ static void details_step(void)
 	if (workshop.details_answered)
 	{
 		workshop.details_answered = 0;
+		preview.changes++;
 		/* (failed: asked again only after a wait, 2 s doubling to a minute) */
 		if (workshop.details_answer_count < 0)
 			retry_backoff_failed(&workshop.details_retry, system_milliseconds(), workshop.details_status,
@@ -1586,6 +1644,7 @@ static void list_take(void)
 	if (workshop.web_answer)
 	{
 		workshop.web_answer = 0;
+		preview.changes++;
 		if (workshop.answer_count >= 0)
 		{
 			workshop.web_time = system_milliseconds();
@@ -1786,6 +1845,7 @@ int workshop_browser_poll(void)
 		{
 			platform_log("Workshop: item %s installed", item->id);
 			installed++;
+			preview.changes++;
 		}
 		item->state = state;
 	}
@@ -2062,8 +2122,16 @@ void workshop_browser_set_sort(int sort)
 
 void workshop_browser_set_search(const char *text)
 {
+	size_t length;
+
 	workshop.page = 1;
-	snprintf(workshop.search, sizeof(workshop.search), "%s", text ? text : "");
+	/* (spaces around the words dropped: only spaces is no search, the find
+	row saying "Search" rather than a blank title) */
+	for (text = text ? text : ""; *text == ' '; text++)
+		;
+	snprintf(workshop.search, sizeof(workshop.search), "%s", text);
+	for (length = strlen(workshop.search); length > 0 && workshop.search[length - 1] == ' '; length--)
+		workshop.search[length - 1] = 0;
 	list_again();
 }
 
