@@ -35,6 +35,7 @@
 #define stb_vorbis_get_samples_short_interleaved mcc_stb_get_samples_short_interleaved
 #define stb_vorbis_get_samples_short mcc_stb_get_samples_short
 #include "../../third_party/stb/stb_vorbis.c" /* port: (our copy of stb_vorbis) */
+#include "mcc_host_memory.h"
 
 static uint32_t mcc_ogg_u32(unsigned char const *p)
 {

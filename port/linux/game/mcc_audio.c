@@ -10,6 +10,7 @@
 #include "mcc_loading.h"
 #include <stdlib.h>
 #include <string.h>
+#include "mcc_host_memory.h"
 
 #define MCC_AUDIO_BASE 0x50000000u
 #define MCC_AUDIO_LIMIT 0x10000000u
