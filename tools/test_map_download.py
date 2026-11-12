@@ -595,8 +595,29 @@ def test_failure_labels():
     # (the reasons map_download.c sorts by: map_repo.c's and map_host_download.c's words)
     repo = (ROOT / "port" / "linux" / "src" / "map_repo.c").read_text(encoding="utf-8")
     assert '"it is blocked: %s"' in repo and "(its SHA-256 differs)" in repo and "gave %u bytes, not %u" in repo
-    host = (ROOT / "port" / "linux" / "src" / "map_host_download.c").read_text(encoding="utf-8")
-    assert "it is not the file the host offered" in host and "another version of the map" in host
+    # (refusals come back as codes, not read out of the reasons' words)
+    assert "strstr(why" not in download and "strstr(error" not in download
+    assert "MAP_REPO_REFUSED_MISMATCH" in download and "&mismatched" in download
+
+
+def test_consoles_download_as_before():
+    """the consoles' builds (HALO_CONSOLE; the original Xbox's
+    HALO_XBOX_CONSOLE; the Switch's HALO_SWITCH_CONSOLE) leave out the
+    listing's 8 MB, the quarantine folder and the quick checks"""
+    download = (ROOT / "port" / "linux" / "src" / "map_download.c").read_text(encoding="utf-8")
+    assert ("#if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE) || defined(HALO_SWITCH_CONSOLE)\n"
+            "#define MAP_DOWNLOAD_CONSOLE 1") in download
+    listing = download[download.index("static int listed_files("):]
+    assert download[:download.index("static int listed_files(")].rstrip().endswith("*/")
+    gate = download.rindex("#ifndef MAP_DOWNLOAD_CONSOLE", 0, download.index("static int listed_files("))
+    assert "#endif" not in download[gate:download.index("static int listed_files(")]
+    assert listing.index("#endif") < listing.index("static int from_community(")
+    call = download.index("listed = listed_files(")
+    assert download.rindex("#ifndef MAP_DOWNLOAD_CONSOLE", 0, call) > download.rindex("#endif", 0, call)
+    create = download.index("\tCreateDirectoryA(MAP_HOST_QUARANTINE_FOLDER, NULL);")
+    assert download.rindex("#ifndef MAP_DOWNLOAD_CONSOLE", 0, create) > download.rindex("#endif", 0, create)
+    check = download.index("if (!quick_check(file, partial_path")
+    assert download.rindex("#ifndef MAP_DOWNLOAD_CONSOLE", 0, check) > download.rindex("#endif", 0, check)
 
 
 # ---------- the real repository

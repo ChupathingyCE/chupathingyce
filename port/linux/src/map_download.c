@@ -111,6 +111,14 @@ enum
 	MAP_DOWNLOAD_LISTED_FILES = 4,
 };
 
+/* the consoles' builds download as they did before the quarantine folder:
+into maps_ce, without the quick checks or the repositories' listing (its
+8 MB). The original Xbox's build has no HALO_CONSOLE, and the Switch's
+neither */
+#if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE) || defined(HALO_SWITCH_CONSOLE)
+#define MAP_DOWNLOAD_CONSOLE 1
+#endif
+
 /* the repositories, in the order they are asked (Chimera's: its default,
 then the mirrors its map downloader names) */
 static const char *const map_download_repositories[] =
@@ -188,8 +196,13 @@ static void finish(int state, const char *message)
 
 static void paths(const char *name, char *archive, char *partial)
 {
+#ifdef MAP_DOWNLOAD_CONSOLE
+	snprintf(archive, MAP_DOWNLOAD_PATH_SIZE, "d:\\maps_ce\\%s.zip.download", name);
+	snprintf(partial, MAP_DOWNLOAD_PATH_SIZE, "d:\\maps_ce\\%s.map.download", name);
+#else
 	snprintf(archive, MAP_DOWNLOAD_PATH_SIZE, "%s\\%s.zip.download", MAP_HOST_QUARANTINE_FOLDER, name);
 	snprintf(partial, MAP_DOWNLOAD_PATH_SIZE, "%s\\%s.map.download", MAP_HOST_QUARANTINE_FOLDER, name);
+#endif
 }
 
 static void final_path(const char *file, char *path)
@@ -365,6 +378,7 @@ static int expand_download(const char *file, const char *partial_path, HANDLE *m
 }
 #endif
 
+#ifndef MAP_DOWNLOAD_CONSOLE
 /* map_quick_check's reads of the file in the quarantine folder */
 static int quarantined_read(void *context, unsigned int offset, void *buffer, unsigned int size)
 {
@@ -392,6 +406,7 @@ static int quick_check(const char *file, const char *path, unsigned int map_size
 	CloseHandle(map);
 	return ok;
 }
+#endif
 
 /* the map in the file at partial_path checked: its header (a Custom Edition
 multiplayer map named file), its version, the host's when it said which
@@ -428,6 +443,7 @@ static int check_map(const char *file, int hashed, unsigned int prefix, const ch
 	}
 	platform_log("map download: %s.map is a Custom Edition multiplayer map named %s, checksum %08x", file, file,
 		map_archive_header_checksum(header));
+#ifndef MAP_DOWNLOAD_CONSOLE
 	/* (the quick checks a map from a host gets, in the quarantine folder:
 	its tag data's offsets and tables, before it is ever put in maps_ce) */
 	if (!quick_check(file, partial_path, map_size, error, error_size))
@@ -436,6 +452,7 @@ static int check_map(const char *file, int hashed, unsigned int prefix, const ch
 		return 0;
 	}
 	platform_log("map download: %s.map passed the quick checks", file);
+#endif
 	/* (the host's version: its hash's from a host of network version 29,
 	its checksum from an older one) */
 	if (map_download.version)
@@ -623,6 +640,7 @@ static int repositories(char urls[][MAP_DOWNLOAD_URL_SIZE], int maximum)
 	return count;
 }
 
+#ifndef MAP_DOWNLOAD_CONSOLE
 /* the files the first community repository whose listing comes names for
 asked (lowercase) in any spelling (map_archive_listing_files): at most
 maximum of them into files, and how many */
@@ -676,6 +694,7 @@ static int listed_files(char urls[][MAP_DOWNLOAD_URL_SIZE], int count, const cha
 	}
 	return 0;
 }
+#endif
 
 /* the map from the community map repositories into partial_path, unpacked
 and checked: 1, or 0 with why in error and *missing 1 when every one said
@@ -708,13 +727,26 @@ static int from_community(const char *name, const char *asked, int hashed, unsig
 	name, then by each spelling of it the repository's listing has. The
 	locator knows no file whose name has capitals: HaloNet's BattleCraft.zip
 	is one, and a host plays it as battlecraft) */
-	if (!received && *missing && !map_download.cancel)
+	if (received)
+	{
+		*missing = 0;
+		if (!unpack_and_check(hashed ? asked : name, hashed, prefix, archive_path, partial_path, error, error_size))
+		{
+			platform_log("map download: %s.map from the community map repositories refused: %s", name, error);
+			received = 0;
+		}
+		DeleteFileA(archive_path);
+		return received;
+	}
+	if (*missing && !map_download.cancel)
 	{
 		char files[1 + MAP_DOWNLOAD_LISTED_FILES][MAP_ARCHIVE_LISTING_NAME_SIZE];
-		int file, listed = 0;
+		int file, listed = 0, refused = 0;
 
+		/* (each spelling in turn until one's map passes: a spelling whose
+		map is refused leaves the next one to be asked) */
 		snprintf(files[0], sizeof(files[0]), "%.*s", (int)strlen(asked), name);
-		for (file = 0; file <= listed && !received && !map_download.cancel; file++)
+		for (file = 0; file <= listed && !map_download.cancel; file++)
 		{
 			if (file && !strcmp(files[file], files[0]))
 				continue;
@@ -732,25 +764,38 @@ static int from_community(const char *name, const char *asked, int hashed, unsig
 					*missing = *missing && status == 404;
 				}
 			}
+			if (received)
+			{
+				if (unpack_and_check(hashed ? asked : name, hashed, prefix, archive_path, partial_path, error,
+					error_size))
+				{
+					DeleteFileA(archive_path);
+					*missing = 0;
+					return 1;
+				}
+				platform_log("map download: %s.map from the community map repositories (%s.zip) refused: %s", name,
+					files[file], error);
+				DeleteFileA(archive_path);
+				DeleteFileA(partial_path);
+				received = 0;
+				refused = 1;
+			}
+#ifndef MAP_DOWNLOAD_CONSOLE
 			/* (after the host's spelling: the listing's, in files[1...]) */
-			if (!file && !received && *missing && !map_download.cancel)
+			if (!file && (*missing || refused) && !map_download.cancel)
 				listed = listed_files(urls, count, asked, files + 1, MAP_DOWNLOAD_LISTED_FILES);
+#endif
+		}
+		/* (a refused file is the answer kept, not "they don't have it") */
+		if (refused)
+		{
+			*missing = 0;
+			return 0;
 		}
 	}
-	if (!received)
-	{
-		if (*missing && !map_download.cancel)
-			snprintf(error, (size_t)error_size, "the community map repositories don't have %s.map", asked);
-		return 0;
-	}
-	*missing = 0;
-	if (!unpack_and_check(hashed ? asked : name, hashed, prefix, archive_path, partial_path, error, error_size))
-	{
-		platform_log("map download: %s.map from the community map repositories refused: %s", name, error);
-		received = 0;
-	}
-	DeleteFileA(archive_path);
-	return received;
+	if (*missing && !map_download.cancel)
+		snprintf(error, (size_t)error_size, "the community map repositories don't have %s.map", asked);
+	return 0;
 }
 
 /* the map from Chupathingy maps into partial_path, by the host's version
@@ -763,6 +808,7 @@ static int from_chupathingy(const char *name, const char *asked, int hashed, uns
 	struct map_repo_transport transport;
 	struct map_index_entry entry;
 	char why[160];
+	int refused = MAP_REPO_REFUSED_NONE;
 	unsigned int version = hashed ? (prefix ? prefix : 1) : map_download.version;
 
 	/* (no index that checks: not asked, the community repositories' answer
@@ -774,18 +820,15 @@ static int from_chupathingy(const char *name, const char *asked, int hashed, uns
 	set_phase(MAP_DOWNLOAD_CONNECTING, 0, 0);
 	map_repo_game_transport(&transport, &hooks);
 	platform_log("map download: asking %s for %s.map (version %08x)", MAP_REPO_TITLE, asked, version);
-	if (!map_repo_download(&transport, asked, version, partial_path, (long long)time(NULL), &entry, missing, why,
-		(int)sizeof(why)))
+	if (!map_repo_download(&transport, asked, version, partial_path, (long long)time(NULL), &entry, missing, &refused,
+		why, (int)sizeof(why)))
 	{
 		platform_log("map download: %s: %s", MAP_REPO_TITLE, why);
 		if (!*missing)
 		{
 			snprintf(error, (size_t)error_size, "%s: %s", MAP_REPO_TITLE, why);
-			/* (map_repo_download's words: a mirror's file not the index's
-			size or SHA-256, or the map on the blacklist) */
-			note_refusal(strstr(why, "it is blocked") ? MAP_DOWNLOAD_REFUSAL_BLOCKED :
-				strstr(why, "SHA-256 differs") || strstr(why, " bytes, not ") ? MAP_DOWNLOAD_REFUSAL_MISMATCH :
-				MAP_DOWNLOAD_REFUSAL_FAILED);
+			note_refusal(refused == MAP_REPO_REFUSED_BLOCKED ? MAP_DOWNLOAD_REFUSAL_BLOCKED :
+				refused == MAP_REPO_REFUSED_MISMATCH ? MAP_DOWNLOAD_REFUSAL_MISMATCH : MAP_DOWNLOAD_REFUSAL_FAILED);
 		}
 		DeleteFileA(partial_path);
 		return 0;
@@ -874,7 +917,9 @@ static void *download_thread(void *argument)
 		platform_log("map download: %s is a hashed name: %s.map, its hash beginning %08x", name, asked, prefix);
 	paths(name, archive_path, partial_path);
 	CreateDirectoryA("d:\\maps_ce", NULL);
+#ifndef MAP_DOWNLOAD_CONSOLE
 	CreateDirectoryA(MAP_HOST_QUARANTINE_FOLDER, NULL);
+#endif
 	DeleteFileA(archive_path);
 	DeleteFileA(partial_path);
 	/* (Chupathingy maps' blacklist, fresh when it is due: every map is held
@@ -1044,7 +1089,7 @@ static void *host_install_thread(void *argument)
 	char part[MAP_HOST_PATH_SIZE], whole[MAP_HOST_PATH_SIZE];
 	unsigned int version;
 	long long size;
-	int blocked = 0;
+	int blocked = 0, mismatched = 0;
 
 	(void)argument;
 	pthread_mutex_lock(&map_download.lock);
@@ -1057,13 +1102,11 @@ static void *host_install_thread(void *argument)
 	size = host_size(NULL, whole);
 	CreateDirectoryA("d:\\maps_ce", NULL);
 	if (!map_host_install(&files, name, version, offered, map_download_host_limit(), installed, sha256,
-		map_hash, &blocked, error, (int)sizeof(error)))
+		map_hash, &blocked, &mismatched, error, (int)sizeof(error)))
 	{
 		platform_log("map download: %s.map from the host refused: %s; deleted", name, error);
-		/* (map_host_install's words: not the host's offer or version) */
 		if (!blocked)
-			note_refusal(strstr(error, "not the file the host offered") || strstr(error, "another version") ||
-				strstr(error, "hash doesn't begin") ? MAP_DOWNLOAD_REFUSAL_MISMATCH : MAP_DOWNLOAD_REFUSAL_DAMAGED);
+			note_refusal(mismatched ? MAP_DOWNLOAD_REFUSAL_MISMATCH : MAP_DOWNLOAD_REFUSAL_DAMAGED);
 		finish_blocked(MAP_DOWNLOAD_FAILED, error, blocked);
 		return NULL;
 	}

@@ -652,6 +652,7 @@ static void start_offered_download(
 		csmemset(&browser_screen.offer_progress, 0, sizeof(browser_screen.offer_progress));
 		snprintf(browser_screen.offer_progress.message, sizeof(browser_screen.offer_progress.message),
 			"another download is running");
+		platform_log("map download: %s.map not downloaded: another download is running", browser_screen.offer_file);
 	}
 }
 
@@ -675,6 +676,7 @@ static void start_host_download(
 			browser_screen.offer = _offer_failed;
 			csmemset(&browser_screen.offer_progress, 0, sizeof(browser_screen.offer_progress));
 			snprintf(browser_screen.offer_progress.message, sizeof(browser_screen.offer_progress.message), "%s", why);
+			platform_log("map download: %s.map not downloaded from the host: %s", browser_screen.offer_file, why);
 		}
 		return;
 	}
@@ -693,6 +695,8 @@ static void start_host_download(
 		csmemset(&browser_screen.offer_progress, 0, sizeof(browser_screen.offer_progress));
 		snprintf(browser_screen.offer_progress.message, sizeof(browser_screen.offer_progress.message),
 			"the host's game could not be joined to ask for it");
+		platform_log("map download: %s.map not downloaded from the host: its game could not be joined",
+			browser_screen.offer_file);
 	}
 }
 #endif
