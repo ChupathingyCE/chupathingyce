@@ -1479,6 +1479,30 @@ static void test_wire_host_rules(void)
 	CHECK(!delta_wire_write_host_rules(data, 1, &rules));
 }
 
+/* the host's number (HOST_NUMBER): written and read, little-endian; 0 and
+version 0 refused; a later version read */
+static void test_host_number_wire(void)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	unsigned number;
+	int size;
+
+	size = delta_wire_write_host_number(data, 0x55, 43);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HOST_NUMBER_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_host_number &&
+		header.length == DELTA_WIRE_HOST_NUMBER_SIZE && header.session == 0x55);
+	CHECK(data[DELTA_WIRE_HEADER_SIZE + 2] == 43 && data[DELTA_WIRE_HEADER_SIZE + 3] == 0);
+	CHECK(delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, header.length, &number) && number == 43);
+	data[DELTA_WIRE_HEADER_SIZE] = 9;
+	CHECK(delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, header.length + 4, &number) && number == 43);
+	data[DELTA_WIRE_HEADER_SIZE] = 0;
+	CHECK(!delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, header.length, &number));
+	data[DELTA_WIRE_HEADER_SIZE] = 1;
+	CHECK(!delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_HOST_NUMBER_SIZE - 1, &number));
+	CHECK(!delta_wire_write_host_number(data, 1, 0) && !delta_wire_write_host_number(data, 1, 0x10000));
+}
+
 static void test_host_rules(void)
 {
 	int joined[3] = { 0, 1, 1 };
@@ -5175,6 +5199,7 @@ int main(int argc, char **argv)
 	test_reports();
 	test_wire_host_rules();
 	test_host_rules();
+	test_host_number_wire();
 	test_wire_badge();
 	test_badge();
 	test_wire_objects();
