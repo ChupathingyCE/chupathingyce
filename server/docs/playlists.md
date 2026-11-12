@@ -66,6 +66,12 @@ crash games or break the engine; see the game's `docs/maps.md`). It fetches
 the list when it starts and about once an hour after that. A playlist entry
 on such a map is skipped, and `sv_map` refuses it; both say why in the log.
 
+A playlist entry whose map isn't installed on the server is skipped too
+(the log says which), and the next game is the playlist's next one that is.
+If none of the playlist's maps is installed, the server doesn't host at all:
+it says so on its console and in the log, and looks again every 30 seconds,
+so installing a map, `sv_playlist_use` or `sv_map` gets it going.
+
 **Xbox map packs** (community packs of Xbox maps, such as Halo CE+ X), each
 in its own `maps_<pack>/` folder beside `maps/`, go in as `<name>@<pack>`:
 Halo CE+'s maps are in `maps_cex/` and its Gothra is `wizard@cex`, whatever

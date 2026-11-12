@@ -130,7 +130,7 @@ void network_game_server_update_ticks(
 long network_game_server_machine_count(struct network_game_server *server);
 /* port: a dedicated server's playlist was read (MCC maps' games at 43) */
 void network_game_server_mcc_playlist_changed(void);
-void network_game_server_change_map_name(
+boolean network_game_server_change_map_name(
 	struct network_game_server *server,
 	char const *map_name);
 void network_game_server_change_game_variant(
