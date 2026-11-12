@@ -393,6 +393,9 @@ over by a reader (this build never writes them), where the fact says. */
 /* the batch kind and a client's ready (network_distributed.h) */
 #define NETWORK_RULES_BATCH_KIND 16
 #define NETWORK_RULES_CLIENT_READY_KIND 9
+#define NETWORK_RULES_INVENTORIES_KIND 4
+#define NETWORK_RULES_OBJECT_CHANGES_KIND 5
+#define NETWORK_RULES_OBJECTS_SYNCHRONIZED_KIND 8
 
 /* the join request's bytes past NETWORK_RULES_JOIN_REQUEST_SIZE to a host
 of the version (its layout's), into tail (room bytes): zeros, and the
@@ -409,8 +412,29 @@ int network_rules_snapshot_due(int never_sent, int again_due, int players_change
 	uint32_t epoch);
 /* (a host of a layout with a checkpoint epoch) whether it takes a client's
 message (stripped: kind, size, count) stamped epoch: of its own epoch, or a
-ready (the header alone, its count 0 or 1) of any */
-int network_rules_host_takes(uint32_t epoch, uint32_t host_epoch, int kind, int size, int count);
+ready (the header alone, its count 0 or 1, over the client's stream and not
+in a batch) of any */
+int network_rules_host_takes(uint32_t epoch, uint32_t host_epoch, int kind, int size, int count, int from_stream,
+	int in_batch);
+/* (a client of a layout with a checkpoint epoch, not synchronized: after a
+newer epoch, until the host's snapshot ends) whether it sends a message of
+the kind: its ready alone */
+int network_rules_client_held_back(int epoch_layout, int client, int synchronized, int kind);
+/* ... and whether it takes one of the host's: the objects' changes, their
+end, and units' inventories over the stream (not in a batch) alone */
+int network_rules_client_takes_unsynchronized(int kind, int from_stream, int in_batch);
+/* a reliable message too long for the wire's header bytes (size + extra past
+maximum): the entries of its first part when it splits on its entries'
+boundaries (count of entry_size each, nothing else after the header: a
+kind whose entries are all one size), 0 when it fits as it is, -1 when it
+can be neither (dropped) */
+int network_rules_reliable_split(int size, int count, int entry_size, int extra, int maximum);
+/* the bytes of a unit state record from its 3-byte head (player, flags,
+parts) in a layout, no further than size bytes: the riding, placed, up,
+predicted, damage, powerups, camouflage and killer parts, and the layout's
+further ones; 0 for none that make one */
+int network_rules_unit_state_length(struct network_rules_layout const *layout, uint8_t const *record, int size,
+	int powerups);
 /* (a host of a layout with a checkpoint epoch) whether a revert's boundary
 goes to a machine now: a client machine (not the host's own) that has said
 its ready this game; one that has not takes it at its ready */
@@ -425,10 +449,10 @@ unsigned network_rules_client_settings_version(unsigned joined, int hosting, uns
 own machine, whose version is its announced one */
 unsigned network_rules_client_noted_version(unsigned joined, int hosting, unsigned at_least);
 /* (a host announcing the version) whether it refuses a join request whose
-bytes past NETWORK_RULES_JOIN_REQUEST_SIZE are tail (tail_size of them): one
-of the layout's length whose version word is not the version. A request
-without the word (shorter, or a layout with none) is not refused here: an
-older build's or a console's, as before */
+bytes past NETWORK_RULES_JOIN_REQUEST_SIZE are tail (tail_size of them):
+where the version's layout has a version word, any request without it (of
+another length: an older build's or a console's, which can't play the
+version) or with another number; a layout without one refuses none */
 int network_rules_join_request_refused(unsigned version, uint8_t const *tail, int tail_size);
 /* a distributed message (or a batch of them) of size bytes, its first word
 the message header in this machine's order (the size in bits 4 to 15), as

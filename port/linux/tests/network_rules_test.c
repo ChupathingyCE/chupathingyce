@@ -899,8 +899,12 @@ static void test_layouts_43(void)
 	tail[234] = 0x2B;
 	tail[235] = 0x00;
 	CHECK(network_rules_join_request_refused(43, tail, 236));
-	CHECK(!network_rules_join_request_refused(43, tail, 234) && !network_rules_join_request_refused(43, tail, 0));
+	/* (without the word: 41's full request and the plain one, refused by a
+	host of 43; a host of 41 refuses none) */
+	CHECK(network_rules_join_request_refused(43, tail, 234) && network_rules_join_request_refused(43, tail, 0));
+	CHECK(network_rules_join_request_refused(43, NULL, 0));
 	CHECK(!network_rules_join_request_refused(41, tail, 236) && !network_rules_join_request_refused(41, tail, 234));
+	CHECK(!network_rules_join_request_refused(41, NULL, 0));
 	CHECK(!network_rules_join_request_refused(NETWORK_RULES_VERSION_UNKNOWN, tail, 236));
 
 	/* (41 and the build's own versions: none of them) */
@@ -1162,7 +1166,7 @@ static int test_host_takes_ready(uint32_t stamped, uint32_t host)
 	test_header_word(ready, 8);
 	size = network_rules_header_expand(ready, 8, wide, sizeof(wide), 4, 1, stamped);
 	size = network_rules_header_strip(wide, size, narrow, 4, 1, host, NETWORK_RULES_CLIENT_READY_KIND, &epoch);
-	return size == 8 && epoch == stamped && network_rules_host_takes(epoch, host, narrow[2], size, narrow[3]);
+	return size == 8 && epoch == stamped && network_rules_host_takes(epoch, host, narrow[2], size, narrow[3], 1, 0);
 }
 
 static void test_client_across_reverts(void)
@@ -1190,13 +1194,28 @@ static void test_client_across_reverts(void)
 		host = network_rules_epoch_next(host);
 		CHECK(network_rules_revert_boundary_to(1, 0, 1) && !network_rules_revert_boundary_to(1, 1, 1));
 		/* (meanwhile its other messages, of the old epoch, not taken) */
-		CHECK(!network_rules_host_takes(client, host, 1, 20, 1));
+		CHECK(!network_rules_host_takes(client, host, 1, 20, 1, 1, 0));
+		/* (a ready of an old epoch in a batch or a datagram: not taken) */
+		CHECK(!network_rules_host_takes(client, host, NETWORK_RULES_CLIENT_READY_KIND, 8, 0, 1, 1));
+		CHECK(!network_rules_host_takes(client, host, NETWORK_RULES_CLIENT_READY_KIND, 8, 0, 0, 0));
+		/* (until its snapshot ends: its ready alone sent, and the objects'
+		changes, their end and stream inventories alone taken) */
+		CHECK(!network_rules_client_held_back(1, 1, 0, NETWORK_RULES_CLIENT_READY_KIND));
+		CHECK(network_rules_client_held_back(1, 1, 0, 1) && network_rules_client_held_back(1, 1, 0, 18));
+		CHECK(!network_rules_client_held_back(1, 1, 1, 1) && !network_rules_client_held_back(0, 1, 0, 1) &&
+			!network_rules_client_held_back(1, 0, 0, 1));
+		CHECK(network_rules_client_takes_unsynchronized(NETWORK_RULES_OBJECT_CHANGES_KIND, 0, 1));
+		CHECK(network_rules_client_takes_unsynchronized(NETWORK_RULES_OBJECTS_SYNCHRONIZED_KIND, 1, 0));
+		CHECK(network_rules_client_takes_unsynchronized(NETWORK_RULES_INVENTORIES_KIND, 1, 0));
+		CHECK(!network_rules_client_takes_unsynchronized(NETWORK_RULES_INVENTORIES_KIND, 1, 1) &&
+			!network_rules_client_takes_unsynchronized(NETWORK_RULES_INVENTORIES_KIND, 0, 0));
+		CHECK(!network_rules_client_takes_unsynchronized(2, 1, 0) && !network_rules_client_takes_unsynchronized(88, 1, 0));
 		CHECK(network_rules_boundary_taken(8, 0, 1, 0, host, client));
 		client = host;
 		/* (5.2: its ready again, of the new epoch, over its stream; taken,
 		as one of an old epoch is too) */
 		CHECK(test_host_takes_ready(client, host) && test_host_takes_ready(client - 1, host));
-		CHECK(network_rules_host_takes(client, host, 1, 20, 1));
+		CHECK(network_rules_host_takes(client, host, 1, 20, 1, 0, 1));
 		/* (the boundary again at its ready: the same epoch, not taken) */
 		CHECK(!network_rules_boundary_taken(8, 0, 1, 0, host, client));
 		CHECK(network_rules_snapshot_due(never, 0, 0, sent, host));
@@ -1206,6 +1225,74 @@ static void test_client_across_reverts(void)
 		CHECK(network_rules_snapshot_due(1, 0, 0, late_sent, host));
 	}
 	CHECK(host == 3 && client == 3);
+}
+
+/* a reliable message the header's 4 further bytes make too long: split on
+its entries' boundaries when they are all one size, else not */
+static void test_reliable_split(void)
+{
+	/* (4,092 bytes: 8 and 4 entries of 1,021; 4,096 with the 4) */
+	CHECK(network_rules_reliable_split(4092, 4, 1021, 4, 0xFFF) == 2);
+	/* (4,095: 61 entries of 67) */
+	CHECK(network_rules_reliable_split(4095, 61, 67, 4, 0xFFF) == 30);
+	/* (68 of 60, 4,088 bytes: fits with the 4; no further bytes: fits) */
+	CHECK(network_rules_reliable_split(4088, 68, 60, 4, 0xFFF) == 0 && network_rules_reliable_split(4092, 4, 1021, 0, 0xFFF) == 0);
+	/* (a prefix or entries of their own sizes: not split) */
+	CHECK(network_rules_reliable_split(4092, 4, 0, 4, 0xFFF) == -1);
+	CHECK(network_rules_reliable_split(4092, 4, 1020, 4, 0xFFF) == -1);
+	CHECK(network_rules_reliable_split(4092, 1, 4084, 4, 0xFFF) == -1);
+	CHECK(network_rules_reliable_split(4092, 0, 60, 4, 0xFFF) == -1);
+	/* (two halves too long still: not split) */
+	CHECK(network_rules_reliable_split(4095, 2, 4087 / 2, 4, 0xFFF) == -1);
+}
+
+/* a unit state's length: the built-in parts, and 43's deck and pose */
+static void test_unit_state_length(void)
+{
+	struct network_rules_layout layout;
+	uint8_t record[160];
+
+	test_fact_count = 0;
+	test_fact_43(test_fact(43));
+	network_rules_set_layout_source(test_source);
+	network_rules_layout(43, &layout);
+	memset(record, 0, sizeof(record));
+	/* (dead, a killer; dead, none) */
+	record[1] = 0;
+	record[2] = 32;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 4);
+	record[2] = 0;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 3);
+	/* (alive, placed, predicted, every built-in part: 63) */
+	record[1] = 0x83;
+	record[2] = 0x1F;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 63);
+	/* (and the deck and the pose: 63 + 28 + 30) */
+	record[2] = 0xDF;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 121);
+	CHECK(network_rules_unit_state_length(&layout, record, 120, 2) == 0);
+	/* (the deck not placed, the pose dead: unreadable) */
+	record[1] = 0x01;
+	record[2] = 0x80;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 0);
+	record[1] = 0;
+	record[2] = 0x40;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 0);
+	/* (41: bits 6 and 7 unreadable) */
+	network_rules_layout(41, &layout);
+	record[1] = 0x03;
+	record[2] = 0x80;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 0);
+	CHECK(network_rules_unit_state_length(&layout, record, 2, 2) == 0);
+	/* (a later fact shrinking the header below an epoch's 4: refused) */
+	{
+		struct delta_layout_fact *fact = test_fact(44);
+
+		fact->header_extra = 2;
+		network_rules_layout(44, &layout);
+		CHECK(layout.header_extra == 4 && layout.epoch_kind == 96 && layout.refused == 1);
+	}
+	network_rules_set_layout_source(NULL);
 }
 
 int main(void)
@@ -1235,6 +1322,8 @@ int main(void)
 	test_unit_parts();
 	test_host_own_machine_43();
 	test_client_across_reverts();
+	test_reliable_split();
+	test_unit_state_length();
 	if (failures)
 	{
 		printf("network_rules_test: %d failure(s)\n", failures);

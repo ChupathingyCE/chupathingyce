@@ -183,3 +183,42 @@ def test_elevator_carry_of_the_tick_is_for_network_games_only():
     # objects.c samples through the same gate (the sample is refused locally)
     assert "machine_elevator_sample(object_index, &elevator_sample)" in \
         (ROOT / "source/objects/objects.c").read_text(encoding="utf-8")
+
+
+def _function(source, name):
+    """a function's definition (its name, then its parameters on lines of
+    their own), to its closing brace"""
+    body = source[source.index(name + "(\n"):]
+    return body[:body.index("\n}\n")]
+
+
+def test_epoch_glue_uses_the_rules():
+    """network_distributed.c's glue for a layout with a checkpoint epoch goes
+    by network_rules.c's tested rules: what a client holds back and takes
+    before the host's snapshot ends, the host's taking of a client's ready
+    (over its stream alone), the split of a reliable message on its kind's
+    entries alone, the queue flushed before a revert's epoch, and a machine
+    gone told no boundary"""
+    source = DISTRIBUTED_C.read_text(encoding="utf-8")
+    assert "network_rules_client_held_back(" in _function(source, "static boolean distributed_held_back")
+    send = _function(source, "void distributed_send")
+    assert send.index("distributed_held_back(type)") < send.index("distributed_fill_header(")
+    assert "distributed_held_back(packer->type)" in _function(source, "static void distributed_packer_flush")
+    handle = _function(source, "static void distributed_handle_message")
+    assert "network_rules_client_takes_unsynchronized(header.type" in handle
+    entry = _function(source, "void network_distributed_handle_message")
+    assert "network_rules_host_takes(epoch, distributed_epoch, type, narrow_size" in entry
+    assert "distributed_handling_stream_message, FALSE)" in entry
+    assert "has_epoch, distributed_epoch, 0, &epoch)" in entry
+    wire = _function(source, "static void distributed_wire_send")
+    assert "distributed_kind_entry_size(bytes[2], &uniform)" in wire
+    assert "network_rules_reliable_split(size, bytes[3], uniform ? entry_size : 0" in wire
+    boundary = _function(source, "void network_distributed_checkpoint_boundary")
+    assert boundary.index("distributed_batches_flush();") < boundary.index("network_rules_epoch_next(")
+    assert "network_rules_revert_boundary_to(" in boundary
+    assert "distributed_machine_ready[machine_index] = FALSE;" in _function(source, "void network_distributed_machine_gone")
+    manager = (ROOT / "source/networking/network_server_manager.c").read_text(encoding="utf-8")
+    assert "network_distributed_machine_gone(client->machine_index);" in \
+        _function(manager, "boolean network_game_server_remove_client_machine_from_game")
+    # (the unit state reader checks its length against the rules' walk)
+    assert "network_rules_unit_state_length(layout, buffer" in _function(source, "static word distributed_unit_state_read")
