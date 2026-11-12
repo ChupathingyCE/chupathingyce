@@ -35,7 +35,7 @@ packs never take these paths.
 boolean stubbs_mode_active(
 	void)
 {
-#if !defined(HALO_MAP_LIST)
+#if !defined(HALO_MAP_LIST) || defined(HALO_CONSOLE_NO_STUBBS)
 	return FALSE;
 #else
 	static int active = -1;
