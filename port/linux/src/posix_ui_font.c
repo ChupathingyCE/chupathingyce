@@ -23,10 +23,11 @@ overlay).
 #define STBTT_STATIC
 #include "stb_truetype.h"
 
-/* (JPEG alone: the site's map pictures) */
+/* (JPEG and PNG: the site's map pictures, Steam's Workshop previews) */
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_STATIC
 #define STBI_ONLY_JPEG
+#define STBI_ONLY_PNG
 #define STBI_NO_STDIO
 #define STBI_NO_LINEAR
 #define STBI_NO_HDR

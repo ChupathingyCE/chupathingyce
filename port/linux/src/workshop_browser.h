@@ -59,6 +59,7 @@ enum
 	WORKSHOP_BROWSER_DESCRIPTION_SIZE = 400,
 	/* the largest list document read */
 	WORKSHOP_BROWSER_MAXIMUM_DOCUMENT = 128 * 1024,
+	WORKSHOP_BROWSER_PREVIEW_WIDTH = 384,
 };
 
 /* where an item stands on this computer */
@@ -104,6 +105,8 @@ struct workshop_browser_item
 	unsigned long long total;
 	/* the steamcmd row that installs MCC's Halo CE files (not a Workshop item) */
 	int mcc_install;
+	/* Steam's picture of it (its CDN, https only); "" none */
+	char preview_url[200];
 };
 
 /* ---------- the list's text (workshop_list.c) */
@@ -157,6 +160,12 @@ MCC row, steamcmd asked to install MCC's Halo CE files */
 int workshop_browser_subscribe(int index);
 /* UNSUBSCRIBE (the bridge's Steam client backend only) */
 int workshop_browser_unsubscribe(int index);
+/* the picture of an item for its page, RGBA rows from the top, at most
+WORKSHOP_BROWSER_PREVIEW_WIDTH wide: an installed item's own (its first
+map's thumbnail), else Steam's (its CDN), fetched only when asked for here,
+on a thread, kept in the cache folder by item and update time. NULL while
+there is none (yet); serial changes with the picture */
+const unsigned char *workshop_browser_preview(int index, int *width, int *height, int *serial);
 /* the section went out of view: the Steam bridge stopped */
 void workshop_browser_close(void);
 /* the Steam bridge for this computer: its backend (STEAM_BRIDGE_BACKEND_*,

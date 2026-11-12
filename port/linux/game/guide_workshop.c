@@ -69,6 +69,7 @@ enum
 	COLOR_NOT_INSTALLED = 0x8FC4FFFF,
 	COLOR_DESCRIPTION = 0xC8D3E0FF,
 	NOTE_LINES = 3,
+	PICTURE_HEIGHT = 150,
 };
 
 enum
@@ -443,7 +444,28 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 		ui_style_text(UI_TEXT_LABEL, x + 12, y, UI_ALIGN_LEFT, line);
 		y += 16;
 	}
-	y = text_wrapped(item->description, x + 12, y + 4, width - 24, DESCRIPTION_LINES);
+	{
+		/* (its picture, when there is one: the item's own, or Steam's) */
+		int picture_width, picture_height, serial;
+		unsigned char const *picture = workshop_browser_preview(workshop_view.row, &picture_width, &picture_height, &serial);
+
+		if (picture && picture_width > 0 && picture_height > 0)
+		{
+			float draw_width = width - 24, draw_height = draw_width * (float)picture_height / (float)picture_width;
+
+			if (draw_height > PICTURE_HEIGHT)
+			{
+				draw_height = PICTURE_HEIGHT;
+				draw_width = draw_height * (float)picture_width / (float)picture_height;
+			}
+			ui_overlay_picture(serial, picture, picture_width, picture_height, x + 12, y + 4, draw_width, draw_height,
+				0xFFFFFFFF);
+			y += draw_height + 8;
+		}
+	}
+	y = text_wrapped(item->description, x + 12, y + 4, width - 24,
+		(short)MAX(2, MIN(DESCRIPTION_LINES, (bottom - 12 - 3 * (OPTION_HEIGHT + OPTION_GAP) - 20 - y) /
+		(DESCRIPTION_SIZE + 4))));
 	{
 		short options[MAXIMUM_OPTIONS], option_count = options_of(item, options);
 

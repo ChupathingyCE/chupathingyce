@@ -13,6 +13,7 @@ with game.workshop_steam on, through the Steam bridge
 #include "steam_workshop.h"
 #include "steam_client_bridge.h"
 #include "posix.h"
+#include "ui_font.h"
 #ifdef HALO_GAME_BROWSER
 #include "browser_http.h"
 #include "build_identity.h"
@@ -28,6 +29,7 @@ int config_boolean(const char *name);
 unsigned long system_milliseconds(void);
 void platform_open_url(const char *url);
 void platform_log(const char *format, ...);
+const char *platform_save_root(void);
 
 #define STEAM_APP "976730"
 #define APP_MANIFEST "steamapps/appmanifest_" STEAM_APP ".acf"
@@ -444,6 +446,269 @@ static void details_apply(struct workshop_browser_item *item)
 		snprintf(item->kind, sizeof(item->kind), "%s", entry->item.kind);
 	if (item->local && entry->item.title[0])
 		snprintf(item->title, sizeof(item->title), "%s", entry->item.title);
+	if (!item->preview_url[0])
+		snprintf(item->preview_url, sizeof(item->preview_url), "%s", entry->item.preview_url);
+}
+
+/* ---------- pictures */
+
+enum
+{
+	PREVIEW_FILE_LARGEST = 8 * 1024 * 1024,
+	/* a download's whole time */
+	PREVIEW_DEADLINE = 20000,
+};
+
+static struct
+{
+	/* the thread's: asked for, and its answer */
+	int busy;
+	int done;
+	char id[WORKSHOP_BROWSER_ID_SIZE];
+	unsigned char *pixels;
+	int width, height;
+	/* the main thread's: what shows, and what was tried */
+	char shown_id[WORKSHOP_BROWSER_ID_SIZE];
+	unsigned char *shown;
+	int shown_width, shown_height, serial;
+	char tried[WORKSHOP_BROWSER_MAXIMUM_ITEMS][WORKSHOP_BROWSER_ID_SIZE];
+	int tried_count;
+} preview;
+
+struct preview_job
+{
+	char id[WORKSHOP_BROWSER_ID_SIZE];
+	char url[200];
+	char local[STEAM_WORKSHOP_PATH_SIZE];
+	char cache[STEAM_WORKSHOP_PATH_SIZE];
+};
+
+static unsigned char *file_read(const char *path, int *size)
+{
+	FILE *file = fopen(path, "rb");
+	unsigned char *data;
+	long length;
+
+	*size = 0;
+	if (!file)
+		return NULL;
+	data = malloc(PREVIEW_FILE_LARGEST + 1);
+	length = data ? (long)fread(data, 1, PREVIEW_FILE_LARGEST + 1, file) : 0;
+	fclose(file);
+	if (length <= 0 || length > PREVIEW_FILE_LARGEST)
+	{
+		free(data);
+		return NULL;
+	}
+	*size = (int)length;
+	return data;
+}
+
+/* (a picture's first bytes: PNG or JPEG, nothing else is decoded) */
+static int picture_bytes(const unsigned char *data, int size)
+{
+	return size > 8 && ((data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G') ||
+		(data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF));
+}
+
+#ifdef HALO_GAME_BROWSER
+static unsigned char *download(const char *url, int *size)
+{
+	unsigned char *data;
+	int status = 0, length = -1, handle, got;
+	char error[128];
+
+	*size = 0;
+	handle = posix_browser_download_open(url, build_identity_user_agent(), &status, &length, error, sizeof(error));
+	if (!handle)
+		return NULL;
+	posix_browser_download_deadline(handle, PREVIEW_DEADLINE);
+	data = length <= PREVIEW_FILE_LARGEST ? malloc(PREVIEW_FILE_LARGEST + 1) : NULL;
+	while (data && (got = posix_browser_download_read(handle, data + *size, PREVIEW_FILE_LARGEST + 1 - *size)) > 0)
+	{
+		*size += got;
+		if (*size > PREVIEW_FILE_LARGEST)
+			break;
+	}
+	posix_browser_download_close(handle);
+	if (!data || *size <= 0 || *size > PREVIEW_FILE_LARGEST || !picture_bytes(data, *size))
+	{
+		free(data);
+		*size = 0;
+		return NULL;
+	}
+	return data;
+}
+#endif
+
+/* RGBA pixels made at most WORKSHOP_BROWSER_PREVIEW_WIDTH wide (box filter) */
+static unsigned char *shrink(const unsigned char *pixels, int width, int height, int *out_width, int *out_height)
+{
+	int step = (width + WORKSHOP_BROWSER_PREVIEW_WIDTH - 1) / WORKSHOP_BROWSER_PREVIEW_WIDTH, x, y;
+	unsigned char *out;
+
+	if (step < 1)
+		step = 1;
+	*out_width = width / step;
+	*out_height = height / step;
+	if (*out_width < 1 || *out_height < 1 || !(out = malloc((size_t)*out_width * (size_t)*out_height * 4)))
+		return NULL;
+	for (y = 0; y < *out_height; y++)
+	{
+		for (x = 0; x < *out_width; x++)
+		{
+			unsigned sum[4] = { 0, 0, 0, 0 };
+			int dx, dy, channel;
+
+			for (dy = 0; dy < step; dy++)
+			{
+				const unsigned char *row = pixels + ((size_t)(y * step + dy) * (size_t)width + (size_t)(x * step)) * 4;
+
+				for (dx = 0; dx < step * 4; dx++)
+					sum[dx & 3] += row[dx];
+			}
+			for (channel = 0; channel < 4; channel++)
+				out[((size_t)y * (size_t)*out_width + (size_t)x) * 4 + (size_t)channel] =
+					(unsigned char)(sum[channel] / (unsigned)(step * step));
+		}
+	}
+	return out;
+}
+
+static void *preview_thread(void *context)
+{
+	struct preview_job *job = context;
+	unsigned char *data = NULL, *pixels = NULL, *small = NULL;
+	int size = 0, width = 0, height = 0, small_width = 0, small_height = 0;
+
+	/* (the item's own picture first, then the cache, then Steam's) */
+	if (job->local[0])
+		data = file_read(job->local, &size);
+	if (!data && job->cache[0])
+		data = file_read(job->cache, &size);
+#ifdef HALO_GAME_BROWSER
+	if (!data && job->url[0] && (data = download(job->url, &size)) != NULL && job->cache[0])
+	{
+		FILE *file = fopen(job->cache, "wb");
+
+		if (file)
+		{
+			fwrite(data, 1, (size_t)size, file);
+			fclose(file);
+		}
+	}
+#endif
+	if (data && picture_bytes(data, size))
+		pixels = posix_ui_image_decode(data, size, &width, &height);
+	free(data);
+	if (pixels)
+	{
+		small = shrink(pixels, width, height, &small_width, &small_height);
+		posix_ui_image_free(pixels);
+	}
+	pthread_mutex_lock(&workshop.lock);
+	snprintf(preview.id, sizeof(preview.id), "%s", job->id);
+	preview.pixels = small;
+	preview.width = small_width;
+	preview.height = small_height;
+	preview.done = 1;
+	preview.busy = 0;
+	pthread_mutex_unlock(&workshop.lock);
+	free(job);
+	return NULL;
+}
+
+/* an installed item's own picture: its first map's thumbnail */
+static int local_preview(const char *id, char *path, int size)
+{
+	int index, count = steam_workshop_count();
+
+	for (index = 0; index < count; index++)
+	{
+		const struct steam_workshop_map *map = steam_workshop_map(index);
+
+		if (map && !strcmp(map->item_id, id) && map->preview[0])
+			return snprintf(path, (size_t)size, "%s", map->preview) < size;
+	}
+	return 0;
+}
+
+const unsigned char *workshop_browser_preview(int index, int *width, int *height, int *serial)
+{
+#if defined(HALO_ANDROID) || defined(HALO_WEB)
+	(void)index; (void)width; (void)height; (void)serial;
+	return NULL;
+#else
+	const struct workshop_browser_item *item = workshop_browser_item(index);
+	struct preview_job *job;
+	pthread_t thread;
+	int tried;
+
+	if (!item || item->mcc_install)
+		return NULL;
+	pthread_mutex_lock(&workshop.lock);
+	if (preview.done)
+	{
+		preview.done = 0;
+		free(preview.shown);
+		preview.shown = preview.pixels;
+		preview.pixels = NULL;
+		preview.shown_width = preview.width;
+		preview.shown_height = preview.height;
+		snprintf(preview.shown_id, sizeof(preview.shown_id), "%s", preview.id);
+		preview.serial++;
+	}
+	pthread_mutex_unlock(&workshop.lock);
+	if (preview.shown && !strcmp(preview.shown_id, item->id))
+	{
+		*width = preview.shown_width;
+		*height = preview.shown_height;
+		*serial = 0x57000000 + preview.serial;
+		return preview.shown;
+	}
+	/* (each item tried once a run; one at a time) */
+	for (tried = 0; tried < preview.tried_count && strcmp(preview.tried[tried], item->id); tried++)
+		;
+	if (tried < preview.tried_count || preview.busy || !(job = calloc(1, sizeof(*job))))
+		return NULL;
+	if (preview.tried_count < WORKSHOP_BROWSER_MAXIMUM_ITEMS)
+		snprintf(preview.tried[preview.tried_count++], WORKSHOP_BROWSER_ID_SIZE, "%s", item->id);
+	else
+		preview.tried_count = 0;
+	snprintf(job->id, sizeof(job->id), "%s", item->id);
+	if (item->state == WORKSHOP_ITEM_INSTALLED)
+		local_preview(item->id, job->local, sizeof(job->local));
+	if (!config_boolean("debug.workshop_no_steam"))
+		snprintf(job->url, sizeof(job->url), "%s", item->preview_url);
+	{
+		const char *save = platform_save_root();
+		char folder[STEAM_WORKSHOP_PATH_SIZE];
+
+		if (save && snprintf(folder, sizeof(folder), "%s/cache", save) < (int)sizeof(folder))
+		{
+			posix_make_directory(folder);
+			if (snprintf(folder, sizeof(folder), "%s/cache/workshop", save) < (int)sizeof(folder))
+			{
+				posix_make_directory(folder);
+				snprintf(job->cache, sizeof(job->cache), "%s/%s-%lld.picture", folder, item->id, item->updated);
+			}
+		}
+	}
+	if (!job->local[0] && !job->url[0] && !job->cache[0])
+	{
+		free(job);
+		return NULL;
+	}
+	preview.busy = 1;
+	if (pthread_create(&thread, NULL, preview_thread, job) == 0)
+		pthread_detach(thread);
+	else
+	{
+		preview.busy = 0;
+		free(job);
+	}
+	return NULL;
+#endif
 }
 
 /* the answer taken in, and the next ids without details asked for */

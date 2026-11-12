@@ -311,7 +311,7 @@ static int read_details_item(struct json *json, struct workshop_browser_item *it
 					return 0;
 			}
 			else if (peek(json, '"') && (!strcmp(key, "publishedfileid") || !strcmp(key, "title") ||
-				!strcmp(key, "description") || !strcmp(key, "file_size")))
+				!strcmp(key, "description") || !strcmp(key, "file_size") || !strcmp(key, "preview_url")))
 			{
 				if (!lenient_string(json, text, (int)sizeof(text)))
 					return 0;
@@ -321,6 +321,18 @@ static int read_details_item(struct json *json, struct workshop_browser_item *it
 					copy_cut(item->title, sizeof(item->title), text);
 				else if (!strcmp(key, "description"))
 					plain_description(item->description, sizeof(item->description), text);
+				else if (!strcmp(key, "preview_url"))
+				{
+					/* (Steam's own picture host, https, a plain address: nothing else is fetched) */
+					static const char host[] = "https://images.steamusercontent.com/";
+					int plain = !strncmp(text, host, sizeof(host) - 1) && strlen(text) < sizeof(item->preview_url);
+					const char *c;
+
+					for (c = text; plain && *c; c++)
+						plain = *c > ' ' && *c < 127 && *c != '"' && *c != '\\';
+					if (plain)
+						snprintf(item->preview_url, sizeof(item->preview_url), "%s", text);
+				}
 				else
 				{
 					long long size = 0;
