@@ -187,7 +187,7 @@ def test_desktop_list_has_room_for_the_mcc_catalog():
     last of all; a list of 256 rows left a large Workshop collection and every campaign map out. A computer's
     list holds the whole catalog beside a large Custom Edition folder, and every row's string index fits"""
     import re
-    block = SOURCE[SOURCE.index("#ifdef HALO_XBOX_CONSOLE\n\tMAXIMUM_MAP_LIST"):]
+    block = SOURCE[SOURCE.index("#ifdef HALO_CONSOLE_MAP_LIST_ROWS\n\tMAXIMUM_MAP_LIST"):]
     desktop = int(re.search(r"#else[^#]*MAXIMUM_MAP_LIST = (\d+),", block).group(1))
     header = (ROOT / "port/linux/game/mcc_maps.h").read_text()
     catalog = int(re.search(r"#define MCC_MAPS_MAXIMUM (\d+)", header).group(1))

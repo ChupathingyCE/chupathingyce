@@ -90,12 +90,13 @@ int main(int argc, char **argv)
 				map->preview);
 		}
 		printf("again=%d\n", steam_workshop_count());
-		for (index = 0; index < steam_workshop_item_unlisted(NULL, 0, NULL, NULL, NULL); index++)
+		for (index = 0; index < steam_workshop_item_unlisted(NULL, 0, NULL, NULL, NULL, NULL); index++)
 		{
 			char id[STEAM_WORKSHOP_ID_SIZE], name[64], reason[STEAM_WORKSHOP_REASON_SIZE];
+			char detail[STEAM_WORKSHOP_DETAIL_SIZE];
 
-			steam_workshop_item_unlisted(NULL, index, id, name, reason);
-			printf("unlisted=%s|%s|%s\n", id, name, reason);
+			steam_workshop_item_unlisted(NULL, index, id, name, reason, detail);
+			printf("unlisted=%s|%s|%s|%s\n", id, name, reason, detail);
 		}
 		printf("folder=%d %s\n", steam_workshop_package_folder("111", folder, sizeof(folder)), folder);
 		printf("none=%d\n", steam_workshop_package_folder("999", folder, sizeof(folder)));
@@ -795,10 +796,16 @@ def test_unlisted_maps_say_why(tool, tmp_path):
     assert result.returncode == 0
     lines = result.stdout.splitlines()
     assert [line.split("|")[2] for line in lines if line.startswith("map=")] == ["good"]
-    assert sorted(line[len("unlisted="):] for line in lines if line.startswith("unlisted=")) == [
-        "111|absent|its map file is missing", "111|broken|its map file can't be read",
-        "111|gone|its .map file is missing", "222||its ModInfo.json can't be read"]
-    assert "Workshop item 111: map gone can't be listed: its .map file is missing" in result.stderr
+    unlisted = sorted(line[len("unlisted="):].split("|") for line in lines if line.startswith("unlisted="))
+    # (a word or two for the page, each case its own, no file names; those are the log's)
+    assert [row[:3] for row in unlisted] == [
+        ["111", "absent", "Map info missing"], ["111", "broken", "Map info unreadable"],
+        ["111", "gone", "Map missing"], ["222", "", "Item info unreadable"]]
+    for row in unlisted:
+        assert "." not in row[2] and len(row[2].split()) <= 3
+    assert "Workshop item 111: map gone can't be listed: its .map file is not in the maps folder (Map missing)" \
+        in result.stderr
+    assert "ModInfo.json" in result.stderr
     # (each once a scan, however often it is asked for)
     assert result.stderr.count("map gone can't be listed") == 1
 
@@ -809,7 +816,7 @@ def test_campaign_without_its_manifest_says_why(tool, tmp_path):
     (folder / "CampaignInfo.json").unlink()
     fields, rows = run(tool, "scan", setting=str(tmp_path))
     assert fields["count"] == "0"
-    assert rows["unlisted"] == ["111||its campaign has no CampaignInfo.json"]
+    assert rows["unlisted"] == ["111||Campaign info missing|HasCampaign is set but there is no CampaignInfo.json"]
 
 
 def test_numbered_collection_in_a_second_library(tool, tmp_path):

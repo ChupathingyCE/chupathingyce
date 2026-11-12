@@ -243,3 +243,31 @@ def test_workshop_play_hooks_are_the_guides():
             for directive in re.findall(r"^\s*#\s*(if|ifdef|ifndef|endif)\b", text[start:at], re.M):
                 depth += -1 if directive == "endif" else 1
                 assert depth > 0, "{} in {} isn't gated".format(name, path)
+
+
+def map_list_rows(defines):
+    """HALO_CONSOLE_MAP_LIST_ROWS as the shared headers set it for these defines (None: undefined)"""
+    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if not compiler:
+        pytest.skip("no C compiler")
+    source = '#include "{}"\n#include "{}"\n'.format(
+        (INCLUDE / "halo_console_features.h").as_posix(), (INCLUDE / "halo_port_features.h").as_posix())
+    command = [compiler, "-E", "-dM", "-x", "c", "-"] + ["-D" + define for define in defines]
+    result = subprocess.run(command, input=source, capture_output=True, text=True, check=True)
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[1] == "HALO_CONSOLE_MAP_LIST_ROWS":
+            return int(parts[2])
+    return None
+
+
+@pytest.mark.parametrize("console", sorted(CONSOLES))
+def test_every_console_sizes_its_map_list(console):
+    """#1140: the menus' map list's rows (ui_map_list.c) by capability, never by a console's name: the
+    original Xbox's 40, every other console's 256 (the Switch has no HALO_CONSOLE), the desktop's 2560"""
+    assert map_list_rows(CONSOLES[console]) == (40 if console == "xbox" else 256)
+
+
+def test_the_desktop_map_list_is_unsized():
+    assert map_list_rows(DESKTOP) is None
+    assert map_list_rows(["HALO_ANDROID", "HALO_GAME_BROWSER"]) is None

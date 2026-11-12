@@ -34,7 +34,9 @@ static struct
 	{
 		char item_id[STEAM_WORKSHOP_ID_SIZE];
 		char map[64];
+		/* (a word or two for the item's page; the log's detail, file names and all) */
 		char reason[STEAM_WORKSHOP_REASON_SIZE];
+		char detail[STEAM_WORKSHOP_DETAIL_SIZE];
 	} unlisted[STEAM_WORKSHOP_MAXIMUM_UNLISTED];
 } catalog;
 
@@ -319,31 +321,34 @@ static int resolve(const char *folder, const char *relative, char *out, unsigned
 	return 1;
 }
 
-void steam_workshop_unlisted(const char *item_id, const char *map, const char *reason)
+void steam_workshop_unlisted(const char *item_id, const char *map, const char *reason, const char *detail)
 {
 	int index;
 
-	if (!item_id || !map || !reason)
+	if (!item_id || !map || !reason || !detail)
 		return;
 	for (index = 0; index < catalog.unlisted_count; index++)
 	{
-		if (!strcmp(catalog.unlisted[index].item_id, item_id) && !strcmp(catalog.unlisted[index].map, map))
+		if (!strcmp(catalog.unlisted[index].item_id, item_id) && !strcmp(catalog.unlisted[index].map, map) &&
+			!strcmp(catalog.unlisted[index].reason, reason))
 			return;
 	}
 	/* (each once a scan: the log says it the first time) */
 	if (map[0])
-		fprintf(stderr, "Workshop item %s: map %s can't be listed: %s\n", item_id, map, reason);
+		fprintf(stderr, "Workshop item %s: map %s can't be listed: %s (%s)\n", item_id, map, detail, reason);
 	else
-		fprintf(stderr, "Workshop item %s can't be listed: %s\n", item_id, reason);
+		fprintf(stderr, "Workshop item %s: %s (%s)\n", item_id, detail, reason);
 	if (catalog.unlisted_count >= STEAM_WORKSHOP_MAXIMUM_UNLISTED)
 		return;
 	copy_text(catalog.unlisted[catalog.unlisted_count].item_id, STEAM_WORKSHOP_ID_SIZE, item_id);
 	copy_text(catalog.unlisted[catalog.unlisted_count].map, 64, map);
 	copy_text(catalog.unlisted[catalog.unlisted_count].reason, STEAM_WORKSHOP_REASON_SIZE, reason);
+	copy_text(catalog.unlisted[catalog.unlisted_count].detail, STEAM_WORKSHOP_DETAIL_SIZE, detail);
 	catalog.unlisted_count++;
 }
 
-int steam_workshop_item_unlisted(const char *item_id, int which, char *found_item, char *map, char *reason)
+int steam_workshop_item_unlisted(const char *item_id, int which, char *found_item, char *map, char *reason,
+	char *detail)
 {
 	int index, count = 0;
 
@@ -361,6 +366,8 @@ int steam_workshop_item_unlisted(const char *item_id, int which, char *found_ite
 				strcpy(map, catalog.unlisted[index].map);
 			if (reason)
 				strcpy(reason, catalog.unlisted[index].reason);
+			if (detail)
+				strcpy(detail, catalog.unlisted[index].detail);
 		}
 	}
 	return count;
@@ -422,14 +429,14 @@ static void scan_item(const char *item_folder, const char *item_id)
 		return;
 	if (!(text = read_file(path, &length)))
 	{
-		steam_workshop_unlisted(item_id, "", "its ModInfo.json can't be read");
+		steam_workshop_unlisted(item_id, "", "Item info unreadable", "its ModInfo.json can't be read");
 		return;
 	}
 	index = steam_workshop_read_item(text, length, &item);
 	free(text);
 	if (!index)
 	{
-		steam_workshop_unlisted(item_id, "", "its ModInfo.json can't be read");
+		steam_workshop_unlisted(item_id, "", "Item info unreadable", "its ModInfo.json can't be read");
 		return;
 	}
 	/* (another game's item: not ours to list) */
@@ -437,7 +444,7 @@ static void scan_item(const char *item_folder, const char *item_id)
 		return;
 	if (!resolve(item_folder, "maps", maps_folder, sizeof(maps_folder)) || !is_directory(maps_folder))
 	{
-		steam_workshop_unlisted(item_id, "", "it has no maps folder");
+		steam_workshop_unlisted(item_id, "", "No maps", "it has no maps folder");
 		return;
 	}
 	/* Campaign missions are always listed, as a maps_mcc package's are; game.mcc_campaigns
@@ -450,10 +457,10 @@ static void scan_item(const char *item_folder, const char *item_id)
 		{
 			fprintf(stderr, "MCC package '%s' (%s): campaign metadata rejected: %s\n",
 				item.title, item_id, reason);
-			steam_workshop_unlisted(item_id, "", "its campaign's files can't be read");
+			steam_workshop_unlisted(item_id, "", "Campaign info unreadable", "its CampaignInfo.json or a mission's json was refused");
 		}
 		else if (!manifest)
-			steam_workshop_unlisted(item_id, "", "its campaign has no CampaignInfo.json");
+			steam_workshop_unlisted(item_id, "", "Campaign info missing", "HasCampaign is set but there is no CampaignInfo.json");
 	}
 	count = item.map_count + campaign.count;
 	for (index = 0; index < count; index++)
@@ -465,19 +472,19 @@ static void scan_item(const char *item_folder, const char *item_id)
 			json_map_name(item.map_json[index], name);
 			if (!resolve(item_folder, item.map_json[index], path, sizeof(path)))
 			{
-				steam_workshop_unlisted(item_id, name, "its map file is missing");
+				steam_workshop_unlisted(item_id, name, "Map info missing", "its json is missing");
 				continue;
 			}
 			if (!(text = read_file(path, &length)))
 			{
-				steam_workshop_unlisted(item_id, name, "its map file can't be read");
+				steam_workshop_unlisted(item_id, name, "Map info unreadable", "its json can't be read");
 				continue;
 			}
 			length = steam_workshop_read_map(text, length, &map);
 			free(text);
 			if (!length)
 			{
-				steam_workshop_unlisted(item_id, name, "its map file can't be read");
+				steam_workshop_unlisted(item_id, name, "Map info unreadable", "its json can't be read");
 				continue;
 			}
 		}
@@ -487,17 +494,17 @@ static void scan_item(const char *item_folder, const char *item_id)
 		if (!posix_find_entry_case_insensitive(maps_folder, file_name, found, sizeof(found)) ||
 			strlen(found) >= sizeof(entry->name) + 4)
 		{
-			steam_workshop_unlisted(item_id, map.name, "its .map file is missing");
+			steam_workshop_unlisted(item_id, map.name, "Map missing", "its .map file is not in the maps folder");
 			continue;
 		}
 		if (catalog.count >= STEAM_WORKSHOP_MAXIMUM_MAPS)
 		{
-			steam_workshop_unlisted(item_id, map.name, "too many Workshop maps are installed");
+			steam_workshop_unlisted(item_id, map.name, "Too many maps", "the Workshop catalog is full");
 			continue;
 		}
 		if (!join(entry->path, sizeof(entry->path), maps_folder, found) || !is_file(entry->path))
 		{
-			steam_workshop_unlisted(item_id, map.name, "its .map file can't be opened");
+			steam_workshop_unlisted(item_id, map.name, "Map unreadable", "its .map file can't be opened");
 			continue;
 		}
 		/* the name as the file is spelled on disk */

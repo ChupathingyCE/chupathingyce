@@ -1249,38 +1249,37 @@ static char const *plain_description(struct workshop_browser_item const *item)
 (steam_workshop_unlisted), after its page's text: a short plain status */
 #define PAGE_UNLISTED_LINES 6
 
-static void page_unlisted(char const *id, char *text, size_t size)
+static void page_unlisted(char const *id, short listed, char *text, size_t size)
 {
 	char map[64], reason[STEAM_WORKSHOP_REASON_SIZE];
-	int count = steam_workshop_item_unlisted(id, 0, NULL, NULL, NULL), which, pass, maps = 0, shown = 0;
+	int count = steam_workshop_item_unlisted(id, 0, NULL, NULL, NULL, NULL), which, pass, maps = 0, shown = 0;
 	size_t length;
 
-	/* (the whole item's first, then its maps') */
+	for (which = 0; which < count; which++)
+	{
+		steam_workshop_item_unlisted(id, which, NULL, map, NULL, NULL);
+		maps += map[0] != 0;
+	}
+	/* (the whole item's first, then its maps'; a mixed item's listed maps
+	counted, so it never reads as the whole item missing) */
 	for (pass = 0; pass < 2; pass++)
 	{
 		for (which = 0; which < count; which++)
 		{
-			steam_workshop_item_unlisted(id, which, NULL, map, reason);
+			steam_workshop_item_unlisted(id, which, NULL, map, reason, NULL);
 			if (!map[0] != !pass)
 				continue;
 			length = strlen(text);
 			if (!pass)
 			{
-				snprintf(text + length, size - length, "%sNot listed: %s", length ? "\n\n" : "", reason);
+				snprintf(text + length, size - length, "%s%s: %s", length ? "\n\n" : "",
+					listed ? "Some maps can't be listed" : "Can't be listed", reason);
 				continue;
 			}
-			if (!maps++)
+			if (!shown)
 			{
-				int total = 0, other;
-
-				for (other = 0; other < count; other++)
-				{
-					steam_workshop_item_unlisted(id, other, NULL, map, NULL);
-					total += map[0] != 0;
-				}
-				steam_workshop_item_unlisted(id, which, NULL, map, reason);
-				snprintf(text + length, size - length, "%s%d %s can't be listed:", length ? "\n\n" : "", total,
-					total == 1 ? "map" : "maps");
+				snprintf(text + length, size - length, "%s%d of %d maps can't be listed:", length ? "\n\n" : "",
+					maps, maps + listed);
 				length = strlen(text);
 			}
 			if (shown++ < PAGE_UNLISTED_LINES)
@@ -1314,7 +1313,7 @@ static char const *page_text(struct workshop_browser_item const *item)
 		if (level && !_strnicmp(level, prefix, strlen(prefix)))
 			maps++;
 	}
-	page_unlisted(item->id, text, sizeof(text));
+	page_unlisted(item->id, maps, text, sizeof(text));
 	if (maps < 2)
 		return text;
 	length = strlen(text);

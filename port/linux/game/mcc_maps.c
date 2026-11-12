@@ -108,8 +108,9 @@ static void mcc_map_description_read(struct mcc_menu_map *map)
 	}
 }
 
-/* registers a map: NULL when it is listed (or already was), else why it can't be, in a few plain words */
-static char const *mcc_map_register(char const *name)
+/* registers a map: NULL when it is listed (or already was), else why it can't be: a word or two for the
+Workshop page, and the log's detail */
+static char const *mcc_map_register(char const *name, char const **detail)
 {
 	char path[128], candidate[128], canonical[64];
 	char const *display;
@@ -123,10 +124,12 @@ static char const *mcc_map_register(char const *name)
 	boolean start_word = TRUE;
 
 	if (!name_length || name_length > MCC_MAP_FILENAME_MAXIMUM)
-		return "its file name is too long";
+		*detail = "its file name is too long for a level name";
+		return "Name too long";
 	snprintf(candidate, sizeof(candidate), "%s%s", MCC_MAPS_LEVEL_PREFIX, name);
 	if (!mcc_package_name(candidate, canonical))
-		return "its file name can't be used";
+		*detail = "its file name has characters a level name can't";
+		return "Name not usable";
 	name = canonical + sizeof(MCC_MAPS_LEVEL_PREFIX) - 1;
 	for (index = 0; index < (size_t)mcc_menu_catalog.count; index++)
 	{
@@ -134,16 +137,19 @@ static char const *mcc_map_register(char const *name)
 			return NULL;
 	}
 	if (mcc_menu_catalog.count == MCC_MAPS_MAXIMUM)
-		return "too many MCC maps are installed";
+		*detail = "the MCC catalog is full";
+		return "Too many maps";
 	snprintf(path, sizeof(path), "%s%s.map", MCC_MAPS_DIRECTORY, name);
 	file = fopen(path, "rb");
 	if (!file)
-		return "its .map file can't be opened";
+		*detail = "its .map file can't be opened";
+		return "Map unreadable";
 	if (fseek(file, 0, SEEK_END) || (file_size = ftell(file)) < 0 || fseek(file, 0, SEEK_SET) ||
 		fread(header, 1, sizeof(header), file) != sizeof(header))
 	{
 		fclose(file);
-		return "its .map file is too short";
+		*detail = "its .map file is shorter than a cache header";
+		return "Map damaged";
 	}
 	fclose(file);
 	switch (mcc_cache_identify(header, sizeof(header), (uint64_t)file_size, &identity))
@@ -152,11 +158,14 @@ static char const *mcc_map_register(char const *name)
 		break;
 	case MCC_CACHE_BAD_HEADER:
 	case MCC_CACHE_WRONG_VERSION:
-		return "not a Halo 1 MCC map";
+		*detail = "its .map file is not a Halo 1 MCC cache (version 13)";
+		return "Not an MCC map";
 	case MCC_CACHE_BAD_FILE_SIZE:
-		return "its .map file is incomplete";
+		*detail = "its .map file is shorter than its header says";
+		return "Map incomplete";
 	default:
-		return "its .map file is damaged";
+		*detail = "its .map file's header is damaged";
+		return "Map damaged";
 	}
 	map = &mcc_menu_catalog.maps[mcc_menu_catalog.count++];
 	memset(map, 0, sizeof(*map));
@@ -423,8 +432,8 @@ static void mcc_maps_scan_directory(char const *package)
         if (!csstrcasecmp(name,"sounds") || !csstrcasecmp(name,"bitmaps") || !csstrcasecmp(name,"loc")) continue;
         snprintf(relative,sizeof(relative),"%s%s%s",package,package[0] ? "\\" : "",name);
         {
-            char const *reason=mcc_map_register(relative);
-            if (reason) error(_error_silent,"mcc maps: %s%s can't be listed: %s",mcc_maps_folder(),relative,reason);
+            char const *detail=NULL,*reason=mcc_map_register(relative,&detail);
+            if (reason) error(_error_silent,"mcc maps: %s\\%s can't be listed: %s",mcc_maps_folder(),relative,detail);
         }
     } while (FindNextFileA(find,&data));
     CloseHandle(find);
@@ -447,19 +456,20 @@ static void mcc_maps_scan(void)
     for (i=0;i<steam_workshop_count();i++) {
         struct steam_workshop_map const *item=steam_workshop_map(i);
         char relative[128];
-        char const *reason;
+        char const *reason,*detail=NULL;
         snprintf(relative,sizeof(relative),"%s\\%s",item->item_id,item->name);
-        reason=mcc_map_register(relative);
+        reason=mcc_map_register(relative,&detail);
         /* (logged, and said on the item's Workshop page: guide_workshop.c) */
-        if (reason) steam_workshop_unlisted(item->item_id,item->name,reason);
+        if (reason) steam_workshop_unlisted(item->item_id,item->name,reason,detail);
     }
     /* (the Workshop maps that can't be listed, the scan's and these: in the log, each once a scan) */
     {
-        int which,unlisted=steam_workshop_item_unlisted(NULL,0,NULL,NULL,NULL);
+        int which,unlisted=steam_workshop_item_unlisted(NULL,0,NULL,NULL,NULL,NULL);
         for (which=0;which<unlisted;which++) {
-            char id[STEAM_WORKSHOP_ID_SIZE],map[64],reason[STEAM_WORKSHOP_REASON_SIZE];
-            steam_workshop_item_unlisted(NULL,which,id,map,reason);
-            error(_error_silent,"mcc maps: Workshop item %s%s%s can't be listed: %s",id,map[0] ? ", map " : "",map,reason);
+            char id[STEAM_WORKSHOP_ID_SIZE],map[64],reason[STEAM_WORKSHOP_REASON_SIZE],detail[STEAM_WORKSHOP_DETAIL_SIZE];
+            steam_workshop_item_unlisted(NULL,which,id,map,reason,detail);
+            if (map[0]) error(_error_silent,"mcc maps: Workshop item %s, map %s can't be listed: %s (%s)",id,map,detail,reason);
+            else error(_error_silent,"mcc maps: Workshop item %s: %s (%s)",id,detail,reason);
         }
     }
     qsort(mcc_menu_catalog.maps,(size_t)mcc_menu_catalog.count,sizeof(mcc_menu_catalog.maps[0]),mcc_map_order);

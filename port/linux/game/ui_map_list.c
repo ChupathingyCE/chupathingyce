@@ -193,10 +193,8 @@ enum
 	/* (the Xbox's thirteen, then the Custom Edition, HaloMD, Halo PC and
 	map packs' maps found, up to this many rows in all; on the original
 	Xbox, which has a pack's alone, its thirteen and as many again) */
-#ifdef HALO_XBOX_CONSOLE
-	MAXIMUM_MAP_LIST = 40,
-#elif defined(HALO_CONSOLE)
-	MAXIMUM_MAP_LIST = 256,
+#ifdef HALO_CONSOLE_MAP_LIST_ROWS
+	MAXIMUM_MAP_LIST = HALO_CONSOLE_MAP_LIST_ROWS,
 #else
 	/* (a computer's: a large Custom Edition folder and the whole MCC
 	catalog, MCC_MAPS_MAXIMUM, together; 256 left the MCC maps, listed
