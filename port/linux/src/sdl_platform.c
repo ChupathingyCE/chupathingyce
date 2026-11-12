@@ -1109,6 +1109,63 @@ static float platform_refresh_rate_setting(void)
 	return rate > 0.0 && rate < 1000.0 && platform_refresh_rates_settable() ? (float)rate : 0.0f;
 }
 
+#if defined(__APPLE__) && !defined(HALO_IOS)
+/* port/macos/src/macos_video.c */
+int macos_window_in_full_screen_space(void *window);
+void macos_window_toggle_full_screen_space(void *window);
+#endif
+
+/* macOS: the window back out of a full-screen Space that macOS put it in
+while SDL had it in exclusive fullscreen (display.mode = "fullscreen"),
+before SDL changes its fullscreen. macOS's own full screen (the window's
+toggleFullScreen:, which its full-screen shortcut and menu item call) moves
+even the exclusive window to a Space, and SDL still takes it for exclusive:
+its next change of kind or of fullscreen restyled the window as if it were
+not in a Space, and AppKit threw ("NSWindowStyleMaskFullScreen cleared on a
+window outside of a full screen transition"), which ended the game
+(#1110). Taken out of the Space first, and the move waited for, the window
+is an ordinary one again to SDL. Whether the window left a Space (the
+change then has to make it fullscreen again, platform_display_apply), and
+FALSE when it is still in one after 3 s: SDL's change is left for the next
+apply rather than made into a throw. */
+static BOOL platform_window_left_space;
+
+static BOOL platform_window_space_settle(void)
+{
+#if defined(__APPLE__) && !defined(HALO_IOS)
+	static BOOL logged_stuck;
+	void *window;
+	Uint64 deadline;
+
+	if (!platform_window)
+		return TRUE;
+	window = SDL_GetPointerProperty(SDL_GetWindowProperties(platform_window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER,
+		NULL);
+	if (!macos_window_in_full_screen_space(window) || !SDL_GetWindowFullscreenMode(platform_window))
+		return TRUE;
+	platform_log("display: the window is in a full-screen Space while exclusive fullscreen; leaving the Space first");
+	macos_window_toggle_full_screen_space(window);
+	/* (SDL hears of the move when it ends, and only then takes the window for
+	windowed) */
+	deadline = SDL_GetTicks() + 3000;
+	while ((macos_window_in_full_screen_space(window) || (SDL_GetWindowFlags(platform_window) & SDL_WINDOW_FULLSCREEN)) &&
+		SDL_GetTicks() < deadline)
+	{
+		SDL_PumpEvents();
+		SDL_Delay(10);
+	}
+	if (macos_window_in_full_screen_space(window) || (SDL_GetWindowFlags(platform_window) & SDL_WINDOW_FULLSCREEN))
+	{
+		if (!logged_stuck)
+			platform_log("display: the window did not leave its full-screen Space; the change waits for the next apply");
+		logged_stuck = TRUE;
+		return FALSE;
+	}
+	platform_window_left_space = TRUE;
+#endif
+	return TRUE;
+}
+
 /* the window's fullscreen kind (display.mode): borderless, a window over
 the whole desktop (SDL's fullscreen without a mode), or fullscreen, the
 display taken at display.resolution's mode (the one nearest it), else at its
@@ -1157,6 +1214,12 @@ static void platform_fullscreen_kind_apply(void)
 				(double)mode->refresh_rate, (double)rate);
 		}
 	}
+	if (!platform_window_space_settle())
+	{
+		/* (tried again at the next apply) */
+		applied = -1;
+		return;
+	}
 	SDL_SetWindowFullscreenMode(platform_window, mode);
 }
 
@@ -1183,10 +1246,15 @@ static void platform_borderless_styles(void)
 }
 #endif
 
-static void platform_window_set_fullscreen(BOOL fullscreen)
+/* (FALSE when macOS kept the window in a full-screen Space: nothing
+changed, platform_window_space_settle) */
+static BOOL platform_window_set_fullscreen(BOOL fullscreen)
 {
 	platform_fullscreen_requested = fullscreen;
+	if (!platform_window_space_settle())
+		return FALSE;
 	SDL_SetWindowFullscreen(platform_window, fullscreen ? true : false);
+	return TRUE;
 }
 
 /* whether the window is fullscreen. SDL sets its flag when the window
@@ -1885,12 +1953,19 @@ void platform_display_apply(void)
 
 	if (!platform_window)
 		return;
+	platform_window_left_space = FALSE;
 	platform_fullscreen_kind_apply();
 	/* Saving unrelated settings must preserve the window mode chosen by F11. */
 	if (mode != platform_window_mode)
 	{
-		platform_window_mode = mode;
-		platform_window_set_fullscreen(platform_fullscreen_setting());
+		/* (tried again at the next apply when it could not be made) */
+		platform_window_mode = platform_window_set_fullscreen(platform_fullscreen_setting()) ? mode : -1;
+	}
+	else if (platform_window_left_space && platform_fullscreen_requested)
+	{
+		/* (macOS: a change of resolution only took the window out of its
+		full-screen Space, platform_window_space_settle; fullscreen again) */
+		platform_window_set_fullscreen(TRUE);
 	}
 	platform_window_size_setting(&width, &height);
 	if (width != platform_window_width || height != platform_window_height)

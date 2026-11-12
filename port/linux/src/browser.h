@@ -236,6 +236,13 @@ int browser_client_report(int teams, int red_score, int blue_score, int duration
 escaped); returns its length */
 int browser_json_name(char *out, int size, const unsigned short *name, int length);
 
+/* the hosted game's Steam Workshop item (an MCC map's: its id and title, ""
+for none), for the announcement's workshop_id and workshop_title; called
+before browser_host_update, which takes it with the game */
+#define BROWSER_WORKSHOP_ID_LENGTH 24
+#define BROWSER_WORKSHOP_TITLE_LENGTH 40
+void browser_host_workshop(const char *id, const char *title);
+
 /* the hosted game, as the game's server has it; called each frame while
 this machine hosts (network_server_manager.c). The listing follows (and is
 withdrawn a few seconds after the calls stop). */
@@ -267,6 +274,8 @@ game list entry): -1 older, 1 newer, 0 joinable. Every build */
 int browser_version_state(int version);
 /* whether a game's map (a scenario's name or path) is a campaign level: a
 co-op game */
+/* (browser.c) an MCC map's kind, from the game's MCC catalog (NULL: none) */
+extern int (*browser_mcc_campaign)(const char *map);
 int browser_map_is_campaign(const char *map);
 /* the game lists' filter, kept for the session: all games, multiplayer
 games, or co-op games (a campaign level). Every build */

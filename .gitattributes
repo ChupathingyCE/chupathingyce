@@ -1,0 +1,2 @@
+# Preserve the pinned upstream decoder byte-for-byte, including its whitespace.
+port/third_party/bcdec/bcdec.h -text -whitespace

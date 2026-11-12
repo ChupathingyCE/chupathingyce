@@ -469,6 +469,9 @@ symbols in this file:
 #include "networking/network_server_manager.h"
 #include "networking/network_server_manager_internal.h"
 #include "networking/network_server_message_handler.h"
+#include "mcc_ui_network.h"
+#include "mcc_workshop.h" /* port: an MCC map's Workshop item in the listing */
+#include "mcc_cache.h" /* port: mcc_level_name */
 #include "saved games/player_profile.h"
 #include "text/unicode.h"
 
@@ -1406,9 +1409,188 @@ struct network_game_server *network_game_server_create(
 	return server;
 }
 
+/* port: a game on an MCC map is hosted at OpenCE's 43, whose record and
+messages carry MCC's (mcc_network_messages.h), whatever this machine
+announces otherwise; any other map at the usual number. Asked as the map is
+chosen (network_game_server_change_map_name), each lobby frame, and undone as
+hosting ends; said once if this build can't */
+/* (network_server_message_handler.c) */
+unsigned network_game_server_machine_joined_number(struct network_game_server *server,
+	struct network_game_server_client_machine *machine);
+#if defined(HALO_MCC) && HALO_MCC
+#include "delta.h" /* the capabilities */
+char const *config_string(char const *name);
+int delta_peer_game_machine_lacks(int machine_index, int capability);
+int delta_legacy_host_game_at(int version); /* (port/linux/src/delta.c) */
+boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
+long dedicated_playlist_count(void);
+char const *dedicated_playlist_map(long entry);
+static int network_game_server_mcc_asked = -1;
+/* (when the number changed: the record is sent again a little later, which
+the Delta machines that follow it read at the new number; 0 for none) */
+static unsigned long network_game_server_mcc_resend_time;
+static int network_game_server_mcc_resends;
+/* (every 2 seconds for 20, while HOST_NUMBER goes every second: a client
+that lost one, or a record, takes a later; one that still has the map
+before never starts, the pregame load timeout drops it) */
+#define NETWORK_GAME_SERVER_MCC_RESENDS 10
+#define NETWORK_GAME_SERVER_MCC_RESEND_INTERVAL 2000UL
+
+static void network_game_server_mcc_version(
+	char const *map_name)
+{
+	int want = map_name && mcc_level_name(map_name) ? 43 : 0;
+
+	/* (a dedicated server whose playlist has an MCC map hosts every game at
+	43: a number changed between games would leave its players, who joined
+	at the one before) */
+	if (!want && dedicated_server_active())
+	{
+		long entry;
+
+		for (entry = 0; entry < dedicated_playlist_count(); entry++)
+		{
+			if (mcc_level_name(dedicated_playlist_map(entry)))
+			{
+				want = 43;
+				break;
+			}
+		}
+	}
+
+	if (want == network_game_server_mcc_asked)
+		return;
+	network_game_server_mcc_asked = want;
+	network_game_server_mcc_resend_time = system_milliseconds();
+	network_game_server_mcc_resends = NETWORK_GAME_SERVER_MCC_RESENDS;
+	if (!delta_legacy_host_game_at(want) && want)
+		error(_error_silent, "mcc: this build can't host OpenCE's 43, which MCC maps need");
+	else if (want)
+		network_event("hosting %s at OpenCE's network version 43 (an MCC map%s)", map_name,
+			mcc_level_name(map_name) ? "" : " in this server's playlist");
+}
+
+/* port: (dedicated.c) a dedicated server's playlist was read: its number
+asked before it hosts, so that no game's changes under its players */
+void network_game_server_mcc_playlist_changed(
+	void)
+{
+	network_game_server_mcc_version("");
+}
+
+/* port: a host's lobby moving to or from an MCC map changes the number its
+game is played at: how many machines in it would not follow (no Delta with
+mcc_maps), which leave. The host is asked first (invite_prompt_ask), unless
+it is a dedicated server or a test */
+static long network_game_server_mcc_would_drop(
+	struct network_game_server *server,
+	char const *map_name)
+{
+	int want = mcc_level_name(map_name) ? 43 : 0;
+	long index, count = 0;
+
+	if (dedicated_server_active() || config_string("debug.network_test")[0] ||
+		(want == 43) == (network_game_server_mcc_asked == 43))
+	{
+		return 0;
+	}
+	for (index = 0; index < MAXIMUM_NETWORK_MACHINE_COUNT; index++)
+	{
+		struct network_game_server_client_machine *machine = &server->client_machines[index];
+
+		if (!network_game_server_client_machine_is_joined_to_game(server, machine) ||
+			network_game_server_client_machine_is_local(server, machine) ||
+			machine->machine_index < 0 || machine->machine_index >= MAXIMUM_NETWORK_MACHINE_COUNT)
+		{
+			continue;
+		}
+		if (delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) ||
+			delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps))
+		{
+			count++;
+		}
+	}
+	return count;
+}
+
+/* (the host's answer: yes, the map it picked) */
+static char network_game_server_mcc_confirm_map[NETWORK_GAME_MAP_NAME_LENGTH];
+static boolean network_game_server_mcc_confirmed;
+/* (the hosting the question was asked in: a yes after the host left its
+lobby, or hosts another, changes nothing) */
+static unsigned long network_game_server_mcc_session;
+static unsigned long network_game_server_mcc_confirm_session;
+static struct network_game_server *network_game_server_mcc_confirm_server;
+
+static void network_game_server_mcc_confirm_answer(
+	boolean yes)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	if (!yes || !server || server->state != _network_game_server_state_pregame ||
+		!network_game_server_mcc_confirm_map[0] || server != network_game_server_mcc_confirm_server ||
+		network_game_server_mcc_confirm_session != network_game_server_mcc_session)
+	{
+		network_event("the lobby's map stays: the host kept its players");
+		return;
+	}
+	network_game_server_mcc_confirmed = TRUE;
+	main_set_multiplayer_map_name(network_game_server_mcc_confirm_map);
+	network_game_server_change_map_name(server, network_game_server_mcc_confirm_map);
+	network_game_server_mcc_confirmed = FALSE;
+}
+
+/* whether the map's change waits for the host's answer (asked here) */
+static boolean network_game_server_mcc_confirm(
+	struct network_game_server *server,
+	char const *map_name)
+{
+	extern void invite_prompt_ask(char const *title, char const *question, char const *detail,
+		void (*answer_function)(boolean yes));
+	char detail[96];
+	long count;
+
+	if (network_game_server_mcc_confirmed || !(count = network_game_server_mcc_would_drop(server, map_name)))
+		return FALSE;
+	network_game_server_mcc_confirm_server = server;
+	network_game_server_mcc_confirm_session = network_game_server_mcc_session;
+	csstrncpy(network_game_server_mcc_confirm_map, map_name, sizeof(network_game_server_mcc_confirm_map) - 1);
+	network_game_server_mcc_confirm_map[sizeof(network_game_server_mcc_confirm_map) - 1] = 0;
+	snprintf(detail, sizeof(detail), "%ld player%s without MCC maps will leave.", count, count == 1 ? "" : "s");
+	invite_prompt_ask("MAP", mcc_level_name(map_name) ? "Switch to this MCC map?" : "Switch away from MCC?",
+		detail, network_game_server_mcc_confirm_answer);
+	network_event("asking the host before the lobby's map changes to %s (%ld would leave)", map_name, count);
+	return TRUE;
+}
+#else
+/* (no MCC maps in this build: HALO_MCC) */
+#define network_game_server_mcc_version(map_name) ((void)sizeof(map_name))
+#define network_game_server_mcc_confirm(server, map_name) ((void)sizeof(server), (void)sizeof(map_name), FALSE)
+void network_game_server_mcc_playlist_changed(void) {}
+#endif
+
 void network_game_server_dispose(
 	struct network_game_server *server)
 {
+	mcc_ui_network_server_dispose(server);
+#if defined(HALO_MCC) && HALO_MCC
+	/* (a question about this lobby's map is taken back, and a yes to it
+	changes nothing) */
+	{
+		extern void invite_prompt_ask_cancel(void (*answer_function)(boolean yes));
+
+		invite_prompt_ask_cancel(network_game_server_mcc_confirm_answer);
+		network_game_server_mcc_session++;
+		network_game_server_mcc_confirm_map[0] = 0;
+	}
+	/* (the usual number again; a dedicated server keeps its playlist's) */
+	if (!dedicated_server_active())
+	{
+		if (network_game_server_mcc_asked > 0)
+			delta_legacy_host_game_at(0);
+		network_game_server_mcc_asked = -1;
+	}
+#endif
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x120, server);
 
 	/* port: a won co-op round's next level belongs to this server alone */
@@ -1618,6 +1800,25 @@ boolean network_game_server_idle(
 		}
 	}
 
+	/* (not while an MCC map chosen waits for its check: the map in the
+	record is still the one before) */
+	if (server->state == _network_game_server_state_pregame && !server->sent_start_game_message &&
+		!mcc_ui_network_map_pending(server))
+	{
+		network_game_server_mcc_version(server->game.map.name);
+#if defined(HALO_MCC) && HALO_MCC
+		/* (the record again, every 2 seconds for 20 after the number changed: by
+		then its followers have HOST_NUMBER) */
+		if (network_game_server_mcc_resends > 0 &&
+			system_milliseconds() - network_game_server_mcc_resend_time > NETWORK_GAME_SERVER_MCC_RESEND_INTERVAL)
+		{
+			network_game_server_mcc_resends--;
+			network_game_server_mcc_resend_time = system_milliseconds();
+			network_game_server_send_game_data_pregame(server);
+		}
+#endif
+	}
+	mcc_ui_network_update_map(server); /* port: apply pending MCC selection after local admission */
 	/* (what Discord shows of a game hosted for internet play, and the
 	server browser's listing) */
 	p2p_set_game_player_counts(server->game.player_count, server->game.maximum_players);
@@ -1738,6 +1939,15 @@ boolean network_game_server_idle(
 				csmemcpy(roster[roster_count].name, player->name, sizeof(roster[roster_count].name));
 				roster[roster_count].team = game->variant.universal_variant.teams == TRUE ? (short)player->team_index : -1;
 				roster_count++;
+			}
+			/* (an MCC map's Workshop item, for the listing) */
+			{
+				struct mcc_workshop_item item;
+
+				if (mcc_workshop_listing(game->map.name, &item))
+					browser_host_workshop(item.id, item.title);
+				else
+					browser_host_workshop("", "");
 			}
 			browser_host_update(
 				(unsigned short const *)game->name,
@@ -1929,6 +2139,9 @@ boolean network_game_server_start_network_game(
 	boolean success = TRUE;
 
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x2DE, server);
+	/* port: an MCC check still in progress is a successful idle, not a failed
+	connection. Keep the countdown pending until its validated settings are sent. */
+	if (mcc_ui_network_map_pending(server)) return TRUE;
 
 	if (server->sent_start_game_message == FALSE)
 	{
@@ -3816,7 +4029,6 @@ boolean network_game_server_change_map_name(
 		server && map_name && map_name[0]);
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x79C,
 		server->state == _network_game_server_state_pregame);
-
 	/* port: never a map this machine hasn't got (a playlist's or a test's
 	next entry, a map named by hand): the host's own client would refuse
 	the settings and leave, which ends the game for everyone (#1106). The
@@ -3831,6 +4043,22 @@ boolean network_game_server_change_map_name(
 		}
 		return FALSE;
 	}
+	/* port: a lobby moving to or from an MCC map that would drop players
+	asks the host first (network_game_server_mcc_confirm); the map stays
+	until it answers yes */
+	if (network_game_server_mcc_confirm(server, map_name))
+	{
+		if (server->game.map.name[0])
+		{
+			main_set_multiplayer_map_name(server->game.map.name);
+			game_engine_override_map_name(server->game.map.name);
+		}
+		return TRUE;
+	}
+	/* port: an MCC map's game at 43 (network_game_server_mcc_version) */
+	network_game_server_mcc_version(map_name);
+	/* port: MCC package work waits for local admission; legacy selections remain immediate. */
+	if (mcc_ui_network_defer_map(server, map_name)) return TRUE;
 
 	for (client_machine_index = 0;
 		client_machine_index < MAXIMUM_NETWORK_MACHINE_COUNT;
@@ -4715,6 +4943,8 @@ static boolean network_game_server_setup_game_from_playlist(
 	struct network_game_server *server)
 {
 	boolean success = FALSE;
+
+	if (mcc_ui_network_restart_settings(server)) return TRUE;
 
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x961, server);
 
@@ -5772,7 +6002,9 @@ static boolean network_game_server_delta_only(
 	struct network_game_server *server)
 {
 	return server->game.variant.game_engine_index == game_engine_bomb ||
-		cache_files_map_needs_delta(server->game.map.name);
+		cache_files_map_needs_delta(server->game.map.name) ||
+		/* (an MCC map: its Delta machines must have mcc_maps) */
+		mcc_level_name(server->game.map.name);
 }
 
 /* Bomb game types (docs/bomb.md) are played only between machines that agree
@@ -5798,9 +6030,15 @@ static void network_game_server_delta_refusals(
 		struct network_game_server_client_machine *machine = &server->client_machines[index];
 		unsigned long address;
 		boolean bomb = server->game.variant.game_engine_index == game_engine_bomb;
-		boolean pack_map = !bomb && cache_files_map_needs_delta(server->game.map.name);
+		boolean mcc_map = !bomb && mcc_level_name(server->game.map.name);
+		boolean pack_map = !bomb && !mcc_map && cache_files_map_needs_delta(server->game.map.name);
+		/* (port: the number the game is played at changed since the machine
+		joined, as an MCC map's game at 43 does: only a Delta machine with
+		mcc_maps follows it, HOST_NUMBER; any other leaves with a notice) */
+		unsigned joined_number = network_game_server_machine_joined_number(server, machine);
+		boolean number_changed = joined_number && joined_number != (unsigned)delta_legacy_announce();
 
-		if ((!bomb && !pack_map) ||
+		if ((!bomb && !pack_map && !mcc_map && !number_changed) ||
 			!network_game_server_client_machine_is_joined_to_game(server, machine) ||
 			network_game_server_client_machine_is_local(server, machine) ||
 			machine->machine_index < 0 || machine->machine_index >= MAXIMUM_NETWORK_MACHINE_COUNT)
@@ -5808,14 +6046,28 @@ static void network_game_server_delta_refusals(
 			refused_addresses[index] = 0;
 			continue;
 		}
+		if (number_changed && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) &&
+			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps))
+		{
+			number_changed = FALSE;
+			if (!bomb && !pack_map && !mcc_map)
+				continue;
+		}
 		/* (bomb_traits: a Grifball test build 2 or 3 says TRAITS as 18) */
-		if (bomb && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb) &&
+		if (!number_changed && bomb && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb) &&
 			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb_traits))
 		{
 			continue;
 		}
-		if (pack_map && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform))
+		if (!number_changed && pack_map && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform))
 			continue;
+		/* (an MCC map: a machine without Delta, OpenCE's 43, plays it by its own
+		MCC support; a Delta machine needs mcc_maps: docs/delta.md, bit 24) */
+		if (!number_changed && mcc_map && (delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) ||
+			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps)))
+		{
+			continue;
+		}
 		address = (unsigned long)network_game_server_machine_ipv4_address(server, machine->machine_index);
 		/* (once: the drop takes effect when the server next looks at its
 		machines) */
@@ -5850,7 +6102,22 @@ static void network_game_server_delta_refusals(
 				}
 				names[length] = 0;
 			}
-			if (pack_map)
+			if (number_changed)
+			{
+				snprintf(notice, sizeof(notice), "%s left: %s", names[0] ? names : "A player",
+					mcc_map ? "Needs MCC maps (this game now plays an MCC map)" :
+						"this game now plays at another version");
+				network_event("client machine #%ld joined at network version %u, and the game is now at %d: dropped",
+					(long)machine->machine_index, joined_number, delta_legacy_announce());
+			}
+			else if (mcc_map)
+			{
+				snprintf(notice, sizeof(notice), "%s cannot play this MCC map: it plays only with copies that "
+					"have MCC maps (Chupathingy 0.9.1 or later on a computer)", names[0] ? names : "A player");
+				network_event("mcc: client machine #%ld is a Delta machine without mcc_maps: dropped",
+					(long)machine->machine_index);
+			}
+			else if (pack_map)
 			{
 				char file[64];
 
@@ -5956,3 +6223,13 @@ boolean network_game_server_map_share_machine(
 	return *address != 0;
 }
 #endif
+/* Independent MCC pause-menu round restart. */
+#if defined(HALO_MCC) && HALO_MCC
+#include "mcc_ui_network.inl"
+#endif
+
+long network_game_server_machine_count(
+	struct network_game_server *server)
+{
+	return server ? (long)server->game.machine_count : 0;
+}

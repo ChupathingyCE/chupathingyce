@@ -50,6 +50,8 @@ struct nv2a_pixel_shader_key
 	/* a model lighting program's draw the Light effects light
 	(plasma_model_shader.c): their falloff and walls in model_lighting */
 	unsigned char plasma_model;
+	/* MCC environment lightmap pass only; part of the compiled shader key. */
+	unsigned char mcc_bump_attenuation;
 };
 
 #endif

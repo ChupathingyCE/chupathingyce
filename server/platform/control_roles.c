@@ -184,6 +184,11 @@ static const struct command_permission command_permissions[] =
 	{ "sv_account_reset", CONTROL_PERMISSION_CONSOLE, 1, 0 },
 	{ "sv_account_setup", CONTROL_PERMISSION_CONSOLE, 1, 0 },
 	{ "sv_setup_start", CONTROL_PERMISSION_CONSOLE, 1, 0 },
+	/* (the Steam link's sign-in shows on the server's own terminal only;
+	getting a Workshop map downloads onto the server's disk: an admin's) */
+	{ "sv_steam_link", CONTROL_PERMISSION_CONSOLE, 1, 0 },
+	{ "sv_steam_unlink", CONTROL_PERMISSION_CONSOLE, 1, 0 },
+	{ "sv_workshop_get", CONTROL_PERMISSION_SETTINGS, 1, 0 },
 };
 
 unsigned int control_command_permission(const char *line, int *changes)

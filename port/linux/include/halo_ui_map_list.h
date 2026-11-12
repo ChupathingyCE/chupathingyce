@@ -25,17 +25,63 @@ enum
 	_ui_map_list_string_lobby_name,
 	/* its game's type in the lobby (a campaign level's: co-op) */
 	_ui_map_list_string_game_type,
+	/* its name over its picture in the map lists' description pane: the
+	lobby's, but an MCC map's plain name, broken between words to fit */
+	_ui_map_list_string_pane_name,
 	NUMBER_OF_UI_MAP_LIST_STRINGS
 };
 
 /* the list anew: the game's thirteen Xbox map names, then those found */
 void ui_map_list_refresh(char *const *xbox_maps);
+
+/* the map choosers' view of the multiplayer maps: those of a source (where
+they come from), in an order, matching a search; the default view (all, the
+list's own order, no search) is the list as it is built. The rows below
+count the view: a map it leaves out is still found by name
+(ui_map_list_find), after the campaign's levels */
+enum
+{
+	_ui_map_list_source_all,
+	_ui_map_list_source_xbox,
+	_ui_map_list_source_ce,
+	_ui_map_list_source_md,
+	_ui_map_list_source_mcc,
+	NUMBER_OF_UI_MAP_LIST_SOURCES
+};
+enum
+{
+	_ui_map_list_sort_default,
+	_ui_map_list_sort_name,
+	_ui_map_list_sort_recent,
+	NUMBER_OF_UI_MAP_LIST_SORTS
+};
+/* search (UTF-8; NULL or "" for none) matches a map's name, and an MCC
+map's package's ModInfo.json and CampaignInfo.json (its title, author and
+words), letters in any case */
+void ui_map_list_view_set(short source, short sort, char const *search);
+/* whether the lists offer MCC maps now: not while hosting a network game */
+boolean ui_map_list_mcc_offered(void);
+/* changes with each new view or list, for a list widget to take its rows again */
+unsigned long ui_map_list_view_serial(void);
+/* whether the list has maps of a source (all: any) */
+boolean ui_map_list_source_present(short source);
+/* their words, the same in every menu set: "All", "Xbox", "CE", "MD",
+"MCC"; "Default order", "A-Z", "Recently added"; and as config has them:
+"all", "xbox", "ce", "md", "mcc"; "default", "az", "recent" */
+char const *ui_map_list_source_name(short source);
+char const *ui_map_list_sort_name(short sort);
+char const *ui_map_list_source_key(short source);
+char const *ui_map_list_sort_key(short sort);
+short ui_map_list_source_from_key(char const *key);
+short ui_map_list_sort_from_key(char const *key);
 /* the rows that are multiplayer maps */
 long ui_map_list_count(void);
 /* those and then the campaign's levels, for hosting network co-op from the
 Xbox's map list (builds with HALO_GAME_BROWSER; the maps alone on others) */
 long ui_map_list_count_with_campaign(void);
 boolean ui_map_list_row_is_campaign(long row);
+/* every row, those the view leaves out too (ui_map_list_names has them all) */
+long ui_map_list_count_all(void);
 /* the rows' map names, for the list widget's items */
 char **ui_map_list_names(void);
 /* the row of a map's name, or NONE */
@@ -51,6 +97,12 @@ short ui_map_list_string_index(long row, short kind);
 short ui_map_list_picture_index(long row);
 /* the bitmap of a frame of this list's, or NULL for ui.map's */
 struct bitmap_data *ui_map_list_picture(short frame_index);
+/* an MCC catalog map's frame (MCC_MAPS_FIRST_DISPLAY_INDEX and up): its
+catalog index, whose own picture (its package's, else Steam's picture of
+its Workshop item) mcc_menu_preview_draw draws; NONE for another frame */
+short ui_map_list_mcc_picture(short frame_index);
+/* the frame of the unknown level's picture, drawn when an MCC map has none */
+short ui_map_list_unknown_picture(void);
 /* the text of a string list index of this list's, or NULL for ui.map's */
 wchar_t const *ui_map_list_text(short string_list_index);
 

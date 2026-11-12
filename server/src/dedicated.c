@@ -357,6 +357,7 @@ static boolean load_playlist(
 	dedicated.entry = 0;
 	snprintf(dedicated.playlist, sizeof(dedicated.playlist), "%s", name);
 	read_teams();
+	network_game_server_mcc_playlist_changed();
 	return dedicated.entry_count > 0;
 }
 
@@ -750,6 +751,7 @@ static void apply_pending_playlist(
 	dedicated.entry_count = dedicated.pending_count;
 	snprintf(dedicated.playlist, sizeof(dedicated.playlist), "%s", dedicated.pending_playlist);
 	read_teams();
+	network_game_server_mcc_playlist_changed();
 	if (dedicated.pending_keep_place)
 		dedicated.entry = (entry + (advance ? 1 : 0)) % dedicated.entry_count;
 	else

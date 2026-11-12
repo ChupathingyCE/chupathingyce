@@ -76,6 +76,9 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries/cseries.h"
+#include "mcc_grenades.h"
+#include "mcc_cache.h"
+#include "mcc_hud_draw.h"
 #include "bitmaps/bitmap_group.h"
 #include "camera/director.h"
 #include "cache/texture_cache.h"
@@ -961,11 +964,13 @@ static void hud_draw_friendly_indicator(
 				bitmap,
 				&position,
 				&clip,
+				(mcc_cache_tags_loaded() ?
+				 mcc_hud_bitmap_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud)) :
 #ifdef HALO_CUSTOM_EDITION
 				/* port: at its bitmap's HUD scale */
-				hud_bitmap_group_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud)),
+				hud_bitmap_group_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud))),
 #else
-				1.0f,
+				1.0f),
 #endif
 				0.0f,
 				1.0f);
@@ -1218,6 +1223,11 @@ static void hud_draw_player_name(
 
 		if (bitmap)
 		{
+			/* port: match the MCC arrow's scale */
+			if (mcc_cache_tags_loaded())
+				y -= (short)(bitmap->registration_point.y *
+					mcc_hud_bitmap_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud)));
+			else
 #ifdef HALO_CUSTOM_EDITION
 			/* (the triangle drawn at its bitmap's HUD scale) */
 			y -= (short)(bitmap->registration_point.y *
@@ -1345,6 +1355,11 @@ static void temporary_hud_draw(
 			&scenario_get_game_globals()->grenades,
 			unit->unit.current_grenade_index,
 			struct game_globals_grenade);
+		if (mcc_grenades_active())
+			sprintf(temporary + csstrlen(temporary), "%d %s|n",
+				mcc_grenades_get(player->unit_index, unit->unit.current_grenade_index),
+				tag_name_strip_path(tag_get_name(grenade->projectile.index)));
+		else
 		snprintf(
 			temporary + csstrlen(temporary),
 			sizeof(temporary) - csstrlen(temporary),

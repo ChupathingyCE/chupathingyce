@@ -8,7 +8,8 @@ permissions are kept on file and can be shown on request.
 
 | Who | What | Terms | Permission since |
 | --- | --- | --- | --- |
-| chester (chestahh) | His own code in GulchCE | GPL-3.0, his commits only | 2026-10-29 |
+| chester (chestahh) | His code in GulchCE, including its Halo MCC map support (`port/linux/game/mcc_*`, `port/linux/src/mcc_*`) | Relicensed by him to GPL-3.0, with credit | 2026-10-29 |
+| The GulchCE contributors (PeterRichardsonGolf and others) | Their work in GulchCE: the Steam Workshop catalog and the MCC sharing rules | Relicensed by them to GPL-3.0, with credit; OpenCE's own code inside GulchCE is not included | 2026-11-11 |
 | mOTA-lEV (SutlabSol) | His own code in OpenCE-Faber: medals, service records, Forge, Firefight | GPL-3.0, with attribution and links to his originals | 2026-11-07 |
 | thelinkin3000 | His Switch port work (warthog-switch) | GPL-3.0-or-later | 2026-10-21 |
 | Mayo (Mayo1970) | His PS3 port work, hosted as warthog-ps3 in the ChupathingyCE organization | GPL-3.0-or-later, his own code | 2026-11-03 |

@@ -280,7 +280,12 @@ with their authors credited in each commit.
   shaders and makes bgfx's pipelines before play.
 - chestahh (GulchCE): lens flares and light
   glows back on AMD graphics, less stutter the first time a texture is drawn
-  on Windows, and host cheat and shadow setup fixes.
+  on Windows, host cheat and shadow setup fixes, and the Halo MCC map
+  loader: MCC Workshop and MCC install maps, their scripts, HUDs, effects
+  and campaigns.
+- PeterRichardsonGolf and the other GulchCE contributors: the Steam
+  Workshop catalog with its items' titles and collections, and the MCC
+  sharing rules.
 - mOTA-lEV ([OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber)):
   projectiles and damage that forget objects deleted under them.
 - [bitmoda](https://github.com/bitmoda) (mastercheese's OpenCE fork): the
@@ -336,8 +341,9 @@ with their authors credited in each commit.
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
-  Expat, Monocypher, zlib, Zstandard, SMAA, and Project Nayuki's QR Code
-  generator. Their licenses are
+  Expat, Monocypher, zlib, Zstandard (BSD-3-Clause), the LZMA SDK's decoder
+  (Igor Pavlov, public domain), SMAA, and Project Nayuki's QR Code generator
+  (MIT). Their licenses are
   beside them in `port/third_party`. The 64-bit desktop builds' test
   renderer uses bgfx, bx and bimg by Branimir Karadžić (BSD-2-Clause), with
   glslang and SPIRV-Cross (Khronos, BSD-3-Clause and Apache-2.0), fetched

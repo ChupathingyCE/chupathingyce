@@ -2,8 +2,9 @@
 source/cache/cache_files.c, #1106) over a maps tree written here: an Xbox map in
 maps, a Custom Edition map in maps_ce with and without Custom Edition's resource
 maps beside it, a HaloMD map in maps_md (and a console that doesn't play them),
-a pack's map (<name>@<pack>) in its maps_<pack>, and an MCC map, which counts as
-missing. The function is taken from the game's source and compiled with the
+a pack's map (<name>@<pack>) in its maps_<pack>, and an MCC-format map among
+Custom Edition's, which counts as missing; an MCC level
+(mcc_maps\\<package>\\<level>) is installed if its map is. The function is taken from the game's source and compiled with the
 map family code (port/linux/game/map_families.c) and the stand-ins of
 tools/test_ce_resource_maps.py."""
 import shutil
@@ -30,6 +31,9 @@ boolean map_pack_file_path(char const *pack, char const *file, char *path, long 
 	return snprintf(path, (size_t)size, "d:\\maps_%s\\%s.map", pack, file) < size;
 }
 char const *map_pack_menus(void) { return NULL; }
+/* (an MCC level: mcc_cache.c's, here one installed level, aerowalk) */
+boolean mcc_level_name(char const *map_name) { return !strncmp(map_name, "mcc_maps\\", 9); }
+boolean mcc_cache_available(char const *map_name) { return strstr(map_name, "\\aerowalk") != NULL; }
 /* (no map precached: the file is what counts) */
 boolean cache_files_precache_map_loaded(char const *map_name) { (void)map_name; return FALSE; }
 #include "installed.inc"
@@ -117,7 +121,8 @@ def tree(root, resources=True):
 
 
 MAPS = ["levels\\test\\bloodgulch\\bloodgulch", "levels\\test\\dangercanyon\\dangercanyon", "deathisland@ce",
-        "putput@ce", "hydrolysis@md", "wizard@cex", "gothra@cex", "hugeass@ce"]
+        "putput@ce", "hydrolysis@md", "wizard@cex", "gothra@cex", "hugeass@ce",
+        "mcc_maps\\2906110850\\aerowalk", "mcc_maps\\2906110850\\hearth"]
 
 
 def test_with_resource_maps(binaries, tmp_path):
@@ -130,8 +135,11 @@ def test_with_resource_maps(binaries, tmp_path):
         "hydrolysis@md": True,
         "wizard@cex": True,
         "gothra@cex": False,
-        # (an MCC map: the loaders don't play one yet)
+        # (an MCC-format map among Custom Edition's: the loaders don't play one)
         "hugeass@ce": False,
+        # (an MCC level: installed if its map is, mcc_cache_available)
+        "mcc_maps\\2906110850\\aerowalk": True,
+        "mcc_maps\\2906110850\\hearth": False,
     }
 
 

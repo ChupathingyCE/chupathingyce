@@ -387,6 +387,7 @@ symbols in this file:
 #include "networking/network_connection.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
+#include "mcc_identity.h" /* port: MCC content admission and local package resolution */
 #include "networking/network_game_protocol.h"
 #include "networking/network_messages.h"
 #include "networking/network_server_manager.h"
@@ -891,6 +892,8 @@ int delta_compat_join_mark(unsigned short *name, int count);
 static byte network_game_client_joined_host[6];
 static void network_game_client_delta_frame(struct network_game_client *client);
 void delta_peer_game_stop(int host);
+unsigned delta_peer_game_host_number(void);
+unsigned network_rules_layout_newest(void);
 #endif
 
 struct network_game_client network_game_client_dont_use_directly;
@@ -1003,6 +1006,7 @@ void network_game_client_dispose(
 {
 	if (client)
 	{
+		mcc_identity_disconnect(); /* port: discard the MCC session's local binding */
 		if (client->connection)
 			network_connection_delete(client->connection);
 
@@ -1320,6 +1324,23 @@ boolean network_game_client_idle(
 		0xC6,
 		client);
 
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE)
+	/* port: a Delta host with mcc_maps that changed the number its game is
+	played at in the lobby (an MCC map's game at 43: HOST_NUMBER): this
+	machine plays the host's next record and messages at it, staying */
+	if (client->state != _network_game_client_state_searching && !global_network_game_server_get())
+	{
+		unsigned int number = delta_peer_game_host_number();
+
+		if (number && number != network_game_client_joined_version && network_game_client_joined_version != 0xFFFF &&
+			number >= HALO_PORT_NETWORK_VERSION_MINIMUM && number <= (unsigned int)network_rules_layout_newest())
+		{
+			network_event("the host's game is now played at network version %u (was %u)", number,
+				network_game_client_joined_version);
+			network_game_client_joined_version = number;
+		}
+	}
+#endif
 	switch (client->state)
 	{
 	case _network_game_client_state_searching:
@@ -1421,6 +1442,9 @@ boolean network_game_client_game_settings_updated(
 			message_packet->map.version != client->game.map.version)
 		{
 			char build[0x20];
+
+			/* port: resolve MCC locally before native presence checks, retaining the host's wire name */
+			if (!mcc_identity_accept(message_packet)) return FALSE;
 
 			/* port: a map this machine has not (a Custom Edition map not in
 			its folder, or another version of it than the host's, say): the

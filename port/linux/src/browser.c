@@ -155,6 +155,9 @@ struct hosted_game
 	(delta_peer_game_host_summary: 0, not known yet) */
 	int has_delta;
 	struct delta_peer_host_summary delta;
+	/* its map's Workshop item (browser_host_workshop), "" for none */
+	char workshop_id[BROWSER_WORKSHOP_ID_LENGTH];
+	char workshop_title[BROWSER_WORKSHOP_TITLE_LENGTH];
 };
 
 /* another player's card, as the site gave it (browser_player_card) */
@@ -2878,6 +2881,13 @@ static void announce(const char *invite, const struct hosted_game *game)
 			form_add(form, sizeof(form), "map_tag", tag);
 		}
 	}
+	/* (an MCC map's Steam Workshop item: fields older sites ignore) */
+	if (game->workshop_id[0])
+	{
+		form_add(form, sizeof(form), "workshop_id", game->workshop_id);
+		if (game->workshop_title[0])
+			form_add(form, sizeof(form), "workshop_title", game->workshop_title);
+	}
 	snprintf(text, sizeof(text), "%d", game->engine);
 	form_add(form, sizeof(form), "engine", text);
 	snprintf(text, sizeof(text), "%d", game->players);
@@ -4265,6 +4275,16 @@ static void start_thread(void)
 
 /* ---------- public code */
 
+/* (the game's thread only, as browser_host_update) */
+static char browser_host_workshop_id[BROWSER_WORKSHOP_ID_LENGTH];
+static char browser_host_workshop_title[BROWSER_WORKSHOP_TITLE_LENGTH];
+
+void browser_host_workshop(const char *id, const char *title)
+{
+	snprintf(browser_host_workshop_id, sizeof(browser_host_workshop_id), "%s", id ? id : "");
+	snprintf(browser_host_workshop_title, sizeof(browser_host_workshop_title), "%s", title ? title : "");
+}
+
 void browser_host_update(const unsigned short *name, const char *map, short engine, short players,
 	short maximum_players, int open, short score_limit, int teams,
 	const struct browser_roster_player *roster, int roster_count)
@@ -4292,6 +4312,8 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 	}
 	/* (on the game's thread, as Delta Peer's hooks) */
 	game.has_delta = delta_peer_game_host_summary(&game.delta);
+	memcpy(game.workshop_id, browser_host_workshop_id, sizeof(game.workshop_id));
+	memcpy(game.workshop_title, browser_host_workshop_title, sizeof(game.workshop_title));
 
 	pthread_mutex_lock(&browser_lock);
 	if (memcmp(&game, &browser.hosted, sizeof(game)))
@@ -4909,12 +4931,20 @@ static int browser_ascii_equal(const char *a, const char *b)
 	return !*a && !*b;
 }
 
+/* whether an MCC map (mcc_maps\<package>\<map>) is a campaign map, as the
+game's MCC catalog says (browser_screen.c sets it: mcc_maps.c); NULL, none
+is: the tests' builds of this file have no game */
+int (*browser_mcc_campaign)(const char *map);
+
 int browser_map_is_campaign(const char *map)
 {
 	static const char *const levels[] = { "a10", "a30", "a50", "b30", "b40", "c10", "c20", "c40", "d20", "d40" };
 	const char *name = map ? map : "";
 	size_t index;
 
+	/* (an MCC map: a campaign map of this machine's MCC catalog, mcc_maps.c) */
+	if (!strncmp(name, "mcc_maps\\", 9) || !strncmp(name, "mcc_maps/", 9))
+		return browser_mcc_campaign ? browser_mcc_campaign(name) : 0;
 	/* (the path's last part; a Halo PC or HaloMD map, <file>@ce or @md, is not a level) */
 	for (index = 0; name[index]; index++)
 	{
