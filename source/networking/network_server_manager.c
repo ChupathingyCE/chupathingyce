@@ -1452,14 +1452,25 @@ static void network_game_server_mcc_version(
 			mcc_level_name(map_name) ? "" : " in this server's playlist");
 }
 
+/* port: (dedicated.c) a dedicated server's playlist was read: its number
+asked before it hosts, so that no game's changes under its players */
+void network_game_server_mcc_playlist_changed(
+	void)
+{
+	network_game_server_mcc_version("");
+}
+
 void network_game_server_dispose(
 	struct network_game_server *server)
 {
 	mcc_ui_network_server_dispose(server);
-	/* (the usual number again) */
-	if (network_game_server_mcc_asked > 0)
-		delta_legacy_host_game_at(0);
-	network_game_server_mcc_asked = -1;
+	/* (the usual number again; a dedicated server keeps its playlist's) */
+	if (!dedicated_server_active())
+	{
+		if (network_game_server_mcc_asked > 0)
+			delta_legacy_host_game_at(0);
+		network_game_server_mcc_asked = -1;
+	}
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x120, server);
 
 	/* port: a won co-op round's next level belongs to this server alone */
