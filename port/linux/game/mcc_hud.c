@@ -19,11 +19,19 @@
  * verbatim, so put the controller's word BACK in its place, in owned UTF-16
  * storage: the game's HUD (input_abstraction_port_back_word) swaps BACK for the
  * keyboard's scoreboard key while the keyboard was used last, so the hint names
- * one key, the one for the device in use, as the Xbox maps' hint does. */
+ * one key, the one for the device in use, as the Xbox maps' hint does. The
+ * quotes around %s go with it: a controller's hint is the Xbox's, 'Hold BACK
+ * for score', and the HUD quotes the keyboard's key as Halo PC does ('Hold
+ * "Tab" for score'), so it never shows 'Hold "BACK" for score'. */
+static int mcc_hud_score_quote(uint16_t c)
+{
+    return c=='"' || c=='\'' || c==0x201C || c==0x201D || c==0x2018 || c==0x2019;
+}
+
 static int mcc_hud_score_text(uint16_t const *source,uint32_t characters,
     uint16_t *out,uint32_t capacity)
 {
-    uint32_t length=0,placeholder=UINT32_MAX,i,used=0,needed;
+    uint32_t length=0,placeholder=UINT32_MAX,i,used=0,needed,start,end;
     static char const controller[]="BACK";
     if (!source || !characters) return -1;
     while (length<characters && source[length]) length++;
@@ -32,13 +40,18 @@ static int mcc_hud_score_text(uint16_t const *source,uint32_t characters,
         if (source[i]=='%' && source[i+1]=='s') {placeholder=i;break;}
     }
     if (placeholder==UINT32_MAX) return 0;
-    /* the text less the two source characters, BACK and the NUL */
-    needed=length-2+(uint32_t)(sizeof(controller)-1)+1;
+    /* the part replaced: the %s, and a quote on each side of it */
+    start=placeholder;end=placeholder+2;
+    if (start>0 && end<length && mcc_hud_score_quote(source[start-1]) && mcc_hud_score_quote(source[end])) {
+        start--;end++;
+    }
+    /* the text less the part replaced, BACK and the NUL */
+    needed=length-(end-start)+(uint32_t)(sizeof(controller)-1)+1;
     if (!out) return (int)needed;
     if (capacity<needed) return -1;
-    for (i=0;i<placeholder;i++) out[used++]=source[i];
+    for (i=0;i<start;i++) out[used++]=source[i];
     for (i=0;i<sizeof(controller)-1;i++) out[used++]=(unsigned char)controller[i];
-    for (i=placeholder+2;i<=length;i++) out[used++]=source[i];
+    for (i=end;i<=length;i++) out[used++]=source[i];
     return (int)used;
 }
 
