@@ -55,7 +55,7 @@ enum
 	WORKSHOP_BROWSER_ID_SIZE = 24,
 	WORKSHOP_BROWSER_TITLE_SIZE = 64,
 	WORKSHOP_BROWSER_AUTHOR_SIZE = 48,
-	WORKSHOP_BROWSER_KIND_SIZE = 16,
+	WORKSHOP_BROWSER_KIND_SIZE = 32,
 	WORKSHOP_BROWSER_DESCRIPTION_SIZE = 400,
 	/* the largest list document read */
 	WORKSHOP_BROWSER_MAXIMUM_DOCUMENT = 128 * 1024,
@@ -219,7 +219,20 @@ int workshop_browser_link_offered(void);
 /* Steam's browse page shown (1 the first), and the next or the one before
 asked for (each kept ten minutes); 0 when there is none that way */
 int workshop_browser_page(void);
+/* the game's own Steam download, once Steam is linked: turned on (the
+link is the player's yes) and connected while the tab is open. Each frame */
+void workshop_browser_link_follow(void);
+/* an item's page in the Steam client: the way out when the game's own
+download can't get it ("Not owned"); 0 for a setup row */
+int workshop_browser_open_in_steam(int index);
 int workshop_browser_page_next(void);
+/* the list failed: asked again now (RETRY), 0 while a busy Steam asked to
+be left alone (its seconds left in workshop_browser_busy_seconds, 0 when
+it isn't busy) */
+int workshop_browser_retry(void);
+int workshop_browser_busy_seconds(void);
+/* whether the list can go a page on (step 1) or back (-1) */
+int workshop_browser_page_offered(int step);
 int workshop_browser_page_previous(void);
 /* a setup row's button: its word ("SIGN IN"), NULL for none; and pressing it */
 const char *workshop_browser_setup_button(int index);
@@ -271,6 +284,8 @@ enum
 	WORKSHOP_JOIN_DOWNLOADING,
 	WORKSHOP_JOIN_INSTALLED,
 	WORKSHOP_JOIN_FAILED,
+	/* waiting on Steam's link (the Guide's QR, scanned with the Steam app) */
+	WORKSHOP_JOIN_LINKING,
 };
 
 /* network.workshop_downloads: WORKSHOP_JOIN_ASK, ALWAYS or NEVER */

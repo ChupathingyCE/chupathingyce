@@ -299,11 +299,12 @@ int steam_bridge_backend(void)
 
 		bridge.backend_looked = 1;
 		bridge.backend = STEAM_BRIDGE_BACKEND_NONE;
-		if (steam_bridge_api_library_paths(paths, 1, 0))
-			bridge.backend = STEAM_BRIDGE_BACKEND_CLIENT;
-		/* (the built-in client: always there to download) */
-		else if (steam_link_available() && !config_boolean("debug.workshop_steamcmd"))
+		/* (the built-in client first: it installs on every platform, signed
+		in by the Steam app's QR; the Steam client only where it isn't built) */
+		if (steam_link_available() && !config_boolean("debug.workshop_steamcmd"))
 			bridge.backend = STEAM_BRIDGE_BACKEND_STEAMCMD;
+		else if (steam_bridge_api_library_paths(paths, 1, 0))
+			bridge.backend = STEAM_BRIDGE_BACKEND_CLIENT;
 #ifndef _WIN32
 		else if (steam_bridge_platform_find_steamcmd(path, sizeof(path)))
 			bridge.backend = STEAM_BRIDGE_BACKEND_STEAMCMD;

@@ -317,6 +317,9 @@ enum
 	_target_prompt,
 	/* PLAYERS HERE's buttons: MUTE, ADD FRIEND */
 	_target_player_action,
+	/* WORKSHOP's PREV and NEXT (index 0 and 1), and Steam's sign-in window's button */
+	_target_page,
+	_target_modal,
 };
 
 /* RECENT's options on a player */
@@ -3470,7 +3473,8 @@ static void plasma_look(void)
 /* (WORKSHOP's rows and options, for the pointer) */
 static void workshop_target(float x0, float y0, float x1, float y1, short kind, short index)
 {
-	target_add(x0, y0, x1, y1, kind ? _target_option : _target_row, index);
+	target_add(x0, y0, x1, y1, kind == GUIDE_WORKSHOP_TARGET_ROW ? _target_row : kind == GUIDE_WORKSHOP_TARGET_OPTION ?
+		_target_option : kind == GUIDE_WORKSHOP_TARGET_PAGE ? _target_page : _target_modal, index);
 }
 
 static void render_card(void)
@@ -4179,20 +4183,26 @@ static void render_settings(void)
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;
 	}
-	if (first + shown < rows)
-		ui_overlay_text(UI_FONT_MENU, 11.0f, CONTENT_RIGHT - 12, y - ROW_GAP + 1, UI_ALIGN_RIGHT, COLOR_LABEL, "MORE");
-	/* (STEAM ACCOUNT's QR while a link waits for the scan, over the rows' right side) */
+	/* (more rows than show: a slim bar in the panel's edge beside them, where
+	no row's value is) */
+	if (shown < rows)
 	{
-		struct settings_row const *row = settings_row_at(SETTINGS_GROUP_GUIDE, chosen);
+		float track_top = BODY_Y, track_height = shown * (SETTING_HEIGHT + ROW_GAP) - ROW_GAP;
+		float thumb_height = MAX(12.0f, track_height * shown / rows);
+		float thumb_top = track_top + (track_height - thumb_height) * first / MAX(1, rows - shown);
 
-		/* (under the row, so its words show: SCAN THE CODE, APPROVE ON PHONE) */
-		float row_bottom = BODY_Y + (chosen - first + 1) * (SETTING_HEIGHT + ROW_GAP);
-
-		if (row && !strcmp(settings_row_key(row), "game.workshop_steam"))
-			guide_workshop_link_panel(CONTENT_RIGHT - 236, row_bottom, 224, BODY_BOTTOM - 4);
+		ui_overlay_rect(CONTENT_RIGHT + 6, track_top, 3, track_height, 1.5f, 0xFFFFFF1A);
+		ui_overlay_rect(CONTENT_RIGHT + 6, thumb_top, 3, thumb_height, 1.5f, COLOR_LABEL);
 	}
 	if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
 		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + 12, y + 4, UI_ALIGN_LEFT, guide.message);
+	/* (STEAM ACCOUNT's: where its sign-in is kept, when that's worth saying) */
+	else if (settings_row_at(SETTINGS_GROUP_GUIDE, chosen) &&
+		!strcmp(settings_row_key(settings_row_at(SETTINGS_GROUP_GUIDE, chosen)), "game.workshop_steam") &&
+		guide_workshop_link_note())
+	{
+		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT, BODY_BOTTOM - 14, UI_ALIGN_LEFT, guide_workshop_link_note());
+	}
 #ifdef HALO_PORT_VOICE_AUDIO
 	else if (voice_setting_of(chosen) != NONE)
 		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT, BODY_BOTTOM - 14, UI_ALIGN_LEFT, voice_help(voice_setting_of(chosen)));
@@ -4642,6 +4652,11 @@ static void render_prompts(void)
 	case SOCIAL_SECTION_WORKSHOP:
 		word = guide_workshop_prompt();
 		back = guide_workshop_in_page();
+		/* (Steam's list a page at a time: RT, Page Down on a keyboard) */
+		if (guide_workshop_page_offered(1))
+			prompt_add(prompts, &count, UI_BUTTON_RIGHT_TRIGGER, "PGDN", "NEXT PAGE");
+		else if (guide_workshop_page_offered(-1))
+			prompt_add(prompts, &count, UI_BUTTON_LEFT_TRIGGER, "PGUP", "PREVIOUS");
 		break;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
@@ -5239,7 +5254,7 @@ static void handle(unsigned int pressed);
 /* debug.delta_test: once the Guide opened by itself (debug.delta_open),
 its steps pressed one at a time, DEBUG_STEP_INTERVAL apart, from
 DEBUG_STEP_WAIT after it opened ("down;down;a":
-up, down, left, right, a, b, x, y, lb, rb). Debug builds only: a release
+up, down, left, right, a, b, x, y, lb, rb, start, back, lt, rt). Debug builds only: a release
 build never presses the Guide's buttons for anyone (accepting an invite,
 kicking from a clan) */
 #define DEBUG_STEP_INTERVAL 600
@@ -5251,7 +5266,10 @@ static void debug_steps(void)
 #else
 static void debug_steps(void)
 {
-	static char const *const words[] = { "up", "down", "left", "right", "a", "b", "x", "y", "lb", "rb" };
+	static char const *const words[] =
+	{
+		"up", "down", "left", "right", "a", "b", "x", "y", "lb", "rb", "start", "back", "lt", "rt",
+	};
 	char const *steps = config_string("debug.delta_test");
 	unsigned long now = system_milliseconds();
 	short step = 0, index;
@@ -5341,6 +5359,18 @@ static void handle_pressed(unsigned int pressed)
 			about_input(&guide.about_view, ABOUT_INPUT_A);
 		return;
 	}
+	/* (Steam's sign-in window: A its button, B back, nothing under it) */
+	if (guide_workshop_link_modal())
+	{
+		if (pressed & GUIDE_INPUT_A)
+			guide_workshop_link_modal_press();
+		else if (pressed & GUIDE_INPUT_B)
+			guide_workshop_link_modal_back();
+		return;
+	}
+	/* (WORKSHOP: LT and RT, Page Up and Page Down, a page of Steam's list on or back) */
+	if (guide.section == SOCIAL_SECTION_WORKSHOP && (pressed & (GUIDE_INPUT_LEFT_TRIGGER | GUIDE_INPUT_RIGHT_TRIGGER)))
+		guide_workshop_page_step((pressed & GUIDE_INPUT_RIGHT_TRIGGER) ? 1 : -1);
 	/* (PARTY's code being picked: the d-pad is its letters) */
 	if (guide.section == SOCIAL_SECTION_PARTY && guide.code_entry &&
 		!(pressed & (GUIDE_INPUT_LEFT_BUMPER | GUIDE_INPUT_RIGHT_BUMPER)))
@@ -5455,6 +5485,15 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 
 		for (step = 0; step < ABS(pointer->wheel_steps); step++)
 			about_input(&guide.about_view, pointer->wheel_steps > 0 ? ABOUT_INPUT_UP : ABOUT_INPUT_DOWN);
+	}
+	/* (the wheel over a list: the d-pad, a row a notch, so the mouse reaches
+	every row, WORKSHOP's last with its pages too) */
+	else if (pointer->wheel_steps && !guide_workshop_link_modal())
+	{
+		short step;
+
+		for (step = 0; step < ABS(pointer->wheel_steps); step++)
+			handle(pointer->wheel_steps > 0 ? GUIDE_INPUT_UP : GUIDE_INPUT_DOWN);
 	}
 	if (!pointer->left_clicks)
 		return;
@@ -5598,9 +5637,18 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		case _target_close:
 			guide_close();
 			break;
+		case _target_page:
+			guide_workshop_page_step(target->index == 2 ? 0 : target->index ? 1 : -1);
+			break;
+		case _target_modal:
+			guide_workshop_link_modal_press();
+			break;
 		}
 		return;
 	}
+	/* (Steam's sign-in window: a click beside it does nothing) */
+	if (guide_workshop_link_modal())
+		return;
 	/* (a click outside the panel closes it; outside the leader's offer,
 	nothing) */
 	if (guide.open && (pointer->click_x < PANEL_X || pointer->click_x >= PANEL_RIGHT || pointer->click_y < PANEL_Y ||
@@ -5683,6 +5731,13 @@ void guide_render(void)
 		break;
 	}
 	render_prompts();
+	/* (Steam's sign-in window over it all: only its button takes a click) */
+	if (guide_workshop_link_modal())
+	{
+		guide.target_count = 0;
+		ui_overlay_layer(5);
+		guide_workshop_link_modal_render(PANEL_X, PANEL_Y, PANEL_RIGHT, PANEL_Y + PANEL_HEIGHT, workshop_target);
+	}
 	ui_overlay_layer(0);
 }
 

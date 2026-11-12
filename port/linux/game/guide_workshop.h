@@ -15,9 +15,25 @@ computer with MCC from Steam (workshop_browser.h).
 boolean guide_workshop_shown(void);
 /* the section came into view */
 void guide_workshop_open(void);
-/* SETTINGS' STEAM ACCOUNT chosen: its QR while a link waits, or UNLINK's
-question, in a panel at x, y (nothing otherwise) */
-void guide_workshop_link_panel(float x, float y, float width, float bottom);
+/* Steam's sign-in window, over the Guide in the middle of its panel (any
+section): up while a link waits for the scan (its QR, "Scan with the Steam
+app", Waiting, Expired, refreshing, Linked) or for UNLINK's answer. While
+it is up it takes the input: A its one button (CANCEL, BACK, UNLINK), B
+back. Drawn last, over the prompts; its button is target kind
+GUIDE_WORKSHOP_TARGET_MODAL */
+boolean guide_workshop_link_modal(void);
+void guide_workshop_link_modal_press(void);
+void guide_workshop_link_modal_back(void);
+void guide_workshop_link_modal_render(float left, float top, float right, float bottom,
+	void (*target)(float x0, float y0, float x1, float y1, short kind, short index));
+/* a line for SETTINGS' help line under STEAM ACCOUNT (NULL: none) */
+char const *guide_workshop_link_note(void);
+/* Steam's list a page on or back (LT and RT, Page Up and Page Down, the
+heading's PREV and NEXT, the list's last row): TRUE when it moved, the new
+page's first item chosen. Whether the list has pages, and one that way */
+boolean guide_workshop_page_step(short step);
+boolean guide_workshop_pages(void);
+boolean guide_workshop_page_offered(short step);
 /* each frame (open or not): the folders watched while the section shows or
 an item waits on Steam; a newly installed item's maps join the map lists */
 void guide_workshop_update(boolean showing);
@@ -33,7 +49,15 @@ char const *guide_workshop_prompt(void);
 /* B's word is BACK on an item's page */
 boolean guide_workshop_in_page(void);
 /* drawn in the panel's body (the menus' 640x480); target tells the Guide
-where a row (kind 0) or an option (kind 1) is, for the pointer */
+where a row, an option, a page button (index 0 back, 1 on) or the sign-in
+window's button is (kind GUIDE_WORKSHOP_TARGET_*), for the pointer */
+enum
+{
+	GUIDE_WORKSHOP_TARGET_ROW,
+	GUIDE_WORKSHOP_TARGET_OPTION,
+	GUIDE_WORKSHOP_TARGET_PAGE,
+	GUIDE_WORKSHOP_TARGET_MODAL,
+};
 void guide_workshop_render(float left, float top, float right, float bottom,
 	void (*target)(float x0, float y0, float x1, float y1, short kind, short index));
 
@@ -41,7 +65,14 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 /* no MCC maps in this build (HALO_MCC, halo_port_features.h): the Guide's
 calls do nothing, their arguments unevaluated */
 #define guide_workshop_shown() ((boolean)0)
-#define guide_workshop_link_panel(a0, a1, a2, a3) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)0)
+#define guide_workshop_link_modal() ((boolean)0)
+#define guide_workshop_link_modal_press() ((void)0)
+#define guide_workshop_link_modal_back() ((void)0)
+#define guide_workshop_link_modal_render(a0, a1, a2, a3, a4) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)0)
+#define guide_workshop_link_note() ((char const *)0)
+#define guide_workshop_page_step(a0) ((void)sizeof(a0), (boolean)0)
+#define guide_workshop_pages() ((boolean)0)
+#define guide_workshop_page_offered(a0) ((void)sizeof(a0), (boolean)0)
 #define guide_workshop_open() ((void)0)
 #define guide_workshop_update(a0) ((void)sizeof(a0), (void)0)
 #define guide_workshop_rows() ((short)0)

@@ -33,6 +33,7 @@ tools/test_discord_activity.py
 tools/test_discord_register.py
 tools/test_event_log.py
 tools/test_gamespy_listing.py
+tools/test_guide_layout.py
 tools/test_host_cheats.py
 tools/test_host_console_objects.py
 tools/test_host_evidence.py
@@ -97,6 +98,7 @@ tools/test_playlist_maps.py
 tools/test_prompt_schemes.py
 tools/test_rename_stub.py
 tools/test_report_clip.py
+tools/test_retry_backoff.py
 tools/test_save_folder.py
 tools/test_server_badge.py
 tools/test_server_bans.py

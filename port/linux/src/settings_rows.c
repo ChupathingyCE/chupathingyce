@@ -423,16 +423,16 @@ void settings_row_value(const struct settings_row *row, char *text, int size)
 		char error[24];
 		int link = steam_link_poll(NULL, 0, error, sizeof(error));
 
-		if (link == STEAM_LINK_STARTING || link == STEAM_LINK_WAITING)
-			snprintf(text, (size_t)size, "SCAN THE CODE");
-		else if (link == STEAM_LINK_SCANNED)
-			snprintf(text, (size_t)size, "APPROVE ON PHONE");
+		if (link == STEAM_LINK_STARTING || link == STEAM_LINK_WAITING || link == STEAM_LINK_SCANNED)
+			snprintf(text, (size_t)size, "LINKING");
 		else if (!steam_link_linked(persona, sizeof(persona)))
 			snprintf(text, (size_t)size, "%s", link == STEAM_LINK_FAILED && error[0] ? error : "NOT LINKED");
 		else if (steam_link_armed())
 			snprintf(text, (size_t)size, "UNLINK?");
+		else if (persona[0])
+			snprintf(text, (size_t)size, "Linked to Steam: %s", persona);
 		else
-			snprintf(text, (size_t)size, "%s", persona[0] ? persona : "LINKED");
+			snprintf(text, (size_t)size, "Linked to Steam");
 		return;
 	}
 	if (row->kind == _kind_folder)

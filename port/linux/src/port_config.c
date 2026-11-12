@@ -1669,8 +1669,8 @@ static const struct config_setting config_settings[] =
 		"(FRIENDS' INVITE TO PARTY), or another action. Leave it empty for none." },
 	{ "debug.delta_test", _config_string, "\"\"", "HALO_DELTA_TEST", _environment_value, _platform_all,
 		"Buttons pressed in the Delta Guide once debug.delta_open opened it, one\n"
-		"at a time, separated by ; (up, down, left, right, a, b, x, y, lb, rb),\n"
-		"for tests.\n"
+		"at a time, separated by ; (up, down, left, right, a, b, x, y, lb, rb,\n"
+		"start, back, lt, rt), for tests.\n"
 		"Debug builds only: a release build ignores it." },
 #endif
 #ifdef HALO_CAPTURE

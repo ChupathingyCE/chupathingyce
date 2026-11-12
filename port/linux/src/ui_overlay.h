@@ -116,9 +116,10 @@ the theme's (ui_style_theme) */
 void ui_overlay_plasma_thread(unsigned int color);
 
 /* what is drawn from here on goes over what was drawn before at a lower
-layer (0 to 4; each frame starts at 0): text is drawn over the shapes of
+layer (0 to 5; each frame starts at 0): text is drawn over the shapes of
 its layer, and under those of the layers above, as a dialog over a list.
-The Guide alone draws on 4, over every other screen's dialogs */
+The Guide alone draws on 4, over every other screen's dialogs, and its own
+windows (Steam's sign-in) on 5, over the Guide */
 void ui_overlay_layer(int layer);
 
 /* a button's glyph, size high, at x (its left), y (its top); its width.
@@ -278,6 +279,8 @@ float ui_style_text(int kind, float x, float y, int align, const char *text);
 /* the same faded by share (0 to 1: a toast coming and going) */
 float ui_style_text_faded(int kind, float share, float x, float y, int align, const char *text);
 float ui_style_text_size(int kind);
+/* its font (UI_FONT_*), for measuring it with ui_overlay_text_width */
+int ui_style_text_font(int kind);
 /* the same at scale times its size (a larger screen's rows: the setup
 screen's) */
 float ui_style_text_scaled(int kind, float scale, float x, float y, int align, const char *text);

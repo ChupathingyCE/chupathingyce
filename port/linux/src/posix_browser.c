@@ -751,7 +751,7 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 	int secure;
 	int status = 0;
 	int length;
-	char *body;
+	char *body = NULL;
 
 	error[0] = 0;
 	if (response_size > 0)
@@ -853,6 +853,24 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 			else if ((body = strstr(buffer, "\r\n\r\n")) != NULL && response_size > 0)
 			{
 				snprintf(response, (size_t)response_size, "%s", body + 4);
+			}
+			/* (busy: how long it asks to be left, in the error's words, for
+			retry_backoff_after) */
+			if ((status == 429 || status >= 500) && body)
+			{
+				const char *line;
+
+				for (line = strstr(buffer, "\r\n"); line && line < body; line = strstr(line + 2, "\r\n"))
+				{
+					if (!strncasecmp(line + 2, "Retry-After:", 12))
+					{
+						long seconds = strtol(line + 14, NULL, 10);
+
+						if (seconds > 0 && error && error_size > 0)
+							snprintf(error, (size_t)error_size, "HTTP %d, Retry-After: %ld", status, seconds);
+						break;
+					}
+				}
 			}
 		}
 	}

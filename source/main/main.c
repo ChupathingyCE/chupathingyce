@@ -3111,6 +3111,15 @@ static void main_version_watermark_render(
 		shown = system_milliseconds() - main_version_box_shown < 250;
 	else
 		shown = config_boolean("display.version_watermark") && !ui_widgets_active();
+#ifdef HALO_GUIDE
+	{
+		/* (the Delta Guide over it: hidden, not peeking out under its panel) */
+		extern boolean guide_active(void);
+
+		if (guide_active())
+			shown = FALSE;
+	}
+#endif
 	if (!shown)
 		return;
 	font_tag_index = tag_loaded(FONT_GROUP_TAG, "ui\\small_ui");
