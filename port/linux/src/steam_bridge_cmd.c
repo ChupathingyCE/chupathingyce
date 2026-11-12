@@ -629,4 +629,10 @@ int steamcmd_signed_in(void)
 {
 	return 0;
 }
+
+/* (the built-in Steam download's folder: steamcmd isn't used here) */
+void steam_bridge_set_download_folder(const char *path)
+{
+	steam_bridge_pipe_set_folder(path);
+}
 #endif

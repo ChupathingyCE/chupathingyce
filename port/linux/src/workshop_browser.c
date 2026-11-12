@@ -417,7 +417,9 @@ int workshop_browser_link_offered(void)
 #define STEAMCMD_PAGE "https://developer.valvesoftware.com/wiki/SteamCMD"
 #define MCC_STORE "https://store.steampowered.com/app/976730"
 
-/* steamcmd does the installing here (macOS; Linux without MCC from Steam) */
+static int link_offered(void);
+
+/* steamcmd (or the built-in Steam download) does the installing here (macOS; Linux without MCC from Steam; Windows without MCC's steam_api) */
 static int setup_steamcmd(void)
 {
 	const char *debug = config_string("debug.workshop_setup");
@@ -425,6 +427,9 @@ static int setup_steamcmd(void)
 	/* (debug.workshop_setup with "client": the Steam client's rows, for screenshots) */
 	if (debug && strstr(debug, "client"))
 		return 0;
+	/* (the built-in Steam download, where it is the downloader: every platform) */
+	if (link_offered())
+		return 1;
 #if defined(_WIN32)
 	return 0;
 #elif defined(__APPLE__)
