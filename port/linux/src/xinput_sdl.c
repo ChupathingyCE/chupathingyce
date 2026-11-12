@@ -726,6 +726,8 @@ static void guide_keyboard(const struct platform_input_state *input, XINPUT_GAME
 	pad->bAnalogButtons[XINPUT_GAMEPAD_Y] |= analog(k[SDL_SCANCODE_TAB]);
 	pad->bAnalogButtons[XINPUT_GAMEPAD_WHITE] |= analog(k[SDL_SCANCODE_Q]);
 	pad->bAnalogButtons[XINPUT_GAMEPAD_BLACK] |= analog(k[SDL_SCANCODE_E]);
+	pad->bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] |= analog(k[SDL_SCANCODE_PAGEUP]);
+	pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] |= analog(k[SDL_SCANCODE_PAGEDOWN]);
 }
 
 /* (an analog button counts as held past a third of its travel) */
@@ -755,6 +757,8 @@ static void guide_take(XINPUT_GAMEPAD *pad)
 		if (pad->bAnalogButtons[XINPUT_GAMEPAD_Y] > GUIDE_ANALOG_HELD) held |= GUIDE_INPUT_Y;
 		if (pad->bAnalogButtons[XINPUT_GAMEPAD_WHITE] > GUIDE_ANALOG_HELD) held |= GUIDE_INPUT_LEFT_BUMPER;
 		if (pad->bAnalogButtons[XINPUT_GAMEPAD_BLACK] > GUIDE_ANALOG_HELD) held |= GUIDE_INPUT_RIGHT_BUMPER;
+		if (pad->bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] > GUIDE_ANALOG_HELD) held |= GUIDE_INPUT_LEFT_TRIGGER;
+		if (pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] > GUIDE_ANALOG_HELD) held |= GUIDE_INPUT_RIGHT_TRIGGER;
 		guide_held = held;
 		/* (and what is held as it closes, up afterwards) */
 		guide_released_buttons = pad->wButtons;

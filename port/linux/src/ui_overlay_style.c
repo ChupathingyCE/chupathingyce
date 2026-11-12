@@ -15,6 +15,7 @@ deko3d).
 
 #include "ui_overlay.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* the palette's named colors (ui_style_color, by UI_COLOR_*), a table a
@@ -205,6 +206,11 @@ float ui_style_text_size(int kind)
 	return kind >= 0 && kind <= UI_TEXT_WARNING ? text_kinds[kind].size : 10.0f;
 }
 
+int ui_style_text_font(int kind)
+{
+	return kind >= 0 && kind <= UI_TEXT_WARNING ? text_kinds[kind].font : UI_FONT_MENU_SMALL;
+}
+
 float ui_style_text_faded(int kind, float share, float x, float y, int align, const char *text)
 {
 	if (kind < 0 || kind > UI_TEXT_WARNING)
@@ -300,12 +306,48 @@ void ui_style_row(float x, float y, float width, float height, int selected)
 		ui_style_glass(x, y, width, height, 7, PALETTE(ROW), PALETTE(ROW_EDGE));
 }
 
+/* a setting's value in room (UI_FONT_MENU at size): as it is, or cut with
+"..." (a path's at its start) */
+static void value_fit(const char *value, float size, float room, char *out, int out_size)
+{
+	int length = (int)strlen(value), keep, path = strchr(value, '/') || strchr(value, '\\');
+
+	snprintf(out, (size_t)out_size, "%s", value);
+	if (room <= 0 || ui_overlay_text_width(UI_FONT_MENU, size, out) <= room)
+		return;
+	for (keep = length - 1; keep > 0; keep--)
+	{
+		if (path)
+		{
+			int start = length - keep;
+
+			while (start < length && ((unsigned char)value[start] & 0xC0) == 0x80)
+				start++;
+			snprintf(out, (size_t)out_size, "...%s", value + start);
+		}
+		else
+		{
+			int end = keep;
+
+			while (end > 0 && ((unsigned char)value[end] & 0xC0) == 0x80)
+				end--;
+			while (end > 0 && value[end - 1] == ' ')
+				end--;
+			snprintf(out, (size_t)out_size, "%.*s...", end, value);
+		}
+		if (ui_overlay_text_width(UI_FONT_MENU, size, out) <= room)
+			return;
+	}
+	snprintf(out, (size_t)out_size, "...");
+}
+
 void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected)
 {
 	float size = ui_style_text_size(UI_TEXT_NAME) * scale;
 	float text_y = y + (height - size) * 0.5f, right = x + width - size * 1.2f, label_end;
-	float value_width = ui_overlay_text_width(UI_FONT_MENU, size, value);
+	float value_width;
+	char shown[160];
 
 	ui_style_row(x, y, width, height, selected);
 	label_end = x + size * 1.1f + ui_style_text_scaled(UI_TEXT_NAME, scale, x + size * 1.1f, text_y, UI_ALIGN_LEFT,
@@ -320,8 +362,14 @@ void ui_style_setting(float x, float y, float width, float height, float scale, 
 			fade(PALETTE(WARNING), 0.7f));
 		ui_style_text_scaled(UI_TEXT_WARNING, badge_scale, badge_x + badge_size * 0.5f, y + (height - badge_size) * 0.5f,
 			UI_ALIGN_LEFT, badge);
+		label_end = badge_x + badge_width;
 	}
-	/* (the value between its arrows, as the menus' settings have it) */
+	/* (the value between its arrows, as the menus' settings have it; one
+	longer than the room right of the label cut with "...", a folder's at
+	its start so its last folders show) */
+	value_fit(value, size, right - size * 1.8f - (label_end + size * 1.5f), shown, sizeof(shown));
+	value = shown;
+	value_width = ui_overlay_text_width(UI_FONT_MENU, size, value);
 	ui_overlay_text(UI_FONT_MENU, size, right, text_y, UI_ALIGN_RIGHT, PALETTE(TAB), "\xE2\x80\xBA");
 	ui_style_text_scaled(UI_TEXT_NAME, scale, right - size * 1.2f, text_y, UI_ALIGN_RIGHT, value);
 	ui_overlay_text(UI_FONT_MENU, size, right - size * 1.8f - value_width, text_y, UI_ALIGN_RIGHT, PALETTE(TAB),

@@ -135,6 +135,8 @@ boolean controls_screen_active(void);
 #endif
 #ifdef HALO_GUIDE
 boolean guide_active(void);
+/* guide.c's: the Guide opened on SETTINGS' row of a key (STEAM ACCOUNT, its QR up) */
+void guide_open_setting(char const *key);
 #endif
 
 /* ---------- constants */
@@ -694,7 +696,20 @@ static void start_offered_download(
 		if (workshop_join_start(browser_screen.offer_workshop_id, browser_screen.offer_workshop_why,
 			(int)sizeof(browser_screen.offer_workshop_why)))
 		{
+			unsigned long long done, total;
+
 			browser_screen.offer = _offer_downloading;
+#ifdef HALO_GUIDE
+			/* (Steam not linked yet: the Guide's QR, the download after the scan) */
+			if (workshop_join_poll(&done, &total, browser_screen.offer_workshop_why,
+				(int)sizeof(browser_screen.offer_workshop_why)) == WORKSHOP_JOIN_LINKING)
+			{
+				guide_open_setting("game.workshop_steam");
+			}
+#else
+			(void)done;
+			(void)total;
+#endif
 		}
 		else
 			browser_screen.offer = _offer_failed;

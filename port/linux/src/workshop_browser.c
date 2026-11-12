@@ -341,7 +341,10 @@ static int bridge_backend(void)
 #else
 	int backend = steam_bridge_backend();
 
-	if (backend == STEAM_BRIDGE_BACKEND_STEAMCMD && workshop.client_mcc_count > 0)
+	/* (MCC from the Steam client: the client subscribes, unless the game's
+	own Steam download is here, which installs on every platform) */
+	if (backend == STEAM_BRIDGE_BACKEND_STEAMCMD && workshop.client_mcc_count > 0 &&
+		(!steam_link_available() || config_boolean("debug.workshop_steamcmd")))
 		return STEAM_BRIDGE_BACKEND_CLIENT;
 	return backend;
 #endif
@@ -349,7 +352,7 @@ static int bridge_backend(void)
 
 static int bridge_uses_steamcmd(void)
 {
-	return steam_bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD && !workshop.client_mcc_count;
+	return steam_bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD && bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD;
 }
 
 static int bridge_ready(void)
@@ -1610,6 +1613,8 @@ void workshop_browser_open(int force)
 	}
 }
 
+static void pending_run(void);
+
 int workshop_browser_poll(void)
 {
 	unsigned long now = system_milliseconds();
@@ -1632,6 +1637,7 @@ int workshop_browser_poll(void)
 	}
 	list_take();
 	details_step();
+	pending_run();
 	if (now - workshop.watch_time < WATCH_INTERVAL)
 		return 0;
 	workshop.watch_time = now;
@@ -1855,6 +1861,13 @@ int workshop_browser_filter_offered(int filter)
 /* (another page of Steam's: asked for, or taken from the pages kept) */
 static void list_again(void);
 
+int workshop_browser_page_offered(int step)
+{
+	if (step > 0)
+		return page_row_offered() && workshop.page < 100;
+	return workshop_browser_page() > 1 && workshop.filter != WORKSHOP_FILTER_INSTALLED;
+}
+
 int workshop_browser_page_next(void)
 {
 	if (!page_row_offered() || workshop.page >= 100)
@@ -1904,6 +1917,72 @@ void workshop_browser_set_search(const char *text)
 	list_again();
 }
 
+/* GETs pressed while the game's own Steam download was still connecting:
+asked for once it is up (workshop_browser_poll) */
+static char pending_gets[8][WORKSHOP_BROWSER_ID_SIZE];
+
+static void pending_add(const char *id)
+{
+	int slot, free_slot = -1;
+
+	for (slot = 0; slot < (int)(sizeof(pending_gets) / sizeof(pending_gets[0])); slot++)
+	{
+		if (!strcmp(pending_gets[slot], id))
+			return;
+		if (!pending_gets[slot][0] && free_slot < 0)
+			free_slot = slot;
+	}
+	if (free_slot >= 0)
+		snprintf(pending_gets[free_slot], sizeof(pending_gets[free_slot]), "%s", id);
+}
+
+static void pending_run(void)
+{
+	int slot;
+
+	if (!bridge_ready())
+		return;
+	for (slot = 0; slot < (int)(sizeof(pending_gets) / sizeof(pending_gets[0])); slot++)
+	{
+		if (!pending_gets[slot][0])
+			continue;
+		if (!steam_bridge_subscribe(pending_gets[slot]))
+			platform_log("Workshop: item %s not taken by the Steam download", pending_gets[slot]);
+		pending_gets[slot][0] = 0;
+	}
+}
+
+void workshop_browser_link_follow(void)
+{
+	/* (linked: the game's own download on, the link being the player's yes) */
+	if (!link_offered() || !steam_link_linked(NULL, 0))
+		return;
+	if (!steam_bridge_enabled())
+	{
+		config_write_boolean("game.workshop_steam", 1);
+		platform_log("Workshop: Steam linked, downloads in the game on");
+	}
+	if (workshop.tab_open && steam_bridge_status() != STEAM_BRIDGE_READY &&
+		steam_bridge_status() != STEAM_BRIDGE_CONNECTING)
+	{
+		steam_bridge_open(bridge_uses_steamcmd());
+	}
+}
+
+int workshop_browser_open_in_steam(int index)
+{
+	char url[96];
+
+	index = real_index(index);
+	if (index < 0 || index >= workshop.count || workshop.items[index].setup ||
+		!workshop_browser_steam_url(workshop.items[index].id, url, sizeof(url)))
+	{
+		return 0;
+	}
+	platform_open_url(url);
+	return 1;
+}
+
 int workshop_browser_subscribe(int index)
 {
 	char url[96];
@@ -1916,11 +1995,24 @@ int workshop_browser_subscribe(int index)
 		return workshop_browser_setup_press(shown);
 	if (!workshop_browser_steam_url(workshop.items[index].id, url, sizeof(url)))
 		return 0;
-	/* (OPEN: an item Steam has, or is fetching: its page, nothing asked) */
+	/* (OPEN: an item Steam has, or is fetching: its page, nothing asked;
+	the game's own download shows its progress instead) */
 	if (workshop.items[index].state != WORKSHOP_ITEM_NOT_INSTALLED)
 	{
-		if (!config_boolean("debug.workshop_no_steam"))
+		if (!link_offered() && !config_boolean("debug.workshop_no_steam"))
 			platform_open_url(url);
+		return 1;
+	}
+	/* (the game's own Steam download: linked, it downloads here once its
+	connection is up; never Steam's page) */
+	if (link_offered() && !bridge_ready())
+	{
+		if (!steam_link_linked(NULL, 0))
+			return 0;
+		workshop_browser_link_follow();
+		pending_add(workshop.items[index].id);
+		workshop.items[index].subscribed = 1;
+		workshop.items[index].state = WORKSHOP_ITEM_WAITING;
 		return 1;
 	}
 	/* (the bridge's: subscribed in Steam from here, no page) */
@@ -2225,10 +2317,15 @@ int workshop_join_start(const char *id, char *why, int size)
 	/* (the step that is missing, as the setup rows name it) */
 	if (setup_steamcmd() && link_offered())
 	{
+		/* (not linked: the Guide's QR, and the download once it's scanned) */
 		if (!steam_link_linked(NULL, 0))
 		{
-			snprintf(why, (size_t)size, "Link Steam first (Workshop tab).");
-			return 0;
+			int link = steam_link_poll(NULL, 0, NULL, 0);
+
+			if (link != STEAM_LINK_STARTING && link != STEAM_LINK_WAITING && link != STEAM_LINK_SCANNED)
+				steam_link_start();
+			joining.state = WORKSHOP_JOIN_LINKING;
+			return 1;
 		}
 	}
 	else if (setup_steamcmd())
@@ -2266,6 +2363,23 @@ int workshop_join_poll(unsigned long long *done, unsigned long long *total, char
 	*done = *total = 0;
 	if (why && size > 0)
 		snprintf(why, (size_t)size, "%s", joining.why);
+	if (joining.state == WORKSHOP_JOIN_LINKING)
+	{
+		int link = steam_link_poll(NULL, 0, NULL, 0);
+
+		if (steam_link_linked(NULL, 0) && link != STEAM_LINK_STARTING && link != STEAM_LINK_WAITING &&
+			link != STEAM_LINK_SCANNED)
+		{
+			/* (scanned: the download goes on as if linked from the start) */
+			workshop_browser_link_follow();
+			steam_bridge_open(bridge_uses_steamcmd());
+			joining.started = joining.time = now;
+			joining.state = WORKSHOP_JOIN_CONNECTING;
+		}
+		else if (link == STEAM_LINK_IDLE || link == STEAM_LINK_FAILED)
+			join_fail("Steam isn't linked.");
+		return joining.state;
+	}
 	if (joining.state != WORKSHOP_JOIN_CONNECTING && joining.state != WORKSHOP_JOIN_DOWNLOADING)
 		return joining.state;
 	if (now - joining.started > JOIN_TIMEOUT)
@@ -2331,6 +2445,8 @@ int workshop_join_poll(unsigned long long *done, unsigned long long *total, char
 
 void workshop_join_cancel(void)
 {
+	if (joining.state == WORKSHOP_JOIN_LINKING)
+		steam_link_cancel();
 	if (joining.state == WORKSHOP_JOIN_CONNECTING || joining.state == WORKSHOP_JOIN_DOWNLOADING)
 		steam_bridge_close();
 	joining.state = WORKSHOP_JOIN_IDLE;

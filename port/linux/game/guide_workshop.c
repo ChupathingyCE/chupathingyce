@@ -18,13 +18,18 @@ each stands in the player's own Steam libraries.
   looked at every second: an item that becomes installed is rescanned into
   the map lists (mcc_maps_rescan) and gets a toast.
 
-- With game.workshop_steam on (USE STEAM on an item's page, after a note
-  that Steam shows MCC as running while the tab is open), the Steam bridge
-  (steam_client_bridge.h) runs while the section shows: GET and REMOVE go to
-  Steam from here, items show Downloading and
-  Installed, and without a list of ours the list is the Steam client's.
-  With steamcmd (macOS), SIGN IN opens a terminal for steamcmd's own
-  sign-in, and a "Halo CE from MCC" row installs MCC's Halo CE files.
+- The game's own Steam download (steam_client_bridge.h's link) installs
+  items on every computer: GET without the link opens Steam's sign-in
+  window right here (its QR for the Steam app), and the item downloads
+  once it's scanned; linked, GET downloads in the game with its progress
+  (Installing 45%), never opening Steam. Only when it can't get an item
+  ("Not owned") does OPEN IN STEAM show, beside TRY AGAIN.
+- An item's page has one main button for where it stands (TURN ON while
+  Workshop maps are off, PLAY, LINK STEAM, GET) and at most one more.
+  Where the game's own download isn't built, CONNECT STEAM (after a note)
+  turns on the Steam client's bridge instead.
+- Steam's list comes a page at a time: LT and RT (Page Up, Page Down), the
+  heading's PREV and NEXT, or the list's last row.
 
 The section shows only on a computer with MCC from Steam, or steamcmd.
 No Steamworks SDK, no Steam password, nothing written to Steam's own
@@ -50,6 +55,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "../src/steam_client_bridge.h"
 #include "../src/browser.h"
 #include "../src/settings_rows.h"
+#include "../src/guide_layout.h"
 #include "guide_workshop.h"
 #include "mcc_maps.h"
 #include "input/input.h"
@@ -58,6 +64,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 /* (a key stroke's control modifier: input_xbox.c's, as browser_screen.c has it) */
 #define KEY_MODIFIER_CONTROL_BIT 1
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -68,6 +75,7 @@ void platform_text_field(int typing);
 unsigned long system_milliseconds(void);
 int platform_clipboard_get(char *text, int size);
 int config_write_boolean(char const *name, int value);
+void platform_log(char const *format, ...);
 
 enum
 {
@@ -78,7 +86,13 @@ enum
 	OPTION_GAP = 4,
 	HEADING_HEIGHT = 16,
 	DESCRIPTION_SIZE = 9,
-	DESCRIPTION_LINES = 8,
+	DESCRIPTION_LINE = DESCRIPTION_SIZE + 4,
+	/* the list's heading: PREVIOUS and NEXT, for the pointer */
+	PAGE_BUTTON_WIDTH = 46,
+	/* Steam's sign-in: "Linked" shown this long before its window closes,
+	and an expired code made again at most this many times */
+	LINK_DONE_TIME = 1500,
+	LINK_REFRESHES = 3,
 };
 
 enum
@@ -103,6 +117,8 @@ enum
 	_option_play,
 	_option_update,
 	_option_remove,
+	/* the content client couldn't get it ("Not owned"): the item's page in Steam */
+	_option_open_steam,
 	/* the link row's LINK (to SETTINGS' STEAM ACCOUNT, its QR shown) */
 	_option_link,
 	/* the page row's */
@@ -132,6 +148,18 @@ static struct
 	char link_text[256];
 	short link_qr_size;
 	unsigned char link_qr[BROWSER_CONNECT_QR_SIZE * BROWSER_CONNECT_QR_SIZE];
+	/* Steam's sign-in window: up (it stays for a failure or a moment after
+	the scan), when it saw the scan through, whether a code was shown (a
+	failure after it: expired, made again), how often, and the item whose
+	GET asked for it (fetched once linked) */
+	boolean link_modal;
+	unsigned long link_done_time;
+	boolean link_shown_code, link_scanned, link_refreshing;
+	short link_refreshes;
+	char get_after_link[WORKSHOP_BROWSER_ID_SIZE];
+	/* the chosen item's description as plain text, and whose it is */
+	char plain_id[WORKSHOP_BROWSER_ID_SIZE];
+	char plain[WORKSHOP_BROWSER_DESCRIPTION_SIZE];
 	/* SEARCH's text box: typing into it (enter keeps, escape drops) */
 	boolean searching;
 	char search[64];
@@ -149,6 +177,8 @@ static struct workshop_browser_item const *chosen(void)
 {
 	return workshop_browser_item(workshop_view.row);
 }
+
+static boolean link_needed(void);
 
 static short options_of(struct workshop_browser_item const *item, short *options)
 {
@@ -194,34 +224,53 @@ static short options_of(struct workshop_browser_item const *item, short *options
 			options[count++] = _option_steam;
 		return count;
 	}
+	/* (one main action for where the item stands, then at most one more:
+	Workshop maps off, TURN ON; installed, PLAY; not linked, LINK STEAM;
+	else GET) */
+	if (!config_boolean("game.workshop_maps"))
+	{
+		options[count++] = _option_show_maps;
+		return count;
+	}
 	if (item->state == WORKSHOP_ITEM_INSTALLED)
 	{
 		if (main_menu_is_active())
 			options[count++] = _option_play;
 		if (bridge && workshop_browser_update_offered(workshop_view.row))
 			options[count++] = _option_update;
-		if (workshop_browser_removable(workshop_view.row))
+		if (count < 2 && workshop_browser_removable(workshop_view.row))
 			options[count++] = _option_remove;
+		return count;
 	}
-	/* (GET; the built-in download shows its progress instead of Steam's page while it works) */
-	if (item->state != WORKSHOP_ITEM_INSTALLED && !(bridge && item->steam_subscribed) &&
-		!(workshop_browser_link_offered() && item->state != WORKSHOP_ITEM_NOT_INSTALLED))
+	if (workshop_browser_link_offered())
 	{
-		options[count++] = _option_steam;
+		/* (the game's own download: LINK STEAM, then GET; its progress shows
+		while it works; Steam's page only when it can't get the item) */
+		if (link_needed())
+			options[count++] = _option_steam;
+		else if (item->steam_error[0])
+		{
+			options[count++] = _option_steam;
+			options[count++] = _option_open_steam;
+		}
+		else if (item->state == WORKSHOP_ITEM_NOT_INSTALLED)
+			options[count++] = _option_steam;
+		else if (bridge && item->steam_subscribed && steam_bridge_can_unsubscribe())
+			options[count++] = _option_unsubscribe;
+		return count;
 	}
-	if (bridge && item->steam_subscribed && steam_bridge_can_unsubscribe())
-		options[count++] = _option_unsubscribe;
-	/* (steamcmd's sign-in; the built-in download's LINK STEAM is on GET itself) */
-	if (bridge && steam_bridge_sign_in_needed() && !workshop_browser_link_offered())
+	/* (no download of the game's own: the Steam client's, or steamcmd's) */
+	if (bridge && steam_bridge_sign_in_needed())
 		options[count++] = _option_sign_in;
-	if (!steam_bridge_enabled() && workshop_browser_bridge_backend() != STEAM_BRIDGE_BACKEND_NONE)
+	else if (!(bridge && item->steam_subscribed))
+		options[count++] = _option_steam;
+	else if (steam_bridge_can_unsubscribe())
+		options[count++] = _option_unsubscribe;
+	if (count < 2 && !steam_bridge_enabled() && workshop_browser_bridge_backend() != STEAM_BRIDGE_BACKEND_NONE)
 		options[count++] = _option_use_steam;
-	if (!item->setup && !config_boolean("game.workshop_maps"))
-		options[count++] = _option_show_maps;
 	return count;
 }
 
-static boolean link_needed(void);
 
 static char const *option_label(struct workshop_browser_item const *item, short option)
 {
@@ -252,12 +301,13 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	case _option_update: return link_needed() ? "LINK STEAM" : "UPDATE";
 	case _option_remove: return workshop_view.confirm_remove ? "CONFIRM" : "REMOVE";
 	case _option_show_maps: return "TURN ON";
-	case _option_unsubscribe: return "REMOVE";
+	case _option_unsubscribe: return "CANCEL";
+	case _option_open_steam: return "OPEN IN STEAM";
 	case _option_sign_in: return steam_link_available() ? "LINK STEAM" : "SIGN IN";
 	case _option_link: return "LINK";
 	case _option_page_next: return "NEXT PAGE";
 	case _option_page_previous: return "PREVIOUS";
-	case _option_use_steam: return workshop_view.confirm ? "CONFIRM" : "USE STEAM";
+	case _option_use_steam: return workshop_view.confirm ? "CONFIRM" : "CONNECT STEAM";
 	default: break;
 	}
 	if (item->setup)
@@ -265,21 +315,16 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	/* (installed, or on its way: its page in Steam; GET needs the Steam link) */
 	if (item->state == WORKSHOP_ITEM_NOT_INSTALLED && link_needed())
 		return "LINK STEAM";
+	if (item->steam_error[0])
+		return "TRY AGAIN";
 	return item->state == WORKSHOP_ITEM_NOT_INSTALLED ? "GET" : "OPEN";
 }
 
-/* the note USE STEAM shows before CONFIRM */
+/* the note CONNECT STEAM shows before CONFIRM (one line) */
 static char const *use_steam_note(void)
 {
-#ifdef __APPLE__
-	/* (no Steam client here: steam_client_bridge.c) */
-	return "Downloads use steamcmd and the sign-in it saved. Chupathingy never sees your password.";
-#else
 	return workshop_browser_bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD ?
-		"Steam shows MCC as running while this tab is open. Downloads use steamcmd and the sign-in it saved; "
-		"Chupathingy never sees your password." :
-		"Steam shows MCC as running while this tab is open.";
-#endif
+		"Downloads use steamcmd's own sign-in" : "Steam shows MCC as running while open";
 }
 
 int ui_overlay_keyboard(void);
@@ -371,12 +416,64 @@ static boolean link_needed(void)
 	return workshop_browser_link_offered() && !steam_link_linked(NULL, 0);
 }
 
-/* Settings' STEAM ACCOUNT, its QR up at once */
+/* Steam's sign-in window over whatever shows, its QR up at once; get:
+the item fetched once the scan links Steam (NULL: none) */
+static void link_begin(char const *get)
+{
+	int link = steam_link_poll(NULL, 0, NULL, 0);
+
+	snprintf(workshop_view.get_after_link, sizeof(workshop_view.get_after_link), "%s", get ? get : "");
+	workshop_view.link_modal = TRUE;
+	workshop_view.link_done_time = 0;
+	workshop_view.link_shown_code = workshop_view.link_scanned = workshop_view.link_refreshing = FALSE;
+	workshop_view.link_refreshes = 0;
+	if (link != STEAM_LINK_STARTING && link != STEAM_LINK_WAITING && link != STEAM_LINK_SCANNED)
+		steam_link_start();
+}
+
 static void link_go(void)
 {
+	struct workshop_browser_item const *item = chosen();
+
+	link_begin(item && !item->setup && item->state == WORKSHOP_ITEM_NOT_INSTALLED ? item->id : NULL);
+}
+
+/* the find row's index (the new page's first item is under it) */
+static short find_row(void)
+{
+	short index;
+
+	for (index = 0; index < (short)workshop_browser_count(); index++)
+	{
+		struct workshop_browser_item const *row = workshop_browser_item(index);
+
+		if (row && row->setup == WORKSHOP_ROW_FIND)
+			return index;
+	}
+	return 0;
+}
+
+boolean guide_workshop_page_step(short step)
+{
+	if (workshop_view.searching || !(step > 0 ? workshop_browser_page_next() : workshop_browser_page_previous()))
+		return FALSE;
+	/* (the new page's first item chosen, the list from its top) */
+	workshop_view.first = find_row();
+	workshop_view.row = (short)(workshop_view.first + 1);
 	workshop_view.page = FALSE;
-	steam_link_start();
-	guide_open_setting("game.workshop_steam");
+	workshop_view.option = 0;
+	workshop_view.confirm = workshop_view.confirm_remove = FALSE;
+	return TRUE;
+}
+
+boolean guide_workshop_pages(void)
+{
+	return workshop_browser_page_offered(1) || workshop_browser_page_offered(-1);
+}
+
+boolean guide_workshop_page_offered(short step)
+{
+	return workshop_browser_page_offered(step) != 0;
 }
 
 static void option_run(short option)
@@ -430,44 +527,23 @@ static void option_run(short option)
 		workshop_browser_unsubscribe(workshop_view.row);
 		return;
 	case _option_sign_in:
-		/* (the built-in download: to the link row, its QR shown) */
+		/* (the built-in download: Steam's sign-in window) */
 		if (workshop_browser_link_offered())
 		{
-			workshop_view.row = 0;
-			workshop_view.page = TRUE;
-			workshop_view.option = 0;
-			steam_link_start();
+			link_begin(NULL);
 			return;
 		}
 		steam_bridge_sign_in();
 		return;
 	case _option_link:
-		/* (SETTINGS' STEAM ACCOUNT, its QR up at once) */
-		workshop_view.page = FALSE;
-		steam_link_start();
-		guide_open_setting("game.workshop_steam");
+		link_begin(NULL);
+		return;
+	case _option_open_steam:
+		workshop_browser_open_in_steam(workshop_view.row);
 		return;
 	case _option_page_next:
 	case _option_page_previous:
-		if (option == _option_page_next ? workshop_browser_page_next() : workshop_browser_page_previous())
-		{
-			/* (the new page's first item chosen: the row under the find row) */
-			short index;
-
-			for (index = 0; index < (short)workshop_browser_count(); index++)
-			{
-				struct workshop_browser_item const *row = workshop_browser_item(index);
-
-				if (row && row->setup == WORKSHOP_ROW_FIND)
-				{
-					workshop_view.row = (short)(index + 1);
-					workshop_view.first = index;
-					break;
-				}
-			}
-			workshop_view.page = FALSE;
-			workshop_view.option = 0;
-		}
+		guide_workshop_page_step(option == _option_page_next ? 1 : -1);
 		return;
 	case _option_use_steam:
 		if (!workshop_view.confirm)
@@ -538,92 +614,72 @@ static unsigned int item_color(struct workshop_browser_item const *item)
 	}
 }
 
+/* text measured in a font (guide_layout.h's measure: the font its context) */
+static float measure_font(void *context, float size, char const *text)
+{
+	return ui_overlay_text_width((int)(intptr_t)context, size, text);
+}
+
+/* text of a kind (ui_style_text's) cut with "..." to width */
+static void text_fit(int kind, char const *text, float width, char *out, int size)
+{
+	guide_layout_fit(text, width, ui_style_text_size(kind), measure_font, (void *)(intptr_t)ui_style_text_font(kind), 0,
+		out, size);
+}
+
+static float kind_width(int kind, char const *text)
+{
+	return ui_overlay_text_width(ui_style_text_font(kind), ui_style_text_size(kind), text);
+}
+
+/* text of a kind on one line, cut to width */
+static void text_line(int kind, float x, float y, float width, int align, char const *text)
+{
+	char shown[GUIDE_LAYOUT_LINE_SIZE];
+
+	text_fit(kind, text, width, shown, sizeof(shown));
+	ui_style_text(kind, x, y, align, shown);
+}
+
 /* text wrapped into width, at most lines lines, from y; the last line's bottom */
 static float text_wrapped(char const *text, float x, float y, float width, short lines)
 {
-	char line[256];
-	short shown = 0;
+	char wrapped[16][GUIDE_LAYOUT_LINE_SIZE];
+	int count, index;
 
-	while (*text && shown < lines)
+	count = guide_layout_wrap(text, width, DESCRIPTION_SIZE, measure_font, (void *)(intptr_t)UI_FONT_MENU,
+		MIN(lines, (short)NUMBEROF(wrapped)), wrapped, NULL);
+	for (index = 0; index < count; index++)
 	{
-		int length = 0, fits = 0;
-
-		while (*text == ' ')
-			text++;
-		/* (as many words as fit; a word longer than the line is cut) */
-		while (text[length] && text[length] != '\n' && length < (int)sizeof(line) - 1)
-		{
-			int end = length;
-
-			while (text[end] && text[end] != ' ' && text[end] != '\n' && end < (int)sizeof(line) - 1)
-				end++;
-			memcpy(line, text, (size_t)end);
-			line[end] = 0;
-			if (fits && ui_overlay_text_width(UI_FONT_MENU, DESCRIPTION_SIZE, line) > width)
-				break;
-			fits = end;
-			length = end;
-			while (text[length] == ' ')
-				length++;
-		}
-		if (!fits)
-			fits = length ? length : 1;
-		memcpy(line, text, (size_t)fits);
-		line[fits] = 0;
-		if (shown == lines - 1 && text[fits] && text[fits] != '\n')
-		{
-			/* (the last line shown: marked as cut) */
-			int cut = fits;
-
-			while (cut > 0 && ui_overlay_text_width(UI_FONT_MENU, DESCRIPTION_SIZE, line) +
-				ui_overlay_text_width(UI_FONT_MENU, DESCRIPTION_SIZE, "...") > width)
-			{
-				line[--cut] = 0;
-			}
-			strcat(line, "...");
-		}
-		ui_overlay_text(UI_FONT_MENU, DESCRIPTION_SIZE, x, y, UI_ALIGN_LEFT, COLOR_DESCRIPTION, line);
-		y += DESCRIPTION_SIZE + 4;
-		shown++;
-		text += fits;
-		if (*text == '\n')
-			text++;
+		ui_overlay_text(UI_FONT_MENU, DESCRIPTION_SIZE, x, y, UI_ALIGN_LEFT, COLOR_DESCRIPTION, wrapped[index]);
+		y += DESCRIPTION_LINE;
 	}
 	return y;
 }
 
-/* LINK's QR, while Steam waits for the scan: dark on white with the quiet
-edge readers need, and the step in words under it. Its bottom; y if none */
-static float link_qr_render(float x, float y, float width, float bottom)
+/* the QR of Steam's sign-in in a square: dark on white with the quiet edge
+readers need (made again when Steam's text changes); with no code yet, the
+square alone, dimmed */
+static void link_qr_draw(struct guide_rect square, char const *text)
 {
-	char text[256], error[24];
-	int link = steam_link_poll(text, sizeof(text), error, sizeof(error));
-	float side, module;
 	short qr_x, qr_y, run, size;
+	float module;
 
-	if (link == STEAM_LINK_STARTING)
+	if (!text || !text[0])
 	{
-		ui_style_text(UI_TEXT_LABEL, x, y + 4, UI_ALIGN_LEFT, "Getting a code");
-		return y + 20;
+		ui_overlay_rect(square.x, square.y, square.width, square.height, 4, 0xFFFFFF1A);
+		return;
 	}
-	if (link == STEAM_LINK_FAILED)
-	{
-		ui_style_text(UI_TEXT_LABEL, x, y + 4, UI_ALIGN_LEFT, error[0] ? error : "Failed");
-		return y + 20;
-	}
-	if (link != STEAM_LINK_WAITING && link != STEAM_LINK_SCANNED)
-		return y;
 	if (strcmp(text, workshop_view.link_text))
 	{
 		snprintf(workshop_view.link_text, sizeof(workshop_view.link_text), "%s", text);
 		workshop_view.link_qr_size = (short)browser_text_qr(text, workshop_view.link_qr);
 	}
 	size = workshop_view.link_qr_size;
-	side = MIN(width, bottom - y - 24);
-	if (size <= 0 || side < 60)
-		return y;
-	module = side / (size + 8);
-	ui_overlay_rect(x, y, side, side, 4, 0xFFFFFFFF);
+	ui_overlay_rect(square.x, square.y, square.width, square.height, 4, 0xFFFFFFFF);
+	if (size <= 0)
+		return;
+	module = square.width / (size + 8);
 	for (qr_y = 0; qr_y < size; qr_y++)
 	{
 		for (qr_x = 0; qr_x < size; qr_x = (short)(qr_x + run))
@@ -633,64 +689,218 @@ static float link_qr_render(float x, float y, float width, float bottom)
 			for (run = 0; qr_x + run < size && workshop_view.link_qr[qr_y * size + qr_x + run] == dark; run++)
 				;
 			if (dark)
-				ui_overlay_rect(x + (qr_x + 4) * module, y + (qr_y + 4) * module, run * module + 0.3f, module + 0.3f, 0,
-					0x0A1A33FF);
+				ui_overlay_rect(square.x + (qr_x + 4) * module, square.y + (qr_y + 4) * module, run * module + 0.3f,
+					module + 0.3f, 0, 0x0A1A33FF);
 		}
 	}
-	ui_style_text(UI_TEXT_LABEL, x, y + side + 6, UI_ALIGN_LEFT,
-		link == STEAM_LINK_SCANNED ? "Approve on your phone" : "Scan with the Steam app");
-	return y + side + 22;
 }
 
-/* SETTINGS' STEAM ACCOUNT pressed: LINK (its QR beside it), CANCEL while
-it waits, UNLINK twice when linked */
+static boolean link_busy(int link)
+{
+	return link == STEAM_LINK_STARTING || link == STEAM_LINK_WAITING || link == STEAM_LINK_SCANNED;
+}
+
+/* UNLINK's question: STEAM ACCOUNT pressed once while linked */
+static boolean unlink_asked(void)
+{
+	return steam_link_armed() && steam_link_linked(NULL, 0);
+}
+
+/* SETTINGS' STEAM ACCOUNT pressed: LINK (the sign-in window), UNLINK's
+question when linked */
 static void link_settings_press(void)
 {
-	int link = steam_link_poll(NULL, 0, NULL, 0);
-
 	if (steam_link_linked(NULL, 0))
 	{
-		if (!steam_link_armed())
+		steam_link_set_armed(1);
+		return;
+	}
+	link_begin(NULL);
+}
+
+/* the window's steps, each frame: a code that expired made again (a few
+times), the item asked for once linked, the window closed a moment after */
+static void link_follow(void)
+{
+	int link = steam_link_poll(NULL, 0, NULL, 0);
+	unsigned long now = system_milliseconds();
+
+	workshop_browser_link_follow();
+	if (link_busy(link))
+		workshop_view.link_modal = TRUE;
+	if (link == STEAM_LINK_WAITING)
+	{
+		workshop_view.link_shown_code = TRUE;
+		workshop_view.link_refreshing = FALSE;
+	}
+	if (link == STEAM_LINK_SCANNED)
+		workshop_view.link_scanned = TRUE;
+	if (!workshop_view.link_modal)
+		return;
+	if (link == STEAM_LINK_DONE || (link == STEAM_LINK_IDLE && steam_link_linked(NULL, 0)))
+	{
+		if (!workshop_view.link_done_time)
 		{
-			steam_link_set_armed(1);
-			return;
+			workshop_view.link_done_time = now ? now : 1;
+			if (workshop_view.get_after_link[0])
+			{
+				short index;
+
+				for (index = 0; index < (short)workshop_browser_count(); index++)
+				{
+					struct workshop_browser_item const *item = workshop_browser_item(index);
+
+					if (item && !item->setup && !strcmp(item->id, workshop_view.get_after_link) &&
+						workshop_browser_subscribe(index))
+					{
+						workshop_view.waiting = TRUE;
+						break;
+					}
+				}
+				workshop_view.get_after_link[0] = 0;
+			}
 		}
+		else if (now - workshop_view.link_done_time >= LINK_DONE_TIME)
+		{
+			workshop_view.link_modal = FALSE;
+			workshop_view.link_done_time = 0;
+		}
+		return;
+	}
+	/* (a code shown, never scanned, then failed: it expired; another) */
+	if (link == STEAM_LINK_FAILED && workshop_view.link_shown_code && !workshop_view.link_scanned &&
+		workshop_view.link_refreshes < LINK_REFRESHES)
+	{
+		workshop_view.link_refreshes++;
+		workshop_view.link_shown_code = FALSE;
+		workshop_view.link_refreshing = TRUE;
+		platform_log("Steam: the sign-in code expired, another asked for");
+		steam_link_start();
+	}
+}
+
+boolean guide_workshop_link_modal(void)
+{
+	return unlink_asked() || workshop_view.link_modal || link_busy(steam_link_poll(NULL, 0, NULL, 0));
+}
+
+/* the window's one button: CANCEL while it waits, BACK once failed, UNLINK
+for the question */
+static void link_modal_close(void)
+{
+	workshop_view.link_modal = FALSE;
+	workshop_view.link_done_time = 0;
+	workshop_view.get_after_link[0] = 0;
+}
+
+void guide_workshop_link_modal_press(void)
+{
+	if (unlink_asked())
+	{
 		steam_link_set_armed(0);
 		steam_link_unlink();
 		return;
 	}
-	if (link == STEAM_LINK_STARTING || link == STEAM_LINK_WAITING || link == STEAM_LINK_SCANNED)
+	if (link_busy(steam_link_poll(NULL, 0, NULL, 0)))
 		steam_link_cancel();
-	else
-		steam_link_start();
+	link_modal_close();
 }
 
-void guide_workshop_link_panel(float x, float y, float width, float bottom)
+void guide_workshop_link_modal_back(void)
 {
-	int link = steam_link_poll(NULL, 0, NULL, 0);
-	float height;
+	if (unlink_asked())
+	{
+		steam_link_set_armed(0);
+		return;
+	}
+	if (link_busy(steam_link_poll(NULL, 0, NULL, 0)))
+		steam_link_cancel();
+	link_modal_close();
+}
 
-	if (steam_link_armed() && steam_link_linked(NULL, 0))
+char const *guide_workshop_link_note(void)
+{
+	/* (linked, with no keyring or Keychain to take the sign-in: said) */
+	if (steam_link_linked(NULL, 0) && !steam_link_store_secure())
+		return "Your Steam sign-in is kept in a private file, not encrypted";
+	return NULL;
+}
+
+void guide_workshop_link_modal_render(float left, float top, float right, float bottom,
+	void (*target)(float x0, float y0, float x1, float y1, short kind, short index))
+{
+	char text[256], error[24], status[48];
+	int link = steam_link_poll(text, sizeof(text), error, sizeof(error));
+	boolean question = unlink_asked();
+	struct guide_rect area = { left, top, right - left, bottom - top };
+	struct guide_modal_layout layout;
+	unsigned int status_color = ui_style_color(UI_COLOR_LABEL);
+	char const *button;
+	float center;
+
+	guide_layout_modal(area, !question, &layout);
+	center = layout.window.x + layout.window.width * 0.5f;
+	/* (the Guide under it dimmed past reading, the window solid) */
+	ui_overlay_rect(-200, 0, 1040, 480, 0, 0x000000E6);
+	ui_overlay_rect(layout.window.x, layout.window.y, layout.window.width, layout.window.height, 10, 0x061226FF);
+	ui_style_panel(layout.window.x, layout.window.y, layout.window.width, layout.window.height, 1.0f);
+	if (question)
 	{
-		ui_style_glass(x, y, width, 70, 8, ui_style_color(UI_COLOR_PANE), ui_style_color(UI_COLOR_ROW_EDGE));
-		text_wrapped("Press again to unlink. The game forgets it here and at Steam.", x + 12, y + 14, width - 24, 3);
-		return;
+		char lines[2][GUIDE_LAYOUT_LINE_SIZE];
+		int count, index;
+
+		text_line(UI_TEXT_TITLE, center, layout.title.y, layout.title.width, UI_ALIGN_CENTER, "UNLINK STEAM");
+		count = guide_layout_wrap("The game forgets the sign-in here and at Steam.", layout.line.width,
+			ui_style_text_size(UI_TEXT_LINE), measure_font, (void *)(intptr_t)ui_style_text_font(UI_TEXT_LINE), 2,
+			lines, NULL);
+		for (index = 0; index < count; index++)
+			ui_style_text(UI_TEXT_LINE, center, layout.line.y + index * 12, UI_ALIGN_CENTER, lines[index]);
+		button = "UNLINK";
+		status[0] = 0;
 	}
-	if (link != STEAM_LINK_STARTING && link != STEAM_LINK_WAITING && link != STEAM_LINK_SCANNED &&
-		link != STEAM_LINK_FAILED)
+	else
 	{
-		/* (linked, with no keyring or Keychain to take the sign-in: said) */
-		if (steam_link_linked(NULL, 0) && !steam_link_store_secure())
+		boolean done = link == STEAM_LINK_DONE || (!link_busy(link) && link != STEAM_LINK_FAILED &&
+			steam_link_linked(NULL, 0));
+
+		text_line(UI_TEXT_TITLE, center, layout.title.y, layout.title.width, UI_ALIGN_CENTER, "LINK STEAM");
+		link_qr_draw(layout.qr, link == STEAM_LINK_WAITING || link == STEAM_LINK_SCANNED ? text : NULL);
+		text_line(UI_TEXT_LINE, center, layout.line.y, layout.line.width, UI_ALIGN_CENTER, "Scan with the Steam app");
+		if (done)
 		{
-			ui_style_glass(x, y, width, 86, 8, ui_style_color(UI_COLOR_PANE), ui_style_color(UI_COLOR_ROW_EDGE));
-			text_wrapped("Your Steam sign-in is kept in a private file in the data folder, not encrypted: "
-				"no keyring was found.", x + 12, y + 14, width - 24, 4);
+			snprintf(status, sizeof(status), "Linked");
+			status_color = COLOR_INSTALLED;
 		}
-		return;
+		else if (workshop_view.link_refreshing && link != STEAM_LINK_WAITING)
+			snprintf(status, sizeof(status), "Expired, refreshing");
+		else if (link == STEAM_LINK_STARTING)
+			snprintf(status, sizeof(status), "Getting a code");
+		else if (link == STEAM_LINK_SCANNED)
+			snprintf(status, sizeof(status), "Approve on your phone");
+		else if (link == STEAM_LINK_WAITING)
+			snprintf(status, sizeof(status), "Waiting");
+		else if (link == STEAM_LINK_FAILED && workshop_view.link_shown_code && !workshop_view.link_scanned)
+			snprintf(status, sizeof(status), "Expired");
+		else
+			snprintf(status, sizeof(status), "%s", error[0] ? error : "Not linked");
+		button = link_busy(link) ? "CANCEL" : done ? "DONE" : "BACK";
 	}
-	height = MIN(width + 40, bottom - y);
-	ui_style_glass(x, y, width, height, 8, ui_style_color(UI_COLOR_PANE), ui_style_color(UI_COLOR_ROW_EDGE));
-	link_qr_render(x + 12, y + 12, width - 24, y + height - 6);
+	if (status[0])
+	{
+		char shown[GUIDE_LAYOUT_LINE_SIZE];
+
+		text_fit(UI_TEXT_LABEL, status, layout.status.width, shown, sizeof(shown));
+		ui_overlay_text(ui_style_text_font(UI_TEXT_LABEL), ui_style_text_size(UI_TEXT_LABEL), center, layout.status.y,
+			UI_ALIGN_CENTER, status_color, shown);
+	}
+	ui_style_row(layout.button.x, layout.button.y, layout.button.width, layout.button.height, TRUE);
+	ui_overlay_text(UI_FONT_MENU, 10.0f, layout.button.x + layout.button.width * 0.5f,
+		layout.button.y + (layout.button.height - 10) * 0.5f, UI_ALIGN_CENTER, COLOR_VALUE, button);
+	if (target)
+	{
+		target(layout.button.x, layout.button.y, layout.button.x + layout.button.width,
+			layout.button.y + layout.button.height, GUIDE_WORKSHOP_TARGET_MODAL, 0);
+	}
 }
 
 /* ---------- public code */
@@ -727,6 +937,7 @@ void guide_workshop_update(boolean showing)
 
 	workshop_browser_own_library();
 	settings_rows_set_steam_link_action(workshop_browser_link_offered() ? link_settings_press : NULL);
+	link_follow();
 	/* (the on-screen keyboard done: its words searched, the Guide back on WORKSHOP) */
 #if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
 	if (workshop_view.keyboard && !virtual_keyboard_active())
@@ -885,6 +1096,94 @@ boolean guide_workshop_in_page(void)
 	return workshop_view.page;
 }
 
+/* the chosen item's description as plain text (Steam's markup stripped),
+made once an item */
+static char const *plain_description(struct workshop_browser_item const *item)
+{
+	if (strcmp(workshop_view.plain_id, item->id) || !workshop_view.plain[0])
+	{
+		snprintf(workshop_view.plain_id, sizeof(workshop_view.plain_id), "%s", item->id);
+		guide_layout_plain(item->description, workshop_view.plain, sizeof(workshop_view.plain));
+	}
+	return workshop_view.plain;
+}
+
+/* the line over an item's buttons: what is happening, or why the buttons
+are what they are (NULL: none); a download's share in *bar (else -1) */
+static char const *page_note(struct workshop_browser_item const *item, char *line, int size, float *bar)
+{
+	*bar = -1;
+	if (workshop_view.confirm_remove)
+		return "Delete its files?";
+	if (workshop_view.confirm)
+		return use_steam_note();
+	if (item->setup)
+		return NULL;
+	if (workshop_browser_bridge_status() == STEAM_BRIDGE_READY && steam_bridge_sign_in_needed() &&
+		!workshop_browser_link_offered())
+	{
+		return "Sign in to steamcmd";
+	}
+	if (item->steam_error[0] && item->state != WORKSHOP_ITEM_INSTALLED)
+		return item->steam_error;
+	if (item->state == WORKSHOP_ITEM_DOWNLOADING && item->total > 0)
+	{
+		char done[24], total[24];
+
+		workshop_browser_size_text((long long)item->downloaded, done, sizeof(done));
+		workshop_browser_size_text((long long)item->total, total, sizeof(total));
+		snprintf(line, (size_t)size, "Installing %d%% - %s of %s", (int)(item->downloaded * 100 / item->total), done,
+			total);
+		*bar = (float)item->downloaded / (float)item->total;
+		*bar = *bar < 0 ? 0 : *bar > 1 ? 1 : *bar;
+		return line;
+	}
+	if (item->state == WORKSHOP_ITEM_WAITING && workshop_browser_link_offered())
+		return "Starting download";
+	if (item->state == WORKSHOP_ITEM_WAITING && workshop_browser_bridge_status() != STEAM_BRIDGE_READY)
+		return "Open Steam to subscribe";
+	if (!config_boolean("game.workshop_maps"))
+		return "Workshop maps are off";
+	if (item->state == WORKSHOP_ITEM_NOT_INSTALLED && link_needed())
+		return "Link Steam to download in the game";
+	return NULL;
+}
+
+/* the list's heading: its page, and PREVIOUS and NEXT (LT and RT, Page Up
+and Page Down) while Steam's list has pages */
+static void heading_render(float left, float top, short status,
+	void (*target)(float x0, float y0, float x1, float y1, short kind, short index))
+{
+	char heading[48];
+	float right = left + LIST_WIDTH;
+	short index;
+
+	if (workshop_browser_filter() != WORKSHOP_FILTER_INSTALLED)
+		snprintf(heading, sizeof(heading), "MCC WORKSHOP - PAGE %d", workshop_browser_page());
+	else
+		snprintf(heading, sizeof(heading), "MCC WORKSHOP - INSTALLED");
+	ui_style_text(UI_TEXT_HEADING, left, top, UI_ALIGN_LEFT, heading);
+	if (status == WORKSHOP_LIST_LOADING || status == WORKSHOP_LIST_FAILED)
+	{
+		ui_style_text(UI_TEXT_LABEL, right, top + 1, UI_ALIGN_RIGHT, status == WORKSHOP_LIST_LOADING ? "Loading" :
+			"Offline");
+		return;
+	}
+	if (!guide_workshop_pages())
+		return;
+	for (index = 0; index < 2; index++)
+	{
+		/* (PREVIOUS on the left, NEXT on the right; one that can't, dimmed) */
+		boolean can = index ? guide_workshop_page_offered(1) : guide_workshop_page_offered(-1);
+		float x = right - (2 - index) * PAGE_BUTTON_WIDTH - (1 - index) * 4;
+
+		ui_overlay_text(UI_FONT_MENU, 8.5f, x + PAGE_BUTTON_WIDTH * 0.5f, top, UI_ALIGN_CENTER,
+			can ? COLOR_VALUE : COLOR_VALUE & 0xFFFFFF40, index ? "NEXT \xE2\x80\xBA" : "\xE2\x80\xB9 PREV");
+		if (target && can)
+			target(x, top - 3, x + PAGE_BUTTON_WIDTH, top + 12, GUIDE_WORKSHOP_TARGET_PAGE, index);
+	}
+}
+
 void guide_workshop_render(float left, float top, float right, float bottom,
 	void (*target)(float x0, float y0, float x1, float y1, short kind, short index))
 {
@@ -892,7 +1191,7 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 	short status = (short)workshop_browser_status();
 	struct workshop_browser_item const *item;
 	float y = top + HEADING_HEIGHT, x = left + LIST_WIDTH + 12, width = right - x;
-	char heading[48], line[160], size[24];
+	char line[160], size[24], shown[GUIDE_LAYOUT_LINE_SIZE];
 
 	if (workshop_view.row >= count)
 		workshop_view.row = (short)MAX(count - 1, 0);
@@ -903,14 +1202,7 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 			"No Workshop items");
 		return;
 	}
-	if (workshop_browser_filter() != WORKSHOP_FILTER_INSTALLED)
-		snprintf(heading, sizeof(heading), "MCC WORKSHOP - PAGE %d", workshop_browser_page());
-	else
-		snprintf(heading, sizeof(heading), "MCC WORKSHOP - INSTALLED");
-	ui_style_text(UI_TEXT_HEADING, left, top, UI_ALIGN_LEFT, heading);
-	if (status == WORKSHOP_LIST_LOADING || status == WORKSHOP_LIST_FAILED)
-		ui_style_text(UI_TEXT_LABEL, left + LIST_WIDTH, top + 1, UI_ALIGN_RIGHT,
-			status == WORKSHOP_LIST_LOADING ? "Loading" : "Offline");
+	heading_render(left, top, status, target);
 	visible = (short)((bottom - y + ROW_GAP) / (ROW_HEIGHT + ROW_GAP));
 	if (workshop_view.row < workshop_view.first)
 		workshop_view.first = workshop_view.row;
@@ -920,20 +1212,21 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 	{
 		boolean on = index == workshop_view.row && !workshop_view.page;
 		char const *state;
+		float state_width;
 
 		item = workshop_browser_item(index);
 		state = item_word(item);
+		state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 8.0f, state) + 8 : 0;
 		ui_style_row(left, y, LIST_WIDTH, ROW_HEIGHT, on);
-		ui_style_text(UI_TEXT_NAME, left + 10, y + 3, UI_ALIGN_LEFT, item->title);
+		text_line(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, item->title);
 		if (item->author[0])
 			snprintf(line, sizeof(line), "%s - %s", kind_text(item), item->author);
 		else
 			snprintf(line, sizeof(line), "%s", kind_text(item));
-		ui_style_text(UI_TEXT_STATUS, left + 10, y + 17, UI_ALIGN_LEFT, line);
-		ui_overlay_text(UI_FONT_MENU, 8.0f, left + LIST_WIDTH - 10, y + 17, UI_ALIGN_RIGHT, item_color(item),
-			state);
+		text_line(UI_TEXT_STATUS, left + 10, y + 17, LIST_WIDTH - 20 - state_width, UI_ALIGN_LEFT, line);
+		ui_overlay_text(UI_FONT_MENU, 8.0f, left + LIST_WIDTH - 10, y + 17, UI_ALIGN_RIGHT, item_color(item), state);
 		if (target)
-			target(left, y, left + LIST_WIDTH, y + ROW_HEIGHT, 0, index);
+			target(left, y, left + LIST_WIDTH, y + ROW_HEIGHT, GUIDE_WORKSHOP_TARGET_ROW, index);
 		y += ROW_HEIGHT + ROW_GAP;
 	}
 	/* the chosen item's page */
@@ -941,96 +1234,28 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 	if (!item)
 		return;
 	ui_style_glass(x, top, width, bottom - top, 8, ui_style_color(UI_COLOR_PANE), ui_style_color(UI_COLOR_ROW_EDGE));
-	ui_style_text(UI_TEXT_TITLE, x + 12, top + 12, UI_ALIGN_LEFT, item->title);
-	workshop_browser_size_text(item->size, size, sizeof(size));
-	snprintf(line, sizeof(line), "%s%s%s", kind_text(item), size[0] ? " - " : "", size);
-	ui_style_text(UI_TEXT_LINE, x + 12, top + 32, UI_ALIGN_LEFT, line);
-	ui_overlay_text(UI_FONT_MENU, 9.0f, x + width - 12, top + 33, UI_ALIGN_RIGHT, item_color(item), item_word(item));
-	y = top + 48;
-	if (workshop_view.searching && item->setup == WORKSHOP_ROW_FIND)
-	{
-		char shown[80];
-		boolean blink = (system_milliseconds() / 500) % 2 == 0;
-
-		snprintf(shown, sizeof(shown), "%s%s", workshop_view.search, blink ? "_" : " ");
-		ui_style_row(x + 12, y + 4, width - 24, OPTION_HEIGHT + 4, TRUE);
-		ui_overlay_text(UI_FONT_MENU, 11.0f, x + 22, y + 11, UI_ALIGN_LEFT, COLOR_VALUE, shown);
-		ui_style_text(UI_TEXT_LABEL, x + 12, y + OPTION_HEIGHT + 14, UI_ALIGN_LEFT, "Type, then Enter");
-		return;
-	}
-	if (item->author[0])
-	{
-		snprintf(line, sizeof(line), "by %s", item->author);
-		ui_style_text(UI_TEXT_LABEL, x + 12, y, UI_ALIGN_LEFT, line);
-		y += 16;
-	}
-	{
-		/* (its picture, when there is one: the item's own, or Steam's) */
-		int picture_width, picture_height, serial;
-		unsigned char const *picture = workshop_browser_preview(workshop_view.row, &picture_width, &picture_height, &serial);
-
-		if (picture && picture_width > 0 && picture_height > 0)
-		{
-			float draw_width = width - 24, draw_height = draw_width * (float)picture_height / (float)picture_width;
-
-			if (draw_height > PICTURE_HEIGHT)
-			{
-				draw_height = PICTURE_HEIGHT;
-				draw_width = draw_height * (float)picture_width / (float)picture_height;
-			}
-			ui_overlay_picture(serial, picture, picture_width, picture_height, x + 12, y + 4, draw_width, draw_height,
-				0xFFFFFFFF);
-			y += draw_height + 8;
-		}
-	}
-	y = text_wrapped(item->description, x + 12, y + 4, width - 24,
-		(short)MAX(1, MIN(DESCRIPTION_LINES, (bottom - 12 - 3 * (OPTION_HEIGHT + OPTION_GAP) - 20 - y) /
-		(DESCRIPTION_SIZE + 4))));
+	if (item->setup == WORKSHOP_ROW_FIND)
 	{
 		short options[MAXIMUM_OPTIONS], option_count = options_of(item, options);
-		float option_height = OPTION_HEIGHT, option_gap = OPTION_GAP;
+		float option_height = OPTION_HEIGHT - 4, option_gap = OPTION_GAP - 1;
 
-		y = bottom - 12 - option_count * (OPTION_HEIGHT + OPTION_GAP) + OPTION_GAP;
-		/* (the find row's many, smaller, from under its title down) */
-		if (item->setup == WORKSHOP_ROW_FIND)
+		text_line(UI_TEXT_TITLE, x + 12, top + 12, width - 24, UI_ALIGN_LEFT, item->title);
+		text_line(UI_TEXT_LINE, x + 12, top + 32, width - 24, UI_ALIGN_LEFT, kind_text(item));
+		y = top + 50;
+		if (workshop_view.searching)
 		{
-			option_height = OPTION_HEIGHT - 4;
-			option_gap = OPTION_GAP - 1;
-			y = top + 50;
-		}
-		/* (an action line over the options: what they do, in a few words) */
-		if (workshop_view.confirm_remove)
-			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Delete its files?");
-		else if (workshop_view.confirm)
-			text_wrapped(use_steam_note(), x + 12, y - 4 - NOTE_LINES * (DESCRIPTION_SIZE + 4), width - 24, NOTE_LINES);
-		else if (!item->setup && workshop_browser_bridge_status() == STEAM_BRIDGE_READY && steam_bridge_sign_in_needed() &&
-			!workshop_browser_link_offered())
-			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT,
-				workshop_browser_link_offered() ? "Link Steam first" : "Sign in to steamcmd");
-		else if (!item->setup && item->steam_error[0] && item->state != WORKSHOP_ITEM_INSTALLED)
-			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, item->steam_error);
-		else if (item->state == WORKSHOP_ITEM_DOWNLOADING && item->total > 0)
-		{
-			/* (its words, and a bar under them) */
-			float bar_y = option_count ? y - 14 : bottom - 24, fraction = (float)item->downloaded / (float)item->total;
-			char done[24], total[24];
+			boolean blink = (system_milliseconds() / 500) % 2 == 0;
 
-			workshop_browser_size_text((long long)item->downloaded, done, sizeof(done));
-			workshop_browser_size_text((long long)item->total, total, sizeof(total));
-			snprintf(line, sizeof(line), "Downloading %d%% - %s of %s", (int)(item->downloaded * 100 / item->total),
-				done, total);
-			ui_style_text(UI_TEXT_LABEL, x + 12, bar_y - 18, UI_ALIGN_LEFT, line);
-			fraction = fraction < 0 ? 0 : fraction > 1 ? 1 : fraction;
-			ui_overlay_rect(x + 12, bar_y, width - 24, 6, 3, 0xFFFFFF26);
-			ui_overlay_rect(x + 12, bar_y, (width - 24) * fraction, 6, 3, COLOR_WAITING);
+			snprintf(line, sizeof(line), "%s%s", workshop_view.search, blink ? "_" : " ");
+			ui_style_row(x + 12, y + 4, width - 24, OPTION_HEIGHT + 4, TRUE);
+			guide_layout_fit(line, width - 44, 11.0f, measure_font, (void *)(intptr_t)UI_FONT_MENU, 1, shown,
+				sizeof(shown));
+			ui_overlay_text(UI_FONT_MENU, 11.0f, x + 22, y + 11, UI_ALIGN_LEFT, COLOR_VALUE, shown);
+			ui_style_text(UI_TEXT_LABEL, x + 12, y + OPTION_HEIGHT + 14, UI_ALIGN_LEFT, "Type, then Enter");
+			return;
 		}
-		else if (item->state == WORKSHOP_ITEM_WAITING && workshop_browser_link_offered())
-			ui_style_text(UI_TEXT_LABEL, x + 12, (option_count ? y : bottom - 8) - 16, UI_ALIGN_LEFT, "Starting download");
-		else if (item->state == WORKSHOP_ITEM_WAITING && workshop_browser_bridge_status() != STEAM_BRIDGE_READY)
-			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Open Steam to subscribe");
-		else if (!item->setup && !config_boolean("game.workshop_maps"))
-			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Workshop maps are off");
-		for (index = 0; index < option_count; index++)
+		/* (the find row's many, smaller, from under its title down, as many as fit) */
+		for (index = 0; index < option_count && y + option_height <= bottom - 8; index++)
 		{
 			boolean on = workshop_view.page && index == workshop_view.option;
 
@@ -1038,8 +1263,88 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 22, y + (option_height - 10) * 0.5f, UI_ALIGN_LEFT, COLOR_VALUE,
 				option_label(item, options[index]));
 			if (target)
-				target(x + 12, y, x + width - 12, y + option_height, 1, index);
+				target(x + 12, y, x + width - 12, y + option_height, GUIDE_WORKSHOP_TARGET_OPTION, index);
 			y += option_height + option_gap;
+		}
+		return;
+	}
+	{
+		struct guide_rect pane = { x, top, width, bottom - top };
+		struct guide_page_layout layout;
+		short options[MAXIMUM_OPTIONS], option_count = (short)MIN(options_of(item, options), GUIDE_PAGE_MAXIMUM_BUTTONS);
+		char note_text[96];
+		float bar, state_width;
+		char const *note = page_note(item, note_text, sizeof(note_text), &bar), *state = item_word(item);
+		short lines;
+
+		guide_layout_page(pane, note != NULL, option_count, DESCRIPTION_LINE, &layout);
+		/* (its title; its kind and size, and where it stands) */
+		text_line(UI_TEXT_TITLE, layout.title.x, layout.title.y, layout.title.width, UI_ALIGN_LEFT, item->title);
+		workshop_browser_size_text(item->size, size, sizeof(size));
+		snprintf(line, sizeof(line), "%s%s%s", kind_text(item), size[0] ? " - " : "", size);
+		state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 9.0f, state) + 8 : 0;
+		text_line(UI_TEXT_LINE, layout.status.x, layout.status.y, layout.status.width - state_width, UI_ALIGN_LEFT, line);
+		ui_overlay_text(UI_FONT_MENU, 9.0f, layout.status.x + layout.status.width, layout.status.y + 1, UI_ALIGN_RIGHT,
+			item_color(item), state);
+		/* (its picture in its box, the item's own or Steam's; a setup row's
+		words take the box's room) */
+		if (item->setup)
+		{
+			float room = layout.description.y + layout.description.height - layout.picture.y;
+
+			layout.description.y = layout.picture.y;
+			layout.description_lines = (int)(room / DESCRIPTION_LINE);
+		}
+		else if (layout.picture.height > 0)
+		{
+			int picture_width, picture_height, serial;
+			unsigned char const *picture = workshop_browser_preview(workshop_view.row, &picture_width, &picture_height,
+				&serial);
+			struct guide_rect box = layout.picture;
+
+			ui_overlay_rect(box.x, box.y, box.width, box.height, 4, 0x0000004D);
+			if (picture && picture_width > 0 && picture_height > 0)
+			{
+				float draw_width = box.width, draw_height = draw_width * (float)picture_height / (float)picture_width;
+
+				if (draw_height > box.height)
+				{
+					draw_height = box.height;
+					draw_width = draw_height * (float)picture_width / (float)picture_height;
+				}
+				ui_overlay_picture(serial, picture, picture_width, picture_height, box.x + (box.width - draw_width) * 0.5f,
+					box.y + (box.height - draw_height) * 0.5f, draw_width, draw_height, 0xFFFFFFFF);
+			}
+		}
+		/* (its description: plain words, as many lines as the room has) */
+		lines = (short)layout.description_lines;
+		if (lines > 0)
+			text_wrapped(plain_description(item), layout.description.x, layout.description.y, layout.description.width,
+				lines);
+		if (note)
+		{
+			text_line(UI_TEXT_LABEL, layout.note.x, layout.note.y - (bar >= 0 ? 1 : 0), layout.note.width, UI_ALIGN_LEFT,
+				note);
+			if (bar >= 0)
+			{
+				ui_overlay_rect(layout.note.x, layout.note.y + layout.note.height - 2, layout.note.width, 3, 1.5f,
+					0xFFFFFF26);
+				ui_overlay_rect(layout.note.x, layout.note.y + layout.note.height - 2, layout.note.width * bar, 3, 1.5f,
+					COLOR_WAITING);
+			}
+		}
+		for (index = 0; index < layout.button_count; index++)
+		{
+			struct guide_rect button = layout.buttons[index];
+			boolean on = workshop_view.page && index == workshop_view.option;
+
+			ui_style_row(button.x, button.y, button.width, button.height, on);
+			text_fit(UI_TEXT_NAME, option_label(item, options[index]), button.width - 20, shown, sizeof(shown));
+			ui_overlay_text(UI_FONT_MENU, 10.0f, button.x + 10, button.y + (button.height - 10) * 0.5f, UI_ALIGN_LEFT,
+				COLOR_VALUE, shown);
+			if (target)
+				target(button.x, button.y, button.x + button.width, button.y + button.height, GUIDE_WORKSHOP_TARGET_OPTION,
+					index);
 		}
 	}
 }

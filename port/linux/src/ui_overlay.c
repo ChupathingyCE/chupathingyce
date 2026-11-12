@@ -83,7 +83,7 @@ enum
 	MAXIMUM_GLYPHS = 4096,
 	MAXIMUM_TEXT = 64 * 1024,
 	MAXIMUM_TEXTS = 4096,
-	MAXIMUM_LAYERS = 5,
+	MAXIMUM_LAYERS = 6,
 };
 
 /* a quad as gathered (layout coordinates) */
