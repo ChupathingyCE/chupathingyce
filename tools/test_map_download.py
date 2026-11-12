@@ -578,6 +578,22 @@ def test_downloader_reads_the_listing():
     assert "map_quick_check(quarantined_read" in download
 
 
+def test_failure_labels():
+    """a failed download shows a word or two (map_download_refusal_label),
+    never the log's reason"""
+    download = (ROOT / "port" / "linux" / "src" / "map_download.c").read_text(encoding="utf-8")
+    for label in ('"Not found"', '"Blocked"', '"Doesn\'t match"', '"Damaged"', '"Failed"'):
+        assert label in download
+    screen = (ROOT / "port" / "linux" / "game" / "browser_screen.c").read_text(encoding="utf-8")
+    assert "map_download_refusal_label(progress->refusal)" in screen
+    assert "progress->message" not in screen
+    # (the reasons map_download.c sorts by: map_repo.c's and map_host_download.c's words)
+    repo = (ROOT / "port" / "linux" / "src" / "map_repo.c").read_text(encoding="utf-8")
+    assert '"it is blocked: %s"' in repo and "(its SHA-256 differs)" in repo and "gave %u bytes, not %u" in repo
+    host = (ROOT / "port" / "linux" / "src" / "map_host_download.c").read_text(encoding="utf-8")
+    assert "it is not the file the host offered" in host and "another version of the map" in host
+
+
 # ---------- the real repository
 
 
