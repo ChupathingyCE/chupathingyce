@@ -877,11 +877,13 @@ int network_rules_header_strip(uint8_t const *message, int size, uint8_t *out, i
 			unsigned length;
 			uint32_t inner = 0;
 
+			/* (reading stops at a size word past the end, or shorter than a
+			message's header: the messages before it are kept) */
 			if (size - in < 2)
-				return 0;
+				break;
 			length = rules_word(message + in);
 			if ((int)length < NETWORK_RULES_HEADER_SIZE - 2 + extra || (int)length > size - in - 2)
-				return 0;
+				break;
 			if (has_epoch)
 				inner = rules_long(message + in + NETWORK_RULES_HEADER_SIZE);
 			if (!has_epoch || inner == want || (keep_kind && message[in + 2] == keep_kind))

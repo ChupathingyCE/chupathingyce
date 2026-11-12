@@ -355,6 +355,10 @@ again, having failed to make one of them */
 void network_objects_client_asked(long machine_index, boolean again);
 void network_objects_handle_changes(void const *entries, short count);
 void network_objects_handle_synchronized(void);
+/* (a client) whether it has the host's objects, and their reset at a newer
+checkpoint epoch (FALSE) or at its snapshot's end (TRUE) */
+boolean network_objects_client_synchronized(void);
+void network_objects_checkpoint_reset(boolean synchronized_again);
 void network_objects_handle_states(void const *entries, short count);
 void network_objects_handle_inventories(void const *entries, short count);
 /* (a client) its own player picked up the weapon, to ready once its unit has it */

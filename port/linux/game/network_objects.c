@@ -4385,6 +4385,61 @@ void network_objects_new_game(
 	}
 }
 
+/* (effects.c's) */
+extern struct data_array *effect_data;
+void effect_delete(long effect_index);
+
+boolean network_objects_client_synchronized(
+	void)
+{
+	return objects_client_synchronized;
+}
+
+/* (a client of a layout with a checkpoint epoch: network_distributed.c) the
+host's newer epoch (synchronized_again FALSE), or its snapshot's end after
+one (TRUE): every projectile and effect gone, and at the epoch its objects
+waiting for the host's snapshot. The objects it has are kept: the snapshot
+replaces or corrects them */
+void network_objects_checkpoint_reset(
+	boolean synchronized_again)
+{
+	struct object_iterator iterator;
+	struct data_iterator effects;
+	short local_player_index;
+	short index;
+
+	object_iterator_new(&iterator, _object_mask_projectile, 0);
+	while (object_iterator_next(&iterator))
+	{
+		objects_client_deleting = TRUE;
+		object_delete(iterator.index);
+		objects_client_deleting = FALSE;
+	}
+	data_iterator_new(&effects, effect_data);
+	while (data_iterator_next(&effects))
+		effect_delete(effects.datum_index);
+	if (synchronized_again)
+		return;
+	csmemset(client_damage_animations, 0, sizeof(client_damage_animations));
+	objects_client_synchronized = FALSE;
+	objects_client_ready_time = NONE;
+	objects_client_ready_interval = CLIENT_READY_INTERVAL_TICKS;
+	objects_client_failed_time = NONE;
+	objects_client_retry_ticks = CLIENT_RETRY_TICKS;
+	objects_client_ask_again = FALSE;
+	objects_client_check_all = TRUE;
+	for (local_player_index = 0; local_player_index < MAXIMUM_LOCAL_PLAYERS; local_player_index++)
+	{
+		objects_client_own_inventories[local_player_index].unit_index = NONE;
+		objects_client_picked_up_weapons[local_player_index].definition_index = NONE;
+		for (index = 0; index < OWN_VEHICLE_POSITION_TICKS; index++)
+		{
+			objects_client_own_vehicles[local_player_index][index].time = NONE;
+			objects_client_own_vehicles[local_player_index][index].vehicle_index = NONE;
+		}
+	}
+}
+
 #ifdef HALO_BIG_ENDIAN
 /* (network_distributed.h) this module's entries in the wire's order */
 boolean network_objects_wire_entries(

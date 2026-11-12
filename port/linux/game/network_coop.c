@@ -1988,6 +1988,28 @@ void network_coop_new_game(
 	coop_enemies_new_game();
 }
 
+/* (a client of a layout with a checkpoint epoch: network_distributed.c) the
+host's newer epoch: its script sounds stopped, its cinematic ended (and the
+host's camera with it), and the presentation, events, devices, names,
+resends, BSPs and skip vote as at a game's start */
+void network_coop_checkpoint_reset(
+	void)
+{
+	if (game_connection() != _game_connection_network_client)
+		return;
+	client_stop_script_sounds();
+	client_cinematic_end();
+	csmemset(&coop_presentation, 0, sizeof(coop_presentation));
+	csmemset(&coop_events, 0, sizeof(coop_events));
+	csmemset(&client_devices, 0, sizeof(client_devices));
+	csmemset(client_names_differing, 0, sizeof(client_names_differing));
+	csmemset(&host_resend, 0, sizeof(host_resend));
+	csmemset(host_player_structure_bsps, NONE, sizeof(host_player_structure_bsps));
+	skip_vote_clear();
+	skip_vote.offered = FALSE;
+	skip_vote.voters = 0;
+}
+
 /* A network game on a campaign scenario with no game engine. Checking the
 scenario matters: the main menu's scene keeps running while a network game
 is set up, also with no game engine, and it is not co-op. */
