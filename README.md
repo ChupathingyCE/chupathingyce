@@ -48,6 +48,27 @@ It plays like the Xbox game. Everything extra is a setting.
 
 You need your own copy of the game. Chupathingy never includes or downloads Microsoft's files.
 
+## New: Halo MCC maps
+
+Own Halo: The Master Chief Collection on Steam? Its Halo CE Workshop maps now play in Chupathingy, on Windows, Mac and Linux.
+
+- **Browse the Workshop** in the Delta Guide, with each item's picture and page.
+- **Link Steam once** by scanning a QR code with the Steam app. The game never sees your Steam password.
+- **Maps download straight from Steam**, with no Steam client needed. Once they're in, they play offline or online.
+- **MCC maps show in every map screen**, with search, next to your Xbox and PC maps.
+- **Host and join MCC games**, on your own machine or a dedicated server.
+
+How it works, and what you need: [docs/mcc.md](docs/mcc.md).
+
+<p align="center">
+<img src="docs/screenshots/mcc-workshop.jpg" width="49%" alt="The Workshop in the Delta Guide, listing MCC maps and campaigns">
+<img src="docs/screenshots/mcc-workshop-item.jpg" width="49%" alt="A Workshop item's page, ready to download">
+</p>
+<p align="center">
+<img src="docs/screenshots/mcc-workshop-map.jpg" width="49%" alt="Playing a multiplayer map from the Workshop">
+<img src="docs/screenshots/mcc-windfall.jpg" width="49%" alt="Windfall Island, a Workshop map, in game">
+</p>
+
 ## Get it
 
 Download the latest release from the [Releases page](https://github.com/ChupathingyCE/chupathingyce/releases/latest).
@@ -88,7 +109,7 @@ Where your maps, settings and saves go: [docs/install.md](docs/install.md#where-
 - **Invite a friend.** Send them your game's invite link.
 - **Play the campaign together.** Host it online from Create Game. [Here's how](docs/online.md#online-co-op).
 
-Chupathingy players on every platform play together. **Compatible with OpenCE build-334 (network version 41) for online play:** their players can join your games, and you can join theirs.
+Chupathingy players on every platform play together. We also play with the current OpenCE release: their players can join your games, and you can join theirs.
 
 Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends-cant-join).
 
@@ -108,8 +129,8 @@ Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends
 
 **Maps**
 - Every Xbox map from your disc
-- Halo PC, Custom Edition and HaloMD maps, side by side with the Xbox ones
-- Missing Custom Edition maps download when you join
+- Halo PC, Custom Edition, HaloMD and MCC Workshop maps, side by side with the Xbox ones
+- Missing maps download when you join, and each one is checked before it's used
 - Community Xbox map packs, like Halo CE+
 
 **Your stats**
@@ -158,7 +179,7 @@ Other developers have ported it to the PSP, PS Vita, PS4, PS5, Xbox Series (UWP)
 
 ## Run a server
 
-The dedicated server runs a playlist of games around the clock. It runs on Linux (x86, x64 or arm64, Raspberry Pi too), on 64-bit Windows, or in Docker, and needs no port forwarding. Start with [server/README.md](server/README.md).
+The dedicated server runs a playlist of games around the clock. It runs on Linux (x86, x64 or arm64, Raspberry Pi too), on 64-bit Windows, or in Docker, and needs no port forwarding. It can host MCC Workshop maps too. Start with [server/README.md](server/README.md).
 
 ## Builds
 
