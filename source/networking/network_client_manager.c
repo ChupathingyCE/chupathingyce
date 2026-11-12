@@ -892,7 +892,20 @@ int delta_compat_join_mark(unsigned short *name, int count);
 static byte network_game_client_joined_host[6];
 static void network_game_client_delta_frame(struct network_game_client *client);
 void delta_peer_game_stop(int host);
+unsigned delta_peer_game_host_number(void);
+unsigned network_rules_layout_newest(void);
 #endif
+
+/* port: whether the joined host's advertisement said it speaks Delta */
+boolean network_game_client_host_speaks_delta(
+	void)
+{
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
+	return network_game_client_joined_delta != 0;
+#else
+	return FALSE;
+#endif
+}
 
 struct network_game_client network_game_client_dont_use_directly;
 boolean allow_out_of_sync = FALSE;
@@ -1322,6 +1335,23 @@ boolean network_game_client_idle(
 		0xC6,
 		client);
 
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE)
+	/* port: a Delta host with mcc_maps that changed the number its game is
+	played at in the lobby (an MCC map's game at 43: HOST_NUMBER): this
+	machine plays the host's next record and messages at it, staying */
+	if (client->state != _network_game_client_state_searching && !global_network_game_server_get())
+	{
+		unsigned int number = delta_peer_game_host_number();
+
+		if (number && number != network_game_client_joined_version && network_game_client_joined_version != 0xFFFF &&
+			number >= HALO_PORT_NETWORK_VERSION_MINIMUM && number <= (unsigned int)network_rules_layout_newest())
+		{
+			network_event("the host's game is now played at network version %u (was %u)", number,
+				network_game_client_joined_version);
+			network_game_client_joined_version = number;
+		}
+	}
+#endif
 	switch (client->state)
 	{
 	case _network_game_client_state_searching:

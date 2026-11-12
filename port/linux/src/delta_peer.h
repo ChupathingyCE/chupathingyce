@@ -671,6 +671,9 @@ struct delta_peer_host_peer
 	/* the host's rules as last sent to it (rules_generation), and when */
 	delta_u32 rules_sent_generation;
 	delta_u32 rules_time;
+	/* the host's number as last sent to it (number_generation), and when */
+	delta_u32 number_sent_generation;
+	delta_u32 number_time;
 	struct delta_peer_host_moderation moderation;
 	struct delta_peer_host_chat chat;
 	/* team changes: the last TEAM_REQUEST's sequence, and their rate */
@@ -757,6 +760,10 @@ struct delta_peer
 	each time they change (0: none set) */
 	struct delta_wire_host_rules rules;
 	delta_u32 rules_generation;
+	/* the host's number (delta_peer_set_host_number), and a number raised
+	each time it changes (0: none set) */
+	unsigned number;
+	delta_u32 number_generation;
 	/* each game machine's address and when the host first saw it in the
 	game with it (0 address: not in the game): its handshake's window starts
 	there (delta_peer_machine_lacks) */
@@ -788,6 +795,10 @@ struct delta_peer
 	change (0: none heard) */
 	struct delta_wire_host_rules host_rules;
 	delta_u32 host_rules_generation;
+	/* the host's number (HOST_NUMBER), and a number raised each time it
+	changes (0: none heard) */
+	unsigned host_number;
+	delta_u32 host_number_generation;
 
 	/* both: the legacy table relayed; this machine's signed table as it
 	goes out (its serial: 0 not read yet), and one coming in */
@@ -952,6 +963,12 @@ void delta_peer_set_host_rules(struct delta_peer *peer, const struct delta_wire_
 number raised each time they changed (0 if none heard: a host without
 Delta, or an older one, whose players play by the Xbox's rules) */
 delta_u32 delta_peer_host_rules(const struct delta_peer *peer, struct delta_wire_host_rules *rules);
+/* the host's: the OpenCE number its game is played at, sent to each client
+that agreed to mcc_maps (0: none sent). Called each frame */
+void delta_peer_set_host_number(struct delta_peer *peer, unsigned number);
+/* the client's: the host's number as HOST_NUMBER said it last, and the
+number raised each time it changed (0 if none heard) */
+delta_u32 delta_peer_host_number(const struct delta_peer *peer, unsigned *number);
 /* the host's: whether a machine of its game lacks a capability: it speaks
 Delta and did not agree to it (at once), or it has said nothing for the
 handshake's window (DELTA_PEER_HANDSHAKE_TIME) since the host first saw it
@@ -1320,6 +1337,9 @@ delta_u32 delta_peer_game_host_traits(struct delta_wire_traits *traits);
 clients that agreed to host_rules; the client's, its host's as last heard
 (0: none, or not a client) */
 void delta_peer_game_set_host_rules(const struct delta_wire_host_rules *rules);
+/* (the client's) the number the host's game is played at, as its HOST_NUMBER
+said last; 0 for none (no Delta host, or one without mcc_maps) */
+unsigned delta_peer_game_host_number(void);
 delta_u32 delta_peer_game_host_rules(struct delta_wire_host_rules *rules);
 int delta_peer_game_machine_lacks(int machine_index, int capability);
 /* whether a player's machine agreed to a capability with the host, as this

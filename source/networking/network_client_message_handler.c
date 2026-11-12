@@ -206,6 +206,8 @@ symbols in this file:
 #ifdef HALO_GAME_BROWSER
 #include "networking/network_connection.h"
 #include "map_share.h" /* port: map sharing's messages to the map bot's fetch */
+unsigned delta_peer_game_host_number(void); /* port/linux/src/delta_peer_game.c */
+boolean network_game_client_host_speaks_delta(void); /* network_client_manager.c */
 #include "mcc_identity.h" /* port: the host's MCC content digest in a 43 record */
 #endif
 
@@ -1224,8 +1226,10 @@ static boolean network_game_client_receive_game_settings_piece(
 		network_game_client_settings_staging_size = 0;
 		/* port: the host's own machine, whose server's number changed in the
 		lobby (an MCC map's game at 43: delta_legacy_host_game_at), may read
-		the last record of the number before; it takes the next */
-		result = global_network_game_server_get() != NULL;
+		the last record of the number before; it takes the next. So does a
+		client of a Delta host with mcc_maps, whose HOST_NUMBER it follows */
+		result = global_network_game_server_get() != NULL || delta_peer_game_host_number() != 0 ||
+			network_game_client_host_speaks_delta();
 	}
 	else
 	{

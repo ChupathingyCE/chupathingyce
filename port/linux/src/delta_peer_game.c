@@ -1118,6 +1118,9 @@ void delta_peer_game_host_frame(const struct delta_peer_game_machine *machines, 
 	host_map();
 	delta_peer_set_traits(&delta_game.peer, delta_game.has_traits ? &delta_game.traits : NULL);
 	delta_peer_set_host_rules(&delta_game.peer, delta_game.has_rules ? &delta_game.rules : NULL);
+	/* (the number this game is played at, which its Delta clients with
+	mcc_maps follow when it changes in the lobby: HOST_NUMBER) */
+	delta_peer_set_host_number(&delta_game.peer, (unsigned)delta_legacy_announce());
 }
 
 void delta_peer_game_client_frame(int joined, delta_u32 host_ipv4, int host_speaks_delta, int machine_index,
@@ -1389,6 +1392,16 @@ delta_u32 delta_peer_game_host_traits(struct delta_wire_traits *traits)
 }
 
 /* ---------- the host's rules (host_rules.c) */
+
+unsigned delta_peer_game_host_number(void)
+{
+	unsigned number = 0;
+
+	if (!delta_game.ready || delta_game.role != _role_client ||
+		!delta_peer_host_number(&delta_game.peer, &number))
+		return 0;
+	return number;
+}
 
 void delta_peer_game_set_host_rules(const struct delta_wire_host_rules *rules)
 {

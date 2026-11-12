@@ -1415,10 +1415,17 @@ announces otherwise; any other map at the usual number. Asked as the map is
 chosen (network_game_server_change_map_name), each lobby frame, and undone as
 hosting ends; said once if this build can't */
 int delta_legacy_host_game_at(int version); /* (port/linux/src/delta.c) */
+/* (network_server_message_handler.c) */
+unsigned network_game_server_machine_joined_number(struct network_game_server *server,
+	struct network_game_server_client_machine *machine);
 boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
 long dedicated_playlist_count(void);
 char const *dedicated_playlist_map(long entry);
 static int network_game_server_mcc_asked = -1;
+/* (when the number changed: the record is sent again a little later, which
+the Delta machines that follow it read at the new number; 0 for none) */
+static unsigned long network_game_server_mcc_resend_time;
+static int network_game_server_mcc_resends;
 
 static void network_game_server_mcc_version(
 	char const *map_name)
@@ -1445,6 +1452,8 @@ static void network_game_server_mcc_version(
 	if (want == network_game_server_mcc_asked)
 		return;
 	network_game_server_mcc_asked = want;
+	network_game_server_mcc_resend_time = system_milliseconds();
+	network_game_server_mcc_resends = 2;
 	if (!delta_legacy_host_game_at(want) && want)
 		error(_error_silent, "mcc: this build can't host OpenCE's 43, which MCC maps need");
 	else if (want)
@@ -1684,7 +1693,18 @@ boolean network_game_server_idle(
 	record is still the one before) */
 	if (server->state == _network_game_server_state_pregame && !server->sent_start_game_message &&
 		!mcc_ui_network_map_pending(server))
+	{
 		network_game_server_mcc_version(server->game.map.name);
+		/* (the record again, 2 and 5 seconds after the number changed: by
+		then its followers have HOST_NUMBER) */
+		if (network_game_server_mcc_resends > 0 &&
+			system_milliseconds() - network_game_server_mcc_resend_time >
+				(network_game_server_mcc_resends == 2 ? 2000UL : 5000UL))
+		{
+			network_game_server_mcc_resends--;
+			network_game_server_send_game_data_pregame(server);
+		}
+	}
 	mcc_ui_network_update_map(server); /* port: apply pending MCC selection after local admission */
 	/* (what Discord shows of a game hosted for internet play, and the
 	server browser's listing) */
@@ -5871,8 +5891,13 @@ static void network_game_server_delta_refusals(
 		boolean bomb = server->game.variant.game_engine_index == game_engine_bomb;
 		boolean mcc_map = !bomb && mcc_level_name(server->game.map.name);
 		boolean pack_map = !bomb && !mcc_map && cache_files_map_needs_delta(server->game.map.name);
+		/* (port: the number the game is played at changed since the machine
+		joined, as an MCC map's game at 43 does: only a Delta machine with
+		mcc_maps follows it, HOST_NUMBER; any other leaves with a notice) */
+		unsigned joined_number = network_game_server_machine_joined_number(server, machine);
+		boolean number_changed = joined_number && joined_number != (unsigned)delta_legacy_announce();
 
-		if ((!bomb && !pack_map && !mcc_map) ||
+		if ((!bomb && !pack_map && !mcc_map && !number_changed) ||
 			!network_game_server_client_machine_is_joined_to_game(server, machine) ||
 			network_game_server_client_machine_is_local(server, machine) ||
 			machine->machine_index < 0 || machine->machine_index >= MAXIMUM_NETWORK_MACHINE_COUNT)
@@ -5880,17 +5905,24 @@ static void network_game_server_delta_refusals(
 			refused_addresses[index] = 0;
 			continue;
 		}
+		if (number_changed && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) &&
+			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps))
+		{
+			number_changed = FALSE;
+			if (!bomb && !pack_map && !mcc_map)
+				continue;
+		}
 		/* (bomb_traits: a Grifball test build 2 or 3 says TRAITS as 18) */
-		if (bomb && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb) &&
+		if (!number_changed && bomb && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb) &&
 			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb_traits))
 		{
 			continue;
 		}
-		if (pack_map && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform))
+		if (!number_changed && pack_map && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform))
 			continue;
 		/* (an MCC map: a machine without Delta, OpenCE's 43, plays it by its own
 		MCC support; a Delta machine needs mcc_maps: docs/delta.md, bit 24) */
-		if (mcc_map && (delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) ||
+		if (!number_changed && mcc_map && (delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) ||
 			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps)))
 		{
 			continue;
@@ -5929,7 +5961,15 @@ static void network_game_server_delta_refusals(
 				}
 				names[length] = 0;
 			}
-			if (mcc_map)
+			if (number_changed)
+			{
+				snprintf(notice, sizeof(notice), "%s left: %s", names[0] ? names : "A player",
+					mcc_map ? "Needs MCC maps (this game now plays an MCC map)" :
+						"this game now plays at another version");
+				network_event("client machine #%ld joined at network version %u, and the game is now at %d: dropped",
+					(long)machine->machine_index, joined_number, delta_legacy_announce());
+			}
+			else if (mcc_map)
 			{
 				snprintf(notice, sizeof(notice), "%s cannot play this MCC map: it plays only with copies that "
 					"have MCC maps (Chupathingy 0.9.1 or later on a computer)", names[0] ? names : "A player");
@@ -6044,3 +6084,9 @@ boolean network_game_server_map_share_machine(
 #endif
 /* Independent MCC pause-menu round restart. */
 #include "mcc_ui_network.inl"
+
+long network_game_server_machine_count(
+	struct network_game_server *server)
+{
+	return server ? (long)server->game.machine_count : 0;
+}
