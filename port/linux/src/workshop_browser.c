@@ -7,6 +7,10 @@ in the player's Steam libraries. Nothing is downloaded here and nothing is
 written to Steam's folders: Steam does both, asked through its page or,
 with game.workshop_steam on, through the Steam bridge
 (steam_client_bridge.h), which runs only while the section shows.
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 #if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
@@ -2079,6 +2083,119 @@ static void join_fail(const char *why)
 	platform_log("Workshop: the join's item %s not fetched: %s", joining.id, why);
 }
 
+/* the item checked with Steam before the player is asked: Steam's own
+title and size, and that it is a Halo CE item of MCC's (the host's word
+for it is never taken) */
+static struct
+{
+	pthread_mutex_t lock;
+	int state;
+	char id[WORKSHOP_BROWSER_ID_SIZE];
+	char title[WORKSHOP_BROWSER_TITLE_SIZE];
+	long long size;
+} checking = { PTHREAD_MUTEX_INITIALIZER, WORKSHOP_CHECK_NONE, "", "", 0 };
+
+#ifdef HALO_GAME_BROWSER
+static void *check_thread(void *context)
+{
+	char *id = context, body[96], error[128];
+	static struct workshop_browser_item found;
+	char *response = malloc(BROWSE_PAGE_DOCUMENT + 1);
+	int status = 0, count = -1;
+
+	snprintf(body, sizeof(body), "itemcount=1&publishedfileids%%5B0%%5D=%s", id);
+	if (response)
+		status = posix_browser_request_as(DETAILS_URL, body, "application/x-www-form-urlencoded",
+			build_identity_user_agent(), response, BROWSE_PAGE_DOCUMENT + 1, error, sizeof(error));
+	pthread_mutex_lock(&checking.lock);
+	memset(&found, 0, sizeof(found));
+	if (status == 200)
+		count = workshop_browser_read_details(response, (int)strlen(response), &found, 1);
+	if (!strcmp(checking.id, id))
+	{
+		/* (kept only when Steam says it is MCC's, tagged Halo1, and this id) */
+		if (count == 1 && !strcmp(found.id, id))
+		{
+			checking.state = WORKSHOP_CHECK_OK;
+			snprintf(checking.title, sizeof(checking.title), "%s", found.title);
+			checking.size = found.size;
+		}
+		else
+			checking.state = status == 200 && count >= 0 ? WORKSHOP_CHECK_REFUSED : WORKSHOP_CHECK_FAILED;
+		platform_log("Workshop: the join's item %s checked with Steam: %s", id,
+			checking.state == WORKSHOP_CHECK_OK ? "a Halo CE item" : checking.state == WORKSHOP_CHECK_REFUSED ?
+			"not a Halo CE item of MCC's" : "no answer");
+	}
+	pthread_mutex_unlock(&checking.lock);
+	free(response);
+	free(id);
+	return NULL;
+}
+#endif
+
+int workshop_join_check(const char *id)
+{
+	pthread_mutex_lock(&checking.lock);
+	memset(checking.title, 0, sizeof(checking.title));
+	checking.size = 0;
+	checking.state = WORKSHOP_CHECK_FAILED;
+	snprintf(checking.id, sizeof(checking.id), "%s", workshop_browser_id_valid(id) ? id : "");
+	pthread_mutex_unlock(&checking.lock);
+	if (!workshop_browser_id_valid(id))
+		return 0;
+#ifdef HALO_GAME_BROWSER
+	{
+		pthread_t thread;
+		char *copy = malloc(strlen(id) + 1);
+
+		if (!copy)
+			return 0;
+		strcpy(copy, id);
+		pthread_mutex_lock(&checking.lock);
+		checking.state = WORKSHOP_CHECK_ASKING;
+		pthread_mutex_unlock(&checking.lock);
+		if (pthread_create(&thread, NULL, check_thread, copy) == 0)
+			pthread_detach(thread);
+		else
+		{
+			free(copy);
+			pthread_mutex_lock(&checking.lock);
+			checking.state = WORKSHOP_CHECK_FAILED;
+			pthread_mutex_unlock(&checking.lock);
+			return 0;
+		}
+	}
+	return 1;
+#else
+	return 0;
+#endif
+}
+
+int workshop_join_checked(char *title, int title_size, long long *size)
+{
+	int state;
+
+	pthread_mutex_lock(&checking.lock);
+	state = checking.state;
+	if (title && title_size > 0)
+		snprintf(title, (size_t)title_size, "%s", checking.title);
+	if (size)
+		*size = checking.size;
+	pthread_mutex_unlock(&checking.lock);
+	return state;
+}
+
+/* the item the player said yes to: only one Steam called a Halo CE item */
+static int join_checked(const char *id)
+{
+	int ok;
+
+	pthread_mutex_lock(&checking.lock);
+	ok = checking.state == WORKSHOP_CHECK_OK && !strcmp(checking.id, id);
+	pthread_mutex_unlock(&checking.lock);
+	return ok;
+}
+
 int workshop_join_start(const char *id, char *why, int size)
 {
 	why[0] = 0;
@@ -2086,6 +2203,11 @@ int workshop_join_start(const char *id, char *why, int size)
 	if (!workshop_browser_id_valid(id))
 	{
 		snprintf(why, (size_t)size, "Not a Workshop item.");
+		return 0;
+	}
+	if (!join_checked(id))
+	{
+		snprintf(why, (size_t)size, "Steam didn't say it is a Halo CE item.");
 		return 0;
 	}
 	snprintf(joining.id, sizeof(joining.id), "%s", id);
@@ -2188,9 +2310,15 @@ int workshop_join_poll(unsigned long long *done, unsigned long long *total, char
 		libraries_look(0);
 		if (item_state(joining.id) == WORKSHOP_ITEM_INSTALLED)
 		{
+			char folder[STEAM_WORKSHOP_PATH_SIZE];
+
 			joining.state = WORKSHOP_JOIN_INSTALLED;
 			platform_log("Workshop: the join's item %s installed", joining.id);
 			mcc_maps_rescan();
+			/* (its ModInfo.json says Halo1, as Steam's tag did: only then are
+			its maps read; anything else is no map of this game's) */
+			if (!steam_workshop_package_folder(joining.id, folder, sizeof(folder)))
+				join_fail("Not a Halo CE item.");
 			if (!workshop.tab_open)
 				steam_bridge_close();
 		}

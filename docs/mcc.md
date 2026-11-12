@@ -40,7 +40,8 @@ client and no steamcmd.
    scan it and approve. The game never sees your password. It keeps the
    sign-in in the macOS Keychain (Windows: a file sealed to your Windows
    account; Linux: your desktop's keyring, else a private file in the data
-   folder). Choose **STEAM ACCOUNT** again and confirm to unlink: the game
+   folder, which is not encrypted: Settings tells you when that is where it
+   is). Choose **STEAM ACCOUNT** again and confirm to unlink: the game
    forgets the sign-in and tells Steam to revoke it.
 2. **MCC**: own Halo: The Master Chief Collection on Steam.
 
@@ -65,6 +66,21 @@ The **Search** row filters the list by Steam's tags (**Multiplayer**,
 are offered.
 
 ![Filters and sorts](screenshots/mcc-setup-find.jpg)
+
+## Joining a game with a Workshop map
+
+When you join a game whose MCC map you don't have, the game first asks
+Steam about the item. Only an MCC Halo CE item is offered, under Steam's
+own name for it and its size, never the name the host gives. Say yes and
+it downloads, then you join again. Nothing is downloaded unless you say
+yes, or you ticked **Don't ask again** with yes before
+(`network.workshop_downloads = "always"`). Even then, an item over 1 GB asks
+first (`network.workshop_downloads_limit_mb`). After the download, an item
+whose own files don't say Halo CE is not loaded.
+
+The game's own download refuses an item over 8 GB, a file over 4 GB, and an
+item the disk has no room for (`game.workshop_item_limit_mb`,
+`game.workshop_file_limit_mb`).
 
 ## Where the files are
 

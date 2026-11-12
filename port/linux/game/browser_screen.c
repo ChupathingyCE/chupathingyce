@@ -335,6 +335,10 @@ static struct
 	char offer_workshop_id[24];
 	/* (why a Workshop item wasn't fetched: the Workshop's own short sentence) */
 	char offer_workshop_why[96];
+	/* (Steam's own word on the item, asked before the player is:
+	WORKSHOP_CHECK_*, and its size in bytes, 0 unknown) */
+	int offer_workshop_check;
+	long long offer_workshop_size;
 	boolean offer_dont_ask;
 	struct map_download_progress offer_progress;
 	/* when it was offered (the A that joined, still held, answers nothing) */
@@ -635,6 +639,7 @@ void platform_text_field(int typing);
 void platform_log(char const *format, ...);
 int config_boolean(char const *name);
 char const *config_string(char const *name);
+long config_integer(char const *name);
 void display_error_text_deferred(wchar_t const *text, short local_player_index);
 
 /* a game left for want of the map, which is not downloaded after all (the
@@ -846,6 +851,53 @@ static void offer_map(
 
 /* the offer ended without the map: the join given up, with why (a game
 left for want of it: the main menu's error, rejoin_given_up) */
+/* while a Workshop item is asked about: Steam's answer for it taken in.
+A Halo CE item shows Steam's title and size, and with "always" is got at
+once when it is within network.workshop_downloads_limit_mb (else asked);
+anything else is given up */
+static void follow_workshop_check(
+	void)
+{
+	char title[sizeof(browser_screen.offer_display)];
+	long long size;
+	long limit;
+	int state;
+
+	if (browser_screen.offer_workshop_check != WORKSHOP_CHECK_ASKING)
+		return;
+	state = workshop_join_checked(title, (int)sizeof(title), &size);
+	if (state == WORKSHOP_CHECK_ASKING)
+		return;
+	browser_screen.offer_workshop_check = state;
+	if (state != WORKSHOP_CHECK_OK)
+	{
+		char const *why = state == WORKSHOP_CHECK_REFUSED ? "Steam says it isn't a Halo CE item." :
+			"Steam didn't answer.";
+
+		csstrncpy(browser_screen.offer_workshop_why, why, sizeof(browser_screen.offer_workshop_why) - 1);
+		if (browser_screen.rejoin_pending)
+			rejoin_given_up(why);
+		else
+		{
+			browser_screen.offer = _offer_failed;
+			browser_screen.offer_time = system_milliseconds();
+		}
+		return;
+	}
+	if (title[0])
+	{
+		csstrncpy(browser_screen.offer_display, title, sizeof(browser_screen.offer_display) - 1);
+		browser_screen.offer_display[sizeof(browser_screen.offer_display) - 1] = 0;
+	}
+	browser_screen.offer_workshop_size = size;
+	limit = config_integer("network.workshop_downloads_limit_mb");
+	if (workshop_join_setting() == WORKSHOP_JOIN_ALWAYS && size > 0 && limit > 0 &&
+		(unsigned long long)size <= ((unsigned long long)limit << 20))
+	{
+		start_offered_download();
+	}
+}
+
 static void offer_given_up(
 	char const *why)
 {
@@ -1000,6 +1052,12 @@ static void offer_button(
 	switch (browser_screen.offer)
 	{
 	case _offer_asking:
+		/* (a Workshop item: no yes before Steam has said what it is) */
+		if (button == _gamepad_analog_button_a && browser_screen.offer_workshop &&
+			browser_screen.offer_workshop_check != WORKSHOP_CHECK_OK)
+		{
+			break;
+		}
 		if (button == _gamepad_analog_button_a)
 		{
 			if (browser_screen.offer_dont_ask && browser_screen.offer_workshop)
@@ -2104,10 +2162,16 @@ void browser_screen_workshop_missing(
 	}
 	csstrncpy(browser_screen.offer_workshop_id, id, sizeof(browser_screen.offer_workshop_id) - 1);
 	browser_screen.offer_workshop_id[sizeof(browser_screen.offer_workshop_id) - 1] = 0;
-	csstrncpy(browser_screen.offer_display, title && title[0] ? title : id, sizeof(browser_screen.offer_display) - 1);
+	/* (the host's name for it only in the log: the dialog shows Steam's
+	own title once Steam has answered for the item) */
+	csstrncpy(browser_screen.offer_display, id, sizeof(browser_screen.offer_display) - 1);
 	browser_screen.offer_display[sizeof(browser_screen.offer_display) - 1] = 0;
 	browser_screen.offer_file[0] = 0;
 	browser_screen.offer_workshop = TRUE;
+	browser_screen.offer_workshop_size = 0;
+	browser_screen.offer_workshop_check = workshop_join_check(id) ? WORKSHOP_CHECK_ASKING : WORKSHOP_CHECK_FAILED;
+	platform_log("workshop: the host names item %s \"%.64s\"; Steam is asked for its own details", id,
+		title ? title : "");
 	/* (the host joined again as browser_screen_map_missing has it) */
 	browser_screen_map_rejoin_set();
 	error(_error_silent, "workshop: the join left for item %s; offered over the main menu, then the game joined again", id);
@@ -2140,10 +2204,9 @@ boolean browser_screen_open_map_offer(
 	{
 		browser_screen.offer_dont_ask = FALSE;
 		browser_screen.offer_time = system_milliseconds();
-		if (workshop_join_setting() == WORKSHOP_JOIN_ALWAYS)
-			start_offered_download();
-		else
-			browser_screen.offer = _offer_asking;
+		/* (asked, or got at once with "always", only once Steam has
+		answered for it: follow_workshop_check) */
+		browser_screen.offer = _offer_asking;
 		return TRUE;
 	}
 	offer_map(browser_screen.offer_file, browser_screen.offer_version);
@@ -2465,6 +2528,8 @@ void browser_screen_process(
 	struct event_record event;
 
 	fetch_games();
+	if (browser_screen.offer == _offer_asking && browser_screen.offer_workshop)
+		follow_workshop_check();
 	if (browser_screen.offer == _offer_downloading)
 		follow_download();
 	else if (browser_screen.offer == _offer_failed && browser_screen.rejoin_pending &&
@@ -3456,11 +3521,24 @@ static void draw_map_offer(
 		/* (an MCC Workshop item: through the player's own Steam) */
 		if (browser_screen.offer_workshop)
 		{
+			/* (Steam's own title and size, once Steam has answered) */
+			if (browser_screen.offer_workshop_check != WORKSHOP_CHECK_OK)
+			{
+				ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 86, UI_ALIGN_CENTER, 0xFFFFFFFF,
+					0x3D8BFF90, "Asking Steam about the map\xE2\x80\xA6");
+				dialog_prompt(UI_BUTTON_B, "=CANCEL");
+				break;
+			}
 			snprintf(text, sizeof(text), "Get %s", browser_screen.offer_display);
 			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 86, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
 				text);
+			if (browser_screen.offer_workshop_size > 0)
+				snprintf(text, sizeof(text), "from the Steam Workshop (%.1f MB)?",
+					(double)browser_screen.offer_workshop_size / 1048576.0);
+			else
+				snprintf(text, sizeof(text), "from the Steam Workshop?");
 			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
-				"from the Steam Workshop?");
+				text);
 			draw_dont_ask(y);
 			dialog_prompts(NUMBEROF(buttons), buttons, words);
 			break;

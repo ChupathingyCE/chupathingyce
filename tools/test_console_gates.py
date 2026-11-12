@@ -115,10 +115,10 @@ WORKSHOP_HOOKS = {
     "port/linux/src/workshop_browser.h": ["workshop_browser_offered", "workshop_browser_picture_of",
                                           "workshop_browser_cached_picture", "workshop_join_setting",
                                           "workshop_join_set_setting", "workshop_join_start", "workshop_join_poll",
-                                          "workshop_join_cancel"],
+                                          "workshop_join_cancel", "workshop_join_check", "workshop_join_checked"],
     "port/linux/src/steam_client_bridge.h": ["steam_link_available", "steam_link_linked", "steam_link_start",
                                              "steam_link_poll", "steam_link_cancel", "steam_link_set_armed",
-                                             "steam_link_armed", "steam_link_unlink"],
+                                             "steam_link_armed", "steam_link_unlink", "steam_link_store_secure"],
     "port/linux/game/guide_workshop.h": ["guide_workshop_shown", "guide_workshop_link_panel",
                                          "guide_workshop_render", "guide_workshop_update"],
 }

@@ -280,6 +280,13 @@ void workshop_join_set_setting(int setting);
 /* the item fetched through the player's Steam (the client: subscribed;
 steamcmd: downloaded), the bridge turned on for it (the player's yes):
 0 with why (one or two words and what to do) when it can't be */
+/* WORKSHOP_CHECK_*: the item asked of Steam (its details, no key) before
+the player is asked: OK with Steam's own title and size for a Halo CE item
+of MCC's (consumer app 976730, tag Halo1); REFUSED otherwise; FAILED
+without an answer. workshop_join_check starts it (0: a bad id) */
+enum { WORKSHOP_CHECK_NONE = 0, WORKSHOP_CHECK_ASKING, WORKSHOP_CHECK_OK, WORKSHOP_CHECK_REFUSED, WORKSHOP_CHECK_FAILED };
+int workshop_join_check(const char *id);
+int workshop_join_checked(char *title, int title_size, long long *size);
 int workshop_join_start(const char *id, char *why, int size);
 /* where it stands (WORKSHOP_JOIN_*), its bytes when Steam says, and why it
 failed; INSTALLED once its folder has its ModInfo.json (the maps read
@@ -312,6 +319,8 @@ the shared code's calls doing nothing, their arguments unevaluated */
 #define workshop_join_setting() WORKSHOP_JOIN_NEVER
 #define workshop_join_set_setting(a0) ((void)sizeof(a0), (void)0)
 #define workshop_join_start(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), 0)
+#define workshop_join_check(a0) ((void)sizeof(a0), 0)
+#define workshop_join_checked(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), WORKSHOP_CHECK_FAILED)
 #define workshop_join_poll(a0, a1, a2, a3) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), WORKSHOP_JOIN_FAILED)
 #define workshop_join_cancel() ((void)0)
 #endif
