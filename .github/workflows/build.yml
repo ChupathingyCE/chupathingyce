@@ -362,6 +362,7 @@ jobs:
           python3 tools/test_local_player_quit.py
           python3 tools/test_tag_byte_swap.py
           python3 tools/test_bitmap_byte_order.py
+          python3 -m pytest -q tools/test_macos_fullscreen_space.py
           python3 -m pytest -q tools/test_console_link.py
           python3 -m pytest -q tools/test_console_claims.py
           python3 -m pytest -q tools/test_console_gates.py
