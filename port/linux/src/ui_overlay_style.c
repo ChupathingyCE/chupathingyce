@@ -343,9 +343,27 @@ void ui_style_tabs(float left, float right, float y, float height, const char *c
 	float glyph = height * 0.64f;
 	int index;
 
+	float text = 0.0f, room;
+
 	for (index = 0; index < count; index++)
-		total += ui_overlay_text_width(UI_FONT_MENU, size, names[index]) + 2 * pad + gap;
-	total -= gap;
+		text += ui_overlay_text_width(UI_FONT_MENU, size, names[index]);
+	/* (more tabs than fit between the bumpers: their padding narrowed, then
+	their text made smaller, so none runs under a bumper) */
+	room = right - left - bumper(UI_BUTTON_LEFT_SHOULDER, left_key, glyph, 0, 0, 1) -
+		bumper(UI_BUTTON_RIGHT_SHOULDER, right_key, glyph, 0, 0, 1) - 4 * gap;
+	if (count > 0 && text + count * 2 * pad + (count - 1) * gap > room)
+	{
+		pad = (room - text - (count - 1) * gap) / (2.0f * count);
+		if (pad < height * 0.15f)
+		{
+			pad = height * 0.15f;
+			size *= (room - count * 2 * pad - (count - 1) * gap) / text;
+			text = 0.0f;
+			for (index = 0; index < count; index++)
+				text += ui_overlay_text_width(UI_FONT_MENU, size, names[index]);
+		}
+	}
+	total = text + count * 2 * pad + (count - 1) * gap;
 	bumper(UI_BUTTON_LEFT_SHOULDER, left_key, glyph, left, y + (height - glyph) * 0.5f, 0);
 	bumper(UI_BUTTON_RIGHT_SHOULDER, right_key, glyph,
 		right - bumper(UI_BUTTON_RIGHT_SHOULDER, right_key, glyph, 0, 0, 1), y + (height - glyph) * 0.5f, 0);

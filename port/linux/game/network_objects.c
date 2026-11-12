@@ -54,6 +54,7 @@ same datum index (identifier and all), so that any message can name one:
 #include "models/model_definitions.h"
 #include "units/units.h"
 #include "units/bipeds.h"
+#include "mcc_seats.h"
 #include "units/biped_definitions.h"
 #include "units/vehicle_definitions.h"
 #include "units/vehicle_datum.h"
@@ -80,6 +81,7 @@ static void delta_host_vitals_pass(long machine_index);
 static void delta_host_send_names(boolean everything, long machine_index);
 static void distributed_client_delete(long object_index);
 #endif
+#include "mcc_network.h"
 
 #include <math.h>
 
@@ -3010,6 +3012,7 @@ void network_objects_host_tick(
 	if (game_time_get() % INVENTORY_INTERVAL_TICKS == 0)
 		distributed_host_send_inventories();
 	distributed_host_send_damage_animations();
+	mcc_network_host_tick();
 }
 
 /* ---------- a client */
@@ -4056,6 +4059,15 @@ void network_objects_set_seat(
 			return;
 		}
 		vehicle = (struct unit_datum *)object_try_and_get_and_verify_type(vehicle_index, _object_mask_vehicle);
+		/* MCC biped seats use the host's existing seat state and all the
+		same identity, capacity and attachment-cycle checks below. */
+		if (!vehicle)
+		{
+			vehicle = mcc_seat_parent(vehicle_index);
+			if (vehicle && (TEST_FLAG(vehicle->object.damage_flags, _object_dead_bit) ||
+				!unit_has_animation_to_enter_seat(unit_index, vehicle_index, seat_index)))
+				return;
+		}
 		if (!vehicle || seat_index < 0 ||
 			seat_index >= unit_definition_get(vehicle->definition_index)->unit.seats.count)
 		{
@@ -4301,6 +4313,7 @@ void network_objects_client_tick(
 		objects_client_check_all = TRUE;
 	distributed_client_ready_picked_up_weapons();
 	distributed_client_note_own_inventories();
+	mcc_network_client_tick();
 	distributed_client_send_vehicles();
 	distributed_client_carry_unsteered_vehicles();
 #ifdef HALO_GAME_BROWSER
@@ -4323,6 +4336,7 @@ void network_objects_new_game(
 	short local_player_index;
 	short index;
 
+	mcc_network_new_game();
 #ifdef HALO_PORT_CONSOLE_LIMITS
 	objects_cross_play_new_game();
 #endif

@@ -143,6 +143,29 @@ size_t xbox_heap_used(void)
 }
 
 #endif
+#ifndef HALO_WINDOW_TRANSLATED
+/* port: MCC maps are linked to their own tag addresses, 0x50000000 for
+MCC's tools, inside the heap's range; while one is loaded the heap ends
+below its tags (port/linux/src/mcc_memory.c). FALSE when the heap reaches
+past address already; 0 lifts the limit. */
+BOOL xbox_heap_limit(unsigned int address)
+{
+	BOOL result = TRUE;
+
+	pthread_mutex_lock(&heap_lock);
+	heap_initialize();
+	if (!address)
+		heap_end = xbox_pointer(XBOX_HEAP_END);
+	else if (address < XBOX_HEAP_BASE || address > XBOX_HEAP_END ||
+		heap_next > (unsigned char *)xbox_pointer(address))
+		result = FALSE;
+	else
+		heap_end = xbox_pointer(address);
+	pthread_mutex_unlock(&heap_lock);
+	return result;
+}
+
+#endif
 BOOL xbox_heap_contains(const void *pointer)
 {
 #ifdef HALO_WINDOW_TRANSLATED

@@ -220,6 +220,8 @@ def main() -> int:
     # the menus' XML parser (port/third_party/expat), in every build, whose
     # MIT license asks copies to carry its notice
     shutil.copy2(ROOT / "port/third_party/expat/COPYING", dist / "expat-COPYING.txt")
+    # MCC's texture decoder is distributed under bcdec's MIT option.
+    shutil.copy2(ROOT / "port/third_party/bcdec/LICENSE", dist / "bcdec-LICENSE.txt")
     # the bgfx renderer of the 64-bit desktop builds (tools/bgfx_build.py):
     # bgfx's, bx's and bimg's BSD licenses ask binaries to carry their
     # notices, as do glslang's and, on macOS, SPIRV-Cross's

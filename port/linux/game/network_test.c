@@ -127,6 +127,7 @@ network_test_update, which does nothing there */
 #ifdef HALO_GAME_BROWSER
 #include "../src/browser.h"
 #endif
+#include "mcc_cache.h"
 
 #include <math.h>
 #include <stdarg.h>
@@ -1673,7 +1674,9 @@ void network_test_update(
 		}
 	}
 
-	if (!main_menu_loaded)
+	/* The real menu waits for profile enumeration before accepting input.
+	Starting a lobby sooner can block its join on the profile mutex. */
+	if (!main_menu_loaded || filesystem_check_thread_is_active())
 		return;
 	/* the intro movie skipped first, as a button press does: the movie
 	holds the texture cache's spare memory, which starting the map
@@ -1726,8 +1729,12 @@ void network_test_update(
 				{
 					/* (the Map screen's co-op: menu_functions.c) */
 					extern boolean ui_widget_port_cooperative_level_choose(char const *map_name, short difficulty);
+					extern boolean ui_widget_port_mcc_cooperative_level_choose(char const *map_name, short difficulty);
 
-					if (!ui_widget_port_cooperative_level_choose(path, _game_difficulty_level_normal))
+					/* Exercise the same independent MCC route as its campaign menu. */
+					if (!(mcc_level_name(path) ?
+						ui_widget_port_mcc_cooperative_level_choose(path, _game_difficulty_level_normal) :
+						ui_widget_port_cooperative_level_choose(path, _game_difficulty_level_normal)))
 						platform_log("network test: %s is not a campaign level, for co-op", path);
 					platform_log("network test: game %d, co-op", network_test.variant_index + 1);
 				}

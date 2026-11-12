@@ -1,0 +1,455 @@
+"""Exercise real scenario-load dispatch against a failed initial MCC BSP."""
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+import pytest
+from harness import function
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_explicit_campaign_completion_is_host_owned_and_has_no_retained_state(tmp_path):
+    from test_mcc_identity import compile_tool
+    adapter = function((ROOT / "port/linux/game/mcc_main.c").read_text(), "mcc_main_campaign_won")
+    source = tmp_path / "campaign_completion.c"
+    source.write_text(r'''
+#include <string.h>
+#include <wchar.h>
+typedef int boolean;
+#define FALSE 0
+#define TRUE 1
+#define _error_silent 0
+#define _game_connection_local 0
+#define _game_connection_network_server 1
+#define _game_connection_network_client 2
+struct network_game {struct {char name[64];} map;};
+static struct network_game game={{"mcc_maps\\Host\\z10"}};
+static int active=1,type,enabled=1,connection,state=1,lookups,queued,persistent,rounds,errors;
+static char selected[64];
+static int completions;
+static int game_difficulty_level_get(void){return 2;}
+static void mcc_progress_complete(char const *name,short difficulty){
+ if(difficulty==2 && !strcmp(name,connection==1 ? game.map.name : "mcc_maps\\Local\\z10"))completions++;
+}
+static int mcc_cache_tags_loaded(void){return active;}
+static int mcc_cache_scenario_type(void){return type;}
+static int config_boolean(char const *key){(void)key;return enabled;}
+static int game_connection(void){return connection;}
+static struct network_game *network_game_get_game(void){return &game;}
+static char const *main_get_map_name(void){return "mcc_maps\\Local\\z10";}
+static int mcc_maps_next_mission(char const *name,char next[64]) {
+ lookups++;
+ if(strcmp(name,connection==1 ? game.map.name : main_get_map_name()))return -1;
+ strcpy(next,"mcc_maps\\Pack\\a10");return state;
+}
+static void error(int severity,char const *message,...){(void)severity;(void)message;}
+static void mcc_error_text(char const *name,char const *reason,wchar_t *text,int size){(void)name;(void)reason;(void)size;text[0]=0;}
+static void display_error_text_deferred(wchar_t const *text,int controller){(void)text;(void)controller;errors++;}
+static void network_game_server_port_cooperative_won(char const *next){rounds++;strcpy(selected,next ? next : "lobby");}
+static void main_set_map_name(char const *next){strcpy(selected,next);}
+static void main_disallow_persistent_storage(void){persistent++;}
+static void main_goto_main_menu(void){queued++;}
+''' + adapter + r'''
+int main(void) {
+ int i;
+ for(i=0;i<3;i++) {
+  active=i!=0;type=i==1;enabled=i!=2;
+  if(mcc_main_campaign_won() || lookups || queued || rounds || completions)return 1;
+ }
+ active=enabled=1;type=0;
+ if(!mcc_main_campaign_won() || strcmp(selected,"mcc_maps\\Pack\\a10") || persistent!=1 || queued)return 2;
+ state=2;if(!mcc_main_campaign_won() || queued!=1)return 3;
+ state=-1;if(!mcc_main_campaign_won() || queued!=2 || errors!=1)return 4;
+ state=0;if(!mcc_main_campaign_won() || queued!=3)return 5;
+ connection=1;state=1;
+ if(!mcc_main_campaign_won() || rounds!=1 || strcmp(selected,"mcc_maps\\Pack\\a10") || persistent!=1)return 6;
+ state=2;if(!mcc_main_campaign_won() || rounds!=2 || strcmp(selected,"lobby"))return 7;
+ state=-1;if(!mcc_main_campaign_won() || rounds!=3 || errors!=2)return 8;
+ connection=2;i=lookups;
+ if(!mcc_main_campaign_won() || lookups!=i || rounds!=3 || queued!=3 || completions!=7)return 9;
+ /* Switching back to an unaffected family cannot retain campaign state. */
+ active=0;connection=0;if(mcc_main_campaign_won() || lookups!=i)return 10;
+ return 0;
+}
+''')
+    binary = compile_tool(tmp_path, [source])
+    result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_network_mcc_load_failure_schedules_abort_without_initializing_players(tmp_path):
+    from test_mcc_identity import compile_tool
+
+    manager = (ROOT / "source/networking/network_game_manager.c").read_text()
+    adapter = (ROOT / "port/linux/game/mcc_main.c").read_text()
+    code = r'''
+#include <string.h>
+#include <wchar.h>
+#include "mcc_errors.h"
+#define custom_edition_level_name(p) (!strncmp(p,"custom_maps\\",12))
+#define custom_edition_cache_load_error(p) "CE fixture load failed"
+#include <stdio.h>
+typedef int boolean;
+#define TRUE 1
+#define FALSE 0
+#define _error_silent 2
+#define _game_connection_network_client 1
+#define _game_connection_network_server 2
+#define _game_connection_film_playback 3
+#define NETWORK_GAME_PLAYER_SLOTS 2
+#define match_assert(a,b,c) ((void)0)
+#define csstrncpy strncpy
+struct game_options {char map_name[64];int difficulty,random_seed;};
+struct player {int player_list_index;};
+struct network_game {
+    struct {char name[64];} map;
+    struct {int game_engine_index;} variant;
+    struct {int game_objects_loaded;} local_data;
+    struct player players[2];
+    int difficulty,random_seed,variant_options;
+};
+static int fatal,aborts,popups,clears,menus,initialized,spawned,refuse=1,connection=1;
+static void error(int priority,char const *format,...) {(void)format;if(priority==0)fatal++;}
+static void game_options_new(struct game_options *p) {memset(p,0,sizeof(*p));}
+static int game_connection(void) {return connection;}
+static int network_game_get_random_seed(void) {return 1;}
+static void game_precache_new_map(char *p,int v) {(void)p;(void)v;}
+static void main_menu_unload(void) {}
+static int game_in_progress(void) {return 0;}
+static int game_map_loaded(void) {return 0;}
+static void game_dispose_from_old_map(void) {}
+static void game_unload(void) {}
+static void game_set_game_variant(void *p) {(void)p;}
+static void game_set_game_variant_options(void *p) {(void)p;}
+static int game_load(struct game_options *p) {(void)p;return !refuse;}
+static void game_initialize_for_new_map(void) {initialized++;}
+static int network_player_is_valid(struct player *p) {(void)p;return 1;}
+static int network_game_spawn_player(struct player *p) {(void)p;spawned++;return 1;}
+static int mcc_level_name(char const *p) {return !strncmp(p,"mcc_maps\\",9);}
+static void errors_clear(void) {clears++;}
+static void display_error_text_when_main_menu_loaded(wchar_t const *p) {(void)p;popups++;}
+static void network_game_abort(void) {aborts++;}
+static void main_goto_main_menu(void) {menus++;}
+''' + function(adapter, "mcc_main_network_load_failed") + function(manager, "network_game_create_game_objects") + r'''
+#define CHECK(c) do{if(!(c)){fprintf(stderr,"line%d\n",__LINE__);return 1;}}while(0)
+int main(void) {
+    struct network_game game={0};
+    for(connection=1;connection<=2;connection++) {
+        strcpy(game.map.name,"mcc_maps\\Floodslayer\\c10_flood");
+        game.local_data.game_objects_loaded=1;
+        CHECK(!network_game_create_game_objects(&game));
+        CHECK(!game.local_data.game_objects_loaded && !fatal && !initialized && !spawned);
+        CHECK(aborts==connection && popups==connection && clears==connection && menus==connection);
+    }
+    game.local_data.game_objects_loaded=0;
+    strcpy(game.map.name,"levels\\a10\\a10");
+    CHECK(!network_game_create_game_objects(&game));CHECK(fatal==1 && aborts==2);
+    strcpy(game.map.name,"custom_maps\\test");
+    CHECK(!network_game_create_game_objects(&game));CHECK(fatal==2 && aborts==2);
+    strcpy(game.map.name,"mcc_maps\\good");refuse=0;
+    CHECK(network_game_create_game_objects(&game));
+    CHECK(initialized==1 && spawned==2 && aborts==2 && clears==2);
+    return 0;
+}
+'''
+    source = tmp_path / "network_failure.c"
+    source.write_text(code)
+    binary = compile_tool(tmp_path, [source, ROOT / "port/linux/game/mcc_errors.c"])
+    subprocess.run([str(binary)], check=True, capture_output=True, text=True)
+
+
+def test_mcc_completion_defers_menu_load_without_starting_xbox_credits(tmp_path):
+    compiler = shutil.which("clang") or shutil.which("cc")
+    if not compiler:
+        pytest.skip("a C compiler is required")
+    native = (ROOT / "source/main/main.c").read_text()
+    adapter = (ROOT / "port/linux/game/mcc_main.c").read_text()
+    source = r'''
+typedef int boolean;
+#define TRUE 1
+#define FALSE 0
+#define _error_silent 0
+static int active,queued,loaded,movies,logged;
+static boolean mcc_cache_tags_loaded(void) {return active;}
+static void error(int level,char const *text,...) {(void)level;(void)text;logged++;}
+static void main_goto_main_menu(void) {queued++;}
+static void main_menu_load(void) {loaded++;active=0;}
+static void game_end_credits_start(void) {movies++;}
+''' + function(adapter, "mcc_main_map_completed") + function(native, "main_roll_credits") + r'''
+int main(void) {
+    int i;
+    /* Repeated MCC loads and completion do not retain transition state. */
+    for(i=0;i<2;i++) {
+        active=1;main_roll_credits();
+        if(queued!=i+1 || loaded!=i || movies || logged!=i+1 || !active)return 1;
+        /* The main loop performs the queued transition, after this returns. */
+        main_menu_load();
+    }
+    /* With MCC inactive, both Xbox and CE retain the exact native sequence. */
+    for(i=0;i<2;i++) {
+        main_roll_credits();
+        if(queued!=2 || loaded!=3+i || movies!=1+i || logged!=3+i)return 2;
+    }
+    return 0;
+}
+'''
+    path = tmp_path / "completion.c"
+    path.write_text(source)
+    binary = tmp_path / ("completion.exe" if sys.platform == "win32" else "completion")
+    flags = (["--target=i686-pc-windows-msvc", "-fuse-ld=lld"] if sys.platform == "win32" else [])
+    built = subprocess.run([compiler, *flags, "-std=gnu89", "-Wall", "-Wextra", "-Werror",
+                            str(path), "-o", str(binary)], capture_output=True, text=True)
+    assert built.returncode == 0, built.stderr
+    result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_initial_mcc_bsp_failure_balances_state_and_preserves_legacy_rollback(tmp_path):
+    """Exercise real BSP switching with and without the MCC dispatch active."""
+    compiler = shutil.which("clang") or shutil.which("cc")
+    if not compiler:
+        pytest.skip("a C compiler is required")
+    current = function((ROOT / "source/scenario/scenario.c").read_text(), "scenario_switch_structure_bsp")
+    prefix = r'''
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+typedef int boolean;
+#define FALSE 0
+#define TRUE 1
+#define NONE (-1)
+#define _error_silent 0
+#define _error_immediate 1
+#define MAXIMUM_STRUCTURE_BSPS_PER_SCENARIO 32
+#define match_assert(file,line,condition) do {if(!(condition))exit(20);}while(0)
+#define TAG_BLOCK_GET_ELEMENT(block,index,type) ((type *)(block)->address+(index))
+struct block {int count;void *address;};
+struct scenario_structure_bsp_reference {struct {int index;} structure_bsp;};
+struct collision_bsp {int unused;};
+struct bsp3d {int unused;};
+struct structure_bsp {struct block collision_bsp;};
+static struct {struct block structure_bsp_references;} scenario,*global_scenario=&scenario;
+static struct {int structure_bsp_index;} globals,*scenario_globals=&globals;
+static struct scenario_structure_bsp_reference references[2]={{{0}},{{1}}};
+static struct collision_bsp collision;
+static struct structure_bsp bsp={{1,&collision}};
+static struct structure_bsp *global_structure_bsp;
+static struct collision_bsp *global_collision_bsp;
+static struct bsp3d *global_bsp3d;
+static short global_structure_bsp_index;
+static int mcc,mode;
+static struct results {
+    int stopped,started,collision_disabled,collision_enabled,disconnects,reconnects,
+        unloads,loads,verifies,modal,silent,menu,returned,index,scenario_index,pointers;
+} observed;
+static int mcc_cache_tags_loaded(void) {return mcc;}
+static void main_stop_time(void) {observed.stopped++;}
+static void main_start_time(void) {observed.started++;}
+static void collision_log_enable(int enabled) {
+    if(enabled)observed.collision_enabled++;else observed.collision_disabled++;
+}
+static void scenario_call_disconnect_from_structure_bsp_procs(void) {observed.disconnects++;}
+static void scenario_call_reconnect_to_structure_bsp_procs(void) {observed.reconnects++;}
+static void scenario_structure_bsp_unload(struct scenario_structure_bsp_reference *reference) {
+    (void)reference;observed.unloads++;
+}
+static int scenario_structure_bsp_load(struct scenario_structure_bsp_reference *reference) {
+    (void)reference;observed.loads++;
+    return mode==0 || mode==4 || (mode==2&&observed.loads==2);
+}
+static struct structure_bsp *structure_bsp_definition_get(int index) {(void)index;return &bsp;}
+static int structure_bsp_port_verify(struct structure_bsp *value) {
+    (void)value;observed.verifies++;return mode!=4 || observed.verifies>1;
+}
+static void structure_culling_structure_bsp_loaded(void) {}
+static void main_goto_main_menu(void) {observed.menu++;}
+static void error(int priority,char const *format,...) {
+    (void)format;if(priority==_error_immediate)observed.modal++;else observed.silent++;
+}
+static void reset(int old) {
+    memset(&observed,0,sizeof(observed));
+    scenario.structure_bsp_references.count=2;scenario.structure_bsp_references.address=references;
+    global_structure_bsp_index=globals.structure_bsp_index=(short)old;
+    global_structure_bsp=old==NONE?NULL:&bsp;
+    global_collision_bsp=old==NONE?NULL:&collision;
+    global_bsp3d=old==NONE?NULL:(void *)&collision;
+}
+static void finish(int result) {
+    observed.returned=result;observed.index=global_structure_bsp_index;
+    observed.scenario_index=globals.structure_bsp_index;
+    observed.pointers=!!global_structure_bsp+!!global_collision_bsp+!!global_bsp3d;
+}
+''' + current + r'''
+int main(void) {
+    int old,requested;
+    for(old=NONE;old<=0;old++)
+        for(requested=NONE;requested<=2;requested++)for(mode=0;mode<=4;mode++) {
+            struct results expected;
+            /* Xbox and CE share the inactive MCC gate. Their preserved flow
+             * remains the reference for all non-admission cases. */
+            mcc=0;reset(old);finish(scenario_switch_structure_bsp((short)requested));expected=observed;
+            if(old==NONE&&requested>=0&&requested<2&&mode!=0) {
+                if(expected.modal!=1||expected.returned||expected.pointers||expected.loads!=1||
+                    expected.stopped!=1||expected.started!=1||expected.collision_disabled!=1||
+                    expected.collision_enabled!=1||expected.menu||expected.index!=NONE)return 3;
+            }
+            if(old==0&&requested==1&&mode==2) {
+                if(expected.modal!=1||expected.loads!=2||expected.returned||expected.pointers!=3||
+                    expected.disconnects!=1||expected.reconnects!=1||expected.menu||
+                    expected.index!=0||expected.scenario_index!=0)return 4;
+            }
+            mcc=1;reset(old);finish(scenario_switch_structure_bsp((short)requested));
+            if(old==NONE&&requested>=0&&requested<2&&mode!=0) {
+                if(observed.modal||observed.returned||observed.pointers||observed.loads!=1||
+                    observed.stopped!=1||observed.started!=1||observed.collision_disabled!=1||
+                    observed.collision_enabled!=1||observed.disconnects||observed.reconnects||
+                    observed.menu||observed.index!=NONE||observed.scenario_index!=NONE)return 1;
+                /* The sole behavioral difference is avoiding the modal error. */
+                observed.modal=expected.modal;observed.silent=expected.silent;
+            }
+            if(memcmp(&observed,&expected,sizeof(expected))) {
+                fprintf(stderr,"dispatch changed: old=%d new=%d mode=%d\n",old,requested,mode);
+                return 2;
+            }
+        }
+    return 0;
+}
+'''
+    path = tmp_path / "bsp_dispatch.c"
+    path.write_text(prefix)
+    binary = tmp_path / ("bsp_flow.exe" if sys.platform == "win32" else "bsp_flow")
+    flags = (["--target=i686-pc-windows-msvc", "-fuse-ld=lld"] if sys.platform == "win32" else [])
+    built = subprocess.run([compiler, *flags, "-std=c99", "-Wall", "-Wextra", "-Werror",
+                            str(path), "-o", str(binary)], capture_output=True, text=True)
+    assert built.returncode == 0, built.stderr
+    result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_failed_mcc_bsp_releases_io_owner(tmp_path):
+    compiler = shutil.which("clang") or shutil.which("cc")
+    if not compiler:
+        pytest.skip("a C compiler is required")
+    actual = function((ROOT / "source/scenario/scenario.c").read_text(), "scenario_load")
+    prefix = r'''
+#include <stdio.h>
+#include <string.h>
+typedef int boolean;
+#define FALSE 0
+#define TRUE 1
+#define NONE (-1)
+#define GAME_GLOBALS_TAG 0
+#define _error_delayed 0
+static int scenario_memory_status_attributed, global_scenario_index;
+static int mcc_owner, bsp_result, unloads, tag_result = 1;
+static void *global_game_globals;
+struct scenario { struct { int count; } structure_bsp_references; };
+static struct scenario scenario = {{1}}, *global_scenario;
+static void check_memory_status(int a, char const *b) {(void)a;(void)b;}
+static int scenario_tags_load(char const *name) {(void)name;return tag_result;}
+static struct scenario *scenario_definition_get(int index) {(void)index;return &scenario;}
+static int tag_loaded(int group,char const *name) {(void)group;(void)name;return 0;}
+static void *game_globals_definition_get(int index) {(void)index;return &scenario;}
+static int scenario_switch_structure_bsp(int index) {(void)index;return bsp_result;}
+static void error(int priority,char const *format,...) {(void)priority;(void)format;}
+static int mcc_cache_tags_loaded(void) {return mcc_owner;}
+static void scenario_unload(void) {unloads++;mcc_owner=0;global_scenario=NULL;}
+'''
+    checks = r'''
+int main(void) {
+    mcc_owner=1;
+    if(scenario_load("mcc_maps\\a10") || unloads!=1 || mcc_owner || global_scenario || global_game_globals!=&scenario) return 1;
+    /* A subsequent ordinary map must retain its existing lifetime behavior. */
+    unloads=0;
+    if(scenario_load("a10") || unloads || mcc_owner) return 2;
+    bsp_result=1;
+    if(!scenario_load("custom_maps\\hugeass") || unloads) return 3;
+    mcc_owner=1;
+    if(!scenario_load("mcc_maps\\dangercanyon") || unloads || !mcc_owner) return 4;
+    /* Failed conversion already disposed its private state; no double unload. */
+    mcc_owner=0;tag_result=NONE;
+    if(scenario_load("mcc_maps\\bad") || unloads) return 5;
+    return 0;
+}
+'''
+    source = tmp_path / "lifecycle.c"
+    source.write_text(prefix + actual + checks)
+    binary = tmp_path / ("lifecycle.exe" if sys.platform == "win32" else "lifecycle")
+    flags = (["--target=i686-pc-windows-msvc", "-fuse-ld=lld"] if sys.platform == "win32" else [])
+    built = subprocess.run([compiler, *flags, "-std=c99", "-Wall", "-Wextra", "-Werror",
+                            str(source), "-o", str(binary)], capture_output=True, text=True)
+    assert built.returncode == 0, built.stderr
+    result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_failed_mcc_map_returns_to_ui_before_game_initialization(tmp_path):
+    compiler = shutil.which("clang") or shutil.which("cc")
+    if not compiler:
+        pytest.skip("a C compiler is required")
+    main = function((ROOT / "source/main/main.c").read_text(), "main_new_map")
+    recovery = function((ROOT / "port/linux/game/mcc_main.c").read_text(), "mcc_main_load_failed")
+    source = r'''
+#include <string.h>
+#include <wchar.h>
+#include "mcc_errors.h"
+#define custom_edition_level_name(p) (!strncmp(p,"custom_maps\\",12))
+#define custom_edition_cache_load_error(p) "CE fixture load failed"
+typedef int boolean;
+#define TRUE 1
+#define FALSE 0
+#define NONE -1
+#define _error_immediate 1
+#define _error_silent 0
+struct game_options {char const *map_name;};
+static struct {int reset_map,defer_map_change,revert_map,skip_cinematic,saving_map,
+    won_map,lost_map,respawn,save_core,switch_to_structure_bsp_index,load_core,
+    load_core_at_startup,allow_persistent_storage;} main_globals;
+static int loads,initialized,players,pulses,menus,popups,clears,errors,gotos,refuse=1;
+static void main_new_map(struct game_options *options);
+static void input_flush(void) {}
+static int game_load(struct game_options *options) {
+    loads++; return !strcmp(options->map_name,"levels\\ui\\ui") || !refuse;
+}
+static void game_initialize_for_new_map(void) {initialized++;}
+static void error(int priority,char const *format,...) {(void)format;if(priority)errors++;}
+static int errors_handle(void) {return errors!=0;}
+static void create_local_players(void) {players++;}
+static void game_time_start(void) {}
+static void game_initial_pulse(void) {pulses++;}
+static void game_state_try_and_load_from_persistent_storage(void) {}
+static void ui_widgets_disable_pause_game(int ticks) {(void)ticks;}
+static int mcc_level_name(char const *name) {return !strncmp(name,"mcc_maps\\",9);}
+static void display_error_text_when_main_menu_loaded(wchar_t const *text) {(void)text;popups++;}
+static void errors_clear(void) {errors=0;clears++;}
+static void main_goto_main_menu(void) {gotos++;}
+static void main_menu_load(void) {
+    struct game_options ui={"levels\\ui\\ui"};menus++;main_new_map(&ui);
+}
+''' + recovery + main + r'''
+int main(void) {
+    struct game_options options={"mcc_maps\\bad_bsp"};
+    errors=1; /* A failed initial BSP already reported a native error. */
+    main_new_map(&options);
+    if(loads!=2 || initialized!=1 || players!=1 || pulses!=1 || menus!=1 ||
+       popups!=1 || clears!=1 || gotos!=1 || errors) return 1;
+    options.map_name="a10";main_new_map(&options);
+    if(menus!=1 || clears!=1 || initialized!=1 || loads!=3) return 2;
+    options.map_name="custom_maps\\bad";main_new_map(&options);
+    if(menus!=1 || clears!=1 || initialized!=1 || loads!=4) return 3;
+    options.map_name="mcc_maps\\good";refuse=0;errors=0;main_new_map(&options);
+    if(menus!=1 || clears!=1 || initialized!=2 || loads!=5) return 4;
+    return 0;
+}
+'''
+    path = tmp_path / "recovery.c"
+    path.write_text(source)
+    binary = tmp_path / ("recovery.exe" if sys.platform == "win32" else "recovery")
+    flags = (["--target=i686-pc-windows-msvc", "-fuse-ld=lld"] if sys.platform == "win32" else [])
+    built = subprocess.run([compiler, *flags, "-std=c99", "-Wall", "-Wextra", "-Werror",
+                            "-I", str(ROOT / "port/linux/game"), str(path), str(ROOT / "port/linux/game/mcc_errors.c"), "-o", str(binary)], capture_output=True, text=True)
+    assert built.returncode == 0, built.stderr
+    result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr

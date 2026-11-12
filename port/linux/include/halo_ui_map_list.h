@@ -25,6 +25,9 @@ enum
 	_ui_map_list_string_lobby_name,
 	/* its game's type in the lobby (a campaign level's: co-op) */
 	_ui_map_list_string_game_type,
+	/* its name over its picture in the map lists' description pane: the
+	lobby's, but an MCC map's plain name, broken between words to fit */
+	_ui_map_list_string_pane_name,
 	NUMBER_OF_UI_MAP_LIST_STRINGS
 };
 

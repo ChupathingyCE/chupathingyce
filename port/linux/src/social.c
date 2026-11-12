@@ -13,7 +13,7 @@ presence's (social.h). No SDL, no drawing, no game.
 
 static const char *const section_names[NUMBER_OF_SOCIAL_SECTIONS] =
 {
-	"FRIENDS", "PARTY", "CLAN", "PLAYERS HERE", "RECENT", "SERVICE RECORD", "SETTINGS",
+	"FRIENDS", "PARTY", "CLAN", "PLAYERS HERE", "RECENT", "WORKSHOP", "SERVICE RECORD", "SETTINGS",
 };
 
 const char *social_section_name(int section)

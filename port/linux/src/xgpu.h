@@ -284,6 +284,14 @@ a volume, a palette's, larger than 1024 square) or without memory. The
 caller frees it */
 unsigned char *xgpu_texture_rgba(const DWORD *resource, unsigned long *width, unsigned long *height);
 
+/* MCC-owned immutable resources never enter the guest physical texture cache. */
+BOOL xgpu_mcc_texture_get(DWORD const *resource, D3DCOLOR const *palette,
+	GLuint *texture, GLenum *target, struct xgpu_texture_description *description);
+BOOL xgpu_mcc_texture_upload(GLuint texture, GLenum target,
+	struct xgpu_texture_description const *description, void const *pixels,
+	unsigned long bytes, D3DCOLOR const *palette);
+void xgpu_mcc_texture_unbind(DWORD const *resource);
+
 /* ---------- render targets */
 
 struct xgpu_render_target

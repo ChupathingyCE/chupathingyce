@@ -4909,12 +4909,20 @@ static int browser_ascii_equal(const char *a, const char *b)
 	return !*a && !*b;
 }
 
+/* whether an MCC map (mcc_maps\<package>\<map>) is a campaign map, as the
+game's MCC catalog says (browser_screen.c sets it: mcc_maps.c); NULL, none
+is: the tests' builds of this file have no game */
+int (*browser_mcc_campaign)(const char *map);
+
 int browser_map_is_campaign(const char *map)
 {
 	static const char *const levels[] = { "a10", "a30", "a50", "b30", "b40", "c10", "c20", "c40", "d20", "d40" };
 	const char *name = map ? map : "";
 	size_t index;
 
+	/* (an MCC map: a campaign map of this machine's MCC catalog, mcc_maps.c) */
+	if (!strncmp(name, "mcc_maps\\", 9) || !strncmp(name, "mcc_maps/", 9))
+		return browser_mcc_campaign ? browser_mcc_campaign(name) : 0;
 	/* (the path's last part; a Halo PC or HaloMD map, <file>@ce or @md, is not a level) */
 	for (index = 0; name[index]; index++)
 	{

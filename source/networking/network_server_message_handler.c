@@ -258,6 +258,7 @@ symbols in this file:
 #include "networking/network_connection.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
+#include "mcc_identity.h" /* port: attach MCC content identity to host settings */
 #include "networking/network_game_protocol.h"
 #include "networking/network_messages.h"
 #include "networking/network_server_manager_internal.h"
@@ -1078,9 +1079,17 @@ boolean network_game_server_send_game_settings_to_client_machine(
 	void const *game,
 	long game_size)
 {
+#ifdef HALO_MCC_NETWORK
+	struct network_game mcc_settings; /* port: fingerprint extension, no host record mutation */
+#endif
 	long options = 0;
 	long size = network_game_server_settings_layout(server, machine, &options);
 	long slot;
+
+#ifdef HALO_MCC_NETWORK
+	game = mcc_identity_host_settings(game, game_size, &mcc_settings); /* port: MCC admission */
+	if (!game) return FALSE;
+#endif
 
 	/* (waited for: sent once its size is known) */
 	if (!size)
@@ -1425,10 +1434,18 @@ boolean network_game_server_send_game_settings_to_all_machines(
 	void const *game,
 	long game_size)
 {
+#ifdef HALO_MCC_NETWORK
+	struct network_game mcc_settings; /* port: fingerprint extension, no host record mutation */
+#endif
 	long machine_index;
 	long wire_size = game_size;
 	void const *wire;
 	boolean result = TRUE;
+
+#ifdef HALO_MCC_NETWORK
+	game = mcc_identity_host_settings(game, game_size, &mcc_settings); /* port: MCC admission */
+	if (!game) return FALSE;
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\networking\\network_server_message_handler.c",
@@ -2812,6 +2829,11 @@ static boolean network_game_server_handle_message_client_player_settings_request
 	word *message,
 	short message_size)
 {
+	/* MCC's in-game picker admits only an authenticated, team-only change. */
+	{
+		extern boolean mcc_ui_team_request(struct network_game_server *, struct network_game_server_client_machine *, word *, short);
+		if (mcc_ui_team_request(server, client_machine, message, message_size)) return TRUE;
+	}
 	/* (port: not once the game has started: every machine loads it from
 	the settings sent with the start) */
 	if (network_game_server_lobby_is_open(server))
