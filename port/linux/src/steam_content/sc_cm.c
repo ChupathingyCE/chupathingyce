@@ -222,7 +222,11 @@ static int multi_take(struct sc_cm *cm, const unsigned char *body, size_t length
 			return 0;
 		memset(&stream, 0, sizeof(stream));
 		if (inflateInit2(&stream, 16 + MAX_WBITS) != Z_OK)
+		{
+			free(cm->multi);
+			cm->multi = NULL;
 			return 0;
+		}
 		stream.next_in = (Bytef *)payload;
 		stream.avail_in = (uInt)payload_length;
 		stream.next_out = cm->multi;

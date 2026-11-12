@@ -2663,7 +2663,7 @@ static boolean command_steam_link(
 	steam_link_start();
 	steam_server.linking = TRUE;
 	steam_server.qr[0] = 0;
-	command_output_printf(output, "Getting a code from Steam; the QR code follows in the log.\n");
+	command_output_printf(output, "Getting a code from Steam; the QR code shows on the server's terminal.\n");
 	return TRUE;
 }
 
@@ -2787,7 +2787,8 @@ static void steam_update(
 			static char lines[16 * 1024];
 
 			snprintf(steam_server.qr, sizeof(steam_server.qr), "%s", qr);
-			/* (on the terminal, a line each, as the server's own lines are) */
+			/* (on the terminal only, never the log file or the control panel's
+			log: the code signs whoever scans it in to the server's Steam link) */
 			if (steam_link_qr_text(qr, lines, sizeof(lines)))
 			{
 				char *line = lines, *next;
@@ -2799,11 +2800,13 @@ static void steam_update(
 						*next++ = 0;
 					else
 						next = line + strlen(line);
-					platform_log("  %s", line);
+					fprintf(stderr, "  %s\n", line);
 				}
 			}
-			platform_log("scan the QR code above with the Steam app (Steam Guard), or open %s "
-				"on a phone signed in to Steam; it changes every so often", qr);
+			fprintf(stderr, "scan the QR code above with the Steam app (Steam Guard), or open %s "
+				"on a phone signed in to Steam; it changes every so often\n", qr);
+			fflush(stderr);
+			platform_log("Steam link: a QR code is on the server's terminal");
 		}
 		else if (state == STEAM_LINK_DONE)
 		{

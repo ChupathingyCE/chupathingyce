@@ -29,6 +29,10 @@ each stands in the player's own Steam libraries.
 The section shows only on a computer with MCC from Steam, or steamcmd.
 No Steamworks SDK, no Steam password, nothing written to Steam's own
 folders but what Steam or steamcmd write.
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 #if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
@@ -672,6 +676,13 @@ void guide_workshop_link_panel(float x, float y, float width, float bottom)
 	if (link != STEAM_LINK_STARTING && link != STEAM_LINK_WAITING && link != STEAM_LINK_SCANNED &&
 		link != STEAM_LINK_FAILED)
 	{
+		/* (linked, with no keyring or Keychain to take the sign-in: said) */
+		if (steam_link_linked(NULL, 0) && !steam_link_store_secure())
+		{
+			ui_style_glass(x, y, width, 86, 8, ui_style_color(UI_COLOR_PANE), ui_style_color(UI_COLOR_ROW_EDGE));
+			text_wrapped("Your Steam sign-in is kept in a private file in the data folder, not encrypted: "
+				"no keyring was found.", x + 12, y + 14, width - 24, 4);
+		}
 		return;
 	}
 	height = MIN(width + 40, bottom - y);

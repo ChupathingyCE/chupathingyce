@@ -271,6 +271,8 @@ int steam_link_poll(char *qr_text, int size, char *error, int error_size);
 void steam_link_cancel(void);
 /* where the link's token is kept, in words ("the macOS Keychain", "a private file in the data folder") */
 const char *steam_link_store(void);
+/* 0 when the link's token is only in the private file (not encrypted) */
+int steam_link_store_secure(void);
 /* a dedicated server's (sv_workshop_get): an item downloaded into the
 game's own library, without the Workshop tab; its STEAM_BRIDGE_ITEM_* with
 bytes and the error's word */
@@ -295,6 +297,7 @@ no Steam link, the game's calls doing nothing, their arguments unevaluated */
 #define steam_link_cancel() ((void)0)
 #define steam_link_set_armed(a0) ((void)sizeof(a0), (void)0)
 #define steam_link_armed() 0
+#define steam_link_store_secure() 1
 #define steam_link_unlink() ((void)0)
 #endif
 

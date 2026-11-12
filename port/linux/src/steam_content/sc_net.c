@@ -756,6 +756,36 @@ int sc_http_request(struct sc_http *http, const char *host, int tls, const char 
 	return 0;
 }
 
+#ifdef SC_FUZZING
+/* the fuzz target's (steam_net_fuzz.c, built with SC_FUZZING only): a plain
+connection over an open socket, and one HTTP exchange on it */
+struct sc_connection *sc_fuzz_connection(int fd)
+{
+	struct sc_connection *connection = (struct sc_connection *)calloc(1, sizeof(*connection));
+
+	if (connection)
+	{
+		connection->fd = (socket_type)fd;
+		snprintf(connection->host, sizeof(connection->host), "fuzz");
+	}
+	return connection;
+}
+
+int sc_fuzz_http(struct sc_connection *connection, unsigned char **body, size_t *length, size_t maximum)
+{
+	struct sc_http http;
+	char error[160];
+	int keep;
+
+	memset(&http, 0, sizeof(http));
+	http.connection = connection;
+	snprintf(http.host, sizeof(http.host), "fuzz");
+	*body = NULL;
+	*length = 0;
+	return http_once(&http, "GET", "/", NULL, NULL, 0, body, length, maximum, error, sizeof(error), &keep);
+}
+#endif
+
 /* ---------- WebSocket */
 
 static const char base64_digits[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

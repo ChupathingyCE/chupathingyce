@@ -115,6 +115,28 @@ def test_steam_content_fuzz(tmp_path):
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]
 
 
+def test_steam_net_fuzz(tmp_path):
+    """the HTTP and WebSocket readers under libFuzzer, fed over a local
+    socket pair, for a short while"""
+    cc = fuzz_support.libfuzzer_compiler()
+    if not cc or os.name == "nt":
+        fuzz_support.skip("no clang with libFuzzer")
+    binary = tmp_path / "steam_net_fuzz"
+    build(cc, [TESTS / "steam_net_fuzz.c"], binary, tmp_path / "objects",
+          ["-DSC_FUZZING", "-fsanitize=fuzzer-no-link,address,undefined"],
+          ["-DSC_FUZZING", "-fsanitize=fuzzer,address,undefined"])
+    seeds = tmp_path / "seeds"
+    seeds.mkdir()
+    (seeds / "sized").write_bytes(b"\x00HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
+    (seeds / "chunked").write_bytes(b"\x00HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n")
+    (seeds / "frames").write_bytes(b"\x02\x82\x05hello\x82\x7e\x00\x04abcd\x88\x00")
+    (seeds / "upgrade").write_bytes(b"\x01HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+                                    b"Connection: Upgrade\r\nSec-WebSocket-Accept: x\r\n\r\n\x82\x01a")
+    result = fuzz_support.run_fuzzer(binary, tmp_path, int(os.environ.get("HALO_FUZZ_SECONDS", "20")), seeds=[seeds],
+                                     max_len=8192)
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]
+
+
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--live":
         out = Path(sys.argv[2])
