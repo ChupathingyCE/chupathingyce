@@ -95,6 +95,12 @@ short ui_map_list_string_index(long row, short kind);
 short ui_map_list_picture_index(long row);
 /* the bitmap of a frame of this list's, or NULL for ui.map's */
 struct bitmap_data *ui_map_list_picture(short frame_index);
+/* an MCC catalog map's frame (MCC_MAPS_FIRST_DISPLAY_INDEX and up): its
+catalog index, whose own picture (its package's, else Steam's picture of
+its Workshop item) mcc_menu_preview_draw draws; NONE for another frame */
+short ui_map_list_mcc_picture(short frame_index);
+/* the frame of the unknown level's picture, drawn when an MCC map has none */
+short ui_map_list_unknown_picture(void);
 /* the text of a string list index of this list's, or NULL for ui.map's */
 wchar_t const *ui_map_list_text(short string_list_index);
 

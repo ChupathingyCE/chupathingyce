@@ -64,7 +64,7 @@ static struct preview_entry *picture(short index)
     /* Native bitmap format 11 is uncompressed A8R8G8B8. */
     entry->bitmap=bitmap_2d_new((short)texture_width,(short)texture_height,0,11);
     if (entry->bitmap && entry->bitmap->base_address) {
-        pixels=(uint32_t *)(uintptr_t)entry->bitmap->base_address;
+        pixels=(uint32_t *)xbox_pointer(entry->bitmap->base_address);
         memset(pixels,0,texture_width*texture_height*sizeof(*pixels));
         for (y=0; y<(unsigned)height; y++) for (x=0; x<(unsigned)width; x++)
             pixels[y*texture_width+x]=image.pixels[(source_y+y*source_height/(unsigned)height)*image.width+
