@@ -104,6 +104,11 @@ enum _distributed_unit_shield_charging_bit 5
 enum _distributed_unit_shield_depleted_bit 4
 enum _distributed_unit_shield_over_charging_bit 6
 enum _distributed_unit_super_camouflaged_bit 1
+enum _distributed_wire_to_all_reliably 4
+enum _distributed_wire_to_host 0
+enum _distributed_wire_to_host_reliably 1
+enum _distributed_wire_to_machine 2
+enum _distributed_wire_to_machine_reliably 3
 enum _message_client_add_player_request_ingame 26
 enum _message_client_add_player_request_pregame 13
 enum _message_client_broadcast_game_search 0

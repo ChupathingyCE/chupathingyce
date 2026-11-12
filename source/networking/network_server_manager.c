@@ -854,6 +854,7 @@ boolean host_rules_joins_locked(void);
 #endif
 /* (its budget for a client machine's lobby messages, full again) */
 void network_distributed_lobby_budget_reset(long machine_index);
+void network_distributed_machine_gone(long machine_index);
 /* (its limit on the machines of one address: network.max_machines_per_address,
 a dedicated server's max_machines_per_address) */
 boolean network_distributed_address_full(unsigned long address, unsigned long const *others, short count);
@@ -3801,7 +3802,9 @@ void network_game_server_pause_countdown(
 	return;
 }
 
-void network_game_server_change_map_name(
+/* port: FALSE when the map was refused (not installed on this machine,
+#1106): the game stays on its map, and the caller skips to its next */
+boolean network_game_server_change_map_name(
 	struct network_game_server *server,
 	char const *map_name)
 {
@@ -3813,6 +3816,21 @@ void network_game_server_change_map_name(
 		server && map_name && map_name[0]);
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x79C,
 		server->state == _network_game_server_state_pregame);
+
+	/* port: never a map this machine hasn't got (a playlist's or a test's
+	next entry, a map named by hand): the host's own client would refuse
+	the settings and leave, which ends the game for everyone (#1106). The
+	game stays on its map; whatever chose the map skips to its next */
+	if (!cache_files_map_installed(map_name))
+	{
+		network_event("not changing the game's map to '%s': it isn't installed on this machine", map_name);
+		if (server->game.map.name[0])
+		{
+			main_set_multiplayer_map_name(server->game.map.name);
+			game_engine_override_map_name(server->game.map.name);
+		}
+		return FALSE;
+	}
 
 	for (client_machine_index = 0;
 		client_machine_index < MAXIMUM_NETWORK_MACHINE_COUNT;
@@ -3853,7 +3871,7 @@ void network_game_server_change_map_name(
 			"network_game_server_change_map_name() failed to send updated game settings to clients");
 	}
 
-	return;
+	return TRUE;
 }
 
 void network_game_server_change_game_variant(
@@ -3890,6 +3908,8 @@ boolean network_game_server_remove_client_machine_from_game(
 	{
 		network_game_server_send_player_quit_messages_ingame(server, client);
 	}
+	/* port: a machine gone is told no checkpoint boundary (network_distributed.c) */
+	network_distributed_machine_gone(client->machine_index);
 
 	for (i = 0; i < MAXIMUM_NETWORK_MACHINE_COUNT; i++)
 	{

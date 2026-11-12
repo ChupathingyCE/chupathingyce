@@ -20,7 +20,10 @@ about OpenCE versions, by version, that its builds read by data:
 
 each fact's fields optional ("settings_size", "options_size",
 "shield_effects_maximum", "dropped_messages", and from chupa-41a
-"join_request_extra" with "join_request_fill": "zeros"), a fact holding until the next,
+"join_request_extra" with "join_request_fill": "zeros"; from chupa-43a
+"join_request_version_at", "header_extra", "epoch_kind", "rider_ejection_up"
+and "unit_state_parts": [{"bit": 7, "size": 28, "at": "after_up"}, ...]),
+a fact holding until the next,
 and used by a build only past its own DELTA_LEGACY_NEWEST and within
 network_rules.h's limits (this tool refuses a fact past them).
 
@@ -60,7 +63,8 @@ the numbers the build was made with. At most 16384 bytes.
         wire's row has this build's own facts (its versions past the one it
         announces); --layout WIRE=VERSION:FIELD=VALUE[,FIELD=VALUE...] adds
         a fact past the wire's own versions (dropped_messages: kinds joined
-        by +), for a wire from chupa-38a on
+        by +; from chupa-43a also unit_part_after_up=BIT+SIZE and
+        unit_part_last=BIT+SIZE), for a wire from chupa-38a on
         --hosting WIRE=VERSION[,VERSION...] adds versions the gate proved
         for hosting alone to a wire's row (its "hosting" list)
         --requires WIRE=NAME[,NAME...] adds host protections a host must have
@@ -137,6 +141,17 @@ VOTES_VERSION, VOTE_KINDS = 41, (78, 79, 94, 95)
 # version 40's join request: the bytes after its first 0x70 (network_rules.h),
 # and the one fill builds write
 JOIN_REQUEST_VERSION, JOIN_REQUEST_EXTRA, JOIN_REQUEST_FILL = 40, 234, "zeros"
+# versions 42 and 43, built in (network_rules.h): the record, the join
+# request's length, the MCC-only kinds and 43's riding message, dropped
+EPOCH_VERSION, DECK_VERSION, EPOCH_SETTINGS_SIZE, EPOCH_JOIN_REQUEST_EXTRA = 42, 43, 13200, 236
+MCC_KINDS, RIDING_KIND = (97, 98, 99, 100, 103, 104, 105, 106), 107
+# chupa-43a's facts (network_rules.h, "chupa-43a's facts"): the first wire
+# whose builds read them, their one-number fields, and a unit state's further
+# parts' places and the bits this build's own parts have
+GENERIC_LAYOUT_WIRE = (43, "a")
+GENERIC_FIELDS = ("join_request_version_at", "header_extra", "epoch_kind", "rider_ejection_up")
+PART_PLACES = ("after_up", "last")
+UNIT_PARTS_BUILT_IN = 0x3F
 # (an Ed25519 public key's DER: this prefix, then its 32 bytes)
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 
@@ -221,6 +236,56 @@ def reads_join_layouts(name: str) -> bool:
     return bool(match) and (int(match.group(1)), match.group(2)) >= JOIN_LAYOUT_WIRE
 
 
+def reads_generic_layouts(name: str) -> bool:
+    """whether a wire's builds read chupa-43a's facts"""
+    match = WIRE_ID.fullmatch(name)
+    return bool(match) and (int(match.group(1)), match.group(2)) >= GENERIC_LAYOUT_WIRE
+
+
+def generic_limits() -> dict:
+    """network_rules.h's limits on chupa-43a's facts"""
+    return {"header_extra": header_number(RULES, "NETWORK_RULES_HEADER_EXTRA_LIMIT"),
+            "epoch_size": header_number(RULES, "NETWORK_RULES_EPOCH_SIZE"),
+            "epoch_kind": header_number(RULES, "NETWORK_RULES_EPOCH_KIND_FIRST"),
+            "part": header_number(RULES, "NETWORK_RULES_UNIT_PART_LIMIT"),
+            "rider_ejection_up": header_number(RULES, "NETWORK_RULES_RIDER_EJECTION_LIMIT")}
+
+
+def check_generic_fact(where: str, fact: dict) -> None:
+    """a fact's chupa-43a fields, as network_rules_layout_apply takes them
+    (each within its limits, or a build would refuse it)"""
+    bounds = generic_limits()
+    for field in GENERIC_FIELDS:
+        if field in fact:
+            _integer(fact[field], 0, MAXIMUM_VERSION, f"{where}'s {field}")
+    if fact.get("header_extra", 0) > bounds["header_extra"]:
+        raise TableError(f"{where}'s header_extra is at most {bounds['header_extra']}")
+    if fact.get("epoch_kind"):
+        if not bounds["epoch_kind"] <= fact["epoch_kind"] <= 255:
+            raise TableError(f"{where}'s epoch_kind is a kind from {bounds['epoch_kind']} to 255")
+        if fact.get("header_extra", 0) < bounds["epoch_size"]:
+            raise TableError(f"{where}'s epoch_kind needs header_extra of {bounds['epoch_size']} or more in the fact")
+    if fact.get("rider_ejection_up", 0) > bounds["rider_ejection_up"]:
+        raise TableError(f"{where}'s rider_ejection_up is at most {bounds['rider_ejection_up']}")
+    if "join_request_version_at" in fact and \
+            fact["join_request_version_at"] + 2 > fact.get("join_request_extra", JOIN_REQUEST_EXTRA):
+        raise TableError(f"{where}'s join_request_version_at is past the join request's bytes")
+    parts = fact.get("unit_state_parts", [])
+    if not isinstance(parts, list) or len(parts) > 8:
+        raise TableError(f"{where}'s unit_state_parts is not a list of at most 8 parts")
+    bits = set()
+    for part in parts:
+        if not isinstance(part, dict) or set(part) != {"bit", "size", "at"}:
+            raise TableError(f"{where}'s unit state part is not {{bit, size, at}}")
+        _integer(part["bit"], 0, 7, f"{where}'s unit state part's bit")
+        _integer(part["size"], 1, bounds["part"], f"{where}'s unit state part's size")
+        if part["at"] not in PART_PLACES:
+            raise TableError(f"{where}'s unit state part is at one of {', '.join(PART_PLACES)}")
+        if UNIT_PARTS_BUILT_IN & (1 << part["bit"]) or part["bit"] in bits:
+            raise TableError(f"{where}'s unit state part {part['bit']} is built in or named twice")
+        bits.add(part["bit"])
+
+
 def reads_layouts(name: str) -> bool:
     """whether a wire's builds read layouts (chupa-38a on)"""
     match = WIRE_ID.fullmatch(name)
@@ -233,12 +298,16 @@ def reads_layouts(name: str) -> bool:
 def built_in_layout(version: int, own_newest: int = None) -> dict:
     """a version's built-in layout (network_rules_layout_built_in)"""
     rules = min(version, newest() if own_newest is None else own_newest)
-    return {"settings_size": SETTINGS_EXTENDED_SIZE if rules >= EXTENDED_OPTIONS_VERSION else SETTINGS_SIZE,
+    return {"settings_size": EPOCH_SETTINGS_SIZE if rules >= EPOCH_VERSION else
+            SETTINGS_EXTENDED_SIZE if rules >= EXTENDED_OPTIONS_VERSION else SETTINGS_SIZE,
             "options_size": OPTIONS_EXTENDED_SIZE if rules >= EXTENDED_OPTIONS_VERSION else OPTIONS_SIZE,
             "shield_effects_maximum": limits()["shield_built_in"],
             "dropped_messages": sorted(([SHIELD_EFFECTS_KIND] if rules >= SHIELD_EFFECTS_VERSION else []) +
-                                       (list(VOTE_KINDS) if rules >= VOTES_VERSION else [])),
-            "join_request_extra": JOIN_REQUEST_EXTRA if rules >= JOIN_REQUEST_VERSION else 0}
+                                       (list(VOTE_KINDS) if rules >= VOTES_VERSION else []) +
+                                       (list(MCC_KINDS) if rules >= EPOCH_VERSION else []) +
+                                       ([RIDING_KIND] if rules >= DECK_VERSION else [])),
+            "join_request_extra": EPOCH_JOIN_REQUEST_EXTRA if rules >= EPOCH_VERSION else
+            JOIN_REQUEST_EXTRA if rules >= JOIN_REQUEST_VERSION else 0}
 
 
 def apply_layouts(version: int, facts: dict, own_newest: int) -> tuple:
@@ -291,6 +360,12 @@ def built_in_facts() -> dict:
         if version >= JOIN_REQUEST_VERSION:
             fact["join_request_extra"] = layout["join_request_extra"]
             fact["join_request_fill"] = JOIN_REQUEST_FILL
+        if version >= EPOCH_VERSION:
+            fact.update({"join_request_version_at": 234, "header_extra": 4, "epoch_kind": 96,
+                         "unit_state_parts": [{"bit": 6, "size": 30, "at": "last"}]})
+        if version >= DECK_VERSION:
+            fact["unit_state_parts"].append({"bit": 7, "size": 28, "at": "after_up"})
+            fact["rider_ejection_up"] = 200
         facts[str(version)] = fact
     return facts
 
@@ -315,6 +390,11 @@ def parse_layout(text: str) -> tuple:
             fact[field] = sorted(set(kinds))
         elif field in LAYOUT_FIELDS and "+" not in value:
             fact[field] = int(value)
+        elif field in GENERIC_FIELDS and "+" not in value:
+            fact[field] = int(value)
+        elif field in ("unit_part_after_up", "unit_part_last") and re.fullmatch(r"\d+\+\d+", value):
+            bit, size = (int(number) for number in value.split("+"))
+            fact.setdefault("unit_state_parts", []).append({"bit": bit, "size": size, "at": field[len("unit_part_"):]})
         elif field == "join_request_extra" and "+" not in value:
             if int(value) > limits()["join"]:
                 raise TableError(f"--layout {text}: join_request_extra is at most {limits()['join']}")
@@ -322,6 +402,13 @@ def parse_layout(text: str) -> tuple:
             fact["join_request_fill"] = JOIN_REQUEST_FILL
         else:
             raise TableError(f"--layout {text}: no field {field}={value}")
+    if any(field in fact for field in GENERIC_FIELDS + ("unit_state_parts",)):
+        if not reads_generic_layouts(match.group(1)):
+            raise TableError(f"--layout {text}: {match.group(1)}'s builds read none of chupa-43a's facts")
+        try:
+            check_generic_fact(f"--layout {text}", fact)
+        except TableError as error:
+            raise TableError(str(error)) from None
     return match.group(1), str(version), fact
 
 
@@ -425,6 +512,8 @@ def check_layouts(name: str, layouts) -> None:
             _integer(fact["join_request_extra"], 0, MAXIMUM_VERSION, f"wire {name}'s layout {version}'s join_request_extra")
         if "join_request_fill" in fact and not isinstance(fact["join_request_fill"], str):
             raise TableError(f"wire {name}'s layout {version}'s join_request_fill is not a name")
+        if any(field in fact for field in GENERIC_FIELDS + ("unit_state_parts",)):
+            check_generic_fact(f"wire {name}'s layout {version}", fact)
         kinds = fact.get("dropped_messages", [])
         if not isinstance(kinds, list) or len(kinds) > 255:
             raise TableError(f"wire {name}'s layout {version}'s dropped_messages is not a list of kinds")
