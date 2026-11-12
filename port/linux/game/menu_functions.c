@@ -108,6 +108,7 @@ their handlers open opens.
 #include "halo_join_reasons.h"
 /* (the multiplayer maps past the Xbox's: ui_map_list.c) */
 #include "halo_ui_map_list.h"
+#include "mcc_maps.h"
 #ifdef HALO_GAME_BROWSER
 /* (game type files: the dedicated server's, gametype_files.c) */
 #include "../../../server/src/server_config.h"
@@ -1173,6 +1174,18 @@ static struct
 	short map_count;
 } level_list;
 
+/* SINGLEPLAYER's rows after the campaign's levels: the MCC catalog's
+campaign maps (mcc_maps.c), marked [MCC] as the map lists mark them */
+static short mcc_level_count(void)
+{
+	return mcc_maps_type_count(TRUE);
+}
+
+static short mcc_level_index(short level)
+{
+	return mcc_maps_type_index((short)(level - NUMBER_OF_SINGLE_PLAYER_LEVELS), TRUE);
+}
+
 /* "initialize sp level list solo" starts on the level last played */
 static boolean level_list_initialize(struct widget_instance *list, short controller)
 {
@@ -1192,6 +1205,23 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 	level_list.kind = MAP_KIND_SINGLEPLAYER;
 	level_list.chosen = level;
 	level_list.first = map_kind_first(level, NUMBER_OF_SINGLE_PLAYER_LEVELS);
+	/* (debug.menu_open's "#multiplayer", "#multiplayer_last" or
+	"#singleplayer_last": the list opened on a kind's first or last row, for
+	screenshots) */
+	if (strstr(config_string("debug.menu_open"), "#multiplayer"))
+	{
+		level_list.kind = MAP_KIND_MULTIPLAYER;
+		level_list.chosen = strstr(config_string("debug.menu_open"), "#multiplayer_last") ?
+			(short)MAX(level_list.map_count - 1, 0) : 0;
+		level_list.first = map_kind_first(level_list.chosen, level_list.map_count);
+	}
+	else if (strstr(config_string("debug.menu_open"), "#singleplayer_last"))
+	{
+		short count = (short)(NUMBER_OF_SINGLE_PLAYER_LEVELS + mcc_level_count());
+
+		level_list.chosen = (short)(count - 1);
+		level_list.first = map_kind_first(level_list.chosen, count);
+	}
 	map_kind_set(list, level_list.kind);
 	map_kind_focus(list, level_list.first, level_list.chosen);
 	return TRUE;
@@ -1199,6 +1229,18 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 
 static void level_row_text(short level, wchar_t *text)
 {
+	if (level >= NUMBER_OF_SINGLE_PLAYER_LEVELS)
+	{
+		short index = mcc_level_index(level);
+		wchar_t const *name = index != NONE ? mcc_maps_name(index) : L"";
+		long length;
+
+		for (length = 0; name[length] && length < ROW_TEXT_LENGTH - 7; length++)
+			text[length] = name[length];
+		text[length] = 0;
+		ustrncat(text, L" [MCC]", ROW_TEXT_LENGTH - 1 - ustrlen(text));
+		return;
+	}
 	string_get("pc\\main_menu\\map_list", campaign.levels[level].available ? level : LEVEL_UNAVAILABLE, text);
 }
 
@@ -1213,7 +1255,8 @@ static void level_list_update(struct widget_instance *list)
 		level_list.kind = kind;
 		level_list.first = level_list.chosen = 0;
 	}
-	count = kind == MAP_KIND_SINGLEPLAYER ? NUMBER_OF_SINGLE_PLAYER_LEVELS : level_list.map_count;
+	count = kind == MAP_KIND_SINGLEPLAYER ? (short)(NUMBER_OF_SINGLE_PLAYER_LEVELS + mcc_level_count()) :
+		level_list.map_count;
 	entry = map_kind_rows_update(list, &level_list.first, count,
 		kind == MAP_KIND_SINGLEPLAYER ? level_row_text : multiplayer_map_text);
 	if (entry != NONE)
@@ -1227,6 +1270,17 @@ static void level_list_update(struct widget_instance *list)
 	map_description_show(description, 0, NONE);
 	campaign.shown_level = level_list.chosen;
 	level = campaign.shown_level;
+	if (level >= NUMBER_OF_SINGLE_PLAYER_LEVELS)
+	{
+		/* (an MCC map: shown as the map lists show it, its row there named by
+		its level: ui_map_list.c) */
+		short index = mcc_level_index(level);
+		long row = index != NONE ? ui_map_list_lookup(mcc_maps_level_name(index)) : NONE;
+
+		map_description_show(description, NONE, row != NONE ? (short)row : NONE);
+		profile_name_show(description);
+		return;
+	}
 	if (!campaign.levels[level].available)
 		level = LEVEL_UNAVAILABLE;
 	level_description(description, "replay_level", level, level == campaign.saved_level,
@@ -1252,6 +1306,16 @@ static boolean level_choose(short controller)
 		campaign_start(level_list.map_names[level_list.chosen], main_get_difficulty(), controller);
 		return FALSE;
 	}
+	if (level >= NUMBER_OF_SINGLE_PLAYER_LEVELS)
+	{
+		short index = mcc_level_index(level);
+
+		if (index == NONE || !mcc_maps_level_name(index))
+			return campaign_fail();
+		main_set_map_name(mcc_maps_level_name(index));
+		main_defer_map_map_change();
+		return TRUE;
+	}
 	if (level < 0 || level >= NUMBER_OF_SINGLE_PLAYER_LEVELS || !campaign.levels[level].available)
 		return campaign_fail();
 	/* (not yet: setting it at the main menu changes map, as the Xbox's has it
@@ -1270,7 +1334,7 @@ static boolean difficulty_start(short difficulty, short controller)
 
 	if (!campaign_profile(controller, &profile))
 		return campaign_fail();
-	if (!map_name || main_get_solo_level_from_name(map_name) == NONE)
+	if (!map_name || (main_get_solo_level_from_name(map_name) == NONE && !mcc_maps_level_campaign(map_name)))
 		map_name = main_get_solo_level_name(0);
 	campaign_start(map_name, PIN(difficulty, 0, 3), controller);
 	return TRUE;
