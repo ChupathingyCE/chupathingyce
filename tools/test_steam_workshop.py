@@ -269,6 +269,9 @@ def test_item_text(tool, tmp_path):
     # another engine reads, flagged: the scan skips it
     path.write_text(item_json(Engine="Halo2"))
     assert run(tool, "item", path)[0]["halo1"] == "0"
+    # (MCC's Workshop mixes its games: a Halo 3 map is not a Halo CE item either)
+    path.write_text(item_json(Engine="Halo3"))
+    assert run(tool, "item", path)[0]["halo1"] == "0"
     # no maps (a campaign-only item) is fine and empty
     path.write_text(json.dumps({"Engine": "Halo1", "Title": {"Neutral": "Campaign"}}))
     fields, _ = run(tool, "item", path)

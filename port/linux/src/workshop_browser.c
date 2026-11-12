@@ -4,11 +4,14 @@ WORKSHOP_BROWSER.C
 The Guide's WORKSHOP section's data (workshop_browser.h): the site's list,
 asked for on a thread of its own, and the watcher of MCC's Workshop folders
 in the player's Steam libraries. Nothing is downloaded here and nothing is
-written to Steam's folders: Steam does both.
+written to Steam's folders: Steam does both, asked through its page or,
+with game.workshop_steam on, through the Steam bridge
+(steam_client_bridge.h), which runs only while the section shows.
 */
 
 #include "workshop_browser.h"
 #include "steam_workshop.h"
+#include "steam_client_bridge.h"
 #include "posix.h"
 #ifdef HALO_GAME_BROWSER
 #include "browser_http.h"
@@ -30,6 +33,8 @@ void platform_log(const char *format, ...);
 #define APP_MANIFEST "steamapps/appmanifest_" STEAM_APP ".acf"
 #define CONTENT_FOLDER "steamapps/workshop/content/" STEAM_APP
 #define DOWNLOADS_FOLDER "steamapps/workshop/downloads/" STEAM_APP
+/* MCC's Halo CE files (from Steam, or steamcmd's depots: steam_bridge_cmd.c) */
+#define MCC_HALO1_FOLDER "steamapps/common/Halo The Master Chief Collection/halo1"
 
 enum
 {
@@ -61,7 +66,10 @@ static struct
 	unsigned long libraries_time;
 	int library_count;
 	char libraries[MAXIMUM_LIBRARIES][STEAM_WORKSHOP_PATH_SIZE];
-	/* the libraries holding MCC */
+	/* the list from the Steam client (no network.workshop_url): 1 to ask, 2 asked */
+	int browse;
+	/* the libraries holding MCC: from the Steam client (its app manifest), or its Halo CE files at all */
+	int client_mcc_count;
 	int mcc_count;
 	unsigned long watch_time;
 } workshop = { PTHREAD_MUTEX_INITIALIZER };
@@ -105,24 +113,26 @@ static void libraries_look(int force)
 		return;
 	count = steam_workshop_libraries(found, MAXIMUM_LIBRARIES);
 	workshop.library_count = 0;
+	workshop.client_mcc_count = 0;
 	workshop.mcc_count = 0;
 	/* (twice: the libraries with MCC, then the others, whose Workshop
 	folders may still hold items from before MCC moved) */
 	for (index = 0; index < count; index++)
 	{
-		char manifest[STEAM_WORKSHOP_PATH_SIZE];
+		char manifest[STEAM_WORKSHOP_PATH_SIZE], halo1[STEAM_WORKSHOP_PATH_SIZE];
+		int client = join(manifest, sizeof(manifest), found[index], APP_MANIFEST) && is_file(manifest);
 
-		if (join(manifest, sizeof(manifest), found[index], APP_MANIFEST) && is_file(manifest))
+		if (client || (join(halo1, sizeof(halo1), found[index], MCC_HALO1_FOLDER) && is_directory(halo1)))
 		{
 			snprintf(workshop.libraries[workshop.library_count++], STEAM_WORKSHOP_PATH_SIZE, "%s", found[index]);
+			workshop.client_mcc_count += client;
 			workshop.mcc_count++;
+			found[index][0] = 0;
 		}
 	}
 	for (index = 0; index < count; index++)
 	{
-		char manifest[STEAM_WORKSHOP_PATH_SIZE];
-
-		if (!join(manifest, sizeof(manifest), found[index], APP_MANIFEST) || !is_file(manifest))
+		if (found[index][0])
 			snprintf(workshop.libraries[workshop.library_count++], STEAM_WORKSHOP_PATH_SIZE, "%s", found[index]);
 	}
 	free(found);
@@ -230,6 +240,108 @@ static void local_items_look(void)
 	}
 }
 
+/* ---------- the Steam bridge */
+
+#define CLIENT_CONNECTED (1 << STEAM_BRIDGE_BACKEND_CLIENT)
+
+/* the bridge offered here: the Steam client (Windows, and Linux with MCC
+from Steam, under Proton: Steam downloads its items itself); steamcmd as
+the downloader where the client won't (macOS: Steam.app subscribes to MCC
+items but never downloads them; Linux without MCC from Steam), with the
+client still tried for the list and the subscriptions */
+static int bridge_backend(void)
+{
+#if defined(HALO_ANDROID) || defined(HALO_WEB)
+	return STEAM_BRIDGE_BACKEND_NONE;
+#else
+	int backend = steam_bridge_backend();
+
+	if (backend == STEAM_BRIDGE_BACKEND_STEAMCMD && workshop.client_mcc_count > 0)
+		return STEAM_BRIDGE_BACKEND_CLIENT;
+	return backend;
+#endif
+}
+
+static int bridge_uses_steamcmd(void)
+{
+	return steam_bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD && !workshop.client_mcc_count;
+}
+
+static int bridge_ready(void)
+{
+	return steam_bridge_enabled() && bridge_backend() != STEAM_BRIDGE_BACKEND_NONE &&
+		steam_bridge_status() == STEAM_BRIDGE_READY;
+}
+
+/* the steamcmd row that installs MCC's Halo CE files: last, while steamcmd
+is the backend, the setting is on and MCC isn't here (or is being installed) */
+static void mcc_row_remove(void)
+{
+	int index;
+
+	for (index = 0; index < workshop.count && !workshop.items[index].mcc_install; index++)
+		;
+	if (index < workshop.count)
+	{
+		memmove(&workshop.items[index], &workshop.items[index + 1],
+			sizeof(workshop.items[0]) * (size_t)(workshop.count - index - 1));
+		workshop.count--;
+	}
+}
+
+static void mcc_row_update(void)
+{
+	int want, state = steam_bridge_mcc_state();
+	struct workshop_browser_item *item;
+
+	mcc_row_remove();
+	want = steam_bridge_enabled() && bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD &&
+		(!workshop.mcc_count || (state != STEAM_BRIDGE_ITEM_NONE && state != STEAM_BRIDGE_ITEM_UNKNOWN));
+	if (!want || workshop.count >= WORKSHOP_BROWSER_MAXIMUM_ITEMS)
+		return;
+	item = &workshop.items[workshop.count++];
+	memset(item, 0, sizeof(*item));
+	snprintf(item->id, sizeof(item->id), "mcc");
+	snprintf(item->title, sizeof(item->title), "Halo CE from MCC");
+	snprintf(item->kind, sizeof(item->kind), "game");
+	snprintf(item->description, sizeof(item->description), "%s",
+		"Only the Halo CE parts of Halo: The Master Chief Collection, fetched with steamcmd from your own "
+		"Steam account, instead of the whole game. Workshop maps use its shared files.");
+	item->size = -1;
+	item->mcc_install = 1;
+	item->state = workshop.mcc_count && state != STEAM_BRIDGE_ITEM_DOWNLOADING && state != STEAM_BRIDGE_ITEM_QUEUED ?
+		WORKSHOP_ITEM_INSTALLED : state == STEAM_BRIDGE_ITEM_DOWNLOADING ? WORKSHOP_ITEM_DOWNLOADING :
+		state == STEAM_BRIDGE_ITEM_QUEUED ? WORKSHOP_ITEM_WAITING : WORKSHOP_ITEM_NOT_INSTALLED;
+}
+
+/* an item's state with the bridge's word on it: the folders win for
+Installed (the maps come from them), the bridge tells the rest */
+static int bridge_state(struct workshop_browser_item *item, int folder_state)
+{
+	struct steam_bridge_item known;
+
+	item->steam_subscribed = 0;
+	item->downloaded = item->total = 0;
+	if (!bridge_ready() || !steam_bridge_item(item->id, &known))
+		return folder_state;
+	item->steam_subscribed = known.subscribed;
+	switch (known.state)
+	{
+	case STEAM_BRIDGE_ITEM_DOWNLOADING:
+		item->downloaded = known.downloaded;
+		item->total = known.total;
+		return folder_state == WORKSHOP_ITEM_INSTALLED ? folder_state : WORKSHOP_ITEM_DOWNLOADING;
+	case STEAM_BRIDGE_ITEM_QUEUED:
+		return folder_state == WORKSHOP_ITEM_NOT_INSTALLED ? WORKSHOP_ITEM_WAITING : folder_state;
+	case STEAM_BRIDGE_ITEM_INSTALLED:
+		/* (Steam's own word comes from appworkshop_976730.acf, which keeps
+		items whose files have gone: the folders decide) */
+		return folder_state;
+	default:
+		return folder_state;
+	}
+}
+
 /* ---------- the list */
 
 #ifdef HALO_GAME_BROWSER
@@ -303,7 +415,64 @@ static void list_ask(void)
 #else
 	(void)setting;
 #endif
+	/* (no list of ours: the Steam client's, through the bridge, when it connects) */
+	if (steam_bridge_enabled() && bridge_backend() != STEAM_BRIDGE_BACKEND_NONE)
+	{
+		workshop.browse = 1;
+		workshop.status = WORKSHOP_LIST_LOADING;
+		return;
+	}
 	workshop.status = WORKSHOP_LIST_NOT_SET_UP;
+}
+
+/* the Steam client's list asked for once the bridge connects, and its
+answer taken in as a list document's would be (list_take) */
+static void browse_step(void)
+{
+	static struct steam_bridge_listing listings[STEAM_BRIDGE_MAXIMUM_LISTINGS];
+	int status, count, index;
+
+	if (!workshop.browse)
+		return;
+	status = steam_bridge_status();
+	if (status == STEAM_BRIDGE_CONNECTING)
+		return;
+	if (status != STEAM_BRIDGE_READY || !(steam_bridge_connected() & CLIENT_CONNECTED))
+	{
+		workshop.browse = 0;
+		if (workshop.status == WORKSHOP_LIST_LOADING)
+			workshop.status = WORKSHOP_LIST_NOT_SET_UP;
+		return;
+	}
+	if (workshop.browse == 1)
+	{
+		workshop.browse = steam_bridge_browse("") ? 2 : 0;
+		if (!workshop.browse)
+			workshop.status = WORKSHOP_LIST_NOT_SET_UP;
+		return;
+	}
+	count = steam_bridge_listings(listings, STEAM_BRIDGE_MAXIMUM_LISTINGS);
+	if (count == STEAM_BRIDGE_LISTINGS_PENDING)
+		return;
+	workshop.browse = 0;
+	if (count > WORKSHOP_BROWSER_MAXIMUM_ITEMS)
+		count = WORKSHOP_BROWSER_MAXIMUM_ITEMS;
+	pthread_mutex_lock(&workshop.lock);
+	for (index = 0; index < count; index++)
+	{
+		struct workshop_browser_item *item = &workshop.answer[index];
+
+		memset(item, 0, sizeof(*item));
+		snprintf(item->id, sizeof(item->id), "%s", listings[index].id);
+		snprintf(item->title, sizeof(item->title), "%s", listings[index].title);
+		snprintf(item->description, sizeof(item->description), "%s", listings[index].description);
+		snprintf(item->kind, sizeof(item->kind), "item");
+		item->size = -1;
+	}
+	workshop.answer_count = count;
+	workshop.answered = 1;
+	pthread_mutex_unlock(&workshop.lock);
+	platform_log("Workshop: Steam listed %d Halo CE items", count < 0 ? 0 : count);
 }
 
 /* the thread's answer, kept with what this run knows of each item */
@@ -339,6 +508,7 @@ static void list_take(void)
 		workshop.items[index].state = item_state(workshop.items[index].id);
 	}
 	local_items_look();
+	mcc_row_update();
 }
 
 /* ---------- public code */
@@ -353,14 +523,40 @@ int workshop_browser_mcc_present(void)
 #endif
 }
 
+int workshop_browser_offered(void)
+{
+	return workshop_browser_mcc_present() || bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD;
+}
+
+int workshop_browser_bridge_backend(void)
+{
+	return bridge_backend();
+}
+
+int workshop_browser_bridge_status(void)
+{
+	if (!steam_bridge_enabled() || bridge_backend() == STEAM_BRIDGE_BACKEND_NONE)
+		return STEAM_BRIDGE_OFF;
+	return steam_bridge_status();
+}
+
+void workshop_browser_close(void)
+{
+	steam_bridge_close();
+}
+
 void workshop_browser_open(int force)
 {
 	int index;
 
 	libraries_look(1);
+	/* (only while the section shows: Steam shows MCC as running then) */
+	if (steam_bridge_enabled() && bridge_backend() != STEAM_BRIDGE_BACKEND_NONE)
+		steam_bridge_open(bridge_uses_steamcmd());
 	for (index = 0; index < workshop.count; index++)
 		workshop.items[index].state = item_state(workshop.items[index].id);
 	local_items_look();
+	mcc_row_update();
 	workshop.watch_time = system_milliseconds();
 	if (force || !workshop.asked ||
 		(workshop.status == WORKSHOP_LIST_FAILED && system_milliseconds() - workshop.asked_time >= RETRY_INTERVAL))
@@ -374,6 +570,9 @@ int workshop_browser_poll(void)
 	unsigned long now = system_milliseconds();
 	int index, installed = 0;
 
+	/* (the bridge's connect timed out here: steam_bridge_status) */
+	workshop_browser_bridge_status();
+	browse_step();
 	list_take();
 	if (now - workshop.watch_time < WATCH_INTERVAL)
 		return 0;
@@ -382,8 +581,11 @@ int workshop_browser_poll(void)
 	for (index = 0; index < workshop.count; index++)
 	{
 		struct workshop_browser_item *item = &workshop.items[index];
-		int state = item_state(item->id);
+		int state;
 
+		if (item->mcc_install)
+			continue;
+		state = bridge_state(item, item_state(item->id));
 		if (state == WORKSHOP_ITEM_NOT_INSTALLED && item->subscribed)
 			state = WORKSHOP_ITEM_WAITING;
 		if (state == WORKSHOP_ITEM_INSTALLED && item->state != WORKSHOP_ITEM_INSTALLED)
@@ -394,9 +596,15 @@ int workshop_browser_poll(void)
 		item->state = state;
 	}
 	/* (an item subscribed in Steam itself shows up too) */
+	mcc_row_remove();
 	index = workshop.count;
 	local_items_look();
 	installed += workshop.count - index;
+	index = workshop.mcc_count;
+	mcc_row_update();
+	/* (MCC's Halo CE files arrived from steamcmd: the maps read again) */
+	if (!index && workshop.mcc_count)
+		installed++;
 	return installed;
 }
 
@@ -419,13 +627,50 @@ int workshop_browser_subscribe(int index)
 {
 	char url[96];
 
-	if (index < 0 || index >= workshop.count || !workshop_browser_steam_url(workshop.items[index].id, url, sizeof(url)))
+	if (index < 0 || index >= workshop.count)
 		return 0;
+	if (workshop.items[index].mcc_install)
+	{
+		if (!bridge_ready() || !steam_bridge_install_mcc())
+			return 0;
+		workshop.items[index].state = WORKSHOP_ITEM_WAITING;
+		return 1;
+	}
+	if (!workshop_browser_steam_url(workshop.items[index].id, url, sizeof(url)))
+		return 0;
+	/* (the bridge's: subscribed in Steam from here, no page) */
+	if (bridge_ready() && steam_bridge_subscribe(workshop.items[index].id))
+	{
+		/* (steamcmd downloads, but only the Steam client subscribes: its page
+		too, as the bridge's own subscribe doesn't take where steamcmd is
+		needed (macOS) or the bridge couldn't reach the client) */
+		if ((!(steam_bridge_connected() & CLIENT_CONNECTED) || bridge_uses_steamcmd()) && steam_bridge_steam_present() &&
+			!config_boolean("debug.workshop_no_steam"))
+		{
+			platform_open_url(url);
+		}
+		workshop.items[index].subscribed = 1;
+		if (workshop.items[index].state == WORKSHOP_ITEM_NOT_INSTALLED)
+			workshop.items[index].state = WORKSHOP_ITEM_WAITING;
+		return 1;
+	}
 	/* (debug.workshop_no_steam: the page not opened, for tests) */
 	if (!config_boolean("debug.workshop_no_steam"))
 		platform_open_url(url);
 	workshop.items[index].subscribed = 1;
 	if (workshop.items[index].state == WORKSHOP_ITEM_NOT_INSTALLED)
 		workshop.items[index].state = WORKSHOP_ITEM_WAITING;
+	return 1;
+}
+
+int workshop_browser_unsubscribe(int index)
+{
+	if (index < 0 || index >= workshop.count || workshop.items[index].mcc_install || !bridge_ready() ||
+		!steam_bridge_unsubscribe(workshop.items[index].id))
+	{
+		return 0;
+	}
+	workshop.items[index].subscribed = 0;
+	workshop.items[index].steam_subscribed = 0;
 	return 1;
 }

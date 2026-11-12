@@ -18,8 +18,17 @@ each stands in the player's own Steam libraries.
   looked at every second: an item that becomes installed is rescanned into
   the map lists (mcc_maps_rescan) and gets a toast.
 
-The section shows only on a computer with MCC from Steam. No Steamworks,
-no Steam password, nothing written to Steam's folders.
+- With game.workshop_steam on (USE STEAM on an item's page, after a note
+  that Steam shows MCC as running while the tab is open), the Steam bridge
+  (steam_client_bridge.h) runs while the section shows: SUBSCRIBE and
+  UNSUBSCRIBE go to Steam from here, items show Downloading and
+  Installed, and without a list of ours the list is the Steam client's.
+  With steamcmd (macOS), SIGN IN opens a terminal for steamcmd's own
+  sign-in, and a "Halo CE from MCC" row installs MCC's Halo CE files.
+
+The section shows only on a computer with MCC from Steam, or steamcmd.
+No Steamworks SDK, no Steam password, nothing written to Steam's own
+folders but what Steam or steamcmd write.
 */
 
 #include "cseries.h"
@@ -30,6 +39,7 @@ no Steam password, nothing written to Steam's folders.
 
 #include "../src/ui_overlay.h"
 #include "../src/workshop_browser.h"
+#include "../src/steam_client_bridge.h"
 #include "guide_workshop.h"
 #include "mcc_maps.h"
 
@@ -58,11 +68,15 @@ enum
 	COLOR_WAITING = 0xFFCF6BFF,
 	COLOR_NOT_INSTALLED = 0x8FC4FFFF,
 	COLOR_DESCRIPTION = 0xC8D3E0FF,
+	NOTE_LINES = 3,
 };
 
 enum
 {
 	_option_steam,
+	_option_unsubscribe,
+	_option_sign_in,
+	_option_use_steam,
 	_option_show_maps,
 	MAXIMUM_OPTIONS
 };
@@ -75,6 +89,10 @@ static struct
 	short option;
 	/* an item waits on Steam: the folders are watched with the Guide closed too */
 	boolean waiting;
+	/* the section showed last frame (the bridge stops when it no longer does) */
+	boolean showing;
+	/* USE STEAM pressed once: its note shows, and CONFIRM turns it on */
+	boolean confirm;
 } workshop_view;
 
 /* ---------- private code */
@@ -88,28 +106,82 @@ static short options_of(struct workshop_browser_item const *item, short *options
 {
 	short count = 0;
 
+	boolean bridge = workshop_browser_bridge_status() == STEAM_BRIDGE_READY;
+
 	if (!item)
 		return 0;
-	options[count++] = _option_steam;
-	if (!config_boolean("game.workshop_maps"))
+	if ((!item->mcc_install || item->state == WORKSHOP_ITEM_NOT_INSTALLED) && !(bridge && item->steam_subscribed))
+		options[count++] = _option_steam;
+	if (bridge && item->steam_subscribed && steam_bridge_can_unsubscribe())
+		options[count++] = _option_unsubscribe;
+	if (bridge && steam_bridge_sign_in_needed())
+		options[count++] = _option_sign_in;
+	if (!steam_bridge_enabled() && workshop_browser_bridge_backend() != STEAM_BRIDGE_BACKEND_NONE)
+		options[count++] = _option_use_steam;
+	if (!item->mcc_install && !config_boolean("game.workshop_maps"))
 		options[count++] = _option_show_maps;
 	return count;
 }
 
 static char const *option_label(struct workshop_browser_item const *item, short option)
 {
-	if (option == _option_show_maps)
-		return "TURN ON";
+	switch (option)
+	{
+	case _option_show_maps: return "TURN ON";
+	case _option_unsubscribe: return "UNSUBSCRIBE";
+	case _option_sign_in: return "SIGN IN";
+	case _option_use_steam: return workshop_view.confirm ? "CONFIRM" : "USE STEAM";
+	default: break;
+	}
+	if (item->mcc_install)
+		return "INSTALL";
+	/* (the bridge's: SUBSCRIBE until Steam has it; the page otherwise) */
+	if (workshop_browser_bridge_status() == STEAM_BRIDGE_READY)
+		return "SUBSCRIBE";
 	return item->state == WORKSHOP_ITEM_NOT_INSTALLED ? "SUBSCRIBE" : "OPEN";
+}
+
+/* the note USE STEAM shows before CONFIRM */
+static char const *use_steam_note(void)
+{
+#ifdef __APPLE__
+	/* (no Steam client here: steam_client_bridge.c) */
+	return "Downloads use steamcmd and the sign-in it saved. Chupathingy never sees your password.";
+#else
+	return workshop_browser_bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD ?
+		"Steam shows MCC as running while this tab is open. Downloads use steamcmd and the sign-in it saved; "
+		"Chupathingy never sees your password." :
+		"Steam shows MCC as running while this tab is open.";
+#endif
 }
 
 static void option_run(short option)
 {
-	if (option == _option_show_maps)
+	switch (option)
 	{
+	case _option_show_maps:
 		config_write_boolean("game.workshop_maps", 1);
 		mcc_maps_rescan();
 		return;
+	case _option_unsubscribe:
+		workshop_browser_unsubscribe(workshop_view.row);
+		return;
+	case _option_sign_in:
+		steam_bridge_sign_in();
+		return;
+	case _option_use_steam:
+		if (!workshop_view.confirm)
+		{
+			workshop_view.confirm = TRUE;
+			return;
+		}
+		workshop_view.confirm = FALSE;
+		config_write_boolean("game.workshop_steam", 1);
+		/* (the bridge starts, and the list is asked for again) */
+		workshop_browser_open(1);
+		return;
+	default:
+		break;
 	}
 	if (workshop_browser_subscribe(workshop_view.row))
 		workshop_view.waiting = TRUE;
@@ -121,6 +193,7 @@ static unsigned int state_color(int state)
 	{
 	case WORKSHOP_ITEM_INSTALLED: return COLOR_INSTALLED;
 	case WORKSHOP_ITEM_WAITING:
+	case WORKSHOP_ITEM_DOWNLOADING:
 	case WORKSHOP_ITEM_INSTALLING: return COLOR_WAITING;
 	default: return COLOR_NOT_INSTALLED;
 	}
@@ -184,13 +257,14 @@ static float text_wrapped(char const *text, float x, float y, float width, short
 
 boolean guide_workshop_shown(void)
 {
-	return workshop_browser_mcc_present() != 0;
+	return workshop_browser_offered() != 0;
 }
 
 void guide_workshop_open(void)
 {
 	workshop_view.page = FALSE;
 	workshop_view.option = 0;
+	workshop_view.confirm = FALSE;
 	workshop_browser_open(0);
 }
 
@@ -198,6 +272,10 @@ void guide_workshop_update(boolean showing)
 {
 	short index, installed;
 
+	/* (the bridge only while the section shows) */
+	if (workshop_view.showing && !showing)
+		workshop_browser_close();
+	workshop_view.showing = showing;
 	if (!showing && !workshop_view.waiting)
 		return;
 	installed = (short)workshop_browser_poll();
@@ -270,6 +348,7 @@ boolean guide_workshop_back(void)
 	if (!workshop_view.page)
 		return FALSE;
 	workshop_view.page = FALSE;
+	workshop_view.confirm = FALSE;
 	return TRUE;
 }
 
@@ -372,9 +451,18 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 
 		y = bottom - 12 - option_count * (OPTION_HEIGHT + OPTION_GAP) + OPTION_GAP;
 		/* (an action line over the options: what they do, in a few words) */
-		if (item->state == WORKSHOP_ITEM_WAITING)
+		if (workshop_view.confirm)
+			text_wrapped(use_steam_note(), x + 12, y - 4 - NOTE_LINES * (DESCRIPTION_SIZE + 4), width - 24, NOTE_LINES);
+		else if (workshop_browser_bridge_status() == STEAM_BRIDGE_READY && steam_bridge_sign_in_needed())
+			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Sign in to steamcmd");
+		else if (item->state == WORKSHOP_ITEM_DOWNLOADING && item->total > 0)
+		{
+			snprintf(line, sizeof(line), "Downloading %d%%", (int)(item->downloaded * 100 / item->total));
+			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, line);
+		}
+		else if (item->state == WORKSHOP_ITEM_WAITING && workshop_browser_bridge_status() != STEAM_BRIDGE_READY)
 			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Open Steam to subscribe");
-		else if (option_count > 1)
+		else if (!item->mcc_install && !config_boolean("game.workshop_maps"))
 			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Workshop maps are off");
 		for (index = 0; index < option_count; index++)
 		{

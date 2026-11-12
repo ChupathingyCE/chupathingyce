@@ -201,6 +201,8 @@ const char *workshop_browser_kind_name(const char *kind)
 		return "Campaign";
 	if (!strcmp(kind, "gametypes"))
 		return "Game types";
+	if (!strcmp(kind, "game"))
+		return "Game";
 	return "Item";
 }
 
@@ -211,6 +213,7 @@ const char *workshop_browser_state_name(int state)
 	case WORKSHOP_ITEM_WAITING: return "Waiting";
 	case WORKSHOP_ITEM_INSTALLING: return "Installing";
 	case WORKSHOP_ITEM_INSTALLED: return "Installed";
+	case WORKSHOP_ITEM_DOWNLOADING: return "Downloading";
 	default: return "Not installed";
 	}
 }

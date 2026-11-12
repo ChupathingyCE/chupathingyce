@@ -70,6 +70,8 @@ enum
 	/* its folder is there (or in Steam's downloads), its ModInfo.json not yet */
 	WORKSHOP_ITEM_INSTALLING,
 	WORKSHOP_ITEM_INSTALLED,
+	/* the Steam bridge (steam_client_bridge.h) says Steam is downloading it */
+	WORKSHOP_ITEM_DOWNLOADING,
 };
 
 /* the list */
@@ -96,6 +98,12 @@ struct workshop_browser_item
 	int local;
 	/* SUBSCRIBE pressed this run */
 	int subscribed;
+	/* the Steam bridge's: subscribed in Steam, and a download's bytes (or percent of 100) */
+	int steam_subscribed;
+	unsigned long long downloaded;
+	unsigned long long total;
+	/* the steamcmd row that installs MCC's Halo CE files (not a Workshop item) */
+	int mcc_install;
 };
 
 /* ---------- the list's text (workshop_list.c) */
@@ -123,6 +131,8 @@ void workshop_browser_size_text(long long size, char *text, int size_of_text);
 appmanifest_976730.acf), looked at again at most every few seconds: the
 WORKSHOP section shows only then */
 int workshop_browser_mcc_present(void);
+/* whether the section shows: MCC is here, or steamcmd is (which can fetch it) */
+int workshop_browser_offered(void);
 /* the section came into view: the list asked for (once a run unless it
 failed, or again with force), the installed items looked for */
 void workshop_browser_open(int force);
@@ -133,8 +143,19 @@ int workshop_browser_poll(void);
 int workshop_browser_status(void);
 int workshop_browser_count(void);
 const struct workshop_browser_item *workshop_browser_item(int index);
-/* SUBSCRIBE: the item's Steam page opened (platform_open_url); 0 for a bad index */
+/* SUBSCRIBE: through the Steam bridge when it is on and ready, else the
+item's Steam page opened (platform_open_url); 0 for a bad index. For the
+MCC row, steamcmd asked to install MCC's Halo CE files */
 int workshop_browser_subscribe(int index);
+/* UNSUBSCRIBE (the bridge's Steam client backend only) */
+int workshop_browser_unsubscribe(int index);
+/* the section went out of view: the Steam bridge stopped */
+void workshop_browser_close(void);
+/* the Steam bridge for this computer: its backend (STEAM_BRIDGE_BACKEND_*,
+NONE where it isn't offered), and its status (STEAM_BRIDGE_OFF when the
+setting is off) */
+int workshop_browser_bridge_backend(void);
+int workshop_browser_bridge_status(void);
 
 #endif
 

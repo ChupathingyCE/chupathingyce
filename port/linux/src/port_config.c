@@ -1390,6 +1390,19 @@ static const struct config_setting config_settings[] =
 	{ "game.workshop_maps", _config_boolean, "false", "HALO_WORKSHOP_MAPS", _environment_value, _platform_desktop,
 		"Discover installed Halo CE Steam Workshop maps. Read-only desktop\n"
 		"discovery; packages installed in maps_mcc are always read." },
+	{ "game.workshop_steam", _config_boolean, "false", "HALO_WORKSHOP_STEAM", _environment_value, _platform_desktop,
+		"Let the Delta Guide's Workshop subscribe to MCC Workshop items itself, through\n"
+		"your own Steam (Windows: the Steam client; macOS and Linux without it: your\n"
+		"steamcmd and its saved sign-in). Only while the Workshop tab is open; with the\n"
+		"Steam client, Steam shows MCC as running then. Off opens each item's page in Steam." },
+	{ "game.steamcmd_account", _config_string, "\"\"", "HALO_STEAMCMD_ACCOUNT", _environment_value, _platform_desktop,
+		"The Steam account steamcmd signs in with for the Workshop. Empty uses the one\n"
+		"steamcmd saved. Never a password: steamcmd keeps its own sign-in." },
+	{ "paths.steamcmd", _config_string, "\"\"", "HALO_STEAMCMD", _environment_value, _platform_desktop,
+		"steamcmd, for the Workshop on macOS and Linux. Empty looks in the PATH and the\n"
+		"usual places." },
+	{ "paths.steam_api", _config_string, "\"\"", "HALO_STEAM_API", _environment_value, _platform_desktop,
+		"A steam_api library for the Workshop to use. Empty uses MCC's own on Windows." },
 	{ "game.mcc_collections", _config_boolean, "false", "HALO_MCC_COLLECTIONS", _environment_value, _platform_all,
 		"Group identified MCC packages into the bundled Workshop collections.\n"
 		"Works with imported packages without Steam; reopen the map list after changing." },
