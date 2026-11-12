@@ -1078,7 +1078,7 @@ machine or player past them is left, as a full game is, never half taken */
 /* (room for the record of network version 35 on, 16 bytes longer, and the
 most a signed table's layouts may add: network_rules.h's
 NETWORK_RULES_SETTINGS_MAXIMUM) */
-static byte network_game_client_settings_staging[HALO_PORT_WIRE_NETWORK_GAME_SIZE + 16 + 64];
+static byte network_game_client_settings_staging[HALO_PORT_WIRE_NETWORK_GAME_SIZE + 16 + 128];
 static struct network_game network_game_client_settings_folded;
 /* (the fold's offsets, network_game_layout.h's, against this build's record,
 network version 20's: co-op's cooperative_flags in the Xbox's padding byte
@@ -1100,7 +1100,7 @@ NETWORK_RULES_SETTINGS_MAXIMUM) */
 static struct
 {
 	struct network_game game;
-	byte further[16 + 64];
+	byte further[16 + 128];
 } network_game_client_settings_staging;
 #endif
 static long network_game_client_settings_staging_size = 0;
@@ -1130,7 +1130,7 @@ enum
 	/* (network_rules.h's) */
 	NETWORK_GAME_CLIENT_SETTINGS_SIZE = 13120,
 	NETWORK_GAME_CLIENT_SETTINGS_EXTENDED_SIZE = 13120 + 16,
-	NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM = 13120 + 16 + 64,
+	NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM = 13120 + 16 + 128,
 	NETWORK_GAME_CLIENT_OPTIONS_SIZE = 0x1C,
 	NETWORK_GAME_CLIENT_EXTENDED_OPTIONS_VERSION = 35,
 };

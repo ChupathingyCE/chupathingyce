@@ -1,14 +1,15 @@
-"""A host announcing OpenCE's 43 by a table row, run for real: its own
-machine joins its game at home (the start path every host takes), a client
-of the same row joins it over system link and plays, and a client whose
-table gives 43 no version word in the join request is refused, silently.
+"""Hosts at OpenCE's 43 and 44, run for real: the host's own machine joins
+its game at home (the start path every host takes), a client of this build
+with no table (43 built in) joins and plays, and a client whose table makes
+the join request without the version word is dropped, silently.
 
-It runs two or three copies of a built game on this machine's loopback
+It runs copies of a built game on this machine's loopback
 (port/linux/game/network_test.c's "host:" and "join"), each with its own
 data root (maps linked, never copied) and save root, and reads their logs.
-It needs a built game and maps: set NET43_BINARY to the game and
-NET43_DATA_ROOT_SCRIPT to a script that makes a data root with links to the
-maps (its one argument the folder); without them it is skipped.
+The host announces its number by a local table. It needs a built game and
+maps: set NET43_BINARY to the game and NET43_DATA_ROOT_SCRIPT to a script
+that makes a data root with links to the maps (its one argument the
+folder); without them it is skipped.
 
     NET43_BINARY=build/macos/chupathingy NET43_DATA_ROOT_SCRIPT=new-data-root.sh \\
         python3 -m pytest -q tools/test_net43_host.py
@@ -30,16 +31,13 @@ pytestmark = pytest.mark.skipif(not BINARY or not DATA_ROOT_SCRIPT,
                                 reason="needs NET43_BINARY and NET43_DATA_ROOT_SCRIPT (a built game and maps)")
 
 
-def table(path, word=True):
-    """a local table whose wire's row announces 43 (the row file's facts);
-    without word, 43's join request has no version word (an older build's)"""
-    row = json.loads((ROOT / "tools/legacy_rows/chupa-43a-hosting-43.json").read_text())["chupa-43a"]
-    row["announce"] = 43
-    row.pop("hosting", None)
-    if not word:
-        fact = row["layouts"]["43"]
-        fact.pop("join_request_version_at")
-        fact["join_request_extra"] = 234
+def table(path, announce, without_word=None):
+    """a local table whose wire's row announces a number (43 is built in;
+    44 has 43's layout); without_word: a version whose join request the
+    table makes 234 bytes, without the word (an older build's)"""
+    row = {"announce": announce, "minimum": 11, "maximum": 45, "layouts": {}}
+    if without_word:
+        row["layouts"][str(without_word)] = {"join_request_extra": 234, "join_request_fill": "zeros"}
     path.write_text(json.dumps({"delta_legacy": 1, "serial": 1, "wires": {"chupa-43a": row},
                                 "disabled_capabilities": []}))
     return path
@@ -55,7 +53,6 @@ def copy(folder, legacy, test):
         "HOME": str(folder / "home"),
         "HALO_DATA_ROOT": str(folder / "data"),
         "HALO_SAVE_ROOT": str(folder / "saves"),
-        "HALO_LEGACY_TABLE": str(legacy),
         "HALO_NETWORK_TEST": test,
         "HALO_NETWORK_TEST_START": "20",
         "HALO_UPDATE_AUTO": "false",
@@ -71,6 +68,8 @@ def copy(folder, legacy, test):
         "HALO_LAUNCHER_MODE_CHOICE": "default",
         "SDL_AUDIO_DRIVER": "dummy",
     }
+    if legacy:
+        env["HALO_LEGACY_TABLE"] = str(legacy)
     output = open(folder / "out.log", "wb")
     process = subprocess.Popen([os.path.abspath(BINARY)], cwd=folder / "data", env=env, stdout=output,
                                stderr=subprocess.STDOUT, start_new_session=True)
@@ -89,30 +88,44 @@ def log(folder):
     return path.read_text(errors="replace") if path.exists() else ""
 
 
-def test_host_at_43(tmp_path):
+def play(tmp_path, announce, clients):
     host = tmp_path / "host"
-    good = tmp_path / "client"
-    bad = tmp_path / "client_without_word"
-    running = [copy(host, table(tmp_path / "t43.json"), "host:bloodgulch")]
+    running = [copy(host, table(tmp_path / "host.json", announce), "host:bloodgulch")]
     try:
         time.sleep(8)
-        running.append(copy(good, tmp_path / "t43.json", "join"))
-        running.append(copy(bad, table(tmp_path / "t43_no_word.json", word=False), "join"))
+        for name, legacy in clients:
+            running.append(copy(tmp_path / name, legacy, "join"))
         time.sleep(60)
     finally:
         for process, output in running:
             stop(process, output)
-    hosted, joined, refused = log(host), log(good), log(bad)
+    return log(host), {name: log(tmp_path / name) for name, _ in clients}
+
+
+def test_host_at_43(tmp_path):
+    """a host at 43, its own machine's join at home, and a client of this
+    build with no table at all (43 built in) joining and playing"""
+    hosted, clients = play(tmp_path, 43, [("client", None)])
+    joined = clients["client"]
     # (the host's own machine: joined at home with 43's word, never refused)
     assert "joining a host of network version 43: the join request carries 236 more bytes" in hosted
     assert "successfully joined a net game; our machine is #0" in hosted
     assert "can't add players to a game until after a game is joined" not in hosted
-    # (the client of the row: joined, with the record of 43, and played)
+    assert "ignoring a join request" not in hosted
+    # (the client: 43 built in, joined with the word and 43's record, played)
     assert "joining a host of network version 43: the join request carries 236 more bytes" in joined
     assert "successfully joined a net game" in joined
     assert "different game layout" not in joined and "different game layout" not in hosted
     assert "checkpoint boundary" in hosted and "the host's checkpoint epoch" in joined
-    # (the client without the word: dropped, without a reply)
-    assert "joining a host of network version 43: the join request carries 234 more bytes" in refused
-    assert "successfully joined a net game" not in refused
-    assert hosted.count("ignoring a join request of another network version than this host's") >= 1
+
+
+def test_host_refuses_a_join_without_the_word(tmp_path):
+    """a host at 44 (43's layout, the word needed): a client of this build
+    joins; one whose table makes 44's request without the word is dropped"""
+    hosted, clients = play(tmp_path, 44, [("client", None),
+                                          ("without_word", table(tmp_path / "old.json", 32, without_word=44))])
+    assert "successfully joined a net game; our machine is #0" in hosted
+    assert "successfully joined a net game" in clients["client"]
+    assert "joining a host of network version 44: the join request carries 234 more bytes" in clients["without_word"]
+    assert "successfully joined a net game" not in clients["without_word"]
+    assert "ignoring a join request of another network version than this host's" in hosted

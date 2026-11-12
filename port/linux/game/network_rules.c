@@ -459,6 +459,29 @@ void network_rules_layout_built_in(unsigned version, struct network_rules_layout
 		layout_drop(layout, NETWORK_RULES_MAP_VOTE_STATUS_KIND);
 		layout_drop(layout, NETWORK_RULES_MAP_VOTE_CHOICE_KIND);
 	}
+	if (rules >= NETWORK_RULES_EPOCH_VERSION)
+	{
+		/* (the MCC-only kinds: 97 to 100, 103 to 106) */
+		static const unsigned mcc_kinds[] = { 97, 98, 99, 100, 103, 104, 105, 106 };
+		unsigned index;
+
+		layout->settings_size = NETWORK_RULES_EPOCH_SETTINGS_SIZE;
+		layout->join_request_extra = NETWORK_RULES_EPOCH_JOIN_REQUEST_EXTRA;
+		layout->join_request_version_at = NETWORK_RULES_EPOCH_JOIN_VERSION_AT;
+		layout->header_extra = NETWORK_RULES_EPOCH_HEADER_EXTRA;
+		layout->epoch_kind = NETWORK_RULES_BOUNDARY_KIND;
+		layout->unit_part_size[NETWORK_RULES_POSE_PART_BIT] = NETWORK_RULES_POSE_PART_SIZE;
+		layout->unit_part_at[NETWORK_RULES_POSE_PART_BIT] = DELTA_LAYOUT_PART_LAST;
+		for (index = 0; index < sizeof(mcc_kinds) / sizeof(mcc_kinds[0]); index++)
+			layout_drop(layout, mcc_kinds[index]);
+	}
+	if (rules >= NETWORK_RULES_DECK_VERSION)
+	{
+		layout->unit_part_size[NETWORK_RULES_DECK_PART_BIT] = NETWORK_RULES_DECK_PART_SIZE;
+		layout->unit_part_at[NETWORK_RULES_DECK_PART_BIT] = DELTA_LAYOUT_PART_AFTER_UP;
+		layout->rider_ejection_up = NETWORK_RULES_SIDE_EJECTION_UP;
+		layout_drop(layout, NETWORK_RULES_RIDING_KIND);
+	}
 }
 
 int network_rules_join_request_extra(unsigned version)
