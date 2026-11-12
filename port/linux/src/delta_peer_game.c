@@ -18,6 +18,7 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #include "posix.h"
 #include "port_config.h"
 #include "halo_port_limits.h"
+#include "halo_port_features.h" /* HALO_MCC */
 #include "delta.h"
 #include "delta_compat.h"
 #include "delta_peer.h"
@@ -663,6 +664,11 @@ int delta_peer_protocol(void)
 		/* (changing teams during a game: a host offers it once its team
 		host is set, team_change.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_team_change;
+#if defined(HALO_MCC) && HALO_MCC
+		/* (MCC maps and their messages: mcc_network_messages.h; a build
+		without MCC maps, as a Windows app package's, says it has none) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_mcc_maps;
+#endif
 #endif
 #ifdef HALO_GAME_BROWSER
 #ifdef HALO_PORT_VOICE
@@ -1116,6 +1122,9 @@ void delta_peer_game_host_frame(const struct delta_peer_game_machine *machines, 
 	host_map();
 	delta_peer_set_traits(&delta_game.peer, delta_game.has_traits ? &delta_game.traits : NULL);
 	delta_peer_set_host_rules(&delta_game.peer, delta_game.has_rules ? &delta_game.rules : NULL);
+	/* (the number this game is played at, which its Delta clients with
+	mcc_maps follow when it changes in the lobby: HOST_NUMBER) */
+	delta_peer_set_host_number(&delta_game.peer, (unsigned)delta_legacy_announce());
 }
 
 void delta_peer_game_client_frame(int joined, delta_u32 host_ipv4, int host_speaks_delta, int machine_index,
@@ -1387,6 +1396,23 @@ delta_u32 delta_peer_game_host_traits(struct delta_wire_traits *traits)
 }
 
 /* ---------- the host's rules (host_rules.c) */
+
+int delta_peer_game_host_agreed_mcc_maps(void)
+{
+	return delta_game.ready && delta_game.role == _role_client &&
+		delta_game.peer.client_state == _delta_peer_client_delta &&
+		(delta_game.peer.agreed & ((delta_u32)1 << _delta_capability_mcc_maps)) != 0;
+}
+
+unsigned delta_peer_game_host_number(void)
+{
+	unsigned number = 0;
+
+	if (!delta_game.ready || delta_game.role != _role_client ||
+		!delta_peer_host_number(&delta_game.peer, &number))
+		return 0;
+	return number;
+}
 
 void delta_peer_game_set_host_rules(const struct delta_wire_host_rules *rules)
 {

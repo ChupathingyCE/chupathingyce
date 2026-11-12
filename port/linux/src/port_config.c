@@ -1468,6 +1468,8 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_test_local_players", _config_integer, "1", "HALO_NETWORK_TEST_LOCAL_PLAYERS", _environment_value,
 		_platform_all,
 		"A test machine's players, from 1 to 4." },
+	{ "debug.network_test_lobby_map", _config_string, "\"\"", "HALO_NETWORK_TEST_LOBBY_MAP", _environment_value, _platform_all,
+		"A test host changes its lobby to this map once another machine has joined." },
 	{ "debug.network_test_score", _config_integer, "0", "HALO_NETWORK_TEST_SCORE", _environment_value, _platform_all,
 		"The score a test game plays to. 0 uses the game type's own." },
 	{ "debug.network_test_shoot", _config_real, "0.0", "HALO_NETWORK_TEST_SHOOT", _environment_value, _platform_all,

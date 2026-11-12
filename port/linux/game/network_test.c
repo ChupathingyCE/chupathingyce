@@ -195,6 +195,12 @@ static struct
 	boolean started;
 	boolean joined;
 	boolean map_set;
+	/* debug.network_test_lobby_map: the map a host changes to once another
+	machine is in its lobby (an MCC map's game at 43, or back), and whether
+	it has */
+	char lobby_map[128];
+	boolean lobby_map_set;
+	real lobby_seconds;
 	boolean player_added;
 	/* debug.network_test_local_players: the host's players on this machine
 	(2 or more: split screen), and how many it has added */
@@ -424,6 +430,7 @@ static void network_test_read_settings(
 	snprintf(network_test.pickup_weapon, sizeof(network_test.pickup_weapon), "%s",
 		config_string("debug.network_test_pickup_weapon"));
 	network_test.score_to_win = (long)config_integer("debug.network_test_score");
+	snprintf(network_test.lobby_map, sizeof(network_test.lobby_map), "%s", config_string("debug.network_test_lobby_map"));
 	if (network_test.mode != _network_test_off)
 		platform_log("network test: %s", setting);
 }
@@ -1872,7 +1879,21 @@ void network_test_update(
 			started the fast setup's game, of no game type, where the players
 			spawn with no weapons or grenades; it now waits, and the test
 			fails on its time limit) */
-			if (network_test.setup_seconds >= network_test.start_delay && network_test.map_set)
+			/* (debug.network_test_lobby_map: the host's second map, picked once
+			another machine is in the lobby; the start waits its delay again) */
+			if (network_test.map_set && network_test.lobby_map[0] && !network_test.lobby_map_set &&
+				global_network_game_server_get() &&
+				network_game_server_machine_count(global_network_game_server_get()) >= 2 &&
+				(network_test.lobby_seconds += seconds) >= 10.0f)
+			{
+				network_test.lobby_map_set = TRUE;
+				main_set_multiplayer_map_name(network_test.lobby_map);
+				network_game_server_change_map_name(global_network_game_server_get(), network_test.lobby_map);
+				platform_log("network test: the lobby's map changed to %s", network_test.lobby_map);
+				network_test.setup_seconds = 0.0f;
+			}
+			if (network_test.setup_seconds >= network_test.start_delay && network_test.map_set &&
+				(!network_test.lobby_map[0] || network_test.lobby_map_set))
 			{
 				network_test.started = TRUE;
 				network_test.setup_seconds = 0.0f;

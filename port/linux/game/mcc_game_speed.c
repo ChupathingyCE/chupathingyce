@@ -85,6 +85,8 @@ real mcc_game_speed_client(real original)
 
 void mcc_game_speed_frame(void)
 {
+    /* port: (mcc_network_messages.h) */
+    if (!network_distributed_mcc_session()) return;
     struct {
         struct distributed_message_header header;
         real speed;
@@ -99,12 +101,9 @@ void mcc_game_speed_frame(void)
     mcc_speed_sent=TRUE;mcc_sent_speed=message.speed;mcc_speed_last_sent=now;
     /* Reliable ordered messages are sent in real time, including at zero
      * speed and for late joiners. Never queue these in the tick-only batch. */
-#ifdef HALO_MCC_NETWORK /* port: off our wire (mcc_network.c) */
     distributed_send(&message,_distributed_message_mcc_game_speed,1,sizeof(message),
         _distributed_to_clients_reliably);
-#else
-    (void)message;
-#endif
+
 }
 
 void mcc_game_speed_receive(void const *entries, short count)

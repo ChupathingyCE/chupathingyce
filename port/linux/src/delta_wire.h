@@ -163,6 +163,10 @@ enum
 	changes, their margin, reserved; a later version may append fields */
 	DELTA_WIRE_HOST_RULES_SIZE = 8,
 	DELTA_WIRE_HOST_RULES_VERSION = 1,
+	/* the number the host's game is played at (docs/delta.md, Host number):
+	version, reserved, the number (16 bits, little-endian), reserved */
+	DELTA_WIRE_HOST_NUMBER_SIZE = 8,
+	DELTA_WIRE_HOST_NUMBER_VERSION = 1,
 	/* HOST_RULES's team changes (team_change.h's policies), and the most
 	their margin may be */
 	DELTA_WIRE_HOST_TEAM_CHANGE_OFF = 0,
@@ -515,7 +519,12 @@ enum delta_message_type
 	another */
 	_delta_message_report = 37,
 	/* host to client: what the host did with it */
-	_delta_message_report_result = 38
+	_delta_message_report_result = 38,
+	/* host to client, if both agreed to mcc_maps: the OpenCE network version
+	its game is played at, whenever it changes in the lobby (an MCC map's
+	game at 43, another's at the usual number) and every few seconds; the
+	client plays the host's next record and messages at it, without leaving */
+	_delta_message_host_number = 39
 };
 
 /* voice's channels: who a player talks to (VOICE_UP, VOICE_DOWN); a number
@@ -1239,6 +1248,10 @@ int delta_wire_write_report_result(unsigned char *data, delta_u32 session,
 knows; a team change or margin past their ranges is refused */
 int delta_wire_read_host_rules(const unsigned char *payload, int size, struct delta_wire_host_rules *rules);
 int delta_wire_write_host_rules(unsigned char *data, delta_u32 session, const struct delta_wire_host_rules *rules);
+/* the host's number: 1 to 65535 (0 is refused); a later version is read as
+far as this build knows */
+int delta_wire_read_host_number(const unsigned char *payload, int size, unsigned *number);
+int delta_wire_write_host_number(unsigned char *data, delta_u32 session, unsigned number);
 /* voice's messages. VOICE_UP's and VOICE_DOWN's length must be the bytes
 that came after their fixed part, exactly (a party's tag aside), and no more
 than DELTA_WIRE_VOICE_PACKET_SIZE; a channel or route this build does not

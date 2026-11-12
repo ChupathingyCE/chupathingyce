@@ -61,6 +61,7 @@ symbols in this file:
 #include "cseries.h"
 
 #include "cseries/profile.h"
+#include "errors.h" /* port: the item at rest log */
 #include "effects/material_effects.h"
 #include "game/game.h"
 #include "effects/effects.h"
@@ -338,6 +339,15 @@ static void item_adjust_for_angular_velocity_change(
 				&item->object.angular_velocity,
 				1.f / angular_velocity_magnitude,
 				&item->item.rotation_axis);
+		}
+		/* port: an item at rest that never came to rest here has no surface
+		normal to spin about: a network client's copy of a spinning item the
+		host set down (an MCC map's powerup, as Aerial's mega shield), its
+		axis left zero, which gave no frame to align its ground point to. It
+		spins about up, the normal of the level ground it rests on */
+		else if (magnitude_squared3d(&item->item.rotation_axis) == 0.f)
+		{
+			item->item.rotation_axis = *global_up3d;
 		}
 
 		item->item.rotation_sine = sine(angular_velocity_magnitude);
@@ -928,10 +938,27 @@ boolean item_update(
 				normalize3d(&ground_point_matrix.forward);
 				normalize3d(&ground_point_matrix.left);
 				normalize3d(&ground_point_matrix.up);
-				object_align_marker_to_matrix(
-					object_get(item_index),
-					&marker,
-					&ground_point_matrix);
+				/* port: a rotation that leaves no frame keeps the item where it
+				lies, rather than halting in the align */
+				if (valid_real_matrix4x3(&ground_point_matrix))
+					object_align_marker_to_matrix(
+						object_get(item_index),
+						&marker,
+						&ground_point_matrix);
+				else
+				{
+					static boolean logged;
+
+					/* (a safety net: item_adjust_for_angular_velocity_change
+					gives every resting item an axis; said once) */
+					if (!logged)
+					{
+						logged = TRUE;
+						error(_error_silent, "item %s at rest with no frame to align to: axis (%f %f %f), left where it lies",
+							tag_get_name(item->definition_index),
+							item->item.rotation_axis.i, item->item.rotation_axis.j, item->item.rotation_axis.k);
+					}
+				}
 			}
 
 			normalize3d(&item->object.up);

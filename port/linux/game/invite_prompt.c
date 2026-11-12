@@ -122,6 +122,15 @@ static struct
 	boolean password;
 	char typed[PASSWORD_LENGTH + 1];
 	boolean wrong;
+	/* another question asked the same way (invite_prompt_ask): its title,
+	its line and its detail, and what answers it */
+	boolean asking;
+	/* (asked while an invite's question waited: asked once it is answered) */
+	boolean ask_waiting;
+	char ask_title[24];
+	char ask_question[64];
+	char ask_detail[96];
+	void (*ask_answer)(boolean yes);
 } invite_prompt;
 
 /* ---------- private code */
@@ -171,6 +180,16 @@ static void answer(
 {
 	invite_prompt.active = FALSE;
 	invite_prompt.pending = FALSE;
+	if (invite_prompt.asking)
+	{
+		void (*ask_answer)(boolean yes) = invite_prompt.ask_answer;
+
+		invite_prompt.asking = FALSE;
+		invite_prompt.ask_answer = NULL;
+		if (ask_answer)
+			ask_answer(join);
+		return;
+	}
 	if (join)
 	{
 		platform_log("Internet play: joining the invite on the clipboard");
@@ -355,6 +374,50 @@ static void password_render(
 
 /* ---------- public code */
 
+/* port: another question asked as the invite's is (the host's lobby moving to
+or from an MCC map would drop players: network_server_manager.c): a title,
+the question, a line of detail, and what is called with the answer (A yes,
+B no). A question already waiting is replaced; the clipboard's waits */
+void invite_prompt_ask(
+	char const *title,
+	char const *question,
+	char const *detail,
+	void (*answer_function)(boolean yes))
+{
+	snprintf(invite_prompt.ask_title, sizeof(invite_prompt.ask_title), "%s", title);
+	snprintf(invite_prompt.ask_question, sizeof(invite_prompt.ask_question), "%s", question);
+	snprintf(invite_prompt.ask_detail, sizeof(invite_prompt.ask_detail), "%s", detail ? detail : "");
+	invite_prompt.ask_answer = answer_function;
+	/* (an invite's question waiting is never overwritten: this one waits) */
+	if (invite_prompt.pending && !invite_prompt.asking)
+	{
+		invite_prompt.ask_waiting = TRUE;
+		return;
+	}
+	invite_prompt.asking = TRUE;
+	invite_prompt.ask_waiting = FALSE;
+	invite_prompt.password = FALSE;
+	invite_prompt.pending = TRUE;
+	invite_prompt.active = FALSE;
+}
+
+/* port: the question asked by invite_prompt_ask with this answer, taken back
+unanswered (what it was about is gone: the host left its lobby) */
+void invite_prompt_ask_cancel(
+	void (*answer_function)(boolean yes))
+{
+	if (invite_prompt.ask_answer != answer_function || (!invite_prompt.asking && !invite_prompt.ask_waiting))
+		return;
+	invite_prompt.ask_answer = NULL;
+	invite_prompt.ask_waiting = FALSE;
+	if (invite_prompt.asking)
+	{
+		invite_prompt.asking = FALSE;
+		invite_prompt.pending = FALSE;
+		invite_prompt.active = FALSE;
+	}
+}
+
 boolean invite_prompt_active(
 	void)
 {
@@ -368,7 +431,17 @@ void invite_prompt_update(
 {
 	char text[INVITE_TEXT_SIZE];
 
-	if (platform_take_clipboard_invite(text, sizeof(text)))
+	/* (a question asked while an invite's waited, once that is answered) */
+	if (invite_prompt.ask_waiting && !invite_prompt.pending)
+	{
+		invite_prompt.ask_waiting = FALSE;
+		invite_prompt.asking = TRUE;
+		invite_prompt.password = FALSE;
+		invite_prompt.pending = TRUE;
+		invite_prompt.active = FALSE;
+	}
+	/* (another question waits its answer first) */
+	if (!invite_prompt.asking && platform_take_clipboard_invite(text, sizeof(text)))
 	{
 		if (invite_declined(text))
 			platform_log("Internet play: the invite on the clipboard was answered No before; not asked again");
@@ -385,7 +458,7 @@ void invite_prompt_update(
 	}
 	/* (a locked invite, from anywhere: its password asked for, once no
 clipboard question is waiting) */
-	if (!invite_prompt.pending && p2p_locked_invite_waiting())
+	if (!invite_prompt.pending && !invite_prompt.asking && p2p_locked_invite_waiting())
 	{
 		invite_prompt.pending = TRUE;
 		invite_prompt.password = TRUE;
@@ -469,6 +542,7 @@ void invite_prompt_render(
 		ui_overlay_rect(150, 60, 340, 26, 6, COLOR_BANNER);
 		ui_overlay_outline(150, 60, 340, 26, 6, 1.0f, COLOR_BANNER_EDGE);
 		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, 320, 67, UI_ALIGN_CENTER, COLOR_TEXT,
+			invite_prompt.asking ? "A question waits. Pause to answer." :
 			invite_prompt.password ? "Invite to a game with a password. Pause to type it." :
 			"Invite on your clipboard. Pause to answer.");
 		return;
@@ -485,10 +559,11 @@ void invite_prompt_render(
 		ui_overlay_rect(-200, 0, 1040, 480, 0, XBOX_SHADE);
 		ui_overlay_gradient(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, 0, XBOX_BOX_TOP, XBOX_BOX_BOTTOM);
 		ui_overlay_outline(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, 0, 1.0f, XBOX_EDGE);
-		ui_overlay_text(UI_FONT_TITLE, 11.0f, DIALOG_X + 12, DIALOG_Y + 10, UI_ALIGN_LEFT, XBOX_TEXT, "INVITE");
+		ui_overlay_text(UI_FONT_TITLE, 11.0f, DIALOG_X + 12, DIALOG_Y + 10, UI_ALIGN_LEFT, XBOX_TEXT,
+			invite_prompt.asking ? invite_prompt.ask_title : "INVITE");
 		ui_overlay_rect(DIALOG_X + 12, DIALOG_Y + 30, DIALOG_WIDTH - 24, 1, 0, XBOX_EDGE);
 		ui_overlay_text(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 52, UI_ALIGN_CENTER, XBOX_TEXT,
-			"Join the game from your clipboard?");
+			invite_prompt.asking ? invite_prompt.ask_question : "Join the game from your clipboard?");
 		dim = XBOX_TEXT_DIM;
 	}
 	else
@@ -496,11 +571,13 @@ void invite_prompt_render(
 		ui_overlay_rect(-200, 0, 1040, 480, 0, COLOR_SHADE);
 		ui_overlay_panel(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, TRUE);
 		ui_overlay_text_glow(UI_FONT_TITLE, 11.0f, DIALOG_X + 22, DIALOG_Y + 22, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE,
-			"INVITE");
+			invite_prompt.asking ? invite_prompt.ask_title : "INVITE");
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 56, UI_ALIGN_CENTER, COLOR_TEXT, COLOR_TEXT_GLOW,
-			"Join the game from your clipboard?");
+			invite_prompt.asking ? invite_prompt.ask_question : "Join the game from your clipboard?");
 	}
-	if (invite_prompt.known)
+	if (invite_prompt.asking)
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, DIALOG_Y + 84, UI_ALIGN_CENTER, dim, invite_prompt.ask_detail);
+	else if (invite_prompt.known)
 	{
 		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, DIALOG_Y + 84, UI_ALIGN_CENTER, dim, invite_prompt.name);
 		if (invite_prompt.map[0])
