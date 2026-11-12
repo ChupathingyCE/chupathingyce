@@ -13,6 +13,7 @@
 #include "mcc_maps.h"
 #include "mcc_menu_preview.h"
 #include "../src/mcc_preview_image.h"
+#include "../src/workshop_browser.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -50,7 +51,10 @@ static struct preview_entry *picture(short index)
     entry=&previews[next_preview++ % NUMBEROF(previews)];
     if (entry->bitmap) bitmap_delete(entry->bitmap);
     memset(entry,0,sizeof(*entry)); strcpy(entry->level,level);
-    if (!mcc_preview_image_load(level,mcc_maps_campaign(index),&image)) return entry;
+    /* port: a Workshop item's map without a picture of its own: Steam's
+     * picture of the item, when the Delta Guide's Workshop kept one */
+    if (!mcc_preview_image_load(level,mcc_maps_campaign(index),&image) &&
+        !workshop_browser_cached_picture(level,&image)) return entry;
     source_width=image.width; source_height=image.height;
     /* Every frontend uses the native 140x114 question-mark rectangle.
      * draw_bitmap_in_rect samples from texture origin, regardless of the
@@ -64,7 +68,7 @@ static struct preview_entry *picture(short index)
     /* Native bitmap format 11 is uncompressed A8R8G8B8. */
     entry->bitmap=bitmap_2d_new((short)texture_width,(short)texture_height,0,11);
     if (entry->bitmap && entry->bitmap->base_address) {
-        pixels=(uint32_t *)(uintptr_t)entry->bitmap->base_address;
+        pixels=(uint32_t *)xbox_pointer(entry->bitmap->base_address);
         memset(pixels,0,texture_width*texture_height*sizeof(*pixels));
         for (y=0; y<(unsigned)height; y++) for (x=0; x<(unsigned)width; x++)
             pixels[y*texture_width+x]=image.pixels[(source_y+y*source_height/(unsigned)height)*image.width+

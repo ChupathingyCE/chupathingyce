@@ -80,6 +80,51 @@ int main(void)
 	CHECK(!strcmp(size, "46 MB"));
 	workshop_browser_size_text(-1, size, sizeof(size));
 	CHECK(!size[0]);
+	CHECK(!strcmp(workshop_browser_state_name(WORKSHOP_ITEM_DOWNLOADING), "Downloading"));
+
+	/* Steam's own details (GetPublishedFileDetails): only MCC's Halo CE items
+	(tag Halo1) are kept; MCC's Workshop mixes its games */
+	{
+		static const char details[] =
+			"{\"response\":{\"result\":1,\"resultcount\":4,\"publishedfiledetails\":["
+			"{\"publishedfileid\":\"2906110850\",\"result\":1,\"creator\":\"7656\",\"creator_app_id\":1695795,"
+			"\"consumer_app_id\":976730,\"file_size\":\"0\",\"title\":\"Aerial\",\"description\":\"A [b]map[/b]\\r\\n"
+			"[img]https://x/y.png[/img]above \\u00e9 clouds\",\"time_updated\":1700000000,"
+			"\"tags\":[{\"tag\":\"Halo1\"},{\"tag\":\"Multiplayer\"}]},"
+			"{\"publishedfileid\":\"3538769508\",\"result\":1,\"consumer_app_id\":976730,\"title\":\"Coldsnap\","
+			"\"tags\":[{\"tag\":\"Halo3\"},{\"tag\":\"Multiplayer\"}]},"
+			"{\"publishedfileid\":\"2886943774\",\"result\":1,\"consumer_app_id\":976730,\"file_size\":\"2265580503\","
+			"\"title\":\"Combat Revolved\",\"tags\":[{\"tag\":\"Halo1\"},{\"tag\":\"Campaign\"}]},"
+			"{\"publishedfileid\":\"1\",\"result\":1,\"consumer_app_id\":440,\"title\":\"Other game\","
+			"\"tags\":[{\"tag\":\"Halo1\"}]},"
+			"{\"publishedfileid\":\"2\",\"result\":9}]}}";
+
+		CHECK(workshop_browser_read_details(details, (int)strlen(details), items, WORKSHOP_BROWSER_MAXIMUM_ITEMS) == 2);
+		CHECK(!strcmp(items[0].id, "2906110850") && !strcmp(items[0].title, "Aerial"));
+		CHECK(!strcmp(items[0].kind, "multiplayer") && items[0].tags == WORKSHOP_TAG_MULTIPLAYER && items[0].size == -1 && items[0].updated == 1700000000);
+		/* (a non-ASCII escape: the description passed over, the item kept) */
+		CHECK(!items[0].description[0]);
+		CHECK(!strcmp(items[1].id, "2886943774") && !strcmp(items[1].kind, "campaign") && items[1].size == 2265580503LL);
+		{
+			static const char plain[] = "{\"response\":{\"publishedfiledetails\":[{\"publishedfileid\":\"5\","
+				"\"result\":1,\"consumer_app_id\":976730,\"title\":\"T\",\"description\":\"[h1]Hi[/h1]\\r\\nthere\","
+				"\"tags\":[{\"tag\":\"Halo1\"}]}]}}";
+
+			CHECK(workshop_browser_read_details(plain, (int)strlen(plain), items, 4) == 1);
+			CHECK(!strcmp(items[0].description, "Hi there"));
+		}
+		CHECK(workshop_browser_read_details("{\"nope\":1}", 10, items, 4) == -1);
+	}
+	{
+		static const char page[] = "<a href=\"https://steamcommunity.com/sharedfiles/filedetails/?id=2906110850&searchtext=\">"
+			"<a href=\"https://steamcommunity.com/sharedfiles/filedetails/?id=2906110850\"><img>"
+			"filedetails/?id=<script>filedetails/?id=123456789012345678901 filedetails/?id=3496468566\"";
+		char ids[8][WORKSHOP_BROWSER_ID_SIZE];
+
+		CHECK(workshop_browser_read_browse_ids(page, (int)strlen(page), ids, 8) == 2);
+		CHECK(!strcmp(ids[0], "2906110850") && !strcmp(ids[1], "3496468566"));
+		CHECK(workshop_browser_read_browse_ids(page, (int)strlen(page), ids, 1) == 1);
+	}
 	if (failures)
 		printf("%d failures\n", failures);
 	return failures ? 1 : 0;

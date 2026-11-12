@@ -655,6 +655,7 @@ struct widget_instance;
 #include "interface/progress_bar.h"
 #include "interface/ui_widget_game_data_input_functions.h"
 #include "mcc_maps.h"
+#include "mcc_menu_preview.h" /* port: port/linux/game/mcc_menu_preview.c */
 #include "interface/ui_widget_event_handler_functions.h"
 #include "interface/ui_widget_text_search_and_replace_functions.h"
 #include "interface/virtual_keyboard.h"
@@ -8560,6 +8561,9 @@ static void widget_instance_render_recursive(
 	long input_index;
 	struct widget_instance *child;
 	struct bitmap_data *bitmap;
+	/* port: an MCC map's picture (ui_map_list_mcc_picture), and the frame drawn */
+	short mcc_picture = NONE;
+	short picture_frame = widget->animation.current_frame_index;
 
 	if (!use_nifty_plasma_fx &&
 		TEST_FLAG(definition->flags, _widget_always_render_with_nifty_fx_bit))
@@ -8585,14 +8589,18 @@ static void widget_instance_render_recursive(
 	ui_mouse_note_target(widget, definition, offset);
 #endif
 #ifdef HALO_MAP_LIST
-	/* port: a picture of the menus' map list's own, past ui.map's */
-	bitmap = ui_map_list_picture(widget->animation.current_frame_index);
+	/* port: an MCC map's own picture (mcc_menu_preview_draw, below), with
+	the unknown level's in its place when it has none; a picture of the
+	menus' map list's own, past ui.map's */
+	mcc_picture = ui_map_list_mcc_picture(widget->animation.current_frame_index);
+	picture_frame = mcc_picture != NONE ? ui_map_list_unknown_picture() : widget->animation.current_frame_index;
+	bitmap = ui_map_list_picture(picture_frame);
 	if (!bitmap)
 #endif
 	bitmap = bitmap_group_get_bitmap_from_sequence(
 		definition->background_bitmap.index,
 		0,
-		widget->animation.current_frame_index);
+		picture_frame);
 	if (bitmap)
 	{
 		real alpha = alpha_modifier;
@@ -8675,7 +8683,10 @@ static void widget_instance_render_recursive(
 			short frame_x, frame_y, frame_width, frame_height, texel_y = 0;
 			boolean shown = TRUE;
 
-			if (pc_menu_button_key_cap(
+			/* port: an MCC map's own picture, fitted to the box, instead */
+			if (mcc_picture != NONE && mcc_menu_preview_draw(mcc_picture, &bounds, clip, color, &multitexture_params))
+				shown = FALSE;
+			else if (pc_menu_button_key_cap(
 				definition->background_bitmap.index,
 				bounds.x0,
 				bounds.y0,

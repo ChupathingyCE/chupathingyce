@@ -58,10 +58,10 @@ place of its built-in face, or from its built-in face again (NULL or ""):
 built-in face is drawn) */
 int posix_ui_font_use_file(int font, const char *path);
 
-/* a JPEG picture as RGBA (4 bytes a pixel, rows from the top), NULL if it is
+/* a JPEG or PNG picture as RGBA (4 bytes a pixel, rows from the top), NULL if it is
 not one or is larger than POSIX_UI_IMAGE_LARGEST either way; freed with
 posix_ui_image_free */
-#define POSIX_UI_IMAGE_LARGEST 1024
+#define POSIX_UI_IMAGE_LARGEST 2048
 unsigned char *posix_ui_image_decode(const unsigned char *data, int size, int *width, int *height);
 void posix_ui_image_free(unsigned char *pixels);
 

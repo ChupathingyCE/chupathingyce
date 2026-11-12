@@ -129,6 +129,36 @@ the question mark as fallback. Pictures fit and clip to the existing thumbnail
 rectangle, and MCC titles/descriptions wrap within their text boxes. This also
 works for complete Android imports without Steam and does not enable sharing.
 
+### Getting items from the Delta Guide
+
+The Delta Guide's Workshop tab lists MCC's Halo CE items (tag `Halo1`) from
+Steam's public Workshop page and Steam's public item details, the same on
+every computer, with no key and no sign-in (see [mcc.md](mcc.md) for players).
+Only installing differs:
+
+- Windows (64-bit), and Linux with MCC from Steam: with `game.workshop_steam`
+  on (USE STEAM on an item's page, after a note), the game loads the
+  `steam_api` library already on the computer (MCC's own `steam_api64.dll` on
+  Windows) while the tab is open and talks to the running Steam client as MCC
+  (the `SteamAppId` environment variable, never `steam_appid.txt`). Steam
+  shows MCC as running then. GET subscribes and REMOVE unsubscribes; each
+  call's own answer is waited on, and a Steam that isn't signed on shows as
+  "Steam offline". Without the setting, GET opens the item's page in Steam.
+- macOS, and Linux without MCC from Steam: the player's own `steamcmd`
+  (`paths.steamcmd`, or the `PATH` and usual places) downloads the item with
+  the sign-in it saved, into `steam/` in the data folder
+  (`paths.steam_downloads`); the game never sees a password. GET also opens
+  the item's page so Steam.app records the subscription, unless a
+  `steam_api` library on the Mac reached the signed-in client. PLAY, UPDATE
+  and REMOVE work on those downloads.
+
+Any failure (no Steam, Steam offline, MCC not owned, a missing function, a
+ten-second connect timeout) leaves the page and the folder watch as they
+were. Only items whose `ModInfo.json` says `"Engine": "Halo1"` are read from
+disk. Joining a host whose map is a Workshop item the player lacks offers it
+over the main menu (`network.workshop_downloads`: ask, always or never), then
+joins again once it is installed.
+
 With `game.workshop_maps = true` (`HALO_WORKSHOP_MAPS=1`), desktop builds list
 Halo CE maps from the Workshop items a player is subscribed to
 without copying anything into the data root. `steam_workshop.c` looks in Steam's

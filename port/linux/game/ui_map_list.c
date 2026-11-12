@@ -932,23 +932,29 @@ static void add_mcc_catalog_entry(
 	wide_copy(name, DISPLAY_NAME_LENGTH - 7, mcc_maps_name(index));
 	wide_copy(lobby_name, DISPLAY_NAME_LENGTH, name);
 	wide_append(lobby_name, DISPLAY_NAME_LENGTH, L" [MCC]");
-	/* (the map lists' cards: the name on the first line, whole words, then
-	[MCC] on the second, as a Custom Edition map's [CE]) */
-	pane_name_wrap(display_name, name, CARD_NAME_LINE, 1);
-	wide_append(display_name, DISPLAY_NAME_LENGTH, L"\r\n[MCC]");
-	wide_copy(description, DESCRIPTION_LENGTH, own && own[0] ? own : L"A Halo MCC map");
-	/* (Halo PC's picture for an unknown level, as a Custom Edition map of
-	another's making has; without Halo PC's ui.map, the Xbox's frame 9) */
+	/* (the map lists' cards: the map's whole name, on two lines when it
+	needs them, then [MCC] after it where it fits, as a Custom Edition
+	map's [CE]; a name of two full lines keeps its words, not the mark) */
+	pane_name_wrap(display_name, name, CARD_NAME_LINE, 2);
 	{
-		short picture_index = 9;
+		wchar_t const *last = display_name;
+		wchar_t const *at;
 
-#ifdef HALO_CUSTOM_EDITION
-		ce_ui_read();
-		if (CE_UNKNOWN_LEVEL < ce_ui.picture_count)
-			picture_index = (short)(UI_MAP_LIST_PICTURE_BASE + CE_UNKNOWN_LEVEL);
-#endif
-		add_entry(level, display_name, lobby_name, description, NONE, picture_index);
+		for (at = display_name; *at; at++)
+		{
+			if (*at == '\n')
+				last = at + 1;
+		}
+		if (last == display_name)
+			wide_append(display_name, DISPLAY_NAME_LENGTH, L"\r\n[MCC]");
+		else if ((long)(at - last) + 6 <= CARD_NAME_LINE)
+			wide_append(display_name, DISPLAY_NAME_LENGTH, L" [MCC]");
 	}
+	wide_copy(description, DESCRIPTION_LENGTH, own && own[0] ? own : L"A Halo MCC map");
+	/* (its own picture, its package's or Steam's picture of its Workshop
+	item, by its catalog index: ui_widget.c draws it, or Halo PC's picture
+	for an unknown level when there is none, ui_map_list_unknown_picture) */
+	add_entry(level, display_name, lobby_name, description, NONE, (short)(MCC_MAPS_FIRST_DISPLAY_INDEX + index));
 	if (ui_map_list_count_value && !strcmp(ui_map_list[ui_map_list_count_value - 1].map_name, level))
 		pane_name_wrap(ui_map_list[ui_map_list_count_value - 1].pane_name, name, PANE_NAME_LINE, PANE_NAME_LINES);
 }
@@ -1651,6 +1657,25 @@ struct bitmap_data *ui_map_list_picture(
 #endif
 }
 
+short ui_map_list_mcc_picture(
+	short frame_index)
+{
+	return frame_index >= MCC_MAPS_FIRST_DISPLAY_INDEX && frame_index < MCC_MAPS_FIRST_DISPLAY_INDEX + MCC_MAPS_MAXIMUM ?
+		(short)(frame_index - MCC_MAPS_FIRST_DISPLAY_INDEX) : NONE;
+}
+
+short ui_map_list_unknown_picture(
+	void)
+{
+	/* (Halo PC's picture for an unknown level; without Halo PC's ui.map, the Xbox's frame 9) */
+#ifdef HALO_CUSTOM_EDITION
+	ce_ui_read();
+	if (CE_UNKNOWN_LEVEL < ce_ui.picture_count)
+		return (short)(UI_MAP_LIST_PICTURE_BASE + CE_UNKNOWN_LEVEL);
+#endif
+	return 9;
+}
+
 /* the text of a string list index of this list's (UI_MAP_LIST_STRING_BASE
 and up), or NULL for any other */
 wchar_t const *ui_map_list_text(
@@ -1795,7 +1820,7 @@ boolean ui_map_list_map_present(
 	return ui_map_list_family_present(family, file);
 }
 
-/* a game's map's tag (map_family_tag; a pack's map its pack's: CE+), and
+/* a game's map's tag (map_family_tag; a pack's map its pack's: CE+; an MCC map MCC), and
 what it stands for (map_family_title; a pack's map its pack's name), into
 text */
 void ui_map_list_map_tag(
@@ -1808,6 +1833,13 @@ void ui_map_list_map_tag(
 	char pack[MAP_PACK_ID_LENGTH + 1];
 	short family = map_family_parse_listed(map, NULL, 0);
 
+	/* (an MCC map, mcc_maps\<package>\<map>: MCC, as the site marks it) */
+	if (map && !strncmp(map, "mcc_maps\\", 9))
+	{
+		snprintf(tag, (size_t)tag_size, "%s", MAP_FAMILY_TAG_MCC);
+		snprintf(title, (size_t)title_size, "%s", MAP_FAMILY_TITLE_MCC);
+		return;
+	}
 	if (family == _map_family_pack && map_family_pack_id(map, pack, sizeof(pack)))
 	{
 		map_pack_tag(pack, tag, tag_size);

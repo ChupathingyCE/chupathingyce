@@ -12,6 +12,7 @@ models chrome).
 Each console is preprocessed here with only the defines its build gives the
 shared headers, as its prefix header and build.py set them, and the switches
 it gets are compared."""
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -97,6 +98,70 @@ def test_no_console_builds_mcc_maps(console):
 def test_the_desktop_builds_mcc_maps():
     assert mcc(DESKTOP) == 1
     assert mcc(["HALO_ANDROID", "HALO_GAME_BROWSER"]) == 1
+
+
+# the MCC Workshop and the Steam link (the game's own Steam content client):
+# MCC-only sources that build to nothing at HALO_MCC 0
+WORKSHOP_SOURCES = sorted(
+    [*(ROOT / "port" / "linux" / "src" / "steam_content").glob("*.c"),
+     *(ROOT / "port" / "linux" / "src").glob("steam_*.c"),
+     *(ROOT / "port" / "linux" / "src").glob("workshop_*.c"),
+     ROOT / "port" / "linux" / "src" / "posix_steam_bridge.c",
+     ROOT / "port" / "windows" / "src" / "win32_steam_bridge.c",
+     ROOT / "port" / "linux" / "game" / "guide_workshop.c"])
+
+# what the shared code (browser_screen.c, guide.c, settings_rows.c) calls
+# of them: no-ops on a console
+WORKSHOP_HOOKS = {
+    "port/linux/src/workshop_browser.h": ["workshop_browser_offered", "workshop_browser_picture_of",
+                                          "workshop_browser_cached_picture", "workshop_join_setting",
+                                          "workshop_join_set_setting", "workshop_join_start", "workshop_join_poll",
+                                          "workshop_join_cancel", "workshop_join_check", "workshop_join_checked"],
+    "port/linux/src/steam_client_bridge.h": ["steam_link_available", "steam_link_linked", "steam_link_start",
+                                             "steam_link_poll", "steam_link_cancel", "steam_link_set_armed",
+                                             "steam_link_armed", "steam_link_unlink", "steam_link_store_secure"],
+    "port/linux/game/guide_workshop.h": ["guide_workshop_shown", "guide_workshop_link_panel",
+                                         "guide_workshop_render", "guide_workshop_update"],
+}
+
+
+def test_workshop_sources_build_to_nothing_on_a_console():
+    """each Workshop and Steam link source is inside HALO_MCC's gate, from
+    before its first include to its end"""
+    assert len(WORKSHOP_SOURCES) > 15
+    for source in WORKSHOP_SOURCES:
+        text = source.read_text(encoding="utf-8")
+        gate = text.find("#if !defined(HALO_MCC) || HALO_MCC")
+        # (the feature switch's own header may come first, so the gate sees HALO_MCC)
+        include = next((match.start() for match in re.finditer(r"#include ([^\n]*)", text)
+                        if "halo_port_features.h" not in match.group(1)), -1)
+        assert gate >= 0 and (include < 0 or gate < include), "{} isn't gated".format(source.relative_to(ROOT))
+        assert text.rstrip().endswith("#endif /* HALO_MCC */"), "{} isn't gated to its end".format(
+            source.relative_to(ROOT))
+
+
+def hooks_left(header, names, defines):
+    """the hooks that stay calls (not the header's no-op macros) with these defines"""
+    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if not compiler:
+        pytest.skip("no C compiler")
+    source = 'typedef unsigned char boolean;\n#include "{}"\n#include "{}"\n#include "{}"\n'.format(
+        (INCLUDE / "halo_console_features.h").as_posix(), (INCLUDE / "halo_port_features.h").as_posix(),
+        (ROOT / header).as_posix())
+    command = [compiler, "-E", "-dM", "-x", "c", "-", "-DHALO_GUIDE"] + ["-D" + define for define in defines]
+    result = subprocess.run(command, input=source, capture_output=True, text=True, check=True)
+    macros = {line.split()[1].split("(")[0] for line in result.stdout.splitlines() if line.startswith("#define ")}
+    return [name for name in names if name not in macros]
+
+
+@pytest.mark.parametrize("console", sorted(CONSOLES))
+@pytest.mark.parametrize("header", sorted(WORKSHOP_HOOKS))
+def test_no_console_calls_the_workshop(console, header):
+    """the shared code's calls into the Workshop and the Steam link are
+    no-op macros on every console, and real calls on the desktop"""
+    names = WORKSHOP_HOOKS[header]
+    assert hooks_left(header, names, CONSOLES[console]) == [], "{} calls the Workshop".format(console)
+    assert hooks_left(header, names, DESKTOP) == names
 
 
 def test_the_xbox_leaves_out_what_halo_console_leaves_out():

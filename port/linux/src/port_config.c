@@ -1224,6 +1224,14 @@ static const struct config_setting config_settings[] =
 	{ "network.browser_url", _config_string, "\"https://stats.chupathingy.org\"", "HALO_NET_BROWSER", _environment_value,
 		_platform_all | _platform_server,
 		"The game list server. Leave it empty for none." },
+	{ "network.workshop_downloads", _config_string, "\"ask\"", "HALO_NET_WORKSHOP_DOWNLOADS", _environment_value,
+		_platform_desktop,
+		"Get a game's missing MCC Workshop map through your Steam when you join:\n"
+		"\"ask\", \"always\" or \"never\"." },
+	{ "network.workshop_downloads_limit_mb", _config_integer, "1024", "HALO_NET_WORKSHOP_DOWNLOADS_LIMIT_MB",
+		_environment_value, _platform_desktop,
+		"With network.workshop_downloads \"always\": the largest Workshop item, in MB,\n"
+		"got without asking. A bigger one asks first." },
 	{ "network.workshop_url", _config_string, "\"\"", "HALO_WORKSHOP_URL", _environment_value, _platform_desktop,
 		"The list of MCC Workshop items the Delta Guide's Workshop shows (with\n"
 		"MCC on this computer). Empty shows only the items Steam has installed." },
@@ -1406,6 +1414,28 @@ static const struct config_setting config_settings[] =
 	{ "game.workshop_maps", _config_boolean, "false", "HALO_WORKSHOP_MAPS", _environment_value, _platform_desktop,
 		"Discover installed Halo CE Steam Workshop maps. Read-only desktop\n"
 		"discovery; packages installed in maps_mcc are always read." },
+	{ "game.workshop_steam", _config_boolean, "false", "HALO_WORKSHOP_STEAM", _environment_value, _platform_desktop,
+		"Let the Delta Guide's Workshop get MCC Workshop items itself: through the Steam\n"
+		"client where it downloads them (Windows), else with the game's own Steam\n"
+		"download, signed in once by scanning a QR code with the Steam app. Only while\n"
+		"the Workshop tab is open. Off opens each item's page in Steam." },
+	{ "game.steamcmd_account", _config_string, "\"\"", "HALO_STEAMCMD_ACCOUNT", _environment_value, _platform_desktop,
+		"The Steam account steamcmd signs in with for the Workshop. Empty uses the one\n"
+		"steamcmd saved. Never a password: steamcmd keeps its own sign-in." },
+	{ "paths.steamcmd", _config_string, "\"\"", "HALO_STEAMCMD", _environment_value, _platform_desktop,
+		"steamcmd, for the Workshop on macOS and Linux. Empty looks in the PATH and the\n"
+		"usual places." },
+	{ "game.workshop_item_limit_mb", _config_integer, "8192", "HALO_WORKSHOP_ITEM_LIMIT_MB", _environment_value,
+		_platform_desktop,
+		"The largest Workshop item, in MB, the game's own Steam download takes." },
+	{ "game.workshop_file_limit_mb", _config_integer, "4096", "HALO_WORKSHOP_FILE_LIMIT_MB", _environment_value,
+		_platform_desktop,
+		"The largest single file, in MB, the game's own Steam download takes." },
+	{ "paths.steam_downloads", _config_string, "\"\"", "HALO_STEAM_DOWNLOADS", _environment_value, _platform_desktop,
+		"Where the game puts the Workshop items it downloads, and MCC's Halo CE files.\n"
+		"Empty is steam/ in the data folder. Use a big drive for MCC's files." },
+	{ "paths.steam_api", _config_string, "\"\"", "HALO_STEAM_API", _environment_value, _platform_desktop,
+		"A steam_api library for the Workshop to use. Empty uses MCC's own on Windows." },
 	{ "game.mcc_collections", _config_boolean, "false", "HALO_MCC_COLLECTIONS", _environment_value, _platform_all,
 		"Group identified MCC packages into the bundled Workshop collections.\n"
 		"Works with imported packages without Steam; reopen the map list after changing." },
@@ -1683,6 +1713,24 @@ static const struct config_setting config_settings[] =
 		"Run without a window, and draw nothing." },
 	{ "debug.gl_debug", _config_boolean, "false", "HALO_GL_DEBUG", _environment_set_is_true, _platform_all,
 		"Report OpenGL errors in the log." },
+	{ "debug.workshop_offer", _config_string, "\"\"", "HALO_WORKSHOP_OFFER", _environment_value, _platform_desktop,
+		"A join's missing Workshop map offered over the main menu once, as\n"
+		"\"<item id>:<title>\", for tests. Leave it empty for none." },
+	{ "debug.workshop_search", _config_string, "\"\"", "HALO_WORKSHOP_SEARCH", _environment_value, _platform_desktop,
+		"The Delta Guide Workshop's search box shown with these words, then\n"
+		"searched, for screenshots. Leave it empty for none." },
+	{ "debug.workshop_setup", _config_string, "\"\"", "HALO_WORKSHOP_SETUP", _environment_value, _platform_desktop,
+		"The Delta Guide Workshop's setup rows shown as given, for screenshots:\n"
+		"\"steam=1,signin=0\" (0 Ready, 1 To do, 2 Working, 3 Not available);\n"
+		"\"client\" shows the Steam client's rows." },
+	{ "debug.workshop_steamcmd", _config_boolean, "false", "HALO_WORKSHOP_STEAMCMD", _environment_set_is_true,
+		_platform_desktop,
+		"Workshop downloads with steamcmd (paths.steamcmd) instead of the game's own\n"
+		"Steam download, as before it had one. A fallback for tests." },
+	{ "debug.steam_link_file", _config_boolean, "false", "HALO_STEAM_LINK_FILE", _environment_set_is_true,
+		_platform_desktop,
+		"Keep the Steam link's token in its file in the data folder, never the\n"
+		"system's secret store (the Keychain), for tests." },
 	{ "debug.workshop_no_steam", _config_boolean, "false", "HALO_WORKSHOP_NO_STEAM", _environment_set_is_true,
 		_platform_desktop,
 		"The Delta Guide's Workshop marks an item subscribed without opening\n"
@@ -4216,6 +4264,7 @@ static const struct
 	{ "game.move_old_map_folders", { "ask", "yes", "no", NULL }, "\"ask\"" },
 	{ "network.protocol", { "auto", "opence", "delta", NULL }, NULL },
 	{ "network.map_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
+	{ "network.workshop_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
 #ifdef HALO_HOST_MAP_DOWNLOADS
 	{ "network.map_downloads_from_host", { "off", "ask", "always", NULL }, "\"off\"" },
 #endif

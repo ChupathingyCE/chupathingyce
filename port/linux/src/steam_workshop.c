@@ -455,7 +455,18 @@ static int linux_roots(char (*paths)[STEAM_WORKSHOP_PATH_SIZE], int maximum)
 }
 #endif
 
+const char *platform_data_root(void);
+
 /* the Steam folders to look in, then the libraries those name: library paths, each once */
+static char own_library[STEAM_WORKSHOP_PATH_SIZE];
+/* MCC's shared files were asked for, and not found */
+static int shared_missing;
+
+void steam_workshop_set_own_library(const char *path)
+{
+	snprintf(own_library, sizeof(own_library), "%s", path ? path : "");
+}
+
 static int libraries(char (*paths)[STEAM_WORKSHOP_PATH_SIZE], int maximum)
 {
 	char roots[MAXIMUM_STEAM_ROOTS][STEAM_WORKSHOP_PATH_SIZE];
@@ -464,6 +475,18 @@ static int libraries(char (*paths)[STEAM_WORKSHOP_PATH_SIZE], int maximum)
 
 	if (setting && setting[0])
 		snprintf(roots[root_count++], STEAM_WORKSHOP_PATH_SIZE, "%s", setting);
+	/* (the game's own library: its downloads, read before the Workshop tab has opened this run) */
+	if (!own_library[0])
+	{
+		const char *downloads = config_string("paths.steam_downloads"), *data = platform_data_root();
+
+		if (downloads && downloads[0])
+			snprintf(own_library, sizeof(own_library), "%s", downloads);
+		else if (data && data[0] && snprintf(own_library, sizeof(own_library), "%s/steam", data) >= (int)sizeof(own_library))
+			own_library[0] = 0;
+	}
+	if (own_library[0])
+		snprintf(roots[root_count++], STEAM_WORKSHOP_PATH_SIZE, "%s", own_library);
 #ifdef _WIN32
 	{
 		const char *program_files[] = { getenv("ProgramFiles(x86)"), getenv("ProgramFiles") };
@@ -777,7 +800,15 @@ int steam_workshop_resource_path(const char *request, const char *data_root, cha
 		}
 	}
 	free(paths);
+	/* (an item that needs MCC's own shared files, and they aren't here) */
+	if (!result)
+		shared_missing = 1;
 	return result;
+}
+
+int steam_workshop_shared_missing(void)
+{
+	return shared_missing;
 }
 
 int steam_workshop_item_title(const char *item_id, char *title, unsigned long size)

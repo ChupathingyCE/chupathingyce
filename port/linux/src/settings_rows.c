@@ -16,6 +16,7 @@ Default puts them back.
 #if defined(HALO_GUIDE) || defined(HALO_LAUNCHER)
 
 #include "settings_rows.h"
+#include "steam_client_bridge.h"
 #include "port_config.h"
 
 #include <ctype.h>
@@ -47,6 +48,11 @@ enum
 	_kind_audio_devices,
 	/* the Performance preset */
 	_kind_preset,
+	/* Steam's link (steam_link_*): the Steam name, or NOT LINKED; a change
+	opens the Guide's Workshop on its link row (LINK's QR, UNLINK) */
+	_kind_steam_link,
+	/* a folder: shown, changed in config.toml ("" the data folder's own) */
+	_kind_folder,
 };
 
 enum
@@ -151,6 +157,10 @@ static const struct settings_row settings_rows[] =
 	{ _in_network, "DELTA STATS", "network.report_events", _kind_toggle, NULL, NULL, 0, 0 },
 	/* (the Guide's own, then the one it shares with Network) */
 	{ _in_guide, "OPEN KEY", "controls.delta", _kind_choices, guide_key_choices, NULL, 0, 0 },
+	/* (the Workshop's: Steam's link, where items go, a join's missing map) */
+	{ _in_network | _in_guide, "STEAM ACCOUNT", "game.workshop_steam", _kind_steam_link, NULL, NULL, 0, 0 },
+	{ _in_guide, "WORKSHOP FOLDER", "paths.steam_downloads", _kind_folder, NULL, NULL, 0, 0 },
+	{ _in_network | _in_guide, "MAPS WHEN JOINING", "network.workshop_downloads", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "SHOW IN MENUS", "delta.menu_item", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "NOTIFICATIONS IN GAME", "delta.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
@@ -352,6 +362,13 @@ static void preset_set(int preset)
 
 /* ---------- public code */
 
+static void (*steam_link_action)(void);
+
+void settings_rows_set_steam_link_action(void (*action)(void))
+{
+	steam_link_action = action;
+}
+
 const struct settings_row *settings_row_at(int group, int index)
 {
 	int row;
@@ -360,6 +377,12 @@ const struct settings_row *settings_row_at(int group, int index)
 	{
 		if (!(settings_rows[row].groups & (1u << group)) || config_setting_kind(settings_rows[row].key) < 0)
 			continue;
+		/* (Steam's link: where the built-in Steam download is, and something opens it) */
+		if ((settings_rows[row].kind == _kind_steam_link || settings_rows[row].kind == _kind_folder) &&
+			(!steam_link_available() || !steam_link_action))
+		{
+			continue;
+		}
 		if (!index--)
 			return &settings_rows[row];
 	}
@@ -391,6 +414,32 @@ void settings_row_value(const struct settings_row *row, char *text, int size)
 	if (row->kind == _kind_preset)
 	{
 		snprintf(text, (size_t)size, "%s", preset_names[preset_now()]);
+		return;
+	}
+	if (row->kind == _kind_steam_link)
+	{
+		char persona[64];
+
+		char error[24];
+		int link = steam_link_poll(NULL, 0, error, sizeof(error));
+
+		if (link == STEAM_LINK_STARTING || link == STEAM_LINK_WAITING)
+			snprintf(text, (size_t)size, "SCAN THE CODE");
+		else if (link == STEAM_LINK_SCANNED)
+			snprintf(text, (size_t)size, "APPROVE ON PHONE");
+		else if (!steam_link_linked(persona, sizeof(persona)))
+			snprintf(text, (size_t)size, "%s", link == STEAM_LINK_FAILED && error[0] ? error : "NOT LINKED");
+		else if (steam_link_armed())
+			snprintf(text, (size_t)size, "UNLINK?");
+		else
+			snprintf(text, (size_t)size, "%s", persona[0] ? persona : "LINKED");
+		return;
+	}
+	if (row->kind == _kind_folder)
+	{
+		const char *folder = config_string(row->key);
+
+		snprintf(text, (size_t)size, "%s", folder && folder[0] ? folder : "DATA FOLDER");
 		return;
 	}
 	current(row->key, value, sizeof(value));
@@ -428,6 +477,14 @@ void settings_row_change(const struct settings_row *row, int step)
 	char value[VALUE_SIZE];
 	int index, found = -1;
 
+	if (row->kind == _kind_steam_link)
+	{
+		if (steam_link_action)
+			steam_link_action();
+		return;
+	}
+	if (row->kind == _kind_folder)
+		return;
 	if (row->kind == _kind_preset)
 	{
 		/* (Default and Potato: from Custom, a step goes to one of them) */
@@ -459,6 +516,8 @@ void settings_row_change(const struct settings_row *row, int step)
 
 void settings_row_reset(const struct settings_row *row)
 {
+	if (row->kind == _kind_steam_link)
+		return;
 	if (row->kind == _kind_preset)
 		preset_set(_preset_default);
 	else

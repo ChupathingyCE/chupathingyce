@@ -34,6 +34,7 @@ clock runs on).
 #include "cseries.h"
 #include "bitmaps/bitmap_group.h"
 #include "tag_files/tag_groups.h"
+#include "cache/cache_files.h"
 #include "text/text_group.h"
 #include "rasterizer/xbox/rasterizer_xbox_hardware_bitmaps.h"
 
@@ -2680,9 +2681,9 @@ char const *pc_menus_root_name(
 		}
 		platform_log("menus: debug.menu_open: there is no widget named %s", open);
 	}
-	/* (the Xbox's menus: debug.menu_open names one of their screens, as
-	"ui/shell/main_menu/...") */
-	if (!menu_tags.loaded && *open && !strncmp(open, "ui/", 3))
+	/* (the Xbox's menus, and the Chupathingy menus' Xbox screens:
+	debug.menu_open names one of their screens, as "ui/shell/main_menu/...") */
+	if ((!menu_tags.loaded || menu_tags.chupathingy) && *open && !strncmp(open, "ui/", 3))
 	{
 		static char name[300];
 		long index;
@@ -2697,6 +2698,20 @@ char const *pc_menus_root_name(
 		if (tag_loaded(UI_WIDGET_DEFINITION_TAG, name) != NONE)
 			return name;
 		platform_log("menus: debug.menu_open: there is no widget named %s", open);
+		/* (the screens there are, to choose from) */
+		{
+			struct tag_iterator iterator;
+			long tag;
+
+			tag_iterator_new(&iterator, UI_WIDGET_DEFINITION_TAG);
+			while ((tag = tag_iterator_next(&iterator)) != NONE)
+			{
+				char const *tag_name = tag_get_name(tag);
+
+				if (strstr(tag_name, "_screen") || strstr(tag_name, "wrapper"))
+					platform_log("menus: debug.menu_open: a screen: %s", tag_name);
+			}
+		}
 	}
 	return menu_tags.loaded && menu_tags.root[0] ? menu_tags.root : "ui\\shell\\main_menu\\main_menu";
 }

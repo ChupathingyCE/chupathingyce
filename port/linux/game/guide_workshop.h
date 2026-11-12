@@ -15,6 +15,9 @@ computer with MCC from Steam (workshop_browser.h).
 boolean guide_workshop_shown(void);
 /* the section came into view */
 void guide_workshop_open(void);
+/* SETTINGS' STEAM ACCOUNT chosen: its QR while a link waits, or UNLINK's
+question, in a panel at x, y (nothing otherwise) */
+void guide_workshop_link_panel(float x, float y, float width, float bottom);
 /* each frame (open or not): the folders watched while the section shows or
 an item waits on Steam; a newly installed item's maps join the map lists */
 void guide_workshop_update(boolean showing);
@@ -38,6 +41,7 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 /* no MCC maps in this build (HALO_MCC, halo_port_features.h): the Guide's
 calls do nothing, their arguments unevaluated */
 #define guide_workshop_shown() ((boolean)0)
+#define guide_workshop_link_panel(a0, a1, a2, a3) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)0)
 #define guide_workshop_open() ((void)0)
 #define guide_workshop_update(a0) ((void)sizeof(a0), (void)0)
 #define guide_workshop_rows() ((short)0)

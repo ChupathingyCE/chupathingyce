@@ -194,7 +194,7 @@ def build_tool(work, *, mock_registry=True):
 typedef int BOOL;
 #define TRUE 1
 #define FALSE 0
-static char const *platform_data_root(void) {return getenv("TEST_DATA_ROOT");}
+char const *platform_data_root(void) {return getenv("TEST_DATA_ROOT");}
 '''
     # port: our own path translation (xbox_files.c), with its Workshop step
     native = (SRC / "xbox_files.c").read_text()
@@ -268,6 +268,9 @@ def test_item_text(tool, tmp_path):
     assert lists["json"] == ["maps/beaver.json", "maps/derelict.json"]
     # another engine reads, flagged: the scan skips it
     path.write_text(item_json(Engine="Halo2"))
+    assert run(tool, "item", path)[0]["halo1"] == "0"
+    # (MCC's Workshop mixes its games: a Halo 3 map is not a Halo CE item either)
+    path.write_text(item_json(Engine="Halo3"))
     assert run(tool, "item", path)[0]["halo1"] == "0"
     # no maps (a campaign-only item) is fine and empty
     path.write_text(json.dumps({"Engine": "Halo1", "Title": {"Neutral": "Campaign"}}))
@@ -432,6 +435,18 @@ def test_scan(tool, tmp_path):
     assert fields["none"] == "0" and fields["small"] == "0"
     assert fields["title"] == "1 Social Pack"
     assert folder.exists()
+
+
+def test_unlinked_installed_items_still_available(tool, tmp_path):
+    """an item the game downloaded is read from its own library (the data folder's steam/) with no Steam
+    folder, no Steam running and no Steam link: playing it never needs the link"""
+    data = tmp_path / "data"
+    make_item(data / "steam", "888", "Downloaded Once")
+    assert not (data / "steam_sign_in.txt").exists()
+    fields, lists = run(tool, "scan", home=tmp_path / "no-home", data_root=data)
+    rows = [row.split("|") for row in lists.get("map", [])]
+    assert [(r[0], r[1]) for r in rows] == [("888", "Downloaded Once")]
+    assert rows[0][4].startswith(str(data / "steam"))
 
 
 def test_setting_names_a_steam_folder(tool, tmp_path):
