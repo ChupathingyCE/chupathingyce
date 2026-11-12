@@ -988,7 +988,11 @@ enum delta_result
 static void delta_use_built_in(void)
 {
 	delta.announce = HALO_PORT_NETWORK_VERSION;
+#ifdef HALO_GAME_BROWSER
+	delta.hosting_newest = DELTA_BUILT_IN_HOSTING;
+#else
 	delta.hosting_newest = HALO_PORT_NETWORK_VERSION;
+#endif
 	delta.minimum = HALO_PORT_NETWORK_VERSION_MINIMUM;
 	delta.maximum = HALO_PORT_NETWORK_VERSION_MAXIMUM;
 	delta.follows[0] = 0;
@@ -1205,7 +1209,7 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 	pthread_mutex_unlock(&delta_lock);
 
 	platform_log("Delta: legacy table %u from %s: announcing %d, joining %d to %d%s%s%s; %d layout facts", table.serial,
-		source, table.has_row ? delta_row_hosting_newest(&table) : HALO_PORT_NETWORK_VERSION,
+		source, delta.hosting_newest,
 		table.has_row ? table.minimum : HALO_PORT_NETWORK_VERSION_MINIMUM,
 		maximum,
 		table.has_row ? "" : " (no row for " DELTA_WIRE ": the built-in numbers)",

@@ -3575,7 +3575,8 @@ From `chupa-43a` on, 42 and 43 are built in (`DELTA_LEGACY_NEWEST` 43): a
 build joins 43's hosts with no table, and these facts in a row are its own
 (a table's layouts go on past them). A host announces 43 for a game it is
 asked to, `delta_legacy_host_game_at(43)` (an MCC map's), and otherwise the
-usual number. `tools/legacy_rows/chupa-43a.json` is the row for the wire (clients to
+usual number: with no row for its wire, a desktop build or a server hosts
+41 (`DELTA_BUILT_IN_HOSTING`, the last release's row), a console's build 32. `tools/legacy_rows/chupa-43a.json` is the row for the wire (clients to
 43's hosts, hosts announcing 41), and `chupa-43a-hosting-43.json` the same
 with 43 in `hosting`, which moves our hosts to 43 and so away from OpenCE's
 41 machines and our older builds and consoles (none of which join 43).

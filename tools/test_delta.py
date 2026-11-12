@@ -213,6 +213,12 @@ def floor():
     return delta_table.built_in()
 
 
+def hosted():
+    """what a desktop build hosts with no row for its wire (delta.h's
+    DELTA_BUILT_IN_HOSTING, the last release's row's): the checker is one"""
+    return define(DELTA.read_text(encoding="utf-8"), "DELTA_BUILT_IN_HOSTING")
+
+
 def document(serial=10, row=None, wire=None, extra=None, **fields):
     table = {"delta_legacy": 1, "serial": serial, "issued": 1791331200,
              "wires": {wire or delta_table.wire(): row or dict(floor(), announce=floor()["announce"] + 1,
@@ -482,7 +488,7 @@ def test_loader_takes_newer_and_caches(keys, checker, tmp_path):
     base = floor()
     table = write_signed(keys, tmp_path / "t10", document(serial=10))
     output = run_checker(checker, tmp_path, "state", "offer", table, "state")
-    assert state_line(output)[0].startswith(f"state {base['announce']} {base['minimum']} {base['maximum']} serial 0 ")
+    assert state_line(output)[0].startswith(f"state {hosted()} {base['minimum']} {base['maximum']} serial 0 ")
     assert "offer 1" in output
     size = len(table.read_bytes())
     assert state_line(output)[1] == (f"state {base['announce'] + 1} {base['minimum']} {base['maximum'] + 1} "
@@ -550,7 +556,7 @@ def test_loader_drops_bad_tables(keys, checker, tmp_path, name, make):
 def test_follows(keys, checker, tmp_path):
     row = dict(floor(), announce=floor()["announce"] + 1, maximum=floor()["maximum"] + 1)
     assert run_checker(checker, tmp_path, "following").strip().endswith(
-        f"following Following OpenCE network version {floor()['announce']} (built in)")
+        f"following Following OpenCE network version {hosted()} (built in)")
     table = write_signed(keys, tmp_path / "t11", document(serial=11, row=dict(row, follows="build-145")))
     output = run_checker(checker, tmp_path, "offer", table, "following")
     assert "offer 1" in output and "following OpenCE build-145" in output
@@ -621,7 +627,7 @@ def test_loader_reads_known_rows_and_kill_switch(keys, checker, tmp_path):
     output = run_checker(checker, tmp_path, "offer", write_signed(keys, tmp_path / "t12", data), "state")
     assert "offer 1" in output and "no row for" in output
     assert state_line(output)[0].startswith(
-        f"state {floor()['announce']} {floor()['minimum']} {floor()['maximum']} serial 12 override 0 disabled 9 ")
+        f"state {hosted()} {floor()['minimum']} {floor()['maximum']} serial 12 override 0 disabled 9 ")
 
 
 def test_loader_override(keys, checker, tmp_path):
@@ -637,7 +643,7 @@ def test_loader_override(keys, checker, tmp_path):
     # (a file that cannot be used: the built-in numbers, still no signed table)
     output = run_checker(checker, tmp_path, "offer", table, "state", override=tmp_path / "missing.json")
     assert "is not used" in output and "offer 0" in output
-    assert state_line(output)[0].startswith(f"state {floor()['announce']} {floor()['minimum']} ")
+    assert state_line(output)[0].startswith(f"state {hosted()} {floor()['minimum']} ")
 
 
 def serve(root, url, data):
@@ -1039,12 +1045,13 @@ def test_generic_layouts_row():
 def test_host_game_at_43(keys, checker, tmp_path):
     """delta_legacy_host_game_at: a game hosted at 43 (an MCC map's) without
     any table, 43 built in; normal games still announce the usual number (the
-    built-in 32, or a table's hosting 41); a number this build doesn't play
+    41 built in as the last release row, or a table); a number this build doesn't play
     is refused"""
     output = run_checker(checker, tmp_path, "state", "host_at", 43, "state", "host_at", 0, "state",
                          "host_at", 99, "state", "host_at", 10, "state")
     states = state_line(output)
-    assert [line.split()[1] for line in states] == ["32", "43", "32", "32", "32"]
+    usual = str(hosted())
+    assert [line.split()[1] for line in states] == [usual, "43", usual, usual, usual]
     assert output.count("host_at 1") == 2 and output.count("host_at 0") == 2
     row = dict(floor(), maximum=44, hosting=[41])
     table = write_signed(keys, tmp_path / "t20", document(serial=20, row=row))
@@ -1116,10 +1123,10 @@ def test_loader_holds_the_number_through_a_hosted_game(keys, checker, tmp_path):
     table = write_signed(keys, tmp_path / "t10", document(serial=10, row=dict(base, hosting=[newest])))
     output = run_checker(checker, tmp_path, "state", "hold", "1", "offer", table, "state", "hold", "0", "state")
     states = state_line(output)
-    assert states[0].startswith(f"state {base['announce']} ")
-    assert states[1].startswith(f"state {base['announce']} ") and " serial 10 " in states[1]
+    assert states[0].startswith(f"state {hosted()} ")
+    assert states[1].startswith(f"state {hosted()} ") and " serial 10 " in states[1]
     assert states[2].startswith(f"state {newest} ")
-    assert f"now announcing OpenCE network version {newest} (was {base['announce']})" in output
+    assert f"now announcing OpenCE network version {newest} (was {hosted()})" in output
 
 
 @pytest.mark.parametrize("pin,expect", [

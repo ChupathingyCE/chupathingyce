@@ -6,7 +6,10 @@ the join request without the version word is dropped, silently.
 It runs copies of a built game on this machine's loopback
 (port/linux/game/network_test.c's "host:" and "join"), each with its own
 data root (maps linked, never copied) and save root, and reads their logs.
-The host announces its number by a local table. It needs a built game and
+Each copy has an address of its own (127.0.0.40 to .42: Linux has them,
+macOS needs them added), the host's search answers sent to its clients' (no
+broadcast), and no window (SDL's dummy video driver; NET43_VIDEO_DRIVER
+another). The host announces its number by a local table. It needs a built game and
 maps: set NET43_BINARY to the game and NET43_DATA_ROOT_SCRIPT to a script
 that makes a data root with links to the maps (its one argument the
 folder); without them it is skipped.
@@ -43,7 +46,14 @@ def table(path, announce, without_word=None):
     return path
 
 
-def copy(folder, legacy, test):
+# (each copy at an address of its own, the host's search answers sent to its
+# clients' addresses: no broadcast; Linux has all of 127/8, macOS needs
+# them added, as tools/crossplay_test.py says)
+HOST_ADDRESS = os.environ.get("NET43_HOST_ADDRESS", "127.0.0.40")
+CLIENT_ADDRESSES = os.environ.get("NET43_CLIENT_ADDRESSES", "127.0.0.41,127.0.0.42").split(",")
+
+
+def copy(folder, legacy, test, address, broadcast):
     folder.mkdir(parents=True)
     subprocess.run([DATA_ROOT_SCRIPT, str(folder / "data")], check=True, capture_output=True)
     for name in ("home", "saves"):
@@ -67,6 +77,9 @@ def copy(folder, legacy, test):
         "HALO_LAUNCHER_SHOW": "never",
         "HALO_LAUNCHER_MODE_CHOICE": "default",
         "SDL_AUDIO_DRIVER": "dummy",
+        "SDL_VIDEO_DRIVER": os.environ.get("NET43_VIDEO_DRIVER", "dummy"),
+        "HALO_NET_ADDRESS": address,
+        "HALO_NET_BROADCAST": broadcast,
     }
     if legacy:
         env["HALO_LEGACY_TABLE"] = str(legacy)
@@ -90,11 +103,13 @@ def log(folder):
 
 def play(tmp_path, announce, clients):
     host = tmp_path / "host"
-    running = [copy(host, table(tmp_path / "host.json", announce), "host:bloodgulch")]
+    addresses = CLIENT_ADDRESSES[:len(clients)]
+    running = [copy(host, table(tmp_path / "host.json", announce), "host:bloodgulch", HOST_ADDRESS,
+                    ",".join(addresses))]
     try:
         time.sleep(8)
-        for name, legacy in clients:
-            running.append(copy(tmp_path / name, legacy, "join"))
+        for (name, legacy), address in zip(clients, addresses):
+            running.append(copy(tmp_path / name, legacy, "join", address, HOST_ADDRESS))
         time.sleep(60)
     finally:
         for process, output in running:
