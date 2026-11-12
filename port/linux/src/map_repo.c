@@ -649,15 +649,18 @@ int map_repo_has(const char *name, unsigned int version, long long now)
 }
 
 int map_repo_download(const struct map_repo_transport *transport, const char *name, unsigned int version,
-	const char *path, long long now, struct map_index_entry *entry, int *missing, char *why, int why_size)
+	const char *path, long long now, struct map_index_entry *entry, int *missing, int *refused, char *why,
+	int why_size)
 {
 	struct map_index_block block;
 	struct map_mirror chosen[MIRRORS_ASKED];
 	int order[MIRRORS_ASKED];
 	char detail[160] = "";
-	int count = 0, index, found = 0, blocked = 0, halted = 0, mirrors = 0;
+	int count = 0, index, found = 0, blocked = 0, halted = 0, mirrors = 0, mismatched = 0;
 
 	*missing = 0;
+	if (refused)
+		*refused = MAP_REPO_REFUSED_NONE;
 	memset(entry, 0, sizeof(*entry));
 	pthread_mutex_lock(&map_repo_lock);
 	if (index_usable(now))
@@ -693,6 +696,8 @@ int map_repo_download(const struct map_repo_transport *transport, const char *na
 		*missing = 1;
 		return fail(why, why_size, "%s", detail);
 	}
+	if (blocked && refused)
+		*refused = MAP_REPO_REFUSED_BLOCKED;
 	if (blocked)
 		return fail(why, why_size, "it is blocked: %s", block.reason[0] ? block.reason : "on the blacklist");
 	if (!mirrors)
@@ -720,6 +725,7 @@ int map_repo_download(const struct map_repo_transport *transport, const char *na
 		if (received != entry->size)
 		{
 			snprintf(detail, sizeof(detail), "mirror %s gave %u bytes, not %u", chosen[index].id, received, entry->size);
+			mismatched = 1;
 			transport->remove(transport->context, path);
 			continue;
 		}
@@ -727,11 +733,14 @@ int map_repo_download(const struct map_repo_transport *transport, const char *na
 		{
 			snprintf(detail, sizeof(detail), "mirror %s gave a file that isn't the index's (its SHA-256 differs)",
 				chosen[index].id);
+			mismatched = 1;
 			transport->remove(transport->context, path);
 			continue;
 		}
 		return 1;
 	}
+	if (mismatched && refused)
+		*refused = MAP_REPO_REFUSED_MISMATCH;
 	return fail(why, why_size, "no mirror gave it (%s)", detail);
 }
 

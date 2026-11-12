@@ -94,7 +94,7 @@ void map_host_quarantine_paths(const char *name, char *part, char *whole)
 
 int map_host_install(const struct map_host_files *files, const char *name, unsigned int version,
 	const unsigned char *offered, unsigned int limit, char *installed, unsigned char *sha256, unsigned char *map_hash,
-	int *blocked, char *error, int error_size)
+	int *blocked, int *mismatched, char *error, int error_size)
 {
 	char part[MAP_HOST_PATH_SIZE], whole[MAP_HOST_PATH_SIZE], target[MAP_HOST_PATH_SIZE];
 	char base[MAP_HOST_NAME_SIZE], reason[160];
@@ -106,6 +106,8 @@ int map_host_install(const struct map_host_files *files, const char *name, unsig
 	size_t index;
 
 	*blocked = 0;
+	if (mismatched)
+		*mismatched = 0;
 	installed[0] = 0;
 	if (error && error_size > 0)
 		error[0] = 0;
@@ -143,7 +145,7 @@ int map_host_install(const struct map_host_files *files, const char *name, unsig
 	if (memcmp(map_hash, offered, MAP_ARCHIVE_HASH_SIZE))
 	{
 		refuse(error, error_size, "it is not the file the host offered");
-		goto refused;
+		goto mismatch;
 	}
 	hash_version = map_archive_hash_version(map_hash);
 	if (!files->read(files->context, whole, 0, header, sizeof(header)))
@@ -156,13 +158,13 @@ int map_host_install(const struct map_host_files *files, const char *name, unsig
 	{
 		refuse(error, error_size, "its version is %08x, the host's %08x: another version of the map", hash_version,
 			version);
-		goto refused;
+		goto mismatch;
 	}
 	if (hashed && ((unsigned int)map_hash[0] << 24 | (unsigned int)map_hash[1] << 16 | (unsigned int)map_hash[2] << 8 |
 		(unsigned int)map_hash[3]) != prefix)
 	{
 		refuse(error, error_size, "its hash doesn't begin as its name says");
-		goto refused;
+		goto mismatch;
 	}
 	reason[0] = 0;
 	if (files->blocked && files->blocked(files->context, sha256, map_hash, reason, (int)sizeof(reason)))
@@ -187,6 +189,10 @@ int map_host_install(const struct map_host_files *files, const char *name, unsig
 		return 1;
 	installed[0] = 0;
 	refuse(error, error_size, "maps_ce/%s.map could not be put in place (is it there already?)", name);
+	goto refused;
+mismatch:
+	if (mismatched)
+		*mismatched = 1;
 refused:
 	files->remove(files->context, whole);
 	files->remove(files->context, part);

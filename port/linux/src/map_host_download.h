@@ -81,9 +81,10 @@ neither of its hashes on the blacklist. It goes in <name>.map (a hashed
 name's base's), or beside another version there in <name>_<8 hex
 digits>.map (a hashed name's: its own). 1 with the file's name (without
 .map) in installed and its hashes in sha256 and map_hash; else 0 with why
-in error, *blocked 1 when the blacklist refused it, and the file deleted */
+in error, *blocked 1 when the blacklist refused it, *mismatched 1 when it
+isn't the host's offer or version (NULL for neither), and the file deleted */
 int map_host_install(const struct map_host_files *files, const char *name, unsigned int version,
 	const unsigned char *offered, unsigned int limit, char *installed, unsigned char *sha256, unsigned char *map_hash,
-	int *blocked, char *error, int error_size);
+	int *blocked, int *mismatched, char *error, int error_size);
 
 #endif
