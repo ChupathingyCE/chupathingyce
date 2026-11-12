@@ -2,7 +2,10 @@
  * syntax primitive/global/local flags 0x15 and zero-based slot in data.
  * Public schema: Invader scenario.json and scenario/pre_compile.cpp.
  * Only signatures/scope are retained here; live values belong to HS stacks. */
-#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "math/real_math.h"
@@ -16,6 +19,11 @@
 #include "mcc_syntax.h"
 #include <stdint.h>
 #include <string.h>
+
+#ifndef DATA_ARRAY_DATA
+/* (data.h has it on the 64-bit builds; a 32-bit build's array holds the pointer) */
+#define DATA_ARRAY_DATA(array) XBOX_POINTER(void, (array)->data)
+#endif
 
 #define MCC_PARAMETER_SCRIPTS 512
 #define MCC_PARAMETER_NODES MCC_SYNTAX_CAPACITY
