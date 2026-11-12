@@ -112,10 +112,10 @@ static const char *const guide_key_choices[] = { "F3, Backslash", "Backslash", "
 static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", NULL };
 #endif
 /* display.theme's: the Guide's and the setup screen's colors (ui_style_theme) */
-static const char *const theme_choices[] = { "blue", "red", NULL };
+static const char *const theme_choices[] = { "blue", "red", "green", NULL };
 /* display.light_effects' (port/linux/game/lighting_config.c) */
 static const char *const light_effects_choices[] = { "auto", "high", "low", "off", NULL };
-static const char *const theme_names[] = { "HALO BLUE", "CHUPATHINGY RED", NULL };
+static const char *const theme_names[] = { "HALO BLUE", "CHUPATHINGY RED", "DASHBOARD GREEN", NULL };
 
 static const struct settings_row settings_rows[] =
 {

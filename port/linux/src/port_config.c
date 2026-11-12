@@ -424,7 +424,8 @@ static const struct config_setting config_settings[] =
 		"(recently added first). Sort in the list changes it." },
 	{ "display.theme", _config_string, "\"blue\"", "HALO_THEME", _environment_value, _platform_all,
 		"The colors of the Delta Guide and the setup screen: \"blue\" (Halo\n"
-		"Blue) or \"red\" (Chupathingy Red). A change shows at once." },
+		"Blue), \"red\" (Chupathingy Red) or \"green\" (Dashboard Green).\n"
+		"A change shows at once." },
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the text and titles of the menus and the HUD with sharp,\n"
 		"high-res fonts." },
@@ -4248,7 +4249,7 @@ static const struct
 	const char *otherwise;
 } config_words[] =
 {
-	{ "display.theme", { "blue", "red", NULL }, "\"blue\"" },
+	{ "display.theme", { "blue", "red", "green", NULL }, "\"blue\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },

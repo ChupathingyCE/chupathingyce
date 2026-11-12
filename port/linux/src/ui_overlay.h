@@ -246,18 +246,20 @@ enum
 };
 unsigned int ui_style_color(int name);
 
-/* the themes the palette comes in: Halo Blue (the default) and
-Chupathingy Red (display.theme) */
+/* the themes the palette comes in: Halo Blue (the default), Chupathingy
+Red and Dashboard Green (display.theme); a new one goes last, so a saved
+choice keeps its meaning */
 enum
 {
 	UI_THEME_BLUE,
 	UI_THEME_RED,
+	UI_THEME_GREEN,
 	NUMBER_OF_UI_THEMES
 };
 /* the palette from here on (live: the next frame draws in it) */
 void ui_style_theme(int theme);
 int ui_style_theme_current(void);
-/* display.theme's value ("blue", "red") as a theme: blue for anything else */
+/* display.theme's value ("blue", "red", "green") as a theme: blue for anything else */
 int ui_style_theme_named(const char *name);
 
 /* the look's text, each kind in the menus' fonts (ui_style_text): a list's
