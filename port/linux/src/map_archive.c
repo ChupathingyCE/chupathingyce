@@ -367,6 +367,49 @@ int map_archive_name_valid(const char *name)
 	return !device_name(name);
 }
 
+int map_archive_listing_files(const char *listing, unsigned int size, const char *name,
+	char files[][MAP_ARCHIVE_LISTING_NAME_SIZE], int count)
+{
+	static const char link[] = "href=\"/maps/";
+	const unsigned int link_length = (unsigned int)sizeof(link) - 1;
+	unsigned int offset = 0;
+	int found = 0;
+
+	if (!listing || !name || !files || count <= 0 || !map_archive_name_valid(name))
+		return 0;
+	while (found < count && offset < size && size - offset > link_length)
+	{
+		unsigned int start, end, length;
+		char file[MAP_ARCHIVE_LISTING_NAME_SIZE];
+		int index, again = 0;
+
+		if (memcmp(listing + offset, link, link_length))
+		{
+			offset++;
+			continue;
+		}
+		start = offset + link_length;
+		for (end = start; end < size && end - start <= MAP_ARCHIVE_MAXIMUM_NAME_LENGTH + 4 && listing[end] != '"'; end++)
+			;
+		offset = end;
+		/* (<file>.zip" whole, its name one map_archive_name_valid takes) */
+		if (end >= size || listing[end] != '"' || end - start < 5 || memcmp(listing + end - 4, ".zip", 4))
+			continue;
+		length = end - 4 - start;
+		if (length > MAP_ARCHIVE_MAXIMUM_NAME_LENGTH)
+			continue;
+		memcpy(file, listing + start, length);
+		file[length] = 0;
+		if (!map_archive_name_valid(file) || !same_name(file, length, name))
+			continue;
+		for (index = 0; index < found; index++)
+			again = again || !strcmp(files[index], file);
+		if (!again)
+			memcpy(files[found++], file, sizeof(file));
+	}
+	return found;
+}
+
 int map_archive_extract(const struct map_archive_io *io, const char *name, unsigned int *map_size, char *error,
 	int error_size)
 {

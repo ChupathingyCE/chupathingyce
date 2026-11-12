@@ -124,7 +124,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		if (flags & 0x10 && size >= MAP_ARCHIVE_HEADER_SIZE)
 			version = map_archive_header_checksum(copy);
 		map_host_install(&files, names[flags & 3], version, offered, limit, installed, sha256, map_hash, &blocked,
-			error, (int)sizeof(error));
+			NULL, error, (int)sizeof(error));
 	}
 	free(copy);
 	return 0;
