@@ -32,6 +32,10 @@ and the debug keyboard that the game's console reads.
 #include <string.h>
 #if !defined(_WIN32) && !defined(HALO_ANDROID)
 #include <signal.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <time.h>
+#include <unistd.h>
 #endif
 #ifdef HALO_GAME_BROWSER
 #include "browser.h"
@@ -373,6 +377,104 @@ static void crash_reports_start(void)
 }
 #endif
 
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+/* SIGTERM and SIGINT quit as closing the window does, when the events are
+next read (SDL's handler, which this one passes them to). A game stuck where
+they are not read (#1149: a load that waited for ever) never would: the
+signal also wakes a watchdog, which ends the process if it is still running
+QUIT_WATCHDOG_SECONDS later. It only writes to standard error, as the stuck
+thread may hold the log's lock */
+#ifndef QUIT_WATCHDOG_SECONDS
+#define QUIT_WATCHDOG_SECONDS 10
+#endif
+
+static struct sigaction quit_previous_actions[2];
+static int quit_pipe[2] = { -1, -1 };
+
+static void quit_signal_handler(int signal_number, siginfo_t *information, void *context)
+{
+	struct sigaction const *previous = &quit_previous_actions[signal_number == SIGINT];
+	int saved_errno = errno;
+
+	if (quit_pipe[1] >= 0)
+	{
+		unsigned char byte = (unsigned char)signal_number;
+
+		if (write(quit_pipe[1], &byte, 1) < 0)
+			byte = 0;
+	}
+	if (previous->sa_flags & SA_SIGINFO)
+	{
+		if (previous->sa_sigaction)
+			previous->sa_sigaction(signal_number, information, context);
+	}
+	else if (previous->sa_handler == SIG_DFL)
+	{
+		/* (nothing else would have ended it: as without this handler) */
+		signal(signal_number, SIG_DFL);
+		raise(signal_number);
+	}
+	else if (previous->sa_handler != SIG_IGN)
+	{
+		previous->sa_handler(signal_number);
+	}
+	errno = saved_errno;
+}
+
+static void *quit_watchdog(void *unused)
+{
+	unsigned char byte = 0;
+	char message[128];
+	struct timespec wait;
+	int length;
+
+	(void)unused;
+	while (read(quit_pipe[0], &byte, 1) != 1)
+	{
+		if (errno != EINTR)
+			return NULL;
+	}
+	wait.tv_sec = QUIT_WATCHDOG_SECONDS;
+	wait.tv_nsec = 0;
+	while (nanosleep(&wait, &wait) != 0 && errno == EINTR)
+		;
+	length = snprintf(message, sizeof(message),
+		"chupathingyce: quit: signal %d was not handled in %d seconds; stopping now\n",
+		(int)byte, QUIT_WATCHDOG_SECONDS);
+	if (length > 0 && write(STDERR_FILENO, message, (size_t)length) < 0)
+		length = 0;
+	_exit(128 + (int)byte);
+	return NULL;
+}
+
+static void quit_watchdog_start(void)
+{
+	struct sigaction action;
+	pthread_t thread;
+	pthread_attr_t attributes;
+
+	if (quit_pipe[0] >= 0 || pipe(quit_pipe) != 0)
+		return;
+	fcntl(quit_pipe[1], F_SETFL, fcntl(quit_pipe[1], F_GETFL) | O_NONBLOCK);
+	fcntl(quit_pipe[0], F_SETFD, FD_CLOEXEC);
+	fcntl(quit_pipe[1], F_SETFD, FD_CLOEXEC);
+	pthread_attr_init(&attributes);
+	pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
+	if (pthread_create(&thread, &attributes, quit_watchdog, NULL) != 0)
+	{
+		pthread_attr_destroy(&attributes);
+		return;
+	}
+	pthread_attr_destroy(&attributes);
+	memset(&action, 0, sizeof(action));
+	action.sa_sigaction = quit_signal_handler;
+	action.sa_flags = SA_SIGINFO | SA_RESTART;
+	sigemptyset(&action.sa_mask);
+	sigaction(SIGTERM, &action, &quit_previous_actions[0]);
+	sigaction(SIGINT, &action, &quit_previous_actions[1]);
+}
+#endif
+
 BOOL platform_sdl_initialize(void)
 {
 	if (platform_sdl_started)
@@ -446,6 +548,10 @@ BOOL platform_sdl_initialize(void)
 #endif
 	}
 	platform_sdl_started = TRUE;
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* (after SDL_Init, whose handlers it passes the signals on to) */
+	quit_watchdog_start();
+#endif
 #ifdef HALO_CONSOLE_SETUP_SCREENS
 	/* (the port's: halo_console_features.h) */
 	console_setup_start();

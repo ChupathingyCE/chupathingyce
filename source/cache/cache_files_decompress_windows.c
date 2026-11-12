@@ -1180,6 +1180,7 @@ static void cache_copy_issue_read(
 	OVERLAPPED *overlapped;
 	long error;
 	BOOL issued;
+	unsigned long first_try;
 
 	decompressor_timer_start(_decompressor_timer_read_file);
 
@@ -1202,6 +1203,9 @@ static void cache_copy_issue_read(
 
 	QueryPerformanceCounter(&self->overlapped_timer_starts[overlapped_index]);
 
+	/* port: a system short of resources is waited for 5 seconds at most
+	(cache_files_windows.c's CACHED_MAP_ISSUE_RETRY_MILLISECONDS, #1149) */
+	first_try = GetTickCount();
 	do
 	{
 		SleepEx(0, TRUE);
@@ -1210,6 +1214,7 @@ static void cache_copy_issue_read(
 		error = GetLastError();
 	}
 	while (!issued &&
+		GetTickCount() - first_try < 5000 &&
 		(error == ERROR_INVALID_USER_BUFFER || error == ERROR_NOT_ENOUGH_MEMORY ||
 			error == ERROR_NO_SYSTEM_RESOURCES));
 
@@ -1240,6 +1245,7 @@ static void cache_copy_issue_write(
 	OVERLAPPED *overlapped;
 	long error;
 	BOOL issued;
+	unsigned long first_try;
 
 	decompressor_timer_start(_decompressor_timer_write_file);
 
@@ -1263,6 +1269,9 @@ static void cache_copy_issue_write(
 
 	QueryPerformanceCounter(&self->overlapped_timer_starts[overlapped_index]);
 
+	/* port: a system short of resources is waited for 5 seconds at most
+	(cache_files_windows.c's CACHED_MAP_ISSUE_RETRY_MILLISECONDS, #1149) */
+	first_try = GetTickCount();
 	do
 	{
 		SleepEx(0, TRUE);
@@ -1271,6 +1280,7 @@ static void cache_copy_issue_write(
 		error = GetLastError();
 	}
 	while (!issued &&
+		GetTickCount() - first_try < 5000 &&
 		(error == ERROR_INVALID_USER_BUFFER || error == ERROR_NOT_ENOUGH_MEMORY ||
 			error == ERROR_NO_SYSTEM_RESOURCES));
 
