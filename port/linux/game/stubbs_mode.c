@@ -35,7 +35,7 @@ packs never take these paths.
 boolean stubbs_mode_active(
 	void)
 {
-#if !defined(HALO_MAP_LIST)
+#if !defined(HALO_MAP_LIST) || defined(HALO_CONSOLE_NO_STUBBS)
 	return FALSE;
 #else
 	static int active = -1;
@@ -501,6 +501,30 @@ static void stubbs_collision_convert(unsigned char *model)
 	}
 }
 
+/* ---------- Stubbs's weapon HUDs
+
+Halo's weapon HUD interface (wphi) has its screen effects block at 0xAC (the
+scope's mask, convolution and night vision). Stubbs's has a long there and,
+from 0xB0, a reference to one of its image effects (imef) instead, so a
+sniper HUD's reads as a block at 'imef' and the map can't be played (c10,
+c40). Its count is cleared: no screen effect, and the reference is left as
+it is for the image effects later */
+
+#define WPHI_SCREEN_EFFECTS_OFFSET 0xAC
+#define WPHI_SIZE 0x17C
+
+static boolean stubbs_weapon_hud_convert(unsigned char *definition)
+{
+	unsigned long group;
+	long none = 0;
+
+	memcpy(&group, definition + WPHI_SCREEN_EFFECTS_OFFSET + 4, 4);
+	if (group != 'imef')
+		return FALSE;
+	memcpy(definition + WPHI_SCREEN_EFFECTS_OFFSET, &none, 4);
+	return TRUE;
+}
+
 void stubbs_mode_set_file_reader(
 	boolean (*read)(long offset, long size, void *buffer))
 {
@@ -517,6 +541,7 @@ void stubbs_mode_convert_tags(
 	long converted_animations = 0;
 	long converted_collision = 0;
 	long converted_sounds = 0;
+	long converted_weapon_huds = 0;
 
 	if (!stubbs_mode_active() || tag_data_size < 0x28)
 		return;
@@ -571,6 +596,14 @@ void stubbs_mode_convert_tags(
 			converted_animations += stubbs_animation_convert(base, tag_data_size, address);
 			continue;
 		}
+		if (group == 'wphi')
+		{
+			unsigned char *hud = stubbs_host(base, tag_data_size, address, WPHI_SIZE);
+
+			if (hud && stubbs_weapon_hud_convert(hud))
+				converted_weapon_huds++;
+			continue;
+		}
 		if (group == 'bipd')
 			halo_part = HALO_BIPED_SIZE - HALO_UNIT_SIZE, kind = 0;
 		else if (group == 'vehi')
@@ -587,6 +620,7 @@ void stubbs_mode_convert_tags(
 	stubbs_mode_log("%ld animation graphs rewritten in Halo's layout", converted_animations);
 	stubbs_mode_log("%ld sounds of classes Halo lacks played as the nearest class before", converted_sounds);
 	stubbs_mode_log("%ld collision models' materials and regions rewritten in Halo's layout", converted_collision);
+	stubbs_mode_log("%ld weapon HUDs' image effects left out of their screen effects", converted_weapon_huds);
 	{
 		unsigned long needed = stubbs_animations_each(base, tag_data_size, instances, count,
 			stubbs_animation_data_measure, NULL);
