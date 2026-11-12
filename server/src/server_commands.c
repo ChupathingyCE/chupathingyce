@@ -49,6 +49,7 @@ change.
 #include "networking/network_game_protocol.h"
 #include "networking/network_server_manager.h"
 #include "halo_map_families.h"
+#include "halo_port_features.h" /* HALO_MCC */
 #include "mcc_cache.h"
 #include "mcc_maps.h"
 #ifdef HALO_MAP_LIST
@@ -758,12 +759,13 @@ boolean server_map_playable(
 	Workshop item's: mcc_maps.c) */
 	if (mcc_level_name(map))
 	{
-#ifndef HALO_MCC_NETWORK
-		/* (MCC maps play offline for now: a network game's machines can't
-		load them yet, mcc_cache.c) */
-		command_output_printf(output, "%s is an MCC map; MCC maps play offline for now\n", map);
+#if !defined(HALO_MCC) || !HALO_MCC
+		/* (a build without MCC maps: HALO_MCC, halo_port_features.h) */
+		command_output_printf(output, "%s is an MCC map; this server has no MCC maps\n", map);
 		return FALSE;
 #else
+		/* (played at OpenCE's 43, as any host plays an MCC map:
+		network_server_manager.c's network_game_server_mcc_version) */
 		short index;
 
 		mcc_maps_rescan();
@@ -1934,7 +1936,7 @@ static boolean command_maps(
 	/* (the Xbox map packs' in their maps_<pack> folders: wizard@cex) */
 	map_pack_list(map_listing_pack_found, &listing);
 #endif
-#ifdef HALO_MCC_NETWORK
+#if defined(HALO_MCC) && HALO_MCC
 	/* (the MCC catalog's multiplayer maps, by level name: mcc_maps\<package>\<map>) */
 	mcc_maps_rescan();
 	for (index = 0; index < mcc_maps_type_count(FALSE); index++)
