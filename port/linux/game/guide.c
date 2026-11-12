@@ -3508,17 +3508,22 @@ static void render_tabs(void)
 /* a player's row: their dot, tag, status line and platform's logo */
 static void render_row(struct social_row const *row, float x, float y, float width, boolean on, short index)
 {
+	char tag[SOCIAL_TAG_SIZE + 4];
+
+	/* (a name of letters the menus' fonts lack: its ASCII letters, or
+	"Player", never a blank row) */
+	ui_overlay_name_shown(ui_style_text_font(UI_TEXT_NAME), row->tag, tag, sizeof(tag));
 	ui_style_row(x, y, width, ROW_HEIGHT, on);
 	if (row->state >= 0)
 		ui_overlay_rect(x + 9, y + ROW_HEIGHT * 0.5f - 3, 6, 6, 3, dot_color(row->state));
 	if (row->status[0])
 	{
-		ui_style_text(UI_TEXT_NAME, x + 22, y + 3, UI_ALIGN_LEFT, row->tag);
+		ui_style_text(UI_TEXT_NAME, x + 22, y + 3, UI_ALIGN_LEFT, tag);
 		ui_style_text(row->muted ? UI_TEXT_WARNING : UI_TEXT_STATUS, x + 22, y + 17, UI_ALIGN_LEFT, row->status);
 	}
 	else
 		ui_style_text(UI_TEXT_NAME, x + 22, y + (ROW_HEIGHT - ui_style_text_size(UI_TEXT_NAME)) * 0.5f, UI_ALIGN_LEFT,
-			row->tag);
+			tag);
 	if (row->platform > 0)
 		ui_overlay_platform(row->platform, 11.0f, x + width - 14, y + (ROW_HEIGHT - 11.0f) * 0.5f, COLOR_LABEL, 0);
 	target_add(x, y, x + width, y + ROW_HEIGHT, _target_row, index);
@@ -4286,7 +4291,8 @@ static void party_row_line(float x, float y, float right, char const *name, char
 	float room = right - x - (note[0] ? gap + note_width : 0.0f), name_width;
 	char shown[SOCIAL_TAG_SIZE + 4];
 
-	social_copy_text(shown, sizeof(shown), name);
+	/* (a name of letters the menus' fonts lack: its ASCII letters, or "Player") */
+	ui_overlay_name_shown(UI_FONT_MENU, name, shown, sizeof(shown));
 	if (ui_overlay_text_width(UI_FONT_MENU, name_size, shown) > room)
 	{
 		size_t length = strlen(shown);
@@ -5359,13 +5365,16 @@ static void handle_pressed(unsigned int pressed)
 			about_input(&guide.about_view, ABOUT_INPUT_A);
 		return;
 	}
-	/* (Steam's sign-in window: A its button, B back, nothing under it) */
+	/* (Steam's sign-in window: A its button with the focus, B back, left
+	and right the question's two buttons, nothing under it) */
 	if (guide_workshop_link_modal())
 	{
 		if (pressed & GUIDE_INPUT_A)
 			guide_workshop_link_modal_press();
 		else if (pressed & GUIDE_INPUT_B)
 			guide_workshop_link_modal_back();
+		else if (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT))
+			guide_workshop_link_modal_move((pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
 		return;
 	}
 	/* (WORKSHOP: LT and RT, Page Up and Page Down, a page of Steam's list on or back) */
@@ -5652,14 +5661,18 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			guide_workshop_page_step(target->index == 2 ? 0 : target->index ? 1 : -1);
 			break;
 		case _target_modal:
-			guide_workshop_link_modal_press();
+			guide_workshop_link_modal_click(target->index);
 			break;
 		}
 		return;
 	}
-	/* (Steam's sign-in window: a click beside it does nothing) */
+	/* (Steam's sign-in window: a click beside it does nothing; beside
+	UNLINK's question, CANCEL) */
 	if (guide_workshop_link_modal())
+	{
+		guide_workshop_link_modal_click_outside(pointer->click_x, pointer->click_y);
 		return;
+	}
 	/* (a click outside the panel closes it; outside the leader's offer,
 	nothing) */
 	if (guide.open && (pointer->click_x < PANEL_X || pointer->click_x >= PANEL_RIGHT || pointer->click_y < PANEL_Y ||

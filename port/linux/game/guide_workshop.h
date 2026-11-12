@@ -18,12 +18,18 @@ void guide_workshop_open(void);
 /* Steam's sign-in window, over the Guide in the middle of its panel (any
 section): up while a link waits for the scan (its QR, "Scan with the Steam
 app", Waiting, Expired, refreshing, Linked) or for UNLINK's answer. While
-it is up it takes the input: A its one button (CANCEL, BACK, UNLINK), B
-back. Drawn last, over the prompts; its button is target kind
-GUIDE_WORKSHOP_TARGET_MODAL */
+it is up it takes the input: A its button with the focus (CANCEL, BACK,
+DONE; the question's UNLINK or CANCEL, the focus on CANCEL as it opens),
+B back, the d-pad's left and right the question's two buttons, a click
+beside the question's window CANCEL. Drawn last, over the prompts; its
+buttons are target kind GUIDE_WORKSHOP_TARGET_MODAL (index 0 the button,
+1 the question's CANCEL) */
 boolean guide_workshop_link_modal(void);
 void guide_workshop_link_modal_press(void);
 void guide_workshop_link_modal_back(void);
+void guide_workshop_link_modal_move(short step);
+void guide_workshop_link_modal_click(short index);
+void guide_workshop_link_modal_click_outside(short x, short y);
 void guide_workshop_link_modal_render(float left, float top, float right, float bottom,
 	void (*target)(float x0, float y0, float x1, float y1, short kind, short index));
 /* a line for SETTINGS' help line under STEAM ACCOUNT (NULL: none) */
@@ -72,6 +78,9 @@ calls do nothing, their arguments unevaluated */
 #define guide_workshop_link_modal() ((boolean)0)
 #define guide_workshop_link_modal_press() ((void)0)
 #define guide_workshop_link_modal_back() ((void)0)
+#define guide_workshop_link_modal_move(a0) ((void)sizeof(a0), (void)0)
+#define guide_workshop_link_modal_click(a0) ((void)sizeof(a0), (void)0)
+#define guide_workshop_link_modal_click_outside(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (void)0)
 #define guide_workshop_link_modal_render(a0, a1, a2, a3, a4) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)0)
 #define guide_workshop_link_note() ((char const *)0)
 #define guide_workshop_page_step(a0) ((void)sizeof(a0), (boolean)0)

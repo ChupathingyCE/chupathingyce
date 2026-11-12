@@ -13,6 +13,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "../src/guide_layout.h"
+#include "../src/text_shown.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -86,6 +87,12 @@ static void check_plain(void)
 	CHECK(!strcmp(plain, "Plain words, a [bracket] and 3 * 4."), "plain text changed: %s", plain);
 	/* (a small buffer: ends in its room) */
 	CHECK(guide_layout_plain(steam_description, plain, 16) == 15, "the small buffer's length");
+	/* (a description ending in blank lines of no-break, ideographic or
+	zero-width spaces: no line left after its words) */
+	guide_layout_plain("Last words.\r\n\xC2\xA0\r\n\xE3\x80\x80\n\xE2\x80\x8B\n\xEF\xBB\xBF\n", plain, sizeof(plain));
+	CHECK(!strcmp(plain, "Last words."), "a blank ending kept: [%s]", plain);
+	guide_layout_plain("Two\xC2\xA0words", plain, sizeof(plain));
+	CHECK(!strcmp(plain, "Two words"), "a no-break space: [%s]", plain);
 }
 
 static void check_fit(void)
@@ -135,6 +142,11 @@ static void check_wrap(void)
 		lines[2]);
 	for (index = 0; index < count; index++)
 		CHECK(strpbrk(lines[index], "\n\r\t") == NULL, "a control character in line %d", index);
+	/* (a text ending in blank lines: none of them a line to scroll to) */
+	count = guide_layout_wrap("Words here\n\nMore words\n\n\n \n", 214, 9, measure, NULL, 8, lines, &cut);
+	CHECK(count == 3 && !cut && !strcmp(lines[2], "More words"), "trailing blank lines kept: %d lines", count);
+	count = guide_layout_wrap("Words here\n\nMore words\n\nLast", 214, 4, measure, NULL, 4, lines, &cut);
+	CHECK(count == 4 && !strcmp(lines[3], "..."), "a cut text's blank line: %d [%s]", count, lines[3]);
 	count = guide_layout_wrap("Two words", 214, 9, measure, NULL, 4, lines, &cut);
 	CHECK(count == 1 && !cut && !strcmp(lines[0], "Two words"), "short text wrapped: %d %s", count, lines[0]);
 }
@@ -239,7 +251,7 @@ static void check_modal(void)
 		for (qr = 0; qr <= 1; qr++)
 		{
 			struct guide_modal_layout layout;
-			struct guide_rect rects[5];
+			struct guide_rect rects[6];
 			char what[64];
 
 			guide_layout_modal(areas[area], qr, &layout);
@@ -249,7 +261,13 @@ static void check_modal(void)
 			rects[2] = layout.line;
 			rects[3] = layout.status;
 			rects[4] = layout.button;
-			check_no_overlap(what, rects, 5, layout.window);
+			rects[5] = layout.cancel;
+			check_no_overlap(what, rects, 6, layout.window);
+			/* (a question's two buttons: both there, as wide as each other) */
+			CHECK(qr || (layout.cancel.width >= 80 && layout.cancel.width == layout.button.width &&
+				layout.cancel.y == layout.button.y), "%s: the question's buttons %g and %g", what, layout.button.width,
+				layout.cancel.width);
+			CHECK(!qr || layout.cancel.width == 0, "%s: a CANCEL beside the QR's button", what);
 			CHECK(guide_rect_inside(layout.window, areas[area]), "%s: the window past its area", what);
 			CHECK(!qr || layout.qr.width == layout.qr.height, "%s: the QR not square", what);
 			if (area == 0 && qr)
@@ -422,8 +440,40 @@ static void check_scroll(void)
 	CHECK(thumb.height >= 8, "a thumb too small to see: %g", thumb.height);
 }
 
+/* (a font with Latin letters only, as the menus' faces: no CJK) */
+static int latin_only(void *context, unsigned int codepoint)
+{
+	(void)context;
+	return codepoint < 0x2000;
+}
+
+static void check_shown(void)
+{
+	char out[128];
+
+	/* (a Workshop title: its CJK letters left out, the spaces around them one) */
+	CHECK(text_shown("\xE7\xA0\x82\xE6\xBC\xA0 Desert Run \xE7\xA0\x82", latin_only, NULL, out, sizeof(out)) &&
+		!strcmp(out, "Desert Run"), "a mixed title: [%s]", out);
+	/* (a Workshop title of only CJK letters: its number, never blank) */
+	text_shown_or("\xE6\xB2\x99\xE6\xBC\xA0\xE7\x96\xA3\xE7\x8C\xAA", latin_only, NULL,
+		"Workshop item 3000000002", out, sizeof(out));
+	CHECK(!strcmp(out, "Workshop item 3000000002"), "an all-CJK title: [%s]", out);
+	/* (a friend's name of only CJK letters: "Player", never blank) */
+	text_shown_name("\xE5\xB0\x8F\xE6\x98\x8E", latin_only, NULL, out, sizeof(out));
+	CHECK(!strcmp(out, "Player"), "an all-CJK name: [%s]", out);
+	/* (a friend's name with some Latin letters: those) */
+	text_shown_name("\xE5\xB0\x8F\xE6\x98\x8E Ming", latin_only, NULL, out, sizeof(out));
+	CHECK(!strcmp(out, "Ming"), "a mixed name: [%s]", out);
+	/* (a name the font draws whole: as it is, accents too) */
+	text_shown_name("Jos\xC3\xA9  Church", latin_only, NULL, out, sizeof(out));
+	CHECK(!strcmp(out, "Jos\xC3\xA9 Church"), "a Latin name: [%s]", out);
+	/* (a small buffer: never half a character) */
+	CHECK(text_shown("Jos\xC3\xA9", latin_only, NULL, out, 5) == 3 && !strcmp(out, "Jos"), "cut: [%s]", out);
+}
+
 int main(void)
 {
+	check_shown();
 	check_marquee();
 	check_scroll();
 	check_bounds();

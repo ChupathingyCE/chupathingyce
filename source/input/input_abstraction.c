@@ -438,14 +438,15 @@ boolean input_abstraction_port_icon_key(
 }
 
 /* port: the keyboard's key for the multiplayer HUD's "Hold BACK for score"
-(game_engine.c): the word BACK becomes the scoreboard key while the
-prompts show the keys */
+(game_engine.c): the word BACK becomes the scoreboard key, in quotes, as
+Halo PC words it ('Hold "Tab" for score'), while the prompts show the keys;
+a controller's stays the Xbox's, BACK with none */
 void input_abstraction_port_back_word(
 	wchar_t *message,
 	long count)
 {
 	wchar_t key[40];
-	long start, length, key_length, index;
+	long start, length, key_length, index, quotes;
 
 	if (!message || !input_abstraction_port_icon_key(0, _port_icon_back_button, FALSE, key, NUMBEROF(key)))
 		return;
@@ -462,11 +463,15 @@ void input_abstraction_port_back_word(
 	/* (the key without its brackets: the sentence names it) */
 	for (key_length = 0; key[key_length + 1] && key[key_length + 1] != L']'; key_length++)
 		;
-	if (start + 4 > length || length - 4 + key_length >= count)
+	/* (quoted, unless the text quotes it already) */
+	quotes = start > 0 && start + 4 < length && message[start - 1] == L'"' && message[start + 4] == L'"' ? 0 : 2;
+	if (start + 4 > length || length - 4 + key_length + quotes >= count)
 		return;
-	memmove(message + start + key_length, message + start + 4, (length - start - 4 + 1) * sizeof(wchar_t));
+	memmove(message + start + key_length + quotes, message + start + 4, (length - start - 4 + 1) * sizeof(wchar_t));
+	if (quotes)
+		message[start] = message[start + key_length + 1] = L'"';
 	for (index = 0; index < key_length; index++)
-		message[start + index] = key[index + 1];
+		message[start + quotes / 2 + index] = key[index + 1];
 	return;
 }
 

@@ -49,6 +49,9 @@ or down; text that takes any value is not changed: 0) */
 void settings_key_value(const char *key, char *text, int size);
 /* what the STEAM row does when changed (the Guide: its Workshop's link row); unset, the row is hidden */
 void settings_rows_set_steam_link_action(void (*action)(void));
+/* whether the Guide has WORKSHOP (MCC on this computer): WORKSHOP MAPS shows
+in its SETTINGS only then (guide_workshop.c, each frame) */
+void settings_rows_set_workshop_offered(int offered);
 int settings_key_change(const char *key, int step);
 
 #endif
