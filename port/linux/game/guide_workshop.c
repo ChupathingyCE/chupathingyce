@@ -514,66 +514,16 @@ boolean guide_workshop_page_offered(short step)
 
 To the menus' own Create Game or level select, in the menu set chosen, a
 game or lobby left first if the player says so (menu_functions.c). A
-campaign item's levels are only found with game.mcc_campaigns on
-(steam_workshop.c, mcc_maps.c): while it is off, PLAY asks once whether to
-turn it on (the player's settings are never changed unasked), and the
-answer is kept (game.mcc_campaigns_asked). After a no, the page says where
-the setting is. */
-
-static struct
-{
-	char item[WORKSHOP_BROWSER_ID_SIZE];
-	char title[WORKSHOP_BROWSER_TITLE_SIZE];
-	/* (the page's item, and whether its ModInfo.json has a campaign) */
-	char looked[WORKSHOP_BROWSER_ID_SIZE];
-	boolean campaign;
-} workshop_play_item;
-
-void invite_prompt_ask(char const *title, char const *question, char const *detail,
-	void (*answer_function)(boolean yes));
-
-/* the item has a campaign that game.mcc_campaigns being off hides */
-static boolean campaign_hidden(struct workshop_browser_item const *item)
-{
-	if (config_boolean("game.mcc_campaigns") || item->state != WORKSHOP_ITEM_INSTALLED)
-		return FALSE;
-	if (strcmp(workshop_play_item.looked, item->id))
-	{
-		snprintf(workshop_play_item.looked, sizeof(workshop_play_item.looked), "%s", item->id);
-		workshop_play_item.campaign = workshop_browser_item_has_campaign(item->id) != 0;
-	}
-	return workshop_play_item.campaign;
-}
-
-static void campaigns_answer(boolean yes)
-{
-	config_write_boolean("game.mcc_campaigns_asked", 1);
-	platform_log("Workshop: MCC campaigns %s for item %s", yes ? "turned on" : "left off", workshop_play_item.item);
-	if (yes)
-	{
-		config_write_boolean("game.mcc_campaigns", 1);
-		mcc_maps_rescan();
-	}
-	/* (no: what else the item has, its multiplayer maps) */
-	if (!pc_menu_workshop_play(workshop_play_item.item, workshop_play_item.title))
-		platform_log("Workshop: PLAY found nothing to play in item %s", workshop_play_item.item);
-}
+campaign item's levels are listed whatever game.mcc_campaigns says (it
+only adds the missions' order: mcc_maps.c). */
 
 static void play(struct workshop_browser_item const *item)
 {
-	if (!item || item->setup || item->state != WORKSHOP_ITEM_INSTALLED)
-		return;
-	if (campaign_hidden(item) && !config_boolean("game.mcc_campaigns_asked"))
+	if (item && !item->setup && item->state == WORKSHOP_ITEM_INSTALLED &&
+		pc_menu_workshop_play(item->id, item->title))
 	{
-		snprintf(workshop_play_item.item, sizeof(workshop_play_item.item), "%s", item->id);
-		snprintf(workshop_play_item.title, sizeof(workshop_play_item.title), "%s", item->title);
-		invite_prompt_ask("PLAY", "Turn on MCC campaigns?",
-			"Campaign items then play from the level select. Settings can turn it off.", campaigns_answer);
 		guide_close();
-		return;
 	}
-	if (pc_menu_workshop_play(item->id, item->title))
-		guide_close();
 }
 
 #ifndef HALO_RELEASE
@@ -1559,9 +1509,6 @@ static char const *page_note(struct workshop_browser_item const *item, char *lin
 		return "Workshop maps are off";
 	if (item->state == WORKSHOP_ITEM_NOT_INSTALLED && link_needed())
 		return "Link Steam to download in the game";
-	/* (PLAY asked once, and the answer was no) */
-	if (config_boolean("game.mcc_campaigns_asked") && campaign_hidden(item))
-		return "Its campaign needs MCC CAMPAIGNS on, in SETTINGS";
 	return NULL;
 }
 

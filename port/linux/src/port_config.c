@@ -1412,10 +1412,6 @@ static const struct config_setting config_settings[] =
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
 		"Workshop campaign maps are listed either way. Reopen the map list after\n"
 		"changing this." },
-	{ "game.mcc_campaigns_asked", _config_boolean, "false", "HALO_MCC_CAMPAIGNS_ASKED", _environment_value,
-		_platform_desktop,
-		"Chupathingy sets this once the Delta Guide's Workshop PLAY asked about\n"
-		"turning on game.mcc_campaigns for a campaign item. Don't edit it." },
 	{ "game.workshop_maps", _config_boolean, "false", "HALO_WORKSHOP_MAPS", _environment_value, _platform_desktop,
 		"Discover installed Halo CE Steam Workshop maps. Read-only desktop\n"
 		"discovery; packages installed in maps_mcc are always read." },
