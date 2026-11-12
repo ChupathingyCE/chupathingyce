@@ -10,17 +10,18 @@ holds, load progress) are dropped here for now. */
 #include "cseries.h"
 enum
 {
-	/* MCC-only extra grenade slots; ordinary inventory packets stay exact. */
-	_distributed_message_mcc_grenades = 97,
-	/* MCC-only campaign gravity and breadcrumb state. */
-	_distributed_message_mcc_campaign = 98,
-	/* Expanded MCC scenario-name presence, in bounded chunks. */
-	_distributed_message_mcc_object_names = 99,
-	/* MCC host-authorized speed, ordered on the reliable stream, even paused. */
-	_distributed_message_mcc_game_speed = 100,
 	/* (the MCC kinds' range at 43: 101 and 102 never used) */
 	_distributed_message_mcc_first = 97,
 	_distributed_message_mcc_last = 106
+};
+enum
+{
+	/* (the four MCC kinds' numbers: chester's, from his opence-mcc-support
+	work, the next commit) */
+	_distributed_message_mcc_grenades = _distributed_message_mcc_first,
+	_distributed_message_mcc_campaign,
+	_distributed_message_mcc_object_names,
+	_distributed_message_mcc_game_speed,
 };
 /* (network_distributed.c) whether this machine plays an MCC map in a network
 game of a layout that carries MCC's messages (43's, with its 13,200-byte
