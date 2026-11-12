@@ -52,8 +52,8 @@ int mcc_parameter_type(struct hs_syntax_node const *node, short *owner)
     uintptr_t offset;
     unsigned index;
     if (!mcc_cache_tags_loaded() || !node || !(node->flags & 0x10)) return -1;
-    if (!hs_syntax_data || !hs_syntax_data->data || (node->flags & 0x17) != 0x15) return -2;
-    offset = (uintptr_t)node - (uintptr_t)hs_syntax_data->data;
+    if (!hs_syntax_data || !DATA_ARRAY_DATA(hs_syntax_data) || (node->flags & 0x17) != 0x15) return -2;
+    offset = (uintptr_t)node - (uintptr_t)DATA_ARRAY_DATA(hs_syntax_data);
     index = (unsigned)(offset / sizeof(*node));
     if (offset % sizeof(*node) || offset / sizeof(*node) >= mcc_parameter_node_count ||
         mcc_parameter_owners[index] < 0 || node->data < 0 || node->data >= 16) return -2;
@@ -73,7 +73,7 @@ int mcc_parameter_compile(struct hs_syntax_node const *node)
 void mcc_parameter_compile_skipped(struct hs_syntax_node const *node, long expression_index)
 {
     static unsigned skipped;
-    uintptr_t offset = (uintptr_t)node - (uintptr_t)hs_syntax_data->data;
+    uintptr_t offset = (uintptr_t)node - (uintptr_t)DATA_ARRAY_DATA(hs_syntax_data);
     unsigned index = (unsigned)(offset / sizeof(*node));
     if (skipped++) return;
     error(_error_silent, "mcc: script parameter node #%u skipped (flags %x, type %d, slot %ld, owner %d of %u nodes): "
