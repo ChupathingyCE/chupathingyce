@@ -159,6 +159,9 @@ enum
 	/* whether the selected game's Halo PC map is in its family's folders,
 	asked again this often */
 	CE_MAP_CHECK_INTERVAL = 1000,
+	/* a failed download of the map a game was left for, shown this long
+	before the join is given up (A or B sooner) */
+	OFFER_FAILED_REJOIN_MILLISECONDS = 8000,
 	/* the places the pointer presses a button, drawn each frame */
 	MAXIMUM_TARGETS = 24,
 };
@@ -869,12 +872,14 @@ static void follow_download(
 		default: break;
 		}
 #endif
-		/* (a game left for want of it: the main menu's error at once) */
-		if (browser_screen.rejoin_pending)
-			rejoin_given_up(browser_screen.offer_progress.message[0] ? browser_screen.offer_progress.message :
-				"the repositories did not answer");
-		else
-			browser_screen.offer = _offer_failed;
+		/* (what it failed on, in a word, until it is closed or a few
+		seconds pass; a game left for want of it then gives up, the main
+		menu's error: offer_given_up) */
+		platform_log("map download: %s.map: %s (%s)", browser_screen.offer_file,
+			map_download_refusal_label(browser_screen.offer_progress.refusal),
+			browser_screen.offer_progress.message[0] ? browser_screen.offer_progress.message : "no answer");
+		browser_screen.offer = _offer_failed;
+		browser_screen.offer_time = system_milliseconds();
 		break;
 	case MAP_DOWNLOAD_CANCELLED:
 		offer_given_up("Download cancelled.");
@@ -2247,6 +2252,9 @@ void browser_screen_process(
 	fetch_games();
 	if (browser_screen.offer == _offer_downloading)
 		follow_download();
+	else if (browser_screen.offer == _offer_failed && browser_screen.rejoin_pending &&
+		system_milliseconds() - browser_screen.offer_time > OFFER_FAILED_REJOIN_MILLISECONDS)
+		offer_given_up(NULL);
 	else if (browser_screen.playlist_offer != _playlist_none)
 		playlist_offer_follow();
 	else if (browser_screen.connecting && browser_screen.offer == _offer_none)
@@ -3298,13 +3306,9 @@ static void draw_map_offer(
 	default:
 		snprintf(text, sizeof(text), "Could not download %s.map", browser_screen.offer_display);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, COLOR_WARN, 0xF0A07060, text);
-		/* (why, as a sentence) */
-		snprintf(text, sizeof(text), "%s.", progress->message[0] ? progress->message : "the repositories did not answer");
-		if (text[0] >= 'a' && text[0] <= 'z')
-			text[0] = (char)(text[0] - 32);
-		ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 126, UI_ALIGN_CENTER, COLOR_TEXT, text);
-		snprintf(text, sizeof(text), "Or copy %s.map into maps_ce.", browser_screen.offer_display);
-		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, CONNECT_Y + 160, UI_ALIGN_CENTER, COLOR_DIM, text);
+		/* (what it failed on, in a word or two: why in full is the log's) */
+		ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 126, UI_ALIGN_CENTER, COLOR_TEXT,
+			map_download_refusal_label(progress->refusal));
 		dialog_prompt(UI_BUTTON_B, "=CLOSE");
 		break;
 	}
