@@ -261,8 +261,6 @@ int workshop_browser_update(int index);
 /* any Workshop item's picture by its id (installed, kept, else fetched from
 Steam by its details): RGBA pixels, NULL until there is one */
 const unsigned char *workshop_browser_picture_of(const char *id, int *width, int *height, int *serial);
-/* PLAY: at the main menu, the item's first map started; 0 if it can't */
-int workshop_browser_play(int index);
 /* the map lists' picture of a Workshop item's map (level mcc_maps\<id>\...)
 whose package has none: Steam's picture of the item, when the Workshop tab
 has kept one in the cache folder (never fetched for this). Pixels as

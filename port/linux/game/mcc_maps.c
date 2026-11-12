@@ -469,6 +469,37 @@ short mcc_maps_index(short row, boolean multiplayer_only)
 	return NONE;
 }
 
+/* the Workshop item the Guide's PLAY handed to the menus (pc_menu_workshop_play):
+its maps lead the type lists, and its campaign list opens on its first */
+static struct
+{
+	char prefix[80];
+	boolean focus;
+} mcc_maps_first;
+
+void mcc_maps_set_first_item(char const *item_id)
+{
+	if (item_id && *item_id)
+		snprintf(mcc_maps_first.prefix, sizeof(mcc_maps_first.prefix), MCC_MAPS_LEVEL_PREFIX "%s\\", item_id);
+	else
+		mcc_maps_first.prefix[0] = 0;
+	mcc_maps_first.focus = mcc_maps_first.prefix[0] != 0;
+}
+
+boolean mcc_maps_level_first(char const *level_name)
+{
+	return mcc_maps_first.prefix[0] && level_name &&
+		!_strnicmp(level_name, mcc_maps_first.prefix, strlen(mcc_maps_first.prefix));
+}
+
+boolean mcc_maps_take_first_focus(void)
+{
+	boolean focus = mcc_maps_first.focus;
+
+	mcc_maps_first.focus = FALSE;
+	return focus && mcc_maps_type_count(TRUE) && mcc_maps_level_first(mcc_maps_level_name(mcc_maps_type_index(0, TRUE)));
+}
+
 short mcc_maps_type_count(boolean campaign)
 {
 	short index, count = 0;
@@ -484,15 +515,24 @@ short mcc_maps_type_count(boolean campaign)
 
 short mcc_maps_type_index(short row, boolean campaign)
 {
-	short index;
+	short index, pass;
 
 	mcc_maps_scan();
 	if (row < 0)
 		return NONE;
-	for (index = 0; index < mcc_menu_catalog.count; index++)
+	/* (the item PLAY handed over first, then the rest in their order) */
+	for (pass = mcc_maps_first.prefix[0] ? 0 : 1; pass < 2; pass++)
 	{
-		if (mcc_menu_catalog.maps[index].campaign == campaign && row-- == 0)
-			return index;
+		for (index = 0; index < mcc_menu_catalog.count; index++)
+		{
+			struct mcc_menu_map const *map = &mcc_menu_catalog.maps[index];
+
+			if (map->campaign == campaign && (mcc_maps_first.prefix[0] == 0 || mcc_maps_level_first(map->level_name) == !pass) &&
+				row-- == 0)
+			{
+				return index;
+			}
+		}
 	}
 	return NONE;
 }

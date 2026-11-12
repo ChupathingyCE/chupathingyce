@@ -58,6 +58,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "../src/guide_layout.h"
 #include "guide_workshop.h"
 #include "mcc_maps.h"
+
+/* menu_functions.c's: PLAY handed to the menus' own flows */
+boolean pc_menu_workshop_play(char const *item, char const *title);
+void pc_menu_workshop_play_update(void);
 #include "input/input.h"
 #include "interface/virtual_keyboard.h"
 
@@ -234,8 +238,8 @@ static short options_of(struct workshop_browser_item const *item, short *options
 	}
 	if (item->state == WORKSHOP_ITEM_INSTALLED)
 	{
-		if (main_menu_is_active())
-			options[count++] = _option_play;
+		/* (in a game or a lobby too: PLAY asks before leaving it) */
+		options[count++] = _option_play;
 		if (bridge && workshop_browser_update_offered(workshop_view.row))
 			options[count++] = _option_update;
 		if (count < 2 && workshop_browser_removable(workshop_view.row))
@@ -496,9 +500,19 @@ static void option_run(short option)
 		search_start();
 		return;
 	case _option_play:
-		if (workshop_browser_play(workshop_view.row))
+	{
+		struct workshop_browser_item const *item = workshop_browser_item(workshop_view.row);
+
+		/* (to the menus' own Create Game or level select, in the menu set
+		chosen, a game or lobby left first if the player says so:
+		menu_functions.c) */
+		if (item && !item->setup && item->state == WORKSHOP_ITEM_INSTALLED &&
+			pc_menu_workshop_play(item->id, item->title))
+		{
 			guide_close();
+		}
 		return;
+	}
 	case _option_update:
 		if (link_needed())
 		{
@@ -934,6 +948,9 @@ void guide_workshop_open(void)
 void guide_workshop_update(boolean showing)
 {
 	short index, installed;
+
+	/* (PLAY's item handed over once the main menu is back) */
+	pc_menu_workshop_play_update();
 
 	workshop_browser_own_library();
 	settings_rows_set_steam_link_action(workshop_browser_link_offered() ? link_settings_press : NULL);

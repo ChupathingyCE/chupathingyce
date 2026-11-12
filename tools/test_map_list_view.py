@@ -1,7 +1,9 @@
 """The map choosers' Search, Show and Sort (port/linux/game/ui_map_list.c's
 view): which maps a view shows and in what order, with the list's own
 functions compiled against a small stand-in list, no maps or game needed.
-MCC maps are left out of the rows while a network game is hosted."""
+MCC maps are left out of the rows while a network game is hosted. The
+Workshop item the Delta Guide's PLAY hands over (mcc_maps_set_first_item)
+leads the rows, whatever the view."""
 import shutil
 import subprocess
 from pathlib import Path
@@ -45,6 +47,9 @@ static void view_entry_name(struct ui_map_entry const *entry, char *name, long s
 static char const *view_package_text(char const *level)
 { return strstr(level, "sidewinder") ? "author: sarge" : ""; }
 static long long view_entry_added(struct ui_map_entry *entry) { return entry->added; }
+static char const *first_item = "";
+static boolean mcc_maps_level_first(char const *level)
+{ return *first_item && !strncasecmp(level, first_item, strlen(first_item)); }
 """
 
 DRIVER = r"""
@@ -98,6 +103,20 @@ int main(void)
 	hosting = TRUE;
 	set(_ui_map_list_source_all, _ui_map_list_sort_default, "");
 	show("hosting");
+	hosting = FALSE;
+	ui_map_list_count_value = 0;
+	add("bloodgulch", _ui_map_list_source_xbox, 1);
+	add("timberland", _ui_map_list_source_ce, 5);
+	add("mcc_maps\\7\\beta", _ui_map_list_source_mcc, 3);
+	add("mcc_maps\\7\\alpha", _ui_map_list_source_mcc, 4);
+	ui_map_list_found_multiplayer = ui_map_list_count_value;
+	add("a10", _ui_map_list_source_xbox, 0);
+	ui_map_list_found_campaign_end = ui_map_list_count_value;
+	first_item = "mcc_maps\\7\\";
+	set(_ui_map_list_source_all, _ui_map_list_sort_default, "");
+	show("first");
+	set(_ui_map_list_source_ce, _ui_map_list_sort_name, "timber");
+	show("first_narrowed");
 	return 0;
 }
 """
@@ -145,3 +164,11 @@ def test_show_and_search_narrow_the_multiplayer_rows(output):
 
 def test_no_mcc_maps_while_hosting_a_network_game(output):
     assert rows(output, "hosting") == ["bloodgulch", "timberland", "Damnation", "|", "a10"]
+
+
+def test_the_item_play_handed_over_leads_the_rows(output):
+    # (its maps in their own order, before the rest of the view's)
+    assert rows(output, "first") == ["mcc_maps\\7\\beta", "mcc_maps\\7\\alpha", "bloodgulch", "timberland",
+                                     "|", "a10"]
+    # (shown whatever Show and Search say, in the view's order)
+    assert rows(output, "first_narrowed") == ["mcc_maps\\7\\alpha", "mcc_maps\\7\\beta", "timberland", "|", "a10"]

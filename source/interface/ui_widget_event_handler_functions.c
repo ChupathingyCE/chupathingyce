@@ -938,6 +938,7 @@ boolean playlist_profile_get_options(long playlist_profile_index, struct game_va
 #include "text/unicode.h"
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
 #include "mcc_ui.h"
+#include "mcc_maps.h" /* port: the Workshop item PLAY handed over */
 
 #ifdef HALO_MAP_LIST
 #include "halo_ui_map_list.h"
@@ -6170,6 +6171,10 @@ static boolean solo_level_initialize_list_single_player(
 		extern char const *config_string(char const *name);
 
 		widget->parameters.list.number_of_items = (short)(10 + ui_widget_port_mcc_campaign_count());
+		/* (on the Workshop item the Delta Guide's PLAY handed over: its
+		levels lead the MCC rows, mcc_maps.c) */
+		if (mcc_maps_take_first_focus() && ui_widget_port_mcc_campaign_count())
+			widget->parameters.list.selected_index = 10;
 #ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 		/* (debug.menu_open's "#singleplayer_last": on the last, for screenshots) */
 		if (strstr(config_string("debug.menu_open"), "#singleplayer_last"))
@@ -6292,6 +6297,41 @@ short ui_widget_port_multiplayer_maps(
 	}
 #endif
 	return level_count;
+}
+
+/* port: the Delta Guide's Workshop PLAY (port/linux/game/menu_functions.c's
+pc_menu_workshop_play), through what the menus do themselves: */
+
+/* the pause menu's QUIT (the game left for the main menu, co-op's players
+taken out of the network game) */
+void ui_widget_port_quit_to_main_menu(
+	void)
+{
+	boolean deleted = FALSE;
+
+	pause_game_quit_to_main_menu(NULL, NULL, &deleted);
+}
+
+/* the Multiplayer menu's ending of a network game left behind (a lobby
+hosted or joined: multiplayer_type_menu_initialize) */
+void ui_widget_port_end_network_game(
+	void)
+{
+	boolean deleted = FALSE;
+
+	network_game_cancel(NULL, NULL, &deleted);
+#ifdef HALO_GAME_BROWSER
+	network_game_accept_remote_connections(FALSE);
+#endif
+}
+
+/* a campaign of one player, as the main menu's Campaign starts one before
+its level select */
+void ui_widget_port_campaign_solo(
+	void)
+{
+	player_spawn_count = 1;
+	player_ui_reset_single_player_local_player_controllers();
 }
 
 /* the map chosen (as multiplayer_level_select), the server's if there is

@@ -1411,6 +1411,10 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 		level = campaign.saved_level;
 	if (!campaign.levels[level].available)
 		level = 0;
+	/* (on the Workshop item the Delta Guide's PLAY handed over: its levels
+	lead the MCC rows, mcc_maps.c) */
+	if (mcc_maps_take_first_focus() && mcc_level_count())
+		level = NUMBER_OF_SINGLE_PLAYER_LEVELS;
 	campaign.shown_level = level;
 	/* (the list found first, so that the view knows the sources it has) */
 	ui_widget_port_multiplayer_maps(&level_list.map_names, NULL);
@@ -1418,7 +1422,8 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 	level_list.map_count = ui_widget_port_multiplayer_maps(&level_list.map_names, &last_used);
 	level_list.kind = MAP_KIND_SINGLEPLAYER;
 	level_list.chosen = level;
-	level_list.first = map_kind_first(level, NUMBER_OF_SINGLE_PLAYER_LEVELS);
+	level_list.first = map_kind_first(level, level < NUMBER_OF_SINGLE_PLAYER_LEVELS ? NUMBER_OF_SINGLE_PLAYER_LEVELS :
+		(short)(NUMBER_OF_SINGLE_PLAYER_LEVELS + mcc_level_count()));
 	/* (debug.menu_open's "#multiplayer", "#multiplayer_last" or
 	"#singleplayer_last": the list opened on a kind's first or last row, for
 	screenshots) */
@@ -10161,3 +10166,188 @@ void pc_menu_game_data_function_invoke(
 	else if (!strcmp(name, "port host update"))
 		host_update(widget);
 }
+
+/* ---------- the Delta Guide's Workshop PLAY (guide_workshop.c): the item
+handed to the menus' own flows, in each menu set, never a launch of its own.
+A multiplayer item: Online Games' Create Game (its Y, browser_screen.c), the
+item's maps first in the map list and its first map chosen (game type, game
+setup and the lobby follow as ever; B goes back to Multiplayer, for System
+Link or Split Screen). A campaign item: the campaign's level select, on the
+item's first level, its levels first among the MCC rows (difficulty next).
+In a game or a lobby, the menus' own question first (invite_prompt_ask, as
+the lobby's MCC map switch asks): yes leaves it as the pause menu's QUIT or
+the Multiplayer menu does, and the item is handed over once the main menu is
+back. */
+
+#if defined(HALO_GUIDE) && (!defined(HALO_MCC) || HALO_MCC)
+
+#define XBOX_SOLO_LEVEL_SELECT "ui\\shell\\main_menu\\solo_level_select\\solo_level_select_screen"
+#define GEARBOX_SOLO_LEVEL_SELECT "pc\\main_menu\\solo_level_select\\solo_level_select_screen"
+/* (Gearbox's menus are up: their level select is there, the Chupathingy
+menus' not being the menus up) */
+#define GEARBOX_MENUS_UP() (!pc_menus_chupathingy() && tag_loaded('DeLa', GEARBOX_SOLO_LEVEL_SELECT) != NONE)
+/* (the longest wait for the main menu after leaving a game) */
+#define WORKSHOP_PLAY_WAIT 60000
+
+enum
+{
+	_workshop_play_none,
+	_workshop_play_asking,
+	_workshop_play_waiting,
+};
+
+static struct
+{
+	short state;
+	boolean campaign;
+	char item[32];
+	char first_map[64];
+	unsigned long time;
+} workshop_play;
+
+void invite_prompt_ask(char const *title, char const *question, char const *detail,
+	void (*answer_function)(boolean yes));
+void ui_widget_port_quit_to_main_menu(void);
+void ui_widget_port_end_network_game(void);
+void ui_widget_port_campaign_solo(void);
+boolean ui_widget_port_open_screen(char const *name);
+boolean browser_screen_create_game(void);
+void main_screen_shell_load(void);
+
+/* a game under way, or a network game's lobby (hosted, or joined: a client
+past searching for games) */
+static boolean workshop_play_leaves_game(void)
+{
+	void *client = global_network_game_client_get();
+
+	return !main_menu_is_active() || global_network_game_server_get() ||
+		(client && network_game_client_get_state(client, NULL) != _client_state_searching);
+}
+
+/* the item's screen, at the main menu */
+static boolean workshop_play_hand_over(void)
+{
+	mcc_maps_set_first_item(workshop_play.item);
+	if (!workshop_play.campaign)
+	{
+		/* (the list opens on the map used last: the item's first) */
+		saved_game_file_remember_last_used_multiplayer_map(workshop_play.first_map);
+		return browser_screen_create_game();
+	}
+	/* (player 1's profile, as the level select needs one: the one used
+	last, else the profile screen first, which makes one) */
+	if (player_ui_get_active_player_profile_index(0) == NONE)
+	{
+		struct player_profile profile;
+		long profile_index = player_ui_get_player1_last_used_profile_index();
+
+		/* (none used last: the first there is, as Online Games takes) */
+		if (profile_index == NONE || !TEST_FLAG(profile_index, _saved_game_file_index_valid_bit))
+		{
+			long profile_indices[MAXIMUM_PROFILES];
+			word profile_count = NUMBEROF(profile_indices);
+
+			player_profiles_enumerate_available_to_local_player_index(0, &profile_count, profile_indices, FALSE);
+			profile_index = profile_count ? profile_indices[0] : NONE;
+		}
+		if (profile_index == NONE || !player_profile_get(profile_index, &profile))
+			return ui_widget_port_open_screen(GEARBOX_MENUS_UP() ? "pc\\main_menu\\campaign_select\\campaign_menu" :
+				"ui\\shell\\main_menu\\player_profiles_select\\solo_game_player_profile_select_screen");
+		player_ui_set_active_player_profile(0, profile_index, &profile);
+	}
+	ui_widget_port_campaign_solo();
+	/* (Gearbox's menus' own, else the Xbox's: the Xbox's and Chupathingy's) */
+	if (GEARBOX_MENUS_UP())
+		return ui_widget_port_open_screen(GEARBOX_SOLO_LEVEL_SELECT);
+	return ui_widget_port_open_screen(XBOX_SOLO_LEVEL_SELECT);
+}
+
+static void workshop_play_answer(boolean yes)
+{
+	if (!yes || workshop_play.state != _workshop_play_asking)
+	{
+		workshop_play.state = _workshop_play_none;
+		return;
+	}
+	platform_log("Workshop: PLAY leaves the game for item %s", workshop_play.item);
+	workshop_play.state = _workshop_play_waiting;
+	workshop_play.time = system_milliseconds();
+	if (main_menu_is_active())
+	{
+		/* (a lobby: ended as the Multiplayer menu ends one, the main menu again) */
+		ui_widget_port_end_network_game();
+		main_screen_shell_load();
+	}
+	else
+		ui_widget_port_quit_to_main_menu();
+}
+
+/* PLAY: the item's maps (mcc_maps.c's catalog: mcc_maps\<item>\<map>) */
+boolean pc_menu_workshop_play(char const *item, char const *title)
+{
+	char prefix[48];
+	short index, count = mcc_maps_count(FALSE), campaign = 0, multiplayer = 0;
+	char const *first_campaign = NULL, *first_multiplayer = NULL;
+
+	snprintf(prefix, sizeof(prefix), MCC_MAPS_LEVEL_PREFIX "%s\\", item);
+	for (index = 0; index < count; index++)
+	{
+		char const *name = mcc_maps_level_name(index);
+
+		if (!name || _strnicmp(name, prefix, strlen(prefix)))
+			continue;
+		if (mcc_maps_campaign(index))
+		{
+			first_campaign = first_campaign ? first_campaign : name;
+			campaign++;
+		}
+		else
+		{
+			first_multiplayer = first_multiplayer ? first_multiplayer : name;
+			multiplayer++;
+		}
+	}
+	if (!campaign && !multiplayer)
+		return FALSE;
+	/* (a campaign item's own levels lead: its multiplayer maps are extras) */
+	workshop_play.campaign = campaign > 0;
+	snprintf(workshop_play.item, sizeof(workshop_play.item), "%s", item);
+	snprintf(workshop_play.first_map, sizeof(workshop_play.first_map), "%s",
+		workshop_play.campaign ? first_campaign : first_multiplayer);
+	platform_log("Workshop: PLAY item %s: %s (%d campaign, %d multiplayer maps)", item,
+		workshop_play.campaign ? "the level select" : "Create Game", campaign, multiplayer);
+	if (workshop_play_leaves_game())
+	{
+		char question[64];
+		void *server = global_network_game_server_get();
+
+		snprintf(question, sizeof(question), "Leave this game to play %s?", title && *title ? title : "this item");
+		workshop_play.state = _workshop_play_asking;
+		invite_prompt_ask("PLAY", question, server && !network_game_is_splitscreen_local() ?
+			"Your lobby closes for everyone in it." : "You leave the game you're in.", workshop_play_answer);
+		return TRUE;
+	}
+	workshop_play.state = _workshop_play_none;
+	return workshop_play_hand_over();
+}
+
+/* each frame (guide_workshop_update): once the main menu is back from the
+game left, the item handed over */
+void pc_menu_workshop_play_update(void)
+{
+	if (workshop_play.state != _workshop_play_waiting)
+		return;
+	if (system_milliseconds() - workshop_play.time > WORKSHOP_PLAY_WAIT)
+	{
+		platform_log("Workshop: PLAY gave up waiting for the main menu");
+		workshop_play.state = _workshop_play_none;
+		return;
+	}
+	if (workshop_play_leaves_game() || !ui_widgets_active())
+		return;
+	workshop_play.state = _workshop_play_none;
+	if (!workshop_play_hand_over())
+		platform_log("Workshop: PLAY could not open the item's screen");
+}
+
+#endif
