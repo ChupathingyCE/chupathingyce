@@ -5,6 +5,10 @@ struct network_game;
 struct mcc_runtime;
 struct mcc_cache_source;
 int mcc_identity_prepare_host(char const *name);
+/* port: (network_server_message_handler.c) the host's MCC bytes of a 43-layout
+settings record, over a fragment of it */
+void mcc_identity_host_overlay(char const *map, long record_size, long name_offset, long offset, long length,
+    unsigned char *data);
 void const *mcc_identity_host_settings(void const *game, long bytes, struct network_game *copy);
 int mcc_identity_accept(struct network_game const *game);
 void mcc_identity_disconnect(void);

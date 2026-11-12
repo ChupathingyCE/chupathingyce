@@ -91,9 +91,7 @@ int delta_peer_game_machine_identity_text(int machine_index, char *text, int siz
 #include "mcc_network.h"
 #include "mcc_script_effects.h"
 #include "mcc_game_speed.h"
-#ifdef HALO_MCC_NETWORK
 #include "mcc_object_names_network.h"
-#endif
 
 #include <limits.h>
 #include <stdio.h>
@@ -942,6 +940,64 @@ static struct network_rules_layout const *distributed_wire_layout(
 	if (!distributed_layout_valid)
 		distributed_layout_refresh();
 	return &distributed_layout;
+}
+
+/* port: MCC maps' messages (mcc_network_messages.h): a network game whose
+layout has 43's settings record (two MCC digests after the local data) and
+its checkpoint epochs */
+boolean network_distributed_mcc_layout(
+	void)
+{
+	short connection = game_connection();
+
+	if (connection != _game_connection_network_client && connection != _game_connection_network_server)
+		return FALSE;
+	distributed_layout_refresh();
+	return distributed_layout.settings_size >= NETWORK_RULES_SETTINGS_MAXIMUM && distributed_layout.epoch_kind;
+}
+
+boolean network_distributed_mcc_session(
+	void)
+{
+	return mcc_cache_tags_loaded() && network_distributed_mcc_layout();
+}
+
+/* (an MCC message in an MCC game: chester's handlers, their checks as 43's
+record says: mcc_network.c, mcc_object_names_network.c, mcc_game_speed.c) */
+static void distributed_mcc_message(
+	long machine_index,
+	struct distributed_message_header const *header,
+	void const *entries,
+	word size)
+{
+	word body = (word)(size - sizeof(*header));
+
+	/* (every one the host's, to its clients) */
+	if (machine_index != NONE || game_connection() != _game_connection_network_client)
+		return;
+	switch (header->type)
+	{
+	case _distributed_message_mcc_grenades:
+		if (header->count <= 64 && body >= header->count * mcc_network_inventory_entry_size())
+			mcc_network_handle_inventories(entries, header->count);
+		break;
+	case _distributed_message_mcc_campaign:
+		if (header->count == 1 && body >= mcc_network_campaign_entry_size())
+			mcc_network_handle_campaign(entries, header->count);
+		break;
+	case _distributed_message_mcc_object_names:
+		if (body >= header->count * mcc_object_names_entry_size())
+			mcc_object_names_receive(entries, header->count, header->game_time);
+		break;
+	case _distributed_message_mcc_game_speed:
+		/* (a clock command: the host's ordered stream alone, one entry) */
+		if (!network_connection_last_read_was_unreliable() && header->count == 1 && body == sizeof(real))
+			mcc_game_speed_receive(entries, header->count);
+		break;
+	default:
+		/* (103 to 106: none of them taken here yet) */
+		break;
+	}
 }
 
 /* where a message goes at the transport */
@@ -5215,6 +5271,14 @@ static void distributed_handle_message(
 				distributed_handling_batch = FALSE;
 			}
 		}
+		return;
+	}
+	/* port: MCC's kinds (mcc_network_messages.h), in an MCC game of a
+	43-layout session; dropped in any other, as 43's builds drop them */
+	if (header.type >= _distributed_message_mcc_first && header.type <= _distributed_message_mcc_last)
+	{
+		if (network_distributed_mcc_session())
+			distributed_mcc_message(machine_index, &header, entries, size);
 		return;
 	}
 	/* (a kind this build does not know: dropped before anything reads it) */

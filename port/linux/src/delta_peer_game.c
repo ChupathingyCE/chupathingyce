@@ -663,6 +663,8 @@ int delta_peer_protocol(void)
 		/* (changing teams during a game: a host offers it once its team
 		host is set, team_change.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_team_change;
+		/* (MCC maps and their messages: mcc_network_messages.h) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_mcc_maps;
 #endif
 #ifdef HALO_GAME_BROWSER
 #ifdef HALO_PORT_VOICE

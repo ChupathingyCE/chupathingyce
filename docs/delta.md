@@ -154,6 +154,7 @@ shares.
 | 21 | `party_teams` | a party's members tell their host their party's tag (PARTY_TAG), and a host that keeps parties together puts them on one team where the teams stay even. See "Party teams" |
 | 22 | `voice` | voice chat (VOICE_UP, VOICE_DOWN, VOICE_CONFIG): a player talks on a channel, the host relays each frame by its rules without decoding it. Agreed per pair, so OpenCE machines and builds without voice are never sent any. See "Voice" |
 | 23 | `reports` | a dedicated server takes its players' reports of other players (REPORT, REPORT_RESULT); see "Reports" |
+| 24 | `mcc_maps` | MCC maps (maps_mcc and Steam Workshop items) and their game messages (OpenCE 43's numbers 97 to 100) in a 43-layout session. Room-wide for an MCC map: a host playing one drops every Delta machine without it (an older build, a console); a machine without Delta (OpenCE 43) plays by its own MCC support |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,

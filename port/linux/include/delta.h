@@ -192,6 +192,13 @@ enum delta_capability
 	(REPORT_RESULT). A dedicated server takes them for its moderators; a
 	host without them does not offer it */
 	_delta_capability_reports = 23,
+	/* MCC maps (chester's loader, maps_mcc and Steam Workshop items): a
+	machine that plays them and their messages in a 43-layout session (port/
+	linux/game/mcc_network_messages.h). Room-wide for an MCC map: a host
+	playing one drops every Delta machine without it (an older build, a
+	console); a machine without Delta (OpenCE's 43) plays by its own MCC
+	support */
+	_delta_capability_mcc_maps = 24,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

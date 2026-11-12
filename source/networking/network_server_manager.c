@@ -470,6 +470,7 @@ symbols in this file:
 #include "networking/network_server_manager_internal.h"
 #include "networking/network_server_message_handler.h"
 #include "mcc_ui_network.h"
+#include "mcc_cache.h" /* port: mcc_level_name */
 #include "saved games/player_profile.h"
 #include "text/unicode.h"
 
@@ -5756,7 +5757,9 @@ static boolean network_game_server_delta_only(
 	struct network_game_server *server)
 {
 	return server->game.variant.game_engine_index == game_engine_bomb ||
-		cache_files_map_needs_delta(server->game.map.name);
+		cache_files_map_needs_delta(server->game.map.name) ||
+		/* (an MCC map: its Delta machines must have mcc_maps) */
+		mcc_level_name(server->game.map.name);
 }
 
 /* Bomb game types (docs/bomb.md) are played only between machines that agree
@@ -5782,9 +5785,10 @@ static void network_game_server_delta_refusals(
 		struct network_game_server_client_machine *machine = &server->client_machines[index];
 		unsigned long address;
 		boolean bomb = server->game.variant.game_engine_index == game_engine_bomb;
-		boolean pack_map = !bomb && cache_files_map_needs_delta(server->game.map.name);
+		boolean mcc_map = !bomb && mcc_level_name(server->game.map.name);
+		boolean pack_map = !bomb && !mcc_map && cache_files_map_needs_delta(server->game.map.name);
 
-		if ((!bomb && !pack_map) ||
+		if ((!bomb && !pack_map && !mcc_map) ||
 			!network_game_server_client_machine_is_joined_to_game(server, machine) ||
 			network_game_server_client_machine_is_local(server, machine) ||
 			machine->machine_index < 0 || machine->machine_index >= MAXIMUM_NETWORK_MACHINE_COUNT)
@@ -5800,6 +5804,13 @@ static void network_game_server_delta_refusals(
 		}
 		if (pack_map && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform))
 			continue;
+		/* (an MCC map: a machine without Delta, OpenCE's 43, plays it by its own
+		MCC support; a Delta machine needs mcc_maps: docs/delta.md, bit 24) */
+		if (mcc_map && (delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) ||
+			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps)))
+		{
+			continue;
+		}
 		address = (unsigned long)network_game_server_machine_ipv4_address(server, machine->machine_index);
 		/* (once: the drop takes effect when the server next looks at its
 		machines) */
@@ -5834,7 +5845,14 @@ static void network_game_server_delta_refusals(
 				}
 				names[length] = 0;
 			}
-			if (pack_map)
+			if (mcc_map)
+			{
+				snprintf(notice, sizeof(notice), "%s cannot play this MCC map: it plays only with copies that "
+					"have MCC maps (Chupathingy 0.9.1 or later on a computer)", names[0] ? names : "A player");
+				network_event("mcc: client machine #%ld is a Delta machine without mcc_maps: dropped",
+					(long)machine->machine_index);
+			}
+			else if (pack_map)
 			{
 				char file[64];
 

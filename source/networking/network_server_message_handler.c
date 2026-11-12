@@ -1066,6 +1066,10 @@ static boolean network_game_server_send_settings_pieces(
 		else
 			network_rules_settings_layout_copy((unsigned char const *)wire, further, (int)options, (int)offset,
 				(int)message.length, message.data);
+		/* port: an MCC map's Workshop tail and digests in 43's record
+		(mcc_identity.c) */
+		mcc_identity_host_overlay((char const *)wire + offsetof(struct network_game, map.name), size, (long)offsetof(struct network_game, map.name),
+			offset, (long)message.length, (unsigned char *)message.data);
 		encoded_message = create_network_game_message(_message_server_game_settings_update, &message, sizeof(message));
 		if (!encoded_message || !network_game_server_send_message_to_client_machine(server, machine, encoded_message))
 			return FALSE;

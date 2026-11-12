@@ -7,6 +7,7 @@
 #include "scenario/scenario_definitions.h"
 #include "interface/ui_widget.h"
 #include "mcc_cache.h"
+#include "mcc_network_messages.h"
 #include "mcc_identity.h"
 #include "mcc_maps.h"
 #include "mcc_runtime.h"
@@ -355,15 +356,14 @@ struct cache_file_tag_header *mcc_cache_tags_load(char const *name, void *header
     char memory_problem[192];
     char const *problem = "the map could not be opened";
     mcc_cache_tags_unload();
-#ifndef HALO_MCC_NETWORK
-    /* port: offline games only for now: MCC maps' own network messages are
-     * off our wire (mcc_network.c) until they go over Delta */
-    if (game_connection() == _game_connection_network_client ||
-        game_connection() == _game_connection_network_server) {
-        error(_error_silent, "mcc: refused %s: MCC maps play offline for now", name ? name : "(unnamed)");
+    /* port: in a network game, only one whose layout carries MCC's messages
+     * (43's: mcc_network_messages.h) */
+    if ((game_connection() == _game_connection_network_client ||
+        game_connection() == _game_connection_network_server) && !network_distributed_mcc_layout()) {
+        error(_error_silent, "mcc: refused %s: this network game's version has no MCC messages (43 or later "
+            "plays MCC maps)", name ? name : "(unnamed)");
         return NULL;
     }
-#endif
     mcc_stream = mcc_open_explain(mcc_identity_local_name(name), &runtime->source, &identity,
         runtime->failure,sizeof(runtime->failure));
     if (!mcc_stream) goto failed;
