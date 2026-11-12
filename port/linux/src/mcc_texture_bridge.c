@@ -1,6 +1,7 @@
 /* MCC pixels already live in immutable, independently owned storage. Keep
  * their GPU copies here rather than staging them through the Xbox LRU heap.
  * A header's exact registered identity, never its Data word, grants access. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "xgpu.h"
 #include "mcc_texture_bridge.h"
 #include "hud_hires.h"
@@ -252,3 +253,4 @@ unsigned long mcc_texture_bridge_prepare(void const *bitmap, unsigned long budge
 #endif
     return 0;
 }
+#endif /* HALO_MCC */

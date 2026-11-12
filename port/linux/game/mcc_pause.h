@@ -58,4 +58,10 @@ short mcc_pause_key_offset(long parent, long child, short accept_width, short ba
 void mcc_pause_dispose(void);
 void mcc_pause_friendly_fire(boolean enabled);
 
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_pause_text_wrap_needed(a0) ((void)sizeof(a0), (boolean)0)
+#endif
+
 #endif

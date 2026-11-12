@@ -34,4 +34,21 @@ void mcc_hud_title_bounds(rectangle2d *bounds, short justification, unsigned lon
 short mcc_terminal_line_height(long font, short height);
 boolean mcc_terminal_draw(long font, rectangle2d const *bounds, char const *text);
 
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_hud_anchor_bounds(a0, a1, a2, a3) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (boolean)0)
+#define mcc_hud_anchor_number(a0, a1, a2, a3) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (boolean)0)
+#define mcc_hud_anchor_point(a0, a1, a2, a3, a4, a5, a6) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)sizeof(a5), (void)sizeof(a6), (boolean)0)
+#define mcc_hud_bitmap_scale(a0) ((void)sizeof(a0), (real)1)
+#define mcc_hud_canvas_scale() ((real)1)
+#define mcc_hud_child_placement(a0, a1, a2) ((void)sizeof(a1), (void)sizeof(a2), (a0))
+#define mcc_hud_icon_draw(a0, a1, a2, a3, a4, a5, a6) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)sizeof(a5), (void)sizeof(a6), (boolean)0)
+#define mcc_hud_title_bounds(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)0)
+#define mcc_hud_weapon_frame_begin(a0) ((void)sizeof(a0), (void)0)
+#define mcc_hud_weapon_frame_end() ((void)0)
+#define mcc_terminal_draw(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (boolean)0)
+#define mcc_terminal_line_height(a0, a1) ((void)sizeof(a0), (a1))
+#endif
+
 #endif

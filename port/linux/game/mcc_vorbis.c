@@ -6,6 +6,7 @@
  * Reference: https://github.com/xiph/vorbis/blob/v1.3.7/lib/codebook.c
  * (vorbis_book_decodevs_add, vorbis_book_decodev_add, vorbis_book_decodevv_add).
  */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "mcc_vorbis.h"
 #include "mcc_loading.h"
 #include <limits.h>
@@ -245,3 +246,4 @@ void mcc_vorbis_free(short *samples)
 {
     free(samples);
 }
+#endif /* HALO_MCC */

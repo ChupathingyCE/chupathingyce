@@ -1,3 +1,4 @@
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include <stddef.h>
 #include "cseries.h"
 #include "mcc_workshop.h"
@@ -152,3 +153,4 @@ void mcc_workshop_refusal_text(enum mcc_workshop_refusal kind, struct mcc_worksh
         break;
     }
 }
+#endif /* HALO_MCC */

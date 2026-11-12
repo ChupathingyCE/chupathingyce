@@ -1,3 +1,4 @@
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "mcc_network.h"
 #include "mcc_object_names_network.h"
@@ -192,3 +193,4 @@ void mcc_network_handle_inventories(void const *entries, short count)
         if (own) mcc_network_note_own(inventory.unit, FALSE);
     }
 }
+#endif /* HALO_MCC */

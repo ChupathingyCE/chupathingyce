@@ -8,6 +8,7 @@ written to Steam's folders: Steam does both, asked through its page or,
 with game.workshop_steam on, through the Steam bridge
 (steam_client_bridge.h), which runs only while the section shows.
 */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 
 #include "workshop_browser.h"
 #include "steam_workshop.h"
@@ -2256,3 +2257,4 @@ int workshop_browser_cached_picture(const char *level, struct mcc_preview_image 
 	posix_ui_image_free(pixels);
 	return image->pixels != NULL;
 }
+#endif /* HALO_MCC */

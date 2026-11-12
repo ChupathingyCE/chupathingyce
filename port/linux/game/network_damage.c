@@ -1405,7 +1405,13 @@ than one damage), the vehicle they drove lately; 0 when none of them deals
 it; how they deal it (the _damage_source flags); how far from them what
 they fire deals it; and the type of grenade when nothing but a grenade of
 theirs deals it, else NONE */
+#if !defined(HALO_MCC) || HALO_MCC
 #include "mcc_network_damage.inc"
+#else
+/* (no MCC maps in this build: HALO_MCC) */
+#define mcc_network_extra_grenade_damage(player, damage_index, kinds, reach, grenade_type, grenade_rate) ((void)0)
+#define mcc_network_note_extra_grenade(unit_index, type) ((void)0)
+#endif
 
 static real distributed_player_deals(
 	short player_index,

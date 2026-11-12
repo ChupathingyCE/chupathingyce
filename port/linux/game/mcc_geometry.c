@@ -1,5 +1,6 @@
 /* Geometry adapter for MCC caches. Wire model and BSP streams are read only;
  * Xbox render descriptors are constructed in MCC-owned allocations. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "cseries_windows.h"
 #include "errors.h"
@@ -566,3 +567,4 @@ short mcc_geometry_part_palette(struct mcc_runtime *r,void const *vertex_buffer,
     }
     return 0;
 }
+#endif /* HALO_MCC */

@@ -183,8 +183,8 @@ struct game_options;
 #include "units/vehicles.h"
 #ifdef HALO_64BIT
 #include "rasterizer/common/rasterizer_common.h"
-#include "mcc_loading.h" /* port: port/linux/game/mcc_loading.c */
 #endif
+#include "mcc_loading.h" /* port: port/linux/game/mcc_loading.c */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "loading_screen.h" /* port: port/linux/game/loading_screen.c */
 #include "networking/network_game_globals.h"

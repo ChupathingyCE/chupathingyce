@@ -1,4 +1,5 @@
 /* Normalize only terminal drawing, leaving map fonts and HUD text intact. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "text/font_group.h"
 #include "rasterizer/rasterizer.h"
@@ -40,3 +41,4 @@ boolean mcc_terminal_draw(long font, rectangle2d const *bounds, char const *text
     rasterizer_text_set_scale(1.0f,0.0f,0.0f);
     return TRUE;
 }
+#endif /* HALO_MCC */

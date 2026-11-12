@@ -1,6 +1,7 @@
 /* MCC weapon particle systems can author separate first- and third-person
  * streams. Ruby's flamethrower uses "spawn fire" only on its first-person
  * model; querying the world model cannot produce that stream. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "camera/director.h"
 #include "effects/particle_system_definitions.h"
@@ -51,3 +52,4 @@ boolean mcc_particle_system_visible(long object_index, unsigned long flags, shor
     return !TEST_FLAG(flags, first_person ? _particle_system_type_nodraw_first_person_bit
                                          : _particle_system_type_nodraw_third_person_bit);
 }
+#endif /* HALO_MCC */

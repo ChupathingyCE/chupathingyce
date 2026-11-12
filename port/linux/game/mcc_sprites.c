@@ -1,5 +1,6 @@
 /* MCC effects may span more than eight bitmap pages. Submit full batches
  * through the normal renderer instead of dropping the remaining sprites. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "mcc_cache.h"
 #include "mcc_sprites.h"
@@ -16,3 +17,4 @@ int mcc_sprites_continue(struct build_sprite_data *data)
     build_sprites_begin(data, remaining, data->bitmap_group_index, data->shader, flags);
     return TRUE;
 }
+#endif /* HALO_MCC */

@@ -37,6 +37,23 @@ where a row (kind 0) or an option (kind 1) is, for the pointer */
 void guide_workshop_render(float left, float top, float right, float bottom,
 	void (*target)(float x0, float y0, float x1, float y1, short kind, short index));
 
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the Guide's
+calls do nothing, their arguments unevaluated */
+#define guide_workshop_shown() ((boolean)0)
+#define guide_workshop_open() ((void)0)
+#define guide_workshop_update(a0) ((void)sizeof(a0), (void)0)
+#define guide_workshop_rows() ((short)0)
+#define guide_workshop_move(a0) ((void)sizeof(a0), (void)0)
+#define guide_workshop_activate() ((void)0)
+#define guide_workshop_back() ((boolean)0)
+#define guide_workshop_row_click(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (void)0)
+#define guide_workshop_option_click(a0) ((void)sizeof(a0), (void)0)
+#define guide_workshop_prompt() ((char const *)"")
+#define guide_workshop_in_page() ((boolean)0)
+#define guide_workshop_render(a0, a1, a2, a3, a4) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)0)
+#endif
+
 #endif
 
 #endif

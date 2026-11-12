@@ -1273,9 +1273,12 @@ static void map_view_activate(struct map_view *view, short row)
 
 	if (row == MAP_VIEW_SEARCH_ROW)
 	{
-		/* (the keys type already; a controller gets the on-screen keyboard) */
+		/* (the keys type already; a controller gets the on-screen keyboard.
+		ui_overlay.c's: the builds with the game list, HALO_GAME_BROWSER) */
+#ifdef HALO_GAME_BROWSER
 		if (ui_overlay_keyboard())
 			return;
+#endif
 		for (row = 0; view->search[row] && row < MAP_VIEW_SEARCH_LENGTH - 1; row++)
 			view->keyboard_text[row] = (wchar_t)(unsigned char)view->search[row];
 		view->keyboard_text[row] = 0;

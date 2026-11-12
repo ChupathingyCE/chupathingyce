@@ -1,5 +1,6 @@
 /* The MCC canvas is 960p, while native UI/HUD coordinates are 480p.
  * Keep full-resolution texture samples and convert only screen geometry. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
@@ -381,3 +382,4 @@ void mcc_hud_title_bounds(rectangle2d *bounds, short justification, unsigned lon
         break;
     }
 }
+#endif /* HALO_MCC */

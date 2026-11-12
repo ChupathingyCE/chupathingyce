@@ -24,4 +24,15 @@ int mcc_campaign_restore(void const *in, unsigned long bytes);
 /* Implemented beside the native interpreter's private stack declarations. */
 void mcc_sleep_forever_evaluate(short function, long thread, boolean initialize);
 void mcc_script_finished_evaluate(short function, long thread, boolean initialize);
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_campaign_fade_active() ((boolean)0)
+#define mcc_campaign_global_settable(a0) ((void)sizeof(a0), (boolean)0)
+#define mcc_campaign_mix_gain(a0) ((void)sizeof(a0), (real)1)
+#define mcc_campaign_render(a0) ((void)sizeof(a0), (void)0)
+#define mcc_campaign_reset_model_lighting() ((void)0)
+#define mcc_campaign_unlimited_ammo() ((boolean)0)
+#endif
+
 #endif

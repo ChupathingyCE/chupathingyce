@@ -1,5 +1,6 @@
 /* Map-authored campaign effects, with native cheat permissions unchanged.
  * Clients use only the host's replicated prediction flags, never cheat globals. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "mcc_script_effects.h"
 #include "mcc_cache.h"
 #include "game/game.h"
@@ -133,3 +134,4 @@ boolean mcc_script_effects_bump(long source, long target)
     }
     return TRUE;
 }
+#endif /* HALO_MCC */

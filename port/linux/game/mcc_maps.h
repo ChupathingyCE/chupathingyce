@@ -53,4 +53,19 @@ boolean mcc_map_browser_back(struct mcc_map_browser *browser);
 short mcc_map_browser_index(struct mcc_map_browser const *browser, short row);
 void mcc_map_browser_text(struct mcc_map_browser const *browser, short row, wchar_t text[64]);
 
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_maps_rescan() ((void)0)
+#define mcc_maps_campaign(a0) ((void)sizeof(a0), (boolean)0)
+#define mcc_maps_description(a0) ((void)sizeof(a0), (wchar_t const *)L"")
+#define mcc_maps_directory() ((char const *)0)
+#define mcc_maps_find(a0) ((void)sizeof(a0), (short)NONE)
+#define mcc_maps_level_campaign(a0) ((void)sizeof(a0), (boolean)0)
+#define mcc_maps_level_name(a0) ((void)sizeof(a0), (char const *)0)
+#define mcc_maps_name(a0) ((void)sizeof(a0), (wchar_t const *)L"")
+#define mcc_maps_type_count(a0) ((void)sizeof(a0), (short)0)
+#define mcc_maps_type_index(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (short)NONE)
+#endif
+
 #endif

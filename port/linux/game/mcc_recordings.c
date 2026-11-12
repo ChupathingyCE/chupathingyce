@@ -4,6 +4,7 @@
  * There is no valid slot to translate it to: retain the current weapon instead.
  * Apply the same rule to later selection events, without changing their timing,
  * movement or flags. This runs only on the MCC loader's private tag buffer. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "mcc_recordings.h"
 
 static unsigned mcc_recording_word(unsigned char const *p)
@@ -88,3 +89,4 @@ int mcc_recording_weapon_only(unsigned char *stream, uint32_t size,
     return mcc_recording_walk(stream, size, version, control_version, 0, &changes,
         &weapon_only) && weapon_only;
 }
+#endif /* HALO_MCC */

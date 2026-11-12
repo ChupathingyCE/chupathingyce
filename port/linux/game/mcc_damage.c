@@ -1,5 +1,6 @@
 /* MCC damage impulses. Admission, damage ownership and object movement remain
  * with the engine and its existing host-authoritative damage path. */
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
 #include "cseries.h"
 #include "tag_files/tag_groups.h"
 #include "game/game_globals.h"
@@ -57,3 +58,4 @@ invalid:
     acceleration->i = acceleration->j = acceleration->k = 0.f;
     return FALSE;
 }
+#endif /* HALO_MCC */

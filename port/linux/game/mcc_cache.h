@@ -29,4 +29,21 @@ short mcc_cache_part_palette(void const *buffer, byte const **nodes);
 boolean mcc_cache_bitmap_valid(struct bitmap_data *bitmap);
 void const *mcc_cache_bitmap_pixels(struct bitmap_data const *bitmap, unsigned long *bytes, int *coverage);
 
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define mcc_cache_available(a0) ((void)sizeof(a0), (boolean)0)
+#define mcc_cache_bitmap_valid(a0) ((void)sizeof(a0), (boolean)0)
+#define mcc_cache_bsp_load(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (boolean)0)
+#define mcc_cache_bsp_unload() ((void)0)
+#define mcc_cache_checksum(a0) ((void)sizeof(a0), (unsigned long)0)
+#define mcc_cache_precache_ready(a0) ((void)sizeof(a0), (boolean)0)
+#define mcc_cache_read(a0, a1, a2, a3) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (boolean)0)
+#define mcc_cache_require(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (boolean)0)
+#define mcc_cache_tags_load(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (struct cache_file_tag_header *)0)
+#define mcc_cache_tags_loaded() ((boolean)0)
+#define mcc_cache_tags_unload() ((void)0)
+#define mcc_level_name(a0) ((void)sizeof(a0), (boolean)0)
+#endif
+
 #endif

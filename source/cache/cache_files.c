@@ -147,6 +147,7 @@ symbols in this file:
 #endif
 #include "models/models.h"
 #include "mcc_cache.h" /* independent MCC dispatch */
+#include "mcc_pause_runtime.h"
 
 /* ---------- constants */
 
@@ -689,7 +690,6 @@ void scenario_tags_unload(
 	texture_cache_close();
 	/* MCC's appended pause table unwinds before the native menu table. */
 	{
-		extern void mcc_pause_runtime_unload(void);
 		mcc_pause_runtime_unload();
 	}
 	/* port: the menus' tags go, and the map's own table comes back
@@ -1771,7 +1771,6 @@ long scenario_tags_load(
 			cache_file_globals.tags_loaded = TRUE;
 			menu_tags_loaded(cache_file_globals.header.name);
 			{
-				extern boolean mcc_pause_runtime_load(void);
 				if (!mcc_pause_runtime_load())
 				{
 					scenario_tags_unload();
