@@ -928,6 +928,10 @@ boolean item_update(
 				normalize3d(&ground_point_matrix.forward);
 				normalize3d(&ground_point_matrix.left);
 				normalize3d(&ground_point_matrix.up);
+				/* port: a rotation that leaves no frame (an MCC map's item, at
+				rest on a network client with a zero rotation axis) keeps the
+				item where it lies, rather than halting in the align */
+				if (valid_real_matrix4x3(&ground_point_matrix))
 				object_align_marker_to_matrix(
 					object_get(item_index),
 					&marker,
