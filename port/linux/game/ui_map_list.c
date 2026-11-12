@@ -932,10 +932,24 @@ static void add_mcc_catalog_entry(
 	wide_copy(name, DISPLAY_NAME_LENGTH - 7, mcc_maps_name(index));
 	wide_copy(lobby_name, DISPLAY_NAME_LENGTH, name);
 	wide_append(lobby_name, DISPLAY_NAME_LENGTH, L" [MCC]");
-	/* (the map lists' cards: the name on the first line, whole words, then
-	[MCC] on the second, as a Custom Edition map's [CE]) */
-	pane_name_wrap(display_name, name, CARD_NAME_LINE, 1);
-	wide_append(display_name, DISPLAY_NAME_LENGTH, L"\r\n[MCC]");
+	/* (the map lists' cards: the map's whole name, on two lines when it
+	needs them, then [MCC] after it where it fits, as a Custom Edition
+	map's [CE]; a name of two full lines keeps its words, not the mark) */
+	pane_name_wrap(display_name, name, CARD_NAME_LINE, 2);
+	{
+		wchar_t const *last = display_name;
+		wchar_t const *at;
+
+		for (at = display_name; *at; at++)
+		{
+			if (*at == '\n')
+				last = at + 1;
+		}
+		if (last == display_name)
+			wide_append(display_name, DISPLAY_NAME_LENGTH, L"\r\n[MCC]");
+		else if ((long)(at - last) + 6 <= CARD_NAME_LINE)
+			wide_append(display_name, DISPLAY_NAME_LENGTH, L" [MCC]");
+	}
 	wide_copy(description, DESCRIPTION_LENGTH, own && own[0] ? own : L"A Halo MCC map");
 	/* (its own picture, its package's or Steam's picture of its Workshop
 	item, by its catalog index: ui_widget.c draws it, or Halo PC's picture
