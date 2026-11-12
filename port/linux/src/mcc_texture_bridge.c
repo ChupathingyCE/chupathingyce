@@ -9,6 +9,7 @@
 #include "mcc_texture_bridge.h"
 #include "hud_hires.h"
 #include "zlib_prefixed.h"
+#include "platform.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -26,6 +27,7 @@ struct mcc_gpu_texture {
     GLenum target;
     struct xgpu_texture_description description;
     long hud_asset;
+    BOOL failed;
 };
 static struct mcc_gpu_texture *mcc_gpu_textures[MCC_TEXTURE_BUCKETS];
 static struct mcc_gpu_texture *mcc_gpu_hardware[MCC_TEXTURE_BUCKETS];
@@ -181,7 +183,7 @@ BOOL xgpu_mcc_texture_get(DWORD const *resource,D3DCOLOR const *palette,
              (palette && memcmp(entry->palette,palette,sizeof(entry->palette))))) {
             glDeleteTextures(1,&entry->texture);entry->texture=0;xgpu_gl_state_invalidate();
         }
-        if (!entry->texture) {
+        if (!entry->texture && !entry->failed) {
             GLuint created=0;
             glGenTextures(1,&created); /* port: (GulchCE's xgpu_texture_name_new) */
             if (created && xgpu_mcc_texture_upload(created,entry->target,
@@ -191,7 +193,11 @@ BOOL xgpu_mcc_texture_get(DWORD const *resource,D3DCOLOR const *palette,
                 if (palette && entry->description.format==0x0b)
                     memcpy(entry->palette,palette,sizeof(entry->palette));
             }
-            else if (created) {glDeleteTextures(1,&created);xgpu_gl_state_invalidate();}
+            else {
+                if (created) {glDeleteTextures(1,&created);xgpu_gl_state_invalidate();}
+                entry->failed=TRUE;
+                xgpu_mcc_texture_failed(&entry->description,created ? "OpenGL refused its upload" : "no OpenGL texture name");
+            }
         }
         *texture=entry->texture;
         return TRUE;
@@ -199,9 +205,41 @@ BOOL xgpu_mcc_texture_get(DWORD const *resource,D3DCOLOR const *palette,
     return FALSE;
 }
 
+/* The bgfx renderer's (d3d8_bgfx.inl) view of an MCC header: the same
+ * identity check as xgpu_mcc_texture_get, then the immutable pixels for its
+ * own upload. FALSE for a header that is not an MCC texture's. */
+BOOL xgpu_mcc_texture_source(DWORD const *resource,struct xgpu_texture_description *description,
+    void const **pixels,unsigned long *bytes,long *hud_asset)
+{
+    struct mcc_gpu_texture *entry;
+    for (entry=mcc_gpu_hardware[mcc_texture_bucket(resource)];entry;entry=entry->hardware_next) {
+        if (entry->header!=resource) continue;
+        *description=entry->description;*pixels=entry->pixels;*bytes=entry->bytes;
+        *hud_asset=entry->hud_asset;
+        return TRUE;
+    }
+    return FALSE;
+}
+
+/* a texture the renderer could not make: counted, the first few named,
+ * and the count logged when the map's textures go */
+static unsigned long mcc_texture_failures;
+
+void xgpu_mcc_texture_failed(struct xgpu_texture_description const *description,char const *reason)
+{
+    if (mcc_texture_failures++<8)
+        platform_log("mcc textures: a %lux%lux%lu texture (format %02lx, %lu levels) is not drawn: %s",
+            description->width,description->height,description->depth,(unsigned long)description->format,
+            (unsigned long)description->levels,reason);
+}
+
 void mcc_texture_bridge_dispose(void)
 {
     unsigned long bucket;
+    if (mcc_texture_failures)
+        platform_log("mcc textures: %lu textures of this map were not drawn (the first are named above)",
+            mcc_texture_failures);
+    mcc_texture_failures=0;
     memset(mcc_gpu_hardware,0,sizeof(mcc_gpu_hardware));
     for (bucket=0;bucket<MCC_TEXTURE_BUCKETS;bucket++) {
         struct mcc_gpu_texture *entry=mcc_gpu_textures[bucket];
@@ -225,6 +263,10 @@ unsigned long mcc_texture_bridge_prepare(void const *bitmap, unsigned long budge
         unsigned long width,height,depth,level;
         GLuint created=0;
         if (entry->bitmap!=bitmap) continue;
+#ifdef HALO_BGFX
+        /* (bgfx uploads its own copies as it draws: d3d8_bgfx.inl) */
+        if (xgpu_bgfx) return 0;
+#endif
         /* Paletted textures need their draw's palette. HUD replacements are
          * independently owned and must not be charged to this budget. */
         if (entry->texture || description->format==0x0b ||

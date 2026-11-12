@@ -62,6 +62,7 @@ tools/test_map_repo.py
 tools/test_map_report.py
 tools/test_map_share.py
 tools/test_mcc_avoidance.py
+tools/test_mcc_bgfx_textures.py
 tools/test_mcc_cache_format.py
 tools/test_mcc_cameras.py
 tools/test_mcc_chicago.py
