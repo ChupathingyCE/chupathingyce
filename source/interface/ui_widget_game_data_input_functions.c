@@ -3254,6 +3254,29 @@ static void spinner_list_3wide_determine_displayed_item_indices(
 		displayed_item_indices[1] = NONE;
 	if (displayed_item_indices[2] >= list_widget->parameters.list.number_of_items)
 		displayed_item_indices[2] = NONE;
+	/* port: a list shorter than its three slots shows each item once (a
+	search that keeps one or two maps): the slots that would repeat one are
+	empty, and hidden; the focused slot always keeps its own */
+	{
+		long focused = focused_child == first_child ? 0 : focused_child == first_child->next ? 1 : 2;
+		long slot, other;
+		struct widget_instance *child;
+
+		for (slot = 0; slot < 3; slot++)
+		{
+			if (slot == focused || displayed_item_indices[slot] == NONE)
+				continue;
+			if (displayed_item_indices[slot] == displayed_item_indices[focused])
+				displayed_item_indices[slot] = NONE;
+			for (other = 0; other < slot && displayed_item_indices[slot] != NONE; other++)
+			{
+				if (other != focused && displayed_item_indices[other] == displayed_item_indices[slot])
+					displayed_item_indices[slot] = NONE;
+			}
+		}
+		for (slot = 0, child = first_child; slot < 3 && child; slot++, child = child->next)
+			child->visible = displayed_item_indices[slot] != NONE;
+	}
 	return;
 }
 
@@ -3421,11 +3444,11 @@ static void mutliplayer_settings_select_list_update_displayed_items(
 		profile_indices,
 		NUMBEROF(profile_indices));
 
-	for (item_index = 0;
-		item_index < 3 &&
-			displayed_item_indices[item_index] != NONE;
-		item_index++)
+	for (item_index = 0; item_index < 3; item_index++)
 	{
+		/* port: a slot with no item of its own (a list shorter than its three) is skipped, not the end */
+		if (displayed_item_indices[item_index] == NONE)
+			continue;
 		struct widget_instance *item = widget_instance_get_nth_child(
 			list_widget,
 			item_index);
@@ -3714,8 +3737,11 @@ static void mutliplayer_settings_select_list_update_displayed_items(
 	}
 	/* port: the Chupathingy menus' cards add each gametype's rules
 	(port/linux/game/menu_style.c) */
-	for (item_index = 0; item_index < 3 && displayed_item_indices[item_index] != NONE; item_index++)
+	for (item_index = 0; item_index < 3; item_index++)
 	{
+		/* port: a slot with no item of its own (a list shorter than its three) is skipped, not the end */
+		if (displayed_item_indices[item_index] == NONE)
+			continue;
 		extern void menu_style_gametype_rules(long profile_index, wchar_t *text, long size);
 		struct widget_instance *label_box = widget_instance_get_nth_child(list_widget, item_index)->child->next->next;
 
@@ -3762,10 +3788,11 @@ static void player_profile_3wide_list_update(
 	}
 	player_profile_update_cache_for_nwide_list(profile_indices, 3);
 
-	for (item_index = 0;
-		item_index < 3 && displayed_item_indices[item_index] != NONE;
-		item_index++)
+	for (item_index = 0; item_index < 3; item_index++)
 	{
+		/* port: a slot with no item of its own (a list shorter than its three) is skipped, not the end */
+		if (displayed_item_indices[item_index] == NONE)
+			continue;
 		struct widget_instance *item = widget_instance_get_nth_child(
 			list_widget,
 			item_index);
@@ -4219,7 +4246,7 @@ static void solo_level_select_list_update_displayed_items(
 		struct widget_instance *cooperative_marker;
 
 		if (displayed_item_indices[item_index] == NONE)
-			break;
+			continue;
 
 		item = widget_instance_get_nth_child(
 			list_widget,
@@ -4354,11 +4381,11 @@ static void player_profile_color_picker_update(
 		list_widget,
 		displayed_item_indices);
 
-	for (item_index = 0;
-		item_index < 3 &&
-			displayed_item_indices[item_index] != NONE;
-		item_index++)
+	for (item_index = 0; item_index < 3; item_index++)
 	{
+		/* port: a slot with no item of its own (a list shorter than its three) is skipped, not the end */
+		if (displayed_item_indices[item_index] == NONE)
+			continue;
 		struct widget_instance *item = widget_instance_get_nth_child(
 			list_widget,
 			item_index);
@@ -4424,11 +4451,11 @@ static void mp_level_select_list_update_displayed_items(
 		list_widget,
 		displayed_item_indices);
 
-	for (item_index = 0;
-		item_index < 3 &&
-			displayed_item_indices[item_index] != NONE;
-		item_index++)
+	for (item_index = 0; item_index < 3; item_index++)
 	{
+		/* port: a slot with no item of its own (a list shorter than its three) is skipped, not the end */
+		if (displayed_item_indices[item_index] == NONE)
+			continue;
 		struct widget_instance *item = widget_instance_get_nth_child(
 			list_widget,
 			item_index);
