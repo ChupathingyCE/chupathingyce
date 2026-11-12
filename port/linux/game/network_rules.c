@@ -746,6 +746,18 @@ static void rules_put_word(uint8_t *bytes, unsigned value)
 	bytes[1] = (uint8_t)(value >> 8);
 }
 
+/* (the join request's version word: the packet codec's order, big-endian) */
+static unsigned rules_codec_word(uint8_t const *bytes)
+{
+	return ((unsigned)bytes[0] << 8) | (unsigned)bytes[1];
+}
+
+static void rules_put_codec_word(uint8_t *bytes, unsigned value)
+{
+	bytes[0] = (uint8_t)(value >> 8);
+	bytes[1] = (uint8_t)value;
+}
+
 static uint32_t rules_long(uint8_t const *bytes)
 {
 	return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) | ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
@@ -781,7 +793,7 @@ int network_rules_join_request_tail(unsigned version, uint8_t *tail, int room)
 		return -1;
 	memset(tail, 0, (size_t)layout.join_request_extra);
 	if (layout.join_request_version_at >= 0 && layout.join_request_version_at + 2 <= layout.join_request_extra)
-		rules_put_word(tail + layout.join_request_version_at, version);
+		rules_put_codec_word(tail + layout.join_request_version_at, version);
 	return layout.join_request_extra;
 }
 
@@ -797,7 +809,7 @@ int network_rules_join_request_refused(unsigned version, uint8_t const *tail, in
 	{
 		return 0;
 	}
-	return rules_word(tail + layout.join_request_version_at) != version;
+	return rules_codec_word(tail + layout.join_request_version_at) != version;
 }
 
 int network_rules_header_expand(uint8_t const *message, int size, uint8_t *out, int room, int extra, int has_epoch,

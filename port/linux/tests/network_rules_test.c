@@ -877,7 +877,8 @@ static void test_layouts_43(void)
 	CHECK(network_rules_host_settings_size(43, 0, 0) == 13200);
 	/* (the join request: 0x70 + 236 = 0x15C, the version word last) */
 	CHECK(NETWORK_RULES_JOIN_REQUEST_SIZE + network_rules_join_request_tail(43, tail, sizeof(tail)) == 0x15C);
-	CHECK(tail[234] == 0x2B && tail[235] == 0x00);
+	/* (big-endian, the packet codec's order: 00 2B) */
+	CHECK(tail[234] == 0x00 && tail[235] == 0x2B);
 	for (index = 0; index < 234; index++)
 	{
 		if (tail[index])
@@ -885,17 +886,18 @@ static void test_layouts_43(void)
 	}
 	CHECK(index == 234);
 	CHECK(network_rules_join_request_tail(43, tail, 235) == -1);
-	CHECK(network_rules_join_request_tail(44, tail, sizeof(tail)) == 236 && tail[234] == 44);
+	CHECK(network_rules_join_request_tail(44, tail, sizeof(tail)) == 236 && tail[234] == 0 && tail[235] == 44);
 	CHECK(network_rules_join_request_tail(41, tail, sizeof(tail)) == 234);
 	CHECK(network_rules_join_request_tail(NETWORK_RULES_VERSION_UNKNOWN, tail, sizeof(tail)) == 0);
 	/* (a host of 43: its own number taken, another refused; a request
 	without the word, an older build's or a console's, not refused here) */
 	network_rules_join_request_tail(43, tail, sizeof(tail));
 	CHECK(!network_rules_join_request_refused(43, tail, 236));
-	tail[234] = 42;
+	tail[235] = 42;
 	CHECK(network_rules_join_request_refused(43, tail, 236));
-	tail[234] = 43;
-	tail[235] = 1;
+	/* (the little-endian word, 0x2B00: refused) */
+	tail[234] = 0x2B;
+	tail[235] = 0x00;
 	CHECK(network_rules_join_request_refused(43, tail, 236));
 	CHECK(!network_rules_join_request_refused(43, tail, 234) && !network_rules_join_request_refused(43, tail, 0));
 	CHECK(!network_rules_join_request_refused(41, tail, 236) && !network_rules_join_request_refused(41, tail, 234));

@@ -368,7 +368,8 @@ struct network_rules_layout
 /* ---------- chupa-43a's facts: generic, so that a version's layout of them
 is a table row (docs/delta.md, "Layouts")
 
-The join request's version word: 16 bits, little-endian, at a fact's offset
+The join request's version word: 16 bits in the packet codec's order
+(big-endian, as the request's other shorts), at a fact's offset
 in the bytes past 0x70, the host's network version (a host that checks it
 admits only its own). The distributed header's further bytes: after the 8
 every message has (in a batch, the batch's and each message's, whose size

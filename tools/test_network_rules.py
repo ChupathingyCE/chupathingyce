@@ -128,11 +128,16 @@ def test_settings_record_by_the_hosts_version():
     source = (ROOT / "source/networking/network_client_message_handler.c").read_text(encoding="utf-8")
     piece = source[source.index("static boolean network_game_client_receive_game_settings_piece("):]
     piece = piece[:piece.index("\n}\n")]
-    assert "network_rules_settings_size_taken(network_game_client_host_network_version(), piece->total_size)" in piece
+    # (the host's version; the host's own machine's, told none, the number it announces)
+    assert "unsigned int host_version = network_game_client_settings_version();" in piece
+    assert "network_rules_settings_size_taken(host_version, piece->total_size)" in piece
+    helper = source[source.index("static unsigned int network_game_client_settings_version("):]
+    assert "version == 0xFFFF && global_network_game_server_get()" in helper[:helper.index("\n}\n")]
+    assert "version = (unsigned int)delta_legacy_announce();" in helper[:helper.index("\n}\n")]
     assert "network_rules_settings_fold(" in piece and "network_rules_extended_options_sanitize(" in piece
     # (a newer version's layout from the table: the options' bytes by the
     # host's version, the record no larger than the staging's room)
-    assert "network_rules_settings_options_size(network_game_client_host_network_version()," in piece
+    assert "network_rules_settings_options_size(host_version," in piece
     assert "piece->total_size > NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM" in piece
     assert piece.count("network_game_client_leave_unsupported_game_type(") == 2
     assert "Chupathingy doesn't have yet" in source
