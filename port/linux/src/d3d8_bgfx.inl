@@ -112,6 +112,12 @@ BG_VERTEX_VOLATILE_FRAMES) */
 /* Metal's uniform space a frame (bgfx built with 32 MB), less a margin:
 draws past it are skipped rather than overrun it */
 #define BG_UNIFORM_BUDGET ((32UL << 20) - (1UL << 20))
+
+/* the frame's transient vertices the scene leaves for the overlay
+(xgpu_bgfx_overlay_draw), drawn after it at the present: 1 MB, in the
+scene's vertices. A busy view that used them all up took the overlay's
+screens and text with it */
+#define BG_OVERLAY_RESERVE_VERTICES ((1UL << 20) / BG_VERTEX_BYTES)
 /* occlusion queries, used as a ring (bgfx built with 4096) */
 #define BG_QUERY_COUNT 4096
 #define BG_COMPOSITE_LEVELS 16
@@ -333,6 +339,14 @@ static struct
 	struct bg_composite *composites;
 	bgfx_program_handle_t blit, crt;
 	bgfx_uniform_handle_t crt_parameters[3];
+	/* the quads that are drawn every frame, kept out of the frame's transient
+	vertices: when a busy view used those up, the present drew only its
+	clear, and the whole window went black (#1047). The present's is the
+	picture's letterboxed corners, written again when they change; a
+	channel clear's covers its view */
+	bgfx_dynamic_vertex_buffer_handle_t present_quad;
+	float present_quad_corner[2];
+	bgfx_vertex_buffer_handle_t full_quad;
 
 	/* the visibility tests: the queries of the one running, and each slot's
 	latest, its count (in the game's pixels) and its target's pixels per
@@ -414,6 +428,9 @@ and passed on after the frame (bg_present) */
 
 	unsigned long uniform_bytes;
 	unsigned long drawn, skipped, stat_tests, stat_seen, stat_waited;
+	/* draws left out because the frame's transient vertices or indices ran
+	out */
+	unsigned long stat_starved;
 	/* time in bgfx_frame (waiting for the render thread and the GPU) */
 	double stat_frame_wait;
 } bg;
@@ -3333,7 +3350,7 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	unsigned long generated, uniform_bytes;
 	uint32_t stencil, back_stencil, rgba;
 	uint64_t state;
-	BOOL has_depth, native;
+	BOOL has_depth, native, starved;
 	int stage;
 
 	if (!vertex_count || !program || !declaration || !program->instructions)
@@ -3417,10 +3434,23 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		return;
 	}
 #endif
+	starved = (!BGFX_HANDLE_IS_VALID(cached) &&
+			bgfx_get_avail_transient_vertex_buffer((uint32_t)(vertex_count + BG_OVERLAY_RESERVE_VERTICES), &bg.layout) <
+				vertex_count + BG_OVERLAY_RESERVE_VERTICES) ||
+		(generated && bgfx_get_avail_transient_index_buffer((uint32_t)generated, false) < generated);
+	if (starved && BGFX_HANDLE_IS_VALID(handle))
+	{
+		/* (the scene loses this draw; the picture is still presented,
+		bg_blit) */
+		static BOOL logged;
+
+		if (!logged)
+			platform_log("bgfx: a frame ran out of transient vertices or indices; its draws past them are left out");
+		logged = TRUE;
+		bg.stat_starved++;
+	}
 	if (!BGFX_HANDLE_IS_VALID(handle) || (!native && !generated) || bg.uniform_bytes + uniform_bytes > BG_UNIFORM_BUDGET ||
-		(!BGFX_HANDLE_IS_VALID(cached) &&
-			bgfx_get_avail_transient_vertex_buffer((uint32_t)vertex_count, &bg.layout) < vertex_count) ||
-		(generated && bgfx_get_avail_transient_index_buffer((uint32_t)generated, false) < generated))
+		starved)
 	{
 		/* (drop the textures set for it) */
 		bgfx_discard(BGFX_DISCARD_ALL);
@@ -3503,6 +3533,24 @@ static void bg_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count)
 	bg_draw(type, TRUE, 0, count, NULL, 0, 0);
 }
 
+/* a quad's four vertices, a triangle strip from (x0, y0) to (-x0, -y0) in
+clip space, its texture coordinates 0 to 1 */
+static void bg_quad_corners(unsigned char *vertices, float x0, float y0)
+{
+	int corner;
+
+	memset(vertices, 0, 4 * BG_VERTEX_BYTES);
+	for (corner = 0; corner < 4; corner++)
+	{
+		float *out = (float *)(vertices + corner * BG_VERTEX_BYTES);
+
+		out[0] = corner & 1 ? -x0 : x0;
+		out[1] = corner & 2 ? -y0 : y0;
+		out[4] = corner & 1 ? 1.0f : 0.0f;
+		out[5] = corner & 2 ? 1.0f : 0.0f;
+	}
+}
+
 /* a clear of some of the color channels (the Xbox's D3DCLEAR_TARGET_R, _G,
 _B, _A: the fog screen clears only alpha, leaving the picture under the
 fog), which bgfx's view clear can't mask: a quad over the view that writes
@@ -3510,26 +3558,15 @@ only those channels, the blit's program sampling white times the blend
 factor, the clear's color */
 static void bg_clear_channels(DWORD channels, D3DCOLOR color)
 {
-	bgfx_transient_vertex_buffer_t vertices;
 	uint64_t state = BGFX_STATE_PT_TRISTRIP | BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_FACTOR, BGFX_STATE_BLEND_ZERO);
-	int corner;
 
-	if (!BGFX_HANDLE_IS_VALID(bg.blit) || bgfx_get_avail_transient_vertex_buffer(4, &bg.layout) < 4)
+	if (!BGFX_HANDLE_IS_VALID(bg.blit) || !BGFX_HANDLE_IS_VALID(bg.full_quad))
 		return;
 	state |= channels & D3DCLEAR_TARGET_R ? BGFX_STATE_WRITE_R : 0;
 	state |= channels & D3DCLEAR_TARGET_G ? BGFX_STATE_WRITE_G : 0;
 	state |= channels & D3DCLEAR_TARGET_B ? BGFX_STATE_WRITE_B : 0;
 	state |= channels & D3DCLEAR_TARGET_A ? BGFX_STATE_WRITE_A : 0;
-	bgfx_alloc_transient_vertex_buffer(&vertices, 4, &bg.layout);
-	memset(vertices.data, 0, 4 * BG_VERTEX_BYTES);
-	for (corner = 0; corner < 4; corner++)
-	{
-		float *out = (float *)(vertices.data + corner * BG_VERTEX_BYTES);
-
-		out[0] = corner & 1 ? 1.0f : -1.0f;
-		out[1] = corner & 2 ? -1.0f : 1.0f;
-	}
-	bgfx_set_transient_vertex_buffer(0, &vertices, 0, 4);
+	bgfx_set_vertex_buffer(0, bg.full_quad, 0, 4);
 	bgfx_set_texture(0, bg.samplers[0], bg.white, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_state(state, (uint32_t)((color << 8) | (color >> 24)));
 	bgfx_submit(bg.view, bg.blit, 0, BGFX_DISCARD_ALL);
@@ -3812,17 +3849,14 @@ static void bg_blit(unsigned short view, int letterbox[4])
 {
 	struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
 	unsigned long width = (unsigned long)bg.window_width, height;
-	bgfx_transient_vertex_buffer_t vertices;
-	float x0, y0, x1, y1;
-	float *out;
-	int corner;
+	float x0, y0;
 
 	bgfx_set_view_mode(view, BGFX_VIEW_MODE_SEQUENTIAL);
 	bgfx_set_view_frame_buffer(view, (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE);
 	bgfx_set_view_rect(view, 0, 0, (uint16_t)bg.window_width, (uint16_t)bg.window_height, 0.0f, 1.0f);
 	bgfx_set_view_clear(view, BGFX_CLEAR_COLOR, 0x000000ff, 1.0f, 0);
 	bgfx_touch(view);
-	if (!back_buffer || !BGFX_HANDLE_IS_VALID(bg.blit) || bgfx_get_avail_transient_vertex_buffer(4, &bg.layout) < 4)
+	if (!back_buffer || !BGFX_HANDLE_IS_VALID(bg.blit) || !BGFX_HANDLE_IS_VALID(bg.present_quad))
 		return;
 	height = (unsigned long)((unsigned long long)bg.window_width * back_buffer->pixel_height / back_buffer->pixel_width);
 	if (height > (unsigned long)bg.window_height)
@@ -3835,20 +3869,17 @@ static void bg_blit(unsigned short view, int letterbox[4])
 	letterbox[2] = (int)width;
 	letterbox[3] = (int)height;
 	x0 = -(float)width / bg.window_width;
-	x1 = -x0;
 	y0 = (float)height / bg.window_height;
-	y1 = -y0;
-	bgfx_alloc_transient_vertex_buffer(&vertices, 4, &bg.layout);
-	memset(vertices.data, 0, 4 * BG_VERTEX_BYTES);
-	for (corner = 0; corner < 4; corner++)
+	if (x0 != bg.present_quad_corner[0] || y0 != bg.present_quad_corner[1])
 	{
-		out = (float *)(vertices.data + corner * BG_VERTEX_BYTES);
-		out[0] = corner & 1 ? x1 : x0;
-		out[1] = corner & 2 ? y1 : y0;
-		out[4] = corner & 1 ? 1.0f : 0.0f;
-		out[5] = corner & 2 ? 1.0f : 0.0f;
+		unsigned char corners[4 * BG_VERTEX_BYTES];
+
+		bg_quad_corners(corners, x0, y0);
+		bgfx_update_dynamic_vertex_buffer(bg.present_quad, 0, bgfx_copy(corners, sizeof(corners)));
+		bg.present_quad_corner[0] = x0;
+		bg.present_quad_corner[1] = y0;
 	}
-	bgfx_set_transient_vertex_buffer(0, &vertices, 0, 4);
+	bgfx_set_dynamic_vertex_buffer(0, bg.present_quad, 0, 4);
 	bgfx_set_texture(0, bg.samplers[0], back_buffer->texture, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_TRISTRIP, 0);
 	if (config_boolean("display.crt_filter") && BGFX_HANDLE_IS_VALID(bg.crt))
@@ -4537,15 +4568,15 @@ static void bg_present(void)
 			(double)stats->gpuTimerFreq : 0.0;
 		double cpu = stats->cpuTimerFreq ? (double)stats->cpuTimeFrame * 1000.0 / (double)stats->cpuTimerFreq : 0.0;
 
-		platform_log("bgfx frame %lu: %lu draws, %lu skipped, %u views, %lu KB uniforms; GPU %.2f ms, frame %.2f ms; "
-			"%lu visibility tests, %lu seen, %lu waited; in bgfx_frame %.2f ms; vertices %lu cached, %lu streamed, "
-			"cache %lu MB", device.frame, bg.drawn / 60, bg.skipped / 60,
+		platform_log("bgfx frame %lu: %lu draws, %lu skipped (%lu for transient room), %u views, %lu KB uniforms; "
+			"GPU %.2f ms, frame %.2f ms; %lu visibility tests, %lu seen, %lu waited; in bgfx_frame %.2f ms; vertices %lu cached, %lu streamed, "
+			"cache %lu MB", device.frame, bg.drawn / 60, bg.skipped / 60, bg.stat_starved / 60,
 			(unsigned)bg.present_view + 1, bg.uniform_bytes / 1024, gpu, cpu, bg.stat_tests / 60, bg.stat_seen / 60,
 			bg.stat_waited / 60, bg.stat_frame_wait * 1000.0 / 60.0, bg.stat_cached_vertices / 60,
 			bg.stat_streamed_vertices / 60, bg.vertex_cache_bytes >> 20);
 		bg.stat_frame_wait = 0.0;
 		bg.stat_cached_vertices = bg.stat_streamed_vertices = 0;
-		bg.drawn = bg.skipped = bg.stat_tests = bg.stat_seen = bg.stat_waited = 0;
+		bg.drawn = bg.skipped = bg.stat_starved = bg.stat_tests = bg.stat_seen = bg.stat_waited = 0;
 	}
 	platform_video_swap();
 	bg_window_update();
@@ -4921,6 +4952,8 @@ static BOOL bg_initialize(void)
 	bg.view = 0;
 	bg.blit = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.crt = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.present_quad = (bgfx_dynamic_vertex_buffer_handle_t)BGFX_INVALID_HANDLE;
+	bg.full_quad = (bgfx_vertex_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.overlay = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.capture = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
 #ifdef HALO_CAPTURE
@@ -4981,6 +5014,15 @@ static BOOL bg_initialize(void)
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
 		bgfx_vertex_layout_add(&bg.layout, (bgfx_attrib_t)index, 4, BGFX_ATTRIB_TYPE_FLOAT, false, false);
 	bgfx_vertex_layout_end(&bg.layout);
+	{
+		unsigned char corners[4 * BG_VERTEX_BYTES];
+
+		bg_quad_corners(corners, -1.0f, 1.0f);
+		bg.full_quad = bgfx_create_vertex_buffer(bgfx_copy(corners, sizeof(corners)), &bg.layout, BGFX_BUFFER_NONE);
+		bg.present_quad = bgfx_create_dynamic_vertex_buffer(4, &bg.layout, BGFX_BUFFER_NONE);
+		/* (none written yet: bg_blit writes the first) */
+		bg.present_quad_corner[0] = bg.present_quad_corner[1] = 0.0f;
+	}
 	for (index = 0; index < BG_UNIFORM_COUNT; index++)
 		bg.uniforms[index] = bgfx_create_uniform(bg_uniform_sources[index].name, BGFX_UNIFORM_TYPE_VEC4,
 			bg_uniform_sources[index].components == 1 ? 1 : bg_uniform_sources[index].count);

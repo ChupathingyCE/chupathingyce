@@ -272,6 +272,8 @@ symbols in this file:
 #include "mcc_ui_teams.h"
 
 /* port/linux/game/network_distributed.c's */
+int network_rules_join_request_refused(unsigned version, unsigned char const *tail, int tail_size);
+int delta_legacy_announce(void);
 void network_distributed_handle_message(long machine_index, word const *message, word size);
 void network_distributed_handle_stream_message(long machine_index, word const *message, word size);
 /* (the host's budget for a client machine's lobby messages) */
@@ -2331,6 +2333,18 @@ static boolean network_game_server_handle_message_client_join_game_request(
 		if (network_game_server_client_machine_is_joined_to_game(server, server_client_machine))
 		{
 			network_event("ignoring redundant join request from machine");
+		}
+		/* (port: where the layout of the number this host announces has a
+		version word, a request without it or of another number: dropped
+		without a reply, as such a host of OpenCE's does. The encoded request
+		is its version byte, the 0x70 bytes, the tail, its type byte) */
+		/* (the host's own machine joins at home with a request made for
+		the number it announces: network_game_client_initiate_join_game) */
+		else if (message_size >= 2 + 0x70 &&
+			network_rules_join_request_refused((unsigned)delta_legacy_announce(), (unsigned char const *)(message + 1) + 1 + 0x70,
+				message_size - 2 - 0x70))
+		{
+			network_event("ignoring a join request of another network version than this host's");
 		}
 		else if (decode_network_game_message(
 			&join_game_request,

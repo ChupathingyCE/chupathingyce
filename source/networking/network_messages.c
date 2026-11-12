@@ -699,6 +699,20 @@ void *create_network_game_message_with_tail(
 	short message_struct_size,
 	short tail_size)
 {
+	return create_network_game_message_with_tail_bytes(message_type, message_struct, message_struct_size, NULL,
+		tail_size);
+}
+
+/* port: ... and the tail's bytes as given (NULL: zeros), such as the join
+request's version word to a host whose layout has one
+(network_rules_join_request_tail) */
+void *create_network_game_message_with_tail_bytes(
+	enum network_game_message_type message_type,
+	const void *message_struct,
+	short message_struct_size,
+	const void *tail,
+	short tail_size)
+{
 	/* as large as the packet group lets the encoder write */
 	byte encoded_message[HALO_PORT_NETWORK_PACKET_SIZE];
 	union network_game_message_size encoded_message_size;
@@ -873,7 +887,10 @@ void *create_network_game_message_with_tail(
 			long type_at = encoded_message_size.value - 1;
 
 			encoded_message[type_at + tail_size] = encoded_message[type_at];
-			csmemset(encoded_message + type_at, 0, tail_size);
+			if (tail)
+				csmemcpy(encoded_message + type_at, tail, tail_size);
+			else
+				csmemset(encoded_message + type_at, 0, tail_size);
 			encoded_message_size.value += tail_size;
 		}
 		else if (tail_size > 0)

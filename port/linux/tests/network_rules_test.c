@@ -575,14 +575,14 @@ static void test_layouts_built_in(void)
 	struct network_rules_layout layout;
 	unsigned version;
 
-	CHECK(DELTA_LEGACY_NEWEST == 41);
+	CHECK(DELTA_LEGACY_NEWEST == 43);
 	/* (today's: the record by version, 0 to 6 for message 91 from every
 	host, 91 a kind a machine without it drops from 36) */
 	for (version = 11; version <= 43; version++)
 	{
 		network_rules_layout_built_in(version, &layout);
 		CHECK(layout.version == version && layout.learned == 0 && layout.refused == 0);
-		CHECK(layout.settings_size == (version >= 35 ? 0x3350 : 0x3340));
+		CHECK(layout.settings_size == (version >= 42 ? 0x3390 : version >= 35 ? 0x3350 : 0x3340));
 		CHECK(layout.options_size == (version >= 35 ? 0x2C : 0x1C));
 		CHECK(layout.shield_effects_maximum == 6);
 		CHECK(network_rules_layout_drops(&layout, 91) == (version >= 36));
@@ -592,21 +592,28 @@ static void test_layouts_built_in(void)
 			network_rules_layout_drops(&layout, 79) == (version >= 41) &&
 			network_rules_layout_drops(&layout, 94) == (version >= 41) &&
 			network_rules_layout_drops(&layout, 95) == (version >= 41));
-		CHECK(layout.join_request_extra == (version >= 40 ? 234 : 0));
+		CHECK(layout.join_request_extra == (version >= 42 ? 236 : version >= 40 ? 234 : 0));
+		/* (42 and 43: the word, the header's epoch, the pose; 43 the deck) */
+		CHECK(layout.join_request_version_at == (version >= 42 ? 234 : -1));
+		CHECK(layout.header_extra == (version >= 42 ? 4 : 0) && layout.epoch_kind == (version >= 42 ? 96 : 0));
+		CHECK(layout.unit_part_size[6] == (version >= 42 ? 30 : 0) && layout.unit_part_size[7] == (version >= 43 ? 28 : 0));
+		CHECK(layout.rider_ejection_up == (version >= 43 ? 200 : 0));
+		CHECK(network_rules_layout_drops(&layout, 97) == (version >= 42) &&
+			network_rules_layout_drops(&layout, 107) == (version >= 43) && !network_rules_layout_drops(&layout, 96));
 	}
 	network_rules_layout_built_in(NETWORK_RULES_VERSION_UNKNOWN, &layout);
 	CHECK(layout.settings_size == 0 && layout.options_size == 0 && layout.shield_effects_maximum == 6);
 	/* (no source: the built-in facts; the newest is the build's) */
 	network_rules_set_layout_source(NULL);
-	network_rules_layout(42, &layout);
-	CHECK(layout.settings_size == 0x3350 && layout.learned == 0);
-	CHECK(network_rules_layout_newest() == 41);
+	network_rules_layout(44, &layout);
+	CHECK(layout.settings_size == 0x3390 && layout.learned == 0 && layout.epoch_kind == 96);
+	CHECK(network_rules_layout_newest() == 43);
 	/* (the join request: 0x70 bytes to 39 and older, and to a host not
 	known; 234 zero bytes more from 40, and to a newer host than the build
 	knows) */
 	CHECK(network_rules_join_request_extra(39) == 0 && network_rules_join_request_extra(11) == 0);
 	CHECK(network_rules_join_request_extra(40) == 234 && network_rules_join_request_extra(41) == 234);
-	CHECK(network_rules_join_request_extra(42) == 234);
+	CHECK(network_rules_join_request_extra(42) == 236 && network_rules_join_request_extra(44) == 236);
 	CHECK(network_rules_join_request_extra(NETWORK_RULES_VERSION_UNKNOWN) == 0);
 	CHECK(network_rules_settings_options_size(36, 0x3350) == 0x2C && network_rules_settings_options_size(34, 0x3340) == 0x1C);
 	CHECK(network_rules_settings_options_size(NETWORK_RULES_VERSION_UNKNOWN, 0x3350) == 0x2C);
@@ -627,56 +634,57 @@ static void test_layouts_from_the_table(void)
 	fact->shield_effects_maximum = 9;
 	fact = test_fact(36);
 	fact->dropped[92 >> 3] |= 1 << (92 & 7);
-	/* 42: four more option bytes, kinds 92 and 93 dropped, a seventh effect */
-	fact = test_fact(42);
+	/* 44: four more option bytes, kinds 92 and 93 dropped, a seventh effect */
+	fact = test_fact(44);
 	fact->options_size = 0x30;
 	fact->shield_effects_maximum = 7;
 	fact->dropped[92 >> 3] |= 1 << (92 & 7);
 	fact->dropped[93 >> 3] |= 1 << (93 & 7);
-	/* 44: six bytes after the local data */
-	fact = test_fact(44);
-	fact->settings_size = 0x3354 + 6;
-	/* 44 also: the join request 300 zero bytes past 0x70 */
+	/* 46: six bytes after the local data */
+	fact = test_fact(46);
+	fact->settings_size = 0x3394 + 6;
+	/* 46 also: the join request 300 zero bytes past 0x70 */
 	fact->join_request_said = 1;
 	fact->join_request_extra = 300;
 	network_rules_set_layout_source(test_source);
 
-	network_rules_layout(41, &layout);
-	CHECK(layout.options_size == 0x2C && layout.settings_size == 0x3350 && layout.shield_effects_maximum == 6);
+	network_rules_layout(43, &layout);
+	CHECK(layout.options_size == 0x2C && layout.settings_size == 0x3390 && layout.shield_effects_maximum == 6);
 	CHECK(!network_rules_layout_drops(&layout, 92) && layout.learned == 0);
-	network_rules_layout(42, &layout);
-	CHECK(layout.options_size == 0x30 && layout.settings_size == 0x3354 && layout.shield_effects_maximum == 7);
+	network_rules_layout(44, &layout);
+	CHECK(layout.options_size == 0x30 && layout.settings_size == 0x3394 && layout.shield_effects_maximum == 7);
 	CHECK(network_rules_layout_drops(&layout, 92) && network_rules_layout_drops(&layout, 93) &&
 		network_rules_layout_drops(&layout, 91) && !network_rules_layout_drops(&layout, 96));
 	CHECK(layout.refused == 0);
 	/* (a fact holds until the next) */
-	network_rules_layout(43, &layout);
-	CHECK(layout.options_size == 0x30 && layout.settings_size == 0x3354);
-	network_rules_layout(44, &layout);
-	CHECK(layout.options_size == 0x30 && layout.settings_size == 0x335A && layout.shield_effects_maximum == 7);
-	network_rules_layout(63, &layout);
-	CHECK(layout.settings_size == 0x335A);
+	network_rules_layout(45, &layout);
+	CHECK(layout.options_size == 0x30 && layout.settings_size == 0x3394);
+	network_rules_layout(46, &layout);
+	CHECK(layout.options_size == 0x30 && layout.settings_size == 0x339A && layout.shield_effects_maximum == 7);
+	network_rules_layout(65, &layout);
+	CHECK(layout.settings_size == 0x339A);
 	network_rules_layout(NETWORK_RULES_VERSION_UNKNOWN, &layout);
 	CHECK(layout.settings_size == 0 && layout.learned == 0);
-	CHECK(network_rules_layout_newest() == 44);
-	CHECK(network_rules_join_request_extra(43) == 234 && network_rules_join_request_extra(44) == 300);
-	CHECK(network_rules_join_request_extra(63) == 300 && network_rules_join_request_extra(41) == 234);
+	CHECK(network_rules_layout_newest() == 46);
+	CHECK(network_rules_join_request_extra(45) == 236 && network_rules_join_request_extra(46) == 300);
+	CHECK(network_rules_join_request_extra(65) == 300 && network_rules_join_request_extra(43) == 236);
 	CHECK(network_rules_join_request_extra(NETWORK_RULES_VERSION_UNKNOWN) == 0);
 
 	/* what the client and the host make of them */
-	CHECK(network_rules_settings_size(42) == 0x3354 && network_rules_settings_size(41) == 0x3350);
-	CHECK(network_rules_settings_size_taken(42, 0x3354) && !network_rules_settings_size_taken(42, 0x3350));
-	CHECK(!network_rules_settings_size_taken(NETWORK_RULES_VERSION_UNKNOWN, 0x3354));
-	CHECK(network_rules_settings_options_size(42, 0x3354) == 0x30);
-	CHECK(network_rules_settings_options_size(44, 0x335A) == 0x30);
-	CHECK(network_rules_host_settings_size(42, 0, 0) == 0x3354 && network_rules_host_settings_options(42, 0) == 0x30);
-	CHECK(network_rules_host_settings_size(42, 41, 0) == 0x3350 && network_rules_host_settings_options(42, 41) == 0x2C);
-	CHECK(network_rules_host_settings_size(42, 44, 0) == 0x3354 && network_rules_host_settings_options(42, 44) == 0x30);
-	CHECK(network_rules_host_settings_size(44, 32, 0) == 0x3340 && network_rules_host_settings_options(44, 32) == 0x1C);
-	/* (a host of 42's layout: a HELLO of 41 takes the older one; of 43 on
+	CHECK(network_rules_settings_size(44) == 0x3394 && network_rules_settings_size(43) == 0x3390);
+	CHECK(network_rules_settings_size_taken(44, 0x3394) && !network_rules_settings_size_taken(44, 0x3390));
+	CHECK(!network_rules_settings_size_taken(NETWORK_RULES_VERSION_UNKNOWN, 0x3394));
+	CHECK(network_rules_settings_options_size(44, 0x3394) == 0x30);
+	CHECK(network_rules_settings_options_size(46, 0x339A) == 0x30);
+	CHECK(network_rules_host_settings_size(44, 0, 0) == 0x3394 && network_rules_host_settings_options(44, 0) == 0x30);
+	CHECK(network_rules_host_settings_size(44, 41, 0) == 0x3350 && network_rules_host_settings_options(44, 41) == 0x2C);
+	CHECK(network_rules_host_settings_size(44, 43, 0) == 0x3390 && network_rules_host_settings_options(44, 43) == 0x2C);
+	CHECK(network_rules_host_settings_size(44, 44, 0) == 0x3394 && network_rules_host_settings_options(44, 44) == 0x30);
+	CHECK(network_rules_host_settings_size(46, 32, 0) == 0x3340 && network_rules_host_settings_options(46, 32) == 0x1C);
+	/* (a host of 44's layout: a HELLO of 43 takes the older one; of 44 on
 	the same) */
-	CHECK(network_rules_host_hello_matters(42, 41) && !network_rules_host_hello_matters(42, 42));
-	CHECK(!network_rules_host_hello_matters(43, 42) && network_rules_host_hello_matters(44, 43));
+	CHECK(network_rules_host_hello_matters(44, 43) && !network_rules_host_hello_matters(44, 44));
+	CHECK(!network_rules_host_hello_matters(45, 44) && network_rules_host_hello_matters(46, 45));
 	network_rules_set_layout_source(NULL);
 }
 
@@ -687,39 +695,39 @@ static void test_layouts_hostile(void)
 
 	/* sizes that shrink, past the limits, a lower largest effect, kind 0 */
 	test_fact_count = 0;
-	fact = test_fact(42);
+	fact = test_fact(44);
 	fact->options_size = 0x20;
 	fact->settings_size = 0x3300;
 	fact->shield_effects_maximum = 5;
 	fact->dropped[0] = 0x01;
-	fact = test_fact(43);
+	fact = test_fact(45);
 	fact->options_size = 0x2C + NETWORK_RULES_LAYOUT_GROWTH_MAXIMUM + 1;
 	fact->shield_effects_maximum = NETWORK_RULES_SHIELD_EFFECTS_LIMIT + 1;
-	fact = test_fact(44);
-	fact->settings_size = NETWORK_RULES_SETTINGS_MAXIMUM + 1;
-	fact = test_fact(45);
-	fact->options_size = 0x2C + 40;
-	fact->settings_size = 0x3350 + 40 + 2;
 	fact = test_fact(46);
+	fact->settings_size = NETWORK_RULES_SETTINGS_MAXIMUM + 1;
+	fact = test_fact(47);
+	fact->options_size = 0x2C + 40;
+	fact->settings_size = 0x3390 + 40 + 2;
+	fact = test_fact(48);
 	/* (the options grow, the bytes after the local data would shrink) */
 	fact->options_size = 0x2C + 44;
-	fact->settings_size = 0x3350 + 42;
-	fact = test_fact(47);
+	fact->settings_size = 0x3390 + 42;
+	fact = test_fact(49);
 	fact->options_size = 0x2C + 64;
 	network_rules_set_layout_source(test_source);
 
-	network_rules_layout(42, &layout);
-	CHECK(layout.options_size == 0x2C && layout.settings_size == 0x3350 && layout.shield_effects_maximum == 6);
-	CHECK(layout.refused == 3 && !network_rules_layout_drops(&layout, 0));
 	network_rules_layout(44, &layout);
-	CHECK(layout.options_size == 0x2C && layout.settings_size == 0x3350 && layout.shield_effects_maximum == 6);
-	CHECK(layout.refused == 6);
-	network_rules_layout(45, &layout);
-	CHECK(layout.options_size == 0x2C + 40 && layout.settings_size == 0x3350 + 42);
+	CHECK(layout.options_size == 0x2C && layout.settings_size == 0x3390 && layout.shield_effects_maximum == 6);
+	CHECK(layout.refused == 3 && !network_rules_layout_drops(&layout, 0));
 	network_rules_layout(46, &layout);
-	CHECK(layout.options_size == 0x2C + 44 && layout.settings_size == 0x3350 + 46);
-	/* (past the record's limit with the bytes kept after the local data) */
+	CHECK(layout.options_size == 0x2C && layout.settings_size == 0x3390 && layout.shield_effects_maximum == 6);
+	CHECK(layout.refused == 6);
 	network_rules_layout(47, &layout);
+	CHECK(layout.options_size == 0x2C + 40 && layout.settings_size == 0x3390 + 42);
+	network_rules_layout(48, &layout);
+	CHECK(layout.options_size == 0x2C + 44 && layout.settings_size == 0x3390 + 46);
+	/* (past the record's limit with the bytes kept after the local data) */
+	network_rules_layout(49, &layout);
 	CHECK(layout.options_size == 0x2C + 44 && layout.settings_size <= NETWORK_RULES_SETTINGS_MAXIMUM);
 	CHECK(layout.settings_size >= NETWORK_RULES_SETTINGS_HEAD_SIZE + layout.options_size + 4);
 	network_rules_set_layout_source(NULL);
@@ -750,32 +758,32 @@ static void test_layouts_join_request(void)
 	fact = test_fact(40);
 	fact->join_request_said = 1;
 	fact->join_request_extra = 10;
-	fact = test_fact(42);
+	fact = test_fact(44);
 	fact->join_request_said = 1;
 	fact->join_request_extra = 0;
-	fact = test_fact(43);
+	fact = test_fact(45);
 	fact->join_request_said = 1;
 	fact->join_request_extra = NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT + 1;
-	fact = test_fact(44);
+	fact = test_fact(46);
 	fact->join_request_said = 1;
 	fact->join_request_extra = 64;
 	fact->join_request_fill = DELTA_LAYOUT_FILL_UNKNOWN;
-	fact = test_fact(45);
+	fact = test_fact(47);
 	fact->join_request_said = 1;
 	fact->join_request_extra = NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT;
 	/* (a fact that does not say it leaves it as it was) */
-	fact = test_fact(46);
+	fact = test_fact(48);
 	fact->shield_effects_maximum = 7;
 	network_rules_set_layout_source(test_source);
 
-	CHECK(network_rules_join_request_extra(40) == 234 && network_rules_join_request_extra(41) == 234);
-	CHECK(network_rules_join_request_extra(42) == 0);
-	network_rules_layout(44, &layout);
+	CHECK(network_rules_join_request_extra(40) == 234 && network_rules_join_request_extra(43) == 236);
+	CHECK(network_rules_join_request_extra(44) == 0);
+	network_rules_layout(46, &layout);
 	CHECK(layout.join_request_extra == 0 && layout.refused == 2);
-	CHECK(network_rules_join_request_extra(45) == NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT);
-	CHECK(network_rules_join_request_extra(46) == NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT);
+	CHECK(network_rules_join_request_extra(47) == NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT);
+	CHECK(network_rules_join_request_extra(48) == NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT);
 	network_rules_set_layout_source(NULL);
-	CHECK(network_rules_join_request_extra(46) == 234);
+	CHECK(network_rules_join_request_extra(48) == 236);
 }
 
 static void test_layout_record(void)
@@ -822,6 +830,518 @@ static void test_layout_record(void)
 	CHECK(memcmp(wire, record + 0x3300, 0x40) == 0);
 }
 
+/* the facts of OpenCE's network version 43 as a table row says them
+(docs/delta.md, "Layouts"): the record 64 bytes longer, the join request's
+version word, the 12-byte header with its checkpoint epoch and boundary (96), the unit
+state's deck (bit 7, 28 bytes after the up) and scripted pose (bit 6, 30
+bytes last), riders thrown from a vehicle on its side, and the MCC-only
+kinds and 107 dropped */
+static void test_fact_43(struct delta_layout_fact *fact)
+{
+	static const int dropped[] = { 97, 98, 99, 100, 103, 104, 105, 106, 107 };
+	size_t index;
+
+	fact->settings_size = 13200;
+	fact->join_request_said = 1;
+	fact->join_request_extra = 236;
+	fact->join_request_version_said = 1;
+	fact->join_request_version_at = 234;
+	fact->header_extra = 4;
+	fact->epoch_kind = 96;
+	fact->unit_part_size[7] = 28;
+	fact->unit_part_at[7] = DELTA_LAYOUT_PART_AFTER_UP;
+	fact->unit_part_size[6] = 30;
+	fact->unit_part_at[6] = DELTA_LAYOUT_PART_LAST;
+	fact->rider_ejection_up = 200;
+	for (index = 0; index < sizeof(dropped) / sizeof(dropped[0]); index++)
+		fact->dropped[dropped[index] >> 3] |= (uint8_t)(1 << (dropped[index] & 7));
+}
+
+static void test_layouts_43(void)
+{
+	struct network_rules_layout layout;
+	uint8_t tail[NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT];
+	int index;
+
+	test_fact_count = 0;
+	test_fact_43(test_fact(43));
+	network_rules_set_layout_source(test_source);
+
+	network_rules_layout(43, &layout);
+	CHECK(layout.refused == 0);
+	CHECK(layout.settings_size == 0x3390 && layout.options_size == 0x2C);
+	CHECK(layout.join_request_extra == 236 && layout.join_request_version_at == 234);
+	CHECK(layout.header_extra == 4 && layout.epoch_kind == 96);
+	CHECK(layout.unit_part_size[7] == 28 && layout.unit_part_at[7] == DELTA_LAYOUT_PART_AFTER_UP);
+	CHECK(layout.unit_part_size[6] == 30 && layout.unit_part_at[6] == DELTA_LAYOUT_PART_LAST);
+	CHECK(network_rules_rider_ejection_up(&layout) > 0.1999f && network_rules_rider_ejection_up(&layout) < 0.2001f);
+	CHECK(network_rules_layout_drops(&layout, 97) && network_rules_layout_drops(&layout, 100) &&
+		!network_rules_layout_drops(&layout, 101) && !network_rules_layout_drops(&layout, 102) &&
+		network_rules_layout_drops(&layout, 103) && network_rules_layout_drops(&layout, 107) &&
+		!network_rules_layout_drops(&layout, 96));
+	/* (the settings: 4 pieces of 0xE00, the last 2,448 bytes) */
+	CHECK(network_rules_settings_size(43) == 13200 && 13200 - 3 * 0xE00 == 2448);
+	CHECK(network_rules_settings_size_taken(43, 13200) && !network_rules_settings_size_taken(43, 13136));
+	CHECK(network_rules_host_settings_size(43, 0, 0) == 13200);
+	/* (the join request: 0x70 + 236 = 0x15C, the version word last) */
+	CHECK(NETWORK_RULES_JOIN_REQUEST_SIZE + network_rules_join_request_tail(43, tail, sizeof(tail)) == 0x15C);
+	/* (big-endian, the packet codec's order: 00 2B) */
+	CHECK(tail[234] == 0x00 && tail[235] == 0x2B);
+	for (index = 0; index < 234; index++)
+	{
+		if (tail[index])
+			break;
+	}
+	CHECK(index == 234);
+	CHECK(network_rules_join_request_tail(43, tail, 235) == -1);
+	CHECK(network_rules_join_request_tail(44, tail, sizeof(tail)) == 236 && tail[234] == 0 && tail[235] == 44);
+	CHECK(network_rules_join_request_tail(41, tail, sizeof(tail)) == 234);
+	CHECK(network_rules_join_request_tail(NETWORK_RULES_VERSION_UNKNOWN, tail, sizeof(tail)) == 0);
+	/* (a host of 43: its own number taken, another refused; a request
+	without the word, an older build's or a console's, not refused here) */
+	network_rules_join_request_tail(43, tail, sizeof(tail));
+	CHECK(!network_rules_join_request_refused(43, tail, 236));
+	tail[235] = 42;
+	CHECK(network_rules_join_request_refused(43, tail, 236));
+	/* (the little-endian word, 0x2B00: refused) */
+	tail[234] = 0x2B;
+	tail[235] = 0x00;
+	CHECK(network_rules_join_request_refused(43, tail, 236));
+	/* (without the word: 41's full request and the plain one, refused by a
+	host of 43; a host of 41 refuses none) */
+	CHECK(network_rules_join_request_refused(43, tail, 234) && network_rules_join_request_refused(43, tail, 0));
+	CHECK(network_rules_join_request_refused(43, NULL, 0));
+	CHECK(!network_rules_join_request_refused(41, tail, 236) && !network_rules_join_request_refused(41, tail, 234));
+	CHECK(!network_rules_join_request_refused(41, NULL, 0));
+	CHECK(!network_rules_join_request_refused(NETWORK_RULES_VERSION_UNKNOWN, tail, 236));
+
+	/* (41 and the build's own versions: none of them) */
+	network_rules_layout(41, &layout);
+	CHECK(layout.header_extra == 0 && layout.epoch_kind == 0 && layout.join_request_version_at == -1);
+	CHECK(layout.unit_part_size[6] == 0 && layout.unit_part_size[7] == 0 && layout.rider_ejection_up == 0);
+	CHECK(network_rules_rider_ejection_up(&layout) == 0.0f);
+	/* (built in: the same without any table) */
+	network_rules_set_layout_source(NULL);
+	network_rules_layout(43, &layout);
+	CHECK(layout.refused == 0 && layout.learned == 0 && layout.settings_size == 0x3390);
+	CHECK(layout.header_extra == 4 && layout.epoch_kind == 96 && layout.join_request_version_at == 234);
+	CHECK(layout.unit_part_size[7] == 28 && layout.unit_part_size[6] == 30 && layout.rider_ejection_up == 200);
+	CHECK(network_rules_layout_drops(&layout, 107) && network_rules_layout_drops(&layout, 97));
+	CHECK(network_rules_join_request_tail(43, tail, sizeof(tail)) == 236 && tail[234] == 0 && tail[235] == 43);
+}
+
+static void test_layouts_43_hostile(void)
+{
+	struct network_rules_layout layout;
+	struct delta_layout_fact *fact;
+
+	/* facts past 43's built-in layout (its epoch, word, parts): a boundary
+	kind this build knows, a built-in part's bit, a part too long, one of no
+	place, the header too long or shorter than the epoch, the version word
+	past the request's end, the ejection past its limit */
+	test_fact_count = 0;
+	fact = test_fact(44);
+	fact->epoch_kind = 91;
+	fact->unit_part_size[2] = 4;
+	fact->unit_part_at[2] = DELTA_LAYOUT_PART_LAST;
+	fact->unit_part_size[7] = NETWORK_RULES_UNIT_PART_LIMIT + 1;
+	fact->unit_part_at[7] = DELTA_LAYOUT_PART_LAST;
+	fact->unit_part_size[6] = 4;
+	fact->unit_part_at[6] = 3;
+	fact = test_fact(45);
+	fact->header_extra = NETWORK_RULES_HEADER_EXTRA_LIMIT + 1;
+	fact->join_request_version_said = 1;
+	fact->join_request_version_at = 235;
+	fact->rider_ejection_up = NETWORK_RULES_RIDER_EJECTION_LIMIT + 1;
+	fact = test_fact(46);
+	fact->header_extra = 2;
+	network_rules_set_layout_source(test_source);
+	network_rules_layout(44, &layout);
+	CHECK(layout.refused == 4 && layout.epoch_kind == 96 && layout.unit_part_size[2] == 0 &&
+		layout.unit_part_size[7] == 28 && layout.unit_part_size[6] == 30 && layout.unit_part_at[6] == DELTA_LAYOUT_PART_LAST);
+	network_rules_layout(46, &layout);
+	CHECK(layout.refused == 8 && layout.header_extra == 4 && layout.join_request_version_at == 234 &&
+		layout.rider_ejection_up == 200);
+	/* 47: the header longer, a new kind for the boundary, the word moved */
+	fact = test_fact(47);
+	fact->header_extra = 8;
+	fact->epoch_kind = 120;
+	fact->join_request_version_said = 1;
+	fact->join_request_version_at = 0;
+	network_rules_layout(47, &layout);
+	CHECK(layout.header_extra == 8 && layout.epoch_kind == 120 && layout.join_request_version_at == 0);
+	/* 48: the request shorter, the word gone with it only if past it */
+	fact = test_fact(48);
+	fact->join_request_said = 1;
+	fact->join_request_extra = 100;
+	network_rules_layout(48, &layout);
+	CHECK(layout.join_request_extra == 100 && layout.join_request_version_at == 0);
+	network_rules_set_layout_source(NULL);
+}
+
+/* a message header word as the transport gives it (this machine's order):
+the size in bits 4 to 15, the data type (2) in bits 2 and 3 */
+static void test_header_word(uint8_t *message, int size)
+{
+	uint16_t word = (uint16_t)((size << 4) | (2 << 2));
+
+	memcpy(message, &word, sizeof(word));
+}
+
+static int test_header_size(uint8_t const *message)
+{
+	uint16_t word;
+
+	memcpy(&word, message, sizeof(word));
+	return word >> 4;
+}
+
+static void test_header_extension(void)
+{
+	/* the shield effects message (12 bytes) to 16, its epoch at 8 */
+	uint8_t message[12], wide[64], narrow[64], batch[64], batch_wide[96];
+	uint32_t epoch = 0;
+	int size, at;
+
+	network_rules_shield_effects_write(message, 3, 0x01020304);
+	test_header_word(message, 12);
+	size = network_rules_header_expand(message, 12, wide, sizeof(wide), 4, 1, 0xA1B2C3D4u);
+	CHECK(size == 16 && test_header_size(wide) == 16);
+	CHECK(wide[2] == 91 && wide[3] == 1 && wide[4] == 0x04 && wide[7] == 0x01);
+	CHECK(wide[8] == 0xD4 && wide[9] == 0xC3 && wide[10] == 0xB2 && wide[11] == 0xA1);
+	CHECK(wide[12] == 3 && wide[13] == 0 && wide[14] == 0 && wide[15] == 0);
+	CHECK(network_rules_header_strip(wide, 16, narrow, 4, 1, 0, 0, &epoch) == 12 && epoch == 0xA1B2C3D4u);
+	CHECK(test_header_size(narrow) == 12 && !memcmp(narrow + 2, message + 2, 10));
+	/* (no room, too short, an epoch without its bytes) */
+	CHECK(network_rules_header_expand(message, 12, wide, 15, 4, 1, 1) == 0);
+	CHECK(network_rules_header_expand(message, 7, wide, sizeof(wide), 4, 1, 1) == 0);
+	CHECK(network_rules_header_expand(message, 12, wide, sizeof(wide), 2, 1, 1) == 0);
+	CHECK(network_rules_header_strip(wide, 11, narrow, 4, 1, 0, 0, &epoch) == 0);
+	/* (the message 96 boundary: the 12-byte header alone, no entries) */
+	{
+		uint8_t boundary[8] = { 0, 0, 96, 0, 0x10, 0, 0, 0 };
+
+		test_header_word(boundary, 8);
+		CHECK(network_rules_header_expand(boundary, 8, wide, sizeof(wide), 4, 1, 7) == 12);
+		CHECK(wide[2] == 96 && wide[3] == 0 && wide[8] == 7 && test_header_size(wide) == 12);
+		CHECK(network_rules_header_strip(wide, 12, narrow, 4, 1, 0, 0, &epoch) == 8 && epoch == 7);
+		CHECK(network_rules_boundary_taken(8, 0, 1, 0, epoch, 0));
+		CHECK(network_rules_boundary_taken(8, 0, 1, 0, 8, 7) && !network_rules_boundary_taken(8, 0, 1, 0, 7, 7));
+		CHECK(!network_rules_boundary_taken(8, 0, 0, 0, 8, 7) && !network_rules_boundary_taken(8, 0, 1, 1, 8, 7));
+		CHECK(!network_rules_boundary_taken(8, 1, 1, 0, 8, 7) && !network_rules_boundary_taken(12, 0, 1, 0, 8, 7));
+		CHECK(!network_rules_boundary_taken(8, 0, 1, 0, 0, 0));
+	}
+	/* (epochs: past 0 on rollover, newer by the signed difference) */
+	CHECK(network_rules_epoch_next(0) == 1 && network_rules_epoch_next(0xFFFFFFFFu) == 1);
+	CHECK(network_rules_epoch_newer(1, 0xFFFFFFFFu) && !network_rules_epoch_newer(0xFFFFFFFFu, 1));
+	CHECK(network_rules_epoch_newer(5, 0) && !network_rules_epoch_newer(5, 5));
+
+	/* a batch: its header, then two messages (a size word, the header's 6
+	bytes past the message header, entries) */
+	memset(batch, 0, sizeof(batch));
+	batch[2] = NETWORK_RULES_BATCH_KIND;
+	batch[4] = 0x11;
+	at = 8;
+	batch[at] = 6 + 3; /* kind 2, one entry of 3 bytes */
+	batch[at + 2] = 2;
+	batch[at + 3] = 1;
+	batch[at + 4] = 0x22;
+	batch[at + 8] = 0xA;
+	batch[at + 9] = 0xB;
+	batch[at + 10] = 0xC;
+	at += 2 + 9;
+	batch[at] = 6 + 4; /* kind 13, 4 bytes */
+	batch[at + 2] = 13;
+	batch[at + 3] = 1;
+	batch[at + 8] = 0xD;
+	batch[at + 11] = 0xE;
+	at += 2 + 10;
+	test_header_word(batch, at);
+	size = network_rules_header_expand(batch, at, batch_wide, sizeof(batch_wide), 4, 1, 9);
+	CHECK(size == at + 12 && test_header_size(batch_wide) == size);
+	CHECK(batch_wide[2] == NETWORK_RULES_BATCH_KIND && batch_wide[8] == 9);
+	/* (the first message: its size 13, kind, its epoch, then its entry) */
+	CHECK(batch_wide[12] == 13 && batch_wide[13] == 0 && batch_wide[14] == 2 && batch_wide[16] == 0x22);
+	CHECK(batch_wide[20] == 9 && batch_wide[24] == 0xA && batch_wide[26] == 0xC);
+	CHECK(batch_wide[27] == 14 && batch_wide[29] == 13 && batch_wide[35] == 9 && batch_wide[39] == 0xD &&
+		batch_wide[42] == 0xE);
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == at && epoch == 9);
+	CHECK(!memcmp(narrow, batch, (size_t)at));
+	/* (a message of another epoch left out, but the kind kept) */
+	batch_wide[35] = 8;
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == 8 + 11);
+	CHECK(!memcmp(narrow + 2, batch + 2, 8 + 11 - 2));
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 13, &epoch) == at);
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 7, 0, &epoch) == 8);
+	/* (a size word past the end, one shorter than the header: read to it,
+	the message before it kept) */
+	batch_wide[35] = 9;
+	batch_wide[27] = 200;
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == 8 + 11);
+	batch_wide[27] = 9;
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == 8 + 11);
+	CHECK(!memcmp(narrow + 2, batch + 2, 8 + 11 - 2));
+	/* (the batch header's own epoch is not checked) */
+	batch_wide[27] = 14;
+	batch_wide[8] = 77;
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 4, 1, 9, 0, &epoch) == at && epoch == 77);
+	batch[19] = 200;
+	CHECK(network_rules_header_expand(batch, at, batch_wide, sizeof(batch_wide), 4, 1, 9) == 0);
+	/* (further bytes without an epoch: zeros) */
+	batch[19] = 6 + 4;
+	size = network_rules_header_expand(batch, at, batch_wide, sizeof(batch_wide), 2, 0, 9);
+	CHECK(size == at + 6 && batch_wide[8] == 0 && batch_wide[9] == 0 && batch_wide[10] == 11);
+	CHECK(network_rules_header_strip(batch_wide, size, narrow, 2, 0, 0, 0, &epoch) == at && epoch == 0);
+	CHECK(!memcmp(narrow, batch, (size_t)at));
+}
+
+static void test_unit_parts(void)
+{
+	struct network_rules_layout layout;
+
+	test_fact_count = 0;
+	test_fact_43(test_fact(43));
+	network_rules_set_layout_source(test_source);
+	network_rules_layout(43, &layout);
+	/* (the built-in parts alone: none further, anywhere) */
+	CHECK(network_rules_unit_part_bytes(&layout, 0x3F, DELTA_LAYOUT_PART_AFTER_UP, 1, 1) == 0);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x3F, DELTA_LAYOUT_PART_LAST, 0, 0) == 0);
+	/* (the deck after the up, alive and placed; the pose last, alive) */
+	CHECK(network_rules_unit_part_bytes(&layout, 0xC0, DELTA_LAYOUT_PART_AFTER_UP, 1, 1) == 28);
+	CHECK(network_rules_unit_part_bytes(&layout, 0xC0, DELTA_LAYOUT_PART_LAST, 1, 1) == 30);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x40, DELTA_LAYOUT_PART_AFTER_UP, 1, 0) == 0);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x40, DELTA_LAYOUT_PART_LAST, 1, 0) == 30);
+	/* (unreadable: the deck not placed or dead, the pose dead) */
+	CHECK(network_rules_unit_part_bytes(&layout, 0x80, DELTA_LAYOUT_PART_AFTER_UP, 1, 0) == -1);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x80, DELTA_LAYOUT_PART_AFTER_UP, 0, 1) == -1);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x40, DELTA_LAYOUT_PART_LAST, 0, 0) == -1);
+	/* (the bound on one state: the old most, 28 and 30 more) */
+	CHECK(layout.unit_part_size[6] + layout.unit_part_size[7] == 58);
+	/* (a layout without them: a bit not built in is unreadable) */
+	network_rules_layout(41, &layout);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x80, DELTA_LAYOUT_PART_AFTER_UP, 1, 1) == -1);
+	CHECK(network_rules_unit_part_bytes(&layout, 0x01, DELTA_LAYOUT_PART_AFTER_UP, 1, 1) == 0);
+	network_rules_set_layout_source(NULL);
+}
+
+/* a host announcing 43 sends its own machine the record at the game's start
+and again at each machine's join; its own machine (joined at home, told no
+version, noting "at least 35" when the newer options come) takes every one,
+with 0, 1 and 2 remote machines joining */
+static void test_host_own_machine_43(void)
+{
+	int joins;
+
+	test_fact_count = 0;
+	test_fact_43(test_fact(43));
+	network_rules_set_layout_source(test_source);
+	for (joins = 0; joins <= 2; joins++)
+	{
+		unsigned joined = NETWORK_RULES_VERSION_UNKNOWN;
+		int send;
+
+		/* (the first send, then one at each remote machine's join) */
+		for (send = 0; send <= joins; send++)
+		{
+			int size = network_rules_host_settings_size(43, 0, 0);
+			unsigned version = network_rules_client_settings_version(joined, 1, 43);
+			int options = network_rules_settings_options_size(version, (unsigned)size);
+
+			CHECK(size == 13200 && network_rules_settings_size_taken(version, (unsigned)size));
+			CHECK(options == 0x2C);
+			if (options > NETWORK_RULES_OPTIONS_SIZE)
+				joined = network_rules_client_noted_version(joined, 1, NETWORK_RULES_EXTENDED_OPTIONS_VERSION);
+			CHECK(joined == NETWORK_RULES_VERSION_UNKNOWN);
+		}
+	}
+	/* (a remote client of a host not known: noted at least 35, as before) */
+	CHECK(network_rules_client_noted_version(NETWORK_RULES_VERSION_UNKNOWN, 0, 35) == 35);
+	CHECK(network_rules_client_noted_version(43, 0, 35) == 43);
+	CHECK(network_rules_client_settings_version(43, 0, 41) == 43);
+	/* (a host announcing 41: its own machine takes 41's record, as before) */
+	CHECK(network_rules_settings_size_taken(network_rules_client_settings_version(35, 1, 41),
+		(unsigned)network_rules_host_settings_size(41, 0, 0)));
+	network_rules_set_layout_source(NULL);
+}
+
+/* a co-op client present across two reverts of a 43 host: at each revert
+the host's epoch moves on and the boundary goes to the client; the client
+takes it (newer), asks again with its ready, and the host's next ready
+answer is the full snapshot, not "objects synchronized" alone; a second
+ready at the same epoch is not; a client joining after a revert takes it
+once */
+/* a client's ready as the wire has it (stamped epoch), and what the host
+makes of it: stripped, and taken */
+static int test_host_takes_ready(uint32_t stamped, uint32_t host)
+{
+	uint8_t ready[8] = { 0, 0, NETWORK_RULES_CLIENT_READY_KIND, 0, 1, 0, 0, 0 };
+	uint8_t wide[16], narrow[16];
+	uint32_t epoch = 0;
+	int size;
+
+	test_header_word(ready, 8);
+	size = network_rules_header_expand(ready, 8, wide, sizeof(wide), 4, 1, stamped);
+	size = network_rules_header_strip(wide, size, narrow, 4, 1, host, NETWORK_RULES_CLIENT_READY_KIND, &epoch);
+	return size == 8 && epoch == stamped && network_rules_host_takes(epoch, host, narrow[2], size, narrow[3], 1, 0);
+}
+
+static void test_client_across_reverts(void)
+{
+	uint32_t host = 0, client = 0, sent = 0;
+	int never = 1, revert;
+
+	host = network_rules_epoch_next(host);
+	/* (its ready at the map's start: epoch 0 accepted, the boundary, then
+	the snapshot; no revert's boundary before its ready) */
+	CHECK(!network_rules_revert_boundary_to(1, 0, 0));
+	CHECK(test_host_takes_ready(client, host));
+	CHECK(network_rules_boundary_taken(8, 0, 1, 0, host, client));
+	client = host;
+	CHECK(network_rules_snapshot_due(never, 0, 0, sent, host));
+	never = 0;
+	sent = host;
+	CHECK(!network_rules_snapshot_due(never, 0, 0, sent, host));
+	for (revert = 0; revert < 2; revert++)
+	{
+		uint32_t late_sent = 0;
+
+		/* (the revert: a new epoch, its boundary to the machine that said
+		its ready, never to the host's own) */
+		host = network_rules_epoch_next(host);
+		CHECK(network_rules_revert_boundary_to(1, 0, 1) && !network_rules_revert_boundary_to(1, 1, 1));
+		/* (meanwhile its other messages, of the old epoch, not taken) */
+		CHECK(!network_rules_host_takes(client, host, 1, 20, 1, 1, 0));
+		/* (a ready of an old epoch in a batch or a datagram: not taken) */
+		CHECK(!network_rules_host_takes(client, host, NETWORK_RULES_CLIENT_READY_KIND, 8, 0, 1, 1));
+		CHECK(!network_rules_host_takes(client, host, NETWORK_RULES_CLIENT_READY_KIND, 8, 0, 0, 0));
+		/* (until its snapshot ends: its ready alone sent, and the objects'
+		changes, their end and stream inventories alone taken) */
+		CHECK(!network_rules_client_held_back(1, 1, 0, NETWORK_RULES_CLIENT_READY_KIND));
+		CHECK(network_rules_client_held_back(1, 1, 0, 1) && network_rules_client_held_back(1, 1, 0, 18));
+		CHECK(!network_rules_client_held_back(1, 1, 1, 1) && !network_rules_client_held_back(0, 1, 0, 1) &&
+			!network_rules_client_held_back(1, 0, 0, 1));
+		CHECK(network_rules_client_takes_unsynchronized(NETWORK_RULES_OBJECT_CHANGES_KIND, 0, 1));
+		CHECK(network_rules_client_takes_unsynchronized(NETWORK_RULES_OBJECTS_SYNCHRONIZED_KIND, 1, 0));
+		CHECK(network_rules_client_takes_unsynchronized(NETWORK_RULES_INVENTORIES_KIND, 1, 0));
+		CHECK(!network_rules_client_takes_unsynchronized(NETWORK_RULES_INVENTORIES_KIND, 1, 1) &&
+			!network_rules_client_takes_unsynchronized(NETWORK_RULES_INVENTORIES_KIND, 0, 0));
+		CHECK(!network_rules_client_takes_unsynchronized(2, 1, 0) && !network_rules_client_takes_unsynchronized(88, 1, 0));
+		CHECK(network_rules_boundary_taken(8, 0, 1, 0, host, client));
+		client = host;
+		/* (5.2: its ready again, of the new epoch, over its stream; taken,
+		as one of an old epoch is too) */
+		CHECK(test_host_takes_ready(client, host) && test_host_takes_ready(client - 1, host));
+		CHECK(network_rules_host_takes(client, host, 1, 20, 1, 0, 1));
+		/* (the boundary again at its ready: the same epoch, not taken) */
+		CHECK(!network_rules_boundary_taken(8, 0, 1, 0, host, client));
+		CHECK(network_rules_snapshot_due(never, 0, 0, sent, host));
+		sent = host;
+		CHECK(!network_rules_snapshot_due(never, 0, 0, sent, host));
+		/* (a machine that joins right after the revert: its first) */
+		CHECK(network_rules_snapshot_due(1, 0, 0, late_sent, host));
+	}
+	CHECK(host == 3 && client == 3);
+}
+
+/* a reliable message the header's 4 further bytes make too long: split on
+its entries' boundaries when they are all one size, else not */
+static void test_reliable_split(void)
+{
+	/* (4,092 bytes: 8 and 4 entries of 1,021; 4,096 with the 4) */
+	CHECK(network_rules_reliable_split(4092, 4, 1021, 4, 0xFFF) == 2);
+	/* (4,095: 61 entries of 67) */
+	CHECK(network_rules_reliable_split(4095, 61, 67, 4, 0xFFF) == 30);
+	/* (68 of 60, 4,088 bytes: fits with the 4; no further bytes: fits) */
+	CHECK(network_rules_reliable_split(4088, 68, 60, 4, 0xFFF) == 0 && network_rules_reliable_split(4092, 4, 1021, 0, 0xFFF) == 0);
+	/* (a prefix or entries of their own sizes: not split) */
+	CHECK(network_rules_reliable_split(4092, 4, 0, 4, 0xFFF) == -1);
+	CHECK(network_rules_reliable_split(4092, 4, 1020, 4, 0xFFF) == -1);
+	CHECK(network_rules_reliable_split(4092, 1, 4084, 4, 0xFFF) == -1);
+	CHECK(network_rules_reliable_split(4092, 0, 60, 4, 0xFFF) == -1);
+	/* (two halves too long still: not split) */
+	CHECK(network_rules_reliable_split(4095, 2, 4087 / 2, 4, 0xFFF) == -1);
+}
+
+/* a unit state's length: the built-in parts, and 43's deck and pose */
+static void test_unit_state_length(void)
+{
+	struct network_rules_layout layout;
+	uint8_t record[160];
+
+	test_fact_count = 0;
+	test_fact_43(test_fact(43));
+	network_rules_set_layout_source(test_source);
+	network_rules_layout(43, &layout);
+	memset(record, 0, sizeof(record));
+	/* (dead, a killer; dead, none) */
+	record[1] = 0;
+	record[2] = 32;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 4);
+	record[2] = 0;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 3);
+	/* (alive, placed, predicted, every built-in part: 63) */
+	record[1] = 0x83;
+	record[2] = 0x1F;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 63);
+	/* (and the deck and the pose: 63 + 28 + 30) */
+	record[2] = 0xDF;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 121);
+	CHECK(network_rules_unit_state_length(&layout, record, 120, 2) == 0);
+	/* (the deck not placed, the pose dead: unreadable) */
+	record[1] = 0x01;
+	record[2] = 0x80;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 0);
+	record[1] = 0;
+	record[2] = 0x40;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 0);
+	/* (41: bits 6 and 7 unreadable) */
+	network_rules_layout(41, &layout);
+	record[1] = 0x03;
+	record[2] = 0x80;
+	CHECK(network_rules_unit_state_length(&layout, record, 160, 2) == 0);
+	CHECK(network_rules_unit_state_length(&layout, record, 2, 2) == 0);
+	/* (a later fact shrinking the header below an epoch's 4: refused) */
+	{
+		struct delta_layout_fact *fact = test_fact(44);
+
+		fact->header_extra = 2;
+		network_rules_layout(44, &layout);
+		CHECK(layout.header_extra == 4 && layout.epoch_kind == 96 && layout.refused == 1);
+	}
+	network_rules_set_layout_source(NULL);
+}
+
+/* the join paths: a host joined by an advertisement (the LAN, the list, an
+invite through its tunnel, all of which carry the host's number) is sent
+the word at once; one joined by an address alone (no advertisement) is sent
+the plain request, and once more with the newest word after a silence */
+static void test_join_paths(void)
+{
+	uint8_t tail[NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT];
+
+	test_fact_count = 0;
+	test_fact_43(test_fact(43));
+	network_rules_set_layout_source(test_source);
+	/* (an invite's host, advertised at 43 through the tunnel: the word) */
+	CHECK(network_rules_join_request_tail(43, tail, sizeof(tail)) == 236 && tail[234] == 0 && tail[235] == 43);
+	CHECK(!network_rules_join_request_refused(43, tail, 236));
+	CHECK(network_rules_join_retry_version(43, 0, 60000) == 0);
+	/* (an advertised 41 host: no word, never a retry) */
+	CHECK(network_rules_join_request_tail(41, tail, sizeof(tail)) == 234);
+	CHECK(network_rules_join_retry_version(41, 0, 60000) == 0);
+	/* (no advertisement: the plain request, then once 43's after 3 s) */
+	CHECK(network_rules_join_request_tail(NETWORK_RULES_VERSION_UNKNOWN, tail, sizeof(tail)) == 0);
+	CHECK(network_rules_join_request_refused(43, tail, 0));
+	CHECK(network_rules_join_retry_version(NETWORK_RULES_VERSION_UNKNOWN, 0, 2999) == 0);
+	CHECK(network_rules_join_retry_version(NETWORK_RULES_VERSION_UNKNOWN, 0, 3000) == 43);
+	CHECK(network_rules_join_request_tail(43, tail, sizeof(tail)) == 236 && !network_rules_join_request_refused(43, tail, 236));
+	/* (the host's own machine: never; no table: never) */
+	CHECK(network_rules_join_retry_version(NETWORK_RULES_VERSION_UNKNOWN, 1, 60000) == 0);
+	/* (no table: 43 built in) */
+	network_rules_set_layout_source(NULL);
+	CHECK(network_rules_join_retry_version(NETWORK_RULES_VERSION_UNKNOWN, 0, 60000) == 43);
+}
+
 int main(void)
 {
 	test_aim_assist_message();
@@ -843,6 +1363,15 @@ int main(void)
 	test_layouts_hostile();
 	test_layouts_join_request();
 	test_layout_record();
+	test_layouts_43();
+	test_layouts_43_hostile();
+	test_header_extension();
+	test_unit_parts();
+	test_host_own_machine_43();
+	test_client_across_reverts();
+	test_reliable_split();
+	test_unit_state_length();
+	test_join_paths();
 	if (failures)
 	{
 		printf("network_rules_test: %d failure(s)\n", failures);
