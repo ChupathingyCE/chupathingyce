@@ -365,7 +365,8 @@ static int read_details_item(struct json *json, struct workshop_browser_item *it
 		if (!take(json, '}'))
 			return 0;
 	}
-	snprintf(item->kind, sizeof(item->kind), "%s", campaign ? "campaign" : multiplayer ? "maps" : "item");
+	snprintf(item->kind, sizeof(item->kind), "%s", campaign ? "campaign" : multiplayer ? "multiplayer" : "item");
+	item->tags = (multiplayer ? WORKSHOP_TAG_MULTIPLAYER : 0) | (campaign ? WORKSHOP_TAG_CAMPAIGN : 0);
 	/* (MCC's Workshop mixes its games: only Halo CE's, tagged Halo1) */
 	*kept = item->id[0] && item->title[0] && result == 1 && app == 976730 && halo1;
 	return 1;
@@ -474,15 +475,17 @@ int workshop_browser_steam_url(const char *id, char *url, int size)
 const char *workshop_browser_kind_name(const char *kind)
 {
 	if (!kind || !kind[0] || !strcmp(kind, "map"))
-		return "Map";
-	if (!strcmp(kind, "maps"))
-		return "Maps";
+		return "Multiplayer";
+	if (!strcmp(kind, "maps") || !strcmp(kind, "multiplayer"))
+		return "Multiplayer";
 	if (!strcmp(kind, "campaign"))
 		return "Campaign";
 	if (!strcmp(kind, "gametypes"))
 		return "Game types";
 	if (!strcmp(kind, "game"))
 		return "Game";
+	if (!strcmp(kind, "setup"))
+		return "Setup";
 	return "Item";
 }
 
@@ -495,6 +498,31 @@ const char *workshop_browser_state_name(int state)
 	case WORKSHOP_ITEM_INSTALLED: return "Installed";
 	case WORKSHOP_ITEM_DOWNLOADING: return "Downloading";
 	default: return "Not installed";
+	}
+}
+
+const char *workshop_browser_filter_name(int filter)
+{
+	static const char *const names[] = { "All", "Multiplayer", "Campaign", "Installed" };
+
+	return filter >= 0 && filter < WORKSHOP_FILTER_COUNT ? names[filter] : "All";
+}
+
+const char *workshop_browser_sort_name(int sort)
+{
+	static const char *const names[] = { "Popular", "New", "Top rated", "Updated", "A-Z" };
+
+	return sort >= 0 && sort < WORKSHOP_SORT_COUNT ? names[sort] : "Popular";
+}
+
+const char *workshop_browser_step_name(int step)
+{
+	switch (step)
+	{
+	case WORKSHOP_STEP_READY: return "Ready";
+	case WORKSHOP_STEP_WORKING: return "Working";
+	case WORKSHOP_STEP_NOT_AVAILABLE: return "Not available";
+	default: return "To do";
 	}
 }
 

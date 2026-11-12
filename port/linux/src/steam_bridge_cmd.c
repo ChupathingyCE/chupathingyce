@@ -13,15 +13,16 @@ The account is the one steamcmd keeps in its config/config.vdf (or
 game.steamcmd_account). steamcmd is never given a password, and its input
 is empty, so it can't wait on one: a run that needs a sign-in ends, and
 the tab offers SIGN IN, which opens a terminal running steamcmd for the
-player. Items land in steamcmd's own library,
-<root>/steamapps/workshop/content/976730/<id>, which the folder watch and
-the map lists already read (steam_workshop.c).
+player. Items land in the game's own Steam library
+(steam_bridge_set_download_folder, +force_install_dir: the data folder's
+steam/, or paths.steam_downloads), <folder>/steamapps/workshop/content/
+976730/<id>, which the folder watch and the map lists read in place
+(steam_workshop.c).
 
-MCC itself (steam_bridge_install_mcc): only its Halo CE depots, 976733 and
-976734 (the campaign and multiplayer, both under halo1/), instead of the
-whole game, moved from steamcmd's depot folders into
-<root>/steamapps/common/Halo The Master Chief Collection, where the game
-looks for MCC's shared maps.
+MCC itself (steam_bridge_install_mcc): only its Halo CE multiplayer depot,
+976734 (under halo1/, about 4.3 GB), instead of the whole game, moved from
+steamcmd's depot folder into <folder>/steamapps/common/Halo The Master
+Chief Collection, where the game looks for MCC's shared maps.
 
 The text reading at the top has no files or processes: its tests run
 anywhere (port/linux/tests/steam_bridge_test.c).
@@ -210,6 +211,13 @@ enum
 	JOB_MCC,
 };
 
+static char download_folder[STEAM_BRIDGE_PATH_SIZE];
+
+void steam_bridge_set_download_folder(const char *path)
+{
+	snprintf(download_folder, sizeof(download_folder), "%s", path ? path : "");
+}
+
 static struct
 {
 	char steamcmd[STEAM_BRIDGE_PATH_SIZE];
@@ -305,6 +313,11 @@ static void job_start(void)
 	arguments[count++] = "1";
 	arguments[count++] = "+@sSteamCmdForcePlatformType";
 	arguments[count++] = "windows";
+	if (download_folder[0])
+	{
+		arguments[count++] = "+force_install_dir";
+		arguments[count++] = download_folder;
+	}
 	arguments[count++] = "+login";
 	arguments[count++] = cmd.account;
 	if (cmd.mcc_wanted)
@@ -312,9 +325,6 @@ static void job_start(void)
 		cmd.mcc_wanted = 0;
 		cmd.job = JOB_MCC;
 		cmd.depot_count = 0;
-		arguments[count++] = "+download_depot";
-		arguments[count++] = MCC_APP_ID;
-		arguments[count++] = "976733";
 		arguments[count++] = "+download_depot";
 		arguments[count++] = MCC_APP_ID;
 		arguments[count++] = "976734";
@@ -361,12 +371,12 @@ static int mcc_place(void)
 		if (library)
 			snprintf(root, sizeof(root), "%.*s", (int)(library - cmd.depots[index]), cmd.depots[index]);
 		else
-			snprintf(root, sizeof(root), "%s", cmd.root);
+			snprintf(root, sizeof(root), "%s", download_folder[0] ? download_folder : cmd.root);
 		snprintf(target, sizeof(target), "%s/" MCC_FOLDER, root);
 		if (!steam_bridge_platform_merge_folder(cmd.depots[index], target))
 			return 0;
 	}
-	return cmd.depot_count == 2;
+	return cmd.depot_count == 1;
 }
 
 static void job_end(int ok)
@@ -519,6 +529,41 @@ static int cmd_mcc_state(void)
 	return cmd.mcc_state;
 }
 
+int steamcmd_signed_in(void)
+{
+	static unsigned long looked;
+	static int signed_in, ever;
+	unsigned long now = system_milliseconds();
+	char steamcmd[STEAM_BRIDGE_PATH_SIZE], root[STEAM_BRIDGE_PATH_SIZE], account[64];
+	const char *setting = config_string("game.steamcmd_account");
+
+	if (ever && now - looked < 3000)
+		return signed_in;
+	ever = 1;
+	looked = now;
+	signed_in = 0;
+	if (setting && setting[0])
+		return signed_in = steamcmd_account_valid(setting);
+	if (steam_bridge_platform_find_steamcmd(steamcmd, sizeof(steamcmd)) &&
+		steam_bridge_platform_steamcmd_root(steamcmd, root, sizeof(root)))
+	{
+		char path[STEAM_BRIDGE_PATH_SIZE + 32], *text;
+		FILE *file;
+		long length;
+
+		snprintf(path, sizeof(path), "%s/config/config.vdf", root);
+		if ((file = fopen(path, "rb")) != NULL)
+		{
+			text = malloc(256 * 1024);
+			length = text ? (long)fread(text, 1, 256 * 1024, file) : 0;
+			fclose(file);
+			signed_in = length > 0 && steamcmd_read_account(text, (int)length, account, sizeof(account));
+			free(text);
+		}
+	}
+	return signed_in;
+}
+
 const struct steam_bridge_backend steam_bridge_cmd_backend =
 {
 	cmd_connect,
@@ -532,4 +577,11 @@ const struct steam_bridge_backend steam_bridge_cmd_backend =
 	cmd_mcc_state,
 };
 
+#endif
+
+#ifdef _WIN32
+int steamcmd_signed_in(void)
+{
+	return 0;
+}
 #endif

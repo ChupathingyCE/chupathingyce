@@ -101,7 +101,7 @@ int main(void)
 
 		CHECK(workshop_browser_read_details(details, (int)strlen(details), items, WORKSHOP_BROWSER_MAXIMUM_ITEMS) == 2);
 		CHECK(!strcmp(items[0].id, "2906110850") && !strcmp(items[0].title, "Aerial"));
-		CHECK(!strcmp(items[0].kind, "maps") && items[0].size == -1 && items[0].updated == 1700000000);
+		CHECK(!strcmp(items[0].kind, "multiplayer") && items[0].tags == WORKSHOP_TAG_MULTIPLAYER && items[0].size == -1 && items[0].updated == 1700000000);
 		/* (a non-ASCII escape: the description passed over, the item kept) */
 		CHECK(!items[0].description[0]);
 		CHECK(!strcmp(items[1].id, "2886943774") && !strcmp(items[1].kind, "campaign") && items[1].size == 2265580503LL);

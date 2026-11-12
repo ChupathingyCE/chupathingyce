@@ -127,6 +127,9 @@ int steam_bridge_subscribe(const char *id);
 /* client only */
 int steam_bridge_unsubscribe(const char *id);
 int steam_bridge_can_unsubscribe(void);
+/* steamcmd: the folder it downloads into (+force_install_dir), the game's
+own Steam library; "" steamcmd's own */
+void steam_bridge_set_download_folder(const char *path);
 /* steamcmd: a terminal opened running steamcmd's sign-in */
 int steam_bridge_sign_in(void);
 /* steamcmd: the Halo CE depots of MCC fetched and placed as MCC's install
@@ -207,6 +210,10 @@ void steamcmd_read_line(const char *line, struct steamcmd_line *out);
 int steamcmd_read_account(const char *text, int length, char *name, int size);
 /* whether text is a Steam account name we would pass on a command line */
 int steamcmd_account_valid(const char *name);
+/* whether the player's steamcmd has a saved sign-in (its config.vdf names an
+account, or game.steamcmd_account is set): looked at again at most every
+few seconds; 0 without steamcmd, and on Windows */
+int steamcmd_signed_in(void);
 
 /* ---------- the platform (posix_steam_bridge.c, win32_steam_bridge.c) */
 

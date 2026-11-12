@@ -83,6 +83,10 @@ int steam_workshop_read_libraries(const char *text, int length, char (*paths)[ST
 int steam_workshop_windows_roots(char (*paths)[STEAM_WORKSHOP_PATH_SIZE], int maximum);
 #endif
 
+/* the game's own Steam library (steamcmd's downloads with
+game.workshop_steam: workshop_browser.c), looked at after paths.steam;
+"" none */
+void steam_workshop_set_own_library(const char *path);
 /* the Steam library folders (paths.steam first, then the Steam folders found and the libraries their
 libraryfolders.vdf names), each once, whether or not game.workshop_maps is on: how many were written */
 int steam_workshop_libraries(char (*paths)[STEAM_WORKSHOP_PATH_SIZE], int maximum);

@@ -5120,6 +5120,8 @@ void guide_update(boolean menu_open)
 		guide.row[guide.section] = (short)config_integer("debug.delta_row");
 		if (guide.section == SOCIAL_SECTION_FRIENDS)
 			chosen_remember();
+		if (guide.section == SOCIAL_SECTION_WORKSHOP)
+			guide_workshop_row_click(guide.row[guide.section], FALSE);
 	}
 	/* (debug.party_test: party steps, one after another as each is
 answered, for tests: "create,invite:grif") */

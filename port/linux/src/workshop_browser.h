@@ -75,6 +75,52 @@ enum
 	WORKSHOP_ITEM_DOWNLOADING,
 };
 
+/* the setup rows at the top of the list, in order, while one isn't Ready */
+enum
+{
+	WORKSHOP_SETUP_STEAM = 1,
+	WORKSHOP_SETUP_SIGN_IN,
+	WORKSHOP_SETUP_MCC,
+	WORKSHOP_SETUP_FILES,
+	/* the row of search, filters and sorts (not a setup step) */
+	WORKSHOP_ROW_FIND,
+};
+
+/* Steam's own tags on Halo CE's items, the ones that are something to play */
+enum
+{
+	WORKSHOP_TAG_MULTIPLAYER = 1,
+	WORKSHOP_TAG_CAMPAIGN = 2,
+};
+
+/* the list's filters (a chip shows only while some item has it) and sorts */
+enum
+{
+	WORKSHOP_FILTER_ALL = 0,
+	WORKSHOP_FILTER_MULTIPLAYER,
+	WORKSHOP_FILTER_CAMPAIGN,
+	WORKSHOP_FILTER_INSTALLED,
+	WORKSHOP_FILTER_COUNT,
+};
+
+enum
+{
+	WORKSHOP_SORT_POPULAR = 0,
+	WORKSHOP_SORT_NEW,
+	WORKSHOP_SORT_TOP_RATED,
+	WORKSHOP_SORT_UPDATED,
+	WORKSHOP_SORT_NAME,
+	WORKSHOP_SORT_COUNT,
+};
+
+enum
+{
+	WORKSHOP_STEP_READY = 0,
+	WORKSHOP_STEP_TO_DO,
+	WORKSHOP_STEP_WORKING,
+	WORKSHOP_STEP_NOT_AVAILABLE,
+};
+
 /* the list */
 enum
 {
@@ -103,8 +149,12 @@ struct workshop_browser_item
 	int steam_subscribed;
 	unsigned long long downloaded;
 	unsigned long long total;
-	/* the steamcmd row that installs MCC's Halo CE files (not a Workshop item) */
-	int mcc_install;
+	/* Steam's tags it has (WORKSHOP_TAG_*) */
+	int tags;
+	/* a setup row (WORKSHOP_SETUP_*), not a Workshop item: 0 for an item */
+	int setup;
+	/* a setup row's WORKSHOP_STEP_* */
+	int step;
 	/* Steam's picture of it (its CDN, https only); "" none */
 	char preview_url[200];
 };
@@ -142,7 +192,7 @@ void workshop_browser_size_text(long long size, char *text, int size_of_text);
 appmanifest_976730.acf), looked at again at most every few seconds: the
 WORKSHOP section shows only then */
 int workshop_browser_mcc_present(void);
-/* whether the section shows: MCC is here, or steamcmd is (which can fetch it) */
+/* whether the section shows: on every desktop (its setup rows say what's missing) */
 int workshop_browser_offered(void);
 /* the section came into view: the list asked for (once a run unless it
 failed, or again with force), the installed items looked for */
@@ -158,6 +208,28 @@ const struct workshop_browser_item *workshop_browser_item(int index);
 item's Steam page opened (platform_open_url); 0 for a bad index. For the
 MCC row, steamcmd asked to install MCC's Halo CE files */
 int workshop_browser_subscribe(int index);
+/* a setup row's button: its word ("SIGN IN"), NULL for none; and pressing it */
+const char *workshop_browser_setup_button(int index);
+int workshop_browser_setup_press(int index);
+/* the list as shown: the setup rows, the find row, then the items the
+filter and search keep, in the sort's order. Popular, New, Top rated and
+Updated ask Steam's page for that order (and the search's words), once per
+change; A-Z sorts what is loaded. The search also keeps, at once, the
+loaded and installed items whose title, kind or description has the words */
+int workshop_browser_filter(void);
+int workshop_browser_sort(void);
+const char *workshop_browser_search(void);
+/* whether a filter's chip shows: some item has it (All always) */
+int workshop_browser_filter_offered(int filter);
+void workshop_browser_set_filter(int filter);
+void workshop_browser_set_sort(int sort);
+void workshop_browser_set_search(const char *text);
+const char *workshop_browser_filter_name(int filter);
+const char *workshop_browser_sort_name(int sort);
+/* a step's word ("Ready", "To do", "Working", "Not available") */
+const char *workshop_browser_step_name(int step);
+/* the game's own Steam library and steamcmd's folder set (each frame is fine) */
+void workshop_browser_own_library(void);
 /* UNSUBSCRIBE (the bridge's Steam client backend only) */
 int workshop_browser_unsubscribe(int index);
 /* the picture of an item for its page, RGBA rows from the top, at most

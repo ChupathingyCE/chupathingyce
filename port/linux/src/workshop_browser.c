@@ -28,8 +28,11 @@ const char *config_string(const char *name);
 int config_boolean(const char *name);
 unsigned long system_milliseconds(void);
 void platform_open_url(const char *url);
+void platform_clipboard_set(const char *text);
+int config_write_boolean(const char *name, int value);
 void platform_log(const char *format, ...);
 const char *platform_save_root(void);
+const char *platform_data_root(void);
 
 #define STEAM_APP "976730"
 #define APP_MANIFEST "steamapps/appmanifest_" STEAM_APP ".acf"
@@ -63,7 +66,7 @@ enum
 trending first; only the item ids are taken from it (the details call
 gives everything shown) */
 #define BROWSE_PAGE_URL "https://steamcommunity.com/workshop/browse/?appid=976730&requiredtags%5B%5D=Halo1" \
-	"&browsesort=trend&section=readytouseitems&p=1"
+	"&section=readytouseitems&p=1"
 #define DETAILS_URL "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
 
 /* an item's details from Steam's public, keyless GetPublishedFileDetails:
@@ -97,6 +100,17 @@ static struct
 	unsigned long libraries_time;
 	int library_count;
 	char libraries[MAXIMUM_LIBRARIES][STEAM_WORKSHOP_PATH_SIZE];
+	/* what the list shows: WORKSHOP_FILTER_*, WORKSHOP_SORT_*, the search's
+	words; the page's address for them, and the one last fetched */
+	int filter;
+	int sort;
+	char search[64];
+	char web_url[512];
+	char web_fetched[512];
+	/* the list as shown: indices into items, -1 the find row */
+	int view[WORKSHOP_BROWSER_MAXIMUM_ITEMS + 1];
+	int view_count;
+	struct workshop_browser_item find_row;
 	/* the browse page: when its list came (0 never), when Steam last said 429 */
 	unsigned long web_time;
 	unsigned long web_backoff;
@@ -110,6 +124,8 @@ static struct
 	struct workshop_browser_item details_answer[DETAILS_BATCH];
 	int details_count;
 	struct details_entry details[DETAILS_CACHE];
+	/* GET on the Halo CE files row: asked of steamcmd once the bridge is up */
+	int install_pending;
 	/* the libraries holding MCC: from the Steam client (its app manifest), or its Halo CE files at all */
 	int client_mcc_count;
 	int mcc_count;
@@ -236,8 +252,8 @@ static void local_item_add(const char *item_folder, const char *id)
 	memset(item, 0, sizeof(*item));
 	snprintf(item->id, sizeof(item->id), "%s", id);
 	snprintf(item->title, sizeof(item->title), "%s", text.title[0] ? text.title : id);
-	snprintf(item->kind, sizeof(item->kind), "%s", text.has_campaign ? "campaign" : text.map_count > 1 ? "maps" :
-		"map");
+	snprintf(item->kind, sizeof(item->kind), "%s", text.has_campaign ? "campaign" : "multiplayer");
+	item->tags = (text.has_campaign ? WORKSHOP_TAG_CAMPAIGN : 0) | (text.map_count > 0 ? WORKSHOP_TAG_MULTIPLAYER : 0);
 	item->size = -1;
 	item->local = 1;
 	item->state = WORKSHOP_ITEM_INSTALLED;
@@ -315,45 +331,185 @@ static int bridge_ready(void)
 		steam_bridge_status() == STEAM_BRIDGE_READY;
 }
 
-/* the steamcmd row that installs MCC's Halo CE files: last, while steamcmd
-is the backend, the setting is on and MCC isn't here (or is being installed) */
-static void mcc_row_remove(void)
-{
-	int index;
+/* ---------- the setup rows */
 
-	for (index = 0; index < workshop.count && !workshop.items[index].mcc_install; index++)
-		;
-	if (index < workshop.count)
+#define STEAMCMD_BREW "brew install --cask steamcmd"
+#define STEAMCMD_PAGE "https://developer.valvesoftware.com/wiki/SteamCMD"
+#define MCC_STORE "https://store.steampowered.com/app/976730"
+
+/* steamcmd does the installing here (macOS; Linux without MCC from Steam) */
+static int setup_steamcmd(void)
+{
+#if defined(_WIN32)
+	return 0;
+#elif defined(__APPLE__)
+	return 1;
+#else
+	return !workshop.client_mcc_count && !steam_bridge_steam_present();
+#endif
+}
+
+/* (debug.workshop_setup: the rows as named, "row=step,...", for screenshots) */
+static int setup_forced(int row, int step)
+{
+	static const char *const names[] = { "", "steam", "signin", "mcc", "files" };
+	const char *setting = config_string("debug.workshop_setup"), *at;
+	size_t length = strlen(names[row]);
+
+	if (!setting || !setting[0])
+		return step;
+	for (at = setting; (at = strstr(at, names[row])) != NULL; at += length)
 	{
-		memmove(&workshop.items[index], &workshop.items[index + 1],
-			sizeof(workshop.items[0]) * (size_t)(workshop.count - index - 1));
-		workshop.count--;
+		if (at[length] == '=' && (at == setting || at[-1] == ','))
+		{
+			int forced = at[length + 1] - '0';
+
+			return forced >= WORKSHOP_STEP_READY && forced <= WORKSHOP_STEP_NOT_AVAILABLE ? forced : step;
+		}
+	}
+	return step;
+}
+
+static void setup_rows_remove(void)
+{
+	int index = 0;
+
+	while (index < workshop.count)
+	{
+		if (workshop.items[index].setup)
+		{
+			memmove(&workshop.items[index], &workshop.items[index + 1],
+				sizeof(workshop.items[0]) * (size_t)(workshop.count - index - 1));
+			workshop.count--;
+		}
+		else
+			index++;
 	}
 }
 
-static void mcc_row_update(void)
+static void setup_row(struct workshop_browser_item *item, int row, int step, const char *title, const char *steps)
 {
-	int want, state = steam_bridge_mcc_state();
-	struct workshop_browser_item *item;
-
-	mcc_row_remove();
-	want = steam_bridge_enabled() && bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD &&
-		(!workshop.mcc_count || (state != STEAM_BRIDGE_ITEM_NONE && state != STEAM_BRIDGE_ITEM_UNKNOWN));
-	if (!want || workshop.count >= WORKSHOP_BROWSER_MAXIMUM_ITEMS)
-		return;
-	item = &workshop.items[workshop.count++];
 	memset(item, 0, sizeof(*item));
-	snprintf(item->id, sizeof(item->id), "mcc");
-	snprintf(item->title, sizeof(item->title), "Halo CE from MCC");
-	snprintf(item->kind, sizeof(item->kind), "game");
-	snprintf(item->description, sizeof(item->description), "%s",
-		"Only the Halo CE parts of Halo: The Master Chief Collection, fetched with steamcmd from your own "
-		"Steam account, instead of the whole game. Workshop maps use its shared files.");
+	snprintf(item->id, sizeof(item->id), "setup%d", row);
+	snprintf(item->title, sizeof(item->title), "%s", title);
+	snprintf(item->kind, sizeof(item->kind), "setup");
+	snprintf(item->description, sizeof(item->description), "%s", steps);
 	item->size = -1;
-	item->mcc_install = 1;
-	item->state = workshop.mcc_count && state != STEAM_BRIDGE_ITEM_DOWNLOADING && state != STEAM_BRIDGE_ITEM_QUEUED ?
-		WORKSHOP_ITEM_INSTALLED : state == STEAM_BRIDGE_ITEM_DOWNLOADING ? WORKSHOP_ITEM_DOWNLOADING :
-		state == STEAM_BRIDGE_ITEM_QUEUED ? WORKSHOP_ITEM_WAITING : WORKSHOP_ITEM_NOT_INSTALLED;
+	item->setup = row;
+	item->step = setup_forced(row, step);
+}
+
+/* the setup rows, at the top, while one of them isn't Ready */
+static void setup_rows_update(void)
+{
+	struct workshop_browser_item rows[4];
+	int count = 0, ready = 1, index, steamcmd = setup_steamcmd();
+	int mcc_state = steam_bridge_mcc_state();
+	int files = workshop.mcc_count > 0, steam;
+
+	setup_rows_remove();
+	if (steamcmd)
+	{
+#ifdef __APPLE__
+		steam = steam_bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD;
+		setup_row(&rows[count++], WORKSHOP_SETUP_STEAM, steam ? WORKSHOP_STEP_READY : WORKSHOP_STEP_TO_DO, "steamcmd",
+			"Open Terminal.\nRun: " STEAMCMD_BREW "\nCome back here.");
+#else
+		steam = steam_bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD;
+		setup_row(&rows[count++], WORKSHOP_SETUP_STEAM, steam ? WORKSHOP_STEP_READY : WORKSHOP_STEP_TO_DO, "steamcmd",
+			"Install steamcmd from your distribution, or from Valve's page.\nCome back here.");
+#endif
+		setup_row(&rows[count++], WORKSHOP_SETUP_SIGN_IN, !steam ? WORKSHOP_STEP_NOT_AVAILABLE :
+			steamcmd_signed_in() ? WORKSHOP_STEP_READY : WORKSHOP_STEP_TO_DO, "Sign in",
+			"Press SIGN IN.\nType your Steam name, password and code in the window.\nCome back here.\n"
+			"The game never sees your password.");
+		setup_row(&rows[count++], WORKSHOP_SETUP_MCC, files ? WORKSHOP_STEP_READY : WORKSHOP_STEP_TO_DO, "MCC",
+			"Own Halo: The Master Chief Collection on Steam.");
+		setup_row(&rows[count++], WORKSHOP_SETUP_FILES, files && mcc_state != STEAM_BRIDGE_ITEM_DOWNLOADING ?
+			WORKSHOP_STEP_READY : mcc_state == STEAM_BRIDGE_ITEM_DOWNLOADING || mcc_state == STEAM_BRIDGE_ITEM_QUEUED ||
+			workshop.install_pending ? WORKSHOP_STEP_WORKING : !steam ? WORKSHOP_STEP_NOT_AVAILABLE : WORKSHOP_STEP_TO_DO,
+			"Halo CE files", "Press GET for MCC's Halo CE files (about 4.3 GB).\n"
+			"They go in the steam folder of the game's data folder.");
+	}
+	else
+	{
+		steam = steam_bridge_steam_present();
+		setup_row(&rows[count++], WORKSHOP_SETUP_STEAM, steam ? WORKSHOP_STEP_READY : WORKSHOP_STEP_TO_DO, "Steam",
+			"Install Steam and sign in.\nCome back here.");
+		setup_row(&rows[count++], WORKSHOP_SETUP_MCC, workshop.client_mcc_count ? WORKSHOP_STEP_READY :
+			WORKSHOP_STEP_TO_DO, "MCC", "Get Halo: The Master Chief Collection on Steam.");
+		setup_row(&rows[count++], WORKSHOP_SETUP_FILES, files ? WORKSHOP_STEP_READY : WORKSHOP_STEP_TO_DO,
+			"Halo CE files", "In Steam: MCC > Properties > DLC.\nTick Halo: Combat Evolved Anniversary.\n"
+			"Multiplayer is enough.");
+	}
+	for (index = 0; index < count; index++)
+		ready &= rows[index].step == WORKSHOP_STEP_READY;
+	if (ready || workshop.count + count > WORKSHOP_BROWSER_MAXIMUM_ITEMS)
+		return;
+	memmove(&workshop.items[count], &workshop.items[0], sizeof(workshop.items[0]) * (size_t)workshop.count);
+	memcpy(&workshop.items[0], rows, sizeof(rows[0]) * (size_t)count);
+	workshop.count += count;
+}
+
+const char *workshop_browser_setup_button(int index)
+{
+	const struct workshop_browser_item *item = workshop_browser_item(index);
+
+	if (!item || !item->setup || item->setup == WORKSHOP_ROW_FIND || item->step == WORKSHOP_STEP_READY ||
+		item->step == WORKSHOP_STEP_WORKING)
+	{
+		return NULL;
+	}
+	switch (item->setup)
+	{
+	case WORKSHOP_SETUP_STEAM:
+#ifdef __APPLE__
+		return setup_steamcmd() ? "COPY" : "OPEN STEAM";
+#else
+		return setup_steamcmd() ? "OPEN" : "OPEN STEAM";
+#endif
+	case WORKSHOP_SETUP_SIGN_IN: return item->step == WORKSHOP_STEP_TO_DO ? "SIGN IN" : NULL;
+	case WORKSHOP_SETUP_MCC: return "STORE";
+	default: return setup_steamcmd() ? (item->step == WORKSHOP_STEP_TO_DO ? "GET" : NULL) : "OPEN STEAM";
+	}
+}
+
+int workshop_browser_setup_press(int index)
+{
+	const struct workshop_browser_item *item = workshop_browser_item(index);
+
+	if (!workshop_browser_setup_button(index))
+		return 0;
+	switch (item->setup)
+	{
+	case WORKSHOP_SETUP_STEAM:
+#ifdef __APPLE__
+		if (setup_steamcmd())
+		{
+			platform_clipboard_set(STEAMCMD_BREW);
+			return 1;
+		}
+#endif
+		platform_open_url(setup_steamcmd() ? STEAMCMD_PAGE : "steam://open/main");
+		return 1;
+	case WORKSHOP_SETUP_SIGN_IN:
+		return steam_bridge_sign_in();
+	case WORKSHOP_SETUP_MCC:
+		platform_open_url(MCC_STORE);
+		return 1;
+	default:
+		if (!setup_steamcmd())
+		{
+			platform_open_url("steam://nav/games/details/976730");
+			return 1;
+		}
+		/* (GET is the player's yes to steamcmd: the bridge on, MCC's files asked once it's up) */
+		if (!steam_bridge_enabled())
+			config_write_boolean("game.workshop_steam", 1);
+		steam_bridge_open(1);
+		workshop.install_pending = 1;
+		return 1;
+	}
 }
 
 /* an item's state with the bridge's word on it: the folders win for
@@ -448,6 +604,8 @@ static void details_apply(struct workshop_browser_item *item)
 		snprintf(item->title, sizeof(item->title), "%s", entry->item.title);
 	if (!item->preview_url[0])
 		snprintf(item->preview_url, sizeof(item->preview_url), "%s", entry->item.preview_url);
+	if (!item->tags)
+		item->tags = entry->item.tags;
 }
 
 /* ---------- pictures */
@@ -644,7 +802,7 @@ const unsigned char *workshop_browser_preview(int index, int *width, int *height
 	pthread_t thread;
 	int tried;
 
-	if (!item || item->mcc_install)
+	if (!item || item->setup)
 		return NULL;
 	pthread_mutex_lock(&workshop.lock);
 	if (preview.done)
@@ -764,7 +922,7 @@ static void details_step(void)
 			struct workshop_browser_item *item = &workshop.items[index];
 			struct details_entry *entry;
 
-			if (item->mcc_install || !workshop_browser_id_valid(item->id) || (item->description[0] && item->size >= 0))
+			if (item->setup || !workshop_browser_id_valid(item->id) || (item->description[0] && item->size >= 0))
 				continue;
 			if ((entry = details_find(item->id)) != NULL)
 				continue;
@@ -817,15 +975,15 @@ static void details_step(void)
 #ifdef HALO_GAME_BROWSER
 static void *web_thread(void *context)
 {
+	char *url = context;
 	static struct workshop_browser_item found[BROWSE_PAGE_ITEMS];
 	static char ids[BROWSE_PAGE_ITEMS][WORKSHOP_BROWSER_ID_SIZE];
 	char *response = malloc(BROWSE_PAGE_DOCUMENT + 1), *body = NULL, error[128];
 	int status = 0, count = -1, id_count = 0, index, length;
 
-	(void)context;
 	error[0] = 0;
 	if (response)
-		status = posix_browser_request_as(BROWSE_PAGE_URL, NULL, NULL, build_identity_user_agent(), response,
+		status = posix_browser_request_as(url, NULL, NULL, build_identity_user_agent(), response,
 			BROWSE_PAGE_DOCUMENT + 1, error, sizeof(error));
 	if (status == 200)
 		id_count = workshop_browser_read_browse_ids(response, (int)strlen(response), ids, BROWSE_PAGE_ITEMS);
@@ -857,9 +1015,35 @@ static void *web_thread(void *context)
 	pthread_mutex_unlock(&workshop.lock);
 	free(body);
 	free(response);
+	free(url);
 	return NULL;
 }
 #endif
+
+/* the browse page's address for the sort and the search (Steam's own words:
+trend, mostrecent, toprated, lastupdated; searchtext) */
+static void web_url_make(void)
+{
+	static const char *const sorts[] = { "trend", "mostrecent", "toprated", "lastupdated", "trend" };
+	int length = snprintf(workshop.web_url, sizeof(workshop.web_url), "%s&browsesort=%s", BROWSE_PAGE_URL,
+		sorts[workshop.sort]);
+	const unsigned char *c;
+
+	if (workshop.search[0] && length < (int)sizeof(workshop.web_url) - 16)
+	{
+		length += snprintf(workshop.web_url + length, sizeof(workshop.web_url) - (size_t)length, "&searchtext=");
+		for (c = (const unsigned char *)workshop.search; *c && length < (int)sizeof(workshop.web_url) - 4; c++)
+		{
+			if ((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9'))
+				workshop.web_url[length++] = (char)*c;
+			else if (*c == ' ')
+				workshop.web_url[length++] = '+';
+			else
+				length += snprintf(workshop.web_url + length, 4, "%%%02X", *c);
+		}
+		workshop.web_url[length] = 0;
+	}
+}
 
 /* the list from Steam's public browse page: once, then kept ten minutes,
 and not while Steam holds us off */
@@ -870,7 +1054,8 @@ static void web_ask(void)
 #ifdef HALO_GAME_BROWSER
 	pthread_t thread;
 
-	if ((workshop.web_time && now - workshop.web_time < BROWSE_KEEP) ||
+	web_url_make();
+	if ((workshop.web_time && now - workshop.web_time < BROWSE_KEEP && !strcmp(workshop.web_url, workshop.web_fetched)) ||
 		(workshop.web_backoff && now - workshop.web_backoff < BROWSE_BACKOFF) ||
 		config_boolean("debug.workshop_no_steam"))
 	{
@@ -887,10 +1072,20 @@ static void web_ask(void)
 	workshop.fetching = 1;
 	pthread_mutex_unlock(&workshop.lock);
 	workshop.status = WORKSHOP_LIST_LOADING;
-	if (pthread_create(&thread, NULL, web_thread, NULL) == 0)
+	snprintf(workshop.web_fetched, sizeof(workshop.web_fetched), "%s", workshop.web_url);
 	{
-		pthread_detach(thread);
-		return;
+		char *url = malloc(strlen(workshop.web_url) + 1);
+
+		if (url)
+		{
+			strcpy(url, workshop.web_url);
+			if (pthread_create(&thread, NULL, web_thread, url) == 0)
+			{
+				pthread_detach(thread);
+				return;
+			}
+			free(url);
+		}
 	}
 	pthread_mutex_lock(&workshop.lock);
 	workshop.fetching = 0;
@@ -1028,18 +1223,38 @@ static void list_take(void)
 		workshop.items[index].state = item_state(workshop.items[index].id);
 	}
 	local_items_look();
-	mcc_row_update();
+	setup_rows_update();
 	for (index = 0; index < workshop.count; index++)
 		details_apply(&workshop.items[index]);
 }
 
 /* ---------- public code */
 
+/* the game's own Steam library: steamcmd's downloads (paths.steam_downloads,
+else steam/ in the data folder), read in place as any other library */
+static void own_library(void)
+{
+	static int set;
+	const char *setting = config_string("paths.steam_downloads"), *data = platform_data_root();
+	char path[STEAM_WORKSHOP_PATH_SIZE];
+
+	if (set)
+		return;
+	set = 1;
+	if (setting && setting[0])
+		snprintf(path, sizeof(path), "%s", setting);
+	else if (!data || snprintf(path, sizeof(path), "%s/steam", data) >= (int)sizeof(path))
+		return;
+	steam_workshop_set_own_library(path);
+	steam_bridge_set_download_folder(path);
+}
+
 int workshop_browser_mcc_present(void)
 {
 #if defined(HALO_ANDROID) || defined(HALO_WEB)
 	return 0;
 #else
+	own_library();
 	libraries_look(0);
 	return workshop.mcc_count > 0;
 #endif
@@ -1047,7 +1262,12 @@ int workshop_browser_mcc_present(void)
 
 int workshop_browser_offered(void)
 {
-	return workshop_browser_mcc_present() || bridge_backend() == STEAM_BRIDGE_BACKEND_STEAMCMD;
+#if defined(HALO_ANDROID) || defined(HALO_WEB)
+	return 0;
+#else
+	/* (every desktop: the list works before setup, whose rows say what's needed) */
+	return 1;
+#endif
 }
 
 int workshop_browser_bridge_backend(void)
@@ -1060,6 +1280,13 @@ int workshop_browser_bridge_status(void)
 	if (!steam_bridge_enabled() || bridge_backend() == STEAM_BRIDGE_BACKEND_NONE)
 		return STEAM_BRIDGE_OFF;
 	return steam_bridge_status();
+}
+
+void workshop_browser_own_library(void)
+{
+#if !defined(HALO_ANDROID) && !defined(HALO_WEB)
+	own_library();
+#endif
 }
 
 void workshop_browser_close(void)
@@ -1078,7 +1305,7 @@ void workshop_browser_open(int force)
 	for (index = 0; index < workshop.count; index++)
 		workshop.items[index].state = item_state(workshop.items[index].id);
 	local_items_look();
-	mcc_row_update();
+	setup_rows_update();
 	for (index = 0; index < workshop.count; index++)
 		details_apply(&workshop.items[index]);
 	workshop.watch_time = system_milliseconds();
@@ -1096,6 +1323,19 @@ int workshop_browser_poll(void)
 
 	/* (the bridge's connect timed out here: steam_bridge_status) */
 	workshop_browser_bridge_status();
+	/* (GET on the Halo CE files row, once steamcmd is up) */
+	if (workshop.install_pending)
+	{
+		int status = steam_bridge_status();
+
+		if (status == STEAM_BRIDGE_READY)
+		{
+			steam_bridge_install_mcc();
+			workshop.install_pending = 0;
+		}
+		else if (status != STEAM_BRIDGE_CONNECTING)
+			workshop.install_pending = 0;
+	}
 	list_take();
 	details_step();
 	if (now - workshop.watch_time < WATCH_INTERVAL)
@@ -1107,7 +1347,7 @@ int workshop_browser_poll(void)
 		struct workshop_browser_item *item = &workshop.items[index];
 		int state;
 
-		if (item->mcc_install)
+		if (item->setup)
 			continue;
 		state = bridge_state(item, item_state(item->id));
 		if (state == WORKSHOP_ITEM_NOT_INSTALLED && item->subscribed)
@@ -1120,14 +1360,14 @@ int workshop_browser_poll(void)
 		item->state = state;
 	}
 	/* (an item subscribed in Steam itself shows up too) */
-	mcc_row_remove();
+	setup_rows_remove();
 	index = workshop.count;
 	local_items_look();
 	installed += workshop.count - index;
 	for (; index < workshop.count; index++)
 		details_apply(&workshop.items[index]);
 	index = workshop.mcc_count;
-	mcc_row_update();
+	setup_rows_update();
 	/* (MCC's Halo CE files arrived from steamcmd: the maps read again) */
 	if (!index && workshop.mcc_count)
 		installed++;
@@ -1139,29 +1379,214 @@ int workshop_browser_status(void)
 	return workshop.status;
 }
 
+/* ---------- the list as shown */
+
+static int contains_words(const char *text, const char *words)
+{
+	char word[64];
+	const char *at = words;
+
+	/* (every word somewhere, case aside) */
+	while (*at)
+	{
+		int length = 0;
+		const char *hay;
+		int found = 0;
+
+		while (*at == ' ')
+			at++;
+		while (*at && *at != ' ' && length < (int)sizeof(word) - 1)
+			word[length++] = *at++;
+		word[length] = 0;
+		if (!length)
+			break;
+		for (hay = text; *hay && !found; hay++)
+		{
+			int index;
+
+			for (index = 0; index < length && hay[index]; index++)
+			{
+				char a = hay[index], b = word[index];
+
+				if ((a | 0x20) != (b | 0x20) || ((a | 0x20) < 'a' && a != b))
+					break;
+			}
+			found = index == length;
+		}
+		if (!found)
+			return 0;
+	}
+	return 1;
+}
+
+static int kept(const struct workshop_browser_item *item)
+{
+	switch (workshop.filter)
+	{
+	case WORKSHOP_FILTER_MULTIPLAYER: if (!(item->tags & WORKSHOP_TAG_MULTIPLAYER)) return 0; break;
+	case WORKSHOP_FILTER_CAMPAIGN: if (!(item->tags & WORKSHOP_TAG_CAMPAIGN)) return 0; break;
+	case WORKSHOP_FILTER_INSTALLED: if (item->state != WORKSHOP_ITEM_INSTALLED) return 0; break;
+	default: break;
+	}
+	return !workshop.search[0] || contains_words(item->title, workshop.search) ||
+		contains_words(item->description, workshop.search) || contains_words(item->kind, workshop.search);
+}
+
+static void find_row_make(void)
+{
+	struct workshop_browser_item *item = &workshop.find_row;
+
+	memset(item, 0, sizeof(*item));
+	snprintf(item->id, sizeof(item->id), "find");
+	snprintf(item->title, sizeof(item->title), "%s", workshop.search[0] ? workshop.search : "Search");
+	snprintf(item->kind, sizeof(item->kind), "%s - %s", workshop_browser_filter_name(workshop.filter),
+		workshop_browser_sort_name(workshop.sort));
+	item->size = -1;
+	item->setup = WORKSHOP_ROW_FIND;
+	item->step = -1;
+}
+
+/* whether title a comes after b, case aside */
+static int title_after(const char *a, const char *b)
+{
+	for (; *a && *b; a++, b++)
+	{
+		char x = *a >= 'A' && *a <= 'Z' ? (char)(*a + 32) : *a, y = *b >= 'A' && *b <= 'Z' ? (char)(*b + 32) : *b;
+
+		if (x != y)
+			return x > y;
+	}
+	return *a != 0;
+}
+
+static void view_build(void)
+{
+	int index, other, count = 0;
+
+	find_row_make();
+	for (index = 0; index < workshop.count; index++)
+	{
+		if (workshop.items[index].setup)
+			workshop.view[count++] = index;
+	}
+	workshop.view[count++] = -1;
+	for (index = 0; index < workshop.count && count < (int)(sizeof(workshop.view) / sizeof(workshop.view[0])); index++)
+	{
+		if (!workshop.items[index].setup && kept(&workshop.items[index]))
+			workshop.view[count++] = index;
+	}
+	/* (A-Z: by title, in place; the others keep Steam's order) */
+	if (workshop.sort == WORKSHOP_SORT_NAME)
+	{
+		for (index = 1; index < count; index++)
+		{
+			int value = workshop.view[index];
+
+			if (value < 0 || workshop.items[value].setup)
+				continue;
+			for (other = index; other > 0 && workshop.view[other - 1] >= 0 &&
+				!workshop.items[workshop.view[other - 1]].setup &&
+				title_after(workshop.items[workshop.view[other - 1]].title, workshop.items[value].title); other--)
+			{
+				workshop.view[other] = workshop.view[other - 1];
+			}
+			workshop.view[other] = value;
+		}
+	}
+	workshop.view_count = count;
+}
+
+/* a shown row's index into items: -1 the find row, -2 none */
+static int real_index(int index)
+{
+	return index >= 0 && index < workshop.view_count ? workshop.view[index] : -2;
+}
+
 int workshop_browser_count(void)
 {
-	return workshop.count;
+	view_build();
+	return workshop.view_count;
 }
 
 const struct workshop_browser_item *workshop_browser_item(int index)
 {
-	return index >= 0 && index < workshop.count ? &workshop.items[index] : NULL;
+	int real = real_index(index);
+
+	return real == -1 ? &workshop.find_row : real >= 0 && real < workshop.count ? &workshop.items[real] : NULL;
+}
+
+int workshop_browser_filter(void)
+{
+	return workshop.filter;
+}
+
+int workshop_browser_sort(void)
+{
+	return workshop.sort;
+}
+
+const char *workshop_browser_search(void)
+{
+	return workshop.search;
+}
+
+int workshop_browser_filter_offered(int filter)
+{
+	int index;
+
+	for (index = 0; filter != WORKSHOP_FILTER_ALL && index < workshop.count; index++)
+	{
+		const struct workshop_browser_item *item = &workshop.items[index];
+
+		if (!item->setup && ((filter == WORKSHOP_FILTER_MULTIPLAYER && (item->tags & WORKSHOP_TAG_MULTIPLAYER)) ||
+			(filter == WORKSHOP_FILTER_CAMPAIGN && (item->tags & WORKSHOP_TAG_CAMPAIGN)) ||
+			(filter == WORKSHOP_FILTER_INSTALLED && item->state == WORKSHOP_ITEM_INSTALLED)))
+		{
+			return 1;
+		}
+	}
+	return filter == WORKSHOP_FILTER_ALL;
+}
+
+void workshop_browser_set_filter(int filter)
+{
+	workshop.filter = filter >= 0 && filter < WORKSHOP_FILTER_COUNT ? filter : WORKSHOP_FILTER_ALL;
+	view_build();
+}
+
+/* (a change of order or words: Steam's page asked again, once; the network
+list of ours, when set, is not Steam's and is only filtered) */
+static void list_again(void)
+{
+	const char *setting = config_string("network.workshop_url");
+
+	view_build();
+	if (!setting || !setting[0])
+		web_ask();
+}
+
+void workshop_browser_set_sort(int sort)
+{
+	workshop.sort = sort >= 0 && sort < WORKSHOP_SORT_COUNT ? sort : WORKSHOP_SORT_POPULAR;
+	list_again();
+}
+
+void workshop_browser_set_search(const char *text)
+{
+	snprintf(workshop.search, sizeof(workshop.search), "%s", text ? text : "");
+	list_again();
 }
 
 int workshop_browser_subscribe(int index)
 {
 	char url[96];
+	int shown = index;
 
+	index = real_index(index);
 	if (index < 0 || index >= workshop.count)
 		return 0;
-	if (workshop.items[index].mcc_install)
-	{
-		if (!bridge_ready() || !steam_bridge_install_mcc())
-			return 0;
-		workshop.items[index].state = WORKSHOP_ITEM_WAITING;
-		return 1;
-	}
+	if (workshop.items[index].setup)
+		return workshop_browser_setup_press(shown);
 	if (!workshop_browser_steam_url(workshop.items[index].id, url, sizeof(url)))
 		return 0;
 	/* (OPEN: an item Steam has, or is fetching: its page, nothing asked) */
@@ -1198,7 +1623,8 @@ int workshop_browser_subscribe(int index)
 
 int workshop_browser_unsubscribe(int index)
 {
-	if (index < 0 || index >= workshop.count || workshop.items[index].mcc_install || !bridge_ready() ||
+	index = real_index(index);
+	if (index < 0 || index >= workshop.count || workshop.items[index].setup || !bridge_ready() ||
 		!steam_bridge_unsubscribe(workshop.items[index].id))
 	{
 		return 0;

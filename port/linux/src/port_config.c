@@ -1401,6 +1401,9 @@ static const struct config_setting config_settings[] =
 	{ "paths.steamcmd", _config_string, "\"\"", "HALO_STEAMCMD", _environment_value, _platform_desktop,
 		"steamcmd, for the Workshop on macOS and Linux. Empty looks in the PATH and the\n"
 		"usual places." },
+	{ "paths.steam_downloads", _config_string, "\"\"", "HALO_STEAM_DOWNLOADS", _environment_value, _platform_desktop,
+		"Where steamcmd puts Workshop items and MCC's Halo CE files for the game.\n"
+		"Empty is steam/ in the data folder. Use a big drive for MCC's files." },
 	{ "paths.steam_api", _config_string, "\"\"", "HALO_STEAM_API", _environment_value, _platform_desktop,
 		"A steam_api library for the Workshop to use. Empty uses MCC's own on Windows." },
 	{ "game.mcc_collections", _config_boolean, "false", "HALO_MCC_COLLECTIONS", _environment_value, _platform_all,
@@ -1678,6 +1681,9 @@ static const struct config_setting config_settings[] =
 		"Run without a window, and draw nothing." },
 	{ "debug.gl_debug", _config_boolean, "false", "HALO_GL_DEBUG", _environment_set_is_true, _platform_all,
 		"Report OpenGL errors in the log." },
+	{ "debug.workshop_setup", _config_string, "\"\"", "HALO_WORKSHOP_SETUP", _environment_value, _platform_desktop,
+		"The Delta Guide Workshop's setup rows shown as given, for screenshots:\n"
+		"\"steam=1,signin=0\" (0 Ready, 1 To do, 2 Working, 3 Not available)." },
 	{ "debug.workshop_no_steam", _config_boolean, "false", "HALO_WORKSHOP_NO_STEAM", _environment_set_is_true,
 		_platform_desktop,
 		"The Delta Guide's Workshop marks an item subscribed without opening\n"

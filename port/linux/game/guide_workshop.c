@@ -79,7 +79,10 @@ enum
 	_option_sign_in,
 	_option_use_steam,
 	_option_show_maps,
-	MAXIMUM_OPTIONS
+	/* the find row's: a filter's chip, a sort (+ its WORKSHOP_FILTER_* / WORKSHOP_SORT_*) */
+	_option_filter,
+	_option_sort = _option_filter + WORKSHOP_FILTER_COUNT,
+	MAXIMUM_OPTIONS = _option_sort + WORKSHOP_SORT_COUNT
 };
 
 static struct
@@ -111,7 +114,30 @@ static short options_of(struct workshop_browser_item const *item, short *options
 
 	if (!item)
 		return 0;
-	if ((!item->mcc_install || item->state == WORKSHOP_ITEM_NOT_INSTALLED) && !(bridge && item->steam_subscribed))
+	if (item->setup == WORKSHOP_ROW_FIND)
+	{
+		short index;
+
+		/* (the chips Steam's tags give, and Installed, only when some item has it) */
+		for (index = 0; index < WORKSHOP_FILTER_COUNT; index++)
+		{
+			if (index != workshop_browser_filter() && workshop_browser_filter_offered(index))
+				options[count++] = (short)(_option_filter + index);
+		}
+		for (index = 0; index < WORKSHOP_SORT_COUNT; index++)
+		{
+			if (index != workshop_browser_sort())
+				options[count++] = (short)(_option_sort + index);
+		}
+		return count;
+	}
+	if (item->setup)
+	{
+		if (workshop_browser_setup_button(workshop_view.row))
+			options[count++] = _option_steam;
+		return count;
+	}
+	if ((!item->setup || item->state == WORKSHOP_ITEM_NOT_INSTALLED) && !(bridge && item->steam_subscribed))
 		options[count++] = _option_steam;
 	if (bridge && item->steam_subscribed && steam_bridge_can_unsubscribe())
 		options[count++] = _option_unsubscribe;
@@ -119,13 +145,33 @@ static short options_of(struct workshop_browser_item const *item, short *options
 		options[count++] = _option_sign_in;
 	if (!steam_bridge_enabled() && workshop_browser_bridge_backend() != STEAM_BRIDGE_BACKEND_NONE)
 		options[count++] = _option_use_steam;
-	if (!item->mcc_install && !config_boolean("game.workshop_maps"))
+	if (!item->setup && !config_boolean("game.workshop_maps"))
 		options[count++] = _option_show_maps;
 	return count;
 }
 
 static char const *option_label(struct workshop_browser_item const *item, short option)
 {
+	static char word[24];
+
+	if (option >= _option_filter && option < _option_sort)
+	{
+		short index;
+
+		snprintf(word, sizeof(word), "%s", workshop_browser_filter_name(option - _option_filter));
+		for (index = 0; word[index]; index++)
+			word[index] = (char)(word[index] >= 'a' && word[index] <= 'z' ? word[index] - 32 : word[index]);
+		return word;
+	}
+	if (option >= _option_sort && option < MAXIMUM_OPTIONS)
+	{
+		short index;
+
+		snprintf(word, sizeof(word), "%s", workshop_browser_sort_name(option - _option_sort));
+		for (index = 0; word[index]; index++)
+			word[index] = (char)(word[index] >= 'a' && word[index] <= 'z' ? word[index] - 32 : word[index]);
+		return word;
+	}
 	switch (option)
 	{
 	case _option_show_maps: return "TURN ON";
@@ -134,8 +180,8 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	case _option_use_steam: return workshop_view.confirm ? "CONFIRM" : "USE STEAM";
 	default: break;
 	}
-	if (item->mcc_install)
-		return "INSTALL";
+	if (item->setup)
+		return workshop_browser_setup_button(workshop_view.row);
 	/* (installed, or on its way: its page in Steam) */
 	return item->state == WORKSHOP_ITEM_NOT_INSTALLED ? "GET" : "OPEN";
 }
@@ -156,6 +202,18 @@ static char const *use_steam_note(void)
 
 static void option_run(short option)
 {
+	if (option >= _option_filter && option < _option_sort)
+	{
+		workshop_browser_set_filter(option - _option_filter);
+		workshop_view.option = 0;
+		return;
+	}
+	if (option >= _option_sort && option < MAXIMUM_OPTIONS)
+	{
+		workshop_browser_set_sort(option - _option_sort);
+		workshop_view.option = 0;
+		return;
+	}
 	switch (option)
 	{
 	case _option_show_maps:
@@ -194,6 +252,33 @@ static unsigned int state_color(int state)
 	case WORKSHOP_ITEM_WAITING:
 	case WORKSHOP_ITEM_DOWNLOADING:
 	case WORKSHOP_ITEM_INSTALLING: return COLOR_WAITING;
+	default: return COLOR_NOT_INSTALLED;
+	}
+}
+
+/* a row's kind: the find row's filter and sort as they are */
+static char const *kind_text(struct workshop_browser_item const *item)
+{
+	return item->setup == WORKSHOP_ROW_FIND ? item->kind : workshop_browser_kind_name(item->kind);
+}
+
+/* a row's word and color: a setup row's step, an item's state */
+static char const *item_word(struct workshop_browser_item const *item)
+{
+	if (item->setup == WORKSHOP_ROW_FIND)
+		return "";
+	return item->setup ? workshop_browser_step_name(item->step) : workshop_browser_state_name(item->state);
+}
+
+static unsigned int item_color(struct workshop_browser_item const *item)
+{
+	if (!item->setup)
+		return state_color(item->state);
+	switch (item->step)
+	{
+	case WORKSHOP_STEP_READY: return COLOR_INSTALLED;
+	case WORKSHOP_STEP_WORKING: return COLOR_WAITING;
+	case WORKSHOP_STEP_NOT_AVAILABLE: return COLOR_DESCRIPTION;
 	default: return COLOR_NOT_INSTALLED;
 	}
 }
@@ -271,6 +356,7 @@ void guide_workshop_update(boolean showing)
 {
 	short index, installed;
 
+	workshop_browser_own_library();
 	/* (the bridge only while the section shows) */
 	if (workshop_view.showing && !showing)
 		workshop_browser_close();
@@ -412,15 +498,15 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 		char const *state;
 
 		item = workshop_browser_item(index);
-		state = workshop_browser_state_name(item->state);
+		state = item_word(item);
 		ui_style_row(left, y, LIST_WIDTH, ROW_HEIGHT, on);
 		ui_style_text(UI_TEXT_NAME, left + 10, y + 3, UI_ALIGN_LEFT, item->title);
 		if (item->author[0])
-			snprintf(line, sizeof(line), "%s - %s", workshop_browser_kind_name(item->kind), item->author);
+			snprintf(line, sizeof(line), "%s - %s", kind_text(item), item->author);
 		else
-			snprintf(line, sizeof(line), "%s", workshop_browser_kind_name(item->kind));
+			snprintf(line, sizeof(line), "%s", kind_text(item));
 		ui_style_text(UI_TEXT_STATUS, left + 10, y + 17, UI_ALIGN_LEFT, line);
-		ui_overlay_text(UI_FONT_MENU, 8.0f, left + LIST_WIDTH - 10, y + 17, UI_ALIGN_RIGHT, state_color(item->state),
+		ui_overlay_text(UI_FONT_MENU, 8.0f, left + LIST_WIDTH - 10, y + 17, UI_ALIGN_RIGHT, item_color(item),
 			state);
 		if (target)
 			target(left, y, left + LIST_WIDTH, y + ROW_HEIGHT, 0, index);
@@ -433,10 +519,9 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 	ui_style_glass(x, top, width, bottom - top, 8, ui_style_color(UI_COLOR_PANE), ui_style_color(UI_COLOR_ROW_EDGE));
 	ui_style_text(UI_TEXT_TITLE, x + 12, top + 12, UI_ALIGN_LEFT, item->title);
 	workshop_browser_size_text(item->size, size, sizeof(size));
-	snprintf(line, sizeof(line), "%s%s%s", workshop_browser_kind_name(item->kind), size[0] ? " - " : "", size);
+	snprintf(line, sizeof(line), "%s%s%s", kind_text(item), size[0] ? " - " : "", size);
 	ui_style_text(UI_TEXT_LINE, x + 12, top + 32, UI_ALIGN_LEFT, line);
-	ui_overlay_text(UI_FONT_MENU, 9.0f, x + width - 12, top + 33, UI_ALIGN_RIGHT, state_color(item->state),
-		workshop_browser_state_name(item->state));
+	ui_overlay_text(UI_FONT_MENU, 9.0f, x + width - 12, top + 33, UI_ALIGN_RIGHT, item_color(item), item_word(item));
 	y = top + 48;
 	if (item->author[0])
 	{
@@ -482,7 +567,7 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 		}
 		else if (item->state == WORKSHOP_ITEM_WAITING && workshop_browser_bridge_status() != STEAM_BRIDGE_READY)
 			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Open Steam to subscribe");
-		else if (!item->mcc_install && !config_boolean("game.workshop_maps"))
+		else if (!item->setup && !config_boolean("game.workshop_maps"))
 			ui_style_text(UI_TEXT_LABEL, x + 12, y - 16, UI_ALIGN_LEFT, "Workshop maps are off");
 		for (index = 0; index < option_count; index++)
 		{
