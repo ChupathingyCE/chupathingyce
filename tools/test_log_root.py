@@ -144,6 +144,9 @@ def run_game(binary, folder, save_root):
 @pytest.fixture(scope="module")
 def binary():
     found = game()
+    # (linux-tests unpacks the linux build: there it must run, never skip)
+    if not found and os.environ.get("GITHUB_ACTIONS") and sys.platform.startswith("linux"):
+        pytest.fail("no build/linux/chupathingy in linux-tests")
     if not found:
         pytest.skip("no built game (LOG_ROOT_GAME, or build/macos, linux64, freebsd64 or linux)")
     return found
