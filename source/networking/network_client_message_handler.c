@@ -199,6 +199,7 @@ symbols in this file:
 #include "game/players.h"
 #include "networking/network_client_manager.h"
 #include "networking/network_client_message_handler.h"
+#include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
 #include "networking/network_game_protocol.h"
 #include "networking/network_messages.h"
@@ -1114,6 +1115,8 @@ knows has the layout a signed legacy table's facts give it (network_rules.h,
 "layouts"): its options may be longer and bytes may follow the local data,
 which this build has no use for. */
 int network_rules_settings_size_taken(unsigned version, unsigned total_size);
+/* port: halo_port_limits.h's (the number this machine announces as a host) */
+int delta_legacy_announce(void);
 int network_rules_settings_options_size(unsigned version, unsigned total_size);
 void network_rules_settings_fold(unsigned char *record, int total_size, int options_size, unsigned char *extended);
 void network_rules_extended_options_default(unsigned char *options);
@@ -1187,6 +1190,19 @@ static boolean network_game_client_leave_unsupported_game_type(
 	return TRUE;
 }
 
+/* port: the version whose record the host sends: its advertised one, but
+for the host's own machine, which joined its game at home and was told
+none: the number this machine announces, whose record its server writes */
+static unsigned int network_game_client_settings_version(
+	void)
+{
+	unsigned int version = network_game_client_host_network_version();
+
+	if (version == 0xFFFF && global_network_game_server_get())
+		version = (unsigned int)delta_legacy_announce();
+	return version;
+}
+
 static boolean network_game_client_receive_game_settings_piece(
 	struct network_game_client *client,
 	struct message_server_game_settings_update const *piece,
@@ -1197,7 +1213,9 @@ static boolean network_game_client_receive_game_settings_piece(
 	/* port: the record's size by the host's version (13,120 bytes to 34,
 	13,136 from 35, a newer version's by the table's layouts), either of the
 	first two for a host not known */
-	if (!network_rules_settings_size_taken(network_game_client_host_network_version(), piece->total_size) ||
+	unsigned int host_version = network_game_client_settings_version();
+
+	if (!network_rules_settings_size_taken(host_version, piece->total_size) ||
 		piece->total_size > NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM ||
 		piece->length > sizeof(piece->data) ||
 		piece->offset + piece->length > piece->total_size)
@@ -1233,7 +1251,7 @@ static boolean network_game_client_receive_game_settings_piece(
 				/* port: a record of 35 on made the older layout, its further
 				options kept; an older one's are the defaults. A host not
 				known that sends the newer is taken for one of 35. */
-				options_size = network_rules_settings_options_size(network_game_client_host_network_version(),
+				options_size = network_rules_settings_options_size(host_version,
 					piece->total_size);
 				if (options_size > NETWORK_GAME_CLIENT_OPTIONS_SIZE)
 				{

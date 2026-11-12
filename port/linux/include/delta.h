@@ -610,7 +610,7 @@ struct delta_layout_fact
 	unsigned char join_request_said;
 	unsigned char join_request_fill;
 	/* (chupa-43a on) where in those bytes the client writes its network
-	version (the host's number), 16 bits little-endian:
+	version (the host's number), 16 bits big-endian (the packet codec's):
 	join_request_version_said when the fact says it */
 	unsigned short join_request_version_at;
 	unsigned char join_request_version_said;
