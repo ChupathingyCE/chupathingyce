@@ -1,6 +1,9 @@
 /* MCC-only hardware descriptors over immutable converted pixel allocations.
  * Neither the Xbox/CE bitmap descriptors nor their LRU state are rewritten. */
-#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "bitmaps/bitmaps.h"
 #include "bitmaps/bitmap_group.h"

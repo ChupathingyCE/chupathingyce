@@ -59,6 +59,8 @@ enum
 map's package's ModInfo.json and CampaignInfo.json (its title, author and
 words), letters in any case */
 void ui_map_list_view_set(short source, short sort, char const *search);
+/* whether the lists offer MCC maps now: not while hosting a network game */
+boolean ui_map_list_mcc_offered(void);
 /* changes with each new view or list, for a list widget to take its rows again */
 unsigned long ui_map_list_view_serial(void);
 /* whether the list has maps of a source (all: any) */

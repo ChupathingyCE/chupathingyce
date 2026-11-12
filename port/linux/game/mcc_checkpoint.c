@@ -2,7 +2,10 @@
  * The CPU allocator's high-water mark proves this fixed tail is unused;
  * no game_state_malloc call, pool size, or allocation checksum is changed.
  * Original tail bytes are retained and restored when MCC ownership ends. */
-#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h): a console builds this to nothing */
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "cseries.h"
 #include "errors.h"
 #include "saved games/game_state.h"

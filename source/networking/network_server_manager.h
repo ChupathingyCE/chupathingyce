@@ -126,7 +126,7 @@ char const *network_game_server_machine_hardware_id(
 void network_game_server_update_ticks(
 	struct network_game_server *server,
 	short tick_count);
-void network_game_server_change_map_name(
+boolean network_game_server_change_map_name(
 	struct network_game_server *server,
 	char const *map_name);
 void network_game_server_change_game_variant(

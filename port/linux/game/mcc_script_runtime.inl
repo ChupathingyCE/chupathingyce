@@ -219,6 +219,10 @@ static boolean mcc_hs_parameter_evaluate(long thread_index, struct hs_syntax_nod
      * parameters here, preserving the native table for Xbox and CE scripts. */
     else if (type == _hs_type_short_integer && node->type == _hs_type_long_integer)
         *destination = (short)*value;
+    /* A parameter the compiler skipped (mcc_parameter_compile_skipped) may
+     * still name a type with no cast: stop the script, as a syntax error
+     * does, rather than reach hs_cast's assert. */
+    else if (mcc_parameter_compile(node) <= 0) hs_syntax_error(thread_index);
     else *destination = hs_cast(thread_index, type, node->type, *value);
     return TRUE;
 }

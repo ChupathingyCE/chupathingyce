@@ -283,6 +283,10 @@ symbols in this file:
 /* port: port/linux/game/network_objects.c's (a client deletes the host's
 objects on the host's word alone) */
 boolean network_objects_may_delete(long object_index);
+/* port: port/linux/game/network_distributed.c's (riders leave a vehicle on
+the ground whose up is below it: 0 but in a network game whose version's
+layout says another) */
+real network_distributed_rider_ejection_up(void);
 
 /* ---------- constants */
 
@@ -4277,8 +4281,10 @@ boolean biped_update(
 			if (TEST_FLAG(biped->unit.control_flags, _unit_control_action_bit))
 				unit_try_and_exit_seat(biped_index);
 
+			/* (port: below 0 as the Xbox's, but in a network game whose
+			version's layout says another height, network_distributed.c) */
 			if (rider_ejection &&
-				vehicle->object.up.k<0.f &&
+				vehicle->object.up.k<network_distributed_rider_ejection_up() &&
 				TEST_FLAG(vehicle->object.flags, _object_on_ground_bit))
 			{
 				unit_exit_seat_end(biped_index);

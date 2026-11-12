@@ -1697,6 +1697,63 @@ report:
 	return FALSE;
 }
 
+/* port: whether this machine has the map (as a game names it) to load:
+an Xbox map's file in maps (or the map precached already), a pack's in its
+maps_<pack>, a Custom Edition, HaloMD or Halo PC map's in its family's
+folders with Custom Edition's resource maps beside them (not a HaloMD map on
+a console that doesn't play them). A dedicated server asks the same before
+its own checks (server_map_playable). Nothing is shown
+to the player: a host asks before it sets a game on the map (a playlist's next
+entry, network_game_server_change_map_name), for a map it lacks would take
+its own machine, and so the game, down (#1106). An MCC map counts as
+missing: the loaders don't play one yet (map_family_find_mcc) */
+boolean cache_files_map_installed(
+	char const *map_name)
+{
+	char const *cache_files_map_directory(void);
+	char file[64];
+	char path[256];
+	short family;
+	HANDLE handle;
+
+	if (!map_name || !map_name[0])
+		return FALSE;
+	family = map_family_parse(map_name, file, sizeof(file));
+#ifdef HALO_MAP_LIST
+	if (family == _map_family_pack)
+	{
+		if (!map_family_xbox_path(map_name, path, sizeof(path)))
+			return FALSE;
+		handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+		if (handle == INVALID_HANDLE_VALUE)
+			return FALSE;
+		CloseHandle(handle);
+		return TRUE;
+	}
+#endif
+	if (family != _map_family_xbox)
+	{
+#ifdef HALO_CUSTOM_EDITION
+#ifdef HALO_CONSOLE_NO_HALOMD_MAPS
+		/* (a console that doesn't play HaloMD maps: cache_files_map_present) */
+		if (family == _map_family_halomd)
+			return FALSE;
+#endif
+		return map_family_resources_ready(NULL, 0) && map_family_find(family, file, path, sizeof(path));
+#else
+		return FALSE;
+#endif
+	}
+	if (cache_files_precache_map_loaded(map_name))
+		return TRUE;
+	snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), file);
+	handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+	if (handle == INVALID_HANDLE_VALUE)
+		return FALSE;
+	CloseHandle(handle);
+	return TRUE;
+}
+
 boolean cache_files_give_time_to_precache(
 	char const *map_name)
 {
