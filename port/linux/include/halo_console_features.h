@@ -44,6 +44,11 @@ HALO_CONSOLE_WIDGET_POOL_SIZE
 	Xbox's menus: the desktop's 256 KB is for the PC menus' screens
 	(port/assets/menus), which have many more widgets (source/interface/
 	ui_widget.c; console.widget_pool_log logs what the menus use)
+HALO_CONSOLE_MAP_LIST_ROWS
+	the rows of the menus' map list (port/linux/game/ui_map_list.c): the
+	original Xbox's 40, every other console's 256; the desktop builds and
+	Android leave it undefined and hold 2560, room for a large Custom
+	Edition folder beside the whole MCC catalog
 HALO_CONSOLE_NO_GUIDE
 	no Guide (port/linux/game/guide.c, over any screen) and no presence
 	sent to the site (browser.c, network.share_presence), their settings
@@ -501,6 +506,15 @@ consoles nor the dedicated server, which downloads nothing */
 #endif
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_HOST_MAP_DOWNLOADS) && !defined(HALO_SERVER)
 #define HALO_HOST_MAP_DOWNLOADS 1
+#endif
+
+/* the menus' map list's rows (ui_map_list.c): a console's own size */
+#if defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_MAP_LIST_ROWS)
+#define HALO_CONSOLE_MAP_LIST_ROWS 40
+#endif
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_MAP_LIST_ROWS)
+#define HALO_CONSOLE_MAP_LIST_ROWS 256
 #endif
 
 /* Stubbs mode (port/linux/game/stubbs_mode.c), an early look: the desktop

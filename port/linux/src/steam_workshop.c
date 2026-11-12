@@ -28,6 +28,16 @@ static struct
 	int enabled;
 	int count;
 	struct steam_workshop_map maps[STEAM_WORKSHOP_MAXIMUM_MAPS];
+	/* the maps that couldn't be listed, and why (steam_workshop_unlisted) */
+	int unlisted_count;
+	struct
+	{
+		char item_id[STEAM_WORKSHOP_ID_SIZE];
+		char map[64];
+		/* (a word or two for the item's page; the log's detail, file names and all) */
+		char reason[STEAM_WORKSHOP_REASON_SIZE];
+		char detail[STEAM_WORKSHOP_DETAIL_SIZE];
+	} unlisted[STEAM_WORKSHOP_MAXIMUM_UNLISTED];
 } catalog;
 
 static int discovery_enabled(void)
@@ -311,6 +321,58 @@ static int resolve(const char *folder, const char *relative, char *out, unsigned
 	return 1;
 }
 
+void steam_workshop_unlisted(const char *item_id, const char *map, const char *reason, const char *detail)
+{
+	int index;
+
+	if (!item_id || !map || !reason || !detail)
+		return;
+	for (index = 0; index < catalog.unlisted_count; index++)
+	{
+		if (!strcmp(catalog.unlisted[index].item_id, item_id) && !strcmp(catalog.unlisted[index].map, map) &&
+			!strcmp(catalog.unlisted[index].reason, reason))
+			return;
+	}
+	/* (each once a scan: the log says it the first time) */
+	if (map[0])
+		fprintf(stderr, "Workshop item %s: map %s can't be listed: %s (%s)\n", item_id, map, detail, reason);
+	else
+		fprintf(stderr, "Workshop item %s: %s (%s)\n", item_id, detail, reason);
+	if (catalog.unlisted_count >= STEAM_WORKSHOP_MAXIMUM_UNLISTED)
+		return;
+	copy_text(catalog.unlisted[catalog.unlisted_count].item_id, STEAM_WORKSHOP_ID_SIZE, item_id);
+	copy_text(catalog.unlisted[catalog.unlisted_count].map, 64, map);
+	copy_text(catalog.unlisted[catalog.unlisted_count].reason, STEAM_WORKSHOP_REASON_SIZE, reason);
+	copy_text(catalog.unlisted[catalog.unlisted_count].detail, STEAM_WORKSHOP_DETAIL_SIZE, detail);
+	catalog.unlisted_count++;
+}
+
+int steam_workshop_item_unlisted(const char *item_id, int which, char *found_item, char *map, char *reason,
+	char *detail)
+{
+	int index, count = 0;
+
+	if (!catalog.scanned)
+		steam_workshop_scan();
+	for (index = 0; index < catalog.unlisted_count; index++)
+	{
+		if (item_id && strcmp(catalog.unlisted[index].item_id, item_id))
+			continue;
+		if (count++ == which)
+		{
+			if (found_item)
+				strcpy(found_item, catalog.unlisted[index].item_id);
+			if (map)
+				strcpy(map, catalog.unlisted[index].map);
+			if (reason)
+				strcpy(reason, catalog.unlisted[index].reason);
+			if (detail)
+				strcpy(detail, catalog.unlisted[index].detail);
+		}
+	}
+	return count;
+}
+
 static int has_item(const char *item_id)
 {
 	int index;
@@ -337,52 +399,117 @@ static int digits(const char *text)
 	return 1;
 }
 
+/* the map a json names, for the log and the item's page: its file's name without folders or ".json" */
+static void json_map_name(const char *json, char name[64])
+{
+	const char *base = strrchr(json, '/');
+	size_t length;
+
+	base = base ? base + 1 : json;
+	length = strlen(base);
+	if (length > 5 && !strcmp(base + length - 5, ".json"))
+		length -= 5;
+	if (length > 63)
+		length = 63;
+	memcpy(name, base, length);
+	name[length] = 0;
+}
+
 static void scan_item(const char *item_folder, const char *item_id)
 {
 	static struct steam_workshop_item_text item;
 	static struct steam_workshop_map_text map;
 	static struct mcc_manifest campaign;
 	char path[STEAM_WORKSHOP_PATH_SIZE], maps_folder[STEAM_WORKSHOP_PATH_SIZE], found[256], file_name[96];
-	char reason[128];
+	char reason[128], name[64];
 	char *text;
-	int length, index, count;
+	int length, index, count, manifest = 0;
 
-	if (!resolve(item_folder, "ModInfo.json", path, sizeof(path)) || !(text = read_file(path, &length)))
+	if (!resolve(item_folder, "ModInfo.json", path, sizeof(path)))
 		return;
+	if (!(text = read_file(path, &length)))
+	{
+		steam_workshop_unlisted(item_id, "", "Item info unreadable", "its ModInfo.json can't be read");
+		return;
+	}
 	index = steam_workshop_read_item(text, length, &item);
 	free(text);
-	if (!index || !item.halo1 || !resolve(item_folder, "maps", maps_folder, sizeof(maps_folder)) ||
-		!is_directory(maps_folder))
+	if (!index)
+	{
+		steam_workshop_unlisted(item_id, "", "Item info unreadable", "its ModInfo.json can't be read");
 		return;
+	}
+	/* (another game's item: not ours to list) */
+	if (!item.halo1)
+		return;
+	if (!resolve(item_folder, "maps", maps_folder, sizeof(maps_folder)) || !is_directory(maps_folder))
+	{
+		steam_workshop_unlisted(item_id, "", "No maps", "it has no maps folder");
+		return;
+	}
+	/* Campaign missions are always listed, as a maps_mcc package's are; game.mcc_campaigns
+	only adds their order and progression (mcc_maps.c) */
 	campaign.count = 0;
-	if (item.has_campaign && config_boolean("game.mcc_campaigns") &&
-		mcc_manifest_load(item_folder, &campaign, reason) < 0)
-		fprintf(stderr, "MCC package '%s' (%s): campaign metadata rejected: %s\n",
-			item.title, item_id, reason);
+	if (item.has_campaign)
+	{
+		manifest = mcc_manifest_load(item_folder, &campaign, reason);
+		if (manifest < 0)
+		{
+			fprintf(stderr, "MCC package '%s' (%s): campaign metadata rejected: %s\n",
+				item.title, item_id, reason);
+			steam_workshop_unlisted(item_id, "", "Campaign info unreadable", "its CampaignInfo.json or a mission's json was refused");
+		}
+		else if (!manifest)
+			steam_workshop_unlisted(item_id, "", "Campaign info missing", "HasCampaign is set but there is no CampaignInfo.json");
+	}
 	count = item.map_count + campaign.count;
-	for (index = 0; index < count && catalog.count < STEAM_WORKSHOP_MAXIMUM_MAPS; index++)
+	for (index = 0; index < count; index++)
 	{
 		struct steam_workshop_map *entry = &catalog.maps[catalog.count];
 
 		if (index < item.map_count)
 		{
-			if (!resolve(item_folder, item.map_json[index], path, sizeof(path)) || !(text = read_file(path, &length)))
+			json_map_name(item.map_json[index], name);
+			if (!resolve(item_folder, item.map_json[index], path, sizeof(path)))
+			{
+				steam_workshop_unlisted(item_id, name, "Map info missing", "its json is missing");
 				continue;
+			}
+			if (!(text = read_file(path, &length)))
+			{
+				steam_workshop_unlisted(item_id, name, "Map info unreadable", "its json can't be read");
+				continue;
+			}
 			length = steam_workshop_read_map(text, length, &map);
 			free(text);
+			if (!length)
+			{
+				steam_workshop_unlisted(item_id, name, "Map info unreadable", "its json can't be read");
+				continue;
+			}
 		}
 		else
-		{
 			map = campaign.missions[index - item.map_count];
-			length = 1;
-		}
 		snprintf(file_name, sizeof(file_name), "%s.map", map.name);
-		if (!length || !posix_find_entry_case_insensitive(maps_folder, file_name, found, sizeof(found)) ||
-			!join(entry->path, sizeof(entry->path), maps_folder, found))
+		if (!posix_find_entry_case_insensitive(maps_folder, file_name, found, sizeof(found)) ||
+			strlen(found) >= sizeof(entry->name) + 4)
+		{
+			steam_workshop_unlisted(item_id, map.name, "Map missing", "its .map file is not in the maps folder");
 			continue;
+		}
+		if (catalog.count >= STEAM_WORKSHOP_MAXIMUM_MAPS)
+		{
+			steam_workshop_unlisted(item_id, map.name, "Too many maps", "the Workshop catalog is full");
+			continue;
+		}
+		if (!join(entry->path, sizeof(entry->path), maps_folder, found) || !is_file(entry->path))
+		{
+			steam_workshop_unlisted(item_id, map.name, "Map unreadable", "its .map file can't be opened");
+			continue;
+		}
 		/* the name as the file is spelled on disk */
 		found[strlen(found) - 4] = 0;
-		if (!found[0] || strlen(found) >= sizeof(entry->name) || !is_file(entry->path))
+		if (!found[0])
 			continue;
 		copy_text(entry->item_id, sizeof(entry->item_id), item_id);
 		copy_text(entry->item_title, sizeof(entry->item_title), item.title);
@@ -402,7 +529,7 @@ static void scan_library(const char *library)
 
 	if (!join(content, sizeof(content), library, CONTENT_FOLDER) || !(directory = posix_directory_open(content)))
 		return;
-	while (catalog.count < STEAM_WORKSHOP_MAXIMUM_MAPS && posix_directory_next(directory, name, sizeof(name)))
+	while (posix_directory_next(directory, name, sizeof(name)))
 	{
 		/* an item already scanned is the same item seen through another path to its library */
 		if (!digits(name) || has_item(name) || !join(item_folder, sizeof(item_folder), content, name) ||
@@ -556,6 +683,7 @@ int steam_workshop_scan(void)
 
 	catalog.scanned = 1;
 	catalog.count = 0;
+	catalog.unlisted_count = 0;
 	catalog.enabled = discovery_enabled();
 	if (!catalog.enabled)
 		return 0;
@@ -563,7 +691,7 @@ int steam_workshop_scan(void)
 	if (!paths)
 		return 0;
 	count = libraries(paths, 2 * STEAM_WORKSHOP_MAXIMUM_LIBRARIES);
-	for (index = 0; index < count && catalog.count < STEAM_WORKSHOP_MAXIMUM_MAPS; index++)
+	for (index = 0; index < count; index++)
 		scan_library(paths[index]);
 	free(paths);
 	return catalog.count;
