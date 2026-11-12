@@ -2533,7 +2533,9 @@ static void multiplayer_game_set_text_box_for_map_name(
 #ifdef HALO_MAP_LIST
 	/* port: a map past the Xbox's is named as the menus' map list names it
 	(a network co-op game's campaign level too) */
-	if (strchr(map_name, '@') || main_get_solo_level_from_name(map_name) != NONE)
+	if (strchr(map_name, '@') || main_get_solo_level_from_name(map_name) != NONE ||
+		/* (an MCC map, mcc_maps\<package>\<map>: its own picture) */
+		!strncmp(map_name, "mcc_maps\\", 9))
 	{
 		long row = ui_map_list_lookup(map_name);
 
@@ -2830,7 +2832,9 @@ static void multiplayer_game_set_bitmap_for_map(
 #ifdef HALO_MAP_LIST
 	/* port: a map past the Xbox's shows the menus' map list's picture for it
 	(a network co-op game's campaign level too) */
-	if (strchr(map_name, '@') || main_get_solo_level_from_name(map_name) != NONE)
+	if (strchr(map_name, '@') || main_get_solo_level_from_name(map_name) != NONE ||
+		/* (an MCC map, mcc_maps\<package>\<map>: its own picture) */
+		!strncmp(map_name, "mcc_maps\\", 9))
 	{
 		long row = ui_map_list_lookup(map_name);
 
