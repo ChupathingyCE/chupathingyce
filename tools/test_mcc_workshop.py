@@ -16,6 +16,8 @@ def test_workshop_identity(tmp_path):
 #include <stdio.h>
 #include <string.h>
 static char steam_title[64];
+char const *mcc_maps_directory(void){return "d:\\mcc_maps\\";}
+char const *mcc_maps_folder(void){return "mcc_maps";}
 boolean mcc_maps_workshop_title(char const *id,char *title,unsigned size){
  if(strcmp(id,"2899609719") || !steam_title[0])return 0;
  snprintf(title,size,"%s",steam_title);return 1;
@@ -123,6 +125,8 @@ FILE *workshop_test_fopen(char const *path,char const *mode) {
  local[i-3]=0;
  return fopen(local,mode);
 }
+char const *mcc_maps_directory(void){return "d:\\mcc_maps\\";}
+char const *mcc_maps_folder(void){return "mcc_maps";}
 int mcc_maps_workshop_title(char const *id,char *title,unsigned size) {
  (void)id;(void)title;(void)size;return 0;
 }
