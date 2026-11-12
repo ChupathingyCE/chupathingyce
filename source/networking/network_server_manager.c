@@ -469,6 +469,7 @@ symbols in this file:
 #include "networking/network_server_manager.h"
 #include "networking/network_server_manager_internal.h"
 #include "networking/network_server_message_handler.h"
+#include "mcc_ui_network.h"
 #include "saved games/player_profile.h"
 #include "text/unicode.h"
 
@@ -1409,6 +1410,7 @@ struct network_game_server *network_game_server_create(
 void network_game_server_dispose(
 	struct network_game_server *server)
 {
+	mcc_ui_network_server_dispose(server);
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x120, server);
 
 	/* port: a won co-op round's next level belongs to this server alone */
@@ -4716,6 +4718,8 @@ static boolean network_game_server_setup_game_from_playlist(
 {
 	boolean success = FALSE;
 
+	if (mcc_ui_network_restart_settings(server)) return TRUE;
+
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x961, server);
 
 	network_event("setting up a net game");
@@ -5955,4 +5959,8 @@ boolean network_game_server_map_share_machine(
 	*address = transport.address.ipv4_address;
 	return *address != 0;
 }
+#endif
+/* Independent MCC pause-menu round restart. */
+#if defined(HALO_MCC) && HALO_MCC
+#include "mcc_ui_network.inl"
 #endif

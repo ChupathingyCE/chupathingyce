@@ -49,6 +49,8 @@ change.
 #include "networking/network_game_protocol.h"
 #include "networking/network_server_manager.h"
 #include "halo_map_families.h"
+#include "mcc_cache.h"
+#include "mcc_maps.h"
 #ifdef HALO_MAP_LIST
 #include "halo_map_packs.h"
 #endif
@@ -734,8 +736,36 @@ boolean server_map_playable(
 {
 	char file[64];
 	char path[256];
-	short family = map_family_parse(map, file, sizeof(file));
+	short family;
 
+	/* (an MCC map: one of the MCC catalog's multiplayer maps, maps_mcc's or a
+	Workshop item's: mcc_maps.c) */
+	if (mcc_level_name(map))
+	{
+#ifndef HALO_MCC_NETWORK
+		/* (MCC maps play offline for now: a network game's machines can't
+		load them yet, mcc_cache.c) */
+		command_output_printf(output, "%s is an MCC map; MCC maps play offline for now\n", map);
+		return FALSE;
+#else
+		short index;
+
+		mcc_maps_rescan();
+		index = mcc_maps_find(map);
+		if (index == NONE)
+		{
+			command_output_printf(output, "no MCC map %s in maps_mcc\n", map);
+			return FALSE;
+		}
+		if (mcc_maps_campaign(index))
+		{
+			command_output_printf(output, "%s is an MCC campaign map, not a multiplayer one\n", map);
+			return FALSE;
+		}
+		return TRUE;
+#endif
+	}
+	family = map_family_parse(map, file, sizeof(file));
 	if (family == _map_family_xbox)
 	{
 		snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), file);
@@ -1887,6 +1917,17 @@ static boolean command_maps(
 #ifdef HALO_MAP_LIST
 	/* (the Xbox map packs' in their maps_<pack> folders: wizard@cex) */
 	map_pack_list(map_listing_pack_found, &listing);
+#endif
+#ifdef HALO_MCC_NETWORK
+	/* (the MCC catalog's multiplayer maps, by level name: mcc_maps\<package>\<map>) */
+	mcc_maps_rescan();
+	for (index = 0; index < mcc_maps_type_count(FALSE); index++)
+	{
+		short mcc = mcc_maps_type_index((short)index, FALSE);
+
+		if (mcc != NONE && mcc_maps_level_name(mcc) && command_line_map_name_valid(mcc_maps_level_name(mcc)))
+			map_listing_add(&listing, mcc_maps_level_name(mcc));
+	}
 #endif
 	qsort(listing.names, (size_t)listing.count, sizeof(listing.names[0]), map_listing_compare);
 	if (json)

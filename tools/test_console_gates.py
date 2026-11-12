@@ -73,6 +73,32 @@ def gates(defines):
     return {name for name in names if name.startswith("HALO_CONSOLE_NO_")} - PLATFORM_GATES
 
 
+def mcc(defines):
+    """HALO_MCC as the shared headers set it for these defines (1: Halo MCC
+    maps built in, 0: left out)"""
+    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if not compiler:
+        pytest.skip("no C compiler")
+    source = '#include "{}"\n#include "{}"\nint halo_mcc = HALO_MCC;\n'.format(
+        (INCLUDE / "halo_console_features.h").as_posix(), (INCLUDE / "halo_port_features.h").as_posix())
+    command = [compiler, "-E", "-P", "-x", "c", "-"] + ["-D" + define for define in defines]
+    result = subprocess.run(command, input=source, capture_output=True, text=True, check=True)
+    line = [line for line in result.stdout.splitlines() if "halo_mcc" in line][-1]
+    return int(line.split("=")[1].strip(" ;"))
+
+
+@pytest.mark.parametrize("console", sorted(CONSOLES))
+def test_no_console_builds_mcc_maps(console):
+    """Halo MCC maps are the desktop's and Android's: a console's build
+    leaves their hooks out (HALO_MCC 0), whichever switches it sets"""
+    assert mcc(CONSOLES[console]) == 0, "{} builds Halo MCC maps".format(console)
+
+
+def test_the_desktop_builds_mcc_maps():
+    assert mcc(DESKTOP) == 1
+    assert mcc(["HALO_ANDROID", "HALO_GAME_BROWSER"]) == 1
+
+
 def test_the_xbox_leaves_out_what_halo_console_leaves_out():
     """the Xbox doesn't define HALO_CONSOLE, so every switch HALO_CONSOLE
     sets has to reach it by HALO_XBOX_CONSOLE too"""

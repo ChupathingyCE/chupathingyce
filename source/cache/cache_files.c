@@ -146,6 +146,8 @@ symbols in this file:
 #include "stubbs_mode.h"
 #endif
 #include "models/models.h"
+#include "mcc_cache.h" /* independent MCC dispatch */
+#include "mcc_pause_runtime.h"
 
 /* ---------- constants */
 
@@ -686,6 +688,10 @@ void scenario_tags_unload(
 #endif
 	sound_cache_close();
 	texture_cache_close();
+	/* MCC's appended pause table unwinds before the native menu table. */
+	{
+		mcc_pause_runtime_unload();
+	}
 	/* port: the menus' tags go, and the map's own table comes back
 	(port/linux/game/menu_tags.c): after the texture cache, which writes to
 	the bitmaps it has loaded as it closes, theirs among them */
@@ -695,6 +701,13 @@ void scenario_tags_unload(
 		menu_tags_unloaded();
 	}
 	cache_file_close();
+	if (mcc_cache_tags_loaded())
+	{
+		mcc_cache_tags_unload();
+		cache_file_globals.tags_loaded = FALSE;
+		global_tag_instances = NULL;
+		return;
+	}
 #ifdef HALO_CUSTOM_EDITION
 	/* (a Custom Edition map registered no Direct3D buffers) */
 	if (cache_file_is_ce)
@@ -1200,6 +1213,8 @@ boolean cache_files_map_plays_multiplayer(
 	struct cache_file_header header;
 	boolean pack;
 
+	if (mcc_level_name(map_name))
+		return TRUE;
 	if (!cache_files_map_xbox_header(map_name, &header, build, &pack))
 		return TRUE;
 
@@ -1310,6 +1325,8 @@ build: two versions of a pack have two. */
 unsigned long cache_files_map_version(
 	char const *map_name)
 {
+	if (mcc_level_name(map_name))
+		return mcc_cache_checksum(map_name);
 #ifdef HALO_MAP_LIST
 	{
 		char pack_file[64], pack[MAP_PACK_ID_LENGTH + 1];
@@ -1481,6 +1498,8 @@ boolean cache_files_map_present(
 
 	if (!map_name || !map_name[0])
 		return TRUE;
+	if (mcc_level_name(map_name))
+		return mcc_cache_require(map_name, version);
 	family = map_family_parse(map_name, file, sizeof(file));
 	/* (a pack's Xbox map: its maps_<pack> folder's file, of the host's
 	fingerprint when the host says which) */
@@ -1740,6 +1759,9 @@ boolean cache_files_give_time_to_precache(
 {
 	boolean result = FALSE;
 
+	if (mcc_level_name(map_name))
+		return mcc_cache_precache_ready(map_name); /* port: MCC readiness polling, not admission */
+
 	/* port: no map named yet is nothing to precache. A client joining over
 	the internet asks for its multiplayer map (network_game_client_update_precache_status)
 	before the host's settings name it: an empty name, which matched a cache
@@ -1796,6 +1818,31 @@ long scenario_tags_load(
 	cache_file_loaded_name[sizeof(cache_file_loaded_name) - 1] = 0;
 	texture_cache_open();
 	sound_cache_open();
+	if (mcc_level_name(scenario_name))
+	{
+		cache_file_globals.tag_header = mcc_cache_tags_load(scenario_name, &cache_file_globals.header);
+		if (cache_file_globals.tag_header)
+		{
+			extern void menu_tags_loaded(char const *map_name);
+			global_tag_instances = xbox_pointer(cache_file_globals.tag_header->tag_instances);
+			cache_file_globals.tags_loaded = TRUE;
+			menu_tags_loaded(cache_file_globals.header.name);
+			{
+				if (!mcc_pause_runtime_load())
+				{
+					scenario_tags_unload();
+					return NONE;
+				}
+			}
+			result = cache_file_globals.tag_header->scenario_tag_index;
+		}
+		else
+		{
+			sound_cache_close();
+			texture_cache_close();
+		}
+		return result;
+	}
 	if (cache_file_open(stripped_scenario_name, &cache_file_globals.header))
 	{
 		tag_cache_base_address = physical_memory_get_tag_cache_base_address();
@@ -2179,6 +2226,16 @@ boolean scenario_structure_bsp_load(
 	/* port: the bsp's header, once read and checked */
 	struct cache_file_structure_bsp_header *structure_bsp_header;
 
+	if (mcc_cache_tags_loaded())
+	{
+		void *mcc_header, *mcc_structure;
+		if (!mcc_cache_bsp_load(reference, &mcc_header, &mcc_structure))
+			return FALSE;
+		cache_file_globals.structure_bsp_header = mcc_header;
+		cache_get_tag_instance(reference->structure_bsp.index)->base_address = xbox_address(mcc_structure);
+		return TRUE;
+	}
+
 	/* port: the tag data's size was checked as the map loaded
 	(cache_file_header_verify); the bsp's reference is the map's, and is
 	checked before anything is read where it says */
@@ -2358,6 +2415,14 @@ void scenario_structure_bsp_unload(
 	struct scenario_structure_bsp_reference *reference)
 {
 	struct cache_file_tag_instance *tag_instance;
+
+	if (mcc_cache_tags_loaded())
+	{
+		mcc_cache_bsp_unload();
+		cache_get_tag_instance(reference->structure_bsp.index)->base_address = XBOX_NULL;
+		cache_file_globals.structure_bsp_header = NULL;
+		return;
+	}
 
 	structure_bsp_header_deregister_vertex_buffers(cache_file_globals.structure_bsp_header);
 #ifdef HALO_CUSTOM_EDITION

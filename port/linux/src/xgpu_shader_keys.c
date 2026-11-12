@@ -58,13 +58,14 @@ enum
 	_slot_alpha_test_samples,
 	_slot_point_threshold,
 	_slot_plasma_model,
-	_slot_last = _slot_plasma_model
+	_slot_mcc_bump_attenuation,
+	_slot_last = _slot_mcc_bump_attenuation
 };
 
 /* (a field added to nv2a_pixel_shader_key needs a slot here: the key's last
-field is plasma_model, with no more than padding after it) */
+field is mcc_bump_attenuation, with no more than padding after it) */
 typedef char pixel_key_slots_assert[sizeof(struct nv2a_pixel_shader_key) -
-	offsetof(struct nv2a_pixel_shader_key, plasma_model) <= sizeof(unsigned long) ? 1 : -1];
+	offsetof(struct nv2a_pixel_shader_key, mcc_bump_attenuation) <= sizeof(unsigned long) ? 1 : -1];
 
 static unsigned char *slot_byte(struct nv2a_pixel_shader_key *key, unsigned long slot)
 {
@@ -84,6 +85,7 @@ static unsigned char *slot_byte(struct nv2a_pixel_shader_key *key, unsigned long
 	case _slot_alpha_test_samples: return &key->alpha_test_samples;
 	case _slot_point_threshold: return &key->point_threshold;
 	case _slot_plasma_model: return &key->plasma_model;
+	case _slot_mcc_bump_attenuation: return &key->mcc_bump_attenuation;
 	}
 	return NULL;
 }

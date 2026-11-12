@@ -112,6 +112,7 @@ symbols in this file:
 #ifdef HALO_64BIT
 #include "cseries/cseries_windows.h" /* (declared: its result is not an int) */
 #endif
+#include "mcc_campaign.h" /* port: MCC scripted fades survive damage-flash suppression */
 
 /* ---------- constants */
 
@@ -2146,7 +2147,8 @@ void _rasterizer_screen_flash(
 
 	rasterizer_profile_begin(_rasterizer_profile_screen_flash);
 
-	if (rasterizer_debug_options.screen_flash_enabled &&
+	/* port: MCC separates a loading fade from ordinary damage flashes. */
+	if ((rasterizer_debug_options.screen_flash_enabled || mcc_campaign_fade_active()) &&
 		global_window_parameters.screen_flash.type != _render_screen_flash_type_none)
 	{
 		flash_color.alpha = global_window_parameters.screen_flash.intensity *

@@ -53,6 +53,7 @@ machine (their datum identifiers need not be).
 */
 
 #include "cseries.h"
+#include "mcc_cache.h"
 #include "cseries/errors.h"
 #include "cache/cache_files.h"
 #include "devices/devices.h"
@@ -76,6 +77,7 @@ machine (their datum identifiers need not be).
 #include "host_evidence.h"
 #include "conduct_rules.h"
 #include "network_distributed.h"
+#include "mcc_network_messages.h"
 #include "network_rules.h"
 #include "../src/delta_chat_bridge.h"
 #ifdef HALO_GAME_BROWSER
@@ -85,6 +87,12 @@ int delta_peer_game_machine_identity_text(int machine_index, char *text, int siz
 #endif
 #ifdef HALO_PORT_CHAT
 #include "chat.h"
+#endif
+#include "mcc_network.h"
+#include "mcc_script_effects.h"
+#include "mcc_game_speed.h"
+#ifdef HALO_MCC_NETWORK
+#include "mcc_object_names_network.h"
 #endif
 
 #include <limits.h>
@@ -2356,6 +2364,10 @@ static void distributed_take_prediction(
 	real_point3d position = state->position;
 	real dx, dy, dz;
 
+	/* MCC movement effects stay host-simulated, rather than widening the
+	 * security bounds on client-supplied positions and velocities. */
+	if (mcc_script_effects_host_movement())
+		return;
 	if (distributed_riding_elevator(unit_index))
 		position.z = object->object.position.z;
 	dx = position.x - object->object.position.x;
@@ -2545,7 +2557,7 @@ static void distributed_handle_unit_state(
 		network_player_attach_unit(player_index, state->unit_index);
 		/* (a unit of a life this machine missed the end of, no player's
 		now: unit_kill_no_statistics is for players' units only) */
-		if (unit_index != NONE && unit_index != state->unit_index)
+		if (unit_index != NONE && unit_index != state->unit_index && !mcc_script_effects_preserve_body())
 			unit_kill(unit_index);
 	}
 	unit_index = state->unit_index;
@@ -4252,6 +4264,11 @@ static boolean distributed_message_stale(
 	case _distributed_message_damage_animations:
 	case _distributed_message_coop_screen_effect:
 	case _distributed_message_coop_device_states:
+#ifdef HALO_MCC_NETWORK
+	case _distributed_message_mcc_grenades:
+	case _distributed_message_mcc_campaign:
+	case _distributed_message_mcc_object_names:
+#endif
 		break;
 	default:
 		return FALSE;
@@ -5071,6 +5088,8 @@ static void distributed_note_client_clock(
 	unsigned long now = system_milliseconds();
 	unsigned long elapsed;
 
+	/* MCC clocks include only host-approved speed changes. Other maps use wall time. */
+	now = mcc_game_speed_clock(now);
 	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES)
 		return;
 	clock = &distributed_client_clocks[machine_index];
@@ -5200,6 +5219,12 @@ static word distributed_kind_entry_size(
 	case _distributed_message_unit_states: size = DISTRIBUTED_UNIT_STATE_MINIMUM_SIZE; break;
 	case _distributed_message_player_statistics: size = sizeof(struct distributed_player_statistics); break;
 	case _distributed_message_pings: size = sizeof(struct distributed_player_ping); break;
+#ifdef HALO_MCC_NETWORK
+	case _distributed_message_mcc_grenades: size = mcc_network_inventory_entry_size(); break;
+	case _distributed_message_mcc_campaign: size = mcc_network_campaign_entry_size(); break;
+	case _distributed_message_mcc_game_speed: size = sizeof(real); break;
+	case _distributed_message_mcc_object_names: size = mcc_object_names_entry_size(); break;
+#endif
 	case _distributed_message_actor_states: size = network_actors_entry_size(); break;
 	case _distributed_message_structure_bsp: size = sizeof(struct distributed_structure_bsp); break;
 	case _distributed_message_coop_presentation: size = network_coop_presentation_entry_size(); break;
@@ -5262,6 +5287,11 @@ static void distributed_handle_message(
 	}
 #endif
 	csmemcpy(&header, message, sizeof(header));
+#ifdef HALO_MCC_NETWORK
+	/* MCC messages never execute in an ordinary OpenCE session, even in a batch. */
+	if (header.type >= _distributed_message_mcc_grenades && !mcc_cache_tags_loaded())
+		return;
+#endif
 	/* a tick's messages in one: each as if it came alone */
 	if (header.type == _distributed_message_batch)
 	{
@@ -5303,6 +5333,12 @@ static void distributed_handle_message(
 	}
 	/* (entries of a size of their own: their least here, and each read no
 	further than the message's end) */
+#ifdef HALO_MCC_NETWORK
+	/* A clock command is host-only and ordered, never accepted from datagrams. */
+	if (header.type == _distributed_message_mcc_game_speed &&
+		(machine_index != NONE || network_connection_last_read_was_unreliable() ||
+			header.count != 1 || size != sizeof(header) + sizeof(real))) return;
+#endif
 	entry_size = distributed_kind_entry_size(header.type, NULL);
 	if (header.type == 0 || header.type >= NUMBER_OF_DISTRIBUTED_MESSAGES ||
 		size < sizeof(header) + header.count * entry_size)
@@ -5497,6 +5533,20 @@ static void distributed_handle_message(
 	case _distributed_message_inventories:
 		network_objects_handle_inventories(entries, header.count);
 		break;
+#ifdef HALO_MCC_NETWORK
+	case _distributed_message_mcc_grenades:
+		mcc_network_handle_inventories(entries, header.count);
+		break;
+	case _distributed_message_mcc_campaign:
+		mcc_network_handle_campaign(entries, header.count);
+		break;
+	case _distributed_message_mcc_game_speed:
+		mcc_game_speed_receive(entries, header.count);
+		break;
+	case _distributed_message_mcc_object_names:
+		mcc_object_names_receive(entries, header.count, header.game_time);
+		break;
+#endif
 	case _distributed_message_object_changes:
 		network_objects_handle_changes(entries, header.count);
 		break;

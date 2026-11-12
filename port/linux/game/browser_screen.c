@@ -85,6 +85,8 @@ the right button is B.
 #include "cseries/errors.h"
 #include "cutscene/cinematics.h"
 #include "halo_map_families.h"
+#include "mcc_cache.h"
+#include "mcc_maps.h"
 #include "input/input.h"
 #include "interface/event_manager.h"
 #include "interface/interface.h"
@@ -431,6 +433,28 @@ static char const *map_display_name(
 	long index;
 	short family = map_file(path, file, sizeof(file));
 
+	/* (an MCC map, mcc_maps\<package>\<map>: as the map list names it with
+	its [MCC] mark, or its file's name with the mark when this machine has
+	not got it) */
+	if (mcc_level_name(path))
+	{
+		wchar_t name[48];
+		unsigned short characters[48];
+		char const *last = path;
+		long length;
+
+		ui_map_list_map_name(path, name, NUMBEROF(name));
+		for (length = 0; length < NUMBEROF(name) && name[length]; length++)
+			characters[length] = (unsigned short)name[length];
+		utf8_text(characters, length, text, size);
+		if (!text[0])
+		{
+			while (strpbrk(last, "\\/"))
+				last = strpbrk(last, "\\/") + 1;
+			snprintf(text, (size_t)size, "%s [MCC]", last);
+		}
+		return text;
+	}
 	if (family != _map_family_xbox)
 	{
 		wchar_t name[48];
@@ -484,6 +508,14 @@ static short ce_map_state(
 	char file[BROWSER_MAP_LENGTH];
 	short family = map_file(game->map, file, sizeof(file));
 
+	/* (an MCC map: in this machine's MCC catalog, or missing; never
+	downloaded: an MCC Workshop item comes from Steam) */
+	if (mcc_level_name(game->map))
+	{
+		if (fresh)
+			mcc_maps_rescan();
+		return mcc_maps_find(game->map) != NONE ? _ce_map_present : _ce_map_missing;
+	}
 	if (family == _map_family_xbox)
 		return _ce_map_none;
 #ifdef HALO_CUSTOM_EDITION
@@ -1718,6 +1750,25 @@ static char const *ce_map_blocker(
 	switch (ce_map_state(game, FALSE))
 	{
 	case _ce_map_missing:
+		/* (an MCC map: its file in maps_mcc, or the Workshop item it is from,
+		mcc_maps\<item id>\<map>, to subscribe to in Steam) */
+		if (mcc_level_name(game->map))
+		{
+			char const *package = game->map + 9, *end = strpbrk(package, "\\/");
+			long digits = end ? (long)(end - package) : 0, index;
+			char path[BROWSER_MAP_LENGTH + 16];
+
+			for (index = 0; index < digits && package[index] >= '0' && package[index] <= '9'; index++)
+				;
+			if (digits && index == digits && digits < 24)
+				snprintf(text, (size_t)size, "Missing: Steam Workshop item %.*s (subscribe in Steam)", (int)digits, package);
+			else
+			{
+				snprintf(path, sizeof(path), "maps_mcc/%s.map", package);
+				snprintf(text, (size_t)size, JOIN_REASON_MAP_MISSING, path);
+			}
+			return text;
+		}
 		/* (a hashed name by the file the player knows: map_archive.h) */
 		map_archive_display_name(file, display, (int)sizeof(display));
 		if (ce_map_stock(game))
@@ -1856,10 +1907,19 @@ boolean browser_screen_active(
 }
 
 /* the screen opened (the Multiplayer menu's ONLINE GAMES, interface/ui_widget.c) */
+/* (browser.c's browser_mcc_campaign: an MCC map's kind, from the MCC
+catalog) */
+static int mcc_campaign(
+	const char *map)
+{
+	return mcc_maps_level_campaign(map) != 0;
+}
+
 void browser_screen_open(
 	void)
 {
 	browser_screen.active = TRUE;
+	browser_mcc_campaign = mcc_campaign;
 	/* (Chupathingy maps' index and blacklist, fresh for the games joined
 	from here: map_repo.h) */
 	map_repo_game_refresh_soon();
