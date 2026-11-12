@@ -2,9 +2,9 @@
 source/cache/cache_files.c, #1106) over a maps tree written here: an Xbox map in
 maps, a Custom Edition map in maps_ce with and without Custom Edition's resource
 maps beside it, a HaloMD map in maps_md (and a console that doesn't play them),
-a pack's map (<name>@<pack>) in its maps_<pack>, and an MCC map, which counts as
-missing; an MCC level (mcc_maps\\<package>\\<level>) is installed if its map is.
-The function is taken from the game's source and compiled with the
+a pack's map (<name>@<pack>) in its maps_<pack>, and an MCC-format map among
+Custom Edition's, which counts as missing; an MCC level
+(mcc_maps\\<package>\\<level>) is installed if its map is. The function is taken from the game's source and compiled with the
 map family code (port/linux/game/map_families.c) and the stand-ins of
 tools/test_ce_resource_maps.py."""
 import shutil

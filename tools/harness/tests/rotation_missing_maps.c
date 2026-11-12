@@ -80,8 +80,9 @@ static boolean map_playable_here(const char *map, char *reason, long size)
 	return FALSE;
 }
 
-/* (MCC maps' games at 43, and MCC package work waiting for local admission:
-not this test's, network_server_manager.c's own) */
+/* (MCC maps' games at 43, the host's question before a lobby switch, and
+MCC package work waiting for local admission: not this test's,
+network_server_manager.c's own) */
 #define network_game_server_mcc_version(map_name) ((void)(map_name))
 #define network_game_server_mcc_confirm(server, map_name) ((void)(server), (void)(map_name), FALSE)
 #define mcc_ui_network_defer_map(server, map_name) ((void)(server), (void)(map_name), FALSE)

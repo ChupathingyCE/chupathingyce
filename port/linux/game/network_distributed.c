@@ -5276,6 +5276,12 @@ static word distributed_kind_entry_size(
 	case _distributed_message_unit_states: size = DISTRIBUTED_UNIT_STATE_MINIMUM_SIZE; break;
 	case _distributed_message_player_statistics: size = sizeof(struct distributed_player_statistics); break;
 	case _distributed_message_pings: size = sizeof(struct distributed_player_ping); break;
+#ifdef HALO_MCC_NETWORK
+	case _distributed_message_mcc_grenades: size = mcc_network_inventory_entry_size(); break;
+	case _distributed_message_mcc_campaign: size = mcc_network_campaign_entry_size(); break;
+	case _distributed_message_mcc_game_speed: size = sizeof(real); break;
+	case _distributed_message_mcc_object_names: size = mcc_object_names_entry_size(); break;
+#endif
 	case _distributed_message_actor_states: size = network_actors_entry_size(); break;
 	case _distributed_message_structure_bsp: size = sizeof(struct distributed_structure_bsp); break;
 	case _distributed_message_coop_presentation: size = network_coop_presentation_entry_size(); break;
@@ -5392,6 +5398,12 @@ static void distributed_handle_message(
 	}
 	/* (entries of a size of their own: their least here, and each read no
 	further than the message's end) */
+#ifdef HALO_MCC_NETWORK
+	/* A clock command is host-only and ordered, never accepted from datagrams. */
+	if (header.type == _distributed_message_mcc_game_speed &&
+		(machine_index != NONE || network_connection_last_read_was_unreliable() ||
+			header.count != 1 || size != sizeof(header) + sizeof(real))) return;
+#endif
 	entry_size = distributed_kind_entry_size(header.type, NULL);
 	if (header.type == 0 || header.type >= NUMBER_OF_DISTRIBUTED_MESSAGES ||
 		size < sizeof(header) + header.count * entry_size)
