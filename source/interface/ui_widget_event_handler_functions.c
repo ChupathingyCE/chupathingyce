@@ -3089,6 +3089,15 @@ static boolean multiplayer_level_list_initialize(
 	short level_count;
 	char **level_names;
 
+#ifndef HALO_XBOX_CONSOLE
+	/* (all the maps, in the list's order: the Xbox menus' search starts
+	empty, ui_widget.c) */
+	{
+		extern void ui_widget_port_xbox_map_search_reset(void);
+
+		ui_widget_port_xbox_map_search_reset();
+	}
+#endif
 	ui_map_list_refresh(event_handler_functions.multiplayer_levels);
 	level_count = (short)ui_map_list_count();
 	level_names = ui_map_list_names();

@@ -18,6 +18,7 @@
 #define BCDEC_STATIC
 #define BCDEC_IMPLEMENTATION
 #include "../../third_party/bcdec/bcdec.h"
+#include "mcc_host_memory.h"
 
 /* port: GulchCE's dedicated server switch (config_server_mode_enabled); ours
 is HALO_DEDICATED, which runs no renderer */

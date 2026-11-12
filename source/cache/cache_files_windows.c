@@ -1164,14 +1164,20 @@ short cache_file_read(
 	boolean *completion_flag_reference,
 	boolean blocking)
 {
-	short request_index = cache_request_next_free_index();
-	struct cache_file_request *request = cache_request_get(request_index);
+	short request_index;
+	struct cache_file_request *request;
 
+	/* port: an MCC map's reads are served at once, with no request of the
+	cache thread's (which could all be another map's still): a request index
+	that names none in flight */
 	if (mcc_cache_tags_loaded())
 	{
-		*completion_flag_reference = mcc_cache_read(tag_index, offset, size, buffer) ? TRUE : (boolean)-1;
-		return request_index;
+		*completion_flag_reference = mcc_cache_read(tag_index, offset, size, buffer) ? TRUE :
+			(boolean)_cache_file_read_failed;
+		return 0;
 	}
+	request_index = cache_request_next_free_index();
+	request = cache_request_get(request_index);
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		269,

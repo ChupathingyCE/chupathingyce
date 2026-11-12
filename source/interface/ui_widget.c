@@ -2099,6 +2099,124 @@ void *ui_widget_realloc(
 		line);
 }
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+/* port: the Xbox menus' Select Map (a search alone, as close to the
+console's screen as one fits): Y opens the on-screen keyboard, whose words
+narrow the cards to the maps that match (ui_map_list_view_set: name, and an
+MCC map's ModInfo.json and CampaignInfo.json); B with a search clears it
+first. Its Show and Sort are the list's own: all of them, in its order */
+#define XBOX_MAP_SELECT_LIST "ui\\shell\\main_menu\\multiplayer_type_select\\mp_map_select\\mp_map_select_list"
+#define XBOX_MAP_SEARCH_LENGTH 32
+
+static struct
+{
+	char search[XBOX_MAP_SEARCH_LENGTH];
+	wchar_t keyboard_text[XBOX_MAP_SEARCH_LENGTH];
+	boolean keyboard;
+	unsigned long serial;
+} xbox_map_search;
+
+static boolean xbox_map_select_list(struct widget_instance *widget)
+{
+	return widget && widget->definition_tag_index != NONE && !pc_menu_tag(widget->definition_tag_index) &&
+		!strcmp(tag_get_name(widget->definition_tag_index), XBOX_MAP_SELECT_LIST);
+}
+
+/* the list opened: all its maps again (another chooser's view let go of) */
+void ui_widget_port_xbox_map_search_reset(void)
+{
+	xbox_map_search.search[0] = 0;
+	xbox_map_search.keyboard = FALSE;
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
+	/* (debug.menu_open's "#search=<words>": a search to start with, for
+	screenshots) */
+	{
+		extern char const *config_string(char const *name);
+		char const *debug = strstr(config_string("debug.menu_open"), "#search=");
+
+		if (debug)
+		{
+			snprintf(xbox_map_search.search, sizeof(xbox_map_search.search), "%s", debug + 8);
+			xbox_map_search.search[strcspn(xbox_map_search.search, "#")] = 0;
+		}
+	}
+#endif
+	ui_map_list_view_set(_ui_map_list_source_all, _ui_map_list_sort_default, xbox_map_search.search);
+}
+
+/* Y and B on the list; TRUE when taken */
+static boolean xbox_map_search_event(struct widget_instance *widget, struct event_record *event)
+{
+	short index;
+
+	if (event->type != _event_type_button || event->data.button.value != 1 || !xbox_map_select_list(widget) ||
+		virtual_keyboard_active())
+	{
+		return FALSE;
+	}
+	if (event->data.button.index == _gamepad_analog_button_y)
+	{
+		for (index = 0; xbox_map_search.search[index] && index < XBOX_MAP_SEARCH_LENGTH - 1; index++)
+			xbox_map_search.keyboard_text[index] = (wchar_t)(unsigned char)xbox_map_search.search[index];
+		xbox_map_search.keyboard_text[index] = 0;
+		xbox_map_search.keyboard = virtual_keyboard_launch_plain(xbox_map_search.keyboard_text,
+			sizeof(xbox_map_search.keyboard_text), L"Search");
+		return xbox_map_search.keyboard;
+	}
+	if (event->data.button.index == _widget_event_b_button && xbox_map_search.search[0])
+	{
+		xbox_map_search.search[0] = 0;
+		ui_map_list_view_set(_ui_map_list_source_all, _ui_map_list_sort_default, NULL);
+		ui_play_audio_feedback_sound(_ui_audio_feedback_back);
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/* each frame the list shows (its cards' update): the keyboard's words
+taken, and the list's maps the view's (a search that matches none is not
+kept: the cards need one) */
+void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget)
+{
+	if (xbox_map_search.keyboard && !virtual_keyboard_active())
+	{
+		xbox_map_search.keyboard = FALSE;
+		if (virtual_keyboard_last_exit_saved_text())
+		{
+			char before[XBOX_MAP_SEARCH_LENGTH];
+			short index;
+
+			snprintf(before, sizeof(before), "%s", xbox_map_search.search);
+			for (index = 0; xbox_map_search.keyboard_text[index] && index < XBOX_MAP_SEARCH_LENGTH - 1; index++)
+			{
+				wchar_t character = xbox_map_search.keyboard_text[index];
+
+				xbox_map_search.search[index] = character < 0x80 ? (char)character : '?';
+			}
+			xbox_map_search.search[index] = 0;
+			ui_map_list_view_set(_ui_map_list_source_all, _ui_map_list_sort_default, xbox_map_search.search);
+			if (!ui_map_list_count())
+			{
+				snprintf(xbox_map_search.search, sizeof(xbox_map_search.search), "%s", before);
+				ui_map_list_view_set(_ui_map_list_source_all, _ui_map_list_sort_default, xbox_map_search.search);
+				ui_play_audio_feedback_sound(_ui_audio_feedback_flag_failure);
+			}
+		}
+	}
+	if (xbox_map_search.serial != ui_map_list_view_serial() && xbox_map_select_list(list_widget))
+	{
+		boolean with_campaign = list_widget->parameters.list.number_of_items > ui_map_list_count();
+
+		xbox_map_search.serial = ui_map_list_view_serial();
+		list_widget->parameters.list.list_items = ui_map_list_names();
+		list_widget->parameters.list.number_of_items = (short)(with_campaign ?
+			ui_map_list_count_with_campaign() : ui_map_list_count());
+		if (list_widget->parameters.list.selected_index >= list_widget->parameters.list.number_of_items)
+			list_widget->parameters.list.selected_index = 0;
+	}
+}
+#endif
+
 /* MCC maps are selected by their full namespaced path. They do not enter
 the Xbox/CE multiplayer level-index list. */
 boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name)
@@ -9290,6 +9408,11 @@ static void widget_instance_process_one_event_recursive(
 		"c:\\halo\\SOURCE\\interface\\ui_widget.c",
 		3067,
 		widget && definition && event && return_widget_deleted);
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: the Xbox menus' Select Map's search (Y; B clears it) */
+	if (event_for_this_widget && xbox_map_search_event(widget, event))
+		return;
+#endif
 #ifndef HALO_XBOX_CONSOLE
 	/* port: the d-pad (keys, a controller, the wheel) moves the focus now,
 	not the pointer */
