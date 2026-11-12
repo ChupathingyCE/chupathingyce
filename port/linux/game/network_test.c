@@ -16,7 +16,9 @@ Automated system link sessions for testing the netcode without the menus
   may also be named as the menus name it (putput@ce). Maps joined by
   "+" (bloodgulch+putput@ce) are the games' maps in turn, the
   last for the games past them, as a dedicated server's playlist moves its
-  players to the next map; a map the menus refuse a hosted game (one on
+  players to the next map; a map that isn't installed here is skipped, as
+  the playlist skips it, and with none installed the test ends with exit
+  code 2; a map the menus refuse a hosted game (one on
   Chupathingy maps' blacklist) ends the test with exit code 2;
 - "join" searches for games and joins the first it finds, as picking it in
   the system link list does;
@@ -180,6 +182,9 @@ static struct
 	/* ... the variant of this game, of variant_name's list; and the seconds
 	the last game's scores have been shown */
 	short variant_index;
+	/* ... and the map of this game, of map_name's list (a map that isn't
+	installed skipped: network_test_playable_map) */
+	short map_entry;
 	real postgame_seconds;
 	boolean game_over;
 	real start_delay;
@@ -248,6 +253,69 @@ static void network_test_map(
 	for (; index > 0 && (next = strchr(map, '+')) != NULL; index--)
 		map = next + 1;
 	snprintf(name, size, "%.*s", (int)strcspn(map, "+"), map);
+}
+
+/* how many maps map_name names */
+static short network_test_map_count(
+	void)
+{
+	char const *map;
+	short count = 1;
+
+	for (map = network_test.map_name; (map = strchr(map, '+')) != NULL; map++)
+		count++;
+	return count;
+}
+
+/* a map of the list as the game loads it (copied to path): a level of its
+own path, else a multiplayer map's name */
+static void network_test_map_path(
+	short index,
+	char *path,
+	size_t size)
+{
+	char map[64];
+
+	network_test_map(index, map, sizeof(map));
+	if (strchr(map, '\\') || strchr(map, '@'))
+		snprintf(path, size, "%s", map);
+	else
+		snprintf(path, size, "levels\\test\\%s\\%s", map, map);
+}
+
+/* the map of this game (network_test.map_entry, copied to path), past maps
+that aren't installed here, each said: the list goes on with its next, and
+past its last holds on its last installed one, as the games past the list
+play its last map. A host that set a game on a map it lacks would leave its
+own game (#1106). FALSE if none of the list's maps is installed */
+static boolean network_test_playable_map(
+	char *path,
+	size_t size)
+{
+	short count = network_test_map_count();
+	short entry;
+
+	for (entry = network_test.map_entry; entry < count; entry++)
+	{
+		network_test_map_path(entry, path, size);
+		if (cache_files_map_installed(path))
+		{
+			network_test.map_entry = entry;
+			return TRUE;
+		}
+		platform_log("network test: game %d: %s isn't installed here; skipping it", network_test.variant_index + 1,
+			path);
+	}
+	for (entry = network_test.map_entry - 1; entry >= 0; entry--)
+	{
+		network_test_map_path(entry, path, size);
+		if (cache_files_map_installed(path))
+		{
+			network_test.map_entry = entry;
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 /* the variant at the index of the list (copied to name), FALSE past its end */
@@ -1658,6 +1726,9 @@ void network_test_update(
 		if (network_test_variant(network_test.variant_index + 1, NULL, 0))
 		{
 			network_test.variant_index++;
+			/* (the list's next map; its last for the games past them) */
+			if (network_test.map_entry + 1 < network_test_map_count())
+				network_test.map_entry++;
 			network_test.started = FALSE;
 			network_test.map_set = FALSE;
 			network_test.setup_seconds = 0.0f;
@@ -1695,10 +1766,16 @@ void network_test_update(
 	case _network_test_host:
 		if (!network_test.set_up)
 		{
-			char map[64];
+			char map[128];
 
 			network_test.set_up = TRUE;
-			network_test_map(0, map, sizeof(map));
+			network_test.map_entry = 0;
+			/* (a rotation with no map installed here isn't started) */
+			if (!network_test_playable_map(map, sizeof(map)))
+			{
+				platform_log("network test: not hosted: none of the maps %s is installed here", network_test.map_name);
+				exit(2);
+			}
 			main_set_multiplayer_map_name(map);
 			player_ui_fast_setup_network_server();
 			platform_log("network test: hosting %s", map);
@@ -1711,16 +1788,16 @@ void network_test_update(
 			if (!network_test.map_set && network_test.setup_seconds >= 1.0f && global_network_game_server_get())
 			{
 				char path[128];
-				char map[64];
 				char variant_name[64];
 				struct game_variant variant;
 
-				/* (a level of its own path, else a multiplayer map's name) */
-				network_test_map(network_test.variant_index, map, sizeof(map));
-				if (strchr(map, '\\') || strchr(map, '@'))
-					snprintf(path, sizeof(path), "%s", map);
-				else
-					snprintf(path, sizeof(path), "levels\\test\\%s\\%s", map, map);
+				/* (a level of its own path, else a multiplayer map's name;
+				one not installed here skipped) */
+				if (!network_test_playable_map(path, sizeof(path)))
+				{
+					platform_log("network test: not hosted: none of the maps %s is installed here", network_test.map_name);
+					exit(2);
+				}
 				network_test_variant(network_test.variant_index, variant_name, sizeof(variant_name));
 				if (!strcmp(variant_name, "coop"))
 				{
