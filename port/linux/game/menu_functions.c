@@ -10183,6 +10183,10 @@ back. */
 
 #define XBOX_SOLO_LEVEL_SELECT "ui\\shell\\main_menu\\solo_level_select\\solo_level_select_screen"
 #define GEARBOX_SOLO_LEVEL_SELECT "pc\\main_menu\\solo_level_select\\solo_level_select_screen"
+/* (the screens the menus open the level select from, under the main menu:
+the Xbox's and Chupathingy's CAMPAIGN, Gearbox's CAMPAIGN then NEW CAMPAIGN) */
+#define XBOX_CAMPAIGN_PROFILE "ui\\shell\\main_menu\\load_campaign_player_profile"
+#define GEARBOX_CAMPAIGN_MENU "pc\\main_menu\\campaign_select\\campaign_menu"
 /* (Gearbox's menus are up: their level select is there, the Chupathingy
 menus' not being the menus up) */
 #define GEARBOX_MENUS_UP() (!pc_menus_chupathingy() && tag_loaded('DeLa', GEARBOX_SOLO_LEVEL_SELECT) != NONE)
@@ -10226,6 +10230,27 @@ boolean ui_widget_port_screen_shown_or_behind(long tag);
 boolean ui_widget_port_open_screen(char const *name);
 boolean browser_screen_create_game(void);
 void main_screen_shell_load(void);
+boolean ui_widget_port_history_set(long const *screens, short count, long opened);
+long ui_widget_port_history_top(void);
+char const *pc_menus_main_menu_name(void);
+
+/* back from the screen PLAY opened goes where it goes from the menus'
+own: its history made theirs, down to the main menu (never none, which
+left the menus' world with no menu up: #1133). A screen of it not loaded:
+the main menu alone */
+static void workshop_play_history(long under)
+{
+	long screens[2];
+	short count = 0;
+
+	screens[count++] = tag_loaded('DeLa', pc_menus_main_menu_name());
+	if (screens[0] == NONE)
+		return;
+	if (under != NONE && under != screens[0])
+		screens[count++] = under;
+	if (!ui_widget_port_history_set(screens, count, NONE))
+		ui_widget_port_history_set(screens, 1, NONE);
+}
 
 /* a game under way, or a network game's lobby (hosted, or joined: a client
 past searching for games) */
@@ -10240,10 +10265,17 @@ static boolean workshop_play_leaves_game(void)
 /* the item's screen, at the main menu */
 static boolean workshop_play_open(void)
 {
-	/* (the list opens on the item's first map, which leads it: the map used
-	last is left as it is) */
+	/* (Create Game, as Online Games' Y: the Multiplayer menu under it, then
+	the main menu, as the menus' MULTIPLAYER leaves them. The list opens on
+	the item's first map, which leads it: the map used last is left as it
+	is) */
 	if (!workshop_play.campaign)
-		return browser_screen_create_game();
+	{
+		if (!browser_screen_create_game())
+			return FALSE;
+		workshop_play_history(ui_widget_port_history_top());
+		return TRUE;
+	}
 	/* (player 1's profile, as the level select needs one: the one used
 	last, else the profile screen first, which makes one) */
 	if (player_ui_get_active_player_profile_index(0) == NONE)
@@ -10261,15 +10293,31 @@ static boolean workshop_play_open(void)
 			profile_index = profile_count ? profile_indices[0] : NONE;
 		}
 		if (profile_index == NONE || !player_profile_get(profile_index, &profile))
-			return ui_widget_port_open_screen(GEARBOX_MENUS_UP() ? "pc\\main_menu\\campaign_select\\campaign_menu" :
-				"ui\\shell\\main_menu\\player_profiles_select\\solo_game_player_profile_select_screen");
+		{
+			if (!ui_widget_port_open_screen(GEARBOX_MENUS_UP() ? GEARBOX_CAMPAIGN_MENU :
+				"ui\\shell\\main_menu\\player_profiles_select\\solo_game_player_profile_select_screen"))
+			{
+				return FALSE;
+			}
+			workshop_play_history(NONE);
+			return TRUE;
+		}
 		player_ui_set_active_player_profile(0, profile_index, &profile);
 	}
 	ui_widget_port_campaign_solo();
-	/* (Gearbox's menus' own, else the Xbox's: the Xbox's and Chupathingy's) */
+	/* (Gearbox's menus' own, else the Xbox's: the Xbox's and Chupathingy's;
+	under it the screen CAMPAIGN opens, then the main menu) */
 	if (GEARBOX_MENUS_UP())
-		return ui_widget_port_open_screen(GEARBOX_SOLO_LEVEL_SELECT);
-	return ui_widget_port_open_screen(XBOX_SOLO_LEVEL_SELECT);
+	{
+		if (!ui_widget_port_open_screen(GEARBOX_SOLO_LEVEL_SELECT))
+			return FALSE;
+		workshop_play_history(tag_loaded('DeLa', GEARBOX_CAMPAIGN_MENU));
+		return TRUE;
+	}
+	if (!ui_widget_port_open_screen(XBOX_SOLO_LEVEL_SELECT))
+		return FALSE;
+	workshop_play_history(tag_loaded('DeLa', XBOX_CAMPAIGN_PROFILE));
+	return TRUE;
 }
 
 /* the item's maps lead the lists while the screen opened is up or behind

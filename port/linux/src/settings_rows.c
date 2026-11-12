@@ -161,6 +161,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_network | _in_guide, "STEAM ACCOUNT", "game.workshop_steam", _kind_steam_link, NULL, NULL, 0, 0 },
 	{ _in_guide, "WORKSHOP FOLDER", "paths.steam_downloads", _kind_folder, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "MAPS WHEN JOINING", "network.workshop_downloads", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_guide, "MCC CAMPAIGNS", "game.mcc_campaigns", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "SHOW IN MENUS", "delta.menu_item", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "NOTIFICATIONS IN GAME", "delta.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },

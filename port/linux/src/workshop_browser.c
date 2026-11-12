@@ -259,6 +259,40 @@ static int item_state(const char *id)
 	return state;
 }
 
+/* whether an installed item's ModInfo.json says it has a campaign
+(GameModContents.HasCampaign), in any library: what Steam's tags say aside */
+int workshop_browser_item_has_campaign(const char *id)
+{
+	static struct steam_workshop_item_text text;
+	int library;
+
+	for (library = 0; library < workshop.library_count; library++)
+	{
+		char folder[STEAM_WORKSHOP_PATH_SIZE], item[STEAM_WORKSHOP_PATH_SIZE], path[STEAM_WORKSHOP_PATH_SIZE];
+		char found[256];
+		char *document;
+		FILE *file;
+		long length;
+		int campaign;
+
+		if (!join(folder, sizeof(folder), workshop.libraries[library], CONTENT_FOLDER) ||
+			!join(item, sizeof(item), folder, id) ||
+			!posix_find_entry_case_insensitive(item, "ModInfo.json", found, sizeof(found)) ||
+			!join(path, sizeof(path), item, found) || !(file = fopen(path, "rb")))
+		{
+			continue;
+		}
+		document = malloc(STEAM_WORKSHOP_MAXIMUM_JSON + 1);
+		length = document ? (long)fread(document, 1, STEAM_WORKSHOP_MAXIMUM_JSON + 1, file) : 0;
+		fclose(file);
+		campaign = length > 0 && length <= STEAM_WORKSHOP_MAXIMUM_JSON &&
+			steam_workshop_read_item(document, (int)length, &text) && text.halo1 && text.has_campaign;
+		free(document);
+		return campaign;
+	}
+	return 0;
+}
+
 /* an installed Halo CE item that the list lacks: its title from its ModInfo.json */
 static void local_item_add(const char *item_folder, const char *id)
 {

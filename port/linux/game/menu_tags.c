@@ -2652,6 +2652,14 @@ void menu_tags_unloaded(
 		menu_tags_release();
 }
 
+/* the main menu of the menus up, by name (whatever debug.menu_open opens:
+the Guide's Workshop PLAY builds back's history down to it) */
+char const *pc_menus_main_menu_name(
+	void)
+{
+	return menu_tags.loaded && menu_tags.root[0] ? menu_tags.root : "ui\\shell\\main_menu\\main_menu";
+}
+
 char const *pc_menus_root_name(
 	void)
 {

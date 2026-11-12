@@ -256,6 +256,9 @@ const char *workshop_browser_sort_name(int sort);
 const char *workshop_browser_step_name(int step);
 /* the game's own Steam library and steamcmd's folder set (each frame is fine) */
 void workshop_browser_own_library(void);
+/* an installed item's ModInfo.json says it has a campaign (the Guide's PLAY
+asks to turn on game.mcc_campaigns for it) */
+int workshop_browser_item_has_campaign(const char *id);
 /* an installed item of steamcmd's, in the game's own library: REMOVE deletes
 its folder (after a confirm: the Guide's), UPDATE downloads it again (Steam
 says it changed since). Steam's own folders are never touched here */

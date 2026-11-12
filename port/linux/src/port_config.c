@@ -1411,6 +1411,10 @@ static const struct config_setting config_settings[] =
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission discovery, ordering and\n"
 		"progression. Reopen the map list after changing this." },
+	{ "game.mcc_campaigns_asked", _config_boolean, "false", "HALO_MCC_CAMPAIGNS_ASKED", _environment_value,
+		_platform_desktop,
+		"Chupathingy sets this once the Delta Guide's Workshop PLAY asked about\n"
+		"turning on game.mcc_campaigns for a campaign item. Don't edit it." },
 	{ "game.workshop_maps", _config_boolean, "false", "HALO_WORKSHOP_MAPS", _environment_value, _platform_desktop,
 		"Discover installed Halo CE Steam Workshop maps. Read-only desktop\n"
 		"discovery; packages installed in maps_mcc are always read." },
@@ -1728,6 +1732,11 @@ static const struct config_setting config_settings[] =
 		"The Delta Guide Workshop's setup rows shown as given, for screenshots:\n"
 		"\"steam=1,signin=0\" (0 Ready, 1 To do, 2 Working, 3 Not available);\n"
 		"\"client\" shows the Steam client's rows." },
+	{ "debug.workshop_play", _config_string, "\"\"", "HALO_WORKSHOP_PLAY", _environment_value, _platform_desktop,
+		"The Delta Guide Workshop's PLAY pressed once on this installed item,\n"
+		"\"<item id>\" or \"<item id>:<seconds>\" after the main menu or a game\n"
+		"is up (4 by default); \":lobby\" after it: in a lobby this machine\n"
+		"hosts, \":game\": in a game. For tests. Debug builds only. Leave it empty for none." },
 	{ "debug.workshop_steamcmd", _config_boolean, "false", "HALO_WORKSHOP_STEAMCMD", _environment_set_is_true,
 		_platform_desktop,
 		"Workshop downloads with steamcmd (paths.steamcmd) instead of the game's own\n"

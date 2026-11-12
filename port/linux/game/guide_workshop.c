@@ -70,11 +70,14 @@ void pc_menu_workshop_play_update(void);
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 int config_boolean(char const *name);
 char const *config_string(char const *name);
 boolean main_menu_is_active(void);
+boolean game_map_loaded(void);
+void *global_network_game_server_get(void);
 void platform_text_field(int typing);
 unsigned long system_milliseconds(void);
 int platform_clipboard_get(char *text, int size);
@@ -506,6 +509,134 @@ boolean guide_workshop_page_offered(short step)
 	return workshop_browser_page_offered(step) != 0;
 }
 
+/* ---------- PLAY
+
+To the menus' own Create Game or level select, in the menu set chosen, a
+game or lobby left first if the player says so (menu_functions.c). A
+campaign item's levels are only found with game.mcc_campaigns on
+(steam_workshop.c, mcc_maps.c): while it is off, PLAY asks once whether to
+turn it on (the player's settings are never changed unasked), and the
+answer is kept (game.mcc_campaigns_asked). After a no, the page says where
+the setting is. */
+
+static struct
+{
+	char item[WORKSHOP_BROWSER_ID_SIZE];
+	char title[WORKSHOP_BROWSER_TITLE_SIZE];
+	/* (the page's item, and whether its ModInfo.json has a campaign) */
+	char looked[WORKSHOP_BROWSER_ID_SIZE];
+	boolean campaign;
+} workshop_play_item;
+
+void invite_prompt_ask(char const *title, char const *question, char const *detail,
+	void (*answer_function)(boolean yes));
+
+/* the item has a campaign that game.mcc_campaigns being off hides */
+static boolean campaign_hidden(struct workshop_browser_item const *item)
+{
+	if (config_boolean("game.mcc_campaigns") || item->state != WORKSHOP_ITEM_INSTALLED)
+		return FALSE;
+	if (strcmp(workshop_play_item.looked, item->id))
+	{
+		snprintf(workshop_play_item.looked, sizeof(workshop_play_item.looked), "%s", item->id);
+		workshop_play_item.campaign = workshop_browser_item_has_campaign(item->id) != 0;
+	}
+	return workshop_play_item.campaign;
+}
+
+static void campaigns_answer(boolean yes)
+{
+	config_write_boolean("game.mcc_campaigns_asked", 1);
+	platform_log("Workshop: MCC campaigns %s for item %s", yes ? "turned on" : "left off", workshop_play_item.item);
+	if (yes)
+	{
+		config_write_boolean("game.mcc_campaigns", 1);
+		mcc_maps_rescan();
+	}
+	/* (no: what else the item has, its multiplayer maps) */
+	if (!pc_menu_workshop_play(workshop_play_item.item, workshop_play_item.title))
+		platform_log("Workshop: PLAY found nothing to play in item %s", workshop_play_item.item);
+}
+
+static void play(struct workshop_browser_item const *item)
+{
+	if (!item || item->setup || item->state != WORKSHOP_ITEM_INSTALLED)
+		return;
+	if (campaign_hidden(item) && !config_boolean("game.mcc_campaigns_asked"))
+	{
+		snprintf(workshop_play_item.item, sizeof(workshop_play_item.item), "%s", item->id);
+		snprintf(workshop_play_item.title, sizeof(workshop_play_item.title), "%s", item->title);
+		invite_prompt_ask("PLAY", "Turn on MCC campaigns?",
+			"Campaign items then play from the level select. Settings can turn it off.", campaigns_answer);
+		guide_close();
+		return;
+	}
+	if (pc_menu_workshop_play(item->id, item->title))
+		guide_close();
+}
+
+#ifndef HALO_RELEASE
+/* debug.workshop_play: PLAY on that installed item once, a few seconds
+after the main menu or a game is up, for tests */
+static void debug_play(void)
+{
+	static unsigned long since;
+	static boolean done, opened;
+	char const *setting = config_string("debug.workshop_play");
+	char id[WORKSHOP_BROWSER_ID_SIZE];
+	unsigned long wait = 4000;
+	char const *colon;
+	int index;
+
+	if (done || !setting[0])
+		return;
+	/* (":lobby" at its end: in a lobby this machine hosts; ":game": in a
+	game) */
+	if ((!main_menu_is_active() && !game_map_loaded()) ||
+		(strstr(setting, ":lobby") && !(main_menu_is_active() && global_network_game_server_get())) ||
+		(strstr(setting, ":game") && main_menu_is_active()))
+	{
+		since = 0;
+		return;
+	}
+	if (!since)
+		since = system_milliseconds() | 1;
+	snprintf(id, sizeof(id), "%s", setting);
+	colon = strchr(setting, ':');
+	if (colon)
+	{
+		id[colon - setting < (int)sizeof(id) ? colon - setting : (int)sizeof(id) - 1] = 0;
+		wait = (unsigned long)(atof(colon + 1) * 1000);
+	}
+	if (system_milliseconds() - since < wait)
+		return;
+	/* (the list, as the section showing asks for it) */
+	if (!opened)
+	{
+		opened = TRUE;
+		workshop_browser_open(0);
+	}
+	if (workshop_browser_poll())
+		mcc_maps_rescan();
+	for (index = 0; index < workshop_browser_count(); index++)
+	{
+		struct workshop_browser_item const *item = workshop_browser_item(index);
+
+		if (item && !item->setup && !strcmp(item->id, id) && item->state == WORKSHOP_ITEM_INSTALLED)
+		{
+			done = TRUE;
+			platform_log("Workshop: debug.workshop_play: PLAY on item %s", id);
+			play(item);
+			return;
+		}
+	}
+}
+#else
+static void debug_play(void)
+{
+}
+#endif
+
 static void option_run(short option)
 {
 	if (option >= _option_filter && option < _option_sort)
@@ -526,19 +657,8 @@ static void option_run(short option)
 		search_start();
 		return;
 	case _option_play:
-	{
-		struct workshop_browser_item const *item = workshop_browser_item(workshop_view.row);
-
-		/* (to the menus' own Create Game or level select, in the menu set
-		chosen, a game or lobby left first if the player says so:
-		menu_functions.c) */
-		if (item && !item->setup && item->state == WORKSHOP_ITEM_INSTALLED &&
-			pc_menu_workshop_play(item->id, item->title))
-		{
-			guide_close();
-		}
+		play(workshop_browser_item(workshop_view.row));
 		return;
-	}
 	case _option_update:
 		if (link_needed())
 		{
@@ -1018,6 +1138,7 @@ void guide_workshop_update(boolean showing)
 
 	/* (PLAY's item handed over once the main menu is back) */
 	pc_menu_workshop_play_update();
+	debug_play();
 
 	workshop_browser_own_library();
 	settings_rows_set_steam_link_action(workshop_browser_link_offered() ? link_settings_press : NULL);
@@ -1390,6 +1511,9 @@ static char const *page_note(struct workshop_browser_item const *item, char *lin
 		return "Workshop maps are off";
 	if (item->state == WORKSHOP_ITEM_NOT_INSTALLED && link_needed())
 		return "Link Steam to download in the game";
+	/* (PLAY asked once, and the answer was no) */
+	if (config_boolean("game.mcc_campaigns_asked") && campaign_hidden(item))
+		return "Its campaign needs MCC CAMPAIGNS on, in SETTINGS";
 	return NULL;
 }
 
