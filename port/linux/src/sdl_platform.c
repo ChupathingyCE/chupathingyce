@@ -52,6 +52,12 @@ static unsigned char mouse_buttons_pressed[PLATFORM_MOUSE_BUTTON_COUNT];
 #ifndef HALO_ANDROID
 /* the menus' pointer (platform_ui_pointer_set_active), under input_lock */
 static struct platform_ui_pointer ui_pointer;
+/* the menus' pointer put in the middle as they open (platform_ui_pointer_set_active):
+the move that warp sends isn't the player's, so it hovers nothing (it took the
+focus off the item a screen opened on, like the level select's Workshop PLAY
+level) */
+static BOOL ui_pointer_warp_pending;
+static float ui_pointer_warp_x, ui_pointer_warp_y;
 static float ui_pointer_wheel;
 #endif
 static pthread_mutex_t input_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -2880,9 +2886,15 @@ void platform_pump_events(void)
 			/* in the menus the mouse moves the pointer, not the view */
 			if (input_state.ui_pointer)
 			{
+				BOOL warp = ui_pointer_warp_pending && event.motion.x > ui_pointer_warp_x - 1.0f &&
+					event.motion.x < ui_pointer_warp_x + 1.0f && event.motion.y > ui_pointer_warp_y - 1.0f &&
+					event.motion.y < ui_pointer_warp_y + 1.0f;
+
+				ui_pointer_warp_pending = FALSE;
 				ui_pointer.x = event.motion.x;
 				ui_pointer.y = event.motion.y;
-				ui_pointer.moved = TRUE;
+				if (!warp)
+					ui_pointer.moved = TRUE;
 				break;
 			}
 #endif
@@ -3161,6 +3173,11 @@ void platform_ui_pointer_set_active(BOOL active)
 		int width, height;
 
 		SDL_GetWindowSize(platform_window, &width, &height);
+		pthread_mutex_lock(&input_lock);
+		ui_pointer_warp_pending = TRUE;
+		ui_pointer_warp_x = width * 0.5f;
+		ui_pointer_warp_y = height * 0.5f;
+		pthread_mutex_unlock(&input_lock);
 		SDL_WarpMouseInWindow(platform_window, width * 0.5f, height * 0.5f);
 		show_pointer(TRUE);
 		pthread_mutex_lock(&input_lock);
