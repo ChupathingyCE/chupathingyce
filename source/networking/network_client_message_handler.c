@@ -1117,6 +1117,7 @@ which this build has no use for. */
 int network_rules_settings_size_taken(unsigned version, unsigned total_size);
 /* port: halo_port_limits.h's (the number this machine announces as a host) */
 int delta_legacy_announce(void);
+unsigned network_rules_client_settings_version(unsigned joined, int hosting, unsigned announce);
 int network_rules_settings_options_size(unsigned version, unsigned total_size);
 void network_rules_settings_fold(unsigned char *record, int total_size, int options_size, unsigned char *extended);
 void network_rules_extended_options_default(unsigned char *options);
@@ -1191,16 +1192,14 @@ static boolean network_game_client_leave_unsupported_game_type(
 }
 
 /* port: the version whose record the host sends: its advertised one, but
-for the host's own machine, which joined its game at home and was told
-none: the number this machine announces, whose record its server writes */
+for the host's own machine (which joined its game at home, told none) the
+number this machine announces, whose record its server writes at every
+send: network_rules.h */
 static unsigned int network_game_client_settings_version(
 	void)
 {
-	unsigned int version = network_game_client_host_network_version();
-
-	if (version == 0xFFFF && global_network_game_server_get())
-		version = (unsigned int)delta_legacy_announce();
-	return version;
+	return network_rules_client_settings_version(network_game_client_host_network_version(),
+		global_network_game_server_get() != NULL, (unsigned int)delta_legacy_announce());
 }
 
 static boolean network_game_client_receive_game_settings_piece(

@@ -858,7 +858,9 @@ version stays as it was advertised */
 void network_game_client_note_host_network_version(
 	unsigned int version)
 {
-	if (network_game_client_joined_version == 0xFFFF)
+	/* (never on the host's own machine, whose record is of the number it
+	announces: network_rules_client_noted_version) */
+	if (network_game_client_joined_version == 0xFFFF && !global_network_game_server_get())
 	{
 		network_event("the host's network version is at least %u, by its game settings", version);
 		network_game_client_joined_version = version;

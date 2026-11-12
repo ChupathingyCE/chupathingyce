@@ -132,8 +132,11 @@ def test_settings_record_by_the_hosts_version():
     assert "unsigned int host_version = network_game_client_settings_version();" in piece
     assert "network_rules_settings_size_taken(host_version, piece->total_size)" in piece
     helper = source[source.index("static unsigned int network_game_client_settings_version("):]
-    assert "version == 0xFFFF && global_network_game_server_get()" in helper[:helper.index("\n}\n")]
-    assert "version = (unsigned int)delta_legacy_announce();" in helper[:helper.index("\n}\n")]
+    assert "global_network_game_server_get() != NULL, (unsigned int)delta_legacy_announce()" in \
+        helper[:helper.index("\n}\n")]
+    # (and its version is never noted from a record: it stays the announced one)
+    manager = (ROOT / "source/networking/network_client_manager.c").read_text(encoding="utf-8")
+    assert "network_game_client_joined_version == 0xFFFF && !global_network_game_server_get()" in manager
     assert "network_rules_settings_fold(" in piece and "network_rules_extended_options_sanitize(" in piece
     # (a newer version's layout from the table: the options' bytes by the
     # host's version, the record no larger than the staging's room)

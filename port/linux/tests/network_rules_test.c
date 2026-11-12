@@ -1104,6 +1104,46 @@ static void test_unit_parts(void)
 	network_rules_set_layout_source(NULL);
 }
 
+/* a host announcing 43 sends its own machine the record at the game's start
+and again at each machine's join; its own machine (joined at home, told no
+version, noting "at least 35" when the newer options come) takes every one,
+with 0, 1 and 2 remote machines joining */
+static void test_host_own_machine_43(void)
+{
+	int joins;
+
+	test_fact_count = 0;
+	test_fact_43(test_fact(43));
+	network_rules_set_layout_source(test_source);
+	for (joins = 0; joins <= 2; joins++)
+	{
+		unsigned joined = NETWORK_RULES_VERSION_UNKNOWN;
+		int send;
+
+		/* (the first send, then one at each remote machine's join) */
+		for (send = 0; send <= joins; send++)
+		{
+			int size = network_rules_host_settings_size(43, 0, 0);
+			unsigned version = network_rules_client_settings_version(joined, 1, 43);
+			int options = network_rules_settings_options_size(version, (unsigned)size);
+
+			CHECK(size == 13200 && network_rules_settings_size_taken(version, (unsigned)size));
+			CHECK(options == 0x2C);
+			if (options > NETWORK_RULES_OPTIONS_SIZE)
+				joined = network_rules_client_noted_version(joined, 1, NETWORK_RULES_EXTENDED_OPTIONS_VERSION);
+			CHECK(joined == NETWORK_RULES_VERSION_UNKNOWN);
+		}
+	}
+	/* (a remote client of a host not known: noted at least 35, as before) */
+	CHECK(network_rules_client_noted_version(NETWORK_RULES_VERSION_UNKNOWN, 0, 35) == 35);
+	CHECK(network_rules_client_noted_version(43, 0, 35) == 43);
+	CHECK(network_rules_client_settings_version(43, 0, 41) == 43);
+	/* (a host announcing 41: its own machine takes 41's record, as before) */
+	CHECK(network_rules_settings_size_taken(network_rules_client_settings_version(35, 1, 41),
+		(unsigned)network_rules_host_settings_size(41, 0, 0)));
+	network_rules_set_layout_source(NULL);
+}
+
 int main(void)
 {
 	test_aim_assist_message();
@@ -1129,6 +1169,7 @@ int main(void)
 	test_layouts_43_hostile();
 	test_header_extension();
 	test_unit_parts();
+	test_host_own_machine_43();
 	if (failures)
 	{
 		printf("network_rules_test: %d failure(s)\n", failures);
