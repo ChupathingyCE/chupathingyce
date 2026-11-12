@@ -3814,6 +3814,21 @@ void network_game_server_change_map_name(
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x79C,
 		server->state == _network_game_server_state_pregame);
 
+	/* port: never a map this machine hasn't got (a playlist's or a test's
+	next entry, a map named by hand): the host's own client would refuse
+	the settings and leave, which ends the game for everyone (#1106). The
+	game stays on its map; whatever chose the map skips to its next */
+	if (!cache_files_map_installed(map_name))
+	{
+		network_event("not changing the game's map to '%s': it isn't installed on this machine", map_name);
+		if (server->game.map.name[0])
+		{
+			main_set_multiplayer_map_name(server->game.map.name);
+			game_engine_override_map_name(server->game.map.name);
+		}
+		return;
+	}
+
 	for (client_machine_index = 0;
 		client_machine_index < MAXIMUM_NETWORK_MACHINE_COUNT;
 		client_machine_index++)

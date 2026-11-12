@@ -104,6 +104,8 @@ unsigned long cache_files_map_choose(
 boolean cache_files_map_present(
 	char const *map_name,
 	unsigned long version);
+boolean cache_files_map_installed(
+	char const *map_name);
 
 unsigned long cache_files_get_checksum(
 	void);
