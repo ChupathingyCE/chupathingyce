@@ -315,6 +315,9 @@ map's thumbnail), else Steam's (its CDN), fetched only when asked for here,
 on a thread, kept in the cache folder by item and update time. NULL while
 there is none (yet); serial changes with the picture */
 const unsigned char *workshop_browser_preview(int index, int *width, int *height, int *serial);
+/* 1 when the item's picture can't be had this run (none kept, Steam's
+wouldn't come; debug.txt says why): its page says "No picture" */
+int workshop_browser_preview_missing(int index);
 /* the section went out of view: the Steam bridge stopped */
 void workshop_browser_close(void);
 /* the Steam bridge for this computer: its backend (STEAM_BRIDGE_BACKEND_*,
