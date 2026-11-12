@@ -151,17 +151,8 @@ network downloads, execute code, or change MCC redistribution/map-sharing policy
 The decoder was independently implemented against the
 [PNG specification](https://www.w3.org/TR/png-3/).
 
-[test_mcc_previews.py](../../tools/test_mcc_previews.py) executes the real
-decoder and file reader with generated assets, including all five PNG filters,
-malformed files, path/link escapes, metadata fallback and local precedence.
-[test_mcc_preview_menu.py](../../tools/test_mcc_preview_menu.py) exercises the
-real presentation against deterministic font/GPU services, checking bounds,
-cache eviction/reset, wrapping and unaffected Xbox/CE indices. The
-[Android importer tests](../../tools/tests/MccPackageImporterTest.java) verify
-that folder and ZIP imports retain metadata and image bytes. CI runs preview
-reader checks on Windows and Linux, including Linux address/undefined-behavior
-sanitizers. These automated checks do not replace rendered menu inspection or
-Android device testing.
+Rendered menu inspection and Android device testing check this work; the
+port carries no automated preview tests yet.
 
 [test_mcc_progress.py](../../tools/test_mcc_progress.py) executes journal reads
 and writes, profile/mission isolation, duplicate awards, corruption, capacity

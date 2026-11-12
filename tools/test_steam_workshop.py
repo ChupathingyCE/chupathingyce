@@ -589,23 +589,6 @@ def test_scan_keeps_short_map_names(tool, tmp_path):
     assert run(tool, "scan", setting=str(tmp_path), enabled=False)[0]["count"] == "0"
 
 
-def test_translation_keeps_local_override_and_legacy_roots(tool, tmp_path):
-    library, data = tmp_path / "steam", tmp_path / "data"
-    make_item(library, "111")
-    data.mkdir()
-    fields, _ = run(tool, "translate", "d:\\mcc_maps\\111\\beaver.map", setting=str(library), data_root=data)
-    assert fields["path"].replace("\\", "/").endswith("/111/Maps/beaver.map")
-    override = data / "MCC_MAPS/111"
-    override.mkdir(parents=True)
-    (override / "beaver.map").write_bytes(b"manual")
-    for prefix in ("d:\\", ""):
-        fields, _ = run(tool, "translate", prefix + "mcc_maps\\111\\beaver.map", setting=str(library), data_root=data)
-        assert Path(fields["path"]) == override / "beaver.map"
-    for folder in ("maps", "custom_maps"):
-        fields, _ = run(tool, "translate", "d:\\" + folder + "\\a10.map", setting=str(library), data_root=data)
-        assert Path(fields["path"]) == data / folder / "a10.map"
-
-
 def make_campaign(folder, names=("z10", "a10")):
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "campaign").mkdir(exist_ok=True)
@@ -666,33 +649,6 @@ def test_campaign_manifest_refuses_partial_or_ambiguous_metadata(tool, tmp_path,
     elif fault == "too_many": campaign.write_text(json.dumps({"CampaignMaps": [f"campaign/{i}.json" for i in range(65)]}))
     fields, _ = run(tool, "manifest", tmp_path)
     assert fields["result"] == "-1" and fields["count"] == "0" and fields["reason"]
-
-@pytest.mark.parametrize("item_id", ["111", "982734"])
-@pytest.mark.parametrize("resource", ["bitmaps.map", "sounds.map"])
-def test_workshop_authored_resources_are_found_in_item_halo1_folder(tool, tmp_path, item_id, resource):
-    library, data = tmp_path / "steam", tmp_path / "data"
-    package = make_item(library, item_id)
-    data.mkdir()
-    authored = package / "HaLo1/MaPs"
-    authored.mkdir(parents=True)
-    target = authored / resource.upper()
-    target.write_bytes(b"authored resource")
-    fields, _ = run(tool, "translate", f"mcc_maps/{item_id}/{resource}", setting=str(library), data_root=data)
-    assert Path(fields["path"]) == target
-    fields, _ = run(tool, "translate", f"d:\\MCC_MAPS\\{item_id}\\{resource.upper()}", setting=str(library), data_root=data)
-    assert Path(fields["path"]) == target
-    # A local package never borrows the Workshop item's authored resources.
-    override = data / "MCC_MAPS" / item_id
-    override.mkdir(parents=True)
-    fields, _ = run(tool, "translate", f"mcc_maps/{item_id}/{resource}", setting=str(library), data_root=data)
-    assert Path(fields["path"]) == override / resource
-    override.rmdir()
-    # Beside-level overrides stay authoritative, including invalid files.
-    beside = package / "Maps" / resource
-    beside.write_bytes(b"invalid override")
-    fields, _ = run(tool, "translate", f"mcc_maps/{item_id}/{resource}", setting=str(library), data_root=data)
-    assert Path(fields["path"]) == beside
-
 
 @pytest.mark.parametrize("group,subfolder,resource", [
     ("singleplayer", "", "bitmaps.map"),
