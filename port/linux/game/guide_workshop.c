@@ -156,6 +156,9 @@ static struct
 	boolean confirm;
 	/* REMOVE pressed once: DELETE deletes the files */
 	boolean confirm_remove;
+	/* where the button that asked stood: CANCEL takes its place, so a
+	second press or click there answers no */
+	short confirm_slot;
 	/* UNLINK's question: the button with the focus (1: CANCEL, as it opens),
 	and its window, for a click beside it */
 	short modal_option;
@@ -265,17 +268,14 @@ static short options_of(struct workshop_browser_item const *item, short *options
 		options[count++] = _option_show_maps;
 		return count;
 	}
-	/* (a question asked: its yes, then CANCEL) */
-	if (workshop_view.confirm_remove && workshop_browser_removable(workshop_view.row))
+	/* (a question asked: its yes and CANCEL, CANCEL where the button that
+	asked was) */
+	if ((workshop_view.confirm_remove && workshop_browser_removable(workshop_view.row)) || workshop_view.confirm)
 	{
-		options[count++] = _option_remove;
-		options[count++] = _option_cancel;
-		return count;
-	}
-	if (workshop_view.confirm)
-	{
-		options[count++] = _option_use_steam;
-		options[count++] = _option_cancel;
+		short yes = workshop_view.confirm_remove ? _option_remove : _option_use_steam;
+
+		options[count++] = workshop_view.confirm_slot ? yes : _option_cancel;
+		options[count++] = workshop_view.confirm_slot ? _option_cancel : yes;
 		return count;
 	}
 	if (item->state == WORKSHOP_ITEM_INSTALLED)
@@ -358,7 +358,7 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	case _option_link: return "LINK";
 	case _option_page_next: return "NEXT PAGE";
 	case _option_page_previous: return "PREVIOUS";
-	case _option_use_steam: return workshop_view.confirm ? "CONFIRM" : "CONNECT STEAM";
+	case _option_use_steam: return workshop_view.confirm ? "CONNECT" : "CONNECT STEAM";
 	default: break;
 	}
 	if (item->setup)
@@ -582,11 +582,13 @@ static void option_run(short option)
 			workshop_view.waiting = TRUE;
 		return;
 	case _option_remove:
-		/* (asked first: DELETE deletes the files, the focus on CANCEL) */
+		/* (asked first: DELETE deletes the files, the focus on CANCEL, in
+		REMOVE's place) */
 		if (!workshop_view.confirm_remove)
 		{
 			workshop_view.confirm_remove = TRUE;
-			workshop_view.option = 1;
+			workshop_view.confirm_slot = workshop_view.option ? 1 : 0;
+			workshop_view.option = workshop_view.confirm_slot;
 			return;
 		}
 		workshop_view.confirm_remove = FALSE;
@@ -630,11 +632,13 @@ static void option_run(short option)
 		guide_workshop_page_step(option == _option_page_next ? 1 : -1);
 		return;
 	case _option_use_steam:
-		/* (asked first: CONFIRM turns it on, the focus on CANCEL) */
+		/* (asked first: CONNECT turns it on, the focus on CANCEL, in CONNECT
+		STEAM's place) */
 		if (!workshop_view.confirm)
 		{
 			workshop_view.confirm = TRUE;
-			workshop_view.option = 1;
+			workshop_view.confirm_slot = workshop_view.option ? 1 : 0;
+			workshop_view.option = workshop_view.confirm_slot;
 			return;
 		}
 		workshop_view.confirm = FALSE;

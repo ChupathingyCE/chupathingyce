@@ -6,7 +6,13 @@ STEAM ACCOUNT row by mistake led to it, and a mouse had no way back but
 the Escape key. REMOVE turned into CONFIRM where it stood, so a second
 click deleted the item's files. Each question now has its yes and CANCEL,
 the focus on CANCEL as it opens; B, CANCEL, another item or (UNLINK's) a
-click beside its window leave things as they were."""
+click beside its window leave things as they were.
+
+These read the source: guide_workshop.c draws with the overlay and asks the
+Workshop list, the Steam bridge and the menus (cseries, input, the virtual
+keyboard, ~50 functions), so it can't be built alone as guide_layout.c is;
+the layout and text rules it uses are tested by running them
+(port/linux/tests/guide_layout_test.c)."""
 import re
 from pathlib import Path
 
