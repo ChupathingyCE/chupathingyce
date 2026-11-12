@@ -50,3 +50,10 @@ def test_starved_draws_counted():
 	draw = function_body(source, "static void bg_draw(")
 	assert "bg.stat_starved++;" in draw
 	assert "bg.stat_starved / 60" in function_body(source, "static void bg_present(")
+
+
+def test_overlay_room_left_by_the_scene():
+	source = read()
+	assert "#define BG_OVERLAY_RESERVE_VERTICES" in source
+	draw = function_body(source, "static void bg_draw(")
+	assert "vertex_count + BG_OVERLAY_RESERVE_VERTICES" in draw

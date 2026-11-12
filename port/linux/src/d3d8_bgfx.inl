@@ -112,6 +112,12 @@ BG_VERTEX_VOLATILE_FRAMES) */
 /* Metal's uniform space a frame (bgfx built with 32 MB), less a margin:
 draws past it are skipped rather than overrun it */
 #define BG_UNIFORM_BUDGET ((32UL << 20) - (1UL << 20))
+
+/* the frame's transient vertices the scene leaves for the overlay
+(xgpu_bgfx_overlay_draw), drawn after it at the present: 1 MB, in the
+scene's vertices. A busy view that used them all up took the overlay's
+screens and text with it */
+#define BG_OVERLAY_RESERVE_VERTICES ((1UL << 20) / BG_VERTEX_BYTES)
 /* occlusion queries, used as a ring (bgfx built with 4096) */
 #define BG_QUERY_COUNT 4096
 #define BG_COMPOSITE_LEVELS 16
@@ -3429,7 +3435,8 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	}
 #endif
 	starved = (!BGFX_HANDLE_IS_VALID(cached) &&
-			bgfx_get_avail_transient_vertex_buffer((uint32_t)vertex_count, &bg.layout) < vertex_count) ||
+			bgfx_get_avail_transient_vertex_buffer((uint32_t)(vertex_count + BG_OVERLAY_RESERVE_VERTICES), &bg.layout) <
+				vertex_count + BG_OVERLAY_RESERVE_VERTICES) ||
 		(generated && bgfx_get_avail_transient_index_buffer((uint32_t)generated, false) < generated);
 	if (starved && BGFX_HANDLE_IS_VALID(handle))
 	{
