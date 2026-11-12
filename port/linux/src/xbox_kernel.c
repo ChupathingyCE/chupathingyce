@@ -9,6 +9,7 @@ threads, asynchronous procedure calls, time, memory and debug output.
 #include "posix.h"
 #include "thread_stop.h"
 #include "log_paths.h"
+#include "port_config.h"
 
 #include <errno.h>
 #include <sched.h>
@@ -74,13 +75,18 @@ void platform_log(const char *format, ...)
 		extern char platform_log_path[];
 
 		char folder[1024], path[1100];
+		/* (before then, paths.logs, else a named save root's logs/, as
+		platform_folder will have them: from the environment until
+		config.toml is read, as reading it logs as it goes, then from the
+		settings, so a save root named only in config.toml has the lines from
+		there on) */
+		const int loaded = !platform_log_path[0] && config_loaded_yet();
+		const char *logs = loaded ? config_string("paths.logs") : getenv("HALO_LOG_ROOT");
+		const char *saves = !PLATFORM_LOGS_FOLLOW_SAVES ? NULL :
+			loaded ? config_string("paths.saves") : getenv("HALO_SAVE_ROOT");
 
 		handle = platform_log_path[0] ? fopen(platform_log_path, "a") : NULL;
-		/* (before then, HALO_LOG_ROOT, else a named save root's logs/, as
-		platform_folder will have them: from the environment, as config.toml
-		may still be being read, and logs as it goes) */
-		if (!platform_log_path[0] && port_folder_logs_override(getenv("HALO_LOG_ROOT"),
-				PLATFORM_LOGS_FOLLOW_SAVES ? getenv("HALO_SAVE_ROOT") : NULL, folder, sizeof(folder)))
+		if (!platform_log_path[0] && port_folder_logs_override(logs, saves, folder, sizeof(folder)))
 		{
 			char *separator;
 

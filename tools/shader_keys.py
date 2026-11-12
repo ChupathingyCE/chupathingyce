@@ -33,6 +33,9 @@ import tempfile
 import time
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from run_logs import debug_log_paths  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 STOCK = ROOT / "port" / "assets" / "shaders" / "stock.keys"
 HEADER = "chupathingy shader keys 1"
@@ -177,7 +180,9 @@ def record(args):
                     game.kill()
                     game.wait()
             keys = save / "cache" / "shader_keys" / f"{name}.keys"
-            debug_logs = (log, save / "debug.txt", data / "debug.txt", data / "logs" / "debug.txt")
+            # (debug.txt in the save root's logs/ since #1148, else the data
+            # root's: run_logs.py)
+            debug_logs = (log, save / "debug.txt", *(Path(path) for path in debug_log_paths(save, data)))
             drawn = any("drawn through every shader" in path.read_text(errors="replace")
                         for path in debug_logs if path.exists())
             if not keys.exists():
@@ -187,7 +192,8 @@ def record(args):
             count = sum(1 for line in keys.read_text().splitlines() if line.startswith("k "))
             print(f"  {name}: {count} keys" + ("" if drawn or name == "ui" else " (its first frame was not drawn "
                                                                               "through every shader)"))
-            for debug in debug_logs[2:]:
+            # (the shared data root's, kept by map; the save root is the map's own)
+            for debug in debug_logs[3:]:
                 if debug.exists():
                     shutil.copy(debug, save / f"{debug.parent.name}-debug.txt")
                     debug.unlink()

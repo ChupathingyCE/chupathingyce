@@ -252,7 +252,7 @@ Beside the maps and the saves, the game keeps folders of its own
 
 | Folder | Contents |
 | --- | --- |
-| `logs/` in the data root | The logs: `debug.txt`, `halo.log` (Windows) and `crashes/`. Zip this folder for a bug report. `paths.logs` (`HALO_LOG_ROOT`) puts it elsewhere; a save root you name (`paths.saves`, `HALO_SAVE_ROOT`) gets its own `logs/`. |
+| `logs/` in the data root | The logs: `debug.txt`, `halo.log` (Windows) and `crashes/`. Zip this folder for a bug report. `paths.logs` (`HALO_LOG_ROOT`) puts it elsewhere; a save root you name (`paths.saves`, `HALO_SAVE_ROOT`) gets its own `logs/` (with `paths.saves` set only in `config.toml`, the few lines written while the game reads that file still go to the usual place). |
 | `data/` in the data root | What a player adds that is not a map: `data/fonts/` holds the player's own fonts (`display.high_res_font`). |
 | `cache/` in the save root | What the game can make again; safe to delete. `paths.cache` (`HALO_CACHE_ROOT`) puts it elsewhere. |
 | `private/` in the save root | What is the player's alone. |

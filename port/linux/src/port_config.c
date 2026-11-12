@@ -2219,9 +2219,11 @@ static void config_path(char *path, size_t size)
 	const char *save_root = getenv("HALO_SAVE_ROOT");
 
 	/* (a copy given a save root of its own, a test's, keeps its settings
-	there too, not in the player's) */
+	there too, not in the player's; a new one is made, so its settings can
+	be written) */
 	if (save_root && *save_root)
 	{
+		SDL_CreateDirectory(save_root);
 		snprintf(path, size, "%s/config.toml", save_root);
 		return;
 	}
