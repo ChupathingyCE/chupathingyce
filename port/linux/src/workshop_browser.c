@@ -292,7 +292,8 @@ static void local_item_add(const char *item_folder, const char *id)
 	memset(item, 0, sizeof(*item));
 	snprintf(item->id, sizeof(item->id), "%s", id);
 	snprintf(item->title, sizeof(item->title), "%s", text.title[0] ? text.title : id);
-	snprintf(item->kind, sizeof(item->kind), "%s", text.has_campaign ? "campaign" : "multiplayer");
+	snprintf(item->kind, sizeof(item->kind), "%s", text.has_campaign && text.map_count > 0 ? "campaign+multiplayer" :
+		text.has_campaign ? "campaign" : "multiplayer");
 	item->tags = (text.has_campaign ? WORKSHOP_TAG_CAMPAIGN : 0) | (text.map_count > 0 ? WORKSHOP_TAG_MULTIPLAYER : 0);
 	item->size = -1;
 	item->local = 1;

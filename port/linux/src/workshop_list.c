@@ -373,7 +373,10 @@ static int read_details_item(struct json *json, struct workshop_browser_item *it
 		if (!take(json, '}'))
 			return 0;
 	}
-	snprintf(item->kind, sizeof(item->kind), "%s", campaign ? "campaign" : multiplayer ? "multiplayer" : "item");
+	/* (an item tagged both, a campaign that brings multiplayer maps: both,
+	so that its row says why it is in the MULTIPLAYER list) */
+	snprintf(item->kind, sizeof(item->kind), "%s", campaign && multiplayer ? "campaign+multiplayer" :
+		campaign ? "campaign" : multiplayer ? "multiplayer" : "item");
 	item->tags = (multiplayer ? WORKSHOP_TAG_MULTIPLAYER : 0) | (campaign ? WORKSHOP_TAG_CAMPAIGN : 0);
 	/* (MCC's Workshop mixes its games: only Halo CE's, tagged Halo1) */
 	*kept = item->id[0] && item->title[0] && result == 1 && app == 976730 && halo1;
@@ -488,6 +491,8 @@ const char *workshop_browser_kind_name(const char *kind)
 		return "Multiplayer";
 	if (!strcmp(kind, "campaign"))
 		return "Campaign";
+	if (!strcmp(kind, "campaign+multiplayer"))
+		return "Campaign + Multiplayer";
 	if (!strcmp(kind, "gametypes"))
 		return "Game types";
 	if (!strcmp(kind, "game"))

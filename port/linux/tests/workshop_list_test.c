@@ -75,6 +75,7 @@ int main(void)
 	CHECK(!workshop_browser_id_valid("") && !workshop_browser_id_valid("123456789012345678901"));
 	CHECK(!strcmp(workshop_browser_kind_name("gametypes"), "Game types"));
 	CHECK(!strcmp(workshop_browser_kind_name("odd"), "Item"));
+	CHECK(!strcmp(workshop_browser_kind_name("campaign+multiplayer"), "Campaign + Multiplayer"));
 	CHECK(!strcmp(workshop_browser_state_name(WORKSHOP_ITEM_INSTALLING), "Installing"));
 	workshop_browser_size_text(48211968, size, sizeof(size));
 	CHECK(!strcmp(size, "46 MB"));
@@ -112,6 +113,22 @@ int main(void)
 
 			CHECK(workshop_browser_read_details(plain, (int)strlen(plain), items, 4) == 1);
 			CHECK(!strcmp(items[0].description, "Hi there"));
+		}
+		{
+			/* a campaign that brings multiplayer maps (Steam tags it both,
+			as Cursed Halo Again is): both, in the MULTIPLAYER list by its
+			tag and saying so in its row */
+			static const char both[] = "{\"response\":{\"publishedfiledetails\":[{\"publishedfileid\":\"2962107814\","
+				"\"result\":1,\"consumer_app_id\":976730,\"title\":\"Cursed Halo Again\","
+				"\"tags\":[{\"tag\":\"Halo1\"},{\"tag\":\"Campaign\"},{\"tag\":\"Multiplayer\"}]},"
+				"{\"publishedfileid\":\"7\",\"result\":1,\"consumer_app_id\":976730,\"title\":\"Missions\","
+				"\"tags\":[{\"tag\":\"Campaign\"},{\"tag\":\"Halo1\"}]}]}}";
+
+			CHECK(workshop_browser_read_details(both, (int)strlen(both), items, 4) == 2);
+			CHECK(!strcmp(items[0].kind, "campaign+multiplayer"));
+			CHECK(items[0].tags == (WORKSHOP_TAG_MULTIPLAYER | WORKSHOP_TAG_CAMPAIGN));
+			CHECK(!strcmp(workshop_browser_kind_name(items[0].kind), "Campaign + Multiplayer"));
+			CHECK(!strcmp(items[1].kind, "campaign") && items[1].tags == WORKSHOP_TAG_CAMPAIGN);
 		}
 		CHECK(workshop_browser_read_details("{\"nope\":1}", 10, items, 4) == -1);
 	}

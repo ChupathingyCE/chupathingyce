@@ -175,7 +175,8 @@ digits or a title is passed over */
 int workshop_browser_read_list(const char *text, int length, struct workshop_browser_item *items, int maximum);
 /* Steam's answer to ISteamRemoteStorage/GetPublishedFileDetails (no key):
 how many Halo CE items of MCC's (consumer app 976730, tag Halo1, result 1)
-were written, with their title, kind (campaign / maps), size when Steam
+were written, with their title, kind (campaign, multiplayer or, tagged both,
+campaign+multiplayer), size when Steam
 gives one, update time and a plain description; -1 if it is not one */
 int workshop_browser_read_details(const char *text, int length, struct workshop_browser_item *items, int maximum);
 /* the item ids on a page of Steam's public Workshop browse page (the digits
@@ -185,7 +186,7 @@ int workshop_browser_read_browse_ids(const char *text, int length, char (*ids)[W
 int workshop_browser_id_valid(const char *text);
 /* the page of an item in the Steam client: steam://url/CommunityFilePage/<id>; 0 for a bad id */
 int workshop_browser_steam_url(const char *id, char *url, int size);
-/* a kind's word ("Map", "Maps", "Campaign", "Game types", "Item") */
+/* a kind's words ("Multiplayer", "Campaign", "Campaign + Multiplayer", "Game types", "Item") */
 const char *workshop_browser_kind_name(const char *kind);
 /* a state's word ("Installed") */
 const char *workshop_browser_state_name(int state);
