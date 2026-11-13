@@ -387,7 +387,7 @@ jobs:
           apt_try apt-get update -q
           apt_try apt-get install -y -q --no-install-recommends clang-$LLVM_MAJOR lld-$LLVM_MAJOR llvm-$LLVM_MAJOR \
             libclang-rt-$LLVM_MAJOR-dev gcc gcc-multilib libc6-dev-i386 cmake pkg-config libwayland-bin \
-            ninja-build ccache python3-pytest python3-pytest-xdist zstd
+            ninja-build ccache python3-pytest python3-pytest-xdist python3-numpy python3-pil zstd
           echo "/usr/lib/llvm-$LLVM_MAJOR/bin" >> "$GITHUB_PATH"
         env:
           LLVM_MAJOR: 22
