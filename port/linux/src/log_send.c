@@ -8,6 +8,9 @@ thread of its own (posix_browser_send). Moved here from the setup screen
 */
 
 #include "log_send.h"
+
+#ifdef HALO_GAME_BROWSER
+
 #include "platform.h"
 #include "port_config.h"
 #include "posix.h"
@@ -391,3 +394,38 @@ void log_send_folder_url(const char *path, char *url, int size)
 	}
 	url[length] = '\0';
 }
+
+#else
+
+/* (a build without the game browser's HTTP, the consoles: nothing is sent,
+and the player is told so if a screen asks) */
+#include <string.h>
+
+int log_send_start(const char *logs_folder, int with_settings, char *error, int error_size)
+{
+	(void)logs_folder; (void)with_settings;
+	if (error && error_size > 0)
+	{
+		strncpy(error, "This build cannot send logs.", (size_t)error_size - 1);
+		error[error_size - 1] = 0;
+	}
+	return LOG_SEND_FAILED;
+}
+
+int log_send_poll(char *code, int code_size, char *error, int error_size)
+{
+	if (code && code_size > 0) code[0] = 0;
+	if (error && error_size > 0) error[0] = 0;
+	return LOG_SEND_IDLE;
+}
+
+void log_send_forget(void) { }
+
+void log_send_folder_url(const char *path, char *url, int size)
+{
+	if (!url || size <= 0) return;
+	strncpy(url, path ? path : "", (size_t)size - 1);
+	url[size - 1] = 0;
+}
+
+#endif
