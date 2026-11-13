@@ -13,6 +13,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "cseries.h"
 #include "stubbs_campaign.h"
 
+#ifndef HALO_CONSOLE_NO_STUBBS /* (the header's empty ones on a console) */
+
 char const *stubbs_campaign_level_name(
 	short level,
 	char const *halo_name)
@@ -56,3 +58,5 @@ boolean stubbs_campaign_event_function(
 	(void)result;
 	return FALSE;
 }
+
+#endif

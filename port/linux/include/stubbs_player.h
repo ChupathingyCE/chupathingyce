@@ -17,6 +17,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 /* ---------- stubbs_player.c */
 
+#ifndef HALO_CONSOLE_NO_STUBBS
 /* the perspective a unit is seen from (director.c's
 director_desired_perspective, beside MCC's weapon cameras): TRUE when it is
 Stubbs's own, *perspective set (a director_perspective) and the camera
@@ -44,5 +45,18 @@ void stubbs_image_effect_end(void);
 /* draws the image effect over a player's 3D view (render.c, after the lens
 flares, before the antialiasing and the HUD): nothing for now */
 void stubbs_image_effects_render(short local_player_index);
+
+#else
+/* (a console leaves Stubbs mode out, HALO_CONSOLE_NO_STUBBS in
+halo_console_features.h, and may not build this part's file: each hook
+is an empty one here) */
+static __inline boolean stubbs_player_camera_following(long unit_index, short *perspective) { (void)unit_index; (void)perspective; return FALSE; }
+static __inline void stubbs_player_hud_draw(short local_player_index, long unit_index) { (void)local_player_index; (void)unit_index; }
+static __inline void stubbs_player_hud_show_special_attack(short special_attack, boolean show) { (void)special_attack; (void)show; }
+static __inline void stubbs_image_effect_set(char const *name) { (void)name; }
+static __inline void stubbs_image_effect_start_blend(char const *name, real seconds) { (void)name; (void)seconds; }
+static __inline void stubbs_image_effect_end(void) { }
+static __inline void stubbs_image_effects_render(short local_player_index) { (void)local_player_index; }
+#endif
 
 #endif

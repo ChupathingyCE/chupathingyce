@@ -17,6 +17,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 struct widget_instance;
 struct event_record;
 
+#ifndef HALO_CONSOLE_NO_STUBBS
 /* the map a campaign level plays (main.c's main_get_solo_level_name, the
 menus' level list in ui_widget_event_handler_functions.c): halo_name for
 now */
@@ -39,5 +40,18 @@ ui.map): TRUE once it has run, its result in *result; FALSE for now, and
 Halo's "invalid event_handler_function" follows */
 boolean stubbs_campaign_event_function(struct widget_instance *widget, struct event_record *event,
 	word function_index, boolean *widget_deleted, boolean *result);
+
+#else
+/* (a console leaves Stubbs mode out, HALO_CONSOLE_NO_STUBBS in
+halo_console_features.h, and may not build this part's file: each hook
+is an empty one here) */
+static __inline char const *stubbs_campaign_level_name(short level, char const *halo_name) { (void)level; return halo_name; }
+static __inline short stubbs_campaign_level_from_name(char const *name, short halo_level) { (void)name; return halo_level; }
+static __inline boolean stubbs_campaign_map_name_allowed(void) { return FALSE; }
+static __inline boolean stubbs_campaign_map_completed(short difficulty) { (void)difficulty; return FALSE; }
+static __inline boolean stubbs_campaign_event_function(struct widget_instance *widget, struct event_record *event,
+	word function_index, boolean *widget_deleted, boolean *result)
+{ (void)widget; (void)event; (void)function_index; (void)widget_deleted; (void)result; return FALSE; }
+#endif
 
 #endif

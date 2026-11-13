@@ -13,6 +13,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "cseries.h"
 #include "stubbs_player.h"
 
+#ifndef HALO_CONSOLE_NO_STUBBS /* (the header's empty ones on a console) */
+
 void stubbs_image_effect_set(
 	char const *name)
 {
@@ -37,3 +39,5 @@ void stubbs_image_effects_render(
 {
 	(void)local_player_index;
 }
+
+#endif

@@ -17,6 +17,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 struct widget_instance;
 struct event_record;
 
+#ifndef HALO_CONSOLE_NO_STUBBS
 /* a menu widget's event script the map lacks (ui_widget.c, where Halo
 logs "failed to run ui widget event script", such as Stubbs's
 'multiplayer'): TRUE once it has run; FALSE for now */
@@ -28,5 +29,15 @@ in *result; FALSE for now, and Halo's "this is not a selectable player
 profile" follows */
 boolean stubbs_multiplayer_profile_chosen(struct widget_instance *widget, struct event_record *event,
 	boolean *widget_deleted, boolean *result);
+
+#else
+/* (a console leaves Stubbs mode out, HALO_CONSOLE_NO_STUBBS in
+halo_console_features.h, and may not build this part's file: each hook
+is an empty one here) */
+static __inline boolean stubbs_multiplayer_widget_script(char const *script) { (void)script; return FALSE; }
+static __inline boolean stubbs_multiplayer_profile_chosen(struct widget_instance *widget, struct event_record *event,
+	boolean *widget_deleted, boolean *result)
+{ (void)widget; (void)event; (void)widget_deleted; (void)result; return FALSE; }
+#endif
 
 #endif

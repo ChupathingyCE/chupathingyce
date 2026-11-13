@@ -12,6 +12,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "cseries.h"
 #include "stubbs_multiplayer.h"
 
+#ifndef HALO_CONSOLE_NO_STUBBS /* (the header's empty ones on a console) */
+
 boolean stubbs_multiplayer_widget_script(
 	char const *script)
 {
@@ -31,3 +33,5 @@ boolean stubbs_multiplayer_profile_chosen(
 	(void)result;
 	return FALSE;
 }
+
+#endif

@@ -119,9 +119,9 @@ symbols in this file:
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #ifdef HALO_PORT_CHAT
 #include "chat.h" /* port: port/linux/game/chat.c */
+#endif
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_player.h" /* port: port/linux/game/stubbs_player.c */
-#endif
 #include "text/font_group.h"
 #include "text/text_group.h"
 #include "units/unit_definitions.h"
