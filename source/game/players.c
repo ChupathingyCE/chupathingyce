@@ -266,6 +266,7 @@ symbols in this file:
 #include "real_math.h"
 #include "render/render_debug.h"
 #include "players.h"
+#include "stubbs_horde.h" /* port: port/linux/game/stubbs_horde.c */
 #include "player_queues_new.h"
 #include "objects/objects.h"
 #include "saved games/game_state.h"
@@ -4725,6 +4726,7 @@ void players_update_before_game(
 					(units.h, UNIT_CONTROL_PORT_ACTION_ONLY_BIT) */
 					if (TEST_FLAG(action->control_flags, _unit_control_action_bit) &&
 						unit->object.parent_object_index == NONE &&
+						!stubbs_horde_player_action(iterator.datum_index) && /* port: Stubbs mode only */
 						!player_handle_action(iterator.datum_index) &&
 						!TEST_FLAG(action->control_flags, UNIT_CONTROL_PORT_ACTION_ONLY_BIT))
 					{
