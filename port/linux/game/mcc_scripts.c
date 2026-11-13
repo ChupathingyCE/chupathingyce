@@ -285,16 +285,6 @@ static short mcc_local_global(struct mcc_runtime *runtime, struct scenario *scen
     return (short)count;
 }
 
-static boolean mcc_disabled_skull(char const *name)
-{
-    return name && (!csstrcasecmp(name,"debug_ice_cream_flavor_status_i_would_have_been_your_daddy") ||
-        !csstrcasecmp(name,"debug_ice_cream_flavor_status_grunt_birthday_party") ||
-        !csstrcasecmp(name,"debug_ice_cream_flavor_status_bandanna") ||
-        !csstrcasecmp(name,"debug_ice_cream_flavor_status_sputnik") ||
-        !csstrcasecmp(name,"debug_ice_cream_flavor_status_catch") ||
-        !csstrcasecmp(name,"debug_ice_cream_flavor_status_boom"));
-}
-
 static boolean mcc_boolean_result(struct hs_syntax_node *node,boolean value)
 {
     union { real number;long bits; } result;
@@ -369,21 +359,8 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
                     error(_error_silent,"mcc: %s supports only a literal enable (syntax node %ld)",target_name,i);
                     return FALSE;
                 }
-                if (target && (target->flags & 1) && mcc_disabled_skull(
-                    mcc_script_string(strings,scenario->hs_string_constants.size,target->string_offset))) {
-                    struct hs_syntax_node *value=datum_try_and_get(syntax,target->next_node_index);
-                    /* A literal disable is already satisfied. Retain the
-                     * expression's requested result type and sibling link;
-                     * never discard computed values or an enable request. */
-                    if (value && (value->flags&7)==1 && value->type==_hs_type_boolean &&
-                        value->constant_type==_hs_type_boolean && !value->boolean_value &&
-                        value->next_node_index==NONE) {
-                        if (!mcc_boolean_result(node,FALSE)) return FALSE;
-                        continue;
-                    }
-                    error(_error_silent,"mcc: unsupported skull assignment to %s (syntax node %ld); only a literal disable is supported",target_name,i);
-                    return FALSE;
-                }
+                /* (a skull's set, debug_ice_cream_flavor_status_*, is an
+                 * ordinary set of an engine global: mcc_skulls.c) */
             }
             if (!csstrcasecmp(name, "objects_distance_to_object")) index = MCC_HS_DISTANCE_TO_OBJECT;
             else if (!csstrcasecmp(name, "mcc_mission_segment")) index = MCC_HS_MISSION_SEGMENT;
@@ -406,13 +383,8 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
                 if (node->type!=_hs_type_boolean) return FALSE;
                 node->flags&=~4;node->constant_type=_hs_type_boolean;node->data=TRUE;continue;
             }
-            if (mcc_disabled_skull(name)) {
-                if (node->type != _hs_type_boolean) return FALSE;
-                node->flags &= ~4;
-                node->constant_type = _hs_type_boolean;
-                node->data = FALSE;
-                continue;
-            }
+            /* (MCC's skulls, debug_ice_cream_flavor_status_*, are engine
+             * globals like MCC's, found by name below: mcc_skulls.c) */
             if (!csstrcasecmp(name,"game_speed_value")) {
                 if (speed==NONE) speed=mcc_local_global(runtime,scenario,syntax,name,_hs_type_real);
                 if (speed==NONE) {

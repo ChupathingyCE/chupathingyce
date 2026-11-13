@@ -274,6 +274,7 @@ symbols in this file:
 #include "units/vehicle_definitions.h"
 #include "units/vehicles.h"
 #include "units/biped_definitions.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 /* ---------- constants */
 
@@ -2415,8 +2416,10 @@ short actor_visibility_at_point(
 			actor_definition_get(actor->meta.definition_index);
 		struct actor_variant_definition *firing_variant =
 			actor_combat_get_firing_variant_definition(actor_index);
+		/* port: farther under MCC's That's Just... Wrong skull (mcc_skulls.c) */
 		real maximum_distance =
-			definition->perception.maximum_vision_distance;
+			definition->perception.maximum_vision_distance *
+			mcc_skulls_perception_scale(actor->meta.team_index);
 		real_vector3d direction;
 		real distance_squared;
 		real full_distance;
@@ -2622,8 +2625,10 @@ short actor_audibility_at_point(
 		position->body_location.cluster_index != NONE &&
 		source_location->cluster_index != NONE)
 	{
+		/* port: farther under MCC's That's Just... Wrong skull (mcc_skulls.c) */
 		real maximum_distance =
-			definition->perception.hearing_distance;
+			definition->perception.hearing_distance *
+			mcc_skulls_perception_scale(actor->meta.team_index);
 		real encoded_distance = -1.0f;
 		real audible_distance = -1.0f;
 		real_vector3d direction;

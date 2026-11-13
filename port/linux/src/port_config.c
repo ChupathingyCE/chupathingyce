@@ -1416,6 +1416,13 @@ static const struct config_setting config_settings[] =
 	{ "game.workshop_maps", _config_boolean, "false", "HALO_WORKSHOP_MAPS", _environment_value, _platform_desktop,
 		"Discover installed Halo CE Steam Workshop maps. Read-only desktop\n"
 		"discovery; packages installed in maps_mcc are always read." },
+	{ "game.mcc_skulls", _config_string, "\"\"", "HALO_MCC_SKULLS", _environment_value, _platform_desktop,
+		"The MCC skulls on when an MCC map starts, as MCC's skull menu would turn\n"
+		"them on: their names separated by commas (fog, black_eye, mythic, iron,\n"
+		"famine, catch, anger, thunderstorm, thats_just_wrong, assassins, bandanna,\n"
+		"boom, eye_patch, recession, blind, ghost, sputnik). A map's own scripts\n"
+		"may turn skulls on and off after that. Xbox and Custom Edition maps are\n"
+		"never affected." },
 	{ "game.workshop_steam", _config_boolean, "false", "HALO_WORKSHOP_STEAM", _environment_value, _platform_desktop,
 		"Let the Delta Guide's Workshop get MCC Workshop items itself: through the Steam\n"
 		"client where it downloads them (Windows), else with the game's own Steam\n"

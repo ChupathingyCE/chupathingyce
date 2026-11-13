@@ -319,6 +319,7 @@ symbols in this file:
 #include "units/vehicle_definitions.h"
 #include "units/vehicles.h"
 #include "networking/network_game_globals.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 /* ---------- constants */
 
@@ -2466,6 +2467,8 @@ void actor_customize_unit(
 			actor_variant_definition->items.grenades_lower_bound,
 			actor_variant_definition->items.grenades_upper_bound + 1);
 
+		/* port: MCC's Catch skull: an enemy carries more (mcc_skulls.c) */
+		grenade_count = mcc_skulls_actor_grenades(unit->object.owner_team_index, grenade_count);
 		unit_add_grenade_type_to_inventory(
 			unit_index,
 			actor_variant_definition->grenade_combat.grenade_type,
@@ -2504,9 +2507,11 @@ void actor_customize_unit(
 		}
 	}
 
+	/* port: or MCC's Assassins skull, every enemy cloaked (mcc_skulls.c) */
 	if ((actor_variant_definition->flags &
 		(FLAG(_actor_variant_definition_active_camouflage_bit) |
-			FLAG(_actor_variant_definition_super_active_camouflage_bit))) != 0)
+			FLAG(_actor_variant_definition_super_active_camouflage_bit))) != 0 ||
+		mcc_skulls_actor_cloaked(unit->object.owner_team_index))
 	{
 		if (TEST_FLAG(
 			actor_variant_definition->flags,
