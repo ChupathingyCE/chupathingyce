@@ -1772,6 +1772,10 @@ static const struct config_setting config_settings[] =
 		"Log every frame in a map's first minute that comes more than this many\n"
 		"milliseconds after the one before it, and how many there were. 33 is\n"
 		"two frames at 60 Hz. 0 for none." },
+	{ "debug.frame_times", _config_string, "\"\"", "HALO_FRAME_TIMES", _environment_value, _platform_all,
+		"A file to write every frame's time to: the wall clock, the milliseconds\n"
+		"since the frame before, the map; and a line when a map has loaded. For\n"
+		"the renderer measurements. Leave it empty for none." },
 #endif
 	{ "debug.gpu_stats", _config_boolean, "false", "HALO_GPU_STATS", _environment_set_is_true, _platform_all,
 		"Log the renderer's draw counts once a second." },
