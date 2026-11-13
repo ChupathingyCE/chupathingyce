@@ -281,6 +281,15 @@ struct bg_composite
 	bgfx_texture_handle_t texture;
 	uint16_t sources[BG_COMPOSITE_LEVELS];
 	unsigned long written[BG_COMPOSITE_LEVELS];
+	/* how many levels the game rendered, from the first; the levels past
+	them are made of the last one it did (bg_composite_fill), each in a
+	target of its own, copied into the texture's level */
+	unsigned long rendered;
+	bgfx_texture_handle_t scratch[BG_COMPOSITE_LEVELS];
+	bgfx_frame_buffer_handle_t scratch_framebuffer[BG_COMPOSITE_LEVELS], level_framebuffer[BG_COMPOSITE_LEVELS];
+	/* the frame the levels were last made for, and whether they were */
+	unsigned long filled_frame;
+	BOOL filled;
 };
 
 /* a copy to make at the start of the next view */
@@ -337,7 +346,7 @@ static struct
 	struct bg_target *targets[BG_TARGET_BUCKETS];
 	struct bg_framebuffer *framebuffers;
 	struct bg_composite *composites;
-	bgfx_program_handle_t blit, crt;
+	bgfx_program_handle_t blit, crt, copy;
 	bgfx_uniform_handle_t crt_parameters[3];
 	/* the quads that are drawn every frame, kept out of the frame's transient
 	vertices: when a busy view used those up, the present drew only its
@@ -2368,31 +2377,39 @@ static BOOL bg_target_rect(float x, float y, float width, float height, unsigned
 }
 
 /* the levels of a texture the game renders one at a time, in one mipmapped
-texture (mip_composite_get's), or the target of its first level alone if
-the game has not rendered every level */
-static bgfx_texture_handle_t bg_composite_get(const struct xgpu_texture_description *description, DWORD data,
-	struct bg_target *first, BOOL *mipmapped)
+texture (mip_composite_get's), a render target drawn into level by level
+before the draw that samples it sets any state (bg_composite_fill). The
+levels the game did not render come from the last one it did, each made in
+a target of its own first; the OpenGL path has the driver make them. (A
+bgfx blit into the texture is not used: on Metal, a draw in the same frame
+sampled the texture as it was before the blit.) The target of the first
+level alone when the texture cannot be made, or filling it failed. */
+static struct bg_composite *bg_composite_find(const struct xgpu_texture_description *description, DWORD data,
+	struct bg_target *first, struct bg_target *targets[BG_COMPOSITE_LEVELS], unsigned long *full,
+	unsigned long *rendered)
 {
-	struct bg_target *targets[BG_COMPOSITE_LEVELS];
 	struct bg_composite *composite;
-	unsigned long level, full = 1, size;
-	BOOL changed = FALSE;
+	unsigned long level, size;
 
-	*mipmapped = FALSE;
+	*full = 1;
+	*rendered = 0;
 	for (size = description->width > description->height ? description->width : description->height; size > 1; size >>= 1)
-		full++;
-	if (description->levels != full || full > BG_COMPOSITE_LEVELS)
-		return first->texture;
-	for (level = 0; level < full; level++)
+		(*full)++;
+	if (*full > BG_COMPOSITE_LEVELS || description->levels < 2)
+		return NULL;
+	for (level = 0; level < *full; level++)
 	{
 		unsigned long width = description->width >> level ? description->width >> level : 1;
 		unsigned long height = description->height >> level ? description->height >> level : 1;
 
-		targets[level] = bg_target_find(data + xgpu_texture_level_offset(description, level));
+		targets[level] = level ? bg_target_find(data + xgpu_texture_level_offset(description, level)) : first;
 		if (!targets[level] || targets[level]->width != width || targets[level]->height != height ||
 			targets[level]->pixel_width != width || targets[level]->pixel_height != height)
-			return first->texture;
+			break;
 	}
+	*rendered = level;
+	if (!*rendered)
+		return NULL;
 	for (composite = bg.composites; composite; composite = composite->next)
 	{
 		if (composite->data == data && composite->width == description->width && composite->height == description->height)
@@ -2404,37 +2421,175 @@ static bgfx_texture_handle_t bg_composite_get(const struct xgpu_texture_descript
 		composite->data = data;
 		composite->width = description->width;
 		composite->height = description->height;
-		composite->levels = full;
+		composite->levels = *full;
 		composite->texture = bgfx_create_texture_2d((uint16_t)description->width, (uint16_t)description->height, true, 1,
-			BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_BLIT_DST, NULL, 0);
+			BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
+		for (level = 0; level < BG_COMPOSITE_LEVELS; level++)
+		{
+			composite->scratch[level] = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+			composite->scratch_framebuffer[level] = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
+			composite->level_framebuffer[level] = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
+		}
 		composite->next = bg.composites;
 		bg.composites = composite;
-		changed = TRUE;
 	}
 	/* (one bgfx would not make: the top level alone, as a target without
 	its levels above) */
-	if (!BGFX_HANDLE_IS_VALID(composite->texture))
-		return first->texture;
-	for (level = 0; level < full; level++)
+	return BGFX_HANDLE_IS_VALID(composite->texture) ? composite : NULL;
+}
+
+/* a texture drawn over a frame buffer of width by height (linear samples at
+the pixels' centers: at half the source's size, the box filter), in a view
+of its own, the draw's state untouched (nothing of it is set yet); FALSE if
+bgfx has no room for it */
+static BOOL bg_composite_copy(bgfx_frame_buffer_handle_t framebuffer, unsigned long width, unsigned long height,
+	bgfx_texture_handle_t source)
+{
+	if (!BGFX_HANDLE_IS_VALID(bg.copy) || !BGFX_HANDLE_IS_VALID(bg.full_quad) || !BGFX_HANDLE_IS_VALID(framebuffer) ||
+		!BGFX_HANDLE_IS_VALID(source))
+		return FALSE;
+	if (bg.view_used)
+	{
+		if (bg.view + 2 >= BG_MAXIMUM_VIEWS)
+		{
+			bg_log_once("more views than a frame has");
+			return FALSE;
+		}
+		bg.view++;
+		bg.view_used = FALSE;
+	}
+	bgfx_set_view_mode(bg.view, BGFX_VIEW_MODE_SEQUENTIAL);
+	bgfx_set_view_clear(bg.view, BGFX_CLEAR_NONE, 0, 1.0f, 0);
+	bgfx_set_view_frame_buffer(bg.view, framebuffer);
+	bgfx_set_view_rect(bg.view, 0, 0, (uint16_t)width, (uint16_t)height, 0.0f, 1.0f);
+	/* (the next draw's view is a new one: bg_view_set) */
+	bg.view_framebuffer = framebuffer;
+	bgfx_set_vertex_buffer(0, bg.full_quad, 0, 4);
+	bgfx_set_texture(0, bg.samplers[0], source, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_TRISTRIP, 0);
+	bgfx_submit(bg.view, bg.copy, 0, BGFX_DISCARD_ALL);
+	bg.view_used = TRUE;
+	return TRUE;
+}
+
+/* the frame buffer of one level of the composite, made the first time */
+static bgfx_frame_buffer_handle_t bg_composite_level_framebuffer(struct bg_composite *composite, unsigned long level)
+{
+	if (!BGFX_HANDLE_IS_VALID(composite->level_framebuffer[level]))
+	{
+		bgfx_attachment_t attachment;
+
+		bgfx_attachment_init(&attachment, composite->texture, BGFX_ACCESS_WRITE, 0, 1, (uint16_t)level, 0);
+		composite->level_framebuffer[level] = bgfx_create_frame_buffer_from_attachment(1, &attachment, false);
+	}
+	return composite->level_framebuffer[level];
+}
+
+/* a level below the game's made of the one above it, in a target of its own
+(the composite's own levels are not sampled while one of them is drawn) */
+static bgfx_texture_handle_t bg_composite_scratch(struct bg_composite *composite, unsigned long level,
+	bgfx_texture_handle_t above)
+{
+	unsigned long width = composite->width >> level ? composite->width >> level : 1;
+	unsigned long height = composite->height >> level ? composite->height >> level : 1;
+
+	if (!BGFX_HANDLE_IS_VALID(composite->scratch[level]))
+	{
+		composite->scratch[level] = bgfx_create_texture_2d((uint16_t)width, (uint16_t)height, false, 1,
+			BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
+		if (BGFX_HANDLE_IS_VALID(composite->scratch[level]))
+			composite->scratch_framebuffer[level] = bgfx_create_frame_buffer_from_handles(1, &composite->scratch[level], false);
+	}
+	if (!bg_composite_copy(composite->scratch_framebuffer[level], width, height, above))
+		return (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+	return composite->scratch[level];
+}
+
+/* the composite of a render target texture with levels brought up to date,
+before a draw that samples it sets any state: the game's levels copied, the
+rest drawn (bg_composite_downsample) and copied */
+static void bg_composite_fill(const struct xgpu_texture_description *description, DWORD data, struct bg_target *first)
+{
+	struct bg_target *targets[BG_COMPOSITE_LEVELS];
+	struct bg_composite *composite;
+	unsigned long level, full, rendered;
+	BOOL changed = FALSE;
+
+	composite = bg_composite_find(description, data, first, targets, &full, &rendered);
+	if (!composite)
+		return;
+	/* (again only once a level was drawn into since) */
+	for (level = 0; level < rendered; level++)
 	{
 		if (composite->sources[level] != targets[level]->texture.idx || composite->written[level] != targets[level]->written)
 			changed = TRUE;
 	}
-	if (changed)
+	if (!changed && rendered == composite->rendered && composite->filled)
 	{
-		for (level = 0; level < full && bg.blit_count < (int)(sizeof(bg.blits) / sizeof(bg.blits[0])); level++)
-		{
-			struct bg_blit *blit = &bg.blits[bg.blit_count++];
+		composite->filled_frame = bg.frame;
+		return;
+	}
+	composite->filled_frame = bg.frame;
+	composite->filled = FALSE;
+	composite->rendered = rendered;
+	for (level = 0; level < full; level++)
+	{
+		unsigned long width = composite->width >> level ? composite->width >> level : 1;
+		unsigned long height = composite->height >> level ? composite->height >> level : 1;
+		bgfx_texture_handle_t source;
 
+		if (level < rendered)
+		{
 			composite->sources[level] = targets[level]->texture.idx;
 			composite->written[level] = targets[level]->written;
-			blit->destination = composite->texture;
-			blit->source = targets[level]->texture;
-			blit->level = (unsigned char)level;
-			blit->width = (unsigned short)targets[level]->width;
-			blit->height = (unsigned short)targets[level]->height;
+			source = targets[level]->texture;
 		}
+		else
+		{
+			source = bg_composite_scratch(composite, level,
+				level - 1 < rendered ? targets[level - 1]->texture : composite->scratch[level - 1]);
+		}
+		if (!bg_composite_copy(bg_composite_level_framebuffer(composite, level), width, height, source))
+			return;
 	}
+	composite->filled = TRUE;
+}
+
+/* the stages' render target textures with levels, filled before the draw
+(bg_bind_textures' conditions) */
+static void bg_composites_prepare(void)
+{
+	int stage;
+
+	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
+	{
+		D3DBaseTexture *texture = device.textures[stage];
+		unsigned long mode = stage_texture_mode(stage);
+		struct xgpu_texture_description description;
+		struct bg_target *target;
+
+		if (!texture || !texture->Data || mode == 0 || mode == 0x04 || mode == 0x05 || mode == 0x11)
+			continue;
+		xgpu_texture_describe(texture->Format, texture->Size, &description);
+		if (description.linear || description.cube_map || description.levels < 2)
+			continue;
+		target = bg_target_find(texture->Data);
+		if (target && target->width == description.width && target->height == description.height)
+			bg_composite_fill(&description, texture->Data, target);
+	}
+}
+
+static bgfx_texture_handle_t bg_composite_get(const struct xgpu_texture_description *description, DWORD data,
+	struct bg_target *first, BOOL *mipmapped)
+{
+	struct bg_target *targets[BG_COMPOSITE_LEVELS];
+	struct bg_composite *composite;
+	unsigned long full, rendered;
+
+	*mipmapped = FALSE;
+	composite = bg_composite_find(description, data, first, targets, &full, &rendered);
+	if (!composite || !composite->filled || composite->filled_frame != bg.frame)
+		return first->texture;
 	*mipmapped = TRUE;
 	return composite->texture;
 }
@@ -3486,6 +3641,9 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		bg.skipped++;
 		return;
 	}
+	/* (the mipmapped copies of the render targets it samples, made before
+	any of its state is set: they draw) */
+	bg_composites_prepare();
 
 	/* the pixel shader's key (prepare_draw's), the textures first: their
 	sampler types are part of it (bgfx keeps what is set until the submit) */
@@ -3871,6 +4029,17 @@ static const char bg_blit_fragment_source[] =
 	"void main()\n"
 	"{\n"
 	"\tfragment_color = vec4(texture(tex0, xT0.xy).rgb, 1.0);\n"
+	"}\n";
+
+/* (a level of a texture made of the one above it, every channel: the water's
+ripple maps keep their fade in alpha) */
+static const char bg_copy_fragment_source[] =
+	"in vec4 xT0;\n"
+	"uniform sampler2D tex0;\n"
+	"layout(location = 0) out vec4 fragment_color;\n"
+	"void main()\n"
+	"{\n"
+	"\tfragment_color = texture(tex0, xT0.xy);\n"
 	"}\n";
 
 /* display.crt_filter: a CRT look over the final picture (scanlines,
@@ -5088,6 +5257,7 @@ static BOOL bg_initialize(void)
 	bg.window = platform_sdl_window();
 	bg.view = 0;
 	bg.blit = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.copy = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.crt = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.present_quad = (bgfx_dynamic_vertex_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.full_quad = (bgfx_vertex_buffer_handle_t)BGFX_INVALID_HANDLE;
@@ -5196,6 +5366,9 @@ static BOOL bg_initialize(void)
 
 		if (!vertex->failed && !fragment->failed)
 			bg.blit = bgfx_create_program(vertex->shader, fragment->shader, false);
+		fragment = bg_shader_get(bg_copy_fragment_source, TRUE, 0, "copy pixel", TRUE);
+		if (!vertex->failed && !fragment->failed)
+			bg.copy = bgfx_create_program(vertex->shader, fragment->shader, false);
 		for (index = 0; index < 3; index++)
 		{
 			char name[24];
