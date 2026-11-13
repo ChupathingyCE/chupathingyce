@@ -1183,12 +1183,15 @@ static char *bg_vulkan_container(const void *code, unsigned long code_size, cons
 	bg_put(&bytes, &offset, &capacity, code, value);
 	byte = 0;
 	bg_put(&bytes, &offset, &capacity, &byte, 1);
-	/* (the inputs by location: a location not read has no attribute) */
+	/* (the inputs by location: a location not read has no attribute, 0xfffe.
+	Not 0xffff, which bgfx's Vulkan renderer reads as instance data and
+	gives a fallback input at a location another attribute has, which the
+	spec forbids and AMD's drivers may refuse: tools/bgfx-patches/0005) */
 	byte = (unsigned char)highest;
 	bg_put(&bytes, &offset, &capacity, &byte, 1);
 	for (index = 0; index < highest; index++)
 	{
-		Uint16 id = used[index] ? bg_attribute_ids[index] : 0xffff;
+		Uint16 id = used[index] ? bg_attribute_ids[index] : 0xfffe;
 
 		bg_put(&bytes, &offset, &capacity, &id, 2);
 	}
@@ -1803,6 +1806,10 @@ static void bg_map_loaded(const char *map)
 
 static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_shader *fragment);
 
+/* a map has loaded since bgfx started (the main menu's ui.map is the first):
+the Vulkan start note's frames are counted from it (bg_frame_out) */
+static BOOL bg_map_seen;
+
 /* the current map's listed programs, a few a frame (bg_present): their
 shaders read from the cache folder (missing ones are left for the draws) */
 static void bg_warm(void)
@@ -1819,6 +1826,7 @@ static void bg_warm(void)
 		snprintf(map, sizeof(map), "%s", bg_jobs.warm_map);
 		bg_jobs.warm_pending = FALSE;
 		pthread_mutex_unlock(&bg_jobs.lock);
+		bg_map_seen = TRUE;
 		/* the list of the map now loaded */
 		if (bg_jobs.pairs_file)
 			fclose(bg_jobs.pairs_file);
@@ -2837,7 +2845,27 @@ static bgfx_texture_handle_t bg_texture_named(unsigned int name)
 }
 
 /* the stages' textures, and the pixel shader key's part of them
-(bind_textures') */
+(bind_textures'). They are set on the draw by bg_apply_textures, last thing
+before its submit: bgfx keeps what is set only until the next submit, and
+binding the targets (a fresh one's clear) or starting a view (its blits)
+touches the view, a submit of its own, which dropped them. The draw then
+went out with the samplers its shader reads unbound: nothing on NVIDIA,
+whose unwritten descriptors read as empty, but a fault on AMD's and Mesa's
+drivers, which read whatever the descriptor memory held */
+static struct
+{
+	bgfx_texture_handle_t handle;
+	uint32_t flags;
+} bg_stage_textures[D3DTSS_MAXSTAGES];
+
+static void bg_apply_textures(void)
+{
+	int stage;
+
+	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
+		bgfx_set_texture((uint8_t)stage, bg.samplers[stage], bg_stage_textures[stage].handle, bg_stage_textures[stage].flags);
+}
+
 static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale[4][4])
 {
 	int stage;
@@ -2856,7 +2884,8 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 		if (!texture || !texture->Data || mode == 0 || mode == 0x04 || mode == 0x05 || mode == 0x11)
 		{
 			key->sampler_type[stage] = mode == 0x11 ? _xgpu_sampler_2d : _xgpu_sampler_none;
-			bgfx_set_texture((uint8_t)stage, bg.samplers[stage], bg.blank, UINT32_MAX);
+			bg_stage_textures[stage].handle = bg.blank;
+			bg_stage_textures[stage].flags = UINT32_MAX;
 			continue;
 		}
 		xgpu_texture_describe(texture->Format, texture->Size, &description);
@@ -2937,7 +2966,8 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 				texture_scale[stage][1] = 1.0f / (float)description.height;
 			}
 		}
-		bgfx_set_texture((uint8_t)stage, bg.samplers[stage], handle, bg_sampler_flags(stage, mipmapped, hires));
+		bg_stage_textures[stage].handle = handle;
+		bg_stage_textures[stage].flags = bg_sampler_flags(stage, mipmapped, hires);
 	}
 }
 
@@ -3615,6 +3645,8 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	bgfx_set_state(state, rgba);
 	bgfx_set_stencil(stencil, back_stencil);
 	bg_view_set(bg.framebuffer, rect, FALSE);
+	/* (after the view is set: its blits touch it, which drops what is set) */
+	bg_apply_textures();
 	if (bg.test_active)
 	{
 		/* (inside a visibility test: a query of its own, summed at the end) */
@@ -4353,6 +4385,83 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,
 	uint32_t height, uint32_t pitch, bgfx_texture_format_t format, const void *data, uint32_t size, bool flip);
 
+/* ---------- a Vulkan start that did not get going
+
+bgfx's Vulkan is started with a note in the save root
+(bgfx-vulkan.starting) that the game's first frames out after its first map
+loads remove (bg_frame_out): the main menu's, or the map's a command line
+starts on. The setup screen's frames never count, so a start that closes
+loading that first map still leaves it. A note still there at the next start
+says the last one closed, crashed or hung before them: a driver that refused a pipeline, a GPU fault, a swap chain
+that never presented (game issue #1046, AMD's drivers and RADV). That start
+draws with OpenGL, and the player is asked whether to stay on OpenGL for
+good (platform_offer_opengl): display.renderer changes only on a yes, and a
+no asks again the next time Vulkan does not get going.
+HALO_BGFX_START_NOTE=off leaves the note out (a test of the renderer that
+quits early). */
+#define BG_START_FRAMES 60
+
+const char *platform_save_root(void);
+void platform_offer_opengl(void);
+
+static BOOL bg_start_note_wanted(void)
+{
+	const char *setting = getenv("HALO_BGFX_START_NOTE");
+
+	return !(setting && strcmp(setting, "off") == 0);
+}
+
+static void bg_start_note_path(char *path, size_t size)
+{
+	snprintf(path, size, "%s/bgfx-vulkan.starting", platform_save_root());
+}
+
+/* whether the last Vulkan start left its note (which is taken away: the
+next start tries Vulkan again if the player asks for it) */
+static BOOL bg_last_start_failed(void)
+{
+	char path[1024];
+	FILE *file;
+
+	bg_start_note_path(path, sizeof(path));
+	if ((file = fopen(path, "rb")) == NULL)
+		return FALSE;
+	fclose(file);
+	remove(path);
+	return TRUE;
+}
+
+static void bg_start_note(void)
+{
+	char path[1024];
+	FILE *file;
+
+	bg_start_note_path(path, sizeof(path));
+	if ((file = fopen(path, "wb")) != NULL)
+	{
+		fputs("bgfx's Vulkan renderer is starting; the game's first frames remove this file.\n"
+			"Found at a start, it means the last start closed before them, and that start draws with OpenGL.\n", file);
+		fclose(file);
+	}
+}
+
+/* a frame of the game's went out to the window: the note goes at the
+BG_START_FRAMES'th after the first map loaded */
+static void bg_frame_out(void)
+{
+	static unsigned long frames;
+
+	if (!bg_vulkan || !bg_map_seen || frames > BG_START_FRAMES)
+		return;
+	if (++frames == BG_START_FRAMES)
+	{
+		char path[1024];
+
+		bg_start_note_path(path, sizeof(path));
+		remove(path);
+	}
+}
+
 /* the setup launcher's frame (launcher.c), before the game draws: bgfx
 started (once; the device's start then finds it so), the window cleared to
 color (0xRRGGBBAA) and the overlay's quads over it, in the picture's place
@@ -4679,6 +4788,7 @@ static void bg_present(void)
 #endif
 
 		frame_number = bgfx_frame(BGFX_FRAME_NONE);
+		bg_frame_out();
 #ifdef __APPLE__
 		bg.account.libraries += bgfx_mtl_stats.libraries - before.libraries;
 		bg.account.pipelines += bgfx_mtl_stats.pipelines - before.pipelines;
@@ -5061,6 +5171,17 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 	names, draws with OpenGL: bgfx_vulkan_check.inl) */
 	if (bg_vulkan && !bg_vulkan_check(&init.vendorId, &init.deviceId))
 		return FALSE;
+	if (bg_vulkan && bg_start_note_wanted())
+	{
+		if (bg_last_start_failed())
+		{
+			platform_log("bgfx: the last Vulkan start closed before its first map drew %d frames, so OpenGL for this "
+				"start", BG_START_FRAMES);
+			platform_offer_opengl();
+			return FALSE;
+		}
+		bg_start_note();
+	}
 #endif
 #ifdef _WIN32
 	/* (Direct3D 11's shaders are compiled at run time, by Windows' own
