@@ -2548,6 +2548,39 @@ static void json_qr(struct json_body *body, const char *text)
 }
 
 /* /v1/account/...: a person's own account (an account's session only) */
+/* a session's own password checked again (a change of it, the second
+factor turned off): within the limits a login's is (the address's wrong
+tries, the account's lock from this address, the checks a minute), so a
+session alone guesses no faster than a login. 1 if it may be checked now,
+else 0 with the response given */
+static int recheck_allowed(struct connection *connection, int account, int64_t now)
+{
+	int64_t retry_after = 0;
+
+	if (!control_limiter_allowed(&control.limiter, connection->tag, now, &retry_after) ||
+		!control_backoff_allowed(&panel.backoff[account], connection->tag, now, &retry_after))
+	{
+		char headers[64];
+
+		snprintf(headers, sizeof(headers), "Retry-After: %lld\r\n", (long long)(retry_after > 0 ? retry_after : 60));
+		respond_error(connection, 429, "too many wrong passwords from this address: try again later", headers);
+		return 0;
+	}
+	if (!control_limiter_take_check_from(&control.limiter, connection->tag, now))
+	{
+		respond_error(connection, 429, "too many checks: try again shortly", "Retry-After: 5\r\n");
+		return 0;
+	}
+	return 1;
+}
+
+/* a session's own password (or code) wrong: counted as a login's is */
+static void recheck_failed(struct connection *connection, int account, int64_t now)
+{
+	control_limiter_failed(&control.limiter, connection->tag, now);
+	control_backoff_failed(&panel.backoff[account], connection->tag, now);
+}
+
 static void handle_account(struct connection *connection, struct control_request *request, struct auth *auth,
 	int64_t now)
 {
@@ -2662,10 +2695,9 @@ static void handle_account(struct connection *connection, struct control_request
 			respond_error(connection, 403, "the owner requires a second factor", NULL);
 			return;
 		}
-		if (!control_limiter_take_check(&control.limiter, now))
+		if (!recheck_allowed(connection, auth->account, now))
 		{
 			crypto_wipe(password, sizeof(password));
-			respond_error(connection, 429, "too many checks: try again shortly", "Retry-After: 5\r\n");
 			return;
 		}
 		right = control_account_check(account, password) > 0 && account->has_totp &&
@@ -2673,7 +2705,7 @@ static void handle_account(struct connection *connection, struct control_request
 		crypto_wipe(password, sizeof(password));
 		if (!right)
 		{
-			control_backoff_failed(&panel.backoff[auth->account], connection->tag, now);
+			recheck_failed(connection, auth->account, now);
 			respond_error(connection, 403, "the password or code is not right", NULL);
 			return;
 		}
@@ -2709,11 +2741,10 @@ static void handle_account(struct connection *connection, struct control_request
 			respond_error(connection, 400, reason, NULL);
 			return;
 		}
-		if (!control_limiter_take_check(&control.limiter, now))
+		if (!recheck_allowed(connection, auth->account, now))
 		{
 			crypto_wipe(password, sizeof(password));
 			crypto_wipe(fresh, sizeof(fresh));
-			respond_error(connection, 429, "too many checks: try again shortly", "Retry-After: 5\r\n");
 			return;
 		}
 		right = control_account_check(account, password);
@@ -2723,7 +2754,7 @@ static void handle_account(struct connection *connection, struct control_request
 		{
 			crypto_wipe(fresh, sizeof(fresh));
 			if (!right)
-				control_backoff_failed(&panel.backoff[auth->account], connection->tag, now);
+				recheck_failed(connection, auth->account, now);
 			respond_error(connection, right ? 503 : 403, right ? "no memory" : "the password is not right", NULL);
 			return;
 		}

@@ -790,3 +790,20 @@ def test_listed_host_names_only(harness_binary, tmp_path):
         assert login(running).status == 200
     finally:
         running.stop()
+
+
+def test_session_password_checks_are_limited(harness):
+    """A session's own password checked again (changing it, turning the
+    second factor off) counts against the limits a login does: a stolen
+    session guesses no faster than a stranger at the login, and after five
+    wrong tries from the address, even the right password waits."""
+    _, moderator = owner_and_moderator(harness)
+    for attempt in range(5):
+        wrong = http(harness, "POST", "/v1/account/password", moderator,
+                     {"password": f"guess number {attempt}", "new_password": "a brand new password"})
+        assert wrong.status == 403, wrong.body
+    refused = http(harness, "POST", "/v1/account/password", moderator,
+                   {"password": "orange team forever", "new_password": "a brand new password"})
+    assert refused.status == 429, refused.body
+    assert http(harness, "POST", "/v1/account/totp/disable", moderator,
+                {"password": "orange team forever", "code": "123456"}).status == 429

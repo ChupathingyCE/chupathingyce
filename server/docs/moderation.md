@@ -437,7 +437,9 @@ already in the server's game. With the link: outbound HTTPS to the site.
   waits five minutes; five wrong for an account from one address and the
   account is locked for that address a minute, doubling to an hour, and
   forgotten after 15 quiet minutes (from anywhere else it still logs in,
-  and a locked login reads as a wrong password). Behind a reverse proxy,
+  and a locked login reads as a wrong password). A session's own password
+  asked again (to change it, or turn the second factor off) counts the
+  same, so a stolen session guesses no faster. Behind a reverse proxy,
   `HALO_DEDICATED_CONTROL_TRUSTED_PROXY` lets these count each client
   ([admin.md](admin.md)). Addresses are counted by a keyed hash, never
   kept. The setup code and invitations are 128-bit, single use, and expire.
