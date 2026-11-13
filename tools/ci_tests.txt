@@ -100,6 +100,7 @@ tools/test_mcc_share_decline.py
 tools/test_mcc_skulls.py
 tools/test_mcc_validation.py
 tools/test_mcc_workshop.py
+tools/test_menu_text_fit.py
 tools/test_medal_rules.py
 tools/test_net43_host.py
 tools/test_network_rules.py
