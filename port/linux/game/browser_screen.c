@@ -171,6 +171,11 @@ enum
 	MAXIMUM_TARGETS = 24,
 };
 
+/* OpenCE's bare name of a map this machine has neither as a Custom Edition
+nor as an MCC map (ce_map_ask_host): the list's words for it */
+#define ASK_HOST_TEXT "Custom Edition or MCC map. Join to find out."
+#define ASK_HOST_TITLE "Custom Edition or MCC map"
+
 /* whether a game's map can be played here (ce_map_state) */
 enum
 {
@@ -317,6 +322,10 @@ static struct
 	/* the game being joined: whether its host's advertised map was checked
 	(wait_for_host) */
 	boolean connecting_map_checked;
+	/* it was let through only to ask its host which map it plays
+	(ce_map_ask_host): a Custom Edition map that can't be had is given up
+	when the host names it (wait_for_host) */
+	boolean connecting_asked_host;
 	/* a Custom Edition map the game being joined needs (_offer_*): its
 	file's name, the host's version of it (its header's checksum, 0 if not
 	known), "Don't ask again" ticked, and the download's progress */
@@ -525,14 +534,18 @@ do a Custom Edition map (tools/tests/opence_mcc: "portent" for
 mcc_maps\<item id>\portent). What this machine makes of each such name,
 asked of its folders at most every CE_MAP_CHECK_INTERVAL: its MCC level of
 that file (map_family_listed_mcc), else whether it has a Custom Edition
-map by it */
+map by it. One for each game a list holds, so a list's every name is kept */
 static struct
 {
 	char listed[BROWSER_MAP_LENGTH];
 	char level[BROWSER_MAP_LENGTH];
 	boolean ce_present;
+	/* (as ce_map_stock and ce_map_downloadable say of a missing one: one
+	of Halo PC's own, or one that may be downloaded) */
+	boolean stock;
+	boolean downloadable;
 	unsigned long time;
-} opence_names[64];
+} opence_names[BROWSER_MAXIMUM_GAMES];
 
 /* whether a game is one OpenCE lists by a bare file name from network
 version 42 on (when its hosts play MCC maps); a game our own hosts list
@@ -544,12 +557,11 @@ static boolean opence_bare_name(
 		!strpbrk(game->map, "\\/@") && map_family(game->map) == _map_family_custom_edition;
 }
 
-/* the answer for a bare name (opence_names), asked again when old (fresh)
-or never asked; NONE when not asked and not fresh */
+/* the answer for a bare name (opence_names), asked of the folders when
+never asked or old; past the last slot, the oldest name's slot taken */
 static long opence_name_entry(
 	char const *map,
-	long version,
-	boolean fresh)
+	long version)
 {
 	static long next;
 	long entry, found = NONE;
@@ -562,7 +574,7 @@ static long opence_name_entry(
 			break;
 		}
 	}
-	if (!fresh || (found != NONE && system_milliseconds() - opence_names[found].time <= CE_MAP_CHECK_INTERVAL))
+	if (found != NONE && system_milliseconds() - opence_names[found].time <= CE_MAP_CHECK_INTERVAL)
 		return found;
 	if (found == NONE)
 	{
@@ -572,8 +584,11 @@ static long opence_name_entry(
 	csstrncpy(opence_names[found].listed, map, sizeof(opence_names[found].listed) - 1);
 	opence_names[found].listed[sizeof(opence_names[found].listed) - 1] = 0;
 	opence_names[found].ce_present = FALSE;
+	opence_names[found].stock = map_archive_stock_name(map) != 0;
+	opence_names[found].downloadable = FALSE;
 #ifdef HALO_CUSTOM_EDITION
 	opence_names[found].ce_present = ui_map_list_map_present(map);
+	opence_names[found].downloadable = map_family_resources_ready(NULL, 0) && map_download_possible(map);
 #endif
 	if (!map_family_listed_mcc(map, version, opence_names[found].ce_present, mcc_level_at, mcc_maps_count(FALSE),
 		NULL, opence_names[found].level, sizeof(opence_names[found].level)))
@@ -599,16 +614,16 @@ static void name_opence_mcc_maps(
 	{
 		if (!opence_bare_name(&games[index]))
 			continue;
-		entry = opence_name_entry(games[index].map, games[index].version, TRUE);
-		if (entry != NONE && opence_names[entry].level[0])
+		entry = opence_name_entry(games[index].map, games[index].version);
+		if (opence_names[entry].level[0])
 			snprintf(games[index].map, sizeof(games[index].map), "%s", opence_names[entry].level);
 	}
 }
 
 /* whether a listed game's map is a bare name of OpenCE's that this machine
-has neither as an MCC map nor as a Custom Edition map: either it may be,
-and only its host's own name for it says which (wait_for_host), so a join
-is let through to ask, as for a map that may be downloaded */
+has neither as an MCC map nor as a Custom Edition map
+(map_family_opence_unknown): either it may be, and only its host's own name
+for it says which (ce_map_ask_host) */
 static boolean opence_map_unknown(
 	struct browser_game const *game)
 {
@@ -616,8 +631,9 @@ static boolean opence_map_unknown(
 
 	if (!opence_bare_name(game))
 		return FALSE;
-	entry = opence_name_entry(game->map, game->version, FALSE);
-	return entry != NONE && !opence_names[entry].level[0] && !opence_names[entry].ce_present;
+	entry = opence_name_entry(game->map, game->version);
+	return map_family_opence_unknown(game->map, game->version, game->has_platform != 0,
+		opence_names[entry].ce_present, opence_names[entry].level[0] != 0);
 }
 
 /* whether a game's map can be played here: an Xbox map, or a Custom Edition
@@ -640,10 +656,6 @@ static short ce_map_state(
 	}
 	if (family == _map_family_xbox)
 		return _ce_map_none;
-	/* (a bare name of OpenCE's this machine has no map by: missing, and
-	joined to see which it is) */
-	if (opence_map_unknown(game))
-		return _ce_map_missing;
 #ifdef HALO_CUSTOM_EDITION
 	if (fresh || strcmp(browser_screen.ce_map, game->map) ||
 		system_milliseconds() - browser_screen.ce_map_time > CE_MAP_CHECK_INTERVAL)
@@ -669,11 +681,6 @@ static boolean ce_map_downloadable(
 {
 	char file[BROWSER_MAP_LENGTH];
 
-	/* (OpenCE's bare name of a map this machine has none by: the host's own
-	name for it, on joining, says whether it is a Custom Edition map to
-	download or an MCC map to get from the Workshop: wait_for_host) */
-	if (opence_map_unknown(game))
-		return TRUE;
 	return map_file(game->map, file, sizeof(file)) == _map_family_custom_edition &&
 		ce_map_state(game, FALSE) == _ce_map_missing && map_download_possible(file);
 }
@@ -687,6 +694,27 @@ static boolean ce_map_stock(
 
 	return map_file(game->map, file, sizeof(file)) == _map_family_custom_edition &&
 		ce_map_state(game, FALSE) == _ce_map_missing && map_archive_stock_name(file);
+}
+
+/* whether a game's missing map is OpenCE's bare name of one this machine
+has neither as a Custom Edition nor as an MCC map, and is neither one of
+Halo PC's own nor one that may be downloaded (map_family_missing_kind:
+those come first, as they always did): the list says it may be either,
+and lets it be joined so the host's own name for it decides (wait_for_host:
+a Custom Edition map that can't be had given up there, an MCC map's
+Workshop item offered when the join is refused, mcc_identity.c) */
+static boolean ce_map_ask_host(
+	struct browser_game const *game)
+{
+	long entry;
+
+	/* (only OpenCE's bare names, each asked of the folders at most every
+	CE_MAP_CHECK_INTERVAL: opence_names) */
+	if (!opence_map_unknown(game))
+		return FALSE;
+	entry = opence_name_entry(game->map, game->version);
+	return map_family_missing_kind(opence_names[entry].stock, opence_names[entry].downloadable, TRUE) ==
+		_map_family_missing_ask_host;
 }
 
 /* (network_client_manager.c: the game whose host's identifier the invite
@@ -1485,7 +1513,7 @@ static void join_selected(
 	would fail at its loading; the list's footer says what is missing. A
 	map that may be downloaded is offered once the host advertises it:
 	wait_for_host) */
-	if (ce_map_state(game, TRUE) >= _ce_map_missing && !ce_map_downloadable(game))
+	if (ce_map_state(game, TRUE) >= _ce_map_missing && !ce_map_downloadable(game) && !ce_map_ask_host(game))
 	{
 		/* (one of Halo PC's own maps: where to copy it from) */
 		if (ce_map_stock(game))
@@ -1516,6 +1544,8 @@ static void join_selected(
 		return;
 	}
 	join_invite(game->invite, game->name, TRUE);
+	/* (a join let through only to ask the host which map it is) */
+	browser_screen.connecting_asked_host = ce_map_ask_host(game);
 }
 
 /* a game's invite joined (the tunnel to its host), its game joined once
@@ -1534,6 +1564,7 @@ static void join_invite(
 	}
 	browser_screen.connecting = TRUE;
 	browser_screen.connecting_map_checked = FALSE;
+	browser_screen.connecting_asked_host = FALSE;
 	browser_screen.rejoin_pending = FALSE;
 	csstrncpy(browser_screen.connecting_invite, invite, sizeof(browser_screen.connecting_invite) - 1);
 	browser_screen.connecting_invite[sizeof(browser_screen.connecting_invite) - 1] = 0;
@@ -1712,10 +1743,11 @@ static void wait_for_host(
 				offer_map(file, advertisement.map_version);
 				return;
 			}
-			/* (a Custom Edition map that can't be downloaded: the join that
-			only OpenCE's bare name let through (opence_map_unknown) given up
-			before the map is loaded) */
-			if (family == _map_family_custom_edition && !ui_map_list_family_present(family, file))
+			/* (a join let through only to ask the host (ce_map_ask_host),
+			whose map is a Custom Edition map that can't be had: given up
+			before it is loaded; any other join goes on as it did) */
+			if (map_family_asked_host_gives_up(browser_screen.connecting_asked_host, family,
+				ui_map_list_family_present(family, file), map_archive_stock_name(file), map_download_possible(file)))
 			{
 				char path[BROWSER_MAP_LENGTH + 16], text[BROWSER_MAP_LENGTH + 64];
 
@@ -2062,6 +2094,13 @@ static char const *ce_map_blocker(
 	char file[BROWSER_MAP_LENGTH], display[BROWSER_MAP_LENGTH];
 	short family = map_file(game->map, file, sizeof(file));
 
+	/* (OpenCE's bare name of a map that may be either kind: said so, and
+	joined to find out) */
+	if (ce_map_ask_host(game))
+	{
+		snprintf(text, (size_t)size, "%s", ASK_HOST_TEXT);
+		return text;
+	}
 	switch (ce_map_state(game, FALSE))
 	{
 	case _ce_map_missing:
@@ -2082,13 +2121,6 @@ static char const *ce_map_blocker(
 				snprintf(path, sizeof(path), "maps_mcc/%s.map", package);
 				snprintf(text, (size_t)size, JOIN_REASON_MAP_MISSING, path);
 			}
-			return text;
-		}
-		/* (OpenCE's bare name of a map this machine has none by: by its
-		name, a Custom Edition or an MCC map, which the join finds out) */
-		if (opence_map_unknown(game))
-		{
-			snprintf(text, (size_t)size, JOIN_REASON_MAP_DOWNLOAD, game->map);
 			return text;
 		}
 		/* (a hashed name by the file the player knows: map_archive.h) */
@@ -2737,7 +2769,7 @@ boolean browser_screen_debug_game(
 	if (!ce_map_blocker(game, blocker, sizeof(blocker)))
 		snprintf(blocker, sizeof(blocker), "-");
 	snprintf(text, (size_t)size, "map %s, shown as %s [%s], version %u, join: %s", game->map,
-		game_map_display_name(game, name, sizeof(name)), family_badge_tag(family, game->map),
+		game_map_display_name(game, name, sizeof(name)), ce_map_ask_host(game) ? "no tag" : family_badge_tag(family, game->map),
 		(unsigned)game->version, blocker);
 	return TRUE;
 }
@@ -4297,7 +4329,9 @@ static void draw_row(
 	unsigned int color = picked ? COLOR_ROW_SELECTED : game->open && !version_state ? COLOR_ROW : COLOR_ROW_DIM;
 	unsigned int glow = picked ? 0x6FB2FFC0 : 0;
 	short family = badge_family(game->map);
-	float badge_x = COLUMN_TYPE - 10 - family_badge_width(family, game->map, BADGE_SIZE);
+	/* (no tag for OpenCE's bare name of a map that may be either kind) */
+	boolean tagged = !ce_map_ask_host(game);
+	float badge_x = COLUMN_TYPE - 10 - (tagged ? family_badge_width(family, game->map, BADGE_SIZE) : 0.0f);
 	float size, width;
 
 	if (picked)
@@ -4351,7 +4385,8 @@ static void draw_row(
 		size -= 0.5f;
 	ui_overlay_text_glow(UI_FONT_MENU, size, COLUMN_MAP, text_y + (ROW_SIZE - size) / 2, UI_ALIGN_LEFT, color, glow,
 		map_name);
-	draw_family_badge(family, game->map, BADGE_SIZE, badge_x, text_y, ROW_SIZE, !game->open && !picked);
+	if (tagged)
+		draw_family_badge(family, game->map, BADGE_SIZE, badge_x, text_y, ROW_SIZE, !game->open && !picked);
 	ui_overlay_text_glow(UI_FONT_MENU, ROW_SIZE, COLUMN_TYPE, text_y, UI_ALIGN_LEFT, color, glow,
 		type_name(game, text, sizeof(text)));
 	snprintf(text, sizeof(text), "%d/%d", game->players, game->maximum_players);
@@ -4630,6 +4665,14 @@ the map's name over its family's color (a custom map's) */
 			"Host cheats on");
 	}
 	DETAIL_LINE("Map:", map_label);
+	/* (OpenCE's bare name of a map that may be either kind: no tag, said so) */
+	if (ce_map_ask_host(selected))
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE - 1.0f, x + 6, line_y + 0.5f, UI_ALIGN_LEFT, COLOR_DIM,
+			ASK_HOST_TITLE);
+	}
+	else
+	{
 	/* (its family, spelled out beside its tag) */
 	draw_family_badge(mcc_map_item(selected->map, item_id, sizeof(item_id)) ? BADGE_FAMILY_MCC : family, selected->map,
 		BADGE_SIZE, x + 6, line_y, DETAIL_SIZE, FALSE);
@@ -4645,6 +4688,7 @@ the map's name over its family's color (a custom map's) */
 		ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE - 1.0f, x + 10 + family_badge_width(
 			mcc_map_item(selected->map, item_id, sizeof(item_id)) ? BADGE_FAMILY_MCC : family, selected->map, BADGE_SIZE),
 			line_y + 0.5f, UI_ALIGN_LEFT, COLOR_DIM, title);
+	}
 	}
 	type_name(selected, text, sizeof(text));
 	if (selected->score_limit)
@@ -4736,7 +4780,8 @@ static void draw_bar_prompts(
 	/* (A greyed for a game whose Halo PC map or game type can't be played
 	here, and with no game to join) */
 	boolean on[] = { TRUE, TRUE, TRUE, TRUE, selected != NULL && !browser_game_version_state(selected) &&
-		!(ce_map_state(selected, FALSE) >= _ce_map_missing && !ce_map_downloadable(selected) && !ce_map_stock(selected)) &&
+		!(ce_map_state(selected, FALSE) >= _ce_map_missing && !ce_map_downloadable(selected) && !ce_map_stock(selected) &&
+		!ce_map_ask_host(selected)) &&
 		!game_type_blocker(selected) };
 	short count = selected ? 5 : 4;
 	float width;

@@ -57,6 +57,27 @@ int main(int argc, char **argv)
 {
 	char out[256];
 	int index;
+	if (!strcmp(argv[1], "unknown"))
+	{
+		/* (the map, version, has_platform, ce_present, mcc_found) */
+		printf("%d\n", map_family_opence_unknown(argv[2], atol(argv[3]), (boolean)atoi(argv[4]),
+			(boolean)atoi(argv[5]), (boolean)atoi(argv[6])));
+		return 0;
+	}
+	if (!strcmp(argv[1], "missing"))
+	{
+		/* (stock, downloadable, opence_unknown) */
+		printf("%d\n", map_family_missing_kind((boolean)atoi(argv[2]), (boolean)atoi(argv[3]),
+			(boolean)atoi(argv[4])));
+		return 0;
+	}
+	if (!strcmp(argv[1], "gives_up"))
+	{
+		/* (asked_host, advertised family, present, stock, downloadable) */
+		printf("%d\n", map_family_asked_host_gives_up((boolean)atoi(argv[2]), (short)atoi(argv[3]),
+			(boolean)atoi(argv[4]), (boolean)atoi(argv[5]), (boolean)atoi(argv[6])));
+		return 0;
+	}
 	if (!strcmp(argv[1], "mcc_listed"))
 	{
 		/* (version, Custom Edition map here 0/1, the listed map, then this
@@ -251,3 +272,52 @@ def test_opence_mcc_listing_recorded(families):
     lobby = next(entry for entry in fixture["listings"] if entry["fields"]["engine_type"] == 0)
     version, (_, listed_map, _) = read_listing(bytes.fromhex(lobby["listing_hex"]))
     assert families("mcc_listed", str(version), "0", listed_map, *LEVELS) == ["-"]
+
+
+# (map_family_missing_kind's answers, halo_map_families.h's order)
+STOCK, DOWNLOAD, ASK_HOST, BLOCKED = "0", "1", "2", "3"
+
+
+def test_opence_unknown_names(families):
+    # (OpenCE's bare name, 42 on, of a map this machine has neither as an MCC
+    # nor as a Custom Edition map: unknown; anything else is not)
+    assert families("unknown", "cairo", "43", "0", "0", "0") == ["1"]
+    assert families("unknown", "cairo", "42", "0", "0", "0") == ["1"]
+    assert families("unknown", "cairo", "41", "0", "0", "0") == ["0"]
+    assert families("unknown", "cairo", "43", "1", "0", "0") == ["0"]
+    assert families("unknown", "cairo", "43", "0", "1", "0") == ["0"]
+    assert families("unknown", "cairo", "43", "0", "0", "1") == ["0"]
+    assert families("unknown", "bloodgulch", "43", "0", "0", "0") == ["0"]
+    assert families("unknown", "mcc_maps\\1\\cairo", "43", "0", "0", "0") == ["0"]
+    assert families("unknown", "cairo@ce", "43", "0", "0", "0") == ["0"]
+
+
+def test_plain_custom_edition_games_on_opence_43(families):
+    # (a Custom Edition game on an OpenCE 42+ host, its map missing here:
+    # Halo PC's own map and a map that may be downloaded are said and done
+    # as they always were, before the unknown name's "join to find out")
+    assert families("missing", "1", "0", "1") == [STOCK]
+    assert families("missing", "1", "1", "1") == [STOCK]
+    assert families("missing", "0", "1", "1") == [DOWNLOAD]
+    # (one that can't be downloaded: only then joined to ask the host)
+    assert families("missing", "0", "0", "1") == [ASK_HOST]
+    # (any other game, as before: an older host, our own, a map not bare)
+    assert families("missing", "0", "0", "0") == [BLOCKED]
+    assert families("missing", "0", "1", "0") == [DOWNLOAD]
+    assert families("missing", "1", "0", "0") == [STOCK]
+
+
+def test_asked_host_gives_up_only_that_join(families):
+    # (the host names a Custom Edition map (1) that can't be had: the join let
+    # through only to ask is given up; a stock or downloadable one is offered)
+    assert families("gives_up", "1", "1", "0", "0", "0") == ["1"]
+    assert families("gives_up", "1", "1", "0", "1", "0") == ["0"]
+    assert families("gives_up", "1", "1", "0", "0", "1") == ["0"]
+    assert families("gives_up", "1", "1", "1", "0", "0") == ["0"]
+    # (an MCC map, mcc_maps\..., is an Xbox-format name: joined, the content
+    # fingerprint decides)
+    assert families("gives_up", "1", "0", "0", "0", "0") == ["0"]
+    # (every other join, invites and system link included, goes on as it did)
+    for family in ("0", "1", "2", "3", "4"):
+        for present in ("0", "1"):
+            assert families("gives_up", "0", family, present, "0", "0") == ["0"]

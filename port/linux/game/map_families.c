@@ -189,6 +189,41 @@ boolean map_family_listed_mcc(
 	return FALSE;
 }
 
+boolean map_family_opence_unknown(
+	char const *map,
+	long version,
+	boolean has_platform,
+	boolean ce_present,
+	boolean mcc_found)
+{
+	return map && map[0] && version >= MAP_FAMILY_OPENCE_MCC_VERSION && !has_platform && !ce_present && !mcc_found &&
+		!strpbrk(map, "\\/@") && map_family_parse_listed(map, NULL, 0) == _map_family_custom_edition;
+}
+
+short map_family_missing_kind(
+	boolean stock,
+	boolean downloadable,
+	boolean opence_unknown)
+{
+	if (stock)
+		return _map_family_missing_stock;
+	if (downloadable)
+		return _map_family_missing_download;
+	if (opence_unknown)
+		return _map_family_missing_ask_host;
+	return _map_family_missing_blocked;
+}
+
+boolean map_family_asked_host_gives_up(
+	boolean asked_host,
+	short advertised_family,
+	boolean present,
+	boolean stock,
+	boolean downloadable)
+{
+	return asked_host && advertised_family == _map_family_custom_edition && !present && !stock && !downloadable;
+}
+
 boolean map_family_is_xbox_format(
 	short family)
 {

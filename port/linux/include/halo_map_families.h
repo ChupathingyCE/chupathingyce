@@ -84,6 +84,38 @@ found */
 boolean map_family_listed_mcc(char const *map, long version, boolean ce_present,
 	char const *(*level_at)(long index, void *context), long count, void *context, char *level, long size);
 
+/* whether a listed game's map is OpenCE's bare name of a map this machine
+has neither as an MCC map (mcc_found: map_family_listed_mcc) nor as a
+Custom Edition map (ce_present): from network version
+MAP_FAMILY_OPENCE_MCC_VERSION, by a host that says no platform (our own
+hosts do, and name an MCC map in full), a bare file name that is not an
+Xbox map. Only the host's own name for it, on joining, says which it is */
+boolean map_family_opence_unknown(char const *map, long version, boolean has_platform, boolean ce_present,
+	boolean mcc_found);
+
+/* what a list says, and does, of a game's missing map, in this order: one
+of Halo PC's own (stock: copied from Halo PC), one that may be downloaded
+(downloadable: on joining), then OpenCE's bare name of a map this machine
+has neither kind of (opence_unknown: joined to find out which it is),
+else not to be had here */
+enum
+{
+	_map_family_missing_stock,
+	_map_family_missing_download,
+	_map_family_missing_ask_host,
+	_map_family_missing_blocked,
+};
+short map_family_missing_kind(boolean stock, boolean downloadable, boolean opence_unknown);
+
+/* a join, once its host advertises its map: whether it is given up before
+the map is loaded because the advertised map is a Custom Edition map
+(advertised_family) this machine lacks (present), and that can't be had
+(stock, downloadable: those are offered), when the join was let through
+only to ask the host (asked_host: _map_family_missing_ask_host). Any other
+join goes on as it always did */
+boolean map_family_asked_host_gives_up(boolean asked_host, short advertised_family, boolean present, boolean stock,
+	boolean downloadable);
+
 /* (a pack's name, at most, without its terminator) */
 #define MAP_PACK_ID_LENGTH 8
 
