@@ -212,6 +212,8 @@ symbols in this file:
 
 #include "real_math.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
 
 /* ---------- constants */
 
@@ -1668,6 +1670,14 @@ static void get_local_player_input_blob(
 		}
 	}
 
+	/* port: and Stubbs the Zombie's action tests, beside Halo's (Stubbs mode
+	only: port/linux/game/stubbs_functions.c) */
+	if (stubbs_mode_active())
+	{
+		stubbs_functions_action_note(local_player_index, input->unit_control_flags,
+			TEST_FLAG(input->player_control_flags, _player_control_rotate_grenades_bit),
+			input->throttle.i, input->throttle.j);
+	}
 	player_control_action_test_check_reset_input_blob(input);
 	match_assert_valid_real(
 		"c:\\halo\\SOURCE\\game\\player_control.c",
@@ -1684,6 +1694,9 @@ void player_control_action_test_reset(
 
 	globals->action_flags = 0;
 	globals->action_test_flags = 0;
+	/* port: Stubbs the Zombie's too (Stubbs mode only) */
+	if (stubbs_mode_active())
+		stubbs_functions_action_reset();
 	return;
 }
 
