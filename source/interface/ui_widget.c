@@ -6307,6 +6307,23 @@ static long search_and_replace(
 }
 
 
+/* port: a text box's font and the width its lines have (its bounds less
+its offset on each side), for port code that fits its own text to it
+(menu_functions.c's About): FALSE when it has no font */
+boolean ui_widget_port_text_box_room(
+	struct widget_instance *widget,
+	long *font_index,
+	short *width)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(widget->definition_tag_index);
+
+	if (definition->text_font.index == NONE)
+		return FALSE;
+	*font_index = definition->text_font.index;
+	*width = (short)(definition->bounds.x1 - definition->bounds.x0 - 2 * definition->horizontal_offset);
+	return TRUE;
+}
+
 /* port: the port's own error text (display_error_text_deferred), which may be
 longer than a line of its dialog: broken at spaces (the strings' line break,
 '\r') where a line would be wider than `width` in the font drawn with.

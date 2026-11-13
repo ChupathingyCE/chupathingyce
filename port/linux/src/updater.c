@@ -825,6 +825,9 @@ static int SDLCALL updater_check_thread(void *context)
 	char latest[sizeof(updater_latest_version)];
 	char candidate[sizeof(updater_latest_version)];
 	int found, channel, chosen = updater_chosen_channel(), best = _channel_release, answer, state;
+	/* (a channel whose list could not be read or used: nothing newer there
+	can be known) */
+	int unchecked = -1;
 	char *list = NULL, *best_list = NULL, *old_list;
 	size_t list_size = 0, best_size = 0;
 
@@ -839,7 +842,10 @@ static int SDLCALL updater_check_thread(void *context)
 		int comparable = 1, order;
 
 		if (!updater_feed(channel, candidate, sizeof(candidate), &list, &list_size))
+		{
+			unchecked = channel;
 			continue;
+		}
 		/* (a latest release whose tag is not a version is never offered:
 		the feed's build goes before it) */
 		order = found ? update_version_compare(candidate, latest, &comparable) : 1;
@@ -864,7 +870,9 @@ static int SDLCALL updater_check_thread(void *context)
 		best_list = NULL;
 		best_size = 0;
 	}
-	answer = !found ? -1 : updater_newer(latest) ? 1 : 0;
+	/* (with nothing newer found, an answer only when every channel was
+	checked: "this is the latest" only then) */
+	answer = !found ? -1 : updater_newer(latest) ? 1 : unchecked >= 0 ? -1 : 0;
 	if (found && updater_newer(latest))
 	{
 		platform_log("update: version %s is available (this is %s; %s)", latest, HALO_VERSION,
@@ -877,6 +885,18 @@ static int SDLCALL updater_check_thread(void *context)
 		/* (no newer version, but this one's 64-bit build to offer) */
 		platform_log("update: this is the latest version (%s); its 64-bit build is offered", HALO_VERSION);
 		state = _updater_available;
+	}
+	else if (!found)
+	{
+		/* (neither the latest release nor a channel's list was read) */
+		platform_log("update: could not check for a newer version (this is %s)", HALO_VERSION);
+		state = _updater_handled;
+	}
+	else if (unchecked >= 0)
+	{
+		platform_log("update: could not check the %s channel; nothing newer elsewhere (this is %s)",
+			updater_channel_names[unchecked], HALO_VERSION);
+		state = _updater_handled;
 	}
 	else
 	{

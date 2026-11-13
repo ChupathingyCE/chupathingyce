@@ -728,8 +728,24 @@ def test_feed_refused(keys, builds, server, tmp_path, change):
         del server.files["testing/updates.json.sig"]
     lines = run(tmp_path, folder, server, f"{OLD} halo", {"HALO_UPDATE_TEST_CHANNEL": "testing"})
     assert has(lines, f"{OLD} halo update: the testing channel's list")
-    assert has(lines, f"{OLD} halo update: this is the latest version ({OLD})")
+    # (a channel not checked is never called the latest)
+    assert has(lines, f"{OLD} halo update: could not check the testing channel; nothing newer elsewhere (this is {OLD})")
+    assert not has(lines, f"{OLD} halo update: this is the latest version")
     assert not any(path.startswith("/files/v0.8.1-testing/") for path in server.requests)
+    assert snapshot(folder) == before
+
+
+def test_missing_feed_not_called_the_latest(keys, builds, server, tmp_path):
+    """Testing, with the testing feed gone (the server answers 404): the
+    log says the channel could not be checked, never that this is the
+    latest version, and nothing is installed"""
+    folder = install(tmp_path, builds)
+    before = snapshot(folder)
+    the_latest_release(server, tmp_path, builds)
+    lines = run(tmp_path, folder, server, f"{OLD} halo", {"HALO_UPDATE_TEST_CHANNEL": "testing"})
+    assert has(lines, f"{OLD} halo update: could not read the testing channel's list")
+    assert has(lines, f"{OLD} halo update: could not check the testing channel; nothing newer elsewhere (this is {OLD})")
+    assert not has(lines, f"{OLD} halo update: this is the latest version")
     assert snapshot(folder) == before
 
 
