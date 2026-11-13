@@ -279,6 +279,8 @@ symbols in this file:
 #include "mcc_seats.h" /* port: port/linux/game/mcc_seats.c */
 #include "mcc_script_effects.h" /* port: MCC campaign effects and host-owned possession */
 #include "mcc_movement.h" /* port: MCC weapon-authored movement penalties */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_player.h" /* port: port/linux/game/stubbs_player.c */
 
 /* port: port/linux/game/network_objects.c's (a client deletes the host's
 objects on the host's word alone) */
@@ -4430,6 +4432,17 @@ boolean biped_update(
 					melee_speedup_ticks = biped->biped.player_melee_ticks >> 2;
 					biped->biped.player_melee_ticks -= melee_speedup_ticks;
 					biped->biped.player_melee_attack_tick -= melee_speedup_ticks;
+				}
+				/* port: Stubbs mode's melee, his hands (port/linux/game/stubbs_player.c) */
+				else if (stubbs_mode_active())
+				{
+					short ticks, attack_tick;
+
+					if (stubbs_player_melee_begin(biped_index, &ticks, &attack_tick))
+					{
+						biped->biped.player_melee_ticks = (char)ticks;
+						biped->biped.player_melee_attack_tick = (char)attack_tick;
+					}
 				}
 			}
 		}
