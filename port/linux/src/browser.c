@@ -3992,6 +3992,8 @@ static void update_party(void)
 	}
 }
 
+#endif /* HALO_CONSOLE_NO_GUIDE */
+
 /* ---------- a report's clip (docs/delta.md, Reports)
 
 A report a linked server took with REPORT_RESULT's "send the clip": the
@@ -4025,8 +4027,6 @@ static struct
 	time_t asked;
 	time_t next_try;
 } clip_job;
-#endif /* HALO_CONSOLE_NO_GUIDE */
-
 
 static void clip_done(int state)
 {
