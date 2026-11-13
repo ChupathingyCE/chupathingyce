@@ -3530,6 +3530,58 @@ static void controls_page_string(short index, wchar_t *text, size_t count)
 	text[count - 1] = 0;
 }
 
+#ifdef HALO_CONSOLE_NO_CONTROLS
+/* port: the consoles keep the profile's button layouts (the game's own
+button_preset, as the Xbox's Controller Settings offered them) and change
+no button: BUTTON LAYOUT is the one row of the layout's they have, a
+spinner of the presets without Custom (tools/port_settings.py). What it
+shows is read from the local player's profile when the list is made, and
+what is chosen on it is put in force, and saved, as the row changes */
+static short console_layout_player(struct widget_instance *widget)
+{
+	return widget->local_player_index >= 0 && widget->local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS ?
+		widget->local_player_index : 0;
+}
+
+static void console_layout_init(struct widget_instance *list)
+{
+	struct widget_instance *spinner = named(screen_of(list), "layout_spinner", 0);
+	short button_preset, joystick_preset;
+
+	if (!spinner)
+		return;
+	player_ui_get_local_player_layouts(console_layout_player(list), &button_preset, &joystick_preset);
+	if (button_preset < spinner->parameters.list.number_of_items)
+		spinner->parameters.list.selected_index = button_preset;
+	else
+		spinner->parameters.list.selected_index = _button_preset_standard;
+}
+
+static void console_layout_update(struct widget_instance *list)
+{
+	struct widget_instance *spinner = named(screen_of(list), "layout_spinner", 0);
+	short button_preset, joystick_preset, chosen;
+
+	if (!spinner)
+		return;
+	chosen = spinner->parameters.list.selected_index;
+	player_ui_get_local_player_layouts(console_layout_player(list), &button_preset, &joystick_preset);
+	if (chosen >= 0 && chosen < _button_preset_custom && chosen != button_preset)
+		player_ui_set_local_player_layouts(console_layout_player(list), chosen, joystick_preset);
+}
+
+static void console_layout_defaults(struct widget_instance *list)
+{
+	struct widget_instance *spinner = named(screen_of(list), "layout_spinner", 0);
+	short button_preset, joystick_preset;
+
+	player_ui_get_local_player_layouts(console_layout_player(list), &button_preset, &joystick_preset);
+	player_ui_set_local_player_layouts(console_layout_player(list), _button_preset_standard, joystick_preset);
+	if (spinner)
+		spinner->parameters.list.selected_index = _button_preset_standard;
+}
+#endif
+
 /* "port controls init" (the list's created) */
 static boolean controls_page_init(struct widget_instance *list)
 {
@@ -3538,6 +3590,8 @@ static boolean controls_page_init(struct widget_instance *list)
 	controls_load(FALSE);
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	controller_screen_init(list);
+#else
+	console_layout_init(list);
 #endif
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	if (device)
@@ -3580,6 +3634,9 @@ static void controls_page_update(struct widget_instance *list)
 	its buttons' rows and its layout's) */
 	if (!strcmp(view, "gamepad") || !strcmp(view, "buttons"))
 		controller_update(list);
+#else
+	if (!strcmp(view, "gamepad"))
+		console_layout_update(list);
 #endif
 	focused = list->focused_child;
 	if (!help || !focused)
@@ -3612,6 +3669,12 @@ static void controls_page_update(struct widget_instance *list)
 	}
 	else if (focused == named(list, "op_layout", 0) || button_row_of(focused) != NONE)
 		return;
+#else
+	else if (focused == named(list, "op_layout", 0))
+	{
+		line = spinner_shown(list, "layout_spinner") == _button_preset_bumper_jumper ?
+			"Jump with the left bumper." : "Choose the controller's button layout.";
+	}
 #endif
 	if (line)
 	{
@@ -3655,6 +3718,8 @@ static boolean controls_page_defaults(struct widget_instance *widget)
 #line 2940
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	controller_screen_defaults(list);
+#else
+	console_layout_defaults(list);
 #endif
 	return TRUE;
 }
