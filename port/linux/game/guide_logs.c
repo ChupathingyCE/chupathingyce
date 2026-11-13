@@ -4,7 +4,7 @@ GUIDE_LOGS.C
 The Delta Guide's rows for a bug report (guide_logs.h). SEND MY LOGS opens
 a window over the Guide, as UNLINK STEAM's question does (guide_workshop.c):
 
-	asked     "Send your debug.txt to the Chupathingy team? ..." SEND or
+	asked     "Send your debug.txt and latest crash report ..." SEND or
 	          CANCEL, CANCEL picked: nothing is sent without SEND
 	sending   a bar that runs while the site is reached; CLOSE leaves it
 	          sending, and its code comes as a toast
@@ -294,7 +294,7 @@ void guide_logs_modal_render(float left, float top, float right, float bottom,
 	{
 	case _logs_asked:
 		title = "SEND MY LOGS";
-		text = "Send your debug.txt to the Chupathingy team? Your computer's account name and network addresses are removed.";
+		text = "Send your debug.txt and latest crash report to the Chupathingy team? Your computer's account name and network addresses are removed.";
 		break;
 	case _logs_sending:
 		title = "SEND MY LOGS";
