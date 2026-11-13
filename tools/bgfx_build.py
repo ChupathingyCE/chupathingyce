@@ -61,6 +61,11 @@ def _git_head(directory: Path) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+class BgfxPatchError(RuntimeError):
+    """one of tools/bgfx-patches does not apply: the build fails, never
+    quietly leaves bgfx out (bgfx_available lets it through)"""
+
+
 def fetch_bgfx() -> bool:
     """bgfx's, bx's and bimg's sources at their pinned commits, patched:
     whether they are there"""
@@ -95,7 +100,11 @@ def fetch_bgfx() -> bool:
     for name, text in patches:
         print(f"Patching bgfx: {name}")
         if subprocess.run(["git", "-C", str(bgfx), "apply", "-"], input=text).returncode != 0:
-            return False
+            # (a patch that no longer applies, after a pin bump, is a broken
+            # build, not a build without bgfx: it stops here, loudly, instead
+            # of shipping builds with no bgfx renderer that nobody notices, #1080)
+            raise BgfxPatchError(f"tools/bgfx-patches/{name} does not apply to bgfx at "
+                                 f"{BGFX_REPOSITORIES['bgfx'][1][:12]}: fix the patch or the pin (tools/bgfx_build.py)")
     stamp.write_text(wanted)
     return True
 
@@ -104,7 +113,8 @@ def bgfx_available(sln: Any) -> bool:
     """whether this build has the bgfx renderer: wanted (configure.py
     --without-bgfx), and its sources fetched (a machine without git or the
     network, such as the dedicated server's container, builds without it
-    and says so)"""
+    and says so). A patch of ours that does not apply is not that case: it
+    raises BgfxPatchError through here, and the configure fails"""
     if not bgfx_wanted(sln):
         return False
     try:
