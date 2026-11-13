@@ -161,7 +161,7 @@ static enum mcc_cache_status mcc_check_assets(void *data, struct mcc_cache_repor
             }
             else if (!mcc_range(mcc_u32(b+0x18),mcc_u32(b+0x1C),r->identity.file_length))
                 return MCC_CACHE_BAD_BITMAP;
-            r->bitmap_count++;
+            if (++r->bitmap_count>MCC_CACHE_MAX_BITMAPS) return MCC_CACHE_BAD_BITMAP;
             if (format==18) r->bc7_bitmap_count++;
         }
     }
@@ -203,6 +203,9 @@ int mcc_cache_visit_resources(void *data,struct mcc_cache_report const *report,
     uint32_t i;
     if (!data || !report || report->status!=MCC_CACHE_OK || !visit) return 0;
     checked=*report;
+    /* (counted again from none: the limits are on one walk's totals) */
+    checked.bitmap_count=checked.bc7_bitmap_count=checked.external_bitmap_count=0;
+    checked.sound_permutation_count=checked.external_sound_count=0;
     for (i=0;i<report->tag_count;i++) {
         uint8_t *entry=mcc_cache_pointer(data,report,report->tag_base+40+i*32,32);
         char *name;

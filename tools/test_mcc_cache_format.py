@@ -167,3 +167,60 @@ def test_optional_real_mcc_map(report_tool):
     assert code == 0, report
     assert int(report["tag_count"]) > 0
     assert int(report["bsps"]) > 0
+
+
+
+def shared_bitmap_map(entries, bitmaps):
+    """a map with entries bitm tag entries that all name one bitm tag of
+    bitmaps bitmaps: entries * bitmaps bitmaps counted in all"""
+    count = 2 + entries
+    names = 0x28 + count * 32
+    scenario = (names + 0x10 + 15) & ~15
+    references = scenario + 0x5B0
+    bitmap = references + 0x20
+    array = bitmap + 0x70
+    size = array + bitmaps * 0x30
+    tags = bytearray(size)
+    for offset, value in {0: BASE + 40, 4: 0xE1740000, 12: count, 36: fourcc("tags")}.items():
+        put32(tags, offset, value)
+    tags[names:names + 13] = b"scnr\0bsp\0bit\0"
+    bsp_address = BASE + 0x4000000 - 0x300
+    for i in range(count):
+        group, handle, name, address = (
+            ("scnr", 0xE1740000, names, scenario) if i == 0 else
+            ("sbsp", 0xE1750001, names + 5, None) if i == 1 else
+            ("bitm", 0xE1760000 + i, names + 9, bitmap))
+        struct.pack_into("<8I", tags, 0x28 + i * 32, fourcc(group), 0xFFFFFFFF, 0xFFFFFFFF,
+                         handle, BASE + name, BASE + address if address is not None else 0, 0, 0)
+    struct.pack_into("<3I", tags, scenario + 0x5A4, 1, BASE + references, 0)
+    struct.pack_into("<8I", tags, references, 0x800, 0x300, bsp_address, 0, fourcc("sbsp"),
+                     BASE + names + 5, 0, 0xE1750001)
+    struct.pack_into("<2I", tags, bitmap + 0x60, bitmaps, BASE + array)
+    for i in range(bitmaps):
+        struct.pack_into("<6H", tags, array + i * 0x30 + 4, 1, 1, 1, 0, 11, 0)
+        struct.pack_into("<2I", tags, array + i * 0x30 + 0x18, 0x800, 4)
+    data = bytearray(0xB00)
+    for offset, value in {0: fourcc("head"), 4: 13, 16: 0xB00, 20: size, 0x68: 7,
+                          0x7FC: fourcc("foot")}.items():
+        put32(data, offset, value)
+    data[32:40] = b"fixture\0"
+    data[64:72] = b"testing\0"
+    struct.pack_into("<6I", data, 0x800, bsp_address + 24, 0, 0, 0, 0, fourcc("sbsp"))
+    data += tags
+    put32(data, 8, len(data))
+    return data
+
+
+def test_bitmaps_counted_within_a_limit(report_tool, tmp_path):
+    """bitmaps a map names many times over count each time (the textures'
+    list is sized from the total): a total past the reader's limit is refused,
+    not wrapped"""
+    path = tmp_path / "shared.map"
+    path.write_bytes(shared_bitmap_map(4, 16))
+    code, report = audit(report_tool, path)
+    assert code == 0, report
+    assert int(report["bitmaps"]) == 64
+    path.write_bytes(shared_bitmap_map(257, 4096))
+    code, report = audit(report_tool, path)
+    assert code == 1, report
+    assert report["status"] == "invalid MCC bitmap data"
