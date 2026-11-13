@@ -131,6 +131,13 @@ def main():
     # (Windows: LLVM's archiver, and lld for configure's test programs, as the
     # game links)
     windows_tools = ["--ar=llvm-ar", "--nm=llvm-nm", "--ranlib=llvm-ranlib"] if windows else []
+    # (Android: the NDK's archiver, beside its clang. A Mac's own ar and
+    # ranlib take the ELF objects but write an empty archive, and the app's
+    # link then misses every av_* symbol)
+    if target_os == "android":
+        bin_dir = Path(compiler).resolve().parent
+        windows_tools = [f"--ar={bin_dir / 'llvm-ar'}", f"--nm={bin_dir / 'llvm-nm'}",
+                         f"--ranlib={bin_dir / 'llvm-ranlib'}", f"--strip={bin_dir / 'llvm-strip'}"]
     link_flags = ["-fuse-ld=lld"] if windows else []
     configure = [source / "configure",
                  f"--prefix={msys_path(root / 'out') if windows else root / 'out'}",

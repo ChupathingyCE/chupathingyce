@@ -48,6 +48,7 @@ role, as the site shows its holder; no address anywhere.
 #include "saved games/saved_game_files.h"
 #include "../src/browser.h"
 #include "../src/delta_profile.h"
+#include "delta.h"
 #include "../src/clan_emblem.h"
 #include "../src/ui_overlay.h"
 #include "halo_ui_pointer.h"
@@ -65,6 +66,15 @@ int config_write(char const *name, char const *value);
 void platform_log(char const *format, ...);
 short pc_menus_set(void);
 void browser_screen_open(void);
+/* the screens drawn over this one (ui_widget.c's, after it) */
+boolean moderation_screen_active(void);
+boolean invite_prompt_active(void);
+#ifndef HALO_CONSOLE_NO_CONTROLS
+boolean controls_screen_active(void);
+#endif
+#ifdef HALO_GUIDE
+boolean guide_active(void);
+#endif
 boolean ui_widget_port_open_screen(char const *name);
 
 /* ---------- constants */
@@ -203,7 +213,7 @@ static struct privacy_row const privacy_rows[] =
 	{ "FRIEND REQUESTS FROM", _privacy_site, "friend_requests", { "everyone", "friends_of_friends", "nobody" },
 		{ "EVERYONE", "FRIENDS OF FRIENDS", "NOBODY" }, "Who can send you friend requests." },
 	{ "WHO CAN JOIN ME", _privacy_site, "who_can_join", { "friends", "anyone", "invite" },
-		{ "FRIENDS", "ANYONE", "INVITE ONLY" }, "Who can join your game from DELTA." },
+		{ "FRIENDS", "ANYONE", "INVITE ONLY" }, "Who can join your game from Delta." },
 	{ "SHOW MY STATUS TO", _privacy_site, "clan_presence", { "friends", "friends_and_clan" },
 		{ "FRIENDS", "FRIENDS AND CLAN" }, "Who sees when you're on and what you play." },
 #ifndef HALO_CONSOLE_NO_DISCORD
@@ -413,27 +423,22 @@ static char const *map_name(
 	return map;
 }
 
+#define PLATFORM_KEY_NAME(platform, key, tag, name, caps_name) { key, name },
 static char const *platform_name(
 	char const *platform)
 {
-	static char const *const names[][2] =
-	{
-		{ "pc_linux", "Linux PC" }, { "pc_windows", "Windows PC" }, { "pc_macos", "Mac" },
-		{ "android", "Android" }, { "steam_deck", "SteamOS" }, { "xbox", "Xbox" }, { "xbox360", "Xbox 360" },
-		{ "xbox_series", "Xbox Series" }, { "psp", "PSP" }, { "vita", "PS Vita" }, { "wiiu", "Wii U" },
-		{ "pc_freebsd", "FreeBSD PC" }, { "xbox_uwp", "Xbox Series" }, { "switch", "Switch" }, { "ps3", "PS3" },
-		{ "ps4", "PS4" }, { "ps5", "PS5" }, { "n64", "Nintendo 64" }, { "pc_legacy", "Legacy PC" },
-		{ "steamlink", "Steam Link" }, { "ios", "iPhone and iPad" }, { "tvos", "Apple TV" },
-	};
+	/* (delta.h's registry: one table names every platform) */
+	static char const *const names[][2] = { DELTA_PLATFORM_NAMES(PLATFORM_KEY_NAME) };
 	short index;
 
-	for (index = 0; index < NUMBEROF(names); index++)
+	for (index = 1; index < NUMBEROF(names); index++)
 	{
 		if (!strcmp(platform, names[index][0]))
 			return names[index][1];
 	}
 	return platform[0] ? platform : "Device";
 }
+#undef PLATFORM_KEY_NAME
 
 /* a count with thousands' commas */
 static void number_text(
@@ -2007,8 +2012,26 @@ static float wrapped_text(
 	return y;
 }
 
+/* whether a screen drawn after this one covers it: the Guide, the controls,
+moderation or an invite. A cut-out is the whole overlay's, not this
+screen's, so the game's picture under it would show through them */
+static boolean profile_screen_covered(
+	void)
+{
+#ifdef HALO_GUIDE
+	if (guide_active())
+		return TRUE;
+#endif
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	if (controls_screen_active())
+		return TRUE;
+#endif
+	return moderation_screen_active() || invite_prompt_active();
+}
+
 /* the first player's Spartan, in their armor's color, centered in its
-frame (the menus' own picture of it: ui\shell\bitmaps\colors_sm) */
+frame (the menus' own picture of it: ui\shell\bitmaps\colors_sm); not
+while another screen covers this one (profile_screen_covered) */
 static void draw_spartan(
 	float x,
 	float y,
@@ -2033,7 +2056,7 @@ static void draw_spartan(
 		frame = (short)MAX(0, profile.primary_color_index);
 	}
 	bitmap = bitmap_index != NONE ? bitmap_group_get_bitmap_from_sequence(bitmap_index, 0, frame) : NULL;
-	if (!bitmap)
+	if (!bitmap || profile_screen_covered())
 		return;
 	/* (the picture 112 by 136 of the bitmap's top left, its shape kept, its
 	middle the frame's on both axes) */

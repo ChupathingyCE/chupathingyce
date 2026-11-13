@@ -1,8 +1,10 @@
 # Controller prompts
 
 The controller's button icons the overlay's prompts draw for an Xbox-like
-pad (`port/linux/src/ui_overlay.c`: Online Games). The keyboard's key caps,
-and the PlayStation's and Nintendo's buttons, are drawn otherwise.
+pad (`port/linux/src/ui_overlay.c`: Online Games), the Xbox One and Series
+look. The keyboard's key caps, and the PlayStation's, Nintendo's, Steam
+Deck's, Steam Controller's and Wii U's buttons, are drawn otherwise
+(Kenney's Input Prompts fonts, `port/linux/ui/fonts`).
 
 Controller button icons by snapchipper, CC0. They keep that license: they
 are not covered by Chupathingy's (snapchipper offered them as CC BY-SA or

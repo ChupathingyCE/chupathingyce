@@ -1,0 +1,7 @@
+{
+  "about": "a 43 layout's wire as network_rules.c reads it: the distributed header's further bytes and epoch (a message or a batch, stripped and made again), a unit state's length with the further parts, and the join request's version word",
+  "harness": "port/linux/tests/network_wire_fuzz.c",
+  "sources": ["port/linux/game/network_rules.c"],
+  "flags": ["-std=c11"],
+  "max_len": 4200
+}

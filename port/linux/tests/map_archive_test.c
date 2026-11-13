@@ -14,6 +14,7 @@ repository's, where it can reach it):
   map_archive_test hash <map>                     its whole-file hash, in hex
   map_archive_test version <map> <host version>   <hash version> <checksum> host's | other
   map_archive_test hashversion <64 hex digits>    that hash's version (network version 29)
+  map_archive_test listing <html> <name>          <count> <file>...: the listing's files for name
   map_archive_test selftest                       ok, or what failed
 
 No file is written but <out>; nothing in an archive names a path.
@@ -179,6 +180,27 @@ int main(int argc, char **argv)
 	}
 	if (argc == 2 && !strcmp(argv[1], "selftest"))
 		return selftest();
+	if (argc == 4 && !strcmp(argv[1], "listing"))
+	{
+		char files[4][MAP_ARCHIVE_LISTING_NAME_SIZE];
+		unsigned char *listing;
+		unsigned int size = 0;
+		int found, index;
+
+		listing = read_file(argv[2], &size);
+		if (!listing)
+		{
+			printf("unreadable\n");
+			return 1;
+		}
+		found = map_archive_listing_files((const char *)listing, size, argv[3], files, 4);
+		printf("%d", found);
+		for (index = 0; index < found; index++)
+			printf(" %s", files[index]);
+		printf("\n");
+		free(listing);
+		return 0;
+	}
 	if ((argc == 4 || argc == 5 || argc == 6) && !strcmp(argv[1], "extract"))
 	{
 		struct memory memory;

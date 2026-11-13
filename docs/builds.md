@@ -10,8 +10,8 @@ What each build of the game has. FreeBSD has what the Linux build has, without b
 | Updates itself | Yes | Opens the download page | Yes, the AppImage too | Yes |
 | Halo PC (Custom Edition) maps | Yes | Yes | Yes | Yes, see [docs/maps.md](maps.md#halo-pc-maps) |
 | HaloMD maps | Yes | Yes | Yes | Yes, see [docs/maps.md](maps.md#halo-pc-maps) |
-| Renderer | OpenGL; Vulkan or Direct3D 11 to test (64-bit) | OpenGL; Metal to test | OpenGL; Vulkan to test (64-bit) | OpenGL ES |
-| The Guide: friends, parties, clans, service record | Yes | Yes | Yes | Yes |
+| Renderer | OpenGL; Vulkan or Direct3D 11 to test (64-bit) | OpenGL; Metal to test | OpenGL; Vulkan to test (64-bit) | OpenGL ES; Vulkan to test |
+| The Delta Guide: friends, parties, clans, service record | Yes | Yes | Yes | Yes |
 | Voice chat | Yes | Yes | Yes | Yes |
 | Light effects (`display.light_effects`) | Yes | Yes | Yes | No |
 | Server Browser in the PC menus | Yes | Yes | Yes | Yes |
@@ -33,4 +33,4 @@ says when a new version is out, and you update in Settings > Online >
 Updates (INSTALL UPDATE) or on the setup screen's UPDATES tab. The game
 restarts into the new version without leaving Game Mode.
 
-The FreeBSD build is the 64-bit Linux build's game, built for FreeBSD: see [port/unix/README.md](../port/unix/README.md).
+The FreeBSD build is the 64-bit Linux build's game, built for FreeBSD: see [port/unix/README.md](../port/unix/README.md). [BSD Daemon used with permission.](http://www.mckusick.com/copyright.html)

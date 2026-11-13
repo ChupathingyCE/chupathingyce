@@ -26,7 +26,10 @@ packs never take these paths.
 #include "structures/structure_bsp_definitions.h"
 #include "physics/collision_model_definitions.h"
 #include "scenario/scenario_definitions.h"
+#include "units/unit_definitions.h"
 #include "stubbs_mode.h"
+#include "stubbs_engine.h" /* (its special attacks, before the rewrite) */
+#include "stubbs_possession.h" /* (its possession seat, before the rewrite) */
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -35,7 +38,7 @@ packs never take these paths.
 boolean stubbs_mode_active(
 	void)
 {
-#if !defined(HALO_MAP_LIST)
+#if !defined(HALO_MAP_LIST) || defined(HALO_CONSOLE_NO_STUBBS)
 	return FALSE;
 #else
 	static int active = -1;
@@ -130,6 +133,40 @@ static unsigned char *stubbs_host(unsigned char *base, unsigned long size, unsig
 	return base + offset;
 }
 
+/* Stubbs's unit's melee: a block of his own at 0x330 (reclaimer reads it as
+Halo's powered seats; its elements are 0xD0 bytes, each with a jpt!
+reference at 0x20: a10's Stubbs has nine, his punches and combo blows, the
+civilians one each), where Halo has one melee damage reference. The first
+element's goes in Halo's, so the player's blow and the AI's do damage */
+enum
+{
+	STUBBS_UNIT_MELEE_BLOCK_OFFSET = 0x330,
+	STUBBS_UNIT_MELEE_ELEMENT_SIZE = 0xD0,
+	STUBBS_UNIT_MELEE_DAMAGE_OFFSET = 0x20,
+	HALO_UNIT_MELEE_DAMAGE_OFFSET = 0x288,
+};
+typedef char stubbs_unit_melee_damage_offset_assert[
+	offsetof(struct unit_definition, unit.melee_damage) == HALO_UNIT_MELEE_DAMAGE_OFFSET ? 1 : -1];
+
+static void stubbs_unit_melee_convert(unsigned char *definition, unsigned char const *stubbs)
+{
+	unsigned long count, address;
+	unsigned char *element;
+	unsigned long group;
+
+	memcpy(&count, stubbs + STUBBS_UNIT_MELEE_BLOCK_OFFSET, 4);
+	memcpy(&address, stubbs + STUBBS_UNIT_MELEE_BLOCK_OFFSET + 4, 4);
+	if (count < 1 || count > 64)
+		return;
+	element = stubbs_host(stubbs_tags_base, stubbs_tags_size, address, STUBBS_UNIT_MELEE_ELEMENT_SIZE);
+	if (!element)
+		return;
+	memcpy(&group, element + STUBBS_UNIT_MELEE_DAMAGE_OFFSET, 4);
+	if (group != 'jpt!')
+		return;
+	memcpy(definition + HALO_UNIT_MELEE_DAMAGE_OFFSET, element + STUBBS_UNIT_MELEE_DAMAGE_OFFSET, 0x10);
+}
+
 static void stubbs_unit_convert(unsigned char *definition, unsigned long halo_part_size)
 {
 	static unsigned char stubbs[STUBBS_UNIT_SIZE + 0x400];
@@ -141,6 +178,7 @@ static void stubbs_unit_convert(unsigned char *definition, unsigned long halo_pa
 		memcpy(definition + stubbs_unit_fields[index].halo_offset, stubbs + stubbs_unit_fields[index].stubbs_offset,
 			stubbs_unit_fields[index].size);
 	memcpy(definition + HALO_UNIT_SIZE, stubbs + STUBBS_UNIT_SIZE, halo_part_size);
+	stubbs_unit_melee_convert(definition, stubbs);
 }
 
 /* an animation graph's unit seats: Stubbs's are 0x80 bytes, Halo's 0x64 and
@@ -210,6 +248,9 @@ static unsigned long stubbs_animation_data_read(unsigned char *animation, unsign
 	return (data_size + 15) & ~15UL;
 }
 
+static void stubbs_weapon_class_animations_order(unsigned char *base, unsigned long size, unsigned char *block,
+	unsigned char *sets, unsigned long set_count);
+
 static long stubbs_animation_convert(unsigned char *base, unsigned long size, unsigned long address)
 {
 	unsigned char *graph = stubbs_host(base, size, address, 0x80);
@@ -268,12 +309,115 @@ static long stubbs_animation_convert(unsigned char *base, unsigned long size, un
 			memcpy(&sets_address, block + 4, 4);
 			first_set = set_count ? stubbs_host(base, size, sets_address, STUBBS_ANIMATION_SET_SIZE) : NULL;
 			if (first_set)
+			{
 				memcpy(block, first_set + STUBBS_ANIMATION_SET_ANIMATIONS_OFFSET, 12);
+				stubbs_weapon_class_animations_order(base, size, block,
+					set_count < 0x100 ? stubbs_host(base, size, sets_address, set_count * STUBBS_ANIMATION_SET_SIZE) : NULL,
+					set_count);
+			}
 			else
 				memset(block, 0, 12);
 		}
 	}
 	return 1;
+}
+
+/* a weapon class's animations in Halo's order. Stubbs's classes have 69
+of their own order, one set of them for each way of moving (the sets, in
+order: standing, forward, back, left, right, then the four diagonals),
+where Halo has one list of 55 with a slot for each direction. Their order is
+read from the names of a10's classes ("stand unarmed idle", "... move b",
+"... melee s-l"); slots Halo has and Stubbs doesn't are left empty, which
+Halo plays as idle. Stubbs's own (sprint, shove, attack-n, whistle and
+more) have no slot in Halo's list yet. */
+enum
+{
+	STUBBS_WEAPON_CLASS_ANIMATION_COUNT = 69,
+	HALO_WEAPON_CLASS_ANIMATION_COUNT = 55,
+	STUBBS_SET_STANDING = 0,
+	STUBBS_SET_FORWARD,
+	STUBBS_SET_BACK,
+	STUBBS_SET_LEFT,
+	STUBBS_SET_RIGHT,
+	STUBBS_SET_COUNT_USED,
+};
+
+static struct
+{
+	unsigned char halo_slot;
+	unsigned char stubbs_set;
+	unsigned char stubbs_slot;
+} const stubbs_weapon_class_animation_slots[] =
+{
+	{ 0, STUBBS_SET_STANDING, 0 }, /* idle */
+	{ 2, STUBBS_SET_STANDING, 1 }, /* turning left */
+	{ 3, STUBBS_SET_STANDING, 2 }, /* turning right */
+	{ 4, STUBBS_SET_FORWARD, 20 }, /* diving, by direction */
+	{ 5, STUBBS_SET_BACK, 20 },
+	{ 6, STUBBS_SET_LEFT, 20 },
+	{ 7, STUBBS_SET_RIGHT, 20 },
+	{ 8, STUBBS_SET_FORWARD, 3 }, /* moving, by direction */
+	{ 9, STUBBS_SET_BACK, 3 },
+	{ 10, STUBBS_SET_LEFT, 3 },
+	{ 11, STUBBS_SET_RIGHT, 3 },
+	{ 16, STUBBS_SET_STANDING, 7 }, /* airborne */
+	{ 17, STUBBS_SET_STANDING, 8 }, /* landing soft */
+	{ 18, STUBBS_SET_STANDING, 9 }, /* landing hard */
+	{ 23, STUBBS_SET_STANDING, 16 }, /* ready */
+	{ 25, STUBBS_SET_STANDING, 14 }, /* aiming still */
+	{ 26, STUBBS_SET_FORWARD, 14 }, /* aiming moving */
+	{ 27, STUBBS_SET_STANDING, 21 }, /* surprise front */
+	{ 28, STUBBS_SET_STANDING, 22 }, /* surprise back */
+	{ 29, STUBBS_SET_STANDING, 23 }, /* berserk */
+	{ 39, STUBBS_SET_STANDING, 32 }, /* melee attack (Stubbs's 39 is his second combo blow) */
+	{ 40, STUBBS_SET_STANDING, 43 }, /* celebrate */
+	{ 41, STUBBS_SET_STANDING, 44 }, /* panic */
+	{ 42, STUBBS_SET_STANDING, 34 }, /* melee airborne */
+};
+
+static void stubbs_weapon_class_animations_order(unsigned char *base, unsigned long size, unsigned char *block,
+	unsigned char *sets, unsigned long set_count)
+{
+	short slots[STUBBS_SET_COUNT_USED][STUBBS_WEAPON_CLASS_ANIMATION_COUNT];
+	short halo[HALO_WEAPON_CLASS_ANIMATION_COUNT];
+	unsigned long set_index, count, address;
+	unsigned char *list;
+	size_t index;
+
+	memcpy(&count, block, 4);
+	memcpy(&address, block + 4, 4);
+	/* (only Stubbs's own order: anything else is left as it is) */
+	if (!sets || count != STUBBS_WEAPON_CLASS_ANIMATION_COUNT)
+		return;
+	list = stubbs_host(base, size, address, count * 2);
+	if (!list)
+		return;
+	for (set_index = 0; set_index < STUBBS_SET_COUNT_USED; set_index++)
+	{
+		unsigned long set_animation_count = 0, set_address = 0;
+		unsigned char *set_list = NULL;
+
+		if (set_index < set_count)
+		{
+			memcpy(&set_animation_count, sets + set_index * STUBBS_ANIMATION_SET_SIZE + STUBBS_ANIMATION_SET_ANIMATIONS_OFFSET, 4);
+			memcpy(&set_address, sets + set_index * STUBBS_ANIMATION_SET_SIZE + STUBBS_ANIMATION_SET_ANIMATIONS_OFFSET + 4, 4);
+			if (set_animation_count == STUBBS_WEAPON_CLASS_ANIMATION_COUNT)
+				set_list = stubbs_host(base, size, set_address, set_animation_count * 2);
+		}
+		/* (a direction it lacks: the standing set's) */
+		if (set_list)
+			memcpy(slots[set_index], set_list, sizeof(slots[set_index]));
+		else
+			memcpy(slots[set_index], set_index ? slots[STUBBS_SET_STANDING] : (short const *)list, sizeof(slots[set_index]));
+	}
+	for (index = 0; index < HALO_WEAPON_CLASS_ANIMATION_COUNT; index++)
+		halo[index] = -1;
+	for (index = 0; index < sizeof(stubbs_weapon_class_animation_slots) / sizeof(*stubbs_weapon_class_animation_slots); index++)
+		halo[stubbs_weapon_class_animation_slots[index].halo_slot] =
+			slots[stubbs_weapon_class_animation_slots[index].stubbs_set][stubbs_weapon_class_animation_slots[index].stubbs_slot];
+	memcpy(list, halo, sizeof(halo));
+	count = HALO_WEAPON_CLASS_ANIMATION_COUNT;
+	memcpy(block, &count, 4);
 }
 
 /* an uncompressed animation's default data: Halo's holds each node's
@@ -501,6 +645,30 @@ static void stubbs_collision_convert(unsigned char *model)
 	}
 }
 
+/* ---------- Stubbs's weapon HUDs
+
+Halo's weapon HUD interface (wphi) has its screen effects block at 0xAC (the
+scope's mask, convolution and night vision). Stubbs's has a long there and,
+from 0xB0, a reference to one of its image effects (imef) instead, so a
+sniper HUD's reads as a block at 'imef' and the map can't be played (c10,
+c40). Its count is cleared: no screen effect, and the reference is left as
+it is for the image effects later */
+
+#define WPHI_SCREEN_EFFECTS_OFFSET 0xAC
+#define WPHI_SIZE 0x17C
+
+static boolean stubbs_weapon_hud_convert(unsigned char *definition)
+{
+	unsigned long group;
+	long none = 0;
+
+	memcpy(&group, definition + WPHI_SCREEN_EFFECTS_OFFSET + 4, 4);
+	if (group != 'imef')
+		return FALSE;
+	memcpy(definition + WPHI_SCREEN_EFFECTS_OFFSET, &none, 4);
+	return TRUE;
+}
+
 void stubbs_mode_set_file_reader(
 	boolean (*read)(long offset, long size, void *buffer))
 {
@@ -517,6 +685,7 @@ void stubbs_mode_convert_tags(
 	long converted_animations = 0;
 	long converted_collision = 0;
 	long converted_sounds = 0;
+	long converted_weapon_huds = 0;
 
 	if (!stubbs_mode_active() || tag_data_size < 0x28)
 		return;
@@ -524,7 +693,9 @@ void stubbs_mode_convert_tags(
 	memcpy(&count, base + 0x0C, 4);
 	stubbs_tags_base = base;
 	stubbs_tags_size = tag_data_size;
-	if (!stubbs_host(base, tag_data_size, instances, count * 0x20))
+	/* (no more tags than a tag index holds: a count past it would wrap the
+	32-bit size of the index checked below) */
+	if (count > 0xFFFF || !stubbs_host(base, tag_data_size, instances, count * 0x20))
 	{
 		stubbs_mode_log("the tag header is not Stubbs's: nothing converted");
 		return;
@@ -571,6 +742,14 @@ void stubbs_mode_convert_tags(
 			converted_animations += stubbs_animation_convert(base, tag_data_size, address);
 			continue;
 		}
+		if (group == 'wphi')
+		{
+			unsigned char *hud = stubbs_host(base, tag_data_size, address, WPHI_SIZE);
+
+			if (hud && stubbs_weapon_hud_convert(hud))
+				converted_weapon_huds++;
+			continue;
+		}
 		if (group == 'bipd')
 			halo_part = HALO_BIPED_SIZE - HALO_UNIT_SIZE, kind = 0;
 		else if (group == 'vehi')
@@ -580,6 +759,8 @@ void stubbs_mode_convert_tags(
 		definition = stubbs_host(base, tag_data_size, address, STUBBS_UNIT_SIZE + halo_part);
 		if (!definition)
 			continue;
+		stubbs_engine_note_unit_definition(instance, definition, base, tag_data_size);
+		stubbs_possession_note_unit_definition(instance, definition, base, tag_data_size);
 		stubbs_unit_convert(definition, halo_part);
 		converted[kind]++;
 	}
@@ -587,6 +768,7 @@ void stubbs_mode_convert_tags(
 	stubbs_mode_log("%ld animation graphs rewritten in Halo's layout", converted_animations);
 	stubbs_mode_log("%ld sounds of classes Halo lacks played as the nearest class before", converted_sounds);
 	stubbs_mode_log("%ld collision models' materials and regions rewritten in Halo's layout", converted_collision);
+	stubbs_mode_log("%ld weapon HUDs' image effects left out of their screen effects", converted_weapon_huds);
 	{
 		unsigned long needed = stubbs_animations_each(base, tag_data_size, instances, count,
 			stubbs_animation_data_measure, NULL);

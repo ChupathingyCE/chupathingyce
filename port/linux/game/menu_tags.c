@@ -34,6 +34,7 @@ clock runs on).
 #include "cseries.h"
 #include "bitmaps/bitmap_group.h"
 #include "tag_files/tag_groups.h"
+#include "cache/cache_files.h"
 #include "text/text_group.h"
 #include "rasterizer/xbox/rasterizer_xbox_hardware_bitmaps.h"
 
@@ -1583,12 +1584,13 @@ Gearbox menus' own */
 #define PAUSE_CONTROLS_SCREEN_CHUPATHINGY "chupathingy/settings/controls_setup_screen"
 #define PAUSE_BUTTON_SPACING 35
 
-/* display.menus: the Xbox's menus, Gearbox's Halo PC menus, or Chupathingy's (the
+/* display.menus: the Xbox's menus or Chupathingy's (the
 Xbox's, with the PC version's screens that the Xbox has not, in its look:
 port/assets/menus/chupathingy) */
 enum
 {
 	_menus_xbox,
+	/* (Gearbox's Halo PC menus, retired as a menu set: menus_chosen) */
 	_menus_pc,
 	_menus_chupathingy,
 };
@@ -2263,13 +2265,16 @@ static void pause_patch_xbox(void)
 }
 
 
-/* ---------- the main menus' DELTA
+/* ---------- the main menus' DELTA (delta.menu_item, off by default: the
+main menu's note says how to open DELTA instead, guide.c)
 
-Each main menu has DELTA (DELTA over it, on PARTY: a party started, friends
-invited, the party brought to a game), in every menu set: the Chupathingy
-menus' in chupathingy/main_menu.xml (before QUIT), and Gearbox's as that
-same row put in its list before QUIT here (its list is tools/ce_menus.py's,
-from the PC version's tags). The Xbox's main menu stays the Xbox's (its
+With it, each main menu has DELTA (DELTA over it, on PARTY: a party started, friends
+invited, the party brought to a game), in every menu set: the row in
+chupathingy/main_menu.xml put in the main menu's list before QUIT here, in
+the Chupathingy menus' and Gearbox's (its list is tools/ce_menus.py's, from
+the PC version's tags), and DELTA in Gearbox's Multiplayer button bar. The
+lists are patched as the menus load, so a change shows the next time they
+do. The Xbox's main menu stays the Xbox's (its
 rows are ui.map's pictures): there DELTA is the Multiplayer menu's row
 (ui_widget.c), the key and the Guide button. Not on the consoles (no DELTA
 there yet) nor with split screen's players (DELTA is the first player's). */
@@ -2277,15 +2282,23 @@ there yet) nor with split screen's players (DELTA is the first player's). */
 #define DELTA_ROW "chupathingy/main_menu_delta"
 #define GEARBOX_MAIN_MENU_LIST "main_menu/main_menu_select_list"
 
+/* (delta.menu_item, as it is when the menus load: a change shows the
+next time they do) */
 static boolean main_menu_delta_offered(void)
 {
 #ifdef HALO_GUIDE
 	extern unsigned char pc_menu_split_players(void);
 
-	return !pc_menu_split_players();
+	return config_boolean("delta.menu_item") != 0 && !pc_menu_split_players();
 #else
 	return FALSE;
 #endif
+}
+
+/* ui_widget.c's: whether the Multiplayer menu gets its DELTA row now */
+boolean pc_menu_delta_item_offered(void)
+{
+	return main_menu_delta_offered();
 }
 
 /* a row put in a list at "at" (the rows from there a row lower, the
@@ -2319,10 +2332,14 @@ static boolean list_row_insert(struct ui_widget_definition *list, long at, long 
 	return TRUE;
 }
 
-/* Gearbox's main menu: the Chupathingy menus' DELTA row before QUIT */
-static void main_menu_delta_patch_gearbox(void)
+/* the main menu (Gearbox's or the Chupathingy menus' list): the DELTA row
+before QUIT */
+#define CHUPATHINGY_MAIN_MENU_LIST "chupathingy/main_menu_list"
+
+static void main_menu_delta_patch(void)
 {
-	long list = widget_named(GEARBOX_MAIN_MENU_LIST), row = widget_named(DELTA_ROW);
+	long list = widget_named(menus_chosen() == _menus_chupathingy ? CHUPATHINGY_MAIN_MENU_LIST : GEARBOX_MAIN_MENU_LIST);
+	long row = widget_named(DELTA_ROW);
 	struct ui_widget_definition *definition;
 
 	if (!main_menu_delta_offered() || list == NONE || row == NONE)
@@ -2368,9 +2385,14 @@ static void multiplayer_delta_patch_gearbox(void)
 	definition->child_widgets.count = count + 1;
 }
 
-/* which display.menus asks for, in any case ("gearbox" or the older "pc"
-for Gearbox's; a value that is none of them is said once in the log, and is
-the Xbox's) */
+/* which display.menus asks for, in any case; a value that is none of them
+is said once in the log, and is the Xbox's. Gearbox's menus ("gearbox", or
+the older "pc") are no longer a menu set to choose: those values are the
+Xbox's too, and the player is told once, in the main
+menu's note (guide.c's _toast_menus_retired). Their screens, built from port/assets/menus/ce, stay
+in the game: the Chupathingy menus are made of many of them, and the rest
+are kept for extra screens (the _menus_pc paths here, which nothing chooses
+now) */
 static short menus_chosen(void)
 {
 	static boolean said;
@@ -2388,20 +2410,23 @@ static short menus_chosen(void)
 	lower[index] = 0;
 	if (value[index])
 		lower[0] = 0;
-	if (!strcmp(lower, "gearbox") || !strcmp(lower, "pc"))
-		return _menus_pc;
 	if (!strcmp(lower, "chupathingy"))
 		return _menus_chupathingy;
-	if (strcmp(lower, "xbox") && !said)
+	if (!said && (!strcmp(lower, "gearbox") || !strcmp(lower, "pc")))
 	{
-		platform_log("menus: display.menus \"%s\" is not \"xbox\", \"gearbox\" or \"chupathingy\": the Xbox's", value);
+		platform_log("menus: display.menus \"%s\": the Gearbox menus were retired; the Xbox's", value);
+		said = TRUE;
+	}
+	else if (strcmp(lower, "xbox") && !said)
+	{
+		platform_log("menus: display.menus \"%s\" is not \"chupathingy\" or \"xbox\": the Xbox's", value);
 		said = TRUE;
 	}
 	return _menus_xbox;
 }
 
-/* which menus display.menus asks for: 0 the Xbox's, 1 Gearbox's, 2 the
-Chupathingy menus (for what follows them outside the menus: the
+/* which menus display.menus asks for: 0 the Xbox's, 2 the Chupathingy
+menus (1 was Gearbox's, which nothing chooses now) (for what follows them outside the menus: the
 scoreboard's platform logos) */
 short pc_menus_set(
 	void)
@@ -2607,9 +2632,11 @@ void menu_tags_loaded(
 		host_setup_patch();
 	if (menus_chosen() == _menus_pc && !game_map)
 	{
-		main_menu_delta_patch_gearbox();
+		main_menu_delta_patch();
 		multiplayer_delta_patch_gearbox();
 	}
+	else if (menus_chosen() == _menus_chupathingy && !game_map)
+		main_menu_delta_patch();
 	platform_log("menus: %ld widgets, %ld string lists and %ld bitmaps added to the map's %ld tags",
 		widget_count, own_lists + menus->string_list_count, menus->bitmap_count, build.first_index);
 	goto done;
@@ -2632,6 +2659,14 @@ void menu_tags_unloaded(
 {
 	if (menu_tags.loaded || menu_tags.block_count)
 		menu_tags_release();
+}
+
+/* the main menu of the menus up, by name (whatever debug.menu_open opens:
+the Guide's Workshop PLAY builds back's history down to it) */
+char const *pc_menus_main_menu_name(
+	void)
+{
+	return menu_tags.loaded && menu_tags.root[0] ? menu_tags.root : "ui\\shell\\main_menu\\main_menu";
 }
 
 char const *pc_menus_root_name(
@@ -2662,6 +2697,38 @@ char const *pc_menus_root_name(
 			return name;
 		}
 		platform_log("menus: debug.menu_open: there is no widget named %s", open);
+	}
+	/* (the Xbox's menus, and the Chupathingy menus' Xbox screens:
+	debug.menu_open names one of their screens, as "ui/shell/main_menu/...") */
+	if ((!menu_tags.loaded || menu_tags.chupathingy) && *open && !strncmp(open, "ui/", 3))
+	{
+		static char name[300];
+		long index;
+
+		snprintf(name, sizeof(name), "%s", open);
+		name[strcspn(name, "#")] = 0;
+		for (index = 0; name[index]; index++)
+		{
+			if (name[index] == '/')
+				name[index] = '\\';
+		}
+		if (tag_loaded(UI_WIDGET_DEFINITION_TAG, name) != NONE)
+			return name;
+		platform_log("menus: debug.menu_open: there is no widget named %s", open);
+		/* (the screens there are, to choose from) */
+		{
+			struct tag_iterator iterator;
+			long tag;
+
+			tag_iterator_new(&iterator, UI_WIDGET_DEFINITION_TAG);
+			while ((tag = tag_iterator_next(&iterator)) != NONE)
+			{
+				char const *tag_name = tag_get_name(tag);
+
+				if (strstr(tag_name, "_screen") || strstr(tag_name, "wrapper"))
+					platform_log("menus: debug.menu_open: a screen: %s", tag_name);
+			}
+		}
 	}
 	return menu_tags.loaded && menu_tags.root[0] ? menu_tags.root : "ui\\shell\\main_menu\\main_menu";
 }
@@ -2906,6 +2973,45 @@ boolean pc_menu_button_key_cap(
 	(void)alpha;
 #endif
 	return FALSE;
+}
+
+/* a prompt in a picture of the menus' (the virtual keyboard's B and A,
+virtual_keyboard.c): which 0 for B, 1 for A, drawn as the footers' key cap
+or button, right-aligned in the bounds. TRUE when the menus' prompts stand
+for the pictures (which NONE: only whether they do, nothing drawn) */
+boolean pc_menu_keyboard_prompt(
+	long which,
+	short x0,
+	short y0,
+	short x1,
+	short y1)
+{
+#ifdef HALO_GAME_BROWSER
+	extern boolean moderation_screen_active(void);
+	/* (as pc_menu_key_cap_button: the keyboard's, and the Chupathingy
+	menus' for every device) */
+	boolean modern = menu_tags.loaded && menu_tags.chupathingy;
+	int button = which == 0 ? UI_BUTTON_B : UI_BUTTON_A;
+	float size;
+	float width;
+
+	(void)x0;
+	if (!halo_keyboard_prompts() && !modern)
+		return FALSE;
+	if (which == NONE || moderation_screen_active())
+		return TRUE;
+	size = (float)(y1 - y0) * 0.62f;
+	width = ui_overlay_button_width(button, size);
+	ui_overlay_button(button, size, (float)x1 - width, (float)y0 + ((float)(y1 - y0) - size) * 0.5f, 0xFFFFFFFF);
+	return TRUE;
+#else
+	(void)which;
+	(void)x0;
+	(void)y0;
+	(void)x1;
+	(void)y1;
+	return FALSE;
+#endif
 }
 
 /* the keyboard's key in a menu text's prompt ("Press [Enter] to Join",

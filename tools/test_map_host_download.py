@@ -13,7 +13,7 @@ The fuzz target for the quick checks is tools/tests/host_fuzz/map_quick_check
 (tools/test_host_fuzz.py).
 
 With HALO_MAP_HOST_E2E (a game binary) and HALO_MAP_HOST_E2E_DATA (a data
-folder from ~/halo-maps/new-data-root.sh), test_dedicated_server_shares_the_map
+folder of links to your own maps), test_dedicated_server_shares_the_map
 runs a dedicated server with network.map_share on a Custom Edition map and a
 client without it, network.map_downloads_from_host "always", which joins,
 gets the map from the host and joins again. It needs loopback addresses
@@ -420,6 +420,30 @@ def test_the_fetch_is_driven_every_frame_and_never_left_alone():
     update = client[client.index("void map_share_player_update("):]
     assert update.index("map_download_host_cancelled()") < update.index("switch (fetch.state)")
 
+
+
+def test_the_leave_resets_only_the_fetchs_own_network():
+    """#1041: the player's fetch waits a second after it ends (LEAVE_DELAY)
+    before it starts the network searching again; a game hosted, joined or
+    the network reset from the menus in that second is left alone"""
+    client = read("port/linux/game/map_share_client.c")
+    update = client[client.index("void map_share_player_update("):]
+    update = update[:update.index("\n}\n")]
+    leave = update[update.index("case _fetch_leaving:"):]
+    leave = leave[:leave.index("break;")]
+    assert leave.index("if (fetch_network_still_ours())") < leave.index("ui_online_games_start_network();")
+    assert client.count("ui_online_games_start_network();") == 2
+    finish = client[client.index("static void fetch_finish("):]
+    player = finish[finish.index("if (fetch.player)"):]
+    assert player.index("fetch_note_left_host();") < player.index("fetch_state(_fetch_leaving);")
+    guard = client[client.index("static boolean fetch_network_still_ours("):]
+    guard = guard[:guard.index("\n}\n")]
+    # a game of this machine's, no client, another host, or a client reset
+    # after the fetch had joined: not the fetch's
+    assert "if (!client || global_network_game_server_get())\n\t\treturn FALSE;" in guard
+    assert "if (!fetch.left_connected)\n\t\treturn state == 0;" in guard
+    assert "if (state < 1)\n\t\treturn FALSE;" in guard
+    assert "!memcmp(&host, &fetch.left_host, sizeof(host))" in guard
 
 def test_no_host_download_without_the_blacklist():
     download = read("port/linux/src/map_download.c")

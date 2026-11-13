@@ -1,0 +1,12 @@
+{
+  "about": "a Stubbs the Zombie map's tags, rewritten in Halo's layouts (Stubbs mode) before the tag validator sees them",
+  "harness": "port/linux/tests/stubbs_tags_fuzz.c",
+  "game_sources": [
+    "port/linux/game/stubbs_mode.c"
+  ],
+  "flags": [
+    "-std=gnu11",
+    "-w"
+  ],
+  "max_len": 4096
+}

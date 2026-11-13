@@ -21,8 +21,12 @@ enum
 	UI_FONT_REGULAR,
 	UI_FONT_BOLD,
 	/* the menus' faces: their text's (the fonts of ui\large_ui and
-	ui\small_ui, fonts.json) and their titles' (OpenCE). A character they
-	lack is drawn in Noto Sans Bold */
+	ui\small_ui, fonts.json: Cyborg Interface Gothic) and their titles'
+	(as the menus' title pictures: Chupathingy Titles, or Cyborg Interface
+	Gothic when display.title_font is "cyborg", drawn at the same capital
+	height and baseline). A character they lack is drawn in Noto Sans Bold.
+	UI_FONT_REGULAR and UI_FONT_BOLD are Noto Sans itself: no screen draws
+	its text in them, which would show the player another face */
 	UI_FONT_MENU,
 	UI_FONT_MENU_SMALL,
 	UI_FONT_TITLE,
@@ -38,8 +42,9 @@ enum
 /* a controller's button, drawn as the device the player last used names
 it: an Xbox-like pad's by snapchipper's icons (port/assets/prompts), a
 Nintendo pad's as grey buttons with its own letters, a PlayStation pad's
-face buttons by Kenney's Input Prompts, the others' as dark pills, and the
-keyboard's as light key caps */
+face buttons by Kenney's Input Prompts, a Steam Deck's, a Steam
+Controller's and a Wii U pad's every button by Kenney's, the others' as
+dark pills, and the keyboard's as light key caps */
 enum
 {
 	UI_BUTTON_A,
@@ -77,6 +82,15 @@ void ui_overlay_outline(float x, float y, float width, float height, float radiu
 top; its width */
 float ui_overlay_text(int font, float size, float x, float y, int align, unsigned int color, const char *text);
 float ui_overlay_text_width(int font, float size, const char *text);
+/* text as a font shows it: the characters neither it nor Noto Sans Bold
+has (Chinese, Japanese and Korean, among others) left out, as they are
+drawn (none, rather than empty boxes), and the spaces around them made
+one, none at either end (text_shown.h). Its length; 0 when it shows
+nothing, which ui_overlay_text draws as "?" */
+int ui_overlay_text_shown(int font, const char *text, char *out, int size);
+/* a player's name as a font shows it: as ui_overlay_text_shown, or its
+ASCII letters, or "Player" when nothing of it would show */
+void ui_overlay_name_shown(int font, const char *name, char *out, int size);
 /* text as the Xbox menus draw it: a soft glow of glow's color around it and
 a drop shadow under it */
 float ui_overlay_text_glow(int font, float size, float x, float y, int align, unsigned int color,
@@ -106,14 +120,24 @@ void ui_overlay_plasma_source(int serial, const unsigned char *pixels, int width
 hardware format, the texture cache's: the interface's plasma map), once:
 nonzero if it was read */
 int ui_overlay_plasma_from_texture(const void *hardware_format);
+/* the Xbox dashboard's cellwall (as the TeamUIX site draws it: a mesh
+pattern inside a slowly turning sphere, fogged to black; ui_overlay_cellwall.h)
+filling a rectangle of the layout, seen through the layout's middle: motion
+the sphere's turn (radians), the eye's place (x, y, about 0.12 and 0) and
+the lines' brightness; side and front the lines' tint edge on and face on,
+fill the color between them and its alpha (0xRRGGBBAA). 0 when this
+renderer cannot draw it (OpenGL ES 2): the caller draws its plain backdrop */
+int ui_overlay_cellwall(float x, float y, float width, float height, const float motion[4], unsigned int side,
+	unsigned int front, unsigned int fill);
 /* the color of the plasma's bright threads (0xRRGGBBAA, its alpha unused):
 the theme's (ui_style_theme) */
 void ui_overlay_plasma_thread(unsigned int color);
 
 /* what is drawn from here on goes over what was drawn before at a lower
-layer (0 to 4; each frame starts at 0): text is drawn over the shapes of
+layer (0 to 5; each frame starts at 0): text is drawn over the shapes of
 its layer, and under those of the layers above, as a dialog over a list.
-The Guide alone draws on 4, over every other screen's dialogs */
+The Guide alone draws on 4, over every other screen's dialogs, and its own
+windows (Steam's sign-in) on 5, over the Guide */
 void ui_overlay_layer(int layer);
 
 /* a button's glyph, size high, at x (its left), y (its top); its width.
@@ -236,23 +260,43 @@ enum
 	UI_COLOR_LABEL_SOFT,
 	UI_COLOR_DOT_GAME,
 	UI_COLOR_DOT_OFFLINE,
+	/* the Guide's panes' text (guide_record.c, guide_workshop.c): a softer
+	line (a medal's count), a pale one (a description), a value that can't
+	be used now, and the player's square before their profile's color */
+	UI_COLOR_TEXT_SOFT,
+	UI_COLOR_TEXT_PALE,
+	UI_COLOR_TEXT_OFF,
+	UI_COLOR_PLAYER,
+	/* a setting's name in a pane (the Service Record's MEDALS ON HUD), and
+	a window's solid ground under its glass (the Steam sign-in's) */
+	UI_COLOR_SETTING_NAME,
+	UI_COLOR_WINDOW,
 	NUMBER_OF_UI_COLORS
 };
 unsigned int ui_style_color(int name);
 
-/* the themes the palette comes in: Halo Blue (the default) and
-Chupathingy Red (display.theme) */
+/* the themes the palette comes in: Halo Blue (the default), Chupathingy
+Red, Dashboard Green, Visor Orange and Live Orange (display.theme); a new one goes last,
+so a saved choice keeps its meaning */
 enum
 {
 	UI_THEME_BLUE,
 	UI_THEME_RED,
+	UI_THEME_GREEN,
+	UI_THEME_ORANGE,
+	UI_THEME_LIVE,
 	NUMBER_OF_UI_THEMES
 };
 /* the palette from here on (live: the next frame draws in it) */
 void ui_style_theme(int theme);
 int ui_style_theme_current(void);
-/* display.theme's value ("blue", "red") as a theme: blue for anything else */
+/* display.theme's value ("blue", "red", "green", "orange", "live") as a theme: blue for anything else */
 int ui_style_theme_named(const char *name);
+/* the dashboard's cellwall behind a screen, in the theme's colors (the
+Xbox dashboard's per skin, from Theseus), turning slowly and now and then
+swelling brighter, as the TeamUIX site's (calmer), by ui_style_clock's clock; over
+the layout's rectangle. 0 when it cannot be drawn (draw the plain shade) */
+int ui_style_cellwall(float x, float y, float width, float height);
 
 /* the look's text, each kind in the menus' fonts (ui_style_text): a list's
 headings ("ONLINE (2 OF 3)"), a row's name and its status line, a pane's
@@ -273,6 +317,8 @@ float ui_style_text(int kind, float x, float y, int align, const char *text);
 /* the same faded by share (0 to 1: a toast coming and going) */
 float ui_style_text_faded(int kind, float share, float x, float y, int align, const char *text);
 float ui_style_text_size(int kind);
+/* its font (UI_FONT_*), for measuring it with ui_overlay_text_width */
+int ui_style_text_font(int kind);
 /* the same at scale times its size (a larger screen's rows: the setup
 screen's) */
 float ui_style_text_scaled(int kind, float scale, float x, float y, int align, const char *text);
@@ -295,7 +341,11 @@ void ui_style_row(float x, float y, float width, float height, int selected);
 /* a setting's row (settings_rows.h's, the Guide's and the setup screen's):
 its capsule (ui_style_row), its label in ui_style_text's UI_TEXT_NAME at
 scale times its size, a tag after it (badge, as "NEEDS A RESTART"; NULL:
-none), and its value at the right between the arrows that change it */
+none), and its value at the right between the arrows that change it (NULL:
+an action row, its label alone) */
+/* the next ui_style_setting's value shown alone, without the arrows (a
+row that opens something rather than steps through values) */
+void ui_style_setting_plain(void);
 void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected);
 /* section tabs between left and right, height tall: the bumpers' glyphs at

@@ -904,6 +904,11 @@ symbols in this file:
 #include "physics/collision_debug.h"
 #include "rasterizer/rasterizer.h"
 #include "rasterizer/rasterizer_console_vars.h"
+#include "mcc_campaign.h"
+#include "mcc_skulls.h"
+#if !defined(HALO_MCC) || HALO_MCC
+extern struct hs_external_global_definition mcc_skull_definitions[MCC_SKULL_COUNT]; /* (mcc_skulls.c) */
+#endif
 
 /* ---------- constants */
 
@@ -920,12 +925,20 @@ typedef char verify_hs_external_global_definition_size[
 
 /* ---------- globals */
 
+/* port: and MCC's skulls, which its maps' scripts set and read
+(port/linux/game/mcc_skulls.c), after everything else so that no index a
+map was compiled with moves */
+#if !defined(HALO_MCC) || HALO_MCC
+#define HS_EXTERNAL_GLOBAL_MCC_COUNT MCC_SKULL_COUNT
+#else
+#define HS_EXTERNAL_GLOBAL_MCC_COUNT 0
+#endif
 #ifdef HALO_CUSTOM_EDITION
 /* port: and Halo PC's that its maps' scripts set and the Xbox's engine has
 none of (below) */
-short const hs_external_global_count = 443 + 14;
+short const hs_external_global_count = 443 + 14 + HS_EXTERNAL_GLOBAL_MCC_COUNT;
 #else
-short const hs_external_global_count = 443;
+short const hs_external_global_count = 443 + HS_EXTERNAL_GLOBAL_MCC_COUNT;
 #endif
 
 extern boolean allow_out_of_sync;
@@ -2005,9 +2018,9 @@ static struct hs_external_global_definition rasterizer_frame_drop_ms_definition 
 #endif
 
 #ifdef HALO_CUSTOM_EDITION
-struct hs_external_global_definition *hs_external_globals[443 + 14] =
+struct hs_external_global_definition *hs_external_globals[443 + 14 + HS_EXTERNAL_GLOBAL_MCC_COUNT] =
 #else
-struct hs_external_global_definition *hs_external_globals[443] =
+struct hs_external_global_definition *hs_external_globals[443 + HS_EXTERNAL_GLOBAL_MCC_COUNT] =
 #endif
 {
 	&rasterizer_near_clip_distance_definition,
@@ -2468,6 +2481,19 @@ struct hs_external_global_definition *hs_external_globals[443] =
 	&error_suppress_all_definition,
 	&director_camera_switching_definition,
 	&rasterizer_frame_drop_ms_definition,
+#endif
+#if !defined(HALO_MCC) || HALO_MCC
+	/* port: MCC's skulls (port/linux/game/mcc_skulls.c), in its hs_doc's order */
+	&mcc_skull_definitions[0], &mcc_skull_definitions[1], &mcc_skull_definitions[2],
+	&mcc_skull_definitions[3], &mcc_skull_definitions[4], &mcc_skull_definitions[5],
+	&mcc_skull_definitions[6], &mcc_skull_definitions[7], &mcc_skull_definitions[8],
+	&mcc_skull_definitions[9], &mcc_skull_definitions[10], &mcc_skull_definitions[11],
+	&mcc_skull_definitions[12], &mcc_skull_definitions[13], &mcc_skull_definitions[14],
+	&mcc_skull_definitions[15], &mcc_skull_definitions[16], &mcc_skull_definitions[17],
+	&mcc_skull_definitions[18], &mcc_skull_definitions[19], &mcc_skull_definitions[20],
+	&mcc_skull_definitions[21], &mcc_skull_definitions[22], &mcc_skull_definitions[23],
+	&mcc_skull_definitions[24], &mcc_skull_definitions[25], &mcc_skull_definitions[26],
+	&mcc_skull_definitions[27], &mcc_skull_definitions[28],
 #endif
 };
 
@@ -2972,6 +2998,13 @@ static boolean const hs_external_global_settable_in_maps[]=
 	TRUE, /* director_camera_switching */
 	TRUE, /* rasterizer_frame_drop_ms */
 #endif
+#if !defined(HALO_MCC) || HALO_MCC
+	/* MCC's skulls: an MCC map's scripts may set them (mcc_campaign_global_settable);
+	no other map names them */
+	FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE,
+	FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE,
+	FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE,
+#endif
 };
 typedef char verify_hs_external_global_settable_in_maps_size[
 	NUMBEROF(hs_external_global_settable_in_maps) == NUMBEROF(hs_external_globals) ? 1 : -1];
@@ -2982,6 +3015,11 @@ typedef char verify_hs_external_global_settable_in_maps_size[
 boolean hs_external_global_settable_by_maps(
 	short global_index)
 {
+	/* port: MCC's separately scoped campaign controls (mcc_campaign.c). */
+	{
+		if (mcc_campaign_global_settable(global_index))
+			return TRUE;
+	}
 	return global_index>=0 &&
 		global_index<(short)NUMBEROF(hs_external_global_settable_in_maps) &&
 		hs_external_global_settable_in_maps[global_index];

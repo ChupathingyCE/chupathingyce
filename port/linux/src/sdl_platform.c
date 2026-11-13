@@ -32,6 +32,10 @@ and the debug keyboard that the game's console reads.
 #include <string.h>
 #if !defined(_WIN32) && !defined(HALO_ANDROID)
 #include <signal.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <time.h>
+#include <unistd.h>
 #endif
 #ifdef HALO_GAME_BROWSER
 #include "browser.h"
@@ -52,6 +56,12 @@ static unsigned char mouse_buttons_pressed[PLATFORM_MOUSE_BUTTON_COUNT];
 #ifndef HALO_ANDROID
 /* the menus' pointer (platform_ui_pointer_set_active), under input_lock */
 static struct platform_ui_pointer ui_pointer;
+/* the menus' pointer put in the middle as they open (platform_ui_pointer_set_active):
+the move that warp sends isn't the player's, so it hovers nothing (it took the
+focus off the item a screen opened on, like the level select's Workshop PLAY
+level) */
+static BOOL ui_pointer_warp_pending;
+static float ui_pointer_warp_x, ui_pointer_warp_y;
 static float ui_pointer_wheel;
 #endif
 static pthread_mutex_t input_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -373,10 +383,161 @@ static void crash_reports_start(void)
 }
 #endif
 
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+/* SIGTERM and SIGINT quit as closing the window does, when the events are
+next read (SDL's handler, which this one passes them to). A game stuck where
+they are not read (#1149: a load that waited for ever) never would: the
+signal also wakes a watchdog, which ends the process only if the game is
+stuck: its events not read (platform_pump_events, quit_heartbeat) for
+QUIT_WATCHDOG_SECONDS. Once a quit is under way (platform_exit_window_closed,
+or any exit: its saves run then) it never steps in, so no save is cut in
+half. It only writes to standard error, as the stuck thread may hold the
+log's lock */
+#ifndef QUIT_WATCHDOG_SECONDS
+#define QUIT_WATCHDOG_SECONDS 10
+#endif
+
+static struct sigaction quit_previous_actions[2];
+static int quit_pipe[2] = { -1, -1 };
+/* (each read of the events counts one; a quit under way stands it down) */
+static volatile unsigned long quit_heartbeat;
+static volatile int quit_under_way;
+
+static void quit_watchdog_stand_down(void)
+{
+	__atomic_store_n(&quit_under_way, 1, __ATOMIC_SEQ_CST);
+}
+
+static void quit_watchdog_beat(void)
+{
+	__atomic_add_fetch(&quit_heartbeat, 1, __ATOMIC_RELAXED);
+}
+
+static void quit_signal_handler(int signal_number, siginfo_t *information, void *context)
+{
+	struct sigaction const *previous = &quit_previous_actions[signal_number == SIGINT];
+	int saved_errno = errno;
+
+	if (quit_pipe[1] >= 0)
+	{
+		unsigned char byte = (unsigned char)signal_number;
+
+		if (write(quit_pipe[1], &byte, 1) < 0)
+			byte = 0;
+	}
+	if (previous->sa_flags & SA_SIGINFO)
+	{
+		if (previous->sa_sigaction)
+			previous->sa_sigaction(signal_number, information, context);
+	}
+	else if (previous->sa_handler == SIG_DFL)
+	{
+		/* (nothing else would have ended it: as without this handler) */
+		signal(signal_number, SIG_DFL);
+		raise(signal_number);
+	}
+	else if (previous->sa_handler != SIG_IGN)
+	{
+		previous->sa_handler(signal_number);
+	}
+	errno = saved_errno;
+}
+
+static void *quit_watchdog(void *unused)
+{
+	unsigned char byte = 0;
+	char message[128];
+	struct timespec wait;
+	int length;
+
+	(void)unused;
+	while (read(quit_pipe[0], &byte, 1) != 1)
+	{
+		if (errno != EINTR)
+			return NULL;
+	}
+	/* (stuck: no read of the events for the whole time, and no quit under
+	way; a game that goes on reading them quits by itself) */
+	{
+		unsigned long last = __atomic_load_n(&quit_heartbeat, __ATOMIC_RELAXED);
+		int still = 0;
+
+		while (still < QUIT_WATCHDOG_SECONDS)
+		{
+			unsigned long now;
+
+			wait.tv_sec = 1;
+			wait.tv_nsec = 0;
+			while (nanosleep(&wait, &wait) != 0 && errno == EINTR)
+				;
+			if (__atomic_load_n(&quit_under_way, __ATOMIC_SEQ_CST))
+				return NULL;
+			now = __atomic_load_n(&quit_heartbeat, __ATOMIC_RELAXED);
+			still = now == last ? still + 1 : 0;
+			last = now;
+		}
+		if (__atomic_load_n(&quit_under_way, __ATOMIC_SEQ_CST))
+			return NULL;
+	}
+	length = snprintf(message, sizeof(message),
+		"chupathingyce: quit: signal %d, and the game has been stuck for %d seconds; stopping now\n",
+		(int)byte, QUIT_WATCHDOG_SECONDS);
+	if (length > 0 && write(STDERR_FILENO, message, (size_t)length) < 0)
+		length = 0;
+	_exit(128 + (int)byte);
+	return NULL;
+}
+
+static void quit_watchdog_start(void)
+{
+	struct sigaction action;
+	pthread_t thread;
+	pthread_attr_t attributes;
+
+	if (quit_pipe[0] >= 0 || pipe(quit_pipe) != 0)
+		return;
+	fcntl(quit_pipe[1], F_SETFL, fcntl(quit_pipe[1], F_GETFL) | O_NONBLOCK);
+	fcntl(quit_pipe[0], F_SETFD, FD_CLOEXEC);
+	fcntl(quit_pipe[1], F_SETFD, FD_CLOEXEC);
+	pthread_attr_init(&attributes);
+	pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
+	if (pthread_create(&thread, &attributes, quit_watchdog, NULL) != 0)
+	{
+		pthread_attr_destroy(&attributes);
+		return;
+	}
+	pthread_attr_destroy(&attributes);
+	/* (the last registered runs first: before every save exit makes) */
+	atexit(quit_watchdog_stand_down);
+	memset(&action, 0, sizeof(action));
+	action.sa_sigaction = quit_signal_handler;
+	action.sa_flags = SA_SIGINFO | SA_RESTART;
+	sigemptyset(&action.sa_mask);
+	sigaction(SIGTERM, &action, &quit_previous_actions[0]);
+	sigaction(SIGINT, &action, &quit_previous_actions[1]);
+}
+#endif
+
+/* SDL's own messages in debug.txt: what its video driver did (a Wayland
+connection the compositor closed, which ends the game as "window closed";
+the driver it chose and why), and anything it warns about. Its video
+category at info, where those are; the others at their defaults */
+static void SDLCALL platform_sdl_log(void *userdata, int category, SDL_LogPriority priority, const char *message)
+{
+	static const char *const priorities[] = { "", "trace", "verbose", "debug", "info", "warning", "error", "critical" };
+
+	(void)userdata;
+	(void)category;
+	platform_log("SDL %s: %s", priority > 0 && priority < (int)(sizeof(priorities) / sizeof(priorities[0])) ?
+		priorities[priority] : "message", message);
+}
+
 BOOL platform_sdl_initialize(void)
 {
 	if (platform_sdl_started)
 		return TRUE;
+	SDL_SetLogOutputFunction(platform_sdl_log, NULL);
+	SDL_SetLogPriority(SDL_LOG_CATEGORY_VIDEO, SDL_LOG_PRIORITY_INFO);
 #if !defined(_WIN32) && !defined(HALO_ANDROID)
 	/* a write to a connection the other end closed fails instead of ending
 	the game (the game's sockets and Discord's pass MSG_NOSIGNAL, but UPnP's
@@ -446,6 +607,10 @@ BOOL platform_sdl_initialize(void)
 #endif
 	}
 	platform_sdl_started = TRUE;
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* (after SDL_Init, whose handlers it passes the signals on to) */
+	quit_watchdog_start();
+#endif
 #ifdef HALO_CONSOLE_SETUP_SCREENS
 	/* (the port's: halo_console_features.h) */
 	console_setup_start();
@@ -1109,6 +1274,63 @@ static float platform_refresh_rate_setting(void)
 	return rate > 0.0 && rate < 1000.0 && platform_refresh_rates_settable() ? (float)rate : 0.0f;
 }
 
+#if defined(__APPLE__) && !defined(HALO_IOS)
+/* port/macos/src/macos_video.c */
+int macos_window_in_full_screen_space(void *window);
+void macos_window_toggle_full_screen_space(void *window);
+#endif
+
+/* macOS: the window back out of a full-screen Space that macOS put it in
+while SDL had it in exclusive fullscreen (display.mode = "fullscreen"),
+before SDL changes its fullscreen. macOS's own full screen (the window's
+toggleFullScreen:, which its full-screen shortcut and menu item call) moves
+even the exclusive window to a Space, and SDL still takes it for exclusive:
+its next change of kind or of fullscreen restyled the window as if it were
+not in a Space, and AppKit threw ("NSWindowStyleMaskFullScreen cleared on a
+window outside of a full screen transition"), which ended the game
+(#1110). Taken out of the Space first, and the move waited for, the window
+is an ordinary one again to SDL. Whether the window left a Space (the
+change then has to make it fullscreen again, platform_display_apply), and
+FALSE when it is still in one after 3 s: SDL's change is left for the next
+apply rather than made into a throw. */
+static BOOL platform_window_left_space;
+
+static BOOL platform_window_space_settle(void)
+{
+#if defined(__APPLE__) && !defined(HALO_IOS)
+	static BOOL logged_stuck;
+	void *window;
+	Uint64 deadline;
+
+	if (!platform_window)
+		return TRUE;
+	window = SDL_GetPointerProperty(SDL_GetWindowProperties(platform_window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER,
+		NULL);
+	if (!macos_window_in_full_screen_space(window) || !SDL_GetWindowFullscreenMode(platform_window))
+		return TRUE;
+	platform_log("display: the window is in a full-screen Space while exclusive fullscreen; leaving the Space first");
+	macos_window_toggle_full_screen_space(window);
+	/* (SDL hears of the move when it ends, and only then takes the window for
+	windowed) */
+	deadline = SDL_GetTicks() + 3000;
+	while ((macos_window_in_full_screen_space(window) || (SDL_GetWindowFlags(platform_window) & SDL_WINDOW_FULLSCREEN)) &&
+		SDL_GetTicks() < deadline)
+	{
+		SDL_PumpEvents();
+		SDL_Delay(10);
+	}
+	if (macos_window_in_full_screen_space(window) || (SDL_GetWindowFlags(platform_window) & SDL_WINDOW_FULLSCREEN))
+	{
+		if (!logged_stuck)
+			platform_log("display: the window did not leave its full-screen Space; the change waits for the next apply");
+		logged_stuck = TRUE;
+		return FALSE;
+	}
+	platform_window_left_space = TRUE;
+#endif
+	return TRUE;
+}
+
 /* the window's fullscreen kind (display.mode): borderless, a window over
 the whole desktop (SDL's fullscreen without a mode), or fullscreen, the
 display taken at display.resolution's mode (the one nearest it), else at its
@@ -1157,6 +1379,12 @@ static void platform_fullscreen_kind_apply(void)
 				(double)mode->refresh_rate, (double)rate);
 		}
 	}
+	if (!platform_window_space_settle())
+	{
+		/* (tried again at the next apply) */
+		applied = -1;
+		return;
+	}
 	SDL_SetWindowFullscreenMode(platform_window, mode);
 }
 
@@ -1183,10 +1411,15 @@ static void platform_borderless_styles(void)
 }
 #endif
 
-static void platform_window_set_fullscreen(BOOL fullscreen)
+/* (FALSE when macOS kept the window in a full-screen Space: nothing
+changed, platform_window_space_settle) */
+static BOOL platform_window_set_fullscreen(BOOL fullscreen)
 {
 	platform_fullscreen_requested = fullscreen;
+	if (!platform_window_space_settle())
+		return FALSE;
 	SDL_SetWindowFullscreen(platform_window, fullscreen ? true : false);
+	return TRUE;
 }
 
 /* whether the window is fullscreen. SDL sets its flag when the window
@@ -1465,6 +1698,85 @@ static void platform_gl_missing(const char *reason)
 #ifdef HALO_BGFX
 /* bgfx could not start (d3d8_bgfx.inl): the game draws with OpenGL */
 static BOOL platform_bgfx_refused;
+#endif
+#ifdef HALO_VULKAN
+/* the Vulkan backend could not start (d3d8_vk.inl): the game draws with OpenGL ES */
+static BOOL platform_vulkan_refused;
+/* the backend's own flag (port/android/host/host_vk_api.h) */
+extern int host_renderer_vulkan;
+
+/* A Vulkan start that did not get going draws with OpenGL ES for that start,
+and once the window is up the player is asked whether to stay on OpenGL ES
+for good (as the desktop's bgfx fallback asks): display.renderer changes only
+on a yes; a no leaves it, so the next start tries Vulkan again and asks again
+if it fails. The same for a driver archive (display.vk_driver) whose last
+start never got as far as drawing (d3d8_vk.inl's start note): that start runs
+on the phone's own driver and asks whether to keep it. A run nobody can
+answer (platform_run_is_quiet) logs it only. */
+static BOOL platform_vulkan_offer_pending, platform_vulkan_driver_offer_pending;
+static char platform_vulkan_driver_skipped[160];
+
+void platform_offer_opengl_es(void)
+{
+	platform_vulkan_offer_pending = TRUE;
+}
+
+void platform_offer_system_driver(const char *driver)
+{
+	snprintf(platform_vulkan_driver_skipped, sizeof(platform_vulkan_driver_skipped), "%s", driver);
+	platform_vulkan_driver_offer_pending = TRUE;
+}
+
+static void platform_vulkan_offer(void)
+{
+	static const SDL_MessageBoxButtonData renderer_buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Switch to OpenGL" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Not now" },
+	};
+	static const SDL_MessageBoxButtonData driver_buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Use the phone's driver" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Not now" },
+	};
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy: renderer",
+		"Vulkan didn't get going, so the game is using OpenGL ES for now.\n\n"
+		"Switch to OpenGL ES for good? You can change it later in config.toml (display.renderer).",
+		2, renderer_buttons, NULL };
+	char driver_text[400];
+	BOOL renderer = platform_vulkan_offer_pending, driver = platform_vulkan_driver_offer_pending;
+	int answer = 0;
+
+	platform_vulkan_offer_pending = platform_vulkan_driver_offer_pending = FALSE;
+	if (!renderer && !driver)
+		return;
+	if (driver)
+	{
+		snprintf(driver_text, sizeof(driver_text),
+			"The Vulkan driver %s didn't get as far as drawing the last time, so the game is using the phone's own "
+			"driver for now.\n\nUse the phone's driver for good? You can change it later in config.toml (display.vk_driver).",
+			platform_vulkan_driver_skipped);
+		question.message = driver_text;
+		question.buttons = driver_buttons;
+	}
+	if (platform_run_is_quiet())
+	{
+		platform_log("vulkan: %s for this start only; the setting stays as it is (no one to ask)",
+			driver ? "the phone's driver" : "OpenGL ES");
+		return;
+	}
+	if (!SDL_ShowMessageBox(&question, &answer))
+		answer = 0;
+	if (answer == 1)
+	{
+		config_write(driver ? "display.vk_driver" : "display.renderer", driver ? "" : "gl");
+		platform_log("vulkan: the player switched to %s for good", driver ? "the phone's driver (display.vk_driver = \"\")" :
+			"OpenGL ES (display.renderer = \"gl\")");
+	}
+	else
+		platform_log("vulkan: the player kept their setting; %s is tried again next start",
+			driver ? "the driver" : "Vulkan");
+}
+#endif
+#ifdef HALO_BGFX
 
 BOOL platform_bgfx_chosen(void)
 {
@@ -1645,6 +1957,13 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	into; unless it could not start before (platform_video_reopen_for_gl) */
 	xgpu_bgfx = !platform_bgfx_refused && platform_bgfx_chosen();
 #endif
+#ifdef HALO_VULKAN
+	/* the Vulkan backend draws instead (d3d8_vk.inl): a window without an
+	OpenGL ES context (Android lets one API own a window), which it makes its
+	surface on; unless it could not start before (platform_video_reopen_for_gl) */
+	xgpu_vulkan = !platform_vulkan_refused && !strcmp(config_string("display.renderer"), "vulkan");
+	host_renderer_vulkan = xgpu_vulkan;
+#endif
 
 #ifdef HALO_ANDROID
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -1706,7 +2025,15 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		if (scale < 1)
 			scale = 1;
 		platform_window = SDL_CreateWindow(title, (int)(width * scale), (int)(height * scale),
-			SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN);
+#ifdef HALO_VULKAN
+			/* (a GL window's surface is stretched over the screen by the system,
+			but a Vulkan swapchain is shown as it is: without high pixel density
+			its images are the size of the window in points) */
+			(xgpu_vulkan ? SDL_WINDOW_HIGH_PIXEL_DENSITY : SDL_WINDOW_OPENGL) |
+#else
+			SDL_WINDOW_OPENGL |
+#endif
+			SDL_WINDOW_FULLSCREEN);
 	}
 #else
 	/* fullscreen (either kind) unless display.mode is the window, which F11
@@ -1735,6 +2062,14 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		platform_log("SDL_CreateWindow failed: %s", SDL_GetError());
 		return FALSE;
 	}
+	/* (the window's driver, for the renderer lines that follow: a Vulkan
+	swap chain on Wayland is not one on X11) */
+	platform_log("video: SDL %d.%d.%d, %s driver, %s window", SDL_VERSIONNUM_MAJOR(SDL_GetVersion()),
+		SDL_VERSIONNUM_MINOR(SDL_GetVersion()), SDL_VERSIONNUM_MICRO(SDL_GetVersion()), SDL_GetCurrentVideoDriver(),
+#ifdef HALO_BGFX
+		xgpu_bgfx ? "a bgfx" :
+#endif
+		"an OpenGL");
 #ifndef HALO_ANDROID
 	platform_fullscreen_requested = platform_fullscreen_setting();
 	platform_window_mode = platform_display_mode();
@@ -1746,6 +2081,14 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	before its event loop runs (rasterizer_preinitialize), so wait for the
 	window here */
 	SDL_SyncWindow(platform_window);
+#endif
+#ifdef HALO_VULKAN
+	if (xgpu_vulkan)
+	{
+		platform_event_thread = SDL_GetCurrentThreadID();
+		platform_log("renderer: vulkan (the window is made; the backend starts with the device)");
+		return TRUE;
+	}
 #endif
 #ifdef HALO_BGFX
 	if (xgpu_bgfx)
@@ -1871,6 +2214,24 @@ BOOL platform_video_reopen_for_gl(void)
 	return platform_video_initialize(0, 0);
 }
 #endif
+#ifdef HALO_VULKAN
+/* the Vulkan backend did not start (d3d8_vk.inl, vk_initialize): the window
+again, with an OpenGL ES context, for the OpenGL renderer */
+BOOL platform_video_reopen_for_gl(void)
+{
+	platform_log("renderer: Vulkan did not start, so OpenGL ES");
+	platform_vulkan_refused = TRUE;
+	xgpu_vulkan = FALSE;
+	host_renderer_vulkan = 0;
+	platform_offer_opengl_es();
+	if (platform_window)
+	{
+		SDL_DestroyWindow(platform_window);
+		platform_window = NULL;
+	}
+	return platform_video_initialize(0, 0);
+}
+#endif
 
 /* display.mode, display.resolution (fullscreen's display mode),
 display.window_size (when it changes: the window can be resized) and
@@ -1885,12 +2246,19 @@ void platform_display_apply(void)
 
 	if (!platform_window)
 		return;
+	platform_window_left_space = FALSE;
 	platform_fullscreen_kind_apply();
 	/* Saving unrelated settings must preserve the window mode chosen by F11. */
 	if (mode != platform_window_mode)
 	{
-		platform_window_mode = mode;
-		platform_window_set_fullscreen(platform_fullscreen_setting());
+		/* (tried again at the next apply when it could not be made) */
+		platform_window_mode = platform_window_set_fullscreen(platform_fullscreen_setting()) ? mode : -1;
+	}
+	else if (platform_window_left_space && platform_fullscreen_requested)
+	{
+		/* (macOS: a change of resolution only took the window out of its
+		full-screen Space, platform_window_space_settle; fullscreen again) */
+		platform_window_set_fullscreen(TRUE);
 	}
 	platform_window_size_setting(&width, &height);
 	if (width != platform_window_width || height != platform_window_height)
@@ -2032,12 +2400,20 @@ void platform_video_swap(void)
 	Uint64 interval, now;
 	Uint64 swap_start = SDL_GetTicks(), swap_time;
 
+#ifdef HALO_VULKAN
+	/* (the question after a fallback, once the window is up) */
+	platform_vulkan_offer();
+#endif
 #ifdef _WIN32
 	platform_borderless_styles();
 #endif
 #ifdef HALO_BGFX
 	/* (the device presents: d3d8_bgfx.inl; this paces the frames) */
 	if (!xgpu_bgfx)
+#endif
+#ifdef HALO_VULKAN
+	/* (the Vulkan backend presents, and its swapchain paces the frames) */
+	if (!xgpu_vulkan)
 #endif
 	{
 		/* the window's framebuffer bound for reading too, as the frame is
@@ -2081,6 +2457,10 @@ deleted and the window destroyed before the exit. bgfx's window is left to
 the process's end, as its device still draws into it. */
 void platform_exit_window_closed(void)
 {
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* (a quit under way: the watchdog leaves it to finish) */
+	quit_watchdog_stand_down();
+#endif
 	platform_log("window closed");
 	if (platform_gl_context)
 	{
@@ -2090,6 +2470,9 @@ void platform_exit_window_closed(void)
 	}
 #ifdef HALO_BGFX
 	if (!xgpu_bgfx)
+#endif
+#ifdef HALO_VULKAN
+	if (!xgpu_vulkan)
 #endif
 	if (platform_window)
 	{
@@ -2583,6 +2966,69 @@ static void platform_show_pending_message(void)
 #endif
 }
 
+/* a Vulkan start that did not get going (d3d8_bgfx.inl's bg_start): that
+start draws with OpenGL, and once the game's window is up the player is
+asked whether to stay on OpenGL for good. display.renderer changes only on a
+yes; a no leaves it, so the next start tries Vulkan again and asks again if
+it fails. A run nobody can answer (platform_run_is_quiet) logs it only */
+static BOOL platform_opengl_offer_pending;
+
+void platform_offer_opengl(void)
+{
+	pthread_mutex_lock(&platform_message_lock);
+	platform_opengl_offer_pending = TRUE;
+	pthread_mutex_unlock(&platform_message_lock);
+}
+
+static void platform_opengl_offer(void)
+{
+	static const SDL_MessageBoxButtonData buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Switch to OpenGL" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Not now" },
+	};
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy: renderer",
+		"Vulkan didn't get going last time, so the game is using OpenGL for now.\n\n"
+		"Switch to OpenGL for good? You can change it later on the RENDERER row of the display settings.",
+		2, buttons, NULL };
+	BOOL pending;
+	int answer = 0;
+	pthread_mutex_lock(&platform_message_lock);
+	pending = platform_opengl_offer_pending;
+	platform_opengl_offer_pending = FALSE;
+	pthread_mutex_unlock(&platform_message_lock);
+	if (!pending)
+		return;
+	if (platform_run_is_quiet())
+	{
+		platform_log("bgfx: OpenGL for this start only; display.renderer stays as it is (no one to ask)");
+		return;
+	}
+#ifdef HALO_ANDROID
+	if (!SDL_ShowMessageBox(&question, &answer))
+		answer = 0;
+#else
+	{
+		/* (a box cannot show above a fullscreen game) */
+		BOOL fullscreen = platform_window_fullscreen();
+
+		question.window = platform_window;
+		if (fullscreen)
+			platform_window_set_fullscreen(FALSE);
+		if (!SDL_ShowMessageBox(&question, &answer))
+			answer = 0;
+		if (fullscreen)
+			platform_window_set_fullscreen(TRUE);
+	}
+#endif
+	if (answer == 1)
+	{
+		config_write("display.renderer", "gl");
+		platform_log("bgfx: the player switched to OpenGL for good (display.renderer = \"gl\")");
+	}
+	else
+		platform_log("bgfx: the player kept their renderer setting; Vulkan is tried again next start");
+}
+
 /* ---------- events */
 
 /* quits as closing the window does, when the events are next read (the
@@ -2683,6 +3129,10 @@ void platform_pump_events(void)
 #endif
 	if (!platform_window || SDL_GetCurrentThreadID() != platform_event_thread)
 		return;
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* (the game isn't stuck: quit_watchdog) */
+	quit_watchdog_beat();
+#endif
 	if (exit_ticks == (Uint64)-1)
 	{
 		double seconds = config_real("debug.exit_after");
@@ -2702,6 +3152,7 @@ void platform_pump_events(void)
 	}
 #endif
 	platform_show_pending_message();
+	platform_opengl_offer();
 #ifdef HALO_GAME_BROWSER
 	platform_game_list_requests();
 #endif
@@ -2805,9 +3256,15 @@ void platform_pump_events(void)
 			/* in the menus the mouse moves the pointer, not the view */
 			if (input_state.ui_pointer)
 			{
+				BOOL warp = ui_pointer_warp_pending && event.motion.x > ui_pointer_warp_x - 1.0f &&
+					event.motion.x < ui_pointer_warp_x + 1.0f && event.motion.y > ui_pointer_warp_y - 1.0f &&
+					event.motion.y < ui_pointer_warp_y + 1.0f;
+
+				ui_pointer_warp_pending = FALSE;
 				ui_pointer.x = event.motion.x;
 				ui_pointer.y = event.motion.y;
-				ui_pointer.moved = TRUE;
+				if (!warp)
+					ui_pointer.moved = TRUE;
 				break;
 			}
 #endif
@@ -3086,6 +3543,11 @@ void platform_ui_pointer_set_active(BOOL active)
 		int width, height;
 
 		SDL_GetWindowSize(platform_window, &width, &height);
+		pthread_mutex_lock(&input_lock);
+		ui_pointer_warp_pending = TRUE;
+		ui_pointer_warp_x = width * 0.5f;
+		ui_pointer_warp_y = height * 0.5f;
+		pthread_mutex_unlock(&input_lock);
 		SDL_WarpMouseInWindow(platform_window, width * 0.5f, height * 0.5f);
 		show_pointer(TRUE);
 		pthread_mutex_lock(&input_lock);

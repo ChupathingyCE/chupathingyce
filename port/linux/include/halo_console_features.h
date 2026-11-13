@@ -30,11 +30,25 @@ HALO_CONSOLE_LIGHT_LIMITS
 	specular highlights (display.dynamic_light_limit and
 	display.specular_light_limit, source/objects/object_lights.c). The
 	desktop builds default both to 0, every light lit as before, and opt in
+HALO_CONSOLE_MATCH_LIGHT_LIMITS
+	the Xbox's rule for what a multiplayer match draws, as retail: no
+	dynamic lights with 13 or more players (or 9 or more with two or more
+	vehicles), no flashlight beams with 5 or more players or 4 or more
+	vehicles, decided at the match's start (port/linux/game/
+	match_light_limits.h, game_engine_build_lighting). Drawing only: the
+	flashlight's toggle, battery and effect run as on every other machine
+	in the game. For a GPU of the original Xbox's size: the desktop builds
+	draw every light
 HALO_CONSOLE_WIDGET_POOL_SIZE
 	the menus' widget memory, in bytes, for a console that shows only the
 	Xbox's menus: the desktop's 256 KB is for the PC menus' screens
 	(port/assets/menus), which have many more widgets (source/interface/
 	ui_widget.c; console.widget_pool_log logs what the menus use)
+HALO_CONSOLE_MAP_LIST_ROWS
+	the rows of the menus' map list (port/linux/game/ui_map_list.c): the
+	original Xbox's 40, every other console's 256; the desktop builds and
+	Android leave it undefined and hold 2560, room for a large Custom
+	Edition folder beside the whole MCC catalog
 HALO_CONSOLE_NO_GUIDE
 	no Guide (port/linux/game/guide.c, over any screen) and no presence
 	sent to the site (browser.c, network.share_presence), their settings
@@ -61,6 +75,10 @@ HALO_CONSOLE_NO_HOST_MAP_DOWNLOADS
 	the host"): every console, which has no game list (HALO_GAME_BROWSER)
 	anyway; the desktops and Android have it, off until the player turns
 	it on
+HALO_CONSOLE_NO_STUBBS
+	no Stubbs mode (port/linux/game/stubbs_mode.c: game.pack_menus =
+	"stubbs" with a maps_stubbs folder): every console, until the mode is
+	finished on the desktop and sized to each one's memory
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads
@@ -82,6 +100,11 @@ HALO_CONSOLE_LOG_THROTTLE
 	a console whose log writes are slow (debug.txt on a card): the host's
 	notices are logged without their blank lines, at most three a second
 	(port/linux/game/network_distributed.c)
+HALO_CONSOLE_IO_RETRY_FOREVER
+	the original Xbox, whose XAPI keeps a cache read or write the system is
+	short of resources for (a stalled DVD read) being tried until it goes, as
+	the retail game did; elsewhere it gives up after 5 seconds and fails
+	(cached_map_issue_async_request, cache_files_decompress_windows.c: #1149)
 HALO_CONSOLE_LOG_BUFFER
 	debug.txt's lines kept in memory and written together, a second after
 	the first waits, and at once for an exception, an exit or a crash
@@ -287,6 +310,13 @@ HALO_CONSOLE_NO_LOADING_PICTURE
 	instead of Chupathingy's picture (port/linux/game/loading_picture.c,
 	display.xbox_loading_picture): every console, whose packaging has no
 	step for the picture
+HALO_CONSOLE_NO_TITLE_CHOICE
+	only the classic titles (port/assets/titles, Chupathingy Titles), not
+	the second set display.title_font = "cyborg" draws (port/assets/
+	titles_cyborg and the menus' ce/port_cyborg, about 2.5 MB of pictures):
+	every console, for its memory; the desktop builds and the phones have
+	both (HALO_TITLE_CHOICE), and display.title_font = "halo", the titles
+	made from the player's own ui.map (port/linux/src/title_tool.c)
 HALO_CONSOLE_ANAMORPHIC_SCREEN
 	a console that draws 640x480 and can show it on a 16:9 television,
 	which stretches the picture to fit (display.widescreen). The port says
@@ -304,6 +334,12 @@ HALO_PORT_WIDE_INTERFACE
 	columns: every native build, and a console with
 	HALO_CONSOLE_ANAMORPHIC_SCREEN. The HUD's zoomed view and the menus'
 	full-screen fades have code for it (hud_draw.c, ui_widget.c)
+HALO_CONSOLE_HOST_PLAYERS
+	the most players a game this console hosts takes, whatever its network
+	tables hold (HALO_CONSOLE_PLAYERS) and whatever Delta says: the original
+	Xbox hosts 16, on LAN or online, and joins games of up to 32 in its
+	builds of 32 (network_server_manager.c's hosted maximum; docs/delta.md,
+	"Platform policy"). Without it a host takes as many as its tables hold
 HALO_CONSOLE_SERVER_CLOSE_GRACE
 	the original game's one-second wait when a hosted game ends, before the
 	host's transport closes (network_game_server_dispose, source/
@@ -388,6 +424,7 @@ compile lines: source/cseries/xbox_address.h).
 
 #ifdef HALO_XBOX_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_IO_RETRY_FOREVER 1
 #define HALO_CONSOLE_LOG_BUFFER 1
 /* (the H1 Performance Build's 64 KB; the retail game had 16 KB) */
 #define HALO_CONSOLE_WIDGET_POOL_SIZE 0x10000
@@ -395,8 +432,10 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_XBOX_MAP_SIZES 1
+#define HALO_CONSOLE_MATCH_LIGHT_LIMITS 1
 #define HALO_CONSOLE_NO_HALOMD_MAPS "the Xbox"
 #define HALO_CONSOLE_SERVER_CLOSE_GRACE 1
+#define HALO_CONSOLE_HOST_PLAYERS 16
 #define HALO_CONSOLE_ANAMORPHIC_SCREEN 1
 #define HALO_CONSOLE_FRAME_RATE 1
 #define HALO_CONSOLE_VIEW_INTERPOLATION 1
@@ -476,6 +515,22 @@ consoles nor the dedicated server, which downloads nothing */
 #define HALO_HOST_MAP_DOWNLOADS 1
 #endif
 
+/* the menus' map list's rows (ui_map_list.c): a console's own size */
+#if defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_MAP_LIST_ROWS)
+#define HALO_CONSOLE_MAP_LIST_ROWS 40
+#endif
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_MAP_LIST_ROWS)
+#define HALO_CONSOLE_MAP_LIST_ROWS 256
+#endif
+
+/* Stubbs mode (port/linux/game/stubbs_mode.c), an early look: the desktop
+builds alone for now, not the consoles */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_STUBBS)
+#define HALO_CONSOLE_NO_STUBBS 1
+#endif
+
 /* the medals' icons (port/assets/medals, tools/medal_assets.py: the site's
 medals), in the kill feed (display.medals) and DELTA's SERVICE RECORD: the
 game list's builds with a player (HALO_GAME_BROWSER: the desktops and the
@@ -522,6 +577,17 @@ leave it out with the rest of HALO_CONSOLE_NO_DELTA_IDENTITY */
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
 #define HALO_CONSOLE_NO_LOADING_PICTURE 1
+#endif
+
+/* the titles' second set, display.title_font = "cyborg" (the generated
+hud_hires_assets.c's titles and menus' files, hud_hires.c, menu_files.c):
+not on the consoles, HALO_CONSOLE_NO_TITLE_CHOICE */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_TITLE_CHOICE)
+#define HALO_CONSOLE_NO_TITLE_CHOICE 1
+#endif
+#if !defined(HALO_CONSOLE_NO_TITLE_CHOICE) && !defined(HALO_SERVER)
+#define HALO_TITLE_CHOICE 1
 #endif
 
 /* a map's shaders made while its loading screen is up, from its shader key

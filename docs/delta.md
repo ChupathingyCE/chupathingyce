@@ -154,6 +154,7 @@ shares.
 | 21 | `party_teams` | a party's members tell their host their party's tag (PARTY_TAG), and a host that keeps parties together puts them on one team where the teams stay even. See "Party teams" |
 | 22 | `voice` | voice chat (VOICE_UP, VOICE_DOWN, VOICE_CONFIG): a player talks on a channel, the host relays each frame by its rules without decoding it. Agreed per pair, so OpenCE machines and builds without voice are never sent any. See "Voice" |
 | 23 | `reports` | a dedicated server takes its players' reports of other players (REPORT, REPORT_RESULT); see "Reports" |
+| 24 | `mcc_maps` | MCC maps (maps_mcc and Steam Workshop items) and their game messages (OpenCE 43's numbers 97 to 100) in a 43-layout session. Room-wide for an MCC map: a host playing one drops every Delta machine without it (an older build, a console); a machine without Delta (OpenCE 43) plays by its own MCC support |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
@@ -243,7 +244,7 @@ defaults every machine's key starts from:
 | Steam Deck | 128 | 128 | 128 | 14 (16 GB) | yes |
 | Android | 128 | 128 | 128 | 11 (2 GB) | yes |
 | unknown | 128 | 128 | 128 | 0 | yes |
-| Xbox | 16 | 16 | 128 | 6 (64 MB) | no |
+| Xbox | 16 | 32 (16 on a stock build) | 128 | 6 (64 MB) | no |
 | Xbox 360, Wii U | 32 | 32 | 128 | 9, 10 (placeholders) | yes |
 | Switch | 16 | 16 | 128 | 12 (placeholder until its port plays) | yes |
 | PSP, Vita | 16 | 16 | 128 | 6, 9 (placeholders) | no |
@@ -259,6 +260,10 @@ Co-op: a host offers no network co-op (the Map screen's campaign levels
 refuse, and say why in the log) while a machine of a platform without it is
 in its game, nor on such a platform itself (`delta_peer_room_coop`). Of the
 platforms that play today, only the original Xbox is kept out.
+
+The original Xbox hosts 16 players at most, on LAN or online, and joins
+games of up to 32. A console build joins no more than its own tables hold
+(`HALO_CONSOLE_PLAYERS`), so a stock Xbox build of 16 claims 16 in its key.
 
 A host protects the weakest machine of its game: it takes no more players
 than the smallest of its own hosting limit and every Delta machine's join
@@ -417,6 +422,7 @@ a later version may append):
 | 36 | VOICE_CONFIG | host to client | version (1; 1 now, 0 refused), channels (1: 0x01 team, 0x02 proximity, 0x04 everyone, 0x08 party, the channels the host relays; 0x10 lobby, everyone hears everyone outside a game), flags (1: 0x01 this machine is muted), quality (1, 8 to 64 kbps), proximity (2, tenths of a world unit, 50 to 1000), reserved (2), a timed mute's seconds left (4; 0 none, or until the game ends); values past their ranges refused |
 | 37 | REPORT | client to host | sequence (4, above the session's last), target's machine (1), target's player (1, the absolute index of the player's datum in the host's player data, as the game's player datum index has it), reason (1: 1 cheating, 2 abuse in chat or voice, 3 griefing or betraying, 4 an offensive name, 5 something else), flags (1: 0x01 the reporter would attach a clip), reserved (16: zeros; a host ignores them) |
 | 38 | REPORT_RESULT | host to client | sequence (4, the REPORT's), result (1: 0 taken, 1 too soon, 2 no such player, 3 not taken here, 4 already reported), flags (1: 0x01 send the clip: the server is linked to the site), reserved (2), clip token (16, the host's: zeros without 0x01). A host before the token sent the first 8 bytes alone, and its 0x01 is read as no clip |
+| 39 | HOST_NUMBER | host to client, if both agreed to `mcc_maps` | version (1; 1 now, 0 refused, a later one read as far as this build knows it), reserved (1), the OpenCE network version the host's game is played at (2, little-endian; 0 refused), reserved (4). Sent at once when it changes, every second for the 20 seconds after, then every 5 seconds. When a host's lobby moves to an MCC map (its game at the MCC number, 44 from `chupa-44a`) or back, a client with `mcc_maps` plays the host's next settings record and messages at the new number without leaving (a record of another size from such a host is passed over, not fatal); the host sends its record again every 2 seconds for 20 seconds. A client that still has the map before never starts the game: the pregame load timeout drops it. Any other machine that joined at the old number is dropped with a notice |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -830,7 +836,7 @@ device token):
   refuses a body that isn't an MP4 (its top-level boxes, `ftyp` first and
   a `moov`), and drops an upload that sends nothing for a minute.
 
-The game's side is `port/linux/game/report_player.c` (the Guide's PLAYERS
+The game's side is `port/linux/game/report_player.c` (the Delta Guide's PLAYERS
 HERE and the scoreboard's REPORT), the dedicated server's
 `server/src/server_reports.c` (`sv_reports`, the control panel's Reports).
 
@@ -920,7 +926,7 @@ the site.
   MOD_ACTION 6, `sv_mute`, `/mute`) is muted in voice too: the host relays
   none of their frames and tells them in VOICE_CONFIG (flag 0x01, and the
   seconds left), so their game stops sending. A player's own mutes (the
-  chat log's, the Guide's PLAYERS HERE) are their game's alone and never sent.
+  chat log's, the Delta Guide's PLAYERS HERE) are their game's alone and never sent.
 - **The codec** is Opus (our own copy of Xiph's release), set up as
   OpenCE's voice is, so that a frame could pass between the two unchanged:
   48 kHz mono, 20 ms frames, one a datagram, VOIP with the voice signal,
@@ -1027,7 +1033,7 @@ hosting ours), each side logging the other's test tone as heard.
 
 ### Party teams
 
-A party (the Guide's PARTY: up to 8 players who follow their leader into
+A party (the Delta Guide's PARTY: up to 8 players who follow their leader into
 games, kept by the site in memory) wants to play on one
 team. Halo's teams are the host's to place, so the party asks and the host
 decides, over `party_teams` (bit 21). It is additive and host-side: nothing
@@ -1333,7 +1339,7 @@ dedicated server, fetches `GET /v1/identity/revoked` every ten minutes.
 **One name.** A Delta profile has one name, its **Delta Tag**: the handle,
 3 to 20 of `a-z 0-9 _ -`, unique on the site however it's capitalized, and
 the key of every lookup and URL. The account shows it in the capitals its
-owner picked ("Milenko" for `milenko`), on the site, in the Guide, in ID_CARD
+owner picked ("Milenko" for `milenko`), on the site, in the Delta Guide, in ID_CARD
 and on the scoreboard. The capitals are ASCII, can change on the site at
 any time, and the letters can't. There's no other display name. Profiles
 from before keep their old free-form names on the site (`old_display`),
@@ -1366,7 +1372,7 @@ and show their handle until their owner picks its capitals.
   all show as "Milenko" (and as "Player N" next to a verified Milenko). A player who isn't connected to Delta (no
   linked profile, or a guest) never has the mark.
 - **The same name everywhere.** The scoreboard, the postgame report, the
-  lobby, the Guide, chat, the kill feed and the other HUD lines (a player
+  lobby, the Delta Guide, chat, the kill feed and the other HUD lines (a player
   quitting, the name under the crosshair) all show a player the same way:
   a verified player by their Delta name, an impersonation as "Player N".
 - **On Delta you play under your verified name.** A Halo profile linked to
@@ -1658,8 +1664,9 @@ Since 0.8.0a a wire is not an island. `DELTA_WIRE_COMPATIBILITY` in
 `delta.h` gives each wire the oldest wire it plays the game with, without a
 desync and without losing what the older wire has: a feature the older wire
 lacks is dropped or unused with it, and content it can't play ends the join
-cleanly. `chupa-41a` (0.8.1d on: the longer join request to OpenCE hosts
-of 40 and later) and `chupa-39a` (0.8.1b and 0.8.1c: the Delta tag below)
+cleanly. `chupa-43a` (the generic layout facts, "Layouts": OpenCE's 43 as
+a table row; its game with every older number as `chupa-41a`'s), `chupa-41a`
+(0.8.1d on: the longer join request to OpenCE hosts of 40 and later) and `chupa-39a` (0.8.1b and 0.8.1c: the Delta tag below)
 play with `chupa-28a` and newer, and send the game's messages as
 `chupa-38a`'s. `chupa-38a` (the builds with OpenCE's 33 to 38) plays with
 `chupa-28a` and newer, as `chupa-32a` does: a host of 32 is the same game to
@@ -2259,7 +2266,7 @@ drawn by the overlay). The icons come, fade and scroll with that line.
 Medals no kill's line took get a line of their own, the icons alone. Off,
 the kill feed is retail's. The icons need the game list
 (`HALO_GAME_BROWSER`), so every console build and the dedicated server are
-without them and show the medal's name as a line of the HUD's messages. The Guide's SERVICE
+without them and show the medal's name as a line of the HUD's messages. The Delta Guide's SERVICE
 RECORD shows your top medals with their icons, names and counts.
 
 ### Map facts
@@ -2541,8 +2548,8 @@ deletion stay on the site, which OPEN ON THE WEB reaches. Linking is per
 copy: every Halo profile on a copy counts for the same Delta profile.
 
 - **Ways in:** the Chupathingy menus' Profiles have a DELTA row
-  below Create New Profile, with a summary in the panel. Gearbox's Select
-  Profile has a DELTA button. In every menu set, Online Games'
+  below Create New Profile, with a summary in the panel. In both menu
+  sets, Online Games'
   Start opens it (the web page when `display.delta_profile` is false).
   A Halo profile's panel shows one quiet line, "Delta: @handle" or
   "Delta: not linked". With an empty `network.browser_url`, every way in
@@ -2552,9 +2559,9 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   PROFILE or UNLINK THIS DEVICE, and OPEN ON THE WEB. The Chupathingy menus
   draw them with their own widgets
   (`port/assets/menus/chupathingy/delta_profile.xml`), and Privacy is one
-  of their settings pages. The Xbox and Gearbox menus get a
+  of their settings pages. The Xbox menus get a
   screen drawn as Online Games is. The dialogs (Link Profile, unlinking,
-  and the pages of the site with a QR code) are the same in all three.
+  and the pages of the site with a QR code) are the same in both.
 - **Requests:** the game sends this copy's player key, over HTTPS only,
   to the game list: `POST /v1/game/profile` (the profile, its copies, roles
   and privacy), `/v1/game/unlink` (this copy only) and `/v1/game/privacy`
@@ -2587,7 +2594,7 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   reported). An older site sends none of these and the game shows what it
   has. `GET /v1/profiles/ID/record` gives the same record to anyone, except
   for a locked profile or one that hides its service record (404).
-- **The Guide's SERVICE RECORD** (`port/linux/game/guide_record.c`) shows the
+- **The Delta Guide's SERVICE RECORD** (`port/linux/game/guide_record.c`) shows the
   first player's Halo profile's own record beside the site's. The game
   keeps it in the profile's folder (`service_record.txt`,
   `port/linux/src/service_record.c`): every multiplayer game the profile
@@ -2927,7 +2934,7 @@ endpoint below is new, and the player key's endpoints stay.
 **Sign-in by code (Quick Connect).** A copy with a device key and no
 account (or one that signs in to another) asks for a code. Its player
 approves the code where they're already signed in: on the site at
-`/connect`, or from another signed-in device's LINK A DEVICE (in the Guide). The device
+`/connect`, or from another signed-in device's LINK A DEVICE (in the Delta Guide). The device
 asks its own player to confirm, then gets its certificate. The player key is
 never sent or shown.
 
@@ -3059,12 +3066,12 @@ and no key.
   account's confirmed address, and kept in the admin log (by its profile
   name, never an address).
 - **The game** shows the list under Delta Profile's DEVICES, also opened
-  from the Guide's SETTINGS: this device offers SIGN OUT, another device REVOKE
-  (asked first). The Guide's SETTINGS (and X in the list) also have LINK A
+  from the Delta Guide's SETTINGS: this device offers SIGN OUT, another device REVOKE
+  (asked first). The Delta Guide's SETTINGS (and X in the list) also have LINK A
   DEVICE, where the player enters another device's code with the d-pad: 8
   characters, or an older copy's 6-character Link Profile code. A device's
   code shows the device and the warning first, then APPROVE or DENY.
-  The Guide's SIGN IN shows a Quick Connect code right in its row, and A there
+  The Delta Guide's SIGN IN shows a Quick Connect code right in its row, and A there
   answers the question; Link Profile's dialog shows the same code with its
   QR code.
 - **The server panel** shows a player's verified profile name (from proof
@@ -3145,7 +3152,7 @@ signout signature   f579b26e3db2c34573a7a4e9842d85ef6646513dbf73706aeae41c825a44
 
 ### The doorbell
 
-The Guide asks the site for its friends every 20 seconds in the menus and
+The Delta Guide asks the site for its friends every 20 seconds in the menus and
 every minute in a game (`POST /v1/social/state`; the site takes 6 a minute
 from a copy). The doorbell makes invites, friend requests, party changes
 and friends coming online show up within about a second instead: the site
@@ -3212,7 +3219,7 @@ rings, and the game asks at once.
   rings, never what changed or for whom.
 - **The setting:** `network.doorbell` (on by default; it changes nothing in
   a game). Off, or a copy not linked, no user name and no subscription.
-  Consoles keep polling (they have no Guide friends yet).
+  Consoles keep polling (they have no Delta friends yet).
 - **The code:** `p2p_signal.c` (`p2p_signal_doorbell`), `p2p.c`
   (`p2p_doorbell`, `p2p_doorbell_rings`), `browser.c` and `social.c` (the
   ring's poll), and the site's `doorbell.py`. Tests: `tools/test_doorbell.py`
@@ -3226,9 +3233,9 @@ Clans are groups of Delta profiles, kept by the game list (its
 motto, an emblem and ranked members (leader, officers, members). Making a
 clan, ranks, handing the clan to another member and the emblem are on the
 site (`/profile#clan`, `/clans/TAG`). Inviting and kicking are on the site
-and in the Guide.
+and in the Delta Guide.
 
-- **In the Guide:** the CLAN section shows the clan's members by rank, each
+- **In the Delta Guide:** the CLAN section shows the clan's members by rank, each
   with where they are (in a game, online or offline, worked out as a
   friend's: hidden while they appear offline or hide their game). The
   leader and officers also see the invites they have out, and get INVITE
@@ -3255,7 +3262,7 @@ and in the Guide.
   with a handle, or `roster`) answers with the same two, the members'
   handles and presence, and a leader's or officer's `clan_invited`. The
   friends poll (`/v1/social/state` with `"clan": true`) carries the same
-  roster, so the Guide spends no extra requests on it. A site from before
+  roster, so the Delta Guide spends no extra requests on it. A site from before
   these leaves them out, and the game shows what `/v1/game/profile` has.
 - **Tags in games:** a verified player ("Verified names") who shows their
   clan tag is "[TAG] Name" on the scoreboard, the postgame report and the
@@ -3279,7 +3286,8 @@ and in the Guide.
 - **Warthog (the consoles):** speaks the legacy protocol with OpenCE's
   layout (the cross-play work) and joins as a Delta Peer client with its
   platform key (`HALO_CONSOLE_DELTA`), so hosts keep games to its limits
-  (16 players on the original Xbox) unless its player opts in.
+  unless its player opts in. The original Xbox hosts 16 players at most and
+  joins games of up to 32. A stock Xbox build holds 16, so it joins 16.
 - **Halo Custom Edition 1.0.10 players:** outside Delta. A dedicated
   server can list itself on the GameSpy masters (`gamespy_listing`), and
   with `ce_joins` (off by default) it answers a Custom Edition client's
@@ -3342,7 +3350,7 @@ check it too):
 - **`serial`**: 1 to 4294967294 (0xFFFFFFFF says "takes no tables" on the wire); each table published gets a higher one.
   **`issued`**: when it was made (Unix seconds), for people; optional.
 - **Rows by wire, not by build.** Each build has a wire ID (`DELTA_WIRE` in
-  `delta.h`, `chupa-41a` today, from 0.8.1d; `chupa-39a` was 0.8.1b's and 0.8.1c's, `chupa-38a` 0.8.0h's; `chupa-32a` was 0.8.0's to 0.8.0g's and the original Xbox build of 2026-10-21's; `chupa-29a` came before it; `chupa-28a` was 0.7.4e's and 0.7.5's, `chupa-26a` was 0.7.2e's and 0.7.3e's, `chupa-24a` was 0.7.1e's, `chupa-23a` 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
+  `delta.h`, `chupa-44a` today, from the build that follows OpenCE's 44; `chupa-43a` from 0.9.1; `chupa-41a` from 0.8.1d; `chupa-39a` was 0.8.1b's and 0.8.1c's, `chupa-38a` 0.8.0h's; `chupa-32a` was 0.8.0's to 0.8.0g's and the original Xbox build of 2026-10-21's; `chupa-29a` came before it; `chupa-28a` was 0.7.4e's and 0.7.5's, `chupa-26a` was 0.7.2e's and 0.7.3e's, `chupa-24a` was 0.7.1e's, `chupa-23a` 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
   actually speaks. A row says which OpenCE numbers that wire was proven to
   play with: the number a host announces, and the range of hosts' numbers a
   client joins (each 1 to 65535, `minimum <= announce <= maximum`). An old
@@ -3535,6 +3543,11 @@ sends that the build reads by number (`network_rules.h`, "layouts"):
 | `dropped_messages` | distributed message kinds a host of the version sends that a machine that doesn't know them drops (91 from 36 built in; 78, 79, 94 and 95, OpenCE's votes, from 41) | kinds 1 to 255; only kinds the build doesn't know are affected |
 | `join_request_extra` | (`chupa-41a` on) the bytes a client's join request carries after its first 0x70 (the Xbox's 0x50 and the hardware id) to a host of the version: 234 from 40 built in (OpenCE's pass and proof, sent as zeros), none before. A host of 40 or later drops a request of another length without a reply; an older host reads the 0x70 and ignores the rest | 0 to 1,024; it may shrink as well as grow |
 | `join_request_fill` | what fills those bytes: `"zeros"`, the only fill a build writes (and the default). A fact naming another fill is not taken, and the build keeps the length before | `"zeros"` |
+| `join_request_version_at` | (`chupa-43a` on) where in those bytes the client writes the host's network version, 16 bits big-endian (the packet codec's order; 43 is `00 2B`) (OpenCE's 42 on: their host admits only its own number, silently). A host of ours announcing the version drops, without a reply, any request without the word (of another length: an older build's or a console's, which can't play the version) or with another number; a host of a version without the word refuses none | within the request's bytes past 0x70 |
+| `header_extra` | (`chupa-43a` on) the bytes every distributed message's header has after its 8, a batch's and each message in it too (whose size word counts them); zeros, but for an epoch's | 1 to 8 |
+| `epoch_kind` | (`chupa-43a` on) the first 4 of those bytes are the checkpoint epoch, and this is the kind of the host's boundary message (OpenCE's 96): a host counts the epoch up (never 0) at each map and co-op revert, and sends the boundary (the header alone) over its stream to a client at its ready, before its objects, and to every loaded client at a revert; a client takes nothing of another epoch than the last boundary's (none before the first; in a batch, each message by its own epoch), stamps its own messages with it, and at a newer one lets go of what it replicated (projectiles, effects, damage, actors, co-op presentation), sends nothing but its ready until the host's snapshot ends, then says its identity again (never OpenCE's build report, 92); a host takes its clients' messages of its own epoch, and a ready of any | a kind from 93 (past every kind a build knows), with `header_extra` of 4 or more |
+| `unit_state_parts` | (`chupa-43a` on) a unit state's parts a build passes over: `[{"bit": 7, "size": 28, "at": "after_up"}, ...]`; `after_up` (after the up, before the predicted time: alive and placed alone) or `last` (after the camouflage: alive alone); a state with a part where it cannot have one, or a bit neither built in nor said, is unreadable | bits 6 and 7 (0 to 5 are built in), 1 to 64 bytes; a place a build doesn't know is not taken |
+| `rider_ejection_up` | (`chupa-43a` on) riders leave a vehicle on the ground whose up's height is below this, in thousandths (built in: below 0, upside down); only in a network game of the version | 1 to 999 |
 
 So when OpenCE changes the join request's length again, a row like
 `"43": { "join_request_extra": 300, "join_request_fill": "zeros" }` for
@@ -3542,6 +3555,52 @@ So when OpenCE changes the join request's length again, a row like
 --layout chupa-41a=43:join_request_extra=300`). Builds of older wires pass
 over the field; a `chupa-41a` build reading a table without it goes by its
 built-in 234 from 40.
+
+With `chupa-43a`'s fields, OpenCE's 43 is a row too, with no code of its
+own in the build (the facts are generic, so a later change of these is
+another row):
+
+```json
+"43": {
+  "settings_size": 13200, "join_request_extra": 236, "join_request_fill": "zeros",
+  "join_request_version_at": 234, "header_extra": 4, "epoch_kind": 96,
+  "unit_state_parts": [{"bit": 7, "size": 28, "at": "after_up"},
+                       {"bit": 6, "size": 30, "at": "last"}],
+  "rider_ejection_up": 200,
+  "dropped_messages": [97, 98, 99, 100, 103, 104, 105, 106, 107]
+}
+```
+
+From `chupa-43a` on, 42 and 43 are built in (`DELTA_LEGACY_NEWEST` 43): a
+build joins 43's hosts with no table, and these facts in a row are its own
+(a table's layouts go on past them). A host announces the MCC number for a
+game it is asked to, `delta_legacy_host_game_at(delta_legacy_mcc_version())`
+(an MCC map's: the newest MCC-capable number it or the table proves, 43
+built in here, 44 from `chupa-44a`, a later one from a row's layouts and
+`hosting`), and otherwise the usual number: with no row for its wire, a desktop build or a server hosts
+41 (`DELTA_BUILT_IN_HOSTING`, the last release's row), a console's build 32. `tools/legacy_rows/chupa-43a.json` is the row for the wire (clients to
+43's hosts, hosts announcing 41), and `chupa-43a-hosting-43.json` the same
+with 43 in `hosting`, which moves our hosts to 43 and so away from OpenCE's
+41 machines and our older builds and consoles (none of which join 43).
+(`tools/delta_table.py make --layout chupa-43a=43:settings_size=13200,join_request_extra=236,join_request_version_at=234,header_extra=4,epoch_kind=96,unit_part_after_up=7+28,unit_part_last=6+30,rider_ejection_up=200,dropped_messages=97+98+99+100+103+104+105+106+107`.)
+The row's maximum takes clients to 43's hosts; 43 in its `hosting` list takes
+its hosts there too, only after the cross-play gate proves each. Rows of older
+wires never name 43: their builds have none of these fields and would play a
+43 game wrongly.
+
+From `chupa-44a` on, OpenCE's 44 (their build-355) is built in too
+(`DELTA_LEGACY_NEWEST` 44): the number alone changed, so 44 is 43's layout
+and rules, and a build joins 44's hosts, plays them by its own rules, and
+hosts at 44 when a table's `hosting` list proves it (or a game asks for
+it: an MCC map's, `delta_legacy_mcc_version`). `tools/legacy_rows/chupa-44a.json`
+is the wire's row for serial 12 (clients to 45, hosts announcing 44, follows
+build-355) and `chupa-43a-hosting-44.json` the `chupa-43a` row widened the
+same way (a `"44"` fact that is 43's, so `delta_legacy_host_game_at(44)` is
+taken there too, and 44 in `hosting`); `serial-12.json` is the whole
+document made from serial 11 with both
+(`tools/delta_table.py make --serial 12 --from <serial 11> --row chupa-43a=41,11,44@build-355 --row chupa-44a=32,11,45@build-355 --hosting chupa-43a=44 --hosting chupa-44a=44 --layout chupa-43a=44:<43's facts>`).
+A host of either wire announcing 44 is left by OpenCE's 43 and 41 machines
+(one number per host, as ever); 44 is their Latest.
 
 A fact holds for its version and every later one until the next. A build
 uses facts only for versions past its own rules (`DELTA_LEGACY_NEWEST`, 38

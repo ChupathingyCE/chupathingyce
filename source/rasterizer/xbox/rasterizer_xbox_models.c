@@ -102,6 +102,8 @@ symbols in this file:
 #include "cseries/errors.h"
 #define REAL_MATH_EXTERNAL_POINT_FROM_LINE3D
 #include "bitmaps/bitmap_color_conversion.h"
+#include "bitmaps/bitmap_group.h"
+#include "bitmaps/bitmap_group_internal.h"
 #include "math/periodic_functions.h"
 #include "math/real_math.h"
 #undef REAL_MATH_EXTERNAL_POINT_FROM_LINE3D
@@ -557,6 +559,38 @@ static boolean local_do_not_change_z_stencil_states = FALSE;
 static boolean local_reported_too_many_transparent_geometry_groups = FALSE;
 static boolean local_pixel_shader_dirty_flag = TRUE;
 extern boolean rasterizer_model_cortana_hack;
+
+#ifdef HALO_CUSTOM_EDITION
+/* port: a Custom Edition map's model shader's multipurpose map set from the
+copy port/linux/game/ce_models.c made of its bitmap (one also drawn as a
+base or detail map, its channels kept there), whose texture samples Halo
+PC's channels: FALSE when there is none, and the map is set as it always is
+(rasterizer_set_texture). A shader flagged with the Xbox's order (MCC's
+"multipurpose map uses og xbox channel order") draws the bitmap itself */
+static boolean rasterizer_set_ce_multipurpose_texture(
+	struct shader_model_definition const *shader_model,
+	short shader_permutation_index)
+{
+	extern void const *ce_models_multipurpose_bitmap(void const *bitmap);
+	long bitmap_definition_index = shader_model->model.multipurpose_map.index;
+	struct bitmap_data const *copy;
+	long bitmap_count;
+
+	if (bitmap_definition_index == NONE || TEST_FLAG(shader_model->model.flags, 6))
+		return FALSE;
+	bitmap_count = bitmap_group_get(bitmap_definition_index)->bitmaps.count;
+	if (bitmap_count <= 0)
+		return FALSE;
+	copy = ce_models_multipurpose_bitmap(bitmap_group_try_and_get_bitmap(
+		bitmap_definition_index,
+		shader_permutation_index % bitmap_count));
+	/* (a 2D bitmap, as rasterizer_set_texture asks of it: type 0) */
+	if (!copy || copy->type != 0)
+		return FALSE;
+	rasterizer_set_texture_bitmap_data(2, copy);
+	return TRUE;
+}
+#endif
 
 /* ---------- public code */
 
@@ -1885,6 +1919,13 @@ void _rasterizer_model_draw(
 				IDirect3DDevice8_SetTextureStageState(
 					global_d3d_device, 1, D3DTSS_MIPFILTER, D3DTEXF_LINEAR);
 
+#ifdef HALO_CUSTOM_EDITION
+				/* port: a Custom Edition map's multipurpose map whose bitmap is
+				also drawn another way is drawn from a copy in Halo PC's
+				channels (port/linux/game/ce_models.c), unless the shader is
+				flagged with the Xbox's order */
+				if (!rasterizer_set_ce_multipurpose_texture(shader_model, shader_permutation_index))
+#endif
 				rasterizer_set_texture(
 					2,
 					0,

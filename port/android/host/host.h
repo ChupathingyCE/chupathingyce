@@ -97,6 +97,10 @@ void host_debug_thread_exited(void);
 threads, as text */
 void host_debug_start_sampler(const char *setting);
 
+/* ---------- the Vulkan renderer's backend (host_vk*.c; port/android/VULKAN.md) */
+
+#include "host_vk_api.h"
+
 /* ---------- import table (host_imports.c) */
 
 /* the host function for an import name, or NULL */

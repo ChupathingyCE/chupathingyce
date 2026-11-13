@@ -76,6 +76,9 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries/cseries.h"
+#include "mcc_grenades.h"
+#include "mcc_cache.h"
+#include "mcc_hud_draw.h"
 #include "bitmaps/bitmap_group.h"
 #include "camera/director.h"
 #include "cache/texture_cache.h"
@@ -117,10 +120,13 @@ symbols in this file:
 #ifdef HALO_PORT_CHAT
 #include "chat.h" /* port: port/linux/game/chat.c */
 #endif
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_player.h" /* port: port/linux/game/stubbs_player.c */
 #include "text/font_group.h"
 #include "text/text_group.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 /* ---------- constants */
 
@@ -961,11 +967,13 @@ static void hud_draw_friendly_indicator(
 				bitmap,
 				&position,
 				&clip,
+				(mcc_cache_tags_loaded() ?
+				 mcc_hud_bitmap_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud)) :
 #ifdef HALO_CUSTOM_EDITION
 				/* port: at its bitmap's HUD scale */
-				hud_bitmap_group_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud)),
+				hud_bitmap_group_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud))),
 #else
-				1.0f,
+				1.0f),
 #endif
 				0.0f,
 				1.0f);
@@ -1218,6 +1226,11 @@ static void hud_draw_player_name(
 
 		if (bitmap)
 		{
+			/* port: match the MCC arrow's scale */
+			if (mcc_cache_tags_loaded())
+				y -= (short)(bitmap->registration_point.y *
+					mcc_hud_bitmap_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud)));
+			else
 #ifdef HALO_CUSTOM_EDITION
 			/* (the triangle drawn at its bitmap's HUD scale) */
 			y -= (short)(bitmap->registration_point.y *
@@ -1345,6 +1358,11 @@ static void temporary_hud_draw(
 			&scenario_get_game_globals()->grenades,
 			unit->unit.current_grenade_index,
 			struct game_globals_grenade);
+		if (mcc_grenades_active())
+			sprintf(temporary + csstrlen(temporary), "%d %s|n",
+				mcc_grenades_get(player->unit_index, unit->unit.current_grenade_index),
+				tag_name_strip_path(tag_get_name(grenade->projectile.index)));
+		else
 		snprintf(
 			temporary + csstrlen(temporary),
 			sizeof(temporary) - csstrlen(temporary),
@@ -1485,7 +1503,8 @@ void hud_draw_screen(
 			motion_sensor_tick();
 		}
 
-		if (hud_scripted_globals->show_hud)
+		/* port: MCC's Blind skull, "HUD and weapon do not display onscreen" (mcc_skulls.c) */
+		if (hud_scripted_globals->show_hud && !mcc_skull_active(MCC_SKULL_BLIND))
 		{
 			if (perspective != _director_perspective_neutral &&
 				perspective != _director_perspective_scripted &&
@@ -1507,6 +1526,12 @@ void hud_draw_screen(
 		else
 		{
 			hud_play_unit_sounds(player, FALSE);
+		}
+		/* port: Stubbs mode's HUD (port/linux/game/stubbs_player.c) */
+		if (stubbs_mode_active() && hud_scripted_globals->show_hud && player->unit_index != NONE &&
+			!cinematic_in_progress())
+		{
+			stubbs_player_hud_draw(render.local_player_index, player->unit_index);
 		}
 
 		hud_messaging_update(render.local_player_index);

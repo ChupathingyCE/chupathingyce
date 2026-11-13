@@ -26,6 +26,52 @@ def test_host_reads_it_cheaply_and_clamps():
     assert "wait_milliseconds > 0 &&" in source
 
 
+def test_waiting_late_joiner_sees_its_players_and_picks_a_team():
+    """X#83: a machine waiting to join the game in progress is sent its players,
+    and its players' team picks reach the host's team rule."""
+    source = MANAGER.read_text(encoding="utf-8")
+    handler = (ROOT / "source/networking/network_server_message_handler.c").read_text(encoding="utf-8")
+    team_change = (ROOT / "port/linux/game/team_change.c").read_text(encoding="utf-8")
+    assert "network_game_server_show_late_joiner_players(server, client_machine);" in source
+    assert "boolean network_game_server_late_joiner_player_settings(" in source
+    assert "network_game_server_late_joiner_player_settings(server, client_machine, &player)" in handler
+    assert "long team_change_late_joiner(long list_index, short team)" in team_change
+
+
+def test_waiting_late_joiner_picks_are_rate_limited():
+    """A waiting machine gets one team pick every few seconds and at most one
+    answer (its players again) a second, however often it asks; its start
+    clears the queued answer, and a new machine in its slot starts fresh."""
+    source = MANAGER.read_text(encoding="utf-8")
+    assert "LATE_JOINER_PICK_INTERVAL = 3 * MILLISECONDS_PER_SECOND," in source
+    assert "LATE_JOINER_REPLY_INTERVAL = MILLISECONDS_PER_SECOND," in source
+    body = source[source.index("boolean network_game_server_late_joiner_player_settings("):]
+    body = body[:body.index("\n}\n")]
+    # (the cooldown is checked before the team rule, and only a taken pick starts it)
+    assert body.index("LATE_JOINER_PICK_INTERVAL") < body.index("team_change_late_joiner(")
+    assert "network_game_server_late_joiner_pick_times[slot] = now ? now : 1;" in body
+    # (the answer goes through the limiter, never straight out)
+    assert "network_game_server_show_late_joiner_players" not in body
+    assert "network_game_server_late_joiner_reply_due[slot] = TRUE;" in body
+    replies = source[source.index("static void network_game_server_late_joiner_replies(\n\tstruct network_game_server *server)\n{"):]
+    replies = replies[:replies.index("\n}\n")]
+    assert "LATE_JOINER_REPLY_INTERVAL" in replies
+    assert "network_game_server_late_joiner_not_started(server, machine)" in replies
+    # (called each frame, and reset when a machine joins)
+    assert "\tnetwork_game_server_late_joiner_replies(server);\n" in source
+    assert "network_game_server_late_joiner_pick_times[machine_index] = 0;" in source
+
+
+def test_late_join_uses_only_existing_messages():
+    """OpenCE compatibility: the waiting late joiner's picks ride the existing
+    player settings request, and the answer is the existing settings record."""
+    handler = (ROOT / "source/networking/network_server_message_handler.c").read_text(encoding="utf-8")
+    start = handler.index("network_game_server_late_joiner_player_settings(server, client_machine, &player)")
+    block = handler[handler.rindex("port: a machine joining the game in progress, in its pregame", 0, start):start]
+    assert "short packet_type = _message_client_player_settings_request;" in block
+    assert "_network_game_packet_class_client_pregame" in block
+
+
 def test_hold_is_its_own_setting():
     """the host's option to hold late joiners until the next game is its own
     setting (network.late_join_hold, a boolean), never a second

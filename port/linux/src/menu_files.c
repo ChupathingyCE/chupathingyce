@@ -1052,15 +1052,25 @@ void halo_menus_log(char const *file, long line, char const *message, char const
 {
 	platform_log("menus: %s:%ld: %s%s%s", file ? file : "?", line, message, detail ? " " : "", detail ? detail : "");
 }
-#ifdef HALO_BGFX
-/* (a menu's texture, the renderer's: OpenGL's or the bgfx backend's) */
+#if defined(HALO_BGFX) || defined(HALO_VULKAN)
+/* (a menu's texture, the renderer's: OpenGL's, the bgfx backend's or the
+Vulkan backend's) */
 static void menu_art_delete(unsigned int texture)
 {
+#ifdef HALO_BGFX
 	if (xgpu_bgfx)
 	{
 		xgpu_bgfx_texture_delete(texture);
 		return;
 	}
+#endif
+#ifdef HALO_VULKAN
+	if (xgpu_vulkan)
+	{
+		xgpu_vulkan_texture_delete(texture);
+		return;
+	}
+#endif
 	{
 		GLuint name = texture;
 
@@ -1079,6 +1089,8 @@ static struct
 	unsigned int texture;
 	unsigned long levels;
 	int failed;
+	/* (whether texture is the cyborg set's title: cyborg_title) */
+	int cyborg;
 } art[MAXIMUM_ART];
 static long art_count;
 #ifdef HALO_CONSOLE_HOST_ART
@@ -1147,9 +1159,35 @@ void halo_menus_art_forget(void)
 #endif
 }
 
+/* a title of ours (ce/port/...) in display.title_font's cyborg set: the
+same path in ce/port_cyborg/ (tools/ce_menus.py), in the builds that have
+it (HALO_TITLE_CHOICE) or the menus folder; else the png itself */
+static const char *cyborg_title(const char *png, char *path, size_t size)
+{
+	static const char classic[] = "ce/port/";
+
+	if (strncmp(png, classic, sizeof(classic) - 1))
+		return png;
+	snprintf(path, size, "ce/port_cyborg/%s", png + sizeof(classic) - 1);
+	if (file_find(path) >= 0)
+		return path;
+	{
+		char full[1200];
+		FILE *file;
+
+		snprintf(full, sizeof(full), "%s/%s", folder, path);
+		file = fopen(full, "rb");
+		if (!file)
+			return png;
+		fclose(file);
+	}
+	return path;
+}
+
 unsigned int menu_art_texture(unsigned long data, unsigned long *levels)
 {
 	long index;
+	int cyborg = hud_hires_title_font_cyborg();
 
 	for (index = 0; index < art_count; index++)
 	{
@@ -1159,11 +1197,24 @@ unsigned int menu_art_texture(unsigned long data, unsigned long *levels)
 	/* (no png: out of memory registering it) */
 	if (index == art_count || art[index].failed || !art[index].png)
 		return 0;
+	/* (display.title_font changed: the title drawn again from its set) */
+	if (art[index].texture && art[index].cyborg != cyborg)
+	{
+#ifdef HALO_BGFX
+		menu_art_delete(art[index].texture);
+#else
+		glDeleteTextures(1, &art[index].texture);
+#endif
+		art[index].texture = 0;
+	}
 	if (!art[index].texture)
 	{
 		unsigned long size = 0;
-		const unsigned char *png = file_data(art[index].png, &size);
+		char variant[1200];
+		const char *path = cyborg ? cyborg_title(art[index].png, variant, sizeof(variant)) : art[index].png;
+		const unsigned char *png = file_data(path, &size);
 
+		art[index].cyborg = cyborg;
 		art[index].texture = png ? hud_hires_png_texture(png, size, &art[index].levels) : 0;
 		if (!art[index].texture)
 		{

@@ -290,6 +290,33 @@ def test_menus_are_well_formed():
             assert name in names, f"{where} {name}"
 
 
+def test_two_menu_sets():
+    """Two menu sets to choose: the Chupathingy menus and the Xbox's. Gearbox's
+    ("gearbox", or the older "pc") is not one now: menu_tags.c's
+    menus_chosen gives the Xbox's for it, every MENU STYLE choice offers the
+    two, and the game tells the player once, in the main menu's note in the
+    game's own look (guide.c's _toast_menus_retired), never an OS dialog
+    (tools/test_port_config.py)."""
+    root = MENUS.parent.parent.parent
+    tags = (root / "port/linux/game/menu_tags.c").read_text()
+    chosen = tags[tags.index("static short menus_chosen(void)\n{"):]
+    chosen = chosen[:chosen.index("\n}\n")]
+    assert "return _menus_pc" not in chosen
+    assert re.search(r'"gearbox"\) \|\| !strcmp\(lower, "pc"\)', chosen)
+    rows = (root / "port/linux/src/settings_rows.c").read_text()
+    assert 'menus_choices[] = { "chupathingy", "xbox", NULL };' in rows
+    spinners = re.findall(r'setting="display\.menus" values="([^"]+)"',
+                          "".join(path.read_text() for path in MENUS.rglob("*.xml")))
+    assert spinners and all(values == "chupathingy|xbox" for values in spinners), spinners
+    guide = (root / "port/linux/game/guide.c").read_text()
+    assert '"Gearbox menus were retired.",\n\t\t\t"You\'re on the Xbox menus now; change it in Settings."' in guide
+    # (written as "xbox" once the note is drawn, so it comes once)
+    drawn = guide[guide.index("static void render_toast(void)"):]
+    assert "config_menus_retired_seen();" in drawn[:drawn.index("\n}\n")]
+    platform = (root / "port/linux/src/sdl_platform.c").read_text()
+    assert "menus_retired" not in platform and "Gearbox" not in platform
+
+
 def test_menu_settings_exist():
     """Every setting a menu's spinner sets is one of config.toml's
     (port/linux/src/port_config.c) or of the profile (menu_functions.c), and
@@ -352,6 +379,22 @@ def test_joined_invite_follows_the_joined_host():
     joined = re.search(r"^int p2p_joined_invite\(.*?^\}", p2p, re.M | re.S).group(0)
     assert "!p2p.hosting" in joined
 
+
+
+def test_movie_lets_go_of_its_flags_before_the_main_menu_loads():
+    """#267: a movie that returns to the main menu (the intro) lifts the
+    menus' input suppression, and lets go of its flags and frame rate
+    throttle before main_menu_load, so a movie that load starts keeps its
+    own flags (and the suppression it set stays its to lift)."""
+    root = Path(__file__).resolve().parent.parent
+    bink = (root / "source/bink/bink_playback.c").read_text()
+    stop = re.search(r"^void bink_playback_stop\(.*?^\}", bink, re.M | re.S).group(0)
+    assert stop.index("event_manager_suppress(FALSE);") < stop.index("main_menu_load();")
+    assert stop.index("flags = bink_globals.flags;") < stop.index("bink_globals.flags = 0;")
+    assert stop.index("bink_globals.flags = 0;") < stop.index("main_menu_load();")
+    assert stop.index("global_frame_rate_throttle = saved_frame_rate_throttle;") < stop.index("main_menu_load();")
+    assert "TEST_FLAG(flags, _bink_playback_return_to_main_menu_when_finished_bit)" in stop
+    assert stop.count("bink_globals.flags = 0;") == 1
 
 def test_report_hosted_games_keeps_listing():
     """network.report_hosted_games = false stops what a host sends the game
@@ -547,8 +590,8 @@ def test_system_link_bots_messages_are_the_games():
 
 def test_network_format_is_the_recorded_one():
     """what the machines send each other is what port/linux/network_format.txt
-    records for HALO_PORT_NETWORK_VERSION, and NETCODE.md says what that
-    version changed"""
+    records for MCC_PROTOCOL_VERSION, and NETCODE.md says what that version
+    changed. The ordinary OpenCE contract is pinned by test_mcc_protocol.py."""
     from tools import network_format
 
     problems = network_format.check()

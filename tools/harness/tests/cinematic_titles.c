@@ -10,6 +10,7 @@ slots' count (config.inc) and the code (under_test.inc).
 
 #include <math.h>
 #include "harness.h"
+#include <wchar.h>
 
 typedef unsigned short word;
 typedef unsigned long pixel32;
@@ -62,7 +63,8 @@ static struct
 struct string_list { struct { long count; } strings; };
 static struct string_list help_text = { { 1 } };
 #define unicode_string_list_definition_get(tag_index) (&help_text)
-#define unicode_string_list_get_string(tag_index, string_index) NULL
+static wchar_t const *title_text;
+#define unicode_string_list_get_string(tag_index, string_index) (title_text)
 
 /* the text drawn: recorded */
 static long draws;
@@ -81,8 +83,22 @@ static void draw_string_set_draw_mode(long font_index, short style, short justif
 	drawn_alpha = color->alpha;
 }
 static void rasterizer_text_set_shadow_color(pixel32 color) { shadow = color; }
-static short halo_screen_width(void) { return 640; }
-#define rasterizer_draw_unicode_string(bounds, style, color, flags, string) (draws++, drawn_shadow = shadow)
+static short screen_width = 640;
+static boolean mcc_loaded;
+#define SHORT_MAX 32767
+static short halo_screen_width(void) { return screen_width; }
+static boolean mcc_cache_tags_loaded(void) { return mcc_loaded; }
+static rectangle2d drawn_bounds;
+/* the title's text, as tall as text_height from the top of its bounds */
+static short text_height;
+static void draw_unicode_string_compute_bounds(rectangle2d const *bounds, wchar_t const *string,
+	rectangle2d *text_bounds, rectangle2d *cursor_bounds)
+{
+	*text_bounds = *bounds;
+	text_bounds->y1 = (short)(bounds->y0 + text_height);
+	*cursor_bounds = *text_bounds;
+}
+#define rasterizer_draw_unicode_string(bounds, style, color, flags, string) (draws++, drawn_shadow = shadow, drawn_bounds = *(bounds))
 
 #include "under_test.inc"
 
@@ -124,6 +140,86 @@ int main(int argc, char **argv)
 	struct cinematic_title const *slot = &globals_data.queued_titles[0];
 	long index;
 
+	CASE("mcc-title-bounds")
+	{
+		rectangle2d original, legacy_bounds;
+		queue_title(1000000.0f, 1.0f);
+		titles[0].bounds.x0 = 240;
+		titles[0].bounds.x1 = 400;
+		titles[0].justification = 2;
+		original = titles[0].bounds;
+		/* Xbox and CE keep the exact authored clipping rectangle. */
+		frame();
+		CHECK(drawn_bounds.x0 == 240 && drawn_bounds.x1 == 400, "legacy bounds changed");
+		mcc_loaded = TRUE;
+		frame();
+		CHECK(drawn_bounds.x0 == 0 && drawn_bounds.x1 == 640, "MCC title still clipped");
+		CHECK(drawn_bounds.y0 == original.y0 && drawn_bounds.y1 == original.y1, "vertical bounds changed");
+		CHECK(!memcmp(&original, &titles[0].bounds, sizeof(original)), "authored tag changed");
+		screen_width = 854;
+		frame();
+		CHECK(drawn_bounds.x0 == 0 && drawn_bounds.x1 == 854, "widescreen center moved");
+		/* port: a wrapping title keeps this build's own widescreen bounds
+		(cinematic_title_edge_shift), as a map that is not MCC's draws it */
+		titles[0].text_flags = 1;
+		mcc_loaded = FALSE;
+		frame();
+		legacy_bounds = drawn_bounds;
+		mcc_loaded = TRUE;
+		frame();
+		CHECK(drawn_bounds.x0 == legacy_bounds.x0 && drawn_bounds.x1 == legacy_bounds.x1, "wrapping bounds changed");
+		titles[0].text_flags = 0;
+		mcc_loaded = FALSE;
+		frame();
+		CHECK(drawn_bounds.x0 == legacy_bounds.x0 && drawn_bounds.x1 == legacy_bounds.x1, "MCC bounds leaked after unload");
+		return 0;
+	}
+	/* an MCC title whose lines run past the bottom moves up to fit; one that
+	fits, and any title that is not MCC's, stays where it is */
+	CASE("mcc-title-fit")
+	{
+		rectangle2d bounds;
+		bounds.x0 = 50; bounds.y0 = 425; bounds.x1 = 600; bounds.y1 = 500;
+		title_text = L"x";
+		text_height = 60;
+		mcc_loaded = FALSE;
+		mcc_hud_title_fit(&bounds, title_text);
+		CHECK(bounds.y0 == 425 && bounds.y1 == 500, "a title that is not MCC's moved");
+		mcc_loaded = TRUE;
+		mcc_hud_title_fit(&bounds, title_text);
+		CHECK(bounds.y0 == 420 && bounds.y1 == 495, "moved to %d", bounds.y0);
+		text_height = 40;
+		bounds.y0 = 425; bounds.y1 = 500;
+		mcc_hud_title_fit(&bounds, title_text);
+		CHECK(bounds.y0 == 425 && bounds.y1 == 500, "a title that fits moved");
+		text_height = 900;
+		bounds.y0 = 100; bounds.y1 = 500;
+		mcc_hud_title_fit(&bounds, title_text);
+		CHECK(bounds.y0 == 0 && bounds.y1 == 400, "moved above the top: %d", bounds.y0);
+		mcc_hud_title_fit(&bounds, NULL);
+		CHECK(bounds.y0 == 0, "no text moved it");
+		return 0;
+	}
+	CASE("mcc-title-anchors")
+	{
+		rectangle2d bounds = { 160, 100, 500, 261 };
+		mcc_loaded = TRUE;
+		mcc_hud_title_bounds(&bounds, 2, 0);
+		CHECK(bounds.x0 == 0 && bounds.x1 == 361, "odd-width center moved");
+		bounds.x0 = 240; bounds.x1 = 400;
+		mcc_hud_title_bounds(&bounds, 0, 0);
+		CHECK(bounds.x0 == 240 && bounds.x1 == 640, "left anchor moved");
+		bounds.x0 = 240; bounds.x1 = 400;
+		mcc_hud_title_bounds(&bounds, 1, 0);
+		CHECK(bounds.x0 == 0 && bounds.x1 == 400, "right anchor moved");
+		bounds.x0 = -10; bounds.x1 = 400;
+		mcc_hud_title_bounds(&bounds, 2, 0);
+		CHECK(bounds.x0 == -10 && bounds.x1 == 400, "offscreen bounds changed");
+		bounds.x0 = 400; bounds.x1 = 240;
+		mcc_hud_title_bounds(&bounds, 2, 0);
+		CHECK(bounds.x0 == 400 && bounds.x1 == 240, "inverted bounds changed");
+		return 0;
+	}
 	/* a title for the whole game, no menu: drawn each frame, opaque */
 	CASE("drawn-in-the-game")
 	{

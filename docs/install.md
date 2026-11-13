@@ -80,7 +80,7 @@ The same screen takes the Halo PC disc and the Custom Edition installer: see [do
    and choose **Open Anyway**. You only do this once.
 4. Pick your Xbox disc image.
 
-On a Mac, F3 is Mission Control. Use the backslash key to open the Guide.
+On a Mac, F3 is Mission Control. Use the backslash key to open the Delta Guide.
 
 ### Linux
 
@@ -158,11 +158,11 @@ Beside the maps folders, the game keeps folders of its own:
 
 | Folder | What is in it |
 | --- | --- |
-| `logs` | The game's logs: `debug.txt`, crash reports waiting to be sent, and on Windows `halo.log`. See [Send your logs](help.md#send-your-logs). |
+| `logs` (beside `maps`) | The game's logs: `debug.txt`, crash reports waiting to be sent, and on Windows `halo.log`. Attach these to a bug report ([Send your logs](help.md#send-your-logs)). If you set a custom save folder (`paths.saves`), the logs go in its `logs` folder instead. |
 | `screenshots` | Your screenshots (F9). |
 | `clips` | Your clips (F10, when clips are on). |
-| `data` | Things you add that are not maps, such as your own font in `data/fonts` (`display.high_res_font`). |
-| `cache` (in the saves folder) | What the game can make again. It's safe to delete. |
+| `data` (beside `maps`) | Things you add that are not maps: your own font in `data/fonts` (`display.high_res_font`). |
+| `cache` (in the save folder) | What the game can make again; safe to delete. |
 
 Until 0.8.0, `debug.txt` was beside `maps` (and on Windows `halo.log` beside
 the program). The game leaves an old one where it is.

@@ -3,8 +3,8 @@
 The server needs nothing from the system it runs on, so a container is
 optional: the [quick start](../README.md#quick-start) runs it as it is. A
 container is the easy way to keep one running, restart it when it stops,
-and keep several apart on one machine; `server/deploy/` has what the `[D]`
-servers on stats.chupathingy.org run with.
+and keep several apart on one machine; `server/deploy/` has what our own
+servers run with.
 
 ## Host a server with Docker
 
@@ -12,7 +12,7 @@ Each release has a ready image, `ghcr.io/chupathingyce/server`, for x86,
 x64 and arm64 Linux. Docker picks the right one for your machine.
 
 - `latest` is the newest release.
-- `0.8.1b` (any release's version) stays on that release.
+- `0.9.0d` (any release's version) stays on that release.
 - `nightly` is the newest nightly build, for testing.
 
 The image has no game files. You bring your own maps.

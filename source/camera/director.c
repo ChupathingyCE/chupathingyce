@@ -118,6 +118,9 @@ symbols in this file:
 /* ---------- headers */
 
 #include "director.h"
+#include "mcc_camera.h" /* port: port/linux/game/mcc_camera.c */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_player.h" /* port: port/linux/game/stubbs_player.c */
 
 #include "camera_scripting.h"
 #include "dead_camera.h"
@@ -160,12 +163,14 @@ struct camera_control
 	real wheel_delta;
 };
 
-struct mouse_state
+/* port: the debug camera's mouse and keyboard (director_debug_keys_read) */
+struct director_debug_keys
 {
-	long x;
-	long y;
-	long wheel_delta;
-	byte buttons[2];
+	boolean middle;
+	boolean up;
+	boolean down;
+	boolean switch_key;
+	real wheel;
 };
 
 enum camera_control_flags
@@ -218,6 +223,11 @@ static real const ticks_per_millisecond = 0.03f;
 static real const friction = 5.f;
 static real const acceleration_scale = 25.f;
 static real const genius_boy = 1.3f;
+/* port: the debug camera's speed at full throttle, at debug input scale 1,
+in world units a second: what the controller's old raw-stick formula gave at
+full deflection (32767 stick units times its 0.00005), now that the camera
+flies by the player's throttle, -1 to 1 */
+static real const debug_full_throttle_speed = 32767.f * 0.00005f;
 
 static struct director_variable_definition variables[NUMBER_OF_DIRECTOR_VARIABLES] =
 {
@@ -233,6 +243,82 @@ static boolean hyper_key_down = FALSE;
 boolean *director_camera_scripted;
 
 /* ---------- public code */
+
+#ifndef HALO_CONSOLE_NO_DEBUG_CAMERA_KEYS
+/* port/linux/src/xinput_sdl.c */
+int halo_linux_debug_camera_input(short gamepad_index, int free_camera, int *up, int *down, int *switch_key,
+	float *wheel);
+#endif
+
+/* port: the debug camera's mouse and keyboard for the player on the
+gamepad (the desktop's first: halo_linux_debug_camera_input): the middle
+button held flies a free camera, R raises it and F lowers it, the wheel
+turned while the middle button is held changes its speed (up faster), and
+Backspace held switches the camera as the black button (RB) does. None on
+a console (HALO_CONSOLE_NO_DEBUG_CAMERA_KEYS). */
+static void director_debug_keys_read(
+	short gamepad_index,
+	boolean free_camera,
+	struct director_debug_keys *keys)
+{
+	csmemset(keys, 0, sizeof(*keys));
+#ifndef HALO_CONSOLE_NO_DEBUG_CAMERA_KEYS
+	{
+		int up;
+		int down;
+		int switch_key;
+		float wheel;
+
+		keys->middle = halo_linux_debug_camera_input(
+			gamepad_index,
+			free_camera,
+			&up,
+			&down,
+			&switch_key,
+			&wheel) != 0;
+		keys->up = up != 0;
+		keys->down = down != 0;
+		keys->switch_key = switch_key != 0;
+		keys->wheel = (real)wheel;
+	}
+#else
+	(void)gamepad_index;
+	(void)free_camera;
+#endif
+
+	return;
+}
+
+/* port: Backspace's hold count, in 30 Hz ticks as the black button's
+(input_xbox.c's update_hold_ticks): 1 the frame it goes down, then the
+ticks it has been held, at least 2 */
+static byte director_debug_switch_key_ticks(
+	short local_player_index,
+	boolean down)
+{
+	static real held_seconds[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+	static byte ticks[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+
+	if (!down)
+	{
+		ticks[local_player_index] = 0;
+	}
+	else if (ticks[local_player_index] == 0)
+	{
+		ticks[local_player_index] = 1;
+		held_seconds[local_player_index] = 0.f;
+	}
+	else
+	{
+		held_seconds[local_player_index] += director_globals.dtime;
+		ticks[local_player_index] = (byte)PIN(
+			1.f + held_seconds[local_player_index] * TICKS_PER_SECOND,
+			2.f,
+			(real)UNSIGNED_CHAR_MAX);
+	}
+
+	return ticks[local_player_index];
+}
 
 static struct director *director_get(
 	short local_player_index)
@@ -375,6 +461,18 @@ short director_desired_perspective(
 			following = TRUE;
 	}
 
+	/* port: MCC weapon cameras must select the same perspective for display
+	 * and deterministic aiming. The adapter leaves legacy maps and seats alone. */
+	if (mcc_camera_weapon_following(unit_index))
+	{
+		*perspective = _director_perspective_third_person;
+		following = TRUE;
+	}
+	/* port: Stubbs mode's camera behind Stubbs, the same for drawing and
+	aiming (port/linux/game/stubbs_player.c) */
+	if (stubbs_mode_active() && stubbs_player_camera_following(unit_index, perspective))
+		following = TRUE;
+
 	return following;
 }
 
@@ -391,17 +489,27 @@ void director_set_mode(
 	return;
 }
 
+/* port: the debug camera's file, d:\camera.txt as on the Xbox; on the
+desktops it is the player's, in the save root (port/linux/src/xbox_files.c),
+not beside the maps. Saving and loading act on the first local player, the
+one whose view is shown (the active player need not be the first slot: a
+game started from a controller in another port), and do nothing with none
+(a dedicated server). Map scripts can't call either
+(hs_function_allowed_in_maps): a map must not write files. */
 void director_save_camera(
 	void)
 {
 	FILE *file;
+	short local_player_index = local_player_get_next(NONE);
 
+	if (local_player_index == NONE)
+		return;
 	file = fopen("d:\\camera.txt", "w");
 	if (file)
 	{
 		struct observer_result const *camera;
 
-		camera = observer_get_camera(0);
+		camera = observer_get_camera(local_player_index);
 		fprintf(file, "%f %f %f\n", camera->position.x, camera->position.y, camera->position.z);
 		fprintf(file, "%f %f %f\n", camera->forward.i, camera->forward.j, camera->forward.k);
 		fprintf(file, "%f %f %f\n", camera->up.i, camera->up.j, camera->up.k);
@@ -431,8 +539,12 @@ static void director_set_camera(
 void director_load_camera(
 	void)
 {
-	FILE *file = fopen("d:\\camera.txt", "r");
+	FILE *file;
+	short local_player_index = local_player_get_next(NONE);
 
+	if (local_player_index == NONE)
+		return;
+	file = fopen("d:\\camera.txt", "r");
 	if (file)
 	{
 		real_point3d position;
@@ -441,7 +553,7 @@ void director_load_camera(
 		real_vector3d stored_up;
 		real_vector3d cross_product;
 		real field_of_view;
-		struct director *director = director_get(0);
+		struct director *director = director_get(local_player_index);
 		struct flying_camera *camera =
 			(struct flying_camera *)director->camera_data;
 
@@ -459,7 +571,7 @@ void director_load_camera(
 			camera->roll = -camera->roll;
 		camera->field_of_view = field_of_view;
 		director_set_camera(
-			0,
+			local_player_index,
 			(director_camera_update_proc)flying_camera_update,
 			FALSE);
 		director->camera_mode_index = _camera_flying;
@@ -836,18 +948,30 @@ static boolean director_update_controls(
 		local_player_get_player_index(local_player_index))->local_player_index;
 	if (player_index != NONE && input_has_gamepad((short)player_index))
 	{
-		unsigned long control_flags;
 		struct gamepad_state const *gamepad =
 			input_get_gamepad_state((short)player_index);
+		/* port: a free camera, the flying one: not the player's own view */
+		boolean free_camera =
+			director->camera_proc !=
+				(director_camera_update_proc)first_person_camera_update &&
+			director->camera_proc !=
+				(director_camera_update_proc)following_camera_update;
+		struct director_debug_keys keys;
+		byte key_ticks;
+		byte ticks;
+
+		/* port: the mouse and keyboard's, read every frame (the wheel's
+		notches are counted once) */
+		director_debug_keys_read((short)player_index, free_camera, &keys);
+		key_ticks = director_debug_switch_key_ticks(local_player_index, keys.switch_key);
+		ticks = MAX(gamepad->buttons[_gamepad_analog_button_black], key_ticks);
 
 		if (director_camera_switch_fast)
 		{
-			switch_camera =
-				gamepad->buttons[_gamepad_analog_button_black] == 1;
+			switch_camera = ticks == 1;
 		}
 		else
 		{
-			byte ticks = gamepad->buttons[_gamepad_analog_button_black];
 			/* The hold count is in 30 Hz ticks (input_xbox.c) and this runs
 			once a frame, several frames a tick: switch once per second held,
 			on the frame the count reaches it. */
@@ -858,97 +982,63 @@ static boolean director_update_controls(
 			last_ticks[local_player_index] = ticks;
 		}
 
-		if (director->camera_proc !=
-				(director_camera_update_proc)first_person_camera_update &&
-			director->camera_proc !=
-				(director_camera_update_proc)following_camera_update)
+		if (free_camera)
 		{
+			/* port: the controller's right stick click turns its flying on
+			and off; the middle mouse button flies only while held, and
+			never changes the controller's (the mouse's wins a frame both
+			want). Both fly by the player's movement and look as player
+			control made them (player_control_get_debug_camera_input):
+			the sticks, keys and mouse, with the player's sensitivity and
+			inversion. */
 			if (gamepad->buttons[_gamepad_binary_button_right_thumb] == 1)
 				director->debug_controls = !director->debug_controls;
-			if (director->debug_controls)
+			if (keys.middle || director->debug_controls)
 			{
-				control_flags = 0;
-				SET_FLAG(
-					control_flags,
-					_camera_control_up_bit,
-					gamepad->buttons[_gamepad_analog_button_right_trigger] != 0);
-				SET_FLAG(
-					control_flags,
-					_camera_control_down_bit,
-					gamepad->buttons[_gamepad_analog_button_left_trigger] != 0);
-				controls->wheel_delta =
-					(real)((gamepad->buttons[_gamepad_binary_button_dpad_up] > 1) -
-						(gamepad->buttons[_gamepad_binary_button_dpad_down] > 1)) * 0.4f;
+				unsigned long control_flags = 0;
+				real_vector2d throttle;
+				real_euler_angles2d facing_delta;
+
+				player_control_get_debug_camera_input(
+					local_player_index,
+					&throttle,
+					&facing_delta);
+				if (keys.middle)
+				{
+					SET_FLAG(control_flags, _camera_control_up_bit, keys.up);
+					SET_FLAG(control_flags, _camera_control_down_bit, keys.down);
+					controls->wheel_delta = keys.wheel;
+				}
+				else
+				{
+					SET_FLAG(
+						control_flags,
+						_camera_control_up_bit,
+						gamepad->buttons[_gamepad_analog_button_right_trigger] != 0 || keys.up);
+					SET_FLAG(
+						control_flags,
+						_camera_control_down_bit,
+						gamepad->buttons[_gamepad_analog_button_left_trigger] != 0 || keys.down);
+					controls->wheel_delta =
+						(real)((gamepad->buttons[_gamepad_binary_button_dpad_up] > 1) -
+							(gamepad->buttons[_gamepad_binary_button_dpad_down] > 1)) * 0.4f;
+				}
 				director_process_variables(
 					local_player_index,
 					control_flags,
 					controls->wheel_delta);
-				controls->facing_delta.yaw =
-					(real)gamepad->sticks[_gamepad_stick_right].x *
-						director_globals.dtime * -0.0000392699076f;
-				controls->facing_delta.pitch =
-					(real)gamepad->sticks[_gamepad_stick_right].y *
-						director_globals.dtime * 0.0000196349538f;
-				controls->position_delta.i =
-					(real)gamepad->sticks[_gamepad_stick_left].y *
-						director->debug_input_scale * director_globals.dtime * 0.00005f;
-				controls->position_delta.j =
-					(real)gamepad->sticks[_gamepad_stick_left].x *
-						director->debug_input_scale * director_globals.dtime * -0.00005f;
+				controls->facing_delta.yaw = facing_delta.yaw;
+				controls->facing_delta.pitch = facing_delta.pitch;
+				controls->position_delta.i = throttle.i *
+					director->debug_input_scale * director_globals.dtime * debug_full_throttle_speed;
+				controls->position_delta.j = throttle.j *
+					director->debug_input_scale * director_globals.dtime * debug_full_throttle_speed;
 				controls->position_delta.k +=
 					director->debug_variables[_variable_height].delta;
 				controls->active = TRUE;
 				director_inhibit_input(local_player_index);
 				director_inhibit_facing(local_player_index);
 			}
-		}
-	}
-	else if (input_get_mouse_state())
-	{
-		unsigned long control_flags = 0;
-		struct mouse_state const *mouse = input_get_mouse_state();
-
-		switch_camera = input_key_is_down(_key_backspace) == TRUE;
-		if ((director->camera_proc !=
-				(director_camera_update_proc)first_person_camera_update &&
-			mouse->buttons[1]) || input_key_is_down(_key_tab))
-		{
-			SET_FLAG(control_flags, _camera_control_forward_bit,
-				input_key_is_down(_key_w));
-			SET_FLAG(control_flags, _camera_control_reverse_bit,
-				input_key_is_down(_key_s));
-			SET_FLAG(control_flags, _camera_control_left_bit,
-				input_key_is_down(_key_a));
-			SET_FLAG(control_flags, _camera_control_right_bit,
-				input_key_is_down(_key_d));
-			SET_FLAG(control_flags, _camera_control_up_bit,
-				input_key_is_down(_key_r));
-			SET_FLAG(control_flags, _camera_control_down_bit,
-				input_key_is_down(_key_f));
-			SET_FLAG(control_flags, _camera_control_roll_left_bit,
-				input_key_is_down(_key_t));
-			SET_FLAG(control_flags, _camera_control_roll_right_bit,
-				input_key_is_down(_key_g));
-			director_process_variables(
-				local_player_index,
-				control_flags,
-				(real)mouse->wheel_delta);
-			controls->facing_delta.yaw =
-				(real)mouse->x * -0.0031415927f;
-			controls->facing_delta.pitch =
-				(real)mouse->y * -0.0031415927f;
-			controls->facing_delta.roll +=
-				director->debug_variables[_variable_roll].delta;
-			controls->wheel_delta = (real)mouse->wheel_delta;
-			controls->position_delta.i +=
-				director->debug_variables[_variable_forward].delta;
-			controls->position_delta.j +=
-				director->debug_variables[_variable_right].delta;
-			controls->position_delta.k +=
-				director->debug_variables[_variable_height].delta;
-			controls->active = TRUE;
-			director_inhibit_input(local_player_index);
-			director_inhibit_facing(local_player_index);
 		}
 	}
 

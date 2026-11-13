@@ -265,6 +265,9 @@ static struct
 	int tls;
 	char fingerprint[CONTROL_TLS_FINGERPRINT_SIZE];
 	char listen_setting[96];
+	/* HALO_DEDICATED_CONTROL_HOSTS: the names a request may be for (empty:
+	any) */
+	char hosts[512];
 	/* HALO_DEDICATED_CONTROL_TRUSTED_PROXY's addresses */
 	uint8_t trusted_proxies[MAXIMUM_TRUSTED_PROXIES][16];
 	int trusted_proxy_count;
@@ -2545,6 +2548,39 @@ static void json_qr(struct json_body *body, const char *text)
 }
 
 /* /v1/account/...: a person's own account (an account's session only) */
+/* a session's own password checked again (a change of it, the second
+factor turned off): within the limits a login's is (the address's wrong
+tries, the account's lock from this address, the checks a minute), so a
+session alone guesses no faster than a login. 1 if it may be checked now,
+else 0 with the response given */
+static int recheck_allowed(struct connection *connection, int account, int64_t now)
+{
+	int64_t retry_after = 0;
+
+	if (!control_limiter_allowed(&control.limiter, connection->tag, now, &retry_after) ||
+		!control_backoff_allowed(&panel.backoff[account], connection->tag, now, &retry_after))
+	{
+		char headers[64];
+
+		snprintf(headers, sizeof(headers), "Retry-After: %lld\r\n", (long long)(retry_after > 0 ? retry_after : 60));
+		respond_error(connection, 429, "too many wrong passwords from this address: try again later", headers);
+		return 0;
+	}
+	if (!control_limiter_take_check_from(&control.limiter, connection->tag, now))
+	{
+		respond_error(connection, 429, "too many checks: try again shortly", "Retry-After: 5\r\n");
+		return 0;
+	}
+	return 1;
+}
+
+/* a session's own password (or code) wrong: counted as a login's is */
+static void recheck_failed(struct connection *connection, int account, int64_t now)
+{
+	control_limiter_failed(&control.limiter, connection->tag, now);
+	control_backoff_failed(&panel.backoff[account], connection->tag, now);
+}
+
 static void handle_account(struct connection *connection, struct control_request *request, struct auth *auth,
 	int64_t now)
 {
@@ -2659,10 +2695,9 @@ static void handle_account(struct connection *connection, struct control_request
 			respond_error(connection, 403, "the owner requires a second factor", NULL);
 			return;
 		}
-		if (!control_limiter_take_check(&control.limiter, now))
+		if (!recheck_allowed(connection, auth->account, now))
 		{
 			crypto_wipe(password, sizeof(password));
-			respond_error(connection, 429, "too many checks: try again shortly", "Retry-After: 5\r\n");
 			return;
 		}
 		right = control_account_check(account, password) > 0 && account->has_totp &&
@@ -2670,7 +2705,7 @@ static void handle_account(struct connection *connection, struct control_request
 		crypto_wipe(password, sizeof(password));
 		if (!right)
 		{
-			control_backoff_failed(&panel.backoff[auth->account], connection->tag, now);
+			recheck_failed(connection, auth->account, now);
 			respond_error(connection, 403, "the password or code is not right", NULL);
 			return;
 		}
@@ -2706,11 +2741,10 @@ static void handle_account(struct connection *connection, struct control_request
 			respond_error(connection, 400, reason, NULL);
 			return;
 		}
-		if (!control_limiter_take_check(&control.limiter, now))
+		if (!recheck_allowed(connection, auth->account, now))
 		{
 			crypto_wipe(password, sizeof(password));
 			crypto_wipe(fresh, sizeof(fresh));
-			respond_error(connection, 429, "too many checks: try again shortly", "Retry-After: 5\r\n");
 			return;
 		}
 		right = control_account_check(account, password);
@@ -2720,7 +2754,7 @@ static void handle_account(struct connection *connection, struct control_request
 		{
 			crypto_wipe(fresh, sizeof(fresh));
 			if (!right)
-				control_backoff_failed(&panel.backoff[auth->account], connection->tag, now);
+				recheck_failed(connection, auth->account, now);
 			respond_error(connection, right ? 503 : 403, right ? "no memory" : "the password is not right", NULL);
 			return;
 		}
@@ -3443,7 +3477,22 @@ static void read_request(struct connection *connection)
 	if (connection->tls)
 		request.https = 1;
 	request_client(connection, &request);
-	handle_request(connection, &request);
+	/* (the names the operator listed, if any: a page of another site whose
+	name was pointed at this machine, DNS rebinding, is answered nothing) */
+	if (control.hosts[0] && (!control_host_allowed(request.host, control.hosts, 1) ||
+		(request.forwarded_host[0] && !control_host_allowed(request.forwarded_host, control.hosts, 0))))
+	{
+		char address[64];
+
+		crypto_wipe(request.token, sizeof(request.token));
+		crypto_wipe(request.session, sizeof(request.session));
+		address_text(connection->address, address, sizeof(address));
+		notice("a control request for a host name not in HALO_DEDICATED_CONTROL_HOSTS, from %s", address);
+		respond_error(connection, 421, "this panel does not answer to that host name (HALO_DEDICATED_CONTROL_HOSTS)",
+			NULL);
+	}
+	else
+		handle_request(connection, &request);
 	/* (the request's bytes, its token among them, not kept) */
 	crypto_wipe(connection->request, sizeof(connection->request));
 	connection->length = 0;
@@ -4223,6 +4272,14 @@ void server_control_start(void)
 		{
 			control_web_sessions_initialize(&control.sessions, session_key);
 			read_trusted_proxies();
+			{
+				const char *hosts = getenv("HALO_DEDICATED_CONTROL_HOSTS");
+
+				snprintf(control.hosts, sizeof(control.hosts), "%s", hosts ? hosts : "");
+				if (control.hosts[0])
+					notice("the control panel answers only to %s, and this machine's own names "
+						"(HALO_DEDICATED_CONTROL_HOSTS)", control.hosts);
+			}
 			if (start_listener(setting))
 			{
 				/* the control panel's accounts, and the first owner's setup

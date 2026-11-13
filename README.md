@@ -48,6 +48,27 @@ It plays like the Xbox game. Everything extra is a setting.
 
 You need your own copy of the game. Chupathingy never includes or downloads Microsoft's files.
 
+## New: Halo MCC maps
+
+Own Halo: The Master Chief Collection on Steam? Its Halo CE Workshop maps now play in Chupathingy, on Windows, Mac and Linux.
+
+- **Browse the Workshop** in the Delta Guide, with each item's picture and page.
+- **Link Steam once** by scanning a QR code with the Steam app. The game never sees your Steam password.
+- **Maps download straight from Steam**, with no Steam client needed. Once they're in, they play offline or online.
+- **MCC maps show in every map screen**, with search, next to your Xbox and PC maps.
+- **Host and join MCC games**, on your own machine or a dedicated server.
+
+How it works, and what you need: [docs/mcc.md](docs/mcc.md).
+
+<p align="center">
+<img src="docs/screenshots/mcc-workshop.jpg" width="49%" alt="The Workshop in the Delta Guide, listing MCC maps and campaigns">
+<img src="docs/screenshots/mcc-workshop-item.jpg" width="49%" alt="A Workshop item's page, ready to download">
+</p>
+<p align="center">
+<img src="docs/screenshots/mcc-workshop-map.jpg" width="49%" alt="Playing a multiplayer map from the Workshop">
+<img src="docs/screenshots/mcc-windfall.jpg" width="49%" alt="Windfall Island, a Workshop map, in game">
+</p>
+
 ## Get it
 
 Download the latest release from the [Releases page](https://github.com/ChupathingyCE/chupathingyce/releases/latest).
@@ -88,7 +109,7 @@ Where your maps, settings and saves go: [docs/install.md](docs/install.md#where-
 - **Invite a friend.** Send them your game's invite link.
 - **Play the campaign together.** Host it online from Create Game. [Here's how](docs/online.md#online-co-op).
 
-Chupathingy players on every platform play together. **Compatible with OpenCE build-334 (network version 41) for online play:** their players can join your games, and you can join theirs.
+Chupathingy players on every platform play together. **Compatible with OpenCE build-355 (network version 44) for online play:** their players can join your games, and you can join theirs.
 
 Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends-cant-join).
 
@@ -104,13 +125,13 @@ Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends
 - Our servers around the clock, plus the community's
 - Split screen for up to four, and System Link with no internet or account
 - Online co-op through the campaign
-- Friends, parties and clans in the Guide (F3), with party links you can paste in Discord
+- Friends, parties and clans in the Delta Guide (F3), with party links you can paste in Discord
 - Text and voice chat, and host tools to kick or ban
 
 **Maps**
 - Every Xbox map from your disc
-- Halo PC, Custom Edition and HaloMD maps, side by side with the Xbox ones
-- Missing Custom Edition maps download when you join
+- Halo PC, Custom Edition, HaloMD and MCC Workshop maps, side by side with the Xbox ones
+- Missing maps download when you join, and each one is checked before it's used
 - Community Xbox map packs, like Halo CE+
 
 **Your stats**
@@ -159,7 +180,7 @@ Other developers have ported it to the PSP, PS Vita, PS4, PS5, Xbox Series (UWP)
 
 ## Run a server
 
-The dedicated server runs a playlist of games around the clock. It runs on Linux (x86, x64 or arm64, Raspberry Pi too), on 64-bit Windows, or in Docker, and needs no port forwarding. Start with [server/README.md](server/README.md).
+The dedicated server runs a playlist of games around the clock. It runs on Linux (x86, x64 or arm64, Raspberry Pi too), on 64-bit Windows, or in Docker, and needs no port forwarding. It can host MCC Workshop maps too. Start with [server/README.md](server/README.md).
 
 ## Builds
 
@@ -262,35 +283,50 @@ with their authors credited in each commit.
   shaders and makes bgfx's pipelines before play.
 - chestahh (GulchCE): lens flares and light
   glows back on AMD graphics, less stutter the first time a texture is drawn
-  on Windows, and host cheat and shadow setup fixes.
+  on Windows, host cheat and shadow setup fixes, and the Halo MCC map
+  loader: MCC Workshop and MCC install maps, their scripts, HUDs, effects
+  and campaigns.
+- PeterRichardsonGolf and the other GulchCE contributors: the Steam
+  Workshop catalog with its items' titles and collections, and the MCC
+  sharing rules.
 - mOTA-lEV ([OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber)):
   projectiles and damage that forget objects deleted under them.
 - [bitmoda](https://github.com/bitmoda) (mastercheese's OpenCE fork): the
   clock read only when something needs it.
 - [theLlamaNet](https://github.com/theLlamaNet): the Android on-screen touch
   controls, through JoshRob297's halo-ce-touch.
+- Guven (GuvenHuso) and hispanorum (OpenCE): the debug camera flown by
+  mouse and keyboard, and its saved spot kept for the player in view
+  (written from a description of their work).
 
 </details>
 
-- Fonts: Cyborg Interface Gothic, the high-res text's font, by fizzy, made
-  to match Halo's interface font from Overpass and glyphs of their own
-  (SIL OFL); [Overpass](https://github.com/RedHatOfficial/Overpass) (SIL OFL);
-  [Noto Sans](https://fonts.google.com/noto) (SIL OFL) and
+- Fonts: Cyborg Interface Gothic, the font of the game's text and of our
+  own screens, by fizzy, made to match Halo's interface font from Overpass
+  and glyphs of their own (SIL OFL); the menus' titles in Chupathingy
+  Titles, Newtown by Roger White (public domain), respaced to sit where
+  Halo's titles do (SIL OFL);
+  [Overpass](https://github.com/RedHatOfficial/Overpass) (SIL OFL);
+  [Noto Sans](https://fonts.google.com/noto) (SIL OFL), for the letters
+  Cyborg lacks, and
   [Kenney's Input Prompts](https://kenney.nl/assets/input-prompts) (CC0); the
   scoreboard's platform logos are one-color marks from
   [Simple Icons](https://simpleicons.org) (CC0) and Wikimedia Commons (public
   domain), plus our own Xbox 360 ring and Wii U GamePad; the names and logos
   are their owners' trademarks, used only to identify platforms. The same
-  marks make the platform badges at the top of this page.
-- The service record (the Guide's SERVICE RECORD, `port/linux/src/service_record.c`)
-  follows the career record of mOTA-lEV's
-  [OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber), used under
-  GPL-3.0 with his permission.
+  marks make the platform badges at the top of this page. [BSD Daemon used with permission.](http://www.mckusick.com/copyright.html)
+- The service record is our own (on the site since September, and in the
+  Delta Guide's SERVICE RECORD). The Guide's local career totals and top
+  medals (`port/linux/src/service_record.c`) follow the career record in
+  mOTA-lEV's [OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber),
+  used under GPL-3.0 with his permission.
 - Controller button icons by snapchipper, CC0 (`port/assets/prompts`).
-- Headphone 3D sound (`audio.hrtf`): head-related impulse responses from the
-  [SADIE II database](https://www.york.ac.uk/sadie-project/database.html)
-  (KEMAR, subject D2), University of York, Apache License 2.0
-  (`port/assets/hrtf`).
+- The Xbox's 3D sound and reverb (`audio.hrtf`, `audio.reverb`): the HRTF
+  measured on an Xbox and the reconstruction of its DSP reverb are
+  [OpenH1](https://github.com/OpenH1/OpenH1)'s work, brought into
+  [GulchCE](https://github.com/chestahh/GulchCE) by chestahh
+  (`port/linux/src/dsound_xbox_*`,
+  [docs/reading/xbox_audio.md](docs/reading/xbox_audio.md)).
 - High-res HUD art on the Xbox maps: Aerocatia's and Jessie's HUD art from
   [Halo PC Restored](https://github.com/Aerocatia/halopc-restored) (release
   r220), used with Aerocatia's permission on the condition that both are
@@ -314,12 +350,14 @@ with their authors credited in each commit.
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
-  Expat, Monocypher, zlib, Zstandard, SMAA, and Project Nayuki's QR Code
-  generator. Their licenses are
+  Expat, Monocypher, zlib, Zstandard (BSD-3-Clause), the LZMA SDK's decoder
+  (Igor Pavlov, public domain), SMAA, and Project Nayuki's QR Code generator
+  (MIT). Their licenses are
   beside them in `port/third_party`. The 64-bit desktop builds' test
   renderer uses bgfx, bx and bimg by Branimir Karadžić (BSD-2-Clause), with
   glslang and SPIRV-Cross (Khronos, BSD-3-Clause and Apache-2.0), fetched
-  at build time (`tools/bgfx_build.py`). Their licenses ship with those builds.
+  at build time (`tools/bgfx_build.py`). Every download carries their notices
+  and full license texts in one file, `THIRD-PARTY-NOTICES.txt`.
 
 <details>
 <summary><b>Findings and testing</b></summary>

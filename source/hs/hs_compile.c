@@ -420,6 +420,8 @@ symbols in this file:
 #include "memory/data.h"
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
+#include "mcc_script_parameters.h"
+#include "mcc_scripts.h"
 #ifdef HALO_CUSTOM_EDITION
 #include "cseries/errors.h"
 
@@ -1534,16 +1536,36 @@ static boolean hs_parse_enum(
 		static char const *const stubbs_teams[] =
 		{
 			"default", "player", "civilian", "cop", "militia", "robot", "zombie", "security", "army", "possessed",
+			"scientist", "sheep",
 		};
 
-		for (value_index = 0; value_index < (short)NUMBEROF(stubbs_teams) && value_index < enum_definition->count;
-			value_index++)
+		for (value_index = 0; value_index < (short)NUMBEROF(stubbs_teams); value_index++)
 		{
 			if (!_stricmp(hs_compile_globals.compiled_source + expression->source_offset, stubbs_teams[value_index]))
 				break;
 		}
+		/* (Stubbs's last two teams have no room among Halo's ten: they read
+		as none, so an allegiance made or broken with one does nothing,
+		ai_scripting_allegiance and ai_scripting_allegiance_remove, and the
+		rest of its script runs) */
+		if (value_index >= enum_definition->count && value_index < (short)NUMBEROF(stubbs_teams))
+		{
+			expression->short_value = NONE;
+			return TRUE;
+		}
 		if (value_index >= (short)NUMBEROF(stubbs_teams))
 			value_index = enum_definition->count;
+	}
+	/* port: and its AI's one default state past Halo's, the zombies'
+	follow_player, which Halo's AI has no way to do: none, which
+	ai_set_current_state and ai_set_return_state leave alone (Stubbs mode
+	only) */
+	if (value_index == enum_definition->count && expression->type == _hs_type_enum_ai_default_state &&
+		stubbs_mode_active() &&
+		!_stricmp(hs_compile_globals.compiled_source + expression->source_offset, "follow_player"))
+	{
+		expression->short_value = NONE;
+		return TRUE;
 	}
 #endif
 	if (value_index == enum_definition->count)
@@ -2303,6 +2325,20 @@ static boolean hs_parse_primitive(
 	struct hs_syntax_node *expression = hs_syntax_get(expression_index);
 	boolean result = FALSE;
 
+	{
+		int mcc_result = mcc_script_parse_ai(expression,
+			hs_compile_globals.compiled_source);
+		if (mcc_result >= 0)
+		{
+			if (!mcc_result)
+			{
+				hs_compile_globals.error = "this is not a valid MCC AI encounter or squad.";
+				hs_compile_globals.error_offset = expression->source_offset;
+			}
+			return mcc_result != 0;
+		}
+	}
+
 	match_assert(
 		"c:\\halo\\SOURCE\\hs\\hs_compile.c",
 		0x4AF,
@@ -2838,6 +2874,18 @@ boolean hs_compile_postprocess(
 		expression_index = data_next_index(hs_syntax_data, expression_index))
 	{
 		struct hs_syntax_node *expression = hs_syntax_get(expression_index);
+		{
+			int mcc_parameter = mcc_parameter_compile(expression);
+			if (mcc_parameter >= 0)
+			{
+				/* port: a script parameter no script owns, or of a type its
+				use can't take, is said once and left: a script that reaches it
+				is stopped (hs_syntax_error), never the map's load */
+				if (!mcc_parameter)
+					mcc_parameter_compile_skipped(expression, expression_index);
+				continue;
+			}
+		}
 
 #ifdef HALO_CUSTOM_EDITION
 		if (drop_failed)

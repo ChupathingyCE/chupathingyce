@@ -244,7 +244,7 @@ int main(int argc, char **argv)
 		else if (!parse_hex(argv[5], offered, MAP_ARCHIVE_HASH_SIZE))
 			return 2;
 		if (map_host_install(&with, argv[3], (unsigned int)strtoul(argv[4], NULL, 16), offered,
-			(unsigned int)strtoul(argv[6], NULL, 10), installed, sha256, map_hash, &blocked, error, (int)sizeof(error)))
+			(unsigned int)strtoul(argv[6], NULL, 10), installed, sha256, map_hash, &blocked, NULL, error, (int)sizeof(error)))
 		{
 			printf("ok %s\n", installed);
 		}

@@ -138,6 +138,7 @@ and what each hook asks of the port, or on its compile lines:
 | `HALO_CONSOLE_PLAYERS` | the players the network tables hold, and the console's session limits (`halo_port_limits.h`) |
 | `HALO_CONSOLE_MEMORY_CLASS` | the port answers for its memory class: the baseline's sizes, or larger caches and buffers above it (`halo_console_memory.h`) |
 | `HALO_CONSOLE_DELTA` | Delta Peer as a client |
+| `HALO_CONSOLE_HOST_PLAYERS` | the most players a game the console hosts takes, held in the game itself (the original Xbox: 16, though its builds of 32 join 32) |
 | `HALO_CONSOLE_NO_*` | the desktop extras a console leaves out (`halo_port_features.h`, a port's prefix header) |
 | `HALO_CONSOLE_ONLINE_GAMES` | the console's own Online Games screen |
 | `HALO_CONSOLE_MENU_PLATFORM` | the console's name for the menus (`x360`, `wiiu`): the Chupathingy menus' rows marked `console` or with that name in place of the desktop's, packed with no gaps, and ui.map's button pictures in the prompts (`port/assets/menus/README.md`, `tools/port_settings.py`) |
@@ -183,5 +184,5 @@ console repository then moves its submodule to it.
 
 | Option | What it does |
 | --- | --- |
-| `--console-limits` | a desktop build with the original Xbox's network and object limits, to test the console's side of cross-play on one computer ([cross-play.md](cross-play.md)); never a build to ship |
+| `--console-limits` | a desktop build with the original Xbox's network and object limits, to test the console's side of cross-play on one computer; never a build to ship |
 | `--window-rebase` | the 32-bit Linux build with its Xbox memory window wherever `HALO_WINDOW_BASE` puts it, as the Switch's guest has it; never a build to ship |

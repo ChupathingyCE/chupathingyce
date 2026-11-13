@@ -42,6 +42,10 @@ from pathlib import Path
 from typing import Dict
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from tools import third_party_notices  # noqa: E402
+
 WORK = ROOT / "build/appimage"
 APPIMAGETOOL_URL = (
     "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
@@ -141,6 +145,15 @@ def main() -> int:
     # (not the halo stub beside the game in the zip, port/rename_stub/halo.sh:
     # an AppImage is started by its own file's name)
     shutil.copytree(args.build, app / "usr/bin", symlinks=True, ignore=shutil.ignore_patterns("halo"))
+    # (the notices again, with the AppImage's own runtime, which appimagetool
+    # puts at the start of the file: tools/third_party_notices.py)
+    notices = app / "usr/bin" / third_party_notices.NAME
+    if notices.is_file():
+        features = third_party_notices.features_in(notices)
+        third_party_notices.write(notices, "game", [*features, "appimage"])
+    else:
+        print(f"error: no {third_party_notices.NAME} in {args.build} (tools/ci_build.py linux64)", file=sys.stderr)
+        return 1
     # (an artifact loses its executable bit)
     game = app / "usr/bin/chupathingy"
     game.chmod(game.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)

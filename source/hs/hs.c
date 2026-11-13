@@ -2847,6 +2847,9 @@ symbols in this file:
 #ifdef HALO_BIG_ENDIAN
 #include "console_endian.h" /* port: the maps' byte order (hs_syntax_data_byte_swap) */
 #endif
+#include "mcc_script_parameters.h"
+#include "mcc_scripts.h"
+#include "mcc_syntax.h"
 
 /* ---------- constants */
 
@@ -12146,6 +12149,8 @@ long const hs_function_table_count= 418;
 /* port: Stubbs the Zombie's functions, a table of their own after Halo's
 (Stubbs mode only: port/linux/game/stubbs_functions.c) */
 #include "stubbs_mode.h"
+#include "stubbs_functions.h"
+#include "stubbs_campaign.h" /* (the map_name allowance) */
 #define HS_FUNCTION_COUNT() (hs_function_table_count + stubbs_function_count())
 #else
 #define HS_FUNCTION_COUNT() hs_function_table_count
@@ -13295,6 +13300,11 @@ the line that says so: a map that isn't run with its scripts says why */
 static char const *hs_scenario_syntax_data_problem(
 	struct scenario const *scenario)
 {
+	{
+		int mcc_valid = mcc_syntax_scenario_valid(scenario);
+		if (mcc_valid >= 0)
+			return mcc_valid ? NULL : "its MCC script syntax data is damaged";
+	}
 	long const syntax_data_size =
 		sizeof(struct data_array)+MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO*sizeof(struct hs_syntax_node);
 	/* (the tag cache the map's tags are in: a Custom Edition map's is its
@@ -13571,6 +13581,14 @@ static short hs_syntax_node_refusal(
 		return _hs_node_refusal_none;
 
 	function_index = expression->function_index;
+	{
+		struct hs_function_definition *mcc_function = mcc_script_function(function_index);
+		if (mcc_function)
+		{
+			*name = mcc_function->name;
+			return mcc_script_call_valid(expression, hs_syntax_data) ? _hs_node_refusal_none : _hs_node_refusal_damaged;
+		}
+	}
 	if (function_index<0 || (function_index>=(short)NUMBEROF(hs_function_allowed_in_maps) &&
 		function_index>=(short)HS_FUNCTION_COUNT()))
 	{
@@ -13581,7 +13599,12 @@ static short hs_syntax_node_refusal(
 	/* (Stubbs mode's functions, past Halo's, a map may call) */
 	if (function_index<(short)NUMBEROF(hs_function_allowed_in_maps) &&
 		!hs_function_allowed_in_maps[function_index] &&
-		!(hs_scenario_pack_menus && !csstrcmp(function->name, "map_name")))
+		!(hs_scenario_pack_menus && !csstrcmp(function->name, "map_name"))
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+		/* (Stubbs mode's levels, port/linux/game/stubbs_campaign.c) */
+		&& !(stubbs_mode_active() && !csstrcmp(function->name, "map_name") && stubbs_campaign_map_name_allowed())
+#endif
+		)
 	{
 		return _hs_node_refusal_function;
 	}
@@ -13639,6 +13662,12 @@ static short hs_syntax_node_refusal(
 	if (function_index == _hs_function_set)
 	{
 		short designator = (short)first_argument->data;
+		{
+			int mcc_parameter = mcc_parameter_set_valid(first_argument,
+				hs_syntax_try_get(first_argument->next_node_index));
+			if (mcc_parameter >= 0)
+				return mcc_parameter ? _hs_node_refusal_none : _hs_node_refusal_damaged;
+		}
 
 		if (!TEST_FLAG(first_argument->flags, _hs_syntax_node_primitive_bit) ||
 			!TEST_FLAG(first_argument->flags, _hs_syntax_node_variable_bit) ||
@@ -13821,9 +13850,45 @@ default (hs_runtime.c). A global whose initializer may not run starts at its
 type's default. Every node is looked at once first; the shipped maps' are
 all sound, none is linked to twice, and then no script is walked. The
 console's expressions, compiled later, may call and set anything */
+/* port: an MCC map's call of a function a map may not call is skipped where
+it is, as a Custom Edition map's is (hs_expression_refusal), so the rest of
+its script still runs. A node past the skipped list's size refuses its script
+as before */
+static short hs_mcc_skipped_count;
+
+static short hs_mcc_node_refusal(
+	struct hs_syntax_node const *expression,
+	char const **name)
+{
+	short refusal = hs_syntax_node_refusal(expression, name);
+
+	if (HS_NODE_REFUSAL_SKIPPABLE(refusal))
+	{
+		long absolute_index = (long)(expression - (struct hs_syntax_node const *)(hs_syntax_data + 1));
+
+		if (absolute_index >= 0 && absolute_index < MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)
+		{
+			if (!hs_mcc_skipped_count++)
+				error(_error_silent, "mcc: skipped a script call to %s, which a map's scripts may not call; the script still runs",
+					*name ? *name : "a function");
+			BIT_VECTOR_SET_FLAG(hs_scenario_skipped_nodes, absolute_index, TRUE);
+			return _hs_node_refusal_none;
+		}
+	}
+
+	return refusal;
+}
+
 static void hs_scenario_functions_check(
 	struct scenario *scenario)
 {
+	{
+		csmemset(hs_scenario_skipped_nodes, 0, sizeof(hs_scenario_skipped_nodes));
+		hs_mcc_skipped_count = 0;
+		if (mcc_syntax_functions_check(scenario, hs_syntax_data, hs_mcc_node_refusal,
+			hs_scenario_disabled_scripts, hs_scenario_disabled_globals))
+			return;
+	}
 	long expression_index;
 	short script_index;
 	short global_index;
@@ -14032,6 +14097,10 @@ static void hs_allocate(
 	char const *problem = NULL;
 
 	scenario = global_scenario_index != NONE ? global_scenario_get() : NULL;
+	{
+		if (mcc_syntax_scenario_valid(scenario) > 0)
+			return;
+	}
 	/* port: as the map holds it only when it is sound */
 	if (scenario)
 	{
@@ -14427,6 +14496,11 @@ long hs_function_count(
 struct hs_function_definition *hs_function_get(
 	short function_index)
 {
+	{
+		struct hs_function_definition *mcc_function = mcc_script_function(function_index);
+		if (mcc_function)
+			return mcc_function;
+	}
 	match_assert(
 		"c:\\halo\\SOURCE\\hs\\hs.c",
 		522,
@@ -14565,6 +14639,12 @@ short hs_find_function_by_name(
 	char const *name)
 {
 	short function_index;
+
+	{
+		short mcc_index = mcc_script_find(name);
+		if (mcc_index != NONE)
+			return mcc_index;
+	}
 
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 	/* (Stubbs mode's first: some take other arguments than Halo's of their

@@ -37,14 +37,14 @@ the duration.
 | `sv_status` | The server: name, version and network version, the OpenCE build it follows (the legacy table's, [Delta](../../docs/delta.md#following-opence)), state (lobby, loading, in game, carnage report), map and game type, playlist entry, players, whether it is public, uptime, and whether people can join: internet play's UDP port, the router's UPnP answer, the network's NAT as the STUN servers saw it, and whether the game is on the game list and why not (in JSON, `reach`; ports and states only, never an address). |
 | `sv_players` | The players: number, name, team, score and ping (in a game), and their machine's hardware id. |
 | `sv_evidence [player]` | What the server refused of each player's machine this game, by kind: `movement` and `vehicle` (predictions out of bounds), `hit_report` (hit reports that failed validation), `line_of_sight` (hits refused through walls), `clock` (two-second windows its game ran fast) and `malformed` (kept for checks to come, always 0 for now). Moderators and up. Evidence, never a verdict ([moderation.md](moderation.md#evidence)). |
-| `sv_warn <player> <reason>` | Warns the player: a ChupathingyCE game shows the reason (Delta Peer); the warning is in the audit file either way. |
-| `sv_say <text>` | A server message: a line in the chat of every ChupathingyCE player, in their HUD font, marked "Server". In double quotes for more than a word. OpenCE players see it as the host's notice in their own chat, while they may chat (`chat_legacy`). In the audit file. |
+| `sv_warn <player> <reason>` | Warns the player: a Chupathingy game shows the reason (Delta Peer); the warning is in the audit file either way. |
+| `sv_say <text>` | A server message: a line in the chat of every Chupathingy player, in their HUD font, marked "Server". In double quotes for more than a word. OpenCE players see it as the host's notice in their own chat, while they may chat (`chat_legacy`). In the audit file. |
 | `sv_chat [on\|team\|off]` | Shows or sets the players' text chat: `on`, `team` (team lines alone) or `off`. Saved in the settings file (`chat`: 2, 1 or 0), in effect at once. On unless set. |
 | `sv_welcome [text\|off]` | Shows or sets the welcome: a server message each Chupathingy player gets in their chat as they join (the rest of the line, quotes optional; 127 characters at most). `off`: none. Saved in the settings file (`welcome`), in effect at once; `HALO_DEDICATED_WELCOME` in the environment wins over it. |
 | `sv_mute <player> [minutes]` | Stops passing on a player's chat lines, until they leave the game or for 1 to 1440 minutes. Their game is told ("You are muted"); server messages still reach them. In the audit file. |
 | `sv_unmute <player>` | Passes a muted player's chat lines on again. |
-| `sv_team <player> <red\|blue>` | In a team game, moves the player to that team: their unit dies as nobody's kill (no death, suicide or penalty is counted) and they respawn on the new team, as changing teams from the pause menu does, whatever `team_change` says. Never the last player of a team (that would end the game). A ChupathingyCE player is told an admin moved them. In the audit file. |
-| `sv_kick <player> [reason]` | Drops the player, and every other player on their machine (split screen). They see "game closed" and may join again; a ChupathingyCE game is told the reason first. |
+| `sv_team <player> <red\|blue>` | In a team game, moves the player to that team: their unit dies as nobody's kill (no death, suicide or penalty is counted) and they respawn on the new team, as changing teams from the pause menu does, whatever `team_change` says. Never the last player of a team (that would end the game). A Chupathingy player is told an admin moved them. In the audit file. |
+| `sv_kick <player> [reason]` | Drops the player, and every other player on their machine (split screen). They see "game closed" and may join again; a Chupathingy game is told the reason first. |
 | `sv_ban <player> [duration] [reason]` | Drops the player and keeps their machine out: for ever, or for a while (`30m`, `2h`, `7d`, `1w`, `1d12h`; a bare number is minutes). Every player in the game is told. bans.txt's reason says by whom, how long and why. |
 | `sv_unban <ban>` | Takes a ban out, by its number in `sv_banlist`. |
 | `sv_banlist` | The bans: number, when, hardware id, how long is left, the players' names and why. Never their addresses. |
@@ -63,6 +63,7 @@ the duration.
 | `sv_setup_start` | Starts hosting a server that waits for its first-run setup in the control panel, with the settings it has now ([moderation.md](moderation.md#first-run-setup-no-console-needed)). The console's only. |
 | `sv_mod_list`, `sv_mod_add`, `sv_mod_remove` | Everyone with a role here and where it comes from; moderators by moderator key ([moderation.md](moderation.md#who-can-moderate)). |
 | `sv_link`, `sv_unlink`, `sv_link_status` | The link to the Chupathingy site ([moderation.md](moderation.md#the-link-to-the-chupathingy-site-optional)): `sv_link` prints the link to open. |
+| `sv_steam_link [cancel]`, `sv_steam_unlink`, `sv_workshop_get <item id>` | MCC Workshop maps ([below](#mcc-workshop-maps)): link a Steam account by QR code, fetch an item. |
 | `sv_admin_list`, `sv_admin_add <name>`, `sv_admin_rotate <name>`, `sv_admin_remove <name>` | The control API's credentials, one for each admin ([below](#a-token-for-each-admin)). The console's only. |
 | `sv_account_list`, `sv_account_invite <role>`, `sv_account_role`, `sv_account_remove`, `sv_account_reset`, `sv_account_setup` | The control panel's accounts ([moderation.md](moderation.md#accounts-and-invitations)). The console's only. |
 
@@ -72,6 +73,36 @@ was the playlist's or `sv_map`'s.
 
 What a command changes lasts until the server stops: the settings in its
 environment are what it starts with again.
+
+### MCC Workshop maps
+
+The server can fetch MCC Workshop items itself, for its map cycle, with no
+Steam client or steamcmd. The account that links must own Halo: The Master
+Chief Collection on Steam.
+
+1. On the console, run `sv_steam_link`. The server's terminal shows a QR
+   code made of text, and its address (only the terminal: never the log
+   file or the control panel). Open the Steam app on your phone, go to
+   **Steam Guard**, scan the code and approve. The server never sees a
+   password. The code changes every so often; the terminal shows each new
+   one.
+2. Run `sv_workshop_get <item id>` (the number in the item's Steam page
+   address; admins and the console only). The log shows its progress and
+   when it is installed. An item over 8 GB, or with a file over 4 GB, is
+   refused (`game.workshop_item_limit_mb`, `game.workshop_file_limit_mb`),
+   as is one the disk has no room for. Or start
+   the server with `--workshop-get <item id>` (more than once for more
+   items).
+3. Its maps are listed by `sv_maps` as `mcc_maps\<item id>\<map>`. Put them
+   in a playlist with `sv_mapcycle_add`. `game.workshop_maps = true` in the
+   server's `config.toml` lists Workshop maps at all.
+
+The items go in `steam/steamapps/workshop/content/976730/<item id>` in the
+data folder (`paths.steam_downloads` moves it). The sign-in is kept in
+`steam_sign_in.txt` in the data folder, readable by the server's user only
+(or in the system's keyring where it has one). `sv_steam_unlink` deletes it
+and asks Steam to revoke it. Maps already downloaded keep working without
+the link, without Steam and offline: only fetching needs the account.
 
 ### Bans
 
@@ -414,6 +445,11 @@ client's address from `X-Forwarded-For` (its last address, the one the
 proxy adds), so wrong logins are counted for each client and someone
 guessing does not lock everyone out. Without it, every request counts as
 the proxy's; never name an address that is not your proxy's.
+
+Set `HALO_DEDICATED_CONTROL_HOSTS` to the panel's name (`admin.example.org`)
+so it answers to that name and the machine's own only: a page of another
+site whose name was pointed at your machine (DNS rebinding) is then
+refused before anything else.
 
 If the page is reached straight over the network, with no reverse proxy's
 headers, from somewhere other than the server itself, the server warns of

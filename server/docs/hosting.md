@@ -70,10 +70,10 @@ The server is one file that runs on any Linux. Get it from the
 [latest release](https://github.com/ChupathingyCE/chupathingyce/releases/latest).
 Not sure which one? Run `uname -m`.
 
-- `chupathingyce-server-linux-x64` for `x86_64`: most VPSes and PCs.
-- `chupathingyce-server-linux-arm64` for `aarch64`: Oracle Cloud's free
-  tier, Raspberry Pi 4 and 5.
-- `chupathingyce-server-linux-x86` for `i686`: older 32-bit PCs.
+- `chupathingyce-server-linux-x64.zip` for `x86_64`: most VPSes and PCs.
+- `chupathingyce-server-linux-arm64.zip` for `aarch64`: Oracle Cloud's
+  free tier, Raspberry Pi 4 and 5.
+- `chupathingyce-server-linux-x86.zip` for `i686`: older 32-bit PCs.
 
 Unpack it, go to your data folder, and start the server with a playlist and
 a name:
@@ -187,7 +187,10 @@ the map from any browser, and give people roles.
 4. Check the server's name and add it.
 
 Your server connects out to the site, so linking needs no open ports.
-`sv_unlink` undoes it at any time. Details in
+`sv_unlink` undoes it at any time.
+
+A linked server can also ask for a badge on the site. See
+[Server badges](../../docs/server-badges.md#for-hosts). Details in
 [The link to the Chupathingy site](moderation.md#the-link-to-the-chupathingy-site-optional).
 
 ## Moderators

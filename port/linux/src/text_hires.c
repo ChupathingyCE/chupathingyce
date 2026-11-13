@@ -490,6 +490,38 @@ unsigned int text_hires_atlas_texture(unsigned long data)
 		return atlas_texture;
 	}
 #endif
+#ifdef HALO_VULKAN
+	if (xgpu_vulkan)
+	{
+		/* (the Vulkan backend's image: d3d8_vk.inl) */
+		if (!atlas_texture)
+		{
+			atlas_texture = xgpu_vulkan_texture_create(ATLAS_SIZE, ATLAS_SIZE, NULL, FALSE);
+			dirty_top = 0;
+			dirty_bottom = ATLAS_SIZE;
+		}
+		if (atlas_texture && dirty_top < dirty_bottom)
+		{
+			long rows = dirty_bottom - dirty_top, index;
+			unsigned char *texels = malloc((size_t)rows * ATLAS_SIZE * 4);
+			const unsigned char *coverage = atlas + (long)dirty_top * ATLAS_SIZE;
+
+			if (texels)
+			{
+				for (index = 0; index < rows * ATLAS_SIZE; index++)
+				{
+					texels[index * 4 + 0] = texels[index * 4 + 1] = texels[index * 4 + 2] = 255;
+					texels[index * 4 + 3] = coverage[index];
+				}
+				xgpu_vulkan_texture_rows(atlas_texture, (unsigned long)dirty_top, ATLAS_SIZE, (unsigned long)rows, texels);
+				free(texels);
+				dirty_top = ATLAS_SIZE;
+				dirty_bottom = 0;
+			}
+		}
+		return atlas_texture;
+	}
+#endif
 	if (!atlas_texture)
 	{
 		glGenTextures(1, &atlas_texture);

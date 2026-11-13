@@ -6,16 +6,22 @@ What to do when something goes wrong, and how to tell us about it.
 
 When you report a bug, send your logs. They tell us what happened.
 
-On Windows, Mac and Linux:
+While the game is running, on Windows, Mac and Linux:
 
-1. Open the setup screen: hold **Shift** (or **Back** on a controller)
-   while the game starts, or pick **SETUP** in the game's settings.
-2. Go to **LOGS & HELP**.
-3. Pick **SEND MY LOGS**. It asks whether to send your `config.toml` too.
-4. You get a short code. Paste it in the Discord with your report.
+1. Open the Delta Guide (**F3**, or a controller's Guide button) and go to
+   **SETTINGS**.
+2. Pick **SEND MY LOGS**. It asks first. Pick **SEND**.
+3. You get a short code. Pick **COPY** and paste it in #bug-reports on the
+   Discord with your report.
 
-The logs go to dump.chupathingy.org. Addresses and your home folder are
-taken out before they're sent.
+**OPEN LOGS FOLDER**, right beside it, opens the folder with the files.
+
+If the game won't start, use the setup screen instead: hold **Shift** (or
+**Back** on a controller) while the game starts, go to **LOGS & HELP** and
+pick **SEND MY LOGS**. It also asks whether to send your `config.toml`.
+
+The logs go to dump.chupathingy.org. Your computer's account name and
+network addresses are taken out before they're sent. Player names stay in.
 
 You can also attach the file yourself. It's `logs/debug.txt` in the folder
 that holds your maps ([where that is](install.md#where-your-files-go)). On
@@ -40,10 +46,14 @@ If the setup screen doesn't open either, edit `config.toml`
 ([where it is](settings.md)). Find `renderer` under `[display]` and set it to
 `"gl"`, or put a `#` in front of the line.
 
-### AMD graphics and Vulkan
+### Vulkan didn't start
 
-The 0.9.1 test builds crash at start on AMD graphics with the VULKAN
-renderer. Use OPENGL, or on Windows DIRECT3D 11, until it's fixed.
+If the VULKAN renderer closes before a map has drawn its first frames, the
+next start draws with OpenGL and asks once whether to switch to OpenGL for
+good. **Switch to OpenGL** changes the RENDERER setting. **Not now** keeps
+VULKAN, so it gets another try next time. Some crashes on AMD graphics and
+Mesa are fixed in 0.9.1, but we haven't confirmed it on real AMD cards
+yet. If VULKAN still fails for you, tell us and send your logs.
 
 ### Older graphics cards
 

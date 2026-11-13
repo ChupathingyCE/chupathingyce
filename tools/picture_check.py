@@ -25,8 +25,8 @@ The reference is one of:
 - --reference DIR: captures kept from an earlier run (<map>_<pose>.png).
 
 Without a reference it only captures, so a run makes the reference for the
-next. Maps come only from a data root of links (~/halo-maps/new-data-root.sh
-on the Mac, ~/emulators/new-data-root.sh on boogerflix-1); never copies.
+next. Maps come only from a data root of links, made by the script that
+HALO_DATA_ROOT_SCRIPT names (it takes the folder to make); never copies.
 --maps-ce links a folder of Custom Edition maps into it when the data root
 script does not. Saves and settings go to a scratch folder, never the
 player's. Needs Xvfb, ImageMagick (import, convert) and Python 3 alone.
@@ -44,7 +44,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 POSES = ROOT / "tools" / "picture_check_poses.txt"
-DATA_ROOT_SCRIPTS = [Path.home() / "halo-maps" / "new-data-root.sh", Path.home() / "emulators" / "new-data-root.sh"]
+DATA_ROOT_SCRIPT = os.environ.get("HALO_DATA_ROOT_SCRIPT", "")
 WIDTH, HEIGHT = 1280, 720
 CHANGED = 40
 
@@ -198,9 +198,9 @@ def console_ready(port, deadline):
 
 
 def make_data_root(directory, maps_ce):
-    script = next((path for path in DATA_ROOT_SCRIPTS if path.exists()), None)
-    if not script:
-        sys.exit("no new-data-root.sh in ~/halo-maps or ~/emulators: maps are only used through one")
+    script = Path(DATA_ROOT_SCRIPT).expanduser() if DATA_ROOT_SCRIPT else None
+    if not script or not script.exists():
+        sys.exit("set HALO_DATA_ROOT_SCRIPT to a script that makes a data root of links to your maps: maps are only used through one")
     subprocess.run(["bash", str(script), str(directory)], check=True, stdout=subprocess.DEVNULL)
     if maps_ce and not (directory / "maps_ce").exists():
         (directory / "maps_ce").symlink_to(Path(maps_ce).resolve())
@@ -223,6 +223,14 @@ def stage(build, scratch):
         else:
             (folder / entry.name).symlink_to(entry)
     return folder / build.name
+
+
+def write_camera(pose, save, data):
+    """camera.txt for debug_camera_load: in the save root (director.c, since
+    the debug camera's file became the player's), and in the data root for a
+    build from before that"""
+    for folder in (save, data):
+        (folder / "camera.txt").write_text(pose.camera_text())
 
 
 def capture(build, poses, out, display, settle, environment, maps_ce, scratch):
@@ -265,13 +273,13 @@ def capture(build, poses, out, display, settle, environment, maps_ce, scratch):
             # (a first load to settle the camera: the player's spawn can still
             # take the view back from the first one)
             first = next(pose for pose in poses if pose.map == map_name)
-            (data / "camera.txt").write_text(first.camera_text())
+            write_camera(first, save, data)
             console(port, ["(show_hud 0)", "(set cheat_deathless_player true)", "debug_camera_load"])
             time.sleep(4.0)
             for pose in poses:
                 if pose.map != map_name:
                     continue
-                (data / "camera.txt").write_text(pose.camera_text())
+                write_camera(pose, save, data)
                 console(port, ["(show_hud 0)", "(show_hud_help_text 0)", "(set cheat_deathless_player true)"])
                 png = out / f"{pose.key()}.png"
                 # (the camera loaded again before each capture, until two in a
@@ -309,8 +317,10 @@ def capture(build, poses, out, display, settle, environment, maps_ce, scratch):
             for debug in (save / "debug.txt", data / "debug.txt"):
                 if debug.exists():
                     shutil.copy(debug, out / f"{map_name}.debug.txt")
-            if (data / "logs").is_dir():
-                shutil.copytree(data / "logs", out / f"{map_name}-logs", dirs_exist_ok=True)
+            # (the save root's logs/ since #1148, the data root's before: run_logs.py)
+            for logs in (save / "logs", data / "logs"):
+                if logs.is_dir():
+                    shutil.copytree(logs, out / f"{map_name}-logs", dirs_exist_ok=True)
             shutil.rmtree(data, ignore_errors=True)
             shutil.rmtree(save, ignore_errors=True)
     return shots

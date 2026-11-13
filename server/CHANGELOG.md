@@ -6,6 +6,9 @@ release notes.
 
 ## Unreleased
 
+- A playlist entry whose map isn't installed on the server is skipped,
+  and a playlist with no installed map at all isn't hosted (the console
+  and the log say so) instead of the game ending at the switch.
 - Parties can stay together (`keep_parties_together`, off by default): in
   team games, Chupathingy players in one party go to one team when the
   teams stay within one player of each other. `sv_set keep_parties_together

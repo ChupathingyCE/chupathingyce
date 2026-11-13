@@ -45,6 +45,7 @@ stencil write mask rides in the back stencil's read mask, as bgfx reads it. The 
 #include "hud_hires.h"
 #include "menu_files.h"
 #include "text_hires.h"
+#include "ui_overlay_cellwall.h"
 
 /* a 2D copy of width x height from the source's top left (mip level) to the
 destination's (bgfx's texture regions) */
@@ -52,6 +53,9 @@ static void bg_blit_2d(bgfx_view_id_t view, bgfx_texture_handle_t destination, u
 	bgfx_texture_handle_t source, uint16_t width, uint16_t height)
 {
 	bgfx_texture_region_t to = { 0 }, from = { 0 };
+
+	if (!BGFX_HANDLE_IS_VALID(destination) || !BGFX_HANDLE_IS_VALID(source))
+		return;
 
 	to.handle = destination;
 	to.mip = level;
@@ -70,6 +74,8 @@ static uint32_t bg_read_texture(bgfx_texture_handle_t texture, void *data)
 {
 	bgfx_texture_region_t region = { 0 };
 
+	if (!BGFX_HANDLE_IS_VALID(texture))
+		return 0;
 	region.handle = texture;
 	region.depth = 1;
 	return bgfx_read_texture(&region, data);
@@ -107,6 +113,12 @@ BG_VERTEX_VOLATILE_FRAMES) */
 /* Metal's uniform space a frame (bgfx built with 32 MB), less a margin:
 draws past it are skipped rather than overrun it */
 #define BG_UNIFORM_BUDGET ((32UL << 20) - (1UL << 20))
+
+/* the frame's transient vertices the scene leaves for the overlay
+(xgpu_bgfx_overlay_draw), drawn after it at the present: 1 MB, in the
+scene's vertices. A busy view that used them all up took the overlay's
+screens and text with it */
+#define BG_OVERLAY_RESERVE_VERTICES ((1UL << 20) / BG_VERTEX_BYTES)
 /* occlusion queries, used as a ring (bgfx built with 4096) */
 #define BG_QUERY_COUNT 4096
 #define BG_COMPOSITE_LEVELS 16
@@ -270,20 +282,25 @@ struct bg_composite
 	bgfx_texture_handle_t texture;
 	uint16_t sources[BG_COMPOSITE_LEVELS];
 	unsigned long written[BG_COMPOSITE_LEVELS];
-};
-
-/* a copy to make at the start of the next view */
-struct bg_blit
-{
-	bgfx_texture_handle_t destination, source;
-	unsigned char level;
-	unsigned short width, height;
+	/* how many levels the game rendered, from the first; the levels past
+	them are made of the last one it did (bg_composite_fill), each in a
+	target of its own, copied into the texture's level */
+	unsigned long rendered;
+	bgfx_texture_handle_t scratch[BG_COMPOSITE_LEVELS];
+	bgfx_frame_buffer_handle_t scratch_framebuffer[BG_COMPOSITE_LEVELS], level_framebuffer[BG_COMPOSITE_LEVELS];
+	/* the frame the levels were last made for, and whether they were */
+	unsigned long filled_frame;
+	BOOL filled;
 };
 
 static struct
 {
 	BOOL ready;
 	SDL_Window *window;
+	/* the depth buffers' format, the first of bg_depth_formats the renderer
+	draws into, and whether it has a stencil (bg_formats_choose) */
+	bgfx_texture_format_t depth_format;
+	BOOL depth_stencil;
 	bgfx_vertex_layout_t layout;
 	bgfx_uniform_handle_t uniforms[BG_UNIFORM_COUNT];
 	bgfx_uniform_handle_t samplers[4];
@@ -308,8 +325,6 @@ static struct
 	bgfx_frame_buffer_handle_t view_framebuffer;
 	unsigned short view_rect[4];
 	BOOL view_used;
-	struct bg_blit blits[64];
-	int blit_count;
 	unsigned short present_view;
 
 	bgfx_texture_handle_t blank, blank_cube, blank_volume;
@@ -322,8 +337,16 @@ static struct
 	struct bg_target *targets[BG_TARGET_BUCKETS];
 	struct bg_framebuffer *framebuffers;
 	struct bg_composite *composites;
-	bgfx_program_handle_t blit, crt;
+	bgfx_program_handle_t blit, crt, copy;
 	bgfx_uniform_handle_t crt_parameters[3];
+	/* the quads that are drawn every frame, kept out of the frame's transient
+	vertices: when a busy view used those up, the present drew only its
+	clear, and the whole window went black (#1047). The present's is the
+	picture's letterboxed corners, written again when they change; a
+	channel clear's covers its view */
+	bgfx_dynamic_vertex_buffer_handle_t present_quad;
+	float present_quad_corner[2];
+	bgfx_vertex_buffer_handle_t full_quad;
 
 	/* the visibility tests: the queries of the one running, and each slot's
 	latest, its count (in the game's pixels) and its target's pixels per
@@ -352,7 +375,7 @@ static struct
 	bgfx_program_handle_t overlay;
 	bgfx_vertex_layout_t overlay_layout;
 	bgfx_texture_handle_t overlay_atlas, overlay_icons, overlay_picture, overlay_plasma, overlay_medals;
-	bgfx_uniform_handle_t overlay_uniforms[4], overlay_samplers[5];
+	bgfx_uniform_handle_t overlay_uniforms[5], overlay_samplers[5];
 	BOOL overlay_medals_ready;
 	int overlay_picture_serial, overlay_plasma_serial;
 	BOOL overlay_failed;
@@ -405,6 +428,9 @@ and passed on after the frame (bg_present) */
 
 	unsigned long uniform_bytes;
 	unsigned long drawn, skipped, stat_tests, stat_seen, stat_waited;
+	/* draws left out because the frame's transient vertices or indices ran
+	out */
+	unsigned long stat_starved;
 	/* time in bgfx_frame (waiting for the render thread and the GPU) */
 	double stat_frame_wait;
 } bg;
@@ -1157,12 +1183,15 @@ static char *bg_vulkan_container(const void *code, unsigned long code_size, cons
 	bg_put(&bytes, &offset, &capacity, code, value);
 	byte = 0;
 	bg_put(&bytes, &offset, &capacity, &byte, 1);
-	/* (the inputs by location: a location not read has no attribute) */
+	/* (the inputs by location: a location not read has no attribute, 0xfffe.
+	Not 0xffff, which bgfx's Vulkan renderer reads as instance data and
+	gives a fallback input at a location another attribute has, which the
+	spec forbids and AMD's drivers may refuse: tools/bgfx-patches/0005) */
 	byte = (unsigned char)highest;
 	bg_put(&bytes, &offset, &capacity, &byte, 1);
 	for (index = 0; index < highest; index++)
 	{
-		Uint16 id = used[index] ? bg_attribute_ids[index] : 0xffff;
+		Uint16 id = used[index] ? bg_attribute_ids[index] : 0xfffe;
 
 		bg_put(&bytes, &offset, &capacity, &id, 2);
 	}
@@ -1777,6 +1806,10 @@ static void bg_map_loaded(const char *map)
 
 static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_shader *fragment);
 
+/* a map has loaded since bgfx started (the main menu's ui.map is the first):
+the Vulkan start note's frames are counted from it (bg_frame_out) */
+static BOOL bg_map_seen;
+
 /* the current map's listed programs, a few a frame (bg_present): their
 shaders read from the cache folder (missing ones are left for the draws) */
 static void bg_warm(void)
@@ -1793,6 +1826,7 @@ static void bg_warm(void)
 		snprintf(map, sizeof(map), "%s", bg_jobs.warm_map);
 		bg_jobs.warm_pending = FALSE;
 		pthread_mutex_unlock(&bg_jobs.lock);
+		bg_map_seen = TRUE;
 		/* the list of the map now loaded */
 		if (bg_jobs.pairs_file)
 			fclose(bg_jobs.pairs_file);
@@ -1985,7 +2019,7 @@ static uint64_t bg_state(BOOL has_depth, uint32_t *stencil, uint32_t *back_stenc
 			state |= BGFX_STATE_WRITE_Z;
 	}
 	*stencil = *back_stencil = BGFX_STENCIL_NONE;
-	if (has_depth && rs[D3DRS_STENCILENABLE])
+	if (has_depth && bg.depth_stencil && rs[D3DRS_STENCILENABLE])
 	{
 		DWORD mask = rs[D3DRS_STENCILWRITEMASK] & 0xff;
 		unsigned fail = bg_stencil_operation(rs[D3DRS_STENCILFAIL]);
@@ -2032,15 +2066,10 @@ bgfx draws a frame as views, in order: each has one frame buffer, rectangle
 and clear. A view of its own starts at each change of target, at each clear
 after draws, when the viewport moves (the hardware viewport must be
 Direct3D's, since the vertex shaders compute their positions in it), and
-when a texture is copied (bgfx copies at the start of a view, so the copy
-comes after what was drawn into its source before). */
+after a draw of the renderer's own (bg_composite_copy). */
 
 static void bg_view_set(bgfx_frame_buffer_handle_t framebuffer, const unsigned short rect[4], BOOL new_view)
 {
-	int index;
-
-	if (bg.blit_count)
-		new_view = TRUE;
 	if (bg.view_used && (new_view || framebuffer.idx != bg.view_framebuffer.idx ||
 		memcmp(rect, bg.view_rect, sizeof(bg.view_rect))))
 	{
@@ -2056,18 +2085,6 @@ static void bg_view_set(bgfx_frame_buffer_handle_t framebuffer, const unsigned s
 	memcpy(bg.view_rect, rect, sizeof(bg.view_rect));
 	bgfx_set_view_frame_buffer(bg.view, framebuffer);
 	bgfx_set_view_rect(bg.view, rect[0], rect[1], rect[2], rect[3], 0.0f, 1.0f);
-	for (index = 0; index < bg.blit_count; index++)
-	{
-		const struct bg_blit *blit = &bg.blits[index];
-
-		bg_blit_2d(bg.view, blit->destination, blit->level, blit->source, blit->width, blit->height);
-	}
-	if (bg.blit_count)
-	{
-		bg.blit_count = 0;
-		bgfx_touch(bg.view);
-		bg.view_used = TRUE;
-	}
 }
 
 /* ---------- render targets (render_target_get's) */
@@ -2100,7 +2117,7 @@ static int bg_screen_samples(void)
 			samples >= 8 ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X8 :
 			samples >= 4 ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X4 : BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X2;
 
-		if ((caps->formats[BGFX_TEXTURE_FORMAT_BGRA8] & bit) && (caps->formats[BGFX_TEXTURE_FORMAT_D24S8] & bit))
+		if ((caps->formats[BGFX_TEXTURE_FORMAT_BGRA8] & bit) && (caps->formats[bg.depth_format] & bit))
 			break;
 	}
 	if (samples < 2)
@@ -2169,9 +2186,11 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	}
 	for (entry = *bg_target_bucket(surface->Data); entry; entry = entry->next)
 	{
+		/* (one bgfx would not make is kept, so it is asked for once, and is
+		no target: what would draw into it is left out) */
 		if (entry->data == surface->Data && entry->width == width && entry->height == height && entry->depth == depth &&
 			entry->scale[0] == scale[0] && entry->scale[1] == scale[1] && entry->samples == samples)
-			return entry;
+			return BGFX_HANDLE_IS_VALID(entry->texture) ? entry : NULL;
 	}
 	entry = calloc(1, sizeof(*entry));
 	entry->data = surface->Data;
@@ -2184,12 +2203,18 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	entry->pixel_width = (unsigned long)(width * scale[0] + 0.5f);
 	entry->pixel_height = (unsigned long)(height * scale[1] + 0.5f);
 	entry->texture = bgfx_create_texture_2d((uint16_t)entry->pixel_width, (uint16_t)entry->pixel_height, false, 1,
-		depth ? BGFX_TEXTURE_FORMAT_D24S8 : BGFX_TEXTURE_FORMAT_BGRA8,
+		depth ? bg.depth_format : BGFX_TEXTURE_FORMAT_BGRA8,
 		bg_samples_flags(samples, depth) | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
 	/* (cleared once: what a new target holds is undefined) */
 	entry->fresh = TRUE;
 	entry->next = *bg_target_bucket(entry->data);
 	*bg_target_bucket(entry->data) = entry;
+	if (!BGFX_HANDLE_IS_VALID(entry->texture))
+	{
+		platform_log("bgfx: a %lux%lu %s target (%d samples) cannot be made, so it is not drawn", entry->pixel_width,
+			entry->pixel_height, depth ? "depth" : "color", samples);
+		return NULL;
+	}
 	return entry;
 }
 
@@ -2234,10 +2259,14 @@ static bgfx_frame_buffer_handle_t bg_framebuffer_get(struct bg_target *color, st
 		if (entry->color == color_index && entry->depth == depth_index)
 			return entry->handle;
 	}
-	if (color)
+	/* (bg_target_get gives only targets with a texture; one without is
+	left out all the same, as bgfx reads its texture by the handle) */
+	if (color && BGFX_HANDLE_IS_VALID(color->texture))
 		attachments[count++] = color->texture;
-	if (depth)
+	if (depth && BGFX_HANDLE_IS_VALID(depth->texture))
 		attachments[count++] = depth->texture;
+	if (!count)
+		return (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	entry = calloc(1, sizeof(*entry));
 	entry->color = color_index;
 	entry->depth = depth_index;
@@ -2285,11 +2314,15 @@ static BOOL bg_bind_targets(BOOL *has_depth)
 	bg.target_height = color ? color->pixel_height : depth->pixel_height;
 	bg.target_samples = color ? color->samples : depth->samples;
 	bg.framebuffer = bg_framebuffer_get(color, depth);
+	/* (one bgfx would not make: nothing is drawn, rather than into the
+	window) */
+	if (!BGFX_HANDLE_IS_VALID(bg.framebuffer))
+		return FALSE;
 	if ((color && color->fresh) || (depth && depth->fresh))
 	{
 		unsigned short rect[4] = { 0, 0, (unsigned short)bg.target_width, (unsigned short)bg.target_height };
 		uint16_t clear = (uint16_t)((color && color->fresh ? BGFX_CLEAR_COLOR : 0) |
-			(depth && depth->fresh ? BGFX_CLEAR_DEPTH | BGFX_CLEAR_STENCIL : 0));
+			(depth && depth->fresh ? BGFX_CLEAR_DEPTH | (bg.depth_stencil ? BGFX_CLEAR_STENCIL : 0) : 0));
 
 		bg_view_set(bg.framebuffer, rect, TRUE);
 		bgfx_set_view_clear(bg.view, clear, 0x000000ff, 1.0f, 0);
@@ -2326,31 +2359,39 @@ static BOOL bg_target_rect(float x, float y, float width, float height, unsigned
 }
 
 /* the levels of a texture the game renders one at a time, in one mipmapped
-texture (mip_composite_get's), or the target of its first level alone if
-the game has not rendered every level */
-static bgfx_texture_handle_t bg_composite_get(const struct xgpu_texture_description *description, DWORD data,
-	struct bg_target *first, BOOL *mipmapped)
+texture (mip_composite_get's), a render target drawn into level by level
+before the draw that samples it sets any state (bg_composite_fill). The
+levels the game did not render come from the last one it did, each made in
+a target of its own first; the OpenGL path has the driver make them. (A
+bgfx blit into the texture is not used: on Metal, a draw in the same frame
+sampled the texture as it was before the blit.) The target of the first
+level alone when the texture cannot be made, or filling it failed. */
+static struct bg_composite *bg_composite_find(const struct xgpu_texture_description *description, DWORD data,
+	struct bg_target *first, struct bg_target *targets[BG_COMPOSITE_LEVELS], unsigned long *full,
+	unsigned long *rendered)
 {
-	struct bg_target *targets[BG_COMPOSITE_LEVELS];
 	struct bg_composite *composite;
-	unsigned long level, full = 1, size;
-	BOOL changed = FALSE;
+	unsigned long level, size;
 
-	*mipmapped = FALSE;
+	*full = 1;
+	*rendered = 0;
 	for (size = description->width > description->height ? description->width : description->height; size > 1; size >>= 1)
-		full++;
-	if (description->levels != full || full > BG_COMPOSITE_LEVELS)
-		return first->texture;
-	for (level = 0; level < full; level++)
+		(*full)++;
+	if (*full > BG_COMPOSITE_LEVELS || description->levels < 2)
+		return NULL;
+	for (level = 0; level < *full; level++)
 	{
 		unsigned long width = description->width >> level ? description->width >> level : 1;
 		unsigned long height = description->height >> level ? description->height >> level : 1;
 
-		targets[level] = bg_target_find(data + xgpu_texture_level_offset(description, level));
+		targets[level] = level ? bg_target_find(data + xgpu_texture_level_offset(description, level)) : first;
 		if (!targets[level] || targets[level]->width != width || targets[level]->height != height ||
 			targets[level]->pixel_width != width || targets[level]->pixel_height != height)
-			return first->texture;
+			break;
 	}
+	*rendered = level;
+	if (!*rendered)
+		return NULL;
 	for (composite = bg.composites; composite; composite = composite->next)
 	{
 		if (composite->data == data && composite->width == description->width && composite->height == description->height)
@@ -2362,33 +2403,175 @@ static bgfx_texture_handle_t bg_composite_get(const struct xgpu_texture_descript
 		composite->data = data;
 		composite->width = description->width;
 		composite->height = description->height;
-		composite->levels = full;
+		composite->levels = *full;
 		composite->texture = bgfx_create_texture_2d((uint16_t)description->width, (uint16_t)description->height, true, 1,
-			BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_BLIT_DST, NULL, 0);
+			BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
+		for (level = 0; level < BG_COMPOSITE_LEVELS; level++)
+		{
+			composite->scratch[level] = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+			composite->scratch_framebuffer[level] = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
+			composite->level_framebuffer[level] = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
+		}
 		composite->next = bg.composites;
 		bg.composites = composite;
-		changed = TRUE;
 	}
-	for (level = 0; level < full; level++)
+	/* (one bgfx would not make: the top level alone, as a target without
+	its levels above) */
+	return BGFX_HANDLE_IS_VALID(composite->texture) ? composite : NULL;
+}
+
+/* a texture drawn over a frame buffer of width by height (linear samples at
+the pixels' centers: at half the source's size, the box filter), in a view
+of its own, the draw's state untouched (nothing of it is set yet); FALSE if
+bgfx has no room for it */
+static BOOL bg_composite_copy(bgfx_frame_buffer_handle_t framebuffer, unsigned long width, unsigned long height,
+	bgfx_texture_handle_t source)
+{
+	if (!BGFX_HANDLE_IS_VALID(bg.copy) || !BGFX_HANDLE_IS_VALID(bg.full_quad) || !BGFX_HANDLE_IS_VALID(framebuffer) ||
+		!BGFX_HANDLE_IS_VALID(source))
+		return FALSE;
+	if (bg.view_used)
+	{
+		if (bg.view + 2 >= BG_MAXIMUM_VIEWS)
+		{
+			bg_log_once("more views than a frame has");
+			return FALSE;
+		}
+		bg.view++;
+		bg.view_used = FALSE;
+	}
+	bgfx_set_view_mode(bg.view, BGFX_VIEW_MODE_SEQUENTIAL);
+	bgfx_set_view_clear(bg.view, BGFX_CLEAR_NONE, 0, 1.0f, 0);
+	bgfx_set_view_frame_buffer(bg.view, framebuffer);
+	bgfx_set_view_rect(bg.view, 0, 0, (uint16_t)width, (uint16_t)height, 0.0f, 1.0f);
+	/* (the next draw's view is a new one: bg_view_set) */
+	bg.view_framebuffer = framebuffer;
+	bgfx_set_vertex_buffer(0, bg.full_quad, 0, 4);
+	bgfx_set_texture(0, bg.samplers[0], source, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_TRISTRIP, 0);
+	bgfx_submit(bg.view, bg.copy, 0, BGFX_DISCARD_ALL);
+	bg.view_used = TRUE;
+	return TRUE;
+}
+
+/* the frame buffer of one level of the composite, made the first time */
+static bgfx_frame_buffer_handle_t bg_composite_level_framebuffer(struct bg_composite *composite, unsigned long level)
+{
+	if (!BGFX_HANDLE_IS_VALID(composite->level_framebuffer[level]))
+	{
+		bgfx_attachment_t attachment;
+
+		bgfx_attachment_init(&attachment, composite->texture, BGFX_ACCESS_WRITE, 0, 1, (uint16_t)level, 0);
+		composite->level_framebuffer[level] = bgfx_create_frame_buffer_from_attachment(1, &attachment, false);
+	}
+	return composite->level_framebuffer[level];
+}
+
+/* a level below the game's made of the one above it, in a target of its own
+(the composite's own levels are not sampled while one of them is drawn) */
+static bgfx_texture_handle_t bg_composite_scratch(struct bg_composite *composite, unsigned long level,
+	bgfx_texture_handle_t above)
+{
+	unsigned long width = composite->width >> level ? composite->width >> level : 1;
+	unsigned long height = composite->height >> level ? composite->height >> level : 1;
+
+	if (!BGFX_HANDLE_IS_VALID(composite->scratch[level]))
+	{
+		composite->scratch[level] = bgfx_create_texture_2d((uint16_t)width, (uint16_t)height, false, 1,
+			BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
+		if (BGFX_HANDLE_IS_VALID(composite->scratch[level]))
+			composite->scratch_framebuffer[level] = bgfx_create_frame_buffer_from_handles(1, &composite->scratch[level], false);
+	}
+	if (!bg_composite_copy(composite->scratch_framebuffer[level], width, height, above))
+		return (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+	return composite->scratch[level];
+}
+
+/* the composite of a render target texture with levels brought up to date,
+before a draw that samples it sets any state: the game's levels copied, the
+rest drawn (bg_composite_downsample) and copied */
+static void bg_composite_fill(const struct xgpu_texture_description *description, DWORD data, struct bg_target *first)
+{
+	struct bg_target *targets[BG_COMPOSITE_LEVELS];
+	struct bg_composite *composite;
+	unsigned long level, full, rendered;
+	BOOL changed = FALSE;
+
+	composite = bg_composite_find(description, data, first, targets, &full, &rendered);
+	if (!composite)
+		return;
+	/* (again only once a level was drawn into since) */
+	for (level = 0; level < rendered; level++)
 	{
 		if (composite->sources[level] != targets[level]->texture.idx || composite->written[level] != targets[level]->written)
 			changed = TRUE;
 	}
-	if (changed)
+	if (!changed && rendered == composite->rendered && composite->filled)
 	{
-		for (level = 0; level < full && bg.blit_count < (int)(sizeof(bg.blits) / sizeof(bg.blits[0])); level++)
-		{
-			struct bg_blit *blit = &bg.blits[bg.blit_count++];
+		composite->filled_frame = bg.frame;
+		return;
+	}
+	composite->filled_frame = bg.frame;
+	composite->filled = FALSE;
+	composite->rendered = rendered;
+	for (level = 0; level < full; level++)
+	{
+		unsigned long width = composite->width >> level ? composite->width >> level : 1;
+		unsigned long height = composite->height >> level ? composite->height >> level : 1;
+		bgfx_texture_handle_t source;
 
+		if (level < rendered)
+		{
 			composite->sources[level] = targets[level]->texture.idx;
 			composite->written[level] = targets[level]->written;
-			blit->destination = composite->texture;
-			blit->source = targets[level]->texture;
-			blit->level = (unsigned char)level;
-			blit->width = (unsigned short)targets[level]->width;
-			blit->height = (unsigned short)targets[level]->height;
+			source = targets[level]->texture;
 		}
+		else
+		{
+			source = bg_composite_scratch(composite, level,
+				level - 1 < rendered ? targets[level - 1]->texture : composite->scratch[level - 1]);
+		}
+		if (!bg_composite_copy(bg_composite_level_framebuffer(composite, level), width, height, source))
+			return;
 	}
+	composite->filled = TRUE;
+}
+
+/* the stages' render target textures with levels, filled before the draw
+(bg_bind_textures' conditions) */
+static void bg_composites_prepare(void)
+{
+	int stage;
+
+	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
+	{
+		D3DBaseTexture *texture = device.textures[stage];
+		unsigned long mode = stage_texture_mode(stage);
+		struct xgpu_texture_description description;
+		struct bg_target *target;
+
+		if (!texture || !texture->Data || mode == 0 || mode == 0x04 || mode == 0x05 || mode == 0x11)
+			continue;
+		xgpu_texture_describe(texture->Format, texture->Size, &description);
+		if (description.linear || description.cube_map || description.levels < 2)
+			continue;
+		target = bg_target_find(texture->Data);
+		if (target && target->width == description.width && target->height == description.height)
+			bg_composite_fill(&description, texture->Data, target);
+	}
+}
+
+static bgfx_texture_handle_t bg_composite_get(const struct xgpu_texture_description *description, DWORD data,
+	struct bg_target *first, BOOL *mipmapped)
+{
+	struct bg_target *targets[BG_COMPOSITE_LEVELS];
+	struct bg_composite *composite;
+	unsigned long full, rendered;
+
+	*mipmapped = FALSE;
+	composite = bg_composite_find(description, data, first, targets, &full, &rendered);
+	if (!composite || !composite->filled || composite->filled_frame != bg.frame)
+		return first->texture;
 	*mipmapped = TRUE;
 	return composite->texture;
 }
@@ -2539,6 +2722,116 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 	}
 }
 
+/* ---------- MCC maps' textures (mcc_texture_bridge.c): their pixels are
+immutable allocations outside the Xbox's memory, behind headers whose Data
+names nothing, so they are found by the header itself and uploaded once (for
+each palette a paletted one is drawn with) */
+
+#if !defined(HALO_MCC) || HALO_MCC
+#define BG_MCC_TEXTURE_BUCKETS 512
+
+struct bg_mcc_texture
+{
+	struct bg_mcc_texture *next;
+	const DWORD *resource;
+	unsigned long palette_hash;
+	struct bg_texture texture;
+};
+
+static struct bg_mcc_texture *bg_mcc_textures[BG_MCC_TEXTURE_BUCKETS];
+
+static unsigned long bg_mcc_bucket(const DWORD *resource)
+{
+	return (unsigned long)((((uintptr_t)resource >> 4) * 2654435761UL) % BG_MCC_TEXTURE_BUCKETS);
+}
+
+/* an MCC header's texture, as bg_texture_get's (override: its high-res HUD
+stand-in, or -1); -1 if resource is not an MCC texture's header */
+static int bg_mcc_texture_get(const DWORD *resource, const D3DCOLOR *palette,
+	struct xgpu_texture_description *description, bgfx_texture_handle_t *handle, BOOL *mipmapped, long *override)
+{
+	struct xgpu_texture_description source;
+	const void *pixels;
+	unsigned long bytes, hash;
+	long hud_asset;
+	struct bg_mcc_texture *entry;
+
+	if (!xgpu_mcc_texture_source(resource, &source, &pixels, &bytes, &hud_asset))
+		return -1;
+	*description = source;
+	*override = -1;
+	if (hud_asset >= 0 && config_boolean("display.high_res_hud"))
+	{
+		unsigned long levels;
+
+		if (hud_hires_override_texture(hud_asset, &levels))
+		{
+			*override = hud_asset;
+			return TRUE;
+		}
+	}
+	hash = source.format == 0x0b ? bg_palette_hash(palette) : 0;
+	for (entry = bg_mcc_textures[bg_mcc_bucket(resource)]; entry; entry = entry->next)
+	{
+		if (entry->resource == resource && entry->palette_hash == hash)
+			break;
+	}
+	if (!entry)
+	{
+		entry = calloc(1, sizeof(*entry));
+		if (!entry)
+		{
+			xgpu_mcc_texture_failed(&source, "no memory for the bgfx renderer's copy");
+			return FALSE;
+		}
+		entry->resource = resource;
+		entry->palette_hash = hash;
+		entry->texture.description = source;
+		entry->texture.override = -1;
+		entry->next = bg_mcc_textures[bg_mcc_bucket(resource)];
+		bg_mcc_textures[bg_mcc_bucket(resource)] = entry;
+		bg_texture_upload(&entry->texture, (const unsigned char *)pixels, palette);
+		if (entry->texture.failed || !entry->texture.created)
+		{
+			entry->texture.failed = TRUE;
+			xgpu_mcc_texture_failed(&source, "the bgfx renderer could not make it");
+		}
+	}
+	if (entry->texture.failed)
+		return FALSE;
+	*handle = entry->texture.texture;
+	*mipmapped = entry->texture.mipmapped;
+	return TRUE;
+}
+
+/* an MCC header going with its map (xgpu_mcc_texture_unbind): its copies */
+static void bg_mcc_texture_forget(const DWORD *resource)
+{
+	struct bg_mcc_texture **link = &bg_mcc_textures[bg_mcc_bucket(resource)];
+
+	while (*link)
+	{
+		struct bg_mcc_texture *entry = *link;
+
+		if (entry->resource != resource)
+		{
+			link = &entry->next;
+			continue;
+		}
+		*link = entry->next;
+		if (entry->texture.created && bg.ready)
+			bgfx_destroy_texture(entry->texture.texture);
+		free(entry);
+	}
+}
+#else
+#define bg_mcc_texture_get(a0, a1, a2, a3, a4, a5) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)sizeof(a5), -1)
+static void bg_mcc_texture_forget(const DWORD *resource)
+{
+	(void)resource;
+}
+#endif
+
 /* a stage's texture (xgpu_texture_get's), uploaded again when its pages have
 been written; FALSE if it cannot be drawn yet */
 static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struct xgpu_texture_description *description,
@@ -2636,7 +2929,11 @@ static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struc
 	return TRUE;
 }
 
-static uint32_t bg_sampler_flags(int stage, BOOL mipmapped, BOOL hires)
+/* flat: a 2D texture (not a cube or 3D one), the only kind given the
+anisotropy display.anisotropic_filtering forces, on the same terms as the
+OpenGL path's configure_sampler: mipmapped and filtered. bgfx's level is
+16x (bg_reset_flags) whatever the setting's number. */
+static uint32_t bg_sampler_flags(int stage, BOOL mipmapped, BOOL hires, BOOL flat)
 {
 	DWORD *state = D3D__TextureState[stage];
 	uint32_t flags = 0;
@@ -2648,6 +2945,14 @@ static uint32_t bg_sampler_flags(int stage, BOOL mipmapped, BOOL hires)
 			flags |= BGFX_SAMPLER_MIN_POINT;
 		else if (state[D3DTSS_MINFILTER] == D3DTEXF_ANISOTROPIC && state[D3DTSS_MAXANISOTROPY] > 1)
 			flags |= BGFX_SAMPLER_MIN_ANISOTROPIC;
+		else if (flat && mipmapped && state[D3DTSS_MIPFILTER] != D3DTEXF_NONE && (bg.reset_flags & BGFX_RESET_MAXANISOTROPY))
+		{
+			/* (a point magnification keeps its own flag: the two together
+			name no entry of bgfx's filter table) */
+			flags |= BGFX_SAMPLER_MIN_ANISOTROPIC;
+			if (state[D3DTSS_MAGFILTER] != D3DTEXF_POINT)
+				flags |= BGFX_SAMPLER_MAG_ANISOTROPIC;
+		}
 		if (state[D3DTSS_MAGFILTER] == D3DTEXF_POINT)
 			flags |= BGFX_SAMPLER_MAG_POINT;
 	}
@@ -2681,7 +2986,27 @@ static bgfx_texture_handle_t bg_texture_named(unsigned int name)
 }
 
 /* the stages' textures, and the pixel shader key's part of them
-(bind_textures') */
+(bind_textures'). They are set on the draw by bg_apply_textures, last thing
+before its submit: bgfx keeps what is set only until the next submit, and
+binding the targets (a fresh one's clear) or starting a view (its blits)
+touches the view, a submit of its own, which dropped them. The draw then
+went out with the samplers its shader reads unbound: nothing on NVIDIA,
+whose unwritten descriptors read as empty, but a fault on AMD's and Mesa's
+drivers, which read whatever the descriptor memory held */
+static struct
+{
+	bgfx_texture_handle_t handle;
+	uint32_t flags;
+} bg_stage_textures[D3DTSS_MAXSTAGES];
+
+static void bg_apply_textures(void)
+{
+	int stage;
+
+	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
+		bgfx_set_texture((uint8_t)stage, bg.samplers[stage], bg_stage_textures[stage].handle, bg_stage_textures[stage].flags);
+}
+
 static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale[4][4])
 {
 	int stage;
@@ -2700,7 +3025,8 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 		if (!texture || !texture->Data || mode == 0 || mode == 0x04 || mode == 0x05 || mode == 0x11)
 		{
 			key->sampler_type[stage] = mode == 0x11 ? _xgpu_sampler_2d : _xgpu_sampler_none;
-			bgfx_set_texture((uint8_t)stage, bg.samplers[stage], bg.blank, UINT32_MAX);
+			bg_stage_textures[stage].handle = bg.blank;
+			bg_stage_textures[stage].flags = UINT32_MAX;
 			continue;
 		}
 		xgpu_texture_describe(texture->Format, texture->Size, &description);
@@ -2742,8 +3068,24 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 				const D3DCOLOR *palette = device.palettes[stage] && device.palettes[stage]->Data ?
 					(const D3DCOLOR *)PLATFORM_PHYSICAL_TO_VIRTUAL(device.palettes[stage]->Data) : NULL;
 				long override;
+				int mcc = bg_mcc_texture_get((const DWORD *)texture, palette, &description, &handle, &mipmapped,
+					&override);
 
-				if (!bg_texture_get((const DWORD *)texture, palette, &description, &handle, &mipmapped, &override))
+				if (mcc >= 0)
+				{
+					/* (an MCC map's: its kind from its own description, and a
+					converted meter's coverage, as d3d8_gl.c's bind_textures) */
+					key->sampler_type[stage] = description.cube_map ? _xgpu_sampler_cube :
+						description.depth > 1 ? _xgpu_sampler_3d : _xgpu_sampler_2d;
+					hires = description.hires;
+					if (stage == 0)
+					{
+						key->coverage_alpha = description.hires_coverage != FALSE;
+						key->point_threshold = description.hires_point_threshold != FALSE;
+					}
+				}
+				if (mcc == 0 || (mcc < 0 &&
+					!bg_texture_get((const DWORD *)texture, palette, &description, &handle, &mipmapped, &override)))
 					handle = description.cube_map ? bg.blank_cube : description.depth > 1 ? bg.blank_volume : bg.blank;
 				else if (override >= 0)
 				{
@@ -2765,7 +3107,9 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 				texture_scale[stage][1] = 1.0f / (float)description.height;
 			}
 		}
-		bgfx_set_texture((uint8_t)stage, bg.samplers[stage], handle, bg_sampler_flags(stage, mipmapped, hires));
+		bg_stage_textures[stage].handle = handle;
+		bg_stage_textures[stage].flags = bg_sampler_flags(stage, mipmapped, hires,
+			key->sampler_type[stage] == _xgpu_sampler_2d);
 	}
 }
 
@@ -3304,7 +3648,7 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	unsigned long generated, uniform_bytes;
 	uint32_t stencil, back_stencil, rgba;
 	uint64_t state;
-	BOOL has_depth, native;
+	BOOL has_depth, native, starved;
 	int stage;
 
 	if (!vertex_count || !program || !declaration || !program->instructions)
@@ -3314,6 +3658,9 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		bg.skipped++;
 		return;
 	}
+	/* (the mipmapped copies of the render targets it samples, made before
+	any of its state is set: they draw) */
+	bg_composites_prepare();
 
 	/* the pixel shader's key (prepare_draw's), the textures first: their
 	sampler types are part of it (bgfx keeps what is set until the submit) */
@@ -3388,10 +3735,23 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		return;
 	}
 #endif
+	starved = (!BGFX_HANDLE_IS_VALID(cached) &&
+			bgfx_get_avail_transient_vertex_buffer((uint32_t)(vertex_count + BG_OVERLAY_RESERVE_VERTICES), &bg.layout) <
+				vertex_count + BG_OVERLAY_RESERVE_VERTICES) ||
+		(generated && bgfx_get_avail_transient_index_buffer((uint32_t)generated, false) < generated);
+	if (starved && BGFX_HANDLE_IS_VALID(handle))
+	{
+		/* (the scene loses this draw; the picture is still presented,
+		bg_blit) */
+		static BOOL logged;
+
+		if (!logged)
+			platform_log("bgfx: a frame ran out of transient vertices or indices; its draws past them are left out");
+		logged = TRUE;
+		bg.stat_starved++;
+	}
 	if (!BGFX_HANDLE_IS_VALID(handle) || (!native && !generated) || bg.uniform_bytes + uniform_bytes > BG_UNIFORM_BUDGET ||
-		(!BGFX_HANDLE_IS_VALID(cached) &&
-			bgfx_get_avail_transient_vertex_buffer((uint32_t)vertex_count, &bg.layout) < vertex_count) ||
-		(generated && bgfx_get_avail_transient_index_buffer((uint32_t)generated, false) < generated))
+		starved)
 	{
 		/* (drop the textures set for it) */
 		bgfx_discard(BGFX_DISCARD_ALL);
@@ -3430,6 +3790,8 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	bgfx_set_state(state, rgba);
 	bgfx_set_stencil(stencil, back_stencil);
 	bg_view_set(bg.framebuffer, rect, FALSE);
+	/* (after the view is set: its blits touch it, which drops what is set) */
+	bg_apply_textures();
 	if (bg.test_active)
 	{
 		/* (inside a visibility test: a query of its own, summed at the end) */
@@ -3474,6 +3836,24 @@ static void bg_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count)
 	bg_draw(type, TRUE, 0, count, NULL, 0, 0);
 }
 
+/* a quad's four vertices, a triangle strip from (x0, y0) to (-x0, -y0) in
+clip space, its texture coordinates 0 to 1 */
+static void bg_quad_corners(unsigned char *vertices, float x0, float y0)
+{
+	int corner;
+
+	memset(vertices, 0, 4 * BG_VERTEX_BYTES);
+	for (corner = 0; corner < 4; corner++)
+	{
+		float *out = (float *)(vertices + corner * BG_VERTEX_BYTES);
+
+		out[0] = corner & 1 ? -x0 : x0;
+		out[1] = corner & 2 ? -y0 : y0;
+		out[4] = corner & 1 ? 1.0f : 0.0f;
+		out[5] = corner & 2 ? 1.0f : 0.0f;
+	}
+}
+
 /* a clear of some of the color channels (the Xbox's D3DCLEAR_TARGET_R, _G,
 _B, _A: the fog screen clears only alpha, leaving the picture under the
 fog), which bgfx's view clear can't mask: a quad over the view that writes
@@ -3481,26 +3861,15 @@ only those channels, the blit's program sampling white times the blend
 factor, the clear's color */
 static void bg_clear_channels(DWORD channels, D3DCOLOR color)
 {
-	bgfx_transient_vertex_buffer_t vertices;
 	uint64_t state = BGFX_STATE_PT_TRISTRIP | BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_FACTOR, BGFX_STATE_BLEND_ZERO);
-	int corner;
 
-	if (!BGFX_HANDLE_IS_VALID(bg.blit) || bgfx_get_avail_transient_vertex_buffer(4, &bg.layout) < 4)
+	if (!BGFX_HANDLE_IS_VALID(bg.blit) || !BGFX_HANDLE_IS_VALID(bg.full_quad))
 		return;
 	state |= channels & D3DCLEAR_TARGET_R ? BGFX_STATE_WRITE_R : 0;
 	state |= channels & D3DCLEAR_TARGET_G ? BGFX_STATE_WRITE_G : 0;
 	state |= channels & D3DCLEAR_TARGET_B ? BGFX_STATE_WRITE_B : 0;
 	state |= channels & D3DCLEAR_TARGET_A ? BGFX_STATE_WRITE_A : 0;
-	bgfx_alloc_transient_vertex_buffer(&vertices, 4, &bg.layout);
-	memset(vertices.data, 0, 4 * BG_VERTEX_BYTES);
-	for (corner = 0; corner < 4; corner++)
-	{
-		float *out = (float *)(vertices.data + corner * BG_VERTEX_BYTES);
-
-		out[0] = corner & 1 ? 1.0f : -1.0f;
-		out[1] = corner & 2 ? -1.0f : 1.0f;
-	}
-	bgfx_set_transient_vertex_buffer(0, &vertices, 0, 4);
+	bgfx_set_vertex_buffer(0, bg.full_quad, 0, 4);
 	bgfx_set_texture(0, bg.samplers[0], bg.white, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_state(state, (uint32_t)((color << 8) | (color >> 24)));
 	bgfx_submit(bg.view, bg.blit, 0, BGFX_DISCARD_ALL);
@@ -3681,6 +4050,17 @@ static const char bg_blit_fragment_source[] =
 	"\tfragment_color = vec4(texture(tex0, xT0.xy).rgb, 1.0);\n"
 	"}\n";
 
+/* (a level of a texture made of the one above it, every channel: the water's
+ripple maps keep their fade in alpha) */
+static const char bg_copy_fragment_source[] =
+	"in vec4 xT0;\n"
+	"uniform sampler2D tex0;\n"
+	"layout(location = 0) out vec4 fragment_color;\n"
+	"void main()\n"
+	"{\n"
+	"\tfragment_color = texture(tex0, xT0.xy);\n"
+	"}\n";
+
 /* display.crt_filter: a CRT look over the final picture (scanlines,
 curvature, phosphor mask, vignette, bloom, flicker, color bleed), off by
 default. The CRT filter is from Theseus by Milenko (fs_crt.sc, with its
@@ -3752,10 +4132,22 @@ static const char bg_crt_fragment_source[] =
 	"\tfragment_color = vec4(color * crt_parameters2.w, 1.0);\n"
 	"}\n";
 
+/* bgfx's reset flags: vertical sync, and the most anisotropy (16x) when
+display.anisotropic_filtering forces it (bg_sampler_flags; bgfx's samplers
+have either that or none) */
+static unsigned long bg_reset_flags(void)
+{
+	unsigned long flags = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+
+	if (config_integer("display.anisotropic_filtering") >= 2)
+		flags |= BGFX_RESET_MAXANISOTROPY;
+	return flags;
+}
+
 static void bg_window_update(void)
 {
 	int width = 0, height = 0;
-	unsigned long flags = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	unsigned long flags = bg_reset_flags();
 
 	SDL_GetWindowSizeInPixels(bg.window, &width, &height);
 	if (width == bg.window_width && height == bg.window_height && flags == bg.reset_flags)
@@ -3783,17 +4175,14 @@ static void bg_blit(unsigned short view, int letterbox[4])
 {
 	struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
 	unsigned long width = (unsigned long)bg.window_width, height;
-	bgfx_transient_vertex_buffer_t vertices;
-	float x0, y0, x1, y1;
-	float *out;
-	int corner;
+	float x0, y0;
 
 	bgfx_set_view_mode(view, BGFX_VIEW_MODE_SEQUENTIAL);
 	bgfx_set_view_frame_buffer(view, (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE);
 	bgfx_set_view_rect(view, 0, 0, (uint16_t)bg.window_width, (uint16_t)bg.window_height, 0.0f, 1.0f);
 	bgfx_set_view_clear(view, BGFX_CLEAR_COLOR, 0x000000ff, 1.0f, 0);
 	bgfx_touch(view);
-	if (!back_buffer || !BGFX_HANDLE_IS_VALID(bg.blit) || bgfx_get_avail_transient_vertex_buffer(4, &bg.layout) < 4)
+	if (!back_buffer || !BGFX_HANDLE_IS_VALID(bg.blit) || !BGFX_HANDLE_IS_VALID(bg.present_quad))
 		return;
 	height = (unsigned long)((unsigned long long)bg.window_width * back_buffer->pixel_height / back_buffer->pixel_width);
 	if (height > (unsigned long)bg.window_height)
@@ -3806,20 +4195,17 @@ static void bg_blit(unsigned short view, int letterbox[4])
 	letterbox[2] = (int)width;
 	letterbox[3] = (int)height;
 	x0 = -(float)width / bg.window_width;
-	x1 = -x0;
 	y0 = (float)height / bg.window_height;
-	y1 = -y0;
-	bgfx_alloc_transient_vertex_buffer(&vertices, 4, &bg.layout);
-	memset(vertices.data, 0, 4 * BG_VERTEX_BYTES);
-	for (corner = 0; corner < 4; corner++)
+	if (x0 != bg.present_quad_corner[0] || y0 != bg.present_quad_corner[1])
 	{
-		out = (float *)(vertices.data + corner * BG_VERTEX_BYTES);
-		out[0] = corner & 1 ? x1 : x0;
-		out[1] = corner & 2 ? y1 : y0;
-		out[4] = corner & 1 ? 1.0f : 0.0f;
-		out[5] = corner & 2 ? 1.0f : 0.0f;
+		unsigned char corners[4 * BG_VERTEX_BYTES];
+
+		bg_quad_corners(corners, x0, y0);
+		bgfx_update_dynamic_vertex_buffer(bg.present_quad, 0, bgfx_copy(corners, sizeof(corners)));
+		bg.present_quad_corner[0] = x0;
+		bg.present_quad_corner[1] = y0;
 	}
-	bgfx_set_transient_vertex_buffer(0, &vertices, 0, 4);
+	bgfx_set_dynamic_vertex_buffer(0, bg.present_quad, 0, 4);
 	bgfx_set_texture(0, bg.samplers[0], back_buffer->texture, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_TRISTRIP, 0);
 	if (config_boolean("display.crt_filter") && BGFX_HANDLE_IS_VALID(bg.crt))
@@ -3887,7 +4273,9 @@ static const char bg_overlay_fragment_source[] =
 	"uniform vec4 plasma_shift;\n"
 	"uniform vec4 plasma_thread;\n"
 	"uniform vec4 cutouts[4];\n"
+	"uniform vec4 cellwall_parameters[3];\n"
 	"layout(location = 0) out vec4 fragment_color;\n"
+	UI_OVERLAY_CELLWALL_GLSL
 	"void main()\n"
 	"{\n"
 	"\tfloat alpha;\n"
@@ -3895,6 +4283,13 @@ static const char bg_overlay_fragment_source[] =
 	"\tfor (int i = 0; i < 4; i++)\n"
 	"\t\tif (p.x >= cutouts[i].x && p.y >= cutouts[i].y && p.x < cutouts[i].z && p.y < cutouts[i].w)\n"
 	"\t\t\tdiscard;\n"
+	/* (the cellwall: ui_overlay.c's) */
+	"\tif (xT2.x < -5.5)\n"
+	"\t{\n"
+	"\t\tfragment_color = cellwall(xT0.xy, cellwall_parameters[0], cellwall_parameters[1], cellwall_parameters[2],\n"
+	"\t\t\txD0);\n"
+	"\t\treturn;\n"
+	"\t}\n"
 	/* (a medal: ui_overlay.c's) */
 	"\tif (xT2.x < -4.5)\n"
 	"\t{\n"
@@ -3940,6 +4335,40 @@ static const char bg_overlay_fragment_source[] =
 	"\tfragment_color = vec4(xD0.rgb, xD0.a * alpha);\n"
 	"}\n";
 
+/* the overlay's textures and program let go (what bg_overlay_prepare made
+before one of them failed, #1081: nothing of a half-made overlay is kept or
+bound) */
+static void bg_overlay_release(void)
+{
+	bgfx_texture_handle_t *textures[5] = { &bg.overlay_atlas, &bg.overlay_icons, &bg.overlay_picture,
+		&bg.overlay_plasma, &bg.overlay_medals };
+	int index;
+
+	for (index = 0; index < 5; index++)
+	{
+		if (BGFX_HANDLE_IS_VALID(*textures[index]))
+			bgfx_destroy_texture(*textures[index]);
+		*textures[index] = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+	}
+	if (BGFX_HANDLE_IS_VALID(bg.overlay))
+		bgfx_destroy_program(bg.overlay);
+	bg.overlay = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.overlay_medals_ready = FALSE;
+}
+
+/* a texture of the overlay's replaced by a new one: the old one stays,
+and is still what the overlay binds, when the new one cannot be made
+(#1081: never an invalid handle bound) */
+static BOOL bg_overlay_replace(bgfx_texture_handle_t *texture, bgfx_texture_handle_t replacement)
+{
+	if (!BGFX_HANDLE_IS_VALID(replacement))
+		return FALSE;
+	if (BGFX_HANDLE_IS_VALID(*texture))
+		bgfx_destroy_texture(*texture);
+	*texture = replacement;
+	return TRUE;
+}
+
 static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int icon_size, int icon_count)
 {
 	struct bg_shader *vertex, *fragment;
@@ -3949,11 +4378,14 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	if (BGFX_HANDLE_IS_VALID(bg.overlay) || bg.overlay_failed)
 		return !bg.overlay_failed;
 	bg.overlay_failed = TRUE;
+	bg.overlay_atlas = bg.overlay_icons = bg.overlay_picture = bg.overlay_plasma = bg.overlay_medals =
+		(bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
 	/* (its uniforms before its shaders, which Vulkan's finds them by) */
 	bg.overlay_uniforms[0] = bgfx_create_uniform("scale_v4", BGFX_UNIFORM_TYPE_VEC4, 1);
 	bg.overlay_uniforms[1] = bgfx_create_uniform("cutouts", BGFX_UNIFORM_TYPE_VEC4, 4);
 	bg.overlay_uniforms[2] = bgfx_create_uniform("plasma_shift", BGFX_UNIFORM_TYPE_VEC4, 1);
 	bg.overlay_uniforms[3] = bgfx_create_uniform("plasma_thread", BGFX_UNIFORM_TYPE_VEC4, 1);
+	bg.overlay_uniforms[4] = bgfx_create_uniform("cellwall_parameters", BGFX_UNIFORM_TYPE_VEC4, 3);
 	for (index = 0; index < 5; index++)
 		bg.overlay_samplers[index] = bgfx_create_uniform(samplers[index], BGFX_UNIFORM_TYPE_SAMPLER, 1);
 	vertex = bg_shader_get(bg_overlay_vertex_source, FALSE, 0, "overlay vertex", TRUE);
@@ -3976,6 +4408,13 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	small prompts) */
 	bg.overlay_icons = bgfx_create_texture_2d((uint16_t)icon_size, (uint16_t)icon_size, true, (uint16_t)icon_count,
 		BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE, NULL, 0);
+	if (!BGFX_HANDLE_IS_VALID(bg.overlay) || !BGFX_HANDLE_IS_VALID(bg.overlay_atlas) ||
+		!BGFX_HANDLE_IS_VALID(bg.overlay_icons))
+	{
+		platform_log("bgfx: the overlay's textures cannot be made, so it is not drawn");
+		bg_overlay_release();
+		return FALSE;
+	}
 	for (index = 0; index < icon_count && icons; index++)
 	{
 		unsigned long width = (unsigned long)icon_size, height = (unsigned long)icon_size;
@@ -4014,6 +4453,14 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 			bgfx_copy(zero, 4), 0);
 		bg.overlay_medals = bgfx_create_texture_2d(1, 1, false, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
 			bgfx_copy(zero, 4), 0);
+		/* (every texture the overlay binds, or none of it: the stand-ins too) */
+		if (!BGFX_HANDLE_IS_VALID(bg.overlay_picture) || !BGFX_HANDLE_IS_VALID(bg.overlay_plasma) ||
+			!BGFX_HANDLE_IS_VALID(bg.overlay_medals))
+		{
+			platform_log("bgfx: the overlay's textures cannot be made, so it is not drawn");
+			bg_overlay_release();
+			return FALSE;
+		}
 	}
 	bg.overlay_failed = FALSE;
 	return TRUE;
@@ -4023,7 +4470,7 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
 	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[8],
-	const unsigned char *medals, int medals_width, int medals_height,
+	const float cellwall[12], const unsigned char *medals, int medals_width, int medals_height,
 	const float cutouts[4][4], int window_width, int window_height)
 {
 	bgfx_transient_vertex_buffer_t buffer;
@@ -4040,19 +4487,17 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 			UINT16_MAX);
 	if (picture && picture_serial != bg.overlay_picture_serial)
 	{
-		bgfx_destroy_texture(bg.overlay_picture);
-		bg.overlay_picture = bgfx_create_texture_2d((uint16_t)picture_width, (uint16_t)picture_height, false, 1,
-			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
-			bgfx_copy(picture, (uint32_t)(picture_width * picture_height * 4)), 0);
+		bg_overlay_replace(&bg.overlay_picture, bgfx_create_texture_2d((uint16_t)picture_width,
+			(uint16_t)picture_height, false, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
+			bgfx_copy(picture, (uint32_t)(picture_width * picture_height * 4)), 0));
 		bg.overlay_picture_serial = picture_serial;
 	}
 	/* (the plasma's noise map, while a plasma is drawn: the Guide's) */
 	if (plasma && plasma_serial != bg.overlay_plasma_serial)
 	{
-		bgfx_destroy_texture(bg.overlay_plasma);
-		bg.overlay_plasma = bgfx_create_texture_2d((uint16_t)plasma_width, (uint16_t)plasma_height, false, 1,
-			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
-			bgfx_copy(plasma, (uint32_t)(plasma_width * plasma_height * 4)), 0);
+		bg_overlay_replace(&bg.overlay_plasma, bgfx_create_texture_2d((uint16_t)plasma_width,
+			(uint16_t)plasma_height, false, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
+			bgfx_copy(plasma, (uint32_t)(plasma_width * plasma_height * 4)), 0));
 		bg.overlay_plasma_serial = plasma_serial;
 	}
 	/* (the medals' atlas, once a medal is drawn: with smaller levels, as
@@ -4064,9 +4509,15 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 		int mip = 0;
 
 		bg.overlay_medals_ready = TRUE;
-		bgfx_destroy_texture(bg.overlay_medals);
-		bg.overlay_medals = bgfx_create_texture_2d((uint16_t)medals_width, (uint16_t)medals_height, true, 1,
-			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE, NULL, 0);
+		/* (the stand-in stays bound if the atlas cannot be made: the medals
+		then draw blank, and nothing binds an invalid handle) */
+		if (!bg_overlay_replace(&bg.overlay_medals, bgfx_create_texture_2d((uint16_t)medals_width,
+			(uint16_t)medals_height, true, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE, NULL, 0)))
+		{
+			platform_log("bgfx: the medals' atlas cannot be made; medals are not drawn");
+			free(level);
+			level = NULL;
+		}
 		if (level)
 			memcpy(level, medals, width * height * 4);
 		while (level)
@@ -4097,6 +4548,7 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 	bgfx_set_uniform(bg.overlay_uniforms[1], cutouts, 4);
 	bgfx_set_uniform(bg.overlay_uniforms[2], plasma_shift, 1);
 	bgfx_set_uniform(bg.overlay_uniforms[3], plasma_shift + 4, 1);
+	bgfx_set_uniform(bg.overlay_uniforms[4], cellwall, 3);
 	bgfx_set_texture(0, bg.overlay_samplers[0], bg.overlay_atlas, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_texture(1, bg.overlay_samplers[1], bg.overlay_icons, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_texture(2, bg.overlay_samplers[2], bg.overlay_picture, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
@@ -4111,6 +4563,83 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 
 static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,
 	uint32_t height, uint32_t pitch, bgfx_texture_format_t format, const void *data, uint32_t size, bool flip);
+
+/* ---------- a Vulkan start that did not get going
+
+bgfx's Vulkan is started with a note in the save root
+(bgfx-vulkan.starting) that the game's first frames out after its first map
+loads remove (bg_frame_out): the main menu's, or the map's a command line
+starts on. The setup screen's frames never count, so a start that closes
+loading that first map still leaves it. A note still there at the next start
+says the last one closed, crashed or hung before them: a driver that refused a pipeline, a GPU fault, a swap chain
+that never presented (game issue #1046, AMD's drivers and RADV). That start
+draws with OpenGL, and the player is asked whether to stay on OpenGL for
+good (platform_offer_opengl): display.renderer changes only on a yes, and a
+no asks again the next time Vulkan does not get going.
+HALO_BGFX_START_NOTE=off leaves the note out (a test of the renderer that
+quits early). */
+#define BG_START_FRAMES 60
+
+const char *platform_save_root(void);
+void platform_offer_opengl(void);
+
+static BOOL bg_start_note_wanted(void)
+{
+	const char *setting = getenv("HALO_BGFX_START_NOTE");
+
+	return !(setting && strcmp(setting, "off") == 0);
+}
+
+static void bg_start_note_path(char *path, size_t size)
+{
+	snprintf(path, size, "%s/bgfx-vulkan.starting", platform_save_root());
+}
+
+/* whether the last Vulkan start left its note (which is taken away: the
+next start tries Vulkan again if the player asks for it) */
+static BOOL bg_last_start_failed(void)
+{
+	char path[1024];
+	FILE *file;
+
+	bg_start_note_path(path, sizeof(path));
+	if ((file = fopen(path, "rb")) == NULL)
+		return FALSE;
+	fclose(file);
+	remove(path);
+	return TRUE;
+}
+
+static void bg_start_note(void)
+{
+	char path[1024];
+	FILE *file;
+
+	bg_start_note_path(path, sizeof(path));
+	if ((file = fopen(path, "wb")) != NULL)
+	{
+		fputs("bgfx's Vulkan renderer is starting; the game's first frames remove this file.\n"
+			"Found at a start, it means the last start closed before them, and that start draws with OpenGL.\n", file);
+		fclose(file);
+	}
+}
+
+/* a frame of the game's went out to the window: the note goes at the
+BG_START_FRAMES'th after the first map loaded */
+static void bg_frame_out(void)
+{
+	static unsigned long frames;
+
+	if (!bg_vulkan || !bg_map_seen || frames > BG_START_FRAMES)
+		return;
+	if (++frames == BG_START_FRAMES)
+	{
+		char path[1024];
+
+		bg_start_note_path(path, sizeof(path));
+		remove(path);
+	}
+}
 
 /* the setup launcher's frame (launcher.c), before the game draws: bgfx
 started (once; the device's start then finds it so), the window cleared to
@@ -4216,6 +4745,17 @@ static void bg_window_presented(double start, double end)
 /* whether the window can't be seen (bg_present's pacing): SDL's flags, and
 on macOS the window's occlusion as bgfx's Metal reads it, which SDL does
 not always report */
+/* (a renderer measurement: debug.frame_times is set, so a covered window's
+frames are not paced to the display, as the OpenGL path's are not) */
+static BOOL bg_measuring(void)
+{
+	static int measuring = -1;
+
+	if (measuring < 0)
+		measuring = *config_string("debug.frame_times") != 0;
+	return measuring != 0;
+}
+
 static BOOL bg_window_hidden(void)
 {
 #ifdef __APPLE__
@@ -4322,7 +4862,7 @@ static void bg_clip_start(void)
 		free(bg.clip[index].pixels);
 		bg.clip[index].pixels = malloc(bg.clip[index].width * bg.clip[index].height * 4);
 	}
-	if (!bg.clip[index].pixels)
+	if (!bg.clip[index].pixels || !BGFX_HANDLE_IS_VALID(bg.clip[index].texture))
 		return;
 	bg_blit_2d(bg.present_view, bg.clip[index].texture, 0, back_buffer->texture, (uint16_t)bg.clip[index].width,
 		(uint16_t)bg.clip[index].height);
@@ -4412,7 +4952,7 @@ static void bg_present(void)
 				free(bg.capture_pixels);
 				bg.capture_pixels = malloc(bg.capture_width * bg.capture_height * 4);
 			}
-			if (bg.capture_pixels)
+			if (bg.capture_pixels && BGFX_HANDLE_IS_VALID(bg.capture))
 			{
 				bg_blit_2d(bg.present_view, bg.capture, 0, back_buffer->texture, (uint16_t)bg.capture_width,
 					(uint16_t)bg.capture_height);
@@ -4438,6 +4978,7 @@ static void bg_present(void)
 #endif
 
 		frame_number = bgfx_frame(BGFX_FRAME_NONE);
+		bg_frame_out();
 #ifdef __APPLE__
 		bg.account.libraries += bgfx_mtl_stats.libraries - before.libraries;
 		bg.account.pipelines += bgfx_mtl_stats.pipelines - before.pipelines;
@@ -4452,7 +4993,7 @@ static void bg_present(void)
 	/* (a covered or minimized window: bgfx shows nothing then, so nothing
 	waits for the display, and the game would run as fast as it can; the
 	frames are paced to the display's rate here instead) */
-	if (bg_window_hidden())
+	if (bg_window_hidden() && !bg_measuring())
 	{
 		static double hidden_next;
 		double interval = bg_display_interval(), now = stats_seconds();
@@ -4494,15 +5035,15 @@ static void bg_present(void)
 			(double)stats->gpuTimerFreq : 0.0;
 		double cpu = stats->cpuTimerFreq ? (double)stats->cpuTimeFrame * 1000.0 / (double)stats->cpuTimerFreq : 0.0;
 
-		platform_log("bgfx frame %lu: %lu draws, %lu skipped, %u views, %lu KB uniforms; GPU %.2f ms, frame %.2f ms; "
-			"%lu visibility tests, %lu seen, %lu waited; in bgfx_frame %.2f ms; vertices %lu cached, %lu streamed, "
-			"cache %lu MB", device.frame, bg.drawn / 60, bg.skipped / 60,
+		platform_log("bgfx frame %lu: %lu draws, %lu skipped (%lu for transient room), %u views, %lu KB uniforms; "
+			"GPU %.2f ms, frame %.2f ms; %lu visibility tests, %lu seen, %lu waited; in bgfx_frame %.2f ms; vertices %lu cached, %lu streamed, "
+			"cache %lu MB", device.frame, bg.drawn / 60, bg.skipped / 60, bg.stat_starved / 60,
 			(unsigned)bg.present_view + 1, bg.uniform_bytes / 1024, gpu, cpu, bg.stat_tests / 60, bg.stat_seen / 60,
 			bg.stat_waited / 60, bg.stat_frame_wait * 1000.0 / 60.0, bg.stat_cached_vertices / 60,
 			bg.stat_streamed_vertices / 60, bg.vertex_cache_bytes >> 20);
 		bg.stat_frame_wait = 0.0;
 		bg.stat_cached_vertices = bg.stat_streamed_vertices = 0;
-		bg.drawn = bg.skipped = bg.stat_tests = bg.stat_seen = bg.stat_waited = 0;
+		bg.drawn = bg.skipped = bg.stat_starved = bg.stat_tests = bg.stat_seen = bg.stat_waited = 0;
 	}
 	platform_video_swap();
 	bg_window_update();
@@ -4513,7 +5054,6 @@ static void bg_present(void)
 	bg.uniform_bytes = 0;
 	bg.view = 0;
 	bg.view_used = FALSE;
-	bg.blit_count = 0;
 	bgfx_set_view_mode(0, BGFX_VIEW_MODE_SEQUENTIAL);
 	bgfx_set_view_clear(0, BGFX_CLEAR_NONE, 0, 1.0f, 0);
 }
@@ -4703,6 +5243,73 @@ static const char *bg_renderer_name(void)
 
 /* bgfx started on the renderer of type, in the window (width by height
 pixels): whether it did */
+/* the depth buffers' formats, best first: the game's stencil needs D24S8
+(bgfx makes it D32_SFLOAT_S8_UINT on a Vulkan device without
+D24_UNORM_S8_UINT, AMD's: tools/bgfx-patches/0004), and the others draw
+without one (the stencil's tests are left out, bg_state) */
+static const struct
+{
+	bgfx_texture_format_t format;
+	const char *name;
+	BOOL stencil;
+} bg_depth_formats[] = {
+	{ BGFX_TEXTURE_FORMAT_D24S8, "D24S8", TRUE },
+	{ BGFX_TEXTURE_FORMAT_D32F, "D32F", FALSE },
+	{ BGFX_TEXTURE_FORMAT_D24, "D24", FALSE },
+	{ BGFX_TEXTURE_FORMAT_D32, "D32", FALSE },
+	{ BGFX_TEXTURE_FORMAT_D24F, "D24F", FALSE },
+	{ BGFX_TEXTURE_FORMAT_D16, "D16", FALSE },
+};
+
+/* whether bgfx's renderer draws into a texture of the format: its caps, less
+those HALO_BGFX_UNSUPPORTED names (a test's, "D24S8,D32F" say, to try the
+fallbacks on a GPU that has them) */
+static BOOL bg_format_drawable(const bgfx_caps_t *caps, bgfx_texture_format_t format, const char *name)
+{
+	const char *unsupported = getenv("HALO_BGFX_UNSUPPORTED");
+
+	if (unsupported && *unsupported)
+	{
+		size_t length = strlen(name);
+		const char *at;
+
+		for (at = unsupported; (at = strstr(at, name)) != NULL; at += length)
+		{
+			if ((at == unsupported || at[-1] == ',') && (at[length] == ',' || at[length] == '\0'))
+				return FALSE;
+		}
+	}
+	return (caps->formats[format] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER) != 0;
+}
+
+/* the targets' formats from the renderer's caps (bg.depth_format); FALSE
+when it draws into none of them, which leaves the game to OpenGL */
+static BOOL bg_formats_choose(void)
+{
+	const bgfx_caps_t *caps = bgfx_get_caps();
+	size_t index;
+
+	if (!bg_format_drawable(caps, BGFX_TEXTURE_FORMAT_BGRA8, "BGRA8"))
+	{
+		platform_log("bgfx: %s draws into no BGRA8 targets, so OpenGL", bgfx_get_renderer_name(bgfx_get_renderer_type()));
+		return FALSE;
+	}
+	for (index = 0; index < sizeof(bg_depth_formats) / sizeof(bg_depth_formats[0]); index++)
+	{
+		if (!bg_format_drawable(caps, bg_depth_formats[index].format, bg_depth_formats[index].name))
+			continue;
+		bg.depth_format = bg_depth_formats[index].format;
+		bg.depth_stencil = bg_depth_formats[index].stencil;
+		if (index)
+			platform_log("bgfx: depth buffers are %s here (no D24S8)%s", bg_depth_formats[index].name,
+				bg.depth_stencil ? "" : ", without a stencil");
+		return TRUE;
+	}
+	platform_log("bgfx: %s draws into no depth buffer format, so OpenGL",
+		bgfx_get_renderer_name(bgfx_get_renderer_type()));
+	return FALSE;
+}
+
 static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 {
 	bgfx_init_t init;
@@ -4737,7 +5344,7 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 	bg_d3d11 = type == BGFX_RENDERER_TYPE_DIRECT3D11;
 	init.swapChain.width = (uint32_t)width;
 	init.swapChain.height = (uint32_t)height;
-	init.reset = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	init.reset = (uint32_t)bg_reset_flags();
 	/* (only the renderer asked for: the shaders here are only its) */
 	init.fallback = false;
 	init.limits.maxTransientVbSize = 64u << 20;
@@ -4753,6 +5360,17 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 	names, draws with OpenGL: bgfx_vulkan_check.inl) */
 	if (bg_vulkan && !bg_vulkan_check(&init.vendorId, &init.deviceId))
 		return FALSE;
+	if (bg_vulkan && bg_start_note_wanted())
+	{
+		if (bg_last_start_failed())
+		{
+			platform_log("bgfx: the last Vulkan start closed before its first map drew %d frames, so OpenGL for this "
+				"start", BG_START_FRAMES);
+			platform_offer_opengl();
+			return FALSE;
+		}
+		bg_start_note();
+	}
 #endif
 #ifdef _WIN32
 	/* (Direct3D 11's shaders are compiled at run time, by Windows' own
@@ -4788,6 +5406,11 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 		bgfx_shutdown();
 		return FALSE;
 	}
+	if (!bg_formats_choose())
+	{
+		bgfx_shutdown();
+		return FALSE;
+	}
 	return TRUE;
 }
 
@@ -4805,7 +5428,10 @@ static BOOL bg_initialize(void)
 	bg.window = platform_sdl_window();
 	bg.view = 0;
 	bg.blit = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.copy = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.crt = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.present_quad = (bgfx_dynamic_vertex_buffer_handle_t)BGFX_INVALID_HANDLE;
+	bg.full_quad = (bgfx_vertex_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.overlay = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.capture = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
 #ifdef HALO_CAPTURE
@@ -4837,7 +5463,7 @@ static BOOL bg_initialize(void)
 	}
 	bg.window_width = width;
 	bg.window_height = height;
-	bg.reset_flags = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	bg.reset_flags = bg_reset_flags();
 	/* the border colors (bg_sampler_flags) */
 	{
 		static const float colors[3][4] = { { 0, 0, 0, 0 }, { 0, 0, 0, 1 }, { 1, 1, 1, 1 } };
@@ -4866,6 +5492,15 @@ static BOOL bg_initialize(void)
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
 		bgfx_vertex_layout_add(&bg.layout, (bgfx_attrib_t)index, 4, BGFX_ATTRIB_TYPE_FLOAT, false, false);
 	bgfx_vertex_layout_end(&bg.layout);
+	{
+		unsigned char corners[4 * BG_VERTEX_BYTES];
+
+		bg_quad_corners(corners, -1.0f, 1.0f);
+		bg.full_quad = bgfx_create_vertex_buffer(bgfx_copy(corners, sizeof(corners)), &bg.layout, BGFX_BUFFER_NONE);
+		bg.present_quad = bgfx_create_dynamic_vertex_buffer(4, &bg.layout, BGFX_BUFFER_NONE);
+		/* (none written yet: bg_blit writes the first) */
+		bg.present_quad_corner[0] = bg.present_quad_corner[1] = 0.0f;
+	}
 	for (index = 0; index < BG_UNIFORM_COUNT; index++)
 		bg.uniforms[index] = bgfx_create_uniform(bg_uniform_sources[index].name, BGFX_UNIFORM_TYPE_VEC4,
 			bg_uniform_sources[index].components == 1 ? 1 : bg_uniform_sources[index].count);
@@ -4902,6 +5537,9 @@ static BOOL bg_initialize(void)
 
 		if (!vertex->failed && !fragment->failed)
 			bg.blit = bgfx_create_program(vertex->shader, fragment->shader, false);
+		fragment = bg_shader_get(bg_copy_fragment_source, TRUE, 0, "copy pixel", TRUE);
+		if (!vertex->failed && !fragment->failed)
+			bg.copy = bgfx_create_program(vertex->shader, fragment->shader, false);
 		for (index = 0; index < 3; index++)
 		{
 			char name[24];

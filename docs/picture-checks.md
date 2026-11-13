@@ -5,7 +5,7 @@ and compares them with a reference. It's there to catch things like the
 Blood Gulch cliff holes before players do.
 
 It runs our Linux build on its own Xvfb display, so it needs a Linux machine
-(boogerflix-1 has everything), Xvfb, ImageMagick (`import`, `convert`) and
+with Xvfb, ImageMagick (`import`, `convert`) and
 Python 3. Nothing else.
 
 ## Running it
@@ -54,12 +54,11 @@ the hole maps stay in `--out`.
 
 ## Maps
 
-Maps only come through a data root of links, never copies. The script calls
-`~/halo-maps/new-data-root.sh` (the Mac) or `~/emulators/new-data-root.sh`
-(boogerflix-1). Those link the Xbox maps. `--maps-ce` links a folder of Custom
-Edition maps as `maps_ce` when the data root doesn't have one. On
-boogerflix-1 that's the retail Halo CE install's own `maps` folder in
-`~/hce/prefix`. Saves and settings go to a scratch folder that's deleted
+Maps only come through a data root of links, never copies. Set
+`HALO_DATA_ROOT_SCRIPT` to a script of your own that takes a folder and
+links your Xbox maps into it (`maps/`). `--maps-ce` links a folder of Custom
+Edition maps as `maps_ce` when the data root doesn't have one, such as a
+retail Halo CE install's own `maps` folder. Saves and settings go to a scratch folder that's deleted
 afterward. The build runs from a folder of links, so its own `config.toml`
 is never read or changed.
 

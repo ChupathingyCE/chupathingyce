@@ -35,6 +35,7 @@ Needs only a C compiler. Usage: test_port_config.py [--cc clang]
 import argparse
 import os
 import re
+import resource
 import shutil
 import subprocess
 import sys
@@ -141,6 +142,8 @@ DEFINES = {
 	"android": ["-U__APPLE__", "-DHALO_ANDROID", "-DHALO_GAME_BROWSER"],
 	"server": ["-U__APPLE__", "-DHALO_SERVER", "-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
 	"console": ["-U__APPLE__", "-DHALO_CONSOLE", "-DHALO_CONSOLE_GL_LAYER", "-DHALO_GAME_BROWSER"],
+	# (the original Xbox's: the settings only, test_xbox_follows_new_defaults)
+	"xbox": ["-U__APPLE__", "-DHALO_CONSOLE", "-DHALO_XBOX_CONSOLE", "-D_strnicmp=strncasecmp"],
 }
 
 STUB_PLATFORM = """#include <stddef.h>
@@ -197,6 +200,13 @@ STUB_SDL = """#include <stdbool.h>
 const char *SDL_GetBasePath(void);
 bool SDL_CreateDirectory(const char *path);
 void *SDL_LoadFile(const char *path, size_t *size);
+typedef struct SDL_IOStream SDL_IOStream;
+SDL_IOStream *SDL_IOFromFile(const char *file, const char *mode);
+size_t SDL_WriteIO(SDL_IOStream *context, const void *data, size_t size);
+bool SDL_FlushIO(SDL_IOStream *context);
+bool SDL_CloseIO(SDL_IOStream *context);
+bool SDL_RenamePath(const char *old_path, const char *new_path);
+bool SDL_RemovePath(const char *path);
 bool SDL_SaveFile(const char *path, const void *data, size_t size);
 void SDL_free(void *memory);
 enum { SDL_PATHTYPE_NONE, SDL_PATHTYPE_FILE, SDL_PATHTYPE_DIRECTORY, SDL_PATHTYPE_OTHER };
@@ -244,7 +254,7 @@ class Case:
 		environment["HALO_DATA_ROOT"] = str(self.folder)
 		environment.update(environment_extra or {})
 		result = subprocess.run([str(self.program), *arguments], capture_output=True, text=True,
-			env=environment, check=True)
+			env=environment, check=True, cwd=self.folder)
 		values = dict(re.findall(r"^([a-z_]+\.[a-z_0-9]+)=(.*)$", result.stdout, re.M))
 		return values, result.stdout
 
@@ -865,7 +875,7 @@ def test_delta_renamed(program, directory, defaults, kind):
 	check(len(value_lines(text, "pause_menu")[1]) == 1 and not value_lines(text, "pause_menu")[0],
 		"delta: pause_menu is not commented out once")
 	# (the moved value with its help text, and a blank line before each section)
-	check(re.search(r"^# Open DELTA by holding Back[^\n]*\n(# [^\n]*\n)*hold_back = true$", delta, re.M),
+	check(re.search(r"^# Open the Delta Guide by holding Back[^\n]*\n(# [^\n]*\n)*hold_back = true$", delta, re.M),
 		"delta: hold_back has no help text")
 	check(not re.search(r"[^\n]\n\[[a-z_]+\]$", text, re.M), "delta: a section without a blank line before it")
 	before = text
@@ -879,6 +889,39 @@ def test_delta_renamed(program, directory, defaults, kind):
 		f"delta/environment: {values}")
 	values, _ = case.run("get", "controls.delta", environment_extra={"HALO_KEY_GUIDE": "F6", "HALO_KEY_DELTA": "F7"})
 	check(values["controls.delta"] == "F7", f"delta/environment both: {values}")
+
+
+def test_interrupted_write(program, directory, defaults, kind):
+	"""a write stopped part way (the process killed as the file grows past a
+	limit, as a crash or a power loss stops it) leaves the old file whole:
+	the text goes to config.toml.new, and only a finished one is renamed
+	over config.toml; the next write takes the stray one's place"""
+	# (a console on the shared GL layer still writes in place: its own
+	# repository's SDL stand-ins have no SDL_RenamePath yet, port_config.c)
+	if kind == "console":
+		return
+	case = Case(program, directory / "interrupted")
+	fresh_file(case, kind)
+	case.run("write", "network.tunnel_port", "2310")
+	before = case.text()
+	limit = len(before.encode()) // 2
+
+	def small_files():
+		resource.setrlimit(resource.RLIMIT_FSIZE, (limit, limit))
+
+	environment = {key: value for key, value in os.environ.items()
+		if not key.startswith("HALO_") and key != "APPIMAGE"}
+	environment["PORT_CONFIG_TEST_FOLDER"] = str(case.folder)
+	environment["HALO_DATA_ROOT"] = str(case.folder)
+	result = subprocess.run([str(case.program), "write", "network.tunnel_port", "2320"], capture_output=True,
+		env=environment, preexec_fn=small_files)
+	check(result.returncode != 0, f"interrupted: the write was not stopped ({limit} bytes of {len(before)})")
+	check(case.text() == before, "interrupted: config.toml changed by a write that did not finish")
+	values, _ = case.get("network.tunnel_port")
+	check(values["network.tunnel_port"] == "2310", f"interrupted: tunnel_port is {values['network.tunnel_port']}")
+	values, _ = case.run("write", "network.tunnel_port", "2330")
+	check(values["network.tunnel_port"] == "2330", f"after: tunnel_port is {values['network.tunnel_port']}")
+	check(not (case.folder / "config.toml.new").exists(), "after: config.toml.new left beside the file")
 
 
 def test_layout(program, directory, defaults, kind):
@@ -945,6 +988,39 @@ def test_old_browser_address(program, directory, defaults, kind):
 	values, _ = case.get("network.browser_url")
 	check(values["network.browser_url"] == "https://lists.example.org", "custom browser_url lost")
 	check('browser_url = "https://lists.example.org"' in case.text(), "custom browser_url not kept in the file")
+
+
+def test_gearbox_menus_retired(program, directory, defaults, kind):
+	"""The Gearbox menus are no longer a menu set: a file that chose them
+	("gearbox", or the older "pc", in any case) is told once
+	(config_menus_retired_pending, the main menu's note in guide.c), then has
+	display.menus = "xbox" written, the menus it gets, and is not told
+	again. The two menu sets left, and a file that leaves the setting
+	alone, are never told."""
+	case = Case(program, directory / "menus_retired")
+
+	def retired():
+		values, output = case.run("menus_retired")
+		return re.search(r"^menus_retired=(\d)$", output, re.M).group(1) == "1", values
+
+	fresh_file(case, kind)
+	check(not retired()[0], f"menus_retired/{kind}: a new file is told")
+	for chosen in ("xbox", "chupathingy"):
+		case.path.write_text(f'config_version = 2\n\n[display]\nmenus = "{chosen}"\n')
+		check(not retired()[0], f"menus_retired/{kind}: {chosen} is told")
+	for chosen in ("gearbox", "pc", "Gearbox"):
+		case.path.write_text(f'config_version = 2\n\n[display]\nmenus = "{chosen}"\n')
+		told, values = retired()
+		check(told, f"menus_retired/{kind}: {chosen} is not told")
+		check(chosen in case.text(), f"menus_retired/{kind}: {chosen} rewritten before the player was told")
+		_, output = case.run("menus_retired_seen")
+		check("menus_retired=0" in output, f"menus_retired/{kind}: {chosen} still told after: {output}")
+		check(re.search(r'^menus = "xbox"$', case.text(), re.M) is not None,
+			f"menus_retired/{kind}: {chosen} not written as xbox: {case.text()!r}")
+		check(value_lines(case.text(), "menus")[0] == ['menus = "xbox"'],
+			f"menus_retired/{kind}: {chosen} still in the file: {value_lines(case.text(), 'menus')}")
+		told, values = retired()
+		check(not told and values["display.menus"] == "xbox", f"menus_retired/{kind}: told again: {values}")
 
 
 def test_packaged_install(program, directory, defaults, kind):
@@ -1095,6 +1171,34 @@ def test_follow_file(program, directory, defaults, kind):
 	check(float(match.group(1)) < 200.0, f"follow/{kind}: config_changes takes {match.group(1)} ns a call")
 
 
+def test_xbox_follows_new_defaults(program, directory):
+	"""The original Xbox has no screen to ask about new defaults on: a file it
+	wrote before one changed, the setting commented out at the old default,
+	follows the new one (an Xbox that ran an earlier build kept waiting for a
+	second player, warthog-xbox#106), and nothing is left pending; a value the
+	file names keeps."""
+	case = Case(program, directory / "xbox_follow")
+	# (the Xbox's file is d:\\config.toml, which here is that name in the
+	# folder the test runs in)
+	case.path = case.folder / "d:\\config.toml"
+	text = fresh_file(case, "xbox")
+	for key, old in (("start_with_one_player", "false"), ("follow_camera", '"long_waits"')):
+		text = re.sub(rf"^# {key} = .*$", f"# {key} = {old}", text, flags=re.M)
+	case.path.write_text(text)
+	count, output = pending(case)
+	check(count == 0, f"xbox/follow: asked: {count} {output}")
+	values, _ = case.get("game.start_with_one_player", "display.follow_camera")
+	check(values["game.start_with_one_player"] == "true" and values["display.follow_camera"] == "off",
+		f"xbox/follow: {values}")
+	case = Case(program, directory / "xbox_chosen")
+	case.path = case.folder / "d:\\config.toml"
+	text = fresh_file(case, "xbox")
+	text = re.sub(r"^# start_with_one_player = .*$", "start_with_one_player = false", text, flags=re.M)
+	case.path.write_text(text)
+	values, _ = case.get("game.start_with_one_player")
+	check(values["game.start_with_one_player"] == "false", f"xbox/chosen: {values}")
+
+
 def main():
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	parser.add_argument("--cc", default=os.environ.get("CC", "cc"))
@@ -1102,6 +1206,13 @@ def main():
 	failures = 0
 	with tempfile.TemporaryDirectory() as directory:
 		directory = Path(directory)
+		program = build(arguments.cc, "xbox", directory / "xbox")
+		try:
+			test_xbox_follows_new_defaults(program, directory / "xbox" / "cases")
+			print("ok   xbox: test_xbox_follows_new_defaults")
+		except AssertionError as error:
+			print(f"FAIL xbox: test_xbox_follows_new_defaults: {error}")
+			failures += 1
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
 			if kind == "desktop32":
@@ -1110,7 +1221,7 @@ def main():
 			for test in (test_unique_settings, test_new_file, test_previous_release_file, test_answered_first_question,
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
-				test_retired_setting, test_delta_renamed, test_layout, test_old_browser_address, test_packaged_install,
+				test_retired_setting, test_delta_renamed, test_interrupted_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
 				test_server_file, test_follow_file):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)

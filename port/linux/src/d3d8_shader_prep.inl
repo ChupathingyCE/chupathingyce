@@ -121,12 +121,69 @@ static struct
 	double worst, total;
 } hitches = { -1.0 };
 
+/* (debug.frame_times: every frame's time to a file, for the renderer
+measurements of tools/picture_check.py's kind: one line a frame, the clock's
+seconds, the milliseconds since the frame before, and the map; a "loaded"
+line when a map has finished loading) */
+static struct
+{
+	FILE *file;
+	BOOL checked;
+	unsigned long unflushed, lines;
+} frame_times;
+/* the most lines a run writes (about 10 MB; an hour at 60 Hz): past them,
+one line says so and the file is closed */
+#define FRAME_TIMES_MAXIMUM_LINES 250000
+
 static double prep_seconds(void)
 {
 	struct timespec now;
 
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
+}
+
+static FILE *frame_times_file(void)
+{
+	if (!frame_times.checked)
+	{
+		const char *path = config_string("debug.frame_times");
+
+		frame_times.checked = TRUE;
+		if (path && *path)
+		{
+			frame_times.file = fopen(path, "w");
+			if (!frame_times.file)
+				platform_log("frame times: %s could not be made", path);
+		}
+	}
+	return frame_times.file;
+}
+
+static void frame_times_write(const char *what, double interval, const char *map)
+{
+	FILE *file = frame_times_file();
+	struct timespec now;
+
+	if (!file)
+		return;
+	if (++frame_times.lines > FRAME_TIMES_MAXIMUM_LINES)
+	{
+		fprintf(file, "stopped\tafter %d lines\n", FRAME_TIMES_MAXIMUM_LINES);
+		fclose(file);
+		frame_times.file = NULL;
+		platform_log("frame times: stopped after %d lines", FRAME_TIMES_MAXIMUM_LINES);
+		return;
+	}
+	/* (the wall clock, so that a run's launch time compares with it) */
+	clock_gettime(CLOCK_REALTIME, &now);
+	fprintf(file, "%s\t%ld.%03ld\t%.3f\t%s\n", what, (long)now.tv_sec, (long)(now.tv_nsec / 1000000), interval * 1000.0,
+		map);
+	if (++frame_times.unflushed >= 60)
+	{
+		fflush(file);
+		frame_times.unflushed = 0;
+	}
 }
 
 static BOOL prep_renderer_up(void)
@@ -597,6 +654,7 @@ void d3d8_gl_map_loaded(const char *name)
 	char map[64];
 
 	prep_map_name(map, sizeof(map), name);
+	frame_times_write("loaded", 0.0, map);
 	if (prep_renderer_up())
 		prep_noting_start(map);
 	/* (a map loaded without its loading screen, one in the cache already:
@@ -645,11 +703,10 @@ static void prep_hitches(void)
 
 	if (hitches.seconds < 0.0)
 		hitches.seconds = config_integer("debug.frame_hitches") > 0 ? config_integer("debug.frame_hitches") / 1000.0 : 0.0;
-	if (hitches.seconds <= 0.0)
-		return;
 	interval = hitches.last > 0.0 ? now - hitches.last : 0.0;
 	hitches.last = now;
-	if (!*hitches.map)
+	frame_times_write("frame", interval, hitches.map);
+	if (hitches.seconds <= 0.0 || !*hitches.map)
 		return;
 	if (hitches.map_start < 0.0)
 	{

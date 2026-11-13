@@ -529,6 +529,31 @@ def test_wrong_answer_closes(harness):  # noqa: F811
         server.stop()
 
 
+def test_unanswered_challenges_hold_no_places(harness):  # noqa: F811
+    """A connection's first packet is anyone's, from any address: challenges
+    left unanswered, enough to take every place, keep no player out."""
+    import time
+    server = JoinServer(harness)
+    squatters = []
+    try:
+        # (as fast as one address is answered, a few a second)
+        for index in range(16):
+            squatter = Client(server.port)
+            squatter.send(b"\xfe\xfe\x01\x00\x00\x00\x00" + new_challenge(squatter.rng))
+            assert squatter.receive()[2] == 2
+            squatters.append(squatter)
+            if index % 3 == 2:
+                time.sleep(1.1)
+        time.sleep(1.1)
+        client = Client(server.port)
+        client.handshake()
+        assert client.reliable()[0][-1] == 4
+    finally:
+        for squatter in squatters:
+            squatter.sock.close()
+        server.stop()
+
+
 def test_off_by_default(harness):  # noqa: F811
     server = Server(harness)
     client = Client(server.port)
@@ -641,17 +666,7 @@ class JoinServer(Server):
     """the harness with Custom Edition's join wire on"""
 
     def __init__(self, harness):  # noqa: F811
-        import subprocess
-        import threading
-        from tools.test_gamespy_listing import free_udp_port
-        self.port = free_udp_port()
-        self.process = subprocess.Popen([str(harness), str(self.port), "", "0.0.0-test", "3", "joins"],
-                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-        line = self.process.stdout.readline().strip()
-        assert line == "started", line
-        self.output = []
-        self.reader = threading.Thread(target=self.read, daemon=True)
-        self.reader.start()
+        super().__init__(harness, extra=("joins",))
 
     def wait_for_output(self, text, seconds=3.0):
         import time

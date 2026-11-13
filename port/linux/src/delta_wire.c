@@ -1492,6 +1492,31 @@ int delta_wire_write_host_rules(unsigned char *data, delta_u32 session, const st
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HOST_RULES_SIZE;
 }
 
+/* ---------- the host's number */
+
+int delta_wire_read_host_number(const unsigned char *payload, int size, unsigned *number)
+{
+	*number = 0;
+	if (!payload || size < DELTA_WIRE_HOST_NUMBER_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD || !payload[0])
+		return 0;
+	*number = (unsigned)payload[2] | ((unsigned)payload[3] << 8);
+	return *number != 0;
+}
+
+int delta_wire_write_host_number(unsigned char *data, delta_u32 session, unsigned number)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (!number || number > 0xFFFF)
+		return 0;
+	clear(payload, DELTA_WIRE_HOST_NUMBER_SIZE);
+	payload[0] = DELTA_WIRE_HOST_NUMBER_VERSION;
+	payload[2] = (unsigned char)(number & 0xFF);
+	payload[3] = (unsigned char)(number >> 8);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_host_number, DELTA_WIRE_HOST_NUMBER_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HOST_NUMBER_SIZE;
+}
+
 /* ---------- voice */
 
 int delta_wire_voice_packet_cap(int kbps)

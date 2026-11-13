@@ -65,6 +65,7 @@ symbols in this file:
 #include "units/bipeds.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 /* ---------- constants */
 
@@ -177,6 +178,10 @@ static boolean unit_get_aim_assist_parameters(
 		struct unit_datum *unit= unit_get(unit_index);
 		long weapon_index= unit_inventory_get_weapon(unit_index, unit->unit.current_weapon_index);
 
+		/* port: none for a player under MCC's Eye Patch skull, "Auto aim
+		features disabled for all weapons" (mcc_skulls.c) */
+		if (weapon_index!=NONE && unit->unit.player_index!=NONE && mcc_skull_active(MCC_SKULL_EYE_PATCH))
+			return FALSE;
 		if (weapon_index!=NONE)
 		{
 			struct weapon_datum *weapon= weapon_get(weapon_index);
@@ -200,6 +205,26 @@ static boolean unit_get_aim_assist_parameters(
 	}
 
 	return FALSE;
+}
+
+/* port: reusable target query; MCC ray construction stays in mcc_projectiles.c. */
+long player_get_aim_assist_target(long player_index, real_point3d const *position,
+	real_vector3d const *direction, real_point3d *target_position, real *autoaim_level)
+{
+	struct player_datum *player = player_get(player_index);
+	long unit_index = unit_get_aiming_unit_index(player->unit_index);
+	struct aim_assist_parameters parameters;
+	struct aim_assist_target target;
+
+	*autoaim_level = 0.0f;
+	if (unit_get_aim_assist_parameters(unit_index, unit_get_zoom_level(unit_index), &parameters) &&
+		aim_assist(&parameters, position, direction, player->unit_index, player->team_index, &target))
+	{
+		*target_position = target.position;
+		*autoaim_level = target.autoaim_level;
+		return target.object_index;
+	}
+	return NONE;
 }
 
 static int compare_targets(
