@@ -43,7 +43,7 @@ Test builds are the `nightly` release and `-testing` tags, outside the numbering
 
 ## Bugs
 
-Use [the bug report form](https://github.com/ChupathingyCE/chupathingyce/issues/new?template=bug.yml), or #bug-reports on the [Discord](https://discord.gg/chupathingy).
+Use [the bug report form](https://github.com/ChupathingyCE/chupathingyce/issues/new?template=bug.yml), or #bug-reports on the [Discord](https://discord.gg/chupathingy). Send your logs with it: [docs/help.md](docs/help.md#send-your-logs) says how.
 
 ## Game files
 

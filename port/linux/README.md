@@ -7,8 +7,10 @@ OpenGL 4.1 takes; `HALO_GL_LEGACY=1` forces it, to test). It plays sound
 through SDL3. It accepts keyboard, mouse and
 gamepad input.
 
-The game is 32-bit code because its data (tags, cache files, saved games)
-contains 32-bit pointers, as on the Xbox.
+The game was 32-bit code first because its data (tags, cache files, saved
+games) contains 32-bit pointers, as on the Xbox. Most players now use the
+64-bit build, `ninja linux64` (refer to "64-bit" below). The 32-bit build
+is for older systems.
 
 ## Requirements
 
@@ -153,10 +155,8 @@ network, and it is a dedicated server too (`server/README.md`).
 Enter `build/linux/chupathingy`. The small `halo` script beside it starts
 `chupathingy`, for shortcuts and scripts made before the rename in 0.9.0.
 
-The Steam Deck is not a supported platform yet. The Linux build may run
-on it: unpack `chupathingyce-linux64-release.zip` into a folder (in Desktop
-Mode), and add `chupathingy` to Steam as a non-Steam game ("Add a Game" in the
-Games menu of Steam). Reports are welcome in #bug-reports on the Discord.
+On a Steam Deck, use the AppImage (`chupathingyce-linux64-release.AppImage`).
+The steps are in [docs/install.md](../../docs/install.md#steam-deck).
 
 The game data is the folder that contains `maps/`, from an Xbox disc image
 of any version of the game. The game looks for this folder in this
@@ -193,8 +193,10 @@ the game browser show the same choices in message boxes):
 A maps folder that isn't the Xbox maps later (Halo PC's ui.map, or none)
 opens the setup screen on Maps instead of a message and a quit. Held Shift
 or a controller's Back at start, `--setup`, or `launcher.show_at_start =
-"always"` open it too; runs nobody watches (`debug.hidden_window`,
-`debug.exit_after`, the null renderer, Steam Deck Game Mode) never show it.
+"always"` open it too, and so does SETUP in the menus' settings
+(`launcher.menu_entry`). In Steam Deck Game Mode it opens only when asked
+for: Back held at start, `--setup`, or SETUP. Runs nobody watches
+(`debug.hidden_window`, `debug.exit_after`, the null renderer) never show it.
 `debug.launcher_test` scripts it for tests and screenshots.
 
 Its Play section picks the mode: vanilla, or a pack with its own `ui.map`,
@@ -353,6 +355,11 @@ keyboard's), drawn in the Xbox menus' look.
 | say a line to everyone (text chat) | T |
 | say a line to your team | Y |
 | the chat's recent lines and players (M mutes one for you) | H |
+| talk in voice chat (hold, with `audio.voice_chat = "push_to_talk"`) | V |
+| switch the voice channel | B |
+| open or close the Delta Guide | F3 (on a Mac, F3 or backslash) |
+| take a screenshot | F9, Print Screen |
+| save a clip (with `clips.enabled`) | F10 |
 
 Always: \` opens the developer console, F12 releases or captures the mouse,
 F11 changes between fullscreen and window.
@@ -405,12 +412,12 @@ menus where it has the same, else a placeholder, listed in
 
 The campaign is wired: Campaign, on player 1's profile (the one last used),
 continues its saved game, starts a level it has reached at a difficulty (New
-Game), or loads or deletes any profile's saved game (Load Game). Many of the
-other functions behind the screens are not wired to this game yet
-(`port/assets/menus/UNWIRED.md`): the lists they fill (profiles, maps,
-servers, key bindings) are empty, and the settings they change do not
-change. The screens open, close and move between each other as the PC
-version's.
+Game), or loads or deletes any profile's saved game (Load Game). The
+multiplayer screens are wired too: the Server Browser, the map and game type
+lists, Server Setup and its START GAME. A few of the PC version's functions
+still do nothing here, such as the Direct IP screen's own fields and the
+Server Browser's filter settings (`port/assets/menus/UNWIRED.md`). The
+screens open, close and move between each other as the PC version's.
 
 `display.menus` chooses one of two menu sets:
 
@@ -571,7 +578,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.max_fps` | `0` | `HALO_MAX_FPS` | With vsync off, the most frames each second. `0`: twice the display's refresh rate (on Android, 120). `-1`: no limit, which can hang some Intel graphics (Raptor Lake), resetting the desktop's graphics too, and heats a phone. Under gamescope (the Steam Deck's Game Mode) with OpenGL, a limit at the display's refresh rate is given to the window as vsync, so the frames stay in step with the display and don't judder. A whole fraction of it (30 at 60 Hz) works the same way with SDL's x11 driver. With the Wayland driver the clock keeps the limit, because SDL takes any interval above 1 as 1 there. The log says when this applies. Everywhere else, and with bgfx, the clock keeps the limit as before. |
 | `display.stats_log` | `false` | `HALO_STATS_LOG` | `true`: a line a second in the log with the frame rate, the mode, the map, the renderer and the size of the 3D view (`STATS fps=120.2 mode=Slayer map=bloodgulch gpu="Adreno (TM) 735" res=1068x480`), for a bug report or to compare two builds. Nothing is drawn and nothing is sent. |
 | `display.anti_aliasing` | `"msaa2x"` on 64-bit computers, `"off"` on 32-bit ones, Android and the server | `HALO_ANTI_ALIASING` | The smoothing of jagged edges, which the Xbox did not have. `"off"`: none, as on the Xbox. `"fxaa"` or `"smaa"`: a pass over the 3D view after the game draws it. The HUD and the menus stay sharp. SMAA is the sharper and costs more. `"ssaa2x"`: the game draws at two times the resolution in each direction (at most the GPU's largest texture), and the picture is scaled down. The GPU does four times the work. Not with `display.resolution_scaling = "original"`. `"msaa2x"`, `"msaa4x"` or `"msaa8x"`: each pixel of the 3D view has that many samples (at most the GPU's). On Android, `"smaa"` gives FXAA and `"ssaa2x"` none. A change applies from the next frame. Refer to "Anti-aliasing" in "What operates". |
-| `display.renderer` | `"gl"` | `HALO_RENDERER` | What draws the game. `"gl"`: OpenGL. `"bgfx"`: an experimental test renderer under the same D3D8 interface, config-only with no menu row: Metal on macOS, Vulkan on Windows and Linux. On Windows, `"d3d11"` draws with Direct3D 11 instead, for testing on computers whose Vulkan is missing or bad; it is only used when chosen, and falls back to OpenGL. A Vulkan driver `display.vulkan_blocklist` skips goes to OpenGL. It is in every 64-bit desktop build (macOS, Windows x64, Linux x64; not the 32-bit builds, Android or consoles). If bgfx can't start (no working Vulkan driver, say), the game says so in the log and draws with OpenGL instead. The log names the backend and the GPU. Known differences: the Halo PC ammo and health meters, a brighter first-person pistol and grainy water. FXAA, SMAA and supersampling are OpenGL only, so with bgfx they become `"msaa2x"` and one line says so in the log. Read at start-up. |
+| `display.renderer` | `"gl"` | `HALO_RENDERER` | What draws the game. `"gl"`: OpenGL. `"bgfx"`: a test renderer under the same D3D8 interface, chosen on the RENDERER row of the display settings (OPENGL, VULKAN, METAL, DIRECT3D 11) and after a restart: Metal on macOS, Vulkan on Windows and Linux. On Windows, `"d3d11"` draws with Direct3D 11 instead, for testing on computers whose Vulkan is missing or bad; it is only used when chosen, and falls back to OpenGL. A Vulkan driver `display.vulkan_blocklist` skips goes to OpenGL. It is in every 64-bit desktop build (macOS, Windows x64, Linux x64; not the 32-bit builds, Android or consoles). If bgfx can't start (no working Vulkan driver, say), the game says so in the log and draws with OpenGL instead. The log names the backend and the GPU. Known differences: the Halo PC ammo and health meters, a brighter first-person pistol and grainy water. FXAA, SMAA and supersampling are OpenGL only, so with bgfx they become `"msaa2x"` and one line says so in the log. Read at start-up. |
 | `debug.gpu_flush_draws` | `-1` | `HALO_GPU_FLUSH_DRAWS` | Flush the GPU's pipeline every this many draws. `-1`: every 3 on Intel graphics with Mesa's driver, which can otherwise hang in the game's long runs of small draws and reset the desktop's graphics too. `0`: never. |
 | `debug.gpu_visibility_readback` | `"auto"` | `HALO_GPU_VISIBILITY_READBACK` | How the lens flare and light glow tests get their results. `auto`: read on the CPU, except on NVIDIA's driver, which copies them into a mapped buffer. AMD's driver loses results that way (no sun flares or light glows). `cpu` or `buffer` forces one. |
 | `debug.door_portals_log` | `false` | `HALO_DOOR_PORTALS_LOG` | Logs the level portals each door covers when it is paired with them (`source/objects/door_portals.c`). |
@@ -628,6 +635,8 @@ the setting for one start of the game. It has priority over the file.
 | `chat.quick_messages` | `"Nice shot\|Need backup\|On my way\|Thanks\|Good game\|Sorry"` | `HALO_CHAT_QUICK_MESSAGES` | A controller's quick lines, separated by `\|`: D-pad up shows the next, D-pad down says it (to your team in a team game). Empty: none. |
 | `display.per_pixel_lighting` | `false` | `HALO_PER_PIXEL_LIGHTING` | `false`: the models (characters, weapons, vehicles, scenery) are lit at each vertex and the light is blended between them, as on the Xbox. The light across a curved surface then shows facets, and a point light that passes close lights only the vertices it reaches. `true`: the models are lit at each pixel by the same lights (the ambient light, two distant lights and two point lights), which changes their look. |
 | `display.doors_block_light` | `true` | `HALO_DOORS_BLOCK_LIGHT` | `true`: a closed door stops a dynamic light behind it (a plasma bolt, an explosion, a flashlight in the next room) from lighting the walls and objects on your side. Each door is matched with the level portals it covers once it has rested at each end of its travel; a moving door lets light through. Drawing only: the AI's sense of light and the network are unchanged (`source/objects/door_portals.c`). `false`: the light comes through the door, as on the Xbox. This replaces the old `debug.doors_pass_light` key, which is gone. |
+| `display.light_effects` | `"auto"` | `HALO_LIGHT_EFFECTS` | Light from projectiles, muzzle flashes, glowing emitters and held weapons, with soft falloff, blocked by walls. `"high"`: all of it. `"low"`: only the shots and muzzle flashes. `"off"`: the game's own lighting, as on the Xbox. `"auto"`: `"high"`, or `"off"` on a software renderer. Drawing only. LIGHT EFFECTS in the display settings. Based on chestahh's dynamic lighting in GulchCE (`port/linux/game/lighting_config.c`). Desktop only. |
+| `display.theme` | `"blue"` | `HALO_THEME` | The colors of the Delta Guide and the setup screen: `"blue"` (HALO BLUE), `"green"` (DASHBOARD GREEN), `"orange"` (VISOR ORANGE), `"live"` (LIVE ORANGE) or `"red"` (CHUPATHINGY RED). A change shows at once. |
 | `display.particle_limit` | `4096` (the Switch: `2048`, the Xbox 360: `1024`) | `HALO_PARTICLE_LIMIT` | The most particles alive at once (sparks, smoke, casings, debris). When it is full, the oldest makes room for a new one. The Xbox had 1024. `0`: the port's own 8192. Changes at once. |
 | `display.particle_ticks` | `false` (consoles: `true`) | `HALO_PARTICLE_TICKS` | `true`: particles not attached to an object move once a 30 Hz tick, as on the Xbox, and are drawn smoothly between ticks. That saves collision tests. `false`: they move every frame, which is smoother at high refresh rates. Takes effect at the next map. |
 | `display.dynamic_light_limit` | `0` (consoles: `8`; the original Xbox: `0`) | `HALO_DYNAMIC_LIGHT_LIMIT` | The most dynamic lights (muzzle flashes, plasma, explosions) that light the level at once. The biggest on screen light the walls and floor; the rest light only the objects near them. `0`: no limit, as on the Xbox. Changes at once. |
@@ -645,6 +654,17 @@ the setting for one start of the game. It has priority over the file.
 | `audio.doppler` | `true` | `HALO_AUDIO_DOPPLER` | `true`: moving sounds are Doppler shifted, higher coming at you and lower going away (a Warthog, a Banshee, a projectile going past), from the velocities the game gives each sound, as the Xbox's DirectSound shifted them. `false`: every sound plays at its own pitch. Audio Setup: Doppler. |
 | `audio.reverb` | `true` (the Steam Link: `false`) | `HALO_REVERB` | `true`: the sounds of the world reverberate as the place the player is in does: the sound environments of the maps (a corridor, a cave, a large hall, outdoors) set the reverberation, as the I3DL2 reverb of the Xbox did. A sound behind a wall or a door is muffled in it too. `false`: no reverberation (sounds behind a wall are still muffled). |
 | `audio.resampling` | `"sinc"` (the Steam Link: `"linear"`) | `HALO_AUDIO_RESAMPLING` | How the sounds, most of them recorded at 22 kHz, are brought to the output's 48 kHz. `"sinc"`: a windowed sinc low pass keeps each sound's band (flat to about 9 kHz for a 22 kHz sound) and nothing above it. `"linear"`: linear interpolation, as before OpenCE's build 130: the top of each sound's band is duller (-4 dB at 8 kHz) and images of the band reach up to 22 kHz, a brighter, grainier sound. |
+| `audio.voice_chat` | `"off"` | `HALO_VOICE_CHAT` | Voice chat: `"off"`, `"push_to_talk"` (hold V, or the D-pad right) or `"open_mic"`. The microphone opens only when you first talk. Voice goes through the game's host over Delta Peer and is never recorded. Desktop and Android. |
+| `audio.voice_channel` | `"team"` | `HALO_VOICE_CHANNEL` | The channel you talk on: `"party"`, `"team"`, `"proximity"` (players near you, who hear you from where you stand) or `"everyone"` (where the host allows it). B, or the D-pad left, switches it. |
+| `audio.voice_volume`, `audio.voice_volume_party`, `audio.voice_volume_team`, `audio.voice_volume_proximity`, `audio.voice_volume_everyone` | `1.0` | `HALO_VOICE_VOLUME`, `HALO_VOICE_VOLUME_PARTY`, `HALO_VOICE_VOLUME_TEAM`, `HALO_VOICE_VOLUME_PROXIMITY`, `HALO_VOICE_VOLUME_EVERYONE` | Other players' voices, and each channel's, from 0.0 to 2.0. A channel at 0 is off: the host sends you none of it. |
+| `audio.voice_input_device` | `""` | `HALO_VOICE_INPUT_DEVICE` | The microphone, by its system name. Empty: the system's. |
+| `audio.voice_open_mic_level` | `0.01` | `HALO_VOICE_OPEN_MIC_LEVEL` | How loud you must be for open mic to send, from 0.001 to 1.0. |
+| `audio.voice_positional` | `true` | `HALO_VOICE_POSITIONAL` | `true`: proximity voices come from where the players are, with the game's 3D sound (and Headphone 3D). `false`: a plain pan and fade. |
+| `display.voice_speakers` | `true` | `HALO_VOICE_SPEAKERS` | Who is talking in voice chat, small, at the top right. Your own channel shows there while you talk either way. |
+| `network.voice` | `true` | `HALO_NET_VOICE` | Relay voice chat in games you host. Only players who turned voice on talk or hear it. |
+| `network.voice_party`, `network.voice_team`, `network.voice_proximity`, `network.voice_everyone` | `true`, `true`, `true`, `false` | `HALO_NET_VOICE_PARTY`, `HALO_NET_VOICE_TEAM`, `HALO_NET_VOICE_PROXIMITY`, `HALO_NET_VOICE_EVERYONE` | The channels players may talk on in games you host. |
+| `network.voice_lobby` | `true` | `HALO_NET_VOICE_LOBBY` | In games you host, everyone hears everyone in the lobby and after a game. |
+| `network.voice_range`, `network.voice_kbps` | `15`, `24` | `HALO_NET_VOICE_RANGE`, `HALO_NET_VOICE_KBPS` | How near is near for proximity voice, in world units (5 to 100), and the voice quality in kbps (8 to 64). Higher quality costs you more upload for each talker and each listener. |
 | `input.mouse_sensitivity` | `1.0` | `HALO_MOUSE_SENSITIVITY` | The multiplier for the mouse aim. |
 | `input.mouse_vertical_sensitivity` | `0.0` | `HALO_MOUSE_VERTICAL_SENSITIVITY` | The multiplier for the vertical mouse aim. `0`: the same as `input.mouse_sensitivity`. |
 | `input.invert_mouse` | `false` | `HALO_MOUSE_INVERT=1` sets `true` | `true`: the vertical mouse aim is inverted. |
@@ -664,6 +684,7 @@ the setting for one start of the game. It has priority over the file.
 | `game.move_old_map_folders` | `"ask"` | `HALO_MOVE_OLD_MAP_FOLDERS` | Moves maps from the old `maps/ce` and `md_maps` folders into `maps_ce/`, `maps_md/` and `maps_pc/` beside `maps/`: `"ask"`, `"yes"` or `"no"`. |
 | `launcher.show_at_start` | `"when_needed"` | `HALO_LAUNCHER_SHOW` | When the setup screen opens before the game: `"when_needed"` (the first start, missing maps, `--setup`, or Shift or a controller's Back held at start) or `"always"`. Refer to "Start the game". |
 | `launcher.hold_to_open` | `true` | `HALO_LAUNCHER_HOLD` | `true`: Shift or a controller's Back held at start opens the setup screen. |
+| `launcher.menu_entry` | `true` | `HALO_LAUNCHER_MENU_ENTRY` | `true`: SETUP in the menus' settings starts the game again on the setup screen. `false`: it is left out. |
 | `launcher.mode_choice`, `launcher.default_mode` | `"ask"`, `"vanilla"` | `HALO_LAUNCHER_MODE_CHOICE`, `HALO_LAUNCHER_DEFAULT_MODE` | With more than one way to play (a pack with its own menus): `"ask"` picks on the setup screen at each start, `"default"` starts `launcher.default_mode` (`"vanilla"`, or a pack's id such as `"cex"`). Refer to "Start the game". |
 | `game.language` | `""` | `HALO_LANGUAGE` | The language of the menus: `ja`, `de`, `fr`, `es` or `it`. Empty: English. |
 | `game.unlock_all_levels` | `false` | `HALO_UNLOCK_ALL_LEVELS` | `true`: a profile created afterward starts with all the campaign levels finished on all the difficulties. `false`: a new profile starts at The Pillar of Autumn, and each level opens when you finish the level before it, as on the Xbox. Existing profiles keep their progress. To start a profile over, type `profile_reset_campaign` in the console. |
@@ -739,6 +760,12 @@ the setting for one start of the game. It has priority over the file.
 | `update.offer_64bit` | `true` | `HALO_UPDATE_OFFER_64BIT` | The 32-bit Windows build only. `true`: on 64-bit Windows, when the game looks for a new version, it offers the 64-bit build once. `false`: it doesn't, and "Keep 32-bit" writes this. |
 | `crash_reports.upload` | `"ask"` | `HALO_CRASH_REPORTS` | Desktop builds (releases and nightlies). `"yes"`: the game sends a report of each crash to the developers, through `network.browser_url`. `"no"`: the game sends no reports. `"ask"`: the game asks after the next crash (on Linux and macOS, when it starts the next time) and writes the answer here. On the Privacy screen (Gearbox menus). Refer to "Crash reports" below and in [port/windows/README.md](../windows/README.md#crash-reports). |
 | `debug.update_answer` | `""` | `HALO_UPDATE_ANSWER` | The answer to the update question, for automatic tests: `yes`, `no` or `never`. Empty: the game asks. |
+| `debug.dump_url` | `""` | `HALO_DUMP_URL` | Where SEND MY LOGS sends them, for tests. Empty: the log dump site. |
+| `debug.log_full_paths` | `false` | `HALO_LOG_FULL_PATHS` | `true`: folder paths are written whole in `debug.txt` and the console, with this computer's account name. `false`: your home folder is written as `~` (`%USERPROFILE%` on Windows). Don't post a `debug.txt` written with this on. Takes effect at the next start. |
+| `debug.medal_test` | `""` | `HALO_MEDAL_TEST` | Tests: medals shown on the first player's HUD every 4 seconds, by their keys split by spaces (`"double_kill killing_spree"`), with `display.medals` on. |
+| `debug.voice_test` | `""` | `HALO_VOICE_TEST` | Voice chat tests: `"tone"` (a 440 Hz tone) or a WAV file (16-bit, 48 kHz) in place of the microphone, and each voice heard logged once a second. Release builds ignore it. |
+| `debug.audio_probe`, `debug.audio_capture_seconds` | `""`, `0.0` | `HALO_AUDIO_PROBE`, `HALO_AUDIO_CAPTURE_SECONDS` | Sound checks (`port/linux/game/audio_probe.c`): a probe file to run, which loads its map, plays its sounds at its spots, records them and quits (compare with `tools/audio_probe_compare.py`); or this many seconds of each game's sound recorded, with a log of the player's position and every sound started. |
+| `debug.network_test_items`, `debug.network_test_pickup_every`, `debug.network_test_melee`, `debug.network_test_bomb`, `debug.network_test_bomb_save` | `0.0`, `0.0`, `0.0`, `0.0`, `false` | `HALO_NETWORK_TEST_ITEMS`, `HALO_NETWORK_TEST_PICKUP_EVERY`, `HALO_NETWORK_TEST_MELEE`, `HALO_NETWORK_TEST_BOMB`, `HALO_NETWORK_TEST_BOMB_SAVE` | More automatic test steps, each every this many seconds: every machine logs its items for `tools/item_sync_check.py`, the pickup repeats, a melee blow between two players, and in a Bomb test the last player is stood on the bomb and then put in the goal (with `_save`, a defender saves it as it arms). `0`: never. |
 | `debug.exit_after` | `0.0` | `HALO_EXIT_AFTER` | The game stops after this number of seconds. `0`: never. |
 | `debug.screenshot_directory`, `debug.screenshot_every` | `""`, `0` | `HALO_SCREENSHOT_DIR`, `HALO_SCREENSHOT_EVERY` | The game writes each Nth frame to this folder as a BMP file. |
 | `debug.screenshot_window` | `false` | `HALO_SCREENSHOT_WINDOW` | `true`: those screenshots are of the window as shown, with the overlay's screens (Online Games and others) on the frame. |
@@ -769,6 +796,8 @@ the setting for one start of the game. It has priority over the file.
 | `delta.notify_in_game` | `false` | `HALO_DELTA_NOTIFY_IN_GAME` | The Delta Guide's notifications (a new invite or friend request) during a game. They always show in the menus. |
 | `delta.notify_online` | `false` | `HALO_DELTA_NOTIFY_ONLINE` | A notification in the menus when a friend comes online. Never during a game. |
 | `delta.bring_party` | `true` | `HALO_DELTA_BRING_PARTY` | The Delta Guide's BRING PARTY TO MY GAME: when you lead a party, the games you join or host are told to its members, who follow you (each can stay with B). |
+| `delta.follow_leader` | `"ask"` | `HALO_DELTA_FOLLOW_LEADER` | When your party's leader goes to a game: `"ask"` gives you a few seconds to stay and then follows, but in a game you stay unless you press join. `"always"` follows when the seconds run out, in a game too. `"never"` doesn't offer it. FOLLOW LEADER in the Delta Guide's PARTY. |
+| `debug.party_test` | `""` | `HALO_PARTY_TEST` | Party steps once the menus are up, separated by commas, for tests: `"create"`, `"join:<code>"`, `"invite:<handle>"` or another action. |
 | `debug.delta_open` | `false` | `HALO_DELTA_OPEN` | Opens the Delta Guide once the menus or a map are up, for tests and screenshots. |
 | `debug.delta_toast` | `""` | `HALO_DELTA_TOAST` | Shows a test notification with this text once the main menu is up. |
 | `debug.delta_section` | `""` | `HALO_DELTA_SECTION` | The section `debug.delta_open` opens on, by name (`PARTY`, `CLAN`). Empty: the first. |

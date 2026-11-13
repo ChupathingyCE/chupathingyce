@@ -6,7 +6,7 @@ When you host, your game also sends the match details (kills, medals, accuracy) 
 
 Your game never sends anyone's address or a hardware ID.
 
-You can turn each of these off on the Privacy page in Settings, or under `[network]` in `config.toml`:
+You can turn each of these off on the setup screen's NETWORK tab, on the Privacy page in Settings, or under `[network]` in `config.toml`:
 
 | Setting | Turns off |
 | --- | --- |
@@ -52,3 +52,30 @@ For each device the site keeps its device ID and public key, the copy it enrolle
 ## Games you host
 
 Set `report_events = false` under `[network]` in `config.toml`. It's on by default: the games you host send their Delta Stats (kills with positions, accuracy, medals, objectives) to stats.chupathingy.org for its match pages and heatmaps. Never anyone's address or hardware ID; OpenCE players are only their name, team and that game's score, kills and deaths. This stops Delta Stats only: a listed game's carnage report is still sent. To keep your hosted games listed but send neither, set `report_hosted_games = false`; `list_hosted_games = false` stops the listing too. All of these are also on the Privacy screen in Settings (Gearbox menus).
+
+## Voice chat
+
+Voice chat is off until you turn it on. Your voice goes through the game's
+host to the players who can hear you. Nobody records it, and it never goes
+to stats.chupathingy.org.
+
+## Logs and crash reports
+
+Your logs only leave your computer when you send them. **SEND MY LOGS** in
+the Delta Guide's SETTINGS sends `debug.txt` and the last crash report to
+dump.chupathingy.org, after asking. The setup screen's SEND MY LOGS also
+sends your `config.toml` if you say yes. Your computer's account name and
+network addresses are taken out first. Player names aren't.
+
+After a crash, the game asks once whether to send crash reports. Your
+answer is kept as `upload` under `[crash_reports]` in `config.toml`, and
+CRASH REPORTS on the setup screen's NETWORK tab changes it. A crash report
+has the build, your system, where the game crashed and the last lines of the
+log, with addresses taken out. On Windows it can also hold a small minidump:
+the crashed threads' stacks and registers, not the game's other memory.
+
+## Maps from hosts
+
+If you turn on maps from hosts, your game connects straight to the game's
+host to download a missing map. Like any connection, the host sees your
+address while it sends the map. Nothing about it goes to us.

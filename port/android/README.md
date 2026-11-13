@@ -1,5 +1,9 @@
 # Android
 
+The Android download is the native 64-bit build: see "The native 64-bit
+build" below (`ninja android64_apk`). The rest of this page starts with the
+older build, which is no longer released.
+
 `ninja android` builds the game for 64-bit ARM Android (arm64-v8a).
 `ninja android_apk` makes an app from it:
 `port/android/app/build/outputs/apk/debug/app-debug.apk`.
@@ -41,7 +45,9 @@ ninja) and these items:
 The app is `dev.horrible.chupathingyce`, and its name on the device is
 Chupathingy. Refer to "App ID, signing and versions".
 
-## The native 64-bit build (experimental)
+<a id="the-native-64-bit-build-experimental"></a>
+
+## The native 64-bit build
 
 `ninja android64` builds the game as native 64-bit code (LP64), as the
 Linux x86-64, Windows x64 and macOS builds do (`HALO_64BIT`,

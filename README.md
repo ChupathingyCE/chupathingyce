@@ -82,7 +82,7 @@ Download the latest release from the [Releases page](https://github.com/Chupathi
 | Android 9 or later, 64-bit | `chupathingyce-android64-release.zip` |
 | FreeBSD | `chupathingyce-freebsd64-release.zip` |
 
-Older 32-bit PCs, the Linux zip and the other ways to install are in [docs/install.md](docs/install.md).
+Step-by-step setup for each system, including the Steam Deck, is in [docs/install.md](docs/install.md#getting-started). Older 32-bit PCs and the Linux zip are there too.
 
 The game checks for updates when it starts and asks before installing one. It only installs updates we've signed. On a Mac, it opens the download page instead.
 
@@ -125,7 +125,8 @@ Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends
 - Our servers around the clock, plus the community's
 - Split screen for up to four, and System Link with no internet or account
 - Online co-op through the campaign
-- Text chat, and host tools to kick or ban
+- Friends, parties and clans in the Delta Guide (F3), with party links you can paste in Discord
+- Text and voice chat, and host tools to kick or ban
 
 **Maps**
 - Every Xbox map from your disc
@@ -193,7 +194,9 @@ Testing and Nightly still get each release. You can switch back to Release anyti
 
 ## Help
 
-Ask on the [Discord](https://discord.gg/chupathingy). It's also where people find games and report bugs. You can file bugs in [issues](https://github.com/ChupathingyCE/chupathingyce/issues) too. Attach `logs/debug.txt` from the game's folder.
+Ask on the [Discord](https://discord.gg/chupathingy). It's also where people find games and report bugs. You can file bugs in [issues](https://github.com/ChupathingyCE/chupathingyce/issues) too.
+
+Fixes for common problems, and how to send your logs, are in [docs/help.md](docs/help.md).
 
 ## Build it yourself
 

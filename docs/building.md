@@ -18,8 +18,8 @@ ninja            # the game for the computer you're on
 | `ninja windows` | `build/windows/chupathingy.exe` | [port/windows/README.md](../port/windows/README.md) |
 | `ninja windows64` | `build/windows64/chupathingy.exe`, the 64-bit game | [port/windows/README.md](../port/windows/README.md#64-bit) |
 | `ninja freebsd64` | `build/freebsd64/chupathingy`, on FreeBSD | [port/unix/README.md](../port/unix/README.md) |
-| `ninja android_apk` | the Android app | [port/android/README.md](../port/android/README.md) |
-| `ninja android64_apk` | the native 64-bit Android app (experimental) | [port/android/README.md](../port/android/README.md#the-native-64-bit-build-experimental) |
+| `ninja android64_apk` | the Android app, as released | [port/android/README.md](../port/android/README.md#the-native-64-bit-build) |
+| `ninja android_apk` | the older Android build, no longer released | [port/android/README.md](../port/android/README.md) |
 | `ninja server` | `build/server-<arch>/chupathingyce-server`, the dedicated server (Linux) | [server/docs/building.md](../server/docs/building.md) |
 | `ninja server-windows64` | `build/server-windows64/chupathingyce-server.exe`, the dedicated server for 64-bit Windows, on Windows | [server/docs/building.md](../server/docs/building.md) |
 
@@ -58,7 +58,7 @@ the build's generic side (`tools/console_build.py`).
 | Repository | Console | Status | Maintained by |
 | --- | --- | --- | --- |
 | [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox | Test builds: plays online, up to 32 players, with Halo CE+ maps, and Custom Edition maps from its Map Browser | Milenko |
-| [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 | Test builds on Discord: RGH/JTAG or a softmod (BadUpdate, BadAvatar); the newest runs in Xenia to the menu and Blood Gulch | Milenko |
+| [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 | Test builds on Discord: RGH/JTAG or a softmod (BadUpdate, BadAvatar); testers play them on real consoles, multiplayer first, up to 32 players | Milenko |
 | [ChupathingyCE/warthog-switch](https://github.com/ChupathingyCE/warthog-switch) | Switch | Working: boots and plays on Switch hardware; [releases](https://github.com/ChupathingyCE/warthog-switch/releases) | [thelinkin3000](https://github.com/thelinkin3000) |
 | [ChupathingyCE/warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu) | Wii U | Plays on hardware and joins servers online; [public test builds](https://github.com/ChupathingyCE/warthog-wiiu/releases) | Milenko |
 | [ChupathingyCE/warthog-ps3](https://github.com/ChupathingyCE/warthog-ps3) | PS3 | Work in progress, built with PSL1GHT; the game is Matt's `ps3` branch for now | [Mayo1970](https://github.com/Mayo1970) |
