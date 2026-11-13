@@ -360,6 +360,20 @@ F11 changes between fullscreen and window.
 One movement of the mouse wheel changes the weapon one time. A second
 movement after a short pause changes it again.
 
+The debug camera (in a game you play alone or host, not one you joined):
+hold backspace for a second, or the controller's black button (RB), to
+change between the first-person, flying and following cameras. On the
+flying camera, hold the middle mouse button to fly it, as in Custom
+Edition and Sapien: your movement keys move it, the mouse looks (with your
+sensitivity and inversion), R raises it, F lowers it, and the wheel changes
+its speed (up is faster). Let go and it stops; the player doesn't move
+while you fly. On a controller, click the right stick to fly and again to
+stop: the sticks move and look, the triggers (or R and F) raise and lower
+it, and the D-pad's up and down change its speed. `debug_camera_save` in
+the developer console writes the view to `camera.txt` in the save folder,
+and `debug_camera_load` puts the camera back there. Map scripts can't call
+either.
+
 In the menus, the mouse moves a pointer:
 
 - The item below the pointer gets the focus.

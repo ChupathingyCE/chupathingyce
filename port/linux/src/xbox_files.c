@@ -384,11 +384,9 @@ const char *platform_save_root(void)
 	return root;
 }
 
-/* whether an Xbox path is the game's log, d:\debug.txt or d:\debug.old.txt
-(errors.c), which is in logs/: its name, or NULL */
-static const char *log_file_name(const char *xbox_path)
+/* whether an Xbox path is d:\<one of names>: its name, or NULL */
+static const char *d_file_name(const char *xbox_path, const char *const *names, unsigned long count)
 {
-	static const char *const names[] = { "debug.txt", "debug.old.txt" };
 	const char *name = xbox_path;
 	unsigned long index;
 
@@ -397,7 +395,7 @@ static const char *log_file_name(const char *xbox_path)
 	name += 2;
 	while (*name == '\\' || *name == '/')
 		name++;
-	for (index = 0; index < sizeof(names) / sizeof(*names); index++)
+	for (index = 0; index < count; index++)
 	{
 		const char *a = name, *b = names[index];
 
@@ -410,6 +408,26 @@ static const char *log_file_name(const char *xbox_path)
 			return names[index];
 	}
 	return NULL;
+}
+
+/* whether an Xbox path is the game's log, d:\debug.txt or d:\debug.old.txt
+(errors.c), which is in logs/: its name, or NULL */
+static const char *log_file_name(const char *xbox_path)
+{
+	static const char *const names[] = { "debug.txt", "debug.old.txt" };
+
+	return d_file_name(xbox_path, names, sizeof(names) / sizeof(*names));
+}
+
+/* whether an Xbox path is one of the player's own files the game keeps on
+d:\, which are in the save root (a test's HALO_SAVE_ROOT keeps them
+there): the debug camera's d:\camera.txt (director.c's
+debug_camera_save and debug_camera_load): its name, or NULL */
+static const char *save_root_file_name(const char *xbox_path)
+{
+	static const char *const names[] = { "camera.txt" };
+
+	return d_file_name(xbox_path, names, sizeof(names) / sizeof(*names));
 }
 #ifdef HALO_WINDOW_REBASE
 /* A saved game is the game state written out raw, pointers and all
@@ -517,11 +535,17 @@ void platform_translate_path(const char *xbox_path, char *host_path, unsigned lo
 	const char *cursor = xbox_path;
 #endif
 	const char *log_name = log_file_name(xbox_path);
+	const char *save_name = save_root_file_name(xbox_path);
 	unsigned long length;
 
 	if (log_name)
 	{
 		snprintf(host_path, host_path_size, "%s/%s", platform_folder(_port_folder_logs), log_name);
+		return;
+	}
+	if (save_name)
+	{
+		snprintf(host_path, host_path_size, "%s/%s", platform_save_root(), save_name);
 		return;
 	}
 	snprintf(resolved, sizeof(resolved), "%s", platform_data_root());

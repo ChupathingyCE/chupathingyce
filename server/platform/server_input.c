@@ -48,6 +48,19 @@ int halo_linux_mouse_aiming(short gamepad_index)
 	return FALSE;
 }
 
+/* the debug camera's mouse and keyboard (director.c): none */
+int halo_linux_debug_camera_input(short gamepad_index, int free_camera, int *up, int *down, int *switch_key,
+	float *wheel)
+{
+	(void)gamepad_index;
+	(void)free_camera;
+	*up = FALSE;
+	*down = FALSE;
+	*switch_key = FALSE;
+	*wheel = 0.0f;
+	return FALSE;
+}
+
 int platform_input_scheme(void)
 {
 	return 0;
