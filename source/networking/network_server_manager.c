@@ -1426,6 +1426,7 @@ boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
 long dedicated_playlist_count(void);
 char const *dedicated_playlist_map(long entry);
 static int network_game_server_mcc_asked = -1;
+static void network_game_server_port_cooperative_apply(struct network_game_server *server, short difficulty);
 /* (when the number changed: the record is sent again a little later, which
 the Delta machines that follow it read at the new number; 0 for none) */
 static unsigned long network_game_server_mcc_resend_time;
@@ -1521,12 +1522,24 @@ lobby, or hosts another, changes nothing) */
 static unsigned long network_game_server_mcc_session;
 static unsigned long network_game_server_mcc_confirm_session;
 static struct network_game_server *network_game_server_mcc_confirm_server;
+/* (whether the question is out: asked and not yet answered or taken back) */
+static boolean network_game_server_mcc_asking;
+/* (a co-op level's difficulty, when the map asked about is a campaign
+level picked for co-op: its co-op settings go on with the map, on yes, and
+not before (#1124); NONE for a multiplayer map) */
+static short network_game_server_mcc_confirm_difficulty = NONE;
+/* (the co-op pick in progress: the difficulty the question carries, if the
+map change asks; NONE otherwise) */
+static short network_game_server_mcc_choosing_difficulty = NONE;
 
 static void network_game_server_mcc_confirm_answer(
 	boolean yes)
 {
 	struct network_game_server *server = global_network_game_server_get();
+	short difficulty = network_game_server_mcc_confirm_difficulty;
 
+	network_game_server_mcc_asking = FALSE;
+	network_game_server_mcc_confirm_difficulty = NONE;
 	if (!yes || !server || server->state != _network_game_server_state_pregame ||
 		!network_game_server_mcc_confirm_map[0] || server != network_game_server_mcc_confirm_server ||
 		network_game_server_mcc_confirm_session != network_game_server_mcc_session)
@@ -1536,7 +1549,8 @@ static void network_game_server_mcc_confirm_answer(
 	}
 	network_game_server_mcc_confirmed = TRUE;
 	main_set_multiplayer_map_name(network_game_server_mcc_confirm_map);
-	network_game_server_change_map_name(server, network_game_server_mcc_confirm_map);
+	if (network_game_server_change_map_name(server, network_game_server_mcc_confirm_map) && difficulty != NONE)
+		network_game_server_port_cooperative_apply(server, difficulty);
 	network_game_server_mcc_confirmed = FALSE;
 }
 
@@ -1554,6 +1568,8 @@ static boolean network_game_server_mcc_confirm(
 		return FALSE;
 	network_game_server_mcc_confirm_server = server;
 	network_game_server_mcc_confirm_session = network_game_server_mcc_session;
+	network_game_server_mcc_confirm_difficulty = network_game_server_mcc_choosing_difficulty;
+	network_game_server_mcc_asking = TRUE;
 	csstrncpy(network_game_server_mcc_confirm_map, map_name, sizeof(network_game_server_mcc_confirm_map) - 1);
 	network_game_server_mcc_confirm_map[sizeof(network_game_server_mcc_confirm_map) - 1] = 0;
 	snprintf(detail, sizeof(detail), "%ld player%s without MCC maps will leave.", count, count == 1 ? "" : "s");
@@ -1567,7 +1583,57 @@ static boolean network_game_server_mcc_confirm(
 #define network_game_server_mcc_version(map_name) ((void)sizeof(map_name))
 #define network_game_server_mcc_confirm(server, map_name) ((void)sizeof(server), (void)sizeof(map_name), FALSE)
 void network_game_server_mcc_playlist_changed(void) {}
+static boolean const network_game_server_mcc_asking = FALSE;
+static short network_game_server_mcc_choosing_difficulty = NONE;
 #endif
+
+/* port: the server's co-op settings for a campaign level it is on: the
+difficulty (and co-op's most players), and a gametype with no game engine,
+which is what makes a network game co-op (game.c, players.c) */
+static void network_game_server_port_cooperative_apply(
+	struct network_game_server *server,
+	short difficulty)
+{
+	struct game_variant variant;
+
+	csmemset(&variant, 0, sizeof(variant));
+	ustrncpy(variant.human_readable_game_description, L"Co-op",
+		NUMBEROF(variant.human_readable_game_description) - 1);
+	main_set_difficulty(difficulty);
+	network_game_server_port_set_cooperative(server, difficulty);
+	network_game_server_change_game_variant(server, &variant);
+}
+
+/* port: a campaign level chosen for co-op (the Xbox campaign's or an MCC
+package's, both level selects: ui_widget.c, ui_widget_event_handler_functions.c):
+the level, and its co-op settings with it. When the move to or from an MCC
+map asks the host first (network_game_server_mcc_confirm), nothing changes
+until it answers yes: a no leaves the lobby as it was, on its map and
+gametype (#1124). FALSE when the level was refused. */
+boolean network_game_server_port_change_cooperative_level(
+	struct network_game_server *server,
+	char const *map_name,
+	short difficulty)
+{
+	boolean changed;
+
+	if (!server || server->state != _network_game_server_state_pregame || !map_name || !map_name[0] ||
+		difficulty < 0 || difficulty >= NUMBER_OF_GAME_DIFFICULTY_LEVELS)
+	{
+		return FALSE;
+	}
+	main_set_multiplayer_map_name(map_name);
+	network_game_server_mcc_choosing_difficulty = difficulty;
+	changed = network_game_server_change_map_name(server, map_name);
+	network_game_server_mcc_choosing_difficulty = NONE;
+	if (!changed)
+		return FALSE;
+	/* (asked: the map and the co-op settings on yes) */
+	if (network_game_server_mcc_asking)
+		return TRUE;
+	network_game_server_port_cooperative_apply(server, difficulty);
+	return TRUE;
+}
 
 void network_game_server_dispose(
 	struct network_game_server *server)
@@ -1582,6 +1648,8 @@ void network_game_server_dispose(
 		invite_prompt_ask_cancel(network_game_server_mcc_confirm_answer);
 		network_game_server_mcc_session++;
 		network_game_server_mcc_confirm_map[0] = 0;
+		network_game_server_mcc_asking = FALSE;
+		network_game_server_mcc_confirm_difficulty = NONE;
 	}
 	/* (the usual number again; a dedicated server keeps its playlist's) */
 	if (!dedicated_server_active())
