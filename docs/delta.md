@@ -3350,7 +3350,7 @@ check it too):
 - **`serial`**: 1 to 4294967294 (0xFFFFFFFF says "takes no tables" on the wire); each table published gets a higher one.
   **`issued`**: when it was made (Unix seconds), for people; optional.
 - **Rows by wire, not by build.** Each build has a wire ID (`DELTA_WIRE` in
-  `delta.h`, `chupa-43a` today, from 0.9.1; `chupa-41a` from 0.8.1d; `chupa-39a` was 0.8.1b's and 0.8.1c's, `chupa-38a` 0.8.0h's; `chupa-32a` was 0.8.0's to 0.8.0g's and the original Xbox build of 2026-10-21's; `chupa-29a` came before it; `chupa-28a` was 0.7.4e's and 0.7.5's, `chupa-26a` was 0.7.2e's and 0.7.3e's, `chupa-24a` was 0.7.1e's, `chupa-23a` 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
+  `delta.h`, `chupa-44a` today, from the build that follows OpenCE's 44; `chupa-43a` from 0.9.1; `chupa-41a` from 0.8.1d; `chupa-39a` was 0.8.1b's and 0.8.1c's, `chupa-38a` 0.8.0h's; `chupa-32a` was 0.8.0's to 0.8.0g's and the original Xbox build of 2026-10-21's; `chupa-29a` came before it; `chupa-28a` was 0.7.4e's and 0.7.5's, `chupa-26a` was 0.7.2e's and 0.7.3e's, `chupa-24a` was 0.7.1e's, `chupa-23a` 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
   actually speaks. A row says which OpenCE numbers that wire was proven to
   play with: the number a host announces, and the range of hosts' numbers a
   client joins (each 1 to 65535, `minimum <= announce <= maximum`). An old
@@ -3585,6 +3585,20 @@ The row's maximum takes clients to 43's hosts; 43 in its `hosting` list takes
 its hosts there too, only after the cross-play gate proves each. Rows of older
 wires never name 43: their builds have none of these fields and would play a
 43 game wrongly.
+
+From `chupa-44a` on, OpenCE's 44 (their build-355) is built in too
+(`DELTA_LEGACY_NEWEST` 44): the number alone changed, so 44 is 43's layout
+and rules, and a build joins 44's hosts, plays them by its own rules, and
+hosts at 44 when a table's `hosting` list proves it (or a game asks for
+it: an MCC map's, `delta_legacy_mcc_version`). `tools/legacy_rows/chupa-44a.json`
+is the wire's row for serial 12 (clients to 45, hosts announcing 44, follows
+build-355) and `chupa-43a-hosting-44.json` the `chupa-43a` row widened the
+same way (a `"44"` fact that is 43's, so `delta_legacy_host_game_at(44)` is
+taken there too, and 44 in `hosting`); `serial-12.json` is the whole
+document made from serial 11 with both
+(`tools/delta_table.py make --serial 12 --from <serial 11> --row chupa-43a=41,11,44@build-355 --row chupa-44a=32,11,45@build-355 --hosting chupa-43a=44 --hosting chupa-44a=44 --layout chupa-43a=44:<43's facts>`).
+A host of either wire announcing 44 is left by OpenCE's 43 and 41 machines
+(one number per host, as ever); 44 is their Latest.
 
 A fact holds for its version and every later one until the next. A build
 uses facts only for versions past its own rules (`DELTA_LEGACY_NEWEST`, 38

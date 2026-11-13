@@ -369,8 +369,13 @@ built in (network_rules.h, "chupa-43a's facts": the join request's version
 word, the distributed header's further bytes and checkpoint epoch with its
 boundary message, a unit state's further parts, the riders' ejection), which
 a table's layouts can also say for later versions; the game as chupa-41a's
-with every older number. */
-#define DELTA_WIRE "chupa-43a"
+with every older number. chupa-44a: OpenCE's 44 built in (44 is 43's layout
+and rules under a new number, their build-355), an MCC map's game hosted at
+the newest MCC-capable number the build or a table proves rather than a
+number in the code, and a host's answer to OpenCE's MCC package request
+(103): declined (104, "off"), as this build shares no MCC packages (its
+joiners get the Workshop); the game as chupa-43a's otherwise. */
+#define DELTA_WIRE "chupa-44a"
 
 /* Wire compatibility ranges: the oldest wire each one plays the game with,
 without a desync and without losing what the older wire has (a feature the
@@ -395,7 +400,8 @@ has shipped a newer wire. */
 	X("chupa-38a", "chupa-28a") /* 33 to 38 played by the host's number; a host announcing 32 plays as chupa-32a's */ \
 	X("chupa-39a", "chupa-28a") /* the tagged advertisement and 39's dedicated flag; the game's messages as chupa-38a's, a host announcing 32 plays as chupa-32a's */ \
 	X("chupa-41a", "chupa-28a") /* the longer join request to hosts of 40 on; the game's messages as chupa-39a's */ \
-	X("chupa-43a", "chupa-28a") /* chupa-43a's facts, used only with a host of a version a table's layout gives them; the game's messages as chupa-41a's */
+	X("chupa-43a", "chupa-28a") /* chupa-43a's facts, used only with a host of a version a table's layout gives them; the game's messages as chupa-41a's */ \
+	X("chupa-44a", "chupa-28a") /* OpenCE's 44 built in (43's layout), MCC games at the newest proven number, 103 declined; the game's messages as chupa-43a's */
 
 /* Each wire's newest OpenCE network version that every build of it plays by
 its own rules (DELTA_LEGACY_NEWEST when it was made): the most a signed
@@ -410,7 +416,8 @@ version's rules has a new wire. */
 	X("chupa-38a", 38) \
 	X("chupa-39a", 39) \
 	X("chupa-41a", 41) \
-	X("chupa-43a", 43)
+	X("chupa-43a", 43) \
+	X("chupa-44a", 44)
 
 /* the oldest network version a build that reads the tagged advertisement
 says in its HELLO: chupa-39a's row above, the first such wire. A host whose
@@ -438,7 +445,7 @@ announces, for what that client reads: the game settings record of 35's
 layout, and whether it reports a static target's own damage
 (network_rules_host_settings_size). Builds before it said their
 HALO_PORT_NETWORK_VERSION there, 32 or older. */
-#define DELTA_LEGACY_NEWEST 43
+#define DELTA_LEGACY_NEWEST 44
 
 /* OpenCE's network versions (HALO_PORT_NETWORK_VERSION in its builds), the
 first of its releases with each, and whether the version's change is one the
@@ -489,7 +496,8 @@ first; the command repository's watch adds a row when it follows OpenCE's raise
 	X(40, "build-334", additive) /* the join request 234 bytes longer (a pass and a proof for OpenCE's own servers, sent as zeros), which a host of 40 needs and an older one ignores; a dedicated server's refusals 8 to 12; in no release of OpenCE's alone */ \
 	X(41, "build-334", additive) /* a refusal 13 (too many machines from one address), messages 78 and 79 laid out anew and 94 and 95 (map votes) new, all dropped by this build; co-op's flags bit 2 (a dedicated host) ignored */ \
 	X(42, "build-344", additive) /* in no release: the join request's version word, the distributed header 12 bytes (a checkpoint epoch, the host's boundary message 96), a unit state's scripted pose (bit 6), the settings record 64 bytes longer, MCC-only messages; this build plays both sides of it by the host's number (network_rules.h, "chupa-43a's facts") */ \
-	X(43, "build-344", additive) /* a unit state's deck part (bit 7) and 107 (riding, dropped), riders thrown from a vehicle on its side; with 42's changes, played by the host's number: a host of ours announces it only for a game it is asked to (delta_legacy_host_game_at) */
+	X(43, "build-344", additive) /* a unit state's deck part (bit 7) and 107 (riding, dropped), riders thrown from a vehicle on its side; with 42's changes, played by the host's number: a host of ours announces it only for a game it is asked to (delta_legacy_host_game_at) */ \
+	X(44, "build-355", additive) /* no message, record or size changed: the number alone (their MCC package sharing offers more and leaves stock resources out, which this build neither sends nor requests: a request of theirs is declined); 43's layout and rules */
 
 /* ---------- the legacy table (port/linux/src/delta.c)
 
