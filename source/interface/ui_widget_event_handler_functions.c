@@ -4711,6 +4711,17 @@ static boolean player_profiles_list_initialize(
 		on the built-in Default, whose empty name multiplayer refuses */
 		profile_index = player_profile_list_start(widget->parameters.list.list_items,
 			(short)widget->parameters.list.number_of_items, last_profile_index);
+		/* port: Stubbs mode's TWO PLAYER: player 2's list starts on a
+		profile of his own, not on the one player 1 just chose
+		(port/linux/game/stubbs_multiplayer.c) */
+		if (stubbs_mode_active())
+		{
+			short own = stubbs_multiplayer_profile_list_start((short)widget->local_player_index,
+				widget->parameters.list.list_items, (short)widget->parameters.list.number_of_items);
+
+			if (own != NONE)
+				profile_index = own;
+		}
 		if (profile_index != NONE)
 			widget->parameters.list.selected_index = (short)profile_index;
 	}

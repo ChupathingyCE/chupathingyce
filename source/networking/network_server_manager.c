@@ -487,6 +487,8 @@ symbols in this file:
 #include <time.h>
 #ifdef HALO_GAME_BROWSER
 #include "map_share.h" /* port: map sharing's downloading machines (port/linux/game/map_share_host.c) */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
 #define NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(machine_index) map_share_host_downloading(machine_index)
 #else
 #define NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(machine_index) FALSE
@@ -2561,6 +2563,14 @@ boolean network_game_server_accept_client_machine_into_game(
 			return FALSE;
 		}
 #endif
+		/* (and none in Stubbs mode, which hosts no online games yet:
+		port/linux/game/stubbs_multiplayer.c) */
+		if (stubbs_mode_active() && !network_game_server_client_machine_is_local(server, machine) &&
+			address.address.long_words[0] != IPV4_LOOPBACK_ADDRESS && stubbs_multiplayer_remote_machine_refused())
+		{
+			network_game_server_refusal_code = _rejection_code_game_is_closed;
+			return FALSE;
+		}
 		/* (and not one the host banned: its address or hardware id in
 		bans.txt) */
 		/* (the host's own client, which connects from 127.0.0.1, never) */
