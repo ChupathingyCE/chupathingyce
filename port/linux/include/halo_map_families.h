@@ -67,6 +67,23 @@ announce every Halo PC map) is a Custom Edition map's, as in the game's
 protocol (custom_maps\<name>) */
 short map_family_parse_listed(char const *map, char *file, long size);
 
+/* the first OpenCE network version whose hosts play MCC maps */
+#define MAP_FAMILY_OPENCE_MCC_VERSION 42
+
+/* an OpenCE host's public listing names an MCC map by its file alone
+("portent" for mcc_maps\<item id>\portent), as it names a Custom Edition
+map: the level of this machine's MCC maps whose file is that name, into
+level (size bytes), for a game listed at network version
+MAP_FAMILY_OPENCE_MCC_VERSION or later whose map is a bare file name that is
+not one of the Xbox's maps, when this machine has no Custom Edition map by
+that name (ce_present: then it stays the Custom Edition map it always was).
+level_at(index, context) is the index'th of count MCC levels
+(mcc_maps\<package>\<map>); the first with the name is taken (the join
+checks the host's content fingerprint whichever package it is). TRUE when
+found */
+boolean map_family_listed_mcc(char const *map, long version, boolean ce_present,
+	char const *(*level_at)(long index, void *context), long count, void *context, char *level, long size);
+
 /* (a pack's name, at most, without its terminator) */
 #define MAP_PACK_ID_LENGTH 8
 

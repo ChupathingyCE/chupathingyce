@@ -45,6 +45,14 @@ int mcc_workshop_wire_unpack(char const name[128], struct mcc_workshop_item *ite
  * name record: its Workshop tail, else, for an MCC level in a folder named by
  * an item id, that item; 1 when there is one with an id */
 int mcc_workshop_listing(char const name[128], struct mcc_workshop_item *item);
+/* port: (a joiner, refused) the item of the host's map name record: its
+ * Workshop tail, else, for an MCC level in a folder the host named by an item
+ * id (as Steam names it: OpenCE's hosts send no tail,
+ * tools/tests/opence_mcc), that item, its title Steam's when this machine
+ * knows the item, else ""; never this machine's own sidecar for a folder of
+ * the same name. 1 when there is one. Advisory only: the content fingerprint
+ * still decides the join */
+int mcc_workshop_host_item(char const name[128], struct mcc_workshop_item *item);
 /* The joiner's text; title is the host's, or the level's readable name. */
 void mcc_workshop_refusal_text(enum mcc_workshop_refusal kind, struct mcc_workshop_item const *item,
     char const *level, char *text, unsigned size);

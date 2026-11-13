@@ -76,6 +76,25 @@ int main(void) {
  memset(name+64,0x41,64);CHECK(!mcc_workshop_wire_unpack(name,&back));
  memcpy(name+64,"WS\1" "12x",7);memset(name+71,0,57);CHECK(!mcc_workshop_wire_unpack(name,&back));
  memset(name+64,0,64);memcpy(name+64,"WS\1",3);memset(name+67,'1',61);CHECK(!mcc_workshop_wire_unpack(name,&back));
+ /* a refused joiner's item of the host's: its tail; else, as OpenCE build-344's hosts send
+    (no tail: tools/tests/opence_mcc), the host's folder when it is an item id, never a sidecar */
+ memset(name,0,sizeof(name));strcpy(name,"mcc_maps\\2900306344\\portent");
+ CHECK(mcc_workshop_host_item(name,&back) && !strcmp(back.id,"2900306344") && !back.title[0]);
+ strcpy(item.id,"2900306344");strcpy(item.title,"Portent");
+ mcc_workshop_wire_pack(name,&item);
+ CHECK(mcc_workshop_host_item(name,&back) && !strcmp(back.title,"Portent"));
+ memset(name,0,sizeof(name));strcpy(name,"mcc_maps\\2899609719\\pat_beavercreek");
+ strcpy(steam_title,"Better Creek");
+ CHECK(mcc_workshop_host_item(name,&back) && !strcmp(back.id,"2899609719") && !strcmp(back.title,"Better Creek"));
+ steam_title[0]=0;
+ memset(name,0,sizeof(name));strcpy(name,"mcc_maps\\mypack\\level");
+ CHECK(!mcc_workshop_host_item(name,&back) && !back.id[0]);
+ memset(name,0,sizeof(name));strcpy(name,"mcc_maps\\level");
+ CHECK(!mcc_workshop_host_item(name,&back));
+ memset(name,0,sizeof(name));strcpy(name,"mcc_maps\\123456789012345678901\\level");
+ CHECK(!mcc_workshop_host_item(name,&back));
+ memset(name,0,sizeof(name));strcpy(name,"levels\\test\\bloodgulch\\bloodgulch");
+ CHECK(!mcc_workshop_host_item(name,&back));
  /* the texts */
  strcpy(item.id,"2899609719");strcpy(item.title,"Better Creek");
  mcc_workshop_refusal_text(MCC_WORKSHOP_MISSING,&item,"pat_beavercreek",text,sizeof(text));

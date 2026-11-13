@@ -64,6 +64,7 @@ void mcc_map_browser_text(struct mcc_map_browser const *browser, short row, wcha
 the shared code calls do nothing, their arguments unevaluated */
 #define mcc_maps_rescan() ((void)0)
 #define mcc_maps_campaign(a0) ((void)sizeof(a0), (boolean)0)
+#define mcc_maps_count(a0) ((void)sizeof(a0), (short)0)
 #define mcc_maps_description(a0) ((void)sizeof(a0), (wchar_t const *)L"")
 #define mcc_maps_directory() ((char const *)0)
 #define mcc_maps_find(a0) ((void)sizeof(a0), (short)NONE)

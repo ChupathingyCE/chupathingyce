@@ -511,6 +511,115 @@ static char const *game_map_display_name(
 	return map_display_name(game->map, text, size);
 }
 
+/* (map_family_listed_mcc's levels: this machine's MCC catalog) */
+static char const *mcc_level_at(
+	long index,
+	void *context)
+{
+	(void)context;
+	return mcc_maps_level_name((short)index);
+}
+
+/* OpenCE's hosts list a game on an MCC map by the map's file alone, as they
+do a Custom Edition map (tools/tests/opence_mcc: "portent" for
+mcc_maps\<item id>\portent). What this machine makes of each such name,
+asked of its folders at most every CE_MAP_CHECK_INTERVAL: its MCC level of
+that file (map_family_listed_mcc), else whether it has a Custom Edition
+map by it */
+static struct
+{
+	char listed[BROWSER_MAP_LENGTH];
+	char level[BROWSER_MAP_LENGTH];
+	boolean ce_present;
+	unsigned long time;
+} opence_names[64];
+
+/* whether a game is one OpenCE lists by a bare file name from network
+version 42 on (when its hosts play MCC maps); a game our own hosts list
+(they say their platform, and name an MCC map in full) never is */
+static boolean opence_bare_name(
+	struct browser_game const *game)
+{
+	return game->version >= MAP_FAMILY_OPENCE_MCC_VERSION && !game->has_platform && game->map[0] &&
+		!strpbrk(game->map, "\\/@") && map_family(game->map) == _map_family_custom_edition;
+}
+
+/* the answer for a bare name (opence_names), asked again when old (fresh)
+or never asked; NONE when not asked and not fresh */
+static long opence_name_entry(
+	char const *map,
+	long version,
+	boolean fresh)
+{
+	static long next;
+	long entry, found = NONE;
+
+	for (entry = 0; entry < (long)NUMBEROF(opence_names); entry++)
+	{
+		if (opence_names[entry].listed[0] && !csstrcasecmp(opence_names[entry].listed, map))
+		{
+			found = entry;
+			break;
+		}
+	}
+	if (!fresh || (found != NONE && system_milliseconds() - opence_names[found].time <= CE_MAP_CHECK_INTERVAL))
+		return found;
+	if (found == NONE)
+	{
+		found = next;
+		next = (next + 1) % (long)NUMBEROF(opence_names);
+	}
+	csstrncpy(opence_names[found].listed, map, sizeof(opence_names[found].listed) - 1);
+	opence_names[found].listed[sizeof(opence_names[found].listed) - 1] = 0;
+	opence_names[found].ce_present = FALSE;
+#ifdef HALO_CUSTOM_EDITION
+	opence_names[found].ce_present = ui_map_list_map_present(map);
+#endif
+	if (!map_family_listed_mcc(map, version, opence_names[found].ce_present, mcc_level_at, mcc_maps_count(FALSE),
+		NULL, opence_names[found].level, sizeof(opence_names[found].level)))
+	{
+		opence_names[found].level[0] = 0;
+	}
+	opence_names[found].time = system_milliseconds();
+	return found;
+}
+
+/* such games named by this machine's MCC level of their map's file, so
+the list marks them MCC, shows their Workshop item and lets them be
+joined; the join checks the host's content fingerprint as for any MCC game
+(mcc_identity.c). A name with no MCC level here, or a Custom Edition map
+here by it, stays as it was */
+static void name_opence_mcc_maps(
+	struct browser_game *games,
+	long count)
+{
+	long index, entry;
+
+	for (index = 0; index < count; index++)
+	{
+		if (!opence_bare_name(&games[index]))
+			continue;
+		entry = opence_name_entry(games[index].map, games[index].version, TRUE);
+		if (entry != NONE && opence_names[entry].level[0])
+			snprintf(games[index].map, sizeof(games[index].map), "%s", opence_names[entry].level);
+	}
+}
+
+/* whether a listed game's map is a bare name of OpenCE's that this machine
+has neither as an MCC map nor as a Custom Edition map: either it may be,
+and only its host's own name for it says which (wait_for_host), so a join
+is let through to ask, as for a map that may be downloaded */
+static boolean opence_map_unknown(
+	struct browser_game const *game)
+{
+	long entry;
+
+	if (!opence_bare_name(game))
+		return FALSE;
+	entry = opence_name_entry(game->map, game->version, FALSE);
+	return entry != NONE && !opence_names[entry].level[0] && !opence_names[entry].ce_present;
+}
+
 /* whether a game's map can be played here: an Xbox map, or a Custom Edition
 or HaloMD map in its family's folders, missing, or on a build without them;
 the folders asked again when fresh, or for another map, or now and then */
@@ -531,6 +640,10 @@ static short ce_map_state(
 	}
 	if (family == _map_family_xbox)
 		return _ce_map_none;
+	/* (a bare name of OpenCE's this machine has no map by: missing, and
+	joined to see which it is) */
+	if (opence_map_unknown(game))
+		return _ce_map_missing;
 #ifdef HALO_CUSTOM_EDITION
 	if (fresh || strcmp(browser_screen.ce_map, game->map) ||
 		system_milliseconds() - browser_screen.ce_map_time > CE_MAP_CHECK_INTERVAL)
@@ -556,6 +669,11 @@ static boolean ce_map_downloadable(
 {
 	char file[BROWSER_MAP_LENGTH];
 
+	/* (OpenCE's bare name of a map this machine has none by: the host's own
+	name for it, on joining, says whether it is a Custom Edition map to
+	download or an MCC map to get from the Workshop: wait_for_host) */
+	if (opence_map_unknown(game))
+		return TRUE;
 	return map_file(game->map, file, sizeof(file)) == _map_family_custom_edition &&
 		ce_map_state(game, FALSE) == _ce_map_missing && map_download_possible(file);
 }
@@ -1594,6 +1712,19 @@ static void wait_for_host(
 				offer_map(file, advertisement.map_version);
 				return;
 			}
+			/* (a Custom Edition map that can't be downloaded: the join that
+			only OpenCE's bare name let through (opence_map_unknown) given up
+			before the map is loaded) */
+			if (family == _map_family_custom_edition && !ui_map_list_family_present(family, file))
+			{
+				char path[BROWSER_MAP_LENGTH + 16], text[BROWSER_MAP_LENGTH + 64];
+
+				browser_screen.connecting = FALSE;
+				snprintf(path, sizeof(path), "%s/%s.map", map_family_folder(family), file);
+				snprintf(text, sizeof(text), JOIN_REASON_MAP_MISSING, path);
+				set_status(text);
+				return;
+			}
 		}
 #endif
 	}
@@ -1744,6 +1875,7 @@ static void fetch_games(
 		csstrncpy(invite, browser_screen.games[browser_screen.selected].invite, sizeof(invite) - 1);
 	invite[sizeof(invite) - 1] = 0;
 	browser_screen.count = (short)browser_get_games(browser_screen.games, BROWSER_MAXIMUM_GAMES);
+	name_opence_mcc_maps(browser_screen.games, browser_screen.count);
 	/* (co-op games are listed with the others, whatever list they came from;
 	the filter, Back, picks which kind, in either list) */
 	for (index = other = 0; index < browser_screen.count; index++)
@@ -1913,6 +2045,13 @@ static char const *ce_map_blocker(
 				snprintf(path, sizeof(path), "maps_mcc/%s.map", package);
 				snprintf(text, (size_t)size, JOIN_REASON_MAP_MISSING, path);
 			}
+			return text;
+		}
+		/* (OpenCE's bare name of a map this machine has none by: by its
+		name, a Custom Edition or an MCC map, which the join finds out) */
+		if (opence_map_unknown(game))
+		{
+			snprintf(text, (size_t)size, JOIN_REASON_MAP_DOWNLOAD, game->map);
 			return text;
 		}
 		/* (a hashed name by the file the player knows: map_archive.h) */
@@ -2310,6 +2449,7 @@ boolean browser_screen_invite_game(
 	if (length < BROWSER_INVITE_LENGTH)
 		return FALSE;
 	count = (short)browser_get_games(games, BROWSER_MAXIMUM_GAMES);
+	name_opence_mcc_maps(games, count);
 	for (index = 0; index < count; index++)
 	{
 		if (strlen(games[index].invite) == BROWSER_INVITE_LENGTH &&
@@ -2536,6 +2676,44 @@ offer's while it is) */
 		break;
 	default: break;
 	}
+}
+
+static short badge_family(char const *map);
+static char const *family_badge_tag(short family, char const *map);
+
+/* (the network test's browse, network_test.c) the screen's index'th game:
+its map as listed, its name and tag as the list shows them, and what stops
+a join ("-" for nothing), as a line; FALSE past the last */
+boolean browser_screen_debug_game(
+	long index,
+	char *text,
+	long size)
+{
+	char name[BROWSER_MAP_LENGTH], blocker[160];
+	struct browser_game const *game;
+	short family;
+
+	if (index < 0 || index >= browser_screen.count)
+		return FALSE;
+	game = &browser_screen.games[index];
+	family = badge_family(game->map);
+	if (!ce_map_blocker(game, blocker, sizeof(blocker)))
+		snprintf(blocker, sizeof(blocker), "-");
+	snprintf(text, (size_t)size, "map %s, shown as %s [%s], version %u, join: %s", game->map,
+		game_map_display_name(game, name, sizeof(name)), family_badge_tag(family, game->map),
+		(unsigned)game->version, blocker);
+	return TRUE;
+}
+
+/* (the network test's browse:join) the screen's index'th game picked, as A
+on it does */
+void browser_screen_debug_join(
+	long index)
+{
+	if (index < 0 || index >= browser_screen.count)
+		return;
+	browser_screen.selected = (short)index;
+	join_selected();
 }
 
 /* debug.workshop_offer "<id>:<title>": the join's Workshop offer over the

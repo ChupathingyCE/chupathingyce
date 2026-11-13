@@ -156,6 +156,39 @@ short map_family_parse_listed(
 	return _map_family_custom_edition;
 }
 
+boolean map_family_listed_mcc(
+	char const *map,
+	long version,
+	boolean ce_present,
+	char const *(*level_at)(long index, void *context),
+	long count,
+	void *context,
+	char *level,
+	long size)
+{
+	long index;
+
+	if (!map || version < MAP_FAMILY_OPENCE_MCC_VERSION || ce_present || !level_at || !level || size <= 0 ||
+		map_family_parse_listed(map, NULL, 0) != _map_family_custom_edition || strpbrk(map, "\\/@"))
+	{
+		return FALSE;
+	}
+	for (index = 0; index < count; index++)
+	{
+		char const *candidate = level_at(index, context);
+		char const *leaf = candidate ? strrchr(candidate, '\\') : NULL;
+
+		/* (mcc_maps\<package>\<map>: its last part the file's name) */
+		if (!leaf || _strnicmp(candidate, "mcc_maps\\", 9) || _stricmp(leaf + 1, map))
+			continue;
+		if ((long)strlen(candidate) >= size)
+			continue;
+		snprintf(level, (size_t)size, "%s", candidate);
+		return TRUE;
+	}
+	return FALSE;
+}
+
 boolean map_family_is_xbox_format(
 	short family)
 {
