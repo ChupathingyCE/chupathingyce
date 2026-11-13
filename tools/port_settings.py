@@ -183,8 +183,8 @@ SCREENS = {
                  "While dead, follow a player's view, if the host allows it.", None),
                 ("VERSION WATERMARK:", "display.version_watermark", ON_OFF,
                  "Show the version while playing.", None),
-                ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg")],
-                 "Classic looks like Halo's own titles.\nCyborg matches the menu text.",
+                ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg"), ("HALO", "halo")],
+                 "Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files.",
                  # (not on the consoles, the Switch included, which have the
                  # classic titles only: HALO_CONSOLE_NO_TITLE_CHOICE; last,
                  # so the Switch's list has no gap)

@@ -120,6 +120,7 @@ tools/test_steam_bridge.py
 tools/test_steam_content.py
 tools/test_steam_workshop.py
 tools/test_tag_swap_tables.py
+tools/test_title_tool.py
 tools/test_touch_menu.py
 tools/test_tricks.py
 tools/test_ui_point.py

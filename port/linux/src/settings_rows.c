@@ -97,7 +97,7 @@ static const char *const renderer_names[] = { "OPENGL", "VULKAN", NULL };
 #endif
 static const char *const menus_choices[] = { "xbox", "gearbox", "chupathingy", NULL };
 /* display.title_font's (hud_hires.c, menu_files.c, ui_overlay.c) */
-static const char *const title_font_choices[] = { "classic", "cyborg", NULL };
+static const char *const title_font_choices[] = { "classic", "cyborg", "halo", NULL };
 static const char *const channels_choices[] = { "auto", "stereo", "5.1", "7.1", NULL };
 static const char *const hrtf_choices[] = { "on", "off", "auto", NULL };
 static const char *const buffer_choices[] = { "256", "512", "1024", "2048", "4096", NULL };

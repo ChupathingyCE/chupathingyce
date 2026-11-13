@@ -315,7 +315,8 @@ HALO_CONSOLE_NO_TITLE_CHOICE
 	the second set display.title_font = "cyborg" draws (port/assets/
 	titles_cyborg and the menus' ce/port_cyborg, about 2.5 MB of pictures):
 	every console, for its memory; the desktop builds and the phones have
-	both (HALO_TITLE_CHOICE)
+	both (HALO_TITLE_CHOICE), and display.title_font = "halo", the titles
+	made from the player's own ui.map (port/linux/src/title_tool.c)
 HALO_CONSOLE_ANAMORPHIC_SCREEN
 	a console that draws 640x480 and can show it on a 16:9 television,
 	which stretches the picture to fit (display.widescreen). The port says

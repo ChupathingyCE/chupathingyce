@@ -431,7 +431,9 @@ static const struct config_setting config_settings[] =
 		"high-res fonts." },
 	{ "display.title_font", _config_string, "\"classic\"", "HALO_TITLE_FONT", _environment_value, _platform_all,
 		"The font of the menus' titles. \"classic\" looks like Halo's own titles.\n"
-		"\"cyborg\" uses the same font as the menu text. A change shows at once.\n"
+		"\"cyborg\" uses the same font as the menu text. \"halo\" draws the\n"
+		"screens' titles in Halo's own lettering, made from your own ui.map\n"
+		"(nothing is saved or shared). A change shows at once.\n"
 		"The consoles have \"classic\" only." },
 	{ "display.high_res_hud", _config_boolean, "true", "HALO_HIGH_RES_HUD", _environment_value, _platform_all,
 		"Draw the HUD from the high-res assets." },
@@ -4266,7 +4268,7 @@ static const struct
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
-	{ "display.title_font", { "classic", "cyborg", NULL }, "\"classic\"" },
+	{ "display.title_font", { "classic", "cyborg", "halo", NULL }, "\"classic\"" },
 	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"none\"" },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
