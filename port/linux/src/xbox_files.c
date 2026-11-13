@@ -507,6 +507,14 @@ static int translate_workshop(const char *cursor, char *resolved, unsigned long 
 	return 1;
 }
 
+/* the save root's folder of the drives (platform_save_drive_folder) */
+static char save_drive_folder[32];
+
+void platform_save_drive_folder(const char *folder)
+{
+	snprintf(save_drive_folder, sizeof(save_drive_folder), "%s", folder ? folder : "");
+}
+
 void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size)
 {
 	char resolved[1024];
@@ -533,7 +541,16 @@ void platform_translate_path(const char *xbox_path, char *host_path, unsigned lo
 		{
 			struct posix_file_information information;
 
-			snprintf(resolved, sizeof(resolved), "%s/%c", platform_save_root(), drive);
+			if (save_drive_folder[0])
+			{
+				/* (a mode's own folder: platform_save_drive_folder) */
+				snprintf(resolved, sizeof(resolved), "%s/%s", platform_save_root(), save_drive_folder);
+				if (posix_stat(resolved, &information) != 0)
+					posix_make_directory(resolved);
+				snprintf(resolved, sizeof(resolved), "%s/%s/%c", platform_save_root(), save_drive_folder, drive);
+			}
+			else
+				snprintf(resolved, sizeof(resolved), "%s/%c", platform_save_root(), drive);
 			/* every Xbox drive always exists; create its directory on first use */
 			if (posix_stat(resolved, &information) != 0)
 				posix_make_directory(resolved);
