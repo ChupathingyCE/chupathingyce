@@ -283,6 +283,10 @@ void players_unzoom_all(
 void player_control_unzoom(long unit_index);
 real_euler_angles2d const *player_control_get_facing_angles(
 	short local_player_index);
+void player_control_get_debug_camera_input(
+	short local_player_index,
+	real_vector2d *throttle,
+	real_euler_angles2d *facing_delta);
 real_vector3d *player_control_get_facing_direction(
 	short local_player_index,
 	real_vector3d *facing_direction);

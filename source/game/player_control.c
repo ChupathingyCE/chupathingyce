@@ -398,6 +398,12 @@ limits were stepped once per input update, a tick on the Xbox, so they step
 by the ticks the frame lasted; an impulse applied from a tick steps by one. */
 static real player_control_angle_step_ticks = 1.f;
 static real player_control_autolevel_time[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+/* port: each local player's movement and look change as player control
+made them from the sticks, keys and mouse (sensitivity and inversion
+applied), kept before the director's inhibit zeroes them: the debug camera
+flies by them (player_control_get_debug_camera_input, director.c) */
+static real_vector2d player_control_debug_camera_throttle[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+static real_euler_angles2d player_control_debug_camera_facing[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 
 /* ---------- public code */
 
@@ -670,8 +676,15 @@ static void handle_one_player_input(
 			player->desired_angles.yaw);
 	}
 
-	if (director_inhibited_input(local_player_index) ||
-		player_control_port_menu_has_controller(local_player_index))
+	/* port: (a menu over the player's controller takes its input before
+	the debug camera's copy is kept; the director's inhibit after it) */
+	if (player_control_port_menu_has_controller(local_player_index))
+	{
+		csmemset(&input, 0, sizeof(input));
+	}
+	player_control_debug_camera_throttle[local_player_index] = input.throttle;
+	player_control_debug_camera_facing[local_player_index] = input.facing_delta;
+	if (director_inhibited_input(local_player_index))
 	{
 		csmemset(&input, 0, sizeof(input));
 	}
@@ -868,6 +881,26 @@ static void handle_one_player_input(
 			action.desired_facing.yaw);
 		update_client_queue(&action);
 	}
+
+	return;
+}
+
+/* port: a local player's movement (throttle, -1 to 1 forward and left) and
+look change (radians this update) as player control last made them, before
+the director's inhibit (the debug camera's: director.c) */
+void player_control_get_debug_camera_input(
+	short local_player_index,
+	real_vector2d *throttle,
+	real_euler_angles2d *facing_delta)
+{
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+	{
+		csmemset(throttle, 0, sizeof(*throttle));
+		csmemset(facing_delta, 0, sizeof(*facing_delta));
+		return;
+	}
+	*throttle = player_control_debug_camera_throttle[local_player_index];
+	*facing_delta = player_control_debug_camera_facing[local_player_index];
 
 	return;
 }

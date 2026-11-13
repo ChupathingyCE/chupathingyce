@@ -292,6 +292,9 @@ with their authors credited in each commit.
   clock read only when something needs it.
 - [theLlamaNet](https://github.com/theLlamaNet): the Android on-screen touch
   controls, through JoshRob297's halo-ce-touch.
+- Guven (GuvenHuso) and hispanorum (OpenCE): the debug camera flown by
+  mouse and keyboard, and its saved spot kept for the player in view
+  (written from a description of their work).
 
 </details>
 

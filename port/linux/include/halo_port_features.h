@@ -156,6 +156,13 @@ says it hears voices, so no host sends it any */
 #define HALO_CONSOLE_NO_VOICE
 #endif
 
+/* the debug camera flown by mouse and keyboard (source/camera/director.c,
+halo_linux_debug_camera_input in port/linux/src/xinput_sdl.c): a console
+has no mouse, and its controller flies the camera as before */
+#ifndef HALO_CONSOLE_NO_DEBUG_CAMERA_KEYS
+#define HALO_CONSOLE_NO_DEBUG_CAMERA_KEYS
+#endif
+
 #endif /* HALO_CONSOLE || HALO_XBOX_CONSOLE */
 
 /* voice chat over Delta Peer (docs/delta.md, Voice): the desktop builds'
