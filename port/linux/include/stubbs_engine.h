@@ -43,6 +43,9 @@ struct stubbs_special_attack
 	real speed;
 	short cost;
 	short initial_count;
+	/* the most a unit can hold (0: the unit never has this attack, and
+	its HUD never shows it) */
+	short maximum_count;
 };
 
 #ifndef HALO_CONSOLE_NO_STUBBS
@@ -85,6 +88,9 @@ attack counts and (player_move_origin <from> <to>) */
 long stubbs_engine_player_origin_unit(long player_index);
 boolean stubbs_engine_special_attack(long unit_index, short special_attack);
 short stubbs_engine_special_attack_get_count(long unit_index, short special_attack);
+
+/* the most of one a unit can hold (0 for an attack it never has) */
+short stubbs_engine_special_attack_get_maximum(long unit_index, short special_attack);
 void stubbs_engine_special_attack_set_count(long unit_index, short special_attack, short count);
 void stubbs_engine_player_move_origin(long from_unit_index, long to_unit_index);
 

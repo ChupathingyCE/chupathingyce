@@ -51,6 +51,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "ai/ai_script.h"
 #include "stubbs_mode.h"
 #include "stubbs_horde.h"
+#include "stubbs_engine.h"
 #include "stubbs_functions.h"
 
 #include <string.h>
@@ -92,6 +93,62 @@ may fall behind (world units) */
 #define FOLLOW_STOP_DISTANCE 1.8f
 /* how much of his health a brain gives Stubbs (1 fills it) */
 #define BRAIN_HEALTH 1.0f
+
+/* what a victim's brains are worth: the retail game keeps it in the
+victim's collision model, in bytes Halo's layout leaves unused (after the
+shield recharge fields, which stubbs_mode.c's rewrite keeps as they are):
+which special attack the body feeds (1 to 4, 0 none) and how many, the
+health it gives (a fraction of full) and a regeneration credit (not used
+here yet: the attacks' regeneration periods aren't read) */
+enum
+{
+	STUBBS_COLLISION_BRAINS_ATTACK_OFFSET = 0x1C4,
+	STUBBS_COLLISION_BRAINS_COUNT_OFFSET = 0x1C6,
+	STUBBS_COLLISION_BRAINS_HEALTH_OFFSET = 0x1C8,
+	STUBBS_COLLISION_BRAINS_CREDIT_OFFSET = 0x1CC,
+	STUBBS_COLLISION_BRAINS_SIZE = 0x1D0,
+};
+
+struct horde_brains
+{
+	short attack; /* (0-based, NONE for none) */
+	short count;
+	real health;
+};
+
+static boolean horde_victim_brains(
+	long victim_index,
+	struct horde_brains *brains)
+{
+	struct unit_datum *victim = unit_try_and_get(victim_index);
+	struct object_definition *definition;
+	unsigned char const *collision;
+	short attack, count;
+
+	brains->attack = NONE;
+	brains->count = 0;
+	brains->health = 0.f;
+	if (!victim)
+		return FALSE;
+	definition = object_definition_get(victim->definition_index);
+	if (definition->object.collision_model.index == NONE)
+		return FALSE;
+	collision = (unsigned char const *)tag_get('coll', definition->object.collision_model.index);
+	if (!collision)
+		return FALSE;
+	memcpy(&attack, collision + STUBBS_COLLISION_BRAINS_ATTACK_OFFSET, sizeof(attack));
+	memcpy(&count, collision + STUBBS_COLLISION_BRAINS_COUNT_OFFSET, sizeof(count));
+	memcpy(&brains->health, collision + STUBBS_COLLISION_BRAINS_HEALTH_OFFSET, sizeof(brains->health));
+	if (attack >= 1 && attack <= STUBBS_MAXIMUM_SPECIAL_ATTACKS && count > 0)
+	{
+		brains->attack = (short)(attack - 1);
+		brains->count = count;
+	}
+	/* (a value that isn't a fraction of health is not this field) */
+	if (!(brains->health >= 0.f && brains->health <= 1.f))
+		brains->health = 0.f;
+	return TRUE;
+}
 
 struct horde_eat
 {
@@ -463,8 +520,21 @@ static boolean horde_can_eat(
 	reach = eater->object.bounding_sphere_radius + victim->object.bounding_sphere_radius + EAT_REACH;
 	if (distance > reach)
 		return FALSE;
-	if (dot_product3d(&eater->object.forward, &delta) < 0.5f)
-		return FALSE;
+	/* (a player eats where he looks: his aim, which his body follows only
+	once it has turned far enough; a zombie where it faces) */
+	{
+		real_vector3d facing = eater->object.forward;
+
+		if (eater->unit.player_index != NONE)
+		{
+			facing = eater->unit.aiming_vector;
+			facing.k = 0.f;
+			if (normalize3d(&facing) == 0.f)
+				facing = eater->object.forward;
+		}
+		if (dot_product3d(&facing, &delta) < 0.5f)
+			return FALSE;
+	}
 	if (victim->unit.body_stun_ticks > 0)
 		return TRUE;
 	if (dot_product3d(&victim->object.forward, &delta) > 0.3f)
@@ -593,9 +663,26 @@ static void horde_eats_update(
 				SET_FLAG(victim->object.damage_flags, _object_cannot_take_damage_bit, FALSE);
 				unit_kill(eat->victim_unit_index);
 			}
-			eater->object.body_vitality += BRAIN_HEALTH;
-			if (eater->object.body_vitality > 1.f)
-				eater->object.body_vitality = 1.f;
+			/* (the reward is the victim's: his health and his special attack
+			count, as his collision model says; one with no such value fills
+			Stubbs up. Only a player's own body is fed, as in the retail game) */
+			{
+				struct horde_brains brains;
+				boolean known = horde_victim_brains(eat->victim_unit_index, &brains);
+				long origin = eater->unit.player_index != NONE ?
+					stubbs_engine_player_origin_unit(eater->unit.player_index) : NONE;
+
+				eater->object.body_vitality += known && brains.health > 0.f ? brains.health : BRAIN_HEALTH;
+				if (eater->object.body_vitality > 1.f)
+					eater->object.body_vitality = 1.f;
+				if (origin == eat->eater_unit_index && brains.attack != NONE)
+				{
+					stubbs_engine_special_attack_set_count(origin, brains.attack,
+						(short)(stubbs_engine_special_attack_get_count(origin, brains.attack) + brains.count));
+				}
+				stubbs_mode_log("horde: the brains of unit 0x%04lX: health %.2f, attack %d x%d",
+					eat->victim_unit_index & UNSIGNED_SHORT_MAX, brains.health, (int)brains.attack, (int)brains.count);
+			}
 			if (zombie == NONE)
 				stubbs_mode_log("horde: unit 0x%04lX has no zombie to rise as", eat->victim_unit_index & UNSIGNED_SHORT_MAX);
 			horde_body_add(eat->victim_unit_index, zombie);

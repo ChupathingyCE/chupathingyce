@@ -45,12 +45,19 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 enum
 {
+	/* unit_animation_start_action's actions whose slots hold Stubbs's own
+	animations (stubbs_mode.c): disarm = the hand thrown, put away = the
+	hand regrown */
+	STUBBS_UNIT_ACTION_HAND_THROW = 1,
+	STUBBS_UNIT_ACTION_HAND_BACK = 4,
+
 	/* Stubbs's unit layout: the special attacks block */
 	STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET = 0x33C,
 	STUBBS_SPECIAL_ATTACK_SIZE = 0x170,
 
 	/* a special attack's fields */
 	STUBBS_SPECIAL_ATTACK_COST_OFFSET = 0x06,
+	STUBBS_SPECIAL_ATTACK_MAXIMUM_COUNT_OFFSET = 0x04,
 	STUBBS_SPECIAL_ATTACK_INITIAL_COUNT_OFFSET = 0x08,
 	STUBBS_SPECIAL_ATTACK_READY_EFFECT_OFFSET = 0x4C,
 	STUBBS_SPECIAL_ATTACK_THROW_EFFECT_OFFSET = 0x5C,
@@ -291,6 +298,8 @@ static void stubbs_hand_return(
 		players_set_local_player_unit(local_player_index, local->origin_unit_index);
 		player_control_set_facing(local_player_index, &object_get(local->origin_unit_index)->object.forward);
 		stubbs_hand_on_arm(local->origin_unit_index, TRUE);
+		/* (the hand regrown: his regrow-2 animation, in Halo's put-away slot) */
+		unit_animation_start_action(local->origin_unit_index, STUBBS_UNIT_ACTION_HAND_BACK);
 		/* (the hand back on his arm can be thrown again) */
 		if (attack && stubbs_engine_special_attack_get_count(local->origin_unit_index,
 			_stubbs_special_attack_hand) < attack->cost)
@@ -374,6 +383,9 @@ static boolean stubbs_hand_throw(
 		(short)(stubbs_engine_special_attack_get_count(unit_index, _stubbs_special_attack_hand) - attack->cost));
 	stubbs_effect_new_on_unit(attack->ready_effect_index, unit_index);
 	stubbs_effect_new_on_unit(attack->throw_effect_index, unit_index);
+	/* (his throw: Stubbs's attack-2 animation, in Halo's disarm slot,
+	stubbs_mode.c; the body plays it on while the player drives the hand) */
+	unit_animation_start_action(unit_index, STUBBS_UNIT_ACTION_HAND_THROW);
 	local->origin_unit_index = unit_index;
 	local->hand_unit_index = hand_unit_index;
 	local->possessed_unit_index = NONE;
@@ -529,8 +541,11 @@ void stubbs_engine_note_unit_definition(
 		csmemcpy(&attack->speed, element + STUBBS_SPECIAL_ATTACK_SPEED_OFFSET, 4);
 		csmemcpy(&cost, element + STUBBS_SPECIAL_ATTACK_COST_OFFSET, 2);
 		attack->cost = cost;
-		csmemcpy(&cost, element + STUBBS_SPECIAL_ATTACK_INITIAL_COUNT_OFFSET, 2);
-		attack->initial_count = cost;
+		/* (the starting and the most: a byte each) */
+		attack->initial_count = element[STUBBS_SPECIAL_ATTACK_INITIAL_COUNT_OFFSET];
+		attack->maximum_count = element[STUBBS_SPECIAL_ATTACK_MAXIMUM_COUNT_OFFSET];
+		if (attack->initial_count > attack->maximum_count)
+			attack->initial_count = attack->maximum_count;
 		if (attack->object_group == 'bipd' && attack->object_definition_index != NONE)
 			stubbs_driven_biped_add(attack->object_definition_index);
 	}
@@ -674,15 +689,28 @@ short stubbs_engine_special_attack_get_count(
 	return count ? count->counts[special_attack] : stubbs_unit_initial_count(unit_index, special_attack);
 }
 
+short stubbs_engine_special_attack_get_maximum(
+	long unit_index,
+	short special_attack)
+{
+	struct stubbs_special_attack const *attack = stubbs_unit_special_attack_get(unit_index, special_attack);
+
+	return attack ? attack->maximum_count : 0;
+}
+
 void stubbs_engine_special_attack_set_count(
 	long unit_index,
 	short special_attack,
 	short count)
 {
 	struct stubbs_unit_count *counts = stubbs_unit_count_get(unit_index, TRUE);
+	short maximum = stubbs_engine_special_attack_get_maximum(unit_index, special_attack);
 
 	if (!counts || special_attack < 0 || special_attack >= STUBBS_MAXIMUM_SPECIAL_ATTACKS)
 		return;
+	/* (never more than the unit can hold, as the retail game keeps it) */
+	if (count > maximum)
+		count = maximum;
 	counts->counts[special_attack] = (char)(count < 0 ? 0 : count > 127 ? 127 : count);
 }
 

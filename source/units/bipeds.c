@@ -3660,6 +3660,9 @@ static void biped_update_moving(
 					animation->state_desired = throttle_y >= 0.f ?
 						movement_base + 2 : movement_base + 3;
 				}
+				/* port: Stubbs mode's sprint (port/linux/game/stubbs_player.c) */
+				if (stubbs_mode_active())
+					stubbs_player_sprint(biped_index, &animation->state_desired);
 			}
 		}
 		else
@@ -4360,6 +4363,10 @@ boolean biped_update(
 		animation.crouching = TEST_FLAG(
 			biped->unit.control_flags,
 			_unit_control_crouch_modifier_bit);
+		/* port: Stubbs mode's crouch button is his sprint
+		(port/linux/game/stubbs_player.c) */
+		if (animation.crouching && stubbs_mode_active() && stubbs_player_never_crouches(biped_index))
+			animation.crouching = FALSE;
 
 		biped_verify_object_vectors(biped_index, "pre-turning");
 		if (!TEST_FLAG(biped->object.damage_flags, _object_dead_bit))

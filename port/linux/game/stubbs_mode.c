@@ -328,8 +328,9 @@ order: standing, forward, back, left, right, then the four diagonals),
 where Halo has one list of 55 with a slot for each direction. Their order is
 read from the names of a10's classes ("stand unarmed idle", "... move b",
 "... melee s-l"); slots Halo has and Stubbs doesn't are left empty, which
-Halo plays as idle. Stubbs's own (sprint, shove, attack-n, whistle and
-more) have no slot in Halo's list yet. */
+Halo plays as idle. His sprint takes Halo's sliding-front slot, which Halo
+never plays by itself (stubbs_player.c plays it); his other own ones (shove,
+attack-n, whistle and more) have no slot in Halo's list yet. */
 enum
 {
 	STUBBS_WEAPON_CLASS_ANIMATION_COUNT = 69,
@@ -357,6 +358,18 @@ static struct
 	{ 6, STUBBS_SET_LEFT, 20 },
 	{ 7, STUBBS_SET_RIGHT, 20 },
 	{ 8, STUBBS_SET_FORWARD, 3 }, /* moving, by direction */
+	{ 12, STUBBS_SET_FORWARD, 13 }, /* sliding front: his sprint (Halo never slides on its own: stubbs_player.c) */
+	/* (his special attacks and the rest of his own moves, in slots Halo's
+	bipeds have but never play on their own, where unit_animation_start_action
+	and the throw can play them: stubbs_engine.c) */
+	{ 20, STUBBS_SET_STANDING, 50 }, /* throw grenade: attack-1, the gut grenade */
+	{ 21, STUBBS_SET_STANDING, 54 }, /* disarm: attack-2, the hand thrown */
+	{ 22, STUBBS_SET_STANDING, 58 }, /* drop: attack-3, the head thrown */
+	{ 24, STUBBS_SET_STANDING, 56 }, /* put away: regrow-2, the hand back */
+	{ 32, STUBBS_SET_STANDING, 45 }, /* signal move: shove */
+	{ 33, STUBBS_SET_STANDING, 67 }, /* signal attack: whistle */
+	{ 34, STUBBS_SET_STANDING, 68 }, /* warn: wave */
+	{ 46, STUBBS_SET_STANDING, 46 }, /* melee continuous: attack-0, flatulence */
 	{ 9, STUBBS_SET_BACK, 3 },
 	{ 10, STUBBS_SET_LEFT, 3 },
 	{ 11, STUBBS_SET_RIGHT, 3 },

@@ -167,6 +167,64 @@ boolean stubbs_player_melee_begin(
 	return TRUE;
 }
 
+/* ---------- the sprint
+
+Stubbs runs while the player holds Halo's crouch button (the keyboard's
+crouch key, a pad's left stick click): his "sprint f" animation plays in
+place of his walk, and as all his movement comes from his animations'
+frame data (bipeds.c), he moves at its pace (about half as fast again). It
+only takes him forward, as in the retail game; sideways and back are his
+walks. stubbs_mode.c puts the sprint in Halo's sliding-front slot, which
+Halo itself never plays, so the slide-front state is his sprint state. A
+unit without one (the hand, a possessed body) walks. Crouching itself is
+his sprint button too, so a Stubbs player never crouches. */
+
+boolean stubbs_player_sprint(
+	long biped_index,
+	short *state_desired)
+{
+	struct unit_datum *unit = unit_try_and_get(biped_index);
+	struct unit_definition *definition;
+	struct animation_graph *graph;
+	struct animation_graph_unit_seat *seat;
+	struct animation_graph_weapon_class *weapon_class;
+	short animation_index;
+
+	if (!unit || unit->unit.player_index == NONE || *state_desired != _unit_state_move_front ||
+		!TEST_FLAG(unit->unit.control_flags, _unit_control_crouch_modifier_bit) ||
+		unit->object.parent_object_index != NONE)
+	{
+		return FALSE;
+	}
+	definition = unit_definition_get(unit->definition_index);
+	if (definition->object.animation_graph.index == NONE)
+		return FALSE;
+	graph = animation_graph_definition_get(definition->object.animation_graph.index);
+	if (unit->unit.animation.seat_index < 0 || unit->unit.animation.seat_index >= graph->unit_seats.count)
+		return FALSE;
+	seat = TAG_BLOCK_GET_ELEMENT(&graph->unit_seats, unit->unit.animation.seat_index, struct animation_graph_unit_seat);
+	if (unit->unit.animation.weapon_index < 0 || unit->unit.animation.weapon_index >= seat->weapon_classes.count)
+		return FALSE;
+	weapon_class = TAG_BLOCK_GET_ELEMENT(&seat->weapon_classes, unit->unit.animation.weapon_index,
+		struct animation_graph_weapon_class);
+	if (weapon_class->animations.count <= _unit_weapon_class_animation_sliding_front)
+		return FALSE;
+	animation_index = animation_graph_animation_index_get(&weapon_class->animations)[
+		_unit_weapon_class_animation_sliding_front].animation_index;
+	if (animation_index == NONE || animation_index >= graph->animations.count)
+		return FALSE;
+	*state_desired = _unit_state_slide_front;
+	return TRUE;
+}
+
+boolean stubbs_player_never_crouches(
+	long biped_index)
+{
+	struct unit_datum *unit = unit_try_and_get(biped_index);
+
+	return unit && unit->unit.player_index != NONE;
+}
+
 /* ---------- the HUD
 
 Stubbs's own HUD is not Halo's unit HUD (its unhi tags are laid out
@@ -346,8 +404,13 @@ void stubbs_player_hud_draw(
 				char narrow[32];
 				short count, character;
 
-				if (!TEST_FLAG(stubbs_hud_special_attacks_shown, index))
+				/* (as the retail HUD: only an attack the scripts showed and
+				the unit can hold at all, its most above none) */
+				if (!TEST_FLAG(stubbs_hud_special_attacks_shown, index) ||
+					stubbs_engine_special_attack_get_maximum(origin_unit_index, index) <= 0)
+				{
 					continue;
+				}
 				count = stubbs_engine_special_attack_get_count(origin_unit_index, index);
 				if (count > 1)
 					snprintf(narrow, sizeof(narrow), "%s %d", names[index], (int)count);
