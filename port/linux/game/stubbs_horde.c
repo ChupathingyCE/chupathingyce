@@ -466,6 +466,18 @@ static void horde_body_rise(
 	if (normalize3d(&forward) < 0.01f)
 		vector3d_from_angle(&forward, 0.f);
 
+	/* (the human's mind, kept braindead through the eat so his squad
+	counted him dead: gone before his body is, else an actor without a
+	unit looks about and halts) */
+	{
+		struct unit_datum *human = unit_try_and_get(body->unit_index);
+
+		if (human && human->unit.actor_index != NONE)
+		{
+			actor_delete(human->unit.actor_index, FALSE);
+			human->unit.actor_index = NONE;
+		}
+	}
 	object_delete(body->unit_index);
 
 	object_placement_data_new(&placement, variant->unit_reference.index, NONE);
