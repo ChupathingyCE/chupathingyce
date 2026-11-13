@@ -292,14 +292,6 @@ struct bg_composite
 	BOOL filled;
 };
 
-/* a copy to make at the start of the next view */
-struct bg_blit
-{
-	bgfx_texture_handle_t destination, source;
-	unsigned char level;
-	unsigned short width, height;
-};
-
 static struct
 {
 	BOOL ready;
@@ -332,8 +324,6 @@ static struct
 	bgfx_frame_buffer_handle_t view_framebuffer;
 	unsigned short view_rect[4];
 	BOOL view_used;
-	struct bg_blit blits[64];
-	int blit_count;
 	unsigned short present_view;
 
 	bgfx_texture_handle_t blank, blank_cube, blank_volume;
@@ -2067,15 +2057,10 @@ bgfx draws a frame as views, in order: each has one frame buffer, rectangle
 and clear. A view of its own starts at each change of target, at each clear
 after draws, when the viewport moves (the hardware viewport must be
 Direct3D's, since the vertex shaders compute their positions in it), and
-when a texture is copied (bgfx copies at the start of a view, so the copy
-comes after what was drawn into its source before). */
+after a draw of the renderer's own (bg_composite_copy). */
 
 static void bg_view_set(bgfx_frame_buffer_handle_t framebuffer, const unsigned short rect[4], BOOL new_view)
 {
-	int index;
-
-	if (bg.blit_count)
-		new_view = TRUE;
 	if (bg.view_used && (new_view || framebuffer.idx != bg.view_framebuffer.idx ||
 		memcmp(rect, bg.view_rect, sizeof(bg.view_rect))))
 	{
@@ -2091,18 +2076,6 @@ static void bg_view_set(bgfx_frame_buffer_handle_t framebuffer, const unsigned s
 	memcpy(bg.view_rect, rect, sizeof(bg.view_rect));
 	bgfx_set_view_frame_buffer(bg.view, framebuffer);
 	bgfx_set_view_rect(bg.view, rect[0], rect[1], rect[2], rect[3], 0.0f, 1.0f);
-	for (index = 0; index < bg.blit_count; index++)
-	{
-		const struct bg_blit *blit = &bg.blits[index];
-
-		bg_blit_2d(bg.view, blit->destination, blit->level, blit->source, blit->width, blit->height);
-	}
-	if (bg.blit_count)
-	{
-		bg.blit_count = 0;
-		bgfx_touch(bg.view);
-		bg.view_used = TRUE;
-	}
 }
 
 /* ---------- render targets (render_target_get's) */
@@ -4918,7 +4891,6 @@ static void bg_present(void)
 	bg.uniform_bytes = 0;
 	bg.view = 0;
 	bg.view_used = FALSE;
-	bg.blit_count = 0;
 	bgfx_set_view_mode(0, BGFX_VIEW_MODE_SEQUENTIAL);
 	bgfx_set_view_clear(0, BGFX_CLEAR_NONE, 0, 1.0f, 0);
 }
