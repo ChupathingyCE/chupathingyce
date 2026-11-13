@@ -59,6 +59,7 @@ enum
 	STUBBS_SPECIAL_ATTACK_COST_OFFSET = 0x06,
 	STUBBS_SPECIAL_ATTACK_MAXIMUM_COUNT_OFFSET = 0x04,
 	STUBBS_SPECIAL_ATTACK_INITIAL_COUNT_OFFSET = 0x08,
+	STUBBS_SPECIAL_ATTACK_REGENERATION_PERIOD_OFFSET = 0x10,
 	STUBBS_SPECIAL_ATTACK_READY_EFFECT_OFFSET = 0x4C,
 	STUBBS_SPECIAL_ATTACK_THROW_EFFECT_OFFSET = 0x5C,
 	STUBBS_SPECIAL_ATTACK_SPEED_OFFSET = 0xA8,
@@ -96,6 +97,8 @@ struct stubbs_unit_count
 {
 	long unit_index;
 	char counts[STUBBS_MAXIMUM_SPECIAL_ATTACKS];
+	/* brains credit toward the next one, in seconds */
+	real credit[STUBBS_MAXIMUM_SPECIAL_ATTACKS];
 };
 
 struct stubbs_local_player
@@ -212,7 +215,10 @@ static struct stubbs_unit_count *stubbs_unit_count_get(
 		free_slot->unit_index = unit_index;
 		/* (a new unit's counts are its definition's starting ones) */
 		for (index = 0; index < STUBBS_MAXIMUM_SPECIAL_ATTACKS; index++)
+		{
 			free_slot->counts[index] = (char)stubbs_unit_initial_count(unit_index, index);
+			free_slot->credit[index] = 0.f;
+		}
 		return free_slot;
 	}
 	return NULL;
@@ -451,6 +457,22 @@ struct stubbs_special_attack const *stubbs_special_attacks_get(
 	return definition ? definition->special_attacks : NULL;
 }
 
+boolean stubbs_engine_unit_is_thrown(
+	long unit_index)
+{
+	struct object_datum *object = unit_index != NONE ? object_try_and_get(unit_index) : NULL;
+	short index;
+
+	if (!object)
+		return FALSE;
+	for (index = 0; index < stubbs_driven_biped_count; index++)
+	{
+		if (stubbs_driven_bipeds[index] == object->definition_index)
+			return TRUE;
+	}
+	return FALSE;
+}
+
 long stubbs_engine_hand_unit(
 	short local_player_index)
 {
@@ -546,6 +568,9 @@ void stubbs_engine_note_unit_definition(
 		attack->maximum_count = element[STUBBS_SPECIAL_ATTACK_MAXIMUM_COUNT_OFFSET];
 		if (attack->initial_count > attack->maximum_count)
 			attack->initial_count = attack->maximum_count;
+		csmemcpy(&attack->regeneration_period, element + STUBBS_SPECIAL_ATTACK_REGENERATION_PERIOD_OFFSET, 4);
+		if (!(attack->regeneration_period > 0.f && attack->regeneration_period < 3600.f))
+			attack->regeneration_period = 0.f;
 		if (attack->object_group == 'bipd' && attack->object_definition_index != NONE)
 			stubbs_driven_biped_add(attack->object_definition_index);
 	}
@@ -696,6 +721,32 @@ short stubbs_engine_special_attack_get_maximum(
 	struct stubbs_special_attack const *attack = stubbs_unit_special_attack_get(unit_index, special_attack);
 
 	return attack ? attack->maximum_count : 0;
+}
+
+void stubbs_engine_special_attack_credit(
+	long unit_index,
+	real credit)
+{
+	struct stubbs_unit_count *counts = stubbs_unit_count_get(unit_index, TRUE);
+	short index;
+
+	if (!counts || !(credit > 0.f))
+		return;
+	for (index = 0; index < STUBBS_MAXIMUM_SPECIAL_ATTACKS; index++)
+	{
+		struct stubbs_special_attack const *attack = stubbs_unit_special_attack_get(unit_index, index);
+
+		if (!attack || !(attack->regeneration_period > 0.f))
+			continue;
+		counts->credit[index] += credit;
+		while (counts->credit[index] >= attack->regeneration_period && counts->counts[index] < attack->maximum_count)
+		{
+			counts->credit[index] -= attack->regeneration_period;
+			counts->counts[index]++;
+		}
+		if (counts->counts[index] >= attack->maximum_count)
+			counts->credit[index] = 0.f;
+	}
 }
 
 void stubbs_engine_special_attack_set_count(

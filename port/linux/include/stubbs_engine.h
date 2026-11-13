@@ -46,6 +46,8 @@ struct stubbs_special_attack
 	/* the most a unit can hold (0: the unit never has this attack, and
 	its HUD never shows it) */
 	short maximum_count;
+	/* seconds of brains credit for one more (0: none this way) */
+	real regeneration_period;
 };
 
 #ifndef HALO_CONSOLE_NO_STUBBS
@@ -56,6 +58,10 @@ struct stubbs_special_attack const *stubbs_special_attacks_get(long unit_definit
 
 /* a local player's thrown hand (NONE when it is on Stubbs's arm) */
 long stubbs_engine_hand_unit(short local_player_index);
+
+/* whether a unit is one of the thrown bipeds a player drives (the hand):
+it has no mouth to eat with, only a head to take (stubbs_horde.c) */
+boolean stubbs_engine_unit_is_thrown(long unit_index);
 
 /* possession (its own file) tells the hand system the hand now rides
 unit_index, the body the player was given: it is his until it dies or
@@ -91,6 +97,11 @@ short stubbs_engine_special_attack_get_count(long unit_index, short special_atta
 
 /* the most of one a unit can hold (0 for an attack it never has) */
 short stubbs_engine_special_attack_get_maximum(long unit_index, short special_attack);
+
+/* brains eaten (stubbs_horde.c): the victim's credit goes toward every
+attack that regenerates, one more each time it adds up to the attack's
+period */
+void stubbs_engine_special_attack_credit(long unit_index, real credit);
 void stubbs_engine_special_attack_set_count(long unit_index, short special_attack, short count);
 void stubbs_engine_player_move_origin(long from_unit_index, long to_unit_index);
 
@@ -99,6 +110,8 @@ void stubbs_engine_player_move_origin(long from_unit_index, long to_unit_index);
 static __inline struct stubbs_special_attack const *stubbs_special_attacks_get(long unit_definition_index, short *count)
 { (void)unit_definition_index; *count = 0; return NULL; }
 static __inline long stubbs_engine_hand_unit(short local_player_index) { (void)local_player_index; return NONE; }
+static __inline boolean stubbs_engine_unit_is_thrown(long unit_index) { (void)unit_index; return FALSE; }
+static __inline void stubbs_engine_special_attack_credit(long unit_index, real credit) { (void)unit_index; (void)credit; }
 static __inline void stubbs_engine_hand_rides(short local_player_index, long unit_index)
 { (void)local_player_index; (void)unit_index; }
 static __inline void stubbs_engine_note_unit_definition(void const *tag_instance, void const *definition,

@@ -98,8 +98,9 @@ may fall behind (world units) */
 victim's collision model, in bytes Halo's layout leaves unused (after the
 shield recharge fields, which stubbs_mode.c's rewrite keeps as they are):
 which special attack the body feeds (1 to 4, 0 none) and how many, the
-health it gives (a fraction of full) and a regeneration credit (not used
-here yet: the attacks' regeneration periods aren't read) */
+health it gives (points: a civilian's 30 of Stubbs's hundred) and a
+credit toward the attacks that regenerate (a civilian 2, a cop 1:
+stubbs_engine_special_attack_credit) */
 enum
 {
 	STUBBS_COLLISION_BRAINS_ATTACK_OFFSET = 0x1C4,
@@ -113,7 +114,8 @@ struct horde_brains
 {
 	short attack; /* (0-based, NONE for none) */
 	short count;
-	real health;
+	real health; /* (points) */
+	real credit;
 };
 
 static boolean horde_victim_brains(
@@ -128,6 +130,7 @@ static boolean horde_victim_brains(
 	brains->attack = NONE;
 	brains->count = 0;
 	brains->health = 0.f;
+	brains->credit = 0.f;
 	if (!victim)
 		return FALSE;
 	definition = object_definition_get(victim->definition_index);
@@ -139,14 +142,17 @@ static boolean horde_victim_brains(
 	memcpy(&attack, collision + STUBBS_COLLISION_BRAINS_ATTACK_OFFSET, sizeof(attack));
 	memcpy(&count, collision + STUBBS_COLLISION_BRAINS_COUNT_OFFSET, sizeof(count));
 	memcpy(&brains->health, collision + STUBBS_COLLISION_BRAINS_HEALTH_OFFSET, sizeof(brains->health));
+	memcpy(&brains->credit, collision + STUBBS_COLLISION_BRAINS_CREDIT_OFFSET, sizeof(brains->credit));
 	if (attack >= 1 && attack <= STUBBS_MAXIMUM_SPECIAL_ATTACKS && count > 0)
 	{
 		brains->attack = (short)(attack - 1);
 		brains->count = count;
 	}
-	/* (a value that isn't a fraction of health is not this field) */
-	if (!(brains->health >= 0.f && brains->health <= 1.f))
+	/* (values that aren't these fields) */
+	if (!(brains->health >= 0.f && brains->health <= 1000.f))
 		brains->health = 0.f;
+	if (!(brains->credit >= 0.f && brains->credit <= 1000.f))
+		brains->credit = 0.f;
 	return TRUE;
 }
 
@@ -508,6 +514,9 @@ static boolean horde_can_eat(
 
 	if (!eater || !victim || eater_index == victim_index)
 		return FALSE;
+	/* (the hand takes heads, it doesn't eat: stubbs_possession.c) */
+	if (stubbs_engine_unit_is_thrown(eater_index))
+		return FALSE;
 	if (!horde_team_is_human(victim->object.owner_team_index) || victim->unit.player_index != NONE)
 		return FALSE;
 	if (victim->object.parent_object_index != NONE || eater->object.parent_object_index != NONE)
@@ -672,16 +681,24 @@ static void horde_eats_update(
 				long origin = eater->unit.player_index != NONE ?
 					stubbs_engine_player_origin_unit(eater->unit.player_index) : NONE;
 
-				eater->object.body_vitality += known && brains.health > 0.f ? brains.health : BRAIN_HEALTH;
+				real maximum = object_get_maximum_body_vitality(eat->eater_unit_index, FALSE);
+
+				eater->object.body_vitality += known && brains.health > 0.f && maximum > 0.f ?
+					brains.health / maximum : BRAIN_HEALTH;
 				if (eater->object.body_vitality > 1.f)
 					eater->object.body_vitality = 1.f;
-				if (origin == eat->eater_unit_index && brains.attack != NONE)
+				if (origin == eat->eater_unit_index)
 				{
-					stubbs_engine_special_attack_set_count(origin, brains.attack,
-						(short)(stubbs_engine_special_attack_get_count(origin, brains.attack) + brains.count));
+					if (brains.attack != NONE)
+					{
+						stubbs_engine_special_attack_set_count(origin, brains.attack,
+							(short)(stubbs_engine_special_attack_get_count(origin, brains.attack) + brains.count));
+					}
+					stubbs_engine_special_attack_credit(origin, brains.credit);
 				}
-				stubbs_mode_log("horde: the brains of unit 0x%04lX: health %.2f, attack %d x%d",
-					eat->victim_unit_index & UNSIGNED_SHORT_MAX, brains.health, (int)brains.attack, (int)brains.count);
+				stubbs_mode_log("horde: the brains of unit 0x%04lX: %.0f health of %.0f, attack %d x%d, credit %.1f",
+					eat->victim_unit_index & UNSIGNED_SHORT_MAX, brains.health, maximum, (int)brains.attack,
+					(int)brains.count, brains.credit);
 			}
 			if (zombie == NONE)
 				stubbs_mode_log("horde: unit 0x%04lX has no zombie to rise as", eat->victim_unit_index & UNSIGNED_SHORT_MAX);
