@@ -65,6 +65,7 @@ tools/test_map_host_download.py
 tools/test_map_installed.py
 tools/test_map_list_view.py
 tools/test_map_packs.py
+tools/test_map_put_in_place.py
 tools/test_map_repo.py
 tools/test_map_report.py
 tools/test_map_share.py

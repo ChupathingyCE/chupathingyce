@@ -28,6 +28,7 @@ tools/tests/map_fuzz_regressions only if it holds no game's data.
 import argparse
 import os
 import struct
+import time
 import subprocess
 import sys
 import tempfile
@@ -233,10 +234,11 @@ def ce_map(name=b"fuzz", sound=None, weapon_hud_statics=None, bsp_reference_unus
     return bytes(data)
 
 
-def ce_map_bsp_materials(lightmaps, materials):
+def ce_map_bsp_materials(lightmaps, materials, vertex_count=1):
     """ce_map's map with a structure BSP of that many lightmaps, every one of
     them the same block of that many materials, each of one vertex and one
-    lightmap vertex (their uncompressed vertices the same 0x4c bytes)"""
+    lightmap vertex (their uncompressed vertices the same 0x4c bytes), or of
+    none (vertex_count 0)"""
     base = TAG_CACHE["ce"]
     data = bytearray(ce_map())
     tag_data_size = struct.unpack_from("<i", data, 0x14)[0]
@@ -260,8 +262,8 @@ def ce_map_bsp_materials(lightmaps, materials):
         struct.pack_into("<iI", bsp, lightmap_block + 0x20 * lightmap + 0x14, materials, bsp_base + material_block)
     for material in range(materials):
         at = material_block + 0x100 * material
-        struct.pack_into("<hhi", bsp, at + 0xB0, 0, 0, 1)
-        struct.pack_into("<hhi", bsp, at + 0xC4, 1, 0, 1)
+        struct.pack_into("<hhi", bsp, at + 0xB0, 0, 0, vertex_count)
+        struct.pack_into("<hhi", bsp, at + 0xC4, 1, 0, vertex_count)
         struct.pack_into("<iIiI", bsp, at + 0xD8, 0x4C, 0, 0, bsp_base + vertices)
     data += bsp
     struct.pack_into("<i", data, 0x800 + bsps + 4, len(bsp))
@@ -416,6 +418,23 @@ def test_room_counted_without_wrapping(built, tmp_path):
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
     assert "fuzz: checked" in result.stderr and "3 BSP materials' vertices compressed" in result.stderr, \
         result.stderr[-4000:]
+
+
+def test_empty_materials_walk_capped(built, tmp_path):
+    """the materials of every lightmap together are capped, far above any
+    real map's (#1089): a map past the cap is refused at once"""
+    binaries, _ = built
+    path = tmp_path / "empty_materials.map"
+    path.write_bytes(ce_map_bsp_materials(0x10000, 0x1000, vertex_count=0))
+    started = time.monotonic()
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "name more than 1048576 materials in all" in result.stderr, result.stderr[-4000:]
+    assert time.monotonic() - started < 20
+    # (a few empty materials are fine)
+    path.write_bytes(ce_map_bsp_materials(4, 3, vertex_count=0))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert "fuzz: checked" in result.stderr and "materials in all" not in result.stderr, result.stderr[-4000:]
 
 
 def test_scenario_of_another_group(built, tmp_path):

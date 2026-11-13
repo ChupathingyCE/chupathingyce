@@ -1347,6 +1347,25 @@ BOOL WINAPI MoveFileA(LPCSTR existing_file_name, LPCSTR new_file_name)
 	}
 	if (rename(from, to) != 0)
 	{
+		/* another file system (a maps folder that is a link to another
+		drive, as Linux players point maps_ce at their Custom Edition
+		install): copied and the original removed, as Windows's MoveFileA
+		does across volumes; a copy that fails leaves nothing behind, but a
+		file that appeared there since the check above is not ours and stays */
+		if (errno == EXDEV)
+		{
+			if (!CopyFileA(existing_file_name, new_file_name, TRUE))
+			{
+				DWORD error = GetLastError();
+
+				if (error != ERROR_ALREADY_EXISTS)
+					unlink(to);
+				SetLastError(error);
+				return FALSE;
+			}
+			unlink(from);
+			return TRUE;
+		}
 		platform_set_last_error_from_errno(errno);
 		return FALSE;
 	}
