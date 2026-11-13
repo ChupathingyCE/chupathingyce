@@ -453,6 +453,9 @@ void ui_style_setting(float x, float y, float width, float height, float scale, 
 			UI_ALIGN_LEFT, badge);
 		label_end = badge_x + badge_width;
 	}
+	/* (an action row, ABOUT's or SEND MY LOGS': no value, no arrows) */
+	if (!value)
+		return;
 	/* (the value between its arrows, as the menus' settings have it; one
 	longer than the room right of the label cut with "...", a folder's at
 	its start so its last folders show) */

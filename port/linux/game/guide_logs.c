@@ -294,7 +294,7 @@ void guide_logs_modal_render(float left, float top, float right, float bottom,
 	{
 	case _logs_asked:
 		title = "SEND MY LOGS";
-		text = "Send your debug.txt to the Chupathingy team? Names and addresses are removed.";
+		text = "Send your debug.txt to the Chupathingy team? Your computer's account name and network addresses are removed.";
 		break;
 	case _logs_sending:
 		title = "SEND MY LOGS";

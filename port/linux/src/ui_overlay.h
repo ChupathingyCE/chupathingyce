@@ -325,7 +325,8 @@ void ui_style_row(float x, float y, float width, float height, int selected);
 /* a setting's row (settings_rows.h's, the Guide's and the setup screen's):
 its capsule (ui_style_row), its label in ui_style_text's UI_TEXT_NAME at
 scale times its size, a tag after it (badge, as "NEEDS A RESTART"; NULL:
-none), and its value at the right between the arrows that change it */
+none), and its value at the right between the arrows that change it (NULL:
+an action row, its label alone) */
 void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected);
 /* section tabs between left and right, height tall: the bumpers' glyphs at

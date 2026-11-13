@@ -4310,7 +4310,7 @@ static void render_settings(void)
 		else
 		{
 			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f,
-				extra_row_label(setting), NULL, "\xE2\x80\xBA", on);
+				extra_row_label(setting), NULL, NULL, on);
 		}
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;

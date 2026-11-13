@@ -2897,7 +2897,9 @@ static void act(const struct row *row)
 		launcher.dialog = _dialog_send_ask;
 		launcher.dialog_selected = 1;
 		snprintf(launcher.dialog_title, sizeof(launcher.dialog_title), "SEND MY LOGS");
-		snprintf(launcher.dialog_text, sizeof(launcher.dialog_text), "Send your settings too?");
+		snprintf(launcher.dialog_text, sizeof(launcher.dialog_text),
+			"Send your logs to the Chupathingy team? Your computer's account name and network addresses are removed. "
+			"Send your settings too?");
 		launcher.dialog_text_color = COLOR_WHITE;
 		launcher.dialog_row_count = 2;
 		memset(launcher.dialog_rows, 0, sizeof(launcher.dialog_rows));
