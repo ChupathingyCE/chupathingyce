@@ -768,7 +768,8 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         f"-I{PORT_DIR}/include", f"-I{PORT_DIR}/host", f"-I{SDL_DIR}/include", f"-I{LINUX_DIR}/src",
         f"-I{TOML_DIR}",
     ])
-    host_sources = sorted((PORT_DIR / "host").glob("*.c")) + [
+    # (not the Vulkan renderer's backend, host_vk*.c: the native 64-bit app's, tools/android64_build.py)
+    host_sources = sorted(path for path in (PORT_DIR / "host").glob("*.c") if not path.name.startswith("host_vk")) + [
         LINUX_DIR / "src" / "posix_files.c", LINUX_DIR / "src" / "posix_net.c",
         LINUX_DIR / "src" / "posix_mcc_preview.c",
         # the app reads debug.sample_seconds from config.toml (host_main.c)
