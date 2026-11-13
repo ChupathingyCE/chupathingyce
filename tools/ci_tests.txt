@@ -108,6 +108,7 @@ tools/test_packaged_install.py
 tools/test_party_teams.py
 tools/test_picture_check.py
 tools/test_ping.py
+tools/test_platform_names.py
 tools/test_player_key.py
 tools/test_player_profile_list.py
 tools/test_playlist_maps.py
