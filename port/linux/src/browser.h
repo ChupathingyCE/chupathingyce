@@ -288,8 +288,12 @@ enum
 };
 int browser_list_filter(void);
 void browser_list_filter_cycle(void);
-/* its name for a button or a hint: ALL, MULTIPLAYER, CO-OP */
+/* its name for a hint ("ONLY CO-OP"): ALL, MULTIPLAYER, CO-OP */
 const char *browser_list_filter_name(void);
+/* its words on the button that changes it: what it does with co-op games,
+"CO-OP: SHOWN", "CO-OP: HIDDEN" or "CO-OP: ONLY" (never "ALL": Online Games'
+views are ALL, CHUPATHINGY + PUBLIC and the others, which it doesn't change) */
+const char *browser_list_filter_label(void);
 /* whether a game on this map (a scenario's name or path) passes it */
 int browser_list_filter_allows(const char *map);
 /* the public listings (OpenCE's, p2p_lobby.c) followed while a screen of
