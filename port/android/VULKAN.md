@@ -31,6 +31,14 @@ them again before it unpacks an archive and at every load. An archive that is
 not a known build, or not whole, is not loaded and the phone's own driver is
 used.
 
+When Vulkan cannot start, that start draws with OpenGL ES and the game asks
+once whether to switch to OpenGL ES for good ("Switch to OpenGL" writes
+`display.renderer = "gl"`; "Not now" leaves the setting, and the next start
+tries Vulkan again). A start with a driver archive leaves a note
+(`vk_start.txt` in the saves folder) until frames are drawn; a start that
+finds the note runs on the phone's own driver and asks whether to keep it,
+so a driver that crashes cannot crash every start.
+
 Both take effect when the game starts. The log (`adb logcat -s chupathingyce`)
 has a line, `renderer: ...`, that says what runs and, when Vulkan was asked
 for but did not start, why; `renderer=vulkan` is the line crash reports carry.
@@ -91,3 +99,11 @@ app's native library folder:
 
 The app's Gradle module keeps the native libraries uncompressed
 (`useLegacyPackaging`), so that they can be loaded by their paths.
+
+## Licenses
+
+libadrenotools and its linkernsbypass submodule are BSD-2-Clause (Billy
+Laws), glslang is BSD-3-Clause and others (Khronos), and Turnip, which the
+app downloads only at the player's request, is Mesa's, under the MIT
+license. Their texts are in `port/notices/` and their entries for the
+notices list in `port/notices/components.json`.
