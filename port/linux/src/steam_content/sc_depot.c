@@ -549,6 +549,14 @@ int sc_manifest_parse(const unsigned char *data, size_t length, const unsigned c
 			snprintf(why, (size_t)why_size, "a file name in the manifest is not safe");
 			return 0;
 		}
+		/* (a folder has no content: chunks on one would have no file to go in) */
+		if ((file->flags & SC_FILE_DIRECTORY) && file->chunk_count)
+		{
+			free(raw);
+			sc_manifest_free(manifest);
+			snprintf(why, (size_t)why_size, "a folder in the manifest has content");
+			return 0;
+		}
 		/* (each chunk inside its file: no write past the size Steam gave) */
 		for (index = file->first_chunk; index < file->first_chunk + file->chunk_count; index++)
 		{
