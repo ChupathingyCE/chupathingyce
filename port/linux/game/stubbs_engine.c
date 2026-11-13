@@ -50,6 +50,7 @@ enum
 
 	/* a special attack's fields */
 	STUBBS_SPECIAL_ATTACK_COST_OFFSET = 0x06,
+	STUBBS_SPECIAL_ATTACK_INITIAL_COUNT_OFFSET = 0x08,
 	STUBBS_SPECIAL_ATTACK_READY_EFFECT_OFFSET = 0x4C,
 	STUBBS_SPECIAL_ATTACK_THROW_EFFECT_OFFSET = 0x5C,
 	STUBBS_SPECIAL_ATTACK_SPEED_OFFSET = 0xA8,
@@ -169,6 +170,17 @@ static struct stubbs_special_attack const *stubbs_unit_special_attack_get(
 	return &definition->special_attacks[special_attack];
 }
 
+/* the count a unit starts with for one of its special attacks, from its
+definition (0 for one it hasn't) */
+static short stubbs_unit_initial_count(
+	long unit_index,
+	short special_attack)
+{
+	struct stubbs_special_attack const *attack = stubbs_unit_special_attack_get(unit_index, special_attack);
+
+	return attack ? attack->initial_count : 0;
+}
+
 static struct stubbs_unit_count *stubbs_unit_count_get(
 	long unit_index,
 	boolean add)
@@ -190,7 +202,9 @@ static struct stubbs_unit_count *stubbs_unit_count_get(
 	if (add && free_slot)
 	{
 		free_slot->unit_index = unit_index;
-		csmemset(free_slot->counts, 1, sizeof(free_slot->counts));
+		/* (a new unit's counts are its definition's starting ones) */
+		for (index = 0; index < STUBBS_MAXIMUM_SPECIAL_ATTACKS; index++)
+			free_slot->counts[index] = (char)stubbs_unit_initial_count(unit_index, index);
 		return free_slot;
 	}
 	return NULL;
@@ -486,6 +500,8 @@ void stubbs_engine_note_unit_definition(
 		csmemcpy(&attack->speed, element + STUBBS_SPECIAL_ATTACK_SPEED_OFFSET, 4);
 		csmemcpy(&cost, element + STUBBS_SPECIAL_ATTACK_COST_OFFSET, 2);
 		attack->cost = cost;
+		csmemcpy(&cost, element + STUBBS_SPECIAL_ATTACK_INITIAL_COUNT_OFFSET, 2);
+		attack->initial_count = cost;
 		if (attack->object_group == 'bipd' && attack->object_definition_index != NONE)
 			stubbs_driven_biped_add(attack->object_definition_index);
 	}
@@ -624,8 +640,9 @@ short stubbs_engine_special_attack_get_count(
 
 	if (special_attack < 0 || special_attack >= STUBBS_MAXIMUM_SPECIAL_ATTACKS)
 		return 0;
-	/* (until a script sets them, each special attack is ready: one use) */
-	return count ? count->counts[special_attack] : 1;
+	/* (until a script or a throw changes them, a unit's counts are its
+	definition's starting ones) */
+	return count ? count->counts[special_attack] : stubbs_unit_initial_count(unit_index, special_attack);
 }
 
 void stubbs_engine_special_attack_set_count(

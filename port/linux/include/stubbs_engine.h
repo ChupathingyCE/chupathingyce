@@ -31,7 +31,9 @@ enum
 bytes each, its block at 0x33C): the object it throws (NONE for none: the
 flatulence), that object's group ('bipd' the hand, 'vehi' the head, 'proj'
 the gut grenade), its ready and throw effects, its speed in world units a
-second, and how many of the unit's count one use takes */
+second, how many of the unit's count one use takes, and the count a new
+unit starts with (Stubbs's hand 1, his head 0: the scripts set the rest
+with unit_special_attack_set_count) */
 struct stubbs_special_attack
 {
 	long object_definition_index;
@@ -40,6 +42,7 @@ struct stubbs_special_attack
 	long throw_effect_index;
 	real speed;
 	short cost;
+	short initial_count;
 };
 
 #ifndef HALO_CONSOLE_NO_STUBBS
