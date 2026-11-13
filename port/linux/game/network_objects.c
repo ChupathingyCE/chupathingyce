@@ -54,6 +54,7 @@ same datum index (identifier and all), so that any message can name one:
 #include "models/model_definitions.h"
 #include "units/units.h"
 #include "units/bipeds.h"
+#include "mcc_seats.h"
 #include "units/biped_definitions.h"
 #include "units/vehicle_definitions.h"
 #include "units/vehicle_datum.h"
@@ -66,6 +67,8 @@ same datum index (identifier and all), so that any message can name one:
 #include "network_coop.h"
 #include "host_evidence.h"
 #include "network_distributed.h"
+#include "network_rules.h"
+#include "cseries/errors.h"
 #ifdef HALO_PORT_CONSOLE_LIMITS
 #include "cseries/errors.h"
 #endif
@@ -80,6 +83,7 @@ static void delta_host_vitals_pass(long machine_index);
 static void delta_host_send_names(boolean everything, long machine_index);
 static void distributed_client_delete(long object_index);
 #endif
+#include "mcc_network.h"
 
 #include <math.h>
 
@@ -404,6 +408,8 @@ static struct
 {
 	long time;
 	long player_indices[MAXIMUM_LOCAL_PLAYERS];
+	/* (the host's checkpoint epoch then: network_distributed_epoch) */
+	unsigned int epoch;
 } objects_host_machines[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
 /* ... each client's player's latest vehicle prediction, taken at the next
 tick; the vehicle it last took (NONE: none), at which of the client's ticks
@@ -531,8 +537,8 @@ static struct
 indices this machine was told of, against its smaller object array. A PC
 host's indices run to 8,192: one at LOCAL_OBJECTS_FIRST_INDEX or above
 takes the place of this machine's own (a projectile, an effect), one past
-MAXIMUM_TRACKED_OBJECTS is not made here at all (docs/cross-play.md, "Object
-slots"). Logged as the highest grows past each 256, and for each game */
+MAXIMUM_TRACKED_OBJECTS is not made here at all. Logged as the highest
+grows past each 256, and for each game */
 static struct
 {
 	long highest;
@@ -1317,12 +1323,18 @@ void network_objects_client_asked(
 		return;
 	player_list = machine_get_player_list(machine_index);
 	/* (another machine in its place has other players) */
-	if ((again && game_time_get() - objects_host_machines[machine_index].time >= HOST_OBJECTS_RESEND_TICKS) ||
-		objects_host_machines[machine_index].time == NONE ||
+	/* (and a machine told them at an older checkpoint epoch: a co-op revert
+	since, network_rules_snapshot_due) */
+	if (network_rules_snapshot_due(objects_host_machines[machine_index].time == NONE,
+		again && game_time_get() - objects_host_machines[machine_index].time >= HOST_OBJECTS_RESEND_TICKS,
 		csmemcmp(objects_host_machines[machine_index].player_indices, player_list,
-			sizeof(objects_host_machines[machine_index].player_indices)) != 0)
+			sizeof(objects_host_machines[machine_index].player_indices)) != 0,
+		objects_host_machines[machine_index].epoch, network_distributed_epoch()))
 	{
 		objects_host_machines[machine_index].time = game_time_get();
+		objects_host_machines[machine_index].epoch = network_distributed_epoch();
+		error(_error_log, "network: the host's objects (a full snapshot) to machine %ld, epoch %u", machine_index,
+			network_distributed_epoch());
 		csmemcpy(objects_host_machines[machine_index].player_indices, player_list,
 			sizeof(objects_host_machines[machine_index].player_indices));
 	}
@@ -3010,6 +3022,7 @@ void network_objects_host_tick(
 	if (game_time_get() % INVENTORY_INTERVAL_TICKS == 0)
 		distributed_host_send_inventories();
 	distributed_host_send_damage_animations();
+	mcc_network_host_tick();
 }
 
 /* ---------- a client */
@@ -4056,6 +4069,15 @@ void network_objects_set_seat(
 			return;
 		}
 		vehicle = (struct unit_datum *)object_try_and_get_and_verify_type(vehicle_index, _object_mask_vehicle);
+		/* MCC biped seats use the host's existing seat state and all the
+		same identity, capacity and attachment-cycle checks below. */
+		if (!vehicle)
+		{
+			vehicle = mcc_seat_parent(vehicle_index);
+			if (vehicle && (TEST_FLAG(vehicle->object.damage_flags, _object_dead_bit) ||
+				!unit_has_animation_to_enter_seat(unit_index, vehicle_index, seat_index)))
+				return;
+		}
 		if (!vehicle || seat_index < 0 ||
 			seat_index >= unit_definition_get(vehicle->definition_index)->unit.seats.count)
 		{
@@ -4301,6 +4323,7 @@ void network_objects_client_tick(
 		objects_client_check_all = TRUE;
 	distributed_client_ready_picked_up_weapons();
 	distributed_client_note_own_inventories();
+	mcc_network_client_tick();
 	distributed_client_send_vehicles();
 	distributed_client_carry_unsteered_vehicles();
 #ifdef HALO_GAME_BROWSER
@@ -4323,6 +4346,7 @@ void network_objects_new_game(
 	short local_player_index;
 	short index;
 
+	mcc_network_new_game();
 #ifdef HALO_PORT_CONSOLE_LIMITS
 	objects_cross_play_new_game();
 #endif
@@ -4373,6 +4397,61 @@ void network_objects_new_game(
 	objects_client_check_all = TRUE;
 	objects_client_local_free_index = LOCAL_OBJECTS_FIRST_INDEX;
 	objects_client_object_count = NONE;
+	for (local_player_index = 0; local_player_index < MAXIMUM_LOCAL_PLAYERS; local_player_index++)
+	{
+		objects_client_own_inventories[local_player_index].unit_index = NONE;
+		objects_client_picked_up_weapons[local_player_index].definition_index = NONE;
+		for (index = 0; index < OWN_VEHICLE_POSITION_TICKS; index++)
+		{
+			objects_client_own_vehicles[local_player_index][index].time = NONE;
+			objects_client_own_vehicles[local_player_index][index].vehicle_index = NONE;
+		}
+	}
+}
+
+/* (effects.c's) */
+extern struct data_array *effect_data;
+void effect_delete(long effect_index);
+
+boolean network_objects_client_synchronized(
+	void)
+{
+	return objects_client_synchronized;
+}
+
+/* (a client of a layout with a checkpoint epoch: network_distributed.c) the
+host's newer epoch (synchronized_again FALSE), or its snapshot's end after
+one (TRUE): every projectile and effect gone, and at the epoch its objects
+waiting for the host's snapshot. The objects it has are kept: the snapshot
+replaces or corrects them */
+void network_objects_checkpoint_reset(
+	boolean synchronized_again)
+{
+	struct object_iterator iterator;
+	struct data_iterator effects;
+	short local_player_index;
+	short index;
+
+	object_iterator_new(&iterator, _object_mask_projectile, 0);
+	while (object_iterator_next(&iterator))
+	{
+		objects_client_deleting = TRUE;
+		object_delete(iterator.index);
+		objects_client_deleting = FALSE;
+	}
+	data_iterator_new(&effects, effect_data);
+	while (data_iterator_next(&effects))
+		effect_delete(effects.datum_index);
+	if (synchronized_again)
+		return;
+	csmemset(client_damage_animations, 0, sizeof(client_damage_animations));
+	objects_client_synchronized = FALSE;
+	objects_client_ready_time = NONE;
+	objects_client_ready_interval = CLIENT_READY_INTERVAL_TICKS;
+	objects_client_failed_time = NONE;
+	objects_client_retry_ticks = CLIENT_RETRY_TICKS;
+	objects_client_ask_again = FALSE;
+	objects_client_check_all = TRUE;
 	for (local_player_index = 0; local_player_index < MAXIMUM_LOCAL_PLAYERS; local_player_index++)
 	{
 		objects_client_own_inventories[local_player_index].unit_index = NONE;

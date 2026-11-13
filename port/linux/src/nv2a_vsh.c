@@ -18,6 +18,7 @@ before that conversion where it can keep it, and otherwise inverts the
 transform.
 */
 
+#include "plasma_model_shader.h"
 #include "xgpu.h"
 
 #include <stdlib.h>
@@ -334,11 +335,8 @@ static const char shader_prologue[] =
 	/* the #version line comes first, from the context's capabilities */
 	"precision highp float;\n"
 	"precision highp int;\n"
-#elif defined(__APPLE__)
-	"#version 410 core\n"
-#else
-	"#version 450 core\n"
 #endif
+	/* (the desktop's #version line comes first too: XGPU_GL_VERSION_LINE) */
 	"uniform vec4 c[192];\n"
 	"uniform vec4 viewport_scale;\n"
 	"uniform vec4 viewport_offset;\n"
@@ -362,6 +360,8 @@ static const char shader_prologue[] =
 	"	int z = int(p) >> 22;\n"
 	"	return vec4(float(x) / 1023.0, float(y) / 1023.0, float(z) / 511.0, 1.0);\n"
 	"}\n"
+	/* NV2A_FINITE (nv2a_psh.c's too) */
+	NV2A_FINITE
 	"vec4 nv2a_rcc(float x)\n"
 	"{\n"
 	"	float r = 1.0 / x;\n"
@@ -387,10 +387,13 @@ static const char shader_prologue[] =
 	"}\n";
 
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting)
+	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting, BOOL plasma_model)
 {
 	struct xgpu_text text = { 0 };
 	unsigned long index;
+	/* the Light effects' point lights (plasma_model_shader.c): a model
+	lighting program with two point lights */
+	struct nv2a_vertex_lighting plasma_lighting;
 	/* each register's packed bit, read from memory at each test: the Xbox
 	360's compiler unrolled both loops, kept each test's result in a saved
 	condition register field across the calls between them, and read the
@@ -401,11 +404,17 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
 		packed[index] = (unsigned char)((packed_attribute_mask >> index) & 1);
+	plasma_model = plasma_model && nv2a_vertex_shader_lighting(instructions, instruction_count, &plasma_lighting) &&
+		plasma_lighting.lights == 2;
 
 #ifdef HALO_GL_ES
 	xgpu_text_append(&text, "#version %s\n", xgpu_capabilities.shading_language);
+#else
+	xgpu_text_append(&text, "%s", XGPU_GL_VERSION_LINE);
 #endif
 	xgpu_text_append(&text, "%s", shader_prologue);
+	if (plasma_model)
+		plasma_model_emit_uniform(&text);
 	/* (the pixel shader's model_lighting; the normal's length in w) */
 	if (lighting)
 		xgpu_text_append(&text, "out vec4 xWorldNormal;\n");
@@ -468,6 +477,8 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		xgpu_text_append(&text, "\tA = "); operand(&text, instruction, 'A', relative); xgpu_text_append(&text, ";\n");
 		xgpu_text_append(&text, "\tB = "); operand(&text, instruction, 'B', relative); xgpu_text_append(&text, ";\n");
 		xgpu_text_append(&text, "\tC = "); operand(&text, instruction, 'C', relative); xgpu_text_append(&text, ";\n");
+		if (plasma_model)
+			plasma_model_emit_vertex(&text, instruction, index, &plasma_lighting);
 
 		switch (mac)
 		{
@@ -580,25 +591,31 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		which the clipper also takes. */
 		"\tif (!(abs(position.w) > 0.0))\n"
 		"\t\tposition = vec4(0.0, 0.0, 0.0, -1.0);\n"
-		"\tgl_Position = position;\n"
-#ifdef HALO_GL_NO_CLIP_CONTROL
-		/* what glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE) does on desktop
-		GL 4.5: rows from the top, depth 0..1 (OpenGL ES and macOS's 4.1 have
-		no glClipControl) */
-		"\tgl_Position.y = -gl_Position.y;\n"
-		"\tgl_Position.z = 2.0 * gl_Position.z - gl_Position.w;\n"
-#endif
-		"\tgl_PointSize = oPts.x;\n"
-		"\txD0 = clamp(oD0, 0.0, 1.0);\n"
-		"\txD1 = clamp(oD1, 0.0, 1.0);\n"
-		"\txB0 = clamp(oB0, 0.0, 1.0);\n"
-		"\txB1 = clamp(oB1, 0.0, 1.0);\n"
-		"\txT0 = oT0;\n"
-		"\txT1 = oT1;\n"
-		"\txT2 = oT2;\n"
-		"\txT3 = oT3;\n"
-		"\txFog = oFog.x;\n"
-		"}\n",
+		"\tgl_Position = position;\n",
 		XGPU_VERTEX_CONSTANT_BIAS - 38, XGPU_VERTEX_CONSTANT_BIAS - 37);
+	/* what glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE) does on desktop GL
+	4.5: rows from the top, depth 0..1 (OpenGL ES, macOS's 4.1 and an older
+	driver's path have no glClipControl: xgpu.h) */
+	if (XGPU_GL_LEGACY)
+	{
+		xgpu_text_append(&text,
+			"\tgl_Position.y = -gl_Position.y;\n"
+			"\tgl_Position.z = 2.0 * gl_Position.z - gl_Position.w;\n");
+	}
+	xgpu_text_append(&text,
+		"\tgl_PointSize = oPts.x;\n"
+		/* (no color, coordinate or fog not a number: nv2a_finite). The
+		colors are clamped after it; the texture coordinates and fog are not,
+		so an infinite one goes on as it is, as it did before */
+		"\txD0 = clamp(nv2a_finite(oD0), 0.0, 1.0);\n"
+		"\txD1 = clamp(nv2a_finite(oD1), 0.0, 1.0);\n"
+		"\txB0 = clamp(nv2a_finite(oB0), 0.0, 1.0);\n"
+		"\txB1 = clamp(nv2a_finite(oB1), 0.0, 1.0);\n"
+		"\txT0 = nv2a_finite(oT0);\n"
+		"\txT1 = nv2a_finite(oT1);\n"
+		"\txT2 = nv2a_finite(oT2);\n"
+		"\txT3 = nv2a_finite(oT3);\n"
+		"\txFog = nv2a_finite(oFog).x;\n"
+		"}\n");
 	return text.buffer;
 }

@@ -6,6 +6,8 @@ OBJECTS.C
 
 #include "cseries.h"
 #include "objects.h"
+#include "mcc_object_names.h" /* port: port/linux/game/mcc_object_names.c */
+#include "mcc_objects.h" /* port: port/linux/game/mcc_objects.c */
 
 #include "damage.h"
 #include "light_definitions.h"
@@ -54,6 +56,7 @@ OBJECTS.C
 #include "sound/game_sound.h"
 #include "structures/structure_bsp_definitions.h"
 #include "units/units.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_update(long object_index, real_point3d const *center, real radius);
 
@@ -380,6 +383,9 @@ void object_set_object_index_for_name_index(
 	short name_index,
 	long object_index)
 {
+	/* port: expanded MCC names use a separate table. */
+	if (mcc_object_names_active()) { mcc_object_names_set(name_index, object_index); return; }
+
 	/* port: and one the name list holds (a map's count; retail has up to
 	448 names) */
 	if (VALID_INDEX(name_index, MIN(global_scenario_get()->object_names.count, MAXIMUM_OBJECT_NAMES_PER_SCENARIO)))
@@ -1687,6 +1693,9 @@ short objects_in_clusters_by_indices(
 long object_index_from_name_index(
 	short name_index)
 {
+	/* port: expanded MCC names use a separate table. */
+	if (mcc_object_names_active()) return mcc_object_names_get(name_index);
+
 	return name_index>=0 && name_index<MAXIMUM_OBJECT_NAMES_PER_SCENARIO ? object_name_list[name_index] : NONE;
 }
 
@@ -3835,9 +3844,18 @@ void object_attach_to_node(
 	return;
 }
 
+/* port: muzzle shots must exclude their shooter during the safety check. */
 boolean object_force_inside_bsp(
 	long object_index,
 	real_point3d const *known_good_point)
+{
+	return object_force_inside_bsp_ignoring(object_index, known_good_point, NONE);
+}
+
+boolean object_force_inside_bsp_ignoring(
+	long object_index,
+	real_point3d const *known_good_point,
+	long ignore_object_index)
 {
 	struct collision_result collision;
 
@@ -3847,7 +3865,7 @@ boolean object_force_inside_bsp(
 	match_assert("c:\\halo\\SOURCE\\objects\\objects.c", 2365, global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
 	global_current_collision_users[global_current_collision_user_depth++] = 19;
 	
-	if (collision_test_line(_collision_test_for_projectiles_flags, known_good_point, &object->object.position, NONE, &collision) ||
+	if (collision_test_line(_collision_test_for_projectiles_flags, known_good_point, &object->object.position, ignore_object_index, &collision) ||
 		object->object.location.cluster_index==NONE)
 	{
 		if (collision.location.cluster_index!=NONE)
@@ -3867,6 +3885,28 @@ boolean object_force_inside_bsp(
 
 	return result;
 }
+
+#ifdef HALO_PERF_LOG
+/* port: the perf log's phase for an object type's own update
+(halo_perf_log.h) */
+static int object_update_perf_phase(
+	short type)
+{
+	switch (type)
+	{
+	case _object_type_biped: return _halo_perf_objects_bipeds;
+	case _object_type_vehicle: return _halo_perf_objects_vehicles;
+	case _object_type_weapon: return _halo_perf_objects_weapons;
+	case _object_type_equipment:
+	case _object_type_garbage: return _halo_perf_objects_items;
+	case _object_type_projectile: return _halo_perf_objects_projectiles;
+	default: return _halo_perf_objects_other_types;
+	}
+}
+#define OBJECT_UPDATE_PERF_PHASE(type) object_update_perf_phase(type)
+#else
+#define OBJECT_UPDATE_PERF_PHASE(type) 0
+#endif
 
 static boolean object_update(
 	long object_index)
@@ -3899,17 +3939,26 @@ static boolean object_update(
 		elevator_sampled = object->object.type == _object_type_machine &&
 			machine_elevator_sample(object_index, &elevator_sample);
 
+		HALO_PERF_COUNT(_halo_perf_objects_updated, 1);
+		HALO_PERF_BEGIN(OBJECT_UPDATE_PERF_PHASE(object->object.type));
 		object_type_update(object_index);
+		HALO_PERF_END(OBJECT_UPDATE_PERF_PHASE(object->object.type));
 		if (object_definition->object.collision_model.index!=NONE)
 		{
+			HALO_PERF_BEGIN(_halo_perf_objects_damage);
 			object_damage_update(object_index);
+			HALO_PERF_END(_halo_perf_objects_damage);
 		}
 
+		HALO_PERF_BEGIN(_halo_perf_objects_functions);
 		object_type_export_function_values(object_index);
+		HALO_PERF_END(_halo_perf_objects_functions);
 
 		if (!TEST_FLAG(object->object.flags, _object_do_not_recompute_node_matrices_bit))
 		{
+			HALO_PERF_BEGIN(_halo_perf_objects_nodes);
 			object_compute_node_matrices(object_index);
+			HALO_PERF_END(_halo_perf_objects_nodes);
 		}
 
 		if (elevator_sampled)
@@ -3917,8 +3966,10 @@ static boolean object_update(
 			machine_elevator_carry_riders(object_index, &elevator_sample);
 		}
 
+		HALO_PERF_BEGIN(_halo_perf_objects_functions);
 		object_compute_function_values(object_index);
 		object_compute_change_colors(object_index);
+		HALO_PERF_END(_halo_perf_objects_functions);
 
 		if (
 			TEST_FLAG(object->object.flags, _object_dynamic_lighting_recompute_bit) &&
@@ -3928,7 +3979,9 @@ static boolean object_update(
 			)
 		)
 		{
+			HALO_PERF_BEGIN(_halo_perf_objects_lights);
 			object_connect_lights(object_index, TRUE, TRUE);
+			HALO_PERF_END(_halo_perf_objects_lights);
 		}
 
 		// Update children (if we have any)
@@ -3945,7 +3998,9 @@ static boolean object_update(
 			}
 		}
 
+		HALO_PERF_BEGIN(_halo_perf_objects_nodes);
 		object_postprocess_node_matrices(object_index);
+		HALO_PERF_END(_halo_perf_objects_nodes);
 	}
 
 	return result;
@@ -4545,6 +4600,7 @@ void objects_update(
 	memcpy(last_active_cluster_bits, active_cluster_bits, BIT_VECTOR_SIZE_IN_BYTES(cluster_count));
 	memcpy(active_cluster_bits, players_get_combined_pvs(), BIT_VECTOR_SIZE_IN_BYTES(cluster_count));
 
+	HALO_PERF_BEGIN(_halo_perf_objects_activation);
 	if (csmemcmp(last_active_cluster_bits, active_cluster_bits, BIT_VECTOR_SIZE_IN_BYTES(cluster_count)))
 	{
 		object_header = (struct object_header_datum *)xbox_pointer(object_header_data->data);
@@ -4593,6 +4649,7 @@ void objects_update(
 			active_cluster_bits,
 			cluster_count);
 	}
+	HALO_PERF_END(_halo_perf_objects_activation);
 
 	object_header = (struct object_header_datum *)xbox_pointer(object_header_data->data);
 	for (i = 0; i<object_header_data->count; ++object_header)
@@ -4641,7 +4698,9 @@ void objects_update(
 		++i;
 	}
 
+	HALO_PERF_BEGIN(_halo_perf_objects_garbage);
 	objects_garbage_collection();
+	HALO_PERF_END(_halo_perf_objects_garbage);
 
 	profile_exit(section);
 
@@ -4713,6 +4772,9 @@ static void object_name_list_free(
 static void object_name_list_clear(
 	void)
 {
+	/* port: clear MCC state on every new map and restart. */
+	if (mcc_object_names_active()) mcc_object_names_clear();
+
 	memset(object_name_list, NONE, MAXIMUM_OBJECT_NAMES_PER_SCENARIO * sizeof(*object_name_list));
 
 	return;
@@ -4723,6 +4785,9 @@ static void object_name_list_new(
 	short name_index)
 {
 	struct object_datum *object = object_get(object_index);
+
+	/* port: extended indices must not enter the legacy table. */
+	if (mcc_object_names_active()) { mcc_object_names_claim(name_index, object_index); return; }
 
 	match_assert(
 		"c:\\halo\\SOURCE\\objects\\objects.c",
@@ -4768,6 +4833,9 @@ void object_claim_scenario_name(
 	long object_index,
 	short name_index)
 {
+	/* port: expanded MCC names preserve the same first-owner rule. */
+	if (mcc_object_names_active()) { mcc_object_names_claim(name_index, object_index); return; }
+
 	if (object_index == NONE ||
 		!VALID_INDEX(name_index, MIN(global_scenario_get()->object_names.count, MAXIMUM_OBJECT_NAMES_PER_SCENARIO)) ||
 		object_name_list[name_index] != NONE)
@@ -4783,6 +4851,9 @@ static void object_name_list_delete(
 	long object_index)
 {
 	struct object_datum *object = object_get(object_index);
+
+	/* port: MCC also clears aliases outside the legacy name range. */
+	if (mcc_object_names_active()) { mcc_object_names_delete(object_index); return; }
 
 	if (object->object.name_index!=NONE)
 	{
@@ -4807,6 +4878,9 @@ static void object_name_list_delete(
 static long object_name_list_lookup(
 	short name_index)
 {
+	/* port: expanded MCC names use a separate table. */
+	if (mcc_object_names_active()) return mcc_object_names_get(name_index);
+
 	return VALID_INDEX(name_index, MAXIMUM_OBJECT_NAMES_PER_SCENARIO) ? object_name_list[name_index] : NONE;
 }
 
@@ -5404,7 +5478,11 @@ static void object_compute_change_colors(
 				cc_index,
 				struct object_change_color_definition);
 
-			if (change_color->scaled_by)
+			/* port: MCC signed RGB functions are clamped below, after darkening. */
+			if (change_color->scaled_by && !mcc_object_color_extrapolate(
+				&object->object.outgoing_change_colors[cc_index], change_color->scale_flags,
+				&change_color->color_lower_bound, &change_color->color_upper_bound,
+				OBJECT_INCOMING_FUNCTION_GET_VALUE(object, change_color->scaled_by)))
 			{
 				rgb_colors_interpolate(
 					&object->object.outgoing_change_colors[cc_index],

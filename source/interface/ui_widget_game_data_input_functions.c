@@ -2533,7 +2533,9 @@ static void multiplayer_game_set_text_box_for_map_name(
 #ifdef HALO_MAP_LIST
 	/* port: a map past the Xbox's is named as the menus' map list names it
 	(a network co-op game's campaign level too) */
-	if (strchr(map_name, '@') || main_get_solo_level_from_name(map_name) != NONE)
+	if (strchr(map_name, '@') || main_get_solo_level_from_name(map_name) != NONE ||
+		/* (an MCC map, mcc_maps\<package>\<map>: its own picture) */
+		!strncmp(map_name, "mcc_maps\\", 9))
 	{
 		long row = ui_map_list_lookup(map_name);
 
@@ -2830,7 +2832,9 @@ static void multiplayer_game_set_bitmap_for_map(
 #ifdef HALO_MAP_LIST
 	/* port: a map past the Xbox's shows the menus' map list's picture for it
 	(a network co-op game's campaign level too) */
-	if (strchr(map_name, '@') || main_get_solo_level_from_name(map_name) != NONE)
+	if (strchr(map_name, '@') || main_get_solo_level_from_name(map_name) != NONE ||
+		/* (an MCC map, mcc_maps\<package>\<map>: its own picture) */
+		!strncmp(map_name, "mcc_maps\\", 9))
 	{
 		long row = ui_map_list_lookup(map_name);
 
@@ -3254,6 +3258,29 @@ static void spinner_list_3wide_determine_displayed_item_indices(
 		displayed_item_indices[1] = NONE;
 	if (displayed_item_indices[2] >= list_widget->parameters.list.number_of_items)
 		displayed_item_indices[2] = NONE;
+	/* port: a list shorter than its three slots shows each item once (a
+	search that keeps one or two maps): the slots that would repeat one are
+	empty, and hidden; the focused slot always keeps its own */
+	{
+		long focused = focused_child == first_child ? 0 : focused_child == first_child->next ? 1 : 2;
+		long slot, other;
+		struct widget_instance *child;
+
+		for (slot = 0; slot < 3; slot++)
+		{
+			if (slot == focused || displayed_item_indices[slot] == NONE)
+				continue;
+			if (displayed_item_indices[slot] == displayed_item_indices[focused])
+				displayed_item_indices[slot] = NONE;
+			for (other = 0; other < slot && displayed_item_indices[slot] != NONE; other++)
+			{
+				if (other != focused && displayed_item_indices[other] == displayed_item_indices[slot])
+					displayed_item_indices[slot] = NONE;
+			}
+		}
+		for (slot = 0, child = first_child; slot < 3 && child; slot++, child = child->next)
+			child->visible = displayed_item_indices[slot] != NONE;
+	}
 	return;
 }
 
@@ -3421,11 +3448,11 @@ static void mutliplayer_settings_select_list_update_displayed_items(
 		profile_indices,
 		NUMBEROF(profile_indices));
 
-	for (item_index = 0;
-		item_index < 3 &&
-			displayed_item_indices[item_index] != NONE;
-		item_index++)
+	for (item_index = 0; item_index < 3; item_index++)
 	{
+		/* port: a slot with no item of its own (a list shorter than its three) is skipped, not the end */
+		if (displayed_item_indices[item_index] == NONE)
+			continue;
 		struct widget_instance *item = widget_instance_get_nth_child(
 			list_widget,
 			item_index);
@@ -3714,8 +3741,11 @@ static void mutliplayer_settings_select_list_update_displayed_items(
 	}
 	/* port: the Chupathingy menus' cards add each gametype's rules
 	(port/linux/game/menu_style.c) */
-	for (item_index = 0; item_index < 3 && displayed_item_indices[item_index] != NONE; item_index++)
+	for (item_index = 0; item_index < 3; item_index++)
 	{
+		/* port: a slot with no item of its own (a list shorter than its three) is skipped, not the end */
+		if (displayed_item_indices[item_index] == NONE)
+			continue;
 		extern void menu_style_gametype_rules(long profile_index, wchar_t *text, long size);
 		struct widget_instance *label_box = widget_instance_get_nth_child(list_widget, item_index)->child->next->next;
 
@@ -3762,10 +3792,11 @@ static void player_profile_3wide_list_update(
 	}
 	player_profile_update_cache_for_nwide_list(profile_indices, 3);
 
-	for (item_index = 0;
-		item_index < 3 && displayed_item_indices[item_index] != NONE;
-		item_index++)
+	for (item_index = 0; item_index < 3; item_index++)
 	{
+		/* port: a slot with no item of its own (a list shorter than its three) is skipped, not the end */
+		if (displayed_item_indices[item_index] == NONE)
+			continue;
 		struct widget_instance *item = widget_instance_get_nth_child(
 			list_widget,
 			item_index);
@@ -4219,7 +4250,7 @@ static void solo_level_select_list_update_displayed_items(
 		struct widget_instance *cooperative_marker;
 
 		if (displayed_item_indices[item_index] == NONE)
-			break;
+			continue;
 
 		item = widget_instance_get_nth_child(
 			list_widget,
@@ -4260,6 +4291,25 @@ static void solo_level_select_list_update_displayed_items(
 		difficulty_marker->animation.current_frame_index = 2;
 		cooperative_marker->animation.current_frame_index = 3;
 
+#ifdef HALO_MAP_LIST
+		/* port: an MCC campaign map's card, after the ten levels: its row of
+		the menus' map list (name, picture, description), no markers */
+		if (displayed_item_indices[item_index] >= 10)
+		{
+			extern char const *ui_widget_port_mcc_campaign_level(short row);
+			char const *level = ui_widget_port_mcc_campaign_level((short)(displayed_item_indices[item_index] - 10));
+			long row = level ? ui_map_list_lookup(level) : NONE;
+
+			map_name->parameters.text_box.string_list_index = ui_map_list_string_index(row, _ui_map_list_string_name);
+			map_bitmap->animation.current_frame_index = ui_map_list_picture_index(row);
+			map_description->parameters.text_box.string_list_index =
+				ui_map_list_string_index(row, _ui_map_list_string_description);
+			completion_marker->visible = FALSE;
+			difficulty_marker->visible = FALSE;
+			cooperative_marker->visible = FALSE;
+			continue;
+		}
+#endif
 		match_vassert(
 			"c:\\halo\\SOURCE\\interface\\ui_widget_game_data_input_functions.c",
 			0x204,
@@ -4335,11 +4385,11 @@ static void player_profile_color_picker_update(
 		list_widget,
 		displayed_item_indices);
 
-	for (item_index = 0;
-		item_index < 3 &&
-			displayed_item_indices[item_index] != NONE;
-		item_index++)
+	for (item_index = 0; item_index < 3; item_index++)
 	{
+		/* port: a slot with no item of its own (a list shorter than its three) is skipped, not the end */
+		if (displayed_item_indices[item_index] == NONE)
+			continue;
 		struct widget_instance *item = widget_instance_get_nth_child(
 			list_widget,
 			item_index);
@@ -4393,15 +4443,23 @@ static void mp_level_select_list_update_displayed_items(
 		definition->child_count == 3,
 		"expected 3 children (list items) for 'level select' widget");
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: the Xbox menus' Select Map's search (ui_widget.c) */
+	{
+		extern void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget);
+
+		ui_widget_port_xbox_map_list_sync(list_widget);
+	}
+#endif
 	spinner_list_3wide_determine_displayed_item_indices(
 		list_widget,
 		displayed_item_indices);
 
-	for (item_index = 0;
-		item_index < 3 &&
-			displayed_item_indices[item_index] != NONE;
-		item_index++)
+	for (item_index = 0; item_index < 3; item_index++)
 	{
+		/* port: a slot with no item of its own (a list shorter than its three) is skipped, not the end */
+		if (displayed_item_indices[item_index] == NONE)
+			continue;
 		struct widget_instance *item = widget_instance_get_nth_child(
 			list_widget,
 			item_index);

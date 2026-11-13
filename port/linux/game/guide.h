@@ -22,9 +22,18 @@ struct halo_ui_pointer;
 gives the input back to what was under it */
 void guide_open(void);
 void guide_close(void);
+/* opened on PARTY (the menus' DELTA rows) */
+void guide_open_party(void);
+/* the Guide opened on WORKSHOP (back from its search's on-screen keyboard) */
+void guide_open_workshop(void);
+/* the Guide opened on SETTINGS, on the row of that config key */
+void guide_open_setting(char const *key);
 /* opened on the About screen (the menus' ABOUT rows): B closes it */
 void guide_about_open(void);
 boolean guide_active(void);
+/* the key its prompts show (controls.delta's; on a Mac the backslash key,
+not the F3 macOS takes) */
+void guide_key_shown(char *key, int size);
 
 /* each frame from the menus (ui_widget.c's process_ui_widgets), whether a
 menu is up: what opens or closes it, and its toasts' time */
@@ -42,13 +51,13 @@ void guide_render(void);
 boolean guide_takes_player(void);
 
 /* a toast: a short line at the bottom of the screen for a few seconds,
-quiet, never over a game unless guide.notify_in_game is on (the Guide's
+quiet, never over a game unless delta.notify_in_game is on (the Guide's
 own: a new invite or friend request, a friend online with
-guide.notify_online) */
+delta.notify_online) */
 void guide_toast(char const *title, char const *line);
 
-/* the pause menu's GUIDE with what waits in it (invites, friend
-requests): "GUIDE 2" for the text of its string list; else NULL */
+/* the pause menu's DELTA with what waits in it (invites, friend
+requests): "DELTA 2" for the text of its string list; else NULL */
 wchar_t const *guide_pause_label(long string_list_tag);
 
 #endif

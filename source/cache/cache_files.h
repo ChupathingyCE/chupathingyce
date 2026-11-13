@@ -82,6 +82,10 @@ boolean cache_files_map_needs_delta(
 void cache_files_show_multiplayer_unavailable(
 	char const *map_name,
 	char const *build);
+boolean cache_files_map_host_refused(
+	char const *map_name,
+	char *message,
+	long size);
 unsigned long cache_files_map_version(
 	char const *map_name);
 
@@ -100,6 +104,8 @@ unsigned long cache_files_map_choose(
 boolean cache_files_map_present(
 	char const *map_name,
 	unsigned long version);
+boolean cache_files_map_installed(
+	char const *map_name);
 
 unsigned long cache_files_get_checksum(
 	void);

@@ -292,6 +292,22 @@ static int team_change_decide(long player_index, short team, boolean forced, sho
 	return _delta_team_changed;
 }
 
+boolean team_change_party_move(long player_index, short team)
+{
+	struct player_datum *player = player_index == NONE ? NULL : player_try_and_get(player_index);
+	struct team_change_player *change = change_of(player_index);
+
+	if (!player || !change || !global_network_game_server_get() || !game_engine_has_teams() ||
+		network_coop_active() || player->quit_out_of_game || player->unit_index != NONE || change->waiting ||
+		!VALID_INDEX(team, 2) || player->team_index == team)
+	{
+		return FALSE;
+	}
+	platform_log("party teams: player %ld joins their party's team", (long)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index));
+	team_change_apply(player_index, team);
+	return TRUE;
+}
+
 boolean team_change_death(long dead_player_index)
 {
 	struct team_change_player *change = change_of(dead_player_index);

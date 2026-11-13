@@ -52,11 +52,20 @@ def free_udp_port():
 
 
 class Server:
-    def __init__(self, harness, masters="", gamever="0.0.0-test", players=3):
-        self.port = free_udp_port()
-        self.process = subprocess.Popen([str(harness), str(self.port), masters, gamever, str(players)],
-                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-        line = self.process.stdout.readline().strip()
+    def __init__(self, harness, masters="", gamever="0.0.0-test", players=3, extra=()):
+        # (the free port is let go before the harness binds it: with the tests
+        # run in parallel, another's socket can take it first, so the harness
+        # is started again on another free port when its bind is refused)
+        for _ in range(20):
+            self.port = free_udp_port()
+            self.process = subprocess.Popen([str(harness), str(self.port), masters, gamever, str(players), *extra],
+                                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+            line = self.process.stdout.readline().strip()
+            if line == "started" or "in use" not in line:
+                break
+            self.process.wait(5)
+            self.process.stdin.close()
+            self.process.stdout.close()
         assert line == "started", line
         self.output = []
         self.reader = threading.Thread(target=self.read, daemon=True)

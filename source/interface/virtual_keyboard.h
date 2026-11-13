@@ -28,7 +28,7 @@ boolean virtual_keyboard_launch(
 	wchar_t *text_buffer,
 	word buffer_size,
 	short caption_index);
-#ifdef HALO_CONSOLE_MAP_BROWSER
+#if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
 boolean virtual_keyboard_launch_plain(
 	wchar_t *text_buffer,
 	word buffer_size,

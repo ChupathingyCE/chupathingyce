@@ -209,8 +209,9 @@ def main() -> int:
     # SIL Open Font License asks each copy to carry it
     shutil.copy2(ROOT / "port/assets/fonts/Overpass-OFL.txt", dist / "Overpass-OFL.txt")
     shutil.copy2(ROOT / "port/assets/fonts/CyborgInterfaceGothic-OFL.txt", dist / "CyborgInterfaceGothic-OFL.txt")
-    # (OpenCE, the menus' titles' face, which Online Games draws its title in)
-    shutil.copy2(ROOT / "port/assets/fonts/OpenCE-OFL.txt", dist / "OpenCE-OFL.txt")
+    # (Chupathingy Titles, the classic titles' face, which the overlay's
+    # screens draw their titles in, and Newtown's public-domain statement)
+    shutil.copy2(ROOT / "port/assets/fonts/ChupathingyTitles-OFL.txt", dist / "ChupathingyTitles-OFL.txt")
     # the overlay's fonts (port/linux/ui/fonts), in every build: Noto Sans's
     # license asks the same; Kenney's Input Prompts are CC0, credited all
     # the same
@@ -219,6 +220,20 @@ def main() -> int:
     # the menus' XML parser (port/third_party/expat), in every build, whose
     # MIT license asks copies to carry its notice
     shutil.copy2(ROOT / "port/third_party/expat/COPYING", dist / "expat-COPYING.txt")
+    # the Steam content client's LZMA decoder (port/third_party/lzma), public
+    # domain: its statement carried as a credit
+    shutil.copy2(ROOT / "port/third_party/lzma/LICENSE", dist / "lzma-sdk-LICENSE.txt")
+    # the Steam content client's and compressed maps' Zstandard
+    # (port/third_party/zstd, BSD) and the Steam link's QR code
+    # (port/third_party/qrcodegen, MIT), whose licenses ask binaries to carry
+    # their notices
+    shutil.copy2(ROOT / "port/third_party/zstd/LICENSE", dist / "zstd-LICENSE.txt")
+    shutil.copy2(ROOT / "port/third_party/qrcodegen/LICENSE", dist / "qrcodegen-LICENSE.txt")
+    # the Steam link code (port/linux/src/steam_content, the Steam bridge),
+    # MIT: its notice carried with the binaries
+    shutil.copy2(ROOT / "LICENSES/MIT.txt", dist / "steam-link-MIT.txt")
+    # MCC's texture decoder is distributed under bcdec's MIT option.
+    shutil.copy2(ROOT / "port/third_party/bcdec/LICENSE", dist / "bcdec-LICENSE.txt")
     # the bgfx renderer of the 64-bit desktop builds (tools/bgfx_build.py):
     # bgfx's, bx's and bimg's BSD licenses ask binaries to carry their
     # notices, as do glslang's and, on macOS, SPIRV-Cross's
@@ -356,7 +371,7 @@ def server_dist(platform: str, config: str, output: str) -> int:
                          ("port/third_party/expat/COPYING", "expat-COPYING.txt"),
                          ("port/assets/fonts/Overpass-OFL.txt", "Overpass-OFL.txt"),
                          ("port/assets/fonts/CyborgInterfaceGothic-OFL.txt", "CyborgInterfaceGothic-OFL.txt"),
-                         ("port/assets/fonts/OpenCE-OFL.txt", "OpenCE-OFL.txt"),
+                         ("port/assets/fonts/ChupathingyTitles-OFL.txt", "ChupathingyTitles-OFL.txt"),
                          ("port/linux/ui/fonts/OFL.txt", "NotoSans-OFL.txt"),
                          ("port/linux/ui/fonts/KENNEY-CC0.txt", "Kenney-Input-Prompts-CC0.txt")):
         shutil.copy2(ROOT / source, dist / name)

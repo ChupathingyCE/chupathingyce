@@ -40,6 +40,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from run_logs import find_debug_log  # noqa: E402
+
 ITEMS_INTERVAL = 5
 PICKUP_AT = 20
 PICKUP_EVERY = 15
@@ -155,9 +158,10 @@ def run(args):
 
 def lines(folder):
     found = []
-    for name in ("out.log", os.path.join("data", "logs", "debug.txt")):
-        path = os.path.join(folder, name)
-        if os.path.exists(path):
+    # (the run's debug.txt where its build wrote it: run_logs.py)
+    debug = find_debug_log(os.path.join(folder, "saves"), os.path.join(folder, "data"))
+    for path in (os.path.join(folder, "out.log"), debug):
+        if path and os.path.exists(path):
             with open(path, "rb") as file:
                 found += file.read().decode("utf-8", "replace").splitlines()
         if found:

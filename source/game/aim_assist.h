@@ -63,6 +63,10 @@ long player_aim_projectile(
 	long player_index,
 	real_point3d const *position,
 	real_vector3d *direction);
+/* port: expose target selection for independently calculated camera rays,
+without changing the original projectile adjustment or recording a shot. */
+long player_get_aim_assist_target(long player_index, real_point3d const *position,
+	real_vector3d const *direction, real_point3d *target_position, real *autoaim_level);
 long local_player_aim_assist(
 	short local_player_index,
 	real *autoaim_level,

@@ -79,11 +79,13 @@ their handlers open opens.
 #include "interface/event_manager.h"
 #include "interface/player_ui.h"
 #include "interface/ui_widget.h"
+#include "interface/virtual_keyboard.h"
 #include "main/main.h"
 #include "networking/network_game_manager.h"
 #include "saved games/player_profile.h"
 #include "saved games/saved_game_files.h"
 #include "tag_files/tag_groups.h"
+#include "text/draw_string.h"
 #include "text/text_group.h"
 #include "text/unicode.h"
 
@@ -91,11 +93,14 @@ their handlers open opens.
 /* (internet play's server browser: the platform layer's) */
 #include "../src/p2p.h"
 #include "../src/controller_layout.h"
+/* (Network Setup's INSTALL UPDATE: the self-updater's) */
+#include "../src/update.h"
 #include "networking/network_connection.h"
 /* (the game list's filter and the campaign levels: every build) */
 #include "../src/browser.h"
 #include "../src/launcher.h"
 #include "delta.h"
+#include "../src/server_badge.h"
 #ifdef HALO_GAME_BROWSER
 #include "halo_port_limits.h"
 #endif
@@ -105,6 +110,7 @@ their handlers open opens.
 #include "halo_join_reasons.h"
 /* (the multiplayer maps past the Xbox's: ui_map_list.c) */
 #include "halo_ui_map_list.h"
+#include "mcc_maps.h"
 #ifdef HALO_GAME_BROWSER
 /* (game type files: the dedicated server's, gametype_files.c) */
 #include "../../../server/src/server_config.h"
@@ -1126,7 +1132,9 @@ static void multiplayer_map_text(short map, wchar_t *text)
 		return;
 	}
 #endif
-	string_get("pc\\main_menu\\mp_map_list", map, text);
+	/* (an Xbox map's own string: its place among the Xbox's, which a map
+	chooser's view may have moved: ui_map_list.c) */
+	string_get("pc\\main_menu\\mp_map_list", multiplayer_map_string(map, _ui_map_list_string_lobby_name), text);
 }
 
 /* the description's map (each list's has both kinds' widgets): a campaign
@@ -1151,11 +1159,219 @@ static void map_description_show(struct widget_instance *description, short leve
 	if (map == NONE)
 		return;
 	if ((widget = named(description, "mp_map_right_name", 0)) != NULL)
-		widget->parameters.text_box.string_list_index = multiplayer_map_string(map, _ui_map_list_string_lobby_name);
+		widget->parameters.text_box.string_list_index = multiplayer_map_string(map, _ui_map_list_string_pane_name);
 	if ((widget = named(description, "mp_map_right_pic", 0)) != NULL)
 		widget->animation.current_frame_index = multiplayer_map_picture(map);
 	if ((widget = named(description, "mp_map_right_data", 0)) != NULL)
 		widget->parameters.text_box.string_list_index = multiplayer_map_string(map, _ui_map_list_string_description);
+}
+
+/* ---- the map choosers' view (New Game's MULTIPLAYER maps, Create Game's
+Map screen): their first rows Search, Show and Sort, then the maps of the
+menus' map list's view (ui_map_list_view_set). Search: typed on its row (the
+keys type while it is chosen, Backspace deletes), or A on it opens the
+on-screen keyboard; Show: A goes to the next source the list has (All, Xbox,
+CE, MD, MCC); Sort: A goes to the next order (Default order, A-Z, Recently
+added). Show and Sort are kept per chooser in display.map_show_<chooser> and
+display.map_sort_<chooser>; the defaults leave the list as it always was */
+
+enum
+{
+	MAP_VIEW_SEARCH_ROW,
+	MAP_VIEW_SHOW_ROW,
+	MAP_VIEW_SORT_ROW,
+	MAP_VIEW_ROWS
+};
+
+#define MAP_VIEW_SEARCH_LENGTH 32
+
+struct map_view
+{
+	char const *chooser;
+	char search[MAP_VIEW_SEARCH_LENGTH];
+	short source, sort;
+	/* the on-screen keyboard is up for Search */
+	boolean keyboard;
+	wchar_t keyboard_text[MAP_VIEW_SEARCH_LENGTH];
+	/* the keys type into Search (its row chosen) */
+	boolean typing;
+};
+
+static struct map_view new_game_view = { "new_game" };
+static struct map_view create_game_view = { "create_game" };
+/* (while a view types: when it was last shown, to let go of the keys once
+its screen has gone) */
+static struct map_view *map_view_typing;
+static unsigned long map_view_typing_time;
+
+boolean input_get_key(struct key_stroke *key);
+void platform_text_field(int typing);
+int ui_overlay_keyboard(void);
+static boolean text_field_editing(struct widget_instance *row);
+
+static void map_view_apply(struct map_view *view)
+{
+	ui_map_list_view_set(view->source, view->sort, view->search);
+}
+
+static void map_view_setting(struct map_view const *view, char const *what, char *name, size_t size)
+{
+	snprintf(name, size, "display.map_%s_%s", what, view->chooser);
+}
+
+/* the chooser opened: its Show and Sort as they were kept, no search */
+static void map_view_open(struct map_view *view)
+{
+	char name[64];
+
+	map_view_setting(view, "show", name, sizeof(name));
+	view->source = ui_map_list_source_from_key(config_string(name));
+	map_view_setting(view, "sort", name, sizeof(name));
+	view->sort = ui_map_list_sort_from_key(config_string(name));
+	view->search[0] = 0;
+	view->keyboard = FALSE;
+	/* (debug.menu_open's "#search=<words>": a search to start with, for
+	screenshots) */
+	{
+		char const *debug = strstr(config_string("debug.menu_open"), "#search=");
+
+		if (debug)
+		{
+			snprintf(view->search, sizeof(view->search), "%s", debug + 8);
+			view->search[strcspn(view->search, "#")] = 0;
+		}
+	}
+	map_view_apply(view);
+	/* (a source the list no longer has: all of them) */
+	if (!ui_map_list_source_present(view->source))
+	{
+		view->source = _ui_map_list_source_all;
+		map_view_apply(view);
+	}
+}
+
+static void map_view_row_text(struct map_view const *view, short row, wchar_t *text)
+{
+	char line[ROW_TEXT_LENGTH];
+	short index;
+
+	if (row == MAP_VIEW_SEARCH_ROW)
+		snprintf(line, sizeof(line), view->search[0] || view->typing ? "Search: %s%s" : "Search", view->search,
+			view->typing && (system_milliseconds() / 500) % 2 ? "_" : "");
+	else if (row == MAP_VIEW_SHOW_ROW)
+		snprintf(line, sizeof(line), "Show: %s", ui_map_list_source_name(view->source));
+	else
+		snprintf(line, sizeof(line), "Sort: %s", ui_map_list_sort_name(view->sort));
+	for (index = 0; line[index] && index < ROW_TEXT_LENGTH - 1; index++)
+		text[index] = (wchar_t)(unsigned char)line[index];
+	text[index] = 0;
+}
+
+/* A on one of the view's rows */
+static void map_view_activate(struct map_view *view, short row)
+{
+	char name[64];
+
+	if (row == MAP_VIEW_SEARCH_ROW)
+	{
+		/* (the keys type already; a controller gets the on-screen keyboard.
+		ui_overlay.c's: the builds with the game list, HALO_GAME_BROWSER) */
+#ifdef HALO_GAME_BROWSER
+		if (ui_overlay_keyboard())
+			return;
+#endif
+		for (row = 0; view->search[row] && row < MAP_VIEW_SEARCH_LENGTH - 1; row++)
+			view->keyboard_text[row] = (wchar_t)(unsigned char)view->search[row];
+		view->keyboard_text[row] = 0;
+		view->keyboard = virtual_keyboard_launch_plain(view->keyboard_text, sizeof(view->keyboard_text), L"Search");
+		return;
+	}
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	if (row == MAP_VIEW_SHOW_ROW)
+	{
+		do
+			view->source = (short)((view->source + 1) % NUMBER_OF_UI_MAP_LIST_SOURCES);
+		while (view->source != _ui_map_list_source_all && !ui_map_list_source_present(view->source));
+		map_view_setting(view, "show", name, sizeof(name));
+		config_write(name, ui_map_list_source_key(view->source));
+	}
+	else
+	{
+		view->sort = (short)((view->sort + 1) % NUMBER_OF_UI_MAP_LIST_SORTS);
+		map_view_setting(view, "sort", name, sizeof(name));
+		config_write(name, ui_map_list_sort_key(view->sort));
+	}
+	map_view_apply(view);
+}
+
+/* each frame the chooser shows, its row chosen (NONE: none): the on-screen
+keyboard's words taken, the keys typed into Search while its row is chosen.
+TRUE when the view changed (the maps are others) */
+static boolean map_view_update(struct map_view *view, short chosen)
+{
+	boolean changed = FALSE, typing;
+	struct key_stroke key;
+
+	if (view->keyboard && !virtual_keyboard_active())
+	{
+		view->keyboard = FALSE;
+		if (virtual_keyboard_last_exit_saved_text())
+		{
+			short index;
+
+			for (index = 0; view->keyboard_text[index] && index < MAP_VIEW_SEARCH_LENGTH - 1; index++)
+				view->search[index] = view->keyboard_text[index] < 0x80 ? (char)view->keyboard_text[index] : '?';
+			view->search[index] = 0;
+			changed = TRUE;
+		}
+	}
+	typing = chosen == MAP_VIEW_SEARCH_ROW && !virtual_keyboard_active() && !text_field_editing(NULL);
+	if (typing != view->typing)
+	{
+		view->typing = typing;
+		platform_text_field(typing);
+		map_view_typing = typing ? view : NULL;
+		while (input_get_key(&key))
+			;
+	}
+	if (typing)
+	{
+		map_view_typing_time = system_milliseconds();
+		while (input_get_key(&key))
+		{
+			size_t length = strlen(view->search);
+
+			if (key.key_code == _key_backspace)
+			{
+				if (length)
+				{
+					view->search[length - 1] = 0;
+					changed = TRUE;
+				}
+			}
+			else if ((unsigned char)key.ascii_code >= ' ' && (unsigned char)key.ascii_code <= '~' &&
+				length < MAP_VIEW_SEARCH_LENGTH - 1)
+			{
+				view->search[length] = key.ascii_code;
+				view->search[length + 1] = 0;
+				changed = TRUE;
+			}
+		}
+	}
+	if (changed)
+		map_view_apply(view);
+	return changed;
+}
+
+/* the keys given back once a typing view's screen has gone (or a game starts) */
+static void map_view_let_go(void)
+{
+	if (map_view_typing)
+	{
+		map_view_typing->typing = FALSE;
+		map_view_typing = NULL;
+		platform_text_field(FALSE);
+	}
 }
 
 /* New Game's list: SINGLEPLAYER's levels, the profile's reached, or
@@ -1169,6 +1385,18 @@ static struct
 	char const *const *map_names;
 	short map_count;
 } level_list;
+
+/* SINGLEPLAYER's rows after the campaign's levels: the MCC catalog's
+campaign maps (mcc_maps.c), marked [MCC] as the map lists mark them */
+static short mcc_level_count(void)
+{
+	return mcc_maps_type_count(TRUE);
+}
+
+static short mcc_level_index(short level)
+{
+	return mcc_maps_type_index((short)(level - NUMBER_OF_SINGLE_PLAYER_LEVELS), TRUE);
+}
 
 /* "initialize sp level list solo" starts on the level last played */
 static boolean level_list_initialize(struct widget_instance *list, short controller)
@@ -1184,18 +1412,64 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 		level = campaign.saved_level;
 	if (!campaign.levels[level].available)
 		level = 0;
+	/* (on the Workshop item the Delta Guide's PLAY handed over: its levels
+	lead the MCC rows, mcc_maps.c) */
+	if (mcc_maps_take_first_focus() && mcc_level_count())
+		level = NUMBER_OF_SINGLE_PLAYER_LEVELS;
 	campaign.shown_level = level;
+	/* (the list found first, so that the view knows the sources it has) */
+	ui_widget_port_multiplayer_maps(&level_list.map_names, NULL);
+	map_view_open(&new_game_view);
 	level_list.map_count = ui_widget_port_multiplayer_maps(&level_list.map_names, &last_used);
 	level_list.kind = MAP_KIND_SINGLEPLAYER;
 	level_list.chosen = level;
-	level_list.first = map_kind_first(level, NUMBER_OF_SINGLE_PLAYER_LEVELS);
+	level_list.first = map_kind_first(level, level < NUMBER_OF_SINGLE_PLAYER_LEVELS ? NUMBER_OF_SINGLE_PLAYER_LEVELS :
+		(short)(NUMBER_OF_SINGLE_PLAYER_LEVELS + mcc_level_count()));
+	/* (debug.menu_open's "#multiplayer", "#multiplayer_last" or
+	"#singleplayer_last": the list opened on a kind's first or last row, for
+	screenshots) */
+	if (strstr(config_string("debug.menu_open"), "#multiplayer"))
+	{
+		level_list.kind = MAP_KIND_MULTIPLAYER;
+		level_list.chosen = (short)(MAP_VIEW_ROWS + (strstr(config_string("debug.menu_open"), "#multiplayer_last") ?
+			MAX(level_list.map_count - 1, 0) : 0));
+		level_list.first = map_kind_first(level_list.chosen, (short)(MAP_VIEW_ROWS + level_list.map_count));
+	}
+	else if (strstr(config_string("debug.menu_open"), "#singleplayer_last"))
+	{
+		short count = (short)(NUMBER_OF_SINGLE_PLAYER_LEVELS + mcc_level_count());
+
+		level_list.chosen = (short)(count - 1);
+		level_list.first = map_kind_first(level_list.chosen, count);
+	}
 	map_kind_set(list, level_list.kind);
 	map_kind_focus(list, level_list.first, level_list.chosen);
 	return TRUE;
 }
 
+/* MULTIPLAYER's rows: the view's, then the maps */
+static void level_map_row_text(short entry, wchar_t *text)
+{
+	if (entry < MAP_VIEW_ROWS)
+		map_view_row_text(&new_game_view, entry, text);
+	else
+		multiplayer_map_text((short)(entry - MAP_VIEW_ROWS), text);
+}
+
 static void level_row_text(short level, wchar_t *text)
 {
+	if (level >= NUMBER_OF_SINGLE_PLAYER_LEVELS)
+	{
+		short index = mcc_level_index(level);
+		wchar_t const *name = index != NONE ? mcc_maps_name(index) : L"";
+		long length;
+
+		for (length = 0; name[length] && length < ROW_TEXT_LENGTH - 7; length++)
+			text[length] = name[length];
+		text[length] = 0;
+		ustrncat(text, L" [MCC]", ROW_TEXT_LENGTH - 1 - ustrlen(text));
+		return;
+	}
 	string_get("pc\\main_menu\\map_list", campaign.levels[level].available ? level : LEVEL_UNAVAILABLE, text);
 }
 
@@ -1209,21 +1483,45 @@ static void level_list_update(struct widget_instance *list)
 	{
 		level_list.kind = kind;
 		level_list.first = level_list.chosen = 0;
+		/* (MULTIPLAYER's on its first map, past the view's rows) */
+		if (kind == MAP_KIND_MULTIPLAYER)
+			level_list.chosen = MAP_VIEW_ROWS;
 	}
-	count = kind == MAP_KIND_SINGLEPLAYER ? NUMBER_OF_SINGLE_PLAYER_LEVELS : level_list.map_count;
+	if (kind == MAP_KIND_MULTIPLAYER && map_view_update(&new_game_view, level_list.chosen))
+	{
+		level_list.map_count = (short)ui_map_list_count();
+		level_list.chosen = (short)MIN(level_list.chosen, MAP_VIEW_ROWS + MAX(level_list.map_count, 1) - 1);
+		level_list.first = (short)MIN(level_list.first, level_list.chosen);
+	}
+	else if (kind != MAP_KIND_MULTIPLAYER)
+		map_view_update(&new_game_view, NONE);
+	count = kind == MAP_KIND_SINGLEPLAYER ? (short)(NUMBER_OF_SINGLE_PLAYER_LEVELS + mcc_level_count()) :
+		(short)(MAP_VIEW_ROWS + level_list.map_count);
 	entry = map_kind_rows_update(list, &level_list.first, count,
-		kind == MAP_KIND_SINGLEPLAYER ? level_row_text : multiplayer_map_text);
+		kind == MAP_KIND_SINGLEPLAYER ? level_row_text : level_map_row_text);
 	if (entry != NONE)
 		level_list.chosen = entry;
 	if (kind == MAP_KIND_MULTIPLAYER)
 	{
-		map_description_show(description, NONE, level_list.chosen < count ? level_list.chosen : NONE);
+		map_description_show(description, NONE, level_list.chosen >= MAP_VIEW_ROWS && level_list.chosen < count ?
+			(short)(level_list.chosen - MAP_VIEW_ROWS) : NONE);
 		profile_name_show(description);
 		return;
 	}
 	map_description_show(description, 0, NONE);
 	campaign.shown_level = level_list.chosen;
 	level = campaign.shown_level;
+	if (level >= NUMBER_OF_SINGLE_PLAYER_LEVELS)
+	{
+		/* (an MCC map: shown as the map lists show it, its row there named by
+		its level: ui_map_list.c) */
+		short index = mcc_level_index(level);
+		long row = index != NONE ? ui_map_list_lookup(mcc_maps_level_name(index)) : NONE;
+
+		map_description_show(description, NONE, row != NONE ? (short)row : NONE);
+		profile_name_show(description);
+		return;
+	}
 	if (!campaign.levels[level].available)
 		level = LEVEL_UNAVAILABLE;
 	level_description(description, "replay_level", level, level == campaign.saved_level,
@@ -1240,14 +1538,29 @@ static boolean level_choose(short controller)
 	if (level_list.kind == MAP_KIND_MULTIPLAYER)
 	{
 		struct player_profile profile;
+		short map = (short)(level_list.chosen - MAP_VIEW_ROWS);
 
-		if (level_list.chosen < 0 || level_list.chosen >= level_list.map_count ||
-			!campaign_profile(controller, &profile))
+		/* (Search, Show or Sort) */
+		if (level_list.chosen >= 0 && level_list.chosen < MAP_VIEW_ROWS)
 		{
-			return campaign_fail();
+			map_view_activate(&new_game_view, level_list.chosen);
+			return FALSE;
 		}
-		campaign_start(level_list.map_names[level_list.chosen], main_get_difficulty(), controller);
+		if (map < 0 || map >= level_list.map_count || !campaign_profile(controller, &profile))
+			return campaign_fail();
+		map_view_let_go();
+		campaign_start(level_list.map_names[map], main_get_difficulty(), controller);
 		return FALSE;
+	}
+	if (level >= NUMBER_OF_SINGLE_PLAYER_LEVELS)
+	{
+		short index = mcc_level_index(level);
+
+		if (index == NONE || !mcc_maps_level_name(index))
+			return campaign_fail();
+		main_set_map_name(mcc_maps_level_name(index));
+		main_defer_map_map_change();
+		return TRUE;
 	}
 	if (level < 0 || level >= NUMBER_OF_SINGLE_PLAYER_LEVELS || !campaign.levels[level].available)
 		return campaign_fail();
@@ -1267,7 +1580,7 @@ static boolean difficulty_start(short difficulty, short controller)
 
 	if (!campaign_profile(controller, &profile))
 		return campaign_fail();
-	if (!map_name || main_get_solo_level_from_name(map_name) == NONE)
+	if (!map_name || (main_get_solo_level_from_name(map_name) == NONE && !mcc_maps_level_campaign(map_name)))
 		map_name = main_get_solo_level_name(0);
 	campaign_start(map_name, PIN(difficulty, 0, 3), controller);
 	return TRUE;
@@ -1480,8 +1793,144 @@ static boolean setting_default_show(struct widget_instance *spinner, struct pc_m
 	return TRUE;
 }
 
+/* ---------- Network Setup's INSTALL UPDATE (tools/port_settings.py's
+INSTALL_UPDATE, in its UPDATES list): shown once a newer version is found
+(updater_ready) or while it installs, A installing it as the setup screen's
+UPDATE does (updater_install_begin): on a thread of its own, with no window
+or dialog, so under gamescope (the Steam Deck's Game Mode) too, where a
+dialog crashes the game. Its value says how far it has got, the help line
+what is happening or why it failed, and the game restarts into the new
+version once it is in place. For that the screen's help is its own text
+(port_settings.py's help_text): the rows' helps are read from its
+help_strings here */
+
+/* (the builds with the self-updater: not a console's, nor the dedicated
+server, which has no updater.c) */
+#if !defined(HALO_CONSOLE_NO_UPDATER) && !defined(HALO_SERVER)
+#define MENU_INSTALL_UPDATE 1
+#endif
+
+#define NETWORK_HELP_STRINGS \
+	"pc\\main_menu\\settings_select\\player_setup\\player_profile_edit\\network_setup\\help_strings"
+#define NETWORK_HELP_LENGTH 192
+/* (the help line's characters on one line, about: its widest helps') */
+#define NETWORK_HELP_LINE 50
+
+/* the screen's list whose help is its own text: Network Setup's (its
+UPDATES mark is on every platform) */
+static boolean network_help_list(struct widget_instance *list)
+{
+	return named(list, "view_updates", 0) != NULL;
+}
+
+/* ascii in wide, broken into lines of about NETWORK_HELP_LINE at its
+spaces, three at most */
+static void help_wrapped(wchar_t *wide, char const *ascii, size_t count)
+{
+	size_t length = 0, line = 0, lines = 1;
+
+	for (; *ascii && length + 3 < count; ascii++)
+	{
+		if (*ascii == ' ' && line >= NETWORK_HELP_LINE - 12)
+		{
+			/* (a break at this space when the next word does not fit) */
+			size_t word = strcspn(ascii + 1, " ");
+
+			if (line + 1 + word > NETWORK_HELP_LINE)
+			{
+				if (++lines > 3)
+					break;
+				wide[length++] = '\r';
+				wide[length++] = '\n';
+				line = 0;
+				continue;
+			}
+		}
+		wide[length++] = (wchar_t)(unsigned char)*ascii;
+		line++;
+	}
+	wide[length] = 0;
+}
+
+#ifdef MENU_INSTALL_UPDATE
+/* the install's state, and its line (updater_install_status) */
+static int install_update_state(char *line, int size)
+{
+	return updater_install_status(line, size);
+}
+
+/* INSTALL UPDATE shown, in the UPDATES list, when there is a version to
+install or one installing (and its value), else hidden */
+static void install_update_show(struct widget_instance *list, char const *view)
+{
+	struct widget_instance *row = named(list, "op_install_update", 0);
+	char latest[48] = "", line[256], value[32];
+	wchar_t text[32];
+	int state;
+	size_t index;
+
+	if (!row)
+		return;
+	state = install_update_state(line, sizeof(line));
+	row->visible = !strcmp(view, "updates") && (state != UPDATER_INSTALL_IDLE || updater_ready(latest, sizeof(latest)));
+	if (!row->visible)
+		return;
+	if (state == UPDATER_INSTALL_DOWNLOADING)
+		updater_install_amount(value, sizeof(value));
+	else if (state == UPDATER_INSTALL_INSTALLING)
+		snprintf(value, sizeof(value), "RESTARTING");
+	else if (state == UPDATER_INSTALL_WAITING)
+		snprintf(value, sizeof(value), "AFTER THIS GAME");
+	else if (state == UPDATER_INSTALL_FAILED)
+		snprintf(value, sizeof(value), "TRY AGAIN");
+	else
+		snprintf(value, sizeof(value), "%s", latest);
+	/* (in the menus' capitals) */
+	for (index = 0; value[index]; index++)
+	{
+		if (value[index] >= 'a' && value[index] <= 'z')
+			value[index] = (char)(value[index] - 'a' + 'A');
+	}
+	help_wrapped(text, value, NUMBEROF(text));
+	text_set(named(row, "install_update_value", 0), text);
+}
+
+/* (network_game_globals.c's, as declared below for the lobby) */
+void *global_network_game_server_get(void);
+void *global_network_game_client_get(void);
+
+/* whether the game may restart into an update now (updater.c): at the main
+menu with no network game, hosted or joined. The pregame lobby and the
+post-game carnage report are main menu screens too, with the game's server
+or client still up: a host restarting there would drop everyone. (Only
+plain flags and pointers, safe before the game is up. A Delta party is the
+site's, with no connection of its own to drop) */
+int updater_restart_allowed(void)
+{
+	return main_menu_is_active() && !global_network_game_server_get() && !global_network_game_client_get();
+}
+
+/* "port update install" (A on INSTALL UPDATE): the screen's changes
+written first (the game restarts), and the install begun */
+static boolean install_update_begin(struct widget_instance *widget)
+{
+	settings_each(screen_of(widget), setting_changed_save);
+	if (install_update_state(NULL, 0) == UPDATER_INSTALL_DOWNLOADING ||
+		install_update_state(NULL, 0) == UPDATER_INSTALL_INSTALLING ||
+		install_update_state(NULL, 0) == UPDATER_INSTALL_WAITING || !updater_install_begin())
+	{
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return TRUE;
+	}
+	platform_log("menus: installing the update (Settings > Online > Updates)");
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return TRUE;
+}
+#endif
+
 /* "port settings help": the line of the row chosen (by its label's string:
-the buttons' is the first) */
+the buttons' is the first); Network Setup's as its own text, and INSTALL
+UPDATE's how its install goes */
 static void settings_help(struct widget_instance *list)
 {
 	struct widget_instance *help = list->parameters.list.extended_description;
@@ -1496,6 +1945,26 @@ static void settings_help(struct widget_instance *list)
 
 		if (label != NONE)
 			index = label + 1;
+	}
+	if (network_help_list(list))
+	{
+		long tag_index = tag_loaded('ustr', NETWORK_HELP_STRINGS);
+		wchar_t const *string = tag_index != NONE ? unicode_string_list_get_string(tag_index, index) : NULL;
+		wchar_t text[NETWORK_HELP_LENGTH];
+
+		ustrncpy(text, string ? string : L"", NETWORK_HELP_LENGTH - 1);
+		text[NETWORK_HELP_LENGTH - 1] = 0;
+#ifdef MENU_INSTALL_UPDATE
+		if (row && !strcmp(row->name, "op_install_update"))
+		{
+			char line[256];
+
+			if (install_update_state(line, sizeof(line)) != UPDATER_INSTALL_IDLE && line[0])
+				help_wrapped(text, line, NETWORK_HELP_LENGTH);
+		}
+#endif
+		text_set_length(help, text, NETWORK_HELP_LENGTH);
+		return;
 	}
 	help->parameters.text_box.string_list_index = index;
 }
@@ -1663,6 +2132,18 @@ static void views_show(struct widget_instance *list, char const *view)
 		visible_set(named(screen, "cancel", 0), !strcmp(view, "main"));
 		visible_set(named(screen, "back", 0), strcmp(view, "main") != 0);
 	}
+#ifdef MENU_INSTALL_UPDATE
+	/* (INSTALL UPDATE, in UPDATES, only with a version to install) */
+	install_update_show(list, view);
+	if (list->focused_child && !list->focused_child->visible)
+	{
+		short index;
+		struct widget_instance *first = first_row_shown(list, &index);
+
+		if (first)
+			focus_widget(list, first);
+	}
+#endif
 }
 
 /* "port settings views init" (the list's created): the screen's own rows */
@@ -1736,6 +2217,11 @@ static boolean settings_accept(struct widget_instance *list, boolean *widget_del
 {
 	if (view_link(list->focused_child))
 		return settings_view_open(list->focused_child);
+#ifdef MENU_INSTALL_UPDATE
+	/* (INSTALL UPDATE installs, and the screen stays: it shows how) */
+	if (list->focused_child && !strcmp(list->focused_child->name, "op_install_update"))
+		return install_update_begin(list->focused_child);
+#endif
 	settings_each(screen_of(list), setting_changed_save);
 	platform_display_apply();
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
@@ -1902,6 +2388,78 @@ project, in the picture's place (its about_text) */
 #define CHUPATHINGY_ABOUT_FRAME 6
 #define CHUPATHINGY_ABOUT_LENGTH 512
 
+/* (a line's width in the font the draw mode has) */
+static short chupathingy_about_width(char const *text, long length)
+{
+	wchar_t wide[128];
+	rectangle2d measure, ink, cursor;
+	long index;
+
+	for (index = 0; index < length && index < (long)NUMBEROF(wide) - 1; index++)
+		wide[index] = (wchar_t)(unsigned char)text[index];
+	wide[index] = 0;
+	set_rectangle2d(&measure, 0, 0, SHORT_MAX, SHORT_MAX);
+	draw_unicode_string_compute_bounds(&measure, wide, &ink, &cursor);
+	return (short)MAX(cursor.x0, ink.x1);
+}
+
+/* the about text's first line into line: "Chupathingy <version>", or the
+version alone where that would run past the text's right edge (a test
+build's or a nightly's long version, "0.9.1-testing.202611122017 (b43619e)":
+the description under it names Chupathingy, and the lines after it keep
+their room), broken at its spaces ("\r\n", as the menus' strings) if it is
+wider still; never inside a word */
+static void chupathingy_about_version(struct widget_instance *about, char const *version, char *line, int size)
+{
+	extern boolean ui_widget_port_text_box_room(struct widget_instance *widget, long *font_index, short *width);
+	real_argb_color color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	long font_index;
+	short width;
+	char words[128];
+	char *word, *next;
+	int length = 0, start = 0;
+
+	snprintf(line, (size_t)size, "Chupathingy %s", version);
+	if (!ui_widget_port_text_box_room(about, &font_index, &width))
+		return;
+	draw_string_set_draw_mode(font_index, NONE, 0, 0, &color);
+	if (chupathingy_about_width(line, (long)strlen(line)) <= width)
+		return;
+	snprintf(words, sizeof(words), "%s", version);
+	line[0] = 0;
+	for (word = words; word; word = next)
+	{
+		next = strchr(word, ' ');
+		if (next)
+			*next++ = 0;
+		if (length > start)
+		{
+			int joined = snprintf(line + length, (size_t)(size - length), " %s", word);
+
+			if (joined < 0 || length + joined >= size)
+				break;
+			if (chupathingy_about_width(line + start, length + joined - start) <= width)
+			{
+				length += joined;
+				continue;
+			}
+			line[length] = 0;
+			if (length + 2 >= size)
+				break;
+			line[length++] = '\r';
+			line[length++] = '\n';
+			start = length;
+		}
+		length += snprintf(line + length, (size_t)(size - length), "%s", word);
+		if (length >= size)
+		{
+			length = size - 1;
+			break;
+		}
+	}
+	line[length] = 0;
+}
+
 static void chupathingy_settings_about(struct widget_instance *picture)
 {
 	extern char const *build_identity_watermark(void);
@@ -1910,7 +2468,7 @@ static void chupathingy_settings_about(struct widget_instance *picture)
 #endif
 	struct widget_instance *about = named(picture, "about_text", 0);
 	wchar_t wide[CHUPATHINGY_ABOUT_LENGTH];
-	char text[CHUPATHINGY_ABOUT_LENGTH], version[64], platform[64];
+	char text[CHUPATHINGY_ABOUT_LENGTH], version[64], platform[64], first[160];
 	char const *watermark, *agent, *open, *close, *notice;
 	long index;
 
@@ -1939,8 +2497,9 @@ static void chupathingy_settings_about(struct widget_instance *picture)
 		snprintf(platform, sizeof(platform), "%.*s, %d-bit", (int)(close - open - 1), open + 1, (int)sizeof(void *) * 8);
 	else
 		snprintf(platform, sizeof(platform), "%d-bit", (int)sizeof(void *) * 8);
+	chupathingy_about_version(about, version, first, sizeof(first));
 	snprintf(text, sizeof(text),
-		"Chupathingy %s\r\n"
+		"%s\r\n"
 		"%s\r\n"
 		"\r\n"
 		"By Milenko and contributors.\r\n"
@@ -1952,7 +2511,7 @@ static void chupathingy_settings_about(struct widget_instance *picture)
 		"Free software under the GPL-3.0.\r\n"
 		"stats.chupathingy.org\r\n"
 		"github.com/ChupathingyCE/chupathingyce",
-		version, platform);
+		first, platform);
 	for (index = 0; text[index] && index < CHUPATHINGY_ABOUT_LENGTH - 1; index++)
 		wide[index] = (wchar_t)(unsigned char)text[index];
 	wide[index] = 0;
@@ -2334,6 +2893,8 @@ static struct
 	{ "controls.chat_all", L"CHAT", 2 },
 	{ "controls.chat_team", L"TEAM CHAT", 2 },
 	{ "controls.chat_log", L"CHAT LOG", 2 },
+	{ "controls.push_to_talk", L"PUSH TO TALK", 2 },
+	{ "controls.voice_channel", L"VOICE CHANNEL", 2 },
 };
 
 static struct
@@ -3511,7 +4072,8 @@ static short map_step_count(void)
 {
 	if (map_list.step == MAP_STEP_DIFFICULTIES)
 		return NUMBER_OF_GAME_DIFFICULTY_LEVELS;
-	return map_list.kind == MAP_KIND_SINGLEPLAYER ? NUMBER_OF_SINGLE_PLAYER_LEVELS : map_list.map_count;
+	return map_list.kind == MAP_KIND_SINGLEPLAYER ? NUMBER_OF_SINGLE_PLAYER_LEVELS :
+		(short)(MAP_VIEW_ROWS + map_list.map_count);
 }
 
 /* opens a step at the entry given */
@@ -3531,6 +4093,14 @@ static void map_level_text(short level, wchar_t *text)
 	string_get("pc\\main_menu\\map_list", level, text);
 }
 
+static void map_map_row_text(short entry, wchar_t *text)
+{
+	if (entry < MAP_VIEW_ROWS)
+		map_view_row_text(&create_game_view, entry, text);
+	else
+		multiplayer_map_text((short)(entry - MAP_VIEW_ROWS), text);
+}
+
 static void map_difficulty_text(short difficulty, wchar_t *text)
 {
 	string_get("pc\\main_menu\\player_profiles_select\\difficulty_names", difficulty, text);
@@ -3543,10 +4113,13 @@ static boolean map_list_initialize(struct widget_instance *list)
 	short last_used = 0;
 
 	map_list.hosting = global_network_game_server_get() != NULL && !network_game_is_splitscreen_local();
+	/* (the list found first, so that the view knows the sources it has) */
+	ui_widget_port_multiplayer_maps(&names, NULL);
+	map_view_open(&create_game_view);
 	map_list.map_count = ui_widget_port_multiplayer_maps(&names, &last_used);
 	map_list.kind = MAP_KIND_MULTIPLAYER;
 	map_kind_set(list, map_list.kind);
-	map_step_open(list, MAP_STEP_MAPS, last_used);
+	map_step_open(list, MAP_STEP_MAPS, (short)(MAP_VIEW_ROWS + last_used));
 	return TRUE;
 }
 
@@ -3562,10 +4135,23 @@ static void map_list_update(struct widget_instance *list)
 		map_list.kind = kind;
 		map_list.step = MAP_STEP_MAPS;
 		map_list.first = map_list.chosen = 0;
+		if (kind == MAP_KIND_MULTIPLAYER)
+			map_list.chosen = MAP_VIEW_ROWS;
 	}
+	if (map_list.step == MAP_STEP_MAPS && kind == MAP_KIND_MULTIPLAYER)
+	{
+		if (map_view_update(&create_game_view, map_list.chosen))
+		{
+			map_list.map_count = (short)ui_map_list_count();
+			map_list.chosen = (short)MIN(map_list.chosen, MAP_VIEW_ROWS + MAX(map_list.map_count, 1) - 1);
+			map_list.first = (short)MIN(map_list.first, map_list.chosen);
+		}
+	}
+	else
+		map_view_update(&create_game_view, NONE);
 	count = map_step_count();
 	entry = map_kind_rows_update(list, &map_list.first, count, map_list.step == MAP_STEP_DIFFICULTIES ?
-		map_difficulty_text : kind == MAP_KIND_SINGLEPLAYER ? map_level_text : multiplayer_map_text);
+		map_difficulty_text : kind == MAP_KIND_SINGLEPLAYER ? map_level_text : map_map_row_text);
 	if (entry != NONE)
 		map_list.chosen = entry;
 	visible_set(named(description, "mp_map_right_item", 0), map_list.chosen < count);
@@ -3578,7 +4164,8 @@ static void map_list_update(struct widget_instance *list)
 	}
 	else
 	{
-		map_description_show(description, NONE, map_list.chosen < count ? map_list.chosen : NONE);
+		map_description_show(description, NONE, map_list.chosen >= MAP_VIEW_ROWS && map_list.chosen < count ?
+			(short)(map_list.chosen - MAP_VIEW_ROWS) : NONE);
 	}
 	profile_name_show(description);
 }
@@ -3609,7 +4196,16 @@ static boolean map_list_choose(struct widget_instance *list, boolean *widget_del
 		return ui_widget_port_open(list, SERVER_SETUP_NAME, widget_deleted);
 	}
 	if (map_list.kind == MAP_KIND_MULTIPLAYER)
-		return ui_widget_port_multiplayer_map_choose(chosen);
+	{
+		/* (Search, Show or Sort) */
+		if (chosen < MAP_VIEW_ROWS)
+		{
+			map_view_activate(&create_game_view, chosen);
+			return FALSE;
+		}
+		map_view_let_go();
+		return ui_widget_port_multiplayer_map_choose((short)(chosen - MAP_VIEW_ROWS));
+	}
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	map_list.level = chosen;
 	map_step_open(list, MAP_STEP_DIFFICULTIES, (short)PIN(main_get_difficulty(), 0, NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1));
@@ -4091,14 +4687,15 @@ static boolean server_name_edit(struct widget_instance *row)
 	return TRUE;
 }
 
-/* "ss copy invite" */
+/* "ss copy invite": the site's join page (p2p_invite_share_link), which chat
+programs make a link of */
 static boolean invite_copy(void)
 {
-	char link[TEXT_FIELD_LENGTH];
+	char link[TEXT_FIELD_LENGTH], shared[TEXT_FIELD_LENGTH];
 
 	if (!p2p_invite_link(link, sizeof(link)))
 		return campaign_fail();
-	platform_clipboard_set(link);
+	platform_clipboard_set(p2p_invite_share_link(link, shared, sizeof(shared)) ? shared : link);
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return TRUE;
 }
@@ -4330,8 +4927,11 @@ static void map_display_name(char const *map_name, wchar_t *text)
 {
 	char const *const *names;
 	short index;
-	short count = ui_widget_port_multiplayer_maps(&names, NULL);
+	short count;
 
+	/* (every row, a map a map chooser's view leaves out too) */
+	ui_widget_port_multiplayer_maps(&names, NULL);
+	count = (short)ui_map_list_count_all();
 	for (index = 0; index < count; index++)
 	{
 		if (!_stricmp(scenario_name(names[index]), scenario_name(map_name)))
@@ -4934,6 +5534,9 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 	dedicated = listed->hosting == BROWSER_HOSTING_DEDICATED || listed->hosting == BROWSER_HOSTING_OFFICIAL;
 	platform = listed->has_platform && listed->host_platform < NUMBEROF(platforms) ? platforms[listed->host_platform] : L"";
 	usnprintf(text, size - 1, L"%s%s%s%s%s%s%s",
+		listed->badge == _server_badge_tier_official ? L"OFFICIAL SERVER" :
+		listed->badge == _server_badge_tier_developer ? L"DEVELOPER SERVER" :
+		listed->badge == _server_badge_tier_community ? L"COMMUNITY SERVER" :
 		dedicated ? (listed->hosting == BROWSER_HOSTING_OFFICIAL ? L"OFFICIAL SERVER" : L"DEDICATED") : L"",
 		dedicated && platform[0] ? L", " : L"", platform, !dedicated && platform[0] ? L" HOST" : L"",
 		(dedicated || platform[0]) && listed->protocol ? L", " : L"",
@@ -5053,9 +5656,12 @@ static void lobby_browser_map_mark(struct p2p_listing const *game, short family,
 	short index;
 
 	mark[0] = 0;
-	if (family == _map_family_xbox)
+	/* (an MCC map: MCC, as Online Games and the site mark it) */
+	if (!strncmp(game->map, "mcc_maps\\", 9))
+		snprintf(tag, sizeof(tag), "%s", MAP_FAMILY_TAG_MCC);
+	else if (family == _map_family_xbox)
 		return;
-	if (family == _map_family_pack)
+	else if (family == _map_family_pack)
 		ui_map_list_map_tag(game->map, tag, sizeof(tag), title, sizeof(title));
 	else
 		snprintf(tag, sizeof(tag), "%s", family == _map_family_halomd ? (long_mark ? "HALOMD" : "MD") :
@@ -5562,7 +6168,7 @@ static void browser_update(struct widget_instance *list)
 		wchar_t filter[32];
 		char label[32];
 
-		snprintf(label, sizeof(label), "FILTER: %s", browser_list_filter_name());
+		snprintf(label, sizeof(label), "%s", browser_list_filter_label());
 		text_to_wide(label, filter, NUMBEROF(filter));
 		text_set(named(screen_of(list), "join_game_button_filters", 0), filter);
 	}
@@ -5810,7 +6416,7 @@ boolean pc_menu_setup_open(void)
 #endif
 }
 
-/* "port pause guide" (the pause menu's GUIDE: menu_tags.c): the Guide over
+/* "port pause guide" (the pause menu's DELTA: menu_tags.c): the Guide over
 the pause menu (guide.c), which B closes back to it */
 static boolean pause_guide(struct widget_instance *widget)
 {
@@ -5821,6 +6427,26 @@ static boolean pause_guide(struct widget_instance *widget)
 	if (widget->local_player_index != 0)
 		return FALSE;
 	guide_open();
+	return TRUE;
+#else
+	(void)widget;
+	return FALSE;
+#endif
+}
+
+/* "port delta open" (the main menus' DELTA, menu_tags.c and
+chupathingy/main_menu.xml): DELTA over the menu, on PARTY, which B closes
+back to it */
+static boolean delta_open(struct widget_instance *widget)
+{
+#ifdef HALO_GUIDE
+	extern void guide_open_party(void);
+
+	/* (the main menu is any controller's: NONE there; a split screen
+	player's own screen, the first player's alone) */
+	if (widget->local_player_index > 0)
+		return FALSE;
+	guide_open_party();
 	return TRUE;
 #else
 	(void)widget;
@@ -6231,8 +6857,12 @@ static void lobby_rows_color(struct widget_instance *list, struct network_game c
 static void lobby_map_show(struct widget_instance *description, char const *map_name)
 {
 	char const *const *names;
-	short count = ui_widget_port_multiplayer_maps(&names, NULL), map = 19, index;
+	short count, map = 19, index;
 	short level = campaign_level_of(map_name);
+
+	/* (every row, a map a map chooser's view leaves out too) */
+	ui_widget_port_multiplayer_maps(&names, NULL);
+	count = (short)ui_map_list_count_all();
 	struct widget_instance *widget;
 
 	for (index = 0; index < count; index++)
@@ -9224,6 +9854,10 @@ boolean pc_menu_event_function_invoke(
 		{
 			return about_open(widget);
 		}
+		else if (!strcmp(name, "port delta open"))
+		{
+			return delta_open(widget);
+		}
 		else if (!strcmp(name, "port pause controls"))
 		{
 			return controls_open(widget);
@@ -9375,6 +10009,12 @@ boolean pc_menu_event_function_invoke(
 		{
 			return settings_accept(widget, widget_deleted);
 		}
+#ifdef MENU_INSTALL_UPDATE
+		else if (!strcmp(name, "port update install"))
+		{
+			return install_update_begin(widget);
+		}
+#endif
 		else if (!strcmp(name, "port controls init"))
 		{
 			return controls_page_init(widget);
@@ -9533,9 +10173,12 @@ void pc_menu_game_data_function_invoke(
 
 	if (!name)
 		return;
-	/* (a text field whose screen has gone: let go of) */
+	/* (a text field whose screen has gone: let go of; a map chooser's Search
+	too) */
 	if (text_field.row && system_milliseconds() - text_field_shown_time > 500)
 		text_field_end(FALSE);
+	if (map_view_typing && system_milliseconds() - map_view_typing_time > 500)
+		map_view_let_go();
 	if (!strcmp(name, "solo map list update"))
 		level_list_update(widget);
 	else if (!strcmp(name, "mp map list update"))
@@ -9597,3 +10240,294 @@ void pc_menu_game_data_function_invoke(
 	else if (!strcmp(name, "port host update"))
 		host_update(widget);
 }
+
+/* ---------- the Delta Guide's Workshop PLAY (guide_workshop.c): the item
+handed to the menus' own flows, in each menu set, never a launch of its own.
+A multiplayer item: Online Games' Create Game (its Y, browser_screen.c), the
+item's maps first in the map list and its first map chosen (game type, game
+setup and the lobby follow as ever; B goes back to Multiplayer, for System
+Link or Split Screen). A campaign item: the campaign's level select, on the
+item's first level, its levels first among the MCC rows (difficulty next).
+In a game or a lobby, the menus' own question first (invite_prompt_ask, as
+the lobby's MCC map switch asks): yes leaves it as the pause menu's QUIT or
+the Multiplayer menu does, and the item is handed over once the main menu is
+back. */
+
+#if defined(HALO_GUIDE) && (!defined(HALO_MCC) || HALO_MCC)
+
+#define XBOX_SOLO_LEVEL_SELECT "ui\\shell\\main_menu\\solo_level_select\\solo_level_select_screen"
+#define GEARBOX_SOLO_LEVEL_SELECT "pc\\main_menu\\solo_level_select\\solo_level_select_screen"
+/* (the screens the menus open the level select from, under the main menu:
+the Xbox's and Chupathingy's CAMPAIGN, Gearbox's CAMPAIGN then NEW CAMPAIGN) */
+#define XBOX_CAMPAIGN_PROFILE "ui\\shell\\main_menu\\load_campaign_player_profile"
+#define GEARBOX_CAMPAIGN_MENU "pc\\main_menu\\campaign_select\\campaign_menu"
+/* (Gearbox's menus are up: their level select is there, the Chupathingy
+menus' not being the menus up) */
+#define GEARBOX_MENUS_UP() (!pc_menus_chupathingy() && tag_loaded('DeLa', GEARBOX_SOLO_LEVEL_SELECT) != NONE)
+/* (the longest wait for the main menu after leaving a game) */
+#define WORKSHOP_PLAY_WAIT 60000
+#define WORKSHOP_PLAY_SETTLE 500
+/* (the longest wait for the screen opened to come up) */
+#define WORKSHOP_PLAY_OPEN_WAIT 5000
+
+enum
+{
+	_workshop_play_none,
+	_workshop_play_asking,
+	_workshop_play_waiting,
+};
+
+static struct
+{
+	short state;
+	boolean campaign;
+	char item[32];
+	unsigned long time;
+	/* when the main menu was first seen back (0: not yet) */
+	unsigned long settled;
+	/* the item's maps lead the lists (mcc_maps_set_first_item) while the
+	screen opened, screen, is up or behind the one up */
+	boolean pinned;
+	long screen;
+	/* (the screen up when it was opened, and when) */
+	long from;
+	unsigned long pinned_time;
+} workshop_play;
+
+void invite_prompt_ask(char const *title, char const *question, char const *detail,
+	void (*answer_function)(boolean yes));
+void ui_widget_port_quit_to_main_menu(void);
+void ui_widget_port_end_network_game(void);
+void ui_widget_port_campaign_solo(void);
+long ui_widget_port_active_screen_tag(void);
+boolean ui_widget_port_screen_shown_or_behind(long tag);
+boolean ui_widget_port_open_screen(char const *name);
+boolean browser_screen_create_game(void);
+void main_screen_shell_load(void);
+boolean ui_widget_port_history_set(long const *screens, short count, long opened);
+long ui_widget_port_history_top(void);
+char const *pc_menus_main_menu_name(void);
+
+/* back from the screen PLAY opened goes where it goes from the menus'
+own: its history made theirs, down to the main menu (never none, which
+left the menus' world with no menu up: #1133). A screen of it not loaded:
+the main menu alone */
+static void workshop_play_history(long under)
+{
+	long screens[2];
+	short count = 0;
+
+	screens[count++] = tag_loaded('DeLa', pc_menus_main_menu_name());
+	if (screens[0] == NONE)
+		return;
+	if (under != NONE && under != screens[0])
+		screens[count++] = under;
+	if (!ui_widget_port_history_set(screens, count, NONE))
+		ui_widget_port_history_set(screens, 1, NONE);
+}
+
+/* a game under way, or a network game's lobby (hosted, or joined: a client
+past searching for games) */
+static boolean workshop_play_leaves_game(void)
+{
+	void *client = global_network_game_client_get();
+
+	return !main_menu_is_active() || global_network_game_server_get() ||
+		(client && network_game_client_get_state(client, NULL) != _client_state_searching);
+}
+
+/* the item's screen, at the main menu */
+static boolean workshop_play_open(void)
+{
+	/* (Create Game, as Online Games' Y: the Multiplayer menu under it, then
+	the main menu, as the menus' MULTIPLAYER leaves them. The list opens on
+	the item's first map, which leads it: the map used last is left as it
+	is) */
+	if (!workshop_play.campaign)
+	{
+		if (!browser_screen_create_game())
+			return FALSE;
+		workshop_play_history(ui_widget_port_history_top());
+		return TRUE;
+	}
+	/* (player 1's profile, as the level select needs one: the one used
+	last, else the profile screen first, which makes one) */
+	if (player_ui_get_active_player_profile_index(0) == NONE)
+	{
+		struct player_profile profile;
+		long profile_index = player_ui_get_player1_last_used_profile_index();
+
+		/* (none used last: the first there is, as Online Games takes) */
+		if (profile_index == NONE || !TEST_FLAG(profile_index, _saved_game_file_index_valid_bit))
+		{
+			long profile_indices[MAXIMUM_PROFILES];
+			word profile_count = NUMBEROF(profile_indices);
+
+			player_profiles_enumerate_available_to_local_player_index(0, &profile_count, profile_indices, FALSE);
+			profile_index = profile_count ? profile_indices[0] : NONE;
+		}
+		if (profile_index == NONE || !player_profile_get(profile_index, &profile))
+		{
+			if (!ui_widget_port_open_screen(GEARBOX_MENUS_UP() ? GEARBOX_CAMPAIGN_MENU :
+				"ui\\shell\\main_menu\\player_profiles_select\\solo_game_player_profile_select_screen"))
+			{
+				return FALSE;
+			}
+			workshop_play_history(NONE);
+			return TRUE;
+		}
+		player_ui_set_active_player_profile(0, profile_index, &profile);
+	}
+	ui_widget_port_campaign_solo();
+	/* (Gearbox's menus' own, else the Xbox's: the Xbox's and Chupathingy's;
+	under it the screen CAMPAIGN opens, then the main menu) */
+	if (GEARBOX_MENUS_UP())
+	{
+		if (!ui_widget_port_open_screen(GEARBOX_SOLO_LEVEL_SELECT))
+			return FALSE;
+		workshop_play_history(tag_loaded('DeLa', GEARBOX_CAMPAIGN_MENU));
+		return TRUE;
+	}
+	if (!ui_widget_port_open_screen(XBOX_SOLO_LEVEL_SELECT))
+		return FALSE;
+	workshop_play_history(tag_loaded('DeLa', XBOX_CAMPAIGN_PROFILE));
+	return TRUE;
+}
+
+/* the item's maps lead the lists while the screen opened is up or behind
+the one up (workshop_play_update lets them go) */
+static void workshop_play_unpin(void)
+{
+	if (workshop_play.pinned)
+		platform_log("Workshop: PLAY's item %s no longer leads the map lists", workshop_play.item);
+	workshop_play.pinned = FALSE;
+	workshop_play.screen = NONE;
+	mcc_maps_set_first_item(NULL);
+}
+
+static boolean workshop_play_hand_over(void)
+{
+	/* (the screen opened is known once it is up, in place of the one up
+	now: some open at once, some the next frame) */
+	long from = ui_widget_port_active_screen_tag();
+
+	mcc_maps_set_first_item(workshop_play.item);
+	if (!workshop_play_open())
+	{
+		workshop_play_unpin();
+		return FALSE;
+	}
+	workshop_play.screen = NONE;
+	workshop_play.from = from;
+	workshop_play.pinned_time = system_milliseconds();
+	workshop_play.pinned = TRUE;
+	return TRUE;
+}
+
+static void workshop_play_answer(boolean yes)
+{
+	if (!yes || workshop_play.state != _workshop_play_asking)
+	{
+		workshop_play.state = _workshop_play_none;
+		return;
+	}
+	platform_log("Workshop: PLAY leaves the game for item %s", workshop_play.item);
+	workshop_play.state = _workshop_play_waiting;
+	workshop_play.time = system_milliseconds();
+	workshop_play.settled = 0;
+	if (main_menu_is_active())
+	{
+		/* (a lobby: ended as the Multiplayer menu ends one, the main menu again) */
+		ui_widget_port_end_network_game();
+		main_screen_shell_load();
+	}
+	else
+		ui_widget_port_quit_to_main_menu();
+}
+
+/* PLAY: the item's maps (mcc_maps.c's catalog: mcc_maps\<item>\<map>) */
+boolean pc_menu_workshop_play(char const *item, char const *title)
+{
+	char prefix[48];
+	short index, count = mcc_maps_count(FALSE), campaign = 0, multiplayer = 0;
+
+	snprintf(prefix, sizeof(prefix), MCC_MAPS_LEVEL_PREFIX "%s\\", item);
+	for (index = 0; index < count; index++)
+	{
+		char const *name = mcc_maps_level_name(index);
+
+		if (!name || _strnicmp(name, prefix, strlen(prefix)))
+			continue;
+		if (mcc_maps_campaign(index))
+			campaign++;
+		else
+			multiplayer++;
+	}
+	if (!campaign && !multiplayer)
+		return FALSE;
+	/* (a campaign item's own levels lead: its multiplayer maps are extras) */
+	workshop_play.campaign = campaign > 0;
+	snprintf(workshop_play.item, sizeof(workshop_play.item), "%s", item);
+	platform_log("Workshop: PLAY item %s: %s (%d campaign, %d multiplayer maps)", item,
+		workshop_play.campaign ? "the level select" : "Create Game", campaign, multiplayer);
+	if (workshop_play_leaves_game())
+	{
+		char question[64];
+		void *server = global_network_game_server_get();
+
+		snprintf(question, sizeof(question), "Leave this game to play %s?", title && *title ? title : "this item");
+		workshop_play.state = _workshop_play_asking;
+		invite_prompt_ask("PLAY", question, server && !network_game_is_splitscreen_local() ?
+			"Your lobby closes for everyone in it." : "You leave the game you're in.", workshop_play_answer);
+		return TRUE;
+	}
+	workshop_play.state = _workshop_play_none;
+	return workshop_play_hand_over();
+}
+
+/* each frame (guide_workshop_update): once the main menu is back from the
+game left, the item handed over */
+void pc_menu_workshop_play_update(void)
+{
+	/* (the screen opened once it is up; let go once it is left, by back or
+	a game started from it, or if it never came up) */
+	if (workshop_play.pinned && workshop_play.state != _workshop_play_waiting)
+	{
+		long active = ui_widget_port_active_screen_tag();
+
+		if (workshop_play.screen == NONE && active != NONE && active != workshop_play.from)
+			workshop_play.screen = active;
+		if (!main_menu_is_active() || (workshop_play.screen == NONE ?
+			system_milliseconds() - workshop_play.pinned_time > WORKSHOP_PLAY_OPEN_WAIT :
+			!ui_widget_port_screen_shown_or_behind(workshop_play.screen)))
+		{
+			workshop_play_unpin();
+		}
+	}
+	if (workshop_play.state != _workshop_play_waiting)
+		return;
+	if (system_milliseconds() - workshop_play.time > WORKSHOP_PLAY_WAIT)
+	{
+		platform_log("Workshop: PLAY gave up waiting for the main menu");
+		workshop_play.state = _workshop_play_none;
+		workshop_play_unpin();
+		return;
+	}
+	if (workshop_play_leaves_game() || !ui_widgets_active())
+	{
+		workshop_play.settled = 0;
+		return;
+	}
+	/* (the main menu settled a moment, and the buttons pressed meanwhile,
+	the question's A among them, not taken by the screen opened) */
+	if (!workshop_play.settled)
+		workshop_play.settled = system_milliseconds() | 1;
+	if (system_milliseconds() - workshop_play.settled < WORKSHOP_PLAY_SETTLE)
+		return;
+	event_manager_flush();
+	workshop_play.state = _workshop_play_none;
+	if (!workshop_play_hand_over())
+		platform_log("Workshop: PLAY could not open the item's screen");
+}
+
+#endif

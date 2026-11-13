@@ -118,11 +118,15 @@ symbols in this file:
 /* ---------- headers */
 
 #include "director.h"
+#include "mcc_camera.h" /* port: port/linux/game/mcc_camera.c */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_player.h" /* port: port/linux/game/stubbs_player.c */
 
 #include "camera_scripting.h"
 #include "dead_camera.h"
 #include "coop_spectate.h" /* port: port/linux/game/coop_spectate.c */
 #include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
+#include "late_join.h" /* port: port/linux/game/late_join.c */
 #include "editor_flying_camera.h"
 #include "first_person_camera.h"
 #include "flying_camera.h"
@@ -373,6 +377,18 @@ short director_desired_perspective(
 		if (*perspective == 1 || *perspective == 3)
 			following = TRUE;
 	}
+
+	/* port: MCC weapon cameras must select the same perspective for display
+	 * and deterministic aiming. The adapter leaves legacy maps and seats alone. */
+	if (mcc_camera_weapon_following(unit_index))
+	{
+		*perspective = _director_perspective_third_person;
+		following = TRUE;
+	}
+	/* port: Stubbs mode's camera behind Stubbs, the same for drawing and
+	aiming (port/linux/game/stubbs_player.c) */
+	if (stubbs_mode_active() && stubbs_player_camera_following(unit_index, perspective))
+		following = TRUE;
 
 	return following;
 }
@@ -726,7 +742,8 @@ static void director_choose_camera_game(
 		/* port: and a network co-op player who hasn't spawned yet, waiting for
 		the level's first checkpoint, watches too */
 		boolean use_dead_camera = player->unit_index == NONE &&
-			(player->statistics.deaths > 0 || players_coop_waiting_to_start(player_index));
+			(player->statistics.deaths > 0 || players_coop_waiting_to_start(player_index) ||
+				late_join_waiting(player_index));
 
 		/* (port: not a client in another's game, the host's rules: a flying
 		camera would see all of it, and one behind the player round its

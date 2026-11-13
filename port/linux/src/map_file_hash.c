@@ -1,14 +1,16 @@
 /*
 MAP_FILE_HASH.C
 
-Map files' whole-file hash prefixes (map_file_hash.h), each read once for
+Map files' whole-file hashes and their prefixes (map_file_hash.h), each read once for
 the run: a map is a few to a few hundred MB, and the game asks for its
-file again whenever it looks for the map.
+file again whenever it looks for the map. The file's SHA-256 is read in the
+same pass (Chupathingy maps' blacklist names a file by either).
 */
 
 #include "platform.h"
 #include "map_archive.h"
 #include "map_file_hash.h"
+#include "playlist_manifest.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -18,8 +20,10 @@ file again whenever it looks for the map.
 
 enum
 {
-	/* the files whose prefixes are kept */
-	MAP_FILE_HASHES_KEPT = 32,
+	/* the files whose hashes are kept: more than a large server's rotation
+	(each map it would host is asked about as it starts, server_map_playable;
+	one pushed out is read whole again, on the main thread) */
+	MAP_FILE_HASHES_KEPT = 256,
 	MAP_FILE_HASH_PATH_SIZE = 256,
 };
 
@@ -31,7 +35,8 @@ struct map_file_hash_entry
 	unsigned int size;
 	unsigned int time_low;
 	unsigned int time_high;
-	unsigned int prefix;
+	unsigned char hash[MAP_ARCHIVE_HASH_SIZE];
+	unsigned char sha256[PLAYLIST_MANIFEST_SHA256_SIZE];
 };
 
 static struct
@@ -45,22 +50,34 @@ static struct
 
 /* ---------- private code */
 
+/* map_archive_map_hash's reads, in order, each also added to the file's
+SHA-256 */
+struct hashed_file
+{
+	HANDLE file;
+	unsigned int next;
+	struct playlist_sha256 sha256;
+};
+
 static int file_read(void *context, unsigned int offset, void *buffer, unsigned int size)
 {
-	HANDLE file = *(HANDLE *)context;
+	struct hashed_file *hashed = (struct hashed_file *)context;
 	DWORD read = 0;
 
-	if (SetFilePointer(file, (LONG)offset, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
+	/* (map_archive_map_hash reads the file once, from its start to its end) */
+	if (offset != hashed->next || !ReadFile(hashed->file, buffer, size, &read, NULL) || read != size)
 		return 0;
-	return ReadFile(file, buffer, size, &read, NULL) && read == size;
+	hashed->next += size;
+	playlist_sha256_add(&hashed->sha256, buffer, size);
+	return 1;
 }
 
 /* ---------- public code */
 
-int map_file_hash_prefix(const char *path, unsigned int *prefix)
+int map_file_hash_both(const char *path, unsigned char *hash, unsigned char *sha256)
 {
-	unsigned char hash[MAP_ARCHIVE_HASH_SIZE];
 	struct map_file_hash_entry entry;
+	struct hashed_file hashed;
 	FILETIME written;
 	DWORD high = 0;
 	HANDLE file;
@@ -93,19 +110,26 @@ int map_file_hash_prefix(const char *path, unsigned int *prefix)
 		if (!strcmp(kept->path, entry.path) && kept->size == entry.size && kept->time_low == entry.time_low &&
 			kept->time_high == entry.time_high)
 		{
-			*prefix = kept->prefix;
+			memcpy(hash, kept->hash, MAP_ARCHIVE_HASH_SIZE);
+			if (sha256)
+				memcpy(sha256, kept->sha256, PLAYLIST_MANIFEST_SHA256_SIZE);
 			pthread_mutex_unlock(&map_file_hashes.lock);
 			CloseHandle(file);
 			return 1;
 		}
 	}
 	pthread_mutex_unlock(&map_file_hashes.lock);
-	ok = map_archive_map_hash(file_read, NULL, &file, entry.size, hash);
+	memset(&hashed, 0, sizeof(hashed));
+	hashed.file = file;
+	playlist_sha256_begin(&hashed.sha256);
+	ok = map_archive_map_hash(file_read, NULL, &hashed, entry.size, hash) && hashed.next == entry.size;
 	CloseHandle(file);
 	if (!ok)
 		return 0;
-	entry.prefix = map_archive_hash_prefix(hash);
-	*prefix = entry.prefix;
+	playlist_sha256_end(&hashed.sha256, entry.sha256);
+	memcpy(entry.hash, hash, MAP_ARCHIVE_HASH_SIZE);
+	if (sha256)
+		memcpy(sha256, entry.sha256, PLAYLIST_MANIFEST_SHA256_SIZE);
 	pthread_mutex_lock(&map_file_hashes.lock);
 	if (map_file_hashes.count < MAP_FILE_HASHES_KEPT)
 		index = map_file_hashes.count++;
@@ -116,6 +140,21 @@ int map_file_hash_prefix(const char *path, unsigned int *prefix)
 	}
 	map_file_hashes.entries[index] = entry;
 	pthread_mutex_unlock(&map_file_hashes.lock);
+	return 1;
+}
+
+int map_file_hash_whole(const char *path, unsigned char *hash)
+{
+	return map_file_hash_both(path, hash, NULL);
+}
+
+int map_file_hash_prefix(const char *path, unsigned int *prefix)
+{
+	unsigned char hash[MAP_ARCHIVE_HASH_SIZE];
+
+	if (!map_file_hash_whole(path, hash))
+		return 0;
+	*prefix = map_archive_hash_prefix(hash);
 	return 1;
 }
 

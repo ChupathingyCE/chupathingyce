@@ -21,8 +21,10 @@ and OpenCE players are kicked and banned like anyone else.
 | Warn a player (`sv_warn`), see the evidence (`sv_evidence`) | yes | yes | yes |
 | Mute a player's chat (`sv_mute`, `sv_unmute`), a server message (`sv_say`) | yes | yes | yes |
 | Kick (`sv_kick`), move a player to a team (`sv_team`) | yes | yes | yes |
+| Lock and unlock joins (`sv_lock`, `sv_unlock`) | yes | yes | yes |
+| Players' reports (`sv_reports`, `sv_report_close`) | yes | yes | yes |
 | Ban for up to 7 days (`sv_ban <player> 2h`) | yes | yes | yes |
-| Ban for longer, or for ever | | yes | yes |
+| Ban for longer, or for ever (`sv_ban`, `sv_ban_account`) | | yes | yes |
 | Unban (`sv_unban`) | | yes | yes |
 | Maps and playlists (`sv_map`, `sv_mapcycle_next`, `sv_end_game`, `sv_playlist_*`) | | yes | yes |
 | Settings and game types (`sv_name`, `sv_maxplayers`, `sv_set`, `sv_gametype_*`) | | yes | yes |
@@ -53,6 +55,18 @@ and hardware ids can be claimed; a moderator key cannot be.
 A player's game shows only when its player signs in (it is the same key on
 every server), so other servers never learn it.
 
+A player can also be known by their **Delta account**. A ChupathingyCE game
+that shares its profile proves who its players are when it joins, with its
+device certificate (docs/delta.md, "Verified names"). Only a proof bound to
+this server counts here: the player joined through the server's invite, so
+their game could check the challenge came from this server. The server
+checks it, and the Players page shows each such player's profile. When the
+certificate lets the device moderate, the account's role here counts as the
+player's: from an account line in the moderators file, or from the site's
+role list (by account). A copy with no player key signs in to moderation
+with its device key, and its role comes from its account. A player who
+joined by address proves a name only, which never gets a role or a ban.
+
 ## Setting up moderators without the site
 
 ### The moderators file
@@ -63,7 +77,11 @@ every server), so other servers never learn it.
 # role       moderator key                                                      name (for display)
 moderator    72f7b19d4735618403dab4fe9e4c8c0d13e510709552140a17cd9b9ed2a798ec  Odb718
 admin        3f2a9c1b5d0e7a64b2c8f19d0e6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7  Mega
+moderator    31ea6b25b20006a252c816cd2077ff5b                                  Zatchbot
 ```
+
+A key is 64 hex digits. 32 hex digits are a Delta account instead (a
+verified player's: `sv_mod_add` on a player in the game writes it for you).
 
 Roles: `moderator`, `admin`, `owner`. Lines beginning with `#` are
 comments. Edits by hand take effect within a second; a line the server
@@ -77,11 +95,12 @@ until it is fixed.
 | `sv_mod_list` | Everyone with a role here and where it comes from: the moderators file, the panel's accounts (bound to a game or not) and the site's profiles, with the site's cap and whether its list is live, cached or expired ([below](#who-can-moderate)). |
 | `sv_mod_add <player> <role> [name]` | Gives a player in the game a role, by the key their game proved (they sign in from the game's Moderation screen first: `sv_players` shows their key). |
 | `sv_mod_add <moderator key> <role> [name]` | The same, with the key itself (a moderator can read theirs on the Moderation screen). |
+| `sv_mod_add <account> <role> [name]` | The same, for a Delta account (32 hex digits). A player in the game whose game proved their profile but no key gets their account this way too. |
 | `sv_mod_remove <key or name>` | Takes a moderator out (the key's first 8 or more digits will do). |
 | `sv_warn <player> <reason>` | A warning in the player's game (a ChupathingyCE game shows it; any warning is in the audit file). |
 | `sv_mute <player> [minutes]`, `sv_unmute <player>` | A player's chat lines not passed on (until they leave, or for a while), and on again. |
 | `sv_say <text>` | A server message in every ChupathingyCE player's chat. |
-| `sv_kick <player> [reason]`, `sv_ban <player> [duration] [reason]` | As before, with a reason. A ChupathingyCE player sees it as their game drops them. |
+| `sv_kick <player> [reason]`, `sv_ban <player> [duration] [reason]` | As before, with a reason. A ChupathingyCE player sees it as their game drops them. A ban also names the Delta accounts and device the player's game proved bound to this server, and a machine that proves a banned account or device later is dropped. This only reaches players who share their profile; address and hardware id bans reach everyone. |
 | `sv_team <player> <red\|blue>` | Moves a player to a team (a team game); the control panel's To Red and To Blue. |
 
 ### In the game
@@ -117,6 +136,75 @@ catching up counts as a fast clock once), so look for a pattern: one player
 with hundreds of refusals while everyone else has a few is worth a look,
 a few on a laggy player are not. The clock check already drops a game that
 keeps running fast by its own rule, as it always has.
+
+### Reports
+
+A Chupathingy player can report another from DELTA's PLAYERS HERE (A on a
+player, then REPORT), or by opening DELTA over the scoreboard. They pick a
+reason (cheating, abuse in chat or voice, griefing or betraying, an
+offensive name, something else) and may attach a clip. The server takes 3
+reports a minute and 10 a game from one machine, and one report of each
+player a game.
+
+`sv_reports` (and the panel's Reports tab) lists the open ones, newest
+first: who reported whom, why, the map, and the server's refusals of the
+reported player's machine when the report came (`sv_evidence`'s counts).
+Players show by their game name, and by their Delta handle when they
+proved one. From the panel a moderator can warn, kick or ban the player if
+they're still in the game, ban their account if they left
+(`sv_ban_account`), or close the report (`sv_report_close`). Each report is
+a line of `reports.log` in the data folder. Never an address.
+
+OpenCE players can be reported by their game name. Those reports stay on
+this server.
+
+A linked server also sends its reports to the site, where its owner and
+role holders see them on My servers. A clip goes only to the site: the
+reporter's game uploads it there when this server is linked, and only this
+server's moderators and the site's admins can watch it. It's deleted after
+14 days. A server that isn't linked takes the report without the clip.
+
+### Locking joins
+
+`sv_lock` stops anyone new from joining (the lobby or the game in
+progress, Custom Edition players too) until `sv_unlock`. Players already
+in stay; one who drops can't come back while it's locked. The game list
+shows the server as Locked. Moderators can lock from the panel's Status
+tab, the game's Moderation screen, or the site. The lock ends by itself
+once the server has been empty for 10 seconds (an empty server can't be
+locked), and a restart unlocks.
+
+### Late joiners
+
+With `late_join_hold` on (`sv_set late_join_hold 1`), a player who joins a
+game in progress doesn't spawn until the next game. They watch a living
+player through the follow camera, with "Waiting for the next game" on
+screen (an OpenCE player gets a line in their chat). The wait is never
+longer than 5 minutes, and a player who drops and comes back isn't held.
+Off by default: Halo spawns them at once.
+
+### Shared ban lists
+
+A linked server can share its bans with other servers and take theirs.
+Both are off until you turn them on, and both go only by Delta account and
+device (the bans that name one: "Verified names" in docs/delta.md), never
+by address or hardware ID.
+
+- **Share:** `sv_set ban_share 1` here, and "Share my bans" for this
+  server on the site's My servers. Your bans then go into your list on the
+  site, and you choose which servers may take it. A site admin can mark a
+  list trusted, so any server may take it.
+- **Take:** on My servers, pick the lists each of your servers takes. They
+  come with the server's poll and are kept in `shared_bans.cache`, so a
+  restart while the site is down keeps them. `sv_ban_lists` shows them.
+- **Here:** `sv_banlist` (and the panel's Bans) shows the shared entries
+  as S and the first 8 hex digits of each one's ref (S3f9a01c2), with
+  their list and the server that banned. A player whose proven account or
+  device is on one is kicked with "Banned on <list>". `sv_unban S3f9a01c2`
+  lets that player in on this server alone (`shared_unbans.txt`); the list
+  keeps the ban. Unlinking drops the lists. A shared ban's ref is made with
+  this server's own key (`shared_bans.key`), so it says nothing about the
+  bans.txt line it came from.
 
 ### Betrayal and AFK limits
 
@@ -324,7 +412,8 @@ audit log and the server's audit file.
 
 | From the site | |
 | --- | --- |
-| `sv_warn`, `sv_kick`, `sv_ban`, `sv_unban` | with a reason |
+| `sv_warn`, `sv_kick`, `sv_ban`, `sv_unban`, `sv_ban_account` | with a reason |
+| `sv_lock`, `sv_unlock` | |
 | `sv_map`, `sv_mapcycle_next`, `sv_end_game` | |
 | `sv_name`, `sv_maxplayers` | saved, as from the console |
 

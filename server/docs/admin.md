@@ -63,6 +63,7 @@ the duration.
 | `sv_setup_start` | Starts hosting a server that waits for its first-run setup in the control panel, with the settings it has now ([moderation.md](moderation.md#first-run-setup-no-console-needed)). The console's only. |
 | `sv_mod_list`, `sv_mod_add`, `sv_mod_remove` | Everyone with a role here and where it comes from; moderators by moderator key ([moderation.md](moderation.md#who-can-moderate)). |
 | `sv_link`, `sv_unlink`, `sv_link_status` | The link to the Chupathingy site ([moderation.md](moderation.md#the-link-to-the-chupathingy-site-optional)): `sv_link` prints the link to open. |
+| `sv_steam_link [cancel]`, `sv_steam_unlink`, `sv_workshop_get <item id>` | MCC Workshop maps ([below](#mcc-workshop-maps)): link a Steam account by QR code, fetch an item. |
 | `sv_admin_list`, `sv_admin_add <name>`, `sv_admin_rotate <name>`, `sv_admin_remove <name>` | The control API's credentials, one for each admin ([below](#a-token-for-each-admin)). The console's only. |
 | `sv_account_list`, `sv_account_invite <role>`, `sv_account_role`, `sv_account_remove`, `sv_account_reset`, `sv_account_setup` | The control panel's accounts ([moderation.md](moderation.md#accounts-and-invitations)). The console's only. |
 
@@ -72,6 +73,36 @@ was the playlist's or `sv_map`'s.
 
 What a command changes lasts until the server stops: the settings in its
 environment are what it starts with again.
+
+### MCC Workshop maps
+
+The server can fetch MCC Workshop items itself, for its map cycle, with no
+Steam client or steamcmd. The account that links must own Halo: The Master
+Chief Collection on Steam.
+
+1. On the console, run `sv_steam_link`. The server's terminal shows a QR
+   code made of text, and its address (only the terminal: never the log
+   file or the control panel). Open the Steam app on your phone, go to
+   **Steam Guard**, scan the code and approve. The server never sees a
+   password. The code changes every so often; the terminal shows each new
+   one.
+2. Run `sv_workshop_get <item id>` (the number in the item's Steam page
+   address; admins and the console only). The log shows its progress and
+   when it is installed. An item over 8 GB, or with a file over 4 GB, is
+   refused (`game.workshop_item_limit_mb`, `game.workshop_file_limit_mb`),
+   as is one the disk has no room for. Or start
+   the server with `--workshop-get <item id>` (more than once for more
+   items).
+3. Its maps are listed by `sv_maps` as `mcc_maps\<item id>\<map>`. Put them
+   in a playlist with `sv_mapcycle_add`. `game.workshop_maps = true` in the
+   server's `config.toml` lists Workshop maps at all.
+
+The items go in `steam/steamapps/workshop/content/976730/<item id>` in the
+data folder (`paths.steam_downloads` moves it). The sign-in is kept in
+`steam_sign_in.txt` in the data folder, readable by the server's user only
+(or in the system's keyring where it has one). `sv_steam_unlink` deletes it
+and asks Steam to revoke it. Maps already downloaded keep working without
+the link, without Steam and offline: only fetching needs the account.
 
 ### Bans
 

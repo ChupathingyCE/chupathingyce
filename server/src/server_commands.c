@@ -49,6 +49,9 @@ change.
 #include "networking/network_game_protocol.h"
 #include "networking/network_server_manager.h"
 #include "halo_map_families.h"
+#include "halo_port_features.h" /* HALO_MCC */
+#include "mcc_cache.h"
+#include "mcc_maps.h"
 #ifdef HALO_MAP_LIST
 #include "halo_map_packs.h"
 #endif
@@ -66,11 +69,19 @@ types only) */
 #include "server_moderation.h"
 #include "server_names.h"
 #include "host_evidence.h"
+/* (the Steam link and Workshop downloads: plain types) */
+#include "../../port/linux/src/steam_client_bridge.h"
+#ifdef HALO_SERVER
+#include "server_bans.h"
+#include "server_reports.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+void platform_log(const char *format, ...);
 
 #ifndef HALO_SERVER
 /* (the game's own dedicated mode, HALO_DEDICATED in the game: no roles,
@@ -83,6 +94,8 @@ audit, link or Delta Control, only the startup commands, the owner's) */
 #define server_moderation_update() ((void)0)
 #define server_moderation_notice(machine, warning, title, text) ((void)(machine), FALSE)
 #define server_moderation_machine_key(machine, key) ((void)(machine), (void)(key), FALSE)
+#define server_moderation_machine_profile(machine, local, handle, size, platform, role) \
+	((void)(machine), (void)(local), (void)(handle), (void)(size), (void)(platform), (void)(role), FALSE)
 #define server_roles_key_role(key, permissions, who, who_size) 0
 #endif
 
@@ -130,6 +143,19 @@ void network_distributed_ban_until(long machine_index, unsigned long address, ch
 boolean network_distributed_ban_entry(long index, char *when, long when_size, char *hardware_id, long hardware_id_size,
 	char *players, long players_size, char *reason, long reason_size, unsigned long *until);
 boolean network_distributed_unban(long index);
+/* (the host's rules': port/linux/game/host_rules.h) */
+void host_rules_set_joins_locked(boolean locked);
+boolean host_rules_joins_locked(void);
+boolean host_rules_lock_has_players(void);
+boolean host_rules_host_late_join_hold(void);
+/* (network_distributed.c's: an account's ban, docs/delta.md "Shared ban
+lists") */
+boolean network_distributed_ban_account(char const *account, char const *handle, char const *reason,
+	unsigned long until);
+#ifdef HALO_GAME_BROWSER
+/* (delta_peer_game.c's: MOD_STATE told again, the lock in it) */
+void delta_peer_game_moderation_roles_changed(void);
+#endif
 /* (team changes': port/linux/game/team_change.h) */
 int team_change_move(long list_index, short team, char *text, int size);
 /* (the version: server_platform.c's, updater.c's in the game) */
@@ -139,6 +165,7 @@ const char *updater_version(void);
 int server_platform_reach(char *text, int size, int json);
 #endif
 char const *cache_files_map_directory(void);
+boolean cache_files_map_host_refused(char const *map_name, char *message, long size);
 
 /* ---------- structures */
 
@@ -195,6 +222,18 @@ static boolean command_welcome(struct command_line const *line, boolean json, st
 static boolean command_mute(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_unmute(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_team(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_lock(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_unlock(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_ban_account(struct command_line const *line, boolean json, struct command_output *output);
+#ifdef HALO_SERVER
+static boolean command_reports(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_report_close(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_ban_lists(struct command_line const *line, boolean json, struct command_output *output);
+#endif
+static boolean command_steam_link(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_steam_unlink(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_workshop_get(struct command_line const *line, boolean json, struct command_output *output);
+static void steam_update(void);
 static void note_target(char const *target, char const *reason);
 static void log_output(char const *output);
 static char const *actor_display(void);
@@ -212,6 +251,14 @@ static boolean command_link_status(struct command_line const *line, boolean json
 static struct server_command const server_commands[] =
 {
 	{ "help", "help [command]", "Lists the commands, or tells what one does.", 1, 2, FALSE, command_help },
+	{ "sv_steam_link", "sv_steam_link [cancel]", "Links a Steam account for Workshop downloads: prints a QR code to "
+		"scan with the Steam app (Steam Guard), and its address. The server never sees a password.", 1, 2, FALSE,
+		command_steam_link },
+	{ "sv_steam_unlink", "sv_steam_unlink", "Forgets the Steam account here and revokes it at Steam. Maps already "
+		"downloaded keep working.", 1, 1, FALSE, command_steam_unlink },
+	{ "sv_workshop_get", "sv_workshop_get <item id>", "Downloads an MCC Workshop item (its id from its Steam page) "
+		"into the server's data folder; its maps then go in sv_mapcycle_add as mcc_maps\\<id>\\<map>.", 2, 2, FALSE,
+		command_workshop_get },
 	{ "sv_status", "sv_status", "The server: its name, version, map and game type, players and uptime.", 1, 1, FALSE,
 		command_status },
 	{ "sv_players", "sv_players", "The players: number, name, team, score, ping and hardware id.", 1, 1, FALSE,
@@ -237,12 +284,29 @@ static struct server_command const server_commands[] =
 		"once, with no penalty (as changing teams does), whatever the team_change setting says.", 3, 3, TRUE,
 		command_team },
 	{ "sv_ban", "sv_ban <player> [duration] [reason]", "Drops a player and keeps their machine out (by its "
-		"hardware id and address, in bans.txt), for ever or for a while: 30m, 2h, 7d, 1d12h.", 2, 4, TRUE,
+		"hardware id and address, and the Delta accounts and device its game proved, in bans.txt), for ever or for a "
+		"while: 30m, 2h, 7d, 1d12h.", 2, 4, TRUE,
 		command_ban },
-	{ "sv_unban", "sv_unban <ban>", "Takes a ban (its number in sv_banlist) out of bans.txt.", 2, 2, FALSE,
-		command_unban },
-	{ "sv_banlist", "sv_banlist", "The bans in bans.txt: number, when, hardware id, players, how long.", 1, 1, FALSE,
+	{ "sv_unban", "sv_unban <ban>", "Takes a ban (its number in sv_banlist) out of bans.txt; a shared list's ban "
+		"(S and its digits in sv_banlist) lets that player in on this server alone.", 2, 2, FALSE, command_unban },
+	{ "sv_banlist", "sv_banlist", "The bans in bans.txt: number, when, hardware id, players, how long; then the shared "
+		"lists' (S and the first 8 digits of each ref), with their list and the server that banned.", 1, 1, FALSE,
 		command_banlist },
+	{ "sv_ban_account", "sv_ban_account <account> [duration] [reason]", "Bans a Delta account (32 hex digits, from a "
+		"report or sv_players) that need not be in the game, for ever or for a while: a bans.txt line with only its "
+		"account.", 2, 4, FALSE, command_ban_account },
+	{ "sv_lock", "sv_lock", "Locks joins: no new players until sv_unlock (those in the game stay). The game list "
+		"shows it. It ends by itself once the server has been empty for 10 seconds, and isn't kept across a restart.",
+		1, 1, FALSE, command_lock },
+	{ "sv_unlock", "sv_unlock", "Unlocks joins.", 1, 1, FALSE, command_unlock },
+#ifdef HALO_SERVER
+	{ "sv_reports", "sv_reports [all]", "Players' reports of other players: the open ones, newest first (all: the "
+		"closed ones too), with the server's refusals of the reported player then.", 1, 2, FALSE, command_reports },
+	{ "sv_report_close", "sv_report_close <number>", "Closes a report (its number in sv_reports).", 2, 2, FALSE,
+		command_report_close },
+	{ "sv_ban_lists", "sv_ban_lists", "The shared ban lists this server takes (picked on the site's My servers) and "
+		"whether it shares its own bans (ban_share).", 1, 1, FALSE, command_ban_lists },
+#endif
 	{ "sv_map", "sv_map <map> <game type>", "Plays a map (bloodgulch, a Custom Edition map as name@ce, a HaloMD map as "
 		"name@md, a Halo PC map as name@pc, an Xbox map pack's as name@pack: wizard@cex) and game type (slayer, ctf, "
 		"...) now; then the playlist goes on.", 3, 3, FALSE, command_map },
@@ -305,9 +369,9 @@ static struct server_command const server_commands[] =
 	{ "sv_mod_list", "sv_mod_list", "Everyone with a role here and where it comes from: the moderators file, "
 		"the control panel's accounts (bound to a game or not) and the site's profiles (capped by "
 		"HALO_DEDICATED_LINK_ROLE; cached while the site cannot be reached).", 1, 1, FALSE, command_mod_list },
-	{ "sv_mod_add", "sv_mod_add <player|key> <role> [name]", "Gives a player (once their game has proved its "
-		"moderator key: sv_players) or a moderator key a role: moderator, admin or owner (moderators.txt).", 3, 4,
-		FALSE, command_mod_add },
+	{ "sv_mod_add", "sv_mod_add <player|key|account> <role> [name]", "Gives a player (once their game has proved "
+		"its moderator key or their Delta profile: sv_players), a moderator key or a Delta account (32 hex digits) a "
+		"role: moderator, admin or owner (moderators.txt).", 3, 4, FALSE, command_mod_add },
 	{ "sv_mod_remove", "sv_mod_remove <key|name>", "Takes a moderator out of moderators.txt.", 2, 2, FALSE,
 		command_mod_remove },
 	{ "sv_link", "sv_link", "Links the server to an account on the Chupathingy site (Delta Control): prints a "
@@ -681,15 +745,45 @@ static boolean file_is_multiplayer_map(
 }
 
 /* whether the server has a map (as a command names it) to play: a
-multiplayer map's file, in its family's folders */
+multiplayer map's file, in its family's folders (with Custom Edition's
+resource maps for one past the Xbox's), as cache_files_map_installed has it */
 boolean server_map_playable(
 	char const *map,
 	struct command_output *output)
 {
 	char file[64];
 	char path[256];
-	short family = map_family_parse(map, file, sizeof(file));
+	short family;
 
+	/* (an MCC map: one of the MCC catalog's multiplayer maps, maps_mcc's or a
+	Workshop item's: mcc_maps.c) */
+	if (mcc_level_name(map))
+	{
+#if !defined(HALO_MCC) || !HALO_MCC
+		/* (a build without MCC maps: HALO_MCC, halo_port_features.h) */
+		command_output_printf(output, "%s is an MCC map; this server has no MCC maps\n", map);
+		return FALSE;
+#else
+		/* (played at OpenCE's 43, as any host plays an MCC map:
+		network_server_manager.c's network_game_server_mcc_version) */
+		short index;
+
+		mcc_maps_rescan();
+		index = mcc_maps_find(map);
+		if (index == NONE)
+		{
+			command_output_printf(output, "no MCC map %s in maps_mcc\n", map);
+			return FALSE;
+		}
+		if (mcc_maps_campaign(index))
+		{
+			command_output_printf(output, "%s is an MCC campaign map, not a multiplayer one\n", map);
+			return FALSE;
+		}
+		return TRUE;
+#endif
+	}
+	family = map_family_parse(map, file, sizeof(file));
 	if (family == _map_family_xbox)
 	{
 		snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), file);
@@ -720,6 +814,29 @@ boolean server_map_playable(
 	{
 		command_output_printf(output, "no multiplayer map %s in %s\n", map, map_family_folder(family));
 		return FALSE;
+	}
+	/* (nor without Custom Edition's resource maps, which every map past the
+	Xbox's reads as it loads: as cache_files_map_installed, which the host
+	asks before it sets a game on the map, #1106) */
+	{
+		char message[320];
+
+		if (!map_family_resources_ready(message, sizeof(message)))
+		{
+			command_output_printf(output, "%s\n", message);
+			return FALSE;
+		}
+	}
+	/* (nor one on Chupathingy maps' blacklist: a server hosts none of them,
+	as no game of ours does: cache_files_map_host_refused) */
+	{
+		char message[320];
+
+		if (cache_files_map_host_refused(map, message, sizeof(message)))
+		{
+			command_output_printf(output, "%s\n", message);
+			return FALSE;
+		}
 	}
 	return TRUE;
 #else
@@ -767,6 +884,12 @@ static void print_status(
 			"\"minimum_players\": %ld, \"public\": %s, \"idle_limit_minutes\": %ld, \"uptime_seconds\": %lu",
 			status.entry + 1, status.entry_count, players, status.maximum_players, status.minimum_players,
 			status.public_game ? "true" : "false", status.idle_limit, status.uptime_seconds);
+		/* (additive: joins locked, late joiners waiting, open reports) */
+		command_output_printf(output, ", \"locked\": %s, \"late_join_hold\": %s", host_rules_joins_locked() ? "true" :
+			"false", host_rules_host_late_join_hold() ? "true" : "false");
+#ifdef HALO_SERVER
+		command_output_printf(output, ", \"open_reports\": %d", server_reports_open());
+#endif
 		/* (additive: the last entry skipped and why, or null) */
 		command_output_printf(output, ", \"skipped\": ");
 		if (status.skipped[0])
@@ -801,6 +924,12 @@ static void print_status(
 	command_output_printf(output, "players: %ld of %ld (a game starts with %ld)\n", players, status.maximum_players,
 		status.minimum_players);
 	command_output_printf(output, "public: %s\n", status.public_game ? "yes (in the Server Browser)" : "no");
+	if (host_rules_joins_locked())
+		command_output_printf(output, "joins: locked (sv_unlock)\n");
+#ifdef HALO_SERVER
+	if (server_reports_open())
+		command_output_printf(output, "reports: %d open (sv_reports)\n", server_reports_open());
+#endif
 	command_output_printf(output, "uptime: %s\n", status.uptime_seconds < 60 ? "under a minute" : uptime);
 	if (status.skipped[0])
 		command_output_printf(output, "last skipped: %s\n", status.skipped);
@@ -869,8 +998,8 @@ static boolean command_players(
 		command_output_printf(output, "no players\n");
 	else
 	{
-		command_output_printf(output, "%3s  %-11s  %-4s  %5s  %5s  %-32s  %s\n", "#", "name", "team", "score", "ping",
-			"id", "moderator key");
+		command_output_printf(output, "%3s  %-11s  %-4s  %5s  %5s  %-32s  %-21s  %s\n", "#", "name", "team", "score",
+			"ping", "id", "profile", "moderator key");
 	}
 	for (index = 0; index < count; index++)
 	{
@@ -879,7 +1008,10 @@ static boolean command_players(
 		char const *team = !teams ? NULL : player->team_index == 0 ? "red" : player->team_index == 1 ? "blue" : NULL;
 		unsigned char key[32];
 		char key_text[72] = "";
-		int role = 0;
+		char handle[32] = "";
+		char const *device = NULL;
+		int role = 0, account_role = 0;
+		boolean verified;
 
 		/* (the moderator key the player's game proved, and its role here) */
 		if (server_moderation_machine_key(player->machine_index, key))
@@ -890,6 +1022,12 @@ static boolean command_players(
 				snprintf(key_text + 2 * (byte - key), 3, "%02x", *byte);
 			role = server_roles_key_role(key, NULL, NULL, 0);
 		}
+		/* (the Delta profile their game proved: docs/delta.md, "Verified
+		names"; its account's role here counts as theirs) */
+		verified = server_moderation_machine_profile(player->machine_index, player->controller_index, handle,
+			(int)sizeof(handle), &device, &account_role);
+		if (account_role > role)
+			role = account_role;
 
 		if (json)
 		{
@@ -915,9 +1053,24 @@ static boolean command_players(
 				command_output_printf(output, "null");
 			command_output_printf(output, ", \"moderator_key\": ");
 			if (key_text[0])
-				command_output_printf(output, "\"%s\", \"role\": \"%s\"", key_text, server_role_name(role));
+				command_output_printf(output, "\"%s\"", key_text);
 			else
-				command_output_printf(output, "null, \"role\": null");
+				command_output_printf(output, "null");
+			if (key_text[0] || role)
+				command_output_printf(output, ", \"role\": \"%s\"", server_role_name(role));
+			else
+				command_output_printf(output, ", \"role\": null");
+			/* (verified: the handle, "" for a copy with no profile; null for
+			a player whose game proved no one) */
+			command_output_printf(output, ", \"profile\": ");
+			if (verified)
+			{
+				command_output_json_string(output, handle);
+				command_output_printf(output, ", \"device\": ");
+				command_output_json_string(output, device ? device : "unknown");
+			}
+			else
+				command_output_printf(output, "null, \"device\": null");
 #ifdef HALO_GAME_BROWSER
 			/* (a ChupathingyCE game's chat: muted or not; null for none) */
 			command_output_printf(output, ", \"chat\": %s",
@@ -938,9 +1091,16 @@ static boolean command_players(
 				snprintf(ping, sizeof(ping), "%ld", player->ping);
 			else
 				snprintf(ping, sizeof(ping), "-");
-			command_output_printf(output, "%3ld  %-11s  %-4s  %5s  %5s  %-32s  %s%s%s%s\n", player->number, player->name,
-				team ? team : "-", score, ping, hardware_id && hardware_id[0] ? hardware_id : "none",
-				key_text[0] ? key_text : "-", role ? " (" : "", role ? server_role_name(role) : "", role ? ")" : "");
+			{
+				char profile[40];
+
+				snprintf(profile, sizeof(profile), "%s%s", verified ? "@" : "-", verified && handle[0] ? handle :
+					verified ? "(none)" : "");
+				command_output_printf(output, "%3ld  %-11s  %-4s  %5s  %5s  %-32s  %-21s  %s%s%s%s\n", player->number,
+					player->name, team ? team : "-", score, ping, hardware_id && hardware_id[0] ? hardware_id : "none",
+					profile, key_text[0] ? key_text : "-", role ? " (" : "", role ? server_role_name(role) : "",
+					role ? ")" : "");
+			}
 		}
 	}
 	if (json)
@@ -1044,7 +1204,7 @@ static boolean command_kick(
 	client dropped alone) */
 	if (server_ce_kick(player.machine_index, player.controller_index, NULL))
 	{
-		error(_error_silent, "dedicated: kicked %s (Custom Edition)", player.name);
+		platform_log("kicked %s (Custom Edition)", player.name);
 		command_output_printf(output, "kicked %s\n", player.name);
 		return TRUE;
 	}
@@ -1057,7 +1217,7 @@ static boolean command_kick(
 		command_output_printf(output, "%s cannot be kicked: their machine has not joined\n", player.name);
 		return FALSE;
 	}
-	error(_error_silent, "dedicated: kicked %s", names);
+	platform_log("kicked %s", names);
 	command_output_printf(output, "kicked %s\n", names);
 	return TRUE;
 }
@@ -1100,7 +1260,7 @@ static boolean command_ban(
 		if (server_ce_kick(player.machine_index, player.controller_index, &address))
 		{
 			network_distributed_ban_until(NONE, address, player.name, reason, until);
-			error(_error_silent, "dedicated: banned %s (Custom Edition, %s)", player.name, duration_text);
+			platform_log("banned %s (Custom Edition, %s)", player.name, duration_text);
 			command_output_printf(output, "banned %s %s%s\n", player.name, duration ? "for " : "", duration_text);
 			return TRUE;
 		}
@@ -1115,7 +1275,7 @@ static boolean command_ban(
 	}
 	network_distributed_ban_until(player.machine_index, network_game_server_machine_address(player.machine_index),
 		names, reason, until);
-	error(_error_silent, "dedicated: banned %s (%s)", names, duration_text);
+	platform_log("banned %s (%s)", names, duration_text);
 	command_output_printf(output, "banned %s %s%s\n", names, duration ? "for " : "", duration_text);
 	if (!hardware_id || !hardware_id[0])
 	{
@@ -1132,6 +1292,38 @@ static boolean command_unban(
 	long number;
 
 	(void)json;
+#ifdef HALO_SERVER
+	/* (a shared list's, by S and its ref's first digits as sv_banlist shows
+	them, never its place in the list, which moves when the site sends the
+	lists again: an exception on this server alone) */
+	if (line->words[1][0] == 'S' || line->words[1][0] == 's')
+	{
+		struct server_shared_ban ban;
+		char prefix[2 * SERVER_BAN_ID_BYTES + 1];
+		long at;
+
+		snprintf(prefix, sizeof(prefix), "%s", line->words[1] + 1);
+		for (at = 0; prefix[at]; at++)
+			prefix[at] = (char)(prefix[at] >= 'A' && prefix[at] <= 'F' ? prefix[at] - 'A' + 'a' : prefix[at]);
+		if (!server_bans_shared_find(prefix, &ban, NULL))
+		{
+			command_output_printf(output, "no shared ban %s (sv_banlist shows each as S and 8 hex digits)\n",
+				line->words[1]);
+			return FALSE;
+		}
+		if (!server_bans_except(ban.ref, TRUE))
+		{
+			command_output_printf(output, "the exception could not be kept (shared_unbans.txt is full or not "
+				"writable)\n");
+			return FALSE;
+		}
+		note_target(ban.handles[0] ? ban.handles : ban.ref, NULL);
+		platform_log("shared ban S%.8s (%s) excepted on this server", ban.ref, ban.list_name);
+		command_output_printf(output, "shared ban S%.8s (%s) no longer keeps anyone out here; its list keeps it\n",
+			ban.ref, ban.list_name);
+		return TRUE;
+	}
+#endif
 	if (!command_line_integer(line->words[1], 1, 1000000, &number))
 	{
 		command_output_printf(output, "%s is not a ban's number (sv_banlist)\n", line->words[1]);
@@ -1142,7 +1334,7 @@ static boolean command_unban(
 		command_output_printf(output, "no ban %ld to take out (sv_banlist)\n", number);
 		return FALSE;
 	}
-	error(_error_silent, "dedicated: ban %ld taken out of bans.txt", number);
+	platform_log("ban %ld taken out of bans.txt", number);
 	command_output_printf(output, "ban %ld taken out (the others' numbers have moved up)\n", number);
 	return TRUE;
 }
@@ -1202,12 +1394,220 @@ static boolean command_banlist(
 		command_output_printf(output, "%3ld  %-19s  %-32s  %-14s  %s  (%s)\n", index + 1, when[0] ? when : "-",
 			hardware_id, left, players[0] ? players : "-", reason[0] ? reason : "-");
 	}
+#ifdef HALO_SERVER
+	/* (the shared lists' entries: S1, S2, ...) */
+	{
+		long shared = server_bans_shared_count();
+		long entry;
+
+		if (json)
+			command_output_printf(output, "], \"count\": %ld, \"shared\": [", index);
+		else if (!index)
+			command_output_printf(output, "no bans in bans.txt\n");
+		for (entry = 0; entry < shared; entry++)
+		{
+			struct server_shared_ban ban;
+			int excepted = 0;
+			char left[32];
+
+			if (!server_bans_shared_entry((int)entry, &ban, &excepted))
+				break;
+			if (!ban.until)
+				snprintf(left, sizeof(left), "forever");
+			else if ((unsigned long)ban.until <= now)
+				snprintf(left, sizeof(left), "over");
+			else
+			{
+				char duration[24];
+
+				command_line_duration_text((long)((unsigned long)ban.until - now), duration, sizeof(duration));
+				snprintf(left, sizeof(left), "%s left", duration);
+			}
+			if (json)
+			{
+				command_output_printf(output, "%s{\"number\": \"S%.8s\", \"ref\": \"%s\", \"list\": ", entry ? ", " :
+					"", ban.ref, ban.ref);
+				command_output_json_string(output, ban.list_name);
+				command_output_printf(output, ", \"source\": ");
+				command_output_json_string(output, ban.source);
+				command_output_printf(output, ", \"players\": ");
+				command_output_json_string(output, ban.handles);
+				command_output_printf(output, ", \"reason\": ");
+				command_output_json_string(output, ban.reason);
+				command_output_printf(output, ", \"when\": %lld, \"until\": ", ban.time);
+				if (ban.until)
+					command_output_printf(output, "%lld", ban.until);
+				else
+					command_output_printf(output, "null");
+				command_output_printf(output, ", \"excepted\": %s}", excepted ? "true" : "false");
+				continue;
+			}
+			if (!entry)
+				command_output_printf(output, "shared lists:\n");
+			command_output_printf(output, " S%.8s  %-24s  %-16s  %-14s  %s  (%s)%s\n", ban.ref, ban.list_name,
+				ban.source, left, ban.handles[0] ? ban.handles : "-", ban.reason[0] ? ban.reason : "-",
+				excepted ? "  excepted here" : "");
+		}
+		if (json)
+			command_output_printf(output, "], \"shared_count\": %ld}", shared);
+		return TRUE;
+	}
+#else
 	if (json)
 		command_output_printf(output, "], \"count\": %ld}", index);
 	else if (!index)
 		command_output_printf(output, "no bans\n");
 	return TRUE;
+#endif
 }
+
+/* sv_lock, sv_unlock: the host takes no new machines while locked
+(network_server_manager.c), says so in its rules (HOST_RULES) and its
+moderators' MOD_STATE, and its announcement (browser.c) */
+static void set_locked(
+	boolean locked)
+{
+	host_rules_set_joins_locked(locked);
+#ifdef HALO_GAME_BROWSER
+	delta_peer_game_moderation_roles_changed();
+#endif
+	platform_log("joins %s by %s", locked ? "locked" : "unlocked", actor_display());
+}
+
+static boolean command_lock(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	(void)line;
+	(void)json;
+	if (host_rules_joins_locked())
+	{
+		command_output_printf(output, "joins are locked already\n");
+		return TRUE;
+	}
+	/* (a lock is for the players in the game: it ends once nobody is in,
+	host_rules.c) */
+	if (!host_rules_lock_has_players())
+	{
+		command_output_printf(output, "nobody is in the game: joins stay open (a lock ends once the server is empty)\n");
+		return FALSE;
+	}
+	set_locked(TRUE);
+	command_output_printf(output, "joins locked: nobody new joins until sv_unlock\n");
+	return TRUE;
+}
+
+static boolean command_unlock(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	(void)line;
+	(void)json;
+	if (!host_rules_joins_locked())
+	{
+		command_output_printf(output, "joins are not locked\n");
+		return TRUE;
+	}
+	set_locked(FALSE);
+	command_output_printf(output, "joins unlocked\n");
+	return TRUE;
+}
+
+static boolean command_ban_account(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	char account[40], reason[96], duration_text[32];
+	long duration = 0;
+	unsigned long until = 0;
+	long index;
+
+	(void)json;
+	snprintf(account, sizeof(account), "%s", line->words[1]);
+	for (index = 0; account[index]; index++)
+		account[index] = (char)(account[index] >= 'A' && account[index] <= 'F' ? account[index] - 'A' + 'a' : account[index]);
+	if (strlen(account) != 32 || strspn(account, "0123456789abcdef") != 32)
+	{
+		command_output_printf(output, "%s is not a Delta account (32 hex digits)\n", line->words[1]);
+		return FALSE;
+	}
+	if (line->count >= 3 && !command_line_duration(line->words[2], &duration))
+	{
+		command_output_printf(output, "%s is not a duration: 30m, 2h, 7d, 1d12h, or forever\n", line->words[2]);
+		return FALSE;
+	}
+	note_target(account, line->count == 4 ? line->words[3] : NULL);
+	command_line_duration_text(duration, duration_text, sizeof(duration_text));
+	snprintf(reason, sizeof(reason), "banned by %s%s%s%s%s", actor_display(), duration ? " for " : "",
+		duration ? duration_text : "", line->count == 4 ? ": " : "", line->count == 4 ? line->words[3] : "");
+	if (duration)
+		until = (unsigned long)time(NULL) + (unsigned long)duration;
+	if (!network_distributed_ban_account(account, NULL, reason, until))
+	{
+		command_output_printf(output, "the ban could not be written to bans.txt\n");
+		return FALSE;
+	}
+	platform_log("banned account %.8s... (%s)", account, duration_text);
+	command_output_printf(output, "banned account %s %s%s\n", account, duration ? "for " : "", duration_text);
+	return TRUE;
+}
+
+#ifdef HALO_SERVER
+static boolean command_reports(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	static char text[96 * 1024];
+
+	if (line->count == 2 && strcmp(line->words[1], "all"))
+	{
+		command_output_printf(output, "sv_reports [all]\n");
+		return FALSE;
+	}
+	server_reports_text(json, line->count == 2, text, (int)sizeof(text));
+	command_output_printf(output, "%s", text);
+	return TRUE;
+}
+
+static boolean command_report_close(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	long number;
+
+	(void)json;
+	if (!command_line_integer(line->words[1], 1, 0x7FFFFFFF, &number))
+	{
+		command_output_printf(output, "%s is not a report's number (sv_reports)\n", line->words[1]);
+		return FALSE;
+	}
+	if (!server_reports_close((unsigned int)number, actor_display()))
+	{
+		command_output_printf(output, "no open report #%ld\n", number);
+		return FALSE;
+	}
+	command_output_printf(output, "report #%ld closed\n", number);
+	return TRUE;
+}
+
+static boolean command_ban_lists(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	static char text[8192];
+
+	(void)line;
+	server_bans_lists_text(json, text, (int)sizeof(text));
+	command_output_printf(output, "%s", text);
+	return TRUE;
+}
+#endif
 
 static boolean command_map(
 	struct command_line const *line,
@@ -1234,7 +1634,7 @@ static boolean command_map(
 	if (!server_map_playable(line->words[1], output))
 		return FALSE;
 	dedicated_server_play(line->words[1], line->words[2]);
-	error(_error_silent, "dedicated: a command plays %s on %s", line->words[2], line->words[1]);
+	platform_log("a command plays %s on %s", line->words[2], line->words[1]);
 	command_output_printf(output, "%s on %s %s\n", line->words[2], line->words[1],
 		hosting() ? "now" : "once the server hosts");
 	return TRUE;
@@ -1321,7 +1721,7 @@ static boolean command_mapcycle_next(
 	(void)json;
 	dedicated_server_get_status(&status);
 	dedicated_server_skip();
-	error(_error_silent, "dedicated: a command skips to the next entry");
+	platform_log("a command skips to the next entry");
 	if (status.state == _dedicated_state_lobby)
 	{
 		dedicated_server_get_status(&status);
@@ -1381,7 +1781,7 @@ static boolean command_maxplayers(
 	if (server_admin_set_saved(SERVER_SETTING_MAXIMUM_PLAYERS, line->words[1], output, &done))
 		return done;
 	dedicated_server_set_maximum_players(maximum);
-	error(_error_silent, "dedicated: a command sets the most players to %ld", maximum);
+	platform_log("a command sets the most players to %ld", maximum);
 	command_output_printf(output, "a game takes %ld players %s, until a restart (HALO_DEDICATED_MAXIMUM_PLAYERS in the "
 		"server's environment sets it at start)\n", maximum,
 		status.state == _dedicated_state_lobby ? "(now)" : "(from the next lobby)");
@@ -1413,7 +1813,7 @@ static boolean command_name(
 	if (server_admin_set_saved(SERVER_SETTING_NAME, line->words[1], output, &done))
 		return done;
 	dedicated_server_set_name(line->words[1]);
-	error(_error_silent, "dedicated: a command names the server %s", line->words[1]);
+	platform_log("a command names the server %s", line->words[1]);
 	command_output_printf(output, "the server is %s %s, until a restart (HALO_DEDICATED_NAME in the server's "
 		"environment names it at start)\n", line->words[1],
 		status.state == _dedicated_state_lobby ? "(now)" : "(from the next lobby)");
@@ -1536,6 +1936,17 @@ static boolean command_maps(
 	/* (the Xbox map packs' in their maps_<pack> folders: wizard@cex) */
 	map_pack_list(map_listing_pack_found, &listing);
 #endif
+#if defined(HALO_MCC) && HALO_MCC
+	/* (the MCC catalog's multiplayer maps, by level name: mcc_maps\<package>\<map>) */
+	mcc_maps_rescan();
+	for (index = 0; index < mcc_maps_type_count(FALSE); index++)
+	{
+		short mcc = mcc_maps_type_index((short)index, FALSE);
+
+		if (mcc != NONE && mcc_maps_level_name(mcc) && command_line_map_name_valid(mcc_maps_level_name(mcc)))
+			map_listing_add(&listing, mcc_maps_level_name(mcc));
+	}
+#endif
 	qsort(listing.names, (size_t)listing.count, sizeof(listing.names[0]), map_listing_compare);
 	if (json)
 	{
@@ -1615,7 +2026,7 @@ static boolean command_warn(
 	machine_names(player.machine_index, names, sizeof(names));
 	note_target(names, line->words[2]);
 	shown = server_moderation_notice(player.machine_index, TRUE, NULL, line->words[2]);
-	error(_error_silent, "dedicated: warned %s", names);
+	platform_log("warned %s", names);
 	command_output_printf(output, "warned %s%s\n", names, shown ? "" :
 		" (their game cannot show it: not a ChupathingyCE game; the warning is in the audit file)");
 	return TRUE;
@@ -1640,7 +2051,7 @@ static boolean command_say(
 			command_output_printf(output, "said to %d Custom Edition player%s\n", sent_ce, sent_ce == 1 ? "" : "s");
 #endif
 
-		error(_error_silent, "dedicated: a server message to %d machines", sent);
+		platform_log("a server message to %d machines", sent);
 		command_output_printf(output, "said to %d ChupathingyCE machine%s\n", sent, sent == 1 ? "" : "s");
 		return TRUE;
 	}
@@ -1761,7 +2172,7 @@ static boolean command_mute(
 	note_target(names, line->count == 3 ? line->words[2] : NULL);
 #ifdef HALO_GAME_BROWSER
 	delta_peer_game_chat_mute((int)player.machine_index, TRUE, (int)minutes);
-	error(_error_silent, "dedicated: muted %s", names);
+	platform_log("muted %s", names);
 	command_output_printf(output, "muted %s%s%s\n", names, minutes ? " for a while" : " until they leave",
 		delta_peer_game_chat_capable((int)player.machine_index, 0) ? "" :
 		" (an OpenCE game: their lines stay out of the chat)");
@@ -1792,7 +2203,7 @@ static boolean command_unmute(
 		return FALSE;
 	}
 	delta_peer_game_chat_mute((int)player.machine_index, FALSE, 0);
-	error(_error_silent, "dedicated: unmuted %s", names);
+	platform_log("unmuted %s", names);
 	command_output_printf(output, "unmuted %s\n", names);
 	return TRUE;
 #else
@@ -1832,7 +2243,7 @@ static boolean command_team(
 	if (result != 0 && result != 1)
 		return FALSE;
 	note_target(player.name, NULL);
-	error(_error_silent, "dedicated: moved player %ld to the %s team", player.number, team ? "blue" : "red");
+	platform_log("moved player %ld to the %s team", player.number, team ? "blue" : "red");
 	server_moderation_notice(player.machine_index, FALSE, NULL, team ? "An admin moved you to Blue Team" :
 		"An admin moved you to Red Team");
 	return TRUE;
@@ -1860,9 +2271,11 @@ static boolean command_mod_add(
 	struct command_output *output)
 {
 	unsigned char key[32];
+	unsigned char account[16];
 	char problem[160];
 	char name[40];
 	int role = server_role_parse(line->words[2]);
+	boolean by_account = FALSE;
 
 	(void)json;
 	if (role <= 0)
@@ -1873,24 +2286,45 @@ static boolean command_mod_add(
 	name[0] = 0;
 	if (line->count == 4)
 		snprintf(name, sizeof(name), "%s", line->words[3]);
-	/* a key given whole, else a player of the game whose game proved theirs */
-	if (!server_key_parse(line->words[1], key))
+	/* a key given whole (64 hex digits), a Delta account (32: docs/delta.md,
+	"Verified names"), else a player of the game whose game proved a key, or
+	proved their profile */
+	if (strlen(line->words[1]) == 32)
+	{
+		char padded[72];
+
+		snprintf(padded, sizeof(padded), "%s00000000000000000000000000000000", line->words[1]);
+		by_account = server_key_parse(padded, key);
+		if (by_account)
+			csmemcpy(account, key, sizeof(account));
+	}
+	if (!by_account && !server_key_parse(line->words[1], key))
 	{
 		struct server_player player;
+		char handle[32];
 
 		if (!find_player(line->words[1], &player, output))
 			return FALSE;
 		if (!server_moderation_machine_key(player.machine_index, key))
 		{
-			command_output_printf(output, "%s's game has not proved a moderator key: they sign in from the game's "
-				"Moderation screen (a ChupathingyCE game; Delta Peer), or give the key itself\n", player.name);
-			return FALSE;
+			if (!server_moderation_machine_account(player.machine_index, player.controller_index, account, handle,
+				(int)sizeof(handle)))
+			{
+				command_output_printf(output, "%s's game has proved neither a moderator key nor their Delta profile: "
+					"they sign in from the game's Moderation screen (a ChupathingyCE game; Delta Peer), or give the key "
+					"itself\n", player.name);
+				return FALSE;
+			}
+			by_account = TRUE;
+			if (!name[0] && handle[0])
+				snprintf(name, sizeof(name), "%s", handle);
 		}
 		if (!name[0])
 			snprintf(name, sizeof(name), "%s", player.name);
 	}
 	note_target(name[0] ? name : line->words[1], NULL);
-	if (!server_roles_moderator_set(role, key, name, problem, sizeof(problem)))
+	if (by_account ? !server_roles_account_set(role, account, name, problem, sizeof(problem)) :
+		!server_roles_moderator_set(role, key, name, problem, sizeof(problem)))
 	{
 		command_output_printf(output, "%s\n", problem);
 		return FALSE;
@@ -2173,7 +2607,7 @@ static void load_startup_commands(
 	file = fopen(path, "r");
 	if (!file)
 	{
-		error(_error_silent, "dedicated: cannot read the startup commands %s", path);
+		platform_log("cannot read the startup commands %s", path);
 		return;
 	}
 	while (fgets(line, sizeof(line), file))
@@ -2188,7 +2622,7 @@ static void load_startup_commands(
 		{
 			int character;
 
-			error(_error_silent, "dedicated: a startup command longer than %d characters, skipped",
+			platform_log("a startup command longer than %d characters, skipped",
 				(int)COMMAND_LINE_MAXIMUM_LENGTH);
 			while ((character = fgetc(file)) != EOF && character != '\n')
 				;
@@ -2198,7 +2632,7 @@ static void load_startup_commands(
 			continue;
 		if (server_commands_globals.startup_count >= MAXIMUM_STARTUP_COMMANDS)
 		{
-			error(_error_silent, "dedicated: more than %d startup commands; the rest skipped",
+			platform_log("more than %d startup commands; the rest skipped",
 				(int)MAXIMUM_STARTUP_COMMANDS);
 			break;
 		}
@@ -2206,10 +2640,244 @@ static void load_startup_commands(
 			sizeof(server_commands_globals.startup[0]), "%s", line);
 	}
 	fclose(file);
-	error(_error_silent, "dedicated: %ld startup commands from %s", server_commands_globals.startup_count, path);
+	platform_log("%ld startup commands from %s", server_commands_globals.startup_count, path);
 }
 
 /* a command's output in the log, a line at a time */
+/* ---------- the Steam link and Workshop downloads (steam_bridge_pipe.c) */
+
+enum { STEAM_WATCHED = 8 };
+
+static struct
+{
+	boolean linking;
+	char qr[256];
+	char watched[STEAM_WATCHED][24];
+	long watched_count;
+	long percent[STEAM_WATCHED];
+	boolean startup_done;
+} steam_server;
+
+static boolean command_steam_link(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	char persona[64];
+
+	(void)json;
+	if (!steam_link_available())
+	{
+		command_output_printf(output, "This build has no Steam download.\n");
+		return FALSE;
+	}
+	if (line->count == 2 && !strcmp(line->words[1], "cancel"))
+	{
+		steam_link_cancel();
+		steam_server.linking = FALSE;
+		command_output_printf(output, "Linking stopped.\n");
+		return TRUE;
+	}
+	if (steam_link_linked(persona, sizeof(persona)))
+	{
+		/* (the account's name is the operator's to see here, never sent anywhere) */
+		command_output_printf(output, "Already linked. sv_steam_unlink first to link another account.\n");
+		return TRUE;
+	}
+	steam_link_start();
+	steam_server.linking = TRUE;
+	steam_server.qr[0] = 0;
+	command_output_printf(output, "Getting a code from Steam; the QR code shows on the server's terminal.\n");
+	return TRUE;
+}
+
+static boolean command_steam_unlink(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	(void)line;
+	(void)json;
+	steam_link_cancel();
+	steam_server.linking = FALSE;
+	if (!steam_link_linked(NULL, 0))
+	{
+		command_output_printf(output, "Not linked.\n");
+		return TRUE;
+	}
+	steam_link_unlink();
+	command_output_printf(output, "Unlinked: the sign-in is deleted here, and Steam is asked to revoke it. "
+		"Downloaded maps keep working.\n");
+	return TRUE;
+}
+
+static void steam_watch(
+	char const *id)
+{
+	long index;
+
+	for (index = 0; index < steam_server.watched_count; index++)
+	{
+		if (!strcmp(steam_server.watched[index], id))
+		{
+			steam_server.percent[index] = -1;
+			return;
+		}
+	}
+	if (steam_server.watched_count < STEAM_WATCHED)
+	{
+		snprintf(steam_server.watched[steam_server.watched_count], sizeof(steam_server.watched[0]), "%s", id);
+		steam_server.percent[steam_server.watched_count++] = -1;
+	}
+}
+
+static boolean command_workshop_get(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	char const *id = line->words[1];
+	long length = (long)strlen(id), index;
+
+	(void)json;
+	for (index = 0; index < length; index++)
+	{
+		if (id[index] < '0' || id[index] > '9')
+			break;
+	}
+	if (!length || index < length || length > 20)
+	{
+		command_output_printf(output, "usage: sv_workshop_get <item id> (digits, from the item's Steam page)\n");
+		return FALSE;
+	}
+	if (!steam_link_linked(NULL, 0))
+	{
+		command_output_printf(output, "Link Steam first: sv_steam_link.\n");
+		return FALSE;
+	}
+	if (!steam_link_get(id))
+	{
+		command_output_printf(output, "The download could not start.\n");
+		return FALSE;
+	}
+	steam_watch(id);
+	command_output_printf(output, "Downloading Workshop item %s; its progress follows in the log.\n", id);
+	return TRUE;
+}
+
+/* each frame: the QR shown as it comes (and again when Steam changes it),
+the link's end, the downloads' progress; and once, --workshop-get's items */
+static void steam_update(
+	void)
+{
+	long index;
+
+	if (!steam_server.startup_done)
+	{
+		char const *wanted = getenv("HALO_WORKSHOP_GET");
+		char result[256];
+
+		steam_server.startup_done = TRUE;
+		while (wanted && *wanted)
+		{
+			char id[24];
+			long length = (long)strcspn(wanted, ", ");
+
+			if (length > 0 && length < (long)sizeof(id))
+			{
+				char text[64];
+
+				memcpy(id, wanted, (size_t)length);
+				id[length] = 0;
+				snprintf(text, sizeof(text), "sv_workshop_get %s", id);
+				result[0] = 0;
+				server_commands_run_as(text, "startup", "--workshop-get", SERVER_ROLE_OWNER, SERVER_PERMISSION_ALL,
+					result, sizeof(result));
+				result[strcspn(result, "\n")] = 0;
+				platform_log("--workshop-get %s: %s", id, result);
+			}
+			wanted += length;
+			while (*wanted == ',' || *wanted == ' ')
+				wanted++;
+		}
+	}
+	if (steam_server.linking)
+	{
+		char qr[256], error_word[24];
+		int state = steam_link_poll(qr, sizeof(qr), error_word, sizeof(error_word));
+
+		if ((state == STEAM_LINK_WAITING || state == STEAM_LINK_SCANNED) && qr[0] && strcmp(qr, steam_server.qr))
+		{
+			static char lines[16 * 1024];
+
+			snprintf(steam_server.qr, sizeof(steam_server.qr), "%s", qr);
+			/* (on the terminal only, never the log file or the control panel's
+			log: the code signs whoever scans it in to the server's Steam link) */
+			if (steam_link_qr_text(qr, lines, sizeof(lines)))
+			{
+				char *line = lines, *next;
+
+				for (; *line; line = next)
+				{
+					next = strchr(line, '\n');
+					if (next)
+						*next++ = 0;
+					else
+						next = line + strlen(line);
+					fprintf(stderr, "  %s\n", line);
+				}
+			}
+			fprintf(stderr, "scan the QR code above with the Steam app (Steam Guard), or open %s "
+				"on a phone signed in to Steam; it changes every so often\n", qr);
+			fflush(stderr);
+			platform_log("Steam link: a QR code is on the server's terminal");
+		}
+		else if (state == STEAM_LINK_DONE)
+		{
+			steam_server.linking = FALSE;
+			platform_log("Steam linked; sv_workshop_get <item id> downloads Workshop items");
+		}
+		else if (state == STEAM_LINK_FAILED)
+		{
+			steam_server.linking = FALSE;
+			platform_log("Steam link: %s", error_word[0] ? error_word : "Failed");
+		}
+	}
+	for (index = 0; index < steam_server.watched_count; index++)
+	{
+		unsigned long long done = 0, total = 0;
+		char error_word[24];
+		int state = steam_link_progress(steam_server.watched[index], &done, &total, error_word, sizeof(error_word));
+		long percent = total ? (long)(done * 100 / total) : 0;
+
+		if (state == STEAM_BRIDGE_ITEM_INSTALLED)
+		{
+			platform_log("Workshop item %s installed; sv_maps lists its maps",
+				steam_server.watched[index]);
+			mcc_maps_rescan();
+		}
+		else if (state == STEAM_BRIDGE_ITEM_FAILED)
+			platform_log("Workshop item %s: %s", steam_server.watched[index], error_word);
+		else
+		{
+			/* (every tenth of the way) */
+			if (state == STEAM_BRIDGE_ITEM_DOWNLOADING && percent / 10 != steam_server.percent[index] / 10)
+			{
+				steam_server.percent[index] = percent;
+				platform_log("Workshop item %s: %ld%%", steam_server.watched[index], percent);
+			}
+			continue;
+		}
+		/* (done: no longer watched) */
+		memmove(&steam_server.watched[index], &steam_server.watched[index + 1],
+			sizeof(steam_server.watched[0]) * (size_t)(steam_server.watched_count - index - 1));
+		memmove(&steam_server.percent[index], &steam_server.percent[index + 1],
+			sizeof(steam_server.percent[0]) * (size_t)(steam_server.watched_count - index - 1));
+		steam_server.watched_count--;
+		index--;
+	}
+}
+
 static void log_output(
 	char const *output)
 {
@@ -2254,7 +2922,8 @@ static void link_status(
 	command_output_printf(&output, ", \"playlist\": ");
 	command_output_json_string(&output, status.playlist);
 	command_output_printf(&output, ", \"player_count\": %ld, \"maximum_players\": %ld, \"uptime_seconds\": %lu, "
-		"\"players\": [", count, status.maximum_players, status.uptime_seconds);
+		"\"locked\": %s, \"late_join_hold\": %s, \"players\": [", count, status.maximum_players, status.uptime_seconds,
+		host_rules_joins_locked() ? "true" : "false", host_rules_host_late_join_hold() ? "true" : "false");
 	for (index = 0; index < count; index++)
 	{
 		struct server_player const *player = &players[index];
@@ -2465,6 +3134,7 @@ void server_commands_update(
 	}
 	server_moderation_update();
 	names_update();
+	steam_update();
 	server_conduct_update();
 #ifdef HALO_SERVER
 	server_gamespy_update();

@@ -13,7 +13,9 @@ own third-party libraries: glslang (BSD-3-Clause and others, its
 LICENSE.txt), which compiles the translators' GLSL to SPIR-V at run time, and
 on macOS SPIRV-Cross (Apache-2.0), which turns the SPIR-V into Metal's
 shading language. Nothing is needed at run time but the system's Metal or
-Vulkan driver.
+Vulkan driver, and on Windows Direct3D 11 with its shader compiler
+(d3dcompiler_47.dll, part of Windows) for computers whose Vulkan does not
+start. On Windows SPIRV-Cross turns the SPIR-V into HLSL for it.
 """
 
 import hashlib
@@ -26,25 +28,27 @@ from .ninja_syntax import Writer
 
 BGFX_SOURCES = Path("build/bgfx")
 BGFX_REPOSITORIES = {
-    "bx": ("https://github.com/bkaradzic/bx.git", "217823bc0a05a7dcf29e5166708b82910cda0623"),
-    "bimg": ("https://github.com/bkaradzic/bimg.git", "5c7eabb1d73cb0c1a3c23c0268dd70e8dca972f7"),
-    "bgfx": ("https://github.com/bkaradzic/bgfx.git", "9849fe96cba81355352e5355ee2d333ea70857ac"),
+    "bx": ("https://github.com/bkaradzic/bx.git", "57548da89a07771c5b0f8a6711149be70e08a329"),
+    "bimg": ("https://github.com/bkaradzic/bimg.git", "77bebb28e12956bfced82bb2cf7c19ac5735b6c8"),
+    "bgfx": ("https://github.com/bkaradzic/bgfx.git", "4608478e119667eab7635226f721ede32b0935c3"),
 }
 # our changes to bgfx, applied to the fetched sources (tools/bgfx-patches)
 BGFX_PATCHES = sorted(Path("tools/bgfx-patches").glob("*.patch"))
-# its limits for the game: views (each target change and clear after draws
-# is one), visibility tests (lens flares, The Library's lights) and Metal's
-# uniform space a frame
+# its limits for the game: visibility tests (lens flares, The Library's
+# lights). Views are fixed at 4096 in bgfx now, and Metal's uniform space
+# grows as needed.
 # (and not its NvOptimusEnablement and AmdPowerXpressRequestHighPerformance:
 # the Windows builds export their own, port/windows/src)
-BGFX_DEFINES = ["-DBGFX_CONFIG_MAX_VIEWS=1024", "-DBGFX_CONFIG_MAX_OCCLUSION_QUERIES=4096",
-                "-DBGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE=33554432", "-DBGFX_CONFIG_PREFER_DISCRETE_GPU=0"]
+BGFX_DEFINES = ["-DBGFX_CONFIG_MAX_OCCLUSION_QUERIES=4096", "-DBGFX_CONFIG_PREFER_DISCRETE_GPU=0"]
 # bgfx's renderers, all off but the platform's
 BGFX_RENDERERS = ["AGC", "DIRECT3D11", "DIRECT3D12", "GNM", "METAL", "NVN", "OPENGL", "OPENGLES", "VULKAN",
                   "WEBGPU"]
-# SPIRV-Cross's units for Metal's shading language, with its C interface
-SPIRV_CROSS_UNITS = ["spirv_cfg.cpp", "spirv_cross.cpp", "spirv_cross_parsed_ir.cpp", "spirv_cross_util.cpp",
-                     "spirv_glsl.cpp", "spirv_msl.cpp", "spirv_parser.cpp", "spirv_cross_c.cpp"]
+# SPIRV-Cross's units, with its C interface: Metal's shading language on
+# macOS, HLSL for Direct3D 11 on Windows
+SPIRV_CROSS_COMMON = ["spirv_cfg.cpp", "spirv_cross.cpp", "spirv_cross_parsed_ir.cpp", "spirv_cross_util.cpp",
+                      "spirv_glsl.cpp", "spirv_parser.cpp", "spirv_cross_c.cpp"]
+SPIRV_CROSS_UNITS = {"macos": SPIRV_CROSS_COMMON + ["spirv_msl.cpp"], "windows": SPIRV_CROSS_COMMON + ["spirv_hlsl.cpp"]}
+SPIRV_CROSS_BACKENDS = {"macos": "-DSPIRV_CROSS_C_API_MSL=1", "windows": "-DSPIRV_CROSS_C_API_HLSL=1"}
 
 
 def bgfx_wanted(sln: Any) -> bool:
@@ -136,7 +140,7 @@ def bgfx_include_flags() -> List[str]:
     """the headers d3d8_gl.c includes for the bgfx renderer"""
     bgfx, bx, glslang = BGFX_SOURCES / "bgfx", BGFX_SOURCES / "bx", BGFX_SOURCES / "bgfx/3rdparty/glslang"
     return ["-DHALO_BGFX", f"-I{bgfx / 'include'}", f"-I{bx / 'include'}", f"-I{glslang}",
-            f"-I{bgfx / '3rdparty/spirv-cross'}"]
+            f"-I{bgfx / '3rdparty/spirv-cross'}", f"-I{bgfx / '3rdparty/khronos'}"]
 
 
 def bgfx_build(n: Writer, target: BgfxTarget) -> List[Path]:
@@ -149,7 +153,9 @@ def bgfx_build(n: Writer, target: BgfxTarget) -> List[Path]:
     prefix = f"{target.name}_bgfx"
     label = target.name.upper()
     compat = {"macos": "osx", "linux": "linux", "windows": "msvc"}[target.platform]
-    renderer = "METAL" if target.platform == "macos" else "VULKAN"
+    # (Windows: Vulkan, and Direct3D 11 for computers whose Vulkan does
+    # not start)
+    renderers = {"macos": ["METAL"], "linux": ["VULKAN"], "windows": ["VULKAN", "DIRECT3D11"]}[target.platform]
     platform_flags = {
         "macos": [],
         "linux": ["-fno-strict-aliasing"],
@@ -170,7 +176,7 @@ def bgfx_build(n: Writer, target: BgfxTarget) -> List[Path]:
     n.rule(name=f"{prefix}_ar", command=target.archive_command, description=f"{label} BGFX AR $out")
     bgfx_flags = " ".join([
         "-x objective-c++" if target.platform == "macos" else "-x c++", *BGFX_DEFINES,
-        *(f"-DBGFX_CONFIG_RENDERER_{name}={1 if name == renderer else 0}" for name in BGFX_RENDERERS),
+        *(f"-DBGFX_CONFIG_RENDERER_{name}={1 if name in renderers else 0}" for name in BGFX_RENDERERS),
     ])
     # (glslang without its HLSL front end or SPIRV-Tools' optimiser, the
     # build's own threads: GLSL to SPIR-V only)
@@ -184,15 +190,20 @@ def bgfx_build(n: Writer, target: BgfxTarget) -> List[Path]:
     simd = "-Xarch_x86_64 -msse4.2" if target.platform == "macos" else "-msse4.2"
     units = {
         "bx": ([bx / "src/amalgamated.cpp"], f"-x c++ {simd}"),
-        "bimg": ([bimg / "src/image.cpp", bimg / "src/image_gnf.cpp",
+        "bimg": ([bimg / "src/image.cpp", bimg / "src/image_encode_wic.cpp",
                   *sorted((bimg / "3rdparty/astc-encoder/source").glob("*.cpp"))], f"-x c++ {simd}"),
         "bgfx": ([bgfx / "src/amalgamated.cpp"], f"{bgfx_flags} {simd}"),
         "glslang": (glslang_sources, f"-x c++ -std=c++17 -fno-strict-aliasing -I{glslang} -I{glslang.parent}"),
     }
-    if target.platform == "macos":
-        units["spirv-cross"] = ([spirv_cross / name for name in SPIRV_CROSS_UNITS],
-                                f"-x c++ -DSPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS -DSPIRV_CROSS_C_API_GLSL=1 -DSPIRV_CROSS_C_API_MSL=1 "
-                                f"-I{spirv_cross / 'include'}")
+    if target.platform in SPIRV_CROSS_UNITS:
+        # (on Windows with C++ exceptions, which its C interface catches: a
+        # shader HLSL can't express fails alone instead of ending the game;
+        # macOS keeps the assertions it has shipped with)
+        errors = ("-fexceptions -fcxx-exceptions -U_HAS_EXCEPTIONS -D_HAS_EXCEPTIONS=1"
+                  if target.platform == "windows" else "-DSPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS")
+        units["spirv-cross"] = ([spirv_cross / name for name in SPIRV_CROSS_UNITS[target.platform]],
+                                f"-x c++ {errors} -DSPIRV_CROSS_C_API_GLSL=1 "
+                                f"{SPIRV_CROSS_BACKENDS[target.platform]} -I{spirv_cross / 'include'}")
     libraries = []
     for name, (sources, extra) in units.items():
         objects = []

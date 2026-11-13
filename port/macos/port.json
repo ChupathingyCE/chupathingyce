@@ -12,6 +12,7 @@
     "CoreServices",
     "VideoToolbox",
     "CoreMedia",
-    "CoreVideo"
+    "CoreVideo",
+    "Security"
   ]
 }

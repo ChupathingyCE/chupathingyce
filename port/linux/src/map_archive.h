@@ -63,9 +63,31 @@ struct map_archive_io
 /* whether name is a map's file name the repositories are asked for: 1 to
 MAP_ARCHIVE_MAXIMUM_NAME_LENGTH letters, digits, '_', '-' and '.', not
 starting with '.' and holding no "..", and not a Windows device name
-(CON, PRN, AUX, NUL, COM1-COM9, LPT1-LPT9 in any case, before the first
+(CON, PRN, AUX, NUL, COM0-COM9, LPT0-LPT9 in any case, before the first
 '.'): nothing a path or a URL reads as more than a name */
 int map_archive_name_valid(const char *name);
+
+/* ---------- the community repositories' listing
+
+HaloNet's locator (locator.php) finds only the maps whose file names are all
+lowercase: about a third of its files keep capitals (BattleCraft.zip,
+Frost_1.zip), and the locator answers 404 for them in any case, while
+maps/<file>.zip serves them by their exact spelling. The repository's
+listing (index.php?fulllist=y, an HTML table whose rows link
+/maps/<file>.zip) has that spelling. */
+
+enum
+{
+	/* a listed file's name, with its terminator */
+	MAP_ARCHIVE_LISTING_NAME_SIZE = MAP_ARCHIVE_MAXIMUM_NAME_LENGTH + 1,
+};
+
+/* the files listing (size bytes of the listing's HTML, not terminated) links
+as /maps/<file>.zip whose <file> is name in any case and a name
+map_archive_name_valid takes (nothing escaped), each once, in the listing's
+order and spelling: at most count of them into files, and how many */
+int map_archive_listing_files(const char *listing, unsigned int size, const char *name,
+	char files[][MAP_ARCHIVE_LISTING_NAME_SIZE], int count);
 
 /* <name>.map unpacked from the zip archive io reads, written through io's
 write (nothing else in the archive is written anywhere): 1 with its size in

@@ -22,8 +22,11 @@ are the controller's button icons (a texture array, a layer each).
 #include "xgpu.h"
 #include "ui_font.h"
 #include "ui_overlay.h"
+#include "halo_prompt_schemes.h"
+#include "text_shown.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,8 +42,9 @@ be a power of two) */
 #define ICONS_BINDING GL_TEXTURE_BINDING_2D_ARRAY
 #endif
 
-/* (xinput_sdl.c: the device the player last used: 0 keyboard, 1 Xbox-like,
-2 PlayStation, 3 Nintendo) */
+/* (xinput_sdl.c: the device the player last used, halo_prompt_schemes.h's:
+0 keyboard, 1 Xbox-like, 2 PlayStation, 3 Nintendo, 4 Steam Deck, 5 Wii U,
+6 Steam Controller) */
 int platform_prompt_scheme(void);
 /* (interface/progress_bar.c: the loading screen is up) */
 extern unsigned char progress_bar_is_active(void);
@@ -56,12 +60,21 @@ enum
 	PICTURE_MARK = -3,
 	/* (the plasma's: ui_overlay_plasma) */
 	PLASMA_MARK = -4,
+	/* (a medal's: ui_overlay_medal) */
+	MEDAL_MARK = -5,
 	/* the overlay's own noise for the plasma, when the player's ui.map gave
 	none: this many texels square, tiling */
 	PLASMA_NOISE_SIZE = 128,
 };
 extern const int ui_prompt_icon_size;
 extern const unsigned int *const ui_prompt_icons[NUMBER_OF_ICONS];
+#ifdef HALO_MEDAL_ICONS
+/* the medals' icons (port/assets/medals, generated with the fonts): one
+atlas, RGBA, a cell of ui_medal_atlas_cell pixels each, MEDAL_ICON_COLUMNS
+to a row, in medal_icons.h's order */
+extern const int ui_medal_atlas_cell, ui_medal_atlas_width, ui_medal_atlas_height;
+extern const unsigned int *const ui_medal_atlas;
+#endif
 
 enum
 {
@@ -72,7 +85,7 @@ enum
 	MAXIMUM_GLYPHS = 4096,
 	MAXIMUM_TEXT = 64 * 1024,
 	MAXIMUM_TEXTS = 4096,
-	MAXIMUM_LAYERS = 5,
+	MAXIMUM_LAYERS = 6,
 };
 
 /* a quad as gathered (layout coordinates) */
@@ -124,11 +137,19 @@ static struct
 	place from the first's this frame (x, y, then its scale), and whether a
 	plasma is drawn this frame */
 	GLuint plasma;
-	GLint plasma_location, plasma_shift_location;
+	GLint plasma_location, plasma_shift_location, plasma_thread_location;
 	int plasma_serial, plasma_width, plasma_height, plasma_uploaded;
 	unsigned char *plasma_pixels;
-	float plasma_shift[4];
+	/* (the second map's place, then its threads' color: ui_overlay_plasma_thread) */
+	float plasma_shift[8];
 	int plasma_drawn;
+	/* the medals' atlas (ui_overlay_medal), premultiplied as the icons are,
+	made when a medal is first drawn (the GL texture filled from it, then it
+	is let go), and whether one is drawn this frame */
+	GLuint medals;
+	GLint medals_location;
+	unsigned char *medal_texels;
+	int medals_uploaded, medals_drawn;
 	/* each icon's drawn columns (from its left, of ui_prompt_icon_size) */
 	int icon_left[NUMBER_OF_ICONS], icon_right[NUMBER_OF_ICONS];
 	int icons_measured;
@@ -171,7 +192,7 @@ static struct
 
 /* ---------- the device's buttons */
 
-static const unsigned int button_glyphs[4][NUMBER_OF_UI_BUTTONS] =
+static const unsigned int button_glyphs[NUMBER_OF_PROMPT_SCHEMES][NUMBER_OF_UI_BUTTONS] =
 {
 	/* keyboard: Enter, Backspace, E, Tab, F2, Q, X, Q, C (the game's keys
 	for them, xinput_sdl.c; C is Online Games' Link Profile, F2 its My
@@ -182,21 +203,32 @@ static const unsigned int button_glyphs[4][NUMBER_OF_UI_BUTTONS] =
 	/* PlayStation: cross, circle, square, triangle, options, L2, R2, L1, R1,
 	-, -, share */
 	{ 0xE04B, 0xE041, 0xE051, 0xE053, 0xE009, 0xE07D, 0xE085, 0xE078, 0xE080, 0, 0, 0xE00B },
-	/* Nintendo: its east and south buttons are A and B where Xbox's are B
-	and A; L and R for both; plus and minus */
-	{ 0xE005, 0xE007, 0xE019, 0xE017, 0xE00F, 0xE00B, 0xE013, 0xE00B, 0xE013, 0, 0, 0xE00D },
+	/* Switch (by position, as SDL gives its buttons: the south is its B,
+	the east its A, the west its Y, the north its X): B, A, Y, X, plus, ZL,
+	ZR, L, R, d-pad left and right, minus */
+	{ 0xE006, 0xE004, 0xE01A, 0xE018, 0xE00E, 0xE01C, 0xE01E, 0xE00A, 0xE010, 0xE037, 0xE03A, 0xE00C },
+	/* Steam Deck: A, B, X, Y, menu, L2, R2, L1, R1, d-pad left and right,
+	view */
+	{ 0xE001, 0xE003, 0xE01D, 0xE01F, 0xE00F, 0xE009, 0xE015, 0xE007, 0xE013, 0xE027, 0xE02A, 0xE01B },
+	/* Wii U (by label, as the Wii U port presses them: A is A): A, B, X,
+	Y, plus, ZL, ZR, L, R, d-pad left and right, minus */
+	{ 0xE005, 0xE007, 0xE017, 0xE019, 0xE00F, 0xE01B, 0xE01D, 0xE00B, 0xE013, 0xE02B, 0xE02E, 0xE00D },
+	/* Steam Controller: A, B, X, Y, start, LT, RT, LB, RB, d-pad left and
+	right, back */
+	{ 0xE022, 0xE024, 0xE036, 0xE038, 0xE034, 0xE04D, 0xE059, 0xE049, 0xE055, 0xE040, 0xE043, 0xE026 },
 };
 
-static const int button_fonts[4] =
+static const int button_fonts[NUMBER_OF_PROMPT_SCHEMES] =
 {
 	POSIX_UI_FONT_KEYBOARD, POSIX_UI_FONT_XBOX, POSIX_UI_FONT_PLAYSTATION, POSIX_UI_FONT_NINTENDO,
+	POSIX_UI_FONT_STEAM_DECK, POSIX_UI_FONT_WIIU, POSIX_UI_FONT_STEAM_CONTROLLER,
 };
 
 static int scheme(void)
 {
 	int value = platform_prompt_scheme();
 
-	return value >= 0 && value < 4 ? value : 1;
+	return value >= 0 && value < NUMBER_OF_PROMPT_SCHEMES ? value : PROMPT_SCHEME_XBOX;
 }
 
 /* ---------- gathering */
@@ -305,6 +337,60 @@ static int posix_font(int font)
 	}
 }
 
+/* hud_hires.c's: whether display.title_font is "cyborg" */
+int hud_hires_title_font_cyborg(void);
+
+/* a face's capitals' height, and its baseline below a line's top (as
+lay_out_text places it), at a size of 1; 0 if it cannot be read */
+static int face_lines(int face, float *capitals, float *baseline)
+{
+	static int read[POSIX_UI_FONT_COUNT];
+	static float capitals_of[POSIX_UI_FONT_COUNT], baseline_of[POSIX_UI_FONT_COUNT];
+
+	if (face < 0 || face >= POSIX_UI_FONT_COUNT)
+		return 0;
+	if (!read[face])
+	{
+		float ascent, descent;
+		int width, height, x, y;
+		unsigned char *bitmap = posix_ui_font_glyph(face, 100.0f, 'H', &width, &height, &x, &y);
+
+		read[face] = -1;
+		if (bitmap && height > 0 && posix_ui_font_metrics(face, 100.0f, &ascent, &descent))
+		{
+			capitals_of[face] = (float)height / 100.0f;
+			baseline_of[face] = ((100.0f - (ascent + descent)) * 0.5f + ascent) / 100.0f;
+			read[face] = 1;
+		}
+		posix_ui_font_free(bitmap);
+	}
+	*capitals = capitals_of[face];
+	*baseline = baseline_of[face];
+	return read[face] > 0;
+}
+
+/* the face a font draws with: for the titles, display.title_font's, the
+cyborg one (Cyborg Interface Gothic) sized to the classic one's capitals
+and set on its baseline, so a screen lays its title out once (size and y
+changed to match; y may be NULL) */
+static int font_face(int font, float *size, float *y)
+{
+	int face = posix_font(font);
+	float classic_capitals, classic_baseline, capitals, baseline, cyborg_size;
+
+	if (face != POSIX_UI_FONT_TITLE || !hud_hires_title_font_cyborg() ||
+		!face_lines(POSIX_UI_FONT_TITLE, &classic_capitals, &classic_baseline) ||
+		!face_lines(POSIX_UI_FONT_TITLE_CYBORG, &capitals, &baseline))
+	{
+		return face;
+	}
+	cyborg_size = *size * classic_capitals / capitals;
+	if (y)
+		*y += *size * classic_baseline - cyborg_size * baseline;
+	*size = cyborg_size;
+	return POSIX_UI_FONT_TITLE_CYBORG;
+}
+
 static void forget_glyphs(void);
 
 /* the menus' faces from the player's font files (display.high_res_font,
@@ -340,12 +426,21 @@ static void player_fonts_check(void)
 static int glyph_font(int font, unsigned int codepoint)
 {
 	player_fonts_check();
-	if ((font == POSIX_UI_FONT_MENU || font == POSIX_UI_FONT_MENU_SMALL || font == POSIX_UI_FONT_TITLE) &&
+	if ((font == POSIX_UI_FONT_MENU || font == POSIX_UI_FONT_MENU_SMALL || font == POSIX_UI_FONT_TITLE ||
+		font == POSIX_UI_FONT_TITLE_CYBORG) &&
 		codepoint > ' ' && !posix_ui_font_has(font, codepoint))
 	{
 		return POSIX_UI_FONT_BOLD;
 	}
 	return font;
+}
+
+/* whether a character is left out: one neither the face nor Noto Sans
+Bold has (Chinese, Japanese and Korean, among others) takes no room and
+draws nothing, rather than the font's empty box */
+static int glyph_missing(int face, unsigned int codepoint)
+{
+	return codepoint > ' ' && !posix_ui_font_has(face, codepoint);
 }
 
 /* a string's width in the layout at a size: measured at the layout's own
@@ -361,6 +456,8 @@ static float measure(int font, float size, const char *text)
 	{
 		int face = glyph_font(font, codepoint);
 
+		if (glyph_missing(face, codepoint))
+			continue;
 		width += posix_ui_font_advance(face, size, codepoint, face == previous_font ? previous : 0);
 		previous = codepoint;
 		previous_font = face;
@@ -368,16 +465,69 @@ static float measure(int font, float size, const char *text)
 	return width;
 }
 
+/* (text_shown.h's question: whether a face, the context, draws a character) */
+static int face_has(void *context, unsigned int codepoint)
+{
+	int face = (int)(intptr_t)context;
+
+	return !glyph_missing(glyph_font(face, codepoint), codepoint);
+}
+
+static int shown_face(int font)
+{
+	float scale = 10.0f;
+
+	return font_face(font, &scale, NULL);
+}
+
+int ui_overlay_text_shown(int font, const char *text, char *out, int size)
+{
+	return text_shown(text, face_has, (void *)(intptr_t)shown_face(font), out, size);
+}
+
+void ui_overlay_name_shown(int font, const char *name, char *out, int size)
+{
+	text_shown_name(name, face_has, (void *)(intptr_t)shown_face(font), out, size);
+}
+
+/* text to draw: as it is, or "?" when the face shows none of its characters
+(a string of only letters it lacks, never drawn as nothing) */
+static const char *marked(int face, const char *text)
+{
+	const char *cursor = text;
+	unsigned int codepoint;
+	int blank = 1;
+
+	while ((codepoint = next_codepoint(&cursor)) != 0)
+	{
+		if (codepoint <= ' ')
+			continue;
+		if (!glyph_missing(glyph_font(face, codepoint), codepoint))
+			return text;
+		blank = 0;
+	}
+	return blank ? text : "?";
+}
+
 float ui_overlay_text_width(int font, float size, const char *text)
 {
-	return text ? measure(posix_font(font), size, text) : 0.0f;
+	int face;
+
+	if (!text)
+		return 0.0f;
+	face = font_face(font, &size, NULL);
+	return measure(face, size, marked(face, text));
 }
 
 static float add_skewed_text(int font, float size, float x, float y, int align, unsigned int color, float skew,
 	const char *text)
 {
-	int length = (int)strlen(text);
-	float width = measure(font, size, text);
+	int length;
+	float width;
+
+	text = marked(font, text);
+	length = (int)strlen(text);
+	width = measure(font, size, text);
 
 	if (overlay.text_count >= MAXIMUM_TEXTS ||
 		overlay.text_used + length + 1 > MAXIMUM_TEXT)
@@ -406,7 +556,12 @@ static float add_text(int font, float size, float x, float y, int align, unsigne
 
 float ui_overlay_text(int font, float size, float x, float y, int align, unsigned int color, const char *text)
 {
-	return text && *text ? add_text(posix_font(font), size, x, y, align, color, text) : 0.0f;
+	int face;
+
+	if (!text || !*text)
+		return 0.0f;
+	face = font_face(font, &size, &y);
+	return add_text(face, size, x, y, align, color, text);
 }
 
 /* (a color's alpha times a share of it) */
@@ -427,8 +582,9 @@ float ui_overlay_text_glow(int font, float size, float x, float y, int align, un
 		{ 1.0f, 0.0f }, { -1.0f, 0.0f }, { 0.0f, 1.0f }, { 0.0f, -1.0f },
 		{ 0.7f, 0.7f }, { -0.7f, 0.7f }, { 0.7f, -0.7f }, { -0.7f, -0.7f },
 	};
+	/* (the glow's spread by the size asked for, whatever the face) */
 	float spread = size * 0.06f > 0.6f ? size * 0.06f : 0.6f;
-	int face = posix_font(font);
+	int face = font_face(font, &size, &y);
 	int index;
 
 	if (!text || !*text)
@@ -499,8 +655,11 @@ static int utf8(unsigned int codepoint, char *out)
 /* how each device's buttons are drawn: an Xbox-like pad's by its icons
 (draw_icon; the d-pad's as a pill), a Nintendo pad's face buttons as grey
 balls with its own letters, a PlayStation pad's by Kenney's glyphs, the
-other buttons as dark pills with a label, the keyboard's as light key caps */
-static const char *const pill_labels[4][NUMBER_OF_UI_BUTTONS] =
+other buttons as dark pills with a label, the keyboard's as light key caps;
+the Steam Deck's, the Steam Controller's and the Wii U's all by Kenney's
+glyphs (kenney_device), as pills and balls where a build has no font for
+them */
+static const char *const pill_labels[NUMBER_OF_PROMPT_SCHEMES][NUMBER_OF_UI_BUTTONS] =
 {
 	/* (the keyboard's keys for them: xinput_sdl.c; C is Online Games' Link
 	Profile, F1 Back, F2 Start) */
@@ -510,6 +669,10 @@ static const char *const pill_labels[4][NUMBER_OF_UI_BUTTONS] =
 	/* (Nintendo's south and east are B and A where the Xbox's are A and B,
 	its west and north Y and X) */
 	{ "B", "A", "Y", "X", "+", "ZL", "ZR", "L", "R", "\xE2\x80\xB9", "\xE2\x80\xBA", "\xE2\x88\x92" },
+	{ "A", "B", "X", "Y", "MENU", "L2", "R2", "L1", "R1", "\xE2\x80\xB9", "\xE2\x80\xBA", "VIEW" },
+	/* (the Wii U's by label: A is A) */
+	{ "A", "B", "X", "Y", "+", "ZL", "ZR", "L", "R", "\xE2\x80\xB9", "\xE2\x80\xBA", "\xE2\x88\x92" },
+	{ "A", "B", "X", "Y", "START", "LT", "RT", "LB", "RB", "\xE2\x80\xB9", "\xE2\x80\xBA", "BACK" },
 };
 
 /* a pill's or key cap's label: the d-pad's arrows only if a face draws them
@@ -551,6 +714,40 @@ static const unsigned int face_colors[4][2] =
 static int kenney_glyph(int device, int button)
 {
 	return button_glyphs[device][button] && posix_ui_font_has(button_fonts[device], button_glyphs[device][button]);
+}
+
+/* (a device whose every button is Kenney's glyph: the Steam Deck, the
+Steam Controller and the Wii U) */
+static int kenney_device(int device)
+{
+	return device == PROMPT_SCHEME_STEAM_DECK || device == PROMPT_SCHEME_STEAM_CONTROLLER ||
+		device == PROMPT_SCHEME_WIIU;
+}
+
+/* Kenney's glyphs (a face button's, at a font size of 100: stb_truetype's,
+by the font's ascent and descent) fill the line from 27 down to its
+baseline at 99, and 74 across: drawn at the button's size they were 72
+percent of it, from 27 down. Here a glyph fills four fifths of the
+button, centered on it, as snapchipper's icons fill theirs (10 to 90):
+its font at KENNEY_LINE times size, raised by KENNEY_RAISE times size
+(tools/test_prompt_schemes.py measures it) */
+#define KENNEY_LINE 1.12f
+#define KENNEY_RAISE 0.21f
+
+static float kenney_width(int device, int button, float size)
+{
+	char text[4];
+
+	utf8(button_glyphs[device][button], text);
+	return measure(button_fonts[device], size * KENNEY_LINE, text);
+}
+
+static float draw_kenney(int device, int button, float size, float x, float y, unsigned int color)
+{
+	char text[4];
+
+	utf8(button_glyphs[device][button], text);
+	return add_text(button_fonts[device], size * KENNEY_LINE, x, y - size * KENNEY_RAISE, UI_ALIGN_LEFT, color, text);
 }
 
 /* the icon of a button (an Xbox-like pad's), or -1: the d-pad has none */
@@ -652,6 +849,78 @@ void ui_overlay_picture(int serial, const unsigned char *pixels, int width, int 
 	quad->v1 = 1.0f;
 }
 
+/* ---------- the medals */
+
+/* the atlas's texels, premultiplied (so that its smaller levels keep no
+dark fringe), made once; NULL without them */
+static const unsigned char *medal_texels(void)
+{
+#ifdef HALO_MEDAL_ICONS
+	if (!overlay.medal_texels && !overlay.medals_uploaded)
+	{
+		size_t texels = (size_t)ui_medal_atlas_width * (size_t)ui_medal_atlas_height, texel;
+		const unsigned char *from = (const unsigned char *)ui_medal_atlas;
+		unsigned char *to = malloc(texels * 4);
+
+		if (!to)
+			return NULL;
+		for (texel = 0; texel < texels; texel++)
+		{
+			unsigned int alpha = from[texel * 4 + 3];
+
+			to[texel * 4] = (unsigned char)(from[texel * 4] * alpha / 255);
+			to[texel * 4 + 1] = (unsigned char)(from[texel * 4 + 1] * alpha / 255);
+			to[texel * 4 + 2] = (unsigned char)(from[texel * 4 + 2] * alpha / 255);
+			to[texel * 4 + 3] = (unsigned char)alpha;
+		}
+		overlay.medal_texels = to;
+	}
+#endif
+	return overlay.medal_texels;
+}
+
+int ui_overlay_medals_available(void)
+{
+#ifdef HALO_MEDAL_ICONS
+	return ui_overlay_available();
+#else
+	return 0;
+#endif
+}
+
+void ui_overlay_medal(int medal, float x, float y, float size, unsigned int color)
+{
+#ifdef HALO_MEDAL_ICONS
+	struct quad *quad;
+	float cell_width = (float)ui_medal_atlas_cell / (float)ui_medal_atlas_width;
+	float cell_height = (float)ui_medal_atlas_cell / (float)ui_medal_atlas_height;
+	int columns = ui_medal_atlas_width / ui_medal_atlas_cell;
+
+	if (medal < 0 || medal >= columns * (ui_medal_atlas_height / ui_medal_atlas_cell) || !(color & 0xFF))
+		return;
+	quad = new_quad();
+	if (!quad)
+		return;
+	quad->x = x;
+	quad->y = y;
+	quad->width = quad->height = size;
+	quad->radius = MEDAL_MARK;
+	quad->thickness = 0.0f;
+	quad->top = quad->bottom = color;
+	quad->u0 = (float)(medal % columns) * cell_width;
+	quad->v0 = (float)(medal / columns) * cell_height;
+	quad->u1 = quad->u0 + cell_width;
+	quad->v1 = quad->v0 + cell_height;
+	overlay.medals_drawn = 1;
+#else
+	(void)medal;
+	(void)x;
+	(void)y;
+	(void)size;
+	(void)color;
+#endif
+}
+
 /* ---------- the plasma */
 
 /* the overlay's own noise: smooth value noise in octaves, tiling (from a
@@ -750,7 +1019,7 @@ int ui_overlay_plasma_from_texture(const void *hardware_format)
 	/* (serial 1: the game's own, never read again) */
 	ui_overlay_plasma_source(1, pixels, (int)width, (int)height);
 	free(pixels);
-	platform_log("Guide: the plasma is drawn from ui.map's (%lux%lu)", width, height);
+	platform_log("DELTA: the plasma is drawn from ui.map's (%lux%lu)", width, height);
 	return 1;
 #endif
 }
@@ -794,7 +1063,18 @@ void ui_overlay_plasma(float x, float y, float width, float height, float radius
 	overlay.plasma_shift[1] = second_y - first_y * first / second;
 	overlay.plasma_shift[2] = first / second;
 	overlay.plasma_shift[3] = 0.0f;
+	/* (no theme set: Halo Blue's) */
+	if (overlay.plasma_shift[7] == 0.0f)
+		ui_overlay_plasma_thread(0x3373FFFF);
 	overlay.plasma_drawn = 1;
+}
+
+void ui_overlay_plasma_thread(unsigned int color)
+{
+	overlay.plasma_shift[4] = (float)((color >> 24) & 0xFF) / 255.0f;
+	overlay.plasma_shift[5] = (float)((color >> 16) & 0xFF) / 255.0f;
+	overlay.plasma_shift[6] = (float)((color >> 8) & 0xFF) / 255.0f;
+	overlay.plasma_shift[7] = 1.0f;
 }
 
 static int face_button(int button)
@@ -818,23 +1098,21 @@ static float pill_width(const char *label, float size)
 float ui_overlay_button_width(int button, float size)
 {
 	int device = scheme();
-	char text[4];
 
 	if (button < 0 || button >= NUMBER_OF_UI_BUTTONS)
 		return 0.0f;
 	/* (an Xbox-like pad's: its icon) */
-	if (device == 1 && button_icon(button) >= 0)
+	if (device == PROMPT_SCHEME_XBOX && button_icon(button) >= 0)
 		return icon_width(button_icon(button), size);
-	if (device != 0 && face_button(button))
+	/* (Kenney's shape, as wide as it draws: a PlayStation pad's face
+	buttons, every button of the Steam and Wii U pads) */
+	if (((device == PROMPT_SCHEME_PLAYSTATION && face_button(button)) || kenney_device(device)) &&
+		kenney_glyph(device, button))
 	{
-		/* (a PlayStation pad's: Kenney's shape, as wide as it draws) */
-		if (device == 2 && kenney_glyph(device, button))
-		{
-			utf8(button_glyphs[device][button], text);
-			return measure(button_fonts[device], size, text);
-		}
-		return size;
+		return kenney_width(device, button, size);
 	}
+	if (device != PROMPT_SCHEME_KEYBOARD && face_button(button))
+		return size;
 	return pill_width(pill_label(device, button), size);
 }
 
@@ -843,26 +1121,28 @@ float ui_overlay_button(int button, float size, float x, float y, unsigned int c
 	int device = scheme();
 	float share = (float)(color & 0xFF) / 255.0f;
 	const char *label;
-	char text[4];
 
 	if (button < 0 || button >= NUMBER_OF_UI_BUTTONS)
 		return 0.0f;
 	label = pill_label(device, button);
 	/* an Xbox-like pad's buttons: their icons (snapchipper's) */
-	if (device == 1 && button_icon(button) >= 0)
+	if (device == PROMPT_SCHEME_XBOX && button_icon(button) >= 0)
 		return draw_icon(button_icon(button), size, x, y, fade(0xFFFFFFFF, share));
-	if (device != 0 && face_button(button))
+	/* Kenney's glyphs: a PlayStation pad's face buttons, and every button
+	of the Steam and Wii U pads */
+	if (((device == PROMPT_SCHEME_PLAYSTATION && face_button(button)) || kenney_device(device)) &&
+		kenney_glyph(device, button))
+	{
+		return draw_kenney(device, button, size, x, y, fade(0xFFFFFFFF, share));
+	}
+	if (device != PROMPT_SCHEME_KEYBOARD && face_button(button))
 	{
 		float diameter = size * 0.96f, inset = (size - diameter) * 0.5f;
 		float letter = size * 0.66f;
-		unsigned int top = device == 3 ? 0xD4D8E0FF : face_colors[button][0];
-		unsigned int bottom = device == 3 ? 0x50565FFF : face_colors[button][1];
+		int grey = device == PROMPT_SCHEME_NINTENDO || device == PROMPT_SCHEME_WIIU;
+		unsigned int top = grey ? 0xD4D8E0FF : face_colors[button][0];
+		unsigned int bottom = grey ? 0x50565FFF : face_colors[button][1];
 
-		if (device == 2 && kenney_glyph(device, button))
-		{
-			utf8(button_glyphs[device][button], text);
-			return add_text(button_fonts[device], size, x, y, UI_ALIGN_LEFT, fade(0xFFFFFFFF, share), text);
-		}
 		/* a glossy ball: its color from lit to deep, a dark rim, a sheen on
 		its upper half, and its letter in white, leaning as the Xbox's */
 		ui_overlay_rect(x + inset, y + inset + size * 0.05f, diameter, diameter, diameter * 0.5f, fade(0x00000060, share));
@@ -984,7 +1264,9 @@ static const char fragment_source[] =
 #endif
 	"uniform sampler2D picture;\n"
 	"uniform sampler2D plasma;\n"
+	"uniform sampler2D medals;\n"
 	"uniform vec4 plasma_shift;\n"
+	"uniform vec4 plasma_thread;\n"
 	"uniform vec4 cutouts[4];\n"
 	"uniform float window_height;\n"
 #ifdef HALO_CONSOLE_GLES2
@@ -1004,6 +1286,13 @@ static const char fragment_source[] =
 	"\tfor (int i = 0; i < 4; i++)\n"
 	"\t\tif (p.x >= cutouts[i].x && p.y >= cutouts[i].y && p.x < cutouts[i].z && p.y < cutouts[i].w)\n"
 	"\t\t\tdiscard;\n"
+	/* a medal (premultiplied, as an icon) */
+	"\tif (v_edge.x < -4.5)\n"
+	"\t{\n"
+	"\t\tvec4 texel = texture(medals, v_texture_coordinate);\n"
+	"\t\tfragment = vec4(texel.rgb / max(texel.a, 0.001), texel.a) * v_color;\n"
+	"\t\treturn;\n"
+	"\t}\n"
 	/* the plasma: the noise map twice, at the menus' two scales, its bright
 	threads where the two meet, in a rounded rectangle (edge.y its corners'
 	radius) */
@@ -1016,7 +1305,7 @@ static const char fragment_source[] =
 	"\t\tfloat a0 = t0.a * dot(t0.rgb, vec3(0.3333));\n"
 	"\t\tfloat a1 = t1.a * dot(t1.rgb, vec3(0.3333));\n"
 	"\t\tfloat thread = pow(clamp(1.0 - abs(a0 - a1) * 3.0, 0.0, 1.0), 8.0);\n"
-	"\t\tvec3 color = v_color.rgb * (0.8 + 0.6 * a0 * a1) + vec3(0.2, 0.45, 1.0) * thread * 0.18;\n"
+	"\t\tvec3 color = v_color.rgb * (0.8 + 0.6 * a0 * a1) + plasma_thread.rgb * thread * 0.18;\n"
 	"\t\tfragment = vec4(color, v_color.a * clamp(0.5 - d, 0.0, 1.0) * (0.92 + 0.08 * thread));\n"
 	"\t\treturn;\n"
 	"\t}\n"
@@ -1063,10 +1352,8 @@ static GLuint compile(GLenum type, const char *body)
 #ifdef HALO_GL_ES
 	snprintf(source, sizeof(source), "#version %s\nprecision highp float;\nprecision highp sampler2DArray;\n%s",
 		xgpu_capabilities.shading_language, body);
-#elif defined(__APPLE__)
-	snprintf(source, sizeof(source), "#version 410 core\n%s", body);
 #else
-	snprintf(source, sizeof(source), "#version 450 core\n%s", body);
+	snprintf(source, sizeof(source), "%s%s", XGPU_GL_VERSION_LINE, body);
 #endif
 	glShaderSource(shader, 1, &pointer, NULL);
 	glCompileShader(shader);
@@ -1165,7 +1452,9 @@ static int set_up(void)
 #endif
 	overlay.picture_location = glGetUniformLocation(overlay.program, "picture");
 	overlay.plasma_location = glGetUniformLocation(overlay.program, "plasma");
+	overlay.medals_location = glGetUniformLocation(overlay.program, "medals");
 	overlay.plasma_shift_location = glGetUniformLocation(overlay.program, "plasma_shift");
+	overlay.plasma_thread_location = glGetUniformLocation(overlay.program, "plasma_thread");
 	overlay.cutouts_location = glGetUniformLocation(overlay.program, "cutouts");
 	overlay.window_height_location = glGetUniformLocation(overlay.program, "window_height");
 
@@ -1262,6 +1551,14 @@ static int set_up(void)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	overlay.plasma_uploaded = 0;
+	/* the medals' (filled when a medal is first drawn) */
+	glGenTextures(1, &overlay.medals);
+	glBindTexture(GL_TEXTURE_2D, overlay.medals);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &zero_texel);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glBindVertexArray((GLuint)saved_vertex_array);
 	glBindBuffer(GL_ARRAY_BUFFER, (GLuint)saved_array_buffer);
 	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_texture);
@@ -1398,6 +1695,8 @@ static void lay_out_text(int index, float scale, float origin_x, float origin_y,
 		struct quad *quad;
 		int face = glyph_font(font, codepoint);
 
+		if (glyph_missing(face, codepoint))
+			continue;
 		if (previous && face == previous_font)
 			pen_x += posix_ui_font_advance(face, (float)pixel_size, codepoint, previous) -
 				posix_ui_font_advance(face, (float)pixel_size, codepoint, 0);
@@ -1465,7 +1764,8 @@ static int build_vertices(int shape_count, float scale, float origin_x, float or
 
 		if (quad->layer != layer)
 			continue;
-		if (index < shape_count && (quad->radius == ICON_MARK || quad->radius == PICTURE_MARK))
+		if (index < shape_count && (quad->radius == ICON_MARK || quad->radius == PICTURE_MARK ||
+			quad->radius == MEDAL_MARK))
 		{
 			/* an icon: layout to window pixels, its layer in shape.x (the
 			picture: the same, marked as the picture's) */
@@ -1619,17 +1919,30 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 			cutouts[cutout][2] = origin_x + overlay.cutouts[cutout][2] * scale;
 			cutouts[cutout][3] = origin_y + overlay.cutouts[cutout][3] * scale;
 		}
-		xgpu_bgfx_overlay_draw(overlay.vertices, count, (int)sizeof(struct vertex), overlay.atlas_texels, ATLAS_SIZE,
+		/* (the medals' atlas let go once bgfx has it) */
+		if (xgpu_bgfx_overlay_draw(overlay.vertices, count, (int)sizeof(struct vertex), overlay.atlas_texels, ATLAS_SIZE,
 			overlay.dirty_top, overlay.dirty_bottom, overlay.icon_texels, ui_prompt_icon_size, NUMBER_OF_ICONS,
 			overlay.picture_pixels, overlay.picture_width, overlay.picture_height, overlay.picture_serial,
 			overlay.plasma_drawn ? overlay.plasma_pixels : NULL, overlay.plasma_width, overlay.plasma_height,
-			overlay.plasma_serial, overlay.plasma_shift, (const float (*)[4])cutouts, window_width, window_height);
+			overlay.plasma_serial, overlay.plasma_shift,
+#ifdef HALO_MEDAL_ICONS
+			overlay.medals_drawn ? medal_texels() : NULL, ui_medal_atlas_width, ui_medal_atlas_height,
+#else
+			NULL, 0, 0,
+#endif
+			(const float (*)[4])cutouts, window_width, window_height) && overlay.medal_texels)
+		{
+			free(overlay.medal_texels);
+			overlay.medal_texels = NULL;
+			overlay.medals_uploaded = 1;
+		}
 		overlay.dirty_top = ATLAS_SIZE;
 		overlay.dirty_bottom = 0;
 		overlay.quad_count = overlay.text_count = overlay.text_used = 0;
 		overlay.cutout_count = 0;
 		overlay.layer = 0;
 		overlay.plasma_drawn = 0;
+		overlay.medals_drawn = 0;
 		if (atlas_full)
 			forget_glyphs();
 		return;
@@ -1642,7 +1955,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	/* (the game's renderer binds a sampler to each unit, which would filter
 	the atlas as it filters its textures) */
 	GLint saved_sampler = 0, saved_icons = 0, saved_icons_sampler = 0, saved_picture = 0, saved_picture_sampler = 0;
-	GLint saved_plasma = 0, saved_plasma_sampler = 0;
+	GLint saved_plasma = 0, saved_plasma_sampler = 0, saved_medals = 0, saved_medals_sampler = 0;
 	GLint saved_viewport[4] = { 0, 0, 0, 0 };
 	GLboolean saved_blend = glIsEnabled(GL_BLEND), saved_depth = glIsEnabled(GL_DEPTH_TEST),
 		saved_stencil = glIsEnabled(GL_STENCIL_TEST), saved_cull = glIsEnabled(GL_CULL_FACE),
@@ -1693,7 +2006,8 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 
 		if (quad->layer != layer)
 			continue;
-		if (index < shape_count && (quad->radius == ICON_MARK || quad->radius == PICTURE_MARK))
+		if (index < shape_count && (quad->radius == ICON_MARK || quad->radius == PICTURE_MARK ||
+			quad->radius == MEDAL_MARK))
 		{
 			/* an icon: layout to window pixels, its layer in shape.x (the
 			picture: the same, marked as the picture's) */
@@ -1824,7 +2138,33 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 		overlay.plasma_uploaded = overlay.plasma_serial;
 	}
 	glUniform1i(overlay.plasma_location, 3);
+	/* the medals' atlas, on the fifth (filled when a medal is first drawn,
+	with smaller levels but for ES 2's, which may not be a power of two) */
+	glActiveTexture(GL_TEXTURE4);
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved_medals);
+	glGetIntegerv(GL_SAMPLER_BINDING, &saved_medals_sampler);
+	glBindSampler(4, 0);
+	glBindTexture(GL_TEXTURE_2D, overlay.medals);
+#ifdef HALO_MEDAL_ICONS
+	if (overlay.medals_drawn && !overlay.medals_uploaded && medal_texels())
+	{
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, ui_medal_atlas_width, ui_medal_atlas_height, 0, GL_RGBA,
+			GL_UNSIGNED_BYTE, overlay.medal_texels);
+#ifndef HALO_CONSOLE_GLES2
+		/* (a few levels: the cells' margins keep them apart that far) */
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 2);
+		glGenerateMipmap(GL_TEXTURE_2D);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+#endif
+		free(overlay.medal_texels);
+		overlay.medal_texels = NULL;
+		overlay.medals_uploaded = 1;
+	}
+#endif
+	glUniform1i(overlay.medals_location, 4);
 	glUniform4fv(overlay.plasma_shift_location, 1, overlay.plasma_shift);
+	glUniform4fv(overlay.plasma_thread_location, 1, overlay.plasma_shift + 4);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, overlay.atlas);
 	glUniform1i(overlay.atlas_location, 0);
@@ -1852,6 +2192,9 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	glBindVertexArray((GLuint)saved_vertex_array);
 	glBindBuffer(GL_ARRAY_BUFFER, (GLuint)saved_array_buffer);
 	glUseProgram((GLuint)saved_program);
+	glActiveTexture(GL_TEXTURE4);
+	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_medals);
+	glBindSampler(4, (GLuint)saved_medals_sampler);
 	glActiveTexture(GL_TEXTURE3);
 	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_plasma);
 	glBindSampler(3, (GLuint)saved_plasma_sampler);
@@ -1883,6 +2226,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	overlay.cutout_count = 0;
 	overlay.layer = 0;
 	overlay.plasma_drawn = 0;
+	overlay.medals_drawn = 0;
 	if (atlas_full)
 		forget_glyphs();
 }
