@@ -15,6 +15,19 @@ name: Build
 # unsigned) and publish the builds to this repository's Releases. Each run
 # also uploads chupathingyce-build-info: the commit and version it built.
 #
+# What runs when (docs/ci.md):
+# - a pull request gets the fast check: linux, linux-tests, linux-big-endian
+#   (the console gate tests are in tools/ci_tests.txt, so they run here),
+#   plus each platform job whose own files it changes (the plan job);
+# - the full matrix (every job) runs for a pull request labeled "ci: full",
+#   a pull request from a batch/* branch, one that changes the build's
+#   plumbing (configure.py, tools/ci_build.py and the like: the plan job),
+#   every push to main or a release branch, and every run started with
+#   workflow_dispatch (the nightly, test builds and releases);
+# - ci-ok sums the run up in one check: green when every job that had to
+#   run passed. It is not required to merge; a release's run is checked
+#   job by job before anything ships (ChupathingyCE/command).
+#
 # Kept cheap:
 # - one job per platform builds both configurations, so its set-up (tools,
 #   downloads, caches) is paid once;
@@ -26,22 +39,24 @@ name: Build
 #   (tools/ci_tests.txt, tools/ci_test_scripts.txt, one file a line, so that
 #   pull requests adding tests do not collide) and run them with
 #   pytest-xdist; the big-endian tests need no build and start at once;
-# - pushes build only release branches and tags, not main: a commit reaches
-#   main through a pull request whose Build passed, and the nightly, the
-#   releases and the test builds start their own run (workflow_dispatch);
-#   every other branch builds through its pull request;
-# - debug builds only in runs started with workflow_dispatch and on tags;
-#   pull requests build release only (BUILD_DEBUG);
-# - a newer commit to a pull request or a release branch cancels its run
-#   still going; runs on main (started with workflow_dispatch) are never
-#   canceled;
+# - pushes build main and release branches, never tags (the nightly, the
+#   releases and the test builds start their own run with workflow_dispatch
+#   before they tag anything); every other branch builds through its pull
+#   request;
+# - debug builds only in runs started with workflow_dispatch; pull requests
+#   and pushes build release only (BUILD_DEBUG);
+# - a newer commit to a pull request, main or a release branch cancels that
+#   ref's run still going: only the newest head matters. Runs started with
+#   workflow_dispatch are never canceled;
 # - changes that only touch documentation do not build (no check is
 #   required to merge, so a pull request without a Build is not blocked);
 # - the caches (compiles, downloads) are saved only by a run of main's own
-#   head that builds no version: the daily run on main (schedule) and a
-#   test build started on main without a commit. Pull requests and other
-#   branches restore main's newest and keep nothing of their own, so they
-#   do not crowd main's out of the repository's 10 GB of caches;
+#   head that builds no version: each push to main, and a test build
+#   started on main without a commit. Pull requests and other branches
+#   restore main's newest and keep nothing of their own, so they do not
+#   crowd main's out of the repository's 10 GB of caches. After a push to
+#   main, cache-prune deletes main's older generations of each cache (never
+#   the newest) and whatever pull requests left;
 # - a release's, a testing build's or a nightly's run (one started with a
 #   version: what gets signed) restores no cache and saves none: it builds
 #   from a clean checkout and fresh downloads, whatever a cache holds;
@@ -50,25 +65,24 @@ name: Build
 #   repository's network (a fork's pull request, say), so a run on main
 #   never builds code that is not ChupathingyCE's own;
 # - Windows, whose minutes cost twice Linux's, builds only Windows;
+# - the symbols are uploaded only by runs started with workflow_dispatch,
+#   the only runs a release takes;
 # - artifacts are kept for three days.
 on:
   push:
     branches:
+      - main
       - "release-*"
       - "release/**"
-    tags:
-      - "**"
     paths-ignore:
       - "**.md"
       - "docs/**"
+  # (adding the "ci: full" label re-runs a pull request's latest Build:
+  # full-build-label.yml)
   pull_request:
     paths-ignore:
       - "**.md"
       - "docs/**"
-  # (main's head each day, which keeps main's caches fresh for the pull
-  # requests: the only regular run that saves them)
-  schedule:
-    - cron: "41 7 * * *"
   workflow_dispatch:
     inputs:
       commit:
@@ -93,11 +107,10 @@ on:
 run-name: ${{ inputs.version && format('Build {0} at {1} {2}', inputs.version, inputs.commit, inputs.request) || '' }}
 
 # (a run started by hand is never canceled by a push, and cancels none; a
-# push to main or a tag has a group of its own, so none is canceled or left
-# waiting; a pull request's or a release branch's newer run cancels the last)
+# pull request's, main's or a release branch's newer run cancels the last)
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && format('build-dispatch-{0}', github.run_id) || ((github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && format('build-{0}-{1}', github.ref, github.sha) || format('build-{0}', github.ref)) }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+  group: ${{ github.event_name == 'workflow_dispatch' && format('build-dispatch-{0}', github.run_id) || format('build-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions:
   contents: read
@@ -107,9 +120,9 @@ env:
   HALO_VERSION: ${{ inputs.version }}
   HALO_RELEASE_BUILD: ${{ inputs.release && '1' || '0' }}
   # debug builds only for releases, nightlies and test builds (a run started
-  # with workflow_dispatch, as ChupathingyCE/command does) and tags; pull
-  # requests build release only
-  BUILD_DEBUG: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) && 'true' || 'false' }}
+  # with workflow_dispatch, as ChupathingyCE/command does); pull requests
+  # and pushes build release only
+  BUILD_DEBUG: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
   CI_COMPILER_LAUNCHER: ccache
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_BASEDIR: ${{ github.workspace }}
@@ -159,11 +172,78 @@ jobs:
           echo "::error::$COMMIT is not on main or a release branch: this workflow builds only ChupathingyCE's own commits"
           exit 1
 
+  plan:
+    needs: gate
+    # Which platform jobs this run has (README of this file, "What runs
+    # when"). Every one, except on a pull request that is not from a batch/*
+    # branch, has no "ci: full" label and changes none of the build's
+    # plumbing: then each platform job runs only when the pull request
+    # changes that platform's own files (the areas of .github/labeler.yml).
+    # linux, linux-tests and linux-big-endian always run. The labels and
+    # files are read from GitHub when the job runs, not from the event, so
+    # that a re-run after "ci: full" is added (full-build-label.yml) sees it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      full: ${{ steps.plan.outputs.full }}
+      windows: ${{ steps.plan.outputs.windows }}
+      android: ${{ steps.plan.outputs.android }}
+      macos: ${{ steps.plan.outputs.macos }}
+      freebsd: ${{ steps.plan.outputs.freebsd }}
+      server: ${{ steps.plan.outputs.server }}
+      linux64: ${{ steps.plan.outputs.linux64 }}
+      server_archs: ${{ steps.plan.outputs.server_archs }}
+    steps:
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; echo "$1=$2"; }
+          everything() {
+            echo "the full matrix: $1"
+            for area in full windows android macos freebsd server linux64; do out "$area" true; done
+            out server_archs '["x86","x64","arm64"]'
+            exit 0
+          }
+          [ "$EVENT" = pull_request ] || everything "$EVENT"
+          case "$HEAD_REF" in batch/*) everything "a batch ($HEAD_REF)" ;; esac
+          # (GitHub not answering is no reason to build less)
+          labels=$(gh api "repos/$REPOSITORY/pulls/$NUMBER" --jq '.labels[].name') \
+            || everything "the pull request's labels could not be read"
+          grep -qxF 'ci: full' <<< "$labels" && everything "labeled ci: full"
+          files=$(gh api --paginate "repos/$REPOSITORY/pulls/$NUMBER/files?per_page=100" \
+            --jq '.[] | .filename, (.previous_filename // empty)') \
+            || everything "the pull request's files could not be read"
+          echo "$files"
+          has() { grep -qE "$1" <<< "$files" && echo true || echo false; }
+          # (what changes how every platform builds)
+          [ "$(has '^(configure\.py|VERSION|tools/(ci_build|version|download|ffmpeg_build|bgfx_build|third_party_notices)\.py)$')" = true ] \
+            && everything "the build's plumbing changed"
+          out full false
+          out windows "$(has '^(port/windows/|server/windows/|tools/windows_build\.py$)')"
+          out android "$(has '^(port/android/|tools/android)')"
+          out macos "$(has '^(port/macos/|port/ios/|tools/macos_build\.py$)')"
+          out freebsd "$(has '^(port/unix/|tools/unix64_build\.py$)')"
+          out server "$(has '^(server/|tools/server_build\.py$)')"
+          out linux64 "$(has '^(tools/linux64_build\.py$|tools/linux_sysroot\.py$|tools/bgfx-patches/|port/linux/src/(d3d8_bgfx|bgfx_))')"
+          # (a pull request of the server's alone builds x64)
+          out server_archs '["x64"]'
+
   info:
     needs: gate
     # what this run builds: the commit (inputs.commit, else the run's) and
     # the version, which the release workflows check before they publish
-    # its builds
+    # its builds (only theirs: runs started with workflow_dispatch)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -277,6 +357,16 @@ jobs:
           path: build/linux/third_party
           key: linux-third-party-${{ hashFiles('tools/linux_sysroot.py') }}
 
+      # bgfx's sources, which the configure fetches although this job does
+      # not build the renderer (the linux64, windows64 and macos jobs save
+      # them)
+      - uses: actions/cache/restore@v4
+        if: env.CACHE_RESTORE == 'true'
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ runner.os }}-${{ hashFiles('tools/bgfx_build.py', 'tools/bgfx-patches/**') }}
+          restore-keys: bgfx-source-${{ runner.os }}-
+
       - name: Debug
         if: env.BUILD_DEBUG == 'true'
         run: python3 tools/ci_build.py linux debug
@@ -305,8 +395,9 @@ jobs:
           path: dist/chupathingyce-linux-release
           retention-days: 3
 
-      # (kept by ChupathingyCE's release, not a download)
+      # (kept by ChupathingyCE's release, not a download: only its runs upload them)
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: symbols-linux-release
           path: dist/chupathingyce-linux-release-symbols
@@ -551,7 +642,8 @@ jobs:
           fi
 
   linux64:
-    needs: gate
+    needs: [gate, plan]
+    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.linux64 == 'true'
     # The native 64-bit Linux build (ninja linux64), on Ubuntu with clang 22
     # as the 32-bit one, and portable as it is: against Debian 11's amd64
     # glibc 2.31, with the SDL 3 it brings (tools/linux_sysroot.py --arch
@@ -630,7 +722,10 @@ jobs:
         if: env.CACHE_RESTORE == 'true'
         with:
           path: build/bgfx
-          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+          key: bgfx-source-${{ runner.os }}-${{ hashFiles('tools/bgfx_build.py', 'tools/bgfx-patches/**') }}
+          # (a changed pin or patch starts from the last sources:
+          # tools/bgfx_build.py fetches and patches what differs)
+          restore-keys: bgfx-source-${{ runner.os }}-
 
       - name: Debug
         if: env.BUILD_DEBUG == 'true'
@@ -658,8 +753,9 @@ jobs:
           path: dist/chupathingyce-linux64-release
           retention-days: 3
 
-      # (kept by ChupathingyCE's release, not a download)
+      # (kept by ChupathingyCE's release, not a download: only its runs upload them)
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: symbols-linux64-release
           path: dist/chupathingyce-linux64-release-symbols
@@ -682,7 +778,7 @@ jobs:
         if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-3.outputs.cache-hit != 'true' }}
         with:
           path: build/bgfx
-          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+          key: bgfx-source-${{ runner.os }}-${{ hashFiles('tools/bgfx_build.py', 'tools/bgfx-patches/**') }}
 
       - uses: actions/cache/save@v4
         if: ${{ success() && env.CACHE_SAVE == 'true' }}
@@ -691,7 +787,8 @@ jobs:
           key: ccache-linux64-ubuntu-clang22-${{ github.sha }}
 
   freebsd64:
-    needs: gate
+    needs: [gate, plan]
+    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.freebsd == 'true'
     # The native 64-bit FreeBSD build (ninja freebsd64, port/unix: Renkoto's
     # port), built on FreeBSD 15.1 itself, in a virtual machine on Ubuntu
     # (vmactions/freebsd-vm, pinned to a commit: QEMU with the runner's KVM;
@@ -777,9 +874,9 @@ jobs:
           path: dist/chupathingyce-freebsd64-release
           retention-days: 3
 
-      # (kept by ChupathingyCE's release, not a download)
+      # (kept by ChupathingyCE's release, not a download: only its runs upload them)
       - uses: actions/upload-artifact@v4
-        if: steps.has.outputs.freebsd64 == 'true'
+        if: github.event_name == 'workflow_dispatch' && steps.has.outputs.freebsd64 == 'true'
         with:
           name: symbols-freebsd64-release
           path: dist/chupathingyce-freebsd64-release-symbols
@@ -799,24 +896,21 @@ jobs:
           key: ccache-freebsd64-${{ env.FREEBSD_RELEASE }}-${{ github.sha }}
 
   server:
-    needs: gate
+    needs: [gate, plan]
+    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.server == 'true'
     # The dedicated server (tools/server_build.py): one static program for
     # each architecture, built against musl in Alpine Linux's container of
     # that architecture (tools/ci_build.py --alpine; x86 on the x86-64
     # runner, arm64 on GitHub's arm64 one), then started on the runner's
     # Ubuntu, which it shares nothing with: it prints its version, refuses
     # to start without a playlist, and stops with a clear error without maps.
+    # (the three on a full run; x64 alone for a pull request of the
+    # server's: the plan job)
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: x86
-            runner: ubuntu-24.04
-          - arch: x64
-            runner: ubuntu-24.04
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+        arch: ${{ fromJSON(needs.plan.outputs.server_archs) }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -877,8 +971,9 @@ jobs:
           path: dist/chupathingyce-server-linux-${{ matrix.arch }}
           retention-days: 3
 
-      # (kept by ChupathingyCE's release, not a download)
+      # (kept by ChupathingyCE's release, not a download: only its runs upload them)
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: symbols-server-linux-${{ matrix.arch }}-release
           path: dist/chupathingyce-server-linux-${{ matrix.arch }}-release-symbols
@@ -903,7 +998,9 @@ jobs:
     # it (nothing runs while it builds); then each started once, as above
     # (arm64 emulated). Not pushed anywhere: server-image.yml pushes each
     # release's and the nightly's, from their published servers.
-    needs: [gate, server]
+    # (full runs only: it repackages the server job's three programs)
+    needs: [gate, plan, server]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -957,7 +1054,8 @@ jobs:
           docker image ls chupathingyce-server
 
   server-windows:
-    needs: gate
+    needs: [gate, plan]
+    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.windows == 'true'
     # The dedicated server for 64-bit Windows (ninja server-windows64;
     # tools/windows_build.py), a console program with no SDL, packaged as
     # chupathingyce-server-windows-x64 with start-server.bat and its README
@@ -1007,6 +1105,16 @@ jobs:
         with:
           path: build/windows/third_party
           key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
+
+      # bgfx's sources, which the configure fetches although this job does
+      # not build the renderer (the linux64, windows64 and macos jobs save
+      # them)
+      - uses: actions/cache/restore@v4
+        if: env.CACHE_RESTORE == 'true'
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ runner.os }}-${{ hashFiles('tools/bgfx_build.py', 'tools/bgfx-patches/**') }}
+          restore-keys: bgfx-source-${{ runner.os }}-
 
       - name: Release
         run: python tools/ci_build.py server-windows64 release
@@ -1075,8 +1183,9 @@ jobs:
           path: dist/chupathingyce-server-windows-x64
           retention-days: 3
 
-      # (kept by ChupathingyCE's release, not a download)
+      # (kept by ChupathingyCE's release, not a download: only its runs upload them)
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: symbols-server-windows-x64-release
           path: dist/chupathingyce-server-windows-x64-release-symbols
@@ -1095,7 +1204,8 @@ jobs:
           key: ccache-server-windows64-${{ github.sha }}
 
   android64:
-    needs: gate
+    needs: [gate, plan]
+    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.android == 'true'
     # The native 64-bit Android app (ninja android64; tools/android64_build.py):
     # the Android download (the 32-bit-address app is no longer built here;
     # its code stays in port/android).
@@ -1154,6 +1264,17 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('port/android/**/*.gradle*', 'port/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+
+      # bgfx's sources, which the configure fetches although this job does
+      # not build the renderer (the linux64, windows64 and macos jobs save
+      # them)
+      - uses: actions/cache/restore@v4
+        if: env.CACHE_RESTORE == 'true'
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ runner.os }}-${{ hashFiles('tools/bgfx_build.py', 'tools/bgfx-patches/**') }}
+          restore-keys: bgfx-source-${{ runner.os }}-
 
       # (no keystore.properties here, as in the android job: the debug app
       # has the runner's debug key, the release app is unsigned)
@@ -1180,8 +1301,9 @@ jobs:
           path: dist/chupathingyce-android64-release
           retention-days: 3
 
-      # (kept by ChupathingyCE's release, not a download)
+      # (kept by ChupathingyCE's release, not a download: only its runs upload them)
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: symbols-android64-release
           path: dist/chupathingyce-android64-release-symbols
@@ -1215,7 +1337,8 @@ jobs:
           key: ccache-android64-${{ github.sha }}
 
   windows:
-    needs: gate
+    needs: [gate, plan]
+    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.windows == 'true'
     # The runner image has LLVM, Python, MSYS2 (the movies' FFmpeg builds
     # under its shell) and Visual Studio's x86 libraries and Windows SDK.
     runs-on: windows-2025
@@ -1280,6 +1403,16 @@ jobs:
           path: build/windows/ffmpeg
           key: windows-ffmpeg-${{ hashFiles('tools/ffmpeg_build.py') }}
 
+      # bgfx's sources, which the configure fetches although this job does
+      # not build the renderer (the linux64, windows64 and macos jobs save
+      # them)
+      - uses: actions/cache/restore@v4
+        if: env.CACHE_RESTORE == 'true'
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ runner.os }}-${{ hashFiles('tools/bgfx_build.py', 'tools/bgfx-patches/**') }}
+          restore-keys: bgfx-source-${{ runner.os }}-
+
       - name: Debug
         if: env.BUILD_DEBUG == 'true'
         run: python tools/ci_build.py windows debug
@@ -1318,6 +1451,7 @@ jobs:
           retention-days: 3
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: symbols-windows-release
           path: dist/chupathingyce-windows-release-symbols
@@ -1348,7 +1482,8 @@ jobs:
           key: ccache-windows-${{ github.sha }}
 
   windows64:
-    needs: gate
+    needs: [gate, plan]
+    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.windows == 'true'
     # The native 64-bit Windows build (ninja windows64), on the same runner
     # image as the 32-bit one, with Visual Studio's x64 libraries.
     runs-on: windows-2025
@@ -1409,7 +1544,10 @@ jobs:
         if: env.CACHE_RESTORE == 'true'
         with:
           path: build/bgfx
-          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+          key: bgfx-source-${{ runner.os }}-${{ hashFiles('tools/bgfx_build.py', 'tools/bgfx-patches/**') }}
+          # (a changed pin or patch starts from the last sources:
+          # tools/bgfx_build.py fetches and patches what differs)
+          restore-keys: bgfx-source-${{ runner.os }}-
 
       # the movies' FFmpeg (tools/ffmpeg_build.py), built once and cached:
       # its configure and make run under the runner's MSYS2, which needs make
@@ -1456,6 +1594,7 @@ jobs:
           retention-days: 3
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: symbols-windows64-release
           path: dist/chupathingyce-windows64-release-symbols
@@ -1477,7 +1616,7 @@ jobs:
         if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-3.outputs.cache-hit != 'true' }}
         with:
           path: build/bgfx
-          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+          key: bgfx-source-${{ runner.os }}-${{ hashFiles('tools/bgfx_build.py', 'tools/bgfx-patches/**') }}
 
       - uses: actions/cache/save@v4
         if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-4.outputs.cache-hit != 'true' }}
@@ -1492,7 +1631,8 @@ jobs:
           key: ccache-windows64-${{ github.sha }}
 
   macos:
-    needs: gate
+    needs: [gate, plan]
+    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.macos == 'true'
     # Apple silicon, with Xcode's clang: the universal application (Apple
     # silicon and Intel, self-contained: tools/macos_build.py, --portable),
     # with its own SDL3 and the movies' FFmpeg, built once and cached. The application goes up as
@@ -1540,7 +1680,10 @@ jobs:
         if: env.CACHE_RESTORE == 'true'
         with:
           path: build/bgfx
-          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+          key: bgfx-source-${{ runner.os }}-${{ hashFiles('tools/bgfx_build.py', 'tools/bgfx-patches/**') }}
+          # (a changed pin or patch starts from the last sources:
+          # tools/bgfx_build.py fetches and patches what differs)
+          restore-keys: bgfx-source-${{ runner.os }}-
 
       - name: Debug
         if: env.BUILD_DEBUG == 'true'
@@ -1567,8 +1710,9 @@ jobs:
           path: chupathingyce-macos-release.tar
           retention-days: 3
 
-      # (kept by ChupathingyCE's release, not a download)
+      # (kept by ChupathingyCE's release, not a download: only its runs upload them)
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: symbols-macos-release
           path: dist/chupathingyce-macos-release-symbols
@@ -1591,10 +1735,99 @@ jobs:
         if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-3.outputs.cache-hit != 'true' }}
         with:
           path: build/bgfx
-          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+          key: bgfx-source-${{ runner.os }}-${{ hashFiles('tools/bgfx_build.py', 'tools/bgfx-patches/**') }}
 
       - uses: actions/cache/save@v4
         if: ${{ success() && env.CACHE_SAVE == 'true' }}
         with:
           path: .ccache
           key: ccache-macos-${{ github.sha }}
+
+  ci-ok:
+    # The run in one check: green when every job that had to run passed. A
+    # platform job left out by the plan job counts as passed on a fast
+    # check, never on a full run; FreeBSD's may fail on a run started with
+    # workflow_dispatch, as its job allows (continue-on-error). Not required
+    # to merge: a release's run is checked job by job before anything ships
+    # (ChupathingyCE/command, tools/public_build.py).
+    needs: [gate, plan, info, linux, linux-tests, linux-big-endian, linux64, freebsd64, server, server-container,
+            server-windows, android64, windows, windows64, macos]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every job that had to run passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          FULL: ${{ needs.plan.outputs.full }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$NEEDS"
+          echo "full matrix: ${FULL:-unknown}"
+          jq -e --arg full "$FULL" --arg event "$EVENT" '
+            ["linux64", "freebsd64", "server", "server-container", "server-windows", "android64",
+             "windows", "windows64", "macos"] as $platforms
+            | to_entries | all(
+                .value.result == "success"
+                or (.key == "info" and $event != "workflow_dispatch" and .value.result == "skipped")
+                or ($full == "false" and .value.result == "skipped" and (.key | IN($platforms[])))
+                or (.key == "freebsd64" and $event == "workflow_dispatch" and .value.result == "failure"))' \
+            <<< "$NEEDS" > /dev/null
+
+  cache-prune:
+    # After a push to main, once its jobs have saved their caches: main's
+    # older generations of each cache (a key that ends in a commit or a
+    # file hash, ccache-linux-ubuntu-clang22-<commit> say) are deleted, and
+    # every cache a pull request left (refs/pull/...). main's newest of
+    # each is always kept, and any other cache (a release branch's, a key
+    # without a hash) is left alone, so the repository stays under its
+    # 10 GB and main's compile caches are not the ones evicted.
+    needs: [gate, linux, linux64, freebsd64, server, server-windows, android64, windows, windows64, macos]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'ChupathingyCE/chupathingyce' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    steps:
+      - name: Prune
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PRUNE'
+          import json, os, re, subprocess
+          repository = os.environ["REPOSITORY"]
+          listed = subprocess.run(["gh", "api", "--paginate", f"repos/{repository}/actions/caches?per_page=100",
+                                   "--jq", ".actions_caches[]"], check=True, capture_output=True, text=True).stdout
+          caches = [json.loads(line) for line in listed.splitlines() if line.strip()]
+          # (the key's last part: a commit, 40 hex digits, or hashFiles', 64)
+          generation = re.compile(r"^(.+-)[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+          newest = {}
+          for cache in caches:
+              match = generation.match(cache["key"])
+              if cache["ref"] == "refs/heads/main" and match:
+                  kept = newest.get(match.group(1))
+                  if kept is None or (cache["created_at"], cache["id"]) > (kept["created_at"], kept["id"]):
+                      newest[match.group(1)] = cache
+          drop = []
+          for cache in caches:
+              match = generation.match(cache["key"])
+              if cache["ref"].startswith("refs/pull/"):
+                  drop.append((cache, "a pull request's"))
+              elif cache["ref"] == "refs/heads/main" and match and newest[match.group(1)]["id"] != cache["id"]:
+                  drop.append((cache, f"older than {newest[match.group(1)]['key']}"))
+          freed = 0
+          for cache, why in drop:
+              # (never main's newest of a kind, whatever the lists above say)
+              assert not any(cache["id"] == kept["id"] for kept in newest.values())
+              size = cache.get("size_in_bytes", 0)
+              result = subprocess.run(["gh", "api", "-X", "DELETE", f"repos/{repository}/actions/caches/{cache['id']}"],
+                                      capture_output=True, text=True)
+              if result.returncode == 0:
+                  freed += size
+                  print(f"deleted {cache['key']} ({cache['ref']}, {size // 2**20} MB): {why}")
+              else:
+                  print(f"::warning::could not delete {cache['key']}: {result.stderr.strip()}")
+          kept_size = sum(cache.get("size_in_bytes", 0) for cache in caches) - freed
+          print(f"freed {freed // 2**20} MB; {kept_size // 2**20} MB of caches left")
+          PRUNE
