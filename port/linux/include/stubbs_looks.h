@@ -13,6 +13,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #ifndef STUBBS_LOOKS_H
 #define STUBBS_LOOKS_H
 
+/* (HALO_CONSOLE_NO_STUBBS: which build has Stubbs mode, read here so
+every unit sees the same side of the switch) */
+#include "halo_console_features.h"
+
 #ifndef HALO_CONSOLE_NO_STUBBS
 /* Stubbs's tags just read and converted (cache_files.c, after
 stubbs_mode_convert_tags): what the looks need noted or rewritten; nothing

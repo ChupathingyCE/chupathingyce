@@ -13,6 +13,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #ifndef STUBBS_CAMPAIGN_H
 #define STUBBS_CAMPAIGN_H
 
+/* (HALO_CONSOLE_NO_STUBBS: which build has Stubbs mode, read here so
+every unit sees the same side of the switch) */
+#include "halo_console_features.h"
+
 struct widget_instance;
 struct event_record;
 

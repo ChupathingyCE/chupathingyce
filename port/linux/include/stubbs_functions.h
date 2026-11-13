@@ -14,6 +14,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #ifndef STUBBS_FUNCTIONS_H
 #define STUBBS_FUNCTIONS_H
 
+/* (HALO_CONSOLE_NO_STUBBS: which build has Stubbs mode, read here so
+every unit sees the same side of the switch) */
+#include "halo_console_features.h"
+
 /* how many there are (none outside Stubbs mode), one by its index among
 them, and a name's index (NONE) (hs.c) */
 struct hs_function_definition;
