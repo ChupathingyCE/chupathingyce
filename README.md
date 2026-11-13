@@ -109,7 +109,7 @@ Where your maps, settings and saves go: [docs/install.md](docs/install.md#where-
 - **Invite a friend.** Send them your game's invite link.
 - **Play the campaign together.** Host it online from Create Game. [Here's how](docs/online.md#online-co-op).
 
-Chupathingy players on every platform play together. We also play with the current OpenCE release: their players can join your games, and you can join theirs.
+Chupathingy players on every platform play together. **Compatible with OpenCE build-355 (network version 44) for online play:** their players can join your games, and you can join theirs.
 
 Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends-cant-join).
 
