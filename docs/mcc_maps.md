@@ -577,9 +577,7 @@ The additional-resource allowlist contains only `bitmaps.map` and `sounds.map`.
 It neither validates their contents nor authorizes reading global fallback
 resources. Campaign metadata and later mission files need a separate transfer
 contract. Eligibility and a matching hash must never bypass receiver-side map
-validation, path containment, bounded transfers or safe installation. See the
-[reader's guide](reading/maps_and_resources.md#preliminary-mcc-sharing-policy)
-for the API, trust boundaries and regression checks.
+validation, path containment, bounded transfers or safe installation.
 
 ## Repository architecture and isolation
 
@@ -2267,9 +2265,7 @@ four successful file-stamped results survive session teardown, while session
 bindings and unfinished readers are cleared. Any changed resource candidate
 invalidates reuse. Actual loads retain their independent content checks and
 loading display. The renderer, preparation settings, Android protections and
-Xbox/CE paths are unchanged. See the
-[reader's guide](reading/maps_and_resources.md#mcc-loading-feedback) for the
-call path, slice limits and lifecycle. The measurements below describe the
+Xbox/CE paths are unchanged. The measurements below describe the
 original fix, not validation of this follow-up.
 
 Validation on Windows x86 portable release, based on `bed24ca3`, reproduced
@@ -2555,7 +2551,7 @@ and stale handles, truncated reads, unknown-rate payload rejection, allocation
 failures and teardown. The native sound harness compiles the real converter;
 codec-vector tests continue to verify its output. Campaign tests check weapon
 spawning on the host/local game, refusal on clients and after teardown, and
-restart. The reader's route is in [Maps and resources](reading/maps_and_resources.md).
+restart.
 
 Final verification used 631 passing automated tests (5 skipped), covering the
 MCC scripting, campaign, media/Vorbis, validation, resources, lifecycle,

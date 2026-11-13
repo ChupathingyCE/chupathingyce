@@ -124,7 +124,7 @@ which the host advertises with its game). It never replaces a file that is
 there. Then the game joins, and the map's own checks run as for any map. A
 downloaded map is listed in `maps_ce/downloaded_maps.txt`: its scripts are
 held to a downloaded map's tighter rules. `network.map_downloads` in
-`config.toml` (or Network Settings in the PC menus) says `"ask"` (the
+`config.toml` (or SETTINGS > Network Setup) says `"ask"` (the
 default), `"always"` or `"never"`. `"never"` means no map is ever
 downloaded, but the game still fetches Chupathingy maps' small signed index
 for its blacklist (below) and checks your maps against it. Desktop and Android builds download maps;

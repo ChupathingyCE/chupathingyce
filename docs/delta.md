@@ -1,4 +1,4 @@
-# Delta: ChupathingyCE's network family
+# Delta: Chupathingy's network family
 
 See also [Delta: compatibility](delta-compatibility.md), the design for how builds play together.
 
@@ -13,7 +13,7 @@ the capabilities listed as built under "Capability registry". Delta Stats' event
 servers to the site shipped in 0.7.1b. The site's page for players:
 https://stats.chupathingy.org/delta
 
-Delta is the name for everything ChupathingyCE's machines say to each other
+Delta is the name for everything Chupathingy's machines say to each other
 and to our services beyond the game protocol OpenCE defines. It has one rule
 above all: **the player base stays whole.** OpenCE's game protocol is the
 common ground; Delta starts beside it, and when a capability does change the
@@ -27,7 +27,7 @@ boundaries:
 
 | Part | Between | What it is | Exists today as |
 | --- | --- | --- | --- |
-| **Delta Peer** | ChupathingyCE machines in one game | protocol major, capabilities, and our own messages | `delta_peer.c`, UDP port 5160 |
+| **Delta Peer** | Chupathingy machines in one game | protocol major, capabilities, and our own messages | `delta_peer.c`, UDP port 5160 |
 | **Delta List** | game or server, and the site | announcing and listing games | `/v1/announce`, `/v1/withdraw`, `/v1/games`, the console list |
 | **Delta Stats** | game or server, and the site | end-of-game reports and the event stream | `/v1/report`, `/v1/client_report`, `/v1/events` |
 | **Delta Control** | an admin or moderator, and a server | roles, commands, the control API and panel, in-game moderation, the site link | `sv_` commands, `HALO_DEDICATED_CONTROL`, `moderators.txt`, `sv_link` |
@@ -1819,9 +1819,8 @@ shipped a newer wire.
 
 ### Following policy
 
-ChupathingyCE has its own code and roadmap. Since October 9, 2026 it takes no
-code from OpenCE; it follows OpenCE's **network version**, so players of both
-keep sharing games.
+Chupathingy has its own code and roadmap. It doesn't follow OpenCE's code,
+only OpenCE's **network version**, so players of both keep sharing games.
 
 - **Delta players aren't held up.** Between our own builds the wire
   decides, not OpenCE's number, so a raise never splits our players from
@@ -1960,7 +1959,7 @@ table, so the builds already out follow too.
    record) or *review* (anything else).
 3. **Raise.** It pushes a branch to chupathingyce with the new number, the
    join range, the table row, the README line and the next patch version.
-4. **Verify.** ChupathingyCE's own CI builds and tests the branch. The game
+4. **Verify.** Chupathingy's own CI builds and tests the branch. The game
    against OpenCE is the cross-play gate's, which tests the releases already
    out.
 5. **Ship.** Additive and green: main moves to the branch, a release goes out
@@ -3346,7 +3345,7 @@ peer to peer over Delta Peer.
 
 ### What it says
 
-One document, JSON, signed with ChupathingyCE's Ed25519 key (kept in CI;
+One document, JSON, signed with Chupathingy's Ed25519 key (kept in CI;
 the public key is built in and published, so anyone building on Delta can
 check it too):
 
@@ -3856,7 +3855,7 @@ ours, and we don't speak theirs.
 
 ## Following OpenCE
 
-When OpenCE raises its network version, every ChupathingyCE player and
+When OpenCE raises its network version, every Chupathingy player and
 server should stay visible to OpenCE players and joinable, without a new
 download, whenever our wire still plays with theirs; and we should know
 within hours when it doesn't.
@@ -3976,7 +3975,7 @@ next epoch for that ("Epochs", above).
 
 Delta is public: this document is its specification, and anyone may build a
 client, server or tool that speaks it. Nothing in it depends on being
-ChupathingyCE, and nothing is kept secret but signing keys. An app that
+Chupathingy, and nothing is kept secret but signing keys. An app that
 wants to sign players in on our site registers a client ID first:
 [delta-clients.md](delta-clients.md).
 

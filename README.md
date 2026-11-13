@@ -133,6 +133,7 @@ Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends
 - Halo PC, Custom Edition, HaloMD and MCC Workshop maps, side by side with the Xbox ones
 - Missing maps download when you join, and each one is checked before it's used
 - Community Xbox map packs, like Halo CE+
+- Stubbs the Zombie, an early work in progress, from your own Xbox maps (off by default)
 
 **Your stats**
 - A carnage report with medals for every finished game
@@ -165,9 +166,9 @@ Chupathingy also runs as homebrew on consoles, in the same online games as every
 
 | Console | Get it |
 | --- | --- |
-| Original Xbox | [warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox). Test builds are on the [Discord](https://discord.gg/chupathingy). |
-| Xbox 360 | [warthog-360](https://github.com/ChupathingyCE/warthog-360). Test builds are on the [Discord](https://discord.gg/chupathingy). |
-| Wii U | [warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu/releases) |
+| Original Xbox | [warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox/releases), test builds |
+| Xbox 360 | [warthog-360](https://github.com/ChupathingyCE/warthog-360/releases), test builds |
+| Wii U | [warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu/releases), test builds |
 | Nintendo Switch | [warthog-switch](https://github.com/ChupathingyCE/warthog-switch/releases), by thelinkin3000 |
 | PlayStation 3 | [warthog-ps3](https://github.com/ChupathingyCE/warthog-ps3), by Mayo1970. Work in progress, no release yet. |
 
@@ -255,7 +256,7 @@ with their authors credited in each commit.
 - [nsafran1217](https://github.com/nsafran1217): no hang
   where the visibility results buffer cannot be mapped.
 - [saulob](https://github.com/saulob): the first menu frame's colors.
-- [natsu-anon](https://github.com/natsu-anon): the cursor hidden during play.
+- natsu-anon: the cursor hidden during play.
 - [lantos1618](https://github.com/lantos1618): no ghosting in the zoom effect
   at high resolutions; on macOS, Command-W does not quit and Command-Q asks
   twice.
@@ -293,7 +294,7 @@ with their authors credited in each commit.
   projectiles and damage that forget objects deleted under them.
 - [bitmoda](https://github.com/bitmoda) (mastercheese's OpenCE fork): the
   clock read only when something needs it.
-- [theLlamaNet](https://github.com/theLlamaNet): the Android on-screen touch
+- theLlamaNet: the Android on-screen touch
   controls, through JoshRob297's halo-ce-touch.
 - Guven (GuvenHuso) and hispanorum (OpenCE): the debug camera flown by
   mouse and keyboard, and its saved spot kept for the player in view
@@ -335,6 +336,9 @@ with their authors credited in each commit.
   "force HUD use high resolution scale" flags): ugoboom, tested with
   Aerocatia's [halopc-restored](https://github.com/Aerocatia/halopc-restored)
   resource maps.
+- Stubbs mode reads Stubbs the Zombie's maps with layouts from Sigmmma's
+  [reclaimer](https://github.com/Sigmmma/reclaimer) (GPL-3.0). The maps
+  aren't included.
 - Grifball courts: Bomb plays on SlappyThePirate's "Grifball Beta" court
   (`grifball.map`), which is open to use with credit; the map is not
   included.

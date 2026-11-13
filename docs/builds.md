@@ -14,7 +14,7 @@ What each build of the game has. FreeBSD has what the Linux build has, without b
 | The Delta Guide: friends, parties, clans, service record | Yes | Yes | Yes | Yes |
 | Voice chat | Yes | Yes | Yes | Yes |
 | Light effects (`display.light_effects`) | Yes | Yes | Yes | No |
-| Server Browser in the PC menus | Yes | Yes | Yes | Yes |
+| Stubbs mode (early, off by default) | Yes | Yes | Yes | Yes |
 | Halo PC CD and CE installer import at first start | Yes | Yes | Yes | Not yet |
 | Setup screen before the game (maps, logs) | Yes | Yes | Yes | Not yet (its own first-start screens) |
 | Discord presence and Join | Yes | Yes | Yes | No |

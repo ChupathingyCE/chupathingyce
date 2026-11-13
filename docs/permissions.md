@@ -23,6 +23,7 @@ permissions are kept on file and can be shown on request.
 | Aerocatia, with Jessie | HUD assets from halopc-restored | With credit | 2026-10-14 |
 | Joeveno | Favela Gulch, ported as a Halo map | With credit; his art keeps its own terms | 2026-10-30 |
 | SlappyThePirate | grifball.map (Grifball Beta, 2011) and the assets from it | With credit; hosted on our site, not in git | 2026-10-16 |
+| Marshall Kirk McKusick | The BSD Daemon, as the FreeBSD platform icon | With his notice: "BSD Daemon used with permission," linked to [his copyright page](http://www.mckusick.com/copyright.html) | 2026-11-11 |
 
 ## Used under their own licenses
 
@@ -38,6 +39,8 @@ authors.
   2026-10-28 21:18 UTC, while the fork was CC0.
 - **Chimera** (SnowyMouse and contributors) and **Demon** and **Invader**
   (Aerocatia), all GPL-3.0: fixes ported from them carry credit.
+- **reclaimer** (Sigmmma), GPL-3.0: the Stubbs the Zombie map layouts
+  Stubbs mode reads.
 - **Third-party libraries, fonts and art** in `port/third_party`,
   `port/assets` and `port/linux/ui/fonts`: their licenses sit beside them.
 

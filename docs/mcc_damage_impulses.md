@@ -56,9 +56,7 @@ ticks. It was a direct map-load smoke test, not a multiplayer movement test.
 > Historical component evidence from the refactored source branch. Protocol
 > numbers and platform limitations below describe the original validation;
 > they are not the current upstream agreement. The MCC contribution uses
-> OpenCE protocol **42**. See the [upstream validation record](mcc_upstream_validation.md)
-> for the testing-based contribution and the [reading guide](reading/README.md#scope-and-provenance)
-> for source and test availability.
+> OpenCE protocol **42**.
 
 Issue #27 concerns Mercury2's gravity wrench. The supplied version-13 map's
 `weapons\gravity_wrench\projectile\beam` damage effect has flags `0x30000`

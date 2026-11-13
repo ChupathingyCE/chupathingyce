@@ -1,30 +1,30 @@
 name: Bug report
-description: Something in ChupathingyCE doesn't work as it should.
+description: Something in Chupathingy doesn't work as it should.
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting. One bug per issue, please. ChupathingyCE never provides game files, so please don't attach maps or disc images.
+        Thanks for reporting. One bug per issue, please. Chupathingy never provides game files, so please don't attach maps or disc images.
   - type: dropdown
     id: platform
     attributes:
       label: Platform
-      options: [Windows, macOS (Apple Silicon), macOS (Intel), Linux, Steam Deck, Android, Xbox]
+      options: [Windows, macOS (Apple silicon), macOS (Intel), Linux, Steam Deck, Android, FreeBSD, Dedicated server, Original Xbox, Xbox 360, Wii U, Switch]
     validations:
       required: true
   - type: input
     id: version
     attributes:
       label: Version
-      description: The release you're on (for example v0.5.3b), or nightly and its date.
+      description: The version at the bottom of the main menu (for example 0.9.1), or the test build or nightly and its date.
     validations:
       required: true
   - type: dropdown
     id: area
     attributes:
       label: Area
-      options: [Crash, Online play, Online Games list, Halo PC maps, Campaign, Menus, Controls, Graphics, Sound, Other]
+      options: [Crash, Online play, Online Games list, Delta Guide, Halo PC maps, MCC maps, Campaign, Stubbs mode, Menus, Controls, Graphics, Sound, Other]
     validations:
       required: true
   - type: textarea
@@ -38,4 +38,4 @@ body:
     id: logs
     attributes:
       label: Logs
-      description: For a crash, attach debug.txt from the logs folder beside the maps folder (logs/debug.txt; if you set a custom save folder, it is in that folder's logs folder instead; before 0.8.0 it was beside the maps folder itself), and on macOS the crash report from ~/Library/Logs/DiagnosticReports (halo-*.ips).
+      description: Paste the code from SEND MY LOGS (in the Delta Guide's SETTINGS, or the setup screen's LOGS & HELP), or attach logs/debug.txt from the folder that holds your maps. On a Mac, add the crash report from ~/Library/Logs/DiagnosticReports. How to send them is in docs/help.md.
