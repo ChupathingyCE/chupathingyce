@@ -5797,8 +5797,31 @@ void guide_render(void)
 	plasma_look();
 	guide.target_count = 0;
 	ui_overlay_layer(4);
-	ui_overlay_rect(-200, 0, 1040, 480, 0, ui_style_color(UI_COLOR_SHADE));
 	ui_style_clock((unsigned int)system_milliseconds());
+	/* (behind the panel: the shade, or the dashboard's cellwall,
+	delta.guide_background, by itself with Dashboard Green; the shade where
+	the renderer has no cellwall) */
+	{
+		char const *background = config_string("delta.guide_background");
+		int cellwall = !strcmp(background, "cellwall") ||
+			(strcmp(background, "plain") != 0 && ui_style_theme_current() == UI_THEME_GREEN);
+
+		if (!cellwall || !ui_style_cellwall(-200, 0, 1040, 480))
+			ui_overlay_rect(-200, 0, 1040, 480, 0, ui_style_color(UI_COLOR_SHADE));
+		else
+		{
+			/* (the wall calmer near the panel: a soft dark edge around it,
+			so its lines stay in the open margins) */
+			unsigned int shade = ui_style_color(UI_COLOR_SHADE) & 0xFFFFFF00;
+			int ring;
+
+			for (ring = 6; ring >= 1; ring--)
+			{
+				ui_overlay_rect(PANEL_X - ring * 5, PANEL_Y - ring * 5, PANEL_WIDTH + ring * 10, PANEL_HEIGHT + ring * 10,
+					12 + ring * 5, shade | (unsigned int)(0x2E - ring * 5));
+			}
+		}
+	}
 	ui_style_panel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 1.0f);
 	if (guide.about)
 	{
