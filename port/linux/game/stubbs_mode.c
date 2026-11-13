@@ -28,6 +28,7 @@ packs never take these paths.
 #include "scenario/scenario_definitions.h"
 #include "units/unit_definitions.h"
 #include "stubbs_mode.h"
+#include "stubbs_engine.h" /* (its special attacks, before the rewrite) */
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -757,6 +758,7 @@ void stubbs_mode_convert_tags(
 		definition = stubbs_host(base, tag_data_size, address, STUBBS_UNIT_SIZE + halo_part);
 		if (!definition)
 			continue;
+		stubbs_engine_note_unit_definition(instance, definition, base, tag_data_size);
 		stubbs_unit_convert(definition, halo_part);
 		converted[kind]++;
 	}

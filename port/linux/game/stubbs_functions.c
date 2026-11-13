@@ -31,6 +31,7 @@ and return none, 0 or false.
 #include "stubbs_functions.h"
 #include "stubbs_campaign.h"
 #include "stubbs_player.h"
+#include "stubbs_engine.h"
 
 #include <string.h>
 
@@ -199,7 +200,9 @@ static boolean stubbs_function_routed(
 
 	if (_stricmp(name, "map_completed") && _stricmp(name, "hud_show_special_attack") &&
 		_stricmp(name, "image_effect_set") && _stricmp(name, "image_effect_start_blend") &&
-		_stricmp(name, "image_effect_end"))
+		_stricmp(name, "image_effect_end") && _stricmp(name, "unit_special_attack") &&
+		_stricmp(name, "unit_special_attack_get_count") && _stricmp(name, "unit_special_attack_set_count") &&
+		_stricmp(name, "player_move_origin"))
 	{
 		return FALSE;
 	}
@@ -224,6 +227,19 @@ static boolean stubbs_function_routed(
 		memcpy(&seconds, &arguments[1], sizeof(seconds));
 		stubbs_image_effect_start_blend((char const *)xbox_pointer((unsigned long)arguments[0]), seconds);
 	}
+	/* the special attacks (stubbs_engine.c): (unit_special_attack <unit>
+	<index>) throws one at once, (unit_special_attack_get_count <unit>
+	<index>) and (unit_special_attack_set_count <unit> <index> <count>) read
+	and set how many the unit has, (player_move_origin <from> <to>) moves a
+	player's own body to another unit */
+	else if (!_stricmp(name, "unit_special_attack"))
+		stubbs_engine_special_attack(arguments[0], (short)arguments[1]);
+	else if (!_stricmp(name, "unit_special_attack_get_count"))
+		value = stubbs_engine_special_attack_get_count(arguments[0], (short)arguments[1]);
+	else if (!_stricmp(name, "unit_special_attack_set_count"))
+		stubbs_engine_special_attack_set_count(arguments[0], (short)arguments[1], (short)arguments[2]);
+	else if (!_stricmp(name, "player_move_origin"))
+		stubbs_engine_player_move_origin(arguments[0], arguments[1]);
 	/* (image_effect_end) */
 	else
 		stubbs_image_effect_end();
