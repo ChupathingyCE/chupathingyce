@@ -470,6 +470,8 @@ symbols in this file:
 #include "scenario/scenario_definitions.h"
 #include "units/bipeds.h"
 #include "units/units.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "units/unit_definitions.h"
 
 /* ---------- constants */
 
@@ -3239,41 +3241,53 @@ void ai_scripting_attach_unit(
 					struct squad_definition);
 
 				/* port: an entry the palette has (a map's index), as the others here */
+				long actor_variant_index = NONE;
+
 				if (VALID_INDEX(squad_definition->actor_palette_index, scenario->ai_actor_palette.count))
 				{
-					struct tag_reference *actor_palette_entry = TAG_BLOCK_GET_ELEMENT(
+					actor_variant_index = TAG_BLOCK_GET_ELEMENT(
 						&scenario->ai_actor_palette,
 						squad_definition->actor_palette_index,
-						struct tag_reference);
+						struct tag_reference)->index;
+				}
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+				/* port: a Stubbs squad with no variant of its own takes the
+				biped's spawned actor variant (a10's extra zombies join the
+				"zombies" squad that way; Stubbs mode only:
+				port/linux/game/stubbs_mode.c) */
+				if (actor_variant_index == NONE && stubbs_mode_active())
+				{
+					actor_variant_index = unit_definition_get(
+						unit_get(unit_index)->definition_index)->unit.spawned_actor_variant.index;
+				}
+#endif
+				if (actor_variant_index != NONE)
+				{
+					long actor_definition_index = actor_variant_definition_get(
+						actor_variant_index)->actor_reference.index;
 
-					if (actor_palette_entry->index != NONE)
+					if (actor_definition_index != NONE)
 					{
-						long actor_definition_index = actor_variant_definition_get(
-							actor_palette_entry->index)->actor_reference.index;
+						actor_create_for_unit(
+							TEST_FLAG(
+								actor_definition_get(actor_definition_index)->flags,
+								_actor_definition_swarm_actor_bit),
+							unit_index,
+							actor_variant_index,
+							encounter_index,
+							squad_index,
+							FALSE,
+							NONE,
+							TEST_FLAG(
+								encounter_definition->flags,
+								_encounter_braindead_bit),
+							squad_definition->initial_state,
+							squad_definition->default_state,
+							NONE,
+							0);
+						encounters_update_dirty_status();
 
-						if (actor_definition_index != NONE)
-						{
-							actor_create_for_unit(
-								TEST_FLAG(
-									actor_definition_get(actor_definition_index)->flags,
-									_actor_definition_swarm_actor_bit),
-								unit_index,
-								actor_palette_entry->index,
-								encounter_index,
-								squad_index,
-								FALSE,
-								NONE,
-								TEST_FLAG(
-									encounter_definition->flags,
-									_encounter_braindead_bit),
-								squad_definition->initial_state,
-								squad_definition->default_state,
-								NONE,
-								0);
-							encounters_update_dirty_status();
-
-							return;
-						}
+						return;
 					}
 				}
 

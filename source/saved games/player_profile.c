@@ -615,16 +615,18 @@ void player_profile_save_level_completed(
 	level = main_get_current_solo_level();
 	difficulty = game_difficulty_level_get();
 
-	match_assert("c:\\halo\\SOURCE\\saved games\\player_profile.c", 0x19D, (level==NONE || ((level>=0) && (level<NUMBER_OF_SINGLE_PLAYER_LEVELS))) && (difficulty >= 0) && (difficulty < NUMBER_OF_GAME_DIFFICULTY_LEVELS));
-
 	/* port: a level not in the campaign (a Halo PC map's, whose scripts may
-	end it with game_won) is none of the profile's, whose flags it would
-	write before; its difficulty one of the profile's too */
+	end it with game_won, or Stubbs's eleventh and twelfth, past Halo's ten)
+	is none of the profile's, whose flags it would write before; its
+	difficulty one of the profile's too. Checked before the assertion below,
+	which halted a debug build at c40's first checkpoint */
 	if (level < 0 || level >= NUMBER_OF_SINGLE_PLAYER_LEVELS ||
 		difficulty < 0 || difficulty >= NUMBER_OF_GAME_DIFFICULTY_LEVELS)
 	{
 		return;
 	}
+
+	match_assert("c:\\halo\\SOURCE\\saved games\\player_profile.c", 0x19D, (level==NONE || ((level>=0) && (level<NUMBER_OF_SINGLE_PLAYER_LEVELS))) && (difficulty >= 0) && (difficulty < NUMBER_OF_GAME_DIFFICULTY_LEVELS));
 
 	player_profile_index = player_ui_get_active_player_profile_index(local_player_index);
 
