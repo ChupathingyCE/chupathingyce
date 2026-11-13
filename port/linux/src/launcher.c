@@ -331,6 +331,10 @@ struct chooser
 	SDL_AtomicInt done;
 	char path[PATH_SIZE];
 };
+/* (the pickers whose late answers are kept apart: more than this many
+opened and given up on while the first still hasn't answered is not a
+case; the oldest slot is taken again) */
+#define NUMBER_OF_CHOOSERS 4
 
 /* the upload of the logs, on a thread of its own */
 struct upload
@@ -407,7 +411,12 @@ static struct
 	int dialog_row_count;
 	int dialog_selected;
 
-	struct chooser chooser;
+	/* (a slot per picker opened, in turn: a picker given up on (B) can
+	still answer later, on its own thread, and its answer then lands in its
+	own slot, not the picker opened after it: #1017. The current picker's
+	is choosers[chooser_generation % NUMBER_OF_CHOOSERS]) */
+	struct chooser choosers[NUMBER_OF_CHOOSERS];
+	unsigned chooser_generation;
 	/* what the chosen file or folder is for (_action_add_file, ...) */
 	int chooser_purpose;
 
@@ -2510,6 +2519,12 @@ static void make_folders(void)
 	set_status(COLOR_GREEN, "The folders are ready. Put your maps in, then check again.");
 }
 
+/* the picker open now (or last opened): its slot */
+static struct chooser *current_chooser(void)
+{
+	return &launcher.choosers[launcher.chooser_generation % NUMBER_OF_CHOOSERS];
+}
+
 static void SDLCALL chosen(void *userdata, const char * const *files, int filter)
 {
 	struct chooser *chooser = userdata;
@@ -2545,7 +2560,8 @@ static void choose(int purpose)
 		set_status(COLOR_AMBER, "Do this in Desktop Mode. Game Mode can't show the file picker.");
 		return;
 	}
-	memset(&launcher.chooser, 0, sizeof(launcher.chooser));
+	launcher.chooser_generation++;
+	memset(current_chooser(), 0, sizeof(*current_chooser()));
 	launcher.chooser_purpose = purpose;
 	launcher.dialog = _dialog_picking;
 	launcher.status[0] = '\0';
@@ -2556,7 +2572,7 @@ static void choose(int purpose)
 			"Pick the folder that holds your maps folder.");
 		/* (debug.launcher_test answers it itself) */
 		if (!launcher.script[0])
-			SDL_ShowOpenFolderDialog(chosen, &launcher.chooser, platform_sdl_window(), launcher.root, false);
+			SDL_ShowOpenFolderDialog(chosen, current_chooser(), platform_sdl_window(), launcher.root, false);
 		return;
 	}
 	snprintf(launcher.dialog_title, sizeof(launcher.dialog_title), "PICK A FILE");
@@ -2565,7 +2581,7 @@ static void choose(int purpose)
 		"Pick your Xbox disc image, a Halo PC CD image or the Custom Edition installer.");
 	if (!launcher.script[0])
 	{
-		SDL_ShowOpenFileDialog(chosen, &launcher.chooser, platform_sdl_window(),
+		SDL_ShowOpenFileDialog(chosen, current_chooser(), platform_sdl_window(),
 			purpose == _action_add_halo_pc ? halo_pc_filters : xbox_filters, 3, NULL, false);
 	}
 }
@@ -3852,15 +3868,17 @@ static void events(void)
 
 static void poll_work(void)
 {
-	if (launcher.dialog == _dialog_picking && SDL_GetAtomicInt(&launcher.chooser.done))
+	if (launcher.dialog == _dialog_picking && SDL_GetAtomicInt(&current_chooser()->done))
 	{
+		struct chooser *chooser = current_chooser();
+
 		launcher.dialog = _dialog_none;
-		if (!launcher.chooser.path[0])
+		if (!chooser->path[0])
 			return;
 		if (launcher.chooser_purpose == _action_pick_folder)
-			folder_picked(launcher.chooser.path);
+			folder_picked(chooser->path);
 		else
-			import_file(launcher.chooser.path);
+			import_file(chooser->path);
 		return;
 	}
 	if (launcher.dialog == _dialog_import)
@@ -3971,8 +3989,8 @@ static void script_step(void)
 		launcher.script_next = now + (Uint64)atoi(step + 5);
 	else if ((!strncmp(step, "pick:", 5) || !strncmp(step, "folder:", 7)) && launcher.dialog == _dialog_picking)
 	{
-		snprintf(launcher.chooser.path, sizeof(launcher.chooser.path), "%s", strchr(step, ':') + 1);
-		SDL_SetAtomicInt(&launcher.chooser.done, 1);
+		snprintf(current_chooser()->path, sizeof(current_chooser()->path), "%s", strchr(step, ':') + 1);
+		SDL_SetAtomicInt(&current_chooser()->done, 1);
 	}
 	else if (!strcmp(step, "quit"))
 	{
