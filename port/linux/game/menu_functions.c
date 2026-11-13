@@ -85,6 +85,7 @@ their handlers open opens.
 #include "saved games/player_profile.h"
 #include "saved games/saved_game_files.h"
 #include "tag_files/tag_groups.h"
+#include "text/draw_string.h"
 #include "text/text_group.h"
 #include "text/unicode.h"
 
@@ -2387,6 +2388,78 @@ project, in the picture's place (its about_text) */
 #define CHUPATHINGY_ABOUT_FRAME 6
 #define CHUPATHINGY_ABOUT_LENGTH 512
 
+/* (a line's width in the font the draw mode has) */
+static short chupathingy_about_width(char const *text, long length)
+{
+	wchar_t wide[128];
+	rectangle2d measure, ink, cursor;
+	long index;
+
+	for (index = 0; index < length && index < (long)NUMBEROF(wide) - 1; index++)
+		wide[index] = (wchar_t)(unsigned char)text[index];
+	wide[index] = 0;
+	set_rectangle2d(&measure, 0, 0, SHORT_MAX, SHORT_MAX);
+	draw_unicode_string_compute_bounds(&measure, wide, &ink, &cursor);
+	return (short)MAX(cursor.x0, ink.x1);
+}
+
+/* the about text's first line into line: "Chupathingy <version>", or the
+version alone where that would run past the text's right edge (a test
+build's or a nightly's long version, "0.9.1-testing.202611122017 (b43619e)":
+the description under it names Chupathingy, and the lines after it keep
+their room), broken at its spaces ("\r\n", as the menus' strings) if it is
+wider still; never inside a word */
+static void chupathingy_about_version(struct widget_instance *about, char const *version, char *line, int size)
+{
+	extern boolean ui_widget_port_text_box_room(struct widget_instance *widget, long *font_index, short *width);
+	real_argb_color color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	long font_index;
+	short width;
+	char words[128];
+	char *word, *next;
+	int length = 0, start = 0;
+
+	snprintf(line, (size_t)size, "Chupathingy %s", version);
+	if (!ui_widget_port_text_box_room(about, &font_index, &width))
+		return;
+	draw_string_set_draw_mode(font_index, NONE, 0, 0, &color);
+	if (chupathingy_about_width(line, (long)strlen(line)) <= width)
+		return;
+	snprintf(words, sizeof(words), "%s", version);
+	line[0] = 0;
+	for (word = words; word; word = next)
+	{
+		next = strchr(word, ' ');
+		if (next)
+			*next++ = 0;
+		if (length > start)
+		{
+			int joined = snprintf(line + length, (size_t)(size - length), " %s", word);
+
+			if (joined < 0 || length + joined >= size)
+				break;
+			if (chupathingy_about_width(line + start, length + joined - start) <= width)
+			{
+				length += joined;
+				continue;
+			}
+			line[length] = 0;
+			if (length + 2 >= size)
+				break;
+			line[length++] = '\r';
+			line[length++] = '\n';
+			start = length;
+		}
+		length += snprintf(line + length, (size_t)(size - length), "%s", word);
+		if (length >= size)
+		{
+			length = size - 1;
+			break;
+		}
+	}
+	line[length] = 0;
+}
+
 static void chupathingy_settings_about(struct widget_instance *picture)
 {
 	extern char const *build_identity_watermark(void);
@@ -2395,7 +2468,7 @@ static void chupathingy_settings_about(struct widget_instance *picture)
 #endif
 	struct widget_instance *about = named(picture, "about_text", 0);
 	wchar_t wide[CHUPATHINGY_ABOUT_LENGTH];
-	char text[CHUPATHINGY_ABOUT_LENGTH], version[64], platform[64];
+	char text[CHUPATHINGY_ABOUT_LENGTH], version[64], platform[64], first[160];
 	char const *watermark, *agent, *open, *close, *notice;
 	long index;
 
@@ -2424,8 +2497,9 @@ static void chupathingy_settings_about(struct widget_instance *picture)
 		snprintf(platform, sizeof(platform), "%.*s, %d-bit", (int)(close - open - 1), open + 1, (int)sizeof(void *) * 8);
 	else
 		snprintf(platform, sizeof(platform), "%d-bit", (int)sizeof(void *) * 8);
+	chupathingy_about_version(about, version, first, sizeof(first));
 	snprintf(text, sizeof(text),
-		"Chupathingy %s\r\n"
+		"%s\r\n"
 		"%s\r\n"
 		"\r\n"
 		"By Milenko and contributors.\r\n"
@@ -2437,7 +2511,7 @@ static void chupathingy_settings_about(struct widget_instance *picture)
 		"Free software under the GPL-3.0.\r\n"
 		"stats.chupathingy.org\r\n"
 		"github.com/ChupathingyCE/chupathingyce",
-		version, platform);
+		first, platform);
 	for (index = 0; text[index] && index < CHUPATHINGY_ABOUT_LENGTH - 1; index++)
 		wide[index] = (wchar_t)(unsigned char)text[index];
 	wide[index] = 0;
@@ -6094,7 +6168,7 @@ static void browser_update(struct widget_instance *list)
 		wchar_t filter[32];
 		char label[32];
 
-		snprintf(label, sizeof(label), "FILTER: %s", browser_list_filter_name());
+		snprintf(label, sizeof(label), "%s", browser_list_filter_label());
 		text_to_wide(label, filter, NUMBEROF(filter));
 		text_set(named(screen_of(list), "join_game_button_filters", 0), filter);
 	}

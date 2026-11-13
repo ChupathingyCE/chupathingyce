@@ -1487,10 +1487,11 @@ short pc_menu_button_key_cap_left(
 	short x1,
 	short y1);
 /* port: the row of the bitmap draw_bitmap_in_rect starts from (a frame the
-menus place, pc_menu_frame_placement): 0 but while one is drawn */
-static short draw_bitmap_texel_y = 0;
-/* ... and the column (the name entry's picture's sides on a wide screen:
-virtual_keyboard.c) */
+menus place, pc_menu_frame_placement; a piece of the name entry's
+picture, virtual_keyboard.c): 0 but while one is drawn */
+short draw_bitmap_texel_y = 0;
+/* ... and the column (the name entry's picture's sides on a wide screen,
+and its pieces: virtual_keyboard.c) */
 short draw_bitmap_texel_x = 0;
 static void widget_instance_initialize(
 	struct widget_instance *widget,
@@ -6307,6 +6308,23 @@ static long search_and_replace(
 }
 
 
+/* port: a text box's font and the width its lines have (its bounds less
+its offset on each side), for port code that fits its own text to it
+(menu_functions.c's About): FALSE when it has no font */
+boolean ui_widget_port_text_box_room(
+	struct widget_instance *widget,
+	long *font_index,
+	short *width)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(widget->definition_tag_index);
+
+	if (definition->text_font.index == NONE)
+		return FALSE;
+	*font_index = definition->text_font.index;
+	*width = (short)(definition->bounds.x1 - definition->bounds.x0 - 2 * definition->horizontal_offset);
+	return TRUE;
+}
+
 /* port: the port's own error text (display_error_text_deferred), which may be
 longer than a line of its dialog: broken at spaces (the strings' line break,
 '\r') where a line would be wider than `width` in the font drawn with.
@@ -8543,48 +8561,72 @@ static void ui_widgets_process_mouse(
 
 #endif
 
+/* port: how far a key cap wider than the button's picture it stands for
+reaches left of it (ENTER's, for A), summed over widget's key cap and its
+children's (offset by x and y, its parents' offsets) that are on the line
+from y0 to y1 and start right of x0 */
+static short ui_widget_port_key_cap_overflow(
+	struct widget_instance *widget,
+	short x,
+	short y,
+	short x0,
+	short y0,
+	short y1)
+{
+	struct ui_widget_definition *definition;
+	struct widget_instance *child;
+	rectangle2d bounds;
+	short overflow = 0;
+
+	if (!widget->visible)
+		return 0;
+	definition = ui_widget_definition_get(widget->definition_tag_index);
+	bounds = definition->bounds;
+	bounds.x0 = (short)(bounds.x0 + x + widget->horizontal_offset);
+	bounds.x1 = (short)(bounds.x1 + x + widget->horizontal_offset);
+	bounds.y0 = (short)(bounds.y0 + y + widget->vertical_offset);
+	bounds.y1 = (short)(bounds.y1 + y + widget->vertical_offset);
+	/* (a picture on the line, the piece sitting on it, after x0) */
+	if (definition->background_bitmap.index != NONE && bounds.x0 > x0 + 1 &&
+		y0 >= bounds.y0 - 8 && y1 <= bounds.y1 + 8)
+	{
+		short left = pc_menu_button_key_cap_left(definition->background_bitmap.index, bounds.x0, bounds.y0,
+			bounds.x1, bounds.y1);
+
+		if (left < bounds.x0)
+			overflow = (short)(bounds.x0 - left);
+	}
+	for (child = widget->child; child; child = child->next)
+	{
+		overflow = (short)(overflow + ui_widget_port_key_cap_overflow(child, (short)(x + widget->horizontal_offset),
+			(short)(y + widget->vertical_offset), x0, y0, y1));
+	}
+	return overflow;
+}
+
 /* port: how far left a prompt's pieces move for the key caps to their
 right: a key cap wider than the button's picture it stands for reaches
 left of it (ENTER's, for A), and touched the words before it ("=BACK"):
-the pieces left of it on its line, its own row of the footer, move left by
-as much, the room between them as the Xbox's pictures had it */
+every piece of a footer's line before it moves left by as much, the room
+between them as the Xbox's pictures had it. A piece moves by the sum of the
+key caps after it on its line, its siblings' and their children's (the
+Xbox's footers keep BACK and SELECT in a group of their own, button_key,
+after a screen's "=DELETE") */
 static short ui_widget_port_key_cap_shift(
 	struct widget_instance *parent,
 	struct widget_instance *child)
 {
 	struct ui_widget_definition *child_definition = ui_widget_definition_get(child->definition_tag_index);
 	struct widget_instance *sibling;
-	short child_x1 = (short)(child_definition->bounds.x1 + child->horizontal_offset);
+	short child_x0 = (short)(child_definition->bounds.x0 + child->horizontal_offset);
 	short child_y0 = (short)(child_definition->bounds.y0 + child->vertical_offset);
 	short child_y1 = (short)(child_definition->bounds.y1 + child->vertical_offset);
 	short shift = 0;
 
 	for (sibling = parent->child; sibling; sibling = sibling->next)
 	{
-		struct ui_widget_definition *definition;
-		rectangle2d bounds;
-		short left;
-
-		if (sibling == child || !sibling->visible)
-			continue;
-		definition = ui_widget_definition_get(sibling->definition_tag_index);
-		if (definition->background_bitmap.index == NONE)
-			continue;
-		bounds = definition->bounds;
-		bounds.x0 = (short)(bounds.x0 + sibling->horizontal_offset);
-		bounds.x1 = (short)(bounds.x1 + sibling->horizontal_offset);
-		bounds.y0 = (short)(bounds.y0 + sibling->vertical_offset);
-		bounds.y1 = (short)(bounds.y1 + sibling->vertical_offset);
-		/* (on its line, wholly left of the picture, and near it) */
-		if (bounds.y0 >= child_y1 || bounds.y1 <= child_y0 || child_x1 > bounds.x0 + 1 ||
-			bounds.x0 - child_x1 > 120)
-		{
-			continue;
-		}
-		left = pc_menu_button_key_cap_left(definition->background_bitmap.index, bounds.x0, bounds.y0, bounds.x1,
-			bounds.y1);
-		if (left < bounds.x0)
-			shift = (short)(shift + bounds.x0 - left);
+		if (sibling != child)
+			shift = (short)(shift + ui_widget_port_key_cap_overflow(sibling, 0, 0, child_x0, child_y0, child_y1));
 	}
 	return shift;
 }

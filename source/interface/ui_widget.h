@@ -111,6 +111,7 @@ void ui_widgets_inhibit_processing(
 /* port: the column of the bitmap draw_bitmap_in_rect starts from: 0 but
 while a part of one is drawn */
 extern short draw_bitmap_texel_x;
+extern short draw_bitmap_texel_y;
 void draw_bitmap_in_rect(
 	struct bitmap_data *bitmap,
 	rectangle2d *rect,

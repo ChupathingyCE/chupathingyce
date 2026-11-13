@@ -2,6 +2,7 @@
 # with pytest: one per line, sorted. A file not in the commit being built
 # is left out with a notice (a release branch's commit may not have every
 # test main has). Add yours on its own line, in order.
+tools/test_about_version.py
 tools/test_address_limit.py
 tools/test_android_asm_convert.py
 tools/test_android_mcc_memory.py
@@ -32,6 +33,7 @@ tools/test_determinism.py
 tools/test_discord_activity.py
 tools/test_discord_register.py
 tools/test_event_log.py
+tools/test_footer_prompts.py
 tools/test_gamespy_listing.py
 tools/test_guide_layout.py
 tools/test_guide_themes.py

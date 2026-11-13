@@ -665,6 +665,113 @@ static wchar_t virtual_keyboard_get_current_character(
 		virtual_keyboard_globals.row][virtual_keyboard_globals.column]);
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: the menus' prompt for a button, B (0) or A (1), drawn as the
+footers draw theirs, right-aligned in these bounds: the keyboard's key cap,
+or the device's own button (port/linux/game/menu_tags.c). FALSE when the
+Xbox's picture is the prompt */
+boolean pc_menu_keyboard_prompt(
+	long which,
+	short x0,
+	short y0,
+	short x1,
+	short y1);
+
+/* port: ui\bkd_virtual_keyboard has the Xbox's B and A pictures in its
+picture ("B=BACK  A=ENTER" under the keys), which showed a controller's
+buttons with the keyboard in use. Where the menus' prompts are drawn, the
+picture is drawn without them, a stretch of the plain band beside each
+standing in for it, and the prompts over the gaps: its rows from the band's
+top to its bottom (in the picture's 640x480, as it is drawn), the two
+pictures' columns, and the band's columns they are drawn from */
+enum
+{
+	_virtual_keyboard_band_y0 = 411,
+	_virtual_keyboard_band_y1 = 443,
+	/* (the prompts' rows: centered on the words, "=BACK", as wide as
+	ENTER's key cap fits before them) */
+	_virtual_keyboard_prompt_y0 = 414,
+	_virtual_keyboard_prompt_y1 = 438,
+	NUMBER_OF_VIRTUAL_KEYBOARD_PROMPTS = 2,
+};
+
+static short const virtual_keyboard_prompt_columns[NUMBER_OF_VIRTUAL_KEYBOARD_PROMPTS][4] =
+{
+	/* x0, x1, the plain band's x0, x1 */
+	{ 369, 393, 342, 366 },
+	{ 470, 494, 457, 469 },
+};
+
+static void virtual_keyboard_background_piece(
+	struct bitmap_data *bitmap,
+	short x0,
+	short y0,
+	short x1,
+	short y1,
+	short texel_x0,
+	short texel_x1)
+{
+	rectangle2d bounds, texels;
+
+	bounds.x0 = x0;
+	bounds.y0 = y0;
+	bounds.x1 = x1;
+	bounds.y1 = y1;
+	/* (draw_bitmap_in_rect takes the texels' size, from draw_bitmap_texel_x
+	and draw_bitmap_texel_y) */
+	texels.x0 = 0;
+	texels.y0 = 0;
+	texels.x1 = (short)(texel_x1 - texel_x0);
+	texels.y1 = (short)(y1 - y0);
+	draw_bitmap_texel_x = texel_x0;
+	draw_bitmap_texel_y = y0;
+	draw_bitmap_in_rect(bitmap, &bounds, &texels, NULL, 0xffffffff, NULL, FALSE);
+	draw_bitmap_texel_x = 0;
+	draw_bitmap_texel_y = 0;
+}
+
+static boolean virtual_keyboard_background_prompts(
+	struct bitmap_data *bitmap)
+{
+	/* (looked up each time: ui.map is loaded again after a game) */
+	long background_tag = tag_loaded(BITMAP_GROUP_TAG, "ui\\bkd_virtual_keyboard");
+	short x = 0;
+	long which;
+
+	if (background_tag == NONE || virtual_keyboard_globals.keyboard->background_bitmap_tag.index != background_tag ||
+		bitmap->width < 640 || bitmap->height < 480 ||
+		!pc_menu_keyboard_prompt(NONE, 0, 0, 0, 0))
+	{
+		return FALSE;
+	}
+	/* (above and below the band, whole) */
+	virtual_keyboard_background_piece(bitmap, 0, 0, 640, _virtual_keyboard_band_y0, 0, 640);
+	virtual_keyboard_background_piece(bitmap, 0, _virtual_keyboard_band_y1, 640, 480, 0, 640);
+	/* (the band: its pieces between the pictures as they are, the plain
+	band in the pictures' places) */
+	for (which = 0; which <= NUMBER_OF_VIRTUAL_KEYBOARD_PROMPTS; which++)
+	{
+		short end = which < NUMBER_OF_VIRTUAL_KEYBOARD_PROMPTS ? virtual_keyboard_prompt_columns[which][0] : 640;
+
+		virtual_keyboard_background_piece(bitmap, x, _virtual_keyboard_band_y0, end, _virtual_keyboard_band_y1, x, end);
+		if (which == NUMBER_OF_VIRTUAL_KEYBOARD_PROMPTS)
+			break;
+		virtual_keyboard_background_piece(bitmap, virtual_keyboard_prompt_columns[which][0], _virtual_keyboard_band_y0,
+			virtual_keyboard_prompt_columns[which][1], _virtual_keyboard_band_y1, virtual_keyboard_prompt_columns[which][2],
+			virtual_keyboard_prompt_columns[which][3]);
+		x = virtual_keyboard_prompt_columns[which][1];
+	}
+	/* (the prompts: ending where the pictures ended, as the footers'
+	do; a key cap wider than the picture reaches left of it) */
+	for (which = 0; which < NUMBER_OF_VIRTUAL_KEYBOARD_PROMPTS; which++)
+	{
+		pc_menu_keyboard_prompt(which, virtual_keyboard_prompt_columns[which][0], _virtual_keyboard_prompt_y0,
+			(short)(virtual_keyboard_prompt_columns[which][1] - 2), _virtual_keyboard_prompt_y1);
+	}
+	return TRUE;
+}
+#endif
+
 static void virtual_keyboard_render_internal(
 	void)
 {
@@ -702,6 +809,9 @@ static void virtual_keyboard_render_internal(
 			"c:\\halo\\SOURCE\\interface\\virtual_keyboard.c",
 			1046,
 			bitmap);
+#ifdef HALO_GAME_BROWSER
+		if (!virtual_keyboard_background_prompts(bitmap))
+#endif
 		draw_bitmap_in_rect(bitmap, &bounds, &bounds, NULL, 0xffffffff, NULL, FALSE);
 #ifdef HALO_PORT_WIDE_INTERFACE
 		/* port: on a wide screen the picture's band and lines carried on

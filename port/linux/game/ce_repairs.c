@@ -48,6 +48,11 @@ or reads past a tag's end:
     format, whose 4x4 blocks are its size, and marked so that its blocks are
     decoded as BC7's when it is drawn (ce_bitmap_is_bc7: xbox_texture_cache.c,
     xbox_textures.c);
+  - a structure BSP's tag given an address (a map tool leaves one:
+    cursed-bloodgulch's), which Halo PC's engine let be and set as the BSP
+    loaded, where the game asserts it has none: none, before the map is
+    checked (ce_map_checks.c), as the BSP's own is set when it loads
+    (cache_files.c);
   - an effect's flags, in Gearbox's layout ("must be deterministic" in bit
     2, where the Xbox has it in bit 1: ce_effect_flags.h): read as the
     Xbox's, so that its effects are deterministic where Halo PC's are.
@@ -607,6 +612,27 @@ static void ce_repairs_log(
 
 /* ---------- public code */
 
+/* the map's structure BSPs' tags given no address (one a map tool left:
+it is set as the BSP loads, cache_files.c); the number that had one */
+long ce_repairs_bsp_addresses(
+	void *tag_instances,
+	long tag_count)
+{
+	long index, count = 0;
+
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance *instance = ce_instance(tag_instances, index);
+
+		if (instance->group_tag == 'sbsp' && instance->base_address)
+		{
+			instance->base_address = 0;
+			count++;
+		}
+	}
+	return count;
+}
+
 /* the scenario the map's header names (scenario_tag_index, which must be a
 tag's handle) given the scenario's group if it has another; TRUE if it was */
 boolean ce_repairs_scenario_group(
@@ -711,8 +737,14 @@ void ce_repairs_scenario_loaded(
 	long tag_count,
 	unsigned long scenario_tag_index)
 {
+	long bsps;
+
 	if (ce_repairs_scenario_group(tag_instances, tag_count, scenario_tag_index))
 		error(_error_silent, "Custom Edition map: its scenario given the scenario's group");
+	bsps = ce_repairs_bsp_addresses(tag_instances, tag_count);
+	if (bsps)
+		error(_error_silent, "%s map: %ld structure BSP tags' addresses cleared, to be set as they load",
+			ce_map_family_name(), bsps);
 }
 
 /* the map's tags loaded (cache_files.c), its resource maps' tags copied in:
