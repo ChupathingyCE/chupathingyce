@@ -2643,9 +2643,9 @@ That's Just... Wrong, Thunderstorm), reads Sputnik and Bandanna, and resets
 the ones the MCC menu may have turned on; the earlier design, which held
 every skull at false and refused an enable, would not load it.
 
-`port/linux/game/mcc_skulls.c` appends the same 30 globals to the engine's
-external global table (after every existing entry, so no index a map was
-compiled with moves), lets an MCC map's scripts set them
+`port/linux/game/mcc_skulls.c` appends the same 29 globals (28 skulls and
+`force_coop`) to the engine's external global table (after every existing
+entry, so no index a map was compiled with moves), lets an MCC map's scripts set them
 (`mcc_campaign_global_settable`), clears them when a level starts and turns
 on the ones `game.mcc_skulls` names (`HALO_MCC_SKULLS`, a comma-separated
 list; the stand-in for MCC's skull menu), and carries them in the campaign
