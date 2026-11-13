@@ -131,7 +131,7 @@ Elsewhere 512 keeps the latency low. */
 #define DEFAULT_AUDIO_BUFFER_FRAMES "512"
 #endif
 
-/* Headphone 3D (dsound_sdl.c's binaural rendering), on as the original Xbox
+/* Headphone 3D (the Xbox's HRTF, dsound_sdl.c), on as the original Xbox
 had it: its DirectSound filtered every 3D voice through its HRTFs, on TV
 stereo too (DirectSoundUseFullHRTF). Surround output ignores it. A
 console's build keeps it off: the original Xbox has its own hardware path,

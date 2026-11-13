@@ -4,9 +4,7 @@ tools/hud_assets.py), the menus' titles (port/assets/titles, made by
 tools/title_assets.py), the fonts the text is drawn with
 (port/assets/fonts), the menus' files (port/assets/menus, made by
 tools/ce_menus.py), SMAA's shader and lookup textures
-(port/third_party/smaa), the mixer's head-related impulse responses
-(port/assets/hrtf, made by tools/hrtf_assets.py) and Chupathingy's loading
-picture (port/assets/loading, made by tools/make_loading_picture.py) in the
+(port/third_party/smaa) and Chupathingy's loading picture (port/assets/loading, made by tools/make_loading_picture.py) in the
 game as C data:
 
     python tools/embed_assets.py OUTPUT.c
@@ -58,8 +56,6 @@ MENU_LIST = MENU_ASSETS / "menus.json"
 SMAA_ASSETS = Path("port/third_party/smaa")
 SMAA_FILES = (("SMAA.hlsl", "xgpu_smaa_shader"), ("area_tex.zlib", "xgpu_smaa_area_texture"),
               ("search_tex.zlib", "xgpu_smaa_search_texture"))
-# the head-related impulse responses (dsound_sdl.c's hrtf)
-HRTF_FILE = Path("port/assets/hrtf/sadie_d2_48k.hrtf")
 # the stock maps' shader key list (port/linux/src/xgpu_shader_keys.c; made
 # by tools/shader_keys.py)
 SHADER_KEYS_FILE = Path("port/assets/shaders/stock.keys")
@@ -174,7 +170,6 @@ def hud_asset_inputs() -> List[Path]:
     return [*inputs, *(folder / f"{asset['name']}.png" for folder, asset, _ in textures()),
             *(FONT_ASSETS / name for name in font_files()), *(MENU_ASSETS / name for name in menu_files()),
             *(SMAA_ASSETS / name for name, _ in smaa_files()),
-            *([HRTF_FILE] if (ROOT / HRTF_FILE).is_file() else []),
             *([LOADING_PICTURE_FILE] if (ROOT / LOADING_PICTURE_FILE).is_file() else []),
             *([SHADER_KEYS_FILE] if (ROOT / SHADER_KEYS_FILE).is_file() else [])]
 
@@ -495,14 +490,6 @@ def main() -> None:
         lines.append(f"const unsigned long {symbol}_size = {len(data)};")
     lines.append("")
     lines.append("#endif")
-    # the mixer's head-related impulse responses (dsound_sdl.c), of size 0
-    # if the checkout does not have them
-    data = (ROOT / HRTF_FILE).read_bytes() if (ROOT / HRTF_FILE).is_file() else b""
-    lines.append("")
-    lines.append("const unsigned int dsound_hrtf_data[] = {")
-    lines.extend(words(data) if data else ["\t0,"])
-    lines.append("};")
-    lines.append(f"const unsigned long dsound_hrtf_data_size = {len(data)};")
     # Chupathingy's loading picture (loading_picture.c), of size 0 if the
     # checkout does not have it
     data = (ROOT / LOADING_PICTURE_FILE).read_bytes() if (ROOT / LOADING_PICTURE_FILE).is_file() else b""
