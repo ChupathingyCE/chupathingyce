@@ -26,11 +26,12 @@ static struct {
     struct mcc_workshop_item item;
     int valid;
 } mcc_host_identity;
-static struct {
+struct mcc_client_binding {
     char session[64], local[64];
     unsigned char digest[32];
     struct mcc_precache_snapshot files;
-} mcc_client_identity;
+};
+static struct mcc_client_binding mcc_client_identity;
 
 static int mcc_identity_error(char const *message)
 {
@@ -279,6 +280,22 @@ static int mcc_identity_refusal(struct network_game const *game,char const *sess
     return mcc_identity_error(text);
 }
 
+/* (mcc_identity_accept) the session this client last resolved, the same
+ * name and digest, its local package's files unchanged since: taken again
+ * as it was, without hashing. The host's settings come with every lobby
+ * change, and a host may send them as often as it likes, each with another
+ * map version: every one hashed a whole package on the game thread. */
+static int mcc_identity_seen(struct mcc_client_binding const *previous,char const *session,
+    unsigned char const digest[32])
+{
+    struct mcc_precache_snapshot files;
+    if (!previous->session[0] || strcmp(previous->session,session) || memcmp(previous->digest,digest,32) ||
+        !mcc_precache_snapshot(previous->local,&files) || memcmp(&files,&previous->files,sizeof(files)))
+        return 0;
+    mcc_client_identity=*previous;
+    return 1;
+}
+
 int mcc_identity_accept(struct network_game const *game)
 {
     char session[64],selected[64];
@@ -288,6 +305,7 @@ int mcc_identity_accept(struct network_game const *game)
     unsigned candidates=0,matches=0;
     struct mcc_precache_snapshot selected_files;
     unsigned char const *digest=mcc_identity_session_digest(game);
+    struct mcc_client_binding previous=mcc_client_identity;
     memset(&mcc_client_identity,0,sizeof(mcc_client_identity));
     mcc_cache_precache_clear();
 #ifdef HALO_MCC_NETWORK
@@ -298,6 +316,7 @@ int mcc_identity_accept(struct network_game const *game)
 #endif
     if (!mcc_package_name(game->map.name,session) || !memcmp(digest,zero,32))
         return mcc_identity_error("Couldn't check this game's MCC map. The host may need to restart the game.");
+    if (mcc_identity_seen(&previous,session,digest)) return 1;
     /* A verified exact installation is unambiguous even with duplicate copies. */
     if (mcc_identity_matches(session,digest,&selected_files)) {
         strcpy(selected,session);

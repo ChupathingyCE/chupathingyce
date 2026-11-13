@@ -1,0 +1,16 @@
+{
+  "about": "a host's in-game messages (the distributed netcode's) as a client handles them: network_distributed.c's handlers and the objects', damage's, AI's and co-op's under them, over a world of four players and their objects",
+  "harness": "tools/tests/host_fuzz/distributed_messages/distributed_messages_fuzz.c",
+  "sources": ["tools/tests/host_fuzz/distributed_messages/distributed_stubs.c"],
+  "game_flags": ["-DXBOX_ADDRESS_SPACE_BASE=0x300000000000ULL"],
+  "game_sources": [
+    "source/memory/data.c",
+    "port/linux/game/network_distributed.c",
+    {"source": "port/linux/game/network_objects.c", "append": "tools/tests/host_fuzz/distributed_messages/world_setup.c"},
+    "port/linux/game/network_damage.c",
+    "port/linux/game/network_actors.c",
+    "port/linux/game/network_coop.c",
+    "port/linux/game/network_rules.c"
+  ],
+  "max_len": 8192
+}
