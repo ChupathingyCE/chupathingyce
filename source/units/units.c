@@ -697,6 +697,7 @@ symbols in this file:
 #include "coop_enemies.h" /* port: port/linux/game/coop_enemies.c */
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_engine.h" /* port: port/linux/game/stubbs_engine.c */
 #endif
 #include "mcc_grenades.h"
 
@@ -2811,7 +2812,12 @@ void unit_died(
 		object_set_garbage(unit_index, TRUE);
 		if (unit->unit.player_index != NONE)
 		{
-			player_died(unit->unit.player_index);
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+			/* port: Stubbs's hand, or a human it took, sends its player back
+			to his body (Stubbs mode only: port/linux/game/stubbs_engine.c) */
+			if (!(stubbs_mode_active() && stubbs_engine_player_unit_died(unit_index, unit->unit.player_index)))
+#endif
+				player_died(unit->unit.player_index);
 			unit->unit.player_index = NONE;
 		}
 

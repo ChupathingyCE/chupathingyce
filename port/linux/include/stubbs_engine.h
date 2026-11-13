@@ -1,0 +1,69 @@
+/*
+STUBBS_ENGINE.H
+
+Stubbs the Zombie's engine systems (port/linux/game/stubbs_engine.c): his
+special attacks (the hand first) and the two units a Stubbs player has, his
+own body (the origin) and the one he drives now (his hand, or a human the
+hand has taken). Called only in Stubbs mode (stubbs_mode_active), so Halo
+never reaches any of it.
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
+*/
+
+#ifndef STUBBS_ENGINE_H
+#define STUBBS_ENGINE_H
+
+/* Stubbs's special attacks, as his unit definition lists them */
+enum
+{
+	_stubbs_special_attack_flatulence = 0,
+	_stubbs_special_attack_gut_grenade,
+	_stubbs_special_attack_hand,
+	_stubbs_special_attack_head,
+};
+
+#ifndef HALO_CONSOLE_NO_STUBBS
+
+/* a Stubbs unit definition (bipd or vehi) about to be rewritten in Halo's
+layout (stubbs_mode.c): its special attacks noted first, since Halo's
+layout has no room for them. The first one of a map forgets the last map's
+hands and bodies */
+void stubbs_engine_note_unit_definition(void const *tag_instance, void const *definition,
+	void const *tag_cache, unsigned long tag_data_size);
+
+/* a local player's input of a tick (player_control.c's
+handle_one_player_input): the hand thrown, recalled or put on a human's
+head. hand_button is the hand's bit among the player control flags (Halo's
+switch grenades, black), taken out of them */
+void stubbs_engine_player_input(short local_player_index, unsigned long *player_control_flags,
+	unsigned long hand_button, unsigned long unit_control_flags);
+
+/* a player's unit died (units.c): TRUE when it was the hand or a body the
+hand had taken, and the player is back in Stubbs's body (the player
+doesn't die) */
+boolean stubbs_engine_player_unit_died(long unit_index, long player_index);
+
+/* for the script functions (stubbs_functions.c): a player's body
+(player_origin), (unit_special_attack <unit> <index>), the special
+attack counts and (player_move_origin <from> <to>) */
+long stubbs_engine_player_origin_unit(long player_index);
+boolean stubbs_engine_special_attack(long unit_index, short special_attack);
+short stubbs_engine_special_attack_get_count(long unit_index, short special_attack);
+void stubbs_engine_special_attack_set_count(long unit_index, short special_attack, short count);
+void stubbs_engine_player_move_origin(long from_unit_index, long to_unit_index);
+
+#else
+/* (a console leaves Stubbs mode out: each hook is an empty one here) */
+static __inline void stubbs_engine_note_unit_definition(void const *tag_instance, void const *definition,
+	void const *tag_cache, unsigned long tag_data_size)
+{ (void)tag_instance; (void)definition; (void)tag_cache; (void)tag_data_size; }
+static __inline void stubbs_engine_player_input(short local_player_index, unsigned long *player_control_flags,
+	unsigned long hand_button, unsigned long unit_control_flags)
+{ (void)local_player_index; (void)player_control_flags; (void)hand_button; (void)unit_control_flags; }
+static __inline boolean stubbs_engine_player_unit_died(long unit_index, long player_index)
+{ (void)unit_index; (void)player_index; return FALSE; }
+#endif
+
+#endif
