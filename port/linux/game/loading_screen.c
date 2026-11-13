@@ -75,7 +75,12 @@ static void loading_screen_texel(
 	*fraction = size > 1 ? position - (float)first : 0.0f;
 }
 
-/* a channel of a texture, filtered as the Xbox's linear filter does */
+/* a channel of a texture, filtered as the Xbox's linear filter does. The
+texels' bytes are R, G, B, A in memory; the channel is the byte (shift / 8),
+read as a byte, which is the same on a little-endian machine as the shift
+of the texel read as a word was, and right on a big-endian one too (the
+word there put the alpha where the red was: the Wii U's loading screen was
+cream and pink) */
 static float loading_screen_sample(
 	unsigned int const *pixels,
 	long width,
@@ -89,12 +94,13 @@ static float loading_screen_sample(
 	unsigned int const *row0;
 	unsigned int const *row1;
 	float top, bottom;
+	int byte = shift / 8;
 
 	loading_screen_texel(u, width, &x, &fx);
 	loading_screen_texel(v, height, &y, &fy);
 	row0 = pixels + y * width;
 	row1 = height > 1 ? row0 + width : row0;
-#define CHANNEL(pixel) ((float)(((pixel) >> shift) & 0xff))
+#define CHANNEL(pixel) ((float)((unsigned char const *)&(pixel))[byte])
 	top = CHANNEL(row0[x]) + (CHANNEL(row0[x + (width > 1)]) - CHANNEL(row0[x])) * fx;
 	bottom = CHANNEL(row1[x]) + (CHANNEL(row1[x + (width > 1)]) - CHANNEL(row1[x])) * fx;
 #undef CHANNEL
