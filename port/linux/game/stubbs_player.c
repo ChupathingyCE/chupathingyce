@@ -16,6 +16,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "bitmaps/bitmaps.h"
 #include "camera/director.h"
+#include "models/model_animation_definitions.h"
 #include "interface/hud_messaging.h"
 #include "interface/hud_unit.h"
 #include "game/game.h"
@@ -77,57 +78,86 @@ boolean stubbs_player_camera_following(
 Stubbs fights with his hands: the player's melee button when Halo would
 not swing (no weapon in hand, or one with no melee). Halo's player melee is
 the weapon's (its first-person animation sets the blow's timing, bipeds.c),
-and an unarmed Halo player can't melee, so in Stubbs mode the blow is timed by Stubbs's own third-person melee
-animation instead and played as the AI's melee is (unit_melee_attack_begin).
+and an unarmed Halo player can't melee, so in Stubbs mode the blow is
+Stubbs's own punch from his animation graph, played as Halo plays a
+player's third-person swing (the unit's action animation), and timed by it.
 Its damage is then Halo's player melee (unit_cause_player_melee_damage):
 Stubbs's unit melee_damage (his first blow's, stubbs_mode.c), along his
-aim. */
+aim.
+
+His punch is his weapon class's melee attack, which stubbs_mode.c puts in
+Halo's slot (Stubbs's own order has his second combo blow, a lunge, there). */
+
+enum
+{
+	STUBBS_ANIMATION_MELEE = 39, /* (Halo's _unit_weapon_class_animation_melee_attack) */
+	STUBBS_UNIT_ANIMATION_ACTION_MELEE = 7, /* (unit_animation_start_action's) */
+	STUBBS_MELEE_LONGEST_TICKS = 120, /* (bipeds.c counts them down in a char) */
+};
 
 boolean stubbs_player_melee_begin(
 	long biped_index,
 	short *ticks,
 	short *attack_tick)
 {
-	short melee_tick = NONE;
-	short frame_count = 0;
-	real attack_time = 0.0f;
-	real damage_time = 0.0f;
 	struct unit_datum *unit = unit_try_and_get(biped_index);
+	struct unit_definition *definition;
+	struct animation_graph *graph;
+	struct animation_graph_unit_seat *seat;
+	struct animation_graph_weapon_class *weapon_class;
+	struct animation *animation;
+	short animation_index;
+	short frame_count, key_frame;
 
 	if (!unit || unit->unit.current_zoom_level != NONE)
 		return FALSE;
-	if (!unit_get_melee_range_and_ticks(biped_index, FALSE, &melee_tick, &attack_time, &frame_count, &damage_time) ||
-		frame_count <= 1)
+	definition = unit_definition_get(unit->definition_index);
+	if (definition->object.animation_graph.index == NONE)
+		return FALSE;
+	graph = animation_graph_definition_get(definition->object.animation_graph.index);
+	if (unit->unit.animation.seat_index < 0 || unit->unit.animation.seat_index >= graph->unit_seats.count)
+		return FALSE;
+	seat = TAG_BLOCK_GET_ELEMENT(&graph->unit_seats, unit->unit.animation.seat_index, struct animation_graph_unit_seat);
+	if (unit->unit.animation.weapon_index < 0 || unit->unit.animation.weapon_index >= seat->weapon_classes.count)
+		return FALSE;
+	weapon_class = TAG_BLOCK_GET_ELEMENT(&seat->weapon_classes, unit->unit.animation.weapon_index,
+		struct animation_graph_weapon_class);
+	if (weapon_class->animations.count <= STUBBS_ANIMATION_MELEE)
+		return FALSE;
+	animation_index = animation_graph_animation_index_get(&weapon_class->animations)[STUBBS_ANIMATION_MELEE].animation_index;
+	if (animation_index == NONE || animation_index >= graph->animations.count)
 	{
 		static boolean reported;
 
 		if (!reported)
 		{
 			reported = TRUE;
-			stubbs_mode_log("the player's unit has no melee animation: no melee");
+			stubbs_mode_log("the player's unit has no punch animation: no melee");
 		}
 		return FALSE;
 	}
-	if (!unit_melee_attack_begin(biped_index, FALSE, NULL))
+	animation_index = animation_choose_random_permutation_internal(TRUE, definition->object.animation_graph.index,
+		animation_index);
+	animation = TAG_BLOCK_GET_ELEMENT(&graph->animations, animation_index, struct animation);
+	frame_count = MIN(animation->frame_count, STUBBS_MELEE_LONGEST_TICKS);
+	if (frame_count <= 1)
 		return FALSE;
-	/* (the AI's melee state is the AI's: the blow below is the player's) */
-	unit->unit.melee_attack_state = 0;
-	/* (bipeds.c counts its ticks down in a char) */
-	frame_count = MIN(frame_count, 120);
-	if (melee_tick <= 0 || melee_tick >= frame_count)
-		melee_tick = frame_count / 2;
+	key_frame = animation->private_key_frame_index;
+	if (key_frame <= 0 || key_frame >= frame_count)
+		key_frame = frame_count / 2;
+	unit->unit.animation.action_animation.index = animation_index;
+	unit->unit.animation.action_animation.frame_index = 0;
+	unit->unit.animation.action = STUBBS_UNIT_ANIMATION_ACTION_MELEE;
 	*ticks = frame_count;
-	*attack_tick = (short)(frame_count - melee_tick);
+	*attack_tick = (short)(frame_count - key_frame);
 	{
 		static boolean reported;
 
 		if (!reported)
 		{
-			struct unit_definition *definition = unit_definition_get(unit->definition_index);
-
 			reported = TRUE;
-			stubbs_mode_log("the player's melee: %d ticks, the blow at %d, damage effect %08lX",
-				frame_count, melee_tick, (unsigned long)definition->unit.melee_damage.index);
+			stubbs_mode_log("the player's punch: %d ticks, the blow at %d, damage effect %08lX",
+				frame_count, key_frame, (unsigned long)definition->unit.melee_damage.index);
 		}
 	}
 	return TRUE;
