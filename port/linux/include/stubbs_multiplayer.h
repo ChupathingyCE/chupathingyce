@@ -44,6 +44,13 @@ Stubbs mode only (network_server_manager.c): TRUE to refuse it, which it
 is told as the game not taking players (the one refusal every copy knows) */
 boolean stubbs_multiplayer_remote_machine_refused(void);
 
+/* where TWO PLAYER's profile list for a player after the first starts
+(ui_widget_event_handler_functions.c; the list's entries are saved game
+file indices, -1 an empty slot): the first profile of his own that isn't
+the one player 1 chose, else an empty slot, else -1 to leave the list
+where Halo put it (on player 1's), in Stubbs mode only */
+short stubbs_multiplayer_profile_list_start(short local_player_index, long const *profile_indices, short count);
+
 #else
 /* (a console leaves Stubbs mode out, HALO_CONSOLE_NO_STUBBS in
 halo_console_features.h, and may not build this part's file: each hook
@@ -54,6 +61,9 @@ static __inline boolean stubbs_multiplayer_profile_chosen(struct widget_instance
 { (void)widget; (void)event; (void)widget_deleted; (void)result; return FALSE; }
 static __inline boolean stubbs_multiplayer_join_refused(char const *map_name) { (void)map_name; return FALSE; }
 static __inline boolean stubbs_multiplayer_remote_machine_refused(void) { return FALSE; }
+static __inline short stubbs_multiplayer_profile_list_start(short local_player_index, long const *profile_indices,
+	short count)
+{ (void)local_player_index; (void)profile_indices; (void)count; return -1; }
 #endif
 
 #endif

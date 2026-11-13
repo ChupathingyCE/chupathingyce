@@ -27,6 +27,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #ifndef HALO_CONSOLE_NO_STUBBS /* (the header's empty ones on a console) */
 
 #include "halo_join_reasons.h"
+#include "interface/player_ui.h"
+#include "saved games/player_profile_list.h"
 #include "halo_map_families.h"
 
 #include <string.h>
@@ -105,6 +107,36 @@ boolean stubbs_multiplayer_remote_machine_refused(
 {
 	platform_log("stubbs mode: refusing a machine from elsewhere: Stubbs mode hosts no online games yet");
 	return TRUE;
+}
+
+short stubbs_multiplayer_profile_list_start(
+	short local_player_index,
+	long const *profile_indices,
+	short count)
+{
+	long taken;
+	short index;
+
+	if (!stubbs_mode_active() || local_player_index <= 0 || !profile_indices)
+		return -1;
+	taken = player_ui_get_active_player_profile_index(0);
+	for (index = 0; index < count; index++)
+	{
+		long profile_index = profile_indices[index];
+
+		if (profile_index != NONE && profile_index != taken &&
+			((unsigned long)profile_index & (1UL << PLAYER_PROFILE_LIST_VALID_BIT)) != 0 &&
+			!player_profile_list_built_in(profile_index))
+		{
+			return index;
+		}
+	}
+	for (index = 0; index < count; index++)
+	{
+		if (profile_indices[index] == NONE)
+			return index;
+	}
+	return -1;
 }
 
 #endif
