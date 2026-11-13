@@ -76,6 +76,7 @@ tools/test_mcc_host_identity.py
 tools/test_mcc_identity.py
 tools/test_mcc_maps_first.py
 tools/test_mcc_memory.py
+tools/test_mcc_missing_level.py
 tools/test_mcc_movement.py
 tools/test_mcc_native_smoke.py
 tools/test_mcc_particles.py
