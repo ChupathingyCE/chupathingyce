@@ -36,6 +36,33 @@ The reference can be:
 `--map bloodgulch` limits a run to one map. `--display` picks another Xvfb
 display if `:91` is taken.
 
+## Against the last release
+
+To check a build against a release, with a report to look through:
+
+```
+python3 tools/picture_check.py \
+    --build build/linux64/chupathingy --label "main $(git rev-parse --short HEAD)" \
+    --reference-release v0.9.0d \
+    --report --display :95 \
+    --out ~/picture-check-main
+```
+
+`--reference-release` downloads that release's 64-bit Linux build from
+GitHub, checks it against the release's `SHA256SUMS`, and runs it at the
+same spots. Use a release from 0.9.0 on: the script needs the telnet
+console and `HALO_SOLO_GAME`.
+
+`--report` writes `report.md` and `report.html` next to the pictures. Each
+spot shows the reference, the checked build and a picture of the difference
+(the reference faded, the changed pixels red), the failures first. Spots
+that passed are folded away in the HTML.
+
+A map that doesn't load on either side, because the game stopped or its
+console never answered, is a **FAILED** spot for each of its spots, and the
+run goes on with the next map. A Custom Edition map is **SKIPPED** when
+there are no Custom Edition maps to link.
+
 ## What fails
 
 Each spot gets one line in `report.txt`:
@@ -74,6 +101,12 @@ The map is written the way `init.txt` takes it, with `@ce` for a Custom
 Edition map. Yaw 0 looks along +x, 90 along +y. Pitch is up from level. To
 find a spot, run with a pose list of guesses and no reference, and look at
 the pictures.
+
+`--find-poses FILE` with one or more `--map` loads each map and writes the
+player's spawn view to `FILE` as three spots: ahead, to the left and back,
+a quarter unit above the eyes so the player's own body stays out of the
+picture. Look at the pictures before adding them to the list. The spawn is
+picked at random, so a second run gives other spots.
 
 The list covers Blood Gulch's cliffs (from the red base toward the far end
 and the rock arch, and across the canyon) and Timberland. Coldsnap 20th
