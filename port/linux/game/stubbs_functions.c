@@ -302,6 +302,7 @@ enum
 	_stubbs_action_dance_down_bit,
 	_stubbs_action_dance_left_bit,
 	_stubbs_action_dance_right_bit,
+	_stubbs_action_abandon_bit,
 };
 
 /* how far the stick goes before a dance step counts (and it must be the
@@ -309,6 +310,9 @@ stick's larger direction, so a diagonal is one step, never two) */
 #define STUBBS_DANCE_STEP_THRESHOLD 0.5f
 
 static unsigned long stubbs_action_flags;
+/* each local player's grenade, hand and head buttons last tick (the abandon
+test wants a new press, not the first one still held) */
+static unsigned long stubbs_action_held[4];
 /* (player_action_test_enable <local player> <boolean>): a local player
 whose input the tests don't count */
 static unsigned long stubbs_action_players_disabled;
@@ -346,6 +350,15 @@ void stubbs_functions_action_note(
 		flags |= FLAG(throttle_forward > 0.f ? _stubbs_action_dance_up_bit : _stubbs_action_dance_down_bit);
 	else if (left >= STUBBS_DANCE_STEP_THRESHOLD && left > forward)
 		flags |= FLAG(throttle_left > 0.f ? _stubbs_action_dance_left_bit : _stubbs_action_dance_right_bit);
+	if (local_player_index >= 0 && local_player_index < (short)NUMBEROF(stubbs_action_held))
+	{
+		unsigned long specials = flags &
+			(FLAG(_stubbs_action_grenade_bit) | FLAG(_stubbs_action_hand_bit) | FLAG(_stubbs_action_head_bit));
+
+		if (specials & ~stubbs_action_held[local_player_index])
+			flags |= FLAG(_stubbs_action_abandon_bit);
+		stubbs_action_held[local_player_index] = specials;
+	}
 	stubbs_action_flags |= flags;
 }
 
@@ -376,9 +389,10 @@ static struct
 	{ "player_action_test_head", _stubbs_action_head_bit },
 	/* ("the abandon head/hand/grenade key": the help text has the grenade
 	"pulled again to make it detonate" and black abort the hand, so the
-	gut grenade's, the hand's or the head's button pressed again; a30's
-	tutorial resets between the two presses) */
-	{ "player_action_test_abandon", NONE - 1 },
+	gut grenade's, the hand's or the head's button pressed anew; a30's
+	tutorial resets between the two presses, and a button still held from
+	the first doesn't count) */
+	{ "player_action_test_abandon", _stubbs_action_abandon_bit },
 	{ "player_action_test_dance_up", _stubbs_action_dance_up_bit },
 	{ "player_action_test_dance_down", _stubbs_action_dance_down_bit },
 	{ "player_action_test_dance_left", _stubbs_action_dance_left_bit },
@@ -421,11 +435,7 @@ static boolean stubbs_function_action_test(
 		{
 			short bit = stubbs_action_tests[index].bit;
 
-			unsigned long mask = bit == NONE - 1 ?
-				FLAG(_stubbs_action_grenade_bit) | FLAG(_stubbs_action_hand_bit) | FLAG(_stubbs_action_head_bit) :
-				bit == NONE ? 0 : FLAG(bit);
-
-			hs_return(thread_index, bit == NONE ? TRUE : (stubbs_action_flags & mask) ? TRUE : FALSE);
+			hs_return(thread_index, bit == NONE ? TRUE : TEST_FLAG(stubbs_action_flags, bit) ? TRUE : FALSE);
 			return TRUE;
 		}
 	}
