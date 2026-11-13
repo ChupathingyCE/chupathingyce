@@ -1786,13 +1786,58 @@ static void updater_remove_old_program(void)
 	update_delete_file(path);
 }
 
+/* the separate license files the downloads carried before 0.9.1, which
+THIRD-PARTY-NOTICES.txt holds now: an update leaves them where they were, as
+it leaves every file the new zip lacks. Only these names, only files (never a
+folder), only in the game's own folder, and only once that folder has the new
+LICENSE.txt and THIRD-PARTY-NOTICES.txt; each one removed is logged */
+static const char *const updater_old_license_files[] =
+{
+	"SDL3-LICENSE.txt", "mbedtls-LICENSE.txt", "miniupnpc-LICENSE.txt", "Overpass-OFL.txt",
+	"CyborgInterfaceGothic-OFL.txt", "ChupathingyTitles-OFL.txt", "NotoSans-OFL.txt",
+	"Kenney-Input-Prompts-CC0.txt", "expat-COPYING.txt", "lzma-sdk-LICENSE.txt", "zstd-LICENSE.txt",
+	"qrcodegen-LICENSE.txt", "steam-link-MIT.txt", "bcdec-LICENSE.txt", "bgfx-LICENSE.txt", "bx-LICENSE.txt",
+	"bimg-LICENSE.txt", "glslang-LICENSE.txt", "SPIRV-Cross-LICENSE.txt",
+};
+
+static int updater_is_file(const char *path)
+{
+	SDL_PathInfo info;
+
+	return SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE;
+}
+
+static void updater_remove_old_license_files(void)
+{
+	char path[1300];
+	size_t index;
+
+	updater_path(path, sizeof(path), "LICENSE.txt");
+	if (!updater_is_file(path))
+		return;
+	updater_path(path, sizeof(path), "THIRD-PARTY-NOTICES.txt");
+	if (!updater_is_file(path))
+		return;
+	for (index = 0; index < sizeof(updater_old_license_files) / sizeof(*updater_old_license_files); index++)
+	{
+		updater_path(path, sizeof(path), updater_old_license_files[index]);
+		if (!updater_is_file(path))
+			continue;
+		update_delete_file(path);
+		if (updater_is_file(path))
+			platform_log("update: could not remove %s (now in THIRD-PARTY-NOTICES.txt)", updater_old_license_files[index]);
+		else
+			platform_log("update: removed %s (now in THIRD-PARTY-NOTICES.txt)", updater_old_license_files[index]);
+	}
+}
+
 /* the files a previous update left behind */
 static void updater_clean_up(void)
 {
 	static const char *const names[] =
 	{
 		"halo.old", "halo.exe.old", "chupathingy.old", "chupathingy.exe.old", "SDL3.dll.old", "libSDL3.so.0.old",
-		"SDL3-LICENSE.txt.old", "mbedtls-LICENSE.txt.old", "LICENSE.txt.old",
+		"SDL3-LICENSE.txt.old", "mbedtls-LICENSE.txt.old", "LICENSE.txt.old", "THIRD-PARTY-NOTICES.txt.old",
 	};
 	char path[1300], signature_name[120];
 	size_t index;
@@ -1814,6 +1859,7 @@ static void updater_clean_up(void)
 			update_delete_file(path);
 		}
 		updater_remove_old_program();
+		updater_remove_old_license_files();
 	}
 	updater_partial_path(path, sizeof(path), updater_asset());
 	update_delete_file(path);
