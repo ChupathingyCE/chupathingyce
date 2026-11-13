@@ -2282,7 +2282,9 @@ static void update_game_profile(void)
 					friends_presence);
 			game_action_done(BROWSER_PROFILE_ACTION_DONE, "Saved on the site.");
 			browser.game_profile_serial++;
+#ifndef HALO_CONSOLE_NO_GUIDE
 			social_poll_soon(&browser.social_poll);
+#endif
 		}
 		else if (status == 403)
 			game_action_done(BROWSER_PROFILE_ACTION_FAILED, "Profile locked");
@@ -3596,6 +3598,7 @@ static void update_presence(void)
 }
 #endif
 
+#ifndef HALO_CONSOLE_NO_GUIDE /* (the Guide's friends and party: not on a console without the Guide) */
 /* ---------- the Guide's friends (the browser thread)
 
 While the game says where the player is (the Guide's, about once a second),
@@ -4022,6 +4025,8 @@ static struct
 	time_t asked;
 	time_t next_try;
 } clip_job;
+#endif /* HALO_CONSOLE_NO_GUIDE */
+
 
 static void clip_done(int state)
 {
