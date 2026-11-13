@@ -1409,11 +1409,12 @@ struct network_game_server *network_game_server_create(
 	return server;
 }
 
-/* port: a game on an MCC map is hosted at OpenCE's 43, whose record and
-messages carry MCC's (mcc_network_messages.h), whatever this machine
-announces otherwise; any other map at the usual number. Asked as the map is
-chosen (network_game_server_change_map_name), each lobby frame, and undone as
-hosting ends; said once if this build can't */
+/* port: a game on an MCC map is hosted at the newest OpenCE number this build
+or the signed table proves whose record and messages carry MCC's (42 on,
+mcc_network_messages.h; delta_legacy_mcc_version, 44 built in from
+chupa-44a), whatever this machine announces otherwise; any other map at the
+usual number. Asked as the map is chosen (network_game_server_change_map_name),
+each lobby frame, and undone as hosting ends; said once if this build can't */
 /* (network_server_message_handler.c) */
 unsigned network_game_server_machine_joined_number(struct network_game_server *server,
 	struct network_game_server_client_machine *machine);
@@ -1422,6 +1423,7 @@ unsigned network_game_server_machine_joined_number(struct network_game_server *s
 char const *config_string(char const *name);
 int delta_peer_game_machine_lacks(int machine_index, int capability);
 int delta_legacy_host_game_at(int version); /* (port/linux/src/delta.c) */
+int delta_legacy_mcc_version(void);
 boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
 long dedicated_playlist_count(void);
 char const *dedicated_playlist_map(long entry);
@@ -1440,12 +1442,13 @@ before never starts, the pregame load timeout drops it) */
 static void network_game_server_mcc_version(
 	char const *map_name)
 {
-	int want = map_name && mcc_level_name(map_name) ? 43 : 0;
+	boolean mcc = map_name && mcc_level_name(map_name);
+	int want;
 
 	/* (a dedicated server whose playlist has an MCC map hosts every game at
-	43: a number changed between games would leave its players, who joined
-	at the one before) */
-	if (!want && dedicated_server_active())
+	the MCC number: a number changed between games would leave its players,
+	who joined at the one before) */
+	if (!mcc && dedicated_server_active())
 	{
 		long entry;
 
@@ -1453,10 +1456,21 @@ static void network_game_server_mcc_version(
 		{
 			if (mcc_level_name(dedicated_playlist_map(entry)))
 			{
-				want = 43;
+				mcc = TRUE;
 				break;
 			}
 		}
+	}
+	/* (the newest MCC-capable number this build or the table proves: 44
+	built in, a table's later one; none when a local table narrows below
+	42, said once) */
+	want = mcc ? delta_legacy_mcc_version() : 0;
+	if (mcc && !want && network_game_server_mcc_asked != -2)
+	{
+		network_game_server_mcc_asked = -2;
+		error(_error_silent, "mcc: this build can't host an MCC map's game: no OpenCE network version from 43 on is "
+			"within the numbers it plays (the legacy table in use)");
+		return;
 	}
 
 	if (want == network_game_server_mcc_asked)
@@ -1465,9 +1479,9 @@ static void network_game_server_mcc_version(
 	network_game_server_mcc_resend_time = system_milliseconds();
 	network_game_server_mcc_resends = NETWORK_GAME_SERVER_MCC_RESENDS;
 	if (!delta_legacy_host_game_at(want) && want)
-		error(_error_silent, "mcc: this build can't host OpenCE's 43, which MCC maps need");
+		error(_error_silent, "mcc: this build can't host OpenCE's %d, which MCC maps need", want);
 	else if (want)
-		network_event("hosting %s at OpenCE's network version 43 (an MCC map%s)", map_name,
+		network_event("hosting %s at OpenCE's network version %d (an MCC map%s)", map_name, want,
 			mcc_level_name(map_name) ? "" : " in this server's playlist");
 }
 
@@ -1487,11 +1501,11 @@ static long network_game_server_mcc_would_drop(
 	struct network_game_server *server,
 	char const *map_name)
 {
-	int want = mcc_level_name(map_name) ? 43 : 0;
+	boolean want = mcc_level_name(map_name);
 	long index, count = 0;
 
 	if (dedicated_server_active() || config_string("debug.network_test")[0] ||
-		(want == 43) == (network_game_server_mcc_asked == 43))
+		want == (network_game_server_mcc_asked > 0))
 	{
 		return 0;
 	}
@@ -4157,7 +4171,7 @@ boolean network_game_server_change_map_name(
 		}
 		return TRUE;
 	}
-	/* port: an MCC map's game at 43 (network_game_server_mcc_version) */
+	/* port: an MCC map's game at the MCC number (network_game_server_mcc_version) */
 	network_game_server_mcc_version(map_name);
 	/* port: MCC package work waits for local admission; legacy selections remain immediate. */
 	if (mcc_ui_network_defer_map(server, map_name)) return TRUE;
@@ -6135,7 +6149,7 @@ static void network_game_server_delta_refusals(
 		boolean mcc_map = !bomb && mcc_level_name(server->game.map.name);
 		boolean pack_map = !bomb && !mcc_map && cache_files_map_needs_delta(server->game.map.name);
 		/* (port: the number the game is played at changed since the machine
-		joined, as an MCC map's game at 43 does: only a Delta machine with
+		joined, as an MCC map's game at the MCC number does: only a Delta machine with
 		mcc_maps follows it, HOST_NUMBER; any other leaves with a notice) */
 		unsigned joined_number = network_game_server_machine_joined_number(server, machine);
 		boolean number_changed = joined_number && joined_number != (unsigned)delta_legacy_announce();
@@ -6163,7 +6177,7 @@ static void network_game_server_delta_refusals(
 		}
 		if (!number_changed && pack_map && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform))
 			continue;
-		/* (an MCC map: a machine without Delta, OpenCE's 43, plays it by its own
+		/* (an MCC map: a machine without Delta, OpenCE's own, plays it by its own
 		MCC support; a Delta machine needs mcc_maps: docs/delta.md, bit 24) */
 		if (!number_changed && mcc_map && (delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) ||
 			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps)))

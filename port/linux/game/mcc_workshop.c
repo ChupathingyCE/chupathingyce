@@ -142,17 +142,20 @@ void mcc_workshop_refusal_text(enum mcc_workshop_refusal kind, struct mcc_worksh
     else mcc_workshop_title_from_level(level,title);
     switch (kind) {
     case MCC_WORKSHOP_MISSING:
-        snprintf(text,size,"No identified local copy of %s (Steam Workshop item %s). "
-            "Download the host's version and copy its map and required resources into mcc_maps.",title,item->id);
+        /* (said when the Workshop download is not offered: network.workshop_downloads
+         * "never", or a build without the Workshop) */
+        snprintf(text,size,"You don't have %s (Steam Workshop item %s). "
+            "Get it in the Delta Guide's Workshop, or turn Workshop downloads on when you join.",title,item->id);
         break;
     case MCC_WORKSHOP_DIFFERS:
-        snprintf(text,size,"Your local package for %s (Steam Workshop item %s) does not match the host. "
-            "Check versions and copy the matching map and required resources into mcc_maps.",
+        snprintf(text,size,"Your copy of %s (Steam Workshop item %s) doesn't match the host's. "
+            "Update it in the Delta Guide's Workshop, or get the host's version.",
             title,item->id);
         break;
     default:
-        snprintf(text,size,"No local MCC map %s.map and required resources match the host's SHA-256 fingerprint. "
-            "Install the same complete package; its folder name may differ.",level);
+        /* (the host's package carries no Workshop item: nothing to fetch) */
+        snprintf(text,size,"The host's MCC map %s isn't on the Steam Workshop, so it can't be fetched for you. "
+            "You need the same package in mcc_maps (its folder name may differ).",level);
         break;
     }
 }

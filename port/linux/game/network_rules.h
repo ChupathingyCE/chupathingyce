@@ -396,12 +396,13 @@ boundary kind over its stream to a client before its objects; a client
 takes nothing of another epoch than the one it last took from a boundary,
 and stamps its own messages with it. A unit state's further parts: passed
 over by a reader (this build never writes them), where the fact says. */
-/* OpenCE's 42 and 43, built in (DELTA_LEGACY_NEWEST): 42 the join request's
+/* OpenCE's 42 to 44, built in (DELTA_LEGACY_NEWEST): 42 the join request's
 word (236 bytes past 0x70, the word at 234), the header's 4 further bytes
 with the epoch and 96 its boundary, the scripted pose (bit 6, 30 bytes,
 last), the settings record 13,200 bytes, the MCC-only kinds dropped; 43 also
 the deck (bit 7, 28 bytes after the up), 107 dropped and riders thrown from
-a vehicle on its side (0.2) */
+a vehicle on its side (0.2); 44 (their build-355) the number alone, 43's
+layout and rules */
 #define NETWORK_RULES_EPOCH_VERSION 42
 #define NETWORK_RULES_DECK_VERSION 43
 #define NETWORK_RULES_EPOCH_SETTINGS_SIZE 13200

@@ -95,6 +95,24 @@ offers its Workshop item, because OpenCE's hosts name the map's folder by
 its item id. Either way, the join
 checks the host's content fingerprint, as it does on our own hosts.
 
+When Steam can't give you the item, the game says why in plain words and
+offers the place that fixes it, your choice: **Not owned** (Halo: The
+Master Chief Collection isn't on the Steam account) offers **GET IT**, the
+Delta Guide's Workshop page with the store link; **Link Steam first** offers
+**LINK STEAM**, the Guide's Steam setting with the code to scan; **BACK**
+leaves it. A host whose MCC map isn't a Workshop
+item at all is told as that: there is nothing to fetch, you need the same
+package in `mcc_maps`.
+
+Maps never come from the host. OpenCE's hosts offer their MCC map package
+over the game's connection (their messages 103 and 104, from their network
+44 on without a setting); ours never do, and our players never ask for one:
+the Workshop is the way. When an OpenCE player who lacks our MCC map asks
+our host for the package, the host declines at once ("sharing off" in their
+protocol), so they hear it right away instead of waiting on silence; what
+they do next is their game's business. Any package answer that reaches one
+of our players is dropped unread.
+
 ## Where the files are
 
 - With the Steam client: Steam's own Workshop folder,

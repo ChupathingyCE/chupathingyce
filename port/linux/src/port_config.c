@@ -1564,6 +1564,11 @@ static const struct config_setting config_settings[] =
 		"With debug.network_test_bomb: the joining machine's player holds the\n"
 		"trigger for the first four seconds of each try. They pick the bomb up\n"
 		"with it held, throw it down and pick it up again." },
+	{ "debug.network_test_mcc_request", _config_boolean, "false", "HALO_NETWORK_TEST_MCC_REQUEST",
+		_environment_value, _platform_all,
+		"With debug.network_test \"join\": once joined, the machine asks the host\n"
+		"for its MCC map package as OpenCE's client does (message 103), to see\n"
+		"the host decline it. A test's probe." },
 	{ "debug.network_test_bomb_keep", _config_boolean, "false", "HALO_NETWORK_TEST_BOMB_KEEP", _environment_value,
 		_platform_all,
 		"With debug.network_test_bomb: the carrier is not moved into the goal\n"

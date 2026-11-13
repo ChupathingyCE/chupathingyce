@@ -1326,7 +1326,7 @@ boolean network_game_client_idle(
 
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE)
 	/* port: a Delta host with mcc_maps that changed the number its game is
-	played at in the lobby (an MCC map's game at 43: HOST_NUMBER): this
+	played at in the lobby (an MCC map's game at the MCC number: HOST_NUMBER): this
 	machine plays the host's next record and messages at it, staying */
 	if (client->state != _network_game_client_state_searching && !global_network_game_server_get())
 	{

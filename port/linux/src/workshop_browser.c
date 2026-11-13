@@ -2825,15 +2825,26 @@ int workshop_join_start(const char *id, char *why, int size)
 	return 1;
 }
 
+static int join_poll(unsigned long long *done, unsigned long long *total);
+
 int workshop_join_poll(unsigned long long *done, unsigned long long *total, char *why, int size)
+{
+	int state = join_poll(done, total);
+
+	/* (the reason as it stands after this poll: a failure's own words go
+	out with the FAILED that says it, not a poll later) */
+	if (why && size > 0)
+		snprintf(why, (size_t)size, "%s", joining.why);
+	return state;
+}
+
+static int join_poll(unsigned long long *done, unsigned long long *total)
 {
 	unsigned long now = system_milliseconds();
 	struct steam_bridge_item known;
 	int status;
 
 	*done = *total = 0;
-	if (why && size > 0)
-		snprintf(why, (size_t)size, "%s", joining.why);
 	if (joining.state == WORKSHOP_JOIN_LINKING)
 	{
 		int link = steam_link_poll(NULL, 0, NULL, 0);
