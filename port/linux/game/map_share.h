@@ -41,6 +41,12 @@ enum
 	MAP_SHARE_MESSAGE_PROGRESS = 86,
 
 	MAP_SHARE_DISTRIBUTED_HEADER_SIZE = 8,
+	/* the most further header bytes a layout adds (network_rules.h's
+	NETWORK_RULES_HEADER_EXTRA_LIMIT) */
+	MAP_SHARE_HEADER_EXTRA_LIMIT = 8,
+	/* the largest message taken (an offer of every file, a short list of
+	sources); a longer one is dropped */
+	MAP_SHARE_RECEIVE_LIMIT = 512,
 	MAP_SHARE_LEVEL_SIZE = 64,
 	MAP_SHARE_REQUEST_SIZE = 72,
 	MAP_SHARE_OFFER_SIZE = 68,
@@ -113,6 +119,26 @@ name (printable ASCII, no separators or characters file systems refuse, no
 dot or space at either end, not a Windows device name): TRUE with the file
 name in file (64 bytes) */
 boolean map_share_level_file(char const *level, char *file);
+
+/* ---------- network_distributed.c */
+
+/* a message as map_share_message_build makes it (size bytes) as the game's
+wire has it, with the header's further bytes of the game's layout (OpenCE
+42 on: 4, the epoch), into out (room bytes): its size, 0 when it does not
+fit. hosting: this machine is the game's host (its announced version),
+else the host's version */
+int network_distributed_share_widen(boolean hosting, void const *message, int size, void *out, int room);
+/* ... and a received one back as map_share_message_parse reads it, into
+out (room bytes, at least size): its size, 0 when it is too short or
+long */
+int network_distributed_share_narrow(boolean hosting, void const *message, int size, void *out, int room);
+/* the further header bytes the game's layout adds (0 before OpenCE's 42) */
+int network_distributed_share_extra(boolean hosting);
+/* a received message as map_share_message_parse reads it (8-byte header),
+from either form (network_rules_share_header_size): into out (room bytes),
+its size, with *short_form TRUE for the old 8-byte form; 0 for neither */
+int map_share_message_narrow(boolean hosting, void const *message, int size, void *out, int room,
+	boolean *short_form);
 
 /* ---------- map_share_host.c */
 

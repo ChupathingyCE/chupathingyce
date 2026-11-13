@@ -98,6 +98,8 @@ enum
 	DIRECT_JOIN_AFTER = 5000,
 	RECORD_TIMEOUT = 15000,
 	OFFER_TIMEOUT = 30000,
+	/* (ms) when an unanswered request goes again in the old form */
+	SHORT_FORM_DELAY = 8000,
 	SILENCE_TIMEOUT = 30000,
 	PIECE_TIMEOUT = 60000,
 	PROGRESS_INTERVAL = 2000,
@@ -137,6 +139,10 @@ static struct
 	short state;
 	unsigned long state_time;
 	unsigned long started;
+	/* the request, and whether it went (or the host answered) in the old
+	8-byte form, a chupa-43a host's at 42 or later */
+	unsigned char request[MAP_SHARE_REQUEST_SIZE];
+	boolean short_form;
 	real menu_seconds;
 	char target[160];
 	boolean invite;
@@ -222,13 +228,24 @@ static void fetch_send(
 	short body_size)
 {
 	unsigned char message[MAP_SHARE_DISTRIBUTED_HEADER_SIZE + MAP_SHARE_REQUEST_SIZE];
+	unsigned char wide[sizeof(message) + MAP_SHARE_HEADER_EXTRA_LIMIT];
 	short size;
+	int wide_size;
 
 	if (body_size > (short)(sizeof(message) - MAP_SHARE_DISTRIBUTED_HEADER_SIZE))
 		return;
 	/* (no game runs on this machine: its time 0) */
 	size = map_share_message_build(message, type, body, body_size, 0);
-	network_distributed_client_send_reliably(message, (word)size);
+	/* (with the header's further bytes of the host's version: an OpenCE 42
+	or later host reads no other; a chupa-43a host only the old form) */
+	if (fetch.short_form)
+	{
+		network_distributed_client_send_reliably(message, (word)size);
+		return;
+	}
+	wide_size = network_distributed_share_widen(FALSE, message, size, wide, (int)sizeof(wide));
+	if (wide_size)
+		network_distributed_client_send_reliably(wide, (word)wide_size);
 }
 
 static void fetch_progress(
@@ -566,6 +583,8 @@ static void fetch_ask(
 	csstrncpy((char *)body, fetch.level, MAP_SHARE_LEVEL_SIZE - 1);
 	map_share_put32(body + 0x40, fetch.version);
 	body[0x44] = MAP_SHARE_WANT_MAP;
+	csmemcpy(fetch.request, body, sizeof(fetch.request));
+	fetch.short_form = FALSE;
 	fetch_send(MAP_SHARE_MESSAGE_REQUEST, body, sizeof(body));
 	platform_log("map fetch: asked for %s (version %08lx)", fetch.level, fetch.version);
 	fetch_state(_fetch_asked);
@@ -993,6 +1012,15 @@ static void fetch_joined_update(
 	{
 		if (fetch.offered)
 			fetch_connect();
+		else if (!fetch.short_form && network_distributed_share_extra(FALSE) &&
+			(long)(now - fetch.state_time) > SHORT_FORM_DELAY)
+		{
+			/* (no answer to the longer form: a chupa-43a host reads only the
+			old one; asked once more in it) */
+			fetch.short_form = TRUE;
+			fetch_send(MAP_SHARE_MESSAGE_REQUEST, fetch.request, sizeof(fetch.request));
+			platform_log("map fetch: no answer yet; asked again in the older form");
+		}
 		else if ((long)(now - fetch.state_time) > OFFER_TIMEOUT)
 			fetch_finish("failed", "timed out", "the host did not answer the request in 30 seconds");
 	}
@@ -1126,10 +1154,22 @@ boolean map_share_client_message(
 	unsigned char const *body;
 	long body_size;
 
+	unsigned char narrow[MAP_SHARE_RECEIVE_LIMIT];
+	int narrow_size;
+	boolean short_form;
+
 	if (!map_share_fetching())
 		return FALSE;
 	if (!map_share_message_parse(message, size, &type, &body, &body_size))
 		return FALSE;
+	/* (the header's further bytes of the host's version left out; a
+	chupa-43a host's answer has the old 8-byte header, and the rest goes in
+	it too) */
+	narrow_size = map_share_message_narrow(FALSE, message, (int)size, narrow, (int)sizeof(narrow), &short_form);
+	if (!narrow_size || !map_share_message_parse(narrow, narrow_size, &type, &body, &body_size))
+		return TRUE;
+	if (short_form)
+		fetch.short_form = TRUE;
 	/* (over the host's stream alone; one waited for alone) */
 	if (!reliable || fetch.state != _fetch_asked)
 		return TRUE;

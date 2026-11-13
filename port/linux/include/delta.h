@@ -374,7 +374,13 @@ and rules under a new number, their build-355), an MCC map's game hosted at
 the newest MCC-capable number the build or a table proves rather than a
 number in the code, and a host's answer to OpenCE's MCC package request
 (103): declined (104, "off"), as this build shares no MCC packages (its
-joiners get the Workshop); the game as chupa-43a's otherwise. */
+joiners get the Workshop); the game as chupa-43a's otherwise. Map
+sharing's messages (83 to 86) carry the layout's further header bytes from
+here on, as OpenCE's do; chupa-43a's builds send and read them with the old
+8-byte header at any version, so a chupa-44a machine reads both forms (by
+their sizes: network_rules_share_header_size), answers a chupa-43a machine
+in its form, and asks a host again in it when the longer form goes
+unanswered. */
 #define DELTA_WIRE "chupa-44a"
 
 /* Wire compatibility ranges: the oldest wire each one plays the game with,
