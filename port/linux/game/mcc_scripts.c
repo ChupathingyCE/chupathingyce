@@ -107,7 +107,9 @@ static void mcc_mission_segment_evaluate(short function, long thread, boolean in
     long *arguments = hs_macro_function_evaluate(function, thread, initialize);
     char const *segment;
     if (!arguments) return;
-    segment = (char const *)(uintptr_t)arguments[0];
+    /* (a string argument is its Xbox address, as print_if's: on a 64-bit
+     * build it isn't a pointer) */
+    segment = arguments[0] ? (char const *)xbox_pointer((unsigned int)arguments[0]) : NULL;
     /* This port acknowledges a local segment event, without MCC's external
      * telemetry service. Keep the boolean result: shipped scripts use it in
      * conditional expressions before cinematics. MCC also uses the older
