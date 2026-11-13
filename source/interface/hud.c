@@ -119,6 +119,8 @@ symbols in this file:
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #ifdef HALO_PORT_CHAT
 #include "chat.h" /* port: port/linux/game/chat.c */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_player.h" /* port: port/linux/game/stubbs_player.c */
 #endif
 #include "text/font_group.h"
 #include "text/text_group.h"
@@ -1522,6 +1524,12 @@ void hud_draw_screen(
 		else
 		{
 			hud_play_unit_sounds(player, FALSE);
+		}
+		/* port: Stubbs mode's HUD (port/linux/game/stubbs_player.c) */
+		if (stubbs_mode_active() && hud_scripted_globals->show_hud && player->unit_index != NONE &&
+			!cinematic_in_progress())
+		{
+			stubbs_player_hud_draw(render.local_player_index, player->unit_index);
 		}
 
 		hud_messaging_update(render.local_player_index);

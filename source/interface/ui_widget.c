@@ -691,6 +691,8 @@ struct widget_instance;
 #include "mcc_pause_runtime.h"
 #include "mcc_ui.h"
 #include "mcc_ui_network.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
 #ifndef HALO_CONSOLE_NO_CONTROLS
 /* port: Controller Buttons asking for a button (menu_functions.c) */
 boolean pc_menu_controller_capture(void);
@@ -4303,8 +4305,12 @@ static void event_handler_dispatch(
 	if (TEST_FLAG(handler->flags, _event_handler_run_scenario_script_bit) &&
 		handler->script[0])
 	{
-		if (!hs_evaluate_by_name(handler->script))
+		if (!hs_evaluate_by_name(handler->script) &&
+			/* port: Stubbs mode's own (port/linux/game/stubbs_multiplayer.c) */
+			!(stubbs_mode_active() && stubbs_multiplayer_widget_script(handler->script)))
+		{
 			error(_error_silent, "failed to run ui widget event script '%s'", handler->script);
+		}
 	}
 	if (TEST_FLAG(handler->flags, _event_handler_run_function_bit) &&
 		!widget_deleted &&
