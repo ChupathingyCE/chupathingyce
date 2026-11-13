@@ -35,20 +35,21 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_page" x="54" y="97" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/view_gamepad" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_layout" x="54" y="121" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_layout" x="54" y="73" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_look_sensitivity" x="54" y="145" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_look_sensitivity" x="54" y="73" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_look_sensitivity" x="54" y="97" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_invert_look" x="54" y="169" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_invert_look" x="54" y="97" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_invert_look" x="54" y="121" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_flight_inversion" x="54" y="193" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_flight_inversion" x="54" y="121" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_flight_inversion" x="54" y="145" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_autocenter" x="54" y="217" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_autocenter" x="54" y="145" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_autocenter" x="54" y="169" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_joystick_preset" x="54" y="241" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_joystick_preset" x="54" y="169" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_joystick_preset" x="54" y="193" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_vibration" x="54" y="265" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_vibration" x="54" y="193" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_vibration" x="54" y="217" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_ingame_help" x="54" y="289" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_ingame_help" x="54" y="217" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_ingame_help" x="54" y="241" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/view_buttons" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_button_1" x="54" y="121" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_button_2" x="54" y="145" platform="desktop android switch"/>
@@ -203,7 +204,9 @@
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/layout_label" type="text" controller="1" width="300" height="22" text="BUTTON LAYOUT:" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/layout_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="DEFAULT|SWAP TRIGGERS|SWAP A, L TRIGGER|SWAP B, L TRIGGER|SWAP B, R STICK|BUMPER JUMPER|CUSTOM" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/layout_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="DEFAULT|SWAP TRIGGERS|SWAP A, L TRIGGER|SWAP B, L TRIGGER|SWAP B, R STICK|BUMPER JUMPER|CUSTOM" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156" platform="desktop android switch">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/layout_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="DEFAULT|SWAP TRIGGERS|SWAP A, L TRIGGER|SWAP B, L TRIGGER|SWAP B, R STICK|BUMPER JUMPER" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156" platform="console">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_look_sensitivity" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/look_sensitivity_label"/>

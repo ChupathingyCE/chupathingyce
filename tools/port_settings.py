@@ -673,9 +673,11 @@ def _controls_rows() -> tuple:
             helps.append(row[3])
 
     # (the consoles have the controller's settings alone: no keyboard or
-    # mouse, and no buttons page or layout, which HALO_CONSOLE_NO_CONTROLS
-    # leaves out; menu_functions.c shows the controller's settings when the
-    # list has no DEVICE)
+    # mouse, and no buttons page, which HALO_CONSOLE_NO_CONTROLS leaves out;
+    # menu_functions.c shows the controller's settings when the list has no
+    # DEVICE. They keep BUTTON LAYOUT, the profile's presets without Custom,
+    # as the Xbox's Controller Settings had: a spinner of their own, with
+    # the same name, so menu_functions.c's console_layout_* read and set it)
     rows.append((f"{base}/op_device", NOT_CONSOLE, 0))
     extra += _chooser(base, "device", "DEVICE:", CONTROLS_DEVICES)
     # the keyboard and mouse's
@@ -708,7 +710,7 @@ def _controls_rows() -> tuple:
     rows.append((f"{base}/op_page", NOT_CONSOLE, 1))
     extra += _chooser(base, "page", "SHOW:", CONTROLLER_PAGES)
     mark("gamepad")
-    rows.append((f"{base}/op_layout", NOT_CONSOLE, 2))
+    rows.append((f"{base}/op_layout", None, 2))
     extra += _widget(f"{base}/op_layout", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                            ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                      [f'<child{attributes([("widget", f"{base}/layout_label")])}/>',
@@ -716,13 +718,14 @@ def _controls_rows() -> tuple:
     extra += _widget(f"{base}/layout_label",
                      [("type", "text"), ("controller", 1), ("width", 300), ("height", 22), ("text", "BUTTON LAYOUT:"),
                       ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
-    extra += _widget(f"{base}/layout_spinner",
-                     [("type", "spinner"), ("left", 3), ("top", 2), ("width", 147), ("height", 20),
-                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
-                      ("strings", "|".join(CONTROLLER_PRESETS)), ("font", "ui\\large_ui"), ("color", "#FF2896FF"),
-                      ("align", "center"), ("text_y", 1), ("header_bitmap", "bitmaps/arrow_sm_left"),
-                      ("footer_bitmap", "bitmaps/arrow_sm_right"), ("header_bounds", "7 -6 19 0"),
-                      ("footer_bounds", "7 150 19 156")], [])
+    for platform, presets in ((NOT_CONSOLE, CONTROLLER_PRESETS), (CONSOLE, CONTROLLER_PRESETS[:-1])):
+        extra += _widget(f"{base}/layout_spinner",
+                         [("type", "spinner"), ("left", 3), ("top", 2), ("width", 147), ("height", 20),
+                          ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                          ("strings", "|".join(presets)), ("font", "ui\\large_ui"), ("color", "#FF2896FF"),
+                          ("align", "center"), ("text_y", 1), ("header_bitmap", "bitmaps/arrow_sm_left"),
+                          ("footer_bitmap", "bitmaps/arrow_sm_right"), ("header_bounds", "7 -6 19 0"),
+                          ("footer_bounds", "7 150 19 156"), ("platform", platform)], [])
     settings(GAMEPAD_ROWS, 3)
     mark("buttons")
     for index, label in enumerate(CONTROLLER_ACTIONS):
