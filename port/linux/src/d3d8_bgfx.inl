@@ -45,6 +45,7 @@ stencil write mask rides in the back stencil's read mask, as bgfx reads it. The 
 #include "hud_hires.h"
 #include "menu_files.h"
 #include "text_hires.h"
+#include "ui_overlay_cellwall.h"
 
 /* a 2D copy of width x height from the source's top left (mip level) to the
 destination's (bgfx's texture regions) */
@@ -375,7 +376,7 @@ static struct
 	bgfx_program_handle_t overlay;
 	bgfx_vertex_layout_t overlay_layout;
 	bgfx_texture_handle_t overlay_atlas, overlay_icons, overlay_picture, overlay_plasma, overlay_medals;
-	bgfx_uniform_handle_t overlay_uniforms[4], overlay_samplers[5];
+	bgfx_uniform_handle_t overlay_uniforms[5], overlay_samplers[5];
 	BOOL overlay_medals_ready;
 	int overlay_picture_serial, overlay_plasma_serial;
 	BOOL overlay_failed;
@@ -4105,7 +4106,9 @@ static const char bg_overlay_fragment_source[] =
 	"uniform vec4 plasma_shift;\n"
 	"uniform vec4 plasma_thread;\n"
 	"uniform vec4 cutouts[4];\n"
+	"uniform vec4 cellwall_parameters[3];\n"
 	"layout(location = 0) out vec4 fragment_color;\n"
+	UI_OVERLAY_CELLWALL_GLSL
 	"void main()\n"
 	"{\n"
 	"\tfloat alpha;\n"
@@ -4113,6 +4116,13 @@ static const char bg_overlay_fragment_source[] =
 	"\tfor (int i = 0; i < 4; i++)\n"
 	"\t\tif (p.x >= cutouts[i].x && p.y >= cutouts[i].y && p.x < cutouts[i].z && p.y < cutouts[i].w)\n"
 	"\t\t\tdiscard;\n"
+	/* (the cellwall: ui_overlay.c's) */
+	"\tif (xT2.x < -5.5)\n"
+	"\t{\n"
+	"\t\tfragment_color = cellwall(xT0.xy, cellwall_parameters[0], cellwall_parameters[1], cellwall_parameters[2],\n"
+	"\t\t\txD0);\n"
+	"\t\treturn;\n"
+	"\t}\n"
 	/* (a medal: ui_overlay.c's) */
 	"\tif (xT2.x < -4.5)\n"
 	"\t{\n"
@@ -4208,6 +4218,7 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	bg.overlay_uniforms[1] = bgfx_create_uniform("cutouts", BGFX_UNIFORM_TYPE_VEC4, 4);
 	bg.overlay_uniforms[2] = bgfx_create_uniform("plasma_shift", BGFX_UNIFORM_TYPE_VEC4, 1);
 	bg.overlay_uniforms[3] = bgfx_create_uniform("plasma_thread", BGFX_UNIFORM_TYPE_VEC4, 1);
+	bg.overlay_uniforms[4] = bgfx_create_uniform("cellwall_parameters", BGFX_UNIFORM_TYPE_VEC4, 3);
 	for (index = 0; index < 5; index++)
 		bg.overlay_samplers[index] = bgfx_create_uniform(samplers[index], BGFX_UNIFORM_TYPE_SAMPLER, 1);
 	vertex = bg_shader_get(bg_overlay_vertex_source, FALSE, 0, "overlay vertex", TRUE);
@@ -4292,7 +4303,7 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
 	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[8],
-	const unsigned char *medals, int medals_width, int medals_height,
+	const float cellwall[12], const unsigned char *medals, int medals_width, int medals_height,
 	const float cutouts[4][4], int window_width, int window_height)
 {
 	bgfx_transient_vertex_buffer_t buffer;
@@ -4370,6 +4381,7 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 	bgfx_set_uniform(bg.overlay_uniforms[1], cutouts, 4);
 	bgfx_set_uniform(bg.overlay_uniforms[2], plasma_shift, 1);
 	bgfx_set_uniform(bg.overlay_uniforms[3], plasma_shift + 4, 1);
+	bgfx_set_uniform(bg.overlay_uniforms[4], cellwall, 3);
 	bgfx_set_texture(0, bg.overlay_samplers[0], bg.overlay_atlas, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_texture(1, bg.overlay_samplers[1], bg.overlay_icons, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_texture(2, bg.overlay_samplers[2], bg.overlay_picture, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);

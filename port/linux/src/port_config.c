@@ -423,8 +423,9 @@ static const struct config_setting config_settings[] =
 		"(recently added first). Sort in the list changes it." },
 	{ "display.theme", _config_string, "\"blue\"", "HALO_THEME", _environment_value, _platform_all,
 		"The colors of the Delta Guide and the setup screen: \"blue\" (Halo\n"
-		"Blue), \"red\" (Chupathingy Red) or \"green\" (Dashboard Green).\n"
-		"A change shows at once." },
+		"Blue), \"green\" (Dashboard Green), \"orange\" (Visor Orange),\n"
+		"\"live\" (Live Orange) or \"red\" (Chupathingy Red). A change\n"
+		"shows at once." },
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the text and titles of the menus and the HUD with sharp,\n"
 		"high-res fonts." },
@@ -907,6 +908,12 @@ static const struct config_setting config_settings[] =
 	{ "delta.hint_shown", _config_integer, "0", "HALO_DELTA_HINT_SHOWN", _environment_value, _platform_all,
 		"How many times the main menu has said how to open the Delta Guide\n"
 		"(it says so three times, then no more)." },
+	{ "delta.guide_background", _config_string, "\"auto\"", "HALO_DELTA_GUIDE_BACKGROUND", _environment_value,
+		_platform_all,
+		"What the Delta Guide draws behind its panel: \"plain\" (a dark\n"
+		"shade over the game), \"cellwall\" (the Xbox dashboard's cell wall,\n"
+		"in the theme's colors) or \"auto\" (the cell wall with Dashboard\n"
+		"Green, the shade with the others). A change shows at once." },
 	{ "delta.notify_in_game", _config_boolean, "false", "HALO_DELTA_NOTIFY_IN_GAME", _environment_value,
 		_platform_all,
 		"Show the Delta Guide's notifications during a game. They always show\n"
@@ -4266,7 +4273,8 @@ static const struct
 	const char *otherwise;
 } config_words[] =
 {
-	{ "display.theme", { "blue", "red", "green", NULL }, "\"blue\"" },
+	{ "display.theme", { "blue", "red", "green", "orange", "live", NULL }, "\"blue\"" },
+	{ "delta.guide_background", { "auto", "plain", "cellwall", NULL }, "\"auto\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },

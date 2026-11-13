@@ -114,10 +114,15 @@ static const char *const guide_key_choices[] = { "F3, Backslash", "Backslash", "
 static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", NULL };
 #endif
 /* display.theme's: the Guide's and the setup screen's colors (ui_style_theme) */
-static const char *const theme_choices[] = { "blue", "red", "green", NULL };
+/* (in the order the row shows them; the words, not the order, are saved) */
+static const char *const theme_choices[] = { "blue", "green", "orange", "live", "red", NULL };
+/* delta.guide_background's: what the Guide draws behind its panel (auto:
+the cellwall with Dashboard Green, the shade with the others) */
+static const char *const background_choices[] = { "auto", "plain", "cellwall", NULL };
+static const char *const background_names[] = { "AUTO", "PLAIN", "CELLWALL", NULL };
 /* display.light_effects' (port/linux/game/lighting_config.c) */
 static const char *const light_effects_choices[] = { "auto", "high", "low", "off", NULL };
-static const char *const theme_names[] = { "HALO BLUE", "CHUPATHINGY RED", "DASHBOARD GREEN", NULL };
+static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
 {
@@ -173,6 +178,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_guide, "FRIEND ONLINE ALERTS", "delta.notify_online", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "SHOW WHEN I'M PLAYING", "network.share_presence", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "THEME", "display.theme", _kind_choices, theme_choices, theme_names, 0, 0 },
+	{ _in_guide, "BACKGROUND", "delta.guide_background", _kind_choices, background_choices, background_names, 0, 0 },
 	{ _in_network, "DISCORD", "discord.presence", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "CRASH REPORTS", "crash_reports.upload", _kind_words, NULL, NULL, 0, 0 },
 
