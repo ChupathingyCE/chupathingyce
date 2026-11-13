@@ -1025,6 +1025,17 @@ never does: a host's decline, a client's note (mcc_network_messages.h) */
 boolean network_distributed_server_send_to_machine_reliably(long machine_index, void *message, word size);
 boolean network_distributed_client_send_reliably(void *message, word size);
 
+/* the game's layout for these, in the lobby too (where game_connection says
+nothing yet, so distributed_wire_layout can't): the host's by the number it
+announces, a client's by its host's */
+static void distributed_mcc_share_layout(
+	boolean hosting,
+	struct network_rules_layout *layout)
+{
+	network_rules_layout(hosting ? (unsigned int)delta_legacy_announce() : network_game_client_host_network_version(),
+		layout);
+}
+
 /* a message of ours (its header's 8 bytes then the body) as the game's wire
 has it (the header's further bytes, the epoch) to the machine, or the host
 (NONE), reliably: the size sent, 0 for none */
@@ -1034,7 +1045,7 @@ static int distributed_mcc_share_send(
 	byte const *body,
 	int body_size)
 {
-	struct network_rules_layout const *layout = distributed_wire_layout();
+	struct network_rules_layout layout_buffer, *layout = &layout_buffer;
 	byte message[sizeof(struct distributed_message_header) + MCC_SHARE_RESPONSE_SIZE];
 	byte wide[sizeof(message) + NETWORK_RULES_HEADER_EXTRA_LIMIT];
 	int size = (int)sizeof(struct distributed_message_header) + body_size, wide_size;
@@ -1043,6 +1054,7 @@ static int distributed_mcc_share_send(
 
 	if (body_size < 0 || body_size > MCC_SHARE_RESPONSE_SIZE)
 		return 0;
+	distributed_mcc_share_layout(machine_index != NONE, layout);
 	/* (as map_share_wire.c builds one: the message header word in this
 	machine's order, which the transport turns; the rest byte by byte,
 	little-endian, the same on every machine) */
@@ -1071,24 +1083,24 @@ boolean network_distributed_mcc_share_message(
 	void const *message,
 	word size)
 {
-	struct network_rules_layout const *layout;
+	struct network_rules_layout layout_buffer, *layout = &layout_buffer;
 	byte const *bytes = (byte const *)message;
 	byte narrow[sizeof(struct distributed_message_header) + MCC_SHARE_RESPONSE_SIZE + NETWORK_RULES_HEADER_EXTRA_LIMIT];
 	byte reply[MCC_SHARE_RESPONSE_SIZE];
 	uint32_t epoch;
 	int narrow_size, body_size;
-	short connection = game_connection();
+	/* (the caller's side: the host's handler names the machine, a client's
+	says NONE) */
+	boolean hosting = machine_index != NONE;
 
 	if (size < sizeof(struct distributed_message_header) ||
 		(bytes[2] != MCC_SHARE_REQUEST_KIND && bytes[2] != MCC_SHARE_RESPONSE_KIND))
 	{
 		return FALSE;
 	}
-	if (connection != _game_connection_network_server && connection != _game_connection_network_client)
-		return TRUE;
 	/* (a layout without MCC's messages: dropped unread, as every build of
 	it drops them) */
-	layout = distributed_wire_layout();
+	distributed_mcc_share_layout(hosting, layout);
 	if (!layout->epoch_kind || size > sizeof(narrow))
 		return TRUE;
 	narrow_size = network_rules_header_strip(bytes, size, narrow, layout->header_extra, layout->epoch_kind != 0, 0, 0,
@@ -1096,10 +1108,10 @@ boolean network_distributed_mcc_share_message(
 	if (!narrow_size)
 		return TRUE;
 	body_size = narrow_size - (int)sizeof(struct distributed_message_header);
-	if (machine_index == NONE)
+	if (!hosting)
 	{
 		/* (a client: an answer it never asked for, noted and dropped) */
-		if (bytes[2] == MCC_SHARE_RESPONSE_KIND && connection == _game_connection_network_client)
+		if (bytes[2] == MCC_SHARE_RESPONSE_KIND)
 		{
 			int result = mcc_share_answer_result(narrow + sizeof(struct distributed_message_header), (size_t)body_size);
 
@@ -1109,7 +1121,7 @@ boolean network_distributed_mcc_share_message(
 		}
 		return TRUE;
 	}
-	if (bytes[2] != MCC_SHARE_REQUEST_KIND || connection != _game_connection_network_server)
+	if (bytes[2] != MCC_SHARE_REQUEST_KIND)
 		return TRUE;
 	/* (the host: declined, said once a machine) */
 	if (!mcc_share_decline(narrow + sizeof(struct distributed_message_header), (size_t)body_size, reply))
@@ -1137,13 +1149,19 @@ boolean network_distributed_mcc_share_request(
 	char const *level)
 {
 	byte request[MCC_SHARE_REQUEST_SIZE];
+	struct network_rules_layout layout;
 	size_t length = level ? strlen(level) : 0;
 
-	if (game_connection() != _game_connection_network_client || !distributed_wire_layout()->epoch_kind ||
-		!length || length >= MCC_SHARE_LEVEL_SIZE)
+	/* (a client of a host of a version with MCC's messages, in the lobby
+	or the game; never the host's own machine) */
+	if (!global_network_game_client_get() || global_network_game_server_get() || !length ||
+		length >= MCC_SHARE_LEVEL_SIZE)
 	{
 		return FALSE;
 	}
+	distributed_mcc_share_layout(FALSE, &layout);
+	if (!layout.epoch_kind)
+		return FALSE;
 	csmemset(request, 0, sizeof(request));
 	request[0] = MCC_SHARE_OP_MANIFEST;
 	csmemcpy(request + 16, level, length);
