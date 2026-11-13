@@ -405,6 +405,17 @@ static void test_state(void)
 	CHECK(delta_profile_parse_join("{\"join\": \"halo://join/0123abcd\", \"friend\": \"grif\"}", link, sizeof(link)));
 	CHECK(!strcmp(link, "halo://join/0123abcd"));
 	CHECK(!delta_profile_parse_join("{\"join\": \"http://example.com\"}", link, sizeof(link)) && !link[0]);
+	/* an answer that ends inside an escape is read no further than its end
+	(the bytes after it here are another answer's, left in the buffer) */
+	{
+		static const char cut_pair[] = "{\"reason\": \"\\uD800\\u\0ABC\"}";
+		static const char cut_escape[] = "{\"reason\": \"x\\\0\"}";
+
+		delta_profile_parse_text(cut_pair, "reason", reason, sizeof(reason));
+		CHECK(!reason[0]);
+		delta_profile_parse_text(cut_escape, "reason", reason, sizeof(reason));
+		CHECK(!reason[0]);
+	}
 }
 
 static void test_clan(void)

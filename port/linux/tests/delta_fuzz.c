@@ -20,6 +20,7 @@ and then; and the traits, platform key and chat bridge entry readers.
 #include "../src/delta_chat_bridge.h"
 
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 enum
@@ -158,6 +159,107 @@ static int chat_say(void *context, int machine_index, int scope, const char *tex
 
 static const struct delta_peer_chat_host chat_host = { NULL, chat_say };
 
+/* (verified names: a proof whose certificate's first byte is odd checks,
+for the identity its bytes name; each machine proves its local player 0) */
+static int identity_check(void *context, const struct delta_wire_id_proof *proof, const unsigned char *nonce,
+	const char *binding, int binding_length, int machine_index, unsigned long age, struct delta_peer_identity *identity)
+{
+	(void)context;
+	(void)nonce;
+	(void)binding;
+	(void)binding_length;
+	(void)machine_index;
+	(void)age;
+	if (proof->certificate_length <= 0 || !(proof->certificate[0] & 1))
+		return 0;
+	memset(identity, 0, sizeof(*identity));
+	memcpy(identity->account, proof->certificate + 1, sizeof(identity->account));
+	memcpy(identity->device_id, proof->certificate + 1 + sizeof(identity->account), sizeof(identity->device_id));
+	snprintf(identity->handle, sizeof(identity->handle), "%.*s", proof->tag_length, proof->tag);
+	return 1;
+}
+
+static int identity_prove(void *context, int local_player, const unsigned char *nonce, const char *binding,
+	int binding_length, int machine_index, int flags, struct delta_wire_id_proof *proof)
+{
+	(void)context;
+	(void)nonce;
+	(void)binding;
+	(void)binding_length;
+	(void)machine_index;
+	if (local_player)
+		return 0;
+	if (proof)
+	{
+		memset(proof, 0, sizeof(*proof));
+		proof->flags = flags;
+		proof->certificate_length = 150;
+		memset(proof->certificate, 1, 150);
+	}
+	return 1;
+}
+
+/* (team changes, reports and a badge: each asked is answered) */
+static int team_request(void *context, int machine_index, int player, int team, int *team_now, int *seconds)
+{
+	(void)context;
+	(void)machine_index;
+	(void)player;
+	*team_now = team & 1;
+	*seconds = 0;
+	return 0;
+}
+
+static int report(void *context, int machine_index, const struct delta_wire_report *report, int *flags,
+	unsigned char *clip_token)
+{
+	(void)context;
+	(void)machine_index;
+	(void)report;
+	*flags = 0;
+	(void)clip_token;
+	return 0;
+}
+
+static int badge_answer(void *context, const unsigned char *nonce, delta_u32 session, unsigned char *signature,
+	unsigned char *certificate, int size)
+{
+	(void)context;
+	(void)nonce;
+	(void)session;
+	memset(signature, 2, DELTA_WIRE_BADGE_SIGNATURE_SIZE);
+	if (size < 100)
+		return 0;
+	memset(certificate, 3, 100);
+	return 100;
+}
+
+/* (a client's voice and object sync: taken, and dropped) */
+static void heard(void *context, const struct delta_wire_voice_down *down, const unsigned char *packet)
+{
+	(void)context;
+	(void)down;
+	(void)packet;
+}
+
+static void vitals(void *context, const struct delta_wire_unit_vitals *vitals)
+{
+	(void)context;
+	(void)vitals;
+}
+
+static void names(void *context, const struct delta_wire_object_names *names)
+{
+	(void)context;
+	(void)names;
+}
+
+static const struct delta_peer_team_host team_host = { NULL, team_request };
+static const struct delta_peer_report_host report_host = { NULL, report };
+static const struct delta_peer_badge_host badge_host = { NULL, badge_answer };
+static const struct delta_peer_voice_client voice_client = { NULL, heard };
+static const struct delta_peer_objects_client objects_client = { NULL, vitals, names };
+
 static void start(void)
 {
 	struct delta_peer_env env;
@@ -171,10 +273,12 @@ static void start(void)
 	env.legacy_table_serial = table_serial;
 	env.legacy_table_signed = table_signed;
 	env.legacy_table_offer = table_offer;
+	env.identity_check = identity_check;
+	env.identity_prove = identity_prove;
 	memset(&local, 0, sizeof(local));
-	/* (platform, profile and ce_maps; moderation and chat) */
-	local.capabilities = 0x13 | (1u << _delta_capability_moderation) | (1u << _delta_capability_chat) |
-		(1u << _delta_capability_server_messages);
+	/* (every capability this build knows: each message's handling is
+	reached) */
+	local.capabilities = (1u << NUMBER_OF_DELTA_CAPABILITIES) - 1;
 	local.legacy_version = 18;
 	delta_platform_policy_default(_delta_platform_pc_linux, &local.key);
 	local.has_profile = 1;
@@ -185,6 +289,20 @@ static void start(void)
 	delta_peer_set_moderation_host(&host, &moderation_host);
 	delta_peer_set_chat_host(&host, &chat_host);
 	delta_peer_set_moderation_binding(&host, "0123456789abcdef0123456789abcdef");
+	delta_peer_set_team_host(&host, &team_host);
+	delta_peer_set_report_host(&host, &report_host);
+	delta_peer_set_badge_host(&host, &badge_host);
+	delta_peer_set_voice_client(&client, &voice_client);
+	delta_peer_set_objects_client(&client, &objects_client);
+	{
+		struct delta_wire_voice_config rules;
+
+		memset(&rules, 0, sizeof(rules));
+		rules.channels = DELTA_VOICE_KNOWN_CONFIG;
+		rules.kbps = DELTA_WIRE_VOICE_MINIMUM_KBPS;
+		rules.proximity = DELTA_WIRE_VOICE_MINIMUM_PROXIMITY;
+		delta_peer_set_voice_rules(&host, &rules);
+	}
 
 	memset(machines, 0, sizeof(machines));
 	machines[0].machine_index = 0;
@@ -400,8 +518,9 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size)
 	delta_peer_receive(&host, now, CLIENT_IPV4, CLIENT_PORT, data, (int)size);
 	/* (the client's session as it is, whatever an earlier input made it) */
 	delta_peer_receive(&client, now, HOST_IPV4, DELTA_PEER_PORT, data, (int)size);
-	/* (now and then a frame: the relay's sends, its passes) */
-	if (size && data[0] % 8 == 0)
+	/* (now and then a frame: the relay's sends, its passes; by the last
+	byte too, as a Delta datagram's first is always its magic's) */
+	if (size && (data[0] % 8 == 0 || data[size - 1] % 8 == 0))
 	{
 		struct delta_peer_game_machine machines[2];
 		signed char players[DELTA_PEER_MAXIMUM_PLAYERS];

@@ -845,8 +845,25 @@ static void client_challenge(const unsigned char *packet, int length, const stru
 		forget(peer);
 	for (index = 0; index < CE_MAXIMUM_PEERS && transport.peers[index].state != PEER_FREE; index++)
 		;
+	/* (none free: the place of the challenge left unanswered longest. A
+	first packet is anyone's, from any address: challenges alone never keep
+	a player out) */
 	if (index == CE_MAXIMUM_PEERS)
-		return;
+	{
+		int oldest = -1;
+
+		for (index = 0; index < CE_MAXIMUM_PEERS; index++)
+		{
+			if (transport.peers[index].state == PEER_CHALLENGED &&
+				(oldest < 0 || now - transport.peers[index].heard_time > now - transport.peers[oldest].heard_time))
+			{
+				oldest = index;
+			}
+		}
+		if (oldest < 0)
+			return;
+		index = oldest;
+	}
 	peer = &transport.peers[index];
 	forget(peer);
 	peer->state = PEER_CHALLENGED;

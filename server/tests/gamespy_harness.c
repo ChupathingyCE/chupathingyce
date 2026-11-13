@@ -21,6 +21,10 @@ the masters the last heartbeat). Its notices go to standard output.
   gamespy_harness postgame <mode> [over]
                                 (a payload of the game's end at that step,
                                  and game over after it, as hex)
+  gamespy_harness replies <count> <address>...
+                                (count queries in one second, from each
+                                 address in turn: how many replies each
+                                 address is allowed, one line each)
 
 With joins on, the harness has no game: each join is refused as a game
 between games would refuse it (reason 0), and the log says so.
@@ -50,6 +54,21 @@ int main(int argc, char **argv)
 
 		gamespy_map_name(argv[2], name, sizeof(name));
 		printf("%s\n", name);
+		return 0;
+	}
+	if (argc >= 4 && !strcmp(argv[1], "replies"))
+	{
+		int allowed[16] = { 0 };
+		int addresses = argc - 3 < 16 ? argc - 3 : 16;
+		int query;
+
+		for (query = 0; query < atoi(argv[2]); query++)
+		{
+			index = query % addresses;
+			allowed[index] += gamespy_reply_allowed((unsigned int)strtoul(argv[3 + index], NULL, 0), 1000);
+		}
+		for (index = 0; index < addresses; index++)
+			printf("%d\n", allowed[index]);
 		return 0;
 	}
 	if (argc >= 3 && !strcmp(argv[1], "updates"))
