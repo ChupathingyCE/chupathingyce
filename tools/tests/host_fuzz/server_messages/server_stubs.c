@@ -183,6 +183,8 @@ long main_load_ui_scenario(void);
 long main_load_ui_scenario(void) { return 0; }
 long main_menu_unload(void);
 long main_menu_unload(void) { return 0; }
+long main_set_difficulty(void);
+long main_set_difficulty(void) { return 0; }
 long main_set_multiplayer_map_name(void);
 long main_set_multiplayer_map_name(void) { return 0; }
 long map_family_parse(void);
