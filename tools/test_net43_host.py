@@ -56,7 +56,7 @@ HOST_ADDRESS = os.environ.get("NET43_HOST_ADDRESS", "127.0.0.40")
 CLIENT_ADDRESSES = os.environ.get("NET43_CLIENT_ADDRESSES", "127.0.0.41,127.0.0.42").split(",")
 
 
-def copy(folder, legacy, test, address, broadcast):
+def copy(folder, legacy, test, address, broadcast, extra=None):
     folder.mkdir(parents=True)
     subprocess.run([DATA_ROOT_SCRIPT, str(folder / "data")], check=True, capture_output=True)
     for name in ("home", "saves"):
@@ -86,6 +86,8 @@ def copy(folder, legacy, test, address, broadcast):
     }
     if legacy:
         env["HALO_LEGACY_TABLE"] = str(legacy)
+    if extra:
+        env.update(extra)
     output = open(folder / "out.log", "wb")
     process = subprocess.Popen([os.path.abspath(BINARY)], cwd=folder / "data", env=env, stdout=output,
                                stderr=subprocess.STDOUT, start_new_session=True)
@@ -104,7 +106,7 @@ def log(folder):
     return read_debug_log(folder / "saves", folder / "data")
 
 
-def play(tmp_path, announce, clients):
+def play(tmp_path, announce, clients, extra=None):
     host = tmp_path / "host"
     addresses = CLIENT_ADDRESSES[:len(clients)]
     running = [copy(host, table(tmp_path / "host.json", announce), "host:bloodgulch", HOST_ADDRESS,
@@ -112,7 +114,7 @@ def play(tmp_path, announce, clients):
     try:
         time.sleep(8)
         for (name, legacy), address in zip(clients, addresses):
-            running.append(copy(tmp_path / name, legacy, "join", address, HOST_ADDRESS))
+            running.append(copy(tmp_path / name, legacy, "join", address, HOST_ADDRESS, extra))
         time.sleep(60)
     finally:
         for process, output in running:
@@ -149,3 +151,17 @@ def test_host_refuses_a_join_without_the_word(tmp_path):
     assert "joining a host of network version 45: the join request carries 234 more bytes" in clients["without_word"]
     assert "successfully joined a net game" not in clients["without_word"]
     assert "ignoring a join request of another network version than this host's" in hosted
+
+
+def test_host_declines_an_mcc_package_request(tmp_path):
+    """a host at 44: a client's MCC package request (OpenCE's 103, the
+    probe's, as a 44 client lacking the map sends it) is declined at once
+    with a 104 of result 1 (sharing off), which the client notes and drops;
+    the game goes on"""
+    hosted, clients = play(tmp_path, 44, [("client", None)], {"HALO_NETWORK_TEST_MCC_REQUEST": "true"})
+    joined = clients["client"]
+    assert "asking the host for the MCC map package mcc_maps\\probe\\probe (OpenCE's 103" in joined
+    assert "asked for the MCC map package (OpenCE's 103, op 1): declined (104, sharing off)" in hosted
+    assert "the host sent an MCC package answer (OpenCE's 104, result 1, op 1)" in joined
+    assert "successfully joined a net game" in joined
+    assert "different game layout" not in joined and "different game layout" not in hosted

@@ -105,4 +105,28 @@ int mcc_share_file_allowed(char const *leaf, size_t length)
     name[length]=0;
     return mcc_share_same(name,"bitmaps.map") || mcc_share_same(name,"sounds.map");
 }
+
+int mcc_share_decline(unsigned char const *request, size_t size, unsigned char *reply)
+{
+    size_t i;
+    if (!request || !reply || size!=MCC_SHARE_REQUEST_SIZE) return 0;
+    if (request[0]<MCC_SHARE_OP_MANIFEST || request[0]>MCC_SHARE_OP_HAVE) return 0;
+    if (!memchr(request+16,0,MCC_SHARE_LEVEL_SIZE)) return 0;
+    memset(reply,0,MCC_SHARE_RESPONSE_SIZE);
+    reply[0]=request[0];                 /* op, echoed */
+    reply[1]=MCC_SHARE_RESULT_OFF;       /* result: sharing off */
+    reply[2]=request[1];                 /* file number */
+    reply[3]=0;                          /* count: no entries */
+    for (i=4;i<12;i++) reply[i]=request[i]; /* session and offset, echoed */
+    /* length 0 at 12: nothing follows */
+    memcpy(reply+16,request+16,MCC_SHARE_LEVEL_SIZE); /* the level, echoed */
+    /* credit at 80: none */
+    return 1;
+}
+
+int mcc_share_answer_result(unsigned char const *reply, size_t size)
+{
+    if (!reply || size<MCC_SHARE_RESPONSE_SIZE) return -1;
+    return reply[1];
+}
 #endif /* HALO_MCC */

@@ -78,6 +78,7 @@ tools/test_mcc_effects_gain.py
 tools/test_mcc_environment_shader.py
 tools/test_mcc_host_identity.py
 tools/test_mcc_identity.py
+tools/test_mcc_share_decline.py
 tools/test_mcc_maps_first.py
 tools/test_mcc_memory.py
 tools/test_mcc_missing_level.py
