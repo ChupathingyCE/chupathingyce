@@ -1,10 +1,11 @@
 /*
 STUBBS_MULTIPLAYER.H
 
-Stubbs mode's two-player game: the co-op menus' Stubbs branches and, later,
-how a Stubbs game is told apart online
-(port/linux/game/stubbs_multiplayer.c). Each hook is called only in Stubbs
-mode (stubbs_mode_active); until a body is written, each does nothing.
+Stubbs mode's two-player game: the co-op menus' Stubbs branches and how a
+Stubbs game is told apart online (port/linux/game/stubbs_multiplayer.c).
+Each hook is called only in Stubbs mode (stubbs_mode_active), except
+stubbs_multiplayer_join_refused, which acts only in Stubbs mode or on a
+Stubbs game.
 
 SPDX-FileCopyrightText: 2026 The Chupathingy contributors
 SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
@@ -20,15 +21,28 @@ struct event_record;
 #ifndef HALO_CONSOLE_NO_STUBBS
 /* a menu widget's event script the map lacks (ui_widget.c, where Halo
 logs "failed to run ui widget event script", such as Stubbs's
-'multiplayer'): TRUE once it has run; FALSE for now */
+'multiplayer'): TRUE when it is one of Halo's the original game had
+nothing for either (it counts as run) */
 boolean stubbs_multiplayer_widget_script(char const *script);
 
 /* the co-op profile list's choice, where Halo finds no selectable profile
-(ui_widget_event_handler_functions.c): TRUE once it has chosen, its result
-in *result; FALSE for now, and Halo's "this is not a selectable player
-profile" follows */
+(ui_widget_event_handler_functions.c): an empty slot, whose own list item
+asks about a new profile; TRUE, *result FALSE (the screen stays), in place
+of Halo's "this is not a selectable player profile" and its error sound */
 boolean stubbs_multiplayer_profile_chosen(struct widget_instance *widget, struct event_record *event,
 	boolean *widget_deleted, boolean *result);
+
+/* a network game this machine is joining, its map named as the loader has
+it (network_client_manager.c, whatever the mode): TRUE when Stubbs mode is
+on and the game is not Stubbs's, or off and the game is Stubbs's, the
+player told why in a message; FALSE to go on joining. Online two-player
+Stubbs isn't made yet */
+boolean stubbs_multiplayer_join_refused(char const *map_name);
+
+/* a machine from elsewhere asking into the game this machine hosts, in
+Stubbs mode only (network_server_manager.c): TRUE to refuse it, which it
+is told as the game not taking players (the one refusal every copy knows) */
+boolean stubbs_multiplayer_remote_machine_refused(void);
 
 #else
 /* (a console leaves Stubbs mode out, HALO_CONSOLE_NO_STUBBS in
@@ -38,6 +52,8 @@ static __inline boolean stubbs_multiplayer_widget_script(char const *script) { (
 static __inline boolean stubbs_multiplayer_profile_chosen(struct widget_instance *widget, struct event_record *event,
 	boolean *widget_deleted, boolean *result)
 { (void)widget; (void)event; (void)widget_deleted; (void)result; return FALSE; }
+static __inline boolean stubbs_multiplayer_join_refused(char const *map_name) { (void)map_name; return FALSE; }
+static __inline boolean stubbs_multiplayer_remote_machine_refused(void) { return FALSE; }
 #endif
 
 #endif
