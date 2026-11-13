@@ -22,6 +22,9 @@ and return none, 0 or false.
 #include "objects/damage.h"
 #include "objects/objects.h"
 #include "ai/ai_script.h"
+#include "scenario/scenario.h"
+#include "scenario/scenario_definitions.h"
+#include "units/unit_definitions.h"
 #include "game/players.h"
 #include "units/units.h"
 #include "stubbs_mode.h"
@@ -371,9 +374,11 @@ static struct
 	{ "player_action_test_grenade", _stubbs_action_grenade_bit },
 	{ "player_action_test_hand", _stubbs_action_hand_bit },
 	{ "player_action_test_head", _stubbs_action_head_bit },
-	/* ("the abandon head/hand/grenade key": the hand's, which the help
-	text says aborts) */
-	{ "player_action_test_abandon", _stubbs_action_hand_bit },
+	/* ("the abandon head/hand/grenade key": the help text has the grenade
+	"pulled again to make it detonate" and black abort the hand, so the
+	gut grenade's, the hand's or the head's button pressed again; a30's
+	tutorial resets between the two presses) */
+	{ "player_action_test_abandon", NONE - 1 },
 	{ "player_action_test_dance_up", _stubbs_action_dance_up_bit },
 	{ "player_action_test_dance_down", _stubbs_action_dance_down_bit },
 	{ "player_action_test_dance_left", _stubbs_action_dance_left_bit },
@@ -416,11 +421,129 @@ static boolean stubbs_function_action_test(
 		{
 			short bit = stubbs_action_tests[index].bit;
 
-			hs_return(thread_index, bit == NONE ? TRUE : TEST_FLAG(stubbs_action_flags, bit) ? TRUE : FALSE);
+			unsigned long mask = bit == NONE - 1 ?
+				FLAG(_stubbs_action_grenade_bit) | FLAG(_stubbs_action_hand_bit) | FLAG(_stubbs_action_head_bit) :
+				bit == NONE ? 0 : FLAG(bit);
+
+			hs_return(thread_index, bit == NONE ? TRUE : (stubbs_action_flags & mask) ? TRUE : FALSE);
 			return TRUE;
 		}
 	}
 	return FALSE;
+}
+
+/* ---------- the questions the scripts ask about objects
+
+Each as the retail game's own note on it says (Stubbs.exe's function
+descriptions); the levels wait on them (b30, c40: how close an object is to
+a camera point; a50, b30, c10: who is in a volume; most levels: what kind of
+unit the player is) */
+
+static long stubbs_real_bits(real value)
+{
+	long bits;
+
+	memcpy(&bits, &value, sizeof(bits));
+	return bits;
+}
+
+/* returns TRUE once it has returned the call's value */
+static boolean stubbs_function_query(
+	char const *name,
+	short function_index,
+	long thread_index,
+	boolean initialize)
+{
+	long *arguments;
+	long value = 0;
+
+	if (_stricmp(name, "objects_in_volume") && _stricmp(name, "object_is_instance") &&
+		_stricmp(name, "object_distance_to_camera_point") && _stricmp(name, "objects_distance") &&
+		_stricmp(name, "unit_get_weapon"))
+	{
+		return FALSE;
+	}
+	arguments = hs_macro_function_evaluate(function_index, thread_index, initialize);
+	if (!arguments)
+		return TRUE;
+	/* (objects_in_volume <objects> <volume>): "trims the object list to only
+	include objects within the specified volume" */
+	if (!_stricmp(name, "objects_in_volume"))
+	{
+		long reference, object_index;
+		short volume = (short)arguments[1];
+
+		value = object_list_new();
+		for (object_index = object_list_get_first(arguments[0], &reference); object_index != NONE;
+			object_index = object_list_get_next(arguments[0], &reference))
+		{
+			if (volume != NONE && value != NONE && scenario_trigger_volume_test_object(volume, object_index))
+				object_list_add(value, object_index);
+		}
+	}
+	/* (object_is_instance <object> <object definition>): "returns true if
+	the object is of the specified type" */
+	else if (!_stricmp(name, "object_is_instance"))
+	{
+		struct object_datum *object = arguments[0] != NONE ? object_try_and_get(arguments[0]) : NULL;
+
+		value = object && arguments[1] != NONE && object->definition_index == arguments[1];
+	}
+	/* (object_distance_to_camera_point <camera point> <object>): "returns
+	the distance from the object to the cutscene flag" (-1 without one) */
+	else if (!_stricmp(name, "object_distance_to_camera_point"))
+	{
+		struct tag_block *points = &global_scenario_get()->cutscene_camera_points;
+		short point_index = (short)arguments[0];
+		real distance = -1.f;
+
+		if (point_index >= 0 && point_index < points->count && arguments[1] != NONE &&
+			object_try_and_get(arguments[1]))
+		{
+			struct scenario_cutscene_camera_point *point = TAG_BLOCK_GET_ELEMENT(points, point_index,
+				struct scenario_cutscene_camera_point);
+			real_point3d origin;
+
+			object_get_origin(arguments[1], &origin);
+			distance = square_root(distance_squared3d(&origin, &point->position));
+		}
+		value = stubbs_real_bits(distance);
+	}
+	/* (objects_distance <objects> <object>): "returns the shortest distance
+	between any of the objects in the list and the specified object" (-1
+	for none) */
+	else if (!_stricmp(name, "objects_distance"))
+	{
+		long reference, object_index;
+		real shortest = -1.f;
+		real_point3d origin, other;
+
+		if (arguments[1] != NONE && object_try_and_get(arguments[1]))
+		{
+			object_get_origin(arguments[1], &origin);
+			for (object_index = object_list_get_first(arguments[0], &reference); object_index != NONE;
+				object_index = object_list_get_next(arguments[0], &reference))
+			{
+				real distance;
+
+				object_get_origin(object_index, &other);
+				distance = square_root(distance_squared3d(&origin, &other));
+				if (shortest < 0.f || distance < shortest)
+					shortest = distance;
+			}
+		}
+		value = stubbs_real_bits(shortest);
+	}
+	/* (unit_get_weapon <unit>): "returns the weapon that the unit is
+	currently wielding" */
+	else
+	{
+		struct unit_datum *unit = arguments[0] != NONE ? unit_try_and_get(arguments[0]) : NULL;
+
+		value = unit ? unit_inventory_get_weapon(arguments[0], unit->unit.current_weapon_index) : NONE;
+	}
+	hs_return(thread_index, value);
+	return TRUE;
 }
 
 static boolean stubbs_functions_ready;
@@ -504,6 +627,8 @@ static void stubbs_function_evaluate(
 	if (stubbs_function_native(function->definition.name, function_index, thread_index, initialize))
 		return;
 	if (stubbs_function_action_test(function->definition.name, function_index, thread_index, initialize))
+		return;
+	if (stubbs_function_query(function->definition.name, function_index, thread_index, initialize))
 		return;
 	if (!function->logged)
 	{
