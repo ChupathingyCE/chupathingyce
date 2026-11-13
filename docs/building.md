@@ -43,10 +43,11 @@ nightlies or releases yet.
 
 The version being made is in `VERSION`. Releases are built and published by
 the project's release workflow; the builds on this repository's Actions page
-are for checking changes. A pull request builds every platform in its release
-configuration, and one that changes only documentation doesn't build. Pushes
-to `main` don't build: the nightly checks it. Debug builds are made only for
-releases, nightlies, test builds and tags.
+are for checking changes. A pull request gets a quick check (the Linux
+build, the tests, and the platforms whose own files it changes); every
+platform builds on pushes to `main`, on batches and on pull requests labeled
+`ci: full`. One that changes only documentation doesn't build. Debug builds
+are made only for releases, nightlies and test builds. See [ci.md](ci.md).
 
 ## Console ports
 
