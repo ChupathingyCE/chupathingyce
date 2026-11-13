@@ -129,8 +129,11 @@ static struct
 {
 	FILE *file;
 	BOOL checked;
-	unsigned long unflushed;
+	unsigned long unflushed, lines;
 } frame_times;
+/* the most lines a run writes (about 10 MB; an hour at 60 Hz): past them,
+one line says so and the file is closed */
+#define FRAME_TIMES_MAXIMUM_LINES 250000
 
 static double prep_seconds(void)
 {
@@ -164,6 +167,14 @@ static void frame_times_write(const char *what, double interval, const char *map
 
 	if (!file)
 		return;
+	if (++frame_times.lines > FRAME_TIMES_MAXIMUM_LINES)
+	{
+		fprintf(file, "stopped\tafter %d lines\n", FRAME_TIMES_MAXIMUM_LINES);
+		fclose(file);
+		frame_times.file = NULL;
+		platform_log("frame times: stopped after %d lines", FRAME_TIMES_MAXIMUM_LINES);
+		return;
+	}
 	/* (the wall clock, so that a run's launch time compares with it) */
 	clock_gettime(CLOCK_REALTIME, &now);
 	fprintf(file, "%s\t%ld.%03ld\t%.3f\t%s\n", what, (long)now.tv_sec, (long)(now.tv_nsec / 1000000), interval * 1000.0,
