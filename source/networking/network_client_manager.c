@@ -1448,8 +1448,10 @@ boolean network_game_client_game_settings_updated(
 			if (!mcc_identity_accept(message_packet)) return FALSE;
 
 			/* port: Stubbs mode's games and Halo's kept apart, said in a
-			message (port/linux/game/stubbs_multiplayer.c) */
-			if (!network_game_is_splitscreen_local() && stubbs_multiplayer_join_refused(message_packet->map.name))
+			message (port/linux/game/stubbs_multiplayer.c); a host's own
+			client is the host */
+			if (!network_game_is_splitscreen_local() && !global_network_game_server_get() &&
+				stubbs_multiplayer_join_refused(message_packet->map.name))
 			{
 				display_error_when_main_menu_loaded(_error_network_failed_to_join_game);
 				return FALSE;
