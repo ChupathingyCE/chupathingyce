@@ -697,6 +697,38 @@ static void crash_write_report(HANDLE process, DWORD thread_id, ULONG_PTR except
 	frame.AddrStack.Offset = context.Esp;
 #endif
 	frame.AddrPC.Mode = frame.AddrFrame.Mode = frame.AddrStack.Mode = AddrModeFlat;
+	/* a call through a null function pointer (#1161: a GL or driver entry
+	point never loaded, a callback cleared): the crash is at address 0, which
+	no module's unwind information covers, so the walk stopped at its one
+	frame, ?+0x0, and the report said nothing of who called. The call pushed
+	the caller's return address, on top of the stack: the walk goes on from
+	the caller, as if the call itself had crashed, after that first frame */
+	if (!frame.AddrPC.Offset)
+	{
+		DWORD64 return_address = 0;
+#ifdef HALO_64BIT
+		DWORD64 slot = 0;
+#else
+		DWORD slot = 0;
+#endif
+
+		if (ReadProcessMemory(process, (void *)(ULONG_PTR)frame.AddrStack.Offset, &slot, sizeof(slot), NULL))
+			return_address = slot;
+		if (return_address)
+		{
+			crash_frame(process, 0, line, sizeof(line));
+			body_text(&report, line);
+			frame.AddrPC.Offset = return_address;
+			frame.AddrStack.Offset += sizeof(slot);
+#ifdef HALO_64BIT
+			context.Rip = return_address;
+			context.Rsp += sizeof(slot);
+#else
+			context.Eip = (DWORD)return_address;
+			context.Esp += sizeof(slot);
+#endif
+		}
+	}
 	thread = OpenThread(THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, thread_id);
 	SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_FAIL_CRITICAL_ERRORS | SYMOPT_NO_PROMPTS);
 	/* (the modules of the game, for their unwind information) */
