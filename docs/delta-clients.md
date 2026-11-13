@@ -107,7 +107,7 @@ to the certificate for apps; a device of yours just gets fewer bits.
 | `play` | 0x01 | Show you as your profile in games | prove who the player is to hosts and servers |
 | `stats` | 0x02 | Send your games to your stats | `/v1/claim`, `/v1/client_report` |
 | `profile` | 0x04 | See your profile, change its privacy settings, and see your devices | `/v1/game/profile`, `/unlink`, `/privacy`, `/v1/link` (a site session that can't reach friends, clans or hosting without `social`), `/v1/identity/devices` |
-| `social` | 0x10 | See your friends and clan, show them you're online, send invites, and list your games | `/v1/presence`, `/v1/social/*`, and with `profile`: `/v1/game/clan`, `/v1/game/friends`, and friends, clan and hosting in the site session `/v1/link` opens |
+| `social` | 0x10 | See your friends and clan, show them you're online, send invites, join parties, and list your games | `/v1/presence`, `/v1/social/*`, `/v1/party`, and with `profile`: `/v1/game/clan`, `/v1/game/friends`, and friends, clan and hosting in the site session `/v1/link` opens |
 | `moderate` | 0x08 | Sign you in to moderate on servers where you have a role | moderation sign-in (the server still checks the role). Only we give it, to an approved app |
 | `devices` | 0x20 | (never for apps) | approving and revoking other devices stays with Chupathingy's own builds |
 
