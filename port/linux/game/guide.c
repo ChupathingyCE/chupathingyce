@@ -130,6 +130,7 @@ DELTA counts what waits ("DELTA 2": invites and requests).
 #include "../src/delta_input_rules.h"
 #include "guide_record.h"
 #include "guide_workshop.h"
+#include "guide_logs.h"
 #include "report_player.h"
 
 #include <stdio.h>
@@ -323,6 +324,8 @@ enum
 	/* WORKSHOP's PREV and NEXT (index 0 and 1), and Steam's sign-in window's button */
 	_target_page,
 	_target_modal,
+	/* SEND MY LOGS' window's buttons (index 0 the left one) */
+	_target_logs,
 };
 
 /* RECENT's options on a player */
@@ -1242,16 +1245,33 @@ static void setting_change(short setting, short direction)
 }
 
 /* SETTINGS' rows: the settings, then the devices' rows when signed in,
-then ABOUT */
+then the logs' (guide_logs.c), then ABOUT */
 static short settings_rows(void)
 {
-	return (short)(settings_count() + (guide.linked && profile_screen_available() ? NUMBER_OF_DEVICE_ROWS : 0) + 1);
+	return (short)(settings_count() + (guide.linked && profile_screen_available() ? NUMBER_OF_DEVICE_ROWS : 0) +
+		guide_logs_rows() + 1);
 }
 
 /* ABOUT's row, the last */
 static short about_row(void)
 {
 	return (short)(settings_rows() - 1);
+}
+
+/* SEND MY LOGS' row, the first of the logs' */
+static short logs_row(void)
+{
+	return (short)(about_row() - guide_logs_rows());
+}
+
+/* a row after the settings: its label */
+static char const *extra_row_label(short row)
+{
+	if (row == about_row())
+		return "ABOUT";
+	if (row >= logs_row())
+		return guide_logs_row_label((short)(row - logs_row()));
+	return device_row_labels[row - settings_count()];
 }
 
 /* a device row's A: Delta Profile's dialog, over what was under DELTA */
@@ -1274,6 +1294,13 @@ static void extra_row_activate(short row)
 		guide.about = TRUE;
 		guide.about_from_settings = TRUE;
 		about_reset(&guide.about_view);
+	}
+	else if (row >= logs_row())
+	{
+		char const *said = guide_logs_row_activate((short)(row - logs_row()));
+
+		if (said)
+			message_set(said);
 	}
 	else
 		device_row_activate((short)(row - settings_count()));
@@ -3587,6 +3614,11 @@ static void workshop_target(float x0, float y0, float x1, float y1, short kind, 
 		_target_option : kind == GUIDE_WORKSHOP_TARGET_PAGE ? _target_page : _target_modal, index);
 }
 
+static void logs_target(float x0, float y0, float x1, float y1, short index)
+{
+	target_add(x0, y0, x1, y1, _target_logs, index);
+}
+
 static void render_card(void)
 {
 	ui_style_card(CONTENT_LEFT, CONTENT_RIGHT, HEADER_Y, guide.name, guide.status, guide.color, "DELTA");
@@ -4293,7 +4325,7 @@ static void render_settings(void)
 		else
 		{
 			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f,
-				setting == about_row() ? "ABOUT" : device_row_labels[setting - settings_count()], NULL, "\xE2\x80\xBA", on);
+				extra_row_label(setting), NULL, NULL, on);
 		}
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;
@@ -5165,6 +5197,8 @@ void guide_close(void)
 	guide.open = FALSE;
 	guide.about = FALSE;
 	guide.target_count = 0;
+	if (guide_logs_modal())
+		guide_logs_modal_back();
 	guide.code_entry = FALSE;
 	guide.party_member = NONE;
 	guide.party_armed = NONE;
@@ -5257,6 +5291,8 @@ void guide_update(boolean menu_open)
 	recent_notice();
 	/* (a report's answer, and its clip: report_player.c) */
 	report_player_update();
+	/* (logs sent with SEND MY LOGS' window closed: their code) */
+	guide_logs_update();
 	/* (WORKSHOP's folders watched while it shows, or an item waits on Steam) */
 	guide_workshop_update(guide.open && guide.section == SOCIAL_SECTION_WORKSHOP);
 	if (guide.open && !section_shown(guide.section))
@@ -5480,6 +5516,17 @@ static void handle_pressed(unsigned int pressed)
 			about_input(&guide.about_view, ABOUT_INPUT_A);
 		return;
 	}
+	/* (SEND MY LOGS' window: as Steam's below) */
+	if (guide_logs_modal())
+	{
+		if (pressed & GUIDE_INPUT_A)
+			guide_logs_modal_press();
+		else if (pressed & GUIDE_INPUT_B)
+			guide_logs_modal_back();
+		else if (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT))
+			guide_logs_modal_move((pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
+		return;
+	}
 	/* (Steam's sign-in window: A its button with the focus, B back, left
 	and right the question's two buttons, nothing under it) */
 	if (guide_workshop_link_modal())
@@ -5617,7 +5664,7 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		guide_workshop_wheel(pointer->x, pointer->y, pointer->wheel_steps))
 	{
 	}
-	else if (pointer->wheel_steps && !guide_workshop_link_modal())
+	else if (pointer->wheel_steps && !guide_workshop_link_modal() && !guide_logs_modal())
 	{
 		short step;
 
@@ -5778,7 +5825,15 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		case _target_modal:
 			guide_workshop_link_modal_click(target->index);
 			break;
+		case _target_logs:
+			guide_logs_modal_click(target->index);
+			break;
 		}
+		return;
+	}
+	if (guide_logs_modal())
+	{
+		guide_logs_modal_click_outside(pointer->click_x, pointer->click_y);
 		return;
 	}
 	/* (Steam's sign-in window: a click beside it does nothing; beside
@@ -5876,6 +5931,13 @@ void guide_render(void)
 		guide.target_count = 0;
 		ui_overlay_layer(5);
 		guide_workshop_link_modal_render(PANEL_X, PANEL_Y, PANEL_RIGHT, PANEL_Y + PANEL_HEIGHT, workshop_target);
+	}
+	/* (SEND MY LOGS' window over it all: only its buttons take a click) */
+	if (guide_logs_modal())
+	{
+		guide.target_count = 0;
+		ui_overlay_layer(5);
+		guide_logs_modal_render(PANEL_X, PANEL_Y, PANEL_RIGHT, PANEL_Y + PANEL_HEIGHT, logs_target);
 	}
 	ui_overlay_layer(0);
 }

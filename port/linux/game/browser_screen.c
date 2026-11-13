@@ -391,6 +391,14 @@ static struct
 	char password_name[64];
 	char password_text[PASSWORD_LENGTH + 1];
 	unsigned long password_time;
+	/* a game picked to join: its panel up (JOIN or CANCEL) before anything
+	is joined, the game's invite, and when the panel opened; the invite
+	answered JOIN, joined from here on without asking again (a playlist's
+	maps offered after it, a missing map's offer) */
+	boolean join_ask_open;
+	char join_ask_invite[BROWSER_INVITE_LENGTH + 1];
+	unsigned long join_ask_time;
+	char join_answered[BROWSER_INVITE_LENGTH + 1];
 } browser_screen;
 
 /* ---------- private code */
@@ -1306,6 +1314,7 @@ static boolean fold_selected(void);
 static short find_game(char const *invite, long length);
 static void join_invite(char const *invite, unsigned short const *name, boolean open);
 static void password_open(struct browser_game const *game);
+static boolean join_asked(struct browser_game const *game);
 static void fetch_games(void);
 
 /* a game's playlist's map set checked, if it has one this run has not
@@ -1342,7 +1351,10 @@ static void playlist_offer_end(
 	/* (the maps' folders asked again: some may be there now) */
 	browser_screen.ce_map_time = system_milliseconds() - CE_MAP_CHECK_INTERVAL - 1;
 	if (!join)
+	{
+		browser_screen.join_answered[0] = 0;
 		return;
+	}
 	fetch_games();
 	index = find_game(browser_screen.playlist_invite, BROWSER_INVITE_LENGTH + 1);
 	if (index != NONE)
@@ -1499,6 +1511,9 @@ static void join_selected(
 		set_status(game_type_blocker(game));
 		return;
 	}
+	/* (JOIN asked first: a pick alone joins nothing) */
+	if (!join_asked(game))
+		return;
 	/* (a verified playlist's game: its map set checked first, the missing
 	maps offered, and the game joined after: playlist_offer_follow) */
 	if (playlist_offer_begin(game))
@@ -1565,6 +1580,83 @@ static void join_invite(
 	if (name)
 		utf8_name(name, browser_screen.connecting_name, sizeof(browser_screen.connecting_name));
 	browser_screen.connecting_time = system_milliseconds();
+	browser_screen.join_answered[0] = 0;
+}
+
+/* ---------- a game's JOIN: asked before a game picked is joined, as a
+pick is not a join (a click on a game picks it; Enter or A on it, or a
+click on the picked one, asks). A game with a password is asked by its
+password's panel instead, and one that can't be joined says why without
+asking */
+
+/* whether the join of the game picked goes on: TRUE once it was answered
+JOIN (or its password's panel asks); else its panel opened */
+static boolean join_asked(
+	struct browser_game const *game)
+{
+	if (browser_screen.join_answered[0] && !strcmp(browser_screen.join_answered, game->invite))
+		return TRUE;
+	if (game->locked)
+		return TRUE;
+	/* (a Custom Edition map that is missing and can't be downloaded, with no
+	playlist to offer it: the footer's why, not a question) */
+	if (!(game->playlist[0] && playlist_download_possible()) && ce_map_state(game, FALSE) >= _ce_map_missing &&
+		!ce_map_downloadable(game) && !ce_map_ask_host(game))
+	{
+		return TRUE;
+	}
+	browser_screen.join_ask_open = TRUE;
+	csstrncpy(browser_screen.join_ask_invite, game->invite, sizeof(browser_screen.join_ask_invite) - 1);
+	browser_screen.join_ask_invite[sizeof(browser_screen.join_ask_invite) - 1] = 0;
+	browser_screen.join_ask_time = system_milliseconds();
+	return FALSE;
+}
+
+static void join_ask_close(
+	void)
+{
+	browser_screen.join_ask_open = FALSE;
+	browser_screen.join_ask_invite[0] = 0;
+}
+
+/* the game asked about, as the list has it now; NULL once it is gone */
+static struct browser_game const *join_ask_game(
+	void)
+{
+	short index = find_game(browser_screen.join_ask_invite, BROWSER_INVITE_LENGTH + 1);
+
+	return index != NONE ? &browser_screen.games[index] : NULL;
+}
+
+static void join_ask_button(
+	short button)
+{
+	short index;
+
+	switch (button)
+	{
+	case _gamepad_analog_button_a:
+	case _gamepad_binary_button_start:
+		index = find_game(browser_screen.join_ask_invite, BROWSER_INVITE_LENGTH + 1);
+		if (index == NONE)
+		{
+			join_ask_close();
+			set_status("The game is no longer listed.");
+			break;
+		}
+		csstrncpy(browser_screen.join_answered, browser_screen.join_ask_invite,
+			sizeof(browser_screen.join_answered) - 1);
+		browser_screen.join_answered[sizeof(browser_screen.join_answered) - 1] = 0;
+		join_ask_close();
+		browser_screen.selected = index;
+		platform_log("Online Games: JOIN answered");
+		join_selected();
+		break;
+	case _gamepad_analog_button_b:
+		join_ask_close();
+		break;
+	default: break;
+	}
 }
 
 /* ---------- a game's password: typed on the keyboard (Ctrl+V pastes) into
@@ -2290,6 +2382,8 @@ void browser_screen_open(
 	if (browser_screen.connect_open)
 		close_link_profile();
 	password_close();
+	join_ask_close();
+	browser_screen.join_answered[0] = 0;
 	browser_screen.opened_time = system_milliseconds();
 	/* (the menu's A, still queued, is not a pick) */
 	event_manager_flush();
@@ -2669,6 +2763,12 @@ offer's while it is) */
 			password_button(button);
 		return;
 	}
+	if (browser_screen.join_ask_open)
+	{
+		if (system_milliseconds() - browser_screen.join_ask_time >= CONNECT_SETTLE)
+			join_ask_button(button);
+		return;
+	}
 	switch (button)
 	{
 	case _gamepad_binary_button_dpad_up: held_step(-1); break;
@@ -2776,6 +2876,9 @@ void browser_screen_debug_join(
 	if (index < 0 || index >= browser_screen.count)
 		return;
 	browser_screen.selected = (short)index;
+	/* (the test's own host: JOIN taken as answered) */
+	csstrncpy(browser_screen.join_answered, browser_screen.games[index].invite, sizeof(browser_screen.join_answered) - 1);
+	browser_screen.join_answered[sizeof(browser_screen.join_answered) - 1] = 0;
 	join_selected();
 }
 
@@ -2836,7 +2939,7 @@ void browser_screen_process(
 			press(event.data.button.index);
 		else if (event.type == BROWSER_EVENT_LEFT_STICK && !browser_screen.connect_open &&
 			browser_screen.offer == _offer_none && browser_screen.playlist_offer == _playlist_none &&
-			!browser_screen.password_open)
+			!browser_screen.password_open && !browser_screen.join_ask_open)
 		{
 			if (event.data.stick.y == SHORT_MAX)
 				held_step(-1);
@@ -2850,9 +2953,12 @@ void browser_screen_process(
 	}
 	if (browser_screen.selected >= browser_screen.count)
 		browser_screen.selected = (short)MAX(0, browser_screen.count - 1);
-	/* (the panel goes with the screen) */
+	/* (the panels go with the screen) */
 	if (!browser_screen.active)
+	{
 		password_close();
+		join_ask_close();
+	}
 	/* (the widgets behind take nothing while the browser is up) */
 	event_manager_flush();
 	follow_listings();
@@ -3957,6 +4063,56 @@ static void draw_map_offer(
 	}
 }
 
+/* a game's JOIN asked: its name, map and players, who joins it, and
+JOIN or CANCEL */
+static void draw_join_ask(
+	void)
+{
+	static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+	static char const *const words[] = { "=CANCEL", "=JOIN" };
+	struct browser_game const *game = join_ask_game();
+	float center = CONNECT_X + CONNECT_WIDTH / 2;
+	char text[192], name[64], map[64], type[64];
+	float size = 17.0f;
+
+	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, "Join game");
+	if (!game)
+	{
+		ui_overlay_text(UI_FONT_MENU, 12.0f, center, CONNECT_Y + 130, UI_ALIGN_CENTER, COLOR_WARN,
+			"The game is no longer listed.");
+		dialog_prompt(UI_BUTTON_B, "=CLOSE");
+		return;
+	}
+	utf8_name(game->name, name, sizeof(name));
+	while (size > 10.0f && ui_overlay_text_width(UI_FONT_MENU, size, name) > CONNECT_WIDTH - 60)
+		size -= 0.5f;
+	ui_overlay_text_glow(UI_FONT_MENU, size, center, CONNECT_Y + 112, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, name);
+	snprintf(text, sizeof(text), "%s  \xC2\xB7  %s", game_map_display_name(game, map, sizeof(map)),
+		type_name(game, type, sizeof(type)));
+	ui_overlay_text(UI_FONT_MENU, 12.0f, center, CONNECT_Y + 150, UI_ALIGN_CENTER, COLOR_TEXT, text);
+	snprintf(text, sizeof(text), "%d/%d players", game->players, game->maximum_players);
+	ui_overlay_text(UI_FONT_MENU, 12.0f, center, CONNECT_Y + 170, UI_ALIGN_CENTER, COLOR_TEXT, text);
+	{
+		struct player_profile profile;
+		char player[64];
+		long index;
+
+		/* (the profile join_first_player joins with) */
+		if (first_player_profile(&profile) != NONE)
+		{
+			for (index = 0; index < (long)sizeof(player) - 1 && index < NUMBEROF(profile.player_name) &&
+				profile.player_name[index]; index++)
+			{
+				player[index] = profile.player_name[index] < 0x80 ? (char)profile.player_name[index] : '?';
+			}
+			player[index] = 0;
+			snprintf(text, sizeof(text), "Playing as %s", player);
+			ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 206, UI_ALIGN_CENTER, COLOR_DIM, text);
+		}
+	}
+	dialog_prompts(NUMBEROF(buttons), buttons, words);
+}
+
 /* a game's password asked for: the stars typed in a field, a caret
 blinking after them, and what a wrong one says */
 static void draw_password(
@@ -4809,7 +4965,7 @@ void browser_screen_render(
 		&browser_screen.games[browser_screen.selected] : NULL;
 	boolean dialog = browser_screen.connect_open || browser_screen.offer != _offer_none ||
 		browser_screen.playlist_offer != _playlist_none ||
-		browser_screen.password_open;
+		browser_screen.password_open || browser_screen.join_ask_open;
 
 	/* (what the pointer may press, as this frame draws it) */
 	browser_screen.target_count = 0;
@@ -4868,6 +5024,8 @@ void browser_screen_render(
 			draw_map_offer();
 		else if (browser_screen.password_open)
 			draw_password();
+		else if (browser_screen.join_ask_open)
+			draw_join_ask();
 		else
 			draw_playlist_offer();
 		ui_overlay_layer(0);
@@ -4908,7 +5066,7 @@ void browser_screen_pointer(
 		press(_gamepad_analog_button_b);
 	/* (positive: away from the player, or a finger moving down: back) */
 	if (pointer->wheel_steps && !browser_screen.connect_open && browser_screen.offer == _offer_none &&
-		browser_screen.playlist_offer == _playlist_none)
+		browser_screen.playlist_offer == _playlist_none && !browser_screen.join_ask_open)
 		step((short)-pointer->wheel_steps);
 	if (!pointer->left_clicks || !browser_screen.active)
 		return;
