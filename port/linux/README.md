@@ -78,7 +78,7 @@ starts on more systems than the build machine's:
   SDL even when Steam sets `LD_LIBRARY_PATH`. Few distributions have a
   32-bit SDL 3. This SDL loads X11, Wayland, libdecor, PipeWire, PulseAudio
   and ALSA when it starts, so it starts with whichever of them the system
-  has. It is linked only to glibc. Its license is `SDL3-LICENSE.txt`.
+  has. It is linked only to glibc. Its license is in `THIRD-PARTY-NOTICES.txt`.
 
 The 64-bit build (`ninja linux64`, below) is portable the same way, with
 Debian 11's 64-bit (amd64) packages.
