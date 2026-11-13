@@ -21,6 +21,7 @@ and return none, 0 or false.
 #include "hs/object_lists.h"
 #include "objects/damage.h"
 #include "objects/objects.h"
+#include "ai/ai_script.h"
 #include "game/players.h"
 #include "units/units.h"
 #include "stubbs_mode.h"
@@ -141,6 +142,9 @@ static struct stubbs_function stubbs_functions[] =
 	STUBBS_FUNCTION("ui_map_first_load", _hs_type_boolean, 0, NULL, { 0 }),
 	STUBBS_FUNCTION("main_menu_show", _hs_type_void, 0, NULL, { 0 }),
 	STUBBS_FUNCTION("attract_mode_enable", _hs_type_void, 0, NULL, { 0 }),
+	/* (Halo's, but a team may be one of the two of Stubbs's that Halo has
+	no room for, which read as none: hs_compile.c) */
+	STUBBS_FUNCTION("ai_set_team", _hs_type_void, 2, NULL, { _hs_type_ai, _hs_type_enum_team }),
 };
 
 /* a function of Halo's own table by its name (NONE) */
@@ -235,7 +239,7 @@ static boolean stubbs_function_native(
 	long value = 0;
 
 	if (_stricmp(name, "objects_cannot_take_damage") && _stricmp(name, "objects_cannot_die") &&
-		_stricmp(name, "objects_destroy") && _stricmp(name, "modulo"))
+		_stricmp(name, "objects_destroy") && _stricmp(name, "modulo") && _stricmp(name, "ai_set_team"))
 	{
 		return FALSE;
 	}
@@ -257,6 +261,15 @@ static boolean stubbs_function_native(
 	/* (modulo <long> <long>) */
 	else if (!_stricmp(name, "modulo"))
 		value = arguments[1] ? arguments[0] % arguments[1] : 0;
+	/* (ai_set_team <ai> <team>): Halo's, but none for a team Halo has no
+	room for (the encounter keeps its own) */
+	else if (!_stricmp(name, "ai_set_team"))
+	{
+		if ((short)arguments[1] != NONE)
+			ai_scripting_set_team(arguments[0], (short)arguments[1]);
+		else
+			stubbs_mode_log("ai_set_team: a team Halo has no room for; the encounter keeps its own");
+	}
 	hs_return(thread_index, value);
 	return TRUE;
 }

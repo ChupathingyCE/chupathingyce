@@ -1536,16 +1536,36 @@ static boolean hs_parse_enum(
 		static char const *const stubbs_teams[] =
 		{
 			"default", "player", "civilian", "cop", "militia", "robot", "zombie", "security", "army", "possessed",
+			"scientist", "sheep",
 		};
 
-		for (value_index = 0; value_index < (short)NUMBEROF(stubbs_teams) && value_index < enum_definition->count;
-			value_index++)
+		for (value_index = 0; value_index < (short)NUMBEROF(stubbs_teams); value_index++)
 		{
 			if (!_stricmp(hs_compile_globals.compiled_source + expression->source_offset, stubbs_teams[value_index]))
 				break;
 		}
+		/* (Stubbs's last two teams have no room among Halo's ten: they read
+		as none, so an allegiance made or broken with one does nothing,
+		ai_scripting_allegiance and ai_scripting_allegiance_remove, and the
+		rest of its script runs) */
+		if (value_index >= enum_definition->count && value_index < (short)NUMBEROF(stubbs_teams))
+		{
+			expression->short_value = NONE;
+			return TRUE;
+		}
 		if (value_index >= (short)NUMBEROF(stubbs_teams))
 			value_index = enum_definition->count;
+	}
+	/* port: and its AI's one default state past Halo's, the zombies'
+	follow_player, which Halo's AI has no way to do: none, which
+	ai_set_current_state and ai_set_return_state leave alone (Stubbs mode
+	only) */
+	if (value_index == enum_definition->count && expression->type == _hs_type_enum_ai_default_state &&
+		stubbs_mode_active() &&
+		!_stricmp(hs_compile_globals.compiled_source + expression->source_offset, "follow_player"))
+	{
+		expression->short_value = NONE;
+		return TRUE;
 	}
 #endif
 	if (value_index == enum_definition->count)
