@@ -592,6 +592,9 @@ int mcc_bitmaps_prepare(struct mcc_runtime *runtime)
     if (!textures) return 0;
     memset(textures,0,sizeof(*textures));
     runtime->bitmaps=textures;
+    /* (the reader's limit, mcc_cache_format.c: a list three times as long
+     * cannot wrap) */
+    if (runtime->report.bitmap_count>MCC_CACHE_MAX_BITMAPS) return 0;
     textures->capacity=runtime->report.bitmap_count*3;
     textures->tag_capacity=MIN(original_count*3,0xFFFFu);
     new_index=mcc_runtime_allocate(runtime,textures->tag_capacity*32);
@@ -614,7 +617,7 @@ int mcc_bitmaps_prepare(struct mcc_runtime *runtime)
         if (!group || !(bitmaps=mcc_bitmap_block(runtime,&group->bitmaps,sizeof(*bitmaps)))) return 0;
         for (n=0;n<(uint32_t)group->bitmaps.count;n++) {
             struct mcc_texture *texture;
-            if (textures->count>=runtime->report.bitmap_count) return 0;
+            if (textures->count>=runtime->report.bitmap_count || textures->count>=textures->capacity) return 0;
             texture=&textures->items[textures->count++];
             texture->bitmap=&bitmaps[n];texture->handle=entry[3];
             texture->resource_handle=entry[3];texture->resource_index=n;

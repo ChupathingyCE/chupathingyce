@@ -11,6 +11,10 @@
 #define MCC_CACHE_VERSION 13u
 #define MCC_CACHE_TAG_CAPACITY 0x04000000u
 #define MCC_CACHE_MAX_BSPS 32u
+/* (all bitmaps the tags name, counted once per tag that names them: far
+ * beyond any real map, and small enough that a list of them sized from it
+ * cannot wrap) */
+#define MCC_CACHE_MAX_BITMAPS 0x100000u
 
 enum mcc_cache_status {
     MCC_CACHE_OK = 0,

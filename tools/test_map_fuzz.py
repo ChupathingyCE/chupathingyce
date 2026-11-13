@@ -659,6 +659,63 @@ def test_wide_format(tmp_path):
     assert lines == ["42", "ab", "12345", "0", "   42|hi  |3.14"]
 
 
+
+MODEL_DATA_TEST = r"""
+#include "cseries.h"
+#include "ce_map_checks.h"
+
+/* (what the unit's Xbox headers name, never used here) */
+unsigned int D3D__RenderState[512];
+
+/* (the unit's printf and memset are the game's: none here, and the answer
+is the exit status, 0, or 1 + the check that went wrong) */
+int main(void)
+{
+    static byte bytes[64];
+    struct ce_model_data data = { 0 };
+    /* (offset, size, and where the bytes are: -1 for refused) */
+    long checks[][3] = {
+        { 0, 64, 0 }, { 60, 4, 60 }, { 64, 0, 64 },
+        { 60, 5, -1 }, { 65, 0, -1 }, { 8, 0xFFFFFFFC, -1 }, { 0xFFFFFFF0, 0x20, -1 },
+    };
+    int index;
+
+    data.whole = bytes;
+    data.size = sizeof(bytes);
+    for (index = 0; index < (int)(sizeof(checks) / sizeof(checks[0])); index++)
+    {
+        byte const *at = ce_model_data_at(&data, (unsigned long)checks[index][0], (unsigned long)checks[index][1]);
+
+        if ((at ? at - bytes : -1) != checks[index][2])
+            return 1 + index;
+    }
+    return 0;
+}
+"""
+
+
+def test_model_data_reads_stay_within_it(tmp_path):
+    """the model data held whole gives out only what lies within it: an
+    offset and size past its end, or wrapping past it, are refused"""
+    if BUILD != "macos" or sys.platform != "darwin" or not (ROOT / "build.ninja").is_file():
+        pytest.skip("macOS's build, after python3 configure.py")
+    source = "port/linux/game/ce_models.c"
+    _, target = object_command(BUILD, source)
+    written = tmp_path / "model_data_test.c"
+    written.write_text(MODEL_DATA_TEST)
+    rewritten = tmp_path / "model_data_test_lp64.c"
+    subprocess.run([sys.executable, str(ROOT / "tools" / "lp64_rewrite.py"), "--output", str(rewritten),
+                    str(written)], cwd=ROOT, check=True)
+    command = compile_command(BUILD, source, tmp_path / "model_data_test.o", {"source": str(rewritten)})
+    if Path(command[0]).name in ("ccache", "sccache"):
+        command = command[1:]
+    subprocess.run(command, cwd=ROOT, check=True)
+    binary = tmp_path / "model_data_test"
+    subprocess.run(["clang", "-Wl,-undefined,dynamic_lookup", "-o", str(binary), str(tmp_path / "model_data_test.o"),
+                    str(ROOT / target)], check=True)
+    result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_fuzz(built, target, tmp_path):
     binaries, _ = built
