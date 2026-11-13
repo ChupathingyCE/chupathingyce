@@ -796,14 +796,26 @@ def test_session_password_checks_are_limited(harness):
     """A session's own password checked again (changing it, turning the
     second factor off) counts against the limits a login does: a stolen
     session guesses no faster than a stranger at the login, and after five
-    wrong tries from the address, even the right password waits."""
+    wrong tries from the address, even the right password waits. (Each run
+    is a fresh harness with its own data folder: the limits are in memory.
+    An address with wrong tries lately leaves the last few checks of the
+    minute to everyone else, as a login does, so a guess may first have to
+    wait for one: that 429 is not the lockout.)"""
     _, moderator = owner_and_moderator(harness)
-    for attempt in range(5):
+    wrongs = 0
+    deadline = time.time() + 60
+    while wrongs < 5:
         wrong = http(harness, "POST", "/v1/account/password", moderator,
-                     {"password": f"guess number {attempt}", "new_password": "a brand new password"})
-        assert wrong.status == 403, wrong.body
+                     {"password": f"guess number {wrongs}", "new_password": "a brand new password"})
+        if wrong.status == 429:
+            assert b"too many checks" in wrong.body and time.time() < deadline, wrong.body
+            time.sleep(1)
+            continue
+        assert wrong.status == 403, (wrongs, wrong.body)
+        wrongs += 1
     refused = http(harness, "POST", "/v1/account/password", moderator,
                    {"password": "orange team forever", "new_password": "a brand new password"})
-    assert refused.status == 429, refused.body
-    assert http(harness, "POST", "/v1/account/totp/disable", moderator,
-                {"password": "orange team forever", "code": "123456"}).status == 429
+    assert refused.status == 429 and b"wrong passwords" in refused.body, refused.body
+    refused = http(harness, "POST", "/v1/account/totp/disable", moderator,
+                   {"password": "orange team forever", "code": "123456"})
+    assert refused.status == 429 and b"wrong passwords" in refused.body, refused.body
