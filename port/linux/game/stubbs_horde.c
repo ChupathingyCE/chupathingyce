@@ -33,6 +33,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "math/real_math.h"
 #include "memory/data.h"
 #include "tag_files/tag_groups.h"
+#include "tag_files/tag_files.h"
 #include "scenario/scenario_definitions.h"
 #include "scenario/scenario.h"
 #include "objects/objects.h"
@@ -289,14 +290,13 @@ static void horde_body_add(
 }
 
 /* the encounter and squad a new zombie joins: the scripts' resurrection
-group, else the map's first encounter of the zombie team (or named for
-them), else none */
+group, else none (a map's own zombie encounter would send him to its
+firing positions instead of after the player) */
 static void horde_choose_squad(
 	long *encounter_index,
 	short *squad_index)
 {
 	struct scenario *scenario = global_scenario_try_and_get();
-	long index;
 
 	*encounter_index = NONE;
 	*squad_index = 0;
@@ -315,22 +315,10 @@ static void horde_choose_squad(
 			return;
 		}
 	}
-	for (index = 0; index < scenario->ai_encounters.count; index++)
-	{
-		struct encounter_definition *encounter = TAG_BLOCK_GET_ELEMENT(
-			&scenario->ai_encounters, index, struct encounter_definition);
-
-		if (encounter && encounter->squads.count > 0 &&
-			(encounter->team_index == STUBBS_TEAM_ZOMBIE || !_stricmp(encounter->name, "zombies")))
-		{
-			*encounter_index = index;
-			return;
-		}
-	}
 	if (!logged_no_zombie_encounter)
 	{
 		logged_no_zombie_encounter = TRUE;
-		stubbs_mode_log("horde: the map has no zombie encounter; its risen zombies have none");
+		stubbs_mode_log("horde: no resurrection group set; risen zombies follow the player on their own");
 	}
 }
 
@@ -414,6 +402,10 @@ static void horde_body_rise(
 	/* the zombies and the players are one side */
 	game_allegiance_create(STUBBS_TEAM_PLAYER, FALSE, STUBBS_TEAM_ZOMBIE, FALSE, NONE, NONE, FALSE);
 	horde_zombie_add(zombie_index);
+	stubbs_mode_log("horde: unit 0x%04lX rose as 0x%04lX (%s), actor 0x%04lX, encounter %ld squad %d",
+		body->unit_index & UNSIGNED_SHORT_MAX, zombie_index & UNSIGNED_SHORT_MAX,
+		tag_name_strip_path(tag_get_name(body->zombie_variant_index)),
+		actor_index & UNSIGNED_SHORT_MAX, encounter_index, squad_index);
 }
 
 static void horde_bodies_update(
@@ -429,6 +421,7 @@ static void horde_bodies_update(
 			continue;
 		if (!object_try_and_get(body->unit_index))
 		{
+			stubbs_mode_log("horde: the body of unit 0x%04lX is gone before it could rise", body->unit_index & UNSIGNED_SHORT_MAX);
 			body->unit_index = NONE;
 			continue;
 		}
