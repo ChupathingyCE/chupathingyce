@@ -185,6 +185,7 @@ struct game_options;
 #include "rasterizer/common/rasterizer_common.h"
 #endif
 #include "mcc_loading.h" /* port: port/linux/game/mcc_loading.c */
+#include "mcc_cache.h" /* port: mcc_level_name */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "loading_screen.h" /* port: port/linux/game/loading_screen.c */
 #include "networking/network_game_globals.h"
@@ -832,7 +833,7 @@ void game_dispose(
 	return;
 }
 
-void game_precache_new_map(
+boolean game_precache_new_map(
 	char *map_name,
 	boolean blocking)
 {
@@ -860,6 +861,16 @@ void game_precache_new_map(
 		if (!cache_files_precache_in_progress() &&
 			!cache_files_precache_map_begin(map_name, blocking))
 		{
+			/* port: an MCC level that isn't there (mcc_cache_require
+			wrote why to debug.txt and queued it for the menus) is not
+			waited for: nothing is being copied. The load that follows
+			fails too and goes back to the menus (mcc_main_load_failed,
+			or the network game's own failure) */
+			if (mcc_level_name(map_name))
+			{
+				error(_error_silent, "mcc: %s can't be loaded; not waiting for it", map_name);
+				return FALSE;
+			}
 			error(
 				_error_silent,
 				"shouldn't be here... map '%s' doesn't exist",
@@ -910,8 +921,10 @@ void game_precache_new_map(
 				/* port: (asked until it is done, then held) */
 				if (!map_status)
 				{
-					map_status = cache_files_precache_map_status(
-						&game_globals->loading_progress);
+					/* port: (no copy going: nothing will finish, #1149) */
+					map_status = cache_files_precache_in_progress() ?
+						cache_files_precache_map_status(&game_globals->loading_progress) :
+						_cached_map_file_failed;
 				}
 #ifdef HALO_MAP_LOAD_HOOKS
 				/* port: the loading screen's progress is half the map's copy and half its shaders
@@ -983,7 +996,7 @@ void game_precache_new_map(
 			player_ui_remember_player1_profile(TRUE);
 	}
 
-	return;
+	return TRUE;
 }
 
 void game_dispose_from_old_map(

@@ -992,8 +992,16 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 
 static void fuzz_ce(unsigned char const *data, size_t size)
 {
-	struct map_header const *header = (struct map_header const *)data;
+	struct map_header header_copy;
+	struct map_header const *header = &header_copy;
 
+	if (size < HEADER_SIZE)
+		return;
+	memcpy(&header_copy, data, sizeof(header_copy));
+	/* (a length of 0, which Invader may give, read as the file's, as
+	cache_files_windows.c reads it) */
+	if (!header_copy.file_length && size <= 0x7fffffff)
+		header_copy.file_length = (long)size;
 	if (!fuzz_header_valid(header, size) ||
 		(header->version != CACHE_VERSION_CUSTOM_EDITION && header->version != CACHE_VERSION_RETAIL))
 	{

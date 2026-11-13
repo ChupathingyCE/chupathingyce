@@ -147,6 +147,76 @@ static int mg_float_vertices(void const *data,uint32_t count,uint32_t stride,
     return 1;
 }
 
+/* Direction vectors the engine compressor would refuse, brought into its
+ * range the way MCC draws them. MCC reads these floats as they are, so a
+ * normal a little over unit length (newer tools and converted maps have
+ * them) or a NaN tangent loads there. The compressor asserts on components
+ * outside [-1.01,1.01]: a vector with one is scaled back to unit length.
+ * Returns 0 for a vector with a value that isn't a number at all. */
+static int mg_direction(float *v,uint32_t *repaired) {
+    float length;
+    uint32_t j;
+    int over=0;
+    for (j=0;j<3;j++) {
+        if (!__builtin_isfinite(v[j])) return 0;
+        if (fabsf(v[j])>1.0f) over=1;
+    }
+    if (!over) return 1;
+    length=sqrtf(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+    if (!__builtin_isfinite(length) || !(length>0.0f)) return 0;
+    for (j=0;j<3;j++) {
+        v[j]/=length;
+        if (v[j]>1.0f) v[j]=1.0f;
+        if (v[j]<-1.0f) v[j]=-1.0f;
+    }
+    ++*repaired;
+    return 1;
+}
+
+/* A unit vector perpendicular to the unit normal n. */
+static void mg_perpendicular(float const *n,float *t) {
+    float length;
+    if (fabsf(n[2])<0.9f) {t[0]=-n[1];t[1]=n[0];t[2]=0;}
+    else {t[0]=0;t[1]=-n[2];t[2]=n[1];}
+    length=sqrtf(t[0]*t[0]+t[1]*t[1]+t[2]*t[2]);
+    t[0]/=length;t[1]/=length;t[2]/=length;
+}
+
+/* A BSP material's environment vertices (position, normal, binormal,
+ * tangent, UV: 14 floats) and lightmap vertices (incident direction, UV: 5
+ * floats), checked and repaired in place before the engine compressor sees
+ * them. Only a position that isn't a number refuses the BSP: everything
+ * else MCC would draw is repaired (a normal that isn't a number becomes
+ * straight up, a tangent frame is rebuilt from the normal, an incident
+ * direction becomes none, a UV becomes 0). Reports the first refused
+ * vertex in *bad. */
+static int mg_bsp_vertices(float *environment,uint32_t count,float *lightmap,uint32_t lit,
+    uint32_t *repaired,uint32_t *bad) {
+    uint32_t i,j;
+    for (i=0;i<count;i++) {
+        float *v=environment+i*14;
+        for (j=0;j<3;j++) if (!__builtin_isfinite(v[j])) { *bad=i; return 0; }
+        if (!mg_direction(v+3,repaired)) {
+            v[3]=0;v[4]=0;v[5]=1.0f;++*repaired;
+        }
+        if (!mg_direction(v+6,repaired) || !mg_direction(v+9,repaired)) {
+            float n[3],length=sqrtf(v[3]*v[3]+v[4]*v[4]+v[5]*v[5]);
+            if (length>0.000001f) {n[0]=v[3]/length;n[1]=v[4]/length;n[2]=v[5]/length;}
+            else {n[0]=0;n[1]=0;n[2]=1.0f;}
+            mg_perpendicular(n,v+9);
+            v[6]=n[1]*v[11]-n[2]*v[10];v[7]=n[2]*v[9]-n[0]*v[11];v[8]=n[0]*v[10]-n[1]*v[9];
+            ++*repaired;
+        }
+        for (j=12;j<14;j++) if (!__builtin_isfinite(v[j])) { v[j]=0;++*repaired; }
+    }
+    for (i=0;i<lit;i++) {
+        float *v=lightmap+i*5;
+        if (!mg_direction(v,repaired)) { v[0]=0;v[1]=0;v[2]=0;++*repaired; }
+        for (j=3;j<5;j++) if (!__builtin_isfinite(v[j])) { v[j]=0;++*repaired; }
+    }
+    return 1;
+}
+
 static int mg_palette_index(unsigned char *palette,unsigned char *count,short node) {
     unsigned char i;
     for (i=0;i<*count;i++) if (palette[i]==node) return i;
@@ -160,13 +230,15 @@ static int mg_palette_index(unsigned char *palette,unsigned char *count,short no
  * degenerate UVs get a deterministic perpendicular basis instead. */
 static int mg_model_tangents(struct model_vertex_uncompressed *vertices,
     uint32_t count,unsigned short const *indices,uint32_t triangles) {
-    uint32_t i,j,k,repaired=0;
+    uint32_t i,j,k,repaired=0,normals=0;
     long *heads,*links,link;
     int needed=0;
     for (i=0;i<triangles+2;i++) if (indices[i]>=count) return 0;
     for (i=0;i<count;i++) {
         float const *v=(float const *)&vertices[i];
-        for (j=0;j<6;j++) if (!__builtin_isfinite(v[j]) || (j>=3 && fabsf(v[j])>1.005f)) return 0;
+        for (j=0;j<3;j++) if (!__builtin_isfinite(v[j])) return 0;
+        /* (a normal a little over unit length is scaled back: mg_direction) */
+        if (!mg_direction((float *)&vertices[i]+3,&normals)) return 0;
         if (!__builtin_isfinite(v[12]) || !__builtin_isfinite(v[13])) return 0;
         for (j=6;j<12;j++) if (!__builtin_isfinite(v[j]) || fabsf(v[j])>1.005f) needed=1;
     }
@@ -413,7 +485,7 @@ static int mg_bsp_material(struct mcc_runtime *r,struct mcc_cache_bsp const *b,
     struct structure_material *m) {
     uint32_t count=(uint32_t)m->vertices.count, lit=(uint32_t)m->lightmap_vertices.count;
     uint32_t vo=(uint32_t)m->vertices.offset, lo=(uint32_t)m->lightmap_vertices.offset;
-    uint32_t raw_bytes,compressed_bytes;
+    uint32_t raw_bytes,compressed_bytes,repaired,bad;
     unsigned char *raw,*compressed;
     if (count>65535 || lit>65535 || (lit && lit!=count) ||
         !mg_range(vo,(uint64_t)count*56,b->vertex_bytes) ||
@@ -434,11 +506,17 @@ static int mg_bsp_material(struct mcc_runtime *r,struct mcc_cache_bsp const *b,
         return 0;
     }
     if (!mcc_runtime_read(r,b->vertex_file_offset+vo,count*56,raw) ||
-        (lit && !mcc_runtime_read(r,b->vertex_file_offset+lo,lit*20,raw+count*56)) ||
-        !mg_float_vertices(raw,count,56,14,3,9) ||
-        !mg_float_vertices(raw+count*56,lit,20,5,0,3)) {
+        (lit && !mcc_runtime_read(r,b->vertex_file_offset+lo,lit*20,raw+count*56))) {
+        free(raw); system_free(compressed); return mg_error("BSP vertices could not be read");
+    }
+    repaired=0;
+    if (!mg_bsp_vertices((float *)raw,count,(float *)(raw+count*56),lit,&repaired,&bad)) {
+        error(_error_silent,"MCC geometry: BSP vertex %lu of %lu has a position that isn't a number",
+            (unsigned long)bad,(unsigned long)count);
         free(raw); system_free(compressed); return mg_error("invalid BSP vertex payload");
     }
+    if (repaired) error(_error_silent,"MCC geometry: repaired %lu BSP vertex directions or UVs out of range",
+        (unsigned long)repaired);
     rasterizer_geometry_compress_vertices(_rasterizer_vertex_type_environment_uncompressed,
         (long)count,compressed,(long)(count*32),raw,(long)(count*56));
     if (lit) rasterizer_geometry_compress_vertices(_rasterizer_vertex_type_environment_lightmap_uncompressed,

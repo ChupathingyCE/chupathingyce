@@ -271,3 +271,25 @@ def test_every_console_sizes_its_map_list(console):
 def test_the_desktop_map_list_is_unsized():
     assert map_list_rows(DESKTOP) is None
     assert map_list_rows(["HALO_ANDROID", "HALO_GAME_BROWSER"]) is None
+
+
+def defined(name, defines):
+    """whether the shared headers define a name for these defines"""
+    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if not compiler:
+        pytest.skip("no C compiler")
+    source = '#include "{}"\n#include "{}"\n'.format(
+        (INCLUDE / "halo_console_features.h").as_posix(), (INCLUDE / "halo_port_features.h").as_posix())
+    command = [compiler, "-E", "-dM", "-x", "c", "-"] + ["-D" + define for define in defines]
+    result = subprocess.run(command, input=source, capture_output=True, text=True, check=True)
+    return any(line.split()[1] == name for line in result.stdout.splitlines() if line.startswith("#define "))
+
+
+@pytest.mark.parametrize("console", sorted(CONSOLES))
+def test_only_the_xbox_retries_cache_io_forever(console):
+    """a cache read or write the system is short of resources for gives up
+    after 5 seconds (#1149), but the original Xbox's XAPI keeps trying a
+    stalled DVD read, as the retail game did (HALO_CONSOLE_IO_RETRY_FOREVER)"""
+    assert defined("HALO_CONSOLE_IO_RETRY_FOREVER", CONSOLES[console]) == (console == "xbox")
+    assert not defined("HALO_CONSOLE_IO_RETRY_FOREVER", DESKTOP)
+    assert not defined("HALO_CONSOLE_IO_RETRY_FOREVER", ["HALO_ANDROID", "HALO_GAME_BROWSER"])

@@ -252,7 +252,7 @@ Beside the maps and the saves, the game keeps folders of its own
 
 | Folder | Contents |
 | --- | --- |
-| `logs/` in the data root | The logs: `debug.txt`, `halo.log` (Windows) and `crashes/`. Zip this folder for a bug report. `paths.logs` (`HALO_LOG_ROOT`) puts it elsewhere. |
+| `logs/` in the data root | The logs: `debug.txt`, `halo.log` (Windows) and `crashes/`. Zip this folder for a bug report. `paths.logs` (`HALO_LOG_ROOT`) puts it elsewhere; a save root you name (`paths.saves`, `HALO_SAVE_ROOT`) gets its own `logs/` (with `paths.saves` set only in `config.toml`, the few lines written while the game reads that file still go to the usual place). |
 | `data/` in the data root | What a player adds that is not a map: `data/fonts/` holds the player's own fonts (`display.high_res_font`). |
 | `cache/` in the save root | What the game can make again; safe to delete. `paths.cache` (`HALO_CACHE_ROOT`) puts it elsewhere. |
 | `private/` in the save root | What is the player's alone. |
@@ -650,7 +650,7 @@ the setting for one start of the game. It has priority over the file.
 | `game.start_with_one_player` | `true` (`false` on the dedicated server) | `HALO_START_WITH_ONE_PLAYER` | A system link, internet or split screen game you host can start with you alone: press START GAME in the lobby. Others can join it in progress. `false` waits for a second machine (split screen: a second player), as on the Xbox. Network Setup's Start With One Player sets it. Players who had it off are asked once, after an update, whether to use the new default. First written by Mootjuh as `debug.solo_game`. |
 | `paths.data` | `""` | `HALO_DATA_ROOT` | The data root. Refer to "Start the game". |
 | `paths.saves` | `""` | `HALO_SAVE_ROOT` | The save root. Refer to "Files and folders". |
-| `paths.logs` | `""` | `HALO_LOG_ROOT` | The logs folder (`debug.txt`, `halo.log`, `crashes/`). Empty: `logs/` in the data root. Refer to "Files and folders". |
+| `paths.logs` | `""` | `HALO_LOG_ROOT` | The logs folder (`debug.txt`, `halo.log`, `crashes/`). Empty: `logs/` in the save root when `paths.saves` is set, else in the data root. Refer to "Files and folders". |
 | `paths.cache` | `""` | `HALO_CACHE_ROOT` | The cache folder. Empty: `cache/` in the save root. |
 | `network.address` | `""` | `HALO_NET_ADDRESS` | The IPv4 address of this machine for system link. Refer to "Play on one computer". |
 | `network.broadcast` | `""` | `HALO_NET_BROADCAST` | IPv4 addresses, with commas between them, that get the broadcasts of the game. Empty: 255.255.255.255. |

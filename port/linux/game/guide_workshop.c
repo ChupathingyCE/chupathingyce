@@ -104,13 +104,14 @@ enum
 	LINK_REFRESHES = 3,
 };
 
+/* the theme's (ui_style_color), and white the same in all */
+#define COLOR_INSTALLED ui_style_color(UI_COLOR_GOOD)
+#define COLOR_WAITING ui_style_color(UI_COLOR_WARNING)
+#define COLOR_NOT_INSTALLED ui_style_color(UI_COLOR_STATUS)
+#define COLOR_DESCRIPTION ui_style_color(UI_COLOR_TEXT_PALE)
 enum
 {
 	COLOR_VALUE = 0xFFFFFFFF,
-	COLOR_INSTALLED = 0x7FE39AFF,
-	COLOR_WAITING = 0xFFCF6BFF,
-	COLOR_NOT_INSTALLED = 0x8FC4FFFF,
-	COLOR_DESCRIPTION = 0xC8D3E0FF,
 	NOTE_LINES = 3,
 	PICTURE_HEIGHT = 150,
 };
@@ -833,7 +834,7 @@ static void link_qr_draw(struct guide_rect square, char const *text)
 				;
 			if (dark)
 				ui_overlay_rect(square.x + (qr_x + 4) * module, square.y + (qr_y + 4) * module, run * module + 0.3f,
-					module + 0.3f, 0, 0x0A1A33FF);
+					module + 0.3f, 0, 0x000000FF);
 		}
 	}
 }
@@ -1016,7 +1017,8 @@ void guide_workshop_link_modal_render(float left, float top, float right, float 
 	center = layout.window.x + layout.window.width * 0.5f;
 	/* (the Guide under it dimmed past reading, the window solid) */
 	ui_overlay_rect(-200, 0, 1040, 480, 0, 0x000000E6);
-	ui_overlay_rect(layout.window.x, layout.window.y, layout.window.width, layout.window.height, 10, 0x061226FF);
+	ui_overlay_rect(layout.window.x, layout.window.y, layout.window.width, layout.window.height, 10,
+		ui_style_color(UI_COLOR_WINDOW));
 	ui_style_panel(layout.window.x, layout.window.y, layout.window.width, layout.window.height, 1.0f);
 	if (question)
 	{
@@ -1739,6 +1741,10 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 				ui_overlay_picture(serial, picture, picture_width, picture_height, box.x + (box.width - draw_width) * 0.5f,
 					box.y + (box.height - draw_height) * 0.5f, draw_width, draw_height, 0xFFFFFFFF);
 			}
+			/* (none to be had: said so, not an empty box) */
+			else if (workshop_browser_preview_missing(workshop_view.row))
+				ui_style_text(UI_TEXT_LINE, box.x + box.width * 0.5f,
+					box.y + (box.height - ui_style_text_size(UI_TEXT_LINE)) * 0.5f, UI_ALIGN_CENTER, "No picture");
 		}
 		/* (its description: the author's words, then a pack's maps, as many
 		lines as the room has, the rest scrolled to) */
