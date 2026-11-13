@@ -1,0 +1,7 @@
+{
+  "about": "the site's answers about Delta profiles: a profile, privacy, clan, cards, friends, party, a join and a reason",
+  "harness": "port/linux/tests/delta_profile_fuzz.c",
+  "sources": ["port/linux/src/delta_profile.c", "port/linux/src/social.c", "port/linux/src/discord_activity.c"],
+  "flags": ["-std=gnu11", "-DHALO_GAME_BROWSER"],
+  "max_len": 8192
+}
