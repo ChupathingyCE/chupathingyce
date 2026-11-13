@@ -6,7 +6,7 @@ The short version is on the [front page](../README.md#play-online).
 
 Chupathingy players on every platform always play together.
 
-Chupathingy also plays with OpenCE players when the network versions match. The current console builds join hosts up to network version 41, OpenCE's newest. Our console servers still announce 32, so older console builds can join them too.
+Chupathingy also plays with OpenCE players when the network versions match. This release plays with OpenCE's network version 44, and still joins their 41 and 43 hosts. The console test builds of November 13 do the same.
 
 Browser builds can't join our games, and we can't join theirs.
 
@@ -51,8 +51,9 @@ still list them on the site (Host a Game).
 ## The Delta Guide: friends and parties
 
 The Delta Guide is Delta in the game. Open it with **F3** (on a Mac, F3 or the
-backslash key), a controller's Guide button, or **DELTA** in the main menu,
-the Multiplayer menu or the pause menu. **LB** and **RB** (**Q** and **E**)
+backslash key), a controller's Guide button, or the pause menu. Android also
+has it in the main menu and the Multiplayer menu (`delta.menu_item` turns
+that on elsewhere). **LB** and **RB** (**Q** and **E**)
 switch its sections:
 
 - **FRIENDS**: who's online, invites and friend requests. Pick a friend to

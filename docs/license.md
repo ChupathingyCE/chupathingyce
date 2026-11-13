@@ -13,9 +13,10 @@ version (`GPL-3.0-or-later`). It comes with no warranty. The full text is in
 - **What Chupathingy builds on.** The Halo CE decompilation
   ([punpckhdq/halo](https://github.com/punpckhdq/halo) and
   [bnunu/halo-1](https://github.com/bnunu/halo-1)) and the port Chupathingy
-  began from are released under CC0 1.0, which lets anyone build on them
-  under any terms. Their repositories stay CC0; Chupathingy's code, including
-  its changes to theirs, is GPL from 0.8.0.
+  began from were released under CC0 1.0 when Chupathingy took them, which
+  lets anyone build on them under any terms. Their later work is under their
+  own licenses. Chupathingy's code, including its changes to theirs, is GPL
+  from 0.8.0.
 - **Delta.** Delta's code is GPL from 0.8.0 like the rest; earlier
   versions of it stay CC0 for anyone already using them. The protocol
   itself ([docs/delta.md](delta.md)) is a description anyone may

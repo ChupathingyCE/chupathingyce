@@ -97,6 +97,6 @@ See [docs/settings.md](settings.md).
 
 The game only offers builds newer than yours, from your update channel. A
 test build stays until the next newer release comes out. On a Mac, the game
-opens the download page instead of updating itself. Packaged installs, like
-the AUR package, update through the package manager. See
+opens the download page instead of updating itself. Packaged installs update
+through the package manager. See
 [Update channels](install.md#update-channels).

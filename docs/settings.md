@@ -13,7 +13,7 @@ To change a setting:
 5. Start the game.
 
 A line that starts with `#` does nothing. Words need quotes
-(`menus = "pc"`, not `menus = pc`), and true and false are lowercase.
+(`menus = "xbox"`, not `menus = xbox`), and true and false are lowercase.
 
 If a change seems to do nothing, look in `logs/debug.txt` for lines that
 start with `config.toml` or `settings:`. They name the line the game

@@ -35,14 +35,9 @@ Mac needs one extra step. See [Getting started](#getting-started).
 
 ## Package managers
 
-On Arch Linux, ugoboom keeps a community package on the AUR:
-[chupathingy-bin](https://aur.archlinux.org/packages/chupathingy-bin), built
-from our Linux (64-bit) release. It isn't ours, so report package problems to
-him.
-
-A package marks the game as a packaged install. Then the game never updates
-itself, and tells you to update Chupathingy with your package manager when a
-new version is out. On Linux, your maps, settings and logs go in
+A build from a package manager marks the game as a packaged install. Then
+the game never updates itself, and tells you to update Chupathingy with
+your package manager when a new version is out. On Linux, your maps, settings and logs go in
 `~/.local/share/chupathingyce` (or `$XDG_DATA_HOME/chupathingyce`) with your
 saves, since the game's own folder can't be written. Packagers can turn it on
 without rebuilding our signed executable: put a file named `packaged` next to
@@ -88,8 +83,6 @@ On a Mac, F3 is Mission Control. Use the backslash key to open the Delta Guide.
 2. Make it executable: right-click it, open **Properties** and allow it to
    run as a program. Or run `chmod +x chupathingyce-linux64-release.AppImage`.
 3. Start it and pick your Xbox disc image.
-
-On Arch Linux you can use the AUR package instead (see [Package managers](#package-managers)).
 
 ### Steam Deck
 

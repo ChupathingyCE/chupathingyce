@@ -58,11 +58,11 @@ the build's generic side (`tools/console_build.py`).
 
 | Repository | Console | Status | Maintained by |
 | --- | --- | --- | --- |
-| [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox | Test builds: plays online, up to 32 players, with Halo CE+ maps, and Custom Edition maps from its Map Browser | Milenko |
-| [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 | Test builds on Discord: RGH/JTAG or a softmod (BadUpdate, BadAvatar); testers play them on real consoles, multiplayer first, up to 32 players | Milenko |
+| [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox | Test builds: plays online, joins games of up to 32 and hosts up to 16, with Halo CE+ maps, and Custom Edition maps from its Map Browser; [releases](https://github.com/ChupathingyCE/warthog-xbox/releases) | Milenko |
+| [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 | Test builds: RGH/JTAG or a softmod (BadUpdate, BadAvatar); testers play them on real consoles, multiplayer first, up to 32 players; [releases](https://github.com/ChupathingyCE/warthog-360/releases) | Milenko |
 | [ChupathingyCE/warthog-switch](https://github.com/ChupathingyCE/warthog-switch) | Switch | Working: boots and plays on Switch hardware; [releases](https://github.com/ChupathingyCE/warthog-switch/releases) | [thelinkin3000](https://github.com/thelinkin3000) |
 | [ChupathingyCE/warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu) | Wii U | Plays on hardware and joins servers online; [public test builds](https://github.com/ChupathingyCE/warthog-wiiu/releases) | Milenko |
-| [ChupathingyCE/warthog-ps3](https://github.com/ChupathingyCE/warthog-ps3) | PS3 | Work in progress, built with PSL1GHT; the game is Matt's `ps3` branch for now | [Mayo1970](https://github.com/Mayo1970) |
+| [ChupathingyCE/warthog-ps3](https://github.com/ChupathingyCE/warthog-ps3) | PS3 | Work in progress, built with PSL1GHT; the game is Matt's own fork (`Mayo1970/chupathingyce`, branch `ps3`) | [Mayo1970](https://github.com/Mayo1970) |
 
 A console repository looks like this:
 
