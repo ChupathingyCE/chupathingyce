@@ -631,11 +631,12 @@ static boolean horde_eat_start(
 	eat->bitten = FALSE;
 	/* (Halo's melee is its "use equipment" control) */
 	SET_FLAG(eater->unit.control_flags, _unit_control_use_equipment_bit, TRUE);
+	/* (the victim's mind goes blank while he is eaten; his actor stays
+	until the bite kills him, so the encounter counts him as one of its
+	dead: a10's stealth-kill tutorial waits on ai_living_fraction, which a
+	deleted actor leaves at 1) */
 	if (victim->unit.actor_index != NONE)
-	{
-		actor_delete(victim->unit.actor_index, FALSE);
-		victim->unit.actor_index = NONE;
-	}
+		actor_braindead(victim->unit.actor_index, TRUE);
 	victim->unit.desired_facing_vector = eater->object.forward;
 	scale_vector3d(&victim->unit.desired_facing_vector, -1.f, &victim->unit.desired_facing_vector);
 	stubbs_mode_log("horde: unit 0x%04lX eats the brains of unit 0x%04lX",
