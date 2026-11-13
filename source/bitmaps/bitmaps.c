@@ -1462,3 +1462,18 @@ static boolean bitmap_format_type_valid_depth(
 {
 	return depth>0 && depth<=MAXIMUM_BITMAP_DEPTH && (depth==1 || type==_bitmap_type_3d);
 }
+
+/* port: (bitmaps_inlines.h) an alpha past 0 to 1, clamped; the first said */
+real real_alpha_out_of_range(
+	real alpha)
+{
+	static boolean said;
+
+	if (!said)
+	{
+		said = TRUE;
+		error(_error_silent, "an alpha of %f, past 0 to 1, drawn as %s (a map's shader or effect)",
+			(double)alpha, alpha > 1.0f ? "1" : "0");
+	}
+	return alpha > 1.0f ? 1.0f : 0.0f;
+}

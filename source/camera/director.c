@@ -118,6 +118,9 @@ symbols in this file:
 /* ---------- headers */
 
 #include "director.h"
+#include "mcc_camera.h" /* port: port/linux/game/mcc_camera.c */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_player.h" /* port: port/linux/game/stubbs_player.c */
 
 #include "camera_scripting.h"
 #include "dead_camera.h"
@@ -374,6 +377,18 @@ short director_desired_perspective(
 		if (*perspective == 1 || *perspective == 3)
 			following = TRUE;
 	}
+
+	/* port: MCC weapon cameras must select the same perspective for display
+	 * and deterministic aiming. The adapter leaves legacy maps and seats alone. */
+	if (mcc_camera_weapon_following(unit_index))
+	{
+		*perspective = _director_perspective_third_person;
+		following = TRUE;
+	}
+	/* port: Stubbs mode's camera behind Stubbs, the same for drawing and
+	aiming (port/linux/game/stubbs_player.c) */
+	if (stubbs_mode_active() && stubbs_player_camera_following(unit_index, perspective))
+		following = TRUE;
 
 	return following;
 }

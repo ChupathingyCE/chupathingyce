@@ -236,6 +236,20 @@ int browser_client_report(int teams, int red_score, int blue_score, int duration
 escaped); returns its length */
 int browser_json_name(char *out, int size, const unsigned short *name, int length);
 
+/* the hosted game's Steam Workshop item (an MCC map's: its id and title, ""
+for none), for the announcement's workshop_id and workshop_title; called
+before browser_host_update, which takes it with the game */
+#define BROWSER_WORKSHOP_ID_LENGTH 24
+#define BROWSER_WORKSHOP_TITLE_LENGTH 40
+void browser_host_workshop(const char *id, const char *title);
+
+/* the hosted game's game type (its variant's name, NULL for a variant
+without one; a co-op game's difficulty, -1 for none), for the
+announcement's gametype as network_rules_gametype_name names it; called
+before browser_host_update, which takes it with the game */
+#define BROWSER_GAMETYPE_LENGTH 25
+void browser_host_gametype(const char *name, short engine, int teams, int difficulty);
+
 /* the hosted game, as the game's server has it; called each frame while
 this machine hosts (network_server_manager.c). The listing follows (and is
 withdrawn a few seconds after the calls stop). */
@@ -267,6 +281,8 @@ game list entry): -1 older, 1 newer, 0 joinable. Every build */
 int browser_version_state(int version);
 /* whether a game's map (a scenario's name or path) is a campaign level: a
 co-op game */
+/* (browser.c) an MCC map's kind, from the game's MCC catalog (NULL: none) */
+extern int (*browser_mcc_campaign)(const char *map);
 int browser_map_is_campaign(const char *map);
 /* the game lists' filter, kept for the session: all games, multiplayer
 games, or co-op games (a campaign level). Every build */
@@ -279,8 +295,12 @@ enum
 };
 int browser_list_filter(void);
 void browser_list_filter_cycle(void);
-/* its name for a button or a hint: ALL, MULTIPLAYER, CO-OP */
+/* its name for a hint ("ONLY CO-OP"): ALL, MULTIPLAYER, CO-OP */
 const char *browser_list_filter_name(void);
+/* its words on the button that changes it: what it does with co-op games,
+"CO-OP: SHOWN", "CO-OP: HIDDEN" or "CO-OP: ONLY" (never "ALL": Online Games'
+views are ALL, CHUPATHINGY + PUBLIC and the others, which it doesn't change) */
+const char *browser_list_filter_label(void);
 /* whether a game on this map (a scenario's name or path) passes it */
 int browser_list_filter_allows(const char *map);
 /* the public listings (OpenCE's, p2p_lobby.c) followed while a screen of

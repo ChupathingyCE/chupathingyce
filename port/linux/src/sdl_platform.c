@@ -32,6 +32,10 @@ and the debug keyboard that the game's console reads.
 #include <string.h>
 #if !defined(_WIN32) && !defined(HALO_ANDROID)
 #include <signal.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <time.h>
+#include <unistd.h>
 #endif
 #ifdef HALO_GAME_BROWSER
 #include "browser.h"
@@ -52,6 +56,12 @@ static unsigned char mouse_buttons_pressed[PLATFORM_MOUSE_BUTTON_COUNT];
 #ifndef HALO_ANDROID
 /* the menus' pointer (platform_ui_pointer_set_active), under input_lock */
 static struct platform_ui_pointer ui_pointer;
+/* the menus' pointer put in the middle as they open (platform_ui_pointer_set_active):
+the move that warp sends isn't the player's, so it hovers nothing (it took the
+focus off the item a screen opened on, like the level select's Workshop PLAY
+level) */
+static BOOL ui_pointer_warp_pending;
+static float ui_pointer_warp_x, ui_pointer_warp_y;
 static float ui_pointer_wheel;
 #endif
 static pthread_mutex_t input_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -373,6 +383,141 @@ static void crash_reports_start(void)
 }
 #endif
 
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+/* SIGTERM and SIGINT quit as closing the window does, when the events are
+next read (SDL's handler, which this one passes them to). A game stuck where
+they are not read (#1149: a load that waited for ever) never would: the
+signal also wakes a watchdog, which ends the process only if the game is
+stuck: its events not read (platform_pump_events, quit_heartbeat) for
+QUIT_WATCHDOG_SECONDS. Once a quit is under way (platform_exit_window_closed,
+or any exit: its saves run then) it never steps in, so no save is cut in
+half. It only writes to standard error, as the stuck thread may hold the
+log's lock */
+#ifndef QUIT_WATCHDOG_SECONDS
+#define QUIT_WATCHDOG_SECONDS 10
+#endif
+
+static struct sigaction quit_previous_actions[2];
+static int quit_pipe[2] = { -1, -1 };
+/* (each read of the events counts one; a quit under way stands it down) */
+static volatile unsigned long quit_heartbeat;
+static volatile int quit_under_way;
+
+static void quit_watchdog_stand_down(void)
+{
+	__atomic_store_n(&quit_under_way, 1, __ATOMIC_SEQ_CST);
+}
+
+static void quit_watchdog_beat(void)
+{
+	__atomic_add_fetch(&quit_heartbeat, 1, __ATOMIC_RELAXED);
+}
+
+static void quit_signal_handler(int signal_number, siginfo_t *information, void *context)
+{
+	struct sigaction const *previous = &quit_previous_actions[signal_number == SIGINT];
+	int saved_errno = errno;
+
+	if (quit_pipe[1] >= 0)
+	{
+		unsigned char byte = (unsigned char)signal_number;
+
+		if (write(quit_pipe[1], &byte, 1) < 0)
+			byte = 0;
+	}
+	if (previous->sa_flags & SA_SIGINFO)
+	{
+		if (previous->sa_sigaction)
+			previous->sa_sigaction(signal_number, information, context);
+	}
+	else if (previous->sa_handler == SIG_DFL)
+	{
+		/* (nothing else would have ended it: as without this handler) */
+		signal(signal_number, SIG_DFL);
+		raise(signal_number);
+	}
+	else if (previous->sa_handler != SIG_IGN)
+	{
+		previous->sa_handler(signal_number);
+	}
+	errno = saved_errno;
+}
+
+static void *quit_watchdog(void *unused)
+{
+	unsigned char byte = 0;
+	char message[128];
+	struct timespec wait;
+	int length;
+
+	(void)unused;
+	while (read(quit_pipe[0], &byte, 1) != 1)
+	{
+		if (errno != EINTR)
+			return NULL;
+	}
+	/* (stuck: no read of the events for the whole time, and no quit under
+	way; a game that goes on reading them quits by itself) */
+	{
+		unsigned long last = __atomic_load_n(&quit_heartbeat, __ATOMIC_RELAXED);
+		int still = 0;
+
+		while (still < QUIT_WATCHDOG_SECONDS)
+		{
+			unsigned long now;
+
+			wait.tv_sec = 1;
+			wait.tv_nsec = 0;
+			while (nanosleep(&wait, &wait) != 0 && errno == EINTR)
+				;
+			if (__atomic_load_n(&quit_under_way, __ATOMIC_SEQ_CST))
+				return NULL;
+			now = __atomic_load_n(&quit_heartbeat, __ATOMIC_RELAXED);
+			still = now == last ? still + 1 : 0;
+			last = now;
+		}
+		if (__atomic_load_n(&quit_under_way, __ATOMIC_SEQ_CST))
+			return NULL;
+	}
+	length = snprintf(message, sizeof(message),
+		"chupathingyce: quit: signal %d, and the game has been stuck for %d seconds; stopping now\n",
+		(int)byte, QUIT_WATCHDOG_SECONDS);
+	if (length > 0 && write(STDERR_FILENO, message, (size_t)length) < 0)
+		length = 0;
+	_exit(128 + (int)byte);
+	return NULL;
+}
+
+static void quit_watchdog_start(void)
+{
+	struct sigaction action;
+	pthread_t thread;
+	pthread_attr_t attributes;
+
+	if (quit_pipe[0] >= 0 || pipe(quit_pipe) != 0)
+		return;
+	fcntl(quit_pipe[1], F_SETFL, fcntl(quit_pipe[1], F_GETFL) | O_NONBLOCK);
+	fcntl(quit_pipe[0], F_SETFD, FD_CLOEXEC);
+	fcntl(quit_pipe[1], F_SETFD, FD_CLOEXEC);
+	pthread_attr_init(&attributes);
+	pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
+	if (pthread_create(&thread, &attributes, quit_watchdog, NULL) != 0)
+	{
+		pthread_attr_destroy(&attributes);
+		return;
+	}
+	pthread_attr_destroy(&attributes);
+	/* (the last registered runs first: before every save exit makes) */
+	atexit(quit_watchdog_stand_down);
+	memset(&action, 0, sizeof(action));
+	action.sa_sigaction = quit_signal_handler;
+	action.sa_flags = SA_SIGINFO | SA_RESTART;
+	sigemptyset(&action.sa_mask);
+	sigaction(SIGTERM, &action, &quit_previous_actions[0]);
+	sigaction(SIGINT, &action, &quit_previous_actions[1]);
+}
+#endif
+
 BOOL platform_sdl_initialize(void)
 {
 	if (platform_sdl_started)
@@ -446,6 +591,10 @@ BOOL platform_sdl_initialize(void)
 #endif
 	}
 	platform_sdl_started = TRUE;
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* (after SDL_Init, whose handlers it passes the signals on to) */
+	quit_watchdog_start();
+#endif
 #ifdef HALO_CONSOLE_SETUP_SCREENS
 	/* (the port's: halo_console_features.h) */
 	console_setup_start();
@@ -1109,6 +1258,63 @@ static float platform_refresh_rate_setting(void)
 	return rate > 0.0 && rate < 1000.0 && platform_refresh_rates_settable() ? (float)rate : 0.0f;
 }
 
+#if defined(__APPLE__) && !defined(HALO_IOS)
+/* port/macos/src/macos_video.c */
+int macos_window_in_full_screen_space(void *window);
+void macos_window_toggle_full_screen_space(void *window);
+#endif
+
+/* macOS: the window back out of a full-screen Space that macOS put it in
+while SDL had it in exclusive fullscreen (display.mode = "fullscreen"),
+before SDL changes its fullscreen. macOS's own full screen (the window's
+toggleFullScreen:, which its full-screen shortcut and menu item call) moves
+even the exclusive window to a Space, and SDL still takes it for exclusive:
+its next change of kind or of fullscreen restyled the window as if it were
+not in a Space, and AppKit threw ("NSWindowStyleMaskFullScreen cleared on a
+window outside of a full screen transition"), which ended the game
+(#1110). Taken out of the Space first, and the move waited for, the window
+is an ordinary one again to SDL. Whether the window left a Space (the
+change then has to make it fullscreen again, platform_display_apply), and
+FALSE when it is still in one after 3 s: SDL's change is left for the next
+apply rather than made into a throw. */
+static BOOL platform_window_left_space;
+
+static BOOL platform_window_space_settle(void)
+{
+#if defined(__APPLE__) && !defined(HALO_IOS)
+	static BOOL logged_stuck;
+	void *window;
+	Uint64 deadline;
+
+	if (!platform_window)
+		return TRUE;
+	window = SDL_GetPointerProperty(SDL_GetWindowProperties(platform_window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER,
+		NULL);
+	if (!macos_window_in_full_screen_space(window) || !SDL_GetWindowFullscreenMode(platform_window))
+		return TRUE;
+	platform_log("display: the window is in a full-screen Space while exclusive fullscreen; leaving the Space first");
+	macos_window_toggle_full_screen_space(window);
+	/* (SDL hears of the move when it ends, and only then takes the window for
+	windowed) */
+	deadline = SDL_GetTicks() + 3000;
+	while ((macos_window_in_full_screen_space(window) || (SDL_GetWindowFlags(platform_window) & SDL_WINDOW_FULLSCREEN)) &&
+		SDL_GetTicks() < deadline)
+	{
+		SDL_PumpEvents();
+		SDL_Delay(10);
+	}
+	if (macos_window_in_full_screen_space(window) || (SDL_GetWindowFlags(platform_window) & SDL_WINDOW_FULLSCREEN))
+	{
+		if (!logged_stuck)
+			platform_log("display: the window did not leave its full-screen Space; the change waits for the next apply");
+		logged_stuck = TRUE;
+		return FALSE;
+	}
+	platform_window_left_space = TRUE;
+#endif
+	return TRUE;
+}
+
 /* the window's fullscreen kind (display.mode): borderless, a window over
 the whole desktop (SDL's fullscreen without a mode), or fullscreen, the
 display taken at display.resolution's mode (the one nearest it), else at its
@@ -1157,6 +1363,12 @@ static void platform_fullscreen_kind_apply(void)
 				(double)mode->refresh_rate, (double)rate);
 		}
 	}
+	if (!platform_window_space_settle())
+	{
+		/* (tried again at the next apply) */
+		applied = -1;
+		return;
+	}
 	SDL_SetWindowFullscreenMode(platform_window, mode);
 }
 
@@ -1183,10 +1395,15 @@ static void platform_borderless_styles(void)
 }
 #endif
 
-static void platform_window_set_fullscreen(BOOL fullscreen)
+/* (FALSE when macOS kept the window in a full-screen Space: nothing
+changed, platform_window_space_settle) */
+static BOOL platform_window_set_fullscreen(BOOL fullscreen)
 {
 	platform_fullscreen_requested = fullscreen;
+	if (!platform_window_space_settle())
+		return FALSE;
 	SDL_SetWindowFullscreen(platform_window, fullscreen ? true : false);
+	return TRUE;
 }
 
 /* whether the window is fullscreen. SDL sets its flag when the window
@@ -1885,12 +2102,19 @@ void platform_display_apply(void)
 
 	if (!platform_window)
 		return;
+	platform_window_left_space = FALSE;
 	platform_fullscreen_kind_apply();
 	/* Saving unrelated settings must preserve the window mode chosen by F11. */
 	if (mode != platform_window_mode)
 	{
-		platform_window_mode = mode;
-		platform_window_set_fullscreen(platform_fullscreen_setting());
+		/* (tried again at the next apply when it could not be made) */
+		platform_window_mode = platform_window_set_fullscreen(platform_fullscreen_setting()) ? mode : -1;
+	}
+	else if (platform_window_left_space && platform_fullscreen_requested)
+	{
+		/* (macOS: a change of resolution only took the window out of its
+		full-screen Space, platform_window_space_settle; fullscreen again) */
+		platform_window_set_fullscreen(TRUE);
 	}
 	platform_window_size_setting(&width, &height);
 	if (width != platform_window_width || height != platform_window_height)
@@ -2081,6 +2305,10 @@ deleted and the window destroyed before the exit. bgfx's window is left to
 the process's end, as its device still draws into it. */
 void platform_exit_window_closed(void)
 {
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* (a quit under way: the watchdog leaves it to finish) */
+	quit_watchdog_stand_down();
+#endif
 	platform_log("window closed");
 	if (platform_gl_context)
 	{
@@ -2683,6 +2911,10 @@ void platform_pump_events(void)
 #endif
 	if (!platform_window || SDL_GetCurrentThreadID() != platform_event_thread)
 		return;
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* (the game isn't stuck: quit_watchdog) */
+	quit_watchdog_beat();
+#endif
 	if (exit_ticks == (Uint64)-1)
 	{
 		double seconds = config_real("debug.exit_after");
@@ -2805,9 +3037,15 @@ void platform_pump_events(void)
 			/* in the menus the mouse moves the pointer, not the view */
 			if (input_state.ui_pointer)
 			{
+				BOOL warp = ui_pointer_warp_pending && event.motion.x > ui_pointer_warp_x - 1.0f &&
+					event.motion.x < ui_pointer_warp_x + 1.0f && event.motion.y > ui_pointer_warp_y - 1.0f &&
+					event.motion.y < ui_pointer_warp_y + 1.0f;
+
+				ui_pointer_warp_pending = FALSE;
 				ui_pointer.x = event.motion.x;
 				ui_pointer.y = event.motion.y;
-				ui_pointer.moved = TRUE;
+				if (!warp)
+					ui_pointer.moved = TRUE;
 				break;
 			}
 #endif
@@ -3086,6 +3324,11 @@ void platform_ui_pointer_set_active(BOOL active)
 		int width, height;
 
 		SDL_GetWindowSize(platform_window, &width, &height);
+		pthread_mutex_lock(&input_lock);
+		ui_pointer_warp_pending = TRUE;
+		ui_pointer_warp_x = width * 0.5f;
+		ui_pointer_warp_y = height * 0.5f;
+		pthread_mutex_unlock(&input_lock);
 		SDL_WarpMouseInWindow(platform_window, width * 0.5f, height * 0.5f);
 		show_pointer(TRUE);
 		pthread_mutex_lock(&input_lock);

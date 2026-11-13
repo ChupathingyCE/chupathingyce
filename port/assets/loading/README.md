@@ -10,7 +10,7 @@ The consoles leave it out and show the disc's picture
 the helmet and tusks of Chupathingy's icon.
 
 It is made by `tools/make_loading_picture.py` from `port/art/icon.svg` and
-`port/linux/ui/fonts/NotoSans-Bold.ttf` (SIL OFL), and the builds embed it
+`port/assets/fonts/CyborgInterfaceGothic-Regular.ttf` (by fizzy, SIL OFL), and the builds embed it
 (`tools/embed_assets.py`). The tool needs `rsvg-convert` (librsvg), Pillow
 and NumPy:
 

@@ -189,6 +189,17 @@ const char *platform_folder(enum port_folder folder);
 without asking the player anything (Windows' halo.log and crash reporter
 start before the game does), made if need be; 0 when there is none */
 int platform_logs_folder_early(char *path, unsigned long size);
+/* whether the logs follow a named save root (port_folders.h): the desktops
+only. Android and iOS (their apps name both roots), the consoles and the
+dedicated server (Docker's HALO_SAVE_ROOT, start-server.bat's) keep logs/
+beside maps/. */
+#if defined(HALO_ANDROID) || defined(HALO_SERVER) || defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE) || \
+	defined(HALO_XBOX360_CONSOLE) || defined(HALO_WIIU_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || \
+	defined(HALO_CONSOLE_GL_LAYER) || defined(HALO_CONSOLE_CONFIG_IN_DATA_ROOT)
+#define PLATFORM_LOGS_FOLLOW_SAVES 0
+#else
+#define PLATFORM_LOGS_FOLLOW_SAVES 1
+#endif
 #ifdef HALO_GAME_BROWSER
 /* a web page opened in the web browser (from any thread: the main thread
 opens it) */

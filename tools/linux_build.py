@@ -146,6 +146,9 @@ ZSTD_SOURCES = (
 )
 # (no assembly, no legacy formats, no multithreading, no tracing)
 ZSTD_DEFINES = ("-DZSTD_DISABLE_ASM=1", "-DZSTD_LEGACY_SUPPORT=0", "-DZSTD_TRACE=0", "-DDEBUGLEVEL=0")
+# the LZMA SDK's decoder (port/third_party/lzma, public domain): the Steam
+# content client's chunks (port/linux/src/steam_content, lp64_build.py)
+LZMA_DIR = Path("port/third_party/lzma")
 # the self-updater's TLS (port/linux/src/posix_update.c)
 MBEDTLS_DIR = Path("port/third_party/mbedtls")
 STB_DIR = Path("port/third_party/stb")
@@ -691,6 +694,9 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
             continue
         if source.name in ("posix_update.c", "posix_browser.c"):
             add_object(source, f"{posix_cflags} {mbedtls_include}", posix=True)
+        elif source.name == "steam_bridge_pipe.c" and units.game_browser:
+            # (the built-in Steam download, with the game list's TLS: below)
+            add_object(source, f"{platform_cflags} -DHALO_STEAM_CONTENT")
         elif source.name == "posix_upnp.c":
             add_object(source, f"{posix_cflags} -I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB", posix=True)
         elif source.name == "posix_ui_font.c":
@@ -717,6 +723,15 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         add_object(source, " ".join(posix_flags + target + [mbedtls_include,
                                                             f"-I{MBEDTLS_DIR / 'library'}", "-fno-builtin-wcslen",
                                                             "-w"]), posix=True)
+    # the Steam content client (port/linux/src/steam_content;
+    # steam_bridge_pipe.c), with the host's ABI as posix_browser.c, whose
+    # Mbed TLS it shares, and the LZMA SDK's decoder
+    if units.game_browser:
+        steam_content_flags = " ".join([posix_cflags, mbedtls_include, f"-I{ZLIB_DIR}", f"-I{ZSTD_DIR / 'lib'}",
+                                        f"-I{LZMA_DIR}", *ZLIB_DEFINES])
+        for source in sorted((platform_dir / "steam_content").glob("*.c")):
+            add_object(source, steam_content_flags, posix=True)
+        add_object(LZMA_DIR / "LzmaDec.c", " ".join(posix_flags + target + ["-w"]), posix=True)
     # internet play's UPnP (port/third_party/miniupnpc), with the host's
     # ABI as posix_upnp.c, which uses it
     for source in miniupnpc_sources():

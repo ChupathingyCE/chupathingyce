@@ -391,7 +391,9 @@ typedef char ai_debug_state_ballistic_lineoffire_valid_offset_assert[
 typedef char ai_debug_state_ballistic_lineoffire_point_count_offset_assert[
 	offsetof(struct ai_debug_state, ballistic_lineoffire_point_count) == 0x4C4D4 ? 1 : -1];
 #endif
-#if !defined(HALO_64BIT) && !defined(HALO_XBOX_CONSOLE)
+/* (the debug build's layout: a console without the developer tools,
+HALO_CONSOLE_NO_DEBUG_TOOLS, keeps none of the path and evaluation records) */
+#if !defined(HALO_64BIT) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_NO_DEBUG_TOOLS)
 typedef char ai_debug_state_field_859F4_offset_assert[
 	offsetof(struct ai_debug_state, field_859F4) == 0x859F4 ? 1 : -1];
 typedef char ai_debug_state_path_state_offset_assert[

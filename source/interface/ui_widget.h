@@ -66,6 +66,10 @@ enum
 
 /* ---------- prototypes/UI_WIDGET.C */
 
+/* MCC menu actions use level names from their independent catalog. */
+boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name);
+boolean ui_widget_port_mcc_cooperative_level_choose(char const *level_name, short difficulty);
+
 boolean event_controller_index_compatible_with_widget(
 	struct event_record const *event,
 	struct widget_instance const *widget);
@@ -107,6 +111,7 @@ void ui_widgets_inhibit_processing(
 /* port: the column of the bitmap draw_bitmap_in_rect starts from: 0 but
 while a part of one is drawn */
 extern short draw_bitmap_texel_x;
+extern short draw_bitmap_texel_y;
 void draw_bitmap_in_rect(
 	struct bitmap_data *bitmap,
 	rectangle2d *rect,

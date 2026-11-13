@@ -406,12 +406,33 @@ static const struct config_setting config_settings[] =
 		"Which menus to use: \"chupathingy\", \"xbox\" or \"gearbox\".\n"
 		"Put your own menus in a menus folder next to config.toml.\n"
 		"Restart Chupathingy after a change." },
+	{ "display.map_show_new_game", _config_string, "\"all\"", "HALO_MAP_SHOW_NEW_GAME", _environment_value,
+		_platform_all,
+		"Which maps New Game's multiplayer list shows: \"all\", \"xbox\", \"ce\",\n"
+		"\"md\" or \"mcc\". Show in the list changes it." },
+	{ "display.map_sort_new_game", _config_string, "\"default\"", "HALO_MAP_SORT_NEW_GAME", _environment_value,
+		_platform_all,
+		"The order of New Game's multiplayer list: \"default\", \"az\" or\n"
+		"\"recent\" (recently added first). Sort in the list changes it." },
+	{ "display.map_show_create_game", _config_string, "\"all\"", "HALO_MAP_SHOW_CREATE_GAME", _environment_value,
+		_platform_all,
+		"Which maps Create Game's map list shows: \"all\", \"xbox\", \"ce\",\n"
+		"\"md\" or \"mcc\". Show in the list changes it." },
+	{ "display.map_sort_create_game", _config_string, "\"default\"", "HALO_MAP_SORT_CREATE_GAME",
+		_environment_value, _platform_all,
+		"The order of Create Game's map list: \"default\", \"az\" or \"recent\"\n"
+		"(recently added first). Sort in the list changes it." },
 	{ "display.theme", _config_string, "\"blue\"", "HALO_THEME", _environment_value, _platform_all,
-		"The colors of DELTA and the setup screen: \"blue\" (Halo Blue) or\n"
-		"\"red\" (Chupathingy Red). A change shows at once." },
+		"The colors of the Delta Guide and the setup screen: \"blue\" (Halo\n"
+		"Blue), \"red\" (Chupathingy Red) or \"green\" (Dashboard Green).\n"
+		"A change shows at once." },
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the text and titles of the menus and the HUD with sharp,\n"
 		"high-res fonts." },
+	{ "display.title_font", _config_string, "\"classic\"", "HALO_TITLE_FONT", _environment_value, _platform_all,
+		"The font of the menus' titles. \"classic\" looks like Halo's own titles.\n"
+		"\"cyborg\" uses the same font as the menu text. A change shows at once.\n"
+		"The consoles have \"classic\" only." },
 	{ "display.high_res_hud", _config_boolean, "true", "HALO_HIGH_RES_HUD", _environment_value, _platform_all,
 		"Draw the HUD from the high-res assets." },
 	{ "display.high_res_font", _config_string, "\"\"", "HALO_HIGH_RES_FONT", _environment_value, _platform_all,
@@ -852,27 +873,45 @@ static const struct config_setting config_settings[] =
 	/* (a Mac keeps F3 for Mission Control and the F keys for itself unless
 	fn is held: the backslash key too, which nothing else takes) */
 	{ "controls.delta", _config_string, "\"F3, Backslash\"", "HALO_KEY_DELTA", _environment_value, _platform_all,
-		"The keys that open and close DELTA, separated by commas: F3 to F8, or\n"
-		"another key the game doesn't use. A Mac takes F3 for Mission Control\n"
-		"unless fn is held, so the backslash key (Backslash) opens it too." },
+		"The keys that open and close the Delta Guide, separated by commas: F3\n"
+		"to F8, or another key the game doesn't use. A Mac takes F3 for Mission\n"
+		"Control unless fn is held, so the backslash key (Backslash) opens it\n"
+		"too." },
 #else
 	{ "controls.delta", _config_string, "\"F3\"", "HALO_KEY_DELTA", _environment_value, _platform_all,
-		"The keys that open and close DELTA, separated by commas: F3 to F8, or\n"
-		"another key the game doesn't use." },
+		"The keys that open and close the Delta Guide, separated by commas: F3\n"
+		"to F8, or another key the game doesn't use." },
 #endif
 	{ "controls.delta_button", _config_boolean, "true", "HALO_DELTA_BUTTON", _environment_value, _platform_all,
-		"Open DELTA with the controller's Guide button, where Chupathingy can\n"
-		"read it (Steam and the Xbox Game Bar may keep it for themselves)." },
+		"Open the Delta Guide with the controller's Guide button, where\n"
+		"Chupathingy can read it (Steam and the Xbox Game Bar may keep it for\n"
+		"themselves)." },
 	{ "delta.hold_back", _config_boolean, "false", "HALO_DELTA_HOLD_BACK", _environment_value, _platform_all,
-		"Open DELTA by holding Back for about half a second in the menus.\n"
-		"While on, the menus get a Back tap once it is let go, never a hold.\n"
-		"Off by default: the Xbox's Back acts on press." },
+		"Open the Delta Guide by holding Back for about half a second in the\n"
+		"menus. While on, the menus get a Back tap once it is let go, never a\n"
+		"hold. Off by default: the Xbox's Back acts on press." },
 	{ "delta.pause_menu", _config_boolean, "true", "HALO_DELTA_PAUSE_MENU", _environment_value, _platform_all,
-		"Put DELTA in the pause menu, in every menu set." },
+		"Put the Delta Guide in the pause menu, in every menu set." },
+#ifdef HALO_ANDROID
+	/* (a touch screen has no Guide button, and its controls hide in the
+	menus: the rows are the way in there) */
+	{ "delta.menu_item", _config_boolean, "true", "HALO_DELTA_MENU_ITEM", _environment_value, _platform_all,
+		"Put the Delta Guide on the main menu and the Multiplayer menu, in\n"
+		"every menu set. On by default on Android, where a touch screen has no\n"
+		"Guide button. Takes effect the next time the menus load." },
+#else
+	{ "delta.menu_item", _config_boolean, "false", "HALO_DELTA_MENU_ITEM", _environment_value, _platform_all,
+		"Put the Delta Guide on the main menu and the Multiplayer menu, in\n"
+		"every menu set. Off by default: a note on the main menu says how to\n"
+		"open it. Takes effect the next time the menus load." },
+#endif
+	{ "delta.hint_shown", _config_integer, "0", "HALO_DELTA_HINT_SHOWN", _environment_value, _platform_all,
+		"How many times the main menu has said how to open the Delta Guide\n"
+		"(it says so three times, then no more)." },
 	{ "delta.notify_in_game", _config_boolean, "false", "HALO_DELTA_NOTIFY_IN_GAME", _environment_value,
 		_platform_all,
-		"Show DELTA's notifications during a game. They always show in the\n"
-		"menus." },
+		"Show the Delta Guide's notifications during a game. They always show\n"
+		"in the menus." },
 	{ "delta.notify_online", _config_boolean, "false", "HALO_DELTA_NOTIFY_ONLINE", _environment_value,
 		_platform_all,
 		"Show a notification in the menus when a friend comes online." },
@@ -1142,6 +1181,11 @@ static const struct config_setting config_settings[] =
 		"progress waits after its first player is in, so the players on its\n"
 		"other controllers can join too (split screen), from 0 to 30. It starts\n"
 		"sooner when it has four players. 0 starts it at once." },
+	{ "network.pregame_load_timeout", _config_integer, "90", "HALO_NET_PREGAME_LOAD_TIMEOUT", _environment_value,
+		_platform_all | _platform_server | _platform_xbox | _platform_console_gl,
+		"In games you host, how many seconds past the lobby's countdown a\n"
+		"machine may take to load the map before it is dropped and the game\n"
+		"starts without it, from 0 to 3600. 0 waits for ever." },
 	{ "network.coop_friendly_fire", _config_string, "\"on\"", "HALO_NET_COOP_FRIENDLY_FIRE", _environment_value,
 		_platform_all,
 		"Friendly fire in online co-op: \"off\", \"on\", \"shields_only\" or\n"
@@ -1181,6 +1225,17 @@ static const struct config_setting config_settings[] =
 	{ "network.browser_url", _config_string, "\"https://stats.chupathingy.org\"", "HALO_NET_BROWSER", _environment_value,
 		_platform_all | _platform_server,
 		"The game list server. Leave it empty for none." },
+	{ "network.workshop_downloads", _config_string, "\"ask\"", "HALO_NET_WORKSHOP_DOWNLOADS", _environment_value,
+		_platform_desktop,
+		"Get a game's missing MCC Workshop map through your Steam when you join:\n"
+		"\"ask\", \"always\" or \"never\"." },
+	{ "network.workshop_downloads_limit_mb", _config_integer, "1024", "HALO_NET_WORKSHOP_DOWNLOADS_LIMIT_MB",
+		_environment_value, _platform_desktop,
+		"With network.workshop_downloads \"always\": the largest Workshop item, in MB,\n"
+		"got without asking. A bigger one asks first." },
+	{ "network.workshop_url", _config_string, "\"\"", "HALO_WORKSHOP_URL", _environment_value, _platform_desktop,
+		"The list of MCC Workshop items the Delta Guide's Workshop shows (with\n"
+		"MCC on this computer). Empty shows only the items Steam has installed." },
 	{ "network.list_hosted_games", _config_boolean, "true", "HALO_NET_LIST_GAMES", _environment_value,
 		_platform_all | _platform_server,
 		"List the public games you host without a password on the game list,\n"
@@ -1345,10 +1400,52 @@ static const struct config_setting config_settings[] =
 		"Where saved games and profiles go. Leave it empty for the usual place." },
 	{ "paths.logs", _config_string, "\"\"", "HALO_LOG_ROOT", _environment_value, _platform_desktop | _platform_server,
 		"Where logs and crash reports go. Leave it empty for logs/ next to\n"
-		"maps." },
+		"maps (or in paths.saves, when that is set)." },
 	{ "paths.cache", _config_string, "\"\"", "HALO_CACHE_ROOT", _environment_value, _platform_desktop | _platform_server,
 		"Where Chupathingy keeps its cache. Leave it empty for cache/ in the\n"
 		"save folder." },
+	{ "paths.steam", _config_string, "\"\"", "HALO_STEAM_ROOT", _environment_value, _platform_desktop,
+		"A Steam folder (or Steam library) to check first for subscribed Halo CE\n"
+		"Workshop items. Empty uses automatic discovery: Windows registry, Linux\n"
+		"Steam/XDG hints, macOS's Steam folder, usual folders and their libraries. Windows paths use single\n"
+		"quotes: 'D:\\Steam'." },
+	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
+		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
+		"Workshop campaign maps are listed either way. Reopen the map list after\n"
+		"changing this." },
+	{ "game.workshop_maps", _config_boolean, "false", "HALO_WORKSHOP_MAPS", _environment_value, _platform_desktop,
+		"Discover installed Halo CE Steam Workshop maps. Read-only desktop\n"
+		"discovery; packages installed in maps_mcc are always read." },
+	{ "game.workshop_steam", _config_boolean, "false", "HALO_WORKSHOP_STEAM", _environment_value, _platform_desktop,
+		"Let the Delta Guide's Workshop get MCC Workshop items itself: through the Steam\n"
+		"client where it downloads them (Windows), else with the game's own Steam\n"
+		"download, signed in once by scanning a QR code with the Steam app. Only while\n"
+		"the Workshop tab is open. Off opens each item's page in Steam." },
+	{ "game.steamcmd_account", _config_string, "\"\"", "HALO_STEAMCMD_ACCOUNT", _environment_value, _platform_desktop,
+		"The Steam account steamcmd signs in with for the Workshop. Empty uses the one\n"
+		"steamcmd saved. Never a password: steamcmd keeps its own sign-in." },
+	{ "paths.steamcmd", _config_string, "\"\"", "HALO_STEAMCMD", _environment_value, _platform_desktop,
+		"steamcmd, for the Workshop on macOS and Linux. Empty looks in the PATH and the\n"
+		"usual places." },
+	{ "game.workshop_item_limit_mb", _config_integer, "8192", "HALO_WORKSHOP_ITEM_LIMIT_MB", _environment_value,
+		_platform_desktop,
+		"The largest Workshop item, in MB, the game's own Steam download takes." },
+	{ "game.workshop_file_limit_mb", _config_integer, "4096", "HALO_WORKSHOP_FILE_LIMIT_MB", _environment_value,
+		_platform_desktop,
+		"The largest single file, in MB, the game's own Steam download takes." },
+	{ "paths.steam_downloads", _config_string, "\"\"", "HALO_STEAM_DOWNLOADS", _environment_value, _platform_desktop,
+		"Where the game puts the Workshop items it downloads, and MCC's Halo CE files.\n"
+		"Empty is steam/ in the data folder. Use a big drive for MCC's files." },
+	{ "paths.steam_api", _config_string, "\"\"", "HALO_STEAM_API", _environment_value, _platform_desktop,
+		"A steam_api library for the Workshop to use. Empty uses MCC's own on Windows." },
+	{ "game.mcc_collections", _config_boolean, "false", "HALO_MCC_COLLECTIONS", _environment_value, _platform_all,
+		"Group identified MCC packages into the bundled Workshop collections.\n"
+		"Works with imported packages without Steam; reopen the map list after changing." },
+	{ "display.mcc_texture_prepare_mb", _config_integer, "0", "HALO_MCC_TEXTURE_PREPARE_MB", _environment_value,
+		_platform_desktop,
+		"OpenGL only: MB of an MCC map's largest textures to send to the GPU while\n"
+		"it loads (at most 512), instead of the first time each is drawn. 0 sends\n"
+		"each when it is first drawn. Read when a map loads." },
 
 #ifdef HALO_SWITCH_CONSOLE
 	/* ---- performance (the Switch host's: port/switch/host/host_main.c) */
@@ -1408,6 +1505,8 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_test_local_players", _config_integer, "1", "HALO_NETWORK_TEST_LOCAL_PLAYERS", _environment_value,
 		_platform_all,
 		"A test machine's players, from 1 to 4." },
+	{ "debug.network_test_lobby_map", _config_string, "\"\"", "HALO_NETWORK_TEST_LOBBY_MAP", _environment_value, _platform_all,
+		"A test host changes its lobby to this map once another machine has joined." },
 	{ "debug.network_test_score", _config_integer, "0", "HALO_NETWORK_TEST_SCORE", _environment_value, _platform_all,
 		"The score a test game plays to. 0 uses the game type's own." },
 	{ "debug.network_test_shoot", _config_real, "0.0", "HALO_NETWORK_TEST_SHOOT", _environment_value, _platform_all,
@@ -1550,6 +1649,11 @@ static const struct config_setting config_settings[] =
 		"debug.test_input's \"menu:\" script presses their buttons and sticks as\n"
 		"pad<n>:<button>. pad<n>:unplug and pad<n>:plug take one out and put\n"
 		"it back." },
+	{ "debug.prompt_device", _config_string, "\"\"", "HALO_PROMPT_DEVICE", _environment_value, _platform_all,
+		"Draw the button prompts for one device, whatever is used, for\n"
+		"screenshots and tests: \"keyboard\", \"xbox\", \"playstation\",\n"
+		"\"nintendo\", \"steam_deck\", \"wiiu\" or \"steam_controller\". Leave it\n"
+		"empty for the device used last." },
 #ifndef HALO_CONSOLE_NO_UPDATER
 	{ "debug.update_answer", _config_string, "\"\"", "HALO_UPDATE_ANSWER", _environment_value, _platform_desktop,
 		"The answer to the update question, for tests: \"yes\", \"no\" or\n"
@@ -1557,7 +1661,7 @@ static const struct config_setting config_settings[] =
 #endif
 #ifdef HALO_GUIDE
 	{ "debug.delta_open", _config_boolean, "false", "HALO_DELTA_OPEN", _environment_set_is_true, _platform_all,
-		"Open DELTA once the menus or a map are up, for tests." },
+		"Open the Delta Guide once the menus or a map are up, for tests." },
 	{ "debug.delta_toast", _config_string, "\"\"", "HALO_DELTA_TOAST", _environment_value, _platform_all,
 		"Show a test notification with this text once. Leave it empty for none." },
 	{ "debug.delta_section", _config_string, "\"\"", "HALO_DELTA_SECTION", _environment_value, _platform_all,
@@ -1571,9 +1675,14 @@ static const struct config_setting config_settings[] =
 		"commas, for tests: \"create\", \"join:<code>\", \"invite:<handle>\"\n"
 		"(FRIENDS' INVITE TO PARTY), or another action. Leave it empty for none." },
 	{ "debug.delta_test", _config_string, "\"\"", "HALO_DELTA_TEST", _environment_value, _platform_all,
-		"Buttons pressed in DELTA once debug.delta_open opened it, one at a time,\n"
-		"separated by ; (up, down, left, right, a, b, x, y, lb, rb), for tests.\n"
+		"Buttons pressed in the Delta Guide once debug.delta_open opened it, one\n"
+		"at a time, separated by ; (up, down, left, right, a, b, x, y, lb, rb,\n"
+		"start, back, lt, rt), for tests.\n"
 		"Debug builds only: a release build ignores it." },
+	{ "debug.delta_sample", _config_boolean, "false", "HALO_DELTA_SAMPLE", _environment_set_is_true, _platform_all,
+		"The Delta Guide signed in with made-up friends and a party, nothing\n"
+		"asked of the site, for screenshots. Debug builds only: a release build\n"
+		"ignores it." },
 #endif
 #ifdef HALO_CAPTURE
 	{ "debug.clips_software", _config_boolean, "false", "HALO_CLIPS_SOFTWARE", _environment_set_is_true,
@@ -1615,6 +1724,33 @@ static const struct config_setting config_settings[] =
 		"Run without a window, and draw nothing." },
 	{ "debug.gl_debug", _config_boolean, "false", "HALO_GL_DEBUG", _environment_set_is_true, _platform_all,
 		"Report OpenGL errors in the log." },
+	{ "debug.workshop_offer", _config_string, "\"\"", "HALO_WORKSHOP_OFFER", _environment_value, _platform_desktop,
+		"A join's missing Workshop map offered over the main menu once, as\n"
+		"\"<item id>:<title>\", for tests. Leave it empty for none." },
+	{ "debug.workshop_search", _config_string, "\"\"", "HALO_WORKSHOP_SEARCH", _environment_value, _platform_desktop,
+		"The Delta Guide Workshop's search box shown with these words, then\n"
+		"searched, for screenshots. Leave it empty for none." },
+	{ "debug.workshop_setup", _config_string, "\"\"", "HALO_WORKSHOP_SETUP", _environment_value, _platform_desktop,
+		"The Delta Guide Workshop's setup rows shown as given, for screenshots:\n"
+		"\"steam=1,signin=0\" (0 Ready, 1 To do, 2 Working, 3 Not available);\n"
+		"\"client\" shows the Steam client's rows." },
+	{ "debug.workshop_play", _config_string, "\"\"", "HALO_WORKSHOP_PLAY", _environment_value, _platform_desktop,
+		"The Delta Guide Workshop's PLAY pressed once on this installed item,\n"
+		"\"<item id>\" or \"<item id>:<seconds>\" after the main menu or a game\n"
+		"is up (4 by default); \":lobby\" after it: in a lobby this machine\n"
+		"hosts, \":game\": in a game. For tests. Debug builds only. Leave it empty for none." },
+	{ "debug.workshop_steamcmd", _config_boolean, "false", "HALO_WORKSHOP_STEAMCMD", _environment_set_is_true,
+		_platform_desktop,
+		"Workshop downloads with steamcmd (paths.steamcmd) instead of the game's own\n"
+		"Steam download, as before it had one. A fallback for tests." },
+	{ "debug.steam_link_file", _config_boolean, "false", "HALO_STEAM_LINK_FILE", _environment_set_is_true,
+		_platform_desktop,
+		"Keep the Steam link's token in its file in the data folder, never the\n"
+		"system's secret store (the Keychain), for tests." },
+	{ "debug.workshop_no_steam", _config_boolean, "false", "HALO_WORKSHOP_NO_STEAM", _environment_set_is_true,
+		_platform_desktop,
+		"The Delta Guide's Workshop marks an item subscribed without opening\n"
+		"Steam, for tests." },
 	{ "debug.menu_open", _config_string, "\"\"", "HALO_MENU_OPEN", _environment_value, _platform_all,
 		"Start on this menu screen instead of the main menu. Leave it empty for\n"
 		"the main menu." },
@@ -1825,6 +1961,14 @@ static const struct config_setting config_settings[] =
 		"timed part of the render. Each part's time is then what the chip spent\n"
 		"drawing it, not only the processor's share. It slows the game down.\n"
 		"Read when Chupathingy starts." },
+	{ "console.frame_overlap", _config_boolean, "false", NULL, _environment_value, _platform_console_gl,
+		"A test for the frame rate: start the next frame while the graphics\n"
+		"chip still draws this one and the screen waits to show it, as most\n"
+		"Wii U games do. A scene whose processor and chip work, one after the\n"
+		"other, take more than a sixtieth of a second can then still hold 60\n"
+		"frames a second, with the picture shown one frame later. false, the\n"
+		"default, waits for each frame to be on the screen before the next\n"
+		"starts. Read when it changes." },
 	{ "console.visibility_test_runs", _config_boolean, "true", NULL, _environment_value, _platform_console_gl,
 		"Draw the lens flares' visibility tests as one run. After the first,\n"
 		"each test keeps the first one's state and is only a query and a draw\n"
@@ -1902,7 +2046,8 @@ static const struct
 		"in [network]." },
 #ifdef HALO_GUIDE
 	{ "delta", 0,
-		"DELTA, which opens over the menus or a game (F3), and its party." },
+		"The Delta Guide, which opens over the menus or a game (F3), and its\n"
+		"party." },
 #endif
 	{ "game", 0,
 		"How games play. The bomb settings are for Bomb and Grifball games you\n"
@@ -2084,9 +2229,11 @@ static void config_path(char *path, size_t size)
 	const char *save_root = getenv("HALO_SAVE_ROOT");
 
 	/* (a copy given a save root of its own, a test's, keeps its settings
-	there too, not in the player's) */
+	there too, not in the player's; a new one is made, so its settings can
+	be written) */
 	if (save_root && *save_root)
 	{
+		SDL_CreateDirectory(save_root);
 		snprintf(path, size, "%s/config.toml", save_root);
 		return;
 	}
@@ -2126,6 +2273,58 @@ static void config_path(char *path, size_t size)
 #endif
 }
 
+#ifdef HALO_XBOX_CONSOLE
+/* a finished config.toml.new put in place on a console, whose rename may
+not replace a file: the old file is moved aside to config.toml.old first,
+the new one renamed in, and only then the old one removed. 1 when it is in
+place; 0 when the old file could not be moved aside (it is still there,
+and the new one can go); -1 when the new one could not be renamed in after
+it (the old file is put back, and the new one is kept). config.toml.old
+beside config.toml.new is what shows the new one was finished:
+config_console_recover */
+static int config_console_replace(const char *path, const char *temporary)
+{
+	char old[1100];
+
+	if (rename(temporary, path) == 0)
+		return 1;
+	snprintf(old, sizeof(old), "%s.old", path);
+	remove(old);
+	if (rename(path, old) != 0)
+		return 0;
+	if (rename(temporary, path) != 0)
+	{
+		rename(old, path);
+		return -1;
+	}
+	remove(old);
+	return 1;
+}
+
+/* config.toml missing: a write that stopped in config_console_replace.
+With config.toml.old there, config.toml.new was finished before the old
+file was moved aside, so it takes the old one's place; without a .new the
+old one goes back. A config.toml.new alone (the first write, cut short)
+may be part of a file and is left alone */
+static void config_console_recover(const char *path)
+{
+	char temporary[1100];
+	char old[1100];
+	FILE *file;
+
+	snprintf(old, sizeof(old), "%s.old", path);
+	file = fopen(old, "rb");
+	if (!file)
+		return;
+	fclose(file);
+	snprintf(temporary, sizeof(temporary), "%s.new", path);
+	if (rename(temporary, path) == 0)
+		remove(old);
+	else
+		rename(old, path);
+}
+#endif
+
 /* the whole file, NUL terminated, or NULL; free() it */
 static char *config_read_file(const char *path, size_t *size)
 {
@@ -2134,6 +2333,14 @@ static char *config_read_file(const char *path, size_t *size)
 	char *text = NULL;
 	long length;
 
+#ifdef HALO_XBOX_CONSOLE
+	/* (a write that stopped part way through putting the new file in place) */
+	if (!file)
+	{
+		config_console_recover(path);
+		file = fopen(path, "rb");
+	}
+#endif
 	if (!file)
 		return NULL;
 	if (fseek(file, 0, SEEK_END) == 0 && (length = ftell(file)) >= 0 && fseek(file, 0, SEEK_SET) == 0)
@@ -2170,29 +2377,83 @@ static char *config_read_file(const char *path, size_t *size)
 #endif
 }
 
+/* config.toml written whole or not at all: the text goes to config.toml.new
+beside it, is flushed to the disk, and is then renamed over the old file in
+one step (rename; MoveFileExW with MOVEFILE_REPLACE_EXISTING on Windows,
+SDL_RenamePath), so a crash or power loss mid-write leaves the old settings
+and not a cut-off file. One small file and one flush a write: cheap enough
+for a setting changed in a menu or a counter kept in the file */
 static int config_write_file(const char *path, const char *text)
 {
-#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
-	FILE *file = fopen(path, "wb");
+	char temporary[1100];
+	size_t length = strlen(text);
 	int written;
 
-	if (!file)
+	if ((size_t)snprintf(temporary, sizeof(temporary), "%s.new", path) >= sizeof(temporary))
 		return 0;
-	written = fwrite(text, 1, strlen(text), file) == strlen(text);
-#ifdef HALO_SWITCH_CONSOLE
-	/* leaving the game is _exit, which does not flush the card; without a
-	commit here a setting is kept for this run and gone on the next */
+#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
+	{
+		FILE *file = fopen(temporary, "wb");
+
+		if (!file)
+			return 0;
+		written = fwrite(text, 1, length, file) == length && fflush(file) == 0;
+#if defined(HALO_ANDROID) || defined(HALO_SWITCH_CONSOLE)
+		/* (on the Switch, leaving the game is _exit, which does not flush the
+		card; without a commit here a setting is kept for this run and gone
+		on the next. A file system that cannot sync still gets the rename) */
+		if (written)
+			fsync(fileno(file));
+#endif
+		written = fclose(file) == 0 && written;
+	}
+#ifdef HALO_XBOX_CONSOLE
 	if (written)
-		fsync(fileno(file));
-	written = fclose(file) == 0 && written;
+	{
+		int placed = config_console_replace(path, temporary);
+
+		/* (a finished new file that could not be put in place is kept:
+		config_console_recover) */
+		if (placed < 0)
+			return 0;
+		written = placed > 0;
+	}
+#else
+	written = written && rename(temporary, path) == 0;
+#endif
+	if (!written)
+		remove(temporary);
+#ifdef HALO_SWITCH_CONSOLE
 	if (written)
 		host_storage_commit();
-	return written;
-#else
-	return fclose(file) == 0 && written;
 #endif
+	return written;
+#elif defined(HALO_CONSOLE)
+	/* (a console on the shared GL layer, the Wii U's and the 360's: their
+	repositories' SDL stand-ins, warthog-wiiu's wiiu_sdl.c and warthog-360's
+	x360_system.c, have SDL_SaveFile alone, and the 360's file names are its
+	own (halo_xbox360_fopen). Written in place there until they have
+	SDL_IOFromFile, SDL_FlushIO and SDL_RenamePath too) */
+	(void)temporary;
+	(void)written;
+	return SDL_SaveFile(path, text, length);
 #else
-	return SDL_SaveFile(path, text, strlen(text));
+	{
+		/* (SDL's files, for UTF-8 paths on Windows; SDL_FlushIO is fdatasync,
+		or FlushFileBuffers on Windows) */
+		SDL_IOStream *stream = SDL_IOFromFile(temporary, "wb");
+
+		if (!stream)
+			return 0;
+		written = SDL_WriteIO(stream, text, length) == length;
+		if (written)
+			SDL_FlushIO(stream);
+		written = SDL_CloseIO(stream) && written;
+	}
+	written = written && SDL_RenamePath(temporary, path);
+	if (!written)
+		SDL_RemovePath(temporary);
+	return written;
 #endif
 }
 
@@ -2309,21 +2570,26 @@ static void config_append_setting(struct config_text *text, const struct config_
 		if (*line)
 			line++;
 	}
-#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
-	/* (Android apps and the console have no environment to set) */
-	switch (setting->environment_style)
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_WIIU_CONSOLE) && \
+	!defined(HALO_XBOX360_CONSOLE)
+	/* (Android apps and the consoles have no environment to set, and a
+	setting without a variable has no line) */
+	if (setting->environment)
 	{
-	case _environment_value:
-		snprintf(buffer, sizeof(buffer), "# (one run: %s=<value>)\n", setting->environment);
-		break;
-	case _environment_set_is_true:
-		snprintf(buffer, sizeof(buffer), "# (one run: %s=1 turns it on)\n", setting->environment);
-		break;
-	case _environment_set_is_false:
-		snprintf(buffer, sizeof(buffer), "# (one run: %s=1 turns it off)\n", setting->environment);
-		break;
+		switch (setting->environment_style)
+		{
+		case _environment_value:
+			snprintf(buffer, sizeof(buffer), "# (one run: %s=<value>)\n", setting->environment);
+			break;
+		case _environment_set_is_true:
+			snprintf(buffer, sizeof(buffer), "# (one run: %s=1 turns it on)\n", setting->environment);
+			break;
+		case _environment_set_is_false:
+			snprintf(buffer, sizeof(buffer), "# (one run: %s=1 turns it off)\n", setting->environment);
+			break;
+		}
+		config_append(text, buffer);
 	}
-	config_append(text, buffer);
 #endif
 	snprintf(buffer, sizeof(buffer), "# %s = %s\n", dot + 1, setting->default_value);
 	config_append(text, buffer);
@@ -3995,11 +4261,12 @@ static const struct
 	const char *otherwise;
 } config_words[] =
 {
-	{ "display.theme", { "blue", "red", NULL }, "\"blue\"" },
+	{ "display.theme", { "blue", "red", "green", NULL }, "\"blue\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
+	{ "display.title_font", { "classic", "cyborg", NULL }, "\"classic\"" },
 	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"none\"" },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
@@ -4015,6 +4282,7 @@ static const struct
 	{ "game.move_old_map_folders", { "ask", "yes", "no", NULL }, "\"ask\"" },
 	{ "network.protocol", { "auto", "opence", "delta", NULL }, NULL },
 	{ "network.map_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
+	{ "network.workshop_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
 #ifdef HALO_HOST_MAP_DOWNLOADS
 	{ "network.map_downloads_from_host", { "off", "ask", "always", NULL }, "\"off\"" },
 #endif

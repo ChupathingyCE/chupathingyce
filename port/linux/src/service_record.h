@@ -13,8 +13,9 @@ Kept as text, one value a line, in the profile's folder
 (SERVICE_RECORD_FILE_NAME), so it reads the same on any machine and byte
 order. Nothing here is sent anywhere.
 
-The totals and the top medals follow the career record of mOTA-lEV's
-OpenCE-Faber (firefight_stats.c: a per-profile records file in the
+The service record itself is ours (the site's since September, and
+the Delta Guide's). Only the local totals and the top medals here follow the career
+record of mOTA-lEV's OpenCE-Faber (firefight_stats.c: a per-profile records file in the
 profile's folder, a game's local players' kills, deaths and assists added
 up as it ends, the profile's most earned medals), reworked for our medals
 and our site's rules (a win as the site counts one).

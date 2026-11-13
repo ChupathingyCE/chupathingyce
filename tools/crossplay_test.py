@@ -93,6 +93,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from run_logs import find_debug_log  # noqa: E402
+
 # when each part happens
 JOIN_DELAY = 0            # seconds from the host's launch to the client's
 START_DELAY = 4           # seconds from the host's setup to its start (network_test_start): before the
@@ -237,10 +240,11 @@ class Copy:
         return self.read("out.log")
 
     def debug(self):
-        # (ChupathingyCE keeps it in the data folder's logs folder, OpenCE
-        # in the data folder itself)
-        return (self.read(os.path.join("data", "logs", "debug.txt"))
-                or self.read(os.path.join("data", "debug.txt")))
+        # (ChupathingyCE keeps it in the save root's logs folder since #1148,
+        # older releases in the data folder's, OpenCE in the data folder
+        # itself: run_logs.py)
+        path = find_debug_log(os.path.join(self.folder, "saves"), os.path.join(self.folder, "data"))
+        return self.read(os.path.relpath(path, self.folder)) if path else []
 
 
 # ---------- reading a copy's log

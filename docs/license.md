@@ -20,6 +20,13 @@ version (`GPL-3.0-or-later`). It comes with no warranty. The full text is in
   versions of it stay CC0 for anyone already using them. The protocol
   itself ([docs/delta.md](delta.md)) is a description anyone may
   implement, under any license, without using this code.
+- **The Steam link code is MIT.** The Steam content client
+  (`port/linux/src/steam_content`), the Steam bridge
+  (`port/linux/src/steam_client_bridge.*`, `steam_bridge_*.c`,
+  `posix_steam_bridge.c`, `port/windows/src/win32_steam_bridge.c`) and their
+  tests are licensed under the [MIT license](../LICENSES/MIT.txt), copyright
+  Milenko x Horrible Dev, so other projects can reuse them with credit. The
+  Workshop screens that use them stay GPL like the rest of the game.
 - **Third-party code, fonts and art** keep their own licenses, which are
   beside them (`port/third_party`, `port/assets/fonts`,
   `port/linux/ui/fonts`, `port/assets/prompts`, `port/assets/hud`,

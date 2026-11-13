@@ -16,7 +16,9 @@ Automated system link sessions for testing the netcode without the menus
   may also be named as the menus name it (putput@ce). Maps joined by
   "+" (bloodgulch+putput@ce) are the games' maps in turn, the
   last for the games past them, as a dedicated server's playlist moves its
-  players to the next map; a map the menus refuse a hosted game (one on
+  players to the next map; a map that isn't installed here is skipped, as
+  the playlist skips it, and with none installed the test ends with exit
+  code 2; a map the menus refuse a hosted game (one on
   Chupathingy maps' blacklist) ends the test with exit code 2;
 - "join" searches for games and joins the first it finds, as picking it in
   the system link list does;
@@ -45,7 +47,9 @@ Automated system link sessions for testing the netcode without the menus
   invite's first digits (as the host's log has them), whether it
   came from the game list or was heard directly (the brokers), whether it
   has a password, and the list's state, for the pings before joining and a
-  list outage to be seen.
+  list outage to be seen, and each game as the screen shows it (its map's
+  name and tag, and what stops a join); "browse:join" then joins the first
+  game listed, as A on it does.
 
 Once the game runs, every second each machine logs where every player's
 unit is, so the machines' views of the game can be compared.
@@ -127,6 +131,7 @@ network_test_update, which does nothing there */
 #ifdef HALO_GAME_BROWSER
 #include "../src/browser.h"
 #endif
+#include "mcc_cache.h"
 
 #include <math.h>
 #include <stdarg.h>
@@ -180,6 +185,9 @@ static struct
 	/* ... the variant of this game, of variant_name's list; and the seconds
 	the last game's scores have been shown */
 	short variant_index;
+	/* ... and the map of this game, of map_name's list (a map that isn't
+	installed skipped: network_test_playable_map) */
+	short map_entry;
 	real postgame_seconds;
 	boolean game_over;
 	real start_delay;
@@ -189,6 +197,12 @@ static struct
 	boolean started;
 	boolean joined;
 	boolean map_set;
+	/* debug.network_test_lobby_map: the map a host changes to once another
+	machine is in its lobby (an MCC map's game at 43, or back), and whether
+	it has */
+	char lobby_map[128];
+	boolean lobby_map_set;
+	real lobby_seconds;
 	boolean player_added;
 	/* debug.network_test_local_players: the host's players on this machine
 	(2 or more: split screen), and how many it has added */
@@ -229,6 +243,9 @@ static struct
 	/* download: the host's checksum, and the download started */
 	unsigned long download_version;
 	boolean download_started;
+	/* browse:join: the first listed game joined (browse_joined: once) */
+	boolean browse_join;
+	boolean browse_joined;
 	/* debug.network_test_password: the host's set; debug.network_test_invite_file:
 	the host's invite written */
 	boolean password_set;
@@ -248,6 +265,69 @@ static void network_test_map(
 	for (; index > 0 && (next = strchr(map, '+')) != NULL; index--)
 		map = next + 1;
 	snprintf(name, size, "%.*s", (int)strcspn(map, "+"), map);
+}
+
+/* how many maps map_name names */
+static short network_test_map_count(
+	void)
+{
+	char const *map;
+	short count = 1;
+
+	for (map = network_test.map_name; (map = strchr(map, '+')) != NULL; map++)
+		count++;
+	return count;
+}
+
+/* a map of the list as the game loads it (copied to path): a level of its
+own path, else a multiplayer map's name */
+static void network_test_map_path(
+	short index,
+	char *path,
+	size_t size)
+{
+	char map[64];
+
+	network_test_map(index, map, sizeof(map));
+	if (strchr(map, '\\') || strchr(map, '@'))
+		snprintf(path, size, "%s", map);
+	else
+		snprintf(path, size, "levels\\test\\%s\\%s", map, map);
+}
+
+/* the map of this game (network_test.map_entry, copied to path), past maps
+that aren't installed here, each said: the list goes on with its next, and
+past its last holds on its last installed one, as the games past the list
+play its last map. A host that set a game on a map it lacks would leave its
+own game (#1106). FALSE if none of the list's maps is installed */
+static boolean network_test_playable_map(
+	char *path,
+	size_t size)
+{
+	short count = network_test_map_count();
+	short entry;
+
+	for (entry = network_test.map_entry; entry < count; entry++)
+	{
+		network_test_map_path(entry, path, size);
+		if (cache_files_map_installed(path))
+		{
+			network_test.map_entry = entry;
+			return TRUE;
+		}
+		platform_log("network test: game %d: %s isn't installed here; skipping it", network_test.variant_index + 1,
+			path);
+	}
+	for (entry = network_test.map_entry - 1; entry >= 0; entry--)
+	{
+		network_test_map_path(entry, path, size);
+		if (cache_files_map_installed(path))
+		{
+			network_test.map_entry = entry;
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 /* the variant at the index of the list (copied to name), FALSE past its end */
@@ -303,9 +383,10 @@ static void network_test_read_settings(
 	{
 		network_test.mode = _network_test_watch;
 	}
-	else if (!strcmp(setting, "browse"))
+	else if (!strcmp(setting, "browse") || !strcmp(setting, "browse:join"))
 	{
 		network_test.mode = _network_test_browse;
+		network_test.browse_join = setting[6] != 0;
 	}
 #ifdef HALO_GAME_BROWSER
 	else if (!strncmp(setting, "fetch:", 6) && setting[6])
@@ -355,6 +436,7 @@ static void network_test_read_settings(
 	snprintf(network_test.pickup_weapon, sizeof(network_test.pickup_weapon), "%s",
 		config_string("debug.network_test_pickup_weapon"));
 	network_test.score_to_win = (long)config_integer("debug.network_test_score");
+	snprintf(network_test.lobby_map, sizeof(network_test.lobby_map), "%s", config_string("debug.network_test_lobby_map"));
 	if (network_test.mode != _network_test_off)
 		platform_log("network test: %s", setting);
 }
@@ -1344,6 +1426,22 @@ void network_test_update(
 						games[index].ping_estimated ? "~" : "", games[index].ping, games[index].direct ? "direct" : "list",
 						games[index].locked ? ", password" : "");
 				}
+				{
+					boolean browser_screen_debug_game(long index, char *text, long size);
+					void browser_screen_debug_join(long index);
+					char line[384];
+
+					/* (as the screen shows each: its map's name and tag, and
+					what stops a join) */
+					for (index = 0; browser_screen_debug_game(index, line, sizeof(line)); index++)
+						platform_log("network test: browse: game %d: %s", index, line);
+					if (network_test.browse_join && !network_test.browse_joined && index > 0)
+					{
+						network_test.browse_joined = TRUE;
+						platform_log("network test: browse: joining game 0");
+						browser_screen_debug_join(0);
+					}
+				}
 			}
 		}
 #endif
@@ -1658,6 +1756,9 @@ void network_test_update(
 		if (network_test_variant(network_test.variant_index + 1, NULL, 0))
 		{
 			network_test.variant_index++;
+			/* (the list's next map; its last for the games past them) */
+			if (network_test.map_entry + 1 < network_test_map_count())
+				network_test.map_entry++;
 			network_test.started = FALSE;
 			network_test.map_set = FALSE;
 			network_test.setup_seconds = 0.0f;
@@ -1673,7 +1774,9 @@ void network_test_update(
 		}
 	}
 
-	if (!main_menu_loaded)
+	/* The real menu waits for profile enumeration before accepting input.
+	Starting a lobby sooner can block its join on the profile mutex. */
+	if (!main_menu_loaded || filesystem_check_thread_is_active())
 		return;
 	/* the intro movie skipped first, as a button press does: the movie
 	holds the texture cache's spare memory, which starting the map
@@ -1695,10 +1798,16 @@ void network_test_update(
 	case _network_test_host:
 		if (!network_test.set_up)
 		{
-			char map[64];
+			char map[128];
 
 			network_test.set_up = TRUE;
-			network_test_map(0, map, sizeof(map));
+			network_test.map_entry = 0;
+			/* (a rotation with no map installed here isn't started) */
+			if (!network_test_playable_map(map, sizeof(map)))
+			{
+				platform_log("network test: not hosted: none of the maps %s is installed here", network_test.map_name);
+				exit(2);
+			}
 			main_set_multiplayer_map_name(map);
 			player_ui_fast_setup_network_server();
 			platform_log("network test: hosting %s", map);
@@ -1711,23 +1820,27 @@ void network_test_update(
 			if (!network_test.map_set && network_test.setup_seconds >= 1.0f && global_network_game_server_get())
 			{
 				char path[128];
-				char map[64];
 				char variant_name[64];
 				struct game_variant variant;
 
-				/* (a level of its own path, else a multiplayer map's name) */
-				network_test_map(network_test.variant_index, map, sizeof(map));
-				if (strchr(map, '\\') || strchr(map, '@'))
-					snprintf(path, sizeof(path), "%s", map);
-				else
-					snprintf(path, sizeof(path), "levels\\test\\%s\\%s", map, map);
+				/* (a level of its own path, else a multiplayer map's name;
+				one not installed here skipped) */
+				if (!network_test_playable_map(path, sizeof(path)))
+				{
+					platform_log("network test: not hosted: none of the maps %s is installed here", network_test.map_name);
+					exit(2);
+				}
 				network_test_variant(network_test.variant_index, variant_name, sizeof(variant_name));
 				if (!strcmp(variant_name, "coop"))
 				{
 					/* (the Map screen's co-op: menu_functions.c) */
 					extern boolean ui_widget_port_cooperative_level_choose(char const *map_name, short difficulty);
+					extern boolean ui_widget_port_mcc_cooperative_level_choose(char const *map_name, short difficulty);
 
-					if (!ui_widget_port_cooperative_level_choose(path, _game_difficulty_level_normal))
+					/* Exercise the same independent MCC route as its campaign menu. */
+					if (!(mcc_level_name(path) ?
+						ui_widget_port_mcc_cooperative_level_choose(path, _game_difficulty_level_normal) :
+						ui_widget_port_cooperative_level_choose(path, _game_difficulty_level_normal)))
 						platform_log("network test: %s is not a campaign level, for co-op", path);
 					platform_log("network test: game %d, co-op", network_test.variant_index + 1);
 				}
@@ -1788,7 +1901,21 @@ void network_test_update(
 			started the fast setup's game, of no game type, where the players
 			spawn with no weapons or grenades; it now waits, and the test
 			fails on its time limit) */
-			if (network_test.setup_seconds >= network_test.start_delay && network_test.map_set)
+			/* (debug.network_test_lobby_map: the host's second map, picked once
+			another machine is in the lobby; the start waits its delay again) */
+			if (network_test.map_set && network_test.lobby_map[0] && !network_test.lobby_map_set &&
+				global_network_game_server_get() &&
+				network_game_server_machine_count(global_network_game_server_get()) >= 2 &&
+				(network_test.lobby_seconds += seconds) >= 10.0f)
+			{
+				network_test.lobby_map_set = TRUE;
+				main_set_multiplayer_map_name(network_test.lobby_map);
+				network_game_server_change_map_name(global_network_game_server_get(), network_test.lobby_map);
+				platform_log("network test: the lobby's map changed to %s", network_test.lobby_map);
+				network_test.setup_seconds = 0.0f;
+			}
+			if (network_test.setup_seconds >= network_test.start_delay && network_test.map_set &&
+				(!network_test.lobby_map[0] || network_test.lobby_map_set))
 			{
 				network_test.started = TRUE;
 				network_test.setup_seconds = 0.0f;

@@ -529,6 +529,40 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 			pixel_shader.final_combiner_inputs_abcd = 0x0C080000;
 		}
 #endif
+#ifndef HALO_CONSOLE_NO_SMOOTH_METER_EDGES
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
+		else
+#endif
+		/* port: a filtered meter (hud_point_sampled, hud_draw.c: the HUD
+		drawn larger than the Xbox's 640x480) samples texels on its shape's
+		edges that are partly outside it, whose alpha is above 0, so the
+		alpha kill keeps them. The final combiner scales the meter's color by
+		that alpha, but the screen behind was scaled by the background's or
+		the tint's alpha (darker than 1) as much there as inside, so each
+		edge pixel darkened the screen without the color that goes with it,
+		and each health unit had a dark outline (#854). Two more stages fade
+		that darkening out over the edge: how much of the pixel is in the
+		shape is taken as four times its alpha, up to 1 (r1.a), and the screen
+		is scaled by 1 where none of it is and by the Xbox's alpha where all
+		of it is. A texel inside the shape (alpha a quarter or more) draws as
+		before; point sampled, every texel the alpha kill keeps is inside, and
+		the meter keeps the Xbox's four stages. A console's build keeps them
+		in every case (halo_port_features.h), as retail drew its meters. */
+		if (!parameters->point_sampled)
+		{
+			pixel_shader.combiner_count = 0x00011106;
+			/* r1.a = 4 * t0.a, up to 1 */
+			pixel_shader.alpha_inputs[4] = 0x18200000;
+			pixel_shader.alpha_outputs[4] = 0x000200D0;
+			pixel_shader.rgb_inputs[4] = 0x00000000;
+			pixel_shader.rgb_outputs[4] = 0x00000000;
+			/* r0.a = (1 - r1.a) * 1 + r1.a * r0.a */
+			pixel_shader.alpha_inputs[5] = 0x3D201D1C;
+			pixel_shader.alpha_outputs[5] = 0x00000C00;
+			pixel_shader.rgb_inputs[5] = 0x00000000;
+			pixel_shader.rgb_outputs[5] = 0x00000000;
+		}
+#endif
 	}
 	else if (parameters->map[0])
 	{
@@ -701,6 +735,24 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 		submit_screen_vertex(&vertices[vertex_index]);
 	}
 	IDirect3DDevice8_End(global_d3d_device);
+
+	/* port: a meter's stages past the Xbox's four (the smoothed edges' and a
+	Halo PC meter's, above) taken back out of the shared pixel shader, which
+	the Xbox's four-stage meter left empty there. The model shader reuses it
+	and sets only the color half of stages 4 and 5 (rasterizer_xbox_models.c),
+	so a meter's alpha there went on into the next frame's models: r1.a, their
+	reflection mask, became four times the base map's alpha, and the models
+	were drawn as chrome */
+	if (meter)
+	{
+		for (combiner_index = 4; combiner_index < 6; combiner_index++)
+		{
+			pixel_shader.alpha_inputs[combiner_index] = 0;
+			pixel_shader.alpha_outputs[combiner_index] = 0;
+			pixel_shader.rgb_inputs[combiner_index] = 0;
+			pixel_shader.rgb_outputs[combiner_index] = 0;
+		}
+	}
 
 	IDirect3DDevice8_SetTextureStageState(
 		global_d3d_device,

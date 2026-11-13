@@ -94,6 +94,7 @@ symbols in this file:
 #include "units/units.h"
 #include "text/unicode.h"
 #include "late_join.h" /* port: port/linux/game/late_join.c */
+#include "mcc_main.h" /* port: mcc_main_network_load_failed */
 
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port: port/linux/game/profile_names.c's */
@@ -445,6 +446,12 @@ boolean network_game_has_free_player_slot(
 
 	if (game->player_count >= game->maximum_players)
 		return FALSE;
+#ifdef HALO_CONSOLE_HOST_PLAYERS
+	/* port: a console's own hosting limit, whatever the game's settings
+	say (halo_console_features.h: the original Xbox hosts 16) */
+	if (game->player_count >= HALO_CONSOLE_HOST_PLAYERS)
+		return FALSE;
+#endif
 #ifdef HALO_GAME_BROWSER
 	/* port: no more players than a Delta machine of the hosted game says it
 	takes (its platform key: a console; port/linux/src/delta_peer.h). No
@@ -825,7 +832,13 @@ boolean network_game_create_game_objects(
 			break;
 	}
 
-	game_precache_new_map(options.map_name, TRUE);
+	/* port: an MCC level that isn't there ends the network game and goes
+	back to the menus with its reason, before the menus are unloaded (#1149) */
+	if (!game_precache_new_map(options.map_name, TRUE))
+	{
+		mcc_main_network_load_failed(options.map_name);
+		return FALSE;
+	}
 	main_menu_unload();
 
 	/* port: and whenever a map is loaded. After a game the client is back in
@@ -872,6 +885,8 @@ boolean network_game_create_game_objects(
 	else
 	{
 		error(0, "game_load() failed.");
+		/* port: (an MCC level that failed to load: back to the menus) */
+		mcc_main_network_load_failed(options.map_name);
 	}
 
 	return game->local_data.game_objects_loaded;

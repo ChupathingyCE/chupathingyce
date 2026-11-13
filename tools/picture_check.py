@@ -346,8 +346,10 @@ class Run:
         for debug in (self.save / "debug.txt", self.data / "debug.txt"):
             if debug.exists():
                 shutil.copy(debug, self.out / f"{self.map_name}.debug.txt")
-        if (self.data / "logs").is_dir():
-            shutil.copytree(self.data / "logs", self.out / f"{self.map_name}-logs", dirs_exist_ok=True)
+        # (the save root's logs/ since #1148, the data root's before: run_logs.py)
+        for logs in (self.save / "logs", self.data / "logs"):
+            if logs.is_dir():
+                shutil.copytree(logs, self.out / f"{self.map_name}-logs", dirs_exist_ok=True)
         shutil.rmtree(self.data, ignore_errors=True)
         shutil.rmtree(self.save, ignore_errors=True)
 

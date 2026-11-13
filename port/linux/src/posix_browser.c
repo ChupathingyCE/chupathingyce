@@ -706,6 +706,13 @@ void posix_browser_unlock(void)
 #endif
 }
 
+void *posix_browser_certificates(void)
+{
+	/* (loaded once; the caller holds posix_browser_lock while Mbed TLS uses them) */
+	set_up();
+	return certificates_loaded ? &certificates : NULL;
+}
+
 static int locked_request(const char *url, const char *body_data, size_t body_length, const char *content_type,
 	const char *user_agent, const char *headers, char *response, int response_size, char *error, int error_size)
 {
@@ -744,7 +751,7 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 	int secure;
 	int status = 0;
 	int length;
-	char *body;
+	char *body = NULL;
 
 	error[0] = 0;
 	if (response_size > 0)
@@ -801,6 +808,10 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 		set_error(error, error_size, "the request is too long", 0);
 		return 0;
 	}
+	/* (room for the whole answer the caller has room for, and its head: a
+	page of Steam's Workshop is about 500 KB) */
+	if (response_size > 0 && (size_t)response_size + 16384 > capacity)
+		capacity = (size_t)response_size + 16384;
 	memset(&connection, 0, sizeof(connection));
 	connection.secure = secure;
 	connection.deadline = monotonic_milliseconds() + REQUEST_DEADLINE_MILLISECONDS;
@@ -842,6 +853,24 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 			else if ((body = strstr(buffer, "\r\n\r\n")) != NULL && response_size > 0)
 			{
 				snprintf(response, (size_t)response_size, "%s", body + 4);
+			}
+			/* (busy: how long it asks to be left, in the error's words, for
+			retry_backoff_after) */
+			if ((status == 429 || status >= 500) && body)
+			{
+				const char *line;
+
+				for (line = strstr(buffer, "\r\n"); line && line < body; line = strstr(line + 2, "\r\n"))
+				{
+					if (!strncasecmp(line + 2, "Retry-After:", 12))
+					{
+						long seconds = strtol(line + 14, NULL, 10);
+
+						if (seconds > 0 && error && error_size > 0)
+							snprintf(error, (size_t)error_size, "HTTP %d, Retry-After: %ld", status, seconds);
+						break;
+					}
+				}
 			}
 		}
 	}

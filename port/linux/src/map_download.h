@@ -71,7 +71,33 @@ struct map_download_progress
 	/* it failed because the map is on Chupathingy maps' blacklist: no other
 	source is asked, the host neither */
 	int blocked;
+	/* what it failed on, for the player (MAP_DOWNLOAD_REFUSAL_*:
+	map_download_refusal_label); the message is the log's */
+	int refusal;
 };
+
+/* what a download failed on, least telling first: the one shown is the
+most telling any source met */
+enum
+{
+	MAP_DOWNLOAD_REFUSAL_NONE,
+	/* no source has the map */
+	MAP_DOWNLOAD_REFUSAL_MISSING,
+	/* a source didn't answer, or the file couldn't be written */
+	MAP_DOWNLOAD_REFUSAL_FAILED,
+	/* the file isn't a map the game takes (its archive, header or quick
+	checks) */
+	MAP_DOWNLOAD_REFUSAL_DAMAGED,
+	/* the file isn't the one asked for: another version of the map, or
+	not the index's size and SHA-256, or not the host's offer */
+	MAP_DOWNLOAD_REFUSAL_MISMATCH,
+	/* on Chupathingy maps' blacklist */
+	MAP_DOWNLOAD_REFUSAL_BLOCKED,
+};
+
+/* the player's word for a refusal: "Not found", "Failed", "Damaged",
+"Doesn't match" or "Blocked" (NONE: "Failed") */
+const char *map_download_refusal_label(int refusal);
 
 /* network.map_downloads_from_host */
 enum

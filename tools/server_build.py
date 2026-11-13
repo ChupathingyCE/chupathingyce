@@ -272,7 +272,8 @@ def generate_server_build(n: Writer, sln: Any) -> None:
         march = server_march(arch, sln)
         lto_cflags, lto_ldflags = lto_flags(sln, build_dir / "thinlto-cache")
         generated = (hud_assets_build(n, rule_name, build_dir / "generated" / "hud_hires_assets.c")
-                     + ui_fonts_build(n, rule_name, build_dir / "generated" / "ui_fonts.c", server_sln))
+                     + ui_fonts_build(n, rule_name, build_dir / "generated" / "ui_fonts.c", server_sln,
+                                    prompt_fonts="none"))
         # (the web admin page's files: plain bytes, with the host's ABI as
         # control_web.c, which serves them)
         native_sources = SERVER_NATIVE_SOURCES + webui_build(n, rule_name, build_dir / "generated" / "webui_assets.c")

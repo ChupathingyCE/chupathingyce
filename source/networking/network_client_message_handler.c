@@ -199,6 +199,7 @@ symbols in this file:
 #include "game/players.h"
 #include "networking/network_client_manager.h"
 #include "networking/network_client_message_handler.h"
+#include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
 #include "networking/network_game_protocol.h"
 #include "networking/network_messages.h"
@@ -206,6 +207,9 @@ symbols in this file:
 #include "networking/network_connection.h"
 #include "map_share.h" /* port: map sharing's messages to the map bot's fetch */
 #endif
+unsigned delta_peer_game_host_number(void); /* port/linux/src/delta_peer_game.c */
+int delta_peer_game_host_agreed_mcc_maps(void); /* port/linux/src/delta_peer_game.c */
+#include "mcc_identity.h" /* port: the host's MCC content digest in a 43 record */
 
 /* port/linux/game/network_distributed.c's */
 void network_distributed_handle_message(long machine_index, word const *message, word size);
@@ -1077,7 +1081,7 @@ machine or player past them is left, as a full game is, never half taken */
 /* (room for the record of network version 35 on, 16 bytes longer, and the
 most a signed table's layouts may add: network_rules.h's
 NETWORK_RULES_SETTINGS_MAXIMUM) */
-static byte network_game_client_settings_staging[HALO_PORT_WIRE_NETWORK_GAME_SIZE + 16 + 64];
+static byte network_game_client_settings_staging[HALO_PORT_WIRE_NETWORK_GAME_SIZE + 16 + 128];
 static struct network_game network_game_client_settings_folded;
 /* (the fold's offsets, network_game_layout.h's, against this build's record,
 network version 20's: co-op's cooperative_flags in the Xbox's padding byte
@@ -1099,7 +1103,7 @@ NETWORK_RULES_SETTINGS_MAXIMUM) */
 static struct
 {
 	struct network_game game;
-	byte further[16 + 64];
+	byte further[16 + 128];
 } network_game_client_settings_staging;
 #endif
 static long network_game_client_settings_staging_size = 0;
@@ -1114,6 +1118,9 @@ knows has the layout a signed legacy table's facts give it (network_rules.h,
 "layouts"): its options may be longer and bytes may follow the local data,
 which this build has no use for. */
 int network_rules_settings_size_taken(unsigned version, unsigned total_size);
+/* port: halo_port_limits.h's (the number this machine announces as a host) */
+int delta_legacy_announce(void);
+unsigned network_rules_client_settings_version(unsigned joined, int hosting, unsigned announce);
 int network_rules_settings_options_size(unsigned version, unsigned total_size);
 void network_rules_settings_fold(unsigned char *record, int total_size, int options_size, unsigned char *extended);
 void network_rules_extended_options_default(unsigned char *options);
@@ -1126,7 +1133,7 @@ enum
 	/* (network_rules.h's) */
 	NETWORK_GAME_CLIENT_SETTINGS_SIZE = 13120,
 	NETWORK_GAME_CLIENT_SETTINGS_EXTENDED_SIZE = 13120 + 16,
-	NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM = 13120 + 16 + 64,
+	NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM = 13120 + 16 + 128,
 	NETWORK_GAME_CLIENT_OPTIONS_SIZE = 0x1C,
 	NETWORK_GAME_CLIENT_EXTENDED_OPTIONS_VERSION = 35,
 };
@@ -1187,6 +1194,17 @@ static boolean network_game_client_leave_unsupported_game_type(
 	return TRUE;
 }
 
+/* port: the version whose record the host sends: its advertised one, but
+for the host's own machine (which joined its game at home, told none) the
+number this machine announces, whose record its server writes at every
+send: network_rules.h */
+static unsigned int network_game_client_settings_version(
+	void)
+{
+	return network_rules_client_settings_version(network_game_client_host_network_version(),
+		global_network_game_server_get() != NULL, (unsigned int)delta_legacy_announce());
+}
+
 static boolean network_game_client_receive_game_settings_piece(
 	struct network_game_client *client,
 	struct message_server_game_settings_update const *piece,
@@ -1197,14 +1215,20 @@ static boolean network_game_client_receive_game_settings_piece(
 	/* port: the record's size by the host's version (13,120 bytes to 34,
 	13,136 from 35, a newer version's by the table's layouts), either of the
 	first two for a host not known */
-	if (!network_rules_settings_size_taken(network_game_client_host_network_version(), piece->total_size) ||
+	unsigned int host_version = network_game_client_settings_version();
+
+	if (!network_rules_settings_size_taken(host_version, piece->total_size) ||
 		piece->total_size > NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM ||
 		piece->length > sizeof(piece->data) ||
 		piece->offset + piece->length > piece->total_size)
 	{
-		network_event("got a message_server_game_settings_update piece for a different game layout");
+		network_event("got a message_server_game_settings_update piece for a different game layout (%u bytes, as %u)", (unsigned)piece->total_size, host_version);
 		network_game_client_settings_staging_size = 0;
-		result = FALSE;
+		/* port: the host's own machine, whose server's number changed in the
+		lobby (an MCC map's game at 43: delta_legacy_host_game_at), may read
+		the last record of the number before; it takes the next. So does a
+		client of a Delta host with mcc_maps, whose HOST_NUMBER it follows */
+		result = global_network_game_server_get() != NULL || delta_peer_game_host_agreed_mcc_maps();
 	}
 	else
 	{
@@ -1230,10 +1254,14 @@ static boolean network_game_client_receive_game_settings_piece(
 				int options_size;
 
 				network_game_client_settings_staging_size = 0;
+				/* port: the host's MCC content digest, at the end of a 43 record
+				(mcc_identity.c) */
+				mcc_identity_wire_record((unsigned char const *)&network_game_client_settings_staging,
+					(long)piece->total_size);
 				/* port: a record of 35 on made the older layout, its further
 				options kept; an older one's are the defaults. A host not
 				known that sends the newer is taken for one of 35. */
-				options_size = network_rules_settings_options_size(network_game_client_host_network_version(),
+				options_size = network_rules_settings_options_size(host_version,
 					piece->total_size);
 				if (options_size > NETWORK_GAME_CLIENT_OPTIONS_SIZE)
 				{
