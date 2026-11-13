@@ -99,7 +99,9 @@ def game_objects(target, directory, cc):
         source = entry if isinstance(entry, str) else entry["source"]
         words, _ = object_command(GAME_BUILD, source)
         link_target = [word for word in words if word.startswith("--target=")]
-        extra = {"flags": GAME_SANITIZE}
+        # (and the target's own flags for them: "game_flags", the Xbox
+        # address space's place, say)
+        extra = {"flags": GAME_SANITIZE + target.get("game_flags", [])}
         if not isinstance(entry, str) and entry.get("append"):
             # (the unit as the build compiles it, rewritten for LP64 where it is)
             built = next(word for word in words if word.endswith(source))
