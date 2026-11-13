@@ -9,6 +9,11 @@ where the sanitizers leave room for it, as tools/tests/map_fuzz.c does. */
 
 #include <sys/mman.h>
 
+/* (the build's strict C hides it from glibc's header: tools/tests/map_fuzz.c too) */
+#if defined(__linux__) && !defined(MAP_ANONYMOUS)
+#define MAP_ANONYMOUS 0x20
+#endif
+
 struct data_array *player_data;
 struct data_array *object_header_data;
 
