@@ -34,6 +34,7 @@ tools/test_discord_register.py
 tools/test_event_log.py
 tools/test_gamespy_listing.py
 tools/test_guide_layout.py
+tools/test_guide_themes.py
 tools/test_host_cheats.py
 tools/test_host_console_objects.py
 tools/test_host_evidence.py
