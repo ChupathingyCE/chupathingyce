@@ -288,6 +288,15 @@ void display_assert(char const *condition, char const *file, int line, int fatal
 		file ? file : "", line);
 	abort();
 }
+/* (a release build's assertions, as in the game: noted and let go, and the
+sanitizers say what comes of it) */
+void release_assert_failed(char const *condition, char const *file, int line, int fatal)
+{
+	(void)condition;
+	(void)file;
+	(void)line;
+	(void)fatal;
+}
 void system_exit(int code) { (void)code; abort(); }
 void tag_validate_report(char const *message) { (void)message; }
 int stubbs_mode_owns_data(void const *address, int size) { (void)address; (void)size; return 0; }
