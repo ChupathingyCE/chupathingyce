@@ -305,6 +305,8 @@ long player_ui_local_player_wants_to_play_multiplayer(void);
 long player_ui_local_player_wants_to_play_multiplayer(void) { return 0; }
 long profile_names_local_game_name(void);
 long profile_names_local_game_name(void) { return 0; }
+long team_change_late_joiner(void);
+long team_change_late_joiner(void) { return 0; }
 long transport_get_key(void);
 long transport_get_key(void) { return 0; }
 long transport_get_key_id(void);
