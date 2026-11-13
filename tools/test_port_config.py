@@ -988,6 +988,39 @@ def test_old_browser_address(program, directory, defaults, kind):
 	check('browser_url = "https://lists.example.org"' in case.text(), "custom browser_url not kept in the file")
 
 
+def test_gearbox_menus_retired(program, directory, defaults, kind):
+	"""The Gearbox menus are no longer a menu set: a file that chose them
+	("gearbox", or the older "pc", in any case) is told once
+	(config_menus_retired_pending, the main menu's note in guide.c), then has
+	display.menus = "xbox" written, the menus it gets, and is not told
+	again. The two menu sets left, and a file that leaves the setting
+	alone, are never told."""
+	case = Case(program, directory / "menus_retired")
+
+	def retired():
+		values, output = case.run("menus_retired")
+		return re.search(r"^menus_retired=(\d)$", output, re.M).group(1) == "1", values
+
+	fresh_file(case, kind)
+	check(not retired()[0], f"menus_retired/{kind}: a new file is told")
+	for chosen in ("xbox", "chupathingy"):
+		case.path.write_text(f'config_version = 2\n\n[display]\nmenus = "{chosen}"\n')
+		check(not retired()[0], f"menus_retired/{kind}: {chosen} is told")
+	for chosen in ("gearbox", "pc", "Gearbox"):
+		case.path.write_text(f'config_version = 2\n\n[display]\nmenus = "{chosen}"\n')
+		told, values = retired()
+		check(told, f"menus_retired/{kind}: {chosen} is not told")
+		check(chosen in case.text(), f"menus_retired/{kind}: {chosen} rewritten before the player was told")
+		_, output = case.run("menus_retired_seen")
+		check("menus_retired=0" in output, f"menus_retired/{kind}: {chosen} still told after: {output}")
+		check(re.search(r'^menus = "xbox"$', case.text(), re.M) is not None,
+			f"menus_retired/{kind}: {chosen} not written as xbox: {case.text()!r}")
+		check(value_lines(case.text(), "menus")[0] == ['menus = "xbox"'],
+			f"menus_retired/{kind}: {chosen} still in the file: {value_lines(case.text(), 'menus')}")
+		told, values = retired()
+		check(not told and values["display.menus"] == "xbox", f"menus_retired/{kind}: told again: {values}")
+
+
 def test_packaged_install(program, directory, defaults, kind):
 	"""A packaged install (packaged_install.h: HALO_PACKAGED, or a file named
 	"packaged" beside the executable): update.auto is off and stays off; on
@@ -1151,7 +1184,7 @@ def main():
 			for test in (test_unique_settings, test_new_file, test_previous_release_file, test_answered_first_question,
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
-				test_retired_setting, test_delta_renamed, test_interrupted_write, test_layout, test_old_browser_address, test_packaged_install,
+				test_retired_setting, test_delta_renamed, test_interrupted_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
 				test_server_file, test_follow_file):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)

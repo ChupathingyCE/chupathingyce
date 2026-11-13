@@ -6,7 +6,7 @@ When you host, your game also sends the match details (kills, medals, accuracy) 
 
 Your game never sends anyone's address or a hardware ID.
 
-You can turn each of these off on the Privacy screen in Settings (Gearbox menus), or under `[network]` in `config.toml`:
+You can turn each of these off on the Privacy page in Settings, or under `[network]` in `config.toml`:
 
 | Setting | Turns off |
 | --- | --- |

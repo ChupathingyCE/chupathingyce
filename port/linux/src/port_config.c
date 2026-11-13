@@ -271,8 +271,7 @@ speaks to a player: the server's own words for them */
 	"you host (cheat_all_vehicles, object_create, ...); past it they are\n" \
 	"refused. 8 while an original Xbox plays. 0: no limit."
 #define PUBLIC_LOBBY_HELP \
-	"List public games in Online Games (the Server Browser in the Gearbox\n" \
-	"menus), and show others' games there."
+	"List public games in Online Games, and show others' games there."
 #define DATA_ROOT_HELP \
 	"The folder that holds the maps folder. Leave it empty for the working\n" \
 	"folder and its assets folder. Use single quotes for Windows paths, like\n" \
@@ -403,7 +402,7 @@ static const struct config_setting config_settings[] =
 		"Whether performance mode draws the HUD's frames and backgrounds, its static pictures." },
 #endif
 	{ "display.menus", _config_string, "\"chupathingy\"", "HALO_MENUS", _environment_value, _platform_all,
-		"Which menus to use: \"chupathingy\", \"xbox\" or \"gearbox\".\n"
+		"Which menus to use: \"chupathingy\" or \"xbox\".\n"
 		"Put your own menus in a menus folder next to config.toml.\n"
 		"Restart Chupathingy after a change." },
 	{ "display.map_show_new_game", _config_string, "\"all\"", "HALO_MAP_SHOW_NEW_GAME", _environment_value,
@@ -1094,8 +1093,7 @@ static const struct config_setting config_settings[] =
 	{ "network.copy_to_clipboard", _config_boolean, "false", "HALO_NET_COPY_TO_CLIPBOARD", _environment_value,
 		_platform_all,
 		"Put a game's invite link on the clipboard when you start hosting it.\n"
-		"With false, the log has the link, and the Gearbox menus' Server\n"
-		"Settings copy it." },
+		"With false, the log has the link." },
 	{ "network.public_lobby", _config_boolean, "true", "HALO_NET_PUBLIC_LOBBY", _environment_value,
 		_platform_all | _platform_server, PUBLIC_LOBBY_HELP },
 	{ "network.doorbell", _config_boolean, "true", "HALO_NET_DOORBELL", _environment_value, _platform_all,
@@ -3413,7 +3411,7 @@ setting at the default of the version that wrote it, so that a default
 changed since never reached it: its lines holding this version's default
 are commented out at it, as a new file has them, and config_version
 written. Any other value stays, being the player's, even an older
-version's default (the player may have chosen it: display.menus = "gearbox"),
+version's default (the player may have chosen it: display.menus = "xbox"),
 which the log says. Returns the new text, or NULL if the file has its
 version */
 static char *config_update_layout(const char *text, toml_datum_t table)
@@ -4265,6 +4263,8 @@ static const struct
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
+	/* ("gearbox" and the older "pc", Gearbox's retired menus, are read as
+	"xbox", and the player told once: config_menus_retired_pending) */
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
 	{ "display.title_font", { "classic", "cyborg", NULL }, "\"classic\"" },
 	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"none\"" },
@@ -4965,6 +4965,30 @@ static char *config_refresh_commented(const char *text, const struct config_sett
 		return NULL;
 	}
 	return out.buffer;
+}
+
+/* ---------- retired menus
+
+Gearbox's menus (display.menus "gearbox", or the older "pc") are no longer a
+menu set: menu_tags.c shows the Xbox's for them. The player is told once
+(the main menu's note, guide.c), and then display.menus is written as "xbox", the menus
+they have, so that it is never said again. */
+
+int config_menus_retired_pending(void)
+{
+	const char *value = config_string("display.menus");
+
+	return value && (!SDL_strncasecmp(value, "gearbox", 8) || !SDL_strncasecmp(value, "pc", 3));
+}
+
+void config_menus_retired_seen(void)
+{
+	if (!config_menus_retired_pending())
+		return;
+	if (config_write("display.menus", "xbox"))
+		platform_log("settings: display.menus = \"xbox\" now (the Gearbox menus were retired)");
+	else
+		platform_log("settings: cannot write display.menus = \"xbox\"; the Xbox menus are used anyway");
 }
 
 int config_new_defaults_pending(char *text, size_t size)

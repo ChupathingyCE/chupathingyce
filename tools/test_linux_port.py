@@ -290,6 +290,33 @@ def test_menus_are_well_formed():
             assert name in names, f"{where} {name}"
 
 
+def test_two_menu_sets():
+    """Two menu sets to choose: the Chupathingy menus and the Xbox's. Gearbox's
+    ("gearbox", or the older "pc") is not one now: menu_tags.c's
+    menus_chosen gives the Xbox's for it, every MENU STYLE choice offers the
+    two, and the game tells the player once, in the main menu's note in the
+    game's own look (guide.c's _toast_menus_retired), never an OS dialog
+    (tools/test_port_config.py)."""
+    root = MENUS.parent.parent.parent
+    tags = (root / "port/linux/game/menu_tags.c").read_text()
+    chosen = tags[tags.index("static short menus_chosen(void)\n{"):]
+    chosen = chosen[:chosen.index("\n}\n")]
+    assert "return _menus_pc" not in chosen
+    assert re.search(r'"gearbox"\) \|\| !strcmp\(lower, "pc"\)', chosen)
+    rows = (root / "port/linux/src/settings_rows.c").read_text()
+    assert 'menus_choices[] = { "chupathingy", "xbox", NULL };' in rows
+    spinners = re.findall(r'setting="display\.menus" values="([^"]+)"',
+                          "".join(path.read_text() for path in MENUS.rglob("*.xml")))
+    assert spinners and all(values == "chupathingy|xbox" for values in spinners), spinners
+    guide = (root / "port/linux/game/guide.c").read_text()
+    assert '"Gearbox menus were retired.",\n\t\t\t"You\'re on the Xbox menus now; change it in Settings."' in guide
+    # (written as "xbox" once the note is drawn, so it comes once)
+    drawn = guide[guide.index("static void render_toast(void)"):]
+    assert "config_menus_retired_seen();" in drawn[:drawn.index("\n}\n")]
+    platform = (root / "port/linux/src/sdl_platform.c").read_text()
+    assert "menus_retired" not in platform and "Gearbox" not in platform
+
+
 def test_menu_settings_exist():
     """Every setting a menu's spinner sets is one of config.toml's
     (port/linux/src/port_config.c) or of the profile (menu_functions.c), and
