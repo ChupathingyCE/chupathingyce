@@ -43,6 +43,9 @@ REASONS = {
     "NO_VPN": "This server doesn't allow VPNs.",
     "DISCORD_LINK": "This server only lets in players who link a Discord account with OpenCE.",
     "ADDRESS_FULL": "Too many players from your address.",
+    # (a Custom Edition or HaloMD map on a build without CE's resource maps;
+    # said by the game's lists and a failed join, never the site's list)
+    "CE_RESOURCES": "Needs Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce.",
 }
 
 # the wording the lists had before, each its own way

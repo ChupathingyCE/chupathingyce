@@ -6,6 +6,7 @@ tools/test_about_version.py
 tools/test_address_limit.py
 tools/test_android_asm_convert.py
 tools/test_android_mcc_memory.py
+tools/test_bgfx_build_patches.py
 tools/test_bgfx_formats.py
 tools/test_bgfx_present.py
 tools/test_build_workflow.py
@@ -43,6 +44,7 @@ tools/test_host_evidence.py
 tools/test_host_fuzz.py
 tools/test_http_url_rules.py
 tools/test_identity.py
+tools/test_join_reasons.py
 tools/test_kcp_flush.py
 tools/test_kcp_peer.py
 tools/test_late_join_wait.py

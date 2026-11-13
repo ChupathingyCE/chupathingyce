@@ -421,6 +421,11 @@ jobs:
           git ls-files -z | xargs -0 touch -h -d '2000-01-01 00:00:00 UTC'
           # (and the checkout's HEAD log, which build.ninja is configured from)
           touch -d '2000-01-01 00:00:00 UTC' "$(git rev-parse --git-path logs/HEAD)"
+          # (and build.ninja newer than the checkout's folders, source/units
+          # among them: the tar keeps the files' times but not the folders',
+          # which are the checkout's, so ninja would configure again and the
+          # "would rebuild" check below warned on every part; #1125)
+          touch build.ninja
           left=$(ninja -n linux | grep -c '^\[' || true)
           if [ "$left" -gt 0 ]; then
             echo "::warning::ninja would rebuild $left steps of the unpacked build"
@@ -470,7 +475,13 @@ jobs:
                   }
                 }')
               echo "$tests"
-              python3 -m pytest -q -n auto --durations=15 $tests
+              # (a shard dealt no file runs nothing: a bare pytest would
+              # collect the whole tree; #1125)
+              if [ -z "$tests" ]; then
+                echo "::notice::shard $2 of $3: no test files in this commit"
+              else
+                python3 -m pytest -q -n auto --durations=15 $tests
+              fi
               ;;
             other)
               # (the self-updater from end to end, against the 32-bit SDL 3 the
