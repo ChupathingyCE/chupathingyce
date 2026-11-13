@@ -54,6 +54,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <string.h>
 
+#ifndef HALO_CONSOLE_NO_STUBBS /* (the header's empty ones on a console) */
+
 enum
 {
 	/* the retail game's teams (its globals' enum): default, player, civilian,
@@ -767,3 +769,5 @@ void stubbs_horde_set_resurrection_group(
 		return;
 	resurrection_ai_reference = ai_reference;
 }
+
+#endif

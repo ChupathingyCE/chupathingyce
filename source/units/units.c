@@ -7319,8 +7319,10 @@ void unit_damage_aftermath(
 
 	if (lethal || feigned)
 	{
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 		if (lethal)
 			stubbs_horde_unit_damaged_to_death(unit_index, damage_data); /* port: Stubbs mode only */
+#endif
 		unit_died(unit_index, feigned);
 	}
 
