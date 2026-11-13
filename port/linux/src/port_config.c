@@ -2291,7 +2291,16 @@ static void config_path(char *path, size_t size)
 #endif
 }
 
-#ifdef HALO_XBOX_CONSOLE
+/* the consoles that write config.toml through the C runtime's files and
+put it in place with config_console_replace: the original Xbox and the
+Switch (HALO_XBOX_CONSOLE), and the 360, whose platform layer's fopen,
+rename and remove take its own paths (warthog-360's
+halo_xbox360_file_names.h) and whose rename won't replace a file */
+#if defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)
+#define CONFIG_CONSOLE_FILES
+#endif
+
+#ifdef CONFIG_CONSOLE_FILES
 /* a finished config.toml.new put in place on a console, whose rename may
 not replace a file: the old file is moved aside to config.toml.old first,
 the new one renamed in, and only then the old one removed. 1 when it is in
@@ -2346,12 +2355,12 @@ static void config_console_recover(const char *path)
 /* the whole file, NUL terminated, or NULL; free() it */
 static char *config_read_file(const char *path, size_t *size)
 {
-#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_ANDROID) || defined(CONFIG_CONSOLE_FILES)
 	FILE *file = fopen(path, "rb");
 	char *text = NULL;
 	long length;
 
-#ifdef HALO_XBOX_CONSOLE
+#ifdef CONFIG_CONSOLE_FILES
 	/* (a write that stopped part way through putting the new file in place) */
 	if (!file)
 	{
@@ -2409,7 +2418,7 @@ static int config_write_file(const char *path, const char *text)
 
 	if ((size_t)snprintf(temporary, sizeof(temporary), "%s.new", path) >= sizeof(temporary))
 		return 0;
-#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_ANDROID) || defined(CONFIG_CONSOLE_FILES)
 	{
 		FILE *file = fopen(temporary, "wb");
 
@@ -2425,7 +2434,7 @@ static int config_write_file(const char *path, const char *text)
 #endif
 		written = fclose(file) == 0 && written;
 	}
-#ifdef HALO_XBOX_CONSOLE
+#ifdef CONFIG_CONSOLE_FILES
 	if (written)
 	{
 		int placed = config_console_replace(path, temporary);
@@ -2447,10 +2456,8 @@ static int config_write_file(const char *path, const char *text)
 #endif
 	return written;
 #elif defined(HALO_CONSOLE)
-	/* (a console on the shared GL layer, the Wii U's and the 360's: their
-	repositories' SDL stand-ins, warthog-wiiu's wiiu_sdl.c and warthog-360's
-	x360_system.c, have SDL_SaveFile alone, and the 360's file names are its
-	own (halo_xbox360_fopen). Written in place there until they have
+	/* (the Wii U, on the shared GL layer: warthog-wiiu's SDL stand-in,
+	wiiu_sdl.c, has SDL_SaveFile alone. Written in place there until it has
 	SDL_IOFromFile, SDL_FlushIO and SDL_RenamePath too) */
 	(void)temporary;
 	(void)written;
