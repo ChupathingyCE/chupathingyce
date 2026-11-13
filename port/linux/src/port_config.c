@@ -3786,7 +3786,17 @@ static void config_find_new_defaults(const char *text, toml_datum_t table)
 		}
 		else if (config_commented_value_is(text, setting, config_old_defaults[old].default_value) != 0)
 		{
+#ifdef HALO_XBOX_CONSOLE
+			/* port: the original Xbox has no screen to ask on, so its
+			question never came and a file it wrote before a default changed
+			kept the old one for good (an Xbox that ran an earlier build kept
+			waiting for a second player: warthog-xbox#106). A setting left
+			commented out there was never a choice, so it follows the new
+			default; one the file names keeps its value */
+			continue;
+#else
 			config_pending[index] = 1;
+#endif
 		}
 		if (config_pending[index])
 			config_pending_old[index] = config_old_defaults[old].default_value;
