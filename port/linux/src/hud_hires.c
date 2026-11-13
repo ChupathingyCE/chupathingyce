@@ -467,6 +467,16 @@ static unsigned int png_pixels_texture(unsigned char *pixels, unsigned long widt
 		return name;
 	}
 #endif
+#ifdef HALO_VULKAN
+	if (xgpu_vulkan)
+	{
+		/* (the Vulkan backend's image: d3d8_vk.inl) */
+		unsigned int name = xgpu_vulkan_texture_create(width, height, pixels, TRUE);
+
+		free(pixels);
+		return name;
+	}
+#endif
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
 	xgpu_gl_state_invalidate();

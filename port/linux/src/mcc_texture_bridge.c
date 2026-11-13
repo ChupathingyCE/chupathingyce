@@ -267,6 +267,10 @@ unsigned long mcc_texture_bridge_prepare(void const *bitmap, unsigned long budge
         /* (bgfx uploads its own copies as it draws: d3d8_bgfx.inl) */
         if (xgpu_bgfx) return 0;
 #endif
+#ifdef HALO_VULKAN
+        /* (the Vulkan backend too: d3d8_vk.inl) */
+        if (xgpu_vulkan) return 0;
+#endif
         /* Paletted textures need their draw's palette. HUD replacements are
          * independently owned and must not be charged to this budget. */
         if (entry->texture || description->format==0x0b ||
