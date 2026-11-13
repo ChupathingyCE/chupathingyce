@@ -18,7 +18,8 @@ its folder, checks its maps and adds them from a file (xiso.c, pc_disc.c,
 ce_installer.c, through sdl_platform.c's import thread). Logs & help sends
 debug.txt and the last crash report (and config.toml, if the player says
 so) to the log dump site, with addresses and the home folder taken out
-first (crash_report_redact), and copies the version.
+first (log_send.c, which the Delta Guide's SEND MY LOGS shares), and
+copies the version.
 
 Everything here runs on the game's main thread, but the import and the
 upload, which have threads of their own.
@@ -35,13 +36,12 @@ upload, which have threads of their own.
 #include "gl.h"
 #include "xgpu.h"
 #include "ui_overlay.h"
-#include "crash_report.h"
-#include "browser_http.h"
 #include "build_identity.h"
 #include "about.h"
 #include "settings_rows.h"
 #include "map_download.h"
 #include "update.h"
+#include "log_send.h"
 
 #include <SDL3/SDL.h>
 #ifdef __APPLE__
@@ -63,14 +63,8 @@ int delta_legacy_announce(void);
 /* (sdl_platform.c's) */
 SDL_Window *platform_sdl_window(void);
 
-/* where Send my logs goes (puma's dumps.py: the page's form, POST /upload),
-unless debug.dump_url says otherwise; and the Discord invite */
-#define LAUNCHER_DUMP_URL "https://dump.chupathingy.org/upload"
-#define LAUNCHER_DUMP_SITE "dump.chupathingy.org"
+/* the Discord invite */
 #define LAUNCHER_DISCORD_URL "https://discord.gg/chupathingy"
-
-/* debug.txt's end that is sent, at most (the site takes 10 MB a file) */
-#define LAUNCHER_LOG_TAIL (4 * 1024 * 1024)
 
 enum
 {
@@ -332,20 +326,6 @@ struct chooser
 	char path[PATH_SIZE];
 };
 
-/* the upload of the logs, on a thread of its own */
-struct upload
-{
-	SDL_AtomicInt done;
-	char url[512];
-	char *body;
-	size_t body_length;
-	char content_type[96];
-	char headers[256];
-	int status;
-	char response[2048];
-	char error[256];
-};
-
 static struct
 {
 	int shown;
@@ -415,7 +395,6 @@ static struct
 	char import_file[256];
 	unsigned long long import_done, import_total;
 
-	struct upload upload;
 	char sent_code[32];
 
 	/* the layout: its left and right edges (the 640 columns, and what a
@@ -1644,7 +1623,7 @@ static void build_rows(void)
 		time_t crash = last_crash();
 
 		row = row_add(_action_send_logs, "SEND MY LOGS");
-		snprintf(row->value, sizeof(row->value), "%s", LAUNCHER_DUMP_SITE);
+		snprintf(row->value, sizeof(row->value), "%s", LOG_SEND_SITE);
 		row->value_color = COLOR_GREY;
 		row_add(_action_open_logs, "OPEN LOGS FOLDER");
 		if (crash)
@@ -2406,10 +2385,7 @@ static void draw(void)
 
 static void open_folder(const char *path)
 {
-	static const char hex[] = "0123456789ABCDEF";
 	char url[PATH_SIZE * 3 + 16];
-	size_t length;
-	const unsigned char *cursor;
 
 	make_directories(path);
 	/* (under gamescope, the Steam Deck's Game Mode, there is no file manager
@@ -2423,21 +2399,7 @@ static void open_folder(const char *path)
 		set_status(COLOR_AMBER, "Open this folder in Desktop Mode. It's at %s", shown);
 		return;
 	}
-	length = (size_t)snprintf(url, sizeof(url), "file://%s", path[0] == '/' ? "" : "/");
-	for (cursor = (const unsigned char *)path; *cursor && length + 4 < sizeof(url); cursor++)
-	{
-		unsigned char character = *cursor == '\\' ? '/' : *cursor;
-
-		if (isalnum(character) || strchr("/-_.~:", character))
-			url[length++] = (char)character;
-		else
-		{
-			url[length++] = '%';
-			url[length++] = hex[character >> 4];
-			url[length++] = hex[character & 15];
-		}
-	}
-	url[length] = '\0';
+	log_send_folder_url(path, url, (int)sizeof(url));
 	if (SDL_OpenURL(url))
 	{
 		platform_log("launcher: opened a folder");
@@ -2714,282 +2676,44 @@ static void version_text(char *text, size_t size)
 	snprintf(text, size, "%s\nNetwork version %d\n", build_identity(), delta_legacy_announce());
 }
 
-/* ---------- Send my logs */
-
-struct text
-{
-	char *data;
-	size_t length, size;
-};
-
-static void text_add(struct text *text, const void *data, size_t length)
-{
-	if (!text->data && text->size == (size_t)-1)
-		return;
-	if (text->length + length + 1 > text->size)
-	{
-		size_t size = (text->length + length + 1) * 2;
-		char *grown = realloc(text->data, size);
-
-		if (!grown)
-		{
-			free(text->data);
-			text->data = NULL;
-			text->size = (size_t)-1;
-			return;
-		}
-		text->data = grown;
-		text->size = size;
-	}
-	memcpy(text->data + text->length, data, length);
-	text->length += length;
-	text->data[text->length] = '\0';
-}
-
-static void text_string(struct text *text, const char *string)
-{
-	text_add(text, string, strlen(string));
-}
-
-/* a file's text, its last maximum bytes from the start of a line, with
-its addresses and home folder taken out; NULL when there is none */
-static char *redacted_file(const char *path, size_t maximum, size_t *length)
-{
-	FILE *file = fopen(path, "rb");
-	long size, start;
-	char *data, *redacted;
-	size_t read, out_size;
-	const char *from;
-
-	if (!file)
-		return NULL;
-	fseek(file, 0, SEEK_END);
-	size = ftell(file);
-	start = size > (long)maximum ? size - (long)maximum : 0;
-	fseek(file, start, SEEK_SET);
-	data = malloc((size_t)(size - start) + 1);
-	if (!data || size <= 0)
-	{
-		free(data);
-		fclose(file);
-		return NULL;
-	}
-	read = fread(data, 1, (size_t)(size - start), file);
-	fclose(file);
-	data[read] = '\0';
-	from = data;
-	if (start > 0)
-	{
-		const char *line = memchr(data, '\n', read);
-
-		if (line)
-			from = line + 1;
-	}
-	out_size = 3 * (read - (size_t)(from - data)) + 1;
-	redacted = malloc(out_size);
-	if (!redacted)
-	{
-		free(data);
-		return NULL;
-	}
-	*length = crash_report_redact(from, read - (size_t)(from - data), redacted, out_size);
-	free(data);
-	return redacted;
-}
-
-/* the newest crash report in the logs folder's crashes */
-static int newest_crash_report(char *path, size_t size)
-{
-	char folder[PATH_SIZE + 16], name[256];
-	void *directory;
-	time_t newest = 0;
-
-	path[0] = '\0';
-	logs_folder(folder, sizeof(folder));
-	strncat(folder, "/crashes", sizeof(folder) - strlen(folder) - 1);
-	directory = posix_directory_open(folder);
-	while (directory && posix_directory_next(directory, name, sizeof(name)))
-	{
-		char candidate[PATH_SIZE + 300];
-		struct posix_file_information information;
-
-		if (!ends_with(name, ".txt"))
-			continue;
-		snprintf(candidate, sizeof(candidate), "%s/%s", folder, name);
-		if (posix_stat(candidate, &information) == 0 && (time_t)information.modification_seconds >= newest)
-		{
-			newest = (time_t)information.modification_seconds;
-			snprintf(path, size, "%s", candidate);
-		}
-	}
-	if (directory)
-		posix_directory_close(directory);
-	return path[0] != '\0';
-}
-
-static void form_field(struct text *body, const char *boundary, const char *name, const char *value)
-{
-	text_string(body, "--");
-	text_string(body, boundary);
-	text_string(body, "\r\nContent-Disposition: form-data; name=\"");
-	text_string(body, name);
-	text_string(body, "\"\r\n\r\n");
-	text_string(body, value);
-	text_string(body, "\r\n");
-}
-
-static int form_file(struct text *body, const char *boundary, const char *name, const char *path, size_t maximum)
-{
-	size_t length = 0;
-	char *data = redacted_file(path, maximum, &length);
-
-	if (!data)
-		return 0;
-	text_string(body, "--");
-	text_string(body, boundary);
-	text_string(body, "\r\nContent-Disposition: form-data; name=\"files\"; filename=\"");
-	text_string(body, name);
-	text_string(body, "\"\r\nContent-Type: text/plain\r\n\r\n");
-	text_add(body, data, length);
-	text_string(body, "\r\n");
-	free(data);
-	return 1;
-}
-
-static void *upload_thread(void *context)
-{
-	struct upload *upload = context;
-
-	upload->status = posix_browser_send(upload->url, upload->body, upload->body_length, upload->content_type,
-		upload->headers, upload->response, (int)sizeof(upload->response), upload->error, (int)sizeof(upload->error));
-	SDL_SetAtomicInt(&upload->done, 1);
-	return NULL;
-}
-
-/* the site's platform names (puma's dumps.py PLATFORMS) */
-static const char *dump_platform(void)
-{
-	const char *platform = build_identity_platform();
-	const char *deck = getenv("SteamDeck");
-
-	/* (SteamOS: the site still takes it by its old name) */
-	if (deck && !strcmp(deck, "1"))
-		return "Steam Deck";
-	if (!strcmp(platform, "macOS"))
-		return "Mac";
-	if (!strcmp(platform, "Windows") || !strcmp(platform, "Linux"))
-		return platform;
-	return "Other";
-}
+/* ---------- Send my logs (log_send.c) */
 
 static void send_logs(int with_settings)
 {
-	static const char boundary[] = "chupathingy-launcher-logs-5f3a";
-	struct text body = { NULL, 0, 0 };
-	char folder[PATH_SIZE], path[PATH_SIZE + 64], note[256];
-	const char *url = *config_string("debug.dump_url") ? config_string("debug.dump_url") : LAUNCHER_DUMP_URL;
-	const char *host, *host_end;
-	int files = 0;
-	pthread_t thread;
+	char folder[PATH_SIZE], error[256];
+	int started;
 
-	snprintf(note, sizeof(note), "Sent from the game: %s", build_identity());
-	form_field(&body, boundary, "name", "Chupathingy player");
-	form_field(&body, boundary, "platform", dump_platform());
-	form_field(&body, boundary, "note", note);
 	logs_folder(folder, sizeof(folder));
-	snprintf(path, sizeof(path), "%s/debug.txt", folder);
-	files += form_file(&body, boundary, "debug.txt", path, LAUNCHER_LOG_TAIL);
-	if (newest_crash_report(path, sizeof(path)))
-		files += form_file(&body, boundary, "crash_report.txt", path, CRASH_REPORT_MAXIMUM_FILE);
-	if (with_settings)
+	started = log_send_start(folder, with_settings, error, (int)sizeof(error));
+	if (started == LOG_SEND_NOTHING)
 	{
-		config_folder(path, sizeof(path));
-		strncat(path, "config.toml", sizeof(path) - strlen(path) - 1);
-		files += form_file(&body, boundary, "config.toml", path, 1024 * 1024);
-	}
-	text_string(&body, "--");
-	text_string(&body, boundary);
-	text_string(&body, "--\r\n");
-	if (!body.data || !files)
-	{
-		free(body.data);
-		message("NOTHING TO SEND", COLOR_WHITE, "There's no debug.txt yet. Play once, then send.");
+		message("NOTHING TO SEND", COLOR_WHITE, error);
 		return;
 	}
-	free(launcher.upload.body);
-	memset(&launcher.upload, 0, sizeof(launcher.upload));
-	snprintf(launcher.upload.url, sizeof(launcher.upload.url), "%s", url);
-	launcher.upload.body = body.data;
-	launcher.upload.body_length = body.length;
-	snprintf(launcher.upload.content_type, sizeof(launcher.upload.content_type),
-		"multipart/form-data; boundary=%s", boundary);
-	/* (the page's own origin, as its form sends: the site takes uploads
-	from that page) */
-	host = strstr(url, "://");
-	host = host ? host + 3 : url;
-	host_end = host + strcspn(host, ":/");
-	snprintf(launcher.upload.headers, sizeof(launcher.upload.headers), "Origin: https://%.*s\r\n",
-		(int)(host_end - host), host);
-	if (pthread_create(&thread, NULL, upload_thread, &launcher.upload) != 0)
+	if (started != LOG_SEND_SENDING)
 	{
-		message("THAT DIDN'T SEND", COLOR_WHITE, "The upload couldn't start.");
+		message("THAT DIDN'T SEND", COLOR_WHITE, error);
 		return;
 	}
-	pthread_detach(thread);
-	platform_log("launcher: sending the logs (%d files%s)", files, with_settings ? ", with config.toml" : "");
 	launcher.dialog = _dialog_sending;
 	snprintf(launcher.dialog_title, sizeof(launcher.dialog_title), "SEND MY LOGS");
 }
 
-/* a string field of the site's answer ("ref", "error") */
-static int json_string(const char *json, const char *name, char *value, size_t size)
+/* the send's answer, once it came */
+static void upload_finished(int state)
 {
-	char key[64];
-	const char *cursor;
-	size_t length = 0;
-
-	snprintf(key, sizeof(key), "\"%s\"", name);
-	cursor = strstr(json, key);
-	if (!cursor)
-		return 0;
-	cursor += strlen(key);
-	while (*cursor == ' ' || *cursor == ':')
-		cursor++;
-	if (*cursor++ != '"')
-		return 0;
-	while (*cursor && *cursor != '"' && length + 1 < size)
-	{
-		if (*cursor == '\\' && cursor[1])
-			cursor++;
-		value[length++] = *cursor++;
-	}
-	value[length] = '\0';
-	return 1;
-}
-
-static void upload_finished(void)
-{
-	struct upload *upload = &launcher.upload;
 	char error[256];
 
-	free(upload->body);
-	upload->body = NULL;
-	if (upload->status == 200 && json_string(upload->response, "ref", launcher.sent_code, sizeof(launcher.sent_code)))
+	log_send_poll(launcher.sent_code, (int)sizeof(launcher.sent_code), error, (int)sizeof(error));
+	log_send_forget();
+	if (state == LOG_SEND_SENT)
 	{
-		upper(launcher.sent_code);
-		platform_log("launcher: the logs are sent");
 		launcher.dialog = _dialog_sent;
 		snprintf(launcher.dialog_title, sizeof(launcher.dialog_title), "SENT");
 		snprintf(launcher.dialog_text, sizeof(launcher.dialog_text), "Paste this code in Discord with your report.");
 		return;
 	}
-	platform_log("launcher: the logs were not sent (status %d)", upload->status);
-	if (upload->status && json_string(upload->response, "error", error, sizeof(error)))
-		message("THAT DIDN'T SEND", COLOR_WHITE, error);
-	else if (!upload->status)
-		message("THAT DIDN'T SEND", COLOR_WHITE, "We couldn't reach the site. Check your connection and try again.");
-	else
-		message("THAT DIDN'T SEND", COLOR_WHITE, "The site couldn't take them right now. Try again in a while.");
+	message("THAT DIDN'T SEND", COLOR_WHITE, error);
 }
 
 /* ---------- the actions */
@@ -3875,8 +3599,13 @@ static void poll_work(void)
 		}
 		return;
 	}
-	if (launcher.dialog == _dialog_sending && SDL_GetAtomicInt(&launcher.upload.done))
-		upload_finished();
+	if (launcher.dialog == _dialog_sending)
+	{
+		int state = log_send_poll(NULL, 0, NULL, 0);
+
+		if (state == LOG_SEND_SENT || state == LOG_SEND_FAILED)
+			upload_finished(state);
+	}
 	/* (an update begun on UPDATES, once it is ready: put in place, and the
 	game restarts) */
 	updater_install_restart();
@@ -4086,8 +3815,6 @@ static void run(void)
 			SDL_Delay((Uint32)(8 - (now - last)));
 		last = SDL_GetTicks();
 	}
-	free(launcher.upload.body);
-	launcher.upload.body = NULL;
 	platform_mouse_capture(TRUE);
 }
 
