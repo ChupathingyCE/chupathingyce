@@ -485,10 +485,10 @@ symbols in this file:
 #include "tag_files/tag_files.h"
 
 #include <time.h>
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c (a console's empty ones) */
 #ifdef HALO_GAME_BROWSER
 #include "map_share.h" /* port: map sharing's downloading machines (port/linux/game/map_share_host.c) */
-#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
-#include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
 #define NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(machine_index) map_share_host_downloading(machine_index)
 #else
 #define NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(machine_index) FALSE

@@ -103,6 +103,14 @@ static __inline void stubbs_engine_player_input(short local_player_index, unsign
 { (void)local_player_index; (void)player_control_flags; (void)hand_button; (void)unit_control_flags; }
 static __inline boolean stubbs_engine_player_unit_died(long unit_index, long player_index)
 { (void)unit_index; (void)player_index; return FALSE; }
+static __inline boolean stubbs_engine_special_attack(long unit_index, short special_attack)
+{ (void)unit_index; (void)special_attack; return FALSE; }
+static __inline short stubbs_engine_special_attack_get_count(long unit_index, short special_attack)
+{ (void)unit_index; (void)special_attack; return 0; }
+static __inline void stubbs_engine_special_attack_set_count(long unit_index, short special_attack, short count)
+{ (void)unit_index; (void)special_attack; (void)count; }
+static __inline void stubbs_engine_player_move_origin(long from_unit_index, long to_unit_index)
+{ (void)from_unit_index; (void)to_unit_index; }
 #endif
 
 #endif
