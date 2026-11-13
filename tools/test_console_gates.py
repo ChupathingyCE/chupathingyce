@@ -293,3 +293,47 @@ def test_only_the_xbox_retries_cache_io_forever(console):
     assert defined("HALO_CONSOLE_IO_RETRY_FOREVER", CONSOLES[console]) == (console == "xbox")
     assert not defined("HALO_CONSOLE_IO_RETRY_FOREVER", DESKTOP)
     assert not defined("HALO_CONSOLE_IO_RETRY_FOREVER", ["HALO_ANDROID", "HALO_GAME_BROWSER"])
+
+
+# the desktop menus' hooks (port/linux/game/menu_tags.c, ui_widget_port.c)
+# that warthog-xbox answers itself (port/xbox/src/xbox_port.c, port/xbox/
+# game/xbox_desktop_stubs.c and xbox_ce.c): the Xbox doesn't build the
+# desktop's menus, so a hook the shared code calls on it that isn't one of
+# these doesn't link there (#1170: pc_menu_button_key_cap_left, #1144)
+XBOX_PC_MENU_HOOKS = {
+    "pc_menu_button_key_cap",
+    "pc_menu_event_function_invoke",
+    "pc_menu_frame_placement",
+    "pc_menu_game_data_function_invoke",
+    "pc_menu_owns",
+    "pc_menu_split_players",
+    "pc_menu_tag",
+    "pc_menu_text_color",
+    "pc_menu_text_marquee",
+}
+
+
+def test_the_xbox_calls_only_the_menu_hooks_it_has():
+    """the shared code the original Xbox builds, preprocessed with its
+    defines, names no desktop menu hook (pc_menu_*) but the ones its own
+    port answers: a new one is gated off it (#ifndef HALO_XBOX_CONSOLE, or
+    the switch of the feature it is for), or added to warthog-xbox too"""
+    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if not compiler:
+        pytest.skip("no C compiler")
+    head = '#include "{}"\n#include "{}"\n'.format(
+        (INCLUDE / "halo_console_features.h").as_posix(), (INCLUDE / "halo_port_features.h").as_posix())
+    sources = sorted(path for folder in ("source", "port/console") for path in (ROOT / folder).rglob("*.c")
+                     if "pc_menu_" in path.read_text(encoding="utf-8", errors="replace"))
+    assert sources
+    command = [compiler, "-E", "-P", "-w", "-x", "c", "-"] + ["-D" + define for define in CONSOLES["xbox"]]
+    unanswered = {}
+    for path in sources:
+        # (only the file's own #if lines: its headers aren't needed to see
+        # what it calls)
+        text = re.sub(r"^[ \t]*#[ \t]*(include|error|warning)\b.*$", "",
+                      path.read_text(encoding="utf-8", errors="replace"), flags=re.M)
+        result = subprocess.run(command, input=head + text, capture_output=True, text=True, check=True)
+        for name in set(re.findall(r"\bpc_menu_\w+", result.stdout)) - XBOX_PC_MENU_HOOKS:
+            unanswered.setdefault(name, []).append(path.relative_to(ROOT).as_posix())
+    assert unanswered == {}, "the Xbox build calls desktop menu hooks it doesn't have: {}".format(unanswered)
