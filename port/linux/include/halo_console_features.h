@@ -503,6 +503,8 @@ which copies a draw's vertices, so it keeps d3d8_resources.c's HALO_PS3 waits, n
 #define HALO_CONSOLE_SERVER_CLOSE_GRACE 1
 /* (the menus' pictures: 1x textures of our own, port/ps3/xbox/menu_art_rsx.c) */
 #define HALO_CONSOLE_MENU_PLATFORM "ps3"
+/* (its Direct3D waits for a visibility test's count: D3DDevice_GetVisibilityTestResult in d3d8_rsx.c) */
+#define HALO_CONSOLE_WAITED_VISIBILITY_TESTS 1
 #endif
 
 /* the Guide (port/linux/game/guide.c, port/linux/src/social.c) and the
