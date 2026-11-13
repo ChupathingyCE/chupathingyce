@@ -468,6 +468,14 @@ static void test_unverified_names(void)
 	CHECK(shows_as(name, "Mk"));
 	name[0] = 0x200B, name[1] = 0xFF20, name[2] = 'M', name[3] = 0xFE6B, name[4] = 'k', name[5] = 0;
 	CHECK(shows_as(name, "Mk"));
+	/* (the Delta mark, and the triangles that read as it, at the front) */
+	name[0] = 0x394, name[1] = 'M', name[2] = 'k', name[3] = 0;
+	CHECK(shows_as(name, "Mk"));
+	name[0] = ' ', name[1] = 0x25B2, name[2] = ' ', name[3] = 0x2206, name[4] = 'M', name[5] = 'k', name[6] = 0;
+	CHECK(shows_as(name, "Mk"));
+	/* (a Delta inside a name is a letter: kept) */
+	name[0] = 'M', name[1] = 0x394, name[2] = 'k', name[3] = 0;
+	CHECK(identity_unverified_name(name, 12, name + 8, 8) == 3 && name[9] == 0x394);
 	/* (names without them as they are; dots after the front kept) */
 	wide_name("[RvB] Tex", name, 16);
 	CHECK(shows_as(name, "[RvB] Tex"));
@@ -483,6 +491,8 @@ static void test_unverified_names(void)
 	CHECK(identity_impersonates("@Milenko", "milenko", 11));
 	CHECK(identity_impersonates(" @Milenko", "milenko", 11));
 	CHECK(identity_impersonates(".@Milenko", "milenko", 11));
+	/* (a Delta typed in front: the mark is no letter of the key) */
+	CHECK(identity_impersonates("\xCE\x94Milenko", "milenko", 11));
 	CHECK(identity_impersonates("\xC2\xB7@Milenko", "milenko", 11));
 	CHECK(identity_impersonates("\xEF\xBC\xA0Milenko", "milenko", 11));
 	CHECK(identity_impersonates("S@rge", "sarge", 11));

@@ -94,6 +94,10 @@ boolean profile_screen_site_setting_write(char const *field, char const *value);
 (profile_names.c): their Delta profile's, when they share it in a game on
 Delta and display.profile_names is on; FALSE: their game name, as before */
 boolean profile_names_player(long player_index, wchar_t *name, long size);
+/* whether the scoreboard draws the Delta mark beside a player (profile_names.c):
+verified in a game on Delta and shown by their name, with display.verified_mark
+and display.profile_names on */
+boolean profile_names_verified(long player_index);
 
 /* the name a local player plays under (the game name it joins with): while
 its Halo profile is linked to a Delta profile, the handle in the capitals

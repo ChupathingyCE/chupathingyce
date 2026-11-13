@@ -27,6 +27,7 @@ when the settings change while the game runs.
 #include "port_folders.h"
 #include "posix.h"
 #include "xgpu.h"
+#include "halo_delta_mark.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -349,8 +350,9 @@ int text_hires_covers(long font, unsigned long code)
 {
 	if (font < 0 || font >= font_count || fonts[font].scale <= 0.0f)
 		return 0;
-	/* (control characters are never drawn) */
-	return code < 32 || code == ' ' || stbtt_FindGlyphIndex(&fonts[font].info, (int)code) != 0;
+	/* (control characters are never drawn; the verified mark is drawn
+without the font's Delta: text_hires_glyph) */
+	return code < 32 || code == ' ' || code == HALO_DELTA_MARK || stbtt_FindGlyphIndex(&fonts[font].info, (int)code) != 0;
 }
 
 int text_hires_glyph(long font, unsigned long code, struct text_hires_glyph *glyph)
@@ -385,11 +387,27 @@ int text_hires_glyph(long font, unsigned long code, struct text_hires_glyph *gly
 		int index = stbtt_FindGlyphIndex(&fonts[font].info, (int)code);
 		int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
 		int width, height, advance = 0, bearing = 0;
+		/* (the verified mark, where the font has no Delta: as font_group.c
+		draws it for the font tags, the height of the tag's capitals, on the
+		baseline, with its room after it) */
+		int mark = code == HALO_DELTA_MARK && !index;
+		float mark_advance = 0.0f;
 
 		if (index)
 		{
 			stbtt_GetGlyphBitmapBox(&fonts[font].info, index, pixels * fonts[font].width, pixels, &x0, &y0, &x1, &y1);
 			stbtt_GetGlyphHMetrics(&fonts[font].info, index, &advance, &bearing);
+		}
+		else if (mark)
+		{
+			float pixel_scale_now = scale * fonts[font].oversample;
+			int mark_height = (int)(fonts[font].cap_height * pixel_scale_now + 0.5f);
+
+			if (mark_height < 1)
+				mark_height = 1;
+			x1 = halo_delta_mark_width(mark_height);
+			y0 = -mark_height;
+			mark_advance = (float)(x1 + halo_delta_mark_gap(mark_height)) / pixel_scale_now;
 		}
 		width = x1 - x0;
 		height = y1 - y0;
@@ -408,9 +426,17 @@ int text_hires_glyph(long font, unsigned long code, struct text_hires_glyph *gly
 				atlas_reset(scale);
 				return text_hires_glyph(font, code, glyph);
 			}
-			stbtt_MakeGlyphBitmap(&fonts[font].info,
-				atlas + (pack_y + ATLAS_PADDING) * ATLAS_SIZE + pack_x + ATLAS_PADDING,
-				width, height, ATLAS_SIZE, pixels * fonts[font].width, pixels, index);
+			if (mark)
+			{
+				halo_delta_mark_draw(atlas + (pack_y + ATLAS_PADDING) * ATLAS_SIZE + pack_x + ATLAS_PADDING,
+					width, height, ATLAS_SIZE);
+			}
+			else
+			{
+				stbtt_MakeGlyphBitmap(&fonts[font].info,
+					atlas + (pack_y + ATLAS_PADDING) * ATLAS_SIZE + pack_x + ATLAS_PADDING,
+					width, height, ATLAS_SIZE, pixels * fonts[font].width, pixels, index);
+			}
 			if (pack_y < dirty_top)
 				dirty_top = pack_y;
 			if (pack_y + height + 2 * ATLAS_PADDING > dirty_bottom)
@@ -424,7 +450,7 @@ int text_hires_glyph(long font, unsigned long code, struct text_hires_glyph *gly
 		glyphs[slot].height = (short)(width > 0 && height > 0 ? height : 0);
 		glyphs[slot].left = (short)x0;
 		glyphs[slot].top = (short)y0;
-		glyphs[slot].advance = advance * fonts[font].scale * fonts[font].width;
+		glyphs[slot].advance = mark ? mark_advance : advance * fonts[font].scale * fonts[font].width;
 		if (width > 0 && height > 0)
 		{
 			pack_x += width + 2 * ATLAS_PADDING;

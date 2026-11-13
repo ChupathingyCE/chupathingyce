@@ -333,10 +333,11 @@ static boolean impersonates(
 }
 
 /* an unverified player: masked when their game name looks like a verified
-player's handle, else their game name; while verified names carry the @
-mark (display.verified_mark), with every @ taken out and no spaces or dots
-left at its front (identity_unverified_name), so " @Name" can't pass for
-it. FALSE: the game name as it is */
+player's handle, else their game name; while verified players carry the
+Delta mark (display.verified_mark: the scoreboard's, profile_names_verified),
+with every @ taken out (a handle's sign) and no Delta, triangle, space or dot
+left at its front (identity_unverified_name), so " @Name" can't pass for a
+handle, nor a typed Delta for the mark. FALSE: the game name as it is */
 static boolean unverified_name(
 	struct network_game const *game,
 	long player_index,
@@ -397,15 +398,34 @@ boolean profile_names_player(
 	an impersonation is) */
 	if (looks_like)
 		return masked_name(player_index, name, size);
-	/* (the quiet mark: "@Milenko", its room taken from the name's) */
-	if (config_boolean("display.verified_mark") && size > 2)
-	{
-		boolean fitted = profile_names_player_unmarked(&identity, text, clan, name + 1, size - 1);
-
-		name[0] = '@';
-		return fitted;
-	}
+	/* (the name alone: the scoreboard draws the Delta mark in its own
+	column, profile_names_verified) */
 	return profile_names_player_unmarked(&identity, text, clan, name, size);
+}
+
+boolean profile_names_verified(
+	long player_index)
+{
+	struct network_game *game;
+	struct network_player const *player;
+	struct delta_peer_identity identity;
+	char text[64], clan[16];
+	boolean looks_like;
+
+	if (!config_boolean("display.verified_mark") || !config_boolean("display.profile_names") ||
+		!profile_screen_available() || !delta_peer_game_on_delta())
+	{
+		return FALSE;
+	}
+	game = current_game();
+	if (!game || player_index < 0 || player_index >= (long)NUMBEROF(game->players))
+		return FALSE;
+	player = &game->players[player_index];
+	/* (a verified player shown by their name: not one the site marked as
+	another's look-alike, who is masked) */
+	return network_player_is_valid(player) &&
+		delta_peer_game_player_identity(player->machine_index, player->controller_index, &identity) &&
+		verified_name(&identity, text, (int)sizeof(text), clan, (int)sizeof(clan), &looks_like) && !looks_like;
 }
 
 /* (profile_names_player's) a verified name and its clan tag into name,

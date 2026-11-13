@@ -173,6 +173,8 @@ SCREENS = {
                  "Show team games by team, or all players by score.", None),
                 ("SCOREBOARD PANEL:", "display.scoreboard_background", ON_OFF,
                  "Draw a panel behind the scoreboard.", None),
+                ("SCOREBOARD ICONS:", "display.scoreboard_icons", ON_OFF,
+                 "Platform logos and the Delta mark beside names.\nOff shows just names and scores.", None),
                 ("POWERUP TIMERS:", "display.powerup_timers", ON_OFF,
                  "Show the time left on your powerups.", None),
                 ("MATCH TIMER:", "display.match_timer",
