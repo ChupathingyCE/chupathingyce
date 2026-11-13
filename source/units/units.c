@@ -698,6 +698,7 @@ symbols in this file:
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_engine.h" /* port: port/linux/game/stubbs_engine.c */
+#include "stubbs_horde.h" /* port: port/linux/game/stubbs_horde.c */
 #endif
 #include "mcc_grenades.h"
 
@@ -7318,6 +7319,8 @@ void unit_damage_aftermath(
 
 	if (lethal || feigned)
 	{
+		if (lethal)
+			stubbs_horde_unit_damaged_to_death(unit_index, damage_data); /* port: Stubbs mode only */
 		unit_died(unit_index, feigned);
 	}
 
