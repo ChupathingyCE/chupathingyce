@@ -85,6 +85,10 @@ jobs:
             arch=${pair%%:*}; platform=${pair#*:}
             mkdir -p "$context/bin/$platform"
             unzip -q -j "release/chupathingyce-server-linux-$arch.zip" chupathingyce-server -d "$context/bin/$platform"
+            # (its license and notices, which the image carries beside it; a
+            # release before THIRD-PARTY-NOTICES.txt has only LICENSE.txt)
+            unzip -q -j "release/chupathingyce-server-linux-$arch.zip" LICENSE.txt THIRD-PARTY-NOTICES.txt \
+              -d "$context/bin/$platform" || echo "::warning::$arch: the zip lacks LICENSE.txt or THIRD-PARTY-NOTICES.txt"
             chmod +x "$context/bin/$platform/chupathingyce-server"
           done
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_ENV"

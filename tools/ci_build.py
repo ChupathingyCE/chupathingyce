@@ -53,20 +53,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from tools import third_party_notices  # noqa: E402
 from tools.version import base_version, commit, release_build, version  # noqa: E402
 
 # what each port's build leaves, and what goes into dist/
 OUTPUTS = {
-    # (and the SDL3 each portable build brings, tools/linux_build.py, with its
-    # zlib license, as the release carries the other libraries'). The game is
+    # (and the SDL3 each portable build brings, tools/linux_build.py, its
+    # license in THIRD-PARTY-NOTICES.txt with the others'). The game is
     # chupathingy (chupathingy.exe) from 0.9.0; halo (halo.exe) beside it is
     # the small stub that starts it, for shortcuts and scripts made for
     # the old name (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
-    "linux": ["build/linux/chupathingy", "build/linux/halo", "build/linux/libSDL3.so.0",
-              "build/linux/SDL3-LICENSE.txt"],
+    "linux": ["build/linux/chupathingy", "build/linux/halo", "build/linux/libSDL3.so.0"],
     # the native 64-bit build (ninja linux64; tools/linux64_build.py)
-    "linux64": ["build/linux64/chupathingy", "build/linux64/halo", "build/linux64/libSDL3.so.0",
-                "build/linux64/SDL3-LICENSE.txt"],
+    "linux64": ["build/linux64/chupathingy", "build/linux64/halo", "build/linux64/libSDL3.so.0"],
     # the native 64-bit FreeBSD build (ninja freebsd64; tools/unix64_build.py),
     # built on FreeBSD: SDL3 is the system's package (pkg install sdl3), not
     # brought along
@@ -177,9 +176,6 @@ def main() -> int:
         else:
             shutil.copy2(ROOT / output, dist / apk_names.get(output, Path(output).name))
         print(f"{output} -> {dist.relative_to(ROOT)}", flush=True)
-    if args.platform == "macos":
-        # (the SDL3 inside it, the build's own: zlib license)
-        shutil.copy2(ROOT / "build/macos/third_party/SDL3/LICENSE.txt", dist / "SDL3-LICENSE.txt")
     if args.platform in ("windows", "windows64"):
         # the symbols of chupathingy.exe and SDL3.dll, apart (players do not need
         # them): tools/symbolize_crash.py reads debug.txt's crash lines and
@@ -196,56 +192,7 @@ def main() -> int:
             shutil.copy2(pdb, symbols)
             print(f"{pdb.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
     keep_native_symbols(args.platform, args.config)
-    # Chupathingy's own license (GPL-3.0-or-later), which asks every copy to
-    # carry it
-    shutil.copy2(ROOT / "LICENSE", dist / "LICENSE.txt")
-    # the game list's and the self-updater's TLS (port/third_party/mbedtls),
-    # in every build (HALO_GAME_BROWSER), whose Apache license asks the same
-    shutil.copy2(ROOT / "port/third_party/mbedtls/LICENSE", dist / "mbedtls-LICENSE.txt")
-    # internet play's UPnP (port/third_party/miniupnpc), in every build,
-    # whose BSD license asks binaries to carry its notice
-    shutil.copy2(ROOT / "port/third_party/miniupnpc/LICENSE", dist / "miniupnpc-LICENSE.txt")
-    # the text's fonts (port/assets/fonts), embedded in every build, whose
-    # SIL Open Font License asks each copy to carry it
-    shutil.copy2(ROOT / "port/assets/fonts/Overpass-OFL.txt", dist / "Overpass-OFL.txt")
-    shutil.copy2(ROOT / "port/assets/fonts/CyborgInterfaceGothic-OFL.txt", dist / "CyborgInterfaceGothic-OFL.txt")
-    # (Chupathingy Titles, the classic titles' face, which the overlay's
-    # screens draw their titles in, and Newtown's public-domain statement)
-    shutil.copy2(ROOT / "port/assets/fonts/ChupathingyTitles-OFL.txt", dist / "ChupathingyTitles-OFL.txt")
-    # the overlay's fonts (port/linux/ui/fonts), in every build: Noto Sans's
-    # license asks the same; Kenney's Input Prompts are CC0, credited all
-    # the same
-    shutil.copy2(ROOT / "port/linux/ui/fonts/OFL.txt", dist / "NotoSans-OFL.txt")
-    shutil.copy2(ROOT / "port/linux/ui/fonts/KENNEY-CC0.txt", dist / "Kenney-Input-Prompts-CC0.txt")
-    # the menus' XML parser (port/third_party/expat), in every build, whose
-    # MIT license asks copies to carry its notice
-    shutil.copy2(ROOT / "port/third_party/expat/COPYING", dist / "expat-COPYING.txt")
-    # the Steam content client's LZMA decoder (port/third_party/lzma), public
-    # domain: its statement carried as a credit
-    shutil.copy2(ROOT / "port/third_party/lzma/LICENSE", dist / "lzma-sdk-LICENSE.txt")
-    # the Steam content client's and compressed maps' Zstandard
-    # (port/third_party/zstd, BSD) and the Steam link's QR code
-    # (port/third_party/qrcodegen, MIT), whose licenses ask binaries to carry
-    # their notices
-    shutil.copy2(ROOT / "port/third_party/zstd/LICENSE", dist / "zstd-LICENSE.txt")
-    shutil.copy2(ROOT / "port/third_party/qrcodegen/LICENSE", dist / "qrcodegen-LICENSE.txt")
-    # the Steam link code (port/linux/src/steam_content, the Steam bridge),
-    # MIT: its notice carried with the binaries
-    shutil.copy2(ROOT / "LICENSES/MIT.txt", dist / "steam-link-MIT.txt")
-    # MCC's texture decoder is distributed under bcdec's MIT option.
-    shutil.copy2(ROOT / "port/third_party/bcdec/LICENSE", dist / "bcdec-LICENSE.txt")
-    # the bgfx renderer of the 64-bit desktop builds (tools/bgfx_build.py):
-    # bgfx's, bx's and bimg's BSD licenses ask binaries to carry their
-    # notices, as do glslang's and, on macOS, SPIRV-Cross's
-    if (ROOT / "build" / args.platform / "bgfx").is_dir():
-        bgfx_sources = ROOT / "build/bgfx"
-        bgfx_licenses = [("bgfx/LICENSE", "bgfx-LICENSE.txt"), ("bx/LICENSE", "bx-LICENSE.txt"),
-                         ("bimg/LICENSE", "bimg-LICENSE.txt"),
-                         ("bgfx/3rdparty/glslang/LICENSE.txt", "glslang-LICENSE.txt")]
-        if args.platform == "macos":
-            bgfx_licenses.append(("bgfx/3rdparty/spirv-cross/LICENSE", "SPIRV-Cross-LICENSE.txt"))
-        for source, name in bgfx_licenses:
-            shutil.copy2(bgfx_sources / source, dist / name)
+    write_licenses(dist, "game", game_features(args.platform))
     # internet play's MQTT brokers, a file beside the game (network.brokers_file;
     # Android's APK has its own copy; the macOS application reads its settings
     # folder in Application Support, never beside the app, so it uses the
@@ -253,6 +200,35 @@ def main() -> int:
     if args.platform not in ANDROID_BUILDS and args.platform != "macos":
         shutil.copy2(ROOT / "port/assets/network/brokers.txt", dist / "brokers.txt")
     return 0
+
+
+def game_features(platform: str) -> list:
+    """the parts only some games have (tools/third_party_notices.py): the
+    SDL3 library (every build but FreeBSD's, whose SDL3 is the system's
+    package), the bgfx renderer of the 64-bit desktop builds when built, its
+    Vulkan back end on Linux and Windows, and its SPIRV-Cross on macOS and
+    64-bit Windows"""
+    features = [] if platform == "freebsd64" else ["sdl3"]
+    if (ROOT / "build" / platform / "bgfx").is_dir():
+        features.append("bgfx")
+        if platform in ("linux64", "windows64"):
+            features.append("vulkan")
+        if platform in ("macos", "windows64"):
+            features.append("spirv-cross")
+    return features
+
+
+def write_licenses(dist: Path, package: str, features: list) -> None:
+    """the two license files every download carries: Chupathingy's own
+    (GPL-3.0-or-later), which asks every copy to carry it, and
+    THIRD-PARTY-NOTICES.txt, the notices and license texts of everything
+    else built in (tools/third_party_notices.py, port/notices)"""
+    shutil.copy2(ROOT / "LICENSE", dist / "LICENSE.txt")
+    third_party_notices.write(dist / third_party_notices.NAME, package, features)
+    for warning in third_party_notices.check_fetched():
+        print(f"warning: {warning}", flush=True)
+    print(f"LICENSE.txt, {third_party_notices.NAME} ({package}: {', '.join(features) or 'no extras'})"
+          f" -> {dist.relative_to(ROOT)}", flush=True)
 
 
 def alpine_build(platform: str, config: str) -> int:
@@ -326,8 +302,8 @@ def strip_debug(program: Path) -> None:
 
 def server_dist(platform: str, config: str, output: str) -> int:
     """dist/chupathingyce-server-linux-<arch>[-debug]: the server, its
-    README, its playlists, its blocked names list, its license and the notices
-    its parts' licenses ask for. The Windows one,
+    README, its playlists, its blocked names list, its license and
+    THIRD-PARTY-NOTICES.txt. The Windows one,
     dist/chupathingyce-server-windows-x64[-debug], also has start-server.bat
     and its own README.txt (server/windows), and the server's README as
     README-server.md"""
@@ -365,16 +341,7 @@ def server_dist(platform: str, config: str, output: str) -> int:
         shutil.copy2(playlist, dist / "playlists")
     # (sv_name_filter's list, read from the data folder)
     shutil.copy2(ROOT / "server/blocked_names.txt", dist / "blocked_names.txt")
-    for source, name in (("LICENSE", "LICENSE.txt"),
-                         ("port/third_party/mbedtls/LICENSE", "mbedtls-LICENSE.txt"),
-                         ("port/third_party/miniupnpc/LICENSE", "miniupnpc-LICENSE.txt"),
-                         ("port/third_party/expat/COPYING", "expat-COPYING.txt"),
-                         ("port/assets/fonts/Overpass-OFL.txt", "Overpass-OFL.txt"),
-                         ("port/assets/fonts/CyborgInterfaceGothic-OFL.txt", "CyborgInterfaceGothic-OFL.txt"),
-                         ("port/assets/fonts/ChupathingyTitles-OFL.txt", "ChupathingyTitles-OFL.txt"),
-                         ("port/linux/ui/fonts/OFL.txt", "NotoSans-OFL.txt"),
-                         ("port/linux/ui/fonts/KENNEY-CC0.txt", "Kenney-Input-Prompts-CC0.txt")):
-        shutil.copy2(ROOT / source, dist / name)
+    write_licenses(dist, "server", [])
     print(f"{output} -> {dist.relative_to(ROOT)}", flush=True)
     return 0
 
