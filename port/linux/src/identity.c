@@ -1331,6 +1331,14 @@ static int leading_junk(unsigned long c)
 		(c >= 0x2000 && c <= 0x200F) || (c >= 0x2028 && c <= 0x202F) || (c >= 0x2060 && c <= 0x2064);
 }
 
+/* the verified mark (a Delta) and the triangles that read as it: the
+letter and the increment sign, the up-pointing triangles (black, white,
+small, the up arrowhead, the one with a dot) and the Canadian syllabic I */
+static int delta_sign(unsigned long c)
+{
+	return c == 0x394 || c == 0x2206 || (c >= 0x25B2 && c <= 0x25B5) || c == 0x25EC || c == 0x2BC5 || c == 0x1403;
+}
+
 int identity_unverified_name(const unsigned short *name, int length, unsigned short *out, int size)
 {
 	int index, used = 0;
@@ -1339,7 +1347,7 @@ int identity_unverified_name(const unsigned short *name, int length, unsigned sh
 		return 0;
 	for (index = 0; name && index < length && name[index] && used < size - 1; index++)
 	{
-		if (at_sign(name[index]) || (!used && leading_junk(name[index])))
+		if (at_sign(name[index]) || (!used && (leading_junk(name[index]) || delta_sign(name[index]))))
 			continue;
 		out[used++] = name[index];
 	}

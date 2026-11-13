@@ -27,7 +27,7 @@ If your Halo profile plays as a guest, your line is never claimed and your copy 
 
 ## Your verified name in games
 
-If your copy is linked to a Delta profile and you share it (`share_profile`), you play under your profile's name, and other Delta players in the game see you as verified (with an @ in front, unless they turned the mark off). To check that, your game sends the host your device certificate, and the host passes it to every Delta player in the game. It holds your account's player ID, your device's ID and its public key, your platform and your name. It never holds your address or any secret. OpenCE players see only your game name. To stop it, turn off sharing your profile.
+If your copy is linked to a Delta profile and you share it (`share_profile`), you play under your profile's name, and other Delta players in the game see you as verified (with a small Delta mark in front, unless they turned the mark off). To check that, your game sends the host your device certificate, and the host passes it to every Delta player in the game. It holds your account's player ID, your device's ID and its public key, your platform and your name. It never holds your address or any secret. OpenCE players see only your game name. To stop it, turn off sharing your profile.
 
 ## Showing that you're playing
 

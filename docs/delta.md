@@ -1366,10 +1366,15 @@ and show their handle until their owner picks its capitals.
   verified player whose handle the site marked as a look-alike of another (its card's `looks_like`) shows as
   "Player N" too.
 - **The mark** (`display.verified_mark`, on by default): verified names
-  show with an @ in front ("@Milenko"). Every @ in anyone else's game
-  name is left out, wherever it is, and so are spaces, dots and invisible
-  marks left at its front, so " @Milenko", ".@Milenko" and "·@Milenko"
-  all show as "Milenko" (and as "Player N" next to a verified Milenko). A player who isn't connected to Delta (no
+  show with a small Delta mark in front ("ΔMilenko"). The game's fonts
+  have no Greek, so they draw it as a plain outline triangle the height of
+  their capitals, in the text's own color; the Guide draws the letter. An @
+  means a handle everywhere in Delta, so the mark isn't one. Every @ in
+  anyone else's game name is left out, wherever it is, and so are spaces,
+  dots, invisible marks, Deltas and up-pointing triangles left at its
+  front, so " @Milenko", ".@Milenko", "·@Milenko", "ΔMilenko" and
+  "▲ Milenko" all show as "Milenko" (and as "Player N" next to a verified
+  Milenko). A player who isn't connected to Delta (no
   linked profile, or a guest) never has the mark.
 - **The same name everywhere.** The scoreboard, the postgame report, the
   lobby, the Delta Guide, chat, the kill feed and the other HUD lines (a player

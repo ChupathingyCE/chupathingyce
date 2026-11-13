@@ -55,5 +55,8 @@ struct font_header
 /* ---------- public code */
 
 struct font_character *font_get_character_by_ascii_code(struct font_header *font, word character_code);
+/* port: a character's pixels, a byte each (the verified mark's are its
+own, not the font's) */
+byte *font_character_pixels(struct font_header *font, struct font_character *character);
 
 #endif // __FONT_GROUP_H

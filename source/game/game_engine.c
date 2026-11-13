@@ -1916,7 +1916,7 @@ as a game name's: a longer name is cut with "...") */
 #define SCOREBOARD_PROFILE_NAME_LENGTH 15
 #define POSTGAME_PROFILE_NAME_LENGTH 12
 /* (the HUD's lines, the kill feed's and the crosshair's: a whole handle
-with its mark, "@" and 20 letters) */
+with its mark, the Delta, and 20 letters) */
 #define EVENT_PROFILE_NAME_LENGTH 22
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port/linux/game/profile_names.c's */

@@ -35,6 +35,7 @@ without one it proves as the copy's own account.
 #include "../src/delta_peer.h"
 #include "../src/identity.h"
 #include "halo_profile_screen.h"
+#include "halo_delta_mark.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -105,6 +106,10 @@ static long wide_length(
 	return length;
 }
 
+/* the verified mark's width with its room after it, in tenths of a
+lowercase letter (as character_width) */
+#define VERIFIED_MARK_WIDTH 19
+
 /* a character's drawn width, in tenths of a lowercase letter's (the menus'
 and the HUD's fonts, measured at 640x480): a column of size - 1 characters
 holds a name of as many tenths of ten as its Halo names have characters, so
@@ -112,6 +117,9 @@ a name of wide letters ("WWWW") is cut sooner than one of narrow ones */
 static long character_width(
 	wchar_t character)
 {
+	/* (the verified mark and its room after it: halo_delta_mark.h) */
+	if (character == HALO_DELTA_MARK)
+		return VERIFIED_MARK_WIDTH;
 	if (character == 'M' || character == 'W' || character == 'm' || character == 'w' || character == '@' ||
 		character == '%')
 	{
@@ -256,7 +264,7 @@ static boolean verified_name(
 }
 
 static boolean profile_names_player_unmarked(struct delta_peer_identity const *identity, char const *text,
-	char const *clan, wchar_t *name, long size);
+	char const *clan, wchar_t *name, long size, long room);
 
 /* a player's name masked: "Player 4" (their place in the game's list) */
 static boolean masked_name(
@@ -333,10 +341,10 @@ static boolean impersonates(
 }
 
 /* an unverified player: masked when their game name looks like a verified
-player's handle, else their game name; while verified names carry the @
-mark (display.verified_mark), with every @ taken out and no spaces or dots
-left at its front (identity_unverified_name), so " @Name" can't pass for
-it. FALSE: the game name as it is */
+player's handle, else their game name; while verified names carry the Delta
+mark (display.verified_mark), with every @ taken out and no Delta, triangle,
+space or dot left at its front (identity_unverified_name), so a Delta typed
+before a name can't pass for it, nor "@Name" for a handle. FALSE: the game name as it is */
 static boolean unverified_name(
 	struct network_game const *game,
 	long player_index,
@@ -397,25 +405,30 @@ boolean profile_names_player(
 	an impersonation is) */
 	if (looks_like)
 		return masked_name(player_index, name, size);
-	/* (the quiet mark: "@Milenko", its room taken from the name's) */
+	/* (the quiet mark: the Delta mark before the name, drawn as a small
+	triangle by fonts without the letter (halo_delta_mark.h), its room taken
+	from the name's) */
 	if (config_boolean("display.verified_mark") && size > 2)
 	{
-		boolean fitted = profile_names_player_unmarked(&identity, text, clan, name + 1, size - 1);
+		boolean fitted = profile_names_player_unmarked(&identity, text, clan, name + 1, size - 1,
+			(size - 1) * 10 - VERIFIED_MARK_WIDTH);
 
-		name[0] = '@';
+		name[0] = HALO_DELTA_MARK;
 		return fitted;
 	}
-	return profile_names_player_unmarked(&identity, text, clan, name, size);
+	return profile_names_player_unmarked(&identity, text, clan, name, size, (size - 1) * 10);
 }
 
 /* (profile_names_player's) a verified name and its clan tag into name,
-fitted to its column */
+fitted to its column (size characters, its end included, and room tenths
+of a lowercase letter) */
 static boolean profile_names_player_unmarked(
 	struct delta_peer_identity const *identity,
 	char const *text,
 	char const *clan,
 	wchar_t *name,
-	long size)
+	long size,
+	long room)
 {
 	wchar_t whole[64];
 
@@ -434,7 +447,7 @@ static boolean profile_names_player_unmarked(
 		wide_from_utf8(text, whole + used, NUMBEROF(whole) - used);
 		/* (the clan tag kept whole while the name keeps six letters' width:
 		"[TAG] Mil..."; else the name alone) */
-		if (wide_length(whole) > size - 1 || text_width(whole) > (size - 1) * 10)
+		if (wide_length(whole) > size - 1 || text_width(whole) > room)
 		{
 			wchar_t prefix[24];
 			long index;
@@ -442,11 +455,11 @@ static boolean profile_names_player_unmarked(
 			for (index = 0; index < used; index++)
 				prefix[index] = whole[index];
 			prefix[used] = 0;
-			if (size - 1 - used >= 6 && (size - 1) * 10 - text_width(prefix) >= 60)
+			if (size - 1 - used >= 6 && room - text_width(prefix) >= 60)
 			{
 				wchar_t cut[64];
 
-				fit_room(whole + used, cut, size - used, (size - 1) * 10 - text_width(prefix));
+				fit_room(whole + used, cut, size - used, room - text_width(prefix));
 				for (index = 0; cut[index]; index++)
 					whole[used + index] = cut[index];
 				whole[used + index] = 0;
@@ -457,7 +470,7 @@ static boolean profile_names_player_unmarked(
 	}
 	else
 		wide_from_utf8(text, whole, NUMBEROF(whole));
-	fit(whole, name, size);
+	fit_room(whole, name, size, room);
 	return name[0] != 0;
 }
 
