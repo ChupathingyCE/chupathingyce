@@ -760,3 +760,33 @@ def test_slow_clients_do_not_hold_the_panel(harness):
     finally:
         for connection in idle:
             connection.close()
+
+
+def test_listed_host_names_only(harness_binary, tmp_path):
+    """HALO_DEDICATED_CONTROL_HOSTS: a request for another name (a page of
+    another site whose name now points at this machine: DNS rebinding) is
+    refused before anything else, a login too; the listed name and this
+    machine's own (an SSH tunnel's) are answered."""
+    running = Harness(harness_binary, tmp_path / "data", extra={"HALO_DEDICATED_CONTROL_HOSTS": "panel.example.org"})
+    try:
+        def request(host, path="/v1/hello", extra=""):
+            return Response(raw(running.port, f"GET {path} HTTP/1.1\r\nHost: {host}\r\n{extra}\r\n".encode()))
+
+        assert request("attacker.example:8080").status == 421
+        assert request("panel.example.org.attacker.example").status == 421
+        assert request("attacker.example", "/").status == 421
+        # (an X-Forwarded-Host must be listed too)
+        assert request(f"127.0.0.1:{running.port}", extra="X-Forwarded-Host: attacker.example\r\n").status == 421
+        body = json.dumps({"user": "nobody", "password": "a long enough password"}).encode()
+        refused = Response(raw(running.port, (f"POST /v1/login HTTP/1.1\r\nHost: attacker.example:{running.port}\r\n"
+                                              f"Origin: http://attacker.example:{running.port}\r\n"
+                                              "Content-Type: application/json\r\n"
+                                              f"Content-Length: {len(body)}\r\n\r\n").encode() + body))
+        assert refused.status == 421
+        assert request("panel.example.org").status == 200
+        assert request("PANEL.example.org:443", extra="X-Forwarded-Host: panel.example.org\r\n").status == 200
+        assert request(f"127.0.0.1:{running.port}").status == 200
+        assert request(f"localhost:{running.port}").status == 200
+        assert login(running).status == 200
+    finally:
+        running.stop()

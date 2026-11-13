@@ -446,6 +446,11 @@ proxy adds), so wrong logins are counted for each client and someone
 guessing does not lock everyone out. Without it, every request counts as
 the proxy's; never name an address that is not your proxy's.
 
+Set `HALO_DEDICATED_CONTROL_HOSTS` to the panel's name (`admin.example.org`)
+so it answers to that name and the machine's own only: a page of another
+site whose name was pointed at your machine (DNS rebinding) is then
+refused before anything else.
+
 If the page is reached straight over the network, with no reverse proxy's
 headers, from somewhere other than the server itself, the server warns of
 it once in its log.

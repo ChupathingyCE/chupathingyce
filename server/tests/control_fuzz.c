@@ -103,6 +103,8 @@ static void parse_body(const struct control_request *request)
 	control_session_text_valid(request->session);
 	control_token_valid(request->token);
 	control_web_find_asset(request->path);
+	control_host_allowed(request->host, "panel.example.org, 203.0.113.9:8443, [2001:db8::1]", 1);
+	control_host_allowed(request->forwarded_host, request->host, 0);
 	/* (a browser's change: with no session, and with one whose CSRF token
 	is another's, then the request's own) */
 	control_web_check_change(NULL, request, &reason);

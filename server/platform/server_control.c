@@ -265,6 +265,9 @@ static struct
 	int tls;
 	char fingerprint[CONTROL_TLS_FINGERPRINT_SIZE];
 	char listen_setting[96];
+	/* HALO_DEDICATED_CONTROL_HOSTS: the names a request may be for (empty:
+	any) */
+	char hosts[512];
 	/* HALO_DEDICATED_CONTROL_TRUSTED_PROXY's addresses */
 	uint8_t trusted_proxies[MAXIMUM_TRUSTED_PROXIES][16];
 	int trusted_proxy_count;
@@ -3443,7 +3446,22 @@ static void read_request(struct connection *connection)
 	if (connection->tls)
 		request.https = 1;
 	request_client(connection, &request);
-	handle_request(connection, &request);
+	/* (the names the operator listed, if any: a page of another site whose
+	name was pointed at this machine, DNS rebinding, is answered nothing) */
+	if (control.hosts[0] && (!control_host_allowed(request.host, control.hosts, 1) ||
+		(request.forwarded_host[0] && !control_host_allowed(request.forwarded_host, control.hosts, 0))))
+	{
+		char address[64];
+
+		crypto_wipe(request.token, sizeof(request.token));
+		crypto_wipe(request.session, sizeof(request.session));
+		address_text(connection->address, address, sizeof(address));
+		notice("a control request for a host name not in HALO_DEDICATED_CONTROL_HOSTS, from %s", address);
+		respond_error(connection, 421, "this panel does not answer to that host name (HALO_DEDICATED_CONTROL_HOSTS)",
+			NULL);
+	}
+	else
+		handle_request(connection, &request);
 	/* (the request's bytes, its token among them, not kept) */
 	crypto_wipe(connection->request, sizeof(connection->request));
 	connection->length = 0;
@@ -4223,6 +4241,14 @@ void server_control_start(void)
 		{
 			control_web_sessions_initialize(&control.sessions, session_key);
 			read_trusted_proxies();
+			{
+				const char *hosts = getenv("HALO_DEDICATED_CONTROL_HOSTS");
+
+				snprintf(control.hosts, sizeof(control.hosts), "%s", hosts ? hosts : "");
+				if (control.hosts[0])
+					notice("the control panel answers only to %s, and this machine's own names "
+						"(HALO_DEDICATED_CONTROL_HOSTS)", control.hosts);
+			}
 			if (start_listener(setting))
 			{
 				/* the control panel's accounts, and the first owner's setup
