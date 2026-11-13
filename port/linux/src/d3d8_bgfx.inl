@@ -1183,12 +1183,15 @@ static char *bg_vulkan_container(const void *code, unsigned long code_size, cons
 	bg_put(&bytes, &offset, &capacity, code, value);
 	byte = 0;
 	bg_put(&bytes, &offset, &capacity, &byte, 1);
-	/* (the inputs by location: a location not read has no attribute) */
+	/* (the inputs by location: a location not read has no attribute, 0xfffe.
+	Not 0xffff, which bgfx's Vulkan renderer reads as instance data and
+	gives a fallback input at a location another attribute has, which the
+	spec forbids and AMD's drivers may refuse: tools/bgfx-patches/0005) */
 	byte = (unsigned char)highest;
 	bg_put(&bytes, &offset, &capacity, &byte, 1);
 	for (index = 0; index < highest; index++)
 	{
-		Uint16 id = used[index] ? bg_attribute_ids[index] : 0xffff;
+		Uint16 id = used[index] ? bg_attribute_ids[index] : 0xfffe;
 
 		bg_put(&bytes, &offset, &capacity, &id, 2);
 	}
@@ -2837,7 +2840,27 @@ static bgfx_texture_handle_t bg_texture_named(unsigned int name)
 }
 
 /* the stages' textures, and the pixel shader key's part of them
-(bind_textures') */
+(bind_textures'). They are set on the draw by bg_apply_textures, last thing
+before its submit: bgfx keeps what is set only until the next submit, and
+binding the targets (a fresh one's clear) or starting a view (its blits)
+touches the view, a submit of its own, which dropped them. The draw then
+went out with the samplers its shader reads unbound: nothing on NVIDIA,
+whose unwritten descriptors read as empty, but a fault on AMD's and Mesa's
+drivers, which read whatever the descriptor memory held */
+static struct
+{
+	bgfx_texture_handle_t handle;
+	uint32_t flags;
+} bg_stage_textures[D3DTSS_MAXSTAGES];
+
+static void bg_apply_textures(void)
+{
+	int stage;
+
+	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
+		bgfx_set_texture((uint8_t)stage, bg.samplers[stage], bg_stage_textures[stage].handle, bg_stage_textures[stage].flags);
+}
+
 static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale[4][4])
 {
 	int stage;
@@ -2856,7 +2879,8 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 		if (!texture || !texture->Data || mode == 0 || mode == 0x04 || mode == 0x05 || mode == 0x11)
 		{
 			key->sampler_type[stage] = mode == 0x11 ? _xgpu_sampler_2d : _xgpu_sampler_none;
-			bgfx_set_texture((uint8_t)stage, bg.samplers[stage], bg.blank, UINT32_MAX);
+			bg_stage_textures[stage].handle = bg.blank;
+			bg_stage_textures[stage].flags = UINT32_MAX;
 			continue;
 		}
 		xgpu_texture_describe(texture->Format, texture->Size, &description);
@@ -2937,7 +2961,8 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 				texture_scale[stage][1] = 1.0f / (float)description.height;
 			}
 		}
-		bgfx_set_texture((uint8_t)stage, bg.samplers[stage], handle, bg_sampler_flags(stage, mipmapped, hires));
+		bg_stage_textures[stage].handle = handle;
+		bg_stage_textures[stage].flags = bg_sampler_flags(stage, mipmapped, hires);
 	}
 }
 
@@ -3615,6 +3640,8 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	bgfx_set_state(state, rgba);
 	bgfx_set_stencil(stencil, back_stencil);
 	bg_view_set(bg.framebuffer, rect, FALSE);
+	/* (after the view is set: its blits touch it, which drops what is set) */
+	bg_apply_textures();
 	if (bg.test_active)
 	{
 		/* (inside a visibility test: a query of its own, summed at the end) */
@@ -4638,7 +4665,7 @@ static void bg_present(void)
 #endif
 
 		frame_number = bgfx_frame(BGFX_FRAME_NONE);
-#ifdef __APPLE__
+	#ifdef __APPLE__
 		bg.account.libraries += bgfx_mtl_stats.libraries - before.libraries;
 		bg.account.pipelines += bgfx_mtl_stats.pipelines - before.pipelines;
 		bg.account.library_seconds += bgfx_mtl_stats.library_seconds - before.library_seconds;

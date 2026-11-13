@@ -518,10 +518,26 @@ static void quit_watchdog_start(void)
 }
 #endif
 
+/* SDL's own messages in debug.txt: what its video driver did (a Wayland
+connection the compositor closed, which ends the game as "window closed";
+the driver it chose and why), and anything it warns about. Its video
+category at info, where those are; the others at their defaults */
+static void SDLCALL platform_sdl_log(void *userdata, int category, SDL_LogPriority priority, const char *message)
+{
+	static const char *const priorities[] = { "", "trace", "verbose", "debug", "info", "warning", "error", "critical" };
+
+	(void)userdata;
+	(void)category;
+	platform_log("SDL %s: %s", priority > 0 && priority < (int)(sizeof(priorities) / sizeof(priorities[0])) ?
+		priorities[priority] : "message", message);
+}
+
 BOOL platform_sdl_initialize(void)
 {
 	if (platform_sdl_started)
 		return TRUE;
+	SDL_SetLogOutputFunction(platform_sdl_log, NULL);
+	SDL_SetLogPriority(SDL_LOG_CATEGORY_VIDEO, SDL_LOG_PRIORITY_INFO);
 #if !defined(_WIN32) && !defined(HALO_ANDROID)
 	/* a write to a connection the other end closed fails instead of ending
 	the game (the game's sockets and Discord's pass MSG_NOSIGNAL, but UPnP's
@@ -1952,6 +1968,14 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		platform_log("SDL_CreateWindow failed: %s", SDL_GetError());
 		return FALSE;
 	}
+	/* (the window's driver, for the renderer lines that follow: a Vulkan
+	swap chain on Wayland is not one on X11) */
+	platform_log("video: SDL %d.%d.%d, %s driver, %s window", SDL_VERSIONNUM_MAJOR(SDL_GetVersion()),
+		SDL_VERSIONNUM_MINOR(SDL_GetVersion()), SDL_VERSIONNUM_MICRO(SDL_GetVersion()), SDL_GetCurrentVideoDriver(),
+#ifdef HALO_BGFX
+		xgpu_bgfx ? "a bgfx" :
+#endif
+		"an OpenGL");
 #ifndef HALO_ANDROID
 	platform_fullscreen_requested = platform_fullscreen_setting();
 	platform_window_mode = platform_display_mode();
