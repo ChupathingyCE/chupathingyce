@@ -40,7 +40,7 @@ what fixes it.
 ### Wires
 
 Each build has a wire ID, `DELTA_WIRE` in `port/linux/include/delta.h`
-(`chupa-43a` from 0.9.1, `chupa-41a` from 0.8.1d, `chupa-39a` in 0.8.1b and 0.8.1c, `chupa-38a` in
+(`chupa-44a` from the build that follows OpenCE's 44, `chupa-43a` from 0.9.1, `chupa-41a` from 0.8.1d, `chupa-39a` in 0.8.1b and 0.8.1c, `chupa-38a` in
 0.8.0h, `chupa-32a` in 0.8.0 to 0.8.0g; `chupa-29a` and `chupa-28a` before
 it). It names the
 revision of the game protocol the build actually speaks, which is not the same
