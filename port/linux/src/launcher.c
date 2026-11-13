@@ -1110,12 +1110,13 @@ static void modes_find(void)
 		pack = known_pack(suffix);
 		if (pack)
 			mode_add(pack->id, pack->name, pack->tag, name, 1);
-		/* (Stubbs the Zombie's maps, a preliminary first look:
-		port/linux/game/stubbs_mode.c; not on a console) */
+		/* (Stubbs the Zombie's maps, early and rough still:
+		port/linux/game/stubbs_mode.c; not on a console. Only with the
+		player's own copy here, never a download) */
 		else if (!SDL_strcasecmp(suffix, "stubbs"))
 		{
 #if !defined(HALO_CONSOLE_NO_STUBBS)
-			mode_add("stubbs", "Stubbs the Zombie", "STUB", name, 1);
+			mode_add("stubbs", "Stubbs the Zombie (early)", "STUB", name, 1);
 #endif
 		}
 		else
