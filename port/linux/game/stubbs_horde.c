@@ -51,6 +51,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "ai/ai_script.h"
 #include "stubbs_mode.h"
 #include "stubbs_horde.h"
+#include "stubbs_functions.h"
 
 #include <string.h>
 
@@ -453,6 +454,9 @@ static boolean horde_can_eat(
 	if (!horde_team_is_human(victim->object.owner_team_index) || victim->unit.player_index != NONE)
 		return FALSE;
 	if (victim->object.parent_object_index != NONE || eater->object.parent_object_index != NONE)
+		return FALSE;
+	/* (the scripts' objects_cannot_be_finished: stubbs_functions.c) */
+	if (stubbs_functions_object_cannot(victim_index, _stubbs_object_cannot_be_finished_bit))
 		return FALSE;
 	vector_from_points3d(&eater->object.bounding_sphere_center, &victim->object.bounding_sphere_center, &delta);
 	distance = normalize3d(&delta);

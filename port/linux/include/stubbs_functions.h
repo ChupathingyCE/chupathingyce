@@ -33,6 +33,17 @@ scripts' (player_action_test_reset), which clears both */
 void stubbs_functions_action_note(short local_player_index, unsigned long unit_control_flags,
 	boolean switch_grenades, real throttle_forward, real throttle_left);
 void stubbs_functions_action_reset(void);
+
+/* what the scripts said an object cannot do (objects_cannot_die and the
+rest): asked by units.c, damage.c, stubbs_horde.c and stubbs_possession.c */
+enum
+{
+	_stubbs_object_cannot_die_bit,
+	_stubbs_object_cannot_lose_regions_bit,
+	_stubbs_object_cannot_be_finished_bit,
+	_stubbs_object_cannot_be_possessed_bit,
+};
+boolean stubbs_functions_object_cannot(long object_index, short what);
 #else
 /* (a console leaves Stubbs mode out, HALO_CONSOLE_NO_STUBBS in
 halo_console_features.h: empty ones here) */
@@ -40,6 +51,7 @@ static __inline void stubbs_functions_action_note(short local_player_index, unsi
 	boolean switch_grenades, real throttle_forward, real throttle_left)
 { (void)local_player_index; (void)unit_control_flags; (void)switch_grenades; (void)throttle_forward; (void)throttle_left; }
 static __inline void stubbs_functions_action_reset(void) { }
+static __inline boolean stubbs_functions_object_cannot(long object_index, short what) { (void)object_index; (void)what; return FALSE; }
 #endif
 
 #endif

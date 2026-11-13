@@ -141,6 +141,8 @@ symbols in this file:
 #include "mcc_damage.h" /* port: port/linux/game/mcc_damage.c */
 #include "mcc_ui_teams.h"
 #include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1318,7 +1320,13 @@ static void object_damage_body(
 
 		object->object.region_damage[region_index] = (byte)(actual_damage*255.f + object->object.region_damage[region_index]);
 		if (region->damage_threshold > 0.f &&
-			object->object.region_damage[region_index]*(1.f/255.f) > region->damage_threshold)
+			object->object.region_damage[region_index]*(1.f/255.f) > region->damage_threshold
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+			/* port: unless Stubbs's scripts said it keeps its regions
+			(Stubbs mode only: port/linux/game/stubbs_functions.c) */
+			&& !(stubbs_mode_active() && stubbs_functions_object_cannot(object_index, _stubbs_object_cannot_lose_regions_bit))
+#endif
+			)
 		{
 			object_destroy_region(object_index, region_index);
 			SET_FLAG(*being_damaged_flags, _object_being_damaged_region_destroyed_bit, TRUE);
