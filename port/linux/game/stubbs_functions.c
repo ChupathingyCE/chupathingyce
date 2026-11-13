@@ -21,6 +21,8 @@ and return none, 0 or false.
 #include "hs/object_lists.h"
 #include "objects/damage.h"
 #include "objects/objects.h"
+#include "game/players.h"
+#include "units/units.h"
 #include "stubbs_mode.h"
 #include "stubbs_functions.h"
 #include "stubbs_campaign.h"
@@ -183,6 +185,7 @@ static boolean stubbs_function_routed(
 	long thread_index,
 	boolean initialize)
 {
+	static long no_arguments[1];
 	long *arguments;
 	long value = 0;
 	real seconds;
@@ -193,7 +196,10 @@ static boolean stubbs_function_routed(
 	{
 		return FALSE;
 	}
-	arguments = hs_macro_function_evaluate(function_index, thread_index, initialize);
+	/* (none to read for one without arguments: the scripts' stack would
+	halt on room for none, image_effect_end's) */
+	arguments = hs_function_get(function_index)->parameter_count ?
+		hs_macro_function_evaluate(function_index, thread_index, initialize) : no_arguments;
 	if (!arguments)
 		return TRUE;
 	/* (map_completed <difficulty>) */
@@ -253,6 +259,155 @@ static boolean stubbs_function_native(
 		value = arguments[1] ? arguments[0] % arguments[1] : 0;
 	hs_return(thread_index, value);
 	return TRUE;
+}
+
+/* ---------- the player action tests
+
+Stubbs's scripts wait on the player's buttons as Halo's do on
+player_action_test_jump: each test is true once any player has pressed it
+since the scripts' last (player_action_test_reset). Halo's own tests
+(player_control.c) don't know Stubbs's buttons, so the input of each tick
+is noted here as well (stubbs_functions_action_note). Stubbs's buttons
+are Halo's in the same places, the way the retail game's help text names
+them: melee is Halo's melee, its action Halo's action, flatulence Halo's
+jump (A), the gut grenade Halo's grenade, the hand Halo's switch grenades
+(black) and the head Halo's flashlight (white). The dance-off's
+four directions are the left stick's (keyboard: W, S, A, D) */
+
+enum
+{
+	_stubbs_action_melee_bit = 0,
+	_stubbs_action_action_bit,
+	_stubbs_action_flatulence_bit,
+	_stubbs_action_grenade_bit,
+	_stubbs_action_hand_bit,
+	_stubbs_action_head_bit,
+	_stubbs_action_dance_up_bit,
+	_stubbs_action_dance_down_bit,
+	_stubbs_action_dance_left_bit,
+	_stubbs_action_dance_right_bit,
+};
+
+/* how far the stick goes before a dance step counts (and it must be the
+stick's larger direction, so a diagonal is one step, never two) */
+#define STUBBS_DANCE_STEP_THRESHOLD 0.5f
+
+static unsigned long stubbs_action_flags;
+/* (player_action_test_enable <local player> <boolean>): a local player
+whose input the tests don't count */
+static unsigned long stubbs_action_players_disabled;
+
+#ifndef HALO_CONSOLE_NO_STUBBS /* (the header's empty ones on a console) */
+void stubbs_functions_action_note(
+	short local_player_index,
+	unsigned long unit_control_flags,
+	boolean switch_grenades,
+	real throttle_forward,
+	real throttle_left)
+{
+	unsigned long flags = 0;
+	real forward = throttle_forward < 0.f ? -throttle_forward : throttle_forward;
+	real left = throttle_left < 0.f ? -throttle_left : throttle_left;
+
+	if (local_player_index >= 0 && local_player_index < 32 &&
+		TEST_FLAG(stubbs_action_players_disabled, local_player_index))
+	{
+		return;
+	}
+	if (TEST_FLAG(unit_control_flags, _unit_control_use_equipment_bit))
+		flags |= FLAG(_stubbs_action_melee_bit);
+	if (TEST_FLAG(unit_control_flags, _unit_control_action_bit))
+		flags |= FLAG(_stubbs_action_action_bit);
+	if (TEST_FLAG(unit_control_flags, _unit_control_jump_bit))
+		flags |= FLAG(_stubbs_action_flatulence_bit);
+	if (TEST_FLAG(unit_control_flags, _unit_control_throw_grenade_bit))
+		flags |= FLAG(_stubbs_action_grenade_bit);
+	if (switch_grenades)
+		flags |= FLAG(_stubbs_action_hand_bit);
+	if (TEST_FLAG(unit_control_flags, _unit_control_integrated_light_bit))
+		flags |= FLAG(_stubbs_action_head_bit);
+	if (forward >= STUBBS_DANCE_STEP_THRESHOLD && forward > left)
+		flags |= FLAG(throttle_forward > 0.f ? _stubbs_action_dance_up_bit : _stubbs_action_dance_down_bit);
+	else if (left >= STUBBS_DANCE_STEP_THRESHOLD && left > forward)
+		flags |= FLAG(throttle_left > 0.f ? _stubbs_action_dance_left_bit : _stubbs_action_dance_right_bit);
+	stubbs_action_flags |= flags;
+}
+
+void stubbs_functions_action_reset(
+	void)
+{
+	stubbs_action_flags = 0;
+}
+#endif
+
+/* the action tests by name, and what each is true for (the retail game's
+own descriptions of them): its button pressed since the last reset. The
+ones of Stubbs's context actions (whistle, shove, possess, entering a
+vehicle) are "the action key while it offers that"; with none of those
+offers worked out yet, every press of the action key counts, and the
+"_enabled" ones (the offer was made) are true: a tutorial that waits on
+them moves on when the player does what it says */
+static struct
+{
+	char const *name;
+	short bit;
+} const stubbs_action_tests[] =
+{
+	{ "player_action_test_melee", _stubbs_action_melee_bit },
+	{ "player_action_test_flatulence", _stubbs_action_flatulence_bit },
+	{ "player_action_test_grenade", _stubbs_action_grenade_bit },
+	{ "player_action_test_hand", _stubbs_action_hand_bit },
+	{ "player_action_test_head", _stubbs_action_head_bit },
+	/* ("the abandon head/hand/grenade key": the hand's, which the help
+	text says aborts) */
+	{ "player_action_test_abandon", _stubbs_action_hand_bit },
+	{ "player_action_test_dance_up", _stubbs_action_dance_up_bit },
+	{ "player_action_test_dance_down", _stubbs_action_dance_down_bit },
+	{ "player_action_test_dance_left", _stubbs_action_dance_left_bit },
+	{ "player_action_test_dance_right", _stubbs_action_dance_right_bit },
+	{ "player_action_test_whistle", _stubbs_action_action_bit },
+	{ "player_action_test_shove", _stubbs_action_action_bit },
+	{ "player_action_test_possess", _stubbs_action_action_bit },
+	{ "player_action_test_vehicle_enter", _stubbs_action_action_bit },
+	{ "player_action_test_whistle_enabled", NONE },
+	{ "player_action_test_shove_enabled", NONE },
+};
+
+/* returns TRUE once it has returned the call's value */
+static boolean stubbs_function_action_test(
+	char const *name,
+	short function_index,
+	long thread_index,
+	boolean initialize)
+{
+	long *arguments;
+	short index;
+
+	/* (player_action_test_enable <local player> <boolean>) */
+	if (!_stricmp(name, "player_action_test_enable"))
+	{
+		arguments = hs_macro_function_evaluate(function_index, thread_index, initialize);
+		if (arguments)
+		{
+			short local_player_index = (short)arguments[0];
+
+			if (local_player_index >= 0 && local_player_index < 32)
+				SET_FLAG(stubbs_action_players_disabled, local_player_index, !(arguments[1] & 0xFF));
+			hs_return(thread_index, 0);
+		}
+		return TRUE;
+	}
+	for (index = 0; index < (short)NUMBEROF(stubbs_action_tests); index++)
+	{
+		if (!_stricmp(name, stubbs_action_tests[index].name))
+		{
+			short bit = stubbs_action_tests[index].bit;
+
+			hs_return(thread_index, bit == NONE ? TRUE : TEST_FLAG(stubbs_action_flags, bit) ? TRUE : FALSE);
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 static boolean stubbs_functions_ready;
@@ -334,6 +489,8 @@ static void stubbs_function_evaluate(
 	if (stubbs_function_routed(function->definition.name, function_index, thread_index, initialize))
 		return;
 	if (stubbs_function_native(function->definition.name, function_index, thread_index, initialize))
+		return;
+	if (stubbs_function_action_test(function->definition.name, function_index, thread_index, initialize))
 		return;
 	if (!function->logged)
 	{

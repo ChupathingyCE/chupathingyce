@@ -1150,6 +1150,44 @@ commas */
 static char test_input_menu[512];
 static Uint64 test_input_menu_since;
 
+/* debug.test_input "follow:<file>": the same buttons, read from a file as
+another program writes them there; each line that appears is played as a
+menu: script from that moment (for a test that answers what the game shows,
+such as a dance-off's steps) */
+static char test_input_follow_path[256];
+static long test_input_follow_offset;
+
+static void test_input_follow_poll(void)
+{
+	FILE *file;
+	char text[sizeof(test_input_menu)];
+	size_t length;
+
+	if (!test_input_follow_path[0] || !(file = fopen(test_input_follow_path, "rb")))
+		return;
+	if (!fseek(file, test_input_follow_offset, SEEK_SET) &&
+		(length = fread(text, 1, sizeof(text) - 1, file)) > 0)
+	{
+		char *end;
+
+		text[length] = 0;
+		/* (whole lines only: the rest waits for its newline) */
+		if ((end = strrchr(text, '\n')) != NULL)
+		{
+			*end = 0;
+			test_input_follow_offset += (long)(end - text) + 1;
+			for (end = text; *end; end++)
+			{
+				if (*end == '\n' || *end == '\r')
+					*end = ' ';
+			}
+			snprintf(test_input_menu, sizeof(test_input_menu), "%s", text);
+			test_input_menu_since = SDL_GetTicks();
+		}
+	}
+	fclose(file);
+}
+
 /* the token of this second, held or not (NULL for none) */
 static const char *test_input_menu_current(size_t *length)
 {
@@ -1546,6 +1584,8 @@ static void test_input_gamepad(XINPUT_GAMEPAD *pad)
 			snprintf(test_input_menu, sizeof(test_input_menu), "%s", setting + 5);
 			test_input_menu_since = SDL_GetTicks();
 		}
+		else if (!strncmp(setting, "follow:", 7))
+			snprintf(test_input_follow_path, sizeof(test_input_follow_path), "%s", setting + 7);
 		else if (!strncmp(setting, "bot:", 4))
 			seed = atoi(setting + 4);
 		else if (!strcmp(setting, "bot"))
@@ -1556,6 +1596,7 @@ static void test_input_gamepad(XINPUT_GAMEPAD *pad)
 			looking = 1;
 		}
 	}
+	test_input_follow_poll();
 	if (test_input_menu[0])
 	{
 		test_input_menu_gamepad(pad);
