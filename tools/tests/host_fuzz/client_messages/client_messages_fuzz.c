@@ -85,14 +85,17 @@ void *create_message(int type, const void *data, unsigned int data_size, void *b
 	return buffer;
 }
 
+/* (an assertion the wire reaches: a release build notes it and carries on,
+release_assert_failed; so does this, the build's checked form's system_exit
+after it let go, and the sanitizers say what comes of it) */
+static int fuzz_asserted;
+
 void display_assert(char *information, char *file, int line, byte fatal)
 {
-	/* (a release build notes it and carries on: so does this, and the
-	sanitizers say what comes of it) */
 	(void)information;
 	(void)file;
 	(void)line;
-	(void)fatal;
+	fuzz_asserted = fatal;
 }
 
 void release_assert_failed(const char *information, const char *file, int line, byte fatal)
@@ -106,6 +109,11 @@ void release_assert_failed(const char *information, const char *file, int line, 
 void system_exit(int code)
 {
 	(void)code;
+	if (fuzz_asserted)
+	{
+		fuzz_asserted = 0;
+		return;
+	}
 	abort();
 }
 
