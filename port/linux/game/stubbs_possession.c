@@ -32,6 +32,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "cseries.h"
 #include "real_math.h"
+#include <math.h>
 #include "objects.h"
 #include "object_definitions.h"
 #include "units.h"
@@ -73,7 +74,7 @@ enum
 
 /* how far the hand reaches for a human (world units, from the hand to his
 feet, so a human standing over it counts) */
-#define STUBBS_POSSESSION_REACH 0.9f
+#define STUBBS_POSSESSION_REACH 1.4f
 
 /* ---------- structures */
 
@@ -101,6 +102,10 @@ static struct stubbs_possessable_definition stubbs_possessable_definitions[MAXIM
 static short stubbs_possessable_definition_count;
 static boolean stubbs_possessable_definitions_noted;
 static struct stubbs_possession stubbs_possessions[MAXIMUM_STUBBS_LOCAL_PLAYERS];
+/* the last search for a human: how many could be taken, the nearest's
+distance (for the log when none is in reach) */
+static short stubbs_possession_candidate_count;
+static real stubbs_possession_nearest_distance;
 
 /* ---------- private code */
 
@@ -290,6 +295,8 @@ long stubbs_possession_find_target(
 	long best_index = NONE;
 	real best_distance = STUBBS_POSSESSION_REACH * STUBBS_POSSESSION_REACH;
 
+	stubbs_possession_nearest_distance = -1.f;
+	stubbs_possession_candidate_count = 0;
 	if (!hand)
 		return NONE;
 	object_iterator_new(&iterator, FLAG(_object_type_biped), 0);
@@ -299,16 +306,23 @@ long stubbs_possession_find_target(
 
 		if (iterator.index == hand_unit_index || !stubbs_possession_unit_possessable(iterator.index))
 			continue;
+		stubbs_possession_candidate_count++;
 		dx = object->object.position.x - hand->object.position.x;
 		dy = object->object.position.y - hand->object.position.y;
 		dz = object->object.position.z - hand->object.position.z;
-		distance = dx * dx + dy * dy + dz * dz;
+		/* (a standing human's middle is above a hand on the ground: the
+		height counts for less) */
+		distance = dx * dx + dy * dy + 0.25f * dz * dz;
+		if (stubbs_possession_nearest_distance < 0.f || distance < stubbs_possession_nearest_distance)
+			stubbs_possession_nearest_distance = distance;
 		if (distance < best_distance)
 		{
 			best_distance = distance;
 			best_index = iterator.index;
 		}
 	}
+	if (stubbs_possession_nearest_distance > 0.f)
+		stubbs_possession_nearest_distance = (real)sqrt(stubbs_possession_nearest_distance);
 	return best_index;
 }
 
@@ -477,7 +491,10 @@ void stubbs_possession_player_input(
 	if (hand_unit_index == NONE || unit_index != hand_unit_index || !(melee_pressed || action_pressed))
 		return;
 	if (!stubbs_possession_begin(local_player_index, hand_unit_index, stubbs_possession_find_target(hand_unit_index)))
-		stubbs_mode_log("no human within the hand's reach (%.1f world units)", STUBBS_POSSESSION_REACH);
+	{
+		stubbs_mode_log("no human within the hand's reach (%.1f world units): %d could be taken, the nearest %.1f away",
+			STUBBS_POSSESSION_REACH, stubbs_possession_candidate_count, stubbs_possession_nearest_distance);
+	}
 }
 
 #endif
