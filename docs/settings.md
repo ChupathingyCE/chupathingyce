@@ -31,8 +31,8 @@ A few people look for most:
 | `display.vsync`, `display.max_fps` | Vertical sync, and a frame rate cap with V-Sync off (0 for twice the display's refresh rate, -1 for none). On the Steam Deck in Game Mode (under gamescope), a cap at the display's refresh rate or a whole fraction of it (60 at 60 Hz, or 30) keeps the frames in step with the display, so they don't judder. Everywhere else a cap with V-Sync off works as before. |
 | `display.interpolation` | `false` keeps the game's own 30 frames a second; Video Setup's Frame Rate at 30 (Xbox) sets it. |
 | `display.direct_camera` | Instant aim: the view turns the frame the mouse, stick or touch moves it. On by default; config.toml only. |
-| `display.menus` | `"chupathingy"` (the default: the Xbox's look with Halo PC's settings, profiles and more), `"xbox"` (as close to the console as can be) or `"gearbox"` (Halo PC's menus with their Server Browser; `"pc"` still works). |
-| `display.theme` | The colors of the Delta Guide and the setup screen: `"blue"` (Halo Blue, the default), `"red"` (Chupathingy Red) or `"green"` (Dashboard Green). Change it in the setup screen's Display tab or in the Delta Guide's SETTINGS, where it shows at once. |
+| `display.menus` | `"chupathingy"` (the default: the Xbox's look with Halo PC's settings, profiles and more) or `"xbox"` (as close to the console as can be). The Gearbox menus were retired as a menu set: a file that says `"gearbox"` (or the older `"pc"`) gets the Xbox menus, with a one-time notice, and is then written as `"xbox"`. |
+| `display.theme` | The colors of the Delta Guide and the setup screen: `"blue"` (Halo Blue, the default), `"green"` (Dashboard Green), `"orange"` (Visor Orange), `"live"` (Live Orange) or `"red"` (Chupathingy Red). Change it in the setup screen's Display tab or in the Delta Guide's SETTINGS, where it shows at once. |
 | `display.high_res_text` | `true` draws the game's text (menus and HUD) with sharp fonts at your resolution; `false` uses the maps' original bitmap fonts. The Server Browser and the moderation overlays use the system's fonts either way. For a blocky look overall, also set `display.resolution_scaling = "original"`. |
 | `display.high_res_font`, `display.high_res_font_large` | Your own font file for the sharp text and Online Games, in place of the built-in fonts: put it in `data/fonts` beside `maps` and give its name (`high_res_font = "MyFont.ttf"`), or a full path. `_large` sets one for the large text only. Empty uses the built-in fonts; a file that can't be read is noted in `logs/debug.txt` and the built-in font is used. The font is yours: Chupathingy ships none but its own free ones, and never sends yours anywhere. |
 | `display.field_of_view` | How wide the first-person view is, in degrees: 70 (the Xbox's) by default, 50 to 120. |
@@ -47,7 +47,7 @@ A few people look for most:
 | `audio.volume`, `audio.music_volume`, `audio.effects_volume` | Volumes, from 0.0 to 1.0. |
 | `audio.device` | The output the sound plays on, by name (Audio Setup lists them); `"default"` follows the system's default output. |
 | `audio.channels` | `"auto"` follows your output (5.1 on a 6-channel device, 7.1 on 8, else stereo); `"stereo"`, `"5.1"` or `"7.1"` set it. Desktop only; read at start. |
-| `audio.hrtf` | Headphone 3D sound, as the Xbox's 3D sound: `"on"` (the default), `"off"` (for speakers, if it sounds odd), or `"auto"` (on when the output's name says headphones). Stereo output only. |
+| `audio.hrtf` | Headphone 3D sound: 3D sounds through the Xbox's own HRTF, as measured on an Xbox (a sound behind or above you is told from one ahead). `"on"` (the default), `"off"` (for speakers, if it sounds odd), or `"auto"` (on when the output's name says headphones). Stereo output only. |
 | `audio.voice_chat` | Voice chat: `"off"` (the default), `"push_to_talk"` (hold V, or the D-pad right) or `"open_mic"`. The microphone opens only when you first talk. Voice goes through the game's host and is never recorded. |
 | `audio.voice_channel` | The channel you talk on: `"party"`, `"team"` (the default), `"proximity"` (players near you, who hear you from where you stand) or `"everyone"` (only where the host allows it). B, or the D-pad left, switches it. |
 | `audio.voice_volume`, `audio.voice_volume_party`, `_team`, `_proximity`, `_everyone` | Voices' volume, and each channel's, from 0.0 to 2.0. A channel at 0 is off: the host sends you none of it. |
@@ -61,7 +61,7 @@ A few people look for most:
 | `controls.capture_buttons` | `true` lets a controller take screenshots and clips too: its Share button, or Back and the right stick together, takes a screenshot, and Back and the left stick saves a clip. Off by default. |
 | `clips.enabled`, `clips.seconds`, `controls.clip` | `clips.enabled = true` keeps the last `clips.seconds` (30 by default, 5 to 120) of the game, picture and sound, in memory, and `controls.clip` (`"F10"`) saves them as an MP4 in `clips/` beside `maps/`. Off by default; when off it costs nothing. Read at start. Desktop only. |
 | `network.browser_url` | The game list Online Games shows (stats.chupathingy.org). |
-| `network.copy_to_clipboard` | `false` (the default) leaves the clipboard alone; `true` puts the invite link of a game you host on it. The link is also in the log and under INVITE LINK in the Gearbox menus' Server Settings. |
+| `network.copy_to_clipboard` | `false` (the default) leaves the clipboard alone; `true` puts the invite link of a game you host on it. The link is also in the log. |
 | `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |
 | `network.keep_parties_together` | In team games you host, put a party's players on one team when the teams stay even. On by default. |
 | `delta.follow_leader` | When your party's leader goes to a game: `"ask"` (the default) gives you a few seconds to stay and then follows, but in a game you stay unless you press join; `"always"` follows when the seconds run out, in a game too; `"never"` doesn't offer it. Also FOLLOW LEADER in the Delta Guide's PARTY. |
@@ -78,6 +78,7 @@ A few people look for most:
 | `network.host_console_objects` | How many objects your console and cheats can make in each network game you host (`cheat_all_vehicles`, `object_create` and the like). Past it they're refused. 32 by default, 8 while an original Xbox is in the game; `0` means no limit. Objects the map's own scripts make don't count. |
 | `network.max_machines_per_address` | In games you host, the most machines that may join from one internet address (1 to 16). `0`, the default, means no limit. A machine past it is told there are too many players from its address. Players on your local network are never limited. Dedicated servers have their own setting, 8 by default. |
 | `network.tunnel_port` | The UDP port for games you host, to forward on your router: 2302 by default (the next free one up to 2306 if 2302 is taken). A port you set here is used as is, also when you join. `0` picks a new port each run, as versions before 0.8.1b did. |
+| `network.public_address` | A host setting, empty by default. For a host whose players come in through a relay or tunnel: the address they reach it at, as `host` or `host:port` (the port defaults to `network.tunnel_port`). Games you host advertise it in place of the address STUN finds. Joining someone else's game works as usual. |
 | `network.announce` | The OpenCE network version your hosted games announce. `"latest"` (the default) follows the newest the signed table proves, so OpenCE's newest players see your games. A number pins it. |
 | `update.auto` | Whether the game updates itself. |
 | `update.offer_64bit` | 32-bit Windows build: whether to offer the 64-bit build on 64-bit Windows. "Keep 32-bit" turns it off. |
@@ -128,7 +129,7 @@ What we know is different from OpenGL:
 
 - FXAA, SMAA and supersampling are OpenGL only. With bgfx they become MSAA 2x.
 - The Halo PC ammo and health meters look different.
-- The first-person pistol is a little brighter, and water looks grainy.
+- The first-person weapon is a little brighter.
 - The **RENDERER** row in the display settings switches it after a restart.
 - The 32-bit builds, Android, FreeBSD and the consoles don't have it.
 

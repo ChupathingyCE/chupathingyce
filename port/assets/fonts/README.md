@@ -54,14 +54,30 @@ which keeps its copyright line), without a Reserved Font Name.
 `tools/ce_menus.py --titles` the titles our menus add (`ce/port`). The
 overlay's screens (Online Games, the Delta Profile, the setup screen) draw
 their titles with it too, so the builds embed it, and the release packages
-carry `ChupathingyTitles-OFL.txt`.
+carry `ChupathingyTitles-OFL.txt` in their `THIRD-PARTY-NOTICES.txt`.
 
 `display.title_font = "cyborg"` draws the titles in Cyborg Interface Gothic
 instead: a second set of pictures (`port/assets/titles_cyborg`, the menus'
 `ce/port_cyborg`), set at the font's own even spacing over the same plates,
 at the old text's place, width and capital height, and the overlay's titles
 at the classic ones' capital height. The consoles embed the classic set
-only (`HALO_CONSOLE_NO_TITLE_CHOICE`). To measure Chupathingy Titles'
+only (`HALO_CONSOLE_NO_TITLE_CHOICE`).
+
+`display.title_font = "halo"` draws the screens' titles in Halo's own
+lettering, and nothing of it ships: the title tool
+(`port/linux/src/title_tool.c`) makes them on the player's machine from
+the player's own `ui.map`. It reads the title pictures out of the map,
+rebuilds each letter at a higher resolution from every place it appears in
+them (the same letter at many sub-texel positions), and sets the titles
+again at 4x with those letters, where the map's letters are, over their
+own plates. It keeps them in memory only; no font file or picture is
+written. The titles it makes are the `"from_files"` ones in `titles.json`
+(the 26 screens' headers); where it can't make one (another language's
+maps, or a modified `ui.map`), and for the main menu's items, the carnage
+report and our own screens, the classic set is drawn. Thanks to OpenRift412,
+whose #1103 showed how the titles should look in Halo's own lettering.
+
+To measure Chupathingy Titles'
 spacing again and draw the titles again:
 
     python3 tools/title_font.py --measure    # paste the values into tools/title_font.py

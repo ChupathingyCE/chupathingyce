@@ -132,6 +132,7 @@ network_test_update, which does nothing there */
 #include "../src/browser.h"
 #endif
 #include "mcc_cache.h"
+#include "mcc_network_messages.h"
 
 #include <math.h>
 #include <stdarg.h>
@@ -225,6 +226,10 @@ static struct
 	real bomb_interval;
 	boolean bomb_in_goal;
 	boolean bomb_throw;
+	/* debug.network_test_mcc_request: the joining machine asks the host for
+	its MCC map package once (OpenCE's 103), to see it declined */
+	boolean mcc_request;
+	boolean mcc_requested;
 	boolean bomb_keep;
 	boolean bomb_save;
 	real fall_interval;
@@ -424,6 +429,7 @@ static void network_test_read_settings(
 	network_test.bomb_interval = (real)config_real("debug.network_test_bomb");
 	network_test.bomb_in_goal = config_boolean("debug.network_test_bomb_in_goal");
 	network_test.bomb_throw = config_boolean("debug.network_test_bomb_throw");
+	network_test.mcc_request = config_boolean("debug.network_test_mcc_request");
 	network_test.bomb_keep = config_boolean("debug.network_test_bomb_keep");
 	network_test.bomb_save = config_boolean("debug.network_test_bomb_save");
 	network_test.fall_interval = (real)config_real("debug.network_test_fall");
@@ -1971,7 +1977,17 @@ void network_test_update(
 		{
 			network_test.joined_seconds += seconds;
 			if (network_test.joined_seconds >= 3.0f && global_network_game_client_get())
+			{
 				network_test.player_added = TRUE;
+				/* (the probe: as OpenCE's client asks for a package it lacks,
+				in the lobby; the host's answer is in its log and ours) */
+				if (network_test.mcc_request && !network_test.mcc_requested)
+				{
+					network_test.mcc_requested = TRUE;
+					if (!network_distributed_mcc_share_request("mcc_maps\\probe\\probe"))
+						platform_log("network test: the MCC package request was not sent (no MCC messages at this number)");
+				}
+			}
 		}
 		/* (the other team from the host's player: a team game needs both) */
 		else if (network_test.player_added && !network_test.team_set)

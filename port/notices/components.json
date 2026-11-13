@@ -1,0 +1,823 @@
+{
+  "about": [
+    "What every download's THIRD-PARTY-NOTICES.txt lists (tools/third_party_notices.py writes it at build time; tools/test_third_party_notices.py checks this list).",
+    "One entry per component built into the game or the dedicated server: what it is for, its copyright lines, and the license files whose full texts the notices carry.",
+    "packages: the downloads it is in (game, server). requires: only when the build has it (sdl3: the SDL3 library ships with the game; bgfx: the bgfx renderer; vulkan: bgfx's Vulkan renderer, Linux and Windows; spirv-cross: bgfx's SPIRV-Cross, macOS and 64-bit Windows; appimage: the Linux AppImage's own runtime; vulkan-android: the 64-bit Android app's Vulkan renderer).",
+    "shared: a license text printed once at the end (shared_texts) for every entry under it. covers: the folders and files in the repository the entry accounts for. fetched: where a build puts the license of a library it downloads, compared with the copy here (port/notices).",
+    "A new library in port/third_party, or a new font or data set, needs an entry here, or the test fails."
+  ],
+  "shared_texts": {
+    "Apache-2.0": {
+      "title": "Apache License, Version 2.0",
+      "file": "LICENSES/Apache-2.0.txt"
+    }
+  },
+  "components": [
+    {
+      "name": "SDL3",
+      "use": "The game's window, input, sound and files (beside the game on Linux and Windows, inside the app on macOS and Android).",
+      "source": "https://github.com/libsdl-org/SDL (release 3.4.16)",
+      "copyright": [
+        "Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>"
+      ],
+      "license": "zlib License",
+      "files": [
+        "port/notices/SDL3-LICENSE.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "sdl3",
+      "covers": [
+        "port/notices/SDL3-LICENSE.txt"
+      ],
+      "fetched": [
+        "build/*/third_party/SDL3/LICENSE.txt",
+        "build/windows/third_party/SDL3-*/LICENSE.txt"
+      ]
+    },
+    {
+      "name": "Mbed TLS",
+      "use": "Secure connections: the game list, updates, Delta and the server's control panel.",
+      "source": "https://github.com/Mbed-TLS/mbedtls (release 3.6.7)",
+      "copyright": [
+        "Copyright The Mbed TLS Contributors"
+      ],
+      "license": "Apache-2.0 (Mbed TLS is offered under Apache-2.0 or GPL-2.0-or-later)",
+      "files": [
+        "port/third_party/mbedtls/LICENSE"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/mbedtls"
+      ]
+    },
+    {
+      "name": "miniupnpc",
+      "use": "Opening the game's port on the router (UPnP) for internet play.",
+      "source": "https://miniupnp.tuxfamily.org (release 2.3.3)",
+      "copyright": [
+        "Copyright (c) 2005-2025, Thomas BERNARD"
+      ],
+      "license": "BSD-3-Clause",
+      "files": [
+        "port/third_party/miniupnpc/LICENSE"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/miniupnpc"
+      ]
+    },
+    {
+      "name": "Expat",
+      "use": "Reading the menus' XML files.",
+      "source": "https://github.com/libexpat/libexpat (release 2.8.5)",
+      "copyright": [
+        "Copyright (c) 1998-2000 Thai Open Source Software Center Ltd and Clark Cooper",
+        "Copyright (c) 2001-2025 Expat maintainers"
+      ],
+      "license": "MIT",
+      "files": [
+        "port/third_party/expat/COPYING"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/expat"
+      ]
+    },
+    {
+      "name": "tomlc17",
+      "use": "Reading the settings file (config.toml).",
+      "source": "https://github.com/cktan/tomlc17 (release R260821)",
+      "copyright": [
+        "Copyright (c) 2024-2026, CK Tan"
+      ],
+      "license": "MIT",
+      "files": [
+        "port/third_party/tomlc17/LICENSE"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/tomlc17"
+      ]
+    },
+    {
+      "name": "KCP",
+      "use": "Reliable streams for internet play.",
+      "source": "https://github.com/skywind3000/kcp",
+      "copyright": [
+        "Copyright (c) 2017 Lin Wei (skywind3000 at gmail.com)"
+      ],
+      "license": "MIT",
+      "files": [
+        "port/third_party/kcp/LICENSE"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/kcp"
+      ]
+    },
+    {
+      "name": "Monocypher",
+      "use": "Encryption and signatures: internet play, updates and Delta.",
+      "source": "https://monocypher.org (release 4.0.3)",
+      "copyright": [
+        "Copyright (c) 2017-2023, Loup Vaillant",
+        "Copyright (c) 2017-2019, Michael Savage",
+        "Copyright (c) 2017-2023, Fabio Scotoni"
+      ],
+      "license": "BSD-2-Clause or CC0-1.0",
+      "files": [
+        "port/third_party/monocypher/LICENCE.md"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/monocypher"
+      ]
+    },
+    {
+      "name": "zlib",
+      "use": "Decompression: compressed maps, pictures and downloads.",
+      "source": "https://zlib.net",
+      "copyright": [
+        "(C) 1995-2026 Jean-loup Gailly and Mark Adler"
+      ],
+      "license": "zlib License",
+      "files": [
+        "port/third_party/zlib/LICENSE"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/zlib"
+      ]
+    },
+    {
+      "name": "Zstandard",
+      "use": "Decompression: Halo PC's compressed maps and Steam downloads.",
+      "source": "https://github.com/facebook/zstd (release 1.5.7)",
+      "copyright": [
+        "Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved."
+      ],
+      "license": "BSD-3-Clause",
+      "files": [
+        "port/third_party/zstd/LICENSE"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/zstd"
+      ]
+    },
+    {
+      "name": "LZMA SDK (decoder)",
+      "use": "Decompression: Steam downloads.",
+      "source": "https://www.7-zip.org/sdk.html (version 25.01)",
+      "copyright": [
+        "Igor Pavlov, placed in the public domain"
+      ],
+      "license": "Public domain",
+      "files": [
+        "port/third_party/lzma/LICENSE"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/lzma"
+      ]
+    },
+    {
+      "name": "QR Code generator",
+      "use": "The QR codes for linking a profile or a Steam account.",
+      "source": "https://github.com/nayuki/QR-Code-generator (release 1.8.0)",
+      "copyright": [
+        "Copyright (c) 2022 Project Nayuki"
+      ],
+      "license": "MIT",
+      "files": [
+        "port/third_party/qrcodegen/LICENSE"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/qrcodegen"
+      ]
+    },
+    {
+      "name": "bcdec",
+      "use": "Decoding Halo MCC maps' compressed textures.",
+      "source": "https://github.com/iOrange/bcdec",
+      "copyright": [
+        "Copyright (c) 2022 Sergii Kudlai"
+      ],
+      "license": "MIT (bcdec is offered under MIT or the Unlicense)",
+      "files": [
+        "port/third_party/bcdec/LICENSE"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/bcdec"
+      ]
+    },
+    {
+      "name": "stb",
+      "use": "Fonts, pictures, screenshots and Ogg Vorbis sound.",
+      "source": "https://github.com/nothings/stb",
+      "copyright": [
+        "Copyright (c) 2017 Sean Barrett"
+      ],
+      "license": "MIT or public domain",
+      "files": [
+        "port/third_party/stb/LICENSE"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/stb"
+      ]
+    },
+    {
+      "name": "musl",
+      "use": "Maths functions in every build, so every computer plays the same; and the C library of the Android app's game and of the Linux dedicated servers.",
+      "source": "https://musl.libc.org (release 1.2.5)",
+      "copyright": [
+        "Copyright (c) 2005-2020 Rich Felker, et al."
+      ],
+      "license": "MIT",
+      "files": [
+        "port/third_party/musl-math/COPYRIGHT"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/musl-math"
+      ]
+    },
+    {
+      "name": "Opus",
+      "use": "Voice chat.",
+      "source": "https://opus-codec.org (release 1.5.2)",
+      "copyright": [
+        "Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo, Mozilla, Amazon"
+      ],
+      "license": "BSD-3-Clause",
+      "files": [
+        "port/third_party/opus/COPYING"
+      ],
+      "packages": [
+        "game"
+      ],
+      "covers": [
+        "port/third_party/opus"
+      ]
+    },
+    {
+      "name": "SMAA",
+      "use": "Anti-aliasing (its shader and lookup textures).",
+      "source": "https://github.com/iryoku/smaa",
+      "copyright": [
+        "Copyright (C) 2013 Jorge Jimenez, Jose I. Echevarria, Belen Masia, Fernando Navarro and Diego Gutierrez"
+      ],
+      "license": "MIT",
+      "files": [
+        "port/third_party/smaa/LICENSE"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/third_party/smaa"
+      ]
+    },
+    {
+      "name": "Chupathingy's Steam link code",
+      "use": "The Steam content client and the Steam bridge, which Chupathingy offers under MIT so other projects can reuse them.",
+      "source": "https://github.com/ChupathingyCE/chupathingyce (port/linux/src/steam_content and the Steam bridge)",
+      "copyright": [
+        "Copyright (c) 2026 Milenko x Horrible Dev"
+      ],
+      "license": "MIT",
+      "files": [
+        "LICENSES/MIT.txt"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "LICENSES/MIT.txt"
+      ]
+    },
+    {
+      "name": "bgfx, bx and bimg",
+      "use": "The bgfx renderer (display.renderer = \"bgfx\") of the 64-bit desktop builds.",
+      "source": "https://github.com/bkaradzic/bgfx, https://github.com/bkaradzic/bx, https://github.com/bkaradzic/bimg (tools/bgfx_build.py)",
+      "copyright": [
+        "Copyright 2010-2026 Branimir Karadzic"
+      ],
+      "license": "BSD-2-Clause",
+      "files": [
+        "port/notices/bgfx-LICENSE.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "bgfx",
+      "covers": [
+        "port/notices/bgfx-LICENSE.txt"
+      ],
+      "fetched": [
+        "build/bgfx/bgfx/LICENSE",
+        "build/bgfx/bx/LICENSE",
+        "build/bgfx/bimg/LICENSE"
+      ]
+    },
+    {
+      "name": "ASTC encoder",
+      "use": "Part of bimg in the bgfx renderer: ASTC texture decoding.",
+      "source": "https://github.com/ARM-software/astc-encoder (as bimg carries it)",
+      "copyright": [
+        "Copyright 2011-2024 Arm Limited"
+      ],
+      "license": "Apache-2.0",
+      "shared": "Apache-2.0",
+      "packages": [
+        "game"
+      ],
+      "requires": "bgfx",
+      "covers": [],
+      "fetched": [
+        "build/bgfx/bimg/3rdparty/astc-encoder/LICENSE.txt"
+      ]
+    },
+    {
+      "name": "glslang",
+      "use": "The bgfx renderer: compiling the game's shaders to SPIR-V.",
+      "source": "https://github.com/KhronosGroup/glslang (as bgfx carries it)",
+      "copyright": [
+        "Copyright (C) 2002-2005 3Dlabs Inc. Ltd.",
+        "Copyright (C) 2012-2016 LunarG, Inc.",
+        "Copyright (C) 2015-2018 Google, Inc.",
+        "and the other copyright holders named below"
+      ],
+      "license": "BSD-3-Clause, BSD-2-Clause, MIT, Apache-2.0 and others, as below",
+      "files": [
+        "port/notices/glslang-LICENSE.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "bgfx",
+      "covers": [
+        "port/notices/glslang-LICENSE.txt"
+      ],
+      "fetched": [
+        "build/bgfx/bgfx/3rdparty/glslang/LICENSE.txt"
+      ]
+    },
+    {
+      "name": "SPIRV-Cross",
+      "use": "The bgfx renderer on macOS (Metal) and 64-bit Windows (Direct3D 11): translating its shaders.",
+      "source": "https://github.com/KhronosGroup/SPIRV-Cross (as bgfx carries it)",
+      "copyright": [
+        "Copyright 2015-2021 Arm Limited",
+        "Copyright 2016-2021 The Brenwill Workshop Ltd.",
+        "Copyright 2016-2021 Robert Konrad",
+        "Copyright 2019-2021 Hans-Kristian Arntzen"
+      ],
+      "license": "Apache-2.0",
+      "shared": "Apache-2.0",
+      "packages": [
+        "game"
+      ],
+      "requires": "spirv-cross",
+      "covers": [],
+      "fetched": [
+        "build/bgfx/bgfx/3rdparty/spirv-cross/LICENSE"
+      ]
+    },
+    {
+      "name": "Vulkan headers",
+      "use": "The bgfx renderer's Vulkan back end (Linux and Windows): the Khronos Vulkan headers bgfx carries, compiled in.",
+      "source": "https://github.com/KhronosGroup/Vulkan-Headers (as bgfx carries them, 3rdparty/khronos/vulkan-local)",
+      "copyright": [
+        "Copyright 2014-2026 The Khronos Group Inc."
+      ],
+      "license": "Apache-2.0 (the headers are offered under Apache-2.0 or MIT; this build takes Apache-2.0)",
+      "shared": "Apache-2.0",
+      "packages": [
+        "game"
+      ],
+      "requires": "vulkan",
+      "covers": []
+    },
+    {
+      "name": "SPIR-V headers",
+      "use": "Part of SPIRV-Cross in the bgfx renderer (macOS and 64-bit Windows): the Khronos SPIR-V headers it carries. glslang's copies are under its own license above.",
+      "source": "https://github.com/KhronosGroup/SPIRV-Headers (as SPIRV-Cross carries them)",
+      "copyright": [
+        "Copyright (c) 2014-2024 The Khronos Group Inc."
+      ],
+      "license": "MIT (Khronos)",
+      "files": [
+        "port/notices/SPIRV-Headers-LICENSE.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "spirv-cross",
+      "covers": [
+        "port/notices/SPIRV-Headers-LICENSE.txt"
+      ]
+    },
+    {
+      "name": "Cyborg Interface Gothic",
+      "use": "The font of the menus' and the HUD's text.",
+      "source": "port/assets/fonts (by fizzy, from Overpass)",
+      "copyright": [
+        "Copyright 2021 The Overpass Project Authors",
+        "Copyright (c) 2026, fizzy"
+      ],
+      "license": "SIL Open Font License 1.1",
+      "files": [
+        "port/assets/fonts/CyborgInterfaceGothic-OFL.txt"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/assets/fonts/CyborgInterfaceGothic-OFL.txt",
+        "port/assets/fonts/CyborgInterfaceGothic-Regular.ttf"
+      ]
+    },
+    {
+      "name": "Overpass",
+      "use": "Fonts for text and for the glyphs Cyborg Interface Gothic takes from it.",
+      "source": "https://github.com/RedHatOfficial/Overpass",
+      "copyright": [
+        "Copyright 2021 The Overpass Project Authors"
+      ],
+      "license": "SIL Open Font License 1.1",
+      "files": [
+        "port/assets/fonts/Overpass-OFL.txt"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/assets/fonts/Overpass-OFL.txt",
+        "port/assets/fonts/Overpass-750.ttf",
+        "port/assets/fonts/Overpass-900.ttf"
+      ]
+    },
+    {
+      "name": "Chupathingy Titles and Newtown",
+      "use": "The menus' titles: Newtown by Roger White (public domain), respaced as Chupathingy Titles.",
+      "source": "port/assets/fonts",
+      "copyright": [
+        "Copyright 2026 The OpenCE Project Authors, for its changes to Newtown's spacing",
+        "Newtown: copyright (c) Roger White, 1994, released by its author into the public domain"
+      ],
+      "license": "SIL Open Font License 1.1 (Chupathingy Titles); public domain (Newtown)",
+      "files": [
+        "port/assets/fonts/ChupathingyTitles-OFL.txt",
+        "port/assets/fonts/Newtown-LICENSE.txt"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/assets/fonts/ChupathingyTitles-OFL.txt",
+        "port/assets/fonts/ChupathingyTitles-Regular.ttf",
+        "port/assets/fonts/Newtown-LICENSE.txt",
+        "port/assets/fonts/Newtown-Regular.ttf"
+      ]
+    },
+    {
+      "name": "Noto Sans",
+      "use": "The letters Cyborg Interface Gothic lacks (other scripts in players' names).",
+      "source": "https://github.com/notofonts/latin-greek-cyrillic",
+      "copyright": [
+        "Copyright 2022 The Noto Project Authors"
+      ],
+      "license": "SIL Open Font License 1.1",
+      "files": [
+        "port/linux/ui/fonts/OFL.txt"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/linux/ui/fonts/OFL.txt",
+        "port/linux/ui/fonts/NotoSans-Regular.ttf",
+        "port/linux/ui/fonts/NotoSans-Bold.ttf"
+      ]
+    },
+    {
+      "name": "Kenney's Input Prompts",
+      "use": "The controllers' and the keyboard's button glyphs.",
+      "source": "https://kenney.nl/assets/input-prompts (1.5A)",
+      "copyright": [
+        "Created and distributed by Kenney (www.kenney.nl)"
+      ],
+      "license": "CC0-1.0",
+      "files": [
+        "port/linux/ui/fonts/KENNEY-CC0.txt"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/linux/ui/fonts/KENNEY-CC0.txt",
+        "port/linux/ui/fonts/input_keyboard.ttf",
+        "port/linux/ui/fonts/input_nintendo.ttf",
+        "port/linux/ui/fonts/input_playstation.ttf",
+        "port/linux/ui/fonts/input_steam_controller.ttf",
+        "port/linux/ui/fonts/input_steam_deck.ttf",
+        "port/linux/ui/fonts/input_wiiu.ttf",
+        "port/linux/ui/fonts/input_xbox.ttf"
+      ]
+    },
+    {
+      "name": "Controller button icons",
+      "use": "The Xbox-style controller's button icons in the overlay's prompts.",
+      "source": "port/assets/prompts",
+      "copyright": [
+        "By snapchipper"
+      ],
+      "license": "CC0-1.0",
+      "credit": "Controller button icons by snapchipper, CC0, credited with thanks.",
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/assets/prompts"
+      ]
+    },
+    {
+      "name": "Platform logos",
+      "use": "The scoreboard's platform marks (platform_icons.ttf).",
+      "source": "port/linux/ui/fonts/platform_icons",
+      "copyright": [
+        "Simple Icons (https://simpleicons.org): Windows, Apple, Linux, FreeBSD, Android, Steam Deck, Nintendo Switch, PlayStation and Xbox Series marks, CC0-1.0",
+        "Wikimedia Commons, \"Xbox Logo 2001.svg\": public domain",
+        "The Xbox 360 ring and the Wii U GamePad: Chupathingy's own drawings, CC0-1.0"
+      ],
+      "license": "CC0-1.0 and public domain",
+      "credit": "BSD Daemon used with permission (http://www.mckusick.com/copyright.html). The names and logos are trademarks of their owners, used only to identify platforms; Chupathingy is not affiliated with or endorsed by them.",
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/linux/ui/fonts/platform_icons",
+        "port/linux/ui/fonts/platform_icons.ttf"
+      ]
+    },
+    {
+      "name": "The Xbox's 3D sound and reverb",
+      "use": "The HRTF (audio.hrtf) and reverb (audio.reverb) models in the sound mixer: port/linux/src/dsound_xbox_*.",
+      "source": "https://github.com/OpenH1/OpenH1, by way of https://github.com/chestahh/GulchCE",
+      "copyright": [
+        "Copyright OpenH1 contributors",
+        "Copyright chestahh (GulchCE)"
+      ],
+      "license": "GPL-3.0-or-later, like the rest of the game",
+      "credit": "The Xbox's HRTF and DSP reverb models by the OpenH1 contributors, brought into GulchCE by chestahh, credited with thanks.",
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/linux/src/dsound_xbox_hrtf.inl",
+        "port/linux/src/dsound_xbox_reverb.inl",
+        "port/linux/src/dsound_xbox_types.h"
+      ]
+    },
+    {
+      "name": "Halo PC Restored HUD art",
+      "use": "The high-res HUD on the Xbox maps.",
+      "source": "https://github.com/Aerocatia/halopc-restored (release r220)",
+      "copyright": [
+        "Aerocatia and Jessie"
+      ],
+      "license": "Used with Aerocatia's permission, on the condition that Aerocatia and Jessie are credited",
+      "credit": "High-res HUD art by Aerocatia and Jessie, from Halo PC Restored, used with Aerocatia's permission (October 14, 2026). It is not covered by Chupathingy's license; anyone reusing it should follow the same terms, or ask Aerocatia. port/assets/hud/NOTICE.md lists which files are theirs.",
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/assets/hud/NOTICE.md"
+      ]
+    },
+    {
+      "name": "AppImage runtime",
+      "use": "The Linux AppImage only: the small program at the start of the AppImage file that mounts it and starts the game (AppImage's type2 runtime, added by appimagetool).",
+      "source": "https://github.com/AppImage/type2-runtime",
+      "copyright": [
+        "Copyright (c) 2004-23 probonopd"
+      ],
+      "license": "MIT",
+      "files": [
+        "port/notices/appimage/AppImage-runtime-LICENSE.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "appimage",
+      "covers": [
+        "port/notices/appimage/AppImage-runtime-LICENSE.txt"
+      ]
+    },
+    {
+      "name": "libfuse (in the AppImage runtime)",
+      "use": "The Linux AppImage only: mounting the AppImage, statically linked into its runtime.",
+      "source": "https://github.com/libfuse/libfuse (release 3.15.0, with the type2 runtime's patches: https://github.com/AppImage/type2-runtime)",
+      "copyright": [
+        "Copyright (C) 2001-2007 Miklos Szeredi <miklos@szeredi.hu>",
+        "and the other libfuse contributors"
+      ],
+      "license": "LGPL-2.1",
+      "credit": "libfuse's source, and the AppImage runtime's source and build scripts for relinking it with a changed libfuse, are at the addresses above. The runtime's musl, Zstandard and zlib are under the same licenses as the musl, Zstandard and zlib sections above.",
+      "files": [
+        "port/notices/appimage/libfuse-LGPL2.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "appimage",
+      "covers": [
+        "port/notices/appimage/libfuse-LGPL2.txt"
+      ]
+    },
+    {
+      "name": "squashfuse (in the AppImage runtime)",
+      "use": "The Linux AppImage only: reading the AppImage's SquashFS image.",
+      "source": "https://github.com/vasi/squashfuse (release 0.5.2)",
+      "copyright": [
+        "Copyright (c) 2012 Dave Vasilevsky <dave@vasilevsky.ca>",
+        "squashfs_fs.h: copyright Phillip Lougher"
+      ],
+      "license": "BSD-2-Clause",
+      "files": [
+        "port/notices/appimage/squashfuse-LICENSE.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "appimage",
+      "covers": [
+        "port/notices/appimage/squashfuse-LICENSE.txt"
+      ]
+    },
+    {
+      "name": "mimalloc (in the AppImage runtime)",
+      "use": "The Linux AppImage only: the runtime's memory allocator.",
+      "source": "https://github.com/microsoft/mimalloc (Alpine Linux's package)",
+      "copyright": [
+        "Copyright (c) 2018-2025 Microsoft Corporation, Daan Leijen"
+      ],
+      "license": "MIT",
+      "files": [
+        "port/notices/appimage/mimalloc-LICENSE.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "appimage",
+      "covers": [
+        "port/notices/appimage/mimalloc-LICENSE.txt"
+      ]
+    },
+    {
+      "name": "libadrenotools",
+      "use": "The Android app's Vulkan renderer: loading a Turnip driver in place of the phone's (display.vk_driver).",
+      "source": "https://github.com/eden-emulator/libadrenotools (commit 8ba23b42, tools/android_build.py; with port/android/vulkan/adrenotools.patch)",
+      "copyright": [
+        "Copyright (c) 2021, Billy Laws"
+      ],
+      "license": "BSD-2-Clause",
+      "files": [
+        "port/notices/libadrenotools-LICENSE.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "vulkan-android",
+      "covers": [
+        "port/notices/libadrenotools-LICENSE.txt",
+        "port/android/vulkan/adrenotools.patch"
+      ],
+      "fetched": [
+        "build/android/third_party/libadrenotools/LICENSE"
+      ]
+    },
+    {
+      "name": "linkernsbypass",
+      "use": "libadrenotools' loader hooks (its submodule).",
+      "source": "https://github.com/bylaws/liblinkernsbypass (as libadrenotools carries it)",
+      "copyright": [
+        "Copyright (c) 2021, Billy Laws"
+      ],
+      "license": "BSD-2-Clause",
+      "files": [
+        "port/notices/linkernsbypass-LICENSE.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "vulkan-android",
+      "covers": [
+        "port/notices/linkernsbypass-LICENSE.txt"
+      ],
+      "fetched": [
+        "build/android/third_party/libadrenotools/lib/linkernsbypass/LICENSE"
+      ]
+    },
+    {
+      "name": "glslang (Android)",
+      "use": "The Android app's Vulkan renderer: compiling the game's shaders to SPIR-V (libhalo_glslang.so, loaded at run time).",
+      "source": "https://github.com/KhronosGroup/glslang (release 16.6.0, tools/android_build.py)",
+      "copyright": [
+        "Copyright (C) 2002-2005 3Dlabs Inc. Ltd.",
+        "Copyright (C) 2012-2016 LunarG, Inc.",
+        "Copyright (C) 2015-2018 Google, Inc.",
+        "and the other copyright holders named below"
+      ],
+      "license": "BSD-3-Clause, BSD-2-Clause, MIT, Apache-2.0 and others, as below",
+      "files": [
+        "port/notices/glslang-LICENSE.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "vulkan-android",
+      "covers": [
+        "port/android/vulkan/glslang"
+      ],
+      "fetched": [
+        "build/android/third_party/glslang/LICENSE.txt"
+      ]
+    },
+    {
+      "name": "Turnip (Mesa)",
+      "use": "Not in the download: the open-source Vulkan driver for Adreno GPUs the Android app can download at the player's request (display.vk_driver = \"auto\"), from AdrenoToolsDrivers' releases.",
+      "source": "https://gitlab.freedesktop.org/mesa/mesa (builds from https://github.com/K11MCH1/AdrenoToolsDrivers/releases)",
+      "copyright": [
+        "Copyright (C) 1999-2007 Brian Paul All Rights Reserved."
+      ],
+      "license": "MIT",
+      "files": [
+        "port/notices/turnip-LICENSE.txt"
+      ],
+      "packages": [
+        "game"
+      ],
+      "requires": "vulkan-android",
+      "covers": [
+        "port/notices/turnip-LICENSE.txt"
+      ]
+    }
+  ]
+}

@@ -48,6 +48,7 @@ role, as the site shows its holder; no address anywhere.
 #include "saved games/saved_game_files.h"
 #include "../src/browser.h"
 #include "../src/delta_profile.h"
+#include "delta.h"
 #include "../src/clan_emblem.h"
 #include "../src/ui_overlay.h"
 #include "halo_ui_pointer.h"
@@ -422,27 +423,22 @@ static char const *map_name(
 	return map;
 }
 
+#define PLATFORM_KEY_NAME(platform, key, tag, name, caps_name) { key, name },
 static char const *platform_name(
 	char const *platform)
 {
-	static char const *const names[][2] =
-	{
-		{ "pc_linux", "Linux PC" }, { "pc_windows", "Windows PC" }, { "pc_macos", "Mac" },
-		{ "android", "Android" }, { "steam_deck", "SteamOS" }, { "xbox", "Xbox" }, { "xbox360", "Xbox 360" },
-		{ "xbox_series", "Xbox Series" }, { "psp", "PSP" }, { "vita", "PS Vita" }, { "wiiu", "Wii U" },
-		{ "pc_freebsd", "FreeBSD PC" }, { "xbox_uwp", "Xbox Series" }, { "switch", "Switch" }, { "ps3", "PS3" },
-		{ "ps4", "PS4" }, { "ps5", "PS5" }, { "n64", "Nintendo 64" }, { "pc_legacy", "Legacy PC" },
-		{ "steamlink", "Steam Link" }, { "ios", "iPhone and iPad" }, { "tvos", "Apple TV" },
-	};
+	/* (delta.h's registry: one table names every platform) */
+	static char const *const names[][2] = { DELTA_PLATFORM_NAMES(PLATFORM_KEY_NAME) };
 	short index;
 
-	for (index = 0; index < NUMBEROF(names); index++)
+	for (index = 1; index < NUMBEROF(names); index++)
 	{
 		if (!strcmp(platform, names[index][0]))
 			return names[index][1];
 	}
 	return platform[0] ? platform : "Device";
 }
+#undef PLATFORM_KEY_NAME
 
 /* a count with thousands' commas */
 static void number_text(

@@ -1,10 +1,10 @@
 # Moderators and the control panel
 
-Delta Control is how a ChupathingyCE Dedicated Server is run: its console,
+Delta Control is how a Chupathingy dedicated server is run: its console,
 its control API, its web control panel, in-game moderation over Delta Peer,
 and, if you want it, a link to the Chupathingy site (stats.chupathingy.org). All of it works without
-the site. Nothing is on until you turn it on, and nobody is a moderator
-until you make them one.
+the site. The control panel is on for this machine alone until you open it
+further. Nobody is a moderator until you make them one.
 
 Player hosts (a game hosted from the menus) already have OpenCE's own kick
 and ban, from the host's console; Delta Control is the dedicated server's,
@@ -47,7 +47,7 @@ The game's player key (`game_list_player.key`, in each copy's save folder)
 never leaves the player's machine except to the Chupathingy site. From it the
 game makes a second key, an Ed25519 key pair, whose public half is the
 player's **moderator key**: 64 hex digits. A server knows a moderator by
-that key, and a ChupathingyCE game proves it holds the key (a signature of
+that key, and a Chupathingy game proves it holds the key (a signature of
 a challenge the server makes for each session, and of each action) when
 its player signs in from the game's Moderation screen. Names can be faked
 and hardware ids can be claimed; a moderator key cannot be.
@@ -55,7 +55,7 @@ and hardware ids can be claimed; a moderator key cannot be.
 A player's game shows only when its player signs in (it is the same key on
 every server), so other servers never learn it.
 
-A player can also be known by their **Delta account**. A ChupathingyCE game
+A player can also be known by their **Delta account**. A Chupathingy game
 that shares its profile proves who its players are when it joins, with its
 device certificate (docs/delta.md, "Verified names"). Only a proof bound to
 this server counts here: the player joined through the server's invite, so
@@ -97,15 +97,15 @@ until it is fixed.
 | `sv_mod_add <moderator key> <role> [name]` | The same, with the key itself (a moderator can read theirs on the Moderation screen). |
 | `sv_mod_add <account> <role> [name]` | The same, for a Delta account (32 hex digits). A player in the game whose game proved their profile but no key gets their account this way too. |
 | `sv_mod_remove <key or name>` | Takes a moderator out (the key's first 8 or more digits will do). |
-| `sv_warn <player> <reason>` | A warning in the player's game (a ChupathingyCE game shows it; any warning is in the audit file). |
+| `sv_warn <player> <reason>` | A warning in the player's game (a Chupathingy game shows it; any warning is in the audit file). |
 | `sv_mute <player> [minutes]`, `sv_unmute <player>` | A player's chat lines not passed on (until they leave, or for a while), and on again. |
-| `sv_say <text>` | A server message in every ChupathingyCE player's chat. |
-| `sv_kick <player> [reason]`, `sv_ban <player> [duration] [reason]` | As before, with a reason. A ChupathingyCE player sees it as their game drops them. A ban also names the Delta accounts and device the player's game proved bound to this server, and a machine that proves a banned account or device later is dropped. This only reaches players who share their profile; address and hardware id bans reach everyone. |
+| `sv_say <text>` | A server message in every Chupathingy player's chat. |
+| `sv_kick <player> [reason]`, `sv_ban <player> [duration] [reason]` | As before, with a reason. A Chupathingy player sees it as their game drops them. A ban also names the Delta accounts and device the player's game proved bound to this server, and a machine that proves a banned account or device later is dropped. This only reaches players who share their profile; address and hardware id bans reach everyone. |
 | `sv_team <player> <red\|blue>` | Moves a player to a team (a team game); the control panel's To Red and To Blue. |
 
 ### In the game
 
-A moderator in a ChupathingyCE game opens the Moderation screen (Y on a
+A moderator in a Chupathingy game opens the Moderation screen (Y on a
 controller, or M, from the pause menu) on a server that offers it, signs in
 (A), and picks a player and an action: warn, mute chat (until they leave, or 10
 minutes), unmute chat, kick, ban for an hour, a day, 7 days, 30 days, or
@@ -139,8 +139,8 @@ keeps running fast by its own rule, as it always has.
 
 ### Reports
 
-A Chupathingy player can report another from DELTA's PLAYERS HERE (A on a
-player, then REPORT), or by opening DELTA over the scoreboard. They pick a
+A Chupathingy player can report another from the Guide's PLAYERS HERE (A on
+a player, then REPORT), or by opening the Guide over the scoreboard. They pick a
 reason (cheating, abuse in chat or voice, griefing or betraying, an
 offensive name, something else) and may attach a clip. The server takes 3
 reports a minute and 10 a game from one machine, and one report of each
@@ -437,7 +437,9 @@ already in the server's game. With the link: outbound HTTPS to the site.
   waits five minutes; five wrong for an account from one address and the
   account is locked for that address a minute, doubling to an hour, and
   forgotten after 15 quiet minutes (from anywhere else it still logs in,
-  and a locked login reads as a wrong password). Behind a reverse proxy,
+  and a locked login reads as a wrong password). A session's own password
+  asked again (to change it, or turn the second factor off) counts the
+  same, so a stolen session guesses no faster. Behind a reverse proxy,
   `HALO_DEDICATED_CONTROL_TRUSTED_PROXY` lets these count each client
   ([admin.md](admin.md)). Addresses are counted by a keyed hash, never
   kept. The setup code and invitations are 128-bit, single use, and expire.

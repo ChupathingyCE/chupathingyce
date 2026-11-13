@@ -23,6 +23,7 @@ list, loader, resource directory or display index is used here.
 #include "../src/steam_workshop.h"
 #include "../src/workshop_collections.h"
 #include "../src/port_config.h"
+#include "../src/workshop_decisions.h"
 #include "../src/mcc_manifest.h"
 #include "../src/mcc_menu_metadata.h"
 
@@ -215,20 +216,35 @@ static int mcc_map_order(void const *left, void const *right)
 		((struct mcc_menu_map const *)right)->file_name);
 }
 
+static boolean mcc_map_package_is_item(char const *package);
+
+/* a campaign level's missions in their package's order: game.mcc_campaigns,
+or (WORKSHOP_CAMPAIGN_ORDER_ALWAYS, workshop_decisions.h) a Workshop item's
+own levels, whatever the setting says */
+boolean mcc_maps_campaign_order(char const *level_name)
+{
+	char package[64];
+
+	if (config_boolean("game.mcc_campaigns"))
+		return TRUE;
+	return WORKSHOP_CAMPAIGN_ORDER_ALWAYS && level_name && mcc_workshop_package_folder(level_name, package) &&
+		mcc_map_package_is_item(package);
+}
+
 static void mcc_maps_campaign_metadata(void)
 {
 	static struct mcc_manifest manifest;
 	char previous[64] = "", package[64], reason[128];
 	int result = 0;
 	short index;
-	if (!config_boolean("game.mcc_campaigns")) return;
 	/* The first sort groups package paths. Read each manifest once, keeping
      * its missing binary entries so progression cannot jump a missing level. */
 	for (index = 0; index < mcc_menu_catalog.count; index++)
 	{
 		struct mcc_menu_map *map = &mcc_menu_catalog.maps[index];
 		int mission;
-		if (!map->campaign || !mcc_workshop_package_folder(map->level_name, package)) continue;
+		if (!map->campaign || !mcc_workshop_package_folder(map->level_name, package) ||
+			!mcc_maps_campaign_order(map->level_name)) continue;
 		if (csstrcasecmp(previous, package))
 		{
 			strcpy(previous, package);
@@ -275,7 +291,7 @@ static void mcc_maps_menu_metadata(void)
 		struct steam_workshop_map_text const *text;
 		int family = map->campaign ? 1 : 0;
 		size_t n;
-		if (map->campaign && !config_boolean("game.mcc_campaigns")) continue;
+		if (map->campaign && !mcc_maps_campaign_order(map->level_name)) continue;
 		if (!mcc_workshop_package_folder(map->level_name, package)) continue;
 		if (csstrcasecmp(previous, package))
 		{
@@ -411,13 +427,15 @@ static boolean mcc_map_workshop_title(struct mcc_menu_map *map)
 	return FALSE;
 }
 
-/* Exactly one package level; directory entries never become arbitrary paths. */
-static void mcc_maps_scan_directory(char const *package)
+/* One package level, plus its fixed Workshop maps directory. The nested disk
+ * layout never becomes part of a saved or network level identity. */
+static void mcc_maps_scan_directory(char const *package, boolean nested)
 {
     WIN32_FIND_DATAA data;
     HANDLE find;
     char pattern[128];
-    snprintf(pattern,sizeof(pattern),"%s%s%s*.*",MCC_MAPS_DIRECTORY,package,package[0] ? "\\" : "");
+    snprintf(pattern,sizeof(pattern),"%s%s%s%s*.*",MCC_MAPS_DIRECTORY,package,
+        package[0] ? "\\" : "",nested ? "maps\\" : "");
     find=FindFirstFileA(pattern,&data);
     if (find==INVALID_HANDLE_VALUE) return;
     do {
@@ -429,9 +447,13 @@ static void mcc_maps_scan_directory(char const *package)
         length=strlen(name);
         if (!length || strpbrk(name,"/\\") || length>58) continue;
         if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            if (package[0] || !csstrcasecmp(name,"_shared")) continue;
+            if (package[0]) {
+                if (!nested && !csstrcasecmp(name,"maps")) mcc_maps_scan_directory(package,TRUE);
+                continue;
+            }
+            if (!csstrcasecmp(name,"_shared")) continue;
             snprintf(candidate,sizeof(candidate),"%s%s\\x",MCC_MAPS_LEVEL_PREFIX,name);
-            if (mcc_package_name(candidate,canonical)) mcc_maps_scan_directory(name);
+            if (mcc_package_name(candidate,canonical)) mcc_maps_scan_directory(name,FALSE);
             continue;
         }
         extension=strrchr(name,'.');
@@ -459,7 +481,7 @@ static void mcc_maps_scan(void)
     mcc_menu_catalog.campaigns_enabled = campaigns;
     mcc_menu_catalog.scanned=TRUE;
     mcc_menu_catalog.count=0;
-    mcc_maps_scan_directory("");
+    mcc_maps_scan_directory("",FALSE);
     /* The subscribed Steam Workshop items: each map is the level mcc_maps\<item id>\<map name>. */
     for (i=0;i<steam_workshop_count();i++) {
         struct steam_workshop_map const *item=steam_workshop_map(i);
@@ -509,7 +531,7 @@ int mcc_maps_next_mission(char const *level_name, char next[64])
 	short index, target;
 	struct mcc_menu_map const *map;
 	next[0] = 0;
-	if (!config_boolean("game.mcc_campaigns")) return 0;
+	if (!mcc_maps_campaign_order(level_name)) return 0;
 	index = mcc_maps_find(level_name);
 	if (index == NONE) return 0;
 	map = &mcc_menu_catalog.maps[index];

@@ -1534,7 +1534,8 @@ static boolean solo_level_initialize_list_single_player(
 /* ---------- globals */
 
 static wchar_t new_campaign_profile_name[12] = { 0 };
-struct single_player_level_entry single_player_level_data[NUMBER_OF_SINGLE_PLAYER_LEVELS] = { 0 };
+/* port: (room for Stubbs mode's twelve: port/linux/game/stubbs_campaign.c) */
+struct single_player_level_entry single_player_level_data[STUBBS_CAMPAIGN_LEVEL_COUNT] = { 0 };
 struct persistent_game_difficulty
 {
 	short value;
@@ -4534,6 +4535,23 @@ static boolean solo_level_set_next_map_name(
 
 	list_widget = widget;
 	result = FALSE;
+	/* port: Stubbs mode's twelve levels, its profiles' finished levels its
+	own (port/linux/game/stubbs_campaign.c) */
+	if (stubbs_mode_active() && player_spawn_count == 1)
+	{
+		short level = list_widget->parameters.list.selected_index;
+
+		if (!stubbs_campaign_level_available(0, level))
+		{
+			error(2, "this level is unavailable to you!");
+			ui_play_audio_feedback_sound(4);
+			return FALSE;
+		}
+		player_ui_remember_player1_profile(0);
+		main_set_map_name(ui_single_player_level(level));
+		main_defer_map_map_change();
+		return TRUE;
+	}
 #ifdef HALO_MAP_LIST
 	/* port: an MCC campaign map's row, after the ten levels: always there */
 	if (list_widget->parameters.list.selected_index >= 10)
@@ -4693,6 +4711,17 @@ static boolean player_profiles_list_initialize(
 		on the built-in Default, whose empty name multiplayer refuses */
 		profile_index = player_profile_list_start(widget->parameters.list.list_items,
 			(short)widget->parameters.list.number_of_items, last_profile_index);
+		/* port: Stubbs mode's TWO PLAYER: player 2's list starts on a
+		profile of his own, not on the one player 1 just chose
+		(port/linux/game/stubbs_multiplayer.c) */
+		if (stubbs_mode_active())
+		{
+			short own = stubbs_multiplayer_profile_list_start((short)widget->local_player_index,
+				widget->parameters.list.list_items, (short)widget->parameters.list.number_of_items);
+
+			if (own != NONE)
+				profile_index = own;
+		}
 		if (profile_index != NONE)
 			widget->parameters.list.selected_index = (short)profile_index;
 	}
@@ -6139,6 +6168,60 @@ static boolean multiplayer_profile_set_for_game(
 }
 
 
+/* port: Stubbs mode's Load Level: its twelve levels, each available when
+finished, the one after the last finished, or the first; on the saved
+game's level if there is one, else the last one available
+(port/linux/game/stubbs_campaign.c) */
+static boolean solo_level_initialize_list_stubbs(
+	struct widget_instance *widget)
+{
+	long profile_index = player_ui_get_active_player_profile_index(0);
+	short level;
+	short selected = 0;
+
+	memset(single_player_level_data, 0, sizeof(single_player_level_data));
+	if (profile_index != event_handler_functions.last_player1_profile_index)
+	{
+		memset(&persistant_game_data_info, 0, sizeof(persistant_game_data_info));
+		persistant_game_data_info.valid = game_state_test_persistent_storage(
+			persistant_game_data_info.map_name,
+			&persistant_game_data_info.difficulty.value,
+			&persistant_game_data_info.corrupted);
+		event_handler_functions.last_player1_profile_index = profile_index;
+	}
+	for (level = 0; level < STUBBS_CAMPAIGN_LEVEL_COUNT; level++)
+	{
+		unsigned long flags = stubbs_campaign_level_flags(0, level);
+
+		single_player_level_data[level].map_name = ui_single_player_level(level);
+		if (stubbs_campaign_level_available(0, level))
+		{
+			single_player_level_data[level].available = TRUE;
+			single_player_level_data[level].unknown5 = (flags >> 1) & 1;
+			single_player_level_data[level].unknown6 = (flags >> 2) & 1;
+			single_player_level_data[level].unknown7 = (flags >> 3) & 1;
+			selected = level;
+		}
+	}
+	persistant_game_data_info.map_name[0xFF] = 0;
+	if (persistant_game_data_info.valid == TRUE)
+	{
+		level = main_get_solo_level_from_name(persistant_game_data_info.map_name);
+		if (level == NONE)
+			persistant_game_data_info.valid = FALSE;
+		else
+		{
+			persistant_game_data_info.map_index = (byte)level;
+			persistant_game_data_info.difficulty.value = PIN(persistant_game_data_info.difficulty.value, 0, 3);
+			selected = level;
+		}
+	}
+	widget->parameters.list.list_items = single_player_level_data;
+	widget->parameters.list.number_of_items = STUBBS_CAMPAIGN_LEVEL_COUNT;
+	widget->parameters.list.selected_index = selected;
+	return TRUE;
+}
+
 static boolean solo_level_initialize_list_single_player(
 	struct widget_instance *widget,
 	struct event_record *event,
@@ -6157,6 +6240,10 @@ static boolean solo_level_initialize_list_single_player(
 		solo_level_initialize_list_coop(widget, event, widget_deleted);
 		return TRUE;
 	}
+
+	/* port: Stubbs mode's twelve levels (above) */
+	if (stubbs_mode_active())
+		return solo_level_initialize_list_stubbs(widget);
 
 	profile_index = player_ui_get_active_player_profile_index(0);
 	memset(single_player_level_data, 0, sizeof(single_player_level_data));
@@ -6205,10 +6292,12 @@ static boolean solo_level_initialize_list_single_player(
 		extern short ui_widget_port_mcc_campaign_count(void);
 		extern char const *config_string(char const *name);
 
-		widget->parameters.list.number_of_items = (short)(10 + ui_widget_port_mcc_campaign_count());
+		/* (not in Stubbs mode, whose campaign is its own) */
+		if (!stubbs_mode_active())
+			widget->parameters.list.number_of_items = (short)(10 + ui_widget_port_mcc_campaign_count());
 		/* (on the Workshop item the Delta Guide's PLAY handed over: its
 		levels lead the MCC rows, mcc_maps.c) */
-		if (mcc_maps_take_first_focus() && ui_widget_port_mcc_campaign_count())
+		if (!stubbs_mode_active() && mcc_maps_take_first_focus() && ui_widget_port_mcc_campaign_count())
 			widget->parameters.list.selected_index = 10;
 #ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 		/* (debug.menu_open's "#singleplayer_last": on the last, for screenshots) */
@@ -6459,19 +6548,12 @@ boolean ui_widget_port_cooperative_level_choose(
 	short difficulty)
 {
 	struct network_game_server *server = global_network_game_server_get();
-	struct game_variant variant;
 
 	if (!server || !map_name || main_get_solo_level_from_name(map_name) == NONE)
 		return FALSE;
-	csmemset(&variant, 0, sizeof(variant));
-	ustrncpy(variant.human_readable_game_description, L"Co-op",
-		NUMBEROF(variant.human_readable_game_description) - 1);
-	main_set_difficulty(difficulty);
-	main_set_multiplayer_map_name(map_name);
-	network_game_server_port_set_cooperative(server, difficulty);
-	network_game_server_change_map_name(server, map_name);
-	network_game_server_change_game_variant(server, &variant);
-	return TRUE;
+	/* (the level and its co-op settings together; or nothing yet, while
+	the host is asked about leaving an MCC map: network_server_manager.c) */
+	return network_game_server_port_change_cooperative_level(server, map_name, difficulty);
 }
 
 /* the gametype chosen (as multiplayer_profile_set_for_game), the server's

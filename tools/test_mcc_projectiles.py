@@ -188,7 +188,9 @@ typedef struct {real i,j,k;} real_vector3d;
 struct aim_assist_parameters {real autoaim_angle,autoaim_distance,magnetism_angle,magnetism_distance,deviation_angle,unused;};
 struct aim_assist_target {long object_index;real_point3d position;real autoaim_level;};
 struct player_datum {long unit_index;short team_index;};
-struct unit_datum {struct {short current_weapon_index;} unit;};
+struct unit_datum {struct {short current_weapon_index;short player_index;} unit;};
+#define MCC_SKULL_EYE_PATCH 0
+#define mcc_skull_active(s) ((void)(s),0)
 struct weapon_datum {long definition_index;};
 struct weapon_definition {struct {unsigned flags;struct aim_assist_parameters aim_assist_parameters;} weapon;};
 static struct player_datum p={1,2};static struct unit_datum u;static struct weapon_datum w;static struct weapon_definition wd;

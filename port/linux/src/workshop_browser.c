@@ -19,6 +19,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "retry_backoff.h"
 #include "workshop_browser.h"
+#include "workshop_decisions.h"
 #include "steam_workshop.h"
 #include "steam_client_bridge.h"
 #include "posix.h"
@@ -45,6 +46,7 @@ int config_write_boolean(const char *name, int value);
 void platform_log(const char *format, ...);
 const char *platform_save_root(void);
 const char *platform_data_root(void);
+void mcc_maps_rescan(void);
 
 #define STEAM_APP "976730"
 #define APP_MANIFEST "steamapps/appmanifest_" STEAM_APP ".acf"
@@ -676,6 +678,15 @@ static int bridge_state(struct workshop_browser_item *item, int folder_state)
 	if (!bridge_ready() || !steam_bridge_item(item->id, &known))
 		return folder_state;
 	item->steam_subscribed = known.subscribed;
+	/* (a GET the player cancelled: not a failure, the item as it was) */
+	if (known.state == STEAM_BRIDGE_ITEM_FAILED && !strcmp(known.error, "Cancelled"))
+		return folder_state;
+	/* (asked again a moment ago: the failure is the last try's) */
+	if (known.state == STEAM_BRIDGE_ITEM_FAILED && item->subscribed &&
+		system_milliseconds() - item->asked_time < 2500)
+	{
+		return folder_state == WORKSHOP_ITEM_NOT_INSTALLED ? WORKSHOP_ITEM_WAITING : folder_state;
+	}
 	if (known.state == STEAM_BRIDGE_ITEM_FAILED)
 		snprintf(item->steam_error, sizeof(item->steam_error), "%s", known.error);
 	switch (known.state)
@@ -1727,11 +1738,17 @@ static void list_take(void)
 
 /* ---------- public code */
 
+/* the game's own Steam library's folder (own_library's) */
+static char own_library_path[STEAM_WORKSHOP_PATH_SIZE];
+
+/* (own_library's: set, or set again once WORKSHOP FOLDER changed it) */
+static int own_library_set;
+
 /* the game's own Steam library: steamcmd's downloads (paths.steam_downloads,
 else steam/ in the data folder), read in place as any other library */
 static void own_library(void)
 {
-	static int set;
+#define set own_library_set
 	const char *setting = config_string("paths.steam_downloads"), *data = platform_data_root();
 	char path[STEAM_WORKSHOP_PATH_SIZE];
 
@@ -1742,9 +1759,75 @@ static void own_library(void)
 		snprintf(path, sizeof(path), "%s", setting);
 	else if (!data || snprintf(path, sizeof(path), "%s/steam", data) >= (int)sizeof(path))
 		return;
+	snprintf(own_library_path, sizeof(own_library_path), "%s", path);
 	steam_workshop_set_own_library(path);
 	steam_bridge_set_download_folder(path);
+#undef set
 }
+
+/* ---------- WORKSHOP FOLDER: the system's folder picker */
+
+#if !defined(HALO_ANDROID) && !defined(HALO_WEB) && !defined(HALO_IOS) && !defined(HALO_CONSOLE) && !defined(HALO_SERVER)
+#include <SDL3/SDL_dialog.h>
+#include <SDL3/SDL_atomic.h>
+
+SDL_Window *platform_sdl_window(void);
+int config_write(const char *name, const char *value);
+
+static struct
+{
+	SDL_AtomicInt open, done;
+	char path[STEAM_WORKSHOP_PATH_SIZE];
+} folder_picker;
+
+static void SDLCALL folder_picked(void *userdata, const char *const *files, int filter)
+{
+	(void)userdata;
+	(void)filter;
+	folder_picker.path[0] = 0;
+	if (files && files[0])
+		snprintf(folder_picker.path, sizeof(folder_picker.path), "%s", files[0]);
+	SDL_SetAtomicInt(&folder_picker.done, 1);
+}
+
+int workshop_browser_choose_folder(void)
+{
+	if (SDL_GetAtomicInt(&folder_picker.open))
+		return 1;
+	own_library();
+	SDL_SetAtomicInt(&folder_picker.done, 0);
+	SDL_SetAtomicInt(&folder_picker.open, 1);
+	SDL_ShowOpenFolderDialog(folder_picked, NULL, platform_sdl_window(),
+		own_library_path[0] ? own_library_path : NULL, false);
+	return 1;
+}
+
+void workshop_browser_folder_follow(void)
+{
+	if (!SDL_GetAtomicInt(&folder_picker.open) || !SDL_GetAtomicInt(&folder_picker.done))
+		return;
+	SDL_SetAtomicInt(&folder_picker.open, 0);
+	/* (picked: the downloads go there from now on; cancelled: as it was) */
+	if (!folder_picker.path[0])
+		return;
+	config_write("paths.steam_downloads", folder_picker.path);
+	platform_log("Workshop: the Workshop folder is now the one picked");
+	own_library_set = 0;
+	own_library();
+	libraries_look(1);
+	mcc_maps_rescan();
+	workshop.watch_time = 0;
+}
+#else
+int workshop_browser_choose_folder(void)
+{
+	return 0;
+}
+
+void workshop_browser_folder_follow(void)
+{
+}
+#endif
 
 int workshop_browser_mcc_present(void)
 {
@@ -1840,6 +1923,7 @@ int workshop_browser_poll(void)
 	list_take();
 	details_step();
 	pending_run();
+	steam_link_discard_follow();
 	if (now - workshop.watch_time < WATCH_INTERVAL)
 		return 0;
 	workshop.watch_time = now;
@@ -2320,6 +2404,7 @@ int workshop_browser_subscribe(int index)
 			if (pending_add(workshop.items[index].id))
 			{
 				workshop.items[index].subscribed = 1;
+				workshop.items[index].asked_time = system_milliseconds();
 				workshop.items[index].state = WORKSHOP_ITEM_WAITING;
 			}
 			return 1;
@@ -2332,6 +2417,7 @@ int workshop_browser_subscribe(int index)
 			return 1;
 		}
 		workshop.items[index].subscribed = 1;
+		workshop.items[index].asked_time = system_milliseconds();
 		workshop.items[index].state = WORKSHOP_ITEM_WAITING;
 		return 1;
 	}
@@ -2346,6 +2432,7 @@ int workshop_browser_subscribe(int index)
 			platform_open_url(url);
 		}
 		workshop.items[index].subscribed = 1;
+		workshop.items[index].asked_time = system_milliseconds();
 		if (workshop.items[index].state == WORKSHOP_ITEM_NOT_INSTALLED)
 			workshop.items[index].state = WORKSHOP_ITEM_WAITING;
 		return 1;
@@ -2354,6 +2441,7 @@ int workshop_browser_subscribe(int index)
 	if (!config_boolean("debug.workshop_no_steam"))
 		platform_open_url(url);
 	workshop.items[index].subscribed = 1;
+	workshop.items[index].asked_time = system_milliseconds();
 	if (workshop.items[index].state == WORKSHOP_ITEM_NOT_INSTALLED)
 		workshop.items[index].state = WORKSHOP_ITEM_WAITING;
 	return 1;
@@ -2378,23 +2466,101 @@ void mcc_maps_rescan(void);
 
 /* REMOVE: the install backend's (the client unsubscribes; a downloader
 deletes its own copy), only while the bridge is up */
+/* an item's folder in the game's own library (what its Workshop got, never
+Steam's): 1 if it is there */
+static int own_folder(const char *id, char *path, int size)
+{
+	return own_library_path[0] && workshop_browser_id_valid(id) &&
+		snprintf(path, (size_t)size, "%s/" CONTENT_FOLDER "/%s", own_library_path, id) < size && is_directory(path);
+}
+
+int workshop_browser_in_own_library(int index)
+{
+	const struct workshop_browser_item *item = workshop_browser_item(index);
+	char path[STEAM_WORKSHOP_PATH_SIZE];
+
+	own_library();
+	return item && !item->setup && own_folder(item->id, path, sizeof(path));
+}
+
 int workshop_browser_removable(int index)
 {
 	const struct workshop_browser_item *item = workshop_browser_item(index);
 
-	return item && !item->setup && bridge_ready() && steam_bridge_removable(item->id);
+	if (!item || item->setup)
+		return 0;
+	/* (the game's own copy: deleted here, linked or not; the client's
+	subscription, through the bridge, only behind the old paths) */
+	if (workshop_browser_in_own_library(index))
+		return 1;
+	return !WORKSHOP_OLD_INSTALL_PATHS_DEBUG_ONLY && bridge_ready() && steam_bridge_removable(item->id);
 }
 
 int workshop_browser_remove(int index)
 {
 	const struct workshop_browser_item *item = workshop_browser_item(index);
+	char path[STEAM_WORKSHOP_PATH_SIZE];
 
-	if (!workshop_browser_removable(index) || !steam_bridge_remove(item->id))
+	if (!workshop_browser_removable(index))
 		return 0;
+	/* (the game's own copy first, so a Steam subscription to the same item
+	is left alone; the bridge only behind the old paths) */
+	if (workshop_browser_in_own_library(index))
+	{
+		if (!own_folder(item->id, path, sizeof(path)) || !steam_bridge_platform_remove_folder(path))
+			return 0;
+	}
+	else if (WORKSHOP_OLD_INSTALL_PATHS_DEBUG_ONLY || !bridge_ready() || !steam_bridge_removable(item->id) ||
+		!steam_bridge_remove(item->id))
+	{
+		return 0;
+	}
 	platform_log("Workshop: item %s asked to be removed", item->id);
+	{
+		struct workshop_browser_item *own = item_by_id(item->id);
+
+		if (own)
+		{
+			own->subscribed = 0;
+			own->steam_error[0] = 0;
+		}
+	}
+	failed_clear(item->id);
 	mcc_maps_rescan();
 	workshop.watch_time = 0;
 	return 1;
+}
+
+int workshop_browser_cancel(int index)
+{
+	const struct workshop_browser_item *shown = workshop_browser_item(index);
+	struct workshop_browser_item *item = shown && !shown->setup ? item_by_id(shown->id) : NULL;
+	int slot;
+
+	if (!item || item->state == WORKSHOP_ITEM_INSTALLED)
+		return 0;
+	for (slot = 0; slot < (int)(sizeof(pending_gets) / sizeof(pending_gets[0])); slot++)
+	{
+		if (!strcmp(pending_gets[slot], item->id))
+			pending_gets[slot][0] = 0;
+	}
+	steam_link_cancel_get(item->id);
+	failed_clear(item->id);
+	platform_log("Workshop: item %s's GET cancelled", item->id);
+	item->subscribed = 0;
+	item->steam_error[0] = 0;
+	item->downloaded = item->total = 0;
+	item->state = WORKSHOP_ITEM_NOT_INSTALLED;
+	workshop.watch_time = system_milliseconds();
+	return 1;
+}
+
+const char *workshop_browser_list_why(void)
+{
+	if (workshop.status != WORKSHOP_LIST_FAILED)
+		return "";
+	/* (no answer at all: offline; an answer that wasn't a list: failed) */
+	return workshop.web_retry.status <= 0 ? "Offline" : "Failed";
 }
 
 int workshop_browser_update_offered(int index)
@@ -2404,8 +2570,10 @@ int workshop_browser_update_offered(int index)
 	struct posix_file_information information;
 	int library;
 
-	/* (Steam's update time after the installed copy's own, in any library) */
-	if (!item || item->setup || item->state != WORKSHOP_ITEM_INSTALLED || item->updated <= 0)
+	/* (Steam's update time after the installed copy's own, in the game's
+	own library: Steam updates its own copies) */
+	if (!item || item->setup || item->state != WORKSHOP_ITEM_INSTALLED || item->updated <= 0 ||
+		!workshop_browser_in_own_library(index))
 		return 0;
 	for (library = 0; library < workshop.library_count; library++)
 	{
@@ -2657,15 +2825,26 @@ int workshop_join_start(const char *id, char *why, int size)
 	return 1;
 }
 
+static int join_poll(unsigned long long *done, unsigned long long *total);
+
 int workshop_join_poll(unsigned long long *done, unsigned long long *total, char *why, int size)
+{
+	int state = join_poll(done, total);
+
+	/* (the reason as it stands after this poll: a failure's own words go
+	out with the FAILED that says it, not a poll later) */
+	if (why && size > 0)
+		snprintf(why, (size_t)size, "%s", joining.why);
+	return state;
+}
+
+static int join_poll(unsigned long long *done, unsigned long long *total)
 {
 	unsigned long now = system_milliseconds();
 	struct steam_bridge_item known;
 	int status;
 
 	*done = *total = 0;
-	if (why && size > 0)
-		snprintf(why, (size_t)size, "%s", joining.why);
 	if (joining.state == WORKSHOP_JOIN_LINKING)
 	{
 		int link = steam_link_poll(NULL, 0, NULL, 0);

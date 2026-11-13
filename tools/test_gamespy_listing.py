@@ -184,6 +184,47 @@ def test_junk_gets_no_reply(server):
     assert server.query(b"\\basic\\").startswith(b"\\hostname\\")
 
 
+def test_replies_to_one_address_are_limited(server):
+    """A reply is many times its query's size, and a query's source address
+    can be anyone's: one address is answered only a few times a second,
+    however many queries name it, so the server can't be turned on it."""
+    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    client.settimeout(0.5)
+    try:
+        for _ in range(40):
+            client.sendto(b"\\status\\", ("127.0.0.1", server.port))
+        replies = 0
+        try:
+            while True:
+                client.recvfrom(4096)
+                replies += 1
+        except socket.timeout:
+            pass
+    finally:
+        client.close()
+    assert 1 <= replies <= 10, replies
+
+
+
+def reply_place(address):
+    """the listing's place for an address (gamespy_listing.c, reply_allowed)"""
+    return ((address * 2654435761) & 0xFFFFFFFF) >> 24
+
+
+def test_addresses_in_one_place_share_a_limit(harness):
+    """Two addresses that hash to the same place, taking turns: neither
+    starts the other's count again, so between them they get no more than
+    one address's replies a second."""
+    first = 0x0100007F
+    second = next(address for address in range(first + 1, first + 0x1000000)
+                  if reply_place(address) == reply_place(first))
+    out = subprocess.run([str(harness), "replies", "40", hex(first), hex(second)], capture_output=True, text=True,
+                         check=True).stdout.split()
+    assert sum(map(int, out)) <= 6, out
+    out = subprocess.run([str(harness), "replies", "40", hex(first)], capture_output=True, text=True,
+                         check=True).stdout.split()
+    assert out == ["6"], out
+
 def test_many_players(harness):
     started = Server(harness, players=36)
     try:

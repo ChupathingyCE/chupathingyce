@@ -50,6 +50,13 @@ fi
 
 ssh "$host" 'sudo mkdir -p /opt/halo-dedicated/data/maps /opt/halo-dedicated/data/md_maps /opt/halo-dedicated/data/maps_ce /opt/halo-dedicated/data/maps_md /opt/halo-dedicated/data/maps_pc /opt/halo-dedicated/data/playlists /opt/halo-dedicated/data/saves '"$context/bin/$arch"' && sudo chown -R "$(id -un)" /opt/halo-dedicated'
 scp "$binary" "$host:$context/bin/$arch/chupathingyce-server"
+# (its license and notices, when it is a release's or ci_build.py's folder,
+# go into the image beside it)
+for notice in LICENSE.txt THIRD-PARTY-NOTICES.txt; do
+	if [ -f "$(dirname "$binary")/$notice" ]; then
+		scp "$(dirname "$binary")/$notice" "$host:$context/bin/$arch/$notice"
+	fi
+done
 scp "$here/Dockerfile" "$host:$context/"
 scp "$here"/../playlists/*.txt "$host:/opt/halo-dedicated/data/playlists/"
 scp "$here/../blocked_names.txt" "$host:/opt/halo-dedicated/data/"
@@ -65,8 +72,15 @@ fi
 ssh "$host" 'test -f /opt/halo-dedicated/dedicated.env' || scp "$here/dedicated.env" "$host:/opt/halo-dedicated/"
 # (and the further servers' template, deploy-instance.sh's, which runs the
 # same image: its servers take it as they restart)
-scp "$here/halo-dedicated.service" "$here/halo-dedicated@.service" "$host:/tmp/"
-ssh "$host" 'sudo mv /tmp/halo-dedicated.service /tmp/halo-dedicated@.service /etc/systemd/system/ \
+# (through a folder of this run's own on the host, made by mktemp: no name
+# in a shared /tmp another user could take first; installed as root's)
+remote_folder=$(ssh "$host" 'mktemp -d')
+case "$remote_folder" in
+"" | [!/]* | *[!A-Za-z0-9/._-]*) echo "deploy.sh: no folder of its own on the host" >&2; exit 1 ;;
+esac
+scp "$here/halo-dedicated.service" "$here/halo-dedicated@.service" "$host:$remote_folder/"
+ssh "$host" 'sudo install -o root -g root -m 644 '"$remote_folder"'/halo-dedicated.service '"$remote_folder"'/halo-dedicated@.service /etc/systemd/system/ \
+	&& rm -rf '"$remote_folder"' \
 	&& sudo systemctl daemon-reload \
 	&& sudo systemctl enable halo-dedicated'
 if [ "$restart" = true ]; then

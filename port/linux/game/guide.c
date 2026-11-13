@@ -2,7 +2,7 @@
 GUIDE.C
 
 The Guide (guide.h): one panel over whatever is on screen, the same in the
-Xbox's, Gearbox's and the Chupathingy menus and over a game in progress.
+Xbox's and the Chupathingy menus and over a game in progress.
 Its look is the Chupathingy menus' (the Xbox's blues, the plasma under the
 menus' items, glow on the selected row and the edges, the prompt bar), its
 data social.c's.
@@ -130,6 +130,7 @@ DELTA counts what waits ("DELTA 2": invites and requests).
 #include "../src/delta_input_rules.h"
 #include "guide_record.h"
 #include "guide_workshop.h"
+#include "guide_logs.h"
 #include "report_player.h"
 
 #include <stdio.h>
@@ -139,6 +140,8 @@ DELTA counts what waits ("DELTA 2": invites and requests).
 
 int config_boolean(char const *name);
 long config_integer(char const *name);
+int config_menus_retired_pending(void);
+void config_menus_retired_seen(void);
 char const *config_string(char const *name);
 int config_write(char const *name, char const *value);
 int config_write_boolean(char const *name, int value);
@@ -321,6 +324,8 @@ enum
 	/* WORKSHOP's PREV and NEXT (index 0 and 1), and Steam's sign-in window's button */
 	_target_page,
 	_target_modal,
+	/* SEND MY LOGS' window's buttons (index 0 the left one) */
+	_target_logs,
 };
 
 /* RECENT's options on a player */
@@ -439,6 +444,9 @@ enum
 	_toast_clan_invite,
 	/* the main menu's note: how to open DELTA (its key opens it) */
 	_toast_hint,
+	/* the main menu's note, once: the Gearbox menus, which the player's
+	config.toml chose, were retired (config_menus_retired_pending) */
+	_toast_menus_retired,
 };
 
 /* PARTY's items: members (or, out of a party, its invites), then its
@@ -555,6 +563,8 @@ static struct
 	short debug_party_step;
 	/* the main menu's note counted as shown (it is once drawn) */
 	boolean toast_counted;
+	/* (the retired Gearbox menus' note, put in line once a run) */
+	boolean menus_retired_queued;
 	/* the toast's item (an invite's ID, a handle) and its sender's initial */
 	short toast_kind;
 	char toast_key[SOCIAL_INVITE_ID_SIZE];
@@ -1235,16 +1245,33 @@ static void setting_change(short setting, short direction)
 }
 
 /* SETTINGS' rows: the settings, then the devices' rows when signed in,
-then ABOUT */
+then the logs' (guide_logs.c), then ABOUT */
 static short settings_rows(void)
 {
-	return (short)(settings_count() + (guide.linked && profile_screen_available() ? NUMBER_OF_DEVICE_ROWS : 0) + 1);
+	return (short)(settings_count() + (guide.linked && profile_screen_available() ? NUMBER_OF_DEVICE_ROWS : 0) +
+		guide_logs_rows() + 1);
 }
 
 /* ABOUT's row, the last */
 static short about_row(void)
 {
 	return (short)(settings_rows() - 1);
+}
+
+/* SEND MY LOGS' row, the first of the logs' */
+static short logs_row(void)
+{
+	return (short)(about_row() - guide_logs_rows());
+}
+
+/* a row after the settings: its label */
+static char const *extra_row_label(short row)
+{
+	if (row == about_row())
+		return "ABOUT";
+	if (row >= logs_row())
+		return guide_logs_row_label((short)(row - logs_row()));
+	return device_row_labels[row - settings_count()];
 }
 
 /* a device row's A: Delta Profile's dialog, over what was under DELTA */
@@ -1267,6 +1294,13 @@ static void extra_row_activate(short row)
 		guide.about = TRUE;
 		guide.about_from_settings = TRUE;
 		about_reset(&guide.about_view);
+	}
+	else if (row >= logs_row())
+	{
+		char const *said = guide_logs_row_activate((short)(row - logs_row()));
+
+		if (said)
+			message_set(said);
 	}
 	else
 		device_row_activate((short)(row - settings_count()));
@@ -2026,7 +2060,7 @@ static boolean toast_go(void)
 	short kind = guide.toast_kind == _toast_invite ? _item_invite : guide.toast_kind == _toast_request ? _item_request :
 		guide.toast_kind == _toast_friend ? _item_friend : NONE;
 
-	if (guide.toast_kind == _toast_hint)
+	if (guide.toast_kind == _toast_hint || guide.toast_kind == _toast_menus_retired)
 	{
 		guide.toast_shown = FALSE;
 		return TRUE;
@@ -3242,7 +3276,8 @@ static void hint_update(boolean menu_open)
 		since = 0;
 		return;
 	}
-	if (bink_playback_active() || guide.open)
+	/* (nor over the on-screen keyboard, the Workshop's search) */
+	if (bink_playback_active() || guide.open || virtual_keyboard_active())
 	{
 		since = 0;
 		return;
@@ -3252,6 +3287,14 @@ static void hint_update(boolean menu_open)
 	if (noted || now - since < HINT_SETTLE)
 		return;
 	noted = TRUE;
+	/* (the Gearbox menus retired: said first, once, in the same note;
+	display.menus is written as "xbox" once it is drawn, render_toast) */
+	if (config_menus_retired_pending() && !guide.menus_retired_queued)
+	{
+		guide.menus_retired_queued = TRUE;
+		social_toast_push(&guide.toasts, _toast_menus_retired, "menus_retired", "Gearbox menus were retired.",
+			"You're on the Xbox menus now; change it in Settings.", "");
+	}
 	shown = (int)config_integer("delta.hint_shown");
 	if (delta_hint_due(shown, config_boolean("delta.menu_item")))
 	{
@@ -3570,6 +3613,11 @@ static void workshop_target(float x0, float y0, float x1, float y1, short kind, 
 {
 	target_add(x0, y0, x1, y1, kind == GUIDE_WORKSHOP_TARGET_ROW ? _target_row : kind == GUIDE_WORKSHOP_TARGET_OPTION ?
 		_target_option : kind == GUIDE_WORKSHOP_TARGET_PAGE ? _target_page : _target_modal, index);
+}
+
+static void logs_target(float x0, float y0, float x1, float y1, short index)
+{
+	target_add(x0, y0, x1, y1, _target_logs, index);
 }
 
 static void render_card(void)
@@ -4268,6 +4316,8 @@ static void render_settings(void)
 			char value[96];
 
 			settings_row_value(row, value, sizeof(value));
+			if (!settings_row_arrows(row))
+				ui_style_setting_plain();
 			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f, settings_row_label(row),
 				NULL, value, on);
 		}
@@ -4278,7 +4328,7 @@ static void render_settings(void)
 		else
 		{
 			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f,
-				setting == about_row() ? "ABOUT" : device_row_labels[setting - settings_count()], NULL, "\xE2\x80\xBA", on);
+				extra_row_label(setting), NULL, NULL, on);
 		}
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;
@@ -4906,9 +4956,14 @@ static void render_toast(void)
 		fade(COLOR_PANEL_EDGE, share));
 	/* the main menu's note: its words alone (they name the key), counted
 	once drawn (delta.hint_shown) */
-	if (guide.toast_kind == _toast_hint)
+	if (guide.toast_kind == _toast_hint || guide.toast_kind == _toast_menus_retired)
 	{
-		if (!guide.toast_counted)
+		if (!guide.toast_counted && guide.toast_kind == _toast_menus_retired)
+		{
+			guide.toast_counted = TRUE;
+			config_menus_retired_seen();
+		}
+		else if (!guide.toast_counted)
 		{
 			char count[16];
 			int shown = (int)config_integer("delta.hint_shown") + 1;
@@ -5145,6 +5200,8 @@ void guide_close(void)
 	guide.open = FALSE;
 	guide.about = FALSE;
 	guide.target_count = 0;
+	if (guide_logs_modal())
+		guide_logs_modal_back();
 	guide.code_entry = FALSE;
 	guide.party_member = NONE;
 	guide.party_armed = NONE;
@@ -5237,6 +5294,8 @@ void guide_update(boolean menu_open)
 	recent_notice();
 	/* (a report's answer, and its clip: report_player.c) */
 	report_player_update();
+	/* (logs sent with SEND MY LOGS' window closed: their code) */
+	guide_logs_update();
 	/* (WORKSHOP's folders watched while it shows, or an item waits on Steam) */
 	guide_workshop_update(guide.open && guide.section == SOCIAL_SECTION_WORKSHOP);
 	if (guide.open && !section_shown(guide.section))
@@ -5460,6 +5519,17 @@ static void handle_pressed(unsigned int pressed)
 			about_input(&guide.about_view, ABOUT_INPUT_A);
 		return;
 	}
+	/* (SEND MY LOGS' window: as Steam's below) */
+	if (guide_logs_modal())
+	{
+		if (pressed & GUIDE_INPUT_A)
+			guide_logs_modal_press();
+		else if (pressed & GUIDE_INPUT_B)
+			guide_logs_modal_back();
+		else if (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT))
+			guide_logs_modal_move((pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
+		return;
+	}
 	/* (Steam's sign-in window: A its button with the focus, B back, left
 	and right the question's two buttons, nothing under it) */
 	if (guide_workshop_link_modal())
@@ -5540,6 +5610,9 @@ static void handle_pressed(unsigned int pressed)
 	if (guide.section == SOCIAL_SECTION_SETTINGS && guide.row[guide.section] < settings_count() &&
 		(pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
 		setting_change(guide.row[guide.section], (pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
+	/* (WORKSHOP's Show, Sort and page rows: left and right step their value) */
+	if (guide.section == SOCIAL_SECTION_WORKSHOP && (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
+		guide_workshop_side((pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
 	if (pressed & GUIDE_INPUT_A)
 		activate();
 	else if ((pressed & GUIDE_INPUT_X) && guide.section == SOCIAL_SECTION_PLAYERS_HERE)
@@ -5597,7 +5670,7 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		guide_workshop_wheel(pointer->x, pointer->y, pointer->wheel_steps))
 	{
 	}
-	else if (pointer->wheel_steps && !guide_workshop_link_modal())
+	else if (pointer->wheel_steps && !guide_workshop_link_modal() && !guide_logs_modal())
 	{
 		short step;
 
@@ -5747,18 +5820,28 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			break;
 		case _target_prompt:
 			handle(target->index == UI_BUTTON_A ? GUIDE_INPUT_A : target->index == UI_BUTTON_X ? GUIDE_INPUT_X :
-				target->index == UI_BUTTON_Y ? GUIDE_INPUT_Y : GUIDE_INPUT_B);
+				target->index == UI_BUTTON_Y ? GUIDE_INPUT_Y : target->index == UI_BUTTON_LEFT_TRIGGER ?
+				GUIDE_INPUT_LEFT_TRIGGER : target->index == UI_BUTTON_RIGHT_TRIGGER ? GUIDE_INPUT_RIGHT_TRIGGER :
+				GUIDE_INPUT_B);
 			break;
 		case _target_close:
 			guide_close();
 			break;
 		case _target_page:
-			guide_workshop_page_step(target->index == 2 ? 0 : target->index ? 1 : -1);
+			guide_workshop_arrow_click(target->index);
 			break;
 		case _target_modal:
 			guide_workshop_link_modal_click(target->index);
 			break;
+		case _target_logs:
+			guide_logs_modal_click(target->index);
+			break;
 		}
+		return;
+	}
+	if (guide_logs_modal())
+	{
+		guide_logs_modal_click_outside(pointer->click_x, pointer->click_y);
 		return;
 	}
 	/* (Steam's sign-in window: a click beside it does nothing; beside
@@ -5797,8 +5880,31 @@ void guide_render(void)
 	plasma_look();
 	guide.target_count = 0;
 	ui_overlay_layer(4);
-	ui_overlay_rect(-200, 0, 1040, 480, 0, ui_style_color(UI_COLOR_SHADE));
 	ui_style_clock((unsigned int)system_milliseconds());
+	/* (behind the panel: the shade, or the dashboard's cellwall,
+	delta.guide_background, by itself with Dashboard Green; the shade where
+	the renderer has no cellwall) */
+	{
+		char const *background = config_string("delta.guide_background");
+		int cellwall = !strcmp(background, "cellwall") ||
+			(strcmp(background, "plain") != 0 && ui_style_theme_current() == UI_THEME_GREEN);
+
+		if (!cellwall || !ui_style_cellwall(-200, 0, 1040, 480))
+			ui_overlay_rect(-200, 0, 1040, 480, 0, ui_style_color(UI_COLOR_SHADE));
+		else
+		{
+			/* (the wall calmer near the panel: a soft dark edge around it,
+			so its lines stay in the open margins) */
+			unsigned int shade = ui_style_color(UI_COLOR_SHADE) & 0xFFFFFF00;
+			int ring;
+
+			for (ring = 6; ring >= 1; ring--)
+			{
+				ui_overlay_rect(PANEL_X - ring * 5, PANEL_Y - ring * 5, PANEL_WIDTH + ring * 10, PANEL_HEIGHT + ring * 10,
+					12 + ring * 5, shade | (unsigned int)(0x2E - ring * 5));
+			}
+		}
+	}
 	ui_style_panel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 1.0f);
 	if (guide.about)
 	{
@@ -5856,6 +5962,13 @@ void guide_render(void)
 		guide.target_count = 0;
 		ui_overlay_layer(5);
 		guide_workshop_link_modal_render(PANEL_X, PANEL_Y, PANEL_RIGHT, PANEL_Y + PANEL_HEIGHT, workshop_target);
+	}
+	/* (SEND MY LOGS' window over it all: only its buttons take a click) */
+	if (guide_logs_modal())
+	{
+		guide.target_count = 0;
+		ui_overlay_layer(5);
+		guide_logs_modal_render(PANEL_X, PANEL_Y, PANEL_RIGHT, PANEL_Y + PANEL_HEIGHT, logs_target);
 	}
 	ui_overlay_layer(0);
 }

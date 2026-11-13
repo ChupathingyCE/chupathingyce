@@ -32,6 +32,7 @@ static void capture(int index, real_vector3d const *v) { received=*v; ++calls; }
 #define biped_accelerate capture
 #define vehicle_accelerate capture
 #define item_accelerate(i,v,d) capture(i,v)
+#define mcc_skulls_impulse_scale() 1.0f /* no MCC skull on in the harness */
 #include "under_test.inc"
 #define CHECK(c) do { if (!(c)) { fprintf(stderr,"line %d: %s\n",__LINE__,#c); return 1; } } while(0)
 int main(int argc, char **argv) {

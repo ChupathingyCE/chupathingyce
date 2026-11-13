@@ -359,6 +359,8 @@ symbols in this file:
 #include "interface/ui_widget_instance.h"
 #endif
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_campaign.h" /* port: port/linux/game/stubbs_campaign.c */
 
 #ifdef HALO_MAP_LIST
 #include "halo_ui_map_list.h"
@@ -751,7 +753,7 @@ boolean pc_menu_tag(
 static ui_widget_game_data_function game_data_input_function_list[41];
 
 extern struct persistent_game_data_info_view persistant_game_data_info;
-extern struct single_player_level_entry single_player_level_data[NUMBER_OF_SINGLE_PLAYER_LEVELS];
+extern struct single_player_level_entry single_player_level_data[STUBBS_CAMPAIGN_LEVEL_COUNT];
 extern struct cached_player_profile_entry cached_player_profile[3];
 extern struct cached_variant_profile_entry cached_variant_profile[3];
 
@@ -4290,6 +4292,35 @@ static void solo_level_select_list_update_displayed_items(
 		completion_marker->animation.current_frame_index = 1;
 		difficulty_marker->animation.current_frame_index = 2;
 		cooperative_marker->animation.current_frame_index = 3;
+
+		/* port: Stubbs mode's twelve levels: its ui.map's strings and
+		pictures hold the twelve, then the locked card's and the saved game's
+		(port/linux/game/stubbs_campaign.c) */
+		if (stubbs_mode_active())
+		{
+			long level = displayed_item_indices[item_index];
+			struct single_player_level_entry *entry = &single_player_level_data[level];
+
+			if (level < 0 || level >= STUBBS_CAMPAIGN_LEVEL_COUNT || !entry->available)
+			{
+				map_name->parameters.text_box.string_list_index = STUBBS_CAMPAIGN_STRING_LOCKED;
+				map_bitmap->animation.current_frame_index = STUBBS_CAMPAIGN_STRING_LOCKED;
+				map_description->parameters.text_box.string_list_index = STUBBS_CAMPAIGN_STRING_LOCKED;
+				completion_marker->visible = FALSE;
+				difficulty_marker->visible = FALSE;
+				cooperative_marker->visible = FALSE;
+				continue;
+			}
+			map_name->parameters.text_box.string_list_index = (short)level;
+			map_bitmap->animation.current_frame_index = (short)level;
+			map_description->parameters.text_box.string_list_index = (short)level;
+			if (persistant_game_data_info.valid == TRUE && level == (char)persistant_game_data_info.map_index)
+				map_description->parameters.text_box.string_list_index = STUBBS_CAMPAIGN_STRING_SAVED_GAME;
+			completion_marker->visible = entry->completion_marker;
+			difficulty_marker->visible = entry->difficulty_marker;
+			cooperative_marker->visible = entry->cooperative_marker;
+			continue;
+		}
 
 #ifdef HALO_MAP_LIST
 		/* port: an MCC campaign map's card, after the ten levels: its row of

@@ -1,0 +1,1 @@
+{"commands": [{"id": 7, "actor": "odb", "command": "sv_kick 2", "reason": "spawn \"camping\""}], "roles": {"version": 3, "entries": [{"handle": "odb", "role": "moderator", "keys": ["72f7b19d4735618403dab4fe9e4c8c0d13e510709552140a17cd9b9ed2a798ec"]}, {"handle": "milenko", "role": "owner", "keys": []}]}, "unlinked": false, "poll_seconds": 1}

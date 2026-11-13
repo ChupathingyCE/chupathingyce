@@ -32,6 +32,7 @@ from .linux_build import (CUSTOM_EDITION_DEFINES, LINUX_PROFILE, MBEDTLS_DIR, MI
                           profile_use_flags, updater_defines, xdk_headers)
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
+from .third_party_notices import ninja_build as ninja_notices
 from .version import VERSION_SOURCES
 
 PORT_DIR = Path("port/android")
@@ -65,6 +66,24 @@ SDL_URL = "https://github.com/libsdl-org/SDL.git"
 # SDL's Java side passes on a captured (relative) mouse's moves and buttons
 SDL_ANDROID_MOUSE_PATCH = PORT_DIR / "patches" / "sdl-relative-mouse.patch"
 ANDROID_API = 28
+# the Vulkan renderer's shader compiler (port/android/VULKAN.md): loaded with dlopen, never linked
+GLSLANG_TAG = "16.6.0"
+GLSLANG_DIR = THIRD_PARTY / "glslang"
+GLSLANG_URL = "https://github.com/KhronosGroup/glslang.git"
+# the Android release of the validation layer, only with --android-vulkan-validation
+VALIDATION_VERSION = "1.4.363.0"
+VALIDATION_URL = ("https://github.com/KhronosGroup/Vulkan-ValidationLayers/releases/download/"
+                  f"vulkan-sdk-{VALIDATION_VERSION}/android-binaries-{VALIDATION_VERSION}.tar.gz")
+VALIDATION_DIR = THIRD_PARTY / f"vulkan-validation-{VALIDATION_VERSION}"
+VULKAN_DIR = PORT_DIR / "vulkan"
+# loads a Vulkan driver of the app's own (host_vk_driver.c): Eden's fork of libadrenotools
+# (BSD-2-Clause) at a pinned commit, with its submodule lib/linkernsbypass (the commit the
+# superproject records) and port/android/vulkan/adrenotools.patch applied
+ADRENOTOOLS_COMMIT = "8ba23b42d742545b709064d6e2523cdb86de68f5"
+ADRENOTOOLS_DIR = THIRD_PARTY / "libadrenotools"
+ADRENOTOOLS_URL = "https://github.com/eden-emulator/libadrenotools"
+# the library and the hooks it loads by name from the native library directory
+ADRENOTOOLS_HOOKS = ("libhook_impl.so", "libmain_hook.so", "libfile_redirect_hook.so", "libgsl_alloc_hook.so")
 
 # The guest ABI: AArch64 code with 32-bit pointers (clang's only such target
 # is Apple's arm64_32, whose Mach-O output is converted afterwards). The
@@ -238,6 +257,108 @@ def apply_sdl_patch(patch: Path) -> None:
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if applied.returncode != 0:
         subprocess.run(["git", "-C", str(SDL_DIR), "apply", str(patch.resolve())], check=True)
+
+
+def fetch_vulkan_third_party(validation: bool = False) -> None:
+    """Download glslang, libadrenotools and, if asked, the validation layer (configure time, once):
+    the Vulkan renderer's (port/android/VULKAN.md)."""
+    THIRD_PARTY.mkdir(parents=True, exist_ok=True)
+    if not GLSLANG_DIR.is_dir():
+        print(f"Cloning glslang {GLSLANG_TAG}")
+        subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", GLSLANG_TAG, GLSLANG_URL,
+                        str(GLSLANG_DIR)], check=True)
+    if not ADRENOTOOLS_DIR.is_dir():
+        print(f"Cloning libadrenotools {ADRENOTOOLS_COMMIT[:8]}")
+        try:
+            subprocess.run(["git", "clone", "-q", ADRENOTOOLS_URL, str(ADRENOTOOLS_DIR)], check=True)
+            subprocess.run(["git", "-C", str(ADRENOTOOLS_DIR), "checkout", "-q", ADRENOTOOLS_COMMIT], check=True)
+            subprocess.run(["git", "-C", str(ADRENOTOOLS_DIR), "submodule", "update", "--init", "-q"], check=True)
+        except (subprocess.CalledProcessError, OSError):
+            # a half-made folder would be taken for a finished one at the next configure
+            shutil.rmtree(ADRENOTOOLS_DIR, ignore_errors=True)
+            raise
+    _patch_adrenotools()
+    if validation and not VALIDATION_DIR.is_dir():
+        print(f"Downloading {VALIDATION_URL}")
+        archive = THIRD_PARTY / "vulkan-validation.tar.gz"
+        VALIDATION_DIR.mkdir(parents=True)
+        subprocess.run(["curl", "-sSfL", "-o", str(archive), VALIDATION_URL], check=True)
+        subprocess.run(["tar", "xzf", str(archive.resolve()), "-C", str(VALIDATION_DIR)], check=True)
+        archive.unlink()
+
+
+def _patch_adrenotools() -> None:
+    """Applies port/android/vulkan/adrenotools.patch to the fetched libadrenotools, again whenever the patch
+    changes: the sources are put back to the pinned commit first. The applied patch's text is kept beside
+    them to compare with."""
+    patch = VULKAN_DIR / "adrenotools.patch"
+    applied = ADRENOTOOLS_DIR / ".halo_applied.patch"
+    wanted = patch.read_text()
+    if applied.is_file() and applied.read_text() == wanted:
+        return
+    print("Applying adrenotools.patch to libadrenotools")
+    subprocess.run(["git", "-C", str(ADRENOTOOLS_DIR), "checkout", "-q", "--", "."], check=True)
+    subprocess.run(["git", "-C", str(ADRENOTOOLS_DIR), "apply", str(patch.resolve())], check=True)
+    applied.write_text(wanted)
+
+
+def vulkan_rules(n: Writer, name: str, ndk: Path, build: Path, jni_dir: Path, validation: bool) -> List[Path]:
+    """The Vulkan renderer's libraries, built with the NDK's CMake toolchain and staged into the app's
+    native library folder: glslang (dlopen-ed by host_vk_shaders.c), libadrenotools and its hooks
+    (host_vk_driver.c) and, only when asked for, the validation layer (a debuggable app's loader
+    finds a layer in the app's own native library folder). Returns the staged files."""
+    glslang_build = build / "glslang-build"
+    libglslang = glslang_build / "libhalo_glslang.so"
+    n.rule(
+        name=f"{name}_glslang",
+        command=(f"cmake -S {VULKAN_DIR}/glslang -B {glslang_build} -G Ninja "
+                 f"-DGLSLANG_SOURCE={GLSLANG_DIR.resolve()} "
+                 f"-DCMAKE_TOOLCHAIN_FILE={ndk}/build/cmake/android.toolchain.cmake "
+                 f"-DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-{ANDROID_API} -DCMAKE_BUILD_TYPE=Release "
+                 f"-DANDROID_STL=c++_static "
+                 f"> {build}/glslang-configure.log && ninja -C {glslang_build} halo_glslang "
+                 f"> {build}/glslang-build.log"),
+        description=f"{name.upper()} GLSLANG",
+        pool="console",
+    )
+    n.build(outputs=libglslang, rule=f"{name}_glslang",
+            implicit=[GLSLANG_DIR / "CMakeLists.txt", VULKAN_DIR / "glslang" / "CMakeLists.txt"])
+
+    adrenotools_build = build / "adrenotools-build"
+    adrenotools_built = [adrenotools_build / "libadrenotools.so"] + [
+        adrenotools_build / "src" / "hook" / hook for hook in ADRENOTOOLS_HOOKS]
+    n.rule(
+        name=f"{name}_adrenotools",
+        command=(f"cmake -S {ADRENOTOOLS_DIR} -B {adrenotools_build} -G Ninja "
+                 f"-DCMAKE_TOOLCHAIN_FILE={ndk}/build/cmake/android.toolchain.cmake "
+                 f"-DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-{ANDROID_API} -DCMAKE_BUILD_TYPE=Release "
+                 f"-DBUILD_SHARED_LIBS=ON -DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384 "
+                 f"> {build}/adrenotools-configure.log && ninja -C {adrenotools_build} "
+                 # CMake leaves its outputs alone when nothing in them changed, so they are touched: otherwise a
+                 # touched input (the patch applied again) would leave them older than it at every build
+                 f"> {build}/adrenotools-build.log && touch $out"),
+        description=f"{name.upper()} ADRENOTOOLS",
+        pool="console",
+    )
+    # one rule makes all five files
+    n.build(outputs=adrenotools_built, rule=f"{name}_adrenotools",
+            implicit=[ADRENOTOOLS_DIR / "CMakeLists.txt", VULKAN_DIR / "adrenotools.patch"])
+
+    n.rule(name=f"{name}_vulkan_copy", command="cp $in $out", description=f"{name.upper()} STAGE $out")
+    staged = [jni_dir / "libhalo_glslang.so"]
+    n.build(outputs=staged[0], rule=f"{name}_vulkan_copy", inputs=libglslang)
+    for built in adrenotools_built:
+        n.build(outputs=jni_dir / built.name, rule=f"{name}_vulkan_copy", inputs=built)
+        staged.append(jni_dir / built.name)
+    staged_layer = jni_dir / "libVkLayer_khronos_validation.so"
+    if validation:
+        layer = (VALIDATION_DIR / f"android-binaries-{VALIDATION_VERSION}" / "arm64-v8a"
+                 / "libVkLayer_khronos_validation.so")
+        n.build(outputs=staged_layer, rule=f"{name}_vulkan_copy", inputs=layer)
+        staged.append(staged_layer)
+    elif staged_layer.exists():
+        staged_layer.unlink()
+    return staged
 
 
 def _musl_sources() -> List[Path]:
@@ -648,7 +769,8 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         f"-I{PORT_DIR}/include", f"-I{PORT_DIR}/host", f"-I{SDL_DIR}/include", f"-I{LINUX_DIR}/src",
         f"-I{TOML_DIR}",
     ])
-    host_sources = sorted((PORT_DIR / "host").glob("*.c")) + [
+    # (not the Vulkan renderer's backend, host_vk*.c: the native 64-bit app's, tools/android64_build.py)
+    host_sources = sorted(path for path in (PORT_DIR / "host").glob("*.c") if not path.name.startswith("host_vk")) + [
         LINUX_DIR / "src" / "posix_files.c", LINUX_DIR / "src" / "posix_net.c",
         LINUX_DIR / "src" / "posix_mcc_preview.c",
         # the app reads debug.sample_seconds from config.toml (host_main.c)
@@ -703,10 +825,10 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     # config.toml (port/android/host/host_main.c)
     staged_brokers = assets_dir / "brokers.txt"
     n.build(outputs=staged_brokers, rule="android_copy", inputs=Path("port/assets/network/brokers.txt"))
-    # Include MCC's decoder notice in the APK as well as the release archive.
-    staged_bcdec_license = assets_dir / "bcdec-LICENSE.txt"
-    n.build(outputs=staged_bcdec_license, rule="android_copy", inputs=Path("port/third_party/bcdec/LICENSE"))
-    n.build(outputs="android", rule="phony", inputs=[libmain, staged_sdl, staged_image, staged_brokers, staged_bcdec_license])
+    # the game's license and the notices of everything else built in
+    # (tools/third_party_notices.py), in the APK as in every download
+    staged_licenses = ninja_notices(n, "android", assets_dir, ["sdl3"])
+    n.build(outputs="android", rule="phony", inputs=[libmain, staged_sdl, staged_image, staged_brokers, *staged_licenses])
 
     apk = PORT_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
     n.rule(
@@ -718,7 +840,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         pool="console",
     )
     sdl_mouse_listener = SDL_DIR / "android-project/app/src/main/java/org/libsdl/app/SDLControllerManager.java"
-    n.build(outputs=apk, rule="android_gradle", inputs=[libmain, staged_sdl, staged_image, staged_brokers, staged_bcdec_license],
+    n.build(outputs=apk, rule="android_gradle", inputs=[libmain, staged_sdl, staged_image, staged_brokers, *staged_licenses],
             implicit=[sdl_mouse_listener])
     n.build(outputs="android_apk", rule="phony", inputs=apk)
     n.newline()

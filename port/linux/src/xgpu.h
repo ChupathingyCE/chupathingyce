@@ -337,7 +337,7 @@ struct xgpu_render_target
 /* the GL texture holding a render target with this physical address, or 0 */
 struct xgpu_render_target *xgpu_render_target_find(unsigned long data);
 
-#if defined(HALO_BGFX) || defined(HALO_CONSOLE_NATIVE_RENDERER)
+#if defined(HALO_BGFX) || defined(HALO_CONSOLE_NATIVE_RENDERER) || defined(HALO_VULKAN)
 /* a level of a texture that is not compressed, as 32-bit ARGB words in the
 processor's order (B, G, R, A in memory on a little-endian one); FALSE
 without the memory for it */
@@ -349,6 +349,19 @@ int xgpu_texture_dxt(const struct xgpu_texture_description *description);
 unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *description, unsigned long level);
 #endif
 
+#ifdef HALO_VULKAN
+/* the Android app's Vulkan backend draws (display.renderer = "vulkan";
+d3d8_vk.inl): set as the window is made, so that nothing here makes an
+OpenGL context or calls OpenGL; cleared when it could not start */
+extern BOOL xgpu_vulkan;
+/* the textures the port's own modules make (hud_hires.c, text_hires.c,
+menu_files.c), as xgpu_bgfx_texture_create's: an image's number */
+unsigned int xgpu_vulkan_texture_create(unsigned long width, unsigned long height, const unsigned char *rgba,
+	BOOL mipmapped);
+void xgpu_vulkan_texture_rows(unsigned int name, unsigned long top, unsigned long width, unsigned long rows,
+	const unsigned char *rgba);
+void xgpu_vulkan_texture_delete(unsigned int name);
+#endif
 #ifdef HALO_BGFX
 /* display.renderer is "bgfx": the bgfx test backend draws instead of OpenGL
 (d3d8_bgfx.inl), from platform_video_initialize on */
@@ -368,13 +381,14 @@ screenshot (a .bmp's path, or NULL); FALSE if bgfx does not start */
 BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int height, const char *screenshot);
 /* the overlay's quads (ui_overlay.c) over the window's picture at Present
 (plasma_shift: the plasma's second map's place, then its threads' color;
+cellwall: the cellwall's motion, side and front tints, ui_overlay_cellwall;
 medals: the medals' atlas, premultiplied, while one is drawn, NULL before);
 whether the medals' atlas is the GPU's now (its pixels may be let go) */
 int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
 	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[8],
-	const unsigned char *medals, int medals_width, int medals_height,
+	const float cellwall[12], const unsigned char *medals, int medals_width, int medals_height,
 	const float cutouts[4][4], int window_width, int window_height);
 #endif
 

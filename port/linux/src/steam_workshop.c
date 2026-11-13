@@ -9,6 +9,7 @@ The subscribed Steam Workshop items' Halo CE maps, found in place (steam_worksho
 #if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 
 #include "steam_workshop.h"
+#include "workshop_decisions.h"
 #include "mcc_manifest.h"
 #include "mcc_json.h" /* port: our own JSON lookups, json_reader.h */
 #include "port_config.h"
@@ -40,12 +41,25 @@ static struct
 	} unlisted[STEAM_WORKSHOP_MAXIMUM_UNLISTED];
 } catalog;
 
-static int discovery_enabled(void)
+/* game.workshop_maps (STEAM'S MCC MAPS): Steam's own MCC folders' maps
+listed; the game's own library's (what its Workshop got) always are, with
+WORKSHOP_OWN_ITEMS_ALWAYS_LISTED (workshop_decisions.h) */
+static int steam_folders_enabled(void)
 {
 #if defined(HALO_ANDROID) || defined(HALO_WEB)
 	return 0;
 #else
 	return config_boolean("game.workshop_maps");
+#endif
+}
+
+/* (1: Steam's folders too; 2: the game's own library alone; 0: none) */
+static int discovery_enabled(void)
+{
+#if defined(HALO_ANDROID) || defined(HALO_WEB)
+	return 0;
+#else
+	return steam_folders_enabled() ? 1 : WORKSHOP_OWN_ITEMS_ALWAYS_LISTED ? 2 : 0;
 #endif
 }
 
@@ -692,7 +706,12 @@ int steam_workshop_scan(void)
 		return 0;
 	count = libraries(paths, 2 * STEAM_WORKSHOP_MAXIMUM_LIBRARIES);
 	for (index = 0; index < count; index++)
+	{
+		/* (STEAM'S MCC MAPS off: the game's own library only) */
+		if (catalog.enabled == 2 && strcmp(paths[index], own_library))
+			continue;
 		scan_library(paths[index]);
+	}
 	free(paths);
 	return catalog.count;
 }

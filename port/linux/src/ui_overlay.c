@@ -22,6 +22,7 @@ are the controller's button icons (a texture array, a layer each).
 #include "xgpu.h"
 #include "ui_font.h"
 #include "ui_overlay.h"
+#include "ui_overlay_cellwall.h"
 #include "halo_prompt_schemes.h"
 #include "text_shown.h"
 
@@ -62,6 +63,8 @@ enum
 	PLASMA_MARK = -4,
 	/* (a medal's: ui_overlay_medal) */
 	MEDAL_MARK = -5,
+	/* (the cellwall's: ui_overlay_cellwall) */
+	CELLWALL_MARK = -6,
 	/* the overlay's own noise for the plasma, when the player's ui.map gave
 	none: this many texels square, tiling */
 	PLASMA_NOISE_SIZE = 128,
@@ -143,6 +146,10 @@ static struct
 	/* (the second map's place, then its threads' color: ui_overlay_plasma_thread) */
 	float plasma_shift[8];
 	int plasma_drawn;
+	/* the cellwall's (ui_overlay_cellwall): its motion, then its side's and
+	front's tints */
+	float cellwall[12];
+	GLint cellwall_location;
 	/* the medals' atlas (ui_overlay_medal), premultiplied as the icons are,
 	made when a medal is first drawn (the GL texture filled from it, then it
 	is let go), and whether one is drawn this frame */
@@ -1069,6 +1076,47 @@ void ui_overlay_plasma(float x, float y, float width, float height, float radius
 	overlay.plasma_drawn = 1;
 }
 
+int ui_overlay_cellwall(float x, float y, float width, float height, const float motion[4], unsigned int side,
+	unsigned int front, unsigned int fill)
+{
+#ifdef HALO_CONSOLE_GLES2
+	/* (ES 2 has no fwidth for its lines: the caller's plain backdrop) */
+	(void)x; (void)y; (void)width; (void)height; (void)motion; (void)side; (void)front; (void)fill;
+	return 0;
+#else
+	/* the site's camera: 74.5 degrees from top to bottom of the picture
+	(the layout's 480 lines), centered on it */
+	const float half_view = 0.76178f;
+	struct quad *quad;
+	int index;
+
+	if (overlay.failed || height <= 0.0f || width <= 0.0f)
+		return 0;
+	quad = new_quad();
+	if (!quad)
+		return 0;
+	quad->x = x;
+	quad->y = y;
+	quad->width = width;
+	quad->height = height;
+	quad->radius = CELLWALL_MARK;
+	quad->top = quad->bottom = fill;
+	quad->u0 = (x - LAYOUT_WIDTH * 0.5f) / (LAYOUT_HEIGHT * 0.5f) * half_view;
+	quad->u1 = (x + width - LAYOUT_WIDTH * 0.5f) / (LAYOUT_HEIGHT * 0.5f) * half_view;
+	quad->v0 = (LAYOUT_HEIGHT * 0.5f - y) / (LAYOUT_HEIGHT * 0.5f) * half_view;
+	quad->v1 = (LAYOUT_HEIGHT * 0.5f - (y + height)) / (LAYOUT_HEIGHT * 0.5f) * half_view;
+	for (index = 0; index < 4; index++)
+		overlay.cellwall[index] = motion[index];
+	for (index = 0; index < 3; index++)
+	{
+		overlay.cellwall[4 + index] = (float)((side >> (24 - 8 * index)) & 0xFF) / 255.0f;
+		overlay.cellwall[8 + index] = (float)((front >> (24 - 8 * index)) & 0xFF) / 255.0f;
+	}
+	overlay.cellwall[7] = overlay.cellwall[11] = 1.0f;
+	return 1;
+#endif
+}
+
 void ui_overlay_plasma_thread(unsigned int color)
 {
 	overlay.plasma_shift[4] = (float)((color >> 24) & 0xFF) / 255.0f;
@@ -1271,6 +1319,9 @@ static const char fragment_source[] =
 	"uniform float window_height;\n"
 #ifdef HALO_CONSOLE_GLES2
 	"uniform float y_flip;\n"
+#else
+	"uniform vec4 cellwall_parameters[3];\n"
+	UI_OVERLAY_CELLWALL_GLSL
 #endif
 	"out vec4 fragment;\n"
 	"void main()\n"
@@ -1286,6 +1337,15 @@ static const char fragment_source[] =
 	"\tfor (int i = 0; i < 4; i++)\n"
 	"\t\tif (p.x >= cutouts[i].x && p.y >= cutouts[i].y && p.x < cutouts[i].z && p.y < cutouts[i].w)\n"
 	"\t\t\tdiscard;\n"
+#ifndef HALO_CONSOLE_GLES2
+	/* the cellwall (its ray in the texture coordinates) */
+	"\tif (v_edge.x < -5.5)\n"
+	"\t{\n"
+	"\t\tfragment = cellwall(v_texture_coordinate, cellwall_parameters[0], cellwall_parameters[1],\n"
+	"\t\t\tcellwall_parameters[2], v_color);\n"
+	"\t\treturn;\n"
+	"\t}\n"
+#endif
 	/* a medal (premultiplied, as an icon) */
 	"\tif (v_edge.x < -4.5)\n"
 	"\t{\n"
@@ -1344,7 +1404,7 @@ static const char fragment_source[] =
 
 static GLuint compile(GLenum type, const char *body)
 {
-	char source[8192];
+	char source[16384];
 	GLuint shader = glCreateShader(type);
 	const char *pointer = source;
 	GLint status = 0;
@@ -1379,6 +1439,21 @@ static int set_up(void)
 
 	if (overlay.ready || overlay.failed)
 		return overlay.ready;
+#ifdef HALO_VULKAN
+	if (xgpu_vulkan)
+	{
+		/* (not drawn under the Vulkan backend yet: d3d8_vk.inl) */
+		static BOOL said;
+
+		if (!said)
+		{
+			said = TRUE;
+			platform_log("overlay: not drawn with the Vulkan renderer yet");
+		}
+		overlay.failed = TRUE;
+		return FALSE;
+	}
+#endif
 #ifdef HALO_BGFX
 	if (xgpu_bgfx)
 	{
@@ -1455,6 +1530,7 @@ static int set_up(void)
 	overlay.medals_location = glGetUniformLocation(overlay.program, "medals");
 	overlay.plasma_shift_location = glGetUniformLocation(overlay.program, "plasma_shift");
 	overlay.plasma_thread_location = glGetUniformLocation(overlay.program, "plasma_thread");
+	overlay.cellwall_location = glGetUniformLocation(overlay.program, "cellwall_parameters");
 	overlay.cutouts_location = glGetUniformLocation(overlay.program, "cutouts");
 	overlay.window_height_location = glGetUniformLocation(overlay.program, "window_height");
 
@@ -1783,6 +1859,20 @@ static int build_vertices(int shape_count, float scale, float origin_x, float or
 			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
 			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
 		}
+		else if (index < shape_count && quad->radius == CELLWALL_MARK)
+		{
+			/* the cellwall: its corners' rays (u0 to u1, v0 to v1) */
+			left = origin_x + quad->x * scale;
+			top = origin_y + quad->y * scale;
+			right = left + quad->width * scale;
+			bottom = top + quad->height * scale;
+			put_vertex(&v[0], left, top, quad->u0, quad->v0, 0, 0, 0, 0, CELLWALL_MARK, 0, top_color);
+			put_vertex(&v[1], right, top, quad->u1, quad->v0, 0, 0, 0, 0, CELLWALL_MARK, 0, top_color);
+			put_vertex(&v[2], left, bottom, quad->u0, quad->v1, 0, 0, 0, 0, CELLWALL_MARK, 0, top_color);
+			put_vertex(&v[3], right, top, quad->u1, quad->v0, 0, 0, 0, 0, CELLWALL_MARK, 0, top_color);
+			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, 0, 0, 0, 0, CELLWALL_MARK, 0, top_color);
+			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, 0, 0, 0, 0, CELLWALL_MARK, 0, top_color);
+		}
 		else if (index < shape_count && quad->radius == PLASMA_MARK)
 		{
 			/* the plasma: a shape (its corners' radius in edge.y), with the
@@ -1924,7 +2014,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 			overlay.dirty_top, overlay.dirty_bottom, overlay.icon_texels, ui_prompt_icon_size, NUMBER_OF_ICONS,
 			overlay.picture_pixels, overlay.picture_width, overlay.picture_height, overlay.picture_serial,
 			overlay.plasma_drawn ? overlay.plasma_pixels : NULL, overlay.plasma_width, overlay.plasma_height,
-			overlay.plasma_serial, overlay.plasma_shift,
+			overlay.plasma_serial, overlay.plasma_shift, overlay.cellwall,
 #ifdef HALO_MEDAL_ICONS
 			overlay.medals_drawn ? medal_texels() : NULL, ui_medal_atlas_width, ui_medal_atlas_height,
 #else
@@ -2024,6 +2114,20 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 			put_vertex(&v[3], right, top, quad->u1, quad->v0, layer_index, 0, 0, 0, mark, 0, top_color);
 			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
 			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
+		}
+		else if (index < shape_count && quad->radius == CELLWALL_MARK)
+		{
+			/* the cellwall: its corners' rays (u0 to u1, v0 to v1) */
+			left = origin_x + quad->x * scale;
+			top = origin_y + quad->y * scale;
+			right = left + quad->width * scale;
+			bottom = top + quad->height * scale;
+			put_vertex(&v[0], left, top, quad->u0, quad->v0, 0, 0, 0, 0, CELLWALL_MARK, 0, top_color);
+			put_vertex(&v[1], right, top, quad->u1, quad->v0, 0, 0, 0, 0, CELLWALL_MARK, 0, top_color);
+			put_vertex(&v[2], left, bottom, quad->u0, quad->v1, 0, 0, 0, 0, CELLWALL_MARK, 0, top_color);
+			put_vertex(&v[3], right, top, quad->u1, quad->v0, 0, 0, 0, 0, CELLWALL_MARK, 0, top_color);
+			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, 0, 0, 0, 0, CELLWALL_MARK, 0, top_color);
+			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, 0, 0, 0, 0, CELLWALL_MARK, 0, top_color);
 		}
 		else if (index < shape_count && quad->radius == PLASMA_MARK)
 		{
@@ -2165,6 +2269,8 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	glUniform1i(overlay.medals_location, 4);
 	glUniform4fv(overlay.plasma_shift_location, 1, overlay.plasma_shift);
 	glUniform4fv(overlay.plasma_thread_location, 1, overlay.plasma_shift + 4);
+	if (overlay.cellwall_location >= 0)
+		glUniform4fv(overlay.cellwall_location, 3, overlay.cellwall);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, overlay.atlas);
 	glUniform1i(overlay.atlas_location, 0);

@@ -422,7 +422,7 @@ a later version may append):
 | 36 | VOICE_CONFIG | host to client | version (1; 1 now, 0 refused), channels (1: 0x01 team, 0x02 proximity, 0x04 everyone, 0x08 party, the channels the host relays; 0x10 lobby, everyone hears everyone outside a game), flags (1: 0x01 this machine is muted), quality (1, 8 to 64 kbps), proximity (2, tenths of a world unit, 50 to 1000), reserved (2), a timed mute's seconds left (4; 0 none, or until the game ends); values past their ranges refused |
 | 37 | REPORT | client to host | sequence (4, above the session's last), target's machine (1), target's player (1, the absolute index of the player's datum in the host's player data, as the game's player datum index has it), reason (1: 1 cheating, 2 abuse in chat or voice, 3 griefing or betraying, 4 an offensive name, 5 something else), flags (1: 0x01 the reporter would attach a clip), reserved (16: zeros; a host ignores them) |
 | 38 | REPORT_RESULT | host to client | sequence (4, the REPORT's), result (1: 0 taken, 1 too soon, 2 no such player, 3 not taken here, 4 already reported), flags (1: 0x01 send the clip: the server is linked to the site), reserved (2), clip token (16, the host's: zeros without 0x01). A host before the token sent the first 8 bytes alone, and its 0x01 is read as no clip |
-| 39 | HOST_NUMBER | host to client, if both agreed to `mcc_maps` | version (1; 1 now, 0 refused, a later one read as far as this build knows it), reserved (1), the OpenCE network version the host's game is played at (2, little-endian; 0 refused), reserved (4). Sent at once when it changes, every second for the 20 seconds after, then every 5 seconds. When a host's lobby moves to an MCC map (its game at 43) or back, a client with `mcc_maps` plays the host's next settings record and messages at the new number without leaving (a record of another size from such a host is passed over, not fatal); the host sends its record again every 2 seconds for 20 seconds. A client that still has the map before never starts the game: the pregame load timeout drops it. Any other machine that joined at the old number is dropped with a notice |
+| 39 | HOST_NUMBER | host to client, if both agreed to `mcc_maps` | version (1; 1 now, 0 refused, a later one read as far as this build knows it), reserved (1), the OpenCE network version the host's game is played at (2, little-endian; 0 refused), reserved (4). Sent at once when it changes, every second for the 20 seconds after, then every 5 seconds. When a host's lobby moves to an MCC map (its game at the MCC number, 44 from `chupa-44a`) or back, a client with `mcc_maps` plays the host's next settings record and messages at the new number without leaving (a record of another size from such a host is passed over, not fatal); the host sends its record again every 2 seconds for 20 seconds. A client that still has the map before never starts the game: the pregame load timeout drops it. Any other machine that joined at the old number is dropped with a notice |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -2548,8 +2548,8 @@ deletion stay on the site, which OPEN ON THE WEB reaches. Linking is per
 copy: every Halo profile on a copy counts for the same Delta profile.
 
 - **Ways in:** the Chupathingy menus' Profiles have a DELTA row
-  below Create New Profile, with a summary in the panel. Gearbox's Select
-  Profile has a DELTA button. In every menu set, Online Games'
+  below Create New Profile, with a summary in the panel. In both menu
+  sets, Online Games'
   Start opens it (the web page when `display.delta_profile` is false).
   A Halo profile's panel shows one quiet line, "Delta: @handle" or
   "Delta: not linked". With an empty `network.browser_url`, every way in
@@ -2559,9 +2559,9 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   PROFILE or UNLINK THIS DEVICE, and OPEN ON THE WEB. The Chupathingy menus
   draw them with their own widgets
   (`port/assets/menus/chupathingy/delta_profile.xml`), and Privacy is one
-  of their settings pages. The Xbox and Gearbox menus get a
+  of their settings pages. The Xbox menus get a
   screen drawn as Online Games is. The dialogs (Link Profile, unlinking,
-  and the pages of the site with a QR code) are the same in all three.
+  and the pages of the site with a QR code) are the same in both.
 - **Requests:** the game sends this copy's player key, over HTTPS only,
   to the game list: `POST /v1/game/profile` (the profile, its copies, roles
   and privacy), `/v1/game/unlink` (this copy only) and `/v1/game/privacy`
@@ -3350,7 +3350,7 @@ check it too):
 - **`serial`**: 1 to 4294967294 (0xFFFFFFFF says "takes no tables" on the wire); each table published gets a higher one.
   **`issued`**: when it was made (Unix seconds), for people; optional.
 - **Rows by wire, not by build.** Each build has a wire ID (`DELTA_WIRE` in
-  `delta.h`, `chupa-43a` today, from 0.9.1; `chupa-41a` from 0.8.1d; `chupa-39a` was 0.8.1b's and 0.8.1c's, `chupa-38a` 0.8.0h's; `chupa-32a` was 0.8.0's to 0.8.0g's and the original Xbox build of 2026-10-21's; `chupa-29a` came before it; `chupa-28a` was 0.7.4e's and 0.7.5's, `chupa-26a` was 0.7.2e's and 0.7.3e's, `chupa-24a` was 0.7.1e's, `chupa-23a` 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
+  `delta.h`, `chupa-44a` today, from the build that follows OpenCE's 44; `chupa-43a` from 0.9.1; `chupa-41a` from 0.8.1d; `chupa-39a` was 0.8.1b's and 0.8.1c's, `chupa-38a` 0.8.0h's; `chupa-32a` was 0.8.0's to 0.8.0g's and the original Xbox build of 2026-10-21's; `chupa-29a` came before it; `chupa-28a` was 0.7.4e's and 0.7.5's, `chupa-26a` was 0.7.2e's and 0.7.3e's, `chupa-24a` was 0.7.1e's, `chupa-23a` 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
   actually speaks. A row says which OpenCE numbers that wire was proven to
   play with: the number a host announces, and the range of hosts' numbers a
   client joins (each 1 to 65535, `minimum <= announce <= maximum`). An old
@@ -3573,9 +3573,11 @@ another row):
 
 From `chupa-43a` on, 42 and 43 are built in (`DELTA_LEGACY_NEWEST` 43): a
 build joins 43's hosts with no table, and these facts in a row are its own
-(a table's layouts go on past them). A host announces 43 for a game it is
-asked to, `delta_legacy_host_game_at(43)` (an MCC map's), and otherwise the
-usual number: with no row for its wire, a desktop build or a server hosts
+(a table's layouts go on past them). A host announces the MCC number for a
+game it is asked to, `delta_legacy_host_game_at(delta_legacy_mcc_version())`
+(an MCC map's: the newest MCC-capable number it or the table proves, 43
+built in here, 44 from `chupa-44a`, a later one from a row's layouts and
+`hosting`), and otherwise the usual number: with no row for its wire, a desktop build or a server hosts
 41 (`DELTA_BUILT_IN_HOSTING`, the last release's row), a console's build 32. `tools/legacy_rows/chupa-43a.json` is the row for the wire (clients to
 43's hosts, hosts announcing 41), and `chupa-43a-hosting-43.json` the same
 with 43 in `hosting`, which moves our hosts to 43 and so away from OpenCE's
@@ -3585,6 +3587,20 @@ The row's maximum takes clients to 43's hosts; 43 in its `hosting` list takes
 its hosts there too, only after the cross-play gate proves each. Rows of older
 wires never name 43: their builds have none of these fields and would play a
 43 game wrongly.
+
+From `chupa-44a` on, OpenCE's 44 (their build-355) is built in too
+(`DELTA_LEGACY_NEWEST` 44): the number alone changed, so 44 is 43's layout
+and rules, and a build joins 44's hosts, plays them by its own rules, and
+hosts at 44 when a table's `hosting` list proves it (or a game asks for
+it: an MCC map's, `delta_legacy_mcc_version`). `tools/legacy_rows/chupa-44a.json`
+is the wire's row for serial 12 (clients to 45, hosts announcing 44, follows
+build-355) and `chupa-43a-hosting-44.json` the `chupa-43a` row widened the
+same way (a `"44"` fact that is 43's, so `delta_legacy_host_game_at(44)` is
+taken there too, and 44 in `hosting`); `serial-12.json` is the whole
+document made from serial 11 with both
+(`tools/delta_table.py make --serial 12 --from <serial 11> --row chupa-43a=41,11,44@build-355 --row chupa-44a=32,11,45@build-355 --hosting chupa-43a=44 --hosting chupa-44a=44 --layout chupa-43a=44:<43's facts>`).
+A host of either wire announcing 44 is left by OpenCE's 43 and 41 machines
+(one number per host, as ever); 44 is their Latest.
 
 A fact holds for its version and every later one until the next. A build
 uses facts only for versions past its own rules (`DELTA_LEGACY_NEWEST`, 38

@@ -997,6 +997,30 @@ static void updater_background_progress(void *context, unsigned long long receiv
 	SDL_UnlockMutex(updater_background.lock);
 }
 
+/* a download staged last time and left (the player quit while the update
+waited for the game to end): reused when it is still the release list's
+file, its size and SHA-256 the list's (#1017); the list's signature checked
+already (updater_find_file). An unlisted download is never reused */
+static int updater_reusable(const char *zip_path)
+{
+	char digest[UPDATE_SHA256_TEXT_SIZE];
+	size_t size = 0;
+	unsigned char *data = updater_file.listed ? SDL_LoadFile(zip_path, &size) : NULL;
+	int reusable = 0;
+
+	if (data && size == updater_file.size && size <= MAXIMUM_UPDATE_SIZE)
+	{
+		update_sha256(data, size, digest);
+		reusable = !strcmp(digest, updater_file.sha256);
+	}
+	SDL_free(data);
+	if (reusable)
+		platform_log("update: the download staged last time is the release list's file: reused, not downloaded again");
+	else if (data)
+		update_delete_file(zip_path);
+	return reusable;
+}
+
 /* downloads the release's zip, showing how far it has got in a window of its
 own (drawn in software, clear of the game's OpenGL); 1 when it is there. The
 background install's (updater_in_background) downloads on its own thread
@@ -1120,7 +1144,9 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 
 /* the downloaded zip, checked against the release's list (its size and
 SHA-256) or, from a release without one, its own signature, and unpacked
-from the copy that was checked; the zip is deleted either way */
+from the copy that was checked. A listed zip that unpacked is kept in the
+update folder until the swap, for a next start to reuse (updater_reusable);
+an unlisted one, or one that failed, is deleted */
 static int updater_unpack(const char *zip_path, char names[][256], int *executable, int *name_count, char *error,
 	size_t error_size)
 {
@@ -1131,7 +1157,8 @@ static int updater_unpack(const char *zip_path, char names[][256], int *executab
 	SDL_IOStream *stream;
 	int succeeded = 0;
 
-	update_delete_file(zip_path);
+	if (!updater_file.listed)
+		update_delete_file(zip_path);
 	if (!zip || zip_size > MAXIMUM_UPDATE_SIZE)
 	{
 		snprintf(error, error_size, "could not read the download");
@@ -1203,6 +1230,8 @@ static int updater_unpack(const char *zip_path, char names[][256], int *executab
 	SDL_CloseIO(stream);
 
 done:
+	if (!succeeded)
+		update_delete_file(zip_path);
 	SDL_free(signature);
 	SDL_free(zip);
 	return succeeded;
@@ -1520,7 +1549,7 @@ static int updater_fetch(char *error, size_t error_size)
 		return 0;
 	}
 	if (updater_find_file(error, error_size) &&
-		updater_download_zip(updater_staged.download, error, error_size) &&
+		(updater_reusable(updater_staged.download) || updater_download_zip(updater_staged.download, error, error_size)) &&
 		(updater_appimage ? updater_check_appimage(updater_staged.download, error, error_size) :
 		updater_unpack(updater_staged.download, updater_staged.names, updater_staged.executable,
 			&updater_staged.count, error, error_size)))
@@ -1564,6 +1593,8 @@ static int updater_swap(char *start, size_t start_size, char *error, size_t erro
 	{
 		return 0;
 	}
+	/* (the zip kept for a reuse: not needed once the files are in place) */
+	update_delete_file(updater_staged.download);
 	update_delete_file(partial);
 	updater_new_executable(updater_staged.names, updater_staged.count, start, start_size);
 	return 1;
@@ -1786,13 +1817,58 @@ static void updater_remove_old_program(void)
 	update_delete_file(path);
 }
 
+/* the separate license files the downloads carried before 0.9.1, which
+THIRD-PARTY-NOTICES.txt holds now: an update leaves them where they were, as
+it leaves every file the new zip lacks. Only these names, only files (never a
+folder), only in the game's own folder, and only once that folder has the new
+LICENSE.txt and THIRD-PARTY-NOTICES.txt; each one removed is logged */
+static const char *const updater_old_license_files[] =
+{
+	"SDL3-LICENSE.txt", "mbedtls-LICENSE.txt", "miniupnpc-LICENSE.txt", "Overpass-OFL.txt",
+	"CyborgInterfaceGothic-OFL.txt", "ChupathingyTitles-OFL.txt", "NotoSans-OFL.txt",
+	"Kenney-Input-Prompts-CC0.txt", "expat-COPYING.txt", "lzma-sdk-LICENSE.txt", "zstd-LICENSE.txt",
+	"qrcodegen-LICENSE.txt", "steam-link-MIT.txt", "bcdec-LICENSE.txt", "bgfx-LICENSE.txt", "bx-LICENSE.txt",
+	"bimg-LICENSE.txt", "glslang-LICENSE.txt", "SPIRV-Cross-LICENSE.txt",
+};
+
+static int updater_is_file(const char *path)
+{
+	SDL_PathInfo info;
+
+	return SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE;
+}
+
+static void updater_remove_old_license_files(void)
+{
+	char path[1300];
+	size_t index;
+
+	updater_path(path, sizeof(path), "LICENSE.txt");
+	if (!updater_is_file(path))
+		return;
+	updater_path(path, sizeof(path), "THIRD-PARTY-NOTICES.txt");
+	if (!updater_is_file(path))
+		return;
+	for (index = 0; index < sizeof(updater_old_license_files) / sizeof(*updater_old_license_files); index++)
+	{
+		updater_path(path, sizeof(path), updater_old_license_files[index]);
+		if (!updater_is_file(path))
+			continue;
+		update_delete_file(path);
+		if (updater_is_file(path))
+			platform_log("update: could not remove %s (now in THIRD-PARTY-NOTICES.txt)", updater_old_license_files[index]);
+		else
+			platform_log("update: removed %s (now in THIRD-PARTY-NOTICES.txt)", updater_old_license_files[index]);
+	}
+}
+
 /* the files a previous update left behind */
 static void updater_clean_up(void)
 {
 	static const char *const names[] =
 	{
 		"halo.old", "halo.exe.old", "chupathingy.old", "chupathingy.exe.old", "SDL3.dll.old", "libSDL3.so.0.old",
-		"SDL3-LICENSE.txt.old", "mbedtls-LICENSE.txt.old", "LICENSE.txt.old",
+		"SDL3-LICENSE.txt.old", "mbedtls-LICENSE.txt.old", "LICENSE.txt.old", "THIRD-PARTY-NOTICES.txt.old",
 	};
 	char path[1300], signature_name[120];
 	size_t index;
@@ -1814,6 +1890,7 @@ static void updater_clean_up(void)
 			update_delete_file(path);
 		}
 		updater_remove_old_program();
+		updater_remove_old_license_files();
 	}
 	updater_partial_path(path, sizeof(path), updater_asset());
 	update_delete_file(path);

@@ -2,9 +2,13 @@
 .idea/
 .vs/
 
+# macOS folder settings
+.DS_Store
+
 # Caches
 __pycache__
 .mypy_cache
+.pytest_cache/
 .cache/
 
 # Build files

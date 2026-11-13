@@ -31,6 +31,7 @@ boolean mcc_hud_anchor_point(short anchor, struct hud_placement_definition const
 boolean mcc_hud_anchor_bounds(short anchor, real width, real height, real_rectangle2d *bounds);
 boolean mcc_hud_anchor_number(short anchor, real width, real origin, short *cursor);
 void mcc_hud_title_bounds(rectangle2d *bounds, short justification, unsigned long flags);
+void mcc_hud_title_fit(rectangle2d *bounds, wchar_t const *text);
 short mcc_terminal_line_height(long font, short height);
 boolean mcc_terminal_draw(long font, rectangle2d const *bounds, char const *text);
 
@@ -45,6 +46,7 @@ the shared code calls do nothing, their arguments unevaluated */
 #define mcc_hud_child_placement(a0, a1, a2) ((void)sizeof(a1), (void)sizeof(a2), (a0))
 #define mcc_hud_icon_draw(a0, a1, a2, a3, a4, a5, a6) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)sizeof(a5), (void)sizeof(a6), (boolean)0)
 #define mcc_hud_title_bounds(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)0)
+#define mcc_hud_title_fit(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (void)0)
 #define mcc_hud_weapon_frame_begin(a0) ((void)sizeof(a0), (void)0)
 #define mcc_hud_weapon_frame_end() ((void)0)
 #define mcc_terminal_draw(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (boolean)0)

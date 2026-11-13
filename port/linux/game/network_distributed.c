@@ -1014,6 +1014,183 @@ static void distributed_mcc_message(
 	}
 }
 
+/* ---------- OpenCE's MCC package sharing (103 and 104), which this build
+never does: a host's decline, a client's note (mcc_network_messages.h) */
+
+#ifndef HALO_MCC
+#include "../include/halo_port_features.h"
+#endif
+#if defined(HALO_MCC) && HALO_MCC
+#include "mcc_share_rules.h"
+boolean network_distributed_server_send_to_machine_reliably(long machine_index, void *message, word size);
+boolean network_distributed_client_send_reliably(void *message, word size);
+
+/* the game's layout for these, in the lobby too (where game_connection says
+nothing yet, so distributed_wire_layout can't): the host's by the number it
+announces, a client's by its host's */
+static void distributed_mcc_share_layout(
+	boolean hosting,
+	struct network_rules_layout *layout)
+{
+	network_rules_layout(hosting ? (unsigned int)delta_legacy_announce() : network_game_client_host_network_version(),
+		layout);
+}
+
+/* a message of ours (its header's 8 bytes then the body) as the game's wire
+has it (the header's further bytes, the epoch) to the machine, or the host
+(NONE), reliably: the size sent, 0 for none */
+static int distributed_mcc_share_send(
+	long machine_index,
+	byte type,
+	byte const *body,
+	int body_size)
+{
+	struct network_rules_layout layout_buffer, *layout = &layout_buffer;
+	byte message[sizeof(struct distributed_message_header) + MCC_SHARE_RESPONSE_SIZE];
+	byte wide[sizeof(message) + NETWORK_RULES_HEADER_EXTRA_LIMIT];
+	int size = (int)sizeof(struct distributed_message_header) + body_size, wide_size;
+	long game_time = game_in_progress() ? game_time_get() : 0;
+	word header = 0;
+
+	if (body_size < 0 || body_size > MCC_SHARE_RESPONSE_SIZE)
+		return 0;
+	distributed_mcc_share_layout(machine_index != NONE, layout);
+	/* (as map_share_wire.c builds one: the message header word in this
+	machine's order, which the transport turns; the rest byte by byte,
+	little-endian, the same on every machine) */
+	build_message_header(&header, (word)size, 2, 0);
+	csmemcpy(message, &header, sizeof(header));
+	message[2] = type;
+	message[3] = 1;
+	message[4] = (byte)game_time;
+	message[5] = (byte)(game_time >> 8);
+	message[6] = (byte)(game_time >> 16);
+	message[7] = (byte)(game_time >> 24);
+	csmemcpy(message + sizeof(struct distributed_message_header), body, (size_t)body_size);
+	wide_size = network_rules_header_expand(message, size, wide, (int)sizeof(wide), layout->header_extra,
+		layout->epoch_kind != 0, distributed_epoch);
+	if (!wide_size)
+		return 0;
+	if (machine_index == NONE)
+		network_distributed_client_send_reliably(wide, (word)wide_size);
+	else
+		network_distributed_server_send_to_machine_reliably(machine_index, wide, (word)wide_size);
+	return wide_size;
+}
+
+boolean network_distributed_mcc_share_message(
+	long machine_index,
+	void const *message,
+	word size)
+{
+	struct network_rules_layout layout_buffer, *layout = &layout_buffer;
+	byte const *bytes = (byte const *)message;
+	byte narrow[sizeof(struct distributed_message_header) + MCC_SHARE_RESPONSE_SIZE + NETWORK_RULES_HEADER_EXTRA_LIMIT];
+	byte reply[MCC_SHARE_RESPONSE_SIZE];
+	uint32_t epoch;
+	int narrow_size, body_size;
+	/* (the caller's side: the host's handler names the machine, a client's
+	says NONE) */
+	boolean hosting = machine_index != NONE;
+
+	if (size < sizeof(struct distributed_message_header) ||
+		(bytes[2] != MCC_SHARE_REQUEST_KIND && bytes[2] != MCC_SHARE_RESPONSE_KIND))
+	{
+		return FALSE;
+	}
+	/* (a layout without MCC's messages: dropped unread, as every build of
+	it drops them) */
+	distributed_mcc_share_layout(hosting, layout);
+	if (!layout->epoch_kind || size > sizeof(narrow))
+		return TRUE;
+	narrow_size = network_rules_header_strip(bytes, size, narrow, layout->header_extra, layout->epoch_kind != 0, 0, 0,
+		&epoch);
+	if (!narrow_size)
+		return TRUE;
+	body_size = narrow_size - (int)sizeof(struct distributed_message_header);
+	if (!hosting)
+	{
+		/* (a client: an answer it never asked for, noted and dropped) */
+		if (bytes[2] == MCC_SHARE_RESPONSE_KIND)
+		{
+			int result = mcc_share_answer_result(narrow + sizeof(struct distributed_message_header), (size_t)body_size);
+
+			error(_error_silent, "mcc: the host sent an MCC package answer (OpenCE's 104, result %d, op %d): this build "
+				"never asks for one, so it is dropped; a missing MCC map comes from the Workshop", result,
+				body_size > 0 ? narrow[sizeof(struct distributed_message_header)] : -1);
+		}
+		return TRUE;
+	}
+	if (bytes[2] != MCC_SHARE_REQUEST_KIND)
+		return TRUE;
+	/* (the host: declined, said once a machine; so is one it can't read) */
+	if (!mcc_share_decline(narrow + sizeof(struct distributed_message_header), (size_t)body_size, reply))
+	{
+		static long said_unread_machine = NONE;
+
+		if (said_unread_machine != machine_index)
+		{
+			said_unread_machine = machine_index;
+			error(_error_silent, "mcc: machine %ld sent an MCC package request (OpenCE's 103) this build can't read "
+				"(#%d bytes): dropped", machine_index, body_size);
+		}
+		return TRUE;
+	}
+	if (distributed_mcc_share_send(machine_index, MCC_SHARE_RESPONSE_KIND, reply, MCC_SHARE_RESPONSE_SIZE))
+	{
+		static long said_machine = NONE;
+
+		if (said_machine != machine_index)
+		{
+			said_machine = machine_index;
+			error(_error_silent, "mcc: machine %ld asked for the MCC map package (OpenCE's 103, op %d): declined (104, "
+				"sharing off); this build shares no MCC packages, its joiners get the Workshop", machine_index,
+				reply[0]);
+		}
+	}
+	return TRUE;
+}
+
+boolean network_distributed_mcc_share_request(
+	char const *level)
+{
+	byte request[MCC_SHARE_REQUEST_SIZE];
+	struct network_rules_layout layout;
+	size_t length = level ? strlen(level) : 0;
+
+	/* (a client of a host of a version with MCC's messages, in the lobby
+	or the game; never the host's own machine) */
+	if (!global_network_game_client_get() || global_network_game_server_get() || !length ||
+		length >= MCC_SHARE_LEVEL_SIZE)
+	{
+		return FALSE;
+	}
+	distributed_mcc_share_layout(FALSE, &layout);
+	if (!layout.epoch_kind)
+		return FALSE;
+	csmemset(request, 0, sizeof(request));
+	request[0] = MCC_SHARE_OP_MANIFEST;
+	csmemcpy(request + 16, level, length);
+	error(_error_silent, "mcc: asking the host for the MCC map package %s (OpenCE's 103, a manifest request: the test's "
+		"probe)", level);
+	return distributed_mcc_share_send(NONE, MCC_SHARE_REQUEST_KIND, request, (int)sizeof(request)) != 0;
+}
+#else
+boolean network_distributed_mcc_share_message(long machine_index, void const *message, word size)
+{
+	(void)machine_index;
+	(void)message;
+	(void)size;
+	return FALSE;
+}
+
+boolean network_distributed_mcc_share_request(char const *level)
+{
+	(void)level;
+	return FALSE;
+}
+#endif
+
 /* where a message goes at the transport */
 enum
 {
@@ -2555,6 +2732,24 @@ static void distributed_apply_predictions(
 }
 
 /* (a client) the host's word on a player's unit */
+/* (a client) the unit the host gives a player taken from any other player
+that has it here first: a unit is one player's, and a player left holding
+a unit given to another kept it after it was gone */
+static void distributed_unit_release_others(
+	long player_index,
+	long unit_index)
+{
+	struct data_iterator iterator;
+	struct player_datum *other;
+
+	data_iterator_new(&iterator, player_data);
+	while ((other = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		if (iterator.datum_index != player_index && other->unit_index == unit_index)
+			network_player_detach_unit(iterator.datum_index);
+	}
+}
+
 static void distributed_handle_unit_state(
 	struct distributed_unit_state const *state)
 {
@@ -2611,6 +2806,7 @@ static void distributed_handle_unit_state(
 	{
 		if (player->unit_index != NONE)
 			network_player_detach_unit(player_index);
+		distributed_unit_release_others(player_index, state->unit_index);
 		network_player_attach_unit(player_index, state->unit_index);
 		/* (a unit of a life this machine missed the end of, no player's
 		now: unit_kill_no_statistics is for players' units only) */

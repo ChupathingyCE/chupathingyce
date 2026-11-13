@@ -303,7 +303,7 @@ def test_every_log_writer_redacts():
     writer = errors[errors.index("void write_to_error_file("):]
     writer = writer[:writer.index("\n}\n")]
     assert writer.index("log_paths_redact_line(redacted") < writer.index("write_to_debug_file(string")
-    launcher = (SOURCE / "launcher.c").read_text()
-    assert "crash_report_redact(from" in launcher
+    log_send = (SOURCE / "log_send.c").read_text()
+    assert "crash_report_redact(from" in log_send
     config = (SOURCE / "port_config.c").read_text()
     assert '{ "debug.log_full_paths", _config_boolean, "false", "HALO_LOG_FULL_PATHS"' in config

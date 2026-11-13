@@ -47,6 +47,11 @@ void settings_row_reset(const struct settings_row *row);
 in words, and a step of it (a boolean turned, a word the next, a number up
 or down; text that takes any value is not changed: 0) */
 void settings_key_value(const char *key, char *text, int size);
+/* whether the row shows its value between arrows (0: a row that opens
+something, STEAM ACCOUNT and WORKSHOP FOLDER) */
+int settings_row_arrows(const struct settings_row *row);
+/* what WORKSHOP FOLDER does when changed (the Guide: the folder picker) */
+void settings_rows_set_folder_action(void (*action)(void));
 /* what the STEAM row does when changed (the Guide: its Workshop's link row); unset, the row is hidden */
 void settings_rows_set_steam_link_action(void (*action)(void));
 /* whether the Guide has WORKSHOP (MCC on this computer): WORKSHOP MAPS shows

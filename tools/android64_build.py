@@ -33,13 +33,17 @@ from typing import Any, List
 
 from .android_build import (
     ANDROID_API,
+    GLSLANG_DIR,
+    GLSLANG_TAG,
     SDL_DIR,
     _find_ndk,
     fetch_third_party,
+    fetch_vulkan_third_party,
     ndk_toolchain,
+    vulkan_rules,
 )
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import OPTIMISATION, ffmpeg_build, lto_flags
+from .linux_build import MBEDTLS_DIR, OPTIMISATION, ffmpeg_build, lto_flags
 from .lp64_build import (
     LINUX_PORT_CONFIG,
     Lp64Build,
@@ -50,6 +54,7 @@ from .lp64_build import (
     lp64_game_flags,
 )
 from .ninja_syntax import Writer
+from .third_party_notices import ninja_build as ninja_notices
 
 PORT_DIR = Path("port/android")
 NATIVE_DIR = PORT_DIR / "native64"
@@ -73,14 +78,16 @@ ANDROID64_POSIX_FLAGS = [
     "-Werror=int-conversion",
 ]
 
-LIBRARIES = ["SDL3", "GLESv3", "EGL", "log", "android", "m", "dl"]
+# (zlib: the Vulkan driver loader reads adrenotools archives, host_vk_driver.c)
+LIBRARIES = ["SDL3", "GLESv3", "EGL", "log", "android", "m", "dl", "z"]
 
 
 def android64_configure_inputs() -> List[Path]:
     """Files whose change must re-run configure.py."""
     if not LINUX_PORT_CONFIG.is_file():
         return [Path(__file__)]
-    return [Path(__file__), NATIVE_DIR, *lp64_configure_inputs(), *hud_configure_inputs()]
+    return [Path(__file__), NATIVE_DIR, PORT_DIR / "host", PORT_DIR / "vulkan", *lp64_configure_inputs(),
+            *hud_configure_inputs()]
 
 
 def generate_android64_build(n: Writer, sln: Any) -> None:
@@ -94,11 +101,14 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
     if not toolchain:
         n.comment("Native 64-bit Android build: the NDK has no LLVM toolchain")
         return
+    validation = bool(getattr(sln, "android_vulkan_validation", False))
     try:
-        # (SDL3, built by the Android build's rules)
+        # (SDL3, built by the Android build's rules; the Vulkan renderer's
+        # glslang and libadrenotools)
         fetch_third_party()
+        fetch_vulkan_third_party(validation)
     except Exception as error:  # noqa: BLE001 - reported, the build left out
-        n.comment(f"Native 64-bit Android build: cannot fetch SDL3 ({error})")
+        n.comment(f"Native 64-bit Android build: cannot fetch SDL3/glslang/libadrenotools ({error})")
         return
     build_dir: Path = sln.build_dir / "android64"
     jni_dir = build_dir / "jniLibs" / "arm64-v8a"
@@ -113,6 +123,11 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
         # a shared library (SDLActivity loads it)
         "-fPIC",
         "-DHALO_ANDROID=1",
+        # the Vulkan renderer, opt-in (display.renderer = "vulkan";
+        # port/linux/src/d3d8_vk.inl, port/android/host/host_vk*.c)
+        "-DHALO_VULKAN=1",
+        # the folder of its SPIR-V cache is named for the compiler (host_vk_shaders.c)
+        f"-DHOST_VK_GLSLANG_TAG='\"{GLSLANG_TAG}\"'",
         # (char is unsigned on ARM Linux and Android; the game, as MSVC, has
         # it signed, as every other build does: tools/server_build.py)
         "-fsigned-char",
@@ -131,14 +146,16 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
         target_flags=target_flags,
         game_flags=ANDROID64_GAME_FLAGS,
         posix_flags=ANDROID64_POSIX_FLAGS,
-        host_include=f"-I{SDL_DIR / 'include'} -I{PORT_DIR / 'include'} -I{PORT_DIR / 'host'}",
+        host_include=f"-I{SDL_DIR / 'include'} -I{PORT_DIR / 'include'} -I{PORT_DIR / 'host'} -I{GLSLANG_DIR} -I{MBEDTLS_DIR / 'include'}",
         third_party_flags=["-fno-builtin-wcslen"],
         excluded=set(lp64_excluded()),
         # the app's entry point and services (port/android/native64), and the
         # OpenGL ES helpers and touch controls shared with the guest build's
         # host library
         host_sources=[*sorted(NATIVE_DIR.glob("*.c")), PORT_DIR / "host" / "host_gl.c",
-                      PORT_DIR / "host" / "host_touch.c"],
+                      PORT_DIR / "host" / "host_touch.c",
+                      # the Vulkan renderer's backend
+                      *sorted((PORT_DIR / "host").glob("host_vk*.c"))],
         ffmpeg_cflags=ffmpeg_cflags,
     )
     generated_sources = (hud_assets_build(n, "android64", build_dir / "generated" / "hud_hires_assets.c")
@@ -182,7 +199,13 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
     # config.toml (android64_main.c)
     staged_brokers = build_dir / "assets" / "brokers.txt"
     n.build(outputs=staged_brokers, rule="android64_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs="android64", rule="phony", inputs=[libmain, staged_sdl, staged_brokers])
+    # the game's license and the notices of everything else built in
+    # (tools/third_party_notices.py), in the APK as in every download
+    staged_licenses = ninja_notices(n, "android64", build_dir / "assets", ["sdl3", "vulkan-android"])
+    # the Vulkan renderer's shader compiler and driver loader, beside libmain.so
+    staged_vulkan = vulkan_rules(n, "android64", ndk, build_dir, jni_dir, validation)
+    n.build(outputs="android64", rule="phony",
+            inputs=[libmain, staged_sdl, staged_brokers, *staged_licenses, *staged_vulkan])
 
     # the app (port/android/app with -Pnative64, into its build-native64)
     apk = PORT_DIR / "app" / "build-native64" / "outputs" / "apk" / "debug" / "app-debug.apk"
@@ -193,6 +216,7 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
         description="ANDROID64 GRADLE $out",
         pool="console",
     )
-    n.build(outputs=apk, rule="android64_gradle", inputs=[libmain, staged_sdl, staged_brokers])
+    n.build(outputs=apk, rule="android64_gradle",
+            inputs=[libmain, staged_sdl, staged_brokers, *staged_licenses, *staged_vulkan])
     n.build(outputs="android64_apk", rule="phony", inputs=apk)
     n.newline()

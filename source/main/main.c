@@ -336,6 +336,7 @@ symbols in this file:
 #include "cseries/profile.h"
 #include "cseries/cseries_windows.h"
 #include "main.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 #include "real_math.h"
 #include "game.h"
 #include "game_engine.h"
@@ -1439,6 +1440,10 @@ short main_get_solo_level_from_name(
 	char lower_name[128] = { 0 };
 	short level;
 
+	/* port: Stubbs mode's levels, and only those (a pack's map's name has
+	@stubbs: port/linux/game/stubbs_campaign.c) */
+	if (stubbs_mode_active())
+		return stubbs_campaign_level_from_name(name, NONE);
 	if (mcc_level_name(name))
 		return NONE;
 
@@ -1471,10 +1476,6 @@ short main_get_solo_level_from_name(
 		level = 8;
 	else
 		level = strstr(lower_name, "d40") ? 9 : NONE;
-
-	/* port: Stubbs mode's levels (port/linux/game/stubbs_campaign.c) */
-	if (stubbs_mode_active())
-		level = stubbs_campaign_level_from_name(name, level);
 
 	return level;
 }
@@ -1751,8 +1752,11 @@ static void main_change_map_name(
 			game_unload();
 			main_new_map(&options);
 
+			/* port: (Stubbs mode's last two levels are past the ten of Halo's
+			profile) */
 			for (local_player_index = 0;
-				local_player_index < player_spawn_count;
+				local_player_index < player_spawn_count &&
+					(!stubbs_mode_active() || main_get_current_solo_level() < NUMBER_OF_SINGLE_PLAYER_LEVELS);
 				local_player_index++)
 			{
 				player_profile_save_last_level_played(local_player_index);
@@ -2315,7 +2319,10 @@ static void main_lost_map_private(
 		they were at the last checkpoint, without a revert. A mission the
 		scripts failed (game_lost, with players still alive: d40's timer,
 		a50's Keyes) does revert, or its failure cutscene would never end. */
-		if (game_connection() != _game_connection_network_server)
+		/* port: MCC's Iron skull: a dead solo player's level restarts (mcc_skulls.c) */
+		if (mcc_skulls_restart_on_death())
+			main_reset_map();
+		else if (game_connection() != _game_connection_network_server)
 			game_state_revert();
 		else if (players_are_all_dead() || !main_coop_host_revert())
 			players_respawn_at_checkpoint();
@@ -2505,6 +2512,28 @@ static void main_won_map_private(
 	}
 	main_globals.want_to_be_at_main_menu = TRUE;
 	main_globals.won_map = FALSE;
+	/* port: Stubbs mode's next level, its twelve in its order, each
+	profile's finished levels its own (port/linux/game/stubbs_campaign.c);
+	after the last, the main menu */
+	if (stubbs_mode_active())
+	{
+		char const *next;
+
+		/* (the profile's own flags too, for the menus' Load Level list:
+		Halo's ten places hold a10_plaza to c30_lab) */
+		for (local_player_index = 0; local_player_index < player_spawn_count; local_player_index++)
+			player_profile_save_level_completed(local_player_index);
+		next = stubbs_campaign_level_won(main_globals.soloplayer_map_name, player_spawn_count);
+
+		if (next)
+		{
+			main_set_map_name(next);
+			main_disallow_persistent_storage();
+		}
+		else
+			main_goto_main_menu();
+		return;
+	}
 	level = main_get_solo_level_from_name(main_globals.soloplayer_map_name);
 	/* port: a level not in the campaign (a Halo PC map's) has no next one,
 	rather than the first */

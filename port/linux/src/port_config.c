@@ -131,7 +131,7 @@ Elsewhere 512 keeps the latency low. */
 #define DEFAULT_AUDIO_BUFFER_FRAMES "512"
 #endif
 
-/* Headphone 3D (dsound_sdl.c's binaural rendering), on as the original Xbox
+/* Headphone 3D (the Xbox's HRTF, dsound_sdl.c), on as the original Xbox
 had it: its DirectSound filtered every 3D voice through its HRTFs, on TV
 stereo too (DirectSoundUseFullHRTF). Surround output ignores it. A
 console's build keeps it off: the original Xbox has its own hardware path,
@@ -271,8 +271,7 @@ speaks to a player: the server's own words for them */
 	"you host (cheat_all_vehicles, object_create, ...); past it they are\n" \
 	"refused. 8 while an original Xbox plays. 0: no limit."
 #define PUBLIC_LOBBY_HELP \
-	"List public games in Online Games (the Server Browser in the Gearbox\n" \
-	"menus), and show others' games there."
+	"List public games in Online Games, and show others' games there."
 #define DATA_ROOT_HELP \
 	"The folder that holds the maps folder. Leave it empty for the working\n" \
 	"folder and its assets folder. Use single quotes for Windows paths, like\n" \
@@ -403,7 +402,7 @@ static const struct config_setting config_settings[] =
 		"Whether performance mode draws the HUD's frames and backgrounds, its static pictures." },
 #endif
 	{ "display.menus", _config_string, "\"chupathingy\"", "HALO_MENUS", _environment_value, _platform_all,
-		"Which menus to use: \"chupathingy\", \"xbox\" or \"gearbox\".\n"
+		"Which menus to use: \"chupathingy\" or \"xbox\".\n"
 		"Put your own menus in a menus folder next to config.toml.\n"
 		"Restart Chupathingy after a change." },
 	{ "display.map_show_new_game", _config_string, "\"all\"", "HALO_MAP_SHOW_NEW_GAME", _environment_value,
@@ -424,14 +423,17 @@ static const struct config_setting config_settings[] =
 		"(recently added first). Sort in the list changes it." },
 	{ "display.theme", _config_string, "\"blue\"", "HALO_THEME", _environment_value, _platform_all,
 		"The colors of the Delta Guide and the setup screen: \"blue\" (Halo\n"
-		"Blue), \"red\" (Chupathingy Red) or \"green\" (Dashboard Green).\n"
-		"A change shows at once." },
+		"Blue), \"green\" (Dashboard Green), \"orange\" (Visor Orange),\n"
+		"\"live\" (Live Orange) or \"red\" (Chupathingy Red). A change\n"
+		"shows at once." },
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the text and titles of the menus and the HUD with sharp,\n"
 		"high-res fonts." },
 	{ "display.title_font", _config_string, "\"classic\"", "HALO_TITLE_FONT", _environment_value, _platform_all,
 		"The font of the menus' titles. \"classic\" looks like Halo's own titles.\n"
-		"\"cyborg\" uses the same font as the menu text. A change shows at once.\n"
+		"\"cyborg\" uses the same font as the menu text. \"halo\" draws the\n"
+		"screens' titles in Halo's own lettering, made from your own ui.map\n"
+		"(nothing is saved or shared). A change shows at once.\n"
 		"The consoles have \"classic\" only." },
 	{ "display.high_res_hud", _config_boolean, "true", "HALO_HIGH_RES_HUD", _environment_value, _platform_all,
 		"Draw the HUD from the high-res assets." },
@@ -662,6 +664,19 @@ static const struct config_setting config_settings[] =
 		"are testing. \"gl\" is the renderer over the OpenGL layer, as before.\n"
 		"If the native one can't start, the game draws with \"gl\".\n"
 		"Read when Chupathingy starts." },
+#endif
+#ifdef HALO_VULKAN
+	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_android,
+		"How the game draws: \"gl\" (OpenGL ES over the phone's driver) or \"vulkan\"\n"
+		"(over display.vk_driver; OpenGL ES if Vulkan cannot start). Takes effect the\n"
+		"next time the game starts. See the Android README, \"Graphics: OpenGL ES and\n"
+		"Vulkan\"." },
+	{ "display.vk_driver", _config_string, "\"\"", "HALO_VK_DRIVER", _environment_value, _platform_android,
+		"The Vulkan driver the Vulkan renderer runs on: empty for the phone's own;\n"
+		"\"auto\" for Turnip, the open-source driver, on an Adreno GPU (the app\n"
+		"downloads the build for its series; the phone's own on any other GPU); or the\n"
+		"name of a driver archive (an adrenotools zip) left in the game's folder. One\n"
+		"that does not load is logged and the phone's own is used." },
 #endif
 #ifdef HALO_BGFX
 	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_desktop,
@@ -908,6 +923,12 @@ static const struct config_setting config_settings[] =
 	{ "delta.hint_shown", _config_integer, "0", "HALO_DELTA_HINT_SHOWN", _environment_value, _platform_all,
 		"How many times the main menu has said how to open the Delta Guide\n"
 		"(it says so three times, then no more)." },
+	{ "delta.guide_background", _config_string, "\"auto\"", "HALO_DELTA_GUIDE_BACKGROUND", _environment_value,
+		_platform_all,
+		"What the Delta Guide draws behind its panel: \"plain\" (a dark\n"
+		"shade over the game), \"cellwall\" (the Xbox dashboard's cell wall,\n"
+		"in the theme's colors) or \"auto\" (the cell wall with Dashboard\n"
+		"Green, the shade with the others). A change shows at once." },
 	{ "delta.notify_in_game", _config_boolean, "false", "HALO_DELTA_NOTIFY_IN_GAME", _environment_value,
 		_platform_all,
 		"Show the Delta Guide's notifications during a game. They always show\n"
@@ -1094,8 +1115,7 @@ static const struct config_setting config_settings[] =
 	{ "network.copy_to_clipboard", _config_boolean, "false", "HALO_NET_COPY_TO_CLIPBOARD", _environment_value,
 		_platform_all,
 		"Put a game's invite link on the clipboard when you start hosting it.\n"
-		"With false, the log has the link, and the Gearbox menus' Server\n"
-		"Settings copy it." },
+		"With false, the log has the link." },
 	{ "network.public_lobby", _config_boolean, "true", "HALO_NET_PUBLIC_LOBBY", _environment_value,
 		_platform_all | _platform_server, PUBLIC_LOBBY_HELP },
 	{ "network.doorbell", _config_boolean, "true", "HALO_NET_DOORBELL", _environment_value, _platform_all,
@@ -1313,6 +1333,13 @@ static const struct config_setting config_settings[] =
 		"HALO_NET_STUN", _environment_value, _platform_all | _platform_xbox | _platform_server,
 		"STUN servers that find this machine's internet address, as host:port,\n"
 		"separated by commas." },
+	{ "network.public_address", _config_string, "\"\"", "HALO_NET_PUBLIC_ADDRESS", _environment_value,
+		_platform_all | _platform_server,
+		"For hosts: the address players reach your games at, as host or\n"
+		"host:port, when they come in through a relay or tunnel (a VPS\n"
+		"forwarding UDP). Games you host advertise it in place of the address\n"
+		"STUN finds, and the port defaults to network.tunnel_port. Joining\n"
+		"other games is unchanged. Leave it empty to use STUN." },
 	{ "network.announce", _config_string, "\"latest\"", "HALO_NET_ANNOUNCE", _environment_value,
 		_platform_all | _platform_server,
 		"The OpenCE network version the games you host announce. \"latest\"\n"
@@ -1414,8 +1441,16 @@ static const struct config_setting config_settings[] =
 		"Workshop campaign maps are listed either way. Reopen the map list after\n"
 		"changing this." },
 	{ "game.workshop_maps", _config_boolean, "false", "HALO_WORKSHOP_MAPS", _environment_value, _platform_desktop,
-		"Discover installed Halo CE Steam Workshop maps. Read-only desktop\n"
-		"discovery; packages installed in maps_mcc are always read." },
+		"Also list the Halo CE Workshop maps Steam itself installed (STEAM'S MCC\n"
+		"MAPS). The ones the game's Workshop got, and packages in maps_mcc, are\n"
+		"always read." },
+	{ "game.mcc_skulls", _config_string, "\"\"", "HALO_MCC_SKULLS", _environment_value, _platform_desktop,
+		"The MCC skulls on when an MCC map starts, as MCC's skull menu would turn\n"
+		"them on: their names separated by commas (fog, black_eye, mythic, iron,\n"
+		"famine, catch, anger, thunderstorm, thats_just_wrong, assassins, bandanna,\n"
+		"boom, eye_patch, recession, blind, ghost, sputnik). A map's own scripts\n"
+		"may turn skulls on and off after that. Xbox and Custom Edition maps are\n"
+		"never affected." },
 	{ "game.workshop_steam", _config_boolean, "false", "HALO_WORKSHOP_STEAM", _environment_value, _platform_desktop,
 		"Let the Delta Guide's Workshop get MCC Workshop items itself: through the Steam\n"
 		"client where it downloads them (Windows), else with the game's own Steam\n"
@@ -1549,6 +1584,11 @@ static const struct config_setting config_settings[] =
 		"With debug.network_test_bomb: the joining machine's player holds the\n"
 		"trigger for the first four seconds of each try. They pick the bomb up\n"
 		"with it held, throw it down and pick it up again." },
+	{ "debug.network_test_mcc_request", _config_boolean, "false", "HALO_NETWORK_TEST_MCC_REQUEST",
+		_environment_value, _platform_all,
+		"With debug.network_test \"join\": once joined, the machine asks the host\n"
+		"for its MCC map package as OpenCE's client does (message 103), to see\n"
+		"the host decline it. A test's probe." },
 	{ "debug.network_test_bomb_keep", _config_boolean, "false", "HALO_NETWORK_TEST_BOMB_KEEP", _environment_value,
 		_platform_all,
 		"With debug.network_test_bomb: the carrier is not moved into the goal\n"
@@ -1720,6 +1760,17 @@ static const struct config_setting config_settings[] =
 		"Quit this many seconds after the window opens. 0 never does." },
 	{ "debug.hidden_window", _config_boolean, "false", "HALO_HIDDEN_WINDOW", _environment_set_is_true, _platform_desktop,
 		"Keep the window hidden, and never fullscreen." },
+#ifdef HALO_VULKAN
+	{ "debug.vk_present_marker", _config_boolean, "false", "HALO_VK_PRESENT_MARKER", _environment_set_is_true, _platform_android,
+		"Under the Vulkan renderer, draw a red square at the top left and a green one\n"
+		"at the top right of the picture, so that a screenshot shows which way up it is." },
+	{ "debug.vk_self_test", _config_boolean, "false", "HALO_VK_SELF_TEST", _environment_set_is_true, _platform_android,
+		"Under the Vulkan renderer, try the renderer's clears and the copying of a\n"
+		"draw's data on small targets of its own at start-up; the log says ok or FAILED." },
+	{ "debug.vk_validation", _config_boolean, "false", "HALO_VK_VALIDATION", _environment_set_is_true, _platform_android,
+		"Turn on Vulkan's validation layer in the Vulkan renderer, when the app\n"
+		"carries it (configure.py --android-vulkan-validation)." },
+#endif
 	{ "debug.null_renderer", _config_boolean, "false", "HALO_NULL_RENDERER", _environment_set_is_true, _platform_all,
 		"Run without a window, and draw nothing." },
 	{ "debug.gl_debug", _config_boolean, "false", "HALO_GL_DEBUG", _environment_set_is_true, _platform_all,
@@ -1747,6 +1798,11 @@ static const struct config_setting config_settings[] =
 		_platform_desktop,
 		"Keep the Steam link's token in its file in the data folder, never the\n"
 		"system's secret store (the Keychain), for tests." },
+	{ "debug.steam_link_fake", _config_string, "\"\"", "HALO_STEAM_LINK_FAKE", _environment_value, _platform_desktop,
+		"Steam's link and the Workshop's downloads played out without Steam, for\n"
+		"screenshots: \"linked\", \"link=offline\", \"link=expire\", \"get=ok\",\n"
+		"\"get=offline\", \"get=notowned\", \"get=diskfull\", joined by commas.\n"
+		"Leave it empty for none." },
 	{ "debug.workshop_no_steam", _config_boolean, "false", "HALO_WORKSHOP_NO_STEAM", _environment_set_is_true,
 		_platform_desktop,
 		"The Delta Guide's Workshop marks an item subscribed without opening\n"
@@ -1772,6 +1828,12 @@ static const struct config_setting config_settings[] =
 		"Log every frame in a map's first minute that comes more than this many\n"
 		"milliseconds after the one before it, and how many there were. 33 is\n"
 		"two frames at 60 Hz. 0 for none." },
+	{ "debug.frame_times", _config_string, "\"\"", "HALO_FRAME_TIMES", _environment_value, _platform_all,
+		"A file to write every frame's time to: the wall clock, the milliseconds\n"
+		"since the frame before, the map; and a line when a map has loaded. For\n"
+		"the renderer measurements: with it, bgfx does not pace a covered window\n"
+		"to the display either. It stops after 250000 lines (about 10 MB).\n"
+		"Leave it empty for none." },
 #endif
 	{ "debug.gpu_stats", _config_boolean, "false", "HALO_GPU_STATS", _environment_set_is_true, _platform_all,
 		"Log the renderer's draw counts once a second." },
@@ -2273,7 +2335,16 @@ static void config_path(char *path, size_t size)
 #endif
 }
 
-#ifdef HALO_XBOX_CONSOLE
+/* the consoles that write config.toml through the C runtime's files and
+put it in place with config_console_replace: the original Xbox and the
+Switch (HALO_XBOX_CONSOLE), and the 360, whose platform layer's fopen,
+rename and remove take its own paths (warthog-360's
+halo_xbox360_file_names.h) and whose rename won't replace a file */
+#if defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)
+#define CONFIG_CONSOLE_FILES
+#endif
+
+#ifdef CONFIG_CONSOLE_FILES
 /* a finished config.toml.new put in place on a console, whose rename may
 not replace a file: the old file is moved aside to config.toml.old first,
 the new one renamed in, and only then the old one removed. 1 when it is in
@@ -2328,12 +2399,12 @@ static void config_console_recover(const char *path)
 /* the whole file, NUL terminated, or NULL; free() it */
 static char *config_read_file(const char *path, size_t *size)
 {
-#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_ANDROID) || defined(CONFIG_CONSOLE_FILES)
 	FILE *file = fopen(path, "rb");
 	char *text = NULL;
 	long length;
 
-#ifdef HALO_XBOX_CONSOLE
+#ifdef CONFIG_CONSOLE_FILES
 	/* (a write that stopped part way through putting the new file in place) */
 	if (!file)
 	{
@@ -2391,7 +2462,7 @@ static int config_write_file(const char *path, const char *text)
 
 	if ((size_t)snprintf(temporary, sizeof(temporary), "%s.new", path) >= sizeof(temporary))
 		return 0;
-#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_ANDROID) || defined(CONFIG_CONSOLE_FILES)
 	{
 		FILE *file = fopen(temporary, "wb");
 
@@ -2407,7 +2478,7 @@ static int config_write_file(const char *path, const char *text)
 #endif
 		written = fclose(file) == 0 && written;
 	}
-#ifdef HALO_XBOX_CONSOLE
+#ifdef CONFIG_CONSOLE_FILES
 	if (written)
 	{
 		int placed = config_console_replace(path, temporary);
@@ -2429,10 +2500,8 @@ static int config_write_file(const char *path, const char *text)
 #endif
 	return written;
 #elif defined(HALO_CONSOLE)
-	/* (a console on the shared GL layer, the Wii U's and the 360's: their
-	repositories' SDL stand-ins, warthog-wiiu's wiiu_sdl.c and warthog-360's
-	x360_system.c, have SDL_SaveFile alone, and the 360's file names are its
-	own (halo_xbox360_fopen). Written in place there until they have
+	/* (the Wii U, on the shared GL layer: warthog-wiiu's SDL stand-in,
+	wiiu_sdl.c, has SDL_SaveFile alone. Written in place there until it has
 	SDL_IOFromFile, SDL_FlushIO and SDL_RenamePath too) */
 	(void)temporary;
 	(void)written;
@@ -3413,7 +3482,7 @@ setting at the default of the version that wrote it, so that a default
 changed since never reached it: its lines holding this version's default
 are commented out at it, as a new file has them, and config_version
 written. Any other value stays, being the player's, even an older
-version's default (the player may have chosen it: display.menus = "gearbox"),
+version's default (the player may have chosen it: display.menus = "xbox"),
 which the log says. Returns the new text, or NULL if the file has its
 version */
 static char *config_update_layout(const char *text, toml_datum_t table)
@@ -3761,7 +3830,17 @@ static void config_find_new_defaults(const char *text, toml_datum_t table)
 		}
 		else if (config_commented_value_is(text, setting, config_old_defaults[old].default_value) != 0)
 		{
+#ifdef HALO_XBOX_CONSOLE
+			/* port: the original Xbox has no screen to ask on, so its
+			question never came and a file it wrote before a default changed
+			kept the old one for good (an Xbox that ran an earlier build kept
+			waiting for a second player: warthog-xbox#106). A setting left
+			commented out there was never a choice, so it follows the new
+			default; one the file names keeps its value */
+			continue;
+#else
 			config_pending[index] = 1;
+#endif
 		}
 		if (config_pending[index])
 			config_pending_old[index] = config_old_defaults[old].default_value;
@@ -4261,12 +4340,15 @@ static const struct
 	const char *otherwise;
 } config_words[] =
 {
-	{ "display.theme", { "blue", "red", "green", NULL }, "\"blue\"" },
+	{ "display.theme", { "blue", "red", "green", "orange", "live", NULL }, "\"blue\"" },
+	{ "delta.guide_background", { "auto", "plain", "cellwall", NULL }, "\"auto\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
+	/* ("gearbox" and the older "pc", Gearbox's retired menus, are read as
+	"xbox", and the player told once: config_menus_retired_pending) */
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
-	{ "display.title_font", { "classic", "cyborg", NULL }, "\"classic\"" },
+	{ "display.title_font", { "classic", "cyborg", "halo", NULL }, "\"classic\"" },
 	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"none\"" },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
@@ -4965,6 +5047,30 @@ static char *config_refresh_commented(const char *text, const struct config_sett
 		return NULL;
 	}
 	return out.buffer;
+}
+
+/* ---------- retired menus
+
+Gearbox's menus (display.menus "gearbox", or the older "pc") are no longer a
+menu set: menu_tags.c shows the Xbox's for them. The player is told once
+(the main menu's note, guide.c), and then display.menus is written as "xbox", the menus
+they have, so that it is never said again. */
+
+int config_menus_retired_pending(void)
+{
+	const char *value = config_string("display.menus");
+
+	return value && (!SDL_strncasecmp(value, "gearbox", 8) || !SDL_strncasecmp(value, "pc", 3));
+}
+
+void config_menus_retired_seen(void)
+{
+	if (!config_menus_retired_pending())
+		return;
+	if (config_write("display.menus", "xbox"))
+		platform_log("settings: display.menus = \"xbox\" now (the Gearbox menus were retired)");
+	else
+		platform_log("settings: cannot write display.menus = \"xbox\"; the Xbox menus are used anyway");
 }
 
 int config_new_defaults_pending(char *text, size_t size)

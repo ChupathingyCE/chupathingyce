@@ -15,6 +15,7 @@ deko3d).
 
 #include "ui_overlay.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -22,9 +23,15 @@ deko3d).
 theme: Halo Blue, the Chupathingy menus' blues (the Guide's mockups),
 Chupathingy Red, the same with red for blue (the site's reds), and
 Dashboard Green, the Xbox dashboard's dark green glass and lime (from
-Theseus's Guide). The colors that are not the theme's (white, the
-warning's yellow, the states' green, the friend's gold) are the same in
-all, but for the red's bad state, orange to stand apart from its labels */
+Theseus's Guide), and Visor Orange, the Master Chief's visor: warm gold
+and orange with a pale gold sheen on what is lit, and Live Orange, the
+original Xbox Live's brighter orange (the TeamUIX site's #FF9800), both
+with off-white text. The
+colors that are not the theme's (white, the warning's yellow, the states'
+green, the friend's gold) are the same in all, but for the red's bad
+state, orange to stand apart from its labels, and the two oranges'
+warning, a lemon yellow, and bad state, a rose red, to stand apart from
+their golds and oranges */
 static const unsigned int palettes[NUMBER_OF_UI_THEMES][NUMBER_OF_UI_COLORS] =
 {
 	[UI_THEME_BLUE] =
@@ -210,6 +217,128 @@ static const unsigned int palettes[NUMBER_OF_UI_THEMES][NUMBER_OF_UI_COLORS] =
 		[UI_COLOR_SETTING_NAME] = 0xD8FF9CFF,
 		[UI_COLOR_WINDOW] = 0x061C08FF,
 	},
+	[UI_THEME_ORANGE] =
+	{
+		[UI_COLOR_NAME] = 0xFFF7E6FF,
+		[UI_COLOR_STATUS] = 0xFFD99AFF,
+		[UI_COLOR_LABEL] = 0xFFC560FF,
+		[UI_COLOR_HEAD] = 0xFFC560FF,
+		[UI_COLOR_HEAD_GLOW] = 0xE8A02E40,
+		[UI_COLOR_TEXT] = 0xFFF7E6FF,
+		[UI_COLOR_WARNING] = 0xFFF56BFF,
+		[UI_COLOR_SHADE] = 0x0C0802C8,
+		[UI_COLOR_GLASS_TOP] = 0x4D360AF6,
+		[UI_COLOR_GLASS_BOTTOM] = 0x2A1C04FA,
+		[UI_COLOR_PANE] = 0x241802E0,
+		[UI_COLOR_EMBLEM_FRIEND] = 0xC9A227FF,
+		[UI_COLOR_EMBLEM_LETTER] = 0x33230AFF,
+		[UI_COLOR_TITLE] = 0xF2B33DFF,
+		[UI_COLOR_TITLE_GLOW] = 0xF2B33DC0,
+		[UI_COLOR_NAV] = 0xF5BC4AFF,
+		[UI_COLOR_NAV_GLOW] = 0xE8A02E70,
+		[UI_COLOR_LABEL_DIM] = 0x9A7E4AFF,
+		[UI_COLOR_LABEL_GLOW] = 0xE8A02E60,
+		[UI_COLOR_SELECTED_GLOW] = 0xFFE7A38C,
+		[UI_COLOR_TEXT_DIM] = 0xC2B8A2FF,
+		[UI_COLOR_FAINT] = 0xC4AC7CFF,
+		[UI_COLOR_GOOD] = 0x7FE39AFF,
+		[UI_COLOR_BAD] = 0xFF7F9CFF,
+		[UI_COLOR_TAG] = 0xF5DCA3FF,
+		[UI_COLOR_PROMPT] = 0xF2B33DFF,
+		[UI_COLOR_PROMPT_GLOW] = 0xE8A02E80,
+		[UI_COLOR_LINE] = 0xFFC5608C,
+		[UI_COLOR_LINE_GLOW] = 0xE8A02E30,
+		[UI_COLOR_SEPARATOR] = 0xFFC5605A,
+		[UI_COLOR_FIELD] = 0x1A120280,
+		[UI_COLOR_FIELD_EDGE] = 0xE8A02E40,
+		[UI_COLOR_PROGRESS_TOP] = 0xFFC550FF,
+		[UI_COLOR_PROGRESS_BOTTOM] = 0xC98A1EFF,
+		[UI_COLOR_BACKDROP_TOP] = 0x1A1203FF,
+		[UI_COLOR_BACKDROP_MIDDLE] = 0x301F06FF,
+		[UI_COLOR_BACKDROP_BOTTOM] = 0x150E02FF,
+		[UI_COLOR_STAR] = 0xFFEBC8FF,
+		[UI_COLOR_CLEAR] = 0x110B02FF,
+		[UI_COLOR_PANEL_EDGE] = 0xC98A1EFF,
+		[UI_COLOR_GLOW] = 0xE8A02EFF,
+		[UI_COLOR_RULE] = 0xE8A02E5A,
+		[UI_COLOR_TAB] = 0xF2D199FF,
+		[UI_COLOR_TAB_ON] = 0xC98A1E8C,
+		[UI_COLOR_SELECTED_EDGE] = 0xFFE7A3FF,
+		[UI_COLOR_ROW] = 0x46300CE6,
+		[UI_COLOR_ROW_EDGE] = 0xE8A02E40,
+		[UI_COLOR_ROW_ON] = 0xC98A1E70,
+		[UI_COLOR_PLASMA_THREAD] = 0xFFC83AFF,
+		[UI_COLOR_LABEL_SOFT] = 0xE0B464FF,
+		[UI_COLOR_DOT_GAME] = 0xFFC03AFF,
+		[UI_COLOR_DOT_OFFLINE] = 0x70644EFF,
+		[UI_COLOR_TEXT_SOFT] = 0xD4C2A2FF,
+		[UI_COLOR_TEXT_PALE] = 0xE6DCC8FF,
+		[UI_COLOR_TEXT_OFF] = 0xA0906FFF,
+		[UI_COLOR_PLAYER] = 0xC88C18FF,
+		[UI_COLOR_SETTING_NAME] = 0xFFE7A3FF,
+		[UI_COLOR_WINDOW] = 0x301F06FF,
+	},
+	[UI_THEME_LIVE] =
+	{
+		[UI_COLOR_NAME] = 0xFFF6EAFF,
+		[UI_COLOR_STATUS] = 0xFFCB8FFF,
+		[UI_COLOR_LABEL] = 0xFFAE4AFF,
+		[UI_COLOR_HEAD] = 0xFFAE4AFF,
+		[UI_COLOR_HEAD_GLOW] = 0xFF980040,
+		[UI_COLOR_TEXT] = 0xFFF6EAFF,
+		[UI_COLOR_WARNING] = 0xFFF27AFF,
+		[UI_COLOR_SHADE] = 0x0C0602C8,
+		[UI_COLOR_GLASS_TOP] = 0x4A2906F6,
+		[UI_COLOR_GLASS_BOTTOM] = 0x2A1503FA,
+		[UI_COLOR_PANE] = 0x241102E0,
+		[UI_COLOR_EMBLEM_FRIEND] = 0xC9A227FF,
+		[UI_COLOR_EMBLEM_LETTER] = 0x331A04FF,
+		[UI_COLOR_TITLE] = 0xFF9800FF,
+		[UI_COLOR_TITLE_GLOW] = 0xFF9800C0,
+		[UI_COLOR_NAV] = 0xFFA526FF,
+		[UI_COLOR_NAV_GLOW] = 0xFF980070,
+		[UI_COLOR_LABEL_DIM] = 0x9A7448FF,
+		[UI_COLOR_LABEL_GLOW] = 0xFF980060,
+		[UI_COLOR_SELECTED_GLOW] = 0xFFD49C8C,
+		[UI_COLOR_TEXT_DIM] = 0xC2B3A2FF,
+		[UI_COLOR_FAINT] = 0xC4A27CFF,
+		[UI_COLOR_GOOD] = 0x7FE39AFF,
+		[UI_COLOR_BAD] = 0xFF7F9CFF,
+		[UI_COLOR_TAG] = 0xF5D0A3FF,
+		[UI_COLOR_PROMPT] = 0xFF9800FF,
+		[UI_COLOR_PROMPT_GLOW] = 0xFF900080,
+		[UI_COLOR_LINE] = 0xFFAE4A8C,
+		[UI_COLOR_LINE_GLOW] = 0xFF980030,
+		[UI_COLOR_SEPARATOR] = 0xFFAE4A5A,
+		[UI_COLOR_FIELD] = 0x1A0D0280,
+		[UI_COLOR_FIELD_EDGE] = 0xFFA03040,
+		[UI_COLOR_PROGRESS_TOP] = 0xFFB040FF,
+		[UI_COLOR_PROGRESS_BOTTOM] = 0xD67A10FF,
+		[UI_COLOR_BACKDROP_TOP] = 0x1A0E03FF,
+		[UI_COLOR_BACKDROP_MIDDLE] = 0x301A05FF,
+		[UI_COLOR_BACKDROP_BOTTOM] = 0x150B02FF,
+		[UI_COLOR_STAR] = 0xFFE6C8FF,
+		[UI_COLOR_CLEAR] = 0x110902FF,
+		[UI_COLOR_PANEL_EDGE] = 0xD67A10FF,
+		[UI_COLOR_GLOW] = 0xFF9800FF,
+		[UI_COLOR_RULE] = 0xFFA0305A,
+		[UI_COLOR_TAB] = 0xF0C08CFF,
+		[UI_COLOR_TAB_ON] = 0xD67A108C,
+		[UI_COLOR_SELECTED_EDGE] = 0xFFD49CFF,
+		[UI_COLOR_ROW] = 0x46260AE6,
+		[UI_COLOR_ROW_EDGE] = 0xFFA03040,
+		[UI_COLOR_ROW_ON] = 0xD67A1070,
+		[UI_COLOR_PLASMA_THREAD] = 0xFF9A1FFF,
+		[UI_COLOR_LABEL_SOFT] = 0xE0A464FF,
+		[UI_COLOR_DOT_GAME] = 0xFFAA33FF,
+		[UI_COLOR_DOT_OFFLINE] = 0x70604EFF,
+		[UI_COLOR_TEXT_SOFT] = 0xD4BCA2FF,
+		[UI_COLOR_TEXT_PALE] = 0xE6D6C8FF,
+		[UI_COLOR_TEXT_OFF] = 0xA08A72FF,
+		[UI_COLOR_PLAYER] = 0xE07A10FF,
+		[UI_COLOR_SETTING_NAME] = 0xFFD49CFF,
+		[UI_COLOR_WINDOW] = 0x301A05FF,
+	},
 };
 
 static int theme = UI_THEME_BLUE;
@@ -244,6 +373,8 @@ int ui_style_theme_named(const char *name)
 		[UI_THEME_BLUE] = "blue",
 		[UI_THEME_RED] = "red",
 		[UI_THEME_GREEN] = "green",
+		[UI_THEME_ORANGE] = "orange",
+		[UI_THEME_LIVE] = "live",
 	};
 	int which;
 
@@ -345,6 +476,92 @@ void ui_style_clock(unsigned int milliseconds)
 	style_clock = milliseconds;
 }
 
+/* ---------- the cellwall */
+
+/* the dashboard's inner wall per theme, from Theseus: the falloff
+material's colors (InnerWall_01: side, its color edge on, then front, face
+on) and the dark between the lines (XBOXgreendark): Dashboard Green's the
+retail dashboard's (Theseus's materials_retail.inl), Halo Blue's, Chupathingy
+Red's and Visor Orange's its Blue, Red and Orange skins' (Data/Skins; the
+Orange skin, a gold amber, keeps the green's dark, so Visor Orange's is the
+same dark turned gold, as the Red skin's is red), and Live Orange's the
+retail dashboard's orange highlight (console_hilite's side color) with a
+front and a dark derived from it as the skins derive theirs */
+static const unsigned int cellwall_colors[NUMBER_OF_UI_THEMES][3] =
+{
+	[UI_THEME_BLUE] = { 0x6BB1FFFF, 0x000EC0FF, 0x060021FF },
+	[UI_THEME_RED] = { 0xFF6B6BFF, 0xC00000FF, 0x210200FF },
+	[UI_THEME_GREEN] = { 0xF3FF6BFF, 0x28D414FF, 0x062100FF },
+	[UI_THEME_ORANGE] = { 0xFFCD6BFF, 0xC08300FF, 0x211500FF },
+	[UI_THEME_LIVE] = { 0xFFAD6BFF, 0xE06A00FF, 0x210E00FF },
+};
+
+/* the TeamUIX site's flicker, made calm for a screen to read over: every
+8 to 14 seconds the lines swell toward their edge-on color and back, over
+1.6 to 2.4 seconds (the site's is quicker, in another color, with the eye
+jumping about, which pulled the eye off the Guide's text). A small
+generator of its own, so it is the same every run */
+static struct
+{
+	unsigned int seed, next, start, length;
+} flicker;
+
+static float flicker_random(void)
+{
+	flicker.seed = flicker.seed * 1664525u + 1013904223u;
+	return (float)(flicker.seed >> 8) / 16777216.0f;
+}
+
+static unsigned int mix_color(unsigned int from, unsigned int to, float share)
+{
+	unsigned int out = 0;
+	int shift;
+
+	for (shift = 8; shift <= 24; shift += 8)
+	{
+		float a = (float)((from >> shift) & 0xFF), b = (float)((to >> shift) & 0xFF);
+
+		out |= (unsigned int)(a + (b - a) * share + 0.5f) << shift;
+	}
+	return out | 0xFF;
+}
+
+int ui_style_cellwall(float x, float y, float width, float height)
+{
+	const unsigned int *colors = cellwall_colors[theme];
+	unsigned int now = style_clock, front = colors[1];
+	/* (the site turns its sphere 0.0002 radians a frame, at 60 frames a
+	second; the lines' brightness a little under the site's texture's
+	(#21610D over #0F3205), so the wall stays behind the Guide) */
+	float motion[4] = { (float)fmod((double)now * 0.000012, 6.283185307), 0.12f, 0.0f, 0.32f };
+
+	if (!flicker.seed)
+	{
+		flicker.seed = 0x43480001u;
+		flicker.next = now + 8000;
+	}
+	/* (the clock went back: a new run of it) */
+	if (flicker.next > now + 14000u)
+		flicker.next = now + 8000;
+	if (now >= flicker.next)
+	{
+		flicker.start = now;
+		flicker.length = 1600 + (unsigned int)(flicker_random() * 800.0f);
+		flicker.next = now + 8000 + (unsigned int)(flicker_random() * 6000.0f);
+	}
+	if (flicker.length && now - flicker.start < flicker.length)
+	{
+		float t = (float)(now - flicker.start) / (float)flicker.length, peak = t < 0.5f ? t * 2.0f : (1.0f - t) * 2.0f;
+
+		/* (ease in and out, as the site's) */
+		peak = peak < 0.5f ? 2.0f * peak * peak : 1.0f - (-2.0f * peak + 2.0f) * (-2.0f * peak + 2.0f) * 0.5f;
+		front = mix_color(colors[1], colors[0], peak * 0.5f);
+		motion[3] *= 1.0f + peak * 0.5f;
+	}
+	/* (a little of the game through it, as through the plain shade) */
+	return ui_overlay_cellwall(x, y, width, height, motion, colors[0], front, (colors[2] & 0xFFFFFF00) | 0xF0);
+}
+
 void ui_style_surface(float x, float y, float width, float height, float radius, unsigned int color,
 	unsigned int edge, int lit)
 {
@@ -430,9 +647,18 @@ static void value_fit(const char *value, float size, float room, char *out, int 
 	snprintf(out, (size_t)out_size, "...");
 }
 
+/* the next ui_style_setting's value without its arrows (ui_style_setting_plain) */
+static int setting_plain;
+
+void ui_style_setting_plain(void)
+{
+	setting_plain = 1;
+}
+
 void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected)
 {
+	int plain = setting_plain;
 	float size = ui_style_text_size(UI_TEXT_NAME) * scale;
 	float text_y = y + (height - size) * 0.5f, right = x + width - size * 1.2f, label_end;
 	float value_width;
@@ -453,9 +679,20 @@ void ui_style_setting(float x, float y, float width, float height, float scale, 
 			UI_ALIGN_LEFT, badge);
 		label_end = badge_x + badge_width;
 	}
+	setting_plain = 0;
+	/* (an action row, ABOUT's or SEND MY LOGS': no value, no arrows) */
+	if (!value)
+		return;
 	/* (the value between its arrows, as the menus' settings have it; one
 	longer than the room right of the label cut with "...", a folder's at
 	its start so its last folders show) */
+	/* (a row that opens something: its value alone, at the arrow's place) */
+	if (plain)
+	{
+		value_fit(value, size, right + size * 0.6f - (label_end + size * 1.5f), shown, sizeof(shown));
+		ui_style_text_scaled(UI_TEXT_NAME, scale, right + size * 0.6f, text_y, UI_ALIGN_RIGHT, shown);
+		return;
+	}
 	value_fit(value, size, right - size * 1.8f - (label_end + size * 1.5f), shown, sizeof(shown));
 	value = shown;
 	value_width = ui_overlay_text_width(UI_FONT_MENU, size, value);

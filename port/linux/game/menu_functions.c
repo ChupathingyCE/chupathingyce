@@ -10494,15 +10494,23 @@ void pc_menu_workshop_play_update(void)
 	if (workshop_play.pinned && workshop_play.state != _workshop_play_waiting)
 	{
 		long active = ui_widget_port_active_screen_tag();
+		long root = tag_loaded('DeLa', pc_menus_main_menu_name());
 
 		if (workshop_play.screen == NONE && active != NONE && active != workshop_play.from)
 			workshop_play.screen = active;
+		/* (kept through the screens after it, as the difficulty after the
+		level select, and back again; let go at the main menu's own screen
+		or once a game starts) */
 		if (!main_menu_is_active() || (workshop_play.screen == NONE ?
 			system_milliseconds() - workshop_play.pinned_time > WORKSHOP_PLAY_OPEN_WAIT :
-			!ui_widget_port_screen_shown_or_behind(workshop_play.screen)))
+			active != NONE && active == root))
 		{
 			workshop_play_unpin();
 		}
+		/* (a screen after the one opened: the item's levels lead again, and
+		take the focus, when the player comes back to it) */
+		else if (workshop_play.screen != NONE && active != NONE && active != workshop_play.screen)
+			mcc_maps_set_first_item(workshop_play.item);
 	}
 	if (workshop_play.state != _workshop_play_waiting)
 		return;

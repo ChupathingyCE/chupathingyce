@@ -1,6 +1,6 @@
 # Building the server
 
-The releases are built by ChupathingyCE's release workflow; this is for
+The releases are built by Chupathingy's release workflow; this is for
 building one yourself, or working on it.
 
 ## Targets
@@ -42,7 +42,7 @@ python3 tools/ci_build.py server-x64 release --alpine
 
 It runs Alpine's container of the server's architecture, builds there, and
 leaves the server in `dist/chupathingyce-server-linux-x64/` with its README,
-playlists and license notices. A release's server there is stripped of
+playlists, `LICENSE.txt` and `THIRD-PARTY-NOTICES.txt`. A release's server there is stripped of
 its debug information (about 20 MB instead of 33); a debug build's keeps
 it, and so does `build/server-x64/chupathingyce-server`, for reading a
 crash report's addresses. An x86 container runs on an x86-64 machine;

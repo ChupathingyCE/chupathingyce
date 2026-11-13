@@ -107,7 +107,9 @@ static void mcc_mission_segment_evaluate(short function, long thread, boolean in
     long *arguments = hs_macro_function_evaluate(function, thread, initialize);
     char const *segment;
     if (!arguments) return;
-    segment = (char const *)(uintptr_t)arguments[0];
+    /* (a string argument is its Xbox address, as print_if's: on a 64-bit
+     * build it isn't a pointer) */
+    segment = arguments[0] ? (char const *)xbox_pointer((unsigned int)arguments[0]) : NULL;
     /* This port acknowledges a local segment event, without MCC's external
      * telemetry service. Keep the boolean result: shipped scripts use it in
      * conditional expressions before cinematics. MCC also uses the older
@@ -223,8 +225,15 @@ boolean mcc_script_call_valid(struct hs_syntax_node const *call, struct data_arr
         return node && node->type == _hs_type_script && node->next_node_index == NONE;
     }
     for (argument = 0; argument < function->parameter_count; ++argument) {
+        /* On a 64-bit build the definition is padded after its first type,
+         * so the rest are read from the wrapper (HS_FUNCTION_PARAMETER_TYPE). */
+#ifdef HALO_64BIT
+        short type = HS_FUNCTION_PARAMETER_TYPE(function, argument);
+#else
+        short type = function->parameter_types[argument];
+#endif
         node = datum_try_and_get(syntax, next);
-        if (!node || node->type != function->parameter_types[argument]) return FALSE;
+        if (!node || node->type != type) return FALSE;
         next = node->next_node_index;
     }
     return next == NONE;
@@ -274,16 +283,6 @@ static short mcc_local_global(struct mcc_runtime *runtime, struct scenario *scen
     syntax->first_free_absolute_index=(short)(slot+1);
     scenario->hs_globals.address=xbox_address(globals);scenario->hs_globals.count=count+1;
     return (short)count;
-}
-
-static boolean mcc_disabled_skull(char const *name)
-{
-    return name && (!csstrcasecmp(name,"debug_ice_cream_flavor_status_i_would_have_been_your_daddy") ||
-        !csstrcasecmp(name,"debug_ice_cream_flavor_status_grunt_birthday_party") ||
-        !csstrcasecmp(name,"debug_ice_cream_flavor_status_bandanna") ||
-        !csstrcasecmp(name,"debug_ice_cream_flavor_status_sputnik") ||
-        !csstrcasecmp(name,"debug_ice_cream_flavor_status_catch") ||
-        !csstrcasecmp(name,"debug_ice_cream_flavor_status_boom"));
 }
 
 static boolean mcc_boolean_result(struct hs_syntax_node *node,boolean value)
@@ -360,21 +359,8 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
                     error(_error_silent,"mcc: %s supports only a literal enable (syntax node %ld)",target_name,i);
                     return FALSE;
                 }
-                if (target && (target->flags & 1) && mcc_disabled_skull(
-                    mcc_script_string(strings,scenario->hs_string_constants.size,target->string_offset))) {
-                    struct hs_syntax_node *value=datum_try_and_get(syntax,target->next_node_index);
-                    /* A literal disable is already satisfied. Retain the
-                     * expression's requested result type and sibling link;
-                     * never discard computed values or an enable request. */
-                    if (value && (value->flags&7)==1 && value->type==_hs_type_boolean &&
-                        value->constant_type==_hs_type_boolean && !value->boolean_value &&
-                        value->next_node_index==NONE) {
-                        if (!mcc_boolean_result(node,FALSE)) return FALSE;
-                        continue;
-                    }
-                    error(_error_silent,"mcc: unsupported skull assignment to %s (syntax node %ld); only a literal disable is supported",target_name,i);
-                    return FALSE;
-                }
+                /* (a skull's set, debug_ice_cream_flavor_status_*, is an
+                 * ordinary set of an engine global: mcc_skulls.c) */
             }
             if (!csstrcasecmp(name, "objects_distance_to_object")) index = MCC_HS_DISTANCE_TO_OBJECT;
             else if (!csstrcasecmp(name, "mcc_mission_segment")) index = MCC_HS_MISSION_SEGMENT;
@@ -397,13 +383,8 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
                 if (node->type!=_hs_type_boolean) return FALSE;
                 node->flags&=~4;node->constant_type=_hs_type_boolean;node->data=TRUE;continue;
             }
-            if (mcc_disabled_skull(name)) {
-                if (node->type != _hs_type_boolean) return FALSE;
-                node->flags &= ~4;
-                node->constant_type = _hs_type_boolean;
-                node->data = FALSE;
-                continue;
-            }
+            /* (MCC's skulls, debug_ice_cream_flavor_status_*, are engine
+             * globals like MCC's, found by name below: mcc_skulls.c) */
             if (!csstrcasecmp(name,"game_speed_value")) {
                 if (speed==NONE) speed=mcc_local_global(runtime,scenario,syntax,name,_hs_type_real);
                 if (speed==NONE) {

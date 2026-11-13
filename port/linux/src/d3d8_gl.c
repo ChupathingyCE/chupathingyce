@@ -75,6 +75,24 @@ static UINT bg_visibility_result(DWORD index, unsigned long *number);
 static BOOL bg_back_buffer_size(int *width, int *height, int *pixel_width, int *pixel_height);
 static const char *bg_renderer_name(void);
 #endif
+#ifdef HALO_VULKAN
+/* the Android app's Vulkan backend in place of OpenGL ES (display.renderer =
+"vulkan"; d3d8_vk.inl, at the end of this file, which shares the device's
+state) */
+static BOOL vk_initialize(void);
+static BOOL vk_active(void);
+static void vk_draw_vertices(D3DPRIMITIVETYPE type, unsigned long start, unsigned long count);
+static void vk_draw_indexed(D3DPRIMITIVETYPE type, unsigned long count, const WORD *indices);
+static void vk_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count);
+static void vk_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOLOR color, float z, DWORD stencil);
+static void vk_present(void);
+static void vk_mcc_texture_forget(const DWORD *resource);
+static void vk_visibility_begin(void);
+static BOOL vk_visibility_end(DWORD index, unsigned long number);
+static UINT vk_visibility_result(DWORD index, unsigned long *number);
+static BOOL vk_back_buffer_size(int *width, int *height, int *pixel_width, int *pixel_height);
+static const char *vk_renderer_name(void);
+#endif
 
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
 /* a console's native renderer in place of OpenGL (display.renderer =
@@ -604,6 +622,11 @@ struct vertex_shader_object
 #ifdef HALO_BGFX
 	/* as shader[], the bgfx backend's (d3d8_bgfx.inl) */
 	void *bg_shader[2];
+#endif
+#ifdef HALO_VULKAN
+	/* the Vulkan backend's name for its program: a hash of its instructions
+	(d3d8_vk.inl), 0 until first drawn */
+	uint64_t vk_program_hash;
 #endif
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
 	/* as shader[], the console's native renderer's (d3d8_console.inl;
@@ -2541,6 +2564,14 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 			else if (!bg_initialize() && platform_video_reopen_for_gl())
 				gl_initialize();
 		}
+#elif defined(HALO_VULKAN)
+		{
+			/* (OpenGL ES when Vulkan does not start: a window of its own) */
+			if (!xgpu_vulkan)
+				gl_initialize();
+			else if (!vk_initialize() && platform_video_reopen_for_gl())
+				gl_initialize();
+		}
 #elif defined(HALO_CONSOLE_NATIVE_RENDERER)
 		{
 			/* (the OpenGL path when the console's renderer is not chosen or
@@ -2562,6 +2593,9 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 #ifdef HALO_BGFX
 			if (xgpu_bgfx)
 				renderer = bg_renderer_name();
+#elif defined(HALO_VULKAN)
+			if (vk_active())
+				renderer = vk_renderer_name();
 #elif defined(HALO_CONSOLE_NATIVE_RENDERER)
 			if (cr_active())
 				renderer = "native";
@@ -2590,6 +2624,18 @@ static BOOL ui_point_view_get(struct ui_point_view *view)
 	if (bg_active())
 	{
 		if (!bg_back_buffer_size(&view->target_width, &view->target_height, &view->gl_width, &view->gl_height))
+			return FALSE;
+		platform_video_window_size(&view->window_width, &view->window_height);
+		platform_video_drawable_size(&view->pixel_width, &view->pixel_height);
+		view->screen_width = halo_screen_width();
+		return TRUE;
+	}
+#endif
+#ifdef HALO_VULKAN
+	/* (the Vulkan backend's back buffer is its own: OpenGL ES has none while it draws) */
+	if (vk_active())
+	{
+		if (!vk_back_buffer_size(&view->target_width, &view->target_height, &view->gl_width, &view->gl_height))
 			return FALSE;
 		platform_video_window_size(&view->window_width, &view->window_height);
 		platform_video_drawable_size(&view->pixel_width, &view->pixel_height);
@@ -2651,6 +2697,8 @@ int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 	platform_ui_pointer_set_active(menus_active != 0);
 #ifdef HALO_BGFX
 	if (!menus_active || !(device.gl_ready || bg_active()) || !platform_ui_pointer_read(&state))
+#elif defined(HALO_VULKAN)
+	if (!menus_active || !(device.gl_ready || vk_active()) || !platform_ui_pointer_read(&state))
 #elif defined(HALO_CONSOLE_NATIVE_RENDERER)
 	if (!menus_active || !(device.gl_ready || cr_active()) || !platform_ui_pointer_read(&state))
 #else
@@ -2855,6 +2903,13 @@ void WINAPI D3DDevice_BeginVisibilityTest(void)
 		return;
 	}
 #endif
+#ifdef HALO_VULKAN
+	if (vk_active())
+	{
+		vk_visibility_begin();
+		return;
+	}
+#endif
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
 	if (cr_active())
 	{
@@ -2920,6 +2975,14 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	if (bg_active())
 	{
 		if (bg_visibility_end(index, number))
+			device.visibility_test_number = number;
+		return S_OK;
+	}
+#endif
+#ifdef HALO_VULKAN
+	if (vk_active())
+	{
+		if (vk_visibility_end(index, number))
 			device.visibility_test_number = number;
 		return S_OK;
 	}
@@ -3011,6 +3074,19 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 	{
 		unsigned long number = 0;
 		UINT count = bg_visibility_result(index, &number);
+
+		if (result)
+			*result = count;
+		if (time_stamp)
+			*time_stamp = number;
+		return S_OK;
+	}
+#endif
+#ifdef HALO_VULKAN
+	if (vk_active())
+	{
+		unsigned long number = 0;
+		UINT count = vk_visibility_result(index, &number);
 
 		if (result)
 			*result = count;
@@ -3213,6 +3289,9 @@ void xgpu_mcc_texture_unbind(DWORD const *resource)
 			device.textures[stage] = NULL;
 #ifdef HALO_BGFX
 	bg_mcc_texture_forget(resource);
+#endif
+#ifdef HALO_VULKAN
+	vk_mcc_texture_forget(resource);
 #endif
 }
 
@@ -5692,6 +5771,13 @@ static void draw_vertices_untimed(D3DPRIMITIVETYPE primitive_type, UINT start_ve
 		return;
 	}
 #endif
+#ifdef HALO_VULKAN
+	if (vk_active())
+	{
+		vk_draw_vertices(primitive_type, start_vertex, vertex_count);
+		return;
+	}
+#endif
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
 	if (cr_active())
 	{
@@ -5738,6 +5824,13 @@ static void draw_indexed_vertices_untimed(D3DPRIMITIVETYPE primitive_type, UINT 
 	if (bg_active())
 	{
 		bg_draw_indexed(primitive_type, vertex_count, index_data);
+		return;
+	}
+#endif
+#ifdef HALO_VULKAN
+	if (vk_active())
+	{
+		vk_draw_indexed(primitive_type, vertex_count, index_data);
 		return;
 	}
 #endif
@@ -5911,6 +6004,13 @@ static void end_untimed(void)
 		return;
 	}
 #endif
+#ifdef HALO_VULKAN
+	if (vk_active())
+	{
+		vk_draw_immediate(type, count);
+		return;
+	}
+#endif
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
 	if (cr_active())
 	{
@@ -6054,6 +6154,13 @@ static void clear_untimed(DWORD count, CONST D3DRECT *rectangles, DWORD flags, D
 	if (bg_active())
 	{
 		bg_clear(count, rectangles, flags, color, z, stencil);
+		return;
+	}
+#endif
+#ifdef HALO_VULKAN
+	if (vk_active())
+	{
+		vk_clear(count, rectangles, flags, color, z, stencil);
 		return;
 	}
 #endif
@@ -6928,6 +7035,10 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	if (bg_active())
 		bg_present();
 #endif
+#ifdef HALO_VULKAN
+	if (vk_active())
+		vk_present();
+#endif
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
 	if (cr_active())
 		cr_present();
@@ -7025,6 +7136,9 @@ HRESULT WINAPI D3DDevice_PersistDisplay(void)
 
 #ifdef HALO_BGFX
 #include "d3d8_bgfx.inl"
+#endif
+#ifdef HALO_VULKAN
+#include "d3d8_vk.inl"
 #endif
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
 #include "d3d8_console.inl"

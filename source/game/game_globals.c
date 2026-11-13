@@ -86,6 +86,7 @@ symbols in this file:
 #include "game/game_globals.h"
 #include "game/game_allegiance.h"
 #include "scenario/scenario.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 /* ---------- constants */
 
@@ -220,5 +221,10 @@ real game_difficulty_get_team_value(
 		return game_difficulty_get_value_by_difficulty(friend_value_type, difficulty);
 	}
 
+	/* port: an MCC map's skulls scale the player's enemies' values (Mythic,
+	Anger, Catch: mcc_skulls.c); 1 on every other map */
+	if (!game_engine_running())
+		return game_difficulty_get_value_by_difficulty(value_type, difficulty) *
+			mcc_skulls_difficulty_scale(value_type);
 	return game_difficulty_get_value_by_difficulty(value_type, difficulty);
 }

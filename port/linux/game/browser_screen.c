@@ -113,6 +113,7 @@ the right button is B.
 #include "../src/map_download.h"
 #include "../src/map_repo.h"
 #include "../src/workshop_browser.h"
+#include "../src/workshop_decisions.h"
 #include <time.h>
 #include "../src/playlist_download.h"
 #include "../src/ui_overlay.h"
@@ -137,6 +138,8 @@ boolean controls_screen_active(void);
 boolean guide_active(void);
 /* guide.c's: the Guide opened on SETTINGS' row of a key (STEAM ACCOUNT, its QR up) */
 void guide_open_setting(char const *key);
+/* ... and on its Workshop page (the store link there) */
+void guide_open_workshop(void);
 #endif
 
 /* ---------- constants */
@@ -391,6 +394,14 @@ static struct
 	char password_name[64];
 	char password_text[PASSWORD_LENGTH + 1];
 	unsigned long password_time;
+	/* a game picked to join: its panel up (JOIN or CANCEL) before anything
+	is joined, the game's invite, and when the panel opened; the invite
+	answered JOIN, joined from here on without asking again (a playlist's
+	maps offered after it, a missing map's offer) */
+	boolean join_ask_open;
+	char join_ask_invite[BROWSER_INVITE_LENGTH + 1];
+	unsigned long join_ask_time;
+	char join_answered[BROWSER_INVITE_LENGTH + 1];
 } browser_screen;
 
 /* ---------- private code */
@@ -788,6 +799,55 @@ void display_error_text_deferred(wchar_t const *text, short local_player_index);
 player said no, cancelled it, or it failed: why, or NULL): Online Games
 closed, and the main menu's error says the map is missing, as it does with
 network.map_downloads "never" (cache_files_map_present's words) */
+/* a Workshop fetch's reason, in plain words with what to do: Steam's
+"Not owned" and "Link Steam first." are the two a player can act on, and
+the Delta Guide has the actions (the store link on its Workshop page, the
+code to scan on its Steam setting), so those are opened for them */
+enum { _workshop_why_other, _workshop_why_not_owned, _workshop_why_not_linked };
+
+static int workshop_why_kind(
+	char const *why)
+{
+	if (!why)
+		return _workshop_why_other;
+	if (!strncmp(why, "Not owned", 9))
+		return _workshop_why_not_owned;
+	if (!strncmp(why, "Link Steam", 10))
+		return _workshop_why_not_linked;
+	return _workshop_why_other;
+}
+
+static char const *workshop_why_sentence(
+	char const *why)
+{
+	switch (workshop_why_kind(why))
+	{
+	case _workshop_why_not_owned:
+		return "This Steam account doesn't own Halo: The Master Chief Collection, which Workshop maps need. "
+			"The Delta Guide's Workshop has the store link.";
+	case _workshop_why_not_linked:
+		return "Link Steam first: the Delta Guide's Workshop shows a code to scan with the Steam app.";
+	default:
+		return why && why[0] ? why : "Steam didn't answer.";
+	}
+}
+
+/* ... the Guide's page for it, where there is one */
+static void workshop_why_open(
+	char const *why)
+{
+#ifdef HALO_GUIDE
+	switch (workshop_why_kind(why))
+	{
+	case _workshop_why_not_owned: guide_open_workshop(); break;
+	case _workshop_why_not_linked: guide_open_setting("game.workshop_steam"); break;
+	default: break;
+	}
+#else
+	(void)why;
+#endif
+}
+
 static void rejoin_given_up(
 	char const *why)
 {
@@ -813,7 +873,10 @@ static void rejoin_given_up(
 	/* (the words the error has without the downloader: why the download
 	failed is in the log, the dialog having no room for more) */
 	if (browser_screen.offer_workshop && why)
-		snprintf(text, sizeof(text), "Couldn't get %.40s. %.120s", browser_screen.offer_display, why);
+	{
+		snprintf(text, sizeof(text), "Couldn't get %.40s. %.160s", browser_screen.offer_display,
+			workshop_why_sentence(why));
+	}
 	else if (browser_screen.offer_workshop)
 		snprintf(text, sizeof(text), "You don't have %.40s. Get it in the Delta Guide's Workshop.",
 			browser_screen.offer_display);
@@ -1132,10 +1195,12 @@ static void follow_download(
 				browser_screen.connecting_time = system_milliseconds();
 			break;
 		case WORKSHOP_JOIN_FAILED:
-			if (browser_screen.rejoin_pending)
-				rejoin_given_up(browser_screen.offer_workshop_why);
-			else
-				browser_screen.offer = _offer_failed;
+			/* (why, with its buttons: BACK, and the Guide's page for a
+			reason the player can act on; a game left for it gives up into
+			the main menu's error after a few seconds unless there is one,
+			browser_screen_process) */
+			browser_screen.offer = _offer_failed;
+			browser_screen.offer_time = system_milliseconds();
 			break;
 		default:
 			/* (Steam's bytes, in KB past 4 GB's reach) */
@@ -1235,6 +1300,16 @@ static void offer_button(
 				map_download_set_setting(MAP_DOWNLOADS_NEVER);
 			offer_given_up(NULL);
 		}
+		/* (a Workshop item, WORKSHOP_JOIN_ALWAYS_BUTTON: Y is ALWAYS, MAPS
+		WHEN JOINING set to Always and the item got) */
+		else if (button == _gamepad_analog_button_y && WORKSHOP_JOIN_ALWAYS_BUTTON && browser_screen.offer_workshop)
+		{
+			if (browser_screen.offer_workshop_check == WORKSHOP_CHECK_OK)
+			{
+				workshop_join_set_setting(WORKSHOP_JOIN_ALWAYS);
+				start_offered_download();
+			}
+		}
 		else if (button == _gamepad_analog_button_y)
 			browser_screen.offer_dont_ask = !browser_screen.offer_dont_ask;
 		break;
@@ -1271,6 +1346,27 @@ static void offer_button(
 	case _offer_failed:
 		if (button == _gamepad_analog_button_a || button == _gamepad_analog_button_b)
 			offer_given_up(NULL);
+		/* (a Workshop fetch Steam refused for want of the game or the link:
+		the player's choice of the Guide's page for it, the offer closed
+		without the error; a game left for it is not joined again) */
+		else if (button == _gamepad_analog_button_y && browser_screen.offer_workshop &&
+			workshop_why_kind(browser_screen.offer_workshop_why) != _workshop_why_other)
+		{
+			char why[sizeof(browser_screen.offer_workshop_why)];
+
+			csstrncpy(why, browser_screen.offer_workshop_why, sizeof(why) - 1);
+			why[sizeof(why) - 1] = 0;
+			platform_log("map download: %s not downloaded (%s): the player went to the Delta Guide for it",
+				browser_screen.offer_display, why);
+			if (browser_screen.rejoin_pending)
+			{
+				browser_screen.rejoin_pending = FALSE;
+				browser_screen.active = FALSE;
+			}
+			browser_screen.offer_workshop = FALSE;
+			offer_given_up(NULL);
+			workshop_why_open(why);
+		}
 		break;
 	case _offer_stock:
 		if (button == _gamepad_analog_button_a || button == _gamepad_analog_button_b)
@@ -1306,6 +1402,7 @@ static boolean fold_selected(void);
 static short find_game(char const *invite, long length);
 static void join_invite(char const *invite, unsigned short const *name, boolean open);
 static void password_open(struct browser_game const *game);
+static boolean join_asked(struct browser_game const *game);
 static void fetch_games(void);
 
 /* a game's playlist's map set checked, if it has one this run has not
@@ -1342,7 +1439,10 @@ static void playlist_offer_end(
 	/* (the maps' folders asked again: some may be there now) */
 	browser_screen.ce_map_time = system_milliseconds() - CE_MAP_CHECK_INTERVAL - 1;
 	if (!join)
+	{
+		browser_screen.join_answered[0] = 0;
 		return;
+	}
 	fetch_games();
 	index = find_game(browser_screen.playlist_invite, BROWSER_INVITE_LENGTH + 1);
 	if (index != NONE)
@@ -1499,6 +1599,9 @@ static void join_selected(
 		set_status(game_type_blocker(game));
 		return;
 	}
+	/* (JOIN asked first: a pick alone joins nothing) */
+	if (!join_asked(game))
+		return;
 	/* (a verified playlist's game: its map set checked first, the missing
 	maps offered, and the game joined after: playlist_offer_follow) */
 	if (playlist_offer_begin(game))
@@ -1565,6 +1668,83 @@ static void join_invite(
 	if (name)
 		utf8_name(name, browser_screen.connecting_name, sizeof(browser_screen.connecting_name));
 	browser_screen.connecting_time = system_milliseconds();
+	browser_screen.join_answered[0] = 0;
+}
+
+/* ---------- a game's JOIN: asked before a game picked is joined, as a
+pick is not a join (a click on a game picks it; Enter or A on it, or a
+click on the picked one, asks). A game with a password is asked by its
+password's panel instead, and one that can't be joined says why without
+asking */
+
+/* whether the join of the game picked goes on: TRUE once it was answered
+JOIN (or its password's panel asks); else its panel opened */
+static boolean join_asked(
+	struct browser_game const *game)
+{
+	if (browser_screen.join_answered[0] && !strcmp(browser_screen.join_answered, game->invite))
+		return TRUE;
+	if (game->locked)
+		return TRUE;
+	/* (a Custom Edition map that is missing and can't be downloaded, with no
+	playlist to offer it: the footer's why, not a question) */
+	if (!(game->playlist[0] && playlist_download_possible()) && ce_map_state(game, FALSE) >= _ce_map_missing &&
+		!ce_map_downloadable(game) && !ce_map_ask_host(game))
+	{
+		return TRUE;
+	}
+	browser_screen.join_ask_open = TRUE;
+	csstrncpy(browser_screen.join_ask_invite, game->invite, sizeof(browser_screen.join_ask_invite) - 1);
+	browser_screen.join_ask_invite[sizeof(browser_screen.join_ask_invite) - 1] = 0;
+	browser_screen.join_ask_time = system_milliseconds();
+	return FALSE;
+}
+
+static void join_ask_close(
+	void)
+{
+	browser_screen.join_ask_open = FALSE;
+	browser_screen.join_ask_invite[0] = 0;
+}
+
+/* the game asked about, as the list has it now; NULL once it is gone */
+static struct browser_game const *join_ask_game(
+	void)
+{
+	short index = find_game(browser_screen.join_ask_invite, BROWSER_INVITE_LENGTH + 1);
+
+	return index != NONE ? &browser_screen.games[index] : NULL;
+}
+
+static void join_ask_button(
+	short button)
+{
+	short index;
+
+	switch (button)
+	{
+	case _gamepad_analog_button_a:
+	case _gamepad_binary_button_start:
+		index = find_game(browser_screen.join_ask_invite, BROWSER_INVITE_LENGTH + 1);
+		if (index == NONE)
+		{
+			join_ask_close();
+			set_status("The game is no longer listed.");
+			break;
+		}
+		csstrncpy(browser_screen.join_answered, browser_screen.join_ask_invite,
+			sizeof(browser_screen.join_answered) - 1);
+		browser_screen.join_answered[sizeof(browser_screen.join_answered) - 1] = 0;
+		join_ask_close();
+		browser_screen.selected = index;
+		platform_log("Online Games: JOIN answered");
+		join_selected();
+		break;
+	case _gamepad_analog_button_b:
+		join_ask_close();
+		break;
+	default: break;
+	}
 }
 
 /* ---------- a game's password: typed on the keyboard (Ctrl+V pastes) into
@@ -2109,7 +2289,7 @@ static char const *ce_map_blocker(
 			for (index = 0; index < digits && package[index] >= '0' && package[index] <= '9'; index++)
 				;
 			if (digits && index == digits && digits < 24)
-				snprintf(text, (size_t)size, "Missing: Steam Workshop item %.*s (subscribe in Steam)", (int)digits, package);
+				snprintf(text, (size_t)size, "Missing: Steam Workshop item %.*s", (int)digits, package);
 			else
 			{
 				snprintf(path, sizeof(path), "maps_mcc/%s.map", package);
@@ -2290,6 +2470,8 @@ void browser_screen_open(
 	if (browser_screen.connect_open)
 		close_link_profile();
 	password_close();
+	join_ask_close();
+	browser_screen.join_answered[0] = 0;
 	browser_screen.opened_time = system_milliseconds();
 	/* (the menu's A, still queued, is not a pick) */
 	event_manager_flush();
@@ -2669,6 +2851,12 @@ offer's while it is) */
 			password_button(button);
 		return;
 	}
+	if (browser_screen.join_ask_open)
+	{
+		if (system_milliseconds() - browser_screen.join_ask_time >= CONNECT_SETTLE)
+			join_ask_button(button);
+		return;
+	}
 	switch (button)
 	{
 	case _gamepad_binary_button_dpad_up: held_step(-1); break;
@@ -2776,6 +2964,9 @@ void browser_screen_debug_join(
 	if (index < 0 || index >= browser_screen.count)
 		return;
 	browser_screen.selected = (short)index;
+	/* (the test's own host: JOIN taken as answered) */
+	csstrncpy(browser_screen.join_answered, browser_screen.games[index].invite, sizeof(browser_screen.join_answered) - 1);
+	browser_screen.join_answered[sizeof(browser_screen.join_answered) - 1] = 0;
 	join_selected();
 }
 
@@ -2813,8 +3004,11 @@ void browser_screen_process(
 		follow_workshop_check();
 	if (browser_screen.offer == _offer_downloading)
 		follow_download();
+	/* (a Workshop fetch with a reason the player can act on waits for their
+	choice: the Guide's page, or back) */
 	else if (browser_screen.offer == _offer_failed && browser_screen.rejoin_pending &&
-		system_milliseconds() - browser_screen.offer_time > OFFER_FAILED_REJOIN_MILLISECONDS)
+		system_milliseconds() - browser_screen.offer_time > OFFER_FAILED_REJOIN_MILLISECONDS &&
+		!(browser_screen.offer_workshop && workshop_why_kind(browser_screen.offer_workshop_why) != _workshop_why_other))
 		offer_given_up(NULL);
 	else if (browser_screen.playlist_offer != _playlist_none)
 		playlist_offer_follow();
@@ -2836,7 +3030,7 @@ void browser_screen_process(
 			press(event.data.button.index);
 		else if (event.type == BROWSER_EVENT_LEFT_STICK && !browser_screen.connect_open &&
 			browser_screen.offer == _offer_none && browser_screen.playlist_offer == _playlist_none &&
-			!browser_screen.password_open)
+			!browser_screen.password_open && !browser_screen.join_ask_open)
 		{
 			if (event.data.stick.y == SHORT_MAX)
 				held_step(-1);
@@ -2850,9 +3044,12 @@ void browser_screen_process(
 	}
 	if (browser_screen.selected >= browser_screen.count)
 		browser_screen.selected = (short)MAX(0, browser_screen.count - 1);
-	/* (the panel goes with the screen) */
+	/* (the panels go with the screen) */
 	if (!browser_screen.active)
+	{
 		password_close();
+		join_ask_close();
+	}
 	/* (the widgets behind take nothing while the browser is up) */
 	event_manager_flush();
 	follow_listings();
@@ -3100,34 +3297,41 @@ static char const *host_text(
 }
 
 /* the game's machines by platform, as its Delta host counts them ("2 PC,
-1 Xbox"; counts only); "" when the list does not say */
+1 Xbox"; counts only); "" when the list does not say. Every platform of
+delta.h's registry is named from it (the PCs together), so a new one is too;
+then those whose machine didn't say, and those without Delta */
+#define PLATFORM_KEY(platform, key, tag, name, caps_name) key,
+static char const *const platform_keys[] = { DELTA_PLATFORM_NAMES(PLATFORM_KEY) };
+#undef PLATFORM_KEY
 static char const *machines_text(
 	struct browser_game const *game,
 	char *text,
 	long size)
 {
-	/* (the registry's numbers grouped as players say them, each group's
-	numbers ending with -1; the last, those without Delta) */
-	static struct { char const *name; signed char kinds[6]; } const groups[] = {
-		{ "PC", { 1, 2, 3, 13, 18, -1 } }, { "SteamOS", { 5, -1 } }, { "Android", { 4, -1 } },
-		{ "Xbox", { 6, -1 } }, { "Xbox 360", { 7, -1 } }, { "Wii U", { 8, -1 } }, { "Switch", { 9, -1 } },
-		{ "PSP", { 10, -1 } }, { "Vita", { 11, -1 } }, { "Xbox Series", { 12, -1 } }, { "PS3", { 14, -1 } },
-		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "Steam Link", { 19, -1 } },
-		{ "iOS", { 20, -1 } }, { "Apple TV", { 21, -1 } }, { "other", { 0, -1 } },
-		{ "OpenCE", { BROWSER_MACHINE_KINDS - 1, -1 } },
-	};
-	long used = 0, group;
+	long used = 0;
+	int count = 0, kind;
 
 	text[0] = 0;
-	for (group = 0; group < (long)NUMBEROF(groups) && used < size - 24; group++)
+	for (kind = 1; kind < NUMBER_OF_DELTA_PLATFORMS; kind++)
+		if (!strncmp(platform_keys[kind], "pc_", 3))
+			count += game->machines[kind];
+	if (count)
+		used += snprintf(text, (size_t)size, "%d PC", count);
+	for (kind = 1; kind <= NUMBER_OF_DELTA_PLATFORMS && used < size - 24; kind++)
 	{
-		int count = 0, index;
+		char const *name;
 
-		for (index = 0; groups[group].kinds[index] >= 0; index++)
-			count += game->machines[groups[group].kinds[index]];
+		if (kind < NUMBER_OF_DELTA_PLATFORMS && !strncmp(platform_keys[kind], "pc_", 3))
+			continue;
+		/* (the registry's, then unknown's, then those without Delta) */
+		count = kind < NUMBER_OF_DELTA_PLATFORMS ? game->machines[kind] : game->machines[0];
+		name = kind < NUMBER_OF_DELTA_PLATFORMS ? platform_names[kind] : "other";
 		if (count)
-			used += snprintf(text + used, (size_t)(size - used), "%s%d %s", used ? ", " : "", count, groups[group].name);
+			used += snprintf(text + used, (size_t)(size - used), "%s%d %s", used ? ", " : "", count, name);
 	}
+	count = game->machines[BROWSER_MACHINE_KINDS - 1];
+	if (count && used < size - 24)
+		used += snprintf(text + used, (size_t)(size - used), "%s%d OpenCE", used ? ", " : "", count);
 	return text;
 }
 
@@ -3819,6 +4023,15 @@ static void draw_map_offer(
 				snprintf(text, sizeof(text), "from the Steam Workshop?");
 			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
 				text);
+			/* (YES, ALWAYS and NO: WORKSHOP_JOIN_ALWAYS_BUTTON; else the tick box) */
+			if (WORKSHOP_JOIN_ALWAYS_BUTTON)
+			{
+				static int const workshop_buttons[] = { UI_BUTTON_B, UI_BUTTON_Y, UI_BUTTON_A };
+				static char const *const workshop_words[] = { "=NO", "=ALWAYS", "=YES" };
+
+				dialog_prompts(NUMBEROF(workshop_buttons), workshop_buttons, workshop_words);
+				break;
+			}
 			draw_dont_ask(y);
 			dialog_prompts(NUMBEROF(buttons), buttons, words);
 			break;
@@ -3932,11 +4145,29 @@ static void draw_map_offer(
 	default:
 		if (browser_screen.offer_workshop)
 		{
+			char const *why = browser_screen.offer_workshop_why;
+			int kind = workshop_why_kind(why);
+
 			snprintf(text, sizeof(text), "Could not get %s", browser_screen.offer_display);
 			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, COLOR_WARN, 0xF0A07060,
 				text);
+			/* (Steam's own words, then what to do: the Guide's page on Y) */
 			ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 126, UI_ALIGN_CENTER, COLOR_TEXT,
-				browser_screen.offer_workshop_why[0] ? browser_screen.offer_workshop_why : "Steam didn't answer.");
+				why[0] ? why : "Steam didn't answer.");
+			if (kind != _workshop_why_other)
+			{
+				static int const why_buttons[] = { UI_BUTTON_B, UI_BUTTON_Y };
+				static char const *const owned_words[] = { "=BACK", "=GET IT" };
+				static char const *const linked_words[] = { "=BACK", "=LINK STEAM" };
+
+				ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 150, UI_ALIGN_CENTER, COLOR_DIM,
+					kind == _workshop_why_not_owned ?
+					"Workshop maps need Halo: The Master Chief Collection on this Steam account." :
+					"The Delta Guide shows a code to scan with the Steam app.");
+				dialog_prompts(NUMBEROF(why_buttons), why_buttons,
+					kind == _workshop_why_not_owned ? owned_words : linked_words);
+				break;
+			}
 			dialog_prompt(UI_BUTTON_B, "=CLOSE");
 			break;
 		}
@@ -3948,6 +4179,56 @@ static void draw_map_offer(
 		dialog_prompt(UI_BUTTON_B, "=CLOSE");
 		break;
 	}
+}
+
+/* a game's JOIN asked: its name, map and players, who joins it, and
+JOIN or CANCEL */
+static void draw_join_ask(
+	void)
+{
+	static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+	static char const *const words[] = { "=CANCEL", "=JOIN" };
+	struct browser_game const *game = join_ask_game();
+	float center = CONNECT_X + CONNECT_WIDTH / 2;
+	char text[192], name[64], map[64], type[64];
+	float size = 17.0f;
+
+	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, "Join game");
+	if (!game)
+	{
+		ui_overlay_text(UI_FONT_MENU, 12.0f, center, CONNECT_Y + 130, UI_ALIGN_CENTER, COLOR_WARN,
+			"The game is no longer listed.");
+		dialog_prompt(UI_BUTTON_B, "=CLOSE");
+		return;
+	}
+	utf8_name(game->name, name, sizeof(name));
+	while (size > 10.0f && ui_overlay_text_width(UI_FONT_MENU, size, name) > CONNECT_WIDTH - 60)
+		size -= 0.5f;
+	ui_overlay_text_glow(UI_FONT_MENU, size, center, CONNECT_Y + 112, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, name);
+	snprintf(text, sizeof(text), "%s  \xC2\xB7  %s", game_map_display_name(game, map, sizeof(map)),
+		type_name(game, type, sizeof(type)));
+	ui_overlay_text(UI_FONT_MENU, 12.0f, center, CONNECT_Y + 150, UI_ALIGN_CENTER, COLOR_TEXT, text);
+	snprintf(text, sizeof(text), "%d/%d players", game->players, game->maximum_players);
+	ui_overlay_text(UI_FONT_MENU, 12.0f, center, CONNECT_Y + 170, UI_ALIGN_CENTER, COLOR_TEXT, text);
+	{
+		struct player_profile profile;
+		char player[64];
+		long index;
+
+		/* (the profile join_first_player joins with) */
+		if (first_player_profile(&profile) != NONE)
+		{
+			for (index = 0; index < (long)sizeof(player) - 1 && index < NUMBEROF(profile.player_name) &&
+				profile.player_name[index]; index++)
+			{
+				player[index] = profile.player_name[index] < 0x80 ? (char)profile.player_name[index] : '?';
+			}
+			player[index] = 0;
+			snprintf(text, sizeof(text), "Playing as %s", player);
+			ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 206, UI_ALIGN_CENTER, COLOR_DIM, text);
+		}
+	}
+	dialog_prompts(NUMBEROF(buttons), buttons, words);
 }
 
 /* a game's password asked for: the stars typed in a field, a caret
@@ -4802,7 +5083,7 @@ void browser_screen_render(
 		&browser_screen.games[browser_screen.selected] : NULL;
 	boolean dialog = browser_screen.connect_open || browser_screen.offer != _offer_none ||
 		browser_screen.playlist_offer != _playlist_none ||
-		browser_screen.password_open;
+		browser_screen.password_open || browser_screen.join_ask_open;
 
 	/* (what the pointer may press, as this frame draws it) */
 	browser_screen.target_count = 0;
@@ -4861,6 +5142,8 @@ void browser_screen_render(
 			draw_map_offer();
 		else if (browser_screen.password_open)
 			draw_password();
+		else if (browser_screen.join_ask_open)
+			draw_join_ask();
 		else
 			draw_playlist_offer();
 		ui_overlay_layer(0);
@@ -4901,7 +5184,7 @@ void browser_screen_pointer(
 		press(_gamepad_analog_button_b);
 	/* (positive: away from the player, or a finger moving down: back) */
 	if (pointer->wheel_steps && !browser_screen.connect_open && browser_screen.offer == _offer_none &&
-		browser_screen.playlist_offer == _playlist_none)
+		browser_screen.playlist_offer == _playlist_none && !browser_screen.join_ask_open)
 		step((short)-pointer->wheel_steps);
 	if (!pointer->left_clicks || !browser_screen.active)
 		return;

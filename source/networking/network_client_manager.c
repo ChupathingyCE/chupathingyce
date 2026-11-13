@@ -394,6 +394,7 @@ symbols in this file:
 #include "text/unicode.h"
 #include "halo_map_families.h" /* port: map_family_from_wire_name */
 #include "halo_join_reasons.h" /* port: why a game can't be joined, as the game lists say it */
+#include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
 #ifdef HALO_GAME_BROWSER
 #include "map_share.h" /* port: the map bot's fetch (port/linux/game/map_share_client.c) */
 #endif
@@ -1326,7 +1327,7 @@ boolean network_game_client_idle(
 
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE)
 	/* port: a Delta host with mcc_maps that changed the number its game is
-	played at in the lobby (an MCC map's game at 43: HOST_NUMBER): this
+	played at in the lobby (an MCC map's game at the MCC number: HOST_NUMBER): this
 	machine plays the host's next record and messages at it, staying */
 	if (client->state != _network_game_client_state_searching && !global_network_game_server_get())
 	{
@@ -1445,6 +1446,16 @@ boolean network_game_client_game_settings_updated(
 
 			/* port: resolve MCC locally before native presence checks, retaining the host's wire name */
 			if (!mcc_identity_accept(message_packet)) return FALSE;
+
+			/* port: Stubbs mode's games and Halo's kept apart, said in a
+			message (port/linux/game/stubbs_multiplayer.c); a host's own
+			client is the host */
+			if (!network_game_is_splitscreen_local() && !global_network_game_server_get() &&
+				stubbs_multiplayer_join_refused(message_packet->map.name))
+			{
+				display_error_when_main_menu_loaded(_error_network_failed_to_join_game);
+				return FALSE;
+			}
 
 			/* port: a map this machine has not (a Custom Edition map not in
 			its folder, or another version of it than the host's, say): the

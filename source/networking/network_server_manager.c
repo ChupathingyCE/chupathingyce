@@ -487,6 +487,8 @@ symbols in this file:
 #include <time.h>
 #ifdef HALO_GAME_BROWSER
 #include "map_share.h" /* port: map sharing's downloading machines (port/linux/game/map_share_host.c) */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
 #define NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(machine_index) map_share_host_downloading(machine_index)
 #else
 #define NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(machine_index) FALSE
@@ -771,7 +773,12 @@ static boolean network_game_server_drop_client_machine(
 static void network_game_server_start_late_joiner(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *machine);
+static void network_game_server_show_late_joiner_players(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine);
 static void network_game_server_start_waiting_late_joiners(
+	struct network_game_server *server);
+static void network_game_server_late_joiner_replies(
 	struct network_game_server *server);
 static void network_game_server_keep_late_joiners_alive(
 	struct network_game_server *server);
@@ -905,12 +912,24 @@ static long network_game_server_kicked_address_next;
 added no player this long after holds the lobby's countdown (a machine's
 player is asked for as it joins) */
 static unsigned long network_game_server_client_machine_join_times[MAXIMUM_NETWORK_MACHINE_COUNT];
+/* port: a machine joining the game in progress, in its pregame screen:
+when the host last took a team pick of its players, and last sent it its
+players because it asked (system_milliseconds, 0 for not yet), and whether
+an answer waits for that limit (network_game_server_late_joiner_player_settings):
+one pick every few seconds, and at most one answer a second, however often
+it asks */
+static unsigned long network_game_server_late_joiner_pick_times[MAXIMUM_NETWORK_MACHINE_COUNT];
+static unsigned long network_game_server_late_joiner_reply_times[MAXIMUM_NETWORK_MACHINE_COUNT];
+static boolean network_game_server_late_joiner_reply_due[MAXIMUM_NETWORK_MACHINE_COUNT];
 enum
 {
 	NETWORK_GAME_SERVER_PLAYERLESS_MACHINE_TIMEOUT = 15 * MILLISECONDS_PER_SECOND,
 	/* the connections of one address that have not joined yet a server
 	takes (network_game_server_add_new_client) */
 	MAXIMUM_WAITING_CONNECTIONS_PER_ADDRESS = 2,
+	/* a late joiner's team picks before it starts, and the host's answers */
+	LATE_JOINER_PICK_INTERVAL = 3 * MILLISECONDS_PER_SECOND,
+	LATE_JOINER_REPLY_INTERVAL = MILLISECONDS_PER_SECOND,
 };
 
 /* port: the players added to the game in progress from each client
@@ -1409,11 +1428,12 @@ struct network_game_server *network_game_server_create(
 	return server;
 }
 
-/* port: a game on an MCC map is hosted at OpenCE's 43, whose record and
-messages carry MCC's (mcc_network_messages.h), whatever this machine
-announces otherwise; any other map at the usual number. Asked as the map is
-chosen (network_game_server_change_map_name), each lobby frame, and undone as
-hosting ends; said once if this build can't */
+/* port: a game on an MCC map is hosted at the newest OpenCE number this build
+or the signed table proves whose record and messages carry MCC's (42 on,
+mcc_network_messages.h; delta_legacy_mcc_version, 44 built in from
+chupa-44a), whatever this machine announces otherwise; any other map at the
+usual number. Asked as the map is chosen (network_game_server_change_map_name),
+each lobby frame, and undone as hosting ends; said once if this build can't */
 /* (network_server_message_handler.c) */
 unsigned network_game_server_machine_joined_number(struct network_game_server *server,
 	struct network_game_server_client_machine *machine);
@@ -1422,10 +1442,12 @@ unsigned network_game_server_machine_joined_number(struct network_game_server *s
 char const *config_string(char const *name);
 int delta_peer_game_machine_lacks(int machine_index, int capability);
 int delta_legacy_host_game_at(int version); /* (port/linux/src/delta.c) */
+int delta_legacy_mcc_version(void);
 boolean dedicated_server_active(void); /* (server/src/dedicated.c) */
 long dedicated_playlist_count(void);
 char const *dedicated_playlist_map(long entry);
 static int network_game_server_mcc_asked = -1;
+static void network_game_server_port_cooperative_apply(struct network_game_server *server, short difficulty);
 /* (when the number changed: the record is sent again a little later, which
 the Delta machines that follow it read at the new number; 0 for none) */
 static unsigned long network_game_server_mcc_resend_time;
@@ -1439,12 +1461,13 @@ before never starts, the pregame load timeout drops it) */
 static void network_game_server_mcc_version(
 	char const *map_name)
 {
-	int want = map_name && mcc_level_name(map_name) ? 43 : 0;
+	boolean mcc = map_name && mcc_level_name(map_name);
+	int want;
 
 	/* (a dedicated server whose playlist has an MCC map hosts every game at
-	43: a number changed between games would leave its players, who joined
-	at the one before) */
-	if (!want && dedicated_server_active())
+	the MCC number: a number changed between games would leave its players,
+	who joined at the one before) */
+	if (!mcc && dedicated_server_active())
 	{
 		long entry;
 
@@ -1452,10 +1475,21 @@ static void network_game_server_mcc_version(
 		{
 			if (mcc_level_name(dedicated_playlist_map(entry)))
 			{
-				want = 43;
+				mcc = TRUE;
 				break;
 			}
 		}
+	}
+	/* (the newest MCC-capable number this build or the table proves: 44
+	built in, a table's later one; none when a local table narrows below
+	42, said once) */
+	want = mcc ? delta_legacy_mcc_version() : 0;
+	if (mcc && !want && network_game_server_mcc_asked != -2)
+	{
+		network_game_server_mcc_asked = -2;
+		error(_error_silent, "mcc: this build can't host an MCC map's game: no OpenCE network version from 43 on is "
+			"within the numbers it plays (the legacy table in use)");
+		return;
 	}
 
 	if (want == network_game_server_mcc_asked)
@@ -1464,9 +1498,9 @@ static void network_game_server_mcc_version(
 	network_game_server_mcc_resend_time = system_milliseconds();
 	network_game_server_mcc_resends = NETWORK_GAME_SERVER_MCC_RESENDS;
 	if (!delta_legacy_host_game_at(want) && want)
-		error(_error_silent, "mcc: this build can't host OpenCE's 43, which MCC maps need");
+		error(_error_silent, "mcc: this build can't host OpenCE's %d, which MCC maps need", want);
 	else if (want)
-		network_event("hosting %s at OpenCE's network version 43 (an MCC map%s)", map_name,
+		network_event("hosting %s at OpenCE's network version %d (an MCC map%s)", map_name, want,
 			mcc_level_name(map_name) ? "" : " in this server's playlist");
 }
 
@@ -1486,11 +1520,11 @@ static long network_game_server_mcc_would_drop(
 	struct network_game_server *server,
 	char const *map_name)
 {
-	int want = mcc_level_name(map_name) ? 43 : 0;
+	boolean want = mcc_level_name(map_name);
 	long index, count = 0;
 
 	if (dedicated_server_active() || config_string("debug.network_test")[0] ||
-		(want == 43) == (network_game_server_mcc_asked == 43))
+		want == (network_game_server_mcc_asked > 0))
 	{
 		return 0;
 	}
@@ -1521,12 +1555,24 @@ lobby, or hosts another, changes nothing) */
 static unsigned long network_game_server_mcc_session;
 static unsigned long network_game_server_mcc_confirm_session;
 static struct network_game_server *network_game_server_mcc_confirm_server;
+/* (whether the question is out: asked and not yet answered or taken back) */
+static boolean network_game_server_mcc_asking;
+/* (a co-op level's difficulty, when the map asked about is a campaign
+level picked for co-op: its co-op settings go on with the map, on yes, and
+not before (#1124); NONE for a multiplayer map) */
+static short network_game_server_mcc_confirm_difficulty = NONE;
+/* (the co-op pick in progress: the difficulty the question carries, if the
+map change asks; NONE otherwise) */
+static short network_game_server_mcc_choosing_difficulty = NONE;
 
 static void network_game_server_mcc_confirm_answer(
 	boolean yes)
 {
 	struct network_game_server *server = global_network_game_server_get();
+	short difficulty = network_game_server_mcc_confirm_difficulty;
 
+	network_game_server_mcc_asking = FALSE;
+	network_game_server_mcc_confirm_difficulty = NONE;
 	if (!yes || !server || server->state != _network_game_server_state_pregame ||
 		!network_game_server_mcc_confirm_map[0] || server != network_game_server_mcc_confirm_server ||
 		network_game_server_mcc_confirm_session != network_game_server_mcc_session)
@@ -1536,7 +1582,13 @@ static void network_game_server_mcc_confirm_answer(
 	}
 	network_game_server_mcc_confirmed = TRUE;
 	main_set_multiplayer_map_name(network_game_server_mcc_confirm_map);
-	network_game_server_change_map_name(server, network_game_server_mcc_confirm_map);
+	/* (a map that then waits for its package check takes its co-op
+	settings when the check passes: mcc_ui_network_hold_cooperative) */
+	if (network_game_server_change_map_name(server, network_game_server_mcc_confirm_map) && difficulty != NONE &&
+		!mcc_ui_network_hold_cooperative(server, difficulty))
+	{
+		network_game_server_port_cooperative_apply(server, difficulty);
+	}
 	network_game_server_mcc_confirmed = FALSE;
 }
 
@@ -1554,6 +1606,8 @@ static boolean network_game_server_mcc_confirm(
 		return FALSE;
 	network_game_server_mcc_confirm_server = server;
 	network_game_server_mcc_confirm_session = network_game_server_mcc_session;
+	network_game_server_mcc_confirm_difficulty = network_game_server_mcc_choosing_difficulty;
+	network_game_server_mcc_asking = TRUE;
 	csstrncpy(network_game_server_mcc_confirm_map, map_name, sizeof(network_game_server_mcc_confirm_map) - 1);
 	network_game_server_mcc_confirm_map[sizeof(network_game_server_mcc_confirm_map) - 1] = 0;
 	snprintf(detail, sizeof(detail), "%ld player%s without MCC maps will leave.", count, count == 1 ? "" : "s");
@@ -1567,7 +1621,62 @@ static boolean network_game_server_mcc_confirm(
 #define network_game_server_mcc_version(map_name) ((void)sizeof(map_name))
 #define network_game_server_mcc_confirm(server, map_name) ((void)sizeof(server), (void)sizeof(map_name), FALSE)
 void network_game_server_mcc_playlist_changed(void) {}
+static boolean const network_game_server_mcc_asking = FALSE;
+static short network_game_server_mcc_choosing_difficulty = NONE;
 #endif
+
+/* port: the server's co-op settings for a campaign level it is on: the
+difficulty (and co-op's most players), and a gametype with no game engine,
+which is what makes a network game co-op (game.c, players.c) */
+static void network_game_server_port_cooperative_apply(
+	struct network_game_server *server,
+	short difficulty)
+{
+	struct game_variant variant;
+
+	csmemset(&variant, 0, sizeof(variant));
+	ustrncpy(variant.human_readable_game_description, L"Co-op",
+		NUMBEROF(variant.human_readable_game_description) - 1);
+	main_set_difficulty(difficulty);
+	network_game_server_port_set_cooperative(server, difficulty);
+	network_game_server_change_game_variant(server, &variant);
+}
+
+/* port: a campaign level chosen for co-op (the Xbox campaign's or an MCC
+package's, both level selects: ui_widget.c, ui_widget_event_handler_functions.c):
+the level, and its co-op settings with it. When the move to or from an MCC
+map asks the host first (network_game_server_mcc_confirm), nothing changes
+until it answers yes: a no leaves the lobby as it was, on its map and
+gametype (#1124). FALSE when the level was refused. */
+boolean network_game_server_port_change_cooperative_level(
+	struct network_game_server *server,
+	char const *map_name,
+	short difficulty)
+{
+	boolean changed;
+
+	if (!server || server->state != _network_game_server_state_pregame || !map_name || !map_name[0] ||
+		difficulty < 0 || difficulty >= NUMBER_OF_GAME_DIFFICULTY_LEVELS)
+	{
+		return FALSE;
+	}
+	main_set_multiplayer_map_name(map_name);
+	network_game_server_mcc_choosing_difficulty = difficulty;
+	changed = network_game_server_change_map_name(server, map_name);
+	network_game_server_mcc_choosing_difficulty = NONE;
+	if (!changed)
+		return FALSE;
+	/* (asked: the map and the co-op settings on yes) */
+	if (network_game_server_mcc_asking)
+		return TRUE;
+	/* (an MCC map waiting for its package check: the co-op settings go on
+	when it passes; a failed check leaves the lobby on its map and its
+	gametype, #1124) */
+	if (mcc_ui_network_hold_cooperative(server, difficulty))
+		return TRUE;
+	network_game_server_port_cooperative_apply(server, difficulty);
+	return TRUE;
+}
 
 void network_game_server_dispose(
 	struct network_game_server *server)
@@ -1582,6 +1691,8 @@ void network_game_server_dispose(
 		invite_prompt_ask_cancel(network_game_server_mcc_confirm_answer);
 		network_game_server_mcc_session++;
 		network_game_server_mcc_confirm_map[0] = 0;
+		network_game_server_mcc_asking = FALSE;
+		network_game_server_mcc_confirm_difficulty = NONE;
 	}
 	/* (the usual number again; a dedicated server keeps its playlist's) */
 	if (!dedicated_server_active())
@@ -1841,6 +1952,7 @@ boolean network_game_server_idle(
 	/* (the settings record to machines it waited for: network version 35's) */
 	network_game_server_settings_frame(server);
 	network_game_server_start_waiting_late_joiners(server);
+	network_game_server_late_joiner_replies(server);
 
 	if (network_game_server_game_is_valid(server))
 	{
@@ -2469,6 +2581,14 @@ boolean network_game_server_accept_client_machine_into_game(
 			return FALSE;
 		}
 #endif
+		/* (and none in Stubbs mode, which hosts no online games yet:
+		port/linux/game/stubbs_multiplayer.c) */
+		if (stubbs_mode_active() && !network_game_server_client_machine_is_local(server, machine) &&
+			address.address.long_words[0] != IPV4_LOOPBACK_ADDRESS && stubbs_multiplayer_remote_machine_refused())
+		{
+			network_game_server_refusal_code = _rejection_code_game_is_closed;
+			return FALSE;
+		}
 		/* (and not one the host banned: its address or hardware id in
 		bans.txt) */
 		/* (the host's own client, which connects from 127.0.0.1, never) */
@@ -2581,6 +2701,9 @@ boolean network_game_server_accept_client_machine_into_game(
 				network_game_server_client_machine_addresses[machine_index] = address.address.long_words[0];
 				network_game_server_client_machine_datagram_ports[machine_index] = 0;
 				network_game_server_client_machine_join_times[machine_index] = system_milliseconds();
+				network_game_server_late_joiner_pick_times[machine_index] = 0;
+				network_game_server_late_joiner_reply_times[machine_index] = 0;
+				network_game_server_late_joiner_reply_due[machine_index] = FALSE;
 				network_distributed_lobby_budget_reset(machine_index);
 			}
 			else
@@ -3038,6 +3161,11 @@ void network_game_server_update_ticks(
 					{
 						network_game_server_start_late_joiner(server, client_machine);
 					}
+					/* port: one that waits for its other players (split screen)
+					is sent its players, so its pregame screen shows the ones
+					that joined, and they can change their profile and team
+					there (network_game_server_late_joiner_player_settings) */
+					network_game_server_show_late_joiner_players(server, client_machine);
 				}
 				else
 				{
@@ -3374,6 +3502,132 @@ static void network_game_server_start_late_joiner(
 	}
 	network_event("machine #%d joins the game in progress at game tick #%ld", machine->machine_index,
 		begin_game.unused);
+}
+
+/* whether the machine is joining the game in progress and not started yet
+(in its pregame screen: the wait for its other players, or for its
+settings record's size) */
+static boolean network_game_server_late_joiner_not_started(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	return server->state == _network_game_server_state_ingame &&
+		network_game_server_client_machine_is_joined_to_game(server, machine) &&
+		!TEST_FLAG(machine->flags, _network_client_machine_level_loaded_bit) &&
+		!TEST_FLAG(machine->flags, _network_client_machine_started_late_bit);
+}
+
+/* port: the settings, with the machine's players, to a machine joining the
+game in progress that has not started yet, alone: its pregame screen shows
+the players that joined (X#83). The same record its start sends it; the
+other machines, in the game, get none */
+static void network_game_server_show_late_joiner_players(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	if (!network_game_server_late_joiner_not_started(server, machine))
+		return;
+	if (!network_game_server_send_game_settings_to_client_machine(server, machine, &server->game, sizeof(server->game)))
+		network_event("failed to send machine #%d its players before it joins the game in progress", machine->machine_index);
+}
+
+long team_change_late_joiner(long list_index, short team);
+
+/* port: a player of a machine joining the game in progress, not started
+yet, changes their settings in its pregame screen (X#83): their team, as
+the host's team rule takes a player who has not played yet
+(team_change_late_joiner), one pick every few seconds a machine; a name or
+color stays as the other machines were told when the player was added. The
+machine is sent its players again either way, at most once a second. FALSE
+if the machine is not such a one */
+boolean network_game_server_late_joiner_player_settings(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine,
+	struct network_player const *player)
+{
+	struct network_player const *record;
+	unsigned long now;
+	long slot;
+
+	if (!network_game_server_late_joiner_not_started(server, machine))
+		return FALSE;
+	if (player->machine_index != machine->machine_index ||
+		!VALID_INDEX(player->player_list_index, MAXIMUM_NETWORK_PLAYER_COUNT))
+	{
+		network_event("client machine #%d tried to update a player of another machine", machine->machine_index);
+		return TRUE;
+	}
+	record = &server->game.players[player->player_list_index];
+	if (!network_player_is_valid(record) || record->machine_index != machine->machine_index ||
+		record->controller_index != player->controller_index)
+	{
+		network_event("client machine #%d tried to update a player of another machine", machine->machine_index);
+		return TRUE;
+	}
+	slot = machine->machine_index;
+	if (!VALID_INDEX(slot, MAXIMUM_NETWORK_MACHINE_COUNT))
+		return TRUE;
+	now = system_milliseconds();
+	if (server->game.variant.universal_variant.teams && VALID_INDEX(player->team_index, NUMBER_OF_MULTIPLAYER_TEAMS) &&
+		player->team_index != record->team_index)
+	{
+		char const *answer;
+
+		/* (one pick every few seconds a machine: each would flip the
+		teams and resend the record) */
+		if (network_game_server_late_joiner_pick_times[slot] &&
+			now - network_game_server_late_joiner_pick_times[slot] < (unsigned long)LATE_JOINER_PICK_INTERVAL)
+		{
+			answer = "too soon";
+		}
+		else if (team_change_late_joiner(player->player_list_index, player->team_index))
+		{
+			network_game_server_late_joiner_pick_times[slot] = now ? now : 1;
+			answer = "taken";
+		}
+		else
+		{
+			answer = "refused";
+		}
+		network_event("machine #%d's player %d asked for team %d before joining the game in progress: %s",
+			machine->machine_index, (int)player->player_list_index, (int)player->team_index, answer);
+	}
+	/* (its players again, so its screen shows what the host took; at most
+	once a second, the last one after the wait: network_game_server_late_joiner_replies) */
+	network_game_server_late_joiner_reply_due[slot] = TRUE;
+	network_game_server_late_joiner_replies(server);
+	return TRUE;
+}
+
+/* port: each frame, the answers to late joiners' settings requests that
+waited for the limit above (one a second a machine) */
+static void network_game_server_late_joiner_replies(
+	struct network_game_server *server)
+{
+	unsigned long now = system_milliseconds();
+	long slot;
+
+	for (slot = 0; slot < MAXIMUM_NETWORK_MACHINE_COUNT; slot++)
+	{
+		struct network_game_server_client_machine *machine = server->client_machines + slot;
+
+		if (!network_game_server_late_joiner_reply_due[slot])
+			continue;
+		if (!network_game_server_late_joiner_not_started(server, machine))
+		{
+			/* (started: its start sent the record) */
+			network_game_server_late_joiner_reply_due[slot] = FALSE;
+			continue;
+		}
+		if (network_game_server_late_joiner_reply_times[slot] &&
+			now - network_game_server_late_joiner_reply_times[slot] < (unsigned long)LATE_JOINER_REPLY_INTERVAL)
+		{
+			continue;
+		}
+		network_game_server_late_joiner_reply_due[slot] = FALSE;
+		network_game_server_late_joiner_reply_times[slot] = now ? now : 1;
+		network_game_server_show_late_joiner_players(server, machine);
+	}
 }
 
 /* port: each frame, the machines joining the game in progress whose start
@@ -4079,7 +4333,7 @@ boolean network_game_server_change_map_name(
 		}
 		return TRUE;
 	}
-	/* port: an MCC map's game at 43 (network_game_server_mcc_version) */
+	/* port: an MCC map's game at the MCC number (network_game_server_mcc_version) */
 	network_game_server_mcc_version(map_name);
 	/* port: MCC package work waits for local admission; legacy selections remain immediate. */
 	if (mcc_ui_network_defer_map(server, map_name)) return TRUE;
@@ -6057,7 +6311,7 @@ static void network_game_server_delta_refusals(
 		boolean mcc_map = !bomb && mcc_level_name(server->game.map.name);
 		boolean pack_map = !bomb && !mcc_map && cache_files_map_needs_delta(server->game.map.name);
 		/* (port: the number the game is played at changed since the machine
-		joined, as an MCC map's game at 43 does: only a Delta machine with
+		joined, as an MCC map's game at the MCC number does: only a Delta machine with
 		mcc_maps follows it, HOST_NUMBER; any other leaves with a notice) */
 		unsigned joined_number = network_game_server_machine_joined_number(server, machine);
 		boolean number_changed = joined_number && joined_number != (unsigned)delta_legacy_announce();
@@ -6085,7 +6339,7 @@ static void network_game_server_delta_refusals(
 		}
 		if (!number_changed && pack_map && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform))
 			continue;
-		/* (an MCC map: a machine without Delta, OpenCE's 43, plays it by its own
+		/* (an MCC map: a machine without Delta, OpenCE's own, plays it by its own
 		MCC support; a Delta machine needs mcc_maps: docs/delta.md, bit 24) */
 		if (!number_changed && mcc_map && (delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) ||
 			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps)))

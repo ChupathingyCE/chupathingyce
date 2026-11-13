@@ -354,6 +354,14 @@ class Run:
         shutil.rmtree(self.save, ignore_errors=True)
 
 
+def write_camera(pose, save, data):
+    """camera.txt for debug_camera_load: in the save root (director.c, since
+    the debug camera's file became the player's), and in the data root for a
+    build from before that"""
+    for folder in (save, data):
+        (folder / "camera.txt").write_text(pose.camera_text())
+
+
 def capture(build, poses, out, display, settle, environment, maps_ce, scratch):
     """Run the build once per map and capture each pose: ({key: png}, {map:
     why it has no pictures}, {key: a note}). A map that fails is reported,
@@ -367,14 +375,14 @@ def capture(build, poses, out, display, settle, environment, maps_ce, scratch):
                 # (a first load to settle the camera: the player's spawn can
                 # still take the view back from the first one)
                 first = next(pose for pose in poses if pose.map == map_name)
-                (run.data / "camera.txt").write_text(first.camera_text())
+                write_camera(first, run.save, run.data)
                 console(run.connection, ["(show_hud 0)", "(set cheat_deathless_player true)", "debug_camera_load"])
                 time.sleep(4.0)
                 for pose in poses:
                     if pose.map != map_name:
                         continue
                     run.check()
-                    (run.data / "camera.txt").write_text(pose.camera_text())
+                    write_camera(pose, run.save, run.data)
                     console(run.connection, ["(show_hud 0)", "(show_hud_help_text 0)", "(set cheat_deathless_player true)"])
                     png = out / f"{pose.key()}.png"
                     # (the camera loaded again before each capture, until two
@@ -417,7 +425,11 @@ def find_poses(build, maps, poses_file, out, display, settle, environment, maps_
             with Run(build, map_name, out, display, settle, environment, maps_ce, scratch) as run:
                 console(run.connection, ["debug_camera_save"])
                 time.sleep(1.0)
-                fields = (run.data / "camera.txt").read_text().split()
+                # (the save root's camera.txt since the debug camera's file became
+                # the player's, the data root's before)
+                saved = next((folder / "camera.txt" for folder in (run.save, run.data)
+                              if (folder / "camera.txt").exists()), run.save / "camera.txt")
+                fields = saved.read_text().split()
         except (Skipped, RuntimeError, OSError) as reason:
             print(f"  {map_name}: no spawn: {reason}")
             continue

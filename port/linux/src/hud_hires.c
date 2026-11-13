@@ -24,6 +24,7 @@ the port's zlib (port/third_party/zlib: a menus folder's PNGs are anyone's).
 #include "hud_hires.h"
 #include "platform.h"
 #include "port_config.h"
+#include "title_tool.h"
 #include "xgpu.h"
 
 #include "zlib_prefixed.h"
@@ -31,11 +32,13 @@ the port's zlib (port/third_party/zlib: a menus folder's PNGs are anyone's).
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* the game's (port/linux/game/hud_hires_tags.c) */
 long hud_hires_asset_at(unsigned long address, long width, long height);
 
-/* (the HUD's and both sets of titles: 84, 35 and 35 now) */
+/* (the HUD's and both sets of titles: 84, 35 and 35 now; the titles made
+from the player's files are counted apart) */
 #define MAXIMUM_TEXTURES 192
 /* a PNG's inflated rows and its texels, which are held at once: 128 MB for
 a 4096 by 4096 sheet (the largest shipped, 2048 by 2048, takes 32 MB), and
@@ -71,6 +74,8 @@ static int decode_running, decode_stopping;
 
 static unsigned char *png_decode(const unsigned char *data, unsigned long size, unsigned long *png_width,
 	unsigned long *png_height);
+static unsigned int png_pixels_texture(unsigned char *pixels, unsigned long width, unsigned long height,
+	unsigned long *levels);
 
 long hud_hires_asset_count(void)
 {
@@ -97,7 +102,7 @@ long hud_hires_asset_fits(long asset, long width, long height)
 		embedded->width / width == embedded->height / height && embedded->width / width > 1;
 }
 
-static int hud_enabled, titles_enabled, titles_cyborg;
+static int hud_enabled, titles_enabled, titles_cyborg, titles_from_files;
 static unsigned long settings_changes;
 
 /* the settings read again when the configuration has changed, counted when
@@ -112,13 +117,16 @@ static void settings_read(void)
 		int titles = config_boolean("display.high_res_text");
 		const char *title_font = config_string("display.title_font");
 		int cyborg = title_font && !strcmp(title_font, "cyborg");
+		int from_files = title_font && !strcmp(title_font, "halo");
 
-		if (read_at != (unsigned long)-1 && (hud != hud_enabled || titles != titles_enabled || cyborg != titles_cyborg))
+		if (read_at != (unsigned long)-1 && (hud != hud_enabled || titles != titles_enabled || cyborg != titles_cyborg ||
+			from_files != titles_from_files))
 			settings_changes++;
 		read_at = config_changes();
 		hud_enabled = hud;
 		titles_enabled = titles;
 		titles_cyborg = cyborg;
+		titles_from_files = from_files;
 	}
 }
 
@@ -167,6 +175,98 @@ static long cyborg_title(long asset)
 	return asset;
 }
 
+/* ---------- the titles from the player's own files (display.title_font =
+"halo": title_tool.h). A classic title the tool makes is found as
+GENERATED + its asset, its texture made from the player's ui.map when first
+drawn and kept */
+
+#define GENERATED MAXIMUM_TEXTURES
+
+#ifdef HALO_TITLE_CHOICE
+static struct title_tool *title_tool;
+static int title_tool_tried;
+/* each classic title's in title_tool_titles, or -1 */
+static long title_tool_index[MAXIMUM_TEXTURES];
+static struct
+{
+	unsigned int texture;
+	unsigned long levels;
+	int failed;
+} generated[MAXIMUM_TEXTURES];
+
+/* the tool, made from the ui.map once, the first time a title is wanted */
+static void title_tool_load(void)
+{
+	char path[1024];
+	long asset, index;
+	clock_t started = clock();
+
+	if (title_tool_tried)
+		return;
+	title_tool_tried = 1;
+	for (asset = 0; asset < MAXIMUM_TEXTURES; asset++)
+		title_tool_index[asset] = -1;
+	platform_translate_path("d:\\maps\\ui.map", path, sizeof(path));
+	title_tool = title_tool_new(path, title_tool_titles, (long)title_tool_title_count);
+	if (!title_tool)
+	{
+		platform_log("titles: none could be made from ui.map (its titles are not the English ones): "
+			"the classic ones are drawn");
+		return;
+	}
+	for (asset = 0; asset < hud_hires_asset_count(); asset++)
+	{
+		const struct hud_hires_embedded *embedded = &hud_hires_embedded[asset];
+
+		if (embedded->title != 1)
+			continue;
+		for (index = 0; index < (long)title_tool_title_count; index++)
+		{
+			const struct title_tool_title *title = &title_tool_titles[index];
+
+			if (title->bitmap == embedded->bitmap && title->crc == embedded->crc && !strcmp(title->tag, embedded->tag) &&
+				title_tool_has(title_tool, index))
+				title_tool_index[asset] = index;
+		}
+	}
+	platform_log("titles: Halo's titles made from ui.map in %ld ms",
+		(long)((clock() - started) * 1000 / CLOCKS_PER_SEC));
+}
+
+/* the title from the player's files standing for a classic one, or the
+classic one itself (the tool cannot make it) */
+static long from_files_title(long asset)
+{
+	title_tool_load();
+	if (title_tool_index[asset] < 0 || generated[asset].failed)
+		return asset;
+	return GENERATED + asset;
+}
+
+static unsigned int from_files_texture(long asset, unsigned long *levels)
+{
+	unsigned long width = 0, height = 0;
+	unsigned char *pixels;
+
+	if (generated[asset].failed)
+		return 0;
+	if (!generated[asset].texture)
+	{
+		pixels = title_tool_render(title_tool, title_tool_index[asset], &width, &height);
+		generated[asset].texture = png_pixels_texture(pixels, width, height, &generated[asset].levels);
+		if (!generated[asset].texture)
+		{
+			platform_log("titles: could not make %s bitmap %d from ui.map", hud_hires_embedded[asset].tag,
+				hud_hires_embedded[asset].bitmap);
+			generated[asset].failed = 1;
+			return 0;
+		}
+	}
+	*levels = generated[asset].levels;
+	return generated[asset].texture;
+}
+#endif
+
 long hud_hires_override_find(unsigned long address, unsigned long width, unsigned long height,
 	unsigned long level0_size)
 {
@@ -199,6 +299,12 @@ long hud_hires_override_find(unsigned long address, unsigned long width, unsigne
 		}
 		return -1;
 	}
+#ifdef HALO_TITLE_CHOICE
+	/* (display.title_font = "halo": the classic title's, from the player's
+	ui.map, where the tool can make it) */
+	if (hud_hires_embedded[asset].title == 1 && titles_from_files)
+		asset = from_files_title(asset);
+#endif
 	return asset;
 }
 
@@ -361,6 +467,16 @@ static unsigned int png_pixels_texture(unsigned char *pixels, unsigned long widt
 		return name;
 	}
 #endif
+#ifdef HALO_VULKAN
+	if (xgpu_vulkan)
+	{
+		/* (the Vulkan backend's image: d3d8_vk.inl) */
+		unsigned int name = xgpu_vulkan_texture_create(width, height, pixels, TRUE);
+
+		free(pixels);
+		return name;
+	}
+#endif
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
 	xgpu_gl_state_invalidate();
@@ -394,6 +510,10 @@ unsigned int hud_hires_override_texture(long asset, unsigned long *levels)
 {
 	const struct hud_hires_embedded *embedded;
 
+#ifdef HALO_TITLE_CHOICE
+	if (asset >= GENERATED && asset - GENERATED < hud_hires_asset_count())
+		return from_files_texture(asset - GENERATED, levels);
+#endif
 	if (asset < 0 || asset >= hud_hires_asset_count() || textures[asset].failed)
 		return 0;
 	if (textures[asset].texture)

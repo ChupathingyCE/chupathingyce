@@ -421,6 +421,11 @@ jobs:
           git ls-files -z | xargs -0 touch -h -d '2000-01-01 00:00:00 UTC'
           # (and the checkout's HEAD log, which build.ninja is configured from)
           touch -d '2000-01-01 00:00:00 UTC' "$(git rev-parse --git-path logs/HEAD)"
+          # (and build.ninja newer than the checkout's folders, source/units
+          # among them: the tar keeps the files' times but not the folders',
+          # which are the checkout's, so ninja would configure again and the
+          # "would rebuild" check below warned on every part; #1125)
+          touch build.ninja
           left=$(ninja -n linux | grep -c '^\[' || true)
           if [ "$left" -gt 0 ]; then
             echo "::warning::ninja would rebuild $left steps of the unpacked build"
@@ -470,7 +475,13 @@ jobs:
                   }
                 }')
               echo "$tests"
-              python3 -m pytest -q -n auto --durations=15 $tests
+              # (a shard dealt no file runs nothing: a bare pytest would
+              # collect the whole tree; #1125)
+              if [ -z "$tests" ]; then
+                echo "::notice::shard $2 of $3: no test files in this commit"
+              else
+                python3 -m pytest -q -n auto --durations=15 $tests
+              fi
               ;;
             other)
               # (the self-updater from end to end, against the 32-bit SDL 3 the
@@ -922,7 +933,9 @@ jobs:
           for pair in x86:386 x64:amd64 arm64:arm64; do
             arch=${pair%%:*}; platform=${pair#*:}
             mkdir -p "$context/bin/$platform"
-            cp "artifacts/chupathingyce-server-linux-$arch/chupathingyce-server" "$context/bin/$platform/"
+            cp "artifacts/chupathingyce-server-linux-$arch/chupathingyce-server" \
+              "artifacts/chupathingyce-server-linux-$arch/LICENSE.txt" \
+              "artifacts/chupathingyce-server-linux-$arch/THIRD-PARTY-NOTICES.txt" "$context/bin/$platform/"
             chmod +x "$context/bin/$platform/chupathingyce-server"
           done
           docker buildx build --platform linux/386,linux/amd64,linux/arm64 \
@@ -935,6 +948,9 @@ jobs:
             docker buildx build --platform linux/$platform --load -t chupathingyce-server:$platform "$RUNNER_TEMP/context"
             docker run --rm --platform linux/$platform --cap-drop ALL --security-opt no-new-privileges \
               chupathingyce-server:$platform --version
+            # (its license and notices beside it)
+            docker run --rm --platform linux/$platform --entrypoint /bin/sh chupathingyce-server:$platform \
+              -c 'test -s /opt/chupathingyce/LICENSE.txt && test -s /opt/chupathingyce/THIRD-PARTY-NOTICES.txt'
             # (not root)
             test "$(docker image inspect -f '{{.Config.User}}' chupathingyce-server:$platform)" = 1000:1000
           done

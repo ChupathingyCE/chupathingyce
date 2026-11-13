@@ -245,6 +245,7 @@ symbols in this file:
 short pal_tags_first_person_frames(long graph_index, short animation_index, short frames);
 
 #include "muzzle_lighting.h" /* port: port/linux/game/muzzle_lighting.c */
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 /* ---------- constants */
 
@@ -2769,7 +2770,9 @@ static void weapon_trigger_fire(
 				(magazine->rounds_loaded>=trigger_definition->minimum_rounds_loaded_per_shot || !TEST_FLAG(trigger->flags, _weapon_trigger_released_since_last_shot_bit)))
 			{
 				/* port: keep MCC predicted ammunition consistent with the host. */
-				if (!(cheat.bottomless_clip || mcc_script_effect_enabled(MCC_EFFECT_BOTTOMLESS_CLIP)) && (magazine->rounds_loaded-= trigger_definition->rounds_per_shot)<=0)
+				/* port: MCC's Recession skull: a player's shot costs twice the rounds (mcc_skulls.c) */
+				if (!(cheat.bottomless_clip || mcc_script_effect_enabled(MCC_EFFECT_BOTTOMLESS_CLIP)) &&
+					(magazine->rounds_loaded-= mcc_skulls_rounds_per_shot(weapon_index, trigger_definition->rounds_per_shot))<=0)
 				{
 					magazine->rounds_loaded= 0;
 				}
@@ -2931,7 +2934,9 @@ static void weapon_trigger_fire(
 		/* port: MCC clients mirror the host's battery consumption rule. */
 		if (TEST_FLAG(weapon->item.flags, _item_belongs_to_player_bit) && !(cheat.infinite_ammo || mcc_campaign_unlimited_ammo()))
 		{
-			weapon->weapon.age+= trigger_definition->age_generated_per_round;
+			/* port: (and twice the battery under MCC's Recession skull) */
+			weapon->weapon.age+= trigger_definition->age_generated_per_round *
+				mcc_skulls_rounds_per_shot(weapon_index, 1);
 			if (weapon->weapon.age>1.0f)
 			{
 				weapon->weapon.age= 1.0f;

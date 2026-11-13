@@ -764,8 +764,8 @@ boolean server_map_playable(
 		command_output_printf(output, "%s is an MCC map; this server has no MCC maps\n", map);
 		return FALSE;
 #else
-		/* (played at OpenCE's 43, as any host plays an MCC map:
-		network_server_manager.c's network_game_server_mcc_version) */
+		/* (played at the newest MCC-capable OpenCE number, as any host plays
+		an MCC map: network_server_manager.c's network_game_server_mcc_version) */
 		short index;
 
 		mcc_maps_rescan();

@@ -49,4 +49,34 @@ char const *mcc_share_reason_word(enum mcc_share_reason reason);
  * Buffers must contain the declared number of readable bytes; no terminator
  * is required. Only bitmaps.map and sounds.map match, excluding their NUL. */
 int mcc_share_file_allowed(char const *leaf, size_t length);
+
+/* OpenCE's MCC package sharing on the wire (their 43 on; chester's): a
+ * client's request, message 103, 80 bytes after the distributed header, and
+ * the host's answer, 104, 144 bytes and then a payload. This build shares no
+ * MCC packages (its joiners get the Workshop), so a host of ours declines a
+ * request: an answer of the request's op with result 1 (sharing off), no
+ * payload, so that the asking player hears at once instead of waiting 30
+ * seconds on nothing. A client of ours never asks, and drops any answer. */
+#define MCC_SHARE_REQUEST_KIND 103
+#define MCC_SHARE_RESPONSE_KIND 104
+#define MCC_SHARE_REQUEST_SIZE 80
+#define MCC_SHARE_RESPONSE_SIZE 144
+#define MCC_SHARE_RESULT_OK 0
+#define MCC_SHARE_RESULT_OFF 1
+#define MCC_SHARE_LEVEL_SIZE 64
+enum mcc_share_op {
+    MCC_SHARE_OP_MANIFEST = 1,
+    MCC_SHARE_OP_CHUNK = 2,
+    MCC_SHARE_OP_DONE = 3,
+    MCC_SHARE_OP_HAVE = 4
+};
+/* the decline of a request (its 80 bytes: op, file, flags, reserved,
+ * session, offset, length, level name) into reply (MCC_SHARE_RESPONSE_SIZE
+ * bytes): 1 when the request was one (a known op, a level name with its zero
+ * within its field) and reply holds the answer; 0 for anything else, which
+ * is dropped unanswered. Byte by byte: the same on every machine. */
+int mcc_share_decline(unsigned char const *request, size_t size, unsigned char *reply);
+/* ... and what an answer says: its result (MCC_SHARE_RESULT_*), -1 when the
+ * bytes are no answer (shorter than one) */
+int mcc_share_answer_result(unsigned char const *reply, size_t size);
 #endif

@@ -114,6 +114,8 @@ symbols in this file:
 #include "rasterizer/rasterizer_model_types.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
 #include "game/game_engine.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_looks.h" /* port: port/linux/game/stubbs_looks.c */
 
 /* ---------- constants */
 
@@ -397,6 +399,9 @@ void render_objects(
 		first_person_pass = !first_person_pass;
 	}
 	while (first_person_pass);
+	/* port: Stubbs mode's corn (port/linux/game/stubbs_vegetation.c) */
+	if (stubbs_mode_active())
+		stubbs_vegetation_render();
 
 	rasterizer_models_end();
 
@@ -973,7 +978,10 @@ static void object_render_state_refresh(
 		refresh_age = 1;
 	}
 
-	if (TEST_FLAG(object_get(object_index)->object.flags, _object_static_lighting_recompute_bit))
+	if (TEST_FLAG(object_get(object_index)->object.flags, _object_static_lighting_recompute_bit) ||
+		/* port: and in Stubbs mode a unit's, lit where its body is
+		(port/linux/game/stubbs_looks.c) */
+		(stubbs_mode_active() && stubbs_looks_object_lit_at_body(object_index)))
 	{
 		if (level_of_detail_pixels > OBJECT_RENDER_STATE_LARGE_PIXELS)
 		{
@@ -997,6 +1005,11 @@ static void object_render_state_refresh(
 	{
 		rebuild = TRUE;
 	}
+
+	/* port: (and taken at once, not eased toward only while it moves: a
+	unit's body moves by its animation, its origin standing still) */
+	if (refresh && stubbs_mode_active() && stubbs_looks_object_lit_at_body(object_index))
+		rebuild = TRUE;
 
 	if (rebuild || refresh)
 	{

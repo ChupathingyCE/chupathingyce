@@ -1611,6 +1611,34 @@ int delta_legacy_host_game_at(int version)
 	return taken;
 }
 
+int delta_legacy_mcc_version(void)
+{
+	int newest, number, index;
+
+	pthread_once(&delta_once, delta_load);
+	pthread_mutex_lock(&delta_lock);
+	/* (the newest layout this build has: its own rules, or a table's facts) */
+	newest = DELTA_LEGACY_NEWEST;
+	for (index = 0; index < delta.layout_count; index++)
+	{
+		if (delta.layouts[index].version > newest)
+			newest = delta.layouts[index].version;
+	}
+	/* (the table's newest proven for hosting counts past the build's own
+	rules alone: its own newest it hosts MCC at without a row) */
+	number = delta.hosting_newest > DELTA_LEGACY_NEWEST ? delta.hosting_newest : DELTA_LEGACY_NEWEST;
+	if (number > newest)
+		number = newest;
+	if (number > delta.maximum)
+		number = delta.maximum;
+	/* (42 was in no release of OpenCE's: a table that caps the numbers at
+	42 leaves no MCC games, rather than a game nobody can join) */
+	if (number < DELTA_LEGACY_MCC_RELEASED || number < delta.minimum)
+		number = 0;
+	pthread_mutex_unlock(&delta_lock);
+	return number;
+}
+
 int delta_legacy_hosting_newest(void)
 {
 	int number;

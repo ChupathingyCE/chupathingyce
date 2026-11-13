@@ -182,7 +182,7 @@ boolean ce_resources_tags_loaded(void *tag_instances, long tag_count, unsigned l
 void ce_repairs_scenario_loaded(void *tag_instances, long tag_count, unsigned long scenario_tag_index);
 void ce_repairs_tags_loaded(void *tag_instances, long tag_count, unsigned long scenario_tag_index);
 boolean ce_models_tags_loaded(void *tag_instances, long tag_count, byte const *model_data,
-	unsigned long vertex_data_size);
+	unsigned long vertex_data_size, unsigned long model_data_size);
 void ce_functions_tags_loaded(void *tag_instances, long tag_count);
 void ce_shaders_tags_loaded(void *tag_instances, long tag_count);
 void ce_hud_tags_loaded(void *tag_instances, long tag_count);
@@ -953,7 +953,7 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 	if (model_data)
 	{
 		memcpy(model_data, data + model_data_file_offset, model_data_size);
-		ce_models_tags_loaded(instances, (long)tag_count, model_data, vertex_data_size);
+		ce_models_tags_loaded(instances, (long)tag_count, model_data, vertex_data_size, model_data_size);
 		ce_functions_tags_loaded(instances, (long)tag_count);
 		ce_shaders_tags_loaded(instances, (long)tag_count);
 		system_free(model_data);

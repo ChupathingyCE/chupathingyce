@@ -1044,6 +1044,34 @@ static void test_web_headers(void)
 	CHECK(strstr(headers, "Cache-Control: no-store\r\n") && strstr(headers, "X-Content-Type-Options: nosniff\r\n"));
 }
 
+/* the names an operator listed (HALO_DEDICATED_CONTROL_HOSTS) */
+static void test_hosts(void)
+{
+	const char *list = "panel.example.org, 203.0.113.9:8443 ,[2001:db8::1]";
+
+	CHECK(control_host_allowed("panel.example.org", list, 0));
+	CHECK(control_host_allowed("PANEL.example.org:443", list, 0));
+	CHECK(control_host_allowed("203.0.113.9:8443", list, 0));
+	CHECK(!control_host_allowed("203.0.113.9", list, 0));
+	CHECK(!control_host_allowed("203.0.113.9:8080", list, 0));
+	CHECK(control_host_allowed("[2001:db8::1]:8080", list, 0));
+	/* (another site's name, pointed at this machine: DNS rebinding) */
+	CHECK(!control_host_allowed("attacker.example:8080", list, 1));
+	CHECK(!control_host_allowed("panel.example.org.attacker.example", list, 1));
+	CHECK(!control_host_allowed("panel.example.org:", list, 0));
+	CHECK(!control_host_allowed("panel.example.org:80a", list, 0));
+	CHECK(!control_host_allowed("example.org", list, 0));
+	CHECK(!control_host_allowed("", list, 1));
+	/* (this machine's own names: an SSH tunnel's) */
+	CHECK(control_host_allowed("localhost:8080", list, 1));
+	CHECK(control_host_allowed("127.0.0.1:8080", list, 1));
+	CHECK(control_host_allowed("[::1]:8080", list, 1));
+	CHECK(!control_host_allowed("localhost:8080", list, 0));
+	CHECK(!control_host_allowed("localhost.attacker.example", list, 1));
+	CHECK(!control_host_allowed("panel.example.org", "", 0));
+	CHECK(!control_host_allowed("panel.example.org", NULL, 0));
+}
+
 static void test_web_files(void)
 {
 	static const char *const outside[] = {
@@ -2180,6 +2208,7 @@ int main(int argc, char **argv)
 	test_sessions();
 	test_web_headers();
 	test_web_files();
+	test_hosts();
 	test_roles();
 	test_accounts();
 	test_fields();
