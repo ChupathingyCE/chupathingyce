@@ -31,6 +31,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "real_math.h"
 #include "objects.h"
 #include "units.h"
+#include "biped_definitions.h"
 #include "players.h"
 #include "effects.h"
 #include "tag_files.h"
@@ -54,6 +55,12 @@ enum
 	STUBBS_SPECIAL_ATTACK_SPEED_OFFSET = 0xA8,
 	STUBBS_SPECIAL_ATTACK_OBJECT_OFFSET = 0xAC,
 
+	/* where a biped's flags are: Stubbs's layout (before stubbs_mode.c's
+	rewrite), Halo's (after) */
+	STUBBS_BIPED_FLAGS_OFFSET = 0x464 + 0x04,
+	HALO_BIPED_FLAGS_OFFSET = 0x2F0 + 0x04,
+	/* units a map may have */
+	MAXIMUM_STUBBS_UNITS_NOTED = 64,
 	/* units with special attacks a map may have (Stubbs, his zombies) */
 	MAXIMUM_STUBBS_UNIT_DEFINITIONS = 32,
 	/* units whose counts differ from the full ones */
@@ -97,6 +104,16 @@ static short stubbs_unit_definition_count;
 static boolean stubbs_unit_definitions_noted;
 static struct stubbs_unit_count stubbs_unit_counts[MAXIMUM_STUBBS_UNIT_COUNTS];
 static struct stubbs_local_player stubbs_local_players[MAXIMUM_STUBBS_LOCAL_PLAYERS];
+/* every biped definition noted at the map's load (already rewritten in
+Halo's layout), and the thrown bipeds a player will drive */
+static struct
+{
+	long definition_index;
+	unsigned char *definition;
+} stubbs_bipeds_noted[MAXIMUM_STUBBS_UNITS_NOTED];
+static short stubbs_biped_noted_count;
+static long stubbs_driven_bipeds[MAXIMUM_STUBBS_UNITS_NOTED];
+static short stubbs_driven_biped_count;
 
 /* ---------- private code */
 
@@ -322,6 +339,42 @@ static boolean stubbs_hand_throw(
 	return TRUE;
 }
 
+/* a thrown biped the player drives (the hand) moves the way a player's
+biped does, by the game's player speeds, not by its animations (the
+hand's own crawl has no movement Halo's animation code reads): its
+definition's "uses player physics" flag set, at its offset in the layout
+the definition is in now */
+static void stubbs_driven_biped_flag(
+	unsigned char *definition,
+	unsigned long flags_offset)
+{
+	unsigned long flags;
+
+	csmemcpy(&flags, definition + flags_offset, 4);
+	flags |= FLAG(_biped_uses_player_physics_bit);
+	csmemcpy(definition + flags_offset, &flags, 4);
+}
+
+static void stubbs_driven_biped_add(
+	long definition_index)
+{
+	short index;
+
+	for (index = 0; index < stubbs_driven_biped_count; index++)
+	{
+		if (stubbs_driven_bipeds[index] == definition_index)
+			return;
+	}
+	if (stubbs_driven_biped_count >= MAXIMUM_STUBBS_UNITS_NOTED)
+		return;
+	stubbs_driven_bipeds[stubbs_driven_biped_count++] = definition_index;
+	for (index = 0; index < stubbs_biped_noted_count; index++)
+	{
+		if (stubbs_bipeds_noted[index].definition_index == definition_index)
+			stubbs_driven_biped_flag(stubbs_bipeds_noted[index].definition, HALO_BIPED_FLAGS_OFFSET);
+	}
+}
+
 /* ---------- public code */
 
 struct stubbs_special_attack const *stubbs_special_attacks_get(
@@ -373,9 +426,27 @@ void stubbs_engine_note_unit_definition(
 		/* (stubbs_mode.c converts a map's tags once, at its load: the last
 		map's units and players are gone) */
 		stubbs_unit_definition_count = 0;
+		stubbs_biped_noted_count = 0;
+		stubbs_driven_biped_count = 0;
 		stubbs_engine_forget_players();
 	}
 	stubbs_unit_definitions_noted = TRUE;
+	{
+		long definition_index = stubbs_read_long(instance + 0x0C);
+		unsigned long group = (unsigned long)stubbs_read_long(instance);
+
+		if (group == 'bipd' && stubbs_biped_noted_count < MAXIMUM_STUBBS_UNITS_NOTED)
+		{
+			/* (this one is still in Stubbs's layout: rewritten after this) */
+			stubbs_bipeds_noted[stubbs_biped_noted_count].definition_index = definition_index;
+			stubbs_bipeds_noted[stubbs_biped_noted_count++].definition = (unsigned char *)definition;
+			for (index = 0; index < stubbs_driven_biped_count; index++)
+			{
+				if (stubbs_driven_bipeds[index] == definition_index)
+					stubbs_driven_biped_flag((unsigned char *)definition, STUBBS_BIPED_FLAGS_OFFSET);
+			}
+		}
+	}
 	count = stubbs_read_long(unit + STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET);
 	address = (unsigned long)stubbs_read_long(unit + STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET + 4);
 	if (count <= 0 || stubbs_unit_definition_count >= MAXIMUM_STUBBS_UNIT_DEFINITIONS)
@@ -406,6 +477,8 @@ void stubbs_engine_note_unit_definition(
 		csmemcpy(&attack->speed, element + STUBBS_SPECIAL_ATTACK_SPEED_OFFSET, 4);
 		csmemcpy(&cost, element + STUBBS_SPECIAL_ATTACK_COST_OFFSET, 2);
 		attack->cost = cost;
+		if (attack->object_group == 'bipd' && attack->object_definition_index != NONE)
+			stubbs_driven_biped_add(attack->object_definition_index);
 	}
 	stubbs_mode_log("unit tag %08lX has %ld special attacks", (unsigned long)noted->definition_index, count);
 }
