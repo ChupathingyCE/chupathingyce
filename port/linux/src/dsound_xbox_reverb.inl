@@ -1,6 +1,9 @@
-/* Adapted from OpenH1/OpenH1, revision 6750db5a6c9716857bd1e63d9ec188a20c49f1d3.
- * Copyright OpenH1 contributors; AGPL-3.0-or-later.
- * Provenance and hardware measurements: docs/reading/xbox_audio.md. */
+/* SPDX-FileCopyrightText: OpenH1 contributors
+ * SPDX-FileCopyrightText: chestahh (GulchCE)
+ * SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+ * SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * The Xbox models: docs/reading/xbox_audio.md. */
 
 /* ---------- reverb
 
@@ -528,6 +531,17 @@ static void reverb_process(const float *send, float *output, unsigned long frame
 			output[frame * 6 + 1] += held[1] * level;
 			output[frame * 6 + 4] += held[2] * level;
 			output[frame * 6 + 5] += held[3] * level;
+		}
+		else if (output_channels == 8)
+		{
+			/* port: on 7.1 the back pair's reverberation is shared between
+			the side and back speakers (the Xbox had no 7.1) */
+			output[frame * 8] += held[0] * level;
+			output[frame * 8 + 1] += held[1] * level;
+			output[frame * 8 + 4] += 0.70710678f * held[2] * level;
+			output[frame * 8 + 5] += 0.70710678f * held[3] * level;
+			output[frame * 8 + 6] += 0.70710678f * held[2] * level;
+			output[frame * 8 + 7] += 0.70710678f * held[3] * level;
 		}
 		else
 		{

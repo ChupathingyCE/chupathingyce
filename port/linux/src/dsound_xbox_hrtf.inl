@@ -1,6 +1,9 @@
-/* Adapted from OpenH1/OpenH1, revision 6750db5a6c9716857bd1e63d9ec188a20c49f1d3.
- * Copyright OpenH1 contributors; AGPL-3.0-or-later.
- * Provenance and hardware measurements: docs/reading/xbox_audio.md. */
+/* SPDX-FileCopyrightText: OpenH1 contributors
+ * SPDX-FileCopyrightText: chestahh (GulchCE)
+ * SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+ * SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * The Xbox models: docs/reading/xbox_audio.md. */
 
 /* ---------- the HRTF
 

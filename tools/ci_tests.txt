@@ -141,3 +141,4 @@ tools/test_vote_notice.py
 tools/test_workshop_list.py
 tools/test_workshop_play_history.py
 tools/test_workshop_questions.py
+tools/test_xbox_audio.py

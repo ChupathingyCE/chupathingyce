@@ -9,7 +9,7 @@
   "shared_texts": {
     "Apache-2.0": {
       "title": "Apache License, Version 2.0",
-      "file": "port/assets/hrtf/LICENSE-Apache-2.0.txt"
+      "file": "LICENSES/Apache-2.0.txt"
     }
   },
   "components": [
@@ -615,21 +615,23 @@
       ]
     },
     {
-      "name": "SADIE II head-related impulse responses",
-      "use": "Headphone 3D sound (audio.hrtf): sadie_d2_48k.hrtf, a modified form of the database's subject D2.",
-      "source": "https://www.york.ac.uk/sadie-project/database.html",
+      "name": "The Xbox's 3D sound and reverb",
+      "use": "The HRTF (audio.hrtf) and reverb (audio.reverb) models in the sound mixer: port/linux/src/dsound_xbox_*.",
+      "source": "https://github.com/OpenH1/OpenH1, by way of https://github.com/chestahh/GulchCE",
       "copyright": [
-        "SADIE II Database. Copyright 2018, University of York (AudioLab, Department of Electronic Engineering)"
+        "Copyright OpenH1 contributors",
+        "Copyright chestahh (GulchCE)"
       ],
-      "license": "Apache-2.0",
-      "shared": "Apache-2.0",
-      "credit": "C. Armstrong, L. Thresh, D. Murphy and G. Kearney, \"A Perceptual Evaluation of Individual and Non-Individual HRTFs: A Case Study of the SADIE II Database\", Applied Sciences 8(11), 2029 (2018), https://doi.org/10.3390/app8112029. Chupathingy's file is changed from the database's: a grid of its directions, each response made minimum phase and shortened to 48 taps, its interaural delay measured apart, the set scaled and stored as 16-bit integers (tools/hrtf_assets.py).",
+      "license": "GPL-3.0-or-later, like the rest of the game",
+      "credit": "The Xbox's HRTF and DSP reverb models by the OpenH1 contributors, brought into GulchCE by chestahh, credited with thanks.",
       "packages": [
         "game",
         "server"
       ],
       "covers": [
-        "port/assets/hrtf"
+        "port/linux/src/dsound_xbox_hrtf.inl",
+        "port/linux/src/dsound_xbox_reverb.inl",
+        "port/linux/src/dsound_xbox_types.h"
       ]
     },
     {
