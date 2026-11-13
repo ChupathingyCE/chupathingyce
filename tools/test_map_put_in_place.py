@@ -128,7 +128,13 @@ static DWORD GetLastError(void) { return last_error; }
 static void SetLastError(DWORD error) { last_error = error; }
 static DWORD platform_set_last_error_from_errno(int error) { last_error = error == EEXIST ? ERROR_ALREADY_EXISTS : 1000 + (DWORD)error; return last_error; }
 static int across_devices;
-static int test_rename(const char *from, const char *to) { if (across_devices) { errno = EXDEV; return -1; } return rename(from, to); }
+/* (2: another file system, and a file lands at the target just before the copy) */
+static int test_rename(const char *from, const char *to)
+{
+	if (across_devices == 2) { FILE *f = fopen(to, "wb"); if (f) { fputs("theirs", f); fclose(f); } }
+	if (across_devices) { errno = EXDEV; return -1; }
+	return rename(from, to);
+}
 #define rename test_rename
 static BOOL WINAPI CopyFileA(LPCSTR existing_file_name, LPCSTR new_file_name, BOOL fail_if_exists);
 @FUNCTIONS@
@@ -298,6 +304,15 @@ def test_move_across_file_systems_copies(mover, tmp_path):
     source.write_bytes(b"m" * 100000)
     assert move(mover, 1, source, tmp_path / "a.map") == (1, 0)
     assert not source.exists() and (tmp_path / "a.map").read_bytes() == b"m" * 100000
+
+
+def test_move_across_file_systems_keeps_a_file_that_appeared(mover, tmp_path):
+    """a file that lands at the target between the check and the copy: the
+    copy fails, and that file is left as it is"""
+    source = tmp_path / "a.map.download"
+    source.write_bytes(b"new")
+    assert move(mover, 2, source, tmp_path / "a.map") == (0, 183)
+    assert source.read_bytes() == b"new" and (tmp_path / "a.map").read_bytes() == b"theirs"
 
 
 def test_move_never_replaces_a_file(mover, tmp_path):
