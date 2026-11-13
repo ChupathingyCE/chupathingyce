@@ -98,20 +98,21 @@ int main(void) {
  /* the texts */
  strcpy(item.id,"2899609719");strcpy(item.title,"Better Creek");
  mcc_workshop_refusal_text(MCC_WORKSHOP_MISSING,&item,"pat_beavercreek",text,sizeof(text));
- CHECK(!strcmp(text,"No identified local copy of Better Creek (Steam Workshop item 2899609719). "
-     "Download the host's version and copy its map and required resources into mcc_maps."));
+ CHECK(!strcmp(text,"You don't have Better Creek (Steam Workshop item 2899609719). "
+     "Get it in the Delta Guide's Workshop, or turn Workshop downloads on when you join."));
  mcc_workshop_refusal_text(MCC_WORKSHOP_DIFFERS,&item,"pat_beavercreek",text,sizeof(text));
- CHECK(!strcmp(text,"Your local package for Better Creek (Steam Workshop item 2899609719) does not match the host. "
-     "Check versions and copy the matching map and required resources into mcc_maps."));
+ CHECK(!strcmp(text,"Your copy of Better Creek (Steam Workshop item 2899609719) doesn't match the host's. "
+     "Update it in the Delta Guide's Workshop, or get the host's version."));
  item.title[0]=0;
  mcc_workshop_refusal_text(MCC_WORKSHOP_MISSING,&item,"pat_beavercreek",text,sizeof(text));
- CHECK(strstr(text,"No identified local copy of Pat Beavercreek"));
+ CHECK(strstr(text,"You don't have Pat Beavercreek"));
+ /* (the host's map is no Workshop item: said as that, nothing to fetch) */
  mcc_workshop_refusal_text(MCC_WORKSHOP_NOT_WORKSHOP,&item,"pat_beavercreek",text,sizeof(text));
- CHECK(strstr(text,"pat_beavercreek.map") && strstr(text,"SHA-256"));
- /* Long metadata still leaves the actionable installation instruction. */
+ CHECK(strstr(text,"pat_beavercreek isn't on the Steam Workshop") && strstr(text,"mcc_maps"));
+ /* Long metadata still leaves the actionable instruction. */
  memset(item.id,'7',20);item.id[20]=0;memset(item.title,'T',39);item.title[39]=0;
  mcc_workshop_refusal_text(MCC_WORKSHOP_DIFFERS,&item,"level",text,sizeof(text));
- CHECK(strstr(text,"resources into mcc_maps.") && strlen(text)<sizeof(text)-1);
+ CHECK(strstr(text,"get the host's version.") && strlen(text)<sizeof(text)-1);
  return 0;
 }
 ''')
