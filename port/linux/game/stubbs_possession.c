@@ -476,7 +476,8 @@ void stubbs_possession_player_input(
 	hand_unit_index = stubbs_engine_hand_unit(local_player_index);
 	if (hand_unit_index == NONE || unit_index != hand_unit_index || !(melee_pressed || action_pressed))
 		return;
-	stubbs_possession_begin(local_player_index, hand_unit_index, stubbs_possession_find_target(hand_unit_index));
+	if (!stubbs_possession_begin(local_player_index, hand_unit_index, stubbs_possession_find_target(hand_unit_index)))
+		stubbs_mode_log("no human within the hand's reach (%.1f world units)", STUBBS_POSSESSION_REACH);
 }
 
 #endif
