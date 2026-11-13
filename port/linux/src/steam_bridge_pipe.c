@@ -34,7 +34,11 @@ SPDX-License-Identifier: MIT
 #include "qrcodegen.h"
 
 #include <stdlib.h>
+#ifdef _WIN32
+#include <sys/utime.h> /* Windows keeps utime() here */
+#else
 #include <utime.h>
+#endif
 
 const char *platform_data_root(void);
 void platform_log(const char *format, ...);
