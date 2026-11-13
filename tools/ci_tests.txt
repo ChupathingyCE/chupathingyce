@@ -7,6 +7,7 @@ tools/test_address_limit.py
 tools/test_android_asm_convert.py
 tools/test_android_mcc_memory.py
 tools/test_bgfx_formats.py
+tools/test_bgfx_overlay_textures.py
 tools/test_bgfx_present.py
 tools/test_build_workflow.py
 tools/test_campaign_levels.py
