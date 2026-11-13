@@ -149,13 +149,6 @@ out the two settings and their help text */
 #define HALO_CONSOLE_NO_AUDIO_PROBE
 #endif
 
-/* voice chat (port/linux/src/voice.c, port/linux/game/voice_game.c): a
-console has no microphone path or Opus yet; until it does, its player never
-says it hears voices, so no host sends it any */
-#ifndef HALO_CONSOLE_NO_VOICE
-#define HALO_CONSOLE_NO_VOICE
-#endif
-
 /* the debug camera flown by mouse and keyboard (source/camera/director.c,
 halo_linux_debug_camera_input in port/linux/src/xinput_sdl.c): a console
 has no mouse, and its controller flies the camera as before */
@@ -164,6 +157,15 @@ has no mouse, and its controller flies the camera as before */
 #endif
 
 #endif /* HALO_CONSOLE || HALO_XBOX_CONSOLE */
+
+/* voice chat (port/linux/src/voice.c, port/linux/game/voice_game.c): a
+console has no microphone path or Opus yet; until it does, its player never
+says it hears voices, so no host sends it any. Every console, the Switch
+and the Wii U too, which set their own switch and not HALO_CONSOLE */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_VOICE)
+#define HALO_CONSOLE_NO_VOICE
+#endif
 
 /* voice chat over Delta Peer (docs/delta.md, Voice): the desktop builds'
 and Android's (HALO_GAME_BROWSER), as host and client, and the dedicated
