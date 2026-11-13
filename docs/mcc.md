@@ -82,6 +82,19 @@ The game's own download refuses an item over 8 GB, a file over 4 GB, and an
 item the disk has no room for (`game.workshop_item_limit_mb`,
 `game.workshop_file_limit_mb`).
 
+OpenCE players host MCC maps too. Their public listing names the map by its
+file alone (`portent`), as it names a Custom Edition map. When you have an
+MCC map by that name and no Custom Edition map by it, Online Games shows the
+game as your MCC map, with the MCC tag and its Workshop picture, and you can
+join it. A Halo PC map, or one that can be downloaded, is offered as
+always. Otherwise, if you have neither kind, the list can't tell which it
+is: it shows no tag and says "Custom Edition or MCC map. Join to find out."
+The host's own name for the map then decides. A Custom Edition map you
+can't get stops there, before anything loads. For an MCC map, the game
+offers its Workshop item, because OpenCE's hosts name the map's folder by
+its item id. Either way, the join
+checks the host's content fingerprint, as it does on our own hosts.
+
 ## Where the files are
 
 - With the Steam client: Steam's own Workshop folder,

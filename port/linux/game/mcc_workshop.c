@@ -157,6 +157,23 @@ void mcc_workshop_refusal_text(enum mcc_workshop_refusal kind, struct mcc_worksh
     }
 }
 
+int mcc_workshop_host_item(char const name[128], struct mcc_workshop_item *item)
+{
+    char level[64],folder[64],title[MCC_WORKSHOP_TITLE_SIZE*2];
+    unsigned length;
+    if (mcc_workshop_wire_unpack(name,item)) return 1;
+    memset(item,0,sizeof(*item));
+    memcpy(level,name,sizeof(level)-1);
+    level[sizeof(level)-1]=0;
+    if (!mcc_workshop_package_folder(level,folder)) return 0;
+    length=(unsigned)strlen(folder);
+    if (length>=MCC_WORKSHOP_ID_SIZE || !mcc_workshop_digits(folder,length)) return 0;
+    strcpy(item->id,folder);
+    if (mcc_maps_workshop_title(folder,title,sizeof(title)))
+        mcc_workshop_title_copy(title,(unsigned)strlen(title),item->title);
+    return 1;
+}
+
 int mcc_workshop_listing(char const name[128], struct mcc_workshop_item *item)
 {
     char level[64];
