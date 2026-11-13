@@ -11,6 +11,10 @@ the C library (the test's SDL3/SDL.h and platform.h declare them).
 	port_config_test pending                 prints "pending=<count>" and the
 	                                         changes the player would be asked about
 	port_config_test answer <new|keep>       config_new_defaults_answer
+	port_config_test menus_retired           prints "menus_retired=<0|1>"
+	                                         (config_menus_retired_pending)
+	port_config_test menus_retired_seen      config_menus_retired_seen, then
+	                                         as menus_retired
 	port_config_test duplicates              a setting or environment variable
 	                                         named twice ("duplicates=none")
 */
@@ -176,6 +180,15 @@ int main(int argc, char **argv)
 			printf("changes=%s\n", changes);
 		return 0;
 	}
+	else if (argc >= 2 && (!strcmp(argv[1], "menus_retired") || !strcmp(argv[1], "menus_retired_seen")))
+	{
+		if (!strcmp(argv[1], "menus_retired_seen"))
+			config_menus_retired_seen();
+		printf("menus_retired=%d\n", config_menus_retired_pending());
+		config_text("display.menus", text, sizeof(text));
+		printf("display.menus=%s\n", text);
+		return 0;
+	}
 	else if (argc >= 3 && !strcmp(argv[1], "bench"))
 	{
 		/* config_changes called as the menus' glyph checks call it */
@@ -233,7 +246,7 @@ int main(int argc, char **argv)
 	}
 	else if (argc < 2 || strcmp(argv[1], "get"))
 	{
-		fprintf(stderr, "usage: port_config_test get <setting>... | write <setting> <value> | pending | answer <new|keep>\n");
+		fprintf(stderr, "usage: port_config_test get <setting>... | write <setting> <value> | pending | answer <new|keep> | menus_retired | menus_retired_seen\n");
 		return 2;
 	}
 	for (; index < argc; index++)

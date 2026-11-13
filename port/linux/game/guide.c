@@ -2,7 +2,7 @@
 GUIDE.C
 
 The Guide (guide.h): one panel over whatever is on screen, the same in the
-Xbox's, Gearbox's and the Chupathingy menus and over a game in progress.
+Xbox's and the Chupathingy menus and over a game in progress.
 Its look is the Chupathingy menus' (the Xbox's blues, the plasma under the
 menus' items, glow on the selected row and the edges, the prompt bar), its
 data social.c's.
@@ -139,6 +139,8 @@ DELTA counts what waits ("DELTA 2": invites and requests).
 
 int config_boolean(char const *name);
 long config_integer(char const *name);
+int config_menus_retired_pending(void);
+void config_menus_retired_seen(void);
 char const *config_string(char const *name);
 int config_write(char const *name, char const *value);
 int config_write_boolean(char const *name, int value);
@@ -439,6 +441,9 @@ enum
 	_toast_clan_invite,
 	/* the main menu's note: how to open DELTA (its key opens it) */
 	_toast_hint,
+	/* the main menu's note, once: the Gearbox menus, which the player's
+	config.toml chose, were retired (config_menus_retired_pending) */
+	_toast_menus_retired,
 };
 
 /* PARTY's items: members (or, out of a party, its invites), then its
@@ -555,6 +560,8 @@ static struct
 	short debug_party_step;
 	/* the main menu's note counted as shown (it is once drawn) */
 	boolean toast_counted;
+	/* (the retired Gearbox menus' note, put in line once a run) */
+	boolean menus_retired_queued;
 	/* the toast's item (an invite's ID, a handle) and its sender's initial */
 	short toast_kind;
 	char toast_key[SOCIAL_INVITE_ID_SIZE];
@@ -2026,7 +2033,7 @@ static boolean toast_go(void)
 	short kind = guide.toast_kind == _toast_invite ? _item_invite : guide.toast_kind == _toast_request ? _item_request :
 		guide.toast_kind == _toast_friend ? _item_friend : NONE;
 
-	if (guide.toast_kind == _toast_hint)
+	if (guide.toast_kind == _toast_hint || guide.toast_kind == _toast_menus_retired)
 	{
 		guide.toast_shown = FALSE;
 		return TRUE;
@@ -3252,6 +3259,14 @@ static void hint_update(boolean menu_open)
 	if (noted || now - since < HINT_SETTLE)
 		return;
 	noted = TRUE;
+	/* (the Gearbox menus retired: said first, once, in the same note;
+	display.menus is written as "xbox" once it is drawn, render_toast) */
+	if (config_menus_retired_pending() && !guide.menus_retired_queued)
+	{
+		guide.menus_retired_queued = TRUE;
+		social_toast_push(&guide.toasts, _toast_menus_retired, "menus_retired", "Gearbox menus were retired.",
+			"You're on the Xbox menus now; change it in Settings.", "");
+	}
 	shown = (int)config_integer("delta.hint_shown");
 	if (delta_hint_due(shown, config_boolean("delta.menu_item")))
 	{
@@ -4906,9 +4921,14 @@ static void render_toast(void)
 		fade(COLOR_PANEL_EDGE, share));
 	/* the main menu's note: its words alone (they name the key), counted
 	once drawn (delta.hint_shown) */
-	if (guide.toast_kind == _toast_hint)
+	if (guide.toast_kind == _toast_hint || guide.toast_kind == _toast_menus_retired)
 	{
-		if (!guide.toast_counted)
+		if (!guide.toast_counted && guide.toast_kind == _toast_menus_retired)
+		{
+			guide.toast_counted = TRUE;
+			config_menus_retired_seen();
+		}
+		else if (!guide.toast_counted)
 		{
 			char count[16];
 			int shown = (int)config_integer("delta.hint_shown") + 1;

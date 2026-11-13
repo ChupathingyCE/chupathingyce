@@ -61,6 +61,11 @@ version wrote beside the commented one is taken out), 0 to keep the old
 values, written into config.toml so that they stay. Either way
 game.defaults_answered is written, so the question does not come again */
 void config_new_defaults_answer(int use_new);
+/* whether display.menus names Gearbox's retired menus ("gearbox" or "pc"),
+which are the Xbox's now, the player not yet told */
+int config_menus_retired_pending(void);
+/* the player was told: display.menus written as "xbox" */
+void config_menus_retired_seen(void);
 /* how many times config_write has changed a setting: what keeps one reads
 it again when this moves */
 unsigned long config_changes(void);
