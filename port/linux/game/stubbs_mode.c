@@ -549,7 +549,9 @@ void stubbs_mode_convert_tags(
 	memcpy(&count, base + 0x0C, 4);
 	stubbs_tags_base = base;
 	stubbs_tags_size = tag_data_size;
-	if (!stubbs_host(base, tag_data_size, instances, count * 0x20))
+	/* (no more tags than a tag index holds: a count past it would wrap the
+	32-bit size of the index checked below) */
+	if (count > 0xFFFF || !stubbs_host(base, tag_data_size, instances, count * 0x20))
 	{
 		stubbs_mode_log("the tag header is not Stubbs's: nothing converted");
 		return;
