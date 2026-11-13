@@ -24,6 +24,7 @@ tools/test_console_host_players.py
 tools/test_console_light_limits.py
 tools/test_console_link.py
 tools/test_console_meter_stages.py
+tools/test_coop_level_prompt.py
 tools/test_coop_spectate.py
 tools/test_delta_compat.py
 tools/test_delta_input_rules.py
@@ -72,6 +73,7 @@ tools/test_mcc_bgfx_textures.py
 tools/test_mcc_bsp_vertices.py
 tools/test_mcc_cache_format.py
 tools/test_mcc_cameras.py
+tools/test_mcc_check_failed.py
 tools/test_mcc_chicago.py
 tools/test_mcc_damage_tags.py
 tools/test_mcc_effects_gain.py

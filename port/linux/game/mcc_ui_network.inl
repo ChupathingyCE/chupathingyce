@@ -14,6 +14,15 @@ static char mcc_pending_map[64];
 static boolean mcc_pending_local_client;
 static int mcc_pending_error_shown;
 static struct network_game_server *mcc_validation_server;
+/* a map whose package check failed, and why, until asked for once
+(mcc_ui_network_map_refused: a dedicated server skips the entry, #1132) */
+static char mcc_refused_map[64];
+static char mcc_refused_reason[320];
+/* a co-op level's difficulty when its MCC pick waits for the check
+(mcc_ui_network_hold_cooperative): the co-op settings go on with the map,
+and a failed check leaves the lobby's gametype as it was (#1124); NONE for
+none */
+static short mcc_pending_cooperative_difficulty = NONE;
 
 boolean mcc_ui_network_defer_map(struct network_game_server *server, char const *name)
 {
@@ -21,6 +30,7 @@ boolean mcc_ui_network_defer_map(struct network_game_server *server, char const 
      * Leave the temporary lobby usable until that admission completes;
      * synchronous package checks must not occupy its five-second window. */
     if (server == mcc_pending_map_server) mcc_pending_map_server = NULL;
+    mcc_pending_cooperative_difficulty = NONE; /* (a new pick drops a held co-op pick) */
     mcc_pending_error_shown=0;
     mcc_validation_cancel(); /* Explicit reselection may retry a transient read failure. */
     if (!mcc_level_name(name)) {mcc_validation_server=NULL;return FALSE;}
@@ -31,6 +41,13 @@ boolean mcc_ui_network_defer_map(struct network_game_server *server, char const 
     mcc_pending_map_server = server;
     mcc_pending_local_client = global_network_game_client_get()!=NULL;
     network_event("mcc: map selection waits for package validation and local admission");
+    return TRUE;
+}
+
+boolean mcc_ui_network_hold_cooperative(struct network_game_server *server, short difficulty)
+{
+    if (!server || server != mcc_pending_map_server) return FALSE;
+    mcc_pending_cooperative_difficulty = difficulty;
     return TRUE;
 }
 
@@ -55,6 +72,7 @@ void mcc_ui_network_update_map(struct network_game_server *server)
         if (server==mcc_pending_map_server || server==mcc_validation_server) {
             mcc_pending_map_server=NULL;
             mcc_validation_server=NULL;
+            mcc_pending_cooperative_difficulty=NONE;
             mcc_validation_cancel();
         }
         return;
@@ -64,12 +82,29 @@ void mcc_ui_network_update_map(struct network_game_server *server)
     status=mcc_validation_request(selected,&checksum,NULL);
     if (!status) {mcc_validation_server=server;mcc_validation_update();return;}
     if (status<0) {
+        char const *reason=mcc_validation_error();
         if (!mcc_pending_error_shown) {
-            char const *reason=mcc_validation_error();
             for (i=0;reason[i] && i<319;i++) message[i]=(unsigned char)reason[i];
             message[i]=0;
             display_error_text_when_main_menu_loaded(message);
             mcc_pending_error_shown=1;
+        }
+        /* The pick is let go (#1132): before, the lobby waited for it for
+         * good, its start doing nothing and a dedicated server never moving
+         * on. It stays on its map, which the menus show again; a host picks
+         * another (the box above said why), a dedicated server skips the
+         * entry (mcc_ui_network_map_refused). */
+        network_event("mcc: the check of %s failed: %s; the lobby stays on %s", selected, reason,
+            server->game.map.name[0] ? server->game.map.name : "no map");
+        snprintf(mcc_refused_map,sizeof(mcc_refused_map),"%s",selected);
+        snprintf(mcc_refused_reason,sizeof(mcc_refused_reason),"%s",reason);
+        mcc_pending_map_server=NULL;
+        mcc_validation_server=NULL;
+        /* (a co-op pick's settings never went on: the gametype stays too) */
+        mcc_pending_cooperative_difficulty=NONE;
+        if (server->game.map.name[0]) {
+            main_set_multiplayer_map_name(server->game.map.name);
+            game_engine_override_map_name(server->game.map.name);
         }
         return;
     }
@@ -77,15 +112,38 @@ void mcc_ui_network_update_map(struct network_game_server *server)
     if (global_network_game_client_get() && network_game_client_get_local_machine_index()==NONE) return;
     if (server==mcc_pending_map_server || server==mcc_validation_server ||
         (uint32_t)server->game.map.version!=checksum) {
+        short difficulty=server==mcc_pending_map_server ? mcc_pending_cooperative_difficulty : NONE;
+        boolean changed;
         strcpy(name,selected);
         mcc_pending_map_server=NULL;
         mcc_validation_server=NULL;
-        network_game_server_change_map_name(server,name);
+        mcc_pending_cooperative_difficulty=NONE;
+        /* (a co-op pick's settings go on with its map, or with the host's
+         * yes if the change asks: network_game_server_mcc_confirm) */
+        network_game_server_mcc_choosing_difficulty=difficulty;
+        changed=network_game_server_change_map_name(server,name);
+        network_game_server_mcc_choosing_difficulty=NONE;
+        if (changed && difficulty!=NONE && !network_game_server_mcc_asking &&
+            !mcc_ui_network_hold_cooperative(server,difficulty))
+            network_game_server_port_cooperative_apply(server,difficulty);
     }
+}
+
+boolean mcc_ui_network_map_refused(char *map, long map_size, char *reason, long reason_size)
+{
+    if (!mcc_refused_map[0]) return FALSE;
+    snprintf(map,(size_t)map_size,"%s",mcc_refused_map);
+    snprintf(reason,(size_t)reason_size,"%s",mcc_refused_reason);
+    mcc_refused_map[0]=0;
+    mcc_refused_reason[0]=0;
+    return TRUE;
 }
 
 void mcc_ui_network_server_dispose(struct network_game_server *server)
 {
+    mcc_refused_map[0]=0;
+    mcc_refused_reason[0]=0;
+    mcc_pending_cooperative_difficulty=NONE;
     if (server==global_network_game_server_get()) {
         mcc_validation_cancel();
         mcc_identity_host_clear();

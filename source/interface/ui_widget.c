@@ -2228,8 +2228,11 @@ void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget)
 }
 #endif
 
-/* (MCC maps for every game of a build that has them: a network game on one
-is hosted at OpenCE's 43, network_game_server_mcc_version) */
+/* (MCC maps offered in every game of a build that has them, offline and
+hosted: a network game on one is hosted at OpenCE's 43 over the usual wire,
+network_game_server_mcc_version. MCC's own record and messages,
+HALO_MCC_NETWORK in mcc_identity.c and network_distributed.c, are no
+build's) */
 static boolean ui_widget_port_mcc_offered(void)
 {
 	return TRUE;
@@ -2271,22 +2274,16 @@ char const *ui_widget_port_mcc_campaign_level(short row)
 	return index != NONE ? mcc_maps_level_name(index) : NULL;
 }
 
+/* (the level and its co-op settings together, or nothing until the host
+says yes to the MCC question: network_game_server_port_change_cooperative_level) */
 boolean ui_widget_port_mcc_cooperative_level_choose(char const *level_name, short difficulty)
 {
 	struct network_game_server *server = global_network_game_server_get();
-	struct game_variant variant;
 
 	if (!server || !ui_widget_port_mcc_offered() || !mcc_maps_level_campaign(level_name) ||
 		difficulty < 0 || difficulty >= NUMBER_OF_GAME_DIFFICULTY_LEVELS)
 		return FALSE;
-	csmemset(&variant, 0, sizeof(variant));
-	ustrcpy(variant.human_readable_game_description, L"Co-op");
-	main_set_difficulty(difficulty);
-	main_set_multiplayer_map_name(level_name);
-	network_game_server_port_set_cooperative(server, difficulty);
-	network_game_server_change_map_name(server, level_name);
-	network_game_server_change_game_variant(server, &variant);
-	return TRUE;
+	return network_game_server_port_change_cooperative_level(server, level_name, difficulty);
 }
 
 void widget_free(

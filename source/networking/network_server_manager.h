@@ -84,6 +84,14 @@ most players a co-op game starts with (Server Setup sets its own) */
 void network_game_server_port_set_cooperative(
 	struct network_game_server *server,
 	short difficulty);
+/* port: a campaign level chosen for co-op: the level, its difficulty and
+co-op's gametype, together; or nothing yet, while the host is asked about
+a move to or from an MCC map (its yes applies all of it). FALSE when the
+level was refused. */
+boolean network_game_server_port_change_cooperative_level(
+	struct network_game_server *server,
+	char const *map_name,
+	short difficulty);
 /* port: co-op's friendly fire between its players (a _friendly_fire_ mode:
 Server Setup's FRIENDLY FIRE), kept for the levels after */
 void network_game_server_port_set_cooperative_friendly_fire(
