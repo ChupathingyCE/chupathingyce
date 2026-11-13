@@ -215,6 +215,7 @@ symbols in this file:
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
 #include "stubbs_engine.h" /* port: port/linux/game/stubbs_engine.c */
+#include "stubbs_possession.h" /* port: port/linux/game/stubbs_possession.c */
 
 /* ---------- constants */
 
@@ -699,6 +700,9 @@ static void handle_one_player_input(
 		if (stubbs_mode_active())
 			stubbs_engine_player_input(local_player_index, &input.player_control_flags,
 				FLAG(_player_control_rotate_grenades_bit), input.unit_control_flags);
+		/* port: and the hand on a human's head (port/linux/game/stubbs_possession.c) */
+		if (stubbs_mode_active())
+			stubbs_possession_player_input(local_player_index, input.unit_control_flags);
 		if (TEST_FLAG(input.player_control_flags, _player_control_debug_ninja_rope_bit) &&
 			player->unit_index != NONE)
 		{

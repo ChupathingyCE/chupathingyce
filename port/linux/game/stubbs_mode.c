@@ -29,6 +29,7 @@ packs never take these paths.
 #include "units/unit_definitions.h"
 #include "stubbs_mode.h"
 #include "stubbs_engine.h" /* (its special attacks, before the rewrite) */
+#include "stubbs_possession.h" /* (its possession seat, before the rewrite) */
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -757,6 +758,7 @@ void stubbs_mode_convert_tags(
 		if (!definition)
 			continue;
 		stubbs_engine_note_unit_definition(instance, definition, base, tag_data_size);
+		stubbs_possession_note_unit_definition(instance, definition, base, tag_data_size);
 		stubbs_unit_convert(definition, halo_part);
 		converted[kind]++;
 	}
