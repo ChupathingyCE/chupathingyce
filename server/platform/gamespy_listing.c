@@ -56,9 +56,9 @@ enum
 	/* replies a second, at most */
 	REPLIES_PER_SECOND = 200,
 	/* replies a second to one address, at most (a query's source can be
-	anyone's: the server is never turned on one address), and the addresses
-	kept for it (by a hash of the address: one that shares a place with
-	another starts again) */
+	anyone's: the server is never turned on one address), and the places
+	kept for it (by a hash of the address: addresses that share a place in
+	the same second share its count) */
 	REPLIES_PER_ADDRESS = 6,
 	REPLY_ADDRESSES = 256,
 	NOTICES = 16,
@@ -103,7 +103,6 @@ static struct
 	int replies;
 	struct
 	{
-		unsigned int address;
 		time_t second;
 		int replies;
 	} reply_addresses[REPLY_ADDRESSES];
@@ -517,23 +516,25 @@ void gamespy_challenge_response(const unsigned char *challenge, int length, char
 
 /* ---------- the socket's thread */
 
-static int reply_allowed(const struct sockaddr_in *to)
+/* whether a reply to address (in network order) may go now: 1 (counted),
+or 0 */
+int gamespy_reply_allowed(unsigned int address, long now)
 {
-	time_t now = time(NULL);
-	unsigned int address = (unsigned int)to->sin_addr.s_addr;
 	unsigned int place = (address * 2654435761u) >> 24;
 
-	if (now != listing.reply_second)
+	if ((time_t)now != listing.reply_second)
 	{
-		listing.reply_second = now;
+		listing.reply_second = (time_t)now;
 		listing.replies = 0;
 	}
 	if (listing.replies >= REPLIES_PER_SECOND)
 		return 0;
-	if (listing.reply_addresses[place].address != address || listing.reply_addresses[place].second != now)
+	/* (a new second starts the place again; within one, another address in
+	the place counts against it too, so taking turns with the place resets
+	nothing) */
+	if (listing.reply_addresses[place].second != (time_t)now)
 	{
-		listing.reply_addresses[place].address = address;
-		listing.reply_addresses[place].second = now;
+		listing.reply_addresses[place].second = (time_t)now;
 		listing.reply_addresses[place].replies = 0;
 	}
 	if (listing.reply_addresses[place].replies >= REPLIES_PER_ADDRESS)
@@ -541,6 +542,11 @@ static int reply_allowed(const struct sockaddr_in *to)
 	listing.reply_addresses[place].replies++;
 	listing.replies++;
 	return 1;
+}
+
+static int reply_allowed(const struct sockaddr_in *to)
+{
+	return gamespy_reply_allowed((unsigned int)to->sin_addr.s_addr, (long)time(NULL));
 }
 
 static int same_address(const struct sockaddr_in *a, const struct sockaddr_in *b)

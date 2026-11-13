@@ -205,6 +205,26 @@ def test_replies_to_one_address_are_limited(server):
     assert 1 <= replies <= 10, replies
 
 
+
+def reply_place(address):
+    """the listing's place for an address (gamespy_listing.c, reply_allowed)"""
+    return ((address * 2654435761) & 0xFFFFFFFF) >> 24
+
+
+def test_addresses_in_one_place_share_a_limit(harness):
+    """Two addresses that hash to the same place, taking turns: neither
+    starts the other's count again, so between them they get no more than
+    one address's replies a second."""
+    first = 0x0100007F
+    second = next(address for address in range(first + 1, first + 0x1000000)
+                  if reply_place(address) == reply_place(first))
+    out = subprocess.run([str(harness), "replies", "40", hex(first), hex(second)], capture_output=True, text=True,
+                         check=True).stdout.split()
+    assert sum(map(int, out)) <= 6, out
+    out = subprocess.run([str(harness), "replies", "40", hex(first)], capture_output=True, text=True,
+                         check=True).stdout.split()
+    assert out == ["6"], out
+
 def test_many_players(harness):
     started = Server(harness, players=36)
     try:
