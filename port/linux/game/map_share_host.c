@@ -248,12 +248,18 @@ static void host_send(
 {
 	unsigned char message[MAP_SHARE_DISTRIBUTED_HEADER_SIZE + MAP_SHARE_OFFER_SIZE +
 		MAXIMUM_FILES * MAP_SHARE_OFFER_FILE_SIZE];
+	unsigned char wide[sizeof(message) + MAP_SHARE_HEADER_EXTRA_LIMIT];
 	short size;
+	int wide_size;
 
 	if (body_size > (short)(sizeof(message) - MAP_SHARE_DISTRIBUTED_HEADER_SIZE))
 		return;
 	size = map_share_message_build(message, type, body, body_size, game_in_progress() ? game_time_get() : 0);
-	network_distributed_server_send_to_machine_reliably(machine_index, message, (word)size);
+	/* (with the header's further bytes of the version this host announces:
+	an OpenCE 42 or later machine reads no other) */
+	wide_size = network_distributed_share_widen(TRUE, message, size, wide, (int)sizeof(wide));
+	if (wide_size)
+		network_distributed_server_send_to_machine_reliably(machine_index, wide, (word)wide_size);
 }
 
 /* the current map as the wire names it, and its version: FALSE with no game */
@@ -1083,9 +1089,16 @@ boolean map_share_host_message(
 	long body_size;
 	struct host_machine *machine;
 	unsigned long address;
+	unsigned char narrow[MAP_SHARE_RECEIVE_LIMIT];
+	int narrow_size;
 
 	if (!map_share_message_parse(message, size, &type, &body, &body_size))
 		return FALSE;
+	/* (the header's further bytes of the version this host announces left
+	out: an OpenCE 42 or later machine's request has them) */
+	narrow_size = network_distributed_share_narrow(TRUE, message, (int)size, narrow, (int)sizeof(narrow));
+	if (!narrow_size || !map_share_message_parse(narrow, narrow_size, &type, &body, &body_size))
+		return TRUE;
 	/* (from a machine of the game, to a host: 84 and 85 are a host's) */
 	if (map_share_fetching() || machine_index < 0 || machine_index >= MACHINES ||
 		!network_game_server_map_share_machine(machine_index, &address))

@@ -1151,6 +1151,52 @@ boolean network_distributed_mcc_share_message(
 	return TRUE;
 }
 
+/* port: map sharing's messages (83 to 86, map_share_wire.c) carry the
+header's further bytes of the game's layout, as every distributed message
+does: OpenCE's 42 on (4 bytes, the epoch) */
+int network_distributed_share_widen(
+	boolean hosting,
+	void const *message,
+	int size,
+	void *out,
+	int room)
+{
+	struct network_rules_layout layout;
+
+	distributed_mcc_share_layout(hosting, &layout);
+	if (!layout.header_extra)
+	{
+		if (size < 0 || size > room)
+			return 0;
+		csmemcpy(out, message, (size_t)size);
+		return size;
+	}
+	return network_rules_header_expand((uint8_t const *)message, size, (uint8_t *)out, room, layout.header_extra,
+		layout.epoch_kind != 0, distributed_epoch);
+}
+
+int network_distributed_share_narrow(
+	boolean hosting,
+	void const *message,
+	int size,
+	void *out,
+	int room)
+{
+	struct network_rules_layout layout;
+	uint32_t epoch;
+
+	if (size < 0 || size > room)
+		return 0;
+	distributed_mcc_share_layout(hosting, &layout);
+	if (!layout.header_extra)
+	{
+		csmemcpy(out, message, (size_t)size);
+		return size;
+	}
+	return network_rules_header_strip((uint8_t const *)message, size, (uint8_t *)out, layout.header_extra,
+		layout.epoch_kind != 0, 0, 0, &epoch);
+}
+
 boolean network_distributed_mcc_share_request(
 	char const *level)
 {

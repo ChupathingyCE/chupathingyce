@@ -222,13 +222,19 @@ static void fetch_send(
 	short body_size)
 {
 	unsigned char message[MAP_SHARE_DISTRIBUTED_HEADER_SIZE + MAP_SHARE_REQUEST_SIZE];
+	unsigned char wide[sizeof(message) + MAP_SHARE_HEADER_EXTRA_LIMIT];
 	short size;
+	int wide_size;
 
 	if (body_size > (short)(sizeof(message) - MAP_SHARE_DISTRIBUTED_HEADER_SIZE))
 		return;
 	/* (no game runs on this machine: its time 0) */
 	size = map_share_message_build(message, type, body, body_size, 0);
-	network_distributed_client_send_reliably(message, (word)size);
+	/* (with the header's further bytes of the host's version: an OpenCE 42
+	or later host reads no other) */
+	wide_size = network_distributed_share_widen(FALSE, message, size, wide, (int)sizeof(wide));
+	if (wide_size)
+		network_distributed_client_send_reliably(wide, (word)wide_size);
 }
 
 static void fetch_progress(
@@ -1126,10 +1132,17 @@ boolean map_share_client_message(
 	unsigned char const *body;
 	long body_size;
 
+	unsigned char narrow[MAP_SHARE_RECEIVE_LIMIT];
+	int narrow_size;
+
 	if (!map_share_fetching())
 		return FALSE;
 	if (!map_share_message_parse(message, size, &type, &body, &body_size))
 		return FALSE;
+	/* (the header's further bytes of the host's version left out) */
+	narrow_size = network_distributed_share_narrow(FALSE, message, (int)size, narrow, (int)sizeof(narrow));
+	if (!narrow_size || !map_share_message_parse(narrow, narrow_size, &type, &body, &body_size))
+		return TRUE;
 	/* (over the host's stream alone; one waited for alone) */
 	if (!reliable || fetch.state != _fetch_asked)
 		return TRUE;
