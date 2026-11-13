@@ -131,7 +131,7 @@ Elsewhere 512 keeps the latency low. */
 #define DEFAULT_AUDIO_BUFFER_FRAMES "512"
 #endif
 
-/* Headphone 3D (dsound_sdl.c's binaural rendering), on as the original Xbox
+/* Headphone 3D (the Xbox's HRTF, dsound_sdl.c), on as the original Xbox
 had it: its DirectSound filtered every 3D voice through its HRTFs, on TV
 stereo too (DirectSoundUseFullHRTF). Surround output ignores it. A
 console's build keeps it off: the original Xbox has its own hardware path,
@@ -431,7 +431,9 @@ static const struct config_setting config_settings[] =
 		"high-res fonts." },
 	{ "display.title_font", _config_string, "\"classic\"", "HALO_TITLE_FONT", _environment_value, _platform_all,
 		"The font of the menus' titles. \"classic\" looks like Halo's own titles.\n"
-		"\"cyborg\" uses the same font as the menu text. A change shows at once.\n"
+		"\"cyborg\" uses the same font as the menu text. \"halo\" draws the\n"
+		"screens' titles in Halo's own lettering, made from your own ui.map\n"
+		"(nothing is saved or shared). A change shows at once.\n"
 		"The consoles have \"classic\" only." },
 	{ "display.high_res_hud", _config_boolean, "true", "HALO_HIGH_RES_HUD", _environment_value, _platform_all,
 		"Draw the HUD from the high-res assets." },
@@ -662,6 +664,19 @@ static const struct config_setting config_settings[] =
 		"are testing. \"gl\" is the renderer over the OpenGL layer, as before.\n"
 		"If the native one can't start, the game draws with \"gl\".\n"
 		"Read when Chupathingy starts." },
+#endif
+#ifdef HALO_VULKAN
+	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_android,
+		"How the game draws: \"gl\" (OpenGL ES over the phone's driver) or \"vulkan\"\n"
+		"(over display.vk_driver; OpenGL ES if Vulkan cannot start). Takes effect the\n"
+		"next time the game starts. See the Android README, \"Graphics: OpenGL ES and\n"
+		"Vulkan\"." },
+	{ "display.vk_driver", _config_string, "\"\"", "HALO_VK_DRIVER", _environment_value, _platform_android,
+		"The Vulkan driver the Vulkan renderer runs on: empty for the phone's own;\n"
+		"\"auto\" for Turnip, the open-source driver, on an Adreno GPU (the app\n"
+		"downloads the build for its series; the phone's own on any other GPU); or the\n"
+		"name of a driver archive (an adrenotools zip) left in the game's folder. One\n"
+		"that does not load is logged and the phone's own is used." },
 #endif
 #ifdef HALO_BGFX
 	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_desktop,
@@ -1562,6 +1577,11 @@ static const struct config_setting config_settings[] =
 		"With debug.network_test_bomb: the joining machine's player holds the\n"
 		"trigger for the first four seconds of each try. They pick the bomb up\n"
 		"with it held, throw it down and pick it up again." },
+	{ "debug.network_test_mcc_request", _config_boolean, "false", "HALO_NETWORK_TEST_MCC_REQUEST",
+		_environment_value, _platform_all,
+		"With debug.network_test \"join\": once joined, the machine asks the host\n"
+		"for its MCC map package as OpenCE's client does (message 103), to see\n"
+		"the host decline it. A test's probe." },
 	{ "debug.network_test_bomb_keep", _config_boolean, "false", "HALO_NETWORK_TEST_BOMB_KEEP", _environment_value,
 		_platform_all,
 		"With debug.network_test_bomb: the carrier is not moved into the goal\n"
@@ -1733,6 +1753,17 @@ static const struct config_setting config_settings[] =
 		"Quit this many seconds after the window opens. 0 never does." },
 	{ "debug.hidden_window", _config_boolean, "false", "HALO_HIDDEN_WINDOW", _environment_set_is_true, _platform_desktop,
 		"Keep the window hidden, and never fullscreen." },
+#ifdef HALO_VULKAN
+	{ "debug.vk_present_marker", _config_boolean, "false", "HALO_VK_PRESENT_MARKER", _environment_set_is_true, _platform_android,
+		"Under the Vulkan renderer, draw a red square at the top left and a green one\n"
+		"at the top right of the picture, so that a screenshot shows which way up it is." },
+	{ "debug.vk_self_test", _config_boolean, "false", "HALO_VK_SELF_TEST", _environment_set_is_true, _platform_android,
+		"Under the Vulkan renderer, try the renderer's clears and the copying of a\n"
+		"draw's data on small targets of its own at start-up; the log says ok or FAILED." },
+	{ "debug.vk_validation", _config_boolean, "false", "HALO_VK_VALIDATION", _environment_set_is_true, _platform_android,
+		"Turn on Vulkan's validation layer in the Vulkan renderer, when the app\n"
+		"carries it (configure.py --android-vulkan-validation)." },
+#endif
 	{ "debug.null_renderer", _config_boolean, "false", "HALO_NULL_RENDERER", _environment_set_is_true, _platform_all,
 		"Run without a window, and draw nothing." },
 	{ "debug.gl_debug", _config_boolean, "false", "HALO_GL_DEBUG", _environment_set_is_true, _platform_all,
@@ -1790,6 +1821,12 @@ static const struct config_setting config_settings[] =
 		"Log every frame in a map's first minute that comes more than this many\n"
 		"milliseconds after the one before it, and how many there were. 33 is\n"
 		"two frames at 60 Hz. 0 for none." },
+	{ "debug.frame_times", _config_string, "\"\"", "HALO_FRAME_TIMES", _environment_value, _platform_all,
+		"A file to write every frame's time to: the wall clock, the milliseconds\n"
+		"since the frame before, the map; and a line when a map has loaded. For\n"
+		"the renderer measurements: with it, bgfx does not pace a covered window\n"
+		"to the display either. It stops after 250000 lines (about 10 MB).\n"
+		"Leave it empty for none." },
 #endif
 	{ "debug.gpu_stats", _config_boolean, "false", "HALO_GPU_STATS", _environment_set_is_true, _platform_all,
 		"Log the renderer's draw counts once a second." },
@@ -4304,7 +4341,7 @@ static const struct
 	/* ("gearbox" and the older "pc", Gearbox's retired menus, are read as
 	"xbox", and the player told once: config_menus_retired_pending) */
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
-	{ "display.title_font", { "classic", "cyborg", NULL }, "\"classic\"" },
+	{ "display.title_font", { "classic", "cyborg", "halo", NULL }, "\"classic\"" },
 	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"none\"" },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },

@@ -14,8 +14,8 @@ from tools import third_party_notices as notices
 
 ROOT = Path(__file__).resolve().parent.parent
 # what the builds embed or ship beside the game that others made: the fonts,
-# the HRTF set, the prompt icons, the platform logos and the HUD art's notice
-BUNDLED_DATA = ["port/assets/fonts/*.ttf", "port/linux/ui/fonts/*.ttf", "port/assets/hrtf/*.hrtf",
+# the prompt icons, the platform logos and the HUD art's notice
+BUNDLED_DATA = ["port/assets/fonts/*.ttf", "port/linux/ui/fonts/*.ttf",
                 "port/assets/prompts", "port/linux/ui/fonts/platform_icons", "port/assets/hud/NOTICE.md"]
 LICENSE_FILE = re.compile(r"^(LICEN[CS]E|COPYING|COPYRIGHT|NOTICE)|OFL|CC0|-LICENSE", re.IGNORECASE)
 ALL_FEATURES = list(notices.FEATURES)

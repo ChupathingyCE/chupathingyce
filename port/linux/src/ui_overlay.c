@@ -1439,6 +1439,21 @@ static int set_up(void)
 
 	if (overlay.ready || overlay.failed)
 		return overlay.ready;
+#ifdef HALO_VULKAN
+	if (xgpu_vulkan)
+	{
+		/* (not drawn under the Vulkan backend yet: d3d8_vk.inl) */
+		static BOOL said;
+
+		if (!said)
+		{
+			said = TRUE;
+			platform_log("overlay: not drawn with the Vulkan renderer yet");
+		}
+		overlay.failed = TRUE;
+		return FALSE;
+	}
+#endif
 #ifdef HALO_BGFX
 	if (xgpu_bgfx)
 	{

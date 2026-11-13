@@ -30,7 +30,11 @@ letters are not moved one by one: that spaces a face other than the maps'
 unevenly, so its words are tracked as its letters are). A selected menu
 item uses its unselected picture's layout (the same letters, read more
 surely). titles.json records where each letter went, which
-tools/title_font.py's spacing is measured from.
+tools/title_font.py's spacing is measured from, and the title tool
+(port/linux/src/title_tool.c) places its letters by: with display.title_font
+= "halo" it makes the "from_files" titles (from_files) on the player's
+machine from the player's own ui.map, in its own lettering, which is never
+shipped as a font or as pictures.
 
 The pictures are drawn in place of the maps' bitmaps as the high-res HUD's
 are (port/linux/src/hud_hires.c), and only for the bitmaps of the English
@@ -138,6 +142,15 @@ TEXT_BOXES = {
 BACKGROUNDS = {
     "ui\\shell\\bitmaps\\postgame_carnage_report": "postgame_carnage_report.svg",
 }
+
+
+def from_files(tag: str) -> bool:
+    """Whether the title tool (port/linux/src/title_tool.c,
+    display.title_font = "halo") makes the title from the player's own
+    ui.map: the screens' headers, a bright text on a dark plate (the main
+    menu's items, in a glow or flat, and the carnage report's panel, are
+    drawn from the set's pictures)."""
+    return tag.split("\\")[-1].startswith("header_")
 
 
 def text_mask(image: np.ndarray) -> np.ndarray:
@@ -634,6 +647,10 @@ def main() -> None:
                 "lefts": layout.lefts(),
                 "cap": layout.cap / SUPER,
             })
+            # (the title tool makes it from the player's own ui.map:
+            # port/linux/src/title_tool.h)
+            if arguments.set == "classic" and from_files(tag):
+                entries[-1]["from_files"] = True
             moved = np.abs(layout.corrections())
             print(f"{name}: '{text}' {width}x{height} at {scale}x, covers {layout.overlap():.3f}; "
                   f"letters moved {moved.mean():.2f} texels on average, {moved.max():.2f} at most")

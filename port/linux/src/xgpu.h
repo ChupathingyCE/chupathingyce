@@ -337,7 +337,7 @@ struct xgpu_render_target
 /* the GL texture holding a render target with this physical address, or 0 */
 struct xgpu_render_target *xgpu_render_target_find(unsigned long data);
 
-#if defined(HALO_BGFX) || defined(HALO_CONSOLE_NATIVE_RENDERER)
+#if defined(HALO_BGFX) || defined(HALO_CONSOLE_NATIVE_RENDERER) || defined(HALO_VULKAN)
 /* a level of a texture that is not compressed, as 32-bit ARGB words in the
 processor's order (B, G, R, A in memory on a little-endian one); FALSE
 without the memory for it */
@@ -349,6 +349,19 @@ int xgpu_texture_dxt(const struct xgpu_texture_description *description);
 unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *description, unsigned long level);
 #endif
 
+#ifdef HALO_VULKAN
+/* the Android app's Vulkan backend draws (display.renderer = "vulkan";
+d3d8_vk.inl): set as the window is made, so that nothing here makes an
+OpenGL context or calls OpenGL; cleared when it could not start */
+extern BOOL xgpu_vulkan;
+/* the textures the port's own modules make (hud_hires.c, text_hires.c,
+menu_files.c), as xgpu_bgfx_texture_create's: an image's number */
+unsigned int xgpu_vulkan_texture_create(unsigned long width, unsigned long height, const unsigned char *rgba,
+	BOOL mipmapped);
+void xgpu_vulkan_texture_rows(unsigned int name, unsigned long top, unsigned long width, unsigned long rows,
+	const unsigned char *rgba);
+void xgpu_vulkan_texture_delete(unsigned int name);
+#endif
 #ifdef HALO_BGFX
 /* display.renderer is "bgfx": the bgfx test backend draws instead of OpenGL
 (d3d8_bgfx.inl), from platform_video_initialize on */

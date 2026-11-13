@@ -29,6 +29,7 @@ tools/test_console_meter_stages.py
 tools/test_coop_level_prompt.py
 tools/test_coop_spectate.py
 tools/test_crash_null_call.py
+tools/test_debug_camera.py
 tools/test_delta_compat.py
 tools/test_delta_input_rules.py
 tools/test_delta_menu_art.py
@@ -95,6 +96,7 @@ tools/test_mcc_projectiles.py
 tools/test_mcc_recordings.py
 tools/test_mcc_score_hint.py
 tools/test_mcc_seats.py
+tools/test_mcc_share_decline.py
 tools/test_mcc_skulls.py
 tools/test_mcc_validation.py
 tools/test_mcc_workshop.py
@@ -131,6 +133,7 @@ tools/test_steam_content.py
 tools/test_steam_workshop.py
 tools/test_tag_swap_tables.py
 tools/test_third_party_notices.py
+tools/test_title_tool.py
 tools/test_touch_menu.py
 tools/test_tricks.py
 tools/test_ui_point.py
@@ -141,3 +144,4 @@ tools/test_vote_notice.py
 tools/test_workshop_list.py
 tools/test_workshop_play_history.py
 tools/test_workshop_questions.py
+tools/test_xbox_audio.py

@@ -225,6 +225,14 @@ def stage(build, scratch):
     return folder / build.name
 
 
+def write_camera(pose, save, data):
+    """camera.txt for debug_camera_load: in the save root (director.c, since
+    the debug camera's file became the player's), and in the data root for a
+    build from before that"""
+    for folder in (save, data):
+        (folder / "camera.txt").write_text(pose.camera_text())
+
+
 def capture(build, poses, out, display, settle, environment, maps_ce, scratch):
     """Run the build once per map and capture each pose: {key: png}."""
     shots = {}
@@ -265,13 +273,13 @@ def capture(build, poses, out, display, settle, environment, maps_ce, scratch):
             # (a first load to settle the camera: the player's spawn can still
             # take the view back from the first one)
             first = next(pose for pose in poses if pose.map == map_name)
-            (data / "camera.txt").write_text(first.camera_text())
+            write_camera(first, save, data)
             console(port, ["(show_hud 0)", "(set cheat_deathless_player true)", "debug_camera_load"])
             time.sleep(4.0)
             for pose in poses:
                 if pose.map != map_name:
                     continue
-                (data / "camera.txt").write_text(pose.camera_text())
+                write_camera(pose, save, data)
                 console(port, ["(show_hud 0)", "(show_hud_help_text 0)", "(set cheat_deathless_player true)"])
                 png = out / f"{pose.key()}.png"
                 # (the camera loaded again before each capture, until two in a

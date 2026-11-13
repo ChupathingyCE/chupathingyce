@@ -321,3 +321,11 @@ long update_server_next_update(void);
 long update_server_next_update(void) { return 0; }
 long write_endpoint(void);
 long write_endpoint(void) { return 0; }
+long delta_legacy_mcc_version(void);
+long delta_legacy_mcc_version(void) { return 0; }
+long network_distributed_mcc_share_message(void);
+long network_distributed_mcc_share_message(void) { return 0; }
+long stubbs_mode_active(void);
+long stubbs_mode_active(void) { return 0; }
+long stubbs_multiplayer_remote_machine_refused(void);
+long stubbs_multiplayer_remote_machine_refused(void) { return 0; }

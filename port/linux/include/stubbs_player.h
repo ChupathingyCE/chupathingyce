@@ -25,6 +25,12 @@ following; FALSE for now, the perspective left as Halo chose it. The same
 answer serves drawing and aiming (aiming is simulated) */
 boolean stubbs_player_camera_following(long unit_index, short *perspective);
 
+/* the player's melee button pressed when Halo would not swing (bipeds.c):
+TRUE when Stubbs's blow started, *ticks the blow's length and *attack_tick
+the tick (counted down) its damage is done; FALSE leaves it to Halo (no
+melee) */
+boolean stubbs_player_melee_begin(long biped_index, short *ticks, short *attack_tick);
+
 /* draws a living player's Stubbs HUD over Halo's (hud.c's hud_draw_screen,
 inside the HUD's begin and end): nothing for now */
 void stubbs_player_hud_draw(short local_player_index, long unit_index);
@@ -51,6 +57,7 @@ void stubbs_image_effects_render(short local_player_index);
 halo_console_features.h, and may not build this part's file: each hook
 is an empty one here) */
 static __inline boolean stubbs_player_camera_following(long unit_index, short *perspective) { (void)unit_index; (void)perspective; return FALSE; }
+static __inline boolean stubbs_player_melee_begin(long biped_index, short *ticks, short *attack_tick) { (void)biped_index; (void)ticks; (void)attack_tick; return FALSE; }
 static __inline void stubbs_player_hud_draw(short local_player_index, long unit_index) { (void)local_player_index; (void)unit_index; }
 static __inline void stubbs_player_hud_show_special_attack(short special_attack, boolean show) { (void)special_attack; (void)show; }
 static __inline void stubbs_image_effect_set(char const *name) { (void)name; }

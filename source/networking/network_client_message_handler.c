@@ -213,6 +213,7 @@ int delta_peer_game_host_agreed_mcc_maps(void); /* port/linux/src/delta_peer_gam
 
 /* port/linux/game/network_distributed.c's */
 void network_distributed_handle_message(long machine_index, word const *message, word size);
+boolean network_distributed_mcc_share_message(long machine_index, void const *message, word size);
 
 /* ---------- constants */
 
@@ -753,6 +754,10 @@ boolean network_game_client_handle_message(
 					/* port: map sharing's (83 to 86), to a map fetch alone
 					(port/linux/game/map_share_client.c); anything else's
 					dropped below, as ever */
+					/* (port: OpenCE's MCC package answer, 104, which this
+					build never asks for: noted and dropped) */
+					if (network_distributed_mcc_share_message(NONE, message, message_size))
+						break;
 					if (!map_share_client_message(message, message_size,
 						!network_connection_last_read_was_unreliable()))
 #endif
@@ -1225,7 +1230,7 @@ static boolean network_game_client_receive_game_settings_piece(
 		network_event("got a message_server_game_settings_update piece for a different game layout (%u bytes, as %u)", (unsigned)piece->total_size, host_version);
 		network_game_client_settings_staging_size = 0;
 		/* port: the host's own machine, whose server's number changed in the
-		lobby (an MCC map's game at 43: delta_legacy_host_game_at), may read
+		lobby (an MCC map's game at the MCC number: delta_legacy_host_game_at), may read
 		the last record of the number before; it takes the next. So does a
 		client of a Delta host with mcc_maps, whose HOST_NUMBER it follows */
 		result = global_network_game_server_get() != NULL || delta_peer_game_host_agreed_mcc_maps();

@@ -109,7 +109,7 @@ Where your maps, settings and saves go: [docs/install.md](docs/install.md#where-
 - **Invite a friend.** Send them your game's invite link.
 - **Play the campaign together.** Host it online from Create Game. [Here's how](docs/online.md#online-co-op).
 
-Chupathingy players on every platform play together. We also play with the current OpenCE release: their players can join your games, and you can join theirs.
+Chupathingy players on every platform play together. **Compatible with OpenCE build-355 (network version 44) for online play:** their players can join your games, and you can join theirs.
 
 Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends-cant-join).
 
@@ -292,6 +292,9 @@ with their authors credited in each commit.
   clock read only when something needs it.
 - [theLlamaNet](https://github.com/theLlamaNet): the Android on-screen touch
   controls, through JoshRob297's halo-ce-touch.
+- Guven (GuvenHuso) and hispanorum (OpenCE): the debug camera flown by
+  mouse and keyboard, and its saved spot kept for the player in view
+  (written from a description of their work).
 
 </details>
 
@@ -315,10 +318,12 @@ with their authors credited in each commit.
   mOTA-lEV's [OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber),
   used under GPL-3.0 with his permission.
 - Controller button icons by snapchipper, CC0 (`port/assets/prompts`).
-- Headphone 3D sound (`audio.hrtf`): head-related impulse responses from the
-  [SADIE II database](https://www.york.ac.uk/sadie-project/database.html)
-  (KEMAR, subject D2), University of York, Apache License 2.0
-  (`port/assets/hrtf`).
+- The Xbox's 3D sound and reverb (`audio.hrtf`, `audio.reverb`): the HRTF
+  measured on an Xbox and the reconstruction of its DSP reverb are
+  [OpenH1](https://github.com/OpenH1/OpenH1)'s work, brought into
+  [GulchCE](https://github.com/chestahh/GulchCE) by chestahh
+  (`port/linux/src/dsound_xbox_*`,
+  [docs/reading/xbox_audio.md](docs/reading/xbox_audio.md)).
 - High-res HUD art on the Xbox maps: Aerocatia's and Jessie's HUD art from
   [Halo PC Restored](https://github.com/Aerocatia/halopc-restored) (release
   r220), used with Aerocatia's permission on the condition that both are

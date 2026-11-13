@@ -251,3 +251,7 @@ long update_client_add_player(void);
 long update_client_add_player(void) { return 0; }
 long update_server_add_player(void);
 long update_server_add_player(void) { return 0; }
+long network_distributed_mcc_share_message(void);
+long network_distributed_mcc_share_message(void) { return 0; }
+long stubbs_multiplayer_join_refused(void);
+long stubbs_multiplayer_join_refused(void) { return 0; }

@@ -21,4 +21,21 @@ long stubbs_function_count(void);
 struct hs_function_definition *stubbs_function_get(long index);
 long stubbs_function_find(char const *name);
 
+/* the player action tests Stubbs's scripts wait on (player_action_test_melee,
+the dance-off's, ...): a local player's input of this tick, noted beside
+Halo's own tests (player_control.c's get_local_player_input_blob), and the
+scripts' (player_action_test_reset), which clears both */
+#ifndef HALO_CONSOLE_NO_STUBBS
+void stubbs_functions_action_note(short local_player_index, unsigned long unit_control_flags,
+	boolean switch_grenades, real throttle_forward, real throttle_left);
+void stubbs_functions_action_reset(void);
+#else
+/* (a console leaves Stubbs mode out, HALO_CONSOLE_NO_STUBBS in
+halo_console_features.h: empty ones here) */
+static __inline void stubbs_functions_action_note(short local_player_index, unsigned long unit_control_flags,
+	boolean switch_grenades, real throttle_forward, real throttle_left)
+{ (void)local_player_index; (void)unit_control_flags; (void)switch_grenades; (void)throttle_forward; (void)throttle_left; }
+static __inline void stubbs_functions_action_reset(void) { }
+#endif
+
 #endif

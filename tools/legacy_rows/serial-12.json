@@ -1,0 +1,571 @@
+{
+  "delta_legacy": 1,
+  "serial": 12,
+  "issued": 1794578573,
+  "wires": {
+    "chupa-20a": {
+      "announce": 23,
+      "minimum": 11,
+      "maximum": 23,
+      "follows": "build-147"
+    },
+    "chupa-24a": {
+      "announce": 25,
+      "minimum": 11,
+      "maximum": 25,
+      "follows": "build-169"
+    },
+    "chupa-38a": {
+      "announce": 38,
+      "minimum": 11,
+      "maximum": 39,
+      "follows": "build-268",
+      "layouts": {
+        "33": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "34": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "35": {
+          "settings_size": 13136,
+          "options_size": 44
+        },
+        "36": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "37": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "38": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        }
+      }
+    },
+    "chupa-39a": {
+      "announce": 39,
+      "minimum": 11,
+      "maximum": 40,
+      "follows": "build-314",
+      "layouts": {
+        "33": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "34": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "35": {
+          "settings_size": 13136,
+          "options_size": 44
+        },
+        "36": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "37": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "38": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "39": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        }
+      }
+    },
+    "chupa-41a": {
+      "announce": 41,
+      "minimum": 11,
+      "maximum": 42,
+      "follows": "build-334",
+      "layouts": {
+        "33": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "34": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "35": {
+          "settings_size": 13136,
+          "options_size": 44
+        },
+        "36": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "37": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "38": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "39": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "40": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ],
+          "join_request_extra": 234,
+          "join_request_fill": "zeros"
+        },
+        "41": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            78,
+            79,
+            91,
+            94,
+            95
+          ],
+          "join_request_extra": 234,
+          "join_request_fill": "zeros"
+        }
+      }
+    },
+    "chupa-43a": {
+      "announce": 41,
+      "minimum": 11,
+      "maximum": 44,
+      "follows": "build-355",
+      "layouts": {
+        "33": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "34": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "35": {
+          "settings_size": 13136,
+          "options_size": 44
+        },
+        "36": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "37": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "38": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "39": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "40": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ],
+          "join_request_extra": 234,
+          "join_request_fill": "zeros"
+        },
+        "41": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            78,
+            79,
+            91,
+            94,
+            95
+          ],
+          "join_request_extra": 234,
+          "join_request_fill": "zeros"
+        },
+        "42": {
+          "settings_size": 13200,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            78,
+            79,
+            91,
+            94,
+            95,
+            97,
+            98,
+            99,
+            100,
+            103,
+            104,
+            105,
+            106
+          ],
+          "join_request_extra": 236,
+          "join_request_fill": "zeros",
+          "join_request_version_at": 234,
+          "header_extra": 4,
+          "epoch_kind": 96,
+          "unit_state_parts": [
+            {
+              "bit": 6,
+              "size": 30,
+              "at": "last"
+            }
+          ]
+        },
+        "43": {
+          "settings_size": 13200,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            78,
+            79,
+            91,
+            94,
+            95,
+            97,
+            98,
+            99,
+            100,
+            103,
+            104,
+            105,
+            106,
+            107
+          ],
+          "join_request_extra": 236,
+          "join_request_fill": "zeros",
+          "join_request_version_at": 234,
+          "header_extra": 4,
+          "epoch_kind": 96,
+          "unit_state_parts": [
+            {
+              "bit": 6,
+              "size": 30,
+              "at": "last"
+            },
+            {
+              "bit": 7,
+              "size": 28,
+              "at": "after_up"
+            }
+          ],
+          "rider_ejection_up": 200
+        },
+        "44": {
+          "settings_size": 13200,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            78,
+            79,
+            91,
+            94,
+            95,
+            97,
+            98,
+            99,
+            100,
+            103,
+            104,
+            105,
+            106,
+            107
+          ],
+          "join_request_extra": 236,
+          "join_request_fill": "zeros",
+          "join_request_version_at": 234,
+          "header_extra": 4,
+          "epoch_kind": 96,
+          "unit_state_parts": [
+            {
+              "bit": 6,
+              "size": 30,
+              "at": "last"
+            },
+            {
+              "bit": 7,
+              "size": 28,
+              "at": "after_up"
+            }
+          ],
+          "rider_ejection_up": 200
+        }
+      },
+      "hosting": [
+        43,
+        44
+      ]
+    },
+    "chupa-44a": {
+      "announce": 32,
+      "minimum": 11,
+      "maximum": 45,
+      "follows": "build-355",
+      "layouts": {
+        "33": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "34": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "35": {
+          "settings_size": 13136,
+          "options_size": 44
+        },
+        "36": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "37": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "38": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "39": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "40": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ],
+          "join_request_extra": 234,
+          "join_request_fill": "zeros"
+        },
+        "41": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            78,
+            79,
+            91,
+            94,
+            95
+          ],
+          "join_request_extra": 234,
+          "join_request_fill": "zeros"
+        },
+        "42": {
+          "settings_size": 13200,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            78,
+            79,
+            91,
+            94,
+            95,
+            97,
+            98,
+            99,
+            100,
+            103,
+            104,
+            105,
+            106
+          ],
+          "join_request_extra": 236,
+          "join_request_fill": "zeros",
+          "join_request_version_at": 234,
+          "header_extra": 4,
+          "epoch_kind": 96,
+          "unit_state_parts": [
+            {
+              "bit": 6,
+              "size": 30,
+              "at": "last"
+            }
+          ]
+        },
+        "43": {
+          "settings_size": 13200,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            78,
+            79,
+            91,
+            94,
+            95,
+            97,
+            98,
+            99,
+            100,
+            103,
+            104,
+            105,
+            106,
+            107
+          ],
+          "join_request_extra": 236,
+          "join_request_fill": "zeros",
+          "join_request_version_at": 234,
+          "header_extra": 4,
+          "epoch_kind": 96,
+          "unit_state_parts": [
+            {
+              "bit": 6,
+              "size": 30,
+              "at": "last"
+            },
+            {
+              "bit": 7,
+              "size": 28,
+              "at": "after_up"
+            }
+          ],
+          "rider_ejection_up": 200
+        },
+        "44": {
+          "settings_size": 13200,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            78,
+            79,
+            91,
+            94,
+            95,
+            97,
+            98,
+            99,
+            100,
+            103,
+            104,
+            105,
+            106,
+            107
+          ],
+          "join_request_extra": 236,
+          "join_request_fill": "zeros",
+          "join_request_version_at": 234,
+          "header_extra": 4,
+          "epoch_kind": 96,
+          "unit_state_parts": [
+            {
+              "bit": 6,
+              "size": 30,
+              "at": "last"
+            },
+            {
+              "bit": 7,
+              "size": 28,
+              "at": "after_up"
+            }
+          ],
+          "rider_ejection_up": 200
+        }
+      },
+      "hosting": [
+        44
+      ]
+    }
+  },
+  "disabled_capabilities": []
+}

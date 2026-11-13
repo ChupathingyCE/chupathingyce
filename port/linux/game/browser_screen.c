@@ -138,6 +138,8 @@ boolean controls_screen_active(void);
 boolean guide_active(void);
 /* guide.c's: the Guide opened on SETTINGS' row of a key (STEAM ACCOUNT, its QR up) */
 void guide_open_setting(char const *key);
+/* ... and on its Workshop page (the store link there) */
+void guide_open_workshop(void);
 #endif
 
 /* ---------- constants */
@@ -797,6 +799,55 @@ void display_error_text_deferred(wchar_t const *text, short local_player_index);
 player said no, cancelled it, or it failed: why, or NULL): Online Games
 closed, and the main menu's error says the map is missing, as it does with
 network.map_downloads "never" (cache_files_map_present's words) */
+/* a Workshop fetch's reason, in plain words with what to do: Steam's
+"Not owned" and "Link Steam first." are the two a player can act on, and
+the Delta Guide has the actions (the store link on its Workshop page, the
+code to scan on its Steam setting), so those are opened for them */
+enum { _workshop_why_other, _workshop_why_not_owned, _workshop_why_not_linked };
+
+static int workshop_why_kind(
+	char const *why)
+{
+	if (!why)
+		return _workshop_why_other;
+	if (!strncmp(why, "Not owned", 9))
+		return _workshop_why_not_owned;
+	if (!strncmp(why, "Link Steam", 10))
+		return _workshop_why_not_linked;
+	return _workshop_why_other;
+}
+
+static char const *workshop_why_sentence(
+	char const *why)
+{
+	switch (workshop_why_kind(why))
+	{
+	case _workshop_why_not_owned:
+		return "This Steam account doesn't own Halo: The Master Chief Collection, which Workshop maps need. "
+			"The Delta Guide's Workshop has the store link.";
+	case _workshop_why_not_linked:
+		return "Link Steam first: the Delta Guide's Workshop shows a code to scan with the Steam app.";
+	default:
+		return why && why[0] ? why : "Steam didn't answer.";
+	}
+}
+
+/* ... the Guide's page for it, where there is one */
+static void workshop_why_open(
+	char const *why)
+{
+#ifdef HALO_GUIDE
+	switch (workshop_why_kind(why))
+	{
+	case _workshop_why_not_owned: guide_open_workshop(); break;
+	case _workshop_why_not_linked: guide_open_setting("game.workshop_steam"); break;
+	default: break;
+	}
+#else
+	(void)why;
+#endif
+}
+
 static void rejoin_given_up(
 	char const *why)
 {
@@ -822,7 +873,10 @@ static void rejoin_given_up(
 	/* (the words the error has without the downloader: why the download
 	failed is in the log, the dialog having no room for more) */
 	if (browser_screen.offer_workshop && why)
-		snprintf(text, sizeof(text), "Couldn't get %.40s. %.120s", browser_screen.offer_display, why);
+	{
+		snprintf(text, sizeof(text), "Couldn't get %.40s. %.160s", browser_screen.offer_display,
+			workshop_why_sentence(why));
+	}
 	else if (browser_screen.offer_workshop)
 		snprintf(text, sizeof(text), "You don't have %.40s. Get it in the Delta Guide's Workshop.",
 			browser_screen.offer_display);
@@ -1141,10 +1195,12 @@ static void follow_download(
 				browser_screen.connecting_time = system_milliseconds();
 			break;
 		case WORKSHOP_JOIN_FAILED:
-			if (browser_screen.rejoin_pending)
-				rejoin_given_up(browser_screen.offer_workshop_why);
-			else
-				browser_screen.offer = _offer_failed;
+			/* (why, with its buttons: BACK, and the Guide's page for a
+			reason the player can act on; a game left for it gives up into
+			the main menu's error after a few seconds unless there is one,
+			browser_screen_process) */
+			browser_screen.offer = _offer_failed;
+			browser_screen.offer_time = system_milliseconds();
 			break;
 		default:
 			/* (Steam's bytes, in KB past 4 GB's reach) */
@@ -1290,6 +1346,27 @@ static void offer_button(
 	case _offer_failed:
 		if (button == _gamepad_analog_button_a || button == _gamepad_analog_button_b)
 			offer_given_up(NULL);
+		/* (a Workshop fetch Steam refused for want of the game or the link:
+		the player's choice of the Guide's page for it, the offer closed
+		without the error; a game left for it is not joined again) */
+		else if (button == _gamepad_analog_button_y && browser_screen.offer_workshop &&
+			workshop_why_kind(browser_screen.offer_workshop_why) != _workshop_why_other)
+		{
+			char why[sizeof(browser_screen.offer_workshop_why)];
+
+			csstrncpy(why, browser_screen.offer_workshop_why, sizeof(why) - 1);
+			why[sizeof(why) - 1] = 0;
+			platform_log("map download: %s not downloaded (%s): the player went to the Delta Guide for it",
+				browser_screen.offer_display, why);
+			if (browser_screen.rejoin_pending)
+			{
+				browser_screen.rejoin_pending = FALSE;
+				browser_screen.active = FALSE;
+			}
+			browser_screen.offer_workshop = FALSE;
+			offer_given_up(NULL);
+			workshop_why_open(why);
+		}
 		break;
 	case _offer_stock:
 		if (button == _gamepad_analog_button_a || button == _gamepad_analog_button_b)
@@ -2927,8 +3004,11 @@ void browser_screen_process(
 		follow_workshop_check();
 	if (browser_screen.offer == _offer_downloading)
 		follow_download();
+	/* (a Workshop fetch with a reason the player can act on waits for their
+	choice: the Guide's page, or back) */
 	else if (browser_screen.offer == _offer_failed && browser_screen.rejoin_pending &&
-		system_milliseconds() - browser_screen.offer_time > OFFER_FAILED_REJOIN_MILLISECONDS)
+		system_milliseconds() - browser_screen.offer_time > OFFER_FAILED_REJOIN_MILLISECONDS &&
+		!(browser_screen.offer_workshop && workshop_why_kind(browser_screen.offer_workshop_why) != _workshop_why_other))
 		offer_given_up(NULL);
 	else if (browser_screen.playlist_offer != _playlist_none)
 		playlist_offer_follow();
@@ -4065,11 +4145,29 @@ static void draw_map_offer(
 	default:
 		if (browser_screen.offer_workshop)
 		{
+			char const *why = browser_screen.offer_workshop_why;
+			int kind = workshop_why_kind(why);
+
 			snprintf(text, sizeof(text), "Could not get %s", browser_screen.offer_display);
 			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, COLOR_WARN, 0xF0A07060,
 				text);
+			/* (Steam's own words, then what to do: the Guide's page on Y) */
 			ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 126, UI_ALIGN_CENTER, COLOR_TEXT,
-				browser_screen.offer_workshop_why[0] ? browser_screen.offer_workshop_why : "Steam didn't answer.");
+				why[0] ? why : "Steam didn't answer.");
+			if (kind != _workshop_why_other)
+			{
+				static int const why_buttons[] = { UI_BUTTON_B, UI_BUTTON_Y };
+				static char const *const owned_words[] = { "=BACK", "=GET IT" };
+				static char const *const linked_words[] = { "=BACK", "=LINK STEAM" };
+
+				ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 150, UI_ALIGN_CENTER, COLOR_DIM,
+					kind == _workshop_why_not_owned ?
+					"Workshop maps need Halo: The Master Chief Collection on this Steam account." :
+					"The Delta Guide shows a code to scan with the Steam app.");
+				dialog_prompts(NUMBEROF(why_buttons), why_buttons,
+					kind == _workshop_why_not_owned ? owned_words : linked_words);
+				break;
+			}
 			dialog_prompt(UI_BUTTON_B, "=CLOSE");
 			break;
 		}

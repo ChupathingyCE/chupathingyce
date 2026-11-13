@@ -174,6 +174,8 @@ int main(int count, char **arguments)
 			printf("hosting %d pinned %d\n", delta_legacy_hosting_newest(), delta_legacy_pinned());
 		else if (!strcmp(arguments[index], "host_at") && index + 1 < count)
 			printf("host_at %d\n", delta_legacy_host_game_at(atoi(arguments[++index])));
+		else if (!strcmp(arguments[index], "mcc"))
+			printf("mcc %d\n", delta_legacy_mcc_version());
 		else if (!strcmp(arguments[index], "start"))
 			delta_legacy_start();
 		else if (!strcmp(arguments[index], "layout") && index + 1 < count)

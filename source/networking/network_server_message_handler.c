@@ -276,6 +276,7 @@ int network_rules_join_request_refused(unsigned version, unsigned char const *ta
 int delta_legacy_announce(void);
 void network_distributed_handle_message(long machine_index, word const *message, word size);
 void network_distributed_handle_stream_message(long machine_index, word const *message, word size);
+boolean network_distributed_mcc_share_message(long machine_index, void const *message, word size);
 /* (the host's budget for a client machine's lobby messages) */
 boolean network_distributed_lobby_message_allowed(long machine_index);
 
@@ -1821,6 +1822,10 @@ boolean network_game_server_handle_client_message(
 
 					network_game_server_get_client_machine(server, machine, &machine_index);
 					if (map_share_host_message(machine_index, message, message_buffer_size))
+						break;
+					/* (port: OpenCE's MCC package request, 103: declined,
+					mcc_network_messages.h) */
+					if (network_distributed_mcc_share_message(machine_index, message, message_buffer_size))
 						break;
 				}
 #endif

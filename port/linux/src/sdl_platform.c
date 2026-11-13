@@ -1698,6 +1698,85 @@ static void platform_gl_missing(const char *reason)
 #ifdef HALO_BGFX
 /* bgfx could not start (d3d8_bgfx.inl): the game draws with OpenGL */
 static BOOL platform_bgfx_refused;
+#endif
+#ifdef HALO_VULKAN
+/* the Vulkan backend could not start (d3d8_vk.inl): the game draws with OpenGL ES */
+static BOOL platform_vulkan_refused;
+/* the backend's own flag (port/android/host/host_vk_api.h) */
+extern int host_renderer_vulkan;
+
+/* A Vulkan start that did not get going draws with OpenGL ES for that start,
+and once the window is up the player is asked whether to stay on OpenGL ES
+for good (as the desktop's bgfx fallback asks): display.renderer changes only
+on a yes; a no leaves it, so the next start tries Vulkan again and asks again
+if it fails. The same for a driver archive (display.vk_driver) whose last
+start never got as far as drawing (d3d8_vk.inl's start note): that start runs
+on the phone's own driver and asks whether to keep it. A run nobody can
+answer (platform_run_is_quiet) logs it only. */
+static BOOL platform_vulkan_offer_pending, platform_vulkan_driver_offer_pending;
+static char platform_vulkan_driver_skipped[160];
+
+void platform_offer_opengl_es(void)
+{
+	platform_vulkan_offer_pending = TRUE;
+}
+
+void platform_offer_system_driver(const char *driver)
+{
+	snprintf(platform_vulkan_driver_skipped, sizeof(platform_vulkan_driver_skipped), "%s", driver);
+	platform_vulkan_driver_offer_pending = TRUE;
+}
+
+static void platform_vulkan_offer(void)
+{
+	static const SDL_MessageBoxButtonData renderer_buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Switch to OpenGL" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Not now" },
+	};
+	static const SDL_MessageBoxButtonData driver_buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Use the phone's driver" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Not now" },
+	};
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy: renderer",
+		"Vulkan didn't get going, so the game is using OpenGL ES for now.\n\n"
+		"Switch to OpenGL ES for good? You can change it later in config.toml (display.renderer).",
+		2, renderer_buttons, NULL };
+	char driver_text[400];
+	BOOL renderer = platform_vulkan_offer_pending, driver = platform_vulkan_driver_offer_pending;
+	int answer = 0;
+
+	platform_vulkan_offer_pending = platform_vulkan_driver_offer_pending = FALSE;
+	if (!renderer && !driver)
+		return;
+	if (driver)
+	{
+		snprintf(driver_text, sizeof(driver_text),
+			"The Vulkan driver %s didn't get as far as drawing the last time, so the game is using the phone's own "
+			"driver for now.\n\nUse the phone's driver for good? You can change it later in config.toml (display.vk_driver).",
+			platform_vulkan_driver_skipped);
+		question.message = driver_text;
+		question.buttons = driver_buttons;
+	}
+	if (platform_run_is_quiet())
+	{
+		platform_log("vulkan: %s for this start only; the setting stays as it is (no one to ask)",
+			driver ? "the phone's driver" : "OpenGL ES");
+		return;
+	}
+	if (!SDL_ShowMessageBox(&question, &answer))
+		answer = 0;
+	if (answer == 1)
+	{
+		config_write(driver ? "display.vk_driver" : "display.renderer", driver ? "" : "gl");
+		platform_log("vulkan: the player switched to %s for good", driver ? "the phone's driver (display.vk_driver = \"\")" :
+			"OpenGL ES (display.renderer = \"gl\")");
+	}
+	else
+		platform_log("vulkan: the player kept their setting; %s is tried again next start",
+			driver ? "the driver" : "Vulkan");
+}
+#endif
+#ifdef HALO_BGFX
 
 BOOL platform_bgfx_chosen(void)
 {
@@ -1878,6 +1957,13 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	into; unless it could not start before (platform_video_reopen_for_gl) */
 	xgpu_bgfx = !platform_bgfx_refused && platform_bgfx_chosen();
 #endif
+#ifdef HALO_VULKAN
+	/* the Vulkan backend draws instead (d3d8_vk.inl): a window without an
+	OpenGL ES context (Android lets one API own a window), which it makes its
+	surface on; unless it could not start before (platform_video_reopen_for_gl) */
+	xgpu_vulkan = !platform_vulkan_refused && !strcmp(config_string("display.renderer"), "vulkan");
+	host_renderer_vulkan = xgpu_vulkan;
+#endif
 
 #ifdef HALO_ANDROID
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -1939,7 +2025,15 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		if (scale < 1)
 			scale = 1;
 		platform_window = SDL_CreateWindow(title, (int)(width * scale), (int)(height * scale),
-			SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN);
+#ifdef HALO_VULKAN
+			/* (a GL window's surface is stretched over the screen by the system,
+			but a Vulkan swapchain is shown as it is: without high pixel density
+			its images are the size of the window in points) */
+			(xgpu_vulkan ? SDL_WINDOW_HIGH_PIXEL_DENSITY : SDL_WINDOW_OPENGL) |
+#else
+			SDL_WINDOW_OPENGL |
+#endif
+			SDL_WINDOW_FULLSCREEN);
 	}
 #else
 	/* fullscreen (either kind) unless display.mode is the window, which F11
@@ -1987,6 +2081,14 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	before its event loop runs (rasterizer_preinitialize), so wait for the
 	window here */
 	SDL_SyncWindow(platform_window);
+#endif
+#ifdef HALO_VULKAN
+	if (xgpu_vulkan)
+	{
+		platform_event_thread = SDL_GetCurrentThreadID();
+		platform_log("renderer: vulkan (the window is made; the backend starts with the device)");
+		return TRUE;
+	}
 #endif
 #ifdef HALO_BGFX
 	if (xgpu_bgfx)
@@ -2104,6 +2206,24 @@ BOOL platform_video_reopen_for_gl(void)
 	platform_log("renderer: bgfx did not start, so OpenGL");
 	platform_bgfx_refused = TRUE;
 	xgpu_bgfx = FALSE;
+	if (platform_window)
+	{
+		SDL_DestroyWindow(platform_window);
+		platform_window = NULL;
+	}
+	return platform_video_initialize(0, 0);
+}
+#endif
+#ifdef HALO_VULKAN
+/* the Vulkan backend did not start (d3d8_vk.inl, vk_initialize): the window
+again, with an OpenGL ES context, for the OpenGL renderer */
+BOOL platform_video_reopen_for_gl(void)
+{
+	platform_log("renderer: Vulkan did not start, so OpenGL ES");
+	platform_vulkan_refused = TRUE;
+	xgpu_vulkan = FALSE;
+	host_renderer_vulkan = 0;
+	platform_offer_opengl_es();
 	if (platform_window)
 	{
 		SDL_DestroyWindow(platform_window);
@@ -2280,12 +2400,20 @@ void platform_video_swap(void)
 	Uint64 interval, now;
 	Uint64 swap_start = SDL_GetTicks(), swap_time;
 
+#ifdef HALO_VULKAN
+	/* (the question after a fallback, once the window is up) */
+	platform_vulkan_offer();
+#endif
 #ifdef _WIN32
 	platform_borderless_styles();
 #endif
 #ifdef HALO_BGFX
 	/* (the device presents: d3d8_bgfx.inl; this paces the frames) */
 	if (!xgpu_bgfx)
+#endif
+#ifdef HALO_VULKAN
+	/* (the Vulkan backend presents, and its swapchain paces the frames) */
+	if (!xgpu_vulkan)
 #endif
 	{
 		/* the window's framebuffer bound for reading too, as the frame is
@@ -2342,6 +2470,9 @@ void platform_exit_window_closed(void)
 	}
 #ifdef HALO_BGFX
 	if (!xgpu_bgfx)
+#endif
+#ifdef HALO_VULKAN
+	if (!xgpu_vulkan)
 #endif
 	if (platform_window)
 	{

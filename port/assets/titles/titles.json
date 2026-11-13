@@ -29,7 +29,8 @@
     313.0,
     330.125
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "gametype_select__header_select_gametype__0",
@@ -57,7 +58,8 @@
     291.125,
     311.875
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "main_menu__menu_game_demos__0",
@@ -268,7 +270,8 @@
     257.5,
     273.875
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "pregame__header_enlisted_players__0",
@@ -293,7 +296,8 @@
     221.125,
     248.75
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "pregame__header_enlisted_players__1",
@@ -322,7 +326,8 @@
     296.5,
     317.5
    ],
-   "cap": 22.375
+   "cap": 22.375,
+   "from_files": true
   },
   {
    "name": "server_list__header_found_games__0",
@@ -351,7 +356,8 @@
     326.375,
     346.75
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "coop__header_select_profile_player_1__0",
@@ -386,7 +392,8 @@
     412.375,
     446.25
    ],
-   "cap": 22.375
+   "cap": 22.375,
+   "from_files": true
   },
   {
    "name": "coop__header_select_profile_player_2__0",
@@ -421,7 +428,8 @@
     412.375,
     445.375
    ],
-   "cap": 22.375
+   "cap": 22.375,
+   "from_files": true
   },
   {
    "name": "multiplayer_type_select__header_multiplayer__0",
@@ -446,7 +454,8 @@
     205.25,
     226.375
    ],
-   "cap": 22.375
+   "cap": 22.375,
+   "from_files": true
   },
   {
    "name": "mp_map_select__header_select_map__0",
@@ -469,7 +478,8 @@
     186.5,
     211.125
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "player_profiles_select__header_select_profile__0",
@@ -496,7 +506,8 @@
     257.5,
     273.875
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "indicator_options_edit__header_indicator_options__0",
@@ -526,7 +537,8 @@
     309.5,
     331.75
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "item_options_edit__header_item_options__0",
@@ -551,7 +563,8 @@
     216.0,
     237.75
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "name_edit__header_gametype_name__0",
@@ -577,7 +590,8 @@
     260.125,
     287.875
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "player_options_edit__header_player_options__0",
@@ -604,7 +618,8 @@
     260.75,
     283.0
    ],
-   "cap": 22.25
+   "cap": 22.25,
+   "from_files": true
   },
   {
    "name": "game_type_select__header_rules__0",
@@ -634,7 +649,8 @@
     326.125,
     353.375
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "playlist_edit__header_edit_multiplayer_gametype__0",
@@ -671,7 +687,8 @@
     473.5,
     494.75
    ],
-   "cap": 22.375
+   "cap": 22.375,
+   "from_files": true
   },
   {
    "name": "playlist_edit__header_set_options__0",
@@ -703,7 +720,8 @@
     403.375,
     423.75
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "playlist_select__header_select_gametype_to_edit__0",
@@ -737,7 +755,8 @@
     441.625,
     449.0
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "player_setup__header_select_profile_to_edit__0",
@@ -770,7 +789,8 @@
     403.625,
     410.875
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "advanced_controls__header_advanced_controls__0",
@@ -800,7 +820,8 @@
     346.5,
     362.25
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "color_edit__header_profile_color__0",
@@ -830,7 +851,8 @@
     318.875,
     343.375
    ],
-   "cap": 22.25
+   "cap": 22.25,
+   "from_files": true
   },
   {
    "name": "controller_edit__header_profile_controller_setting__0",
@@ -859,7 +881,8 @@
     310.375,
     333.625
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "player_profile_edit__header_edit_profile_settings__0",
@@ -892,7 +915,8 @@
     371.25,
     393.75
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "name_edit__header_profile_name__0",
@@ -917,7 +941,8 @@
     222.125,
     249.875
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "solo_level_select__header_load_level__0",
@@ -940,7 +965,8 @@
     184.375,
     205.0
    ],
-   "cap": 21.875
+   "cap": 21.875,
+   "from_files": true
   },
   {
    "name": "bitmaps__postgame_carnage_report__0",

@@ -703,7 +703,7 @@ def test_loader_says_once_that_no_table_is_published(checker, tmp_path):
 # changed once released, a build that learns a newer version's rules has a
 # new wire (docs/delta.md, "When the wire changes")
 RELEASED_WIRE_NEWEST = {"chupa-28a": 28, "chupa-29a": 29, "chupa-32a": 33, "chupa-38a": 38, "chupa-39a": 39,
-                       "chupa-41a": 41}
+                       "chupa-41a": 41, "chupa-43a": 43}
 
 
 def test_wire_changes_with_the_rules():
@@ -873,15 +873,15 @@ def test_make_layouts(tmp_path):
     old = tmp_path / "old.json"
     old.write_bytes(delta_table.make(4, issued=1))
     result = make_table(tmp_path, "--serial", "5", "--from", str(old),
-                        "--layout", f"{own}=44:options_size=48,dropped_messages=92+93",
-                        "--layout", f"{own}=45:shield_effects_maximum=7",
-                        "--layout", f"{own}=46:join_request_extra=0")
+                        "--layout", f"{own}=45:options_size=48,dropped_messages=92+93",
+                        "--layout", f"{own}=46:shield_effects_maximum=7",
+                        "--layout", f"{own}=47:join_request_extra=0")
     assert result.returncode == 0, result.stderr
     (tmp_path / "new.json").write_text(result.stdout)
     row = json.loads(result.stdout)["wires"][own]
-    assert row["layouts"]["44"] == {"options_size": 48, "dropped_messages": [92, 93]}
-    assert row["layouts"]["45"] == {"shield_effects_maximum": 7}
-    assert row["layouts"]["46"] == {"join_request_extra": 0, "join_request_fill": "zeros"}
+    assert row["layouts"]["45"] == {"options_size": 48, "dropped_messages": [92, 93]}
+    assert row["layouts"]["46"] == {"shield_effects_maximum": 7}
+    assert row["layouts"]["47"] == {"join_request_extra": 0, "join_request_fill": "zeros"}
     # (this build's own facts say its join request too)
     assert row["layouts"]["40"]["join_request_extra"] == 234 and row["layouts"]["40"]["join_request_fill"] == "zeros"
     # (made again, and with a --row for the wire: the facts past its own stay)
@@ -889,13 +889,13 @@ def test_make_layouts(tmp_path):
     result = make_table(tmp_path, "--serial", "6", "--from", str(tmp_path / "new.json"), "--row", f"{own}={wide}")
     assert result.returncode == 0, result.stderr
     row = json.loads(result.stdout)["wires"][own]
-    assert row["announce"] == floor()["announce"] + 6 and row["layouts"]["44"]["options_size"] == 48
+    assert row["announce"] == floor()["announce"] + 6 and row["layouts"]["45"]["options_size"] == 48
     assert "33" in row["layouts"]
-    for bad in (f"{own}=41:options_size=48", f"{own}=44:options_size=40", f"{own}=44:settings_size=13400",
-                f"{own}=44:shield_effects_maximum=16", f"{own}=44:shield_effects_maximum=5",
-                f"{own}=44:dropped_messages=0", f"{own}=44:dropped_messages=256", f"{own}=44:colour=1",
-                f"{own}=44:options_size=48,options_size=52", f"{own}=44", "chupa-32a=42:options_size=48",
-                f"{own}=44:join_request_extra=1025", "chupa-39a=42:join_request_extra=234",
+    for bad in (f"{own}=41:options_size=48", f"{own}=45:options_size=40", f"{own}=45:settings_size=13400",
+                f"{own}=45:shield_effects_maximum=16", f"{own}=45:shield_effects_maximum=5",
+                f"{own}=45:dropped_messages=0", f"{own}=45:dropped_messages=256", f"{own}=45:colour=1",
+                f"{own}=45:options_size=48,options_size=52", f"{own}=45", "chupa-32a=42:options_size=48",
+                f"{own}=45:join_request_extra=1025", "chupa-39a=42:join_request_extra=234",
                 "chupa-99z=100:options_size=48"):
         assert make_table(tmp_path, "--serial", "6", "--from", str(old), "--layout", bad).returncode == 1, bad
 
@@ -920,30 +920,30 @@ def layout_line(output, version):
 def test_loader_reads_layouts(keys, checker, tmp_path):
     """this wire's row's layouts: read, and used past the build's own
     versions within the limits; the built-in facts for its own versions"""
-    row = dict(floor(), layouts={"35": {"options_size": 60}, "44": {"options_size": 48, "dropped_messages": [92, 93],
+    row = dict(floor(), layouts={"35": {"options_size": 60}, "45": {"options_size": 48, "dropped_messages": [92, 93],
                                                                     "shield_effects_maximum": 7, "later": {"a": [1]}},
-                                  "46": {"settings_size": 13210, "join_request_extra": 300, "join_request_fill": "zeros"},
-                                  "47": {"options_size": 20, "join_request_extra": 64, "join_request_fill": "pass"}})
+                                  "47": {"settings_size": 13210, "join_request_extra": 300, "join_request_fill": "zeros"},
+                                  "48": {"options_size": 20, "join_request_extra": 64, "join_request_fill": "pass"}})
     table = write_signed(keys, tmp_path / "t10", document(serial=10, row=row))
     built = "78,79,91,94,95,97,98,99,100,103,104,105,106,107"
-    output = run_checker(checker, tmp_path, "layout", 44, "offer", table, "layout", 35, "layout", 43, "layout", 44,
-                         "layout", 46, "layout", 47, "state")
+    output = run_checker(checker, tmp_path, "layout", 45, "offer", table, "layout", 35, "layout", 43, "layout", 45,
+                         "layout", 47, "layout", 48, "state")
     assert "offer 1" in output and "4 layout facts" in output
-    assert layout_line(output, 44).startswith(f"layout 44 settings 13200 options 44 shield 6 dropped {built} ")
+    assert layout_line(output, 45).startswith(f"layout 45 settings 13200 options 44 shield 6 dropped {built} ")
     lines = [line for line in output.splitlines() if line.startswith("layout ")][1:]
     assert lines[0] == "layout 35 settings 13136 options 44 shield 6 dropped - learned 0 refused 0 facts 4 join 0"
     assert lines[1].startswith(f"layout 43 settings 13200 options 44 shield 6 dropped {built} learned 0 refused 0")
-    assert lines[2].startswith("layout 44 settings 13204 options 48 shield 7 dropped "
+    assert lines[2].startswith("layout 45 settings 13204 options 48 shield 7 dropped "
                                "78,79,91,92,93,94,95,97,98,99,100,103,104,105,106,107 ")
-    assert lines[3].startswith("layout 46 settings 13210 options 48 shield 7 ")
-    assert lines[4].startswith("layout 47 settings 13210 options 48 shield 7 ") and " refused 2 " in lines[4]
-    # (the join request: 236 bytes from 42 built in, the table's 300 from 46;
+    assert lines[3].startswith("layout 47 settings 13210 options 48 shield 7 ")
+    assert lines[4].startswith("layout 48 settings 13210 options 48 shield 7 ") and " refused 2 " in lines[4]
+    # (the join request: 236 bytes from 42 built in, the table's 300 from 47;
     # a fill this build does not write is not taken)
     assert lines[1].endswith(" join 236") and lines[2].endswith(" join 236")
     assert lines[3].endswith(" join 300") and lines[4].endswith(" join 300")
     # (the cached table, read again at the next start)
-    output = run_checker(checker, tmp_path, "layout", 44)
-    assert layout_line(output, 44).startswith("layout 44 settings 13204 options 48 ")
+    output = run_checker(checker, tmp_path, "layout", 45)
+    assert layout_line(output, 45).startswith("layout 45 settings 13204 options 48 ")
 
 
 def test_loader_skips_other_wires_layouts(keys, checker, tmp_path):
@@ -989,26 +989,26 @@ def test_loader_reads_generic_layouts(keys, checker, tmp_path):
     """chupa-43a's facts: read from this wire's row, a part of a later
     build's place and keys it does not know passed over"""
     later = dict(FACT_43, unit_state_parts=FACT_43["unit_state_parts"] + [{"bit": 5, "size": 2, "at": "x"}])
-    row = dict(floor(), layouts={"44": dict(FACT_43, settings_size=13210), "45": {"later": [1], "header_extra": 6},
-                                  "46": {"unit_state_parts": [{"bit": 6, "size": 30, "at": "middle"}]}})
+    row = dict(floor(), layouts={"45": dict(FACT_43, settings_size=13210), "46": {"later": [1], "header_extra": 6},
+                                  "47": {"unit_state_parts": [{"bit": 6, "size": 30, "at": "middle"}]}})
     table = write_signed(keys, tmp_path / "t12", document(serial=12, row=row))
-    output = run_checker(checker, tmp_path, "layout43", 43, "offer", table, "layout43", 41, "layout43", 44,
-                         "layout", 44, "layout43", 45, "layout43", 46, "state")
+    output = run_checker(checker, tmp_path, "layout43", 43, "offer", table, "layout43", 41, "layout43", 45,
+                         "layout", 45, "layout43", 46, "layout43", 47, "state")
     assert "offer 1" in output
     lines = [line for line in output.splitlines() if line.startswith("layout43 ")]
     # (43 built in, before any table)
     assert lines[0] == "layout43 43 version_at 234 header 4 epoch 96 ejection 200 parts 6:30@2 7:28@1 refused 0"
     assert lines[1] == "layout43 41 version_at -1 header 0 epoch 0 ejection 0 parts refused 0"
-    assert lines[2] == "layout43 44 version_at 234 header 4 epoch 96 ejection 200 parts 6:30@2 7:28@1 refused 0"
-    assert layout_line(output, 44).startswith("layout 44 settings 13210 options 44 shield 6 "
+    assert lines[2] == "layout43 45 version_at 234 header 4 epoch 96 ejection 200 parts 6:30@2 7:28@1 refused 0"
+    assert layout_line(output, 45).startswith("layout 45 settings 13210 options 44 shield 6 "
                                               "dropped 78,79,91,94,95,97,98,99,100,103,104,105,106,107 ")
-    assert layout_line(output, 44).endswith(" join 236")
-    assert lines[3].startswith("layout43 45 version_at 234 header 6 epoch 96 ")
+    assert layout_line(output, 45).endswith(" join 236")
+    assert lines[3].startswith("layout43 46 version_at 234 header 6 epoch 96 ")
     # (a place this build does not know: that part not taken, the rest kept)
     assert " 6:30@2 " in lines[4] and lines[4].endswith(" refused 1")
     # (a part of a later build's place, in a list this build otherwise reads)
-    table = write_signed(keys, tmp_path / "t13", document(serial=13, row=dict(floor(), layouts={"44": later})))
-    output = run_checker(checker, tmp_path, "offer", table, "layout43", 44)
+    table = write_signed(keys, tmp_path / "t13", document(serial=13, row=dict(floor(), layouts={"45": later})))
+    output = run_checker(checker, tmp_path, "offer", table, "layout43", 45)
     assert "offer 1" in output and " 5:2@255 " not in output and "refused 1" in output
 
 
@@ -1062,16 +1062,49 @@ def test_host_game_at_43(keys, checker, tmp_path):
     assert [line.split()[1] for line in state_line(output)] == ["41", "43"]
 
 
+def test_mcc_version(keys, checker, tmp_path):
+    """delta_legacy_mcc_version: the number an MCC map's game is hosted at
+    is the newest MCC-capable one this build or the table proves: the
+    build's own newest (44) with no table, or a row whose hosting stays at
+    or below it; a row's newer hosting number when the row has a layout for
+    it; none when a local table narrows the numbers below 42"""
+    own = define(DELTA.read_text(encoding="utf-8"), "DELTA_LEGACY_NEWEST")
+    assert own >= 42
+    assert f"mcc {own}\n" in run_checker(checker, tmp_path, "mcc")
+    row = dict(floor(), hosting=[hosted()])
+    table = write_signed(keys, tmp_path / "t20", document(serial=20, row=row))
+    assert f"mcc {own}\n" in run_checker(checker, tmp_path, "offer", table, "mcc")
+    # (a later version's layout from the table, proven for hosting: MCC games move to it)
+    row = dict(floor(), maximum=own + 2, hosting=[hosted(), own + 2],
+               layouts={str(own + 1): FACT_43, str(own + 2): dict(FACT_43, settings_size=13210)})
+    table = write_signed(keys, tmp_path / "t21", document(serial=21, row=row))
+    output = run_checker(checker, tmp_path, "offer", table, "mcc", "host_at", own + 2, "state")
+    assert f"mcc {own + 2}\n" in output and "host_at 1" in output
+    assert state_line(output)[0].startswith(f"state {own + 2} ")
+    # (proven for hosting but with no layout for it: the newest with one)
+    row = dict(floor(), maximum=own + 2, hosting=[hosted(), own + 2])
+    table = write_signed(keys, tmp_path / "t22", document(serial=22, row=row))
+    assert f"mcc {own}\n" in run_checker(checker, tmp_path, "offer", table, "mcc")
+    # (a local table that narrows below 43: no MCC games; 42 was in no release
+    # of OpenCE's, so a game at it would be nobody's)
+    local = tmp_path / "local.json"
+    for maximum in (41, 42):
+        local.write_bytes(document(serial=1, row={"announce": 32, "minimum": 11, "maximum": maximum}))
+        assert "mcc 0\n" in run_checker(checker, tmp_path, "mcc", override=local)
+    local.write_bytes(document(serial=1, row={"announce": 32, "minimum": 11, "maximum": 43}))
+    assert "mcc 43\n" in run_checker(checker, tmp_path, "mcc", override=local)
+
+
 def test_loader_override_layouts(checker, tmp_path):
     """network.legacy_table: a server announces a number of its own, with
     layouts, unsigned and never passed on"""
     local = tmp_path / "local.json"
     local.write_bytes(document(serial=1, row={"announce": 38, "minimum": 11, "maximum": 42,
-                                              "layouts": {"44": {"options_size": 48}}}))
-    output = run_checker(checker, tmp_path, "state", "layout", 44, override=local)
+                                              "layouts": {"45": {"options_size": 48}}}))
+    output = run_checker(checker, tmp_path, "state", "layout", 45, override=local)
     assert state_line(output)[0] == "state 38 11 42 serial 0 override 1 disabled 0 signed 0"
     assert "1 layout facts" in output
-    assert layout_line(output, 44).startswith("layout 44 settings 13204 options 48 ")
+    assert layout_line(output, 45).startswith("layout 45 settings 13204 options 48 ")
 
 
 # ---------- auto-announce: the "hosting" list, network.announce, the hold

@@ -269,9 +269,10 @@ an older one. Version 41 adds a refusal 13 (too many machines from one
 address), lays out the vote messages 78 and 79 anew, and adds 94 and 95 (map
 votes); this build drops all four unread, and its hosts tell an OpenCE player
 who votes, the first time in a game, that the host has no votes. Refusals 8 to 13 are said
-plainly to the player. Versions past 41 are played by a signed table's
-layout facts, generic ones from wire `chupa-43a` (`docs/delta.md`,
-"Layouts"): a version word in the join request, more bytes in every
+plainly to the player. Versions 42 to 44 are built in from wire `chupa-43a` (44, OpenCE's
+build-355, is 43's layout under a new number: `chupa-44a`), and later ones
+are played by a signed table's layout facts, generic ones from
+`chupa-43a` (`docs/delta.md`, "Layouts"): a version word in the join request, more bytes in every
 distributed header (a checkpoint epoch, with the host's boundary message
 before its objects and at each co-op revert), unit state parts a reader
 passes over, and the height of a vehicle's up that throws its riders. A
@@ -323,8 +324,8 @@ is its own, or one of a range (HALO_PORT_NETWORK_VERSION_MINIMUM to
 HALO_PORT_NETWORK_VERSION_MAXIMUM, halo_port_limits.h) of versions that
 differ from it only in messages the other machine drops, not knowing them,
 or whose rules it plays by the host's version (above). This build has
-version 32 built in and joins hosts of 11 to 42: back to version 11, the
-newest breaking one, and one past the newest it knows (41), which it
+version 32 built in and joins hosts of 11 to 45: back to version 11, the
+newest breaking one, and one past the newest it knows (44), which it
 presumes additive. A signed legacy table widens the range without a
 release (docs/delta.md, "The legacy number"). The game browser lists the
 range's games.

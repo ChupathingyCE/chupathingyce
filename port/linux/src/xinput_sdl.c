@@ -1038,21 +1038,110 @@ static BOOL input_held(const struct platform_input_state *input, int code)
 	return wheel && wheel_direction == (code == INPUT_WHEEL_UP ? 1 : -1);
 }
 
+/* ---------- the debug camera's mouse and keyboard
+
+The director's flying camera (source/camera/director.c), as Halo PC's
+Custom Edition and Sapien fly it: the middle mouse button held flies it,
+the player's movement keys move it and the mouse looks, R raises it and F
+lowers it, and the wheel turned while the middle button is held changes its
+speed. Backspace held switches the camera, as the controller's black button
+(RB) held does. The middle button, R and F are fixed keys, read where they
+sit (scancodes, as the bindings are). None of them counts while the
+console, text chat, a menu, the Guide or an on-screen keyboard has the
+keyboard, or (the middle button, R and F) while the mouse is released. The
+director asks once a frame (halo_linux_debug_camera_input); the state is
+kept under mouse_lock. */
+
+/* whether the director's camera is a free one (the flying camera): the
+middle button is the camera's then, not its zoom binding's, and while it
+flies the camera the keyboard and mouse hold no action but movement (and
+the pause menu's and the scoreboard's) */
+static BOOL debug_camera_free;
+static BOOL debug_camera_middle, debug_camera_up, debug_camera_down, debug_camera_switch;
+/* (the wheel's notches turned while the middle button was held, until the
+director reads them; none while it is not held) */
+static float debug_camera_wheel;
+
+static void debug_camera_poll(const struct platform_input_state *input)
+{
+	BOOL keyboard = !console_is_active() && !chat_typing && !text_typing && !input->menus;
+	BOOL mouse;
+
+#ifdef HALO_GUIDE
+	keyboard = keyboard && !guide_capture;
+#endif
+	mouse = keyboard && !input->mouse_released;
+	pthread_mutex_lock(&mouse_lock);
+	debug_camera_middle = mouse && input->mouse_buttons[SDL_BUTTON_MIDDLE];
+	debug_camera_up = mouse && input->keys[SDL_SCANCODE_R];
+	debug_camera_down = mouse && input->keys[SDL_SCANCODE_F];
+	debug_camera_switch = keyboard && input->keys[SDL_SCANCODE_BACKSPACE];
+	if (debug_camera_middle)
+		debug_camera_wheel += input->mouse_wheel;
+	else
+		debug_camera_wheel = 0.0f;
+	pthread_mutex_unlock(&mouse_lock);
+}
+
+/* the debug camera's mouse and keyboard for the player on the gamepad (the
+first's alone: the keyboard and mouse are port 0's), read once a frame by
+the director, which says whether its camera is a free one: whether the
+middle button is held (the return), R and F, Backspace, and the wheel's
+notches since the last call (up, away from the player, positive) */
+int halo_linux_debug_camera_input(short gamepad_index, int free_camera, int *up, int *down, int *switch_key,
+	float *wheel)
+{
+	int middle;
+
+	*up = FALSE;
+	*down = FALSE;
+	*switch_key = FALSE;
+	*wheel = 0.0f;
+	if (gamepad_index != 0)
+		return FALSE;
+	pthread_mutex_lock(&mouse_lock);
+	debug_camera_free = free_camera != 0;
+	middle = debug_camera_middle;
+	*up = debug_camera_up;
+	*down = debug_camera_down;
+	*switch_key = debug_camera_switch;
+	*wheel = debug_camera_wheel;
+	debug_camera_wheel = 0.0f;
+	pthread_mutex_unlock(&mouse_lock);
+	return middle;
+}
+
 /* in the game: the actions held, and the controller's Start and Back for
 the pause menu and the scoreboard */
 static void keyboard_controls(const struct platform_input_state *input, XINPUT_GAMEPAD *pad)
 {
 	unsigned long held = 0;
 	int action, slot;
+	BOOL camera_free, camera_flying;
 
+	pthread_mutex_lock(&mouse_lock);
+	camera_free = debug_camera_free;
+	camera_flying = debug_camera_free && debug_camera_middle;
+	pthread_mutex_unlock(&mouse_lock);
 	bindings_read();
 	for (action = 0; action < NUMBER_OF_HALO_KEYBOARD_ACTIONS; action++)
 	{
 		for (slot = 0; slot < MAXIMUM_BINDINGS; slot++)
 		{
+			/* (on the debug camera the middle button is the camera's) */
+			if (camera_free && bindings[action][slot] == INPUT_MOUSE + SDL_BUTTON_MIDDLE)
+				continue;
 			if (input_held(input, bindings[action][slot]))
 				held |= 1UL << action;
 		}
+	}
+	/* (the movement keys move the camera, by the player's movement: the
+	director inhibits the player's own) */
+	if (camera_flying)
+	{
+		held &= (1UL << HALO_KEYBOARD_MOVE_FORWARD) | (1UL << HALO_KEYBOARD_MOVE_BACKWARD) |
+			(1UL << HALO_KEYBOARD_STRAFE_LEFT) | (1UL << HALO_KEYBOARD_STRAFE_RIGHT) |
+			(1UL << HALO_KEYBOARD_PAUSE) | (1UL << HALO_KEYBOARD_SCOREBOARD);
 	}
 	if (held & (1UL << HALO_KEYBOARD_PAUSE))
 		pad->wButtons |= XINPUT_GAMEPAD_START;
@@ -1142,13 +1231,52 @@ void test_input_hold_fire(int hold)
 
 /* debug.test_input "menu:<buttons>": the buttons pressed one a second, from
 the first poll, for testing the menus: a, b, x, y, lb, rb (white and black),
-up, down, left, right, start, back, key:<a key's name> (a key of the
+up, down, left, right, start, back, rs (the right stick's click),
+key:<a key's name> (a key of the
 keyboard, as SDL names it: key:C; key:W+C holds both), the mouse's (move,
 click, rclick, wheel, below), shot, fire (the trigger held all its second),
-fireshot (fire, and a shot 600 ms in) or wait (none), separated by spaces or
-commas */
-static char test_input_menu[512];
+fireshot (fire, and a shot 600 ms in), the debug camera's fly tokens
+(test_input_debug_camera) or wait (none), separated by spaces or commas */
+static char test_input_menu[4096];
 static Uint64 test_input_menu_since;
+
+/* debug.test_input "follow:<file>": the same buttons, read from a file as
+another program writes them there; each line that appears is played as a
+menu: script from that moment (for a test that answers what the game shows,
+such as a dance-off's steps) */
+static char test_input_follow_path[256];
+static long test_input_follow_offset;
+
+static void test_input_follow_poll(void)
+{
+	FILE *file;
+	char text[sizeof(test_input_menu)];
+	size_t length;
+
+	if (!test_input_follow_path[0] || !(file = fopen(test_input_follow_path, "rb")))
+		return;
+	if (!fseek(file, test_input_follow_offset, SEEK_SET) &&
+		(length = fread(text, 1, sizeof(text) - 1, file)) > 0)
+	{
+		char *end;
+
+		text[length] = 0;
+		/* (whole lines only: the rest waits for its newline) */
+		if ((end = strrchr(text, '\n')) != NULL)
+		{
+			*end = 0;
+			test_input_follow_offset += (long)(end - text) + 1;
+			for (end = text; *end; end++)
+			{
+				if (*end == '\n' || *end == '\r')
+					*end = ' ';
+			}
+			snprintf(test_input_menu, sizeof(test_input_menu), "%s", text);
+			test_input_menu_since = SDL_GetTicks();
+		}
+	}
+	fclose(file);
+}
 
 /* the token of this second, held or not (NULL for none) */
 static const char *test_input_menu_current(size_t *length)
@@ -1327,6 +1455,59 @@ static void test_input_menu_keys(struct platform_input_state *input)
 	}
 }
 
+/* the debug camera's tokens of debug.test_input "menu:", each the middle
+mouse button held all of its second (the camera flown, halo_linux_debug_camera_input):
+fly alone, fly:<keys> with keys held too (as key: names them: fly:W+R),
+flywheel:<notches> with the wheel turned at its start (positive away from
+the user) and flylook:<x>:<y> with the mouse moved that many pixels at its
+start */
+static void test_input_debug_camera(struct platform_input_state *input)
+{
+	static Uint64 step_done = (Uint64)-1;
+	Uint64 step;
+	size_t length;
+	const char *token = test_input_menu_current(&length);
+	char text[64];
+	int wheel = 0, x = 0, y = 0;
+
+	if (!token || length < 3 || length >= sizeof(text) || strncmp(token, "fly", 3))
+		return;
+	memcpy(text, token, length);
+	text[length] = 0;
+	step = (SDL_GetTicks() - test_input_menu_since) / 1000;
+	input->mouse_released = FALSE;
+	input->mouse_buttons[SDL_BUTTON_MIDDLE] = 1;
+	if (!strncmp(text, "fly:", 4))
+	{
+		char *name, *next;
+
+		for (name = text + 4; name; name = next)
+		{
+			SDL_Scancode scancode;
+
+			next = strchr(name, '+');
+			if (next)
+				*next++ = 0;
+			scancode = SDL_GetScancodeFromName(name);
+			if (scancode != SDL_SCANCODE_UNKNOWN)
+				input->keys[scancode] = 1;
+		}
+	}
+	else if (step_done != step && sscanf(text, "flywheel:%d", &wheel) == 1)
+	{
+		input->mouse_wheel += (float)wheel;
+		step_done = step;
+	}
+	else if (step_done != step && sscanf(text, "flylook:%d:%d", &x, &y) == 2)
+	{
+		pthread_mutex_lock(&mouse_lock);
+		mouse_pending_x += (float)x;
+		mouse_pending_y += (float)y;
+		pthread_mutex_unlock(&mouse_lock);
+		step_done = step;
+	}
+}
+
 static void test_input_menu_gamepad(XINPUT_GAMEPAD *pad)
 {
 	static const struct
@@ -1348,6 +1529,8 @@ static void test_input_menu_gamepad(XINPUT_GAMEPAD *pad)
 		{ "right", -1, XINPUT_GAMEPAD_DPAD_RIGHT },
 		{ "start", -1, XINPUT_GAMEPAD_START },
 		{ "back", -1, XINPUT_GAMEPAD_BACK },
+		/* (the right stick's click: the debug camera's flying, director.c) */
+		{ "rs", -1, XINPUT_GAMEPAD_RIGHT_THUMB },
 	};
 	size_t length;
 	const char *token = test_input_menu_current(&length);
@@ -1546,6 +1729,8 @@ static void test_input_gamepad(XINPUT_GAMEPAD *pad)
 			snprintf(test_input_menu, sizeof(test_input_menu), "%s", setting + 5);
 			test_input_menu_since = SDL_GetTicks();
 		}
+		else if (!strncmp(setting, "follow:", 7))
+			snprintf(test_input_follow_path, sizeof(test_input_follow_path), "%s", setting + 7);
 		else if (!strncmp(setting, "bot:", 4))
 			seed = atoi(setting + 4);
 		else if (!strcmp(setting, "bot"))
@@ -1554,6 +1739,43 @@ static void test_input_gamepad(XINPUT_GAMEPAD *pad)
 		{
 			seed = atoi(setting + 5);
 			looking = 1;
+		}
+	}
+	test_input_follow_poll();
+	/* (HALO_TEST_INPUT_FILE: a file whose text, when it appears, is a new
+	"menu:" script from now, for tests that wait on the game between steps;
+	the file is emptied once read) */
+	{
+		static const char *file_name;
+		static Uint64 file_checked;
+		static int file_known;
+
+		if (!file_known)
+		{
+			file_name = getenv("HALO_TEST_INPUT_FILE");
+			file_known = 1;
+		}
+		if (file_name && *file_name && SDL_GetTicks() - file_checked >= 250)
+		{
+			FILE *file = fopen(file_name, "rb");
+
+			file_checked = SDL_GetTicks();
+			if (file)
+			{
+				char text[sizeof(test_input_menu)];
+				size_t length = fread(text, 1, sizeof(text) - 1, file);
+
+				fclose(file);
+				text[length] = 0;
+				if (length)
+				{
+					snprintf(test_input_menu, sizeof(test_input_menu), "%s", text);
+					test_input_menu_since = SDL_GetTicks();
+					file = fopen(file_name, "wb");
+					if (file)
+						fclose(file);
+				}
+			}
 		}
 	}
 	if (test_input_menu[0])
@@ -2263,6 +2485,8 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		keyboard_actions_held = 0;
 		keys_held_over_switch(&input);
 		test_input_menu_keys(&input);
+		test_input_debug_camera(&input);
+		debug_camera_poll(&input);
 		chat_escape_update(&input);
 		if (!console_is_active() && !chat_typing)
 		{
