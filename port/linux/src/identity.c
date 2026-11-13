@@ -746,16 +746,17 @@ int identity_enroll_body(char *out, int size, const char *player_key_hex, const 
 	const char *nonce_hex, const unsigned char *signature, const char *platform, const char *build)
 {
 	char key_text[2 * IDENTITY_KEY_SIZE + 1], signature_text[2 * IDENTITY_SIGNATURE_SIZE + 1];
-	char platform_text[24], build_text[48];
+	char platform_text[24], build_text[48], client_text[48];
 	int length;
 
 	identity_hex(public_key, IDENTITY_KEY_SIZE, key_text);
 	identity_hex(signature, IDENTITY_SIGNATURE_SIZE, signature_text);
 	clean_text(platform_text, sizeof(platform_text), platform);
 	clean_text(build_text, sizeof(build_text), build);
+	clean_text(client_text, sizeof(client_text), IDENTITY_CLIENT_ID);
 	length = snprintf(out, (size_t)size, "{\"key\": \"%s\", \"device_key\": \"%s\", \"nonce\": \"%s\", "
-		"\"signature\": \"%s\", \"platform\": \"%s\", \"build\": \"%s\"}", player_key_hex, key_text, nonce_hex,
-		signature_text, platform_text, build_text);
+		"\"signature\": \"%s\", \"platform\": \"%s\", \"build\": \"%s\", \"client_id\": \"%s\"}", player_key_hex,
+		key_text, nonce_hex, signature_text, platform_text, build_text, client_text);
 	return length < 0 || length >= size ? -1 : length;
 }
 
@@ -776,7 +777,7 @@ int identity_start_body(char *out, int size, const unsigned char *public_key, co
 	const unsigned char *signature, const char *platform, const char *build, const char *name)
 {
 	char key_text[2 * IDENTITY_KEY_SIZE + 1], signature_text[2 * IDENTITY_SIGNATURE_SIZE + 1];
-	char platform_text[24], build_text[48], name_text[40];
+	char platform_text[24], build_text[48], name_text[40], client_text[48];
 	int length;
 
 	identity_hex(public_key, IDENTITY_KEY_SIZE, key_text);
@@ -784,9 +785,10 @@ int identity_start_body(char *out, int size, const unsigned char *public_key, co
 	clean_text(platform_text, sizeof(platform_text), platform);
 	clean_text(build_text, sizeof(build_text), build);
 	clean_text(name_text, 33, name);
+	clean_text(client_text, sizeof(client_text), IDENTITY_CLIENT_ID);
 	length = snprintf(out, (size_t)size, "{\"device_key\": \"%s\", \"nonce\": \"%s\", \"signature\": \"%s\", "
-		"\"platform\": \"%s\", \"build\": \"%s\", \"name\": \"%s\"}", key_text, nonce_hex, signature_text,
-		platform_text, build_text, name_text);
+		"\"platform\": \"%s\", \"build\": \"%s\", \"name\": \"%s\", \"client_id\": \"%s\"}", key_text, nonce_hex,
+		signature_text, platform_text, build_text, name_text, client_text);
 	return length < 0 || length >= size ? -1 : length;
 }
 

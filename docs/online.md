@@ -25,7 +25,9 @@ Browser builds can't join our games, and we can't join theirs.
   [stats.chupathingy.org](https://stats.chupathingy.org), and a channel between
   Chupathingy machines for features of our own (how builds play together:
   [docs/delta-compatibility.md](delta-compatibility.md)). Games with OpenCE players
-  use the shared game protocol, so everyone plays together.
+  use the shared game protocol, so everyone plays together. Other apps can
+  sign players in there too, once registered
+  ([docs/delta-clients.md](delta-clients.md)).
 
 ## Joining, hosting and invites
 
