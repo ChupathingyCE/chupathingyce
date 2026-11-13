@@ -184,6 +184,27 @@ def test_junk_gets_no_reply(server):
     assert server.query(b"\\basic\\").startswith(b"\\hostname\\")
 
 
+def test_replies_to_one_address_are_limited(server):
+    """A reply is many times its query's size, and a query's source address
+    can be anyone's: one address is answered only a few times a second,
+    however many queries name it, so the server can't be turned on it."""
+    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    client.settimeout(0.5)
+    try:
+        for _ in range(40):
+            client.sendto(b"\\status\\", ("127.0.0.1", server.port))
+        replies = 0
+        try:
+            while True:
+                client.recvfrom(4096)
+                replies += 1
+        except socket.timeout:
+            pass
+    finally:
+        client.close()
+    assert 1 <= replies <= 10, replies
+
+
 def test_many_players(harness):
     started = Server(harness, players=36)
     try:

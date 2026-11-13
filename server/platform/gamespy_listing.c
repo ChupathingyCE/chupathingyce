@@ -55,6 +55,12 @@ enum
 	RESOLVE_SECONDS = 300,
 	/* replies a second, at most */
 	REPLIES_PER_SECOND = 200,
+	/* replies a second to one address, at most (a query's source can be
+	anyone's: the server is never turned on one address), and the addresses
+	kept for it (by a hash of the address: one that shares a place with
+	another starts again) */
+	REPLIES_PER_ADDRESS = 6,
+	REPLY_ADDRESSES = 256,
 	NOTICES = 16,
 	NOTICE_SIZE = 160,
 };
@@ -95,6 +101,12 @@ static struct
 	unsigned int query_count;
 	time_t reply_second;
 	int replies;
+	struct
+	{
+		unsigned int address;
+		time_t second;
+		int replies;
+	} reply_addresses[REPLY_ADDRESSES];
 	char notices[NOTICES][NOTICE_SIZE];
 	int notice_first;
 	int notice_count;
@@ -505,16 +517,30 @@ void gamespy_challenge_response(const unsigned char *challenge, int length, char
 
 /* ---------- the socket's thread */
 
-static int reply_allowed(void)
+static int reply_allowed(const struct sockaddr_in *to)
 {
 	time_t now = time(NULL);
+	unsigned int address = (unsigned int)to->sin_addr.s_addr;
+	unsigned int place = (address * 2654435761u) >> 24;
 
 	if (now != listing.reply_second)
 	{
 		listing.reply_second = now;
 		listing.replies = 0;
 	}
-	return listing.replies++ < REPLIES_PER_SECOND;
+	if (listing.replies >= REPLIES_PER_SECOND)
+		return 0;
+	if (listing.reply_addresses[place].address != address || listing.reply_addresses[place].second != now)
+	{
+		listing.reply_addresses[place].address = address;
+		listing.reply_addresses[place].second = now;
+		listing.reply_addresses[place].replies = 0;
+	}
+	if (listing.reply_addresses[place].replies >= REPLIES_PER_ADDRESS)
+		return 0;
+	listing.reply_addresses[place].replies++;
+	listing.replies++;
+	return 1;
 }
 
 static int same_address(const struct sockaddr_in *a, const struct sockaddr_in *b)
@@ -760,12 +786,12 @@ static void *listing_thread(void *unused)
 			answered, as limited as a query) */
 			if (joins && have_status)
 			{
-				if (length >= 3 && packet[0] == 0xfe && packet[1] == 0xfe && packet[2] == 0x01 && !reply_allowed())
+				if (length >= 3 && packet[0] == 0xfe && packet[1] == 0xfe && packet[2] == 0x01 && !reply_allowed(&from))
 					continue;
 				if (ce_transport_packet(packet, (int)length, &from, milliseconds_now()))
 					continue;
 			}
-			if (!have_status || !reply_allowed())
+			if (!have_status || !reply_allowed(&from))
 				continue;
 			reply_length = gamespy_reply(&status, listing.gamever, packet, (int)length, reply, sizeof(reply));
 			if (reply_length > 0)
