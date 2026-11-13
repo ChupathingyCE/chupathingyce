@@ -560,14 +560,24 @@ void delta_legacy_hold(int hold);
 0 when it is not one this machine may announce) */
 int delta_legacy_pinned(void);
 /* the number the next games this machine hosts announce, whatever the table
-in use and network.announce say: OpenCE's 43 for a game on an MCC map (the
-MCC helper asks it before hosting), so that build-344's machines join it; 0
-goes back to the usual number. Taken at once in the lobby, and at a game's
+in use and network.announce say: delta_legacy_mcc_version's for a game on an
+MCC map (the MCC helper asks it before hosting), so that OpenCE's MCC
+machines join it; 0 goes back to the usual number. Taken at once in the lobby, and at a game's
 end while one is under way (delta_legacy_hold). A version this build does
 not play (past the newest it knows, by its rules or the table's layouts, or
 outside the numbers it joins) is refused: 0, else 1. A host of a version
 with a version word (42 on) refuses a join request without it */
 int delta_legacy_host_game_at(int version);
+/* the number a game on an MCC map is hosted at: the newest this build may
+host whose layout carries MCC's record and messages (42 on,
+DELTA_LEGACY_MCC_FIRST): the newest the table in use proves for hosting when
+that is past the build's own rules (a later version's layout, from the
+table), else the newest built in (DELTA_LEGACY_NEWEST), within the numbers
+the build joins; 0 when none is (a local table that narrows below 42). From
+chupa-44a: before, 43 was in the code, so a raise of OpenCE's number was a
+release */
+int delta_legacy_mcc_version(void);
+#define DELTA_LEGACY_MCC_FIRST 42
 
 /* ---------- host protections: what a host enforces for its clients
 

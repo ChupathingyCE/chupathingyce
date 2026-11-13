@@ -2229,7 +2229,7 @@ void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget)
 #endif
 
 /* (MCC maps for every game of a build that has them: a network game on one
-is hosted at OpenCE's 43, network_game_server_mcc_version) */
+is hosted at the newest MCC-capable OpenCE number, network_game_server_mcc_version) */
 static boolean ui_widget_port_mcc_offered(void)
 {
 	return TRUE;

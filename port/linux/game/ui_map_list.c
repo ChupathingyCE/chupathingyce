@@ -1221,8 +1221,9 @@ static char const *view_package_text(char const *level)
 }
 
 /* whether the lists offer MCC maps now: in every game, offline, split
-screen and network (a network game on one is hosted at OpenCE's 43:
-network_game_server_mcc_version); a build without MCC maps lists none */
+screen and network (a network game on one is hosted at the newest MCC-capable
+OpenCE number, 44 built in: network_game_server_mcc_version); a build without
+MCC maps lists none */
 boolean ui_map_list_mcc_offered(
 	void)
 {

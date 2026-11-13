@@ -1062,6 +1062,35 @@ def test_host_game_at_43(keys, checker, tmp_path):
     assert [line.split()[1] for line in state_line(output)] == ["41", "43"]
 
 
+def test_mcc_version(keys, checker, tmp_path):
+    """delta_legacy_mcc_version: the number an MCC map's game is hosted at
+    is the newest MCC-capable one this build or the table proves: the
+    build's own newest (44) with no table, or a row whose hosting stays at
+    or below it; a row's newer hosting number when the row has a layout for
+    it; none when a local table narrows the numbers below 42"""
+    own = define(DELTA.read_text(encoding="utf-8"), "DELTA_LEGACY_NEWEST")
+    assert own >= 42
+    assert f"mcc {own}\n" in run_checker(checker, tmp_path, "mcc")
+    row = dict(floor(), hosting=[hosted()])
+    table = write_signed(keys, tmp_path / "t20", document(serial=20, row=row))
+    assert f"mcc {own}\n" in run_checker(checker, tmp_path, "offer", table, "mcc")
+    # (a later version's layout from the table, proven for hosting: MCC games move to it)
+    row = dict(floor(), maximum=own + 2, hosting=[hosted(), own + 2],
+               layouts={str(own + 1): FACT_43, str(own + 2): dict(FACT_43, settings_size=13210)})
+    table = write_signed(keys, tmp_path / "t21", document(serial=21, row=row))
+    output = run_checker(checker, tmp_path, "offer", table, "mcc", "host_at", own + 2, "state")
+    assert f"mcc {own + 2}\n" in output and "host_at 1" in output
+    assert state_line(output)[0].startswith(f"state {own + 2} ")
+    # (proven for hosting but with no layout for it: the newest with one)
+    row = dict(floor(), maximum=own + 2, hosting=[hosted(), own + 2])
+    table = write_signed(keys, tmp_path / "t22", document(serial=22, row=row))
+    assert f"mcc {own}\n" in run_checker(checker, tmp_path, "offer", table, "mcc")
+    # (a local table that narrows below 42: no MCC games)
+    local = tmp_path / "local.json"
+    local.write_bytes(document(serial=1, row={"announce": 32, "minimum": 11, "maximum": 41}))
+    assert "mcc 0\n" in run_checker(checker, tmp_path, "mcc", override=local)
+
+
 def test_loader_override_layouts(checker, tmp_path):
     """network.legacy_table: a server announces a number of its own, with
     layouts, unsigned and never passed on"""

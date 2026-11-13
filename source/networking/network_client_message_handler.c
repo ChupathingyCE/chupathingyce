@@ -1225,7 +1225,7 @@ static boolean network_game_client_receive_game_settings_piece(
 		network_event("got a message_server_game_settings_update piece for a different game layout (%u bytes, as %u)", (unsigned)piece->total_size, host_version);
 		network_game_client_settings_staging_size = 0;
 		/* port: the host's own machine, whose server's number changed in the
-		lobby (an MCC map's game at 43: delta_legacy_host_game_at), may read
+		lobby (an MCC map's game at the MCC number: delta_legacy_host_game_at), may read
 		the last record of the number before; it takes the next. So does a
 		client of a Delta host with mcc_maps, whose HOST_NUMBER it follows */
 		result = global_network_game_server_get() != NULL || delta_peer_game_host_agreed_mcc_maps();
