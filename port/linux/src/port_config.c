@@ -1775,7 +1775,8 @@ static const struct config_setting config_settings[] =
 	{ "debug.frame_times", _config_string, "\"\"", "HALO_FRAME_TIMES", _environment_value, _platform_all,
 		"A file to write every frame's time to: the wall clock, the milliseconds\n"
 		"since the frame before, the map; and a line when a map has loaded. For\n"
-		"the renderer measurements. Leave it empty for none." },
+		"the renderer measurements: with it, bgfx does not pace a covered window\n"
+		"to the display either. Leave it empty for none." },
 #endif
 	{ "debug.gpu_stats", _config_boolean, "false", "HALO_GPU_STATS", _environment_set_is_true, _platform_all,
 		"Log the renderer's draw counts once a second." },

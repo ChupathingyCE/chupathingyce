@@ -4416,6 +4416,17 @@ static void bg_window_presented(double start, double end)
 /* whether the window can't be seen (bg_present's pacing): SDL's flags, and
 on macOS the window's occlusion as bgfx's Metal reads it, which SDL does
 not always report */
+/* (a renderer measurement: debug.frame_times is set, so a covered window's
+frames are not paced to the display, as the OpenGL path's are not) */
+static BOOL bg_measuring(void)
+{
+	static int measuring = -1;
+
+	if (measuring < 0)
+		measuring = *config_string("debug.frame_times") != 0;
+	return measuring != 0;
+}
+
 static BOOL bg_window_hidden(void)
 {
 #ifdef __APPLE__
@@ -4652,7 +4663,7 @@ static void bg_present(void)
 	/* (a covered or minimized window: bgfx shows nothing then, so nothing
 	waits for the display, and the game would run as fast as it can; the
 	frames are paced to the display's rate here instead) */
-	if (bg_window_hidden())
+	if (bg_window_hidden() && !bg_measuring())
 	{
 		static double hidden_next;
 		double interval = bg_display_interval(), now = stats_seconds();
