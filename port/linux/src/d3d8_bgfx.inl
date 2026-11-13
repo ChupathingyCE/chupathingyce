@@ -2947,7 +2947,11 @@ static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struc
 	return TRUE;
 }
 
-static uint32_t bg_sampler_flags(int stage, BOOL mipmapped, BOOL hires)
+/* flat: a 2D texture (not a cube or 3D one), the only kind given the
+anisotropy display.anisotropic_filtering forces, on the same terms as the
+OpenGL path's configure_sampler: mipmapped and filtered. bgfx's level is
+16x (bg_reset_flags) whatever the setting's number. */
+static uint32_t bg_sampler_flags(int stage, BOOL mipmapped, BOOL hires, BOOL flat)
 {
 	DWORD *state = D3D__TextureState[stage];
 	uint32_t flags = 0;
@@ -2959,6 +2963,8 @@ static uint32_t bg_sampler_flags(int stage, BOOL mipmapped, BOOL hires)
 			flags |= BGFX_SAMPLER_MIN_POINT;
 		else if (state[D3DTSS_MINFILTER] == D3DTEXF_ANISOTROPIC && state[D3DTSS_MAXANISOTROPY] > 1)
 			flags |= BGFX_SAMPLER_MIN_ANISOTROPIC;
+		else if (flat && mipmapped && state[D3DTSS_MIPFILTER] != D3DTEXF_NONE && (bg.reset_flags & BGFX_RESET_MAXANISOTROPY))
+			flags |= BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC;
 		if (state[D3DTSS_MAGFILTER] == D3DTEXF_POINT)
 			flags |= BGFX_SAMPLER_MAG_POINT;
 	}
@@ -3092,7 +3098,8 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 				texture_scale[stage][1] = 1.0f / (float)description.height;
 			}
 		}
-		bgfx_set_texture((uint8_t)stage, bg.samplers[stage], handle, bg_sampler_flags(stage, mipmapped, hires));
+		bgfx_set_texture((uint8_t)stage, bg.samplers[stage], handle,
+			bg_sampler_flags(stage, mipmapped, hires, key->sampler_type[stage] == _xgpu_sampler_2d));
 	}
 }
 
@@ -4113,10 +4120,22 @@ static const char bg_crt_fragment_source[] =
 	"\tfragment_color = vec4(color * crt_parameters2.w, 1.0);\n"
 	"}\n";
 
+/* bgfx's reset flags: vertical sync, and the most anisotropy (16x) when
+display.anisotropic_filtering forces it (bg_sampler_flags; bgfx's samplers
+have either that or none) */
+static unsigned long bg_reset_flags(void)
+{
+	unsigned long flags = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+
+	if (config_integer("display.anisotropic_filtering") >= 2)
+		flags |= BGFX_RESET_MAXANISOTROPY;
+	return flags;
+}
+
 static void bg_window_update(void)
 {
 	int width = 0, height = 0;
-	unsigned long flags = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	unsigned long flags = bg_reset_flags();
 
 	SDL_GetWindowSizeInPixels(bg.window, &width, &height);
 	if (width == bg.window_width && height == bg.window_height && flags == bg.reset_flags)
@@ -5184,7 +5203,7 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 	bg_d3d11 = type == BGFX_RENDERER_TYPE_DIRECT3D11;
 	init.swapChain.width = (uint32_t)width;
 	init.swapChain.height = (uint32_t)height;
-	init.reset = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	init.reset = (uint32_t)bg_reset_flags();
 	/* (only the renderer asked for: the shaders here are only its) */
 	init.fallback = false;
 	init.limits.maxTransientVbSize = 64u << 20;
@@ -5292,7 +5311,7 @@ static BOOL bg_initialize(void)
 	}
 	bg.window_width = width;
 	bg.window_height = height;
-	bg.reset_flags = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	bg.reset_flags = bg_reset_flags();
 	/* the border colors (bg_sampler_flags) */
 	{
 		static const float colors[3][4] = { { 0, 0, 0, 0 }, { 0, 0, 0, 1 }, { 1, 1, 1, 1 } };

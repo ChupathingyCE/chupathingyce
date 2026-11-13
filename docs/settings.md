@@ -128,7 +128,7 @@ What we know is different from OpenGL:
 
 - FXAA, SMAA and supersampling are OpenGL only. With bgfx they become MSAA 2x.
 - The Halo PC ammo and health meters look different.
-- The first-person pistol is a little brighter, and water looks grainy.
+- The first-person weapon is a little brighter.
 - The **RENDERER** row in the display settings switches it after a restart.
 - The 32-bit builds, Android, FreeBSD and the consoles don't have it.
 
