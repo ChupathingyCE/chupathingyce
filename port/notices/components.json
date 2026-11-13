@@ -2,7 +2,7 @@
   "about": [
     "What every download's THIRD-PARTY-NOTICES.txt lists (tools/third_party_notices.py writes it at build time; tools/test_third_party_notices.py checks this list).",
     "One entry per component built into the game or the dedicated server: what it is for, its copyright lines, and the license files whose full texts the notices carry.",
-    "packages: the downloads it is in (game, server). requires: only when the build has it (sdl3: the SDL3 library ships with the game; bgfx: the bgfx renderer; vulkan: bgfx's Vulkan renderer, Linux and Windows; spirv-cross: bgfx's SPIRV-Cross, macOS and 64-bit Windows; appimage: the Linux AppImage's own runtime).",
+    "packages: the downloads it is in (game, server). requires: only when the build has it (sdl3: the SDL3 library ships with the game; bgfx: the bgfx renderer; vulkan: bgfx's Vulkan renderer, Linux and Windows; spirv-cross: bgfx's SPIRV-Cross, macOS and 64-bit Windows; appimage: the Linux AppImage's own runtime; vulkan-android: the 64-bit Android app's Vulkan renderer).",
     "shared: a license text printed once at the end (shared_texts) for every entry under it. covers: the folders and files in the repository the entry accounts for. fetched: where a build puts the license of a library it downloads, compared with the copy here (port/notices).",
     "A new library in port/third_party, or a new font or data set, needs an entry here, or the test fails."
   ],
