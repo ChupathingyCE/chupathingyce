@@ -803,13 +803,29 @@ void hud_update_unit(
 
 /* ---------- public code */
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of the unit HUD, with their screen quads (port/ps3/include/ps3_timers.h) */
+#define PS3_UNIT_HUD_BEGIN() ((void)(ps3_span = ps3_timer_now(), ps3_quads = ps3_timer_quads))
+#define PS3_UNIT_HUD_PART(timer) ps3_timer_quad_part((timer), &ps3_span, &ps3_quads)
+#else
+#define PS3_UNIT_HUD_BEGIN() ((void)0)
+#define PS3_UNIT_HUD_PART(timer) ((void)0)
+#endif
+
 void hud_render_unit_interface(
 	struct player_datum *player)
 {
 	static long overcharge_count = 4;
 	long return_eip = get_return_eip();
 	long stack_buffer[STACK_BUFFER_LENGTH];
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+	uint32_t ps3_quads;
+#endif
 
+	PS3_UNIT_HUD_BEGIN(); /* port: (the PS3's timer build; nothing elsewhere) */
 	csmemset(stack_buffer, 0x62, sizeof(stack_buffer));
 	match_assert(
 		"c:\\halo\\SOURCE\\interface\\hud_unit.c",
@@ -916,6 +932,7 @@ void hud_render_unit_interface(
 				struct unit_hud_interface_definition *hud_definition =
 					unit_hud_interface_definition_get(unit_hud_indices[unit_count]);
 
+				PS3_UNIT_HUD_PART(_ps3_timer_hud_unit_setup);
 				if (hud_definition->background.interface_bitmap.index != NONE)
 				{
 					short draw_flags = 0;
@@ -935,6 +952,7 @@ void hud_render_unit_interface(
 						draw_flags,
 						NONE);
 				}
+				PS3_UNIT_HUD_PART(_ps3_timer_hud_unit_background);
 
 				if (game_engine_has_shield(player_index) &&
 					!TEST_FLAG(
@@ -1055,6 +1073,7 @@ void hud_render_unit_interface(
 							hud_state->last_shield_flash_time);
 					}
 				}
+				PS3_UNIT_HUD_PART(_ps3_timer_hud_shield);
 
 				if (!TEST_FLAG(
 					unit_hud_globals->script_flags,
@@ -1146,6 +1165,7 @@ void hud_render_unit_interface(
 
 					hud_state->last_body_vitality = hud_unit->object.body_vitality;
 				}
+				PS3_UNIT_HUD_PART(_ps3_timer_hud_health);
 
 				if (unit_count == 0 &&
 					!TEST_FLAG(
@@ -1206,10 +1226,12 @@ void hud_render_unit_interface(
 						local_player_count() > 1,
 						0.0f,
 						&corner);
+					PS3_UNIT_HUD_PART(_ps3_timer_hud_sensor_elements);
 					motion_sensor_draw_screen(
 						local_player_index,
 						local_player_count() > 1,
 						&corner);
+					PS3_UNIT_HUD_PART(_ps3_timer_hud_sensor);
 				}
 
 				{
@@ -1384,11 +1406,13 @@ void hud_render_unit_interface(
 				}
 
 				hud_state->auxilary_active_type_flags = (word)auxilary_flags;
+				PS3_UNIT_HUD_PART(_ps3_timer_hud_auxiliary);
 			}
 		}
 	}
 
 	match_assert_stack_frame("c:\\halo\\SOURCE\\interface\\hud_unit.c", 0x3C9);
+	PS3_UNIT_HUD_PART(_ps3_timer_hud_unit_setup);
 
 	return;
 }

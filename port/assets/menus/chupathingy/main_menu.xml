@@ -31,9 +31,13 @@ tools/delta_menu_art.py). -->
 		<conditional widget="ui\shell\main_menu\new_campaign_creating_profile" if_failed="true"/>
 	</widget>
 	<widget name="chupathingy/main_menu_multiplayer" type="text" width="256" height="33" bitmap="main_menu/menu_multiplayer" string_list="main_menu/main_menu_options" string_index="2" font="ui\small_ui" color="#000080FF">
-		<on event="a" label="multiplayer" open="ui\shell\main_menu\multiplayer_type_select\multiplayer_type_select_screen"/>
-		<on event="start" label="multiplayer" open="ui\shell\main_menu\multiplayer_type_select\multiplayer_type_select_screen"/>
+		<on event="a" label="multiplayer" open="ui\shell\main_menu\multiplayer_type_select\multiplayer_type_select_screen" platform="desktop android switch x360 wiiu"/>
+		<on event="start" label="multiplayer" open="ui\shell\main_menu\multiplayer_type_select\multiplayer_type_select_screen" platform="desktop android switch x360 wiiu"/>
+		<!-- (the PS3: the PC version's Multiplayer, whose CREATE GAME hosts online co-op, as Gearbox's main menu opens it) -->
+		<on event="a" run="new game if no plyr profiles" label="multiplayer" open="main_menu/multiplayer_type_select/multiplayer_type_select_screen" branch="true" platform="ps3"/>
+		<on event="start" run="new game if no plyr profiles" label="multiplayer" open="main_menu/multiplayer_type_select/multiplayer_type_select_screen" branch="true" platform="ps3"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<conditional widget="main_menu/profile_manager/multiplayer_creating_profile" if_failed="true" platform="ps3"/>
 	</widget>
 	<!-- (the PC version's PROFILES and QUIT, their screens in the Xbox's look:
 	profiles.xml, quit.xml) -->

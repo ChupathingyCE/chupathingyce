@@ -863,6 +863,10 @@ unsigned long get_random_seed(
 	void);
 
 unsigned short seed_random(unsigned long *seed);
+#ifdef HALO_PS3
+/* port: random_math.c */
+real_vector3d const *random_direction_table_get(short *count);
+#endif
 short seed_random_range(unsigned long *seed, short lower_bound, short upper_bound);
 
 real real_seed_random(unsigned long *seed);
@@ -1868,7 +1872,13 @@ __inline void nonuniform_cubic_spline_vector3d(
 __inline boolean valid_real(
 	real n)
 {
+#ifdef HALO_PS3
+	/* port: the PPE reads a float's bits back through memory, a stall each time; n - n is 0 for every finite n and
+	NaN for an infinity or a NaN, so the same answer in its float registers */
+	return n - n == 0.0f;
+#else
 	return (*(long *)&n & 0x7F800000) != 0x7F800000;
+#endif
 }
 
 __inline boolean valid_realcmp(
@@ -1938,10 +1948,25 @@ __inline boolean valid_real_vector3d_axes3(
 __inline boolean valid_real_matrix4x3(
 	real_matrix4x3 const *matrix)
 {
+#ifdef HALO_PS3
+	/* port: every term, then the tests without a branch each (the same answer: valid_realcmp is fabs(y) < 0.001f, false
+	for a NaN or an infinity); on the in-order PPE each test's branch waited for its own chain of float operations */
+	real forward = magnitude_squared3d(&matrix->forward) - 1.f;
+	real left = magnitude_squared3d(&matrix->left) - 1.f;
+	real up = magnitude_squared3d(&matrix->up) - 1.f;
+	real forward_left = dot_product3d(&matrix->forward, &matrix->left) - 0.f;
+	real left_up = dot_product3d(&matrix->left, &matrix->up) - 0.f;
+	real up_forward = dot_product3d(&matrix->up, &matrix->forward) - 0.f;
+
+	return valid_real(matrix->scale) & (fabs(forward) < 0.001f) & (fabs(left) < 0.001f) & (fabs(up) < 0.001f) &
+		(fabs(forward_left) < 0.001f) & (fabs(left_up) < 0.001f) & (fabs(up_forward) < 0.001f) &
+		valid_real(matrix->position.x) & valid_real(matrix->position.y) & valid_real(matrix->position.z);
+#else
 	return
 		valid_real(matrix->scale) &&
 		valid_real_vector3d_axes3(&matrix->forward, &matrix->left, &matrix->up) &&
 		valid_real_point3d(&matrix->position);
+#endif
 }
 
 // TODO: depends on byte_rectangle3d, need to include integer_math?

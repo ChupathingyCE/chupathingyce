@@ -31,7 +31,7 @@ it did before the console had the file.
 #include <time.h>
 #include "tomlc17.h"
 
-#ifndef HALO_XBOX_CONSOLE
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PS3)
 #include <SDL3/SDL.h>
 #endif
 #include <ctype.h>
@@ -49,7 +49,7 @@ void host_storage_commit(void);
 #endif
 #endif
 
-#ifdef HALO_XBOX_CONSOLE
+#if defined(HALO_XBOX_CONSOLE) || defined(HALO_PS3)
 /* (the console's C runtime's) */
 #define SDL_strncasecmp _strnicmp
 #endif
@@ -650,6 +650,34 @@ static const struct config_setting config_settings[] =
 		"never lower. Go back up once a frame fits in 90% of a 60 Hz frame for\n"
 		"a second. Changes at once." },
 #endif
+#ifdef HALO_PS3
+	/* the PS3's renderer (port/ps3/xbox/d3d8_rsx.c) and its button icons (hud_hires_rsx.c) */
+	{ "display.button_icons", _config_string, "\"style_a\"", "HALO_BUTTON_ICONS", _environment_value, _platform_android,
+		"The controller's buttons in the menus and messages: \"xbox\" for the\n"
+		"maps' own; the PS3's \"style_a\" (colored circles, white symbols) or\n"
+		"\"style_b\" (black circles, colored symbols)." },
+	{ "display.half_resolution_particles", _config_boolean, "false", "HALO_HALF_RESOLUTION_PARTICLES",
+		_environment_value, _platform_android,
+		"Draw the effects in front of every other transparent surface (the\n"
+		"nearest particles) at half the width and height, then blend them over\n"
+		"the frame: faster with many of them, a little softer; false draws them\n"
+		"as the Xbox does." },
+	{ "display.dynamic_resolution", _config_boolean, "true", "HALO_DYNAMIC_RESOLUTION", _environment_value,
+		_platform_android,
+		"While the RSX is too slow for 60 frames a second, draw the 3D view\n"
+		"smaller (down to 5/8 of the width and height), then scale it up under\n"
+		"the HUD: steadier in heavy scenes, softer while it acts; false always\n"
+		"draws it whole." },
+	{ "display.preset", _config_string, "\"performance\"", "HALO_PRESET", _environment_value, _platform_android,
+		"DISPLAY's PRESET, which sets interpolation and dynamic_resolution\n"
+		"there: \"quality\" (30 frames a second, the full resolution),\n"
+		"\"performance\" (60, the dynamic resolution) or \"custom\" (as they are\n"
+		"set). Split screen always plays at 30 frames a second." },
+	{ "display.brightness", _config_integer, "5", "HALO_BRIGHTNESS", _environment_value, _platform_android,
+		"DISPLAY's BRIGHTNESS, from 0 to 10: higher lifts the dark and middle\n"
+		"tones, lower darkens them, and black and white stay as they are. 5 is\n"
+		"the game's own picture. Changes at once." },
+#endif
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
 #ifdef HALO_CONSOLE_NATIVE_RENDERER_FIRST
 #define HALO_CONSOLE_NATIVE_RENDERER_DEFAULT "\"native\""
@@ -781,6 +809,12 @@ static const struct config_setting config_settings[] =
 	{ "input.touch_controls", _config_string, "\"on\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
 		"On-screen touch controls: \"on\" or \"off\". \"auto\" shows them only\n"
 		"when no controller is connected." },
+#ifdef HALO_PS3
+	/* (with the other input rows: config.toml has one [input] table) */
+	{ "input.toggle_crouch", _config_boolean, "false", "HALO_TOGGLE_CROUCH", _environment_value, _platform_android,
+		"CONTROLS' TOGGLE CROUCH: a press of the crouch button crouches, the\n"
+		"next stands up; false crouches while it is held, as on the Xbox." },
+#endif
 #ifdef HALO_SWITCH_CONSOLE
 	/* gyro aiming (port/linux/src/xinput_sdl.c): the controller's gyroscope,
 	each local player from their own */
@@ -1289,10 +1323,18 @@ static const struct config_setting config_settings[] =
 		"How to talk to other Chupathingy machines. \"auto\" uses Delta where it\n"
 		"can and OpenCE otherwise. \"opence\" uses OpenCE only. \"delta\" is the\n"
 		"same as \"auto\" for now." },
+#ifdef HALO_PS3
+	/* (off: the PS3 joins Delta games of any size; it hosts 16 at most, menu_functions.c's HOSTED_PLAYERS_LIMIT) */
+	{ "network.platform_limits", _config_string, "\"off\"", "HALO_NET_PLATFORM_LIMITS", _environment_value,
+		_platform_all,
+		"Delta hosts keep games to this platform's player limit: \"on\" or\n"
+		"\"off\"." },
+#else
 	{ "network.platform_limits", _config_string, "\"on\"", "HALO_NET_PLATFORM_LIMITS", _environment_value,
 		_platform_all,
 		"Delta hosts keep games to this platform's player limit: \"on\" or\n"
 		"\"off\"." },
+#endif
 	{ "network.host_platform_limits", _config_boolean, "true", "HALO_NET_HOST_PLATFORM_LIMITS", _environment_value,
 		_platform_all | _platform_server,
 		"Games you host keep to their Delta players' platform limits. false is\n"
@@ -2083,7 +2125,7 @@ static const struct
 
 #define NUMBER_OF_CONFIG_SECTIONS (sizeof(config_sections) / sizeof(config_sections[0]))
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_PS3)
 #define CONFIG_PLATFORM _platform_android
 #elif defined(HALO_XBOX_CONSOLE)
 #define CONFIG_PLATFORM _platform_xbox
@@ -2140,7 +2182,7 @@ static pthread_mutex_t config_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int platform_packaged(void)
 {
-#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE) || defined(HALO_PS3)
 	return 0;
 #else
 	static int packaged = -1;
@@ -2257,6 +2299,9 @@ static void config_path(char *path, size_t size)
 #if defined(HALO_XBOX_CONSOLE)
 	/* beside default.xbe */
 	snprintf(path, size, "d:\\config.toml");
+#elif defined(HALO_PS3)
+	/* beside the saves, on the HDD (port/ps3/xbox/xbox_files.c) */
+	snprintf(path, size, "%s/config.toml", platform_save_root());
 #elif defined(HALO_ANDROID) || defined(HALO_CONSOLE_CONFIG_IN_DATA_ROOT)
 	/* the data folder, which the app names (port/android/host/host_main.c),
 	or a console's launch script (the Steam Link's, on its USB stick: the box
@@ -2328,7 +2373,7 @@ static void config_console_recover(const char *path)
 /* the whole file, NUL terminated, or NULL; free() it */
 static char *config_read_file(const char *path, size_t *size)
 {
-#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE) || defined(HALO_PS3)
 	FILE *file = fopen(path, "rb");
 	char *text = NULL;
 	long length;
@@ -2391,7 +2436,7 @@ static int config_write_file(const char *path, const char *text)
 
 	if ((size_t)snprintf(temporary, sizeof(temporary), "%s.new", path) >= sizeof(temporary))
 		return 0;
-#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE) || defined(HALO_PS3)
 	{
 		FILE *file = fopen(temporary, "wb");
 
@@ -2571,7 +2616,7 @@ static void config_append_setting(struct config_text *text, const struct config_
 			line++;
 	}
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_WIIU_CONSOLE) && \
-	!defined(HALO_XBOX360_CONSOLE)
+	!defined(HALO_XBOX360_CONSOLE) && !defined(HALO_PS3)
 	/* (Android apps and the consoles have no environment to set, and a
 	setting without a variable has no line) */
 	if (setting->environment)
@@ -2649,7 +2694,7 @@ how to go back to the defaults */
 	"#\n" \
 	"# The sections after the Advanced note at the end are for testing and\n" \
 	"# support.\n"
-#elif defined(HALO_ANDROID)
+#elif defined(HALO_ANDROID) || defined(HALO_PS3)
 #define CONFIG_FILE_HEADER \
 	"# Chupathingy settings\n" \
 	"#\n" \
@@ -3178,7 +3223,12 @@ static const struct
 } config_old_defaults[] =
 {
 	/* upstream's, which ChupathingyCE kept until v0.5.2b */
+#ifdef HALO_PS3
+	/* (also the old PS3 tree's default, never a choice there: MENU STYLE is hidden, so it follows) */
+	{ "display.menus", "\"pc\"", 1, NULL, 0 },
+#else
 	{ "display.menus", "\"pc\"", 0, NULL, 0 },
+#endif
 	/* the Xbox's menus, the default until v0.8.0 (a file that names them
 	keeps them) */
 	{ "display.menus", "\"xbox\"", 0,
@@ -4276,6 +4326,11 @@ static const struct
 	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
+#ifdef HALO_PS3
+	/* (another preset shows as CUSTOM: menu_functions.c's preset_rows_show) */
+	{ "display.button_icons", { "xbox", "style_a", "style_b", NULL }, "\"style_a\"" },
+	{ "display.preset", { "custom", "quality", "performance", NULL }, "\"custom\"" },
+#endif
 	{ "audio.resampling", { "sinc", "linear", NULL }, "\"sinc\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
 	{ "game.console_log", { "important", "all", "none", NULL }, "\"important\"" },
@@ -4469,7 +4524,7 @@ static int config_skip_line(char *text, int line_number, const char *message)
 	return 1;
 }
 
-#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PS3)
 /* a config.toml the game never reads, likely edited in its place: said in
 the log, with the one it reads (path) */
 static void config_report_unread(const char *path)
@@ -4554,7 +4609,7 @@ static void config_load(void)
 	}
 
 	config_path(path, sizeof(path));
-#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PS3)
 	config_report_unread(path);
 #endif
 	text = config_read_file(path, &size);
@@ -4756,7 +4811,7 @@ static void config_load(void)
 	}
 #endif
 	config_check_words();
-#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PS3)
 	{
 		long mode = config_setting_index("display.mode");
 		long fullscreen = config_setting_index("display.fullscreen");

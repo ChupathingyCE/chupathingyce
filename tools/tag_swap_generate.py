@@ -66,7 +66,7 @@ SCALARS = {
     "short": 2, "unsigned short": 2, "word": 2, "wchar_t": 2, "short int": 2,
     "int": 4, "unsigned int": 4, "long": 4, "unsigned long": 4, "real": 4, "float": 4, "dword": 4,
     "long int": 4, "unsigned long int": 4, "tag": 4, "datum_index": 4, "string_id": 4, "angle": 4,
-    "fraction": 4, "argb_color": 4, "real_fraction": 4, "DWORD": 4, "LONG": 4, "ULONG": 4, "UINT": 4,
+    "fraction": 4, "argb_color": 4, "pixel32": 4, "real_fraction": 4, "DWORD": 4, "LONG": 4, "ULONG": 4, "UINT": 4,
     "WORD": 2, "BYTE": 1, "BOOL": 4, "FLOAT": 4, "size_t": 4, "time_t": 4, "__time32_t": 4,
     "long long": 8, "unsigned long long": 8, "__int64": 8, "unsigned __int64": 8, "double": 8,
     "__time64_t": 8, "long double": 8, "qword": 8,
@@ -106,6 +106,9 @@ OVERRIDES = {
     # rotation, translation; tag_schema_models.c), not the game's runtime
     # object_marker the code's calls would otherwise give them)
     ("struct model_region_permutation", "markers"): "struct model_region_permutation_marker",
+    # (structure_visibility.c reads a mirror's points through a cast of their address)
+    **{(owner, "points"): "union real_point3d" for owner in (
+        "struct structure_mirror", "struct structure_visibility_mirror")},
     # (particle_systems.c reads the types' as these; the system's and the
     # states' are the same blocks of constants)
     **{(owner, "physics_constants"): "struct particle_system_physics_constant" for owner in (
@@ -562,6 +565,14 @@ class Layouts:
     def record_size(self, type_: str) -> int:
         return max(size for size, _ in self.records[type_])
 
+    def record_key(self, type_: str) -> Optional[str]:
+        """the record a typedef name stands for (an array's element is
+        spelled 'real_vector2d', its record 'union real_vector2d')"""
+        for key in (type_, "struct " + type_, "union " + type_):
+            if key in self.records:
+                return key
+        return None
+
     def size_of(self, type_: str) -> Optional[int]:
         type_ = type_.strip()
         array = re.match(r"^(.*)\[(\d+)\]$", type_)
@@ -572,8 +583,8 @@ class Layouts:
             return SCALARS[type_]
         if type_.endswith("*") or type_.startswith("enum "):
             return 4
-        if type_ in self.records:
-            return self.record_size(type_)
+        if self.record_key(type_):
+            return self.record_size(self.record_key(type_))
         if type_ in COMPOSITES:
             return COMPOSITES[type_][0]
         return None
@@ -660,8 +671,8 @@ class Layouts:
         if type_.endswith("*") or type_.startswith("enum "):
             candidates.append((offset, 4, rank))
             return
-        if type_ in self.records:
-            _, element_scalars, element_blocks = self.layout(type_)
+        if self.record_key(type_):
+            _, element_scalars, element_blocks = self.layout(self.record_key(type_))
             for at, (width, element_rank) in element_scalars.items():
                 candidates.append((offset + at, width, max(rank, element_rank)))
             for at, key in element_blocks.items():
@@ -814,6 +825,8 @@ def main() -> int:
               f"{game_width} (the game's is swapped)", file=sys.stderr)
     for name in sorted(layouts.bitfields):
         print("note: bitfield (its bits are not the Xbox's on a big-endian target):", name, file=sys.stderr)
+    for name in sorted(layouts.unknown_types):
+        print("note: a field of this type is left in the Xbox's order (its size is unknown):", name, file=sys.stderr)
     return 0
 
 

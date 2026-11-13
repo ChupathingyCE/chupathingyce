@@ -294,8 +294,14 @@ and the Xbox builds keep the Xbox's. */
 
 #if !(defined(HALO_ANDROID) && !defined(HALO_64BIT)) && !defined(HALO_XBOX_CONSOLE)
 #define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS 2048 /* (384) */
+#ifdef HALO_PS3
+/* (the PS3 draws the Xbox's particle groups and lights: its PPE's time) */
+#define HALO_PORT_MAXIMUM_RENDERED_PARTICLE_GROUPS 512 /* (512) */
+#define HALO_PORT_MAXIMUM_RENDERED_LIGHTS 128 /* (128) */
+#else
 #define HALO_PORT_MAXIMUM_RENDERED_PARTICLE_GROUPS 2048 /* (512) */
 #define HALO_PORT_MAXIMUM_RENDERED_LIGHTS 512 /* (128) */
+#endif
 #else
 #define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS 384 /* (384) */
 #define HALO_PORT_MAXIMUM_RENDERED_PARTICLE_GROUPS 512 /* (512) */

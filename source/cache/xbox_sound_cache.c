@@ -149,6 +149,12 @@ enum
 #define cache_base_address unknown1
 #define cache_tag_index unknown2
 #define runtime_tag_index unknown3
+#ifdef HALO_PS3
+/* port: unlike x86, the PPE can see the cache thread's loaded flag before the samples it covers */
+#define CACHE_IO_BARRIER() __sync_synchronize()
+#else
+#define CACHE_IO_BARRIER()
+#endif
 
 /* ---------- structures */
 
@@ -725,6 +731,7 @@ boolean _sound_cache_sound_request(
 				sound->cache_block_index);
 			if (cache_sound->loaded)
 			{
+				CACHE_IO_BARRIER(); /* port: (the PS3's) */
 				if (!cache_sound->initialized)
 				{
 					cache_sound->initialized = TRUE;

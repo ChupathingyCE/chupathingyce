@@ -2269,10 +2269,24 @@ static void port_dynamic_lights_choose(
 	long limit, specular_limit;
 	short light_index, count = 0, rank;
 	long frame_first_person = 0;
+#ifdef HALO_PS3
+	/* port: each window chooses from its own scene's lights (split screen, a mirror's window); the log still
+	counts frames */
+	static long chosen_frame_index = NONE;
+
+	if (chosen_frame == render.scene_index)
+		return;
+	chosen_frame = render.scene_index;
+	counted_frames -= chosen_frame_index == render.frame_index;
+	chosen_frame_index = render.frame_index;
+#else
+#line 1772
 
 	if (chosen_frame == render.frame_index)
 		return;
 	chosen_frame = render.frame_index;
+#endif
+#line 1776
 	limit = config_integer("display.dynamic_light_limit");
 	specular_limit = config_integer("display.specular_light_limit");
 	for (light_index = 0; light_index < lights_globals.scene_point_light_count; light_index++)
@@ -2335,6 +2349,196 @@ static void port_dynamic_lights_choose(
 	}
 }
 
+#ifdef HALO_PS3
+#include "ps3_spu_game.h" /* port: port/ps3/src/ps3_spu.c */
+
+extern real structure_sphere_threshold; /* port: structure_visibility.c */
+
+enum
+{
+	LIGHTS_SPU_PASSES = 2,
+	LIGHTS_SPU_CLUSTERS = 4096,
+	LIGHTS_SPU_SURFACES = 12288,
+};
+
+/* port: the window's dynamic lights' searches on the render SPU, a job a pass (diffuse, specular): the lights' entries,
+clusters and handles, the arenas for their surfaces and triangles; each pass takes its entries in order */
+static struct lights_spu_globals
+{
+	spu_game_lights job[LIGHTS_SPU_PASSES];
+	spu_game_answer answer[LIGHTS_SPU_PASSES];
+	spu_game_light lights[LIGHTS_SPU_PASSES][SPU_GAME_LIGHTS_MAXIMUM];
+	long indices[LIGHTS_SPU_PASSES][LIGHTS_SPU_SURFACES];
+	short triangles[LIGHTS_SPU_PASSES][LIGHTS_SPU_SURFACES * NUMBER_OF_VERTICES_PER_TRIANGLE];
+	short clusters[LIGHTS_SPU_PASSES][LIGHTS_SPU_CLUSTERS];
+	long handles[LIGHTS_SPU_PASSES][SPU_GAME_LIGHTS_MAXIMUM];
+	short first_cluster[LIGHTS_SPU_PASSES][SPU_GAME_LIGHTS_MAXIMUM];
+	uint32_t tickets[LIGHTS_SPU_PASSES];
+	short counts[LIGHTS_SPU_PASSES];
+	short next[LIGHTS_SPU_PASSES];
+	boolean started;
+} lights_spu __attribute__((aligned(128)));
+
+/* port: as spu_game.c's lights_job reads them: jobs, entries and arenas 16-aligned (int32 indices, 3 int16 a
+triangle, float spheres), and every light a window renders fits the job's entries and clusters */
+typedef char verify_lights_spu_layout[(sizeof(long) == sizeof(int32_t) && sizeof(short) == sizeof(int16_t) &&
+	sizeof(real) == sizeof(float) && NUMBER_OF_VERTICES_PER_TRIANGLE == 3 &&
+	MAXIMUM_RENDERED_LIGHTS <= SPU_GAME_LIGHTS_MAXIMUM && MAXIMUM_CLUSTERS_PER_LIGHT <= SPU_GAME_LIGHT_CLUSTERS &&
+	sizeof(spu_game_lights) % 16 == 0 && sizeof(spu_game_light) % 16 == 0 &&
+	offsetof(struct lights_spu_globals, job) % 16 == 0 && offsetof(struct lights_spu_globals, answer) % 16 == 0 &&
+	offsetof(struct lights_spu_globals, lights) % 16 == 0 && offsetof(struct lights_spu_globals, indices) % 16 == 0 &&
+	offsetof(struct lights_spu_globals, triangles) % 16 == 0 && (LIGHTS_SPU_SURFACES * sizeof(long)) % 16 == 0 &&
+	(LIGHTS_SPU_SURFACES * NUMBER_OF_VERTICES_PER_TRIANGLE * sizeof(short)) % 16 == 0) ? 1 : -1];
+
+/* port: a pass's light as lights_render_diffuse (pass 0) or _specular (pass 1) draws it, with the frame's limits
+(port_dynamic_lights_choose): FALSE when it is not drawn or draws the window's surfaces */
+static boolean lights_spu_drawn(
+	short pass,
+	short scene_index)
+{
+	struct light_datum *light = light_get(lights_globals.scene_point_lights[scene_index]);
+	struct point_light_definition *definition;
+
+	if (!TEST_FLAG(light->flags, _point_light_dynamic_bit) || light->rasterizer_light_index == NONE ||
+		!(pass == 1 ? port_dynamic_light_specular[scene_index] : port_dynamic_light_kept[scene_index]))
+	{
+		return FALSE;
+	}
+	definition = light_definition_get(light->definition_index);
+	if (pass == 1 && TEST_FLAG(definition->flags, _light_definition_no_specular_bit))
+	{
+		return FALSE;
+	}
+
+	return !(TEST_FLAG(light->flags, _point_light_attached_to_first_person_weapon_bit) &&
+		TEST_FLAG(definition->flags, _light_definition_supersize_in_first_person_bit));
+}
+
+void lights_render_spu_begin(
+	void)
+{
+	struct structure_bsp *structure = global_structure_bsp_get();
+	short cluster_indices[MAXIMUM_CLUSTERS_PER_LIGHT];
+	short pass;
+
+	lights_spu.started = FALSE;
+	if (!ps3_spu_render_running() || !should_render_lights() || !structure || !structure_bsp_port_verify(structure))
+	{
+		return;
+	}
+	/* (the frame's limits now, once a frame: the passes keep this choice) */
+	port_dynamic_lights_choose();
+	for (pass = 0; pass < LIGHTS_SPU_PASSES; pass++)
+	{
+		spu_game_lights *job = &lights_spu.job[pass];
+		short clusters_used = 0;
+		short count = 0;
+		short light_index;
+
+		for (light_index = 0;
+			light_index < lights_globals.scene_point_light_count && count < SPU_GAME_LIGHTS_MAXIMUM;
+			light_index++)
+		{
+			long handle = lights_globals.scene_point_lights[light_index];
+			spu_game_light *entry = &lights_spu.lights[pass][count];
+			short cluster_count;
+			real_point3d center;
+			real radius;
+
+			if (!lights_spu_drawn(pass, light_index))
+			{
+				continue;
+			}
+			cluster_count = light_build_cluster_array(handle, MAXIMUM_CLUSTERS_PER_LIGHT, cluster_indices);
+			light_compute_bounding_sphere(handle, FALSE, pass == 1, FALSE, &center, &radius);
+			if (clusters_used + cluster_count > LIGHTS_SPU_CLUSTERS || cluster_count > SPU_GAME_LIGHT_CLUSTERS)
+			{
+				continue;
+			}
+			entry->center[0] = center.x;
+			entry->center[1] = center.y;
+			entry->center[2] = center.z;
+			entry->radius = radius;
+			/* (structure_visibility_build_surfaces's box of the sphere, and its walk) */
+			entry->bounds[0] = center.x - radius;
+			entry->bounds[1] = center.x + radius;
+			entry->bounds[2] = center.y - radius;
+			entry->bounds[3] = center.y + radius;
+			entry->bounds[4] = center.z - radius;
+			entry->bounds[5] = center.z + radius;
+			entry->cluster_count = radius < structure_sphere_threshold ? NONE : cluster_count;
+			entry->clusters = PS3_SPU_EA(&lights_spu.clusters[pass][clusters_used]);
+			entry->status = 0;
+			memcpy(&lights_spu.clusters[pass][clusters_used], cluster_indices, cluster_count * sizeof(short));
+			lights_spu.handles[pass][count] = handle;
+			lights_spu.first_cluster[pass][count] = clusters_used;
+			clusters_used += cluster_count;
+			count++;
+		}
+		lights_spu.counts[pass] = count;
+		lights_spu.next[pass] = 0;
+		lights_spu.tickets[pass] = 0;
+		if (!count)
+		{
+			continue;
+		}
+		structure_visibility_spu_structure(&job->structure);
+		job->environment_flags = PS3_SPU_EA(render.environment_surface_flags);
+		job->lights = PS3_SPU_EA(lights_spu.lights[pass]);
+		job->light_count = count;
+		job->indices = PS3_SPU_EA(lights_spu.indices[pass]);
+		job->triangles = PS3_SPU_EA(lights_spu.triangles[pass]);
+		job->arena_count = LIGHTS_SPU_SURFACES;
+		job->answer = PS3_SPU_EA(&lights_spu.answer[pass]);
+		lights_spu.answer[pass].status = 0;
+		lights_spu.tickets[pass] = ps3_spu_render_submit(SPU_GAME_LIGHTS, sizeof(*job), PS3_SPU_EA(job), 0);
+	}
+	lights_spu.started = TRUE;
+
+	return;
+}
+
+/* port: the SPU's surfaces for the pass's light, for its structure_render_diffuse_light or _specular_light call (the
+PPE searches when the SPU has none, or its search was another's) */
+static void lights_render_spu_take(
+	short pass,
+	long handle,
+	real_point3d const *center,
+	real radius,
+	short cluster_count,
+	short const *cluster_indices)
+{
+	short next = lights_spu.next[pass];
+	spu_game_light *entry = &lights_spu.lights[pass][next];
+
+	if (!lights_spu.started || next >= lights_spu.counts[pass] || lights_spu.handles[pass][next] != handle)
+	{
+		return;
+	}
+	lights_spu.next[pass]++;
+	if (!ps3_spu_render_wait(lights_spu.tickets[pass]) || lights_spu.answer[pass].status != SPU_GAME_DONE ||
+		!structure_visibility_spu_flags_final() || entry->status != SPU_GAME_DONE ||
+		entry->center[0] != center->x || entry->center[1] != center->y || entry->center[2] != center->z ||
+		entry->radius != radius || entry->count < 0 || entry->first < 0 ||
+		entry->first + entry->count > LIGHTS_SPU_SURFACES)
+	{
+		return;
+	}
+	if (entry->cluster_count != NONE && (entry->cluster_count != cluster_count ||
+		memcmp(&lights_spu.clusters[pass][lights_spu.first_cluster[pass][next]], cluster_indices,
+			cluster_count * sizeof(short))))
+	{
+		return;
+	}
+	structure_render_light_from_spu(
+		&lights_spu.indices[pass][entry->first],
+		&lights_spu.triangles[pass][entry->first * NUMBER_OF_VERTICES_PER_TRIANGLE],
+		entry->count);
+
+	return;
+}
+#endif
+
 void lights_render_diffuse(
 	void)
 {
@@ -2393,6 +2597,14 @@ void lights_render_diffuse(
 					&center,
 					&radius);
 				light_port_drawn_center(light, &center);
+#ifdef HALO_PS3
+				/* port: the render SPU's search (lights_render_spu_begin) */
+				if (!skip_clusters)
+				{
+					lights_render_spu_take(0, lights_globals.scene_point_lights[light_index], &center, radius,
+						cluster_count, cluster_indices);
+				}
+#endif
 				structure_render_diffuse_light(
 					light->rasterizer_light_index,
 					&center,
@@ -2466,6 +2678,14 @@ void lights_render_specular(
 					&center,
 					&radius);
 				light_port_drawn_center(light, &center);
+#ifdef HALO_PS3
+				/* port: the render SPU's search (lights_render_spu_begin) */
+				if (!skip_clusters)
+				{
+					lights_render_spu_take(1, lights_globals.scene_point_lights[light_index], &center, radius,
+						cluster_count, cluster_indices);
+				}
+#endif
 				structure_render_specular_light(
 					light->rasterizer_light_index,
 					&center,

@@ -128,6 +128,10 @@ invite key (p2p_join_password_key; NULL: no password). A new invite at once,
 listed or not: one that was shared before may not join any more; under
 p2p_lock */
 void p2p_new_invite_for_password(const unsigned char *join_key);
+#ifdef HALO_PS3
+/* a message on the topic of the invite code looked up (p2p_look_up_code), which may be its invite; under p2p_lock */
+void p2p_code_heard(const unsigned char *payload, int size);
+#endif
 
 /* ---------- p2p.c: pings before joining (p2p_probe.c), under p2p_lock */
 
@@ -191,6 +195,14 @@ void p2p_signal_lobby_query(void);
 and the slot cleared on every ready broker now, whatever their buckets, and
 the connections closed cleanly */
 void p2p_signal_lobby_quit(void);
+#ifdef HALO_PS3
+/* this machine's invite code: its sealed invite retained on every broker under the topic (NULL: none, the last one
+cleared), published again now and then; and whether a broker connected now has it */
+void p2p_signal_code_host(const char *topic, const unsigned char *payload, int size);
+int p2p_signal_code_sent(void);
+/* the topic of an invite code looked up (NULL: none): what the brokers hold there goes to p2p_code_heard */
+void p2p_signal_code_lookup(const char *topic);
+#endif
 
 /* ---------- p2p_crypto.c */
 
@@ -268,6 +280,25 @@ void p2p_seal_token(const unsigned char *key, const unsigned char *signing_key, 
 	unsigned char *sealed);
 int p2p_unseal_token(const unsigned char *key, const unsigned char *signing_key, const unsigned char *sealed,
 	unsigned char *token);
+
+#ifdef HALO_PS3
+enum
+{
+	/* an invite code's topic (text with its end), and its sealed invite: a kind and version, a nonce, the host's key
+	hash and the token encrypted, a tag (port/ps3/invite/index.html seals it) */
+	P2P_CODE_TOPIC_SIZE = 48,
+	P2P_CODE_INVITE_SIZE = P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE,
+	P2P_CODE_PAYLOAD_SIZE = 2 + 16 + P2P_CODE_INVITE_SIZE + 16,
+};
+
+/* an invite code's key from its digits (PBKDF2: a fraction of a second, so that trying every code on what the brokers
+hold takes long), its topic, and an invite (P2P_CODE_INVITE_SIZE bytes) sealed with it */
+void p2p_code_key(const char *digits, unsigned char *key);
+void p2p_code_topic(const unsigned char *key, char *topic);
+void p2p_code_seal(const unsigned char *key, const unsigned char *invite, unsigned char *payload);
+/* the reverse: 0 if the payload is not an invite sealed with that key */
+int p2p_code_open(const unsigned char *key, const unsigned char *payload, int size, unsigned char *invite);
+#endif
 
 /* ---------- invites to a game with a password (p2p.c)
 

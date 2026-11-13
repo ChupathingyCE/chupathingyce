@@ -111,6 +111,9 @@ campaign's has six pieces) */
 #define MAXIMUM_TEXT 2048
 /* the size of a menu bitmap's D3D texture, which only stands for its PNG */
 #define PLACEHOLDER_SIZE 4
+#ifdef HALO_PS3
+int menu_art_rsx_button(char const *tag);
+#endif
 
 enum
 {
@@ -414,6 +417,10 @@ static char const *const port_function_names[] =
 	/* (the settings screens' nested lists, and Controls Setup's) */
 	"port settings views init", "port settings view", "port settings back", "port settings accept",
 	"port controls init", "port controls defaults", "port controls accept", "port controls closed",
+#ifdef HALO_PS3
+	/* (the server browser's SQUARE and SELECT: its bar's REFRESH and FILTERS, which the pad cannot reach) */
+	"port browser refresh", "port browser filter",
+#endif
 	/* (SETUP: menu_functions.c) */
 	"port setup open",
 	/* (Network Setup's INSTALL UPDATE: menu_functions.c) */
@@ -917,6 +924,15 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 		{
 			png = BLANK_PNG;
 			width = height = PLACEHOLDER_SIZE;
+#ifdef HALO_PS3
+			/* (ui.map's button: the PS3's own icon for it, port/ps3/xbox/menu_art_rsx.c) */
+			if (menu_art_rsx_button(data->map))
+			{
+				png = data->map;
+				width = data->width > 0 ? data->width : 32;
+				height = data->height > 0 ? data->height : 32;
+			}
+#endif
 		}
 		else if (data->map)
 		{

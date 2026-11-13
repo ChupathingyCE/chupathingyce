@@ -70,6 +70,14 @@ void rasterizer_set_frustum_z(
 	real z_far);
 void rasterizer_set_vertex_shader(
 	short vertex_shader_index);
+#ifdef HALO_PS3
+/* port: after the loading screen's own device states (progress_bar.c) */
+void rasterizer_forget_hardware_state(
+	void);
+/* port: rasterizer_xbox_vertex_shaders_runtime.c's selected shader forgotten, with it */
+void rasterizer_vertex_shader_runtime_forget(
+	void);
+#endif
 void *rasterizer_get_bitmap_default_hardware_format(
 	struct bitmap_data const *bitmap);
 void rasterizer_filthy_bitmap_default_initialize(

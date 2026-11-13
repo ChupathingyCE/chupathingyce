@@ -279,6 +279,26 @@ enum
 
 #define _full_circle (2.f*_pi)
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of actor_move_update, actor_path_refresh and the vector avoidance; a timed call gives
+its result (port/ps3/include/ps3_timers.h) */
+#define PS3_MOVE_SPAN(span) ((span) = ps3_timer_now())
+#define PS3_MOVE_ADD(timer, span) ((span) = ps3_timer_add((timer), (span)))
+#define PS3_MOVE_COUNT(timer) (ps3_timer_counts[(timer)]++)
+#define PS3_MOVE_COUNTS(timer, count) (ps3_timer_counts[(timer)] += (uint32_t)(count))
+#define PS3_MOVE_TIMED(timer, call) ({ uint64_t ps3_timed_start = ps3_timer_now(); \
+	__typeof__(call) ps3_timed_result = (call); \
+	ps3_timer_add((timer), ps3_timed_start); ps3_timer_counts[(timer)]++; ps3_timed_result; })
+#else
+#define PS3_MOVE_SPAN(span) ((void)0)
+#define PS3_MOVE_ADD(timer, span) ((void)0)
+#define PS3_MOVE_COUNT(timer) ((void)0)
+#define PS3_MOVE_COUNTS(timer, count) ((void)0)
+#define PS3_MOVE_TIMED(timer, call) (call)
+#endif
+
 /* ---------- structures */
 
 /* The shared vehicle tag layout remains opaque in the public header. Actor
@@ -838,6 +858,9 @@ static short actor_move_test_avoidance_vector(
 	real scale;
 	short result = _actor_vector_avoidance_clear;
 	short object_index;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\ai\\actor_moving.c",
@@ -867,7 +890,8 @@ static short actor_move_test_avoidance_vector(
 	ray_direction->k = divergence.k*scale;
 
 	vector_from_points3d(&avoidance_data->origin, ray_origin, &offset);
-	if (collision_bsp_test_vector(
+	/* port: (the timer build) */
+	if (PS3_MOVE_TIMED(_ps3_timer_avoid_structure, collision_bsp_test_vector(
 		FLAG(_collision_test_front_facing_surfaces_bit) |
 			FLAG(_collision_test_back_facing_surfaces_bit),
 		avoidance_data->bsp,
@@ -876,12 +900,12 @@ static short actor_move_test_avoidance_vector(
 		&avoidance_data->origin,
 		&offset,
 		1.f,
-		&collision_result))
+		&collision_result)))
 	{
 		result = _actor_vector_avoidance_obstructed_structure;
 		*collision_t = 0.f;
 	}
-	else if (collision_bsp_test_vector(
+	else if (PS3_MOVE_TIMED(_ps3_timer_avoid_structure, collision_bsp_test_vector(
 		FLAG(_collision_test_front_facing_surfaces_bit) |
 			FLAG(_collision_test_back_facing_surfaces_bit),
 		avoidance_data->bsp,
@@ -890,12 +914,14 @@ static short actor_move_test_avoidance_vector(
 		ray_origin,
 		ray_direction,
 		1.f,
-		&collision_result))
+		&collision_result)))
 	{
 		result = _actor_vector_avoidance_obstructed_structure;
 		*collision_t = collision_result.t;
 	}
 
+	PS3_MOVE_SPAN(ps3_span); /* port: (the timer build) */
+	PS3_MOVE_COUNTS(_ps3_timer_avoid_objects, avoidance_data->avoidance_object_count); /* port: (the timer build) */
 	for (object_index = 0;
 		object_index < avoidance_data->avoidance_object_count;
 		object_index++)
@@ -918,6 +944,7 @@ static short actor_move_test_avoidance_vector(
 			*collision_t = object_t;
 		}
 	}
+	PS3_MOVE_ADD(_ps3_timer_avoid_objects, ps3_span); /* port: (the timer build) */
 
 	if (collision_timer)
 	{
@@ -1436,6 +1463,9 @@ static void actor_move_vector_avoidance(
 		short direction_index;
 		short ray_index;
 		boolean sharp_turn = FALSE;
+#ifdef HALO_PS3
+		uint64_t ps3_span;
+#endif
 
 		debug_info->field_19C = game_time_get();
 		avoidance_data.structure = global_structure_bsp_get();
@@ -1447,7 +1477,10 @@ static void actor_move_vector_avoidance(
 		cross_product3d(&object->object.up, &object->object.forward, &avoidance_data.left);
 		avoidance_data.avoid_distance = 12.f;
 		avoidance_data.avoid_width = 1.f;
+		PS3_MOVE_SPAN(ps3_span); /* port: (the timer build) */
 		actor_move_avoidance_setup(&avoidance_data);
+		PS3_MOVE_ADD(_ps3_timer_avoid_setup, ps3_span); /* port: (the timer build) */
+		PS3_MOVE_COUNTS(_ps3_timer_avoid_setup, avoidance_data.avoidance_object_count); /* port: (the timer build) */
 
 		maximum_sense_emergency = 0.f;
 		csmemset(avoidance_weights, 0, sizeof(avoidance_weights));
@@ -1850,7 +1883,11 @@ boolean actor_path_refresh(
 	boolean have_previous_destination = FALSE;
 	boolean success = TRUE;
 	real_point3d previous_destination;
+#ifdef HALO_PS3
+	uint64_t ps3_start, ps3_span;
+#endif
 
+	PS3_MOVE_SPAN(ps3_start); /* port: (the timer build) */
 	if (destination_type != _destination_none &&
 		destination_type != _destination_halt)
 	{
@@ -2011,16 +2048,18 @@ boolean actor_path_refresh(
 				struct actor_debug_info *debug_info =
 					ACTOR_DEBUG_INFO_GET(actor_index);
 
+				PS3_MOVE_SPAN(ps3_span); /* port: (the timer build) */
 				debug_info->last_path_refresh = game_time_get();
 
 				if (actor->state.flying)
 				{
-					success = path_3d_build_path(
+					/* port: (the timer build) */
+					success = PS3_MOVE_TIMED(_ps3_timer_path_flying, path_3d_build_path(
 						global_structure_bsp_get(),
 						&actor->input.position.body_position,
 						0.f,
 						&actor->control.path.destination.point,
-						&actor->control.path.path);
+						&actor->control.path.path));
 				}
 				else if (cached_path_state)
 				{
@@ -2033,15 +2072,20 @@ boolean actor_path_refresh(
 						&actor->control.path.destination.point,
 						actor->control.path.destination.surface_index,
 						actor->control.path.destination.target_radius);
-					success = path_state_build_path(
+					/* port: (the timer build) */
+					success = PS3_MOVE_TIMED(_ps3_timer_path_cached, path_state_build_path(
 						cached_path_state,
-						&actor->control.path.path);
+						&actor->control.path.path));
 				}
 				else
 				{
 					struct path_input input;
 					struct path_state path_state;
+#ifdef HALO_PS3
+					uint64_t ps3_part;
+#endif
 
+					PS3_MOVE_SPAN(ps3_part); /* port: (the timer build) */
 					actor_path_input_new(actor_index, &input);
 					if (actor->control.path.destination_orders.ignore_target_object_index != NONE)
 					{
@@ -2071,14 +2115,20 @@ boolean actor_path_refresh(
 						&actor->control.path.destination.point,
 						actor->control.path.destination.surface_index,
 						actor->control.path.destination.target_radius);
+					PS3_MOVE_ADD(_ps3_timer_path_setup, ps3_part); /* port: (the timer build) */
+					PS3_MOVE_COUNT(_ps3_timer_path_setup); /* port: (the timer build) */
 					success = FALSE;
-					if (path_state_find(&path_state) &&
-						path_state_build_path(&path_state, &actor->control.path.path))
+					/* port: (the timer build) */
+					if (PS3_MOVE_TIMED(_ps3_timer_path_search, path_state_find(&path_state)) &&
+						PS3_MOVE_TIMED(_ps3_timer_path_make, path_state_build_path(&path_state, &actor->control.path.path)))
 					{
 						success = TRUE;
 					}
+					PS3_MOVE_COUNTS(_ps3_timer_path_nodes, path_state.node_count); /* port: (the timer build) */
 				}
 
+				PS3_MOVE_ADD(_ps3_timer_path_build, ps3_span); /* port: (the timer build) */
+				PS3_MOVE_COUNT(_ps3_timer_path_build); /* port: (the timer build) */
 				actor->control.path.refreshed_this_tick = TRUE;
 				if (new_destination)
 					actor->control.path.destination_original_distance = distance;
@@ -2097,6 +2147,8 @@ boolean actor_path_refresh(
 			actor_path_clear(actor_index);
 	}
 
+	PS3_MOVE_ADD(_ps3_timer_path_refresh, ps3_start); /* port: (the timer build) */
+	PS3_MOVE_COUNT(_ps3_timer_path_refresh); /* port: (the timer build) */
 	return success;
 }
 
@@ -2416,6 +2468,9 @@ static void actor_move_calculate_movement(
 	short facing_direction = NONE;
 	boolean face_actor_facing;
 	boolean facing_allows_movement;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	if (actor->orders.move.move_face_exactly)
 		actor->control.face_exactly = TRUE;
@@ -2564,7 +2619,9 @@ static void actor_move_calculate_movement(
 		{
 			long pathfinding_surface_index;
 
+			PS3_MOVE_SPAN(ps3_span); /* port: (the timer build) */
 			actor_find_pathfinding_location(actor_index);
+			PS3_MOVE_ADD(_ps3_timer_move_location, ps3_span); /* port: (the timer build) */
 			pathfinding_surface_index = actor->input.pathfinding_surface_index;
 			if (pathfinding_surface_index != NONE)
 			{
@@ -2610,6 +2667,7 @@ static void actor_move_calculate_movement(
 					break;
 				}
 
+				PS3_MOVE_SPAN(ps3_span); /* port: (the timer build) */
 				if (test_movement_direction)
 				{
 					if (normalize2d((real_vector2d *)&movement_direction) > 0.f)
@@ -2636,6 +2694,7 @@ static void actor_move_calculate_movement(
 						}
 					}
 				}
+				PS3_MOVE_ADD(_ps3_timer_move_line, ps3_span); /* port: (the timer build) */
 			}
 		}
 
@@ -3033,6 +3092,9 @@ void actor_move_update(
 	real oversteer_minimum_angle = 0.f;
 	real rotation_emergency_amount = 0.f;
 	real maximum_throttle = 1.f;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	match_assert_valid_real_normal3d(
 		"c:\\halo\\SOURCE\\ai\\actor_moving.c",
@@ -3078,11 +3140,14 @@ void actor_move_update(
 			movement_direction = &fake_movement_vector;
 		}
 
+		PS3_MOVE_SPAN(ps3_span); /* port: (the timer build) */
 		actor_move_vector_avoidance(
 			actor_index,
 			movement_direction,
 			&instantaneous_rotation_vector,
 			&emergency_amount);
+		PS3_MOVE_ADD(_ps3_timer_move_avoidance, ps3_span); /* port: (the timer build) */
+		PS3_MOVE_COUNT(_ps3_timer_move_avoidance); /* port: (the timer build) */
 
 		rotation_magnitude_squared = magnitude_squared3d(&instantaneous_rotation_vector);
 		previous_magnitude_squared =
@@ -3377,6 +3442,7 @@ void actor_move_update(
 
 	if (actor->control.moving && !actor->control.movement_complete)
 	{
+		PS3_MOVE_SPAN(ps3_span); /* port: (the timer build) */
 		actor_move_calculate_movement(
 			actor_index,
 			move_in_3d,
@@ -3395,6 +3461,8 @@ void actor_move_update(
 			&actor->output.throttle,
 			&actor->control.movement_thwarted,
 			&actor->control.movement_complete);
+		PS3_MOVE_ADD(_ps3_timer_move_movement, ps3_span); /* port: (the timer build) */
+		PS3_MOVE_COUNT(_ps3_timer_move_movement); /* port: (the timer build) */
 		if (actor->control.movement_complete)
 			actor->control.moving = FALSE;
 	}
@@ -3425,8 +3493,10 @@ void actor_move_update(
 		655,
 		&actor->control.desired_facing_vector);
 
+	PS3_MOVE_SPAN(ps3_span); /* port: (the timer build) */
 	if (clear_firing_positions && !actor->control.moving)
 		actor_clear_discarded_firing_positions(actor_index, TRUE);
+	PS3_MOVE_ADD(_ps3_timer_move_firing_positions, ps3_span); /* port: (the timer build) */
 
 	if (actor->control.moving &&
 		TEST_FLAG(

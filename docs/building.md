@@ -141,7 +141,7 @@ and what each hook asks of the port, or on its compile lines:
 | `HALO_CONSOLE_HOST_PLAYERS` | the most players a game the console hosts takes, held in the game itself (the original Xbox: 16, though its builds of 32 join 32) |
 | `HALO_CONSOLE_NO_*` | the desktop extras a console leaves out (`halo_port_features.h`, a port's prefix header) |
 | `HALO_CONSOLE_ONLINE_GAMES` | the console's own Online Games screen |
-| `HALO_CONSOLE_MENU_PLATFORM` | the console's name for the menus (`x360`, `wiiu`): the Chupathingy menus' rows marked `console` or with that name in place of the desktop's, packed with no gaps, and ui.map's button pictures in the prompts (`port/assets/menus/README.md`, `tools/port_settings.py`) |
+| `HALO_CONSOLE_MENU_PLATFORM` | the console's name for the menus (`x360`, `wiiu`, `ps3`): the Chupathingy menus' rows marked `console` or with that name in place of the desktop's, packed with no gaps, and ui.map's button pictures in the prompts (`port/assets/menus/README.md`, `tools/port_settings.py`) |
 | `HALO_CONSOLE_PROFILE_ID` | on the port's compile line: Delta Peer's PROFILE carries `console_profile_id()`, the port's (a console linked with Link Profile, `port/console/link`) |
 | `HALO_CONSOLE_HTTPS` | HTTPS over the console's own sockets, with pinned keys and roots (`port/console/https`, [console-https.md](console-https.md)) |
 | `HALO_CONSOLE_LOG_BUFFER`, `HALO_CONSOLE_LOG_THROTTLE` | a log whose writes are slow |

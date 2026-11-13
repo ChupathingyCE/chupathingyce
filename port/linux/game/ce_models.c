@@ -1261,7 +1261,8 @@ boolean ce_models_check(
 				byte const *marker = instances + instance_index * MODEL_MARKER_INSTANCE_SIZE;
 
 				if (marker[0] >= region_count || marker[2] >= node_count)
-					return ce_refuse("model %s: a marker is on region %d, node %d", name, marker[0], marker[2]);
+					return ce_refuse("model %s: a marker is on region %d, node %d (of %ld regions, %ld nodes)", name, marker[0],
+						marker[2], region_count, node_count);
 			}
 		}
 		/* (the regions' permutations: each level of detail one of the

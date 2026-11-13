@@ -261,6 +261,17 @@ void _rasterizer_hud_end(
 	return;
 }
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's count and spans of a screen quad (port/ps3/include/ps3_timers.h) */
+#define PS3_QUAD_BEGIN(span) ((void)(ps3_timer_quads++, (span) = ps3_timer_now()))
+#define PS3_QUAD_ADD(timer, span) ((void)((span) = ps3_timer_add((timer), (span))))
+#else
+#define PS3_QUAD_BEGIN(span) ((void)0)
+#define PS3_QUAD_ADD(timer, span) ((void)0)
+#endif
+
 void _rasterizer_psuedo_dynamic_screen_quad_draw(
 	struct rasterizer_dynamic_screen_geometry_parameters *parameters,
 	struct dynamic_screen_vertex *vertices)
@@ -270,6 +281,9 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 	short map_index;
 	short combiner_index;
 	long vertex_index;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\rasterizer\\xbox\\rasterizer_xbox_dynavobgeom.c",
@@ -302,6 +316,7 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 		767,
 		!parameters->map[1] || !parameters->meter_parameters);
 
+	PS3_QUAD_BEGIN(ps3_span); /* port: (the timer build) */
 	IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_CULLMODE, D3DCULL_NONE);
 	IDirect3DDevice8_SetRenderState(
 		global_d3d_device,
@@ -313,6 +328,7 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 	IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_ZBIAS, 0);
 
 	rasterizer_set_framebuffer_blend_function(parameters->framebuffer_blend_function);
+	PS3_QUAD_ADD(_ps3_timer_quad_states, ps3_span); /* port: (the timer build) */
 
 	{
 		real vertex_constants[20];
@@ -395,6 +411,7 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 			map_constants,
 			6);
 	}
+	PS3_QUAD_ADD(_ps3_timer_quad_constants, ps3_span); /* port: (the timer build) */
 
 	for (map_index = 0; map_index < NUMBER_OF_SCREEN_GEOMETRY_MAPS; map_index++)
 	{
@@ -430,6 +447,7 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 			D3DTSS_MIPFILTER,
 			parameters->point_sampled ? D3DTEXF_POINT : D3DTEXF_LINEAR);
 	}
+	PS3_QUAD_ADD(_ps3_timer_quad_textures, ps3_span); /* port: (the timer build) */
 
 	rasterizer_set_vertex_shader_permutation(
 		SCREEN_GEOMETRY_VERTEX_SHADER_INDEX,
@@ -728,6 +746,7 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 		SCREEN_GEOMETRY_VERTEX_SHADER_INDEX,
 		SCREEN_GEOMETRY_VERTEX_TYPE,
 		SCREEN_GEOMETRY_VERTEX_SHADER_PERMUTATION);
+	PS3_QUAD_ADD(_ps3_timer_quad_shaders, ps3_span); /* port: (the timer build) */
 
 	IDirect3DDevice8_Begin(global_d3d_device, D3DPT_TRIANGLEFAN);
 	for (vertex_index = 0; vertex_index < NUMBER_OF_VERTICES_PER_QUADRILATERAL; vertex_index++)
@@ -759,6 +778,7 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 		0,
 		D3DTSS_ALPHAKILL,
 		D3DTALPHAKILL_DISABLE);
+	PS3_QUAD_ADD(_ps3_timer_quad_draw, ps3_span); /* port: (the timer build) */
 
 	return;
 }

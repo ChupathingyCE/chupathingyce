@@ -344,6 +344,11 @@ static boolean draw_primitives_dynamic_triangle_count_valid(
 	struct dynamic_triangle_buffer const *dynamic_triangle_buffer,
 	long first_triangle_index,
 	long *triangle_count);
+#ifdef HALO_PS3
+/* port: the vertex count of the map vertex buffer that the next indexed draw reads, which the Xbox's
+DrawIndexedPrimitive drops; the PS3 device sizes its copy by it (port/ps3/xbox/d3d8_rsx.c) */
+void d3d8_draw_vertex_count(unsigned long vertex_count);
+#endif
 
 /* ---------- globals */
 
@@ -1390,6 +1395,9 @@ void rasterizer_draw_dynamic_triangles_static_vertices(
 		}
 
 		HALO_PERF_COUNT(_halo_perf_draws, 1);
+#ifdef HALO_PS3
+		d3d8_draw_vertex_count(vertex_buffer->count);
+#endif
 		if (IDirect3DDevice8_DrawIndexedPrimitive(
 			global_d3d_device,
 			D3DPT_TRIANGLELIST,
@@ -1550,6 +1558,9 @@ void rasterizer_draw_dynamic_triangles_static_vertices2(
 		}
 
 		HALO_PERF_COUNT(_halo_perf_draws, 1);
+#ifdef HALO_PS3
+		d3d8_draw_vertex_count(vertex_buffer0->count);
+#endif
 		if (IDirect3DDevice8_DrawIndexedPrimitive(
 			global_d3d_device,
 			D3DPT_TRIANGLELIST,
@@ -1843,6 +1854,9 @@ void rasterizer_draw_static_triangles_static_vertices(
 		}
 
 		HALO_PERF_COUNT(_halo_perf_draws, 1);
+#ifdef HALO_PS3
+		d3d8_draw_vertex_count(vertex_buffer->count);
+#endif
 		if (IDirect3DDevice8_DrawIndexedPrimitive(
 			global_d3d_device,
 			d3d_primitive_type_table[triangle_buffer->type],

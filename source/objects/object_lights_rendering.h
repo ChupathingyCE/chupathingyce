@@ -32,6 +32,12 @@ boolean lights_distant_lighting_at_point(
 void lights_prepare_for_object_static(
 	long object_index,
 	struct render_lighting *lighting);
+#ifdef HALO_PS3
+/* port: the window's dynamic lights' surfaces searched on the render SPU from after lights_preprocess_scene; the
+diffuse and specular passes take them */
+void lights_render_spu_begin(
+	void);
+#endif
 
 /* ---------- globals */
 

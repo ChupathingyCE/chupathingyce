@@ -751,7 +751,12 @@ void encounter_compute_activation_cluster_bit_vector(
 				else if (actor->state.mode == _actor_mode_alert &&
 					actor->state.action_data.alert.move_position_order)
 				{
+					/* port: squads go to 63; x86 shifts by the count's low 5 bits, the PPC gives 0 from 32 */
+#ifdef HALO_PS3
+					SET_FLAG(active_squad_mask, actor->meta.squad_index & 31, TRUE);
+#else
 					SET_FLAG(active_squad_mask, actor->meta.squad_index, TRUE);
+#endif
 				}
 
 				if (actor->target.target_prop_index != NONE)
@@ -820,7 +825,11 @@ void encounter_compute_activation_cluster_bit_vector(
 			squad_index < encounter_definition->squads.count;
 			squad_index++)
 		{
+#ifdef HALO_PS3
+			if (TEST_FLAG(active_squad_mask, squad_index & 31)) /* port: (as above) */
+#else
 			if (TEST_FLAG(active_squad_mask, squad_index))
+#endif
 			{
 				struct squad_definition *squad_definition = TAG_BLOCK_GET_ELEMENT(
 					&encounter_definition->squads,

@@ -235,6 +235,7 @@ symbols in this file:
 #include "saved games/game_state.h"
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
+#include "structures/structure_bsp_definitions.h" /* port: (ai_test_line_of_sight's cluster count) */
 #include "tag_files/tag_files.h"
 #include "tag_files/tag_groups.h"
 
@@ -246,6 +247,22 @@ symbols in this file:
 #undef COLLISIONS_EXTERNAL_COLLISION_TEST_LINE
 #undef REAL_MATH_EXTERNAL_NORMALIZE3D
 #undef REAL_MATH_EXTERNAL_POINT_FROM_LINE3D
+
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of ai_update and ai_test_line_of_sight, with its calls and its first rays' length
+(port/ps3/include/ps3_timers.h) */
+#define PS3_AI_SPAN(span) ((span) = ps3_timer_now())
+#define PS3_AI_ADD(timer, span) ((span) = ps3_timer_add((timer), (span)))
+#define PS3_AI_COUNT(timer) (ps3_timer_counts[(timer)]++)
+#define PS3_AI_LENGTH(vector) (ps3_timer_counts[_ps3_timer_los_length] += (uint32_t)(magnitude3d(vector) * 100.0f))
+#else
+#define PS3_AI_SPAN(span) ((void)0)
+#define PS3_AI_ADD(timer, span) ((void)0)
+#define PS3_AI_COUNT(timer) ((void)0)
+#define PS3_AI_LENGTH(vector) ((void)0)
+#endif
 
 /* ---------- constants */
 
@@ -1945,7 +1962,11 @@ void ai_update(
 {
 	boolean update_ai = ai_globals->ai_initialized_for_map && !ai_profile.disabled;
 	boolean move_actors_randomly = ai_profile.move_actors_randomly;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
+	PS3_AI_SPAN(ps3_span); /* port: (the timer build) */
 	profile_enter(ai_update_section);
 
 	if (update_ai)
@@ -1961,9 +1982,13 @@ void ai_update(
 		}
 		else if (ai_globals->ai_active)
 		{
+			PS3_AI_ADD(_ps3_timer_ai_other, ps3_span); /* port: (the timer build) */
 			ai_conversation_update();
+			PS3_AI_ADD(_ps3_timer_ai_conversations, ps3_span); /* port: (the timer build) */
 			encounters_update();
+			PS3_AI_ADD(_ps3_timer_ai_encounters, ps3_span); /* port: (the timer build) */
 			actors_update();
+			PS3_AI_ADD(_ps3_timer_ai_actors, ps3_span); /* port: (the timer build) */
 			ai_globals->ai_has_control_data = TRUE;
 		}
 		else if (ai_globals->ai_has_control_data)
@@ -1974,6 +1999,7 @@ void ai_update(
 	}
 
 	profile_exit(ai_update_section);
+	PS3_AI_ADD(_ps3_timer_ai_other, ps3_span); /* port: (the timer build) */
 
 	return;
 }
@@ -2305,7 +2331,11 @@ short ai_test_line_of_sight(
 	boolean clear_line_of_sight;
 	boolean blocked;
 	short result;
+#ifdef HALO_PS3
+	uint64_t ps3_start, ps3_span;
+#endif
 
+	PS3_AI_SPAN(ps3_start); /* port: (the timer build) */
 	if (ai_debug.render_lineofsight)
 		ai_debug_lineofsight(p0, p0_cluster_index, p1, p1_cluster_index);
 
@@ -2317,7 +2347,13 @@ short ai_test_line_of_sight(
 		_collision_user_ai_lineofsight;
 	ai_profile.meters[_ai_meter_line_of_sight].accumulator++;
 
-	if (p0_cluster_index != NONE && p1_cluster_index != NONE && !scenario_test_pvs(p0_cluster_index, p1_cluster_index))
+	/* port: a cluster outside the current bsp (scenario.c's PVS assert) skips the PVS test: the ray decides */
+	if (p0_cluster_index != NONE && p1_cluster_index != NONE &&
+#ifdef HALO_PS3
+		VALID_INDEX(p0_cluster_index, global_structure_bsp_get()->clusters.count) &&
+		VALID_INDEX(p1_cluster_index, global_structure_bsp_get()->clusters.count) &&
+#endif
+		!scenario_test_pvs(p0_cluster_index, p1_cluster_index))
 		goto obstructed;
 
 	collision_flags =
@@ -2348,6 +2384,8 @@ short ai_test_line_of_sight(
 
 		ai_profile.meters[_ai_meter_collisions].accumulator++;
 		vector_from_points3d(p0, p1, &vector);
+		PS3_AI_LENGTH(&vector); /* port: (the timer build) */
+		PS3_AI_SPAN(ps3_span); /* port: (the timer build) */
 
 		if (!collision_test_vector(
 			collision_flags,
@@ -2363,6 +2401,8 @@ short ai_test_line_of_sight(
 			clear_line_of_sight = FALSE;
 			collision_t = collision.t;
 		}
+		PS3_AI_ADD(_ps3_timer_los_first_ray, ps3_span); /* port: (the timer build) */
+		PS3_AI_COUNT(_ps3_timer_los_first_ray); /* port: (the timer build) */
 	}
 
 	{
@@ -2371,6 +2411,7 @@ short ai_test_line_of_sight(
 			p0,
 			&collision.point);
 
+		PS3_AI_ADD(_ps3_timer_los_fog, ps3_span); /* port: (the timer build) */
 		if (fog > 0.8f)
 			goto classify_collision_distance;
 
@@ -2489,6 +2530,7 @@ short ai_test_line_of_sight(
 			}
 		}
 	}
+	PS3_AI_ADD(_ps3_timer_los_mode_rays, ps3_span); /* port: (the timer build) */
 
 	if (blocked)
 		goto occluded;
@@ -2526,6 +2568,8 @@ occluded:
 	result = _ai_line_of_sight_occluded;
 
 finish:
+	PS3_AI_ADD(_ps3_timer_los_total, ps3_start); /* port: (the timer build) */
+	PS3_AI_COUNT(_ps3_timer_los_total); /* port: (the timer build) */
 	match_assert(
 		"c:\\halo\\SOURCE\\ai\\ai.c",
 		0x3F0,

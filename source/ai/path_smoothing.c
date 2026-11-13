@@ -59,6 +59,21 @@ enum
 
 /* ---------- macros */
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of path_smooth; a timed call gives its result (port/ps3/include/ps3_timers.h) */
+#define PS3_SMOOTH_SPAN(span) ((span) = ps3_timer_now())
+#define PS3_SMOOTH_ADD(timer, span) ((span) = ps3_timer_add((timer), (span)), ps3_timer_counts[(timer)]++)
+#define PS3_SMOOTH_TIMED(timer, call) ({ uint64_t ps3_timed_start = ps3_timer_now(); \
+	__typeof__(call) ps3_timed_result = (call); \
+	ps3_timer_add((timer), ps3_timed_start); ps3_timer_counts[(timer)]++; ps3_timed_result; })
+#else
+#define PS3_SMOOTH_SPAN(span) ((void)0)
+#define PS3_SMOOTH_ADD(timer, span) ((void)0)
+#define PS3_SMOOTH_TIMED(timer, call) (call)
+#endif
+
 /* ---------- structures */
 
 /* ---------- prototypes */
@@ -559,6 +574,9 @@ void path_smooth(
 	real_point2d tangent_points[2];
 	real_point2d avoidance_point;
 	real_point2d known_point;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 #line 33 "c:\\halo\\SOURCE\\ai\\path_smoothing.c"
 	assert(raw_step_count > 0);
@@ -584,7 +602,8 @@ void path_smooth(
 
 			for (i = step_index; i < raw_step_count; i++)
 			{
-				if (structure_test_pill2d(
+				/* port: (the timer build) */
+				if (PS3_SMOOTH_TIMED(_ps3_timer_smooth_pills, structure_test_pill2d(
 					state->structure,
 					state->input.ignore_broken_surfaces,
 					&current_position,
@@ -593,7 +612,7 @@ void path_smooth(
 					raw_steps[i].surface_index,
 					0.3f,
 					FLAG(_path_test_pill_endpoint_near_wall_ok_bit),
-					&collision_result))
+					&collision_result)))
 				{
 					if (!collision_active)
 					{
@@ -613,22 +632,23 @@ void path_smooth(
 			if (!collision_active || collision_edge_index == NONE)
 				break;
 
-			found_clockwise = find_turning_point(
+			/* port: (the timer build) */
+			found_clockwise = PS3_SMOOTH_TIMED(_ps3_timer_smooth_turning, find_turning_point(
 				state->structure,
 				&current_position,
 				0.3f,
 				collision_edge_index,
 				TRUE,
 				state->input.ignore_broken_surfaces,
-				&clockwise_turning_point);
-			found_counterclockwise = find_turning_point(
+				&clockwise_turning_point));
+			found_counterclockwise = PS3_SMOOTH_TIMED(_ps3_timer_smooth_turning, find_turning_point(
 				state->structure,
 				&current_position,
 				0.3f,
 				collision_edge_index,
 				FALSE,
 				state->input.ignore_broken_surfaces,
-				&counterclockwise_turning_point);
+				&counterclockwise_turning_point));
 			if (!found_counterclockwise || !found_clockwise)
 				goto bail_out;
 
@@ -661,6 +681,7 @@ void path_smooth(
 
 			known_point = current_position;
 			current_position = avoidance_point;
+			PS3_SMOOTH_SPAN(ps3_span); /* port: (the timer build) */
 			current_surface_index = structure_surface_index_from_point(
 				state->structure,
 				state->input.ignore_broken_surfaces,
@@ -680,6 +701,7 @@ void path_smooth(
 				TRUE,
 				&current_position,
 				&smoothed_step->point);
+			PS3_SMOOTH_ADD(_ps3_timer_smooth_surface, ps3_span); /* port: (the timer build) */
 			smoothed_step->surface_index = current_surface_index;
 
 			if (smoothed_count >= 4)

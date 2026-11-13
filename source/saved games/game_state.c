@@ -123,6 +123,9 @@ symbols in this file:
 #include "lruv_cache.h"
 #include "memory_pool.h"
 #include "cluster_partitions.h"
+#ifdef HALO_PS3
+#include "effects/particles.h" /* port: particles_spu_finish, particles_spu_forget (particles.c) */
+#endif
 #include "mcc_cache.h"
 #include "mcc_checkpoint.h"
 /* port: object_bounds_cache.c's */
@@ -192,6 +195,10 @@ typedef void (*game_state_before_save_proc)(void);
 static game_state_before_save_proc before_save_procs[] =
 {
 	dummy,
+#ifdef HALO_PS3
+	/* port: the particles the SPU updates are whole */
+	particles_spu_finish,
+#endif
 };
 
 static game_state_before_load_proc before_load_procs[] =
@@ -202,6 +209,10 @@ static game_state_before_load_proc before_load_procs[] =
 	cluster_partitions_port_forget,
 	/* port: (the objects are put back: object_bounds_cache.c) */
 	object_bounds_cache_invalidate,
+#ifdef HALO_PS3
+	/* port: the particles the SPU updates are of the state before */
+	particles_spu_forget,
+#endif
 };
 
 static game_state_after_load_proc after_load_procs[] =
@@ -984,6 +995,18 @@ boolean game_state_image_accept(
 
 	return TRUE;
 }
+
+#ifdef HALO_PS3
+/* port: the game state's used parts: the CPU part's allocations from its start, the GPU part's from its end (the rest
+is never written: game_state_xbox.c's checkpoint copies only these) */
+void game_state_port_used_sizes(
+	long *cpu_size,
+	long *gpu_size)
+{
+	*cpu_size = game_state_globals.cpu_allocation_size;
+	*gpu_size = game_state_globals.gpu_allocation_size;
+}
+#endif
 
 struct data_array *game_state_data_new(
 	const char *name,

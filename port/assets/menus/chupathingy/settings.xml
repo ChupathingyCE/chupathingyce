@@ -86,10 +86,16 @@ setup_entry.xml's. -->
 		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="0"/>
 		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="3"/>
 		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="1"/>
-		<frame png="ce/port/blank__0.png" width="4" height="4"/>
-		<frame png="ce/port/blank__0.png" width="4" height="4"/>
-		<frame png="ce/port/blank__0.png" width="4" height="4"/>
-		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+		<frame png="ce/port/blank__0.png" width="4" height="4" platform="desktop android switch x360 wiiu"/>
+		<frame png="ce/port/blank__0.png" width="4" height="4" platform="desktop android switch x360 wiiu"/>
+		<frame png="ce/port/blank__0.png" width="4" height="4" platform="desktop android switch x360 wiiu"/>
+		<frame png="ce/port/blank__0.png" width="4" height="4" platform="desktop android switch x360 wiiu"/>
+		<!-- (the PS3: the Xbox's Master Chief for DISPLAY, AUDIO, ONLINE and ABOUT) -->
+		<frame map="ui\shell\main_menu\multiplayer_type_select\mp_options" index="3" platform="ps3"/>
+		<frame map="ui\shell\main_menu\multiplayer_type_select\mp_options" index="3" platform="ps3"/>
+		<frame map="ui\shell\main_menu\multiplayer_type_select\mp_options" index="3" platform="ps3"/>
+		<frame map="ui\shell\main_menu\multiplayer_type_select\mp_options" index="3" platform="ps3"/>
+		<!-- (SETUP's, on every platform) -->
 		<frame png="ce/port/blank__0.png" width="4" height="4"/>
 		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="4"/>
 		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\controller_edit\config_controller" index="4" width="279" height="279" y="34"/>

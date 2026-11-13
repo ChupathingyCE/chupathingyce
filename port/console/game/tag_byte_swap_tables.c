@@ -390,7 +390,7 @@ const struct tag_swap_op tag_swap_ops[] =
 	{ 116, 4, 4 },
 	{ 132, 2, 2 },
 	{ 136, 4, 5 },
-	{ 164, 4, 3 },
+	{ 160, 4, 4 },
 	{ 184, 4, 13 },
 	{ 244, 4, 8 },
 	{ 0, 4, 1 },
@@ -475,7 +475,7 @@ const struct tag_swap_op tag_swap_ops[] =
 	{ 0, 2, 4 },
 	{ 8, 4, 8 },
 	{ 40, 2, 6 },
-	{ 100, 4, 12 },
+	{ 52, 4, 24 },
 	{ 148, 2, 4 },
 	{ 156, 4, 81 },
 	{ 340, 0, 95 },
@@ -1200,8 +1200,7 @@ const struct tag_swap_op tag_swap_ops[] =
 	{ 0, 4, 1 },
 	{ 36, 4, 1 },
 	{ 40, 2, 8 },
-	{ 56, 4, 1 },
-	{ 68, 4, 3 },
+	{ 56, 4, 6 },
 	{ 0, 4, 3 },
 	{ 16, 4, 4 },
 	{ 0, 2, 2 },
@@ -1573,6 +1572,7 @@ const struct tag_swap_op tag_swap_ops[] =
 	{ 20, 4, 1 },
 	{ 24, 2, 2 },
 	{ 28, 4, 3 },
+	{ 40, 2, 8 },
 	{ 56, 4, 14 },
 	{ 100, 0, 290 },
 	{ 0, 2, 6 },
@@ -1914,44 +1914,44 @@ const struct tag_swap_layout tag_swap_layouts[] =
 	{ 52, 1182, 1 }, /* struct hs_source_file */
 	{ 92, 1183, 2 }, /* char | struct scenario_cutscene_flag */
 	{ 104, 1185, 2 }, /* char | struct scenario_cutscene_camera_point */
-	{ 96, 1187, 5 }, /* char | struct scenario_cutscene_title */
-	{ 32, 1192, 2 }, /* struct scenario_structure_bsp_reference */
-	{ 836, 1194, 30 }, /* group senv: struct shader_environment_definition, struct shader_lens_flare_fields_environment, struct structure_visibility_shader_environment */
-	{ 480, 1224, 8 }, /* group sgla: struct shader_glass_definition, struct shader_transparent_glass_definition */
-	{ 40, 1232, 3 }, /* group shdr: struct shader */
-	{ 208, 1235, 7 }, /* group sky : struct sky, struct sky_definition */
-	{ 36, 1242, 1 }, /* struct sky_render_model_region | struct sky_shader_function */
-	{ 36, 1243, 2 }, /* struct sky_animation */
-	{ 116, 1245, 2 }, /* struct sky_light */
-	{ 260, 1247, 6 }, /* group smet: struct shader_meter_definition, struct shader_transparent_meter_definition */
-	{ 164, 1253, 10 }, /* group snd!: struct hs_sound_definition, struct sound_definition */
-	{ 72, 1263, 6 }, /* struct sound_pitch_range */
-	{ 124, 1269, 3 }, /* struct sound_permutation */
-	{ 72, 1272, 3 }, /* group snde: struct sound_environment_definition */
-	{ 440, 1275, 18 }, /* group soso: struct shader_model_definition */
-	{ 108, 1293, 8 }, /* group sotr: struct shader_lens_flare_fields_transparent, struct shader_transparent_generic_definition */
-	{ 100, 1301, 8 }, /* struct shader_transparent_generic_map */
-	{ 112, 1309, 3 }, /* struct shader_transparent_generic_stage */
-	{ 332, 1312, 15 }, /* group spla: struct shader_transparent_plasma_definition */
-	{ 380, 1327, 11 }, /* group ssce: struct object_definition */
-	{ 12, 1338, 2 }, /* group str#: struct string_list */
-	{ 20, 1340, 1 }, /* struct string_list_entry */
-	{ 320, 1341, 11 }, /* group swat: struct shader_transparent_water_definition */
-	{ 76, 1352, 3 }, /* struct water_ripple */
-	{ 48, 1355, 2 }, /* group trak: struct camera_track_definition */
-	{ 60, 1357, 1 }, /* struct camera_track_control_point */
-	{ 4112, 1358, 2 }, /* group udlg: struct dialogue_definition */
-	{ 1388, 1360, 70 }, /* group unhi: struct unit_hud_interface_definition */
-	{ 132, 1430, 11 }, /* struct auxilary_overlay_definition */
-	{ 56, 1441, 1 }, /* struct hud_sound_definition */
-	{ 324, 1442, 18 }, /* struct auxilary_meter_definition */
-	{ 752, 1460, 28 }, /* group unit: struct unit_definition */
-	{ 12, 1488, 2 }, /* group ustr: struct string_list */
-	{ 60, 1490, 2 }, /* group vcky: struct virtual_keyboard_definition */
-	{ 80, 1492, 2 }, /* struct virtual_keyboard_key */
-	{ 1008, 1494, 36 }, /* group vehi: struct actor_combat_vehicle_definition_view, struct actor_perception_vehicle_definition_view, struct fight_vehicle_definition, struct unit_definition, struct vehicle_definition */
-	{ 1288, 1530, 28 }, /* group weap: struct weapon_definition */
-	{ 112, 1558, 7 }, /* struct weapon_magazine_definition */
+	{ 96, 1187, 4 }, /* char | struct scenario_cutscene_title */
+	{ 32, 1191, 2 }, /* struct scenario_structure_bsp_reference */
+	{ 836, 1193, 30 }, /* group senv: struct shader_environment_definition, struct shader_lens_flare_fields_environment, struct structure_visibility_shader_environment */
+	{ 480, 1223, 8 }, /* group sgla: struct shader_glass_definition, struct shader_transparent_glass_definition */
+	{ 40, 1231, 3 }, /* group shdr: struct shader */
+	{ 208, 1234, 7 }, /* group sky : struct sky, struct sky_definition */
+	{ 36, 1241, 1 }, /* struct sky_render_model_region | struct sky_shader_function */
+	{ 36, 1242, 2 }, /* struct sky_animation */
+	{ 116, 1244, 2 }, /* struct sky_light */
+	{ 260, 1246, 6 }, /* group smet: struct shader_meter_definition, struct shader_transparent_meter_definition */
+	{ 164, 1252, 10 }, /* group snd!: struct hs_sound_definition, struct sound_definition */
+	{ 72, 1262, 6 }, /* struct sound_pitch_range */
+	{ 124, 1268, 3 }, /* struct sound_permutation */
+	{ 72, 1271, 3 }, /* group snde: struct sound_environment_definition */
+	{ 440, 1274, 18 }, /* group soso: struct shader_model_definition */
+	{ 108, 1292, 8 }, /* group sotr: struct shader_lens_flare_fields_transparent, struct shader_transparent_generic_definition */
+	{ 100, 1300, 8 }, /* struct shader_transparent_generic_map */
+	{ 112, 1308, 3 }, /* struct shader_transparent_generic_stage */
+	{ 332, 1311, 15 }, /* group spla: struct shader_transparent_plasma_definition */
+	{ 380, 1326, 11 }, /* group ssce: struct object_definition */
+	{ 12, 1337, 2 }, /* group str#: struct string_list */
+	{ 20, 1339, 1 }, /* struct string_list_entry */
+	{ 320, 1340, 11 }, /* group swat: struct shader_transparent_water_definition */
+	{ 76, 1351, 3 }, /* struct water_ripple */
+	{ 48, 1354, 2 }, /* group trak: struct camera_track_definition */
+	{ 60, 1356, 1 }, /* struct camera_track_control_point */
+	{ 4112, 1357, 2 }, /* group udlg: struct dialogue_definition */
+	{ 1388, 1359, 70 }, /* group unhi: struct unit_hud_interface_definition */
+	{ 132, 1429, 11 }, /* struct auxilary_overlay_definition */
+	{ 56, 1440, 1 }, /* struct hud_sound_definition */
+	{ 324, 1441, 18 }, /* struct auxilary_meter_definition */
+	{ 752, 1459, 28 }, /* group unit: struct unit_definition */
+	{ 12, 1487, 2 }, /* group ustr: struct string_list */
+	{ 60, 1489, 2 }, /* group vcky: struct virtual_keyboard_definition */
+	{ 80, 1491, 2 }, /* struct virtual_keyboard_key */
+	{ 1008, 1493, 36 }, /* group vehi: struct actor_combat_vehicle_definition_view, struct actor_perception_vehicle_definition_view, struct fight_vehicle_definition, struct unit_definition, struct vehicle_definition */
+	{ 1288, 1529, 28 }, /* group weap: struct weapon_definition */
+	{ 112, 1557, 8 }, /* struct weapon_magazine_definition */
 	{ 28, 1565, 2 }, /* struct weapon_ammunition_object */
 	{ 276, 1567, 8 }, /* byte | struct weapon_trigger_definition */
 	{ 132, 1575, 2 }, /* struct trigger_firing_effect | struct weapon_firing_effect */

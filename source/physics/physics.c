@@ -177,6 +177,28 @@ enum
 		line_result[2] = line_vector[2] * line_distance + line_point[2]; \
 	} while (0)
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of physics_update (port/ps3/include/ps3_timers.h) */
+#define PS3_PHYSICS_SPAN(span) ((span) = ps3_timer_now())
+#define PS3_PHYSICS_ADD(timer, span) ((span) = ps3_timer_add((timer), (span)))
+#define PS3_PHYSICS_COUNT(timer, count) (ps3_timer_counts[(timer)] += (uint32_t)(count))
+#define PS3_PHYSICS_TIMED(timer, call) ({ uint64_t ps3_timed_start = ps3_timer_now(); \
+	__typeof__(call) ps3_timed_result = (call); \
+	ps3_timer_add((timer), ps3_timed_start); ps3_timer_counts[(timer)]++; ps3_timed_result; })
+/* port: the ground plane's sphere query, its parts timed in it (collisions.c) */
+#define PS3_PHYSICS_GROUND(call) ({ boolean ps3_ground_result; ps3_timer_ground_query = 1; \
+	ps3_ground_result = PS3_PHYSICS_TIMED(_ps3_timer_ground_features, call); ps3_timer_ground_query = 0; \
+	ps3_ground_result; })
+#else
+#define PS3_PHYSICS_SPAN(span) ((void)0)
+#define PS3_PHYSICS_ADD(timer, span) ((void)0)
+#define PS3_PHYSICS_COUNT(timer, count) ((void)0)
+#define PS3_PHYSICS_TIMED(timer, call) (call)
+#define PS3_PHYSICS_GROUND(call) (call)
+#endif
+
 /* ---------- structures */
 
 struct powered_mass_point_definition
@@ -683,15 +705,18 @@ static void compute_ground_plane(
 	mass_point->ground_depth = mass_point_definition->radius -
 		plane3d_distance_to_point(&mass_point->ground_plane, &mass_point->position);
 
-	if (collision_get_features_in_sphere(
+	/* port: (the timer build) */
+	if (PS3_PHYSICS_GROUND(collision_get_features_in_sphere(
 			_collision_test_for_bipeds_dead_flags,
 			&mass_point->position,
 			mass_point_definition->radius,
 			0.0f,
 			mass_point_definition->radius,
 			object_index,
-			&features) &&
-		collision_features_test_point(&features, &mass_point->position, &collision))
+			&features)) &&
+		(PS3_PHYSICS_COUNT(_ps3_timer_ground_feature_count, features.count[0] + features.count[1] + features.count[2]),
+		PS3_PHYSICS_TIMED(_ps3_timer_ground_point_test,
+			collision_features_test_point(&features, &mass_point->position, &collision))))
 	{
 		mass_point->ground_plane = collision.plane;
 		mass_point->ground_depth = collision.t;
@@ -1692,6 +1717,9 @@ static void physics_update_old(
 	short mass_point_index;
 	/* port: (as in physics_compute_new) */
 	short mass_point_count = physics_mass_point_count(physics);
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	matrix4x3_from_point_and_vectors(
 		&world_matrix,
@@ -1800,7 +1828,10 @@ static void physics_update_old(
 				&mass_point->up);
 		}
 
+		PS3_PHYSICS_SPAN(ps3_span); /* port: (the timer build) */
 		scenario_location_from_point(&mass_point->location, &mass_point->position);
+		PS3_PHYSICS_ADD(_ps3_timer_old_location, ps3_span); /* port: (the timer build) */
+		PS3_PHYSICS_COUNT(_ps3_timer_old_location, 1); /* port: (the timer build) */
 		vector_from_points3d(&object->object.position, &mass_point->position, &mass_point->radius);
 		cross_product3d(&object->object.angular_velocity, &mass_point->radius, &mass_point->velocity);
 		add_vectors3d(
@@ -1808,10 +1839,13 @@ static void physics_update_old(
 			&mass_point->velocity,
 			&mass_point->velocity);
 
+		PS3_PHYSICS_SPAN(ps3_span); /* port: (the timer build) */
 		compute_ground_plane(object_index, mass_point, mass_point_definition);
+		PS3_PHYSICS_ADD(_ps3_timer_old_ground, ps3_span); /* port: (the timer build) */
 		mass_point->water_depth = scenario_location_water_depth(
 			&mass_point->location,
 			&mass_point->position);
+		PS3_PHYSICS_ADD(_ps3_timer_old_water, ps3_span); /* port: (the timer build) */
 
 		if (mass_point->ground_depth > 0.0f && physics->ground_depth > 0.0f)
 		{
@@ -2058,12 +2092,13 @@ static void physics_update_old(
 				struct collision_result collision;
 
 				scale_vector3d(global_down3d, probe_length, &probe_vector);
-				if (collision_test_vector(
+				/* port: (the timer build) */
+				if (PS3_PHYSICS_TIMED(_ps3_timer_old_antigrav, collision_test_vector(
 						_collision_test_for_bipeds_dead_flags,
 						&point,
 						&probe_vector,
 						object_index,
-						&collision))
+						&collision)))
 				{
 					real height = probe_length*collision.t - mass_point_definition->radius;
 					real alignment = pin_fraction(
@@ -2169,12 +2204,14 @@ static void physics_update_old(
 		new_position.x = object->object.position.x + object->object.translational_velocity.i;
 		new_position.y = object->object.position.y + object->object.translational_velocity.j;
 		new_position.z = object->object.position.z + object->object.translational_velocity.k;
+		PS3_PHYSICS_SPAN(ps3_span); /* port: (the timer build) */
 		scenario_location_from_line(
 			&new_location,
 			&object->object.location,
 			&object->object.position,
 			&new_position);
 		object_translate(object_index, &new_position, &new_location);
+		PS3_PHYSICS_ADD(_ps3_timer_old_translate, ps3_span); /* port: (the timer build) */
 
 		rotation_axis = object->object.angular_velocity;
 		angular_speed = normalize3d(&rotation_axis);
@@ -2246,16 +2283,22 @@ void physics_update(
 	real_vector3d total_force;
 	real_vector3d total_torque;
 	short powered_mass_point_index;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	HALO_PERF_BEGIN(_halo_perf_tick_physics);
 	if (physics->radius > 0.0f)
 	{
+		PS3_PHYSICS_SPAN(ps3_span); /* port: (the timer build) */
 		physics_update_old(
 			object_index,
 			powered_mass_points,
 			mass_points,
 			magic_force,
 			magic_torque);
+		PS3_PHYSICS_ADD(_ps3_timer_physics_old, ps3_span); /* port: (the timer build) */
+		PS3_PHYSICS_COUNT(_ps3_timer_physics_old, 1); /* port: (the timer build) */
 		HALO_PERF_END(_halo_perf_tick_physics);
 		return;
 	}
@@ -2278,12 +2321,16 @@ void physics_update(
 		}
 	}
 
+	PS3_PHYSICS_SPAN(ps3_span); /* port: (the timer build) */
 	physics_compute_new(
 		&instance,
 		powered_mass_points,
 		mass_points,
 		&total_force,
 		&total_torque);
+	PS3_PHYSICS_ADD(_ps3_timer_physics_compute, ps3_span); /* port: (the timer build) */
+	PS3_PHYSICS_COUNT(_ps3_timer_physics_compute, 1); /* port: (the timer build) */
+	PS3_PHYSICS_COUNT(_ps3_timer_physics_mass_points, physics_mass_point_count(physics)); /* port: (the timer build) */
 
 	{
 		struct vehicle_datum *vehicle = vehicle_datum_get(object_index);
@@ -2323,13 +2370,16 @@ void physics_update(
 		total_torque.k += magic_torque->k;
 	}
 
+	PS3_PHYSICS_SPAN(ps3_span); /* port: (the timer build) */
 	physics_update_new(
 		&instance,
 		powered_mass_points,
 		mass_points,
 		&total_force,
 		&total_torque);
+	PS3_PHYSICS_ADD(_ps3_timer_physics_move, ps3_span); /* port: (the timer build) */
 	physics_compute_unit_collisions(object_index);
+	PS3_PHYSICS_ADD(_ps3_timer_physics_unit_collisions, ps3_span); /* port: (the timer build) */
 
 	HALO_PERF_END(_halo_perf_tick_physics);
 	return;

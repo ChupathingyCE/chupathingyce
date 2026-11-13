@@ -67,6 +67,23 @@ void object_bounds_cache_update(long object_index, real_point3d const *center, r
 
 #define MAXIMUM_DUMPS 1024
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's spans in objects_update, the type updates by kind (port/ps3/include/ps3_timers.h) */
+#define PS3_OBJECTS_SPAN(span) ((span) = ps3_timer_now())
+#define PS3_OBJECTS_ADD(timer, span) ((span) = ps3_timer_add((timer), (span)))
+#define PS3_OBJECTS_COUNT(timer, count) (ps3_timer_counts[(timer)] += (uint32_t)(count))
+#define PS3_OBJECTS_TYPE_TIMER(type) \
+	((FLAG(type) & _object_mask_unit) ? _ps3_timer_objects_units : \
+	(FLAG(type) & _object_mask_item) ? _ps3_timer_objects_items : \
+	(type) == _object_type_projectile ? _ps3_timer_objects_projectiles : _ps3_timer_objects_others)
+#else
+#define PS3_OBJECTS_SPAN(span) ((void)0)
+#define PS3_OBJECTS_ADD(timer, span) ((void)0)
+#define PS3_OBJECTS_COUNT(timer, count) ((void)0)
+#endif
+
 /* port: the garbage collection (objects_garbage_collection). With many
 players spread over a level and many bodies (co-op's extra enemies), every
 body was in some player's view, none could go, and the whole collection
@@ -284,7 +301,12 @@ void *object_try_and_get_and_verify_type(
 	return result;
 }
 
+#ifdef HALO_PS3
+/* port: (the PS3) object_get_and_verify_type as written, for an index or a type the fast path below refuses */
+static void *__attribute__((noinline)) object_get_and_verify_type_checked(
+#else
 void *object_get_and_verify_type(
+#endif
 	long object_index,
 	unsigned long valid_type_flags)
 {
@@ -302,6 +324,33 @@ void *object_get_and_verify_type(
 
 	return result;
 }
+
+#ifdef HALO_PS3
+/* port: every check passed (datum_get's lookup, then the type): the object, without the call and its frame */
+void *object_get_and_verify_type(
+	long object_index,
+	unsigned long valid_type_flags)
+{
+	struct data_array *data = object_header_data;
+	short identifier = (short)(object_index>>16);
+	short absolute_index = (short)object_index;
+
+	if (data->valid && (identifier || !data->identifier_zero_invalid) && absolute_index>=0 &&
+		absolute_index<data->count)
+	{
+		struct object_header_datum *header =
+			(struct object_header_datum *)((byte *)xbox_pointer(data->data)+data->size*absolute_index);
+
+		if (header->identifier && (!identifier || identifier==header->identifier) &&
+			TEST_FLAG(valid_type_flags, header->datum->object.type))
+		{
+			return header->datum;
+		}
+	}
+
+	return object_get_and_verify_type_checked(object_index, valid_type_flags);
+}
+#endif
 
 void object_iterator_new(
 	struct object_iterator *iterator,
@@ -2521,6 +2570,9 @@ void object_compute_node_matrices(
 	real_matrix4x3 object_rotation_matrix;
 	real_point3d center;
 	real_matrix4x3 parent_node_matrix_no_scale_no_mirror;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	struct object_datum *object = object_get(object_index);
 	struct object_definition *object_definition = object_definition_get(object->definition_index);
@@ -2531,6 +2583,9 @@ void object_compute_node_matrices(
 		cannot_interpolate_node_orientations_storage :
 		(real_orientation *)object_header_block_get(object_index, &object->object.node_orientations);
 
+	/* port: (the timer build's steps of this function) */
+	PS3_OBJECTS_SPAN(ps3_span);
+	PS3_OBJECTS_COUNT(_ps3_timer_nodes_orientations, 1);
 	/* port: a model without nodes is placed like no model (a map's count) */
 	if (object_definition->object.model.index!=NONE &&
 		model_definition_get(object_definition->object.model.index)->nodes.count>0)
@@ -2596,6 +2651,7 @@ void object_compute_node_matrices(
 		{
 			model_get_node_orientations(model, node_orientations);
 		}
+		PS3_OBJECTS_ADD(_ps3_timer_nodes_orientations, ps3_span); /* port: (the timer build) */
 
 		if (object_definition->object.animation_graph.index!=NONE)
 		{
@@ -2646,6 +2702,7 @@ void object_compute_node_matrices(
 						}
 
 						overlay_animation_apply_continuous(animation, frame_index, node_orientations);
+						PS3_OBJECTS_COUNT(_ps3_timer_nodes_overlays, 1); /* port: (the timer build) */
 					}
 					/* port: and a frame to pick (a map's frame count of 0 divided
 					by zero) */
@@ -2658,10 +2715,12 @@ void object_compute_node_matrices(
 							frame_index,
 							value,
 							node_orientations);
+						PS3_OBJECTS_COUNT(_ps3_timer_nodes_overlays, 1); /* port: (the timer build) */
 					}
 				}
 			}
 		}
+		PS3_OBJECTS_ADD(_ps3_timer_nodes_overlays, ps3_span); /* port: (the timer build) */
 
 		// Scale the object orientations
 		if (object->object.scale>0.f)
@@ -2673,10 +2732,13 @@ void object_compute_node_matrices(
 		}
 
 
+		PS3_OBJECTS_ADD(_ps3_timer_nodes_blends, ps3_span); /* port: (the timer build) */
 		if (object_definition->object.animation_graph.index!=NONE)
 		{
 			object_type_preprocess_node_orientations(object_index, node_orientations);
+			PS3_OBJECTS_COUNT(_ps3_timer_nodes_preprocess, 1); /* port: (the timer build) */
 		}
+		PS3_OBJECTS_ADD(_ps3_timer_nodes_preprocess, ps3_span); /* port: (the timer build) */
 
 		if (object->object.animation.interpolation_frame_count>0)
 		{
@@ -2691,7 +2753,9 @@ void object_compute_node_matrices(
 				node_orientations,
 				object->object.animation.interpolation_frame_index,
 				object->object.animation.interpolation_frame_count);
+			PS3_OBJECTS_COUNT(_ps3_timer_nodes_interpolate, 1); /* port: (the timer build) */
 		}
+		PS3_OBJECTS_ADD(_ps3_timer_nodes_interpolate, ps3_span); /* port: (the timer build) */
 
 		if (!world_relative)
 		{
@@ -2725,6 +2789,7 @@ void object_compute_node_matrices(
 						object->object.up.k));
 			}
 		}
+		PS3_OBJECTS_ADD(_ps3_timer_nodes_blends, ps3_span); /* port: (the timer build) */
 
 		node_index = 0;
 		node_count = 1;
@@ -2794,6 +2859,7 @@ void object_compute_node_matrices(
 						}
 
 						validated_parent_node_matrix = object_node_matrix;
+						PS3_OBJECTS_ADD(_ps3_timer_nodes_root, ps3_span); /* port: (the timer build) */
 						ocnm_parent_matrix_custom(
 							"c:\\halo\\SOURCE\\objects\\objects.c",
 							2871,
@@ -2803,6 +2869,7 @@ void object_compute_node_matrices(
 								"%s as parent node of %s",
 								tag_get_name(object_get(object->object.parent_object_index)->definition_index),
 								tag_get_name(object->definition_index)));
+						PS3_OBJECTS_ADD(_ps3_timer_nodes_checks, ps3_span); /* port: (the timer build) */
 
 
 						matrix4x3_multiply(object_node_matrix, &object_translation_matrix, &object_nodes[node_stack_index]);
@@ -2819,6 +2886,7 @@ void object_compute_node_matrices(
 				{
 					object_nodes[node_stack_index] = node_matrix;
 				}
+				PS3_OBJECTS_ADD(_ps3_timer_nodes_root, ps3_span); /* port: (the timer build) */
 
 				if (!valid_real_matrix4x3(&object_nodes[node_stack_index]))
 				{
@@ -2920,6 +2988,7 @@ void object_compute_node_matrices(
 						validated_root_node_matrix,
 						"object_compute_node_matrices root node matrix");
 				}
+				PS3_OBJECTS_ADD(_ps3_timer_nodes_checks, ps3_span); /* port: (the timer build) */
 			}
 			else
 			{
@@ -2938,6 +3007,7 @@ void object_compute_node_matrices(
 					&object_nodes[parent_node_index],
 					&object_nodes[node_stack_index],
 					&object_nodes[node_stack_index]);
+				PS3_OBJECTS_ADD(_ps3_timer_nodes_children, ps3_span); /* port: (the timer build) */
 			}
 
 			if (node_stack_index==0)
@@ -2949,6 +3019,7 @@ void object_compute_node_matrices(
 					char *string = name2;
 					match_assert_valid_real_matrix4x3_internal("c:\\halo\\SOURCE\\objects\\objects.c", 2935, final_matrix, string);
 				}
+				PS3_OBJECTS_ADD(_ps3_timer_nodes_checks, ps3_span); /* port: (the timer build) */
 			}
 
 			next_sibling_node_index = node->next_sibling_node_index;
@@ -2983,6 +3054,7 @@ void object_compute_node_matrices(
 				break;
 			}
 		}
+		PS3_OBJECTS_COUNT(_ps3_timer_nodes_children, node_count); /* port: (the timer build) */
 	}
 	else
 	{
@@ -3002,6 +3074,7 @@ void object_compute_node_matrices(
 	}
 	/* port: (and in the packed copy collision reads: object_bounds_cache.c) */
 	object_bounds_cache_update(object_index, &object->object.bounding_sphere_center, object->object.bounding_sphere_radius);
+	PS3_OBJECTS_ADD(_ps3_timer_nodes_bounds, ps3_span); /* port: (the timer build) */
 
 	return;
 }
@@ -3016,7 +3089,11 @@ static void object_postprocess_node_matrices(
 {
 	struct object_datum *object = object_get(object_index);
 	struct object_definition *object_definition = object_definition_get(object->definition_index);
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
+	PS3_OBJECTS_SPAN(ps3_span); /* port: (the timer build) */
 	if (object_definition->object.model.index!=NONE &&
 		object_definition->object.animation_graph.index != NONE)
 	{
@@ -3025,6 +3102,7 @@ static void object_postprocess_node_matrices(
 				&object->object.node_matrices);
 		object_type_postprocess_node_matrices(object_index, matrices);
 	}
+	PS3_OBJECTS_ADD(_ps3_timer_nodes_postprocess, ps3_span); /* port: (the timer build) */
 
 	return;
 }
@@ -3914,6 +3992,9 @@ static boolean object_update(
 	struct object_header_datum *header = object_header_get(object_index);
 	struct object_datum *object = object_get(object_index);
 	struct object_definition *object_definition = object_definition_get(object->definition_index);
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	boolean result = TRUE;
 	boolean elevator_sampled = FALSE;
@@ -3935,6 +4016,8 @@ static boolean object_update(
 			}
 		}
 
+		/* port: (the timer build's steps, after each of the calls) */
+		PS3_OBJECTS_SPAN(ps3_span);
 		/* port: an elevator's node, before the machine moves it (machine_elevator_carry_riders) */
 		elevator_sampled = object->object.type == _object_type_machine &&
 			machine_elevator_sample(object_index, &elevator_sample);
@@ -3942,6 +4025,7 @@ static boolean object_update(
 		HALO_PERF_COUNT(_halo_perf_objects_updated, 1);
 		HALO_PERF_BEGIN(OBJECT_UPDATE_PERF_PHASE(object->object.type));
 		object_type_update(object_index);
+		PS3_OBJECTS_ADD(PS3_OBJECTS_TYPE_TIMER(object->object.type), ps3_span);
 		HALO_PERF_END(OBJECT_UPDATE_PERF_PHASE(object->object.type));
 		if (object_definition->object.collision_model.index!=NONE)
 		{
@@ -3949,9 +4033,11 @@ static boolean object_update(
 			object_damage_update(object_index);
 			HALO_PERF_END(_halo_perf_objects_damage);
 		}
+		PS3_OBJECTS_ADD(_ps3_timer_objects_damage, ps3_span);
 
 		HALO_PERF_BEGIN(_halo_perf_objects_functions);
 		object_type_export_function_values(object_index);
+		PS3_OBJECTS_ADD(_ps3_timer_objects_values, ps3_span);
 		HALO_PERF_END(_halo_perf_objects_functions);
 
 		if (!TEST_FLAG(object->object.flags, _object_do_not_recompute_node_matrices_bit))
@@ -3965,10 +4051,12 @@ static boolean object_update(
 		{
 			machine_elevator_carry_riders(object_index, &elevator_sample);
 		}
+		PS3_OBJECTS_ADD(_ps3_timer_objects_nodes, ps3_span);
 
 		HALO_PERF_BEGIN(_halo_perf_objects_functions);
 		object_compute_function_values(object_index);
 		object_compute_change_colors(object_index);
+		PS3_OBJECTS_ADD(_ps3_timer_objects_values, ps3_span);
 		HALO_PERF_END(_halo_perf_objects_functions);
 
 		if (
@@ -3983,6 +4071,7 @@ static boolean object_update(
 			object_connect_lights(object_index, TRUE, TRUE);
 			HALO_PERF_END(_halo_perf_objects_lights);
 		}
+		PS3_OBJECTS_ADD(_ps3_timer_objects_lights, ps3_span);
 
 		// Update children (if we have any)
 		if (object->object.first_child_object_index!=NONE)
@@ -3998,8 +4087,10 @@ static boolean object_update(
 			}
 		}
 
+		PS3_OBJECTS_SPAN(ps3_span);
 		HALO_PERF_BEGIN(_halo_perf_objects_nodes);
 		object_postprocess_node_matrices(object_index);
+		PS3_OBJECTS_ADD(_ps3_timer_objects_nodes, ps3_span);
 		HALO_PERF_END(_halo_perf_objects_nodes);
 	}
 
@@ -4586,10 +4677,14 @@ void objects_update(
 	short cluster_count;
 	short i;
 	struct object_header_datum *object_header;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	boolean dont_update_object = ((game_time_get()&1)!=0) && game_players_are_double_speed();
 
 	profile_enter(section);
+	PS3_OBJECTS_SPAN(ps3_span); /* port: (the timer build) */
 
 	object_globals->active_garbage_object_count = 0;
 	
@@ -4649,6 +4744,7 @@ void objects_update(
 			active_cluster_bits,
 			cluster_count);
 	}
+	PS3_OBJECTS_ADD(_ps3_timer_objects_activation, ps3_span); /* port: (the timer build) */
 	HALO_PERF_END(_halo_perf_objects_activation);
 
 	object_header = (struct object_header_datum *)xbox_pointer(object_header_data->data);
@@ -4698,8 +4794,10 @@ void objects_update(
 		++i;
 	}
 
+	PS3_OBJECTS_SPAN(ps3_span); /* port: (the timer build) */
 	HALO_PERF_BEGIN(_halo_perf_objects_garbage);
 	objects_garbage_collection();
+	PS3_OBJECTS_ADD(_ps3_timer_objects_cleanup, ps3_span); /* port: (the timer build) */
 	HALO_PERF_END(_halo_perf_objects_garbage);
 
 	profile_exit(section);

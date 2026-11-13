@@ -1022,6 +1022,15 @@ static void get_shake_matrix(
 	return;
 }
 
+#ifdef HALO_PS3
+/* port: the main loop's place, for the PS3's heartbeat (main.c) */
+#include "cseries/errors.h"
+extern volatile long ps3_main_loop_step;
+#define PS3_MAIN_STEP(step) (ps3_main_loop_step = (step))
+#else
+#define PS3_MAIN_STEP(step)
+#endif
+
 void player_effect_get_camera_effect_matrix(
 	short local_player_index,
 	real_matrix4x3 *matrix)
@@ -1056,11 +1065,28 @@ void player_effect_get_camera_effect_matrix(
 #endif
 		game_time_get();
 
+		PS3_MAIN_STEP(570); /* port: (the PS3's heartbeat) */
+#ifdef HALO_PS3
+		{
+			static boolean logged = FALSE;
+			struct player_effect_datum const *logged_effect = player_effect_get(local_player_index);
+
+			if (!logged)
+			{
+				logged = TRUE;
+				error(_error_silent, "ps3: camera effect of player %d: global flags %lx, flags %x, impulse %d, shake %d ticks",
+					local_player_index, player_effect_globals->global_flags, logged_effect->flags,
+					logged_effect->camera_impulse_time_left, logged_effect->camera_shake_time_left);
+			}
+		}
+#endif
 		if (TEST_FLAG(player_effect_globals->global_flags, _scripted_player_effect_active_bit))
 		{
 			struct scripted_player_effect_definition *scripted_effect =
 				&player_effect_globals->scripted_effect;
 			real intensity = scripted_effect->max_intensity;
+
+			PS3_MAIN_STEP(571); /* port: (the PS3's heartbeat) */
 
 			*matrix = *global_identity4x3;
 
@@ -1128,6 +1154,7 @@ void player_effect_get_camera_effect_matrix(
 			real impulse_ticks_left;
 			real shake_ticks_left;
 
+			PS3_MAIN_STEP(572); /* port: (the PS3's heartbeat) */
 			if (camera_effect_drawn(
 				local_player_index,
 				0,
@@ -1185,6 +1212,7 @@ void player_effect_get_camera_effect_matrix(
 
 			*matrix = *source;
 
+			PS3_MAIN_STEP(573); /* port: (the PS3's heartbeat) */
 			camera_shake_ticks = effect->camera_shake_time_left;
 
 			if (camera_effect_drawn(
@@ -1239,11 +1267,13 @@ void player_effect_get_camera_effect_matrix(
 					_player_effect_camera_shake_just_started_bit,
 					FALSE);
 
+				PS3_MAIN_STEP(574); /* port: (the PS3's heartbeat) */
 				get_shake_matrix(
 					random_translation_magnitude + continuous->translational_shake,
 					random_rotation_magnitude + continuous->rotational_shake,
 					&effect_matrix);
 
+				PS3_MAIN_STEP(575); /* port: (the PS3's heartbeat) */
 				rumble_player_continuous(
 					local_player_index,
 					continuous->vibrate_frequencies[0],
@@ -1275,6 +1305,7 @@ void player_effect_get_camera_effect_matrix(
 				matrix4x3_multiply(matrix, &effect_matrix, matrix);
 			}
 		}
+		PS3_MAIN_STEP(576); /* port: (the PS3's heartbeat) */
 #ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		*local_seed = saved_local_seed;
 #endif

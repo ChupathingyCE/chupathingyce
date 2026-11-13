@@ -275,6 +275,31 @@ symbols in this file:
 #include "units/vehicles.h"
 #include "units/biped_definitions.h"
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of actor_perception_update, its props and prop refreshes (port/ps3/include/ps3_timers.h) */
+#define PS3_PERCEPTION_SPAN(span) ((span) = ps3_timer_now())
+#define PS3_PERCEPTION_ADD(timer, span) ((span) = ps3_timer_add((timer), (span)))
+#define PS3_PERCEPTION_COUNT(timer) (ps3_timer_counts[(timer)]++)
+#define PS3_PERCEPTION_REFRESH_BEGIN(span, refresh) ((span) = (refresh) ? ps3_timer_now() : 0)
+#define PS3_PERCEPTION_REFRESH_END(span) ((span) ? (ps3_timer_add(_ps3_timer_perception_prop_refresh, (span)), \
+	ps3_timer_counts[_ps3_timer_perception_prop_refresh]++) : 0)
+/* port: a status refresh's span and count, the line of sight's time in it (ai.c's timer) */
+#define PS3_PERCEPTION_LOS_BEGIN(span, los) ((span) = ps3_timer_now(), (los) = ps3_timers[_ps3_timer_los_total])
+#define PS3_PERCEPTION_LOS_END(span, los) (ps3_timer_add(_ps3_timer_prop_status, (span)), \
+	ps3_timer_counts[_ps3_timer_prop_status]++, \
+	ps3_timers[_ps3_timer_prop_status_los] += ps3_timers[_ps3_timer_los_total] - (los))
+#else
+#define PS3_PERCEPTION_SPAN(span) ((void)0)
+#define PS3_PERCEPTION_ADD(timer, span) ((void)0)
+#define PS3_PERCEPTION_COUNT(timer) ((void)0)
+#define PS3_PERCEPTION_REFRESH_BEGIN(span, refresh) ((void)0)
+#define PS3_PERCEPTION_REFRESH_END(span) ((void)0)
+#define PS3_PERCEPTION_LOS_BEGIN(span, los) ((void)0)
+#define PS3_PERCEPTION_LOS_END(span, los) ((void)0)
+#endif
+
 /* ---------- constants */
 
 enum
@@ -708,7 +733,12 @@ struct actor_perception_unit_view
 
 struct actor_perception_target_unit_view
 {
+#ifdef HALO_BIG_ENDIAN
+	/* port: the low byte of the unit's word damage_flags (+0xB6), which a big-endian word keeps last */
+	byte __unknown000[0xB7];
+#else
 	byte __unknown000[0xB6];
+#endif
 	byte active_region_flags;
 };
 
@@ -728,7 +758,12 @@ struct actor_perception_vehicle_definition_view
 {
 	byte __unknown000[4];
 	real bounding_radius;
+#ifdef HALO_BIG_ENDIAN
+	/* port: the low byte of the tag's long flags (swapped as a long), which a big-endian long keeps last */
+	byte __unknown008[0x2EB];
+#else
 	byte __unknown008[0x2E8];
+#endif
 	byte danger_zone_flags;
 };
 
@@ -902,8 +937,10 @@ typedef char actor_perception_prop_view_dangerous_vehicle_driver_offset_assert[
 	offsetof(struct actor_perception_prop_view, dangerous_vehicle_driver) == 0x136 ? 1 : -1];
 typedef char actor_perception_status_unit_flags_offset_assert[
 	offsetof(struct actor_perception_status_unit_view, status_flags) == 0x1B4 ? 1 : -1];
+#ifndef HALO_BIG_ENDIAN
 typedef char actor_perception_target_unit_active_region_offset_assert[
 	offsetof(struct actor_perception_target_unit_view, active_region_flags) == 0xB6 ? 1 : -1];
+#endif
 typedef char actor_target_weight_definition_melee_velocity_offset_assert[
 	offsetof(struct actor_definition, berserk.melee_leap_velocity) == 0x38C ? 1 : -1];
 typedef char actor_target_weight_variant_melee_range_offset_assert[
@@ -970,8 +1007,10 @@ typedef char actor_perception_definition_melee_range_offset_assert[
 	offsetof(struct actor_definition, berserk.melee_attack_range) == 0x37C ? 1 : -1];
 typedef char actor_perception_vehicle_definition_radius_offset_assert[
 	offsetof(struct actor_perception_vehicle_definition_view, bounding_radius) == 4 ? 1 : -1];
+#ifndef HALO_BIG_ENDIAN
 typedef char actor_perception_vehicle_definition_danger_zone_offset_assert[
 	offsetof(struct actor_perception_vehicle_definition_view, danger_zone_flags) == 0x2F0 ? 1 : -1];
+#endif
 typedef char actor_perception_responsible_unit_team_offset_assert[
 	offsetof(struct actor_perception_responsible_unit_view, team) == 0x68 ? 1 : -1];
 typedef char actor_perception_encounter_view_blind_offset_assert[
@@ -6188,13 +6227,18 @@ void actor_perception_update(
 	struct prop_iterator iterator;
 	struct prop_datum *prop;
 	struct actor_position_data position;
+#ifdef HALO_PS3
+	uint64_t ps3_span, ps3_refresh, ps3_part, ps3_los;
+#endif
 
+	PS3_PERCEPTION_SPAN(ps3_span); /* port: (the timer build) */
 	if (!actor->meta.dormant)
 	{
 		if (actor->meta.timeslice)
 		{
 			actor_perception_refresh(actor_index);
 		}
+		PS3_PERCEPTION_ADD(_ps3_timer_perception_refresh, ps3_span); /* port: (the timer build) */
 
 		actor_perception_refresh_danger_zone(actor_index);
 
@@ -6295,6 +6339,7 @@ void actor_perception_update(
 			}
 		}
 	}
+	PS3_PERCEPTION_ADD(_ps3_timer_perception_danger, ps3_span); /* port: (the timer build) */
 
 	prop_iterator_new(&iterator, actor_index);
 	while ((prop = prop_iterator_next(&iterator)) != NULL)
@@ -6306,6 +6351,7 @@ void actor_perception_update(
 		boolean became_acknowledged = FALSE;
 		boolean expected_acknowledgement = FALSE;
 
+		PS3_PERCEPTION_COUNT(_ps3_timer_perception_props); /* port: (the timer build) */
 		if (prop->unit_effect_decay_ticks > 0 &&
 			--prop->unit_effect_decay_ticks == 0)
 		{
@@ -6460,20 +6506,27 @@ void actor_perception_update(
 			assert(!refresh_status || refresh_position);
 #line 6624 "source\\ai\\actor_perception.c"
 
+			PS3_PERCEPTION_REFRESH_BEGIN(ps3_refresh, refresh_position); /* port: (the timer build) */
 			if (refresh_position)
 			{
+				PS3_PERCEPTION_SPAN(ps3_part); /* port: (the timer build) */
 				prop_position_refresh(
 					actor_index,
 					iterator.index,
 					&position,
 					FALSE,
 					refresh_status);
+				PS3_PERCEPTION_ADD(_ps3_timer_prop_position, ps3_part); /* port: (the timer build) */
+				PS3_PERCEPTION_COUNT(_ps3_timer_prop_position); /* port: (the timer build) */
 			}
 
 			if (refresh_status)
 			{
+				PS3_PERCEPTION_LOS_BEGIN(ps3_part, ps3_los); /* port: (the timer build) */
 				prop_status_refresh(actor_index, iterator.index, &position);
+				PS3_PERCEPTION_LOS_END(ps3_part, ps3_los); /* port: (the timer build) */
 			}
+			PS3_PERCEPTION_REFRESH_END(ps3_refresh); /* port: (the timer build) */
 		}
 
 		switch (prop->state)
@@ -6995,6 +7048,7 @@ void actor_perception_update(
 			}
 		}
 	}
+	PS3_PERCEPTION_ADD(_ps3_timer_perception_props, ps3_span); /* port: (the timer build) */
 
 	if (actor->target.target_prop_index != NONE)
 	{

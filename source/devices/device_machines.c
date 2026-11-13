@@ -244,7 +244,12 @@ boolean machine_update(
 				struct unit_definition *unit_definition = unit_definition_get(unit->definition_index);
 				boolean can_open = TRUE;
 
+#ifdef HALO_BIG_ENDIAN
+				/* port: the byte at 0xb6 is damage_flags' low byte on the Xbox only; its bit 2 is the dead bit */
+				if (TEST_FLAG(unit->object.damage_flags, _object_dead_bit) ||
+#else
 				if (TEST_FLAG(*((byte *)unit + 0xb6), _object_function2_active_bit) ||
+#endif
 					TEST_FLAG(*(unsigned long *)((byte *)unit_definition + 0x17c), _object_runtime_unit_cannot_open_doors_automatically_bit))
 				{
 					can_open = FALSE;

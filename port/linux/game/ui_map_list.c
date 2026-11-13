@@ -553,6 +553,14 @@ static void ce_pictures_read(
 		IDirect3DBaseTexture8_Register(texture, pixels);
 		bitmap->base_address = xbox_address(pixels);
 		bitmap->hardware_format = xbox_address(texture);
+#ifdef HALO_CONSOLE_CE_BITMAPS
+		/* port: its pixels made the console's, as a map's are (xbox_texture_cache.c) */
+		{
+			extern void platform_ce_bitmap_loaded(struct bitmap_data *bitmap);
+
+			platform_ce_bitmap_loaded(bitmap);
+		}
+#endif
 		ce_ui.picture_count = index + 1;
 	}
 	if (bitmaps_file != INVALID_HANDLE_VALUE)
@@ -576,7 +584,13 @@ static void ce_ui_read(
 	if (file == INVALID_HANDLE_VALUE)
 		return;
 	/* ('head', its version, its size, ..., its tags' offset and size) */
-	if (file_read(file, 0, header, sizeof(header)) && header[0] == 'head' && header[1] == CE_CACHE_VERSION &&
+	if (file_read(file, 0, header, sizeof(header)) &&
+#ifdef HALO_BIG_ENDIAN
+		/* port: (the map's byte order, little-endian) */
+		(header[0] = __builtin_bswap32(header[0]), header[1] = __builtin_bswap32(header[1]),
+			header[4] = __builtin_bswap32(header[4]), header[5] = __builtin_bswap32(header[5]), TRUE) &&
+#endif
+		header[0] == 'head' && header[1] == CE_CACHE_VERSION &&
 		header[5] >= 0x10 && header[5] <= 0x4000000)
 	{
 		ce_tags = malloc(header[5]);
@@ -584,6 +598,14 @@ static void ce_ui_read(
 		ce_ui.lists = ce_tags ? calloc(1, sizeof(*ce_ui.lists)) : NULL;
 		if (ce_ui.lists && file_read(file, header[4], ce_tags, header[5]))
 		{
+#ifdef HALO_PS3
+			/* port: its tags in the console's byte order (port/ps3/xbox/xbox_tag_swap.c) */
+			{
+				extern void ce_byte_swap_tags(void *tag_data, unsigned long address, long size);
+
+				ce_byte_swap_tags(ce_tags, CE_TAGS_ADDRESS, (long)header[5]);
+			}
+#endif
 			ce_ui.name_count = ce_string_list_read("ui\\shell\\main_menu\\mp_map_list", ce_ui.lists->names[0],
 				DISPLAY_NAME_LENGTH, MAXIMUM_CE_STRINGS);
 			ce_ui.description_count = ce_string_list_read(

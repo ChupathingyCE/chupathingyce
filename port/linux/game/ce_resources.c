@@ -140,6 +140,12 @@ int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sa
 int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int wanted);
 void ce_vorbis_free(short *samples);
 static void ce_sounds_decode(void *tag_instances, long tag_count);
+#ifdef HALO_PS3
+/* port: Halo PC's little-endian data in the console's byte order (port/ps3/xbox/xbox_tag_swap.c) */
+void ce_byte_swap_resource(unsigned long group_tag, void *bytes, long size);
+void ce_byte_swap_longs(void *data, long count);
+void ce_byte_swap_shorts(void *data, long count);
+#endif
 
 /* ---------- globals */
 
@@ -199,7 +205,12 @@ static boolean ce_resource_map_open(
 	/* (its type, its paths before its resources' table, the table in the
 	file) */
 	if (file_size == INVALID_FILE_SIZE || file_size_high || file_size > 0x7fffffff ||
-		!ce_read(file, 0, header, sizeof(header)) || header[0] != (unsigned long)(type + 1) ||
+		!ce_read(file, 0, header, sizeof(header)) ||
+#ifdef HALO_PS3
+		/* port: (in the console's byte order) */
+		(ce_byte_swap_longs(header, 4), FALSE) ||
+#endif
+		header[0] != (unsigned long)(type + 1) ||
 		header[3] > CE_MAXIMUM_ELEMENTS || header[1] > header[2] ||
 		!ce_range_within(header[2], header[3] * sizeof(struct ce_resource), file_size))
 	{
@@ -214,6 +225,10 @@ static boolean ce_resource_map_open(
 		CloseHandle(file);
 		return ce_refuse("%s's resources could not be read", path);
 	}
+#ifdef HALO_PS3
+	/* port: (in the console's byte order) */
+	ce_byte_swap_longs(map->resources, (long)(header[3] * sizeof(struct ce_resource) / 4));
+#endif
 	/* (the paths, to find a sound's resource by its tag's name) */
 	map->paths_size = header[2] - header[1];
 	map->paths = map->paths_size ? system_malloc(map->paths_size + 1) : NULL;
@@ -568,6 +583,14 @@ static byte *ce_retail_read_resource(
 			free(copy);
 		copy = NULL;
 	}
+#ifdef HALO_PS3
+	/* port: (in the console's byte order: a bitmaps.map's or a sounds.map's) */
+	if (copy)
+	{
+		ce_byte_swap_resource(map == &ce_resource_maps[_ce_resource_sounds] ? 'snd!' : 'bitm', copy,
+			(long)resource->size);
+	}
+#endif
 	*size = resource->size;
 	return copy;
 }
@@ -1181,6 +1204,10 @@ static boolean ce_resources_place(
 		copy = image->data + (next - image->base);
 		if (!ce_read(map->file, resource->offset, copy, resource->size))
 			return ce_refuse("%s's resource could not be read", name);
+#ifdef HALO_PS3
+		/* port: (in the console's byte order, before its pointers are read) */
+		ce_byte_swap_resource(instance->group_tag, copy, (long)resource->size);
+#endif
 		if (!ce_relocate_tag(instance->group_tag, copy, resource->size, next, instance->tag_index))
 			return ce_refuse("%s's resource in %s.map points out of itself", name, ce_resource_map_names[type]);
 		if (sound_header)
@@ -1838,6 +1865,10 @@ static void ce_sounds_decode(
 					break;
 				}
 				bytes = (unsigned long)frames * (unsigned long)channels * sizeof(short);
+#ifdef HALO_PS3
+				/* port: (little-endian, as the maps' PCM samples are, which the mixer reads) */
+				ce_byte_swap_shorts(samples, (long)(bytes / 2));
+#endif
 				if (bytes > CE_MAXIMUM_DECODED_SOUNDS_SIZE - written ||
 					!WriteFile(file, samples, bytes, &bytes_written, NULL) ||
 					bytes_written != bytes)

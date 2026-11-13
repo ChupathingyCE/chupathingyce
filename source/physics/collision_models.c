@@ -133,6 +133,7 @@ boolean collision_model_test_point(
 	short perm;
 	real_point3d transformed_point;
 
+	PS3_COLLISION_BEGIN(); /* port: (the timer build) */
 	/* port: (instance->node_count, collision_node_region_valid) */
 	for (i = 0; i < instance->node_count; i++)
 	{
@@ -154,6 +155,7 @@ boolean collision_model_test_point(
 
 					if (bsp3d_test_point(&collision_bsp->bsp3d, 0, &transformed_point) == NONE)
 					{
+						PS3_COLLISION_END(_ps3_collision_point); /* port: (the timer build) */
 						return TRUE;
 					}
 				}
@@ -161,6 +163,7 @@ boolean collision_model_test_point(
 		}
 	}
 
+	PS3_COLLISION_END(_ps3_collision_point); /* port: (the timer build) */
 	return FALSE;
 }
 
@@ -243,6 +246,7 @@ boolean collision_model_test_pill(
 	boolean return_val;
 	real scaled_radius;
 
+	PS3_COLLISION_BEGIN(); /* port: (the timer build) */
 	result->bsp_result.t = FLT_MAX;
 
 	return_val = FALSE;
@@ -289,6 +293,7 @@ boolean collision_model_test_pill(
 		}
 	}
 
+	PS3_COLLISION_END(_ps3_collision_pill); /* port: (the timer build) */
 	return return_val;
 }
 

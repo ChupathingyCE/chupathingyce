@@ -16,6 +16,12 @@ follows xbox_textures.c, so locks and uploads agree.
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef HALO_PS3
+/* port/ps3/xbox/d3d8_rsx.c: its Direct3D thread reads a resource after the call that drew with it */
+BOOL d3d8_resource_busy(D3DResource *resource);
+void d3d8_resource_wait(D3DResource *resource);
+#endif
+
 static void *resource_data(DWORD data)
 {
 	return data ? PLATFORM_PHYSICAL_TO_VIRTUAL(data) : NULL;
@@ -127,6 +133,9 @@ ULONG WINAPI D3DResource_Release(D3DResource *resource)
 	/* resources the game built itself (not D3DCOMMON_D3DCREATED) are never freed here */
 	if (!count && (fields[0] & D3DCOMMON_D3DCREATED))
 	{
+#ifdef HALO_PS3
+		d3d8_resource_wait(resource);
+#endif
 #ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
 		if ((fields[0] & D3DCOMMON_TYPE_MASK) == D3DCOMMON_TYPE_VERTEXBUFFER)
 			vertex_buffer_rename_forget((const D3DVertexBuffer *)resource);
@@ -295,6 +304,8 @@ BOOL WINAPI D3DResource_IsBusy(D3DResource *resource)
 {
 #ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
 	return halo_resource_busy(resource);
+#elif defined(HALO_PS3)
+	return d3d8_resource_busy(resource);
 #else
 	(void)resource;
 	return FALSE;
@@ -305,6 +316,8 @@ void WINAPI D3DResource_BlockUntilNotBusy(D3DResource *resource)
 {
 #ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
 	halo_resource_wait(resource);
+#elif defined(HALO_PS3)
+	d3d8_resource_wait(resource);
 #else
 	(void)resource;
 #endif

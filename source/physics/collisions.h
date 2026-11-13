@@ -199,5 +199,10 @@ __inline boolean collision_test_line(
 }
 #endif
 
+#ifdef HALO_PS3
+#include "ps3_spu_game.h" /* port: port/ps3/src/ps3_spu.c */
+/* port: collisions.c, for the particles' rays on an SPU (particles.c) */
+boolean collision_spu_particles(spu_game_particles *job);
+#endif
 
 #endif // __COLLISIONS_H

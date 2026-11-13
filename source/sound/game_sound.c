@@ -689,6 +689,27 @@ void scripted_looping_sound_set_scale(
 	return;
 }
 
+#ifdef HALO_PS3
+#include "cseries/cseries_windows.h"
+#include "cseries/errors.h"
+#include "tag_files/tag_files.h"
+
+/* port: the scripts' music in the log, beside sound_manager.c's [music] lines (the PS3's two tracks at once) */
+static void ps3_music_script_log(
+	char const *event,
+	long definition_index)
+{
+	if (looping_sound_definition_is_music(definition_index))
+	{
+		error(_error_silent, "[music] %lu ms: the script %s %s", system_milliseconds(), event,
+			tag_get_name(definition_index));
+	}
+}
+#define PS3_MUSIC_SCRIPT_LOG(event, definition_index) ps3_music_script_log((event), (definition_index))
+#else
+#define PS3_MUSIC_SCRIPT_LOG(event, definition_index) ((void)0)
+#endif
+
 void scripted_looping_sound_set_alternate(
 	long sound_index,
 	boolean alternate)
@@ -701,6 +722,8 @@ void scripted_looping_sound_set_alternate(
 		definition = looping_sound_definition_get(sound_index);
 		if (definition->runtime_scripting_sound_index != NONE)
 		{
+			PS3_MUSIC_SCRIPT_LOG(alternate ? "turns on the alternate of" : "turns off the alternate of",
+				sound_index); /* port: (the PS3's music log) */
 			looping_sound = game_looping_sound_get(definition->runtime_scripting_sound_index);
 			SET_FLAG(looping_sound->flags, _game_looping_sound_alternate_bit, alternate);
 		}
@@ -732,6 +755,8 @@ static void scripted_looping_sound_stop_internal(
 		definition = looping_sound_definition_get(sound_index);
 		if (definition->runtime_scripting_sound_index != NONE)
 		{
+			/* port: (the PS3's music log) */
+			PS3_MUSIC_SCRIPT_LOG(fixed_fadeout ? "stops (a 4 s fade)" : "stops", sound_index);
 			looping_sound = game_looping_sound_get(definition->runtime_scripting_sound_index);
 			SET_FLAG(looping_sound->flags, _game_looping_sound_scripted_bit, FALSE);
 			unattached_looping_sound_stop(definition->runtime_scripting_sound_index);
@@ -778,6 +803,8 @@ void scripted_looping_sound_start(
 			"c:\\halo\\SOURCE\\sound\\game_sound.c",
 			495,
 			definition->runtime_scripting_sound_index==NONE);
+		PS3_MUSIC_SCRIPT_LOG(TEST_FLAG(definition->flags, _looping_sound_stops_music_bit) ?
+			"starts (it stops the music)" : "starts", sound_index); /* port: (the PS3's music log) */
 		if (TEST_FLAG(definition->flags, _looping_sound_stops_music_bit))
 		{
 			scripted_music_stop_all();
@@ -821,6 +848,17 @@ long unattached_looping_sound_start(
 	return looping_sound_index;
 }
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's spans of game_sound_update (port/ps3/include/ps3_timers.h) */
+#define PS3_GAME_SOUND_SPAN(span) ((span) = ps3_timer_now())
+#define PS3_GAME_SOUND_ADD(timer, span) ((span) = ps3_timer_add((timer), (span)))
+#else
+#define PS3_GAME_SOUND_SPAN(span) ((void)0)
+#define PS3_GAME_SOUND_ADD(timer, span) ((void)0)
+#endif
+
 void game_sound_update(
 	real dt)
 {
@@ -829,7 +867,11 @@ void game_sound_update(
 	boolean crossed_water_boundary;
 	long looping_sound_index;
 	struct location location;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
+	PS3_GAME_SOUND_SPAN(ps3_span); /* port: (the PS3's timer build; nothing elsewhere) */
 	scenario_get_sound_environment(
 		&background_sound_definition_index,
 		&sound_environment,
@@ -866,6 +908,7 @@ void game_sound_update(
 			NONE,
 			1.f);
 	}
+	PS3_GAME_SOUND_ADD(_ps3_timer_game_sound_environment, ps3_span);
 
 	for (looping_sound_index = data_next_index(game_looping_sound_data, NONE);
 		looping_sound_index != NONE;
@@ -904,6 +947,7 @@ void game_sound_update(
 		}
 	}
 
+	PS3_GAME_SOUND_ADD(_ps3_timer_game_sound_looping, ps3_span);
 	game_sound_globals->update_index++;
 
 	return;
@@ -930,7 +974,20 @@ render_interpolation.c), and the sound manager refreshes every sound each
 frame; on the Xbox, frames and ticks were one. A sound's obstruction, a
 collision test from the camera, is computed once per tick and reused by the
 tick's other frames. */
+#ifdef HALO_PS3
+/* port: on the PS3 a source that has not moved keeps it up to 4 ticks; each slot renews at its own tick of the 4,
+so the tests spread over the ticks (the calls and the computations counted: ps3_timers.h) */
+#define OBSTRUCTION_CACHE_SLOTS 512
+#define OBSTRUCTION_CACHE_TICKS 4
+#define OBSTRUCTION_CACHE_CURRENT(slot, now) (obstruction_cache[(slot)].game_time <= (now) && \
+	(obstruction_cache[(slot)].game_time + (slot)) / OBSTRUCTION_CACHE_TICKS == \
+	((now) + (slot)) / OBSTRUCTION_CACHE_TICKS)
+#define PS3_OBSTRUCTION_COUNT(counter) ((void)((counter)++))
+#else
 #define OBSTRUCTION_CACHE_SLOTS 128
+#define OBSTRUCTION_CACHE_CURRENT(slot, now) (obstruction_cache[(slot)].game_time == (now))
+#define PS3_OBSTRUCTION_COUNT(counter) ((void)0)
+#endif
 
 static struct
 {
@@ -963,8 +1020,10 @@ void compute_sound_obstruction(
 	long slot = obstruction_cache_slot(local_player_index, &source->location.position);
 	long now = game_time_get();
 
+	PS3_OBSTRUCTION_COUNT(ps3_obstruction_calls); /* port: (the PS3's timer build; nothing elsewhere) */
+	/* port: OBSTRUCTION_CACHE_CURRENT: this tick's, or on the PS3 its slot's 4 ticks' */
 	if (obstruction_cache[slot].valid &&
-		obstruction_cache[slot].game_time == now &&
+		OBSTRUCTION_CACHE_CURRENT(slot, now) &&
 		obstruction_cache[slot].local_player_index == local_player_index &&
 		obstruction_cache[slot].position.x == source->location.position.x &&
 		obstruction_cache[slot].position.y == source->location.position.y &&
@@ -974,6 +1033,7 @@ void compute_sound_obstruction(
 		source->occlusion = obstruction_cache[slot].occlusion;
 		return;
 	}
+	PS3_OBSTRUCTION_COUNT(ps3_obstruction_computed);
 #endif
 
 	match_assert(

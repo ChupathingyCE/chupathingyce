@@ -219,6 +219,13 @@ enum
 /* ---------- macros */
 
 #define CACHE_FILE_BUILD_STRING "01.01.14.2342"
+#ifdef HALO_PS3
+/* port: unlike x86, the PPE can show another thread a request's pending flag, or a read's completion flag,
+before the stores it publishes */
+#define CACHE_IO_BARRIER() __sync_synchronize()
+#else
+#define CACHE_IO_BARRIER()
+#endif
 
 /* ---------- structures */
 
@@ -575,7 +582,12 @@ static boolean ce_map_open(
 	engine did not read: beavercreek_rev_beta's; the file's own then, which
 	every offset in it is checked against: ce_map_check) */
 	if (bytes_read == sizeof(header) && !header.file_length && file_size <= 0x7fffffff)
+#ifdef HALO_BIG_ENDIAN
+		/* port: (in the map's byte order, which cache_file_header_verify swaps) */
+		header.file_length = (long)__builtin_bswap32((unsigned int)file_size);
+#else
 		header.file_length = (long)file_size;
+#endif
 	/* (a map refused already, unchanged: refused again, quietly) */
 	if (!_stricmp(ce_refused_map_name, map_name) && ce_refused_map_size == file_size &&
 		ce_refused_map_checksum == header.checksum)
@@ -1240,6 +1252,7 @@ short cache_file_read(
 	request->overlapped.OffsetHigh = 0;
 	request->overlapped.Offset = offset;
 	request->buffer = buffer;
+	CACHE_IO_BARRIER(); /* port: (the PS3's) */
 	request->pending = TRUE;
 	request->blocking = blocking;
 	request->running = FALSE;
@@ -1247,6 +1260,25 @@ short cache_file_read(
 
 	return request_index;
 }
+
+#ifdef HALO_PS3
+/* port: the open map's cache file, whose bsps port/ps3/xbox/bsp_keep.c reads ahead; FALSE when none */
+boolean cache_file_open_map_path(
+	char *path)
+{
+	if (cache_file_globals.open_map_file_index == NONE
+#ifdef HALO_CUSTOM_EDITION
+		|| cache_file_globals.open_map_file_index == CE_MAP_FILE_INDEX
+#endif
+		)
+	{
+		return FALSE;
+	}
+	cached_map_file_get_path(cache_file_globals.open_map_file_index, path);
+
+	return TRUE;
+}
+#endif
 
 short cache_files_precache_map_status(
 	real *progress)
@@ -1619,6 +1651,7 @@ static void CALLBACK cache_file_read_io_completion_routine(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		1389,
 		finished_request->overlapped.hEvent);
+	CACHE_IO_BARRIER(); /* port: (the PS3's) */
 	/* port: a read that failed or came up short completes as failed: what
 	waits on it stops waiting, and a caller that checks (the map's tags and
 	bsps) sees it, instead of taking what is in its buffer for the map */
@@ -1670,6 +1703,7 @@ static void cache_file_windows_thread_proc(
 				break;
 			}
 
+			CACHE_IO_BARRIER(); /* port: (the PS3's) */
 			file = cached_map_file_get_handle(cache_file_globals.open_map_file_index);
 #ifdef HALO_CUSTOM_EDITION
 			/* (a Custom Edition map's indexed tag's pixels or samples: its
@@ -2217,6 +2251,10 @@ static short cache_request_next_free_index(
 		{
 			out_of_requests = TRUE;
 		}
+#ifdef HALO_PS3
+		/* port: lv2 does not time-slice equal priorities, so let the cache thread retire a request */
+		SwitchToThread();
+#endif
 	}
 
 	return NONE;
@@ -2246,8 +2284,14 @@ static void cache_requests_flush(
 		volatile struct cache_file_request *request = cache_request_get(request_index);
 
 		while (request->pending)
-			;
+		{
+#ifdef HALO_PS3
+			/* port: lv2 does not time-slice equal priorities, so let the cache thread finish the request */
+			SwitchToThread();
+#endif
+		}
 	}
+	CACHE_IO_BARRIER(); /* port: (the PS3's) */
 
 	return;
 }

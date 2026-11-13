@@ -320,6 +320,19 @@ symbols in this file:
 #include "units/vehicles.h"
 #include "networking/network_game_globals.h"
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's steps of an actor's update, and the actors updated (port/ps3/include/ps3_timers.h) */
+#define PS3_ACTOR_SPAN(span) ((span) = ps3_timer_now())
+#define PS3_ACTOR_ADD(timer, span) ((span) = ps3_timer_add((timer), (span)))
+#define PS3_ACTOR_COUNT(timer) (ps3_timer_counts[(timer)]++)
+#else
+#define PS3_ACTOR_SPAN(span) ((void)0)
+#define PS3_ACTOR_ADD(timer, span) ((void)0)
+#define PS3_ACTOR_COUNT(timer) ((void)0)
+#endif
+
 /* ---------- constants */
 
 enum
@@ -1954,6 +1967,9 @@ static void actor_decision_loop(
 	boolean action_performed = FALSE;
 	long iteration = 0;
 	long history_index = 0;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	csmemset(action_history, NONE, sizeof(action_history));
 
@@ -1963,7 +1979,10 @@ static void actor_decision_loop(
 		iteration++;
 		history_index = (history_index + 1) % NUMBER_OF_DECISION_LOOP_HISTORY_ENTRIES;
 		actor->state.action_changed = FALSE;
+		PS3_ACTOR_SPAN(ps3_span); /* port: (the timer build) */
 		actor_type_decide_action(actor_index);
+		PS3_ACTOR_ADD(_ps3_timer_decision_decide, ps3_span); /* port: (the timer build) */
+		PS3_ACTOR_COUNT(_ps3_timer_decision_decide); /* port: (the timer build) */
 		actor_stimulus_clear(actor_index);
 
 		if ((action_performed && !actor->state.action_changed) ||
@@ -1972,7 +1991,10 @@ static void actor_decision_loop(
 			break;
 		}
 
+		PS3_ACTOR_SPAN(ps3_span); /* port: (the timer build) */
 		action_performed = actor_action_perform(actor_index);
+		PS3_ACTOR_ADD(_ps3_timer_decision_perform, ps3_span); /* port: (the timer build) */
+		PS3_ACTOR_COUNT(_ps3_timer_decision_perform); /* port: (the timer build) */
 		if (!action_performed && !actor->state.action_changed)
 		{
 			return;
@@ -4207,41 +4229,65 @@ static void actor_update(
 	long actor_index)
 {
 	struct actor_datum *actor = actor_get(actor_index);
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
+	/* port: (the timer build's steps, after each of the calls) */
+	PS3_ACTOR_SPAN(ps3_span);
+	PS3_ACTOR_COUNT(_ps3_timer_actor_general);
 	actor_update_begin(actor_index);
 	if (actor_general_update(actor_index))
 	{
 		actor_get_timeslice(actor_index);
 		actor_input_update(actor_index);
+		PS3_ACTOR_ADD(_ps3_timer_actor_general, ps3_span);
 		actor_perception_update(actor_index);
+		PS3_ACTOR_ADD(_ps3_timer_actor_perception, ps3_span);
 		actor_situation_update(actor_index);
+		PS3_ACTOR_ADD(_ps3_timer_actor_situation, ps3_span);
 		actor_emotion_update(actor_index);
+		PS3_ACTOR_ADD(_ps3_timer_actor_emotion, ps3_span);
 		actor_clear_orders(actor_index);
+		PS3_ACTOR_ADD(_ps3_timer_actor_orders, ps3_span);
 		actor_decision_loop(actor_index);
+		PS3_ACTOR_ADD(_ps3_timer_actor_decision_loop, ps3_span);
 		actor_action_update(actor_index);
+		PS3_ACTOR_ADD(_ps3_timer_actor_actions, ps3_span);
 
 		if (!actor->meta.dormant)
 		{
 			if (actor->meta.swarm)
 			{
 				actor_type_swarm_control(actor_index);
+				PS3_ACTOR_ADD(_ps3_timer_actor_action_control, ps3_span);
 			}
 			else
 			{
 				actor_clear_output(actor_index);
+				PS3_ACTOR_ADD(_ps3_timer_actor_clear_output, ps3_span);
 				actor_action_control(actor_index);
+				PS3_ACTOR_ADD(_ps3_timer_actor_action_control, ps3_span);
 				actor_communication_update(actor_index);
+				PS3_ACTOR_ADD(_ps3_timer_actor_communication, ps3_span);
 				actor_conversation_control(actor_index);
+				PS3_ACTOR_ADD(_ps3_timer_actor_conversation, ps3_span);
 				actor_destination_update(actor_index);
+				PS3_ACTOR_ADD(_ps3_timer_actor_destination, ps3_span);
 				actor_look_affect_movement(actor_index);
+				PS3_ACTOR_ADD(_ps3_timer_actor_look_movement, ps3_span);
 				actor_move_update(actor_index);
+				PS3_ACTOR_ADD(_ps3_timer_actor_move, ps3_span);
 				actor_look_update(actor_index);
 				actor_combat_update(actor_index);
+				PS3_ACTOR_ADD(_ps3_timer_actor_look_combat, ps3_span);
 				actor_unit_control(actor_index);
+				PS3_ACTOR_ADD(_ps3_timer_actor_unit, ps3_span);
 			}
 		}
 	}
 	actor_update_end();
+	PS3_ACTOR_ADD(_ps3_timer_actor_general, ps3_span);
 
 	return;
 }

@@ -234,7 +234,8 @@
 	<strings name="main_menu/multiplayer_type_select/server_settings/labels">
 		<string text="GAME NAME:"/>
 		<string text="MAXIMUM PLAYERS:"/>
-		<string text="INVITE LINK:"/>
+		<string text="INVITE LINK:" platform="desktop android switch x360 wiiu"/>
+		<string text="INVITE CODE:" platform="ps3"/>
 		<string text="GAME TYPE:"/>
 		<string text="PLAYER OPTIONS:"/>
 		<string text="ITEM OPTIONS:"/>
@@ -254,7 +255,8 @@
 		<string text=""/>
 		<string text="The game's name in the game list."/>
 		<string text="The most players allowed in the game."/>
-		<string text="Press %a-button to copy the invite link."/>
+		<string text="Press %a-button to copy the invite link." platform="desktop android switch x360 wiiu"/>
+		<string text="A PS3 types it in DIRECT LINK. On a PC, the\nInvite Codes page turns it into a link." platform="ps3"/>
 		<string text="Choose the gametype."/>
 		<string text="Lives, health, shields and respawning."/>
 		<string text="Weapons, grenades and starting equipment."/>
@@ -262,7 +264,8 @@
 		<string text="The motion tracker and nav points."/>
 		<string text="Friendly fire and team balance."/>
 		<string text="Anyone can join from the Server Browser."/>
-		<string text="Only players with your invite link can join."/>
+		<string text="Only players with your invite link can join." platform="desktop android switch x360 wiiu"/>
+		<string text="Only players with your invite code can join." platform="ps3"/>
 		<string text="Players can not be hurt by weapons and explosives\nfired by the other players."/>
 		<string text="Players can be hurt by weapons or explosives\nfired by the other players."/>
 		<string text="Damage from the other players will only reduce\nshields. Health will be unaffected."/>

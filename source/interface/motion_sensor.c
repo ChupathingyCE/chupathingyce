@@ -779,11 +779,26 @@ stack_buffer_checked_render_motion_sensor:
 	return;
 }
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's spans of the motion sensor's draw (port/ps3/include/ps3_timers.h) */
+#define PS3_SENSOR_SPAN(span) ((void)((span) = ps3_timer_now()))
+#define PS3_SENSOR_ADD(timer, span) ((void)((span) = ps3_timer_add((timer), (span))))
+#else
+#define PS3_SENSOR_SPAN(span) ((void)0)
+#define PS3_SENSOR_ADD(timer, span) ((void)0)
+#endif
+
 void motion_sensor_draw_screen(
 	short local_player_index,
 	boolean in_multiplayer,
 	point2d const *pt)
 {
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
+
 	match_assert(
 		"c:\\halo\\SOURCE\\interface\\motion_sensor.c",
 		476,
@@ -791,8 +806,11 @@ void motion_sensor_draw_screen(
 
 	if (local_player_index != NONE)
 	{
+		PS3_SENSOR_SPAN(ps3_span); /* port: (the PS3's timer build; nothing elsewhere) */
 		update_motion_sensor(local_player_index);
+		PS3_SENSOR_ADD(_ps3_timer_hud_sensor_update, ps3_span);
 		render_motion_sensor(local_player_index, in_multiplayer, pt);
+		PS3_SENSOR_ADD(_ps3_timer_hud_sensor_render, ps3_span);
 	}
 
 	return;

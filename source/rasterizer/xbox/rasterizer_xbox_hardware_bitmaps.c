@@ -744,6 +744,12 @@ void rasterizer_bitmap_changed(
 		break;
 	}
 	rasterizer_globals.current_lock_operation = _rasterizer_lock_none;
+#ifdef HALO_PS3
+	/* port: Lock 0 makes the next draw's record fresh, so the RSX copies the new texels at that draw, not at its
+	frame's first (d3d8_rsx.c record_textures; the text cache's glyphs) */
+	if (bitmap->hardware_format)
+		((D3DBaseTexture *)xbox_pointer(bitmap->hardware_format))->Lock = 0;
+#endif
 
 	return;
 }

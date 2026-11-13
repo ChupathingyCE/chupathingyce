@@ -99,9 +99,19 @@ void text_hires_register_atlas(unsigned long const *texture, unsigned long width
 
 enum
 {
+#ifdef HALO_PS3
+	/* port: 4x the room: the RSX copies the cache once a frame (d3d8_rsx.c), so a screen with more characters
+	than fit (Online Games) drew others' in their place */
+	HARDWARE_CHARACTER_CACHE_BITMAP_WIDTH = 256,
+	HARDWARE_CHARACTER_CACHE_BITMAP_HEIGHT = 256,
+	MAXIMUM_HARDWARE_CHARACTERS = 1024,
+#else
+#line 101
 	HARDWARE_CHARACTER_CACHE_BITMAP_WIDTH = 128,
 	HARDWARE_CHARACTER_CACHE_BITMAP_HEIGHT = 128,
 	MAXIMUM_HARDWARE_CHARACTERS = 256,
+#endif
+#line 104
 	/* port: the high-res text atlas's placeholder (its texels are the units
 	of the atlas's glyphs), and the fonts remembered */
 	HIRES_TEXT_ATLAS_BITMAP_SIZE = 256,

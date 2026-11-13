@@ -36,6 +36,10 @@ symbols in this file:
 #include "physical_memory_map.h"
 #include "main.h"
 #include "rasterizer/xbox/rasterizer_xbox.h"
+#ifdef HALO_CONSOLE_LOG_BUFFER
+/* port: error_log_flush */
+#include "errors.h"
+#endif
 
 /* ---------- prototypes */
 
