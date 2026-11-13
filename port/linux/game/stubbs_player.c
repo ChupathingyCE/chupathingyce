@@ -289,9 +289,10 @@ void stubbs_player_hud_draw(
 	bar_width = 150.0f * scale;
 	bar_height = 12.0f * scale;
 	/* (drawn in the view's own coordinates, so a split screen's second
-	view starts at its own top left) */
+	view starts at its own top left; a short view keeps room for the label
+	above the bar) */
 	x0 = 36.0f * scale;
-	y0 = 40.0f * scale;
+	y0 = MAX(40.0f * scale, 30.0f);
 	health = PIN(unit->object.body_vitality, 0.0f, 1.0f);
 	/* (recent damage fades over about a second: the flash) */
 	hurt = PIN(unit->object.recent_body_damage * 4.0f, 0.0f, 1.0f);
