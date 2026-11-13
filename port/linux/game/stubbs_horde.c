@@ -39,6 +39,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "objects/objects.h"
 #include "objects/damage.h"
 #include "units/units.h"
+#include "units/unit_definitions.h"
 #include "units/bipeds.h"
 #include "game/game.h"
 #include "game/game_allegiance.h"
@@ -55,6 +56,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "stubbs_functions.h"
 
 #include <string.h>
+
+boolean tag_index_is_group(long tag_index, long group_tag);
 
 #ifndef HALO_CONSOLE_NO_STUBBS /* (the header's empty ones on a console) */
 
@@ -269,8 +272,12 @@ long stubbs_horde_palette_variant_for_unit(
 	struct scenario *scenario = global_scenario_try_and_get();
 	long index;
 
+	long same_team = NONE;
+	short team;
+
 	if (!unit || !scenario)
 		return NONE;
+	team = unit_definition_get(unit->definition_index)->unit.default_team;
 	for (index = 0; index < scenario->ai_actor_palette.count; index++)
 	{
 		struct tag_reference *entry = TAG_BLOCK_GET_ELEMENT(
@@ -280,10 +287,18 @@ long stubbs_horde_palette_variant_for_unit(
 		if (!entry || entry->index == NONE)
 			continue;
 		variant = actor_variant_definition_get(entry->index);
-		if (variant && variant->unit_reference.index == unit->definition_index)
+		if (!variant || variant->unit_reference.index == NONE)
+			continue;
+		if (variant->unit_reference.index == unit->definition_index)
 			return entry->index;
+		/* (none of its own kind: one of its team, a zombie's for a zombie) */
+		if (same_team == NONE && tag_index_is_group(variant->unit_reference.index, UNIT_DEFINITION_TAG) &&
+			unit_definition_get(variant->unit_reference.index)->unit.default_team == team)
+		{
+			same_team = entry->index;
+		}
 	}
-	return NONE;
+	return same_team;
 }
 
 static long horde_zombie_variant_of_unit(
