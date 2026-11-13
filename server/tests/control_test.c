@@ -188,6 +188,15 @@ static void test_command_line(void)
 	CHECK(command_line_map_name_valid("timberland@ce"));
 	CHECK(command_line_map_name_valid("phoenix3_15@md"));
 	CHECK(command_line_map_name_valid("a-b.c"));
+	/* (an MCC map's level name: mcc_maps\<map> or mcc_maps\<package>\<map>) */
+	CHECK(command_line_map_name_valid("mcc_maps\\1234567\\gephyrophobia"));
+	CHECK(command_line_map_name_valid("MCC_maps\\my pack\\b30_evolved"));
+	CHECK(command_line_map_name_valid("mcc_maps\\gephyrophobia"));
+	CHECK(!command_line_map_name_valid("mcc_maps\\"));
+	CHECK(!command_line_map_name_valid("mcc_maps\\a\\b\\c"));
+	CHECK(!command_line_map_name_valid("mcc_maps\\..\\x"));
+	CHECK(!command_line_map_name_valid("mcc_maps\\a\\\\b"));
+	CHECK(!command_line_map_name_valid("mcc_maps\\a/b"));
 	CHECK(!command_line_map_name_valid(""));
 	CHECK(!command_line_map_name_valid("@ce"));
 	CHECK(!command_line_map_name_valid("../ui"));

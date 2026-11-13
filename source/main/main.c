@@ -398,6 +398,10 @@ symbols in this file:
 #endif
 #include "halo_perf_log.h" /* port: console.perf_log */
 #include "plasma_lighting.h" /* port: port/linux/game/plasma_lighting.c */
+#include "mcc_cache.h"
+#include "mcc_main.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_campaign.h" /* port: port/linux/game/stubbs_campaign.c */
 
 /* port: the main loop's stage, for the console's bring-up watchdog
 (port/xbox/src/xbox_port.c); nothing elsewhere */
@@ -1435,6 +1439,9 @@ short main_get_solo_level_from_name(
 	char lower_name[128] = { 0 };
 	short level;
 
+	if (mcc_level_name(name))
+		return NONE;
+
 	/* port: a Halo PC map (name@ce, @pc or @md) is never one of the
 	campaign's levels, whatever its name holds (OpenCE's build-145 found
 	this of its Custom Edition maps) */
@@ -1465,6 +1472,10 @@ short main_get_solo_level_from_name(
 	else
 		level = strstr(lower_name, "d40") ? 9 : NONE;
 
+	/* port: Stubbs mode's levels (port/linux/game/stubbs_campaign.c) */
+	if (stubbs_mode_active())
+		level = stubbs_campaign_level_from_name(name, level);
+
 	return level;
 }
 
@@ -1481,6 +1492,9 @@ char const *main_get_solo_level_name(
 
 	if (level >= 0 && level < NUMBEROF(scenario_paths))
 		result = scenario_paths[level];
+	/* port: Stubbs mode's levels (port/linux/game/stubbs_campaign.c) */
+	if (stubbs_mode_active())
+		result = stubbs_campaign_level_name(level, result);
 
 	return result;
 }
@@ -1627,6 +1641,8 @@ static void main_new_map(
 	}
 	else
 	{
+		if (mcc_main_load_failed(options->map_name))
+			return;
 		error(_error_immediate, "game_load() failed.");
 	}
 
@@ -1664,6 +1680,19 @@ static void main_new_map(
 static void main_change_map_name(
 	void)
 {
+	/* port: an MCC level that isn't there (map_name, a stale list's Load
+	Level), asked for from the menus, never leaves them: its reason is in
+	debug.txt and on the main menu, as for a missing map (#1149) */
+	if (main_globals.main_menu_scenario_loaded == TRUE &&
+		!main_globals.map_change_load_timer &&
+		main_globals.connection == _game_connection_local &&
+		mcc_level_name(main_globals.soloplayer_map_name) &&
+		!mcc_cache_require(main_globals.soloplayer_map_name, 0))
+	{
+		main_globals.defer_map_change = FALSE;
+		main_goto_main_menu();
+		return;
+	}
 	if (main_globals.main_menu_scenario_loaded == TRUE)
 	{
 		if (!main_globals.map_change_load_timer)
@@ -1712,7 +1741,13 @@ static void main_change_map_name(
 			options.map_name[NUMBEROF(options.map_name) - 1] = 0;
 			options.difficulty = global_difficulty_level;
 			game_dispose_from_old_map();
-			game_precache_new_map(options.map_name, TRUE);
+			/* port: an MCC level that isn't there goes back to the menus
+			with its reason, as one that fails to load does (#1149) */
+			if (!game_precache_new_map(options.map_name, TRUE) && mcc_main_load_failed(options.map_name))
+			{
+				main_globals.map_change_load_timer = 0;
+				return;
+			}
 			game_unload();
 			main_new_map(&options);
 
@@ -2007,6 +2042,9 @@ void main_load_ui_scenario(
 void main_roll_credits(
 	void)
 {
+	/* port: standalone MCC scenarios finish through their own menu transition. */
+	if (mcc_main_map_completed())
+		return;
 	error(_error_silent, "congratulations, you won the game!");
 	main_menu_load();
 	game_end_credits_start();
@@ -2441,6 +2479,14 @@ static void main_won_map_private(
 {
 	short level;
 	short local_player_index;
+
+	/* port: explicit MCC campaigns own their mission order and host decision.
+	 * The Xbox/CE level table below cannot represent package mission identities. */
+	if (mcc_main_campaign_won())
+	{
+		main_globals.won_map = FALSE;
+		return;
+	}
 
 	/* port: when a network co-op level is won, the round ends for everyone as
 	in multiplayer, back to the lobby, and the next round is the campaign's
@@ -2944,7 +2990,9 @@ static void main_setup_connection(
 			NUMBEROF(options.map_name) - 1);
 		options.map_name[NUMBEROF(options.map_name) - 1] = 0;
 		options.difficulty = global_difficulty_level;
-		game_precache_new_map(options.map_name, TRUE);
+		/* port: (as main_change_map_name's, #1149) */
+		if (!game_precache_new_map(options.map_name, TRUE) && mcc_main_load_failed(options.map_name))
+			return;
 		game_dispose_from_old_map();
 		main_new_map(&options);
 	}
@@ -3093,6 +3141,15 @@ static void main_version_watermark_render(
 		shown = system_milliseconds() - main_version_box_shown < 250;
 	else
 		shown = config_boolean("display.version_watermark") && !ui_widgets_active();
+#ifdef HALO_GUIDE
+	{
+		/* (the Delta Guide over it: hidden, not peeking out under its panel) */
+		extern boolean guide_active(void);
+
+		if (guide_active())
+			shown = FALSE;
+	}
+#endif
 	if (!shown)
 		return;
 	font_tag_index = tag_loaded(FONT_GROUP_TAG, "ui\\small_ui");

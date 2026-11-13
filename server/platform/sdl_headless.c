@@ -23,6 +23,7 @@ runtime's and a search is FindFirstFile's.
 
 #ifdef _WIN32
 #include <direct.h>
+#include <io.h>
 #include <windows.h>
 /* (port/windows/include/posix: clock_gettime, readlink of /proc/self/exe) */
 #include <unistd.h>
@@ -136,6 +137,71 @@ bool SDL_SaveFile(const char *path, const void *data, size_t size)
 	}
 	written = fwrite(data, 1, size, file) == size;
 	return fclose(file) == 0 && written;
+}
+
+/* a file written as a stream (port_config.c's config.toml: to a new file,
+flushed to the disk, then renamed over the old one) */
+SDL_IOStream *SDL_IOFromFile(const char *path, const char *mode)
+{
+	FILE *file = fopen(path, mode);
+
+	if (!file)
+		headless_set_error(strerror(errno));
+	return (SDL_IOStream *)file;
+}
+
+size_t SDL_WriteIO(SDL_IOStream *stream, const void *data, size_t size)
+{
+	return fwrite(data, 1, size, (FILE *)stream);
+}
+
+/* (as SDL's: the C library's buffer, then the system's to the disk) */
+bool SDL_FlushIO(SDL_IOStream *stream)
+{
+	FILE *file = (FILE *)stream;
+
+	if (fflush(file) != 0)
+		return false;
+#ifdef _WIN32
+	return _commit(_fileno(file)) == 0;
+#else
+	return fsync(fileno(file)) == 0;
+#endif
+}
+
+bool SDL_CloseIO(SDL_IOStream *stream)
+{
+	return !stream || fclose((FILE *)stream) == 0;
+}
+
+/* (over a file that is there, as SDL's: MoveFileEx on Windows, here also
+written through to the disk before it returns) */
+bool SDL_RenamePath(const char *old_path, const char *new_path)
+{
+#ifdef _WIN32
+	if (!MoveFileExA(old_path, new_path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+	{
+		headless_set_error("cannot rename the file");
+		return false;
+	}
+#else
+	if (rename(old_path, new_path) != 0)
+	{
+		headless_set_error(strerror(errno));
+		return false;
+	}
+#endif
+	return true;
+}
+
+bool SDL_RemovePath(const char *path)
+{
+	if (remove(path) != 0)
+	{
+		headless_set_error(strerror(errno));
+		return false;
+	}
+	return true;
 }
 
 /* whether the path is there, and what it is */

@@ -109,7 +109,7 @@ static const char *const delta_capability_names[] =
 	"platform", "profile", "server_messages", "chat", "ce_maps", "md_maps", "coop", "ai_sync", "vote",
 	"console_slots", "moderation", "bomb", "ping", "bomb_movement", "bomb_traits", "team_change",
 	"server_badge", "object_sync", "host_cheats", "host_rules", "identity",
-	"party_teams", "voice", "reports",
+	"party_teams", "voice", "reports", "mcc_maps",
 };
 _Static_assert(sizeof(delta_capability_names) / sizeof(*delta_capability_names) == NUMBER_OF_DELTA_CAPABILITIES,
 	"a name for each capability");
@@ -182,6 +182,9 @@ static struct
 	int held;
 	int pin;
 	int pin_refused;
+	/* (delta_legacy_host_game_at) the number the next games this machine
+	hosts announce, 0 for the usual */
+	int host_game_at;
 } delta;
 
 /* ---------- the document (JSON, hostile) */
@@ -429,9 +432,78 @@ static int json_kinds(struct json *json, struct delta_layout_fact *fact)
 	return json_take(json, ']');
 }
 
+/* a layout fact's "unit_state_parts" (chupa-43a on): [{"bit": B, "size":
+S, "at": "after_up" or "last"}, ...], a part this build passes over; another
+place is a later build's (its part then not taken), other keys passed over */
+static int json_unit_parts(struct json *json, struct delta_layout_fact *fact)
+{
+	int count = 0;
+
+	if (!json_take(json, '['))
+		return 0;
+	if (json_take(json, ']'))
+		return 1;
+	do
+	{
+		long long bit = -1, size = -1;
+		unsigned char at = 0;
+		int seen = 0;
+
+		if (++count > 8 || !json_take(json, '{'))
+			return 0;
+		json->depth++;
+		if (!json_take(json, '}'))
+		{
+			do
+			{
+				const char *key;
+				int length, escaped, mark = 0, ok;
+
+				if (!json_string(json, &key, &length, &escaped) || !json_take(json, ':'))
+					return 0;
+				if (!escaped && json_is(key, length, "bit"))
+					mark = 1, ok = json_integer(json, 0, 7, &bit);
+				else if (!escaped && json_is(key, length, "size"))
+					mark = 2, ok = json_integer(json, 0, 255, &size);
+				else if (!escaped && json_is(key, length, "at"))
+				{
+					const char *place;
+					int place_length, place_escaped;
+
+					mark = 4, ok = json_string(json, &place, &place_length, &place_escaped);
+					if (ok)
+					{
+						at = 0xFF;
+						if (!place_escaped && json_is(place, place_length, "after_up"))
+							at = DELTA_LAYOUT_PART_AFTER_UP;
+						else if (!place_escaped && json_is(place, place_length, "last"))
+							at = DELTA_LAYOUT_PART_LAST;
+					}
+				}
+				else
+					ok = json_skip(json);
+				if (!ok || (seen & mark))
+					return 0;
+				seen |= mark;
+			} while (json_take(json, ','));
+			if (!json_take(json, '}'))
+				return 0;
+		}
+		json->depth--;
+		/* (a part without its bit, size and place says nothing) */
+		if (bit < 0 || size <= 0 || !at)
+			return 0;
+		fact->unit_part_size[bit] = (unsigned char)size;
+		fact->unit_part_at[bit] = at;
+	} while (json_take(json, ','));
+	return json_take(json, ']');
+}
+
 /* a layout fact: {"settings_size": S, "options_size": O,
 "shield_effects_maximum": E, "dropped_messages": [K, ...],
-"join_request_extra": J, "join_request_fill": "zeros"}, each optional,
+"join_request_extra": J, "join_request_fill": "zeros"}, and from chupa-43a
+"join_request_version_at": V, "header_extra": H, "epoch_kind": K,
+"unit_state_parts": [...] and "rider_ejection_up": R, each optional,
 others passed over (a later build's) */
 static int json_fact(struct json *json, struct delta_layout_fact *fact)
 {
@@ -473,6 +545,35 @@ static int json_fact(struct json *json, struct delta_layout_fact *fact)
 				fact->join_request_extra = (unsigned short)value;
 				fact->join_request_said = 1;
 			}
+		}
+		else if (!escaped && json_is(key, length, "join_request_version_at"))
+		{
+			bit = 64, ok = json_integer(json, 0, MAXIMUM_VERSION, &value);
+			if (ok)
+			{
+				fact->join_request_version_at = (unsigned short)value;
+				fact->join_request_version_said = 1;
+			}
+		}
+		else if (!escaped && json_is(key, length, "header_extra"))
+		{
+			bit = 128, ok = json_integer(json, 0, 255, &value);
+			if (ok)
+				fact->header_extra = (unsigned char)value;
+		}
+		else if (!escaped && json_is(key, length, "epoch_kind"))
+		{
+			bit = 256, ok = json_integer(json, 0, MAXIMUM_KIND, &value);
+			if (ok)
+				fact->epoch_kind = (unsigned char)value;
+		}
+		else if (!escaped && json_is(key, length, "unit_state_parts"))
+			bit = 512, ok = json_unit_parts(json, fact);
+		else if (!escaped && json_is(key, length, "rider_ejection_up"))
+		{
+			bit = 1024, ok = json_integer(json, 0, MAXIMUM_VERSION, &value);
+			if (ok)
+				fact->rider_ejection_up = (unsigned short)value;
 		}
 		else if (!escaped && json_is(key, length, "join_request_fill"))
 		{
@@ -887,7 +988,11 @@ enum delta_result
 static void delta_use_built_in(void)
 {
 	delta.announce = HALO_PORT_NETWORK_VERSION;
+#ifdef HALO_GAME_BROWSER
+	delta.hosting_newest = DELTA_BUILT_IN_HOSTING;
+#else
 	delta.hosting_newest = HALO_PORT_NETWORK_VERSION;
+#endif
 	delta.minimum = HALO_PORT_NETWORK_VERSION_MINIMUM;
 	delta.maximum = HALO_PORT_NETWORK_VERSION_MAXIMUM;
 	delta.follows[0] = 0;
@@ -946,6 +1051,8 @@ not */
 static int delta_announce_target(int *refused)
 {
 	*refused = 0;
+	if (delta.host_game_at)
+		return delta.host_game_at;
 	if (!delta.pin)
 		return delta.hosting_newest;
 	if (delta.pin < delta.minimum || delta.pin > delta.hosting_newest)
@@ -1102,7 +1209,7 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 	pthread_mutex_unlock(&delta_lock);
 
 	platform_log("Delta: legacy table %u from %s: announcing %d, joining %d to %d%s%s%s; %d layout facts", table.serial,
-		source, table.has_row ? delta_row_hosting_newest(&table) : HALO_PORT_NETWORK_VERSION,
+		source, delta.hosting_newest,
 		table.has_row ? table.minimum : HALO_PORT_NETWORK_VERSION_MINIMUM,
 		maximum,
 		table.has_row ? "" : " (no row for " DELTA_WIRE ": the built-in numbers)",
@@ -1472,6 +1579,36 @@ int delta_legacy_announce(void)
 	if (was || refused)
 		delta_settle_said(number, was, refused);
 	return number;
+}
+
+int delta_legacy_host_game_at(int version)
+{
+	int taken;
+
+	pthread_once(&delta_once, delta_load);
+	pthread_mutex_lock(&delta_lock);
+	/* (a number this build plays, by its rules or a table's layouts: from the
+	oldest it joins to the newest it knows) */
+	{
+		int newest = DELTA_LEGACY_NEWEST, index;
+
+		for (index = 0; index < delta.layout_count; index++)
+		{
+			if (delta.layouts[index].version > newest)
+				newest = delta.layouts[index].version;
+		}
+		taken = !version || (version >= delta.minimum && version <= delta.maximum && version <= newest);
+	}
+	if (taken)
+		delta.host_game_at = version;
+	pthread_mutex_unlock(&delta_lock);
+	if (taken && version)
+		platform_log("Delta: the next games this machine hosts announce OpenCE network version %d", version);
+	else if (taken)
+		platform_log("Delta: the next games this machine hosts announce the usual number");
+	else
+		platform_log("Delta: not hosting at OpenCE network version %d: not one this build plays", version);
+	return taken;
 }
 
 int delta_legacy_hosting_newest(void)

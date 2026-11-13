@@ -49,6 +49,7 @@ build 2 or 3's) */
 #define REPORTS_BIT ((delta_u32)1 << _delta_capability_reports)
 #define OBJECT_SYNC_BIT ((delta_u32)1 << _delta_capability_object_sync)
 #define HOST_RULES_BIT ((delta_u32)1 << _delta_capability_host_rules)
+#define MCC_MAPS_BIT ((delta_u32)1 << _delta_capability_mcc_maps)
 #define IDENTITY_BIT ((delta_u32)1 << _delta_capability_identity)
 #define VOICE_BIT ((delta_u32)1 << _delta_capability_voice)
 #define SERVER_BADGE_BIT ((delta_u32)1 << _delta_capability_server_badge)
@@ -1479,6 +1480,65 @@ static void test_wire_host_rules(void)
 	CHECK(!delta_wire_write_host_rules(data, 1, &rules));
 }
 
+/* the host's number (HOST_NUMBER): written and read, little-endian; 0 and
+version 0 refused; a later version read */
+static void test_host_number_wire(void)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	unsigned number;
+	int size;
+
+	size = delta_wire_write_host_number(data, 0x55, 43);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HOST_NUMBER_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_host_number &&
+		header.length == DELTA_WIRE_HOST_NUMBER_SIZE && header.session == 0x55);
+	CHECK(data[DELTA_WIRE_HEADER_SIZE + 2] == 43 && data[DELTA_WIRE_HEADER_SIZE + 3] == 0);
+	CHECK(delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, header.length, &number) && number == 43);
+	data[DELTA_WIRE_HEADER_SIZE] = 9;
+	CHECK(delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, header.length + 4, &number) && number == 43);
+	data[DELTA_WIRE_HEADER_SIZE] = 0;
+	CHECK(!delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, header.length, &number));
+	data[DELTA_WIRE_HEADER_SIZE] = 1;
+	CHECK(!delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_HOST_NUMBER_SIZE - 1, &number));
+	CHECK(!delta_wire_write_host_number(data, 1, 0) && !delta_wire_write_host_number(data, 1, 0x10000));
+}
+
+/* HOST_NUMBER over a lossy network: the host's first sends after a change
+lost, the client still hears the new number within a few seconds (it goes
+every second for DELTA_PEER_HOST_NUMBER_BURST), and only a client that
+agreed to mcc_maps hears it */
+static void test_host_number_lost(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	delta_u32 now = 5000;
+	unsigned number = 0;
+	int step;
+
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, MCC_MAPS_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, MCC_MAPS_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_macos, 0, 0);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	delta_peer_set_host_number(&nodes[0].peer, 32);
+	for (step = 0; step < 6; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_host_number(&nodes[1].peer, &number) && number == 32);
+	/* (the change, and the host's datagrams lost for the next half second) */
+	delta_peer_set_host_number(&nodes[0].peer, 43);
+	nodes[0].mute = 1;
+	for (step = 0; step < 2; step++, now += 250)
+		frame(now, 3, joined, 1);
+	nodes[0].mute = 0;
+	CHECK(delta_peer_host_number(&nodes[1].peer, &number) && number == 32);
+	for (step = 0; step < 6; step++, now += 250)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_host_number(&nodes[1].peer, &number) && number == 43);
+	CHECK(!delta_peer_host_number(&nodes[2].peer, NULL));
+	delta_peer_set_host_number(&nodes[0].peer, 0);
+}
+
 static void test_host_rules(void)
 {
 	int joined[3] = { 0, 1, 1 };
@@ -2832,7 +2892,8 @@ static void test_limits(void)
 	delta_u32 now = 20000;
 	int step;
 
-	/* an Xbox: hosts 16, joins 16, 128 if its player opted in */
+	/* a stock Xbox build of 16 players: its key claims 16 joined (its row
+	joins 32), 128 if its player opted in */
 	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT, _delta_platform_pc_linux, 0, 0);
 	node_start(1, 0x0300007F, 40001, PLATFORM_BIT, _delta_platform_xbox, 0, 0);
 	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_windows, 0, 0);
@@ -2864,7 +2925,7 @@ static void test_limits(void)
 		struct delta_platform_key key;
 
 		delta_platform_policy_default(_delta_platform_xbox, &key);
-		CHECK(key.memory_class == 6 && key.host_players == 16);
+		CHECK(key.memory_class == 6 && key.host_players == 16 && key.join_players == 32);
 		delta_platform_policy_default(_delta_platform_xbox360, &key);
 		CHECK(key.memory_class == 9 && key.host_players == 32 && key.join_players == 32);
 		delta_platform_policy_default(_delta_platform_wiiu, &key);
@@ -2878,6 +2939,8 @@ static void test_limits(void)
 		struct delta_platform_key key;
 
 		pc_key(&key, _delta_platform_xbox);
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 32);
+		key.join_players = 16;
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 16);
 		key.join_players = 8;
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 8);
@@ -2918,9 +2981,23 @@ static void test_limits(void)
 	/* (a host that ignores the limits offers co-op too) */
 	CHECK(delta_peer_room_coop(&nodes[0].peer));
 
-	/* an Xbox host keeps its own game to its row's 16 */
+	/* an Xbox build of 32 players joins a PC's game of 32 */
+	delta_peer_stop(&nodes[1].peer);
+	deliver(now);
+	nodes[0].peer.local.ignore_platform_limits = 0;
+	nodes[1].peer.local.key.host_players = 32;
+	nodes[1].peer.local.key.join_players = 32;
+	for (step = 0; step < 8; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(nodes[1].peer.client_state == _delta_peer_client_delta);
+	CHECK(delta_peer_room_limit(&nodes[0].peer, _delta_peer_limit_players) == 32);
+	CHECK(!delta_peer_room_coop(&nodes[0].peer));
+
+	/* an Xbox host keeps its own game to its row's 16, though its build
+	holds 32 */
 	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT, _delta_platform_xbox, 0, 0);
-	nodes[0].peer.local.key.host_players = 16;
+	nodes[0].peer.local.key.host_players = 32;
+	nodes[0].peer.local.key.join_players = 32;
 	delta_peer_host_frame(&nodes[0].peer, now, game_machines, game_machine_count, player_machines);
 	CHECK(delta_peer_room_limit(&nodes[0].peer, _delta_peer_limit_players) == 16);
 	CHECK(!delta_peer_room_coop(&nodes[0].peer));
@@ -5158,6 +5235,8 @@ int main(int argc, char **argv)
 	test_reports();
 	test_wire_host_rules();
 	test_host_rules();
+	test_host_number_wire();
+	test_host_number_lost();
 	test_wire_badge();
 	test_badge();
 	test_wire_objects();

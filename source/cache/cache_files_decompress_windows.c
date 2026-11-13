@@ -1180,6 +1180,9 @@ static void cache_copy_issue_read(
 	OVERLAPPED *overlapped;
 	long error;
 	BOOL issued;
+#ifndef HALO_CONSOLE_IO_RETRY_FOREVER
+	unsigned long first_try;
+#endif
 
 	decompressor_timer_start(_decompressor_timer_read_file);
 
@@ -1202,6 +1205,12 @@ static void cache_copy_issue_read(
 
 	QueryPerformanceCounter(&self->overlapped_timer_starts[overlapped_index]);
 
+	/* port: a system short of resources is waited for 5 seconds at most (the
+	original Xbox's for as long as it takes: HALO_CONSOLE_IO_RETRY_FOREVER)
+	(cache_files_windows.c's CACHED_MAP_ISSUE_RETRY_MILLISECONDS, #1149) */
+#ifndef HALO_CONSOLE_IO_RETRY_FOREVER
+	first_try = GetTickCount();
+#endif
 	do
 	{
 		SleepEx(0, TRUE);
@@ -1210,6 +1219,9 @@ static void cache_copy_issue_read(
 		error = GetLastError();
 	}
 	while (!issued &&
+#ifndef HALO_CONSOLE_IO_RETRY_FOREVER
+		GetTickCount() - first_try < 5000 &&
+#endif
 		(error == ERROR_INVALID_USER_BUFFER || error == ERROR_NOT_ENOUGH_MEMORY ||
 			error == ERROR_NO_SYSTEM_RESOURCES));
 
@@ -1240,6 +1252,9 @@ static void cache_copy_issue_write(
 	OVERLAPPED *overlapped;
 	long error;
 	BOOL issued;
+#ifndef HALO_CONSOLE_IO_RETRY_FOREVER
+	unsigned long first_try;
+#endif
 
 	decompressor_timer_start(_decompressor_timer_write_file);
 
@@ -1263,6 +1278,12 @@ static void cache_copy_issue_write(
 
 	QueryPerformanceCounter(&self->overlapped_timer_starts[overlapped_index]);
 
+	/* port: a system short of resources is waited for 5 seconds at most (the
+	original Xbox's for as long as it takes: HALO_CONSOLE_IO_RETRY_FOREVER)
+	(cache_files_windows.c's CACHED_MAP_ISSUE_RETRY_MILLISECONDS, #1149) */
+#ifndef HALO_CONSOLE_IO_RETRY_FOREVER
+	first_try = GetTickCount();
+#endif
 	do
 	{
 		SleepEx(0, TRUE);
@@ -1271,6 +1292,9 @@ static void cache_copy_issue_write(
 		error = GetLastError();
 	}
 	while (!issued &&
+#ifndef HALO_CONSOLE_IO_RETRY_FOREVER
+		GetTickCount() - first_try < 5000 &&
+#endif
 		(error == ERROR_INVALID_USER_BUFFER || error == ERROR_NOT_ENOUGH_MEMORY ||
 			error == ERROR_NO_SYSTEM_RESOURCES));
 

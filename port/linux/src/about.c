@@ -103,11 +103,13 @@ static const struct about_entry licenses[] =
 	{ _line_text, "glslang: BSD-3-Clause. SPIRV-Cross: Apache-2.0." },
 	{ _line_gap, NULL },
 	{ _line_text, "Cyborg Interface Gothic (fizzy): SIL OFL." },
+	{ _line_text, "Chupathingy Titles (Newtown by Roger White, public domain): SIL OFL." },
 	{ _line_text, "Overpass: SIL OFL." },
-	{ _line_text, "Noto Sans: SIL OFL." },
+	{ _line_text, "Noto Sans (letters Cyborg lacks): SIL OFL." },
 	{ _line_text, "Kenney's Input Prompts: CC0." },
 	{ _line_text, "Controller icons (snapchipper): CC0." },
 	{ _line_text, "Platform logos: Simple Icons (CC0) and Wikimedia Commons (public domain)." },
+	{ _line_text, "BSD Daemon used with permission." },
 	{ _line_text, "SADIE II head-related impulse responses: Apache-2.0." },
 	{ _line_text, "Halo PC Restored HUD art: with Aerocatia's permission." },
 	{ _line_gap, NULL },
@@ -223,13 +225,15 @@ static int lines_make(const struct about_entry *entries, int entry_count, float 
 		switch (entry->kind)
 		{
 		case _line_version:
+			/* (a long version, a test build's or a nightly's, broken at its
+			spaces to fit; about_render shrinks a piece still too wide) */
 			version_text(text, sizeof(text));
-			count = line_add(count, _line_version, text, (int)strlen(text));
+			count = line_wrap(count, _line_version, text, width);
 			break;
 		case _line_platform:
 			snprintf(text, sizeof(text), "%s %s, %d-bit", build_identity_platform(), build_identity_architecture(),
 				(int)sizeof(void *) * 8);
-			count = line_add(count, _line_platform, text, (int)strlen(text));
+			count = line_wrap(count, _line_platform, text, width);
 			break;
 		case _line_text:
 			count = line_wrap(count, _line_text, entry->text, width);
@@ -340,8 +344,15 @@ void about_render(struct about_view *view, float left, float top, float right, f
 			ui_style_text(UI_TEXT_HEADING, left, y + 4.0f, UI_ALIGN_LEFT, line->text);
 			break;
 		case _line_version:
-			ui_style_text(UI_TEXT_NAME, left, y, UI_ALIGN_LEFT, line->text);
+		{
+			/* (a piece with no space to break at, smaller to fit: never past
+			the panel's edge) */
+			float shown = ui_overlay_text_width(line_font(line->kind), line_size(line->kind), line->text);
+
+			ui_style_text_scaled(UI_TEXT_NAME, shown > width ? width / shown : 1.0f, left, y, UI_ALIGN_LEFT,
+				line->text);
 			break;
+		}
 		case _line_licenses:
 			/* (the one row that does something: lit, as the selection) */
 			ui_style_row(left, y + 2.0f, LICENSES_WIDTH, LICENSES_HEIGHT, 1);

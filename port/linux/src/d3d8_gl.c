@@ -25,6 +25,7 @@ Conventions carried over from the Xbox:
 #include "plasma_occlusion.h"
 #include "xgpu.h"
 #include "xgpu_shader_keys.h"
+#include "mcc_environment_shader.h"
 #include "sdl_platform.h"
 #include "halo_ui_pointer.h"
 #include "ui_point.h"
@@ -67,6 +68,7 @@ static void bg_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count);
 static void bg_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOLOR color, float z, DWORD stencil);
 static void bg_present(void);
 static void bg_frame_account(char *text, size_t size);
+static void bg_mcc_texture_forget(const DWORD *resource);
 static void bg_visibility_begin(void);
 static BOOL bg_visibility_end(DWORD index, unsigned long number);
 static UINT bg_visibility_result(DWORD index, unsigned long *number);
@@ -349,7 +351,7 @@ void console_warm_screen(unsigned long done, unsigned long total)
 	xgpu_gl_state_invalidate();
 #ifdef HALO_GAME_BROWSER
 	snprintf(percent, sizeof(percent), "%d%%", (int)(fraction * 100.0f));
-	ui_overlay_text_glow(UI_FONT_TITLE, 21.0f, 320.0f, 338.0f, UI_ALIGN_CENTER, 0xa8ccffffu, 0x3c78ff80u, "CHUPATHINGYCE");
+	ui_overlay_text_glow(UI_FONT_TITLE, 21.0f, 320.0f, 338.0f, UI_ALIGN_CENTER, 0xa8ccffffu, 0x3c78ff80u, "CHUPATHINGY");
 	ui_overlay_text(UI_FONT_MENU, 24.0f, 320.0f, 376.0f, UI_ALIGN_CENTER, 0xffffffffu, percent);
 	ui_overlay_text(UI_FONT_MENU_SMALL, 15.0f, 320.0f, 420.0f, UI_ALIGN_CENTER, 0x8ca8d0ffu, "GETTING THE SHADERS READY.");
 	ui_overlay_present(x, y, width, height, window_width, window_height);
@@ -3202,6 +3204,18 @@ void WINAPI D3DDevice_SetTexture(DWORD stage, D3DBaseTexture *texture)
 		device.textures[stage] = texture;
 }
 
+/* Unload can happen before a later draw replaces every texture stage. */
+void xgpu_mcc_texture_unbind(DWORD const *resource)
+{
+	unsigned long stage;
+	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
+		if ((DWORD const *)device.textures[stage] == resource)
+			device.textures[stage] = NULL;
+#ifdef HALO_BGFX
+	bg_mcc_texture_forget(resource);
+#endif
+}
+
 void WINAPI D3DDevice_SetPalette(DWORD stage, D3DPalette *palette)
 {
 	if (stage < D3DTSS_MAXSTAGES)
@@ -4614,6 +4628,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT0] = 0;
 	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT1] = 0;
 	key.texture_modes = D3D__RenderState[D3DRS_PSTEXTUREMODES];
+	key.mcc_bump_attenuation = mcc_environment_shader_active();
 	/* the textures before the targets: a render target the draw samples
 	has its multisampled pixels resolved by a blit (render_target_resolve),
 	which binds framebuffers of its own, and the back buffer can be both

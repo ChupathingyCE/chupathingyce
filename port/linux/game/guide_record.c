@@ -67,12 +67,13 @@ enum
 	TILE_ICON = 32,
 };
 
+/* the theme's (ui_style_color), and white the same in all */
+#define COLOR_PANE_EDGE ui_style_color(UI_COLOR_ROW_EDGE)
+#define COLOR_SETTING ui_style_color(UI_COLOR_SETTING_NAME)
+#define COLOR_COUNT ui_style_color(UI_COLOR_TEXT_SOFT)
 enum
 {
-	COLOR_PANE_EDGE = 0x50A0FF40,
 	COLOR_VALUE = 0xFFFFFFFF,
-	COLOR_SETTING = 0x9FD0FFFF,
-	COLOR_COUNT = 0x9FB7D0FF,
 };
 
 /* ---------- globals */

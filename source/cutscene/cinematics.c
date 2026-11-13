@@ -74,6 +74,7 @@ symbols in this file:
 #include "scenario/scenario_definitions.h"
 #include "text/draw_string.h"
 #include "text/text_group.h"
+#include "mcc_hud_draw.h" /* port: port/linux/game/mcc_hud_draw.c */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 
 /* ---------- constants */
@@ -488,6 +489,8 @@ void cinematic_render(
 					wide_bounds = *title_bounds;
 					wide_bounds.x0 += cinematic_title_edge_shift(title_bounds->x0, extra);
 					wide_bounds.x1 += cinematic_title_edge_shift(title_bounds->x1, extra);
+					/* port: MCC title layout uses the final screen anchor. */
+					mcc_hud_title_bounds(&wide_bounds, title->justification, title->text_flags);
 					title_bounds = &wide_bounds;
 				}
 				rasterizer_draw_unicode_string(

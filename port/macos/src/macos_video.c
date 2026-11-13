@@ -38,3 +38,24 @@ int macos_window_occluded(void *window)
 	/* (NSWindowOcclusionStateVisible) */
 	return !(((occlusion_state)objc_msgSend)(window, sel_registerName("occlusionState")) & (1ul << 1));
 }
+
+/* whether the window (an NSWindow) is in a full-screen Space of its own,
+macOS's full screen: its style has NSWindowStyleMaskFullScreen */
+int macos_window_in_full_screen_space(void *window)
+{
+	typedef unsigned long (*style_mask)(void *, SEL);
+
+	if (!window)
+		return 0;
+	return (((style_mask)objc_msgSend)(window, sel_registerName("styleMask")) & (1ul << 14)) != 0;
+}
+
+/* starts the window's move into or out of its full-screen Space, as the
+green button does */
+void macos_window_toggle_full_screen_space(void *window)
+{
+	typedef void (*toggle)(void *, SEL, void *);
+
+	if (window)
+		((toggle)objc_msgSend)(window, sel_registerName("toggleFullScreen:"), NULL);
+}

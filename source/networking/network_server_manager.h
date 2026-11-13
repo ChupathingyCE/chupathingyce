@@ -126,7 +126,11 @@ char const *network_game_server_machine_hardware_id(
 void network_game_server_update_ticks(
 	struct network_game_server *server,
 	short tick_count);
-void network_game_server_change_map_name(
+/* port: the machines in the game (the test host's lobby: network_test.c) */
+long network_game_server_machine_count(struct network_game_server *server);
+/* port: a dedicated server's playlist was read (MCC maps' games at 43) */
+void network_game_server_mcc_playlist_changed(void);
+boolean network_game_server_change_map_name(
 	struct network_game_server *server,
 	char const *map_name);
 void network_game_server_change_game_variant(

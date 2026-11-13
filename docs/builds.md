@@ -29,4 +29,4 @@ says when a new version is out, and you update in Settings > Online >
 Updates (INSTALL UPDATE) or on the setup screen's UPDATES tab. The game
 restarts into the new version without leaving Game Mode.
 
-The FreeBSD build is the 64-bit Linux build's game, built for FreeBSD: see [port/unix/README.md](../port/unix/README.md).
+The FreeBSD build is the 64-bit Linux build's game, built for FreeBSD: see [port/unix/README.md](../port/unix/README.md). [BSD Daemon used with permission.](http://www.mckusick.com/copyright.html)

@@ -42,7 +42,7 @@ def function_body(source, name):
 
 def keyboard_caps():
 	overlay = (ROOT / "port/linux/src/ui_overlay.c").read_text(encoding="utf-8")
-	table = overlay[overlay.index("pill_labels[4][NUMBER_OF_UI_BUTTONS]"):]
+	table = overlay[overlay.index("pill_labels[NUMBER_OF_PROMPT_SCHEMES][NUMBER_OF_UI_BUTTONS]"):]
 	row = re.search(r"\{\s*(\"ENTER\"[^}]*)\}", table).group(1)
 	labels = re.findall(r'"((?:[^"\\]|\\.)*)"', row)
 	return [label.encode("latin-1").decode("unicode_escape").encode("latin-1").decode("utf-8") for label in labels]

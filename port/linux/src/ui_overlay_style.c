@@ -15,14 +15,16 @@ deko3d).
 
 #include "ui_overlay.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* the palette's named colors (ui_style_color, by UI_COLOR_*), a table a
-theme: Halo Blue, the Chupathingy menus' blues (the Guide's mockups), and
-Chupathingy Red, the same with red for blue (the site's reds). The colors
-that are not blue (white, the warning's yellow, the states' green, the
-friend's gold) are the same in both, but for the red's bad state, orange
-to stand apart from its labels */
+theme: Halo Blue, the Chupathingy menus' blues (the Guide's mockups),
+Chupathingy Red, the same with red for blue (the site's reds), and
+Dashboard Green, the Xbox dashboard's dark green glass and lime (from
+Theseus's Guide). The colors that are not the theme's (white, the
+warning's yellow, the states' green, the friend's gold) are the same in
+all, but for the red's bad state, orange to stand apart from its labels */
 static const unsigned int palettes[NUMBER_OF_UI_THEMES][NUMBER_OF_UI_COLORS] =
 {
 	[UI_THEME_BLUE] =
@@ -79,6 +81,12 @@ static const unsigned int palettes[NUMBER_OF_UI_THEMES][NUMBER_OF_UI_COLORS] =
 		[UI_COLOR_LABEL_SOFT] = 0x6FA6DDFF,
 		[UI_COLOR_DOT_GAME] = 0x4FB3FFFF,
 		[UI_COLOR_DOT_OFFLINE] = 0x4A5A70FF,
+		[UI_COLOR_TEXT_SOFT] = 0x9FB7D0FF,
+		[UI_COLOR_TEXT_PALE] = 0xC8D3E0FF,
+		[UI_COLOR_TEXT_OFF] = 0x6F829AFF,
+		[UI_COLOR_PLAYER] = 0x2F6DD0FF,
+		[UI_COLOR_SETTING_NAME] = 0x9FD0FFFF,
+		[UI_COLOR_WINDOW] = 0x061226FF,
 	},
 	[UI_THEME_RED] =
 	{
@@ -134,6 +142,73 @@ static const unsigned int palettes[NUMBER_OF_UI_THEMES][NUMBER_OF_UI_COLORS] =
 		[UI_COLOR_LABEL_SOFT] = 0xDD7D80FF,
 		[UI_COLOR_DOT_GAME] = 0xFF686DFF,
 		[UI_COLOR_DOT_OFFLINE] = 0x704E4FFF,
+		[UI_COLOR_TEXT_SOFT] = 0xD09FA1FF,
+		[UI_COLOR_TEXT_PALE] = 0xE0C8C9FF,
+		[UI_COLOR_TEXT_OFF] = 0x9A6F70FF,
+		[UI_COLOR_PLAYER] = 0xC8383CFF,
+		[UI_COLOR_SETTING_NAME] = 0xFFACAFFF,
+		[UI_COLOR_WINDOW] = 0x300A0AFF,
+	},
+	[UI_THEME_GREEN] =
+	{
+		[UI_COLOR_NAME] = 0xFFFFFFFF,
+		[UI_COLOR_STATUS] = 0xC8F09AFF,
+		[UI_COLOR_LABEL] = 0xA8E05AFF,
+		[UI_COLOR_HEAD] = 0xA8E05AFF,
+		[UI_COLOR_HEAD_GLOW] = 0x7FCB2A40,
+		[UI_COLOR_TEXT] = 0xFFFFFFFF,
+		[UI_COLOR_WARNING] = 0xFFCF6BFF,
+		[UI_COLOR_SHADE] = 0x010802C8,
+		[UI_COLOR_GLASS_TOP] = 0x123C14F4,
+		[UI_COLOR_GLASS_BOTTOM] = 0x061C08F8,
+		[UI_COLOR_PANE] = 0x04180AE0,
+		[UI_COLOR_EMBLEM_FRIEND] = 0xC9A227FF,
+		[UI_COLOR_EMBLEM_LETTER] = 0x0A2A0CFF,
+		[UI_COLOR_TITLE] = 0xB4F03CFF,
+		[UI_COLOR_TITLE_GLOW] = 0x9BDB2AC0,
+		[UI_COLOR_NAV] = 0xA8E04AFF,
+		[UI_COLOR_NAV_GLOW] = 0x8CD22870,
+		[UI_COLOR_LABEL_DIM] = 0x5E7F40FF,
+		[UI_COLOR_LABEL_GLOW] = 0x7FCB2A60,
+		[UI_COLOR_SELECTED_GLOW] = 0xD8FF9C8C,
+		[UI_COLOR_TEXT_DIM] = 0xA9BB9AFF,
+		[UI_COLOR_FAINT] = 0x8FB27AFF,
+		[UI_COLOR_GOOD] = 0x9FEA7AFF,
+		[UI_COLOR_BAD] = 0xFF8A80FF,
+		[UI_COLOR_TAG] = 0xC6EAA0FF,
+		[UI_COLOR_PROMPT] = 0xB4F03CFF,
+		[UI_COLOR_PROMPT_GLOW] = 0x8CD22880,
+		[UI_COLOR_LINE] = 0xA8E05A8C,
+		[UI_COLOR_LINE_GLOW] = 0x9BDB2A30,
+		[UI_COLOR_SEPARATOR] = 0xA8E05A5A,
+		[UI_COLOR_FIELD] = 0x02100480,
+		[UI_COLOR_FIELD_EDGE] = 0x9BDB2A40,
+		[UI_COLOR_PROGRESS_TOP] = 0xB4F03CFF,
+		[UI_COLOR_PROGRESS_BOTTOM] = 0x5FA524FF,
+		[UI_COLOR_BACKDROP_TOP] = 0x031005FF,
+		[UI_COLOR_BACKDROP_MIDDLE] = 0x061C08FF,
+		[UI_COLOR_BACKDROP_BOTTOM] = 0x030C04FF,
+		[UI_COLOR_STAR] = 0xDCF5C8FF,
+		[UI_COLOR_CLEAR] = 0x020A03FF,
+		[UI_COLOR_PANEL_EDGE] = 0x5FA524FF,
+		[UI_COLOR_GLOW] = 0x8CD228FF,
+		[UI_COLOR_RULE] = 0x9BDB2A5A,
+		[UI_COLOR_TAB] = 0xB9E68DFF,
+		[UI_COLOR_TAB_ON] = 0x6FAE2A8C,
+		[UI_COLOR_SELECTED_EDGE] = 0xD8FF9CFF,
+		[UI_COLOR_ROW] = 0x0E3612E6,
+		[UI_COLOR_ROW_EDGE] = 0x9BDB2A40,
+		[UI_COLOR_ROW_ON] = 0x7DBE2A70,
+		[UI_COLOR_PLASMA_THREAD] = 0xB8F23CFF,
+		[UI_COLOR_LABEL_SOFT] = 0x98C85AFF,
+		[UI_COLOR_DOT_GAME] = 0xB8F23CFF,
+		[UI_COLOR_DOT_OFFLINE] = 0x4F6046FF,
+		[UI_COLOR_TEXT_SOFT] = 0xB7D09FFF,
+		[UI_COLOR_TEXT_PALE] = 0xD3E0C8FF,
+		[UI_COLOR_TEXT_OFF] = 0x829A6FFF,
+		[UI_COLOR_PLAYER] = 0x4F9A22FF,
+		[UI_COLOR_SETTING_NAME] = 0xD8FF9CFF,
+		[UI_COLOR_WINDOW] = 0x061C08FF,
 	},
 };
 
@@ -163,21 +238,36 @@ int ui_style_theme_current(void)
 
 int ui_style_theme_named(const char *name)
 {
-	const char *red = "red";
+	/* display.theme's words, by UI_THEME_* */
+	static const char *const words[NUMBER_OF_UI_THEMES] =
+	{
+		[UI_THEME_BLUE] = "blue",
+		[UI_THEME_RED] = "red",
+		[UI_THEME_GREEN] = "green",
+	};
+	int which;
 
 	if (!name)
 		return UI_THEME_BLUE;
-	/* any case (ASCII), by hand: not every build, the Windows server included, has a case-blind compare */
-	for (; *red; name++, red++)
+	for (which = 0; which < NUMBER_OF_UI_THEMES; which++)
 	{
-		char c = *name;
+		const char *word = words[which];
+		const char *letter = name;
 
-		if (c >= 'A' && c <= 'Z')
-			c = (char)(c - 'A' + 'a');
-		if (c != *red)
-			return UI_THEME_BLUE;
+		/* any case (ASCII), by hand: not every build, the Windows server included, has a case-blind compare */
+		for (; *word; letter++, word++)
+		{
+			char c = *letter;
+
+			if (c >= 'A' && c <= 'Z')
+				c = (char)(c - 'A' + 'a');
+			if (c != *word)
+				break;
+		}
+		if (!*word && !*letter)
+			return which;
 	}
-	return *name ? UI_THEME_BLUE : UI_THEME_RED;
+	return UI_THEME_BLUE;
 }
 
 static unsigned int fade(unsigned int color, float share);
@@ -203,6 +293,11 @@ static const struct
 float ui_style_text_size(int kind)
 {
 	return kind >= 0 && kind <= UI_TEXT_WARNING ? text_kinds[kind].size : 10.0f;
+}
+
+int ui_style_text_font(int kind)
+{
+	return kind >= 0 && kind <= UI_TEXT_WARNING ? text_kinds[kind].font : UI_FONT_MENU_SMALL;
 }
 
 float ui_style_text_faded(int kind, float share, float x, float y, int align, const char *text)
@@ -300,12 +395,48 @@ void ui_style_row(float x, float y, float width, float height, int selected)
 		ui_style_glass(x, y, width, height, 7, PALETTE(ROW), PALETTE(ROW_EDGE));
 }
 
+/* a setting's value in room (UI_FONT_MENU at size): as it is, or cut with
+"..." (a path's at its start) */
+static void value_fit(const char *value, float size, float room, char *out, int out_size)
+{
+	int length = (int)strlen(value), keep, path = strchr(value, '/') || strchr(value, '\\');
+
+	snprintf(out, (size_t)out_size, "%s", value);
+	if (room <= 0 || ui_overlay_text_width(UI_FONT_MENU, size, out) <= room)
+		return;
+	for (keep = length - 1; keep > 0; keep--)
+	{
+		if (path)
+		{
+			int start = length - keep;
+
+			while (start < length && ((unsigned char)value[start] & 0xC0) == 0x80)
+				start++;
+			snprintf(out, (size_t)out_size, "...%s", value + start);
+		}
+		else
+		{
+			int end = keep;
+
+			while (end > 0 && ((unsigned char)value[end] & 0xC0) == 0x80)
+				end--;
+			while (end > 0 && value[end - 1] == ' ')
+				end--;
+			snprintf(out, (size_t)out_size, "%.*s...", end, value);
+		}
+		if (ui_overlay_text_width(UI_FONT_MENU, size, out) <= room)
+			return;
+	}
+	snprintf(out, (size_t)out_size, "...");
+}
+
 void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected)
 {
 	float size = ui_style_text_size(UI_TEXT_NAME) * scale;
 	float text_y = y + (height - size) * 0.5f, right = x + width - size * 1.2f, label_end;
-	float value_width = ui_overlay_text_width(UI_FONT_MENU, size, value);
+	float value_width;
+	char shown[160];
 
 	ui_style_row(x, y, width, height, selected);
 	label_end = x + size * 1.1f + ui_style_text_scaled(UI_TEXT_NAME, scale, x + size * 1.1f, text_y, UI_ALIGN_LEFT,
@@ -320,8 +451,14 @@ void ui_style_setting(float x, float y, float width, float height, float scale, 
 			fade(PALETTE(WARNING), 0.7f));
 		ui_style_text_scaled(UI_TEXT_WARNING, badge_scale, badge_x + badge_size * 0.5f, y + (height - badge_size) * 0.5f,
 			UI_ALIGN_LEFT, badge);
+		label_end = badge_x + badge_width;
 	}
-	/* (the value between its arrows, as the menus' settings have it) */
+	/* (the value between its arrows, as the menus' settings have it; one
+	longer than the room right of the label cut with "...", a folder's at
+	its start so its last folders show) */
+	value_fit(value, size, right - size * 1.8f - (label_end + size * 1.5f), shown, sizeof(shown));
+	value = shown;
+	value_width = ui_overlay_text_width(UI_FONT_MENU, size, value);
 	ui_overlay_text(UI_FONT_MENU, size, right, text_y, UI_ALIGN_RIGHT, PALETTE(TAB), "\xE2\x80\xBA");
 	ui_style_text_scaled(UI_TEXT_NAME, scale, right - size * 1.2f, text_y, UI_ALIGN_RIGHT, value);
 	ui_overlay_text(UI_FONT_MENU, size, right - size * 1.8f - value_width, text_y, UI_ALIGN_RIGHT, PALETTE(TAB),
@@ -343,9 +480,27 @@ void ui_style_tabs(float left, float right, float y, float height, const char *c
 	float glyph = height * 0.64f;
 	int index;
 
+	float text = 0.0f, room;
+
 	for (index = 0; index < count; index++)
-		total += ui_overlay_text_width(UI_FONT_MENU, size, names[index]) + 2 * pad + gap;
-	total -= gap;
+		text += ui_overlay_text_width(UI_FONT_MENU, size, names[index]);
+	/* (more tabs than fit between the bumpers: their padding narrowed, then
+	their text made smaller, so none runs under a bumper) */
+	room = right - left - bumper(UI_BUTTON_LEFT_SHOULDER, left_key, glyph, 0, 0, 1) -
+		bumper(UI_BUTTON_RIGHT_SHOULDER, right_key, glyph, 0, 0, 1) - 4 * gap;
+	if (count > 0 && text + count * 2 * pad + (count - 1) * gap > room)
+	{
+		pad = (room - text - (count - 1) * gap) / (2.0f * count);
+		if (pad < height * 0.15f)
+		{
+			pad = height * 0.15f;
+			size *= (room - count * 2 * pad - (count - 1) * gap) / text;
+			text = 0.0f;
+			for (index = 0; index < count; index++)
+				text += ui_overlay_text_width(UI_FONT_MENU, size, names[index]);
+		}
+	}
+	total = text + count * 2 * pad + (count - 1) * gap;
 	bumper(UI_BUTTON_LEFT_SHOULDER, left_key, glyph, left, y + (height - glyph) * 0.5f, 0);
 	bumper(UI_BUTTON_RIGHT_SHOULDER, right_key, glyph,
 		right - bumper(UI_BUTTON_RIGHT_SHOULDER, right_key, glyph, 0, 0, 1), y + (height - glyph) * 0.5f, 0);
@@ -424,7 +579,7 @@ void ui_style_card(float left, float right, float y, const char *name, const cha
 	initial[0] = name[0] >= 'a' && name[0] <= 'z' ? (char)(name[0] - 32) : name[0];
 	initial[1] = 0;
 	if ((unsigned char)initial[0] < 0x80)
-		ui_overlay_text(UI_FONT_BOLD, 17.0f, left + 16, y + 6, UI_ALIGN_CENTER, 0xFFFFFFFF, initial);
+		ui_overlay_text(UI_FONT_MENU, 15.0f, left + 16, y + 6, UI_ALIGN_CENTER, 0xFFFFFFFF, initial);
 	ui_overlay_text(UI_FONT_MENU, 15.0f, left + 44, y + 1, UI_ALIGN_LEFT, PALETTE(NAME), name);
 	if (status && status[0])
 		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, left + 44, y + 20, UI_ALIGN_LEFT, PALETTE(STATUS), status);

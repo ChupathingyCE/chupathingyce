@@ -16,6 +16,7 @@ Default puts them back.
 #if defined(HALO_GUIDE) || defined(HALO_LAUNCHER)
 
 #include "settings_rows.h"
+#include "steam_client_bridge.h"
 #include "port_config.h"
 
 #include <ctype.h>
@@ -47,6 +48,11 @@ enum
 	_kind_audio_devices,
 	/* the Performance preset */
 	_kind_preset,
+	/* Steam's link (steam_link_*): the Steam name, or NOT LINKED; a change
+	opens the Guide's Workshop on its link row (LINK's QR, UNLINK) */
+	_kind_steam_link,
+	/* a folder: shown, changed in config.toml ("" the data folder's own) */
+	_kind_folder,
 };
 
 enum
@@ -90,6 +96,8 @@ static const char *const renderer_names[] = { "OPENGL", "VULKAN", NULL };
 #endif
 #endif
 static const char *const menus_choices[] = { "xbox", "gearbox", "chupathingy", NULL };
+/* display.title_font's (hud_hires.c, menu_files.c, ui_overlay.c) */
+static const char *const title_font_choices[] = { "classic", "cyborg", NULL };
 static const char *const channels_choices[] = { "auto", "stereo", "5.1", "7.1", NULL };
 static const char *const hrtf_choices[] = { "on", "off", "auto", NULL };
 static const char *const buffer_choices[] = { "256", "512", "1024", "2048", "4096", NULL };
@@ -104,10 +112,10 @@ static const char *const guide_key_choices[] = { "F3, Backslash", "Backslash", "
 static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", NULL };
 #endif
 /* display.theme's: the Guide's and the setup screen's colors (ui_style_theme) */
-static const char *const theme_choices[] = { "blue", "red", NULL };
+static const char *const theme_choices[] = { "blue", "red", "green", NULL };
 /* display.light_effects' (port/linux/game/lighting_config.c) */
 static const char *const light_effects_choices[] = { "auto", "high", "low", "off", NULL };
-static const char *const theme_names[] = { "HALO BLUE", "CHUPATHINGY RED", NULL };
+static const char *const theme_names[] = { "HALO BLUE", "CHUPATHINGY RED", "DASHBOARD GREEN", NULL };
 
 static const struct settings_row settings_rows[] =
 {
@@ -122,6 +130,9 @@ static const struct settings_row settings_rows[] =
 	{ _in_display, "V-SYNC", "display.vsync", _kind_toggle, NULL, NULL, 0, 1 },
 	{ _in_display, "ANTI-ALIASING", "display.anti_aliasing", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_display, "MENU STYLE", "display.menus", _kind_choices, menus_choices, NULL, 0, 0 },
+#ifdef HALO_TITLE_CHOICE
+	{ _in_display, "TITLE FONT", "display.title_font", _kind_choices, title_font_choices, NULL, 0, 0 },
+#endif
 	{ _in_display, "PERFORMANCE", "display.particle_limit", _kind_preset, NULL, NULL, 0, 0 },
 	{ _in_display, "LIGHT EFFECTS", "display.light_effects", _kind_choices, light_effects_choices, NULL, 0, 0 },
 
@@ -146,7 +157,16 @@ static const struct settings_row settings_rows[] =
 	{ _in_network, "DELTA STATS", "network.report_events", _kind_toggle, NULL, NULL, 0, 0 },
 	/* (the Guide's own, then the one it shares with Network) */
 	{ _in_guide, "OPEN KEY", "controls.delta", _kind_choices, guide_key_choices, NULL, 0, 0 },
+	/* (the Workshop's: Steam's link, where items go, a join's missing map) */
+	{ _in_network | _in_guide, "STEAM ACCOUNT", "game.workshop_steam", _kind_steam_link, NULL, NULL, 0, 0 },
+	{ _in_guide, "WORKSHOP FOLDER", "paths.steam_downloads", _kind_folder, NULL, NULL, 0, 0 },
+	/* (the Workshop's maps in the map lists: the Guide's WORKSHOP turns them
+	on from an item's page, and here is where they go off again) */
+	{ _in_guide, "WORKSHOP MAPS", "game.workshop_maps", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_network | _in_guide, "MAPS WHEN JOINING", "network.workshop_downloads", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_guide, "MISSION ORDER", "game.mcc_campaigns", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "SHOW IN MENUS", "delta.menu_item", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "NOTIFICATIONS IN GAME", "delta.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "FRIEND ONLINE ALERTS", "delta.notify_online", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "SHOW WHEN I'M PLAYING", "network.share_presence", _kind_toggle, NULL, NULL, 0, 0 },
@@ -346,6 +366,19 @@ static void preset_set(int preset)
 
 /* ---------- public code */
 
+static void (*steam_link_action)(void);
+static int workshop_offered;
+
+void settings_rows_set_steam_link_action(void (*action)(void))
+{
+	steam_link_action = action;
+}
+
+void settings_rows_set_workshop_offered(int offered)
+{
+	workshop_offered = offered;
+}
+
 const struct settings_row *settings_row_at(int group, int index)
 {
 	int row;
@@ -353,6 +386,15 @@ const struct settings_row *settings_row_at(int group, int index)
 	for (row = 0; row < NUMBER_OF_SETTINGS_ROWS; row++)
 	{
 		if (!(settings_rows[row].groups & (1u << group)) || config_setting_kind(settings_rows[row].key) < 0)
+			continue;
+		/* (Steam's link: where the built-in Steam download is, and something opens it) */
+		if ((settings_rows[row].kind == _kind_steam_link || settings_rows[row].kind == _kind_folder) &&
+			(!steam_link_available() || !steam_link_action))
+		{
+			continue;
+		}
+		/* (Workshop maps: where the Guide has WORKSHOP, MCC on this computer) */
+		if (!workshop_offered && !strcmp(settings_rows[row].key, "game.workshop_maps"))
 			continue;
 		if (!index--)
 			return &settings_rows[row];
@@ -385,6 +427,32 @@ void settings_row_value(const struct settings_row *row, char *text, int size)
 	if (row->kind == _kind_preset)
 	{
 		snprintf(text, (size_t)size, "%s", preset_names[preset_now()]);
+		return;
+	}
+	if (row->kind == _kind_steam_link)
+	{
+		char persona[64];
+
+		char error[24];
+		int link = steam_link_poll(NULL, 0, error, sizeof(error));
+
+		if (link == STEAM_LINK_STARTING || link == STEAM_LINK_WAITING || link == STEAM_LINK_SCANNED)
+			snprintf(text, (size_t)size, "LINKING");
+		else if (!steam_link_linked(persona, sizeof(persona)))
+			snprintf(text, (size_t)size, "%s", link == STEAM_LINK_FAILED && error[0] ? error : "NOT LINKED");
+		else if (steam_link_armed())
+			snprintf(text, (size_t)size, "UNLINK?");
+		else if (persona[0])
+			snprintf(text, (size_t)size, "Linked to Steam: %s", persona);
+		else
+			snprintf(text, (size_t)size, "Linked to Steam");
+		return;
+	}
+	if (row->kind == _kind_folder)
+	{
+		const char *folder = config_string(row->key);
+
+		snprintf(text, (size_t)size, "%s", folder && folder[0] ? folder : "DATA FOLDER");
 		return;
 	}
 	current(row->key, value, sizeof(value));
@@ -422,6 +490,14 @@ void settings_row_change(const struct settings_row *row, int step)
 	char value[VALUE_SIZE];
 	int index, found = -1;
 
+	if (row->kind == _kind_steam_link)
+	{
+		if (steam_link_action)
+			steam_link_action();
+		return;
+	}
+	if (row->kind == _kind_folder)
+		return;
 	if (row->kind == _kind_preset)
 	{
 		/* (Default and Potato: from Custom, a step goes to one of them) */
@@ -453,6 +529,8 @@ void settings_row_change(const struct settings_row *row, int step)
 
 void settings_row_reset(const struct settings_row *row)
 {
+	if (row->kind == _kind_steam_link)
+		return;
 	if (row->kind == _kind_preset)
 		preset_set(_preset_default);
 	else

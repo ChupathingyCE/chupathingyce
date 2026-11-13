@@ -8,6 +8,9 @@ A desktop build (Linux, macOS, Windows, Android) defines none of these and
 compiles every extra, as before. A console's build defines HALO_CONSOLE
 (its prefix header) to leave them all out, or any of the
 HALO_CONSOLE_NO_* switches below on its own to leave out only that one.
+The original Xbox's build doesn't define HALO_CONSOLE (its own switches are
+in warthog-xbox's halo_xbox_features.h), so HALO_XBOX_CONSOLE leaves them
+all out too: a switch added here reaches it without a change there.
 The code stays in the tree either way: each switch only compiles it out.
 
 Two extras already have switches of their own, which the desktop build
@@ -46,7 +49,7 @@ maps_screen_open
 #ifndef __HALO_PORT_FEATURES_H
 #define __HALO_PORT_FEATURES_H
 
-#ifdef HALO_CONSOLE
+#if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE)
 
 /* the telnet script console (source/networking/telnet_console.c): a
 console has no local machine to reach it from */
@@ -153,7 +156,7 @@ says it hears voices, so no host sends it any */
 #define HALO_CONSOLE_NO_VOICE
 #endif
 
-#endif /* HALO_CONSOLE */
+#endif /* HALO_CONSOLE || HALO_XBOX_CONSOLE */
 
 /* voice chat over Delta Peer (docs/delta.md, Voice): the desktop builds'
 and Android's (HALO_GAME_BROWSER), as host and client, and the dedicated
@@ -182,6 +185,17 @@ whose game list sends it), and a console's that sends its own reports
 #define HALO_PORT_GAME_REPORTS
 #endif
 
+/* a filtered HUD meter's darkening faded over its edge, in two more combiner
+stages (source/rasterizer/xbox/rasterizer_xbox_dynavobgeom.c): a console
+draws its meters with retail's four stages, scaled or not. Every console's
+build, whichever switches it sets on its own: the original Xbox doesn't set
+HALO_CONSOLE, and its widescreen HUD drew the six stages */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!defined(HALO_CONSOLE_NO_SMOOTH_METER_EDGES)
+#define HALO_CONSOLE_NO_SMOOTH_METER_EDGES
+#endif
+
 /* the Light effects (display.light_effects, port/linux/game/plasma_lighting.c):
 a desktop's lighting extra, on no console (any console's build, whichever
 switches it sets on its own): its headers give empty hooks, and its sources
@@ -190,6 +204,24 @@ build to nothing (plasma_occlusion.c's fields alone are 130 KB) */
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
 	!defined(HALO_CONSOLE_NO_LIGHT_EFFECTS)
 #define HALO_CONSOLE_NO_LIGHT_EFFECTS
+#endif
+
+/* Halo MCC maps (port/linux/game/mcc_*.c, docs/mcc_maps.md): the desktop
+builds' and Android's, by a list of their systems, and on no console (any
+console's build, whichever switches it sets on its own: the original Xbox
+and the Switch don't set HALO_CONSOLE), nor in a Windows app package (UWP,
+warthog-uwp). HALO_MCC is 1 or 0; at 0 the MCC headers turn the hooks the
+shared code calls into no-ops, and the MCC sources build to nothing */
+#ifndef HALO_MCC
+#if (defined(__linux__) || defined(__APPLE__) || defined(_WIN32) || defined(__FreeBSD__) || \
+	defined(HALO_ANDROID)) && \
+	!(defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!(defined(WINAPI_FAMILY) && WINAPI_FAMILY != 100 /* WINAPI_FAMILY_DESKTOP_APP */)
+#define HALO_MCC 1
+#else
+#define HALO_MCC 0
+#endif
 #endif
 
 #endif /* __HALO_PORT_FEATURES_H */

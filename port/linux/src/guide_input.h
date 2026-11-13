@@ -14,7 +14,8 @@ game's units and the platform's both include it.
 
 /* what is held (bits): the d-pad (or the left stick, or the arrow keys and
 WASD), the face buttons (A: Enter, Space; B: Escape, Backspace; X: M; Y:
-Tab), the bumpers (Q and E), Start and Back */
+Tab), the bumpers (Q and E), Start and Back, the triggers (Page Up and
+Page Down) */
 enum
 {
 	GUIDE_INPUT_UP = 1 << 0,
@@ -29,6 +30,9 @@ enum
 	GUIDE_INPUT_RIGHT_BUMPER = 1 << 9,
 	GUIDE_INPUT_START = 1 << 10,
 	GUIDE_INPUT_BACK = 1 << 11,
+	/* the triggers (Page Up and Page Down): a list's pages */
+	GUIDE_INPUT_LEFT_TRIGGER = 1 << 12,
+	GUIDE_INPUT_RIGHT_TRIGGER = 1 << 13,
 };
 
 /* the Guide takes the first player's input (nonzero) or gives it back */

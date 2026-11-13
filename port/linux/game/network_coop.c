@@ -67,6 +67,7 @@ index and tag, since the map placed them at the same index everywhere.
 /* ---------- headers */
 
 #include "cseries.h"
+#include "mcc_object_names.h"
 #include "cseries/errors.h"
 #include "cache/cache_files.h"
 #include "camera/camera_scripting.h"
@@ -102,6 +103,7 @@ index and tag, since the map placed them at the same index everywhere.
 #include "physics/breakable_surfaces.h"
 #include "structures/structure_bsp_definitions.h"
 #include "physics/collisions.h"
+#include "physics/collision_usage.h"
 #include "rasterizer/rasterizer_cinematics.h"
 #include "saved games/game_state.h"
 #include "scenario/scenario.h"
@@ -123,6 +125,8 @@ toward it each tick. */
 #define WATCH_HOST_DISTANCE 3.0f
 #define WATCH_HOST_HEIGHT 1.0f
 #define WATCH_HOST_FOLLOW 0.2f
+/* how far in front of a wall behind the host that view stays */
+#define WATCH_HOST_WALL_GAP 0.25f
 
 /* how often the host sends again the state a client that joined since, or
 missed a message, would lack (host_resend) */
@@ -1286,6 +1290,8 @@ static void host_send_object_names(
 	struct distributed_coop_object_names *names = &message.names;
 	short name_index;
 
+	/* Expanded MCC maps carry all names in their dedicated messages. */
+	if (mcc_object_names_active()) return;
 	csmemset(names, 0, sizeof(*names));
 	names->structure_bsp_index = global_structure_bsp_index_get();
 	names->name_count = (short)MIN(global_scenario_get()->object_names.count, MAXIMUM_OBJECT_NAMES_PER_SCENARIO);
@@ -1513,6 +1519,29 @@ static boolean client_watch_host_from_behind(
 	}
 	if (normalize3d(&coop_presentation.watching_host_forward) == 0.0f)
 		return FALSE;
+	/* (a wall or ceiling between the host's eyes and the camera: the camera
+	comes in front of it, rather than showing the view from inside it) */
+	{
+		real_vector3d reach;
+		struct collision_result collision;
+		boolean blocked;
+
+		vector_from_points3d(position, &coop_presentation.watching_host_position, &reach);
+		match_assert("port\\linux\\game\\network_coop.c", __LINE__,
+			global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
+		global_current_collision_users[global_current_collision_user_depth++] = _collision_user_observer;
+		blocked = collision_test_vector(
+			FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit),
+			position, &reach, NONE, &collision);
+		--global_current_collision_user_depth;
+		if (blocked)
+		{
+			real length = magnitude3d(&reach);
+			real t = length > WATCH_HOST_WALL_GAP ? collision.t - WATCH_HOST_WALL_GAP / length : 0.0f;
+
+			point_from_line3d(position, &reach, MAX(t, 0.0f), &coop_presentation.watching_host_position);
+		}
+	}
 	*position = coop_presentation.watching_host_position;
 	*forward = coop_presentation.watching_host_forward;
 	/* World up is not square to a host looking up or down. Rebuild up from
@@ -1960,6 +1989,28 @@ void network_coop_new_game(
 	skip_vote.cooldown_until = 0;
 	skip_vote.skip_save_written = FALSE;
 	coop_enemies_new_game();
+}
+
+/* (a client of a layout with a checkpoint epoch: network_distributed.c) the
+host's newer epoch: its script sounds stopped, its cinematic ended (and the
+host's camera with it), and the presentation, events, devices, names,
+resends, BSPs and skip vote as at a game's start */
+void network_coop_checkpoint_reset(
+	void)
+{
+	if (game_connection() != _game_connection_network_client)
+		return;
+	client_stop_script_sounds();
+	client_cinematic_end();
+	csmemset(&coop_presentation, 0, sizeof(coop_presentation));
+	csmemset(&coop_events, 0, sizeof(coop_events));
+	csmemset(&client_devices, 0, sizeof(client_devices));
+	csmemset(client_names_differing, 0, sizeof(client_names_differing));
+	csmemset(&host_resend, 0, sizeof(host_resend));
+	csmemset(host_player_structure_bsps, NONE, sizeof(host_player_structure_bsps));
+	skip_vote_clear();
+	skip_vote.offered = FALSE;
+	skip_vote.voters = 0;
 }
 
 /* A network game on a campaign scenario with no game engine. Checking the
@@ -2575,6 +2626,9 @@ void network_coop_reverted(
 
 	if (!coop_host())
 		return;
+	/* (a game whose layout has a checkpoint epoch: the next, said to every
+	loaded client before anything of the reverted game) */
+	network_distributed_checkpoint_boundary();
 	ticks = now - game_time_get();
 	if (ticks > 0)
 	{
@@ -2892,6 +2946,8 @@ void network_coop_handle_object_names(
 {
 	struct distributed_coop_object_names const *names = entries;
 	short name_index;
+
+	if (mcc_object_names_active()) return;
 
 	if (!coop_client())
 		return;

@@ -27,6 +27,9 @@ enum
 	SOCIAL_SECTION_CLAN,
 	SOCIAL_SECTION_PLAYERS_HERE,
 	SOCIAL_SECTION_RECENT,
+	/* Halo: MCC's Steam Workshop items, only with MCC on this computer
+	(port/linux/game/guide_workshop.c) */
+	SOCIAL_SECTION_WORKSHOP,
 	/* the player's medals and totals (port/linux/game/guide_record.c) */
 	SOCIAL_SECTION_SERVICE_RECORD,
 	SOCIAL_SECTION_SETTINGS,

@@ -187,6 +187,11 @@ symbols in this file:
 #include "cache/cache_files.h" /* port: tag_iterator (light_port_glow_definition_get) */
 #include "units/units.h"
 #include "plasma_lighting.h" /* port: port/linux/game/plasma_lighting.c (Light effects) */
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+#include "items/weapon_definitions.h" /* port: light_is_flashlight */
+#include "items/weapon_export_function_mode.h"
+#include "units/unit_definitions.h"
+#endif
 
 /* port: port/linux/src (halo.log) */
 void platform_log(const char *format, ...);
@@ -673,6 +678,94 @@ void sample_diffuse_texture(
 
 	return;
 }
+
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+/* port: a flashlight's beam: a light whose object's function reads the
+object's integrated light (a unit's "integrated light power", a weapon's
+"integrated light"), directly or through one of its other functions. The
+original Xbox leaves these undrawn in a big match (game_engine.c,
+match_light_limits.h); the flashlight's simulation runs as before */
+enum
+{
+	/* (units.c's _unit_function_integrated_light_power) */
+	_light_unit_function_integrated_light_power = 5
+};
+
+static boolean light_function_reads_integrated_light(
+	struct object_definition *object_definition,
+	short const *function_modes,
+	short integrated_light_mode,
+	short function_index,
+	short depth)
+{
+	struct object_function_definition *function;
+	short reference[4];
+	short index;
+
+	if (function_index < 0 || function_index >= object_definition->object.functions.count ||
+		function_index >= NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS || depth > 2)
+		return FALSE;
+	function = TAG_BLOCK_GET_ELEMENT(&object_definition->object.functions, function_index,
+		struct object_function_definition);
+	reference[0] = function->scale_period_by_function_index;
+	reference[1] = function->scale_function_by_function_index;
+	reference[2] = function->add_function_index;
+	reference[3] = function->scale_result_by_function_index;
+	for (index = 0; index < 4; index++)
+	{
+		short value = reference[index];
+
+		/* (1 to 4: the incoming A to D; past them, the outgoing ones) */
+		if (value >= 1 && value <= NUMBER_OF_INCOMING_OBJECT_FUNCTIONS)
+		{
+			if (function_modes[value - 1] == integrated_light_mode)
+				return TRUE;
+		}
+		else if (value > NUMBER_OF_INCOMING_OBJECT_FUNCTIONS &&
+			light_function_reads_integrated_light(object_definition, function_modes, integrated_light_mode,
+				(short)(value - NUMBER_OF_INCOMING_OBJECT_FUNCTIONS - 1), (short)(depth + 1)))
+		{
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
+static boolean light_is_flashlight(
+	struct light_datum *light)
+{
+	struct object_datum *object;
+
+	if (light->function_index == NONE || light->object_index == NONE)
+		return FALSE;
+	object = object_get(light->object_index);
+	if (TEST_FLAG(_object_mask_unit, object->object.type))
+	{
+		struct unit_definition *definition = unit_definition_get(object->definition_index);
+
+		return light_function_reads_integrated_light((struct object_definition *)definition,
+			definition->unit.function_modes, _light_unit_function_integrated_light_power, light->function_index, 0);
+	}
+	if (object->object.type == _object_type_weapon)
+	{
+		struct weapon_definition *definition = weapon_definition_get(object->definition_index);
+
+		return light_function_reads_integrated_light((struct object_definition *)definition,
+			definition->weapon.function_modes, _weapon_function_integrated_light, light->function_index, 0);
+	}
+
+	return FALSE;
+}
+
+/* port: whether a dynamic light is left undrawn as the match's flashlight
+rule says (a drawing choice: nothing else reads it) */
+static boolean light_hidden_by_match_rule(
+	struct light_datum *light)
+{
+	return game_engine_flashlight_beams_hidden() && light_is_flashlight(light);
+}
+#endif
 
 static boolean should_render_lights(
 	void)
@@ -1418,6 +1511,14 @@ void lights_preprocess_scene(
 							light_parameters.forward = drawn_marker.matrix.forward;
 							light_parameters.up = drawn_marker.matrix.up;
 						}
+						/* another player's flashlight's beam evened out
+						where their input came late (render_interpolation.c) */
+						if (TEST_FLAG(definition->flags, _light_definition_is_first_person_flashlight_bit) &&
+							TEST_FLAG(_object_mask_unit, object->object.type))
+						{
+							render_interpolation_flashlight(scene_light_handle, light->object_index,
+								&light_parameters.forward, &light_parameters.up);
+						}
 					}
 
 					if (light->parent_light_index == NONE)
@@ -1428,12 +1529,25 @@ void lights_preprocess_scene(
 							definition->flags,
 							_light_definition_is_first_person_flashlight_bit))
 						{
+							real_point3d unit_position = light_parameters.position;
+							real_vector3d unit_forward = light_parameters.forward;
+
 							first_person_weapon_center_flashlight(
 								light->object_index,
 								&light_parameters.position,
 								&light_parameters.forward,
 								&light_parameters.up);
 							adjusted = TRUE;
+							/* port: no first-person weapon put it on its
+							flashlight marker (empty-handed, a flag, the
+							oddball): turned with the view drawn between
+							the ticks (render_interpolation.c) */
+							if (!memcmp(&unit_position, &light_parameters.position, sizeof(unit_position)) &&
+								!memcmp(&unit_forward, &light_parameters.forward, sizeof(unit_forward)))
+							{
+								render_interpolation_view_turn(light->object_index,
+									&light_parameters.position, &light_parameters.forward, &light_parameters.up);
+							}
 						}
 						else if (object->object.type == _object_type_weapon
 							&& object->object.parent_object_index != NONE)
@@ -2239,6 +2353,10 @@ void lights_render_diffuse(
 			struct light_datum *light = light_get(
 				lights_globals.scene_point_lights[light_index]);
 
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+			if (light_hidden_by_match_rule(light))
+				continue;
+#endif
 			if (TEST_FLAG(light->flags, _point_light_dynamic_bit)
 				&& light->rasterizer_light_index != NONE
 				&& port_dynamic_light_kept[light_index])
@@ -2306,6 +2424,10 @@ void lights_render_specular(
 			struct light_datum *light = light_get(
 				lights_globals.scene_point_lights[light_index]);
 
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+			if (light_hidden_by_match_rule(light))
+				continue;
+#endif
 			if (TEST_FLAG(light->flags, _point_light_dynamic_bit)
 				&& light->rasterizer_light_index != NONE
 				&& port_dynamic_light_specular[light_index]
@@ -2813,6 +2935,20 @@ void lights_prepare_for_object_dynamic(
 	}
 	lights_port_door_cluster = NONE;
 	light_marker_end();
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+	/* port: nor the flashlights' beams the match's rule leaves undrawn */
+	if (game_engine_flashlight_beams_hidden())
+	{
+		short kept = 0;
+
+		for (light_index = 0; light_index < lighting->point_light_count; light_index++)
+		{
+			if (!light_is_flashlight(light_get(lighting->point_light_indices[light_index])))
+				lighting->point_light_indices[kept++] = lighting->point_light_indices[light_index];
+		}
+		lighting->point_light_count = kept;
+	}
+#endif
 	for (light_index = 0; light_index < lighting->point_light_count; light_index++)
 	{
 		lighting->point_light_indices[light_index] =

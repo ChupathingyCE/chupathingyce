@@ -51,6 +51,7 @@ asks whether the map is in its family's folders (ui_map_list_family_present).
 #include "halo_join_reasons.h"
 #include "halo_ui_map_list.h"
 #include "halomd_map_names.h"
+#include "mcc_maps.h"
 
 /* Halo PC's multiplayer maps, in the order of its map list (its strings and
 pictures), and an Xbox map of the same kind whose picture stands in
@@ -192,24 +193,37 @@ enum
 	/* (the Xbox's thirteen, then the Custom Edition, HaloMD, Halo PC and
 	map packs' maps found, up to this many rows in all; on the original
 	Xbox, which has a pack's alone, its thirteen and as many again) */
-#ifdef HALO_XBOX_CONSOLE
-	MAXIMUM_MAP_LIST = 40,
+#ifdef HALO_CONSOLE_MAP_LIST_ROWS
+	MAXIMUM_MAP_LIST = HALO_CONSOLE_MAP_LIST_ROWS,
 #else
-	MAXIMUM_MAP_LIST = 256,
+	/* (a computer's: a large Custom Edition folder and the whole MCC
+	catalog, MCC_MAPS_MAXIMUM, together; 256 left the MCC maps, listed
+	last, out) */
+	MAXIMUM_MAP_LIST = 2560,
 #endif
 	MAP_NAME_LENGTH = 64,
 	DISPLAY_NAME_LENGTH = 48,
 	DESCRIPTION_LENGTH = 160,
 	/* text boxes' string list indices from here are this list's: the row
-	times four, plus its string's kind */
+	times the kinds of string, plus its string's kind */
 	UI_MAP_LIST_STRING_BASE = 0x4000,
-	UI_MAP_LIST_STRINGS_PER_ROW = 4,
+	UI_MAP_LIST_STRINGS_PER_ROW = NUMBER_OF_UI_MAP_LIST_STRINGS,
+	/* the characters of a line of the description pane's name (Halo PC's
+	box over the picture shows about this many of the menus' font) */
+	PANE_NAME_LINE = 13,
+	PANE_NAME_LINES = 2,
+	/* and of a line of the map lists' cards' and boxes' names */
+	CARD_NAME_LINE = 15,
 	/* bitmap frames from here are Halo PC's map pictures */
 	UI_MAP_LIST_PICTURE_BASE = 0x4000,
 	/* and from here the campaign's level pictures (ui.map's sp_levels, a
 	frame for each level) */
 	UI_MAP_LIST_CAMPAIGN_PICTURE_BASE = 0x6000,
 };
+
+/* (every row's strings have string list indices, shorts) */
+typedef char ui_map_list_string_indices_fit[
+	UI_MAP_LIST_STRING_BASE + (long)MAXIMUM_MAP_LIST * UI_MAP_LIST_STRINGS_PER_ROW <= 0x7FFF ? 1 : -1];
 
 #ifdef HALO_CUSTOM_EDITION
 enum
@@ -235,6 +249,7 @@ struct ui_map_entry
 	char map_name[MAP_NAME_LENGTH];
 	wchar_t display_name[DISPLAY_NAME_LENGTH];
 	wchar_t lobby_name[DISPLAY_NAME_LENGTH];
+	wchar_t pane_name[DISPLAY_NAME_LENGTH];
 	wchar_t description[DESCRIPTION_LENGTH];
 	/* its row among the Xbox's (their strings and bitmap frames), or NONE */
 	short xbox_index;
@@ -242,16 +257,38 @@ struct ui_map_entry
 	/* its game's type in the lobby, for a row that has one of its own (a
 	campaign level's: co-op), else NULL */
 	wchar_t const *game_type;
+	/* where it comes from (_ui_map_list_source_*) */
+	short source;
+	/* when its file was written (0: not known), once asked for: the view's
+	Recently added */
+	boolean added_known;
+	long long added;
 };
 
 /* ---------- globals */
 
+/* (the entries in the order they are found; the rows are the view's order
+of them: ui_map_list_view) */
 static struct ui_map_entry ui_map_list[MAXIMUM_MAP_LIST];
 static char *ui_map_list_names_array[MAXIMUM_MAP_LIST];
 static long ui_map_list_count_value;
+static short ui_map_list_view[MAXIMUM_MAP_LIST];
+/* the entries that are multiplayer maps, and those to the campaign's
+co-op levels' end, as found */
+static long ui_map_list_found_multiplayer, ui_map_list_found_campaign_end;
+/* the source the entries being added come from */
+static short ui_map_list_adding_source;
+/* the maps found that the list had no room for, this refresh, and the
+first of them (logged: ui_map_list_refresh) */
+static long ui_map_list_left_out;
+static char ui_map_list_first_left_out[MAP_NAME_LENGTH];
 /* the rows that are multiplayer maps (the campaign's levels come after
 them, for hosting network co-op: ui_map_list_count_with_campaign) */
 static long ui_map_list_multiplayer_count;
+/* the rows up to the campaign's co-op levels' end: the MCC catalog's
+campaign maps follow them, found by name only (New Game's SINGLEPLAYER rows
+name them: menu_functions.c), never a co-op game's */
+static long ui_map_list_campaign_end;
 
 #ifdef HALO_CUSTOM_EDITION
 /* ---------- prototypes */
@@ -573,16 +610,23 @@ static void add_entry(
 	struct ui_map_entry *entry;
 
 	if (ui_map_list_count_value >= MAXIMUM_MAP_LIST)
+	{
+		if (!ui_map_list_left_out++)
+			snprintf(ui_map_list_first_left_out, sizeof(ui_map_list_first_left_out), "%s", map_name);
 		return;
+	}
 	entry = &ui_map_list[ui_map_list_count_value];
 	snprintf(entry->map_name, sizeof(entry->map_name), "%s", map_name);
 	wide_copy(entry->display_name, DISPLAY_NAME_LENGTH, display_name);
 	wide_copy(entry->lobby_name, DISPLAY_NAME_LENGTH, lobby_name);
+	wide_copy(entry->pane_name, DISPLAY_NAME_LENGTH, lobby_name);
 	wide_copy(entry->description, DESCRIPTION_LENGTH, description);
 	entry->xbox_index = xbox_index;
 	entry->picture_index = picture_index;
 	entry->game_type = NULL;
-	ui_map_list_names_array[ui_map_list_count_value] = entry->map_name;
+	entry->source = ui_map_list_adding_source;
+	entry->added_known = FALSE;
+	entry->added = 0;
 	ui_map_list_count_value++;
 }
 
@@ -833,6 +877,103 @@ static void add_mcc_entry(
 }
 #endif
 
+/* a name broken between words into at most line_count lines of
+line_characters (the description pane's name: PANE_NAME_LINE and
+PANE_NAME_LINES; a card's first line: CARD_NAME_LINE); a word longer than a
+line keeps its own line, whole, and words past the last line are left for
+"..." after it */
+static void pane_name_wrap(
+	wchar_t *pane_name,
+	wchar_t const *name,
+	long line_characters,
+	long line_count)
+{
+	long out = 0, line = 0, at = 0, lines = 1;
+
+	while (name[at] == ' ')
+		at++;
+	while (name[at] && out < DISPLAY_NAME_LENGTH - 3)
+	{
+		long word = 0, index;
+
+		while (name[at + word] && name[at + word] != ' ')
+			word++;
+		if (line && line + 1 + word > line_characters)
+		{
+			if (lines == line_count)
+			{
+				for (index = 0; index < 3 && out < DISPLAY_NAME_LENGTH - 1; index++)
+					pane_name[out++] = '.';
+				break;
+			}
+			lines++;
+			pane_name[out++] = '\r';
+			pane_name[out++] = '\n';
+			line = 0;
+		}
+		else if (line)
+		{
+			pane_name[out++] = ' ';
+			line++;
+		}
+		for (index = 0; index < word && out < DISPLAY_NAME_LENGTH - 1; index++)
+			pane_name[out++] = name[at + index];
+		line += word;
+		at += word;
+		while (name[at] == ' ')
+			at++;
+	}
+	pane_name[out] = 0;
+}
+
+/* an MCC map's row from the MCC catalog (mcc_maps.c: maps_mcc, its
+packages and the subscribed Workshop items): named as the catalog names it,
+marked [MCC] as a Custom Edition map is marked [CE], its map name the
+catalog's level name (mcc_maps\<package>\<level>), with Halo PC's picture
+for an unknown level. Played alone or in split screen; a network game
+refuses it as it refuses any MCC map */
+static void add_mcc_catalog_entry(
+	short index)
+{
+	wchar_t name[DISPLAY_NAME_LENGTH];
+	wchar_t display_name[DISPLAY_NAME_LENGTH];
+	wchar_t lobby_name[DISPLAY_NAME_LENGTH];
+	wchar_t description[DESCRIPTION_LENGTH];
+	wchar_t const *own = mcc_maps_description(index);
+	char const *level = mcc_maps_level_name(index);
+
+	if (!level || strlen(level) >= MAP_NAME_LENGTH)
+		return;
+	wide_copy(name, DISPLAY_NAME_LENGTH - 7, mcc_maps_name(index));
+	wide_copy(lobby_name, DISPLAY_NAME_LENGTH, name);
+	wide_append(lobby_name, DISPLAY_NAME_LENGTH, L" [MCC]");
+	/* (the map lists' cards: the map's whole name, on two lines when it
+	needs them, then [MCC] after it where it fits, as a Custom Edition
+	map's [CE]; a name of two full lines keeps its words, not the mark) */
+	pane_name_wrap(display_name, name, CARD_NAME_LINE, 2);
+	{
+		wchar_t const *last = display_name;
+		wchar_t const *at;
+
+		for (at = display_name; *at; at++)
+		{
+			if (*at == '\n')
+				last = at + 1;
+		}
+		if (last == display_name)
+			wide_append(display_name, DISPLAY_NAME_LENGTH, L"\r\n[MCC]");
+		else if ((long)(at - last) + 6 <= CARD_NAME_LINE)
+			wide_append(display_name, DISPLAY_NAME_LENGTH, L" [MCC]");
+	}
+	wide_copy(description, DESCRIPTION_LENGTH, own && own[0] ? own : L"A Halo MCC map");
+	/* (its own picture, its package's or Steam's picture of its Workshop
+	item, by its catalog index: ui_widget.c draws it, or Halo PC's picture
+	for an unknown level when there is none, ui_map_list_unknown_picture) */
+	add_entry(level, display_name, lobby_name, description, NONE, (short)(MCC_MAPS_FIRST_DISPLAY_INDEX + index));
+	if (ui_map_list_count_value && !strcmp(ui_map_list[ui_map_list_count_value - 1].map_name, level))
+		pane_name_wrap(ui_map_list[ui_map_list_count_value - 1].pane_name, name, PANE_NAME_LINE, PANE_NAME_LINES);
+}
+
 /* the files found of a family's maps, while the list is filled */
 struct found_files
 {
@@ -848,6 +989,8 @@ static void file_found(
 
 	if (found->count < MAXIMUM_MAP_LIST && strlen(file) < MAP_NAME_LENGTH - 3)
 		snprintf(found->names[found->count++], MAP_NAME_LENGTH, "%s", file);
+	else if (found->count >= MAXIMUM_MAP_LIST && !ui_map_list_left_out++)
+		snprintf(ui_map_list_first_left_out, sizeof(ui_map_list_first_left_out), "%s", file);
 }
 
 /* a pack's map found: by its name, <file>@<pack> */
@@ -916,6 +1059,411 @@ static void add_campaign_entries(
 #endif
 }
 
+/* ---------- the view (ui_map_list_view_set) */
+
+#define ROW(row) (&ui_map_list[ui_map_list_view[row]])
+
+long tag_loaded(long group_tag, char const *name);
+wchar_t *unicode_string_list_get_string(long tag_index, short string_index);
+
+/* (an MCC package's ModInfo.json and CampaignInfo.json, read once a run
+for each level: what a search is matched against besides the names) */
+#ifdef HALO_XBOX_CONSOLE
+enum { VIEW_PACKAGE_TEXT = 1, VIEW_PACKAGE_TEXTS = 1 };
+#else
+enum { VIEW_PACKAGE_TEXT = 2048, VIEW_PACKAGE_TEXTS = MIN(MAXIMUM_MAP_LIST, MCC_MAPS_MAXIMUM) };
+#endif
+
+static struct
+{
+	short source, sort;
+	char search[48];
+	unsigned long serial;
+	boolean present[NUMBER_OF_UI_MAP_LIST_SOURCES];
+	long package_text_count;
+	struct
+	{
+		char level[MAP_NAME_LENGTH];
+		char text[VIEW_PACKAGE_TEXT];
+	} *package_texts;
+} view;
+
+static char const *const view_source_names[NUMBER_OF_UI_MAP_LIST_SOURCES] = { "All", "Xbox", "CE", "MD", "MCC" };
+static char const *const view_source_keys[NUMBER_OF_UI_MAP_LIST_SOURCES] = { "all", "xbox", "ce", "md", "mcc" };
+static char const *const view_sort_names[NUMBER_OF_UI_MAP_LIST_SORTS] = { "Default order", "A-Z", "Recently added" };
+static char const *const view_sort_keys[NUMBER_OF_UI_MAP_LIST_SORTS] = { "default", "az", "recent" };
+
+static char view_lower(char character)
+{
+	return character >= 'A' && character <= 'Z' ? (char)(character - 'A' + 'a') : character;
+}
+
+/* (text, ASCII letters in any case, has search) */
+static boolean view_contains(char const *text, char const *search)
+{
+	long at, index;
+
+	if (!search[0])
+		return TRUE;
+	for (at = 0; text[at]; at++)
+	{
+		for (index = 0; search[index] && text[at + index] &&
+			view_lower(text[at + index]) == view_lower(search[index]); index++)
+			;
+		if (!search[index])
+			return TRUE;
+	}
+	return FALSE;
+}
+
+static void view_narrow(char *text, long size, wchar_t const *wide)
+{
+	long index;
+
+	for (index = 0; wide && wide[index] && index < size - 1; index++)
+		text[index] = wide[index] < 0x80 ? (char)wide[index] : '?';
+	text[index] = 0;
+}
+
+/* an entry's name as its rows show it, without its tag ([CE], [MCC]) */
+static void view_entry_name(struct ui_map_entry const *entry, char *name, long size)
+{
+	char *tag;
+
+	if (entry->xbox_index != NONE)
+	{
+		long tag_index = tag_loaded('ustr', "ui\\shell\\main_menu\\mp_map_list");
+		wchar_t const *string = tag_index != NONE ? unicode_string_list_get_string(tag_index, entry->xbox_index) : NULL;
+
+		view_narrow(name, size, string);
+		if (!name[0])
+			snprintf(name, (size_t)size, "%s", entry->map_name);
+		return;
+	}
+	view_narrow(name, size, entry->lobby_name);
+	tag = strrchr(name, '[');
+	if (tag && tag > name && tag[-1] == ' ')
+		tag[-1] = 0;
+}
+
+/* an MCC level's package's ModInfo.json and CampaignInfo.json (a Workshop
+item's are in its folder, above its maps folder), as one text */
+static char const *view_package_text(char const *level)
+{
+	static char const *const files[] = { "ModInfo.json", "CampaignInfo.json" };
+	char package[MAP_NAME_LENGTH], path[256];
+	char *text, *cut;
+	long index, used = 0, file, length;
+
+	if (VIEW_PACKAGE_TEXT < 2 || _strnicmp(level, MCC_MAPS_LEVEL_PREFIX, sizeof(MCC_MAPS_LEVEL_PREFIX) - 1))
+		return "";
+	for (index = 0; index < view.package_text_count; index++)
+	{
+		if (!strcmp(view.package_texts[index].level, level))
+			return view.package_texts[index].text;
+	}
+	if (!view.package_texts)
+		view.package_texts = calloc(VIEW_PACKAGE_TEXTS, sizeof(*view.package_texts));
+	if (!view.package_texts || view.package_text_count >= VIEW_PACKAGE_TEXTS)
+		return "";
+	index = view.package_text_count++;
+	snprintf(view.package_texts[index].level, MAP_NAME_LENGTH, "%s", level);
+	text = view.package_texts[index].text;
+	text[0] = 0;
+	/* (its package: the folder before the level's name, none for a loose map) */
+	snprintf(package, sizeof(package), "%s", level + sizeof(MCC_MAPS_LEVEL_PREFIX) - 1);
+	cut = strrchr(package, '\\');
+	if (!cut)
+		return text;
+	*cut = 0;
+	for (file = 0; file < 2; file++)
+	{
+		FILE *stream;
+
+		snprintf(path, sizeof(path), "%s%s\\%s", MCC_MAPS_DIRECTORY, package, files[file]);
+		stream = fopen(path, "rb");
+		if (!stream)
+			continue;
+		length = (long)fread(text + used, 1, (size_t)(VIEW_PACKAGE_TEXT - 1 - used), stream);
+		fclose(stream);
+		used += length;
+		text[used] = 0;
+	}
+#if defined(HALO_MCC) && HALO_MCC
+	/* (a Workshop item: its folder's, the maps folder's parent) */
+	if (!used)
+	{
+		extern int steam_workshop_package_folder(const char *item_id, char *folder, unsigned long size);
+		extern int posix_mcc_preview_read(const char *root, const char *relative, void *buffer,
+			unsigned long capacity);
+		char folder[512];
+
+		if (steam_workshop_package_folder(package, folder, sizeof(folder)))
+		{
+			char *slash = strrchr(folder, '/');
+
+			if (!slash)
+				slash = strrchr(folder, '\\');
+			if (slash)
+				*slash = 0;
+			/* (read in place, kept inside the item's folder: posix_mcc_preview.c) */
+			for (file = 0; file < 2; file++)
+			{
+				length = posix_mcc_preview_read(folder, files[file], text + used,
+					(unsigned long)(VIEW_PACKAGE_TEXT - 1 - used));
+				used += length > 0 ? length : 0;
+				text[used] = 0;
+			}
+		}
+	}
+#endif
+	return text;
+}
+
+/* whether the lists offer MCC maps now: in every game, offline, split
+screen and network (a network game on one is hosted at OpenCE's 43:
+network_game_server_mcc_version); a build without MCC maps lists none */
+boolean ui_map_list_mcc_offered(
+	void)
+{
+	return TRUE;
+}
+
+static boolean view_matches(struct ui_map_entry const *entry)
+{
+	char name[DISPLAY_NAME_LENGTH * 2];
+
+	if (entry->source == _ui_map_list_source_mcc && !ui_map_list_mcc_offered())
+		return FALSE;
+	/* (the Workshop item the Guide's PLAY handed over: shown whatever the
+	view, mcc_maps_set_first_item) */
+	if (entry->source == _ui_map_list_source_mcc && mcc_maps_level_first(entry->map_name))
+		return TRUE;
+	if (view.source != _ui_map_list_source_all && entry->source != view.source)
+		return FALSE;
+	if (!view.search[0])
+		return TRUE;
+	view_entry_name(entry, name, sizeof(name));
+	if (view_contains(name, view.search) || view_contains(entry->map_name, view.search))
+		return TRUE;
+	return entry->source == _ui_map_list_source_mcc && view_contains(view_package_text(entry->map_name), view.search);
+}
+
+/* when an entry's file was written, as a number that grows with it (0: not known) */
+static long long view_entry_added(struct ui_map_entry *entry)
+{
+#ifdef HALO_CUSTOM_EDITION
+	char path[256], file[MAP_NAME_LENGTH];
+	short family;
+
+	if (entry->added_known)
+		return entry->added;
+	entry->added_known = TRUE;
+	path[0] = 0;
+	if (!_strnicmp(entry->map_name, MCC_MAPS_LEVEL_PREFIX, sizeof(MCC_MAPS_LEVEL_PREFIX) - 1))
+		snprintf(path, sizeof(path), "%s%s.map", MCC_MAPS_DIRECTORY,
+			entry->map_name + sizeof(MCC_MAPS_LEVEL_PREFIX) - 1);
+	else if ((family = map_family_parse(entry->map_name, file, sizeof(file))) == _map_family_xbox ||
+		family == _map_family_pack)
+	{
+		char const *base = strrchr(entry->map_name, '\\');
+
+		if (!map_family_xbox_path(base ? base + 1 : entry->map_name, path, sizeof(path)))
+			path[0] = 0;
+	}
+	else if (!map_family_find(family, file, path, sizeof(path)))
+		path[0] = 0;
+	if (path[0])
+	{
+		HANDLE handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+		if (handle != INVALID_HANDLE_VALUE)
+		{
+			FILETIME written;
+
+			if (GetFileTime(handle, NULL, NULL, &written))
+				entry->added = ((long long)written.dwHighDateTime << 32) | written.dwLowDateTime;
+			CloseHandle(handle);
+		}
+	}
+	return entry->added;
+#else
+	(void)entry;
+	return 0;
+#endif
+}
+
+static int view_compare(void const *a, void const *b)
+{
+	struct ui_map_entry *first = &ui_map_list[*(short const *)a], *second = &ui_map_list[*(short const *)b];
+	int order = 0;
+
+	if (view.sort == _ui_map_list_sort_name)
+	{
+		char first_name[DISPLAY_NAME_LENGTH * 2], second_name[DISPLAY_NAME_LENGTH * 2];
+
+		view_entry_name(first, first_name, sizeof(first_name));
+		view_entry_name(second, second_name, sizeof(second_name));
+		order = _stricmp(first_name, second_name);
+	}
+	else if (view.sort == _ui_map_list_sort_recent)
+	{
+		long long first_added = view_entry_added(first), second_added = view_entry_added(second);
+
+		order = first_added > second_added ? -1 : first_added < second_added;
+	}
+	/* (in the list's own order otherwise: a stable sort) */
+	return order ? order : *(short const *)a - *(short const *)b;
+}
+
+/* the rows: the view's multiplayer maps, the campaign's co-op levels, the
+multiplayer maps the view leaves out, then the MCC campaign maps */
+static boolean view_mcc_offered = TRUE;
+
+static void view_apply(void)
+{
+	long entry, rows = 0, shown, campaign_shown;
+	short source;
+
+	for (source = 0; source < NUMBER_OF_UI_MAP_LIST_SOURCES; source++)
+		view.present[source] = FALSE;
+	for (entry = 0; entry < ui_map_list_found_multiplayer; entry++)
+	{
+		view.present[_ui_map_list_source_all] = TRUE;
+		view.present[ui_map_list[entry].source] = TRUE;
+		if (view_matches(&ui_map_list[entry]))
+			ui_map_list_view[rows++] = (short)entry;
+	}
+	shown = rows;
+	if (view.sort != _ui_map_list_sort_default)
+		qsort(ui_map_list_view, (size_t)shown, sizeof(ui_map_list_view[0]), view_compare);
+	/* (and first, in their order) */
+	{
+		long first = 0, row;
+
+		for (row = 0; row < shown; row++)
+		{
+			short kept = ui_map_list_view[row];
+
+			if (ui_map_list[kept].source == _ui_map_list_source_mcc && mcc_maps_level_first(ui_map_list[kept].map_name))
+			{
+				memmove(&ui_map_list_view[first + 1], &ui_map_list_view[first], (size_t)(row - first) * sizeof(ui_map_list_view[0]));
+				ui_map_list_view[first++] = kept;
+			}
+		}
+	}
+	/* (the campaign's rows, less MCC's while they aren't offered) */
+	for (entry = ui_map_list_found_multiplayer; entry < ui_map_list_found_campaign_end; entry++)
+	{
+		if (ui_map_list[entry].source != _ui_map_list_source_mcc || ui_map_list_mcc_offered())
+			ui_map_list_view[rows++] = (short)entry;
+	}
+	campaign_shown = rows - shown;
+	for (entry = 0; entry < ui_map_list_found_multiplayer; entry++)
+	{
+		long other;
+
+		for (other = 0; other < shown && ui_map_list_view[other] != entry; other++)
+			;
+		if (other == shown)
+			ui_map_list_view[rows++] = (short)entry;
+	}
+	for (entry = ui_map_list_found_multiplayer; entry < ui_map_list_found_campaign_end; entry++)
+	{
+		if (ui_map_list[entry].source == _ui_map_list_source_mcc && !ui_map_list_mcc_offered())
+			ui_map_list_view[rows++] = (short)entry;
+	}
+	for (entry = ui_map_list_found_campaign_end; entry < ui_map_list_count_value; entry++)
+		ui_map_list_view[rows++] = (short)entry;
+	for (entry = 0; entry < ui_map_list_count_value; entry++)
+		ui_map_list_names_array[entry] = ROW(entry)->map_name;
+	ui_map_list_multiplayer_count = shown;
+	ui_map_list_campaign_end = shown + campaign_shown;
+	view_mcc_offered = ui_map_list_mcc_offered();
+	view.serial++;
+}
+
+/* the view again when hosting began or ended since it was made (MCC's rows) */
+static void view_refresh(
+	void)
+{
+	if (ui_map_list_count_value && view_mcc_offered != ui_map_list_mcc_offered())
+		view_apply();
+}
+
+void ui_map_list_view_set(
+	short source,
+	short sort,
+	char const *search)
+{
+	view.source = (short)PIN(source, 0, NUMBER_OF_UI_MAP_LIST_SOURCES - 1);
+	view.sort = (short)PIN(sort, 0, NUMBER_OF_UI_MAP_LIST_SORTS - 1);
+	snprintf(view.search, sizeof(view.search), "%s", search ? search : "");
+	view_apply();
+}
+
+unsigned long ui_map_list_view_serial(
+	void)
+{
+	return view.serial;
+}
+
+boolean ui_map_list_source_present(
+	short source)
+{
+	return source >= 0 && source < NUMBER_OF_UI_MAP_LIST_SOURCES && view.present[source];
+}
+
+char const *ui_map_list_source_name(
+	short source)
+{
+	return view_source_names[PIN(source, 0, NUMBER_OF_UI_MAP_LIST_SOURCES - 1)];
+}
+
+char const *ui_map_list_sort_name(
+	short sort)
+{
+	return view_sort_names[PIN(sort, 0, NUMBER_OF_UI_MAP_LIST_SORTS - 1)];
+}
+
+char const *ui_map_list_source_key(
+	short source)
+{
+	return view_source_keys[PIN(source, 0, NUMBER_OF_UI_MAP_LIST_SOURCES - 1)];
+}
+
+char const *ui_map_list_sort_key(
+	short sort)
+{
+	return view_sort_keys[PIN(sort, 0, NUMBER_OF_UI_MAP_LIST_SORTS - 1)];
+}
+
+short ui_map_list_source_from_key(
+	char const *key)
+{
+	short source;
+
+	for (source = 0; key && source < NUMBER_OF_UI_MAP_LIST_SOURCES; source++)
+	{
+		if (!_stricmp(key, view_source_keys[source]))
+			return source;
+	}
+	return _ui_map_list_source_all;
+}
+
+short ui_map_list_sort_from_key(
+	char const *key)
+{
+	short sort;
+
+	for (sort = 0; key && sort < NUMBER_OF_UI_MAP_LIST_SORTS; sort++)
+	{
+		if (!_stricmp(key, view_sort_keys[sort]))
+			return sort;
+	}
+	return _ui_map_list_sort_default;
+}
+
 /* ---------- public code */
 
 /* the list anew: the Xbox's maps (the game's thirteen names, in its order),
@@ -926,6 +1474,7 @@ void ui_map_list_refresh(
 	static struct found_files found;
 	/* (the counts last logged, to log each change once) */
 	static long logged_counts[NUMBER_OF_MAP_FAMILIES] = { -1, -1, -1, -1, -1 };
+	static long logged_left_out;
 	long counts[NUMBER_OF_MAP_FAMILIES] = { XBOX_MAP_COUNT, 0, 0, 0, 0 };
 	/* (with a pack's own menus, its maps of the Xbox's names are those rows:
 	map_pack_menus) */
@@ -935,6 +1484,8 @@ void ui_map_list_refresh(
 	long file;
 
 	ui_map_list_count_value = 0;
+	ui_map_list_left_out = 0;
+	ui_map_list_adding_source = _ui_map_list_source_xbox;
 	for (index = 0; index < XBOX_MAP_COUNT; index++)
 	{
 		char const *name = xbox_maps[index];
@@ -975,6 +1526,7 @@ void ui_map_list_refresh(
 		map_family_list(family, file_found, &found);
 		if (found.count)
 			ce_ui_read();
+		ui_map_list_adding_source = family == _map_family_halomd ? _ui_map_list_source_md : _ui_map_list_source_ce;
 		/* (in the order of their names, as the list shows them) */
 		qsort(found.names, found.count, MAP_NAME_LENGTH, (int (*)(void const *, void const *))_stricmp);
 		for (file = 0; file < found.count; file++)
@@ -982,15 +1534,27 @@ void ui_map_list_refresh(
 		counts[family] = found.count;
 		/* (and its MCC maps, which are only said not to work) */
 		found.count = 0;
+		ui_map_list_adding_source = _ui_map_list_source_mcc;
 		map_family_list_mcc(family, file_found, &found);
 		qsort(found.names, found.count, MAP_NAME_LENGTH, (int (*)(void const *, void const *))_stricmp);
 		for (file = 0; file < found.count; file++)
 			add_mcc_entry(family, found.names[file]);
 	}
 #endif
+	/* (the MCC catalog's multiplayer maps, after the Custom Edition ones:
+	mcc_maps.c reads its folders anew when they change) */
+	ui_map_list_adding_source = _ui_map_list_source_mcc;
+	for (file = 0; file < mcc_maps_type_count(FALSE); file++)
+	{
+		short index = mcc_maps_type_index((short)file, FALSE);
+
+		if (index != NONE)
+			add_mcc_catalog_entry(index);
+	}
 	/* (a map pack's maps, Xbox maps read by the Xbox's loader: no tag
 	cache of their own) */
 	found.count = 0;
+	ui_map_list_adding_source = _ui_map_list_source_xbox;
 	map_pack_list(pack_map_found, &found);
 	qsort(found.names, found.count, MAP_NAME_LENGTH, pack_map_compare);
 	for (file = 0; file < found.count; file++)
@@ -1004,8 +1568,25 @@ void ui_map_list_refresh(
 	}
 	counts[_map_family_pack] = found.count;
 	(void)family;
-	ui_map_list_multiplayer_count = ui_map_list_count_value;
+	ui_map_list_found_multiplayer = ui_map_list_count_value;
 	add_campaign_entries();
+	ui_map_list_found_campaign_end = ui_map_list_count_value;
+	ui_map_list_adding_source = _ui_map_list_source_mcc;
+	for (file = 0; file < mcc_maps_type_count(TRUE); file++)
+	{
+		short index = mcc_maps_type_index((short)file, TRUE);
+
+		if (index != NONE)
+			add_mcc_catalog_entry(index);
+	}
+	view_apply();
+	if (ui_map_list_left_out != logged_left_out)
+	{
+		logged_left_out = ui_map_list_left_out;
+		if (ui_map_list_left_out)
+			error(_error_silent, "the menus' map list is full (%d rows): %ld maps left out, from %s",
+				(int)MAXIMUM_MAP_LIST, ui_map_list_left_out, ui_map_list_first_left_out);
+	}
 	if (memcmp(counts, logged_counts, sizeof(counts)))
 	{
 		memcpy(logged_counts, counts, sizeof(counts));
@@ -1018,6 +1599,7 @@ void ui_map_list_refresh(
 long ui_map_list_count(
 	void)
 {
+	view_refresh();
 	return ui_map_list_multiplayer_count;
 }
 
@@ -1025,20 +1607,28 @@ long ui_map_list_count(
 long ui_map_list_count_with_campaign(
 	void)
 {
-	return ui_map_list_count_value;
+	view_refresh();
+	return ui_map_list_campaign_end;
 }
 
 /* whether a row is one of the campaign's levels */
 boolean ui_map_list_row_is_campaign(
 	long row)
 {
-	return row >= ui_map_list_multiplayer_count && row < ui_map_list_count_value;
+	return row >= ui_map_list_multiplayer_count && row < ui_map_list_campaign_end;
+}
+
+long ui_map_list_count_all(
+	void)
+{
+	return ui_map_list_count_value;
 }
 
 /* the rows' map names, for the list widget's items */
 char **ui_map_list_names(
 	void)
 {
+	view_refresh();
 	return ui_map_list_names_array;
 }
 
@@ -1052,7 +1642,7 @@ long ui_map_list_find(
 		return NONE;
 	for (row = 0; row < ui_map_list_count_value; row++)
 	{
-		if (!_stricmp(map_name, ui_map_list[row].map_name))
+		if (!_stricmp(map_name, ROW(row)->map_name))
 			return row;
 	}
 	return NONE;
@@ -1066,8 +1656,8 @@ short ui_map_list_string_index(
 {
 	if (row < 0 || row >= ui_map_list_count_value)
 		return 0;
-	if (ui_map_list[row].xbox_index != NONE)
-		return ui_map_list[row].xbox_index;
+	if (ROW(row)->xbox_index != NONE)
+		return ROW(row)->xbox_index;
 	return (short)(UI_MAP_LIST_STRING_BASE + row * UI_MAP_LIST_STRINGS_PER_ROW + kind);
 }
 
@@ -1077,7 +1667,7 @@ short ui_map_list_picture_index(
 {
 	if (row < 0 || row >= ui_map_list_count_value)
 		return 0;
-	return ui_map_list[row].picture_index;
+	return ROW(row)->picture_index;
 }
 
 /* the bitmap of a frame of this list's (UI_MAP_LIST_PICTURE_BASE and up), or
@@ -1105,6 +1695,25 @@ struct bitmap_data *ui_map_list_picture(
 #endif
 }
 
+short ui_map_list_mcc_picture(
+	short frame_index)
+{
+	return frame_index >= MCC_MAPS_FIRST_DISPLAY_INDEX && frame_index < MCC_MAPS_FIRST_DISPLAY_INDEX + MCC_MAPS_MAXIMUM ?
+		(short)(frame_index - MCC_MAPS_FIRST_DISPLAY_INDEX) : NONE;
+}
+
+short ui_map_list_unknown_picture(
+	void)
+{
+	/* (Halo PC's picture for an unknown level; without Halo PC's ui.map, the Xbox's frame 9) */
+#ifdef HALO_CUSTOM_EDITION
+	ce_ui_read();
+	if (CE_UNKNOWN_LEVEL < ce_ui.picture_count)
+		return (short)(UI_MAP_LIST_PICTURE_BASE + CE_UNKNOWN_LEVEL);
+#endif
+	return 9;
+}
+
 /* the text of a string list index of this list's (UI_MAP_LIST_STRING_BASE
 and up), or NULL for any other */
 wchar_t const *ui_map_list_text(
@@ -1120,13 +1729,15 @@ wchar_t const *ui_map_list_text(
 	switch ((string_list_index - UI_MAP_LIST_STRING_BASE) % UI_MAP_LIST_STRINGS_PER_ROW)
 	{
 	case _ui_map_list_string_description:
-		return ui_map_list[row].description;
+		return ROW(row)->description;
 	case _ui_map_list_string_lobby_name:
-		return ui_map_list[row].lobby_name;
+		return ROW(row)->lobby_name;
 	case _ui_map_list_string_game_type:
-		return ui_map_list[row].game_type;
+		return ROW(row)->game_type;
+	case _ui_map_list_string_pane_name:
+		return ROW(row)->pane_name;
 	default:
-		return ui_map_list[row].display_name;
+		return ROW(row)->display_name;
 	}
 }
 
@@ -1247,7 +1858,7 @@ boolean ui_map_list_map_present(
 	return ui_map_list_family_present(family, file);
 }
 
-/* a game's map's tag (map_family_tag; a pack's map its pack's: CE+), and
+/* a game's map's tag (map_family_tag; a pack's map its pack's: CE+; an MCC map MCC), and
 what it stands for (map_family_title; a pack's map its pack's name), into
 text */
 void ui_map_list_map_tag(
@@ -1260,6 +1871,13 @@ void ui_map_list_map_tag(
 	char pack[MAP_PACK_ID_LENGTH + 1];
 	short family = map_family_parse_listed(map, NULL, 0);
 
+	/* (an MCC map, mcc_maps\<package>\<map>: MCC, as the site marks it) */
+	if (map && !strncmp(map, "mcc_maps\\", 9))
+	{
+		snprintf(tag, (size_t)tag_size, "%s", MAP_FAMILY_TAG_MCC);
+		snprintf(title, (size_t)title_size, "%s", MAP_FAMILY_TITLE_MCC);
+		return;
+	}
 	if (family == _map_family_pack && map_family_pack_id(map, pack, sizeof(pack)))
 	{
 		map_pack_tag(pack, tag, tag_size);

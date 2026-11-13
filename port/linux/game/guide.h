@@ -24,6 +24,10 @@ void guide_open(void);
 void guide_close(void);
 /* opened on PARTY (the menus' DELTA rows) */
 void guide_open_party(void);
+/* the Guide opened on WORKSHOP (back from its search's on-screen keyboard) */
+void guide_open_workshop(void);
+/* the Guide opened on SETTINGS, on the row of that config key */
+void guide_open_setting(char const *key);
 /* opened on the About screen (the menus' ABOUT rows): B closes it */
 void guide_about_open(void);
 boolean guide_active(void);
