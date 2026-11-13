@@ -18,10 +18,9 @@ was. Black again recalls it: the hand goes and the player is back in the
 body. A hand that dies sends the player back the same way; the player
 doesn't die.
 
-Possession: the hand's action key next to a living human takes him. The
-hand rides on his head and the player drives the human (his AI let go).
-Black lets go: the hand comes home and the human drops dead, as the retail
-game's possessed do.
+A body the hand rides (possession, its own file: stubbs_engine_hand_rides)
+is the player's for as long as it lives; black, or its death, brings the
+hand home and the player back to Stubbs.
 
 SPDX-FileCopyrightText: 2026 The Chupathingy contributors
 SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
@@ -34,7 +33,6 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "units.h"
 #include "players.h"
 #include "effects.h"
-#include "actors.h"
 #include "tag_files.h"
 #include "stubbs_mode.h"
 #include "stubbs_engine.h"
@@ -48,7 +46,6 @@ enum
 	/* Stubbs's unit layout: the special attacks block */
 	STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET = 0x33C,
 	STUBBS_SPECIAL_ATTACK_SIZE = 0x170,
-	MAXIMUM_STUBBS_SPECIAL_ATTACKS = 8,
 
 	/* a special attack's fields */
 	STUBBS_SPECIAL_ATTACK_COST_OFFSET = 0x06,
@@ -71,27 +68,18 @@ enum
 
 /* ---------- structures */
 
-struct stubbs_special_attack
-{
-	long object_definition_index;
-	unsigned long object_group;
-	long ready_effect_index;
-	long throw_effect_index;
-	real speed;
-	short cost;
-};
 
 struct stubbs_unit_definition
 {
 	long definition_index;
 	short special_attack_count;
-	struct stubbs_special_attack special_attacks[MAXIMUM_STUBBS_SPECIAL_ATTACKS];
+	struct stubbs_special_attack special_attacks[STUBBS_MAXIMUM_SPECIAL_ATTACKS];
 };
 
 struct stubbs_unit_count
 {
 	long unit_index;
-	char counts[MAXIMUM_STUBBS_SPECIAL_ATTACKS];
+	char counts[STUBBS_MAXIMUM_SPECIAL_ATTACKS];
 };
 
 struct stubbs_local_player
@@ -100,7 +88,6 @@ struct stubbs_local_player
 	long hand_unit_index;
 	long possessed_unit_index;
 	boolean hand_button_down;
-	boolean action_button_down;
 };
 
 /* ---------- globals */
@@ -335,92 +322,37 @@ static boolean stubbs_hand_throw(
 	return TRUE;
 }
 
-/* a human the hand may take: a living biped of another kind (not a hand,
-not Stubbs, not one of his zombies) */
-static boolean stubbs_unit_possessable(
-	long unit_index,
-	struct stubbs_local_player const *local)
-{
-	struct unit_datum *unit = unit_try_and_get(unit_index);
-	char const *name;
-
-	if (!unit || unit->object.type != _object_type_biped || !stubbs_unit_alive(unit_index))
-		return FALSE;
-	if (unit_index == local->hand_unit_index || unit_index == local->origin_unit_index)
-		return FALSE;
-	if (unit->unit.player_index != NONE || unit->object.parent_object_index != NONE)
-		return FALSE;
-	if (unit->definition_index == object_get(local->hand_unit_index)->definition_index ||
-		unit->definition_index == object_get(local->origin_unit_index)->definition_index)
-	{
-		return FALSE;
-	}
-	name = tag_get_name(unit->definition_index);
-	if (name && (strstr(name, "zombie") || strstr(name, "stubbs") || strstr(name, "\\hand")))
-		return FALSE;
-	return TRUE;
-}
-
-/* the hand's action key: the nearest head in reach taken */
-static boolean stubbs_hand_possess(
-	short local_player_index)
-{
-	struct stubbs_local_player *local = &stubbs_local_players[local_player_index];
-	struct object_datum *hand = object_get(local->hand_unit_index);
-	struct object_iterator iterator;
-	struct object_datum *object;
-	long best_index = NONE;
-	real best_distance = STUBBS_POSSESSION_REACH * STUBBS_POSSESSION_REACH;
-	struct unit_datum *human;
-
-	object_iterator_new(&iterator, FLAG(_object_type_biped), 0);
-	while ((object = object_iterator_next(&iterator)) != NULL)
-	{
-		real_point3d head;
-		real dx, dy, dz, distance;
-
-		if (object->object.type != _object_type_biped || !stubbs_unit_possessable(iterator.index, local))
-			continue;
-		unit_get_head_position(iterator.index, (void *)&head);
-		dx = head.x - hand->object.position.x;
-		dy = head.y - hand->object.position.y;
-		dz = head.z - hand->object.position.z;
-		/* (a standing human's head is above the hand on the floor: the
-		height counts for less) */
-		distance = dx * dx + dy * dy + 0.25f * dz * dz;
-		if (distance < best_distance)
-		{
-			best_distance = distance;
-			best_index = iterator.index;
-		}
-	}
-	if (best_index == NONE)
-		return FALSE;
-
-	human = unit_get(best_index);
-	if (human->unit.actor_index != NONE)
-		actor_delete(human->unit.actor_index, FALSE);
-	/* the hand rides on his head */
-	players_set_local_player_unit(local_player_index, best_index);
-	object_attach_to_marker(best_index, "head", local->hand_unit_index, "");
-	local->possessed_unit_index = best_index;
-	stubbs_mode_log("the hand took %s", tag_get_name(human->definition_index));
-	return TRUE;
-}
-
-/* black while a human is taken: the hand comes home, the human drops */
-static void stubbs_hand_release(
-	short local_player_index)
-{
-	struct stubbs_local_player *local = &stubbs_local_players[local_player_index];
-	long possessed_unit_index = local->possessed_unit_index;
-
-	stubbs_hand_return(local_player_index, TRUE);
-	if (stubbs_unit_alive(possessed_unit_index))
-		unit_kill(possessed_unit_index);
-}
-
 /* ---------- public code */
+
+struct stubbs_special_attack const *stubbs_special_attacks_get(
+	long unit_definition_index,
+	short *count)
+{
+	struct stubbs_unit_definition const *definition = stubbs_unit_definition_get(unit_definition_index);
+
+	*count = definition ? definition->special_attack_count : 0;
+	return definition ? definition->special_attacks : NULL;
+}
+
+long stubbs_engine_hand_unit(
+	short local_player_index)
+{
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_STUBBS_LOCAL_PLAYERS)
+		return NONE;
+	return stubbs_local_players[local_player_index].hand_unit_index;
+}
+
+void stubbs_engine_hand_rides(
+	short local_player_index,
+	long unit_index)
+{
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_STUBBS_LOCAL_PLAYERS ||
+		stubbs_local_players[local_player_index].hand_unit_index == NONE)
+	{
+		return;
+	}
+	stubbs_local_players[local_player_index].possessed_unit_index = unit_index;
+}
 
 void stubbs_engine_note_unit_definition(
 	void const *tag_instance,
@@ -448,8 +380,8 @@ void stubbs_engine_note_unit_definition(
 	address = (unsigned long)stubbs_read_long(unit + STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET + 4);
 	if (count <= 0 || stubbs_unit_definition_count >= MAXIMUM_STUBBS_UNIT_DEFINITIONS)
 		return;
-	if (count > MAXIMUM_STUBBS_SPECIAL_ATTACKS)
-		count = MAXIMUM_STUBBS_SPECIAL_ATTACKS;
+	if (count > STUBBS_MAXIMUM_SPECIAL_ATTACKS)
+		count = STUBBS_MAXIMUM_SPECIAL_ATTACKS;
 	offset = address - STUBBS_XBOX_TAG_CACHE_BASE;
 	if (address < STUBBS_XBOX_TAG_CACHE_BASE || offset > tag_data_size ||
 		(unsigned long)count * STUBBS_SPECIAL_ATTACK_SIZE > tag_data_size - offset)
@@ -487,7 +419,7 @@ void stubbs_engine_player_input(
 	struct stubbs_local_player *local;
 	long player_index;
 	long unit_index;
-	boolean hand_pressed, action_pressed;
+	boolean hand_pressed;
 
 	/* (the next map's tags noted afresh) */
 	stubbs_unit_definitions_noted = FALSE;
@@ -497,8 +429,7 @@ void stubbs_engine_player_input(
 	hand_pressed = (*player_control_flags & hand_button) && !local->hand_button_down;
 	local->hand_button_down = (*player_control_flags & hand_button) != 0;
 	*player_control_flags &= ~hand_button;
-	action_pressed = TEST_FLAG(unit_control_flags, _unit_control_action_bit) && !local->action_button_down;
-	local->action_button_down = TEST_FLAG(unit_control_flags, _unit_control_action_bit);
+	(void)unit_control_flags;
 
 	player_index = local_player_get_player_index(local_player_index);
 	if (player_index == NONE)
@@ -534,18 +465,9 @@ void stubbs_engine_player_input(
 			stubbs_hand_throw(local_player_index, unit_index);
 		return;
 	}
-	if (local->possessed_unit_index != NONE)
-	{
-		if (hand_pressed)
-			stubbs_hand_release(local_player_index);
-		return;
-	}
-	if (unit_index != local->hand_unit_index)
-		return;
-	if (hand_pressed)
+	/* black with the hand out, or with a body it rides: the hand home */
+	if (hand_pressed && (unit_index == local->hand_unit_index || unit_index == local->possessed_unit_index))
 		stubbs_hand_return(local_player_index, TRUE);
-	else if (action_pressed)
-		stubbs_hand_possess(local_player_index);
 }
 
 boolean stubbs_engine_player_unit_died(
@@ -618,7 +540,7 @@ short stubbs_engine_special_attack_get_count(
 {
 	struct stubbs_unit_count *count = stubbs_unit_count_get(unit_index, FALSE);
 
-	if (special_attack < 0 || special_attack >= MAXIMUM_STUBBS_SPECIAL_ATTACKS)
+	if (special_attack < 0 || special_attack >= STUBBS_MAXIMUM_SPECIAL_ATTACKS)
 		return 0;
 	/* (until a script sets them, each special attack is ready: one use) */
 	return count ? count->counts[special_attack] : 1;
@@ -631,7 +553,7 @@ void stubbs_engine_special_attack_set_count(
 {
 	struct stubbs_unit_count *counts = stubbs_unit_count_get(unit_index, TRUE);
 
-	if (!counts || special_attack < 0 || special_attack >= MAXIMUM_STUBBS_SPECIAL_ATTACKS)
+	if (!counts || special_attack < 0 || special_attack >= STUBBS_MAXIMUM_SPECIAL_ATTACKS)
 		return;
 	counts->counts[special_attack] = (char)(count < 0 ? 0 : count > 127 ? 127 : count);
 }
