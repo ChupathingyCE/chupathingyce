@@ -1,14 +1,13 @@
 /*
 HALO_DELTA_MARK.H
 
-The mark before a verified Delta player's name (display.verified_mark): the
-letter Delta, U+0394, at the front of the name the game is given
-(port/linux/game/profile_names.c). The maps' fonts have no Greek, so the
-font tags draw it as this outline triangle, the size of the font's capitals
+The mark of a verified Delta player on the scoreboard (display.verified_mark):
+the letter Delta, U+0394, drawn as text in the platform logos' column
+(source/game/game_engine.c). The maps' fonts have no Greek, so the font tags
+draw it as this outline triangle, the size of the font's capitals
 (source/text/font_group.c), and so does the high-res text when its font has
-no Delta of its own (port/linux/src/text_hires.c). The overlay's fonts have
-the letter (Noto Sans). Plain types only: the game's side and the host's
-both include it.
+no Delta of its own (port/linux/src/text_hires.c). Plain types only: the
+game's side and the host's both include it.
 
 SPDX-FileCopyrightText: 2026 The Chupathingy contributors
 SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev

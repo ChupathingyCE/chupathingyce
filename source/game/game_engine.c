@@ -1772,7 +1772,9 @@ players in a column for each team (display.scoreboard_team_layout), else in
 order of score in one column, or two when one has too few rows; each with
 the player's ping in a network game (the host's measure:
 network_distributed.c) and, before the name, the logo of the platform its
-client says it plays on over Delta Peer (display.scoreboard_platforms). More
+client says it plays on over Delta Peer (display.scoreboard_platforms) and
+a verified player's Delta mark after it (display.verified_mark), neither
+with display.scoreboard_icons off. More
 players than a page are scrolled to with the mouse wheel and Page Up/Down
 (platform_scoreboard_scroll), a footer telling which are shown; opened, it
 shows the viewer's own player's page. Network co-op's campaign, with no
@@ -1786,6 +1788,8 @@ enum
 	logos' between place and name, when a row has one */
 	SCOREBOARD_PLACE_WIDTH = 55,
 	SCOREBOARD_PLATFORM_WIDTH = 20,
+	/* port: the verified mark's, after the platform logo (or alone) */
+	SCOREBOARD_MARK_WIDTH = 22,
 	SCOREBOARD_NAME_WIDTH = 150,
 	SCOREBOARD_SCORE_WIDTH = 95,
 	SCOREBOARD_PING_WIDTH = 40,
@@ -1807,8 +1811,11 @@ enum
 #define SCOREBOARD_SCALE 0.75f
 
 /* the platform logos' column this frame: SCOREBOARD_PLATFORM_WIDTH when
-the scoreboard shows them, else 0 (the original layout) */
+the scoreboard shows them, and SCOREBOARD_MARK_WIDTH more when it shows a
+verified player's Delta mark, else 0 (the original layout); the logos' part
+of it */
 static short scoreboard_platform_width = 0;
+static short scoreboard_logos_width = 0;
 #define SCOREBOARD_COLUMN_WIDTH (SCOREBOARD_BASE_COLUMN_WIDTH + scoreboard_platform_width)
 
 /* network_distributed.c's */
@@ -1921,7 +1928,39 @@ with its mark, the Delta, and 20 letters) */
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port/linux/game/profile_names.c's */
 boolean profile_names_player(long player_index, wchar_t *name, long size);
+boolean profile_names_verified(long player_index);
 #endif
+
+/* port: whether the scoreboard marks a player as verified (the Delta mark
+in the platform logos' column: profile_names.c's profile_names_verified) */
+static boolean scoreboard_player_verified(
+	long player_index)
+{
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+	return profile_names_verified(DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index));
+#else
+	(void)player_index;
+	return FALSE;
+#endif
+}
+
+/* port: a row's verified mark, the Delta (font_group.c draws it for the
+fonts without one), in the row's own text and colour, after the row's
+platform logo in the logos' column */
+static void scoreboard_draw_mark(
+	boolean brighten,
+	real_argb_color const *row_color,
+	long row_index,
+	short top,
+	short left)
+{
+	static wchar_t const mark[] = { 0x0394, 0 };
+
+	scoreboard_draw_row(mark, brighten, row_color, row_index, top,
+		(short)(left + SCOREBOARD_PLACE_WIDTH + scoreboard_logos_width), FALSE);
+
+	return;
+}
 
 /* port: the name a scoreboard shows a player by: their Delta profile's when
 they share it (port/linux/game/profile_names.c; in buffer, as long as the
@@ -2122,10 +2161,11 @@ static void game_engine_rasterize_scoreboard(
 	wchar_t *column_name;
 	wchar_t *score_name;
 #ifdef HALO_GAME_BROWSER
-	short platforms_style = network ? scoreboard_platforms_style() : NONE;
+	short platforms_style = network && config_boolean("display.scoreboard_icons") ? scoreboard_platforms_style() : NONE;
 #endif
 
 	scoreboard_platform_width = 0;
+	scoreboard_logos_width = 0;
 	if (font_index == NONE)
 		return;
 	offset_rectangle2d(&bounds, -render.camera.viewport_bounds.x0, -render.camera.viewport_bounds.y0);
@@ -2161,12 +2201,23 @@ static void game_engine_rasterize_scoreboard(
 		{
 			if (scoreboard_player_platform(ranked[index].player_index) > 0)
 			{
-				scoreboard_platform_width = SCOREBOARD_PLATFORM_WIDTH;
+				scoreboard_logos_width = SCOREBOARD_PLATFORM_WIDTH;
 				break;
 			}
 		}
 	}
 #endif
+	/* (the verified mark's room only when a player has it; neither it nor
+	the logos with display.scoreboard_icons off: names and scores alone) */
+	for (index = 0; index < ranked_count && config_boolean("display.scoreboard_icons"); index++)
+	{
+		if (!campaign && scoreboard_player_verified(ranked[index].player_index))
+		{
+			scoreboard_platform_width = SCOREBOARD_MARK_WIDTH;
+			break;
+		}
+	}
+	scoreboard_platform_width = (short)(scoreboard_platform_width + scoreboard_logos_width);
 	team_columns = has_teams && scoreboard_team_columns() && width >= 2 * SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP;
 	for (index = 0; index < ranked_count; index++)
 	{
@@ -2362,8 +2413,17 @@ static void game_engine_rasterize_scoreboard(
 			top,
 			(short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP)),
 			TRUE);
+		if (scoreboard_platform_width > scoreboard_logos_width && scoreboard_player_verified(entry->player_index))
+		{
+			scoreboard_draw_mark(
+				player_index == entry->player_index,
+				row_color,
+				2 + row,
+				top,
+				(short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP)));
+		}
 #ifdef HALO_GAME_BROWSER
-		if (scoreboard_platform_width)
+		if (scoreboard_logos_width)
 		{
 			scoreboard_draw_platform(
 				scoreboard_player_platform(entry->player_index),

@@ -1365,14 +1365,17 @@ and show their handle until their owner picks its capitals.
   so "MilenkoTheG" is masked next to a verified "MilenkoTheGreat". A
   verified player whose handle the site marked as a look-alike of another (its card's `looks_like`) shows as
   "Player N" too.
-- **The mark** (`display.verified_mark`, on by default): verified names
-  show with a small Delta mark in front ("ΔMilenko"). The game's fonts
-  have no Greek, so they draw it as a plain outline triangle the height of
-  their capitals, in the text's own color; the Guide draws the letter. An @
-  means a handle everywhere in Delta, so the mark isn't one. Every @ in
-  anyone else's game name is left out, wherever it is, and so are spaces,
-  dots, invisible marks, Deltas and up-pointing triangles left at its
-  front, so " @Milenko", ".@Milenko", "·@Milenko", "ΔMilenko" and
+- **The mark** (`display.verified_mark`, on by default): the scoreboard
+  shows a small Delta mark beside a verified player, in the platform
+  logos' column: after the logo with the Chupathingy menus, on its own with
+  the Xbox menus, which show no logos. The name itself has no prefix (an @
+  means a handle everywhere in Delta). The game's fonts have no Greek, so
+  the mark is drawn as a plain outline triangle the height of their
+  capitals, in the row's color. `display.scoreboard_icons` off (SCOREBOARD
+  ICONS) leaves out the mark and the logos together: names and scores only.
+  Every @ in anyone else's game name is left out, wherever it is, and so
+  are spaces, dots, invisible marks, Deltas and up-pointing triangles left
+  at its front, so " @Milenko", ".@Milenko", "·@Milenko", "ΔMilenko" and
   "▲ Milenko" all show as "Milenko" (and as "Player N" next to a verified
   Milenko). A player who isn't connected to Delta (no
   linked profile, or a guest) never has the mark.
