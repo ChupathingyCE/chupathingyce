@@ -309,8 +309,10 @@ def capture(build, poses, out, display, settle, environment, maps_ce, scratch):
             for debug in (save / "debug.txt", data / "debug.txt"):
                 if debug.exists():
                     shutil.copy(debug, out / f"{map_name}.debug.txt")
-            if (data / "logs").is_dir():
-                shutil.copytree(data / "logs", out / f"{map_name}-logs", dirs_exist_ok=True)
+            # (the save root's logs/ since #1148, the data root's before: run_logs.py)
+            for logs in (save / "logs", data / "logs"):
+                if logs.is_dir():
+                    shutil.copytree(logs, out / f"{map_name}-logs", dirs_exist_ok=True)
             shutil.rmtree(data, ignore_errors=True)
             shutil.rmtree(save, ignore_errors=True)
     return shots
