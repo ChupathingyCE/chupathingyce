@@ -4339,6 +4339,80 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,
 	uint32_t height, uint32_t pitch, bgfx_texture_format_t format, const void *data, uint32_t size, bool flip);
 
+/* ---------- a Vulkan start that did not get going
+
+bgfx's Vulkan is started with a note in the save root
+(bgfx-vulkan.starting) that the first frames out remove (bg_frame_out). A
+note still there at the next start says the last one closed, crashed or hung
+before them: a driver that refused a pipeline, a GPU fault, a swap chain
+that never presented (game issue #1046, AMD's drivers and RADV). That start
+draws with OpenGL, and the player is asked whether to stay on OpenGL for
+good (platform_offer_opengl): display.renderer changes only on a yes, and a
+no asks again the next time Vulkan does not get going.
+HALO_BGFX_START_NOTE=off leaves the note out (a test of the renderer that
+quits early). */
+#define BG_START_FRAMES 60
+
+const char *platform_save_root(void);
+void platform_offer_opengl(void);
+
+static BOOL bg_start_note_wanted(void)
+{
+	const char *setting = getenv("HALO_BGFX_START_NOTE");
+
+	return !(setting && strcmp(setting, "off") == 0);
+}
+
+static void bg_start_note_path(char *path, size_t size)
+{
+	snprintf(path, size, "%s/bgfx-vulkan.starting", platform_save_root());
+}
+
+/* whether the last Vulkan start left its note (which is taken away: the
+next start tries Vulkan again if the player asks for it) */
+static BOOL bg_last_start_failed(void)
+{
+	char path[1024];
+	FILE *file;
+
+	bg_start_note_path(path, sizeof(path));
+	if ((file = fopen(path, "rb")) == NULL)
+		return FALSE;
+	fclose(file);
+	remove(path);
+	return TRUE;
+}
+
+static void bg_start_note(void)
+{
+	char path[1024];
+	FILE *file;
+
+	bg_start_note_path(path, sizeof(path));
+	if ((file = fopen(path, "wb")) != NULL)
+	{
+		fputs("bgfx's Vulkan renderer is starting; the game's first frames remove this file.\n"
+			"Found at a start, it means the last start closed before them, and that start draws with OpenGL.\n", file);
+		fclose(file);
+	}
+}
+
+/* a frame went out to the window: the note goes at the BG_START_FRAMES'th */
+static void bg_frame_out(void)
+{
+	static unsigned long frames;
+
+	if (!bg_vulkan || frames > BG_START_FRAMES)
+		return;
+	if (++frames == BG_START_FRAMES)
+	{
+		char path[1024];
+
+		bg_start_note_path(path, sizeof(path));
+		remove(path);
+	}
+}
+
 /* the setup launcher's frame (launcher.c), before the game draws: bgfx
 started (once; the device's start then finds it so), the window cleared to
 color (0xRRGGBBAA) and the overlay's quads over it, in the picture's place
@@ -4360,6 +4434,7 @@ BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int h
 	if (screenshot && *screenshot)
 		bgfx_request_screen_shot((bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE, screenshot);
 	bgfx_frame(BGFX_FRAME_NONE);
+	bg_frame_out();
 	/* (the game's first frame starts its views as bg_present leaves them) */
 	bgfx_set_view_clear(0, BGFX_CLEAR_NONE, 0, 1.0f, 0);
 	return TRUE;
@@ -4665,7 +4740,8 @@ static void bg_present(void)
 #endif
 
 		frame_number = bgfx_frame(BGFX_FRAME_NONE);
-	#ifdef __APPLE__
+		bg_frame_out();
+#ifdef __APPLE__
 		bg.account.libraries += bgfx_mtl_stats.libraries - before.libraries;
 		bg.account.pipelines += bgfx_mtl_stats.pipelines - before.pipelines;
 		bg.account.library_seconds += bgfx_mtl_stats.library_seconds - before.library_seconds;
@@ -5047,6 +5123,17 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 	names, draws with OpenGL: bgfx_vulkan_check.inl) */
 	if (bg_vulkan && !bg_vulkan_check(&init.vendorId, &init.deviceId))
 		return FALSE;
+	if (bg_vulkan && bg_start_note_wanted())
+	{
+		if (bg_last_start_failed())
+		{
+			platform_log("bgfx: the last Vulkan start closed before its first %d frames, so OpenGL for this "
+				"start", BG_START_FRAMES);
+			platform_offer_opengl();
+			return FALSE;
+		}
+		bg_start_note();
+	}
 #endif
 #ifdef _WIN32
 	/* (Direct3D 11's shaders are compiled at run time, by Windows' own

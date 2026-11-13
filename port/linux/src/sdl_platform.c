@@ -2835,6 +2835,69 @@ static void platform_show_pending_message(void)
 #endif
 }
 
+/* a Vulkan start that did not get going (d3d8_bgfx.inl's bg_start): that
+start draws with OpenGL, and once the game's window is up the player is
+asked whether to stay on OpenGL for good. display.renderer changes only on a
+yes; a no leaves it, so the next start tries Vulkan again and asks again if
+it fails. A run nobody can answer (platform_run_is_quiet) logs it only */
+static BOOL platform_opengl_offer_pending;
+
+void platform_offer_opengl(void)
+{
+	pthread_mutex_lock(&platform_message_lock);
+	platform_opengl_offer_pending = TRUE;
+	pthread_mutex_unlock(&platform_message_lock);
+}
+
+static void platform_opengl_offer(void)
+{
+	static const SDL_MessageBoxButtonData buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Switch to OpenGL" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Not now" },
+	};
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy: renderer",
+		"Vulkan didn't get going last time, so the game is using OpenGL for now.\n\n"
+		"Switch to OpenGL for good? You can change it later on the RENDERER row of the display settings.",
+		2, buttons, NULL };
+	BOOL pending;
+	int answer = 0;
+	pthread_mutex_lock(&platform_message_lock);
+	pending = platform_opengl_offer_pending;
+	platform_opengl_offer_pending = FALSE;
+	pthread_mutex_unlock(&platform_message_lock);
+	if (!pending)
+		return;
+	if (platform_run_is_quiet())
+	{
+		platform_log("bgfx: OpenGL for this start only; display.renderer stays as it is (no one to ask)");
+		return;
+	}
+#ifdef HALO_ANDROID
+	if (!SDL_ShowMessageBox(&question, &answer))
+		answer = 0;
+#else
+	{
+		/* (a box cannot show above a fullscreen game) */
+		BOOL fullscreen = platform_window_fullscreen();
+
+		question.window = platform_window;
+		if (fullscreen)
+			platform_window_set_fullscreen(FALSE);
+		if (!SDL_ShowMessageBox(&question, &answer))
+			answer = 0;
+		if (fullscreen)
+			platform_window_set_fullscreen(TRUE);
+	}
+#endif
+	if (answer == 1)
+	{
+		config_write("display.renderer", "gl");
+		platform_log("bgfx: the player switched to OpenGL for good (display.renderer = \"gl\")");
+	}
+	else
+		platform_log("bgfx: the player kept their renderer setting; Vulkan is tried again next start");
+}
+
 /* ---------- events */
 
 /* quits as closing the window does, when the events are next read (the
@@ -2958,6 +3021,7 @@ void platform_pump_events(void)
 	}
 #endif
 	platform_show_pending_message();
+	platform_opengl_offer();
 #ifdef HALO_GAME_BROWSER
 	platform_game_list_requests();
 #endif
