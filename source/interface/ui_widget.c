@@ -1478,14 +1478,17 @@ short pc_menu_text_key_cap(
 	short y1,
 	float alpha);
 #endif
+#ifndef HALO_XBOX_CONSOLE
 /* port: the left edge of the key cap pc_menu_button_key_cap draws in
-these bounds, or x0 when it draws none */
+these bounds, or x0 when it draws none (the original Xbox draws its own
+pictures, and has no key caps to make room for) */
 short pc_menu_button_key_cap_left(
 	long bitmap_tag_index,
 	short x0,
 	short y0,
 	short x1,
 	short y1);
+#endif
 /* port: the row of the bitmap draw_bitmap_in_rect starts from (a frame the
 menus place, pc_menu_frame_placement; a piece of the name entry's
 picture, virtual_keyboard.c): 0 but while one is drawn */
@@ -8561,6 +8564,7 @@ static void ui_widgets_process_mouse(
 
 #endif
 
+#ifndef HALO_XBOX_CONSOLE
 /* port: how far a key cap wider than the button's picture it stands for
 reaches left of it (ENTER's, for A), summed over widget's key cap and its
 children's (offset by x and y, its parents' offsets) that are on the line
@@ -8630,6 +8634,7 @@ static short ui_widget_port_key_cap_shift(
 	}
 	return shift;
 }
+#endif
 
 static void widget_instance_render_recursive(
 	struct widget_instance *widget,
@@ -8861,7 +8866,9 @@ static void widget_instance_render_recursive(
 			use_nifty_plasma_fx = focus &&
 				(widget->type == _ui_widget_type_spinner_list ||
 				widget->type == _ui_widget_type_column_list);
+#ifndef HALO_XBOX_CONSOLE
 			child_offset.x = (short)(child_offset.x - ui_widget_port_key_cap_shift(widget, child));
+#endif
 			widget_instance_render_recursive(
 				child,
 				clip_rect,
