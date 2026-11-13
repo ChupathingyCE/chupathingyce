@@ -212,6 +212,8 @@ enum { _port_folder_logs };
 static char const *platform_save_root(void) {return platform_data_root();}
 static char const *platform_folder(int folder) {(void)folder; return platform_data_root();}
 static char const *log_file_name(char const *path) {(void)path; return NULL;}
+static char const *save_root_file_name(char const *path) {(void)path; return NULL;}
+static char save_drive_folder[32];
 '''
     for name in ("trim_separators", "mcc_folder_prefix", "translate_workshop", "platform_translate_path"):
         translation += function(native, name) + "\n"
