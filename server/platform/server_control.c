@@ -3274,6 +3274,8 @@ static void handle_request(struct connection *connection, struct control_request
 			{ "/v1/settings", "sv_settings", CONTROL_PERMISSION_VIEW },
 			{ "/v1/moderators", "sv_mod_list", CONTROL_PERMISSION_ROLES },
 			{ "/v1/link", "sv_link_status", CONTROL_PERMISSION_VIEW },
+			{ "/v1/reports", "sv_reports all", CONTROL_PERMISSION_WARN },
+			{ "/v1/ban_lists", "sv_ban_lists", CONTROL_PERMISSION_VIEW },
 		};
 		size_t index;
 

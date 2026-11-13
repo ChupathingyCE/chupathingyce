@@ -166,6 +166,12 @@ void p2p_signal_probe(const unsigned char *host_hash, const unsigned char *token
 /* the prober's reply topic (hceu/3/ and the reply id in hex) listened on;
 NULL for none */
 void p2p_signal_probe_topic(const unsigned char *reply);
+/* Delta's doorbell (32 of 0-9 and a-f; NULL or "" for none): listened for
+on our brokers, as their user name, starting signalling with only them if
+it was not started */
+void p2p_signal_doorbell(const char *doorbell);
+/* the rings heard since the last call */
+int p2p_signal_doorbell_rings(void);
 /* whether any broker is connected */
 int p2p_signal_connected(void);
 /* every broker's connection made anew at once: after the p2p thread was

@@ -342,12 +342,10 @@ int control_link_signed_body(const char *path, const char *server_id, const uint
 	uint8_t copy[CONTROL_LINK_SEED_BYTES];
 	size_t message_size = strlen(path) + strlen(server_id) + strlen(payload) + 96;
 	char *message;
-	char *quoted;
-	size_t quoted_size = strlen(payload) * 6 + 3;
 	int length;
 
 	control_hex_text(nonce, CONTROL_LINK_NONCE_BYTES, nonce_text);
-	if (message_size > size || quoted_size > size)
+	if (message_size > size)
 		return -1;
 	/* (the message signed: in the out buffer's room, before the body is
 	written there) */
@@ -361,19 +359,17 @@ int control_link_signed_body(const char *path, const char *server_id, const uint
 	crypto_ed25519_sign(signature, secret, (const uint8_t *)message, (size_t)length);
 	crypto_wipe(secret, sizeof(secret));
 	control_hex_text(signature, sizeof(signature), signature_text);
-	/* the body: the payload as a JSON string */
+	/* the body: the payload as a JSON string (its escaped length, not a
+	guess at it: a payload of more than a few kilobytes once never fit) */
 	{
-		static char quoted_buffer[64 * 1024];
+		static char quoted[CONTROL_LINK_BODY_MOST];
 
-		if (quoted_size > sizeof(quoted_buffer))
-			return -1;
-		quoted = quoted_buffer;
-		if (control_json_string(payload, quoted, sizeof(quoted_buffer)) < 0)
+		if (control_json_string(payload, quoted, sizeof(quoted)) < 0)
 			return -1;
 		length = snprintf(out, size, "{\"server_id\": \"%s\", \"time\": %lld, \"nonce\": \"%s\", \"payload\": %s, "
 			"\"signature\": \"%s\"}", server_id, (long long)time, nonce_text, quoted, signature_text);
 	}
-	return length < 0 || (size_t)length >= size ? -1 : length;
+	return length < 0 || (size_t)length >= size || length > CONTROL_LINK_BODY_MOST ? -1 : length;
 }
 
 int control_link_open_answer(const char *answer, size_t length, const uint8_t secret[CONTROL_LINK_SECRET_BYTES],
@@ -428,6 +424,217 @@ static int member_text(const char *text, int object, const char *key, char *out,
 	int value = control_json_member(text, json_tokens, object, key);
 
 	return value >= 0 && control_json_text(text, &json_tokens[value], out, size);
+}
+
+/* 32 hex digits into 16 bytes: 1, else 0 */
+static int id_parse(const char *text, unsigned char *id)
+{
+	int index;
+
+	if (strlen(text) != 2 * SERVER_BAN_ID_BYTES)
+		return 0;
+	for (index = 0; index < SERVER_BAN_ID_BYTES; index++)
+	{
+		int high = hex_digit(text[2 * index]);
+		int low = hex_digit(text[2 * index + 1]);
+
+		if (high < 0 || low < 0 || (text[2 * index] >= 'A' && text[2 * index] <= 'F') ||
+			(text[2 * index + 1] >= 'A' && text[2 * index + 1] <= 'F'))
+		{
+			return 0;
+		}
+		id[index] = (unsigned char)(high << 4 | low);
+	}
+	return 1;
+}
+
+/* whether text is 32 lowercase hex digits */
+static int ref_valid(const char *text)
+{
+	unsigned char id[SERVER_BAN_ID_BYTES];
+
+	return id_parse(text, id);
+}
+
+/* a shared ban list's entry: 1, else 0 */
+static int parse_shared_ban(const char *payload, int at, struct server_shared_ban *ban)
+{
+	char id_text[2 * SERVER_BAN_ID_BYTES + 2];
+	int value, item, item_at;
+	uint64_t number;
+
+	memset(ban, 0, sizeof(*ban));
+	if (json_tokens[at].type != CONTROL_JSON_OBJECT ||
+		!member_text(payload, at, "list", ban->list, sizeof(ban->list)) ||
+		!member_text(payload, at, "ref", ban->ref, sizeof(ban->ref)) || !ref_valid(ban->ref))
+	{
+		return 0;
+	}
+	value = control_json_member(payload, json_tokens, at, "list_name");
+	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_STRING &&
+		!control_json_text(payload, &json_tokens[value], ban->list_name, sizeof(ban->list_name)))
+	{
+		return 0;
+	}
+	value = control_json_member(payload, json_tokens, at, "accounts");
+	if (value >= 0)
+	{
+		if (json_tokens[value].type != CONTROL_JSON_ARRAY)
+			return 0;
+		item_at = value + 1;
+		for (item = 0; item < json_tokens[value].size; item++)
+		{
+			if (!control_json_text(payload, &json_tokens[item_at], id_text, sizeof(id_text)))
+				return 0;
+			/* (accounts past the most an entry keeps are left out) */
+			if (ban->account_count < SERVER_BAN_ACCOUNTS)
+			{
+				if (!id_parse(id_text, ban->accounts[ban->account_count]))
+					return 0;
+				ban->account_count++;
+			}
+			item_at = json_tokens[item_at].next;
+		}
+	}
+	value = control_json_member(payload, json_tokens, at, "device");
+	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_STRING)
+	{
+		if (!control_json_text(payload, &json_tokens[value], id_text, sizeof(id_text)) ||
+			!id_parse(id_text, ban->device))
+		{
+			return 0;
+		}
+		ban->has_device = 1;
+	}
+	if (!ban->account_count && !ban->has_device)
+		return 0;
+	value = control_json_member(payload, json_tokens, at, "handles");
+	if (value >= 0)
+	{
+		size_t length = 0;
+
+		if (json_tokens[value].type != CONTROL_JSON_ARRAY)
+			return 0;
+		item_at = value + 1;
+		for (item = 0; item < json_tokens[value].size; item++)
+		{
+			char handle[CONTROL_LINK_HANDLE_SIZE];
+
+			if (!control_json_text(payload, &json_tokens[item_at], handle, sizeof(handle)))
+				return 0;
+			if (length + strlen(handle) + 3 < sizeof(ban->handles))
+				length += (size_t)snprintf(ban->handles + length, sizeof(ban->handles) - length, "%s%s",
+					length ? ", " : "", handle);
+			item_at = json_tokens[item_at].next;
+		}
+	}
+	value = control_json_member(payload, json_tokens, at, "reason");
+	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_STRING &&
+		!control_json_text(payload, &json_tokens[value], ban->reason, sizeof(ban->reason)))
+	{
+		return 0;
+	}
+	value = control_json_member(payload, json_tokens, at, "source");
+	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_STRING &&
+		!control_json_text(payload, &json_tokens[value], ban->source, sizeof(ban->source)))
+	{
+		return 0;
+	}
+	value = control_json_member(payload, json_tokens, at, "time");
+	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_PRIMITIVE)
+	{
+		if (!control_json_number(payload, &json_tokens[value], &number))
+			return 0;
+		ban->time = (long long)number;
+	}
+	value = control_json_member(payload, json_tokens, at, "until");
+	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_PRIMITIVE &&
+		!(json_tokens[value].end - json_tokens[value].start == 4 && !memcmp(payload + json_tokens[value].start, "null", 4)))
+	{
+		if (!control_json_number(payload, &json_tokens[value], &number))
+			return 0;
+		ban->until = (long long)number;
+	}
+	return 1;
+}
+
+/* a poll's newer members (reports_taken, bans_digest, shared_bans). None of
+them ever refuses the poll: an item that is not right is left out (a ref,
+a shared ban entry), and a member that is not right at all is ignored, so
+one bad entry on the site never stops a server's polls (its commands, its
+roles) */
+static void parse_poll_extras(const char *payload, struct control_link_poll *poll)
+{
+	static const char *const report_keys[] = { "reports_taken", "reports_refused" };
+	int key, value;
+
+	/* (the reports the site took, and those it never will: both done here) */
+	for (key = 0; key < 2; key++)
+	{
+		int item, at;
+
+		value = control_json_member(payload, json_tokens, 0, report_keys[key]);
+		if (value < 0 || json_tokens[value].type != CONTROL_JSON_ARRAY)
+			continue;
+		at = value + 1;
+		for (item = 0; item < json_tokens[value].size; item++)
+		{
+			char ref[SERVER_REPORT_ID_SIZE + 1];
+
+			if (control_json_text(payload, &json_tokens[at], ref, sizeof(ref)) && ref_valid(ref) &&
+				poll->reports_taken_count < CONTROL_LINK_REPORTS_TAKEN)
+			{
+				memcpy(poll->reports_taken[poll->reports_taken_count++], ref, SERVER_REPORT_ID_SIZE);
+			}
+			at = json_tokens[at].next;
+		}
+	}
+	value = control_json_member(payload, json_tokens, 0, "bans_digest");
+	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_STRING &&
+		control_json_text(payload, &json_tokens[value], poll->bans_digest, sizeof(poll->bans_digest)))
+	{
+		size_t index;
+
+		for (index = 0; poll->bans_digest[index] && hex_digit(poll->bans_digest[index]) >= 0; index++)
+			;
+		poll->has_bans_digest = !poll->bans_digest[index];
+		if (!poll->has_bans_digest)
+			poll->bans_digest[0] = 0;
+	}
+	value = control_json_member(payload, json_tokens, 0, "shared_bans");
+	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_OBJECT)
+	{
+		int version = control_json_member(payload, json_tokens, value, "version");
+		int entries = control_json_member(payload, json_tokens, value, "entries");
+		int item, at;
+
+		/* (no version or no entries: the member is left alone, and the site
+		sends it again) */
+		if (version < 0 || entries < 0 ||
+			!control_json_number(payload, &json_tokens[version], &poll->shared_bans_version) ||
+			json_tokens[entries].type != CONTROL_JSON_ARRAY)
+		{
+			poll->shared_bans_version = 0;
+			return;
+		}
+		at = entries + 1;
+		for (item = 0; item < json_tokens[entries].size; item++)
+		{
+			/* (entries past the most the server takes, and an entry that is
+			not right, are left out) */
+			if (poll->shared_ban_count < SERVER_BAN_SHARED_MOST &&
+				parse_shared_ban(payload, at, &poll->shared_bans[poll->shared_ban_count]))
+			{
+				poll->shared_ban_count++;
+			}
+			else
+				poll->shared_bans_skipped++;
+			at = json_tokens[at].next;
+		}
+		poll->has_shared_bans = 1;
+		poll->shared_bans_start = json_tokens[value].start;
+		poll->shared_bans_end = json_tokens[value].end;
+	}
 }
 
 int control_link_parse_poll(const char *payload, size_t length, struct control_link_poll *poll)
@@ -499,6 +706,7 @@ int control_link_parse_poll(const char *payload, size_t length, struct control_l
 			struct control_link_role *role = &poll->roles[poll->role_count];
 			char role_text[16];
 			int keys = control_json_member(payload, json_tokens, at, "keys");
+			char account_text[40];
 
 			if (json_tokens[at].type != CONTROL_JSON_OBJECT ||
 				!member_text(payload, at, "handle", role->handle, sizeof(role->handle)) ||
@@ -506,6 +714,23 @@ int control_link_parse_poll(const char *payload, size_t length, struct control_l
 				(role->role = control_role_parse(role_text)) < 0)
 			{
 				return 0;
+			}
+			/* (an account: 32 hex digits; a site before them sends none) */
+			if (control_json_member(payload, json_tokens, at, "account") >= 0)
+			{
+				char padded[CONTROL_KEY_TEXT + 1];
+				uint8_t bytes[CONTROL_KEY_BYTES];
+
+				if (!member_text(payload, at, "account", account_text, sizeof(account_text)) ||
+					strlen(account_text) != 32)
+				{
+					return 0;
+				}
+				snprintf(padded, sizeof(padded), "%s00000000000000000000000000000000", account_text);
+				if (!control_key_parse(padded, bytes))
+					return 0;
+				memcpy(role->account, bytes, sizeof(role->account));
+				role->has_account = 1;
 			}
 			if (keys >= 0)
 			{
@@ -534,6 +759,7 @@ int control_link_parse_poll(const char *payload, size_t length, struct control_l
 			at = json_tokens[at].next;
 		}
 	}
+	parse_poll_extras(payload, poll);
 	return 1;
 }
 
@@ -602,10 +828,27 @@ int control_link_roles_cache_text(const struct control_link_poll *poll, int64_t 
 		if (control_json_string(role->handle, handle, sizeof(handle)) < 0 ||
 			!put(out, size, &length, index ? ", {\"handle\": " : "{\"handle\": ") || !put(out, size, &length, handle) ||
 			!put(out, size, &length, ", \"role\": \"") || !put(out, size, &length, control_role_name(role->role)) ||
-			!put(out, size, &length, "\", \"keys\": ["))
+			!put(out, size, &length, "\", "))
 		{
 			return -1;
 		}
+		if (role->has_account)
+		{
+			char account[CONTROL_KEY_TEXT + 1];
+			uint8_t bytes[CONTROL_KEY_BYTES];
+
+			memset(bytes, 0, sizeof(bytes));
+			memcpy(bytes, role->account, sizeof(role->account));
+			control_key_text(bytes, account);
+			account[32] = 0;
+			if (!put(out, size, &length, "\"account\": \"") || !put(out, size, &length, account) ||
+				!put(out, size, &length, "\", "))
+			{
+				return -1;
+			}
+		}
+		if (!put(out, size, &length, "\"keys\": ["))
+			return -1;
 		for (key = 0; key < role->key_count; key++)
 		{
 			char key_text[CONTROL_KEY_TEXT + 1];
@@ -697,6 +940,108 @@ int control_link_roles_cache_open(const char *text, size_t length, const uint8_t
 	return 1;
 }
 
+/* ---------- the shared ban lists, kept */
+
+static void shared_bans_cache_mac(const uint8_t secret[CONTROL_LINK_SECRET_BYTES], const char *header,
+	size_t header_length, const char *list, size_t list_length, uint8_t mac[32])
+{
+	crypto_blake2b_ctx context;
+
+	crypto_blake2b_keyed_init(&context, 32, secret, CONTROL_LINK_SECRET_BYTES);
+	crypto_blake2b_update(&context, (const uint8_t *)"shared_bans.cache v1\n", 21);
+	crypto_blake2b_update(&context, (const uint8_t *)header, header_length);
+	crypto_blake2b_update(&context, (const uint8_t *)"\n", 1);
+	crypto_blake2b_update(&context, (const uint8_t *)list, list_length);
+	crypto_blake2b_final(&context, mac);
+}
+
+int control_link_shared_bans_cache_text(const char *payload, const struct control_link_poll *poll, int64_t heard,
+	const uint8_t secret[CONTROL_LINK_SECRET_BYTES], char *out, size_t size)
+{
+	static const char comment[] = "# The Chupathingy Dedicated Server's copy of the shared ban lists it takes "
+		"(server/docs/moderation.md),\n# kept so a restart while the site is down keeps them. Written by the server: "
+		"edited, it is refused.\n";
+	char header[96], mac_text[65];
+	uint8_t mac[32];
+	size_t length, list_start, member;
+	int line_length;
+
+	if (!poll->has_shared_bans || poll->shared_bans_end <= poll->shared_bans_start)
+		return -1;
+	member = (size_t)(poll->shared_bans_end - poll->shared_bans_start);
+	snprintf(header, sizeof(header), "v1 %lld %llu", (long long)heard, (unsigned long long)poll->shared_bans_version);
+	if (sizeof(comment) + strlen(header) + 70 + member + 32 >= size)
+		return -1;
+	memcpy(out, comment, sizeof(comment));
+	length = sizeof(comment) - 1;
+	/* (the list first, after room for the header's line, then the line) */
+	list_start = length + strlen(header) + 66;
+	memcpy(out + list_start, "{\"shared_bans\": ", 16);
+	memcpy(out + list_start + 16, payload + poll->shared_bans_start, member);
+	memcpy(out + list_start + 16 + member, "}\n", 3);
+	shared_bans_cache_mac(secret, header, strlen(header), out + list_start, 16 + member + 2, mac);
+	control_hex_text(mac, sizeof(mac), mac_text);
+	line_length = snprintf(out + length, size - length, "%s %s", header, mac_text);
+	out[length + (size_t)line_length] = '\n';
+	length = list_start + 16 + member + 2;
+	out[length] = 0;
+	return (int)length;
+}
+
+int control_link_shared_bans_cache_open(const char *text, size_t length,
+	const uint8_t secret[CONTROL_LINK_SECRET_BYTES], struct control_link_poll *poll, int64_t *heard)
+{
+	const char *line = text;
+	const char *end = text + length;
+	const char *list;
+	char mac_text[65];
+	long long heard_value;
+	unsigned long long version;
+	uint8_t mac[32], expected[32];
+	int consumed = 0;
+	int index;
+
+	memset(poll, 0, sizeof(*poll));
+	while (line < end && *line == '#')
+	{
+		const char *next = memchr(line, '\n', (size_t)(end - line));
+
+		if (!next)
+			return 0;
+		line = next + 1;
+	}
+	list = memchr(line, '\n', (size_t)(end - line));
+	if (!list || list - line > 160)
+		return 0;
+	if (sscanf(line, "v1 %lld %llu %64s%n", &heard_value, &version, mac_text, &consumed) != 3 ||
+		line + consumed != list || strlen(mac_text) != 64 || heard_value <= 0 || consumed < 66 ||
+		line[consumed - 65] != ' ')
+	{
+		return 0;
+	}
+	for (index = 0; index < 32; index++)
+	{
+		int high = hex_digit(mac_text[2 * index]);
+		int low = hex_digit(mac_text[2 * index + 1]);
+
+		if (high < 0 || low < 0)
+			return 0;
+		mac[index] = (uint8_t)(high << 4 | low);
+	}
+	list++;
+	shared_bans_cache_mac(secret, line, (size_t)consumed - 65, list, (size_t)(end - list), expected);
+	if (crypto_verify32(mac, expected))
+		return 0;
+	if (!control_link_parse_poll(list, (size_t)(end - list), poll) || !poll->has_shared_bans ||
+		poll->shared_bans_version != version || poll->command_count || poll->unlinked || poll->has_roles)
+	{
+		memset(poll, 0, sizeof(*poll));
+		return 0;
+	}
+	*heard = (int64_t)heard_value;
+	return 1;
+}
+
 int control_link_roles_fresh(int64_t heard, int64_t now, int hours)
 {
 	if (hours < 1)
@@ -746,7 +1091,7 @@ int control_link_parse_status(const char *answer, size_t length, char *state, si
 int control_link_command_line(const char *command, const char *reason, char *line, size_t size, const char **why)
 {
 	static const char *const taken[] = { "sv_warn", "sv_kick", "sv_ban", "sv_unban", "sv_map", "sv_mapcycle_next",
-		"sv_end_game", "sv_name", "sv_maxplayers" };
+		"sv_end_game", "sv_name", "sv_maxplayers", "sv_ban_account", "sv_lock", "sv_unlock" };
 	size_t word = strcspn(command, " \t");
 	size_t index;
 	int known = 0;
@@ -773,8 +1118,9 @@ int control_link_command_line(const char *command, const char *reason, char *lin
 		*why = "not a command the site may send";
 		return 0;
 	}
-	reasoned = reason && reason[0] && (!strncmp(command, "sv_warn", word) || !strncmp(command, "sv_kick", word) ||
-		!strncmp(command, "sv_ban", word));
+	reasoned = reason && reason[0] && ((word == 7 && !strncmp(command, "sv_warn", word)) ||
+		(word == 7 && !strncmp(command, "sv_kick", word)) || (word == 6 && !strncmp(command, "sv_ban", word)) ||
+		(word == 14 && !strncmp(command, "sv_ban_account", word)));
 	length = (size_t)snprintf(line, size, "%s", command);
 	if (length >= size)
 	{
@@ -828,7 +1174,7 @@ static void json_string_or_null(const char *text, char *out, size_t size)
 int control_link_status_json(const struct control_link_status *status, char *out, size_t size)
 {
 	char site[1600], server_id[6 * CONTROL_LINK_SERVER_ID_SIZE + 8], owner[6 * CONTROL_LINK_HANDLE_SIZE + 8],
-		code[6 * CONTROL_LINK_CODE_SIZE + 8], problem[1000];
+		code[6 * CONTROL_LINK_CODE_SIZE + 8], problem[1000], badge_tier[64], badge_label[6 * 32 + 8];
 	int length;
 
 	json_string_or_null(status->site, site, sizeof(site));
@@ -836,11 +1182,15 @@ int control_link_status_json(const struct control_link_status *status, char *out
 	json_string_or_null(status->owner, owner, sizeof(owner));
 	json_string_or_null(status->code, code, sizeof(code));
 	json_string_or_null(status->problem, problem, sizeof(problem));
+	json_string_or_null(status->badge_tier, badge_tier, sizeof(badge_tier));
+	json_string_or_null(status->badge_label, badge_label, sizeof(badge_label));
 	length = snprintf(out, size, "{\"state\": \"%s\", \"enabled\": %s, \"site\": %s, \"server_id\": %s, "
 		"\"owner\": %s, \"code\": %s, \"heard_seconds_ago\": %lld, \"role_cap\": \"%s\", \"problem\": %s, "
-		"\"roles\": {\"state\": \"%s\", \"accounts\": %d, \"version\": %llu, \"expire_hours\": %d}}", status->state,
+		"\"roles\": {\"state\": \"%s\", \"accounts\": %d, \"version\": %llu, \"expire_hours\": %d}, "
+		"\"badge\": {\"state\": \"%s\", \"tier\": %s, \"label\": %s, \"expires\": %llu}}", status->state,
 		status->enabled ? "true" : "false", site, server_id, owner, code, status->heard_seconds_ago, status->role_cap,
-		problem, status->roles_state, status->role_accounts, status->roles_version, status->roles_hours);
+		problem, status->roles_state, status->role_accounts, status->roles_version, status->roles_hours,
+		status->badge_state ? status->badge_state : "off", badge_tier, badge_label, status->badge_expires);
 	return length < 0 || (size_t)length >= size ? -1 : length;
 }
 

@@ -303,8 +303,11 @@ def test_menu_settings_exist():
     for path in (MENUS / "ce").glob("*.xml"):
         for setting in re.findall(r'setting="([^"]+)"', path.read_text()):
             assert setting in known | profile, f"{path.name}: {setting}"
-    # (the Guide's key and button: its own Settings set them, not the Controls screen; game/guide.c)
-    guide = {"controls.guide", "controls.guide_button"}
+    # (DELTA's key and button: its own Settings set them, not the Controls screen; game/guide.c)
+    guide = {"controls.delta", "controls.delta_button"}
+    # (and the screenshot and clip keys, desktop-only and set in config.toml:
+    # port/linux/src/capture.c)
+    guide |= {"controls.screenshot", "controls.capture_buttons", "controls.clip"}
     controls = set(re.findall(r'"(controls\.[a-z_]+)"', (root / "port/linux/src/xinput_sdl.c").read_text())) - guide
     # (controls.controller_layout is the controller's, not a key's: controller_layout.c)
     assert controls == {name for name in known if name.startswith("controls.")} - {"controls.controller_layout"} - guide
@@ -349,6 +352,22 @@ def test_joined_invite_follows_the_joined_host():
     joined = re.search(r"^int p2p_joined_invite\(.*?^\}", p2p, re.M | re.S).group(0)
     assert "!p2p.hosting" in joined
 
+
+
+def test_movie_lets_go_of_its_flags_before_the_main_menu_loads():
+    """#267: a movie that returns to the main menu (the intro) lifts the
+    menus' input suppression, and lets go of its flags and frame rate
+    throttle before main_menu_load, so a movie that load starts keeps its
+    own flags (and the suppression it set stays its to lift)."""
+    root = Path(__file__).resolve().parent.parent
+    bink = (root / "source/bink/bink_playback.c").read_text()
+    stop = re.search(r"^void bink_playback_stop\(.*?^\}", bink, re.M | re.S).group(0)
+    assert stop.index("event_manager_suppress(FALSE);") < stop.index("main_menu_load();")
+    assert stop.index("flags = bink_globals.flags;") < stop.index("bink_globals.flags = 0;")
+    assert stop.index("bink_globals.flags = 0;") < stop.index("main_menu_load();")
+    assert stop.index("global_frame_rate_throttle = saved_frame_rate_throttle;") < stop.index("main_menu_load();")
+    assert "TEST_FLAG(flags, _bink_playback_return_to_main_menu_when_finished_bit)" in stop
+    assert stop.count("bink_globals.flags = 0;") == 1
 
 def test_report_hosted_games_keeps_listing():
     """network.report_hosted_games = false stops what a host sends the game
@@ -544,8 +563,8 @@ def test_system_link_bots_messages_are_the_games():
 
 def test_network_format_is_the_recorded_one():
     """what the machines send each other is what port/linux/network_format.txt
-    records for HALO_PORT_NETWORK_VERSION, and NETCODE.md says what that
-    version changed"""
+    records for MCC_PROTOCOL_VERSION, and NETCODE.md says what that version
+    changed. The ordinary OpenCE contract is pinned by test_mcc_protocol.py."""
     from tools import network_format
 
     problems = network_format.check()
@@ -597,3 +616,14 @@ def test_menus_quit_on_android():
     pump = re.search(r"^void platform_pump_events\(.*?^\}", platform, re.M | re.S).group(0)
     assert re.search(r"if \(android_quit_requested\)\s*\{[^}]*exit\(EXIT_SUCCESS\);", pump)
     assert "SDL_PushEvent" not in (root / "port/android/host_imports.list").read_text()
+
+
+def test_guide_test_steps_are_for_debug_builds_only():
+    """debug.delta_test presses DELTA's buttons (accepting an invite,
+    kicking from a clan): a release build (HALO_RELEASE) compiles that out
+    and keeps the setting harmless"""
+    guide = (Path(__file__).resolve().parent.parent / "port/linux/game/guide.c").read_text()
+    gated = re.search(r"#ifdef HALO_RELEASE\nstatic void debug_steps\(void\)\n\{\n\}\n#else\n(.*?)\n#endif\n", guide, re.S)
+    assert gated, "debug_steps has no empty release version"
+    assert 'config_string("debug.delta_test")' in gated.group(1)
+    assert guide.count('"debug.delta_test"') == 1

@@ -236,14 +236,26 @@ int update_make_directory(const char *path)
 
 int update_launch(const char *path)
 {
-	wchar_t wide[MAX_PATH * 2], command[MAX_PATH * 2 + 3], directory[MAX_PATH * 2];
+	return update_launch_with(path, NULL);
+}
+
+int update_launch_with(const char *path, const char *argument)
+{
+	wchar_t wide[MAX_PATH * 2], command[MAX_PATH * 2 + 64], directory[MAX_PATH * 2], wide_argument[48];
 	wchar_t *slash;
 	STARTUPINFOW startup;
 	PROCESS_INFORMATION process;
 
 	if (!wide_from_utf8(path, wide, MAX_PATH * 2))
 		return 0;
-	_snwprintf(command, MAX_PATH * 2 + 3, L"\"%ls\"", wide);
+	if (argument && *argument)
+	{
+		if (!wide_from_utf8(argument, wide_argument, 48))
+			return 0;
+		_snwprintf(command, MAX_PATH * 2 + 64, L"\"%ls\" %ls", wide, wide_argument);
+	}
+	else
+		_snwprintf(command, MAX_PATH * 2 + 64, L"\"%ls\"", wide);
 	wcscpy(directory, wide);
 	slash = wcsrchr(directory, L'\\');
 	if (slash)
@@ -256,4 +268,64 @@ int update_launch(const char *path)
 	CloseHandle(process.hThread);
 	CloseHandle(process.hProcess);
 	return 1;
+}
+
+/* (Windows has no noexec: a file put in place runs) */
+int update_can_start(const char *path, char *reason, int reason_size)
+{
+	wchar_t wide[MAX_PATH * 2];
+
+	if (wide_from_utf8(path, wide, MAX_PATH * 2) && GetFileAttributesW(wide) != INVALID_FILE_ATTRIBUTES)
+		return 1;
+	snprintf(reason, (size_t)reason_size, "it is not there");
+	return 0;
+}
+
+/* (no execve on Windows: the new game is a process of its own,
+update_launch, which Steam follows under Proton as it does any program in
+its Wine prefix) */
+int update_start_in_place(const char *path)
+{
+	(void)path;
+	return 0;
+}
+
+int update_start_in_place_with(const char *path, const char *argument)
+{
+	(void)path;
+	(void)argument;
+	return 0;
+}
+
+int update_windows_runs_64bit(void)
+{
+#ifdef _WIN64
+	return 1;
+#else
+	typedef BOOL (WINAPI *is_wow64_process2_proc)(HANDLE process, USHORT *process_machine, USHORT *native_machine);
+	typedef BOOL (WINAPI *is_wow64_process_proc)(HANDLE process, BOOL *wow64);
+	HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+	is_wow64_process2_proc is_wow64_process2;
+	is_wow64_process_proc is_wow64_process;
+
+	if (!kernel)
+		return 0;
+	/* (Windows 10 1511 and later: the processor's own kind, so ARM64
+	Windows, whose x64 emulation not every version has, is left out) */
+	is_wow64_process2 = (is_wow64_process2_proc)(void *)GetProcAddress(kernel, "IsWow64Process2");
+	if (is_wow64_process2)
+	{
+		USHORT process_machine = 0, native_machine = 0;
+
+		return is_wow64_process2(GetCurrentProcess(), &process_machine, &native_machine) &&
+			native_machine == IMAGE_FILE_MACHINE_AMD64;
+	}
+	/* (older Windows: a 32-bit program under WOW64 is on x64 Windows) */
+	is_wow64_process = (is_wow64_process_proc)(void *)GetProcAddress(kernel, "IsWow64Process");
+	{
+		BOOL wow64 = FALSE;
+
+		return is_wow64_process && is_wow64_process(GetCurrentProcess(), &wow64) && wow64;
+	}
+#endif
 }

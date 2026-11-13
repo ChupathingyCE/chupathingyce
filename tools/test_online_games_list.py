@@ -58,3 +58,64 @@ def test_online_games_asks_for_the_password():
     body = function(SCREEN, "join_selected")
     assert "if (game->locked)" in body and "password_open(game);" in body
     assert "browser_unlock_game(" in function(SCREEN, "password_join")
+
+
+def test_no_cutouts_under_another_screen():
+    # (#1048: the pictures from the game's bitmaps are drawn under the
+    # overlay, in a hole cut in it, and the hole is the whole overlay's: with
+    # the Delta Guide, or another screen drawn after this one, open over the browser
+    # they showed through it. Neither the hole nor the picture then)
+    covered = function(SCREEN, "browser_screen_covered")
+    for screen in ("guide_active()", "profile_screen_active()", "controls_screen_active()",
+                   "moderation_screen_active()", "invite_prompt_active()"):
+        assert screen in covered
+    # (the definition, after a forward declaration over two lines)
+    start = SCREEN.index("static void draw_bitmap_picture(\n")
+    picture = SCREEN[SCREEN.index("\n{", start):SCREEN.index("\n}\n", start)]
+    assert picture.index("if (browser_screen_covered())\n\t\treturn;") < picture.index("ui_overlay_cutout(")
+    assert picture.index("if (browser_screen_covered())") < picture.index("draw_bitmap_in_rect(")
+    # (the browser's only cut-out)
+    assert SCREEN.count("ui_overlay_cutout(") == 1
+    # (the profile screen's Spartan, the other cut-out, the same way)
+    profile = (ROOT / "port" / "linux" / "game" / "profile_screen.c").read_text(encoding="utf-8")
+    assert "guide_active()" in function(profile, "profile_screen_covered")
+    spartan = function(profile, "draw_spartan")
+    assert spartan.index("profile_screen_covered()") < spartan.index("ui_overlay_cutout(")
+    assert profile.count("ui_overlay_cutout(") == 1
+
+
+def test_filter_words_never_say_all():
+    """(#1150) Online Games opened on CHUPATHINGY + PUBLIC while its footer
+    said "FILTER: ALL": the filter is co-op's, not the views', so its button
+    says what it does with co-op games, in Online Games and in Join Game"""
+    labels = re.search(r"labels\[BROWSER_LIST_FILTERS\] = \{([^}]*)\}", function(BROWSER_C, "browser_list_filter_label"))
+    words = re.findall(r'"([^"]*)"', labels.group(1))
+    assert words == ["CO-OP: SHOWN", "CO-OP: HIDDEN", "CO-OP: ONLY"]
+    assert not any("ALL" in word for word in words)
+    assert 'snprintf(filter_word, sizeof(filter_word), "=%s", browser_list_filter_label());' in SCREEN
+    assert "browser_list_filter_label()" in function(MENUS, "browser_update")
+    assert "FILTER: %s" not in SCREEN and "FILTER: %s" not in MENUS
+
+
+def test_tabs_fit_and_read_over_the_background():
+    """(#1150) the OPENCE tab's name was lost over the menus' moving
+    background: each tab not shown has a dark backing, and the tabs fit
+    between LB and RB"""
+    tabs = function(SCREEN, "draw_tabs")
+    assert "if (total > right - left && total > 0.0f)" in tabs
+    shown = tabs.index("if (view == browser_screen.view)")
+    other = tabs.index("ui_overlay_rect(x, TABS_Y, width, TABS_HEIGHT, 6,", shown)
+    assert other < tabs.index("ui_overlay_text(UI_FONT_MENU, size, x + width * 0.5f", other)
+
+
+def test_selection_stays_on_its_game():
+    """(#1150) a refresh keeps the selection on its game as the order
+    changes: by its invite, or by its host's key hash (the invite's first
+    half) when its token is new"""
+    fetch = function(SCREEN, "fetch_games")
+    assert "!strcmp(browser_screen.games[index].invite, invite)" in fetch
+    assert "same_key_hash(browser_screen.games[index].invite, invite)" in fetch
+    # (the exact invite before the same host's other listing)
+    assert fetch.index("if (index < browser_screen.count)") < fetch.index("else if (same_host != NONE)")
+    same = function(SCREEN, "same_key_hash")
+    assert "BROWSER_INVITE_LENGTH / 2" in same

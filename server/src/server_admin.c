@@ -39,6 +39,7 @@ given both (dedicated.c). Nothing a client is sent is new.
 #include "dedicated.h"
 #include "server_admin.h"
 #include "server_config.h"
+#include "voice_game.h"
 #include "server_conduct.h"
 #include "server_gametype_variant.h"
 
@@ -61,9 +62,19 @@ void host_rules_set_player_names(boolean allowed);
 boolean host_rules_host_player_names(void);
 void host_rules_set_follow_camera(boolean allowed);
 boolean host_rules_host_follow_camera(void);
+void host_rules_set_late_join_hold(boolean wait);
+boolean host_rules_host_late_join_hold(void);
+#ifdef HALO_SERVER
+/* (the shared ban lists', server_bans.h) */
+int server_bans_sharing(void);
+void server_bans_set_sharing(int sharing);
+#endif
 /* (the limit on machines of one address, port/linux/game/network_distributed.c) */
 void network_distributed_set_address_limit(long maximum);
 long network_distributed_address_limit(void);
+/* (parties kept on one team, port/linux/game/party_teams.h) */
+void party_teams_host_set(boolean keep);
+boolean party_teams_host_on(void);
 
 #include <errno.h>
 #include <stdio.h>
@@ -1664,12 +1675,49 @@ static void setting_now(
 		break;
 	case SERVER_SETTING_BETRAYAL_KICK: snprintf(text, (size_t)size, "%d", server_conduct_betrayal_limit()); break;
 	case SERVER_SETTING_AFK_KICK_MINUTES: snprintf(text, (size_t)size, "%d", server_conduct_afk_minutes()); break;
+	case SERVER_SETTING_KEEP_PARTIES_TOGETHER:
+		snprintf(text, (size_t)size, "%s", party_teams_host_on() ? "true" : "false");
+		break;
+#ifdef HALO_PORT_VOICE
+	case SERVER_SETTING_VOICE:
+	case SERVER_SETTING_VOICE_TEAM:
+	case SERVER_SETTING_VOICE_PROXIMITY:
+	case SERVER_SETTING_VOICE_EVERYONE:
+	case SERVER_SETTING_VOICE_PARTY:
+	case SERVER_SETTING_VOICE_LOBBY:
+	case SERVER_SETTING_VOICE_RANGE:
+	case SERVER_SETTING_VOICE_KBPS:
+	{
+		struct voice_host_rules rules;
+		long number;
+
+		voice_game_host_get(&rules);
+		number = setting == SERVER_SETTING_VOICE_RANGE ? rules.range : setting == SERVER_SETTING_VOICE_KBPS ?
+			rules.kbps : -1;
+		if (number >= 0)
+			snprintf(text, (size_t)size, "%ld", number);
+		else
+		{
+			boolean value = setting == SERVER_SETTING_VOICE ? rules.on : setting == SERVER_SETTING_VOICE_TEAM ?
+				rules.team : setting == SERVER_SETTING_VOICE_PROXIMITY ? rules.proximity :
+				setting == SERVER_SETTING_VOICE_EVERYONE ? rules.everyone : setting == SERVER_SETTING_VOICE_PARTY ?
+				rules.party : rules.lobby;
+
+			snprintf(text, (size_t)size, "%s", value ? "true" : "false");
+		}
+		break;
+	}
+#endif
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING: snprintf(text, (size_t)size, "%s", server_gamespy_enabled() ? "true" : "false"); break;
 	case SERVER_SETTING_GAMESPY_PORT: snprintf(text, (size_t)size, "%ld", server_gamespy_port()); break;
 	case SERVER_SETTING_CE_JOINS: snprintf(text, (size_t)size, "%s", server_gamespy_joins() ? "true" : "false"); break;
 	case SERVER_SETTING_CE_WELCOME: snprintf(text, (size_t)size, "%s", server_ce_welcome()); break;
+	case SERVER_SETTING_BAN_SHARE: snprintf(text, (size_t)size, "%s", server_bans_sharing() ? "true" : "false"); break;
 #endif
+	case SERVER_SETTING_LATE_JOIN_HOLD:
+		snprintf(text, (size_t)size, "%s", host_rules_host_late_join_hold() ? "true" : "false");
+		break;
 	default: text[0] = 0; break;
 	}
 }
@@ -1713,7 +1761,9 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_CE_JOINS || setting == SERVER_SETTING_ALLOW_PLAYER_NAMES ||
 		setting == SERVER_SETTING_ALLOW_FOLLOW_CAMERA || setting == SERVER_SETTING_MAX_MACHINES_PER_ADDRESS ||
 		setting == SERVER_SETTING_BETRAYAL_KICK || setting == SERVER_SETTING_AFK_KICK_MINUTES ||
-		setting == SERVER_SETTING_CE_WELCOME;
+		setting == SERVER_SETTING_CE_WELCOME || setting == SERVER_SETTING_KEEP_PARTIES_TOGETHER ||
+		setting == SERVER_SETTING_LATE_JOIN_HOLD || setting == SERVER_SETTING_BAN_SHARE ||
+		(setting >= SERVER_SETTING_VOICE && setting <= SERVER_SETTING_VOICE_KBPS);
 }
 
 static char const *environment_value(
@@ -1829,7 +1879,8 @@ boolean server_admin_set(
 				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
 				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port, ce_joins, "
 				"allow_player_names, allow_follow_camera, max_machines_per_address, betrayal_kick, "
-				"afk_kick_minutes, ce_welcome)\n");
+				"afk_kick_minutes, ce_welcome, keep_parties_together, late_join_hold, ban_share, voice, voice_team, "
+				"voice_proximity, voice_everyone, voice_party, voice_lobby, voice_range, voice_kbps)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1885,6 +1936,36 @@ boolean server_admin_set(
 	case SERVER_SETTING_MAX_MACHINES_PER_ADDRESS: network_distributed_set_address_limit(change.values[setting]); break;
 	case SERVER_SETTING_BETRAYAL_KICK: server_conduct_set_betrayal_limit(change.values[setting]); break;
 	case SERVER_SETTING_AFK_KICK_MINUTES: server_conduct_set_afk_minutes(change.values[setting]); break;
+	case SERVER_SETTING_KEEP_PARTIES_TOGETHER: party_teams_host_set(change.values[setting] ? TRUE : FALSE); break;
+#ifdef HALO_PORT_VOICE
+	case SERVER_SETTING_VOICE:
+	case SERVER_SETTING_VOICE_TEAM:
+	case SERVER_SETTING_VOICE_PROXIMITY:
+	case SERVER_SETTING_VOICE_EVERYONE:
+	case SERVER_SETTING_VOICE_PARTY:
+	case SERVER_SETTING_VOICE_LOBBY:
+	case SERVER_SETTING_VOICE_RANGE:
+	case SERVER_SETTING_VOICE_KBPS:
+	{
+		struct voice_host_rules rules;
+		boolean on = change.values[setting] ? TRUE : FALSE;
+
+		voice_game_host_get(&rules);
+		switch (setting)
+		{
+		case SERVER_SETTING_VOICE: rules.on = on; break;
+		case SERVER_SETTING_VOICE_TEAM: rules.team = on; break;
+		case SERVER_SETTING_VOICE_PROXIMITY: rules.proximity = on; break;
+		case SERVER_SETTING_VOICE_EVERYONE: rules.everyone = on; break;
+		case SERVER_SETTING_VOICE_PARTY: rules.party = on; break;
+		case SERVER_SETTING_VOICE_LOBBY: rules.lobby = on; break;
+		case SERVER_SETTING_VOICE_RANGE: rules.range = change.values[setting]; break;
+		default: rules.kbps = change.values[setting]; break;
+		}
+		voice_game_host_set(&rules);
+		break;
+	}
+#endif
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING:
 		server_gamespy_configure(change.values[setting] ? TRUE : FALSE, server_gamespy_port());
@@ -1892,7 +1973,9 @@ boolean server_admin_set(
 	case SERVER_SETTING_GAMESPY_PORT: server_gamespy_configure(server_gamespy_enabled(), change.values[setting]); break;
 	case SERVER_SETTING_CE_JOINS: server_gamespy_set_joins(change.values[setting] ? TRUE : FALSE); break;
 	case SERVER_SETTING_CE_WELCOME: server_ce_set_welcome(change.ce_welcome); break;
+	case SERVER_SETTING_BAN_SHARE: server_bans_set_sharing(change.values[setting] ? TRUE : FALSE); break;
 #endif
+	case SERVER_SETTING_LATE_JOIN_HOLD: host_rules_set_late_join_hold(change.values[setting] ? TRUE : FALSE); break;
 	}
 	error(_error_silent, "dedicated: a command sets %s to %s", server_settings_table[setting].key, line->words[2]);
 	command_output_printf(output, "%s is %s, saved in %s (%s)\n", server_settings_table[setting].key, line->words[2],

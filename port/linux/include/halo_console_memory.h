@@ -16,8 +16,7 @@ must run there. A console above its baseline gets "extras": larger caches
 and render buffers, more room in its own queues, a heavy feature that
 asks first. Never anything of the simulation or the network: the game
 state, the objects, the players and what goes on the wire stay the same on
-every console and every PC, so all of them play the same game
-(docs/cross-play.md).
+every console and every PC, so all of them play the same game.
 
 The class is known from the first line of main, before anything is
 allocated, and does not change while the game runs. A player may hold a

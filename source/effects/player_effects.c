@@ -305,6 +305,9 @@ of the tick before the one drawn, and how far the frame is from that tick
 to the next */
 static unsigned long shake_last_tick_seed;
 static real shake_tick_fraction = 1.0f;
+/* and what brings a blend of the two back to the size of one tick's shake
+(get_shake_random) */
+static real shake_blend_scale = 1.0f;
 #endif
 /* port: the game time (plus one, so none is zero) of the tick in which each
 local player's camera impulse [0] and shake [1] ran out (camera_effect_drawn) */
@@ -913,7 +916,7 @@ static boolean camera_effect_drawn(
 	return *end_time == game_time_get() + 1 && duration > 0.0f && *frame_ticks_left > 0.0f;
 }
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 /* port: the seed a tick's shake draws from, for a local player */
 static unsigned long shake_tick_seed(
 	long time,
@@ -935,14 +938,22 @@ static unsigned long shake_tick_seed(
 own (player_effect_get_camera_effect_matrix); a frame between ticks takes
 the last tick's and this tick's, blended by where the frame is between
 them, so the camera moves from one shake to the next instead of jumping
-once a tick. Both seeds draw the same numbers in the same order. */
+once a tick. Both seeds draw the same numbers in the same order.
+Two random numbers blended half and half are smaller than either on the
+whole (about 0.7 as much half way, the halves partly cancelling): at high
+frame rates the shake was about a fifth weaker than at one frame a tick, and
+a light one (firing a weapon) showed less. The blend is scaled back up to one tick's size on
+the whole (shake_blend_scale), so the camera shakes as hard at any frame
+rate and still moves smoothly from one tick's shake to the next, never
+further than one tick's shake could. */
 static real get_shake_random(void)
 {
 	real latest = real_seed_random_range(get_global_local_random_seed_address(), -1.0f, 1.0f);
 #ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
 	real last = real_seed_random_range(&shake_last_tick_seed, -1.0f, 1.0f);
 
-	latest = last + (latest - last) * shake_tick_fraction;
+	latest = (last + (latest - last) * shake_tick_fraction) * shake_blend_scale;
+	latest = PIN(latest, -1.0f, 1.0f);
 #endif
 	return latest;
 }
@@ -958,9 +969,21 @@ static void get_shake_direction(
 	seed_random_direction3d(get_global_local_random_seed_address(), direction);
 #ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
 	seed_random_direction3d(&shake_last_tick_seed, &last);
-	direction->i = last.i + (direction->i - last.i) * shake_tick_fraction;
-	direction->j = last.j + (direction->j - last.j) * shake_tick_fraction;
-	direction->k = last.k + (direction->k - last.k) * shake_tick_fraction;
+	direction->i = (last.i + (direction->i - last.i) * shake_tick_fraction) * shake_blend_scale;
+	direction->j = (last.j + (direction->j - last.j) * shake_tick_fraction) * shake_blend_scale;
+	direction->k = (last.k + (direction->k - last.k) * shake_tick_fraction) * shake_blend_scale;
+	{
+		real length_squared = dot_product3d(direction, direction);
+
+		if (length_squared > 1.0f)
+		{
+			real scale = 1.0f / square_root(length_squared);
+
+			direction->i *= scale;
+			direction->j *= scale;
+			direction->k *= scale;
+		}
+	}
 #endif
 }
 
@@ -1010,7 +1033,7 @@ void player_effect_get_camera_effect_matrix(
 
 	if (local_player_index != NONE)
 	{
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		/* The camera is drawn every frame, several frames per tick on the
 		native builds (port/linux/game/render_interpolation.c), and each draw
 		shook it in a new random direction: shake once a tick, as on the
@@ -1024,6 +1047,11 @@ void player_effect_get_camera_effect_matrix(
 #ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
 		shake_last_tick_seed = shake_tick_seed(game_time_get() - 1, local_player_index);
 		shake_tick_fraction = render_interpolation_drawing() ? render_interpolation_fraction() : 1.0f;
+		/* (two independent numbers blended by f vary as much as one times
+		the square root of (1 - f) squared plus f squared) */
+		shake_blend_scale = 1.0f / square_root(
+			(1.0f - shake_tick_fraction) * (1.0f - shake_tick_fraction) +
+			shake_tick_fraction * shake_tick_fraction);
 #endif
 #endif
 		game_time_get();
@@ -1221,7 +1249,7 @@ void player_effect_get_camera_effect_matrix(
 					continuous->vibrate_frequencies[0],
 					continuous->vibrate_frequencies[1]);
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 				/* Looping sounds add their continuous shake once a frame
 				(game_sound.c), so it is used up once a frame too: a frame that
 				runs no tick (port/linux/game/render_interpolation.c) must not
@@ -1247,7 +1275,7 @@ void player_effect_get_camera_effect_matrix(
 				matrix4x3_multiply(matrix, &effect_matrix, matrix);
 			}
 		}
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		*local_seed = saved_local_seed;
 #endif
 	}

@@ -13,6 +13,53 @@ device itself (d3d8_gl.c).
 #include "platform.h"
 #include "gl.h"
 
+/* ---------- the desktop's two kinds of OpenGL
+
+The desktop renderer is written for OpenGL 4.5, and does without what came
+after 3.3 where macOS's OpenGL 4.1 lacks it (OpenGL ES has the same path):
+each vertex attribute pointed at on its own (no 4.3 vertex attribute
+binding), each texture unit bound on its own (no 4.4 multi-bind), mipmap
+levels copied with a blit (no 4.3 glCopyImageSubData), and D3D's clip space
+converted by the vertex shaders (no 4.5 glClipControl: nv2a_vsh.c).
+Windows, Linux and FreeBSD take that path when the driver has no OpenGL 4.5
+(an older integrated GPU's, game issue #78): sdl_platform.c then makes a
+3.3 context and sets xgpu_gl_legacy (gl_functions.c), and the entry points
+past 3.3 are left out, as on macOS (gl_functions_load).
+
+XGPU_GL_POINTERS: the build has the path without them; XGPU_GL_BINDINGS:
+the build has the 4.5 one; XGPU_GL_LEGACY: the path drawing now. */
+#if defined(HALO_GL_ES) || defined(__APPLE__)
+#define XGPU_GL_POINTERS 1
+#define XGPU_GL_BINDINGS 0
+#define XGPU_GL_LEGACY 1
+#elif defined(HALO_CONSOLE_GL_LAYER)
+#define XGPU_GL_POINTERS 0
+#define XGPU_GL_BINDINGS 1
+#define XGPU_GL_LEGACY 0
+#else
+#define XGPU_GL_POINTERS 1
+#define XGPU_GL_BINDINGS 1
+#define XGPU_GL_LEGACY_AT_RUN_TIME 1
+extern int xgpu_gl_legacy;
+#define XGPU_GL_LEGACY xgpu_gl_legacy
+#endif
+
+/* the desktop shaders' #version line: 4.5's, macOS's 4.1, or on an older
+driver the newest of 4.1, 4.0 and 3.3 its context has */
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+extern const char *xgpu_gl_version_line;
+#define XGPU_GL_VERSION_LINE xgpu_gl_version_line
+/* (GLSL 3.30's has no gl_SampleMask: alpha tested over the samples, nv2a_psh.c) */
+extern int xgpu_gl_sample_mask;
+#define XGPU_GL_SAMPLE_MASK xgpu_gl_sample_mask
+#elif defined(__APPLE__)
+#define XGPU_GL_VERSION_LINE "#version 410 core\n"
+#define XGPU_GL_SAMPLE_MASK 1
+#else
+#define XGPU_GL_VERSION_LINE "#version 450 core\n"
+#define XGPU_GL_SAMPLE_MASK 1
+#endif
+
 #ifdef HALO_GL_ES
 /* OpenGL ES features that are optional (d3d8_gl.c gl_initialize) */
 struct xgpu_capabilities
@@ -68,6 +115,19 @@ each program handed to linked() */
 GLuint xgpu_shader_cache_compile(GLenum type, const char *source, const char *what);
 void xgpu_shader_cache_linked(GLuint vertex_shader, GLuint fragment_shader);
 void xgpu_shader_cache_warm(void (*linked)(GLuint vertex_shader, GLuint fragment_shader, GLuint program));
+#ifdef HALO_SHADER_PREP
+/* the shaders a map's loading screen makes (d3d8_shader_prep.inl): a text's
+shader with its compile asked for and not waited on (one made before as it
+is), or 0; then whether it is compiled, kept in the file as any other: 1 it
+is, 0 it failed (its log written; the shader kept, as the renderer holds its
+name, so that a program linked of it fails and its draws are left out, and
+never saved, so that the next run compiles it again), -1 not yet (wait FALSE, on a driver that compiles in parallel). A draw that
+comes to a shader first waits for it. As for a linked program's. */
+extern BOOL xgpu_parallel_compile;
+GLuint xgpu_shader_cache_submit(GLenum type, const char *source);
+int xgpu_shader_cache_finish(GLuint shader, BOOL wait);
+int xgpu_program_finish(GLuint program, BOOL wait);
+#endif
 
 /* ---------- generated source text */
 
@@ -118,7 +178,7 @@ convert D3D's clip space themselves (nv2a_vsh.c) */
 #endif
 
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting);
+	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting, BOOL plasma_model);
 
 /* ---------- pixel shaders */
 
@@ -130,45 +190,23 @@ enum
 	_xgpu_sampler_cube,
 };
 
-/* everything a translated pixel shader depends on; the GLSL program cache
-is keyed by these bytes */
-struct nv2a_pixel_shader_key
-{
-	DWORD combiner_state[D3DRS_PS_MAX];
-	/* D3DRS_PSTEXTUREMODES lies past D3DRS_PS_MAX */
-	DWORD texture_modes;
-	unsigned char sampler_type[4];
-	unsigned char alpha_kill[4];
-	/* D3DTSS_COLORSIGN: channels (bit 0 alpha ... bit 3 blue, as
-	D3DTSIGN_*) that hold signed data in an unsigned texture format */
-	unsigned char color_sign[4];
-	/* D3DCMP_* function for the alpha test, or 0 when disabled */
-	unsigned long alpha_test_function;
-	unsigned char fog_enable;
-	unsigned char fog_table_mode;
-	/* inside a visibility test: count the samples that pass (Android) */
-	unsigned char count_samples;
-	/* a high-res HUD meter (hud_hires.h) drawn with the meter's blend (the
-	destination kept by the source's alpha): that alpha is eased to 1 by the
-	coverage texture 0's green holds, so that the meter darkens what is
-	behind it only where it covers it (the Xbox's point-sampled meters stop
-	at their texels' edges; filtered ones have a fringe of faint texels) */
-	unsigned char coverage_alpha;
-	/* a model lighting program's draw lit for each pixel
-	(display.per_pixel_lighting): nv2a_vertex_lighting's lights, or 0 for
-	the diffuse color the vertex shader computed */
-	unsigned char per_pixel_lighting;
-	/* drawn into a multisampled target (display.anti_aliasing's
-	multisampling), its samples a pixel: the alpha test covers samples in
-	proportion to how far alpha is past the reference, not all of the pixel
-	or none of it, so that cut-out edges (foliage, grates) are smoothed too */
-	unsigned char alpha_test_samples;
-	/* Discrete meter thresholds in texture 0's red are read at level zero,
-	without filtering. Coverage/brightness still use the filtered lookup. */
-	unsigned char point_threshold;
-};
+/* everything a translated pixel shader depends on (nv2a_pixel_key.h) */
+#include "nv2a_pixel_key.h"
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
+
+/* nv2a_finite, in the vertex and pixel shaders: a component that is not a
+number made 0, by its bits (a driver's fast math may drop a float test such as
+isnan). The NV2A made none, and a GPU draws one as anything: black, white or
+blocks. An infinite one is kept, for the clamps after it to take to the end of
+the range, as the NV2A did. A named function, so that a console that writes
+the GLSL into another language can give it its own body (the Xbox 360's has no
+integer bit operations) */
+#define NV2A_FINITE \
+	"vec4 nv2a_finite(vec4 v)\n" \
+	"{\n" \
+	"	return mix(v, vec4(0.0), greaterThan(floatBitsToUint(v) & uvec4(0x7fffffffu), uvec4(0x7f800000u)));\n" \
+	"}\n"
 
 #ifdef HALO_GL_ES
 /* ES samplers have no LOD bias of their own */
@@ -228,12 +266,47 @@ from guest memory as needed; *target receives GL_TEXTURE_2D etc. */
 GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *target,
 	struct xgpu_texture_description *description);
 void xgpu_texture_cache_begin_frame(void);
+/* for a port whose GL can run short of texture memory (the Xbox 360's):
+drops the textures not drawn in the last 'frames' frames (at least one; the
+next draw that needs one uploads it again), between frames, and returns how
+many it dropped */
+unsigned long xgpu_texture_cache_drop_idle(unsigned long frames);
+/* has the GL texture 'texture' uploaded again the next time it is drawn (the
+port could not make it, and has freed memory since) */
+void xgpu_texture_cache_reload(GLuint texture);
+/* the same for every texture the port says it is missing (more could not be
+made than it kept a list of); returns how many */
+unsigned long xgpu_texture_cache_reload_missing(int (*missing)(GLuint texture));
 /* (not on the consoles: HALO_CONSOLE_NO_GUIDE) a plain 2D texture's first
 level, read for the port's own drawing (the Guide's plasma: ui_overlay.h),
 as RGBA bytes with rows from the top; NULL for one it does not read (a cube,
 a volume, a palette's, larger than 1024 square) or without memory. The
 caller frees it */
 unsigned char *xgpu_texture_rgba(const DWORD *resource, unsigned long *width, unsigned long *height);
+
+/* MCC-owned immutable resources never enter the guest physical texture cache. */
+BOOL xgpu_mcc_texture_get(DWORD const *resource, D3DCOLOR const *palette,
+	GLuint *texture, GLenum *target, struct xgpu_texture_description *description);
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define xgpu_mcc_texture_get(a0, a1, a2, a3, a4) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (BOOL)0)
+#endif
+BOOL xgpu_mcc_texture_upload(GLuint texture, GLenum target,
+	struct xgpu_texture_description const *description, void const *pixels,
+	unsigned long bytes, D3DCOLOR const *palette);
+void xgpu_mcc_texture_unbind(DWORD const *resource);
+/* an MCC header's description and immutable pixels, for a renderer that
+uploads its own copies (the bgfx renderer); FALSE if resource is not one */
+BOOL xgpu_mcc_texture_source(DWORD const *resource, struct xgpu_texture_description *description,
+	void const **pixels, unsigned long *bytes, long *hud_asset);
+/* an MCC texture a renderer could not make, and why: logged (the first few,
+then the count when the map's textures go: mcc_texture_bridge.c) */
+void xgpu_mcc_texture_failed(struct xgpu_texture_description const *description, char const *reason);
+#if defined(HALO_MCC) && !HALO_MCC
+#define xgpu_mcc_texture_source(a0, a1, a2, a3, a4) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (BOOL)0)
+#define xgpu_mcc_texture_failed(a0, a1) ((void)sizeof(a0), (void)sizeof(a1))
+#endif
 
 /* ---------- render targets */
 
@@ -293,11 +366,15 @@ started, the window cleared to color (0xRRGGBBAA), the overlay over it in
 the picture's place (x, y its lower left corner) and the window saved to
 screenshot (a .bmp's path, or NULL); FALSE if bgfx does not start */
 BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int height, const char *screenshot);
-/* the overlay's quads (ui_overlay.c) over the window's picture at Present */
-void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
+/* the overlay's quads (ui_overlay.c) over the window's picture at Present
+(plasma_shift: the plasma's second map's place, then its threads' color;
+medals: the medals' atlas, premultiplied, while one is drawn, NULL before);
+whether the medals' atlas is the GPU's now (its pixels may be let go) */
+int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
-	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[4],
+	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[8],
+	const unsigned char *medals, int medals_width, int medals_height,
 	const float cutouts[4][4], int window_width, int window_height);
 #endif
 

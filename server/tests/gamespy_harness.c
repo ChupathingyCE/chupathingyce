@@ -460,6 +460,10 @@ int main(int argc, char **argv)
 		}
 	}
 	gamespy_listing_stop();
+	/* (the notices still queued, the last ones the thread gave before it
+	stopped among them: none is lost) */
+	while (gamespy_listing_next_notice(notice, sizeof(notice)))
+		printf("%s\n", notice);
 	printf("stopped\n");
 	return 0;
 }

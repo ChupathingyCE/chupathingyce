@@ -81,7 +81,7 @@ parser.add_argument(
     action="store_true",
     help="native ports (Linux, macOS): the original Xbox build's network and object limits "
     "(HALO_CONSOLE_LIMITS: 16 players and machines, 2,048 objects), to test the console's side of "
-    "cross-play against the PC builds on one computer (docs/cross-play.md); never a build to ship",
+    "cross-play against the PC builds on one computer; never a build to ship",
 )
 parser.add_argument(
     "--window-rebase",

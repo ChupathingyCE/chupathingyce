@@ -80,6 +80,7 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #include "server_admin.h"
 #include "server_conduct.h"
 #include "server_config.h"
+#include "voice_game.h"
 #ifdef HALO_SERVER
 /* (the server program's control unit, built with the host's ABI: plain
 types only) */
@@ -97,8 +98,15 @@ void team_change_host_set(int policy, int margin);
 /* (the host's rules', port/linux/game/host_rules.h) */
 void host_rules_set_player_names(boolean allowed);
 void host_rules_set_follow_camera(boolean allowed);
+void host_rules_set_late_join_hold(boolean wait);
+#ifdef HALO_SERVER
+/* (the shared ban lists', server_bans.h) */
+void server_bans_set_sharing(int sharing);
+#endif
 /* (the limit on machines of one address, port/linux/game/network_distributed.c) */
 void network_distributed_set_address_limit(long maximum);
+/* (parties kept on one team, port/linux/game/party_teams.h) */
+void party_teams_host_set(boolean keep);
 
 enum
 {
@@ -122,6 +130,9 @@ enum
 	long each time after, up to the most */
 	SKIPPED_ALL_MILLISECONDS = 5000,
 	SKIPPED_ALL_MOST_MILLISECONDS = 300000,
+	/* a playlist none of whose maps the server has: looked at again this
+	often, nothing hosted meanwhile */
+	NONE_PLAYABLE_MILLISECONDS = 30000,
 	/* the carnage report shown this long before the next game's lobby,
 	unless set (HALO_DEDICATED_POSTGAME_SECONDS) */
 	DEFAULT_POSTGAME_SECONDS = 20,
@@ -138,7 +149,7 @@ enum
 /* (network_server_manager_internal.h's, and the menus') */
 word network_game_server_get_state(struct network_game_server *server, short *state_data);
 struct network_game *network_game_server_get_game(struct network_game_server *server);
-void network_game_server_change_map_name(struct network_game_server *server, char const *map_name);
+boolean network_game_server_change_map_name(struct network_game_server *server, char const *map_name);
 void network_game_server_change_game_variant(struct network_game_server *server, struct game_variant *variant);
 void network_game_server_pause_countdown(struct network_game_server *server, boolean pause_countdown);
 void network_game_server_dedicated_start_countdown(struct network_game_server *server);
@@ -160,6 +171,11 @@ boolean cache_files_map_can_open(char const *map_name);
 #endif
 /* (server_commands.c's) */
 void server_commands_update(void);
+/* (port/linux/src/map_repo_game.c's: Chupathingy maps' index, whose
+blacklist server_map_playable holds every map to) */
+void map_repo_game_refresh_wait(int milliseconds);
+/* (the port's log: standard error, which the server's console shows) */
+void platform_log(char const *format, ...);
 
 enum
 {
@@ -245,6 +261,10 @@ static struct
 	long skipped_all_rounds;
 	boolean skipped_all;
 	unsigned long skipped_all_time;
+	/* none of the playlist's maps playable here (told once), and when it
+	was last looked at */
+	boolean none_playable;
+	unsigned long none_playable_time;
 } dedicated;
 
 /* ---------- private code */
@@ -337,6 +357,7 @@ static boolean load_playlist(
 	dedicated.entry = 0;
 	snprintf(dedicated.playlist, sizeof(dedicated.playlist), "%s", name);
 	read_teams();
+	network_game_server_mcc_playlist_changed();
 	return dedicated.entry_count > 0;
 }
 
@@ -354,6 +375,23 @@ static long setting_number(
 		return atol(value);
 	if (settings->set[setting])
 		return settings->values[setting];
+	return default_value;
+}
+
+/* a yes or no setting: the environment's (true, 1, yes or on; anything
+else no), else the settings file's, else the default */
+static boolean setting_flag(
+	char const *environment,
+	struct server_settings const *settings,
+	short setting,
+	boolean default_value)
+{
+	char const *value = getenv(environment);
+
+	if (value && value[0])
+		return !_stricmp(value, "true") || !strcmp(value, "1") || !_stricmp(value, "yes") || !_stricmp(value, "on");
+	if (settings->set[setting])
+		return settings->values[setting] ? TRUE : FALSE;
 	return default_value;
 }
 
@@ -591,6 +629,69 @@ static void initialize(
 		if (allowed)
 			error(_error_silent, "dedicated: players may watch a follow camera while they wait to respawn");
 	}
+	/* a party kept on one team: off (the Xbox's teams) unless true, 1, yes
+	or on */
+	{
+		char const *keep = getenv("HALO_DEDICATED_KEEP_PARTIES_TOGETHER");
+		boolean on;
+
+		if (keep && keep[0])
+			on = !_stricmp(keep, "true") || !strcmp(keep, "1") || !_stricmp(keep, "yes") || !_stricmp(keep, "on");
+		else
+		{
+			on = settings.set[SERVER_SETTING_KEEP_PARTIES_TOGETHER] &&
+				settings.values[SERVER_SETTING_KEEP_PARTIES_TOGETHER];
+		}
+		party_teams_host_set(on);
+		if (on)
+			error(_error_silent, "dedicated: a party's players go to one team where the teams stay even");
+	}
+	/* late joiners waiting for the next game, and the shared ban lists: off
+	unless true, 1, yes or on */
+	{
+		char const *wait = getenv("HALO_DEDICATED_LATE_JOIN_HOLD");
+		boolean on;
+
+		if (wait && wait[0])
+			on = !_stricmp(wait, "true") || !strcmp(wait, "1") || !_stricmp(wait, "yes") || !_stricmp(wait, "on");
+		else
+			on = settings.set[SERVER_SETTING_LATE_JOIN_HOLD] && settings.values[SERVER_SETTING_LATE_JOIN_HOLD];
+		host_rules_set_late_join_hold(on);
+		if (on)
+			error(_error_silent, "dedicated: players who join a game in progress wait for the next game");
+	}
+#ifdef HALO_SERVER
+	{
+		char const *share = getenv("HALO_DEDICATED_BAN_SHARE");
+		boolean on;
+
+		if (share && share[0])
+			on = !_stricmp(share, "true") || !strcmp(share, "1") || !_stricmp(share, "yes") || !_stricmp(share, "on");
+		else
+			on = settings.set[SERVER_SETTING_BAN_SHARE] && settings.values[SERVER_SETTING_BAN_SHARE];
+		server_bans_set_sharing(on);
+	}
+#endif
+#ifdef HALO_PORT_VOICE
+	/* voice chat: off unless set (relaying costs the server's upload); once
+	on, relayed by team and by proximity, to parties and in the lobby unless
+	set; everyone only when set */
+	{
+		struct voice_host_rules rules;
+
+		rules.on = setting_flag("HALO_DEDICATED_VOICE", &settings, SERVER_SETTING_VOICE, FALSE);
+		rules.team = setting_flag("HALO_DEDICATED_VOICE_TEAM", &settings, SERVER_SETTING_VOICE_TEAM, TRUE);
+		rules.proximity = setting_flag("HALO_DEDICATED_VOICE_PROXIMITY", &settings, SERVER_SETTING_VOICE_PROXIMITY, TRUE);
+		rules.everyone = setting_flag("HALO_DEDICATED_VOICE_EVERYONE", &settings, SERVER_SETTING_VOICE_EVERYONE, FALSE);
+		rules.party = setting_flag("HALO_DEDICATED_VOICE_PARTY", &settings, SERVER_SETTING_VOICE_PARTY, TRUE);
+		rules.lobby = setting_flag("HALO_DEDICATED_VOICE_LOBBY", &settings, SERVER_SETTING_VOICE_LOBBY, TRUE);
+		rules.range = setting_number("HALO_DEDICATED_VOICE_RANGE", &settings, SERVER_SETTING_VOICE_RANGE, 15);
+		rules.kbps = setting_number("HALO_DEDICATED_VOICE_KBPS", &settings, SERVER_SETTING_VOICE_KBPS, 24);
+		voice_game_host_set(&rules);
+		voice_game_host_get(&rules);
+		error(_error_silent, "dedicated: voice chat %s", rules.on ? "relayed" : "off");
+	}
+#endif
 	/* the machines of one internet address a game takes: 8 unless set */
 	{
 		long maximum = setting_number("HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS", &settings,
@@ -621,6 +722,12 @@ static void initialize(
 				server_conduct_afk_minutes());
 		}
 	}
+	/* Chupathingy maps' blacklist, before the first map is chosen: a map on
+	it is skipped (server_map_playable). The one kept from the last run is
+	read back at once; a fresh one is fetched in the background, waited for
+	a few seconds at most (a repository that doesn't answer never holds the
+	server up), and refetched hourly after this */
+	map_repo_game_refresh_wait(3000);
 	dedicated.active = dedicated.entry_count > 0;
 }
 
@@ -644,6 +751,7 @@ static void apply_pending_playlist(
 	dedicated.entry_count = dedicated.pending_count;
 	snprintf(dedicated.playlist, sizeof(dedicated.playlist), "%s", dedicated.pending_playlist);
 	read_teams();
+	network_game_server_mcc_playlist_changed();
 	if (dedicated.pending_keep_place)
 		dedicated.entry = (entry + (advance ? 1 : 0)) % dedicated.entry_count;
 	else
@@ -743,6 +851,88 @@ static void swap_entries(
 	csmemcpy(dedicated.variants[b], variant, sizeof(variant));
 	dedicated.teams[a] = dedicated.teams[b];
 	dedicated.teams[b] = teams;
+}
+
+/* whether the server can play a map (a playlist entry's, as set_entry
+asks): FALSE with why in reason (size bytes) */
+static boolean map_playable_here(
+	char const *map,
+	char *reason,
+	long size)
+{
+	static char scratch[320];
+	struct command_output output;
+
+	if (map_is_campaign_level(map))
+	{
+		snprintf(reason, (size_t)size, "%s is a campaign level", map);
+		return FALSE;
+	}
+	if (!network_game_client_map_name_is_valid(map, (long)strlen(map) + 1))
+	{
+		snprintf(reason, (size_t)size, "%s is not a map name the game takes", map);
+		return FALSE;
+	}
+	command_output_begin(&output, scratch, sizeof(scratch));
+	if (!server_map_playable(map, &output))
+	{
+		if (scratch[0] && scratch[strlen(scratch) - 1] == '\n')
+			scratch[strlen(scratch) - 1] = 0;
+		snprintf(reason, (size_t)size, "%s", scratch[0] ? scratch : "no such map");
+		return FALSE;
+	}
+#ifdef HALO_CUSTOM_EDITION
+	if (!cache_files_map_can_open(map))
+	{
+		snprintf(reason, (size_t)size, "%s is damaged or unsupported", map);
+		return FALSE;
+	}
+#endif
+	return TRUE;
+}
+
+/* whether the playlist has a game whose map the server can play: when
+none has, the server hosts nothing (a lobby that never starts) and says so
+once, on its console and in its log, looking again every
+NONE_PLAYABLE_MILLISECONDS, as maps are added or another playlist chosen
+(#1106) */
+static boolean playlist_playable(
+	void)
+{
+	unsigned long now = system_milliseconds();
+	char reason[160];
+	long entry;
+
+	if (dedicated.none_playable && now - dedicated.none_playable_time < NONE_PLAYABLE_MILLISECONDS)
+		return FALSE;
+	dedicated.none_playable_time = now;
+	reason[0] = 0;
+	for (entry = 0; entry < dedicated.entry_count; entry++)
+	{
+		char why[160];
+
+		if (map_playable_here(dedicated.maps[entry], why, sizeof(why)))
+		{
+			if (dedicated.none_playable)
+				error(_error_silent, "dedicated: the playlist %s has a map this server can play now; hosting",
+					dedicated.playlist);
+			dedicated.none_playable = FALSE;
+			return TRUE;
+		}
+		if (!reason[0])
+			snprintf(reason, sizeof(reason), "%s", why);
+	}
+	if (!dedicated.none_playable)
+	{
+		error(_error_silent, "dedicated: not starting the playlist %s: none of its %ld games has a map this server "
+			"can play (%s)", dedicated.playlist, dedicated.entry_count, reason);
+		platform_log("dedicated: not starting the playlist %s: none of its %ld games has a map this server can play "
+			"(%s). Install one of its maps, or choose another playlist (sv_playlist_use) or a map (sv_map); "
+			"looked at again every %d seconds", dedicated.playlist, dedicated.entry_count, reason,
+			NONE_PLAYABLE_MILLISECONDS / 1000);
+	}
+	dedicated.none_playable = TRUE;
+	return FALSE;
 }
 
 /* the playlist's entries in a new random order, the entry just played (at
@@ -870,7 +1060,7 @@ static boolean set_entry(
 	/* (and a map that is there, and opens: one missing or refused as it
 	loads would stop the server on the damaged disc error) */
 	{
-		static char scratch[160];
+		static char scratch[320];
 		struct command_output output;
 
 		command_output_begin(&output, scratch, sizeof(scratch));
@@ -891,7 +1081,13 @@ static boolean set_entry(
 	}
 	main_set_multiplayer_map_name(map);
 	game_engine_override_map_name(map);
-	network_game_server_change_map_name(server, map);
+	/* (refused when this machine hasn't got the map after all: skipped, the
+	game type left as it was, #1106) */
+	if (!network_game_server_change_map_name(server, map))
+	{
+		skip_entry(map, variant_name, "the map isn't installed on this server");
+		return FALSE;
+	}
 	/* (the game type's PC options too, as the game's gametype editor gives
 	them: the server's change of game type takes the menus' when they are
 	for the same variant) */
@@ -1005,6 +1201,11 @@ void dedicated_server_update(
 				dedicated.public_game ? "a public" : "an unlisted");
 		}
 #endif
+		/* (a playlist with no map this server has: nothing hosted, unless
+		a command has chosen a game (one being played too, whose lobby
+		closed) or another playlist) */
+		if (!dedicated.chosen_pending && !dedicated.chosen_playing && !dedicated.pending && !playlist_playable())
+			return;
 		dedicated.tried = TRUE;
 		dedicated.tried_time = system_milliseconds();
 		host();

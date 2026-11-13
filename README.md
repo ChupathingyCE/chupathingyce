@@ -48,6 +48,27 @@ It plays like the Xbox game. Everything extra is a setting.
 
 You need your own copy of the game. Chupathingy never includes or downloads Microsoft's files.
 
+## New: Halo MCC maps
+
+Own Halo: The Master Chief Collection on Steam? Its Halo CE Workshop maps now play in Chupathingy, on Windows, Mac and Linux.
+
+- **Browse the Workshop** in the Delta Guide, with each item's picture and page.
+- **Link Steam once** by scanning a QR code with the Steam app. The game never sees your Steam password.
+- **Maps download straight from Steam**, with no Steam client needed. Once they're in, they play offline or online.
+- **MCC maps show in every map screen**, with search, next to your Xbox and PC maps.
+- **Host and join MCC games**, on your own machine or a dedicated server.
+
+How it works, and what you need: [docs/mcc.md](docs/mcc.md).
+
+<p align="center">
+<img src="docs/screenshots/mcc-workshop.jpg" width="49%" alt="The Workshop in the Delta Guide, listing MCC maps and campaigns">
+<img src="docs/screenshots/mcc-workshop-item.jpg" width="49%" alt="A Workshop item's page, ready to download">
+</p>
+<p align="center">
+<img src="docs/screenshots/mcc-workshop-map.jpg" width="49%" alt="Playing a multiplayer map from the Workshop">
+<img src="docs/screenshots/mcc-windfall.jpg" width="49%" alt="Windfall Island, a Workshop map, in game">
+</p>
+
 ## Get it
 
 Download the latest release from the [Releases page](https://github.com/ChupathingyCE/chupathingyce/releases/latest).
@@ -88,7 +109,7 @@ Where your maps, settings and saves go: [docs/install.md](docs/install.md#where-
 - **Invite a friend.** Send them your game's invite link.
 - **Play the campaign together.** Host it online from Create Game. [Here's how](docs/online.md#online-co-op).
 
-Chupathingy players on every platform play together. **Compatible with OpenCE build-334 (network version 41) for online play:** their players can join your games, and you can join theirs.
+Chupathingy players on every platform play together. We also play with the current OpenCE release: their players can join your games, and you can join theirs.
 
 Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends-cant-join).
 
@@ -108,8 +129,8 @@ Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends
 
 **Maps**
 - Every Xbox map from your disc
-- Halo PC, Custom Edition and HaloMD maps, side by side with the Xbox ones
-- Missing Custom Edition maps download when you join
+- Halo PC, Custom Edition, HaloMD and MCC Workshop maps, side by side with the Xbox ones
+- Missing maps download when you join, and each one is checked before it's used
 - Community Xbox map packs, like Halo CE+
 
 **Your stats**
@@ -158,11 +179,17 @@ Other developers have ported it to the PSP, PS Vita, PS4, PS5, Xbox Series (UWP)
 
 ## Run a server
 
-The dedicated server runs a playlist of games around the clock. It runs on Linux (x86, x64 or arm64, Raspberry Pi too), on 64-bit Windows, or in Docker, and needs no port forwarding. Start with [server/README.md](server/README.md).
+The dedicated server runs a playlist of games around the clock. It runs on Linux (x86, x64 or arm64, Raspberry Pi too), on 64-bit Windows, or in Docker, and needs no port forwarding. It can host MCC Workshop maps too. Start with [server/README.md](server/README.md).
 
 ## Builds
 
-Releases are the stable builds, and the game updates itself from them. Want the newest changes early? Try the [nightly build](https://github.com/ChupathingyCE/chupathingyce/releases/tag/nightly). More in [docs/install.md](docs/install.md#which-build).
+Releases are the stable builds, and the game updates itself from them. Want the newest changes early? Pick an update channel in Settings > Online > Updates, or on the setup screen's Updates tab:
+
+- **Release** (the default) gets releases only.
+- **Testing** gets test builds first, and may have bugs.
+- **Nightly** gets a build of main every night, and the test builds too.
+
+Testing and Nightly still get each release. You can switch back to Release anytime. The game never installs an older build, so after a test build you stay on it until the next release comes out. More in [docs/install.md](docs/install.md#which-build).
 
 ## Help
 
@@ -178,10 +205,6 @@ ninja
 ```
 
 Every target and option is in [docs/building.md](docs/building.md).
-
-## Where it came from
-
-Chupathingy is a port of the Halo: Combat Evolved decompilation ([punpckhdq/halo](https://github.com/punpckhdq/halo) and [bnunu/halo-1](https://github.com/bnunu/halo-1)). It began as a fork of OpenCE, an earlier port of that decompilation (the code is theirs up to October 9, 2026), and has had its own code, releases and community since. The people whose work it builds on are named in [Credits](#credits).
 
 ## Generative AI
 
@@ -206,27 +229,91 @@ not be part of our community.
 
 ## Credits
 
-- The decompilation: [punpckhdq/halo](https://github.com/punpckhdq/halo) and
-  [bnunu/halo-1](https://github.com/bnunu/halo-1), of the Xbox build 2342.
-- The port Chupathingy began as a fork of: OpenCE and its contributors, up to
-  October 9, 2026 (see [Where it came from](#where-it-came-from)).
-- Later fixes taken from OpenCE (CC0), with their authors kept in the
-  history: startupfoundry, xshxdex98, hkmodd, eltanschauung, justinfilip,
-  bertoaldo, MrBruh, addisonbair, thelinkin3000, bmanturner and chestahh (by
-  their GitHub handles). The wire format tool (`tools/network_format.py`) is
-  addisonbair's and MrBruh's.
-- Chupathingy: [Milenko](https://github.com/MrMilenko) and contributors. The
-  icon is MrBruh's helmet, with tusks.
-- Fonts: Cyborg Interface Gothic, the high-res text's font, by fizzy, made
-  to match Halo's interface font from Overpass and glyphs of their own
-  (SIL OFL); [Overpass](https://github.com/RedHatOfficial/Overpass) (SIL OFL);
-  [Noto Sans](https://fonts.google.com/noto) (SIL OFL) and
+- Chupathingy: [Milenko](https://github.com/MrMilenko) and contributors.
+
+<details>
+<summary><b>Contributors</b></summary>
+
+Fixes from other people's pull requests and forks, taken into Chupathingy
+with their authors credited in each commit.
+
+- [Tyberious](https://github.com/Tyberious): Xbox ADPCM decoding
+  without the 344 Hz buzz, vertex constant serials that never wrap, pose
+  snapping for frame interpolation, and the clip-space position kept on the
+  desktop (no more first-person vertex spikes).
+- [thelinkin3000](https://github.com/thelinkin3000): the motion sensor for
+  three and four local players (a split screen crash), and split screen
+  dividers where the views meet on a wide screen.
+- [xshxdex98](https://github.com/xshxdex98) ([DamnationCE](https://github.com/xshxdex98/DamnationCE)):
+  the pause menu's QUIT by mouse or keyboard, and lens flares out of view no
+  longer tested.
+- [zimm3rmann](https://github.com/zimm3rmann): visibility test slot 0 kept
+  apart from the scratch query (lens flares sharing a result).
+- [nsafran1217](https://github.com/nsafran1217): no hang
+  where the visibility results buffer cannot be mapped.
+- [saulob](https://github.com/saulob): the first menu frame's colors.
+- [natsu-anon](https://github.com/natsu-anon): the cursor hidden during play.
+- [lantos1618](https://github.com/lantos1618): no ghosting in the zoom effect
+  at high resolutions; on macOS, Command-W does not quit and Command-Q asks
+  twice.
+- [pfista](https://github.com/pfista): projectile trails
+  ready before a weapon's first shot.
+- [JoshRob297](https://github.com/JoshRob297): hosts that run their own games
+  (the dedicated servers) no longer refuse every join after one arrived as a
+  game ended.
+- [HiIAmMoot](https://github.com/HiIAmMoot) (Mootjuh): the Android menus by
+  touch, and starting a multiplayer game alone (`game.start_with_one_player`,
+  first `debug.solo_game`), now on by default.
+- [oatkrs](https://github.com/oatkrs): crisp windowed rendering and no
+  audio cut-outs on macOS, and a corrupted script thread dropped instead of
+  halting the game.
+- [Renkoto](https://github.com/Renkoto): the FreeBSD port (`port/unix`,
+  `ninja freebsd64`) and its Delta platform, 13.
+- [JizzyRivers](https://github.com/JizzyRivers): the iOS port (`port/ios`),
+  Custom Edition maps and the Map Browser on the original Xbox, and the
+  consoles' start-up screens and updates.
+- [startupfoundry](https://github.com/startupfoundry) and
+  [pastudan](https://github.com/pastudan) (OpenH1): camera shake, particle
+  streams, change colors and camo smoothed between ticks, a faster audio
+  resampler and limiter, a lighter scope zoom at high resolutions, and a
+  map's first frame drawn through every shader, which lists the stock maps'
+  shaders and makes bgfx's pipelines before play.
+- chestahh (GulchCE): lens flares and light
+  glows back on AMD graphics, less stutter the first time a texture is drawn
+  on Windows, host cheat and shadow setup fixes, and the Halo MCC map
+  loader: MCC Workshop and MCC install maps, their scripts, HUDs, effects
+  and campaigns.
+- PeterRichardsonGolf and the other GulchCE contributors: the Steam
+  Workshop catalog with its items' titles and collections, and the MCC
+  sharing rules.
+- mOTA-lEV ([OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber)):
+  projectiles and damage that forget objects deleted under them.
+- [bitmoda](https://github.com/bitmoda) (mastercheese's OpenCE fork): the
+  clock read only when something needs it.
+- [theLlamaNet](https://github.com/theLlamaNet): the Android on-screen touch
+  controls, through JoshRob297's halo-ce-touch.
+
+</details>
+
+- Fonts: Cyborg Interface Gothic, the font of the game's text and of our
+  own screens, by fizzy, made to match Halo's interface font from Overpass
+  and glyphs of their own (SIL OFL); the menus' titles in Chupathingy
+  Titles, Newtown by Roger White (public domain), respaced to sit where
+  Halo's titles do (SIL OFL);
+  [Overpass](https://github.com/RedHatOfficial/Overpass) (SIL OFL);
+  [Noto Sans](https://fonts.google.com/noto) (SIL OFL), for the letters
+  Cyborg lacks, and
   [Kenney's Input Prompts](https://kenney.nl/assets/input-prompts) (CC0); the
   scoreboard's platform logos are one-color marks from
   [Simple Icons](https://simpleicons.org) (CC0) and Wikimedia Commons (public
   domain), plus our own Xbox 360 ring and Wii U GamePad; the names and logos
   are their owners' trademarks, used only to identify platforms. The same
-  marks make the platform badges at the top of this page.
+  marks make the platform badges at the top of this page. [BSD Daemon used with permission.](http://www.mckusick.com/copyright.html)
+- The service record is our own (on the site since September, and in the
+  Delta Guide's SERVICE RECORD). The Guide's local career totals and top
+  medals (`port/linux/src/service_record.c`) follow the career record in
+  mOTA-lEV's [OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber),
+  used under GPL-3.0 with his permission.
 - Controller button icons by snapchipper, CC0 (`port/assets/prompts`).
 - Headphone 3D sound (`audio.hrtf`): head-related impulse responses from the
   [SADIE II database](https://www.york.ac.uk/sadie-project/database.html)
@@ -255,72 +342,47 @@ not be part of our community.
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
-  Expat, Monocypher, zlib, Zstandard, SMAA, and Project Nayuki's QR Code
-  generator. Their licenses are
+  Expat, Monocypher, zlib, Zstandard (BSD-3-Clause), the LZMA SDK's decoder
+  (Igor Pavlov, public domain), SMAA, and Project Nayuki's QR Code generator
+  (MIT). Their licenses are
   beside them in `port/third_party`. The 64-bit desktop builds' test
   renderer uses bgfx, bx and bimg by Branimir Karadžić (BSD-2-Clause), with
   glslang and SPIRV-Cross (Khronos, BSD-3-Clause and Apache-2.0), fetched
   at build time (`tools/bgfx_build.py`). Their licenses ship with those builds.
 
 <details>
-<summary><b>Contributors</b></summary>
-
-Fixes from other people's pull requests and forks, taken into Chupathingy
-with their authors credited in each commit.
-
-- [Tyberious](https://github.com/Tyberious) (Jeff Clark): Xbox ADPCM decoding
-  without the 344 Hz buzz, vertex constant serials that never wrap, pose
-  snapping for frame interpolation, and the clip-space position kept on the
-  desktop (no more first-person vertex spikes).
-- [thelinkin3000](https://github.com/thelinkin3000): the motion sensor for
-  three and four local players (a split screen crash), and split screen
-  dividers where the views meet on a wide screen.
-- [xshxdex98](https://github.com/xshxdex98) ([DamnationCE](https://github.com/xshxdex98/DamnationCE)):
-  the pause menu's QUIT by mouse or keyboard, and lens flares out of view no
-  longer tested.
-- [zimm3rmann](https://github.com/zimm3rmann): visibility test slot 0 kept
-  apart from the scratch query (lens flares sharing a result).
-- [nsafran1217](https://github.com/nsafran1217) (Nathan Safran): no hang
-  where the visibility results buffer cannot be mapped.
-- [saulob](https://github.com/saulob): the first menu frame's colors.
-- [natsu-anon](https://github.com/natsu-anon): the cursor hidden during play.
-- [lantos1618](https://github.com/lantos1618): no ghosting in the zoom effect
-  at high resolutions; on macOS, Command-W does not quit and Command-Q asks
-  twice.
-- [pfista](https://github.com/pfista) (Michael Pfister): projectile trails
-  ready before a weapon's first shot.
-- [JoshRob297](https://github.com/JoshRob297): hosts that run their own games
-  (the dedicated servers) no longer refuse every join after one arrived as a
-  game ended.
-- [HiIAmMoot](https://github.com/HiIAmMoot) (Mootjuh): the Android menus by
-  touch, and starting a multiplayer game alone (`game.start_with_one_player`,
-  first `debug.solo_game`), now on by default.
-- [oatkrs](https://github.com/oatkrs) (Utkarsh): crisp windowed rendering and no
-  audio cut-outs on macOS, and a corrupted script thread dropped instead of
-  halting the game.
-- [Renkoto](https://github.com/Renkoto): the FreeBSD port (`port/unix`,
-  `ninja freebsd64`) and its Delta platform, 13.
-
-</details>
-
-<details>
 <summary><b>Findings and testing</b></summary>
 
-- [bnunu](https://github.com/bnunu): Custom Edition map
-  findings from the custom-edition-maps branch, credited in the commits they
-  led to, and the larger texture cache for Halo PC maps, which that branch had
-  first.
 - Sabriel and ugoboom: the Halo PC map reports and regression lists behind
   most of the Custom Edition fixes.
 - Sabriel, roundzabout and Mega: Grifball playtesting and the bugs and
   tweaks it turned up.
+
+</details>
+
+## Where it came from
+
+Chupathingy is a port of the Halo: Combat Evolved decompilation ([punpckhdq/halo](https://github.com/punpckhdq/halo) and [bnunu/halo-1](https://github.com/bnunu/halo-1)). It began as a fork of OpenCE, an earlier port of that decompilation (the code is theirs up to October 9, 2026), and has had its own code, releases and community since.
+
+- The decompilation: [punpckhdq/halo](https://github.com/punpckhdq/halo) and
+  [bnunu/halo-1](https://github.com/bnunu/halo-1), of the Xbox build 2342.
+- The port Chupathingy began as a fork of: OpenCE and its contributors, up to
+  October 9, 2026.
+- Later fixes taken from OpenCE (CC0), with their authors kept in the
+  history: startupfoundry, xshxdex98, hkmodd, eltanschauung, justinfilip,
+  bertoaldo, addisonbair, thelinkin3000, bmanturner, chestahh, FDervish,
+  frankyfife, actes2, crowtrx and MrBruh (by their GitHub handles). The
+  wire format tool (`tools/network_format.py`) is addisonbair's and MrBruh's.
+- The icon: MrBruh's helmet from OpenCE, with tusks.
+- [bnunu](https://github.com/bnunu): Custom Edition map
+  findings from the custom-edition-maps branch, credited in the commits they
+  led to, and the larger texture cache for Halo PC maps, which that branch had
+  first.
 - MrBruh (build-145's Custom
   Edition loader, from DamnationCE's work by
   [xshxdex98](https://github.com/xshxdex98)): maps that need OpenSauce refused
   with a clear reason, the missing-map message when joining, and the
   `custom_maps\<name>` naming our hosts and clients share with OpenCE.
-
-</details>
 
 ---
 

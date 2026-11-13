@@ -21,6 +21,9 @@ not right.
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../src/server_bans.h"
+#include "../src/server_reports.h"
+
 enum
 {
 	CONTROL_LINK_SEED_BYTES = 32,
@@ -38,8 +41,14 @@ enum
 	CONTROL_LINK_COMMANDS = 16,
 	CONTROL_LINK_ROLE_ENTRIES = 128,
 	CONTROL_LINK_ENTRY_KEYS = 8,
-	/* a JSON answer's tokens, at most */
-	CONTROL_JSON_TOKENS = 2048,
+	/* a signed request's body, at most: the site refuses a bigger one before
+	it reads it */
+	CONTROL_LINK_BODY_MOST = 384 * 1024,
+	/* the refs of reports an answer says the site took, at most */
+	CONTROL_LINK_REPORTS_TAKEN = 20,
+	/* a JSON answer's tokens, at most (a full shared ban list's take about
+	twenty an entry) */
+	CONTROL_JSON_TOKENS = 16384,
 };
 
 /* ---------- JSON */
@@ -109,6 +118,10 @@ struct control_link_role
 	int role;
 	int key_count;
 	uint8_t keys[CONTROL_LINK_ENTRY_KEYS][32];
+	/* its Delta account (the profile's player ID), from a site that sends
+	it: verified players' roles match by it */
+	int has_account;
+	uint8_t account[16];
 };
 
 struct control_link_poll
@@ -121,6 +134,23 @@ struct control_link_poll
 	struct control_link_role roles[CONTROL_LINK_ROLE_ENTRIES];
 	int unlinked;
 	int poll_seconds;
+	/* (newer sites) the reports the site took (their refs) */
+	int reports_taken_count;
+	char reports_taken[CONTROL_LINK_REPORTS_TAKEN][SERVER_REPORT_ID_SIZE];
+	/* what the site has of this server's shared bans (its digest) */
+	int has_bans_digest;
+	char bans_digest[65];
+	/* the entries of the lists the server takes, when their version is not
+	the server's; and where the member's text is in the payload (for the
+	cache) */
+	int has_shared_bans;
+	uint64_t shared_bans_version;
+	int shared_ban_count;
+	struct server_shared_ban shared_bans[SERVER_BAN_SHARED_MOST];
+	/* the entries left out: not right, or past the most */
+	int shared_bans_skipped;
+	int shared_bans_start;
+	int shared_bans_end;
 };
 
 /* a poll's payload: 1, else 0 (not one: nothing of it is taken) */
@@ -133,6 +163,20 @@ int control_link_parse_start(const char *answer, size_t length, char *code, size
 	size_t token_size, int *expires);
 int control_link_parse_status(const char *answer, size_t length, char *state, size_t state_size, char *server_id,
 	size_t server_id_size, char *owner, size_t owner_size);
+
+/* ---------- the shared ban lists, kept (shared_bans.cache)
+
+As the role cache: a line "v1 <heard> <version> <mac>", then the poll's
+"shared_bans" member as an object of its own ({"shared_bans": {...}}), the
+MAC BLAKE2b keyed with the link's secret. */
+
+/* the file's text for a poll's shared bans (its payload, which has the
+member at poll->shared_bans_start to _end): its length, or -1 */
+int control_link_shared_bans_cache_text(const char *payload, const struct control_link_poll *poll, int64_t heard,
+	const uint8_t secret[CONTROL_LINK_SECRET_BYTES], char *out, size_t size);
+/* the file's text read back into poll (its shared bans): 1, else 0 */
+int control_link_shared_bans_cache_open(const char *text, size_t length,
+	const uint8_t secret[CONTROL_LINK_SECRET_BYTES], struct control_link_poll *poll, int64_t *heard);
 
 /* ---------- the site's role list, kept (delta_roles.cache)
 
@@ -163,8 +207,9 @@ enum
 
 /* a command the site relays as the server's command line: one of those the
 link takes (sv_warn, sv_kick, sv_ban, sv_unban, sv_map, sv_mapcycle_next,
-sv_end_game, sv_name, sv_maxplayers), and its reason, if any, its last word
-in quotes (sv_warn, sv_kick and sv_ban only). 1, else 0 and why */
+sv_end_game, sv_name, sv_maxplayers, sv_ban_account, sv_lock, sv_unlock),
+and its reason, if any, its last word in quotes (sv_warn, sv_kick, sv_ban
+and sv_ban_account only). 1, else 0 and why */
 int control_link_command_line(const char *command, const char *reason, char *line, size_t size, const char **why);
 
 /* sv_link_status's JSON (GET /v1/link), each string escaped; an empty
@@ -188,6 +233,14 @@ struct control_link_status
 	int role_accounts;
 	unsigned long long roles_version;
 	int roles_hours;
+	/* the server badge (docs/server-badges.md): off (not linked), none,
+	unreadable, other_server, checking, not_signed, unknown_tier, expired,
+	not_yet, good; and a good or checked certificate's tier name, label and
+	expiry (Unix seconds, 0 none) */
+	const char *badge_state;
+	const char *badge_tier;
+	const char *badge_label;
+	unsigned long long badge_expires;
 };
 
 int control_link_status_json(const struct control_link_status *status, char *out, size_t size);

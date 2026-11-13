@@ -146,7 +146,10 @@ enum delta_capability
 	(TEAM_RESULT); the change itself reaches every machine, OpenCE's too,
 	through the game's own player respawn */
 	_delta_capability_team_change = 15,
-	/* reserved for server badges (a draft, not built yet): never set here */
+	/* a dedicated server's badge (docs/server-badges.md): a client asks its
+	host (BADGE_ASK) and is answered with the host's certificate and a
+	signature of the client's nonce (BADGE). A host offers it only with a
+	certificate of its own */
 	_delta_capability_server_badge = 16,
 	/* what the game's own messages leave out of the host's objects
 	(docs/delta.md, Object sync): every unit's shield and health as they
@@ -166,6 +169,36 @@ enum delta_capability
 	client whose host says nothing (OpenCE's, an older build) plays by the
 	Xbox's rules */
 	_delta_capability_host_rules = 19,
+	/* verified names (docs/delta.md, Verified names): the host challenges,
+	each local player whose copy has a device certificate proves it
+	(ID_PROOF), and the host relays the card (ID_CARD), which every client
+	checks itself. Only a verified player shows by their Delta profile; a
+	console leaves it out for now (HALO_CONSOLE_NO_DELTA_IDENTITY) */
+	_delta_capability_identity = 20,
+	/* a party's members ask their host to keep them on one team (docs/
+	delta.md, Party teams): each sends its party's tag (PARTY_TAG), and a
+	host that honors it puts the party on one team where the teams stay
+	within one player of each other. Teams stay the host's call; a host
+	that says nothing (OpenCE's, an older build) places them as it always
+	did */
+	_delta_capability_party_teams = 21,
+	/* voice chat (docs/delta.md, Voice): a client says its player's frames
+	(VOICE_UP) on a channel, the host decides who hears them by its rules
+	(VOICE_CONFIG) and sends them on (VOICE_DOWN), never decoding them; a
+	dedicated server relays it without any audio of its own */
+	_delta_capability_voice = 22,
+	/* players' reports (docs/delta.md, Reports): a client reports another
+	player to its host (REPORT), and the host says what it did
+	(REPORT_RESULT). A dedicated server takes them for its moderators; a
+	host without them does not offer it */
+	_delta_capability_reports = 23,
+	/* MCC maps (chester's loader, maps_mcc and Steam Workshop items): a
+	machine that plays them and their messages in a 43-layout session (port/
+	linux/game/mcc_network_messages.h). Room-wide for an MCC map: a host
+	playing one drops every Delta machine without it (an older build, a
+	console); a machine without Delta (OpenCE's 43) plays by its own MCC
+	support */
+	_delta_capability_mcc_maps = 24,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };
@@ -284,7 +317,9 @@ a game it joins (unless its player opted in: network.platform_limits =
 and whether it plays network co-op (a host offers no co-op while a machine
 that does not is in its game: delta_peer_room_coop). One row a platform, in
 the registry's order. The consoles' rows are placeholders until their ports
-play (the original Xbox's is the owner's: 16 and 16, no co-op), as are the
+play (the original Xbox's is the owner's: it hosts 16 and joins 32, no
+co-op; a stock build of 16 players claims 16 in its key; the Xbox 360's and
+the Wii U's hold 32, as their builds do), as are the
 other ports' (docs/delta.md, "Platform numbers"); the signed
 legacy table's "platform_policy" section is to tune them without a release
 (delta_peer_platform_policy, delta_peer_game.c). */
@@ -295,9 +330,9 @@ legacy table's "platform_policy" section is to tune them without a release
 	X(_delta_platform_pc_linux, 128, 128, 128, 12, 1) \
 	X(_delta_platform_android, 128, 128, 128, 11, 1) \
 	X(_delta_platform_steam_deck, 128, 128, 128, 14, 1) \
-	X(_delta_platform_xbox, 16, 16, 128, 6, 0) \
-	X(_delta_platform_xbox360, 16, 16, 128, 9, 1) \
-	X(_delta_platform_wiiu, 16, 16, 128, 10, 1) \
+	X(_delta_platform_xbox, 16, 32, 128, 6, 0) \
+	X(_delta_platform_xbox360, 32, 32, 128, 9, 1) \
+	X(_delta_platform_wiiu, 32, 32, 128, 10, 1) \
 	X(_delta_platform_switch, 16, 16, 128, 12, 1) \
 	X(_delta_platform_psp, 16, 16, 128, 6, 0) \
 	X(_delta_platform_vita, 16, 16, 128, 9, 0) \
@@ -329,8 +364,13 @@ no longer OpenCE's flag 0x04 and byte 3), hosts' message 91, co-op's ally
 switch honored, and 39's dedicated flag on dedicated servers that announce
 it. chupa-41a: the join request 234 bytes longer to hosts of 40 and later
 (network_rules_join_request_extra), the refusals 8 to 13 said plainly, and
-41's vote messages (78, 79, 94, 95) dropped quietly. */
-#define DELTA_WIRE "chupa-41a"
+41's vote messages (78, 79, 94, 95) dropped quietly. chupa-43a: OpenCE's 42 and 43
+built in (network_rules.h, "chupa-43a's facts": the join request's version
+word, the distributed header's further bytes and checkpoint epoch with its
+boundary message, a unit state's further parts, the riders' ejection), which
+a table's layouts can also say for later versions; the game as chupa-41a's
+with every older number. */
+#define DELTA_WIRE "chupa-43a"
 
 /* Wire compatibility ranges: the oldest wire each one plays the game with,
 without a desync and without losing what the older wire has (a feature the
@@ -354,7 +394,8 @@ has shipped a newer wire. */
 	X("chupa-32a", "chupa-28a") /* 30 to 32 are additive; a host of 32 plays with 28 to 31 (docs/delta.md) */ \
 	X("chupa-38a", "chupa-28a") /* 33 to 38 played by the host's number; a host announcing 32 plays as chupa-32a's */ \
 	X("chupa-39a", "chupa-28a") /* the tagged advertisement and 39's dedicated flag; the game's messages as chupa-38a's, a host announcing 32 plays as chupa-32a's */ \
-	X("chupa-41a", "chupa-28a") /* the longer join request to hosts of 40 on; the game's messages as chupa-39a's */
+	X("chupa-41a", "chupa-28a") /* the longer join request to hosts of 40 on; the game's messages as chupa-39a's */ \
+	X("chupa-43a", "chupa-28a") /* chupa-43a's facts, used only with a host of a version a table's layout gives them; the game's messages as chupa-41a's */
 
 /* Each wire's newest OpenCE network version that every build of it plays by
 its own rules (DELTA_LEGACY_NEWEST when it was made): the most a signed
@@ -368,7 +409,8 @@ version's rules has a new wire. */
 	X("chupa-32a", 33) \
 	X("chupa-38a", 38) \
 	X("chupa-39a", 39) \
-	X("chupa-41a", 41)
+	X("chupa-41a", 41) \
+	X("chupa-43a", 43)
 
 /* the oldest network version a build that reads the tagged advertisement
 says in its HELLO: chupa-39a's row above, the first such wire. A host whose
@@ -396,7 +438,7 @@ announces, for what that client reads: the game settings record of 35's
 layout, and whether it reports a static target's own damage
 (network_rules_host_settings_size). Builds before it said their
 HALO_PORT_NETWORK_VERSION there, 32 or older. */
-#define DELTA_LEGACY_NEWEST 41
+#define DELTA_LEGACY_NEWEST 43
 
 /* OpenCE's network versions (HALO_PORT_NETWORK_VERSION in its builds), the
 first of its releases with each, and whether the version's change is one the
@@ -445,7 +487,9 @@ first; the command repository's watch adds a row when it follows OpenCE's raise
 	X(38, "build-268", additive) /* the shield effects message takes a seventh value, 6, for each machine's own look; this build draws stock for it, as for the others */ \
 	X(39, "build-294", additive) /* a dedicated server's game: the advertisement's flag 0x04 and the internet listing's flag 32; no message or record changed (first build: the oldest published release whose commit has the change, by git ancestry, 2026-10-27; older releases were removed, so an earlier one may have had it) */ \
 	X(40, "build-334", additive) /* the join request 234 bytes longer (a pass and a proof for OpenCE's own servers, sent as zeros), which a host of 40 needs and an older one ignores; a dedicated server's refusals 8 to 12; in no release of OpenCE's alone */ \
-	X(41, "build-334", additive) /* a refusal 13 (too many machines from one address), messages 78 and 79 laid out anew and 94 and 95 (map votes) new, all dropped by this build; co-op's flags bit 2 (a dedicated host) ignored */
+	X(41, "build-334", additive) /* a refusal 13 (too many machines from one address), messages 78 and 79 laid out anew and 94 and 95 (map votes) new, all dropped by this build; co-op's flags bit 2 (a dedicated host) ignored */ \
+	X(42, "build-344", additive) /* in no release: the join request's version word, the distributed header 12 bytes (a checkpoint epoch, the host's boundary message 96), a unit state's scripted pose (bit 6), the settings record 64 bytes longer, MCC-only messages; this build plays both sides of it by the host's number (network_rules.h, "chupa-43a's facts") */ \
+	X(43, "build-344", additive) /* a unit state's deck part (bit 7) and 107 (riding, dropped), riders thrown from a vehicle on its side; with 42's changes, played by the host's number: a host of ours announces it only for a game it is asked to (delta_legacy_host_game_at) */
 
 /* ---------- the legacy table (port/linux/src/delta.c)
 
@@ -492,6 +536,12 @@ follows the table). A new number is taken at once, except while a game this
 machine hosts is under way (delta_legacy_hold): then at its end, so that one
 game is played by one number. */
 #define DELTA_HOSTING_MAXIMUM 8
+/* the newest number a desktop build (or a dedicated server: HALO_GAME_BROWSER)
+hosts with no table row for its wire: the last release's row's (chupa-41a's
+announce, 41), so that a new wire plays as the release before it did until a
+signed table says otherwise; a console's build without the list keeps
+HALO_PORT_NETWORK_VERSION */
+#define DELTA_BUILT_IN_HOSTING 41
 /* the newest version the table in use proves for hosting (its announce, or
 its hosting list's newest) */
 int delta_legacy_hosting_newest(void);
@@ -501,6 +551,15 @@ void delta_legacy_hold(int hold);
 /* whether network.announce pins the number announced (and the pin in use, or
 0 when it is not one this machine may announce) */
 int delta_legacy_pinned(void);
+/* the number the next games this machine hosts announce, whatever the table
+in use and network.announce say: OpenCE's 43 for a game on an MCC map (the
+MCC helper asks it before hosting), so that build-344's machines join it; 0
+goes back to the usual number. Taken at once in the lobby, and at a game's
+end while one is under way (delta_legacy_hold). A version this build does
+not play (past the newest it knows, by its rules or the table's layouts, or
+outside the numbers it joins) is refused: 0, else 1. A host of a version
+with a version word (42 on) refuses a join request without it */
+int delta_legacy_host_game_at(int version);
 
 /* ---------- host protections: what a host enforces for its clients
 
@@ -540,8 +599,11 @@ A wire from chupa-38a on reads "layouts" in its row: for a network version,
 the facts a host of it sends that this build reads by data, not code (the
 game settings record's size, the gametype's options' length, the distributed
 messages a machine that does not know them drops, the shield effects
-message's largest value, and from chupa-41a the join request's length past
-0x70 and its fill; docs/delta.md, "Layouts"). A fact holds for its
+message's largest value, from chupa-41a the join request's length past
+0x70 and its fill, and from chupa-43a where the join request carries the
+version, the distributed header's further bytes and checkpoint epoch, a
+unit state's further parts and the riders' ejection; docs/delta.md,
+"Layouts"). A fact holds for its
 version and every later one until the next fact, and is used only for
 versions past DELTA_LEGACY_NEWEST (the build's own rules are the built-in
 facts) and only within the limits network_rules.c sets (port/linux/game/
@@ -571,9 +633,33 @@ struct delta_layout_fact
 	unsigned short join_request_extra;
 	unsigned char join_request_said;
 	unsigned char join_request_fill;
+	/* (chupa-43a on) where in those bytes the client writes its network
+	version (the host's number), 16 bits big-endian (the packet codec's):
+	join_request_version_said when the fact says it */
+	unsigned short join_request_version_at;
+	unsigned char join_request_version_said;
+	/* (chupa-43a on) the bytes every distributed message's header has after
+	its first 8 (in a batch, each message's too), 0 for not said; and the
+	kind of the host's checkpoint boundary when the first 4 of them are a
+	checkpoint epoch, 0 for none */
+	unsigned char header_extra;
+	unsigned char epoch_kind;
+	/* (chupa-43a on) a unit state's parts this build does not write, by
+	bit: their size (0 none) and where they are (DELTA_LAYOUT_PART_...),
+	which a reader passes over */
+	unsigned char unit_part_size[8];
+	unsigned char unit_part_at[8];
+	/* (chupa-43a on) riders leave a vehicle on the ground whose up's height
+	is below this, in thousandths (0: not said; the built-in rule is upside
+	down, below 0) */
+	unsigned short rider_ejection_up;
 };
 #define DELTA_LAYOUT_FILL_ZEROS 0
 #define DELTA_LAYOUT_FILL_UNKNOWN 1
+/* where a unit state's further part is: after its up (alive and placed
+alone), or last (alive alone) */
+#define DELTA_LAYOUT_PART_AFTER_UP 1
+#define DELTA_LAYOUT_PART_LAST 2
 
 /* the table in use's facts for this build's wire (its own row's, or the
 local override's), oldest first, into facts (at most count): how many */

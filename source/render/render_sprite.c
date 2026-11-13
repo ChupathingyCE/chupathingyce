@@ -112,6 +112,7 @@ static long build_sprite_big_limit(
 	return limit;
 }
 #endif
+#include "mcc_sprites.h" /* port: port/linux/game/mcc_sprites.c */
 
 /* ---------- constants */
 
@@ -808,6 +809,11 @@ static short build_sprite_get_group(
 		if (data->groups[group_index].bitmap == bitmap)
 			break;
 	}
+
+	/* port: MCC submits another bounded batch without losing bitmap pages. */
+	if (group_index == data->group_count && data->group_count == MAXIMUM_BUILD_SPRITE_GROUPS &&
+		mcc_sprites_continue(data))
+		group_index = 0;
 
 #ifdef HALO_CUSTOM_EDITION
 	/* port: a Halo PC map's particle may be drawn from more bitmaps than a

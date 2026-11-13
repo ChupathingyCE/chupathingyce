@@ -203,6 +203,16 @@ a longer message is split where a batch is full */
 
 /* ---------- prototypes/NETWORK_DISTRIBUTED.C */
 
+/* (a host whose game's layout has a checkpoint epoch: network_rules.h,
+"chupa-43a's facts") a co-op revert: the next epoch, and its boundary to
+every loaded client before anything of it */
+void network_distributed_checkpoint_boundary(void);
+/* the checkpoint epoch: the host's, a client's last taken (0 none) */
+unsigned int network_distributed_epoch(void);
+/* the height of a vehicle's up below which its riders leave it on the
+ground: 0 (upside down) but in a network game whose layout says another */
+real network_distributed_rider_ejection_up(void);
+
 /* sends a message (its header filled in here) where destination says: the
 unreliable ones gathered into one datagram a machine each tick */
 void distributed_send(void *message, byte type, short count, word size, short destination);
@@ -347,6 +357,10 @@ again, having failed to make one of them */
 void network_objects_client_asked(long machine_index, boolean again);
 void network_objects_handle_changes(void const *entries, short count);
 void network_objects_handle_synchronized(void);
+/* (a client) whether it has the host's objects, and their reset at a newer
+checkpoint epoch (FALSE) or at its snapshot's end (TRUE) */
+boolean network_objects_client_synchronized(void);
+void network_objects_checkpoint_reset(boolean synchronized_again);
 void network_objects_handle_states(void const *entries, short count);
 void network_objects_handle_inventories(void const *entries, short count);
 /* (a client) its own player picked up the weapon, to ready once its unit has it */

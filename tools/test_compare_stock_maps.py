@@ -1,7 +1,8 @@
 """Checks tools/compare_stock_maps.py on a Custom Edition map made to pass for
 a Halo PC one: the same file with its cache version 7 must match, and the same
 with a byte of a weapon's data changed must not (skipped without a Custom
-Edition stock map in assets/maps/ce or maps_ce)."""
+Edition stock map in assets/maps/ce, assets/maps_ce or HALO_DATA_ROOT's maps_ce)."""
+import os
 import struct
 import sys
 from pathlib import Path
@@ -12,8 +13,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import compare_stock_maps as compare  # noqa: E402
 
-CANDIDATES = [ROOT / "assets/maps/ce/deathisland.map", ROOT / "assets/maps_ce/deathisland.map",
-              Path.home() / "halo-ce-decomp-port/assets/maps/ce/deathisland.map"]
+CANDIDATES = [ROOT / "assets/maps/ce/deathisland.map", ROOT / "assets/maps_ce/deathisland.map"]
+if os.environ.get("HALO_DATA_ROOT"):
+    CANDIDATES.append(Path(os.environ["HALO_DATA_ROOT"]) / "maps_ce" / "deathisland.map")
 
 
 @pytest.fixture(scope="module")

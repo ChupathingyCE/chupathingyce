@@ -39,3 +39,6 @@ port/android/keystore.properties
 
 # the game's log, when a run writes it at the top of the tree
 /debug.txt
+# User-supplied Halo 1 MCC maps and resources
+mcc_maps/
+maps_mcc/

@@ -13,6 +13,10 @@ controller emulation (see sdl_platform.c).
 
 #define PLATFORM_MOUSE_BUTTON_COUNT 8
 
+/* the window closed, or the game was told to quit: logs "window closed",
+lets go of the OpenGL context and the window, and exits (sdl_platform.c) */
+void platform_exit_window_closed(void);
+
 struct platform_input_state
 {
 	unsigned char keys[SDL_SCANCODE_COUNT];
@@ -72,8 +76,12 @@ sees */
 void platform_input_scheme_used(void *gamepad);
 
 /* whether the game runs without anyone to answer a question (a test run, a
-null renderer, the Steam Deck's Game Mode): no launcher, no message boxes */
+null renderer, the Steam Deck's Game Mode): no message boxes */
 BOOL platform_run_is_quiet(void);
+/* whether it runs without anyone to watch it (a test run, a null renderer;
+not Game Mode, which shows the setup screen, drawn in the game's own window):
+no setup screen either */
+BOOL platform_run_is_unwatched(void);
 
 /* the maps out of a file the player picked (the first start, the
 launcher's Add maps), on a thread of their own: the kind of file it is
@@ -99,6 +107,9 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height);
 #ifdef HALO_BGFX
 /* the window again for OpenGL, when bgfx does not start (d3d8_bgfx.inl) */
 BOOL platform_video_reopen_for_gl(void);
+/* display.renderer chooses bgfx: "bgfx", or on Windows "d3d11" (bgfx on
+Direct3D 11) */
+BOOL platform_bgfx_chosen(void);
 #endif
 #ifndef HALO_ANDROID
 BOOL platform_screen_mode(long *width, long *height);

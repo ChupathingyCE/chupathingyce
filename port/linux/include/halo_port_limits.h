@@ -52,7 +52,7 @@ players are machines #1 to #16 */
 /* the slots on the network: the PC builds' (128 and 128 since network
 version 11; network version 28 keeps them), which never change; a build with the console's limits folds the PCs' game settings
 record and game type states into its own slots as they arrive
-(port/linux/game/network_game_layout.c, docs/cross-play.md) */
+(port/linux/game/network_game_layout.c) */
 #define HALO_PORT_WIRE_NETWORK_PLAYERS 128
 #define HALO_PORT_WIRE_NETWORK_MACHINES 128
 
@@ -121,7 +121,7 @@ here, which the command repository reads). A host
 never checks a client's version: the client does (network_client_manager.c),
 so the range is the client's. */
 #define HALO_PORT_NETWORK_VERSION_MINIMUM 11
-#define HALO_PORT_NETWORK_VERSION_MAXIMUM 42
+#define HALO_PORT_NETWORK_VERSION_MAXIMUM 44
 /* ... the numbers in use (port/linux/src/delta.c): the three above, until a
 legacy table (docs/delta.md) widens them; code asks these, not the numbers */
 int delta_legacy_announce(void);

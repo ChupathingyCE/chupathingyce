@@ -32,8 +32,36 @@ time: 1 and the command, its id and the handle it came from, else 0; and
 its answer, once run */
 int server_link_next_command(char *line, int line_size, char *handle, int handle_size, unsigned int *id);
 void server_link_finish_command(unsigned int id, int ok, const char *output);
+/* whether the server is linked now: 1, else 0 */
+int server_link_linked(void);
+
 /* (the main thread's, now and then) the server's state for the site: a JSON
 object */
 void server_link_set_status(const char *json);
+
+/* the server's badge (docs/server-badges.md): server_badge.cert in the data
+folder (read again when it changes), while the server is linked and the
+certificate names the link key. Its bytes (at most size) and their count,
+else 0. Checked no further here (server_badge.c reads it) */
+int server_link_badge_certificate(unsigned char *certificate, int size);
+/* the link key's signature (64 bytes) of message, as a badge's proof: 1,
+else 0 (not linked) */
+int server_link_badge_sign(const unsigned char *message, int size, unsigned char *signature);
+/* what the game made of that certificate (server_badge_check), for
+sv_link_status and the panel: enum server_link_badge_check, and the
+certificate's tier name ("official"), label and expiry (Unix seconds) */
+enum server_link_badge_check
+{
+	_server_link_badge_unchecked = 0,
+	_server_link_badge_good,
+	/* not signed by a badge key of this build (or it has none) */
+	_server_link_badge_not_signed,
+	_server_link_badge_unknown_tier,
+	_server_link_badge_expired,
+	_server_link_badge_not_yet,
+	/* not a certificate at all */
+	_server_link_badge_malformed
+};
+void server_link_set_badge_check(int check, const char *tier, const char *label, unsigned int expires);
 
 #endif

@@ -62,6 +62,7 @@ chooses stereo or 5.1 (port_config.c).
 #include "sdl_platform.h"
 #include "port_config.h"
 #include "thread_stop.h"
+#include "capture.h"
 
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -2341,6 +2342,10 @@ static void mix(float *output, unsigned long frames)
 	limit(output, frames);
 	if (capturing)
 		capture_push(output, frames);
+#ifdef HALO_CAPTURE
+	/* (the clips' sound, when they are on: capture_clips.c) */
+	capture_clip_audio(output, frames, output_channels);
+#endif
 }
 
 /* ---------- output */
@@ -3446,3 +3451,145 @@ HRESULT WINAPI IDirectSoundBuffer_SetVolume(LPDIRECTSOUNDBUFFER buffer, LONG vol
 	pthread_mutex_unlock(&mixer_lock);
 	return DS_OK;
 }
+
+/* ---------- voice chat's voices (port/linux/src/voice.c)
+
+Each speaker heard in voice chat plays through a voice of its own here,
+beside the game's: mono 16-bit PCM at the output rate (no resampling), fed
+20 ms at a time as it is decoded. A voice heard from where its speaker is
+(a proximity voice) is a 3D voice placed at the speaker, so it takes the
+mixer's distance rolloff, its pan or Headphone 3D (audio.hrtf) and the
+reverb's send like the game's own sounds. Any other plays in the middle, at
+its gain. With audio.voice_positional off a proximity voice is panned and
+faded by distance alone (dsound_voice_place). Called on the game's thread,
+as the game's streams are. */
+
+#ifdef HALO_PORT_VOICE_AUDIO
+
+void *dsound_voice_open(void);
+void dsound_voice_close(void *voice);
+int dsound_voice_submit(void *voice, const short *samples, unsigned long frames);
+unsigned long dsound_voice_queued(void *voice);
+void dsound_voice_place(void *voice, int mode, const float *position, float minimum_distance, float maximum_distance,
+	float gain);
+
+void *dsound_voice_open(void)
+{
+	WAVEFORMATEX format;
+	DSSTREAMDESC description;
+	LPDIRECTSOUNDSTREAM stream = NULL;
+	struct sdl_stream *record;
+
+	memset(&format, 0, sizeof(format));
+	format.wFormatTag = WAVE_FORMAT_PCM;
+	format.nChannels = 1;
+	format.nSamplesPerSec = OUTPUT_RATE;
+	format.wBitsPerSample = 16;
+	format.nBlockAlign = 2;
+	format.nAvgBytesPerSec = OUTPUT_RATE * 2;
+	memset(&description, 0, sizeof(description));
+	description.dwFlags = DSSTREAMCAPS_CTRL3D;
+	description.lpwfxFormat = &format;
+	if (IDirectSound_CreateSoundStream(NULL, &description, &stream, NULL) != DS_OK || !stream)
+		return NULL;
+	record = stream_from_interface(stream);
+	mixer_lock_take();
+	record->mode = DS3DMODE_DISABLE;
+	pthread_mutex_unlock(&mixer_lock);
+	return stream;
+}
+
+void dsound_voice_close(void *voice)
+{
+	if (voice)
+		stream_release((IDirectSoundStream *)voice);
+}
+
+int dsound_voice_submit(void *voice, const short *samples, unsigned long frames)
+{
+	XMEDIAPACKET packet;
+
+	if (!voice || !samples || !frames)
+		return 0;
+	memset(&packet, 0, sizeof(packet));
+	packet.pvBuffer = (LPVOID)samples;
+	packet.dwMaxSize = frames * 2;
+	return stream_process((IDirectSoundStream *)voice, &packet, NULL) == S_OK;
+}
+
+/* the frames waiting to play */
+unsigned long dsound_voice_queued(void *voice)
+{
+	struct sdl_stream *stream = stream_from_interface(voice);
+	unsigned long position, frames = 0;
+	BOOL first = TRUE;
+
+	if (!voice)
+		return 0;
+	mixer_lock_take();
+	for (position = 0; position < stream->packet_count; position++)
+	{
+		struct voice_packet *packet = &stream->packets[(stream->packet_head + position) % MAXIMUM_STREAM_PACKETS];
+
+		if (packet->finished)
+			continue;
+		frames += packet->frames - (first && stream->cursor < packet->frames ? stream->cursor : 0);
+		first = FALSE;
+	}
+	pthread_mutex_unlock(&mixer_lock);
+	return frames;
+}
+
+/* where a voice plays from: mode 0 in the middle; 1 a 3D voice at position
+(the game's world units, x y z) between the distances; 2 from position by
+gain and pan alone (OpenCE's way: full within the minimum distance, then
+down to a fifth at the maximum, panned by the side it is on); and its gain */
+void dsound_voice_place(void *voice, int mode, const float *position, float minimum_distance, float maximum_distance,
+	float gain)
+{
+	struct sdl_stream *stream = stream_from_interface(voice);
+
+	if (!voice)
+		return;
+	mixer_lock_take();
+	stream->volume = gain < 0.0f ? 0.0f : gain;
+	stream->mix_left = stream->mix_right = 1.0f;
+	if (mode && position)
+	{
+		/* (DirectSound's space: y up, as the game sets it, sound_dsound_xbox.c) */
+		stream->position[0] = position[0];
+		stream->position[1] = position[2];
+		stream->position[2] = position[1];
+		stream->minimum_distance = minimum_distance > 0.0f ? minimum_distance : 1.0f;
+		stream->maximum_distance = maximum_distance > stream->minimum_distance ? maximum_distance :
+			stream->minimum_distance;
+		stream->direct = stream->direct_hf = 0;
+		stream->room = stream->room_hf = 0;
+	}
+	if (mode == 1 && position)
+	{
+		stream->mode = DS3DMODE_NORMAL;
+	}
+	else if (mode == 2 && position)
+	{
+		float side, up, ahead, distance, fade, pan;
+
+		stream->mode = DS3DMODE_NORMAL;
+		voice_direction(stream, &side, &up, &ahead);
+		stream->mode = DS3DMODE_DISABLE;
+		distance = sqrtf(side * side + up * up + ahead * ahead);
+		fade = distance <= stream->minimum_distance ? 1.0f :
+			1.0f - 0.8f * clamp_unit((distance - stream->minimum_distance) /
+				(stream->maximum_distance - stream->minimum_distance + 1.0e-3f));
+		pan = distance > 1.0e-3f ? 0.8f * side / distance : 0.0f;
+		stream->mix_left = fade * sqrtf(0.5f * (1.0f - pan)) * 1.41421356f;
+		stream->mix_right = fade * sqrtf(0.5f * (1.0f + pan)) * 1.41421356f;
+	}
+	else
+	{
+		stream->mode = DS3DMODE_DISABLE;
+	}
+	pthread_mutex_unlock(&mixer_lock);
+}
+
+#endif

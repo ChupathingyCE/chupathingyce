@@ -18,10 +18,28 @@ controller's settings and buttons.
 from xml.sax.saxutils import quoteattr
 
 PE = "main_menu/settings_select/player_setup/player_profile_edit"
+# update.channel's help line (port/linux/src/update.h's UPDATE_CHANNEL_HELP,
+# which the setup screen shows: tools/test_update_channels.py checks they agree)
+UPDATE_CHANNEL_HELP = "Testing gets new features first and may have bugs. Going back waits for the next release."
 YES_NO = [("YES", "true"), ("NO", "false")]
 ON_OFF = [("ON", "true"), ("OFF", "false")]
 SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4)]
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
+
+# A row that does something rather than set a setting (A runs its function,
+# port/linux/game/menu_functions.c's), with a value its function shows in
+# place of a spinner: Network Setup's INSTALL UPDATE. It stands in a list of
+# rows as a setting's row does, (label, None, function, help, platform, key),
+# and menu_functions.c shows or hides it.
+class Action(tuple):
+    def __new__(cls, label, key, run, help_text, platform):
+        return super().__new__(cls, (label, None, run, help_text, platform, key))
+
+
+# update.h's UPDATER_GAMESCOPE_WHERE names the page: Settings > Online >
+# Updates (tools/test_update_install.py checks they agree)
+INSTALL_UPDATE = Action("INSTALL UPDATE:", "install_update", "port update install",
+                        "Download the new version. Chupathingy restarts.", "desktop")
 
 # A row's platform: None for every platform, else the names it is on,
 # separated by spaces (port/linux/src/menu_files.c): "desktop", "android",
@@ -43,9 +61,10 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (close together, for the eleven rows of INTERFACE to fit above a
-        # help line)
+        # (close together, for the twelve rows of INTERFACE to fit above a
+        # help line, which sits lower than other screens' for them)
         "spacing": 24,
+        "help_top": 362,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's resolution and anti-aliasing in
@@ -118,6 +137,12 @@ SCREENS = {
                  None),
                 ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
                  "Light models per pixel instead of per vertex.", None),
+                ("LIGHT EFFECTS:", "display.light_effects",
+                 [("AUTO", "auto"), ("HIGH", "high"), ("LOW", "low"), ("OFF", "off")],
+                 "Light from shots, muzzle flashes and glowing things.\nOff looks like the Xbox. Auto turns it off when slow.",
+                 "desktop"),
+                ("DOORS BLOCK LIGHT:", "display.doors_block_light", ON_OFF,
+                 "A closed door stops light from the other side.\nOff lets it through, as on the Xbox.", None),
                 ("FULL MODEL DETAIL:", "display.full_model_detail", ON_OFF,
                  "Always draw models at their highest detail.", None),
                 ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
@@ -150,13 +175,20 @@ SCREENS = {
                  "Draw a panel behind the scoreboard.", None),
                 ("POWERUP TIMERS:", "display.powerup_timers", ON_OFF,
                  "Show the time left on your powerups.", None),
-                ("MATCH TIMER:", "display.match_timer", ON_OFF,
-                 "Show the time left at the top of the screen.", None),
+                ("MATCH TIMER:", "display.match_timer",
+                 [("OFF", "off"), ("REMAINING", "remaining"), ("ELAPSED", "elapsed")],
+                 "Show the time left, or the time played, in multiplayer.", None),
                 ("FOLLOW CAMERA:", "display.follow_camera",
                  [("OFF", "off"), ("LONG WAITS", "long_waits"), ("ALWAYS", "always")],
                  "While dead, follow a player's view, if the host allows it.", None),
                 ("VERSION WATERMARK:", "display.version_watermark", ON_OFF,
                  "Show the version while playing.", None),
+                ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg")],
+                 "Classic looks like Halo's own titles.\nCyborg matches the menu text.",
+                 # (not on the consoles, the Switch included, which have the
+                 # classic titles only: HALO_CONSOLE_NO_TITLE_CHOICE; last,
+                 # so the Switch's list has no gap)
+                 "desktop android"),
             ]),
         ],
     },
@@ -194,6 +226,12 @@ SCREENS = {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
         "spacing": 30,
+        # (the help line under the ten rows, as Privacy's: the last,
+        # PRIVACY, ends at 371)
+        "help_top": 376,
+        # (its help is its own text, which menu_functions.c reads from its
+        # help_strings, and sets to how INSTALL UPDATE's install goes)
+        "help_text": True,
         "rows": [
             ("INTERNET PLAY:", "network.online", ON_OFF,
              "Host and join games over the internet.", None),
@@ -201,17 +239,32 @@ SCREENS = {
              "Ask the router to forward the game's port.", NOT_CONSOLE),
             ("MAP DOWNLOADS:", "network.map_downloads", [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
              "Download missing Custom Edition maps.", NOT_CONSOLE),
+            # (port/linux/src/map_download.c, "From the host": its help is the
+            # disclaimer, the one place besides the download's own question
+            # where ALWAYS can be picked)
+            ("MAPS FROM HOSTS:", "network.map_downloads_from_host",
+             [("OFF", "off"), ("ASK", "ask"), ("ALWAYS", "always")],
+             "From the host, not us, and we haven't checked them.", "desktop android"),
             ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard",
              [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
              "Join a game from an invite link on the clipboard.", NOT_CONSOLE),
             ("COPY INVITE LINK:", "network.copy_to_clipboard", ON_OFF,
              "Copy your game's invite link when you host.", NOT_CONSOLE),
-            ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
-             "Check for a new version at startup.", NOT_CONSOLE),
             ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
              "Let a game you host start with only you.", None),
         ],
         "views": [
+            # (update.channel's help is update.h's UPDATE_CHANNEL_HELP, as
+            # the setup screen shows it)
+            ("updates", "UPDATES", "Update checks, and which builds you get.", [
+                ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
+                 "Check for a new version at startup.", NOT_CONSOLE),
+                ("CHANNEL:", "update.channel", [("RELEASE", "release"), ("TESTING", "testing"), ("NIGHTLY", "nightly")],
+                 UPDATE_CHANNEL_HELP, NOT_CONSOLE),
+                # (shown once a newer version is found; how the install
+                # goes is its value and the help line: menu_functions.c)
+                INSTALL_UPDATE,
+            ]),
             ("chat", "CHAT", "Text chat and the word filter.", [
                 ("CHAT:", "chat.enabled", ON_OFF, "Text chat with other players.", NOT_CONSOLE),
                 ("SHOW CHAT:", "chat.show", [("ALL", "all"), ("TEAM", "team"), ("OFF", "off")],
@@ -428,6 +481,27 @@ def _setting_row(base: str, row: tuple, key: str, label_index: int) -> list:
     return lines
 
 
+def _action_row(base: str, row: Action, key: str, label_index: int) -> list:
+    """an Action's row: its label, and its value (a text of its own, which
+    its function sets)"""
+    label, _, run, _, platform, *_ = row
+    lines = _widget(f"{base}/op_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                                         ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF"),
+                                         ("platform", platform)],
+                    [f'<on event="a" run="{run}"/>', f'<on event="start" run="{run}"/>',
+                     '<on event="left_mouse" run="mouse emit accept event"/>',
+                     f'<child{attributes([("widget", f"{base}/{key}_label")])}/>',
+                     f'<child{attributes([("widget", f"{base}/{key}_value"), ("x", 320), ("y", 1)])}/>'])
+    lines += _widget(f"{base}/{key}_label",
+                     [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
+                      ("string_list", f"{base}/labels"), ("string_index", label_index), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    lines += _widget(f"{base}/{key}_value",
+                     [("type", "text"), ("controller", 1), ("width", 170), ("height", 22), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF"), ("align", "center"), ("text_y", 3), ("text_flags", "no_focus_test")], [])
+    return lines
+
+
 def _link_row(base: str, key: str, label_index: int) -> list:
     """a row that opens a nested list (VIEWS): its label alone"""
     lines = _widget(f"{base}/op_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
@@ -514,7 +588,10 @@ def _setting_rows(base: str, spec: dict) -> tuple:
             _, row, key, place, label_index = entry
             if row[1] not in spec.get("unplaced", ()):
                 rows.append((f"{base}/op_{key}", row[4], place))
-            extra += _setting_row(base, row, key, label_index)
+            if isinstance(row, Action):
+                extra += _action_row(base, row, key, label_index)
+            else:
+                extra += _setting_row(base, row, key, label_index)
     # (the help of the row whose label is string n is n + 1: the buttons' is 0)
     strings = _strings(f"{base}/labels", labels)
     strings += _strings(f"{base}/help_strings", [""] + [text.replace("\n", "\\n") for text in helps])
@@ -747,6 +824,8 @@ CHUPATHINGY_ONLY = {
         "consoles": False,
         "header": ("header_privacy", "chupathingy/delta_profile/header_privacy"),
         "spacing": 30,
+        # (the help line under the ten rows: the last, FRIENDS, ends at 371)
+        "help_top": 376,
         "rows": [
             ("SHARE MY PROFILE:", "network.share_profile", ON_OFF,
              "Show your Delta name to Chupathingy players.", None),
@@ -766,6 +845,23 @@ CHUPATHINGY_ONLY = {
              "What Discord shows while you play.", "desktop"),
             ("SHOW PROFILE NAMES:", "display.profile_names", ON_OFF,
              "Show players by their Delta names.", None),
+        ],
+        # (the friends' privacy, the site's friends.py: a list of its own,
+        # so every row keeps the page's spacing)
+        "views": [
+            ("friends", "FRIENDS", "Who can reach you and see you on Delta.", [
+                ("APPEAR OFFLINE:", "site.appear_offline", [("NO", "false"), ("YES", "true")],
+                 "Show as offline to your friends.", None),
+                ("FRIEND REQUESTS FROM:", "site.friend_requests",
+                 [("EVERYONE", "everyone"), ("FRIENDS+", "friends_of_friends"), ("NOBODY", "nobody")],
+                 "FRIENDS+ means your friends' friends too.", None),
+                ("WHO CAN JOIN ME:", "site.who_can_join",
+                 [("FRIENDS", "friends"), ("ANYONE", "anyone"), ("INVITE ONLY", "invite")],
+                 "Who can join your game from Delta.", None),
+                ("SHOW MY STATUS TO:", "site.clan_presence",
+                 [("FRIENDS", "friends"), ("FRIENDS+CLAN", "friends_and_clan")],
+                 "Who sees when you're on and what you play.", None),
+            ]),
         ],
     },
 }
@@ -960,6 +1056,11 @@ WIDGET_PATCHES = {
         "offsets": {f"{PE}/controller_setup_profile_item": (0, -166), f"{PE}/gamepads_profile_item": (0, 33),
                     f"{PE}/network_settings_profile_item": (0, -34)},
     },
+    # (SETUP beside OK and CANCEL: the way back to the setup screen, its
+    # widget port/assets/menus/chupathingy/setup_entry.xml's)
+    f"{PE}/profile_edit_button_bar": {"insert_before": {
+        f"{PE}/profile_edit_button_ok": ['<child widget="gearbox/setup_entry" x="250" y="1"/>'],
+    }},
     f"{PE}/controller_setup_profile_item": {"set": {"string_index": 12}, "handlers": [
         f'<on event="a" open="{PE}/{CONTROLS_SCREEN}/{CONTROLS_SPEC["screen"]}"/>',
         f'<on event="start" open="{PE}/{CONTROLS_SCREEN}/{CONTROLS_SPEC["screen"]}"/>',
@@ -972,6 +1073,12 @@ WIDGET_PATCHES = {
         f'<on event="start" open="{PE}/{CONTROLS_SCREEN}/{CONTROLS_SPEC["screen"]}"/>',
         '<on event="left_mouse" run="mouse emit accept event"/>',
     ]} for row in ("gamepads", "mouse_settings")},
+    # (ABOUT: the About screen, in the Guide: menu_functions.c's about_open)
+    f"{PE}/about_item": {"handlers": [
+        '<on event="a" run="port about open"/>',
+        '<on event="start" run="port about open"/>',
+        '<on event="left_mouse" run="mouse emit accept event"/>',
+    ]},
     f"{PE}/audio_settings_profile_item": {"set": {"string_index": 14}},
     # (the profile settings' picture: on CONTROLS' row, the profile's
     # button settings, BITMAP_FRAMES; menu_functions.c's
@@ -1090,10 +1197,18 @@ TITLES = {
     f"{MT}/server_settings/header_host_options": "HOST OPTIONS",
 }
 
+# the titles of the Chupathingy menus' own screens, which their files name
+# (port/assets/menus/chupathingy/delta_profile.xml): drawn as TITLES are
+CHUPATHINGY_TITLES = {
+    "chupathingy/delta_profile/header_delta_profile": "DELTA PROFILE",
+    "chupathingy/delta_profile/header_privacy": "PRIVACY",
+}
+
 
 def title_backdrop(width: float) -> str:
     """a header's dark backdrop, as the PC headers' redraws have it, for text
-    width units wide (the text is set over it in OpenCE: ce_menus.py)"""
+    width units wide (the text is set over it in Cyborg Interface Gothic:
+    ce_menus.py)"""
     return "\n".join([
         '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="64" viewBox="0 0 512 64">',
         "  <defs>",

@@ -108,6 +108,10 @@ static struct
 	DWORD test_slot;
 	float test_area[VISIBILITY_TEST_SLOTS];
 	UINT test_known[VISIBILITY_TEST_SLOTS];
+	/* each slot's latest test's number, and the number given with its
+	known count (0: none yet) */
+	unsigned long test_number[VISIBILITY_TEST_SLOTS];
+	unsigned long test_known_number[VISIBILITY_TEST_SLOTS];
 	unsigned long drawn, skipped_program, skipped_target, skipped_shader, skipped_copy, copied_bytes, in_place_bytes;
 	/* attributes copied to a stream of their own (not on a word) */
 	unsigned long split_attributes;
@@ -608,7 +612,7 @@ static struct console_shader *cr_vertex_shader(struct vertex_shader_object *prog
 
 		program->shaders_tried |= tried;
 		source = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count,
-			immediate ? 0 : device.vertex_shader->packed_mask, NULL);
+			immediate ? 0 : device.vertex_shader->packed_mask, NULL, FALSE);
 		if (source)
 		{
 			program->console_shader[variant] = console_shader_create(1, source);
@@ -1270,18 +1274,24 @@ static void cr_visibility_begin(void)
 	console_query_begin();
 }
 
-static void cr_visibility_end(DWORD index)
+static BOOL cr_visibility_end(DWORD index, unsigned long number)
 {
 	if (!cr.test_active)
-		return;
+		return FALSE;
 	cr.test_active = FALSE;
 	index %= VISIBILITY_TEST_SLOTS;
+	cr.test_number[index] = number;
 	/* (the count in the game's pixels: lens flares divide it by their area) */
 	cr.test_area[index] = cr.target_scale[0] * cr.target_scale[1];
 	console_query_end(index);
+	return TRUE;
 }
 
-static UINT cr_visibility_result(DWORD index)
+/* number: the test the count is of (0: none yet). The console gives the
+slot's latest finished count, not which test it was, so it is taken to be of
+the slot's latest test: a slot given to another lens flare can show the old
+flare's last count once */
+static UINT cr_visibility_result(DWORD index, unsigned long *number)
 {
 	unsigned long samples;
 
@@ -1291,7 +1301,9 @@ static UINT cr_visibility_result(DWORD index)
 		float area = cr.test_area[index];
 
 		cr.test_known[index] = area > 1.0f ? (UINT)(samples / area + 0.5f) : (UINT)samples;
+		cr.test_known_number[index] = cr.test_number[index];
 	}
+	*number = cr.test_known_number[index];
 	return cr.test_known[index];
 }
 

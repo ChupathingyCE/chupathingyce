@@ -3,7 +3,10 @@ POSIX_UPDATE.C
 
 The Linux self-updater's system side (update.h): a download over HTTPS with
 Mbed TLS (port/third_party/mbedtls), and the files of the running game
-replaced and the game started again.
+replaced and the game started again: in this process's place as it exits
+(update_start_in_place: an execve at the end of exit's handlers), so the
+new game keeps the process Steam and gamescope follow, or else as a process
+of its own (update_launch).
 
 The download is a plain HTTP/1.1 GET over TLS 1.2 or 1.3, following
 redirects (GitHub sends release downloads to its file host). The server's
@@ -17,6 +20,10 @@ trusts only the certificate HALO_UPDATE_TEST_CA names: tools/test_update_install
 
 Built with the host's ABI, as the other posix_*.c.
 */
+
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 
 #include "update.h"
 #include "build_identity.h"
@@ -40,7 +47,12 @@ Built with the host's ABI, as the other posix_*.c.
 #include <string.h>
 #include <strings.h>
 #include <sys/resource.h>
+#include <fcntl.h>
+#include <signal.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -685,57 +697,92 @@ int update_make_directory(const char *path)
 #ifdef HALO_TVOS
 /* tvOS starts no other process: an Apple TV app is updated by installing it
 again */
-int update_launch(const char *path)
+int update_launch_with(const char *path, const char *argument)
+{
+	(void)path;
+	(void)argument;
+	return 0;
+}
+
+int update_can_start(const char *path, char *reason, int reason_size)
+{
+	(void)path;
+	(void)reason;
+	(void)reason_size;
+	return 1;
+}
+
+int update_start_in_place(const char *path)
 {
 	(void)path;
 	return 0;
 }
-#else
-int update_launch(const char *path)
+
+int update_start_in_place_with(const char *path, const char *argument)
 {
-	/* (the environment for the new game, made before the fork: an AppImage's
-	AppRun put its own mount's libraries first in LD_LIBRARY_PATH, keeping
-	the caller's in CHUPATHINGYCE_HOST_LD_LIBRARY_PATH, and that mount goes
-	when this game quits; the new game's AppRun puts its own first again) */
+	(void)path;
+	(void)argument;
+	return 0;
+}
+#else
+/* the environment for the new game: an AppImage's AppRun put its own
+mount's libraries first in LD_LIBRARY_PATH, keeping the caller's in
+CHUPATHINGYCE_HOST_LD_LIBRARY_PATH, and that mount goes when this game
+quits; the new game's AppRun puts its own first again. The rest is this
+process's, so Steam's (SteamAppId, its overlay) and gamescope's go on */
+static char **launch_environment(void)
+{
 	static char *environment[MAXIMUM_ENVIRONMENT + 1];
 	static char library_path[8192];
 	const char *host_library_path = getenv("CHUPATHINGYCE_HOST_LD_LIBRARY_PATH");
-	char **variables = environ;
-	pid_t child;
 	int count = 0, index;
 
-	if (host_library_path)
+	if (!host_library_path)
+		return environ;
+	for (index = 0; environ[index] && count < MAXIMUM_ENVIRONMENT - 1; index++)
 	{
-		for (index = 0; environ[index] && count < MAXIMUM_ENVIRONMENT - 1; index++)
+		if (!strncmp(environ[index], "LD_LIBRARY_PATH=", 16) ||
+			!strncmp(environ[index], "CHUPATHINGYCE_HOST_LD_LIBRARY_PATH=", 35))
 		{
-			if (!strncmp(environ[index], "LD_LIBRARY_PATH=", 16) ||
-				!strncmp(environ[index], "CHUPATHINGYCE_HOST_LD_LIBRARY_PATH=", 35))
-			{
-				continue;
-			}
-			environment[count++] = environ[index];
+			continue;
 		}
-		if (*host_library_path)
-		{
-			snprintf(library_path, sizeof(library_path), "LD_LIBRARY_PATH=%s", host_library_path);
-			environment[count++] = library_path;
-		}
-		environment[count] = NULL;
-		variables = environment;
+		environment[count++] = environ[index];
 	}
+	if (*host_library_path)
+	{
+		snprintf(library_path, sizeof(library_path), "LD_LIBRARY_PATH=%s", host_library_path);
+		environment[count++] = library_path;
+	}
+	environment[count] = NULL;
+	return environment;
+}
+
+/* one past the highest file descriptor to let go of */
+static int descriptor_limit(void)
+{
+	struct rlimit limit;
+
+	if (getrlimit(RLIMIT_NOFILE, &limit) == 0 && limit.rlim_cur != RLIM_INFINITY && limit.rlim_cur < 65536)
+		return (int)limit.rlim_cur;
+	return 4096;
+}
+
+int update_launch_with(const char *path, const char *argument)
+{
+	/* (made before the fork) */
+	char **variables = launch_environment();
+	pid_t child;
+
 	child = fork();
 	if (child == 0)
 	{
 		/* none of this process's files (its sockets hold the game's ports) */
-		struct rlimit limit;
-		int descriptor, maximum = 4096;
+		int descriptor, maximum = descriptor_limit();
 
-		if (getrlimit(RLIMIT_NOFILE, &limit) == 0 && limit.rlim_cur != RLIM_INFINITY && limit.rlim_cur < 65536)
-			maximum = (int)limit.rlim_cur;
 		for (descriptor = 3; descriptor < maximum; descriptor++)
 			close(descriptor);
 		{
-			char *const arguments[] = { (char *)path, NULL };
+			char *const arguments[] = { (char *)path, (char *)argument, NULL };
 
 			execve(path, arguments, variables);
 		}
@@ -743,4 +790,267 @@ int update_launch(const char *path)
 	}
 	return child > 0;
 }
+
+int update_can_start(const char *path, char *reason, int reason_size)
+{
+	struct stat information;
+	struct statvfs file_system;
+
+	if (stat(path, &information) != 0 || !S_ISREG(information.st_mode))
+	{
+		snprintf(reason, (size_t)reason_size, "it is not there");
+		return 0;
+	}
+	/* (a folder on a file system mounted noexec runs nothing, whatever the
+	file's mode says: a USB stick or SD card mounted so, or a /tmp) */
+#ifdef ST_NOEXEC
+	if (statvfs(path, &file_system) == 0 && (file_system.f_flag & ST_NOEXEC))
+	{
+		snprintf(reason, (size_t)reason_size, "its folder doesn't run programs (it is mounted noexec)");
+		return 0;
+	}
+#else
+	(void)file_system;
 #endif
+	if (access(path, X_OK) != 0)
+	{
+		snprintf(reason, (size_t)reason_size, "it isn't executable");
+		return 0;
+	}
+	return 1;
+}
+
+/* the program this process becomes as it exits (update_start_in_place),
+and its arguments: this one's own (/proc/self/cmdline), the first the new
+program's path */
+static char start_in_place_path[PATH_MAX];
+static char start_in_place_command_line[8192];
+static char *start_in_place_arguments[65];
+/* whether a watcher waits to start the new version should this process end
+without becoming it (start_in_place_watch) */
+static int start_in_place_watched;
+/* the argument a process of its own is started with should the execve fail
+and no watcher waits (update_start_in_place_with's; none for an update) */
+static const char *start_in_place_fallback_argument;
+
+/* every file descriptor from first on closed (close-on-exec: on_exec), with
+close_range where the kernel has it (Linux 5.9 and later; 5.11 for
+close-on-exec), else one at a time */
+static void descriptors_close_from(int first, int on_exec)
+{
+	int descriptor, maximum;
+
+#ifdef __NR_close_range
+	if (syscall(__NR_close_range, (unsigned int)first, ~0U, on_exec ? 4U /* CLOSE_RANGE_CLOEXEC */ : 0U) == 0)
+		return;
+#endif
+	maximum = descriptor_limit();
+	for (descriptor = first; descriptor < maximum; descriptor++)
+	{
+		if (on_exec)
+		{
+			int flags = fcntl(descriptor, F_GETFD);
+
+			if (flags >= 0)
+				fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC);
+		}
+		else
+			close(descriptor);
+	}
+}
+
+/* the new program's arguments: this process's own, by /proc/self/cmdline
+(the first replaced by its path); just its path where there is none */
+static void start_in_place_arguments_read(void)
+{
+	FILE *file = fopen("/proc/self/cmdline", "rb");
+	size_t length = 0, offset;
+	int count = 0;
+
+	start_in_place_arguments[count++] = start_in_place_path;
+	if (file)
+	{
+		length = fread(start_in_place_command_line, 1, sizeof(start_in_place_command_line) - 1, file);
+		fclose(file);
+	}
+	start_in_place_command_line[length] = 0;
+	/* (past the first, this one's own path) */
+	offset = strlen(start_in_place_command_line) + 1;
+	while (offset < length && count < (int)(sizeof(start_in_place_arguments) / sizeof(*start_in_place_arguments)) - 1)
+	{
+		start_in_place_arguments[count++] = start_in_place_command_line + offset;
+		offset += strlen(start_in_place_command_line + offset) + 1;
+	}
+	start_in_place_arguments[count] = NULL;
+}
+
+#ifdef __linux__
+/* a watcher of its own (a grandchild, so no process of the game's waits on
+it, holding none of its files but one end of a pipe): it waits for the
+other end, which closes as this process becomes the new version (it is
+close-on-exec) or as it ends. If this process then still is, and is another
+program, the new version is running, and it goes. If this process is gone
+without becoming it (an exit handler crashed or killed it), the watcher
+becomes the new version itself. 1 when it is watching */
+static int start_in_place_watch(char **variables)
+{
+	struct stat old_program;
+	char exe[64];
+	pid_t game = getpid(), child;
+	int ends[2];
+
+	/* (the program by its file, device and inode, as /proc/<pid>/exe is
+	compared below: an unchanged path is never taken for the new version) */
+	if (stat("/proc/self/exe", &old_program) != 0 || pipe2(ends, O_CLOEXEC) != 0)
+		return 0;
+	snprintf(exe, sizeof(exe), "/proc/%ld/exe", (long)game);
+	child = fork();
+	if (child == 0)
+	{
+		static const char gone[] = "update: the game ended without starting the new version: starting it now\n";
+		char byte;
+		int tries;
+
+		if (fork() != 0)
+			_exit(0);
+		/* (the watcher: the read end alone, as descriptor 3) */
+		close(ends[1]);
+		if (ends[0] != 3)
+		{
+			dup2(ends[0], 3);
+			close(ends[0]);
+		}
+		fcntl(3, F_SETFD, 0);
+		descriptors_close_from(4, 0);
+		/* (until the write end closes: as the game becomes the new version,
+		or ends) */
+		for (;;)
+		{
+			ssize_t got = read(3, &byte, 1);
+
+			if (got == 0 || (got < 0 && errno != EINTR))
+				break;
+		}
+		for (tries = 0; tries < 50; tries++)
+		{
+			struct stat program;
+
+			/* (gone, or a zombie, whose exe is no file: it never became the new
+			version) */
+			if (stat(exe, &program) != 0)
+			{
+				sigset_t signals;
+				ssize_t written = write(2, gone, sizeof(gone) - 1);
+
+				(void)written;
+				/* (the new version starts as a new process would: no signal
+				held back or ignored that the game had so) */
+				signal(SIGTERM, SIG_DFL);
+				signal(SIGINT, SIG_DFL);
+				signal(SIGPIPE, SIG_DFL);
+				sigemptyset(&signals);
+				sigprocmask(SIG_SETMASK, &signals, NULL);
+				execve(start_in_place_path, start_in_place_arguments, variables);
+				_exit(127);
+			}
+			if (program.st_dev != old_program.st_dev || program.st_ino != old_program.st_ino)
+				_exit(0);
+			usleep(100000);
+		}
+		_exit(0);
+	}
+	close(ends[0]);
+	if (child < 0)
+	{
+		close(ends[1]);
+		return 0;
+	}
+	while (waitpid(child, NULL, 0) < 0 && errno == EINTR)
+	{
+	}
+	/* (ends[1] stays open, close-on-exec, until this process becomes the new
+	version or ends) */
+	return 1;
+}
+#endif
+
+/* the last of exit's handlers (registered before main, so after every
+handler of the game's, which run first: the game list's withdrawal, UPnP's
+release, the lobby's goodbye, the events' last upload): this process
+becomes the new game. Its files are closed by the execve itself
+(close-on-exec). If the execve fails, the watcher starts it once this
+process ends (or, with no watcher, it is started as a process of its own,
+as before); if a handler before this one crashes, the watcher starts it */
+static void start_in_place_at_exit(void)
+{
+	char **variables;
+	sigset_t signals;
+
+	if (!start_in_place_path[0])
+		return;
+	variables = launch_environment();
+	fflush(NULL);
+	descriptors_close_from(3, 1);
+	/* (the new game starts with no signal held back or ignored that this
+	one had so, as a new process would) */
+	signal(SIGTERM, SIG_DFL);
+	signal(SIGINT, SIG_DFL);
+	signal(SIGPIPE, SIG_DFL);
+	sigemptyset(&signals);
+	sigprocmask(SIG_SETMASK, &signals, NULL);
+	execve(start_in_place_path, start_in_place_arguments, variables);
+	fprintf(stderr, "update: could not start %s in place (%s): %s\n", start_in_place_path, strerror(errno),
+		start_in_place_watched ? "the watcher starts it as this one ends" : "starting it as a process of its own");
+	if (!start_in_place_watched)
+		update_launch_with(start_in_place_path, start_in_place_fallback_argument);
+}
+
+__attribute__((constructor)) static void start_in_place_register(void)
+{
+	atexit(start_in_place_at_exit);
+}
+
+int update_start_in_place(const char *path)
+{
+	if (!path || !*path || strlen(path) >= sizeof(start_in_place_path))
+		return 0;
+	snprintf(start_in_place_path, sizeof(start_in_place_path), "%s", path);
+	start_in_place_fallback_argument = NULL;
+	start_in_place_arguments_read();
+#ifdef __linux__
+	start_in_place_watched = start_in_place_watch(launch_environment());
+#endif
+	return 1;
+}
+
+int update_start_in_place_with(const char *path, const char *argument)
+{
+	int count = 0;
+
+	if (!path || !*path || strlen(path) >= sizeof(start_in_place_path) ||
+		(argument && strlen(argument) >= sizeof(start_in_place_command_line)))
+	{
+		return 0;
+	}
+	snprintf(start_in_place_path, sizeof(start_in_place_path), "%s", path);
+	start_in_place_arguments[count++] = start_in_place_path;
+	if (argument)
+	{
+		snprintf(start_in_place_command_line, sizeof(start_in_place_command_line), "%s", argument);
+		start_in_place_arguments[count++] = start_in_place_command_line;
+	}
+	start_in_place_arguments[count] = NULL;
+	start_in_place_fallback_argument = argument ? start_in_place_command_line : NULL;
+	/* (no watcher: it tells the new program from the old by its file, and
+	this one is the same file, so it would start it again as the new one
+	ends. Should the execve fail, it is started as a process of its own,
+	start_in_place_at_exit) */
+	start_in_place_watched = 0;
+	return 1;
+}
+#endif
+
+int update_launch(const char *path)
+{
+	return update_launch_with(path, NULL);
+}
