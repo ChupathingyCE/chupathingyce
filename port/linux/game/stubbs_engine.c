@@ -248,6 +248,7 @@ static void stubbs_hand_return(
 			_stubbs_special_attack_hand);
 
 		players_set_local_player_unit(local_player_index, local->origin_unit_index);
+		player_control_set_facing(local_player_index, &object_get(local->origin_unit_index)->object.forward);
 		/* (the hand back on his arm can be thrown again) */
 		if (attack && stubbs_engine_special_attack_get_count(local->origin_unit_index,
 			_stubbs_special_attack_hand) < attack->cost)
@@ -335,6 +336,14 @@ static boolean stubbs_hand_throw(
 	local->hand_unit_index = hand_unit_index;
 	local->possessed_unit_index = NONE;
 	players_set_local_player_unit(local_player_index, hand_unit_index);
+	/* (the hand looks where it flies, a little above the ground) */
+	{
+		real_vector3d look = forward;
+
+		look.k = 0.25f;
+		normalize3d(&look);
+		player_control_set_facing(local_player_index, &look);
+	}
 	stubbs_mode_log("the hand thrown (%s)", tag_get_name(attack->object_definition_index));
 	return TRUE;
 }
