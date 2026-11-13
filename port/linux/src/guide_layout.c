@@ -195,6 +195,21 @@ int guide_layout_plain(const char *text, char *out, int size)
 			text++;
 			continue;
 		}
+		/* (a no-break or ideographic space: a space; a zero-width one, a
+		joiner or a byte order mark: nothing. A description ending in them
+		ended in a line that looked blank) */
+		if (!strncmp(text, "\xC2\xA0", 2) || !strncmp(text, "\xE3\x80\x80", 3))
+		{
+			spaces = 1;
+			text += c == 0xC2 ? 2 : 3;
+			continue;
+		}
+		if (!strncmp(text, "\xE2\x80\x8B", 3) || !strncmp(text, "\xE2\x80\x8C", 3) ||
+			!strncmp(text, "\xE2\x80\x8D", 3) || !strncmp(text, "\xE2\x81\xA0", 3) || !strncmp(text, "\xEF\xBB\xBF", 3))
+		{
+			text += 3;
+			continue;
+		}
 		/* (what came between: one line break, or one space; none at the start) */
 		if (length && (newlines || spaces) && length < size - 2)
 			out[length++] = newlines ? '\n' : ' ';
@@ -280,7 +295,9 @@ int guide_layout_wrap(const char *text, float width, float size, guide_layout_me
 
 		while (*text == ' ')
 			text++;
-		if (!*text)
+		/* (only spaces and line breaks left: no empty lines at the end to
+		scroll to) */
+		if (!text[strspn(text, " \n")])
 			break;
 		/* (a line break here: an empty line, as a blank line between
 		paragraphs; never the break itself drawn) */
@@ -502,7 +519,19 @@ void guide_layout_modal(struct guide_rect area, int qr, struct guide_modal_layou
 	y += out->line.height + 4;
 	out->status = rect(x + padding, y, width - 2 * padding, line);
 	y += line + 2 * gap;
-	out->button = rect(x + (width - 120) * 0.5f, y, 120, button);
+	if (qr)
+	{
+		out->button = rect(x + (width - 120) * 0.5f, y, 120, button);
+		return;
+	}
+	/* (a question: its yes and CANCEL, as wide as each other) */
+	{
+		float each = (width - 2 * padding - gap) * 0.5f;
+
+		each = each > 120 ? 120 : each;
+		out->button = rect(x + width * 0.5f - gap * 0.5f - each, y, each, button);
+		out->cancel = rect(x + width * 0.5f + gap * 0.5f, y, each, button);
+	}
 }
 
 int guide_layout_marquee(const char *text, float width, float size, guide_layout_measure measure, void *context,

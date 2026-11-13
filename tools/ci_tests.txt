@@ -2,6 +2,7 @@
 # with pytest: one per line, sorted. A file not in the commit being built
 # is left out with a notice (a release branch's commit may not have every
 # test main has). Add yours on its own line, in order.
+tools/test_about_version.py
 tools/test_address_limit.py
 tools/test_android_asm_convert.py
 tools/test_android_mcc_memory.py
@@ -32,8 +33,10 @@ tools/test_determinism.py
 tools/test_discord_activity.py
 tools/test_discord_register.py
 tools/test_event_log.py
+tools/test_footer_prompts.py
 tools/test_gamespy_listing.py
 tools/test_guide_layout.py
+tools/test_guide_themes.py
 tools/test_host_cheats.py
 tools/test_host_console_objects.py
 tools/test_host_evidence.py
@@ -50,6 +53,7 @@ tools/test_linux_port.py
 tools/test_lobby_budget.py
 tools/test_lobby_switch_prompt.py
 tools/test_log_paths.py
+tools/test_log_root.py
 tools/test_macos_fullscreen_space.py
 tools/test_map_download.py
 tools/test_map_families.py
@@ -62,6 +66,8 @@ tools/test_map_repo.py
 tools/test_map_report.py
 tools/test_map_share.py
 tools/test_mcc_avoidance.py
+tools/test_mcc_bgfx_textures.py
+tools/test_mcc_bsp_vertices.py
 tools/test_mcc_cache_format.py
 tools/test_mcc_cameras.py
 tools/test_mcc_chicago.py
@@ -72,6 +78,7 @@ tools/test_mcc_host_identity.py
 tools/test_mcc_identity.py
 tools/test_mcc_maps_first.py
 tools/test_mcc_memory.py
+tools/test_mcc_missing_level.py
 tools/test_mcc_movement.py
 tools/test_mcc_native_smoke.py
 tools/test_mcc_particles.py
@@ -97,6 +104,7 @@ tools/test_ping.py
 tools/test_player_key.py
 tools/test_player_profile_list.py
 tools/test_playlist_maps.py
+tools/test_preview_cache.py
 tools/test_prompt_schemes.py
 tools/test_rename_stub.py
 tools/test_report_clip.py
@@ -119,3 +127,4 @@ tools/test_update_channels.py
 tools/test_update_manifest.py
 tools/test_vote_notice.py
 tools/test_workshop_list.py
+tools/test_workshop_questions.py

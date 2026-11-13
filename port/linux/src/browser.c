@@ -4998,6 +4998,13 @@ const char *browser_list_filter_name(void)
 	return names[list_filter];
 }
 
+const char *browser_list_filter_label(void)
+{
+	static const char *const labels[BROWSER_LIST_FILTERS] = { "CO-OP: SHOWN", "CO-OP: HIDDEN", "CO-OP: ONLY" };
+
+	return labels[list_filter];
+}
+
 int browser_list_filter_allows(const char *map)
 {
 	if (list_filter == BROWSER_LIST_FILTER_ALL)

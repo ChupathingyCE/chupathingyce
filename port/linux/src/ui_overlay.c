@@ -23,8 +23,10 @@ are the controller's button icons (a texture array, a layer each).
 #include "ui_font.h"
 #include "ui_overlay.h"
 #include "halo_prompt_schemes.h"
+#include "text_shown.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -433,6 +435,14 @@ static int glyph_font(int font, unsigned int codepoint)
 	return font;
 }
 
+/* whether a character is left out: one neither the face nor Noto Sans
+Bold has (Chinese, Japanese and Korean, among others) takes no room and
+draws nothing, rather than the font's empty box */
+static int glyph_missing(int face, unsigned int codepoint)
+{
+	return codepoint > ' ' && !posix_ui_font_has(face, codepoint);
+}
+
 /* a string's width in the layout at a size: measured at the layout's own
 scale (Present lays it out again at the window's) */
 static float measure(int font, float size, const char *text)
@@ -446,11 +456,57 @@ static float measure(int font, float size, const char *text)
 	{
 		int face = glyph_font(font, codepoint);
 
+		if (glyph_missing(face, codepoint))
+			continue;
 		width += posix_ui_font_advance(face, size, codepoint, face == previous_font ? previous : 0);
 		previous = codepoint;
 		previous_font = face;
 	}
 	return width;
+}
+
+/* (text_shown.h's question: whether a face, the context, draws a character) */
+static int face_has(void *context, unsigned int codepoint)
+{
+	int face = (int)(intptr_t)context;
+
+	return !glyph_missing(glyph_font(face, codepoint), codepoint);
+}
+
+static int shown_face(int font)
+{
+	float scale = 10.0f;
+
+	return font_face(font, &scale, NULL);
+}
+
+int ui_overlay_text_shown(int font, const char *text, char *out, int size)
+{
+	return text_shown(text, face_has, (void *)(intptr_t)shown_face(font), out, size);
+}
+
+void ui_overlay_name_shown(int font, const char *name, char *out, int size)
+{
+	text_shown_name(name, face_has, (void *)(intptr_t)shown_face(font), out, size);
+}
+
+/* text to draw: as it is, or "?" when the face shows none of its characters
+(a string of only letters it lacks, never drawn as nothing) */
+static const char *marked(int face, const char *text)
+{
+	const char *cursor = text;
+	unsigned int codepoint;
+	int blank = 1;
+
+	while ((codepoint = next_codepoint(&cursor)) != 0)
+	{
+		if (codepoint <= ' ')
+			continue;
+		if (!glyph_missing(glyph_font(face, codepoint), codepoint))
+			return text;
+		blank = 0;
+	}
+	return blank ? text : "?";
 }
 
 float ui_overlay_text_width(int font, float size, const char *text)
@@ -460,14 +516,18 @@ float ui_overlay_text_width(int font, float size, const char *text)
 	if (!text)
 		return 0.0f;
 	face = font_face(font, &size, NULL);
-	return measure(face, size, text);
+	return measure(face, size, marked(face, text));
 }
 
 static float add_skewed_text(int font, float size, float x, float y, int align, unsigned int color, float skew,
 	const char *text)
 {
-	int length = (int)strlen(text);
-	float width = measure(font, size, text);
+	int length;
+	float width;
+
+	text = marked(font, text);
+	length = (int)strlen(text);
+	width = measure(font, size, text);
 
 	if (overlay.text_count >= MAXIMUM_TEXTS ||
 		overlay.text_used + length + 1 > MAXIMUM_TEXT)
@@ -1635,6 +1695,8 @@ static void lay_out_text(int index, float scale, float origin_x, float origin_y,
 		struct quad *quad;
 		int face = glyph_font(font, codepoint);
 
+		if (glyph_missing(face, codepoint))
+			continue;
 		if (previous && face == previous_font)
 			pen_x += posix_ui_font_advance(face, (float)pixel_size, codepoint, previous) -
 				posix_ui_font_advance(face, (float)pixel_size, codepoint, 0);

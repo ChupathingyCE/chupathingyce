@@ -239,21 +239,22 @@ enum
 	EMBLEM_PIXELS = 64,
 };
 
-/* the colors: the theme's (ui_style_color: Halo Blue or Chupathingy Red),
-and those the same in both */
+/* the colors: the theme's (ui_style_color: Halo Blue, Chupathingy Red or
+Dashboard Green), and those the same in all */
 #define COLOR_PANEL_EDGE ui_style_color(UI_COLOR_PANEL_EDGE)
 #define COLOR_LABEL ui_style_color(UI_COLOR_LABEL_SOFT)
 #define COLOR_ROW_EDGE ui_style_color(UI_COLOR_ROW_EDGE)
 #define COLOR_PROMPT_GLOW ui_style_color(UI_COLOR_PROMPT_GLOW)
 #define COLOR_DOT_GAME ui_style_color(UI_COLOR_DOT_GAME)
 #define COLOR_DOT_OFFLINE ui_style_color(UI_COLOR_DOT_OFFLINE)
+#define COLOR_DOT_ONLINE ui_style_color(UI_COLOR_GOOD)
+#define COLOR_DIMMED ui_style_color(UI_COLOR_TEXT_OFF)
+#define COLOR_PLAYER ui_style_color(UI_COLOR_PLAYER)
 enum
 {
 	COLOR_VALUE = 0xFFFFFFFF,
-	COLOR_DOT_ONLINE = 0x7FE39AFF,
 	COLOR_DOT_AWAY = 0xE0A53AFF,
 	COLOR_MUTED = 0xFF9F9FFF,
-	COLOR_DIMMED = 0x6F829AFF,
 };
 
 /* SETTINGS' rows after the settings, signed in: the devices (Delta
@@ -776,6 +777,16 @@ static short sign_in_section(void)
 	return NONE;
 }
 
+/* debug.delta_sample (debug_sample_friends) */
+#ifdef HALO_RELEASE
+#define debug_sample() FALSE
+#else
+static boolean debug_sample(void)
+{
+	return config_boolean("debug.delta_sample");
+}
+#endif
+
 /* ---------- the card */
 
 static void card_update(void)
@@ -783,14 +794,14 @@ static void card_update(void)
 	struct discord_activity_game game;
 	char handle[64];
 
-	guide.linked = browser_profile_linked(handle, sizeof(handle)) != 0;
+	guide.linked = debug_sample() || browser_profile_linked(handle, sizeof(handle)) != 0;
 	guide.name[0] = 0;
 	/* (the profile's name as the site shows it, else its handle) */
 	if (guide.linked && guide.friends_loaded && friends_state.handle[0])
 		social_copy_text(guide.name, sizeof(guide.name), social_name(friends_state.display, friends_state.handle));
 	else if (guide.linked && handle[0])
 		social_copy_text(guide.name, sizeof(guide.name), handle);
-	guide.color = 0x2F6DD0FF;
+	guide.color = COLOR_PLAYER;
 	if (player_ui_get_active_player_profile_index(0) != NONE)
 	{
 		struct player_profile profile;
@@ -1842,6 +1853,63 @@ static void friends_news(boolean first)
 	}
 }
 
+/* debug.delta_sample: signed in, with made-up friends (one in a game, one
+online, one offline) and a party of two with its code, nothing asked of
+the site, for screenshots of the signed-in look. Debug builds only */
+static void debug_sample_friends(struct social_state *state)
+{
+	static char const *const handles[] = { "sarge", "grif", "simmons" };
+	static char const *const names[] = { "Sarge", "Grif", "Simmons" };
+	short index;
+
+	csmemset(state, 0, sizeof(*state));
+	social_copy_text(state->handle, sizeof(state->handle), "caboose");
+	social_copy_text(state->display, sizeof(state->display), "Caboose");
+	state->friend_count = 3;
+	for (index = 0; index < 3; index++)
+	{
+		struct social_friend *buddy = &state->friends[index];
+
+		social_copy_text(buddy->handle, sizeof(buddy->handle), handles[index]);
+		social_copy_text(buddy->display, sizeof(buddy->display), names[index]);
+		buddy->online = index < 2;
+		buddy->playing = index == 0;
+		buddy->joinable = index == 0;
+		if (index == 0)
+		{
+			buddy->game.listed = TRUE;
+			social_copy_text(buddy->game.name, sizeof(buddy->game.name), "Red Base");
+			social_copy_text(buddy->game.map, sizeof(buddy->game.map), "bloodgulch");
+			buddy->game.engine = 1;
+			buddy->game.teams = TRUE;
+			buddy->game.players = 6;
+			buddy->game.maximum_players = 16;
+		}
+	}
+}
+
+static void debug_sample_party(struct social_party *party)
+{
+	csmemset(party, 0, sizeof(*party));
+	party->has = TRUE;
+	social_copy_text(party->id, sizeof(party->id), "sample");
+	social_copy_text(party->code, sizeof(party->code), "RVB234");
+	party->leader = TRUE;
+	social_copy_text(party->who_can_join, sizeof(party->who_can_join), "friends");
+	party->largest = 4;
+	party->member_count = 2;
+	social_copy_text(party->members[0].id, sizeof(party->members[0].id), "1");
+	social_copy_text(party->members[0].name, sizeof(party->members[0].name), "Caboose");
+	social_copy_text(party->members[0].handle, sizeof(party->members[0].handle), "caboose");
+	social_copy_text(party->members[0].platform, sizeof(party->members[0].platform), "pc_macos");
+	party->members[0].leader = TRUE;
+	party->members[0].you = TRUE;
+	social_copy_text(party->members[1].id, sizeof(party->members[1].id), "2");
+	social_copy_text(party->members[1].name, sizeof(party->members[1].name), "Sarge");
+	social_copy_text(party->members[1].handle, sizeof(party->members[1].handle), "sarge");
+	social_copy_text(party->members[1].platform, sizeof(party->members[1].platform), "pc_windows");
+}
+
 /* each frame: where the player is, told to the browser thread; a new
 state read, its toasts; an action's answer */
 static void friends_update(void)
@@ -1858,7 +1926,17 @@ static void friends_update(void)
 		party_link_offer();
 	}
 	party_update();
-	guide.friends_status = browser_social_get(&friends_fresh, &serial);
+	if (debug_sample())
+	{
+		guide.friends_status = BROWSER_SOCIAL_LOADED;
+		if (!guide.friends_loaded)
+		{
+			debug_sample_friends(&friends_fresh);
+			serial = guide.friends_serial + 1;
+		}
+	}
+	else
+		guide.friends_status = browser_social_get(&friends_fresh, &serial);
 	if (serial != guide.friends_serial)
 	{
 		boolean first = !guide.friends_loaded;
@@ -2670,7 +2748,13 @@ static void party_update(void)
 	unsigned char tag[8];
 	boolean tagged;
 
-	browser_party_get(&guide.party, &serial);
+	if (!debug_sample())
+		browser_party_get(&guide.party, &serial);
+	else if (!guide.party.has)
+	{
+		debug_sample_party(&guide.party);
+		serial = guide.party_serial + 1;
+	}
 	if (serial != guide.party_serial)
 	{
 		guide.party_serial = serial;
@@ -3440,6 +3524,17 @@ static unsigned int dot_color(int state)
 	}
 }
 
+/* the dot drawn at x, y (its 6 by 6 square): in a game, a ring around it
+too, so it stands apart from Online by its shape as well as its color */
+static void dot_draw(float x, float y, int state)
+{
+	unsigned int color = dot_color(state);
+
+	ui_overlay_rect(x, y, 6, 6, 3, color);
+	if (state == SOCIAL_STATE_IN_GAME)
+		ui_overlay_outline(x - 2.5f, y - 2.5f, 11, 11, 5.5f, 1.0f, color);
+}
+
 /* the ui.map's plasma map, read once it is in the texture cache (none:
 the overlay's own noise) */
 static void plasma_look(void)
@@ -3508,17 +3603,22 @@ static void render_tabs(void)
 /* a player's row: their dot, tag, status line and platform's logo */
 static void render_row(struct social_row const *row, float x, float y, float width, boolean on, short index)
 {
+	char tag[SOCIAL_TAG_SIZE + 4];
+
+	/* (a name of letters the menus' fonts lack: its ASCII letters, or
+	"Player", never a blank row) */
+	ui_overlay_name_shown(ui_style_text_font(UI_TEXT_NAME), row->tag, tag, sizeof(tag));
 	ui_style_row(x, y, width, ROW_HEIGHT, on);
 	if (row->state >= 0)
-		ui_overlay_rect(x + 9, y + ROW_HEIGHT * 0.5f - 3, 6, 6, 3, dot_color(row->state));
+		dot_draw(x + 9, y + ROW_HEIGHT * 0.5f - 3, row->state);
 	if (row->status[0])
 	{
-		ui_style_text(UI_TEXT_NAME, x + 22, y + 3, UI_ALIGN_LEFT, row->tag);
+		ui_style_text(UI_TEXT_NAME, x + 22, y + 3, UI_ALIGN_LEFT, tag);
 		ui_style_text(row->muted ? UI_TEXT_WARNING : UI_TEXT_STATUS, x + 22, y + 17, UI_ALIGN_LEFT, row->status);
 	}
 	else
 		ui_style_text(UI_TEXT_NAME, x + 22, y + (ROW_HEIGHT - ui_style_text_size(UI_TEXT_NAME)) * 0.5f, UI_ALIGN_LEFT,
-			row->tag);
+			tag);
 	if (row->platform > 0)
 		ui_overlay_platform(row->platform, 11.0f, x + width - 14, y + (ROW_HEIGHT - 11.0f) * 0.5f, COLOR_LABEL, 0);
 	target_add(x, y, x + width, y + ROW_HEIGHT, _target_row, index);
@@ -4255,7 +4355,7 @@ static void render_party_qr(float left, float top)
 	size = (short)guide.qr_size;
 	if (size <= 0 || top + PARTY_QR_WIDTH > BODY_BOTTOM)
 		return;
-	/* (dark on white, with the quiet edge readers need) */
+	/* (black on white in every theme, with the quiet edge readers need) */
 	module = (float)PARTY_QR_WIDTH / (size + 8);
 	ui_overlay_rect(left, top, PARTY_QR_WIDTH, PARTY_QR_WIDTH, 4, 0xFFFFFFFF);
 	for (y = 0; y < size; y++)
@@ -4267,7 +4367,7 @@ static void render_party_qr(float left, float top)
 			if (guide.qr[y * size + x])
 			{
 				ui_overlay_rect(left + (x + 4) * module, top + (y + 4) * module, run * module + 0.3f, module + 0.3f, 0,
-					0x0A1A33FF);
+					0x000000FF);
 			}
 		}
 	}
@@ -4286,7 +4386,8 @@ static void party_row_line(float x, float y, float right, char const *name, char
 	float room = right - x - (note[0] ? gap + note_width : 0.0f), name_width;
 	char shown[SOCIAL_TAG_SIZE + 4];
 
-	social_copy_text(shown, sizeof(shown), name);
+	/* (a name of letters the menus' fonts lack: its ASCII letters, or "Player") */
+	ui_overlay_name_shown(UI_FONT_MENU, name, shown, sizeof(shown));
 	if (ui_overlay_text_width(UI_FONT_MENU, name_size, shown) > room)
 	{
 		size_t length = strlen(shown);
@@ -4362,7 +4463,7 @@ static void render_party(void)
 		}
 		ui_style_row(CONTENT_LEFT, y, LIST_WIDTH, PARTY_ROW_HEIGHT, on);
 		if (row.state >= 0)
-			ui_overlay_rect(CONTENT_LEFT + 9, y + PARTY_ROW_HEIGHT * 0.5f - 3, 6, 6, 3, dot_color(row.state));
+			dot_draw(CONTENT_LEFT + 9, y + PARTY_ROW_HEIGHT * 0.5f - 3, row.state);
 		party_row_line(CONTENT_LEFT + 22, y, CONTENT_LEFT + LIST_WIDTH - (row.platform > 0 ? 22 : 10), row.tag,
 			row.status);
 		if (row.platform > 0)
@@ -4842,7 +4943,7 @@ static void render_toast(void)
 		}
 	}
 	else
-		ui_overlay_rect(x + 8, y + 7, 20, 20, 4, fade(guide.color ? guide.color : 0x2F6DD0FF, share));
+		ui_overlay_rect(x + 8, y + 7, 20, 20, 4, fade(guide.color ? guide.color : COLOR_PLAYER, share));
 	ui_style_text_faded(UI_TEXT_NAME, share, x + 36, y + 5, UI_ALIGN_LEFT, guide.toast_title);
 	ui_style_text_faded(UI_TEXT_STATUS, share, x + 36, y + 20, UI_ALIGN_LEFT, guide.toast_line);
 	ui_overlay_layer(0);
@@ -5359,13 +5460,16 @@ static void handle_pressed(unsigned int pressed)
 			about_input(&guide.about_view, ABOUT_INPUT_A);
 		return;
 	}
-	/* (Steam's sign-in window: A its button, B back, nothing under it) */
+	/* (Steam's sign-in window: A its button with the focus, B back, left
+	and right the question's two buttons, nothing under it) */
 	if (guide_workshop_link_modal())
 	{
 		if (pressed & GUIDE_INPUT_A)
 			guide_workshop_link_modal_press();
 		else if (pressed & GUIDE_INPUT_B)
 			guide_workshop_link_modal_back();
+		else if (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT))
+			guide_workshop_link_modal_move((pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
 		return;
 	}
 	/* (WORKSHOP: LT and RT, Page Up and Page Down, a page of Steam's list on or back) */
@@ -5652,14 +5756,18 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			guide_workshop_page_step(target->index == 2 ? 0 : target->index ? 1 : -1);
 			break;
 		case _target_modal:
-			guide_workshop_link_modal_press();
+			guide_workshop_link_modal_click(target->index);
 			break;
 		}
 		return;
 	}
-	/* (Steam's sign-in window: a click beside it does nothing) */
+	/* (Steam's sign-in window: a click beside it does nothing; beside
+	UNLINK's question, CANCEL) */
 	if (guide_workshop_link_modal())
+	{
+		guide_workshop_link_modal_click_outside(pointer->click_x, pointer->click_y);
 		return;
+	}
 	/* (a click outside the panel closes it; outside the leader's offer,
 	nothing) */
 	if (guide.open && (pointer->click_x < PANEL_X || pointer->click_x >= PANEL_RIGHT || pointer->click_y < PANEL_Y ||

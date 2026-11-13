@@ -44,6 +44,11 @@ HALO_CONSOLE_WIDGET_POOL_SIZE
 	Xbox's menus: the desktop's 256 KB is for the PC menus' screens
 	(port/assets/menus), which have many more widgets (source/interface/
 	ui_widget.c; console.widget_pool_log logs what the menus use)
+HALO_CONSOLE_MAP_LIST_ROWS
+	the rows of the menus' map list (port/linux/game/ui_map_list.c): the
+	original Xbox's 40, every other console's 256; the desktop builds and
+	Android leave it undefined and hold 2560, room for a large Custom
+	Edition folder beside the whole MCC catalog
 HALO_CONSOLE_NO_GUIDE
 	no Guide (port/linux/game/guide.c, over any screen) and no presence
 	sent to the site (browser.c, network.share_presence), their settings
@@ -70,6 +75,10 @@ HALO_CONSOLE_NO_HOST_MAP_DOWNLOADS
 	the host"): every console, which has no game list (HALO_GAME_BROWSER)
 	anyway; the desktops and Android have it, off until the player turns
 	it on
+HALO_CONSOLE_NO_STUBBS
+	no Stubbs mode (port/linux/game/stubbs_mode.c: game.pack_menus =
+	"stubbs" with a maps_stubbs folder): every console, until the mode is
+	finished on the desktop and sized to each one's memory
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads
@@ -91,6 +100,11 @@ HALO_CONSOLE_LOG_THROTTLE
 	a console whose log writes are slow (debug.txt on a card): the host's
 	notices are logged without their blank lines, at most three a second
 	(port/linux/game/network_distributed.c)
+HALO_CONSOLE_IO_RETRY_FOREVER
+	the original Xbox, whose XAPI keeps a cache read or write the system is
+	short of resources for (a stalled DVD read) being tried until it goes, as
+	the retail game did; elsewhere it gives up after 5 seconds and fails
+	(cached_map_issue_async_request, cache_files_decompress_windows.c: #1149)
 HALO_CONSOLE_LOG_BUFFER
 	debug.txt's lines kept in memory and written together, a second after
 	the first waits, and at once for an exception, an exit or a crash
@@ -409,6 +423,7 @@ compile lines: source/cseries/xbox_address.h).
 
 #ifdef HALO_XBOX_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_IO_RETRY_FOREVER 1
 #define HALO_CONSOLE_LOG_BUFFER 1
 /* (the H1 Performance Build's 64 KB; the retail game had 16 KB) */
 #define HALO_CONSOLE_WIDGET_POOL_SIZE 0x10000
@@ -497,6 +512,22 @@ consoles nor the dedicated server, which downloads nothing */
 #endif
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_HOST_MAP_DOWNLOADS) && !defined(HALO_SERVER)
 #define HALO_HOST_MAP_DOWNLOADS 1
+#endif
+
+/* the menus' map list's rows (ui_map_list.c): a console's own size */
+#if defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_MAP_LIST_ROWS)
+#define HALO_CONSOLE_MAP_LIST_ROWS 40
+#endif
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_MAP_LIST_ROWS)
+#define HALO_CONSOLE_MAP_LIST_ROWS 256
+#endif
+
+/* Stubbs mode (port/linux/game/stubbs_mode.c), an early look: the desktop
+builds alone for now, not the consoles */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_STUBBS)
+#define HALO_CONSOLE_NO_STUBBS 1
 #endif
 
 /* the medals' icons (port/assets/medals, tools/medal_assets.py: the site's

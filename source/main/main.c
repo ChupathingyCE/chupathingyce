@@ -1671,6 +1671,19 @@ static void main_new_map(
 static void main_change_map_name(
 	void)
 {
+	/* port: an MCC level that isn't there (map_name, a stale list's Load
+	Level), asked for from the menus, never leaves them: its reason is in
+	debug.txt and on the main menu, as for a missing map (#1149) */
+	if (main_globals.main_menu_scenario_loaded == TRUE &&
+		!main_globals.map_change_load_timer &&
+		main_globals.connection == _game_connection_local &&
+		mcc_level_name(main_globals.soloplayer_map_name) &&
+		!mcc_cache_require(main_globals.soloplayer_map_name, 0))
+	{
+		main_globals.defer_map_change = FALSE;
+		main_goto_main_menu();
+		return;
+	}
 	if (main_globals.main_menu_scenario_loaded == TRUE)
 	{
 		if (!main_globals.map_change_load_timer)
@@ -1719,7 +1732,13 @@ static void main_change_map_name(
 			options.map_name[NUMBEROF(options.map_name) - 1] = 0;
 			options.difficulty = global_difficulty_level;
 			game_dispose_from_old_map();
-			game_precache_new_map(options.map_name, TRUE);
+			/* port: an MCC level that isn't there goes back to the menus
+			with its reason, as one that fails to load does (#1149) */
+			if (!game_precache_new_map(options.map_name, TRUE) && mcc_main_load_failed(options.map_name))
+			{
+				main_globals.map_change_load_timer = 0;
+				return;
+			}
 			game_unload();
 			main_new_map(&options);
 
@@ -2962,7 +2981,9 @@ static void main_setup_connection(
 			NUMBEROF(options.map_name) - 1);
 		options.map_name[NUMBEROF(options.map_name) - 1] = 0;
 		options.difficulty = global_difficulty_level;
-		game_precache_new_map(options.map_name, TRUE);
+		/* port: (as main_change_map_name's, #1149) */
+		if (!game_precache_new_map(options.map_name, TRUE) && mcc_main_load_failed(options.map_name))
+			return;
 		game_dispose_from_old_map();
 		main_new_map(&options);
 	}

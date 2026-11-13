@@ -424,7 +424,8 @@ static const struct config_setting config_settings[] =
 		"(recently added first). Sort in the list changes it." },
 	{ "display.theme", _config_string, "\"blue\"", "HALO_THEME", _environment_value, _platform_all,
 		"The colors of the Delta Guide and the setup screen: \"blue\" (Halo\n"
-		"Blue) or \"red\" (Chupathingy Red). A change shows at once." },
+		"Blue), \"red\" (Chupathingy Red) or \"green\" (Dashboard Green).\n"
+		"A change shows at once." },
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the text and titles of the menus and the HUD with sharp,\n"
 		"high-res fonts." },
@@ -1399,7 +1400,7 @@ static const struct config_setting config_settings[] =
 		"Where saved games and profiles go. Leave it empty for the usual place." },
 	{ "paths.logs", _config_string, "\"\"", "HALO_LOG_ROOT", _environment_value, _platform_desktop | _platform_server,
 		"Where logs and crash reports go. Leave it empty for logs/ next to\n"
-		"maps." },
+		"maps (or in paths.saves, when that is set)." },
 	{ "paths.cache", _config_string, "\"\"", "HALO_CACHE_ROOT", _environment_value, _platform_desktop | _platform_server,
 		"Where Chupathingy keeps its cache. Leave it empty for cache/ in the\n"
 		"save folder." },
@@ -1409,8 +1410,9 @@ static const struct config_setting config_settings[] =
 		"Steam/XDG hints, macOS's Steam folder, usual folders and their libraries. Windows paths use single\n"
 		"quotes: 'D:\\Steam'." },
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
-		"Use explicit MCC campaign manifests for mission discovery, ordering and\n"
-		"progression. Reopen the map list after changing this." },
+		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
+		"Workshop campaign maps are listed either way. Reopen the map list after\n"
+		"changing this." },
 	{ "game.workshop_maps", _config_boolean, "false", "HALO_WORKSHOP_MAPS", _environment_value, _platform_desktop,
 		"Discover installed Halo CE Steam Workshop maps. Read-only desktop\n"
 		"discovery; packages installed in maps_mcc are always read." },
@@ -1439,6 +1441,11 @@ static const struct config_setting config_settings[] =
 	{ "game.mcc_collections", _config_boolean, "false", "HALO_MCC_COLLECTIONS", _environment_value, _platform_all,
 		"Group identified MCC packages into the bundled Workshop collections.\n"
 		"Works with imported packages without Steam; reopen the map list after changing." },
+	{ "display.mcc_texture_prepare_mb", _config_integer, "0", "HALO_MCC_TEXTURE_PREPARE_MB", _environment_value,
+		_platform_desktop,
+		"OpenGL only: MB of an MCC map's largest textures to send to the GPU while\n"
+		"it loads (at most 512), instead of the first time each is drawn. 0 sends\n"
+		"each when it is first drawn. Read when a map loads." },
 
 #ifdef HALO_SWITCH_CONSOLE
 	/* ---- performance (the Switch host's: port/switch/host/host_main.c) */
@@ -1672,6 +1679,10 @@ static const struct config_setting config_settings[] =
 		"at a time, separated by ; (up, down, left, right, a, b, x, y, lb, rb,\n"
 		"start, back, lt, rt), for tests.\n"
 		"Debug builds only: a release build ignores it." },
+	{ "debug.delta_sample", _config_boolean, "false", "HALO_DELTA_SAMPLE", _environment_set_is_true, _platform_all,
+		"The Delta Guide signed in with made-up friends and a party, nothing\n"
+		"asked of the site, for screenshots. Debug builds only: a release build\n"
+		"ignores it." },
 #endif
 #ifdef HALO_CAPTURE
 	{ "debug.clips_software", _config_boolean, "false", "HALO_CLIPS_SOFTWARE", _environment_set_is_true,
@@ -2213,9 +2224,11 @@ static void config_path(char *path, size_t size)
 	const char *save_root = getenv("HALO_SAVE_ROOT");
 
 	/* (a copy given a save root of its own, a test's, keeps its settings
-	there too, not in the player's) */
+	there too, not in the player's; a new one is made, so its settings can
+	be written) */
 	if (save_root && *save_root)
 	{
+		SDL_CreateDirectory(save_root);
 		snprintf(path, size, "%s/config.toml", save_root);
 		return;
 	}
@@ -4243,7 +4256,7 @@ static const struct
 	const char *otherwise;
 } config_words[] =
 {
-	{ "display.theme", { "blue", "red", NULL }, "\"blue\"" },
+	{ "display.theme", { "blue", "red", "green", NULL }, "\"blue\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },

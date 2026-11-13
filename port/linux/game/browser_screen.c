@@ -1723,8 +1723,29 @@ static long compare_games(
 	return order ? order : compare_names(a->name, b->name);
 }
 
+/* whether two invites are the same host's: their first halves, its key
+hash in hexadecimal, alike in either case */
+static boolean same_key_hash(
+	char const *a,
+	char const *b)
+{
+	short index;
+
+	for (index = 0; index < BROWSER_INVITE_LENGTH / 2; index++)
+	{
+		char x = a[index] >= 'A' && a[index] <= 'F' ? (char)(a[index] - 'A' + 'a') : a[index];
+		char y = b[index] >= 'A' && b[index] <= 'F' ? (char)(b[index] - 'A' + 'a') : b[index];
+
+		if (!x || x != y)
+			return FALSE;
+	}
+	return TRUE;
+}
+
 /* the game list's games, in the screen's order; the selection stays on its
-game */
+game, the list's order changing under it as players come and go: by its
+invite, or by its host's key hash (an invite's first half) when the second
+half, its token, is new (a host that listed its game again) */
 static void fetch_games(
 	void)
 {
@@ -1780,10 +1801,26 @@ static void fetch_games(
 			browser_screen.count = (short)(browser_screen.fold_row + 1);
 		csmemset(&browser_screen.games[browser_screen.fold_row], 0, sizeof(browser_screen.games[0]));
 	}
-	for (index = 0; invite[0] && index < browser_screen.count; index++)
+	if (invite[0])
 	{
-		if (index != browser_screen.fold_row && !strcmp(browser_screen.games[index].invite, invite))
+		short same_host = NONE;
+
+		for (index = 0; index < browser_screen.count; index++)
+		{
+			if (index == browser_screen.fold_row)
+				continue;
+			if (!strcmp(browser_screen.games[index].invite, invite))
+				break;
+			if (same_host == NONE &&
+				same_key_hash(browser_screen.games[index].invite, invite))
+			{
+				same_host = index;
+			}
+		}
+		if (index < browser_screen.count)
 			browser_screen.selected = index;
+		else if (same_host != NONE)
+			browser_screen.selected = same_host;
 	}
 }
 
@@ -3957,26 +3994,41 @@ static void draw_header(
 
 /* the views' tabs, as the Guide draws its sections': LB and RB at the
 ends, the tabs between them, the view shown lit; the pointer shows the view
-of the tab it is on (dialog: none, under one) */
+of the tab it is on (dialog: none, under one). Each tab has a dark backing,
+so that its name reads over the menus' moving background (the ring's
+bright edge passed behind OPENCE), and the tabs fit between LB and RB, their
+words smaller if they must */
 static void draw_tabs(
 	boolean dialog)
 {
 	float size = TABS_HEIGHT * 0.45f, pad = TABS_HEIGHT * 0.45f, gap = 3.0f, glyph = TABS_HEIGHT * 0.72f;
-	float total = 0.0f, x, width;
+	float total = 0.0f, x, width, left, right;
 	short view;
 
-	for (view = 0; view < NUMBER_OF_VIEWS; view++)
-		total += ui_overlay_text_width(UI_FONT_MENU, size, view_names[view]) + 2 * pad + gap;
-	total -= gap;
 	x = LIST_X + 4;
 	width = ui_overlay_button(UI_BUTTON_LEFT_SHOULDER, glyph, x, TABS_Y + (TABS_HEIGHT - glyph) * 0.5f, 0xFFFFFFFF);
 	if (!dialog)
 		add_target(x - 4, TABS_Y, x + width + 4, TABS_Y + TABS_HEIGHT, UI_BUTTON_LEFT_SHOULDER);
+	left = x + width + 6;
 	width = ui_overlay_button_width(UI_BUTTON_RIGHT_SHOULDER, glyph);
 	x = LIST_X + LIST_WIDTH - 4 - width;
 	ui_overlay_button(UI_BUTTON_RIGHT_SHOULDER, glyph, x, TABS_Y + (TABS_HEIGHT - glyph) * 0.5f, 0xFFFFFFFF);
 	if (!dialog)
 		add_target(x - 4, TABS_Y, x + width + 4, TABS_Y + TABS_HEIGHT, UI_BUTTON_RIGHT_SHOULDER);
+	right = x - 6;
+	for (view = 0; view < NUMBER_OF_VIEWS; view++)
+		total += ui_overlay_text_width(UI_FONT_MENU, size, view_names[view]) + 2 * pad + gap;
+	total -= gap;
+	/* (wider than the room between LB and RB, a larger button's: smaller) */
+	if (total > right - left && total > 0.0f)
+	{
+		float scale = (right - left) / total;
+
+		size *= scale;
+		pad *= scale;
+		gap *= scale;
+		total = right - left;
+	}
 	x = LIST_X + LIST_WIDTH * 0.5f - total * 0.5f;
 	for (view = 0; view < NUMBER_OF_VIEWS; view++)
 	{
@@ -3996,7 +4048,10 @@ static void draw_tabs(
 				view_names[view]);
 		}
 		else
+		{
+			ui_overlay_rect(x, TABS_Y, width, TABS_HEIGHT, 6, 0x06122A99);
 			ui_overlay_text(UI_FONT_MENU, size, x + width * 0.5f, text_y, UI_ALIGN_CENTER, 0x7FB6EEFF, view_names[view]);
+		}
 		if (!dialog && browser_screen.target_count < MAXIMUM_TARGETS)
 		{
 			browser_screen.targets[browser_screen.target_count].x0 = x;
@@ -4509,7 +4564,7 @@ static void draw_bar_prompts(
 		count = 5;
 	}
 
-	snprintf(filter_word, sizeof(filter_word), "=FILTER: %s", browser_list_filter_name());
+	snprintf(filter_word, sizeof(filter_word), "=%s", browser_list_filter_label());
 	width = prompts_width(count, buttons, words, PROMPT_BUTTON, PROMPT_TEXT);
 	prompts(count, buttons, words, on, PROMPTS_RIGHT - width, BAR_Y + (BAR_BOTTOM - BAR_Y - PROMPT_BUTTON) / 2,
 		PROMPT_BUTTON, PROMPT_TEXT, BAR_Y, 480);

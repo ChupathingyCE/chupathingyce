@@ -12,8 +12,9 @@ each stands in the player's own Steam libraries.
   and description. A on an item opens its options: SUBSCRIBE (OPEN once
   Steam has it), which opens the item's page in the
   Steam client, where the player subscribes; Steam downloads it into MCC's
-  own Workshop folder. With game.workshop_maps off, TURN ON turns it
-  on, so the item's maps join the map lists.
+  own Workshop folder. With game.workshop_maps off, the page's one row says
+  so (WORKSHOP MAPS  OFF), and pressing it turns them on, so the item's
+  maps join the map lists.
 - While the section shows, or an item waits on Steam, the item folders are
   looked at every second: an item that becomes installed is rescanned into
   the map lists (mcc_maps_rescan) and gets a toast.
@@ -24,8 +25,11 @@ each stands in the player's own Steam libraries.
   once it's scanned; linked, GET downloads in the game with its progress
   (Installing 45%), never opening Steam. Only when it can't get an item
   ("Not owned") does OPEN IN STEAM show, beside TRY AGAIN.
-- An item's page has one main button for where it stands (TURN ON while
-  Workshop maps are off, PLAY, LINK STEAM, GET) and at most one more.
+- An item's page has one main button for where it stands (WORKSHOP MAPS
+  while they are off, PLAY, LINK STEAM, GET) and at most one more. A
+  question (REMOVE's, CONNECT STEAM's, UNLINK's) has its yes and CANCEL,
+  the focus on CANCEL: B, CANCEL or a click beside UNLINK's window leaves
+  things as they were.
   Where the game's own download isn't built, CONNECT STEAM (after a note)
   turns on the Steam client's bridge instead.
 - Steam's list comes a page at a time: LT and RT (Page Up, Page Down), the
@@ -52,6 +56,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "../src/ui_overlay.h"
 #include "../src/workshop_browser.h"
+#include "../src/steam_workshop.h"
 #include "../src/steam_client_bridge.h"
 #include "../src/browser.h"
 #include "../src/settings_rows.h"
@@ -99,13 +104,14 @@ enum
 	LINK_REFRESHES = 3,
 };
 
+/* the theme's (ui_style_color), and white the same in all */
+#define COLOR_INSTALLED ui_style_color(UI_COLOR_GOOD)
+#define COLOR_WAITING ui_style_color(UI_COLOR_WARNING)
+#define COLOR_NOT_INSTALLED ui_style_color(UI_COLOR_STATUS)
+#define COLOR_DESCRIPTION ui_style_color(UI_COLOR_TEXT_PALE)
 enum
 {
 	COLOR_VALUE = 0xFFFFFFFF,
-	COLOR_INSTALLED = 0x7FE39AFF,
-	COLOR_WAITING = 0xFFCF6BFF,
-	COLOR_NOT_INSTALLED = 0x8FC4FFFF,
-	COLOR_DESCRIPTION = 0xC8D3E0FF,
 	NOTE_LINES = 3,
 	PICTURE_HEIGHT = 150,
 };
@@ -125,6 +131,8 @@ enum
 	_option_open_steam,
 	/* the list failed: asked again */
 	_option_retry,
+	/* a question's no (REMOVE's, CONNECT STEAM's): nothing done */
+	_option_cancel,
 	/* the link row's LINK (to SETTINGS' STEAM ACCOUNT, its QR shown) */
 	_option_link,
 	/* the page row's */
@@ -148,8 +156,15 @@ static struct
 	boolean showing;
 	/* USE STEAM pressed once: its note shows, and CONFIRM turns it on */
 	boolean confirm;
-	/* REMOVE pressed once: CONFIRM deletes the files */
+	/* REMOVE pressed once: DELETE deletes the files */
 	boolean confirm_remove;
+	/* where the button that asked stood: CANCEL takes its place, so a
+	second press or click there answers no */
+	short confirm_slot;
+	/* UNLINK's question: the button with the focus (1: CANCEL, as it opens),
+	and its window, for a click beside it */
+	short modal_option;
+	float modal_x0, modal_y0, modal_x1, modal_y1;
 	/* LINK's QR: Steam's text for it, and its modules (made again when the text changes) */
 	char link_text[256];
 	short link_qr_size;
@@ -248,11 +263,21 @@ static short options_of(struct workshop_browser_item const *item, short *options
 		return count;
 	}
 	/* (one main action for where the item stands, then at most one more:
-	Workshop maps off, TURN ON; installed, PLAY; not linked, LINK STEAM;
-	else GET) */
+	Workshop maps off, the row that says so and turns them on; installed,
+	PLAY; not linked, LINK STEAM; else GET) */
 	if (!config_boolean("game.workshop_maps"))
 	{
 		options[count++] = _option_show_maps;
+		return count;
+	}
+	/* (a question asked: its yes and CANCEL, CANCEL where the button that
+	asked was) */
+	if ((workshop_view.confirm_remove && workshop_browser_removable(workshop_view.row)) || workshop_view.confirm)
+	{
+		short yes = workshop_view.confirm_remove ? _option_remove : _option_use_steam;
+
+		options[count++] = workshop_view.confirm_slot ? yes : _option_cancel;
+		options[count++] = workshop_view.confirm_slot ? _option_cancel : yes;
 		return count;
 	}
 	if (item->state == WORKSHOP_ITEM_INSTALLED)
@@ -325,8 +350,9 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	case _option_search: return "SEARCH";
 	case _option_play: return "PLAY";
 	case _option_update: return link_needed() ? "LINK STEAM" : item->steam_error[0] ? "RETRY" : "UPDATE";
-	case _option_remove: return workshop_view.confirm_remove ? "CONFIRM" : "REMOVE";
-	case _option_show_maps: return "TURN ON";
+	case _option_remove: return workshop_view.confirm_remove ? "DELETE" : "REMOVE";
+	case _option_show_maps: return "WORKSHOP MAPS";
+	case _option_cancel: return "CANCEL";
 	case _option_unsubscribe: return "CANCEL";
 	case _option_open_steam: return "OPEN IN STEAM";
 	case _option_retry: return "RETRY";
@@ -334,7 +360,7 @@ static char const *option_label(struct workshop_browser_item const *item, short 
 	case _option_link: return "LINK";
 	case _option_page_next: return "NEXT PAGE";
 	case _option_page_previous: return "PREVIOUS";
-	case _option_use_steam: return workshop_view.confirm ? "CONFIRM" : "CONNECT STEAM";
+	case _option_use_steam: return workshop_view.confirm ? "CONNECT" : "CONNECT STEAM";
 	default: break;
 	}
 	if (item->setup)
@@ -506,6 +532,15 @@ boolean guide_workshop_page_offered(short step)
 	return workshop_browser_page_offered(step) != 0;
 }
 
+/* a question on the item's page put away, unanswered (CANCEL, B, another
+item or the page left) */
+static void confirms_clear(void)
+{
+	if (workshop_view.confirm || workshop_view.confirm_remove)
+		workshop_view.option = 0;
+	workshop_view.confirm = workshop_view.confirm_remove = FALSE;
+}
+
 static void option_run(short option)
 {
 	if (option >= _option_filter && option < _option_sort)
@@ -549,10 +584,13 @@ static void option_run(short option)
 			workshop_view.waiting = TRUE;
 		return;
 	case _option_remove:
-		/* (twice: the files are deleted) */
+		/* (asked first: DELETE deletes the files, the focus on CANCEL, in
+		REMOVE's place) */
 		if (!workshop_view.confirm_remove)
 		{
 			workshop_view.confirm_remove = TRUE;
+			workshop_view.confirm_slot = workshop_view.option ? 1 : 0;
+			workshop_view.option = workshop_view.confirm_slot;
 			return;
 		}
 		workshop_view.confirm_remove = FALSE;
@@ -560,8 +598,14 @@ static void option_run(short option)
 		workshop_browser_remove(workshop_view.row);
 		return;
 	case _option_show_maps:
+		/* (the row is the setting: pressed, Workshop maps are on, the
+		player's own choice) */
 		config_write_boolean("game.workshop_maps", 1);
 		mcc_maps_rescan();
+		workshop_view.option = 0;
+		return;
+	case _option_cancel:
+		confirms_clear();
 		return;
 	case _option_unsubscribe:
 		workshop_browser_unsubscribe(workshop_view.row);
@@ -590,9 +634,13 @@ static void option_run(short option)
 		guide_workshop_page_step(option == _option_page_next ? 1 : -1);
 		return;
 	case _option_use_steam:
+		/* (asked first: CONNECT turns it on, the focus on CANCEL, in CONNECT
+		STEAM's place) */
 		if (!workshop_view.confirm)
 		{
 			workshop_view.confirm = TRUE;
+			workshop_view.confirm_slot = workshop_view.option ? 1 : 0;
+			workshop_view.option = workshop_view.confirm_slot;
 			return;
 		}
 		workshop_view.confirm = FALSE;
@@ -656,6 +704,21 @@ static unsigned int item_color(struct workshop_browser_item const *item)
 	case WORKSHOP_STEP_NOT_AVAILABLE: return COLOR_DESCRIPTION;
 	default: return COLOR_NOT_INSTALLED;
 	}
+}
+
+/* an item's title as drawn: the menus' fonts have no Chinese, Japanese or
+Korean letters, which are left out rather than drawn as boxes, with the
+spaces around them (ui_overlay_text_shown); a title of only those is the
+item's number */
+static char const *shown_title(struct workshop_browser_item const *item)
+{
+	static char shown[sizeof(item->title)];
+
+	if (item->setup)
+		return item->title;
+	if (!ui_overlay_text_shown(UI_FONT_MENU, item->title, shown, sizeof(shown)))
+		snprintf(shown, sizeof(shown), "Workshop item %s", item->id);
+	return shown;
 }
 
 /* text measured in a font (guide_layout.h's measure: the font its context) */
@@ -771,7 +834,7 @@ static void link_qr_draw(struct guide_rect square, char const *text)
 				;
 			if (dark)
 				ui_overlay_rect(square.x + (qr_x + 4) * module, square.y + (qr_y + 4) * module, run * module + 0.3f,
-					module + 0.3f, 0, 0x0A1A33FF);
+					module + 0.3f, 0, 0x000000FF);
 		}
 	}
 }
@@ -793,7 +856,10 @@ static void link_settings_press(void)
 {
 	if (steam_link_linked(NULL, 0))
 	{
+		/* (UNLINK's question, the focus on CANCEL: a press by mistake
+		undoes nothing) */
 		steam_link_set_armed(1);
+		workshop_view.modal_option = 1;
 		return;
 	}
 	link_begin(NULL);
@@ -879,6 +945,9 @@ void guide_workshop_link_modal_press(void)
 	if (unlink_asked())
 	{
 		steam_link_set_armed(0);
+		/* (CANCEL: linked as it was) */
+		if (workshop_view.modal_option)
+			return;
 		steam_link_unlink();
 		return;
 	}
@@ -897,6 +966,31 @@ void guide_workshop_link_modal_back(void)
 	if (link_busy(steam_link_poll(NULL, 0, NULL, 0)))
 		steam_link_cancel();
 	link_modal_close();
+}
+
+void guide_workshop_link_modal_move(short step)
+{
+	/* (the question's two buttons: UNLINK left, CANCEL right) */
+	if (unlink_asked())
+		workshop_view.modal_option = (short)(step < 0 ? 0 : 1);
+}
+
+void guide_workshop_link_modal_click(short index)
+{
+	if (unlink_asked())
+		workshop_view.modal_option = index ? 1 : 0;
+	guide_workshop_link_modal_press();
+}
+
+void guide_workshop_link_modal_click_outside(short x, short y)
+{
+	/* (UNLINK's question: a click beside its window is CANCEL; Steam's
+	sign-in keeps waiting for the scan, only its button closes it) */
+	if (unlink_asked() && (x < workshop_view.modal_x0 || x >= workshop_view.modal_x1 || y < workshop_view.modal_y0 ||
+		y >= workshop_view.modal_y1))
+	{
+		steam_link_set_armed(0);
+	}
 }
 
 char const *guide_workshop_link_note(void)
@@ -923,15 +1017,16 @@ void guide_workshop_link_modal_render(float left, float top, float right, float 
 	center = layout.window.x + layout.window.width * 0.5f;
 	/* (the Guide under it dimmed past reading, the window solid) */
 	ui_overlay_rect(-200, 0, 1040, 480, 0, 0x000000E6);
-	ui_overlay_rect(layout.window.x, layout.window.y, layout.window.width, layout.window.height, 10, 0x061226FF);
+	ui_overlay_rect(layout.window.x, layout.window.y, layout.window.width, layout.window.height, 10,
+		ui_style_color(UI_COLOR_WINDOW));
 	ui_style_panel(layout.window.x, layout.window.y, layout.window.width, layout.window.height, 1.0f);
 	if (question)
 	{
 		char lines[2][GUIDE_LAYOUT_LINE_SIZE];
 		int count, index;
 
-		text_line(UI_TEXT_TITLE, center, layout.title.y, layout.title.width, UI_ALIGN_CENTER, "UNLINK STEAM");
-		count = guide_layout_wrap("The game forgets the sign-in here and at Steam.", layout.line.width,
+		text_line(UI_TEXT_TITLE, center, layout.title.y, layout.title.width, UI_ALIGN_CENTER, "UNLINK STEAM?");
+		count = guide_layout_wrap("Workshop downloads will need you to scan again.", layout.line.width,
 			ui_style_text_size(UI_TEXT_LINE), measure_font, (void *)(intptr_t)ui_style_text_font(UI_TEXT_LINE), 2,
 			lines, NULL);
 		for (index = 0; index < count; index++)
@@ -974,13 +1069,31 @@ void guide_workshop_link_modal_render(float left, float top, float right, float 
 		ui_overlay_text(ui_style_text_font(UI_TEXT_LABEL), ui_style_text_size(UI_TEXT_LABEL), center, layout.status.y,
 			UI_ALIGN_CENTER, status_color, shown);
 	}
-	ui_style_row(layout.button.x, layout.button.y, layout.button.width, layout.button.height, TRUE);
+	workshop_view.modal_x0 = layout.window.x;
+	workshop_view.modal_y0 = layout.window.y;
+	workshop_view.modal_x1 = layout.window.x + layout.window.width;
+	workshop_view.modal_y1 = layout.window.y + layout.window.height;
+	ui_style_row(layout.button.x, layout.button.y, layout.button.width, layout.button.height,
+		!question || !workshop_view.modal_option);
 	ui_overlay_text(UI_FONT_MENU, 10.0f, layout.button.x + layout.button.width * 0.5f,
 		layout.button.y + (layout.button.height - 10) * 0.5f, UI_ALIGN_CENTER, COLOR_VALUE, button);
 	if (target)
 	{
 		target(layout.button.x, layout.button.y, layout.button.x + layout.button.width,
 			layout.button.y + layout.button.height, GUIDE_WORKSHOP_TARGET_MODAL, 0);
+	}
+	/* (the question's CANCEL) */
+	if (question && layout.cancel.width > 0)
+	{
+		ui_style_row(layout.cancel.x, layout.cancel.y, layout.cancel.width, layout.cancel.height,
+			workshop_view.modal_option != 0);
+		ui_overlay_text(UI_FONT_MENU, 10.0f, layout.cancel.x + layout.cancel.width * 0.5f,
+			layout.cancel.y + (layout.cancel.height - 10) * 0.5f, UI_ALIGN_CENTER, COLOR_VALUE, "CANCEL");
+		if (target)
+		{
+			target(layout.cancel.x, layout.cancel.y, layout.cancel.x + layout.cancel.width,
+				layout.cancel.y + layout.cancel.height, GUIDE_WORKSHOP_TARGET_MODAL, 1);
+		}
 	}
 }
 
@@ -1021,6 +1134,7 @@ void guide_workshop_update(boolean showing)
 
 	workshop_browser_own_library();
 	settings_rows_set_steam_link_action(workshop_browser_link_offered() ? link_settings_press : NULL);
+	settings_rows_set_workshop_offered(workshop_browser_offered());
 	link_follow();
 	/* (the on-screen keyboard done: its words searched, the Guide back on WORKSHOP) */
 #if defined(HALO_CONSOLE_MAP_BROWSER) || defined(HALO_MAP_LIST)
@@ -1077,7 +1191,7 @@ void guide_workshop_update(boolean showing)
 
 			if (item->subscribed && item->state == WORKSHOP_ITEM_INSTALLED)
 			{
-				guide_toast("WORKSHOP", item->title);
+				guide_toast("WORKSHOP", shown_title(item));
 				break;
 			}
 		}
@@ -1127,6 +1241,7 @@ void guide_workshop_move(short step)
 	}
 	if (count > 0)
 		workshop_view.row = (short)PIN(workshop_view.row + step, 0, count - 1);
+	confirms_clear();
 }
 
 void guide_workshop_activate(void)
@@ -1174,8 +1289,7 @@ boolean guide_workshop_back(void)
 		return TRUE;
 	}
 	workshop_view.page = FALSE;
-	workshop_view.confirm = FALSE;
-	workshop_view.confirm_remove = FALSE;
+	confirms_clear();
 	return TRUE;
 }
 
@@ -1207,6 +1321,9 @@ void guide_workshop_row_click(short row, boolean touch)
 {
 	boolean again = row == workshop_view.row && !workshop_view.page;
 
+	/* (another item, or the list: a question put away) */
+	if (row != workshop_view.row || workshop_view.page)
+		confirms_clear();
 	workshop_view.page = FALSE;
 	workshop_view.row = row;
 	if (again || touch)
@@ -1244,6 +1361,52 @@ static char const *plain_description(struct workshop_browser_item const *item)
 	return workshop_view.plain;
 }
 
+/* what of an installed item can't be listed in the map lists, and why
+(steam_workshop_unlisted), after its page's text: a short plain status */
+#define PAGE_UNLISTED_LINES 6
+
+static void page_unlisted(char const *id, short listed, char *text, size_t size)
+{
+	char map[64], reason[STEAM_WORKSHOP_REASON_SIZE];
+	int count = steam_workshop_item_unlisted(id, 0, NULL, NULL, NULL, NULL), which, pass, maps = 0, shown = 0;
+	size_t length;
+
+	for (which = 0; which < count; which++)
+	{
+		steam_workshop_item_unlisted(id, which, NULL, map, NULL, NULL);
+		maps += map[0] != 0;
+	}
+	/* (the whole item's first, then its maps'; a mixed item's listed maps
+	counted, so it never reads as the whole item missing) */
+	for (pass = 0; pass < 2; pass++)
+	{
+		for (which = 0; which < count; which++)
+		{
+			steam_workshop_item_unlisted(id, which, NULL, map, reason, NULL);
+			if (!map[0] != !pass)
+				continue;
+			length = strlen(text);
+			if (!pass)
+			{
+				snprintf(text + length, size - length, "%s%s: %s", length ? "\n\n" : "",
+					listed ? "Some maps can't be listed" : "Can't be listed", reason);
+				continue;
+			}
+			if (!shown)
+			{
+				snprintf(text + length, size - length, "%s%d of %d maps can't be listed:", length ? "\n\n" : "",
+					maps, maps + listed);
+				length = strlen(text);
+			}
+			if (shown++ < PAGE_UNLISTED_LINES)
+				snprintf(text + length, size - length, "\n%s: %s", map, reason);
+		}
+	}
+	length = strlen(text);
+	if (shown > PAGE_UNLISTED_LINES)
+		snprintf(text + length, size - length, "\n...and %d more", shown - PAGE_UNLISTED_LINES);
+}
+
 /* the chosen item's page text: its author's words (never words of ours in
 their place), then, for a pack, the maps in it (the installed item's, from
 the map catalog: mcc_maps\<id>\...; an item not installed lists none) */
@@ -1266,6 +1429,7 @@ static char const *page_text(struct workshop_browser_item const *item)
 		if (level && !_strnicmp(level, prefix, strlen(prefix)))
 			maps++;
 	}
+	page_unlisted(item->id, maps, text, sizeof(text));
 	if (maps < 2)
 		return text;
 	length = strlen(text);
@@ -1363,11 +1527,9 @@ static char const *page_note(struct workshop_browser_item const *item, char *lin
 		return use_steam_note();
 	if (item->setup)
 		return NULL;
-	if (workshop_browser_bridge_status() == STEAM_BRIDGE_READY && steam_bridge_sign_in_needed() &&
-		!workshop_browser_link_offered())
-	{
-		return "Sign in to steamcmd";
-	}
+	/* (no line that says what the one button does: "Sign in to steamcmd"
+	over SIGN IN, "Workshop maps are off" over WORKSHOP MAPS OFF, "Link
+	Steam to download in the game" over LINK STEAM) */
 	if (item->steam_error[0])
 		return item->steam_error;
 	if (item->state == WORKSHOP_ITEM_DOWNLOADING && item->total > 0)
@@ -1386,10 +1548,6 @@ static char const *page_note(struct workshop_browser_item const *item, char *lin
 		return "Starting download";
 	if (item->state == WORKSHOP_ITEM_WAITING && workshop_browser_bridge_status() != STEAM_BRIDGE_READY)
 		return "Open Steam to subscribe";
-	if (!config_boolean("game.workshop_maps"))
-		return "Workshop maps are off";
-	if (item->state == WORKSHOP_ITEM_NOT_INSTALLED && link_needed())
-		return "Link Steam to download in the game";
 	return NULL;
 }
 
@@ -1412,24 +1570,18 @@ static void heading_render(float left, float top, short status,
 		ui_style_text(UI_TEXT_LABEL, right, top + 1, UI_ALIGN_RIGHT, "Loading");
 		return;
 	}
-	/* (failed: why, and RETRY; a busy Steam's wait counted down instead) */
+	/* (failed: why (the find row's page has RETRY); a busy Steam's wait
+	counted down instead) */
 	if (status == WORKSHOP_LIST_FAILED)
 	{
 		int busy = workshop_browser_busy_seconds();
 		char word[40];
-		float width;
 
 		if (busy)
-		{
 			snprintf(word, sizeof(word), "Steam is busy, %ds", busy);
-			ui_style_text(UI_TEXT_LABEL, right, top + 1, UI_ALIGN_RIGHT, word);
-			return;
-		}
-		width = ui_overlay_text_width(UI_FONT_MENU, 8.5f, "RETRY");
-		ui_overlay_text(UI_FONT_MENU, 8.5f, right, top, UI_ALIGN_RIGHT, COLOR_VALUE, "RETRY");
-		ui_style_text(UI_TEXT_LABEL, right - width - 8, top + 1, UI_ALIGN_RIGHT, "Can't reach Steam");
-		if (target)
-			target(right - width - 4, top - 3, right + 2, top + 12, GUIDE_WORKSHOP_TARGET_PAGE, 2);
+		else
+			snprintf(word, sizeof(word), "Can't reach Steam");
+		ui_style_text(UI_TEXT_LABEL, right, top + 1, UI_ALIGN_RIGHT, word);
 		return;
 	}
 	if (!guide_workshop_pages())
@@ -1482,11 +1634,14 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 		state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 8.0f, state) + 8 : 0;
 		ui_style_row(left, y, LIST_WIDTH, ROW_HEIGHT, on);
 		if (on)
-			text_line_focused(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, item->title, 1 + index);
+			text_line_focused(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, shown_title(item),
+				1 + index);
 		else
-			text_line(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, item->title);
-		if (item->author[0])
-			snprintf(line, sizeof(line), "%s - %s", kind_text(item), item->author);
+			text_line(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, shown_title(item));
+		/* (an author's name of letters the font lacks: left out, as a title's) */
+		ui_overlay_text_shown(UI_FONT_MENU, item->author, shown, sizeof(shown));
+		if (shown[0])
+			snprintf(line, sizeof(line), "%s - %s", kind_text(item), shown);
 		else
 			snprintf(line, sizeof(line), "%s", kind_text(item));
 		text_line(UI_TEXT_STATUS, left + 10, y + 17, LIST_WIDTH - 20 - state_width, UI_ALIGN_LEFT, line);
@@ -1547,9 +1702,10 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 		/* (its title; its kind and size, and where it stands) */
 		if (workshop_view.page)
 			text_line_focused(UI_TEXT_TITLE, layout.title.x, layout.title.y, layout.title.width, UI_ALIGN_LEFT,
-				item->title, -1 - workshop_view.row);
+				shown_title(item), -1 - workshop_view.row);
 		else
-			text_line(UI_TEXT_TITLE, layout.title.x, layout.title.y, layout.title.width, UI_ALIGN_LEFT, item->title);
+			text_line(UI_TEXT_TITLE, layout.title.x, layout.title.y, layout.title.width, UI_ALIGN_LEFT,
+				shown_title(item));
 		workshop_browser_size_text(item->size, size, sizeof(size));
 		snprintf(line, sizeof(line), "%s%s%s", kind_text(item), size[0] ? " - " : "", size);
 		state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 9.0f, state) + 8 : 0;
@@ -1585,6 +1741,10 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 				ui_overlay_picture(serial, picture, picture_width, picture_height, box.x + (box.width - draw_width) * 0.5f,
 					box.y + (box.height - draw_height) * 0.5f, draw_width, draw_height, 0xFFFFFFFF);
 			}
+			/* (none to be had: said so, not an empty box) */
+			else if (workshop_browser_preview_missing(workshop_view.row))
+				ui_style_text(UI_TEXT_LINE, box.x + box.width * 0.5f,
+					box.y + (box.height - ui_style_text_size(UI_TEXT_LINE)) * 0.5f, UI_ALIGN_CENTER, "No picture");
 		}
 		/* (its description: the author's words, then a pack's maps, as many
 		lines as the room has, the rest scrolled to) */
@@ -1608,10 +1768,17 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 			struct guide_rect button = layout.buttons[index];
 			boolean on = workshop_view.page && index == workshop_view.option && !workshop_view.description_on;
 
-			ui_style_row(button.x, button.y, button.width, button.height, on);
-			text_fit(UI_TEXT_NAME, option_label(item, options[index]), button.width - 20, shown, sizeof(shown));
-			ui_overlay_text(UI_FONT_MENU, 10.0f, button.x + 10, button.y + (button.height - 10) * 0.5f, UI_ALIGN_LEFT,
-				COLOR_VALUE, shown);
+			/* (Workshop maps off: the row is the setting, drawn as SETTINGS'
+			rows are, its value between their arrows; pressed, it turns them on) */
+			if (options[index] == _option_show_maps)
+				ui_style_setting(button.x, button.y, button.width, button.height, 0.9f, "WORKSHOP MAPS", NULL, "OFF", on);
+			else
+			{
+				ui_style_row(button.x, button.y, button.width, button.height, on);
+				text_fit(UI_TEXT_NAME, option_label(item, options[index]), button.width - 20, shown, sizeof(shown));
+				ui_overlay_text(UI_FONT_MENU, 10.0f, button.x + 10, button.y + (button.height - 10) * 0.5f, UI_ALIGN_LEFT,
+					COLOR_VALUE, shown);
+			}
 			if (target)
 				target(button.x, button.y, button.x + button.width, button.y + button.height, GUIDE_WORKSHOP_TARGET_OPTION,
 					index);

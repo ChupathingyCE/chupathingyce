@@ -437,6 +437,26 @@ def test_scenario_of_another_group(built, tmp_path):
     assert "scenario given the scenario's group" in result.stderr, result.stderr[-4000:]
 
 
+def test_bsp_tag_address_left_by_a_tool(built, tmp_path):
+    """a structure BSP's tag given an address by a map tool (cursed-bloodgulch's),
+    which Custom Edition sets as the BSP loads whatever was there: the address
+    cleared before the map is checked and as it loads, the map played, never
+    read where the tool said; and a header giving the map's length as 0
+    (Invader's), read as the file's"""
+    binaries, _ = built
+    for address in (TAG_CACHE["ce"] + 0x100000, 0x50000000, 0xFFFFFFFF):
+        data = bytearray(ce_map())
+        struct.pack_into("<I", data, 0x800 + 0x28 + 0x20 + 0x14, address)
+        struct.pack_into("<i", data, 8, 0)
+        path = tmp_path / "bsp_tag_address.map"
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
+        assert "1 structure BSP tags' addresses cleared" in result.stderr, result.stderr[-4000:]
+        assert "refused" not in result.stderr, result.stderr[-4000:]
+
+
 def test_bsp_reference_written_over(built, tmp_path):
     """a block a conversion writes in place that lies over the scenario's
     structure BSP's reference (a weapon HUD's static element whose placement

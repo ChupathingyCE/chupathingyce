@@ -27,6 +27,10 @@ enum
 	/* One multiplayer collection can occupy the whole catalog. */
 	STEAM_WORKSHOP_MAXIMUM_ITEM_MAPS = STEAM_WORKSHOP_MAXIMUM_MAPS,
 	STEAM_WORKSHOP_MAXIMUM_LIBRARIES = 16,
+	/* the maps a scan keeps that couldn't be listed (steam_workshop_unlisted), and their reasons' size */
+	STEAM_WORKSHOP_MAXIMUM_UNLISTED = 256,
+	STEAM_WORKSHOP_REASON_SIZE = 32,
+	STEAM_WORKSHOP_DETAIL_SIZE = 128,
 };
 
 struct steam_workshop_map
@@ -109,6 +113,15 @@ int steam_workshop_resource_path(const char *request, const char *data_root, cha
 /* whether a map has needed MCC's own shared files (halo1/maps) and they
 weren't found this run: the Workshop tab then offers them */
 int steam_workshop_shared_missing(void);
+/* a map of an item (map "": the whole item) that can't be listed: reason is a word or two for the item's
+Workshop page ("Map missing"), detail the log's own words, file names and all. Logged once a scan and kept
+(the scan's own, and mcc_maps.c's for a map file it can't use) */
+void steam_workshop_unlisted(const char *item_id, const char *map, const char *reason, const char *detail);
+/* how many of the item's maps (item_id NULL: any item's) couldn't be listed; the which-th's item id
+(STEAM_WORKSHOP_ID_SIZE), map (64), reason (STEAM_WORKSHOP_REASON_SIZE) and detail
+(STEAM_WORKSHOP_DETAIL_SIZE) when there is one and they aren't NULL */
+int steam_workshop_item_unlisted(const char *item_id, int which, char *found_item, char *map, char *reason,
+	char *detail);
 /* the item's title; 1 if some scanned map belongs to the id (the title may still be "") */
 int steam_workshop_item_title(const char *item_id, char *title, unsigned long size);
 

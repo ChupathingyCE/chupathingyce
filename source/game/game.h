@@ -132,7 +132,9 @@ void game_statistics_record_kill(
 void game_initialize(
 	void);
 void game_dispose(void);
-void game_precache_new_map(char *map_name, boolean blocking);
+/* port: FALSE when the map can't be loaded at all and nothing was waited for (an MCC level that
+isn't there, #1149: the error is queued for the menus); TRUE otherwise */
+boolean game_precache_new_map(char *map_name, boolean blocking);
 boolean game_map_loading_in_progress(real *progress);
 void game_unload(
 	void);
