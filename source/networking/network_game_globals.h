@@ -37,6 +37,11 @@ boolean network_game_should_accept_remote_connections(
 	void);
 boolean network_game_is_splitscreen_local(
 	void);
+/* port: whether the game this machine hosts takes no remote connection
+(split screen), from before its server's sockets are made: the desktop
+builds bind that game's listeners to this machine alone (xnet.c) */
+boolean network_game_port_hosting_local(
+	void);
 void network_game_set_quickstart_local(
 	void);
 boolean network_game_is_quickstart_local(

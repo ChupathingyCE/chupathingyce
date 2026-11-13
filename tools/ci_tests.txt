@@ -57,6 +57,7 @@ tools/test_launcher_start.py
 tools/test_line_of_sight.py
 tools/test_link_register.py
 tools/test_linux_port.py
+tools/test_listen_address.py
 tools/test_lobby_budget.py
 tools/test_lobby_switch_prompt.py
 tools/test_log_paths.py
