@@ -47,7 +47,9 @@ Automated system link sessions for testing the netcode without the menus
   invite's first digits (as the host's log has them), whether it
   came from the game list or was heard directly (the brokers), whether it
   has a password, and the list's state, for the pings before joining and a
-  list outage to be seen.
+  list outage to be seen, and each game as the screen shows it (its map's
+  name and tag, and what stops a join); "browse:join" then joins the first
+  game listed, as A on it does.
 
 Once the game runs, every second each machine logs where every player's
 unit is, so the machines' views of the game can be compared.
@@ -241,6 +243,9 @@ static struct
 	/* download: the host's checksum, and the download started */
 	unsigned long download_version;
 	boolean download_started;
+	/* browse:join: the first listed game joined (browse_joined: once) */
+	boolean browse_join;
+	boolean browse_joined;
 	/* debug.network_test_password: the host's set; debug.network_test_invite_file:
 	the host's invite written */
 	boolean password_set;
@@ -378,9 +383,10 @@ static void network_test_read_settings(
 	{
 		network_test.mode = _network_test_watch;
 	}
-	else if (!strcmp(setting, "browse"))
+	else if (!strcmp(setting, "browse") || !strcmp(setting, "browse:join"))
 	{
 		network_test.mode = _network_test_browse;
+		network_test.browse_join = setting[6] != 0;
 	}
 #ifdef HALO_GAME_BROWSER
 	else if (!strncmp(setting, "fetch:", 6) && setting[6])
@@ -1419,6 +1425,22 @@ void network_test_update(
 					platform_log("network test: browse: %s (%.8s...) ping %s%d (%s%s)", name, games[index].invite,
 						games[index].ping_estimated ? "~" : "", games[index].ping, games[index].direct ? "direct" : "list",
 						games[index].locked ? ", password" : "");
+				}
+				{
+					boolean browser_screen_debug_game(long index, char *text, long size);
+					void browser_screen_debug_join(long index);
+					char line[384];
+
+					/* (as the screen shows each: its map's name and tag, and
+					what stops a join) */
+					for (index = 0; browser_screen_debug_game(index, line, sizeof(line)); index++)
+						platform_log("network test: browse: game %d: %s", index, line);
+					if (network_test.browse_join && !network_test.browse_joined && index > 0)
+					{
+						network_test.browse_joined = TRUE;
+						platform_log("network test: browse: joining game 0");
+						browser_screen_debug_join(0);
+					}
 				}
 			}
 		}
