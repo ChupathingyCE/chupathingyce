@@ -27,6 +27,8 @@ and return none, 0 or false.
 #include "units/unit_definitions.h"
 #include "game/players.h"
 #include "units/units.h"
+#include "models/model_definitions.h"
+#include "game/game.h"
 #include "stubbs_mode.h"
 #include "stubbs_functions.h"
 #include "stubbs_campaign.h"
@@ -99,7 +101,7 @@ static struct stubbs_function stubbs_functions[] =
 	STUBBS_FUNCTION("map_completed", _hs_type_boolean, 1, NULL, { _hs_type_enum_game_difficulty }),
 	STUBBS_FUNCTION("player_force_respawn", _hs_type_void, 0, NULL, { 0 }),
 	STUBBS_FUNCTION("show_hud_help_text_for_player", _hs_type_void, 2, NULL, { _hs_type_boolean, _hs_type_unit }),
-	STUBBS_FUNCTION("objects_set_current_vitality", _hs_type_void, 3, NULL, { _hs_type_object_list, _hs_type_real, _hs_type_real }),
+	STUBBS_FUNCTION("objects_set_current_vitality", _hs_type_void, 3, "units_set_current_vitality", { _hs_type_object_list, _hs_type_real, _hs_type_real }),
 	STUBBS_FUNCTION("hud_show_special_attack", _hs_type_void, 2, NULL, { _hs_type_short_integer, _hs_type_boolean }),
 	STUBBS_FUNCTION("object_activation_add_object", _hs_type_void, 1, NULL, { _hs_type_object }),
 	STUBBS_FUNCTION("objects_cannot_be_finished", _hs_type_void, 2, NULL, { _hs_type_object_list, _hs_type_boolean }),
@@ -112,7 +114,7 @@ static struct stubbs_function stubbs_functions[] =
 	STUBBS_FUNCTION("objects_cannot_die", _hs_type_void, 2, NULL, { _hs_type_object_list, _hs_type_boolean }),
 	STUBBS_FUNCTION("ai_begin_flee_with_cower_chance", _hs_type_void, 5, NULL, { _hs_type_ai, _hs_type_boolean, _hs_type_short_integer, _hs_type_boolean, _hs_type_real }),
 	STUBBS_FUNCTION("unit_special_attack_get_count", _hs_type_short_integer, 2, NULL, { _hs_type_unit, _hs_type_short_integer }),
-	STUBBS_FUNCTION("object_set_current_vitality", _hs_type_void, 3, NULL, { _hs_type_object, _hs_type_real, _hs_type_real }),
+	STUBBS_FUNCTION("object_set_current_vitality", _hs_type_void, 3, "unit_set_current_vitality", { _hs_type_object, _hs_type_real, _hs_type_real }),
 	STUBBS_FUNCTION("image_effect_start_blend", _hs_type_void, 2, NULL, { _hs_type_string, _hs_type_real }),
 	STUBBS_FUNCTION("player_move_origin", _hs_type_void, 2, NULL, { _hs_type_unit, _hs_type_unit }),
 	STUBBS_FUNCTION("unit_special_attack_set_count", _hs_type_void, 3, NULL, { _hs_type_unit, _hs_type_short_integer, _hs_type_short_integer }),
@@ -120,7 +122,7 @@ static struct stubbs_function stubbs_functions[] =
 	STUBBS_FUNCTION("player_action_test_flatulence", _hs_type_boolean, 0, NULL, { 0 }),
 	STUBBS_FUNCTION("player_action_test_abandon", _hs_type_boolean, 0, NULL, { 0 }),
 	STUBBS_FUNCTION("player_enable_respawn", _hs_type_void, 1, NULL, { _hs_type_boolean }),
-	STUBBS_FUNCTION("object_set_maximum_vitality", _hs_type_void, 3, NULL, { _hs_type_object, _hs_type_real, _hs_type_real }),
+	STUBBS_FUNCTION("object_set_maximum_vitality", _hs_type_void, 3, "unit_set_maximum_vitality", { _hs_type_object, _hs_type_real, _hs_type_real }),
 	STUBBS_FUNCTION("ai_set_all_enemies_unopposable", _hs_type_void, 2, NULL, { _hs_type_ai, _hs_type_boolean }),
 	STUBBS_FUNCTION("player_action_test_hand", _hs_type_boolean, 0, NULL, { 0 }),
 	STUBBS_FUNCTION("modulo", _hs_type_long_integer, 2, NULL, { _hs_type_long_integer, _hs_type_long_integer }),
@@ -265,7 +267,7 @@ static boolean stubbs_function_native(
 	long *arguments;
 	long value = 0;
 
-	if (_stricmp(name, "objects_cannot_take_damage") && _stricmp(name, "objects_cannot_die") &&
+	if (_stricmp(name, "objects_cannot_take_damage") &&
 		_stricmp(name, "objects_destroy") && _stricmp(name, "modulo") && _stricmp(name, "ai_set_team"))
 	{
 		return FALSE;
@@ -273,9 +275,8 @@ static boolean stubbs_function_native(
 	arguments = hs_macro_function_evaluate(function_index, thread_index, initialize);
 	if (!arguments)
 		return TRUE;
-	/* (objects_cannot_take_damage <objects> <boolean>, and objects_cannot_die
-	the same: Halo has no "cannot die" apart from it) */
-	if (!_stricmp(name, "objects_cannot_take_damage") || !_stricmp(name, "objects_cannot_die"))
+	/* (objects_cannot_take_damage <objects> <boolean>) */
+	if (!_stricmp(name, "objects_cannot_take_damage"))
 	{
 		if (arguments[1] & 0xFF)
 			object_cannot_take_damage(arguments[0]);
@@ -464,6 +465,169 @@ static boolean stubbs_function_action_test(
 		}
 	}
 	return FALSE;
+}
+
+/* ---------- what the scripts say an object cannot do
+
+(objects_cannot_die <objects> <boolean>): takes damage down to no health,
+but doesn't die (a60's boss: the scripts watch his health reach zero, then
+fill it again). (objects_cannot_lose_regions <objects> <boolean>): his
+regions (an arm) stay on however hurt. (objects_cannot_be_finished
+<objects> <boolean>) and (objects_cannot_be_possessed <objects> <boolean>):
+no brains eaten, no hand on his head (stubbs_horde.c, stubbs_possession.c).
+Kept here by object index, outside the game state: a saved game loaded
+later forgets them, as it does the scripts' other asides. A new map (its
+time starting over) clears them. */
+
+enum
+{
+	MAXIMUM_STUBBS_OBJECT_FLAGS = 64,
+};
+
+static struct
+{
+	long object_index;
+	unsigned long flags;
+} stubbs_object_flags[MAXIMUM_STUBBS_OBJECT_FLAGS];
+static long stubbs_object_flags_time = -1;
+
+static void stubbs_object_flags_forget_old(
+	void)
+{
+	long time = game_time_get();
+
+	if (time < stubbs_object_flags_time)
+		memset(stubbs_object_flags, 0, sizeof(stubbs_object_flags));
+	stubbs_object_flags_time = time;
+}
+
+static void stubbs_object_flag_set(
+	long object_index,
+	short bit,
+	boolean set)
+{
+	long index, free_index = NONE;
+
+	stubbs_object_flags_forget_old();
+	for (index = 0; index < MAXIMUM_STUBBS_OBJECT_FLAGS; index++)
+	{
+		if (stubbs_object_flags[index].flags && stubbs_object_flags[index].object_index == object_index)
+		{
+			SET_FLAG(stubbs_object_flags[index].flags, bit, set);
+			return;
+		}
+		if (!stubbs_object_flags[index].flags && free_index == NONE)
+			free_index = index;
+	}
+	if (set && free_index != NONE)
+	{
+		stubbs_object_flags[free_index].object_index = object_index;
+		stubbs_object_flags[free_index].flags = FLAG(bit);
+	}
+}
+
+boolean stubbs_functions_object_cannot(
+	long object_index,
+	short what)
+{
+	long index;
+
+	if (object_index == NONE || !game_in_progress())
+		return FALSE;
+	stubbs_object_flags_forget_old();
+	for (index = 0; index < MAXIMUM_STUBBS_OBJECT_FLAGS; index++)
+	{
+		if (stubbs_object_flags[index].flags && stubbs_object_flags[index].object_index == object_index)
+			return TEST_FLAG(stubbs_object_flags[index].flags, what) ? TRUE : FALSE;
+	}
+	return FALSE;
+}
+
+/* (a region's index in the object's model, by name: NONE for none) */
+static short stubbs_object_region_index(
+	long object_index,
+	char const *name)
+{
+	struct object_datum *object = object_try_and_get(object_index);
+	struct object_definition *definition;
+	struct model *model;
+	short region_index;
+
+	if (!object || !name)
+		return NONE;
+	definition = object_definition_get(object->definition_index);
+	if (definition->object.model.index == NONE)
+		return NONE;
+	model = model_definition_get(definition->object.model.index);
+	for (region_index = 0; region_index < model->regions.count && region_index < MAXIMUM_REGIONS_PER_OBJECT; region_index++)
+	{
+		struct model_region *region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index, struct model_region);
+
+		if (!_stricmp(region->name, name))
+			return region_index;
+	}
+	return NONE;
+}
+
+static short stubbs_object_flag_bit_of_function(
+	char const *name)
+{
+	if (!_stricmp(name, "objects_cannot_die"))
+		return _stubbs_object_cannot_die_bit;
+	if (!_stricmp(name, "objects_cannot_lose_regions"))
+		return _stubbs_object_cannot_lose_regions_bit;
+	if (!_stricmp(name, "objects_cannot_be_finished"))
+		return _stubbs_object_cannot_be_finished_bit;
+	if (!_stricmp(name, "objects_cannot_be_possessed"))
+		return _stubbs_object_cannot_be_possessed_bit;
+	return NONE;
+}
+
+/* returns TRUE once it has returned the call's value */
+static boolean stubbs_function_object_flags(
+	char const *name,
+	short function_index,
+	long thread_index,
+	boolean initialize)
+{
+	long *arguments;
+	long value = 0;
+	short bit = stubbs_object_flag_bit_of_function(name);
+
+	if (bit == NONE && _stricmp(name, "object_region_destroyed") && _stricmp(name, "unit_taking_damage"))
+		return FALSE;
+	arguments = hs_macro_function_evaluate(function_index, thread_index, initialize);
+	if (!arguments)
+		return TRUE;
+	if (bit != NONE)
+	{
+		long reference, object_index;
+
+		for (object_index = object_list_get_first(arguments[0], &reference); object_index != NONE;
+			object_index = object_list_get_next(arguments[0], &reference))
+		{
+			stubbs_object_flag_set(object_index, bit, (arguments[1] & 0xFF) ? TRUE : FALSE);
+		}
+	}
+	/* (object_region_destroyed <object> <region name>): "returns true if the
+	named region of the object has been destroyed" */
+	else if (!_stricmp(name, "object_region_destroyed"))
+	{
+		struct object_datum *object = arguments[0] != NONE ? object_try_and_get(arguments[0]) : NULL;
+		short region_index = object ? stubbs_object_region_index(arguments[0],
+			(char const *)xbox_pointer((unsigned long)arguments[1])) : NONE;
+
+		value = region_index != NONE && TEST_FLAG(object->object.regions_destroyed_flags, region_index) ? TRUE : FALSE;
+	}
+	/* (unit_taking_damage <unit>): hurt just now */
+	else
+	{
+		struct object_datum *object = arguments[0] != NONE ? object_try_and_get(arguments[0]) : NULL;
+
+		value = object && object->object.recent_body_damage > 0.f ? TRUE : FALSE;
+	}
+	hs_return(thread_index, value);
+	return TRUE;
 }
 
 /* ---------- the questions the scripts ask about objects
@@ -659,6 +823,8 @@ static void stubbs_function_evaluate(
 	if (stubbs_function_routed(function->definition.name, function_index, thread_index, initialize))
 		return;
 	if (stubbs_function_native(function->definition.name, function_index, thread_index, initialize))
+		return;
+	if (stubbs_function_object_flags(function->definition.name, function_index, thread_index, initialize))
 		return;
 	if (stubbs_function_action_test(function->definition.name, function_index, thread_index, initialize))
 		return;

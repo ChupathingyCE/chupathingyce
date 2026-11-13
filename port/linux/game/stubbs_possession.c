@@ -44,6 +44,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "stubbs_mode.h"
 #include "stubbs_engine.h"
 #include "stubbs_possession.h"
+#include "stubbs_functions.h"
 
 #ifndef HALO_CONSOLE_NO_STUBBS
 
@@ -282,6 +283,9 @@ boolean stubbs_possession_unit_possessable(
 	if (!unit || unit->object.type != _object_type_biped || TEST_FLAG(unit->object.damage_flags, _object_dead_bit))
 		return FALSE;
 	if (unit->unit.player_index != NONE || unit->object.parent_object_index != NONE || stubbs_body_taken(unit_index))
+		return FALSE;
+	/* (the scripts' objects_cannot_be_possessed: stubbs_functions.c) */
+	if (stubbs_functions_object_cannot(unit_index, _stubbs_object_cannot_be_possessed_bit))
 		return FALSE;
 	return stubbs_possessable_definition_get(unit->definition_index) != NULL;
 }

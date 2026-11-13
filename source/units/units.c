@@ -699,6 +699,7 @@ symbols in this file:
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_engine.h" /* port: port/linux/game/stubbs_engine.c */
 #include "stubbs_horde.h" /* port: port/linux/game/stubbs_horde.c */
+#include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
 #endif
 #include "mcc_grenades.h"
 #include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
@@ -7012,6 +7013,12 @@ void unit_damage_aftermath(
 		damage_flags,
 		_object_being_damaged_body_depleted_bit);
 	feigned = FALSE;
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: a unit Stubbs's scripts said cannot die stays at no health
+	(Stubbs mode only: port/linux/game/stubbs_functions.c) */
+	if (lethal && stubbs_mode_active() && stubbs_functions_object_cannot(unit_index, _stubbs_object_cannot_die_bit))
+		lethal = FALSE;
+#endif
 
 	(void)body_damage_multiplier;
 
