@@ -1022,7 +1022,6 @@ never does: a host's decline, a client's note (mcc_network_messages.h) */
 #endif
 #if defined(HALO_MCC) && HALO_MCC
 #include "mcc_share_rules.h"
-void network_event(char const *format, ...);
 boolean network_distributed_server_send_to_machine_reliably(long machine_index, void *message, word size);
 boolean network_distributed_client_send_reliably(void *message, word size);
 
@@ -1038,18 +1037,24 @@ static int distributed_mcc_share_send(
 	struct network_rules_layout const *layout = distributed_wire_layout();
 	byte message[sizeof(struct distributed_message_header) + MCC_SHARE_RESPONSE_SIZE];
 	byte wide[sizeof(message) + NETWORK_RULES_HEADER_EXTRA_LIMIT];
-	struct distributed_message_header *header = (struct distributed_message_header *)message;
-	int size = (int)sizeof(*header) + body_size, wide_size;
+	int size = (int)sizeof(struct distributed_message_header) + body_size, wide_size;
+	long game_time = game_in_progress() ? game_time_get() : 0;
+	word header = 0;
 
 	if (body_size < 0 || body_size > MCC_SHARE_RESPONSE_SIZE)
 		return 0;
-	header->type = type;
-	header->count = 1;
-	header->game_time = game_in_progress() ? game_time_get() : 0;
-	header->header = 0;
-	build_message_header(&header->header, (word)size, 2, 0);
-	csmemcpy(message + sizeof(*header), body, (size_t)body_size);
-	WIRE_MESSAGE_OUT(message, size);
+	/* (as map_share_wire.c builds one: the message header word in this
+	machine's order, which the transport turns; the rest byte by byte,
+	little-endian, the same on every machine) */
+	build_message_header(&header, (word)size, 2, 0);
+	csmemcpy(message, &header, sizeof(header));
+	message[2] = type;
+	message[3] = 1;
+	message[4] = (byte)game_time;
+	message[5] = (byte)(game_time >> 8);
+	message[6] = (byte)(game_time >> 16);
+	message[7] = (byte)(game_time >> 24);
+	csmemcpy(message + sizeof(struct distributed_message_header), body, (size_t)body_size);
 	wide_size = network_rules_header_expand(message, size, wide, (int)sizeof(wide), layout->header_extra,
 		layout->epoch_kind != 0, distributed_epoch);
 	if (!wide_size)
@@ -1098,7 +1103,7 @@ boolean network_distributed_mcc_share_message(
 		{
 			int result = mcc_share_answer_result(narrow + sizeof(struct distributed_message_header), (size_t)body_size);
 
-			network_event("mcc: the host sent an MCC package answer (OpenCE's 104, result %d, op %d): this build "
+			error(_error_silent, "mcc: the host sent an MCC package answer (OpenCE's 104, result %d, op %d): this build "
 				"never asks for one, so it is dropped; a missing MCC map comes from the Workshop", result,
 				body_size > 0 ? narrow[sizeof(struct distributed_message_header)] : -1);
 		}
@@ -1109,7 +1114,7 @@ boolean network_distributed_mcc_share_message(
 	/* (the host: declined, said once a machine) */
 	if (!mcc_share_decline(narrow + sizeof(struct distributed_message_header), (size_t)body_size, reply))
 	{
-		network_event("mcc: machine %ld sent an MCC package request (OpenCE's 103) this build can't read (#%d "
+		error(_error_silent, "mcc: machine %ld sent an MCC package request (OpenCE's 103) this build can't read (#%d "
 			"bytes): dropped", machine_index, body_size);
 		return TRUE;
 	}
@@ -1120,7 +1125,7 @@ boolean network_distributed_mcc_share_message(
 		if (said_machine != machine_index)
 		{
 			said_machine = machine_index;
-			network_event("mcc: machine %ld asked for the MCC map package (OpenCE's 103, op %d): declined (104, "
+			error(_error_silent, "mcc: machine %ld asked for the MCC map package (OpenCE's 103, op %d): declined (104, "
 				"sharing off); this build shares no MCC packages, its joiners get the Workshop", machine_index,
 				reply[0]);
 		}
@@ -1142,7 +1147,7 @@ boolean network_distributed_mcc_share_request(
 	csmemset(request, 0, sizeof(request));
 	request[0] = MCC_SHARE_OP_MANIFEST;
 	csmemcpy(request + 16, level, length);
-	network_event("mcc: asking the host for the MCC map package %s (OpenCE's 103, a manifest request: the test's "
+	error(_error_silent, "mcc: asking the host for the MCC map package %s (OpenCE's 103, a manifest request: the test's "
 		"probe)", level);
 	return distributed_mcc_share_send(NONE, MCC_SHARE_REQUEST_KIND, request, (int)sizeof(request)) != 0;
 }

@@ -1500,7 +1500,7 @@ static long network_game_server_mcc_would_drop(
 	struct network_game_server *server,
 	char const *map_name)
 {
-	boolean want = mcc_level_name(map_name) != NULL;
+	boolean want = mcc_level_name(map_name);
 	long index, count = 0;
 
 	if (dedicated_server_active() || config_string("debug.network_test")[0] ||
