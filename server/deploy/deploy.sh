@@ -50,6 +50,13 @@ fi
 
 ssh "$host" 'sudo mkdir -p /opt/halo-dedicated/data/maps /opt/halo-dedicated/data/md_maps /opt/halo-dedicated/data/maps_ce /opt/halo-dedicated/data/maps_md /opt/halo-dedicated/data/maps_pc /opt/halo-dedicated/data/playlists /opt/halo-dedicated/data/saves '"$context/bin/$arch"' && sudo chown -R "$(id -un)" /opt/halo-dedicated'
 scp "$binary" "$host:$context/bin/$arch/chupathingyce-server"
+# (its license and notices, when it is a release's or ci_build.py's folder,
+# go into the image beside it)
+for notice in LICENSE.txt THIRD-PARTY-NOTICES.txt; do
+	if [ -f "$(dirname "$binary")/$notice" ]; then
+		scp "$(dirname "$binary")/$notice" "$host:$context/bin/$arch/$notice"
+	fi
+done
 scp "$here/Dockerfile" "$host:$context/"
 scp "$here"/../playlists/*.txt "$host:/opt/halo-dedicated/data/playlists/"
 scp "$here/../blocked_names.txt" "$host:/opt/halo-dedicated/data/"

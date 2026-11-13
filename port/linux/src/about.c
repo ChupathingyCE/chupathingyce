@@ -97,10 +97,14 @@ static const struct about_entry licenses[] =
 	{ _line_text, "Monocypher: BSD-2-Clause or CC0." },
 	{ _line_text, "zlib: zlib License." },
 	{ _line_text, "Zstandard: BSD-3-Clause." },
+	{ _line_text, "LZMA SDK decoder (Igor Pavlov): public domain." },
+	{ _line_text, "Opus: BSD-3-Clause." },
+	{ _line_text, "bcdec: MIT." },
 	{ _line_text, "SMAA: MIT." },
 	{ _line_text, "QR Code generator (Project Nayuki): MIT." },
 	{ _line_text, "bgfx, bx and bimg (Branimir Karad\xC5\xBEi\xC4\x87): BSD-2-Clause." },
-	{ _line_text, "glslang: BSD-3-Clause. SPIRV-Cross: Apache-2.0." },
+	{ _line_text, "glslang: BSD-3-Clause. SPIRV-Cross and the ASTC encoder: Apache-2.0." },
+	{ _line_text, "Steam link code (Milenko x Horrible Dev): MIT." },
 	{ _line_gap, NULL },
 	{ _line_text, "Cyborg Interface Gothic (fizzy): SIL OFL." },
 	{ _line_text, "Chupathingy Titles (Newtown by Roger White, public domain): SIL OFL." },
@@ -113,7 +117,7 @@ static const struct about_entry licenses[] =
 	{ _line_text, "SADIE II head-related impulse responses: Apache-2.0." },
 	{ _line_text, "Halo PC Restored HUD art: with Aerocatia's permission." },
 	{ _line_gap, NULL },
-	{ _line_text, "Full texts: port/third_party on GitHub." },
+	{ _line_text, "Full texts: THIRD-PARTY-NOTICES.txt in the download, and on GitHub." },
 };
 
 enum

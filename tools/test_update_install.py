@@ -268,7 +268,7 @@ def release_zip(directory, builds, extra=(), version=NEW):
     directory.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(directory / ASSET, "w") as archive:
         add(archive, "halo", builds[version].read_bytes(), 0o755)
-        add(archive, "SDL3-LICENSE.txt", b"new data\n", 0o644)
+        add(archive, "THIRD-PARTY-NOTICES.txt", b"new data\n", 0o644)
         for name, data, mode in extra:
             add(archive, name, data, mode)
     return directory / ASSET
@@ -280,8 +280,8 @@ def install(tmp_path, builds):
     folder.mkdir()
     shutil.copy(builds[OLD], folder / "halo")
     os.chmod(folder / "halo", 0o755)
-    (folder / "SDL3-LICENSE.txt").write_bytes(b"old data\n")
-    os.chmod(folder / "SDL3-LICENSE.txt", 0o600)
+    (folder / "THIRD-PARTY-NOTICES.txt").write_bytes(b"old data\n")
+    os.chmod(folder / "THIRD-PARTY-NOTICES.txt", 0o600)
     return folder
 
 
@@ -332,8 +332,8 @@ def test_update_from_the_list(keys, builds, server, tmp_path):
     after = snapshot(folder)
     assert after["halo"][0] == hashlib.sha256(builds[NEW].read_bytes()).hexdigest()
     # (a file that was there keeps its mode; the .old files are gone at the new start)
-    assert after["halo"][1] == 0o755 and after["SDL3-LICENSE.txt"][1] == 0o600
-    assert (folder / "SDL3-LICENSE.txt").read_bytes() == b"new data\n"
+    assert after["halo"][1] == 0o755 and after["THIRD-PARTY-NOTICES.txt"][1] == 0o600
+    assert (folder / "THIRD-PARTY-NOTICES.txt").read_bytes() == b"new data\n"
     assert not any(name.endswith(".old") for name in after) and not (folder / "update.partial").exists()
 
 
@@ -406,7 +406,7 @@ def test_new_executable_started(keys, builds, server, tmp_path):
     for name in ("chupathingy", "helper-tool"):
         assert after[name][1] & 0o111, (name, oct(after[name][1]))
     assert not after["notes-new.txt"][1] & 0o111
-    assert after["SDL3-LICENSE.txt"][1] == 0o600
+    assert after["THIRD-PARTY-NOTICES.txt"][1] == 0o600
     # (the zip's halo is a game, not the stub: the renamed one removes it)
     assert has(lines, f"{NEW} chupathingy update: removing halo, the game from before its rename to chupathingy")
     assert "halo" not in after
@@ -422,7 +422,7 @@ def rename_zip(directory, builds):
     with zipfile.ZipFile(directory / ASSET, "w") as archive:
         add(archive, "chupathingy", builds[NEW].read_bytes())
         add(archive, "halo", STUB)
-        add(archive, "SDL3-LICENSE.txt", b"new data\n", 0o644)
+        add(archive, "THIRD-PARTY-NOTICES.txt", b"new data\n", 0o644)
     return directory / ASSET
 
 
@@ -481,6 +481,62 @@ def test_old_game_removed_beside_the_renamed_one(builds, server, tmp_path):
     subprocess.run([str(folder / "chupathingy")], cwd=folder, env=environment, timeout=120, capture_output=True)
     assert not (folder / "halo").exists()
     assert has(log.read_text().splitlines(), "removing halo, the game from before its rename to chupathingy")
+
+
+OLD_LICENSE_FILES = ("SDL3-LICENSE.txt", "mbedtls-LICENSE.txt", "miniupnpc-LICENSE.txt", "Overpass-OFL.txt",
+                     "CyborgInterfaceGothic-OFL.txt", "ChupathingyTitles-OFL.txt", "NotoSans-OFL.txt",
+                     "Kenney-Input-Prompts-CC0.txt", "expat-COPYING.txt", "lzma-sdk-LICENSE.txt",
+                     "zstd-LICENSE.txt", "qrcodegen-LICENSE.txt", "steam-link-MIT.txt", "bcdec-LICENSE.txt",
+                     "bgfx-LICENSE.txt", "bx-LICENSE.txt", "bimg-LICENSE.txt", "glslang-LICENSE.txt",
+                     "SPIRV-Cross-LICENSE.txt")
+
+
+@pytest.mark.parametrize("notices", [True, False])
+def test_old_license_files_removed(builds, server, tmp_path, notices):
+    """the separate license files the downloads carried before
+    THIRD-PARTY-NOTICES.txt: removed from the game's own folder at start, each
+    one logged, only by those exact names, never a folder, never a file
+    outside the folder, and only when LICENSE.txt and THIRD-PARTY-NOTICES.txt
+    are there"""
+    folder = tmp_path / "game"
+    folder.mkdir()
+    shutil.copy(builds[NEW], folder / "halo")
+    os.chmod(folder / "halo", 0o755)
+    (folder / "LICENSE.txt").write_text("GPL\n")
+    if notices:
+        (folder / "THIRD-PARTY-NOTICES.txt").write_text("notices\n")
+    # (one old name a folder, with a file in it; the rest files)
+    for name in OLD_LICENSE_FILES[1:]:
+        (folder / name).write_text("old\n")
+    (folder / OLD_LICENSE_FILES[0]).mkdir()
+    (folder / OLD_LICENSE_FILES[0] / "keep.txt").write_text("mine\n")
+    # (names that are not the old ones, one in another case, and an old name
+    # outside the game's folder)
+    keep = ["my-LICENSE.txt", "mbedtls-LICENSE.txt.bak", "Zstd-license.txt", "README.txt"]
+    for name in keep:
+        (folder / name).write_text("mine\n")
+    (tmp_path / "zstd-LICENSE.txt").write_text("outside\n")
+    (folder / "data").mkdir()
+    (folder / "data" / "bcdec-LICENSE.txt").write_text("in data\n")
+    server.release(NEW, tmp_path / "empty", [])
+    log = tmp_path / "update.log"
+    log.write_text("")
+    environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(tmp_path),
+                   "HALO_SAVE_ROOT": str(tmp_path / "saves"), "HALO_UPDATE_TEST_SERVER": server.url,
+                   "HALO_UPDATE_TEST_CA": str(server.authority), "HALO_UPDATE_TEST_LOG": str(log)}
+    (tmp_path / "saves").mkdir()
+    subprocess.run([str(folder / "halo")], cwd=folder, env=environment, timeout=120, capture_output=True)
+    lines = log.read_text().splitlines()
+    for name in OLD_LICENSE_FILES[1:]:
+        assert (folder / name).exists() != notices, name
+        assert has(lines, f"update: removed {name} (now in THIRD-PARTY-NOTICES.txt)") == notices, name
+    assert (folder / OLD_LICENSE_FILES[0] / "keep.txt").read_text() == "mine\n"
+    assert not has(lines, f"removed {OLD_LICENSE_FILES[0]}")
+    for name in keep:
+        assert (folder / name).read_text() == "mine\n", name
+    assert (tmp_path / "zstd-LICENSE.txt").read_text() == "outside\n"
+    assert (folder / "data" / "bcdec-LICENSE.txt").read_text() == "in data\n"
+    assert (folder / "LICENSE.txt").exists() and (folder / "THIRD-PARTY-NOTICES.txt").exists() == notices
 
 
 @pytest.mark.parametrize("mark", ["file", "environment"])

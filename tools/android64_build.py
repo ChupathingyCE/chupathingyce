@@ -50,6 +50,7 @@ from .lp64_build import (
     lp64_game_flags,
 )
 from .ninja_syntax import Writer
+from .third_party_notices import ninja_build as ninja_notices
 
 PORT_DIR = Path("port/android")
 NATIVE_DIR = PORT_DIR / "native64"
@@ -182,7 +183,10 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
     # config.toml (android64_main.c)
     staged_brokers = build_dir / "assets" / "brokers.txt"
     n.build(outputs=staged_brokers, rule="android64_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs="android64", rule="phony", inputs=[libmain, staged_sdl, staged_brokers])
+    # the game's license and the notices of everything else built in
+    # (tools/third_party_notices.py), in the APK as in every download
+    staged_licenses = ninja_notices(n, "android64", build_dir / "assets", ["sdl3"])
+    n.build(outputs="android64", rule="phony", inputs=[libmain, staged_sdl, staged_brokers, *staged_licenses])
 
     # the app (port/android/app with -Pnative64, into its build-native64)
     apk = PORT_DIR / "app" / "build-native64" / "outputs" / "apk" / "debug" / "app-debug.apk"
@@ -193,6 +197,6 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
         description="ANDROID64 GRADLE $out",
         pool="console",
     )
-    n.build(outputs=apk, rule="android64_gradle", inputs=[libmain, staged_sdl, staged_brokers])
+    n.build(outputs=apk, rule="android64_gradle", inputs=[libmain, staged_sdl, staged_brokers, *staged_licenses])
     n.build(outputs="android64_apk", rule="phony", inputs=apk)
     n.newline()
