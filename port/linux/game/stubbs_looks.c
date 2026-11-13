@@ -143,6 +143,10 @@ void stubbs_looks_convert_tags(
 	unit_hud_count = 0;
 	instances = looks_read32(looks_base);
 	count = looks_read32(looks_base + 0x0C);
+	/* (no more instances than the tag data could hold, before the
+	multiply: a 32-bit long could wrap on a bad count) */
+	if (count > (unsigned long)tag_data_size / TAG_INSTANCE_SIZE)
+		return;
 	instance_table = looks_host(instances, count * TAG_INSTANCE_SIZE);
 	if (!instance_table)
 		return;
