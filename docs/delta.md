@@ -69,8 +69,11 @@ OpenCE's public listings and LAN work without it.
 - The socket is opened through the game's own socket layer (`xnet.c`), so
   it goes wherever the game's traffic goes: `network.address` binds it to the
   same address as the game's sockets (several copies on one computer, each
-  on its loopback alias), and on the internet the invite tunnel carries it
-  exactly as it carries the game's datagrams. The tunnel learns every port
+  on its loopback alias), a split screen game binds it to the machine alone
+  as it does the game's (nobody else can join, so no port of that game is
+  opened to the network; `listen_address.h`), and on the internet the
+  invite tunnel carries it exactly as it carries the game's datagrams. The
+  tunnel learns every port
   the game's sockets are bound to (`p2p_socket_port`), and peers reach only
   those; Delta's socket is bound the same way, so the host's 5160 and the
   client's port are among them. A datagram to a peer's virtual address

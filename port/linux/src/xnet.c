@@ -50,6 +50,7 @@ alone peers reach.
 #include "port_config.h"
 #include "p2p.h"
 #include "log_address.h"
+#include "listen_address.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -58,6 +59,11 @@ alone peers reach.
 this file, as halo_linux_prefix.h has the others do) */
 #include <stdio.h>
 #endif
+
+/* whether the game hosted here is its own players' alone (split screen),
+from before its server's sockets are made (source/networking/
+network_game_globals.c); 0 with no game hosted (its boolean: a byte) */
+unsigned char network_game_port_hosting_local(void);
 
 /* ---------- address settings */
 
@@ -409,16 +415,31 @@ int WSAAPI halo_ws_closesocket(SOCKET socket)
 int WSAAPI halo_ws_bind(SOCKET socket, const struct sockaddr *address, int address_length)
 {
 	struct sockaddr_in local;
-	unsigned long override;
+	unsigned long override = 0;
 	int result;
 
-	if (address && address->sa_family == AF_INET && address_length >= (int)sizeof(local) &&
-		((const struct sockaddr_in *)address)->sin_addr.s_addr == INADDR_ANY &&
-		local_address_setting(&override))
+	/* a socket asked to listen on every interface: on network.address when
+	it is set; on this machine alone while the game hosted here is its own
+	players' (split screen: no one else can join, so its ports are not
+	opened to the network); else as asked (listen_address.h) */
+	if (address && address->sa_family == AF_INET && address_length >= (int)sizeof(local))
 	{
-		memcpy(&local, address, sizeof(local));
-		local.sin_addr.s_addr = override;
-		address = (const struct sockaddr *)&local;
+		switch (listen_address_choose(((const struct sockaddr_in *)address)->sin_addr.s_addr == INADDR_ANY,
+			local_address_setting(&override), network_game_port_hosting_local()))
+		{
+		case _listen_address_local_address:
+			memcpy(&local, address, sizeof(local));
+			local.sin_addr.s_addr = override;
+			address = (const struct sockaddr *)&local;
+			break;
+		case _listen_address_loopback:
+			memcpy(&local, address, sizeof(local));
+			local.sin_addr.s_addr = loopback_address();
+			address = (const struct sockaddr *)&local;
+			break;
+		default:
+			break;
+		}
 	}
 	result = posix_socket_bind((int)socket, address, address_length);
 	if (result == 0)
