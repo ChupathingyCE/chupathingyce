@@ -127,6 +127,34 @@ def textures() -> List[tuple]:
     return result
 
 
+def title_tool_table(hud: bool) -> List[str]:
+    """The titles the title tool makes from the player's own ui.map
+    (port/linux/src/title_tool.h): titles.json's "from_files" ones, with
+    their text and where each letter starts (measured from the maps'
+    pictures; no font's drawing)."""
+    lines = ['#include "title_tool.h"', ""]
+    entries = []
+    if hud and (ROOT / TITLE_LIST).is_file():
+        for asset in json.loads((ROOT / TITLE_LIST).read_text())["assets"]:
+            if not asset.get("from_files"):
+                continue
+            index = len(entries)
+            lefts = ", ".join(f"{float(left)!r}f" for left in asset["lefts"])
+            lines.append(f"static const float title_lefts{index}[] = {{ {lefts} }};")
+            tag = asset["tag"].replace("\\", "\\\\")
+            text = asset["text"].replace("\\", "\\\\").replace('"', '\\"')
+            entries.append(f'\t{{ "{tag}", {asset["bitmap"]}, 0x{asset["crc"]:08x}u, {asset["scale"]}, "{text}", '
+                           f"title_lefts{index} }},")
+    lines.append("const struct title_tool_title title_tool_titles[] =")
+    lines.append("{")
+    lines.extend(entries or ["\t{ 0 },"])
+    lines.append("};")
+    lines.append("const unsigned int title_tool_title_count = " +
+                 ("sizeof(title_tool_titles) / sizeof(title_tool_titles[0]);" if entries else "0;"))
+    lines.append("")
+    return lines
+
+
 def menu_files() -> List[str]:
     """The menus' files menus.json lists, relative to their folder."""
     if not (ROOT / MENU_LIST).is_file():
@@ -396,6 +424,7 @@ def main() -> None:
     lines.append("const unsigned int hud_hires_embedded_count = " +
                  ("sizeof(hud_hires_embedded) / sizeof(hud_hires_embedded[0]);" if table else "0;"))
     lines.append("")
+    lines.extend(title_tool_table(hud))
     # the fonts, and which draws each font tag (text_hires.h)
     lines.append('#include "text_hires.h"')
     lines.append("")
