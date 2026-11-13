@@ -10607,6 +10607,147 @@ boolean ui_widget_port_screen_shown_or_behind(
 	}
 	return FALSE;
 }
+
+/* the last part of a widget's name (multiplayer_type_select_screen): the
+same screen in another menu set has it too */
+static char const *widget_name_last_part(
+	long tag)
+{
+	char const *name = tag_get_name(tag);
+	char const *part = name ? strrchr(name, '\\') : NULL;
+
+	return part ? part + 1 : name ? name : "";
+}
+
+/* whether a widget's A (any of its handlers) opens screen, or a screen of
+its name in another menu set */
+static boolean widget_definition_opens(
+	long tag,
+	long screen)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(tag);
+	long handler_index;
+
+	for (handler_index = 0; handler_index < definition->event_handlers.count; handler_index++)
+	{
+		struct ui_widget_event_handler_reference *handler =
+			(struct ui_widget_event_handler_reference *)xbox_pointer(definition->event_handlers.address) + handler_index;
+		long opened = handler->widget_tag.index;
+
+		if (opened != NONE && (opened == screen ||
+			!csstrcmp(widget_name_last_part(opened), widget_name_last_part(screen))))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* the item of a screen (in its lists, a few levels down) that opens
+another: its list's tag and its place in it, as the history keeps them */
+static boolean widget_definition_find_opener(
+	long tag,
+	long screen,
+	short depth,
+	long *list_tag,
+	short *item_index)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(tag);
+	struct ui_widget_child_reference *children =
+		(struct ui_widget_child_reference *)xbox_pointer(definition->child_widgets.address);
+	long index;
+
+	for (index = 0; index < definition->child_widgets.count; index++)
+	{
+		long child = children[index].widget_tag.index;
+
+		if (child != NONE && widget_definition_opens(child, screen))
+		{
+			*list_tag = tag;
+			*item_index = (short)index;
+			return TRUE;
+		}
+	}
+	for (index = 0; depth > 0 && index < definition->child_widgets.count; index++)
+	{
+		long child = children[index].widget_tag.index;
+
+		if (child != NONE && widget_definition_find_opener(child, screen, (short)(depth - 1), list_tag, item_index))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* the first player's screen history (what back returns to) made the
+menus' own under a screen the Guide's PLAY opened: screens[0], the
+bottom (the main menu), to screens[count - 1], the one right under the
+screen up (opened, NONE: the one up), each on its item that opens the next,
+as the menus leave them. FALSE (the history left as it was) if a screen
+isn't loaded */
+boolean ui_widget_port_history_set(
+	long const *screens,
+	short count,
+	long opened)
+{
+	struct widget_stack_node **top = &widget_globals.widget_stack[0];
+	short local_player_index = widget_globals.active_widgets[0] ?
+		widget_globals.active_widgets[0]->local_player_index : NONE;
+	/* (the screen under the one up, as the screen's opening left it: its
+	item kept, which a copy of another's, like ONLINE GAMES, needs) */
+	struct widget_stack_data kept = { NONE, NONE, NONE, NONE };
+	short index;
+
+	if (opened == NONE)
+		opened = ui_widget_port_active_screen_tag();
+	for (index = 0; index < count; index++)
+	{
+		if (screens[index] == NONE)
+			return FALSE;
+	}
+	if (*top)
+		kept = (*top)->data;
+	dispose_widget_stack(top);
+	for (index = 0; index < count; index++)
+	{
+		struct widget_stack_data data;
+		long next = index + 1 < count ? screens[index + 1] : opened;
+
+		data.previous_widget_tag = screens[index];
+		data.focused_child_parent_widget_tag = NONE;
+		data.focused_child_index = NONE;
+		data.local_player_index = local_player_index;
+		if (index + 1 == count && kept.previous_widget_tag == screens[index] && kept.focused_child_parent_widget_tag != NONE)
+		{
+			data.focused_child_parent_widget_tag = kept.focused_child_parent_widget_tag;
+			data.focused_child_index = kept.focused_child_index;
+		}
+		else if (next != NONE)
+		{
+			widget_definition_find_opener(screens[index], next, 3, &data.focused_child_parent_widget_tag,
+				&data.focused_child_index);
+		}
+		push_widget(top, &data);
+	}
+	return TRUE;
+}
+
+/* the screen at the bottom of the first player's history (NONE: none) */
+long ui_widget_port_history_bottom(
+	void)
+{
+	struct widget_stack_node *node = widget_globals.widget_stack[0];
+
+	while (node && node->next)
+		node = node->next;
+	return node ? node->data.previous_widget_tag : NONE;
+}
+
+/* the screen right under the one up (NONE: none) */
+long ui_widget_port_history_top(
+	void)
+{
+	return widget_globals.widget_stack[0] ? widget_globals.widget_stack[0]->data.previous_widget_tag : NONE;
+}
 #endif
 
 #ifdef HALO_GAME_BROWSER
