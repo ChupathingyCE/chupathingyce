@@ -3,8 +3,9 @@ numbers (its build-344, from chester's opence-mcc-support work: the
 clean-room record of its wire). Past NUMBER_OF_DISTRIBUTED_MESSAGES: never
 in this build's own message table, sent and taken only in an MCC game of a
 43-layout session (network_distributed_mcc_session); any other drops them,
-as every 43 build does outside MCC. 105 and 106 (admission holds, load
-progress) are dropped here; 103 and 104 (package sharing) this build never
+as every 43 build does outside MCC. 105 (admission holds) a host of
+ours answers (network_distributed_mcc_admission_message); 106 (load
+progress) is dropped here; 103 and 104 (package sharing) this build never
 sends: a host of ours declines a client's 103 (mcc_share_rules.h) and a
 client of ours drops any 104. */
 #ifndef MCC_NETWORK_MESSAGES_H
@@ -41,6 +42,18 @@ never sends (mcc_share_rules.h): a host declines a 103 (104, "off") when its
 game's layout carries MCC's messages, a client notes a 104 and drops it.
 TRUE when the message was one of them (taken here, whatever was done) */
 boolean network_distributed_mcc_share_message(long machine_index, void const *message, word size);
+/* OpenCE's admission hold, 105 (the host: network_server_message_handler.c,
+a joined machine's stream): a client checking its files against the MCC
+identity in the host's settings asks to be kept meanwhile; the host answers
+"ack" (or "refused") and keeps it, as a machine downloading the map is kept
+(network_server_manager.c). Its 204 bytes: op, generation, then the identity
+(the 128-byte map name field, two 32-byte digests, the map checksum). TRUE
+when the message was one (taken here, whatever was done) */
+boolean network_distributed_mcc_admission_message(long machine_index, void const *message, word size);
+/* whether the machine is in an admission hold, or its short grace after
+"ready": not removed for having no player (a game's start doesn't wait on
+it; the machine joins the game in progress) */
+boolean network_distributed_mcc_admission_holding(long machine_index);
 /* (a client, network_test.c's probe alone) a 103 manifest request for the
 level to the host, as OpenCE's client sends one: FALSE when the game's layout
 has no MCC messages */

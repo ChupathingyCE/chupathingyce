@@ -18,6 +18,11 @@ settings record, over a fragment of it */
 void mcc_identity_host_overlay(char const *map, long record_size, long name_offset, long offset, long length,
     unsigned char *data);
 void const *mcc_identity_host_settings(void const *game, long bytes, struct network_game *copy);
+/* port: (network_distributed.c) the host's identity as OpenCE's admission
+hold carries it (196 bytes: the 128-byte map name field with its Workshop
+tail, the content and metadata digests, the checksum left zero): 0 while
+this host has no MCC identity */
+int mcc_identity_host_admission(unsigned char identity[196]);
 /* port: (network_client_message_handler.c) a settings record received whole */
 void mcc_identity_wire_record(unsigned char const *record, long size);
 int mcc_identity_accept(struct network_game const *game);
@@ -40,6 +45,7 @@ the shared code calls do nothing, their arguments unevaluated */
 #define mcc_identity_host_overlay(a0, a1, a2, a3, a4, a5) \
 	((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (void)sizeof(a5))
 #define mcc_identity_wire_record(a0, a1) ((void)sizeof(a0), (void)sizeof(a1))
+#define mcc_identity_host_admission(a0) ((void)sizeof(a0), (int)0)
 #endif
 
 #endif

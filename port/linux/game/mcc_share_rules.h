@@ -4,6 +4,7 @@
 #ifndef MCC_SHARE_RULES_H
 #define MCC_SHARE_RULES_H
 #include <stddef.h>
+#include <stdint.h>
 
 enum mcc_share_sidecar {
     MCC_SHARE_SIDECAR_ABSENT,      /* the package has no workshop_id.txt */
@@ -79,4 +80,56 @@ int mcc_share_decline(unsigned char const *request, size_t size, unsigned char *
 /* ... and what an answer says: its result (MCC_SHARE_RESULT_*), -1 when the
  * bytes are no answer (shorter than one) */
 int mcc_share_answer_result(unsigned char const *reply, size_t size);
+
+/* OpenCE's admission hold, message 105: a client checking its files
+ * against the MCC identity in the host's settings asks the host to keep it
+ * meanwhile. Its 204 bytes: op, generation (4 bytes each, little-endian),
+ * then the identity: the 128-byte map name field, the content and metadata
+ * digests (32 each), the map checksum (4). The host compares the first 192
+ * against its own (the checksum is the record's own map version). */
+#define MCC_ADMISSION_KIND 105
+#define MCC_ADMISSION_SIZE 204
+#define MCC_ADMISSION_IDENTITY_SIZE 196
+#define MCC_ADMISSION_COMPARED 192
+enum mcc_admission_op {
+    MCC_ADMISSION_BEGIN = 1,
+    MCC_ADMISSION_PING = 2,
+    MCC_ADMISSION_READY = 3,
+    MCC_ADMISSION_CANCEL = 4,
+    MCC_ADMISSION_ACK = 5,
+    MCC_ADMISSION_REFUSED = 6
+};
+/* (milliseconds) a hold's longest, its longest quiet, a ready machine's
+ * grace */
+#define MCC_ADMISSION_LIMIT 120000UL
+#define MCC_ADMISSION_QUIET 20000UL
+#define MCC_ADMISSION_GRACE 15000UL
+enum mcc_admission_state {
+    MCC_ADMISSION_NONE,
+    MCC_ADMISSION_PENDING,
+    MCC_ADMISSION_HELD_READY,
+    MCC_ADMISSION_CLOSED
+};
+/* one machine slot's hold, on the host */
+struct mcc_admission {
+    unsigned long address;
+    int state;
+    uint32_t generation;
+    unsigned long started;
+    unsigned long heard;
+    /* the host's identity when the hold opened (MCC_ADMISSION_COMPARED) */
+    unsigned char identity[MCC_ADMISSION_COMPARED];
+};
+/* a 105 body (size bytes) from the machine at address, now, against the
+ * host's identity (MCC_ADMISSION_IDENTITY_SIZE bytes; NULL while it has
+ * none): the op to answer with (MCC_ADMISSION_ACK or _REFUSED), 0 for no
+ * answer, -1 for a body that is none (dropped unread). Only the host's own
+ * identity opens or keeps a hold, so a machine naming others can't hold its
+ * slot past the limits; another machine on the slot, or another identity of
+ * the host's, starts it anew. A closed hold stays closed. */
+int mcc_admission_take(struct mcc_admission *hold, unsigned long address, unsigned char const *body, size_t size,
+    unsigned char const *host, unsigned long now);
+/* whether the machine at address is held (pending, or in its grace after
+ * "ready"): not removed for having no player */
+int mcc_admission_holding(struct mcc_admission const *hold, unsigned long address, unsigned long now);
 #endif

@@ -59,6 +59,7 @@ int mcc_workshop_local_item(char const *name, struct mcc_workshop_item *item) {
     (void)name;memset(item,0,sizeof(*item));return 0;
 }
 void mcc_workshop_wire_pack(char name[128], struct mcc_workshop_item const *item) {(void)name;(void)item;}
+int mcc_manifest_metadata_digest(char const *level, unsigned char digest[32]) {(void)level;memset(digest,0,32);return 0;}
 ''' + host + "\n" + "\n".join(function(source, name) for name in names) + r'''
 /* the 13,200-byte record's digest as a joiner reads it: its last 64 bytes' first 32 */
 static void sent_digest(char const *map, unsigned char out[32]) {
