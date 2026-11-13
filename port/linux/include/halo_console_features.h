@@ -100,6 +100,11 @@ HALO_CONSOLE_LOG_THROTTLE
 	a console whose log writes are slow (debug.txt on a card): the host's
 	notices are logged without their blank lines, at most three a second
 	(port/linux/game/network_distributed.c)
+HALO_CONSOLE_IO_RETRY_FOREVER
+	the original Xbox, whose XAPI keeps a cache read or write the system is
+	short of resources for (a stalled DVD read) being tried until it goes, as
+	the retail game did; elsewhere it gives up after 5 seconds and fails
+	(cached_map_issue_async_request, cache_files_decompress_windows.c: #1149)
 HALO_CONSOLE_LOG_BUFFER
 	debug.txt's lines kept in memory and written together, a second after
 	the first waits, and at once for an exception, an exit or a crash
@@ -418,6 +423,7 @@ compile lines: source/cseries/xbox_address.h).
 
 #ifdef HALO_XBOX_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_IO_RETRY_FOREVER 1
 #define HALO_CONSOLE_LOG_BUFFER 1
 /* (the H1 Performance Build's 64 KB; the retail game had 16 KB) */
 #define HALO_CONSOLE_WIDGET_POOL_SIZE 0x10000

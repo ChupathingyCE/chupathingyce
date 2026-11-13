@@ -112,10 +112,10 @@ static const char *const guide_key_choices[] = { "F3, Backslash", "Backslash", "
 static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", NULL };
 #endif
 /* display.theme's: the Guide's and the setup screen's colors (ui_style_theme) */
-static const char *const theme_choices[] = { "blue", "red", NULL };
+static const char *const theme_choices[] = { "blue", "red", "green", NULL };
 /* display.light_effects' (port/linux/game/lighting_config.c) */
 static const char *const light_effects_choices[] = { "auto", "high", "low", "off", NULL };
-static const char *const theme_names[] = { "HALO BLUE", "CHUPATHINGY RED", NULL };
+static const char *const theme_names[] = { "HALO BLUE", "CHUPATHINGY RED", "DASHBOARD GREEN", NULL };
 
 static const struct settings_row settings_rows[] =
 {
@@ -160,6 +160,9 @@ static const struct settings_row settings_rows[] =
 	/* (the Workshop's: Steam's link, where items go, a join's missing map) */
 	{ _in_network | _in_guide, "STEAM ACCOUNT", "game.workshop_steam", _kind_steam_link, NULL, NULL, 0, 0 },
 	{ _in_guide, "WORKSHOP FOLDER", "paths.steam_downloads", _kind_folder, NULL, NULL, 0, 0 },
+	/* (the Workshop's maps in the map lists: the Guide's WORKSHOP turns them
+	on from an item's page, and here is where they go off again) */
+	{ _in_guide, "WORKSHOP MAPS", "game.workshop_maps", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "MAPS WHEN JOINING", "network.workshop_downloads", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_guide, "PLAY MISSIONS IN ORDER", "game.mcc_campaigns", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
@@ -364,10 +367,16 @@ static void preset_set(int preset)
 /* ---------- public code */
 
 static void (*steam_link_action)(void);
+static int workshop_offered;
 
 void settings_rows_set_steam_link_action(void (*action)(void))
 {
 	steam_link_action = action;
+}
+
+void settings_rows_set_workshop_offered(int offered)
+{
+	workshop_offered = offered;
 }
 
 const struct settings_row *settings_row_at(int group, int index)
@@ -384,6 +393,9 @@ const struct settings_row *settings_row_at(int group, int index)
 		{
 			continue;
 		}
+		/* (Workshop maps: where the Guide has WORKSHOP, MCC on this computer) */
+		if (!workshop_offered && !strcmp(settings_rows[row].key, "game.workshop_maps"))
+			continue;
 		if (!index--)
 			return &settings_rows[row];
 	}

@@ -9,6 +9,7 @@ boolean mcc_main_campaign_won(void);
 the shared code calls do nothing, their arguments unevaluated */
 #define mcc_main_campaign_won() ((boolean)0)
 #define mcc_main_load_failed(a0) ((void)sizeof(a0), (boolean)0)
+#define mcc_main_network_load_failed(a0) ((void)sizeof(a0), (boolean)0)
 #define mcc_main_map_completed() ((boolean)0)
 #endif
 

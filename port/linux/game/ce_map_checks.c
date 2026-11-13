@@ -168,6 +168,7 @@ boolean ce_animations_check(struct ce_image const *image, void const *tag_instan
 void ce_repairs_apply(struct ce_image const *image, void *tag_instances, long tag_count,
 	unsigned long scenario_tag_index);
 boolean ce_repairs_scenario_group(void *tag_instances, long tag_count, unsigned long scenario_tag_index);
+long ce_repairs_bsp_addresses(void *tag_instances, long tag_count);
 
 /* ---------- globals */
 
@@ -327,9 +328,8 @@ static boolean ce_tag_index_check(
 		}
 		else if (instance->group_tag == CE_BSP_GROUP)
 		{
-			/* (read when the BSP loads: cache_files.c) */
-			if (instance->base_address)
-				return ce_refuse("structure BSP %s is placed before it is loaded", name);
+			/* (its address is set when the BSP loads: cache_files.c; one a
+			map tool left there is cleared, ce_repairs_bsp_addresses) */
 		}
 		else if (!ce_image_pointer(image, instance->base_address, 4))
 		{
@@ -580,8 +580,10 @@ static boolean ce_map_check_tags(
 	/* (what the checks repair, as loading does, writes nothing over the tag
 	header or tag index, which they read on from: ce_tags_writable) */
 	ce_tags_guard_begin(image.data, instances, tag_count);
-	/* (a protected map's scenario may have another group: ce_repairs.c) */
+	/* (a protected map's scenario may have another group, and a map tool
+	may leave a structure BSP's tag an address: ce_repairs.c) */
 	ce_repairs_scenario_group(instances, tag_count, header.scenario_tag_index);
+	ce_repairs_bsp_addresses(instances, tag_count);
 	scenario_instance = ce_tag_instance_get(instances, tag_count, header.scenario_tag_index);
 	scenario = scenario_instance && scenario_instance->group_tag == CE_SCENARIO_GROUP ?
 		ce_image_pointer(&image, scenario_instance->base_address, CE_SCENARIO_BSPS_OFFSET + 0xc) : NULL;

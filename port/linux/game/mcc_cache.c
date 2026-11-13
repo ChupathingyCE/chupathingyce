@@ -174,7 +174,7 @@ static FILE *mcc_open_explain(char const *name, struct mcc_cache_source *source,
     stream = fopen(path, "rb");
     if (!stream) {
         if (reason && reason_size) snprintf(reason,reason_size, "%s", errno==ENOENT ?
-            "Its .map file is missing. Install the complete level in its mcc_maps package folder." :
+            "It is not installed. Install the complete level, then try again." :
             "Its .map file could not be opened. Check that the file is accessible.");
         return NULL;
     }
@@ -266,13 +266,44 @@ boolean mcc_cache_present(char const *name, unsigned long checksum, char *messag
     return TRUE;
 }
 
+/* debug.txt's line for a level that can't be played (#1149): its package
+ * (a Workshop item's number, or a maps_mcc folder), its level, and the whole
+ * reason, which the menus' text may shorten; for a file that isn't there,
+ * where it was looked for */
+static void mcc_cache_require_log(char const *name, char const *message)
+{
+    char canonical[64], path[128], reason[320];
+    char const *package = "?", *level = "?";
+    char *separator;
+    struct mcc_cache_identity identity;
+    struct mcc_cache_source source;
+    FILE *stream;
+    name = mcc_identity_local_name(name);
+    if (mcc_package_name(name, canonical) && (separator = strrchr(canonical, '\\')) != NULL &&
+        separator > canonical + 9) {
+        *separator = 0;
+        package = canonical + 9;
+        level = separator + 1;
+    }
+    stream = mcc_open_explain(name, &source, &identity, reason, sizeof(reason));
+    if (stream) {
+        fclose(stream);
+        error(_error_silent, "mcc: can't play %s (%s %s, level %s): %s", name ? name : "(unnamed)",
+            strspn(package, "0123456789") == strlen(package) ? "Workshop item" : "package", package, level, message);
+        return;
+    }
+    if (!mcc_path(name, path)) snprintf(path, sizeof(path), "(no path: the name is invalid)");
+    error(_error_silent, "mcc: can't play %s (%s %s, level %s): %s (looked for %s)", name ? name : "(unnamed)",
+        strspn(package, "0123456789") == strlen(package) ? "Workshop item" : "package", package, level, reason, path);
+}
+
 boolean mcc_cache_require(char const *name, unsigned long checksum)
 {
     char message[512];
     wchar_t text[512];
     size_t i;
     if (mcc_cache_present(name, checksum, message, sizeof(message))) return TRUE;
-    error(_error_silent, "mcc: %s", message);
+    mcc_cache_require_log(name, message);
     for (i = 0; message[i] && i < NUMBEROF(text) - 1; ++i) text[i] = (unsigned char)message[i];
     text[i] = 0;
     display_error_text_when_main_menu_loaded(text);

@@ -79,11 +79,12 @@ void guide_layout_page(struct guide_rect pane, int note, int buttons, float line
 
 /* the Steam sign-in's window in the middle of area (the Guide's panel):
 its title, the QR (square: qr 0 leaves it out, for a question), one line
-under it, the status line, and its one button. Nothing overlaps; all of it
-in the window, and the window in area */
+under it, the status line, and its button; a question has two, side by
+side, the button (its yes) and cancel (empty with a QR). Nothing overlaps;
+all of it in the window, and the window in area */
 struct guide_modal_layout
 {
-	struct guide_rect window, title, qr, line, status, button;
+	struct guide_rect window, title, qr, line, status, button, cancel;
 };
 void guide_layout_modal(struct guide_rect area, int qr, struct guide_modal_layout *out);
 

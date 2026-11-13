@@ -291,6 +291,10 @@ struct cache_file_request
 	byte pad1F;
 };
 
+/* port: (cached_map_issue_async_request) how long a request the system is
+short of resources for is tried again before it fails */
+#define CACHED_MAP_ISSUE_RETRY_MILLISECONDS 5000
+
 typedef BOOL (WINAPI *cached_map_async_request_proc)(
 	HANDLE file,
 	void *buffer,
@@ -373,7 +377,7 @@ static void CALLBACK cache_file_blocking_io_completion_routine(
 	unsigned long error_code,
 	unsigned long bytes_transferred,
 	OVERLAPPED *overlapped);
-static void cached_map_issue_async_request(
+static boolean cached_map_issue_async_request(
 	cached_map_async_request_proc async_request_function,
 	HANDLE file,
 	OVERLAPPED *overlapped,
@@ -382,7 +386,7 @@ static void cached_map_issue_async_request(
 	long offset,
 	volatile boolean *completion_flag,
 	LPOVERLAPPED_COMPLETION_ROUTINE completion_routine);
-static void cached_map_issue_async_read(
+static boolean cached_map_issue_async_read(
 	HANDLE file,
 	OVERLAPPED *overlapped,
 	void *buffer,
@@ -390,7 +394,7 @@ static void cached_map_issue_async_read(
 	long offset,
 	volatile boolean *completion_flag,
 	LPOVERLAPPED_COMPLETION_ROUTINE completion_routine);
-static void cached_map_issue_async_write(
+static boolean cached_map_issue_async_write(
 	HANDLE file,
 	OVERLAPPED *overlapped,
 	void *buffer,
@@ -399,6 +403,7 @@ static void cached_map_issue_async_write(
 	volatile boolean *completion_flag,
 	LPOVERLAPPED_COMPLETION_ROUTINE completion_routine);
 static boolean cached_map_block_on_async_request(
+	boolean issued,
 	volatile boolean const *completion_flag);
 static void cached_map_file_get_path(
 	short map_file_index,
@@ -1036,6 +1041,13 @@ void cache_files_precache_map_end(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		1031,
 		cache_file_globals.copy_in_progress);
+	/* port: with no copy, there is no slot to finish: its index is NONE,
+	and its header read from no file was #1149's hang */
+	if (!cache_file_globals.copy_in_progress)
+	{
+		error(_error_silent, "cache file: no map was being precached; nothing to finish");
+		return;
+	}
 	cache_copy_end();
 	texture_cache_return_memory();
 	cached_map_file_set_modification_date(cache_file_globals.copying_to_map_file_index);
@@ -1444,15 +1456,16 @@ static void cache_files_open_cache_files(
 
 				completion_flag = FALSE;
 				CACHE_FILE_TRACE("cache file %d: header write issued", map_file_index);
-				cached_map_issue_async_write(
-					file,
-					&overlapped,
-					&blank_header,
-					sizeof(struct cache_file_header),
-					0,
-					&completion_flag,
-					cache_file_blocking_io_completion_routine);
-				cached_map_block_on_async_request(&completion_flag);
+				completion_flag = cached_map_block_on_async_request(
+					cached_map_issue_async_write(
+						file,
+						&overlapped,
+						&blank_header,
+						sizeof(struct cache_file_header),
+						0,
+						&completion_flag,
+						cache_file_blocking_io_completion_routine),
+					&completion_flag);
 				CACHE_FILE_TRACE("cache file %d: header write done (%d)", map_file_index, (int)completion_flag);
 #ifdef HALO_CONSOLE_CACHE_SCREEN
 				if (completion_flag)
@@ -1669,14 +1682,21 @@ static void cache_file_windows_thread_proc(
 				1327,
 				!best_request->running);
 			best_request->running = TRUE;
-			cached_map_issue_async_read(
+			/* port: a read that could not be issued completes as failed at
+			once, as one that failed does, rather than leaving its request
+			running with nothing to finish it */
+			if (!cached_map_issue_async_read(
 				file,
 				&best_request->overlapped,
 				best_request->buffer,
 				best_request->size,
 				best_request->overlapped.Offset,
 				(volatile boolean *)best_request->overlapped.hEvent,
-				cache_file_read_io_completion_routine);
+				cache_file_read_io_completion_routine))
+			{
+				cache_file_read_io_completion_routine((unsigned long)best_request->overlapped.Internal, 0,
+					&best_request->overlapped);
+			}
 		}
 	}
 
@@ -1885,12 +1905,14 @@ static void CALLBACK cache_file_blocking_io_completion_routine(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		1406,
 		overlapped->hEvent);
-	*(volatile boolean *)overlapped->hEvent = TRUE;
+	/* port: a request that failed completes as failed (not TRUE): what
+	waits on it stops waiting and sees it (cached_map_block_on_async_request) */
+	*(volatile boolean *)overlapped->hEvent = error_code == ERROR_SUCCESS ? TRUE : (boolean)_cache_file_read_failed;
 
 	return;
 }
 
-static void cached_map_issue_async_request(
+static boolean cached_map_issue_async_request(
 	cached_map_async_request_proc async_request_function,
 	HANDLE file,
 	OVERLAPPED *overlapped,
@@ -1931,37 +1953,58 @@ static void cached_map_issue_async_request(
 	overlapped->Offset = offset;
 	overlapped->OffsetHigh = 0;
 	overlapped->hEvent = (HANDLE)completion_flag;
-	while (TRUE)
+	/* port: a request that can't be issued (a closed or bad file: #1149's
+	missing MCC level once left a slot of none read here) fails instead of
+	being tried for ever, and one the system is short of resources for is
+	tried again for CACHED_MAP_ISSUE_RETRY_MILLISECONDS at most. The caller
+	sees FALSE: nothing was issued, so no completion will come */
 	{
-		unsigned long error_code;
+#ifndef HALO_CONSOLE_IO_RETRY_FOREVER
+		unsigned long first_try = GetTickCount();
+#endif
+
+		while (TRUE)
+		{
+			unsigned long error_code;
 
 #ifdef HALO_CONSOLE_WAIT_POLL
-		console_wait_poll();
+			console_wait_poll();
 #endif
-		SleepEx(0, TRUE);
-		SetLastError(ERROR_SUCCESS);
-		if (async_request_function(
-			file,
-			buffer,
-			size,
-			overlapped,
-			completion_routine))
-		{
-			break;
-		}
+			SleepEx(0, TRUE);
+			SetLastError(ERROR_SUCCESS);
+			if (async_request_function(
+				file,
+				buffer,
+				size,
+				overlapped,
+				completion_routine))
+			{
+				break;
+			}
 
-		error_code = GetLastError();
-		match_vassert(
-			"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
-			422,
-			error_code==ERROR_NOT_ENOUGH_MEMORY || error_code==ERROR_NO_SYSTEM_RESOURCES || error_code==ERROR_INVALID_USER_BUFFER,
-			csprintf(temporary, "Read/WriteFileEx() returned #%d", GetLastError()));
+			error_code = GetLastError();
+			/* (the original Xbox tries a short one for as long as it takes:
+			HALO_CONSOLE_IO_RETRY_FOREVER) */
+			if (!(error_code==ERROR_NOT_ENOUGH_MEMORY || error_code==ERROR_NO_SYSTEM_RESOURCES ||
+					error_code==ERROR_INVALID_USER_BUFFER)
+#ifndef HALO_CONSOLE_IO_RETRY_FOREVER
+				|| GetTickCount() - first_try >= CACHED_MAP_ISSUE_RETRY_MILLISECONDS
+#endif
+				)
+			{
+				error(_error_silent, "cache file: a %ld-byte request at %ld could not be issued (#%lu): failed",
+					size, offset, error_code);
+				overlapped->Internal = error_code ? error_code : ERROR_INVALID_HANDLE;
+				return FALSE;
+			}
+			Sleep(1);
+		}
 	}
 
-	return;
+	return TRUE;
 }
 
-static void cached_map_issue_async_read(
+static boolean cached_map_issue_async_read(
 	HANDLE file,
 	OVERLAPPED *overlapped,
 	void *buffer,
@@ -1970,7 +2013,7 @@ static void cached_map_issue_async_read(
 	volatile boolean *completion_flag,
 	LPOVERLAPPED_COMPLETION_ROUTINE completion_routine)
 {
-	cached_map_issue_async_request(
+	return cached_map_issue_async_request(
 		ReadFileEx,
 		file,
 		overlapped,
@@ -1979,11 +2022,9 @@ static void cached_map_issue_async_read(
 		offset,
 		completion_flag,
 		completion_routine);
-
-	return;
 }
 
-static void cached_map_issue_async_write(
+static boolean cached_map_issue_async_write(
 	HANDLE file,
 	OVERLAPPED *overlapped,
 	void *buffer,
@@ -1992,7 +2033,7 @@ static void cached_map_issue_async_write(
 	volatile boolean *completion_flag,
 	LPOVERLAPPED_COMPLETION_ROUTINE completion_routine)
 {
-	cached_map_issue_async_request(
+	return cached_map_issue_async_request(
 		(cached_map_async_request_proc)WriteFileEx,
 		file,
 		overlapped,
@@ -2001,15 +2042,18 @@ static void cached_map_issue_async_write(
 		offset,
 		completion_flag,
 		completion_routine);
-
-	return;
 }
 
 static boolean cached_map_block_on_async_request(
+	boolean issued,
 	volatile boolean const *completion_flag)
 {
 	boolean completed;
 
+	/* (a request that could not be issued has nothing to wait for:
+	cached_map_issue_async_request said so, and its flag was not set) */
+	if (!issued)
+		return FALSE;
 	while (!*completion_flag)
 	{
 #ifdef HALO_CONSOLE_WAIT_POLL
@@ -2020,7 +2064,7 @@ static boolean cached_map_block_on_async_request(
 			break;
 		}
 	}
-	completed = *completion_flag;
+	completed = *completion_flag == TRUE;
 
 	return completed;
 }
@@ -2058,16 +2102,16 @@ static void cached_map_file_read_header(
 	cached_map_file_get_path(map_file_index, path);
 	GetFileTime(map_file->file, &map_file->last_modification_date, NULL, NULL);
 	completion_flag = FALSE;
-	cached_map_issue_async_read(
-		map_file->file,
-		&overlapped,
-		&map_file->header,
-		sizeof(struct cache_file_header),
-		0,
-		&completion_flag,
-		cache_file_blocking_io_completion_routine);
-	cached_map_block_on_async_request(&completion_flag);
-	if (completion_flag)
+	if (cached_map_block_on_async_request(
+		cached_map_issue_async_read(
+			map_file->file,
+			&overlapped,
+			&map_file->header,
+			sizeof(struct cache_file_header),
+			0,
+			&completion_flag,
+			cache_file_blocking_io_completion_routine),
+		&completion_flag))
 	{
 		if (!cache_file_header_verify(&map_file->header, path, FALSE))
 		{
@@ -2110,17 +2154,19 @@ static void cached_map_file_name_family(
 		return;
 	}
 	completion_flag = FALSE;
-	cached_map_issue_async_read(map_file->file, &overlapped, &raw, sizeof(raw), 0, &completion_flag,
-		cache_file_blocking_io_completion_routine);
-	cached_map_block_on_async_request(&completion_flag);
+	completion_flag = cached_map_block_on_async_request(
+		cached_map_issue_async_read(map_file->file, &overlapped, &raw, sizeof(raw), 0, &completion_flag,
+			cache_file_blocking_io_completion_routine),
+		&completion_flag);
 	if (completion_flag)
 	{
 		memset(raw.name, 0, sizeof(raw.name));
 		strncpy(raw.name, map_name, sizeof(raw.name) - 1);
 		completion_flag = FALSE;
-		cached_map_issue_async_write(map_file->file, &overlapped, &raw, sizeof(raw), 0, &completion_flag,
-			cache_file_blocking_io_completion_routine);
-		cached_map_block_on_async_request(&completion_flag);
+		completion_flag = cached_map_block_on_async_request(
+			cached_map_issue_async_write(map_file->file, &overlapped, &raw, sizeof(raw), 0, &completion_flag,
+				cache_file_blocking_io_completion_routine),
+			&completion_flag);
 	}
 	if (!completion_flag)
 	{

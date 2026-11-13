@@ -89,7 +89,7 @@ Beside the maps folders, the game keeps folders of its own:
 
 | Folder | What is in it |
 | --- | --- |
-| `logs` (beside `maps`) | The game's logs: `debug.txt`, crash reports waiting to be sent, and on Windows `halo.log`. Attach these to a bug report. |
+| `logs` (beside `maps`) | The game's logs: `debug.txt`, crash reports waiting to be sent, and on Windows `halo.log`. Attach these to a bug report. If you set a custom save folder (`paths.saves`), the logs go in its `logs` folder instead. |
 | `data` (beside `maps`) | Things you add that are not maps: your own font in `data/fonts` (`display.high_res_font`). |
 | `cache` (in the save folder) | What the game can make again; safe to delete. |
 

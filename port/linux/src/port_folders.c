@@ -72,6 +72,29 @@ int port_folder_path(enum port_folder folder, const char *override, const char *
 	return 1;
 }
 
+int port_folder_logs_override(const char *logs, const char *saves, char *path, unsigned long size)
+{
+	char trimmed[1024];
+	int length;
+
+	if (size)
+		path[0] = '\0';
+	if (is_set(logs))
+		return copy_trimmed(path, size, logs);
+	if (!is_set(saves) || !copy_trimmed(trimmed, sizeof(trimmed), saves))
+		return 0;
+	length = snprintf(path, size, "%s%s%s", trimmed,
+		trimmed[strlen(trimmed) - 1] == '/' || trimmed[strlen(trimmed) - 1] == '\\' ? "" : "/",
+		folder_names[_port_folder_logs]);
+	if (length <= 0 || (unsigned long)length >= size)
+	{
+		if (size)
+			path[0] = '\0';
+		return 0;
+	}
+	return 1;
+}
+
 int port_folder_absolute(const char *path)
 {
 	if (!path)

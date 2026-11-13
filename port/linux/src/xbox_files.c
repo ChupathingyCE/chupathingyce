@@ -215,14 +215,17 @@ const char *platform_folder(enum port_folder folder)
 {
 	static char paths[k_port_folder_count][MAX_PATH];
 	char path[MAX_PATH];
+	char logs[MAX_PATH];
 	const char *override = "";
 
 	if ((int)folder < 0 || (int)folder >= k_port_folder_count)
 		return ".";
 	if (paths[folder][0])
 		return paths[folder];
-	if (folder == _port_folder_logs)
-		override = config_string("paths.logs");
+	/* (paths.logs, else a named save root's logs/: port_folders.h) */
+	if (folder == _port_folder_logs && port_folder_logs_override(config_string("paths.logs"),
+			PLATFORM_LOGS_FOLLOW_SAVES ? config_string("paths.saves") : "", logs, sizeof(logs)))
+		override = logs;
 	else if (folder == _port_folder_cache)
 		override = config_string("paths.cache");
 	if (!port_folder_path(folder, override, platform_data_root(),
@@ -274,12 +277,13 @@ static int executable_folder(char *path, unsigned long size)
 
 int platform_logs_folder_early(char *path, unsigned long size)
 {
-	const char *logs = config_string("paths.logs");
 	const char *data = config_string("paths.data");
 	char folder[MAX_PATH];
 
-	if (*logs)
-		snprintf(path, (size_t)size, "%s", logs);
+	/* (paths.logs, else a named save root's logs/, as platform_folder) */
+	if (port_folder_logs_override(config_string("paths.logs"),
+			PLATFORM_LOGS_FOLLOW_SAVES ? config_string("paths.saves") : "", folder, sizeof(folder)))
+		snprintf(path, (size_t)size, "%s", folder);
 	/* (where platform_data_root looks, without asking the player anything) */
 	else if (*data)
 		snprintf(path, (size_t)size, "%s/logs", data);

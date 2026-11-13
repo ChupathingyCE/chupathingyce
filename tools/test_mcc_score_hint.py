@@ -2,7 +2,10 @@
 names one key: the controller's BACK, which the game's HUD swaps for the
 keyboard's scoreboard key while the keyboard was used last
 (input_abstraction_port_back_word, source/input/input_abstraction.c). It
-showed "Tab / Tab" with the keyboard and "Tab / BACK" with a controller."""
+showed "Tab / Tab" with the keyboard and "Tab / BACK" with a controller.
+A controller's hint is the Xbox's, "Hold BACK for score", no quotes; the
+keyboard's key is quoted as Halo PC words it ('Hold "Tab" for score'),
+once, whatever quotes the map's text had around %s."""
 import re
 import shutil
 import subprocess
@@ -33,18 +36,19 @@ static boolean input_abstraction_port_icon_key(short player, short icon, boolean
 	wcsncpy(text, keyboard_key, (size_t)count);
 	return TRUE;
 }
+%(quote)s
 %(mcc)s
 %(back)s
-static void hint(wchar_t const *key)
+static void hint_of(char const *text, wchar_t const *key)
 {
-	static char const text[] = "Hold \"%%s\" for score";
-	uint16_t source[sizeof(text)], out[64];
+	uint16_t source[64], out[64];
 	wchar_t message[64];
 	int index, used;
-	for (index = 0; index < (int)sizeof(text); index++)
+	int size = (int)strlen(text) + 1;
+	for (index = 0; index < size; index++)
 		source[index] = (unsigned char)text[index];
-	used = mcc_hud_score_text(source, sizeof(text), NULL, 0);
-	if (used <= 0 || used > 64 || mcc_hud_score_text(source, sizeof(text), out, (uint32_t)used) != used)
+	used = mcc_hud_score_text(source, (uint32_t)size, NULL, 0);
+	if (used <= 0 || used > 64 || mcc_hud_score_text(source, (uint32_t)size, out, (uint32_t)used) != used)
 	{
 		printf("failed\n");
 		return;
@@ -55,11 +59,18 @@ static void hint(wchar_t const *key)
 	input_abstraction_port_back_word(message, NUMBEROF(message));
 	printf("%%ls\n", message);
 }
+static void hint(wchar_t const *key)
+{
+	hint_of("Hold \"%%s\" for score", key);
+}
 int main(void)
 {
 	hint(NULL);
 	hint(L"[Tab]");
 	hint(L"[Caps Lock]");
+	hint_of("Hold '%%s' for score", L"[Tab]");
+	hint_of("Hold %%s for score", L"[Tab]");
+	hint_of("Hold \"%%s for score", NULL);
 	return 0;
 }
 """
@@ -78,9 +89,11 @@ def test_score_hint_names_one_key(tmp_path):
     if not cc:
         pytest.skip("no C compiler")
     source = tmp_path / "hint.c"
-    source.write_text(HARNESS % {"mcc": function(MCC_HUD, "mcc_hud_score_text"),
+    source.write_text(HARNESS % {"quote": function(MCC_HUD, "mcc_hud_score_quote"),
+                                 "mcc": function(MCC_HUD, "mcc_hud_score_text"),
                                  "back": function(INPUT, "input_abstraction_port_back_word")})
     binary = tmp_path / "hint"
     subprocess.run([cc, "-Wall", "-Werror", str(source), "-o", str(binary)], check=True)
     lines = subprocess.run([str(binary)], check=True, capture_output=True, text=True).stdout.splitlines()
-    assert lines == ['Hold "BACK" for score', 'Hold "Tab" for score', 'Hold "Caps Lock" for score']
+    assert lines == ["Hold BACK for score", 'Hold "Tab" for score', 'Hold "Caps Lock" for score',
+                     'Hold "Tab" for score', 'Hold "Tab" for score', 'Hold "BACK for score']
