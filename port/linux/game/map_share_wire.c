@@ -12,6 +12,7 @@ header word, as it does for every message.
 #include "cseries.h"
 #include "bungie_net/common/message_header.h"
 #include "map_share.h"
+#include "network_rules.h"
 
 #include <string.h>
 
@@ -68,6 +69,30 @@ short map_share_message_build(
 	if (body_size > 0)
 		csmemcpy(message + MAP_SHARE_DISTRIBUTED_HEADER_SIZE, body, body_size);
 	return size;
+}
+
+int map_share_message_narrow(
+	boolean hosting,
+	void const *message,
+	int size,
+	void *out,
+	int room,
+	boolean *short_form)
+{
+	int extra = network_distributed_share_extra(hosting);
+	int header = network_rules_share_header_size((unsigned char const *)message, size, extra);
+
+	*short_form = FALSE;
+	if (!header || size > room)
+		return 0;
+	/* (the old form, chupa-43a's at any version: as it is) */
+	if (header == MAP_SHARE_DISTRIBUTED_HEADER_SIZE)
+	{
+		*short_form = extra != 0;
+		csmemcpy(out, message, (size_t)size);
+		return size;
+	}
+	return network_distributed_share_narrow(hosting, message, size, out, room);
 }
 
 boolean map_share_message_parse(

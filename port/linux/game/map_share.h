@@ -132,6 +132,13 @@ int network_distributed_share_widen(boolean hosting, void const *message, int si
 out (room bytes, at least size): its size, 0 when it is too short or
 long */
 int network_distributed_share_narrow(boolean hosting, void const *message, int size, void *out, int room);
+/* the further header bytes the game's layout adds (0 before OpenCE's 42) */
+int network_distributed_share_extra(boolean hosting);
+/* a received message as map_share_message_parse reads it (8-byte header),
+from either form (network_rules_share_header_size): into out (room bytes),
+its size, with *short_form TRUE for the old 8-byte form; 0 for neither */
+int map_share_message_narrow(boolean hosting, void const *message, int size, void *out, int room,
+	boolean *short_form);
 
 /* ---------- map_share_host.c */
 

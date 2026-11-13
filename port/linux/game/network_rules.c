@@ -1099,6 +1099,34 @@ int network_rules_header_strip(uint8_t const *message, int size, uint8_t *out, i
 	return at;
 }
 
+int network_rules_share_body_valid(int kind, int body_size)
+{
+	switch (kind)
+	{
+	case 83:
+		return body_size == 72;
+	case 84:
+		return body_size >= 68 && (body_size - 68) % 40 == 0 && (body_size - 68) / 40 <= 4;
+	case 85:
+		return body_size >= 4 && (body_size - 4) % 32 == 0;
+	case 86:
+		return body_size == 12;
+	default:
+		return 0;
+	}
+}
+
+int network_rules_share_header_size(uint8_t const *message, int size, int extra)
+{
+	if (!message || size < NETWORK_RULES_HEADER_SIZE || extra < 0)
+		return 0;
+	if (extra && network_rules_share_body_valid(message[2], size - NETWORK_RULES_HEADER_SIZE - extra))
+		return NETWORK_RULES_HEADER_SIZE + extra;
+	if (network_rules_share_body_valid(message[2], size - NETWORK_RULES_HEADER_SIZE))
+		return NETWORK_RULES_HEADER_SIZE;
+	return 0;
+}
+
 int network_rules_epoch_newer(uint32_t epoch, uint32_t current)
 {
 	return (int32_t)(epoch - current) > 0;

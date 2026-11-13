@@ -1062,6 +1062,49 @@ static int test_header_size(uint8_t const *message)
 	return word >> 4;
 }
 
+/* map sharing's request (83) as each side writes it: at 41 unchanged, at
+44 four bytes longer (the epoch), and chupa-43a's short form still read at
+44 */
+static void test_share_forms(void)
+{
+	uint8_t request[8 + 72], wide[8 + 72 + 8], narrow[8 + 72 + 8], offer[8 + 68 + 40], sources[8 + 4 + 32];
+	uint32_t epoch;
+	int size;
+
+	memset(request, 0, sizeof(request));
+	request[2] = 83;
+	request[3] = 1;
+	memcpy(request + 8, "custom_maps\\hornets_nest", 24);
+	test_header_word(request, sizeof(request));
+	/* (41: the layout adds nothing, the message goes as it is) */
+	CHECK(network_rules_header_expand(request, sizeof(request), wide, sizeof(wide), 0, 0, 0) == 80);
+	CHECK(!memcmp(wide, request, sizeof(request)));
+	CHECK(network_rules_share_header_size(request, 80, 0) == 8);
+	/* (44: four more bytes after the 8, the epoch, and back) */
+	size = network_rules_header_expand(request, sizeof(request), wide, sizeof(wide), 4, 1, 0x01020304u);
+	CHECK(size == 84 && test_header_size(wide) == 84 && wide[8] == 0x04 && !memcmp(wide + 12, request + 8, 72));
+	CHECK(network_rules_share_header_size(wide, 84, 4) == 12);
+	CHECK(network_rules_header_strip(wide, 84, narrow, 4, 1, 0, 0, &epoch) == 80 && epoch == 0x01020304u);
+	CHECK(!memcmp(narrow + 2, request + 2, 78));
+	/* (the old form at 44: read as it is) */
+	CHECK(network_rules_share_header_size(request, 80, 4) == 8);
+	/* (an offer of one file and a list of one source, both forms) */
+	memset(offer, 0, sizeof(offer));
+	offer[2] = 84;
+	CHECK(network_rules_share_header_size(offer, 8 + 68 + 40, 4) == 8);
+	CHECK(network_rules_share_header_size(offer, 8 + 68, 4) == 8);
+	memset(sources, 0, sizeof(sources));
+	sources[2] = 85;
+	CHECK(network_rules_share_header_size(sources, 8 + 4 + 32, 4) == 8);
+	CHECK(network_rules_share_header_size(sources, 12 + 4 + 32, 4) == 12);
+	/* (neither form, another kind, too short) */
+	CHECK(network_rules_share_header_size(request, 81, 4) == 0);
+	request[2] = 82;
+	CHECK(network_rules_share_header_size(request, 80, 4) == 0);
+	CHECK(network_rules_share_header_size(request, 7, 4) == 0);
+	CHECK(network_rules_share_body_valid(84, 68 + 5 * 40) == 0 && network_rules_share_body_valid(86, 12));
+}
+
 static void test_header_extension(void)
 {
 	/* the shield effects message (12 bytes) to 16, its epoch at 8 */
@@ -1435,6 +1478,7 @@ int main(void)
 	test_layouts_43();
 	test_layouts_43_hostile();
 	test_header_extension();
+	test_share_forms();
 	test_unit_parts();
 	test_host_own_machine_43();
 	test_client_across_reverts();
