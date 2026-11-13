@@ -96,8 +96,8 @@ tools/test_mcc_projectiles.py
 tools/test_mcc_recordings.py
 tools/test_mcc_score_hint.py
 tools/test_mcc_seats.py
-tools/test_mcc_skulls.py
 tools/test_mcc_share_decline.py
+tools/test_mcc_skulls.py
 tools/test_mcc_validation.py
 tools/test_mcc_workshop.py
 tools/test_medal_rules.py
