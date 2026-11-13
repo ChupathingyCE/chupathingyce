@@ -144,6 +144,7 @@ symbols in this file:
 #ifdef HALO_MAP_LIST
 #include "halo_map_packs.h"
 #include "stubbs_mode.h"
+#include "stubbs_looks.h"
 #endif
 #include "models/models.h"
 #include "mcc_cache.h" /* independent MCC dispatch */
@@ -2138,6 +2139,9 @@ long scenario_tags_load(
 			/* port: Stubbs the Zombie's tags in Halo's layouts, in Stubbs
 			mode only (port/linux/game/stubbs_mode.c) */
 			stubbs_mode_set_file_reader(cache_file_stubbs_read);
+			/* (and its looks: port/linux/game/stubbs_looks.c, which reads
+			fields the conversion may move, so first) */
+			stubbs_looks_convert_tags(tag_cache_base_address, cache_file_globals.header.tag_data_size);
 			stubbs_mode_convert_tags(tag_cache_base_address, cache_file_globals.header.tag_data_size);
 #endif
 #ifndef HALO_CONSOLE_NO_TAG_VALIDATE

@@ -156,6 +156,8 @@ symbols in this file:
 #include "math/real_math.h"
 #include "cache/texture_cache.h"
 #include "game/game.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_looks.h" /* port: port/linux/game/stubbs_looks.c */
 #include "game/game_engine.h"
 #include "interface/first_person_weapons.h"
 #include "math/periodic_functions.h"
@@ -3239,6 +3241,11 @@ void lights_prepare_for_object_static(
 	short sample_count;
 	short corner_index;
 	boolean sampled;
+	real_point3d const *center = &object->object.bounding_sphere_center;
+	/* port: in Stubbs mode a unit is lit where its body is, not at its
+	origin: a10's Stubbs climbs out of the lawn, his origin still under it,
+	and was drawn black (port/linux/game/stubbs_looks.c) */
+	real_point3d body_point;
 
 	match_assert(
 		"c:\\halo\\SOURCE\\objects\\object_lights.c",
@@ -3253,9 +3260,14 @@ void lights_prepare_for_object_static(
 	{
 		SET_FLAG(flags, _distant_lighting_brighten_bit, TRUE);
 	}
+	if (stubbs_mode_active() && stubbs_looks_object_lit_at_body(object_index))
+	{
+		stubbs_looks_object_body_point(object_index, &body_point);
+		center = &body_point;
+	}
 	sampled = lights_distant_lighting_at_point(
 		flags,
-		&object->object.bounding_sphere_center,
+		center,
 		lighting);
 	if (TEST_FLAG(object->object.flags, _object_static_lighting_recompute_bit))
 	{
@@ -3277,11 +3289,11 @@ void lights_prepare_for_object_static(
 
 		point.x = (TEST_FLAG(corner_index, 0) ? 0.70710678f : -0.70710678f)
 			* object->object.bounding_sphere_radius
-			+ object->object.bounding_sphere_center.x;
+			+ center->x;
 		point.y = (TEST_FLAG(corner_index, 1) ? 0.70710678f : -0.70710678f)
 			* object->object.bounding_sphere_radius
-			+ object->object.bounding_sphere_center.y;
-		point.z = object->object.bounding_sphere_center.z;
+			+ center->y;
+		point.z = center->z;
 		if (lights_distant_lighting_at_point(
 			flags,
 			&point,
