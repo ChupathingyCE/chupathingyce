@@ -30,6 +30,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "cseries.h"
 #include "real_math.h"
 #include "objects.h"
+#include "model_definitions.h"
 #include "units.h"
 #include "biped_definitions.h"
 #include "players.h"
@@ -247,6 +248,32 @@ static short stubbs_local_player_from_unit(
 
 /* the hand gone (recalled, killed) or come home: the player back in the
 body, the hand deleted (when it's still there) */
+/* Stubbs's left arm with or without its hand: his model's armleft region
+has a "~damaged" permutation, the stump, shown while the hand is away */
+static void stubbs_hand_on_arm(
+	long unit_index,
+	boolean on_arm)
+{
+	struct object_datum *object = object_try_and_get(unit_index);
+	struct object_definition *definition;
+	struct model *model;
+	short region_index;
+
+	if (!object)
+		return;
+	definition = object_definition_get(object->definition_index);
+	if (definition->object.model.index == NONE)
+		return;
+	model = model_definition_get(definition->object.model.index);
+	for (region_index = 0; region_index < model->regions.count; region_index++)
+	{
+		struct model_region *region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index, struct model_region);
+
+		if (!_stricmp(region->name, "armleft"))
+			object_permute_region(unit_index, "~damaged", region_index, !on_arm);
+	}
+}
+
 static void stubbs_hand_return(
 	short local_player_index,
 	boolean delete_hand)
@@ -263,6 +290,7 @@ static void stubbs_hand_return(
 
 		players_set_local_player_unit(local_player_index, local->origin_unit_index);
 		player_control_set_facing(local_player_index, &object_get(local->origin_unit_index)->object.forward);
+		stubbs_hand_on_arm(local->origin_unit_index, TRUE);
 		/* (the hand back on his arm can be thrown again) */
 		if (attack && stubbs_engine_special_attack_get_count(local->origin_unit_index,
 			_stubbs_special_attack_hand) < attack->cost)
@@ -350,6 +378,7 @@ static boolean stubbs_hand_throw(
 	local->hand_unit_index = hand_unit_index;
 	local->possessed_unit_index = NONE;
 	players_set_local_player_unit(local_player_index, hand_unit_index);
+	stubbs_hand_on_arm(unit_index, FALSE);
 	/* (the hand looks where it flies, a little above the ground) */
 	{
 		real_vector3d look = forward;
