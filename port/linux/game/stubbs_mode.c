@@ -26,6 +26,7 @@ packs never take these paths.
 #include "structures/structure_bsp_definitions.h"
 #include "physics/collision_model_definitions.h"
 #include "scenario/scenario_definitions.h"
+#include "units/unit_definitions.h"
 #include "stubbs_mode.h"
 
 #include <stdarg.h>
@@ -130,6 +131,40 @@ static unsigned char *stubbs_host(unsigned char *base, unsigned long size, unsig
 	return base + offset;
 }
 
+/* Stubbs's unit's melee: a block of his own at 0x330 (reclaimer reads it as
+Halo's powered seats; its elements are 0xD0 bytes, each with a jpt!
+reference at 0x20: a10's Stubbs has nine, his punches and combo blows, the
+civilians one each), where Halo has one melee damage reference. The first
+element's goes in Halo's, so the player's blow and the AI's do damage */
+enum
+{
+	STUBBS_UNIT_MELEE_BLOCK_OFFSET = 0x330,
+	STUBBS_UNIT_MELEE_ELEMENT_SIZE = 0xD0,
+	STUBBS_UNIT_MELEE_DAMAGE_OFFSET = 0x20,
+	HALO_UNIT_MELEE_DAMAGE_OFFSET = 0x288,
+};
+typedef char stubbs_unit_melee_damage_offset_assert[
+	offsetof(struct unit_definition, unit.melee_damage) == HALO_UNIT_MELEE_DAMAGE_OFFSET ? 1 : -1];
+
+static void stubbs_unit_melee_convert(unsigned char *definition, unsigned char const *stubbs)
+{
+	unsigned long count, address;
+	unsigned char *element;
+	unsigned long group;
+
+	memcpy(&count, stubbs + STUBBS_UNIT_MELEE_BLOCK_OFFSET, 4);
+	memcpy(&address, stubbs + STUBBS_UNIT_MELEE_BLOCK_OFFSET + 4, 4);
+	if (count < 1 || count > 64)
+		return;
+	element = stubbs_host(stubbs_tags_base, stubbs_tags_size, address, STUBBS_UNIT_MELEE_ELEMENT_SIZE);
+	if (!element)
+		return;
+	memcpy(&group, element + STUBBS_UNIT_MELEE_DAMAGE_OFFSET, 4);
+	if (group != 'jpt!')
+		return;
+	memcpy(definition + HALO_UNIT_MELEE_DAMAGE_OFFSET, element + STUBBS_UNIT_MELEE_DAMAGE_OFFSET, 0x10);
+}
+
 static void stubbs_unit_convert(unsigned char *definition, unsigned long halo_part_size)
 {
 	static unsigned char stubbs[STUBBS_UNIT_SIZE + 0x400];
@@ -141,6 +176,7 @@ static void stubbs_unit_convert(unsigned char *definition, unsigned long halo_pa
 		memcpy(definition + stubbs_unit_fields[index].halo_offset, stubbs + stubbs_unit_fields[index].stubbs_offset,
 			stubbs_unit_fields[index].size);
 	memcpy(definition + HALO_UNIT_SIZE, stubbs + STUBBS_UNIT_SIZE, halo_part_size);
+	stubbs_unit_melee_convert(definition, stubbs);
 }
 
 /* an animation graph's unit seats: Stubbs's are 0x80 bytes, Halo's 0x64 and
