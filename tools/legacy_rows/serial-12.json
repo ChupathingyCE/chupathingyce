@@ -334,25 +334,14 @@
         },
         "44": {
           "settings_size": 13200,
-          "join_request_extra": 236,
-          "join_request_fill": "zeros",
-          "join_request_version_at": 234,
-          "header_extra": 4,
-          "epoch_kind": 96,
-          "unit_state_parts": [
-            {
-              "bit": 7,
-              "size": 28,
-              "at": "after_up"
-            },
-            {
-              "bit": 6,
-              "size": 30,
-              "at": "last"
-            }
-          ],
-          "rider_ejection_up": 200,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
           "dropped_messages": [
+            78,
+            79,
+            91,
+            94,
+            95,
             97,
             98,
             99,
@@ -362,7 +351,25 @@
             105,
             106,
             107
-          ]
+          ],
+          "join_request_extra": 236,
+          "join_request_fill": "zeros",
+          "join_request_version_at": 234,
+          "header_extra": 4,
+          "epoch_kind": 96,
+          "unit_state_parts": [
+            {
+              "bit": 6,
+              "size": 30,
+              "at": "last"
+            },
+            {
+              "bit": 7,
+              "size": 28,
+              "at": "after_up"
+            }
+          ],
+          "rider_ejection_up": 200
         }
       },
       "hosting": [
