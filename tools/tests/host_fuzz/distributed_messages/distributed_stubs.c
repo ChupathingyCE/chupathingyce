@@ -555,3 +555,11 @@ long mcc_share_answer_result(void);
 long mcc_share_answer_result(void) { return 0; }
 long mcc_share_decline(void);
 long mcc_share_decline(void) { return 0; }
+long mcc_admission_holding(void);
+long mcc_admission_holding(void) { return 0; }
+long mcc_admission_take(void);
+long mcc_admission_take(void) { return 0; }
+long mcc_identity_host_admission(void);
+long mcc_identity_host_admission(void) { return 0; }
+long network_game_server_map_share_machine(void);
+long network_game_server_map_share_machine(void) { return 0; }
