@@ -107,7 +107,9 @@ static void mcc_mission_segment_evaluate(short function, long thread, boolean in
     long *arguments = hs_macro_function_evaluate(function, thread, initialize);
     char const *segment;
     if (!arguments) return;
-    segment = (char const *)(uintptr_t)arguments[0];
+    /* (a string argument is its Xbox address, as print_if's: on a 64-bit
+     * build it isn't a pointer) */
+    segment = arguments[0] ? (char const *)xbox_pointer((unsigned int)arguments[0]) : NULL;
     /* This port acknowledges a local segment event, without MCC's external
      * telemetry service. Keep the boolean result: shipped scripts use it in
      * conditional expressions before cinematics. MCC also uses the older
@@ -223,8 +225,15 @@ boolean mcc_script_call_valid(struct hs_syntax_node const *call, struct data_arr
         return node && node->type == _hs_type_script && node->next_node_index == NONE;
     }
     for (argument = 0; argument < function->parameter_count; ++argument) {
+        /* On a 64-bit build the definition is padded after its first type,
+         * so the rest are read from the wrapper (HS_FUNCTION_PARAMETER_TYPE). */
+#ifdef HALO_64BIT
+        short type = HS_FUNCTION_PARAMETER_TYPE(function, argument);
+#else
+        short type = function->parameter_types[argument];
+#endif
         node = datum_try_and_get(syntax, next);
-        if (!node || node->type != function->parameter_types[argument]) return FALSE;
+        if (!node || node->type != type) return FALSE;
         next = node->next_node_index;
     }
     return next == NONE;
