@@ -72,8 +72,15 @@ fi
 ssh "$host" 'test -f /opt/halo-dedicated/dedicated.env' || scp "$here/dedicated.env" "$host:/opt/halo-dedicated/"
 # (and the further servers' template, deploy-instance.sh's, which runs the
 # same image: its servers take it as they restart)
-scp "$here/halo-dedicated.service" "$here/halo-dedicated@.service" "$host:/tmp/"
-ssh "$host" 'sudo mv /tmp/halo-dedicated.service /tmp/halo-dedicated@.service /etc/systemd/system/ \
+# (through a folder of this run's own on the host, made by mktemp: no name
+# in a shared /tmp another user could take first; installed as root's)
+remote_folder=$(ssh "$host" 'mktemp -d')
+case "$remote_folder" in
+"" | [!/]* | *[!A-Za-z0-9/._-]*) echo "deploy.sh: no folder of its own on the host" >&2; exit 1 ;;
+esac
+scp "$here/halo-dedicated.service" "$here/halo-dedicated@.service" "$host:$remote_folder/"
+ssh "$host" 'sudo install -o root -g root -m 644 '"$remote_folder"'/halo-dedicated.service '"$remote_folder"'/halo-dedicated@.service /etc/systemd/system/ \
+	&& rm -rf '"$remote_folder"' \
 	&& sudo systemctl daemon-reload \
 	&& sudo systemctl enable halo-dedicated'
 if [ "$restart" = true ]; then
