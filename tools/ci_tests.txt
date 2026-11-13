@@ -26,6 +26,7 @@ tools/test_console_link.py
 tools/test_console_meter_stages.py
 tools/test_coop_level_prompt.py
 tools/test_coop_spectate.py
+tools/test_crash_null_call.py
 tools/test_delta_compat.py
 tools/test_delta_input_rules.py
 tools/test_delta_menu_art.py
