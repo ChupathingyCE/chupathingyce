@@ -656,6 +656,9 @@ struct widget_instance;
 #include "interface/ui_widget_game_data_input_functions.h"
 #include "mcc_maps.h"
 #include "mcc_menu_preview.h" /* port: port/linux/game/mcc_menu_preview.c */
+#ifdef HALO_MAP_LIST
+#include "../../port/linux/src/menu_text_fit.h" /* port: the map lists' names fitted to their boxes */
+#endif
 #include "interface/ui_widget_event_handler_functions.h"
 #include "interface/ui_widget_text_search_and_replace_functions.h"
 #include "interface/virtual_keyboard.h"
@@ -6331,6 +6334,70 @@ boolean ui_widget_port_text_box_room(
 	return TRUE;
 }
 
+#ifdef HALO_MAP_LIST
+/* port: the width of the first `length` characters of `text` in the font the
+draw mode has (menu_text_fit's measure: port/linux/src/menu_text_fit.c) */
+static long ui_widget_port_text_measure(
+	void *context,
+	wchar_t const *text,
+	long length)
+{
+	wchar_t line[MENU_TEXT_FIT_LENGTH];
+	rectangle2d measure;
+	rectangle2d ink;
+	rectangle2d cursor;
+
+	(void)context;
+	length = MIN(length, (long)NUMBEROF(line) - 1);
+	csmemcpy(line, text, length * sizeof(wchar_t));
+	line[length] = 0;
+	set_rectangle2d(&measure, 0, 0, SHORT_MAX, SHORT_MAX);
+	draw_unicode_string_compute_bounds(&measure, line, &ink, &cursor);
+	return MAX(cursor.x0, ink.x1);
+}
+
+/* port: `text` (a buffer of `size` characters) fitted to a text box's room
+(ui_widget_port_text_box_room) in its font: a word wider than the box, which
+would run past its edge and be clipped there, is cut with "..."
+(menu_text_fit), and lines the box is not tall enough to show are left out.
+For the names the port adds to the menus' map lists (a Custom Edition
+file's, an MCC level's: ui_map_list.c, menu_functions.c); the game's own
+strings fit their boxes. Leaves the draw mode as the box's font, left,
+white. FALSE (the text as it was) when the box has no font. */
+boolean ui_widget_port_text_box_fit(
+	struct widget_instance *widget,
+	wchar_t *text,
+	long size)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(widget->definition_tag_index);
+	real_argb_color white = { 1.0f, 1.0f, 1.0f, 1.0f };
+	rectangle2d measure;
+	rectangle2d ink;
+	rectangle2d ink_two;
+	rectangle2d one_line;
+	rectangle2d two_lines;
+	long font_index;
+	short width;
+	long line_height, height, lines = 0, y;
+
+	if (!ui_widget_port_text_box_room(widget, &font_index, &width))
+		return FALSE;
+	draw_string_set_draw_mode(font_index, NONE, _text_justification_left, 0, &white);
+	/* (the lines the box shows: each whose baseline is above its bottom, as
+	draw_unicode_string draws them, at least one; the font's baseline from a
+	capital's ink, its line height from a second line's cursor) */
+	set_rectangle2d(&measure, 0, 0, SHORT_MAX, SHORT_MAX);
+	draw_unicode_string_compute_bounds(&measure, L"X", &ink, &one_line);
+	draw_unicode_string_compute_bounds(&measure, L"X\rX", &ink_two, &two_lines);
+	line_height = two_lines.y1 - one_line.y1;
+	height = definition->bounds.y1 - definition->bounds.y0 - definition->vertical_offset;
+	for (y = ink.y1; line_height > 0 && y < height; y += line_height)
+		lines++;
+	menu_text_fit(text, size, width, MAX(lines, 1), ui_widget_port_text_measure, NULL);
+	return TRUE;
+}
+#endif
+
 /* port: the port's own error text (display_error_text_deferred), which may be
 longer than a line of its dialog: broken at spaces (the strings' line break,
 '\r') where a line would be wider than `width` in the font drawn with.
@@ -6409,14 +6476,25 @@ static void widget_instance_render_text_box(
 		short string_list_index;
 		wchar_t *string;
 		unsigned long length;
+#ifdef HALO_MAP_LIST
+		wchar_t fitted[MENU_TEXT_FIT_LENGTH];
+#endif
 
 		if (widget->parameters.text_box.string_list_index == NONE)
 			string_list_index = definition->string_list_index;
 		else
 			string_list_index = widget->parameters.text_box.string_list_index;
 #ifdef HALO_MAP_LIST
-		/* port: a string of the menus' map list's own, past ui.map's */
+		/* port: a string of the menus' map list's own, past ui.map's, fitted
+		to the box (a name wider than a map card: ui_widget_port_text_box_fit) */
 		string = (wchar_t *)ui_map_list_text(string_list_index);
+		if (string)
+		{
+			ustrncpy(fitted, string, NUMBEROF(fitted) - 1);
+			fitted[NUMBEROF(fitted) - 1] = 0;
+			if (ui_widget_port_text_box_fit(widget, fitted, NUMBEROF(fitted)))
+				string = fitted;
+		}
 		if (!string)
 #endif
 		string = widget == ui_widget_port_error_text_box && ui_widget_port_error_text ?
