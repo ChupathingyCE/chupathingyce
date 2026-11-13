@@ -1245,6 +1245,7 @@ static const struct config_setting config_settings[] =
 	{ "network.browser_url", _config_string, "\"https://stats.chupathingy.org\"", "HALO_NET_BROWSER", _environment_value,
 		_platform_all | _platform_server,
 		"The game list server. Leave it empty for none." },
+#if HALO_MCC
 	{ "network.workshop_downloads", _config_string, "\"ask\"", "HALO_NET_WORKSHOP_DOWNLOADS", _environment_value,
 		_platform_desktop,
 		"Get a game's missing MCC Workshop map through your Steam when you join:\n"
@@ -1256,6 +1257,7 @@ static const struct config_setting config_settings[] =
 	{ "network.workshop_url", _config_string, "\"\"", "HALO_WORKSHOP_URL", _environment_value, _platform_desktop,
 		"The list of MCC Workshop items the Delta Guide's Workshop shows (with\n"
 		"MCC on this computer). Empty shows only the items Steam has installed." },
+#endif
 	{ "network.list_hosted_games", _config_boolean, "true", "HALO_NET_LIST_GAMES", _environment_value,
 		_platform_all | _platform_server,
 		"List the public games you host without a password on the game list,\n"
@@ -1431,6 +1433,7 @@ static const struct config_setting config_settings[] =
 	{ "paths.cache", _config_string, "\"\"", "HALO_CACHE_ROOT", _environment_value, _platform_desktop | _platform_server,
 		"Where Chupathingy keeps its cache. Leave it empty for cache/ in the\n"
 		"save folder." },
+#if HALO_MCC
 	{ "paths.steam", _config_string, "\"\"", "HALO_STEAM_ROOT", _environment_value, _platform_desktop,
 		"A Steam folder (or Steam library) to check first for subscribed Halo CE\n"
 		"Workshop items. Empty uses automatic discovery: Windows registry, Linux\n"
@@ -1481,6 +1484,7 @@ static const struct config_setting config_settings[] =
 		"OpenGL only: MB of an MCC map's largest textures to send to the GPU while\n"
 		"it loads (at most 512), instead of the first time each is drawn. 0 sends\n"
 		"each when it is first drawn. Read when a map loads." },
+#endif
 
 #ifdef HALO_SWITCH_CONSOLE
 	/* ---- performance (the Switch host's: port/switch/host/host_main.c) */
@@ -1584,11 +1588,13 @@ static const struct config_setting config_settings[] =
 		"With debug.network_test_bomb: the joining machine's player holds the\n"
 		"trigger for the first four seconds of each try. They pick the bomb up\n"
 		"with it held, throw it down and pick it up again." },
+#if HALO_MCC
 	{ "debug.network_test_mcc_request", _config_boolean, "false", "HALO_NETWORK_TEST_MCC_REQUEST",
 		_environment_value, _platform_all,
 		"With debug.network_test \"join\": once joined, the machine asks the host\n"
 		"for its MCC map package as OpenCE's client does (message 103), to see\n"
 		"the host decline it. A test's probe." },
+#endif
 	{ "debug.network_test_bomb_keep", _config_boolean, "false", "HALO_NETWORK_TEST_BOMB_KEEP", _environment_value,
 		_platform_all,
 		"With debug.network_test_bomb: the carrier is not moved into the goal\n"
@@ -1775,6 +1781,7 @@ static const struct config_setting config_settings[] =
 		"Run without a window, and draw nothing." },
 	{ "debug.gl_debug", _config_boolean, "false", "HALO_GL_DEBUG", _environment_set_is_true, _platform_all,
 		"Report OpenGL errors in the log." },
+#if HALO_MCC
 	{ "debug.workshop_offer", _config_string, "\"\"", "HALO_WORKSHOP_OFFER", _environment_value, _platform_desktop,
 		"A join's missing Workshop map offered over the main menu once, as\n"
 		"\"<item id>:<title>\", for tests. Leave it empty for none." },
@@ -1807,6 +1814,7 @@ static const struct config_setting config_settings[] =
 		_platform_desktop,
 		"The Delta Guide's Workshop marks an item subscribed without opening\n"
 		"Steam, for tests." },
+#endif
 	{ "debug.menu_open", _config_string, "\"\"", "HALO_MENU_OPEN", _environment_value, _platform_all,
 		"Start on this menu screen instead of the main menu. Leave it empty for\n"
 		"the main menu." },
@@ -2287,7 +2295,7 @@ static void config_path(char *path, size_t size)
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	char folder[1024];
 #endif
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(HALO_XBOX_CONSOLE)
 	const char *save_root = getenv("HALO_SAVE_ROOT");
 
 	/* (a copy given a save root of its own, a test's, keeps its settings
