@@ -107,6 +107,7 @@ tools/test_network_test_startup.py
 tools/test_online_games_list.py
 tools/test_p2p_copies.py
 tools/test_p2p_host_port.py
+tools/test_p2p_public_address.py
 tools/test_p2p_signal_sockets.py
 tools/test_packaged_install.py
 tools/test_party_teams.py
