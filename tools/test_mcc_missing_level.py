@@ -14,7 +14,8 @@ source and run here under a time limit, so that a hang fails the test:
   read that can't be issued, and stops retrying one the system is short of
   resources for;
 - the quit watchdog (port/linux/src/sdl_platform.c) ends a process whose
-  main thread never reads the quit SIGTERM asked for."""
+  main thread is stuck after a SIGTERM, and never one that is still running
+  or saving as it quits."""
 import os
 import shutil
 import signal
@@ -248,45 +249,80 @@ WATCHDOG_MAIN = r"""
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#define QUIT_WATCHDOG_SECONDS 1
+#define QUIT_WATCHDOG_SECONDS 2
 static volatile sig_atomic_t quit_seen;
-/* (SDL's: it only notes the quit, which the stuck main thread never reads) */
+/* (SDL's: it only notes the quit, which a stuck main thread never reads) */
 static void sdl_handler(int signal_number) { (void)signal_number; quit_seen = 1; }
 %s
-int main(void)
+static double now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + t.tv_nsec / 1e9; }
+int main(int argc, char **argv)
 {
+    double until;
+    (void)argc;
     signal(SIGTERM, sdl_handler);
     quit_watchdog_start();
     printf("ready\n");
     fflush(stdout);
-    for (;;)
-        ;
+    while (!quit_seen)
+        if (!strcmp(argv[1], "running")) quit_watchdog_beat();
+    if (!strcmp(argv[1], "stuck"))
+        for (;;)
+            ;
+    if (!strcmp(argv[1], "saving"))
+    {
+        /* (a normal quit whose saves take longer than the watchdog's time:
+        the events are no longer read meanwhile) */
+        quit_watchdog_stand_down();
+        for (until = now() + 3 * QUIT_WATCHDOG_SECONDS; now() < until; )
+            ;
+        printf("saved\n");
+        return 0;
+    }
+    /* (running: the game goes on reading its events a while before it quits) */
+    for (until = now() + 3 * QUIT_WATCHDOG_SECONDS; now() < until; )
+        quit_watchdog_beat();
+    printf("quit\n");
+    return 0;
 }
 """
 
 
-def test_sigterm_ends_a_stuck_game(cc, tmp_path):
+def watchdog(cc, tmp_path):
     source = read("port/linux/src/sdl_platform.c")
     start = source.index("#ifndef QUIT_WATCHDOG_SECONDS")
     end = source.index("#endif", source.index("static void quit_watchdog_start(void)"))
-    code = source[start:end]
-    binary = build(cc, tmp_path, "watchdog", WATCHDOG_MAIN % code)
-    process = subprocess.Popen([str(binary)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return build(cc, tmp_path, "watchdog", WATCHDOG_MAIN % source[start:end])
+
+
+def quit_with_sigterm(binary, mode):
+    process = subprocess.Popen([str(binary), mode], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         assert process.stdout.readline().strip() == "ready"
         process.send_signal(signal.SIGTERM)
-        started = time.monotonic()
         try:
             process.wait(timeout=TIMEOUT)
         except subprocess.TimeoutExpired:
-            pytest.fail("a stuck game ignored SIGTERM")
-        assert time.monotonic() - started < 10
-        assert process.returncode == 128 + signal.SIGTERM
-        assert "was not handled" in process.stderr.read()
+            pytest.fail(f"the game ({mode}) ignored SIGTERM")
+        return process.returncode, process.stdout.read(), process.stderr.read()
     finally:
         if process.poll() is None:
             process.kill()
             process.wait()
+
+
+def test_sigterm_ends_a_stuck_game(cc, tmp_path):
+    code, _, errors = quit_with_sigterm(watchdog(cc, tmp_path), "stuck")
+    assert code == 128 + signal.SIGTERM
+    assert "stuck" in errors
+
+
+@pytest.mark.parametrize("mode, said", [("saving", "saved"), ("running", "quit")])
+def test_sigterm_never_cuts_a_quit_short(cc, tmp_path, mode, said):
+    # (a quit under way, saving, and a game still reading its events, are
+    # left to finish however long they take)
+    code, output, _ = quit_with_sigterm(watchdog(cc, tmp_path), mode)
+    assert (code, output.strip()) == (0, said)

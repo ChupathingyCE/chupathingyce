@@ -1959,7 +1959,9 @@ static boolean cached_map_issue_async_request(
 	tried again for CACHED_MAP_ISSUE_RETRY_MILLISECONDS at most. The caller
 	sees FALSE: nothing was issued, so no completion will come */
 	{
+#ifndef HALO_CONSOLE_IO_RETRY_FOREVER
 		unsigned long first_try = GetTickCount();
+#endif
 
 		while (TRUE)
 		{
@@ -1981,9 +1983,14 @@ static boolean cached_map_issue_async_request(
 			}
 
 			error_code = GetLastError();
+			/* (the original Xbox tries a short one for as long as it takes:
+			HALO_CONSOLE_IO_RETRY_FOREVER) */
 			if (!(error_code==ERROR_NOT_ENOUGH_MEMORY || error_code==ERROR_NO_SYSTEM_RESOURCES ||
-					error_code==ERROR_INVALID_USER_BUFFER) ||
-				GetTickCount() - first_try >= CACHED_MAP_ISSUE_RETRY_MILLISECONDS)
+					error_code==ERROR_INVALID_USER_BUFFER)
+#ifndef HALO_CONSOLE_IO_RETRY_FOREVER
+				|| GetTickCount() - first_try >= CACHED_MAP_ISSUE_RETRY_MILLISECONDS
+#endif
+				)
 			{
 				error(_error_silent, "cache file: a %ld-byte request at %ld could not be issued (#%lu): failed",
 					size, offset, error_code);

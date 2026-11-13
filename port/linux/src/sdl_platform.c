@@ -381,15 +381,31 @@ static void crash_reports_start(void)
 /* SIGTERM and SIGINT quit as closing the window does, when the events are
 next read (SDL's handler, which this one passes them to). A game stuck where
 they are not read (#1149: a load that waited for ever) never would: the
-signal also wakes a watchdog, which ends the process if it is still running
-QUIT_WATCHDOG_SECONDS later. It only writes to standard error, as the stuck
-thread may hold the log's lock */
+signal also wakes a watchdog, which ends the process only if the game is
+stuck: its events not read (platform_pump_events, quit_heartbeat) for
+QUIT_WATCHDOG_SECONDS. Once a quit is under way (platform_exit_window_closed,
+or any exit: its saves run then) it never steps in, so no save is cut in
+half. It only writes to standard error, as the stuck thread may hold the
+log's lock */
 #ifndef QUIT_WATCHDOG_SECONDS
 #define QUIT_WATCHDOG_SECONDS 10
 #endif
 
 static struct sigaction quit_previous_actions[2];
 static int quit_pipe[2] = { -1, -1 };
+/* (each read of the events counts one; a quit under way stands it down) */
+static volatile unsigned long quit_heartbeat;
+static volatile int quit_under_way;
+
+static void quit_watchdog_stand_down(void)
+{
+	__atomic_store_n(&quit_under_way, 1, __ATOMIC_SEQ_CST);
+}
+
+static void quit_watchdog_beat(void)
+{
+	__atomic_add_fetch(&quit_heartbeat, 1, __ATOMIC_RELAXED);
+}
 
 static void quit_signal_handler(int signal_number, siginfo_t *information, void *context)
 {
@@ -434,12 +450,31 @@ static void *quit_watchdog(void *unused)
 		if (errno != EINTR)
 			return NULL;
 	}
-	wait.tv_sec = QUIT_WATCHDOG_SECONDS;
-	wait.tv_nsec = 0;
-	while (nanosleep(&wait, &wait) != 0 && errno == EINTR)
-		;
+	/* (stuck: no read of the events for the whole time, and no quit under
+	way; a game that goes on reading them quits by itself) */
+	{
+		unsigned long last = __atomic_load_n(&quit_heartbeat, __ATOMIC_RELAXED);
+		int still = 0;
+
+		while (still < QUIT_WATCHDOG_SECONDS)
+		{
+			unsigned long now;
+
+			wait.tv_sec = 1;
+			wait.tv_nsec = 0;
+			while (nanosleep(&wait, &wait) != 0 && errno == EINTR)
+				;
+			if (__atomic_load_n(&quit_under_way, __ATOMIC_SEQ_CST))
+				return NULL;
+			now = __atomic_load_n(&quit_heartbeat, __ATOMIC_RELAXED);
+			still = now == last ? still + 1 : 0;
+			last = now;
+		}
+		if (__atomic_load_n(&quit_under_way, __ATOMIC_SEQ_CST))
+			return NULL;
+	}
 	length = snprintf(message, sizeof(message),
-		"chupathingyce: quit: signal %d was not handled in %d seconds; stopping now\n",
+		"chupathingyce: quit: signal %d, and the game has been stuck for %d seconds; stopping now\n",
 		(int)byte, QUIT_WATCHDOG_SECONDS);
 	if (length > 0 && write(STDERR_FILENO, message, (size_t)length) < 0)
 		length = 0;
@@ -466,6 +501,8 @@ static void quit_watchdog_start(void)
 		return;
 	}
 	pthread_attr_destroy(&attributes);
+	/* (the last registered runs first: before every save exit makes) */
+	atexit(quit_watchdog_stand_down);
 	memset(&action, 0, sizeof(action));
 	action.sa_sigaction = quit_signal_handler;
 	action.sa_flags = SA_SIGINFO | SA_RESTART;
@@ -2262,6 +2299,10 @@ deleted and the window destroyed before the exit. bgfx's window is left to
 the process's end, as its device still draws into it. */
 void platform_exit_window_closed(void)
 {
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* (a quit under way: the watchdog leaves it to finish) */
+	quit_watchdog_stand_down();
+#endif
 	platform_log("window closed");
 	if (platform_gl_context)
 	{
@@ -2864,6 +2905,10 @@ void platform_pump_events(void)
 #endif
 	if (!platform_window || SDL_GetCurrentThreadID() != platform_event_thread)
 		return;
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* (the game isn't stuck: quit_watchdog) */
+	quit_watchdog_beat();
+#endif
 	if (exit_ticks == (Uint64)-1)
 	{
 		double seconds = config_real("debug.exit_after");
