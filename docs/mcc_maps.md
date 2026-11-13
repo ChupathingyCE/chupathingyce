@@ -667,7 +667,15 @@ The version-2 payload includes gravity, navigation markers, dialogue gain
 and the campaign's infinite-ammunition flag. Version-1 inventory snapshots
 remain readable, with the new campaign state initialized to its baseline.
 The footer remains at its original address. Images are validated before
-restoring either state.
+restoring either state. The payload keeps the campaign snapshot's first
+768 bytes (its version-5 size); what the snapshot grew by since lives in the
+footer, so no arena offset moves: footer version 3 holds the model ambient
+word at +88 (snapshot version 6), and footer version 4 the skulls word at +84
+as well (snapshot version 7), with the map name's room cut to 60 bytes (its
+first 59 characters are kept and compared). `mcc_checkpoint_footer.inl` packs
+and unpacks them, and refuses to build when the snapshot grows again without
+a new footer version. A checkpoint whose extra state cannot be captured is
+not written at all, so a revert then starts the map over; the log says so.
 
 Campaign snapshots use the existing OpenCE host/client transport, authority
 checks and stale-tick filtering. They are sent only in MCC games; the native
