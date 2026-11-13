@@ -205,8 +205,10 @@ void distributed_messages_fuzz_world_reset(
 	};
 	int index;
 
+	/* (the C library's free: cseries.h makes free the game's debug_free, the
+	arena's, which keeps everything) */
 	for (index = 0; index < WORLD_OBJECTS; index++)
-		free(world_objects[index]);
+		(free)(world_objects[index]);
 	csmemset(objects_client_has, 0xFF, sizeof(objects_client_has));
 	if (!player_data)
 	{
