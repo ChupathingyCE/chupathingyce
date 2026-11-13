@@ -14,7 +14,7 @@ Kept as text, one value a line, in the profile's folder
 order. Nothing here is sent anywhere.
 
 The service record itself is ours (the site's since September, and
-DELTA's). Only the local totals and the top medals here follow the career
+the Delta Guide's). Only the local totals and the top medals here follow the career
 record of mOTA-lEV's OpenCE-Faber (firefight_stats.c: a per-profile records file in the
 profile's folder, a game's local players' kills, deaths and assists added
 up as it ends, the profile's most earned medals), reworked for our medals
