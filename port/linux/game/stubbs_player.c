@@ -13,6 +13,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "cseries.h"
 #include "stubbs_mode.h"
 #include "stubbs_player.h"
+#include "stubbs_engine.h"
 
 #include "bitmaps/bitmaps.h"
 #include "camera/director.h"
@@ -28,6 +29,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "tag_files/tag_groups.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
+
+#include <stdio.h>
+#include <string.h>
 
 #ifndef HALO_CONSOLE_NO_STUBBS /* (the header's empty ones on a console) */
 
@@ -253,6 +257,8 @@ static pixel32 stubbs_hud_color(
 		(pixel32)(PIN(blue, 0.0f, 1.0f) * 255.0f);
 }
 
+static unsigned long stubbs_hud_special_attacks_shown;
+
 void stubbs_player_hud_draw(
 	short local_player_index,
 	long unit_index)
@@ -322,15 +328,61 @@ void stubbs_player_hud_draw(
 		color.blue = 0.6f;
 		draw_string_set_draw_mode(font_index, NONE, 0, 0, &color);
 		rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, L"HEALTH");
+
+		/* (the special attacks the scripts have shown, under the bar: each
+		named, with how many the body has left; one he has none of is dim) */
+		{
+			static char const *const names[] = { "GAS", "GRENADE", "HAND", "HEAD" };
+			long origin_unit_index = unit->unit.player_index != NONE ?
+				stubbs_engine_player_origin_unit(unit->unit.player_index) : unit_index;
+			short index;
+			real x = x0;
+
+			bounds.y0 = (short)(y0 + bar_height + border + 2.0f);
+			bounds.y1 = (short)(bounds.y0 + line_height);
+			for (index = 0; index < (short)NUMBEROF(names); index++)
+			{
+				wchar_t text[32];
+				char narrow[32];
+				short count, character;
+
+				if (!TEST_FLAG(stubbs_hud_special_attacks_shown, index))
+					continue;
+				count = stubbs_engine_special_attack_get_count(origin_unit_index, index);
+				if (count > 1)
+					snprintf(narrow, sizeof(narrow), "%s %d", names[index], (int)count);
+				else
+					snprintf(narrow, sizeof(narrow), "%s", names[index]);
+				for (character = 0; character < (short)NUMBEROF(text); character++)
+				{
+					text[character] = (wchar_t)narrow[character];
+					if (!narrow[character])
+						break;
+				}
+				text[NUMBEROF(text) - 1] = 0;
+				color.red = count > 0 ? 0.82f : 0.45f;
+				color.green = count > 0 ? 0.9f : 0.45f;
+				color.blue = count > 0 ? 0.6f : 0.4f;
+				bounds.x0 = (short)x;
+				bounds.x1 = (short)(x + bar_width);
+				draw_string_set_draw_mode(font_index, NONE, 0, 0, &color);
+				rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, text);
+				x += (real)(strlen(narrow) + 2) * (real)line_height * 0.55f;
+			}
+		}
 	}
 }
+
+/* the scripts' (hud_show_special_attack <index> <shown>): which of the
+special attacks the HUD names (a10 shows the gut grenade only once its
+tutorial reaches it) */
 
 void stubbs_player_hud_show_special_attack(
 	short special_attack,
 	boolean show)
 {
-	(void)special_attack;
-	(void)show;
+	if (special_attack >= 0 && special_attack < 32)
+		SET_FLAG(stubbs_hud_special_attacks_shown, special_attack, show);
 }
 
 #endif
