@@ -26,6 +26,10 @@ void stubbs_mode_convert_tags(void *tag_cache, unsigned int tag_data_size);
 /* ---------- what stubbs_mode.c calls */
 
 const char *map_pack_menus(void) { return "stubbs"; }
+/* (the unit definitions the engine and possession note as the tags are
+rewritten: nothing to note here) */
+void stubbs_engine_note_unit_definition(void) {}
+void stubbs_possession_note_unit_definition(void) {}
 int _stricmp(const char *a, const char *b) { return strcasecmp(a, b); }
 void *csmemcpy(void *d, const void *s, unsigned int n) { return memcpy(d, s, n); }
 void *csmemmove(void *d, const void *s, unsigned int n) { return memmove(d, s, n); }

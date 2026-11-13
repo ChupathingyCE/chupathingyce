@@ -547,3 +547,11 @@ long halo_linux_fopen(void);
 long halo_linux_fopen(void) { return 0; }
 long halo_linux_fprintf(void);
 long halo_linux_fprintf(void) { return 0; }
+long global_network_game_client_get(void);
+long global_network_game_client_get(void) { return 0; }
+long global_network_game_server_get(void);
+long global_network_game_server_get(void) { return 0; }
+long mcc_share_answer_result(void);
+long mcc_share_answer_result(void) { return 0; }
+long mcc_share_decline(void);
+long mcc_share_decline(void) { return 0; }
