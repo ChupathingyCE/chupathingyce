@@ -2129,7 +2129,10 @@ static void list_render(float left, float top, float bottom,
 			else
 				snprintf(line, sizeof(line), "No items");
 			if (line[0])
+			{
 				text_line(UI_TEXT_LINE, left + 10, y + 6, LIST_WIDTH - 20, UI_ALIGN_LEFT, line);
+				y += CONTROL_HEIGHT + ROW_GAP;
+			}
 		}
 	}
 	workshop_view.shown_rows = (short)MAX(shown, 1);

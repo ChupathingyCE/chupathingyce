@@ -34,6 +34,7 @@ SPDX-License-Identifier: MIT
 #include "qrcodegen.h"
 
 #include <stdlib.h>
+#include <utime.h>
 
 const char *platform_data_root(void);
 void platform_log(const char *format, ...);
@@ -219,6 +220,14 @@ static int fake_progress(unsigned long long id, int *state, unsigned long long *
 			snprintf(from, sizeof(from), "%s/steamapps/workshop/fake/976730/any", pipe_folder);
 		if (steam_bridge_platform_is_folder(from) && !steam_bridge_platform_is_folder(to))
 			rename(from, to);
+		/* (an update: the copy as new as Steam's now) */
+		else
+		{
+			char info[STEAM_BRIDGE_PATH_SIZE + 96];
+
+			snprintf(info, sizeof(info), "%s/ModInfo.json", to);
+			utime(info, NULL);
+		}
 	}
 	*state = STEAM_CONTENT_ITEM_INSTALLED;
 	*done = *total;

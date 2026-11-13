@@ -3242,7 +3242,8 @@ static void hint_update(boolean menu_open)
 		since = 0;
 		return;
 	}
-	if (bink_playback_active() || guide.open)
+	/* (nor over the on-screen keyboard, the Workshop's search) */
+	if (bink_playback_active() || guide.open || virtual_keyboard_active())
 	{
 		since = 0;
 		return;
