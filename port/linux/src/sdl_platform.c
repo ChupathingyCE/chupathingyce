@@ -1688,6 +1688,77 @@ static BOOL platform_bgfx_refused;
 static BOOL platform_vulkan_refused;
 /* the backend's own flag (port/android/host/host_vk_api.h) */
 extern int host_renderer_vulkan;
+
+/* A Vulkan start that did not get going draws with OpenGL ES for that start,
+and once the window is up the player is asked whether to stay on OpenGL ES
+for good (as the desktop's bgfx fallback asks): display.renderer changes only
+on a yes; a no leaves it, so the next start tries Vulkan again and asks again
+if it fails. The same for a driver archive (display.vk_driver) whose last
+start never got as far as drawing (d3d8_vk.inl's start note): that start runs
+on the phone's own driver and asks whether to keep it. A run nobody can
+answer (platform_run_is_quiet) logs it only. */
+static BOOL platform_vulkan_offer_pending, platform_vulkan_driver_offer_pending;
+static char platform_vulkan_driver_skipped[160];
+
+void platform_offer_opengl_es(void)
+{
+	platform_vulkan_offer_pending = TRUE;
+}
+
+void platform_offer_system_driver(const char *driver)
+{
+	snprintf(platform_vulkan_driver_skipped, sizeof(platform_vulkan_driver_skipped), "%s", driver);
+	platform_vulkan_driver_offer_pending = TRUE;
+}
+
+static void platform_vulkan_offer(void)
+{
+	static const SDL_MessageBoxButtonData renderer_buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Switch to OpenGL" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Not now" },
+	};
+	static const SDL_MessageBoxButtonData driver_buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Use the phone's driver" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Not now" },
+	};
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy: renderer",
+		"Vulkan didn't get going, so the game is using OpenGL ES for now.\n\n"
+		"Switch to OpenGL ES for good? You can change it later in config.toml (display.renderer).",
+		2, renderer_buttons, NULL };
+	char driver_text[400];
+	BOOL renderer = platform_vulkan_offer_pending, driver = platform_vulkan_driver_offer_pending;
+	int answer = 0;
+
+	platform_vulkan_offer_pending = platform_vulkan_driver_offer_pending = FALSE;
+	if (!renderer && !driver)
+		return;
+	if (driver)
+	{
+		snprintf(driver_text, sizeof(driver_text),
+			"The Vulkan driver %s didn't get as far as drawing the last time, so the game is using the phone's own "
+			"driver for now.\n\nUse the phone's driver for good? You can change it later in config.toml (display.vk_driver).",
+			platform_vulkan_driver_skipped);
+		question.message = driver_text;
+		question.buttons = driver_buttons;
+	}
+	if (platform_run_is_quiet())
+	{
+		platform_log("vulkan: %s for this start only; the setting stays as it is (no one to ask)",
+			driver ? "the phone's driver" : "OpenGL ES");
+		return;
+	}
+	if (!SDL_ShowMessageBox(&question, &answer))
+		answer = 0;
+	if (answer == 1)
+	{
+		config_write(driver ? "display.vk_driver" : "display.renderer", driver ? "" : "gl");
+		platform_log("vulkan: the player switched to %s for good", driver ? "the phone's driver (display.vk_driver = \"\")" :
+			"OpenGL ES (display.renderer = \"gl\")");
+	}
+	else
+		platform_log("vulkan: the player kept their setting; %s is tried again next start",
+			driver ? "the driver" : "Vulkan");
+}
 #endif
 #ifdef HALO_BGFX
 
@@ -2128,6 +2199,7 @@ BOOL platform_video_reopen_for_gl(void)
 	platform_vulkan_refused = TRUE;
 	xgpu_vulkan = FALSE;
 	host_renderer_vulkan = 0;
+	platform_offer_opengl_es();
 	if (platform_window)
 	{
 		SDL_DestroyWindow(platform_window);
@@ -2304,6 +2376,10 @@ void platform_video_swap(void)
 	Uint64 interval, now;
 	Uint64 swap_start = SDL_GetTicks(), swap_time;
 
+#ifdef HALO_VULKAN
+	/* (the question after a fallback, once the window is up) */
+	platform_vulkan_offer();
+#endif
 #ifdef _WIN32
 	platform_borderless_styles();
 #endif

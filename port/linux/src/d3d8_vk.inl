@@ -49,6 +49,8 @@ static struct
 	unsigned long frame;
 	/* the game's window (host_vk_window) */
 	void *window;
+	/* the start note (vk_initialize): its path while this start's is written, cleared once frames are drawn */
+	char note_path[512];
 } vk;
 /* ---------- the command stream (vk_commands.h)
 
@@ -1603,6 +1605,12 @@ static void vk_present(void)
 	vk_textures_frame();
 	vk.frame++;
 	vk_stats.presents++;
+	/* the start got as far as drawing: the driver's start note goes (vk_initialize) */
+	if (vk.note_path[0] && vk.frame >= 30)
+	{
+		unlink(vk.note_path);
+		vk.note_path[0] = 0;
+	}
 	if (!vk_statistics_read)
 	{
 		vk_statistics_read = TRUE;
@@ -2187,6 +2195,7 @@ ES (platform_video_reopen_for_gl) */
 static BOOL vk_initialize(void)
 {
 	char line[600];
+	const char *driver = config_string("display.vk_driver");
 	unsigned long index;
 
 	if (vk.ready)
@@ -2195,9 +2204,43 @@ static BOOL vk_initialize(void)
 	host_vk_window = vk.window;
 	host_vk_present_marker = config_boolean("debug.vk_present_marker");
 	host_vk_self_test = config_boolean("debug.vk_self_test");
-	if (!host_vk_startup(config_string("display.vk_driver"), config_boolean("debug.vk_validation"), line, sizeof(line)))
+	/* A driver archive (display.vk_driver) is code the game runs, and one that crashes would crash every start: a
+	note is left while a start with one is under way, and taken back once frames are drawn (vk_present). A start that
+	finds the note runs on the phone's own driver and asks whether to keep it (platform_offer_system_driver). */
+	if (driver && driver[0])
+	{
+		FILE *note;
+
+		snprintf(vk.note_path, sizeof(vk.note_path), "%s/vk_start.txt", platform_save_root());
+		note = fopen(vk.note_path, "r");
+		if (note)
+		{
+			char last[160] = "";
+
+			if (fgets(last, sizeof(last), note))
+				last[strcspn(last, "\r\n")] = 0;
+			fclose(note);
+			platform_log("vulkan: the last start with the driver %s never got as far as drawing; the phone's own "
+				"driver this time", last[0] ? last : driver);
+			platform_offer_system_driver(last[0] ? last : driver);
+			driver = "";
+			vk.note_path[0] = 0;
+		}
+		else if ((note = fopen(vk.note_path, "w")) != NULL)
+		{
+			fprintf(note, "%s\n", driver);
+			fclose(note);
+		}
+		else
+			vk.note_path[0] = 0;
+	}
+	if (!host_vk_startup(driver, config_boolean("debug.vk_validation"), line, sizeof(line)))
 	{
 		platform_log("renderer: %s", line);
+		/* (not a crash: the note would blame the driver for what did not start) */
+		if (vk.note_path[0])
+			unlink(vk.note_path);
+		vk.note_path[0] = 0;
 		return FALSE;
 	}
 	platform_log("renderer: %s", line);
