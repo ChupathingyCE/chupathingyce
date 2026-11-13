@@ -776,6 +776,9 @@ evaluation, as before */
 #else
 #include "mcc_script_threads.inl" /* port: MCC-only bounded thread storage. */
 #include "mcc_script_runtime.inl"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
+#include "hs_library_external.h"
 #endif
 
 void hs_runtime_initialize(
@@ -1930,7 +1933,24 @@ long hs_cast(
 		if (!HS_TYPE_IS_OBJECT(desired_type))
 			return typecasting_procedures[desired_type][actual_type](value);
 		else if (HS_TYPE_IS_OBJECT_NAME(actual_type))
-			return object_index_from_name_index((short)value);
+		{
+			long object_index = object_index_from_name_index((short)value);
+
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+			/* port: a Stubbs script names a unit its map places only on
+			demand (a10's spare zombies for the whistle lesson, placed
+			"not automatically" and handed straight to ai_attach): such a
+			unit is created as its name is first used (Stubbs mode only:
+			port/linux/game/stubbs_functions.c) */
+			if (object_index == NONE && desired_type == _hs_type_unit && stubbs_mode_active() &&
+				stubbs_functions_name_placed_on_demand((short)value))
+			{
+				hs_object_create((short)value);
+				object_index = object_index_from_name_index((short)value);
+			}
+#endif
+			return object_index;
+		}
 	}
 
 	return value;
