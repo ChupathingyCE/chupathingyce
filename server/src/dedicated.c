@@ -151,6 +151,11 @@ word network_game_server_get_state(struct network_game_server *server, short *st
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 boolean network_game_server_change_map_name(struct network_game_server *server, char const *map_name);
 void network_game_server_change_game_variant(struct network_game_server *server, struct game_variant *variant);
+/* (port/linux/game/mcc_ui_network.inl: an MCC map chosen whose package check
+failed, once; the server stayed on its map) */
+boolean mcc_ui_network_map_refused(char *map, long map_size, char *reason, long reason_size);
+/* (port/linux/game/chat.h: a server line to every Chupathingy player) */
+int chat_server_say(char const *text);
 void network_game_server_pause_countdown(struct network_game_server *server, boolean pause_countdown);
 void network_game_server_dedicated_start_countdown(struct network_game_server *server);
 boolean network_game_server_dedicated_start_countdown_now(struct network_game_server *server, long milliseconds);
@@ -1240,6 +1245,26 @@ void dedicated_server_update(
 			dedicated.entry_set = FALSE;
 		if (!dedicated.entry_set)
 			dedicated.entry_set = set_entry(server);
+		/* (an MCC entry whose package check failed after it was set: the
+		lobby stayed on its map, and waited for good before; skipped like any
+		entry the server can't play, and the lobby told, #1132) */
+		if (dedicated.entry_set)
+		{
+			char refused[64], reason[320];
+
+			if (mcc_ui_network_map_refused(refused, sizeof(refused), reason, sizeof(reason)))
+			{
+				char const *map = dedicated.chosen_playing ? dedicated.chosen_map : dedicated.maps[dedicated.entry];
+				char const *variant = dedicated.chosen_playing ? dedicated.chosen_variant : dedicated.variants[dedicated.entry];
+				char line[400];
+
+				snprintf(line, sizeof(line), "The next map, %s, can't be played on this server: %s", refused, reason);
+				chat_server_say(line);
+				skip_entry(map, variant, reason);
+				dedicated.entry_hosted = FALSE;
+				dedicated.entry_set = FALSE;
+			}
+		}
 		if (dedicated.entry_set)
 			skip_team_entry_for_one_player(network_game_server_get_game(server));
 		if (!dedicated.entry_set)

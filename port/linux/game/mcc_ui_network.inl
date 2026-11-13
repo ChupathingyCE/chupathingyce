@@ -14,6 +14,10 @@ static char mcc_pending_map[64];
 static boolean mcc_pending_local_client;
 static int mcc_pending_error_shown;
 static struct network_game_server *mcc_validation_server;
+/* a map whose package check failed, and why, until asked for once
+(mcc_ui_network_map_refused: a dedicated server skips the entry, #1132) */
+static char mcc_refused_map[64];
+static char mcc_refused_reason[320];
 
 boolean mcc_ui_network_defer_map(struct network_game_server *server, char const *name)
 {
@@ -64,12 +68,27 @@ void mcc_ui_network_update_map(struct network_game_server *server)
     status=mcc_validation_request(selected,&checksum,NULL);
     if (!status) {mcc_validation_server=server;mcc_validation_update();return;}
     if (status<0) {
+        char const *reason=mcc_validation_error();
         if (!mcc_pending_error_shown) {
-            char const *reason=mcc_validation_error();
             for (i=0;reason[i] && i<319;i++) message[i]=(unsigned char)reason[i];
             message[i]=0;
             display_error_text_when_main_menu_loaded(message);
             mcc_pending_error_shown=1;
+        }
+        /* The pick is let go (#1132): before, the lobby waited for it for
+         * good, its start doing nothing and a dedicated server never moving
+         * on. It stays on its map, which the menus show again; a host picks
+         * another (the box above said why), a dedicated server skips the
+         * entry (mcc_ui_network_map_refused). */
+        network_event("mcc: the check of %s failed: %s; the lobby stays on %s", selected, reason,
+            server->game.map.name[0] ? server->game.map.name : "no map");
+        snprintf(mcc_refused_map,sizeof(mcc_refused_map),"%s",selected);
+        snprintf(mcc_refused_reason,sizeof(mcc_refused_reason),"%s",reason);
+        mcc_pending_map_server=NULL;
+        mcc_validation_server=NULL;
+        if (server->game.map.name[0]) {
+            main_set_multiplayer_map_name(server->game.map.name);
+            game_engine_override_map_name(server->game.map.name);
         }
         return;
     }
@@ -84,8 +103,20 @@ void mcc_ui_network_update_map(struct network_game_server *server)
     }
 }
 
+boolean mcc_ui_network_map_refused(char *map, long map_size, char *reason, long reason_size)
+{
+    if (!mcc_refused_map[0]) return FALSE;
+    snprintf(map,(size_t)map_size,"%s",mcc_refused_map);
+    snprintf(reason,(size_t)reason_size,"%s",mcc_refused_reason);
+    mcc_refused_map[0]=0;
+    mcc_refused_reason[0]=0;
+    return TRUE;
+}
+
 void mcc_ui_network_server_dispose(struct network_game_server *server)
 {
+    mcc_refused_map[0]=0;
+    mcc_refused_reason[0]=0;
     if (server==global_network_game_server_get()) {
         mcc_validation_cancel();
         mcc_identity_host_clear();
