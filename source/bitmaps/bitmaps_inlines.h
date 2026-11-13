@@ -111,11 +111,20 @@ __inline pixel32 real_rgb_color_to_pixel32(
  * rasterizer_xbox_active_camouflage.obj. Its assertion records this header
  * and line 291. The stack-local scale, 32-bit FISTP, and in-memory shift are
  * the characteristic packet of the original small x87 helper. */
+/* port: an alpha past 0 to 1 (bitmaps.c): said once, and the alpha clamped */
+real real_alpha_out_of_range(real alpha);
+
 __inline pixel32 real_alpha_to_pixel32(
 	real alpha)
 {
 	real scale = 255.0f;
 	pixel32 result;
+
+	/* port: a map's tags can give one (an MCC map's self-illumination with a
+	negative animation period: periodic_function_evaluate of a negative time
+	leaves 0 to 1), which the Xbox's packed it to another color */
+	if (!(alpha >= 0.0f && alpha <= 1.0f))
+		alpha = real_alpha_out_of_range(alpha);
 
 	match_assert(
 		"..\\bitmaps\\bitmaps_inlines.h",

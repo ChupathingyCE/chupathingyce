@@ -48,6 +48,27 @@ It plays like the Xbox game. Everything extra is a setting.
 
 You need your own copy of the game. Chupathingy never includes or downloads Microsoft's files.
 
+## New: Halo MCC maps
+
+Own Halo: The Master Chief Collection on Steam? Its Halo CE Workshop maps now play in Chupathingy, on Windows, Mac and Linux.
+
+- **Browse the Workshop** in the Delta Guide, with each item's picture and page.
+- **Link Steam once** by scanning a QR code with the Steam app. The game never sees your Steam password.
+- **Maps download straight from Steam**, with no Steam client needed. Once they're in, they play offline or online.
+- **MCC maps show in every map screen**, with search, next to your Xbox and PC maps.
+- **Host and join MCC games**, on your own machine or a dedicated server.
+
+How it works, and what you need: [docs/mcc.md](docs/mcc.md).
+
+<p align="center">
+<img src="docs/screenshots/mcc-workshop.jpg" width="49%" alt="The Workshop in the Delta Guide, listing MCC maps and campaigns">
+<img src="docs/screenshots/mcc-workshop-item.jpg" width="49%" alt="A Workshop item's page, ready to download">
+</p>
+<p align="center">
+<img src="docs/screenshots/mcc-workshop-map.jpg" width="49%" alt="Playing a multiplayer map from the Workshop">
+<img src="docs/screenshots/mcc-windfall.jpg" width="49%" alt="Windfall Island, a Workshop map, in game">
+</p>
+
 ## Get it
 
 Download the latest release from the [Releases page](https://github.com/ChupathingyCE/chupathingyce/releases/latest).
@@ -88,7 +109,7 @@ Where your maps, settings and saves go: [docs/install.md](docs/install.md#where-
 - **Invite a friend.** Send them your game's invite link.
 - **Play the campaign together.** Host it online from Create Game. [Here's how](docs/online.md#online-co-op).
 
-Chupathingy players on every platform play together. **Compatible with OpenCE build-334 (network version 41) for online play:** their players can join your games, and you can join theirs.
+Chupathingy players on every platform play together. We also play with the current OpenCE release: their players can join your games, and you can join theirs.
 
 Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends-cant-join).
 
@@ -108,8 +129,8 @@ Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends
 
 **Maps**
 - Every Xbox map from your disc
-- Halo PC, Custom Edition and HaloMD maps, side by side with the Xbox ones
-- Missing Custom Edition maps download when you join
+- Halo PC, Custom Edition, HaloMD and MCC Workshop maps, side by side with the Xbox ones
+- Missing maps download when you join, and each one is checked before it's used
 - Community Xbox map packs, like Halo CE+
 
 **Your stats**
@@ -158,11 +179,17 @@ Other developers have ported it to the PSP, PS Vita, PS4, PS5, Xbox Series (UWP)
 
 ## Run a server
 
-The dedicated server runs a playlist of games around the clock. It runs on Linux (x86, x64 or arm64, Raspberry Pi too), on 64-bit Windows, or in Docker, and needs no port forwarding. Start with [server/README.md](server/README.md).
+The dedicated server runs a playlist of games around the clock. It runs on Linux (x86, x64 or arm64, Raspberry Pi too), on 64-bit Windows, or in Docker, and needs no port forwarding. It can host MCC Workshop maps too. Start with [server/README.md](server/README.md).
 
 ## Builds
 
-Releases are the stable builds, and the game updates itself from them. Want the newest changes early? Try the [nightly build](https://github.com/ChupathingyCE/chupathingyce/releases/tag/nightly). More in [docs/install.md](docs/install.md#which-build).
+Releases are the stable builds, and the game updates itself from them. Want the newest changes early? Pick an update channel in Settings > Online > Updates, or on the setup screen's Updates tab:
+
+- **Release** (the default) gets releases only.
+- **Testing** gets test builds first, and may have bugs.
+- **Nightly** gets a build of main every night, and the test builds too.
+
+Testing and Nightly still get each release. You can switch back to Release anytime. The game never installs an older build, so after a test build you stay on it until the next release comes out. More in [docs/install.md](docs/install.md#which-build).
 
 ## Help
 
@@ -248,10 +275,17 @@ with their authors credited in each commit.
 - [startupfoundry](https://github.com/startupfoundry) and
   [pastudan](https://github.com/pastudan) (OpenH1): camera shake, particle
   streams, change colors and camo smoothed between ticks, a faster audio
-  resampler and limiter, and a lighter scope zoom at high resolutions.
+  resampler and limiter, a lighter scope zoom at high resolutions, and a
+  map's first frame drawn through every shader, which lists the stock maps'
+  shaders and makes bgfx's pipelines before play.
 - chestahh (GulchCE): lens flares and light
   glows back on AMD graphics, less stutter the first time a texture is drawn
-  on Windows, and host cheat and shadow setup fixes.
+  on Windows, host cheat and shadow setup fixes, and the Halo MCC map
+  loader: MCC Workshop and MCC install maps, their scripts, HUDs, effects
+  and campaigns.
+- PeterRichardsonGolf and the other GulchCE contributors: the Steam
+  Workshop catalog with its items' titles and collections, and the MCC
+  sharing rules.
 - mOTA-lEV ([OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber)):
   projectiles and damage that forget objects deleted under them.
 - [bitmoda](https://github.com/bitmoda) (mastercheese's OpenCE fork): the
@@ -261,16 +295,25 @@ with their authors credited in each commit.
 
 </details>
 
-- Fonts: Cyborg Interface Gothic, the high-res text's font, by fizzy, made
-  to match Halo's interface font from Overpass and glyphs of their own
-  (SIL OFL); [Overpass](https://github.com/RedHatOfficial/Overpass) (SIL OFL);
-  [Noto Sans](https://fonts.google.com/noto) (SIL OFL) and
+- Fonts: Cyborg Interface Gothic, the font of the game's text and of our
+  own screens, by fizzy, made to match Halo's interface font from Overpass
+  and glyphs of their own (SIL OFL); the menus' titles in Chupathingy
+  Titles, Newtown by Roger White (public domain), respaced to sit where
+  Halo's titles do (SIL OFL);
+  [Overpass](https://github.com/RedHatOfficial/Overpass) (SIL OFL);
+  [Noto Sans](https://fonts.google.com/noto) (SIL OFL), for the letters
+  Cyborg lacks, and
   [Kenney's Input Prompts](https://kenney.nl/assets/input-prompts) (CC0); the
   scoreboard's platform logos are one-color marks from
   [Simple Icons](https://simpleicons.org) (CC0) and Wikimedia Commons (public
   domain), plus our own Xbox 360 ring and Wii U GamePad; the names and logos
   are their owners' trademarks, used only to identify platforms. The same
-  marks make the platform badges at the top of this page.
+  marks make the platform badges at the top of this page. [BSD Daemon used with permission.](http://www.mckusick.com/copyright.html)
+- The service record is our own (on the site since September, and in the
+  Delta Guide's SERVICE RECORD). The Guide's local career totals and top
+  medals (`port/linux/src/service_record.c`) follow the career record in
+  mOTA-lEV's [OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber),
+  used under GPL-3.0 with his permission.
 - Controller button icons by snapchipper, CC0 (`port/assets/prompts`).
 - Headphone 3D sound (`audio.hrtf`): head-related impulse responses from the
   [SADIE II database](https://www.york.ac.uk/sadie-project/database.html)
@@ -299,8 +342,9 @@ with their authors credited in each commit.
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
-  Expat, Monocypher, zlib, Zstandard, SMAA, and Project Nayuki's QR Code
-  generator. Their licenses are
+  Expat, Monocypher, zlib, Zstandard (BSD-3-Clause), the LZMA SDK's decoder
+  (Igor Pavlov, public domain), SMAA, and Project Nayuki's QR Code generator
+  (MIT). Their licenses are
   beside them in `port/third_party`. The 64-bit desktop builds' test
   renderer uses bgfx, bx and bimg by Branimir Karadžić (BSD-2-Clause), with
   glslang and SPIRV-Cross (Khronos, BSD-3-Clause and Apache-2.0), fetched

@@ -314,7 +314,7 @@ static int unpack_entry(const struct map_archive_io *io, int method, unsigned in
 }
 
 /* (a Windows device name, in any case, before the first '.': CON, PRN, AUX,
-NUL, COM1-COM9, LPT1-LPT9. Refused on every platform, since a map named so
+NUL, COM0-COM9, LPT0-LPT9. Refused on every platform, since a map named so
 here travels to players on Windows) */
 static int device_name(const char *name)
 {
@@ -340,7 +340,7 @@ static int device_name(const char *name)
 		}
 		return 0;
 	}
-	return (!strncmp(base, "COM", 3) || !strncmp(base, "LPT", 3)) && base[3] >= '1' && base[3] <= '9';
+	return (!strncmp(base, "COM", 3) || !strncmp(base, "LPT", 3)) && base[3] >= '0' && base[3] <= '9';
 }
 
 /* ---------- public code */
@@ -365,6 +365,49 @@ int map_archive_name_valid(const char *name)
 		}
 	}
 	return !device_name(name);
+}
+
+int map_archive_listing_files(const char *listing, unsigned int size, const char *name,
+	char files[][MAP_ARCHIVE_LISTING_NAME_SIZE], int count)
+{
+	static const char link[] = "href=\"/maps/";
+	const unsigned int link_length = (unsigned int)sizeof(link) - 1;
+	unsigned int offset = 0;
+	int found = 0;
+
+	if (!listing || !name || !files || count <= 0 || !map_archive_name_valid(name))
+		return 0;
+	while (found < count && offset < size && size - offset > link_length)
+	{
+		unsigned int start, end, length;
+		char file[MAP_ARCHIVE_LISTING_NAME_SIZE];
+		int index, again = 0;
+
+		if (memcmp(listing + offset, link, link_length))
+		{
+			offset++;
+			continue;
+		}
+		start = offset + link_length;
+		for (end = start; end < size && end - start <= MAP_ARCHIVE_MAXIMUM_NAME_LENGTH + 4 && listing[end] != '"'; end++)
+			;
+		offset = end;
+		/* (<file>.zip" whole, its name one map_archive_name_valid takes) */
+		if (end >= size || listing[end] != '"' || end - start < 5 || memcmp(listing + end - 4, ".zip", 4))
+			continue;
+		length = end - 4 - start;
+		if (length > MAP_ARCHIVE_MAXIMUM_NAME_LENGTH)
+			continue;
+		memcpy(file, listing + start, length);
+		file[length] = 0;
+		if (!map_archive_name_valid(file) || !same_name(file, length, name))
+			continue;
+		for (index = 0; index < found; index++)
+			again = again || !strcmp(files[index], file);
+		if (!again)
+			memcpy(files[found++], file, sizeof(file));
+	}
+	return found;
 }
 
 int map_archive_extract(const struct map_archive_io *io, const char *name, unsigned int *map_size, char *error,

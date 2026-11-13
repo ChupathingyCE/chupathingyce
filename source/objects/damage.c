@@ -138,6 +138,8 @@ symbols in this file:
 #include "units/bipeds.h"
 #include "units/units.h"
 #include "units/vehicles.h"
+#include "mcc_damage.h" /* port: port/linux/game/mcc_damage.c */
+#include "mcc_ui_teams.h"
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1056,6 +1058,7 @@ static void object_damage_aftermath(
 		real_vector3d direction = damage->direction;
 		real_vector3d acceleration;
 		real acceleration_scale;
+		boolean mcc_accelerate_unit; /* port: MCC signed/vector damage impulses */
 
 		direction.k += 0.45f;
 		normalize3d(&direction);
@@ -1064,6 +1067,9 @@ static void object_damage_aftermath(
 			object_definition->object.acceleration_scale *
 			0.033333335f;
 		scale_vector3d(&direction, acceleration_scale, &acceleration);
+		/* port: MCC extension data cannot be represented by a scalar impulse. */
+		mcc_accelerate_unit = mcc_damage_acceleration(&damage_effect->damage,
+			object_definition->object.acceleration_scale, &direction, &acceleration);
 
 		switch (object->object.type)
 		{
@@ -1088,7 +1094,7 @@ static void object_damage_aftermath(
 			{
 				struct unit_datum const *unit = (struct unit_datum const *)object;
 
-				if (damage_effect->damage.instantaneous_acceleration > _real_epsilon &&
+				if (mcc_accelerate_unit && /* port: MCC admission, legacy scalar gate otherwise */
 					!TEST_FLAG(unit->unit.flags, _unit_impervious_bit))
 				{
 					if (object->object.type == _object_type_biped)
@@ -1152,11 +1158,16 @@ static void object_damage_aftermath(
 		no statistics on a machine that joined after, is no player's) */
 		if (player_index != NONE)
 		{
+			/* An MCC team-change death must come from this exact no-statistics
+			 * cause, not a real suicide racing the pending unit flag. */
+			mcc_ui_team_respawn_damage(player_index, object_index,
+				TEST_FLAG(damage->flags, _damage_no_statistics_bit) != 0);
 			game_engine_player_killed(
 				player_index,
 				object_index,
 				player_index,
 				TRUE);
+			mcc_ui_team_respawn_damage(player_index, object_index, FALSE);
 		}
 	}
 

@@ -30,16 +30,20 @@ from .linux_build import (
     EXPAT_SOURCES,
     GAME_FLAGS as LINUX_GAME_FLAGS,
     KCP_DIR,
+    LZMA_DIR,
     MBEDTLS_DIR,
     MINIUPNPC_DEFINES,
     MINIUPNPC_DIR,
     MONOCYPHER_DIR,
     MUSL_MATH_DIR,
     OPTIMISATION,
+    OPUS_DEFINES,
+    OPUS_DIR,
     PLATFORM_FLAGS as LINUX_PLATFORM_FLAGS,
     QRCODEGEN_DIR,
     STB_DIR,
     TOML_DIR,
+    VOICE_SOURCE,
     XDK_INCLUDE,
     ZLIB_DEFINES,
     ZLIB_DIR,
@@ -54,6 +58,7 @@ from .linux_build import (
     game_browser_defines,
     miniupnpc_sources,
     musl_math_sources,
+    opus_sources,
     updater_defines,
 )
 from .ninja_syntax import Writer
@@ -261,7 +266,9 @@ class Lp64Build:
         linux_config = load_json(LINUX_PORT_CONFIG)
         excluded = host.excluded
         release = ["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else []
-        compressed_maps = COMPRESSED_MAP_DEFINES if host.compressed_maps else []
+        # (the desktop builds, which have zstd: the Steam content client too,
+        # port/linux/src/steam_content, steam_bridge_pipe.c)
+        compressed_maps = [*COMPRESSED_MAP_DEFINES, "-DHALO_STEAM_CONTENT"] if host.compressed_maps else []
         abi = " ".join([*host.target_flags, *LP64_ABI_FLAGS, *release, *game_browser_defines(sln),
                         *compressed_maps])
         prefix_header = lp64(LINUX_PORT_DIR / "include" / "halo_linux_prefix.h")
@@ -316,6 +323,8 @@ class Lp64Build:
             f"-I{ZLIB_DIR}",
             # (and Zstandard's, likewise)
             f"-I{ZSTD_DIR / 'lib'}",
+            # (and Opus's: voice.c's codec)
+            f"-I{OPUS_DIR / 'include'}",
             f"-I{_quote(lp64(Path('source')))} -I{_quote(lp64(Path('source/cseries')))}",
             host.host_include, f"-idirafter {xdk}",
         ])
@@ -360,6 +369,15 @@ class Lp64Build:
         for source in sorted((MBEDTLS_DIR / "library").glob("*.c")):
             add(source, " ".join([*native_third_party, mbedtls_include, f"-I{MBEDTLS_DIR / 'library'}"]),
                 native=True)
+        # the Steam content client (port/linux/src/steam_content; steam_bridge_pipe.c),
+        # with the host's ABI: plain types across its interface; Mbed TLS,
+        # zlib, Zstandard and the LZMA SDK's decoder (port/third_party/lzma)
+        if host.compressed_maps:
+            steam_content_flags = " ".join([posix_cflags, mbedtls_include, f"-I{ZLIB_DIR}", f"-I{ZSTD_DIR / 'lib'}",
+                                            f"-I{LZMA_DIR}", *ZLIB_DEFINES])
+            for source in sorted((platform_dir / "steam_content").glob("*.c")):
+                add(source, steam_content_flags, native=True)
+            add(LZMA_DIR / "LzmaDec.c", " ".join(native_third_party), native=True)
         for source in miniupnpc_sources():
             add(source, " ".join([*native_third_party, *MINIUPNPC_DEFINES,
                                   f"-I{MINIUPNPC_DIR / 'include'}", f"-I{MINIUPNPC_DIR / 'src'}"]),
@@ -385,6 +403,14 @@ class Lp64Build:
         if host.compressed_maps:
             for name in ZSTD_SOURCES:
                 add(ZSTD_DIR / name, " ".join([*native_third_party, *ZSTD_DEFINES]), native=True)
+        # voice chat's codec (port/third_party/opus; voice.c), with the
+        # host's ABI: its API is ints, floats and its own types; a build
+        # without voice.c (the dedicated server) leaves it out
+        if VOICE_SOURCE not in excluded:
+            for source in opus_sources():
+                add(source, " ".join([*native_third_party, "-std=gnu11", *OPUS_DEFINES,
+                                      *(f"-I{OPUS_DIR / name}" for name in ("include", "celt", "silk", "silk/float"))]),
+                    native=True)
         third_party = " ".join([abi, "-std=gnu11", "-w"])
         add(lp64(TOML_DIR / "tomlc17.c"), third_party)
         add(lp64(KCP_DIR / "ikcp.c"), third_party)

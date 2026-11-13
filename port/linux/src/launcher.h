@@ -10,7 +10,9 @@ It opens on the first start without the Xbox maps (Welcome, in place of the
 message boxes), when the maps folder isn't right (Maps), with --setup, with
 Shift or a controller's Back (View) held while the game starts, or every
 time with launcher.show_at_start = "always". A run nobody watches
-(platform_run_is_quiet), the dedicated server and Android never show it.
+(platform_run_is_unwatched), the dedicated server and Android never show
+it. The Steam Deck's Game Mode does: it is drawn in the game's own window,
+and its UPDATES tab installs with no system dialog (updater_install_begin).
 
 The desktop builds with the overlay (HALO_GAME_BROWSER) have it; the others
 keep the message boxes (sdl_platform.c), and a console with screens of its

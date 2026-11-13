@@ -38,6 +38,8 @@ const char *build_identity_watermark(void);
 (updater.c, under gamescope): "0.7.5a (5c1a363) - 0.7.6 is out: update
 from Desktop Mode" */
 void build_identity_watermark_update(const char *version, const char *where);
+/* the same with a note of its own: "0.9.0d (5c1a363) - <note>" */
+void build_identity_watermark_note(const char *note);
 
 /* the log's header, first in debug.txt for this run (before the game's own
 "halobeta xbox" line) and on standard error: build_identity, then the

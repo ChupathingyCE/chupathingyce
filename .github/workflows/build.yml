@@ -21,6 +21,11 @@ name: Build
 # - compiles go through ccache, whose cache carries over from run to run, so
 #   a commit only recompiles what it changed; downloads (SDL, musl, Gradle,
 #   the Linux builds' system roots) are cached too;
+# - the 32-bit Linux build is built once (linux) and tested beside the other
+#   builds (linux-tests): its tree goes to runners that split the tests
+#   (tools/ci_tests.txt, tools/ci_test_scripts.txt, one file a line, so that
+#   pull requests adding tests do not collide) and run them with
+#   pytest-xdist; the big-endian tests need no build and start at once;
 # - pushes build only release branches and tags, not main: a commit reaches
 #   main through a pull request whose Build passed, and the nightly, the
 #   releases and the test builds start their own run (workflow_dispatch);
@@ -32,10 +37,18 @@ name: Build
 #   canceled;
 # - changes that only touch documentation do not build (no check is
 #   required to merge, so a pull request without a Build is not blocked);
-# - the compile caches are saved only by runs on main (the nightly's and
-#   the releases'; each run restores main's
-#   newest), so branches and pull requests do not crowd main's out of the
-#   repository's 10 GB of caches;
+# - the caches (compiles, downloads) are saved only by a run of main's own
+#   head that builds no version: the daily run on main (schedule) and a
+#   test build started on main without a commit. Pull requests and other
+#   branches restore main's newest and keep nothing of their own, so they
+#   do not crowd main's out of the repository's 10 GB of caches;
+# - a release's, a testing build's or a nightly's run (one started with a
+#   version: what gets signed) restores no cache and saves none: it builds
+#   from a clean checkout and fresh downloads, whatever a cache holds;
+# - a run started with a commit builds it only when that commit is on main
+#   or on a release branch (the gate job), never another commit of the
+#   repository's network (a fork's pull request, say), so a run on main
+#   never builds code that is not ChupathingyCE's own;
 # - Windows, whose minutes cost twice Linux's, builds only Windows;
 # - artifacts are kept for three days.
 on:
@@ -52,10 +65,14 @@ on:
     paths-ignore:
       - "**.md"
       - "docs/**"
+  # (main's head each day, which keeps main's caches fresh for the pull
+  # requests: the only regular run that saves them)
+  schedule:
+    - cron: "41 7 * * *"
   workflow_dispatch:
     inputs:
       commit:
-        description: The commit to build (a SHA; empty, the branch's)
+        description: The commit to build (a full SHA on main or a release-* branch; empty, the branch's)
         type: string
         default: ""
       version:
@@ -97,9 +114,53 @@ env:
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_BASEDIR: ${{ github.workspace }}
   CCACHE_MAXSIZE: 1G
+  # the caches (README of this file, "Kept cheap"): restored by every run
+  # that builds no version; saved only by a run on main that builds main's
+  # own head (no commit given, or that commit) and no version
+  CACHE_RESTORE: ${{ inputs.version == '' && 'true' || 'false' }}
+  CACHE_SAVE: ${{ github.ref == 'refs/heads/main' && inputs.version == '' && (inputs.commit == '' || inputs.commit == github.sha) && 'true' || 'false' }}
 
 jobs:
+  gate:
+    # A run started with a commit (workflow_dispatch's inputs.commit) builds
+    # it only when it is a full SHA in the history of main or of a release
+    # branch (release-*) of this repository. GitHub checks out
+    # any commit of the repository's network, a fork's unmerged pull request
+    # included, and every other job waits for this one.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: The commit is main's or a release branch's
+        if: github.event_name == 'workflow_dispatch' && inputs.commit != ''
+        env:
+          COMMIT: ${{ inputs.commit }}
+          REPOSITORY: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          case "$COMMIT" in
+            *[!0123456789abcdef]*) echo "::error::commit is not a full SHA (40 hex digits, lower case)"; exit 1 ;;
+          esac
+          [ "${#COMMIT}" -eq 40 ] || { echo "::error::commit is not a full SHA (40 hex digits, lower case)"; exit 1; }
+          # (the branches' history, commits only: no trees, no files)
+          git init -q gate
+          cd gate
+          # (one retry: a GitHub hiccup should not fail a release's build)
+          fetch() {
+            git fetch -q --filter=tree:0 "$REPOSITORY" \
+              '+refs/heads/main:refs/gate/main' \
+              '+refs/heads/release-*:refs/gate/release-*'
+          }
+          fetch || { echo "fetch failed; trying again in 10 seconds"; sleep 10; fetch; }
+          for branch in $(git for-each-ref --format='%(refname)' refs/gate); do
+            if git merge-base --is-ancestor "$COMMIT" "$branch" 2>/dev/null; then
+              echo "$COMMIT is on ${branch#refs/gate/}"
+              exit 0
+            fi
+          done
+          echo "::error::$COMMIT is not on main or a release branch: this workflow builds only ChupathingyCE's own commits"
+          exit 1
+
   info:
+    needs: gate
     # what this run builds: the commit (inputs.commit, else the run's) and
     # the version, which the release workflows check before they publish
     # its builds
@@ -139,6 +200,7 @@ jobs:
           retention-days: 3
 
   linux:
+    needs: gate
     # Ubuntu 24.04 with clang 22 from apt.llvm.org (the profile-guided
     # optimisation in pgo/ needs that major version; its bin directory goes
     # first on PATH, so that clang, ld.lld and llvm-profdata are clang 22's
@@ -189,22 +251,28 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
 
-      # (restored on every run, saved only on main: other branches' and pull
-      # requests' runs start from main's and keep nothing of their own)
+      # (restored by a run without a version, saved only by main's head:
+      # other branches' and pull requests' runs start from main's and keep
+      # nothing of their own)
       - uses: actions/cache/restore@v4
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: .ccache
           key: ccache-linux-ubuntu-clang22-${{ github.sha }}
           restore-keys: ccache-linux-ubuntu-clang22-
 
       # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-1
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/downloads
           key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       # the system root and SDL's source, which the build downloads
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-2
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/linux/third_party
           key: linux-third-party-${{ hashFiles('tools/linux_sysroot.py') }}
@@ -220,70 +288,6 @@ jobs:
       # root's: tools/linux_glibc_check.py)
       - name: glibc 2.31
         run: python3 tools/linux_glibc_check.py $([ "$BUILD_DEBUG" = true ] && echo dist/chupathingyce-linux-debug) dist/chupathingyce-linux-release
-
-      # (Delta's wire on a big-endian machine, as the Xbox 360 and Wii U are:
-      # tools/test_delta_big_endian.py, under QEMU; and structure culling's
-      # reads of the map's vertices there)
-      - name: Delta on big-endian
-        timeout-minutes: 15
-        run: |
-          # (apt fails fast and retries: a mirror that stalls has hung a run
-          # for more than 15 minutes; each try is also cut off by timeout)
-          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
-            | sudo tee /etc/apt/apt.conf.d/80-ci-fail-fast > /dev/null
-          apt_try() {
-            for attempt in 1 2 3; do
-              sudo timeout 300 "$@" && return 0
-              echo "apt: try $attempt of $* failed" >&2
-              sleep 10
-            done
-            return 1
-          }
-          apt_try apt-get install -y -q --no-install-recommends gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user
-          DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/test_delta_big_endian.py -rs
-          # (structure culling from the Xbox's vertex bytes, #925)
-          if [ -f tools/harness/tests/test_structure_culling_byte_order.py ]; then
-            DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/harness/tests/test_structure_culling_byte_order.py -rs
-          fi
-
-      # (HALO_SANITIZERS_REQUIRED: a test without its sanitizers' runtime or
-      # libFuzzer fails here, where clang's runtimes are installed, instead of
-      # building unsanitized or skipping; tools/fuzz_support.py)
-      - name: Test
-        env:
-          HALO_SANITIZERS_REQUIRED: "1"
-        run: |
-          # (a release branch's commit, built with main's workflow, may not have
-          # every test main has yet: those are left out)
-          tests=""; for test in tools/test_host_fuzz.py tools/test_linux_port.py tools/test_android_asm_convert.py tools/test_touch_menu.py tools/test_ui_point.py tools/test_p2p_copies.py tools/test_p2p_host_port.py tools/test_p2p_public_address.py tools/test_ping.py tools/test_save_folder.py tools/test_packaged_install.py tools/test_server_control.py tools/test_server_roles.py tools/test_delta.py tools/test_delta_peer.py tools/test_delta_compat.py tools/test_network_rules.py tools/test_map_download.py tools/test_playlist_maps.py tools/test_map_families.py tools/test_ce_resource_maps.py tools/test_map_packs.py tools/test_map_report.py tools/test_event_log.py tools/test_update_manifest.py tools/test_rename_stub.py tools/test_gamespy_listing.py tools/test_ce_joins.py tools/test_determinism.py tools/test_ce_effect_flags.py tools/test_online_games_list.py tools/test_campaign_levels.py tools/test_http_url_rules.py tools/test_host_cheats.py tools/test_vote_notice.py tools/test_lobby_budget.py tools/test_line_of_sight.py tools/test_host_console_objects.py tools/test_host_evidence.py tools/test_address_limit.py tools/test_conduct_rules.py tools/test_tricks.py tools/test_coop_spectate.py tools/test_discord_activity.py tools/test_social.py tools/test_identity.py tools/test_discord_register.py tools/test_kcp_peer.py tools/test_kcp_flush.py; do
-            if [ -f "$test" ]; then tests="$tests $test"; else echo "::notice::$test: not in this commit"; fi
-          done
-          python3 -m pytest -q $tests
-          # (the asset-free tests of the engine's own functions, tools/harness;
-          # the three left out were written against code of ours that has
-          # changed since, and wait to be brought up to date)
-          if [ -f tools/harness/__init__.py ]; then
-            python3 -m pytest -q tools/harness \
-              --ignore=tools/harness/tests/test_elevator_prediction.py \
-              --ignore=tools/harness/tests/test_server_teardown.py \
-              --ignore=tools/harness/tests/test_stale_player_damage.py
-          fi
-          python3 tools/test_light_storage.py
-          python3 tools/test_saved_game_script_globals.py
-          python3 tools/test_rendered_lights_storage.py
-          python3 tools/test_port_config.py
-          python3 tools/test_tick_input.py
-          python3 tools/test_audio_doppler.py
-          python3 tools/test_controller_layout.py
-          python3 tools/test_button_mappings.py
-          python3 tools/test_menu_key_caps.py
-          python3 tools/test_split_screen_input.py
-          python3 tools/test_local_player_quit.py
-          python3 tools/test_tag_byte_swap.py
-          python3 tools/test_bitmap_byte_order.py
-          python3 -m pytest -q tools/test_console_link.py
-          python3 -m pytest -q tools/test_console_claims.py
-          python3 tools/test_console_https.py
 
       - name: Compile cache
         run: ccache --show-stats
@@ -309,13 +313,234 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+      # (the configured and built tree, for linux-tests: build.ninja, ninja's
+      # log and dependencies, and build/; kept a day, not a download)
+      - name: Pack the build for the tests
+        run: |
+          tar -cf "$RUNNER_TEMP/linux-build-tree.tar.zst" -I 'zstd -T0 -3' \
+            build.ninja $(ls -d .ninja_log .ninja_deps 2>/dev/null) build
+          ls -lh "$RUNNER_TEMP/linux-build-tree.tar.zst"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-linux-build-tree
+          path: ${{ runner.temp }}/linux-build-tree.tar.zst
+          compression-level: 0
+          retention-days: 1
+
       - uses: actions/cache/save@v4
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-1.outputs.cache-hit != 'true' }}
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-2.outputs.cache-hit != 'true' }}
+        with:
+          path: build/linux/third_party
+          key: linux-third-party-${{ hashFiles('tools/linux_sysroot.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' }}
         with:
           path: .ccache
           key: ccache-linux-ubuntu-clang22-${{ github.sha }}
 
+  linux-tests:
+    needs: [gate, linux]
+    # The tests, against the linux job's build (its tree: build.ninja, ninja's
+    # log, build/), in parallel: the pytest files of tools/ci_tests.txt split
+    # into shards, each on its own runner with pytest-xdist's workers (one a
+    # processor); and one runner for the engine's harness (tools/harness),
+    # the tests written as scripts (tools/ci_test_scripts.txt) and the
+    # self-updater from end to end. The lists are read from this workflow's
+    # own commit, so that a release branch's commit built with main's
+    # workflow runs the tests it has (the others are left out with a notice).
+    # Same toolchain as the linux job.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ["pytest 1 3", "pytest 2 3", "pytest 3 3", "other"]
+    name: linux-tests (${{ matrix.part }})
+    steps:
+      - name: Install the toolchain
+        timeout-minutes: 15
+        run: |
+          # (apt fails fast and retries: a mirror that stalls has hung a run
+          # for more than 15 minutes; each try is also cut off by timeout)
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-fail-fast > /dev/null
+          apt_try() {
+            for attempt in 1 2 3; do
+              sudo timeout 300 "$@" && return 0
+              echo "apt: try $attempt of $* failed" >&2
+              sleep 10
+            done
+            return 1
+          }
+          sudo install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL --retry 3 --max-time 60 https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] http://apt.llvm.org/noble/ llvm-toolchain-noble-$LLVM_MAJOR main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list
+          apt_try apt-get update -q
+          apt_try apt-get install -y -q --no-install-recommends clang-$LLVM_MAJOR lld-$LLVM_MAJOR llvm-$LLVM_MAJOR \
+            libclang-rt-$LLVM_MAJOR-dev gcc gcc-multilib libc6-dev-i386 cmake pkg-config libwayland-bin \
+            ninja-build ccache python3-pytest python3-pytest-xdist zstd
+          echo "/usr/lib/llvm-$LLVM_MAJOR/bin" >> "$GITHUB_PATH"
+        env:
+          LLVM_MAJOR: 22
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+
+      # (the test lists, from this workflow's commit)
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .ci-lists
+          sparse-checkout: |
+            tools/ci_tests.txt
+            tools/ci_test_scripts.txt
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-linux-build-tree
+          path: ${{ runner.temp }}
+
+      # (the tree as the linux job left it; the checkout's files dated before
+      # it, so that ninja finds the build up to date instead of compiling it
+      # again: what ninja's log recorded is newer)
+      - name: Unpack the build
+        run: |
+          tar -I zstd -xf "$RUNNER_TEMP/linux-build-tree.tar.zst"
+          rm "$RUNNER_TEMP/linux-build-tree.tar.zst"
+          git ls-files -z | xargs -0 touch -h -d '2000-01-01 00:00:00 UTC'
+          # (and the checkout's HEAD log, which build.ninja is configured from)
+          touch -d '2000-01-01 00:00:00 UTC' "$(git rev-parse --git-path logs/HEAD)"
+          left=$(ninja -n linux | grep -c '^\[' || true)
+          if [ "$left" -gt 0 ]; then
+            echo "::warning::ninja would rebuild $left steps of the unpacked build"
+            ninja -n -d explain linux 2>&1 | head -n 20
+          fi
+
+      # (HALO_SANITIZERS_REQUIRED: a test without its sanitizers' runtime or
+      # libFuzzer fails here, where clang's runtimes are installed, instead of
+      # building unsanitized or skipping; tools/fuzz_support.py)
+      - name: Test
+        env:
+          HALO_SANITIZERS_REQUIRED: "1"
+          PART: ${{ matrix.part }}
+          HALO_UPDATE_TEST_SDL: build/linux
+          UPDATE_INSTALL_REQUIRED: "1"
+        run: |
+          # (a list's files that are in this commit: a release branch's commit,
+          # built with main's workflow, may not have every test main has yet)
+          present() {
+            grep -v -e '^#' -e '^[[:space:]]*$' "$1" | while read -r test; do
+              if [ -f "$test" ]; then echo "$test"; else echo "::notice::$test: not in this commit" >&2; fi
+            done
+          }
+          set -- $PART
+          case "$1" in
+            pytest)
+              # (shard $2 of $3: the files dealt out longest first to the
+              # shard with the least so far; the few long ones, the fuzzers,
+              # weighed by their seconds on a runner, every other file as 2)
+              tests=$(present .ci-lists/tools/ci_tests.txt | awk -v shard="$2" -v shards="$3" '
+                BEGIN {
+                  weight["tools/test_map_fuzz.py"] = 200; weight["tools/test_host_fuzz.py"] = 180
+                  weight["tools/test_steam_content.py"] = 160; weight["tools/test_server_control.py"] = 90
+                  weight["tools/test_delta_peer.py"] = 70; weight["tools/test_workshop_list.py"] = 25
+                  weight["tools/test_steam_bridge.py"] = 20
+                }
+                { files[NR] = $0; w[NR] = ($0 in weight) ? weight[$0] : 2 }
+                END {
+                  for (i = 1; i <= NR; i++) order[i] = i
+                  for (i = 1; i <= NR; i++) for (j = i + 1; j <= NR; j++)
+                    if (w[order[j]] > w[order[i]]) { t = order[i]; order[i] = order[j]; order[j] = t }
+                  for (i = 1; i <= NR; i++) {
+                    best = 1
+                    for (k = 2; k <= shards; k++) if (load[k] < load[best]) best = k
+                    load[best] += w[order[i]]
+                    if (best == shard) print files[order[i]]
+                  }
+                }')
+              echo "$tests"
+              python3 -m pytest -q -n auto --durations=15 $tests
+              ;;
+            other)
+              # (the self-updater from end to end, against the 32-bit SDL 3 the
+              # linux job built in build/linux: tools/test_update_install.py;
+              # UPDATE_INSTALL_REQUIRED, so that a missing piece fails, never skips)
+              if [ -f tools/test_update_install.py ]; then
+                python3 -m pytest -q -rs tools/test_update_install.py
+              else
+                echo "::notice::tools/test_update_install.py: not in this commit"
+              fi
+              # (the asset-free tests of the engine's own functions, tools/harness;
+              # the three left out were written against code of ours that has
+              # changed since, and wait to be brought up to date)
+              if [ -f tools/harness/__init__.py ]; then
+                python3 -m pytest -q -n auto tools/harness \
+                  --ignore=tools/harness/tests/test_elevator_prediction.py \
+                  --ignore=tools/harness/tests/test_server_teardown.py \
+                  --ignore=tools/harness/tests/test_stale_player_damage.py
+              fi
+              for test in $(present .ci-lists/tools/ci_test_scripts.txt); do
+                echo "== $test"
+                python3 "$test"
+              done
+              ;;
+          esac
+
+  linux-big-endian:
+    needs: gate
+    # Delta's wire on a big-endian machine, as the Xbox 360 and Wii U are
+    # (tools/test_delta_big_endian.py, under QEMU), and structure culling's
+    # reads of the map's vertices there. Needs no build: it runs beside them.
+    # (32-bit headers and libraries without gcc-multilib, which the s390x
+    # cross compiler conflicts with: the shader key test builds with -m32)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+
+      - name: Delta on big-endian
+        timeout-minutes: 15
+        run: |
+          # (apt fails fast and retries: a mirror that stalls has hung a run
+          # for more than 15 minutes; each try is also cut off by timeout)
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-fail-fast > /dev/null
+          apt_try() {
+            for attempt in 1 2 3; do
+              sudo timeout 300 "$@" && return 0
+              echo "apt: try $attempt of $* failed" >&2
+              sleep 10
+            done
+            return 1
+          }
+          apt_try apt-get update -q
+          apt_try apt-get install -y -q --no-install-recommends gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user \
+            libc6-dev-i386 lib32gcc-13-dev python3-pytest
+          DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/test_delta_big_endian.py tools/test_vertex_byte_order.py -rs
+          # (the shader key lists read the same on a big-endian machine)
+          if [ -f tools/test_shader_keys.py ]; then
+            DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/test_shader_keys.py -rs
+          fi
+          # (structure culling from the Xbox's vertex bytes, #925)
+          if [ -f tools/harness/tests/test_structure_culling_byte_order.py ]; then
+            DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/harness/tests/test_structure_culling_byte_order.py -rs
+          fi
+
   linux64:
+    needs: gate
     # The native 64-bit Linux build (ninja linux64), on Ubuntu with clang 22
     # as the 32-bit one, and portable as it is: against Debian 11's amd64
     # glibc 2.31, with the SDL 3 it brings (tools/linux_sysroot.py --arch
@@ -361,29 +586,37 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
 
-      # (restored on every run, saved only on main: other branches' and pull
-      # requests' runs start from main's and keep nothing of their own)
+      # (restored by a run without a version, saved only by main's head:
+      # other branches' and pull requests' runs start from main's and keep
+      # nothing of their own)
       - uses: actions/cache/restore@v4
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: .ccache
           key: ccache-linux64-ubuntu-clang22-${{ github.sha }}
           restore-keys: ccache-linux64-ubuntu-clang22-
 
       # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-1
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/downloads
           key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       # the system root and SDL's source, which the build downloads
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-2
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/linux64/third_party
           key: linux64-third-party-${{ hashFiles('tools/linux_sysroot.py') }}
 
       # bgfx's, bx's and bimg's sources, which the build fetches for the bgfx
       # renderer (tools/bgfx_build.py): kept so most runs fetch nothing
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-3
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/bgfx
           key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
@@ -423,12 +656,31 @@ jobs:
           retention-days: 3
 
       - uses: actions/cache/save@v4
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-1.outputs.cache-hit != 'true' }}
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-2.outputs.cache-hit != 'true' }}
+        with:
+          path: build/linux64/third_party
+          key: linux64-third-party-${{ hashFiles('tools/linux_sysroot.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-3.outputs.cache-hit != 'true' }}
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' }}
         with:
           path: .ccache
           key: ccache-linux64-ubuntu-clang22-${{ github.sha }}
 
   freebsd64:
+    needs: gate
     # The native 64-bit FreeBSD build (ninja freebsd64, port/unix: Renkoto's
     # port), built on FreeBSD 15.1 itself, in a virtual machine on Ubuntu
     # (vmactions/freebsd-vm, pinned to a commit: QEMU with the runner's KVM;
@@ -464,17 +716,18 @@ jobs:
             echo "::notice::no FreeBSD build at this commit (ninja freebsd64): skipped"
           fi
 
-      # (restored on every run, saved only on main, as the other jobs')
+      # (restored and saved as the other jobs' are)
       - uses: actions/cache/restore@v4
-        if: steps.has.outputs.freebsd64 == 'true'
+        if: env.CACHE_RESTORE == 'true' && steps.has.outputs.freebsd64 == 'true'
         with:
           path: .ccache
           key: ccache-freebsd64-${{ env.FREEBSD_RELEASE }}-${{ github.sha }}
           restore-keys: ccache-freebsd64-${{ env.FREEBSD_RELEASE }}-
 
       # the FFmpeg source tarball (tools/download.py)
-      - uses: actions/cache@v4
-        if: steps.has.outputs.freebsd64 == 'true'
+      - uses: actions/cache/restore@v4
+        id: cache-1
+        if: env.CACHE_RESTORE == 'true' && steps.has.outputs.freebsd64 == 'true'
         with:
           path: build/downloads
           key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
@@ -523,12 +776,19 @@ jobs:
           retention-days: 3
 
       - uses: actions/cache/save@v4
-        if: ${{ success() && steps.has.outputs.freebsd64 == 'true' && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-1.outputs.cache-hit != 'true' && steps.has.outputs.freebsd64 == 'true' }}
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && steps.has.outputs.freebsd64 == 'true' && env.CACHE_SAVE == 'true' }}
         with:
           path: .ccache
           key: ccache-freebsd64-${{ env.FREEBSD_RELEASE }}-${{ github.sha }}
 
   server:
+    needs: gate
     # The dedicated server (tools/server_build.py): one static program for
     # each architecture, built against musl in Alpine Linux's container of
     # that architecture (tools/ci_build.py --alpine; x86 on the x86-64
@@ -552,16 +812,20 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
 
-      # (restored on every run, saved only on main: other branches' and pull
-      # requests' runs start from main's and keep nothing of their own)
+      # (restored by a run without a version, saved only by main's head:
+      # other branches' and pull requests' runs start from main's and keep
+      # nothing of their own)
       - uses: actions/cache/restore@v4
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: .ccache
           key: ccache-server-${{ matrix.arch }}-${{ github.sha }}
           restore-keys: ccache-server-${{ matrix.arch }}-
 
       # SDL's headers, which configure.py fetches
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-1
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/server/third_party
           key: server-third-party-${{ matrix.arch }}-${{ hashFiles('tools/server_build.py') }}
@@ -611,7 +875,13 @@ jobs:
           retention-days: 3
 
       - uses: actions/cache/save@v4
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-1.outputs.cache-hit != 'true' }}
+        with:
+          path: build/server/third_party
+          key: server-third-party-${{ matrix.arch }}-${{ hashFiles('tools/server_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' }}
         with:
           path: .ccache
           key: ccache-server-${{ matrix.arch }}-${{ github.sha }}
@@ -622,7 +892,7 @@ jobs:
     # it (nothing runs while it builds); then each started once, as above
     # (arm64 emulated). Not pushed anywhere: server-image.yml pushes each
     # release's and the nightly's, from their published servers.
-    needs: server
+    needs: [gate, server]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -635,9 +905,12 @@ jobs:
           pattern: chupathingyce-server-linux-*
           path: artifacts
 
+      # (no cache of QEMU's image: it kept 30 MB for every pull request, which
+      # crowded main's compile caches out of the repository's 10 GB)
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
+          cache-image: false
 
       - uses: docker/setup-buildx-action@v3
 
@@ -668,6 +941,7 @@ jobs:
           docker image ls chupathingyce-server
 
   server-windows:
+    needs: gate
     # The dedicated server for 64-bit Windows (ninja server-windows64;
     # tools/windows_build.py), a console program with no SDL, packaged as
     # chupathingyce-server-windows-x64 with start-server.bat and its README
@@ -699,9 +973,11 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
 
-      # (restored on every run, saved only on main: other branches' and pull
-      # requests' runs start from main's and keep nothing of their own)
+      # (restored by a run without a version, saved only by main's head:
+      # other branches' and pull requests' runs start from main's and keep
+      # nothing of their own)
       - uses: actions/cache/restore@v4
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: .ccache
           key: ccache-server-windows64-${{ github.sha }}
@@ -709,7 +985,9 @@ jobs:
 
       # SDL's development package, which configure.py fetches (its headers
       # only, for the server)
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-1
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/windows/third_party
           key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
@@ -789,12 +1067,19 @@ jobs:
           retention-days: 3
 
       - uses: actions/cache/save@v4
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-1.outputs.cache-hit != 'true' }}
+        with:
+          path: build/windows/third_party
+          key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' }}
         with:
           path: .ccache
           key: ccache-server-windows64-${{ github.sha }}
 
   android64:
+    needs: gate
     # The native 64-bit Android app (ninja android64; tools/android64_build.py):
     # the Android download (the 32-bit-address app is no longer built here;
     # its code stays in port/android).
@@ -819,27 +1104,35 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
 
-      # (restored on every run, saved only on main: other branches' and pull
-      # requests' runs start from main's and keep nothing of their own)
+      # (restored by a run without a version, saved only by main's head:
+      # other branches' and pull requests' runs start from main's and keep
+      # nothing of their own)
       - uses: actions/cache/restore@v4
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: .ccache
           key: ccache-android64-${{ github.sha }}
           restore-keys: ccache-android64-
 
       # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-1
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/downloads
           key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       # musl and SDL, which configure.py fetches
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-2
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/android/third_party
           key: android-third-party-${{ hashFiles('tools/android_build.py') }}
 
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-3
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: |
             ~/.gradle/caches
@@ -880,12 +1173,33 @@ jobs:
           retention-days: 3
 
       - uses: actions/cache/save@v4
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-1.outputs.cache-hit != 'true' }}
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-2.outputs.cache-hit != 'true' }}
+        with:
+          path: build/android/third_party
+          key: android-third-party-${{ hashFiles('tools/android_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-3.outputs.cache-hit != 'true' }}
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('port/android/**/*.gradle*', 'port/android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' }}
         with:
           path: .ccache
           key: ccache-android64-${{ github.sha }}
 
   windows:
+    needs: gate
     # The runner image has LLVM, Python, MSYS2 (the movies' FFmpeg builds
     # under its shell) and Visual Studio's x86 libraries and Windows SDK.
     runs-on: windows-2025
@@ -912,22 +1226,28 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
 
-      # (restored on every run, saved only on main: other branches' and pull
-      # requests' runs start from main's and keep nothing of their own)
+      # (restored by a run without a version, saved only by main's head:
+      # other branches' and pull requests' runs start from main's and keep
+      # nothing of their own)
       - uses: actions/cache/restore@v4
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: .ccache
           key: ccache-windows-${{ github.sha }}
           restore-keys: ccache-windows-
 
       # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-1
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/downloads
           key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       # SDL's development package, which configure.py fetches
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-2
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/windows/third_party
           key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
@@ -937,7 +1257,9 @@ jobs:
       - name: MSYS2 make
         run: /c/msys64/usr/bin/pacman.exe -S --noconfirm --needed make diffutils
 
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-3
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/windows/ffmpeg
           key: windows-ffmpeg-${{ hashFiles('tools/ffmpeg_build.py') }}
@@ -986,12 +1308,31 @@ jobs:
           retention-days: 3
 
       - uses: actions/cache/save@v4
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-1.outputs.cache-hit != 'true' }}
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-2.outputs.cache-hit != 'true' }}
+        with:
+          path: build/windows/third_party
+          key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-3.outputs.cache-hit != 'true' }}
+        with:
+          path: build/windows/ffmpeg
+          key: windows-ffmpeg-${{ hashFiles('tools/ffmpeg_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' }}
         with:
           path: .ccache
           key: ccache-windows-${{ github.sha }}
 
   windows64:
+    needs: gate
     # The native 64-bit Windows build (ninja windows64), on the same runner
     # image as the 32-bit one, with Visual Studio's x64 libraries.
     runs-on: windows-2025
@@ -1018,30 +1359,38 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
 
-      # (restored on every run, saved only on main: other branches' and pull
-      # requests' runs start from main's and keep nothing of their own)
+      # (restored by a run without a version, saved only by main's head:
+      # other branches' and pull requests' runs start from main's and keep
+      # nothing of their own)
       - uses: actions/cache/restore@v4
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: .ccache
           key: ccache-windows64-${{ github.sha }}
           restore-keys: ccache-windows64-
 
       # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-1
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/downloads
           key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       # SDL's development package, which configure.py fetches (the 32-bit
       # job's: it holds both builds' libraries)
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-2
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/windows/third_party
           key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
 
       # bgfx's, bx's and bimg's sources, which the build fetches for the bgfx
       # renderer (tools/bgfx_build.py): kept so most runs fetch nothing
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-3
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/bgfx
           key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
@@ -1051,7 +1400,9 @@ jobs:
       - name: MSYS2 make
         run: /c/msys64/usr/bin/pacman.exe -S --noconfirm --needed make diffutils
 
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-4
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/windows64/ffmpeg
           key: windows64-ffmpeg-${{ hashFiles('tools/ffmpeg_build.py') }}
@@ -1095,12 +1446,37 @@ jobs:
           retention-days: 3
 
       - uses: actions/cache/save@v4
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-1.outputs.cache-hit != 'true' }}
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-2.outputs.cache-hit != 'true' }}
+        with:
+          path: build/windows/third_party
+          key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-3.outputs.cache-hit != 'true' }}
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-4.outputs.cache-hit != 'true' }}
+        with:
+          path: build/windows64/ffmpeg
+          key: windows64-ffmpeg-${{ hashFiles('tools/ffmpeg_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' }}
         with:
           path: .ccache
           key: ccache-windows64-${{ github.sha }}
 
   macos:
+    needs: gate
     # Apple silicon, with Xcode's clang: the universal application (Apple
     # silicon and Intel, self-contained: tools/macos_build.py, --portable),
     # with its own SDL3 and the movies' FFmpeg, built once and cached. The application goes up as
@@ -1116,28 +1492,36 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
 
-      # (restored on every run, saved only on main: other branches' and pull
-      # requests' runs start from main's and keep nothing of their own)
+      # (restored by a run without a version, saved only by main's head:
+      # other branches' and pull requests' runs start from main's and keep
+      # nothing of their own)
       - uses: actions/cache/restore@v4
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: .ccache
           key: ccache-macos-${{ github.sha }}
           restore-keys: ccache-macos-
 
       # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-1
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/downloads
           key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
 
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-2
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/macos/third_party
           key: macos-sdl3-${{ hashFiles('tools/android_build.py', 'tools/macos_build.py', 'tools/ffmpeg_build.py') }}
 
       # bgfx's, bx's and bimg's sources, which the build fetches for the bgfx
       # renderer (tools/bgfx_build.py): kept so most runs fetch nothing
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache-3
+        if: env.CACHE_RESTORE == 'true'
         with:
           path: build/bgfx
           key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
@@ -1176,7 +1560,25 @@ jobs:
           retention-days: 3
 
       - uses: actions/cache/save@v4
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-1.outputs.cache-hit != 'true' }}
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-2.outputs.cache-hit != 'true' }}
+        with:
+          path: build/macos/third_party
+          key: macos-sdl3-${{ hashFiles('tools/android_build.py', 'tools/macos_build.py', 'tools/ffmpeg_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' && steps.cache-3.outputs.cache-hit != 'true' }}
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && env.CACHE_SAVE == 'true' }}
         with:
           path: .ccache
           key: ccache-macos-${{ github.sha }}

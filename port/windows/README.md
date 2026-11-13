@@ -87,7 +87,7 @@ The game finds the game data as on Linux. Refer to "Start the game" in
 | --- | --- |
 | Settings | `config.toml` next to `chupathingy.exe` |
 | Saved games | `%APPDATA%\ChupathingyCE`, or `paths.saves` in `config.toml`. The first start copies the saves from `%APPDATA%\halo`, which earlier versions used, and leaves that folder as it was |
-| Log | `logs\debug.txt` in the data root (the folder that contains `maps\`), or `paths.logs` |
+| Log | `logs\debug.txt` in the data root (the folder that contains `maps\`), or `paths.logs`, or in `paths.saves` when that is set |
 | Log of the port | The console. The release build has no console: `halo.log` in the same `logs\` folder |
 | Crash reports | `logs\crashes\`, until the game sends them |
 

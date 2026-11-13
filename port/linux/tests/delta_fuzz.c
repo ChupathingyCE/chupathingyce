@@ -303,6 +303,43 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size)
 			}
 		}
 		{
+			struct delta_wire_voice_up up;
+			struct delta_wire_voice_down down;
+			struct delta_wire_voice_config config;
+			const unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+			const unsigned char *packet;
+
+			/* (a frame's bytes are exactly what came, within the payload) */
+			if (delta_wire_read_voice_up(payload, header.length, &up, &packet) &&
+				(up.length ? (!packet || packet + up.length != payload + header.length ||
+					up.channel >= NUMBER_OF_DELTA_VOICE_CHANNELS || !up.channel) : (packet || up.channel)))
+			{
+				__builtin_trap();
+			}
+			if (delta_wire_read_voice_down(payload, header.length, &down, &packet) &&
+				(!down.length || !packet || packet + down.length != payload + header.length ||
+					(down.route != _delta_voice_route_global && down.route != _delta_voice_route_proximity)))
+			{
+				__builtin_trap();
+			}
+			if (delta_wire_read_voice_config(payload, header.length, &config) &&
+				(config.kbps < DELTA_WIRE_VOICE_MINIMUM_KBPS || config.kbps > DELTA_WIRE_VOICE_MAXIMUM_KBPS ||
+					(config.channels & ~DELTA_VOICE_KNOWN_CONFIG)))
+			{
+				__builtin_trap();
+			}
+		}
+		{
+			struct delta_wire_badge badge;
+			unsigned char nonce[DELTA_WIRE_BADGE_NONCE_SIZE];
+			const unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+			delta_wire_read_badge_ask(payload, header.length, nonce);
+			if (delta_wire_read_badge(payload, header.length, &badge) &&
+				badge.certificate_length > DELTA_WIRE_BADGE_CERTIFICATE_SIZE)
+				__builtin_trap();
+		}
+		{
 			static struct delta_wire_unit_vitals vitals;
 			static struct delta_wire_object_names names;
 			const unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;

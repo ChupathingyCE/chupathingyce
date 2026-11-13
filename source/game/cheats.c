@@ -141,7 +141,7 @@ cheats, its object_create), this game: past network.host_console_objects
 (32 unless set; 8 while an original Xbox machine plays, whose object array
 is the PC's eighth) the next is refused, and none is kept at an index past
 the Xbox's own half (1,024: one there takes the place of the console's own
-objects, docs/cross-play.md, "Object slots"). A map's own scripts are not
+objects, port/linux/game/network_objects.c). A map's own scripts are not
 counted: the objects they make by name are the map's, one each at most */
 enum
 {

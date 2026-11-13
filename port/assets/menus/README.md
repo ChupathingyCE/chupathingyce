@@ -155,7 +155,10 @@ INTERFACE, Network Setup's CHAT and PRIVACY): rows after an empty widget
 named `view_<name>` are that list's (`view_main` the screen's own), `port
 settings view` on a row named `op_link_<name>` opens it, `port settings
 back` goes back out of it, and `port settings accept` (the Chupathingy
-menus' A) opens it or is OK. Controls Setup's `port controls ...` show the
+menus' A) opens it or is OK. Network Setup's INSTALL UPDATE (in UPDATES,
+shown once a newer version is found) runs `port update install`, which
+installs it with no window or dialog, its value and the help line showing
+how it goes. Controls Setup's `port controls ...` show the
 rows of the device and page its DEVICE and SHOW choose, and its `controls
 ...` bind the keyboard and mouse's controls (Enter takes the next key or
 button pressed; left and right choose which of two; Escape cancels, Delete

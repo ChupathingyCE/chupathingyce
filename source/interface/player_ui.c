@@ -162,6 +162,7 @@ symbols in this file:
 #include "main/main.h"
 #include "tag_files/tag_groups.h"
 #include "player_ui.h"
+#include "mcc_ui.h"
 #ifndef HALO_CONSOLE_NO_CONTROLS
 #include "../../port/linux/src/controller_layout.h"
 
@@ -784,6 +785,10 @@ void player_ui_begin_editing_profile(
 	long type;
 
 	player_ui_globals.edit_profile_index = NONE;
+	/* A replacement native editor no longer belongs to MCC's pause UI. */
+	{
+		mcc_ui_settings_profile_released();
+	}
 	type = saved_game_file_get_type(profile_index);
 
 	switch (type)
@@ -1427,5 +1432,17 @@ static void clear_profile_edit_data(
 	void)
 {
 	player_ui_globals.edit_profile_index = NONE;
+	/* Native Save/Cancel also ends any MCC-owned editor lease. */
+	{
+		mcc_ui_settings_profile_released();
+	}
 	return;
+}
+
+/* port: the profile being edited, for chester's MCC Settings screens
+(port/linux/game/mcc_ui.c) */
+long player_ui_get_edit_profile_index(
+	void)
+{
+	return player_ui_globals.edit_profile_index;
 }

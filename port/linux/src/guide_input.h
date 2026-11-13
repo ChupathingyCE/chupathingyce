@@ -14,7 +14,8 @@ game's units and the platform's both include it.
 
 /* what is held (bits): the d-pad (or the left stick, or the arrow keys and
 WASD), the face buttons (A: Enter, Space; B: Escape, Backspace; X: M; Y:
-Tab), the bumpers (Q and E), Start and Back */
+Tab), the bumpers (Q and E), Start and Back, the triggers (Page Up and
+Page Down) */
 enum
 {
 	GUIDE_INPUT_UP = 1 << 0,
@@ -29,6 +30,9 @@ enum
 	GUIDE_INPUT_RIGHT_BUMPER = 1 << 9,
 	GUIDE_INPUT_START = 1 << 10,
 	GUIDE_INPUT_BACK = 1 << 11,
+	/* the triggers (Page Up and Page Down): a list's pages */
+	GUIDE_INPUT_LEFT_TRIGGER = 1 << 12,
+	GUIDE_INPUT_RIGHT_TRIGGER = 1 << 13,
 };
 
 /* the Guide takes the first player's input (nonzero) or gives it back */
@@ -36,12 +40,11 @@ void platform_guide_capture(int capture);
 /* what is held now, while it takes the input (0 when it does not) */
 unsigned int platform_guide_held(void);
 /* the times the first player asked to open or close it since the last
-call: its key (controls.guide, F3), their controller's Guide button where
-SDL reads it (controls.guide_button), or, with guide.hold_back (off: Back
-stays the Xbox's), Back held about GUIDE_HOLD_BACK milliseconds in the
-menus. Not over chat's or a text field's typing */
+call: its keys (controls.delta: F3, and on a Mac the backslash key too),
+their controller's Guide button where SDL reads it (controls.delta_button),
+or, with delta.hold_back, Back held DELTA_BACK_HOLD milliseconds in the
+menus, which the menus never get (delta_input_rules.h). Not over chat's or
+a text field's typing */
 int platform_guide_toggles(void);
-
-#define GUIDE_HOLD_BACK 600
 
 #endif

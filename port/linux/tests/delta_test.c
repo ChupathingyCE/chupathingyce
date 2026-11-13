@@ -46,9 +46,14 @@ build 2 or 3's) */
 #define CHAT_BIT ((delta_u32)1 << _delta_capability_chat)
 #define SERVER_MESSAGES_BIT ((delta_u32)1 << _delta_capability_server_messages)
 #define TEAM_CHANGE_BIT ((delta_u32)1 << _delta_capability_team_change)
+#define REPORTS_BIT ((delta_u32)1 << _delta_capability_reports)
 #define OBJECT_SYNC_BIT ((delta_u32)1 << _delta_capability_object_sync)
 #define HOST_RULES_BIT ((delta_u32)1 << _delta_capability_host_rules)
+#define MCC_MAPS_BIT ((delta_u32)1 << _delta_capability_mcc_maps)
 #define IDENTITY_BIT ((delta_u32)1 << _delta_capability_identity)
+#define VOICE_BIT ((delta_u32)1 << _delta_capability_voice)
+#define SERVER_BADGE_BIT ((delta_u32)1 << _delta_capability_server_badge)
+#define PARTY_TEAMS_BIT ((delta_u32)1 << _delta_capability_party_teams)
 
 /* ---------- a simulated network */
 
@@ -1195,6 +1200,244 @@ static void test_team(void)
 	CHECK(!delta_peer_client_team_ready(&nodes[1].peer));
 }
 
+/* ---------- party teams: a machine's tag, held a while after it changes */
+
+static void test_party_tag_hold(void)
+{
+	int joined[2] = { 0, 1 };
+	unsigned char first[DELTA_WIRE_PARTY_TAG_SIZE], second[DELTA_WIRE_PARTY_TAG_SIZE];
+	unsigned char seen[DELTA_WIRE_PARTY_TAG_SIZE];
+	delta_u32 now = 5000;
+	int step;
+
+	memset(first, 0x11, sizeof(first));
+	memset(second, 0x22, sizeof(second));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PARTY_TEAMS_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, PARTY_TEAMS_BIT, _delta_platform_pc_linux, 0, 0);
+	game_reset();
+	game_add(1);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(!delta_peer_machine_party_tag(&nodes[0].peer, 1, seen));
+	/* (the first tag: at once) */
+	delta_peer_client_set_party_tag(&nodes[1].peer, first);
+	for (step = 0; step < 2; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, first, sizeof(seen)));
+	/* (flipped soon after: held, the first kept) */
+	delta_peer_client_set_party_tag(&nodes[1].peer, second);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, first, sizeof(seen)));
+	delta_peer_client_set_party_tag(&nodes[1].peer, NULL);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, first, sizeof(seen)));
+	/* (after the hold, the client's tag again every few seconds: taken) */
+	delta_peer_client_set_party_tag(&nodes[1].peer, second);
+	for (step = 0; step * 300 < DELTA_PEER_PARTY_TAG_HOLD + DELTA_PEER_PARTY_TAG_INTERVAL * 2; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, second, sizeof(seen)));
+}
+
+/* ---------- reports */
+
+static void test_wire_report(void)
+{
+	struct delta_wire_report report, report_in;
+	struct delta_wire_report_result result, result_in;
+	struct delta_wire_header header;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int size, index;
+
+	memset(&report, 0, sizeof(report));
+	report.sequence = 4;
+	report.target_machine = 2;
+	report.target_player = 5;
+	report.reason = _delta_report_griefing;
+	report.flags = DELTA_WIRE_REPORT_CLIP;
+	for (index = 0; index < DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE; index++)
+		report.clip_token[index] = (unsigned char)(0x10 + index);
+	size = delta_wire_write_report(data, 7, &report);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_REPORT_SIZE);
+	/* (the client's token never goes, and is never read: the host makes
+	the clip's token, so a client can't pick the one its clip goes with) */
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_report &&
+		delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, header.length, &report_in) &&
+		report_in.sequence == 4 && report_in.target_machine == 2 && report_in.target_player == 5 &&
+		report_in.reason == _delta_report_griefing && report_in.flags == DELTA_WIRE_REPORT_CLIP &&
+		!report_in.clip_token[15] && !data[DELTA_WIRE_HEADER_SIZE + 8 + 15]);
+	data[DELTA_WIRE_HEADER_SIZE + 8 + 15] = 0x1F;
+	CHECK(delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_SIZE, &report_in) &&
+		!report_in.clip_token[15]);
+	data[DELTA_WIRE_HEADER_SIZE + 7] = 0;
+	CHECK(delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_SIZE, &report_in) &&
+		!report_in.flags);
+	/* (a reason or flag this build doesn't know, no machine, short: refused) */
+	report.reason = NUMBER_OF_DELTA_REPORT_REASONS;
+	CHECK(!delta_wire_write_report(data, 7, &report));
+	report.reason = 0;
+	CHECK(!delta_wire_write_report(data, 7, &report));
+	report.reason = _delta_report_cheating;
+	report.flags = 0x02;
+	CHECK(!delta_wire_write_report(data, 7, &report));
+	report.flags = 0;
+	report.target_machine = DELTA_WIRE_NO_MACHINE;
+	CHECK(!delta_wire_write_report(data, 7, &report));
+	report.target_machine = 1;
+	size = delta_wire_write_report(data, 7, &report);
+	CHECK(!delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_SIZE - 1, &report_in));
+	data[DELTA_WIRE_HEADER_SIZE + 6] = 9;
+	CHECK(!delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_SIZE, &report_in));
+
+	memset(&result, 0, sizeof(result));
+	result.sequence = 4;
+	result.result = _delta_report_taken;
+	result.flags = DELTA_WIRE_REPORT_SEND_CLIP;
+	for (index = 0; index < DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE; index++)
+		result.clip_token[index] = (unsigned char)(0x40 + index);
+	size = delta_wire_write_report_result(data, 7, &result);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_REPORT_RESULT_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_report_result &&
+		delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, header.length, &result_in) &&
+		result_in.sequence == 4 && result_in.result == _delta_report_taken &&
+		result_in.flags == DELTA_WIRE_REPORT_SEND_CLIP && result_in.clip_token[0] == 0x40 &&
+		result_in.clip_token[15] == 0x4F);
+	/* (a host before the token sends 8 bytes, and a host's zeros: no clip goes) */
+	CHECK(delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_RESULT_SHORT_SIZE,
+		&result_in) && result_in.result == _delta_report_taken && !result_in.flags && !result_in.clip_token[0]);
+	memset(result.clip_token, 0, sizeof(result.clip_token));
+	size = delta_wire_write_report_result(data, 7, &result);
+	CHECK(delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_RESULT_SIZE, &result_in) &&
+		!result_in.flags);
+	result.clip_token[3] = 9;
+	size = delta_wire_write_report_result(data, 7, &result);
+	/* (a later flag is dropped; a later result refused) */
+	data[DELTA_WIRE_HEADER_SIZE + 5] = 0xFF;
+	CHECK(delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_RESULT_SIZE, &result_in) &&
+		result_in.flags == DELTA_WIRE_REPORT_SEND_CLIP);
+	data[DELTA_WIRE_HEADER_SIZE + 4] = NUMBER_OF_DELTA_REPORT_RESULTS;
+	CHECK(!delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_RESULT_SIZE, &result_in));
+
+	/* MOD_STATE's actions byte, and the new host rules flags */
+	{
+		struct delta_wire_mod_state state, state_in;
+
+		memset(&state, 0, sizeof(state));
+		state.role = _delta_moderation_role_moderator;
+		state.actions = DELTA_WIRE_MOD_STATE_LOCK | DELTA_WIRE_MOD_STATE_LOCKED;
+		size = delta_wire_write_mod_state(data, 7, &state);
+		CHECK(delta_wire_read_mod_state(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_MOD_STATE_SIZE, &state_in) &&
+			state_in.actions == (DELTA_WIRE_MOD_STATE_LOCK | DELTA_WIRE_MOD_STATE_LOCKED));
+		/* (an older host's: 0) */
+		data[DELTA_WIRE_HEADER_SIZE + 1] = 0;
+		CHECK(delta_wire_read_mod_state(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_MOD_STATE_SIZE, &state_in) &&
+			!state_in.actions);
+	}
+	{
+		struct delta_wire_host_rules rules, rules_in;
+
+		memset(&rules, 0, sizeof(rules));
+		rules.flags = DELTA_WIRE_HOST_LATE_JOIN_HOLD | DELTA_WIRE_HOST_JOINS_LOCKED;
+		size = delta_wire_write_host_rules(data, 7, &rules);
+		CHECK(size > 0 && delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_HOST_RULES_SIZE,
+			&rules_in) && rules_in.flags == (DELTA_WIRE_HOST_LATE_JOIN_HOLD | DELTA_WIRE_HOST_JOINS_LOCKED));
+	}
+}
+
+static struct
+{
+	int asked;
+	int machine;
+	struct delta_wire_report report;
+	int answer;
+	int flags;
+} host_report;
+
+static int test_report(void *context, int machine_index, const struct delta_wire_report *report, int *flags,
+	unsigned char *clip_token)
+{
+	(void)context;
+	host_report.asked++;
+	host_report.machine = machine_index;
+	host_report.report = *report;
+	*flags = host_report.flags;
+	memset(clip_token, 0xC5, DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE);
+	return host_report.answer;
+}
+
+static const struct delta_peer_report_host test_report_host = { NULL, test_report };
+
+static void test_reports(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	struct delta_wire_report report;
+	struct delta_wire_report_result result;
+	delta_u32 now = 5000, results;
+	int step, index;
+
+	memset(&host_report, 0, sizeof(host_report));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, REPORTS_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, REPORTS_BIT, _delta_platform_pc_linux, 0, 0);
+	/* (a Delta machine without reports: an older build) */
+	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_macos, 0, 0);
+	delta_peer_set_report_host(&nodes[0].peer, &test_report_host);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_client_report_ready(&nodes[1].peer) && !delta_peer_client_report_ready(&nodes[2].peer));
+	memset(&report, 0, sizeof(report));
+	report.target_machine = 2;
+	report.target_player = 3;
+	report.reason = _delta_report_cheating;
+	CHECK(!delta_peer_client_report(&nodes[2].peer, &report));
+
+	/* taken, with a clip the host asks for */
+	host_report.answer = _delta_report_taken;
+	host_report.flags = DELTA_WIRE_REPORT_SEND_CLIP;
+	report.flags = DELTA_WIRE_REPORT_CLIP;
+	report.clip_token[0] = 0xAB;
+	results = delta_peer_client_report_result(&nodes[1].peer, NULL);
+	CHECK(delta_peer_client_report(&nodes[1].peer, &report));
+	deliver(now);
+	/* (the client's token never reaches the host; the host's comes back) */
+	CHECK(host_report.asked == 1 && host_report.machine == 1 && host_report.report.target_machine == 2 &&
+		!host_report.report.clip_token[0]);
+	CHECK(delta_peer_client_report_result(&nodes[1].peer, &result) == results + 1 &&
+		result.result == _delta_report_taken && result.flags == DELTA_WIRE_REPORT_SEND_CLIP &&
+		result.clip_token[0] == 0xC5 && result.clip_token[15] == 0xC5);
+	/* (no clip asked for: the host's flag and token never go out) */
+	now += 2000;
+	report.flags = 0;
+	CHECK(delta_peer_client_report(&nodes[1].peer, &report));
+	deliver(now);
+	CHECK(delta_peer_client_report_result(&nodes[1].peer, &result) == results + 2 && !result.flags &&
+		!result.clip_token[0]);
+	/* (a report of the reporter's own machine never reaches the host) */
+	now += 2000;
+	host_report.asked = 0;
+	report.target_machine = 1;
+	CHECK(delta_peer_client_report(&nodes[1].peer, &report));
+	deliver(now);
+	CHECK(!host_report.asked && delta_peer_client_report_result(&nodes[1].peer, &result) == results + 3 &&
+		result.result == _delta_report_no_player);
+	/* the budget: 3 at once */
+	now += 5000;
+	report.target_machine = 2;
+	for (index = 0; index < 6; index++)
+		delta_peer_client_report(&nodes[1].peer, &report);
+	deliver(now);
+	CHECK(host_report.asked == 3);
+	/* a host without its report host offers none */
+	delta_peer_set_report_host(&nodes[0].peer, NULL);
+	node_start(1, 0x0300007F, 40001, REPORTS_BIT, _delta_platform_pc_linux, 0, 0);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(!delta_peer_client_report_ready(&nodes[1].peer));
+}
+
 /* ---------- the host's rules */
 
 static void test_wire_host_rules(void)
@@ -1235,6 +1478,65 @@ static void test_wire_host_rules(void)
 	rules.team_change = 0;
 	rules.flags = 0x80;
 	CHECK(!delta_wire_write_host_rules(data, 1, &rules));
+}
+
+/* the host's number (HOST_NUMBER): written and read, little-endian; 0 and
+version 0 refused; a later version read */
+static void test_host_number_wire(void)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	unsigned number;
+	int size;
+
+	size = delta_wire_write_host_number(data, 0x55, 43);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HOST_NUMBER_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_host_number &&
+		header.length == DELTA_WIRE_HOST_NUMBER_SIZE && header.session == 0x55);
+	CHECK(data[DELTA_WIRE_HEADER_SIZE + 2] == 43 && data[DELTA_WIRE_HEADER_SIZE + 3] == 0);
+	CHECK(delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, header.length, &number) && number == 43);
+	data[DELTA_WIRE_HEADER_SIZE] = 9;
+	CHECK(delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, header.length + 4, &number) && number == 43);
+	data[DELTA_WIRE_HEADER_SIZE] = 0;
+	CHECK(!delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, header.length, &number));
+	data[DELTA_WIRE_HEADER_SIZE] = 1;
+	CHECK(!delta_wire_read_host_number(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_HOST_NUMBER_SIZE - 1, &number));
+	CHECK(!delta_wire_write_host_number(data, 1, 0) && !delta_wire_write_host_number(data, 1, 0x10000));
+}
+
+/* HOST_NUMBER over a lossy network: the host's first sends after a change
+lost, the client still hears the new number within a few seconds (it goes
+every second for DELTA_PEER_HOST_NUMBER_BURST), and only a client that
+agreed to mcc_maps hears it */
+static void test_host_number_lost(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	delta_u32 now = 5000;
+	unsigned number = 0;
+	int step;
+
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, MCC_MAPS_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, MCC_MAPS_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_macos, 0, 0);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	delta_peer_set_host_number(&nodes[0].peer, 32);
+	for (step = 0; step < 6; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_host_number(&nodes[1].peer, &number) && number == 32);
+	/* (the change, and the host's datagrams lost for the next half second) */
+	delta_peer_set_host_number(&nodes[0].peer, 43);
+	nodes[0].mute = 1;
+	for (step = 0; step < 2; step++, now += 250)
+		frame(now, 3, joined, 1);
+	nodes[0].mute = 0;
+	CHECK(delta_peer_host_number(&nodes[1].peer, &number) && number == 32);
+	for (step = 0; step < 6; step++, now += 250)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_host_number(&nodes[1].peer, &number) && number == 43);
+	CHECK(!delta_peer_host_number(&nodes[2].peer, NULL));
+	delta_peer_set_host_number(&nodes[0].peer, 0);
 }
 
 static void test_host_rules(void)
@@ -1282,6 +1584,587 @@ static void test_host_rules(void)
 		frame(now, 3, joined, 1);
 	CHECK(delta_peer_host_rules(&nodes[1].peer, &heard) && heard.team_change == DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW);
 	delta_peer_set_host_rules(&nodes[0].peer, NULL);
+}
+
+/* ---------- voice */
+
+static void test_wire_voice(void)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	unsigned char packet[DELTA_WIRE_VOICE_PACKET_SIZE];
+	struct delta_wire_header header;
+	struct delta_wire_voice_up up, up_read;
+	struct delta_wire_voice_down down, down_read;
+	struct delta_wire_voice_config config, config_read;
+	const unsigned char *bytes;
+	int size;
+
+	memset(packet, 0x5A, sizeof(packet));
+	/* the size cap: 24 kbps gives 136 bytes, 64 the byte's most */
+	CHECK(delta_wire_voice_packet_cap(24) == 136);
+	CHECK(delta_wire_voice_packet_cap(8) == 56);
+	CHECK(delta_wire_voice_packet_cap(64) == 255);
+	CHECK(delta_wire_voice_packet_cap(0) == 56 && delta_wire_voice_packet_cap(500) == 255);
+
+	/* a frame up: read back, its bytes in place */
+	memset(&up, 0, sizeof(up));
+	up.sequence = 0xBEEF;
+	up.length = 60;
+	up.channel = _delta_voice_channel_proximity;
+	up.hears = DELTA_VOICE_TEAM | DELTA_VOICE_PROXIMITY | 0x80;
+	size = delta_wire_write_voice_up(data, 0x1234, &up, packet);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_UP_SIZE + 60);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_voice_up);
+	CHECK(delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, header.length, &up_read, &bytes) &&
+		up_read.sequence == 0xBEEF && up_read.length == 60 && up_read.channel == _delta_voice_channel_proximity &&
+		up_read.hears == (DELTA_VOICE_TEAM | DELTA_VOICE_PROXIMITY) && bytes == data + DELTA_WIRE_HEADER_SIZE + 8 &&
+		bytes[0] == 0x5A);
+	/* the length byte must be the bytes that came, exactly */
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, header.length - 1, &up_read, &bytes) && !bytes);
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, header.length + 1, &up_read, &bytes));
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, 7, &up_read, &bytes));
+	/* a frame on no channel, or one this build does not know */
+	data[DELTA_WIRE_HEADER_SIZE + 3] = 0;
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, header.length, &up_read, &bytes));
+	data[DELTA_WIRE_HEADER_SIZE + 3] = NUMBER_OF_DELTA_VOICE_CHANNELS;
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, header.length, &up_read, &bytes));
+	up.channel = _delta_voice_channel_none;
+	CHECK(!delta_wire_write_voice_up(data, 1, &up, packet));
+	/* no frame: what it hears, and a party's tag if it has one */
+	memset(&up, 0, sizeof(up));
+	up.hears = DELTA_VOICE_PARTY;
+	size = delta_wire_write_voice_up(data, 1, &up, NULL);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_UP_SIZE);
+	CHECK(delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_VOICE_UP_SIZE, &up_read, &bytes) &&
+		!up_read.length && up_read.hears == DELTA_VOICE_PARTY && !bytes);
+	memset(up.party, 7, sizeof(up.party));
+	size = delta_wire_write_voice_up(data, 1, &up, NULL);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_UP_SIZE + DELTA_WIRE_VOICE_PARTY_TAG_SIZE);
+	CHECK(delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, size - DELTA_WIRE_HEADER_SIZE, &up_read, &bytes) &&
+		up_read.party[0] == 7 && up_read.party[7] == 7);
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, size - DELTA_WIRE_HEADER_SIZE - 1, &up_read, &bytes));
+	/* (no frame said on a channel) */
+	data[DELTA_WIRE_HEADER_SIZE + 3] = _delta_voice_channel_team;
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, size - DELTA_WIRE_HEADER_SIZE, &up_read, &bytes));
+
+	/* a frame down */
+	memset(&down, 0, sizeof(down));
+	down.sequence = 7;
+	down.speaker_machine = 3;
+	down.speaker_player = 5;
+	down.route = _delta_voice_route_proximity;
+	down.channel = _delta_voice_channel_proximity;
+	down.length = 255;
+	size = delta_wire_write_voice_down(data, 9, &down, packet);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_DOWN_SIZE + 255 && size <= DELTA_WIRE_MAXIMUM_DATAGRAM);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_voice_down);
+	CHECK(delta_wire_read_voice_down(data + DELTA_WIRE_HEADER_SIZE, header.length, &down_read, &bytes) &&
+		down_read.sequence == 7 && down_read.speaker_machine == 3 && down_read.speaker_player == 5 &&
+		down_read.route == _delta_voice_route_proximity && down_read.length == 255 && bytes[254] == 0x5A);
+	CHECK(!delta_wire_read_voice_down(data + DELTA_WIRE_HEADER_SIZE, header.length - 1, &down_read, &bytes));
+	data[DELTA_WIRE_HEADER_SIZE + 4] = 3;
+	CHECK(!delta_wire_read_voice_down(data + DELTA_WIRE_HEADER_SIZE, header.length, &down_read, &bytes));
+	down.length = 0;
+	CHECK(!delta_wire_write_voice_down(data, 9, &down, packet));
+	down.length = 1;
+	down.route = _delta_voice_route_none;
+	CHECK(!delta_wire_write_voice_down(data, 9, &down, packet));
+
+	/* the host's rules */
+	memset(&config, 0, sizeof(config));
+	config.channels = DELTA_VOICE_TEAM | DELTA_VOICE_PROXIMITY | DELTA_VOICE_LOBBY;
+	config.flags = DELTA_VOICE_CONFIG_MUTED;
+	config.kbps = 24;
+	config.proximity = 150;
+	config.mute_seconds = 600;
+	size = delta_wire_write_voice_config(data, 9, &config);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_CONFIG_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_voice_config);
+	CHECK(delta_wire_read_voice_config(data + DELTA_WIRE_HEADER_SIZE, header.length, &config_read) &&
+		config_read.channels == config.channels && config_read.flags == DELTA_VOICE_CONFIG_MUTED &&
+		config_read.kbps == 24 && config_read.proximity == 150 && config_read.mute_seconds == 600);
+	/* (a later version may append; bits this build does not know are
+	ignored; values past their ranges are refused) */
+	CHECK(delta_wire_read_voice_config(data + DELTA_WIRE_HEADER_SIZE, header.length + 4, &config_read));
+	data[DELTA_WIRE_HEADER_SIZE + 1] |= 0x80;
+	CHECK(delta_wire_read_voice_config(data + DELTA_WIRE_HEADER_SIZE, header.length, &config_read) &&
+		config_read.channels == config.channels);
+	data[DELTA_WIRE_HEADER_SIZE + 3] = 65;
+	CHECK(!delta_wire_read_voice_config(data + DELTA_WIRE_HEADER_SIZE, header.length, &config_read));
+	data[DELTA_WIRE_HEADER_SIZE + 3] = 24;
+	data[DELTA_WIRE_HEADER_SIZE] = 0;
+	CHECK(!delta_wire_read_voice_config(data + DELTA_WIRE_HEADER_SIZE, header.length, &config_read));
+	CHECK(!delta_wire_read_voice_config(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_VOICE_CONFIG_SIZE - 1, &config_read));
+	config.proximity = 20;
+	CHECK(!delta_wire_write_voice_config(data, 9, &config));
+}
+
+static void voice_member(struct delta_peer_voice_world *world, int machine, int team, int alive, float x)
+{
+	struct delta_peer_voice_member *member = &world->members[machine];
+
+	member->present = 1;
+	member->player = (unsigned char)machine;
+	member->team = (unsigned char)team;
+	member->alive = (unsigned char)alive;
+	member->position[0] = x;
+	member->position[1] = 0.0f;
+	member->position[2] = 0.0f;
+}
+
+static void test_voice_route(void)
+{
+	struct delta_wire_voice_config rules;
+	struct delta_peer_voice_world world;
+
+	memset(&rules, 0, sizeof(rules));
+	rules.channels = DELTA_VOICE_TEAM | DELTA_VOICE_PROXIMITY | DELTA_VOICE_PARTY | DELTA_VOICE_LOBBY;
+	rules.kbps = 24;
+	rules.proximity = 150;
+	memset(&world, 0, sizeof(world));
+	/* 1 and 2 red, 3 blue; 3 near 1, 4 far, 5 dead and near */
+	voice_member(&world, 1, 0, 1, 0.0f);
+	voice_member(&world, 2, 0, 1, 100.0f);
+	voice_member(&world, 3, 1, 1, 10.0f);
+	voice_member(&world, 4, 1, 1, 60.0f);
+	voice_member(&world, 5, 1, 0, 2.0f);
+	/* the lobby: everyone, whatever the channel; none without lobby voice */
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, _delta_voice_channel_team) == _delta_voice_route_global);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 5, _delta_voice_channel_proximity) == _delta_voice_route_global);
+	rules.channels &= ~DELTA_VOICE_LOBBY;
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, _delta_voice_channel_team) == _delta_voice_route_none);
+	world.in_game = 1;
+	world.teams = 1;
+	/* team: teammates anywhere, never enemies */
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 2, _delta_voice_channel_team) == _delta_voice_route_global);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 3, _delta_voice_channel_team) == _delta_voice_route_none);
+	/* proximity: anyone alive within range, from where they are */
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 3, _delta_voice_channel_proximity) == _delta_voice_route_proximity);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, _delta_voice_channel_proximity) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 2, _delta_voice_channel_proximity) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 5, _delta_voice_channel_proximity) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(&rules, &world, 5, 1, _delta_voice_channel_proximity) == _delta_voice_route_none);
+	/* everyone: only when the host allows it */
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, _delta_voice_channel_everyone) == _delta_voice_route_none);
+	rules.channels |= DELTA_VOICE_EVERYONE;
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, _delta_voice_channel_everyone) == _delta_voice_route_global);
+	/* free-for-all: no teammates; co-op: everyone is one */
+	world.teams = 0;
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 2, _delta_voice_channel_team) == _delta_voice_route_none);
+	world.coop = 1;
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 3, _delta_voice_channel_team) == _delta_voice_route_global);
+	/* a channel the host turned off; party (tags are the caller's); never
+	oneself, nor a machine without a player */
+	rules.channels &= ~DELTA_VOICE_TEAM;
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 3, _delta_voice_channel_team) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, _delta_voice_channel_party) == _delta_voice_route_global);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 1, _delta_voice_channel_everyone) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 9, _delta_voice_channel_everyone) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, 9) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(NULL, &world, 1, 4, _delta_voice_channel_everyone) == _delta_voice_route_none);
+}
+
+static struct
+{
+	int count;
+	struct delta_wire_voice_down last;
+	unsigned char byte;
+} voice_heard[MAXIMUM_NODES];
+
+static void test_voice_heard(void *context, const struct delta_wire_voice_down *down, const unsigned char *packet)
+{
+	int node = (int)((struct node *)context - nodes);
+
+	voice_heard[node].count++;
+	voice_heard[node].last = *down;
+	voice_heard[node].byte = packet[0];
+}
+
+static const struct delta_peer_voice_client voice_clients[MAXIMUM_NODES] =
+{
+	{ &nodes[0], test_voice_heard }, { &nodes[1], test_voice_heard }, { &nodes[2], test_voice_heard },
+	{ &nodes[3], test_voice_heard }, { &nodes[4], test_voice_heard }, { &nodes[5], test_voice_heard },
+	{ &nodes[6], test_voice_heard }, { &nodes[7], test_voice_heard },
+};
+
+/* two players behind one address each talk at the full rate: the voice
+budget is each machine's, found by its session, not its address's */
+static void test_voice_one_address(void)
+{
+	int joined[4] = { 0, 1, 1, 1 };
+	struct delta_wire_voice_config rules;
+	struct delta_peer_voice_world world;
+	unsigned char packet[DELTA_WIRE_VOICE_PACKET_SIZE];
+	delta_u32 now = 9000;
+	int step, index;
+
+	memset(voice_heard, 0, sizeof(voice_heard));
+	memset(packet, 0x22, sizeof(packet));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, VOICE_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0200007F, 40001, VOICE_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(2, 0x0200007F, 40002, VOICE_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(3, 0x0300007F, 40003, VOICE_BIT, _delta_platform_pc_linux, 0, 0);
+	memset(&rules, 0, sizeof(rules));
+	rules.channels = DELTA_VOICE_TEAM;
+	rules.kbps = 24;
+	rules.proximity = 150;
+	delta_peer_set_voice_rules(&nodes[0].peer, &rules);
+	for (index = 0; index < 4; index++)
+		delta_peer_set_voice_client(&nodes[index].peer, &voice_clients[index]);
+	game_reset();
+	for (index = 1; index <= 3; index++)
+		game_add(index);
+	memset(&world, 0, sizeof(world));
+	world.in_game = 1;
+	world.teams = 1;
+	for (index = 0; index <= 3; index++)
+		voice_member(&world, index, 0, 1, (float)index);
+	delta_peer_set_voice_world(&nodes[0].peer, &world);
+	for (index = 1; index <= 3; index++)
+		delta_peer_client_set_voice_hears(&nodes[index].peer, DELTA_VOICE_CHANNELS, NULL);
+	delta_peer_set_voice_local(&nodes[0].peer, DELTA_VOICE_CHANNELS, NULL);
+	for (step = 0; step < 8; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_client_voice_config(&nodes[1].peer, now, NULL) &&
+		delta_peer_client_voice_config(&nodes[2].peer, now, NULL));
+	/* both talk a whole burst at once: every frame of each is relayed */
+	now += 20;
+	for (index = 0; index < DELTA_PEER_VOICE_UP_BURST; index++)
+	{
+		CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, (unsigned short)(10 + index),
+			packet, 40));
+		CHECK(delta_peer_client_voice_say(&nodes[2].peer, now, _delta_voice_channel_team, (unsigned short)(10 + index),
+			packet, 40));
+	}
+	deliver(now);
+	CHECK(voice_heard[3].count == 2 * DELTA_PEER_VOICE_UP_BURST);
+	CHECK(voice_heard[1].count == DELTA_PEER_VOICE_UP_BURST && voice_heard[2].count == DELTA_PEER_VOICE_UP_BURST);
+	/* and each one's budget is still its own: past it, dropped */
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 99, packet, 40));
+	deliver(now);
+	CHECK(voice_heard[3].count == 2 * DELTA_PEER_VOICE_UP_BURST);
+	delta_peer_set_voice_rules(&nodes[0].peer, NULL);
+	for (index = 0; index < 4; index++)
+		delta_peer_set_voice_client(&nodes[index].peer, NULL);
+}
+
+static void test_voice(void)
+{
+	int joined[5] = { 0, 1, 1, 1, 1 };
+	struct delta_wire_voice_config rules, heard;
+	struct delta_peer_voice_world world;
+	unsigned char packet[DELTA_WIRE_VOICE_PACKET_SIZE];
+	unsigned char party[DELTA_WIRE_VOICE_PARTY_TAG_SIZE];
+	delta_u32 now = 9000;
+	int step, index, sent, dropped;
+
+	memset(voice_heard, 0, sizeof(voice_heard));
+	memset(packet, 0x11, sizeof(packet));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, VOICE_BIT, _delta_platform_pc_linux, 0, 0);
+	for (index = 1; index <= 3; index++)
+		node_start(index, 0x0100007F + (delta_u32)(index + 1) * 0x01000000u, (unsigned short)(40000 + index), VOICE_BIT,
+			_delta_platform_pc_linux, 0, 0);
+	/* (a Delta machine without voice: an older build, never sent any) */
+	node_start(4, 0x0600007F, 40004, 0, _delta_platform_pc_macos, 0, 0);
+	for (index = 0; index < 5; index++)
+		delta_peer_set_voice_client(&nodes[index].peer, &voice_clients[index]);
+	game_reset();
+	for (index = 1; index <= 4; index++)
+		game_add(index);
+	/* a host without rules offers no voice */
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 5, joined, 1);
+	CHECK(!delta_peer_client_voice_config(&nodes[1].peer, now, NULL));
+	CHECK(!delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 1, packet, 40));
+
+	/* rules from now: new sessions agree to voice */
+	memset(&rules, 0, sizeof(rules));
+	rules.channels = DELTA_VOICE_TEAM | DELTA_VOICE_PROXIMITY | DELTA_VOICE_PARTY | DELTA_VOICE_LOBBY;
+	rules.kbps = 24;
+	rules.proximity = 150;
+	delta_peer_set_voice_rules(&nodes[0].peer, &rules);
+	for (index = 1; index <= 4; index++)
+		node_start(index, nodes[index].ipv4, nodes[index].port, index == 4 ? 0 : VOICE_BIT, _delta_platform_pc_linux, 0,
+			0);
+	for (index = 1; index <= 4; index++)
+		delta_peer_set_voice_client(&nodes[index].peer, &voice_clients[index]);
+	memset(&world, 0, sizeof(world));
+	world.in_game = 1;
+	world.teams = 1;
+	voice_member(&world, 0, 0, 1, 0.0f);
+	voice_member(&world, 1, 0, 1, 1.0f);
+	voice_member(&world, 2, 0, 1, 100.0f);
+	voice_member(&world, 3, 1, 1, 5.0f);
+	voice_member(&world, 4, 1, 1, 5.0f);
+	delta_peer_set_voice_world(&nodes[0].peer, &world);
+	for (index = 1; index <= 3; index++)
+		delta_peer_client_set_voice_hears(&nodes[index].peer, DELTA_VOICE_CHANNELS, NULL);
+	delta_peer_set_voice_local(&nodes[0].peer, DELTA_VOICE_CHANNELS, NULL);
+	for (step = 0; step < 8; step++, now += 300)
+		frame(now, 5, joined, 1);
+	CHECK(delta_peer_client_voice_config(&nodes[1].peer, now, &heard) && heard.kbps == 24 && heard.proximity == 150 &&
+		heard.channels == rules.channels && !heard.flags);
+	/* a frame the host only relays (the other team's) never reaches the
+	host's own player, though the host counts its speaker as talking: who's
+	talking (voice_game_machine_talking) goes by what the player hears */
+	sent = voice_heard[0].count;
+	now += 20;
+	CHECK(delta_peer_client_voice_say(&nodes[3].peer, now, _delta_voice_channel_team, 5, packet, 40));
+	deliver(now);
+	CHECK(voice_heard[0].count == sent && delta_peer_voice_talking(&nodes[0].peer, now, 3));
+	now += 1000;
+	CHECK(!delta_peer_client_voice_config(&nodes[4].peer, now, NULL));
+
+	/* a team frame: the host's own player and the teammate hear it, the
+	enemies don't, the speaker never hears itself */
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 77, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[0].count == 1 && voice_heard[0].last.speaker_machine == 1 &&
+		voice_heard[0].last.route == _delta_voice_route_global && voice_heard[0].last.sequence == 77 &&
+		voice_heard[0].last.length == 60 && voice_heard[0].byte == 0x11);
+	CHECK(voice_heard[2].count == 1 && voice_heard[2].last.channel == _delta_voice_channel_team);
+	CHECK(!voice_heard[1].count && !voice_heard[3].count && !voice_heard[4].count);
+	CHECK(delta_peer_voice_talking(&nodes[0].peer, now, 1) && !delta_peer_voice_talking(&nodes[0].peer, now, 2));
+	/* proximity: the enemy near hears it from where it is; the far
+	teammate doesn't */
+	now += 20;
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_proximity, 78, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[3].count == 1 && voice_heard[3].last.route == _delta_voice_route_proximity);
+	CHECK(voice_heard[2].count == 1 && voice_heard[0].count == 2);
+	/* the host's own player speaks as a client does */
+	now += 20;
+	CHECK(delta_peer_host_voice_say(&nodes[0].peer, now, _delta_voice_channel_team, 5, packet, 50));
+	deliver(now);
+	CHECK(voice_heard[1].count == 1 && voice_heard[1].last.speaker_machine == 0 && voice_heard[2].count == 2 &&
+		voice_heard[0].count == 2 && voice_heard[3].count == 1);
+	/* refused: a channel the host turned off, over the size cap, a frame
+	the client's own copy would not send */
+	dropped = (int)nodes[0].peer.dropped;
+	now += 20;
+	CHECK(!delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 79, packet, 137));
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_everyone, 79, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[2].count == 2 && (int)nodes[0].peer.dropped > dropped);
+	/* a listener that hears no team voice is sent none */
+	delta_peer_client_set_voice_hears(&nodes[2].peer, DELTA_VOICE_PROXIMITY, NULL);
+	frame(now, 5, joined, 1);
+	now += 20;
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 80, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[2].count == 2 && voice_heard[0].count == 3);
+	delta_peer_client_set_voice_hears(&nodes[2].peer, DELTA_VOICE_CHANNELS, NULL);
+	frame(now, 5, joined, 1);
+	/* party: the same tag hears it, wherever its player is */
+	memset(party, 0x42, sizeof(party));
+	delta_peer_client_set_voice_hears(&nodes[1].peer, DELTA_VOICE_CHANNELS, party);
+	delta_peer_client_set_voice_hears(&nodes[3].peer, DELTA_VOICE_CHANNELS, party);
+	frame(now, 5, joined, 1);
+	now += 20;
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_party, 81, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[3].count == 2 && voice_heard[3].last.channel == _delta_voice_channel_party &&
+		voice_heard[3].last.route == _delta_voice_route_global && voice_heard[2].count == 2 &&
+		voice_heard[0].count == 3);
+	/* a muted machine (the moderator's, chat's) is relayed nothing, and is
+	told */
+	delta_peer_chat_mute(&nodes[0].peer, now, 1, 1, 10);
+	for (step = 0; step < 2; step++, now += 300)
+		frame(now, 5, joined, 1);
+	CHECK(delta_peer_client_voice_config(&nodes[1].peer, now, &heard) && (heard.flags & DELTA_VOICE_CONFIG_MUTED) &&
+		heard.mute_seconds > 0 && heard.mute_seconds <= 600);
+	sent = voice_heard[0].count;
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 82, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[0].count == sent);
+	delta_peer_chat_mute(&nodes[0].peer, now, 1, 0, 0);
+	/* the voice budget: 50 a second, 10 at once; beyond it dropped, and the
+	machine's other messages untouched */
+	now += 5000;
+	sent = voice_heard[2].count;
+	for (index = 0; index < 30; index++)
+		delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, (unsigned short)(100 + index), packet, 40);
+	deliver(now);
+	CHECK(voice_heard[2].count - sent == DELTA_PEER_VOICE_UP_BURST);
+	/* the talkers' cap: a ninth talker waits while eight talk */
+	{
+		struct delta_peer *host = &nodes[0].peer;
+
+		for (index = 10; index < 10 + DELTA_PEER_VOICE_TALKERS; index++)
+			host->voice_talking_until[index] = now + 400;
+		sent = voice_heard[2].count;
+		now += 20;
+		CHECK(delta_peer_client_voice_say(&nodes[3].peer, now, _delta_voice_channel_proximity, 1, packet, 40));
+		deliver(now);
+		CHECK(!delta_peer_voice_talking(host, now, 3));
+		now += 1000;
+		CHECK(delta_peer_client_voice_say(&nodes[3].peer, now, _delta_voice_channel_proximity, 2, packet, 40));
+		deliver(now);
+		CHECK(delta_peer_voice_talking(host, now, 3));
+		/* (a player's host, this one, relays 4 at once: a fifth waits while
+		four talk, a fourth is let in beside three) */
+		now += 1000;
+		for (index = 10; index < 10 + DELTA_PEER_VOICE_TALKERS_LISTEN; index++)
+			host->voice_talking_until[index] = now + 400;
+		now += 20;
+		CHECK(delta_peer_client_voice_say(&nodes[3].peer, now, _delta_voice_channel_proximity, 3, packet, 40));
+		deliver(now);
+		CHECK(!delta_peer_voice_talking(host, now, 3));
+		host->voice_talking_until[10] = 0;
+		now += 20;
+		CHECK(delta_peer_client_voice_say(&nodes[3].peer, now, _delta_voice_channel_proximity, 4, packet, 40));
+		deliver(now);
+		CHECK(delta_peer_voice_talking(host, now, 3));
+		now += 1000;
+	}
+	/* a listener that stops saying what it hears is sent nothing after the
+	expiry */
+	for (step = 0; step < 30; step++, now += 300)
+	{
+		delta_peer_host_frame(&nodes[0].peer, now, game_machines, game_machine_count, player_machines);
+		deliver(now);
+		/* (2 says nothing, the others keep on) */
+		delta_peer_client_frame(&nodes[1].peer, now, 1, HOST_IPV4, DELTA_PEER_PORT, 1, 1, player_machines);
+		delta_peer_client_frame(&nodes[3].peer, now, 1, HOST_IPV4, DELTA_PEER_PORT, 1, 3, player_machines);
+		deliver(now);
+	}
+	sent = voice_heard[2].count;
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 300, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[2].count == sent && voice_heard[0].count > 0);
+	/* the host's rules taken away: no voice for new sessions */
+	delta_peer_set_voice_rules(&nodes[0].peer, NULL);
+	for (index = 0; index < 5; index++)
+		delta_peer_set_voice_client(&nodes[index].peer, NULL);
+}
+
+
+/* ---------- server badges (docs/server-badges.md) */
+
+static void test_wire_badge(void)
+{
+	struct delta_wire_badge badge, badge_in;
+	struct delta_wire_header header;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM], nonce[DELTA_WIRE_BADGE_NONCE_SIZE], nonce_in[DELTA_WIRE_BADGE_NONCE_SIZE];
+	int size, index;
+
+	for (index = 0; index < DELTA_WIRE_BADGE_NONCE_SIZE; index++)
+		nonce[index] = (unsigned char)(index * 7 + 1);
+	size = delta_wire_write_badge_ask(data, 7, nonce);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_BADGE_ASK_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_badge_ask &&
+		delta_wire_read_badge_ask(data + DELTA_WIRE_HEADER_SIZE, header.length, nonce_in) &&
+		!memcmp(nonce, nonce_in, sizeof(nonce)));
+	CHECK(!delta_wire_read_badge_ask(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_BADGE_ASK_SIZE - 1, nonce_in));
+
+	memset(&badge, 0, sizeof(badge));
+	memcpy(badge.nonce, nonce, sizeof(nonce));
+	for (index = 0; index < DELTA_WIRE_BADGE_SIGNATURE_SIZE; index++)
+		badge.signature[index] = (unsigned char)(0xA0 ^ index);
+	badge.certificate_length = DELTA_WIRE_BADGE_CERTIFICATE_SIZE;
+	badge.proof = DELTA_WIRE_BADGE_PROOF_BOUND;
+	for (index = 0; index < DELTA_WIRE_BADGE_CERTIFICATE_SIZE; index++)
+		badge.certificate[index] = (unsigned char)index;
+	size = delta_wire_write_badge(data, 7, &badge);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_BADGE_SIZE + DELTA_WIRE_BADGE_CERTIFICATE_SIZE);
+	CHECK(size <= DELTA_WIRE_MAXIMUM_DATAGRAM);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_badge &&
+		delta_wire_read_badge(data + DELTA_WIRE_HEADER_SIZE, header.length, &badge_in) &&
+		!memcmp(&badge, &badge_in, sizeof(badge)));
+	/* (a certificate cut short, or longer than its field: refused) */
+	CHECK(!delta_wire_read_badge(data + DELTA_WIRE_HEADER_SIZE, header.length - 1, &badge_in));
+	data[DELTA_WIRE_HEADER_SIZE + 96] = DELTA_WIRE_BADGE_CERTIFICATE_SIZE + 1;
+	CHECK(!delta_wire_read_badge(data + DELTA_WIRE_HEADER_SIZE, header.length + 1, &badge_in));
+	badge.certificate_length = DELTA_WIRE_BADGE_CERTIFICATE_SIZE + 1;
+	CHECK(!delta_wire_write_badge(data, 7, &badge));
+	/* (none: said as none) */
+	badge.certificate_length = 0;
+	size = delta_wire_write_badge(data, 7, &badge);
+	CHECK(delta_wire_read_header(data, size, &header) &&
+		delta_wire_read_badge(data + DELTA_WIRE_HEADER_SIZE, header.length, &badge_in) &&
+		badge_in.certificate_length == 0);
+}
+
+static struct
+{
+	int asked;
+	delta_u32 session;
+	unsigned char nonce[DELTA_WIRE_BADGE_NONCE_SIZE];
+} host_badge;
+
+static int test_badge_answer(void *context, const unsigned char *nonce, delta_u32 session, unsigned char *signature,
+	unsigned char *certificate, int size)
+{
+	(void)context;
+	host_badge.asked++;
+	host_badge.session = session;
+	memcpy(host_badge.nonce, nonce, sizeof(host_badge.nonce));
+	memset(signature, 0x5A, DELTA_WIRE_BADGE_SIGNATURE_SIZE);
+	memset(certificate, 0xC3, 120);
+	return size >= 120 ? 120 : 0;
+}
+
+static const struct delta_peer_badge_host test_badge_host = { NULL, test_badge_answer };
+
+static void test_badge(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	struct delta_wire_badge badge;
+	delta_u32 now = 5000;
+	int step;
+
+	memset(&host_badge, 0, sizeof(host_badge));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, SERVER_BADGE_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, SERVER_BADGE_BIT, _delta_platform_pc_linux, 0, 0);
+	/* (a Delta machine without server badges: an older build) */
+	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_macos, 0, 0);
+	delta_peer_set_badge_host(&nodes[0].peer, &test_badge_host);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	for (step = 0; step < 6; step++, now += 300)
+		frame(now, 3, joined, 1);
+	/* asked once, answered for this session's nonce */
+	CHECK(host_badge.asked == 1);
+	CHECK(delta_peer_client_badge(&nodes[1].peer, &badge, NULL) == _delta_peer_badge_answered);
+	CHECK(!memcmp(badge.nonce, host_badge.nonce, sizeof(badge.nonce)) && badge.certificate_length == 120 &&
+		badge.certificate[0] == 0xC3 && badge.signature[0] == 0x5A);
+	/* (the proof is bound to the client's session, and says so) */
+	CHECK(host_badge.session == nodes[1].peer.session && badge.proof == DELTA_WIRE_BADGE_PROOF_BOUND);
+	CHECK(delta_peer_client_badge(&nodes[2].peer, NULL, NULL) == _delta_peer_badge_unoffered);
+	/* (an answer to another nonce, or a second one: dropped) */
+	{
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		struct delta_wire_badge stray = badge;
+		int size;
+
+		stray.nonce[0] ^= 1;
+		stray.certificate[0] = 0x11;
+		size = delta_wire_write_badge(data, nodes[1].peer.session, &stray);
+		delta_peer_receive(&nodes[1].peer, now, HOST_IPV4, DELTA_PEER_PORT, data, size);
+		CHECK(delta_peer_client_badge(&nodes[1].peer, &badge, NULL) == _delta_peer_badge_answered &&
+			badge.certificate[0] == 0xC3);
+		/* (asks past the host's budget: one answered a second) */
+		host_badge.asked = 0;
+		size = delta_wire_write_badge_ask(data, nodes[1].peer.session, stray.nonce);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+		CHECK(host_badge.asked <= 1);
+		/* (an ask from a machine that did not agree to it: dropped) */
+		host_badge.asked = 0;
+		now += 5000;
+		size = delta_wire_write_badge_ask(data, nodes[2].peer.session, stray.nonce);
+		delta_peer_receive(&nodes[0].peer, now, nodes[2].ipv4, nodes[2].port, data, size);
+		CHECK(host_badge.asked == 0);
+		queued = 0;
+	}
+	/* a host without a badge offers none: a new client is told it has none */
+	delta_peer_set_badge_host(&nodes[0].peer, NULL);
+	node_start(1, 0x0300007F, 40001, SERVER_BADGE_BIT, _delta_platform_pc_linux, 0, 0);
+	for (step = 0; step < 6; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_client_badge(&nodes[1].peer, NULL, NULL) == _delta_peer_badge_unoffered);
 }
 
 /* ---------- object sync */
@@ -2009,7 +2892,8 @@ static void test_limits(void)
 	delta_u32 now = 20000;
 	int step;
 
-	/* an Xbox: hosts 16, joins 16, 128 if its player opted in */
+	/* a stock Xbox build of 16 players: its key claims 16 joined (its row
+	joins 32), 128 if its player opted in */
 	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT, _delta_platform_pc_linux, 0, 0);
 	node_start(1, 0x0300007F, 40001, PLATFORM_BIT, _delta_platform_xbox, 0, 0);
 	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_windows, 0, 0);
@@ -2041,7 +2925,7 @@ static void test_limits(void)
 		struct delta_platform_key key;
 
 		delta_platform_policy_default(_delta_platform_xbox, &key);
-		CHECK(key.memory_class == 6 && key.host_players == 16);
+		CHECK(key.memory_class == 6 && key.host_players == 16 && key.join_players == 32);
 		delta_platform_policy_default(_delta_platform_xbox360, &key);
 		CHECK(key.memory_class == 9 && key.host_players == 32 && key.join_players == 32);
 		delta_platform_policy_default(_delta_platform_wiiu, &key);
@@ -2055,6 +2939,8 @@ static void test_limits(void)
 		struct delta_platform_key key;
 
 		pc_key(&key, _delta_platform_xbox);
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 32);
+		key.join_players = 16;
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 16);
 		key.join_players = 8;
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 8);
@@ -2095,9 +2981,23 @@ static void test_limits(void)
 	/* (a host that ignores the limits offers co-op too) */
 	CHECK(delta_peer_room_coop(&nodes[0].peer));
 
-	/* an Xbox host keeps its own game to its row's 16 */
+	/* an Xbox build of 32 players joins a PC's game of 32 */
+	delta_peer_stop(&nodes[1].peer);
+	deliver(now);
+	nodes[0].peer.local.ignore_platform_limits = 0;
+	nodes[1].peer.local.key.host_players = 32;
+	nodes[1].peer.local.key.join_players = 32;
+	for (step = 0; step < 8; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(nodes[1].peer.client_state == _delta_peer_client_delta);
+	CHECK(delta_peer_room_limit(&nodes[0].peer, _delta_peer_limit_players) == 32);
+	CHECK(!delta_peer_room_coop(&nodes[0].peer));
+
+	/* an Xbox host keeps its own game to its row's 16, though its build
+	holds 32 */
 	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT, _delta_platform_xbox, 0, 0);
-	nodes[0].peer.local.key.host_players = 16;
+	nodes[0].peer.local.key.host_players = 32;
+	nodes[0].peer.local.key.join_players = 32;
 	delta_peer_host_frame(&nodes[0].peer, now, game_machines, game_machine_count, player_machines);
 	CHECK(delta_peer_room_limit(&nodes[0].peer, _delta_peer_limit_players) == 16);
 	CHECK(!delta_peer_room_coop(&nodes[0].peer));
@@ -2808,7 +3708,7 @@ static void host_bind_answer(void *context, int machine_index, delta_u32 request
 
 static const struct delta_peer_moderation_host test_moderation_host =
 {
-	NULL, host_machine_key, host_key_role, host_action, host_bind_answer, NULL, NULL
+	NULL, host_machine_key, host_key_role, host_action, host_bind_answer, NULL, NULL, NULL
 };
 
 /* a node's env given the moderation callbacks (after node_start) */
@@ -3390,7 +4290,7 @@ static void identity_machine_identity(void *context, int machine_index, int loca
 
 static const struct delta_peer_moderation_host identity_moderation_host =
 {
-	NULL, identity_machine_key, identity_key_role, NULL, NULL, identity_machine_identity, NULL
+	NULL, identity_machine_key, identity_key_role, NULL, NULL, identity_machine_identity, NULL, NULL
 };
 
 static void test_wire_identity(void)
@@ -3872,7 +4772,7 @@ static int mutated_message(unsigned char *data, delta_u32 session)
 	int size;
 	int flips;
 
-	switch (next_random() % 15)
+	switch (next_random() % 16)
 	{
 	case 14:
 	{
@@ -3895,6 +4795,40 @@ static int mutated_message(unsigned char *data, delta_u32 session)
 		case 0: size = delta_wire_write_id_challenge(data, session, &challenge); break;
 		case 1: size = delta_wire_write_id_proof(data, session, &card.proof); break;
 		default: size = delta_wire_write_id_card(data, session, &card); break;
+		}
+		break;
+	}
+	case 15:
+	{
+		static unsigned char packet[DELTA_WIRE_VOICE_PACKET_SIZE];
+		struct delta_wire_voice_up up;
+		struct delta_wire_voice_down down;
+		struct delta_wire_voice_config config;
+
+		random_bytes(packet, (int)sizeof(packet));
+		random_bytes((unsigned char *)&up, (int)sizeof(up));
+		up.channel = (unsigned char)(next_random() % NUMBER_OF_DELTA_VOICE_CHANNELS);
+		if (next_random() % 3 == 0)
+		{
+			up.length = 0;
+			up.channel = 0;
+		}
+		else if (!up.channel)
+			up.channel = _delta_voice_channel_team;
+		random_bytes((unsigned char *)&down, (int)sizeof(down));
+		down.route = (unsigned char)(1 + next_random() % 2);
+		down.channel = (unsigned char)(1 + next_random() % (NUMBER_OF_DELTA_VOICE_CHANNELS - 1));
+		down.length = (unsigned char)(1 + next_random() % 200);
+		random_bytes((unsigned char *)&config, (int)sizeof(config));
+		config.channels &= DELTA_VOICE_KNOWN_CONFIG;
+		config.flags &= DELTA_VOICE_CONFIG_MUTED;
+		config.kbps = (unsigned char)(8 + next_random() % 57);
+		config.proximity = (unsigned short)(50 + next_random() % 951);
+		switch (next_random() % 3)
+		{
+		case 0: size = delta_wire_write_voice_up(data, session, &up, packet); break;
+		case 1: size = delta_wire_write_voice_down(data, session, &down, packet); break;
+		default: size = delta_wire_write_voice_config(data, session, &config); break;
 		}
 		break;
 	}
@@ -4296,8 +5230,15 @@ int main(int argc, char **argv)
 	test_chat();
 	test_wire_team();
 	test_team();
+	test_party_tag_hold();
+	test_wire_report();
+	test_reports();
 	test_wire_host_rules();
 	test_host_rules();
+	test_host_number_wire();
+	test_host_number_lost();
+	test_wire_badge();
+	test_badge();
 	test_wire_objects();
 	test_objects();
 	test_wire_identity();
@@ -4305,6 +5246,10 @@ int main(int argc, char **argv)
 	test_identity_bound();
 	test_identity_replay();
 	test_identity_recheck();
+	test_wire_voice();
+	test_voice_route();
+	test_voice();
+	test_voice_one_address();
 	test_random(iterations);
 	if (failures)
 	{

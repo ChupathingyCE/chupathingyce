@@ -130,7 +130,28 @@ struct browser_game
 	(p2p_listing's opence_server): the lists' neutral label
 	(HOST_LABEL_OPENCE_SERVER), nothing more */
 	unsigned char opence_server;
+	/* the host takes no new players now (sv_lock: the list's field 25) */
+	unsigned char joins_locked;
+	/* a dedicated server's signed badge, as the list says it (fields 26 and
+	27: server_badge.h's tier, 0 for none, and its label, a handle or a
+	group, empty for none). Only from a build with badge keys, and dropped
+	for a host that failed its proof on joining (docs/server-badges.md) */
+	unsigned char badge;
+	char badge_label[32];
+	/* the server key the badge's certificate names (field 28), to match
+	the host's proof on joining; has_badge_key 0 from a list without it */
+	unsigned char has_badge_key;
+	unsigned char badge_key[32];
 };
+
+/* a listed game's badge as players read it ("Official server"; NULL for none) */
+const char *browser_badge_name(int badge);
+/* the joined host's badge proof (delta_peer_game.c; proven NULL: none):
+a host that proved none shows no badge from then on, and one that proved
+a badge shows the list's only while it is the same (server_badge.h's
+server_badge_joined_allows), until it joins again */
+struct server_badge;
+void browser_server_badge_proven(const char *invite, const struct server_badge *proven);
 
 /* the note a screen of listed games shows while the list is down and its
 games are those found directly (browser_list_status: BROWSER_LIST_FAILED) */
@@ -215,6 +236,20 @@ int browser_client_report(int teams, int red_score, int blue_score, int duration
 escaped); returns its length */
 int browser_json_name(char *out, int size, const unsigned short *name, int length);
 
+/* the hosted game's Steam Workshop item (an MCC map's: its id and title, ""
+for none), for the announcement's workshop_id and workshop_title; called
+before browser_host_update, which takes it with the game */
+#define BROWSER_WORKSHOP_ID_LENGTH 24
+#define BROWSER_WORKSHOP_TITLE_LENGTH 40
+void browser_host_workshop(const char *id, const char *title);
+
+/* the hosted game's game type (its variant's name, NULL for a variant
+without one; a co-op game's difficulty, -1 for none), for the
+announcement's gametype as network_rules_gametype_name names it; called
+before browser_host_update, which takes it with the game */
+#define BROWSER_GAMETYPE_LENGTH 25
+void browser_host_gametype(const char *name, short engine, int teams, int difficulty);
+
 /* the hosted game, as the game's server has it; called each frame while
 this machine hosts (network_server_manager.c). The listing follows (and is
 withdrawn a few seconds after the calls stop). */
@@ -246,6 +281,8 @@ game list entry): -1 older, 1 newer, 0 joinable. Every build */
 int browser_version_state(int version);
 /* whether a game's map (a scenario's name or path) is a campaign level: a
 co-op game */
+/* (browser.c) an MCC map's kind, from the game's MCC catalog (NULL: none) */
+extern int (*browser_mcc_campaign)(const char *map);
 int browser_map_is_campaign(const char *map);
 /* the game lists' filter, kept for the session: all games, multiplayer
 games, or co-op games (a campaign level). Every build */
@@ -258,8 +295,12 @@ enum
 };
 int browser_list_filter(void);
 void browser_list_filter_cycle(void);
-/* its name for a button or a hint: ALL, MULTIPLAYER, CO-OP */
+/* its name for a hint ("ONLY CO-OP"): ALL, MULTIPLAYER, CO-OP */
 const char *browser_list_filter_name(void);
+/* its words on the button that changes it: what it does with co-op games,
+"CO-OP: SHOWN", "CO-OP: HIDDEN" or "CO-OP: ONLY" (never "ALL": Online Games'
+views are ALL, CHUPATHINGY + PUBLIC and the others, which it doesn't change) */
+const char *browser_list_filter_label(void);
 /* whether a game on this map (a scenario's name or path) passes it */
 int browser_list_filter_allows(const char *map);
 /* the public listings (OpenCE's, p2p_lobby.c) followed while a screen of
@@ -456,11 +497,17 @@ enum
 	BROWSER_SOCIAL_DECLINE,
 	BROWSER_SOCIAL_REMOVE,
 	BROWSER_SOCIAL_BLOCK,
+	/* a friend request (ADD FRIEND: RECENT, PLAYERS HERE) */
+	BROWSER_SOCIAL_REQUEST,
 	/* /v1/social/join: the halo://join link, taken by
 	browser_social_take_join */
 	BROWSER_SOCIAL_JOIN,
 	/* /v1/social/invite, to this copy's game */
 	BROWSER_SOCIAL_INVITE,
+	/* a request this player sent taken back, a player unblocked
+	(/v1/game/friends, as ACCEPT to REQUEST) */
+	BROWSER_SOCIAL_CANCEL,
+	BROWSER_SOCIAL_UNBLOCK,
 	NUMBER_OF_BROWSER_SOCIAL_ACTIONS
 };
 enum
@@ -482,9 +529,52 @@ struct browser_social_result
 };
 /* 0 if one is still out */
 int browser_social_act(int action, const char *handle);
+
+/* a report's clip (docs/delta.md, Reports): the file at path sent to the
+site with the report's token (16 bytes), on the browser's thread: 1 if
+taken (one at a time). Its state: BROWSER_CLIP_* */
+enum
+{
+	BROWSER_CLIP_NONE,
+	BROWSER_CLIP_SENDING,
+	BROWSER_CLIP_SENT,
+	BROWSER_CLIP_TOO_BIG,
+	BROWSER_CLIP_TOO_MANY,
+	BROWSER_CLIP_FAILED,
+};
+int browser_clip_upload(const char *path, const unsigned char *token);
+int browser_clip_state(void);
+/* the clips in <data root>/clips (capture's: *.mp4 no bigger than the site
+takes), newest first, at most most (16): their paths and file names; the
+count */
+int browser_clips_list(char paths[][512], char names[][48], int most);
 void browser_social_result(struct browser_social_result *result);
 /* a join the site allowed: its halo://join link, once (1) */
 int browser_social_take_join(char *link, int size);
+
+/* the Guide's party (social.h): for a copy linked to a profile, the
+party in the friends' state; for one with none, POST /v1/party alone,
+polled while it is in one (it joins by a code). Not on the consoles
+(HALO_CONSOLE_NO_GUIDE) */
+struct social_party;
+/* the party as the site last said (has 0: none) into party, when its
+serial is not *serial (then *serial is its serial) */
+void browser_party_get(struct social_party *party, int *serial);
+/* an action on the party (social_party_fields's: "create", "invite" a
+handle, "accept" a party ID, "join" a code, ...), with this copy's game
+name for a copy with no profile; one at a time (0 if one is still out).
+Its result as browser_social_result's (its action is 0) */
+int browser_party_act(const char *action, const char *value, const char *name);
+void browser_party_result(struct browser_social_result *result);
+/* the leader's game (its invite's code) told to the party, apart from the
+actions (the latest wins) */
+void browser_party_go(const char *invite);
+/* a halo://party/ link (opened, or on the command line): kept for the
+Guide, which asks the player before joining it as a code typed would be. 1
+if the text was one */
+int browser_party_link(const char *text);
+/* the party link waiting (its code), taken: 1, or 0 for none */
+int browser_party_take_link(char *code, int size);
 
 /* Delta Profile in the game (port/linux/game/profile_screen.c;
 delta_profile.h): this copy's own profile, as the site has it, kept in
@@ -538,10 +628,19 @@ privacy setting of the site's changed ("hide_stats", "hide_heatmaps",
 "show_presence", "show_clan_tag"); the action's result shown (no longer kept) */
 void browser_profile_unlink(void);
 void browser_profile_privacy(const char *field, int value);
+/* a friends' privacy rule changed (friend_requests, who_can_join,
+clan_presence: the site's values) */
+void browser_profile_friends_privacy(const char *field, const char *value);
 void browser_profile_action_seen(void);
 /* a clan's invite answered ("accept" or "decline", clan its ID), or the
 clan left ("leave"): the site's /v1/game/clan, its result the action's */
 void browser_profile_clan(const char *action, int clan);
+/* a member of the profile's clan kicked, or a player invited to it
+("kick" or "invite", by handle: a leader's or officer's, DELTA's CLAN);
+the site's /v1/game/clan, its result the action's. 0 for a handle the site
+could not have given. Not on the consoles (no DELTA there yet) */
+int browser_profile_clan_member(const char *action, const char *handle);
+
 /* the devices (docs/delta.md, Devices): this device signed out (its
 certificate dropped, its key kept; nothing goes to the site as the account
 until it signs in again by code), and another device of the account revoked
@@ -622,5 +721,8 @@ int browser_identity_revoked_changes(void);
 in page, and as a QR code in modules (BROWSER_CONNECT_QR_SIZE squared at
 most, nonzero for a dark one); the QR code's size, 0 for none */
 int browser_page_qr(const char *path, char *page, int page_size, unsigned char *modules);
+/* any short text (PARTY's halo://party/ link) as a QR code in modules, as
+browser_page_qr's: its size, 0 for none */
+int browser_text_qr(const char *text, unsigned char *modules);
 
 #endif

@@ -19,6 +19,8 @@ Settings are named "section.key", as in the file: "display.vsync".
 #include <stddef.h>
 
 int config_boolean(const char *name);
+/* whether config.toml has been read (the settings above read it first) */
+int config_loaded_yet(void);
 long config_integer(const char *name);
 double config_real(const char *name);
 /* never NULL; "" when unset */
@@ -62,6 +64,9 @@ void config_new_defaults_answer(int use_new);
 /* how many times config_write has changed a setting: what keeps one reads
 it again when this moves */
 unsigned long config_changes(void);
+/* (the tests') the first setting or environment variable named twice: 1
+and its name, else 0 */
+int config_duplicate_setting(char *name, size_t size);
 
 /* ---------- every setting, for the setup screen's Settings (launcher.c) */
 

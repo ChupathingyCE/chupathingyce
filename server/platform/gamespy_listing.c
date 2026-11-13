@@ -667,7 +667,7 @@ static void *listing_thread(void *unused)
 	{
 		struct pollfd poll_socket;
 		time_t now = time(NULL);
-		int stop, changed, stop_joins;
+		int stop, changed, stop_joins, start_joins;
 		int index;
 
 		pthread_mutex_lock(&listing_mutex);
@@ -723,6 +723,23 @@ static void *listing_thread(void *unused)
 		poll_socket.revents = 0;
 		if (poll(&poll_socket, 1, 250) <= 0 || !(poll_socket.revents & POLLIN))
 			continue;
+		/* (the status and the joins as they are now, not as they were before
+		the wait: a packet that woke the poll right after the server published
+		its status or turned joins on is answered, not dropped) */
+		pthread_mutex_lock(&listing_mutex);
+		if (listing.have_status)
+		{
+			status = listing.status;
+			have_status = 1;
+		}
+		start_joins = !joins && listing.joins;
+		pthread_mutex_unlock(&listing_mutex);
+		if (start_joins && have_status)
+		{
+			joins = 1;
+			ce_transport_set_game(status.hostname, status.mapname, status.maxplayers);
+			ce_transport_update(milliseconds_now());
+		}
 		for (index = 0; index < 64; index++)
 		{
 			unsigned char packet[GAMESPY_PACKET_SIZE];

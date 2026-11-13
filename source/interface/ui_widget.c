@@ -627,6 +627,7 @@ symbols in this file:
 
 struct widget_instance;
 
+#include "mcc_hud_draw.h"
 #include "cseries.h"
 #include "errors.h"
 #include "bitmaps/bitmap_group.h"
@@ -653,6 +654,8 @@ struct widget_instance;
 #include "interface/player_ui.h"
 #include "interface/progress_bar.h"
 #include "interface/ui_widget_game_data_input_functions.h"
+#include "mcc_maps.h"
+#include "mcc_menu_preview.h" /* port: port/linux/game/mcc_menu_preview.c */
 #include "interface/ui_widget_event_handler_functions.h"
 #include "interface/ui_widget_text_search_and_replace_functions.h"
 #include "interface/virtual_keyboard.h"
@@ -684,6 +687,12 @@ struct widget_instance;
 #ifdef HALO_MAP_LIST
 #include "halo_ui_map_list.h"
 #endif
+#include "mcc_pause.h"
+#include "mcc_pause_runtime.h"
+#include "mcc_ui.h"
+#include "mcc_ui_network.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
 #ifndef HALO_CONSOLE_NO_CONTROLS
 /* port: Controller Buttons asking for a button (menu_functions.c) */
 boolean pc_menu_controller_capture(void);
@@ -734,7 +743,7 @@ void guide_update(boolean menu_open);
 void guide_process(void);
 void guide_pointer(struct halo_ui_pointer const *pointer);
 void guide_render(void);
-/* the pause menu's GUIDE with what waits in the Guide ("GUIDE 2"), for
+/* the pause menu's DELTA with what waits in it ("DELTA 2"), for
 its text's string list; NULL to leave it */
 wchar_t const *guide_pause_label(long string_list_tag);
 #endif
@@ -1471,19 +1480,23 @@ short pc_menu_text_key_cap(
 	short y1,
 	float alpha);
 #endif
+#ifndef HALO_XBOX_CONSOLE
 /* port: the left edge of the key cap pc_menu_button_key_cap draws in
-these bounds, or x0 when it draws none */
+these bounds, or x0 when it draws none (the original Xbox draws its own
+pictures, and has no key caps to make room for) */
 short pc_menu_button_key_cap_left(
 	long bitmap_tag_index,
 	short x0,
 	short y0,
 	short x1,
 	short y1);
+#endif
 /* port: the row of the bitmap draw_bitmap_in_rect starts from (a frame the
-menus place, pc_menu_frame_placement): 0 but while one is drawn */
-static short draw_bitmap_texel_y = 0;
-/* ... and the column (the name entry's picture's sides on a wide screen:
-virtual_keyboard.c) */
+menus place, pc_menu_frame_placement; a piece of the name entry's
+picture, virtual_keyboard.c): 0 but while one is drawn */
+short draw_bitmap_texel_y = 0;
+/* ... and the column (the name entry's picture's sides on a wide screen,
+and its pieces: virtual_keyboard.c) */
 short draw_bitmap_texel_x = 0;
 static void widget_instance_initialize(
 	struct widget_instance *widget,
@@ -2095,6 +2108,185 @@ void *ui_widget_realloc(
 		size,
 		file,
 		line);
+}
+
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+/* port: the Xbox menus' Select Map (a search alone, as close to the
+console's screen as one fits): Y opens the on-screen keyboard, whose words
+narrow the cards to the maps that match (ui_map_list_view_set: name, and an
+MCC map's ModInfo.json and CampaignInfo.json); B with a search clears it
+first. Its Show and Sort are the list's own: all of them, in its order */
+#define XBOX_MAP_SELECT_LIST "ui\\shell\\main_menu\\multiplayer_type_select\\mp_map_select\\mp_map_select_list"
+#define XBOX_MAP_SEARCH_LENGTH 32
+
+static struct
+{
+	char search[XBOX_MAP_SEARCH_LENGTH];
+	wchar_t keyboard_text[XBOX_MAP_SEARCH_LENGTH];
+	boolean keyboard;
+	unsigned long serial;
+} xbox_map_search;
+
+static boolean xbox_map_select_list(struct widget_instance *widget)
+{
+	return widget && widget->definition_tag_index != NONE && !pc_menu_tag(widget->definition_tag_index) &&
+		!strcmp(tag_get_name(widget->definition_tag_index), XBOX_MAP_SELECT_LIST);
+}
+
+/* the list opened: all its maps again (another chooser's view let go of) */
+void ui_widget_port_xbox_map_search_reset(void)
+{
+	xbox_map_search.search[0] = 0;
+	xbox_map_search.keyboard = FALSE;
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
+	/* (debug.menu_open's "#search=<words>": a search to start with, for
+	screenshots) */
+	{
+		extern char const *config_string(char const *name);
+		char const *debug = strstr(config_string("debug.menu_open"), "#search=");
+
+		if (debug)
+		{
+			snprintf(xbox_map_search.search, sizeof(xbox_map_search.search), "%s", debug + 8);
+			xbox_map_search.search[strcspn(xbox_map_search.search, "#")] = 0;
+		}
+	}
+#endif
+	ui_map_list_view_set(_ui_map_list_source_all, _ui_map_list_sort_default, xbox_map_search.search);
+}
+
+/* Y and B on the list; TRUE when taken */
+static boolean xbox_map_search_event(struct widget_instance *widget, struct event_record *event)
+{
+	short index;
+
+	if (event->type != _event_type_button || event->data.button.value != 1 || !xbox_map_select_list(widget) ||
+		virtual_keyboard_active())
+	{
+		return FALSE;
+	}
+	if (event->data.button.index == _gamepad_analog_button_y)
+	{
+		for (index = 0; xbox_map_search.search[index] && index < XBOX_MAP_SEARCH_LENGTH - 1; index++)
+			xbox_map_search.keyboard_text[index] = (wchar_t)(unsigned char)xbox_map_search.search[index];
+		xbox_map_search.keyboard_text[index] = 0;
+		xbox_map_search.keyboard = virtual_keyboard_launch_plain(xbox_map_search.keyboard_text,
+			sizeof(xbox_map_search.keyboard_text), L"Search");
+		return xbox_map_search.keyboard;
+	}
+	if (event->data.button.index == _widget_event_b_button && xbox_map_search.search[0])
+	{
+		xbox_map_search.search[0] = 0;
+		ui_map_list_view_set(_ui_map_list_source_all, _ui_map_list_sort_default, NULL);
+		ui_play_audio_feedback_sound(_ui_audio_feedback_back);
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/* each frame the list shows (its cards' update): the keyboard's words
+taken, and the list's maps the view's (a search that matches none is not
+kept: the cards need one) */
+void ui_widget_port_xbox_map_list_sync(struct widget_instance *list_widget)
+{
+	if (xbox_map_search.keyboard && !virtual_keyboard_active())
+	{
+		xbox_map_search.keyboard = FALSE;
+		if (virtual_keyboard_last_exit_saved_text())
+		{
+			char before[XBOX_MAP_SEARCH_LENGTH];
+			short index;
+
+			snprintf(before, sizeof(before), "%s", xbox_map_search.search);
+			for (index = 0; xbox_map_search.keyboard_text[index] && index < XBOX_MAP_SEARCH_LENGTH - 1; index++)
+			{
+				wchar_t character = xbox_map_search.keyboard_text[index];
+
+				xbox_map_search.search[index] = character < 0x80 ? (char)character : '?';
+			}
+			xbox_map_search.search[index] = 0;
+			ui_map_list_view_set(_ui_map_list_source_all, _ui_map_list_sort_default, xbox_map_search.search);
+			if (!ui_map_list_count())
+			{
+				snprintf(xbox_map_search.search, sizeof(xbox_map_search.search), "%s", before);
+				ui_map_list_view_set(_ui_map_list_source_all, _ui_map_list_sort_default, xbox_map_search.search);
+				ui_play_audio_feedback_sound(_ui_audio_feedback_flag_failure);
+			}
+		}
+	}
+	if (xbox_map_search.serial != ui_map_list_view_serial() && xbox_map_select_list(list_widget))
+	{
+		boolean with_campaign = list_widget->parameters.list.number_of_items > ui_map_list_count();
+
+		xbox_map_search.serial = ui_map_list_view_serial();
+		list_widget->parameters.list.list_items = ui_map_list_names();
+		list_widget->parameters.list.number_of_items = (short)(with_campaign ?
+			ui_map_list_count_with_campaign() : ui_map_list_count());
+		if (list_widget->parameters.list.selected_index >= list_widget->parameters.list.number_of_items)
+			list_widget->parameters.list.selected_index = 0;
+	}
+}
+#endif
+
+/* (MCC maps for every game of a build that has them: a network game on one
+is hosted at OpenCE's 43, network_game_server_mcc_version) */
+static boolean ui_widget_port_mcc_offered(void)
+{
+	return TRUE;
+}
+
+/* MCC maps are selected by their full namespaced path. They do not enter
+the Xbox/CE multiplayer level-index list. */
+boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name)
+{
+	short index = mcc_maps_find(level_name);
+	struct network_game_server *server = global_network_game_server_get();
+
+	if (index == NONE || mcc_maps_campaign(index) || !ui_widget_port_mcc_offered())
+		return FALSE;
+	main_set_multiplayer_map_name(level_name);
+	game_engine_override_map_name(level_name);
+	if (server)
+		network_game_server_change_map_name(server, level_name);
+	saved_game_file_remember_last_used_multiplayer_map(level_name);
+	return TRUE;
+}
+
+/* the MCC catalog's campaign maps, after the campaign's ten levels in the
+Xbox's level select (ui_widget_event_handler_functions.c), at most this
+many: their level names, by row from 0 */
+#define UI_WIDGET_PORT_MCC_CAMPAIGN_ROWS 64
+
+short ui_widget_port_mcc_campaign_count(void)
+{
+	if (!ui_widget_port_mcc_offered())
+		return 0;
+	return (short)MIN(mcc_maps_type_count(TRUE), UI_WIDGET_PORT_MCC_CAMPAIGN_ROWS);
+}
+
+char const *ui_widget_port_mcc_campaign_level(short row)
+{
+	short index = ui_widget_port_mcc_offered() ? mcc_maps_type_index(row, TRUE) : NONE;
+
+	return index != NONE ? mcc_maps_level_name(index) : NULL;
+}
+
+boolean ui_widget_port_mcc_cooperative_level_choose(char const *level_name, short difficulty)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	struct game_variant variant;
+
+	if (!server || !ui_widget_port_mcc_offered() || !mcc_maps_level_campaign(level_name) ||
+		difficulty < 0 || difficulty >= NUMBER_OF_GAME_DIFFICULTY_LEVELS)
+		return FALSE;
+	csmemset(&variant, 0, sizeof(variant));
+	ustrcpy(variant.human_readable_game_description, L"Co-op");
+	main_set_difficulty(difficulty);
+	main_set_multiplayer_map_name(level_name);
+	network_game_server_port_set_cooperative(server, difficulty);
+	network_game_server_change_map_name(server, level_name);
+	network_game_server_change_game_variant(server, &variant);
+	return TRUE;
 }
 
 void widget_free(
@@ -3219,6 +3411,10 @@ void ui_widgets_close_all(
 		if (widget_globals.widget_stack[local_player_index])
 			dispose_widget_stack(&widget_globals.widget_stack[local_player_index]);
 	}
+	/* Release only an editor opened by MCC after its widgets are gone. */
+	{
+		mcc_ui_settings_close(NONE);
+	}
 
 	return;
 }
@@ -3245,6 +3441,9 @@ void ui_widgets_close_all_for_local_player(
 			if (widget_globals.widget_stack[widget_index])
 				dispose_widget_stack(&widget_globals.widget_stack[widget_index]);
 		}
+	}
+	{
+		mcc_ui_settings_close(local_player_index);
 	}
 
 	return;
@@ -3626,9 +3825,17 @@ enum
 	/* MAP BROWSER, a second copy of System Link's, under ONLINE GAMES
 	(port/xbox/game/xbox_maps_screen.c) */
 	MAP_BROWSER_POSITION = ONLINE_GAMES_POSITION + 1,
-	ONLINE_GAMES_ITEMS_ADDED = 2,
+	ONLINE_GAMES_MAP_BROWSER_ADDED = 1,
 #else
-	ONLINE_GAMES_ITEMS_ADDED = 1,
+	ONLINE_GAMES_MAP_BROWSER_ADDED = 0,
+#endif
+#ifdef HALO_GUIDE
+	/* DELTA (port/linux/game/guide.c), another copy, last, with
+	delta.menu_item (as it is when the tags load: online_games.added) */
+	DELTA_ITEM_POSITION = ONLINE_GAMES_POSITION + 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
+	ONLINE_GAMES_ITEMS_MOST = 2 + ONLINE_GAMES_MAP_BROWSER_ADDED,
+#else
+	ONLINE_GAMES_ITEMS_MOST = 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
 #endif
 	/* the items' spacing (their vertical offset, -33) */
 	ONLINE_GAMES_ROW = 33,
@@ -3643,7 +3850,16 @@ static struct
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	boolean map_browser_described;
 #endif
+#ifdef HALO_GUIDE
+	boolean delta_described;
+	/* the DELTA row is in the list */
+	boolean delta;
+#endif
+	/* the items added (ONLINE GAMES, MAP BROWSER, DELTA) */
+	short added;
 } online_games = { NONE, NONE, NULL, FALSE };
+
+#define ONLINE_GAMES_ITEMS_ADDED online_games.added
 
 #ifdef HALO_GAME_BROWSER
 static void ui_widget_setup_entry_tags_loaded(void);
@@ -3675,7 +3891,18 @@ void ui_widget_online_games_tags_loaded(
 	/* (the tags are loaded again with each map: the last copy goes) */
 	if (online_games.children)
 		system_free(online_games.children);
-	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ITEMS_ADDED) * sizeof(*children));
+#ifdef HALO_GUIDE
+	{
+		/* (menu_tags.c's: delta.menu_item, the menus' DELTA rows) */
+		extern boolean pc_menu_delta_item_offered(void);
+
+		online_games.delta = pc_menu_delta_item_offered();
+	}
+	online_games.added = (short)(ONLINE_GAMES_ITEMS_MOST - (online_games.delta ? 0 : 1));
+#else
+	online_games.added = ONLINE_GAMES_ITEMS_MOST;
+#endif
+	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ITEMS_MOST) * sizeof(*children));
 	online_games.children = children;
 	if (!children)
 		return;
@@ -3684,6 +3911,10 @@ void ui_widget_online_games_tags_loaded(
 	children[ONLINE_GAMES_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	children[MAP_BROWSER_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+#endif
+#ifdef HALO_GUIDE
+	if (online_games.delta)
+		children[DELTA_ITEM_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
 #endif
 	csmemcpy(&children[ONLINE_GAMES_POSITION + ONLINE_GAMES_ITEMS_ADDED], &old_children[ONLINE_GAMES_POSITION],
 		(ONLINE_GAMES_MENU_ITEMS - ONLINE_GAMES_POSITION) * sizeof(*children));
@@ -3883,6 +4114,17 @@ boolean ui_widget_online_games_item(
 		ui_widget_list_position(widget) == ONLINE_GAMES_POSITION;
 }
 
+#ifdef HALO_GUIDE
+/* the Multiplayer menu's DELTA (a copy of System Link's item) */
+boolean ui_widget_delta_item(
+	struct widget_instance *widget)
+{
+	return online_games.list_tag != NONE && online_games.delta && widget && widget->parent &&
+		widget->parent->definition_tag_index == online_games.list_tag &&
+		ui_widget_list_position(widget) == DELTA_ITEM_POSITION;
+}
+#endif
+
 #ifdef HALO_CONSOLE_ONLINE_GAMES
 #ifdef HALO_CONSOLE_MAP_BROWSER
 boolean ui_widget_map_browser_item(
@@ -3954,6 +4196,9 @@ short ui_widget_online_games_description(
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	online_games.map_browser_described = FALSE;
 #endif
+#ifdef HALO_GUIDE
+	online_games.delta_described = FALSE;
+#endif
 	if (online_games.list_tag == NONE || list_widget->definition_tag_index != online_games.list_tag)
 		return index;
 	if (index == ONLINE_GAMES_POSITION)
@@ -3965,6 +4210,13 @@ short ui_widget_online_games_description(
 	if (index == MAP_BROWSER_POSITION)
 	{
 		online_games.map_browser_described = TRUE;
+		return ONLINE_GAMES_SYSTEM_LINK;
+	}
+#endif
+#ifdef HALO_GUIDE
+	if (online_games.delta && index == DELTA_ITEM_POSITION)
+	{
+		online_games.delta_described = TRUE;
 		return ONLINE_GAMES_SYSTEM_LINK;
 	}
 #endif
@@ -3997,6 +4249,29 @@ static void event_handler_dispatch(
 		browser_screen_open();
 		return;
 	}
+	/* (Gearbox's SERVER BROWSER too: one game list in every menu set, not
+	Halo PC's own Server Browser screen. Its LAN and DIRECT LINK keep their
+	Join Game screen) */
+	if (widget->name && pc_menu_tag(widget->definition_tag_index) &&
+		strstr(widget->name, "multiplayer_type_join_internet") &&
+		(handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start))
+	{
+		ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+		browser_screen_open();
+		return;
+	}
+#ifdef HALO_GUIDE
+	/* DELTA (System Link's item copied): DELTA over the menu, on PARTY */
+	if (ui_widget_delta_item(widget) &&
+		(handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start))
+	{
+		extern void guide_open_party(void);
+
+		ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+		guide_open_party();
+		return;
+	}
+#endif
 #ifdef HALO_GAME_BROWSER
 	/* SETUP (CHANGE COLOR's row copied): the setup screen, none of CHANGE
 	COLOR's */
@@ -4033,8 +4308,12 @@ static void event_handler_dispatch(
 	if (TEST_FLAG(handler->flags, _event_handler_run_scenario_script_bit) &&
 		handler->script[0])
 	{
-		if (!hs_evaluate_by_name(handler->script))
+		if (!hs_evaluate_by_name(handler->script) &&
+			/* port: Stubbs mode's own (port/linux/game/stubbs_multiplayer.c) */
+			!(stubbs_mode_active() && stubbs_multiplayer_widget_script(handler->script)))
+		{
 			error(_error_silent, "failed to run ui widget event script '%s'", handler->script);
+		}
 	}
 	if (TEST_FLAG(handler->flags, _event_handler_run_function_bit) &&
 		!widget_deleted &&
@@ -4123,6 +4402,17 @@ static void event_handler_dispatch(
 		/* port: not from a widget its function deleted (it went back:
 		menu_functions.c's profile_save_changes), which the Xbox's opened
 		from regardless */
+		/* MCC New Game can synchronously close every widget. Finish the event
+		with its deletion result before any navigation can reuse that tree. */
+		{
+			if (TEST_FLAG(handler->flags, _event_handler_open_widget_bit) &&
+				!widget_deleted && handler->widget_tag.index != NONE &&
+				mcc_ui_new_game(widget, &widget_deleted))
+			{
+				*calling_widget_deleted = widget_deleted;
+				return;
+			}
+		}
 		if (TEST_FLAG(handler->flags, _event_handler_open_widget_bit) &&
 			!widget_deleted &&
 			handler->widget_tag.index != NONE)
@@ -4834,6 +5124,8 @@ static void render_state_bitmap(
 	if (bitmap && _texture_cache_bitmap_get_hardware_format(
 		(struct bitmap_data *)bitmap, FALSE, TRUE))
 	{
+		if (mcc_hud_icon_draw(bitmap_group_index, bitmap, clip, cursor_bounds, color, icon, TRUE))
+			return;
 		scale = hud_globals_get_scale(local_player_count() > 1) * glyph_scale;
 		point.x = (short)(icon->offset.x * scale + cursor_bounds->x0 + 1.0f);
 		point.y = (short)(cursor_bounds->y1 - icon->offset.y * scale - 2.0f);
@@ -5499,6 +5791,19 @@ void network_game_reset_to_pregame_ui(
 	void)
 {
 	ui_widgets_close_all();
+	/* An MCC restart retains this round's settings and returns directly to
+	 * the ready lobby. The ordinary host map picker pauses its countdown. */
+	{
+		if (mcc_ui_network_restart_pregame())
+		{
+			char const *screen = network_game_is_splitscreen_local() ?
+				"ui\\shell\\main_menu\\multiplayer_type_select\\split_screen\\pregame\\splitscreen_pregame_wrapper_normal" :
+				pc_menus_screen("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen");
+			if (!ui_widget_load_by_name_or_tag(screen, NONE, NULL, NONE, NONE, NONE, NONE))
+				error(_error_silent, "mcc: failed to load restart pregame screen");
+			return;
+		}
+	}
 	if (network_game_is_splitscreen_local())
 	{
 		if (network_game_is_quickstart_local())
@@ -6012,6 +6317,23 @@ static long search_and_replace(
 }
 
 
+/* port: a text box's font and the width its lines have (its bounds less
+its offset on each side), for port code that fits its own text to it
+(menu_functions.c's About): FALSE when it has no font */
+boolean ui_widget_port_text_box_room(
+	struct widget_instance *widget,
+	long *font_index,
+	short *width)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(widget->definition_tag_index);
+
+	if (definition->text_font.index == NONE)
+		return FALSE;
+	*font_index = definition->text_font.index;
+	*width = (short)(definition->bounds.x1 - definition->bounds.x0 - 2 * definition->horizontal_offset);
+	return TRUE;
+}
+
 /* port: the port's own error text (display_error_text_deferred), which may be
 longer than a line of its dialog: broken at spaces (the strings' line break,
 '\r') where a line would be wider than `width` in the font drawn with.
@@ -6107,6 +6429,12 @@ static void widget_instance_render_text_box(
 		/* (ONLINE GAMES' item and description share System Link's tags) */
 		if (ui_widget_online_games_item(widget))
 			string = L"ONLINE GAMES";
+#ifdef HALO_GUIDE
+		else if (ui_widget_delta_item(widget))
+			string = L"DELTA";
+		else if (online_games.delta_described && widget->definition_tag_index == online_games.description_text_tag)
+			string = L"Start a party, invite your \r\nfriends and bring them to \r\nyour game.";
+#endif
 #ifdef HALO_GAME_BROWSER
 		else if (ui_widget_setup_entry_item(widget))
 			string = L"SETUP";
@@ -6134,7 +6462,7 @@ static void widget_instance_render_text_box(
 #endif
 #ifdef HALO_GUIDE
 		{
-			/* port: the pause menu's GUIDE, with a count ("GUIDE 2") */
+			/* port: the pause menu's DELTA, with a count ("DELTA 2") */
 			wchar_t const *guide_label = guide_pause_label(definition->text_label_string_list.index);
 
 			if (guide_label)
@@ -6293,6 +6621,18 @@ static void widget_instance_render_text_box(
 			}
 		}
 		ui_widget_port_text_wrap(*text, &bounds, width);
+	}
+	/* MCC owns these text boxes; wrap their instance copies to the panel
+	 * width without changing the map's objective strings or other menus. */
+	{
+		if (mcc_pause_text_wrap_needed(widget->definition_tag_index))
+		{
+			ui_widget_port_text_wrap(*text, &bounds, (short)(bounds.x1 - bounds.x0));
+			clip.x0 = MAX(clip.x0, bounds.x0);
+			clip.y0 = MAX(clip.y0, bounds.y0);
+			clip.x1 = MIN(clip.x1, bounds.x1);
+			clip.y1 = MIN(clip.y1, bounds.y1);
+		}
 	}
 	if (string_has_icons_to_draw(*text))
 	{
@@ -8230,6 +8570,78 @@ static void ui_widgets_process_mouse(
 
 #endif
 
+#ifndef HALO_XBOX_CONSOLE
+/* port: how far a key cap wider than the button's picture it stands for
+reaches left of it (ENTER's, for A), summed over widget's key cap and its
+children's (offset by x and y, its parents' offsets) that are on the line
+from y0 to y1 and start right of x0 */
+static short ui_widget_port_key_cap_overflow(
+	struct widget_instance *widget,
+	short x,
+	short y,
+	short x0,
+	short y0,
+	short y1)
+{
+	struct ui_widget_definition *definition;
+	struct widget_instance *child;
+	rectangle2d bounds;
+	short overflow = 0;
+
+	if (!widget->visible)
+		return 0;
+	definition = ui_widget_definition_get(widget->definition_tag_index);
+	bounds = definition->bounds;
+	bounds.x0 = (short)(bounds.x0 + x + widget->horizontal_offset);
+	bounds.x1 = (short)(bounds.x1 + x + widget->horizontal_offset);
+	bounds.y0 = (short)(bounds.y0 + y + widget->vertical_offset);
+	bounds.y1 = (short)(bounds.y1 + y + widget->vertical_offset);
+	/* (a picture on the line, the piece sitting on it, after x0) */
+	if (definition->background_bitmap.index != NONE && bounds.x0 > x0 + 1 &&
+		y0 >= bounds.y0 - 8 && y1 <= bounds.y1 + 8)
+	{
+		short left = pc_menu_button_key_cap_left(definition->background_bitmap.index, bounds.x0, bounds.y0,
+			bounds.x1, bounds.y1);
+
+		if (left < bounds.x0)
+			overflow = (short)(bounds.x0 - left);
+	}
+	for (child = widget->child; child; child = child->next)
+	{
+		overflow = (short)(overflow + ui_widget_port_key_cap_overflow(child, (short)(x + widget->horizontal_offset),
+			(short)(y + widget->vertical_offset), x0, y0, y1));
+	}
+	return overflow;
+}
+
+/* port: how far left a prompt's pieces move for the key caps to their
+right: a key cap wider than the button's picture it stands for reaches
+left of it (ENTER's, for A), and touched the words before it ("=BACK"):
+every piece of a footer's line before it moves left by as much, the room
+between them as the Xbox's pictures had it. A piece moves by the sum of the
+key caps after it on its line, its siblings' and their children's (the
+Xbox's footers keep BACK and SELECT in a group of their own, button_key,
+after a screen's "=DELETE") */
+static short ui_widget_port_key_cap_shift(
+	struct widget_instance *parent,
+	struct widget_instance *child)
+{
+	struct ui_widget_definition *child_definition = ui_widget_definition_get(child->definition_tag_index);
+	struct widget_instance *sibling;
+	short child_x0 = (short)(child_definition->bounds.x0 + child->horizontal_offset);
+	short child_y0 = (short)(child_definition->bounds.y0 + child->vertical_offset);
+	short child_y1 = (short)(child_definition->bounds.y1 + child->vertical_offset);
+	short shift = 0;
+
+	for (sibling = parent->child; sibling; sibling = sibling->next)
+	{
+		if (sibling != child)
+			shift = (short)(shift + ui_widget_port_key_cap_overflow(sibling, 0, 0, child_x0, child_y0, child_y1));
+	}
+	return shift;
+}
+#endif
+
 static void widget_instance_render_recursive(
 	struct widget_instance *widget,
 	rectangle2d *clip_rect,
@@ -8244,6 +8656,9 @@ static void widget_instance_render_recursive(
 	long input_index;
 	struct widget_instance *child;
 	struct bitmap_data *bitmap;
+	/* port: an MCC map's picture (ui_map_list_mcc_picture), and the frame drawn */
+	short mcc_picture = NONE;
+	short picture_frame = widget->animation.current_frame_index;
 
 	if (!use_nifty_plasma_fx &&
 		TEST_FLAG(definition->flags, _widget_always_render_with_nifty_fx_bit))
@@ -8269,14 +8684,18 @@ static void widget_instance_render_recursive(
 	ui_mouse_note_target(widget, definition, offset);
 #endif
 #ifdef HALO_MAP_LIST
-	/* port: a picture of the menus' map list's own, past ui.map's */
-	bitmap = ui_map_list_picture(widget->animation.current_frame_index);
+	/* port: an MCC map's own picture (mcc_menu_preview_draw, below), with
+	the unknown level's in its place when it has none; a picture of the
+	menus' map list's own, past ui.map's */
+	mcc_picture = ui_map_list_mcc_picture(widget->animation.current_frame_index);
+	picture_frame = mcc_picture != NONE ? ui_map_list_unknown_picture() : widget->animation.current_frame_index;
+	bitmap = ui_map_list_picture(picture_frame);
 	if (!bitmap)
 #endif
 	bitmap = bitmap_group_get_bitmap_from_sequence(
 		definition->background_bitmap.index,
 		0,
-		widget->animation.current_frame_index);
+		picture_frame);
 	if (bitmap)
 	{
 		real alpha = alpha_modifier;
@@ -8359,7 +8778,10 @@ static void widget_instance_render_recursive(
 			short frame_x, frame_y, frame_width, frame_height, texel_y = 0;
 			boolean shown = TRUE;
 
-			if (pc_menu_button_key_cap(
+			/* port: an MCC map's own picture, fitted to the box, instead */
+			if (mcc_picture != NONE && mcc_menu_preview_draw(mcc_picture, &bounds, clip, color, &multitexture_params))
+				shown = FALSE;
+			else if (pc_menu_button_key_cap(
 				definition->background_bitmap.index,
 				bounds.x0,
 				bounds.y0,
@@ -8444,14 +8866,19 @@ static void widget_instance_render_recursive(
 	{
 		for (child = widget->child; child; child = child->next)
 		{
+			point2d child_offset = offset;
+
 			focus = child == widget->focused_child;
 			use_nifty_plasma_fx = focus &&
 				(widget->type == _ui_widget_type_spinner_list ||
 				widget->type == _ui_widget_type_column_list);
+#ifndef HALO_XBOX_CONSOLE
+			child_offset.x = (short)(child_offset.x - ui_widget_port_key_cap_shift(widget, child));
+#endif
 			widget_instance_render_recursive(
 				child,
 				clip_rect,
-				offset,
+				child_offset,
 				focus,
 				use_nifty_plasma_fx);
 		}
@@ -9104,6 +9531,11 @@ static void widget_instance_process_one_event_recursive(
 		"c:\\halo\\SOURCE\\interface\\ui_widget.c",
 		3067,
 		widget && definition && event && return_widget_deleted);
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: the Xbox menus' Select Map's search (Y; B clears it) */
+	if (event_for_this_widget && xbox_map_search_event(widget, event))
+		return;
+#endif
 #ifndef HALO_XBOX_CONSOLE
 	/* port: the d-pad (keys, a controller, the wheel) moves the focus now,
 	not the pointer */
@@ -9640,6 +10072,27 @@ static boolean ui_check_for_pause_game(
 			}
 			local_player_count++;
 		}
+		/* MCC selects its owned stock-style pause tree; embedded map menus
+		 * remain available to custom scripts but are never the pause entry. */
+		{
+			if (mcc_pause_runtime_active())
+			{
+				if ((!network_game || game_engine_allow_pause()) &&
+					pressing_local_player_index == controller_index)
+				{
+					if (widget_globals.active_widgets[controller_index])
+						ui_widgets_close_all_for_local_player(controller_index);
+					else if (network_game || local_player_count <= 1 || !game_time_get_paused())
+					{
+						long screen = mcc_pause_runtime_screen(local_player_count, pressed_by_first_local_player);
+						if (screen == NONE || !ui_widget_load_by_name_or_tag(NULL, screen, NULL,
+							controller_index, NONE, NONE, NONE))
+							error(_error_silent, "mcc: failed to open native pause menu");
+					}
+				}
+				return pause_pressed;
+			}
+		}
 		if (network_game)
 		{
 			if (game_engine_allow_pause() &&
@@ -10131,6 +10584,184 @@ void process_ui_widgets(
 
 	return;
 }
+
+#if defined(HALO_GUIDE) && (!defined(HALO_MCC) || HALO_MCC)
+/* port: the screen the Delta Guide's Workshop PLAY opened
+(port/linux/game/menu_functions.c): the first player's screen now, and
+whether a screen is still up or behind the one up (its history, which back
+returns to) */
+long ui_widget_port_active_screen_tag(
+	void)
+{
+	return widget_globals.active_widgets[0] ? widget_globals.active_widgets[0]->definition_tag_index : NONE;
+}
+
+boolean ui_widget_port_screen_shown_or_behind(
+	long tag)
+{
+	long local_player_index;
+
+	if (tag == NONE)
+		return FALSE;
+	for (local_player_index = 0; local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; local_player_index++)
+	{
+		struct widget_stack_node *node;
+
+		if (widget_globals.active_widgets[local_player_index] &&
+			widget_globals.active_widgets[local_player_index]->definition_tag_index == tag)
+		{
+			return TRUE;
+		}
+		for (node = widget_globals.widget_stack[local_player_index]; node; node = node->next)
+		{
+			if (node->data.previous_widget_tag == tag)
+				return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* the last part of a widget's name (multiplayer_type_select_screen): the
+same screen in another menu set has it too */
+static char const *widget_name_last_part(
+	long tag)
+{
+	char const *name = tag_get_name(tag);
+	char const *part = name ? strrchr(name, '\\') : NULL;
+
+	return part ? part + 1 : name ? name : "";
+}
+
+/* whether a widget's A (any of its handlers) opens screen, or a screen of
+its name in another menu set */
+static boolean widget_definition_opens(
+	long tag,
+	long screen)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(tag);
+	long handler_index;
+
+	for (handler_index = 0; handler_index < definition->event_handlers.count; handler_index++)
+	{
+		struct ui_widget_event_handler_reference *handler =
+			(struct ui_widget_event_handler_reference *)xbox_pointer(definition->event_handlers.address) + handler_index;
+		long opened = handler->widget_tag.index;
+
+		if (opened != NONE && (opened == screen ||
+			!csstrcmp(widget_name_last_part(opened), widget_name_last_part(screen))))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* the item of a screen (in its lists, a few levels down) that opens
+another: its list's tag and its place in it, as the history keeps them */
+static boolean widget_definition_find_opener(
+	long tag,
+	long screen,
+	short depth,
+	long *list_tag,
+	short *item_index)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(tag);
+	struct ui_widget_child_reference *children =
+		(struct ui_widget_child_reference *)xbox_pointer(definition->child_widgets.address);
+	long index;
+
+	for (index = 0; index < definition->child_widgets.count; index++)
+	{
+		long child = children[index].widget_tag.index;
+
+		if (child != NONE && widget_definition_opens(child, screen))
+		{
+			*list_tag = tag;
+			*item_index = (short)index;
+			return TRUE;
+		}
+	}
+	for (index = 0; depth > 0 && index < definition->child_widgets.count; index++)
+	{
+		long child = children[index].widget_tag.index;
+
+		if (child != NONE && widget_definition_find_opener(child, screen, (short)(depth - 1), list_tag, item_index))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* the first player's screen history (what back returns to) made the
+menus' own under a screen the Guide's PLAY opened: screens[0], the
+bottom (the main menu), to screens[count - 1], the one right under the
+screen up (opened, NONE: the one up), each on its item that opens the next,
+as the menus leave them. FALSE (the history left as it was) if a screen
+isn't loaded */
+boolean ui_widget_port_history_set(
+	long const *screens,
+	short count,
+	long opened)
+{
+	struct widget_stack_node **top = &widget_globals.widget_stack[0];
+	short local_player_index = widget_globals.active_widgets[0] ?
+		widget_globals.active_widgets[0]->local_player_index : NONE;
+	/* (the screen under the one up, as the screen's opening left it: its
+	item kept, which a copy of another's, like ONLINE GAMES, needs) */
+	struct widget_stack_data kept = { NONE, NONE, NONE, NONE };
+	short index;
+
+	if (opened == NONE)
+		opened = ui_widget_port_active_screen_tag();
+	for (index = 0; index < count; index++)
+	{
+		if (screens[index] == NONE)
+			return FALSE;
+	}
+	if (*top)
+		kept = (*top)->data;
+	dispose_widget_stack(top);
+	for (index = 0; index < count; index++)
+	{
+		struct widget_stack_data data;
+		long next = index + 1 < count ? screens[index + 1] : opened;
+
+		data.previous_widget_tag = screens[index];
+		data.focused_child_parent_widget_tag = NONE;
+		data.focused_child_index = NONE;
+		data.local_player_index = local_player_index;
+		if (index + 1 == count && kept.previous_widget_tag == screens[index] && kept.focused_child_parent_widget_tag != NONE)
+		{
+			data.focused_child_parent_widget_tag = kept.focused_child_parent_widget_tag;
+			data.focused_child_index = kept.focused_child_index;
+		}
+		else if (next != NONE)
+		{
+			widget_definition_find_opener(screens[index], next, 3, &data.focused_child_parent_widget_tag,
+				&data.focused_child_index);
+		}
+		push_widget(top, &data);
+	}
+	return TRUE;
+}
+
+/* the screen at the bottom of the first player's history (NONE: none) */
+long ui_widget_port_history_bottom(
+	void)
+{
+	struct widget_stack_node *node = widget_globals.widget_stack[0];
+
+	while (node && node->next)
+		node = node->next;
+	return node ? node->data.previous_widget_tag : NONE;
+}
+
+/* the screen right under the one up (NONE: none) */
+long ui_widget_port_history_top(
+	void)
+{
+	return widget_globals.widget_stack[0] ? widget_globals.widget_stack[0]->data.previous_widget_tag : NONE;
+}
+#endif
 
 #ifdef HALO_GAME_BROWSER
 /* port: a screen by name over the first player's (Online Games' Start, the

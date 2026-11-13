@@ -780,9 +780,12 @@ static boolean ce_retail_bitmaps(
 	long count, their_count = 0, index, found, at_offset_resource = NONE, at_offset_count = 0;
 	boolean external = FALSE;
 
-	/* (ce_bitmaps_check refuses a bitmap whose blocks are not in the tags) */
+	/* (ce_bitmaps_check refuses a bitmap whose blocks are not in the tags;
+	one that lies over the tag header or tag index is let be, as it is when
+	the map loads: ce_map_checks.h) */
 	if (!group || !ce_image_block(image, group + CE_BITMAP_GROUP_BITMAPS_OFFSET, CE_BITMAP_DATA_SIZE,
-		CE_MAXIMUM_ELEMENTS, name, &count, &bitmaps))
+		CE_MAXIMUM_ELEMENTS, name, &count, &bitmaps) || !ce_tags_writable(group + 0x06, 2) ||
+		!ce_tags_writable(bitmaps, (unsigned long)count * CE_BITMAP_DATA_SIZE))
 	{
 		return TRUE;
 	}
@@ -891,8 +894,10 @@ static boolean ce_retail_sound(
 	unsigned long size = 0, cursor, their_range_count = 0;
 	boolean external = FALSE, matches;
 
+	/* (one that lies over the tag header or tag index is let be, as it is
+	when the map loads: ce_map_checks.h) */
 	if (!sound || !ce_image_block(image, sound + CE_SOUND_PITCH_RANGES_OFFSET, CE_SOUND_PITCH_RANGE_SIZE,
-		CE_MAXIMUM_ELEMENTS, name, &range_count, &ranges))
+		CE_MAXIMUM_ELEMENTS, name, &range_count, &ranges) || !ce_tags_writable(sound + CE_SOUND_PITCH_RANGES_OFFSET, 8))
 	{
 		return TRUE;
 	}
@@ -902,7 +907,8 @@ static boolean ce_retail_sound(
 		long permutation_count, permutation_index;
 
 		if (!ce_image_block(image, ranges + range_index * CE_SOUND_PITCH_RANGE_SIZE + CE_PITCH_RANGE_PERMUTATIONS_OFFSET,
-			CE_SOUND_PERMUTATION_SIZE, CE_MAXIMUM_ELEMENTS, name, &permutation_count, &permutations))
+			CE_SOUND_PERMUTATION_SIZE, CE_MAXIMUM_ELEMENTS, name, &permutation_count, &permutations) ||
+			!ce_tags_writable(permutations, (unsigned long)permutation_count * CE_SOUND_PERMUTATION_SIZE))
 		{
 			return TRUE;
 		}
@@ -1417,13 +1423,24 @@ boolean ce_resources_tags_loaded(
 	ce_indexed_tag_count = ce_indexed_tags ? tag_count : 0;
 	ce_free_next = ce_free_end = 0;
 	ce_room_next = 0;
+	/* (the map's own tags, until its resource maps' are copied in after
+	them: what the conversions read is in these, ce_loaded_pointer; and no
+	blocks placed past them yet, the last map's let go) */
+	ce_loaded_tags_end(0);
+	ce_loaded_tags_end(first_free);
 	if (!ce_indexed_tags)
 		return FALSE;
 	image.data = xbox_pointer(CE_IMAGE_TAG_CACHE_BASE);
 	image.base = CE_IMAGE_TAG_CACHE_BASE;
 	image.size = first_free - CE_IMAGE_TAG_CACHE_BASE;
+	/* (writing nothing over the tag header or tag index, as when the map
+	was checked: ce_map_checks.h) */
+	ce_tags_guard_begin_loaded(tag_instances, tag_count);
 	if (!ce_resources_place(&image, tag_instances, tag_count, end_free, ce_indexed_tags, &next, &copied))
+	{
+		ce_tags_guard_end();
 		return FALSE;
+	}
 	/* every bitmap (in the map or copied in): Halo PC's flags past the
 	Xbox's format flags (its "external", and what Halo PC's renderer keeps
 	there) cleared, and the bitmap made the texture cache's, as the Xbox's
@@ -1441,7 +1458,8 @@ boolean ce_resources_tags_loaded(
 			continue;
 		bitmap_group = ce_image_pointer(&image, instance->base_address, CE_BITMAP_GROUP_SIZE);
 		if (!bitmap_group || !ce_image_block(&image, bitmap_group + CE_BITMAP_GROUP_BITMAPS_OFFSET,
-			CE_BITMAP_DATA_SIZE, CE_MAXIMUM_ELEMENTS, "bitmaps", &count, &elements))
+			CE_BITMAP_DATA_SIZE, CE_MAXIMUM_ELEMENTS, "bitmaps", &count, &elements) ||
+			!ce_tags_writable(elements, (unsigned long)count * CE_BITMAP_DATA_SIZE))
 		{
 			continue;
 		}
@@ -1465,7 +1483,72 @@ boolean ce_resources_tags_loaded(
 		end_free - next);
 	ce_free_next = next;
 	ce_free_end = end_free;
+	ce_loaded_tags_end(next);
 	ce_sounds_decode(tag_instances, tag_count);
+	ce_tags_guard_end();
+	return TRUE;
+}
+
+/* a loaded sound's pitch ranges, or a pitch range's permutations (the block
+at field, each element_size bytes): in the tag cache (ce_sound_blocks_loaded
+saw that they are), else none */
+static byte *ce_sound_block(
+	byte const *field,
+	unsigned long element_size,
+	unsigned long *count)
+{
+	byte *elements;
+
+	*count = ce_read_long(field);
+	elements = *count && *count <= CE_MAXIMUM_ELEMENTS ?
+		ce_loaded_pointer(ce_read_long(field + 4), *count * element_size) : NULL;
+	if (!elements)
+		*count = 0;
+	return elements;
+}
+
+/* whether a loaded sound's header, pitch ranges and permutations, which
+ce_sounds_decode reads and writes, are all in the tag cache and none over its
+tag header or tag index (ce_map_checks.h): they were checked, but another
+tag's conversion may have written over them since */
+static boolean ce_sound_blocks_loaded(
+	byte const *sound)
+{
+	unsigned long range_count = ce_read_long(sound + CE_SOUND_PITCH_RANGES_OFFSET);
+	unsigned long range_address = ce_read_long(sound + CE_SOUND_PITCH_RANGES_OFFSET + 4);
+	byte *ranges;
+	unsigned long range;
+
+	if (!ce_tags_writable(sound, CE_SOUND_HEADER_SIZE))
+		return FALSE;
+	if (!range_count)
+		return TRUE;
+	ranges = range_count <= CE_MAXIMUM_ELEMENTS ?
+		ce_loaded_pointer(range_address, range_count * CE_SOUND_PITCH_RANGE_SIZE) : NULL;
+	if (!ranges)
+	{
+		ce_contained("a sound's %lu pitch ranges at %08lx are outside its tag cache", range_count, range_address);
+		return FALSE;
+	}
+	for (range = 0; range < range_count; range++)
+	{
+		byte const *field = ranges + range * CE_SOUND_PITCH_RANGE_SIZE + CE_PITCH_RANGE_PERMUTATIONS_OFFSET;
+		unsigned long count = ce_read_long(field);
+		unsigned long address = ce_read_long(field + 4);
+		byte *permutations;
+
+		if (!count)
+			continue;
+		permutations = count <= CE_MAXIMUM_ELEMENTS ?
+			ce_loaded_pointer(address, count * CE_SOUND_PERMUTATION_SIZE) : NULL;
+		if (!permutations)
+		{
+			ce_contained("a sound's %lu permutations at %08lx are outside its tag cache", count, address);
+			return FALSE;
+		}
+		if (!ce_tags_writable(permutations, count * CE_SOUND_PERMUTATION_SIZE))
+			return FALSE;
+	}
 	return TRUE;
 }
 
@@ -1477,16 +1560,17 @@ magnum's ready sound, which this engine played as noise). TRUE if it was */
 static boolean ce_sound_compression_repair(
 	byte *sound)
 {
-	unsigned long pitch_range_count = *(unsigned long *)(sound + CE_SOUND_PITCH_RANGES_OFFSET);
-	byte *ranges = xbox_pointer(*(unsigned long *)(sound + CE_SOUND_PITCH_RANGES_OFFSET + 4));
+	unsigned long pitch_range_count;
+	byte *ranges = ce_sound_block(sound + CE_SOUND_PITCH_RANGES_OFFSET, CE_SOUND_PITCH_RANGE_SIZE, &pitch_range_count);
 	short compression = NONE;
 	unsigned long pitch_range;
 
 	for (pitch_range = 0; pitch_range < pitch_range_count; pitch_range++)
 	{
 		byte *range = ranges + pitch_range * CE_SOUND_PITCH_RANGE_SIZE;
-		unsigned long permutation_count = *(unsigned long *)(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET);
-		byte *permutations = xbox_pointer(*(unsigned long *)(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET + 4));
+		unsigned long permutation_count;
+		byte *permutations = ce_sound_block(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET, CE_SOUND_PERMUTATION_SIZE,
+			&permutation_count);
 		unsigned long permutation;
 
 		for (permutation = 0; permutation < permutation_count; permutation++)
@@ -1559,8 +1643,8 @@ static void ce_sounds_decode(
 	{
 		struct ce_tag_instance *instance = (struct ce_tag_instance *)((byte *)tag_instances +
 			index * CE_TAG_INSTANCE_SIZE);
-		byte *sound;
-		unsigned long pitch_range_count, pitch_ranges, pitch_range;
+		byte *sound, *pitch_ranges;
+		unsigned long pitch_range_count, pitch_range;
 		unsigned long sound_start, decoded_index;
 		short encoding, sample_rate;
 		boolean all = TRUE, ogg, from_map = FALSE, from_sounds_map = FALSE;
@@ -1571,16 +1655,26 @@ static void ce_sounds_decode(
 		own sound's from either file, by each permutation's flag) */
 		if (ce_indexed_tags[index] && ce_indexed_tags[index] != _ce_resource_sounds + 1)
 			continue;
-		sound = xbox_pointer(instance->base_address);
+		/* (its blocks in the tag cache, and none over its tag header or tag
+		index: else it is left as it was) */
+		sound = ce_loaded_pointer(instance->base_address, CE_SOUND_HEADER_SIZE);
+		if (!sound)
+		{
+			ce_contained("sound %08lx is outside its tag cache", instance->base_address);
+			continue;
+		}
+		if (!ce_sound_blocks_loaded(sound))
+			continue;
 		if (ce_sound_compression_repair(sound))
 			repaired++;
-		pitch_range_count = *(unsigned long *)(sound + CE_SOUND_PITCH_RANGES_OFFSET);
-		pitch_ranges = *(unsigned long *)(sound + CE_SOUND_PITCH_RANGES_OFFSET + 4);
+		pitch_ranges = ce_sound_block(sound + CE_SOUND_PITCH_RANGES_OFFSET, CE_SOUND_PITCH_RANGE_SIZE,
+			&pitch_range_count);
 		for (pitch_range = 0; !ce_indexed_tags[index] && pitch_range < pitch_range_count; pitch_range++)
 		{
-			byte *range = (byte *)xbox_pointer(pitch_ranges) + pitch_range * CE_SOUND_PITCH_RANGE_SIZE;
-			unsigned long permutation_count = *(unsigned long *)(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET);
-			byte *permutations = xbox_pointer(*(unsigned long *)(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET + 4));
+			byte *range = pitch_ranges + pitch_range * CE_SOUND_PITCH_RANGE_SIZE;
+			unsigned long permutation_count;
+			byte *permutations = ce_sound_block(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET, CE_SOUND_PERMUTATION_SIZE,
+				&permutation_count);
 			unsigned long permutation;
 
 			for (permutation = 0; permutation < permutation_count; permutation++)
@@ -1640,14 +1734,15 @@ static void ce_sounds_decode(
 		sound_start = written;
 		for (pitch_range = 0; all && pitch_range < pitch_range_count; pitch_range++)
 		{
-			byte *range = (byte *)xbox_pointer(pitch_ranges) + pitch_range * CE_SOUND_PITCH_RANGE_SIZE;
-			unsigned long permutation_count = *(unsigned long *)(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET);
-			unsigned long permutations = *(unsigned long *)(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET + 4);
+			byte *range = pitch_ranges + pitch_range * CE_SOUND_PITCH_RANGE_SIZE;
+			unsigned long permutation_count;
+			byte *permutations = ce_sound_block(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET, CE_SOUND_PERMUTATION_SIZE,
+				&permutation_count);
 			unsigned long permutation;
 
 			for (permutation = 0; all && permutation < permutation_count; permutation++)
 			{
-				byte *at = (byte *)xbox_pointer(permutations) + permutation * CE_SOUND_PERMUTATION_SIZE;
+				byte *at = permutations + permutation * CE_SOUND_PERMUTATION_SIZE;
 				long size = *(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET);
 				unsigned long offset = *(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8);
 				HANDLE source = ce_indexed_tags[index] || ce_samples_external(at) ? sounds_map : map_file;
@@ -1668,7 +1763,7 @@ static void ce_sounds_decode(
 				if (ogg && *(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG)
 				{
 					error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis sound with a permutation of "
-						"another compression; left as it was", (char const *)xbox_pointer(instance->name));
+						"another compression; left as it was", ce_loaded_tag_name(instance));
 					all = FALSE;
 					break;
 				}
@@ -1695,7 +1790,7 @@ static void ce_sounds_decode(
 						!WriteFile(file, data, bytes, &bytes_written, NULL) || bytes_written != bytes)
 					{
 						error(_error_silent, "Custom Edition maps: %s: its samples in the map and sounds.map could not "
-							"be copied", (char const *)xbox_pointer(instance->name));
+							"be copied", ce_loaded_tag_name(instance));
 						free(data);
 						all = FALSE;
 						break;
@@ -1723,7 +1818,7 @@ static void ce_sounds_decode(
 						if (!resampled_told)
 						{
 							error(_error_silent, "Custom Edition maps: %s: Ogg Vorbis samples at %d Hz, played at %d Hz: "
-								"resampled (any more like it are too)", (char const *)xbox_pointer(instance->name), rate,
+								"resampled (any more like it are too)", ce_loaded_tag_name(instance), rate,
 								played_rate);
 							resampled_told = TRUE;
 						}
@@ -1736,7 +1831,7 @@ static void ce_sounds_decode(
 				if (frames <= 0 || channels != (encoding ? 2 : 1) || rate != played_rate || frames > 0x1000000)
 				{
 					error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis permutation of %d channels at %d Hz "
-						"in a sound of %d at %d Hz; it does not play", (char const *)xbox_pointer(instance->name),
+						"in a sound of %d at %d Hz; it does not play", ce_loaded_tag_name(instance),
 						channels, rate, encoding ? 2 : 1, played_rate);
 					ce_vorbis_free(samples);
 					all = FALSE;
@@ -1876,6 +1971,8 @@ void ce_resources_tags_unloaded(
 	ce_indexed_tag_count = 0;
 	ce_free_next = ce_free_end = 0;
 	ce_room_next = 0;
+	ce_loaded_tags_end(0);
+	ce_loaded_bsps_low(0);
 }
 
 #endif
