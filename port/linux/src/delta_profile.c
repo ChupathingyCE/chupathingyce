@@ -101,8 +101,11 @@ static int string_value(struct reader *reader, char *text, int size)
 
 		if (character == '\\')
 		{
-			char escape = *reader->at++;
+			char escape = *reader->at;
 
+			/* (the answer's end: never stepped past) */
+			if (escape)
+				reader->at++;
 			switch (escape)
 			{
 			case 'n': case 'r': case 't': case 'b': case 'f': character = ' '; break;
@@ -122,11 +125,17 @@ static int string_value(struct reader *reader, char *text, int size)
 					character = character << 4 | (unsigned int)digit;
 				}
 				reader->at += 4;
-				/* (a character past the BMP, a surrogate pair: a question mark) */
+				/* (a character past the BMP, a surrogate pair: a question mark;
+				its second half passed over only when it is all there, never
+				past the answer's end) */
 				if (character >= 0xD800 && character <= 0xDFFF)
 				{
-					if (character < 0xDC00 && reader->at[0] == '\\' && reader->at[1] == 'u')
+					if (character < 0xDC00 && reader->at[0] == '\\' && reader->at[1] == 'u' &&
+						hex_digit(reader->at[2]) >= 0 && hex_digit(reader->at[3]) >= 0 &&
+						hex_digit(reader->at[4]) >= 0 && hex_digit(reader->at[5]) >= 0)
+					{
 						reader->at += 6;
+					}
 					character = '?';
 				}
 				break;

@@ -1584,12 +1584,13 @@ Gearbox menus' own */
 #define PAUSE_CONTROLS_SCREEN_CHUPATHINGY "chupathingy/settings/controls_setup_screen"
 #define PAUSE_BUTTON_SPACING 35
 
-/* display.menus: the Xbox's menus, Gearbox's Halo PC menus, or Chupathingy's (the
+/* display.menus: the Xbox's menus or Chupathingy's (the
 Xbox's, with the PC version's screens that the Xbox has not, in its look:
 port/assets/menus/chupathingy) */
 enum
 {
 	_menus_xbox,
+	/* (Gearbox's Halo PC menus, retired as a menu set: menus_chosen) */
 	_menus_pc,
 	_menus_chupathingy,
 };
@@ -2384,9 +2385,14 @@ static void multiplayer_delta_patch_gearbox(void)
 	definition->child_widgets.count = count + 1;
 }
 
-/* which display.menus asks for, in any case ("gearbox" or the older "pc"
-for Gearbox's; a value that is none of them is said once in the log, and is
-the Xbox's) */
+/* which display.menus asks for, in any case; a value that is none of them
+is said once in the log, and is the Xbox's. Gearbox's menus ("gearbox", or
+the older "pc") are no longer a menu set to choose: those values are the
+Xbox's too, and the player is told once, in the main
+menu's note (guide.c's _toast_menus_retired). Their screens, built from port/assets/menus/ce, stay
+in the game: the Chupathingy menus are made of many of them, and the rest
+are kept for extra screens (the _menus_pc paths here, which nothing chooses
+now) */
 static short menus_chosen(void)
 {
 	static boolean said;
@@ -2404,20 +2410,23 @@ static short menus_chosen(void)
 	lower[index] = 0;
 	if (value[index])
 		lower[0] = 0;
-	if (!strcmp(lower, "gearbox") || !strcmp(lower, "pc"))
-		return _menus_pc;
 	if (!strcmp(lower, "chupathingy"))
 		return _menus_chupathingy;
-	if (strcmp(lower, "xbox") && !said)
+	if (!said && (!strcmp(lower, "gearbox") || !strcmp(lower, "pc")))
 	{
-		platform_log("menus: display.menus \"%s\" is not \"xbox\", \"gearbox\" or \"chupathingy\": the Xbox's", value);
+		platform_log("menus: display.menus \"%s\": the Gearbox menus were retired; the Xbox's", value);
+		said = TRUE;
+	}
+	else if (strcmp(lower, "xbox") && !said)
+	{
+		platform_log("menus: display.menus \"%s\" is not \"chupathingy\" or \"xbox\": the Xbox's", value);
 		said = TRUE;
 	}
 	return _menus_xbox;
 }
 
-/* which menus display.menus asks for: 0 the Xbox's, 1 Gearbox's, 2 the
-Chupathingy menus (for what follows them outside the menus: the
+/* which menus display.menus asks for: 0 the Xbox's, 2 the Chupathingy
+menus (1 was Gearbox's, which nothing chooses now) (for what follows them outside the menus: the
 scoreboard's platform logos) */
 short pc_menus_set(
 	void)

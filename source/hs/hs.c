@@ -13850,11 +13850,42 @@ default (hs_runtime.c). A global whose initializer may not run starts at its
 type's default. Every node is looked at once first; the shipped maps' are
 all sound, none is linked to twice, and then no script is walked. The
 console's expressions, compiled later, may call and set anything */
+/* port: an MCC map's call of a function a map may not call is skipped where
+it is, as a Custom Edition map's is (hs_expression_refusal), so the rest of
+its script still runs. A node past the skipped list's size refuses its script
+as before */
+static short hs_mcc_skipped_count;
+
+static short hs_mcc_node_refusal(
+	struct hs_syntax_node const *expression,
+	char const **name)
+{
+	short refusal = hs_syntax_node_refusal(expression, name);
+
+	if (HS_NODE_REFUSAL_SKIPPABLE(refusal))
+	{
+		long absolute_index = (long)(expression - (struct hs_syntax_node const *)(hs_syntax_data + 1));
+
+		if (absolute_index >= 0 && absolute_index < MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)
+		{
+			if (!hs_mcc_skipped_count++)
+				error(_error_silent, "mcc: skipped a script call to %s, which a map's scripts may not call; the script still runs",
+					*name ? *name : "a function");
+			BIT_VECTOR_SET_FLAG(hs_scenario_skipped_nodes, absolute_index, TRUE);
+			return _hs_node_refusal_none;
+		}
+	}
+
+	return refusal;
+}
+
 static void hs_scenario_functions_check(
 	struct scenario *scenario)
 {
 	{
-		if (mcc_syntax_functions_check(scenario, hs_syntax_data, hs_syntax_node_refusal,
+		csmemset(hs_scenario_skipped_nodes, 0, sizeof(hs_scenario_skipped_nodes));
+		hs_mcc_skipped_count = 0;
+		if (mcc_syntax_functions_check(scenario, hs_syntax_data, hs_mcc_node_refusal,
 			hs_scenario_disabled_scripts, hs_scenario_disabled_globals))
 			return;
 	}

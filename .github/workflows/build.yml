@@ -933,7 +933,9 @@ jobs:
           for pair in x86:386 x64:amd64 arm64:arm64; do
             arch=${pair%%:*}; platform=${pair#*:}
             mkdir -p "$context/bin/$platform"
-            cp "artifacts/chupathingyce-server-linux-$arch/chupathingyce-server" "$context/bin/$platform/"
+            cp "artifacts/chupathingyce-server-linux-$arch/chupathingyce-server" \
+              "artifacts/chupathingyce-server-linux-$arch/LICENSE.txt" \
+              "artifacts/chupathingyce-server-linux-$arch/THIRD-PARTY-NOTICES.txt" "$context/bin/$platform/"
             chmod +x "$context/bin/$platform/chupathingyce-server"
           done
           docker buildx build --platform linux/386,linux/amd64,linux/arm64 \
@@ -946,6 +948,9 @@ jobs:
             docker buildx build --platform linux/$platform --load -t chupathingyce-server:$platform "$RUNNER_TEMP/context"
             docker run --rm --platform linux/$platform --cap-drop ALL --security-opt no-new-privileges \
               chupathingyce-server:$platform --version
+            # (its license and notices beside it)
+            docker run --rm --platform linux/$platform --entrypoint /bin/sh chupathingyce-server:$platform \
+              -c 'test -s /opt/chupathingyce/LICENSE.txt && test -s /opt/chupathingyce/THIRD-PARTY-NOTICES.txt'
             # (not root)
             test "$(docker image inspect -f '{{.Config.User}}' chupathingyce-server:$platform)" = 1000:1000
           done

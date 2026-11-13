@@ -61,6 +61,7 @@ Called each frame from game_stats_update (main.c).
 #include "../src/browser.h"
 #include "../src/event_log.h"
 #include "../src/delta_maps.h"
+#include "delta.h"
 #include "../src/map_report.h"
 #include "../src/posix.h"
 
@@ -646,13 +647,34 @@ static void send_game(boolean final, int reason)
 	}
 }
 
+/* a player's platform as Delta Stats counts them ("windows", "macos",
+"linux", "android", "xbox" or "other"), from delta.h's registry so every
+platform, a new one too, is counted; "" when the machine didn't say */
+char const *delta_peer_platform_name(int platform);
+static char const *stats_platform(int platform)
+{
+	char const *key = delta_peer_platform_name(platform);
+
+	if (platform <= 0 || platform >= NUMBER_OF_DELTA_PLATFORMS)
+		return "";
+	if (!strcmp(key, "pc_windows"))
+		return "windows";
+	if (!strcmp(key, "pc_macos"))
+		return "macos";
+	if (!strcmp(key, "pc_linux") || !strcmp(key, "steam_deck"))
+		return "linux";
+	if (!strcmp(key, "android"))
+		return "android";
+	if (!strncmp(key, "xbox", 4))
+		return "xbox";
+	return "other";
+}
+
 /* a player new to the game (or back in it) */
 static void track_player(struct tracked *tracked, struct player_datum *player, long player_index, long tick)
 {
 	struct event_log_player_identity identity;
 	int platform = delta_peer_player_platform((int)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index));
-	static char const *const platforms[] = { "", "windows", "macos", "linux", "android", "linux", "xbox", "xbox",
-		"other", "other" };
 	long index;
 
 	csmemset(tracked, 0, sizeof(*tracked));
@@ -668,8 +690,7 @@ static void track_player(struct tracked *tracked, struct player_datum *player, l
 	/* (this machine's own players are on Chupathingy whatever Delta Peer says) */
 	identity.client = platform > 0 || player->local_player_index != NONE ? EVENT_LOG_CLIENT_CHUPATHINGYCE :
 		EVENT_LOG_CLIENT_OTHER;
-	snprintf(identity.platform, sizeof(identity.platform), "%s",
-		platform > 0 && platform < (int)NUMBEROF(platforms) ? platforms[platform] : "");
+	snprintf(identity.platform, sizeof(identity.platform), "%s", stats_platform(platform));
 	identity.team = (int)player->team_index;
 	identity.bot = FALSE;
 	identity.color = player->network_player_data.primary_color_index;

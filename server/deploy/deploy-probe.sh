@@ -29,13 +29,21 @@ if [ -z "$key" ]; then
 		|| { echo "deploy-probe.sh: no probe user yet: give the site's SSH key" >&2; exit 1; }
 	exit 0
 fi
-printf 'restrict,command="/opt/halo-probe/probe-ssh.sh" %s\n' "$key" > "${TMPDIR:-/tmp}/probe_authorized_keys"
-scp "${TMPDIR:-/tmp}/probe_authorized_keys" "$host:/tmp/halo-probe-authorized_keys"
+# (the key's line goes through folders of this run's own, here and on the
+# host, made by mktemp: no name in a shared /tmp another user could take first)
+local_folder=$(mktemp -d)
+trap 'rm -rf "$local_folder"' EXIT
+printf 'restrict,command="/opt/halo-probe/probe-ssh.sh" %s\n' "$key" > "$local_folder/probe_authorized_keys"
+remote_folder=$(ssh "$host" 'mktemp -d')
+case "$remote_folder" in
+"" | [!/]* | *[!A-Za-z0-9/._-]*) echo "deploy-probe.sh: no folder of its own on the host" >&2; exit 1 ;;
+esac
+scp "$local_folder/probe_authorized_keys" "$host:$remote_folder/probe_authorized_keys"
 ssh "$host" 'set -e
 	id probe >/dev/null 2>&1 || sudo useradd --system --create-home --shell /bin/sh probe
 	sudo install -d -o probe -g probe -m 700 ~probe/.ssh
-	sudo install -o probe -g probe -m 600 /tmp/halo-probe-authorized_keys ~probe/.ssh/authorized_keys
-	rm -f /tmp/halo-probe-authorized_keys
+	sudo install -o probe -g probe -m 600 '"$remote_folder"'/probe_authorized_keys ~probe/.ssh/authorized_keys
+	rm -rf '"$remote_folder"'
 	echo "probe ALL=(root) NOPASSWD: /opt/halo-probe/probe.sh" | sudo tee /etc/sudoers.d/halo-probe >/dev/null
 	sudo chmod 440 /etc/sudoers.d/halo-probe
 	sudo visudo -cf /etc/sudoers.d/halo-probe'

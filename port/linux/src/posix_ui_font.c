@@ -85,6 +85,26 @@ int posix_ui_font_has(int font, unsigned int codepoint)
 	return info && stbtt_FindGlyphIndex(info, (int)codepoint) != 0;
 }
 
+/* a question mark's room beyond a usual side bearing, in font units, on
+the left (right 0) or the right: Cyborg Interface Gothic's sits in a full
+em with nearly a quarter of it empty on each side, which read as a space
+before it ("team ?"). Taken off between it and its neighbors, as kerning */
+static int question_slack(stbtt_fontinfo *info, unsigned int codepoint, int right)
+{
+	int advance, bearing, x0, y0, x1, y1, usual, l_advance, side;
+
+	if (codepoint != '?' || !stbtt_GetCodepointBox(info, (int)codepoint, &x0, &y0, &x1, &y1))
+		return 0;
+	stbtt_GetCodepointHMetrics(info, (int)codepoint, &advance, &bearing);
+	/* (a usual side: the l's left bearing, else a twentieth of the advance) */
+	if (stbtt_FindGlyphIndex(info, 'l'))
+		stbtt_GetCodepointHMetrics(info, 'l', &l_advance, &usual);
+	else
+		usual = advance / 20;
+	side = right ? advance - x1 : x0;
+	return side > usual ? side - usual : 0;
+}
+
 float posix_ui_font_advance(int font, float pixel_height, unsigned int codepoint, unsigned int previous)
 {
 	stbtt_fontinfo *info = face(font);
@@ -97,7 +117,16 @@ float posix_ui_font_advance(int font, float pixel_height, unsigned int codepoint
 	stbtt_GetCodepointHMetrics(info, (int)codepoint, &advance, &bearing);
 	width = (float)advance * scale;
 	if (previous)
+	{
 		width += (float)stbtt_GetCodepointKernAdvance(info, (int)previous, (int)codepoint) * scale;
+		/* (a question mark drawn close to the word before it and the one after) */
+		if (previous != ' ')
+			width -= (float)question_slack(info, codepoint, 0) * scale;
+		if (codepoint != ' ')
+			width -= (float)question_slack(info, previous, 1) * scale;
+		else
+			width -= (float)question_slack(info, previous, 1) * scale * 0.5f;
+	}
 	return width;
 }
 

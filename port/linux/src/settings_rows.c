@@ -17,6 +17,7 @@ Default puts them back.
 
 #include "settings_rows.h"
 #include "steam_client_bridge.h"
+#include "workshop_decisions.h"
 #include "port_config.h"
 
 #include <ctype.h>
@@ -95,7 +96,9 @@ static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
 static const char *const renderer_names[] = { "OPENGL", "VULKAN", NULL };
 #endif
 #endif
-static const char *const menus_choices[] = { "xbox", "gearbox", "chupathingy", NULL };
+/* (Gearbox's menus, "gearbox" or the older "pc", are no longer one: such a
+value is the Xbox's, menu_tags.c's menus_chosen) */
+static const char *const menus_choices[] = { "chupathingy", "xbox", NULL };
 /* display.title_font's (hud_hires.c, menu_files.c, ui_overlay.c) */
 static const char *const title_font_choices[] = { "classic", "cyborg", NULL };
 static const char *const channels_choices[] = { "auto", "stereo", "5.1", "7.1", NULL };
@@ -112,10 +115,15 @@ static const char *const guide_key_choices[] = { "F3, Backslash", "Backslash", "
 static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", NULL };
 #endif
 /* display.theme's: the Guide's and the setup screen's colors (ui_style_theme) */
-static const char *const theme_choices[] = { "blue", "red", "green", NULL };
+/* (in the order the row shows them; the words, not the order, are saved) */
+static const char *const theme_choices[] = { "blue", "green", "orange", "live", "red", NULL };
+/* delta.guide_background's: what the Guide draws behind its panel (auto:
+the cellwall with Dashboard Green, the shade with the others) */
+static const char *const background_choices[] = { "auto", "plain", "cellwall", NULL };
+static const char *const background_names[] = { "AUTO", "PLAIN", "CELLWALL", NULL };
 /* display.light_effects' (port/linux/game/lighting_config.c) */
 static const char *const light_effects_choices[] = { "auto", "high", "low", "off", NULL };
-static const char *const theme_names[] = { "HALO BLUE", "CHUPATHINGY RED", "DASHBOARD GREEN", NULL };
+static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
 {
@@ -160,8 +168,9 @@ static const struct settings_row settings_rows[] =
 	/* (the Workshop's: Steam's link, where items go, a join's missing map) */
 	{ _in_network | _in_guide, "STEAM ACCOUNT", "game.workshop_steam", _kind_steam_link, NULL, NULL, 0, 0 },
 	{ _in_guide, "WORKSHOP FOLDER", "paths.steam_downloads", _kind_folder, NULL, NULL, 0, 0 },
-	/* (the Workshop's maps in the map lists: the Guide's WORKSHOP turns them
-	on from an item's page, and here is where they go off again) */
+	/* (the Workshop's maps in the map lists: with the Workshop's own items
+	always listed (workshop_decisions.h), only the maps in Steam's own MCC
+	folders, and named so: settings_row_label) */
 	{ _in_guide, "WORKSHOP MAPS", "game.workshop_maps", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "MAPS WHEN JOINING", "network.workshop_downloads", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_guide, "MISSION ORDER", "game.mcc_campaigns", _kind_toggle, NULL, NULL, 0, 0 },
@@ -171,6 +180,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_guide, "FRIEND ONLINE ALERTS", "delta.notify_online", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "SHOW WHEN I'M PLAYING", "network.share_presence", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "THEME", "display.theme", _kind_choices, theme_choices, theme_names, 0, 0 },
+	{ _in_guide, "BACKGROUND", "delta.guide_background", _kind_choices, background_choices, background_names, 0, 0 },
 	{ _in_network, "DISCORD", "discord.presence", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "CRASH REPORTS", "crash_reports.upload", _kind_words, NULL, NULL, 0, 0 },
 
@@ -404,7 +414,22 @@ const struct settings_row *settings_row_at(int group, int index)
 
 const char *settings_row_label(const struct settings_row *row)
 {
+	if (WORKSHOP_OWN_ITEMS_ALWAYS_LISTED && !strcmp(row->key, "game.workshop_maps"))
+		return "STEAM'S MCC MAPS";
 	return row->label;
+}
+
+int settings_row_arrows(const struct settings_row *row)
+{
+	/* (STEAM ACCOUNT and WORKSHOP FOLDER open something: no values to step through) */
+	return row->kind != _kind_steam_link && row->kind != _kind_folder;
+}
+
+static void (*folder_action)(void);
+
+void settings_rows_set_folder_action(void (*action)(void))
+{
+	folder_action = action;
 }
 
 const char *settings_row_key(const struct settings_row *row)
@@ -436,16 +461,16 @@ void settings_row_value(const struct settings_row *row, char *text, int size)
 		char error[24];
 		int link = steam_link_poll(NULL, 0, error, sizeof(error));
 
+		/* (a word for where it stands, never an error's: the sign-in window
+		says what went wrong) */
 		if (link == STEAM_LINK_STARTING || link == STEAM_LINK_WAITING || link == STEAM_LINK_SCANNED)
 			snprintf(text, (size_t)size, "LINKING");
 		else if (!steam_link_linked(persona, sizeof(persona)))
-			snprintf(text, (size_t)size, "%s", link == STEAM_LINK_FAILED && error[0] ? error : "NOT LINKED");
-		else if (steam_link_armed())
-			snprintf(text, (size_t)size, "UNLINK?");
+			snprintf(text, (size_t)size, "NOT LINKED");
 		else if (persona[0])
-			snprintf(text, (size_t)size, "Linked to Steam: %s", persona);
+			snprintf(text, (size_t)size, "LINKED (%s)", persona);
 		else
-			snprintf(text, (size_t)size, "Linked to Steam");
+			snprintf(text, (size_t)size, "LINKED");
 		return;
 	}
 	if (row->kind == _kind_folder)
@@ -475,10 +500,10 @@ void settings_row_value(const struct settings_row *row, char *text, int size)
 			return;
 		}
 	}
-	/* (display.menus' older "pc" is Gearbox's) */
-	if (!strcmp(row->key, "display.menus") && same(value, "pc"))
+	/* (display.menus' retired "gearbox" and "pc" are the Xbox's) */
+	if (!strcmp(row->key, "display.menus") && (same(value, "gearbox") || same(value, "pc")))
 	{
-		snprintf(text, (size_t)size, "GEARBOX");
+		snprintf(text, (size_t)size, "XBOX");
 		return;
 	}
 	shown(value, text, size);
@@ -497,7 +522,11 @@ void settings_row_change(const struct settings_row *row, int step)
 		return;
 	}
 	if (row->kind == _kind_folder)
+	{
+		if (folder_action)
+			folder_action();
 		return;
+	}
 	if (row->kind == _kind_preset)
 	{
 		/* (Default and Potato: from Custom, a step goes to one of them) */
@@ -510,8 +539,8 @@ void settings_row_change(const struct settings_row *row, int step)
 	if (!values.count)
 		return;
 	current(row->key, value, sizeof(value));
-	if (!strcmp(row->key, "display.menus") && same(value, "pc"))
-		snprintf(value, sizeof(value), "gearbox");
+	if (!strcmp(row->key, "display.menus") && (same(value, "gearbox") || same(value, "pc")))
+		snprintf(value, sizeof(value), "xbox");
 	for (index = 0; index < values.count; index++)
 	{
 		if (same(values.value[index], value))

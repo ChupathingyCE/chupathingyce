@@ -529,8 +529,9 @@ void guide_layout_modal(struct guide_rect area, int qr, struct guide_modal_layou
 		float each = (width - 2 * padding - gap) * 0.5f;
 
 		each = each > 120 ? 120 : each;
-		out->button = rect(x + width * 0.5f - gap * 0.5f - each, y, each, button);
-		out->cancel = rect(x + width * 0.5f + gap * 0.5f, y, each, button);
+		/* (CANCEL on the left, where the focus starts; the yes on the right) */
+		out->cancel = rect(x + width * 0.5f - gap * 0.5f - each, y, each, button);
+		out->button = rect(x + width * 0.5f + gap * 0.5f, y, each, button);
 	}
 }
 

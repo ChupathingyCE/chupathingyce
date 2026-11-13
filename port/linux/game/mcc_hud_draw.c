@@ -385,4 +385,24 @@ void mcc_hud_title_bounds(rectangle2d *bounds, short justification, unsigned lon
         break;
     }
 }
+
+/* An MCC title whose last line would fall past the bottom of the 480-line
+ * interface is moved up until it fits (never above the top). Some Workshop
+ * campaigns place titles lower than the screen holds; the text is shown
+ * instead of cut off. Needs the title's draw mode set first. */
+void mcc_hud_title_fit(rectangle2d *bounds, wchar_t const *text)
+{
+    rectangle2d layout, text_bounds, cursor_bounds;
+    long overflow;
+    if (!mcc_cache_tags_loaded() || !bounds || !text) return;
+    layout = *bounds;
+    layout.y1 = SHORT_MAX;
+    draw_unicode_string_compute_bounds(&layout, text, &text_bounds, &cursor_bounds);
+    overflow = (long)text_bounds.y1 - 480;
+    if (overflow <= 0) return;
+    if (overflow > bounds->y0) overflow = bounds->y0;
+    if (overflow <= 0) return;
+    bounds->y0 = (short)(bounds->y0 - overflow);
+    bounds->y1 = (short)(bounds->y1 - overflow);
+}
 #endif /* HALO_MCC */

@@ -36,7 +36,6 @@ Browser builds can't join our games, and we can't join theirs.
 | Invite a friend | When you host, the game copies an invite link (`halo://join/…`). Send it; opening it joins your game. |
 | Make an account | On [stats.chupathingy.org/profile](https://stats.chupathingy.org/profile), or press **Start** (or **F2** on the keyboard) in Online Games to make one for the player you already are. |
 | Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **Start** (or **F2** on the keyboard), then pick **LINK PROFILE**. On your phone or computer, go to [stats.chupathingy.org/connect](https://stats.chupathingy.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
-| Use the PC menus | Set `menus = "gearbox"` under `[display]` in `config.toml`. **Multiplayer → Join Game → Server Browser** lists the public games of every compatible build and the games of stats.chupathingy.org, each once. |
 | List a game from a build that can't list itself | Sign in on the site, open **Host a Game**, and paste your invite link. |
 
 What the game sends to stats.chupathingy.org, and how to turn it off, is in [docs/privacy.md](privacy.md).

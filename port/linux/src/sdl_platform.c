@@ -518,10 +518,26 @@ static void quit_watchdog_start(void)
 }
 #endif
 
+/* SDL's own messages in debug.txt: what its video driver did (a Wayland
+connection the compositor closed, which ends the game as "window closed";
+the driver it chose and why), and anything it warns about. Its video
+category at info, where those are; the others at their defaults */
+static void SDLCALL platform_sdl_log(void *userdata, int category, SDL_LogPriority priority, const char *message)
+{
+	static const char *const priorities[] = { "", "trace", "verbose", "debug", "info", "warning", "error", "critical" };
+
+	(void)userdata;
+	(void)category;
+	platform_log("SDL %s: %s", priority > 0 && priority < (int)(sizeof(priorities) / sizeof(priorities[0])) ?
+		priorities[priority] : "message", message);
+}
+
 BOOL platform_sdl_initialize(void)
 {
 	if (platform_sdl_started)
 		return TRUE;
+	SDL_SetLogOutputFunction(platform_sdl_log, NULL);
+	SDL_SetLogPriority(SDL_LOG_CATEGORY_VIDEO, SDL_LOG_PRIORITY_INFO);
 #if !defined(_WIN32) && !defined(HALO_ANDROID)
 	/* a write to a connection the other end closed fails instead of ending
 	the game (the game's sockets and Discord's pass MSG_NOSIGNAL, but UPnP's
@@ -1952,6 +1968,14 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		platform_log("SDL_CreateWindow failed: %s", SDL_GetError());
 		return FALSE;
 	}
+	/* (the window's driver, for the renderer lines that follow: a Vulkan
+	swap chain on Wayland is not one on X11) */
+	platform_log("video: SDL %d.%d.%d, %s driver, %s window", SDL_VERSIONNUM_MAJOR(SDL_GetVersion()),
+		SDL_VERSIONNUM_MINOR(SDL_GetVersion()), SDL_VERSIONNUM_MICRO(SDL_GetVersion()), SDL_GetCurrentVideoDriver(),
+#ifdef HALO_BGFX
+		xgpu_bgfx ? "a bgfx" :
+#endif
+		"an OpenGL");
 #ifndef HALO_ANDROID
 	platform_fullscreen_requested = platform_fullscreen_setting();
 	platform_window_mode = platform_display_mode();
@@ -2811,6 +2835,69 @@ static void platform_show_pending_message(void)
 #endif
 }
 
+/* a Vulkan start that did not get going (d3d8_bgfx.inl's bg_start): that
+start draws with OpenGL, and once the game's window is up the player is
+asked whether to stay on OpenGL for good. display.renderer changes only on a
+yes; a no leaves it, so the next start tries Vulkan again and asks again if
+it fails. A run nobody can answer (platform_run_is_quiet) logs it only */
+static BOOL platform_opengl_offer_pending;
+
+void platform_offer_opengl(void)
+{
+	pthread_mutex_lock(&platform_message_lock);
+	platform_opengl_offer_pending = TRUE;
+	pthread_mutex_unlock(&platform_message_lock);
+}
+
+static void platform_opengl_offer(void)
+{
+	static const SDL_MessageBoxButtonData buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Switch to OpenGL" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Not now" },
+	};
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy: renderer",
+		"Vulkan didn't get going last time, so the game is using OpenGL for now.\n\n"
+		"Switch to OpenGL for good? You can change it later on the RENDERER row of the display settings.",
+		2, buttons, NULL };
+	BOOL pending;
+	int answer = 0;
+	pthread_mutex_lock(&platform_message_lock);
+	pending = platform_opengl_offer_pending;
+	platform_opengl_offer_pending = FALSE;
+	pthread_mutex_unlock(&platform_message_lock);
+	if (!pending)
+		return;
+	if (platform_run_is_quiet())
+	{
+		platform_log("bgfx: OpenGL for this start only; display.renderer stays as it is (no one to ask)");
+		return;
+	}
+#ifdef HALO_ANDROID
+	if (!SDL_ShowMessageBox(&question, &answer))
+		answer = 0;
+#else
+	{
+		/* (a box cannot show above a fullscreen game) */
+		BOOL fullscreen = platform_window_fullscreen();
+
+		question.window = platform_window;
+		if (fullscreen)
+			platform_window_set_fullscreen(FALSE);
+		if (!SDL_ShowMessageBox(&question, &answer))
+			answer = 0;
+		if (fullscreen)
+			platform_window_set_fullscreen(TRUE);
+	}
+#endif
+	if (answer == 1)
+	{
+		config_write("display.renderer", "gl");
+		platform_log("bgfx: the player switched to OpenGL for good (display.renderer = \"gl\")");
+	}
+	else
+		platform_log("bgfx: the player kept their renderer setting; Vulkan is tried again next start");
+}
+
 /* ---------- events */
 
 /* quits as closing the window does, when the events are next read (the
@@ -2934,6 +3021,7 @@ void platform_pump_events(void)
 	}
 #endif
 	platform_show_pending_message();
+	platform_opengl_offer();
 #ifdef HALO_GAME_BROWSER
 	platform_game_list_requests();
 #endif

@@ -27,13 +27,14 @@ boolean mcc_main_campaign_won(void)
     wchar_t text[512];
     int state;
     boolean server;
-    if (!mcc_cache_tags_loaded() || mcc_cache_scenario_type() != 0 ||
-        !config_boolean("game.mcc_campaigns")) return FALSE;
-    /* Clients follow the host's existing round/settings messages. */
-    if (game_connection() == _game_connection_network_client) return TRUE;
+    if (!mcc_cache_tags_loaded() || mcc_cache_scenario_type() != 0) return FALSE;
     server = game_connection() == _game_connection_network_server;
     game = server ? network_game_get_game() : NULL;
     current = game ? game->map.name : main_get_map_name();
+    /* (game.mcc_campaigns, or a Workshop item's own levels: mcc_maps.c) */
+    if (!mcc_maps_campaign_order(current)) return FALSE;
+    /* Clients follow the host's existing round/settings messages. */
+    if (game_connection() == _game_connection_network_client) return TRUE;
     mcc_progress_complete(current, game_difficulty_level_get());
     state = mcc_maps_next_mission(current, next);
     if (state < 0) {

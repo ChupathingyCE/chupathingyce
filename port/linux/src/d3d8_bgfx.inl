@@ -45,6 +45,7 @@ stencil write mask rides in the back stencil's read mask, as bgfx reads it. The 
 #include "hud_hires.h"
 #include "menu_files.h"
 #include "text_hires.h"
+#include "ui_overlay_cellwall.h"
 
 /* a 2D copy of width x height from the source's top left (mip level) to the
 destination's (bgfx's texture regions) */
@@ -375,7 +376,7 @@ static struct
 	bgfx_program_handle_t overlay;
 	bgfx_vertex_layout_t overlay_layout;
 	bgfx_texture_handle_t overlay_atlas, overlay_icons, overlay_picture, overlay_plasma, overlay_medals;
-	bgfx_uniform_handle_t overlay_uniforms[4], overlay_samplers[5];
+	bgfx_uniform_handle_t overlay_uniforms[5], overlay_samplers[5];
 	BOOL overlay_medals_ready;
 	int overlay_picture_serial, overlay_plasma_serial;
 	BOOL overlay_failed;
@@ -1183,12 +1184,15 @@ static char *bg_vulkan_container(const void *code, unsigned long code_size, cons
 	bg_put(&bytes, &offset, &capacity, code, value);
 	byte = 0;
 	bg_put(&bytes, &offset, &capacity, &byte, 1);
-	/* (the inputs by location: a location not read has no attribute) */
+	/* (the inputs by location: a location not read has no attribute, 0xfffe.
+	Not 0xffff, which bgfx's Vulkan renderer reads as instance data and
+	gives a fallback input at a location another attribute has, which the
+	spec forbids and AMD's drivers may refuse: tools/bgfx-patches/0005) */
 	byte = (unsigned char)highest;
 	bg_put(&bytes, &offset, &capacity, &byte, 1);
 	for (index = 0; index < highest; index++)
 	{
-		Uint16 id = used[index] ? bg_attribute_ids[index] : 0xffff;
+		Uint16 id = used[index] ? bg_attribute_ids[index] : 0xfffe;
 
 		bg_put(&bytes, &offset, &capacity, &id, 2);
 	}
@@ -1803,6 +1807,10 @@ static void bg_map_loaded(const char *map)
 
 static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_shader *fragment);
 
+/* a map has loaded since bgfx started (the main menu's ui.map is the first):
+the Vulkan start note's frames are counted from it (bg_frame_out) */
+static BOOL bg_map_seen;
+
 /* the current map's listed programs, a few a frame (bg_present): their
 shaders read from the cache folder (missing ones are left for the draws) */
 static void bg_warm(void)
@@ -1819,6 +1827,7 @@ static void bg_warm(void)
 		snprintf(map, sizeof(map), "%s", bg_jobs.warm_map);
 		bg_jobs.warm_pending = FALSE;
 		pthread_mutex_unlock(&bg_jobs.lock);
+		bg_map_seen = TRUE;
 		/* the list of the map now loaded */
 		if (bg_jobs.pairs_file)
 			fclose(bg_jobs.pairs_file);
@@ -2837,7 +2846,27 @@ static bgfx_texture_handle_t bg_texture_named(unsigned int name)
 }
 
 /* the stages' textures, and the pixel shader key's part of them
-(bind_textures') */
+(bind_textures'). They are set on the draw by bg_apply_textures, last thing
+before its submit: bgfx keeps what is set only until the next submit, and
+binding the targets (a fresh one's clear) or starting a view (its blits)
+touches the view, a submit of its own, which dropped them. The draw then
+went out with the samplers its shader reads unbound: nothing on NVIDIA,
+whose unwritten descriptors read as empty, but a fault on AMD's and Mesa's
+drivers, which read whatever the descriptor memory held */
+static struct
+{
+	bgfx_texture_handle_t handle;
+	uint32_t flags;
+} bg_stage_textures[D3DTSS_MAXSTAGES];
+
+static void bg_apply_textures(void)
+{
+	int stage;
+
+	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
+		bgfx_set_texture((uint8_t)stage, bg.samplers[stage], bg_stage_textures[stage].handle, bg_stage_textures[stage].flags);
+}
+
 static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale[4][4])
 {
 	int stage;
@@ -2856,7 +2885,8 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 		if (!texture || !texture->Data || mode == 0 || mode == 0x04 || mode == 0x05 || mode == 0x11)
 		{
 			key->sampler_type[stage] = mode == 0x11 ? _xgpu_sampler_2d : _xgpu_sampler_none;
-			bgfx_set_texture((uint8_t)stage, bg.samplers[stage], bg.blank, UINT32_MAX);
+			bg_stage_textures[stage].handle = bg.blank;
+			bg_stage_textures[stage].flags = UINT32_MAX;
 			continue;
 		}
 		xgpu_texture_describe(texture->Format, texture->Size, &description);
@@ -2937,7 +2967,8 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 				texture_scale[stage][1] = 1.0f / (float)description.height;
 			}
 		}
-		bgfx_set_texture((uint8_t)stage, bg.samplers[stage], handle, bg_sampler_flags(stage, mipmapped, hires));
+		bg_stage_textures[stage].handle = handle;
+		bg_stage_textures[stage].flags = bg_sampler_flags(stage, mipmapped, hires);
 	}
 }
 
@@ -3615,6 +3646,8 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	bgfx_set_state(state, rgba);
 	bgfx_set_stencil(stencil, back_stencil);
 	bg_view_set(bg.framebuffer, rect, FALSE);
+	/* (after the view is set: its blits touch it, which drops what is set) */
+	bg_apply_textures();
 	if (bg.test_active)
 	{
 		/* (inside a visibility test: a query of its own, summed at the end) */
@@ -4073,7 +4106,9 @@ static const char bg_overlay_fragment_source[] =
 	"uniform vec4 plasma_shift;\n"
 	"uniform vec4 plasma_thread;\n"
 	"uniform vec4 cutouts[4];\n"
+	"uniform vec4 cellwall_parameters[3];\n"
 	"layout(location = 0) out vec4 fragment_color;\n"
+	UI_OVERLAY_CELLWALL_GLSL
 	"void main()\n"
 	"{\n"
 	"\tfloat alpha;\n"
@@ -4081,6 +4116,13 @@ static const char bg_overlay_fragment_source[] =
 	"\tfor (int i = 0; i < 4; i++)\n"
 	"\t\tif (p.x >= cutouts[i].x && p.y >= cutouts[i].y && p.x < cutouts[i].z && p.y < cutouts[i].w)\n"
 	"\t\t\tdiscard;\n"
+	/* (the cellwall: ui_overlay.c's) */
+	"\tif (xT2.x < -5.5)\n"
+	"\t{\n"
+	"\t\tfragment_color = cellwall(xT0.xy, cellwall_parameters[0], cellwall_parameters[1], cellwall_parameters[2],\n"
+	"\t\t\txD0);\n"
+	"\t\treturn;\n"
+	"\t}\n"
 	/* (a medal: ui_overlay.c's) */
 	"\tif (xT2.x < -4.5)\n"
 	"\t{\n"
@@ -4126,6 +4168,40 @@ static const char bg_overlay_fragment_source[] =
 	"\tfragment_color = vec4(xD0.rgb, xD0.a * alpha);\n"
 	"}\n";
 
+/* the overlay's textures and program let go (what bg_overlay_prepare made
+before one of them failed, #1081: nothing of a half-made overlay is kept or
+bound) */
+static void bg_overlay_release(void)
+{
+	bgfx_texture_handle_t *textures[5] = { &bg.overlay_atlas, &bg.overlay_icons, &bg.overlay_picture,
+		&bg.overlay_plasma, &bg.overlay_medals };
+	int index;
+
+	for (index = 0; index < 5; index++)
+	{
+		if (BGFX_HANDLE_IS_VALID(*textures[index]))
+			bgfx_destroy_texture(*textures[index]);
+		*textures[index] = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+	}
+	if (BGFX_HANDLE_IS_VALID(bg.overlay))
+		bgfx_destroy_program(bg.overlay);
+	bg.overlay = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.overlay_medals_ready = FALSE;
+}
+
+/* a texture of the overlay's replaced by a new one: the old one stays,
+and is still what the overlay binds, when the new one cannot be made
+(#1081: never an invalid handle bound) */
+static BOOL bg_overlay_replace(bgfx_texture_handle_t *texture, bgfx_texture_handle_t replacement)
+{
+	if (!BGFX_HANDLE_IS_VALID(replacement))
+		return FALSE;
+	if (BGFX_HANDLE_IS_VALID(*texture))
+		bgfx_destroy_texture(*texture);
+	*texture = replacement;
+	return TRUE;
+}
+
 static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int icon_size, int icon_count)
 {
 	struct bg_shader *vertex, *fragment;
@@ -4135,11 +4211,14 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	if (BGFX_HANDLE_IS_VALID(bg.overlay) || bg.overlay_failed)
 		return !bg.overlay_failed;
 	bg.overlay_failed = TRUE;
+	bg.overlay_atlas = bg.overlay_icons = bg.overlay_picture = bg.overlay_plasma = bg.overlay_medals =
+		(bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
 	/* (its uniforms before its shaders, which Vulkan's finds them by) */
 	bg.overlay_uniforms[0] = bgfx_create_uniform("scale_v4", BGFX_UNIFORM_TYPE_VEC4, 1);
 	bg.overlay_uniforms[1] = bgfx_create_uniform("cutouts", BGFX_UNIFORM_TYPE_VEC4, 4);
 	bg.overlay_uniforms[2] = bgfx_create_uniform("plasma_shift", BGFX_UNIFORM_TYPE_VEC4, 1);
 	bg.overlay_uniforms[3] = bgfx_create_uniform("plasma_thread", BGFX_UNIFORM_TYPE_VEC4, 1);
+	bg.overlay_uniforms[4] = bgfx_create_uniform("cellwall_parameters", BGFX_UNIFORM_TYPE_VEC4, 3);
 	for (index = 0; index < 5; index++)
 		bg.overlay_samplers[index] = bgfx_create_uniform(samplers[index], BGFX_UNIFORM_TYPE_SAMPLER, 1);
 	vertex = bg_shader_get(bg_overlay_vertex_source, FALSE, 0, "overlay vertex", TRUE);
@@ -4166,6 +4245,7 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 		!BGFX_HANDLE_IS_VALID(bg.overlay_icons))
 	{
 		platform_log("bgfx: the overlay's textures cannot be made, so it is not drawn");
+		bg_overlay_release();
 		return FALSE;
 	}
 	for (index = 0; index < icon_count && icons; index++)
@@ -4206,6 +4286,14 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 			bgfx_copy(zero, 4), 0);
 		bg.overlay_medals = bgfx_create_texture_2d(1, 1, false, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
 			bgfx_copy(zero, 4), 0);
+		/* (every texture the overlay binds, or none of it: the stand-ins too) */
+		if (!BGFX_HANDLE_IS_VALID(bg.overlay_picture) || !BGFX_HANDLE_IS_VALID(bg.overlay_plasma) ||
+			!BGFX_HANDLE_IS_VALID(bg.overlay_medals))
+		{
+			platform_log("bgfx: the overlay's textures cannot be made, so it is not drawn");
+			bg_overlay_release();
+			return FALSE;
+		}
 	}
 	bg.overlay_failed = FALSE;
 	return TRUE;
@@ -4215,7 +4303,7 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
 	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[8],
-	const unsigned char *medals, int medals_width, int medals_height,
+	const float cellwall[12], const unsigned char *medals, int medals_width, int medals_height,
 	const float cutouts[4][4], int window_width, int window_height)
 {
 	bgfx_transient_vertex_buffer_t buffer;
@@ -4232,21 +4320,17 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 			UINT16_MAX);
 	if (picture && picture_serial != bg.overlay_picture_serial)
 	{
-		if (BGFX_HANDLE_IS_VALID(bg.overlay_picture))
-			bgfx_destroy_texture(bg.overlay_picture);
-		bg.overlay_picture = bgfx_create_texture_2d((uint16_t)picture_width, (uint16_t)picture_height, false, 1,
-			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
-			bgfx_copy(picture, (uint32_t)(picture_width * picture_height * 4)), 0);
+		bg_overlay_replace(&bg.overlay_picture, bgfx_create_texture_2d((uint16_t)picture_width,
+			(uint16_t)picture_height, false, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
+			bgfx_copy(picture, (uint32_t)(picture_width * picture_height * 4)), 0));
 		bg.overlay_picture_serial = picture_serial;
 	}
 	/* (the plasma's noise map, while a plasma is drawn: the Guide's) */
 	if (plasma && plasma_serial != bg.overlay_plasma_serial)
 	{
-		if (BGFX_HANDLE_IS_VALID(bg.overlay_plasma))
-			bgfx_destroy_texture(bg.overlay_plasma);
-		bg.overlay_plasma = bgfx_create_texture_2d((uint16_t)plasma_width, (uint16_t)plasma_height, false, 1,
-			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
-			bgfx_copy(plasma, (uint32_t)(plasma_width * plasma_height * 4)), 0);
+		bg_overlay_replace(&bg.overlay_plasma, bgfx_create_texture_2d((uint16_t)plasma_width,
+			(uint16_t)plasma_height, false, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
+			bgfx_copy(plasma, (uint32_t)(plasma_width * plasma_height * 4)), 0));
 		bg.overlay_plasma_serial = plasma_serial;
 	}
 	/* (the medals' atlas, once a medal is drawn: with smaller levels, as
@@ -4258,12 +4342,12 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 		int mip = 0;
 
 		bg.overlay_medals_ready = TRUE;
-		if (BGFX_HANDLE_IS_VALID(bg.overlay_medals))
-			bgfx_destroy_texture(bg.overlay_medals);
-		bg.overlay_medals = bgfx_create_texture_2d((uint16_t)medals_width, (uint16_t)medals_height, true, 1,
-			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE, NULL, 0);
-		if (!BGFX_HANDLE_IS_VALID(bg.overlay_medals))
+		/* (the stand-in stays bound if the atlas cannot be made: the medals
+		then draw blank, and nothing binds an invalid handle) */
+		if (!bg_overlay_replace(&bg.overlay_medals, bgfx_create_texture_2d((uint16_t)medals_width,
+			(uint16_t)medals_height, true, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE, NULL, 0)))
 		{
+			platform_log("bgfx: the medals' atlas cannot be made; medals are not drawn");
 			free(level);
 			level = NULL;
 		}
@@ -4297,6 +4381,7 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 	bgfx_set_uniform(bg.overlay_uniforms[1], cutouts, 4);
 	bgfx_set_uniform(bg.overlay_uniforms[2], plasma_shift, 1);
 	bgfx_set_uniform(bg.overlay_uniforms[3], plasma_shift + 4, 1);
+	bgfx_set_uniform(bg.overlay_uniforms[4], cellwall, 3);
 	bgfx_set_texture(0, bg.overlay_samplers[0], bg.overlay_atlas, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_texture(1, bg.overlay_samplers[1], bg.overlay_icons, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_texture(2, bg.overlay_samplers[2], bg.overlay_picture, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
@@ -4311,6 +4396,83 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 
 static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,
 	uint32_t height, uint32_t pitch, bgfx_texture_format_t format, const void *data, uint32_t size, bool flip);
+
+/* ---------- a Vulkan start that did not get going
+
+bgfx's Vulkan is started with a note in the save root
+(bgfx-vulkan.starting) that the game's first frames out after its first map
+loads remove (bg_frame_out): the main menu's, or the map's a command line
+starts on. The setup screen's frames never count, so a start that closes
+loading that first map still leaves it. A note still there at the next start
+says the last one closed, crashed or hung before them: a driver that refused a pipeline, a GPU fault, a swap chain
+that never presented (game issue #1046, AMD's drivers and RADV). That start
+draws with OpenGL, and the player is asked whether to stay on OpenGL for
+good (platform_offer_opengl): display.renderer changes only on a yes, and a
+no asks again the next time Vulkan does not get going.
+HALO_BGFX_START_NOTE=off leaves the note out (a test of the renderer that
+quits early). */
+#define BG_START_FRAMES 60
+
+const char *platform_save_root(void);
+void platform_offer_opengl(void);
+
+static BOOL bg_start_note_wanted(void)
+{
+	const char *setting = getenv("HALO_BGFX_START_NOTE");
+
+	return !(setting && strcmp(setting, "off") == 0);
+}
+
+static void bg_start_note_path(char *path, size_t size)
+{
+	snprintf(path, size, "%s/bgfx-vulkan.starting", platform_save_root());
+}
+
+/* whether the last Vulkan start left its note (which is taken away: the
+next start tries Vulkan again if the player asks for it) */
+static BOOL bg_last_start_failed(void)
+{
+	char path[1024];
+	FILE *file;
+
+	bg_start_note_path(path, sizeof(path));
+	if ((file = fopen(path, "rb")) == NULL)
+		return FALSE;
+	fclose(file);
+	remove(path);
+	return TRUE;
+}
+
+static void bg_start_note(void)
+{
+	char path[1024];
+	FILE *file;
+
+	bg_start_note_path(path, sizeof(path));
+	if ((file = fopen(path, "wb")) != NULL)
+	{
+		fputs("bgfx's Vulkan renderer is starting; the game's first frames remove this file.\n"
+			"Found at a start, it means the last start closed before them, and that start draws with OpenGL.\n", file);
+		fclose(file);
+	}
+}
+
+/* a frame of the game's went out to the window: the note goes at the
+BG_START_FRAMES'th after the first map loaded */
+static void bg_frame_out(void)
+{
+	static unsigned long frames;
+
+	if (!bg_vulkan || !bg_map_seen || frames > BG_START_FRAMES)
+		return;
+	if (++frames == BG_START_FRAMES)
+	{
+		char path[1024];
+
+		bg_start_note_path(path, sizeof(path));
+		remove(path);
+	}
+}
 
 /* the setup launcher's frame (launcher.c), before the game draws: bgfx
 started (once; the device's start then finds it so), the window cleared to
@@ -4638,6 +4800,7 @@ static void bg_present(void)
 #endif
 
 		frame_number = bgfx_frame(BGFX_FRAME_NONE);
+		bg_frame_out();
 #ifdef __APPLE__
 		bg.account.libraries += bgfx_mtl_stats.libraries - before.libraries;
 		bg.account.pipelines += bgfx_mtl_stats.pipelines - before.pipelines;
@@ -5020,6 +5183,17 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 	names, draws with OpenGL: bgfx_vulkan_check.inl) */
 	if (bg_vulkan && !bg_vulkan_check(&init.vendorId, &init.deviceId))
 		return FALSE;
+	if (bg_vulkan && bg_start_note_wanted())
+	{
+		if (bg_last_start_failed())
+		{
+			platform_log("bgfx: the last Vulkan start closed before its first map drew %d frames, so OpenGL for this "
+				"start", BG_START_FRAMES);
+			platform_offer_opengl();
+			return FALSE;
+		}
+		bg_start_note();
+	}
 #endif
 #ifdef _WIN32
 	/* (Direct3D 11's shaders are compiled at run time, by Windows' own

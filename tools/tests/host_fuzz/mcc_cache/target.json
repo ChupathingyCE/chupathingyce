@@ -1,0 +1,14 @@
+{
+  "about": "a Halo 1 MCC cache file from a Workshop item: the version-13 reader's checks and its walk over the bitmaps and sounds the tags name",
+  "harness": "port/linux/tests/mcc_cache_fuzz.c",
+  "sources": [
+    "port/linux/game/mcc_cache_format.c"
+  ],
+  "includes": [
+    "port/linux/game"
+  ],
+  "flags": [
+    "-std=gnu11"
+  ],
+  "max_len": 16384
+}

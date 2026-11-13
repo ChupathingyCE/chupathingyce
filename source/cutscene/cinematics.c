@@ -491,6 +491,9 @@ void cinematic_render(
 					wide_bounds.x1 += cinematic_title_edge_shift(title_bounds->x1, extra);
 					/* port: MCC title layout uses the final screen anchor. */
 					mcc_hud_title_bounds(&wide_bounds, title->justification, title->text_flags);
+					/* port: an MCC title past the bottom moves up to fit */
+					mcc_hud_title_fit(&wide_bounds, unicode_string_list_get_string(
+						help_text_tag_index, title->text_index));
 					title_bounds = &wide_bounds;
 				}
 				rasterizer_draw_unicode_string(

@@ -65,6 +65,7 @@ symbols in this file:
 #include "units/bipeds.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 /* ---------- constants */
 
@@ -177,6 +178,10 @@ static boolean unit_get_aim_assist_parameters(
 		struct unit_datum *unit= unit_get(unit_index);
 		long weapon_index= unit_inventory_get_weapon(unit_index, unit->unit.current_weapon_index);
 
+		/* port: none for a player under MCC's Eye Patch skull, "Auto aim
+		features disabled for all weapons" (mcc_skulls.c) */
+		if (weapon_index!=NONE && unit->unit.player_index!=NONE && mcc_skull_active(MCC_SKULL_EYE_PATCH))
+			return FALSE;
 		if (weapon_index!=NONE)
 		{
 			struct weapon_datum *weapon= weapon_get(weapon_index);

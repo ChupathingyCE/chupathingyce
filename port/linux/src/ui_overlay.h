@@ -120,6 +120,15 @@ void ui_overlay_plasma_source(int serial, const unsigned char *pixels, int width
 hardware format, the texture cache's: the interface's plasma map), once:
 nonzero if it was read */
 int ui_overlay_plasma_from_texture(const void *hardware_format);
+/* the Xbox dashboard's cellwall (as the TeamUIX site draws it: a mesh
+pattern inside a slowly turning sphere, fogged to black; ui_overlay_cellwall.h)
+filling a rectangle of the layout, seen through the layout's middle: motion
+the sphere's turn (radians), the eye's place (x, y, about 0.12 and 0) and
+the lines' brightness; side and front the lines' tint edge on and face on,
+fill the color between them and its alpha (0xRRGGBBAA). 0 when this
+renderer cannot draw it (OpenGL ES 2): the caller draws its plain backdrop */
+int ui_overlay_cellwall(float x, float y, float width, float height, const float motion[4], unsigned int side,
+	unsigned int front, unsigned int fill);
 /* the color of the plasma's bright threads (0xRRGGBBAA, its alpha unused):
 the theme's (ui_style_theme) */
 void ui_overlay_plasma_thread(unsigned int color);
@@ -267,20 +276,27 @@ enum
 unsigned int ui_style_color(int name);
 
 /* the themes the palette comes in: Halo Blue (the default), Chupathingy
-Red and Dashboard Green (display.theme); a new one goes last, so a saved
-choice keeps its meaning */
+Red, Dashboard Green, Visor Orange and Live Orange (display.theme); a new one goes last,
+so a saved choice keeps its meaning */
 enum
 {
 	UI_THEME_BLUE,
 	UI_THEME_RED,
 	UI_THEME_GREEN,
+	UI_THEME_ORANGE,
+	UI_THEME_LIVE,
 	NUMBER_OF_UI_THEMES
 };
 /* the palette from here on (live: the next frame draws in it) */
 void ui_style_theme(int theme);
 int ui_style_theme_current(void);
-/* display.theme's value ("blue", "red", "green") as a theme: blue for anything else */
+/* display.theme's value ("blue", "red", "green", "orange", "live") as a theme: blue for anything else */
 int ui_style_theme_named(const char *name);
+/* the dashboard's cellwall behind a screen, in the theme's colors (the
+Xbox dashboard's per skin, from Theseus), turning slowly and now and then
+swelling brighter, as the TeamUIX site's (calmer), by ui_style_clock's clock; over
+the layout's rectangle. 0 when it cannot be drawn (draw the plain shade) */
+int ui_style_cellwall(float x, float y, float width, float height);
 
 /* the look's text, each kind in the menus' fonts (ui_style_text): a list's
 headings ("ONLINE (2 OF 3)"), a row's name and its status line, a pane's
@@ -325,7 +341,11 @@ void ui_style_row(float x, float y, float width, float height, int selected);
 /* a setting's row (settings_rows.h's, the Guide's and the setup screen's):
 its capsule (ui_style_row), its label in ui_style_text's UI_TEXT_NAME at
 scale times its size, a tag after it (badge, as "NEEDS A RESTART"; NULL:
-none), and its value at the right between the arrows that change it */
+none), and its value at the right between the arrows that change it (NULL:
+an action row, its label alone) */
+/* the next ui_style_setting's value shown alone, without the arrows (a
+row that opens something rather than steps through values) */
+void ui_style_setting_plain(void);
 void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected);
 /* section tabs between left and right, height tall: the bumpers' glyphs at

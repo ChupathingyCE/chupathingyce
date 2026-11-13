@@ -54,7 +54,7 @@ which keeps its copyright line), without a Reserved Font Name.
 `tools/ce_menus.py --titles` the titles our menus add (`ce/port`). The
 overlay's screens (Online Games, the Delta Profile, the setup screen) draw
 their titles with it too, so the builds embed it, and the release packages
-carry `ChupathingyTitles-OFL.txt`.
+carry `ChupathingyTitles-OFL.txt` in their `THIRD-PARTY-NOTICES.txt`.
 
 `display.title_font = "cyborg"` draws the titles in Cyborg Interface Gothic
 instead: a second set of pictures (`port/assets/titles_cyborg`, the menus'

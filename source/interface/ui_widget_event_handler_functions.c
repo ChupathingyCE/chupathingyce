@@ -6459,19 +6459,12 @@ boolean ui_widget_port_cooperative_level_choose(
 	short difficulty)
 {
 	struct network_game_server *server = global_network_game_server_get();
-	struct game_variant variant;
 
 	if (!server || !map_name || main_get_solo_level_from_name(map_name) == NONE)
 		return FALSE;
-	csmemset(&variant, 0, sizeof(variant));
-	ustrncpy(variant.human_readable_game_description, L"Co-op",
-		NUMBEROF(variant.human_readable_game_description) - 1);
-	main_set_difficulty(difficulty);
-	main_set_multiplayer_map_name(map_name);
-	network_game_server_port_set_cooperative(server, difficulty);
-	network_game_server_change_map_name(server, map_name);
-	network_game_server_change_game_variant(server, &variant);
-	return TRUE;
+	/* (the level and its co-op settings together; or nothing yet, while
+	the host is asked about leaving an MCC map: network_server_manager.c) */
+	return network_game_server_port_change_cooperative_level(server, map_name, difficulty);
 }
 
 /* the gametype chosen (as multiplayer_profile_set_for_game), the server's

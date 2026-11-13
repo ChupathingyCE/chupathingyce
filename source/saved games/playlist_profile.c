@@ -422,6 +422,16 @@ long playlist_profile_new(
 	return playlist_profile_index;
 }
 
+/* port: a game variant as a file holds it, its name ended within it (a
+file whose checksum is right may come from anyone: a name of twelve
+characters all set ran on into the fields after it, wherever it was read as
+text before the game engine cleaned it) */
+static void playlist_profile_loaded(
+	struct game_variant *variant)
+{
+	variant->human_readable_game_description[MAXIMUM_GAME_VARIANT_NAME_LENGTH - 1] = 0;
+}
+
 boolean playlist_profile_get_from_path(
 	char *full_path,
 	struct game_variant *variant)
@@ -455,6 +465,7 @@ boolean playlist_profile_get_from_path(
 					variant,
 					block,
 					sizeof(struct game_variant));
+				playlist_profile_loaded(variant);
 				success = TRUE;
 			}
 			else
@@ -776,6 +787,7 @@ static boolean playlist_profile_read(
 							variant,
 							block,
 							sizeof(struct game_variant));
+						playlist_profile_loaded(variant);
 					}
 					else
 					{

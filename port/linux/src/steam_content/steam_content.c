@@ -1156,6 +1156,9 @@ static int download_item(struct download *download, const char *library, char *w
 	download->chunk_file = (int *)malloc(sizeof(int) * (size_t)(download->manifest.chunk_count + 1));
 	if (!download->chunk_file)
 		return STEAM_CONTENT_FAILED;
+	/* (every chunk no file's until its file is made below) */
+	for (index = 0; index <= download->manifest.chunk_count; index++)
+		download->chunk_file[index] = -1;
 	/* the folders, and each file: kept when whole, else made at its size */
 	/* (an installed copy, for an update: moved aside to be put together again,
 	its whole files kept; the map lists show it as installing meanwhile) */

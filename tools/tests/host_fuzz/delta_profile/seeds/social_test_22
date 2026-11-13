@@ -1,0 +1,1 @@
+{"party": {"id": "0123456789abcdef", "members": [{"id": "aa11bb22", "name": "x", "leader": true}], "go": {"serial": 1, "join": "http://x"}}}

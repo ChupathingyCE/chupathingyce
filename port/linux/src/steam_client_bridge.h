@@ -286,6 +286,11 @@ void steam_link_set_armed(int value);
 int steam_link_armed(void);
 /* UNLINK: the stored sign-in deleted (its LoginID with it) */
 void steam_link_unlink(void);
+/* CANCEL on a GET (not an update): the download stopped, and what it put
+together deleted once it has let go of it (steam_link_discard_follow, each
+frame) */
+void steam_link_cancel_get(const char *id_text);
+void steam_link_discard_follow(void);
 
 #if defined(HALO_MCC) && !HALO_MCC
 /* no MCC maps in this build (HALO_MCC, the game's halo_port_features.h):
@@ -298,6 +303,8 @@ no Steam link, the game's calls doing nothing, their arguments unevaluated */
 #define steam_link_set_armed(a0) ((void)sizeof(a0), (void)0)
 #define steam_link_armed() 0
 #define steam_link_store_secure() 1
+#define steam_link_cancel_get(a0) ((void)sizeof(a0), (void)0)
+#define steam_link_discard_follow() ((void)0)
 #define steam_link_unlink() ((void)0)
 #endif
 

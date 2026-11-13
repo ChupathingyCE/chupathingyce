@@ -34,6 +34,11 @@ SPDX-License-Identifier: MIT
 #include "qrcodegen.h"
 
 #include <stdlib.h>
+#ifdef _WIN32
+#include <sys/utime.h> /* Windows keeps utime() here */
+#else
+#include <utime.h>
+#endif
 
 const char *platform_data_root(void);
 void platform_log(const char *format, ...);
@@ -43,6 +48,196 @@ const char *config_string(const char *name);
 
 static char pipe_folder[STEAM_BRIDGE_PATH_SIZE];
 static int pipe_ready;
+
+unsigned long system_milliseconds(void);
+
+/* ---------- debug.steam_link_fake: Steam's link and downloads played out
+without Steam, for the Workshop's screenshot runs (never in a release
+build). Its words: "linked" (else not linked at first), "link=offline" or
+"link=expire" (else the scan goes through), "get=ok", "get=offline",
+"get=notowned", "get=diskfull", "get=toolarge" or "get=failed" (else ok).
+A fake GET counts up for eight seconds; an ok one moves
+<folder>/steamapps/workshop/fake/976730/<id> in as the item, if it's there */
+#ifndef HALO_RELEASE
+static struct
+{
+	int checked, on, linked;
+	unsigned long link_started;
+	char link_outcome[16], get_outcome[16];
+	int count;
+	struct
+	{
+		unsigned long long id;
+		unsigned long started;
+		int state, done;
+	} items[8];
+} fake;
+
+static void fake_word(const char *setting, const char *name, char *out, int size)
+{
+	const char *at = strstr(setting, name);
+	int length = 0;
+
+	out[0] = 0;
+	if (!at)
+		return;
+	at += strlen(name);
+	while (at[length] && at[length] != ',' && length < size - 1)
+	{
+		out[length] = at[length];
+		length++;
+	}
+	out[length] = 0;
+}
+
+static int fake_on(void)
+{
+	if (!fake.checked)
+	{
+		const char *setting = config_string("debug.steam_link_fake");
+
+		fake.checked = 1;
+		fake.on = setting && setting[0];
+		if (fake.on)
+		{
+			fake.linked = strstr(setting, "linked") && !strstr(setting, "unlinked");
+			fake_word(setting, "link=", fake.link_outcome, sizeof(fake.link_outcome));
+			fake_word(setting, "get=", fake.get_outcome, sizeof(fake.get_outcome));
+			platform_log("Steam: debug.steam_link_fake: %s", setting);
+		}
+	}
+	return fake.on;
+}
+
+static int fake_link_poll(char *qr_text, int size, char *error, int error_size)
+{
+	unsigned long elapsed = system_milliseconds() - fake.link_started;
+
+	if (error && error_size > 0)
+		error[0] = 0;
+	if (qr_text && size > 0)
+		snprintf(qr_text, (size_t)size, "https://s.team/q/1/1234567890123456789");
+	if (!fake.link_started)
+		return STEAM_LINK_IDLE;
+	if (elapsed < 1500)
+		return STEAM_LINK_STARTING;
+	if (!strcmp(fake.link_outcome, "offline"))
+	{
+		if (error && error_size > 0)
+			snprintf(error, (size_t)error_size, "Offline");
+		return STEAM_LINK_FAILED;
+	}
+	if (elapsed < 5000 || (!strcmp(fake.link_outcome, "expire") && elapsed < 8000))
+		return STEAM_LINK_WAITING;
+	if (!strcmp(fake.link_outcome, "expire"))
+	{
+		if (error && error_size > 0)
+			snprintf(error, (size_t)error_size, "Failed");
+		return STEAM_LINK_FAILED;
+	}
+	if (elapsed < 7000)
+		return STEAM_LINK_SCANNED;
+	fake.linked = 1;
+	return STEAM_LINK_DONE;
+}
+
+static int fake_find(unsigned long long id)
+{
+	int index;
+
+	for (index = 0; index < fake.count; index++)
+	{
+		if (fake.items[index].id == id)
+			return index;
+	}
+	return -1;
+}
+
+static int fake_get(unsigned long long id)
+{
+	int index = fake_find(id);
+
+	if (index < 0)
+	{
+		if (fake.count >= (int)(sizeof(fake.items) / sizeof(fake.items[0])))
+			return 0;
+		index = fake.count++;
+	}
+	fake.items[index].id = id;
+	fake.items[index].started = system_milliseconds();
+	fake.items[index].done = 0;
+	return 1;
+}
+
+static void fake_cancel(unsigned long long id)
+{
+	int index = fake_find(id);
+
+	if (index >= 0)
+		fake.items[index] = fake.items[--fake.count];
+}
+
+int steam_bridge_platform_merge_folder(const char *from, const char *to);
+
+/* an item's fake progress: 1 if known (state as STEAM_CONTENT_ITEM_*) */
+static int fake_progress(unsigned long long id, int *state, unsigned long long *done, unsigned long long *total,
+	const char **error)
+{
+	int index = fake_find(id);
+	unsigned long elapsed;
+	const char *outcome = fake.get_outcome;
+
+	*error = "";
+	if (index < 0)
+		return 0;
+	elapsed = system_milliseconds() - fake.items[index].started;
+	*total = 145ull << 20;
+	*done = 0;
+	if (elapsed < 1500)
+	{
+		*state = STEAM_CONTENT_ITEM_QUEUED;
+		return 1;
+	}
+	if ((!strcmp(outcome, "notowned") && elapsed >= 2500) || (outcome[0] && strcmp(outcome, "ok") &&
+		strcmp(outcome, "notowned") && elapsed >= 4500))
+	{
+		*state = STEAM_CONTENT_ITEM_FAILED;
+		*error = !strcmp(outcome, "notowned") ? "Not owned" : !strcmp(outcome, "offline") ? "Offline" :
+			!strcmp(outcome, "diskfull") ? "Disk full" : !strcmp(outcome, "toolarge") ? "Too large" : "Failed";
+		return 1;
+	}
+	if (elapsed < 9500)
+	{
+		*state = STEAM_CONTENT_ITEM_DOWNLOADING;
+		*done = *total * (elapsed - 1500) / 8000;
+		return 1;
+	}
+	if (!fake.items[index].done)
+	{
+		char from[STEAM_BRIDGE_PATH_SIZE + 64], to[STEAM_BRIDGE_PATH_SIZE + 64];
+
+		fake.items[index].done = 1;
+		snprintf(from, sizeof(from), "%s/steamapps/workshop/fake/976730/%llu", pipe_folder, id);
+		snprintf(to, sizeof(to), "%s/steamapps/workshop/content/976730/%llu", pipe_folder, id);
+		/* (no folder for this item: the one called "any") */
+		if (!steam_bridge_platform_is_folder(from))
+			snprintf(from, sizeof(from), "%s/steamapps/workshop/fake/976730/any", pipe_folder);
+		if (steam_bridge_platform_is_folder(from) && !steam_bridge_platform_is_folder(to))
+			rename(from, to);
+		/* (an update: the copy as new as Steam's now) */
+		else
+		{
+			char info[STEAM_BRIDGE_PATH_SIZE + 96];
+
+			snprintf(info, sizeof(info), "%s/ModInfo.json", to);
+			utime(info, NULL);
+		}
+	}
+	*state = STEAM_CONTENT_ITEM_INSTALLED;
+	*done = *total;
+	return 1;
+}
+#endif
 
 void steam_bridge_pipe_set_folder(const char *path)
 {
@@ -75,10 +270,23 @@ static void pipe_init(void)
 	pipe_ready = 1;
 }
 
+static int pipe_linked(char *persona, int size)
+{
+#ifndef HALO_RELEASE
+	if (fake_on())
+	{
+		if (persona && size > 0)
+			snprintf(persona, (size_t)size, "%s", fake.linked ? "Tester" : "");
+		return fake.linked;
+	}
+#endif
+	return steam_content_linked(persona, size);
+}
+
 static int pipe_connect(void)
 {
 	pipe_init();
-	return steam_content_linked(NULL, 0) ? STEAM_BRIDGE_READY : STEAM_BRIDGE_SIGN_IN;
+	return pipe_linked(NULL, 0) ? STEAM_BRIDGE_READY : STEAM_BRIDGE_SIGN_IN;
 }
 
 static void pipe_disconnect(void)
@@ -93,21 +301,55 @@ static int pipe_subscribe(unsigned long long id)
 		platform_log("Workshop: no folder to download item %llu into", id);
 		return 0;
 	}
+#ifndef HALO_RELEASE
+	if (fake_on())
+		return fake_get(id);
+#endif
 	return steam_content_get_item(id, pipe_folder);
+}
+
+static void content_cancel(unsigned long long id)
+{
+#ifndef HALO_RELEASE
+	if (fake_on())
+	{
+		fake_cancel(id);
+		return;
+	}
+#endif
+	steam_content_cancel(id);
+}
+
+static int content_progress(unsigned long long id, struct steam_content_progress *progress, const char **error)
+{
+	*error = "";
+#ifndef HALO_RELEASE
+	if (fake_on())
+	{
+		memset(progress, 0, sizeof(*progress));
+		return fake_progress(id, &progress->state, &progress->done, &progress->total, error);
+	}
+#endif
+	if (!steam_content_progress(id, progress))
+		return 0;
+	if (progress->state == STEAM_CONTENT_ITEM_FAILED)
+		*error = steam_content_error_text(progress->error);
+	return 1;
 }
 
 static int pipe_unsubscribe(unsigned long long id)
 {
-	steam_content_cancel(id);
+	content_cancel(id);
 	return 1;
 }
 
 static int pipe_query(unsigned long long id, struct steam_bridge_item *item)
 {
 	struct steam_content_progress progress;
+	const char *error;
 
 	memset(item, 0, sizeof(*item));
-	if (!steam_content_progress(id, &progress))
+	if (!content_progress(id, &progress, &error))
 		return 0;
 	switch (progress.state)
 	{
@@ -120,7 +362,7 @@ static int pipe_query(unsigned long long id, struct steam_bridge_item *item)
 	item->downloaded = progress.done;
 	item->total = progress.total;
 	if (progress.state == STEAM_CONTENT_ITEM_FAILED)
-		snprintf(item->error, sizeof(item->error), "%s", steam_content_error_text(progress.error));
+		snprintf(item->error, sizeof(item->error), "%s", error);
 	return 1;
 }
 
@@ -130,7 +372,7 @@ static void pipe_tick(void)
 
 static int pipe_needs_sign_in(void)
 {
-	return !steam_content_linked(NULL, 0);
+	return !pipe_linked(NULL, 0);
 }
 
 static int pipe_mcc_state(void)
@@ -158,7 +400,7 @@ static int pipe_remove(unsigned long long id)
 {
 	char path[STEAM_BRIDGE_PATH_SIZE + 64];
 
-	steam_content_cancel(id);
+	content_cancel(id);
 	/* (a download put together halfway, too) */
 	if (pipe_folder[0] && snprintf(path, sizeof(path), "%s/steamapps/workshop/downloads/976730/%llu", pipe_folder, id) <
 		(int)sizeof(path) && steam_bridge_platform_is_folder(path))
@@ -228,7 +470,60 @@ int steam_link_get(const char *id_text)
 
 	pipe_init();
 	folder_default();
-	return id_of(id_text, &id) && pipe_folder[0] && steam_content_get_item(id, pipe_folder);
+	if (!id_of(id_text, &id) || !pipe_folder[0])
+		return 0;
+#ifndef HALO_RELEASE
+	if (fake_on())
+		return fake_get(id);
+#endif
+	return steam_content_get_item(id, pipe_folder);
+}
+
+/* ---------- CANCEL on a GET: stopped, and once the download has let go of
+its files, what it had put together deleted (only a GET's: an update's
+downloads folder holds the installed copy) */
+static unsigned long long discard_ids[8];
+
+void steam_link_cancel_get(const char *id_text)
+{
+	unsigned long long id;
+	int slot;
+
+	if (!id_of(id_text, &id))
+		return;
+	content_cancel(id);
+	for (slot = 0; slot < (int)(sizeof(discard_ids) / sizeof(discard_ids[0])); slot++)
+	{
+		if (!discard_ids[slot] || discard_ids[slot] == id)
+		{
+			discard_ids[slot] = id;
+			break;
+		}
+	}
+}
+
+void steam_link_discard_follow(void)
+{
+	int slot;
+
+	folder_default();
+	for (slot = 0; slot < (int)(sizeof(discard_ids) / sizeof(discard_ids[0])); slot++)
+	{
+		struct steam_content_progress progress;
+		const char *why;
+		char path[STEAM_BRIDGE_PATH_SIZE + 64];
+		unsigned long long id = discard_ids[slot];
+
+		if (!id || (content_progress(id, &progress, &why) && (progress.state == STEAM_CONTENT_ITEM_DOWNLOADING)))
+			continue;
+		discard_ids[slot] = 0;
+		if (pipe_folder[0] && snprintf(path, sizeof(path), "%s/steamapps/workshop/downloads/976730/%llu", pipe_folder,
+			id) < (int)sizeof(path) && steam_bridge_platform_is_folder(path))
+		{
+			platform_log("Workshop: item %llu's download stopped; its part deleted", id);
+			steam_bridge_platform_remove_folder(path);
+		}
+	}
 }
 
 int steam_link_progress(const char *id_text, unsigned long long *done, unsigned long long *total, char *error,
@@ -239,7 +534,9 @@ int steam_link_progress(const char *id_text, unsigned long long *done, unsigned 
 
 	if (error && error_size > 0)
 		error[0] = 0;
-	if (!id_of(id_text, &id) || !steam_content_progress(id, &progress))
+	const char *why;
+
+	if (!id_of(id_text, &id) || !content_progress(id, &progress, &why))
 		return STEAM_BRIDGE_ITEM_UNKNOWN;
 	*done = progress.done;
 	*total = progress.total;
@@ -250,7 +547,7 @@ int steam_link_progress(const char *id_text, unsigned long long *done, unsigned 
 	case STEAM_CONTENT_ITEM_INSTALLED: return STEAM_BRIDGE_ITEM_INSTALLED;
 	case STEAM_CONTENT_ITEM_FAILED:
 		if (error && error_size > 0)
-			snprintf(error, (size_t)error_size, "%s", steam_content_error_text(progress.error));
+			snprintf(error, (size_t)error_size, "%s", why);
 		return STEAM_BRIDGE_ITEM_FAILED;
 	default: return STEAM_BRIDGE_ITEM_NONE;
 	}
@@ -295,18 +592,31 @@ int steam_link_qr_text(const char *text, char *out, int size)
 int steam_link_linked(char *persona, int size)
 {
 	pipe_init();
-	return steam_content_linked(persona, size);
+	return pipe_linked(persona, size);
 }
 
 void steam_link_start(void)
 {
 	pipe_init();
+#ifndef HALO_RELEASE
+	if (fake_on())
+	{
+		fake.link_started = system_milliseconds() | 1;
+		return;
+	}
+#endif
 	steam_content_sign_in_qr();
 }
 
 int steam_link_poll(char *qr_text, int size, char *error, int error_size)
 {
-	int code = 0, state = steam_content_sign_in_poll(qr_text, size, &code);
+	int code = 0, state;
+
+#ifndef HALO_RELEASE
+	if (fake_on())
+		return fake_link_poll(qr_text, size, error, error_size);
+#endif
+	state = steam_content_sign_in_poll(qr_text, size, &code);
 
 	if (error && error_size > 0)
 		snprintf(error, (size_t)error_size, "%s", state == STEAM_CONTENT_QR_FAILED ? steam_content_error_text(code) : "");
@@ -323,6 +633,13 @@ int steam_link_poll(char *qr_text, int size, char *error, int error_size)
 
 void steam_link_cancel(void)
 {
+#ifndef HALO_RELEASE
+	if (fake_on())
+	{
+		fake.link_started = 0;
+		return;
+	}
+#endif
 	steam_content_sign_in_cancel();
 }
 
@@ -353,6 +670,14 @@ int steam_link_store_secure(void)
 void steam_link_unlink(void)
 {
 	pipe_init();
+#ifndef HALO_RELEASE
+	if (fake_on())
+	{
+		fake.linked = 0;
+		fake.link_started = 0;
+		return;
+	}
+#endif
 	steam_content_sign_out();
 }
 
@@ -412,6 +737,8 @@ int steam_link_poll(char *qr_text, int size, char *error, int error_size)
 	return STEAM_LINK_IDLE;
 }
 void steam_link_cancel(void) {}
+void steam_link_cancel_get(const char *id_text) { (void)id_text; }
+void steam_link_discard_follow(void) {}
 const char *steam_link_store(void) { return ""; }
 int steam_link_store_secure(void) { return 1; }
 void steam_link_set_armed(int value) { (void)value; }

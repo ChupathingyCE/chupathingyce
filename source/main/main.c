@@ -336,6 +336,7 @@ symbols in this file:
 #include "cseries/profile.h"
 #include "cseries/cseries_windows.h"
 #include "main.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 #include "real_math.h"
 #include "game.h"
 #include "game_engine.h"
@@ -2315,7 +2316,10 @@ static void main_lost_map_private(
 		they were at the last checkpoint, without a revert. A mission the
 		scripts failed (game_lost, with players still alive: d40's timer,
 		a50's Keyes) does revert, or its failure cutscene would never end. */
-		if (game_connection() != _game_connection_network_server)
+		/* port: MCC's Iron skull: a dead solo player's level restarts (mcc_skulls.c) */
+		if (mcc_skulls_restart_on_death())
+			main_reset_map();
+		else if (game_connection() != _game_connection_network_server)
 			game_state_revert();
 		else if (players_are_all_dead() || !main_coop_host_revert())
 			players_respawn_at_checkpoint();

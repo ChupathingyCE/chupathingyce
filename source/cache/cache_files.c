@@ -1995,7 +1995,7 @@ long scenario_tags_load(
 				ce_shaders_tags_loaded(global_tag_instances, ce_header->tag_count);
 #else
 				extern boolean ce_models_tags_loaded(void *tag_instances, long tag_count, byte const *model_data,
-					unsigned long vertex_data_size);
+					unsigned long vertex_data_size, unsigned long model_data_size);
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 				byte *model_data = platform_ce_alias ? platform_ce_scratch_malloc(ce_header->model_data_size) :
 					system_malloc(ce_header->model_data_size);
@@ -2010,7 +2010,7 @@ long scenario_tags_load(
 					while (!read_complete)
 						SwitchToThread();
 					if (!ce_models_tags_loaded(global_tag_instances, ce_header->tag_count, model_data,
-						ce_header->vertex_data_size))
+						ce_header->vertex_data_size, ce_header->model_data_size))
 					{
 						error(_error_silent, "Custom Edition map %s: its models could not all be made",
 							scenario_name);

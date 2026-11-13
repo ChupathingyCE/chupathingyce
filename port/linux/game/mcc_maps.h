@@ -28,6 +28,9 @@ boolean mcc_maps_level_campaign(char const *level_name);
 /* 0 standalone/disabled, 1 next mission, 2 completed, -1 unavailable next
  * mission. Only the explicit manifest supplies an order. */
 int mcc_maps_next_mission(char const *level_name, char next[64]);
+/* whether a campaign level plays in its package's mission order:
+game.mcc_campaigns, or a Workshop item's own level (workshop_decisions.h) */
+boolean mcc_maps_campaign_order(char const *level_name);
 /* the Workshop item the Delta Guide's PLAY handed to the menus (NULL: none):
 its maps lead mcc_maps_type_index's lists (and so the map lists), and the
 campaign list opens once on its first (mcc_maps_take_first_focus) */
@@ -76,6 +79,7 @@ the shared code calls do nothing, their arguments unevaluated */
 #define mcc_maps_set_first_item(a0) ((void)sizeof(a0))
 #define mcc_maps_level_first(a0) ((void)sizeof(a0), (boolean)0)
 #define mcc_maps_take_first_focus() ((boolean)0)
+#define mcc_maps_campaign_order(a0) ((void)sizeof(a0), (boolean)0)
 #endif
 
 #endif

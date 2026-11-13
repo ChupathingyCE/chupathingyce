@@ -843,45 +843,117 @@ static int from_chupathingy(const char *name, const char *asked, int hashed, uns
 	return 1;
 }
 
+/* a hashed name's digits (0 for a name that isn't one) */
+static unsigned int prefix_of(const char *hashed_name)
+{
+	char base[64];
+	unsigned int prefix = 0;
+
+	return map_archive_hashed_name(hashed_name, base, sizeof(base), &prefix) ? prefix : 0;
+}
+
+/* the map just put in place at path, checked once more where its hash is
+known (expected, else 0): the file as it landed, after a move that may have
+been a copy across drives. The name it is installed by, or NULL with why in
+error, the file removed */
+static const char *placed(const char *installed, const char *path, unsigned int expected, char *error,
+	int error_size)
+{
+	unsigned int found = 0;
+
+	if (expected && (!map_file_hash_prefix(path, &found) || found != expected))
+	{
+		DeleteFileA(path);
+		snprintf(error, (size_t)error_size, "maps_ce/%s.map was not the same after it was put in place", installed);
+		platform_log("map download: %s", error);
+		return NULL;
+	}
+	return installed;
+}
+
 /* (in place, never over a file that is there: MoveFileA refuses one. A
 map is put in its own name's file, as the repositories name it; if
 another version of it is there, in a file of its name and its hash's
 first digits (a hashed name's: that name), so both are kept: the game
-finds the host's version by its hash, map_families.c). The file it went
-in (name, asked, or beside), else NULL with why in error */
+finds the host's version by its hash, map_families.c. A file of that
+hashed name there already is this map, from an earlier download, if its
+hash says so: kept, and this copy let go. A move that fails for any other
+reason (a folder that can't be written, a disk full) says the error and
+touches no file of the player's.) The file it went in (name, asked, or
+beside), else NULL with why in error */
 static const char *put_in_place(const char *name, const char *asked, int hashed, const char *partial_path,
 	char *beside, char *error, int error_size)
 {
 	const char *installed = hashed ? asked : name;
 	char path[MAP_DOWNLOAD_PATH_SIZE];
+	unsigned int found = 0;
+	/* (the hash the file put in place must begin with, once known: a
+	hashed name's, or the one read for the name beside) */
+	unsigned int expected = hashed ? prefix_of(asked) : 0;
+	DWORD last_error;
 
 	final_path(installed, path);
-	if (!MoveFileA(partial_path, path))
+	if (MoveFileA(partial_path, path))
+		return placed(installed, path, expected, error, error_size);
+	last_error = GetLastError();
+	if (last_error != ERROR_ALREADY_EXISTS)
 	{
-		unsigned int found = 0;
-
-		installed = NULL;
-		if (hashed)
-			snprintf(beside, sizeof(map_download.installed), "%s", name);
-		else if (map_download.version && map_file_hash_prefix(partial_path, &found))
-			snprintf(beside, sizeof(map_download.installed), "%s_%08x", name, found);
-		else
-			beside[0] = 0;
-		if (beside[0])
-		{
-			platform_log("map download: maps_ce/%s.map is there already, another version: putting this one in "
-				"%s.map", hashed ? asked : name, beside);
-			installed = beside;
-			final_path(installed, path);
-			if (!MoveFileA(partial_path, path))
-				installed = NULL;
-		}
-	}
-	if (!installed)
-	{
-		snprintf(error, (size_t)error_size, "maps_ce/%s.map could not be put in place (is it there already?)", name);
+		snprintf(error, (size_t)error_size, "maps_ce/%s.map could not be put in place (error %lu)", installed,
+			(unsigned long)last_error);
 		platform_log("map download: %s", error);
+		return NULL;
 	}
+	/* (a hashed name's file there already, with this hash: this map, from
+	an earlier download) */
+	if (expected && map_file_hash_prefix(path, &found) && found == expected)
+	{
+		platform_log("map download: %s.map is there already with this hash: kept; this copy let go", installed);
+		DeleteFileA(partial_path);
+		return installed;
+	}
+	found = 0;
+	installed = NULL;
+	if (hashed)
+		snprintf(beside, sizeof(map_download.installed), "%s", name);
+	else if (map_download.version && map_file_hash_prefix(partial_path, &found))
+	{
+		snprintf(beside, sizeof(map_download.installed), "%s_%08x", name, found);
+		expected = found;
+	}
+	else
+		beside[0] = 0;
+	if (beside[0])
+	{
+		platform_log("map download: maps_ce/%s.map is there already, another version: putting this one in "
+			"%s.map", hashed ? asked : name, beside);
+		final_path(beside, path);
+		if (MoveFileA(partial_path, path))
+			return placed(beside, path, expected, error, error_size);
+		last_error = GetLastError();
+		if (last_error == ERROR_ALREADY_EXISTS)
+		{
+			unsigned int there = 0;
+
+			/* (the file of this hash from an earlier download: the same
+			bytes, if its hash says so) */
+			if (expected && map_file_hash_prefix(path, &there) && there == expected)
+			{
+				platform_log("map download: %s.map is there already with this hash: kept; this copy let go", beside);
+				DeleteFileA(partial_path);
+				return beside;
+			}
+			snprintf(error, (size_t)error_size, "maps_ce/%s.map is in the way: another file of that name", beside);
+		}
+		else
+		{
+			snprintf(error, (size_t)error_size, "maps_ce/%s.map could not be put in place (error %lu)", beside,
+				(unsigned long)last_error);
+		}
+		platform_log("map download: %s", error);
+		return NULL;
+	}
+	snprintf(error, (size_t)error_size, "maps_ce/%s.map is there already, and this one's version isn't known", name);
+	platform_log("map download: %s", error);
 	return installed;
 }
 
