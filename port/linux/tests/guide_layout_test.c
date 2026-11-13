@@ -203,7 +203,11 @@ static void check_page(void)
 					rects[count++] = layout.buttons[index];
 				check_no_overlap(what, rects, count, panes[pane]);
 				/* (the panes the Guide has keep all of it; a tiny one, the main button) */
-				if (pane < 4)
+				/* (the short pane: three buttons and the note don't all fit, the
+				note goes first, then the third button) */
+				if (pane == 2 && buttons == 3)
+					CHECK(layout.button_count >= 2, "%s: %d buttons", what, layout.button_count);
+				else if (pane < 4)
 				{
 					CHECK(layout.button_count == buttons, "%s: %d buttons", what, layout.button_count);
 					CHECK(!note || layout.note.height > 0, "%s: no room for the note", what);

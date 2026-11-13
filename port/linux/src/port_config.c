@@ -1419,8 +1419,9 @@ static const struct config_setting config_settings[] =
 		"Workshop campaign maps are listed either way. Reopen the map list after\n"
 		"changing this." },
 	{ "game.workshop_maps", _config_boolean, "false", "HALO_WORKSHOP_MAPS", _environment_value, _platform_desktop,
-		"Discover installed Halo CE Steam Workshop maps. Read-only desktop\n"
-		"discovery; packages installed in maps_mcc are always read." },
+		"Also list the Halo CE Workshop maps Steam itself installed (STEAM'S MCC\n"
+		"MAPS). The ones the game's Workshop got, and packages in maps_mcc, are\n"
+		"always read." },
 	{ "game.mcc_skulls", _config_string, "\"\"", "HALO_MCC_SKULLS", _environment_value, _platform_desktop,
 		"The MCC skulls on when an MCC map starts, as MCC's skull menu would turn\n"
 		"them on: their names separated by commas (fog, black_eye, mythic, iron,\n"
@@ -1759,6 +1760,11 @@ static const struct config_setting config_settings[] =
 		_platform_desktop,
 		"Keep the Steam link's token in its file in the data folder, never the\n"
 		"system's secret store (the Keychain), for tests." },
+	{ "debug.steam_link_fake", _config_string, "\"\"", "HALO_STEAM_LINK_FAKE", _environment_value, _platform_desktop,
+		"Steam's link and the Workshop's downloads played out without Steam, for\n"
+		"screenshots: \"linked\", \"link=offline\", \"link=expire\", \"get=ok\",\n"
+		"\"get=offline\", \"get=notowned\", \"get=diskfull\", joined by commas.\n"
+		"Leave it empty for none." },
 	{ "debug.workshop_no_steam", _config_boolean, "false", "HALO_WORKSHOP_NO_STEAM", _environment_set_is_true,
 		_platform_desktop,
 		"The Delta Guide's Workshop marks an item subscribed without opening\n"

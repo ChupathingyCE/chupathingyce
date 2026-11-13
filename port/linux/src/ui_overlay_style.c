@@ -647,9 +647,18 @@ static void value_fit(const char *value, float size, float room, char *out, int 
 	snprintf(out, (size_t)out_size, "...");
 }
 
+/* the next ui_style_setting's value without its arrows (ui_style_setting_plain) */
+static int setting_plain;
+
+void ui_style_setting_plain(void)
+{
+	setting_plain = 1;
+}
+
 void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected)
 {
+	int plain = setting_plain;
 	float size = ui_style_text_size(UI_TEXT_NAME) * scale;
 	float text_y = y + (height - size) * 0.5f, right = x + width - size * 1.2f, label_end;
 	float value_width;
@@ -670,12 +679,20 @@ void ui_style_setting(float x, float y, float width, float height, float scale, 
 			UI_ALIGN_LEFT, badge);
 		label_end = badge_x + badge_width;
 	}
+	setting_plain = 0;
 	/* (an action row, ABOUT's or SEND MY LOGS': no value, no arrows) */
 	if (!value)
 		return;
 	/* (the value between its arrows, as the menus' settings have it; one
 	longer than the room right of the label cut with "...", a folder's at
 	its start so its last folders show) */
+	/* (a row that opens something: its value alone, at the arrow's place) */
+	if (plain)
+	{
+		value_fit(value, size, right + size * 0.6f - (label_end + size * 1.5f), shown, sizeof(shown));
+		ui_style_text_scaled(UI_TEXT_NAME, scale, right + size * 0.6f, text_y, UI_ALIGN_RIGHT, shown);
+		return;
+	}
 	value_fit(value, size, right - size * 1.8f - (label_end + size * 1.5f), shown, sizeof(shown));
 	value = shown;
 	value_width = ui_overlay_text_width(UI_FONT_MENU, size, value);

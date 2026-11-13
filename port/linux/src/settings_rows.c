@@ -17,6 +17,7 @@ Default puts them back.
 
 #include "settings_rows.h"
 #include "steam_client_bridge.h"
+#include "workshop_decisions.h"
 #include "port_config.h"
 
 #include <ctype.h>
@@ -167,8 +168,9 @@ static const struct settings_row settings_rows[] =
 	/* (the Workshop's: Steam's link, where items go, a join's missing map) */
 	{ _in_network | _in_guide, "STEAM ACCOUNT", "game.workshop_steam", _kind_steam_link, NULL, NULL, 0, 0 },
 	{ _in_guide, "WORKSHOP FOLDER", "paths.steam_downloads", _kind_folder, NULL, NULL, 0, 0 },
-	/* (the Workshop's maps in the map lists: the Guide's WORKSHOP turns them
-	on from an item's page, and here is where they go off again) */
+	/* (the Workshop's maps in the map lists: with the Workshop's own items
+	always listed (workshop_decisions.h), only the maps in Steam's own MCC
+	folders, and named so: settings_row_label) */
 	{ _in_guide, "WORKSHOP MAPS", "game.workshop_maps", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "MAPS WHEN JOINING", "network.workshop_downloads", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_guide, "MISSION ORDER", "game.mcc_campaigns", _kind_toggle, NULL, NULL, 0, 0 },
@@ -412,7 +414,22 @@ const struct settings_row *settings_row_at(int group, int index)
 
 const char *settings_row_label(const struct settings_row *row)
 {
+	if (WORKSHOP_OWN_ITEMS_ALWAYS_LISTED && !strcmp(row->key, "game.workshop_maps"))
+		return "STEAM'S MCC MAPS";
 	return row->label;
+}
+
+int settings_row_arrows(const struct settings_row *row)
+{
+	/* (STEAM ACCOUNT and WORKSHOP FOLDER open something: no values to step through) */
+	return row->kind != _kind_steam_link && row->kind != _kind_folder;
+}
+
+static void (*folder_action)(void);
+
+void settings_rows_set_folder_action(void (*action)(void))
+{
+	folder_action = action;
 }
 
 const char *settings_row_key(const struct settings_row *row)
@@ -444,16 +461,16 @@ void settings_row_value(const struct settings_row *row, char *text, int size)
 		char error[24];
 		int link = steam_link_poll(NULL, 0, error, sizeof(error));
 
+		/* (a word for where it stands, never an error's: the sign-in window
+		says what went wrong) */
 		if (link == STEAM_LINK_STARTING || link == STEAM_LINK_WAITING || link == STEAM_LINK_SCANNED)
 			snprintf(text, (size_t)size, "LINKING");
 		else if (!steam_link_linked(persona, sizeof(persona)))
-			snprintf(text, (size_t)size, "%s", link == STEAM_LINK_FAILED && error[0] ? error : "NOT LINKED");
-		else if (steam_link_armed())
-			snprintf(text, (size_t)size, "UNLINK?");
+			snprintf(text, (size_t)size, "NOT LINKED");
 		else if (persona[0])
-			snprintf(text, (size_t)size, "Linked to Steam: %s", persona);
+			snprintf(text, (size_t)size, "LINKED (%s)", persona);
 		else
-			snprintf(text, (size_t)size, "Linked to Steam");
+			snprintf(text, (size_t)size, "LINKED");
 		return;
 	}
 	if (row->kind == _kind_folder)
@@ -505,7 +522,11 @@ void settings_row_change(const struct settings_row *row, int step)
 		return;
 	}
 	if (row->kind == _kind_folder)
+	{
+		if (folder_action)
+			folder_action();
 		return;
+	}
 	if (row->kind == _kind_preset)
 	{
 		/* (Default and Potato: from Custom, a step goes to one of them) */

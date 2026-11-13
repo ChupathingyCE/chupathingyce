@@ -159,9 +159,13 @@ disk. Joining a host whose map is a Workshop item the player lacks offers it
 over the main menu (`network.workshop_downloads`: ask, always or never), then
 joins again once it is installed.
 
-With `game.workshop_maps = true` (`HALO_WORKSHOP_MAPS=1`), desktop builds list
-Halo CE maps from the Workshop items a player is subscribed to
-without copying anything into the data root. `steam_workshop.c` looks in Steam's
+The items the game's own Workshop got (its own Steam library,
+`paths.steam_downloads`) are always listed: getting one is the player's yes
+(`WORKSHOP_OWN_ITEMS_ALWAYS_LISTED` in `port/linux/src/workshop_decisions.h`).
+With `game.workshop_maps = true` (`HALO_WORKSHOP_MAPS=1`, STEAM'S MCC MAPS in
+the Delta Guide's settings), desktop builds also list Halo CE maps from the
+Workshop items a player is subscribed to in Steam itself, without copying
+anything into the data root. `steam_workshop.c` looks in Steam's
 libraries for `steamapps/workshop/content/976730/<item id>/`: the usual Steam
 folders (on Windows `%ProgramFiles(x86)%\Steam`; on Linux `~/.steam/steam`,
 `~/.local/share/Steam`, and the Flatpak and Snap places), the `paths.steam`
