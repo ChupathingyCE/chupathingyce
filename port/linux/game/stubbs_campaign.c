@@ -240,6 +240,30 @@ boolean stubbs_campaign_map_completed(
 	return index != NONE && (stubbs_progress[index].flags[level] >> difficulty) != 0;
 }
 
+unsigned long stubbs_campaign_level_flags(
+	short local_player_index,
+	short level)
+{
+	char key[STUBBS_PROGRESS_KEY_SIZE];
+	long index;
+
+	if (level < 0 || level >= STUBBS_CAMPAIGN_LEVEL_COUNT || !progress_key(local_player_index, key))
+		return 0;
+	progress_read();
+	index = progress_entry(key, FALSE);
+	return index != NONE ? stubbs_progress[index].flags[level] : 0;
+}
+
+boolean stubbs_campaign_level_available(
+	short local_player_index,
+	short level)
+{
+	if (level < 0 || level >= STUBBS_CAMPAIGN_LEVEL_COUNT)
+		return FALSE;
+	return level == 0 || stubbs_campaign_level_flags(local_player_index, level) ||
+		stubbs_campaign_level_flags(local_player_index, level - 1);
+}
+
 char const *stubbs_campaign_level_won(
 	char const *map_name,
 	short local_player_count)

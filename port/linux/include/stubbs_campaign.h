@@ -43,6 +43,19 @@ whether player 1's profile has finished this level on that difficulty or a
 harder one */
 boolean stubbs_campaign_map_completed(short difficulty);
 
+/* Load Level (ui_widget_event_handler_functions.c): a local player's
+profile's finished difficulties of a level (a flag each), and whether the
+level may be picked (finished, the one after the last finished, or the
+first) */
+unsigned long stubbs_campaign_level_flags(short local_player_index, short level);
+boolean stubbs_campaign_level_available(short local_player_index, short level);
+
+/* Stubbs's ui.map's Load Level strings: a level's name, picture and
+description by its index, then the locked card's and the saved game's
+description */
+#define STUBBS_CAMPAIGN_STRING_LOCKED STUBBS_CAMPAIGN_LEVEL_COUNT
+#define STUBBS_CAMPAIGN_STRING_SAVED_GAME (STUBBS_CAMPAIGN_LEVEL_COUNT + 1)
+
 /* a level won (main.c's main_won_map_private): the level is kept as
 finished for each local player's profile, and the next level's map is
 given (NULL after the last) */
@@ -59,6 +72,10 @@ boolean stubbs_campaign_event_function(struct widget_instance *widget, struct ev
 halo_console_features.h, and may not build this part's file: each hook
 is an empty one here) */
 static __inline void stubbs_campaign_initialize(void) { }
+static __inline unsigned long stubbs_campaign_level_flags(short local_player_index, short level)
+{ (void)local_player_index; (void)level; return 0; }
+static __inline boolean stubbs_campaign_level_available(short local_player_index, short level)
+{ (void)local_player_index; (void)level; return FALSE; }
 static __inline char const *stubbs_campaign_level_won(char const *map_name, short local_player_count)
 { (void)map_name; (void)local_player_count; return NULL; }
 static __inline char const *stubbs_campaign_level_name(short level, char const *halo_name) { (void)level; return halo_name; }
