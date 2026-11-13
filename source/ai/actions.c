@@ -553,8 +553,12 @@ struct action_specification const global_action_functions[NUMBER_OF_ACTOR_ACTION
 		&action_uncover_modify_color,
 		NULL,
 		&action_uncover_flush_position_indices,
+#ifdef HALO_PS3
 		/* port: was NULL, so a BSP switch kept the old BSP's cluster (scenario.c's PVS assert) */
 		&action_uncover_flush_structure_indices
+#else
+		NULL
+#endif
 	},
 	{
 		6,
@@ -586,7 +590,11 @@ struct action_specification const global_action_functions[NUMBER_OF_ACTOR_ACTION
 		NULL,
 		NULL,
 		&action_search_flush_position_indices,
+#ifdef HALO_PS3
 		&action_search_flush_structure_indices /* port: was NULL (uncover's) */
+#else
+		NULL
+#endif
 	},
 	{
 		8,
@@ -618,7 +626,11 @@ struct action_specification const global_action_functions[NUMBER_OF_ACTOR_ACTION
 		NULL,
 		NULL,
 		NULL,
+#ifdef HALO_PS3
 		&action_vehicle_flush_structure_indices /* port: was NULL (uncover's) */
+#else
+		NULL
+#endif
 	},
 	{
 		10,
@@ -650,7 +662,11 @@ struct action_specification const global_action_functions[NUMBER_OF_ACTOR_ACTION
 		NULL,
 		NULL,
 		NULL,
+#ifdef HALO_PS3
 		&action_obey_flush_structure_indices /* port: was NULL (uncover's) */
+#else
+		NULL
+#endif
 	},
 	{
 		12,

@@ -2905,8 +2905,10 @@ real ai_communication_get_player_rating(
 					/* port: and both of the current bsp (scenario.c's PVS assert), else the ray decides */
 					if (cluster_index != NONE &&
 						player_cluster_index != NONE &&
+#ifdef HALO_PS3
 						VALID_INDEX(cluster_index, global_structure_bsp_get()->clusters.count) &&
 						VALID_INDEX(player_cluster_index, global_structure_bsp_get()->clusters.count) &&
+#endif
 						!scenario_test_pvs(cluster_index, player_cluster_index))
 					{
 						continue;

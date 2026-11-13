@@ -2349,8 +2349,10 @@ short ai_test_line_of_sight(
 
 	/* port: a cluster outside the current bsp (scenario.c's PVS assert) skips the PVS test: the ray decides */
 	if (p0_cluster_index != NONE && p1_cluster_index != NONE &&
+#ifdef HALO_PS3
 		VALID_INDEX(p0_cluster_index, global_structure_bsp_get()->clusters.count) &&
 		VALID_INDEX(p1_cluster_index, global_structure_bsp_get()->clusters.count) &&
+#endif
 		!scenario_test_pvs(p0_cluster_index, p1_cluster_index))
 		goto obstructed;
 

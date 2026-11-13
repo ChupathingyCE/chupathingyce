@@ -390,7 +390,7 @@ const struct tag_swap_op tag_swap_ops[] =
 	{ 116, 4, 4 },
 	{ 132, 2, 2 },
 	{ 136, 4, 5 },
-	{ 160, 4, 4 },
+	{ 164, 4, 3 },
 	{ 184, 4, 13 },
 	{ 244, 4, 8 },
 	{ 0, 4, 1 },
@@ -475,7 +475,7 @@ const struct tag_swap_op tag_swap_ops[] =
 	{ 0, 2, 4 },
 	{ 8, 4, 8 },
 	{ 40, 2, 6 },
-	{ 52, 4, 24 },
+	{ 100, 4, 12 },
 	{ 148, 2, 4 },
 	{ 156, 4, 81 },
 	{ 340, 0, 95 },
@@ -1200,7 +1200,7 @@ const struct tag_swap_op tag_swap_ops[] =
 	{ 0, 4, 1 },
 	{ 36, 4, 1 },
 	{ 40, 2, 8 },
-	{ 56, 4, 3 },
+	{ 56, 4, 1 },
 	{ 68, 4, 3 },
 	{ 0, 4, 3 },
 	{ 16, 4, 4 },
@@ -1658,9 +1658,6 @@ const struct tag_swap_op tag_swap_ops[] =
 	{ 112, 4, 7 },
 	{ 140, 2, 2 },
 	{ 144, 4, 10 },
-	/* (by hand until the next generation: a mirror's fields and its points, layout 179) */
-	{ 0, 4, 16 },
-	{ 52, 0, 182 },
 };
 
 const struct tag_swap_layout tag_swap_layouts[] =
