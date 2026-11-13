@@ -851,11 +851,10 @@ Navigation has eight independently owned team markers and uses the native
 HUD drawing services; the host replicates the complete marker state and
 gravity periodically, including after changes and late joins.
 
-The recognized `debug_ice_cream_flavor_status_*` globals for IWHBYD,
-Grunt Birthday Party and Bandanna report false. This does not implement
-skull gameplay. A literal assignment of false is accepted because the
-skull is already disabled; attempts to enable one or assign a computed
-value are refused. MCC maps may
+The `debug_ice_cream_flavor_status_*` globals are MCC's skulls: engine
+globals an MCC map's scripts read and set, with the skulls' gameplay (see
+[Skulls](#skulls-november-2026); earlier builds held them at false and
+refused an enable). MCC maps may
 set `sound_gain_under_dialog` and `cheat_infinite_ammo`; the adapter captures
 their previous values and restores them on unload. The native global table
 and Xbox/CE write permissions remain unchanged.
@@ -1658,9 +1657,8 @@ are migrated with defaults for the added state. Network compatibility advances
 from 27 to 28: **all peers must use matching versions**, including when playing
 Xbox or Custom Edition maps. There is no separate MCC transport or matchmaking.
 
-Boom, Sputnik, and Catch skull globals report disabled. Literal assignments
-that keep them disabled are accepted; enabling them or computing an assignment
-is refused rather than pretending their gameplay effects exist. Similarly,
+Boom, Sputnik and Catch were skull globals held at disabled at the time;
+all skulls are live now ([Skulls](#skulls-november-2026)). Separately,
 `object_prediction` reports enabled and accepts a literal enable only, matching
 the existing engine prediction policy. Converted constant expressions preserve
 their expected result types, including a void result for a `set` statement.
@@ -2554,9 +2552,9 @@ were not modified.
 Remaining limitations established during this investigation:
 
 - **CE Third Person Armory** enables I Would Have Been Your Daddy and Grunt
-  Birthday Party. These skull effects are not implemented. The refusal now names
-  the offending global and syntax node; accepting an enable as a no-op would
-  change authored gameplay and is intentionally not done.
+  Birthday Party. At the time these were refused; the skull globals are live
+  now ([Skulls](#skulls-november-2026)), those two without a gameplay effect
+  yet (both need Anniversary assets).
 - **PFD** loads and advances simulation during a three-minute idle run, without
   reproducing the reported post-transition crash. Its assault rifle and M4A1
   reference the model shader `deathstar\project_subterfuge\shader model\tag_334`
@@ -2627,3 +2625,65 @@ The final Windows binary also completed a single-process sequence from Ruby
 C20 to Xbox `a10`, to Custom Edition `deathisland`, then back to Ruby C20,
 with console responses after each load and a normal timed exit. This checks
 bounded loading and activation transitions, not full legacy visual parity.
+
+## Skulls (November 2026)
+
+MCC Halo CE keeps every skull as a boolean engine global that a map's scripts
+and the console read and set: `debug_ice_cream_flavor_status_<skull>` for
+grunt_birthday_party, assassins, famine, i_would_have_been_your_daddy, blind,
+ghost, black_eye, catch, sputnik, mythic, anger, thunderstorm, iron,
+thats_just_wrong, bandanna, boom, eye_patch, fog, foreign, grunt_funeral,
+pinata, recession, malfunction, streaking, styx, feather, bonded_pair and
+masterblaster, plus `debug_ice_cream_flavor_force_coop` (the MCC HEK's
+`hs_doc`, mirrored by c20's hs_doc files and the Assembly H1A scripting
+table). The MCC skull menu sets them before a level starts; mods set them
+from their own menus. Firefight CE (Workshop item 2898809930) turns eight on
+and off between its rounds (Anger, Black Eye, Catch, Fog, Famine, Mythic,
+That's Just... Wrong, Thunderstorm), reads Sputnik and Bandanna, and resets
+the ones the MCC menu may have turned on; the earlier design, which held
+every skull at false and refused an enable, would not load it.
+
+`port/linux/game/mcc_skulls.c` appends the same 29 globals (28 skulls and
+`force_coop`) to the engine's external global table (after every existing
+entry, so no index a map was compiled with moves), lets an MCC map's scripts set them
+(`mcc_campaign_global_settable`), clears them when a level starts and turns
+on the ones `game.mcc_skulls` names (`HALO_MCC_SKULLS`, a comma-separated
+list; the stand-in for MCC's skull menu), and carries them in the campaign
+snapshot (version 7, 776 bytes; older snapshots still restore) so
+checkpoints keep them and co-op clients see the host's. A skull is only
+active while an MCC map is loaded: `mcc_skull_active` is false on Xbox and
+Custom Edition maps whatever the globals hold, so stock Halo is unchanged
+(the Blood Gulch determinism replay, `tools/test_determinism.py`, produced
+the same state hashes before and after this change).
+
+The effects, as MCC's menu text documents them; where MCC's exact number is
+not documented the factor is this port's and the direction MCC's:
+
+| Skull | MCC text | Here |
+|---|---|---|
+| Anger | Enemies fire their weapons faster and more frequently | enemy rate of fire x2, burst separation and new-target delay x0.5 (difficulty values) |
+| Assassins | All enemies in the game are permanently cloaked | every enemy actor placed with active camouflage |
+| Bandanna | Infinite Ammo (CEA: unlimited ammo and grenades, but you still reload) | `mcc_campaign_unlimited_ammo` is true: reserve ammunition, batteries and grenades are not consumed |
+| Black Eye | Your shields only recharge when you melee enemies | a player's shields do not recharge on their own; a melee hit on a living enemy unit fills them |
+| Blind | HUD and weapon do not display onscreen | the HUD panels and the first-person weapon are not drawn |
+| Boom | Explosions have twice the damage radius | an area-of-effect damage's search and falloff radii x2 |
+| Catch | Enemies throw and drop more grenades | enemy grenade throw chance x3, encounter grenade timer x0.5; a placed enemy carries twice its grenades, two at least (so drops them) |
+| Eye Patch | Auto aim features disabled for all weapons | no aim-assist parameters for a player's weapon (no autoaim, magnetism or deviation) |
+| Famine | Weapons dropped by AI have half the ammo they normally would | an AI unit's weapons lose half their rounds and half their charge as it dies, before they drop |
+| Fog | The motion tracker is disabled | the motion sensor is not drawn |
+| Ghost | AI no longer flinch from attacks | an AI unit plays no flinch (soft or hard ping) animation; deaths unchanged |
+| Iron | Dying solo restarts the level; dying in co-op resets you at your last saved checkpoint | solo: the death timer restarts the level (`main_reset_map`) instead of reverting; co-op keeps the engine's checkpoint rule |
+| Mythic | Enemies have increased health (CEA: doubled) | enemy vitality and shield difficulty values x2 |
+| Recession | Every shot is worth twice the ammo | a player's shot costs twice the rounds and twice the battery |
+| Sputnik | Mass of objects is decreased, making them more easily displaced | a damage effect's impulse on an object x2 |
+| That's Just... Wrong | Increases enemy awareness of player | enemy vision and hearing distances x2 |
+| Thunderstorm | Upgrades the rank of most enemies | every actor with a major variant is placed as it |
+
+Not done yet (the global exists and scripts read what they set; play is
+unchanged): Grunt Birthday Party and Grunt Funeral (need Anniversary effect
+tags the maps don't carry), Piñata (a grenade item spawned per melee hit),
+Foreign (needs a rule for which weapons are Covenant), Malfunction (a random
+HUD element per respawn), Iron in co-op (any death reverting), IWHBYD and the
+Halo 2 skulls with no Halo CE effect in MCC either (Streaking, Styx, Feather,
+Bonded Pair, Masterblaster, force_coop). Tough Luck has no global in MCC Halo
+CE (Firefight CE's documentation says the same), so nothing to set.

@@ -126,6 +126,7 @@ symbols in this file:
 #include "text/text_group.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 /* ---------- constants */
 
@@ -1502,7 +1503,8 @@ void hud_draw_screen(
 			motion_sensor_tick();
 		}
 
-		if (hud_scripted_globals->show_hud)
+		/* port: MCC's Blind skull, "HUD and weapon do not display onscreen" (mcc_skulls.c) */
+		if (hud_scripted_globals->show_hud && !mcc_skull_active(MCC_SKULL_BLIND))
 		{
 			if (perspective != _director_perspective_neutral &&
 				perspective != _director_perspective_scripted &&

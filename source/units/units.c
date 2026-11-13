@@ -699,6 +699,8 @@ symbols in this file:
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #endif
 #include "mcc_grenades.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
+#include "mcc_campaign.h" /* port: an MCC map's unlimited ammunition */
 
 /* port: the control and animation impulses the host's actors give their
 units go to the clients' copies (port/linux/game/network_actors.c) */
@@ -2861,6 +2863,8 @@ void unit_died(
 	}
 
 	unit->unit.speech.queued.priority = 0;
+	/* port: MCC's Famine skull halves what an AI's weapons drop with (mcc_skulls.c) */
+	mcc_skulls_unit_dropping_weapons(unit_index);
 	unit_drop_inventory_weapons(unit_index);
 	fresh_unit = unit_get(unit_index);
 	if (fresh_unit->unit.equipment_object_index != NONE)
@@ -5772,7 +5776,8 @@ boolean unit_update(
 				}
 			}
 
-			if (cheat.infinite_ammo && unit->unit.player_index!=NONE)
+			/* port: or an MCC map's unlimited ammunition (Bandanna: mcc_skulls.c) */
+			if ((cheat.infinite_ammo || mcc_campaign_unlimited_ammo()) && unit->unit.player_index!=NONE)
 			{
 				short grenade_index;
 				if (mcc_grenades_active())
@@ -6633,6 +6638,11 @@ static void unit_ping_animation(
 	}
 
 	if (!ping && !killed)
+	{
+		return;
+	}
+	/* port: MCC's Ghost skull, "AI no longer flinch from attacks" (mcc_skulls.c) */
+	if (!killed && unit->unit.player_index==NONE && mcc_skull_active(MCC_SKULL_GHOST))
 	{
 		return;
 	}
@@ -7962,7 +7972,7 @@ static void unit_throw_grenade_move_to_hand(
 
 	if ((
 		unit->unit.player_index==NONE ||
-		!cheat.infinite_ammo && !game_engine_infinite_grenades(unit->unit.player_index)) &&
+		!cheat.infinite_ammo && !mcc_campaign_unlimited_ammo() && !game_engine_infinite_grenades(unit->unit.player_index)) &&
 		(unit->unit.actor_index==NONE ||
 		!actor_has_unlimited_grenades(unit->unit.actor_index)))
 	{

@@ -100,6 +100,7 @@ symbols in this file:
 #define REAL_MATH_EXTERNAL_REAL_LOCAL_RANDOM
 #define REAL_MATH_EXTERNAL_REAL_LOCAL_RANDOM_RANGE
 #include "interface/first_person_weapons.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 #include "cache/predicted_resources.h"
 #include "camera/director.h"
@@ -718,7 +719,8 @@ void first_person_weapon_render_update(
 			first_person_weapon->weapon_index!=NONE)
 		{
 			boolean visible= director_get_perspective(render.local_player_index)==_director_perspective_first_person &&
-				player_control_get_zoom_level(render.local_player_index)==NONE;
+				player_control_get_zoom_level(render.local_player_index)==NONE &&
+				!mcc_skull_active(MCC_SKULL_BLIND); /* port: MCC's Blind skull (mcc_skulls.c) */
 
 			first_person_weapon_set_visibility(render.local_player_index, visible);
 			if (first_person_weapon->visible)

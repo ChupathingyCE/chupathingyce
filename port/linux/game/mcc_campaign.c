@@ -7,6 +7,7 @@
 #include "mcc_campaign.h"
 #include "mcc_cache.h"
 #include "mcc_script_effects.h"
+#include "mcc_skulls.h"
 #include "mcc_game_speed.h"
 #include "ai/actor_definitions.h"
 #include "mcc_ui_network.h"
@@ -52,6 +53,7 @@ struct mcc_campaign_state {
     real ambient_base,ambient_scale;
     real music_gain;
     real model_ambient;
+    uint32_t skulls; /* (version 7: mcc_skulls.c) */
 };
 typedef char mcc_campaign_state_size[sizeof(struct mcc_campaign_state)==MCC_CAMPAIGN_SNAPSHOT_BYTES ? 1 : -1];
 static struct mcc_campaign_state mcc_campaign;
@@ -80,7 +82,7 @@ boolean mcc_campaign_global_settable(short index)
     char const *name;
     if (!mcc_cache_tags_loaded() || index<0 || index>=hs_external_global_count) return FALSE;
     name=hs_global_external_get(index)->name;
-    return mcc_script_effect_global(name) || !csstrcasecmp(name,"sound_gain_under_dialog") || !csstrcasecmp(name,"cheat_infinite_ammo") ||
+    return mcc_script_effect_global(name) || mcc_skull_global(name) || !csstrcasecmp(name,"sound_gain_under_dialog") || !csstrcasecmp(name,"cheat_infinite_ammo") ||
         !csstrcasecmp(name,"object_light_ambient_base") || !csstrcasecmp(name,"object_light_ambient_scale") ||
         !csstrcasecmp(name,"loud_dialog_hack") || !csstrcasecmp(name,"ai_debug_ignore_player") ||
         !csstrcasecmp(name,"rasterizer_screen_flashes") ||
@@ -97,6 +99,7 @@ static real mcc_campaign_argument(long value)
 void mcc_campaign_begin(void)
 {
     mcc_script_effects_begin();
+    mcc_skulls_begin();
     mcc_game_speed_reset();
     if (!mcc_campaign_owned) {
         short index=hs_find_global_by_name("ai_debug_ignore_player");
@@ -121,7 +124,8 @@ void mcc_campaign_begin(void)
         mcc_original_ignore_player=mcc_ignore_player ? *mcc_ignore_player : FALSE;
     }
     memset(&mcc_campaign,0,sizeof(mcc_campaign));
-    mcc_campaign.version=6; mcc_campaign.gravity=1.0f;
+    mcc_campaign.version=7; mcc_campaign.gravity=1.0f;
+    mcc_campaign.skulls=mcc_skulls_snapshot();
     mcc_campaign.effects_gain=1.0f;
     mcc_campaign.music_gain=1.0f;
     mcc_campaign.model_ambient=mcc_original_model_ambient;
@@ -147,6 +151,7 @@ void mcc_campaign_reset_model_lighting(void)
 void mcc_campaign_dispose(void)
 {
     mcc_script_effects_dispose();
+    mcc_skulls_dispose();
     mcc_game_speed_reset();
     if (mcc_campaign_owned) {
         global_gravity=mcc_original_gravity;sound_gain_under_dialog=mcc_original_dialog_gain;
@@ -173,6 +178,7 @@ void mcc_campaign_snapshot(void *out)
             (mcc_ignore_player && *mcc_ignore_player ? 4u : 0u) |
             (mcc_script_effects_snapshot()<<4) |
             (mcc_screen_flashes && !*mcc_screen_flashes ? MCC_CAMPAIGN_FLASHES_DISABLED : 0u);
+    if (game_connection()!=_game_connection_network_client) mcc_campaign.skulls=mcc_skulls_snapshot();
     mcc_campaign.ambient_base=object_light_ambient_base;mcc_campaign.ambient_scale=object_light_ambient_scale;
     memcpy(out,&mcc_campaign,sizeof(mcc_campaign));
 }
@@ -181,7 +187,7 @@ int mcc_campaign_validate(void const *in, unsigned long bytes)
 {
     struct mcc_campaign_state state;
     int i,j;
-    if (!in || (bytes!=sizeof(state) && bytes!=MCC_CAMPAIGN_SNAPSHOT_V5_BYTES && bytes!=MCC_CAMPAIGN_SNAPSHOT_V4_BYTES && bytes!=MCC_CAMPAIGN_SNAPSHOT_V1_BYTES)) return 0;
+    if (!in || (bytes!=sizeof(state) && bytes!=MCC_CAMPAIGN_SNAPSHOT_V6_BYTES && bytes!=MCC_CAMPAIGN_SNAPSHOT_V5_BYTES && bytes!=MCC_CAMPAIGN_SNAPSHOT_V4_BYTES && bytes!=MCC_CAMPAIGN_SNAPSHOT_V1_BYTES)) return 0;
     memset(&state,0,sizeof(state));state.effects_gain=state.music_gain=1.0f;
     state.model_ambient=mcc_original_model_ambient;
     state.ambient_base=mcc_original_ambient_base;state.ambient_scale=mcc_original_ambient_scale;
@@ -189,7 +195,9 @@ int mcc_campaign_validate(void const *in, unsigned long bytes)
     if ((bytes==MCC_CAMPAIGN_SNAPSHOT_V1_BYTES && state.version!=1u) ||
         (bytes==MCC_CAMPAIGN_SNAPSHOT_V4_BYTES && (state.version<2u || state.version>4u)) ||
         (bytes==MCC_CAMPAIGN_SNAPSHOT_V5_BYTES && state.version!=5u) ||
-        (bytes==sizeof(state) && state.version!=6u)) return 0;
+        (bytes==MCC_CAMPAIGN_SNAPSHOT_V6_BYTES && state.version!=6u) ||
+        (bytes==sizeof(state) && state.version!=7u)) return 0;
+    if (state.skulls & ~MCC_SKULL_MASK) return 0;
     if (!(state.effects_gain>=0.0f && state.effects_gain<=4.0f) ||
         !(state.music_gain>=0.0f && state.music_gain<=1.0f) ||
         (state.flags & ~(state.version==1u ? 1u : state.version==2u ? 15u :
@@ -231,8 +239,9 @@ int mcc_campaign_restore(void const *in, unsigned long bytes)
         mcc_campaign.flags|=(mcc_original_loud_dialog ? 2u : 0u) | (mcc_original_ignore_player ? 4u : 0u);
     if (mcc_campaign.version<4u && !mcc_original_screen_flashes)
         mcc_campaign.flags|=MCC_CAMPAIGN_FLASHES_DISABLED;
-    mcc_campaign.version=6;
+    mcc_campaign.version=7;
     mcc_script_effects_restore((mcc_campaign.flags>>4)&MCC_EFFECT_MASK);
+    mcc_skulls_restore(mcc_campaign.skulls);
     global_gravity=mcc_original_gravity*mcc_campaign.gravity;
     sound_gain_under_dialog=mcc_campaign.dialog_gain;
     object_light_ambient_base=mcc_campaign.ambient_base;object_light_ambient_scale=mcc_campaign.ambient_scale;
@@ -283,8 +292,10 @@ real mcc_campaign_effects_gain(void)
 
 boolean mcc_campaign_unlimited_ammo(void)
 {
+    /* (or the Bandanna skull: "Infinite Ammo", reloads kept; mcc_skulls.c) */
     return mcc_cache_tags_loaded() && mcc_campaign_owned &&
-        (game_connection()==_game_connection_network_client ? (mcc_campaign.flags&1u)!=0 : cheat.infinite_ammo);
+        ((game_connection()==_game_connection_network_client ? (mcc_campaign.flags&1u)!=0 : cheat.infinite_ammo) ||
+        mcc_skull_active(MCC_SKULL_BANDANNA));
 }
 
 /* Script muting is additional to the player's audio settings, and belongs

@@ -242,6 +242,7 @@ symbols in this file:
 #ifdef HALO_64BIT
 #include "main/console.h"
 #endif
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 #undef COLLISIONS_EXTERNAL_COLLISION_TEST_LINE
 #undef REAL_MATH_EXTERNAL_NORMALIZE3D
@@ -622,6 +623,14 @@ void ai_get_major_upgrade_chance(
 		*is_random = TRUE;
 		*random_chance = game_difficulty_get_value(_game_difficulty_value_major_upgrade);
 		break;
+	}
+
+	/* port: MCC's Thunderstorm skull, "Upgrades the rank of most enemies":
+	every actor with a major variant is placed as it (mcc_skulls.c) */
+	if (mcc_skull_active(MCC_SKULL_THUNDERSTORM))
+	{
+		*is_random = FALSE;
+		*force_major = TRUE;
 	}
 
 	return;

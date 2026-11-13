@@ -88,6 +88,7 @@ symbols in this file:
 #include "units/unit_definitions.h"
 #include "units/units.h"
 #include "bitmaps/bitmap_group.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 /* ---------- constants */
 
@@ -1147,10 +1148,12 @@ void hud_render_unit_interface(
 					hud_state->last_body_vitality = hud_unit->object.body_vitality;
 				}
 
+				/* port: nor under MCC's Fog skull, "The motion tracker is disabled" (mcc_skulls.c) */
 				if (unit_count == 0 &&
 					!TEST_FLAG(
 						unit_hud_globals->script_flags,
 						_hud_panel_motion_sensor_dont_show_bit) &&
+					!mcc_skull_active(MCC_SKULL_FOG) &&
 					game_engine_hud_draw_motion_sensor(player_index))
 				{
 					struct hud_absolute_placement_definition absolute_placement;
