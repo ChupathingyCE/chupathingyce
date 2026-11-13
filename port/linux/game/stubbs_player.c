@@ -338,7 +338,7 @@ void stubbs_player_hud_draw(
 			short index;
 			real x = x0;
 
-			bounds.y0 = (short)(y0 + bar_height + border + 2.0f);
+			bounds.y0 = (short)(y0 + bar_height + border + 4.0f * scale);
 			bounds.y1 = (short)(bounds.y0 + line_height);
 			for (index = 0; index < (short)NUMBEROF(names); index++)
 			{
@@ -364,10 +364,10 @@ void stubbs_player_hud_draw(
 				color.green = count > 0 ? 0.9f : 0.45f;
 				color.blue = count > 0 ? 0.6f : 0.4f;
 				bounds.x0 = (short)x;
-				bounds.x1 = (short)(x + bar_width);
+				bounds.x1 = (short)(x + bar_width * 2.0f);
 				draw_string_set_draw_mode(font_index, NONE, 0, 0, &color);
 				rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, text);
-				x += (real)(strlen(narrow) + 2) * (real)line_height * 0.55f;
+				x += (real)(strlen(narrow) + 2) * (real)line_height * 0.7f;
 			}
 		}
 	}
