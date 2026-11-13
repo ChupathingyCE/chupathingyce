@@ -435,6 +435,72 @@ static void test_shield_effects_message(void)
 	CHECK(message[8] == 6 && message[9] == 0);
 }
 
+static void test_gametype_name(void)
+{
+	char text[25];
+
+	/* a variant's own name, as it is (trimmed, printable) */
+	network_rules_gametype_name("Ranked TS", 2, 1, -1, text, sizeof(text));
+	CHECK(strcmp(text, "Ranked TS") == 0);
+	network_rules_gametype_name("  SWAT ", 2, 0, -1, text, sizeof(text));
+	CHECK(strcmp(text, "SWAT") == 0);
+	network_rules_gametype_name("a\tb", 2, 0, -1, text, sizeof(text));
+	CHECK(strcmp(text, "a?b") == 0);
+	/* a built-in's (no name): its engine's, as the server browser names it */
+	network_rules_gametype_name(NULL, 2, 0, -1, text, sizeof(text));
+	CHECK(strcmp(text, "Slayer") == 0);
+	network_rules_gametype_name("", 2, 1, -1, text, sizeof(text));
+	CHECK(strcmp(text, "Team Slayer") == 0);
+	network_rules_gametype_name("   ", 4, 1, -1, text, sizeof(text));
+	CHECK(strcmp(text, "Team King") == 0);
+	network_rules_gametype_name(NULL, 1, 1, -1, text, sizeof(text));
+	CHECK(strcmp(text, "CTF") == 0);
+	network_rules_gametype_name(NULL, 6, 1, -1, text, sizeof(text));
+	CHECK(strcmp(text, "Team Bomb") == 0);
+	network_rules_gametype_name(NULL, 6, 0, -1, text, sizeof(text));
+	CHECK(strcmp(text, "Bomb") == 0);
+	/* co-op: its name, or Co-op, and the difficulty */
+	network_rules_gametype_name("Co-op", 0, 0, 3, text, sizeof(text));
+	CHECK(strcmp(text, "Co-op Legendary") == 0);
+	network_rules_gametype_name(NULL, 0, 0, 3, text, sizeof(text));
+	CHECK(strcmp(text, "Co-op Legendary") == 0);
+	network_rules_gametype_name("", 0, 0, 0, text, sizeof(text));
+	CHECK(strcmp(text, "Co-op Easy") == 0);
+	network_rules_gametype_name(NULL, 0, 0, 2, text, sizeof(text));
+	CHECK(strcmp(text, "Co-op Heroic") == 0);
+	/* (a difficulty counts only on engine 0) */
+	network_rules_gametype_name(NULL, 2, 0, 3, text, sizeof(text));
+	CHECK(strcmp(text, "Slayer") == 0);
+	/* no known engine, no difficulty: none */
+	network_rules_gametype_name(NULL, 0, 0, -1, text, sizeof(text));
+	CHECK(text[0] == 0);
+	network_rules_gametype_name(NULL, 9, 0, -1, text, sizeof(text));
+	CHECK(text[0] == 0);
+	/* cut to the size */
+	network_rules_gametype_name(NULL, 2, 1, -1, text, 6);
+	CHECK(strcmp(text, "Team ") == 0);
+	network_rules_gametype_name("Capture the Flag Classic Long", 1, 1, -1, text, sizeof(text));
+	CHECK(strlen(text) == sizeof(text) - 1);
+}
+
+static void test_engine_name(void)
+{
+	char text[16];
+
+	network_rules_engine_name(1, 1, text, sizeof(text));
+	CHECK(strcmp(text, "CTF") == 0);
+	network_rules_engine_name(3, 0, text, sizeof(text));
+	CHECK(strcmp(text, "Oddball") == 0);
+	network_rules_engine_name(5, 1, text, sizeof(text));
+	CHECK(strcmp(text, "Team Race") == 0);
+	network_rules_engine_name(6, 1, text, sizeof(text));
+	CHECK(strcmp(text, "Team Bomb") == 0);
+	network_rules_engine_name(0, 1, text, sizeof(text));
+	CHECK(text[0] == 0);
+	network_rules_engine_name(7, 0, text, sizeof(text));
+	CHECK(text[0] == 0);
+}
+
 static void test_listing_kind(void)
 {
 	/* a mode only on the Slayer engine (2) */
@@ -1356,6 +1422,8 @@ int main(void)
 	test_extended_options();
 	test_shield_effects_message();
 	test_listing_kind();
+	test_gametype_name();
+	test_engine_name();
 	test_static_reach();
 	test_host_settings();
 	test_layouts_built_in();

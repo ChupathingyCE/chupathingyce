@@ -233,6 +233,22 @@ name is the game types this build does not play, so a name is also the
 reason to leave the game unjoined. Nothing here rejects a kind */
 char const *network_rules_kind_name(int kind, int engine, int short_form);
 
+/* a game type by its engine (1 CTF to 6 Bomb) and teams, as the server
+browser and the game list name a game type without a name of its own:
+"Slayer", "Team Slayer", "Team Bomb"; never "Team" before CTF (played in
+teams alone); "" for an engine outside 1 to 6. Writes at most size - 1
+characters and a terminator */
+void network_rules_engine_name(int engine, int teams, char *text, size_t size);
+
+/* a hosted game's game type as the game list's announcement names it
+(browser.c's "gametype"): its variant's own name (printable ASCII, trimmed);
+a co-op game's (engine 0 with a difficulty, 0 Easy to 3 Legendary; -1 for
+none) that name, "Co-op" for none, and the difficulty after it ("Co-op
+Legendary", as the list and the browser read it); else, for a variant
+without a name (a built-in: "slayer" in a playlist), network_rules_engine_name's.
+Writes at most size - 1 characters and a terminator */
+void network_rules_gametype_name(const char *name, int engine, int teams, int difficulty, char *text, size_t size);
+
 /* writes the shield effects message (NETWORK_RULES_SHIELD_EFFECTS_SIZE bytes,
 a reliable data message of one entry); effects past the last are stock */
 void network_rules_shield_effects_write(uint8_t *message, int effects, int32_t game_time);

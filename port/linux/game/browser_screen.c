@@ -225,12 +225,6 @@ enum
 	_playlist_result,
 };
 
-/* the game's engines, short (as players say them) to fit the column */
-static char const *const engine_names[] =
-{
-	"", "CTF", "Slayer", "Oddball", "King", "Race", "Bomb",
-};
-
 /* the multiplayer maps' names in the menus */
 static char const *const map_names[][2] =
 {
@@ -3025,11 +3019,10 @@ static char const *type_name(
 		snprintf(text, (size_t)size, "%s", engine);
 		return text;
 	}
-	engine = game->engine >= 0 && game->engine < NUMBEROF(engine_names) && engine_names[game->engine][0] ?
-		engine_names[game->engine] : "New game type";
-
-	/* (Capture the Flag is played in teams alone) */
-	snprintf(text, (size_t)size, "%s%s", game->teams && game->engine != 1 ? "Team " : "", engine);
+	/* (as the game list names it: network_rules_engine_name) */
+	network_rules_engine_name(game->engine, game->teams, text, (size_t)size);
+	if (!text[0])
+		snprintf(text, (size_t)size, "New game type");
 	return text;
 }
 

@@ -1754,6 +1754,27 @@ static void listing_text(char *text, int size, wchar_t const *wide, int length)
 	text[index] = 0;
 }
 
+/* port: a listing's game type: the variant's own name, and a co-op game's
+difficulty after it ("" for a variant without a name: a built-in's), at
+most as long as the name (as OpenCE's listing has always had it: "Co-op
+Legend") */
+#define NETWORK_GAME_SERVER_LISTING_GAMETYPE_SIZE \
+	(NUMBEROF(((struct game_variant *)0)->human_readable_game_description) + 1)
+
+static void listing_gametype(struct network_game const *game, char *gametype, int size)
+{
+	listing_text(gametype, size, game->variant.human_readable_game_description,
+		NUMBEROF(game->variant.human_readable_game_description));
+	/* co-op: add the difficulty */
+	if (!game->variant.game_engine_index && game->difficulty >= 0 && game->difficulty < 4)
+	{
+		static char const *const difficulty_names[] = { "Easy", "Normal", "Heroic", "Legendary" };
+		size_t length = strlen(gametype);
+
+		snprintf(gametype + length, (size_t)size - length, " %s", difficulty_names[game->difficulty]);
+	}
+}
+
 /* port: the server browser's listing of the game (shown only if hosted
 for the internet and public: p2p_lobby.c), as its advertisement has it
 (network_server_message_handler.c) */
@@ -1763,22 +1784,13 @@ static void network_game_server_list(
 	struct network_game *game = &server->game;
 	short state = network_game_server_get_state(server, NULL);
 	char name[NUMBEROF(game->name) + 1];
-	char gametype[NUMBEROF(game->variant.human_readable_game_description) + 1];
+	char gametype[NETWORK_GAME_SERVER_LISTING_GAMETYPE_SIZE];
 	boolean in_progress = state != _network_game_server_state_pregame || network_game_server_game_is_loading(server);
 	boolean open = state == _network_game_server_state_ingame ? network_game_server_accepts_late_joins(server) :
 		network_game_server_game_is_open(server) && network_game_has_free_player_slot(game);
 
 	listing_text(name, sizeof(name), game->name, NUMBEROF(game->name));
-	listing_text(gametype, sizeof(gametype), game->variant.human_readable_game_description,
-		NUMBEROF(game->variant.human_readable_game_description));
-	/* co-op: add the difficulty */
-	if (!game->variant.game_engine_index && game->difficulty >= 0 && game->difficulty < 4)
-	{
-		static char const *const difficulty_names[] = { "Easy", "Normal", "Heroic", "Legendary" };
-		size_t length = strlen(gametype);
-
-		snprintf(gametype + length, sizeof(gametype) - length, " %s", difficulty_names[game->difficulty]);
-	}
+	listing_gametype(game, gametype, sizeof(gametype));
 	/* (the scenario's name, not its path: the listing has 32 characters) */
 	p2p_set_game_listing(name, tag_name_strip_path(game->map.name), gametype, game->variant.game_engine_index, open,
 		in_progress, game->variant.universal_variant.teams);
@@ -1948,6 +1960,18 @@ boolean network_game_server_idle(
 					browser_host_workshop(item.id, item.title);
 				else
 					browser_host_workshop("", "");
+			}
+			/* (its game type's name, for the listing's "gametype"; a
+			built-in without a name of its own, as the engine and teams
+			name it: MCC Workshop playlists play "slayer" and "ctf") */
+			{
+				char gametype[NUMBEROF(game->variant.human_readable_game_description) + 1];
+
+				listing_text(gametype, sizeof(gametype), game->variant.human_readable_game_description,
+					NUMBEROF(game->variant.human_readable_game_description));
+				browser_host_gametype(gametype, (short)game->variant.game_engine_index,
+					game->variant.universal_variant.teams == TRUE,
+					game->variant.game_engine_index ? -1 : (int)game->difficulty);
 			}
 			browser_host_update(
 				(unsigned short const *)game->name,

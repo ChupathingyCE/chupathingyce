@@ -75,11 +75,14 @@ void pc_menu_workshop_play_update(void);
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 int config_boolean(char const *name);
 char const *config_string(char const *name);
 boolean main_menu_is_active(void);
+boolean game_map_loaded(void);
+void *global_network_game_server_get(void);
 void platform_text_field(int typing);
 unsigned long system_milliseconds(void);
 int platform_clipboard_get(char *text, int size);
@@ -532,6 +535,84 @@ boolean guide_workshop_page_offered(short step)
 	return workshop_browser_page_offered(step) != 0;
 }
 
+/* ---------- PLAY
+
+To the menus' own Create Game or level select, in the menu set chosen, a
+game or lobby left first if the player says so (menu_functions.c). A
+campaign item's levels are listed whatever game.mcc_campaigns says (it
+only adds the missions' order: mcc_maps.c). */
+
+static void play(struct workshop_browser_item const *item)
+{
+	if (item && !item->setup && item->state == WORKSHOP_ITEM_INSTALLED &&
+		pc_menu_workshop_play(item->id, item->title))
+	{
+		guide_close();
+	}
+}
+
+#ifndef HALO_RELEASE
+/* debug.workshop_play: PLAY on that installed item once, a few seconds
+after the main menu or a game is up, for tests */
+static void debug_play(void)
+{
+	static unsigned long since;
+	static boolean done, opened;
+	char const *setting = config_string("debug.workshop_play");
+	char id[WORKSHOP_BROWSER_ID_SIZE];
+	unsigned long wait = 4000;
+	char const *colon;
+	int index;
+
+	if (done || !setting[0])
+		return;
+	/* (":lobby" at its end: in a lobby this machine hosts; ":game": in a
+	game) */
+	if ((!main_menu_is_active() && !game_map_loaded()) ||
+		(strstr(setting, ":lobby") && !(main_menu_is_active() && global_network_game_server_get())) ||
+		(strstr(setting, ":game") && main_menu_is_active()))
+	{
+		since = 0;
+		return;
+	}
+	if (!since)
+		since = system_milliseconds() | 1;
+	snprintf(id, sizeof(id), "%s", setting);
+	colon = strchr(setting, ':');
+	if (colon)
+	{
+		id[colon - setting < (int)sizeof(id) ? colon - setting : (int)sizeof(id) - 1] = 0;
+		wait = (unsigned long)(atof(colon + 1) * 1000);
+	}
+	if (system_milliseconds() - since < wait)
+		return;
+	/* (the list, as the section showing asks for it) */
+	if (!opened)
+	{
+		opened = TRUE;
+		workshop_browser_open(0);
+	}
+	if (workshop_browser_poll())
+		mcc_maps_rescan();
+	for (index = 0; index < workshop_browser_count(); index++)
+	{
+		struct workshop_browser_item const *item = workshop_browser_item(index);
+
+		if (item && !item->setup && !strcmp(item->id, id) && item->state == WORKSHOP_ITEM_INSTALLED)
+		{
+			done = TRUE;
+			platform_log("Workshop: debug.workshop_play: PLAY on item %s", id);
+			play(item);
+			return;
+		}
+	}
+}
+#else
+static void debug_play(void)
+{
+}
+#endif
+
 /* a question on the item's page put away, unanswered (CANCEL, B, another
 item or the page left) */
 static void confirms_clear(void)
@@ -561,19 +642,8 @@ static void option_run(short option)
 		search_start();
 		return;
 	case _option_play:
-	{
-		struct workshop_browser_item const *item = workshop_browser_item(workshop_view.row);
-
-		/* (to the menus' own Create Game or level select, in the menu set
-		chosen, a game or lobby left first if the player says so:
-		menu_functions.c) */
-		if (item && !item->setup && item->state == WORKSHOP_ITEM_INSTALLED &&
-			pc_menu_workshop_play(item->id, item->title))
-		{
-			guide_close();
-		}
+		play(workshop_browser_item(workshop_view.row));
 		return;
-	}
 	case _option_update:
 		if (link_needed())
 		{
@@ -1131,6 +1201,7 @@ void guide_workshop_update(boolean showing)
 
 	/* (PLAY's item handed over once the main menu is back) */
 	pc_menu_workshop_play_update();
+	debug_play();
 
 	workshop_browser_own_library();
 	settings_rows_set_steam_link_action(workshop_browser_link_offered() ? link_settings_press : NULL);
