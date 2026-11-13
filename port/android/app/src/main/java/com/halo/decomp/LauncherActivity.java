@@ -201,20 +201,22 @@ public class LauncherActivity extends Activity {
         if (driverStarted)
             return;
         driverStarted = true;
-        if (!Updater.driverWanted(dataRoot) || Updater.driverReady(dataRoot)) {
+        File store = Updater.driverStore(this);
+
+        if (!Updater.driverWanted(dataRoot) || Updater.driverReady(store)) {
             startGame();
             return;
         }
         new Thread(() -> {
-            Updater.Choice choice = Updater.driverChoose(dataRoot);
+            Updater.Choice choice = Updater.driverChoose(store);
 
-            if (choice == null || choice.driver == null || Updater.driverPresent(dataRoot, choice.driver)) {
+            if (choice == null || choice.driver == null || Updater.driverPresent(store, choice.driver)) {
                 handler.post(this::startGame);
                 return;
             }
             handler.post(() -> buildDriverInterface(choice));
             try {
-                Updater.driverDownload(dataRoot, choice.driver, choice.gpu, (received, total) -> report(
+                Updater.driverDownload(store, choice.driver, choice.gpu, (received, total) -> report(
                     "Downloading the driver... (" + (received >> 10) + " of " + (total >> 10) + " KB)",
                     total > 0 ? (int) (received * 1000 / total) : 0));
                 handler.post(this::startGame);

@@ -20,7 +20,16 @@ In `config.toml`, in the `[display]` section:
 | `renderer = "vulkan"` | Vulkan; OpenGL ES if Vulkan cannot start |
 | `vk_driver = ""` | the phone's own Vulkan driver, the default |
 | `vk_driver = "auto"` | Turnip on an Adreno GPU, downloaded by the launcher before the game starts |
-| `vk_driver = "<name>.zip"` | an adrenotools driver archive left in the game's folder |
+| `vk_driver = "<name>.zip"` | one of the Turnip builds the app knows by name, in its driver folder |
+
+A driver archive is code the game runs, so the app only loads the builds it
+knows (`Updater.java`'s table, the same in `host_vk_driver.c`): the launcher
+downloads them into the app's private storage (`getFilesDir()/vk_driver`,
+which no other app can write, unlike the external files folder on Android 9
+and 10), checks the size and SHA-256 of each download, and the game checks
+them again before it unpacks an archive and at every load. An archive that is
+not a known build, or not whole, is not loaded and the phone's own driver is
+used.
 
 Both take effect when the game starts. The log (`adb logcat -s chupathingyce`)
 has a line, `renderer: ...`, that says what runs and, when Vulkan was asked

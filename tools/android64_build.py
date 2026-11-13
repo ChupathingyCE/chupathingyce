@@ -43,7 +43,7 @@ from .android_build import (
     vulkan_rules,
 )
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import OPTIMISATION, ffmpeg_build, lto_flags
+from .linux_build import MBEDTLS_DIR, OPTIMISATION, ffmpeg_build, lto_flags
 from .lp64_build import (
     LINUX_PORT_CONFIG,
     Lp64Build,
@@ -145,7 +145,7 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
         target_flags=target_flags,
         game_flags=ANDROID64_GAME_FLAGS,
         posix_flags=ANDROID64_POSIX_FLAGS,
-        host_include=f"-I{SDL_DIR / 'include'} -I{PORT_DIR / 'include'} -I{PORT_DIR / 'host'} -I{GLSLANG_DIR}",
+        host_include=f"-I{SDL_DIR / 'include'} -I{PORT_DIR / 'include'} -I{PORT_DIR / 'host'} -I{GLSLANG_DIR} -I{MBEDTLS_DIR / 'include'}",
         third_party_flags=["-fno-builtin-wcslen"],
         excluded=set(lp64_excluded()),
         # the app's entry point and services (port/android/native64), and the

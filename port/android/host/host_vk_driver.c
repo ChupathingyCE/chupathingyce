@@ -36,6 +36,79 @@ Not thread safe. One driver per process.
 #include <unistd.h>
 #include <zlib.h>
 
+#include "mbedtls/sha256.h"
+
+/* ---------- the driver archives that may be loaded
+
+An archive is loaded only from the app's private storage (getFilesDir()/vk_driver, where the launcher downloads it:
+Updater.java) and only when it is one of these builds, whole and with this SHA-256, checked before it is unpacked and at
+every load: on Android 9 and 10 another app can write the external files folder, and an archive is code the game runs. The
+table is Updater.java's DRIVERS. */
+
+struct pinned_archive
+{
+	const char *name;
+	long long size;
+	const char *sha256;
+};
+
+static const struct pinned_archive pinned_archives[] = {
+	{ "Turnip_v26.0.0_R8.zip", 3478359, "e634db0f929e2205e95511c769071817d0390180ec72c8e690bc76375e813715" },
+	{ "Turnip_v26.0.0_R8_A8xx.zip", 2477437, "27e400a39cae06ac22695d74b837449868f712c679662c5793776bd575eca3bd" },
+};
+
+#define ARCHIVES_FOLDER "vk_driver"
+#define UNPACKED_FOLDER "vk_driver_unpacked"
+
+static const struct pinned_archive *archive_pinned(const char *name)
+{
+	size_t index;
+
+	for (index = 0; index < sizeof(pinned_archives) / sizeof(pinned_archives[0]); index++)
+	{
+		if (!strcmp(pinned_archives[index].name, name))
+			return &pinned_archives[index];
+	}
+	return NULL;
+}
+
+/* whether the file at path is the pinned build: its size, then its SHA-256 */
+static int archive_verified(const char *path, const struct pinned_archive *pinned, char *error, size_t error_size)
+{
+	unsigned char digest[32];
+	char text[65];
+	FILE *file = fopen(path, "rb");
+	unsigned char buffer[65536];
+	mbedtls_sha256_context context;
+	long long total = 0;
+	size_t count, index;
+
+	if (!file)
+	{
+		snprintf(error, error_size, "%s: %s", path, strerror(errno));
+		return 0;
+	}
+	mbedtls_sha256_init(&context);
+	mbedtls_sha256_starts(&context, 0);
+	while ((count = fread(buffer, 1, sizeof(buffer), file)) > 0)
+	{
+		mbedtls_sha256_update(&context, buffer, count);
+		total += (long long)count;
+	}
+	fclose(file);
+	mbedtls_sha256_finish(&context, digest);
+	mbedtls_sha256_free(&context);
+	for (index = 0; index < 32; index++)
+		snprintf(text + index * 2, 3, "%02x", digest[index]);
+	if (total != pinned->size || strcmp(text, pinned->sha256))
+	{
+		snprintf(error, error_size, "%s is not the pinned %s (%lld bytes, SHA-256 %s): not loaded", path, pinned->name,
+			total, text);
+		return 0;
+	}
+	return 1;
+}
+
 #define ADRENOTOOLS_DRIVER_CUSTOM (1 << 0) /* adrenotools/priv.h */
 
 typedef void *(*open_libvulkan_function)(int dlopen_mode, int feature_flags, const char *tmp_lib_dir,
@@ -552,7 +625,6 @@ description says what was opened, on failure error says why */
 static int open_archive(const char *setting, void **library, char *description, size_t description_size,
 	char *error, size_t error_size)
 {
-	const char *external = SDL_GetAndroidExternalStoragePath();
 	const char *internal = SDL_GetAndroidInternalStoragePath();
 	char archive_path[1024], directory[1024], native[1024], path[1024];
 	char library_name[256], name[160], version[160];
@@ -561,18 +633,26 @@ static int open_archive(const char *setting, void **library, char *description, 
 	size_t meta_size = 0;
 	void *adrenotools, *handle;
 	open_libvulkan_function open_libvulkan;
+	const struct pinned_archive *pinned;
 
 	if (!name_is_safe(setting) || strchr(setting, '/'))
 	{
-		snprintf(error, error_size, "\"%s\" is not the name of a file in the data folder", setting);
+		snprintf(error, error_size, "\"%s\" is not the name of a driver archive", setting);
 		return 0;
 	}
-	if (!external || !internal)
+	pinned = archive_pinned(setting);
+	if (!pinned)
+	{
+		snprintf(error, error_size, "\"%s\" is not one of the driver builds the app knows (Updater.java); only those are loaded",
+			setting);
+		return 0;
+	}
+	if (!internal)
 	{
 		snprintf(error, error_size, "Android's storage is unavailable: %s", SDL_GetError());
 		return 0;
 	}
-	snprintf(archive_path, sizeof(archive_path), "%s/%s", external, setting);
+	snprintf(archive_path, sizeof(archive_path), "%s/" ARCHIVES_FOLDER "/%s", internal, setting);
 	if (stat(archive_path, &archive_stat) != 0)
 	{
 		snprintf(error, error_size, "%s: %s", archive_path, strerror(errno));
@@ -583,7 +663,10 @@ static int open_archive(const char *setting, void **library, char *description, 
 		snprintf(error, error_size, "%s is not a file", archive_path);
 		return 0;
 	}
-	snprintf(directory, sizeof(directory), "%s/vk_driver/%s/", internal, setting);
+	/* (checked at every load, not only before the unpack: the archive is code) */
+	if (!archive_verified(archive_path, pinned, error, error_size))
+		return 0;
+	snprintf(directory, sizeof(directory), "%s/" UNPACKED_FOLDER "/%s/", internal, setting);
 	if (!unpacked_is_current(directory, &archive_stat))
 	{
 		uint64_t start = SDL_GetTicks();
@@ -686,18 +769,19 @@ static int open_archive(const char *setting, void **library, char *description, 
 	return 1;
 }
 
-/* display.vk_driver = "auto": the archive vk_driver_auto.txt names, if it is in the external files folder; else empty */
+/* display.vk_driver = "auto": the archive vk_driver_auto.txt names (the launcher's choice for this GPU, in the app's
+private storage with the archives), if it is there; else empty */
 static void auto_resolve(char *out, size_t size)
 {
-	const char *external = SDL_GetAndroidExternalStoragePath();
+	const char *internal = SDL_GetAndroidInternalStoragePath();
 	char path[1024], line[256] = "";
 	struct stat archive;
 	FILE *file;
 
 	out[0] = 0;
-	if (!external)
+	if (!internal)
 		return;
-	snprintf(path, sizeof(path), "%s/vk_driver_auto.txt", external);
+	snprintf(path, sizeof(path), "%s/" ARCHIVES_FOLDER "/vk_driver_auto.txt", internal);
 	file = fopen(path, "r");
 	if (file)
 	{
@@ -708,8 +792,8 @@ static void auto_resolve(char *out, size_t size)
 	line[strcspn(line, "\r\n")] = 0;
 	if (line[0])
 	{
-		snprintf(path, sizeof(path), "%s/%s", external, line);
-		if (name_is_safe(line) && !strchr(line, '/') && !stat(path, &archive))
+		snprintf(path, sizeof(path), "%s/" ARCHIVES_FOLDER "/%s", internal, line);
+		if (name_is_safe(line) && !strchr(line, '/') && archive_pinned(line) && !stat(path, &archive))
 			snprintf(out, size, "%s", line);
 	}
 	if (out[0])
@@ -717,7 +801,7 @@ static void auto_resolve(char *out, size_t size)
 	else if (!file)
 		host_logf(HOST_LOG_INFO, "vk driver: auto: the phone's own (the launcher has not chosen one yet)");
 	else if (line[0])
-		host_logf(HOST_LOG_INFO, "vk driver: auto: the phone's own (%s is not in the data folder)", line);
+		host_logf(HOST_LOG_INFO, "vk driver: auto: the phone's own (%s is not in the app's driver folder)", line);
 	else
 		host_logf(HOST_LOG_INFO, "vk driver: auto: the phone's own (no Turnip build for this GPU)");
 }

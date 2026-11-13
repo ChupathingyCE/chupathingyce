@@ -257,6 +257,19 @@ final class Updater {
     };
     private static final String AUTO_FILE = "vk_driver_auto.txt";
 
+    /**
+     * Where the archives and vk_driver_auto.txt live: the app's private storage (getFilesDir()/vk_driver), which no other
+     * app can write, never the external files folder (on Android 9 and 10 any app with the storage permission could swap an
+     * archive there). The game's driver loader (port/android/host/host_vk_driver.c) reads the same folder and checks the
+     * archive's SHA-256 against the same table before it unpacks and loads it.
+     */
+    static File driverStore(android.content.Context context) {
+        File store = new File(context.getFilesDir(), "vk_driver");
+
+        store.mkdirs();
+        return store;
+    }
+
     private static Driver driverNamed(String name) {
         for (Driver driver : DRIVERS) {
             if (driver.name.equals(name))
@@ -276,17 +289,17 @@ final class Updater {
         return renderer != null && renderer.startsWith("\"vulkan\"") && driver != null && driver.startsWith("\"auto\"");
     }
 
-    /** whether this phone's archive was decided and is in the data folder at root (or it has none) */
-    static boolean driverReady(File root) {
-        if (root == null)
+    /** whether this phone's archive was decided and is in the store, whole and with its pinned hash (or it has none) */
+    static boolean driverReady(File store) {
+        if (store == null)
             return true;
-        List<String> lines = readLines(new File(root, AUTO_FILE));
+        List<String> lines = readLines(new File(store, AUTO_FILE));
 
         if (lines.isEmpty())
             return false;
         Driver driver = driverNamed(lines.get(0).trim());
 
-        return driver == null || new File(root, driver.name).length() == driver.size;
+        return driver == null || driverPresent(store, driver);
     }
 
     /** the GPU's name, and this phone's archive (null for a GPU that has none) */
@@ -301,7 +314,7 @@ final class Updater {
     }
 
     /** decides this phone's archive from its GPU and records it in vk_driver_auto.txt; null if the GPU cannot be named */
-    static Choice driverChoose(File root) {
+    static Choice driverChoose(File store) {
         String renderer = glRenderer();
         int model = adrenoModel(renderer);
         Driver chosen = null;
@@ -316,27 +329,39 @@ final class Updater {
         }
         android.util.Log.i("halo", "driver: the GPU is \"" + renderer + "\": " + (chosen != null ? chosen.name
             : "no Turnip build for it; Vulkan runs on the phone's own driver"));
-        File partial = new File(root, AUTO_FILE + ".tmp");
+        File partial = new File(store, AUTO_FILE + ".tmp");
         try (OutputStream out = new FileOutputStream(partial)) {
             out.write(((chosen != null ? chosen.name : "") + "\n").getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
             partial.delete();
             return new Choice(renderer, chosen);
         }
-        if (!partial.renameTo(new File(root, AUTO_FILE)))
+        if (!partial.renameTo(new File(store, AUTO_FILE)))
             partial.delete();
         return new Choice(renderer, chosen);
     }
 
-    /** whether an archive is in the data folder at root */
-    static boolean driverPresent(File root, Driver driver) {
-        return new File(root, driver.name).length() == driver.size;
+    /** whether an archive is in the store, whole and with its pinned hash (a damaged or swapped one is removed) */
+    static boolean driverPresent(File store, Driver driver) {
+        File archive = new File(store, driver.name);
+
+        if (!archive.isFile())
+            return false;
+        try {
+            if (archive.length() == driver.size && driver.sha256.equals(sha256(archive)))
+                return true;
+        } catch (Exception e) {
+            android.util.Log.i("halo", "driver: could not read " + archive + ": " + e);
+        }
+        android.util.Log.i("halo", "driver: " + driver.name + " is not the pinned build; downloading it again");
+        archive.delete();
+        return false;
     }
 
     /** the archive downloaded into root (as a .partial file, renamed once it is checked); throws why it could not be */
-    static void driverDownload(File root, Driver driver, String gpu, Progress progress) throws Exception {
-        File archive = new File(root, driver.name);
-        File partial = new File(root, driver.name + ".partial");
+    static void driverDownload(File store, Driver driver, String gpu, Progress progress) throws Exception {
+        File archive = new File(store, driver.name);
+        File partial = new File(store, driver.name + ".partial");
 
         try {
             android.util.Log.i("halo", "driver: downloading " + driver.url + " for the " + gpu);
@@ -346,7 +371,7 @@ final class Updater {
             archive.delete();
             if (!partial.renameTo(archive))
                 throw new IOException("it could not be renamed to " + archive);
-            android.util.Log.i("halo", "driver: " + driver.name + " is in the data folder");
+            android.util.Log.i("halo", "driver: " + driver.name + " is in the app's driver folder");
         } catch (Exception e) {
             partial.delete();
             android.util.Log.i("halo", "driver: could not download " + driver.name + ": " + e);
