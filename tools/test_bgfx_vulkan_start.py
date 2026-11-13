@@ -16,8 +16,8 @@ for what is still unknown:
 - bgfx told a swap chain it may switch between two present modes without
   asking the surface whether they are compatible, which Mesa's Wayland WSI
   says they are not (tools/bgfx-patches/0006);
-- a Vulkan start leaves a note in the save root that the first frames
-  remove; a note found at the next start means the last one closed before
+- a Vulkan start leaves a note in the save root that the game's first
+  frames after its first map loads remove (never the setup screen's); a note found at the next start means the last one closed before
   them, and that start draws with OpenGL and asks whether to stay there; the
   setting changes only on a yes.
 """
@@ -97,11 +97,14 @@ def test_a_start_that_did_not_get_going_goes_to_opengl():
 	assert "remove(path);" in failed
 	out = function_body(source, "static void bg_frame_out(")
 	assert "++frames == BG_START_FRAMES" in out and "remove(path);" in out
-	# (the frames the game and the setup screen put out both count)
+	# (only the game's frames after its first map count: a start that closes
+	# loading that map, past the setup screen, still leaves the note)
+	assert "!bg_map_seen" in out
+	assert "bg_map_seen = TRUE;" in function_body(source, "static void bg_warm(")
 	present = function_body(source, "static void bg_present(")
-	assert present.index("bgfx_frame(BGFX_FRAME_NONE);") < present.index("bg_frame_out();")
+	assert present.index("bg_warm();") < present.index("bgfx_frame(BGFX_FRAME_NONE);") < present.index("bg_frame_out();")
 	launcher = function_body(source, "BOOL xgpu_bgfx_launcher_frame(")
-	assert launcher.index("bgfx_frame(BGFX_FRAME_NONE);") < launcher.index("bg_frame_out();")
+	assert "bg_frame_out();" not in launcher
 	assert 'getenv("HALO_BGFX_START_NOTE")' in function_body(source, "static BOOL bg_start_note_wanted(")
 
 

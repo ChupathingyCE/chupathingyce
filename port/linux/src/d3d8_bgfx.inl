@@ -1806,6 +1806,10 @@ static void bg_map_loaded(const char *map)
 
 static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_shader *fragment);
 
+/* a map has loaded since bgfx started (the main menu's ui.map is the first):
+the Vulkan start note's frames are counted from it (bg_frame_out) */
+static BOOL bg_map_seen;
+
 /* the current map's listed programs, a few a frame (bg_present): their
 shaders read from the cache folder (missing ones are left for the draws) */
 static void bg_warm(void)
@@ -1822,6 +1826,7 @@ static void bg_warm(void)
 		snprintf(map, sizeof(map), "%s", bg_jobs.warm_map);
 		bg_jobs.warm_pending = FALSE;
 		pthread_mutex_unlock(&bg_jobs.lock);
+		bg_map_seen = TRUE;
 		/* the list of the map now loaded */
 		if (bg_jobs.pairs_file)
 			fclose(bg_jobs.pairs_file);
@@ -4342,9 +4347,11 @@ static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char 
 /* ---------- a Vulkan start that did not get going
 
 bgfx's Vulkan is started with a note in the save root
-(bgfx-vulkan.starting) that the first frames out remove (bg_frame_out). A
-note still there at the next start says the last one closed, crashed or hung
-before them: a driver that refused a pipeline, a GPU fault, a swap chain
+(bgfx-vulkan.starting) that the game's first frames out after its first map
+loads remove (bg_frame_out): the main menu's, or the map's a command line
+starts on. The setup screen's frames never count, so a start that closes
+loading that first map still leaves it. A note still there at the next start
+says the last one closed, crashed or hung before them: a driver that refused a pipeline, a GPU fault, a swap chain
 that never presented (game issue #1046, AMD's drivers and RADV). That start
 draws with OpenGL, and the player is asked whether to stay on OpenGL for
 good (platform_offer_opengl): display.renderer changes only on a yes, and a
@@ -4397,12 +4404,13 @@ static void bg_start_note(void)
 	}
 }
 
-/* a frame went out to the window: the note goes at the BG_START_FRAMES'th */
+/* a frame of the game's went out to the window: the note goes at the
+BG_START_FRAMES'th after the first map loaded */
 static void bg_frame_out(void)
 {
 	static unsigned long frames;
 
-	if (!bg_vulkan || frames > BG_START_FRAMES)
+	if (!bg_vulkan || !bg_map_seen || frames > BG_START_FRAMES)
 		return;
 	if (++frames == BG_START_FRAMES)
 	{
@@ -4434,7 +4442,6 @@ BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int h
 	if (screenshot && *screenshot)
 		bgfx_request_screen_shot((bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE, screenshot);
 	bgfx_frame(BGFX_FRAME_NONE);
-	bg_frame_out();
 	/* (the game's first frame starts its views as bg_present leaves them) */
 	bgfx_set_view_clear(0, BGFX_CLEAR_NONE, 0, 1.0f, 0);
 	return TRUE;
@@ -5127,7 +5134,7 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 	{
 		if (bg_last_start_failed())
 		{
-			platform_log("bgfx: the last Vulkan start closed before its first %d frames, so OpenGL for this "
+			platform_log("bgfx: the last Vulkan start closed before its first map drew %d frames, so OpenGL for this "
 				"start", BG_START_FRAMES);
 			platform_offer_opengl();
 			return FALSE;
