@@ -4126,6 +4126,40 @@ static const char bg_overlay_fragment_source[] =
 	"\tfragment_color = vec4(xD0.rgb, xD0.a * alpha);\n"
 	"}\n";
 
+/* the overlay's textures and program let go (what bg_overlay_prepare made
+before one of them failed, #1081: nothing of a half-made overlay is kept or
+bound) */
+static void bg_overlay_release(void)
+{
+	bgfx_texture_handle_t *textures[5] = { &bg.overlay_atlas, &bg.overlay_icons, &bg.overlay_picture,
+		&bg.overlay_plasma, &bg.overlay_medals };
+	int index;
+
+	for (index = 0; index < 5; index++)
+	{
+		if (BGFX_HANDLE_IS_VALID(*textures[index]))
+			bgfx_destroy_texture(*textures[index]);
+		*textures[index] = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+	}
+	if (BGFX_HANDLE_IS_VALID(bg.overlay))
+		bgfx_destroy_program(bg.overlay);
+	bg.overlay = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.overlay_medals_ready = FALSE;
+}
+
+/* a texture of the overlay's replaced by a new one: the old one stays,
+and is still what the overlay binds, when the new one cannot be made
+(#1081: never an invalid handle bound) */
+static BOOL bg_overlay_replace(bgfx_texture_handle_t *texture, bgfx_texture_handle_t replacement)
+{
+	if (!BGFX_HANDLE_IS_VALID(replacement))
+		return FALSE;
+	if (BGFX_HANDLE_IS_VALID(*texture))
+		bgfx_destroy_texture(*texture);
+	*texture = replacement;
+	return TRUE;
+}
+
 static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int icon_size, int icon_count)
 {
 	struct bg_shader *vertex, *fragment;
@@ -4135,6 +4169,8 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	if (BGFX_HANDLE_IS_VALID(bg.overlay) || bg.overlay_failed)
 		return !bg.overlay_failed;
 	bg.overlay_failed = TRUE;
+	bg.overlay_atlas = bg.overlay_icons = bg.overlay_picture = bg.overlay_plasma = bg.overlay_medals =
+		(bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
 	/* (its uniforms before its shaders, which Vulkan's finds them by) */
 	bg.overlay_uniforms[0] = bgfx_create_uniform("scale_v4", BGFX_UNIFORM_TYPE_VEC4, 1);
 	bg.overlay_uniforms[1] = bgfx_create_uniform("cutouts", BGFX_UNIFORM_TYPE_VEC4, 4);
@@ -4166,6 +4202,7 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 		!BGFX_HANDLE_IS_VALID(bg.overlay_icons))
 	{
 		platform_log("bgfx: the overlay's textures cannot be made, so it is not drawn");
+		bg_overlay_release();
 		return FALSE;
 	}
 	for (index = 0; index < icon_count && icons; index++)
@@ -4206,6 +4243,14 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 			bgfx_copy(zero, 4), 0);
 		bg.overlay_medals = bgfx_create_texture_2d(1, 1, false, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
 			bgfx_copy(zero, 4), 0);
+		/* (every texture the overlay binds, or none of it: the stand-ins too) */
+		if (!BGFX_HANDLE_IS_VALID(bg.overlay_picture) || !BGFX_HANDLE_IS_VALID(bg.overlay_plasma) ||
+			!BGFX_HANDLE_IS_VALID(bg.overlay_medals))
+		{
+			platform_log("bgfx: the overlay's textures cannot be made, so it is not drawn");
+			bg_overlay_release();
+			return FALSE;
+		}
 	}
 	bg.overlay_failed = FALSE;
 	return TRUE;
@@ -4232,21 +4277,17 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 			UINT16_MAX);
 	if (picture && picture_serial != bg.overlay_picture_serial)
 	{
-		if (BGFX_HANDLE_IS_VALID(bg.overlay_picture))
-			bgfx_destroy_texture(bg.overlay_picture);
-		bg.overlay_picture = bgfx_create_texture_2d((uint16_t)picture_width, (uint16_t)picture_height, false, 1,
-			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
-			bgfx_copy(picture, (uint32_t)(picture_width * picture_height * 4)), 0);
+		bg_overlay_replace(&bg.overlay_picture, bgfx_create_texture_2d((uint16_t)picture_width,
+			(uint16_t)picture_height, false, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
+			bgfx_copy(picture, (uint32_t)(picture_width * picture_height * 4)), 0));
 		bg.overlay_picture_serial = picture_serial;
 	}
 	/* (the plasma's noise map, while a plasma is drawn: the Guide's) */
 	if (plasma && plasma_serial != bg.overlay_plasma_serial)
 	{
-		if (BGFX_HANDLE_IS_VALID(bg.overlay_plasma))
-			bgfx_destroy_texture(bg.overlay_plasma);
-		bg.overlay_plasma = bgfx_create_texture_2d((uint16_t)plasma_width, (uint16_t)plasma_height, false, 1,
-			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
-			bgfx_copy(plasma, (uint32_t)(plasma_width * plasma_height * 4)), 0);
+		bg_overlay_replace(&bg.overlay_plasma, bgfx_create_texture_2d((uint16_t)plasma_width,
+			(uint16_t)plasma_height, false, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
+			bgfx_copy(plasma, (uint32_t)(plasma_width * plasma_height * 4)), 0));
 		bg.overlay_plasma_serial = plasma_serial;
 	}
 	/* (the medals' atlas, once a medal is drawn: with smaller levels, as
@@ -4258,12 +4299,12 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 		int mip = 0;
 
 		bg.overlay_medals_ready = TRUE;
-		if (BGFX_HANDLE_IS_VALID(bg.overlay_medals))
-			bgfx_destroy_texture(bg.overlay_medals);
-		bg.overlay_medals = bgfx_create_texture_2d((uint16_t)medals_width, (uint16_t)medals_height, true, 1,
-			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE, NULL, 0);
-		if (!BGFX_HANDLE_IS_VALID(bg.overlay_medals))
+		/* (the stand-in stays bound if the atlas cannot be made: the medals
+		then draw blank, and nothing binds an invalid handle) */
+		if (!bg_overlay_replace(&bg.overlay_medals, bgfx_create_texture_2d((uint16_t)medals_width,
+			(uint16_t)medals_height, true, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE, NULL, 0)))
 		{
+			platform_log("bgfx: the medals' atlas cannot be made; medals are not drawn");
 			free(level);
 			level = NULL;
 		}
