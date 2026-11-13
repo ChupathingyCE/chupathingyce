@@ -1237,7 +1237,7 @@ keyboard, as SDL names it: key:C; key:W+C holds both), the mouse's (move,
 click, rclick, wheel, below), shot, fire (the trigger held all its second),
 fireshot (fire, and a shot 600 ms in), the debug camera's fly tokens
 (test_input_debug_camera) or wait (none), separated by spaces or commas */
-static char test_input_menu[512];
+static char test_input_menu[4096];
 static Uint64 test_input_menu_since;
 
 /* debug.test_input "follow:<file>": the same buttons, read from a file as
@@ -1742,6 +1742,42 @@ static void test_input_gamepad(XINPUT_GAMEPAD *pad)
 		}
 	}
 	test_input_follow_poll();
+	/* (HALO_TEST_INPUT_FILE: a file whose text, when it appears, is a new
+	"menu:" script from now, for tests that wait on the game between steps;
+	the file is emptied once read) */
+	{
+		static const char *file_name;
+		static Uint64 file_checked;
+		static int file_known;
+
+		if (!file_known)
+		{
+			file_name = getenv("HALO_TEST_INPUT_FILE");
+			file_known = 1;
+		}
+		if (file_name && *file_name && SDL_GetTicks() - file_checked >= 250)
+		{
+			FILE *file = fopen(file_name, "rb");
+
+			file_checked = SDL_GetTicks();
+			if (file)
+			{
+				char text[sizeof(test_input_menu)];
+				size_t length = fread(text, 1, sizeof(text) - 1, file);
+
+				fclose(file);
+				text[length] = 0;
+				if (length)
+				{
+					snprintf(test_input_menu, sizeof(test_input_menu), "%s", text);
+					test_input_menu_since = SDL_GetTicks();
+					file = fopen(file_name, "wb");
+					if (file)
+						fclose(file);
+				}
+			}
+		}
+	}
 	if (test_input_menu[0])
 	{
 		test_input_menu_gamepad(pad);
