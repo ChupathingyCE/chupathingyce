@@ -113,6 +113,22 @@ protocol), so they hear it right away instead of waiting on silence; what
 they do next is their game's business. Any package answer that reaches one
 of our players is dropped unread.
 
+OpenCE players join our MCC games too. Before an OpenCE client loads an MCC
+map it checks its own copy against the host's, and asks the host to keep it
+in the game while it does (their message 105, an "admission hold"). Our host
+answers a hold for its own game's identity alone and keeps the machine, as
+it keeps one downloading a Custom Edition map, for up to two minutes (20
+seconds without a word from it), then 15 seconds once the client says it's
+ready. The game's start doesn't wait for it; the player joins the game in
+progress. The check compares two digests in the game settings: the map's
+content, and the package's metadata. The metadata digest is SHA-256 over
+the text `MCC package metadata 1` and then, sorted by path (lowercase, `/`
+separators), `ModInfo.json`, `CampaignInfo.json` when the package has a
+campaign, and the one multiplayer map JSON whose `ScenarioFile` is the
+level, each as its path, a zero byte, its length (4 bytes, little-endian)
+and its bytes. It is all zero for a map outside a package folder, and for a
+campaign level, which our host doesn't plan yet.
+
 ## Where the files are
 
 - With the Steam client: Steam's own Workshop folder,

@@ -27,5 +27,10 @@ int mcc_manifest_load(const char *folder, struct mcc_manifest *manifest, char re
 int mcc_manifest_for_level(const char *level, struct mcc_manifest *manifest, char reason[128]);
 /* Actual selected package root, shared by MCC metadata consumers only. */
 int mcc_manifest_package_root(const char *level, char path[1024]);
+/* OpenCE's metadata digest of the level's package (the settings record's
+ * last 32 bytes on an MCC map, from their network 43 on): 1 with it in
+ * digest, else 0 with digest all zero (a map outside a package folder, or a
+ * plan this build doesn't make: a campaign level's) */
+int mcc_manifest_metadata_digest(const char *level, unsigned char digest[32]);
 
 #endif

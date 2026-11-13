@@ -1022,7 +1022,9 @@ never does: a host's decline, a client's note (mcc_network_messages.h) */
 #endif
 #if defined(HALO_MCC) && HALO_MCC
 #include "mcc_share_rules.h"
+#include "mcc_identity.h"
 boolean network_distributed_server_send_to_machine_reliably(long machine_index, void *message, word size);
+boolean network_game_server_map_share_machine(long machine_index, unsigned long *address);
 boolean network_distributed_client_send_reliably(void *message, word size);
 
 /* the game's layout for these, in the lobby too (where game_connection says
@@ -1046,13 +1048,13 @@ static int distributed_mcc_share_send(
 	int body_size)
 {
 	struct network_rules_layout layout_buffer, *layout = &layout_buffer;
-	byte message[sizeof(struct distributed_message_header) + MCC_SHARE_RESPONSE_SIZE];
+	byte message[sizeof(struct distributed_message_header) + MCC_ADMISSION_SIZE];
 	byte wide[sizeof(message) + NETWORK_RULES_HEADER_EXTRA_LIMIT];
 	int size = (int)sizeof(struct distributed_message_header) + body_size, wide_size;
 	long game_time = game_in_progress() ? game_time_get() : 0;
 	word header = 0;
 
-	if (body_size < 0 || body_size > MCC_SHARE_RESPONSE_SIZE)
+	if (body_size < 0 || body_size > MCC_ADMISSION_SIZE)
 		return 0;
 	distributed_mcc_share_layout(machine_index != NONE, layout);
 	/* (as map_share_wire.c builds one: the message header word in this
@@ -1151,6 +1153,98 @@ boolean network_distributed_mcc_share_message(
 	return TRUE;
 }
 
+/* ---------- OpenCE's MCC admission hold (105): a client that has to check
+its files against the host's MCC identity first asks the host to keep it
+while it does (docs/mcc.md, "Joining a game with a Workshop map"). The
+host's side: its answers, and the machine kept like one downloading the
+map */
+
+/* (milliseconds) the least between two answers to a machine */
+#define ADMISSION_ANSWER_GAP 1000UL
+
+static struct mcc_admission distributed_admissions[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
+static unsigned long distributed_admission_answered[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
+
+static void distributed_admission_answer(
+	long machine_index,
+	uint32_t op,
+	byte const *body)
+{
+	byte answer[MCC_ADMISSION_SIZE];
+	unsigned long now = system_milliseconds();
+	int index;
+
+	if (distributed_admission_answered[machine_index] &&
+		now - distributed_admission_answered[machine_index] < ADMISSION_ANSWER_GAP)
+	{
+		return;
+	}
+	distributed_admission_answered[machine_index] = now ? now : 1;
+	/* (the op, then the client's generation and identity echoed) */
+	csmemcpy(answer, body, MCC_ADMISSION_SIZE);
+	for (index = 0; index < 4; index++)
+		answer[index] = (byte)(op >> (8 * index));
+	distributed_mcc_share_send(machine_index, MCC_ADMISSION_KIND, answer, MCC_ADMISSION_SIZE);
+}
+
+boolean network_distributed_mcc_admission_message(
+	long machine_index,
+	void const *message,
+	word size)
+{
+	struct network_rules_layout layout;
+	byte const *bytes = (byte const *)message;
+	byte narrow[sizeof(struct distributed_message_header) + MCC_ADMISSION_SIZE + NETWORK_RULES_HEADER_EXTRA_LIMIT];
+	byte host[MCC_ADMISSION_IDENTITY_SIZE];
+	uint32_t epoch;
+	unsigned long address = 0, now = system_milliseconds();
+	int narrow_size, answer;
+	boolean opened;
+
+	if (size < sizeof(struct distributed_message_header) || bytes[2] != MCC_ADMISSION_KIND)
+		return FALSE;
+	/* (a layout without MCC's messages, a machine that isn't a joined
+	client's, or a message of another shape: dropped unread) */
+	distributed_mcc_share_layout(TRUE, &layout);
+	if (!layout.epoch_kind || size > sizeof(narrow) || machine_index < 0 ||
+		machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES ||
+		!network_game_server_map_share_machine(machine_index, &address))
+	{
+		return TRUE;
+	}
+	narrow_size = network_rules_header_strip(bytes, size, narrow, layout.header_extra, TRUE, 0, 0, &epoch);
+	if (narrow_size != (int)sizeof(struct distributed_message_header) + MCC_ADMISSION_SIZE || narrow[3] != 1)
+		return TRUE;
+	opened = distributed_admissions[machine_index].state == MCC_ADMISSION_PENDING &&
+		distributed_admissions[machine_index].address == address;
+	answer = mcc_admission_take(&distributed_admissions[machine_index], address,
+		narrow + sizeof(struct distributed_message_header), MCC_ADMISSION_SIZE,
+		mcc_identity_host_admission(host) ? host : NULL, now ? now : 1);
+	if (answer < 0)
+		return TRUE;
+	if (!opened && distributed_admissions[machine_index].state == MCC_ADMISSION_PENDING)
+	{
+		error(_error_silent, "mcc: machine %ld checks its files for this game's MCC map (OpenCE's admission hold, "
+			"105): kept while it does", machine_index);
+	}
+	if (answer)
+		distributed_admission_answer(machine_index, (uint32_t)answer, narrow + sizeof(struct distributed_message_header));
+	return TRUE;
+}
+
+boolean network_distributed_mcc_admission_holding(
+	long machine_index)
+{
+	unsigned long address = 0;
+
+	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES ||
+		!network_game_server_map_share_machine(machine_index, &address))
+	{
+		return FALSE;
+	}
+	return mcc_admission_holding(&distributed_admissions[machine_index], address, system_milliseconds()) != 0;
+}
+
 boolean network_distributed_mcc_share_request(
 	char const *level)
 {
@@ -1187,6 +1281,20 @@ boolean network_distributed_mcc_share_message(long machine_index, void const *me
 boolean network_distributed_mcc_share_request(char const *level)
 {
 	(void)level;
+	return FALSE;
+}
+
+boolean network_distributed_mcc_admission_message(long machine_index, void const *message, word size)
+{
+	(void)machine_index;
+	(void)message;
+	(void)size;
+	return FALSE;
+}
+
+boolean network_distributed_mcc_admission_holding(long machine_index)
+{
+	(void)machine_index;
 	return FALSE;
 }
 #endif

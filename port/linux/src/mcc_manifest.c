@@ -6,6 +6,7 @@
 #if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
 #include "mcc_manifest.h"
 #include "mcc_json.h" /* port: our own JSON lookups, json_reader.h */
+#include "../game/mcc_sha256.h"
 #include "posix.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -180,6 +181,93 @@ int mcc_manifest_package_root(const char *level, char path[1024])
 		last = strrchr(path, '/'); if (!last) return 0; *last = 0;
 	}
 	return 1;
+}
+
+/* SHA-256 of "MCC package metadata 1", then of ModInfo.json, CampaignInfo.json
+ * when the package has a campaign, and the one multiplayer map json whose
+ * ScenarioFile is the level, sorted by their paths (lowercase, '/'
+ * separators), each as its path, a zero, its length (4 bytes, little-endian)
+ * and its bytes: what OpenCE's clients compare with their own copy of the
+ * package before they load it (docs/mcc.md) */
+int mcc_manifest_metadata_digest(const char *level, unsigned char digest[32])
+{
+	char root[1024], paths[3][160], reason[128], *texts[3] = { NULL, NULL, NULL }, *c;
+	const char *leaf;
+	int sizes[3] = { 0, 0, 0 }, order[3] = { 0, 1, 2 };
+	int count = 0, index, chosen = -1, matches = 0, made = 0;
+	/* (on the heap: an item's text holds up to 1,024 map paths) */
+	struct steam_workshop_item_text *item = NULL;
+	struct mcc_manifest *manifest = NULL;
+	struct mcc_sha256 sha;
+
+	memset(digest, 0, 32);
+	leaf = level ? strrchr(level, '\\') : NULL;
+	if (!leaf || !mcc_manifest_package_root(level, root)) return 0;
+	leaf++;
+	item = (struct steam_workshop_item_text *)calloc(1, sizeof(*item));
+	manifest = (struct mcc_manifest *)calloc(1, sizeof(*manifest));
+	if (!item || !manifest) goto done;
+	texts[0] = read_relative(root, "ModInfo.json", &sizes[0]);
+	if (!texts[0] || !steam_workshop_read_item(texts[0], sizes[0], item) || !item->halo1) goto done;
+	strcpy(paths[count++], "modinfo.json");
+	if (item->has_campaign)
+	{
+		/* (a campaign level's json comes from the campaign's plan, not made here) */
+		if (mcc_manifest_load(root, manifest, reason) > 0)
+			for (index = 0; index < manifest->count; index++)
+				if (!strcmp(manifest->missions[index].name, leaf)) goto done;
+		if (!(texts[count] = read_relative(root, "CampaignInfo.json", &sizes[count]))) goto done;
+		strcpy(paths[count++], "campaigninfo.json");
+	}
+	for (index = 0; index < item->map_count; index++)
+	{
+		struct steam_workshop_map_text map;
+		int size = 0;
+		char *json = read_relative(root, item->map_json[index], &size);
+
+		memset(&map, 0, sizeof(map));
+		if (json && steam_workshop_read_map(json, size, &map) && !strcmp(map.name, leaf))
+		{
+			matches++;
+			if (chosen < 0) { chosen = index; texts[count] = json; sizes[count] = size; json = NULL; }
+		}
+		free(json);
+	}
+	/* (exactly one map entry is the level's) */
+	if (matches != 1 || strlen(item->map_json[chosen]) >= sizeof(paths[count])) goto done;
+	strcpy(paths[count], item->map_json[chosen]);
+	for (c = paths[count]; *c; c++) *c = *c == '\\' ? '/' : (char)tolower((unsigned char)*c);
+	count++;
+	/* (by path, bytewise) */
+	for (index = 1; index < count; index++)
+	{
+		int at = index, moved = order[index];
+
+		while (at > 0 && strcmp(paths[order[at - 1]], paths[moved]) > 0) { order[at] = order[at - 1]; at--; }
+		order[at] = moved;
+	}
+	mcc_sha256_begin(&sha);
+	mcc_sha256_add(&sha, "MCC package metadata 1", 22);
+	for (index = 0; index < count; index++)
+	{
+		int which = order[index];
+		unsigned char length[4];
+
+		length[0] = (unsigned char)sizes[which];
+		length[1] = (unsigned char)(sizes[which] >> 8);
+		length[2] = (unsigned char)(sizes[which] >> 16);
+		length[3] = (unsigned char)(sizes[which] >> 24);
+		mcc_sha256_add(&sha, paths[which], (int)strlen(paths[which]) + 1);
+		mcc_sha256_add(&sha, length, 4);
+		mcc_sha256_add(&sha, texts[which], sizes[which]);
+	}
+	mcc_sha256_end(&sha, digest);
+	made = 1;
+done:
+	for (index = 0; index < 3; index++) free(texts[index]);
+	free(item);
+	free(manifest);
+	return made;
 }
 
 int mcc_manifest_for_level(const char *level, struct mcc_manifest *manifest, char reason[128])

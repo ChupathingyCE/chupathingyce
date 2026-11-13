@@ -489,7 +489,11 @@ symbols in this file:
 #include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c (a console's empty ones) */
 #ifdef HALO_GAME_BROWSER
 #include "map_share.h" /* port: map sharing's downloading machines (port/linux/game/map_share_host.c) */
-#define NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(machine_index) map_share_host_downloading(machine_index)
+/* port: OpenCE's MCC admission holds (port/linux/game/network_distributed.c,
+mcc_network_messages.h) */
+boolean network_distributed_mcc_admission_holding(long machine_index);
+#define NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(machine_index) \
+	(map_share_host_downloading(machine_index) || network_distributed_mcc_admission_holding(machine_index))
 #else
 #define NETWORK_GAME_SERVER_MACHINE_DOWNLOADING(machine_index) FALSE
 #endif

@@ -16,12 +16,15 @@
 #include "mcc_precache.h"
 #include "mcc_validation.h"
 #include "mcc_workshop.h"
+#include "../src/mcc_manifest.h"
 #include <string.h>
 
 #define MCC_IDENTITY_MAX_CANDIDATES 16
 static struct {
     char name[64];
     unsigned char digest[32];
+    /* port: OpenCE's metadata digest of the package (mcc_manifest.c) */
+    unsigned char metadata[32];
     struct mcc_precache_snapshot files;
     struct mcc_workshop_item item;
     int valid;
@@ -90,6 +93,7 @@ static void mcc_identity_host_set(char const *name,unsigned char const digest[32
 {
     strcpy(mcc_host_identity.name,name);
     memcpy(mcc_host_identity.digest,digest,32);
+    mcc_manifest_metadata_digest(name,mcc_host_identity.metadata);
     mcc_host_identity.files=*files;
     mcc_workshop_local_item(name,&mcc_host_identity.item);
     mcc_host_identity.valid=1;
@@ -169,8 +173,22 @@ void mcc_identity_host_overlay(char const *map, long record_size, long name_offs
         long at=offset+index;
         if (at>=name_offset+64 && at<name_offset+128) data[index]=(unsigned char)name[at-name_offset];
         else if (at>=record_size-64 && at<record_size-32) data[index]=mcc_host_identity.digest[at-(record_size-64)];
-        else if (at>=record_size-32 && at<record_size) data[index]=0;
+        else if (at>=record_size-32 && at<record_size) data[index]=mcc_host_identity.metadata[at-(record_size-32)];
     }
+}
+
+int mcc_identity_host_admission(unsigned char identity[196])
+{
+    char name[128];
+    if (!mcc_host_identity.valid) return 0;
+    memset(name,0,sizeof(name));
+    strncpy(name,mcc_host_identity.name,63);
+    mcc_workshop_wire_pack(name,&mcc_host_identity.item);
+    memset(identity,0,196);
+    memcpy(identity,name,128);
+    memcpy(identity+128,mcc_host_identity.digest,32);
+    memcpy(identity+160,mcc_host_identity.metadata,32);
+    return 1;
 }
 
 static int mcc_identity_matches(char const *name,unsigned char const digest[32],
