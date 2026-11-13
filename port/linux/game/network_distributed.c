@@ -1123,11 +1123,17 @@ boolean network_distributed_mcc_share_message(
 	}
 	if (bytes[2] != MCC_SHARE_REQUEST_KIND)
 		return TRUE;
-	/* (the host: declined, said once a machine) */
+	/* (the host: declined, said once a machine; so is one it can't read) */
 	if (!mcc_share_decline(narrow + sizeof(struct distributed_message_header), (size_t)body_size, reply))
 	{
-		error(_error_silent, "mcc: machine %ld sent an MCC package request (OpenCE's 103) this build can't read (#%d "
-			"bytes): dropped", machine_index, body_size);
+		static long said_unread_machine = NONE;
+
+		if (said_unread_machine != machine_index)
+		{
+			said_unread_machine = machine_index;
+			error(_error_silent, "mcc: machine %ld sent an MCC package request (OpenCE's 103) this build can't read "
+				"(#%d bytes): dropped", machine_index, body_size);
+		}
 		return TRUE;
 	}
 	if (distributed_mcc_share_send(machine_index, MCC_SHARE_RESPONSE_KIND, reply, MCC_SHARE_RESPONSE_SIZE))

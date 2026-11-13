@@ -1467,7 +1467,7 @@ static void network_game_server_mcc_version(
 	if (mcc && !want && network_game_server_mcc_asked != -2)
 	{
 		network_game_server_mcc_asked = -2;
-		error(_error_silent, "mcc: this build can't host an MCC map's game: no OpenCE network version from 42 on is "
+		error(_error_silent, "mcc: this build can't host an MCC map's game: no OpenCE network version from 43 on is "
 			"within the numbers it plays (the legacy table in use)");
 		return;
 	}

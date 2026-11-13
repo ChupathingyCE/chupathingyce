@@ -96,10 +96,11 @@ its item id. Either way, the join
 checks the host's content fingerprint, as it does on our own hosts.
 
 When Steam can't give you the item, the game says why in plain words and
-hands you to the place that fixes it: **Not owned** (Halo: The Master Chief
-Collection isn't on the Steam account) opens the Delta Guide's Workshop
-page, which has the store link; **Link Steam first** opens the Guide's
-Steam setting with the code to scan. A host whose MCC map isn't a Workshop
+offers the place that fixes it, your choice: **Not owned** (Halo: The
+Master Chief Collection isn't on the Steam account) offers **GET IT**, the
+Delta Guide's Workshop page with the store link; **Link Steam first** offers
+**LINK STEAM**, the Guide's Steam setting with the code to scan; **BACK**
+leaves it. A host whose MCC map isn't a Workshop
 item at all is told as that: there is nothing to fetch, you need the same
 package in `mcc_maps`.
 

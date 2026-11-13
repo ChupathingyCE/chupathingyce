@@ -573,11 +573,12 @@ host whose layout carries MCC's record and messages (42 on,
 DELTA_LEGACY_MCC_FIRST): the newest the table in use proves for hosting when
 that is past the build's own rules (a later version's layout, from the
 table), else the newest built in (DELTA_LEGACY_NEWEST), within the numbers
-the build joins; 0 when none is (a local table that narrows below 42). From
-chupa-44a: before, 43 was in the code, so a raise of OpenCE's number was a
-release */
+the build joins; 0 when none is (a local table that narrows below 43: 42
+was in no release of OpenCE's, so no one would join). From chupa-44a:
+before, 43 was in the code, so a raise of OpenCE's number was a release */
 int delta_legacy_mcc_version(void);
 #define DELTA_LEGACY_MCC_FIRST 42
+#define DELTA_LEGACY_MCC_RELEASED 43
 
 /* ---------- host protections: what a host enforces for its clients
 

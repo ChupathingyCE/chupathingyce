@@ -2,9 +2,9 @@
 mcc_share_rules.h), which this build never does: a host of ours declines a
 44-style request with a 104 of result 1 (sharing off), nothing else answered,
 and a client of ours drops any 104 unread (the layout's dropped kinds). The
-request fixture is bytes as OpenCE's 44 client sends them, from the
-clean-room spec: op 1 (manifest), file 0, flags 0, reserved 0, session 0,
-offset 0, length 0, then the level name in 64 bytes.
+request fixture is bytes as OpenCE's 44 client sends them, per the behavior
+their 44 hosts and clients use: op 1 (manifest), file 0, flags 0, reserved 0,
+session 0, offset 0, length 0, then the level name in 64 bytes.
 
 The C is compiled with clang (skipped without one); the loopback run of the
 probe is tools/test_net43_host.py's.

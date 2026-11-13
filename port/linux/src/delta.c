@@ -1631,7 +1631,9 @@ int delta_legacy_mcc_version(void)
 		number = newest;
 	if (number > delta.maximum)
 		number = delta.maximum;
-	if (number < DELTA_LEGACY_MCC_FIRST || number < delta.minimum)
+	/* (42 was in no release of OpenCE's: a table that caps the numbers at
+	42 leaves no MCC games, rather than a game nobody can join) */
+	if (number < DELTA_LEGACY_MCC_RELEASED || number < delta.minimum)
 		number = 0;
 	pthread_mutex_unlock(&delta_lock);
 	return number;

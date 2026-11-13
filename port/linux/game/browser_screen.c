@@ -867,7 +867,6 @@ static void rejoin_given_up(
 	{
 		snprintf(text, sizeof(text), "Couldn't get %.40s. %.160s", browser_screen.offer_display,
 			workshop_why_sentence(why));
-		workshop_why_open(why);
 	}
 	else if (browser_screen.offer_workshop)
 		snprintf(text, sizeof(text), "You don't have %.40s. Get it in the Delta Guide's Workshop.",
@@ -1187,10 +1186,12 @@ static void follow_download(
 				browser_screen.connecting_time = system_milliseconds();
 			break;
 		case WORKSHOP_JOIN_FAILED:
-			if (browser_screen.rejoin_pending)
-				rejoin_given_up(browser_screen.offer_workshop_why);
-			else
-				browser_screen.offer = _offer_failed;
+			/* (why, with its buttons: BACK, and the Guide's page for a
+			reason the player can act on; a game left for it gives up into
+			the main menu's error after a few seconds unless there is one,
+			browser_screen_process) */
+			browser_screen.offer = _offer_failed;
+			browser_screen.offer_time = system_milliseconds();
 			break;
 		default:
 			/* (Steam's bytes, in KB past 4 GB's reach) */
@@ -1327,7 +1328,8 @@ static void offer_button(
 		if (button == _gamepad_analog_button_a || button == _gamepad_analog_button_b)
 			offer_given_up(NULL);
 		/* (a Workshop fetch Steam refused for want of the game or the link:
-		the Guide's page for it, the offer closed) */
+		the player's choice of the Guide's page for it, the offer closed
+		without the error; a game left for it is not joined again) */
 		else if (button == _gamepad_analog_button_y && browser_screen.offer_workshop &&
 			workshop_why_kind(browser_screen.offer_workshop_why) != _workshop_why_other)
 		{
@@ -1335,6 +1337,14 @@ static void offer_button(
 
 			csstrncpy(why, browser_screen.offer_workshop_why, sizeof(why) - 1);
 			why[sizeof(why) - 1] = 0;
+			platform_log("map download: %s not downloaded (%s): the player went to the Delta Guide for it",
+				browser_screen.offer_display, why);
+			if (browser_screen.rejoin_pending)
+			{
+				browser_screen.rejoin_pending = FALSE;
+				browser_screen.active = FALSE;
+			}
+			browser_screen.offer_workshop = FALSE;
 			offer_given_up(NULL);
 			workshop_why_open(why);
 		}
@@ -2880,8 +2890,11 @@ void browser_screen_process(
 		follow_workshop_check();
 	if (browser_screen.offer == _offer_downloading)
 		follow_download();
+	/* (a Workshop fetch with a reason the player can act on waits for their
+	choice: the Guide's page, or back) */
 	else if (browser_screen.offer == _offer_failed && browser_screen.rejoin_pending &&
-		system_milliseconds() - browser_screen.offer_time > OFFER_FAILED_REJOIN_MILLISECONDS)
+		system_milliseconds() - browser_screen.offer_time > OFFER_FAILED_REJOIN_MILLISECONDS &&
+		!(browser_screen.offer_workshop && workshop_why_kind(browser_screen.offer_workshop_why) != _workshop_why_other))
 		offer_given_up(NULL);
 	else if (browser_screen.playlist_offer != _playlist_none)
 		playlist_offer_follow();
@@ -4011,8 +4024,8 @@ static void draw_map_offer(
 			if (kind != _workshop_why_other)
 			{
 				static int const why_buttons[] = { UI_BUTTON_B, UI_BUTTON_Y };
-				static char const *const owned_words[] = { "=CLOSE", "=STORE" };
-				static char const *const linked_words[] = { "=CLOSE", "=LINK STEAM" };
+				static char const *const owned_words[] = { "=BACK", "=GET IT" };
+				static char const *const linked_words[] = { "=BACK", "=LINK STEAM" };
 
 				ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 150, UI_ALIGN_CENTER, COLOR_DIM,
 					kind == _workshop_why_not_owned ?

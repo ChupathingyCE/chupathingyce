@@ -1085,10 +1085,14 @@ def test_mcc_version(keys, checker, tmp_path):
     row = dict(floor(), maximum=own + 2, hosting=[hosted(), own + 2])
     table = write_signed(keys, tmp_path / "t22", document(serial=22, row=row))
     assert f"mcc {own}\n" in run_checker(checker, tmp_path, "offer", table, "mcc")
-    # (a local table that narrows below 42: no MCC games)
+    # (a local table that narrows below 43: no MCC games; 42 was in no release
+    # of OpenCE's, so a game at it would be nobody's)
     local = tmp_path / "local.json"
-    local.write_bytes(document(serial=1, row={"announce": 32, "minimum": 11, "maximum": 41}))
-    assert "mcc 0\n" in run_checker(checker, tmp_path, "mcc", override=local)
+    for maximum in (41, 42):
+        local.write_bytes(document(serial=1, row={"announce": 32, "minimum": 11, "maximum": maximum}))
+        assert "mcc 0\n" in run_checker(checker, tmp_path, "mcc", override=local)
+    local.write_bytes(document(serial=1, row={"announce": 32, "minimum": 11, "maximum": 43}))
+    assert "mcc 43\n" in run_checker(checker, tmp_path, "mcc", override=local)
 
 
 def test_loader_override_layouts(checker, tmp_path):
