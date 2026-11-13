@@ -45,13 +45,21 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 enum
 {
+	/* unit_animation_start_action's actions whose slots hold Stubbs's own
+	animations (stubbs_mode.c): disarm = the hand thrown, put away = the
+	hand regrown */
+	STUBBS_UNIT_ACTION_HAND_THROW = 1,
+	STUBBS_UNIT_ACTION_HAND_BACK = 4,
+
 	/* Stubbs's unit layout: the special attacks block */
 	STUBBS_UNIT_SPECIAL_ATTACKS_OFFSET = 0x33C,
 	STUBBS_SPECIAL_ATTACK_SIZE = 0x170,
 
 	/* a special attack's fields */
 	STUBBS_SPECIAL_ATTACK_COST_OFFSET = 0x06,
+	STUBBS_SPECIAL_ATTACK_MAXIMUM_COUNT_OFFSET = 0x04,
 	STUBBS_SPECIAL_ATTACK_INITIAL_COUNT_OFFSET = 0x08,
+	STUBBS_SPECIAL_ATTACK_REGENERATION_PERIOD_OFFSET = 0x10,
 	STUBBS_SPECIAL_ATTACK_READY_EFFECT_OFFSET = 0x4C,
 	STUBBS_SPECIAL_ATTACK_THROW_EFFECT_OFFSET = 0x5C,
 	STUBBS_SPECIAL_ATTACK_SPEED_OFFSET = 0xA8,
@@ -89,6 +97,8 @@ struct stubbs_unit_count
 {
 	long unit_index;
 	char counts[STUBBS_MAXIMUM_SPECIAL_ATTACKS];
+	/* brains credit toward the next one, in seconds */
+	real credit[STUBBS_MAXIMUM_SPECIAL_ATTACKS];
 };
 
 struct stubbs_local_player
@@ -205,7 +215,10 @@ static struct stubbs_unit_count *stubbs_unit_count_get(
 		free_slot->unit_index = unit_index;
 		/* (a new unit's counts are its definition's starting ones) */
 		for (index = 0; index < STUBBS_MAXIMUM_SPECIAL_ATTACKS; index++)
+		{
 			free_slot->counts[index] = (char)stubbs_unit_initial_count(unit_index, index);
+			free_slot->credit[index] = 0.f;
+		}
 		return free_slot;
 	}
 	return NULL;
@@ -291,6 +304,8 @@ static void stubbs_hand_return(
 		players_set_local_player_unit(local_player_index, local->origin_unit_index);
 		player_control_set_facing(local_player_index, &object_get(local->origin_unit_index)->object.forward);
 		stubbs_hand_on_arm(local->origin_unit_index, TRUE);
+		/* (the hand regrown: his regrow-2 animation, in Halo's put-away slot) */
+		unit_animation_start_action(local->origin_unit_index, STUBBS_UNIT_ACTION_HAND_BACK);
 		/* (the hand back on his arm can be thrown again) */
 		if (attack && stubbs_engine_special_attack_get_count(local->origin_unit_index,
 			_stubbs_special_attack_hand) < attack->cost)
@@ -374,6 +389,9 @@ static boolean stubbs_hand_throw(
 		(short)(stubbs_engine_special_attack_get_count(unit_index, _stubbs_special_attack_hand) - attack->cost));
 	stubbs_effect_new_on_unit(attack->ready_effect_index, unit_index);
 	stubbs_effect_new_on_unit(attack->throw_effect_index, unit_index);
+	/* (his throw: Stubbs's attack-2 animation, in Halo's disarm slot,
+	stubbs_mode.c; the body plays it on while the player drives the hand) */
+	unit_animation_start_action(unit_index, STUBBS_UNIT_ACTION_HAND_THROW);
 	local->origin_unit_index = unit_index;
 	local->hand_unit_index = hand_unit_index;
 	local->possessed_unit_index = NONE;
@@ -437,6 +455,22 @@ struct stubbs_special_attack const *stubbs_special_attacks_get(
 
 	*count = definition ? definition->special_attack_count : 0;
 	return definition ? definition->special_attacks : NULL;
+}
+
+boolean stubbs_engine_unit_is_thrown(
+	long unit_index)
+{
+	struct object_datum *object = unit_index != NONE ? object_try_and_get(unit_index) : NULL;
+	short index;
+
+	if (!object)
+		return FALSE;
+	for (index = 0; index < stubbs_driven_biped_count; index++)
+	{
+		if (stubbs_driven_bipeds[index] == object->definition_index)
+			return TRUE;
+	}
+	return FALSE;
 }
 
 long stubbs_engine_hand_unit(
@@ -529,8 +563,14 @@ void stubbs_engine_note_unit_definition(
 		csmemcpy(&attack->speed, element + STUBBS_SPECIAL_ATTACK_SPEED_OFFSET, 4);
 		csmemcpy(&cost, element + STUBBS_SPECIAL_ATTACK_COST_OFFSET, 2);
 		attack->cost = cost;
-		csmemcpy(&cost, element + STUBBS_SPECIAL_ATTACK_INITIAL_COUNT_OFFSET, 2);
-		attack->initial_count = cost;
+		/* (the starting and the most: a byte each) */
+		attack->initial_count = element[STUBBS_SPECIAL_ATTACK_INITIAL_COUNT_OFFSET];
+		attack->maximum_count = element[STUBBS_SPECIAL_ATTACK_MAXIMUM_COUNT_OFFSET];
+		if (attack->initial_count > attack->maximum_count)
+			attack->initial_count = attack->maximum_count;
+		csmemcpy(&attack->regeneration_period, element + STUBBS_SPECIAL_ATTACK_REGENERATION_PERIOD_OFFSET, 4);
+		if (!(attack->regeneration_period > 0.f && attack->regeneration_period < 3600.f))
+			attack->regeneration_period = 0.f;
 		if (attack->object_group == 'bipd' && attack->object_definition_index != NONE)
 			stubbs_driven_biped_add(attack->object_definition_index);
 	}
@@ -674,15 +714,54 @@ short stubbs_engine_special_attack_get_count(
 	return count ? count->counts[special_attack] : stubbs_unit_initial_count(unit_index, special_attack);
 }
 
+short stubbs_engine_special_attack_get_maximum(
+	long unit_index,
+	short special_attack)
+{
+	struct stubbs_special_attack const *attack = stubbs_unit_special_attack_get(unit_index, special_attack);
+
+	return attack ? attack->maximum_count : 0;
+}
+
+void stubbs_engine_special_attack_credit(
+	long unit_index,
+	real credit)
+{
+	struct stubbs_unit_count *counts = stubbs_unit_count_get(unit_index, TRUE);
+	short index;
+
+	if (!counts || !(credit > 0.f))
+		return;
+	for (index = 0; index < STUBBS_MAXIMUM_SPECIAL_ATTACKS; index++)
+	{
+		struct stubbs_special_attack const *attack = stubbs_unit_special_attack_get(unit_index, index);
+
+		if (!attack || !(attack->regeneration_period > 0.f))
+			continue;
+		counts->credit[index] += credit;
+		while (counts->credit[index] >= attack->regeneration_period && counts->counts[index] < attack->maximum_count)
+		{
+			counts->credit[index] -= attack->regeneration_period;
+			counts->counts[index]++;
+		}
+		if (counts->counts[index] >= attack->maximum_count)
+			counts->credit[index] = 0.f;
+	}
+}
+
 void stubbs_engine_special_attack_set_count(
 	long unit_index,
 	short special_attack,
 	short count)
 {
 	struct stubbs_unit_count *counts = stubbs_unit_count_get(unit_index, TRUE);
+	short maximum = stubbs_engine_special_attack_get_maximum(unit_index, special_attack);
 
 	if (!counts || special_attack < 0 || special_attack >= STUBBS_MAXIMUM_SPECIAL_ATTACKS)
 		return;
+	/* (never more than the unit can hold, as the retail game keeps it) */
+	if (count > maximum)
+		count = maximum;
 	counts->counts[special_attack] = (char)(count < 0 ? 0 : count > 127 ? 127 : count);
 }
 

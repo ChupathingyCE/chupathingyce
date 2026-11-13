@@ -35,6 +35,15 @@ the tick (counted down) its damage is done; FALSE leaves it to Halo (no
 melee) */
 boolean stubbs_player_melee_begin(long biped_index, short *ticks, short *attack_tick);
 
+/* a player's biped about to move (bipeds.c, *state_desired its move
+state): TRUE with *state_desired his sprint state while the player holds
+the crouch button and the unit has a sprint animation */
+boolean stubbs_player_sprint(long biped_index, short *state_desired);
+
+/* whether a biped's crouch button never crouches it (bipeds.c): a Stubbs
+player's is his sprint */
+boolean stubbs_player_never_crouches(long biped_index);
+
 /* draws a living player's Stubbs HUD over Halo's (hud.c's hud_draw_screen,
 inside the HUD's begin and end): nothing for now */
 void stubbs_player_hud_draw(short local_player_index, long unit_index);
@@ -62,6 +71,8 @@ halo_console_features.h, and may not build this part's file: each hook
 is an empty one here) */
 static __inline boolean stubbs_player_camera_following(long unit_index, short *perspective) { (void)unit_index; (void)perspective; return FALSE; }
 static __inline boolean stubbs_player_melee_begin(long biped_index, short *ticks, short *attack_tick) { (void)biped_index; (void)ticks; (void)attack_tick; return FALSE; }
+static __inline boolean stubbs_player_sprint(long biped_index, short *state_desired) { (void)biped_index; (void)state_desired; return FALSE; }
+static __inline boolean stubbs_player_never_crouches(long biped_index) { (void)biped_index; return FALSE; }
 static __inline void stubbs_player_hud_draw(short local_player_index, long unit_index) { (void)local_player_index; (void)unit_index; }
 static __inline void stubbs_player_hud_show_special_attack(short special_attack, boolean show) { (void)special_attack; (void)show; }
 static __inline void stubbs_image_effect_set(char const *name) { (void)name; }

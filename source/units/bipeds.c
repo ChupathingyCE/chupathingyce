@@ -2502,6 +2502,33 @@ static void biped_update_physics(
 			real_vector3d forward = physics->aiming;
 			real_vector3d left;
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+			/* port: Stubbs's hand on a wall goes where the player looks: into
+			the wall means up it, else along the wall the way he aims
+			(Halo's frame below would make "forward" run along the wall
+			and "left" up it: Stubbs mode only, port/linux/game/stubbs_engine.c) */
+			if (stubbs_mode_active() && object_get(physics->biped_index)->object.owner_player_index != NONE &&
+				ground_normal->k < 0.5f && ground_normal->k > -0.5f)
+			{
+				real into = dot_product3d(&physics->aiming, ground_normal);
+				real_vector3d in_plane;
+
+				if (into < -0.5f)
+					in_plane = *global_up3d;
+				else
+					in_plane = physics->aiming;
+				point_from_line3d((real_point3d *)&in_plane, ground_normal, -dot_product3d(&in_plane, ground_normal),
+					(real_point3d *)&in_plane);
+				if (normalize3d(&in_plane) > 0.f)
+				{
+					forward = in_plane;
+					cross_product3d(ground_normal, &forward, &left);
+					normalize3d(&left);
+					/* (left = n x forward, so forward x n is the right; Halo's
+					frame has left = n x forward too) */
+				}
+			}
+#endif
 			cross_product3d(ground_normal, &forward, &left);
 			if (normalize3d(&left) == 0.f)
 			{
@@ -2879,6 +2906,7 @@ static void biped_update_physics(
 		short best_collision_index = NONE;
 		boolean best_walkable = FALSE;
 		boolean best_stuck = FALSE;
+		boolean climber_wall = FALSE; /* port: (Stubbs's hand on a wall, below) */
 		real best_normal_k = -REAL_MAX;
 		real best_velocity_dot = -REAL_MAX;
 
@@ -2909,6 +2937,30 @@ static void biped_update_physics(
 						better = FALSE;
 					else
 						better = velocity_dot > best_velocity_dot;
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+					/* port: Stubbs's hand climbs the wall it is pushed against:
+					a climbing player's wall (a steep plane his movement goes
+					into) is his ground over the floor he stands on, which
+					Halo's choice by velocity never leaves, his velocity into
+					the wall being clipped away (Stubbs mode only:
+					port/linux/game/stubbs_engine.c) */
+					if (climbing && stubbs_mode_active() &&
+						object_get(physics->biped_index)->object.owner_player_index != NONE &&
+						physics->movement_desired.i > 0.f)
+					{
+						boolean steep = collision->plane.n.k < 0.5f && collision->plane.n.k > -0.5f;
+						boolean on_wall = physics->ground_plane.n.k < 0.5f && physics->ground_plane.n.k > -0.5f;
+						/* (the wall in front of him, or the one he is already on) */
+						boolean wall = steep &&
+							(collision->plane.n.i * facing.i + collision->plane.n.j * facing.j < -0.3f ||
+							(on_wall && dot_product3d(&collision->plane.n, &physics->ground_plane.n) > 0.9f));
+
+						if (wall)
+							better = TRUE, climber_wall = TRUE;
+						else if (climber_wall)
+							better = FALSE;
+					}
+#endif
 				}
 				else
 				{
@@ -3660,6 +3712,9 @@ static void biped_update_moving(
 					animation->state_desired = throttle_y >= 0.f ?
 						movement_base + 2 : movement_base + 3;
 				}
+				/* port: Stubbs mode's sprint (port/linux/game/stubbs_player.c) */
+				if (stubbs_mode_active())
+					stubbs_player_sprint(biped_index, &animation->state_desired);
 			}
 		}
 		else
@@ -4360,6 +4415,10 @@ boolean biped_update(
 		animation.crouching = TEST_FLAG(
 			biped->unit.control_flags,
 			_unit_control_crouch_modifier_bit);
+		/* port: Stubbs mode's crouch button is his sprint
+		(port/linux/game/stubbs_player.c) */
+		if (animation.crouching && stubbs_mode_active() && stubbs_player_never_crouches(biped_index))
+			animation.crouching = FALSE;
 
 		biped_verify_object_vectors(biped_index, "pre-turning");
 		if (!TEST_FLAG(biped->object.damage_flags, _object_dead_bit))

@@ -1233,7 +1233,8 @@ void test_input_hold_fire(int hold)
 the first poll, for testing the menus: a, b, x, y, lb, rb (white and black),
 up, down, left, right, start, back, rs (the right stick's click),
 key:<a key's name> (a key of the
-keyboard, as SDL names it: key:C; key:W+C holds both), the mouse's (move,
+keyboard, as SDL names it: key:C; key:W+C holds both; hold:W keeps a key
+down all its second), the mouse's (move,
 click, rclick, wheel, below), shot, fire (the trigger held all its second),
 fireshot (fire, and a shot 600 ms in), the debug camera's fly tokens
 (test_input_debug_camera) or wait (none), separated by spaces or commas */
@@ -1437,11 +1438,22 @@ static void test_input_menu_keys(struct platform_input_state *input)
 #ifndef HALO_ANDROID
 	test_input_menu_pointer();
 #endif
-	token = test_input_menu_token(&length);
-	if (!token || length <= 4 || length - 4 >= sizeof(names) || strncmp(token, "key:", 4))
-		return;
-	memcpy(names, token + 4, length - 4);
-	names[length - 4] = 0;
+	/* (hold:<keys> keeps them down all of the token's second, for a walk or
+	a climb a test drives; key:<keys> taps them) */
+	token = test_input_menu_current(&length);
+	if (token && length > 5 && length - 5 < sizeof(names) && !strncmp(token, "hold:", 5))
+	{
+		memcpy(names, token + 5, length - 5);
+		names[length - 5] = 0;
+	}
+	else
+	{
+		token = test_input_menu_token(&length);
+		if (!token || length <= 4 || length - 4 >= sizeof(names) || strncmp(token, "key:", 4))
+			return;
+		memcpy(names, token + 4, length - 4);
+		names[length - 4] = 0;
+	}
 	for (name = names; name; name = next)
 	{
 		SDL_Scancode scancode;

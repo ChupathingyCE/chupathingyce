@@ -45,6 +45,11 @@ void stubbs_horde_set_resurrection_group(long ai_reference);
 /* whether a unit is one of Stubbs's zombies (risen here) */
 boolean stubbs_horde_unit_is_zombie(long unit_index);
 
+/* the map's actor variant for a unit of this kind (the palette entry whose
+variant is of the unit's definition): NONE for none. ai_attach uses it
+for a Stubbs squad that names no variant of its own */
+long stubbs_horde_palette_variant_for_unit(long unit_index);
+
 #else
 static __inline void stubbs_horde_update(void) { }
 static __inline boolean stubbs_horde_player_action(long player_index) { (void)player_index; return FALSE; }
@@ -52,6 +57,7 @@ static __inline void stubbs_horde_unit_damaged_to_death(long unit_index, struct 
 static __inline boolean stubbs_horde_unit_finishing_move(long unit_index) { (void)unit_index; return FALSE; }
 static __inline void stubbs_horde_set_resurrection_group(long ai_reference) { (void)ai_reference; }
 static __inline boolean stubbs_horde_unit_is_zombie(long unit_index) { (void)unit_index; return FALSE; }
+static __inline long stubbs_horde_palette_variant_for_unit(long unit_index) { (void)unit_index; return NONE; }
 #endif
 
 #endif
