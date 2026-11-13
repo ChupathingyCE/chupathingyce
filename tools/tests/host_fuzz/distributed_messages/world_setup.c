@@ -9,6 +9,11 @@ where the sanitizers leave room for it, as tools/tests/map_fuzz.c does. */
 
 #include <sys/mman.h>
 
+/* (the build's strict C hides it from glibc's header: tools/tests/map_fuzz.c too) */
+#if defined(__linux__) && !defined(MAP_ANONYMOUS)
+#define MAP_ANONYMOUS 0x20
+#endif
+
 struct data_array *player_data;
 struct data_array *object_header_data;
 
@@ -200,8 +205,10 @@ void distributed_messages_fuzz_world_reset(
 	};
 	int index;
 
+	/* (the C library's free: cseries.h makes free the game's debug_free, the
+	arena's, which keeps everything) */
 	for (index = 0; index < WORLD_OBJECTS; index++)
-		free(world_objects[index]);
+		(free)(world_objects[index]);
 	csmemset(objects_client_has, 0xFF, sizeof(objects_client_has));
 	if (!player_data)
 	{
