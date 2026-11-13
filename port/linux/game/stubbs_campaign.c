@@ -28,6 +28,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "cache/cache_files.h"
 #include "game/game.h"
 #include "interface/player_ui.h"
+#include "saved games/player_profile.h"
 #include "interface/ui_widget_instance.h"
 #include "tag_files/tag_files.h"
 #include "stubbs_mode.h"
@@ -58,9 +59,11 @@ static char const *const stubbs_levels[STUBBS_CAMPAIGN_LEVEL_COUNT] =
 };
 
 /* the profiles' finished levels (on Stubbs's own drives): a line
-"<profile> <level> <difficulty flags>" for each */
+"<profile> <level> <difficulty flags>" for each, the profile by its name (in
+hexadecimal, four digits a character) */
 #define STUBBS_PROGRESS_FILE "u:\\stubbs_progress.txt"
 #define STUBBS_PROGRESS_PROFILES 64
+#define STUBBS_PROGRESS_KEY_SIZE (4 * MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 1)
 
 /* a map's own name: the last part of its path, without a pack's @<pack> */
 static void level_base_name(
@@ -131,27 +134,44 @@ boolean stubbs_campaign_map_name_allowed(
 
 static struct
 {
-	long profile;
+	char profile[STUBBS_PROGRESS_KEY_SIZE];
 	unsigned long flags[STUBBS_CAMPAIGN_LEVEL_COUNT];
 } stubbs_progress[STUBBS_PROGRESS_PROFILES];
 static long stubbs_progress_count;
 
+/* a local player's profile, as the file names it: FALSE for none */
+static boolean progress_key(
+	short local_player_index,
+	char *key)
+{
+	struct player_profile profile;
+	long index;
+
+	key[0] = 0;
+	if (player_ui_get_active_player_profile_index(local_player_index) == NONE)
+		return FALSE;
+	player_ui_get_active_player_profile(local_player_index, &profile);
+	for (index = 0; index < MAXIMUM_PLAYER_PROFILE_NAME_LENGTH && profile.player_name[index]; index++)
+		sprintf(key + 4 * index, "%04x", (unsigned)(profile.player_name[index] & 0xFFFF));
+	return key[0] != 0;
+}
+
 /* a profile's entry, made if need be (NONE if there is no room) */
 static long progress_entry(
-	long profile,
+	char const *key,
 	boolean make)
 {
 	long index;
 
 	for (index = 0; index < stubbs_progress_count; index++)
 	{
-		if (stubbs_progress[index].profile == profile)
+		if (!strcmp(stubbs_progress[index].profile, key))
 			return index;
 	}
 	if (!make || stubbs_progress_count >= STUBBS_PROGRESS_PROFILES)
 		return NONE;
 	memset(&stubbs_progress[index], 0, sizeof(stubbs_progress[index]));
-	stubbs_progress[index].profile = profile;
+	csstrncpy(stubbs_progress[index].profile, key, STUBBS_PROGRESS_KEY_SIZE - 1);
 	stubbs_progress_count++;
 	return index;
 }
@@ -160,22 +180,23 @@ static void progress_read(
 	void)
 {
 	FILE *file = fopen(STUBBS_PROGRESS_FILE, "r");
-	char line[128];
+	char line[STUBBS_PROGRESS_KEY_SIZE + 64];
 
 	stubbs_progress_count = 0;
 	if (!file)
 		return;
 	while (fgets(line, sizeof(line), file))
 	{
-		long profile, level, index;
+		char key[STUBBS_PROGRESS_KEY_SIZE];
+		long level, index;
 		unsigned long flags;
 
-		if (sscanf(line, "%ld %ld %lu", &profile, &level, &flags) != 3 ||
+		if (sscanf(line, "%48s %ld %lu", key, &level, &flags) != 3 ||
 			level < 0 || level >= STUBBS_CAMPAIGN_LEVEL_COUNT)
 		{
 			continue;
 		}
-		index = progress_entry(profile, TRUE);
+		index = progress_entry(key, TRUE);
 		if (index != NONE)
 			stubbs_progress[index].flags[level] |= flags & 0xF;
 	}
@@ -198,7 +219,7 @@ static void progress_write(
 		for (level = 0; level < STUBBS_CAMPAIGN_LEVEL_COUNT; level++)
 		{
 			if (stubbs_progress[index].flags[level])
-				fprintf(file, "%ld %ld %lu\n", stubbs_progress[index].profile, level, stubbs_progress[index].flags[level]);
+				fprintf(file, "%s %ld %lu\n", stubbs_progress[index].profile, level, stubbs_progress[index].flags[level]);
 		}
 	}
 	fclose(file);
@@ -208,13 +229,13 @@ boolean stubbs_campaign_map_completed(
 	short difficulty)
 {
 	short level = stubbs_campaign_level_from_name(cache_file_loaded_map_name(), NONE);
-	long profile = player_ui_get_active_player_profile_index(0);
+	char key[STUBBS_PROGRESS_KEY_SIZE];
 	long index;
 
-	if (level == NONE || profile == NONE || difficulty < 0 || difficulty >= 4)
+	if (level == NONE || !progress_key(0, key) || difficulty < 0 || difficulty >= 4)
 		return FALSE;
 	progress_read();
-	index = progress_entry(profile, FALSE);
+	index = progress_entry(key, FALSE);
 	/* (finished on that difficulty or a harder one) */
 	return index != NONE && (stubbs_progress[index].flags[level] >> difficulty) != 0;
 }
@@ -235,8 +256,8 @@ char const *stubbs_campaign_level_won(
 		progress_read();
 		for (local_player_index = 0; local_player_index < local_player_count; local_player_index++)
 		{
-			long profile = player_ui_get_active_player_profile_index(local_player_index);
-			long index = profile != NONE ? progress_entry(profile, TRUE) : NONE;
+			char key[STUBBS_PROGRESS_KEY_SIZE];
+			long index = progress_key(local_player_index, key) ? progress_entry(key, TRUE) : NONE;
 
 			if (index != NONE)
 				stubbs_progress[index].flags[level] |= 1UL << difficulty;

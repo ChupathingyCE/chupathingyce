@@ -1751,9 +1751,11 @@ static void main_change_map_name(
 			game_unload();
 			main_new_map(&options);
 
-			/* port: (Stubbs mode's levels are past the ten of Halo's profile) */
+			/* port: (Stubbs mode's last two levels are past the ten of Halo's
+			profile) */
 			for (local_player_index = 0;
-				local_player_index < player_spawn_count && !stubbs_mode_active();
+				local_player_index < player_spawn_count &&
+					(!stubbs_mode_active() || main_get_current_solo_level() < NUMBER_OF_SINGLE_PLAYER_LEVELS);
 				local_player_index++)
 			{
 				player_profile_save_last_level_played(local_player_index);
@@ -2511,7 +2513,13 @@ static void main_won_map_private(
 	after the last, the main menu */
 	if (stubbs_mode_active())
 	{
-		char const *next = stubbs_campaign_level_won(main_globals.soloplayer_map_name, player_spawn_count);
+		char const *next;
+
+		/* (the profile's own flags too, for the menus' Load Level list:
+		Halo's ten places hold a10_plaza to c30_lab) */
+		for (local_player_index = 0; local_player_index < player_spawn_count; local_player_index++)
+			player_profile_save_level_completed(local_player_index);
+		next = stubbs_campaign_level_won(main_globals.soloplayer_map_name, player_spawn_count);
 
 		if (next)
 		{

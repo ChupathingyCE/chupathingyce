@@ -6205,10 +6205,12 @@ static boolean solo_level_initialize_list_single_player(
 		extern short ui_widget_port_mcc_campaign_count(void);
 		extern char const *config_string(char const *name);
 
-		widget->parameters.list.number_of_items = (short)(10 + ui_widget_port_mcc_campaign_count());
+		/* (not in Stubbs mode, whose campaign is its own) */
+		if (!stubbs_mode_active())
+			widget->parameters.list.number_of_items = (short)(10 + ui_widget_port_mcc_campaign_count());
 		/* (on the Workshop item the Delta Guide's PLAY handed over: its
 		levels lead the MCC rows, mcc_maps.c) */
-		if (mcc_maps_take_first_focus() && ui_widget_port_mcc_campaign_count())
+		if (!stubbs_mode_active() && mcc_maps_take_first_focus() && ui_widget_port_mcc_campaign_count())
 			widget->parameters.list.selected_index = 10;
 #ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 		/* (debug.menu_open's "#singleplayer_last": on the last, for screenshots) */
