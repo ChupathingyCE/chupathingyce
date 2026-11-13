@@ -1400,7 +1400,7 @@ static const struct config_setting config_settings[] =
 		"Where saved games and profiles go. Leave it empty for the usual place." },
 	{ "paths.logs", _config_string, "\"\"", "HALO_LOG_ROOT", _environment_value, _platform_desktop | _platform_server,
 		"Where logs and crash reports go. Leave it empty for logs/ next to\n"
-		"maps." },
+		"maps (or in paths.saves, when that is set)." },
 	{ "paths.cache", _config_string, "\"\"", "HALO_CACHE_ROOT", _environment_value, _platform_desktop | _platform_server,
 		"Where Chupathingy keeps its cache. Leave it empty for cache/ in the\n"
 		"save folder." },
@@ -2224,9 +2224,11 @@ static void config_path(char *path, size_t size)
 	const char *save_root = getenv("HALO_SAVE_ROOT");
 
 	/* (a copy given a save root of its own, a test's, keeps its settings
-	there too, not in the player's) */
+	there too, not in the player's; a new one is made, so its settings can
+	be written) */
 	if (save_root && *save_root)
 	{
+		SDL_CreateDirectory(save_root);
 		snprintf(path, size, "%s/config.toml", save_root);
 		return;
 	}

@@ -51,6 +51,7 @@ tools/test_linux_port.py
 tools/test_lobby_budget.py
 tools/test_lobby_switch_prompt.py
 tools/test_log_paths.py
+tools/test_log_root.py
 tools/test_macos_fullscreen_space.py
 tools/test_map_download.py
 tools/test_map_families.py

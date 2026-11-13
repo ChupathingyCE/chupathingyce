@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pytest
 
+from run_logs import read_debug_log
+
 ROOT = Path(__file__).resolve().parent.parent
 BINARY = os.environ.get("NET43_BINARY", "")
 DATA_ROOT_SCRIPT = os.environ.get("NET43_DATA_ROOT_SCRIPT", "")
@@ -97,8 +99,8 @@ def stop(process, output):
 
 
 def log(folder):
-    path = folder / "data" / "logs" / "debug.txt"
-    return path.read_text(errors="replace") if path.exists() else ""
+    # (the save root's logs/ since #1148, else the data root's: run_logs.py)
+    return read_debug_log(folder / "saves", folder / "data")
 
 
 def play(tmp_path, announce, clients):
