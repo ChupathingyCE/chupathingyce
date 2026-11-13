@@ -14,7 +14,6 @@ thread of its own (posix_browser_send). Moved here from the setup screen
 #include "crash_report.h"
 #include "browser_http.h"
 #include "build_identity.h"
-#include <SDL3/SDL.h>
 #include <ctype.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -37,8 +36,8 @@ enum
 (state SENDING); the thread frees the body and sets done last */
 static struct
 {
-	SDL_AtomicInt running;
-	SDL_AtomicInt done;
+	int running; /* set from the send thread: __atomic, as the dedicated server has no SDL */
+	int done;
 	int state;
 	char url[512];
 	char *body;
@@ -254,7 +253,7 @@ static void *upload_thread(void *context)
 		(int)sizeof(log_send.error));
 	free(log_send.body);
 	log_send.body = NULL;
-	SDL_SetAtomicInt(&log_send.done, 1);
+	__atomic_store_n(&log_send.done, 1, __ATOMIC_SEQ_CST);
 	return NULL;
 }
 
@@ -264,8 +263,8 @@ static void upload_finished(void)
 	char error[256];
 	size_t index;
 
-	SDL_SetAtomicInt(&log_send.done, 0);
-	SDL_SetAtomicInt(&log_send.running, 0);
+	__atomic_store_n(&log_send.done, 0, __ATOMIC_SEQ_CST);
+	__atomic_store_n(&log_send.running, 0, __ATOMIC_SEQ_CST);
 	if (log_send.status == 200 && json_string(log_send.response, "ref", log_send.code, sizeof(log_send.code)))
 	{
 		for (index = 0; log_send.code[index]; index++)
@@ -294,7 +293,7 @@ int log_send_start(const char *logs_folder, int with_settings, char *error, int 
 	int files = 0;
 	pthread_t thread;
 
-	if (SDL_GetAtomicInt(&log_send.running))
+	if (__atomic_load_n(&log_send.running, __ATOMIC_SEQ_CST))
 	{
 		snprintf(error, (size_t)error_size, "Your logs are still being sent.");
 		return LOG_SEND_FAILED;
@@ -335,11 +334,11 @@ int log_send_start(const char *logs_folder, int with_settings, char *error, int 
 	host = host ? host + 3 : url;
 	host_end = host + strcspn(host, ":/");
 	snprintf(log_send.headers, sizeof(log_send.headers), "Origin: https://%.*s\r\n", (int)(host_end - host), host);
-	SDL_SetAtomicInt(&log_send.done, 0);
-	SDL_SetAtomicInt(&log_send.running, 1);
+	__atomic_store_n(&log_send.done, 0, __ATOMIC_SEQ_CST);
+	__atomic_store_n(&log_send.running, 1, __ATOMIC_SEQ_CST);
 	if (pthread_create(&thread, NULL, upload_thread, NULL) != 0)
 	{
-		SDL_SetAtomicInt(&log_send.running, 0);
+		__atomic_store_n(&log_send.running, 0, __ATOMIC_SEQ_CST);
 		free(log_send.body);
 		log_send.body = NULL;
 		snprintf(error, (size_t)error_size, "The upload couldn't start.");
@@ -353,7 +352,7 @@ int log_send_start(const char *logs_folder, int with_settings, char *error, int 
 
 int log_send_poll(char *code, int code_size, char *error, int error_size)
 {
-	if (log_send.state == LOG_SEND_SENDING && SDL_GetAtomicInt(&log_send.done))
+	if (log_send.state == LOG_SEND_SENDING && __atomic_load_n(&log_send.done, __ATOMIC_SEQ_CST))
 		upload_finished();
 	if (code && code_size > 0)
 		snprintf(code, (size_t)code_size, "%s", log_send.state == LOG_SEND_SENT ? log_send.code : "");
