@@ -119,6 +119,8 @@ symbols in this file:
 
 #include "director.h"
 #include "mcc_camera.h" /* port: port/linux/game/mcc_camera.c */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_player.h" /* port: port/linux/game/stubbs_player.c */
 
 #include "camera_scripting.h"
 #include "dead_camera.h"
@@ -383,6 +385,10 @@ short director_desired_perspective(
 		*perspective = _director_perspective_third_person;
 		following = TRUE;
 	}
+	/* port: Stubbs mode's camera behind Stubbs, the same for drawing and
+	aiming (port/linux/game/stubbs_player.c) */
+	if (stubbs_mode_active() && stubbs_player_camera_following(unit_index, perspective))
+		following = TRUE;
 
 	return following;
 }
