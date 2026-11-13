@@ -641,17 +641,7 @@ class JoinServer(Server):
     """the harness with Custom Edition's join wire on"""
 
     def __init__(self, harness):  # noqa: F811
-        import subprocess
-        import threading
-        from tools.test_gamespy_listing import free_udp_port
-        self.port = free_udp_port()
-        self.process = subprocess.Popen([str(harness), str(self.port), "", "0.0.0-test", "3", "joins"],
-                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-        line = self.process.stdout.readline().strip()
-        assert line == "started", line
-        self.output = []
-        self.reader = threading.Thread(target=self.read, daemon=True)
-        self.reader.start()
+        super().__init__(harness, extra=("joins",))
 
     def wait_for_output(self, text, seconds=3.0):
         import time
