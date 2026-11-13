@@ -3542,7 +3542,8 @@ static void controls_page_string(short index, wchar_t *text, size_t count)
 /* port: the consoles keep the profile's button layouts (the game's own
 button_preset, as the Xbox's Controller Settings offered them) and change
 no button: BUTTON LAYOUT is the one row of the layout's they have, a
-spinner of the presets without Custom (tools/port_settings.py). What it
+spinner of the presets without Custom, layout_console_spinner
+(tools/port_settings.py). What it
 shows is read from the local player's profile when the list is made, and
 what is chosen on it is put in force, and saved, as the row changes */
 static short console_layout_player(struct widget_instance *widget)
@@ -3553,7 +3554,7 @@ static short console_layout_player(struct widget_instance *widget)
 
 static void console_layout_init(struct widget_instance *list)
 {
-	struct widget_instance *spinner = named(screen_of(list), "layout_spinner", 0);
+	struct widget_instance *spinner = named(screen_of(list), "layout_console_spinner", 0);
 	short button_preset, joystick_preset;
 
 	if (!spinner)
@@ -3567,7 +3568,7 @@ static void console_layout_init(struct widget_instance *list)
 
 static void console_layout_update(struct widget_instance *list)
 {
-	struct widget_instance *spinner = named(screen_of(list), "layout_spinner", 0);
+	struct widget_instance *spinner = named(screen_of(list), "layout_console_spinner", 0);
 	short button_preset, joystick_preset, chosen;
 
 	if (!spinner)
@@ -3580,7 +3581,7 @@ static void console_layout_update(struct widget_instance *list)
 
 static void console_layout_defaults(struct widget_instance *list)
 {
-	struct widget_instance *spinner = named(screen_of(list), "layout_spinner", 0);
+	struct widget_instance *spinner = named(screen_of(list), "layout_console_spinner", 0);
 	short button_preset, joystick_preset;
 
 	player_ui_get_local_player_layouts(console_layout_player(list), &button_preset, &joystick_preset);
@@ -3680,7 +3681,7 @@ static void controls_page_update(struct widget_instance *list)
 #else
 	else if (focused == named(list, "op_layout", 0))
 	{
-		line = spinner_shown(list, "layout_spinner") == _button_preset_bumper_jumper ?
+		line = spinner_shown(list, "layout_console_spinner") == _button_preset_bumper_jumper ?
 			"Jump with the left bumper." : "Choose the controller's button layout.";
 	}
 #endif

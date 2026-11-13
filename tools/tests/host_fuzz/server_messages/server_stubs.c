@@ -326,6 +326,10 @@ long write_endpoint(void) { return 0; }
 long delta_legacy_mcc_version(void);
 long delta_legacy_mcc_version(void) { return 0; }
 long network_distributed_mcc_share_message(void);
+long network_distributed_mcc_admission_holding(void);
+long network_distributed_mcc_admission_holding(void) { return 0; }
+long network_distributed_mcc_admission_message(void);
+long network_distributed_mcc_admission_message(void) { return 0; }
 long network_distributed_mcc_share_message(void) { return 0; }
 long stubbs_mode_active(void);
 long stubbs_mode_active(void) { return 0; }
