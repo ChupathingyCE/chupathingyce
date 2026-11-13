@@ -288,6 +288,7 @@ symbols in this file:
 #ifdef HALO_64BIT
 #include "cseries/cseries_windows.h"
 #endif
+#include "mcc_scripts.h"
 
 /* port: bipeds.c's; cheats.c's (hs_evaluate_set) */
 extern boolean rider_ejection;
@@ -351,14 +352,15 @@ enum
 #define hs_syntax_get(expression_index) \
 	((struct hs_syntax_node *)datum_get(hs_syntax_data, (expression_index)))
 
+/* port: MCC selects its own checked stack end; native limits are unchanged. */
 /* a thread is valid when it lies inside the thread data array and its stack pointer and
    the fill mark of its topmost frame lie inside its own inline stack buffer */
 #define valid_thread(thread) \
 	((byte *)(thread)>=(byte *)xbox_pointer(hs_thread_data->data) && \
 	(byte *)(thread)<(byte *)xbox_pointer(hs_thread_data->data)+hs_thread_data->count*hs_thread_data->size && \
 	(byte *)(thread)->stack>=(thread)->stack_data && \
-	(byte *)(thread)->stack<(thread)->stack_data+HS_THREAD_STACK_SIZE && \
-	(thread)->stack->data+(thread)->stack->size<=(thread)->stack_data+HS_THREAD_STACK_SIZE)
+	(byte *)(thread)->stack<mcc_hs_stack_end(thread) && \
+	(thread)->stack->data+(thread)->stack->size<=mcc_hs_stack_end(thread))
 
 #define HS_GLOBAL_DESIGNATOR_IS_EXTERNAL(designator) \
 	TEST_FLAG((designator), _hs_global_external_bit)
@@ -759,6 +761,23 @@ boolean debug_trigger_volumes;
 
 /* ---------- public code */
 
+#include "mcc_cache.h"
+#if !defined(HALO_MCC) || !HALO_MCC
+/* port: no MCC maps in this build (HALO_MCC): the native threads and
+evaluation, as before */
+#define mcc_hs_stack_end(thread) ((thread)->stack_data+HS_THREAD_STACK_SIZE)
+#define mcc_hs_threads_activate() ((void)0)
+#define mcc_hs_release_thread(thread_index) ((void)0)
+#define mcc_hs_if_tail(function, thread_index, initialize) FALSE
+#define mcc_hs_script_evaluate(script_index, thread_index, initialize) FALSE
+#define mcc_hs_parameter_evaluate(thread_index, node, destination) FALSE
+#define mcc_hs_parameter_set(thread_index, variable, initialize) FALSE
+#define mcc_hs_speed_reconcile(designator, write) ((void)0)
+#else
+#include "mcc_script_threads.inl" /* port: MCC-only bounded thread storage. */
+#include "mcc_script_runtime.inl"
+#endif
+
 void hs_runtime_initialize(
 	void)
 {
@@ -800,6 +819,8 @@ void hs_runtime_initialize_for_new_map(
 {
 	long internal_thread_index;
 
+	/* port: select the MCC-owned array only after its cache was accepted. */
+	mcc_hs_threads_activate();
 	data_make_valid(hs_thread_data);
 	hs_runtime_globals.initialized = TRUE;
 	hs_runtime_globals.executing_thread_index = NONE;
@@ -938,6 +959,11 @@ static char const *expression_get_function_name(
 			expression_index != thread->stack->expression_index)
 		{
 			/* port: an index past the table (a damaged map's) names none */
+			{
+				struct hs_function_definition *mcc_function = mcc_script_function(syntax_node->index);
+				if (mcc_function)
+					return mcc_function->name;
+			}
 			if ((word)syntax_node->index>=hs_function_count())
 				return "(corrupt function)";
 
@@ -1382,6 +1408,7 @@ static long hs_thread_new(
 static void hs_thread_delete(
 	long thread_index)
 {
+	mcc_hs_release_thread(thread_index);
 	match_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x290,
 		hs_thread_get(thread_index)->type!=_hs_thread_type_script);
 
@@ -1397,13 +1424,14 @@ static boolean hs_stack_push(
 	struct hs_stack_frame *new_frame = (struct hs_stack_frame *)
 		((byte *)thread->stack+thread->stack->size+sizeof(struct hs_stack_frame));
 
+	/* port: MCC uses its own bound; Xbox/CE keep the inline stack limit. */
 	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x35e, thread_index,
-		(byte *) (new_frame+1)<thread->stack_data+HS_THREAD_STACK_SIZE,
+		(byte *) (new_frame+1)<mcc_hs_stack_end(thread),
 		"stack overflow.");
 
 	/* port: a frame past the thread's stack isn't pushed (it would be
 	written over the next thread's datum): the thread is ended instead */
-	if ((byte *)(new_frame+1)>=thread->stack_data+HS_THREAD_STACK_SIZE ||
+	if ((byte *)(new_frame+1)>=mcc_hs_stack_end(thread) ||
 		TEST_FLAG(thread->flags, _hs_thread_stack_overflow_bit))
 	{
 		hs_stack_overflow(thread_index);
@@ -1828,6 +1856,12 @@ boolean hs_can_cast(
 {
 	short object_type;
 
+	{
+		/* port: MCC-only AI casts and signed integer widening. */
+		if (mcc_script_can_cast(actual_type, desired_type))
+			return TRUE;
+	}
+
 	match_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x5a4,
 		actual_type==_hs_passthrough || hs_type_valid(actual_type));
 	match_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x5a5,
@@ -1880,6 +1914,12 @@ long hs_cast(
 	short desired_type,
 	long value)
 {
+	{
+		/* port: MCC-only AI casts and signed integer widening. */
+		if (mcc_script_can_cast(actual_type, desired_type))
+			return mcc_script_cast(actual_type, desired_type, value);
+	}
+
 	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x5d8, thread_index,
 		hs_can_cast(actual_type, desired_type), "bad typecast.");
 
@@ -2228,6 +2268,8 @@ void hs_evaluate_set(
 		NULL;
 	short type;
 	long global_index;
+	if (mcc_hs_parameter_set(thread_index, variable, initialize))
+		return;
 
 	/* port: a variable that isn't a global's name ends the thread: its
 	index would pick the global (the external one too) written through. Only
@@ -2825,6 +2867,10 @@ static void hs_thread_main(
 		index_count = TEST_FLAG(expression->flags, _hs_syntax_node_script_bit) ?
 			global_scenario_get()->hs_scripts.count :
 			hs_function_count();
+		{
+			if (!TEST_FLAG(expression->flags, _hs_syntax_node_script_bit) && mcc_script_function(expression->index))
+				index_count = expression->index + 1;
+		}
 		if (expression->index<0 || expression->index>=index_count)
 		{
 			hs_syntax_error(thread_index);
@@ -2835,10 +2881,13 @@ static void hs_thread_main(
 
 			match_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x2d8, function->evaluate);
 
-			function->evaluate(
-				expression->index,
-				thread_index,
-				initialize);
+			/* port: MCC may release a completed conditional frame before
+			entering its selected branch; legacy evaluation is unchanged. */
+			if (!mcc_hs_if_tail(expression->index, thread_index, initialize))
+				function->evaluate(
+					expression->index,
+					thread_index,
+					initialize);
 		}
 		else
 		{
@@ -2849,6 +2898,7 @@ static void hs_thread_main(
 		frames are let go, and a script's thread doesn't run again */
 		if (TEST_FLAG(thread->flags, _hs_thread_stack_overflow_bit))
 		{
+			mcc_hs_release_thread(thread_index);
 			thread->stack = (struct hs_stack_frame *)thread->stack_data;
 			thread->flags = 0;
 			thread->sleep_until = thread->type==_hs_thread_type_script ? NONE : 0;
@@ -2881,6 +2931,8 @@ static void hs_script_evaluate(
 	long thread_index,
 	boolean initialize)
 {
+	if (mcc_hs_script_evaluate(script_index, thread_index, initialize))
+		return;
 	struct hs_script *script = TAG_BLOCK_GET_ELEMENT(
 		&global_scenario_get()->hs_scripts,
 		script_index,
@@ -2961,14 +3013,15 @@ static void *hs_stack_allocate(
 		valid_thread(thread), "corrupted stack.");
 	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x37e, thread_index,
 		size, "attempt to allocate zero space from the stack.");
+	/* port: MCC uses its own bound; Xbox/CE keep the inline stack limit. */
 	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x37f, thread_index,
-		frame->data+frame->size+size<=thread->stack_data+HS_THREAD_STACK_SIZE,
+		frame->data+frame->size+size<=mcc_hs_stack_end(thread),
 		"stack overflow.");
 
 	/* port: none past the thread's stack (hs_stack_overflow); the caller
 	returns on NULL */
 	if (size<0 ||
-		size>thread->stack_data+HS_THREAD_STACK_SIZE-(frame->data+frame->size) ||
+		size>mcc_hs_stack_end(thread)-(frame->data+frame->size) ||
 		TEST_FLAG(thread->flags, _hs_thread_stack_overflow_bit))
 	{
 		hs_stack_overflow(thread_index);
@@ -3024,6 +3077,8 @@ static void hs_evaluate(
 
 		return;
 	}
+	if (mcc_hs_parameter_evaluate(thread_index, expression, destination))
+		return;
 
 	if (TEST_FLAG(hs_syntax_get(expression_index)->flags, _hs_syntax_node_primitive_bit))
 	{
@@ -3069,6 +3124,9 @@ static void hs_global_reconcile_read(
 {
 	struct hs_global_datum *global;
 	struct hs_external_global_definition *external;
+
+	/* port: MCC's scenario-local speed global reflects its authoritative clock. */
+	mcc_hs_speed_reconcile(global_designator, FALSE);
 
 	if (HS_GLOBAL_DESIGNATOR_IS_EXTERNAL(global_designator))
 	{
@@ -3297,6 +3355,9 @@ static void hs_global_reconcile_write(
 	struct hs_global_datum *global;
 	struct hs_external_global_definition *external;
 	real value;
+
+	/* port: MCC speed writes cannot change a client's local clock. */
+	mcc_hs_speed_reconcile(global_designator, TRUE);
 
 	if (HS_GLOBAL_DESIGNATOR_IS_EXTERNAL(global_designator))
 	{

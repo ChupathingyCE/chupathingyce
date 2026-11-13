@@ -419,6 +419,8 @@ symbols in this file:
 #include "rasterizer_xbox_internal.h"
 #include "rasterizer_xbox_vertex_shaders.h"
 
+#include "plasma_model_shader.h" /* port: port/linux/game/plasma_lighting.c */
+
 /* ---------- constants */
 
 enum
@@ -812,6 +814,9 @@ extern D3DCAPS8 global_d3d_caps;
  * is the only symbol csplit knows there, so the split still anchors their
  * relocations on `_global_d3d_device + 8` / `+ 12` (image 0x0045E8D8 and
  * 0x0045E8DC).  symbols.json names for those two addresses close the gap. */
+/* port: the viewport rasterizer_set_target gave the device last, for
+rasterizer_set_depth_range */
+static D3DVIEWPORT8 rasterizer_target_viewport;
 static boolean suppress_window_begin_end = FALSE;
 static short previous_window_index = 0;
 
@@ -831,7 +836,86 @@ extern unsigned long renderstate_table[D3DRS_MAX];
 extern unsigned long texturestagestate_table[D3DTSS_MAXSTAGES][D3DTSS_MAX];
 extern D3DBaseTexture *texture_table[D3DTSS_MAXSTAGES];
 
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+/* port: a console's 640 pixels stretched to a 16:9 television
+(halo_console_features.h). The 3D view and everything drawn into it stay in
+the pixels; the interface (the HUD, the menus and their text) is laid out in
+the stretched picture's units, halo_screen_width() of them across, while it
+draws: rasterizer_interface_begin gives the window and the screen those
+units, and rasterizer_set_target turns them back into pixels for the
+viewport, so that the interface's quads, whose screen constants come from the
+window's width, land narrower by as much as the television widens them. The
+menus' 640 columns are centered in the wider screen, as the desktop centers
+them (halo_screen_ui_offset): their quads and text shift right by
+rasterizer_interface_offset_x. */
+static struct
+{
+	boolean active;
+	boolean centered;
+	rectangle2d viewport_bounds;
+	rectangle2d window_bounds;
+	rectangle2d screen_bounds;
+	rectangle2d frame_bounds;
+} rasterizer_interface;
+#endif
+
 /* ---------- public code */
+
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+static void rasterizer_interface_rectangle(
+	rectangle2d *bounds)
+{
+	bounds->x0 = (short)halo_screen_interface_x(bounds->x0);
+	bounds->x1 = (short)halo_screen_interface_x(bounds->x1);
+}
+
+void rasterizer_interface_begin(
+	boolean centered)
+{
+	if (rasterizer_interface.active)
+		rasterizer_interface_end();
+	rasterizer_interface.active = TRUE;
+	rasterizer_interface.centered = centered;
+	rasterizer_interface.viewport_bounds = global_window_parameters.camera.viewport_bounds;
+	rasterizer_interface.window_bounds = global_window_parameters.camera.window_bounds;
+	rasterizer_interface.screen_bounds = rasterizer_globals.reserved04.screen_bounds;
+	rasterizer_interface.frame_bounds = rasterizer_globals.reserved04.frame_bounds;
+	rasterizer_interface_rectangle(&global_window_parameters.camera.viewport_bounds);
+	rasterizer_interface_rectangle(&global_window_parameters.camera.window_bounds);
+	rasterizer_interface_rectangle(&rasterizer_globals.reserved04.screen_bounds);
+	rasterizer_interface_rectangle(&rasterizer_globals.reserved04.frame_bounds);
+}
+
+void rasterizer_interface_end(
+	void)
+{
+	if (!rasterizer_interface.active)
+		return;
+	global_window_parameters.camera.viewport_bounds = rasterizer_interface.viewport_bounds;
+	global_window_parameters.camera.window_bounds = rasterizer_interface.window_bounds;
+	rasterizer_globals.reserved04.screen_bounds = rasterizer_interface.screen_bounds;
+	rasterizer_globals.reserved04.frame_bounds = rasterizer_interface.frame_bounds;
+	rasterizer_interface.active = FALSE;
+	rasterizer_interface.centered = FALSE;
+}
+
+real rasterizer_interface_offset_x(
+	void)
+{
+	return rasterizer_interface.centered ?
+		0.5f * (real)(halo_screen_width() - RASTERIZER_SCREEN_WIDTH) :
+		0.0f;
+}
+
+float rasterizer_screen_pixel_aspect(
+	void)
+{
+	return rasterizer_interface.active ?
+		1.0f :
+		(float)halo_screen_width() / (float)RASTERIZER_SCREEN_WIDTH;
+}
+#endif
+
 
 void _rasterizer_reset_state(
 	void)
@@ -1109,6 +1193,8 @@ void rasterizer_set_model_lighting_point_light(
 		"c:\\halo\\SOURCE\\rasterizer\\xbox\\rasterizer_xbox.c",
 		2826,
 		lighting_constants);
+	/* port: whether the Light effects light this slot (plasma_lighting.c) */
+	plasma_model_lighting_slot(light_index, constant_index);
 	if (light_index != NONE)
 	{
 		struct rasterizer_light_submit_parameters const *light;
@@ -1205,6 +1291,8 @@ void rasterizer_set_model_lighting(
 		"c:\\halo\\SOURCE\\rasterizer\\xbox\\rasterizer_xbox.c",
 		2898,
 		lighting->distant_light_count>=0 && lighting->distant_light_count<=MAXIMUM_RENDERED_DISTANT_LIGHTS);
+	/* port: each model its own lights of the Light effects, none for an ambient one */
+	plasma_model_lighting_reset();
 	if (rasterizer_debug_options.model_lighting_ambient > 0.0f)
 	{
 		csmemset(&lighting_constants, 0, sizeof(lighting_constants));
@@ -1215,6 +1303,9 @@ void rasterizer_set_model_lighting(
 	}
 	else
 	{
+		/* port: the pads too, which go to the GPU with the rest and held
+		whatever the stack left there */
+		csmemset(&lighting_constants, 0, sizeof(lighting_constants));
 		for (light_index = 0; light_index < MAXIMUM_RENDERED_POINT_LIGHTS; light_index++)
 			rasterizer_set_model_lighting_point_light(
 				lighting->point_light_count > light_index ?
@@ -1578,6 +1669,15 @@ void rasterizer_set_target(
 		viewport.Y = global_window_parameters.camera.viewport_bounds.y0;
 		viewport.Width = global_window_parameters.camera.viewport_bounds.x1 -
 			global_window_parameters.camera.viewport_bounds.x0;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		/* (the interface's units back to pixels) */
+		if (rasterizer_interface.active)
+		{
+			viewport.X = halo_screen_physical_x(global_window_parameters.camera.viewport_bounds.x0);
+			viewport.Width = halo_screen_physical_x(global_window_parameters.camera.viewport_bounds.x1) -
+				viewport.X;
+		}
+#endif
 		viewport.Height = global_window_parameters.camera.viewport_bounds.y1 -
 			global_window_parameters.camera.viewport_bounds.y0;
 	}
@@ -1591,6 +1691,7 @@ void rasterizer_set_target(
 	}
 	viewport.MinZ = 0.0f;
 	viewport.MaxZ = 1.0f;
+	rasterizer_target_viewport = viewport;
 	IDirect3DDevice8_SetViewport(global_d3d_device, &viewport);
 	if (clear)
 	{
@@ -1608,6 +1709,24 @@ void rasterizer_set_target(
 			1.0f,
 			0);
 	}
+	return;
+}
+
+/* port: the current target's viewport again with another depth range
+(D3DVIEWPORT8's MinZ and MaxZ); 0 to 1 is the one rasterizer_set_target
+gives. A range in the depth buffer's last step before 1 draws behind
+everything drawn so far, still clipped at the far plane (the water's fog
+past the world's edge: rasterizer_xbox_water.c) */
+void rasterizer_set_depth_range(
+	real minimum,
+	real maximum)
+{
+	D3DVIEWPORT8 viewport = rasterizer_target_viewport;
+
+	viewport.MinZ = minimum;
+	viewport.MaxZ = maximum;
+	IDirect3DDevice8_SetViewport(global_d3d_device, &viewport);
+
 	return;
 }
 
@@ -1830,6 +1949,10 @@ boolean rasterizer_preinitialize__fill_you_up_with_the_devils_cock(
 #endif
 		d3d_present_parameters.BackBufferHeight = RASTERIZER_SCREEN_HEIGHT;
 		d3d_present_parameters.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		/* (the mode rasterizer_initialize asks for, so that it stays) */
+		d3d_present_parameters.Flags |= halo_screen_present_flags();
+#endif
 
 		result = IDirect3D8_CreateDevice(
 			d3d,
@@ -2978,6 +3101,25 @@ boolean _rasterizer_initialize(
 			rasterizer_globals.reserved04.screen_bounds.x0;
 		d3d_present_parameters.BackBufferHeight = rasterizer_globals.reserved04.screen_bounds.y1 -
 			rasterizer_globals.reserved04.screen_bounds.y0;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		/* port: widescreen when the dashboard has it (display.widescreen):
+		Direct3D then picks the mode's 16:9 row, at 480p where the
+		dashboard allows it and the cable is component, as without */
+		d3d_present_parameters.Flags |= halo_screen_present_flags();
+#endif
+#ifdef HALO_CONSOLE_FRAME_RATE
+		/* port: 60 frames a second over the 30 Hz ticks when the console's
+		setting asks for it (display.frame_rate), as the H1 Performance Build
+		does (thanks theboy181): a present every vertical blank, with the
+		pacer's stabilization on, so a scene that can't hold 60 is drawn at
+		a steady 30 until it can (main_update_time). 0, the game's own 30,
+		otherwise */
+		if (halo_console_frame_rate() == 60)
+		{
+			rasterizer_globals.framerate_throttle_target = 60;
+			rasterizer_globals.framerate_throttle_debug = TRUE;
+		}
+#endif
 		switch (rasterizer_globals.framerate_throttle_target)
 		{
 		case NONE:
@@ -3038,6 +3180,9 @@ boolean _rasterizer_initialize(
 		{
 			D3DCOLOR *palette_data;
 
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+			halo_screen_device_report();
+#endif
 			IDirect3DDevice8_GetDeviceCaps(global_d3d_device, &global_d3d_caps);
 			SetupSmartStates();
 			palette_data = NULL;
@@ -3482,7 +3627,14 @@ boolean _rasterizer_initialize(
 					IDirect3DDevice8_SetTextureStageState(global_d3d_device, 1, D3DTSS_TEXCOORDINDEX, 1);
 					IDirect3DDevice8_SetTextureStageState(global_d3d_device, 2, D3DTSS_TEXCOORDINDEX, 2);
 					IDirect3DDevice8_SetTextureStageState(global_d3d_device, 3, D3DTSS_TEXCOORDINDEX, 3);
+#ifdef HALO_CONSOLE_FLICKER_FILTER
+					/* port: the level the console's setting asks for
+					(display.flicker_filter: the game's 5 unless set; the
+					H1 Performance Build's 1 is sharper on an interlaced TV) */
+					D3DDevice_SetFlickerFilter(halo_console_flicker_filter());
+#else
 					D3DDevice_SetFlickerFilter(RASTERIZER_FLICKER_FILTER_LEVEL);
+#endif
 					D3DDevice_SetSoftDisplayFilter(FALSE);
 				}
 			}

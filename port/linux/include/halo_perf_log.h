@@ -77,6 +77,26 @@ enum halo_perf_phase
 	_halo_perf_tick_physics,
 	_halo_perf_tick_collision,
 	_halo_perf_tick_netcode,
+	/* the objects' update's parts (objects_update, objects.c), each inside
+	tick objects: each type's own update (object_type_update: the bipeds',
+	with their units' and animations' work, the vehicles' without their
+	physics, the weapons', the equipment's and garbage's, the projectiles',
+	and the rest: scenery, machines, controls, lights, sound scenery), the
+	damage update, the node matrices (computed and postprocessed), the
+	function values and change colors, the lights' reconnecting, the
+	clusters' activation and the garbage collection */
+	_halo_perf_objects_bipeds,
+	_halo_perf_objects_vehicles,
+	_halo_perf_objects_weapons,
+	_halo_perf_objects_items,
+	_halo_perf_objects_projectiles,
+	_halo_perf_objects_other_types,
+	_halo_perf_objects_damage,
+	_halo_perf_objects_nodes,
+	_halo_perf_objects_functions,
+	_halo_perf_objects_lights,
+	_halo_perf_objects_activation,
+	_halo_perf_objects_garbage,
 	NUMBER_OF_HALO_PERF_PHASES
 };
 
@@ -93,6 +113,9 @@ enum halo_perf_counter
 	_halo_perf_screen_effect_passes,
 	/* the lens flares' visibility (occlusion) tests drawn */
 	_halo_perf_visibility_tests,
+	/* the objects updated in the ticks (object_update's calls, children
+	included) */
+	_halo_perf_objects_updated,
 	NUMBER_OF_HALO_PERF_COUNTERS
 };
 
@@ -108,6 +131,10 @@ void halo_perf_end(int phase);
 void halo_perf_render_part(int phase);
 /* once each pass of the main loop, at its end */
 void halo_perf_frame(void);
+/* the render's part running now (an enum halo_perf_phase), or NONE while
+the setting is off or no part runs: a console's renderer counts each part's
+draws (the Xbox 360's frame counters) */
+int halo_perf_render_part_now(void);
 
 #define HALO_PERF_BEGIN(phase) do { if (halo_perf_log_on) halo_perf_begin(phase); } while (0)
 #define HALO_PERF_END(phase) do { if (halo_perf_log_on) halo_perf_end(phase); } while (0)

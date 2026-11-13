@@ -48,6 +48,7 @@ players are told and bans.txt keeps.
 #include "../src/delta_moderation.h"
 #include "../src/ui_overlay.h"
 #include "halo_ui_pointer.h"
+#include "host_rules.h"
 
 int config_boolean(char const *name);
 char const *config_string(char const *name);
@@ -121,6 +122,9 @@ static struct moderation_choice const moderation_choices[] =
 	{ "Ban forever", _delta_moderation_action_ban, 0, DELTA_MODERATION_BAN, TRUE },
 	{ "End game", _delta_moderation_action_end_game, 0, DELTA_MODERATION_MAP, FALSE },
 	{ "Next map", _delta_moderation_action_next_map, 0, DELTA_MODERATION_MAP, FALSE },
+	/* (joins: sv_lock and sv_unlock; a server that takes them says so) */
+	{ "Lock joins", _delta_moderation_action_lock, 0, DELTA_MODERATION_KICK, FALSE },
+	{ "Unlock joins", _delta_moderation_action_unlock, 0, DELTA_MODERATION_KICK, FALSE },
 };
 
 /* the reasons a confirm may give (left and right), the first none: the same
@@ -259,11 +263,25 @@ static void read_choices(
 			allowed = (permissions & DELTA_MODERATION_BAN) ||
 				(allowed && (unsigned int)choice->minutes <= moderation->ban_minutes);
 		}
-		/* (the host's: kick and ban alone, which its own game does) */
+		/* (the host's: kick, ban and its joins' lock alone, which its own game
+		does) */
 		if (moderation_screen.host && choice->action != _delta_moderation_action_kick &&
-			choice->action != _delta_moderation_action_ban)
+			choice->action != _delta_moderation_action_ban && choice->action != _delta_moderation_action_lock &&
+			choice->action != _delta_moderation_action_unlock)
 		{
 			allowed = FALSE;
+		}
+		/* (lock and unlock: a server that takes them, the one that fits now) */
+		if (choice->action == _delta_moderation_action_lock || choice->action == _delta_moderation_action_unlock)
+		{
+			boolean locked = moderation_screen.host ? host_rules_joins_locked() :
+				(moderation->actions & DELTA_WIRE_MOD_STATE_LOCKED) != 0;
+
+			if ((!moderation_screen.host && !(moderation->actions & DELTA_WIRE_MOD_STATE_LOCK)) ||
+				locked != (choice->action == _delta_moderation_action_unlock))
+			{
+				allowed = FALSE;
+			}
 		}
 		if (allowed)
 			moderation_screen.allowed[moderation_screen.allowed_count++] = index;
@@ -296,6 +314,24 @@ static void act(
 		if (!moderation_screen.player_count)
 			return;
 		target = moderation_screen.players[moderation_screen.selected].machine_index;
+	}
+	/* (the host's own game: its joins locked or unlocked, here) */
+	if (moderation_screen.host &&
+		(choice->action == _delta_moderation_action_lock || choice->action == _delta_moderation_action_unlock))
+	{
+		/* (a lock is for the players of other machines: it ends by itself
+		10 seconds after hosting does or they've all gone, host_rules.c) */
+		if (choice->action == _delta_moderation_action_lock && !host_rules_lock_has_players())
+		{
+			set_status("Nobody else is in the game.");
+			return;
+		}
+		host_rules_set_joins_locked(choice->action == _delta_moderation_action_lock);
+		platform_log("moderation: the host %s its joins", choice->action == _delta_moderation_action_lock ? "locked" :
+			"unlocked");
+		set_status(choice->action == _delta_moderation_action_lock ? "Joins locked." : "Joins unlocked.");
+		read_choices();
+		return;
 	}
 	/* (the host's own game: its kick and ban, here) */
 	if (moderation_screen.host)
@@ -641,7 +677,7 @@ static float prompt(
 	float left = x;
 
 	x += ui_overlay_button(button, 15.0f, x, y, 0xFFFFFFFF) + 3.0f;
-	x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, y + 1.5f, UI_ALIGN_LEFT, COLOR_PROMPT, words);
+	x += ui_overlay_text(UI_FONT_MENU, 10.5f, x, y + 1.5f, UI_ALIGN_LEFT, COLOR_PROMPT, words);
 	add_target(left - 4.0f, y - 4.0f, x + 4.0f, y + 19.0f,
 		button == UI_BUTTON_A ? _gamepad_analog_button_a :
 		button == UI_BUTTON_B ? _gamepad_analog_button_b : _gamepad_binary_button_dpad_right, NONE);
@@ -659,7 +695,7 @@ static float prompt_left_right(
 
 	x += ui_overlay_button(UI_BUTTON_DPAD_LEFT, 15.0f, x, y, 0xFFFFFFFF) + 2.0f;
 	x += ui_overlay_button(UI_BUTTON_DPAD_RIGHT, 15.0f, x, y, 0xFFFFFFFF) + 3.0f;
-	x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, y + 1.5f, UI_ALIGN_LEFT, COLOR_PROMPT, words);
+	x += ui_overlay_text(UI_FONT_MENU, 10.5f, x, y + 1.5f, UI_ALIGN_LEFT, COLOR_PROMPT, words);
 	add_target(left - 4.0f, y - 4.0f, x + 4.0f, y + 19.0f, _gamepad_binary_button_dpad_right, NONE);
 	return x + 18.0f;
 }
@@ -760,14 +796,14 @@ static void render_banner(
 		ui_overlay_outline(110, 24, 420, 30, 6, 1.0f,
 			banner_color("display.server_message_border_color", warning ? COLOR_WARNING : COLOR_PANEL_EDGE));
 		snprintf(text, sizeof(text), "%s%s", warning ? "Server warning: " : "", moderation->notice);
-		ui_overlay_text(UI_FONT_BOLD, 13.0f, 320, 32, UI_ALIGN_CENTER,
+		ui_overlay_text(UI_FONT_MENU, 11.5f, 320, 32, UI_ALIGN_CENTER,
 			banner_color("display.server_message_text_color", warning ? COLOR_WARNING : COLOR_TEXT), text);
 	}
 	else if (moderation->bind_waiting && !moderation_screen.active)
 	{
 		ui_overlay_rect(110, 24, 420, 30, 6, COLOR_PANEL);
 		ui_overlay_outline(110, 24, 420, 30, 6, 1.0f, COLOR_PANEL_EDGE);
-		text_with_button(UI_FONT_REGULAR, 12.0f, 320, 33, UI_ALIGN_CENTER, COLOR_TEXT,
+		text_with_button(UI_FONT_MENU_SMALL, 10.5f, 320, 33, UI_ALIGN_CENTER, COLOR_TEXT,
 			"Link request from the server. Pause, then press", UI_BUTTON_Y, ".");
 	}
 }
@@ -793,27 +829,27 @@ void moderation_screen_render(
 	ui_overlay_rect(-200, 0, 1040, 480, 0, COLOR_SHADE);
 	ui_overlay_rect(100, 60, 440, 360, 8, COLOR_SCREEN_PANEL);
 	ui_overlay_outline(100, 60, 440, 360, 8, 1.0f, COLOR_PANEL_EDGE);
-	ui_overlay_text(UI_FONT_BOLD, 22.0f, 120, 72, UI_ALIGN_LEFT, COLOR_TITLE, "MODERATION");
+	ui_overlay_text(UI_FONT_MENU, 19.0f, 120, 72, UI_ALIGN_LEFT, COLOR_TITLE, "MODERATION");
 	if (moderation_screen.host)
 	{
 		/* (the host's own name: the one machine never listed) */
 		snprintf(text, sizeof(text), "Host: %s", moderation_screen.host_name[0] ? moderation_screen.host_name : "you");
-		ui_overlay_text(UI_FONT_REGULAR, 12.0f, 520, 80, UI_ALIGN_RIGHT, COLOR_DIM, text);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.5f, 520, 80, UI_ALIGN_RIGHT, COLOR_DIM, text);
 	}
 	else if (moderation->has_state)
 	{
-		ui_overlay_text(UI_FONT_REGULAR, 12.0f, 520, 80, UI_ALIGN_RIGHT, COLOR_DIM,
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.5f, 520, 80, UI_ALIGN_RIGHT, COLOR_DIM,
 			role_name(moderation->role));
 	}
 	y = 108;
 	if (moderation->bind_waiting)
 	{
-		ui_overlay_text(UI_FONT_BOLD, 14.0f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT, "Link this game to an account?");
+		ui_overlay_text(UI_FONT_MENU, 12.0f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT, "Link this game to an account?");
 		snprintf(text, sizeof(text), "Account: %s", moderation->bind_account);
-		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 120, y + 28, UI_ALIGN_LEFT, COLOR_TEXT, text);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, 120, y + 28, UI_ALIGN_LEFT, COLOR_TEXT, text);
 		snprintf(text, sizeof(text), "Server: %s", moderation->bind_server);
-		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 120, y + 46, UI_ALIGN_LEFT, COLOR_TEXT, text);
-		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 120, y + 76, UI_ALIGN_LEFT, COLOR_DIM,
+		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, 120, y + 46, UI_ALIGN_LEFT, COLOR_TEXT, text);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, 120, y + 76, UI_ALIGN_LEFT, COLOR_DIM,
 			"Link only if you asked for it in the server's control panel.");
 		x = prompt(UI_BUTTON_A, "Link", 120, 392);
 		prompt(UI_BUTTON_B, "Decline", x, 392);
@@ -823,38 +859,38 @@ void moderation_screen_render(
 	{
 		char key[80];
 
-		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT,
+		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT,
 			"Sign in if you moderate this server.");
-		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 120, y + 24, UI_ALIGN_LEFT, COLOR_DIM,
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, 120, y + 24, UI_ALIGN_LEFT, COLOR_DIM,
 			"Your moderator key:");
 		if (browser_moderator_key(key, sizeof(key)))
 		{
 			snprintf(text, sizeof(text), "%.32s", key);
-			ui_overlay_text(UI_FONT_REGULAR, 11.0f, 120, y + 40, UI_ALIGN_LEFT, COLOR_TEXT, text);
+			ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, 120, y + 40, UI_ALIGN_LEFT, COLOR_TEXT, text);
 			snprintf(text, sizeof(text), "%s", key + 32);
-			ui_overlay_text(UI_FONT_REGULAR, 11.0f, 120, y + 54, UI_ALIGN_LEFT, COLOR_TEXT, text);
+			ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, 120, y + 54, UI_ALIGN_LEFT, COLOR_TEXT, text);
 		}
 		if (moderation_screen.status[0])
-			ui_overlay_text(UI_FONT_REGULAR, 12.0f, 120, 360, UI_ALIGN_LEFT, COLOR_DIM, moderation_screen.status);
+			ui_overlay_text(UI_FONT_MENU_SMALL, 10.5f, 120, 360, UI_ALIGN_LEFT, COLOR_DIM, moderation_screen.status);
 		x = prompt(UI_BUTTON_A, "Sign in", 120, 392);
 		prompt(UI_BUTTON_B, "Back", x, 392);
 		return;
 	}
 	if (!moderation_screen.host && !moderation->has_state)
 	{
-		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT, "Signing in...");
+		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT, "Signing in...");
 		prompt(UI_BUTTON_B, "Back", 120, 392);
 		return;
 	}
 	/* (the role's source, as the server told this player) */
 	if (!moderation_screen.host && moderation_screen.note[0])
 	{
-		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 120, 96, UI_ALIGN_LEFT, COLOR_DIM, moderation_screen.note);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, 120, 96, UI_ALIGN_LEFT, COLOR_DIM, moderation_screen.note);
 		y += 8;
 	}
 	if ((!moderation_screen.host && !moderation->role) || !moderation_screen.allowed_count)
 	{
-		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT,
+		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT,
 			"Your moderator key has no role on this server.");
 		prompt(UI_BUTTON_B, "Back", 120, 392);
 		return;
@@ -862,7 +898,7 @@ void moderation_screen_render(
 
 	/* the action, then the players */
 	snprintf(text, sizeof(text), "< %s >", moderation_choices[moderation_screen.allowed[moderation_screen.choice]].name);
-	ui_overlay_text(UI_FONT_BOLD, 14.0f, 320, y, UI_ALIGN_CENTER, COLOR_TEXT, text);
+	ui_overlay_text(UI_FONT_MENU, 12.0f, 320, y, UI_ALIGN_CENTER, COLOR_TEXT, text);
 	/* (the pointer steps back on its left half, on with its right) */
 	if (!moderation_screen.confirming)
 	{
@@ -884,11 +920,11 @@ void moderation_screen_render(
 				ui_overlay_rect(116, y + row * 20 - 2, 408, 19, 3, COLOR_ROW_SELECTED);
 			if (!moderation_screen.confirming)
 				add_target(116, y + row * 20 - 2, 524, y + row * 20 + 18, NONE, index);
-			ui_overlay_text(UI_FONT_REGULAR, 13.0f, 124, y + row * 20, UI_ALIGN_LEFT, COLOR_TEXT,
+			ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, 124, y + row * 20, UI_ALIGN_LEFT, COLOR_TEXT,
 				moderation_screen.players[index].name);
 		}
 		if (!moderation_screen.player_count)
-			ui_overlay_text(UI_FONT_REGULAR, 13.0f, 124, y, UI_ALIGN_LEFT, COLOR_DIM, "No other players.");
+			ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, 124, y, UI_ALIGN_LEFT, COLOR_DIM, "No other players.");
 	}
 	if (moderation_screen.confirming)
 	{
@@ -904,16 +940,16 @@ void moderation_screen_render(
 		/* (the reason, optional: left and right, or the pointer on its halves) */
 		snprintf(reason, sizeof(reason), "Reason: < %s >", moderation_screen.reason ?
 			moderation_reasons[moderation_screen.reason] : "None");
-		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 320, 318, UI_ALIGN_CENTER, COLOR_TEXT, reason);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, 320, 318, UI_ALIGN_CENTER, COLOR_TEXT, reason);
 		add_target(116, 314, 320, 336, _gamepad_binary_button_dpad_left, NONE);
 		add_target(320, 314, 524, 336, _gamepad_binary_button_dpad_right, NONE);
-		text_with_button(UI_FONT_BOLD, 13.0f, 120, 340, UI_ALIGN_LEFT, COLOR_WARNING, text, UI_BUTTON_A, "again.");
+		text_with_button(UI_FONT_MENU, 11.5f, 120, 340, UI_ALIGN_LEFT, COLOR_WARNING, text, UI_BUTTON_A, "again.");
 	}
 	if (moderation_screen.status[0])
-		ui_overlay_text(UI_FONT_REGULAR, 12.0f, 120, 360, UI_ALIGN_LEFT, COLOR_DIM, moderation_screen.status);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.5f, 120, 360, UI_ALIGN_LEFT, COLOR_DIM, moderation_screen.status);
 	else if (moderation->result_count && system_milliseconds() - moderation_screen.result_time < RESULT_DURATION)
 	{
-		ui_overlay_text(UI_FONT_REGULAR, 12.0f, 120, 360, UI_ALIGN_LEFT, moderation->result_ok ? COLOR_OK : COLOR_BAD,
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.5f, 120, 360, UI_ALIGN_LEFT, moderation->result_ok ? COLOR_OK : COLOR_BAD,
 			moderation->result);
 	}
 	x = prompt(UI_BUTTON_A, moderation_screen.confirming ? "Confirm" : "Choose", 120, 392);

@@ -19,6 +19,8 @@ Settings are named "section.key", as in the file: "display.vsync".
 #include <stddef.h>
 
 int config_boolean(const char *name);
+/* whether config.toml has been read (the settings above read it first) */
+int config_loaded_yet(void);
 long config_integer(const char *name);
 double config_real(const char *name);
 /* never NULL; "" when unset */
@@ -62,5 +64,31 @@ void config_new_defaults_answer(int use_new);
 /* how many times config_write has changed a setting: what keeps one reads
 it again when this moves */
 unsigned long config_changes(void);
+/* (the tests') the first setting or environment variable named twice: 1
+and its name, else 0 */
+int config_duplicate_setting(char *name, size_t size);
+
+/* ---------- every setting, for the setup screen's Settings (launcher.c) */
+
+enum
+{
+	CONFIG_KIND_BOOLEAN,
+	CONFIG_KIND_INTEGER,
+	CONFIG_KIND_REAL,
+	CONFIG_KIND_STRING,
+};
+
+/* the table's setting at index, in its order: NULL past the end, "" for one
+that is not this build's */
+const char *config_setting_name(int index);
+/* a setting's kind (CONFIG_KIND_*), -1 for none of this build's */
+int config_setting_kind(const char *name);
+/* the words a setting takes (display.mode's "windowed", ...), as config.toml
+is checked against them: the one at index, NULL past the last or for a
+setting that takes any text */
+const char *config_setting_word(const char *name, int index);
+/* a setting back to its default: its line in config.toml commented out, so
+that it follows the version's default again; 1 on success */
+int config_reset(const char *name);
 
 #endif

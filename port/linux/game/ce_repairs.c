@@ -48,13 +48,20 @@ or reads past a tag's end:
     format, whose 4x4 blocks are its size, and marked so that its blocks are
     decoded as BC7's when it is drawn (ce_bitmap_is_bc7: xbox_texture_cache.c,
     xbox_textures.c);
+  - a structure BSP's tag given an address (a map tool leaves one:
+    cursed-bloodgulch's), which Halo PC's engine let be and set as the BSP
+    loaded, where the game asserts it has none: none, before the map is
+    checked (ce_map_checks.c), as the BSP's own is set when it loads
+    (cache_files.c);
   - an effect's flags, in Gearbox's layout ("must be deterministic" in bit
     2, where the Xbox has it in bit 1: ce_effect_flags.h): read as the
     Xbox's, so that its effects are deterministic where Halo PC's are.
 
 The repairs are made before the map is opened, to the image it is checked
 in (ce_map_checks.c, so that its checks see the map as it will play), and
-again when its tags load and when each of its BSPs loads. Nothing here
+again when its tags load and when each of its BSPs loads; a block or field
+that lies over the map's tag header or tag index is let be, when it is
+checked as when it loads (ce_tags_writable, ce_map_checks.h). Nothing here
 touches an Xbox map: only the maps in the slot past the Xbox's are read this
 way (cache_files_windows.c).
 */
@@ -266,6 +273,13 @@ static void ce_predicted_resources_repair(
 	long count, index, kept = 0;
 	byte *resources = ce_block(image, field, PREDICTED_RESOURCE_SIZE, &count);
 
+	/* (a block that lies over the tag header or tag index is let be:
+	ce_map_checks.h) */
+	if (!resources || !ce_tags_writable(field, 4) ||
+		!ce_tags_writable(resources, (unsigned long)count * PREDICTED_RESOURCE_SIZE))
+	{
+		return;
+	}
 	for (index = 0; index < count; index++)
 	{
 		byte *resource = resources + index * PREDICTED_RESOURCE_SIZE;
@@ -320,8 +334,11 @@ static void ce_object_type_repair(
 			break;
 	}
 	type = ce_read_short(object);
-	if (group_type >= (short)NUMBEROF(ce_object_type_groups) || type == group_type)
+	if (group_type >= (short)NUMBEROF(ce_object_type_groups) || type == group_type ||
+		!ce_tags_writable(object, sizeof(short)))
+	{
 		return;
+	}
 	error(_error_silent, "%s map: object %s is typed %d, not its group's %d (made its group's)",
 		ce_map_family_name(), ce_image_tag_name(image, instance), type, group_type);
 	memcpy(object, &group_type, sizeof(group_type));
@@ -342,8 +359,11 @@ static void ce_modifier_shader_repair(
 	byte *data;
 	short type;
 
-	if (!reference || ce_read_long(reference + TAG_REFERENCE_INDEX_OFFSET) == 0xffffffff)
+	if (!reference || ce_read_long(reference + TAG_REFERENCE_INDEX_OFFSET) == 0xffffffff ||
+		!ce_tags_writable(reference + TAG_REFERENCE_INDEX_OFFSET, 4))
+	{
 		return;
+	}
 	shader = ce_instance_by_index(tag_instances, tag_count, ce_read_long(reference + TAG_REFERENCE_INDEX_OFFSET));
 	data = shader && ce_is_shader(shader) ? ce_image_pointer(image, shader->base_address, SHADER_TYPE_OFFSET + 2) :
 		NULL;
@@ -375,6 +395,8 @@ static void ce_model_shaders_repair(
 	if (!model)
 		return;
 	shaders = ce_block(image, model + MODEL_SHADERS_OFFSET, MODEL_SHADER_SIZE, &count);
+	if (shaders && !ce_tags_writable(shaders, (unsigned long)count * MODEL_SHADER_SIZE))
+		return;
 	for (index = 0; index < count; index++)
 	{
 		byte *reference = shaders + index * MODEL_SHADER_SIZE;
@@ -432,7 +454,7 @@ static void ce_node_links_repair(
 	short queue[CE_MAXIMUM_NODES];
 	long read_index = 0, write_index = 0, index;
 
-	if (!nodes || node_count > CE_MAXIMUM_NODES)
+	if (!nodes || node_count > CE_MAXIMUM_NODES || !ce_tags_writable(nodes, (unsigned long)node_count * node_size))
 		return;
 	for (index = 0; index < node_count; index++)
 	{
@@ -527,6 +549,8 @@ static void ce_bitmaps_repair(
 	if (!group)
 		return;
 	bitmaps = ce_block(image, group + BITMAP_GROUP_BITMAPS_OFFSET, BITMAP_DATA_SIZE, &count);
+	if (bitmaps && !ce_tags_writable(bitmaps, (unsigned long)count * BITMAP_DATA_SIZE))
+		return;
 	for (index = 0; index < count; index++)
 	{
 		byte *bitmap = bitmaps + index * BITMAP_DATA_SIZE;
@@ -561,7 +585,7 @@ static void ce_effect_flags_repair(
 	byte *effect = ce_image_pointer(image, instance->base_address, CE_EFFECT_FLAGS_OFFSET + 4);
 	unsigned long flags;
 
-	if (!effect)
+	if (!effect || !ce_tags_writable(effect + CE_EFFECT_FLAGS_OFFSET, 4))
 		return;
 	flags = ce_effect_flags_from_gearbox(ce_read_long(effect + CE_EFFECT_FLAGS_OFFSET));
 	ce_write_long(effect + CE_EFFECT_FLAGS_OFFSET, flags);
@@ -587,6 +611,27 @@ static void ce_repairs_log(
 }
 
 /* ---------- public code */
+
+/* the map's structure BSPs' tags given no address (one a map tool left:
+it is set as the BSP loads, cache_files.c); the number that had one */
+long ce_repairs_bsp_addresses(
+	void *tag_instances,
+	long tag_count)
+{
+	long index, count = 0;
+
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance *instance = ce_instance(tag_instances, index);
+
+		if (instance->group_tag == 'sbsp' && instance->base_address)
+		{
+			instance->base_address = 0;
+			count++;
+		}
+	}
+	return count;
+}
 
 /* the scenario the map's header names (scenario_tag_index, which must be a
 tag's handle) given the scenario's group if it has another; TRUE if it was */
@@ -682,6 +727,26 @@ boolean ce_bitmap_is_bc7(
 	return format == BITMAP_FORMAT_DXT5 && mark == BITMAP_PORT_BC7_MARK;
 }
 
+/* the map's tags loaded (cache_files.c), before anything else reads them:
+its scenario given the scenario's group, as it was before the checks
+(ce_map_checks.c), which read the map's tags so. Its resource maps' tags are
+copied in next, and a scenario of another group would be read as a tag of
+that group there (a sound's or a bitmap's), which nothing checked it as */
+void ce_repairs_scenario_loaded(
+	void *tag_instances,
+	long tag_count,
+	unsigned long scenario_tag_index)
+{
+	long bsps;
+
+	if (ce_repairs_scenario_group(tag_instances, tag_count, scenario_tag_index))
+		error(_error_silent, "Custom Edition map: its scenario given the scenario's group");
+	bsps = ce_repairs_bsp_addresses(tag_instances, tag_count);
+	if (bsps)
+		error(_error_silent, "%s map: %ld structure BSP tags' addresses cleared, to be set as they load",
+			ce_map_family_name(), bsps);
+}
+
 /* the map's tags loaded (cache_files.c), its resource maps' tags copied in:
 repaired in place, in its tag cache */
 void ce_repairs_tags_loaded(
@@ -696,9 +761,11 @@ void ce_repairs_tags_loaded(
 	image.size = CE_IMAGE_TAG_CACHE_SIZE;
 	ce_loaded_instances = tag_instances;
 	ce_loaded_tag_count = tag_count;
-	if (ce_repairs_scenario_group(tag_instances, tag_count, scenario_tag_index))
-		error(_error_silent, "Custom Edition map: its scenario given the scenario's group");
+	/* (writing nothing over its tag header or tag index, as when it was
+	checked: ce_map_checks.h) */
+	ce_tags_guard_begin_loaded(tag_instances, tag_count);
 	ce_repairs_apply(&image, tag_instances, tag_count, scenario_tag_index);
+	ce_tags_guard_end();
 }
 
 /* one of its structure BSPs loaded (cache_files.c): its clusters'
@@ -716,6 +783,7 @@ void ce_repairs_bsp_loaded(
 	image.base = CE_IMAGE_TAG_CACHE_BASE;
 	image.size = CE_IMAGE_TAG_CACHE_SIZE;
 	memset(&counts, 0, sizeof(counts));
+	ce_tags_guard_begin_loaded(ce_loaded_instances, ce_loaded_tag_count);
 	for (index = 0; index < structure->clusters.count; index++)
 	{
 		struct structure_cluster *cluster = TAG_BLOCK_GET_ELEMENT(&structure->clusters, index, struct structure_cluster);
@@ -723,6 +791,7 @@ void ce_repairs_bsp_loaded(
 		ce_predicted_resources_repair(&image, (byte *)&cluster->predicted_resources, ce_loaded_instances,
 			ce_loaded_tag_count, &counts);
 	}
+	ce_tags_guard_end();
 	ce_repairs_log(&counts);
 }
 

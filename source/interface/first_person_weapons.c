@@ -451,6 +451,8 @@ void first_person_weapons_initialize_for_new_map(
 			0,
 			sizeof(first_person_weapons[local_player_index]));
 		first_person_weapons[local_player_index].unit_index= NONE;
+		/* port: no weapon, not the weapon datum 0 the clear left */
+		first_person_weapons[local_player_index].weapon_index= NONE;
 		first_person_weapons[local_player_index].current_sound_index= NONE;
 		first_person_weapons[local_player_index].current_sound_state= NONE;
 		first_person_weapon_sound_indices[local_player_index]= NONE;
@@ -574,14 +576,18 @@ void first_person_weapon_draw(
 					short fists_frame_index;
 					real fists_drop;
 #endif
+					/* port: between the last two ticks, as the world's
+					units are drawn (render_interpolation.c) */
+					real camouflage_super_amount;
+					real active_camouflage= unit_get_drawn_camouflage(unit_index, &camouflage_super_amount);
 
 					model_effect.modifier_shader= NULL;
 					if (TEST_FLAG(unit->unit.flags, _unit_active_camouflaged_bit) ||
-						unit->unit.active_camouflage>0.0f)
+						active_camouflage>0.0f)
 					{
 						model_effect.type= _render_model_effect_type_active_camouflage;
-						model_effect.intensity= unit->unit.active_camouflage;
-						model_effect.parameter= unit->unit.active_camouflage_super_amount;
+						model_effect.intensity= active_camouflage;
+						model_effect.parameter= camouflage_super_amount;
 						model_effect.source_object_index= unit_index;
 						model_effect.source_object_centroid= render.camera.position;
 					}
@@ -610,7 +616,7 @@ void first_person_weapon_draw(
 							0.0f,
 							model_node_matrices,
 							NULL,
-							weapon->object.outgoing_change_colors,
+							object_get_change_colors(first_person_weapon->weapon_index),
 							object_get_function_values(first_person_weapon->weapon_index),
 							lighting,
 							&render.camera.position,
@@ -642,7 +648,7 @@ void first_person_weapon_draw(
 							0.0f,
 							model_node_matrices,
 							NULL,
-							unit->object.outgoing_change_colors,
+							object_get_change_colors(unit_index),
 							object_get_function_values(unit_index),
 							lighting,
 							&render.camera.position,
@@ -955,6 +961,11 @@ static void first_person_weapon_forget_weapon(
 	return;
 }
 
+/* port: MCC equipment replacement invalidates the cached weapon before deletion. */
+#if defined(HALO_MCC) && HALO_MCC
+#include "mcc_first_person.inl"
+#endif
+
 static void first_person_weapon_predict(
 	short local_player_index)
 {
@@ -1199,7 +1210,7 @@ static void first_person_weapon_build_node_matrices(
 		euler_angles2d_from_vector3d(&first_person_weapon->render_facing, &render.camera.forward);
 		first_person_weapon->render_position= render.camera.position;
 	}
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	/* The native ports draw several frames per tick. The turning sway
 	(first_person_weapon_update) takes the facing change since the last
 	frame as a tick's worth: move the last facing on once a tick. */
@@ -1561,7 +1572,7 @@ static void first_person_weapon_build_node_matrices(
 			}
 		}
 #endif
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		/* the pose between the last two ticks (render_interpolation.c) */
 		/* port: no more nodes than the weapon's matrices hold (a map's count) */
 		render_interpolation_first_person(

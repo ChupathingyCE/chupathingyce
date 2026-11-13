@@ -26,7 +26,7 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<on event="stick_right" run="port host row right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="chupathingy/host/label"/>
-		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/value" x="300" y="1"/>
 		<child widget="chupathingy/host/shown" x="280" y="1"/>
 	</widget>
 	<widget name="chupathingy/host/row_1" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
@@ -38,7 +38,7 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<on event="stick_right" run="port host row right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="chupathingy/host/label"/>
-		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/value" x="300" y="1"/>
 		<child widget="chupathingy/host/shown" x="280" y="1"/>
 	</widget>
 	<widget name="chupathingy/host/row_2" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
@@ -50,7 +50,7 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<on event="stick_right" run="port host row right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="chupathingy/host/label"/>
-		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/value" x="300" y="1"/>
 		<child widget="chupathingy/host/shown" x="280" y="1"/>
 	</widget>
 	<widget name="chupathingy/host/row_3" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
@@ -62,7 +62,7 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<on event="stick_right" run="port host row right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="chupathingy/host/label"/>
-		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/value" x="300" y="1"/>
 		<child widget="chupathingy/host/shown" x="280" y="1"/>
 	</widget>
 	<widget name="chupathingy/host/row_4" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
@@ -74,7 +74,7 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<on event="stick_right" run="port host row right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="chupathingy/host/label"/>
-		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/value" x="300" y="1"/>
 		<child widget="chupathingy/host/shown" x="280" y="1"/>
 	</widget>
 	<widget name="chupathingy/host/row_5" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
@@ -86,7 +86,7 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<on event="stick_right" run="port host row right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="chupathingy/host/label"/>
-		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/value" x="300" y="1"/>
 		<child widget="chupathingy/host/shown" x="280" y="1"/>
 	</widget>
 	<widget name="chupathingy/host/row_6" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
@@ -98,7 +98,7 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<on event="stick_right" run="port host row right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="chupathingy/host/label"/>
-		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/value" x="300" y="1"/>
 		<child widget="chupathingy/host/shown" x="280" y="1"/>
 	</widget>
 	<widget name="chupathingy/host/row_7" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
@@ -110,7 +110,7 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<on event="stick_right" run="port host row right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="chupathingy/host/label"/>
-		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/value" x="300" y="1"/>
 		<child widget="chupathingy/host/shown" x="280" y="1"/>
 	</widget>
 	<widget name="chupathingy/host/row_8" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
@@ -122,7 +122,7 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<on event="stick_right" run="port host row right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="chupathingy/host/label"/>
-		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/value" x="300" y="1"/>
 		<child widget="chupathingy/host/shown" x="280" y="1"/>
 	</widget>
 	<widget name="chupathingy/host/row_9" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
@@ -134,14 +134,14 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<on event="stick_right" run="port host row right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="chupathingy/host/label"/>
-		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/value" x="300" y="1"/>
 		<child widget="chupathingy/host/shown" x="280" y="1"/>
 	</widget>
 	<widget name="chupathingy/host/label" type="text" controller="1" width="280" height="22" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<!-- (a value left and right change: a spinner with no strings of its own, its text the code's, drawn with its arrows;
 	left_right_tabs_items, as the settings' spinners, so that a click on either half steps it left or right) -->
-	<widget name="chupathingy/host/value" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+	<widget name="chupathingy/host/value" type="spinner" left="3" top="2" width="187" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 190 19 196">
 	</widget>
 	<!-- (a value A edits, or none: no arrows) -->
 	<widget name="chupathingy/host/shown" type="text" controller="1" width="232" height="22" font="ui\large_ui" color="#FFDCDCDC" align="center" text_x="1" text_y="4">

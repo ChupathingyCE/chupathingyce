@@ -299,6 +299,19 @@ static void get_shake_matrix(
 /* ---------- globals */
 
 static struct player_effect_globals_definition *player_effect_globals;
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
+/* port: the camera's shake drawn between ticks (get_shake_matrix): the seed
+of the tick before the one drawn, and how far the frame is from that tick
+to the next */
+static unsigned long shake_last_tick_seed;
+static real shake_tick_fraction = 1.0f;
+/* and what brings a blend of the two back to the size of one tick's shake
+(get_shake_random) */
+static real shake_blend_scale = 1.0f;
+#endif
+/* port: the game time (plus one, so none is zero) of the tick in which each
+local player's camera impulse [0] and shake [1] ran out (camera_effect_drawn) */
+static long camera_effect_end_time[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS][2];
 
 static short render_screen_flash_type_map[NUMBER_OF_SCREEN_FLASH_TYPES] =
 {
@@ -344,6 +357,7 @@ void player_effect_initialize_for_new_map(
 	void)
 {
 	csmemset(player_effect_globals, 0, sizeof(struct player_effect_globals_definition));
+	csmemset(camera_effect_end_time, 0, sizeof(camera_effect_end_time));
 	player_effect_globals->screen_fade.ticks = NONE;
 	player_effect_globals->reference_time = game_time_get();
 
@@ -863,6 +877,116 @@ static real effect_scale_value(
 		1.0f - elapsed / duration) * zero_scale_factor;
 }
 
+/* port: a camera timer that the frames count down by the ticks each ran,
+as it stands at the frame drawn (the flash's the same way, above): between
+ticks, what this frame's ticks leave plus the part of a tick the frame is
+behind them, so the impulse, the shake and a scripted quake follow their
+curves through the frames instead of a step a tick */
+static real camera_effect_ticks_left(
+	long ticks_left)
+{
+	if (!render_interpolation_drawing())
+		return (real)ticks_left;
+
+	return (real)(ticks_left - game_time_get_elapsed()) + 1.0f - render_interpolation_fraction();
+}
+
+/* port: whether the camera impulse (0) or shake (1) is drawn this frame:
+while its ticks count down, as before, and between ticks also through the
+rest of the tick it ran out in, fading to none, where it was cut at that
+tick's first frame */
+static boolean camera_effect_drawn(
+	short local_player_index,
+	short which,
+	short ticks_left,
+	boolean just_started,
+	real duration,
+	real *frame_ticks_left)
+{
+	long *end_time = &camera_effect_end_time[local_player_index][which];
+
+	*frame_ticks_left = camera_effect_ticks_left(ticks_left);
+	if (ticks_left > 0 || just_started)
+	{
+		if (ticks_left - game_time_get_elapsed() <= 0)
+			*end_time = game_time_get() + 1;
+		return TRUE;
+	}
+
+	return *end_time == game_time_get() + 1 && duration > 0.0f && *frame_ticks_left > 0.0f;
+}
+
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
+/* port: the seed a tick's shake draws from, for a local player */
+static unsigned long shake_tick_seed(
+	long time,
+	short local_player_index)
+{
+	unsigned long tick_seed =
+		(unsigned long)time * 0x9E3779B1UL ^
+		(unsigned long)local_player_index * 0x85EBCA6BUL;
+
+	tick_seed ^= tick_seed >> 16;
+	tick_seed *= 0x7FEB352DUL;
+	tick_seed ^= tick_seed >> 15;
+
+	return tick_seed;
+}
+#endif
+
+/* port: the shake's random numbers. Each tick draws them from a seed of its
+own (player_effect_get_camera_effect_matrix); a frame between ticks takes
+the last tick's and this tick's, blended by where the frame is between
+them, so the camera moves from one shake to the next instead of jumping
+once a tick. Both seeds draw the same numbers in the same order.
+Two random numbers blended half and half are smaller than either on the
+whole (about 0.7 as much half way, the halves partly cancelling): at high
+frame rates the shake was about a fifth weaker than at one frame a tick, and
+a light one (firing a weapon) showed less. The blend is scaled back up to one tick's size on
+the whole (shake_blend_scale), so the camera shakes as hard at any frame
+rate and still moves smoothly from one tick's shake to the next, never
+further than one tick's shake could. */
+static real get_shake_random(void)
+{
+	real latest = real_seed_random_range(get_global_local_random_seed_address(), -1.0f, 1.0f);
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
+	real last = real_seed_random_range(&shake_last_tick_seed, -1.0f, 1.0f);
+
+	latest = (last + (latest - last) * shake_tick_fraction) * shake_blend_scale;
+	latest = PIN(latest, -1.0f, 1.0f);
+#endif
+	return latest;
+}
+
+/* (blended, a direction is no longer of one length) */
+static void get_shake_direction(
+	real_vector3d *direction)
+{
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
+	real_vector3d last;
+#endif
+
+	seed_random_direction3d(get_global_local_random_seed_address(), direction);
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
+	seed_random_direction3d(&shake_last_tick_seed, &last);
+	direction->i = (last.i + (direction->i - last.i) * shake_tick_fraction) * shake_blend_scale;
+	direction->j = (last.j + (direction->j - last.j) * shake_tick_fraction) * shake_blend_scale;
+	direction->k = (last.k + (direction->k - last.k) * shake_tick_fraction) * shake_blend_scale;
+	{
+		real length_squared = dot_product3d(direction, direction);
+
+		if (length_squared > 1.0f)
+		{
+			real scale = 1.0f / square_root(length_squared);
+
+			direction->i *= scale;
+			direction->j *= scale;
+			direction->k *= scale;
+		}
+	}
+#endif
+}
+
 static void get_shake_matrix(
 	real translation,
 	real rotation,
@@ -872,21 +996,24 @@ static void get_shake_matrix(
 
 	if (rotation != 0.0f)
 	{
-		seed_random_direction3d(
-			get_global_local_random_seed_address(),
-			&direction);
-		matrix4x3_rotation_from_axis_and_angle(
-			matrix,
-			&direction,
-			sine(rotation),
-			cosine(rotation));
+		get_shake_direction(&direction);
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
+		/* port: the axis scaled by the angle blends as one rotation */
+		rotation *= normalize3d(&direction);
+#endif
+		if (rotation != 0.0f)
+		{
+			matrix4x3_rotation_from_axis_and_angle(
+				matrix,
+				&direction,
+				sine(rotation),
+				cosine(rotation));
+		}
 	}
 
 	if (translation != 0.0f)
 	{
-		seed_random_direction3d(
-			get_global_local_random_seed_address(),
-			&direction);
+		get_shake_direction(&direction);
 		matrix->position.x = direction.i * translation;
 		matrix->position.y = direction.j * translation;
 		matrix->position.z = direction.k * translation;
@@ -915,21 +1042,26 @@ void player_effect_get_camera_effect_matrix(
 
 	if (local_player_index != NONE)
 	{
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		/* The camera is drawn every frame, several frames per tick on the
 		native builds (port/linux/game/render_interpolation.c), and each draw
 		shook it in a new random direction: shake once a tick, as on the
-		Xbox, by drawing from a seed made from the tick. */
+		Xbox, by drawing from a seed made from the tick. A frame between
+		ticks is drawn between the last tick's shake and this one's
+		(get_shake_random). */
 		unsigned long *local_seed = get_global_local_random_seed_address();
 		unsigned long saved_local_seed = *local_seed;
-		unsigned long tick_seed =
-			(unsigned long)game_time_get() * 0x9E3779B1UL ^
-			(unsigned long)local_player_index * 0x85EBCA6BUL;
 
-		tick_seed ^= tick_seed >> 16;
-		tick_seed *= 0x7FEB352DUL;
-		tick_seed ^= tick_seed >> 15;
-		*local_seed = tick_seed;
+		*local_seed = shake_tick_seed(game_time_get(), local_player_index);
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
+		shake_last_tick_seed = shake_tick_seed(game_time_get() - 1, local_player_index);
+		shake_tick_fraction = render_interpolation_drawing() ? render_interpolation_fraction() : 1.0f;
+		/* (two independent numbers blended by f vary as much as one times
+		the square root of (1 - f) squared plus f squared) */
+		shake_blend_scale = 1.0f / square_root(
+			(1.0f - shake_tick_fraction) * (1.0f - shake_tick_fraction) +
+			shake_tick_fraction * shake_tick_fraction);
+#endif
 #endif
 		game_time_get();
 
@@ -960,10 +1092,16 @@ void player_effect_get_camera_effect_matrix(
 
 			if (scripted_effect->timer > 0)
 			{
+				/* port: at the frame drawn (camera_effect_ticks_left) */
+				real timer = PIN(
+					camera_effect_ticks_left(scripted_effect->timer),
+					0.0f,
+					(real)scripted_effect->timer);
+
 				if (TEST_FLAG(player_effect_globals->global_flags, _scripted_player_effect_stopping_bit))
-					intensity = ((real)scripted_effect->timer / scripted_effect->total_time) * intensity;
+					intensity = (timer / scripted_effect->total_time) * intensity;
 				else
-					intensity = (1.0f - (real)scripted_effect->timer / scripted_effect->total_time) * intensity;
+					intensity = (1.0f - timer / scripted_effect->total_time) * intensity;
 
 				scripted_effect->timer -= game_time_get_elapsed();
 			}
@@ -988,18 +1126,9 @@ void player_effect_get_camera_effect_matrix(
 				intensity = PIN(intensity, 0.0f, 1.0f);
 				rumble_player_set_scale(intensity);
 
-				random_roll = real_seed_random_range(
-					get_global_local_random_seed_address(),
-					-1.0f,
-					1.0f);
-				random_pitch = real_seed_random_range(
-					get_global_local_random_seed_address(),
-					-1.0f,
-					1.0f);
-				random_yaw = real_seed_random_range(
-					get_global_local_random_seed_address(),
-					-1.0f,
-					1.0f);
+				random_roll = get_shake_random();
+				random_pitch = get_shake_random();
+				random_yaw = get_shake_random();
 
 				matrix4x3_rotation_from_angles(
 					matrix,
@@ -1007,18 +1136,9 @@ void player_effect_get_camera_effect_matrix(
 					scripted_effect->max_rotation.pitch * random_pitch * intensity,
 					scripted_effect->max_rotation.roll * random_roll * intensity);
 
-				random_depth = real_seed_random_range(
-					get_global_local_random_seed_address(),
-					-1.0f,
-					1.0f);
-				random_horizontal = real_seed_random_range(
-					get_global_local_random_seed_address(),
-					-1.0f,
-					1.0f);
-				random_vertical = real_seed_random_range(
-					get_global_local_random_seed_address(),
-					-1.0f,
-					1.0f);
+				random_depth = get_shake_random();
+				random_horizontal = get_shake_random();
+				random_vertical = get_shake_random();
 
 				matrix->position.z = scripted_effect->max_translation.k * random_depth * intensity;
 				matrix->position.y = scripted_effect->max_translation.i * random_horizontal * intensity;
@@ -1031,10 +1151,17 @@ void player_effect_get_camera_effect_matrix(
 			real_matrix4x3 effect_matrix;
 			real_matrix4x3 const *source;
 			short camera_shake_ticks;
+			real impulse_ticks_left;
+			real shake_ticks_left;
 
 			PS3_MAIN_STEP(572); /* port: (the PS3's heartbeat) */
-			if (effect->camera_impulse_time_left > 0 ||
-				TEST_FLAG(effect->flags, _player_effect_camera_impulse_just_started_bit))
+			if (camera_effect_drawn(
+				local_player_index,
+				0,
+				effect->camera_impulse_time_left,
+				TEST_FLAG(effect->flags, _player_effect_camera_impulse_just_started_bit),
+				effect->camera_impulse.temporary_duration,
+				&impulse_ticks_left))
 			{
 				real_vector3d axis;
 				real scale;
@@ -1052,7 +1179,7 @@ void player_effect_get_camera_effect_matrix(
 					scale = effect_scale_value(
 						effect->camera_impulse.temporary_transition,
 						effect->camera_impulse.temporary_zero_scale_factor,
-						duration - effect->camera_impulse_time_left,
+						duration - PIN(impulse_ticks_left, 0.0f, duration),
 						duration);
 				}
 
@@ -1088,8 +1215,13 @@ void player_effect_get_camera_effect_matrix(
 			PS3_MAIN_STEP(573); /* port: (the PS3's heartbeat) */
 			camera_shake_ticks = effect->camera_shake_time_left;
 
-			if (camera_shake_ticks > 0 ||
-				TEST_FLAG(effect->flags, _player_effect_camera_shake_just_started_bit))
+			if (camera_effect_drawn(
+				local_player_index,
+				1,
+				camera_shake_ticks,
+				TEST_FLAG(effect->flags, _player_effect_camera_shake_just_started_bit),
+				effect->camera_shake.duration,
+				&shake_ticks_left))
 			{
 				struct continuous_player_effect_datum *continuous =
 					&effect->continuous_effect;
@@ -1099,6 +1231,7 @@ void player_effect_get_camera_effect_matrix(
 				real random_rotation_magnitude;
 
 				effect_matrix = *global_identity4x3;
+				shake_ticks_left = PIN(shake_ticks_left, 0.0f, effect->camera_shake.duration);
 
 				if (TEST_FLAG(effect->flags, _player_effect_camera_shake_just_started_bit))
 				{
@@ -1111,13 +1244,13 @@ void player_effect_get_camera_effect_matrix(
 					scale = effect_scale_value(
 						effect->camera_shake.falloff_transition_function,
 						effect->camera_shake.zero_scale_factor,
-						duration - camera_shake_ticks,
+						duration - shake_ticks_left,
 						duration);
 				}
 
 				magnitude = (periodic_function_evaluate(
 					effect->camera_shake.periodic_function,
-					(effect->camera_shake.duration - effect->camera_shake_time_left) /
+					(effect->camera_shake.duration - shake_ticks_left) /
 						effect->camera_shake.periodic_period) *
 						effect->camera_shake.periodic_weight +
 						(1.0f - effect->camera_shake.periodic_weight)) * scale;
@@ -1146,7 +1279,7 @@ void player_effect_get_camera_effect_matrix(
 					continuous->vibrate_frequencies[0],
 					continuous->vibrate_frequencies[1]);
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 				/* Looping sounds add their continuous shake once a frame
 				(game_sound.c), so it is used up once a frame too: a frame that
 				runs no tick (port/linux/game/render_interpolation.c) must not
@@ -1173,7 +1306,7 @@ void player_effect_get_camera_effect_matrix(
 			}
 		}
 		PS3_MAIN_STEP(576); /* port: (the PS3's heartbeat) */
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		*local_seed = saved_local_seed;
 #endif
 	}

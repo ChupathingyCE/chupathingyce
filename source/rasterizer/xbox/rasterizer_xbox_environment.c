@@ -140,6 +140,7 @@ symbols in this file:
 
 #define REAL_MATH_EXTERNAL_POINT_FROM_LINE3D
 #include "cseries.h"
+#include "mcc_environment_shader.h" /* port: port/linux/game/mcc_environment_shader.c */
 #include "bitmaps/bitmaps.h"
 #include "cseries/errors.h"
 #include "effects/decals.h"
@@ -167,6 +168,8 @@ symbols in this file:
 #include "rasterizer/xbox/rasterizer_xbox_pixel_shader.h"
 #include "rasterizer_xbox_draw_primitives.h"
 #include "rasterizer_xbox_internal.h"
+
+#include "plasma_lighting.h" /* port: port/linux/game/plasma_falloff.c */
 
 /* ---------- constants */
 
@@ -1017,12 +1020,15 @@ void _rasterizer_environment_lightmap_draw(
 		}
 		rasterizer_set_pixel_shader(&pixel_shader);
 
+		/* port: scope MCC's tag-selected attenuation to this lightmap draw. */
+		mcc_environment_shader_begin(shader_environment->environment.flags);
 		rasterizer_draw_dynamic_triangles_static_vertices2(
 			dynamic_triangle_buffer_index,
 			first_triangle_index,
 			triangle_count,
 			vertex_buffer,
 			vertex_buffer + !rasterizer_environment_globals.lightmap_missing);
+		mcc_environment_shader_end(); /* port: no state inherited by later draws */
 		if (rasterizer_debug_options.statistics_mode == _rasterizer_statistics_mode_enabled)
 		{
 			rasterizer_frame_statistics.lightmap_dynamic_draw_count++;
@@ -1152,6 +1158,7 @@ void _rasterizer_environment_lightmap_begin(
 void _rasterizer_environment_diffuse_light_end(
 	void)
 {
+	plasma_falloff_end(); /* port: the stock attenuation back before the next light */
 	return;
 }
 
@@ -1255,6 +1262,7 @@ void _rasterizer_environment_diffuse_light_begin(
 		/* port: its draws light only the distance attenuation's box (stage 2, 0 outside it and at its border) */
 		d3d8_light_bounds(&light->position.x, light->radius);
 #endif
+		plasma_falloff_begin(light_index); /* port: a Light effects light's soft falloff and walls */
 	}
 	return;
 }
@@ -1774,6 +1782,7 @@ void _rasterizer_environment_diffuse_texture_draw(
 void _rasterizer_environment_specular_light_end(
 	void)
 {
+	plasma_falloff_end(); /* port: the stock attenuation back */
 	return;
 }
 
@@ -1828,6 +1837,7 @@ void _rasterizer_environment_specular_lights_begin(
 void _rasterizer_environment_specular_light_begin(
 	long light_index)
 {
+	plasma_specular_begin(light_index); /* port: a Light effects light's highlights in its own color */
 	match_assert(
 		"c:\\halo\\SOURCE\\rasterizer\\xbox\\rasterizer_xbox_environment.c",
 		0x5C0,
@@ -1932,6 +1942,7 @@ void _rasterizer_environment_specular_light_begin(
 			pixel_shader.final_combiner_inputs_abcd = 0x0C0F0000;
 			pixel_shader.final_combiner_inputs_efg = 0x1D200D00;
 			rasterizer_set_pixel_shader(&pixel_shader);
+			plasma_falloff_specular_begin(light_index); /* port: a Light effects omni light's falloff */
 		}
 	}
 	return;
@@ -2016,6 +2027,9 @@ void _rasterizer_environment_specular_light_draw(
 				real_rgb_color_to_pixel32(&shader_environment->environment.specular.view_perpendicular_color);
 			pixel_shader.constant_1[3] =
 				real_rgb_color_to_pixel32(&shader_environment->environment.specular.view_parallel_color);
+			/* port: a Light effects light's reflections in its own color */
+			pixel_shader.constant_0[3] = plasma_specular_color(pixel_shader.constant_0[3]);
+			pixel_shader.constant_1[3] = plasma_specular_color(pixel_shader.constant_1[3]);
 
 			if (TEST_FLAG(
 				shader_environment->environment.flags,

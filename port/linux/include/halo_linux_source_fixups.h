@@ -7,11 +7,16 @@ The port's functions that the game's sources call, declared for them.
 #ifndef __HALO_LINUX_SOURCE_FIXUPS_H
 #define __HALO_LINUX_SOURCE_FIXUPS_H
 
+/* MCC weapon-deletion notification (port/linux/game/mcc_first_person.inl). */
+void mcc_first_person_weapon_deleted(long weapon_index);
+
 /* frames between the 30 Hz ticks (port/linux/game/render_interpolation.c);
 the platform layer reads the display.interpolation setting */
 struct observer_result;
 struct render_camera;
 struct real_matrix4x3;
+union real_point3d;
+union real_rgb_color;
 int halo_interpolation_enabled(void);
 float game_time_get_tick_fraction(void);
 void render_interpolation_tick(void);
@@ -22,8 +27,21 @@ float render_interpolation_fraction(void);
 unsigned char render_interpolation_drawing(void);
 struct real_matrix4x3 *render_interpolation_object_node_matrices(long object_index);
 float *render_interpolation_object_function_values(long object_index);
+union real_rgb_color *render_interpolation_object_change_colors(long object_index);
+unsigned char render_interpolation_unit_camouflage(long unit_index, float *amount, float *super_amount);
+struct new_particle_data;
+unsigned char render_interpolation_particle_later(struct new_particle_data const *data, long object_index,
+	short node_index, float fraction);
+void render_interpolation_particles_due(void);
+void render_interpolation_object_point(long object_index, union real_point3d *point);
+union real_vector3d;
+void render_interpolation_flashlight(long light_index, long unit_index, union real_vector3d *forward,
+	union real_vector3d *up);
 struct observer_result const *render_interpolation_camera(short local_player_index,
 	struct observer_result const *observer);
+union real_vector3d;
+void render_interpolation_view_turn(long unit_index, union real_point3d *position, union real_vector3d *forward,
+	union real_vector3d *up);
 void render_interpolation_first_person(short local_player_index, struct real_matrix4x3 *node_matrices,
 	short node_count, struct render_camera const *camera, long weapon_index, long graph_index);
 float render_interpolation_game_time_sec(long ticks);
@@ -41,6 +59,18 @@ two (display.shadow_resolution) */
 long halo_shadow_map_scale(void);
 /* while TRUE, drawing shifts right to center 640-column layouts */
 void halo_screen_ui_offset(unsigned char centered);
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+/* a console's 640 pixels stretched to a 16:9 television (halo_console_features.h):
+the present flags that ask for the mode, the interface's units for one of the
+pixels' columns and back, and the mode in debug.txt once the device is made */
+unsigned long halo_screen_present_flags(void);
+long halo_screen_interface_x(long physical_x);
+long halo_screen_physical_x(long interface_x);
+void halo_screen_device_report(void);
+/* the stretched picture's width for each of the 640 pixels' columns, 1 while
+the interface is drawn in its own wider units (rasterizer_xbox.c) */
+float rasterizer_screen_pixel_aspect(void);
+#endif
 /* names a model lighting vertex program, whose draws can be lit for each
 pixel (port/linux/src/d3d8_gl.c, display.per_pixel_lighting) */
 void halo_vertex_shader_lighting(unsigned long handle);

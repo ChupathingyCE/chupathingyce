@@ -39,7 +39,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence
 
 from .version import VERSION_SOURCES, identity_defines, release_build, resource_version, version
-from .linux_build import (COMPRESSED_MAP_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
+from .linux_build import (LZMA_DIR, OPUS_DIR, VOICE_SOURCE, opus_cflags, opus_sources, COMPRESSED_MAP_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
@@ -625,6 +625,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             f"-I{MONOCYPHER_DIR}",
             f"-I{ZLIB_DIR}",
             f"-I{ZSTD_DIR / 'lib'}",
+            f"-I{OPUS_DIR / 'include'}",
             # halo_linux_winsock_names.h, but not the Linux build's C runtime
             # wrappers next to it
             f"-iquote {LINUX_DIR / 'include'}",
@@ -650,7 +651,14 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
                 # (the game list's requests: on Winsock, with Mbed TLS, as
                 # on Linux)
                 add_object(source, f"{win32_cflags} -I{MBEDTLS_DIR / 'include'}")
-            elif source.name in ("bink_ffmpeg.c", "bink_null.c"):
+            elif source.name == "steam_bridge_pipe.c" and getattr(sln, "game_browser", False):
+                # (the built-in Steam download, with the game list's TLS: below)
+                add_object(source, f"{platform_cflags} -DHALO_STEAM_CONTENT")
+            elif source.name == "posix_mcc_preview.c":
+                # (MCC map pictures read from disk: Windows' own headers,
+                # without the game's prefix, as posix_browser.c)
+                add_object(source, win32_cflags)
+            elif source.name in ("bink_ffmpeg.c", "bink_null.c", "capture_clips.c"):
                 add_object(source, " ".join([platform_cflags, *ffmpeg_cflags]), ffmpeg_inputs)
             elif source.name == "posix_ui_font.c":
                 # (the overlay's fonts: stb_truetype; their data, tools/embed_assets.py --fonts)
@@ -663,6 +671,16 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             for source in sorted((MBEDTLS_DIR / "library").glob("*.c")):
                 add_object(source, " ".join([abi, *WIN32_FLAGS, f"-I{MBEDTLS_DIR / 'include'}",
                                              f"-I{MBEDTLS_DIR / 'library'}", "-D_CRT_SECURE_NO_WARNINGS", "-w"]))
+        # the Steam content client (port/linux/src/steam_content;
+        # steam_bridge_pipe.c), on Winsock with that Mbed TLS, and the LZMA
+        # SDK's decoder
+        if getattr(sln, "game_browser", False):
+            steam_content_flags = " ".join([win32_cflags, f"-I{MBEDTLS_DIR / 'include'}", f"-I{ZLIB_DIR}",
+                                            f"-I{ZSTD_DIR / 'lib'}", f"-I{LZMA_DIR}", *ZLIB_DEFINES,
+                                            "-D_CRT_SECURE_NO_WARNINGS", "-D_CRT_NONSTDC_NO_WARNINGS"])
+            for source in sorted((linux_platform / "steam_content").glob("*.c")):
+                add_object(source, steam_content_flags)
+            add_object(LZMA_DIR / "LzmaDec.c", " ".join([abi, *WIN32_FLAGS, "-w"]))
         miniupnpc_include = f"-I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB"
         for source in sorted((PORT_DIR / "src").glob("*.c")):
             if source.name == "win32_upnp.c":
@@ -710,6 +728,11 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         # Zstandard's decoder, for compressed Halo PC maps (map_compressed.c)
         for name in ZSTD_SOURCES:
             add_object(ZSTD_DIR / name, " ".join([abi, "-std=gnu11", *ZSTD_DEFINES, "-w"]))
+        # voice chat's codec (port/third_party/opus; voice.c): not in the
+        # dedicated server, which relays voice without decoding it
+        if VOICE_SOURCE not in excluded:
+            for source in opus_sources():
+                add_object(source, opus_cflags(abi))
         # the game's sin, pow and the rest, the same on every port
         # (port/include/halo_math.h)
         for source in musl_math_sources():

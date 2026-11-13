@@ -722,6 +722,24 @@ void rasterizer_dynamic_unlit_geometry_draw(
 void rasterizer_dynamic_lit_geometry_draw(
 	void const *vertices,
 	void const *parameters);
+/* port: (rasterizer_xbox_dynavobgeom.c, rasterizer_transparent_geometry.c:
+render_particles cuts a run of particles at the queue's depths) */
+real rasterizer_dynamic_unlit_geometry_z_sort(
+	struct shader const *shader,
+	real_point3d const *centroid);
+long rasterizer_transparent_geometry_sort_depths(
+	real *depths,
+	long maximum_depth_count);
+long rasterizer_transparent_geometry_free_group_count(
+	void);
+long rasterizer_dynamic_vertex_buffer_free_count(
+	void);
+void rasterizer_transparent_geometry_group_set_secondary_map_radius(
+	struct transparent_geometry_group const *group,
+	real radius);
+real rasterizer_transparent_geometry_group_secondary_map_radius(
+	struct transparent_geometry_group const *group,
+	real shader_radius);
 void rasterizer_psuedo_dynamic_screen_quad_draw(
 	struct rasterizer_dynamic_screen_geometry_parameters *parameters,
 	struct dynamic_screen_vertex *vertices);
@@ -947,5 +965,16 @@ extern struct rasterizer_window_begin_parameters global_window_parameters;
 extern struct rasterizer_frame_statistics_globals rasterizer_frame_statistics;
 
 /* ---------- public code */
+
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+/* port: the interface drawn in a 16:9 television's units over the console's
+640 pixels (rasterizer_xbox.c); centered for the menus' 640 columns */
+void rasterizer_interface_begin(
+	boolean centered);
+void rasterizer_interface_end(
+	void);
+real rasterizer_interface_offset_x(
+	void);
+#endif
 
 #endif // __RASTERIZER_H

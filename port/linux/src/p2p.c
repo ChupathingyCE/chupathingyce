@@ -542,13 +542,20 @@ void p2p_register_url_scheme(const char *scheme, const char *description)
 	(void)scheme;
 	(void)description;
 #else
+	int result;
+
 	if (config_real("debug.exit_after") > 0.0 || config_boolean("debug.hidden_window") ||
 		config_boolean("debug.null_renderer"))
 		return;
 	/* it may run a program and wait for it */
 	pthread_mutex_unlock(&p2p_lock);
-	posix_register_url_scheme(scheme, description);
+	result = posix_register_url_scheme(scheme, description);
 	pthread_mutex_lock(&p2p_lock);
+	if (result < 0)
+	{
+		platform_log("Internet play: another program opens %s:// links; it is left as it is (party and game "
+			"links open that program)", scheme);
+	}
 #endif
 }
 
@@ -1499,6 +1506,27 @@ static int stun_settled(void)
 			return 0;
 	}
 	return 1;
+}
+
+/* the p2p thread was stopped for longer than a peer lasts: the process was
+suspended (a phone app in the background) or the machine slept (a laptop).
+The NAT's mapping of the tunnel may have lapsed, so this machine's public
+address is asked again before an offer names it, and the brokers'
+connections, which the network may have dropped, are made anew rather than
+at their silence timeout (OpenCE #272, bmanturner) */
+static void network_resumed(unsigned long stopped)
+{
+	int index;
+
+	for (index = 0; index < p2p.stun_count; index++)
+	{
+		p2p.stun[index].has_mapped = 0;
+		p2p.stun[index].attempts = 0;
+		p2p.stun[index].sent_time = 0;
+	}
+	p2p_signal_reconnect();
+	platform_log("Internet play: the game was stopped for %lu seconds; its public address is asked again and "
+		"the brokers reconnected", stopped / 1000);
 }
 
 /* ---------- stand-ins for peers' ports */
@@ -2822,6 +2850,11 @@ static int join_invite_text(const char *text, int public)
 	/* (a restored player key's link, not an invite: browser.c) */
 	if (browser_key_link(text))
 		return 1;
+#ifndef HALO_CONSOLE_NO_GUIDE
+	/* (a party's link: the Guide's party joins it, browser.c) */
+	if (browser_party_link(text))
+		return 1;
+#endif
 	if (browser_dedicated())
 	{
 		platform_log("dedicated server: the invite is not joined");
@@ -2866,6 +2899,12 @@ int p2p_join_listed_invite(const char *text)
 
 void p2p_invite_received(const char *text, int public)
 {
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE)
+	/* (a party's link opened while the game runs: the Guide asks about it,
+	browser.c; join_invite alone would drop it) */
+	if (browser_party_link(text))
+		return;
+#endif
 	/* (an older version's is logged as such) */
 	if (!join_invite(text, public))
 		platform_log("Internet play: that is not an invite");
@@ -3618,6 +3657,35 @@ static int command_line_invite(char *text, int size)
 	return 0;
 }
 
+#ifndef HALO_ANDROID
+/* the first command line argument a copy of the game started for a link
+hands over to the one running: an invite (command_line_invite), or a
+party's link (halo://party/CODE, which the running copy's Guide asks about:
+p2p_invite_received) */
+static int command_line_link(char *text, int size)
+{
+	int index;
+
+	if (command_line_invite(text, size))
+		return 1;
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE)
+	for (index = 1; posix_command_line_argument(index, text, (posix_ulong)size); index++)
+	{
+		static const char prefix[] = "halo://party/";
+		int length;
+
+		for (length = 0; prefix[length] && (text[length] | 0x20) == prefix[length]; length++)
+			;
+		if (!prefix[length] && strlen(text) < 64)
+			return 1;
+	}
+#else
+	(void)index;
+#endif
+	return 0;
+}
+#endif
+
 /* the key of this user's copies of the game, from a secret only they can
 read: another user's program may have the port, and must neither read the
 invites nor pass its own */
@@ -3656,7 +3724,7 @@ int p2p_hand_off_invite(void)
 	int attempt;
 	int result = 0;
 
-	if (!command_line_invite(invite, sizeof(invite)) || !handoff_key(key))
+	if (!command_line_link(invite, sizeof(invite)) || !handoff_key(key))
 		return 0;
 	socket = open_socket(SOCK_DGRAM, network_long(0x7F000001), 0, NULL);
 	if (socket < 0)
@@ -3681,7 +3749,7 @@ int p2p_hand_off_invite(void)
 	}
 	posix_socket_close(socket);
 	if (result)
-		platform_log("Internet play: passed the invite to the copy of the game already running");
+		platform_log("Internet play: passed the link to the copy of the game already running");
 	return result;
 #endif
 }
@@ -3970,6 +4038,28 @@ static void update_probes(void)
 	}
 }
 
+int p2p_doorbell(const char *doorbell)
+{
+	if (!p2p.running)
+		return 0;
+	pthread_mutex_lock(&p2p_lock);
+	p2p_signal_doorbell(doorbell);
+	pthread_mutex_unlock(&p2p_lock);
+	return 1;
+}
+
+int p2p_doorbell_rings(void)
+{
+	int rings;
+
+	if (!p2p.running)
+		return 0;
+	pthread_mutex_lock(&p2p_lock);
+	rings = p2p_signal_doorbell_rings();
+	pthread_mutex_unlock(&p2p_lock);
+	return rings;
+}
+
 void p2p_probe_browse(int on)
 {
 	pthread_mutex_lock(&p2p_lock);
@@ -4139,7 +4229,7 @@ static void *p2p_thread(void *unused)
 	pthread_mutex_lock(&p2p_lock);
 #ifndef HALO_ANDROID
 	/* (here: it may wait for a program) */
-	p2p_register_url_scheme("halo", "Halo: Combat Evolved invite");
+	p2p_register_url_scheme("halo", "Chupathingy link");
 #endif
 	/* (until the game's end asks the platform layer's threads to stop,
 	thread_stop.h: a pass at most LOOP_INTERVAL * 5 away) */
@@ -4151,6 +4241,7 @@ static void *p2p_thread(void *unused)
 		streams; otherwise the thread can sleep longer */
 		int wait = LOOP_INTERVAL * 5;
 		int index, asked;
+		unsigned long waited;
 
 		/* what to wait for */
 		read_owners[read_count] = _owner_tunnel;
@@ -4216,12 +4307,20 @@ static void *p2p_thread(void *unused)
 		send_queued_datagrams();
 #endif
 		pthread_mutex_unlock(&p2p_lock);
+		waited = p2p_now();
 		if (posix_socket_select(read, &read_count, write, &write_count, NULL, &error_count, 0,
 			wait * 1000, 0) < 0)
 		{
 			read_count = write_count = 0;
 		}
 		pthread_mutex_lock(&p2p_lock);
+		/* the wait lasted far longer than asked (the process was suspended
+		or the machine slept): what the sockets report is stale */
+		if (elapsed(waited, (unsigned long)wait + PEER_TIMEOUT))
+		{
+			network_resumed(p2p_now() - waited);
+			read_count = write_count = 0;
+		}
 #ifdef P2P_SEND_FROM_THREAD
 		send_queued_datagrams();
 #endif

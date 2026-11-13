@@ -1,0 +1,113 @@
+{
+  "chupa-43a": {
+    "announce": 32,
+    "minimum": 11,
+    "maximum": 44,
+    "follows": "build-344",
+    "layouts": {
+      "33": {
+        "settings_size": 13120,
+        "options_size": 28
+      },
+      "34": {
+        "settings_size": 13120,
+        "options_size": 28
+      },
+      "35": {
+        "settings_size": 13136,
+        "options_size": 44
+      },
+      "36": {
+        "settings_size": 13136,
+        "options_size": 44,
+        "shield_effects_maximum": 6,
+        "dropped_messages": [
+          91
+        ]
+      },
+      "37": {
+        "settings_size": 13136,
+        "options_size": 44,
+        "shield_effects_maximum": 6,
+        "dropped_messages": [
+          91
+        ]
+      },
+      "38": {
+        "settings_size": 13136,
+        "options_size": 44,
+        "shield_effects_maximum": 6,
+        "dropped_messages": [
+          91
+        ]
+      },
+      "39": {
+        "settings_size": 13136,
+        "options_size": 44,
+        "shield_effects_maximum": 6,
+        "dropped_messages": [
+          91
+        ]
+      },
+      "40": {
+        "settings_size": 13136,
+        "options_size": 44,
+        "shield_effects_maximum": 6,
+        "dropped_messages": [
+          91
+        ],
+        "join_request_extra": 234,
+        "join_request_fill": "zeros"
+      },
+      "41": {
+        "settings_size": 13136,
+        "options_size": 44,
+        "shield_effects_maximum": 6,
+        "dropped_messages": [
+          78,
+          79,
+          91,
+          94,
+          95
+        ],
+        "join_request_extra": 234,
+        "join_request_fill": "zeros"
+      },
+      "43": {
+        "settings_size": 13200,
+        "join_request_extra": 236,
+        "join_request_fill": "zeros",
+        "join_request_version_at": 234,
+        "header_extra": 4,
+        "epoch_kind": 96,
+        "unit_state_parts": [
+          {
+            "bit": 7,
+            "size": 28,
+            "at": "after_up"
+          },
+          {
+            "bit": 6,
+            "size": 30,
+            "at": "last"
+          }
+        ],
+        "rider_ejection_up": 200,
+        "dropped_messages": [
+          97,
+          98,
+          99,
+          100,
+          103,
+          104,
+          105,
+          106,
+          107
+        ]
+      }
+    },
+    "hosting": [
+      41
+    ]
+  }
+}

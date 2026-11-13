@@ -12,9 +12,8 @@ and the debug keyboard that the game's console reads.
 #include "platform.h"
 #include "sdl_platform.h"
 #include "gl.h"
-#ifdef HALO_BGFX
+/* (bgfx's switch, and the older drivers' path: XGPU_GL_LEGACY_AT_RUN_TIME) */
 #include "xgpu.h"
-#endif
 #include "port_config.h"
 #include "p2p.h"
 #include "posix.h"
@@ -23,6 +22,7 @@ and the debug keyboard that the game's console reads.
 #include "ce_installer.h"
 #include "touch_input.h"
 #include "delta.h"
+#include "map_repo.h"
 #include "crash_report.h"
 #include "launcher.h"
 
@@ -32,6 +32,10 @@ and the debug keyboard that the game's console reads.
 #include <string.h>
 #if !defined(_WIN32) && !defined(HALO_ANDROID)
 #include <signal.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <time.h>
+#include <unistd.h>
 #endif
 #ifdef HALO_GAME_BROWSER
 #include "browser.h"
@@ -52,6 +56,12 @@ static unsigned char mouse_buttons_pressed[PLATFORM_MOUSE_BUTTON_COUNT];
 #ifndef HALO_ANDROID
 /* the menus' pointer (platform_ui_pointer_set_active), under input_lock */
 static struct platform_ui_pointer ui_pointer;
+/* the menus' pointer put in the middle as they open (platform_ui_pointer_set_active):
+the move that warp sends isn't the player's, so it hovers nothing (it took the
+focus off the item a screen opened on, like the level select's Workshop PLAY
+level) */
+static BOOL ui_pointer_warp_pending;
+static float ui_pointer_warp_x, ui_pointer_warp_y;
 static float ui_pointer_wheel;
 #endif
 static pthread_mutex_t input_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -158,18 +168,25 @@ static void old_map_folders_offer(BOOL quiet)
 	platform_old_map_folders_move();
 }
 
-/* whether the game is run without anyone to answer a question (a test run,
-a null renderer), or where a question cannot be shown (under gamescope, the
+/* whether the game is run without anyone to watch it (a test run, a null
+renderer, a headless game list run) */
+BOOL platform_run_is_unwatched(void)
+{
+	BOOL unwatched = config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
+		config_boolean("debug.null_renderer");
+
+#ifdef HALO_GAME_BROWSER
+	unwatched = unwatched || browser_headless();
+#endif
+	return unwatched;
+}
+
+/* whether the game is run without anyone to answer a question (an
+unwatched run), or where a question cannot be shown (under gamescope, the
 Steam Deck's Game Mode: updater_gamescope) */
 BOOL platform_run_is_quiet(void)
 {
-	BOOL quiet = config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
-		config_boolean("debug.null_renderer") || updater_gamescope();
-
-#ifdef HALO_GAME_BROWSER
-	quiet = quiet || browser_headless();
-#endif
-	return quiet;
+	return platform_run_is_unwatched() || updater_gamescope();
 }
 
 /* the settings whose defaults this version changed, for a player whose
@@ -366,6 +383,141 @@ static void crash_reports_start(void)
 }
 #endif
 
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+/* SIGTERM and SIGINT quit as closing the window does, when the events are
+next read (SDL's handler, which this one passes them to). A game stuck where
+they are not read (#1149: a load that waited for ever) never would: the
+signal also wakes a watchdog, which ends the process only if the game is
+stuck: its events not read (platform_pump_events, quit_heartbeat) for
+QUIT_WATCHDOG_SECONDS. Once a quit is under way (platform_exit_window_closed,
+or any exit: its saves run then) it never steps in, so no save is cut in
+half. It only writes to standard error, as the stuck thread may hold the
+log's lock */
+#ifndef QUIT_WATCHDOG_SECONDS
+#define QUIT_WATCHDOG_SECONDS 10
+#endif
+
+static struct sigaction quit_previous_actions[2];
+static int quit_pipe[2] = { -1, -1 };
+/* (each read of the events counts one; a quit under way stands it down) */
+static volatile unsigned long quit_heartbeat;
+static volatile int quit_under_way;
+
+static void quit_watchdog_stand_down(void)
+{
+	__atomic_store_n(&quit_under_way, 1, __ATOMIC_SEQ_CST);
+}
+
+static void quit_watchdog_beat(void)
+{
+	__atomic_add_fetch(&quit_heartbeat, 1, __ATOMIC_RELAXED);
+}
+
+static void quit_signal_handler(int signal_number, siginfo_t *information, void *context)
+{
+	struct sigaction const *previous = &quit_previous_actions[signal_number == SIGINT];
+	int saved_errno = errno;
+
+	if (quit_pipe[1] >= 0)
+	{
+		unsigned char byte = (unsigned char)signal_number;
+
+		if (write(quit_pipe[1], &byte, 1) < 0)
+			byte = 0;
+	}
+	if (previous->sa_flags & SA_SIGINFO)
+	{
+		if (previous->sa_sigaction)
+			previous->sa_sigaction(signal_number, information, context);
+	}
+	else if (previous->sa_handler == SIG_DFL)
+	{
+		/* (nothing else would have ended it: as without this handler) */
+		signal(signal_number, SIG_DFL);
+		raise(signal_number);
+	}
+	else if (previous->sa_handler != SIG_IGN)
+	{
+		previous->sa_handler(signal_number);
+	}
+	errno = saved_errno;
+}
+
+static void *quit_watchdog(void *unused)
+{
+	unsigned char byte = 0;
+	char message[128];
+	struct timespec wait;
+	int length;
+
+	(void)unused;
+	while (read(quit_pipe[0], &byte, 1) != 1)
+	{
+		if (errno != EINTR)
+			return NULL;
+	}
+	/* (stuck: no read of the events for the whole time, and no quit under
+	way; a game that goes on reading them quits by itself) */
+	{
+		unsigned long last = __atomic_load_n(&quit_heartbeat, __ATOMIC_RELAXED);
+		int still = 0;
+
+		while (still < QUIT_WATCHDOG_SECONDS)
+		{
+			unsigned long now;
+
+			wait.tv_sec = 1;
+			wait.tv_nsec = 0;
+			while (nanosleep(&wait, &wait) != 0 && errno == EINTR)
+				;
+			if (__atomic_load_n(&quit_under_way, __ATOMIC_SEQ_CST))
+				return NULL;
+			now = __atomic_load_n(&quit_heartbeat, __ATOMIC_RELAXED);
+			still = now == last ? still + 1 : 0;
+			last = now;
+		}
+		if (__atomic_load_n(&quit_under_way, __ATOMIC_SEQ_CST))
+			return NULL;
+	}
+	length = snprintf(message, sizeof(message),
+		"chupathingyce: quit: signal %d, and the game has been stuck for %d seconds; stopping now\n",
+		(int)byte, QUIT_WATCHDOG_SECONDS);
+	if (length > 0 && write(STDERR_FILENO, message, (size_t)length) < 0)
+		length = 0;
+	_exit(128 + (int)byte);
+	return NULL;
+}
+
+static void quit_watchdog_start(void)
+{
+	struct sigaction action;
+	pthread_t thread;
+	pthread_attr_t attributes;
+
+	if (quit_pipe[0] >= 0 || pipe(quit_pipe) != 0)
+		return;
+	fcntl(quit_pipe[1], F_SETFL, fcntl(quit_pipe[1], F_GETFL) | O_NONBLOCK);
+	fcntl(quit_pipe[0], F_SETFD, FD_CLOEXEC);
+	fcntl(quit_pipe[1], F_SETFD, FD_CLOEXEC);
+	pthread_attr_init(&attributes);
+	pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
+	if (pthread_create(&thread, &attributes, quit_watchdog, NULL) != 0)
+	{
+		pthread_attr_destroy(&attributes);
+		return;
+	}
+	pthread_attr_destroy(&attributes);
+	/* (the last registered runs first: before every save exit makes) */
+	atexit(quit_watchdog_stand_down);
+	memset(&action, 0, sizeof(action));
+	action.sa_sigaction = quit_signal_handler;
+	action.sa_flags = SA_SIGINFO | SA_RESTART;
+	sigemptyset(&action.sa_mask);
+	sigaction(SIGTERM, &action, &quit_previous_actions[0]);
+	sigaction(SIGINT, &action, &quit_previous_actions[1]);
+}
+#endif
+
 BOOL platform_sdl_initialize(void)
 {
 	if (platform_sdl_started)
@@ -439,6 +591,10 @@ BOOL platform_sdl_initialize(void)
 #endif
 	}
 	platform_sdl_started = TRUE;
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* (after SDL_Init, whose handlers it passes the signals on to) */
+	quit_watchdog_start();
+#endif
 #ifdef HALO_CONSOLE_SETUP_SCREENS
 	/* (the port's: halo_console_features.h) */
 	console_setup_start();
@@ -465,6 +621,11 @@ BOOL platform_sdl_initialize(void)
 #endif
 	/* (the legacy table: a newer one fetched meanwhile) */
 	delta_legacy_start();
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_SERVER)
+	/* (Chupathingy maps' index, for its blacklist before the first join:
+	map_repo.h) */
+	map_repo_game_refresh_soon();
+#endif
 	return TRUE;
 }
 
@@ -1067,36 +1228,146 @@ static BOOL platform_display_size(SDL_DisplayID display, long *width, long *heig
 	return TRUE;
 }
 
+/* whether fullscreen can set the display's refresh rate: on Windows, and
+on an X server's own display; not on Wayland or XWayland (whose modes are
+emulated, the display's own kept), nor under gamescope, nor on the Mac,
+iOS or Android, whose displays stay at their own rate */
+static BOOL platform_refresh_rates_settable(void)
+{
+#if defined(HALO_ANDROID) || defined(__APPLE__)
+	return FALSE;
+#else
+	const char *driver = SDL_GetCurrentVideoDriver();
+	const char *wayland = getenv("WAYLAND_DISPLAY");
+	const char *gamescope = getenv("GAMESCOPE_WAYLAND_DISPLAY");
+
+	if (!driver)
+		return FALSE;
+	if (!strcmp(driver, "windows"))
+		return TRUE;
+	return !strcmp(driver, "x11") && !(wayland && wayland[0]) && !(gamescope && gamescope[0]);
+#endif
+}
+
+/* display.refresh_rate where fullscreen can set it, else 0: the display's
+own. Based on work by erin.cena in OpenH1. */
+static float platform_refresh_rate_setting(void)
+{
+	double rate = config_real("display.refresh_rate");
+
+	return rate > 0.0 && rate < 1000.0 && platform_refresh_rates_settable() ? (float)rate : 0.0f;
+}
+
+#if defined(__APPLE__) && !defined(HALO_IOS)
+/* port/macos/src/macos_video.c */
+int macos_window_in_full_screen_space(void *window);
+void macos_window_toggle_full_screen_space(void *window);
+#endif
+
+/* macOS: the window back out of a full-screen Space that macOS put it in
+while SDL had it in exclusive fullscreen (display.mode = "fullscreen"),
+before SDL changes its fullscreen. macOS's own full screen (the window's
+toggleFullScreen:, which its full-screen shortcut and menu item call) moves
+even the exclusive window to a Space, and SDL still takes it for exclusive:
+its next change of kind or of fullscreen restyled the window as if it were
+not in a Space, and AppKit threw ("NSWindowStyleMaskFullScreen cleared on a
+window outside of a full screen transition"), which ended the game
+(#1110). Taken out of the Space first, and the move waited for, the window
+is an ordinary one again to SDL. Whether the window left a Space (the
+change then has to make it fullscreen again, platform_display_apply), and
+FALSE when it is still in one after 3 s: SDL's change is left for the next
+apply rather than made into a throw. */
+static BOOL platform_window_left_space;
+
+static BOOL platform_window_space_settle(void)
+{
+#if defined(__APPLE__) && !defined(HALO_IOS)
+	static BOOL logged_stuck;
+	void *window;
+	Uint64 deadline;
+
+	if (!platform_window)
+		return TRUE;
+	window = SDL_GetPointerProperty(SDL_GetWindowProperties(platform_window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER,
+		NULL);
+	if (!macos_window_in_full_screen_space(window) || !SDL_GetWindowFullscreenMode(platform_window))
+		return TRUE;
+	platform_log("display: the window is in a full-screen Space while exclusive fullscreen; leaving the Space first");
+	macos_window_toggle_full_screen_space(window);
+	/* (SDL hears of the move when it ends, and only then takes the window for
+	windowed) */
+	deadline = SDL_GetTicks() + 3000;
+	while ((macos_window_in_full_screen_space(window) || (SDL_GetWindowFlags(platform_window) & SDL_WINDOW_FULLSCREEN)) &&
+		SDL_GetTicks() < deadline)
+	{
+		SDL_PumpEvents();
+		SDL_Delay(10);
+	}
+	if (macos_window_in_full_screen_space(window) || (SDL_GetWindowFlags(platform_window) & SDL_WINDOW_FULLSCREEN))
+	{
+		if (!logged_stuck)
+			platform_log("display: the window did not leave its full-screen Space; the change waits for the next apply");
+		logged_stuck = TRUE;
+		return FALSE;
+	}
+	platform_window_left_space = TRUE;
+#endif
+	return TRUE;
+}
+
 /* the window's fullscreen kind (display.mode): borderless, a window over
 the whole desktop (SDL's fullscreen without a mode), or fullscreen, the
 display taken at display.resolution's mode (the one nearest it), else at its
-desktop one. F11 switches to the kind set. */
+desktop one, at display.refresh_rate's rate (the nearest the display has at
+that size), else at the desktop's. F11 switches to the kind set. */
 static void platform_fullscreen_kind_apply(void)
 {
 	static int applied = -1;
 	static long applied_width, applied_height;
+	static float applied_rate;
 	int exclusive = platform_display_mode() == _display_mode_fullscreen ? 1 : 0;
 	long width = 0, height = 0;
+	float rate = 0.0f;
 	SDL_DisplayID display;
 	SDL_DisplayMode closest;
 	const SDL_DisplayMode *mode = NULL;
+	const SDL_DisplayMode *desktop;
 
 	if (!platform_window)
 		return;
 	if (exclusive)
+	{
 		platform_resolution_setting(&width, &height);
-	if (exclusive == applied && width == applied_width && height == applied_height)
+		rate = platform_refresh_rate_setting();
+	}
+	if (exclusive == applied && width == applied_width && height == applied_height && rate == applied_rate)
 		return;
 	applied = exclusive;
 	applied_width = width;
 	applied_height = height;
+	applied_rate = rate;
 	display = SDL_GetDisplayForWindow(platform_window);
 	if (exclusive && display)
 	{
-		if (width && SDL_GetClosestFullscreenDisplayMode(display, (int)width, (int)height, 0.0f, false, &closest))
+		desktop = SDL_GetDesktopDisplayMode(display);
+		if (width && SDL_GetClosestFullscreenDisplayMode(display, (int)width, (int)height, rate, false, &closest))
+			mode = &closest;
+		else if (!width && rate > 0.0f && desktop &&
+			SDL_GetClosestFullscreenDisplayMode(display, desktop->w, desktop->h, rate, false, &closest))
 			mode = &closest;
 		else
-			mode = SDL_GetDesktopDisplayMode(display);
+			mode = desktop;
+		if (mode && rate > 0.0f)
+		{
+			platform_log("display: fullscreen at %dx%d, %.2f Hz (display.refresh_rate %.2f)", mode->w, mode->h,
+				(double)mode->refresh_rate, (double)rate);
+		}
+	}
+	if (!platform_window_space_settle())
+	{
+		/* (tried again at the next apply) */
+		applied = -1;
+		return;
 	}
 	SDL_SetWindowFullscreenMode(platform_window, mode);
 }
@@ -1104,10 +1375,35 @@ static void platform_fullscreen_kind_apply(void)
 /* whether the game last asked for the window to be fullscreen */
 static BOOL platform_fullscreen_requested = FALSE;
 
-static void platform_window_set_fullscreen(BOOL fullscreen)
+#ifdef _WIN32
+/* port/windows/src/win32_window.c */
+void win32_window_borderless_styles(void *window_handle);
+#endif
+
+/* Windows: the borderless window an ordinary window with no frame, not
+SDL's topmost popup, which some drivers take for exclusive fullscreen
+(win32_window.c); before the context is made and before each frame shows,
+since SDL sets its styles again on a change of focus or mode */
+#ifdef _WIN32
+static void platform_borderless_styles(void)
+{
+	if (platform_window && platform_fullscreen_requested && platform_display_mode() == _display_mode_borderless)
+	{
+		win32_window_borderless_styles(SDL_GetPointerProperty(SDL_GetWindowProperties(platform_window),
+			SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL));
+	}
+}
+#endif
+
+/* (FALSE when macOS kept the window in a full-screen Space: nothing
+changed, platform_window_space_settle) */
+static BOOL platform_window_set_fullscreen(BOOL fullscreen)
 {
 	platform_fullscreen_requested = fullscreen;
+	if (!platform_window_space_settle())
+		return FALSE;
 	SDL_SetWindowFullscreen(platform_window, fullscreen ? true : false);
+	return TRUE;
 }
 
 /* whether the window is fullscreen. SDL sets its flag when the window
@@ -1319,11 +1615,13 @@ static int platform_window_mode = _display_mode_windowed;
 #endif
 
 #ifndef HALO_ANDROID
-/* the OpenGL version the renderer needs (platform_video_initialize) */
+/* the OpenGL version the renderer needs (platform_video_initialize): 4.5
+draws as it was written, and 3.3 to 4.4 without what came after 3.3, as
+macOS's 4.1 does (xgpu.h) */
 #ifdef __APPLE__
 #define PLATFORM_GL_NEEDED "4.1"
 #else
-#define PLATFORM_GL_NEEDED "4.5"
+#define PLATFORM_GL_NEEDED "3.3"
 #endif
 
 /* this computer's graphics can't run the renderer (no OpenGL context of the
@@ -1384,6 +1682,169 @@ static void platform_gl_missing(const char *reason)
 #ifdef HALO_BGFX
 /* bgfx could not start (d3d8_bgfx.inl): the game draws with OpenGL */
 static BOOL platform_bgfx_refused;
+
+BOOL platform_bgfx_chosen(void)
+{
+	const char *renderer = config_string("display.renderer");
+
+#ifdef _WIN32
+	if (strcmp(renderer, "d3d11") == 0)
+		return TRUE;
+#endif
+	return strcmp(renderer, "bgfx") == 0;
+}
+#endif
+
+#if !defined(HALO_ANDROID) && !defined(_WIN32) && !defined(__APPLE__)
+/* port: under gamescope (the Steam Deck's Game Mode), with vsync off, a
+display.max_fps of the display's refresh rate or a whole fraction of it is
+shown in step with the display (OpenGL). Compiled into the Linux and
+FreeBSD builds; it does nothing unless gamescope runs the game. */
+#define SWAP_INTERVAL_IN_STEP
+#endif
+
+#if !defined(__APPLE__) || defined(HALO_IOS)
+/* the swap interval the OpenGL window was given (-1: none yet); above 0
+with vsync off, display.max_fps in step with the display, and the clock
+paces nothing (frame_interval_ns). platform_interval_wanted is the last
+one asked for, given or refused, so that a refused one is asked for again
+only when what is wanted changes. */
+static int platform_interval = -1;
+static int platform_interval_wanted = -1;
+#endif
+
+/* the display's refresh rate, 0 where it is not known; read again after a
+display event (platform_refresh_rate_forget) or once a second, since under
+gamescope it is known only after the window is shown */
+#ifndef HALO_ANDROID
+static float platform_refresh_rate_value;
+static Uint64 platform_refresh_rate_read_at;
+static BOOL platform_refresh_rate_known;
+
+static void platform_refresh_rate_forget(void)
+{
+	platform_refresh_rate_known = FALSE;
+}
+#endif
+
+static float platform_refresh_rate(void)
+{
+#ifndef HALO_ANDROID
+	Uint64 now = SDL_GetTicks();
+
+	if (!platform_refresh_rate_known || now - platform_refresh_rate_read_at >= 1000)
+	{
+		SDL_DisplayID display = platform_window ? SDL_GetDisplayForWindow(platform_window) : 0;
+		const SDL_DisplayMode *mode = display ? SDL_GetCurrentDisplayMode(display) : NULL;
+
+		platform_refresh_rate_value = mode && mode->refresh_rate > 0.0f ? mode->refresh_rate : 0.0f;
+		platform_refresh_rate_read_at = now;
+		platform_refresh_rate_known = TRUE;
+	}
+	return platform_refresh_rate_value;
+#else
+	return 0.0f;
+#endif
+}
+
+#if !defined(__APPLE__) || defined(HALO_IOS)
+#ifdef SWAP_INTERVAL_IN_STEP
+/* whether gamescope runs the game: GAMESCOPE_WAYLAND_DISPLAY, which it sets
+for the programs it runs (the Steam Deck's Game Mode) */
+static BOOL platform_under_gamescope(void)
+{
+	static int known = -1;
+
+	if (known < 0)
+	{
+		const char *display = getenv("GAMESCOPE_WAYLAND_DISPLAY");
+
+		known = display && display[0] ? 1 : 0;
+	}
+	return known ? TRUE : FALSE;
+}
+#endif
+
+/* the refreshes each frame is shown for, 0 for none: display.vsync's 1.
+Under gamescope with vsync off, a display.max_fps of the display's refresh
+rate or a whole fraction of it (60 at 60 Hz, 30 or 45 at 90), within a
+frame a second, so many: frames spaced by the clock at the display's own
+rate drift against its refreshes, and now and then one is shown twice and
+the next not at all (judder while the counter says 60: the Deck in Game
+Mode with its Frame Rate Limit). An interval above 1 only with SDL's x11
+driver (XWayland, gamescope's own): SDL's Wayland one takes any interval
+above 1 as 1, so there a fraction keeps the clock's limit. Everywhere else
+vsync off is as it was, the clock's limit, for the least latency. Based on
+work by goatbutt and the OpenH1 team. */
+static int platform_swap_interval(int vsync, long maximum)
+{
+#ifdef SWAP_INTERVAL_IN_STEP
+	float refresh;
+	int interval;
+	int most;
+	const char *driver;
+	static int x11 = -1;
+#endif
+
+	if (vsync)
+		return 1;
+#ifdef SWAP_INTERVAL_IN_STEP
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+		return 0;
+#endif
+	if (maximum <= 0 || !platform_under_gamescope())
+		return 0;
+	refresh = platform_refresh_rate();
+	if (refresh <= 0.0f)
+		return 0;
+	/* (the driver is the same for the whole run) */
+	if (x11 < 0)
+	{
+		driver = SDL_GetCurrentVideoDriver();
+		x11 = driver && !strcmp(driver, "x11") ? 1 : 0;
+	}
+	most = x11 ? 4 : 1;
+	for (interval = 1; interval <= most; interval++)
+	{
+		float apart = refresh / (float)interval - (float)maximum;
+
+		if (apart >= -1.0f && apart <= 1.0f)
+			return interval;
+	}
+#else
+	(void)maximum;
+#endif
+	return 0;
+}
+
+/* platform_swap_interval's, given to the OpenGL window when it changes
+(force: whatever the window had, as when the window is made or Settings
+are applied); one the driver refuses leaves the clock pacing the frames,
+and is not asked for again until what is wanted changes */
+static void platform_swap_interval_apply(BOOL force, int vsync, long maximum)
+{
+	int wanted = platform_swap_interval(vsync, maximum);
+	int interval = wanted;
+
+	if (!platform_gl_context || (!force && wanted == platform_interval_wanted))
+		return;
+	platform_interval_wanted = wanted;
+	if (!SDL_GL_SetSwapInterval(interval))
+	{
+		platform_log("frame rate: a swap interval of %d refused (%s): the clock paces the frames", interval,
+			SDL_GetError());
+		interval = 0;
+		SDL_GL_SetSwapInterval(0);
+	}
+	else if (interval > 0 && !vsync)
+	{
+		platform_log("frame rate: display.max_fps %ld shown in step with the display's %.2f Hz under gamescope, "
+			"each frame for %d refresh%s", maximum, (double)platform_refresh_rate(), interval,
+			interval == 1 ? "" : "es");
+	}
+	platform_interval = interval;
+}
 #endif
 
 BOOL platform_video_initialize(unsigned long width, unsigned long height)
@@ -1399,7 +1860,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	/* the bgfx renderer draws instead (d3d8_bgfx.inl): a window without an
 	OpenGL context, whose Metal layer (macOS) or Vulkan surface bgfx draws
 	into; unless it could not start before (platform_video_reopen_for_gl) */
-	xgpu_bgfx = !platform_bgfx_refused && strcmp(config_string("display.renderer"), "bgfx") == 0;
+	xgpu_bgfx = !platform_bgfx_refused && platform_bgfx_chosen();
 #endif
 
 #ifdef HALO_ANDROID
@@ -1509,10 +1970,35 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		platform_event_thread = SDL_GetCurrentThreadID();
 		platform_log("renderer: bgfx");
 		platform_mouse_capture(TRUE);
+#ifdef HALO_LAUNCHER
+		/* (the launcher starts bgfx itself to draw: xgpu_bgfx_launcher_frame) */
+		launcher_at_start();
+#endif
 		return TRUE;
 	}
 #endif
+#ifdef _WIN32
+	platform_borderless_styles();
+#endif
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+	/* (HALO_GL_LEGACY=1: the older drivers' path on any, to test it) */
+	xgpu_gl_legacy = SDL_getenv("HALO_GL_LEGACY") && !strcmp(SDL_getenv("HALO_GL_LEGACY"), "1");
+	platform_gl_context = xgpu_gl_legacy ? NULL : SDL_GL_CreateContext(platform_window);
+	if (!platform_gl_context)
+	{
+		/* a driver without OpenGL 4.5 (an older integrated GPU's: game
+		issue #78): a 3.3 context, which a 4.0 to 4.4 driver gives as its
+		own newest, and the renderer's path without what came after 3.3 */
+		if (!xgpu_gl_legacy)
+			platform_log("graphics: no OpenGL 4.5 context (%s); trying 3.3", SDL_GetError());
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+		platform_gl_context = SDL_GL_CreateContext(platform_window);
+		xgpu_gl_legacy = 1;
+	}
+#else
 	platform_gl_context = SDL_GL_CreateContext(platform_window);
+#endif
 #ifdef HALO_ANDROID
 	/* ES 3.2 where the driver has it, otherwise the renderer makes do with
 	3.0 plus extensions */
@@ -1538,6 +2024,27 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 #endif
 		return FALSE;
 	}
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+	if (xgpu_gl_legacy)
+	{
+		GLint major = 0, minor = 0;
+
+		glGetIntegerv(GL_MAJOR_VERSION, &major);
+		glGetIntegerv(GL_MINOR_VERSION, &minor);
+		if (major < 3 || (major == 3 && minor < 3))
+		{
+			platform_gl_missing("no OpenGL 3.3 context");
+			return FALSE;
+		}
+		/* (the shaders in the newest language the context has, of the
+		ones macOS's 4.1 path is written for) */
+		xgpu_gl_version_line = major > 4 || (major == 4 && minor >= 1) ? "#version 410 core\n" :
+			major == 4 ? "#version 400 core\n" : "#version 330 core\n";
+		xgpu_gl_sample_mask = major >= 4;
+		platform_log("graphics: OpenGL %d.%d, without OpenGL 4.5: the renderer's older drivers' path (%.17s)",
+			(int)major, (int)minor, xgpu_gl_version_line);
+	}
+#endif
 #if defined(__APPLE__) && !defined(HALO_IOS)
 	{
 		/* port/macos/src/macos_video.c */
@@ -1547,7 +2054,8 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		macos_set_swap_interval(config_boolean("display.vsync") ? 1 : 0);
 	}
 #else
-	version = SDL_GL_SetSwapInterval(config_boolean("display.vsync") ? 1 : 0);
+	version = 0;
+	platform_swap_interval_apply(TRUE, config_boolean("display.vsync"), config_integer("display.max_fps"));
 #endif
 	(void)version;
 	platform_event_thread = SDL_GetCurrentThreadID();
@@ -1594,12 +2102,19 @@ void platform_display_apply(void)
 
 	if (!platform_window)
 		return;
+	platform_window_left_space = FALSE;
 	platform_fullscreen_kind_apply();
 	/* Saving unrelated settings must preserve the window mode chosen by F11. */
 	if (mode != platform_window_mode)
 	{
-		platform_window_mode = mode;
-		platform_window_set_fullscreen(platform_fullscreen_setting());
+		/* (tried again at the next apply when it could not be made) */
+		platform_window_mode = platform_window_set_fullscreen(platform_fullscreen_setting()) ? mode : -1;
+	}
+	else if (platform_window_left_space && platform_fullscreen_requested)
+	{
+		/* (macOS: a change of resolution only took the window out of its
+		full-screen Space, platform_window_space_settle; fullscreen again) */
+		platform_window_set_fullscreen(TRUE);
 	}
 	platform_window_size_setting(&width, &height);
 	if (width != platform_window_width || height != platform_window_height)
@@ -1620,7 +2135,7 @@ void platform_display_apply(void)
 		macos_set_swap_interval(config_boolean("display.vsync") ? 1 : 0);
 	}
 #else
-	SDL_GL_SetSwapInterval(config_boolean("display.vsync") ? 1 : 0);
+	platform_swap_interval_apply(TRUE, config_boolean("display.vsync"), config_integer("display.max_fps"));
 #endif
 }
 
@@ -1686,20 +2201,27 @@ static Uint64 frame_interval_ns(void)
 		vsync = config_boolean("display.vsync");
 		maximum = config_integer("display.max_fps");
 	}
+#ifdef SWAP_INTERVAL_IN_STEP
+	/* (in step with the display, or no longer: the refresh rate known only
+	once the window is shown, as under gamescope, the window moved to
+	another display, the display's mode or display.max_fps changed; read
+	from the caches above, not asked of SDL each frame) */
+	if (!vsync)
+	{
+		platform_swap_interval_apply(FALSE, vsync, maximum);
+		if (platform_interval > 0)
+			return 0;
+	}
+#endif
 	if (vsync || maximum < 0)
 		return 0;
 	rate = (float)maximum;
 	if (!maximum)
 	{
-#ifndef HALO_ANDROID
-		SDL_DisplayID display = SDL_GetDisplayForWindow(platform_window);
-		const SDL_DisplayMode *mode = display ? SDL_GetCurrentDisplayMode(display) : NULL;
+		/* (the Android guest's SDL has no display modes to ask: 60) */
+		float refresh = platform_refresh_rate();
 
-		rate = 2.0f * (mode && mode->refresh_rate > 0.0f ? mode->refresh_rate : 60.0f);
-#else
-		/* (the Android guest's SDL has no display modes to ask) */
-		rate = 2.0f * 60.0f;
-#endif
+		rate = 2.0f * (refresh > 0.0f ? refresh : 60.0f);
 	}
 	return (Uint64)(1e9f / rate);
 }
@@ -1734,11 +2256,28 @@ void platform_video_swap(void)
 	Uint64 interval, now;
 	Uint64 swap_start = SDL_GetTicks(), swap_time;
 
+#ifdef _WIN32
+	platform_borderless_styles();
+#endif
 #ifdef HALO_BGFX
 	/* (the device presents: d3d8_bgfx.inl; this paces the frames) */
 	if (!xgpu_bgfx)
 #endif
-	SDL_GL_SwapWindow(platform_window);
+	{
+		/* the window's framebuffer bound for reading too, as the frame is
+		shown: a capture hooked into the swap (OBS's game capture) copies
+		from whatever is bound for reading, and the render target the frame
+		was blitted from holds it upside down (row 0 the top) */
+		if (platform_gl_context)
+		{
+#ifdef HALO_IOS
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, platform_window_framebuffer());
+#else
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+#endif
+		}
+		SDL_GL_SwapWindow(platform_window);
+	}
 	/* (a frame the graphics driver held for seconds: the game froze, and
 	online, a host stops hearing a machine after a few; the log says where) */
 	swap_time = SDL_GetTicks() - swap_start;
@@ -1755,6 +2294,37 @@ void platform_video_swap(void)
 	}
 	/* (a frame more than an interval late starts the count again) */
 	next_frame = now - next_frame > interval ? now + interval : next_frame + interval;
+}
+
+/* The quit event comes while a frame is presented (D3DDevice_Present pumps
+the events), and the game exited from there with its OpenGL context still
+current. Crash reports from 0.9.0c (game issue #829) then crashed in the
+graphics driver (or in OBS's hook of it) as the process went down, after
+"window closed". Nothing is drawn after this: the context is released and
+deleted and the window destroyed before the exit. bgfx's window is left to
+the process's end, as its device still draws into it. */
+void platform_exit_window_closed(void)
+{
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* (a quit under way: the watchdog leaves it to finish) */
+	quit_watchdog_stand_down();
+#endif
+	platform_log("window closed");
+	if (platform_gl_context)
+	{
+		SDL_GL_MakeCurrent(platform_window, NULL);
+		SDL_GL_DestroyContext(platform_gl_context);
+		platform_gl_context = NULL;
+	}
+#ifdef HALO_BGFX
+	if (!xgpu_bgfx)
+#endif
+	if (platform_window)
+	{
+		SDL_DestroyWindow(platform_window);
+		platform_window = NULL;
+	}
+	exit(EXIT_SUCCESS);
 }
 
 SDL_Window *platform_sdl_window(void)
@@ -1984,21 +2554,8 @@ bool SDL_ShowAndroidToast(const char *message, int duration, int gravity, int xo
 /* whether the text has an invite link in it (its prefix, in any case) */
 static BOOL platform_text_has_invite_link(const char *text)
 {
-	static const char prefix[] = "halo://join/";
-	size_t length = sizeof(prefix) - 1;
-
-	for (; *text; text++)
-	{
-		size_t index;
-
-		for (index = 0; index < length && text[index] &&
-			(text[index] | 0x20) == prefix[index]; index++)
-		{
-		}
-		if (index == length)
-			return TRUE;
-	}
-	return FALSE;
+	/* (halo://join/, or the site's join page: p2p.h) */
+	return p2p_invite_link_digits(text) != NULL;
 }
 
 /* the clipboard's text (the menus' text fields' Ctrl+V), and text put on it
@@ -2076,11 +2633,16 @@ static void platform_invite_clipboard(BOOL look)
 #endif
 	if (invite)
 	{
-		/* (the game's own invite is never joined, copied or not) */
-		snprintf(seen, sizeof(seen), "%s", invite);
+		char shared[256];
+
+		/* (the game's own invite is never joined, copied or not; it goes as
+		the site's join page, which chat programs make a link of) */
+		if (!p2p_invite_share_link(invite, shared, sizeof(shared)))
+			snprintf(shared, sizeof(shared), "%s", invite);
+		snprintf(seen, sizeof(seen), "%s", shared);
 		if (config_boolean("network.copy_to_clipboard"))
 		{
-			SDL_SetClipboardText(invite);
+			SDL_SetClipboardText(shared);
 			platform_log("Internet play: the invite link is on the clipboard");
 #ifdef HALO_ANDROID
 			SDL_ShowAndroidToast("Invite link copied", 1, -1, 0, 0);
@@ -2349,6 +2911,10 @@ void platform_pump_events(void)
 #endif
 	if (!platform_window || SDL_GetCurrentThreadID() != platform_event_thread)
 		return;
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* (the game isn't stuck: quit_watchdog) */
+	quit_watchdog_beat();
+#endif
 	if (exit_ticks == (Uint64)-1)
 	{
 		double seconds = config_real("debug.exit_after");
@@ -2377,6 +2943,15 @@ void platform_pump_events(void)
 	pthread_mutex_lock(&input_lock);
 	while (SDL_PollEvent(&event))
 	{
+#ifndef HALO_ANDROID
+		/* (the refresh rate read again: frame_interval_ns) */
+		if (event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED ||
+			event.type == SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED ||
+			event.type == SDL_EVENT_DISPLAY_ADDED || event.type == SDL_EVENT_DISPLAY_REMOVED)
+		{
+			platform_refresh_rate_forget();
+		}
+#endif
 		switch (event.type)
 		{
 #ifdef __APPLE__
@@ -2389,8 +2964,7 @@ void platform_pump_events(void)
 				break;
 			}
 			pthread_mutex_unlock(&input_lock);
-			platform_log("window closed");
-			exit(EXIT_SUCCESS);
+			platform_exit_window_closed();
 #endif
 		case SDL_EVENT_QUIT:
 #ifdef __APPLE__
@@ -2411,8 +2985,7 @@ void platform_pump_events(void)
 			}
 #endif
 			pthread_mutex_unlock(&input_lock);
-			platform_log("window closed");
-			exit(EXIT_SUCCESS);
+			platform_exit_window_closed();
 		case SDL_EVENT_KEY_DOWN:
 		case SDL_EVENT_KEY_UP:
 			if (event.key.scancode < SDL_SCANCODE_COUNT)
@@ -2464,9 +3037,15 @@ void platform_pump_events(void)
 			/* in the menus the mouse moves the pointer, not the view */
 			if (input_state.ui_pointer)
 			{
+				BOOL warp = ui_pointer_warp_pending && event.motion.x > ui_pointer_warp_x - 1.0f &&
+					event.motion.x < ui_pointer_warp_x + 1.0f && event.motion.y > ui_pointer_warp_y - 1.0f &&
+					event.motion.y < ui_pointer_warp_y + 1.0f;
+
+				ui_pointer_warp_pending = FALSE;
 				ui_pointer.x = event.motion.x;
 				ui_pointer.y = event.motion.y;
-				ui_pointer.moved = TRUE;
+				if (!warp)
+					ui_pointer.moved = TRUE;
 				break;
 			}
 #endif
@@ -2635,6 +3214,20 @@ void platform_pump_events(void)
 			}
 #endif
 			break;
+#if !defined(HALO_ANDROID) || defined(HALO_IOS)
+		case SDL_EVENT_GAMEPAD_REMOVED:
+			/* (SDL keeps a gamepad open until it is closed, even once the
+			controller has gone: each one plugged in again was opened anew
+			and the old one never let go. Android's guest has no
+			SDL_CloseGamepad in host_imports.list) */
+			{
+				SDL_Gamepad *gamepad = SDL_GetGamepadFromID(event.gdevice.which);
+
+				if (gamepad)
+					SDL_CloseGamepad(gamepad);
+			}
+			break;
+#endif
 #ifdef __APPLE__
 		case SDL_EVENT_DROP_FILE:
 		case SDL_EVENT_DROP_TEXT:
@@ -2731,6 +3324,11 @@ void platform_ui_pointer_set_active(BOOL active)
 		int width, height;
 
 		SDL_GetWindowSize(platform_window, &width, &height);
+		pthread_mutex_lock(&input_lock);
+		ui_pointer_warp_pending = TRUE;
+		ui_pointer_warp_x = width * 0.5f;
+		ui_pointer_warp_y = height * 0.5f;
+		pthread_mutex_unlock(&input_lock);
 		SDL_WarpMouseInWindow(platform_window, width * 0.5f, height * 0.5f);
 		show_pointer(TRUE);
 		pthread_mutex_lock(&input_lock);

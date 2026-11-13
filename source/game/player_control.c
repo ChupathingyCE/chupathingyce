@@ -208,6 +208,7 @@ symbols in this file:
 #include "units/units.h"
 #include "units/vehicle_definitions.h"
 #include "units/vehicles.h"
+#include "mcc_seats.h" /* port: port/linux/game/mcc_seats.c */
 
 #include "real_math.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
@@ -556,6 +557,8 @@ void player_control_get_unit_camera_info(
 			}
 		}
 
+		/* port: MCC biped seats carry the same authored camera as vehicles. */
+		mcc_seat_camera(camera_info);
 		if (camera_info->seat_index == NONE)
 		{
 			camera_info->camera = &unit_definition_get(unit->definition_index)->unit.camera;
@@ -621,6 +624,16 @@ static boolean player_control_port_menu_has_controller(
 	if (!player)
 		return FALSE;
 	gamepad_index = player->local_player_index;
+#ifdef HALO_GUIDE
+	/* (the Guide: the first player's controls are its own while it is
+	open, port/linux/game/guide.c) */
+	{
+		extern boolean guide_takes_player(void);
+
+		if (gamepad_index == 0 && guide_takes_player())
+			return TRUE;
+	}
+#endif
 	return gamepad_index >= 0 && gamepad_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS &&
 		ui_widgets_active_for_local_player(gamepad_index);
 }
@@ -1531,6 +1544,9 @@ static void get_local_player_input_blob(
 					_button_back))
 				{
 					input->back = gamepad->buttons[_gamepad_analog_button_b];
+					/* port: and the keyboard's key for it */
+					if (!input->back)
+						input->back = input_abstraction_port_back(gamepad_index);
 				}
 				if (!TEST_FLAG(
 					control->inhibited_button_bit_vector,

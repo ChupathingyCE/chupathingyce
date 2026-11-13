@@ -87,6 +87,9 @@ keeps fewer lines. HALO_CONSOLE_NO_CHAT leaves all of it out.
 #include "../src/delta_moderation.h"
 
 #include "chat.h"
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+#include "halo_profile_screen.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -506,6 +509,20 @@ static void line_heard(struct delta_wire_chat_line const *line)
 	utf8_to_wide(line->name, line->name_length, name, NAME_LENGTH);
 	if (!server && machine != NONE && muted(machine, name))
 		return;
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+	/* (the speaker as the scoreboard shows them: a verified player by their
+	Delta name, an impersonation masked, a faked @ taken off) */
+	if (!server && line->speaker_player != 255)
+	{
+		wchar_t shown[NAME_LENGTH];
+
+		if (profile_names_player(line->speaker_player, shown, NAME_LENGTH))
+		{
+			ustrncpy(name, shown, NAME_LENGTH - 1);
+			name[NAME_LENGTH - 1] = 0;
+		}
+	}
+#endif
 	filter_read();
 	blocked = delta_chat_filter_check(&chat.filter, line->text, line->length, masked, (int)sizeof(masked));
 	if (blocked && !server)
@@ -1541,6 +1558,33 @@ static void mute_toggle(short machine, wchar_t const *name)
 		ustrncpy(chat.mutes[chat.mute_count].name, name, NAME_LENGTH - 1);
 		chat.mute_count++;
 	}
+}
+
+/* ---------- this copy's mutes, as the Guide's Players here sets them
+(guide.c): the chat log's own */
+
+boolean chat_local_muted(short machine, wchar_t const *name)
+{
+	short index;
+
+	if (machine != NONE && name)
+		return muted(machine, name);
+	/* (by name on any machine, or anyone on the machine) */
+	for (index = 0; index < chat.mute_count; index++)
+	{
+		if ((machine == NONE || chat.mutes[index].machine == machine) &&
+			(!name || same_wide(chat.mutes[index].name, name)))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+void chat_local_mute(short machine, wchar_t const *name, boolean mute)
+{
+	if (muted(machine, name) != (mute != FALSE))
+		mute_toggle(machine, name);
 }
 
 static void log_keys(void)

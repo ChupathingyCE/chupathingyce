@@ -98,6 +98,11 @@ void halo_perf_render_part(int phase)
 	perf.render_part_start = now;
 }
 
+int halo_perf_render_part_now(void)
+{
+	return halo_perf_log_on ? perf.render_part : NONE;
+}
+
 /* the local player's zoom: a line when it changes */
 static void perf_zoom_update(void)
 {

@@ -147,6 +147,17 @@ void build_identity_watermark_update(const char *version, const char *where)
 	snprintf(watermark, sizeof(watermark), "%s - %s is out: update %s", base, version, where);
 }
 
+void build_identity_watermark_note(const char *note)
+{
+	char base[64];
+
+	if (strcmp(HALO_COMMIT, "unknown"))
+		snprintf(base, sizeof(base), "%s (%.7s)", HALO_VERSION, HALO_COMMIT);
+	else
+		snprintf(base, sizeof(base), "%s", HALO_VERSION);
+	snprintf(watermark, sizeof(watermark), "%s - %s", base, note);
+}
+
 const char *build_identity_platform(void)
 {
 	return BUILD_IDENTITY_PLATFORM;

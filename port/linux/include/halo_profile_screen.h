@@ -58,7 +58,7 @@ PRIVACY (a settings page of theirs) */
 #define PROFILE_SCREEN_SECTION_CLAN 3
 #define PROFILE_SCREEN_SECTION_PRIVACY 4
 
-/* the sections: their count, names (LINK PROFILE or UNLINK THIS COPY),
+/* the sections: their count, names (LINK PROFILE or UNLINK THIS DEVICE),
 whether one can be gone to now, their lines, and the action of their A
 (a dialog: TRUE when there was one) */
 short profile_screen_section_count(void);
@@ -66,6 +66,11 @@ char const *profile_screen_section_name(short section);
 boolean profile_screen_section_open(short section);
 short profile_screen_panel_lines(short section, struct profile_line *lines, short maximum);
 boolean profile_screen_section_action(short section);
+/* DELTA's SETTINGS: the devices dialog, and Link a device (another
+device's code entered); FALSE when there is nothing to show (not signed
+in, or a site without devices) */
+boolean profile_screen_open_devices(void);
+boolean profile_screen_open_link_a_device(void);
 /* the profile asked of the site again (Y) */
 void profile_screen_refresh(void);
 
@@ -89,5 +94,15 @@ boolean profile_screen_site_setting_write(char const *field, char const *value);
 (profile_names.c): their Delta profile's, when they share it in a game on
 Delta and display.profile_names is on; FALSE: their game name, as before */
 boolean profile_names_player(long player_index, wchar_t *name, long size);
+
+/* the name a local player plays under (the game name it joins with): while
+its Halo profile is linked to a Delta profile, the handle in the capitals
+the profile picked, cut to size, whatever name the Halo profile was given;
+FALSE: not linked (a guest, or no profile), the Halo profile's own */
+boolean profile_names_local_game_name(long local_player, wchar_t *name, long size);
+/* whether a local player's Halo profile plays as a guest (delta_account.txt
+says "guest"): not connected to Delta, so its games are never claimed for
+a profile */
+boolean profile_names_local_guest(long local_player);
 
 #endif

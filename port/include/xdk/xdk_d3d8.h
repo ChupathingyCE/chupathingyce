@@ -378,7 +378,8 @@ the sources' symbol comments):
   to their own functions (the bump environment ones share one);
 - the getters read the state tables;
 - scenes need nothing, and unlocking does nothing;
-- an index buffer's data is ordinary memory at its Data address;
+- an index buffer's data is ordinary memory at its Data address (a console
+  without a write watch is told of a lock, as of a vertex buffer's);
 - the Direct3D object is never freed (Release returns 1). */
 
 /* declared in xdk_pdb.h; __forceinline (not D3DINLINE) marks it for the
@@ -463,12 +464,22 @@ D3DINLINE void __stdcall D3DDevice_EndScene(void)
 {
 }
 
+#ifdef HALO_CONSOLE_NO_WRITE_WATCH
+/* a console without a write watch: the lock says the indices are about to
+be written (d3d8_resources.c) */
+void d3d8_index_buffer_locked(D3DIndexBuffer *buffer, UINT offset, UINT size);
+#endif
+
 D3DINLINE void __stdcall D3DIndexBuffer_Lock(D3DIndexBuffer *buffer, UINT offset, UINT size, BYTE **data, DWORD flags)
 {
-	(void)size;
 	(void)flags;
 	/* (an Xbox address; cseries/xbox_address.h) */
 	*data = (BYTE *)xbox_pointer(buffer->Data) + offset;
+#ifdef HALO_CONSOLE_NO_WRITE_WATCH
+	d3d8_index_buffer_locked(buffer, offset, size);
+#else
+	(void)size;
+#endif
 }
 
 D3DINLINE void __stdcall D3DIndexBuffer_Unlock(D3DIndexBuffer *buffer)

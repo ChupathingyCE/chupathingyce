@@ -269,6 +269,19 @@ static void map_describe(const struct discord_activity_game *game, char *name, i
 		snprintf(name, (size_t)name_size, "%s", "a custom map");
 }
 
+void discord_activity_map_name(const char *map, int campaign, char *text, int size)
+{
+	struct discord_activity_game game;
+	char art[160];
+
+	if (size <= 0)
+		return;
+	memset(&game, 0, sizeof(game));
+	game.screen = campaign ? DISCORD_SCREEN_CAMPAIGN : DISCORD_SCREEN_MULTIPLAYER;
+	snprintf(game.map, sizeof(game.map), "%s", map ? map : "");
+	map_describe(&game, text, size, art, sizeof(art));
+}
+
 /* the project's buttons: its site and its Discord server */
 static void buttons(struct text *text)
 {
@@ -448,6 +461,46 @@ int discord_activity_json(char *json, int size, unsigned long nonce, unsigned lo
 		buttons(&text);
 	raw(&text, ",\"instance\":false}}}");
 	return text.overflow ? -1 : text.used;
+}
+
+int discord_activity_status_line(const struct discord_activity_game *game, char *text, int size)
+{
+	char map_name[DISCORD_ACTIVITY_TEXT_SIZE], art[160];
+	int mode = game->mode >= 0 && game->mode < NUMBER_OF_DISCORD_MODES ? game->mode : DISCORD_MODE_NONE;
+	int length;
+
+	if (size <= 0)
+		return -1;
+	switch (game->screen)
+	{
+	case DISCORD_SCREEN_CAMPAIGN:
+		map_describe(game, map_name, sizeof(map_name), art, sizeof(art));
+		length = snprintf(text, (size_t)size, "%s \xC2\xB7 %s", game->coop ? "Co-op" : "Campaign", map_name);
+		break;
+	case DISCORD_SCREEN_MULTIPLAYER:
+		map_describe(game, map_name, sizeof(map_name), art, sizeof(art));
+		if (game->player_count > 0 && game->maximum_player_count > 0)
+		{
+			length = snprintf(text, (size_t)size, "%s%s \xC2\xB7 %s \xC2\xB7 %d/%d",
+				game->teams && mode == DISCORD_MODE_SLAYER ? "Team " : "", modes[mode].name, map_name,
+				game->player_count, game->maximum_player_count);
+		}
+		else
+		{
+			length = snprintf(text, (size_t)size, "%s%s \xC2\xB7 %s",
+				game->teams && mode == DISCORD_MODE_SLAYER ? "Team " : "", modes[mode].name, map_name);
+		}
+		break;
+	default:
+		length = snprintf(text, (size_t)size, "In the menus");
+		break;
+	}
+	if (length < 0 || length >= size)
+	{
+		text[0] = 0;
+		return -1;
+	}
+	return length;
 }
 
 int discord_activity_player_shares(const struct discord_activity_game *game)

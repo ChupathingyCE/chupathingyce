@@ -367,7 +367,7 @@ static void weather_particle_system_box_offset_from_point3d(
 	real box_width,
 	real_point3d const *point,
 	real_point3d *offset);
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 /* A frame was a tick on the Xbox; the native builds draw several frames per
 tick (port/linux/game/render_interpolation.c). Weather particles turn their
 acceleration and drift once an update: turn once per 30 Hz tick, and drift by
@@ -629,7 +629,7 @@ static void weather_particle_system_update(
 
 	system->time_delta_sec = render.time_delta_since_tick_sec;
 	system->time+= system->time_delta_sec;
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	{
 		static real leftover_ticks[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 
@@ -1685,7 +1685,7 @@ static void weather_particle_update_physics(
 #endif
 
 	PS3_WEATHER_SPAN(ps3_span); /* port: (the timer build) */
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	if ((type_definition->acceleration_lower_bound!=0.f || type_definition->acceleration_upper_bound!=0.f) &&
 		weather_particle_update_ticks<=0)
 	{
@@ -1728,7 +1728,7 @@ static void weather_particle_update_physics(
 			particle->radius,
 			system->time_delta_sec);
 		PS3_WEATHER_NEXT(_ps3_timer_weather_point, ps3_span); /* port: (the timer build) */
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		point_from_line3d(&particle->position, seed_random_direction3d(&seed, &random_direction), 0.001f*system->time_delta_sec*TICKS_PER_SECOND, &particle->position);
 #else
 		point_from_line3d(&particle->position, seed_random_direction3d(&seed, &random_direction), 0.001f, &particle->position);

@@ -431,6 +431,7 @@ void object_offset_interpolation(long object_index, real_vector3d *offset);
 void object_permute_region(long object_index, char *permutation_name, short desired_region_index, boolean active_flag);
 boolean object_get_function_value(long object_index, short function_index, real *value_reference);
 real *object_get_function_values(long object_index);
+real_rgb_color *object_get_change_colors(long object_index);
 short objects_in_clusters_by_indices(unsigned long class_flags, short cluster_count, short const *cluster_indices, short maximum_object_count, long *object_indices);
 long object_index_from_name_index(short name_index);
 /* port: this object takes a scenario name nobody holds, the way a placed
@@ -463,6 +464,8 @@ void object_translate(long object_index, real_point3d const *new_position, struc
 long object_new(struct object_placement_data *data);
 void object_attach_to_node(long parent_object_index, long child_object_index, short parent_node_index);
 boolean object_force_inside_bsp(long object_index, real_point3d const *known_good_point);
+/* port: exclude the shooter when validating a muzzle-origin projectile. */
+boolean object_force_inside_bsp_ignoring(long object_index, real_point3d const *known_good_point, long ignore_object_index);
 void object_compute_node_matrices_recursive(long object_index);
 long object_new_from_scenario(struct scenario_object_datum *scenario_object, struct tag_block *palette);
 void object_attach_to_marker(long parent_object_index, char const *parent_marker_name, long child_object_index, char const *child_marker_name);

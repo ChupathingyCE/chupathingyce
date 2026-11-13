@@ -38,6 +38,19 @@ static void check_path(enum port_folder folder, const char *override, const char
 	}
 }
 
+static void check_logs(const char *logs, const char *saves, const char *expected)
+{
+	char path[256];
+	int found = port_folder_logs_override(logs, saves, path, sizeof(path));
+
+	if (expected ? !found || strcmp(path, expected) : found || path[0])
+	{
+		printf("FAIL logs override \"%s\", saves \"%s\": got %d \"%s\", expected \"%s\"\n", logs ? logs : "(none)",
+			saves ? saves : "(none)", found, path, expected ? expected : "(none)");
+		failures++;
+	}
+}
+
 static void check_file(const char *folder, const char *value, const char *expected)
 {
 	char path[256];
@@ -61,9 +74,13 @@ int main(void)
 	CHECK(!strcmp(port_folder_name(_port_folder_cache), "cache"));
 	CHECK(!strcmp(port_folder_name(_port_folder_private), "private"));
 	CHECK(!strcmp(port_folder_name(_port_folder_gametypes), "gametypes"));
+	CHECK(!strcmp(port_folder_name(_port_folder_screenshots), "screenshots"));
+	CHECK(!strcmp(port_folder_name(_port_folder_clips), "clips"));
 	CHECK(!strcmp(port_folder_name(k_port_folder_count), ""));
 	CHECK(!port_folder_in_save_root(_port_folder_data));
 	CHECK(!port_folder_in_save_root(_port_folder_logs));
+	CHECK(!port_folder_in_save_root(_port_folder_screenshots));
+	CHECK(!port_folder_in_save_root(_port_folder_clips));
 	CHECK(port_folder_in_save_root(_port_folder_cache));
 	CHECK(port_folder_in_save_root(_port_folder_private));
 	CHECK(port_folder_in_save_root(_port_folder_gametypes));
@@ -103,6 +120,22 @@ int main(void)
 	/* too long */
 	CHECK(!port_folder_path(_port_folder_private, NULL, "/data", "/data/saves", small, sizeof(small)));
 	CHECK(small[0] == '\0');
+
+	/* the logs folder: paths.logs, else a named save root's logs/ (#1148),
+	else none (logs/ beside maps/, as before) */
+	check_logs("/tmp/run1/logs/", "/tmp/run1/saves", "/tmp/run1/logs");
+	check_logs(NULL, "/tmp/run1/saves", "/tmp/run1/saves/logs");
+	check_logs("", "/tmp/run1/saves//", "/tmp/run1/saves/logs");
+	check_logs(NULL, "C:\\Runs\\one\\", "C:\\Runs\\one/logs");
+	check_logs(NULL, "C:\\", "C:\\logs");
+	check_logs(NULL, "/", "/logs");
+	check_logs(NULL, NULL, NULL);
+	check_logs("", "", NULL);
+	CHECK(!port_folder_logs_override(NULL, "/a/long/save/root", small, sizeof(small)));
+	CHECK(small[0] == '\0');
+	/* (each in the folder rule: the override as it is) */
+	check_path(_port_folder_logs, "/tmp/run1/saves/logs", "/Users/p/Library/Application Support/ChupathingyCE",
+		"/tmp/run1/saves", "/tmp/run1/saves/logs");
 
 	/* absolute paths */
 	CHECK(port_folder_absolute("/usr/share/fonts/a.ttf"));

@@ -70,6 +70,9 @@ symbols in this file:
 #include "structure_bsp_definitions.h"
 #include "effects/player_effects.h"
 #include "structures/structure_visibility.h"
+#ifdef HALO_SHADER_PREP
+#include "render_enumerate.h" /* port: port/linux/game/render_enumerate.c */
+#endif
 #include "rasterizer.h"
 #include "rasterizer/rasterizer_lights.h"
 #include "profile.h"
@@ -88,6 +91,8 @@ symbols in this file:
 #include "main/main.h"
 #include "structures/structures.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_player.h" /* port: port/linux/game/stubbs_image_effects.c */
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
 #include "cutscene/cinematics.h"
 #endif
@@ -190,6 +195,11 @@ void render_initialize_for_new_map(
 	/* port: preserve retail's energy-then-two-sided-glass compositing. */
 	models_fix_transparent_part_links();
 	render_objects_initialize_for_new_map();
+#ifdef HALO_SHADER_PREP
+	/* port: the new map's first frame drawn through every shader (debug.draw_every_shader:
+	port/linux/game/render_enumerate.c) */
+	render_enumerate_new_map();
+#endif
 }
 
 void render_dispose_from_old_map(
@@ -202,6 +212,80 @@ void render_dispose(
 	void)
 {
 	render_objects_dispose();
+}
+
+/* port: the interface's layer over the 3D view: the HUD, and the menus,
+whose 640 columns a wider screen centers (centered). The desktop builds
+shift the menus while they draw (halo_screen_ui_offset); a console whose
+640 pixels a 16:9 television stretches draws the interface in the stretched
+picture's units (rasterizer_interface_begin), the render camera's bounds
+with it, which the HUD lays itself out in */
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+static struct
+{
+	boolean active;
+	rectangle2d viewport_bounds;
+	rectangle2d window_bounds;
+} render_interface;
+
+static void render_interface_rectangle(
+	rectangle2d *bounds)
+{
+	bounds->x0 = (short)halo_screen_interface_x(bounds->x0);
+	bounds->x1 = (short)halo_screen_interface_x(bounds->x1);
+}
+#endif
+
+void render_interface_begin(
+	boolean centered)
+{
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+	if (!render_interface.active)
+	{
+		render_interface.active = TRUE;
+		render_interface.viewport_bounds = render.camera.viewport_bounds;
+		render_interface.window_bounds = render.camera.window_bounds;
+		render_interface_rectangle(&render.camera.viewport_bounds);
+		render_interface_rectangle(&render.camera.window_bounds);
+	}
+	rasterizer_interface_begin(centered);
+#elif !defined(HALO_XBOX_CONSOLE)
+	if (centered)
+		halo_screen_ui_offset(TRUE);
+#else
+	(void)centered;
+#endif
+}
+
+void render_interface_end(
+	boolean centered)
+{
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+	rasterizer_interface_end();
+	if (render_interface.active)
+	{
+		render.camera.viewport_bounds = render_interface.viewport_bounds;
+		render.camera.window_bounds = render_interface.window_bounds;
+		render_interface.active = FALSE;
+	}
+	(void)centered;
+#elif !defined(HALO_XBOX_CONSOLE)
+	if (centered)
+		halo_screen_ui_offset(FALSE);
+#else
+	(void)centered;
+#endif
+}
+
+/* the bounds a window's menus are laid out in, in the interface's units */
+static void render_interface_bounds(
+	rectangle2d const *bounds,
+	rectangle2d *interface_bounds)
+{
+	*interface_bounds = *bounds;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+	render_interface_rectangle(interface_bounds);
+#endif
 }
 
 static void render_nonplayer_frame(
@@ -229,18 +313,16 @@ static void render_nonplayer_frame(
 	case 0:
 		/* letterbox bars and split screen dividers: laid out from the
 		viewport, so not centered like the menus on a wide screen */
+		render_interface_begin(FALSE);
 		interface_draw_fullscreen_overlays();
+		render_interface_end(FALSE);
 		rasterizer_debug_draw();
 		break;
 
 	case 1:
-#ifndef HALO_XBOX_CONSOLE
-		halo_screen_ui_offset(TRUE);
+		render_interface_begin(TRUE);
 		game_engine_nonplayer_post_rasterize();
-		halo_screen_ui_offset(FALSE);
-#else
-		game_engine_nonplayer_post_rasterize();
-#endif
+		render_interface_end(TRUE);
 		break;
 
 	default:
@@ -278,13 +360,14 @@ void render_frame_pregame(
 	rasterizer_parameters.rasterizer_target = 0;
 	rasterizer_window_begin(&rasterizer_parameters);
 
-#ifndef HALO_XBOX_CONSOLE
-	halo_screen_ui_offset(TRUE);
-	render_ui_widgets(0, &window->rasterizer_camera.viewport_bounds);
-	halo_screen_ui_offset(FALSE);
-#else
-	render_ui_widgets(0, &window->rasterizer_camera.viewport_bounds);
-#endif
+	{
+		rectangle2d bounds;
+
+		render_interface_bounds(&window->rasterizer_camera.viewport_bounds, &bounds);
+		render_interface_begin(TRUE);
+		render_ui_widgets(0, &bounds);
+		render_interface_end(TRUE);
+	}
 	bink_playback_render();
 
 	{
@@ -415,6 +498,11 @@ static void render_window(
 	PS3_WINDOW_STEP(1);
 	structure_visibility_compute();
 	PS3_WINDOW_STEP(2);
+#ifdef HALO_SHADER_PREP
+	/* port: a map's first frame drawn through every material's surfaces
+	(port/linux/game/render_enumerate.c) */
+	render_enumerate_structure();
+#endif
 	player_effect_get_screen_flash(local_player_index, &parameters.screen_flash);
 	PS3_WINDOW_STEP(3);
 #ifdef HALO_PS3
@@ -454,6 +542,10 @@ static void render_window(
 		PS3_WINDOW_STEP(7);
 		render_objects();
 		PS3_TIMER_SPLIT(_ps3_timer_window_objects);
+#ifdef HALO_SHADER_PREP
+		/* port: and through every model's parts */
+		render_enumerate_models();
+#endif
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);
 		PS3_WINDOW_STEP(8);
 		structure_render_preprocess();
@@ -572,6 +664,10 @@ static void render_window(
 		render_contrails_normal();
 		PS3_TRANSPARENT_ORIGIN(0);
 		PS3_TIMER_SPLIT(_ps3_timer_effects_contrails);
+#ifdef HALO_SHADER_PREP
+		/* port: and every effect's (port/linux/game/render_enumerate.c) */
+		render_enumerate_effects();
+#endif
 		HALO_PERF_RENDER_PART(_halo_perf_render_transparent);
 		PS3_WINDOW_STEP(27);
 		rasterizer_transparent_geometry_draw(TRUE);
@@ -610,6 +706,10 @@ static void render_window(
 		HALO_PERF_RENDER_PART(_halo_perf_render_lens_flares);
 		rasterizer_lens_flares_draw();
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);
+		/* port: Stubbs mode's image effect over the 3D view
+		(port/linux/game/stubbs_image_effects.c) */
+		if (stubbs_mode_active())
+			stubbs_image_effects_render(local_player_index);
 		/* port: the 3D view antialiased (display.anti_aliasing), before the
 		HUD and menus are drawn over it */
 		if (rasterizer_target == _render_target_primary)
@@ -629,21 +729,23 @@ static void render_window(
 #endif
 		PS3_TIMER_PART(_ps3_timer_hud_fog_flares);
 		HALO_PERF_RENDER_PART(_halo_perf_render_hud);
-		PS3_WINDOW_STEP(33);
-		interface_draw_screen();
-		PS3_TIMER_PART(_ps3_timer_hud_screen);
-		PS3_WINDOW_STEP(34);
-		rasterizer_screen_flash();
-		PS3_TIMER_PART(_ps3_timer_hud_flash);
-		PS3_WINDOW_STEP(35);
-#ifndef HALO_XBOX_CONSOLE
-		halo_screen_ui_offset(TRUE);
-		render_ui_widgets(local_player_index, &rasterizer_camera->viewport_bounds);
-		halo_screen_ui_offset(FALSE);
-#else
-		render_ui_widgets(local_player_index, &rasterizer_camera->viewport_bounds);
-#endif
-		PS3_TIMER_PART(_ps3_timer_hud_widgets);
+		{
+			rectangle2d bounds;
+
+			/* (the HUD in the interface's units: interface_draw_screen) */
+			PS3_WINDOW_STEP(33);
+			interface_draw_screen();
+			PS3_TIMER_PART(_ps3_timer_hud_screen);
+			PS3_WINDOW_STEP(34);
+			rasterizer_screen_flash();
+			PS3_TIMER_PART(_ps3_timer_hud_flash);
+			PS3_WINDOW_STEP(35);
+			render_interface_bounds(&rasterizer_camera->viewport_bounds, &bounds);
+			render_interface_begin(TRUE);
+			render_ui_widgets(local_player_index, &bounds);
+			render_interface_end(TRUE);
+			PS3_TIMER_PART(_ps3_timer_hud_widgets);
+		}
 		PS3_TIMER_INTERFACE_END();
 		PS3_TIMER_SPLIT(_ps3_timer_window_interface);
 	}
@@ -890,6 +992,27 @@ static void render_player_frame(
 	}
 
 	PS3_MAIN_STEP(585);
+#ifdef HALO_SHADER_PREP
+	/* port: a map's (or a structure's) first frame drawn first, unseen,
+	through every shader its tags hold, in each fog (debug.draw_every_shader:
+	port/linux/game/render_enumerate.c) */
+	if (render_enumerate_begin())
+	{
+		do
+		{
+			render_window(
+				window->local_player_index,
+				camera,
+				&frustum,
+				&window->rasterizer_camera,
+				&rasterizer_frustum,
+				_render_target_primary,
+				FALSE);
+		}
+		while (render_enumerate_next());
+	}
+#endif
+
 	render_window(
 		window->local_player_index,
 		camera,
@@ -919,7 +1042,7 @@ void render_frame(
 	render.time_delta_since_tick_sec = time_delta_since_tick_sec;
 	memset(&parameters, 0, sizeof(parameters));
 	HALO_PERF_RENDER_PART(_halo_perf_render_begin);
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	/* continuous between ticks (render_interpolation.c) */
 	parameters.game_time_sec = render_interpolation_game_time_sec(game_time_get());
 #else
@@ -970,13 +1093,9 @@ void render_frame(
 	HALO_PERF_RENDER_PART(_halo_perf_render_end);
 
 	PS3_MAIN_STEP(527);
-#ifndef HALO_XBOX_CONSOLE
-	halo_screen_ui_offset(TRUE);
+	render_interface_begin(TRUE);
 	progress_bar_eachframe();
-	halo_screen_ui_offset(FALSE);
-#else
-	progress_bar_eachframe();
-#endif
+	render_interface_end(TRUE);
 	PS3_MAIN_STEP(528);
 	rasterizer_windows_end();
 	PS3_MAIN_STEP(529);

@@ -256,6 +256,16 @@ void rasterizer_sun_glow_draw(
 		bounds.y0 = center_y - 32.0f;
 		bounds.x1 = center_x + 32.0f;
 		bounds.y1 = center_y + 32.0f;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		/* port: the glow's square narrower in the pixels, square again once
+		a 16:9 television stretches them (rasterizer_screen_pixel_aspect) */
+		{
+			real half_width = (real)floor(32.0f / rasterizer_screen_pixel_aspect() + 0.5f);
+
+			bounds.x0 = center_x - half_width;
+			bounds.x1 = center_x + half_width;
+		}
+#endif
 
 		screen_bounds.x0 = (real)global_window_parameters.camera.viewport_bounds.x0 + bounds.x0;
 		screen_bounds.y0 = (real)global_window_parameters.camera.viewport_bounds.y0 + bounds.y0;

@@ -637,6 +637,13 @@ void collision_log_start_time(
 	LARGE_INTEGER *start_time)
 {
 	PS3_COLLISION_BEGIN(); /* port: (the timer build) */
+	/* port: the clock is read only when the times are shown
+	(collision_log_time): this runs twice for every collision test */
+	if (!collision_log_time)
+	{
+		start_time->QuadPart = 0;
+		return;
+	}
 	QueryPerformanceCounter(start_time);
 
 	return;
@@ -655,11 +662,14 @@ void collision_log_end_time(
 		collision_function >= _collision_function_sphere_intersect_bsp_object ?
 		_ps3_collision_sphere : _ps3_collision_vector, collision_function);
 #endif
-	QueryPerformanceCounter(&end_time);
 	user = collision_log_get_current_user(collision_function);
-	if (user != NONE)
+	/* port: not timed (collision_log_start_time) */
+	if (user != NONE && start_time)
 	{
-		__int64 elapsed_time = end_time.QuadPart - start_time;
+		__int64 elapsed_time;
+
+		QueryPerformanceCounter(&end_time);
+		elapsed_time = end_time.QuadPart - start_time;
 
 		collision_usage_current.function[collision_function]
 			.total_all_users.elapsed_time += elapsed_time;

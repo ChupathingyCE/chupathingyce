@@ -235,6 +235,13 @@ typedef char rasterizer_dynamic_geometry_camera_offset_assert[
 static void submit_screen_vertex(
 	struct dynamic_screen_vertex const *vertex);
 
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
+/* the port's: whether a Custom Edition HUD meter's bitmap still has Halo
+PC's channels (halo_port_features.h, HALO_CONSOLE_CE_BITMAPS) */
+boolean platform_ce_meter_in_pc_channels(
+	struct bitmap_data const *bitmap);
+#endif
+
 /* ---------- globals */
 
 
@@ -344,6 +351,13 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 		vertex_constants[1] = 0.0f;
 		vertex_constants[2] = 0.0f;
 		vertex_constants[3] = normalized_offset.i - (1.0f / width + 1.0f);
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		/* port: the menus' columns centered, as their text is
+		(rasterizer_interface_begin): the menus' pictures, frames, fades and
+		button icons are drawn here, and without it they sat a sixth of the
+		screen left of their text */
+		vertex_constants[3] += 2.0f * rasterizer_interface_offset_x() / width;
+#endif
 		vertex_constants[4] = 0.0f;
 		vertex_constants[5] = -2.0f * (1.0f / height);
 		vertex_constants[6] = 0.0f;
@@ -500,6 +514,73 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 
 		pixel_shader.final_combiner_inputs_abcd = 0x0C180000;
 		pixel_shader.final_combiner_inputs_efg = 0x00001C00;
+
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
+		/* port: a Custom Edition map's meter whose bitmap the console left in
+		Halo PC's channels (platform_ce_meter_in_pc_channels: a compressed
+		one, as Custom Edition's own shield and health meters are, which
+		can't have its channels swapped as it loads): the fill order is in
+		its alpha and its shape in its color, so the meter reads them from
+		there. The fill order is compared where the color was (stage 0) and
+		makes the edge (stage 2); the shape, where alpha was, darkens the
+		color (the final combiner) and, as the alpha kill no longer can,
+		leaves the screen as it was outside the meter (a fifth stage: the
+		alpha that scales what's behind goes to 1 where there's no shape) */
+		if (platform_ce_meter_in_pc_channels(parameters->map[0]))
+		{
+			IDirect3DDevice8_SetTextureStageState(
+				global_d3d_device,
+				0,
+				D3DTSS_ALPHAKILL,
+				D3DTALPHAKILL_DISABLE);
+
+			pixel_shader.combiner_count = 0x00011105;
+			pixel_shader.alpha_inputs[0] = 0x12181218;
+			pixel_shader.rgb_inputs[0] = 0x1120F820;
+			pixel_shader.alpha_inputs[2] = 0x1820B220;
+
+			pixel_shader.alpha_inputs[4] = 0x081C2820;
+			pixel_shader.alpha_outputs[4] = 0x00000C00;
+			pixel_shader.rgb_inputs[4] = 0x00000000;
+			pixel_shader.rgb_outputs[4] = 0x00000000;
+
+			pixel_shader.final_combiner_inputs_abcd = 0x0C080000;
+		}
+#endif
+#ifndef HALO_CONSOLE_NO_SMOOTH_METER_EDGES
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
+		else
+#endif
+		/* port: a filtered meter (hud_point_sampled, hud_draw.c: the HUD
+		drawn larger than the Xbox's 640x480) samples texels on its shape's
+		edges that are partly outside it, whose alpha is above 0, so the
+		alpha kill keeps them. The final combiner scales the meter's color by
+		that alpha, but the screen behind was scaled by the background's or
+		the tint's alpha (darker than 1) as much there as inside, so each
+		edge pixel darkened the screen without the color that goes with it,
+		and each health unit had a dark outline (#854). Two more stages fade
+		that darkening out over the edge: how much of the pixel is in the
+		shape is taken as four times its alpha, up to 1 (r1.a), and the screen
+		is scaled by 1 where none of it is and by the Xbox's alpha where all
+		of it is. A texel inside the shape (alpha a quarter or more) draws as
+		before; point sampled, every texel the alpha kill keeps is inside, and
+		the meter keeps the Xbox's four stages. A console's build keeps them
+		in every case (halo_port_features.h), as retail drew its meters. */
+		if (!parameters->point_sampled)
+		{
+			pixel_shader.combiner_count = 0x00011106;
+			/* r1.a = 4 * t0.a, up to 1 */
+			pixel_shader.alpha_inputs[4] = 0x18200000;
+			pixel_shader.alpha_outputs[4] = 0x000200D0;
+			pixel_shader.rgb_inputs[4] = 0x00000000;
+			pixel_shader.rgb_outputs[4] = 0x00000000;
+			/* r0.a = (1 - r1.a) * 1 + r1.a * r0.a */
+			pixel_shader.alpha_inputs[5] = 0x3D201D1C;
+			pixel_shader.alpha_outputs[5] = 0x00000C00;
+			pixel_shader.rgb_inputs[5] = 0x00000000;
+			pixel_shader.rgb_outputs[5] = 0x00000000;
+		}
+#endif
 	}
 	else if (parameters->map[0])
 	{
@@ -674,6 +755,24 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 	}
 	IDirect3DDevice8_End(global_d3d_device);
 
+	/* port: a meter's stages past the Xbox's four (the smoothed edges' and a
+	Halo PC meter's, above) taken back out of the shared pixel shader, which
+	the Xbox's four-stage meter left empty there. The model shader reuses it
+	and sets only the color half of stages 4 and 5 (rasterizer_xbox_models.c),
+	so a meter's alpha there went on into the next frame's models: r1.a, their
+	reflection mask, became four times the base map's alpha, and the models
+	were drawn as chrome */
+	if (meter)
+	{
+		for (combiner_index = 4; combiner_index < 6; combiner_index++)
+		{
+			pixel_shader.alpha_inputs[combiner_index] = 0;
+			pixel_shader.alpha_outputs[combiner_index] = 0;
+			pixel_shader.rgb_inputs[combiner_index] = 0;
+			pixel_shader.rgb_outputs[combiner_index] = 0;
+		}
+	}
+
 	IDirect3DDevice8_SetTextureStageState(
 		global_d3d_device,
 		0,
@@ -682,6 +781,27 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 	PS3_QUAD_ADD(_ps3_timer_quad_draw, ps3_span); /* port: (the timer build) */
 
 	return;
+}
+
+/* port: the depth the transparent queue sorts a run of sprites of this
+shader at, its centroid there (the group's z_sort, below), so that
+render_particles can cut a run where the queue's other groups sort */
+real rasterizer_dynamic_unlit_geometry_z_sort(
+	struct shader const *shader,
+	real_point3d const *centroid)
+{
+	real_vector3d forward;
+	real z_sort;
+
+	vector_from_points3d(&global_window_parameters.camera.position, centroid, &forward);
+	z_sort = -dot_product3d(&global_window_parameters.camera.forward, &forward);
+	if (shader->base.type == _shader_type_effect &&
+		TEST_FLAG(SHADER_GET_EFFECT(shader)->flags, _shader_effect_sort_bias_bit))
+	{
+		z_sort += SHADER_EFFECT_SORT_BIAS;
+	}
+
+	return z_sort;
 }
 
 void _rasterizer_dynamic_unlit_geometry_draw(
@@ -695,7 +815,6 @@ void _rasterizer_dynamic_unlit_geometry_draw(
 	unsigned long geometry_flags)
 {
 	struct transparent_geometry_group *group;
-	real_vector3d forward;
 	real_plane3d zero_plane;
 	static boolean warned = FALSE;
 
@@ -724,8 +843,6 @@ void _rasterizer_dynamic_unlit_geometry_draw(
 		52,
 		centroid);
 
-	vector_from_points3d(&global_window_parameters.camera.position, centroid, &forward);
-
 	group = rasterizer_transparent_geometry_new_group();
 	if (group)
 	{
@@ -747,7 +864,9 @@ void _rasterizer_dynamic_unlit_geometry_draw(
 		group->dynamic_vertex_buffer_index = dynamic_vertex_buffer_index;
 		group->vertex_buffer = NULL;
 		group->lightmap = primary_map;
-		group->z_sort = -dot_product3d(&global_window_parameters.camera.forward, &forward);
+		/* port: (rasterizer_dynamic_unlit_geometry_z_sort, the bias below
+		with it) */
+		group->z_sort = rasterizer_dynamic_unlit_geometry_z_sort(shader, centroid);
 		group->centroid = *centroid;
 		group->plane = zero_plane;
 		group->model_base_map_scale.i = group->model_base_map_scale.j = 1.0f;
@@ -756,16 +875,16 @@ void _rasterizer_dynamic_unlit_geometry_draw(
 		group->active_camouflage_transparent_source_object_index = 0;
 		group->cortana_hack = FALSE;
 
-		if (shader->base.type == _shader_type_effect &&
-			TEST_FLAG(SHADER_GET_EFFECT(shader)->flags, _shader_effect_sort_bias_bit))
-		{
-			group->z_sort += SHADER_EFFECT_SORT_BIAS;
-		}
-
 		group->node_matrices = NULL;
 		group->node_matrix_count = 0;
 		group->lighting = NULL;
 		group->animation = NULL;
+		/* port: the radius the shader holds now, its run's (render_particles
+		and particle_systems set it before each run; the zsprite draw reads it
+		later, when the shader holds the last run's) */
+		rasterizer_transparent_geometry_group_set_secondary_map_radius(
+			group,
+			SHADER_GET_EFFECT(shader)->secondary_map_radius);
 
 		if (rasterizer_debug_options.statistics_mode == _rasterizer_statistics_mode_geometry)
 		{

@@ -8,8 +8,10 @@ unchanged, and outside Stubbs mode there are none, so Halo's console never
 lists them.
 
 Their signatures are the ones the calls in Stubbs's maps were compiled with.
-A few are Halo's functions under another name and run as those; the rest do
-nothing yet (each says so once in debug.txt) and return none, 0 or false.
+A few are Halo's functions under another name and run as those; some
+belong to another part of the mode and call its hook (stubbs_campaign.h,
+stubbs_player.h); the rest do nothing yet (each says so once in debug.txt)
+and return none, 0 or false.
 */
 
 #include "cseries.h"
@@ -20,6 +22,9 @@ nothing yet (each says so once in debug.txt) and return none, 0 or false.
 #include "objects/damage.h"
 #include "objects/objects.h"
 #include "stubbs_mode.h"
+#include "stubbs_functions.h"
+#include "stubbs_campaign.h"
+#include "stubbs_player.h"
 
 #include <string.h>
 
@@ -168,6 +173,51 @@ static long stubbs_objects_each(long object_list, void (*each)(long object_index
 	return 0;
 }
 
+/* the functions another part of the mode makes real, each through its hook
+(stubbs_campaign.c, stubbs_player.c, stubbs_image_effects.c): TRUE once it
+has returned the call's value. Each argument is a script value's 32 bits
+(a string's an Xbox address, a real's its bits) */
+static boolean stubbs_function_routed(
+	char const *name,
+	short function_index,
+	long thread_index,
+	boolean initialize)
+{
+	long *arguments;
+	long value = 0;
+	real seconds;
+
+	if (_stricmp(name, "map_completed") && _stricmp(name, "hud_show_special_attack") &&
+		_stricmp(name, "image_effect_set") && _stricmp(name, "image_effect_start_blend") &&
+		_stricmp(name, "image_effect_end"))
+	{
+		return FALSE;
+	}
+	arguments = hs_macro_function_evaluate(function_index, thread_index, initialize);
+	if (!arguments)
+		return TRUE;
+	/* (map_completed <difficulty>) */
+	if (!_stricmp(name, "map_completed"))
+		value = stubbs_campaign_map_completed((short)arguments[0]);
+	/* (hud_show_special_attack <short> <boolean>) */
+	else if (!_stricmp(name, "hud_show_special_attack"))
+		stubbs_player_hud_show_special_attack((short)arguments[0], (boolean)(arguments[1] & 0xFF));
+	/* (image_effect_set <name>) */
+	else if (!_stricmp(name, "image_effect_set"))
+		stubbs_image_effect_set((char const *)xbox_pointer((unsigned long)arguments[0]));
+	/* (image_effect_start_blend <name> <seconds>) */
+	else if (!_stricmp(name, "image_effect_start_blend"))
+	{
+		memcpy(&seconds, &arguments[1], sizeof(seconds));
+		stubbs_image_effect_start_blend((char const *)xbox_pointer((unsigned long)arguments[0]), seconds);
+	}
+	/* (image_effect_end) */
+	else
+		stubbs_image_effect_end();
+	hs_return(thread_index, value);
+	return TRUE;
+}
+
 /* returns TRUE once it has returned the call's value */
 static boolean stubbs_function_native(
 	char const *name,
@@ -281,6 +331,8 @@ static void stubbs_function_evaluate(
 			return;
 		}
 	}
+	if (stubbs_function_routed(function->definition.name, function_index, thread_index, initialize))
+		return;
 	if (stubbs_function_native(function->definition.name, function_index, thread_index, initialize))
 		return;
 	if (!function->logged)

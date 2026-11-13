@@ -162,6 +162,8 @@ static struct
 	{ "controls.chat_all", "CHAT", 2 },
 	{ "controls.chat_team", "TEAM CHAT", 2 },
 	{ "controls.chat_log", "CHAT LOG", 2 },
+	{ "controls.push_to_talk", "PUSH TO TALK", 2 },
+	{ "controls.voice_channel", "VOICE CHANNEL", 2 },
 };
 
 #define KEY_COUNT ((short)NUMBEROF(keys))

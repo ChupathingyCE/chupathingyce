@@ -62,3 +62,5 @@ As on Linux (`build/freebsd64/chupathingy`; the maps next to it, the saves in
 `~/.local/share/chupathingyce`). The executable's own folder is found with
 `sysctl kern.proc.pathname`, not `/proc`, which FreeBSD does not mount by
 default.
+
+[BSD Daemon used with permission.](http://www.mckusick.com/copyright.html)

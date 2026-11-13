@@ -572,6 +572,10 @@ symbols in this file:
 #include "networking/network_game_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
+#include "late_join.h" /* port: port/linux/game/late_join.c */
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+#include "match_light_limits.h" /* port: the original Xbox's match light rule */
+#endif
 /* (network_server_manager_internal.h's: the host's game record) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 #include "objects.h"
@@ -608,6 +612,10 @@ void game_stats_player_extra(long player_index, char *text, long size, short *mu
 void game_stats_game_extra(boolean host, char *text, long size);
 boolean game_stats_line_full(long player_index, boolean host);
 #endif
+#ifdef HALO_MEDAL_ICONS
+/* port: display.medals's kill feed (port/linux/game/medal_hud.c) */
+void medal_hud_hold(boolean hold);
+#endif
 
 #ifdef HALO_CUSTOM_EDITION
 /* cache_files.c's */
@@ -616,6 +624,10 @@ boolean cache_file_tags_are_ce(void);
 #ifdef HALO_PORT_CONSOLE_LIMITS
 #include "../../port/linux/game/network_game_layout.h"
 #endif
+#include "mcc_cache.h"
+#include "mcc_objects.h"
+#include "mcc_player.h"
+#include "mcc_ui_teams.h"
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1898,9 +1910,14 @@ static void scoreboard_draw_row(
 	return;
 }
 
-/* port: a player by their Delta profile's name, as long as the column (16
-characters) */
-#define SCOREBOARD_PROFILE_NAME_LENGTH 17
+/* port: a player by their Delta profile's name, as long as the column (14
+lowercase letters' width at the menus' 640x480; the postgame report's, 11,
+as a game name's: a longer name is cut with "...") */
+#define SCOREBOARD_PROFILE_NAME_LENGTH 15
+#define POSTGAME_PROFILE_NAME_LENGTH 12
+/* (the HUD's lines, the kill feed's and the crosshair's: a whole handle
+with its mark, "@" and 20 letters) */
+#define EVENT_PROFILE_NAME_LENGTH 22
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port/linux/game/profile_names.c's */
 boolean profile_names_player(long player_index, wchar_t *name, long size);
@@ -2667,6 +2684,9 @@ static void postgame_draw_prompt(
 	rectangle2d drawn = *bounds;
 	real_argb_color unseen = *color;
 
+	/* (the keys that work here: the carnage report takes the buttons as the
+	menus do, Backspace to quit, not the game's controls on them) */
+	draw_string_and_hack_in_icons_for_menus(TRUE);
 	unseen.alpha = 0.0f;
 	draw_string_set_color(&unseen);
 	draw_string_and_hack_in_icons(&drawn, NULL, NULL, 0, prompt, FALSE);
@@ -2676,6 +2696,7 @@ static void postgame_draw_prompt(
 	postgame_prompt_note(&drawn, prompt, (short)MIN(draw_string_and_hack_in_icons_end_x, POSTGAME_PROMPT_RIGHT));
 	draw_string_set_color(color);
 	draw_string_and_hack_in_icons(&drawn, NULL, NULL, 0, prompt, FALSE);
+	draw_string_and_hack_in_icons_for_menus(FALSE);
 }
 
 void game_engine_post_rasterize_post_game(
@@ -2839,7 +2860,7 @@ void game_engine_post_rasterize_post_game(
 		struct player_datum *player = player_get(player_index);
 		real_argb_color team_colors[2];
 		wchar_t const *place_string;
-		wchar_t profile_name[SCOREBOARD_PROFILE_NAME_LENGTH];
+		wchar_t profile_name[POSTGAME_PROFILE_NAME_LENGTH];
 
 		if (player->local_player_index != NONE)
 			draw_string_set_color(&normal_color);
@@ -2868,7 +2889,7 @@ void game_engine_post_rasterize_post_game(
 				&team_colors[PIN(team_index, 0, 1)]);
 		}
 		usnprintf(row_string, NUMBEROF(row_string), L" \t \t%s",
-			scoreboard_player_name(player_index, player, profile_name, SCOREBOARD_PROFILE_NAME_LENGTH));
+			scoreboard_player_name(player_index, player, profile_name, POSTGAME_PROFILE_NAME_LENGTH));
 		row_string[NUMBEROF(row_string) - 1] = 0;
 		drawline(row_string, draw_row, 0);
 		draw_string_set_color(&winner_color);
@@ -3906,42 +3927,79 @@ void game_engine_rasterize_message(
 }
 
 /* port: display.match_timer (off by default, as the Xbox had none): a
-timed game's time left, at the top of each player's view, in the color of
-the game's messages */
+multiplayer game's clock, the time left ("remaining"; the time played in a
+game with no time limit) or the time played ("elapsed"), in the color of the
+game's messages; display.match_timer_position puts it at the top of each
+player's view or in the view's bottom right corner, clear of the HUD and the
+version watermark */
+enum
+{
+	_match_timer_off,
+	_match_timer_remaining,
+	_match_timer_elapsed
+};
+
 static void game_engine_rasterize_time_left(
 	void)
 {
 	static unsigned long read_at = (unsigned long)-1;
-	static boolean shown = FALSE;
+	static short mode = _match_timer_off;
+	static boolean bottom_right = FALSE;
 	rectangle2d bounds;
 	real_argb_color color;
 	wchar_t time_string[32];
-	long left;
+	long ticks;
+	long time_limit;
 
 	if (read_at != config_changes())
 	{
+		char const *value = config_string("display.match_timer");
+		char const *position = config_string("display.match_timer_position");
+
 		read_at = config_changes();
-		shown = config_boolean("display.match_timer") != 0;
+		if (value && !csstrcmp(value, "remaining"))
+			mode = _match_timer_remaining;
+		else if (value && !csstrcmp(value, "elapsed"))
+			mode = _match_timer_elapsed;
+		else
+			mode = _match_timer_off;
+		bottom_right = position && !csstrcmp(position, "bottom_right");
 	}
-	if (!shown || !game_engine || game_variant_options_get()->time_limit <= 0 ||
+	if (mode == _match_timer_off || !game_engine ||
 		game_engine_globals.postgame_state != game_engine_mode_active)
 	{
 		return;
 	}
 
-	left = game_variant_options_get()->time_limit * 60L * TICKS_PER_SECOND - game_time_get();
-	ticks_to_unicode_time_string(MAX(left, 0), NUMBEROF(time_string), time_string);
+	time_limit = game_variant_options_get()->time_limit;
+	if (mode == _match_timer_remaining && time_limit > 0)
+		ticks = time_limit * 60L * TICKS_PER_SECOND - game_time_get();
+	else
+		ticks = game_time_get();
+	ticks_to_unicode_time_string(MAX(ticks, 0), NUMBEROF(time_string), time_string);
 
 	bounds = render.camera.window_bounds;
 	offset_rectangle2d(&bounds, -render.camera.viewport_bounds.x0, -render.camera.viewport_bounds.y0);
-	bounds.y0 += 8;
-	bounds.y1 = bounds.y0 + 15;
+	if (bottom_right)
+	{
+		/* (lined up with the version watermark's right edge, the line
+		above it: main.c's main_version_watermark_render) */
+		bounds.x1 = (short)(bounds.x1 - 8);
+		bounds.y1 = (short)(bounds.y1 - 26);
+		bounds.y0 = (short)(bounds.y1 - 15);
+	}
+	else
+	{
+		bounds.y0 += 8;
+		bounds.y1 = bounds.y0 + 15;
+	}
 
 	color.alpha = 1.0f;
 	color.red = 0.45882353f;
 	color.green = 0.7294118f;
 	color.blue = 1.0f;
-	draw_string_set_draw_mode(hud_globals->messaging.multi_player_font.index, NONE, 2, 0, &color);
+	/* (justification 2: centered; 1: right) */
+	draw_string_set_draw_mode(hud_globals->messaging.multi_player_font.index, NONE, bottom_right ? 1 : 2, 0, &color);
 	draw_string_set_color(&color);
 	rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, time_string);
 	draw_string_set_format(NONE, 0, 0);
@@ -4206,10 +4264,26 @@ static void game_engine_update_player_no_shield(
 	return;
 }
 
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+/* port: the match's flashlight beams not drawn (match_light_limits.h): a
+drawing choice only, never the integrated light's simulation */
+static boolean game_engine_hide_flashlight_beams = FALSE;
+
+boolean game_engine_flashlight_beams_hidden(
+	void)
+{
+	return game_engine && game_engine_hide_flashlight_beams;
+}
+#endif
+
 static void game_engine_build_lighting(
 	void)
 {
 	long player_count = 0;
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+	long object_count = 0;
+	struct match_light_limits limits;
+#endif
 
 	{
 		struct data_iterator iterator;
@@ -4219,10 +4293,63 @@ static void game_engine_build_lighting(
 			player_count++;
 	}
 
-	/* port: the Xbox turned dynamic lights off past 13 players, or past 8
-	with two vehicles, and the flashlight off past 4 players or 4 vehicles.
-	A match on a map with a few vehicles then had a flashlight, and the next
-	one did not. The beam is a dynamic light, so both stay on. */
+	/* port: the Xbox turned dynamic lights off at 13 or more players (or 9
+	or more with two vehicles), and the flashlight off past 4 players or
+	with 4 vehicles. A match on a map with a few vehicles then had a
+	flashlight, and the next one did not. The beam is a dynamic light, so
+	both stay on - on the desktop.
+
+	A console that keeps the Xbox's rule for its GPU's sake
+	(HALO_CONSOLE_MATCH_LIGHT_LIMITS: the original Xbox) draws as retail
+	did: dynamic lights off by the game engine's flag, which only the
+	drawing reads (object_lights.c, should_render_lights), and the
+	flashlights' beams not drawn. The flashlight's own bit
+	(_game_engine_disable_integrated_lights_bit) is never set: unit_update
+	reads it for the flashlight's toggle, battery and effect, which every
+	machine in a game has to run alike (a PC host, OpenCE players). */
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+	if (global_variant.universal_variant.vehicle_set != _game_engine_vehicles_none)
+	{
+		if (global_variant.game_engine_index == game_engine_race)
+		{
+			struct scenario *scenario = global_scenario_get();
+			/* port: a long counter, for a map's long count */
+			long flag_index;
+
+			for (flag_index = 0;
+				flag_index < scenario->netgame_flags.count;
+				flag_index++)
+			{
+				struct scenario_netgame_flag *flag = TAG_BLOCK_GET_ELEMENT(
+					&scenario->netgame_flags,
+					flag_index,
+					struct scenario_netgame_flag);
+
+				if (flag->type == _netgame_flag_race_vehicle)
+					object_count++;
+			}
+
+			if (object_count > player_count)
+				object_count = player_count;
+		}
+		else
+		{
+			struct object_iterator object_iterator;
+
+			object_iterator_new(
+				&object_iterator,
+				_object_mask_vehicle,
+				0);
+			while (object_iterator_next(&object_iterator))
+				object_count++;
+		}
+	}
+
+	limits = match_light_limits_for(player_count, object_count);
+	if (limits.no_dynamic_lights)
+		SET_FLAG(game_engine_globals.flags, _game_engine_disable_dynamic_light_bit, TRUE);
+	game_engine_hide_flashlight_beams = limits.no_flashlights ? TRUE : FALSE;
+#endif
 
 	if (player_count >= 5)
 		SET_FLAG(game_engine_globals.flags, _game_engine_5_or_more_players_bit, TRUE);
@@ -4996,6 +5123,11 @@ void game_engine_player_killed(
 	if (!game_engine)
 		return;
 
+	/* MCC team-change respawns carry neutral attribution to the netcode. */
+	{
+		mcc_ui_team_respawn_death(&killing_player_index, &killing_object_index, dead_player_index, &friendly_fire);
+	}
+
 	/* port: the host's kill of a player changing teams (team_change.c, as
 	Halo PC's CHANGE TEAMS): nobody's kill, nothing counted, no penalty, no
 	message; its clients hear a death of no killer */
@@ -5194,6 +5326,11 @@ void game_engine_player_killed(
 	{
 		struct data_iterator iterator;
 
+		/* port: a player quitting's lines take no medals (display.medals:
+		port/linux/game/medal_hud.c) */
+#ifdef HALO_MEDAL_ICONS
+		medal_hud_hold(TRUE);
+#endif
 		data_iterator_new(&iterator, player_data);
 		while (data_iterator_next(&iterator))
 		{
@@ -5202,6 +5339,9 @@ void game_engine_player_killed(
 				_game_engine_message_quit,
 				dead_player_index);
 		}
+#ifdef HALO_MEDAL_ICONS
+		medal_hud_hold(FALSE);
+#endif
 	}
 
 	if (message == _game_engine_message_killed_by_friendly_fire)
@@ -8164,6 +8304,9 @@ long game_engine_remap_vehicle(
 {
 	long result = vehicle_definition_index;
 
+	if (mcc_vehicle_placement_rules())
+		return result;
+
 #ifdef HALO_CUSTOM_EDITION
 	/* port: a Halo PC map's placements were chosen by their spawn flags,
 	and its scripts may make any vehicle (game_engine_ce_vehicles_by_placement) */
@@ -8528,7 +8671,9 @@ static void game_engine_update_weapons(
 				0x83E,
 				CACHE_FILE_TAGS_ARE_CE() ||
 					((item->object.scale >= 0.5f) &&
-					(item->object.scale <= 3.f)));
+					(item->object.scale <= 3.f)) ||
+				/* port: MCC-authored miniature items retain their tag scale. */
+				mcc_item_small_scale(item->object.scale));
 		}
 
 		/*
@@ -8805,13 +8950,15 @@ static void internal_rasterize_target_name(
 	if (player->player_display_index != NONE)
 	{
 		struct player_datum *target_player = player_get(player->player_display_index);
-		wchar_t target_name[12] = { 0 };
+		wchar_t target_name[EVENT_PROFILE_NAME_LENGTH] = { 0 }, shown[EVENT_PROFILE_NAME_LENGTH];
 		long hold_time = player->player_display_count;
 		real alpha;
 
 		if (hold_time >= 10)
 			hold_time = 10;
-		ustrncpy(target_name, target_player->name, NUMBEROF(target_name) - 1);
+		/* port: the name under the crosshair as the scoreboard shows it */
+		ustrncpy(target_name, scoreboard_player_name(player->player_display_index, target_player, shown,
+			NUMBEROF(shown)), NUMBEROF(target_name) - 1);
 		target_name[NUMBEROF(target_name) - 1] = 0;
 		alpha = linear_to_non_linear_alpha(hold_time * 0.1f) * 0.5f;
 		game_engine_rasterize_message(target_name, alpha);
@@ -8833,6 +8980,10 @@ static boolean internal_rasterize_score(
 	long string_list_index;
 	wchar_t const *format;
 	boolean result;
+	/* port: the kill feed's and the quit line's names, as the scoreboard
+	shows them (a verified player by their Delta name, an impersonation
+	masked: scoreboard_player_name) */
+	wchar_t player_name[EVENT_PROFILE_NAME_LENGTH], other_name[EVENT_PROFILE_NAME_LENGTH];
 
 	result = TRUE;
 	player = player_get(player_index);
@@ -8887,7 +9038,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)));
 		break;
 	case _game_engine_message_killed_by_unknown:
 		string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
@@ -8899,7 +9050,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)));
 		break;
 	case _game_engine_message_killed_by_biped:
 		string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
@@ -8911,7 +9062,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)));
 		break;
 	case _game_engine_message_killed_by_vehicle:
 		string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
@@ -8923,7 +9074,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)));
 		break;
 	case _game_engine_message_killed_by_player:
 		other_player = player_get(message_data);
@@ -8936,8 +9087,8 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "ss"),
-			player->name,
-			other_player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)),
+			scoreboard_player_name(message_data, other_player, other_name, NUMBEROF(other_name)));
 		break;
 	case _game_engine_message_killed_by_friendly_fire:
 		other_player = player_get(message_data);
@@ -8950,8 +9101,8 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "ss"),
-			player->name,
-			other_player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)),
+			scoreboard_player_name(message_data, other_player, other_name, NUMBEROF(other_name)));
 		break;
 	case _game_engine_message_quit:
 		other_player = player_get(message_data);
@@ -8964,7 +9115,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			other_player->name);
+			scoreboard_player_name(message_data, other_player, other_name, NUMBEROF(other_name)));
 		break;
 	case _game_engine_message_killed_by_self:
 		string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
@@ -8976,7 +9127,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)));
 		break;
 	case _game_engine_message_killed_friendly:
 		other_player = player_get(message_data);
@@ -8989,7 +9140,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			other_player->name);
+			scoreboard_player_name(message_data, other_player, other_name, NUMBEROF(other_name)));
 		break;
 	case _game_engine_message_multi_kill:
 		string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
@@ -9062,7 +9213,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			other_player->name);
+			scoreboard_player_name(message_data, other_player, other_name, NUMBEROF(other_name)));
 		break;
 	case _game_engine_message_multi_kill_with_score:
 		string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
@@ -9140,7 +9291,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "sd"),
-			other_player->name,
+			scoreboard_player_name(message_data, other_player, other_name, NUMBEROF(other_name)),
 			score);
 		break;
 	case _game_engine_message_odd_man_out:
@@ -9376,6 +9527,8 @@ static void game_engine_update_item_spawn(
 					definition_index,
 					NONE);
 				placement_data.position = equipment->position;
+				if (mcc_cache_tags_loaded())
+					vector3d_from_angle(&placement_data.forward, equipment->facing);
 				/* port: Halo PC faces a Custom Edition map's items the way
 				their placements do, where the Xbox copied only the position */
 #ifdef HALO_CUSTOM_EDITION
@@ -9679,6 +9832,9 @@ void game_engine_postspawn_player_update(
 			unit->unit.grenade_counts[
 				_unit_grenade_covenant_plasma] =
 				(char)starting_plasma_grenade_count;
+			mcc_player_postspawn_grenades(unit_index,
+				global_variant.universal_variant.weapon_set == _game_engine_weapons_no_grenades &&
+				!game_engine_infinite_grenades_internal());
 		}
 	}
 
@@ -9821,6 +9977,12 @@ boolean game_engine_should_spawn_player(
 			should_spawn = FALSE;
 		}
 #endif
+		/* port: a late joiner waits for the next game, where the host's rule
+		says so (late_join.c; off by default) */
+		else if (late_join_holds(player_index))
+		{
+			should_spawn = FALSE;
+		}
 		else if (player->statistics.deaths == 0)
 		{
 			should_spawn = TRUE;

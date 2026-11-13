@@ -27,6 +27,10 @@
 	<string>13.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<!-- voice chat: macOS asks the player the first time they talk (push
+	to talk or open mic), never when the game starts -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Chupathingy uses the microphone for voice chat, only while you talk. Nothing is recorded.</string>
 	<!-- internet play invite links (halo://), and Discord starting the game
 	for a friend's Join (discord-<discord.application_id>://, the default
 	application's: port/linux/src/discord_register.h) -->
