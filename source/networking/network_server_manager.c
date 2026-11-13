@@ -1549,8 +1549,13 @@ static void network_game_server_mcc_confirm_answer(
 	}
 	network_game_server_mcc_confirmed = TRUE;
 	main_set_multiplayer_map_name(network_game_server_mcc_confirm_map);
-	if (network_game_server_change_map_name(server, network_game_server_mcc_confirm_map) && difficulty != NONE)
+	/* (a map that then waits for its package check takes its co-op
+	settings when the check passes: mcc_ui_network_hold_cooperative) */
+	if (network_game_server_change_map_name(server, network_game_server_mcc_confirm_map) && difficulty != NONE &&
+		!mcc_ui_network_hold_cooperative(server, difficulty))
+	{
 		network_game_server_port_cooperative_apply(server, difficulty);
+	}
 	network_game_server_mcc_confirmed = FALSE;
 }
 
@@ -1630,6 +1635,11 @@ boolean network_game_server_port_change_cooperative_level(
 		return FALSE;
 	/* (asked: the map and the co-op settings on yes) */
 	if (network_game_server_mcc_asking)
+		return TRUE;
+	/* (an MCC map waiting for its package check: the co-op settings go on
+	when it passes; a failed check leaves the lobby on its map and its
+	gametype, #1124) */
+	if (mcc_ui_network_hold_cooperative(server, difficulty))
 		return TRUE;
 	network_game_server_port_cooperative_apply(server, difficulty);
 	return TRUE;

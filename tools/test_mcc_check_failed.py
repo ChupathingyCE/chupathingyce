@@ -3,8 +3,12 @@ port/linux/game/mcc_ui_network.inl's mcc_ui_network_update_map lets the pick
 go instead of keeping the lobby waiting for good. The lobby stays on its map
 (the menus show it again), the error box is shown once, the refusal is
 handed out once (mcc_ui_network_map_refused: a dedicated server skips the
-entry), and a check still running keeps the pick pending as before. The
-functions are compiled from the game's source with stand-ins."""
+entry), and a check still running keeps the pick pending as before. A
+campaign level picked for co-op while its check runs keeps its co-op
+settings back (mcc_ui_network_hold_cooperative): they go on with the map
+when the check passes, and a failed check leaves the lobby on its map and
+gametype (#1124). The functions are compiled from the game's source with
+stand-ins."""
 import re
 import shutil
 import subprocess
@@ -20,7 +24,7 @@ from harness import function, mutated, read  # noqa: E402
 SOURCE = read("port/linux/game/mcc_ui_network.inl")
 STATE = SOURCE[SOURCE.index("static struct network_game_server *mcc_restart_server;"):
                SOURCE.index("boolean mcc_ui_network_defer_map(")]
-FUNCTIONS = ("mcc_ui_network_defer_map", "mcc_ui_network_map_pending", "mcc_ui_network_update_map",
+FUNCTIONS = ("mcc_ui_network_defer_map", "mcc_ui_network_hold_cooperative", "mcc_ui_network_map_pending", "mcc_ui_network_update_map",
              "mcc_ui_network_map_refused", "mcc_ui_network_server_dispose")
 
 HARNESS = r"""
@@ -61,6 +65,12 @@ static void game_engine_override_map_name(char const *name) { snprintf(override_
 static int map_changes;
 static boolean network_game_server_change_map_name(struct network_game_server *server, char const *name)
 { map_changes++; snprintf(server->game.map.name, sizeof(server->game.map.name), "%s", name); server->game.map.version = 0x1234; return TRUE; }
+/* (network_server_manager.c's: the co-op settings, and the MCC question) */
+static boolean network_game_server_mcc_asking;
+static short network_game_server_mcc_choosing_difficulty = NONE;
+static int cooperative_applied, cooperative_difficulty = NONE;
+static void network_game_server_port_cooperative_apply(struct network_game_server *server, short difficulty)
+{ (void)server; cooperative_applied++; cooperative_difficulty = difficulty; }
 /* (the rest of the file's statics and functions: restart, unused here) */
 struct network_player { int x; };
 @STATE@
@@ -76,7 +86,8 @@ static void reset(void)
 	strcpy(menu_map, "mcc_maps\\123\\a10");
 	override_map[0] = 0;
 	check_status = 0;
-	errors_shown = events = map_changes = cancels = updates = identity_prepared = 0;
+	errors_shown = events = map_changes = cancels = updates = identity_prepared = cooperative_applied = 0;
+	cooperative_difficulty = NONE;
 	mcc_ui_network_server_dispose(&the_server);
 }
 int main(void)
@@ -112,6 +123,37 @@ int main(void)
 	mcc_ui_network_update_map(&the_server);
 	CHECK(map_changes == 1 && !errors_shown && identity_prepared == 1);
 	CHECK(!mcc_ui_network_map_refused(map, sizeof(map), reason, sizeof(reason)));
+	/* a co-op pick whose check fails: the settings never go on, so the lobby
+	keeps its map and its gametype (#1124) */
+	reset();
+	CHECK(mcc_ui_network_defer_map(&the_server, "mcc_maps\\123\\a10"));
+	CHECK(mcc_ui_network_hold_cooperative(&the_server, 2));
+	CHECK(!cooperative_applied);
+	check_status = -1;
+	mcc_ui_network_update_map(&the_server);
+	CHECK(!cooperative_applied && !map_changes && !strcmp(the_server.game.map.name, "bloodgulch"));
+	/* (a later pick of the same map passes without co-op) */
+	CHECK(!mcc_ui_network_hold_cooperative(&the_server, 2));
+	/* a co-op pick whose check passes: the settings go on with the map */
+	reset();
+	CHECK(mcc_ui_network_defer_map(&the_server, "mcc_maps\\123\\a10"));
+	CHECK(mcc_ui_network_hold_cooperative(&the_server, 3));
+	check_status = 1;
+	mcc_ui_network_update_map(&the_server);
+	CHECK(map_changes == 1 && cooperative_applied == 1 && cooperative_difficulty == 3);
+	CHECK(network_game_server_mcc_choosing_difficulty == NONE);
+	/* a new pick drops a held co-op pick */
+	reset();
+	check_status = 0;
+	CHECK(mcc_ui_network_defer_map(&the_server, "mcc_maps\\123\\a10"));
+	CHECK(mcc_ui_network_hold_cooperative(&the_server, 3));
+	CHECK(mcc_ui_network_defer_map(&the_server, "mcc_maps\\123\\a30"));
+	check_status = 1;
+	mcc_ui_network_update_map(&the_server);
+	CHECK(map_changes == 1 && !cooperative_applied);
+	/* no pick waiting: nothing held, the caller applies at once */
+	reset();
+	CHECK(!mcc_ui_network_hold_cooperative(&the_server, 1));
 	/* a refusal not asked for is gone with the server */
 	reset();
 	CHECK(mcc_ui_network_defer_map(&the_server, "mcc_maps\\123\\a10"));
@@ -146,7 +188,30 @@ def test_failed_check_lets_the_pick_go(tmp_path):
 def test_negative_control(tmp_path):
     """the pick kept pending after a failed check (the bug): caught"""
     functions = "\n".join(function(SOURCE, name) for name in FUNCTIONS)
-    functions = mutated(functions, "        mcc_pending_map_server=NULL;\n        mcc_validation_server=NULL;\n        if (server->game.map.name[0]) {",
-                        "        if (server->game.map.name[0]) {")
+    functions = mutated(functions, "        mcc_pending_map_server=NULL;\n        mcc_validation_server=NULL;\n"
+                        "        /* (a co-op pick's settings never went on: the gametype stays too) */",
+                        "        /* (a co-op pick's settings never went on: the gametype stays too) */")
     result = compile_and_run(tmp_path, functions)
     assert result.returncode != 0
+
+
+def test_negative_control_cooperative(tmp_path):
+    """co-op settings put on while the pick waits (the bug): caught"""
+    functions = "\n".join(function(SOURCE, name) for name in FUNCTIONS)
+    functions = mutated(functions, "    if (!server || server != mcc_pending_map_server) return FALSE;",
+                        "    return FALSE;")
+    result = compile_and_run(tmp_path, functions)
+    assert result.returncode != 0
+
+
+def test_cooperative_level_holds_while_the_pick_waits():
+    """network_server_manager.c asks before it applies, on a co-op pick and
+    on the host's yes to the MCC question"""
+    manager = read("source/networking/network_server_manager.c")
+    level = function(manager, "network_game_server_port_change_cooperative_level")
+    assert level.index("if (network_game_server_mcc_asking)") < \
+        level.index("if (mcc_ui_network_hold_cooperative(server, difficulty))") < \
+        level.index("network_game_server_port_cooperative_apply(server, difficulty);")
+    answer = function(manager, "network_game_server_mcc_confirm_answer")
+    assert answer.index("!mcc_ui_network_hold_cooperative(server, difficulty)") < \
+        answer.index("network_game_server_port_cooperative_apply(server, difficulty);")

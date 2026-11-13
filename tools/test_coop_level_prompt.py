@@ -3,7 +3,9 @@ map asks the host first (network_server_manager.c's
 network_game_server_port_change_cooperative_level, #1124): nothing changes
 until the host says yes. A no leaves the lobby on its map and gametype, with
 its difficulty; a yes moves it and makes it co-op. Without a question (no
-one would leave), the level and its co-op settings go on at once. The
+one would leave), the level and its co-op settings go on at once, unless the
+MCC map waits for its package check: then they wait with it
+(mcc_ui_network_hold_cooperative, tools/test_mcc_check_failed.py). The
 functions are taken from the game's source and compiled with stand-ins."""
 import re
 import shutil
@@ -61,6 +63,13 @@ static int asks;
 static void invite_prompt_ask(char const *title, char const *question, char const *detail, void (*answer_function)(boolean yes))
 { (void)title; (void)question; (void)detail; asked = answer_function; asks++; }
 static void invite_prompt_ask_cancel(void (*answer_function)(boolean yes)) { if (asked == answer_function) asked = NULL; }
+/* (the MCC package check: a pick that waits for it keeps its co-op
+settings back, mcc_ui_network.inl's) */
+static int check_waits;
+static struct network_game_server *waiting;
+static short held = NONE;
+static boolean mcc_ui_network_hold_cooperative(struct network_game_server *server, short difficulty)
+{ if (!server || server != waiting) return FALSE; held = difficulty; return TRUE; }
 @STATE@
 static boolean network_game_server_mcc_confirm(struct network_game_server *server, char const *map_name);
 static void network_game_server_port_cooperative_apply(struct network_game_server *server, short difficulty);
@@ -70,6 +79,11 @@ static boolean network_game_server_change_map_name(struct network_game_server *s
 	if (network_game_server_mcc_confirm(server, map_name))
 	{
 		main_set_multiplayer_map_name(server->game.map.name);
+		return TRUE;
+	}
+	if (check_waits)
+	{
+		waiting = server;
 		return TRUE;
 	}
 	snprintf(server->game.map.name, sizeof(server->game.map.name), "%s", map_name);
@@ -87,6 +101,9 @@ static void reset(void)
 	variants = asks = 0;
 	asked = NULL;
 	would_drop = 0;
+	check_waits = 0;
+	waiting = NULL;
+	held = NONE;
 }
 int main(void)
 {
@@ -132,6 +149,20 @@ int main(void)
 		late(TRUE);
 	}
 	CHECK(!strcmp(the_server.game.map.name, "bloodgulch") && menu_difficulty == NONE && cooperative_difficulty == NONE && variants == 0);
+	/* the MCC map waits for its package check: the co-op settings wait
+	with it, so a failed check leaves the gametype as it was (#1124) */
+	reset();
+	check_waits = 1;
+	CHECK(network_game_server_port_change_cooperative_level(&the_server, "mcc_maps\\123\\a10", 2));
+	CHECK(!strcmp(the_server.game.map.name, "bloodgulch") && held == 2);
+	CHECK(cooperative_difficulty == NONE && variants == 0);
+	/* (and after the host's yes, the same) */
+	reset();
+	would_drop = 1;
+	check_waits = 1;
+	CHECK(network_game_server_port_change_cooperative_level(&the_server, "mcc_maps\\123\\a10", 3));
+	asked(TRUE);
+	CHECK(held == 3 && cooperative_difficulty == NONE && variants == 0);
 	/* a bad difficulty or no server: refused */
 	reset();
 	CHECK(!network_game_server_port_change_cooperative_level(&the_server, "mcc_maps\\123\\a10", NUMBER_OF_GAME_DIFFICULTY_LEVELS));
@@ -164,5 +195,13 @@ def test_negative_control(tmp_path):
     """the co-op settings applied while the question is out (the bug): caught"""
     functions = "\n".join(function(SOURCE, name) for name in FUNCTIONS)
     functions = mutated(functions, "\tif (network_game_server_mcc_asking)\n\t\treturn TRUE;\n", "")
+    result = compile_and_run(tmp_path, functions)
+    assert result.returncode != 0
+
+
+def test_negative_control_package_check(tmp_path):
+    """the co-op settings applied while the package check runs (the bug): caught"""
+    functions = "\n".join(function(SOURCE, name) for name in FUNCTIONS)
+    functions = mutated(functions, "\tif (mcc_ui_network_hold_cooperative(server, difficulty))\n\t\treturn TRUE;\n", "")
     result = compile_and_run(tmp_path, functions)
     assert result.returncode != 0

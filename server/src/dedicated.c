@@ -75,6 +75,7 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #include "networking/network_client_manager.h"
 #include "text/unicode.h"
 #include "networking/network_server_manager.h"
+#include "mcc_ui_network.h" /* (an MCC map whose package check failed: mcc_ui_network_map_refused) */
 #include "dedicated.h"
 #include "command_line.h"
 #include "server_admin.h"
@@ -151,9 +152,6 @@ word network_game_server_get_state(struct network_game_server *server, short *st
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 boolean network_game_server_change_map_name(struct network_game_server *server, char const *map_name);
 void network_game_server_change_game_variant(struct network_game_server *server, struct game_variant *variant);
-/* (port/linux/game/mcc_ui_network.inl: an MCC map chosen whose package check
-failed, once; the server stayed on its map) */
-boolean mcc_ui_network_map_refused(char *map, long map_size, char *reason, long reason_size);
 /* (port/linux/game/chat.h: a server line to every Chupathingy player) */
 int chat_server_say(char const *text);
 void network_game_server_pause_countdown(struct network_game_server *server, boolean pause_countdown);
