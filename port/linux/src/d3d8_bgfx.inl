@@ -2964,7 +2964,13 @@ static uint32_t bg_sampler_flags(int stage, BOOL mipmapped, BOOL hires, BOOL fla
 		else if (state[D3DTSS_MINFILTER] == D3DTEXF_ANISOTROPIC && state[D3DTSS_MAXANISOTROPY] > 1)
 			flags |= BGFX_SAMPLER_MIN_ANISOTROPIC;
 		else if (flat && mipmapped && state[D3DTSS_MIPFILTER] != D3DTEXF_NONE && (bg.reset_flags & BGFX_RESET_MAXANISOTROPY))
-			flags |= BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC;
+		{
+			/* (a point magnification keeps its own flag: the two together
+			name no entry of bgfx's filter table) */
+			flags |= BGFX_SAMPLER_MIN_ANISOTROPIC;
+			if (state[D3DTSS_MAGFILTER] != D3DTEXF_POINT)
+				flags |= BGFX_SAMPLER_MAG_ANISOTROPIC;
+		}
 		if (state[D3DTSS_MAGFILTER] == D3DTEXF_POINT)
 			flags |= BGFX_SAMPLER_MAG_POINT;
 	}
