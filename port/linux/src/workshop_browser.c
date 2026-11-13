@@ -2503,13 +2503,18 @@ int workshop_browser_remove(int index)
 
 	if (!workshop_browser_removable(index))
 		return 0;
-	if (bridge_ready() && steam_bridge_removable(item->id))
+	/* (the game's own copy first, so a Steam subscription to the same item
+	is left alone; the bridge only behind the old paths) */
+	if (workshop_browser_in_own_library(index))
 	{
-		if (!steam_bridge_remove(item->id))
+		if (!own_folder(item->id, path, sizeof(path)) || !steam_bridge_platform_remove_folder(path))
 			return 0;
 	}
-	else if (!own_folder(item->id, path, sizeof(path)) || !steam_bridge_platform_remove_folder(path))
+	else if (WORKSHOP_OLD_INSTALL_PATHS_DEBUG_ONLY || !bridge_ready() || !steam_bridge_removable(item->id) ||
+		!steam_bridge_remove(item->id))
+	{
 		return 0;
+	}
 	platform_log("Workshop: item %s asked to be removed", item->id);
 	{
 		struct workshop_browser_item *own = item_by_id(item->id);

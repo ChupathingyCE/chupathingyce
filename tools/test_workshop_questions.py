@@ -19,6 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 WORKSHOP = (ROOT / "port" / "linux" / "game" / "guide_workshop.c").read_text()
 GUIDE = (ROOT / "port" / "linux" / "game" / "guide.c").read_text()
+BROWSER = (ROOT / "port" / "linux" / "src" / "workshop_browser.c").read_text()
 
 
 def body(text, signature):
@@ -66,6 +67,20 @@ def test_remove_asks_in_the_window():
     press = body(WORKSHOP, "void guide_workshop_link_modal_press(void)")
     assert "workshop_view.modal_option && view != NONE && workshop_browser_remove(view)" in press
     assert '"CONFIRM"' not in WORKSHOP and '"DELETE"' not in WORKSHOP
+
+
+def test_remove_deletes_own_copy_before_steam():
+    """REMOVE deletes the game's own copy first: a player also subscribed
+    in a running Steam client keeps that subscription, and the game's copy
+    never stays behind looking installed. The bridge unsubscribes only
+    behind the old paths, as workshop_browser_removable says."""
+    remove = body(BROWSER, "int workshop_browser_remove(int index)")
+    own = remove.index("if (workshop_browser_in_own_library(index))")
+    assert own < remove.index("steam_bridge_platform_remove_folder(path)") < remove.index("steam_bridge_remove(item->id)")
+    bridge = remove[remove.index("else if", own):]
+    assert bridge.index("WORKSHOP_OLD_INSTALL_PATHS_DEBUG_ONLY") < bridge.index("steam_bridge_remove(item->id)")
+    removable = body(BROWSER, "int workshop_browser_removable(int index)")
+    assert "!WORKSHOP_OLD_INSTALL_PATHS_DEBUG_ONLY && bridge_ready()" in removable
 
 
 def test_buttons_follow_where_the_item_stands():
