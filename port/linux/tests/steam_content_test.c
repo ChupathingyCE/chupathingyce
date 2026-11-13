@@ -20,6 +20,8 @@ SPDX-License-Identifier: MIT
 #include <stdlib.h>
 #include <string.h>
 
+#include "zlib.h"
+
 static int failures;
 
 #define CHECK(condition) do { if (!(condition)) { failures++; \
@@ -217,6 +219,98 @@ static void test_manifest(void)
 	free(data);
 }
 
+/* a manifest zip (stored) of one file entry, built here: a payload of files,
+a metadata section with plain names, and the end marker */
+static size_t put_u32(unsigned char *at, uint32_t value)
+{
+	at[0] = (unsigned char)value;
+	at[1] = (unsigned char)(value >> 8);
+	at[2] = (unsigned char)(value >> 16);
+	at[3] = (unsigned char)(value >> 24);
+	return 4;
+}
+
+static size_t made_manifest(unsigned char *out, size_t capacity, uint32_t flags, uint64_t size)
+{
+	unsigned char chunk[64], file[256], payload[512], metadata[16], raw[640];
+	struct pb_writer writer;
+	size_t raw_length = 0, at = 0, chunk_length, file_length, payload_length, metadata_length;
+	unsigned char sha[20] = { 1 };
+	uint32_t crc;
+
+	pb_writer_init(&writer, chunk, sizeof(chunk));
+	pb_put_bytes(&writer, 1, sha, sizeof(sha));
+	pb_put_varint(&writer, 3, 0);
+	pb_put_varint(&writer, 4, 16);
+	chunk_length = writer.length;
+	pb_writer_init(&writer, file, sizeof(file));
+	pb_put_string(&writer, 1, "folder");
+	pb_put_varint(&writer, 2, size);
+	pb_put_varint(&writer, 3, flags);
+	pb_put_bytes(&writer, 6, chunk, chunk_length);
+	file_length = writer.length;
+	pb_writer_init(&writer, payload, sizeof(payload));
+	pb_put_bytes(&writer, 1, file, file_length);
+	payload_length = writer.length;
+	pb_writer_init(&writer, metadata, sizeof(metadata));
+	pb_put_varint(&writer, 4, 0);
+	metadata_length = writer.length;
+	raw_length += put_u32(raw + raw_length, 0x71F617D0u);
+	raw_length += put_u32(raw + raw_length, (uint32_t)payload_length);
+	memcpy(raw + raw_length, payload, payload_length);
+	raw_length += payload_length;
+	raw_length += put_u32(raw + raw_length, 0x1F4812BEu);
+	raw_length += put_u32(raw + raw_length, (uint32_t)metadata_length);
+	memcpy(raw + raw_length, metadata, metadata_length);
+	raw_length += metadata_length;
+	raw_length += put_u32(raw + raw_length, 0x32C415ABu);
+	if (capacity < raw_length + 30 + 46 + 22 + 2)
+		return 0;
+	crc = (uint32_t)crc32(0, raw, (uInt)raw_length);
+	memset(out, 0, 30 + 46 + 22 + 2 + raw_length);
+	/* (local header, "z", the data; central header, "z"; the end record) */
+	put_u32(out, 0x04034b50u);
+	put_u32(out + 14, crc);
+	put_u32(out + 18, (uint32_t)raw_length);
+	put_u32(out + 22, (uint32_t)raw_length);
+	out[26] = 1;
+	out[30] = 'z';
+	memcpy(out + 31, raw, raw_length);
+	at = 31 + raw_length;
+	put_u32(out + at, 0x02014b50u);
+	put_u32(out + at + 16, crc);
+	put_u32(out + at + 20, (uint32_t)raw_length);
+	put_u32(out + at + 24, (uint32_t)raw_length);
+	out[at + 28] = 1;
+	put_u32(out + at + 42, 0);
+	out[at + 46] = 'z';
+	put_u32(out + at + 47, 0x06054b50u);
+	out[at + 47 + 8] = 1;
+	out[at + 47 + 10] = 1;
+	put_u32(out + at + 47 + 12, 47);
+	put_u32(out + at + 47 + 16, (uint32_t)at);
+	return at + 47 + 22;
+}
+
+/* a folder that claims chunks is not a manifest's: the download would have
+no file to put them in */
+static void test_manifest_folder_chunks(void)
+{
+	unsigned char data[1024];
+	struct sc_manifest manifest;
+	char why[128];
+	size_t length = made_manifest(data, sizeof(data), 0, 16);
+
+	CHECK(length != 0);
+	/* (the same entry as a file parses: the builder is right) */
+	CHECK(sc_manifest_parse(data, length, test_key, &manifest, why, sizeof(why)));
+	CHECK(manifest.file_count == 1 && manifest.chunk_count == 1);
+	sc_manifest_free(&manifest);
+	length = made_manifest(data, sizeof(data), SC_FILE_DIRECTORY, 16);
+	CHECK(!sc_manifest_parse(data, length, test_key, &manifest, why, sizeof(why)));
+	sc_manifest_free(&manifest);
+}
+
 static void test_names(void)
 {
 	CHECK(sc_name_safe("maps/a.map"));
@@ -387,6 +481,7 @@ int main(void)
 	test_proto();
 	test_chunks();
 	test_manifest();
+	test_manifest_folder_chunks();
 	test_names();
 	test_logon();
 	test_errors();

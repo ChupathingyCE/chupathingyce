@@ -278,6 +278,15 @@ void player_profile_delete(
 	return;
 }
 
+/* port: a profile as a file holds it, its name ended within it (a file
+whose checksum is right may come from anyone: its name's twelve characters
+all set ran on into the fields after it, wherever the name was read as text) */
+static void player_profile_loaded(
+	struct player_profile *profile)
+{
+	profile->player_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH-1] = 0;
+}
+
 boolean player_profile_get_from_path(
 	char *full_path,
 	struct player_profile *profile)
@@ -299,6 +308,7 @@ boolean player_profile_get_from_path(
 			if (!csmemcmp(&checksum, block+sizeof(struct player_profile), sizeof(checksum)))
 			{
 				csmemcpy(profile, block, sizeof(struct player_profile));
+				player_profile_loaded(profile);
 				succeeded = TRUE;
 			}
 			else
@@ -718,6 +728,7 @@ static boolean player_profile_read(
 					if (!csmemcmp(&checksum, block+sizeof(struct player_profile), sizeof(checksum)))
 					{
 						csmemcpy(profile, block, sizeof(struct player_profile));
+						player_profile_loaded(profile);
 					}
 					else
 					{

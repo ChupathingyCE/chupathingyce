@@ -1,0 +1,8 @@
+{
+  "about": "the self-updater's lists: a release's updates.json, a channel's feed, and the version words",
+  "harness": "port/linux/tests/update_manifest_fuzz.c",
+  "sources": ["port/linux/src/update_manifest.c"],
+  "includes": ["port/linux/src"],
+  "flags": ["-std=gnu11", "-w"],
+  "max_len": 8192
+}
