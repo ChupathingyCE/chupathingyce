@@ -124,6 +124,11 @@ enum
 	/* (the most elements of a block read as the map loads, more than any
 	holds: the checks hold them to fewer) */
 	CE_LOADED_MAXIMUM_ELEMENTS = 0x10000,
+	/* a part's most vertices and triangles (ce_part_check; the conversion
+	holds a part to them again, as what loading writes before it may share
+	the part's bytes) */
+	CE_MAXIMUM_PART_VERTICES = 0xffff,
+	CE_MAXIMUM_PART_TRIANGLES = 0xffff - 2,
 };
 
 /* ---------- structures */
@@ -236,7 +241,7 @@ static unsigned long ce_part_vertices(
 	byte const *span = NULL;
 	long index;
 
-	if (!buffer_address || count <= 0)
+	if (!buffer_address || count <= 0 || count > CE_MAXIMUM_PART_VERTICES)
 		return 0;
 	vertices = XPhysicalAlloc(count * XBOX_VERTEX_SIZE, -1, 0, PAGE_READWRITE);
 	if (!vertices)
@@ -317,7 +322,7 @@ static unsigned long ce_part_triangles(
 	unsigned long *buffer;
 	unsigned long copied;
 
-	if (!indices || !buffer_address || count < 0)
+	if (!indices || !buffer_address || count < 0 || count > CE_MAXIMUM_PART_TRIANGLES)
 		return 0;
 	/* (a window's worth at a time: ce_map_checks.h) */
 	for (copied = 0; copied < size; copied += CE_MODEL_DATA_WINDOW_SIZE)
@@ -722,8 +727,9 @@ byte const *ce_model_data_at(
 	short which;
 	unsigned long length;
 
+	/* (the model data whole: only within it) */
 	if (data->whole)
-		return data->whole + offset;
+		return offset <= data->size && size <= data->size - offset ? data->whole + offset : NULL;
 	/* (the vertices' window, or the strips') */
 	which = offset >= data->vertex_data_size;
 	if (offset >= data->window_offsets[which] && offset - data->window_offsets[which] <= data->window_sizes[which] &&
@@ -790,17 +796,19 @@ void ce_model_data_end(
 
 /* a Custom Edition map's tags and resources loaded (cache_files.c): its
 gbxmodels made models; model_data its model data block (the vertices,
-vertex_data_size bytes, then the triangles) */
+vertex_data_size bytes, then the triangles), model_data_size bytes */
 boolean ce_models_tags_loaded(
 	void *tag_instances,
 	long tag_count,
 	byte const *model_data,
-	unsigned long vertex_data_size)
+	unsigned long vertex_data_size,
+	unsigned long model_data_size)
 {
 	struct ce_model_data data;
 
 	memset(&data, 0, sizeof(data));
 	data.whole = model_data;
+	data.size = model_data_size;
 	data.vertex_data_size = vertex_data_size;
 	return ce_models_convert_guarded(tag_instances, tag_count, &data);
 }
@@ -981,8 +989,6 @@ enum
 	their block, by its parts' shader indices, checked below: Halo PC's
 	engine took more, h3_foundry's spartan has 56; a part's index is a short) */
 	CE_MAXIMUM_MODEL_SHADERS = 0x7fff,
-	CE_MAXIMUM_PART_VERTICES = 0xffff,
-	CE_MAXIMUM_PART_TRIANGLES = 0xffff - 2,
 	CE_PART_SHADER_INDEX_OFFSET = 0x04,
 	CE_PART_PREVIOUS_PART_OFFSET = 0x06,
 	CE_PART_NEXT_PART_OFFSET = 0x07,
