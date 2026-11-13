@@ -77,6 +77,9 @@ struct telnet_client
 {
 	struct transport_endpoint *endpoint;
 	char buffer[TELNET_CLIENT_BUFFER_SIZE];
+	/* port: a line too long for the buffer, left out up to its end (none
+	of it runs: its end alone could be a script) */
+	boolean discarding;
 };
 
 struct telnet_console_globals
@@ -232,6 +235,7 @@ void telnet_console_process(
 						{
 							telnet_console_globals.clients[client_index].endpoint = endpoint;
 							telnet_console_globals.clients[client_index].buffer[0] = 0;
+							telnet_console_globals.clients[client_index].discarding = FALSE;
 						}
 
 						break;
@@ -320,6 +324,7 @@ static void telnet_client_disconnect(
 
 	client->endpoint = NULL;
 	client->buffer[0] = 0;
+	client->discarding = FALSE;
 	if (endpoint)
 		delete_transport_endpoint(endpoint);
 
@@ -366,16 +371,27 @@ static boolean process_telnet_client_buffer(
 
 		if (isalnum(*character) || ispunct(*character) || *character==' ')
 		{
+			if (client->discarding)
+				continue;
 			length = csstrlen(client->buffer)+1;
 			if (length>=TELNET_CLIENT_BUFFER_SIZE)
 			{
+				/* port: an HTTP request's line is one too, however long
+				(its method at the start is all there may be to see) */
+				if (telnet_line_is_http(client->buffer))
+				{
+					telnet_client_disconnect(client);
+					error(2, "dropped a telnet client that sent an HTTP request");
+					return TRUE;
+				}
 				client->buffer[0] = 0;
+				client->discarding = TRUE;
 				telnet_client_write(
 					client,
 					"\r\noverflowed client buffer; resetting buffer\r\n",
 					csstrlen("\r\noverflowed client buffer; resetting buffer\r\n"));
 
-				return client->endpoint!=NULL;
+				continue;
 			}
 
 			client->buffer[length-1] = *character;
@@ -387,6 +403,12 @@ static boolean process_telnet_client_buffer(
 			{
 			case 10:
 			case 13:
+				/* (the end of a line left out: the next one starts) */
+				if (client->discarding)
+				{
+					client->discarding = FALSE;
+					continue;
+				}
 				if (client->buffer[0])
 				{
 					char expression[TELNET_CLIENT_BUFFER_SIZE];
@@ -409,6 +431,8 @@ static boolean process_telnet_client_buffer(
 				continue;
 
 			case 8:
+				if (client->discarding)
+					continue;
 				if (client->buffer[0])
 				{
 					length = csstrlen(client->buffer);
