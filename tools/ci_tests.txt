@@ -32,6 +32,7 @@ tools/test_determinism.py
 tools/test_discord_activity.py
 tools/test_discord_register.py
 tools/test_event_log.py
+tools/test_footer_prompts.py
 tools/test_gamespy_listing.py
 tools/test_guide_layout.py
 tools/test_host_cheats.py
