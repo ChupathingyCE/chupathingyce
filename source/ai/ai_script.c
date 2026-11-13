@@ -471,6 +471,7 @@ symbols in this file:
 #include "units/bipeds.h"
 #include "units/units.h"
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_horde.h" /* port: port/linux/game/stubbs_horde.c */
 #include "units/unit_definitions.h"
 
 /* ---------- constants */
@@ -3259,6 +3260,13 @@ void ai_scripting_attach_unit(
 				{
 					actor_variant_index = unit_definition_get(
 						unit_get(unit_index)->definition_index)->unit.spawned_actor_variant.index;
+					/* (none of its own either: the map's variant of its kind,
+					port/linux/game/stubbs_horde.c) */
+					if (actor_variant_index == NONE)
+						actor_variant_index = stubbs_horde_palette_variant_for_unit(unit_index);
+					error(_error_silent, "ai_attach: Stubbs mode: %s/%s takes actor variant %08lX for unit tag %08lX",
+						encounter_definition->name, squad_definition->name, (unsigned long)actor_variant_index,
+						(unsigned long)unit_get(unit_index)->definition_index);
 				}
 #endif
 				if (actor_variant_index != NONE)

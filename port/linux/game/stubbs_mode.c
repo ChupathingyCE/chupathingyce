@@ -83,7 +83,7 @@ among Halo's. Each is rewritten in place, in Halo's layout (it is longer,
 so it fits): Halo's fields copied from where Stubbs has them, as far as
 they are known, the rest zero. Not known yet, and left empty: the unit's
 powered seats, initial weapons and seats (Stubbs's blocks after the
-grenades do not match Halo's) */
+grenades do not match Halo's; the seats are: stubbs_unit_seats_convert) */
 
 enum
 {
@@ -167,6 +167,54 @@ static void stubbs_unit_melee_convert(unsigned char *definition, unsigned char c
 	memcpy(definition + HALO_UNIT_MELEE_DAMAGE_OFFSET, element + STUBBS_UNIT_MELEE_DAMAGE_OFFSET, 0x10);
 }
 
+/* the unit's seats: Stubbs's block (at 0x3D8 of his unit part) has Halo's
+0x11C-byte elements, their flags dword split in two: the low word is
+Stubbs's seat type (0 a seat, 1 the hand's "possess" seat on a human's
+head) and the high word Halo's seat flags (driver, gunner, third person
+camera and the rest). Without the seats no one could ride a Stubbs vehicle
+(the dam's electrodes, Monday's desk, the sod-o-mobile). The block is
+pointed to from Halo's place and each element's flags put in Halo's
+order; a possess seat is marked invisible, so no player enters it as a
+seat (stubbs_possession.c attaches the hand to it) */
+enum
+{
+	STUBBS_UNIT_SEATS_BLOCK_OFFSET = 0x3D8,
+	HALO_UNIT_SEATS_BLOCK_OFFSET = 0x2E4,
+	STUBBS_UNIT_SEAT_ELEMENT_SIZE = 0x11C,
+	STUBBS_UNIT_SEAT_TYPE_POSSESS = 1,
+	MAXIMUM_STUBBS_UNIT_SEATS_CONVERTED = 16,
+};
+
+static void stubbs_unit_seats_convert(unsigned char *definition, unsigned char const *stubbs)
+{
+	unsigned long count, address, index;
+	unsigned char *seats;
+
+	memcpy(&count, stubbs + STUBBS_UNIT_SEATS_BLOCK_OFFSET, 4);
+	memcpy(&address, stubbs + STUBBS_UNIT_SEATS_BLOCK_OFFSET + 4, 4);
+	if (!count || count > MAXIMUM_STUBBS_UNIT_SEATS_CONVERTED)
+		return;
+	seats = stubbs_host(stubbs_tags_base, stubbs_tags_size, address, count * STUBBS_UNIT_SEAT_ELEMENT_SIZE);
+	if (!seats)
+		return;
+	for (index = 0; index < count; index++)
+	{
+		unsigned char *seat = seats + index * STUBBS_UNIT_SEAT_ELEMENT_SIZE;
+		unsigned short type, flags;
+		unsigned long halo_flags;
+
+		memcpy(&type, seat, 2);
+		memcpy(&flags, seat + 2, 2);
+		halo_flags = flags;
+		if (type == STUBBS_UNIT_SEAT_TYPE_POSSESS)
+			halo_flags |= 1; /* (_unit_seat_invisible_bit) */
+		memcpy(seat, &halo_flags, 4);
+	}
+	memcpy(definition + HALO_UNIT_SEATS_BLOCK_OFFSET, stubbs + STUBBS_UNIT_SEATS_BLOCK_OFFSET, 12);
+	stubbs_mode_log("unit seats: %lu kept (%s%s)", count, (char const *)seats + 4,
+		count > 1 ? ", ..." : "");
+}
+
 static void stubbs_unit_convert(unsigned char *definition, unsigned long halo_part_size)
 {
 	static unsigned char stubbs[STUBBS_UNIT_SIZE + 0x400];
@@ -179,6 +227,7 @@ static void stubbs_unit_convert(unsigned char *definition, unsigned long halo_pa
 			stubbs_unit_fields[index].size);
 	memcpy(definition + HALO_UNIT_SIZE, stubbs + STUBBS_UNIT_SIZE, halo_part_size);
 	stubbs_unit_melee_convert(definition, stubbs);
+	stubbs_unit_seats_convert(definition, stubbs);
 }
 
 /* an animation graph's unit seats: Stubbs's are 0x80 bytes, Halo's 0x64 and

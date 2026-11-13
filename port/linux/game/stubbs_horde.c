@@ -262,6 +262,30 @@ static long horde_zombie_variant_of_variant(
 
 /* the zombie a unit rises as: by its actor's variant, else by the first
 actor variant of the map's palette that is of its kind */
+long stubbs_horde_palette_variant_for_unit(
+	long unit_index)
+{
+	struct unit_datum *unit = unit_try_and_get(unit_index);
+	struct scenario *scenario = global_scenario_try_and_get();
+	long index;
+
+	if (!unit || !scenario)
+		return NONE;
+	for (index = 0; index < scenario->ai_actor_palette.count; index++)
+	{
+		struct tag_reference *entry = TAG_BLOCK_GET_ELEMENT(
+			&scenario->ai_actor_palette, index, struct tag_reference);
+		struct actor_variant_definition const *variant;
+
+		if (!entry || entry->index == NONE)
+			continue;
+		variant = actor_variant_definition_get(entry->index);
+		if (variant && variant->unit_reference.index == unit->definition_index)
+			return entry->index;
+	}
+	return NONE;
+}
+
 static long horde_zombie_variant_of_unit(
 	long unit_index)
 {
