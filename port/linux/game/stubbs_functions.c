@@ -31,6 +31,7 @@ and return none, 0 or false.
 #include "stubbs_functions.h"
 #include "stubbs_campaign.h"
 #include "stubbs_player.h"
+#include "stubbs_horde.h"
 #include "stubbs_engine.h"
 
 #include <string.h>
@@ -200,7 +201,8 @@ static boolean stubbs_function_routed(
 
 	if (_stricmp(name, "map_completed") && _stricmp(name, "hud_show_special_attack") &&
 		_stricmp(name, "image_effect_set") && _stricmp(name, "image_effect_start_blend") &&
-		_stricmp(name, "image_effect_end") && _stricmp(name, "unit_special_attack") &&
+		_stricmp(name, "image_effect_end") && _stricmp(name, "unit_finishing_move") &&
+		_stricmp(name, "ai_set_resurrection_group") && _stricmp(name, "unit_special_attack") &&
 		_stricmp(name, "unit_special_attack_get_count") && _stricmp(name, "unit_special_attack_set_count") &&
 		_stricmp(name, "player_move_origin"))
 	{
@@ -240,6 +242,12 @@ static boolean stubbs_function_routed(
 		stubbs_engine_special_attack_set_count(arguments[0], (short)arguments[1], (short)arguments[2]);
 	else if (!_stricmp(name, "player_move_origin"))
 		stubbs_engine_player_move_origin(arguments[0], arguments[1]);
+	/* (unit_finishing_move <unit>) and (ai_set_resurrection_group <ai>)
+	(stubbs_horde.c) */
+	else if (!_stricmp(name, "unit_finishing_move"))
+		stubbs_horde_unit_finishing_move(arguments[0]);
+	else if (!_stricmp(name, "ai_set_resurrection_group"))
+		stubbs_horde_set_resurrection_group(arguments[0]);
 	/* (image_effect_end) */
 	else
 		stubbs_image_effect_end();
