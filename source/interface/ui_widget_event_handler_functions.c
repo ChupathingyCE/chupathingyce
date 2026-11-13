@@ -942,6 +942,9 @@ boolean playlist_profile_get_options(long playlist_profile_index, struct game_va
 
 #ifdef HALO_MAP_LIST
 #include "halo_ui_map_list.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_campaign.h" /* port: port/linux/game/stubbs_campaign.c */
+#include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
 #ifdef HALO_GAME_BROWSER
 /* port: network co-op from the Chupathingy menus' Select Map
 (port/linux/game/menu_functions.c) */
@@ -1804,6 +1807,18 @@ struct event_handler_globals event_handler_functions =
 	NONE
 };
 
+/* port: the map a campaign level of the menus plays (Stubbs mode's:
+port/linux/game/stubbs_campaign.c) */
+static char *ui_single_player_level(
+	long level_index)
+{
+	char *name = event_handler_functions.single_player_levels[level_index];
+
+	if (stubbs_mode_active())
+		name = (char *)stubbs_campaign_level_name((short)level_index, name);
+	return name;
+}
+
 #ifdef HALO_MAP_LIST
 /* port: the row of the menus' map list that plays a map's name, the list
 filled anew for a name it lacks (a game's map the list hasn't been shown
@@ -1889,7 +1904,7 @@ static boolean new_campaign_decision(
 					error(2, "failed to create new player profile");
 				if (result)
 				{
-					main_set_map_name(event_handler_functions.single_player_levels[0]);
+					main_set_map_name(ui_single_player_level(0));
 					main_defer_map_map_change();
 				}
 
@@ -2347,7 +2362,7 @@ static boolean start_new_game(
 	boolean *widget_deleted)
 {
 	main_set_difficulty(1);
-	main_set_map_name(event_handler_functions.single_player_levels[0]);
+	main_set_map_name(ui_single_player_level(0));
 	game_connection_set(0);
 	main_menu_switch_to_single_player();
 	player_ui_remember_player1_profile(0);
@@ -3614,6 +3629,12 @@ boolean ui_widget_event_handler_function_invoke(
 			console_warning("event handler '%s' failed", event_handler_function_list.names[(short)function_index]);
 		return result;
 	}
+	/* port: Stubbs mode's own (port/linux/game/stubbs_campaign.c) */
+	if (stubbs_mode_active() &&
+		stubbs_campaign_event_function(widget, event, function_index, widget_deleted, &result))
+	{
+		return result;
+	}
 	error(2, "invalid event_handler_function");
 	return FALSE;
 }
@@ -4402,7 +4423,7 @@ static boolean solo_level_initialize_list_coop(
 
 		for (level_index = 0; level_index < 10; level_index++)
 		{
-			single_player_level_data[level_index].map_name = event_handler_functions.single_player_levels[level_index];
+			single_player_level_data[level_index].map_name = ui_single_player_level(level_index);
 			if (profile0.single_player_map_flags[level_index] || level_index == highest_levels[0] + 1 || profile1.single_player_map_flags[level_index] || level_index == highest_levels[1] + 1 || level_index == 0)
 			{
 				unsigned long level_flags;
@@ -4563,7 +4584,7 @@ static boolean solo_level_set_next_map_name(
 	}
 	if (result == TRUE)
 	{
-		main_set_map_name(event_handler_functions.single_player_levels[list_widget->parameters.list.selected_index]);
+		main_set_map_name(ui_single_player_level(list_widget->parameters.list.selected_index));
 		main_defer_map_map_change();
 	}
 	else
@@ -4734,6 +4755,13 @@ static boolean player_profile_set_for_game_3wide(
 		}
 		error(2, "failed to retrieve user selected player profile");
 		return FALSE;
+	}
+	/* port: Stubbs mode's own (port/linux/game/stubbs_multiplayer.c) */
+	{
+		boolean result;
+
+		if (stubbs_mode_active() && stubbs_multiplayer_profile_chosen(widget, event, widget_deleted, &result))
+			return result;
 	}
 	error(2, "this is not a selectable player profile");
 	ui_play_audio_feedback_sound(4);
@@ -6149,7 +6177,7 @@ static boolean solo_level_initialize_list_single_player(
 		unsigned long level_flags;
 
 		single_player_level_data[level_index].map_name =
-			event_handler_functions.single_player_levels[level_index];
+			ui_single_player_level(level_index);
 		if (profile.single_player_map_flags[level_index] || level_index == highest_level + 1 || level_index == 0)
 		{
 			level_flags = (char)profile.single_player_map_flags[level_index];
@@ -6196,7 +6224,7 @@ static boolean solo_level_initialize_list_single_player(
 		for (level_index = 0; level_index < 10; level_index++)
 		{
 			if (_stricmp(persistant_game_data_info.map_name,
-				event_handler_functions.single_player_levels[level_index]) == 0)
+				ui_single_player_level(level_index)) == 0)
 			{
 				struct persistent_game_difficulty difficulty = persistant_game_data_info.difficulty;
 				persistant_game_data_info.map_index = (byte)level_index;

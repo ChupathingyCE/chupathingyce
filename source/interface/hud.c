@@ -120,6 +120,8 @@ symbols in this file:
 #ifdef HALO_PORT_CHAT
 #include "chat.h" /* port: port/linux/game/chat.c */
 #endif
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_player.h" /* port: port/linux/game/stubbs_player.c */
 #include "text/font_group.h"
 #include "text/text_group.h"
 #include "units/unit_definitions.h"
@@ -1522,6 +1524,12 @@ void hud_draw_screen(
 		else
 		{
 			hud_play_unit_sounds(player, FALSE);
+		}
+		/* port: Stubbs mode's HUD (port/linux/game/stubbs_player.c) */
+		if (stubbs_mode_active() && hud_scripted_globals->show_hud && player->unit_index != NONE &&
+			!cinematic_in_progress())
+		{
+			stubbs_player_hud_draw(render.local_player_index, player->unit_index);
 		}
 
 		hud_messaging_update(render.local_player_index);
