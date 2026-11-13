@@ -223,8 +223,15 @@ boolean mcc_script_call_valid(struct hs_syntax_node const *call, struct data_arr
         return node && node->type == _hs_type_script && node->next_node_index == NONE;
     }
     for (argument = 0; argument < function->parameter_count; ++argument) {
+        /* On a 64-bit build the definition is padded after its first type,
+         * so the rest are read from the wrapper (HS_FUNCTION_PARAMETER_TYPE). */
+#ifdef HALO_64BIT
+        short type = HS_FUNCTION_PARAMETER_TYPE(function, argument);
+#else
+        short type = function->parameter_types[argument];
+#endif
         node = datum_try_and_get(syntax, next);
-        if (!node || node->type != function->parameter_types[argument]) return FALSE;
+        if (!node || node->type != type) return FALSE;
         next = node->next_node_index;
     }
     return next == NONE;
