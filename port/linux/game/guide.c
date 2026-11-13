@@ -4268,6 +4268,8 @@ static void render_settings(void)
 			char value[96];
 
 			settings_row_value(row, value, sizeof(value));
+			if (!settings_row_arrows(row))
+				ui_style_setting_plain();
 			ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f, settings_row_label(row),
 				NULL, value, on);
 		}
@@ -5540,6 +5542,9 @@ static void handle_pressed(unsigned int pressed)
 	if (guide.section == SOCIAL_SECTION_SETTINGS && guide.row[guide.section] < settings_count() &&
 		(pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
 		setting_change(guide.row[guide.section], (pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
+	/* (WORKSHOP's Show, Sort and page rows: left and right step their value) */
+	if (guide.section == SOCIAL_SECTION_WORKSHOP && (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
+		guide_workshop_side((pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
 	if (pressed & GUIDE_INPUT_A)
 		activate();
 	else if ((pressed & GUIDE_INPUT_X) && guide.section == SOCIAL_SECTION_PLAYERS_HERE)
@@ -5747,13 +5752,15 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			break;
 		case _target_prompt:
 			handle(target->index == UI_BUTTON_A ? GUIDE_INPUT_A : target->index == UI_BUTTON_X ? GUIDE_INPUT_X :
-				target->index == UI_BUTTON_Y ? GUIDE_INPUT_Y : GUIDE_INPUT_B);
+				target->index == UI_BUTTON_Y ? GUIDE_INPUT_Y : target->index == UI_BUTTON_LEFT_TRIGGER ?
+				GUIDE_INPUT_LEFT_TRIGGER : target->index == UI_BUTTON_RIGHT_TRIGGER ? GUIDE_INPUT_RIGHT_TRIGGER :
+				GUIDE_INPUT_B);
 			break;
 		case _target_close:
 			guide_close();
 			break;
 		case _target_page:
-			guide_workshop_page_step(target->index == 2 ? 0 : target->index ? 1 : -1);
+			guide_workshop_arrow_click(target->index);
 			break;
 		case _target_modal:
 			guide_workshop_link_modal_click(target->index);

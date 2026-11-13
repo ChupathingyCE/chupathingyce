@@ -700,7 +700,13 @@ def test_workshop_shared_resources_use_mcc_installation(tool, tmp_path, group, s
     assert Path(fields["path"]) == local
     local.unlink()
     fields, _ = run(tool, "translate", request, setting=str(library), data_root=data, enabled=False)
-    assert Path(fields["path"]) == local
+    # (the Workshop's own items always listed, workshop_decisions.h: MCC's
+    # shared files stay found for them with game.workshop_maps off)
+    decisions = (ROOT / "port/linux/src/workshop_decisions.h").read_text()
+    if "#define WORKSHOP_OWN_ITEMS_ALWAYS_LISTED 1" in decisions:
+        assert Path(fields["path"]) == target
+    else:
+        assert Path(fields["path"]) == local
 
 
 @pytest.mark.parametrize("resource_request", ["111/loc.map", "111/sub/bitmaps.map", "111/../bitmaps.map",

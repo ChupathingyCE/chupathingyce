@@ -113,6 +113,7 @@ the right button is B.
 #include "../src/map_download.h"
 #include "../src/map_repo.h"
 #include "../src/workshop_browser.h"
+#include "../src/workshop_decisions.h"
 #include <time.h>
 #include "../src/playlist_download.h"
 #include "../src/ui_overlay.h"
@@ -1235,6 +1236,16 @@ static void offer_button(
 				map_download_set_setting(MAP_DOWNLOADS_NEVER);
 			offer_given_up(NULL);
 		}
+		/* (a Workshop item, WORKSHOP_JOIN_ALWAYS_BUTTON: Y is ALWAYS, MAPS
+		WHEN JOINING set to Always and the item got) */
+		else if (button == _gamepad_analog_button_y && WORKSHOP_JOIN_ALWAYS_BUTTON && browser_screen.offer_workshop)
+		{
+			if (browser_screen.offer_workshop_check == WORKSHOP_CHECK_OK)
+			{
+				workshop_join_set_setting(WORKSHOP_JOIN_ALWAYS);
+				start_offered_download();
+			}
+		}
 		else if (button == _gamepad_analog_button_y)
 			browser_screen.offer_dont_ask = !browser_screen.offer_dont_ask;
 		break;
@@ -2109,7 +2120,7 @@ static char const *ce_map_blocker(
 			for (index = 0; index < digits && package[index] >= '0' && package[index] <= '9'; index++)
 				;
 			if (digits && index == digits && digits < 24)
-				snprintf(text, (size_t)size, "Missing: Steam Workshop item %.*s (subscribe in Steam)", (int)digits, package);
+				snprintf(text, (size_t)size, "Missing: Steam Workshop item %.*s", (int)digits, package);
 			else
 			{
 				snprintf(path, sizeof(path), "maps_mcc/%s.map", package);
@@ -3819,6 +3830,15 @@ static void draw_map_offer(
 				snprintf(text, sizeof(text), "from the Steam Workshop?");
 			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
 				text);
+			/* (YES, ALWAYS and NO: WORKSHOP_JOIN_ALWAYS_BUTTON; else the tick box) */
+			if (WORKSHOP_JOIN_ALWAYS_BUTTON)
+			{
+				static int const workshop_buttons[] = { UI_BUTTON_B, UI_BUTTON_Y, UI_BUTTON_A };
+				static char const *const workshop_words[] = { "=NO", "=ALWAYS", "=YES" };
+
+				dialog_prompts(NUMBEROF(workshop_buttons), workshop_buttons, workshop_words);
+				break;
+			}
 			draw_dont_ask(y);
 			dialog_prompts(NUMBEROF(buttons), buttons, words);
 			break;

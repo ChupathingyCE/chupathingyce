@@ -147,8 +147,10 @@ struct workshop_browser_item
 	int state;
 	/* found installed, not on the site's list */
 	int local;
-	/* SUBSCRIBE pressed this run */
+	/* SUBSCRIBE pressed this run, and when (the downloader's word from
+before it, a failure, not taken for the new try's) */
 	int subscribed;
+	unsigned long asked_time;
 	/* the Steam bridge's: subscribed in Steam, and a download's bytes (or percent of 100) */
 	int steam_subscribed;
 	unsigned long long downloaded;
@@ -256,6 +258,18 @@ const char *workshop_browser_sort_name(int sort);
 const char *workshop_browser_step_name(int step);
 /* the game's own Steam library and steamcmd's folder set (each frame is fine) */
 void workshop_browser_own_library(void);
+/* whether the item is in the game's own library (what its Workshop got),
+not only in a Steam library of Steam's */
+int workshop_browser_in_own_library(int index);
+/* CANCEL on a GET: the download stopped, its part deleted, the item back
+to Not installed (0 when it isn't being got) */
+int workshop_browser_cancel(int index);
+/* the list failed: "Offline" (no answer) or "Failed"; "" when it didn't */
+const char *workshop_browser_list_why(void);
+/* WORKSHOP FOLDER: the system's folder picker opened (0 where there is
+none), and its answer taken each frame (the downloads' folder set) */
+int workshop_browser_choose_folder(void);
+void workshop_browser_folder_follow(void);
 /* an installed item of steamcmd's, in the game's own library: REMOVE deletes
 its folder (after a confirm: the Guide's), UPDATE downloads it again (Steam
 says it changed since). Steam's own folders are never touched here */
