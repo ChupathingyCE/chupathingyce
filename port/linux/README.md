@@ -213,9 +213,9 @@ for its run.
 Stubbs mode is in the Play section too, for testing, when a `maps_stubbs/`
 folder beside `maps/` holds your own Stubbs the Zombie Xbox maps (no game
 files come with Chupathingy). It plays as a pack, `game.pack_menus =
-"stubbs"`. It is an early look: the menus and the first
-level load, and much is still missing. Halo and the packs are not changed by
-it.
+"stubbs"`. Its row says "(early)" because it is: the menus and the campaign
+run, the levels load in order, and much of the game is still missing or
+rough. Halo and the packs are not changed by it.
 
 Either picker finds out what a file is from its contents, not its name.
 
