@@ -9,7 +9,8 @@ fills each with instances of the vegetation's model. Here it is drawn
 simply: the model (vege 0x40, scenery\corn\corn) on a grid of the
 vegetation's spacing (0x50, 0x54: 4 by 4), each moved within its cell and
 turned by a hash of its place (never the game's random numbers), stood on
-the ground below it, and lit as the patch's scenery is. The two shaders the
+the ground below it where that ground is the patch's own (the field, not
+the road through it), and lit as the patch's scenery is. The two shaders the
 vegetation names (0x10, 0x20: a front and a side view, likely the far
 impostors) are not used yet. Nothing here is game state: the instances are
 only drawn, with the objects (render_objects.c).
@@ -170,6 +171,8 @@ static short vegetation_patch(
 	real spacing_x, spacing_y, radius;
 	long model_index;
 	short i, j, cells;
+	short ground_material;
+	long elsewhere = 0;
 	short patch;
 
 	for (patch = 0; patch < patch_count; patch++)
@@ -201,6 +204,18 @@ static short vegetation_patch(
 	patches[patch].model_index = model_index;
 	patches[patch].first_instance = instance_count;
 	patches[patch].instance_count = 0;
+	/* (the ground's material under the scenery: corn grows only on it, not
+	on the road or the yard beside it) */
+	{
+		real_point3d point = object->object.position;
+		real_vector3d down = { 0.0f, 0.0f, -12.0f };
+		struct collision_result collision;
+
+		point.z += 4.0f;
+		ground_material = collision_test_vector(FLAG(_collision_test_structure_bit) |
+			FLAG(_collision_test_front_facing_surfaces_bit), &point, &down, NONE, &collision) ?
+			collision.material_index : NONE;
+	}
 	cells = (short)(radius / MIN(spacing_x, spacing_y)) + 1;
 	for (i = -cells; i <= cells; i++)
 	{
@@ -224,6 +239,11 @@ static short vegetation_patch(
 			if (collision_test_vector(FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit),
 				&point, &down, NONE, &collision))
 			{
+				if (ground_material != NONE && collision.material_index != ground_material)
+				{
+					elsewhere++;
+					continue;
+				}
 				point = collision.point;
 			}
 			else
@@ -236,8 +256,8 @@ static short vegetation_patch(
 			patches[patch].instance_count++;
 		}
 	}
-	stubbs_mode_log("vegetation: %d %s instances around %s",
-		patches[patch].instance_count, tag_get_name(model_index), tag_get_name(object->definition_index));
+	stubbs_mode_log("vegetation: %ld %s instances around %s (%ld on other ground left out)",
+		patches[patch].instance_count, tag_get_name(model_index), tag_get_name(object->definition_index), elsewhere);
 	return patch;
 }
 
@@ -355,7 +375,7 @@ void stubbs_vegetation_render(
 	if (!logged)
 	{
 		logged = TRUE;
-		stubbs_mode_log("vegetation: %d patches, %d instances", patch_count, instance_count);
+		stubbs_mode_log("vegetation: %d patches, %ld instances", patch_count, instance_count);
 	}
 }
 
