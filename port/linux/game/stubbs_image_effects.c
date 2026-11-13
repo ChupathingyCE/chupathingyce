@@ -23,9 +23,11 @@ values the effects hold, not from the retail game's code:
   at 0x94 boosting the colour back (zombie_color's 2 and -1) leaves the
   picture's weight times it;
 - 0x1A0: the stages, each 0xA4 bytes: a type at 0x20 (0: a multiplied
-  picture such as projector_highlight's vignette, 4: one laid over at
-  twice, a noise or streak, centered on grey), its strength at 0x28, its
-  scale (0x2C, 0x30) and offset (0x34, 0x38) over the screen, the bitmap
+  picture such as projector_highlight's vignette, stretched over the view;
+  4: one laid over at twice, a noise, streak or TV lines, centered on grey
+  and tiled at its texels to the game's pixels), 2 at 0x24 read as the
+  bitmap inverted (head's blob), its strength at 0x28, its scale (0x2C,
+  0x30) and offset (0x34, 0x38), the bitmap
   at 0x3C and its u, v animations at 0x6C and 0x7C (Halo's periodic
   functions: cosine, noise, spark). Types 1 (a frame's jitter, no bitmap)
   and 3 (the hand's warp) are not drawn yet.
@@ -82,6 +84,7 @@ enum
 
 	IMAGE_EFFECT_STAGE_SIZE = 0xA4,
 	STAGE_TYPE_OFFSET = 0x20,
+	STAGE_MODE_OFFSET = 0x24,
 	STAGE_INTENSITY_OFFSET = 0x28,
 	STAGE_SCALE_OFFSET = 0x2C,
 	STAGE_OFFSET_OFFSET = 0x34,
@@ -97,6 +100,7 @@ enum
 
 	_stage_type_multiply = 0,
 	_stage_type_overlay = 4,
+	_stage_mode_inverted = 2,
 
 	/* Halo's periodic functions (an animation's function) */
 	_function_one = 0,
@@ -363,6 +367,9 @@ static void image_effect_draw_stage(
 	short stage_index)
 {
 	short type = (short)image_effect_read32(stage + STAGE_TYPE_OFFSET);
+	/* (head's blob, dark in its middle, 2 at 0x24: read as its inverse, the
+	view kept in the middle and dark around it) */
+	boolean inverted = image_effect_read32(stage + STAGE_MODE_OFFSET) == _stage_mode_inverted;
 	struct bitmap_data const *bitmap;
 	real u_scale, v_scale, u_offset, v_offset;
 	short width, height;
@@ -386,6 +393,22 @@ static void image_effect_draw_stage(
 	if (v_scale == 0.0f)
 		v_scale = 1.0f;
 
+	/* (a laid-over bitmap is tiled at its texels to the game's pixels times
+	its scale: video_interlace's 4 texels at 0.5, two lines each; a
+	multiplied one is stretched over the view) */
+	if (type == _stage_type_overlay)
+	{
+		short view_width = global_window_parameters.camera.viewport_bounds.x1 -
+			global_window_parameters.camera.viewport_bounds.x0;
+		short view_height = global_window_parameters.camera.viewport_bounds.y1 -
+			global_window_parameters.camera.viewport_bounds.y0;
+
+		if (bitmap->width > 0 && bitmap->height > 0)
+		{
+			u_scale *= (real)view_width / (real)bitmap->width;
+			v_scale *= (real)view_height / (real)bitmap->height;
+		}
+	}
 	if (!image_effect_pass_begin(u_scale, v_scale, u_offset, v_offset, &width, &height))
 		return;
 	if (!rasterizer_set_texture_bitmap_data(0, bitmap))
@@ -399,7 +422,7 @@ static void image_effect_draw_stage(
 	image_effect_set_pixel_shader(PS_TEXTUREMODES(PS_TEXTUREMODES_PROJECT2D, 0, 0, 0),
 		image_effect_pixel(strength, 0.0f, 0.0f, 0.0f),
 		PS_COMBINERINPUTS(
-			PS_REGISTER_T0,
+			inverted ? PS_REGISTER_T0 | PS_INPUTMAPPING_UNSIGNED_INVERT : PS_REGISTER_T0,
 			PS_REGISTER_C0 | PS_CHANNEL_ALPHA,
 			type == _stage_type_multiply ? PS_REGISTER_ONE : PS_REGISTER_ONE_HALF,
 			PS_REGISTER_C0 | PS_CHANNEL_ALPHA | PS_INPUTMAPPING_UNSIGNED_INVERT));
