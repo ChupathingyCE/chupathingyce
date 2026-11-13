@@ -845,9 +845,9 @@ void host_vk_driver_close(void)
 
 /* the guest asks (the main menu, under the version number): the name of the driver archive in use into its buffer at out, of size
 bytes, or an empty string when the phone's own driver is (or no driver is open) */
-uint32_t host_vk_driver_name(uint32_t out, uint32_t size)
+uint32_t host_vk_driver_name(char *out, uint32_t size)
 {
-	char *text = (char *)(uintptr_t)out;
+	char *text = out;
 
 	if (!text || !size)
 		return 0;

@@ -33,6 +33,9 @@ A pixel shader runs in three parts:
 Register values are clamped to [-1, 1] between stages, as on the hardware.
 */
 
+/* (the Android app's build only: HALO_VULKAN, tools/android64_build.py) */
+#ifdef HALO_VULKAN
+
 #include "xgpu.h"
 #include "port_config.h"
 #include "vk_shaders.h"
@@ -662,3 +665,5 @@ char *nv2a_vk_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 	xgpu_text_append(&text, "\tfragment_color = clamp(result, 0.0, 1.0);\n}\n");
 	return text.buffer;
 }
+
+#endif /* HALO_VULKAN */

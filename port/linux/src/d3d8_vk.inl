@@ -1,47 +1,70 @@
 /*
-D3D8_VK.C
+D3D8_VK.INL
 
-The Xbox Direct3D 8 device for the Android build's Vulkan renderer
-(port/android/VULKAN.md, phase 1). Linked into halo_guest_vk.elf in place of
-port/linux/src/d3d8_gl.c, which every other build and the Android GL ES image
-keep unchanged.
+The Xbox Direct3D 8 device drawn with Vulkan, in the Android app
+(display.renderer = "vulkan"; port/android/VULKAN.md). Part of d3d8_gl.c,
+included at its end as the bgfx backend is (d3d8_bgfx.inl), and sharing the
+device's state: what the game sets through the XDK's inline functions and the
+entry points above is read at each draw. OpenGL ES is never initialized while
+it runs (gl_ready stays FALSE), so the OpenGL path's entry points do nothing;
+when Vulkan cannot start, the game draws with OpenGL ES as before
+(platform_video_reopen_for_gl).
 
-It is d3d8_gl.c (commit 151bbfd0, the last to change that file) with every
-OpenGL call and every host_gl_* import taken out: what drew, cleared or
-uploaded keeps its state and returns. What remains is what d3d8_gl.c does that
-is not OpenGL: the screen's width and scale, the state the XDK's inline
-functions keep, the vertical blank and its thread and callbacks, the reserved
-viewport constants, render and texture stage state, transforms, vertex shaders
-and their declarations, streams, immediate mode, the surfaces and render
-targets as the game sees them. It was cut from d3d8_gl.c the way the Switch's
-d3d8_dk.c (commit 25c02a0a) was, which is its reference. Changes to d3d8_gl.c
-are not followed automatically.
+The renderer is thelinkin3000's, from PR #152 (the guest build of the app,
+where the game ran as a 32-bit image): this file is the Vulkan half of his
+d3d8_vk.c, which built the frame as a command stream for the host's backend
+(port/android/host/host_vk*.c, taken as it was). The stream stays, written
+over a frame and handed over at its end, or sooner when it fills; here the
+hand-over is a call into the same library. The game's textures are kept as
+his were, images the backend makes, decoded by xbox_textures.c's helpers as
+the bgfx backend decodes them; the high-res HUD, the text's atlas and the
+menus' art are images of the same kind (xgpu_vulkan_texture_create).
 
-Nothing is drawn yet: the answers the game reads back that depend on the GPU
-are IsBusy false, locks and waits that return at once, and visibility tests
-that report 0 samples. Later phases send what d3d8_gl.c does with OpenGL to the
-host's Vulkan backend (port/android/host/host_vk.c).
+Not here yet: the Guide and the other overlays (ui_overlay.c draws with
+OpenGL or bgfx), the anti-aliasing passes and the capture of screenshots and
+clips, which are the OpenGL renderer's; and the shaders are the generators'
+of PR #152 (nv2a_vsh_vk.c, nv2a_psh_vk.c), without what nv2a_vsh.c and
+nv2a_psh.c gained since (per-pixel lighting, the Light effects).
 */
+
+#include <SDL3/SDL.h>
+#include <unistd.h>
+
+#include "host_vk_api.h"
+#include "hud_hires.h"
+#include "vk_commands.h"
+#include "vk_shaders.h"
+
+SDL_Window *platform_sdl_window(void);
+#include "menu_files.h"
+#include "text_hires.h"
+
+BOOL xgpu_vulkan;
+
+/* what this backend keeps beside the device's state */
+static struct
+{
+	BOOL ready;
+	/* the frame number, for the textures' idle counts */
+	unsigned long frame;
+	/* the game's window (host_vk_window) */
+	void *window;
+} vk;
 /* ---------- the command stream (vk_commands.h)
 
 Commands are written here over a frame and handed to the host half
 (port/android/host/host_vk*.c) at its end, or sooner if the stream fills. The
 host reads them during the call and nothing later. */
 
-void host_vk_submit(unsigned int commands, unsigned int size);
-/* the shader service (host_vk_shaders.c; the imports pass a 64-bit hash in one register) */
-void host_vk_shader_compile(uint32_t stage, uint64_t hash, uint32_t glsl, uint32_t glsl_size);
-uint32_t host_vk_shader_find(uint32_t stage, uint64_t hash, uint32_t status_out);
-
 #define STREAM_SIZE (4 * 1024 * 1024)
 
-static uint32_t stream[STREAM_SIZE / 4];
+static uint32_t vk_stream[STREAM_SIZE / 4];
 static unsigned long stream_used;
 
 static void stream_flush(void)
 {
 	if (stream_used)
-		host_vk_submit((unsigned int)(uintptr_t)stream, (unsigned int)stream_used);
+		host_vk_submit(vk_stream, (uint32_t)stream_used);
 	stream_used = 0;
 }
 
@@ -53,7 +76,7 @@ void *vk_stream_command(uint32_t type, unsigned long size)
 	size = (size + 3) & ~3UL;
 	if (stream_used + size > STREAM_SIZE)
 		stream_flush();
-	header = (struct vk_command_header *)((unsigned char *)stream + stream_used);
+	header = (struct vk_command_header *)((unsigned char *)vk_stream + stream_used);
 	header->type = type;
 	header->size = (uint32_t)size;
 	stream_used += size;
@@ -113,9 +136,9 @@ uint32_t vk_data_put(const void *bytes, unsigned long size)
 /* the pixels per unit of the bound targets: what the screen's targets are drawn at,
 as render_target_get in d3d8_gl.c works it out (a target the size of the screen gets
 the screen's scale), and what clears are scaled by (target_pixel there) */
-static float target_scale[2] = { 1.0f, 1.0f };
+static float vk_target_scale[2] = { 1.0f, 1.0f };
 
-static void target_scale_of(unsigned long width, unsigned long height, float scale[2])
+static void vk_target_scale_of(unsigned long width, unsigned long height, float scale[2])
 {
 	scale[0] = scale[1] = 1.0f;
 	if (width == (unsigned long)halo_screen_width() && height == SCREEN_HEIGHT)
@@ -125,9 +148,9 @@ static void target_scale_of(unsigned long width, unsigned long height, float sca
 	}
 }
 
-static long target_pixel(float coordinate, int axis)
+static long vk_target_pixel(float coordinate, int axis)
 {
-	return (long)floorf(coordinate * target_scale[axis] + 0.5f);
+	return (long)floorf(coordinate * vk_target_scale[axis] + 0.5f);
 }
 
 /* a surface as the host knows it; NONE for none. A surface that is not a depth format
@@ -145,7 +168,7 @@ static void surface_describe(const D3DSurface *surface, BOOL depth_only, struct 
 	surface_dimensions(surface, &width, &height, &depth);
 	if (depth_only && !depth)
 		return;
-	target_scale_of(width, height, scale);
+	vk_target_scale_of(width, height, scale);
 	out->data = surface->Data;
 	out->width = (uint32_t)width;
 	out->height = (uint32_t)height;
@@ -177,13 +200,13 @@ static BOOL targets_bind(BOOL *has_depth)
 		return FALSE;
 	if (targets.color.kind != VK_SURFACE_NONE)
 	{
-		target_scale[0] = color_scale[0];
-		target_scale[1] = color_scale[1];
+		vk_target_scale[0] = color_scale[0];
+		vk_target_scale[1] = color_scale[1];
 	}
 	else
 	{
-		target_scale[0] = depth_scale[0];
-		target_scale[1] = depth_scale[1];
+		vk_target_scale[0] = depth_scale[0];
+		vk_target_scale[1] = depth_scale[1];
 	}
 	if (!targets_known || memcmp(&targets.color, &targets_told.color, sizeof(targets.color)) ||
 		memcmp(&targets.depth, &targets_told.depth, sizeof(targets.depth)))
@@ -255,11 +278,6 @@ static const void *rendered_find(unsigned long data, unsigned long *width, unsig
 	return &rendered[best];
 }
 
-/* xbox_textures.c, hud_hires.c and text_hires.c call this after their own GL
-calls, which under Vulkan have no context and do nothing */
-void xgpu_gl_state_invalidate(void)
-{
-}
 
 /* ---------- debug.vk_self_test: the data a draw reads is copied at the draw (phase 3)
 
@@ -334,10 +352,10 @@ static void shader_self_test_one(const char *name, uint32_t stage, uint64_t hash
 	uint32_t status = VK_SHADER_STATUS_UNKNOWN, handle = 0;
 	int attempt;
 
-	host_vk_shader_compile(stage, hash, (uint32_t)(uintptr_t)glsl, (uint32_t)strlen(glsl));
+	host_vk_shader_compile(stage, hash, glsl, (uint32_t)strlen(glsl));
 	for (attempt = 0; attempt < 500; attempt++)
 	{
-		handle = host_vk_shader_find(stage, hash, (uint32_t)(uintptr_t)&status);
+		handle = host_vk_shader_find(stage, hash, &status);
 		if (handle || status == VK_SHADER_STATUS_FAILED)
 			break;
 		usleep(10000);
@@ -356,55 +374,53 @@ static void shader_self_test(void)
 	shader_self_test_one("a pixel shader that does not", VK_SHADER_STAGE_PIXEL, 0x5e1f7e57deadbef1ull,
 		"#version 450\nvoid main()\n{\n\tthis is not glsl;\n}\n", FALSE);
 }
-/* ---------- the main menu's line under the version number (menu_functions.c): this renderer, and the driver archive the host
-loaded, if it is not the phone's own driver (on a second line) */
+/* ---------- the renderer's name (the "renderer=" line of the log: Direct3D_CreateDevice), with the driver archive the
+backend loaded when it is not the phone's own driver */
 
-uint32_t host_vk_driver_name(uint32_t out, uint32_t size);
-
-char const *d3d8_renderer_description(void)
+static const char *vk_renderer_name(void)
 {
-	static char description[64];
+	static char description[80];
 
 	if (!description[0])
 	{
 		char driver[56];
 
 		driver[0] = 0;
-		host_vk_driver_name((uint32_t)(uintptr_t)driver, sizeof(driver));
+		host_vk_driver_name(driver, sizeof(driver));
 		if (driver[0])
-			snprintf(description, sizeof(description), "Vulkan\r%s", driver);
+			snprintf(description, sizeof(description), "vulkan (%s)", driver);
 		else
-			snprintf(description, sizeof(description), "Vulkan");
+			snprintf(description, sizeof(description), "vulkan");
 	}
 	return description;
 }
+
 /* ---------- visibility (occlusion) tests (phase 6, step 6)
 
 The draws between Begin and End are the test's: the host counts the samples they pass (an occlusion query, host_vk_visibility.c)
 and keeps the count, in the game's pixels, for the slot End names. The result is asked for through an import that never waits (the
 latest count of the slot: from this test, or from an earlier one while the GPU is behind), as d3d8_gl.c's query buffer path gives. */
 
-#define VISIBILITY_TEST_SLOTS 4096
+static BOOL vk_test_active;
+/* the number of the latest test ended on each slot (D3DDevice_EndVisibilityTest's) */
+static unsigned long vk_test_number[VISIBILITY_TEST_SLOTS];
 
-uint32_t host_vk_visibility(uint32_t index);
-
-static BOOL visibility_pending[VISIBILITY_TEST_SLOTS];
-
-void WINAPI D3DDevice_BeginVisibilityTest(void)
+static void vk_visibility_begin(void)
 {
-	if (!device.video_ready || device.visibility_test_active)
+	if (!vk.ready || vk_test_active)
 		return;
-	device.visibility_test_active = TRUE;
+	vk_test_active = TRUE;
 	stream_command(VK_COMMAND_VISIBILITY_BEGIN, sizeof(struct vk_command_header));
 }
 
-HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
+/* number: the test's (D3DDevice_EndVisibilityTest); FALSE when no test was running */
+static BOOL vk_visibility_end(DWORD index, unsigned long number)
 {
 	struct vk_command_visibility_end *command;
 
-	if (!device.video_ready || !device.visibility_test_active)
-		return S_OK;
-	device.visibility_test_active = FALSE;
+	if (!vk.ready || !vk_test_active)
+		return FALSE;
+	vk_test_active = FALSE;
 	index %= VISIBILITY_TEST_SLOTS;
 	if (!index)
 		index = 1;
@@ -412,100 +428,31 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	command->index = (uint32_t)index;
 	/* the target's pixels to a game pixel: the count is of the game's pixels (visibility_unscaled in d3d8_gl.c), which the game
 	divides by its own test's area (lens flares, rasterizer_lights.c), a split-screen window's or the screen's alike */
-	command->area = target_scale[0] * target_scale[1];
-	visibility_pending[index] = TRUE;
-	return S_OK;
+	command->area = vk_target_scale[0] * vk_target_scale[1];
+	vk_test_number[index] = number;
+	return TRUE;
 }
 
-HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULONGLONG *time_stamp)
+/* the slot's latest count the backend knows (host_vk_visibility.c: this test's once the GPU is through its frame, the slot's
+earlier count until then), and the number of the latest test ended on the slot */
+static UINT vk_visibility_result(DWORD index, unsigned long *number)
 {
-	if (time_stamp)
-		*time_stamp = 0;
 	index %= VISIBILITY_TEST_SLOTS;
 	if (!index)
 		index = 1;
-	if (!device.video_ready || !visibility_pending[index])
-	{
-		if (result)
-			*result = 0;
-		return S_OK;
-	}
-	if (result)
-		*result = host_vk_visibility((uint32_t)index);
-	return S_OK;
+	*number = vk_test_number[index];
+	if (!vk.ready)
+		return 0;
+	return host_vk_visibility((uint32_t)index);
 }
+
 /* ---------- the shaders a draw would use (phase 4)
 
 Nothing is drawn yet (phase 6), but at each draw the device makes the pixel shader key as d3d8_gl.c's prepare_draw
 does, without binding anything, and notes it and the vertex shader for the dump (debug.gpu_dump_shaders), which
 tools/vk_shader_check.py and the probe's `shaders` step take as their corpus. */
 
-/* size is a multiple of 4 (d3d8_gl.c's hash_words) */
-static unsigned long hash_words(const void *data, unsigned long size)
-{
-	const DWORD *words = data;
-	unsigned long hash = 2166136261UL;
-
-	for (size /= 4; size; size--)
-		hash = (hash ^ *words++) * 16777619UL;
-	return hash;
-}
-
 typedef char pixel_shader_key_size_assert[sizeof(struct nv2a_pixel_shader_key) % 4 == 0 ? 1 : -1];
-
-static unsigned long stage_texture_mode(int stage)
-{
-	return (D3D__RenderState[D3DRS_PSTEXTUREMODES] >> (5 * stage)) & 0x1f;
-}
-
-/* what bind_textures in d3d8_gl.c decides for the key: a stage with no texture, or in modes 0, 0x04 and 0x05, has no
-sampler (mode 0x11 a 2D one); otherwise the sampler is the texture's own type, and stage 0's coverage_alpha is whether
-its bitmap has a high-res meter (hud_hires.h) whose green is its coverage. The cache there finds the override when it
-uploads the pixels; here it is asked the same way, without the GL texture (the texture's own decoding failing, which
-d3d8_gl.c would see, is not seen) */
-static void key_textures(struct nv2a_pixel_shader_key *key)
-{
-	int stage;
-
-	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
-	{
-		D3DBaseTexture *texture = device.textures[stage];
-		unsigned long mode = stage_texture_mode(stage);
-		struct xgpu_texture_description description;
-		BOOL palettized;
-
-		if (!texture || !texture->Data || mode == 0 || mode == 0x04 || mode == 0x05 || mode == 0x11)
-		{
-			key->sampler_type[stage] = mode == 0x11 ? _xgpu_sampler_2d : _xgpu_sampler_none;
-			continue;
-		}
-		/* a render target sampled as a texture is a 2D image whatever the texture says (bind_textures in d3d8_gl.c) */
-		{
-			unsigned long target_width, target_height;
-
-			if (rendered_find(texture->Data, &target_width, &target_height))
-			{
-				key->sampler_type[stage] = _xgpu_sampler_2d;
-				continue;
-			}
-		}
-		xgpu_texture_describe(texture->Format, texture->Size, &description);
-		if (stage == 0)
-		{
-			palettized = ((texture->Format & D3DFORMAT_FORMAT_MASK) >> D3DFORMAT_FORMAT_SHIFT) == 0x0b;
-			if (!palettized && !description.cube_map && description.depth == 1)
-			{
-				long override = hud_hires_override_find((unsigned long)PLATFORM_PHYSICAL_TO_VIRTUAL(texture->Data),
-					description.width, description.height, description.levels > 1 ?
-					xgpu_texture_level_offset(&description, 1) : xgpu_texture_face_size(&description));
-
-				key->coverage_alpha = override >= 0 && hud_hires_override_coverage(override) != 0;
-			}
-		}
-		key->sampler_type[stage] = description.cube_map ? _xgpu_sampler_cube :
-			description.depth > 1 ? _xgpu_sampler_3d : _xgpu_sampler_2d;
-	}
-}
 
 /* the key as prepare_draw makes it (count_samples stays 0: the visibility tests are occlusion queries) */
 static void pixel_key_make(struct nv2a_pixel_shader_key *key)
@@ -519,16 +466,12 @@ static void pixel_key_make(struct nv2a_pixel_shader_key *key)
 	key->combiner_state[D3DRS_PSFINALCOMBINERCONSTANT0] = 0;
 	key->combiner_state[D3DRS_PSFINALCOMBINERCONSTANT1] = 0;
 	key->texture_modes = D3D__RenderState[D3DRS_PSTEXTUREMODES];
-	key_textures(key);
+	/* (the stages' sampler types and the meter's coverage are textures_make's) */
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
 	{
 		key->alpha_kill[stage] = D3D__TextureState[stage][D3DTSS_ALPHAKILL] == D3DTALPHAKILL_ENABLE;
 		key->color_sign[stage] = (unsigned char)((D3D__TextureState[stage][D3DTSS_COLORSIGN] >> 28) & 0xf);
 	}
-	/* (only with the meter's blend: hud_hires.h, nv2a_pixel_shader_key) */
-	key->coverage_alpha = key->coverage_alpha && D3D__RenderState[D3DRS_ALPHABLENDENABLE] &&
-		D3D__RenderState[D3DRS_SRCBLEND] == D3DBLEND_CONSTANTCOLOR &&
-		D3D__RenderState[D3DRS_DESTBLEND] == D3DBLEND_SRCALPHA;
 	key->alpha_test_function = D3D__RenderState[D3DRS_ALPHATESTENABLE] ? D3D__RenderState[D3DRS_ALPHAFUNC] : 0;
 	key->fog_enable = D3D__RenderState[D3DRS_FOGENABLE] != 0;
 	key->fog_table_mode = (unsigned char)D3D__RenderState[D3DRS_FOGTABLEMODE];
@@ -584,7 +527,7 @@ static uint32_t shader_handle(uint32_t stage, uint64_t hash, const struct vertex
 		platform_log("vk shaders: the first host_vk_shader_find: stage %u, hash %08x%08x (the host logs its own)",
 			(unsigned)stage, (unsigned)(hash >> 32), (unsigned)hash);
 	}
-	handle = host_vk_shader_find(stage, hash, (uint32_t)(uintptr_t)&status);
+	handle = host_vk_shader_find(stage, hash, &status);
 	if (handle)
 	{
 		entry->handle = handle;
@@ -603,7 +546,7 @@ static uint32_t shader_handle(uint32_t stage, uint64_t hash, const struct vertex
 
 		if (glsl)
 		{
-			host_vk_shader_compile(stage, hash, (uint32_t)(uintptr_t)glsl, (uint32_t)strlen(glsl));
+			host_vk_shader_compile(stage, hash, glsl, (uint32_t)strlen(glsl));
 			free(glsl);
 			entry->sent++;
 		}
@@ -611,14 +554,13 @@ static uint32_t shader_handle(uint32_t stage, uint64_t hash, const struct vertex
 	return 0;
 }
 
-/* the shaders a draw needs, as d3d8_gl.c's prepare_draw chooses them, asked for from the host (and sent when the host lacks
-them), and noted for the dump (debug.gpu_dump_shaders). FALSE if there is no program to draw with. The handles are 0 while a
-shader is queued or compiling (the draw is skipped). The key is made without binding anything. */
-static BOOL draw_shaders(BOOL immediate, struct nv2a_pixel_shader_key *key, unsigned long *mask_out, uint32_t *vertex,
+/* the shaders a draw needs, as d3d8_gl.c's prepare_draw chooses them, asked for from the backend (and sent when it lacks
+them). FALSE if there is no program to draw with. The handles are 0 while a shader is queued or compiling (the draw is
+skipped). key is the pixel shader's, made already (pixel_key_make, then textures_make). */
+static BOOL draw_shaders(BOOL immediate, const struct nv2a_pixel_shader_key *key, unsigned long *mask_out, uint32_t *vertex,
 	uint32_t *pixel)
 {
 	struct vertex_shader_object *program = current_program();
-	const char *folder = dump_folder();
 	unsigned long mask;
 	uint32_t generator = VK_SHADER_GENERATOR_VERSION;
 	uint64_t hash;
@@ -626,21 +568,23 @@ static BOOL draw_shaders(BOOL immediate, struct nv2a_pixel_shader_key *key, unsi
 	*vertex = *pixel = 0;
 	if (!program || !device.vertex_shader || !program->instructions)
 		return FALSE;
-	pixel_key_make(key);
 	mask = immediate ? 0 : device.vertex_shader->packed_mask;
 	*mask_out = mask;
-	if (folder)
-	{
-		dump_vertex_shader(folder, program, mask);
-		dump_pixel_shader(folder, key);
-	}
-	if (!device.video_ready)
+	if (!vk.ready)
 		return TRUE;
+	/* FNV-1a 64 of the instruction count and words (vk_shaders.h): what the shader cache knows the program by */
+	if (!program->vk_program_hash)
+	{
+		uint32_t count = (uint32_t)program->instruction_count;
+
+		program->vk_program_hash = vk_hash_mix(vk_hash_init(), &count, sizeof(count));
+		program->vk_program_hash = vk_hash_mix(program->vk_program_hash, program->instructions, count * 4 * sizeof(DWORD));
+	}
 	{
 		uint32_t mask32 = (uint32_t)mask;
 
 		hash = vk_hash_mix(vk_hash_init(), &generator, sizeof(generator));
-		hash = vk_hash_mix(hash, &program->program_hash, sizeof(program->program_hash));
+		hash = vk_hash_mix(hash, &program->vk_program_hash, sizeof(program->vk_program_hash));
 		hash = vk_hash_mix(hash, &mask32, sizeof(mask32));
 	}
 	*vertex = shader_handle(VK_SHADER_STAGE_VERTEX, hash, program, mask, NULL);
@@ -655,8 +599,8 @@ static struct
 {
 	unsigned long draws, immediate_draws, presents;
 	unsigned long skipped_no_program, skipped_no_target, skipped_shader, skipped_texture, skipped_other;
-} stats;
-static BOOL statistics_on, statistics_read;
+} vk_stats;
+static BOOL vk_statistics_on, vk_statistics_read;
 
 /* The Xbox's enumerants are OpenGL's (D3DBLEND_*, D3DCMP_*, the stencil operations, D3DBLENDOP_*): Vulkan's numbers for them */
 
@@ -741,9 +685,9 @@ static void raster_state_make(struct vk_command_draw *draw, BOOL has_color, BOOL
 	DWORD *rs = D3D__RenderState;
 	DWORD write = rs[D3DRS_COLORWRITEENABLE];
 	BOOL depth_test = has_depth && rs[D3DRS_ZENABLE];
-	long x0 = target_pixel((float)device.viewport.X, 0), y0 = target_pixel((float)device.viewport.Y, 1);
-	long x1 = target_pixel((float)(device.viewport.X + device.viewport.Width), 0);
-	long y1 = target_pixel((float)(device.viewport.Y + device.viewport.Height), 1);
+	long x0 = vk_target_pixel((float)device.viewport.X, 0), y0 = vk_target_pixel((float)device.viewport.Y, 1);
+	long x1 = vk_target_pixel((float)(device.viewport.X + device.viewport.Width), 0);
+	long y1 = vk_target_pixel((float)(device.viewport.Y + device.viewport.Height), 1);
 
 	draw->viewport[0] = (float)x0;
 	draw->viewport[1] = (float)y0;
@@ -936,8 +880,6 @@ static uint32_t element_format(unsigned long type)
 	default: return VK_VERTEX_FORMAT_R32G32B32A32_SFLOAT;
 	}
 }
-
-uint32_t host_vk_format_supported(uint32_t format);
 
 /* Vulkan requires few formats as vertex attributes (the 32-bit ones; the rest are optional): the host says, once for each
 format, and the guest expands what is missing into four floats. Said once in the log. */
@@ -1172,7 +1114,7 @@ static BOOL vertex_input_make(struct vk_command_draw *draw, unsigned long first,
 }
 
 /* the largest and smallest index of an index list */
-static void index_extent(const WORD *indices, unsigned long count, unsigned long *minimum, unsigned long *maximum)
+static void vk_index_extent(const WORD *indices, unsigned long count, unsigned long *minimum, unsigned long *maximum)
 {
 	unsigned long index, low = 0xffff, high = 0;
 
@@ -1188,7 +1130,7 @@ static void index_extent(const WORD *indices, unsigned long count, unsigned long
 }
 
 /* quads become two triangles each */
-static WORD *quad_indices(const WORD *indices, unsigned long count, unsigned long *out_count)
+static WORD *vk_quad_indices(const WORD *indices, unsigned long count, unsigned long *out_count)
 {
 	unsigned long quads = count / 4;
 	WORD *result = malloc(quads * 6 * sizeof(WORD) + 2);
@@ -1231,8 +1173,13 @@ static unsigned long stage_texture_mode_of(int stage)
 	return stage_texture_mode(stage);
 }
 
+static BOOL vk_texture_get(const DWORD *resource, const D3DCOLOR *palette, struct xgpu_texture_description *description,
+	uint32_t *id, BOOL *mipmapped, long *override);
+static int vk_mcc_texture_get(const DWORD *resource, const D3DCOLOR *palette, struct xgpu_texture_description *description,
+	uint32_t *id, BOOL *mipmapped, long *override);
+
 /* the Vulkan address mode for a Direct3D one (address_mode in d3d8_gl.c) */
-static uint32_t address_mode(DWORD mode)
+static uint32_t vk_address_mode(DWORD mode)
 {
 	switch (mode)
 	{
@@ -1259,9 +1206,9 @@ static void sampler_state_make(int stage, BOOL mipmapped, BOOL hires, struct vk_
 	out->min_filter = min_filter == D3DTEXF_POINT ? 0 : 1;
 	out->mag_filter = mag_filter == D3DTEXF_POINT ? 0 : 1;
 	out->mip_mode = mip_filter == D3DTEXF_NONE ? 0 : mip_filter == D3DTEXF_POINT ? 1 : 2;
-	out->address[0] = address_mode(state[D3DTSS_ADDRESSU]);
-	out->address[1] = address_mode(state[D3DTSS_ADDRESSV]);
-	out->address[2] = address_mode(state[D3DTSS_ADDRESSW]);
+	out->address[0] = vk_address_mode(state[D3DTSS_ADDRESSU]);
+	out->address[1] = vk_address_mode(state[D3DTSS_ADDRESSV]);
+	out->address[2] = vk_address_mode(state[D3DTSS_ADDRESSW]);
 	out->border_color = state[D3DTSS_BORDERCOLOR];
 	/* Vulkan's sampler has the LOD bias (phase 4 took it out of the shaders) and the lowest level used */
 	out->lod_bias = dword_to_float(lod_bias);
@@ -1305,8 +1252,10 @@ static void composite_send(unsigned long data, const struct xgpu_texture_descrip
 		command->level_data[index] = (uint32_t)(data + xgpu_texture_level_offset(description, index));
 }
 
-/* what each stage samples, and the scale a linear texture's coordinates get */
-static void textures_make(struct vk_command_draw *draw, const struct nv2a_pixel_shader_key *key, float texture_scale[4][4])
+/* what each stage samples, and the scale a linear texture's coordinates get; the key's part of them (bind_textures in
+d3d8_gl.c, bg_bind_textures in d3d8_bgfx.inl): the stages' sampler types, and stage 0's coverage_alpha and point_threshold
+(a high-res HUD meter in the bitmap's place: hud_hires.h) */
+static void textures_make(struct vk_command_draw *draw, struct nv2a_pixel_shader_key *key, float texture_scale[4][4])
 {
 	int stage;
 
@@ -1317,24 +1266,31 @@ static void textures_make(struct vk_command_draw *draw, const struct nv2a_pixel_
 		struct vk_draw_texture *out = &draw->textures[stage];
 
 		texture_scale[stage][0] = texture_scale[stage][1] = texture_scale[stage][2] = texture_scale[stage][3] = 1.0f;
-		out->sampler_type = key->sampler_type[stage];
 		if (!texture || !texture->Data || mode == 0 || mode == 0x04 || mode == 0x05 || mode == 0x11)
+		{
+			key->sampler_type[stage] = mode == 0x11 ? _xgpu_sampler_2d : _xgpu_sampler_none;
+			out->sampler_type = key->sampler_type[stage];
+			continue;
+		}
 			continue;
 		{
 			struct xgpu_texture_description description;
 			const D3DCOLOR *palette = device.palettes[stage] && device.palettes[stage]->Data ?
 				(const D3DCOLOR *)PLATFORM_PHYSICAL_TO_VIRTUAL(device.palettes[stage]->Data) : NULL;
-			unsigned long target_width, target_height;
-			int kind;
-			uint32_t id;
+			unsigned long target_width, target_height, levels = 1;
+			BOOL mipmapped = FALSE, hires = FALSE;
+			unsigned int name;
+			uint32_t id = 0;
 
+			xgpu_texture_describe(texture->Format, texture->Size, &description);
+			key->sampler_type[stage] = description.cube_map ? _xgpu_sampler_cube :
+				description.depth > 1 ? _xgpu_sampler_3d : _xgpu_sampler_2d;
 			/* a texture whose data is a render target's samples the target (render-to-texture); linear ones have their
 			coordinates scaled by the target's size */
 			if (rendered_find(texture->Data, &target_width, &target_height))
 			{
-				unsigned long levels = 1;
-
-				xgpu_texture_describe(texture->Format, texture->Size, &description);
+				levels = 1;
+				key->sampler_type[stage] = _xgpu_sampler_2d;
 				out->kind = VK_TEXTURE_TARGET;
 				out->id = texture->Data;
 				if (description.linear)
@@ -1353,25 +1309,80 @@ static void textures_make(struct vk_command_draw *draw, const struct nv2a_pixel_
 				out->levels = (uint32_t)levels;
 				out->width = (uint32_t)description.width;
 				out->height = (uint32_t)description.height;
+				out->sampler_type = key->sampler_type[stage];
 				sampler_state_make(stage, levels > 1, FALSE, &out->sampler);
 				continue;
 			}
-			id = vk_texture_get((const DWORD *)texture, palette, &kind, &description);
-			if (!id)
-				continue;
+			/* (the high-res text's atlas for its placeholder bitmap, and a menu's art: text_hires.h, menu_files.h) */
+			if ((name = text_hires_atlas_texture(texture->Data)) != 0)
+			{
+				id = name;
+			}
+			else if ((name = menu_art_texture(texture->Data, &levels)) != 0)
+			{
+				id = name;
+				mipmapped = levels > 1;
+				hires = TRUE;
+			}
+			else
+			{
+				long override = -1;
+				int mcc = vk_mcc_texture_get((const DWORD *)texture, palette, &description, &id, &mipmapped, &override);
+
+				if (mcc >= 0)
+				{
+					/* (an MCC map's: its kind from its own description, and a converted meter's coverage, as d3d8_gl.c's
+					bind_textures) */
+					key->sampler_type[stage] = description.cube_map ? _xgpu_sampler_cube :
+						description.depth > 1 ? _xgpu_sampler_3d : _xgpu_sampler_2d;
+					hires = description.hires;
+					if (stage == 0)
+					{
+						key->coverage_alpha = description.hires_coverage != FALSE;
+						key->point_threshold = description.hires_point_threshold != FALSE;
+					}
+				}
+				if (mcc == 0 || (mcc < 0 &&
+					!vk_texture_get((const DWORD *)texture, palette, &description, &id, &mipmapped, &override)))
+					id = 0;
+				else if (override >= 0)
+				{
+					/* (a high-res HUD texture in the bitmap's place: hud_hires.h) */
+					name = hud_hires_override_texture(override, &levels);
+					id = name;
+					mipmapped = levels > 1;
+					hires = TRUE;
+					if (stage == 0)
+					{
+						key->coverage_alpha = hud_hires_override_coverage(override) != 0;
+						key->point_threshold = hud_hires_override_point_threshold(override) != 0;
+					}
+				}
+			}
 			if (description.linear)
 			{
 				texture_scale[stage][0] = 1.0f / (float)description.width;
 				texture_scale[stage][1] = 1.0f / (float)description.height;
 			}
+			out->sampler_type = key->sampler_type[stage];
+			if (!id)
+			{
+				vk_stats.skipped_texture++;
+				continue;
+			}
 			out->kind = VK_TEXTURE_IMAGE;
 			out->id = id;
-			sampler_state_make(stage, description.levels > 1, description.hires, &out->sampler);
+			sampler_state_make(stage, mipmapped, hires, &out->sampler);
 		}
 	}
+	/* (only with the meter's blend: hud_hires.h, nv2a_pixel_shader_key) */
+	key->coverage_alpha = key->coverage_alpha && D3D__RenderState[D3DRS_ALPHABLENDENABLE] &&
+		D3D__RenderState[D3DRS_SRCBLEND] == D3DBLEND_CONSTANTCOLOR &&
+		D3D__RenderState[D3DRS_DESTBLEND] == D3DBLEND_SRCALPHA;
 }
 
 /* a draw: prepare_draw and the draw calls of d3d8_gl.c, as one VK_COMMAND_DRAW. index_data is the game's indices (NULL for
+a draw of consecutive vertices from start); immediate is End's draw of the vertices of Begin. */
 static void draw_make(D3DPRIMITIVETYPE type, unsigned long count, BOOL immediate, const WORD *index_data, unsigned long start)
 {
 	struct vk_command_draw record;
@@ -1384,25 +1395,31 @@ static void draw_make(D3DPRIMITIVETYPE type, unsigned long count, BOOL immediate
 	const WORD *indices = NULL;
 	int stage;
 
-	if (!device.video_ready)
+	if (!vk.ready)
 		return;
-	if (!draw_shaders(immediate, &key, &mask, &vertex, &pixel))
+	if (!current_program() || !device.vertex_shader)
 	{
-		stats.skipped_no_program++;
+		vk_stats.skipped_no_program++;
 		return;
 	}
 	if (!targets_bind(&has_depth))
 	{
-		stats.skipped_no_target++;
+		vk_stats.skipped_no_target++;
+		return;
+	}
+	memset(&record, 0, sizeof(record));
+	pixel_key_make(&key);
+	textures_make(&record, &key, texture_scale);
+	if (!draw_shaders(immediate, &key, &mask, &vertex, &pixel))
+	{
+		vk_stats.skipped_no_program++;
 		return;
 	}
 	if (!vertex || !pixel)
 	{
-		stats.skipped_shader++;
+		vk_stats.skipped_shader++;
 		return;
 	}
-	memset(&record, 0, sizeof(record));
-	textures_make(&record, &key, texture_scale);
 	record.vertex_shader = vertex;
 	record.pixel_shader = pixel;
 	raster_state_make(&record, targets_told.color.kind != VK_SURFACE_NONE, has_depth);
@@ -1411,7 +1428,7 @@ static void draw_make(D3DPRIMITIVETYPE type, unsigned long count, BOOL immediate
 	/* the indices: the game's (an indexed draw), or made (a quad list, a line loop) */
 	if (index_data)
 	{
-		index_extent(index_data, count, &minimum, &maximum);
+		vk_index_extent(index_data, count, &minimum, &maximum);
 		first = device.base_vertex_index + minimum;
 		vertices = maximum - minimum + 1;
 		indices = index_data;
@@ -1424,7 +1441,7 @@ static void draw_make(D3DPRIMITIVETYPE type, unsigned long count, BOOL immediate
 	}
 	if (type == D3DPT_QUADLIST)
 	{
-		made = quad_indices(index_data, count, &index_count);
+		made = vk_quad_indices(index_data, count, &index_count);
 		indices = made;
 	}
 	else if (type == D3DPT_LINELOOP)
@@ -1447,7 +1464,7 @@ static void draw_make(D3DPRIMITIVETYPE type, unsigned long count, BOOL immediate
 	}
 	else if (!vertex_input_make(&record, first, vertices))
 	{
-		stats.skipped_other++;
+		vk_stats.skipped_other++;
 		free(made);
 		return;
 	}
@@ -1476,30 +1493,40 @@ static void draw_make(D3DPRIMITIVETYPE type, unsigned long count, BOOL immediate
 		*command = record;
 	}
 	if (immediate)
-		stats.immediate_draws++;
+		vk_stats.immediate_draws++;
 	else
-		stats.draws++;
+		vk_stats.draws++;
 }
 
-void WINAPI D3DDevice_DrawVertices(D3DPRIMITIVETYPE primitive_type, UINT start_vertex, UINT vertex_count)
+static void vk_draw_vertices(D3DPRIMITIVETYPE type, unsigned long start, unsigned long count)
 {
-	if (vertex_count)
-		draw_make(primitive_type, vertex_count, FALSE, NULL, start_vertex);
+	if (count)
+		draw_make(type, count, FALSE, NULL, start);
 }
 
-void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT vertex_count, CONST WORD *index_data)
+static void vk_draw_indexed(D3DPRIMITIVETYPE type, unsigned long count, const WORD *indices)
 {
-	if (vertex_count && index_data)
-		draw_make(primitive_type, vertex_count, FALSE, index_data, 0);
+	if (count && indices)
+		draw_make(type, count, FALSE, indices, 0);
 }
-void WINAPI D3DDevice_Clear(DWORD count, CONST D3DRECT *rectangles, DWORD flags, D3DCOLOR color, float z, DWORD stencil)
+
+/* End's draw of the vertices of Begin (device.immediate_vertices) */
+static void vk_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count)
+{
+	if (count)
+		draw_make(type, count, TRUE, NULL, 0);
+}
+
+/* ---------- clearing */
+
+static void vk_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOLOR color, float z, DWORD stencil)
 {
 	struct vk_command_clear *command;
 	uint32_t clear_flags = 0;
 	BOOL has_depth = FALSE;
 	DWORD index, kept = 0;
 
-	if (!device.video_ready || !targets_bind(&has_depth))
+	if (!vk.ready || !targets_bind(&has_depth))
 		return;
 	if (flags & D3DCLEAR_TARGET)
 	{
@@ -1523,13 +1550,13 @@ void WINAPI D3DDevice_Clear(DWORD count, CONST D3DRECT *rectangles, DWORD flags,
 	{
 		/* the NV2A clips a viewport-less clear to the viewport, which is what
 		keeps a split-screen window's clear from wiping the other window */
-		long x0 = target_pixel((float)device.viewport.X, 0);
-		long y0 = target_pixel((float)device.viewport.Y, 1);
+		long x0 = vk_target_pixel((float)device.viewport.X, 0);
+		long y0 = vk_target_pixel((float)device.viewport.Y, 1);
 
 		command->rectangles[0][0] = (uint32_t)x0;
 		command->rectangles[0][1] = (uint32_t)y0;
-		command->rectangles[0][2] = (uint32_t)(target_pixel((float)(device.viewport.X + device.viewport.Width), 0) - x0);
-		command->rectangles[0][3] = (uint32_t)(target_pixel((float)(device.viewport.Y + device.viewport.Height), 1) - y0);
+		command->rectangles[0][2] = (uint32_t)(vk_target_pixel((float)(device.viewport.X + device.viewport.Width), 0) - x0);
+		command->rectangles[0][3] = (uint32_t)(vk_target_pixel((float)(device.viewport.Y + device.viewport.Height), 1) - y0);
 		command->rectangle_count = 1;
 		return;
 	}
@@ -1545,76 +1572,648 @@ void WINAPI D3DDevice_Clear(DWORD count, CONST D3DRECT *rectangles, DWORD flags,
 
 		if (left >= right || top >= bottom)
 			continue;
-		x0 = target_pixel((float)(left + UI_OFFSET), 0);
-		y0 = target_pixel((float)top, 1);
+		x0 = vk_target_pixel((float)(left + UI_OFFSET), 0);
+		y0 = vk_target_pixel((float)top, 1);
 		command->rectangles[kept][0] = (uint32_t)x0;
 		command->rectangles[kept][1] = (uint32_t)y0;
-		command->rectangles[kept][2] = (uint32_t)(target_pixel((float)(right + UI_OFFSET), 0) - x0);
-		command->rectangles[kept][3] = (uint32_t)(target_pixel((float)bottom, 1) - y0);
+		command->rectangles[kept][2] = (uint32_t)(vk_target_pixel((float)(right + UI_OFFSET), 0) - x0);
+		command->rectangles[kept][3] = (uint32_t)(vk_target_pixel((float)bottom, 1) - y0);
 		kept++;
 	}
 	command->rectangle_count = kept;
 }
 /* ---------- presentation */
 
-void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destination_rectangle,
-	void *unused, void *unused2)
+static void vk_textures_frame(void);
+
+/* the frame's end: the back buffer shown, the stream handed over, the next frame started with nothing bound and no data */
+static void vk_present(void)
 {
-	(void)source_rectangle;
-	(void)destination_rectangle;
-	(void)unused;
-	(void)unused2;
-	if (device.video_ready)
-	{
-		struct vk_command_present *command = stream_command(VK_COMMAND_PRESENT, sizeof(*command));
-		float scale[2];
+	struct vk_command_present *command;
+	float scale[2];
 
-		surface_describe(&device.back_buffer, FALSE, &command->back_buffer, scale);
-		stream_flush();
-		/* the host starts the next frame with nothing bound, and with no data */
-		targets_known = FALSE;
-		data_id = 0;
-		puts_reset();
-		vk_texture_cache_begin_frame();
-		stats.presents++;
-		if (!statistics_read)
-		{
-			statistics_read = TRUE;
-			statistics_on = config_boolean("debug.gpu_stats");
-		}
-		if (statistics_on && stats.presents >= 60)
-		{
-			platform_log("frame %lu: %lu draws, %lu immediate; skipped %lu no program, %lu no target, %lu shader not ready, "
-				"%lu textured, %lu other", device.frame, stats.draws / stats.presents, stats.immediate_draws / stats.presents,
-				stats.skipped_no_program, stats.skipped_no_target, stats.skipped_shader, stats.skipped_texture,
-				stats.skipped_other);
-			memset(&stats, 0, sizeof(stats));
-		}
-	}
-	dump_present();
-	/* the stand-in window's swap: holds the frame to the display's rate until the
-	host's swapchain presents (host_vk_presenting), after which it does */
-	platform_video_swap();
-	device.frame++;
-	platform_pump_events();
-
-	pthread_mutex_lock(&vertical_blank_lock);
-	/* the Xbox keeps at most two frames queued behind its 60 Hz display;
-	with interpolation, frames come at the real display's rate instead */
-	if (halo_interpolation_enabled())
+	if (!vk.ready)
+		return;
+	command = stream_command(VK_COMMAND_PRESENT, sizeof(*command));
+	surface_describe(&device.back_buffer, FALSE, &command->back_buffer, scale);
+	stream_flush();
+	targets_known = FALSE;
+	data_id = 0;
+	puts_reset();
+	vk_textures_frame();
+	vk.frame++;
+	vk_stats.presents++;
+	if (!vk_statistics_read)
 	{
-		flip_count++;
+		vk_statistics_read = TRUE;
+		vk_statistics_on = config_boolean("debug.gpu_stats");
 	}
-	else
+	if (vk_statistics_on && vk_stats.presents >= 60)
 	{
-		while (pending_flips >= 2)
-			pthread_cond_wait(&vertical_blank_condition, &vertical_blank_lock);
-		pending_flips++;
+		platform_log("frame %lu: %lu draws, %lu immediate; skipped %lu no program, %lu no target, %lu shader not ready, "
+			"%lu textured, %lu other", device.frame, vk_stats.draws / vk_stats.presents,
+			vk_stats.immediate_draws / vk_stats.presents, vk_stats.skipped_no_program, vk_stats.skipped_no_target,
+			vk_stats.skipped_shader, vk_stats.skipped_texture, vk_stats.skipped_other);
+		memset(&vk_stats, 0, sizeof(vk_stats));
 	}
-	pthread_mutex_unlock(&vertical_blank_lock);
 }
 
-HRESULT WINAPI D3DDevice_PersistDisplay(void)
+static void vk_frame_account(char *text, size_t size)
 {
-	return S_OK;
+	if (size)
+		text[0] = 0;
+}
+
+static BOOL vk_active(void)
+{
+	return vk.ready;
+}
+
+/* the back buffer as the game sees it, and the pixels it is drawn at (view_read in d3d8_gl.c) */
+static BOOL vk_back_buffer_size(int *width, int *height, int *pixel_width, int *pixel_height)
+{
+	struct vk_surface surface;
+	float scale[2];
+
+	if (!vk.ready)
+		return FALSE;
+	surface_describe(&device.back_buffer, FALSE, &surface, scale);
+	if (surface.kind == VK_SURFACE_NONE)
+		return FALSE;
+	*width = (int)surface.width;
+	*height = (int)surface.height;
+	*pixel_width = (int)surface.pixel_width;
+	*pixel_height = (int)surface.pixel_height;
+	return TRUE;
+}
+
+/* ---------- the game's textures as images
+
+As the bgfx backend keeps its own (d3d8_bgfx.inl, bg_texture_get): found by the texture's address, format and size (and its
+palette), uploaded again when a page they were read from was written (memory_watch.c), decoded by xbox_textures.c's helpers,
+BC1 to BC3 sent as they are when the device samples them. An image is let go after VK_TEXTURE_IDLE_FRAMES frames unused. The
+high-res HUD bitmaps, the text's atlas and the menus' art are images of the same numbering (xgpu_vulkan_texture_create). */
+
+#define VK_TEXTURE_BUCKETS 4096
+#define VK_TEXTURE_IDLE_FRAMES 1800
+
+struct vk_texture
+{
+	struct vk_texture *next;
+	DWORD data, format_word, size_word;
+	unsigned long palette_hash;
+	unsigned long address, size, generation;
+	struct xgpu_texture_description description;
+	uint32_t id;
+	int kind;
+	BOOL created, mipmapped, failed;
+	/* the frame it was last drawn with */
+	unsigned long used_frame;
+	/* the high-res HUD texture drawn in its place (hud_hires.h), or -1, as of its settings' changes */
+	long override;
+	unsigned long override_settings;
+};
+
+static struct vk_texture *vk_textures[VK_TEXTURE_BUCKETS];
+/* the image numbers (the backend's table has VK_TEXTURE_LIMIT of them, 0 being no texture): handed out in order, and taken
+back when an image is let go */
+static uint32_t vk_id_next = 1;
+static uint32_t vk_id_free[VK_TEXTURE_LIMIT];
+static uint32_t vk_id_free_count;
+
+static uint32_t vk_id_take(void)
+{
+	if (vk_id_free_count)
+		return vk_id_free[--vk_id_free_count];
+	if (vk_id_next >= VK_TEXTURE_LIMIT)
+		return 0;
+	return vk_id_next++;
+}
+
+static void vk_image_free(uint32_t id)
+{
+	struct vk_command_texture_free *command;
+
+	if (!id)
+		return;
+	command = stream_command(VK_COMMAND_TEXTURE_FREE, sizeof(*command));
+	command->id = id;
+	vk_id_free[vk_id_free_count++] = id;
+}
+
+/* makes image id (its texels undefined until the data comes) */
+static void vk_image_make(uint32_t id, uint32_t kind, uint32_t format, unsigned long width, unsigned long height,
+	unsigned long depth, unsigned long levels)
+{
+	struct vk_command_texture *command = stream_command(VK_COMMAND_TEXTURE, sizeof(*command));
+
+	command->id = id;
+	command->kind = kind;
+	command->format = format;
+	command->width = (uint32_t)width;
+	command->height = (uint32_t)height;
+	command->depth = (uint32_t)depth;
+	command->levels = (uint32_t)levels;
+}
+
+/* sends a level of a face: its texels put, and the command that names them. rows is 0 for all of the level, else the 2D BGRA
+rows [top, top + rows) of it */
+static void vk_image_data(uint32_t id, unsigned long level, unsigned long face, const void *texels, unsigned long bytes,
+	unsigned long top, unsigned long rows)
+{
+	uint32_t put = vk_data_put(texels, bytes);
+	struct vk_command_texture_data *command = stream_command(VK_COMMAND_TEXTURE_DATA, sizeof(*command));
+
+	command->id = id;
+	command->level = (uint32_t)level;
+	command->face = (uint32_t)face;
+	command->data.id = put;
+	command->data.offset = 0;
+	command->top = (uint32_t)top;
+	command->rows = (uint32_t)rows;
+}
+
+/* whether BC1 to BC3 go to the device as they are (said once) */
+static BOOL vk_bc_native(void)
+{
+	static int known = -1;
+
+	if (known < 0)
+	{
+		known = host_vk_bc_supported() != 0;
+		platform_log("vk: BC1 to BC3 textures %s", known ? "are sampled as they are" : "are decoded to BGRA");
+	}
+	return known;
+}
+
+static unsigned long vk_level_dimension(unsigned long size, unsigned long level)
+{
+	size >>= level;
+	return size ? size : 1;
+}
+
+static unsigned long vk_palette_hash(const D3DCOLOR *palette)
+{
+	return palette ? hash_words(palette, 256 * sizeof(D3DCOLOR)) : 0;
+}
+
+/* the texture's texels sent as image entry->id: the image's description, then every level of every face. A compressed
+texture is read where the game keeps it (BC) or decoded; any other is decoded to BGRA (bg_texture_upload in d3d8_bgfx.inl) */
+static void vk_texture_upload(struct vk_texture *entry, const unsigned char *base, const D3DCOLOR *palette)
+{
+	struct xgpu_texture_description *description = &entry->description;
+	int dxt = description->compressed ? xgpu_texture_dxt(description) : 0;
+	unsigned long levels = description->levels ? description->levels : 1, level, face;
+	BOOL volume = description->depth > 1;
+	/* (a 3D image of a BC format is optional in Vulkan, where 2D and cube ones are not: a 3D one is decoded) */
+	BOOL native = dxt && !volume && vk_bc_native();
+	unsigned long *decoded = NULL;
+
+	if (description->compressed && !dxt)
+	{
+		platform_log("vk: a compressed texture that is not DXT is not drawn");
+		entry->failed = TRUE;
+		return;
+	}
+	if (!entry->created)
+	{
+		entry->id = vk_id_take();
+		if (!entry->id)
+		{
+			entry->failed = TRUE;
+			return;
+		}
+		entry->kind = description->cube_map ? VK_IMAGE_CUBE : volume ? VK_IMAGE_3D : VK_IMAGE_2D;
+		entry->created = TRUE;
+		entry->mipmapped = levels > 1;
+	}
+	vk_image_make(entry->id, (uint32_t)entry->kind, native ? (dxt == 1 ? VK_IMAGE_FORMAT_BC1 : dxt == 3 ? VK_IMAGE_FORMAT_BC2 :
+		VK_IMAGE_FORMAT_BC3) : VK_IMAGE_FORMAT_BGRA, description->width, description->height,
+		volume ? description->depth : 1, levels);
+	if (!native)
+	{
+		decoded = malloc(description->width * description->height * (volume ? description->depth : 1) * 4);
+		if (!decoded)
+		{
+			entry->failed = TRUE;
+			return;
+		}
+	}
+	for (face = 0; face < (description->cube_map ? 6UL : 1UL); face++)
+	for (level = 0; level < levels; level++)
+	{
+		unsigned long width = vk_level_dimension(description->width, level);
+		unsigned long height = vk_level_dimension(description->height, level);
+		unsigned long depth = volume ? vk_level_dimension(description->depth, level) : 1;
+		const unsigned char *source = base + face * xgpu_texture_face_size(description) +
+			xgpu_texture_level_offset(description, level);
+
+		/* (Halo PC's cube map: its levels one after another, each the six faces', the second and third swapped;
+		xbox_textures.c's upload) */
+		if (description->pc_layout && description->cube_map)
+			source = base + xgpu_texture_level_offset(description, level) * 6 +
+				(face == 1 ? 2 : face == 2 ? 1 : face) * xgpu_texture_level_bytes(description, level);
+		if (native)
+		{
+			vk_image_data(entry->id, level, face, source, xgpu_texture_level_bytes(description, level), 0, 0);
+			continue;
+		}
+		if (!xgpu_texture_decode_level(description, level, source, palette, decoded))
+			memset(decoded, 0, width * height * depth * 4);
+		vk_image_data(entry->id, level, face, decoded, width * height * depth * 4, 0, 0);
+	}
+	free(decoded);
+}
+
+/* a stage's texture (xgpu_texture_get's), uploaded again when its pages have been written; FALSE if it cannot be drawn */
+static BOOL vk_texture_get(const DWORD *resource, const D3DCOLOR *palette, struct xgpu_texture_description *description,
+	uint32_t *id, BOOL *mipmapped, long *override)
+{
+	DWORD data = resource[1], format_word = resource[3], size_word = resource[4];
+	BOOL palettized = ((format_word & D3DFORMAT_FORMAT_MASK) >> D3DFORMAT_FORMAT_SHIFT) == 0x0b;
+	unsigned long hash = vk_palette_hash(palette);
+	unsigned long bucket = (hash_words(&data, sizeof(data)) ^ hash_words(&format_word, sizeof(format_word)) * 31 ^
+		hash_words(&size_word, sizeof(size_word)) * 17 ^ hash) % VK_TEXTURE_BUCKETS;
+	struct vk_texture *entry;
+	unsigned long generation;
+
+	*override = -1;
+	for (entry = vk_textures[bucket]; entry; entry = entry->next)
+	{
+		if (entry->data == data && entry->format_word == format_word && entry->size_word == size_word &&
+			entry->palette_hash == hash)
+			break;
+	}
+	if (!entry)
+	{
+		entry = calloc(1, sizeof(*entry));
+		if (!entry)
+			return FALSE;
+		entry->data = data;
+		entry->format_word = format_word;
+		entry->size_word = size_word;
+		entry->palette_hash = hash;
+		entry->override = -1;
+		xgpu_texture_describe(format_word, size_word, &entry->description);
+#ifdef HALO_64BIT
+		entry->address = (unsigned int)data | PLATFORM_CONTIGUOUS_BASE; /* an Xbox address */
+#else
+		entry->address = (unsigned long)PLATFORM_PHYSICAL_TO_VIRTUAL(data);
+#endif
+		entry->size = xgpu_texture_face_size(&entry->description) * (entry->description.cube_map ? 6 : 1);
+		entry->next = vk_textures[bucket];
+		vk_textures[bucket] = entry;
+	}
+	*description = entry->description;
+	if (entry->failed || !entry->size)
+		return FALSE;
+	generation = memory_watch_generation(entry->address, entry->size);
+	if (!entry->created || generation > entry->generation || entry->override_settings != hud_hires_settings())
+	{
+		entry->description.pc_layout = (resource[0] & D3DCOMMON_PORT_PC_LAYOUT) != 0;
+		entry->description.pc_meter = (resource[0] & D3DCOMMON_PORT_PC_METER) != 0;
+		entry->description.pc_multipurpose = (resource[0] & D3DCOMMON_PORT_PC_MULTIPURPOSE) != 0;
+		memory_watch_protect(entry->address, entry->size);
+		entry->generation = memory_watch_generation(entry->address, entry->size);
+		if (!entry->generation)
+			entry->generation = 1;
+		/* (which bitmap is here may have changed with the pixels, and whether it has a high-res stand-in with the
+		settings) */
+		entry->override = -1;
+		entry->override_settings = hud_hires_settings();
+		if (!palettized && !entry->description.cube_map && entry->description.depth == 1)
+		{
+			unsigned long levels;
+
+			entry->override = hud_hires_override_find(entry->address, entry->description.width,
+				entry->description.height, entry->description.levels > 1 ?
+				xgpu_texture_level_offset(&entry->description, 1) : xgpu_texture_face_size(&entry->description));
+			if (entry->override >= 0 && !hud_hires_override_texture(entry->override, &levels))
+				entry->override = -1;
+		}
+		if (entry->override < 0)
+		{
+			if (!platform_is_contiguous(xbox_pointer(entry->address)) ||
+				!platform_is_contiguous(xbox_pointer(entry->address + entry->size - 1)))
+				return FALSE;
+			/* (drawn with already this frame: a new image, so the frame's earlier draws keep the old pixels, as they
+			did on the Xbox) */
+			if (entry->created && entry->used_frame == vk.frame)
+			{
+				vk_image_free(entry->id);
+				entry->id = 0;
+				entry->created = FALSE;
+			}
+			vk_texture_upload(entry, (const unsigned char *)xbox_pointer(entry->address), palette);
+		}
+		*description = entry->description;
+	}
+	*override = entry->override;
+	if (entry->override >= 0)
+		return TRUE;
+	if (entry->failed || !entry->created)
+		return FALSE;
+	entry->used_frame = vk.frame;
+	*id = entry->id;
+	*mipmapped = entry->mipmapped;
+	return TRUE;
+}
+
+/* once a frame: the images not drawn with for VK_TEXTURE_IDLE_FRAMES are let go (the next draw uploads again) */
+static void vk_textures_frame(void)
+{
+	unsigned long bucket;
+
+	if (vk.frame % 120)
+		return;
+	for (bucket = 0; bucket < VK_TEXTURE_BUCKETS; bucket++)
+	{
+		struct vk_texture *entry;
+
+		for (entry = vk_textures[bucket]; entry; entry = entry->next)
+		{
+			if (entry->created && vk.frame - entry->used_frame > VK_TEXTURE_IDLE_FRAMES)
+			{
+				vk_image_free(entry->id);
+				entry->id = 0;
+				entry->created = FALSE;
+				entry->generation = 0;
+			}
+		}
+	}
+}
+
+/* ---------- MCC maps' textures (mcc_texture_bridge.c): their pixels are immutable allocations outside the Xbox's memory,
+behind headers whose Data names nothing, so they are found by the header itself and uploaded once (for each palette a
+paletted one is drawn with), as the bgfx backend keeps them */
+
+#if !defined(HALO_MCC) || HALO_MCC
+#define VK_MCC_TEXTURE_BUCKETS 512
+
+struct vk_mcc_texture
+{
+	struct vk_mcc_texture *next;
+	const DWORD *resource;
+	unsigned long palette_hash;
+	struct vk_texture texture;
+};
+
+static struct vk_mcc_texture *vk_mcc_textures[VK_MCC_TEXTURE_BUCKETS];
+
+static unsigned long vk_mcc_bucket(const DWORD *resource)
+{
+	return (unsigned long)((((uintptr_t)resource >> 4) * 2654435761UL) % VK_MCC_TEXTURE_BUCKETS);
+}
+
+/* an MCC header's texture, as vk_texture_get's (override: its high-res HUD stand-in, or -1); -1 if resource is not an MCC
+texture's header */
+static int vk_mcc_texture_get(const DWORD *resource, const D3DCOLOR *palette, struct xgpu_texture_description *description,
+	uint32_t *id, BOOL *mipmapped, long *override)
+{
+	struct xgpu_texture_description source;
+	const void *pixels;
+	unsigned long bytes, hash;
+	long hud_asset;
+	struct vk_mcc_texture *entry;
+
+	if (!xgpu_mcc_texture_source(resource, &source, &pixels, &bytes, &hud_asset))
+		return -1;
+	*description = source;
+	*override = -1;
+	if (hud_asset >= 0 && config_boolean("display.high_res_hud"))
+	{
+		unsigned long levels;
+
+		if (hud_hires_override_texture(hud_asset, &levels))
+		{
+			*override = hud_asset;
+			return TRUE;
+		}
+	}
+	hash = source.format == 0x0b ? vk_palette_hash(palette) : 0;
+	for (entry = vk_mcc_textures[vk_mcc_bucket(resource)]; entry; entry = entry->next)
+	{
+		if (entry->resource == resource && entry->palette_hash == hash)
+			break;
+	}
+	if (!entry)
+	{
+		entry = calloc(1, sizeof(*entry));
+		if (!entry)
+		{
+			xgpu_mcc_texture_failed(&source, "no memory for the Vulkan renderer's copy");
+			return FALSE;
+		}
+		entry->resource = resource;
+		entry->palette_hash = hash;
+		entry->texture.description = source;
+		entry->texture.override = -1;
+		entry->next = vk_mcc_textures[vk_mcc_bucket(resource)];
+		vk_mcc_textures[vk_mcc_bucket(resource)] = entry;
+		vk_texture_upload(&entry->texture, (const unsigned char *)pixels, palette);
+		if (entry->texture.failed || !entry->texture.created)
+		{
+			entry->texture.failed = TRUE;
+			xgpu_mcc_texture_failed(&source, "the Vulkan renderer could not make it");
+		}
+	}
+	if (entry->texture.failed)
+		return FALSE;
+	entry->texture.used_frame = vk.frame;
+	*id = entry->texture.id;
+	*mipmapped = entry->texture.mipmapped;
+	return TRUE;
+}
+
+/* an MCC header going with its map (xgpu_mcc_texture_unbind): its copies */
+static void vk_mcc_texture_forget(const DWORD *resource)
+{
+	struct vk_mcc_texture **link = &vk_mcc_textures[vk_mcc_bucket(resource)];
+
+	while (*link)
+	{
+		struct vk_mcc_texture *entry = *link;
+
+		if (entry->resource != resource)
+		{
+			link = &entry->next;
+			continue;
+		}
+		*link = entry->next;
+		if (entry->texture.created && vk.ready)
+			vk_image_free(entry->texture.id);
+		free(entry);
+	}
+}
+#else
+static int vk_mcc_texture_get(const DWORD *resource, const D3DCOLOR *palette, struct xgpu_texture_description *description,
+	uint32_t *id, BOOL *mipmapped, long *override)
+{
+	(void)resource; (void)palette; (void)description; (void)id; (void)mipmapped; (void)override;
+	return -1;
+}
+
+static void vk_mcc_texture_forget(const DWORD *resource)
+{
+	(void)resource;
+}
+#endif
+
+/* ---------- textures the port's own modules make (xgpu.h): the high-res HUD's (hud_hires.c), the text's atlas
+(text_hires.c) and the menus' art (menu_files.c), 8-bit RGBA with rows from the top, as the bgfx backend's
+xgpu_bgfx_texture_create; the name is the image's number */
+
+/* rows [top, top + rows) of level 0 of image name, from RGBA texels (red first) */
+void xgpu_vulkan_texture_rows(unsigned int name, unsigned long top, unsigned long width, unsigned long rows,
+	const unsigned char *rgba)
+{
+	unsigned char *bgra;
+	unsigned long index;
+
+	if (!vk.ready || !name || !rows)
+		return;
+	bgra = malloc(width * rows * 4);
+	if (!bgra)
+		return;
+	for (index = 0; index < width * rows; index++)
+	{
+		bgra[index * 4 + 0] = rgba[index * 4 + 2];
+		bgra[index * 4 + 1] = rgba[index * 4 + 1];
+		bgra[index * 4 + 2] = rgba[index * 4 + 0];
+		bgra[index * 4 + 3] = rgba[index * 4 + 3];
+	}
+	vk_image_data(name, 0, 0, bgra, width * rows * 4, top, rows);
+	free(bgra);
+}
+
+/* a whole level of image id from RGBA texels */
+static void vk_rgba_level_send(uint32_t id, unsigned long level, unsigned long width, unsigned long height,
+	const unsigned char *rgba)
+{
+	unsigned char *bgra = malloc(width * height * 4);
+	unsigned long index;
+
+	if (!bgra)
+		return;
+	for (index = 0; index < width * height; index++)
+	{
+		bgra[index * 4 + 0] = rgba[index * 4 + 2];
+		bgra[index * 4 + 1] = rgba[index * 4 + 1];
+		bgra[index * 4 + 2] = rgba[index * 4 + 0];
+		bgra[index * 4 + 3] = rgba[index * 4 + 3];
+	}
+	vk_image_data(id, level, 0, bgra, width * height * 4, 0, 0);
+	free(bgra);
+}
+
+unsigned int xgpu_vulkan_texture_create(unsigned long width, unsigned long height, const unsigned char *rgba,
+	BOOL mipmapped)
+{
+	unsigned long levels = 1, largest, level, level_width = width, level_height = height;
+	const unsigned char *from = rgba;
+	unsigned char *pixels = NULL;
+	uint32_t id;
+
+	if (!vk.ready || !width || !height)
+		return 0;
+	id = vk_id_take();
+	if (!id)
+		return 0;
+	if (mipmapped)
+		for (largest = width > height ? width : height; largest > 1; largest >>= 1)
+			levels++;
+	vk_image_make(id, VK_IMAGE_2D, VK_IMAGE_FORMAT_BGRA, width, height, 1, levels);
+	if (!rgba)
+	{
+		/* (its texels come by rows: the text's atlas) */
+		unsigned char *clear = calloc(width * height, 4);
+
+		if (clear)
+		{
+			vk_image_data(id, 0, 0, clear, width * height * 4, 0, 0);
+			free(clear);
+		}
+		return id;
+	}
+	for (level = 0; level < levels; level++)
+	{
+		unsigned long next_width = level_width > 1 ? level_width / 2 : 1;
+		unsigned long next_height = level_height > 1 ? level_height / 2 : 1;
+		unsigned char *next;
+		unsigned long x, y, c;
+
+		vk_rgba_level_send(id, level, level_width, level_height, from);
+		if (level + 1 == levels)
+			break;
+		/* the next level: each texel the mean of the (up to) four above it */
+		next = malloc(next_width * next_height * 4);
+		if (!next)
+			break;
+		for (y = 0; y < next_height; y++)
+		{
+			unsigned long y0 = y * 2, y1 = y * 2 + 1 < level_height ? y * 2 + 1 : y * 2;
+
+			for (x = 0; x < next_width; x++)
+			{
+				unsigned long x0 = x * 2, x1 = x * 2 + 1 < level_width ? x * 2 + 1 : x * 2;
+
+				for (c = 0; c < 4; c++)
+					next[(y * next_width + x) * 4 + c] = (unsigned char)((from[(y0 * level_width + x0) * 4 + c] +
+						from[(y0 * level_width + x1) * 4 + c] + from[(y1 * level_width + x0) * 4 + c] +
+						from[(y1 * level_width + x1) * 4 + c] + 2) / 4);
+			}
+		}
+		free(pixels);
+		pixels = next;
+		from = pixels;
+		level_width = next_width;
+		level_height = next_height;
+	}
+	free(pixels);
+	return id;
+}
+
+void xgpu_vulkan_texture_delete(unsigned int name)
+{
+	if (vk.ready && name)
+		vk_image_free(name);
+}
+
+/* ---------- starting
+
+Vulkan is brought up on the window the platform layer made without an OpenGL context (sdl_platform.c): an instance and a
+physical device now (host_vk_startup), the device and the swapchain at the first hand-over. FALSE leaves the game to OpenGL
+ES (platform_video_reopen_for_gl) */
+static BOOL vk_initialize(void)
+{
+	char line[600];
+	unsigned long index;
+
+	if (vk.ready)
+		return TRUE;
+	vk.window = platform_sdl_window();
+	host_vk_window = vk.window;
+	host_vk_present_marker = config_boolean("debug.vk_present_marker");
+	host_vk_self_test = config_boolean("debug.vk_self_test");
+	if (!host_vk_startup(config_string("display.vk_driver"), config_boolean("debug.vk_validation"), line, sizeof(line)))
+	{
+		platform_log("renderer: %s", line);
+		return FALSE;
+	}
+	platform_log("renderer: %s", line);
+	/* (the pipeline cache and the shader cache are written at the exit) */
+	atexit(host_vk_exit);
+	/* (gl_initialize's: the game memory writes that make textures stale, the attributes' w, and the debug settings) */
+	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+		device.attributes[index][3] = 1.0f;
+	memory_watch_initialize();
+	debug_settings.statistics = config_boolean("debug.gpu_stats");
+	halo_screen_width();
+	vk.ready = TRUE;
+	if (config_boolean("debug.vk_self_test"))
+	{
+		data_self_test();
+		shader_self_test();
+	}
+	return TRUE;
 }

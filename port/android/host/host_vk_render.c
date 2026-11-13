@@ -1471,10 +1471,10 @@ uint32_t host_vk_bc_supported(void)
 	return 1;
 }
 
-/* runs size bytes of commands at commands (a guest address), during the call */
-void host_vk_submit(uint32_t commands, uint32_t size)
+/* runs size bytes of commands at commands, during the call */
+void host_vk_submit(const void *commands, uint32_t size)
 {
-	const unsigned char *at = (const unsigned char *)(uintptr_t)commands;
+	const unsigned char *at = (const unsigned char *)commands;
 	const unsigned char *end = at + size;
 	static int said_unknown;
 
@@ -1492,7 +1492,7 @@ void host_vk_submit(uint32_t commands, uint32_t size)
 	while (!B.dead && at + sizeof(struct vk_command_header) <= end)
 	{
 		const struct vk_command_header *header = (const struct vk_command_header *)at;
-		uint32_t offset = (uint32_t)(at - (const unsigned char *)(uintptr_t)commands);
+		uint32_t offset = (uint32_t)(at - (const unsigned char *)commands);
 
 		if (header->size < sizeof(*header) || (header->size & 3) || at + header->size > end)
 		{

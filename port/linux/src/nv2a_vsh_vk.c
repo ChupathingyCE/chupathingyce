@@ -2,9 +2,8 @@
 NV2A_VSH_VK.C
 
 Translation of NV2A vertex programs (Xbox vertex shader microcode) into
-GLSL for glslang, for the Android build's Vulkan renderer (port/android/VULKAN.md,
-phase 4). Copied from the OpenGL renderer's nv2a_vsh.c (port/linux/src), which the
-other platforms keep; what differs is the GLSL dialect, not the translation. Any
+GLSL for glslang, for the Android app's Vulkan renderer (port/android/VULKAN.md).
+Copied from the OpenGL renderer's nv2a_vsh.c, which the other renderers keep; what differs is the GLSL dialect, not the translation. Any
 change to what this file writes is a change to the shaders themselves and must
 raise VK_SHADER_GENERATOR_VERSION (vk_shaders.h):
 
@@ -32,6 +31,9 @@ screen space with the viewport constants c[-38] and c[-37], which Direct3D
 maintains. The generated shader inverts that transform to hand the GPU a
 clip-space position again.
 */
+
+/* (the Android app's build only: HALO_VULKAN, tools/android64_build.py) */
+#ifdef HALO_VULKAN
 
 #include "xgpu.h"
 #include "vk_shaders.h"
@@ -188,8 +190,8 @@ static const char shader_helpers[] =
 	"	return vec4(1.0, max(s.x, 0.0), specular, 1.0);\n"
 	"}\n";
 
-char *nv2a_vk_vertex_shader_to_glsl(const uint32_t *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask)
+char *nv2a_vk_vertex_shader_to_glsl(const uint32_t *instructions, uint32_t instruction_count,
+	uint32_t packed_attribute_mask)
 {
 	struct xgpu_text text = { 0 };
 	unsigned long index;
@@ -396,3 +398,5 @@ char *nv2a_vk_vertex_shader_to_glsl(const uint32_t *instructions, unsigned long 
 		);
 	return text.buffer;
 }
+
+#endif /* HALO_VULKAN */

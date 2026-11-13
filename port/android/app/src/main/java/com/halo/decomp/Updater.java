@@ -215,6 +215,7 @@ final class Updater {
         } finally {
             connection.disconnect();
         }
+    }
 
     /* ---------- the open-source Vulkan driver for Adreno GPUs
 
@@ -339,7 +340,7 @@ final class Updater {
 
         try {
             android.util.Log.i("halo", "driver: downloading " + driver.url + " for the " + gpu);
-            download(driver.url, partial, progress);
+            download(driver.url, partial, driver.size, progress);
             if (partial.length() != driver.size || !driver.sha256.equals(sha256(partial)))
                 throw new IOException("the download is not the build that was chosen (" + partial.length() + " bytes)");
             archive.delete();

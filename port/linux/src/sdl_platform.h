@@ -104,7 +104,7 @@ BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, u
 BOOL platform_sdl_initialize(void);
 /* creates the window and makes its OpenGL context current on this thread */
 BOOL platform_video_initialize(unsigned long width, unsigned long height);
-#ifdef HALO_BGFX
+#if defined(HALO_BGFX) || defined(HALO_VULKAN)
 /* the window again for OpenGL, when bgfx does not start (d3d8_bgfx.inl) */
 BOOL platform_video_reopen_for_gl(void);
 /* display.renderer chooses bgfx: "bgfx", or on Windows "d3d11" (bgfx on

@@ -213,8 +213,8 @@ struct vk_pipeline_state
 /* GLSL 450 for glslang for an NV2A vertex program (the instruction words after the program header). Attributes whose
 bit is set in packed_attribute_mask are fed as NORMPACKED3 32-bit integers and unpacked in the shader. Returns a
 malloc'd string. */
-char *nv2a_vk_vertex_shader_to_glsl(const uint32_t *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask);
+char *nv2a_vk_vertex_shader_to_glsl(const uint32_t *instructions, uint32_t instruction_count,
+	uint32_t packed_attribute_mask);
 
 struct nv2a_pixel_shader_key;
 

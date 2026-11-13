@@ -1682,6 +1682,14 @@ static void platform_gl_missing(const char *reason)
 #ifdef HALO_BGFX
 /* bgfx could not start (d3d8_bgfx.inl): the game draws with OpenGL */
 static BOOL platform_bgfx_refused;
+#endif
+#ifdef HALO_VULKAN
+/* the Vulkan backend could not start (d3d8_vk.inl): the game draws with OpenGL ES */
+static BOOL platform_vulkan_refused;
+/* the backend's own flag (port/android/host/host_vk_api.h) */
+extern int host_renderer_vulkan;
+#endif
+#ifdef HALO_BGFX
 
 BOOL platform_bgfx_chosen(void)
 {
@@ -1862,6 +1870,13 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	into; unless it could not start before (platform_video_reopen_for_gl) */
 	xgpu_bgfx = !platform_bgfx_refused && platform_bgfx_chosen();
 #endif
+#ifdef HALO_VULKAN
+	/* the Vulkan backend draws instead (d3d8_vk.inl): a window without an
+	OpenGL ES context (Android lets one API own a window), which it makes its
+	surface on; unless it could not start before (platform_video_reopen_for_gl) */
+	xgpu_vulkan = !platform_vulkan_refused && !strcmp(config_string("display.renderer"), "vulkan");
+	host_renderer_vulkan = xgpu_vulkan;
+#endif
 
 #ifdef HALO_ANDROID
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -1923,7 +1938,15 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		if (scale < 1)
 			scale = 1;
 		platform_window = SDL_CreateWindow(title, (int)(width * scale), (int)(height * scale),
-			SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN);
+#ifdef HALO_VULKAN
+			/* (a GL window's surface is stretched over the screen by the system,
+			but a Vulkan swapchain is shown as it is: without high pixel density
+			its images are the size of the window in points) */
+			(xgpu_vulkan ? SDL_WINDOW_HIGH_PIXEL_DENSITY : SDL_WINDOW_OPENGL) |
+#else
+			SDL_WINDOW_OPENGL |
+#endif
+			SDL_WINDOW_FULLSCREEN);
 	}
 #else
 	/* fullscreen (either kind) unless display.mode is the window, which F11
@@ -1963,6 +1986,14 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	before its event loop runs (rasterizer_preinitialize), so wait for the
 	window here */
 	SDL_SyncWindow(platform_window);
+#endif
+#ifdef HALO_VULKAN
+	if (xgpu_vulkan)
+	{
+		platform_event_thread = SDL_GetCurrentThreadID();
+		platform_log("renderer: vulkan (the window is made; the backend starts with the device)");
+		return TRUE;
+	}
 #endif
 #ifdef HALO_BGFX
 	if (xgpu_bgfx)
@@ -2080,6 +2111,23 @@ BOOL platform_video_reopen_for_gl(void)
 	platform_log("renderer: bgfx did not start, so OpenGL");
 	platform_bgfx_refused = TRUE;
 	xgpu_bgfx = FALSE;
+	if (platform_window)
+	{
+		SDL_DestroyWindow(platform_window);
+		platform_window = NULL;
+	}
+	return platform_video_initialize(0, 0);
+}
+#endif
+#ifdef HALO_VULKAN
+/* the Vulkan backend did not start (d3d8_vk.inl, vk_initialize): the window
+again, with an OpenGL ES context, for the OpenGL renderer */
+BOOL platform_video_reopen_for_gl(void)
+{
+	platform_log("renderer: Vulkan did not start, so OpenGL ES");
+	platform_vulkan_refused = TRUE;
+	xgpu_vulkan = FALSE;
+	host_renderer_vulkan = 0;
 	if (platform_window)
 	{
 		SDL_DestroyWindow(platform_window);
@@ -2263,6 +2311,10 @@ void platform_video_swap(void)
 	/* (the device presents: d3d8_bgfx.inl; this paces the frames) */
 	if (!xgpu_bgfx)
 #endif
+#ifdef HALO_VULKAN
+	/* (the Vulkan backend presents, and its swapchain paces the frames) */
+	if (!xgpu_vulkan)
+#endif
 	{
 		/* the window's framebuffer bound for reading too, as the frame is
 		shown: a capture hooked into the swap (OBS's game capture) copies
@@ -2318,6 +2370,9 @@ void platform_exit_window_closed(void)
 	}
 #ifdef HALO_BGFX
 	if (!xgpu_bgfx)
+#endif
+#ifdef HALO_VULKAN
+	if (!xgpu_vulkan)
 #endif
 	if (platform_window)
 	{

@@ -539,9 +539,9 @@ static int shader_made(struct shader *shader, VkShaderModule module)
 
 /* ---------- the imports */
 
-uint32_t host_vk_shader_find(uint32_t stage, uint64_t hash, uint32_t status_out)
+uint32_t host_vk_shader_find(uint32_t stage, uint64_t hash, uint32_t *status_out)
 {
-	uint32_t *status = (uint32_t *)(uintptr_t)status_out;
+	uint32_t *status = status_out;
 	struct shader *shader;
 	uint32_t handle = 0, result = VK_SHADER_STATUS_UNKNOWN;
 
@@ -623,9 +623,8 @@ static void compile_dropped(uint32_t stage, uint64_t hash, const char *why)
 			stage == VK_SHADER_STAGE_VERTEX ? "vertex" : "pixel", (unsigned long long)hash, why);
 }
 
-void host_vk_shader_compile(uint32_t stage, uint64_t hash, uint32_t glsl_address, uint32_t glsl_size)
+void host_vk_shader_compile(uint32_t stage, uint64_t hash, const char *glsl, uint32_t glsl_size)
 {
-	const char *glsl = (const char *)(uintptr_t)glsl_address;
 	struct shader *shader;
 	char *copy;
 

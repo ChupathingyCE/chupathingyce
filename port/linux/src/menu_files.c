@@ -1052,15 +1052,25 @@ void halo_menus_log(char const *file, long line, char const *message, char const
 {
 	platform_log("menus: %s:%ld: %s%s%s", file ? file : "?", line, message, detail ? " " : "", detail ? detail : "");
 }
-#ifdef HALO_BGFX
-/* (a menu's texture, the renderer's: OpenGL's or the bgfx backend's) */
+#if defined(HALO_BGFX) || defined(HALO_VULKAN)
+/* (a menu's texture, the renderer's: OpenGL's, the bgfx backend's or the
+Vulkan backend's) */
 static void menu_art_delete(unsigned int texture)
 {
+#ifdef HALO_BGFX
 	if (xgpu_bgfx)
 	{
 		xgpu_bgfx_texture_delete(texture);
 		return;
 	}
+#endif
+#ifdef HALO_VULKAN
+	if (xgpu_vulkan)
+	{
+		xgpu_vulkan_texture_delete(texture);
+		return;
+	}
+#endif
 	{
 		GLuint name = texture;
 

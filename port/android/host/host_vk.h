@@ -15,7 +15,7 @@ host_renderer_vulkan); this is for host_vk.c's own files.
 #endif
 #include "host_vk_driver.h"
 
-#include "../guest/vk_commands.h"
+#include "vk_commands.h"
 
 #include <pthread.h>
 

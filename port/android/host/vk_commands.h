@@ -7,11 +7,11 @@ memory over a frame and handed to the host in one call (host_vk_submit), so
 that a frame costs one crossing from the guest to the host rather than one a
 draw. port/android/VULKAN.md ("The command stream") says what each means.
 
-Shared by both halves, which are built for different ABIs (the guest's
-pointers are 32 bits, the host's 64): every field is a 32-bit integer or
-float, and an address is a guest one, which the host can read directly (the
-guest's memory is below 4 GB; it reads what a command names during the
-hand-over and never afterwards).
+Shared by both halves, which were built for different ABIs in the guest
+build (the guest's pointers 32 bits, the host's 64) and are one library in
+the native 64-bit app: every field is a 32-bit integer or float, and an
+address is an Xbox one (a surface's or a texture's physical address), never
+a pointer; what a draw reads is copied into the stream.
 
 Each command starts with a header naming its type and its size in bytes, the
 header included; sizes are multiples of 4.
