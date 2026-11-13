@@ -3100,34 +3100,41 @@ static char const *host_text(
 }
 
 /* the game's machines by platform, as its Delta host counts them ("2 PC,
-1 Xbox"; counts only); "" when the list does not say */
+1 Xbox"; counts only); "" when the list does not say. Every platform of
+delta.h's registry is named from it (the PCs together), so a new one is too;
+then those whose machine didn't say, and those without Delta */
+#define PLATFORM_KEY(platform, key, tag, name, caps_name) key,
+static char const *const platform_keys[] = { DELTA_PLATFORM_NAMES(PLATFORM_KEY) };
+#undef PLATFORM_KEY
 static char const *machines_text(
 	struct browser_game const *game,
 	char *text,
 	long size)
 {
-	/* (the registry's numbers grouped as players say them, each group's
-	numbers ending with -1; the last, those without Delta) */
-	static struct { char const *name; signed char kinds[6]; } const groups[] = {
-		{ "PC", { 1, 2, 3, 13, 18, -1 } }, { "SteamOS", { 5, -1 } }, { "Android", { 4, -1 } },
-		{ "Xbox", { 6, -1 } }, { "Xbox 360", { 7, -1 } }, { "Wii U", { 8, -1 } }, { "Switch", { 9, -1 } },
-		{ "PSP", { 10, -1 } }, { "Vita", { 11, -1 } }, { "Xbox Series", { 12, -1 } }, { "PS3", { 14, -1 } },
-		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "Steam Link", { 19, -1 } },
-		{ "iOS", { 20, -1 } }, { "Apple TV", { 21, -1 } }, { "other", { 0, -1 } },
-		{ "OpenCE", { BROWSER_MACHINE_KINDS - 1, -1 } },
-	};
-	long used = 0, group;
+	long used = 0;
+	int count = 0, kind;
 
 	text[0] = 0;
-	for (group = 0; group < (long)NUMBEROF(groups) && used < size - 24; group++)
+	for (kind = 1; kind < NUMBER_OF_DELTA_PLATFORMS; kind++)
+		if (!strncmp(platform_keys[kind], "pc_", 3))
+			count += game->machines[kind];
+	if (count)
+		used += snprintf(text, (size_t)size, "%d PC", count);
+	for (kind = 1; kind <= NUMBER_OF_DELTA_PLATFORMS && used < size - 24; kind++)
 	{
-		int count = 0, index;
+		char const *name;
 
-		for (index = 0; groups[group].kinds[index] >= 0; index++)
-			count += game->machines[groups[group].kinds[index]];
+		if (kind < NUMBER_OF_DELTA_PLATFORMS && !strncmp(platform_keys[kind], "pc_", 3))
+			continue;
+		/* (the registry's, then unknown's, then those without Delta) */
+		count = kind < NUMBER_OF_DELTA_PLATFORMS ? game->machines[kind] : game->machines[0];
+		name = kind < NUMBER_OF_DELTA_PLATFORMS ? platform_names[kind] : "other";
 		if (count)
-			used += snprintf(text + used, (size_t)(size - used), "%s%d %s", used ? ", " : "", count, groups[group].name);
+			used += snprintf(text + used, (size_t)(size - used), "%s%d %s", used ? ", " : "", count, name);
 	}
+	count = game->machines[BROWSER_MACHINE_KINDS - 1];
+	if (count && used < size - 24)
+		used += snprintf(text + used, (size_t)(size - used), "%s%d OpenCE", used ? ", " : "", count);
 	return text;
 }
 
