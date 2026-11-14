@@ -74,6 +74,8 @@ way (cache_files_windows.c).
 #include "structures/structure_bsp_definitions.h"
 #include "ce_map_checks.h"
 #include "ce_effect_flags.h"
+#include "bitmaps/bitmap_group.h"
+#include "bitmaps/bitmaps.h"
 
 #include <string.h>
 
@@ -123,6 +125,25 @@ enum
 	BITMAP_COMPRESSED_FLAG = 0x02,
 	BITMAP_PORT_BC7_MARK = 0x4337,
 	BITMAP_STRAY_HIGH_FLAG = 0x8000,
+	/* the rest of a bitmap (bitmap_group.h's bitmap_data, as ce_resources.c
+	reads it): its size and shape, its registration point, its mipmaps and
+	its pixels in the file; a 2D bitmap's type, and the linear flag (bitmaps.c) */
+	BITMAP_DATA_WIDTH_OFFSET = 0x04,
+	BITMAP_DATA_HEIGHT_OFFSET = 0x06,
+	BITMAP_DATA_DEPTH_OFFSET = 0x08,
+	BITMAP_DATA_TYPE_OFFSET = 0x0a,
+	BITMAP_DATA_REGISTRATION_POINT_OFFSET = 0x10,
+	BITMAP_DATA_MIPMAP_COUNT_OFFSET = 0x14,
+	BITMAP_DATA_PIXELS_OFFSET_OFFSET = 0x18,
+	BITMAP_DATA_PIXELS_SIZE_OFFSET = 0x1c,
+	BITMAP_TYPE_2D = 0,
+	BITMAP_LINEAR_FLAG = 0x10,
+	/* a 64 MB console's Custom Edition bitmaps (ce_bitmap_reduce): a 2D
+	bitmap of this many pixels or more loses its top level, and one whose top
+	level is still more than this many bytes loses another */
+	CE_REDUCE_PIXELS = 512 * 512,
+	CE_REDUCE_LEVEL_BYTES = 2 * 1024 * 1024,
+	CE_REDUCE_LEVELS_AT_MOST = 2,
 
 	/* a model's shaders (model_definitions.h): each a tag reference and
 	a permutation */
@@ -157,6 +178,7 @@ struct ce_repair_counts
 	long parent_groups;
 	long bc7_bitmaps;
 	long deterministic_effects;
+	long bitmaps_reduced;
 };
 
 /* ---------- globals */
@@ -535,8 +557,72 @@ static void ce_parent_groups_repair(
 	}
 }
 
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+/* a 64 MB console lends a Custom Edition map its own texture cache, about
+17 MB of it (xbox_ce_files.c, port/xbox): a Halo 2 map's bitmaps are made
+for Halo PC, with 2048x2048 lightmaps of 8 MB a level and 512x512 bump maps
+of 1 MB, so a frame of Coagulation wants more texture memory than that
+console has, the cache fills with the frame's own bitmaps, and the game
+halts (xbox_texture_cache.c). The Xbox shipped its own maps with smaller
+bitmaps than Halo PC's; a 64 MB console draws a Custom Edition map's the
+same way: a 2D bitmap of CE_REDUCE_PIXELS or more loses its top level, and
+one whose top level is still over CE_REDUCE_LEVEL_BYTES loses one more. Its
+levels are packed in the file largest first, so the bitmap starts at its
+next level: its size, mipmaps, registration point and pixels follow.
+Interface bitmaps (ui\) are left: the HUD reads them by the pixel. A console
+with the room (128 MB) draws them all as they are. TRUE if reduced */
+extern int platform_ce_alias;
+
+static boolean ce_bitmap_reduce(
+	byte *data,
+	char const *tag_name)
+{
+	struct bitmap_data bitmap;
+	short drops = 0;
+
+	if (!platform_ce_alias || (tag_name && strncmp(tag_name, "ui\\", 3) == 0))
+		return FALSE;
+	memcpy(&bitmap, data, sizeof(bitmap));
+	if (bitmap.type != BITMAP_TYPE_2D || bitmap.depth != 1 || (bitmap.flags & BITMAP_LINEAR_FLAG) ||
+		bitmap.width <= 0 || bitmap.height <= 0)
+	{
+		return FALSE;
+	}
+	while (bitmap.mipmap_count >= 1 && drops < CE_REDUCE_LEVELS_AT_MOST)
+	{
+		long level_bytes = bitmap_mipmap_get_pixel_data_size(&bitmap, 0);
+
+		if (level_bytes <= 0 || level_bytes >= bitmap.pixels_size)
+			break;
+		if (!(level_bytes > CE_REDUCE_LEVEL_BYTES ||
+			(drops == 0 && (long)bitmap.width * bitmap.height >= CE_REDUCE_PIXELS)))
+		{
+			break;
+		}
+		bitmap.pixels_offset += level_bytes;
+		bitmap.pixels_size -= level_bytes;
+		bitmap.width = (short)MAX(1, bitmap.width / 2);
+		bitmap.height = (short)MAX(1, bitmap.height / 2);
+		bitmap.registration_point.x /= 2;
+		bitmap.registration_point.y /= 2;
+		bitmap.mipmap_count--;
+		drops++;
+	}
+	if (!drops)
+		return FALSE;
+	memcpy(data + BITMAP_DATA_WIDTH_OFFSET, &bitmap.width, sizeof(bitmap.width));
+	memcpy(data + BITMAP_DATA_HEIGHT_OFFSET, &bitmap.height, sizeof(bitmap.height));
+	memcpy(data + BITMAP_DATA_REGISTRATION_POINT_OFFSET, &bitmap.registration_point, sizeof(bitmap.registration_point));
+	memcpy(data + BITMAP_DATA_MIPMAP_COUNT_OFFSET, &bitmap.mipmap_count, sizeof(bitmap.mipmap_count));
+	memcpy(data + BITMAP_DATA_PIXELS_OFFSET_OFFSET, &bitmap.pixels_offset, sizeof(bitmap.pixels_offset));
+	memcpy(data + BITMAP_DATA_PIXELS_SIZE_OFFSET, &bitmap.pixels_size, sizeof(bitmap.pixels_size));
+	return TRUE;
+}
+#endif
+
 /* a bitmap tag's BC7 bitmaps made DXT5's format and marked; the mark taken
-from any other */
+from any other; on a 64 MB console, its large bitmaps' top levels let go
+(ce_bitmap_reduce) */
 static void ce_bitmaps_repair(
 	struct ce_image const *image,
 	struct ce_tag_instance const *instance,
@@ -573,6 +659,10 @@ static void ce_bitmaps_repair(
 		memcpy(bitmap + BITMAP_DATA_FORMAT_OFFSET, &format, sizeof(format));
 		memcpy(bitmap + BITMAP_DATA_FLAGS_OFFSET, &flags, sizeof(flags));
 		memcpy(bitmap + BITMAP_DATA_MIPMAP_PAD_OFFSET, &mark, sizeof(mark));
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+		if (ce_bitmap_reduce(bitmap, ce_image_tag_name(image, instance)))
+			counts->bitmaps_reduced++;
+#endif
 	}
 }
 
@@ -598,16 +688,17 @@ static void ce_repairs_log(
 {
 	if (ce_map_checking() || !(counts->predicted_resources_dropped | counts->predicted_resources_salted |
 		counts->object_types | counts->modifier_shaders | counts->model_shaders | counts->node_links |
-		counts->parent_groups | counts->bc7_bitmaps | counts->deterministic_effects))
+		counts->parent_groups | counts->bc7_bitmaps | counts->deterministic_effects | counts->bitmaps_reduced))
 	{
 		return;
 	}
 	error(_error_silent, "%s map: %ld predicted resources dropped and %ld given their tags' salts, %ld object "
 		"types, %ld modifier shaders and %ld model shaders repaired, %ld node links looping back or out of the nodes, "
-		"%ld tags' parent groups, %ld BC7 bitmaps; %ld effects deterministic", ce_map_family_name(),
+		"%ld tags' parent groups, %ld BC7 bitmaps; %ld effects deterministic; %ld bitmaps without their top levels "
+		"(a 64 MB console)", ce_map_family_name(),
 		counts->predicted_resources_dropped, counts->predicted_resources_salted, counts->object_types,
 		counts->modifier_shaders, counts->model_shaders, counts->node_links, counts->parent_groups,
-		counts->bc7_bitmaps, counts->deterministic_effects);
+		counts->bc7_bitmaps, counts->deterministic_effects, counts->bitmaps_reduced);
 }
 
 /* ---------- public code */
