@@ -53,3 +53,15 @@ def test_rows_fit_above_the_help(screen):
         if view in spec.get("scrolls", ()):
             continue
         assert bottom <= help_top, f"{screen} {view} on {platform}: rows end at {bottom}, the help starts at {help_top}"
+
+
+def test_scrolling_views_match_menu_functions():
+    """menu_functions.c's views_scroll scrolls the views "scrolls" names,
+    and only those"""
+    import re
+    source = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    match = re.search(r"scrolling_views\[\] = \{([^}]*)\}", source)
+    assert match, "menu_functions.c has no scrolling_views"
+    listed = set(re.findall(r'"([^"]+)"', match.group(1)))
+    wanted = {view for spec in port_settings.SCREENS.values() for view in spec.get("scrolls", ())}
+    assert listed == wanted

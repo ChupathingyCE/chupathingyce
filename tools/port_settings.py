@@ -655,7 +655,13 @@ def _setting_rows(base: str, spec: dict) -> tuple:
     views = {view: view_rows for view, _, _, view_rows in spec.get("views", [])}
     for entry in entries:
         if entry[0] == "mark":
-            rows.append((f"{base}/view_{entry[1]}", None, 0))
+            # (a list that scrolls has its mark at the last place whose row
+            # ends above the help line: the window's bottom, menu_functions.c's
+            # views_scroll; the marks are not drawn)
+            place = 0
+            if entry[1] in spec.get("scrolls", ()):
+                place = (spec.get("help_top", 350) - 28 - 73) // spec["spacing"]
+            rows.append((f"{base}/view_{entry[1]}", None, place))
             extra += _mark(base, entry[1])
         elif entry[0] == "link":
             _, view, key, place, label_index = entry

@@ -137,7 +137,7 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anisotropic_filtering" x="54" y="241" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_far_clip_distance" x="54" y="313" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_far_clip_distance" x="54" y="265" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_interface" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_interface" x="54" y="337"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_menus" x="54" y="73" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_title_font" x="54" y="97" platform="desktop android"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_high_res_text" x="54" y="121" platform="desktop android switch"/>
