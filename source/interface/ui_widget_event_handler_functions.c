@@ -3161,10 +3161,19 @@ static boolean multiplayer_level_list_initialize(
 #ifdef HALO_GAME_BROWSER
 	/* port: from the co-op screen's ONLINE: on the campaign's first level,
 	after the multiplayer maps (menu_functions.c's coop_online) */
-	if (pc_menus_coop_first_take() && pc_menus_host_cooperative_shown() &&
-		level_count > (short)ui_map_list_count())
+	if (pc_menus_coop_first_take() && pc_menus_host_cooperative_shown())
 	{
-		widget->parameters.list.selected_index = (short)ui_map_list_count();
+		char const *first_level = main_get_solo_level_name(0);
+		short row;
+
+		for (row = 0; first_level && row < level_count; row++)
+		{
+			if (ui_map_list_row_is_campaign(row) && !_stricmp(level_names[row], first_level))
+			{
+				widget->parameters.list.selected_index = row;
+				break;
+			}
+		}
 	}
 #endif
 #if defined(HALO_MAP_LIST) && !defined(HALO_CONSOLE_NO_DEBUG_TOOLS)

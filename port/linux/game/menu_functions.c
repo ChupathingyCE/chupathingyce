@@ -2804,6 +2804,9 @@ Multiplayer go back to one player (main_menu_initialize,
 multiplayer_type_menu_initialize).
 With one gamepad, it is player 2's (pc_menu_split_players) */
 
+/* (ONLINE's: Select Map opens on the campaign's first level: coop_online) */
+static boolean pc_menus_coop_first;
+
 /* "port coop begin": two players, player 1 on its profile (campaign_profile)
 and the controller that chose co-op */
 static boolean coop_begin(short controller)
@@ -2812,6 +2815,8 @@ static boolean coop_begin(short controller)
 
 	player_spawn_count = 1;
 	player_ui_reset_single_player_local_player_controllers();
+	/* (a level preselected by ONLINE that Select Map never took) */
+	pc_menus_coop_first = FALSE;
 	if (!campaign_profile(controller, &profile))
 		return campaign_fail();
 	player_spawn_count = 2;
@@ -2866,12 +2871,10 @@ static boolean coop_player2_choose(short controller)
 	return TRUE;
 }
 
-/* "port coop online" (the co-op screen's ONLINE, Y): network co-op instead of
-split screen, through the host flow Online Games' CREATE GAME opens (Select
-Map, GAME SETUP, the lobby), one player again, with Select Map on the
-campaign's first level (pc_menus_coop_first_take). #1252 */
-static boolean pc_menus_coop_first;
-
+/* the Multiplayer menu's ONLINE CO-OP (ui_widget.c): network co-op, through
+the host flow Online Games' CREATE GAME opens (Select Map, GAME SETUP, the
+lobby), with Select Map on the campaign's first level
+(pc_menus_coop_first_take). #1252 */
 boolean pc_menus_coop_first_take(void)
 {
 	boolean first = pc_menus_coop_first;
@@ -2880,15 +2883,15 @@ boolean pc_menus_coop_first_take(void)
 	return first;
 }
 
-static boolean coop_online(void)
+boolean pc_menus_coop_online(void)
 {
-#ifdef HALO_GAME_BROWSER
-	boolean browser_screen_create_game(void);
+	/* (not on the original Xbox, which hosts no network co-op: Delta's
+	platform policy, xbox_coop.c) */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_XBOX_CONSOLE)
+	boolean browser_screen_create_coop_game(void);
 
-	player_spawn_count = 1;
-	player_ui_reset_single_player_local_player_controllers();
 	pc_menus_coop_first = TRUE;
-	if (browser_screen_create_game())
+	if (browser_screen_create_coop_game())
 		return TRUE;
 	pc_menus_coop_first = FALSE;
 #endif
@@ -10198,10 +10201,7 @@ boolean pc_menu_event_function_invoke(
 		{
 			return coop_player2_choose(controller);
 		}
-		else if (!strcmp(name, "port coop online"))
-		{
-			return coop_online();
-		}
+
 		else if (!strcmp(name, "request del player profile"))
 		{
 			return profile_delete_request();

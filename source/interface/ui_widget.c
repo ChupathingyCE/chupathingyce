@@ -3821,10 +3821,18 @@ enum
 	ONLINE_GAMES_SYSTEM_LINK = 2,
 	ONLINE_GAMES_POSITION = 3,
 	ONLINE_GAMES_MENU_ITEMS = 4,
+#ifdef HALO_GAME_BROWSER
+	/* ONLINE CO-OP, a copy under ONLINE GAMES with the Chupathingy menus,
+	which host network co-op (as it is when the tags load: online_games.coop):
+	the host flow, on the campaign (menu_functions.c's pc_menus_coop_online) */
+	COOP_ITEM_POSITION = ONLINE_GAMES_POSITION + 1,
+	ONLINE_GAMES_COOP_MOST = 1,
+#else
+	ONLINE_GAMES_COOP_MOST = 0,
+#endif
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	/* MAP BROWSER, a second copy of System Link's, under ONLINE GAMES
 	(port/xbox/game/xbox_maps_screen.c) */
-	MAP_BROWSER_POSITION = ONLINE_GAMES_POSITION + 1,
 	ONLINE_GAMES_MAP_BROWSER_ADDED = 1,
 #else
 	ONLINE_GAMES_MAP_BROWSER_ADDED = 0,
@@ -3832,10 +3840,9 @@ enum
 #ifdef HALO_GUIDE
 	/* DELTA (port/linux/game/guide.c), another copy, last, with
 	delta.menu_item (as it is when the tags load: online_games.added) */
-	DELTA_ITEM_POSITION = ONLINE_GAMES_POSITION + 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
-	ONLINE_GAMES_ITEMS_MOST = 2 + ONLINE_GAMES_MAP_BROWSER_ADDED,
+	ONLINE_GAMES_ITEMS_MOST = 2 + ONLINE_GAMES_MAP_BROWSER_ADDED + ONLINE_GAMES_COOP_MOST,
 #else
-	ONLINE_GAMES_ITEMS_MOST = 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
+	ONLINE_GAMES_ITEMS_MOST = 1 + ONLINE_GAMES_MAP_BROWSER_ADDED + ONLINE_GAMES_COOP_MOST,
 #endif
 	/* the items' spacing (their vertical offset, -33) */
 	ONLINE_GAMES_ROW = 33,
@@ -3855,11 +3862,17 @@ static struct
 	/* the DELTA row is in the list */
 	boolean delta;
 #endif
-	/* the items added (ONLINE GAMES, MAP BROWSER, DELTA) */
+	/* the items added (ONLINE GAMES, ONLINE CO-OP, MAP BROWSER, DELTA) */
 	short added;
+	/* the ONLINE CO-OP row is in the list (the Chupathingy menus') */
+	boolean coop;
+	boolean coop_described;
 } online_games = { NONE, NONE, NULL, FALSE };
 
 #define ONLINE_GAMES_ITEMS_ADDED online_games.added
+/* (the places after ONLINE GAMES: ONLINE CO-OP's, if it is there, first) */
+#define MAP_BROWSER_POSITION (ONLINE_GAMES_POSITION + 1 + online_games.coop)
+#define DELTA_ITEM_POSITION (ONLINE_GAMES_POSITION + 1 + online_games.coop + ONLINE_GAMES_MAP_BROWSER_ADDED)
 
 #ifdef HALO_GAME_BROWSER
 static void ui_widget_setup_entry_tags_loaded(void);
@@ -3902,6 +3915,15 @@ void ui_widget_online_games_tags_loaded(
 #else
 	online_games.added = ONLINE_GAMES_ITEMS_MOST;
 #endif
+#ifdef HALO_GAME_BROWSER
+	{
+		extern boolean pc_menus_chupathingy(void);
+
+		online_games.coop = pc_menus_chupathingy();
+		if (!online_games.coop)
+			online_games.added--;
+	}
+#endif
 	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ITEMS_MOST) * sizeof(*children));
 	online_games.children = children;
 	if (!children)
@@ -3909,6 +3931,10 @@ void ui_widget_online_games_tags_loaded(
 	old_children = (struct ui_widget_child_reference *)xbox_pointer(list->child_widgets.address);
 	csmemcpy(children, old_children, ONLINE_GAMES_POSITION * sizeof(*children));
 	children[ONLINE_GAMES_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+#ifdef HALO_GAME_BROWSER
+	if (online_games.coop)
+		children[COOP_ITEM_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+#endif
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	children[MAP_BROWSER_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
 #endif
@@ -4114,6 +4140,17 @@ boolean ui_widget_online_games_item(
 		ui_widget_list_position(widget) == ONLINE_GAMES_POSITION;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* the Multiplayer menu's ONLINE CO-OP (a copy of System Link's item) */
+boolean ui_widget_coop_item(
+	struct widget_instance *widget)
+{
+	return online_games.list_tag != NONE && online_games.coop && widget && widget->parent &&
+		widget->parent->definition_tag_index == online_games.list_tag &&
+		ui_widget_list_position(widget) == COOP_ITEM_POSITION;
+}
+#endif
+
 #ifdef HALO_GUIDE
 /* the Multiplayer menu's DELTA (a copy of System Link's item) */
 boolean ui_widget_delta_item(
@@ -4164,8 +4201,26 @@ boolean ui_online_games_start_server(void);
 Link's Y makes one: on maps that play multiplayer with the others, the
 server started, then the new game's map chosen, whose B goes back to the
 Multiplayer menu (which ends the game, ui_widget_event_handler_functions.c) */
+static boolean ui_widget_online_games_create_game_at(short position);
+
 boolean ui_widget_online_games_create_game(
 	void)
+{
+	return ui_widget_online_games_create_game_at(ONLINE_GAMES_POSITION);
+}
+
+#ifdef HALO_GAME_BROWSER
+/* ONLINE CO-OP's: the same, with the Multiplayer menu under it on ONLINE
+CO-OP, which Select Map's B goes back to */
+boolean ui_widget_online_games_create_coop_game(
+	void)
+{
+	return ui_widget_online_games_create_game_at(online_games.coop ? COOP_ITEM_POSITION : ONLINE_GAMES_POSITION);
+}
+#endif
+
+static boolean ui_widget_online_games_create_game_at(
+	short position)
 {
 	long map_select = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_MAP_SELECT);
 	long screen = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_SCREEN);
@@ -4181,7 +4236,7 @@ boolean ui_widget_online_games_create_game(
 	if (!ui_online_games_start_server())
 		return FALSE;
 	return ui_widget_load_by_name_or_tag(NULL, map_select, NULL, NONE, screen, online_games.list_tag,
-		ONLINE_GAMES_POSITION) != NULL;
+		position) != NULL;
 }
 #endif
 
@@ -4199,8 +4254,16 @@ short ui_widget_online_games_description(
 #ifdef HALO_GUIDE
 	online_games.delta_described = FALSE;
 #endif
+	online_games.coop_described = FALSE;
 	if (online_games.list_tag == NONE || list_widget->definition_tag_index != online_games.list_tag)
 		return index;
+#ifdef HALO_GAME_BROWSER
+	if (online_games.coop && index == COOP_ITEM_POSITION)
+	{
+		online_games.coop_described = TRUE;
+		return ONLINE_GAMES_SYSTEM_LINK;
+	}
+#endif
 	if (index == ONLINE_GAMES_POSITION)
 	{
 		online_games.described = TRUE;
@@ -4260,6 +4323,21 @@ static void event_handler_dispatch(
 		browser_screen_open();
 		return;
 	}
+#ifdef HALO_GAME_BROWSER
+	/* ONLINE CO-OP (System Link's item copied): Create Game's host flow, on
+	the campaign's first level, none of System Link's other buttons */
+	if (ui_widget_coop_item(widget))
+	{
+		if (handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start)
+		{
+			extern boolean pc_menus_coop_online(void);
+
+			if (pc_menus_coop_online())
+				ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+		}
+		return;
+	}
+#endif
 #ifdef HALO_GUIDE
 	/* DELTA (System Link's item copied): DELTA over the menu, on PARTY */
 	if (ui_widget_delta_item(widget) &&
@@ -6504,6 +6582,12 @@ static void widget_instance_render_text_box(
 		/* (ONLINE GAMES' item and description share System Link's tags) */
 		if (ui_widget_online_games_item(widget))
 			string = L"ONLINE GAMES";
+#ifdef HALO_GAME_BROWSER
+		else if (ui_widget_coop_item(widget))
+			string = L"ONLINE CO-OP";
+		else if (online_games.coop_described && widget->definition_tag_index == online_games.description_text_tag)
+			string = L"Host the campaign for friends\r\nto join from their own\r\nmachines.";
+#endif
 #ifdef HALO_GUIDE
 		else if (ui_widget_delta_item(widget))
 			string = L"DELTA";

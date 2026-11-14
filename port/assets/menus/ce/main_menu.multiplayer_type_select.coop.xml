@@ -7,8 +7,6 @@
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/coop/player_2_profile_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
-		<!-- (online co-op instead: the host flow, menu_functions.c's coop_online) -->
-		<on event="y" run="port coop online"/>
 		<child widget="main_menu/new_select/sel_list_desc_bkd"/>
 		<child widget="main_menu/multiplayer_type_select/coop/player_2_profile_list"/>
 		<child widget="main_menu/multiplayer_type_select/coop/header_player_2"/>
@@ -115,15 +113,7 @@
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/coop/player_2_button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
 		<data input="common button bar update"/>
-		<child widget="main_menu/multiplayer_type_select/coop/button_online" x="250" y="1"/>
 		<child widget="main_menu/profile_manager/profile_manager_button_ok" x="380" y="1"/>
 		<child widget="common_button_back" x="510" y="1"/>
-	</widget>
-	<!-- (ONLINE: co-op with players on other machines, hosted as Online
-	Games' CREATE GAME hosts, on the campaign's first level) -->
-	<widget name="main_menu/multiplayer_type_select/coop/button_online" type="text" width="116" height="24" bitmap="bitmaps/text_button_background" text="ONLINE" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2" platform="desktop android">
-		<on event="a" run="port coop online"/>
-		<on event="start" run="port coop online"/>
-		<on event="left_mouse" run="port coop online"/>
 	</widget>
 </menus>
