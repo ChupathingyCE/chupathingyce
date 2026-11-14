@@ -465,7 +465,7 @@
 		<string text="INTERFACE"/>
 		<string text="TEXT"/>
 		<string text="SHADOW RESOLUTION:"/>
-		<string text="SHADOW FILTERING:"/>
+		<string text="SOFT SHADOWS:"/>
 		<string text="PER-PIXEL LIGHTING:"/>
 		<string text="LIGHT EFFECTS:"/>
 		<string text="DOORS BLOCK LIGHT:"/>
@@ -513,7 +513,7 @@
 		<string text="A closed door stops light from the other side.\nOff lets it through, as on the Xbox."/>
 		<string text="Always draw models at their highest detail."/>
 		<string text="Sharper textures seen at an angle."/>
-		<string text="The field of view in vehicles.\nSame follows Field of View."/>
+		<string text="The field of view in vehicles.\nSame keeps it as before."/>
 		<string text="How far the world is drawn."/>
 		<string text="Takes effect on restart."/>
 		<string text="Draw the HUD in high resolution."/>

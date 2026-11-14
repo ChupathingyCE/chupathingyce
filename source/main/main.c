@@ -1221,11 +1221,12 @@ static real first_person_field_of_view_scale(
 
 /* port: display.vehicle_field_of_view, the view's width in degrees in a
 vehicle's seat, driver, gunner or passenger, first or third person, as the
-tangent scale first_person_field_of_view_scale gives: 0 (the default)
-follows display.field_of_view, else 50 to 120. On foot the third-person
-views (death, the neutral one) keep the game's, as before. */
+tangent scale first_person_field_of_view_scale gives: 50 to 120; 0 (the
+default) as before, a first-person seat at display.field_of_view and a
+third-person one at the game's own. On foot the third-person views (death,
+the neutral one) keep the game's, as before. */
 static real vehicle_field_of_view_scale(
-	void)
+	short perspective)
 {
 	static unsigned long read_at = (unsigned long)-1;
 	static real scale = 0.f;
@@ -1244,7 +1245,9 @@ static real vehicle_field_of_view_scale(
 		}
 	}
 
-	return scale > 0.f ? scale : first_person_field_of_view_scale();
+	if (scale > 0.f)
+		return scale;
+	return perspective == _director_perspective_first_person ? first_person_field_of_view_scale() : 1.f;
 }
 
 /* port: whether the local player's unit sits in a vehicle's seat */
@@ -1308,7 +1311,7 @@ static real local_view_field_of_view_update(
 	/* (the view on foot that a vehicle's eases from: first person's; a seat
 	that the game shows in third person starts at the game's own) */
 	on_foot = perspective == _director_perspective_first_person ? first_person_field_of_view_scale() : 1.f;
-	local_view_scales[local_player_index] = on_foot + (vehicle_field_of_view_scale() - on_foot) * weight;
+	local_view_scales[local_player_index] = on_foot + (vehicle_field_of_view_scale(perspective) - on_foot) * weight;
 
 	return local_view_scales[local_player_index];
 }
@@ -1409,17 +1412,26 @@ static real far_clip_distance_floor(
 /* port: display.shadow_filtering, the object shadows' blur (the
 rasterizer_shadows_convolution console global, on as on the Xbox): set to
 the setting when it changes, so the console global still overrides it
-until then. The original Xbox keeps its own. */
+until the setting itself changes again. The original Xbox keeps its own. */
 static void shadow_filtering_apply(
 	void)
 {
 	extern int config_boolean(char const *name);
 	static unsigned long read_at = (unsigned long)-1;
+	static int applied = -1;
 
 	if (read_at != config_changes())
 	{
+		int value = config_boolean("display.shadow_filtering") != 0;
+
 		read_at = config_changes();
-		rasterizer_debug_options.shadow_convolution_enabled = config_boolean("display.shadow_filtering") != 0;
+		/* (only when the setting itself changes: a change of another
+		leaves the console global as it was set) */
+		if (value != applied)
+		{
+			applied = value;
+			rasterizer_debug_options.shadow_convolution_enabled = (boolean)value;
+		}
 	}
 }
 #endif

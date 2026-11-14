@@ -358,8 +358,9 @@ static const struct config_setting config_settings[] =
 		"0 uses display.field_of_view." },
 	{ "display.vehicle_field_of_view", _config_real, "0.0", "HALO_VEHICLE_FIELD_OF_VIEW", _environment_value,
 		_platform_all | _platform_xbox,
-		"The field of view in a vehicle's seat, from 50 to 120.\n"
-		"0 uses display.field_of_view." },
+		"The field of view in a vehicle's seat, from 50 to 120. 0 keeps it\n"
+		"as before: display.field_of_view in first person, the game's own in\n"
+		"third person." },
 	{ "display.reticle_scales_with_fov", _config_boolean, "true", "HALO_RETICLE_SCALES_WITH_FOV", _environment_value,
 		_platform_all | _platform_xbox,
 		"Size the reticle to the field of view, so it matches the weapon's\n"
