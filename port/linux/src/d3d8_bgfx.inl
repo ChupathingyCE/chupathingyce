@@ -261,6 +261,9 @@ struct bg_target
 	BOOL depth, fresh;
 	/* samples a pixel (0: not multisampled; bg_screen_samples) */
 	int samples;
+	/* RGBA16F, with room above white: the back buffer with display.hdr
+	(bg_target_get, xgpu_tone_map.h) */
+	BOOL wide;
 	bgfx_texture_handle_t texture;
 	unsigned long last_rendered, written;
 };
@@ -339,6 +342,25 @@ static struct
 	struct bg_composite *composites;
 	bgfx_program_handle_t blit, crt, copy;
 	bgfx_uniform_handle_t crt_parameters[3];
+	/* display.hdr (xgpu_tone_map.h): whether the renderer draws into RGBA16F
+	targets (bg_formats_choose); the tone mapping's program, its copy of
+	the back buffer (bgfx reads no target it draws into) and its uniform
+	(bg_tone_map); the present's and the overlay's encoding (bg_blit,
+	xgpu_bgfx_overlay_draw) and whether the swap chain is HDR10
+	(bg_window_update); and the SDR copy of a wide back buffer, drawn for a
+	readback (bg_sdr_source: bgfx's blit copies between one format only) */
+	BOOL wide_targets;
+	bgfx_program_handle_t tone_map;
+	bgfx_texture_handle_t tone_copy;
+	unsigned long tone_copy_width, tone_copy_height;
+	bgfx_uniform_handle_t tone, output_encoding;
+	BOOL swap_hdr10;
+	bgfx_texture_handle_t sdr_copy;
+	bgfx_frame_buffer_handle_t sdr_copy_framebuffer;
+	unsigned long sdr_copy_width, sdr_copy_height;
+	/* a player's screenshot taken from the back buffer (bg_capture's
+	readback), as the HDR10 window cannot be read as 8 bits */
+	BOOL capture_for_shot;
 	/* the quads that are drawn every frame, kept out of the frame's transient
 	vertices: when a busy view used those up, the present drew only its
 	clear, and the whole window went black (#1047). The present's is the
@@ -2117,7 +2139,8 @@ static int bg_screen_samples(void)
 			samples >= 8 ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X8 :
 			samples >= 4 ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X4 : BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X2;
 
-		if ((caps->formats[BGFX_TEXTURE_FORMAT_BGRA8] & bit) && (caps->formats[bg.depth_format] & bit))
+		if ((caps->formats[hdr.active && bg.wide_targets ? BGFX_TEXTURE_FORMAT_RGBA16F : BGFX_TEXTURE_FORMAT_BGRA8] & bit) &&
+			(caps->formats[bg.depth_format] & bit))
 			break;
 	}
 	if (samples < 2)
@@ -2158,7 +2181,7 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	struct bg_target *entry;
 	unsigned long width, height;
 	float scale[2] = { 1.0f, 1.0f };
-	BOOL depth;
+	BOOL depth, wide = FALSE;
 	int samples = 0;
 
 	if (!surface || !surface->Data)
@@ -2173,6 +2196,8 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 		scale[0] = screen_scale[0];
 		scale[1] = screen_scale[1];
 		samples = bg_screen_samples();
+		/* (display.hdr: the back buffer with room above white) */
+		wide = !depth && hdr.active && bg.wide_targets && surface->Data == device.back_buffer.Data;
 	}
 	else if (!depth && width == SECONDARY_TARGET_WIDTH && height == SECONDARY_TARGET_HEIGHT)
 	{
@@ -2189,7 +2214,8 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 		/* (one bgfx would not make is kept, so it is asked for once, and is
 		no target: what would draw into it is left out) */
 		if (entry->data == surface->Data && entry->width == width && entry->height == height && entry->depth == depth &&
-			entry->scale[0] == scale[0] && entry->scale[1] == scale[1] && entry->samples == samples)
+			entry->scale[0] == scale[0] && entry->scale[1] == scale[1] && entry->samples == samples &&
+			entry->wide == wide)
 			return BGFX_HANDLE_IS_VALID(entry->texture) ? entry : NULL;
 	}
 	entry = calloc(1, sizeof(*entry));
@@ -2200,10 +2226,11 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	entry->scale[0] = scale[0];
 	entry->scale[1] = scale[1];
 	entry->samples = samples;
+	entry->wide = wide;
 	entry->pixel_width = (unsigned long)(width * scale[0] + 0.5f);
 	entry->pixel_height = (unsigned long)(height * scale[1] + 0.5f);
 	entry->texture = bgfx_create_texture_2d((uint16_t)entry->pixel_width, (uint16_t)entry->pixel_height, false, 1,
-		depth ? bg.depth_format : BGFX_TEXTURE_FORMAT_BGRA8,
+		depth ? bg.depth_format : wide ? BGFX_TEXTURE_FORMAT_RGBA16F : BGFX_TEXTURE_FORMAT_BGRA8,
 		bg_samples_flags(samples, depth) | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
 	/* (cleared once: what a new target holds is undefined) */
 	entry->fresh = TRUE;
@@ -3695,6 +3722,7 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		key.alpha_test_samples = (unsigned char)bg.target_samples;
 	key.fog_enable = D3D__RenderState[D3DRS_FOGENABLE] != 0;
 	key.fog_table_mode = (unsigned char)D3D__RenderState[D3DRS_FOGTABLEMODE];
+	key.hdr = hdr_draw_tag();
 
 	vertex_shader = bg_vertex_shader(program, immediate);
 	fragment_shader = bg_fragment_shader(&key, has_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE] ?
@@ -4041,13 +4069,35 @@ static const char bg_blit_vertex_source[] =
 	"\tgl_Position = vec4(a_position.xy, 0.0, 1.0);\n"
 	"}\n";
 
+/* (display.hdr: the picture encoded for an HDR10 swap chain where
+output_encoding.x says so, xgpu_tone_map.h; else as it is) */
 static const char bg_blit_fragment_source[] =
 	"in vec4 xT0;\n"
 	"uniform sampler2D tex0;\n"
+	"uniform vec4 output_encoding;\n"
 	"layout(location = 0) out vec4 fragment_color;\n"
+	XGPU_PQ_ENCODE_GLSL
 	"void main()\n"
 	"{\n"
-	"\tfragment_color = vec4(texture(tex0, xT0.xy).rgb, 1.0);\n"
+	"\tvec3 color = texture(tex0, xT0.xy).rgb;\n"
+	"\tif (output_encoding.x > 0.5)\n"
+	"\t\tcolor = pq_encode(color, output_encoding);\n"
+	"\tfragment_color = vec4(color, 1.0);\n"
+	"}\n";
+
+/* display.hdr's tone mapping (xgpu_tone_map.h) over a window's 3D view: the
+pixel's own texel of the back buffer's copy, drawn back into the back
+buffer; alpha kept, the game's own */
+static const char bg_tone_map_fragment_source[] =
+	"in vec4 xT0;\n"
+	"uniform sampler2D tex0;\n"
+	"uniform vec4 tone;\n"
+	"layout(location = 0) out vec4 fragment_color;\n"
+	XGPU_TONE_MAP_GLSL
+	"void main()\n"
+	"{\n"
+	"\tvec4 color = texelFetch(tex0, ivec2(gl_FragCoord.xy), 0);\n"
+	"\tfragment_color = vec4(tone_map(color.rgb, tone), color.a);\n"
 	"}\n";
 
 /* (a level of a texture made of the one above it, every channel: the water's
@@ -4074,7 +4124,10 @@ static const char bg_crt_fragment_source[] =
 	"uniform vec4 crt_parameters2;\n"
 	/* x time, yz the picture's size in pixels */
 	"uniform vec4 crt_parameters3;\n"
+	/* (display.hdr's, as the blit's) */
+	"uniform vec4 output_encoding;\n"
 	"layout(location = 0) out vec4 fragment_color;\n"
+	XGPU_PQ_ENCODE_GLSL
 	"vec2 distort(vec2 uv, float k)\n"
 	"{\n"
 	"\tvec2 cc = uv - 0.5;\n"
@@ -4129,7 +4182,10 @@ static const char bg_crt_fragment_source[] =
 	"\t\tvec2 vig = uv * (1.0 - uv);\n"
 	"\t\tcolor *= pow(vig.x * vig.y * 16.0, crt_parameters1.w * 0.3);\n"
 	"\t}\n"
-	"\tfragment_color = vec4(color * crt_parameters2.w, 1.0);\n"
+	"\tcolor *= crt_parameters2.w;\n"
+	"\tif (output_encoding.x > 0.5)\n"
+	"\t\tcolor = pq_encode(color, output_encoding);\n"
+	"\tfragment_color = vec4(color, 1.0);\n"
 	"}\n";
 
 /* bgfx's reset flags: vertical sync, and the most anisotropy (16x) when
@@ -4144,29 +4200,186 @@ static unsigned long bg_reset_flags(void)
 	return flags;
 }
 
+/* display.hdr_output: an HDR10 swap chain (RGB10A2, SMPTE ST 2084, which
+bgfx has on Direct3D 11 and 12, Vulkan and Metal) while display.hdr is on,
+the renderer says the display takes it (BGFX_CAPS_HDR10: Windows with HDR
+on, a Mac with an XDR or HDR display, a Vulkan surface with the color
+space) and the system says the window shows HDR (platform_video_hdr). The
+blit encodes for it (bg_blit, xgpu_tone_map.h). */
+static BOOL bg_hdr10_wanted(void)
+{
+	float sdr_white, headroom;
+
+	if (!hdr.active || !config_boolean("display.hdr_output") || !(bgfx_get_caps()->supported & BGFX_CAPS_HDR10))
+		return FALSE;
+	return platform_video_hdr(&sdr_white, &headroom);
+}
+
+static BOOL bg_hdr10(void)
+{
+	return bg.swap_hdr10;
+}
+
 static void bg_window_update(void)
 {
 	int width = 0, height = 0;
 	unsigned long flags = bg_reset_flags();
+	BOOL hdr10 = bg_hdr10_wanted();
 
 	SDL_GetWindowSizeInPixels(bg.window, &width, &height);
-	if (width == bg.window_width && height == bg.window_height && flags == bg.reset_flags)
+	if (width == bg.window_width && height == bg.window_height && flags == bg.reset_flags && hdr10 == bg.swap_hdr10)
 		return;
+	if (hdr10 != bg.swap_hdr10)
+		platform_log("bgfx: the swap chain is %s", hdr10 ? "HDR10 (RGB10A2, PQ)" : "SDR (BGRA8)");
 	bg.window_width = width;
 	bg.window_height = height;
 	bg.reset_flags = flags;
 	{
 		/* (the window's swap chain: its new size; its format and flags as
-		they are) */
+		they are, but for HDR10's) */
 		bgfx_swap_chain_t swap_chain = { 0 };
 
 		swap_chain.width = (uint32_t)width;
 		swap_chain.height = (uint32_t)height;
-		swap_chain.formatColor = BGFX_TEXTURE_FORMAT_COUNT;
+		swap_chain.formatColor = hdr10 ? BGFX_TEXTURE_FORMAT_RGB10A2 :
+			bg.swap_hdr10 ? BGFX_TEXTURE_FORMAT_BGRA8 : BGFX_TEXTURE_FORMAT_COUNT;
+		swap_chain.flags = hdr10 ? BGFX_SWAP_CHAIN_HDR10 : BGFX_SWAP_CHAIN_NONE;
 		swap_chain.formatDepthStencil = BGFX_TEXTURE_FORMAT_COUNT;
 		swap_chain.depth = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
 		bgfx_reset((uint32_t)flags, &swap_chain);
 	}
+	bg.swap_hdr10 = hdr10;
+}
+
+/* the present's and the overlay's encoding (xgpu_tone_map.h): PQ for the
+HDR10 swap chain, the picture as it is for an SDR one */
+static void bg_output_encoding_set(void)
+{
+	float encoding[4];
+
+	xgpu_tone_map_encoding(encoding, bg.swap_hdr10 && hdr.output ? _xgpu_hdr_output_pq : _xgpu_hdr_output_sdr,
+		hdr.paper_white / 10000.0f, &hdr.tone_mapping);
+	bgfx_set_uniform(bg.output_encoding, encoding, 1);
+}
+
+static BOOL bg_hdr_targets(void)
+{
+	return bg.wide_targets;
+}
+
+/* display.hdr's tone mapping over a window's 3D view (the game's x0, y0 to
+x1, y1 on the screen) before the HUD: the back buffer copied (bgfx reads no
+target a draw goes into), and the curve drawn back over the rectangle, in a
+view of its own; the next draw's view is a new one (bg_view_set) */
+static void bg_tone_map(short x0, short y0, short x1, short y1)
+{
+	struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
+	bgfx_frame_buffer_handle_t framebuffer;
+	unsigned short rect[4];
+	long px0, py0, px1, py1;
+	float tone[4];
+
+	if (!back_buffer || !back_buffer->wide || !BGFX_HANDLE_IS_VALID(bg.tone_map) ||
+		!BGFX_HANDLE_IS_VALID(bg.full_quad))
+		return;
+	px0 = scaled_pixel((float)x0, back_buffer->scale[0]);
+	py0 = scaled_pixel((float)y0, back_buffer->scale[1]);
+	px1 = scaled_pixel((float)x1, back_buffer->scale[0]);
+	py1 = scaled_pixel((float)y1, back_buffer->scale[1]);
+	px0 = px0 < 0 ? 0 : px0;
+	py0 = py0 < 0 ? 0 : py0;
+	px1 = px1 > (long)back_buffer->pixel_width ? (long)back_buffer->pixel_width : px1;
+	py1 = py1 > (long)back_buffer->pixel_height ? (long)back_buffer->pixel_height : py1;
+	if (px1 <= px0 || py1 <= py0)
+		return;
+	rect[0] = (unsigned short)px0;
+	rect[1] = (unsigned short)py0;
+	rect[2] = (unsigned short)(px1 - px0);
+	rect[3] = (unsigned short)(py1 - py0);
+	if (!BGFX_HANDLE_IS_VALID(bg.tone_copy) || bg.tone_copy_width != back_buffer->pixel_width ||
+		bg.tone_copy_height != back_buffer->pixel_height)
+	{
+		if (BGFX_HANDLE_IS_VALID(bg.tone_copy))
+			bgfx_destroy_texture(bg.tone_copy);
+		bg.tone_copy_width = back_buffer->pixel_width;
+		bg.tone_copy_height = back_buffer->pixel_height;
+		bg.tone_copy = bgfx_create_texture_2d((uint16_t)bg.tone_copy_width, (uint16_t)bg.tone_copy_height, false, 1,
+			BGFX_TEXTURE_FORMAT_RGBA16F, BGFX_TEXTURE_BLIT_DST | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
+	}
+	framebuffer = bg_framebuffer_get(back_buffer, NULL);
+	if (!BGFX_HANDLE_IS_VALID(bg.tone_copy) || !BGFX_HANDLE_IS_VALID(framebuffer))
+		return;
+	if (bg.view_used)
+	{
+		if (bg.view + 3 >= BG_MAXIMUM_VIEWS)
+		{
+			bg_log_once("more views than a frame has");
+			return;
+		}
+		bg.view++;
+		bg.view_used = FALSE;
+	}
+	/* (the copy, in a view before the pass's: bgfx blits as a view starts) */
+	bgfx_set_view_mode(bg.view, BGFX_VIEW_MODE_SEQUENTIAL);
+	bgfx_set_view_clear(bg.view, BGFX_CLEAR_NONE, 0, 1.0f, 0);
+	bg_blit_2d(bg.view, bg.tone_copy, 0, back_buffer->texture, (uint16_t)bg.tone_copy_width,
+		(uint16_t)bg.tone_copy_height);
+	bg.view++;
+	bgfx_set_view_mode(bg.view, BGFX_VIEW_MODE_SEQUENTIAL);
+	bgfx_set_view_clear(bg.view, BGFX_CLEAR_NONE, 0, 1.0f, 0);
+	bgfx_set_view_frame_buffer(bg.view, framebuffer);
+	bgfx_set_view_rect(bg.view, rect[0], rect[1], rect[2], rect[3], 0.0f, 1.0f);
+	bg.view_framebuffer = framebuffer;
+	memcpy(bg.view_rect, rect, sizeof(bg.view_rect));
+	xgpu_tone_map_set(tone, &hdr.tone_mapping);
+	bgfx_set_uniform(bg.tone, tone, 1);
+	bgfx_set_vertex_buffer(0, bg.full_quad, 0, 4);
+	bgfx_set_texture(0, bg.samplers[0], bg.tone_copy, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_TRISTRIP, 0);
+	bgfx_submit(bg.view, bg.tone_map, 0, BGFX_DISCARD_ALL);
+	bg.view_used = TRUE;
+}
+
+/* the texture a readback of the back buffer copies from (bgfx's blit copies
+between textures of one format only): the back buffer's own, or, when it is
+wide, an SDR copy of it drawn with the blit's program, white at most, in the
+view before the present's */
+static bgfx_texture_handle_t bg_sdr_source(struct bg_target *back_buffer)
+{
+	float encoding[4];
+
+	if (!back_buffer->wide)
+		return back_buffer->texture;
+	if (!BGFX_HANDLE_IS_VALID(bg.sdr_copy) || bg.sdr_copy_width != back_buffer->pixel_width ||
+		bg.sdr_copy_height != back_buffer->pixel_height)
+	{
+		if (BGFX_HANDLE_IS_VALID(bg.sdr_copy_framebuffer))
+			bgfx_destroy_frame_buffer(bg.sdr_copy_framebuffer);
+		if (BGFX_HANDLE_IS_VALID(bg.sdr_copy))
+			bgfx_destroy_texture(bg.sdr_copy);
+		bg.sdr_copy_framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
+		bg.sdr_copy_width = back_buffer->pixel_width;
+		bg.sdr_copy_height = back_buffer->pixel_height;
+		bg.sdr_copy = bgfx_create_texture_2d((uint16_t)bg.sdr_copy_width, (uint16_t)bg.sdr_copy_height, false, 1,
+			BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
+		if (BGFX_HANDLE_IS_VALID(bg.sdr_copy))
+			bg.sdr_copy_framebuffer = bgfx_create_frame_buffer_from_handles(1, &bg.sdr_copy, false);
+	}
+	if (!BGFX_HANDLE_IS_VALID(bg.sdr_copy_framebuffer) || !BGFX_HANDLE_IS_VALID(bg.blit) ||
+		!BGFX_HANDLE_IS_VALID(bg.full_quad))
+		return (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+	bgfx_set_view_mode((bgfx_view_id_t)(bg.present_view - 1), BGFX_VIEW_MODE_SEQUENTIAL);
+	bgfx_set_view_clear((bgfx_view_id_t)(bg.present_view - 1), BGFX_CLEAR_NONE, 0, 1.0f, 0);
+	bgfx_set_view_frame_buffer((bgfx_view_id_t)(bg.present_view - 1), bg.sdr_copy_framebuffer);
+	bgfx_set_view_rect((bgfx_view_id_t)(bg.present_view - 1), 0, 0, (uint16_t)bg.sdr_copy_width,
+		(uint16_t)bg.sdr_copy_height, 0.0f, 1.0f);
+	xgpu_tone_map_encoding(encoding, _xgpu_hdr_output_sdr, 0.0f, &hdr.tone_mapping);
+	bgfx_set_uniform(bg.output_encoding, encoding, 1);
+	bgfx_set_vertex_buffer(0, bg.full_quad, 0, 4);
+	bgfx_set_texture(0, bg.samplers[0], back_buffer->texture, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_TRISTRIP, 0);
+	bgfx_submit((bgfx_view_id_t)(bg.present_view - 1), bg.blit, 0, BGFX_DISCARD_ALL);
+	return bg.sdr_copy;
 }
 
 /* the back buffer into the window, letterboxed to its shape: the rectangle
@@ -4208,6 +4421,7 @@ static void bg_blit(unsigned short view, int letterbox[4])
 	bgfx_set_dynamic_vertex_buffer(0, bg.present_quad, 0, 4);
 	bgfx_set_texture(0, bg.samplers[0], back_buffer->texture, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_TRISTRIP, 0);
+	bg_output_encoding_set();
 	if (config_boolean("display.crt_filter") && BGFX_HANDLE_IS_VALID(bg.crt))
 	{
 		/* (Theseus's "Classic" preset) */
@@ -4274,9 +4488,13 @@ static const char bg_overlay_fragment_source[] =
 	"uniform vec4 plasma_thread;\n"
 	"uniform vec4 cutouts[4];\n"
 	"uniform vec4 cellwall_parameters[3];\n"
+	/* (display.hdr's, as the blit's: the overlay's color encoded for the
+	HDR10 swap chain) */
+	"uniform vec4 output_encoding;\n"
 	"layout(location = 0) out vec4 fragment_color;\n"
 	UI_OVERLAY_CELLWALL_GLSL
-	"void main()\n"
+	XGPU_PQ_ENCODE_GLSL
+	"vec4 overlay_color()\n"
 	"{\n"
 	"\tfloat alpha;\n"
 	"\tvec2 p = gl_FragCoord.xy;\n"
@@ -4286,16 +4504,14 @@ static const char bg_overlay_fragment_source[] =
 	/* (the cellwall: ui_overlay.c's) */
 	"\tif (xT2.x < -5.5)\n"
 	"\t{\n"
-	"\t\tfragment_color = cellwall(xT0.xy, cellwall_parameters[0], cellwall_parameters[1], cellwall_parameters[2],\n"
+	"\t\treturn cellwall(xT0.xy, cellwall_parameters[0], cellwall_parameters[1], cellwall_parameters[2],\n"
 	"\t\t\txD0);\n"
-	"\t\treturn;\n"
 	"\t}\n"
 	/* (a medal: ui_overlay.c's) */
 	"\tif (xT2.x < -4.5)\n"
 	"\t{\n"
 	"\t\tvec4 texel = texture(medals, xT0.xy);\n"
-	"\t\tfragment_color = vec4(texel.rgb / max(texel.a, 0.001), texel.a) * xD0;\n"
-	"\t\treturn;\n"
+	"\t\treturn vec4(texel.rgb / max(texel.a, 0.001), texel.a) * xD0;\n"
 	"\t}\n"
 	/* (the plasma: ui_overlay.c's) */
 	"\tif (xT2.x < -3.5)\n"
@@ -4308,19 +4524,14 @@ static const char bg_overlay_fragment_source[] =
 	"\t\tfloat a1 = t1.a * dot(t1.rgb, vec3(0.3333));\n"
 	"\t\tfloat thread = pow(clamp(1.0 - abs(a0 - a1) * 3.0, 0.0, 1.0), 8.0);\n"
 	"\t\tvec3 color = xD0.rgb * (0.8 + 0.6 * a0 * a1) + plasma_thread.rgb * thread * 0.18;\n"
-	"\t\tfragment_color = vec4(color, xD0.a * clamp(0.5 - d, 0.0, 1.0) * (0.92 + 0.08 * thread));\n"
-	"\t\treturn;\n"
+	"\t\treturn vec4(color, xD0.a * clamp(0.5 - d, 0.0, 1.0) * (0.92 + 0.08 * thread));\n"
 	"\t}\n"
 	"\tif (xT2.x < -2.5)\n"
-	"\t{\n"
-	"\t\tfragment_color = texture(picture, xT0.xy) * xD0;\n"
-	"\t\treturn;\n"
-	"\t}\n"
+	"\t\treturn texture(picture, xT0.xy) * xD0;\n"
 	"\tif (xT2.x < -1.5)\n"
 	"\t{\n"
 	"\t\tvec4 texel = texture(icons, vec3(xT0.xy, xT1.x));\n"
-	"\t\tfragment_color = vec4(texel.rgb / max(texel.a, 0.001), texel.a) * xD0;\n"
-	"\t\treturn;\n"
+	"\t\treturn vec4(texel.rgb / max(texel.a, 0.001), texel.a) * xD0;\n"
 	"\t}\n"
 	"\tif (xT0.x >= 0.0)\n"
 	"\t\talpha = texture(atlas, xT0.xy).r;\n"
@@ -4332,7 +4543,14 @@ static const char bg_overlay_fragment_source[] =
 	"\t\tif (xT2.y > 0.0)\n"
 	"\t\t\talpha *= clamp(d + xT2.y + 0.5, 0.0, 1.0);\n"
 	"\t}\n"
-	"\tfragment_color = vec4(xD0.rgb, xD0.a * alpha);\n"
+	"\treturn vec4(xD0.rgb, xD0.a * alpha);\n"
+	"}\n"
+	"void main()\n"
+	"{\n"
+	"\tvec4 color = overlay_color();\n"
+	"\tif (output_encoding.x > 0.5)\n"
+	"\t\tcolor.rgb = pq_encode(color.rgb, output_encoding);\n"
+	"\tfragment_color = color;\n"
 	"}\n";
 
 /* the overlay's textures and program let go (what bg_overlay_prepare made
@@ -4549,6 +4767,7 @@ int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, co
 	bgfx_set_uniform(bg.overlay_uniforms[2], plasma_shift, 1);
 	bgfx_set_uniform(bg.overlay_uniforms[3], plasma_shift + 4, 1);
 	bgfx_set_uniform(bg.overlay_uniforms[4], cellwall, 3);
+	bg_output_encoding_set();
 	bgfx_set_texture(0, bg.overlay_samplers[0], bg.overlay_atlas, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_texture(1, bg.overlay_samplers[1], bg.overlay_icons, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_texture(2, bg.overlay_samplers[2], bg.overlay_picture, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
@@ -4864,7 +5083,7 @@ static void bg_clip_start(void)
 	}
 	if (!bg.clip[index].pixels || !BGFX_HANDLE_IS_VALID(bg.clip[index].texture))
 		return;
-	bg_blit_2d(bg.present_view, bg.clip[index].texture, 0, back_buffer->texture, (uint16_t)bg.clip[index].width,
+	bg_blit_2d(bg.present_view, bg.clip[index].texture, 0, bg_sdr_source(back_buffer), (uint16_t)bg.clip[index].width,
 		(uint16_t)bg.clip[index].height);
 	bg.clip[index].ready = bg_read_texture(bg.clip[index].texture, bg.clip[index].pixels);
 	bg.clip[index].time = time;
@@ -4893,6 +5112,36 @@ static void bg_clip_finish(uint32_t frame_number)
 
 #endif
 
+/* the back buffer copied into the capture texture and read back (the
+debug captures', and a player's shot on an HDR10 window): TRUE once asked,
+bg.capture_ready the frame it is ready */
+static BOOL bg_capture_frame(struct bg_target *back_buffer)
+{
+	bgfx_texture_handle_t source;
+
+	if (!BGFX_HANDLE_IS_VALID(bg.capture) || bg.capture_width != back_buffer->pixel_width ||
+		bg.capture_height != back_buffer->pixel_height)
+	{
+		if (BGFX_HANDLE_IS_VALID(bg.capture))
+			bgfx_destroy_texture(bg.capture);
+		bg.capture_width = back_buffer->pixel_width;
+		bg.capture_height = back_buffer->pixel_height;
+		bg.capture = bgfx_create_texture_2d((uint16_t)bg.capture_width, (uint16_t)bg.capture_height, false, 1,
+			BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK, NULL, 0);
+		free(bg.capture_pixels);
+		bg.capture_pixels = malloc(bg.capture_width * bg.capture_height * 4);
+	}
+	if (!bg.capture_pixels || !BGFX_HANDLE_IS_VALID(bg.capture))
+		return FALSE;
+	source = bg_sdr_source(back_buffer);
+	if (!BGFX_HANDLE_IS_VALID(source))
+		return FALSE;
+	bg_blit_2d(bg.present_view, bg.capture, 0, source, (uint16_t)bg.capture_width, (uint16_t)bg.capture_height);
+	bg.capture_ready = bg_read_texture(bg.capture, bg.capture_pixels);
+	bg.capture_pending = TRUE;
+	return TRUE;
+}
+
 static void bg_present(void)
 {
 	double frame_start, frame_end;
@@ -4904,7 +5153,8 @@ static void bg_present(void)
 	if (screenshot_every < 0)
 		screenshot_every = *config_string("debug.screenshot_directory") ? config_integer("debug.screenshot_every") : 0;
 	bg_warm();
-	bg.present_view = (unsigned short)(bg.view + 1);
+	/* (the view before the present's is the SDR copy's: bg_sdr_source) */
+	bg.present_view = (unsigned short)(bg.view + 2);
 	if ((window = bg_window_due()) != FALSE)
 	{
 		bg_blit(bg.present_view, letterbox);
@@ -4938,29 +5188,11 @@ static void bg_present(void)
 			snprintf(path, sizeof(path), "%s/window%05lu.bmp", config_string("debug.screenshot_directory"), device.frame);
 			bgfx_request_screen_shot((bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE, path);
 		}
-		else
+		else if (bg_capture_frame(back_buffer))
 		{
-			if (!BGFX_HANDLE_IS_VALID(bg.capture) || bg.capture_width != back_buffer->pixel_width ||
-				bg.capture_height != back_buffer->pixel_height)
-			{
-				if (BGFX_HANDLE_IS_VALID(bg.capture))
-					bgfx_destroy_texture(bg.capture);
-				bg.capture_width = back_buffer->pixel_width;
-				bg.capture_height = back_buffer->pixel_height;
-				bg.capture = bgfx_create_texture_2d((uint16_t)bg.capture_width, (uint16_t)bg.capture_height, false, 1,
-					BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK, NULL, 0);
-				free(bg.capture_pixels);
-				bg.capture_pixels = malloc(bg.capture_width * bg.capture_height * 4);
-			}
-			if (bg.capture_pixels && BGFX_HANDLE_IS_VALID(bg.capture))
-			{
-				bg_blit_2d(bg.present_view, bg.capture, 0, back_buffer->texture, (uint16_t)bg.capture_width,
-					(uint16_t)bg.capture_height);
-				bg.capture_ready = bg_read_texture(bg.capture, bg.capture_pixels);
-				snprintf(bg.capture_path, sizeof(bg.capture_path), "%s/frame%05lu.bmp",
-					config_string("debug.screenshot_directory"), device.frame);
-				bg.capture_pending = TRUE;
-			}
+			snprintf(bg.capture_path, sizeof(bg.capture_path), "%s/frame%05lu.bmp",
+				config_string("debug.screenshot_directory"), device.frame);
+			bg.capture_for_shot = FALSE;
 		}
 	}
 #ifdef HALO_CAPTURE
@@ -4968,7 +5200,20 @@ static void bg_present(void)
 	goes to it with a picture, which bg_blit leaves out of a minimized
 	window's; the ask waits for one that does) */
 	if (window && letterbox[2] > 0 && letterbox[3] > 0 && !bg.shot_pending && capture_screenshot_take())
-		bg_shot_start(letterbox);
+	{
+		struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
+
+		/* (an HDR10 window cannot be read as 8 bits: the shot is the game's
+		frame, read back as the debug captures are, without the overlay) */
+		if (bg.swap_hdr10 && back_buffer && !bg.capture_pending && bg_capture_frame(back_buffer))
+		{
+			bg.capture_for_shot = TRUE;
+			bg.shot_pending = TRUE;
+			bg.shot_frames = 0;
+		}
+		else
+			bg_shot_start(letterbox);
+	}
 	bg_clip_start();
 #endif
 	frame_start = stats_seconds();
@@ -5004,10 +5249,30 @@ static void bg_present(void)
 	}
 	if (frame_number >= bg.capture_ready && bg.capture_pending)
 	{
+#ifdef HALO_CAPTURE
+		if (bg.capture_for_shot)
+		{
+			/* (the player's shot: the frame's pixels, which capture.c takes) */
+			unsigned char *pixels = malloc(bg.capture_width * bg.capture_height * 4);
+
+			if (pixels && !bg.shot_pixels)
+			{
+				memcpy(pixels, bg.capture_pixels, bg.capture_width * bg.capture_height * 4);
+				bg.shot_pixels = pixels;
+				bg.shot_width = (long)bg.capture_width;
+				bg.shot_height = (long)bg.capture_height;
+				bg.shot_bgra = TRUE;
+			}
+			else
+				free(pixels);
+		}
+		else
+#endif
 		bg_callback_screen_shot(NULL, bg.capture_path, (uint32_t)bg.capture_width, (uint32_t)bg.capture_height,
 			(uint32_t)(bg.capture_width * 4), BGFX_TEXTURE_FORMAT_BGRA8, bg.capture_pixels,
 			(uint32_t)(bg.capture_width * bg.capture_height * 4), false);
 		bg.capture_pending = FALSE;
+		bg.capture_for_shot = FALSE;
 	}
 #ifdef HALO_CAPTURE
 	if (bg.shot_pending && bg.shot_pixels)
@@ -5294,6 +5559,10 @@ static BOOL bg_formats_choose(void)
 		platform_log("bgfx: %s draws into no BGRA8 targets, so OpenGL", bgfx_get_renderer_name(bgfx_get_renderer_type()));
 		return FALSE;
 	}
+	/* (display.hdr's back buffer; every desktop GPU has them) */
+	bg.wide_targets = bg_format_drawable(caps, BGFX_TEXTURE_FORMAT_RGBA16F, "RGBA16F");
+	if (!bg.wide_targets)
+		platform_log("bgfx: %s draws into no RGBA16F targets, so no HDR", bgfx_get_renderer_name(bgfx_get_renderer_type()));
 	for (index = 0; index < sizeof(bg_depth_formats) / sizeof(bg_depth_formats[0]); index++)
 	{
 		if (!bg_format_drawable(caps, bg_depth_formats[index].format, bg_depth_formats[index].name))
@@ -5428,6 +5697,10 @@ static BOOL bg_initialize(void)
 	bg.window = platform_sdl_window();
 	bg.view = 0;
 	bg.blit = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.tone_map = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.tone_copy = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+	bg.sdr_copy = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+	bg.sdr_copy_framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.copy = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.crt = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.present_quad = (bgfx_dynamic_vertex_buffer_handle_t)BGFX_INVALID_HANDLE;
@@ -5532,11 +5805,19 @@ static BOOL bg_initialize(void)
 			bgfx_copy(&black, 4), 0);
 	}
 	{
-		struct bg_shader *vertex = bg_shader_get(bg_blit_vertex_source, FALSE, 0, "blit vertex", TRUE);
-		struct bg_shader *fragment = bg_shader_get(bg_blit_fragment_source, TRUE, 0, "blit pixel", TRUE);
+		struct bg_shader *vertex, *fragment;
 
+		/* (display.hdr's uniforms before the shaders, which Vulkan's finds
+		them by) */
+		bg.tone = bgfx_create_uniform("tone", BGFX_UNIFORM_TYPE_VEC4, 1);
+		bg.output_encoding = bgfx_create_uniform("output_encoding", BGFX_UNIFORM_TYPE_VEC4, 1);
+		vertex = bg_shader_get(bg_blit_vertex_source, FALSE, 0, "blit vertex", TRUE);
+		fragment = bg_shader_get(bg_blit_fragment_source, TRUE, 0, "blit pixel", TRUE);
 		if (!vertex->failed && !fragment->failed)
 			bg.blit = bgfx_create_program(vertex->shader, fragment->shader, false);
+		fragment = bg_shader_get(bg_tone_map_fragment_source, TRUE, 0, "HDR tone mapping pixel", TRUE);
+		if (!vertex->failed && !fragment->failed)
+			bg.tone_map = bgfx_create_program(vertex->shader, fragment->shader, false);
 		fragment = bg_shader_get(bg_copy_fragment_source, TRUE, 0, "copy pixel", TRUE);
 		if (!vertex->failed && !fragment->failed)
 			bg.copy = bgfx_create_program(vertex->shader, fragment->shader, false);

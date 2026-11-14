@@ -395,9 +395,12 @@ static BOOL prep_start(const struct xgpu_program_key *recorded)
 
 	if (!object || !object->instructions)
 		return FALSE;
-	/* (as this machine draws it: its multisampling, its lighting) */
+	/* (as this machine draws it: its multisampling, its lighting, its
+	room above white) */
 	if (key.alpha_test_samples)
 		key.alpha_test_samples = prep_screen_samples();
+	if (!hdr_active())
+		key.hdr = 0;
 #ifndef HALO_GL_ES
 	key.count_samples = 0;
 #endif

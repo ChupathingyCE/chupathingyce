@@ -332,6 +332,10 @@ struct xgpu_render_target
 	/* changes whenever the target is drawn into or cleared (d3d8_gl.c,
 	bind_targets) */
 	unsigned long written;
+	/* the texture's (and the multisampled renderbuffer's) internal format:
+	GL_RGBA8, GL_DEPTH24_STENCIL8, or GL_RGBA16F for the back buffer with
+	display.hdr (d3d8_gl.c) */
+	GLenum format;
 };
 
 /* the GL texture holding a render target with this physical address, or 0 */
@@ -404,9 +408,79 @@ cannot be (once FALSE, it stays so) */
 BOOL xgpu_post_prepare(BOOL smaa);
 
 /* FXAA, or SMAA, on the corners x0, y0 to x1, y1 (from row 0) of a render
-target's framebuffer, width by height, GL_RGBA8; FALSE if its programs do
-not build */
-BOOL xgpu_post_anti_alias(BOOL smaa, GLuint framebuffer, unsigned long width, unsigned long height,
-	const GLint corners[4]);
+target's framebuffer, width by height, of that internal format (GL_RGBA8, or
+GL_RGBA16F with display.hdr); FALSE if its programs do not build */
+BOOL xgpu_post_anti_alias(BOOL smaa, GLuint framebuffer, GLenum format, unsigned long width,
+	unsigned long height, const GLint corners[4]);
+
+/* ---------- high dynamic range (xgpu_tone_map.h)
+
+display.hdr (d3d8_gl.c): the back buffer is GL_RGBA16F, so that what the
+game's blending adds up past white is kept rather than clipped, and each
+window's 3D view is tone mapped here before the HUD and menus are drawn
+over it. The back buffer's values stay the game's, gamma encoded, 1.0 the
+display's white; past 1.0 only where an HDR display (display.hdr_output)
+can show it. Presentation then draws the back buffer into the window with a
+program of its own, which for an HDR display's scRGB framebuffer makes the
+values linear. */
+
+enum
+{
+	_xgpu_tone_mapping_neutral,
+	_xgpu_tone_mapping_aces,
+	_xgpu_tone_mapping_reinhard,
+	NUMBER_OF_XGPU_TONE_MAPPINGS
+};
+
+struct xgpu_tone_mapping
+{
+	int curve;
+	/* the scale of the linear values before the curve */
+	float exposure;
+	/* the brightest value the curve gives, in the display's whites: 1.0 for
+	SDR, an HDR display's headroom over paper white */
+	float peak;
+	/* the UI's white over paper white (display.hdr_ui_nits): the view is
+	left under the frame's 1 by it, so that the HUD is the brighter; 1 for
+	the same */
+	float ui;
+};
+
+/* the display's encodings at the present */
+enum
+{
+	/* the frame's values, clamped to [0, 1] (the window's 8 bits) */
+	_xgpu_hdr_output_sdr,
+	/* HDR10: Rec. 2020 primaries, SMPTE ST 2084 (PQ), 1.0 10 000 nits (bgfx's
+	swap chain) */
+	_xgpu_hdr_output_pq,
+	/* scRGB: linear light, 1.0 the output's own white (OpenGL's
+	floating-point window) */
+	_xgpu_hdr_output_linear,
+};
+
+/* the shaders' uniforms (xgpu_tone_map.h): tone from the tone mapping;
+encoding from the output, the paper white in the output's units (over
+10 000 nits for PQ, over the output's white for linear), and the tone
+mapping's UI white and peak */
+void xgpu_tone_map_set(float tone[4], const struct xgpu_tone_mapping *tone_mapping);
+void xgpu_tone_map_encoding(float encoding[4], int output, float paper_white,
+	const struct xgpu_tone_mapping *tone_mapping);
+
+/* the tone mapping and presentation programs made now; FALSE if they
+cannot be (once FALSE, it stays so) */
+BOOL xgpu_post_prepare_hdr(void);
+
+/* tone maps the corners (as xgpu_post_anti_alias's) of a GL_RGBA16F target:
+reads its pixels from source (its texture's framebuffer), writes the colour
+(not alpha) into destination (the same, or its multisampled renderbuffer's) */
+BOOL xgpu_post_tone_map(GLuint source, GLuint destination, unsigned long width, unsigned long height,
+	const GLint corners[4], const struct xgpu_tone_mapping *tone_mapping);
+
+/* draws a GL_RGBA16F target's texture into the bound draw framebuffer's x,
+y, width, height (the window's, row 0 at the bottom), turned the right way
+up: as it is (SDR), or, for an HDR display's scRGB framebuffer, made linear
+and scaled to the paper white (encoding: xgpu_tone_map_encoding's) */
+BOOL xgpu_post_present(GLuint texture, int x, int y, int width, int height, const float encoding[4]);
 
 #endif

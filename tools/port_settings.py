@@ -117,6 +117,8 @@ SCREENS = {
              [("OFF", "off"), ("FXAA", "fxaa"), ("MSAA 2X", "msaa2x"), ("MSAA 4X", "msaa4x")],
              "Smooth jagged edges.",
              "android", "anti_aliasing_android"),
+            ("HDR:", "display.hdr", ON_OFF,
+             "Keep the light of explosions, plasma and glows past\nwhite, and roll it off instead of clipping.", "desktop"),
             ("FIELD OF VIEW:", "display.field_of_view",
              [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
               for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
@@ -130,6 +132,25 @@ SCREENS = {
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
+            ("hdr", "HDR SETUP", "The HDR display, tone mapping and brightness.", [
+                ("HDR DISPLAY:", "display.hdr_output", ON_OFF,
+                 "With HDR, on an HDR display, show that light\nbrighter than white. From the next start.", "desktop"),
+                ("TONE MAPPING:", "display.hdr_tone_mapping",
+                 [("NEUTRAL", "neutral"), ("ACES", "aces"), ("REINHARD", "reinhard")],
+                 "Neutral keeps the picture and rolls off the brightest\nparts. ACES is filmic. Reinhard is softer.", "desktop"),
+                ("EXPOSURE:", "display.hdr_exposure",
+                 [(f"{value:g}", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)],
+                 "The view's brightness before tone mapping.", "desktop"),
+                ("HDR BRIGHTNESS:", "display.hdr_paper_white",
+                 [("AUTO", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
+                 "How bright white is on an HDR display, in nits.\nAuto is the display's own.", "desktop"),
+                ("HDR PEAK:", "display.hdr_peak",
+                 [("AUTO", "0")] + [(f"{value}", f"{value}") for value in (400, 600, 800, 1000, 1500, 2000, 4000)],
+                 "The brightest highlight on an HDR display, in nits.\nAuto asks the display.", "desktop"),
+                ("HUD BRIGHTNESS:", "display.hdr_ui_nits",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
+                 "The HUD's and menus' white on an HDR display, in nits.", "desktop"),
+            ]),
             ("advanced", "ADVANCED", "Shadows, lighting and detail.", [
                 ("SHADOW RESOLUTION:", "display.shadow_resolution",
                  [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],

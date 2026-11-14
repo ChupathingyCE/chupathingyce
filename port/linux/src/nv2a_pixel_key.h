@@ -52,6 +52,10 @@ struct nv2a_pixel_shader_key
 	unsigned char plasma_model;
 	/* MCC environment lightmap pass only; part of the compiled shader key. */
 	unsigned char mcc_bump_attenuation;
+	/* display.hdr: a glow the game draws in [0, 1] though it stands for
+	light, brightened past white toward its ceiling (xgpu_tone_map.h's
+	_xgpu_hdr_tag_*, 0 for a draw left as it is: d3d8_gl.c's hdr_draw_tag) */
+	unsigned char hdr;
 };
 
 #endif

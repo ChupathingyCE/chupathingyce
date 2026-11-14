@@ -17,6 +17,7 @@ Register values are clamped to [-1, 1] between stages, as on the hardware.
 
 #include "plasma_model_shader.h"
 #include "xgpu.h"
+#include "xgpu_tone_map.h"
 #include "port_config.h"
 #include "mcc_environment_shader.h"
 
@@ -672,6 +673,9 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 		xgpu_text_append(&text, "uniform %s tex%d;\n", sampler_declaration(key->sampler_type[stage]), stage);
 	if (key->per_pixel_lighting)
 		model_lighting(&text, key->per_pixel_lighting == 2, key->plasma_model);
+	/* (display.hdr's glow: xgpu_tone_map.h) */
+	if (key->hdr)
+		xgpu_text_append(&text, XGPU_HDR_GLOW_GLSL);
 	xgpu_text_append(&text,
 		NV2A_FINITE
 		"float signed_byte(float x)\n"
@@ -803,6 +807,18 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 	/* (no component not a number: nv2a_finite, xgpu.h) */
 	xgpu_text_append(&text,
 		"\tresult = nv2a_finite(result);\n"
-		"\tfragment_color = clamp(result, 0.0, 1.0);\n}\n");
+		"\tfragment_color = clamp(result, 0.0, 1.0);\n");
+	/* (display.hdr: a glow's color brightened past white toward its
+	ceiling, after the clamp the NV2A gave every draw: xgpu_tone_map.h) */
+	if (key->hdr == _xgpu_hdr_tag_weapon_glow)
+		xgpu_text_append(&text, "\tfragment_color.rgb = hdr_glow(fragment_color.rgb, " XGPU_HDR_GLOW_KNEE ", "
+			XGPU_HDR_WEAPON_CEILING ");\n");
+	else if (key->hdr == _xgpu_hdr_tag_hud_glow)
+		xgpu_text_append(&text, "\tfragment_color.rgb = hdr_glow(fragment_color.rgb, " XGPU_HDR_GLOW_KNEE ", "
+			XGPU_HDR_HUD_CEILING ");\n");
+	else if (key->hdr == _xgpu_hdr_tag_light)
+		xgpu_text_append(&text, "\tfragment_color.rgb = hdr_glow(fragment_color.rgb, " XGPU_HDR_LIGHT_KNEE ", "
+			XGPU_HDR_LIGHT_CEILING ");\n");
+	xgpu_text_append(&text, "}\n");
 	return text.buffer;
 }

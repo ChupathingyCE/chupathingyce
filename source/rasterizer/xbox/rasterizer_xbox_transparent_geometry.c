@@ -1134,6 +1134,47 @@ static boolean active_camouflage_part_follows(
 		active_camouflage_same_view(part, group->source_object_index, group->geometry_flags);
 }
 
+/* port: what display.hdr needs to know of a group's draws: the
+first-person weapon's own transparent parts (its displays and glows), a
+number or a meter among them: not its effects' particles (a muzzle flash is
+light), nor its shields' plasma; and, in the world (not the sky's), a
+surface that is light: a generic or chicago shader the map gives radiosity
+power (it lights the level: a teleporter's field, a light fixture), a
+plasma shader (an energy shield) (port/linux/src/d3d8_gl.c,
+xgpu_tone_map.h) */
+static int transparent_hdr_kind(
+	struct transparent_geometry_group const *group)
+{
+	short type = group->shader->base.type;
+	int kind = HALO_HDR_KIND_NONE;
+
+	if (TEST_FLAG(group->geometry_flags, _rasterizer_geometry_first_person_bit) &&
+		(type == _shader_type_transparent_generic || type == _shader_type_transparent_chicago ||
+			type == _shader_type_transparent_meter))
+	{
+		kind |= HALO_HDR_KIND_FIRST_PERSON;
+		if (type == _shader_type_transparent_meter)
+			kind |= HALO_HDR_KIND_METER;
+		if (type == _shader_type_transparent_generic &&
+			TEST_FLAG(((struct shader_transparent_generic_definition *)shader_get_and_verify_type(
+				group->shader, _shader_type_transparent_generic))->generic.flags, _shader_transparent_flag_numeric_bit))
+			kind |= HALO_HDR_KIND_NUMERIC;
+		if (type == _shader_type_transparent_chicago &&
+			TEST_FLAG(((struct shader_transparent_chicago_definition *)shader_get_and_verify_type(
+				group->shader, _shader_type_transparent_chicago))->chicago.flags, _shader_transparent_flag_numeric_bit))
+			kind |= HALO_HDR_KIND_NUMERIC;
+	}
+	else if (!TEST_FLAG(group->geometry_flags, _rasterizer_geometry_first_person_bit) &&
+		!TEST_FLAG(group->geometry_flags, _rasterizer_geometry_sky_bit) &&
+		(type == _shader_type_transparent_plasma ||
+			((type == _shader_type_transparent_generic || type == _shader_type_transparent_chicago) &&
+				group->shader->base.radiosity.power > 0.0f)))
+	{
+		kind |= HALO_HDR_KIND_LIGHT;
+	}
+	return kind;
+}
+
 void rasterizer_transparent_geometry_group_draw(
 	struct transparent_geometry_group *group,
 	boolean dirty)
@@ -1569,6 +1610,8 @@ void rasterizer_transparent_geometry_group_draw(
 						break;
 					}
 
+					/* port: (display.hdr's, until the group is drawn) */
+					halo_hdr_draw_kind(transparent_hdr_kind(group));
 					switch (group->shader->base.type)
 					{
 						case _shader_type_model:
@@ -3629,6 +3672,8 @@ void rasterizer_transparent_geometry_group_draw(
 					rasterizer_set_pixel_shader(&pixel_shader);
 					rasterizer_transparent_geometry_group_draw__internal(group, FALSE);
 				}
+				/* port: (display.hdr's: the group is drawn) */
+				halo_hdr_draw_kind(HALO_HDR_KIND_NONE);
 
 				if (TEST_FLAG(group->geometry_flags, _rasterizer_geometry_no_zbuffer_bit) &&
 					global_window_parameters.rasterizer_target == 0)

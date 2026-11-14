@@ -337,6 +337,40 @@ static const struct config_setting config_settings[] =
 		"\"msaa4x\" or \"msaa8x\". Android has \"off\", \"fxaa\", \"msaa2x\" and\n"
 		"\"msaa4x\". The default is \"msaa2x\" on 64-bit computers. It is \"off\"\n"
 		"on 32-bit computers and Android." },
+	{ "display.hdr", _config_boolean, "false", "HALO_HDR", _environment_value, _platform_desktop,
+		"Draw the 3D view into a floating-point back buffer, which keeps what\n"
+		"the game's additive effects (explosions, plasma, lights, the sun's\n"
+		"glare) add past white, and tone map it before the HUD is drawn:\n"
+		"display.hdr_tone_mapping brings it back to the display's range\n"
+		"instead of clipping it. The glows the game draws (teleporters, light\n"
+		"fixtures, energy shields, plasma bolts, the weapon's displays) go\n"
+		"past white. false draws into 8 bits a channel, as the Xbox does." },
+	{ "display.hdr_output", _config_boolean, "false", "HALO_HDR_OUTPUT", _environment_value, _platform_desktop,
+		"With display.hdr, send HDR to a display that has it (the operating\n"
+		"system's HDR must be on): the bgfx renderer's HDR10 swap chain, or\n"
+		"on OpenGL a floating-point window (scRGB), taken up when the game\n"
+		"starts. What is past white is then shown brighter than white rather\n"
+		"than tone mapped down to it." },
+	{ "display.hdr_tone_mapping", _config_string, "\"neutral\"", "HALO_HDR_TONE_MAPPING", _environment_value,
+		_platform_desktop,
+		"With display.hdr, the curve that brings what is past white into the\n"
+		"display's range: \"neutral\" (the picture as drawn, with only its\n"
+		"brightest parts rolled off), \"aces\" (filmic, more contrast) or\n"
+		"\"reinhard\" (softer, and darker throughout)." },
+	{ "display.hdr_exposure", _config_real, "1.0", "HALO_HDR_EXPOSURE", _environment_value, _platform_desktop,
+		"With display.hdr, the 3D view's brightness in linear light before it\n"
+		"is tone mapped, 0.25 to 4.0." },
+	{ "display.hdr_paper_white", _config_integer, "0", "HALO_HDR_PAPER_WHITE", _environment_value,
+		_platform_desktop,
+		"With display.hdr_output: how bright the game's white (surfaces, the\n"
+		"HUD, the menus) is, in nits, 80 to 500. 0 is the display's own SDR\n"
+		"white (Windows' SDR brightness)." },
+	{ "display.hdr_peak", _config_integer, "0", "HALO_HDR_PEAK", _environment_value, _platform_desktop,
+		"With display.hdr_output: the brightest highlight, in nits, 400 to\n"
+		"10000. 0 asks the display." },
+	{ "display.hdr_ui_nits", _config_integer, "0", "HALO_HDR_UI_NITS", _environment_value, _platform_desktop,
+		"With display.hdr_output: the HUD's and the menus' white, in nits, 80\n"
+		"to 500, no brighter than the peak. 0 is the paper white's." },
 	{ "display.shadow_resolution", _config_integer, DEFAULT_SHADOW_RESOLUTION, "HALO_SHADOW_RESOLUTION",
 		_environment_value, _platform_all,
 		"Shadow size in pixels: 128, 256, 512 or 1024. The Xbox used 128." },
@@ -4358,6 +4392,7 @@ static const struct
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
+	{ "display.hdr_tone_mapping", { "neutral", "aces", "reinhard", NULL }, "\"neutral\"" },
 	/* ("gearbox" and the older "pc", Gearbox's retired menus, are read as
 	"xbox", and the player told once: config_menus_retired_pending) */
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
