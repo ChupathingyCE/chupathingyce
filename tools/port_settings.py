@@ -287,7 +287,7 @@ SCREENS = {
             ("DOPPLER:", "audio.doppler", ON_OFF,
              "Pitch shift of moving sounds, as on the Xbox.", None),
             ("HIT SOUNDS:", "audio.hit_sounds", ON_OFF,
-             "A tone when your shot hits another player, as Halo PC\nhad. Off is the Xbox's.", None),
+             "A tone when your shot hits another player.", None),
             # (the mods folder's tag files: port/linux/game/mods.c, docs/mods.md)
             ("MODS:", "game.mods", ON_OFF,
              "Sound tags from the mods folder replace a map's.\nLocal games only; see docs/mods.md.", None),
