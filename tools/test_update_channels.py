@@ -139,6 +139,11 @@ ORDER = [
     ("0.9.0d", "0.9.0c", "newer"),
     ("0.9.0", "0.9.0a", "older"),
     ("0.9.0d", "0.9.1-nightly.202611100400", "older"),
+    # a hotfix is newer than the nightlies of its own version, so main moves
+    # VERSION on as soon as one ships (#1299)
+    ("0.9.1a", "0.9.1-nightly.202611140400", "newer"),
+    ("0.9.2-nightly.202611150400", "0.9.1a", "newer"),
+    ("0.9.2-testing.202611150400", "0.9.1b", "newer"),
     ("0.9.0d-testing.202611100400", "0.9.0d", "older"),
     ("0.9.0d-testing.202611100400", "0.9.0c", "newer"),
     ("v0.9.1", "0.9.1", "same"),
