@@ -1169,7 +1169,7 @@ static wchar_t const *network_game_client_unsupported_game_type(
 	char const **name)
 {
 	static wchar_t text[96];
-	static wchar_t const head[] = L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\n";
+	static wchar_t const head[] = L"Uses a game type\r\nChupathingy doesn't have yet:\r\n";
 	unsigned needed = network_rules_modes_needed(network_game_client_extended_options,
 		game->variant.game_engine_index, game->variant.universal_variant.teams != 0);
 	char const *unplayed = network_rules_modes_unplayed(needed);

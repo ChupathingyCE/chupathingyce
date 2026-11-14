@@ -29,7 +29,7 @@ REASONS = {
     "MAP_DOWNLOAD": "Map not installed: %s. Join to download it.",
     "MAP_FROM_HALO_PC": "Map not installed: %s. Copy it from Halo PC into maps_pc or maps_ce.",
     "MAPS_UNSUPPORTED": "%s maps don't work on this build.",
-    "OPENCE_GAME_TYPE": "Uses an OpenCE game type Chupathingy doesn't have yet: %s.",
+    "OPENCE_GAME_TYPE": "Uses a game type Chupathingy doesn't have yet: %s.",
     "NEEDS_BOMB": "Needs a Chupathingy build with Bomb.",
     "NOT_OPEN": "Not taking players right now.",
     "FULL": "Game is full.",
@@ -70,7 +70,7 @@ def test_header_sentences():
 
 # the neutral label of an OpenCE dedicated server, as the site says it too
 # (puma web/site.js HOST_LABEL_OPENCE_SERVER)
-OPENCE_SERVER_LABEL = "OpenCE dedicated"
+OPENCE_SERVER_LABEL = "Legacy server"
 
 
 def test_opence_server_label():
