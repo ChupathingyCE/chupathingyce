@@ -8800,6 +8800,33 @@ static short ui_widget_port_key_cap_shift(
 }
 #endif
 
+#ifdef HALO_GAME_BROWSER
+/* port: a screen's game data functions (ui_widget_game_data_input_
+functions.c), its own and its children's, as its drawing runs them, for a
+screen of code drawn in its place (the game lobby over the Xbox's pregame
+screen, whose functions join this machine's players to the game) */
+static void widget_instance_game_data_recursive(
+	struct widget_instance *widget)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(widget->definition_tag_index);
+	struct widget_instance *child;
+	long input_index;
+
+	for (input_index = 0; input_index < definition->game_data_inputs.count; input_index++)
+	{
+		struct ui_widget_game_data_input_reference *input =
+			(struct ui_widget_game_data_input_reference *)xbox_pointer(definition->game_data_inputs.address) +
+			input_index;
+
+		ui_widget_game_data_function_invoke(widget, input->function);
+	}
+	if (!widget->visible)
+		return;
+	for (child = widget->child; child; child = child->next)
+		widget_instance_game_data_recursive(child);
+}
+
+#endif
 static void widget_instance_render_recursive(
 	struct widget_instance *widget,
 	rectangle2d *clip_rect,
@@ -9179,9 +9206,14 @@ void render_ui_widgets(
 			it, an error dialog still is) */
 			if (should_render && browser_screen_active() && !widget->widget_is_error_dialog)
 				should_render = FALSE;
-			/* (the game lobby covers the Xbox's pregame screen the same way) */
+			/* (the game lobby covers the Xbox's pregame screen the same way;
+			the screen's game data still runs, undrawn: its players joined
+			to the game, its teams and countdown) */
 			if (should_render && lobby_screen_active() && !widget->widget_is_error_dialog)
+			{
 				should_render = FALSE;
+				widget_instance_game_data_recursive(widget);
+			}
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
 			/* (Delta Profile's screen of code too; its dialogs alone are
 			drawn over the menus) */
@@ -10946,6 +10978,107 @@ struct widget_instance *ui_widget_port_top_screen(
 	void)
 {
 	return widget_globals.active_widgets[0];
+}
+
+/* port: where the game lobby's B goes (lobby_screen.c): the screen the
+game came from, as Halo 2's lobby leaves to it, not back through the new
+game's setup screens. The screen (NONE: none known) and its focused item */
+static struct
+{
+	long screen;
+	long list;
+	short item;
+} lobby_origin = { NONE, NONE, NONE };
+
+char const *pc_menus_main_menu_name(void);
+
+/* as a lobby opens: a game joined from the game list (the Multiplayer
+menu on ONLINE GAMES); else, a game made here, the screen under its map
+select in the first player's history (ONLINE GAMES' or System Link's).
+None there: a lobby back from a game (its history gone) keeps the last
+one; any other (System Link's join) has its own history */
+void ui_widget_port_lobby_origin_set(
+	boolean joined_from_online_games)
+{
+	long map_select = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_MAP_SELECT);
+	struct widget_stack_node *node;
+	boolean found = FALSE;
+
+	if (joined_from_online_games)
+	{
+		lobby_origin.screen = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_SCREEN);
+		lobby_origin.list = online_games.list_tag;
+		lobby_origin.item = ONLINE_GAMES_POSITION;
+		return;
+	}
+	/* (the deepest: CHANGE MAP's map select is another screen) */
+	for (node = widget_globals.widget_stack[0]; map_select != NONE && node; node = node->next)
+	{
+		if (node->data.previous_widget_tag == map_select && node->next)
+		{
+			lobby_origin.screen = node->next->data.previous_widget_tag;
+			lobby_origin.list = node->next->data.focused_child_parent_widget_tag;
+			lobby_origin.item = node->next->data.focused_child_index;
+			found = TRUE;
+		}
+	}
+	if (!found && widget_globals.widget_stack[0])
+		lobby_origin.screen = NONE;
+}
+
+/* whether the lobby's B lands on the Multiplayer menu's ONLINE GAMES (the
+game list opens over it then) */
+boolean ui_widget_port_lobby_origin_online_games(
+	void)
+{
+	return lobby_origin.screen != NONE &&
+		lobby_origin.screen == tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_SCREEN) &&
+		lobby_origin.item == ONLINE_GAMES_POSITION;
+}
+
+/* before the lobby's B (the Xbox pregame screen's own, which goes back):
+the first player's history made to end on the origin, the screens above
+it (the map select, Select Gametype, GAME SETUP) dropped; not in the
+history, the main menu then the origin. The origin ends the game left
+behind as it opens (the Multiplayer menu, System Link's list) */
+void ui_widget_port_lobby_leave_history(
+	void)
+{
+	struct widget_stack_node **top = &widget_globals.widget_stack[0];
+	struct widget_stack_node *node;
+	struct widget_stack_node *deepest = NULL;
+	struct widget_stack_data data;
+	long main_menu = tag_loaded(UI_WIDGET_DEFINITION_TAG, pc_menus_main_menu_name());
+	short local_player_index = widget_globals.active_widgets[0] ?
+		widget_globals.active_widgets[0]->local_player_index : NONE;
+
+	if (lobby_origin.screen == NONE)
+		return;
+	for (node = *top; node; node = node->next)
+	{
+		if (node->data.previous_widget_tag == lobby_origin.screen)
+			deepest = node;
+	}
+	if (deepest)
+	{
+		while (*top != deepest)
+			pop_widget(top, &data);
+		return;
+	}
+	dispose_widget_stack(top);
+	if (main_menu != NONE && main_menu != lobby_origin.screen)
+	{
+		data.previous_widget_tag = main_menu;
+		data.focused_child_parent_widget_tag = NONE;
+		data.focused_child_index = NONE;
+		data.local_player_index = local_player_index;
+		push_widget(top, &data);
+	}
+	data.previous_widget_tag = lobby_origin.screen;
+	data.focused_child_parent_widget_tag = lobby_origin.list;
+	data.focused_child_index = lobby_origin.item;
+	data.local_player_index = local_player_index;
+	push_widget(top, &data);
 }
 
 boolean ui_widget_port_open_screen(

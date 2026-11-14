@@ -95,9 +95,16 @@ void platform_log(char const *format, ...);
 boolean pc_menus_chupathingy(void);
 boolean invite_prompt_active(void);
 boolean server_ok_to_countdown(struct network_game_server *server);
+void network_game_server_dedicated_start_countdown(struct network_game_server *server);
+void network_game_server_keep_menus_variant(struct network_game_server *server);
 boolean ui_widget_port_dispatch_event(struct widget_instance *widget, short event_type, short controller_index,
 	boolean *deleted);
 struct widget_instance *ui_widget_port_top_screen(void);
+/* (interface/ui_widget.c) where B leaves to: the screen the game came from */
+void ui_widget_port_lobby_origin_set(boolean joined_from_online_games);
+boolean ui_widget_port_lobby_origin_online_games(void);
+void ui_widget_port_lobby_leave_history(void);
+void browser_screen_open(void);
 boolean ui_widget_port_open_screen(char const *name);
 int p2p_hosting_status(char *text, int size);
 /* (browser_screen.c) the map's picture in a box, and its name as players
@@ -116,6 +123,8 @@ boolean profile_screen_active(void);
 /* ---------- constants */
 
 /* the Xbox's pregame screen, and the screens the host's menu opens */
+/* (the Multiplayer menu, ONLINE GAMES' screen) */
+#define MULTIPLAYER_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_select_screen"
 #define PREGAME_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen"
 #define MAP_SELECT_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\connected_map_select_postgame_wrapper"
 #define HOST_SETUP_SCREEN "pc\\chupathingy\\host\\setup_screen"
@@ -375,6 +384,11 @@ static struct
 	/* debug.lobby_preview's sample lobby */
 	boolean debug;
 	boolean debug_done;
+	/* the next lobby is a game joined from the game list; B left for the
+	Multiplayer menu's ONLINE GAMES (the list opens again over it), when */
+	boolean from_list;
+	boolean back_to_list;
+	unsigned long back_time;
 	/* the party's and the friends' names, for the rows' lines */
 	char party_names[PARTY_NAMES][SOCIAL_HANDLE_SIZE];
 	short party_count;
@@ -513,7 +527,8 @@ static boolean covered(void)
 	if (controls_screen_active())
 		return TRUE;
 #endif
-	return moderation_screen_active() || invite_prompt_active();
+	/* (the lobby's own dialogs too) */
+	return moderation_screen_active() || invite_prompt_active() || lobby.dialog != _dialog_none;
 }
 
 static void add_target(float x0, float y0, float x1, float y1, short button, short row, short menu)
@@ -758,7 +773,11 @@ static void read_type(struct network_game const *game)
 
 	utf8_from_wide(text, sizeof(text), game->variant.human_readable_game_description,
 		(int)NUMBEROF(game->variant.human_readable_game_description));
-	ui_overlay_name_shown(UI_FONT_MENU, text, lobby.type_name, sizeof(lobby.type_name));
+	/* (a built-in game type has no name of its own: the engine's then, not
+	the name helper's stand-in for a player's) */
+	lobby.type_name[0] = 0;
+	if (text[0])
+		ui_overlay_name_shown(UI_FONT_MENU, text, lobby.type_name, sizeof(lobby.type_name));
 	if (!lobby.type_name[0])
 	{
 		static char const *const engines[] = { "", "CTF", "Slayer", "Oddball", "King of the Hill", "Race", "Bomb" };
@@ -766,6 +785,8 @@ static void read_type(struct network_game const *game)
 
 		copy_text(lobby.type_name, sizeof(lobby.type_name), engine > 0 && engine < (long)NUMBEROF(engines) ?
 			engines[engine] : "New game type");
+		if (engine == 2 && game->variant.universal_variant.teams)
+			copy_text(lobby.type_name, sizeof(lobby.type_name), "Team Slayer");
 	}
 	upper_text(lobby.type_name);
 }
@@ -1040,6 +1061,9 @@ static void read_game(void)
 		lobby.menu_count = 0;
 		return;
 	}
+	/* (back from a game: the game type the host chose, not none) */
+	if (hosting)
+		network_game_server_keep_menus_variant(server);
 	social_read();
 	lobby.teams = game->variant.universal_variant.teams != 0;
 	lobby.maximum_players = (short)game->maximum_players;
@@ -1312,6 +1336,11 @@ static void lobby_opened(void)
 	}
 }
 
+void lobby_screen_joined_from_list(void)
+{
+	lobby.from_list = lobby_enabled();
+}
+
 void lobby_screen_hosted_opened(void)
 {
 	if (lobby_enabled())
@@ -1347,6 +1376,10 @@ void lobby_screen_update(boolean menu_open)
 	if (covering && !lobby.covering)
 	{
 		lobby.widget = ui_widget_port_top_screen();
+		/* (where its B goes: the game list a join came from, the screen
+		a new game was made from) */
+		ui_widget_port_lobby_origin_set(lobby.from_list);
+		lobby.from_list = FALSE;
 		lobby_opened();
 		event_manager_flush();
 	}
@@ -1364,6 +1397,22 @@ void lobby_screen_update(boolean menu_open)
 	/* (the server's own lobby, not this one: no state sent) */
 	if (!covering && server)
 		delta_peer_game_set_lobby_state(NULL);
+
+	/* left for ONLINE GAMES: the game list again, once the Multiplayer
+	menu is up (it ended the game left behind) */
+	if (lobby.back_to_list && !covering)
+	{
+		struct widget_instance *top = ui_widget_port_top_screen();
+
+		if (system_milliseconds() - lobby.back_time > 3000)
+			lobby.back_to_list = FALSE;
+		else if (top && main_menu_is_active() && !browser_screen_active() && !invite_prompt_active() &&
+			top->definition_tag_index == tag_loaded(UI_WIDGET_DEFINITION_TAG, MULTIPLAYER_SCREEN))
+		{
+			lobby.back_to_list = FALSE;
+			browser_screen_open();
+		}
+	}
 
 	/* debug.lobby_preview: the sample lobby over the main menu, once */
 	if (!lobby.debug_done && !lobby.covering && !lobby.preview && main_menu_is_active())
@@ -1452,6 +1501,11 @@ static void leave(short controller)
 	{
 		struct widget_instance *leaf = lobby.widget;
 
+		/* (back goes where the game came from, not through the new
+		game's setup: ui_widget.c) */
+		ui_widget_port_lobby_leave_history();
+		lobby.back_to_list = ui_widget_port_lobby_origin_online_games();
+		lobby.back_time = system_milliseconds();
 		while (leaf->focused_child)
 			leaf = leaf->focused_child;
 		ui_widget_port_dispatch_event(leaf, EVENT_B, controller, &deleted);
@@ -1489,7 +1543,13 @@ static void start_game(boolean start)
 	if (lobby.debug)
 		return;
 	if (server)
+	{
 		network_game_server_pause_countdown(server, !start);
+		/* (the countdown starts on a player's joining, which came while
+		it was held: started now, as a dedicated server's is) */
+		if (start)
+			network_game_server_dedicated_start_countdown(server);
+	}
 }
 
 static void toggle_ready(void)

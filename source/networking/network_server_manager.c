@@ -4432,6 +4432,27 @@ void network_game_server_change_game_variant(
 	return;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: the game lobby (port/linux/game/lobby_screen.c): a hosted game back
+from a game with no game type (the next stage of a playlist the menus' game
+hasn't) gets the menus' game type again, as the postgame map select's
+gametype pick would set it */
+void network_game_server_keep_menus_variant(
+	struct network_game_server *server)
+{
+	struct game_variant chosen;
+
+	if (!server || server->state != _network_game_server_state_pregame ||
+		server->game.variant.game_engine_index > 0 ||
+		!player_ui_game_variant_specified(&chosen) || chosen.game_engine_index <= 0)
+	{
+		return;
+	}
+	server->game.maximum_teams = chosen.universal_variant.teams ? 2 : 1;
+	network_game_server_change_game_variant(server, &chosen);
+}
+#endif
+
 boolean network_game_server_remove_client_machine_from_game(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *client)

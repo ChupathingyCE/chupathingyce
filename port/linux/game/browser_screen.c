@@ -2019,6 +2019,7 @@ static void wait_for_host(
 		browser_screen.connecting = FALSE;
 		browser_screen.active = FALSE;
 		ui_widgets_close_all();
+		lobby_screen_joined_from_list();
 		/* (the PC menus' lobby, when they are the menus) */
 		ui_widget_load_by_name_or_tag(
 			pc_menus_screen("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen"),
@@ -5131,7 +5132,12 @@ char const *browser_screen_map_name(
 	char *text,
 	long size)
 {
-	return map_display_name(map, text, size);
+	char const *name = map_display_name(map, text, size);
+
+	/* (a stock map's name is the table's own, not written into text) */
+	if (name != text && size > 0)
+		snprintf(text, (size_t)size, "%s", name);
+	return text;
 }
 
 static void draw_details(

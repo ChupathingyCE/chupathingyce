@@ -36,6 +36,9 @@ boolean lobby_screen_host_returns_to_lobby(void);
 /* GAME SETUP's START GAME, System Link's host: a lobby of this machine's
 game opens (its countdown waits for START GAME) */
 void lobby_screen_hosted_opened(void);
+/* a join from the game list lands in the lobby: its B goes back to the
+list (as the Multiplayer menu's ONLINE GAMES opens it) */
+void lobby_screen_joined_from_list(void);
 
 /* a game under way, before it is joined (browser_screen.c): the preview
 with what the list and the host's advertisement say. FALSE: not shown (the
