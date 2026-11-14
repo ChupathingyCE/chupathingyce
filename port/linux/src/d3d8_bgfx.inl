@@ -3083,6 +3083,11 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 			if ((name = text_hires_atlas_texture(texture->Data)) != 0)
 			{
 				handle = bg_texture_named(name);
+				/* (distance fields are read between their texels: filtered,
+				and decoded by the shader) */
+				hires = text_hires_atlas_fields() != 0;
+				if (stage == 0)
+					key->text_fields = hires;
 			}
 			else if ((name = menu_art_texture(texture->Data, &levels)) != 0)
 			{

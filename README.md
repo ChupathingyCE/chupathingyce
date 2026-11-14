@@ -282,6 +282,9 @@ with their authors credited in each commit.
   resampler and limiter, a lighter scope zoom at high resolutions, and a
   map's first frame drawn through every shader, which lists the stock maps'
   shaders and makes bgfx's pipelines before play.
+- goatbutt and the OpenH1 team: the high-res text drawn from distance
+  fields (sharp at any size), the fixed benchmark, the variable refresh
+  cap and the camouflaged weapon fix.
 - chestahh (GulchCE): lens flares and light
   glows back on AMD graphics, less stutter the first time a texture is drawn
   on Windows, host cheat and shadow setup fixes, and the Halo MCC map
@@ -358,8 +361,9 @@ with their authors credited in each commit.
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
   Expat, Monocypher, zlib, Zstandard (BSD-3-Clause), the LZMA SDK's decoder
-  (Igor Pavlov, public domain), SMAA, and Project Nayuki's QR Code generator
-  (MIT). Their licenses are
+  (Igor Pavlov, public domain), SMAA, Project Nayuki's QR Code generator
+  (MIT), and msdfgen by Viktor Chlumsky (MIT; its algorithms translated to
+  C by goatbutt and the OpenH1 team, `port/third_party/msdfgen`). Their licenses are
   beside them in `port/third_party`. The 64-bit desktop builds' test
   renderer uses bgfx, bx and bimg by Branimir Karadžić (BSD-2-Clause), with
   glslang and SPIRV-Cross (Khronos, BSD-3-Clause and Apache-2.0), fetched
