@@ -36,7 +36,9 @@ platform_ce_meter_in_pc_channels, and the meter shader reads them there
 HALO_CONSOLE_CE_SHARED_TAG_CACHE (with HALO_CUSTOM_EDITION): a console with no
 room for a second tag cache lends its own to a Custom Edition map: the map
 checked as it loads, the load's memory borrowed and given back, by the port's
-platform_ce_* hooks (platform_ce_alias says whether it is in use)
+platform_ce_* hooks (platform_ce_alias says whether it is in use); its
+large bitmaps also start at their next level, the HUD's and the menus'
+excepted (ce_bitmap_reduce.h, ce_repairs.c; console.ce_reduce_bitmaps)
 HALO_CONSOLE_CE_MODEL_DATA_WINDOWS (with HALO_CUSTOM_EDITION): a Custom
 Edition map's model data (a Halo 2 map's is 14 MB) read through two small
 windows as its models are checked and made, not whole: a console's memory

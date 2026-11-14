@@ -74,7 +74,9 @@ way (cache_files_windows.c).
 #include "structures/structure_bsp_definitions.h"
 #include "ce_map_checks.h"
 #include "ce_effect_flags.h"
+#include "ce_bitmap_reduce.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* ---------- constants */
@@ -123,6 +125,13 @@ enum
 	BITMAP_COMPRESSED_FLAG = 0x02,
 	BITMAP_PORT_BC7_MARK = 0x4337,
 	BITMAP_STRAY_HIGH_FLAG = 0x8000,
+	/* a bitmap tag's type (bitmap_group.h's bitmap_group, its first
+	field) */
+	BITMAP_GROUP_TYPE_OFFSET = 0x00,
+	/* the most bytes of a HUD, menu or globals tag read for the bitmaps it
+	refers to (ce_interface_bitmaps_find; the largest in the maps tested,
+	a globals tag, has 33 KB) */
+	CE_INTERFACE_TAG_MOST_BYTES = 256 * 1024,
 
 	/* a model's shaders (model_definitions.h): each a tag reference and
 	a permutation */
@@ -157,6 +166,7 @@ struct ce_repair_counts
 	long parent_groups;
 	long bc7_bitmaps;
 	long deterministic_effects;
+	long bitmaps_reduced;
 };
 
 /* ---------- globals */
@@ -535,8 +545,100 @@ static void ce_parent_groups_repair(
 	}
 }
 
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+extern int platform_ce_alias;
+int config_boolean(char const *name);
+
+/* whether a 64 MB console's Custom Edition map has its large bitmaps' top
+levels let go (ce_bitmap_reduce.h; console.ce_reduce_bitmaps), as its tags
+are repaired; and the map's bitmap tags a HUD, menu or globals tag refers
+to (ce_interface_bitmaps_find), by their tags' index, which keep every
+level */
+static boolean ce_bitmaps_reducing;
+static byte ce_interface_bitmaps[0x10000 / 8];
+
+/* the groups of the tags whose bitmaps the HUD and menus draw by the
+pixel (interface.c, ui_widget.c): the unit, weapon and grenade HUDs, the
+HUD's globals and its numbers, the menus' widgets, meters, the game's
+globals (the motion sensor's and the multiplayer HUD's) and the
+multiplayer map descriptions */
+static unsigned long const ce_interface_groups[] =
+{
+	'unhi', 'wphi', 'grhi', 'hudg', 'hud#', 'DeLa', 'metr', 'matg', 'mply',
+};
+
+/* the bitmap tags a HUD, menu or globals tag refers to, marked: each such
+tag's bytes, up to the next tag's (a map's tool lays out each tag's own
+blocks after it), read for a tag reference to a bitmap tag of the map (its
+group, then its handle 12 bytes on). By what the tags hold, not by their
+names: a protected map names every tag "<protected>" */
+static void ce_interface_bitmaps_find(
+	struct ce_image const *image,
+	void *tag_instances,
+	long tag_count)
+{
+	long index;
+
+	memset(ce_interface_bitmaps, 0, sizeof(ce_interface_bitmaps));
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance const *instance = ce_instance(tag_instances, index);
+		unsigned long start = instance->base_address, end = image->base + image->size;
+		long group, other;
+		byte *data;
+		unsigned long offset;
+
+		for (group = 0; group < (long)NUMBEROF(ce_interface_groups); group++)
+		{
+			if (instance->group_tag == ce_interface_groups[group])
+				break;
+		}
+		if (group == (long)NUMBEROF(ce_interface_groups) || start < image->base || start >= end)
+			continue;
+		for (other = 0; other < tag_count; other++)
+		{
+			unsigned long other_start = ce_instance(tag_instances, other)->base_address;
+
+			if (other_start > start && other_start < end)
+				end = other_start;
+		}
+		if (end - start > CE_INTERFACE_TAG_MOST_BYTES)
+			end = start + CE_INTERFACE_TAG_MOST_BYTES;
+		data = ce_image_pointer(image, start, end - start);
+		if (!data)
+			continue;
+		for (offset = 0; offset + 16 <= end - start; offset += 4)
+		{
+			unsigned long tag_index;
+			struct ce_tag_instance const *bitmap;
+
+			if (ce_read_long(data + offset) != 'bitm')
+				continue;
+			tag_index = ce_read_long(data + offset + 12);
+			bitmap = ce_instance_by_index(tag_instances, tag_count, tag_index);
+			if (bitmap && bitmap->tag_index == tag_index && bitmap->group_tag == 'bitm')
+				ce_interface_bitmaps[(tag_index & 0xffff) / 8] |= (byte)(1 << (tag_index & 7));
+		}
+	}
+}
+
+/* whether a bitmap tag is one the HUD or the menus draw: one a HUD, menu
+or globals tag refers to, or one under ui\ (the game finds some of those by
+their names: virtual_keyboard.c) */
+static boolean ce_interface_bitmap(
+	struct ce_image const *image,
+	struct ce_tag_instance const *instance)
+{
+	char const *name = ce_image_tag_name(image, instance);
+
+	return (ce_interface_bitmaps[(instance->tag_index & 0xffff) / 8] & (1 << (instance->tag_index & 7))) ||
+		(name && strncmp(name, "ui\\", 3) == 0);
+}
+#endif
+
 /* a bitmap tag's BC7 bitmaps made DXT5's format and marked; the mark taken
-from any other */
+from any other; on a 64 MB console, its large bitmaps' top levels let go
+(ce_bitmap_reduce) */
 static void ce_bitmaps_repair(
 	struct ce_image const *image,
 	struct ce_tag_instance const *instance,
@@ -545,6 +647,10 @@ static void ce_bitmaps_repair(
 	byte *group = ce_image_pointer(image, instance->base_address, BITMAP_GROUP_BITMAPS_OFFSET + 0xc);
 	byte *bitmaps;
 	long count, index;
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	short group_type = group ? ce_read_short(group + BITMAP_GROUP_TYPE_OFFSET) : 0;
+	boolean interface_drawn = group && ce_bitmaps_reducing && ce_interface_bitmap(image, instance);
+#endif
 
 	if (!group)
 		return;
@@ -573,6 +679,10 @@ static void ce_bitmaps_repair(
 		memcpy(bitmap + BITMAP_DATA_FORMAT_OFFSET, &format, sizeof(format));
 		memcpy(bitmap + BITMAP_DATA_FLAGS_OFFSET, &flags, sizeof(flags));
 		memcpy(bitmap + BITMAP_DATA_MIPMAP_PAD_OFFSET, &mark, sizeof(mark));
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+		if (ce_bitmaps_reducing && ce_bitmap_reduce(bitmap, group_type, interface_drawn))
+			counts->bitmaps_reduced++;
+#endif
 	}
 }
 
@@ -596,18 +706,24 @@ static void ce_effect_flags_repair(
 static void ce_repairs_log(
 	struct ce_repair_counts const *counts)
 {
+	char reduced[64] = "";
+
 	if (ce_map_checking() || !(counts->predicted_resources_dropped | counts->predicted_resources_salted |
 		counts->object_types | counts->modifier_shaders | counts->model_shaders | counts->node_links |
-		counts->parent_groups | counts->bc7_bitmaps | counts->deterministic_effects))
+		counts->parent_groups | counts->bc7_bitmaps | counts->deterministic_effects | counts->bitmaps_reduced))
 	{
 		return;
 	}
+	/* (a 64 MB console's alone: ce_bitmap_reduce.h) */
+	if (counts->bitmaps_reduced > 0)
+		snprintf(reduced, sizeof(reduced), "; %ld bitmaps without their top levels (a 64 MB console)",
+			counts->bitmaps_reduced);
 	error(_error_silent, "%s map: %ld predicted resources dropped and %ld given their tags' salts, %ld object "
 		"types, %ld modifier shaders and %ld model shaders repaired, %ld node links looping back or out of the nodes, "
-		"%ld tags' parent groups, %ld BC7 bitmaps; %ld effects deterministic", ce_map_family_name(),
+		"%ld tags' parent groups, %ld BC7 bitmaps; %ld effects deterministic%s", ce_map_family_name(),
 		counts->predicted_resources_dropped, counts->predicted_resources_salted, counts->object_types,
 		counts->modifier_shaders, counts->model_shaders, counts->node_links, counts->parent_groups,
-		counts->bc7_bitmaps, counts->deterministic_effects);
+		counts->bc7_bitmaps, counts->deterministic_effects, reduced);
 }
 
 /* ---------- public code */
@@ -665,6 +781,13 @@ void ce_repairs_apply(
 	/* (first: the repairs below find objects and shaders by their parents) */
 	for (index = 0; index < tag_count; index++)
 		ce_parent_groups_repair(ce_instance(tag_instances, index), &counts);
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	/* (and on a 64 MB console, the bitmaps the HUD and menus draw, which
+	keep every level) */
+	ce_bitmaps_reducing = platform_ce_alias && config_boolean("console.ce_reduce_bitmaps");
+	if (ce_bitmaps_reducing)
+		ce_interface_bitmaps_find(image, tag_instances, tag_count);
+#endif
 	for (index = 0; index < tag_count; index++)
 	{
 		struct ce_tag_instance *instance = ce_instance(tag_instances, index);
