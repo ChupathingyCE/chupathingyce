@@ -159,6 +159,8 @@ struct hosted_game
 	/* its map's Workshop item (browser_host_workshop), "" for none */
 	char workshop_id[BROWSER_WORKSHOP_ID_LENGTH];
 	char workshop_title[BROWSER_WORKSHOP_TITLE_LENGTH];
+	/* (and its map's own name, browser_host_workshop) */
+	char map_title[BROWSER_MAP_TITLE_LENGTH];
 	/* its game type's name (browser_host_gametype), "" for none */
 	char gametype[BROWSER_GAMETYPE_LENGTH];
 };
@@ -2885,6 +2887,13 @@ static void announce(const char *invite, const struct hosted_game *game)
 			form_add(form, sizeof(form), "map_pack", pack);
 			form_add(form, sizeof(form), "map_tag", tag);
 		}
+		/* (an MCC map's own name, for players without it: a Workshop
+		item's file may be just a number) */
+		else if (game->map_title[0])
+		{
+			form_add(form, sizeof(form), "map_title", game->map_title);
+			form_add(form, sizeof(form), "map_tag", "MCC");
+		}
 	}
 	/* (an MCC map's Steam Workshop item: fields older sites ignore) */
 	if (game->workshop_id[0])
@@ -4289,11 +4298,24 @@ static void start_thread(void)
 /* (the game's thread only, as browser_host_update) */
 static char browser_host_workshop_id[BROWSER_WORKSHOP_ID_LENGTH];
 static char browser_host_workshop_title[BROWSER_WORKSHOP_TITLE_LENGTH];
+static char browser_host_map_title[BROWSER_MAP_TITLE_LENGTH];
 
-void browser_host_workshop(const char *id, const char *title)
+void browser_host_workshop(const char *id, const char *title, const char *map_title)
 {
+	size_t index;
+
 	snprintf(browser_host_workshop_id, sizeof(browser_host_workshop_id), "%s", id ? id : "");
 	snprintf(browser_host_workshop_title, sizeof(browser_host_workshop_title), "%s", title ? title : "");
+	/* (printable ASCII, as the list takes a map's name; else none) */
+	snprintf(browser_host_map_title, sizeof(browser_host_map_title), "%s", map_title ? map_title : "");
+	for (index = 0; browser_host_map_title[index]; index++)
+	{
+		if ((unsigned char)browser_host_map_title[index] < 32 || (unsigned char)browser_host_map_title[index] > 126)
+		{
+			browser_host_map_title[0] = 0;
+			break;
+		}
+	}
 }
 
 static char browser_host_gametype_name[BROWSER_GAMETYPE_LENGTH];
@@ -4333,6 +4355,7 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 	game.has_delta = delta_peer_game_host_summary(&game.delta);
 	memcpy(game.workshop_id, browser_host_workshop_id, sizeof(game.workshop_id));
 	memcpy(game.workshop_title, browser_host_workshop_title, sizeof(game.workshop_title));
+	memcpy(game.map_title, browser_host_map_title, sizeof(game.map_title));
 	memcpy(game.gametype, browser_host_gametype_name, sizeof(game.gametype));
 
 	pthread_mutex_lock(&browser_lock);

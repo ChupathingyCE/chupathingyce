@@ -343,6 +343,9 @@ static struct
 	char offer_workshop_id[24];
 	/* (why a Workshop item wasn't fetched: the Workshop's own short sentence) */
 	char offer_workshop_why[96];
+	/* (a game picked in the list whose MCC map is missing: its invite, the
+	game joined once Steam has put the item in place; empty for none) */
+	char offer_join_invite[BROWSER_INVITE_LENGTH + 1];
 	/* (Steam's own word on the item, asked before the player is:
 	WORKSHOP_CHECK_*, and its size in bytes, 0 unknown) */
 	int offer_workshop_check;
@@ -522,6 +525,27 @@ static char const *game_map_display_name(
 		snprintf(text, (size_t)size, "%s", game->map_title);
 		return text;
 	}
+	/* (an MCC map this machine hasn't got: its name as the host or the
+	list says it, "Blood Gulch", in place of its file's; a file that is
+	just a number, "20" for mcc_maps\3477809506\20, names nothing, so it
+	says what it is. Its MCC badge shows beside it) */
+	if (mcc_level_name(game->map) && mcc_maps_find(game->map) == NONE)
+	{
+		char const *last = game->map;
+
+		while (strpbrk(last, "\\/"))
+			last = strpbrk(last, "\\/") + 1;
+		if (game->map_title[0])
+		{
+			snprintf(text, (size_t)size, "%s", game->map_title);
+			return text;
+		}
+		if (last[0] && !last[strspn(last, "0123456789")])
+		{
+			snprintf(text, (size_t)size, "Workshop map");
+			return text;
+		}
+	}
 	return map_display_name(game->map, text, size);
 }
 
@@ -699,6 +723,26 @@ static boolean ce_map_stock(
 
 	return map_file(game->map, file, sizeof(file)) == _map_family_custom_edition &&
 		ce_map_state(game, FALSE) == _ce_map_missing && map_archive_stock_name(file);
+}
+
+static boolean mcc_map_item(char const *map, char *id, long size);
+
+/* whether a game's missing MCC map is a Steam Workshop item this machine can
+get through the player's own Steam (network.workshop_downloads): the list
+offers it on A, and joins the game once it is in place. Never shared by a
+host: Workshop content comes from Steam */
+static boolean mcc_workshop_offerable(
+	struct browser_game const *game)
+{
+#if defined(HALO_CUSTOM_EDITION) && !defined(HALO_SERVER) && !defined(HALO_ANDROID)
+	char id[24];
+
+	return mcc_map_item(game->map, id, sizeof(id)) && ce_map_state(game, FALSE) == _ce_map_missing &&
+		workshop_join_setting() != WORKSHOP_JOIN_NEVER && workshop_browser_offered();
+#else
+	(void)game;
+	return FALSE;
+#endif
 }
 
 /* whether a game's missing map is OpenCE's bare name of one this machine
@@ -1055,6 +1099,7 @@ static void offer_map(
 	map_archive_display_name(browser_screen.offer_file, browser_screen.offer_display,
 		(int)sizeof(browser_screen.offer_display));
 	browser_screen.offer_version = version;
+	browser_screen.offer_workshop = FALSE;
 	{
 		char base[32];
 		unsigned int prefix = 0;
@@ -1072,6 +1117,42 @@ static void offer_map(
 	else
 		browser_screen.offer = _offer_asking;
 }
+
+/* a picked game's MCC map offered from its Workshop item (mcc_workshop_offerable):
+Steam asked for the item's details first, as a refused join's offer is
+(follow_workshop_check), then got as network.workshop_downloads says, and
+the game joined once it is in place (join_offered_game) */
+static void offer_workshop_item(
+	struct browser_game const *game)
+{
+	char id[24];
+
+	if (!mcc_map_item(game->map, id, sizeof(id)))
+		return;
+	csstrncpy(browser_screen.offer_workshop_id, id, sizeof(browser_screen.offer_workshop_id) - 1);
+	browser_screen.offer_workshop_id[sizeof(browser_screen.offer_workshop_id) - 1] = 0;
+	/* (the list's name for it until Steam answers with the item's own) */
+	snprintf(browser_screen.offer_display, sizeof(browser_screen.offer_display), "%s",
+		game->map_title[0] ? game->map_title : "a Workshop map");
+	browser_screen.offer_file[0] = 0;
+	browser_screen.offer_workshop = TRUE;
+	browser_screen.offer_workshop_size = 0;
+	browser_screen.offer_workshop_why[0] = 0;
+	browser_screen.offer_workshop_check = workshop_join_check(id) ? WORKSHOP_CHECK_ASKING : WORKSHOP_CHECK_FAILED;
+	browser_screen.offer_dont_ask = FALSE;
+	browser_screen.offer_closes_screen = FALSE;
+	browser_screen.rejoin_pending = FALSE;
+	csmemset(&browser_screen.offer_progress, 0, sizeof(browser_screen.offer_progress));
+	csstrncpy(browser_screen.offer_join_invite, game->invite, sizeof(browser_screen.offer_join_invite) - 1);
+	browser_screen.offer_join_invite[sizeof(browser_screen.offer_join_invite) - 1] = 0;
+	/* (the panel's "<game> plays a map you don't have") */
+	utf8_name(game->name, browser_screen.connecting_name, sizeof(browser_screen.connecting_name));
+	browser_screen.offer_time = system_milliseconds();
+	browser_screen.offer = _offer_asking;
+	platform_log("workshop: the game's MCC map is Workshop item %s; Steam is asked for its details", id);
+}
+
+static void join_offered_game(void);
 
 /* the offer ended without the map: the join given up, with why (a game
 left for want of it: the main menu's error, rejoin_given_up) */
@@ -1135,9 +1216,17 @@ static void offer_given_up(
 	browser_screen.offer = _offer_none;
 	browser_screen.connecting = FALSE;
 	browser_screen.rejoin_pending = FALSE;
+	browser_screen.offer_join_invite[0] = 0;
 	map_download_reset();
 	if (why)
 		set_status(why);
+	/* (a Workshop item offered from the list: where to get it later) */
+	else if (browser_screen.offer_workshop)
+	{
+		snprintf(text, sizeof(text), "Get %.40s in the Delta Guide's Workshop.", browser_screen.offer_display);
+		set_status(text);
+		browser_screen.offer_workshop = FALSE;
+	}
 	else
 	{
 		char file[BROWSER_MAP_LENGTH + 16];
@@ -1191,6 +1280,8 @@ static void follow_download(
 			set_status(text);
 			if (browser_screen.rejoin_pending)
 				rejoin();
+			else if (browser_screen.offer_join_invite[0])
+				join_offered_game();
 			else
 				browser_screen.connecting_time = system_milliseconds();
 			break;
@@ -1612,8 +1703,12 @@ static void join_selected(
 	wait_for_host) */
 	if (ce_map_state(game, TRUE) >= _ce_map_missing && !ce_map_downloadable(game) && !ce_map_ask_host(game))
 	{
+		/* (an MCC map's Workshop item: got through the player's Steam, then
+		the game joined: offer_workshop_item) */
+		if (mcc_workshop_offerable(game))
+			offer_workshop_item(game);
 		/* (one of Halo PC's own maps: where to copy it from) */
-		if (ce_map_stock(game))
+		else if (ce_map_stock(game))
 		{
 			char file[BROWSER_MAP_LENGTH];
 
@@ -1643,6 +1738,30 @@ static void join_selected(
 	join_invite(game->invite, game->name, TRUE);
 	/* (a join let through only to ask the host which map it is) */
 	browser_screen.connecting_asked_host = ce_map_ask_host(game);
+}
+
+/* the game whose MCC map was offered, joined now that the map is in place,
+as A on it does (the list's JOIN taken as answered); gone from the list,
+nothing joined */
+static void join_offered_game(
+	void)
+{
+	short index = find_game(browser_screen.offer_join_invite, BROWSER_INVITE_LENGTH + 1);
+
+	if (index == NONE)
+	{
+		platform_log("workshop: the game the item was got for is no longer listed; not joined");
+		browser_screen.offer_join_invite[0] = 0;
+		browser_screen.offer_workshop = FALSE;
+		return;
+	}
+	browser_screen.selected = index;
+	csstrncpy(browser_screen.join_answered, browser_screen.offer_join_invite, sizeof(browser_screen.join_answered) - 1);
+	browser_screen.join_answered[sizeof(browser_screen.join_answered) - 1] = 0;
+	browser_screen.offer_join_invite[0] = 0;
+	browser_screen.offer_workshop = FALSE;
+	platform_log("workshop: the item is in place; joining the game");
+	join_selected();
 }
 
 /* a game's invite joined (the tunnel to its host), its game joined once
@@ -2288,7 +2407,10 @@ static char const *ce_map_blocker(
 
 			for (index = 0; index < digits && package[index] >= '0' && package[index] <= '9'; index++)
 				;
-			if (digits && index == digits && digits < 24)
+			/* (A gets it through the player's Steam: offer_workshop_item) */
+			if (mcc_workshop_offerable(game))
+				snprintf(text, (size_t)size, "Not installed: JOIN gets it from the Steam Workshop.");
+			else if (digits && index == digits && digits < 24)
 				snprintf(text, (size_t)size, "Missing: Steam Workshop item %.*s", (int)digits, package);
 			else
 			{
@@ -2567,6 +2689,7 @@ void browser_screen_workshop_missing(
 	}
 	csstrncpy(browser_screen.offer_workshop_id, id, sizeof(browser_screen.offer_workshop_id) - 1);
 	browser_screen.offer_workshop_id[sizeof(browser_screen.offer_workshop_id) - 1] = 0;
+	browser_screen.offer_join_invite[0] = 0;
 	/* (the host's name for it until Steam answers with its own title, never
 	the bare number; printable characters only) */
 	{
@@ -5055,7 +5178,7 @@ static void draw_bar_prompts(
 	here, and with no game to join) */
 	boolean on[] = { TRUE, TRUE, TRUE, TRUE, selected != NULL && !browser_game_version_state(selected) &&
 		!(ce_map_state(selected, FALSE) >= _ce_map_missing && !ce_map_downloadable(selected) && !ce_map_stock(selected) &&
-		!ce_map_ask_host(selected)) &&
+		!ce_map_ask_host(selected) && !mcc_workshop_offerable(selected)) &&
 		!game_type_blocker(selected) };
 	short count = selected ? 5 : 4;
 	float width;

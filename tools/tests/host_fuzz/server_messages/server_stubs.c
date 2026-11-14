@@ -205,6 +205,10 @@ long mcc_identity_prepare_host(void);
 long mcc_identity_prepare_host(void) { return 0; }
 long mcc_level_name(void);
 long mcc_level_name(void) { return 0; }
+long mcc_maps_find(void);
+long mcc_maps_find(void) { return -1; }
+long mcc_maps_name(void);
+long mcc_maps_name(void) { return 0; }
 long mcc_main_network_load_failed(void);
 long mcc_main_network_load_failed(void) { return 0; }
 long mcc_ui_team_request(void);
@@ -221,6 +225,8 @@ long mcc_validation_update(void);
 long mcc_validation_update(void) { return 0; }
 long mcc_workshop_listing(void);
 long mcc_workshop_listing(void) { return 0; }
+long mcc_workshop_map_title(void);
+long mcc_workshop_map_title(void) { return 0; }
 long network_connection_connected(void);
 long network_connection_connected(void) { return 0; }
 long network_connection_delete(void);
