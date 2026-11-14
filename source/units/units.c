@@ -9373,9 +9373,11 @@ void unit_cause_player_melee_damage(
 				{
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 					/* port: in Stubbs mode the blow lands on the region it
-					hit, so a limb can be torn off by punches (the maul
-					boss's arm, a60); Halo's melee names no region (Stubbs
-					mode only: port/linux/game/stubbs_player.c) */
+					hit, so a region with a damage threshold (a zombie's
+					arms, head and legs) wears down under punches; Halo's
+					melee names no region (Stubbs mode only:
+					port/linux/game/stubbs_player.c). The maul boss's arm
+					(a60) comes off by the tear move, not by damage */
 					if (stubbs_mode_active())
 					{
 						object_cause_damage(
