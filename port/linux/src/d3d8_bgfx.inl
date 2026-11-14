@@ -4926,12 +4926,27 @@ static void bg_frame_account(char *text, size_t size)
 	memset(&bg.account, 0, sizeof(bg.account));
 }
 
-/* with vsync off, whether this frame goes to the window: a window's
-picture waits for the display (Metal hands out the next one only once the
-display has taken one, about 3 behind), so frames faster than the display
-draw the game but go to the window only as often as the display shows them,
-leaving the game to run faster as the OpenGL path does */
+/* with vsync off, whether this frame goes to the window. On Metal a
+window's picture waits for the display (Metal hands out the next one only
+once the display has taken one, about 3 behind), so frames faster than the
+display draw the game but go to the window only as often as the display
+shows them, leaving the game to run faster as the OpenGL path does. Vulkan
+(its immediate mode) and Direct3D 11 show a frame without waiting, so there
+every frame goes to the window, as OpenGL's do: held to the display's rate,
+a frame that came a little early was left out, and a frame limit at the
+refresh rate (display.max_fps 144 at 144 Hz) showed a frame twice a few
+times a second. A swap chain that waits all the same (no immediate mode:
+bgfx falls back to the display's pace) is noticed by its presents
+(bg_window_presented) and paced as Metal's. */
 static double bg_window_next, bg_window_interval = -1.0;
+static BOOL bg_window_paced
+#ifdef __APPLE__
+	= TRUE
+#endif
+	;
+/* presents in a row that waited for the display (bg_window_presented) */
+static int bg_window_waits;
+#define BG_WINDOW_WAITS_TO_PACE 30
 
 /* the display's frame interval, in seconds */
 static double bg_display_interval(void)
@@ -4952,6 +4967,8 @@ static BOOL bg_window_due(void)
 	if (bg.reset_flags & BGFX_RESET_VSYNC)
 		return TRUE;
 	interval = bg_display_interval();
+	if (!bg_window_paced)
+		return TRUE;
 	now = stats_seconds();
 	if (now < next)
 		return FALSE;
@@ -4962,10 +4979,26 @@ static BOOL bg_window_due(void)
 
 /* after a frame went to the window: when it waited for the display, the
 next goes an interval after the display took one (the display's own
-timing, which the count above drifts from) */
+timing, which the count above drifts from); unpaced, a swap chain whose
+presents keep waiting for the display is paced from then on */
 static void bg_window_presented(double start, double end)
 {
-	if (!(bg.reset_flags & BGFX_RESET_VSYNC) && end - start > bg_window_interval * 0.25)
+	if (bg.reset_flags & BGFX_RESET_VSYNC)
+		return;
+	if (!bg_window_paced)
+	{
+		/* (half an interval: a GPU-bound frame waits too, but not every one) */
+		bg_window_waits = end - start > bg_display_interval() * 0.5 ? bg_window_waits + 1 : 0;
+		if (bg_window_waits >= BG_WINDOW_WAITS_TO_PACE)
+		{
+			platform_log("bgfx: the window waits for the display with V-Sync off, so frames go to it at the "
+				"display's rate");
+			bg_window_paced = TRUE;
+			bg_window_next = end + bg_window_interval;
+		}
+		return;
+	}
+	if (end - start > bg_window_interval * 0.25)
 		bg_window_next = end + bg_window_interval;
 }
 
