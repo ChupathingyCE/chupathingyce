@@ -5,6 +5,10 @@ Tests of the drop-down console's typing (port/linux/game/console_shell.h):
 words, quotes, numbers, a call inside a call and the console's own form
 made the expression the scripts' compiler takes. Built and run by
 tools/test_console_shell.py; exits nonzero on a failure.
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "../game/console_shell.h"

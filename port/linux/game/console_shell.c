@@ -2,6 +2,10 @@
 CONSOLE_SHELL.C
 
 The drop-down console's typing, as a shell's (console_shell.h).
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "console_shell.h"

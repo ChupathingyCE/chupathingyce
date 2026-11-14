@@ -12,6 +12,10 @@ sv_say hello there says "hello there". The compiler then reads a line as
 retail's console did: a bare command wrapped in parentheses, a global and a
 value set. No game dependency: port/linux/tests/console_shell_test.c builds
 it on its own.
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef CONSOLE_SHELL_H
