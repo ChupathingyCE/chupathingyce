@@ -1365,7 +1365,10 @@ real first_person_reticle_scale(
 	{
 		read_at = config_changes();
 		enabled = config_boolean("display.reticle_scales_with_fov") != 0;
+#ifndef HALO_XBOX_CONSOLE
+		/* (the Xbox's config.toml has no such key: 1 there, as retail) */
 		size = PIN((real)config_real("display.reticle_scale"), 0.5f, 2.0f);
+#endif
 	}
 	if (local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS ||
 		director_get_perspective(local_player_index) != _director_perspective_first_person)

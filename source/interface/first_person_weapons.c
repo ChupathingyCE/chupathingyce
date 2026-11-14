@@ -542,10 +542,14 @@ static boolean first_person_weapon_fists_frame(
 
 /* port: display.first_person_weapon: false leaves the weapon and arms
 undrawn (their animation, lights and markers go on as before: only the
-drawing is skipped) */
+drawing is skipped). Not the Xbox's: its config.toml has no such key (read
+as false there), so the weapon is always drawn, as retail. */
 static boolean first_person_weapon_shown(
 	void)
 {
+#ifdef HALO_XBOX_CONSOLE
+	return TRUE;
+#else
 	extern int config_boolean(char const *name);
 	extern unsigned long config_changes(void);
 	static unsigned long read_at = (unsigned long)-1;
@@ -557,6 +561,7 @@ static boolean first_person_weapon_shown(
 		shown = config_boolean("display.first_person_weapon") != 0;
 	}
 	return shown;
+#endif
 }
 
 void first_person_weapon_draw(

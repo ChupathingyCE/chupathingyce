@@ -1038,7 +1038,9 @@ static void damage_data_validate_owner(
 		damage->owner_object_index = NONE;
 }
 
+#ifndef HALO_XBOX_CONSOLE
 static void damage_port_hit_sound(long object_index, struct damage_data const *damage, real total_damage);
+#endif
 
 static void object_damage_aftermath(
 	long object_index,
@@ -1180,7 +1182,9 @@ static void object_damage_aftermath(
 
 	if (TEST_FLAG(_object_mask_unit, object->object.type))
 	{
+#ifndef HALO_XBOX_CONSOLE
 		damage_port_hit_sound(object_index, damage, shield_damage + body_damage);
+#endif
 		unit_damage_aftermath(
 			object_index,
 			damage,
@@ -1194,11 +1198,12 @@ static void object_damage_aftermath(
 	return;
 }
 
+#ifndef HALO_XBOX_CONSOLE
 /* port: audio.hit_sounds, as Halo PC's multiplayer had: a short tone for
 the local player whose damage hit another player's unit (the aftermath
 runs on the host, and on a client as a replay of the host's, so a client
 hears its own hits), once a tick however many hits land in it; off, the
-Xbox's, by default */
+Xbox's, by default; not in the Xbox's build */
 static void damage_port_hit_sound(
 	long object_index,
 	struct damage_data const *damage,
@@ -1230,6 +1235,7 @@ static void damage_port_hit_sound(
 	game_engine_play_hit_sound();
 	return;
 }
+#endif
 
 static void object_damage_body(
 	long object_index,
