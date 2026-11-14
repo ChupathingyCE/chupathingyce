@@ -3772,8 +3772,8 @@ static int start_decoder(vorb *f)
          while (current_entry < c->entries) {
             int limit = c->entries - current_entry;
             int n = get_bits(f, ilog(limit));
-            if (current_length >= 32) return error(f, VORBIS_invalid_setup);
-            if (current_entry + n > (int) c->entries) { return error(f, VORBIS_invalid_setup); }
+            if (current_length >= 32) { if (c->sparse) setup_temp_free(f, lengths, c->entries); return error(f, VORBIS_invalid_setup); } // ChupathingyCE: no leak of a sparse codebook's lengths
+            if (current_entry + n > (int) c->entries) { if (c->sparse) setup_temp_free(f, lengths, c->entries); return error(f, VORBIS_invalid_setup); }
             memset(lengths + current_entry, current_length, n);
             current_entry += n;
             ++current_length;
@@ -3785,7 +3785,7 @@ static int start_decoder(vorb *f)
                lengths[j] = get_bits(f, 5) + 1;
                ++total;
                if (lengths[j] == 32)
-                  return error(f, VORBIS_invalid_setup);
+                  { if (c->sparse) setup_temp_free(f, lengths, c->entries); return error(f, VORBIS_invalid_setup); }
             } else {
                lengths[j] = NO_CODE;
             }
@@ -3840,7 +3840,12 @@ static int start_decoder(vorb *f)
       }
 
       if (!compute_codewords(c, lengths, c->entries, values)) {
-         if (c->sparse) setup_temp_free(f, values, 0);
+         // ChupathingyCE: a sparse codebook's temporaries all go, not the values alone
+         if (c->sparse) {
+            setup_temp_free(f, values, 0);
+            setup_temp_free(f, c->codewords, sizeof(*c->codewords)*c->sorted_entries);
+            setup_temp_free(f, lengths, c->entries);
+         }
          return error(f, VORBIS_invalid_setup);
       }
 
