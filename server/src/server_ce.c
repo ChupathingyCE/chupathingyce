@@ -174,6 +174,10 @@ struct ce_client
 	struct ce_network_player roster[CE_GAME_PLAYERS];
 	int roster_count;
 	boolean roster_known;
+	/* what the roster was built from as it was told last (roster_signature)
+	and the client's own player then */
+	unsigned long roster_signature;
+	long roster_own_player;
 	boolean welcomed;
 	/* when it first had the map loaded (system_milliseconds; 0: not yet):
 	the welcome line comes a while after */
@@ -190,6 +194,9 @@ struct ce_client
 	were for (a new unit: none given yet) */
 	int chosen_weapon;
 	int chosen_zoom;
+	/* a zoom chosen while a weapon was still being readied: given once the
+	weapon is in hand (its levels are the new weapon's); NONE: none */
+	int pending_zoom;
 	long chosen_unit;
 	/* when its actions last changed (system_milliseconds; 0: not yet), for
 	the AFK limit (server_conduct.c) */
@@ -224,6 +231,8 @@ static struct
 	boolean between_games;
 	/* the game settings' random number, one a game */
 	unsigned int random_seed;
+	/* what every client's roster is built from, this tick (roster_signature) */
+	unsigned long roster_signature;
 } ce;
 
 /* ---------- objects' wire numbers */
@@ -343,6 +352,17 @@ static void settings_from_variant(
 		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "Team Slayer");
 }
 
+/* a team as a Custom Edition client takes it (its team tables hold 16): in a
+team game the game's own; in a free-for-all each player's own (its slot),
+which past 16 players wraps (a client holds at most 16 players anyway) */
+static int wire_team(
+	long team)
+{
+	if (team == NONE || team < 0)
+		return 0;
+	return (int)(team % CE_GAME_PLAYERS);
+}
+
 /* a player's team as the game has it (the network game's own record can
 lag behind its auto balance and moves), by machine and controller */
 static long network_player_team(
@@ -390,6 +410,7 @@ static void game_settings_for(
 	struct network_player const *own = own_player == NONE ? NULL : &player_get(own_player)->network_player_data;
 	boolean own_listed = FALSE;
 	int machine = 15;
+	int others = 0;
 	long index;
 
 	dedicated_server_get_status(&status);
@@ -406,7 +427,7 @@ static void game_settings_for(
 	in the game yet, last) */
 	if (game)
 	{
-		for (index = 0; index < game->player_count && settings->player_count < CE_GAME_PLAYERS; index++)
+		for (index = 0; index < game->player_count; index++)
 		{
 			struct network_player *player = &game->players[index];
 			struct ce_network_player *slot = &settings->players[settings->player_count];
@@ -416,8 +437,11 @@ static void game_settings_for(
 			if (!network_player_is_valid(player))
 				continue;
 			is_own = own && player->machine_index == own->machine_index && player->controller_index == own->controller_index;
-			if (!is_own && settings->player_count >= CE_GAME_PLAYERS - (own ? 0 : 1))
+			/* (the client's own player always; the others, at most 15) */
+			if (!is_own && others >= CE_GAME_PLAYERS - 1)
 				continue;
+			if (!is_own)
+				others++;
 			if (is_own)
 			{
 				own_listed = TRUE;
@@ -433,7 +457,7 @@ static void game_settings_for(
 			slot->color = player->primary_color_index;
 			slot->controller = 0;
 			team = network_player_team(player);
-			slot->team = team == NONE ? 0 : (int)team;
+			slot->team = wire_team(team);
 			slot->color = team_color(settings, slot->team, slot->color);
 			slot->list_index = settings->player_count;
 			settings->player_count++;
@@ -447,12 +471,59 @@ static void game_settings_for(
 		slot->color = own ? own->primary_color_index : 0;
 		slot->machine = peer;
 		slot->controller = 0;
-		slot->team = own && own_player != NONE && player_get(own_player)->team_index != NONE ?
-			(int)player_get(own_player)->team_index : 0;
+		slot->team = own && own_player != NONE ? wire_team(player_get(own_player)->team_index) : 0;
 		slot->color = team_color(settings, slot->team, slot->color);
 		slot->list_index = settings->player_count;
 		settings->player_count++;
 	}
+}
+
+/* what the rosters are built from, as one number: the network game's
+players (who, where, their names and colors) and each player's team as
+the game has it. Taken once a tick; a client's roster is built again only
+as it changes */
+static unsigned long roster_signature(
+	void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+	unsigned long hash = 2166136261u;
+	long index;
+
+#define ROSTER_MIX(value) (hash = (hash ^ (unsigned long)(value)) * 16777619u)
+	if (game)
+	{
+		ROSTER_MIX(game->player_count);
+		for (index = 0; index < game->player_count; index++)
+		{
+			struct network_player const *player = &game->players[index];
+			int character;
+
+			ROSTER_MIX(network_player_is_valid(player));
+			ROSTER_MIX(player->machine_index);
+			ROSTER_MIX(player->controller_index);
+			ROSTER_MIX(player->primary_color_index);
+			ROSTER_MIX(player->team_index);
+			for (character = 0; character < 12 && player->name[character]; character++)
+				ROSTER_MIX(player->name[character]);
+		}
+	}
+	if (player_data)
+	{
+		struct data_iterator iterator;
+		struct player_datum *datum;
+
+		data_iterator_new(&iterator, player_data);
+		while ((datum = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		{
+			ROSTER_MIX(iterator.datum_index);
+			ROSTER_MIX(datum->network_player_data.machine_index);
+			ROSTER_MIX(datum->network_player_data.controller_index);
+			ROSTER_MIX(datum->team_index);
+		}
+	}
+#undef ROSTER_MIX
+	return hash;
 }
 
 /* (the roster a client was told, as one record: told again as it changes) */
@@ -476,16 +547,23 @@ static void send_roster(
 	struct ce_payload payload;
 	unsigned char out[PAYLOAD_SIZE];
 
-	game_settings_for(client->peer, client->name, local_player_get_player_index(local_index), &settings);
-	if (client->roster_known && client->roster_count == settings.player_count &&
-		!csmemcmp(client->roster, settings.players, sizeof(client->roster)))
-	{
+	long own_player = local_player_get_player_index(local_index);
+
+	/* (nothing it is built from changed: the same roster) */
+	if (client->roster_known && client->roster_signature == ce.roster_signature && client->roster_own_player == own_player)
 		return;
-	}
-	ce_payload_begin(&payload, out, sizeof(out));
-	ce_payload_put_game_settings(&payload, &settings);
-	if (ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE))
+	game_settings_for(client->peer, client->name, own_player, &settings);
+	if (!client->roster_known || client->roster_count != settings.player_count ||
+		csmemcmp(client->roster, settings.players, sizeof(client->roster)))
+	{
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_game_settings(&payload, &settings);
+		if (!ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE))
+			return;
 		roster_told(client, &settings);
+	}
+	client->roster_signature = ce.roster_signature;
+	client->roster_own_player = own_player;
 }
 
 /* ---------- joins */
@@ -546,6 +624,7 @@ static void client_reset(
 	client->input_time = kept.input_time;
 	client->start_vehicle = NONE;
 	client->chosen_unit = NONE;
+	client->pending_zoom = NONE;
 	csmemcpy(client->name, kept.name, sizeof(client->name));
 	for (index = 0; index < TRACKED_PLAYERS; index++)
 	{
@@ -940,7 +1019,7 @@ static void send_unit(
 	put_object_start(&biped.object, unit_index, biped_number);
 	/* (its owner team, its player's: a client takes a player's team
 from its biped) */
-	biped.object.owner = player_get(player_index)->team_index == NONE ? 0 : (int)(player_get(player_index)->team_index & 0xffff);
+	biped.object.owner = wire_team(player_get(player_index)->team_index);
 	biped.object.player = network_player_number(player_index);
 	/* (its colors as our game made them, its team's in a team game; none
 made: white) */
@@ -1555,7 +1634,7 @@ takes a player's team from this) */
 			ce_payload_begin(&added, added_out, sizeof(added_out));
 			ce_payload_put_player_add(&added, player->network_player_data.player_list_index,
 				(unsigned int)player_index, network_player_number(player_index),
-				player->team_index == NONE ? 0 : (int)player->team_index);
+				wire_team(player->team_index));
 			added_length = ce_payload_end(&added);
 			if (ce_transport_send(client->peer, added_out, added_length, TRUE))
 			{
@@ -1910,6 +1989,8 @@ void server_ce_update(
 		for (number = 0; number <= NETWORK_OBJECTS; number++)
 			ce.objects[number] = NONE;
 		ce.between_games = FALSE;
+		/* (and its random number, one a game) */
+		ce.random_seed = (unsigned int)rand();
 	}
 	/* (the game's end, and on to the next game) */
 	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
@@ -1925,6 +2006,7 @@ void server_ce_update(
 	if (game_time_get() == last_tick)
 		return;
 	last_tick = game_time_get();
+	ce.roster_signature = roster_signature();
 	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
 	{
 		struct ce_client *client = &ce.clients[index];
@@ -1977,6 +2059,7 @@ static void server_ce_choices(
 		client->chosen_unit = unit_index;
 		client->chosen_weapon = update->weapon;
 		client->chosen_zoom = update->zoom;
+		client->pending_zoom = NONE;
 		return;
 	}
 	unit = unit_get(unit_index);
@@ -1991,14 +2074,22 @@ static void server_ce_choices(
 	}
 	if (update->zoom != client->chosen_zoom)
 	{
+		client->chosen_zoom = update->zoom;
+		client->pending_zoom = update->zoom;
+	}
+	/* (given once the weapon it is for is in hand: one asked during a
+	switch waits for the switch, else the old weapon's levels would cap it) */
+	if (client->pending_zoom != NONE && unit->unit.current_weapon_index == unit->unit.desired_weapon_index &&
+		action->desired_weapon_index == unit->unit.current_weapon_index)
+	{
 		long weapon_index = unit_inventory_get_weapon(unit_index, unit->unit.current_weapon_index);
 		short levels = weapon_index == NONE ? 0 :
 			weapon_definition_get(weapon_get(weapon_index)->definition_index)->weapon.zoom_level_count;
 
-		client->chosen_zoom = update->zoom;
 		/* (a level the weapon has, else none: a level past them would
 		count as zoomed for aim assist) */
-		action->desired_zoom_level = update->zoom < levels ? (short)update->zoom : NONE;
+		action->desired_zoom_level = client->pending_zoom < levels ? (short)client->pending_zoom : NONE;
+		client->pending_zoom = NONE;
 	}
 	/* (the grenade, always: the client's HUD shows its own choice from the
 	start, and the game changes it only when one type runs out, which the
