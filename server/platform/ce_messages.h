@@ -107,7 +107,7 @@ struct ce_object_create
 	unsigned int definition;
 	/* 9 bits */
 	int object;
-	/* 0xffff: none */
+	/* the owner team (a biped's: its player's team), 0xffff: none */
 	int owner;
 	/* 5 bits, 0: none */
 	int player;
@@ -316,8 +316,8 @@ void ce_payload_put_message(struct ce_payload *payload, const unsigned char *mes
 /* the game settings delta, in full */
 void ce_payload_put_game_settings(struct ce_payload *payload, const struct ce_game_settings *settings);
 /* a player in the game: its slot in the game settings' players, its datum
-handle and its number on the wire (5 bits) */
-void ce_payload_put_player_add(struct ce_payload *payload, int list_index, unsigned int handle, int player);
+handle, its number on the wire (5 bits) and its team */
+void ce_payload_put_player_add(struct ce_payload *payload, int list_index, unsigned int handle, int player, int team);
 void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_weapon_create *weapon);
 void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_biped_create *biped);
 /* equipment (grenades, powerups) in the world, still; its first baseline

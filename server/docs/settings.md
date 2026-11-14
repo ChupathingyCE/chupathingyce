@@ -190,7 +190,11 @@ What works:
   has them.
 - Shield and health on their HUD, deaths and the respawn countdown.
 - The scoreboard: kills, assists, betrayals, deaths, suicides and Slayer's
-  scores.
+  scores, each team's in Team Slayer.
+- Slayer and Team Slayer, with the game type's own settings (score,
+  respawn, radar and the rest). In Team Slayer they are on their team, their
+  teammates are friends, and a team change (`sv_team`) follows them.
+- Weapon and grenade switching and zoom.
 - Weapons and equipment on the ground, picking them up and dropping them.
 - Vehicles: getting in and out of seats, and driving.
 - A welcome line in their chat as they join (`ce_welcome`), and `sv_say`.
@@ -209,8 +213,9 @@ Not yet:
 
 - At most 4 Custom Edition players at once (they are seats of the server's
   own machine); a fifth is told the server is full.
-- Their client is told the game is Slayer, free for all: play Slayer with
-  them. Other game types and teams are not shown right on their side.
+- Game types other than Slayer and Team Slayer (Capture the Flag, Oddball,
+  King of the Hill, Race) are shown to them as Slayer: play Slayer or Team
+  Slayer with them.
 - A join between games waits up to 12 seconds for the next one. On an
   empty server, their player goes into the lobby and a game starts after a
   short countdown.

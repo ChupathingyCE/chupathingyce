@@ -692,6 +692,28 @@ def test_only_custom_edition_maps():
     assert "map_playable(status->map)" in _function(source, "static boolean between_games")
 
 
+def test_team_slayer():
+    """Team Slayer reaches a Custom Edition client: the game's own variant
+    over Custom Edition's Slayer, each player's team in the roster (sent
+    again as players come, go or change teams), and a second client told
+    its own machine number, so it finds its player in that roster"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    variant = _function(source, "static void settings_from_variant")
+    assert "settings->universal[0] = universal->teams ? 1 : 0;" in variant
+    assert "settings->universal[15] = (unsigned int)universal->score_to_win;" in variant
+    assert "variant->game_engine_index != game_engine_slayer" in variant
+    roster = _function(source, "static void game_settings_for")
+    assert "team = network_player_team(player);" in roster
+    assert "settings->random_seed = ce.random_seed;" in roster
+    assert "send_roster(client, local_index);" in _function(source, "static void update_client")
+    assert "client->announced_team[absolute] != player->team_index" in source
+    transport = (ROOT / "server/platform/ce_transport.c").read_text(encoding="utf-8")
+    assert "out[13] = (unsigned char)machine;" in transport
+    assert "ce_message_new_client_challenge(challenge_text, peer_number(peer)," in transport
+    messages = (ROOT / "server/platform/ce_messages.c").read_text(encoding="utf-8")
+    assert "put_bits(payload, (unsigned int)team, 32);" in messages
+
+
 def test_welcome_line():
     """the default welcome line fits Custom Edition's chat"""
     source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
