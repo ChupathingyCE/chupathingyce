@@ -4135,9 +4135,12 @@ static const char bg_crt_fragment_source[] =
 /* bgfx's reset flags: vertical sync, and the most anisotropy (16x) when
 display.anisotropic_filtering forces it (bg_sampler_flags; bgfx's samplers
 have either that or none) */
+/* (sdl_platform.c's: display.vsync, or display.vrr on) */
+int platform_vsync_on(void);
+
 static unsigned long bg_reset_flags(void)
 {
-	unsigned long flags = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	unsigned long flags = platform_vsync_on() ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
 
 	if (config_integer("display.anisotropic_filtering") >= 2)
 		flags |= BGFX_RESET_MAXANISOTROPY;
@@ -4752,7 +4755,7 @@ static BOOL bg_measuring(void)
 	static int measuring = -1;
 
 	if (measuring < 0)
-		measuring = *config_string("debug.frame_times") != 0;
+		measuring = *config_string("debug.frame_times") != 0 || *config_string("debug.frame_log") != 0;
 	return measuring != 0;
 }
 
