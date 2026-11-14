@@ -23,7 +23,7 @@ Three states, from what the game says:
   (CANCEL START holds it again), CHANGE MAP opens the Xbox's map select,
   GAME SETUP the Chupathingy menus' setup, INVITE FRIENDS the Guide's party.
 - joined: someone else's game. READY tells the host over Delta (lobby_ready:
-  docs/delta.md), CHANGE TEAM is the Xbox's swap, GAME DETAILS the rules.
+  docs/delta/peer.md), CHANGE TEAM is the Xbox's swap, GAME DETAILS the rules.
   A host without Delta's READY (OpenCE's, an older build, the Xbox menus)
   gets the Xbox's START SOONER instead. A machine that never says READY in
   a lobby (one without it, or without this lobby up) counts as ready, and

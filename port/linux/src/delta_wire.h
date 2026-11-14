@@ -166,7 +166,7 @@ enum
 	/* the number the host's game is played at (docs/delta/peer.md, Wire format: HOST_NUMBER):
 	version, reserved, the number (16 bits, little-endian), reserved */
 	DELTA_WIRE_HOST_NUMBER_SIZE = 8,
-	/* the lobby's READY (docs/delta.md, Lobby ready): LOBBY_READY is a
+	/* the lobby's READY (docs/delta/peer.md, Lobby ready): LOBBY_READY is a
 	sequence, the player (the game's player list index), ready (0 or 1),
 	reserved; LOBBY_STATE is a version, flags, reserved, the host's
 	generation, then a bit for each of the game's players, in player list
