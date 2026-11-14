@@ -409,11 +409,10 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_xbox,
 		"Size the reticle to the field of view, so it matches the weapon's\n"
 		"spread on screen. It makes no difference at 70." },
-	{ "display.reticle_scale", _config_real, "1.0", "HALO_RETICLE_SCALE", _environment_value,
-		_platform_all | _platform_xbox,
+	{ "display.reticle_scale", _config_real, "1.0", "HALO_RETICLE_SCALE", _environment_value, _platform_all,
 		"The reticle's size, 0.5 to 2. 1 is the Xbox's." },
 	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
-		_platform_all | _platform_xbox,
+		_platform_all,
 		"Draw your weapon and arms. false hides them." },
 	{ "display.widescreen", _config_string, "\"dashboard\"", NULL, _environment_value, _platform_xbox,
 		"Widescreen on a 16:9 TV. \"dashboard\" follows the Xbox dashboard:\n"
@@ -808,7 +807,7 @@ static const struct config_setting config_settings[] =
 		"stereo. \"on\" or \"off\". Turn it off if it sounds odd on your\n"
 		"speakers. \"auto\" turns it on when the output's name says it is\n"
 		"headphones. Stereo output only." },
-	{ "audio.hit_sounds", _config_boolean, "false", "HALO_HIT_SOUNDS", _environment_value, _platform_all | _platform_xbox,
+	{ "audio.hit_sounds", _config_boolean, "false", "HALO_HIT_SOUNDS", _environment_value, _platform_all,
 		"A short tone when your shot hits another player in multiplayer, as\n"
 		"Halo PC had. false is the Xbox's: none." },
 	{ "audio.doppler", _config_boolean, "true", "HALO_AUDIO_DOPPLER", _environment_value, _platform_all,

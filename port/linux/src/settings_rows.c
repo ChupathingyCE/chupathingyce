@@ -139,9 +139,10 @@ and input.hud_buttons' */
 static const char *const button_style_choices[] = { "auto", "duke", "xbox", "playstation", "switch", NULL };
 static const char *const button_look_choices[] = { "gem", "flat", NULL };
 static const char *const hud_buttons_choices[] = { "classic", "hd", NULL };
+#endif
+/* the reticle's size (display.reticle_scale), as Video Setup's View shows it */
 static const char *const reticle_size_choices[] = { "0.5", "0.75", "1", "1.25", "1.5", "2", NULL };
 static const char *const reticle_size_names[] = { "50%", "75%", "100%", "125%", "150%", "200%", NULL };
-#endif
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
