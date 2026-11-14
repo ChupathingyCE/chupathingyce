@@ -108,7 +108,8 @@ enum
 {
 	DREF_PLATFORM_UNKNOWN = 0,
 	DREF_PLATFORM_N64 = 17,
-	DREF_PLATFORM_PC_LEGACY = 18
+	DREF_PLATFORM_PC_LEGACY = 18,
+	DREF_PLATFORM_DREAMCAST = 22
 };
 
 /* ---------- the platform key: 8 bytes in HELLO, WELCOME and the roster */

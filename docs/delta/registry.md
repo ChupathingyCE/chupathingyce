@@ -39,6 +39,7 @@ is in [peer.md](peer.md#platform-policy).
 | 19 | `steamlink` | LINK | Steam Link | console | Steam Link build (port work by JizzyRivers) | in progress |
 | 20 | `ios` | IOS | iOS | handheld | JizzyRivers (`port/ios`) | in use (approved 2026-11-04) |
 | 21 | `tvos` | ATV | Apple TV | console | JizzyRivers (`port/ios`) | in use (approved 2026-11-04) |
+| 22 | `dreamcast` | DC | Dreamcast | console | Jilted Valkyrie and lamb2k (dc-halo) | community port (assigned 2026-11-14) |
 
 ### How to ask for a number
 

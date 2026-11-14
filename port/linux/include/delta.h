@@ -251,6 +251,8 @@ enum delta_platform
 	(Jizzy's iOS port, port/ios); and the Apple TV */
 	_delta_platform_ios = 20,
 	_delta_platform_tvos = 21,
+	/* the Sega Dreamcast (Jilted Valkyrie's and lamb2k's port, dc-halo) */
+	_delta_platform_dreamcast = 22,
 
 	NUMBER_OF_DELTA_PLATFORMS
 };
@@ -283,7 +285,8 @@ empty. delta_test.c checks the rows against the registry. */
 	X(_delta_platform_pc_legacy, "pc_legacy", "LGCY", "Legacy PC", "LEGACY PC") \
 	X(_delta_platform_steamlink, "steamlink", "LINK", "Steam Link", "STEAM LINK") \
 	X(_delta_platform_ios, "ios", "IOS", "iOS", "IOS") \
-	X(_delta_platform_tvos, "tvos", "ATV", "Apple TV", "APPLE TV")
+	X(_delta_platform_tvos, "tvos", "ATV", "Apple TV", "APPLE TV") \
+	X(_delta_platform_dreamcast, "dreamcast", "DC", "Dreamcast", "DREAMCAST")
 
 /* A machine's platform key: its platform and what it can take, 8 bytes on
 the wire in this order (delta_wire.c). Claims, never trusted for game state,
@@ -355,7 +358,8 @@ legacy table's "platform_policy" section is to tune them without a release
 	X(_delta_platform_pc_legacy, 16, 16, 128, 7, 0) \
 	X(_delta_platform_steamlink, 0, 16, 128, 8, 0) \
 	X(_delta_platform_ios, 128, 128, 128, 11, 1) \
-	X(_delta_platform_tvos, 128, 128, 128, 11, 1)
+	X(_delta_platform_tvos, 128, 128, 128, 11, 1) \
+	X(_delta_platform_dreamcast, 0, 8, 16, 4, 0)
 
 /* ---------- the legacy number */
 
