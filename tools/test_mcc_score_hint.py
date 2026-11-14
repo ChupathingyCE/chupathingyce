@@ -5,7 +5,9 @@ keyboard's scoreboard key while the keyboard was used last
 showed "Tab / Tab" with the keyboard and "Tab / BACK" with a controller.
 A controller's hint is the Xbox's, "Hold BACK for score", no quotes; the
 keyboard's key is quoted as Halo PC words it ('Hold "Tab" for score'),
-once, whatever quotes the map's text had around %s."""
+once, whatever quotes the map's text had around %s; with the Chupathingy
+menus it is in capitals and unquoted ("Hold TAB for score"), as the Xbox's
+BACK is (input_abstraction_port_prompt_capitals)."""
 import re
 import shutil
 import subprocess
@@ -28,6 +30,11 @@ typedef int boolean;
 #define NUMBEROF(a) ((long)(sizeof(a) / sizeof((a)[0])))
 enum { _port_icon_back_button = 1 };
 static wchar_t const *keyboard_key; /* the shown key, "[Tab]", or none: a controller */
+static boolean capitals; /* the Chupathingy menus: keys in capitals, unquoted */
+static boolean input_abstraction_port_prompt_capitals(void)
+{
+	return capitals;
+}
 static boolean input_abstraction_port_icon_key(short player, short icon, boolean wide, wchar_t *text, long count)
 {
 	(void)player; (void)icon; (void)wide;
@@ -71,6 +78,10 @@ int main(void)
 	hint_of("Hold '%%s' for score", L"[Tab]");
 	hint_of("Hold %%s for score", L"[Tab]");
 	hint_of("Hold \"%%s for score", NULL);
+	capitals = TRUE;
+	hint(NULL);
+	hint(L"[TAB]");
+	hint_of("Hold %%s for score", L"[CAPS LOCK]");
 	return 0;
 }
 """
@@ -96,4 +107,5 @@ def test_score_hint_names_one_key(tmp_path):
     subprocess.run([cc, "-Wall", "-Werror", str(source), "-o", str(binary)], check=True)
     lines = subprocess.run([str(binary)], check=True, capture_output=True, text=True).stdout.splitlines()
     assert lines == ["Hold BACK for score", 'Hold "Tab" for score', 'Hold "Caps Lock" for score',
-                     'Hold "Tab" for score', 'Hold "Tab" for score', 'Hold "BACK for score']
+                     'Hold "Tab" for score', 'Hold "Tab" for score', 'Hold "BACK for score',
+                     "Hold BACK for score", "Hold TAB for score", "Hold CAPS LOCK for score"]

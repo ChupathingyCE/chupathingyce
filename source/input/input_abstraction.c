@@ -363,6 +363,22 @@ static long port_icon_button_action(
 	return NONE;
 }
 
+/* port: whether the prompts name keys in capitals, "[SPACE]" and "Hold TAB
+for score", as the Xbox's own prompts name BACK: with the Chupathingy menus
+(menu_tags.c's pc_menus_set). The Xbox's menus keep Halo PC's wording,
+"[Space]" and 'Hold "Tab" for score'. */
+boolean input_abstraction_port_prompt_capitals(
+	void)
+{
+#ifdef HALO_GAME_BROWSER
+	short pc_menus_set(void);
+
+	return pc_menus_set() == 2;
+#else
+	return FALSE;
+#endif
+}
+
 /* port: the keyboard's key for a button icon, "[E]", while the prompts
 show the keys (halo_keyboard_prompts: Halo PC's prompts, the keyboard or
 mouse used last), for the first player, whose controls they are; FALSE
@@ -442,6 +458,15 @@ boolean input_abstraction_port_icon_key(
 		return FALSE;
 	if (!shown[0])
 		return FALSE;
+	/* (in capitals with the Chupathingy menus: "[SPACE]") */
+	if (input_abstraction_port_prompt_capitals())
+	{
+		for (index = 0; shown[index]; index++)
+		{
+			if (shown[index] >= 'a' && shown[index] <= 'z')
+				shown[index] = (char)(shown[index] - 'a' + 'A');
+		}
+	}
 	text[0] = L'[';
 	for (index = 0; shown[index] && index < count - 3; index++)
 		text[index + 1] = (wchar_t)(unsigned char)shown[index];
@@ -453,7 +478,9 @@ boolean input_abstraction_port_icon_key(
 /* port: the keyboard's key for the multiplayer HUD's "Hold BACK for score"
 (game_engine.c): the word BACK becomes the scoreboard key, in quotes, as
 Halo PC words it ('Hold "Tab" for score'), while the prompts show the keys;
-a controller's stays the Xbox's, BACK with none */
+in capitals and without quotes with the Chupathingy menus ("Hold TAB for
+score", as the Xbox's BACK: input_abstraction_port_prompt_capitals); a
+controller's stays the Xbox's, BACK with none */
 void input_abstraction_port_back_word(
 	wchar_t *message,
 	long count)
@@ -476,8 +503,10 @@ void input_abstraction_port_back_word(
 	/* (the key without its brackets: the sentence names it) */
 	for (key_length = 0; key[key_length + 1] && key[key_length + 1] != L']'; key_length++)
 		;
-	/* (quoted, unless the text quotes it already) */
-	quotes = start > 0 && start + 4 < length && message[start - 1] == L'"' && message[start + 4] == L'"' ? 0 : 2;
+	/* (quoted, unless the text quotes it already, or the key is in
+	capitals: "Hold TAB for score") */
+	quotes = input_abstraction_port_prompt_capitals() ||
+		(start > 0 && start + 4 < length && message[start - 1] == L'"' && message[start + 4] == L'"') ? 0 : 2;
 	if (start + 4 > length || length - 4 + key_length + quotes >= count)
 		return;
 	memmove(message + start + key_length + quotes, message + start + 4, (length - start - 4 + 1) * sizeof(wchar_t));
