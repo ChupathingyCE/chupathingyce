@@ -165,7 +165,8 @@ def ogg_encode(samples, rate, channels):
         # (libvorbis where ffmpeg has it, else its own vorbis encoder)
         for encoder in (["-c:a", "libvorbis", "-q:a", "6"], ["-c:a", "vorbis", "-strict", "-2", "-b:a", "192k"]):
             result = subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-f", "s16be", "-ar", str(rate), "-ac",
-                                     str(channels), "-i", "pipe:0", *encoder, str(out)], input=samples)
+                                     str(channels), "-i", "pipe:0", *encoder, str(out)], input=samples,
+                                    stderr=subprocess.DEVNULL)
             if result.returncode == 0:
                 return out.read_bytes()
         raise SystemExit("ffmpeg could not encode Ogg Vorbis")
