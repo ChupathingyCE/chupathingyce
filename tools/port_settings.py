@@ -27,6 +27,7 @@ SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
 # how fast a zoomed view turns, on top of the zoom's own slowing
 ZOOM_SENSITIVITIES = [(f"{round(value * 100)}%", f"{value:g}") for value in (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2)]
+RETICLE_SIZES = [(f"{round(value * 100)}%", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)]
 
 # A row that does something rather than set a setting (A runs its function,
 # port/linux/game/menu_functions.c's), with a value its function shows in
@@ -141,6 +142,10 @@ SCREENS = {
                  "How wide your weapon is drawn.\nSame follows the view.", None),
                 ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
                  "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
+                ("RETICLE SIZE:", "display.reticle_scale", RETICLE_SIZES,
+                 "The reticle's size. 100% is the Xbox's.", None),
+                ("WEAPON MODEL:", "display.first_person_weapon", ON_OFF,
+                 "Draw your weapon and arms. Off hides them.", None),
             ]),
             ("advanced", "ADVANCED", "Shadows, lighting and detail.", [
                 # (out of the main list, so that its rows sit 24 apart as
@@ -258,8 +263,10 @@ SCREENS = {
     "audio_settings": {
         "screen": "audio_settings_screen",
         "header": ("header_profile_audio_settings", f"{PE}/audio_settings/header_profile_audio_settings"),
-        # (30, as the Xbox's lists: nine rows, the last above the help line)
+        # (30, as the Xbox's lists, with the help line a little lower for
+        # its ten rows, as Network Setup's: the last, MODS, ends at 371)
         "spacing": 30,
+        "help_top": 376,
         "rows": [
             ("MASTER VOLUME:", "audio.volume", VOLUMES, "Adjust the overall volume.", None),
             ("MUSIC VOLUME:", "audio.music_volume", VOLUMES, "Adjust the music volume.", None),
@@ -279,6 +286,8 @@ SCREENS = {
              "Room echo, and muffled sound behind walls.", None),
             ("DOPPLER:", "audio.doppler", ON_OFF,
              "Pitch shift of moving sounds, as on the Xbox.", None),
+            ("HIT SOUNDS:", "audio.hit_sounds", ON_OFF,
+             "A tone when your shot hits another player.", None),
             # (the mods folder's tag files: port/linux/game/mods.c, docs/mods.md)
             ("MODS:", "game.mods", ON_OFF,
              "Sound tags from the mods folder replace a map's.\nLocal games only; see docs/mods.md.", None),

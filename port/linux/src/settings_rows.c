@@ -140,6 +140,9 @@ static const char *const button_style_choices[] = { "auto", "duke", "xbox", "pla
 static const char *const button_look_choices[] = { "gem", "flat", NULL };
 static const char *const hud_buttons_choices[] = { "classic", "hd", NULL };
 #endif
+/* the reticle's size (display.reticle_scale), as Video Setup's View shows it */
+static const char *const reticle_size_choices[] = { "0.5", "0.75", "1", "1.25", "1.5", "2", NULL };
+static const char *const reticle_size_names[] = { "50%", "75%", "100%", "125%", "150%", "200%", NULL };
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
@@ -172,6 +175,9 @@ static const struct settings_row settings_rows[] =
 	{ _in_display, "LIGHT EFFECTS", "display.light_effects", _kind_choices, light_effects_choices, NULL, 0, 0 },
 	{ _in_display | _in_guide, "CAMO WEAPON FIX", "display.camo_weapon_fix", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "PLASMA SPARKS", "display.plasma_sparks", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_display | _in_guide, "RETICLE SIZE", "display.reticle_scale", _kind_choices, reticle_size_choices,
+	  reticle_size_names, 0, 0 },
+	{ _in_display | _in_guide, "WEAPON MODEL", "display.first_person_weapon", _kind_toggle, NULL, NULL, 0, 0 },
 
 #ifdef HALO_LAUNCHER
 	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },
@@ -180,6 +186,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_audio, "HEADPHONE 3D", "audio.hrtf", _kind_choices, hrtf_choices, NULL, 0, 0 },
 	{ _in_audio, "REVERB", "audio.reverb", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio, "DOPPLER", "audio.doppler", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_audio | _in_guide, "HIT SOUNDS", "audio.hit_sounds", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio | _in_guide, "MODS", "game.mods", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio, "BUFFER SIZE", "audio.buffer_frames", _kind_choices, buffer_choices, NULL, 1, 0 },
 	{ _in_audio, "RESAMPLING", "audio.resampling", _kind_words, NULL, NULL, 0, 0 },

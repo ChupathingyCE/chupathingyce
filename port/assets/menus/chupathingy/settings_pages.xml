@@ -116,6 +116,8 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_vehicle_field_of_view" x="54" y="97"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_viewmodel_field_of_view" x="54" y="121"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scales_with_fov" x="54" y="145"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scale" x="54" y="169"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_first_person_weapon" x="54" y="193"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_advanced" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_resolution_scaling" x="54" y="73" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_shadow_resolution" x="54" y="97" platform="desktop android switch"/>
@@ -198,8 +200,10 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_reverb" x="54" y="193" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_doppler" x="54" y="283" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_doppler" x="54" y="223" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_mods" x="54" y="313" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_mods" x="54" y="253" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_hit_sounds" x="54" y="313" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_hit_sounds" x="54" y="253" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_mods" x="54" y="343" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_mods" x="54" y="283" platform="console"/>
 	</widget>
 	<widget name="chupathingy/settings/network_setup_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" run="port settings back"/>
