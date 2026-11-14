@@ -66,9 +66,12 @@ SCREENS = {
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
         # (24, Controls Setup's, with the help line a little lower than the
         # other screens' for the desktop's main list: its six places and
-        # six links end at 365: tools/test_settings_layout.py)
+        # five links end at 341: tools/test_settings_layout.py)
         "spacing": 24,
         "help_top": 368,
+        # (nested lists of more rows than fit above the help line, which
+        # menu_functions.c scrolls: views_scroll)
+        "scrolls": ["interface"],
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's resolution and anti-aliasing in
@@ -179,27 +182,39 @@ SCREENS = {
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
             ]),
-            # (the prompts' buttons: input.button_style, DKrumpp's HD
-            # buttons where the build has them, HALO_HD_BUTTONS. AUTO follows
-            # the controller used last; input.keyboard_prompts is in
-            # config.toml alone)
-            ("buttons", "BUTTONS", "The buttons prompts show.", [
-                ("STYLE:", "input.button_style",
-                 [("AUTO", "auto"), ("DUKE", "duke"), ("XBOX", "xbox"), ("PLAYSTATION", "playstation"),
-                  ("SWITCH", "switch")],
-                 "Auto follows the controller you use.", "desktop android switch"),
-                ("MENU LOOK:", "input.button_look", [("GEM", "gem"), ("FLAT", "flat")],
-                 "The buttons in menus and the Guide.", "desktop android switch"),
-                ("IN GAME:", "input.hud_buttons", [("CLASSIC", "classic"), ("HD", "hd")],
-                 "Classic: the game's own buttons.", "desktop android switch"),
-            ]),
-            ("interface", "INTERFACE", "The menus, HUD and scoreboard.", [
+            # (the menus, text, buttons, HUD and scoreboard in one list:
+            # more rows than fit above the help line, so it scrolls:
+            # menu_functions.c's views_scroll, "scrolls" below)
+            ("interface", "INTERFACE", "The menus, text, buttons, HUD and scoreboard.", [
                 # (read when the game starts: menu_tags.c)
                 ("MENU STYLE:", "display.menus",
                  [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox")],
                  "Takes effect on restart.", NOT_CONSOLE),
+                ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg"), ("HALO", "halo")],
+                 "Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files.",
+                 # (not on the consoles, the Switch included, which have the
+                 # classic titles only: HALO_CONSOLE_NO_TITLE_CHOICE)
+                 "desktop android"),
+                ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
+                 "Draw text and titles in high resolution.", NOT_CONSOLE),
                 ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
                  "Draw the HUD in high resolution.", NOT_CONSOLE),
+                # (the ~ key's console: terminal.c's drop-down one, or the
+                # Xbox's lines at the bottom)
+                ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],
+                 "Drop-down slides down from the top.\nClassic is the Xbox's.", NOT_CONSOLE),
+                # (the prompts' buttons: input.button_style, DKrumpp's HD
+                # buttons where the build has them, HALO_HD_BUTTONS. AUTO
+                # follows the controller used last; input.keyboard_prompts
+                # is in config.toml alone)
+                ("BUTTON STYLE:", "input.button_style",
+                 [("AUTO", "auto"), ("DUKE", "duke"), ("XBOX", "xbox"), ("PLAYSTATION", "playstation"),
+                  ("SWITCH", "switch")],
+                 "The buttons prompts show. Auto follows the controller\nyou use.", "desktop android switch"),
+                ("MENU BUTTONS:", "input.button_look", [("GEM", "gem"), ("FLAT", "flat")],
+                 "The buttons in menus and the Guide.", "desktop android switch"),
+                ("HUD BUTTONS:", "input.hud_buttons", [("CLASSIC", "classic"), ("HD", "hd")],
+                 "Classic: the game's own buttons.", "desktop android switch"),
                 ("PLAYER NAMES:", "display.player_names",
                  [("NONE", "none"), ("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies")],
                  "Names above players, where the host allows them.", NOT_CONSOLE),
@@ -220,22 +235,6 @@ SCREENS = {
                 ("FOLLOW CAMERA:", "display.follow_camera",
                  [("OFF", "off"), ("LONG WAITS", "long_waits"), ("ALWAYS", "always")],
                  "While dead, follow a player's view, if the host allows it.", None),
-            ]),
-            # (the text's fonts and the console: TEXT, so that INTERFACE's
-            # rows fit above the help line, test_settings_layout.py)
-            ("text", "TEXT", "High-res text, titles and the console.", [
-                ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
-                 "Draw text and titles in high resolution.", NOT_CONSOLE),
-                # (the ~ key's console: terminal.c's drop-down one, or the
-                # Xbox's lines at the bottom)
-                ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],
-                 "Drop-down slides down from the top.\nClassic is the Xbox's.", NOT_CONSOLE),
-                ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg"), ("HALO", "halo")],
-                 "Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files.",
-                 # (not on the consoles, the Switch included, which have the
-                 # classic titles only: HALO_CONSOLE_NO_TITLE_CHOICE; last,
-                 # so the Switch's list has no gap)
-                 "desktop android"),
             ]),
             ("hdr", "HDR SETUP", "HDR, the HDR display, tone mapping and brightness.", [
                 ("HDR:", "display.hdr", ON_OFF,
@@ -656,7 +655,13 @@ def _setting_rows(base: str, spec: dict) -> tuple:
     views = {view: view_rows for view, _, _, view_rows in spec.get("views", [])}
     for entry in entries:
         if entry[0] == "mark":
-            rows.append((f"{base}/view_{entry[1]}", None, 0))
+            # (a list that scrolls has its mark at the last place whose row
+            # ends above the help line: the window's bottom, menu_functions.c's
+            # views_scroll; the marks are not drawn)
+            place = 0
+            if entry[1] in spec.get("scrolls", ()):
+                place = (spec.get("help_top", 350) - 28 - 73) // spec["spacing"]
+            rows.append((f"{base}/view_{entry[1]}", None, place))
             extra += _mark(base, entry[1])
         elif entry[0] == "link":
             _, view, key, place, label_index = entry
