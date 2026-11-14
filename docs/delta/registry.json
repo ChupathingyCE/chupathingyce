@@ -199,6 +199,15 @@
       "class": "console",
       "for": "JizzyRivers (port/ios)",
       "status": "in use (approved 2026-11-04)"
+    },
+    {
+      "number": 22,
+      "key": "dreamcast",
+      "tag": "DC",
+      "name": "Dreamcast",
+      "class": "console",
+      "for": "Jilted Valkyrie and lamb2k (dc-halo)",
+      "status": "community port (assigned 2026-11-14)"
     }
   ],
   "capabilities": [
