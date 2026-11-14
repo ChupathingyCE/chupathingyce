@@ -135,6 +135,8 @@ void game_dispose(void);
 /* port: FALSE when the map can't be loaded at all and nothing was waited for (an MCC level that
 isn't there, #1149: the error is queued for the menus); TRUE otherwise */
 boolean game_precache_new_map(char *map_name, boolean blocking);
+/* port: (game.c: a map whose copy fails returns FALSE, the game as it was) */
+boolean game_precache_new_map_refusable(char *map_name);
 boolean game_map_loading_in_progress(real *progress);
 void game_unload(
 	void);

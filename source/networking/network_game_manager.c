@@ -95,6 +95,9 @@ symbols in this file:
 #include "text/unicode.h"
 #include "late_join.h" /* port: port/linux/game/late_join.c */
 #include "mcc_main.h" /* port: mcc_main_network_load_failed */
+#include "mcc_cache.h" /* port: mcc_level_name */
+#include "cache/cache_files.h" /* port: cache_files_map_loadable */
+#include "interface/ui_widget.h" /* port: display_error_text_when_main_menu_loaded */
 
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port: port/linux/game/profile_names.c's */
@@ -798,6 +801,36 @@ boolean network_game_remove_machine(
 	return result;
 }
 
+/* port: a network game whose map this machine can't load is left for the
+main menu with the reason, not the Xbox's damaged disc for good, nor a game
+with no map and no menus. As an MCC level's (mcc_main_network_load_failed),
+both are queued: this runs from a network receive. The failed load's delayed
+errors are cleared, or the main menu's map would take them for its own.
+Based on work by goatbutt and the OpenH1 team */
+static void network_game_map_load_failed(
+	char const *map_name)
+{
+	static wchar_t text[320];
+	char message[320];
+	short index;
+
+	if (mcc_main_network_load_failed(map_name))
+		return;
+	error(_error_silent, "network game: can't load map '%s': leaving the game", map_name);
+	snprintf(message, sizeof(message),
+		"Couldn't load the game's map \"%.63s\". It's missing from the maps folder or damaged.",
+		strrchr(map_name, '\\') ? strrchr(map_name, '\\') + 1 : map_name);
+	for (index = 0; message[index] && index < NUMBEROF(text) - 1; index++)
+		text[index] = (wchar_t)(unsigned char)message[index];
+	text[index] = 0;
+	display_error_text_when_main_menu_loaded(text);
+	errors_clear();
+	network_game_abort();
+	main_goto_main_menu();
+
+	return;
+}
+
 boolean network_game_create_game_objects(
 	struct network_game *game)
 {
@@ -834,9 +867,21 @@ boolean network_game_create_game_objects(
 
 	/* port: an MCC level that isn't there ends the network game and goes
 	back to the menus with its reason, before the menus are unloaded (#1149) */
-	if (!game_precache_new_map(options.map_name, TRUE))
+	if (mcc_level_name(options.map_name))
 	{
-		mcc_main_network_load_failed(options.map_name);
+		if (!game_precache_new_map(options.map_name, TRUE))
+		{
+			mcc_main_network_load_failed(options.map_name);
+			return FALSE;
+		}
+	}
+	/* port: and any other map this machine can't load (a name another
+	machine sent that is no map here, a map file damaged), refused before
+	the menus are unloaded (network_game_map_load_failed) */
+	else if (!cache_files_map_loadable(options.map_name, NULL, 0) ||
+		!game_precache_new_map_refusable(options.map_name))
+	{
+		network_game_map_load_failed(options.map_name);
 		return FALSE;
 	}
 	main_menu_unload();
@@ -884,9 +929,10 @@ boolean network_game_create_game_objects(
 	}
 	else
 	{
-		error(0, "game_load() failed.");
-		/* port: (an MCC level that failed to load: back to the menus) */
-		mcc_main_network_load_failed(options.map_name);
+		/* port: not _error_immediate (0), which stopped the game for good
+		(halt_and_catch_fire): the game is left, and an MCC level's too */
+		error(_error_silent, "game_load() failed.");
+		network_game_map_load_failed(options.map_name);
 	}
 
 	return game->local_data.game_objects_loaded;

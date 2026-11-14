@@ -83,6 +83,9 @@ that the whole object turning moves nothing: measured in the world, a fast
 turn swung the head and weapon far enough to snap, and characters moved
 like robots.) */
 #define NODE_SNAP_DISTANCE 0.4f
+/* ... or, a node moving steadily (render_interpolation_object_node_matrices),
+further than it moved the tick before by this part of that move */
+#define NODE_STEADY_GROWTH 1.5f
 /* ... a first-person node may move relative to the camera: no animation
 moves one this far in a tick (a melee swing moves one a good part of it);
 only a pose that is not a number, or not of this weapon, is further */
@@ -161,6 +164,13 @@ struct interpolated_object
 	real blended_camouflage[2];
 	long functions_blended_frame;
 #endif
+	/* how far each node moved in the root's frame between the snapshots
+	drawn, by the parity of the tick drawn ([tick & 1] node_capacity each),
+	and the tick each holds (NONE: none): how much further a node may move
+	the next tick and still be moving, not posed anew
+	(render_interpolation_object_node_matrices) */
+	real *node_moves;
+	long node_moves_tick[2];
 };
 
 struct interpolated_camera
@@ -186,6 +196,21 @@ struct interpolated_camera
 	/* its player's unit (or what it rides) corrected: as an object's */
 	real_vector3d correction;
 	real_vector3d correction_pending;
+	/* a view that moves in the frames' time (render_interpolation_camera_
+	timed): when each snapshot was taken (ticks, as interpolation_tick
+	counts them, and the part of a tick of the frame that took it), the
+	snapshot before the previous one, whether a cut came to each of the
+	last two (observer_timed_cut), and how far a tick the view last moved
+	between two snapshots with no cut between them (0: not since it began) */
+	boolean timed;
+	boolean has_before;
+	struct observer_result before;
+	double before_time;
+	double previous_time;
+	double latest_time;
+	boolean cut_to_previous;
+	boolean cut_to_latest;
+	real speed;
 };
 
 struct interpolated_first_person
@@ -566,6 +591,16 @@ void render_interpolation_tick(void)
 				continue;
 			}
 			record->rotations = rotations;
+			{
+				real *node_moves = realloc(record->node_moves, 2 * node_count * sizeof(real));
+
+				if (!node_moves)
+				{
+					record->object_index = NONE;
+					continue;
+				}
+				record->node_moves = node_moves;
+			}
 			record->node_capacity = node_count;
 			record->object_index = NONE; /* the old snapshots moved */
 		}
@@ -581,6 +616,8 @@ void render_interpolation_tick(void)
 		{
 			record->correction = *global_zero_vector3d;
 			record->correction_pending = *global_zero_vector3d;
+			record->node_moves_tick[0] = NONE;
+			record->node_moves_tick[1] = NONE;
 		}
 		memcpy(
 			record->nodes + record->latest * record->node_capacity,
@@ -706,16 +743,35 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 		boolean snap = !(distance_squared(&previous[0].position, &latest[0].position) <=
 			OBJECT_SNAP_DISTANCE * OBJECT_SNAP_DISTANCE);
 
-		/* a node moved further in the root's frame than a tick allows: the
+		/* A node moved further in the root's frame than a tick allows: the
 		two snapshots are different poses, not one moving (so written that
-		a position not a number snaps) */
-		for (node_index = 1; !snap && node_index < record->node_count; node_index++)
+		a position not a number snaps). A node that moved the tick before
+		may move half as far again besides: a part an animation carries
+		away from its root faster each tick (a30's lifepod, whose body drops
+		from its root in the opening, the camera with it) was taken for a
+		new pose each tick and drawn stepping from tick to tick at high
+		frame rates, where a new pose moves a node at once from still or
+		slower */
+		if (!snap)
 		{
-			real_point3d previous_local, latest_local;
+			real *moves = record->node_moves + (interpolation_tick & 1) * record->node_capacity;
+			real const *moves_before = record->node_moves + ((interpolation_tick - 1) & 1) * record->node_capacity;
+			boolean steady = record->node_moves_tick[(interpolation_tick - 1) & 1] == interpolation_tick - 1;
 
-			matrix4x3_inverse_transform_point(&previous[0], &previous[node_index].position, &previous_local);
-			matrix4x3_inverse_transform_point(&latest[0], &latest[node_index].position, &latest_local);
-			snap = !(distance_squared(&previous_local, &latest_local) <= NODE_SNAP_DISTANCE * NODE_SNAP_DISTANCE);
+			for (node_index = 1; node_index < record->node_count; node_index++)
+			{
+				real_point3d previous_local, latest_local;
+				real moved;
+
+				matrix4x3_inverse_transform_point(&previous[0], &previous[node_index].position, &previous_local);
+				matrix4x3_inverse_transform_point(&latest[0], &latest[node_index].position, &latest_local);
+				moved = (real)sqrt(distance_squared(&previous_local, &latest_local));
+				if (!(moved <= NODE_SNAP_DISTANCE + (steady ? NODE_STEADY_GROWTH * moves_before[node_index] : 0.0f)))
+					snap = TRUE;
+				/* (no further than an object may move in a tick) */
+				moves[node_index] = moved < OBJECT_SNAP_DISTANCE ? moved : OBJECT_SNAP_DISTANCE;
+			}
+			record->node_moves_tick[interpolation_tick & 1] = interpolation_tick;
 		}
 		if (!snap)
 		{
@@ -1298,6 +1354,121 @@ static real camera_long_frame_along(
 	return (apart - 1.0f) / apart;
 }
 
+/* A view that moves in the frames' time, not the ticks': a scripted camera
+(a cutscene's camera point and its transition, a camera animation, the dead
+camera), which the director and the observer move once a frame by the
+frame's time, so that the observer as a frame leaves it is where the camera
+is at that frame's moment. Not a scripted first-person camera, which looks
+from its unit as the tick left it, as the player's own view does. Its
+snapshots are kept with their times, and the view is drawn where they place
+it a tick before the frame's moment, as the objects are drawn; a moment
+before the previous snapshot (taken late in its tick) is drawn between it
+and the one before, not run back past it */
+static boolean render_interpolation_camera_timed(short local_player_index)
+{
+	long relative_object_index;
+
+	if (director_get_perspective(local_player_index) != _director_perspective_scripted)
+		return FALSE;
+	relative_object_index = scripted_camera_object_relative_to();
+	return relative_object_index == NONE || !scripted_camera_object_is_first_person_camera(relative_object_index);
+}
+
+/* A cut between two snapshots of a timed view, taken at their times
+(ticks). Its snapshots are as far apart as the frames that took them, a
+tick or more, and a cutscene's fast camera (d40's flight after the
+Longsword, c40's) moves nearly the distance of a cut in a tick, or further:
+judged as the player's views are, two snapshots a little more than a tick
+apart were a cut, drawn from the latest, a tick ahead of the world, and the
+next not, so the camera jumped ahead a tick's flight and back at random
+ticks uncapped, and after any long frame. It is a cut if it turned as far
+as a cut does; or if it moved further than a cut's distance a tick and,
+from the snapshot before (earlier, when no cut came between them), further
+than a cut's distance from where its last move carried on would have put
+it, or, with no such move to carry on (the first after a cut), further
+than the view's last speed takes it besides: a camera set to another point,
+or a cut from a moving camera, is still one, and a fast camera's first move
+after a cut is not. (So written that a position not a number cuts.) */
+static boolean observer_timed_cut(
+	struct observer_result const *earlier,
+	double earlier_time,
+	real speed,
+	struct observer_result const *a,
+	double a_time,
+	struct observer_result const *b,
+	double b_time)
+{
+	double apart = b_time - a_time;
+	real ticks = (real)(apart > 1.0 ? apart : 1.0);
+	real reach = CAMERA_CUT_DISTANCE * ticks;
+	real_point3d expected;
+	real carried;
+
+	if (!(a->forward.i * b->forward.i + a->forward.j * b->forward.j + a->forward.k * b->forward.k >= CAMERA_CUT_COSINE))
+		return TRUE;
+	if (distance_squared(&a->position, &b->position) <= reach * reach)
+		return FALSE;
+	if (!earlier || !(a_time > earlier_time))
+	{
+		reach += speed * ticks;
+		return !(distance_squared(&a->position, &b->position) <= reach * reach);
+	}
+	carried = (real)(apart / (a_time - earlier_time));
+	expected.x = a->position.x + (a->position.x - earlier->position.x) * carried;
+	expected.y = a->position.y + (a->position.y - earlier->position.y) * carried;
+	expected.z = a->position.z + (a->position.z - earlier->position.z) * carried;
+	return !(distance_squared(&expected, &b->position) <= CAMERA_CUT_DISTANCE * CAMERA_CUT_DISTANCE);
+}
+
+/* (render_interpolation_blended_camera) a timed view a tick before the
+frame's moment, now, between the two snapshots taken either side of it: the
+last two, or (the previous one taken later in its tick than the frame) the
+two before. After a cut between those two, the shot cut to, carried back
+along its first move to the moment drawn, no further back than a tick, nor
+than the snapshot before the cut: not held still until the moment drawn
+reaches it */
+static void render_interpolation_timed_blend(
+	struct interpolated_camera *camera,
+	double now)
+{
+	double drawn_time = now - 1.0;
+	struct observer_result const *from = &camera->previous;
+	struct observer_result const *to = &camera->latest;
+	double from_time = camera->previous_time;
+	double to_time = camera->latest_time;
+	real t;
+
+	if (drawn_time < from_time && camera->has_before)
+	{
+		if (camera->cut_to_previous)
+		{
+			double back_to = drawn_time > camera->before_time ? drawn_time : camera->before_time;
+
+			if (back_to < camera->previous_time - 1.0)
+				back_to = camera->previous_time - 1.0;
+			camera->blended = camera->previous;
+			if (camera->latest_time > camera->previous_time)
+			{
+				observer_blend(&camera->previous, &camera->latest,
+					(real)((back_to - camera->previous_time) / (camera->latest_time - camera->previous_time)),
+					&camera->blended);
+			}
+			return;
+		}
+		from = &camera->before;
+		to = &camera->previous;
+		from_time = camera->before_time;
+		to_time = camera->previous_time;
+	}
+	t = to_time > from_time ? (real)((drawn_time - from_time) / (to_time - from_time)) : 1.0f;
+	/* (so written that a part not a number is none) */
+	if (!(t > 0.0f))
+		t = 0.0f;
+	else if (t > 1.0f)
+		t = 1.0f;
+	observer_blend(from, to, t, &camera->blended);
+}
+
 #endif
 
 static struct observer_result const *render_interpolation_blended_camera(
@@ -1306,6 +1477,11 @@ static struct observer_result const *render_interpolation_blended_camera(
 {
 	struct interpolated_camera *camera;
 	real t = interpolation_fraction;
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+	/* (the frame's moment, in ticks as interpolation_tick counts them) */
+	double now = (double)interpolation_tick + (double)interpolation_fraction;
+	boolean timed;
+#endif
 
 	if (!interpolation_rendering || !observer)
 	{
@@ -1371,9 +1547,35 @@ static struct observer_result const *render_interpolation_blended_camera(
 			camera->correction = *global_zero_vector3d;
 			camera->correction_pending = *global_zero_vector3d;
 		}
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+		/* (a snapshot taken with the clock stopped, a whole tick at every
+		frame, has no time of its own: blended as before) */
+		timed = render_interpolation_camera_timed(local_player_index) && t < 1.0f;
+		camera->has_before = camera->has_previous && camera->valid;
+		camera->before = camera->previous;
+		camera->before_time = camera->previous_time;
+		camera->previous_time = camera->latest_time;
+		camera->latest_time = timed ? now : (double)interpolation_tick;
+		camera->timed = timed;
+#endif
 		camera->has_previous = camera->valid;
 		camera->previous = camera->latest;
 		camera->latest = *observer;
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+		/* (a timed view's cuts judged as its snapshots are taken, each pair's
+		verdict kept: observer_timed_cut) */
+		camera->cut_to_previous = camera->cut_to_latest;
+		if (!camera->has_previous)
+			camera->speed = 0.0f;
+		camera->cut_to_latest = camera->has_previous && observer_timed_cut(
+			camera->has_before && !camera->cut_to_previous ? &camera->before : NULL, camera->before_time,
+			camera->speed, &camera->previous, camera->previous_time, &camera->latest, camera->latest_time);
+		if (camera->has_previous && !camera->cut_to_latest && camera->latest_time > camera->previous_time)
+		{
+			camera->speed = (real)sqrt(distance_squared(&camera->previous.position, &camera->latest.position)) /
+				(real)(camera->latest_time - camera->previous_time);
+		}
+#endif
 		camera->previous_fraction = camera->latest_fraction;
 		camera->latest_fraction = t;
 		camera->previous_focus = camera->latest_focus;
@@ -1386,7 +1588,12 @@ static struct observer_result const *render_interpolation_blended_camera(
 		snapshot tells. (Blended across all the ticks since, the camera
 		moved further each frame than the world it is in, out through a
 		Pelican's hull for a frame.) A cut stays a cut. */
-		if (camera->has_previous && interpolation_tick - camera->tick > 1 &&
+		if (
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+			/* (a timed view's snapshots keep their own times instead) */
+			!camera->timed &&
+#endif
+			camera->has_previous && interpolation_tick - camera->tick > 1 &&
 			!observer_cut(&camera->previous, &camera->latest))
 		{
 			real ticks = (real)(interpolation_tick - camera->tick);
@@ -1407,10 +1614,21 @@ static struct observer_result const *render_interpolation_blended_camera(
 		camera->tick = interpolation_tick;
 		camera->valid = TRUE;
 	}
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+	if (camera->timed)
+	{
+		if (!camera->has_previous || camera->cut_to_latest)
+			return observer;
+		render_interpolation_timed_blend(camera, now);
+	}
+	else
+#endif
 	if (!camera->has_previous || observer_cut(&camera->previous, &camera->latest))
 	{
 		return observer;
 	}
+	else
+	{
 
 #ifndef HALO_CONSOLE_VIEW_INTERPOLATION
 	/* What moves the camera every frame rather than once a tick (a
@@ -1458,6 +1676,7 @@ static struct observer_result const *render_interpolation_blended_camera(
 #else
 	observer_blend(&camera->previous, &camera->latest, t, &camera->blended);
 #endif
+	}
 	if (correction_significant(&camera->correction) || correction_significant(&camera->correction_pending))
 	{
 		real_vector3d drawn;

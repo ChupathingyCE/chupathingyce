@@ -1407,8 +1407,10 @@ void guide_workshop_update(boolean showing)
 #endif
 	{
 		void browser_screen_debug_workshop_offer(void);
+		void browser_screen_debug_join_screen(void);
 
 		browser_screen_debug_workshop_offer();
+		browser_screen_debug_join_screen();
 	}
 	if (workshop_view.searching && workshop_view.debug_search_time &&
 		system_milliseconds() - workshop_view.debug_search_time > 10000)

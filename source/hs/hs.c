@@ -3390,11 +3390,18 @@ struct hud_waypoint_arrow_definition
 typedef void (*hs_token_enumerator)(
 	void);
 
+/* port: the mods folder's console functions (port/linux/game/mods.c) */
+#ifdef HALO_MODS
+#define HS_MODS_FUNCTIONS 3
+#else
+#define HS_MODS_FUNCTIONS 0
+#endif
+
 struct hs_function_table_storage
 {
 #ifdef HALO_CUSTOM_EDITION
 	/* port: and Halo PC's functions the Xbox's have none of (below) */
-	struct hs_function_definition const *functions[418 + 3 + 24];
+	struct hs_function_definition const *functions[418 + 3 + 24 + HS_MODS_FUNCTIONS];
 #else
 	struct hs_function_definition const *functions[418];
 #endif
@@ -12140,7 +12147,58 @@ static struct hs_function_definition const sound_eax_enabled_definition=
 	0,
 };
 
-long const hs_function_table_count= 418 + 3 + 24;
+#ifdef HALO_MODS
+/* port: the mods' tags played over the map's on this machine (the mods
+folder: port/linux/game/mods.c), at the console */
+void mods_reload(void);
+void mods_enable(boolean enabled);
+void mods_list(void);
+
+HS_EVALUATE_NO_ARGUMENTS(hs_mods_reload_evaluate, mods_reload)
+HS_EVALUATE_VOID_BOOLEAN(hs_mods_enable_evaluate, mods_enable)
+HS_EVALUATE_NO_ARGUMENTS(hs_mods_list_evaluate, mods_list)
+
+static struct hs_function_definition const mods_reload_definition=
+{
+	_hs_type_void,
+	0,
+	"mods_reload",
+	hs_macro_function_parse,
+	hs_mods_reload_evaluate,
+	"finds the mods again and reads their tag files again (all sounds stop if any changed).",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_1_parameter const mods_enable_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"mods_enable",
+		hs_macro_function_parse,
+		hs_mods_enable_evaluate,
+		"plays the mods' sounds, or (false) the map's own, until the map changes.",
+		NULL,
+		1,
+		{ _hs_type_boolean },
+	},
+};
+
+static struct hs_function_definition const mods_list_definition=
+{
+	_hs_type_void,
+	0,
+	"mods_list",
+	hs_macro_function_parse,
+	hs_mods_list_evaluate,
+	"lists the mods in the mods folder, and what they play on this map.",
+	NULL,
+	0,
+};
+#endif
+
+long const hs_function_table_count= 418 + 3 + 24 + HS_MODS_FUNCTIONS;
 #else
 long const hs_function_table_count= 418;
 #endif
@@ -12615,6 +12673,12 @@ struct hs_function_table_storage hs_function_table=
 		&sound_set_env_definition.definition,
 		&sound_enable_eax_definition.definition,
 		&sound_eax_enabled_definition,
+#ifdef HALO_MODS
+		/* (the port's mods: mods.c) */
+		&mods_reload_definition,
+		&mods_enable_definition.definition,
+		&mods_list_definition,
+#endif
 #endif
 	},
 	{
@@ -13143,6 +13207,12 @@ static boolean const hs_function_allowed_in_maps[]=
 	TRUE, /* sound_set_env */
 	TRUE, /* sound_enable_eax */
 	TRUE, /* sound_eax_enabled */
+#ifdef HALO_MODS
+	/* the port's, for this machine's mods */
+	FALSE, /* mods_reload */
+	FALSE, /* mods_enable */
+	FALSE, /* mods_list */
+#endif
 #endif
 };
 typedef char verify_hs_function_allowed_in_maps_size[
@@ -14774,6 +14844,175 @@ void hs_doc(
 	return;
 }
 
+#ifndef HALO_XBOX_CONSOLE
+/* port: a function's usage as the drop-down console shows it,
+"game_speed <real>" (terminal.c): FALSE when there is no such function */
+boolean hs_function_usage(
+	char const *name,
+	char *usage,
+	long size)
+{
+	char result[2048];
+	short function_index = hs_find_function_by_name(name);
+	long length;
+
+	if (function_index == NONE || size <= 0)
+		return FALSE;
+	hs_get_function_parameters_string(function_index, result);
+	/* (without its parentheses) */
+	length = (long)strlen(result);
+	if (length >= 2 && result[0] == '(' && result[length - 1] == ')')
+	{
+		result[length - 1] = 0;
+		csstrncpy(usage, result + 1, size - 1);
+	}
+	else
+	{
+		csstrncpy(usage, result, size - 1);
+	}
+	usage[size - 1] = 0;
+	return TRUE;
+}
+
+/* port: how many values a function takes when its last one is text, else
+-1 (the drop-down console's typing: port/linux/game/console_shell.h) */
+int hs_function_text_tail(
+	char const *name,
+	void *context)
+{
+	short function_index = hs_find_function_by_name(name);
+	struct hs_function_definition const *function;
+	short last;
+
+	(void)context;
+	if (function_index == NONE)
+		return -1;
+	function = hs_function_get(function_index);
+	if (function->parameter_count < 1 || function->usage)
+		return -1;
+#ifdef HALO_64BIT
+	last = HS_FUNCTION_PARAMETER_TYPE(function, function->parameter_count - 1);
+#else
+	last = function->parameter_types[function->parameter_count - 1];
+#endif
+	return last == _hs_type_string ? function->parameter_count : -1;
+}
+
+/* port: a function's help line and what it returns, for the drop-down
+console's help <command>: FALSE when there is no such function */
+boolean hs_function_help(
+	char const *name,
+	char const **help,
+	char const **returns)
+{
+	short function_index = hs_find_function_by_name(name);
+
+	if (function_index == NONE)
+		return FALSE;
+	*help = hs_function_get(function_index)->help;
+	*returns = hs_type_names[hs_function_get(function_index)->return_type];
+	return TRUE;
+}
+
+/* port: the name of a function, for the drop-down console's help: NULL
+past the last */
+char const *hs_function_name_at(
+	short index)
+{
+	return index >= 0 && index < (short)HS_FUNCTION_COUNT() ? hs_function_get(index)->name : NULL;
+}
+
+/* port: a global's type's name, for help <global>: NULL when there is no
+such global */
+char const *hs_global_type_name(
+	char const *name)
+{
+	short global_index = hs_find_global_by_name(name);
+
+	return global_index == NONE ? NULL : hs_type_names[hs_global_get_type(global_index)];
+}
+
+/* (how many single-character edits turn a into b, up to 3: more is 3) */
+static short hs_name_distance(
+	char const *a,
+	char const *b)
+{
+	short previous[64], current[64];
+	short length_a = (short)MIN(strlen(a), 63);
+	short length_b = (short)MIN(strlen(b), 63);
+	short i, j;
+
+	if (length_a - length_b > 3 || length_b - length_a > 3)
+		return 3;
+	for (j = 0; j <= length_b; j++)
+		previous[j] = j;
+	for (i = 1; i <= length_a; i++)
+	{
+		short best;
+
+		current[0] = i;
+		best = current[0];
+		for (j = 1; j <= length_b; j++)
+		{
+			short cost = tolower(a[i - 1]) == tolower(b[j - 1]) ? 0 : 1;
+
+			current[j] = (short)MIN(MIN(previous[j] + 1, current[j - 1] + 1), previous[j - 1] + cost);
+			best = MIN(best, current[j]);
+		}
+		if (best >= 3)
+			return 3;
+		csmemcpy(previous, current, sizeof(short) * (length_b + 1));
+	}
+	return MIN(previous[length_b], 3);
+}
+
+/* port: the function or global whose name is closest to word (one or two
+edits away, or the one it is the start of when only one is), for the
+drop-down console's "Did you mean": FALSE when none is close */
+boolean hs_closest_name(
+	char const *word,
+	char *name,
+	long size)
+{
+	char const *best = NULL;
+	char const *prefixed = NULL;
+	short prefixed_count = 0;
+	short best_distance = 3;
+	short index;
+	long word_length = (long)strlen(word);
+
+	if (!word_length || size <= 0)
+		return FALSE;
+	for (index = 0; index < (short)(HS_FUNCTION_COUNT() + hs_external_global_count); index++)
+	{
+		char const *candidate = index < HS_FUNCTION_COUNT() ?
+			hs_function_get(index)->name : hs_global_external_get((short)(index - HS_FUNCTION_COUNT()))->name;
+		short distance;
+
+		if (!candidate || !*candidate)
+			continue;
+		if (!strncmp(candidate, word, word_length) && candidate[word_length])
+		{
+			prefixed = candidate;
+			prefixed_count++;
+		}
+		distance = hs_name_distance(word, candidate);
+		if (distance < best_distance && distance <= (word_length > 4 ? 2 : 1))
+		{
+			best_distance = distance;
+			best = candidate;
+		}
+	}
+	if (!best && prefixed_count == 1)
+		best = prefixed;
+	if (!best)
+		return FALSE;
+	csstrncpy(name, best, size - 1);
+	name[size - 1] = 0;
+	return TRUE;
+}
+#endif
+
 short hs_tokens_enumerate(
 	char const *substring,
 	long type_flags,
@@ -16249,6 +16488,8 @@ static boolean hs_expression_changes_no_game(
 		"player0_look_yaw_rate", "player1_look_yaw_rate", "player2_look_yaw_rate", "player3_look_yaw_rate",
 		"player0_look_pitch_rate", "player1_look_pitch_rate", "player2_look_pitch_rate",
 		"player3_look_pitch_rate",
+		/* (a machine's mods are its own: mods.c) */
+		"mods_reload", "mods_enable", "mods_list",
 		"true", "false", "on", "off",
 	};
 	char const *character = expression;

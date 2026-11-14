@@ -486,6 +486,27 @@
       ]
     },
     {
+      "name": "Hack",
+      "use": "The console's font (Hack Bold), with the high-res text on.",
+      "source": "https://github.com/source-foundry/Hack (release v3.003)",
+      "copyright": [
+        "Copyright (c) 2018 Source Foundry Authors",
+        "Bitstream Vera Sans Mono: Copyright (c) 2003 by Bitstream, Inc. All Rights Reserved. Bitstream Vera is a trademark of Bitstream, Inc."
+      ],
+      "license": "MIT License (Hack); Bitstream Vera License (Bitstream Vera Sans Mono)",
+      "files": [
+        "port/assets/fonts/Hack-LICENSE.txt"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/assets/fonts/Hack-LICENSE.txt",
+        "port/assets/fonts/Hack-Bold.ttf"
+      ]
+    },
+    {
       "name": "Overpass",
       "use": "Fonts for text and for the glyphs Cyborg Interface Gothic takes from it.",
       "source": "https://github.com/RedHatOfficial/Overpass",
@@ -632,6 +653,22 @@
         "port/linux/src/dsound_xbox_hrtf.inl",
         "port/linux/src/dsound_xbox_reverb.inl",
         "port/linux/src/dsound_xbox_types.h"
+      ]
+    },
+    {
+      "name": "HD controller buttons",
+      "use": "The Duke's, PlayStation's and Switch's buttons in the prompts (input.button_style, input.hud_buttons).",
+      "source": "DKrumpp's hd_buttons_v1 (Chupathingy Discord, November 11, 2026)",
+      "copyright": [
+        "DKrumpp"
+      ],
+      "license": "Used with DKrumpp's permission, with credit",
+      "credit": "HD controller buttons by DKrumpp, used with permission (November 2026). They are not covered by Chupathingy's license; anyone reusing them should credit DKrumpp and ask him. port/assets/buttons_hd/README.md lists the files.",
+      "packages": [
+        "game"
+      ],
+      "covers": [
+        "port/assets/buttons_hd"
       ]
     },
     {

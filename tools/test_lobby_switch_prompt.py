@@ -44,6 +44,7 @@ static void event_manager_flush(void) {}
 struct key_stroke { int key_code; char ascii_code; };
 static int input_get_key(struct key_stroke *key) { (void)key; return 0; }
 static void platform_text_field(int typing) { (void)typing; }
+static void take_opened_link(void) {}
 @STATE@
 @FUNCTIONS@
 static int answered, said_yes;

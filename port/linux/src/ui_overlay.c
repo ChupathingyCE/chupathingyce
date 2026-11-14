@@ -52,10 +52,26 @@ extern unsigned char progress_bar_is_active(void);
 
 /* the controller's button icons (port/assets/prompts, generated with the
 fonts by tools/embed_assets.py --fonts): A, B, X, Y, Start, LT, RT, LB, RB,
-Back, each ui_prompt_icon_size square, RGBA */
+Back, each ui_prompt_icon_size square, RGBA; then, in the builds with them
+(HALO_HD_BUTTONS), DKrumpp's (port/assets/buttons_hd): the Duke's ten in
+his gem style (in the same order: LB the white button, RB the black), its
+four face buttons flat, then the PlayStation's and the Switch's four face
+buttons gem then flat, each in UI_BUTTON_A to Y's order (the Switch's by
+position, as SDL gives them: its B, A, Y and X) */
 enum
 {
-	NUMBER_OF_ICONS = 10,
+	SNAPCHIPPER_ICONS = 10,
+	HD_DUKE_GEM = SNAPCHIPPER_ICONS,
+	HD_DUKE_FLAT = HD_DUKE_GEM + 10,
+	HD_PLAYSTATION_GEM = HD_DUKE_FLAT + 4,
+	HD_PLAYSTATION_FLAT = HD_PLAYSTATION_GEM + 4,
+	HD_SWITCH_GEM = HD_PLAYSTATION_FLAT + 4,
+	HD_SWITCH_FLAT = HD_SWITCH_GEM + 4,
+#ifdef HALO_HD_BUTTONS
+	NUMBER_OF_ICONS = HD_SWITCH_FLAT + 4,
+#else
+	NUMBER_OF_ICONS = SNAPCHIPPER_ICONS,
+#endif
 	/* (a quad's radius that marks it as an icon's, or as the picture's) */
 	ICON_MARK = -2,
 	PICTURE_MARK = -3,
@@ -130,7 +146,7 @@ static struct
 	GLint icon_count_location;
 	GLint y_flip_location;
 #endif
-	GLint scale_location, atlas_location, icons_location, picture_location, cutouts_location, window_height_location;
+	GLint scale_location, atlas_location, icons_location, picture_location, cutouts_location, window_height_location, output_location;
 	/* the picture (ui_overlay_picture): the serial and pixels last given,
 	and the serial in the texture */
 	int picture_serial, picture_width, picture_height, picture_uploaded;
@@ -236,6 +252,65 @@ static int scheme(void)
 	int value = platform_prompt_scheme();
 
 	return value >= 0 && value < NUMBER_OF_PROMPT_SCHEMES ? value : PROMPT_SCHEME_XBOX;
+}
+
+/* AUTO's buttons for an Xbox-like pad: 0 snapchipper's (as before the HD
+buttons), 1 DKrumpp's Duke ones */
+#define AUTO_XBOX_PAD_DUKE 0
+
+/* input.button_style's choices: the controller used last, or one named */
+enum
+{
+	BUTTON_STYLE_AUTO,
+	BUTTON_STYLE_DUKE,
+	BUTTON_STYLE_XBOX,
+	BUTTON_STYLE_PLAYSTATION,
+	BUTTON_STYLE_SWITCH,
+};
+
+/* input.button_style and input.button_look (whether the menus' buttons
+are DKrumpp's flat ones, not his gems), read again when the settings change */
+static void button_settings(int *style, int *flat)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static int read_style, read_flat;
+
+	if (read_at != config_changes())
+	{
+		static const char *const names[] = { "auto", "duke", "xbox", "playstation", "switch" };
+		const char *value = config_string("input.button_style");
+		int index;
+
+		read_at = config_changes();
+		read_style = BUTTON_STYLE_AUTO;
+		for (index = 0; value && index < (int)(sizeof(names) / sizeof(names[0])); index++)
+		{
+			if (!strcmp(value, names[index]))
+				read_style = index;
+		}
+		value = config_string("input.button_look");
+		read_flat = value && !strcmp(value, "flat");
+	}
+	*style = read_style;
+	*flat = read_flat;
+}
+
+/* the device a prompt is drawn as: the one used last, or input.button_style's
+(the keyboard's key caps stay while it was used last) */
+static int style_scheme(int style)
+{
+	int device = scheme();
+
+	if (device == PROMPT_SCHEME_KEYBOARD)
+		return device;
+	switch (style)
+	{
+	case BUTTON_STYLE_DUKE:
+	case BUTTON_STYLE_XBOX: return PROMPT_SCHEME_XBOX;
+	case BUTTON_STYLE_PLAYSTATION: return PROMPT_SCHEME_PLAYSTATION;
+	case BUTTON_STYLE_SWITCH: return PROMPT_SCHEME_NINTENDO;
+	default: return device;
+	}
 }
 
 /* ---------- gathering */
@@ -1143,15 +1218,54 @@ static float pill_width(const char *label, float size)
 	return width > size * 1.3f ? width : size * 1.3f;
 }
 
-float ui_overlay_button_width(int button, float size)
+/* the icon a button is drawn with for a style (input.button_style) and
+look (flat: DKrumpp's flat buttons, else his gems), its device's (style_scheme)
+the one used last, or -1 for the device's own drawing (Kenney's, a pill, a
+key cap) */
+static int prompt_icon(int button, int style, int flat, int device)
 {
-	int device = scheme();
+	if (device == PROMPT_SCHEME_KEYBOARD)
+		return -1;
+#ifdef HALO_HD_BUTTONS
+	/* (AUTO with an Xbox-like pad: snapchipper's, unless AUTO_XBOX_PAD_DUKE) */
+	if (style == BUTTON_STYLE_AUTO && device == PROMPT_SCHEME_XBOX && AUTO_XBOX_PAD_DUKE)
+		style = BUTTON_STYLE_DUKE;
+	/* (the Duke's: his gems, the face buttons flat if asked; the d-pad has none) */
+	if (style == BUTTON_STYLE_DUKE)
+	{
+		if (flat && face_button(button))
+			return HD_DUKE_FLAT + button;
+		return button_icon(button) >= 0 ? HD_DUKE_GEM + button_icon(button) : -1;
+	}
+	/* (a PlayStation pad's and a Switch pad's face buttons, his; their other
+	buttons stay Kenney's and the pills: he drew none) */
+	if (device == PROMPT_SCHEME_PLAYSTATION && face_button(button))
+		return (flat ? HD_PLAYSTATION_FLAT : HD_PLAYSTATION_GEM) + button;
+	if (device == PROMPT_SCHEME_NINTENDO && face_button(button))
+		return (flat ? HD_SWITCH_FLAT : HD_SWITCH_GEM) + button;
+#else
+	(void)style;
+	(void)flat;
+#endif
+	/* (an Xbox-like pad's: snapchipper's) */
+	if (device == PROMPT_SCHEME_XBOX && button_icon(button) >= 0)
+		return button_icon(button);
+	return -1;
+}
+
+static float button_width_look(int button, float size, int flat_override)
+{
+	int style, flat, device, icon;
 
 	if (button < 0 || button >= NUMBER_OF_UI_BUTTONS)
 		return 0.0f;
-	/* (an Xbox-like pad's: its icon) */
-	if (device == PROMPT_SCHEME_XBOX && button_icon(button) >= 0)
-		return icon_width(button_icon(button), size);
+	button_settings(&style, &flat);
+	if (flat_override >= 0)
+		flat = flat_override;
+	device = style_scheme(style);
+	icon = prompt_icon(button, style, flat, device);
+	if (icon >= 0)
+		return icon_width(icon, size);
 	/* (Kenney's shape, as wide as it draws: a PlayStation pad's face
 	buttons, every button of the Steam and Wii U pads) */
 	if (((device == PROMPT_SCHEME_PLAYSTATION && face_button(button)) || kenney_device(device)) &&
@@ -1164,18 +1278,29 @@ float ui_overlay_button_width(int button, float size)
 	return pill_width(pill_label(device, button), size);
 }
 
-float ui_overlay_button(int button, float size, float x, float y, unsigned int color)
+float ui_overlay_button_width(int button, float size)
 {
-	int device = scheme();
+	return button_width_look(button, size, -1);
+}
+
+static float button_look(int button, float size, float x, float y, unsigned int color, int flat_override)
+{
+	int style, flat, device, icon;
 	float share = (float)(color & 0xFF) / 255.0f;
 	const char *label;
 
 	if (button < 0 || button >= NUMBER_OF_UI_BUTTONS)
 		return 0.0f;
+	button_settings(&style, &flat);
+	if (flat_override >= 0)
+		flat = flat_override;
+	device = style_scheme(style);
 	label = pill_label(device, button);
-	/* an Xbox-like pad's buttons: their icons (snapchipper's) */
-	if (device == PROMPT_SCHEME_XBOX && button_icon(button) >= 0)
-		return draw_icon(button_icon(button), size, x, y, fade(0xFFFFFFFF, share));
+	/* the buttons with icons: snapchipper's (an Xbox-like pad's), DKrumpp's
+	(the Duke's, a PlayStation pad's and a Switch pad's face buttons) */
+	icon = prompt_icon(button, style, flat, device);
+	if (icon >= 0)
+		return draw_icon(icon, size, x, y, fade(0xFFFFFFFF, share));
 	/* Kenney's glyphs: a PlayStation pad's face buttons, and every button
 	of the Steam and Wii U pads */
 	if (((device == PROMPT_SCHEME_PLAYSTATION && face_button(button)) || kenney_device(device)) &&
@@ -1221,6 +1346,21 @@ float ui_overlay_button(int button, float size, float x, float y, unsigned int c
 			UI_ALIGN_CENTER, fade(key ? 0x1A2230FF : 0xFFFFFFFF, share), label);
 		return width;
 	}
+}
+
+float ui_overlay_button(int button, float size, float x, float y, unsigned int color)
+{
+	return button_look(button, size, x, y, color, -1);
+}
+
+float ui_overlay_hud_button_width(int button, float size)
+{
+	return button_width_look(button, size, 1);
+}
+
+float ui_overlay_hud_button(int button, float size, float x, float y, unsigned int color)
+{
+	return button_look(button, size, x, y, color, 1);
 }
 
 int ui_overlay_keyboard(void)
@@ -1323,8 +1463,12 @@ static const char fragment_source[] =
 	"uniform vec4 cellwall_parameters[3];\n"
 	UI_OVERLAY_CELLWALL_GLSL
 #endif
+	/* (display.hdr: the window's encoding, xgpu_tone_map.h: x 2 for a
+	floating-point window's linear light, y its paper white in its units, z
+	the UI's white over it, w the peak; else the color as it is) */
+	"uniform vec4 output_encoding;\n"
 	"out vec4 fragment;\n"
-	"void main()\n"
+	"vec4 overlay_color()\n"
 	"{\n"
 	"\tfloat alpha;\n"
 	/* (the game's own pictures show through: x0, y0, x1, y1 in window pixels
@@ -1341,17 +1485,15 @@ static const char fragment_source[] =
 	/* the cellwall (its ray in the texture coordinates) */
 	"\tif (v_edge.x < -5.5)\n"
 	"\t{\n"
-	"\t\tfragment = cellwall(v_texture_coordinate, cellwall_parameters[0], cellwall_parameters[1],\n"
+	"\t\treturn cellwall(v_texture_coordinate, cellwall_parameters[0], cellwall_parameters[1],\n"
 	"\t\t\tcellwall_parameters[2], v_color);\n"
-	"\t\treturn;\n"
 	"\t}\n"
 #endif
 	/* a medal (premultiplied, as an icon) */
 	"\tif (v_edge.x < -4.5)\n"
 	"\t{\n"
 	"\t\tvec4 texel = texture(medals, v_texture_coordinate);\n"
-	"\t\tfragment = vec4(texel.rgb / max(texel.a, 0.001), texel.a) * v_color;\n"
-	"\t\treturn;\n"
+	"\t\treturn vec4(texel.rgb / max(texel.a, 0.001), texel.a) * v_color;\n"
 	"\t}\n"
 	/* the plasma: the noise map twice, at the menus' two scales, its bright
 	threads where the two meet, in a rounded rectangle (edge.y its corners'
@@ -1366,14 +1508,12 @@ static const char fragment_source[] =
 	"\t\tfloat a1 = t1.a * dot(t1.rgb, vec3(0.3333));\n"
 	"\t\tfloat thread = pow(clamp(1.0 - abs(a0 - a1) * 3.0, 0.0, 1.0), 8.0);\n"
 	"\t\tvec3 color = v_color.rgb * (0.8 + 0.6 * a0 * a1) + plasma_thread.rgb * thread * 0.18;\n"
-	"\t\tfragment = vec4(color, v_color.a * clamp(0.5 - d, 0.0, 1.0) * (0.92 + 0.08 * thread));\n"
-	"\t\treturn;\n"
+	"\t\treturn vec4(color, v_color.a * clamp(0.5 - d, 0.0, 1.0) * (0.92 + 0.08 * thread));\n"
 	"\t}\n"
 	/* the picture */
 	"\tif (v_edge.x < -2.5)\n"
 	"\t{\n"
-	"\t\tfragment = texture(picture, v_texture_coordinate) * v_color;\n"
-	"\t\treturn;\n"
+	"\t\treturn texture(picture, v_texture_coordinate) * v_color;\n"
 	"\t}\n"
 	/* an icon (premultiplied: its color undone after filtering) */
 	"\tif (v_edge.x < -1.5)\n"
@@ -1383,8 +1523,7 @@ static const char fragment_source[] =
 #else
 	"\t\tvec4 texel = texture(icons, vec3(v_texture_coordinate, v_shape.x));\n"
 #endif
-	"\t\tfragment = vec4(texel.rgb / max(texel.a, 0.001), texel.a) * v_color;\n"
-	"\t\treturn;\n"
+	"\t\treturn vec4(texel.rgb / max(texel.a, 0.001), texel.a) * v_color;\n"
 	"\t}\n"
 	"\tif (v_texture_coordinate.x >= 0.0)\n"
 	"\t\talpha = texture(atlas, v_texture_coordinate).r;\n"
@@ -1399,7 +1538,14 @@ static const char fragment_source[] =
 	"\t\tif (v_edge.y > 0.0)\n"
 	"\t\t\talpha *= clamp(d + v_edge.y + 0.5, 0.0, 1.0);\n"
 	"\t}\n"
-	"\tfragment = vec4(v_color.rgb, v_color.a * alpha);\n"
+	"\treturn vec4(v_color.rgb, v_color.a * alpha);\n"
+	"}\n"
+	"void main()\n"
+	"{\n"
+	"\tvec4 color = overlay_color();\n"
+	"\tif (output_encoding.x > 1.5)\n"
+	"\t\tcolor.rgb = min(pow(max(color.rgb, vec3(0.0)), vec3(2.2)) * output_encoding.z, vec3(output_encoding.w)) * output_encoding.y;\n"
+	"\tfragment = color;\n"
 	"}\n";
 
 static GLuint compile(GLenum type, const char *body)
@@ -1532,6 +1678,7 @@ static int set_up(void)
 	overlay.plasma_thread_location = glGetUniformLocation(overlay.program, "plasma_thread");
 	overlay.cellwall_location = glGetUniformLocation(overlay.program, "cellwall_parameters");
 	overlay.cutouts_location = glGetUniformLocation(overlay.program, "cutouts");
+	overlay.output_location = glGetUniformLocation(overlay.program, "output_encoding");
 	overlay.window_height_location = glGetUniformLocation(overlay.program, "window_height");
 
 	{
@@ -1955,6 +2102,15 @@ void ui_overlay_present_to(unsigned int framebuffer, int width, int height)
 #define overlay_target_framebuffer platform_window_framebuffer()
 #endif
 
+/* the window's encoding (d3d8_gl.c's hdr_window_encoding): the color as it
+is until it is set */
+static float overlay_output[4];
+
+void ui_overlay_set_output(const float encoding[4])
+{
+	memcpy(overlay_output, encoding, sizeof(overlay_output));
+}
+
 void ui_overlay_present(int x, int y, int width, int height, int window_width, int window_height)
 {
 	float scale, origin_x, origin_y;
@@ -2287,6 +2443,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 			cutouts[cutout][3] = origin_y + overlay.cutouts[cutout][3] * scale;
 		}
 		glUniform4fv(overlay.cutouts_location, 4, &cutouts[0][0]);
+		glUniform4fv(overlay.output_location, 1, overlay_output);
 		glUniform1f(overlay.window_height_location, (float)window_height);
 	}
 	glBindVertexArray(overlay.vertex_array);

@@ -25,6 +25,8 @@ YES_NO = [("YES", "true"), ("NO", "false")]
 ON_OFF = [("ON", "true"), ("OFF", "false")]
 SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4)]
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
+# how fast a zoomed view turns, on top of the zoom's own slowing
+ZOOM_SENSITIVITIES = [(f"{round(value * 100)}%", f"{value:g}") for value in (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2)]
 
 # A row that does something rather than set a setting (A runs its function,
 # port/linux/game/menu_functions.c's), with a value its function shows in
@@ -61,10 +63,12 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (close together, for the twelve rows of INTERFACE to fit above a
-        # help line, which sits lower than other screens' for them)
-        "spacing": 24,
-        "help_top": 362,
+        # (close together, 22 to the other screens' 24, for the rows of the
+        # desktop's main list (VARIABLE REFRESH and its five links among them)
+        # and INTERFACE to fit above a help line, which sits lower than other
+        # screens' for them: tools/test_settings_layout.py)
+        "spacing": 22,
+        "help_top": 368,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's resolution and anti-aliasing in
@@ -126,11 +130,6 @@ SCREENS = {
               for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
              "Adjust the field of view.",
              None),
-            ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
-             [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
-             "How wide your weapon is drawn.\nSame follows the view.", None),
-            ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
-             "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
@@ -139,25 +138,53 @@ SCREENS = {
                  [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],
                  "The detail of object shadows.",
                  None),
+                ("SOFT SHADOWS:", "display.shadow_filtering", ON_OFF,
+                 "Soften the edges of object shadows.\nOff draws them sharp.", None),
                 ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
                  "Light models per pixel instead of per vertex.", None),
                 ("LIGHT EFFECTS:", "display.light_effects",
                  [("AUTO", "auto"), ("HIGH", "high"), ("LOW", "low"), ("OFF", "off")],
                  "Light from shots, muzzle flashes and glowing things.\nOff looks like the Xbox. Auto turns it off when slow.",
                  "desktop"),
+                ("CAMO WEAPON FIX:", "display.camo_weapon_fix", ON_OFF,
+                 "Walls never cut your camouflaged weapon.\nOff looks like the Xbox.", None),
                 ("DOORS BLOCK LIGHT:", "display.doors_block_light", ON_OFF,
                  "A closed door stops light from the other side.\nOff lets it through, as on the Xbox.", None),
+                ("PLASMA SPARKS:", "display.plasma_sparks", ON_OFF,
+                 "Sparks off a live plasma grenade.\nOff looks like the Xbox.", None),
                 ("FULL MODEL DETAIL:", "display.full_model_detail", ON_OFF,
                  "Always draw models at their highest detail.", None),
                 ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
                  [("OFF", "0"), ("2X", "2"), ("4X", "4"), ("8X", "8"), ("16X", "16")],
                  "Sharper textures seen at an angle.", None),
+                ("VEHICLE FOV:", "display.vehicle_field_of_view",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
+                 "The field of view in vehicles.\nSame keeps it as before.", None),
+                # (the field of view's other two, out of the main list so its
+                # rows and links fit above the help line)
+                ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
+                 "How wide your weapon is drawn.\nSame follows the view.", None),
+                ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
+                 "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
             ]),
-            # (input.keyboard_prompts is in config.toml alone: the prompts
-            # follow the device used last)
+            # (the prompts' buttons: input.button_style, DKrumpp's HD
+            # buttons where the build has them, HALO_HD_BUTTONS. AUTO follows
+            # the controller used last; input.keyboard_prompts is in
+            # config.toml alone)
+            ("buttons", "BUTTONS", "The buttons prompts show.", [
+                ("STYLE:", "input.button_style",
+                 [("AUTO", "auto"), ("DUKE", "duke"), ("XBOX", "xbox"), ("PLAYSTATION", "playstation"),
+                  ("SWITCH", "switch")],
+                 "Auto follows the controller you use.", "desktop android switch"),
+                ("MENU LOOK:", "input.button_look", [("GEM", "gem"), ("FLAT", "flat")],
+                 "The buttons in menus and the Guide.", "desktop android switch"),
+                ("IN GAME:", "input.hud_buttons", [("CLASSIC", "classic"), ("HD", "hd")],
+                 "Classic: the game's own buttons.", "desktop android switch"),
+            ]),
             ("interface", "INTERFACE", "The menus, HUD and scoreboard.", [
                 # (read when the game starts: menu_tags.c)
                 ("MENU STYLE:", "display.menus",
@@ -165,8 +192,6 @@ SCREENS = {
                  "Takes effect on restart.", NOT_CONSOLE),
                 ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
                  "Draw the HUD in high resolution.", NOT_CONSOLE),
-                ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
-                 "Draw text and titles in high resolution.", NOT_CONSOLE),
                 ("PLAYER NAMES:", "display.player_names",
                  [("NONE", "none"), ("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies")],
                  "Names above players, where the host allows them.", NOT_CONSOLE),
@@ -189,6 +214,16 @@ SCREENS = {
                  "While dead, follow a player's view, if the host allows it.", None),
                 ("VERSION WATERMARK:", "display.version_watermark", ON_OFF,
                  "Show the version while playing.", None),
+            ]),
+            # (the text's fonts and the console: TEXT, so that INTERFACE's
+            # rows fit above the help line, test_settings_layout.py)
+            ("text", "TEXT", "High-res text, titles and the console.", [
+                ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
+                 "Draw text and titles in high resolution.", NOT_CONSOLE),
+                # (the ~ key's console: terminal.c's drop-down one, or the
+                # Xbox's lines at the bottom)
+                ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],
+                 "Drop-down slides down from the top.\nClassic is the Xbox's.", NOT_CONSOLE),
                 ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg"), ("HALO", "halo")],
                  "Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files.",
                  # (not on the consoles, the Switch included, which have the
@@ -196,12 +231,34 @@ SCREENS = {
                  # so the Switch's list has no gap)
                  "desktop android"),
             ]),
+            ("hdr", "HDR SETUP", "HDR, the HDR display, tone mapping and brightness.", [
+                ("HDR:", "display.hdr", ON_OFF,
+                 "Keep the light of explosions, plasma and glows past\nwhite, and roll it off instead of clipping.", "desktop"),
+                ("HDR DISPLAY:", "display.hdr_output", ON_OFF,
+                 "With HDR, on an HDR display, show that light\nbrighter than white. From the next start.", "desktop"),
+                ("TONE MAPPING:", "display.hdr_tone_mapping",
+                 [("NEUTRAL", "neutral"), ("ACES", "aces"), ("REINHARD", "reinhard")],
+                 "Neutral keeps the picture and rolls off only the\nbrightest parts. ACES is filmic, Reinhard softer.", "desktop"),
+                ("EXPOSURE:", "display.hdr_exposure",
+                 [(f"{value:g}", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)],
+                 "The view's brightness before tone mapping.", "desktop"),
+                ("HDR BRIGHTNESS:", "display.hdr_paper_white",
+                 [("AUTO", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
+                 "How bright white is on an HDR display, in nits.\nAuto is the display's own.", "desktop"),
+                ("HDR PEAK:", "display.hdr_peak",
+                 [("AUTO", "0")] + [(f"{value}", f"{value}") for value in (400, 600, 800, 1000, 1500, 2000, 4000)],
+                 "The brightest highlight on an HDR display,\nin nits. Auto asks the display.", "desktop"),
+                ("HUD BRIGHTNESS:", "display.hdr_ui_nits",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
+                 "The HUD's and menus' white on an HDR display,\nin nits.", "desktop"),
+            ]),
         ],
     },
     "audio_settings": {
         "screen": "audio_settings_screen",
         "header": ("header_profile_audio_settings", f"{PE}/audio_settings/header_profile_audio_settings"),
-        "spacing": 30,
+        # (27, not 30: ten rows with MODS, the last above the help line)
+        "spacing": 27,
         "rows": [
             ("MASTER VOLUME:", "audio.volume", VOLUMES, "Adjust the overall volume.", None),
             ("MUSIC VOLUME:", "audio.music_volume", VOLUMES, "Adjust the music volume.", None),
@@ -221,6 +278,9 @@ SCREENS = {
              "Room echo, and muffled sound behind walls.", None),
             ("DOPPLER:", "audio.doppler", ON_OFF,
              "Pitch shift of moving sounds, as on the Xbox.", None),
+            # (the mods folder's tag files: port/linux/game/mods.c, docs/mods.md)
+            ("MODS:", "game.mods", ON_OFF,
+             "Sound tags from the mods folder replace a map's.\nLocal games only; see docs/mods.md.", None),
             ("SOUND:", "audio.enabled", ON_OFF,
              "Turn all sound on or off. Takes effect on restart.", None),
         ],
@@ -231,9 +291,10 @@ SCREENS = {
     "network_setup": {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
-        "spacing": 30,
-        # (the help line under the ten rows, as Privacy's: the last,
-        # PRIVACY, ends at 371)
+        # (a little closer than the other screens', for its eleven rows, JOIN
+        # SCREEN among them: the last, PRIVACY, ends at 371, under the help
+        # line, as Privacy's)
+        "spacing": 27,
         "help_top": 376,
         # (its help is its own text, which menu_functions.c reads from its
         # help_strings, and sets to how INSTALL UPDATE's install goes)
@@ -258,6 +319,8 @@ SCREENS = {
              "Copy your game's invite link when you host.", NOT_CONSOLE),
             ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
              "Let a game you host start with only you.", None),
+            ("JOIN SCREEN:", "display.join_screen", ON_OFF,
+             "Show the loading screen while joining a game.", "desktop android"),
         ],
         "views": [
             # (update.channel's help is update.h's UPDATE_CHANNEL_HELP, as
@@ -312,10 +375,14 @@ MOUSE_ROWS = [
      "Moving the mouse forward looks down.", NOT_CONSOLE),
     ("AIM ASSIST:", "input.mouse_aim_assist", ON_OFF,
      "Use controller aim assist with the mouse.", NOT_CONSOLE),
+    ("ZOOM SENSITIVITY:", "input.mouse_zoom_sensitivity", ZOOM_SENSITIVITIES,
+     "How fast the mouse turns while zoomed in.", NOT_CONSOLE),
 ]
 GAMEPAD_ROWS = [
     ("LOOK SENSITIVITY:", "profile.look_sensitivity", [(str(step), str(step)) for step in range(1, 11)],
      "Adjust the look sensitivity.", None),
+    ("ZOOM SENSITIVITY:", "input.stick_zoom_sensitivity", ZOOM_SENSITIVITIES,
+     "How fast the stick turns while zoomed in.", None),
     ("INVERT LOOK:", "profile.invert_look", YES_NO, "Pushing the right stick up looks down.", None),
     ("INVERT FLIGHT:", "profile.flight_inversion", YES_NO,
      "Pushing up flies down in flying vehicles.", None),
@@ -332,7 +399,7 @@ GAMEPAD_ROWS = [
 # port/linux/game/menu_functions.c's table of them), then the mouse's
 # settings (MOUSE_ROWS) in the same list
 CONTROL_GROUPS = ["MOVEMENT", "WEAPONS", "ACTIONS", "MOUSE"]
-CONTROL_ROWS = 7
+CONTROL_ROWS = 9
 
 # the profile menu's words for what its items now open
 STRING_OVERRIDES = {
@@ -588,7 +655,15 @@ def _setting_rows(base: str, spec: dict) -> tuple:
         elif entry[0] == "link":
             _, view, key, place, label_index = entry
             shown = any(_on_console(row[4]) for row in views[view])
-            rows.append((f"{base}/op_{key}", None if shown else NOT_CONSOLE, place))
+            # (a list every row of which is on the same few platforms opens
+            # only there: HDR SETUP on the desktop alone)
+            platforms = {row[4] for row in views[view]}
+            if None in platforms:
+                platform = None if shown else NOT_CONSOLE
+            else:
+                names = {name for names in platforms for name in names.split()}
+                platform = " ".join(name for name in [*NOT_CONSOLE.split(), CONSOLE] if name in names)
+            rows.append((f"{base}/op_{key}", platform, place))
             extra += _link_row(base, key, label_index)
         else:
             _, row, key, place, label_index = entry

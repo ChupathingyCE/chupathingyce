@@ -155,13 +155,15 @@ static struct
 	BOOL odd;
 	float held[REVERB_CHANNELS];
 
-	/* the delays, each written at position (of its size) */
+	/* the delays, each written at its cursor: the frames the reverb has
+	run, modulo the delay's size (the input and the chain share one, as the
+	loops do), moved on a frame at a time without a division */
 	float input[REVERB_INPUT_SIZE];
 	float chain[REVERB_CHAIN - 1][REVERB_INPUT_SIZE];
 	float combs[REVERB_CHANNELS][REVERB_COMB_SIZE];
 	float lines[REVERB_LINES][2476];
 	float loops[2][REVERB_LOOP_SIZE];
-	unsigned long position;
+	long input_at, loop_at, comb_at[REVERB_CHANNELS], line_at[REVERB_LINES];
 	/* the filters' last outputs */
 	float line_state[REVERB_LINES], chain_state[REVERB_CHAIN - 1], loop_state[2];
 } reverb;
@@ -394,30 +396,42 @@ static float reverb_blend(float from, float to, float fade)
 	return from + (to - from) * fade;
 }
 
-/* the sample of a delay line size long that went in delay samples ago: as
-the DSP's, a delay of a block (16 samples) or more, and one longer than the
-line wrapping round it */
-static float reverb_tap(const float *line, long size, long delay)
+/* the sample of a delay line size long, written at at, that went in delay
+samples ago: as the DSP's, a delay of a block (16 samples) or more, and one
+longer than the line wrapping round it (from a block on, a delay up to size +
+15 is that less size). Compares, not divisions: the reverb reads some thirty
+taps a frame, and a division takes tens of cycles on the consoles' and
+phones' slower cores (only a delay past size + 15, which no environment
+sets, takes one) */
+static float reverb_tap(const float *line, long size, long at, long delay)
 {
-	long position = (long)(reverb.position % (unsigned long)size);
-
-	delay = delay < 16 ? 16 : (delay - 16) % size + 16;
-	/* The block-minimum wrap can leave delay up to size + 15. Reduce it
-	before subtracting so the ring index cannot become negative. */
-	return line[(position - delay % size + size) % size];
+	if (delay < 16)
+		delay = 16;
+	else if (delay >= size + 16)
+		delay = (delay - 16) % size + 16;
+	if (delay >= size)
+		delay -= size;
+	at -= delay;
+	return line[at < 0 ? at + size : at];
 }
 
 /* the tap crossfaded from the from delay to the to delay by fade (0 to 1) */
-static float reverb_read(const float *line, long size, long from, long to, float fade)
+static float reverb_read(const float *line, long size, long at, long from, long to, float fade)
 {
-	float sample = reverb_tap(line, size, from);
+	float sample = reverb_tap(line, size, at, from);
 
-	return from == to ? sample : sample + (reverb_tap(line, size, to) - sample) * fade;
+	return from == to ? sample : sample + (reverb_tap(line, size, at, to) - sample) * fade;
 }
 
-static void reverb_write(float *line, long size, float value)
+static void reverb_write(float *line, long at, float value)
 {
-	line[reverb.position % (unsigned long)size] = flush_denormal(value);
+	line[at] = flush_denormal(value);
+}
+
+/* a cursor moved on a frame */
+static long reverb_next(long at, long size)
+{
+	return at + 1 < size ? at + 1 : 0;
 }
 
 static float reverb_filter(struct reverb_filter from, struct reverb_filter to, float fade, float *state, float x)
@@ -426,28 +440,67 @@ static float reverb_filter(struct reverb_filter from, struct reverb_filter to, f
 	return *state;
 }
 
+/* reverb_frame's reads, gains and filters: steady, with no fade running
+(reverb_steady), the to environment's alone, which is what the fade's
+arithmetic comes to then (from and delays_from are to) without its work */
+#define REVERB_INLINE static inline __attribute__((always_inline))
+
+REVERB_INLINE float reverb_read_at(const float *line, long size, long at, long from, long to, float fade, int steady)
+{
+	return steady ? reverb_tap(line, size, at, to) : reverb_read(line, size, at, from, to, fade);
+}
+
+REVERB_INLINE float reverb_gain_at(float from, float to, float fade, int steady)
+{
+	return steady ? to : reverb_blend(from, to, fade);
+}
+
+REVERB_INLINE float reverb_filter_at(struct reverb_filter from, struct reverb_filter to, float fade, float *state, float x,
+	int steady)
+{
+	if (!steady)
+		return reverb_filter(from, to, fade, state, x);
+	*state = flush_denormal(to.a * *state + to.b * x);
+	return *state;
+}
+
+/* whether no fade runs: the gains and filters are to's (a fade ending sets
+from to to) and so are the delays (delays_from, likewise) */
+static BOOL reverb_steady(void)
+{
+#ifdef REVERB_ALWAYS_FADE
+	/* (tools/test_xbox_audio.py: the fade's arithmetic throughout, which the
+	steady frames must match bit for bit) */
+	return FALSE;
+#else
+	return !reverb.fade && !reverb.delay_hold && !reverb.delay_fade;
+#endif
+}
+
 /* a frame of the reverb (at REVERB_RATE) of input, its four channels into
-channels */
-static void reverb_frame(float input, float fade, float *channels)
+channels (reverb_frame), steady or fading (both made from this) */
+REVERB_INLINE void reverb_frame_body(float input, float fade, float *channels, int steady)
 {
 	const struct reverb_parameters *from = &reverb.from, *to = &reverb.to, *dfrom = &reverb.delays_from;
 	/* (the delays' own crossfade: none while they are held) */
-	float dfade = reverb.delay_hold ? 0.0f : 1.0f - (float)reverb.delay_fade / REVERB_FADE_FRAMES;
+	float dfade = steady || reverb.delay_hold ? 0.0f : 1.0f - (float)reverb.delay_fade / REVERB_FADE_FRAMES;
 	float onset[2 * REVERB_LINES], taps[REVERB_LINES], chain[REVERB_CHAIN][2], sums[2], loops[2];
 	float reflections, network_input, loop_input, mean = 0.0f, late_gain;
+	long at = reverb.input_at;
 	int index;
 
 	/* the reflections: each channel's comb */
-	reflections = reverb_read(reverb.input, REVERB_INPUT_SIZE, dfrom->reflections_delay, to->reflections_delay, dfade);
+	reflections = reverb_read_at(reverb.input, REVERB_INPUT_SIZE, at, dfrom->reflections_delay, to->reflections_delay,
+		dfade, steady);
 	for (index = 0; index < REVERB_CHANNELS; index++)
 	{
-		float value = reflections + reverb_read(reverb.input, REVERB_INPUT_SIZE,
-			dfrom->reflection_taps[index], to->reflection_taps[index], dfade) +
-			reverb_comb_gains[index] * reverb_read(reverb.combs[index], reverb_comb_sizes[index],
-			dfrom->comb_delays[index], to->comb_delays[index], dfade);
+		float value = reflections + reverb_read_at(reverb.input, REVERB_INPUT_SIZE, at,
+			dfrom->reflection_taps[index], to->reflection_taps[index], dfade, steady) +
+			reverb_comb_gains[index] * reverb_read_at(reverb.combs[index], reverb_comb_sizes[index], reverb.comb_at[index],
+			dfrom->comb_delays[index], to->comb_delays[index], dfade, steady);
 
-		reverb_write(reverb.combs[index], reverb_comb_sizes[index], value);
-		channels[index] = value * reverb_blend(from->reflections_gains[index], to->reflections_gains[index], fade);
+		reverb_write(reverb.combs[index], reverb.comb_at[index], value);
+		channels[index] = value * reverb_gain_at(from->reflections_gains[index], to->reflections_gains[index], fade, steady);
 	}
 
 	/* the lines' ends, with the input's onset taps in pairs */
@@ -455,13 +508,16 @@ static void reverb_frame(float input, float fade, float *channels)
 	{
 		long tap = reverb_onset_taps[index % REVERB_LINES];
 
-		onset[index] = reverb_read(reverb.input, REVERB_INPUT_SIZE, dfrom->late_delay + tap, to->late_delay + tap, dfade);
+		onset[index] = reverb_read_at(reverb.input, REVERB_INPUT_SIZE, at, dfrom->late_delay + tap, to->late_delay + tap,
+			dfade, steady);
 	}
 	for (index = 0; index < REVERB_LINES; index++)
 	{
-		taps[index] = reverb_tap(reverb.lines[index], reverb_line_lengths[index], reverb_line_lengths[index]) +
-			reverb_blend(from->onset_gains[2 * index], to->onset_gains[2 * index], fade) * onset[2 * index] +
-			reverb_blend(from->onset_gains[2 * index + 1], to->onset_gains[2 * index + 1], fade) * onset[2 * index + 1];
+		taps[index] = reverb_tap(reverb.lines[index], reverb_line_lengths[index], reverb.line_at[index],
+			reverb_line_lengths[index]) +
+			reverb_gain_at(from->onset_gains[2 * index], to->onset_gains[2 * index], fade, steady) * onset[2 * index] +
+			reverb_gain_at(from->onset_gains[2 * index + 1], to->onset_gains[2 * index + 1], fade, steady) *
+			onset[2 * index + 1];
 		mean += 0.5f * taps[index];
 	}
 
@@ -470,39 +526,64 @@ static void reverb_frame(float input, float fade, float *channels)
 	{
 		const float *line = index ? reverb.chain[index - 1] : reverb.input;
 
-		chain[index][0] = reverb_read(line, REVERB_INPUT_SIZE, dfrom->chain[index][0], to->chain[index][0], dfade);
-		chain[index][1] = reverb_read(line, REVERB_INPUT_SIZE, dfrom->chain[index][1], to->chain[index][1], dfade);
+		chain[index][0] = reverb_read_at(line, REVERB_INPUT_SIZE, at, dfrom->chain[index][0], to->chain[index][0], dfade,
+			steady);
+		chain[index][1] = reverb_read_at(line, REVERB_INPUT_SIZE, at, dfrom->chain[index][1], to->chain[index][1], dfade,
+			steady);
 	}
 	sums[0] = chain[0][1] + chain[1][0] + chain[2][0] + chain[3][1];
 	sums[1] = chain[0][0] + chain[1][1] + chain[2][1] + chain[3][0];
-	network_input = reverb_blend(from->network_input, to->network_input, fade) * (sums[0] + sums[1]);
-	loop_input = reverb_blend(from->loop_input, to->loop_input, fade);
+	network_input = reverb_gain_at(from->network_input, to->network_input, fade, steady) * (sums[0] + sums[1]);
+	loop_input = reverb_gain_at(from->loop_input, to->loop_input, fade, steady);
 	for (index = 0; index < 2; index++)
 	{
 		loops[index] = loop_input * sums[index] +
-			reverb_read(reverb.loops[index], REVERB_LOOP_SIZE, dfrom->loop_length, to->loop_length, dfade);
-		reverb_write(reverb.loops[index], REVERB_LOOP_SIZE,
-			reverb_filter(from->loop_filter, to->loop_filter, fade, &reverb.loop_state[index], loops[index]));
+			reverb_read_at(reverb.loops[index], REVERB_LOOP_SIZE, reverb.loop_at, dfrom->loop_length, to->loop_length,
+			dfade, steady);
+		reverb_write(reverb.loops[index], reverb.loop_at,
+			reverb_filter_at(from->loop_filter, to->loop_filter, fade, &reverb.loop_state[index], loops[index], steady));
 	}
 	for (index = 0; index < REVERB_CHAIN - 1; index++)
 	{
-		reverb_write(reverb.chain[index], REVERB_INPUT_SIZE,
-			reverb_filter(from->chain_filter, to->chain_filter, fade, &reverb.chain_state[index], chain[index][1]));
+		reverb_write(reverb.chain[index], at,
+			reverb_filter_at(from->chain_filter, to->chain_filter, fade, &reverb.chain_state[index], chain[index][1],
+			steady));
 	}
 
 	/* the network: a Householder reflection of the lines' ends, decayed */
 	for (index = 0; index < REVERB_LINES; index++)
 	{
-		reverb_write(reverb.lines[index], reverb_line_lengths[index],
-			reverb_filter(from->lines[index], to->lines[index], fade, &reverb.line_state[index],
-			taps[index] - mean + network_input));
+		reverb_write(reverb.lines[index], reverb.line_at[index],
+			reverb_filter_at(from->lines[index], to->lines[index], fade, &reverb.line_state[index],
+			taps[index] - mean + network_input, steady));
 	}
-	reverb_write(reverb.input, REVERB_INPUT_SIZE, input);
-	reverb.position++;
+	reverb_write(reverb.input, at, input);
 
-	late_gain = reverb_blend(from->late_gain, to->late_gain, fade);
+	/* the cursors moved on */
+	reverb.input_at = reverb_next(at, REVERB_INPUT_SIZE);
+	reverb.loop_at = reverb_next(reverb.loop_at, REVERB_LOOP_SIZE);
+	for (index = 0; index < REVERB_CHANNELS; index++)
+		reverb.comb_at[index] = reverb_next(reverb.comb_at[index], reverb_comb_sizes[index]);
+	for (index = 0; index < REVERB_LINES; index++)
+		reverb.line_at[index] = reverb_next(reverb.line_at[index], reverb_line_lengths[index]);
+
+	late_gain = reverb_gain_at(from->late_gain, to->late_gain, fade, steady);
 	for (index = 0; index < REVERB_CHANNELS; index++)
 		channels[index] += late_gain * (taps[index] + 0.5f * loops[index / 2]);
+}
+
+/* a frame of the reverb of send (a frame of the bus at the output's rate),
+steady or fading */
+static void reverb_frame(float send)
+{
+	if (reverb_steady())
+		reverb_frame_body(reverb.to.input_gain * send, 1.0f, reverb.held, 1);
+	else
+	{
+		float fade = 1.0f - (float)reverb.fade / REVERB_FADE_FRAMES;
+
+		reverb_frame_body(reverb_blend(reverb.from.input_gain, reverb.to.input_gain, fade) * send, fade, reverb.held, 0);
+	}
 }
 
 /* adds the reverberation of send to output, its level moving to
@@ -519,11 +600,7 @@ static void reverb_process(const float *send, float *output, unsigned long frame
 		float level = reverb.level;
 
 		if (!reverb.odd)
-		{
-			float fade = 1.0f - (float)reverb.fade / REVERB_FADE_FRAMES;
-
-			reverb_frame(reverb_blend(reverb.from.input_gain, reverb.to.input_gain, fade) * send[frame], fade, reverb.held);
-		}
+			reverb_frame(send[frame]);
 		reverb.odd = !reverb.odd;
 		if (output_channels == 6)
 		{

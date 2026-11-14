@@ -23,6 +23,7 @@ permissions are kept on file and can be shown on request.
 | Aerocatia, with Jessie | HUD assets from halopc-restored | With credit | 2026-10-14 |
 | Joeveno | Favela Gulch, ported as a Halo map | With credit; his art keeps its own terms | 2026-10-30 |
 | SlappyThePirate | grifball.map (Grifball Beta, 2011) and the assets from it | With credit; hosted on our site, not in git | 2026-10-16 |
+| DKrumpp | HD controller buttons: the original Xbox (Duke), PlayStation and Switch buttons (`port/assets/buttons_hd`) | Used with permission, credit DKrumpp; not under our GPL | 2026-11-13 |
 | Marshall Kirk McKusick | The BSD Daemon, as the FreeBSD platform icon | With his notice: "BSD Daemon used with permission," linked to [his copyright page](http://www.mckusick.com/copyright.html) | 2026-11-11 |
 
 ## Used under their own licenses

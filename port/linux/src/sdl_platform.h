@@ -130,6 +130,12 @@ that fit the desktop, and display.window_size's; how many. None on
 Android. */
 int platform_window_sizes(long *widths, long *heights, int maximum);
 void platform_video_drawable_size(int *width, int *height);
+/* whether the window's display shows HDR, with the desktop's white (in
+scRGB's units, 1.0 being 80 nits; 1.0 for macOS's EDR) and how many times
+brighter than it the display goes (1.0 without HDR); and whether the
+window's pixels are floating point (display.hdr_output, scRGB) */
+BOOL platform_video_hdr(float *sdr_white, float *headroom);
+BOOL platform_video_float_window(void);
 #ifdef HALO_IOS
 /* the part of the drawable the picture is shown in, in pixels from its top
 left: all of it, but where the platform keeps part for itself (iPhone Duo
@@ -154,6 +160,13 @@ void platform_show_message(const char *title, const char *message);
 void platform_offer_opengl(void);
 /* a snapshot of the input state; consume_motion resets the mouse deltas */
 void platform_input_read(struct platform_input_state *state, BOOL consume_motion);
+/* a trigger past this (of SDL's 0 to 32767) is pulled */
+#define PLATFORM_GAMEPAD_TRIGGER_PRESSED 8000
+/* a gamepad's buttons pressed (bits by SDL_GamepadButton) and triggers pulled
+(bit 0 the left, 1 the right) since this was last asked of it, by its
+joystick ID: the controller's reading ORs them into what is held, so a tap
+between two readings still counts */
+void platform_gamepad_presses_take(Uint32 id, Uint32 *buttons, unsigned int *triggers);
 /* the pointer in the menus (d3d8_gl.c, halo_ui_pointer_update) */
 struct platform_ui_pointer
 {

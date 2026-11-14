@@ -177,10 +177,10 @@ static int vrr_drm_card(int file)
 	memset(&resources, 0, sizeof(resources));
 	resources.crtc_count = count;
 	resources.crtcs = (uint64_t)(uintptr_t)crtcs;
-	if (ioctl(file, VRR_GET_RESOURCES, &resources))
+	/* (more CRTCs than the array holds, as many as there are since the
+	first ask: the kernel filled none of it, so the card isn't read) */
+	if (ioctl(file, VRR_GET_RESOURCES, &resources) || resources.crtc_count > count)
 		return -1;
-	if (resources.crtc_count > count)
-		resources.crtc_count = count;
 	for (crtc = 0; crtc < resources.crtc_count; crtc++)
 	{
 		struct vrr_object_properties object;
@@ -194,9 +194,11 @@ static int vrr_drm_card(int file)
 		object.count = 64;
 		object.properties = (uint64_t)(uintptr_t)properties;
 		object.values = (uint64_t)(uintptr_t)values;
-		if (ioctl(file, VRR_GET_OBJECT_PROPERTIES, &object))
+		/* (a CRTC with more than 64 properties gets its count back and
+		the arrays left unfilled: not read) */
+		if (ioctl(file, VRR_GET_OBJECT_PROPERTIES, &object) || object.count > 64)
 			continue;
-		for (index = 0; index < object.count && index < 64; index++)
+		for (index = 0; index < object.count; index++)
 		{
 			struct vrr_property property;
 

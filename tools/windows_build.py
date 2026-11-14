@@ -39,7 +39,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence
 
 from .version import VERSION_SOURCES, identity_defines, release_build, resource_version, version
-from .linux_build import (LZMA_DIR, OPUS_DIR, VOICE_SOURCE, opus_cflags, opus_sources, COMPRESSED_MAP_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
+from .linux_build import (LZMA_DIR, OPUS_DIR, VOICE_SOURCE, opus_cflags, opus_sources, COMPRESSED_MAP_DEFINES, MODS_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
@@ -215,7 +215,7 @@ WINDOWS32 = WindowsTarget(
     # Halo PC's Custom Edition maps (linux_build.py, CUSTOM_EDITION_DEFINES),
     # as the 32-bit Linux build has them: their tag cache is mapped at the
     # host address they are linked to (port/linux/src/xbox_memory.c)
-    abi_flags=[*WINDOWS_ABI_FLAGS, *CUSTOM_EDITION_DEFINES, *COMPRESSED_MAP_DEFINES],
+    abi_flags=[*WINDOWS_ABI_FLAGS, *CUSTOM_EDITION_DEFINES, *MODS_DEFINES, *COMPRESSED_MAP_DEFINES],
     game_flags=GAME_FLAGS,
     platform_flags=PLATFORM_FLAGS,
     win32_flags=WIN32_FLAGS,
@@ -244,6 +244,7 @@ WINDOWS64 = WindowsTarget(
         "-DHALO_64BIT",
         # Halo PC's Custom Edition maps (linux_build.py, CUSTOM_EDITION_DEFINES)
         *CUSTOM_EDITION_DEFINES,
+        *MODS_DEFINES,
         *COMPRESSED_MAP_DEFINES,
     ],
     game_flags=[
@@ -287,7 +288,9 @@ WINDOWS64 = WindowsTarget(
 WINDOWS64_SERVER = replace(
     WINDOWS64,
     name="server-windows64",
-    abi_flags=[*WINDOWS64.abi_flags, "-DHALO_SERVER"],
+    # (no mods folder on a server: port_mods.c reads archives through SDL's
+    # IO, which the server does not link)
+    abi_flags=[*(flag for flag in WINDOWS64.abi_flags if flag not in MODS_DEFINES), "-DHALO_SERVER"],
     comment="The dedicated server for 64-bit Windows (ninja server-windows64)",
     server=True,
     bgfx=False,

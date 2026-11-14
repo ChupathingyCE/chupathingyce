@@ -233,6 +233,12 @@ static struct
 	boolean bomb_keep;
 	boolean bomb_save;
 	real fall_interval;
+	/* debug.network_test_place: where the first local player is put, facing
+	which way (degrees), when (seconds); debug.network_test_camouflage: when
+	every player gets active camouflage, for 20 seconds */
+	char place[96];
+	boolean placed;
+	real camouflage_time;
 	real melee_interval;
 	real team_change_interval;
 	/* debug.network_test_pause: the pause menu opened then, once */
@@ -433,6 +439,8 @@ static void network_test_read_settings(
 	network_test.bomb_keep = config_boolean("debug.network_test_bomb_keep");
 	network_test.bomb_save = config_boolean("debug.network_test_bomb_save");
 	network_test.fall_interval = (real)config_real("debug.network_test_fall");
+	snprintf(network_test.place, sizeof(network_test.place), "%s", config_string("debug.network_test_place"));
+	network_test.camouflage_time = (real)config_real("debug.network_test_camouflage");
 	network_test.melee_interval = (real)config_real("debug.network_test_melee");
 	network_test.local_players = (short)PIN(config_integer("debug.network_test_local_players"), 1, 4);
 	network_test.team_change_interval = (real)config_real("debug.network_test_team_change");
@@ -1211,6 +1219,72 @@ static void network_test_fall(
 }
 
 
+/* debug.network_test_place = "<x> <y> <z> <yaw> <pitch>[@<seconds>]": the
+first local player put there, facing that way, that many seconds in (1 if not
+given), once: pictures of one place (a camouflaged weapon against a wall,
+OpenH1 #875) */
+static void network_test_place(
+	void)
+{
+	float x, y, z, yaw, pitch, seconds = 1.0f;
+	char const *at;
+	long player_index = local_player_get_player_index(0);
+	struct player_datum *player;
+	real_point3d position;
+	real_vector3d facing;
+
+	if (network_test.placed || !network_test.place[0] ||
+		sscanf(network_test.place, "%f %f %f %f %f", &x, &y, &z, &yaw, &pitch) != 5)
+	{
+		return;
+	}
+	at = strchr(network_test.place, '@');
+	if (at)
+		seconds = (float)atof(at + 1);
+	if (game_time_get() < (long)(seconds * TICKS_PER_SECOND) || player_index == NONE)
+		return;
+	player = player_get(player_index);
+	if (player->unit_index == NONE)
+		return;
+	network_test.placed = TRUE;
+	position.x = x;
+	position.y = y;
+	position.z = z;
+	object_set_position(player->unit_index, &position, NULL, NULL);
+	facing.i = cosf(yaw * 0.017453292f) * cosf(pitch * 0.017453292f);
+	facing.j = sinf(yaw * 0.017453292f) * cosf(pitch * 0.017453292f);
+	facing.k = sinf(pitch * 0.017453292f);
+	player_control_set_facing(0, &facing);
+	platform_log("network test: place: the first local player put at (%.2f %.2f %.2f), facing %.1f %.1f",
+		x, y, z, yaw, pitch);
+}
+
+/* debug.network_test_camouflage: every player keeps active camouflage from
+then, for 20 seconds (as cheat_active_camouflage gives it) */
+static void network_test_camouflage(
+	void)
+{
+	long start = (long)(network_test.camouflage_time * TICKS_PER_SECOND);
+	struct data_iterator iterator;
+	struct player_datum *player;
+
+	if (game_time_get() < start || game_time_get() >= start + 20 * TICKS_PER_SECOND)
+		return;
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		struct unit_datum *unit;
+
+		if (player->unit_index == NONE)
+			continue;
+		unit = unit_get(player->unit_index);
+		unit->unit.active_camouflage = 1.0f;
+		unit->unit.flags |= FLAG(_unit_active_camouflaged_bit);
+	}
+	if (game_time_get() == start)
+		platform_log("network test: camouflage: every player camouflaged");
+}
+
 /* debug.network_test_melee: in each interval's first second the host brings
 its last player a step in front of its first; from its second to its fifth
 the striking machine's player (the host's in even intervals, the joining
@@ -1595,6 +1669,9 @@ void network_test_update(
 			if (game_time_get() >= interval && game_time_get() % interval < TICKS_PER_SECOND)
 				network_test_fall();
 		}
+		network_test_place();
+		if (network_test.camouflage_time > 0.0f)
+			network_test_camouflage();
 		if (network_test.mode == _network_test_host && network_test.vehicle_time > 0.0f)
 		{
 			long enter_time = (long)(network_test.vehicle_time * TICKS_PER_SECOND);

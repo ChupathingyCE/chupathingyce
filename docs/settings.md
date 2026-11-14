@@ -51,14 +51,18 @@ A few people look for most:
 | `display.title_font` | The font of the menus' titles: `"classic"` (the default, looks like Halo's own titles), `"cyborg"` (the same font as the menu text) or `"halo"` (the screens' titles in Halo's own lettering, made from your own `ui.map`; nothing is saved or shared). A change shows at once. The consoles have `"classic"` only. |
 | `display.high_res_font`, `display.high_res_font_large` | Your own font file for the sharp text and Online Games, in place of the built-in fonts: put it in `data/fonts` beside `maps` and give its name (`high_res_font = "MyFont.ttf"`), or a full path. `_large` sets one for the large text only. Empty uses the built-in fonts; a file that can't be read is noted in `logs/debug.txt` and the built-in font is used. The font is yours: Chupathingy ships none but its own free ones, and never sends yours anywhere. |
 | `display.field_of_view` | How wide the first-person view is, in degrees: 70 (the Xbox's) by default, 50 to 120. |
+| `display.camo_weapon_fix` | `false` (the default) lets a wall close by cut away your camouflaged first-person weapon, as on the Xbox. `true` draws it in front of walls. Drawing only. Video Setup, Advanced: Camo Weapon Fix. Based on work by goatbutt and the OpenH1 team. |
+| `display.plasma_sparks` | `false` (the default) leaves out the blue sparks off a live plasma grenade, as on the Xbox, which never drew them. `true` draws them, at any frame rate. Drawing only. Video Setup, Advanced: Plasma Sparks. Thanks to ugoboom for the idea. |
 | `display.doors_block_light` | `true` (the default) stops a light behind a closed door from lighting your side of it, such as a plasma bolt in the next room. `false` lets it through, as on the Xbox. Drawing only. Video Setup, Advanced: Doors Block Light. |
 | `display.far_clip_distance` | How far the world is drawn: 1024 (the Xbox's) by default, up to 10000, for large maps that cut off in the distance. Drawing only. |
 | `display.match_timer` | A multiplayer game's clock: `"off"` (the default), `"remaining"` (the time left, or the time played when there is no time limit) or `"elapsed"` (the time played). An older `true` still works as `"remaining"`. |
 | `display.match_timer_position` | Where the clock goes: `"top"` (the default) or `"bottom_right"`, like later Halo games. |
 | `display.player_names` | Names over players' heads: `"all"`, `"allies"`, `"enemies"` or `"none"` (the default, as on the Xbox). Only where the host allows them (`network.allow_player_names`). |
 | `display.follow_camera` | After you die, watch a living player's view: `"off"` (the default, as on the Xbox), `"long_waits"` (only during a long respawn wait) or `"always"`. LB and RB, or Q and E, switch players. Only where the host allows it (`network.allow_follow_camera`). |
+| `display.join_screen` | While a game is joined or its map downloads, the loading screen with what is going on and B to cancel (on by default). `false`: a small panel over the game list. Settings > Online > JOIN SCREEN. |
 | `display.xbox_loading_picture` | `true` (the default) shows the Xbox's own loading picture, `xbox_loading.tga` in your maps folder, and Chupathingy's when that file isn't there. `false` always shows Chupathingy's. Not on consoles. |
 | `game.unlock_all_levels` | `true` gives new profiles every campaign level. By default a new profile starts at The Pillar of Autumn, as on the Xbox. Profiles made by earlier versions had every level open; `profile_reset_campaign` in the console starts one over. |
+| `game.mods` | `true` plays the mods in the `mods` folder beside `maps` (tag files over a map's sounds, as a resource pack; see [mods.md](mods.md)). Nothing happens while the folder is empty. Local games only. |
 | `audio.volume`, `audio.music_volume`, `audio.effects_volume` | Volumes, from 0.0 to 1.0. |
 | `audio.device` | The output the sound plays on, by name (Audio Setup lists them); `"default"` follows the system's default output. |
 | `audio.channels` | `"auto"` follows your output (5.1 on a 6-channel device, 7.1 on 8, else stereo); `"stereo"`, `"5.1"` or `"7.1"` set it. Desktop only; read at start. |
@@ -72,6 +76,9 @@ A few people look for most:
 | `audio.reverb` | Sounds echo to match the place you are in, as the Xbox's reverb did (on by default; off on the slowest consoles). |
 | `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |
 | `input.keyboard_prompts` | Button prompts follow the device you used last: keys after the keyboard or mouse, as Halo PC did, and buttons after a controller. This setting is no longer in the menus; `false` keeps the controller's buttons everywhere. |
+| `input.button_style` | The buttons prompts show: `"auto"` (the default: the controller you use), or one style for every controller: `"duke"` (the original Xbox controller's), `"xbox"`, `"playstation"` or `"switch"`. The keyboard shows its keys. The Xbox menus show their own. Settings > Video > BUTTONS, and the Delta Guide's SETTINGS. |
+| `input.button_look` | The menus' and the Guide's buttons: `"gem"` (the default) or `"flat"`. |
+| `input.hud_buttons` | The buttons in a game's prompts ("Hold X to pick up"): `"classic"` (the default: the map's own) or `"hd"` (the style's flat buttons). |
 | `controls.*` | Every key: `controls.jump = "Space"`, or two at once, such as `"F, Mouse 4"`. |
 | `controls.delta`, `controls.delta_button` | The key that opens the Delta Guide: `"F3"` (on a Mac, F3 or the backslash key). OPEN KEY in the Delta Guide's SETTINGS. A controller's Guide button opens it too, unless Steam or the Xbox Game Bar takes that button. |
 | `controls.push_to_talk`, `controls.voice_channel` | Hold `"V"` to talk in voice chat, and press `"B"` to switch the voice channel. |

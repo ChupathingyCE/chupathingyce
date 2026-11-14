@@ -592,6 +592,9 @@ void _rasterizer_hud_motion_sensor_blip_end(
 			rasterizer_set_pixel_shader(&pixel_shader);
 
 			radius = local_player_count() > 1 ? 32.0f : 42.0f;
+			/* port: its blips glow past paper white, with display.hdr
+			(port/linux/src/d3d8_gl.c, xgpu_tone_map.h) */
+			halo_hdr_draw_kind(HALO_HDR_KIND_HUD_GLOW);
 			IDirect3DDevice8_Begin(global_d3d_device, D3DPT_TRIANGLEFAN);
 			IDirect3DDevice8_SetVertexData2s(global_d3d_device, 4, 0, 0);
 			IDirect3DDevice8_SetVertexData2f(
@@ -618,6 +621,7 @@ void _rasterizer_hud_motion_sensor_blip_end(
 				center->x - radius,
 				center->y + radius);
 			IDirect3DDevice8_End(global_d3d_device);
+			halo_hdr_draw_kind(HALO_HDR_KIND_NONE);
 			return;
 		}
 	}

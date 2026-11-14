@@ -157,7 +157,7 @@ static void hrtf_response(double azimuth, double elevation, float *out)
 	float mono[MIX_CHUNK_FRAMES];
 	double az = azimuth * M_PI / 180, el = elevation * M_PI / 180;
 	unsigned long at;
-	hrtf_place((float)(cos(el) * sin(az)), (float)sin(el), (float)(cos(el) * cos(az)), 3.0f, FALSE, &p);
+	hrtf_place((float)(cos(el) * sin(az)), (float)sin(el), (float)(cos(el) * cos(az)), 3.0f, 0.0f, FALSE, &p);
 	p.gain = 1.0f; p.pair[0] = 1.0f; p.pair[1] = 0.0f;
 	stream->hrtf_current = p;
 	memset(out, 0, FRAMES * 2 * sizeof(float));
@@ -205,25 +205,121 @@ static void hrtf_figures(char **argv)
 	printf("itd=%.3f l8k=%.2f l16k=%.2f r8k=%.2f r16k=%.2f\n", itd(out), level(out, 0, 8000), level(out, 0, 16000),
 		level(out, 1, 8000), level(out, 1, 16000));
 }
+/* taps: reverb_tap's index against the DSP's rule written out with
+divisions (a delay under a block read as a block, one past the line wrapped
+round it), on every line's size, at every cursor near the ends, for every
+delay up to past twice the size */
+static void tap_figures(void)
+{
+	static const long sizes[] = { 612, 640, 680, 720, 1392, 1684, 2044, 2476, REVERB_INPUT_SIZE, REVERB_LOOP_SIZE };
+	static float line[REVERB_LOOP_SIZE];
+	long bad = 0, checked = 0;
+	unsigned i;
+	for (i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++)
+	{
+		long size = sizes[i], at, delay, k;
+		for (k = 0; k < size; k++) line[k] = (float)k;
+		for (at = 0; at < size; at += at < 40 || at > size - 40 ? 1 : 97)
+			for (delay = 0; delay < 2 * size + 40; delay += delay < 64 || (delay > size - 40 && delay < size + 40) ? 1 : 13)
+			{
+				long d = delay < 16 ? 16 : (delay - 16) % size + 16;
+				long expected = (at - d % size + size) % size;
+				checked++;
+				if (reverb_tap(line, size, at, delay) != (float)expected) bad++;
+			}
+	}
+	printf("checked=%ld bad=%ld\n", checked, bad);
+}
+/* script: the reverb through rooms changing, a step a tick, turned off and
+on, with bursts, clicks and silences, on stereo and 5.1; the output's bits
+hashed (FNV-1a) */
+static void script_figures(void)
+{
+	static const float rooms[][11] =
+	{
+		{ 1.49f, 0.59f, 0.077f, 0.007f, 0.166f, 0.011f, 1, 1 }, { 2.91f, 1.3f, 0.158f, 0.015f, 0.0707f, 0.022f, 1, 1 },
+		{ 10.05f, 0.23f, 0.158f, 0.02f, 0.125f, 0.03f, 1, 1 }, { 1.49f, 0.21f, 0.0128f, 0.3f, 0.009f, 0.1f, 0.27f, 1 },
+		{ 1.49f, 0.54f, 0.0165f, 0.162f, 0.0492f, 0.088f, 0.79f, 1 }, { 1.49f, 0.1f, 0.188f, 0.007f, 0.71f, 0.011f, 1, 1 },
+		{ 0, 0, 0, 0, 0, 0, 1, 1 },
+	};
+	float send[MIX_CHUNK_FRAMES], out[MIX_CHUNK_FRAMES * 6];
+	unsigned long hash = 2166136261UL, seed = 7, chunk, k, channels;
+	for (channels = 2; channels <= 6; channels += 4)
+	{
+		memset(&reverb, 0, sizeof(reverb));
+		output_channels = channels;
+		for (chunk = 0; chunk < 40 * OUTPUT_RATE / MIX_CHUNK_FRAMES; chunk++)
+		{
+			unsigned long n = chunk % 37 == 5 ? 97 : MIX_CHUNK_FRAMES, room = chunk / 120 % 7;
+			double second = (double)chunk * MIX_CHUNK_FRAMES / OUTPUT_RATE;
+			BOOL enabled = !(second > 30.0 && second < 32.0);
+			if (chunk % 120 == 0 || (second > 25.0 && second < 26.0 && chunk % 6 == 0))
+			{
+				const float *r = rooms[second > 25.0 && second < 26.0 ? chunk / 6 % 3 : room];
+				DSI3DL2LISTENER p;
+				p.lRoom = 0; p.lRoomHF = room == 1 ? 0 : -300; p.flRoomRolloffFactor = 0;
+				p.flDecayTime = r[0] ? r[0] : 1.0f; p.flDecayHFRatio = r[1] ? r[1] : 1.0f;
+				p.lReflections = r[0] ? volume_from_gain(r[2], 1000) : DSBVOLUME_MIN; p.flReflectionsDelay = r[3];
+				p.lReverb = r[0] ? volume_from_gain(r[4], 2000) : DSBVOLUME_MIN; p.flReverbDelay = r[5];
+				p.flDiffusion = r[6] * 100; p.flDensity = r[7] * 100; p.flHFReference = 5000.0f;
+				environment = p; environment_serial++;
+				if (chunk == 0) reverb_initialize();
+			}
+			if (reverb.serial != environment_serial && !reverb.fade)
+				reverb_update(&environment, environment_serial);
+			for (k = 0; k < n; k++)
+			{
+				double s = second + (double)k / OUTPUT_RATE;
+				seed = (seed * 1103515245UL + 12345UL) & 0xffffffffUL;
+				send[k] = fmod(s, 4.0) < 1.5 ? 0.3f * ((float)((seed >> 8) & 0xffff) / 32768.0f - 1.0f) : 0.0f;
+				if ((chunk * MIX_CHUNK_FRAMES + k) % 9600 == 0) send[k] += 0.9f;
+				if (s > 33.0 && s < 38.0) send[k] = 0.0f;
+			}
+			memset(out, 0, sizeof(out));
+			if (!reverb.silent || (enabled && reverb_sent(send, n)))
+			{
+				reverb_process(send, out, n, enabled ? 1.0f : 0.0f);
+				if ((!enabled && reverb.level <= 0.0f) || reverb.quiet > REVERB_QUIET_FRAMES)
+					reverb_clear();
+			}
+			for (k = 0; k < n * channels; k++)
+			{
+				/* (0 and -0 alike: the steady frames skip the fade's x + 0) */
+				float value = out[k] == 0.0f ? 0.0f : out[k];
+				unsigned char bytes[sizeof(float)];
+				unsigned b;
+				memcpy(bytes, &value, sizeof(bytes));
+				for (b = 0; b < sizeof(bytes); b++)
+					hash = ((hash ^ bytes[b]) * 16777619UL) & 0xffffffffUL;
+			}
+		}
+	}
+	printf("hash=%08lx\n", hash);
+}
 int main(int argc, char **argv)
 {
 	if (argc >= 10 && !strcmp(argv[1], "reverb")) reverb_figures(argv);
 	else if (argc >= 4 && !strcmp(argv[1], "hrtf")) hrtf_figures(argv);
+	else if (argc >= 2 && !strcmp(argv[1], "taps")) tap_figures();
+	else if (argc >= 2 && !strcmp(argv[1], "script")) script_figures();
 	else return 2;
 	return 0;
 }
 '''
 
 
-def build(work):
+def build(work, *defines):
     compiler = shutil.which("clang") or shutil.which("cc") or shutil.which("gcc")
     if not compiler:
         return None
     source = work / "xbox_audio.c"
     source.write_text(PROGRAM)
-    exe = work / "xbox_audio"
-    result = subprocess.run([compiler, "-O2", "-std=gnu11", "-Wall", "-Wextra", "-Wno-unused-function",
-                             "-Wno-unused-parameter", "-I", str(SRC), str(source), "-o", str(exe), "-lm"],
+    exe = work / ("xbox_audio" + "".join("-" + define.lower() for define in defines))
+    # (no fused multiply-adds, as the game's builds: the steady frames and
+    # the fade's must round alike)
+    result = subprocess.run([compiler, "-O2", "-std=gnu11", "-ffp-contract=off", "-Wall", "-Wextra",
+                             "-Wno-unused-function", "-Wno-unused-parameter", *("-D" + define for define in defines),
+                             "-I", str(SRC), str(source), "-o", str(exe), "-lm"],
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     return exe
@@ -288,6 +384,28 @@ def test_hrtf_against_the_xbox():
             import pytest
             pytest.skip("no C compiler")
         check_hrtf(exe)
+
+
+def test_reverb_taps_match_the_dsp_rule():
+    with tempfile.TemporaryDirectory() as work:
+        exe = build(Path(work))
+        if exe is None:
+            import pytest
+            pytest.skip("no C compiler")
+        fields = run(exe, "taps")
+        assert int(fields["checked"]) > 100000 and fields["bad"] == "0", fields
+
+
+def test_reverb_steady_frames_match_the_fade():
+    # the reverb's frames with no fade running take a shorter way (the to
+    # environment alone); its output must be the fade's arithmetic's, bit for bit
+    with tempfile.TemporaryDirectory() as work:
+        exe = build(Path(work))
+        if exe is None:
+            import pytest
+            pytest.skip("no C compiler")
+        fading = build(Path(work), "REVERB_ALWAYS_FADE")
+        assert run(exe, "script")["hash"] == run(fading, "script")["hash"]
 
 
 if __name__ == "__main__":

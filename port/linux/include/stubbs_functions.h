@@ -29,13 +29,9 @@ long stubbs_function_find(char const *name);
 the dance-off's, ...): a local player's input of this tick, noted beside
 Halo's own tests (player_control.c's get_local_player_input_blob), and the
 scripts' (player_action_test_reset), which clears both */
-#ifndef HALO_CONSOLE_NO_STUBBS
-void stubbs_functions_action_note(short local_player_index, unsigned long unit_control_flags,
-	boolean switch_grenades, real throttle_forward, real throttle_left);
-void stubbs_functions_action_reset(void);
-
 /* what the scripts said an object cannot do (objects_cannot_die and the
-rest): asked by units.c, damage.c, stubbs_horde.c and stubbs_possession.c */
+rest): asked by units.c, damage.c, stubbs_horde.c and stubbs_possession.c
+(the bits on both sides: the callers name them whichever build this is) */
 enum
 {
 	_stubbs_object_cannot_die_bit,
@@ -43,8 +39,15 @@ enum
 	_stubbs_object_cannot_be_finished_bit,
 	_stubbs_object_cannot_be_possessed_bit,
 };
+
+#ifndef HALO_CONSOLE_NO_STUBBS
+void stubbs_functions_action_note(short local_player_index, unsigned long unit_control_flags,
+	boolean switch_grenades, real throttle_forward, real throttle_left);
+void stubbs_functions_action_reset(void);
+
 boolean stubbs_functions_object_cannot(long object_index, short what);
-/* (a named unit a Stubbs map places only when a script first uses its name: hs_runtime.c) */
+/* (a named unit a Stubbs map places only when a script first uses its
+name: hs_runtime.c, which calls it in every build) */
 boolean stubbs_functions_name_placed_on_demand(short object_name_index);
 #else
 /* (a console leaves Stubbs mode out, HALO_CONSOLE_NO_STUBBS in

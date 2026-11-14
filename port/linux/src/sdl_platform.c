@@ -66,6 +66,135 @@ static float ui_pointer_warp_x, ui_pointer_warp_y;
 static float ui_pointer_wheel;
 #endif
 static pthread_mutex_t input_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* (under input_lock) each gamepad's buttons pressed and triggers pulled since
+the controller's last reading of it (platform_gamepad_presses_take), as
+mouse_buttons_pressed is the mouse's: a tap pressed and let go of between two
+readings (a slow frame) still counts as a press. By the gamepad's joystick
+ID (never 0); triggers' bit 0 is the left, bit 1 the right; triggers_down,
+which are past PLATFORM_GAMEPAD_TRIGGER_PRESSED now, so that a pull counts
+once. From the OpenH1 team's fix (g0atbutt, OpenH1 0473c477). */
+#define GAMEPAD_PRESSES_COUNT 8
+/* a tap older than this many event pumps (each port's reading pumps once,
+so a frame pumps up to four times) is let go untaken: a gamepad nobody
+reads (not yet assigned, or a second pad in split menus) never fires a tap
+from long ago once it is read */
+#define GAMEPAD_TAP_PUMPS 8
+static unsigned long gamepad_pumps;
+typedef char gamepad_presses_buttons_fit[SDL_GAMEPAD_BUTTON_COUNT <= 32 ? 1 : -1];
+static struct gamepad_presses
+{
+	Uint32 id;
+	Uint32 buttons;
+	unsigned int triggers;
+	unsigned int triggers_down;
+	/* (the pump of its last tap: gamepad_pumps) */
+	unsigned long pump;
+} gamepad_presses[GAMEPAD_PRESSES_COUNT];
+
+/* a gamepad's presses, given a place first if it has none and add is set */
+static struct gamepad_presses *gamepad_presses_find(Uint32 id, BOOL add)
+{
+	struct gamepad_presses *empty = NULL;
+	int index;
+
+	if (!id)
+		return NULL;
+	for (index = 0; index < GAMEPAD_PRESSES_COUNT; index++)
+	{
+		if (gamepad_presses[index].id == id)
+			return &gamepad_presses[index];
+		if (!gamepad_presses[index].id && !empty)
+			empty = &gamepad_presses[index];
+	}
+	if (!add || !empty)
+		return NULL;
+	memset(empty, 0, sizeof(*empty));
+	empty->id = id;
+	return empty;
+}
+
+static void gamepad_button_pressed(Uint32 id, int button)
+{
+	struct gamepad_presses *presses = gamepad_presses_find(id, TRUE);
+
+	if (presses && button >= 0 && button < SDL_GAMEPAD_BUTTON_COUNT)
+	{
+		presses->buttons |= 1u << button;
+		presses->pump = gamepad_pumps;
+	}
+}
+
+static void gamepad_trigger_moved(Uint32 id, int axis, int value)
+{
+	struct gamepad_presses *presses;
+	unsigned int bit;
+
+	if (axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER)
+		bit = 1;
+	else if (axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)
+		bit = 2;
+	else
+		return;
+	presses = gamepad_presses_find(id, value >= PLATFORM_GAMEPAD_TRIGGER_PRESSED);
+	if (!presses)
+		return;
+	if (value < PLATFORM_GAMEPAD_TRIGGER_PRESSED)
+		presses->triggers_down &= ~bit;
+	else if (!(presses->triggers_down & bit))
+	{
+		presses->triggers_down |= bit;
+		presses->triggers |= bit;
+		presses->pump = gamepad_pumps;
+	}
+}
+
+static void gamepad_presses_forget(Uint32 id)
+{
+	struct gamepad_presses *presses = gamepad_presses_find(id, FALSE);
+
+	if (presses)
+		memset(presses, 0, sizeof(*presses));
+}
+
+/* (the window's focus gone: what was pressed is dropped, as the keys are) */
+static void gamepad_presses_clear(void)
+{
+	int index;
+
+	for (index = 0; index < GAMEPAD_PRESSES_COUNT; index++)
+	{
+		gamepad_presses[index].buttons = 0;
+		gamepad_presses[index].triggers = 0;
+	}
+}
+
+static void gamepad_presses_take(Uint32 id, Uint32 *buttons, unsigned int *triggers)
+{
+	struct gamepad_presses *presses = gamepad_presses_find(id, FALSE);
+
+	*buttons = 0;
+	*triggers = 0;
+	if (presses && gamepad_pumps - presses->pump > GAMEPAD_TAP_PUMPS)
+	{
+		presses->buttons = 0;
+		presses->triggers = 0;
+	}
+	if (presses)
+	{
+		*buttons = presses->buttons;
+		*triggers = presses->triggers;
+		presses->buttons = 0;
+		presses->triggers = 0;
+	}
+}
+
+void platform_gamepad_presses_take(Uint32 id, Uint32 *buttons, unsigned int *triggers)
+{
+	pthread_mutex_lock(&input_lock);
+	gamepad_presses_take(id, buttons, triggers);
+	pthread_mutex_unlock(&input_lock);
+}
 /* rebinding (platform_binding_capture_begin), under input_lock: waiting for
 an input, and the one taken; then the keyboard and mouse settle (their keys
 and buttons held then are let go) before they drive anything again */
@@ -2001,6 +2130,59 @@ static void platform_swap_interval_apply(BOOL force, int vsync, long maximum)
 }
 #endif
 
+/* display.hdr_output: the window's pixels are half floats (scRGB), -1 until
+the window is first made; FALSE once the driver has none */
+static int platform_float_window = -1;
+
+#if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_GLES2)
+/* the attributes of a window with (or without) floating-point pixels */
+static void platform_float_window_attributes(BOOL floating)
+{
+	int size = floating ? 16 : 8;
+
+	SDL_GL_SetAttribute(SDL_GL_FLOATBUFFERS, floating ? 1 : 0);
+	SDL_GL_SetAttribute(SDL_GL_RED_SIZE, size);
+	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, size);
+	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, size);
+	SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, size);
+}
+
+/* a window with floating-point pixels that cannot be made, or have a
+context made for it: one without them (on Windows a window's pixel format
+is set once, so a new window) */
+static BOOL platform_float_window_refused(void)
+{
+	if (platform_float_window != TRUE)
+		return FALSE;
+	platform_log("HDR output: no floating-point window (%s); the window is SDR", SDL_GetError());
+	platform_float_window = FALSE;
+	platform_float_window_attributes(FALSE);
+	if (platform_window)
+		SDL_DestroyWindow(platform_window);
+	platform_window = NULL;
+	return TRUE;
+}
+#endif
+
+BOOL platform_video_float_window(void)
+{
+	return platform_float_window == TRUE;
+}
+
+BOOL platform_video_hdr(float *sdr_white, float *headroom)
+{
+	SDL_PropertiesID properties = platform_window ? SDL_GetWindowProperties(platform_window) : 0;
+	BOOL enabled = properties && SDL_GetBooleanProperty(properties, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false);
+
+	*sdr_white = properties ? SDL_GetFloatProperty(properties, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, 1.0f) : 1.0f;
+	*headroom = properties ? SDL_GetFloatProperty(properties, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0f) : 1.0f;
+	if (!(*sdr_white > 0.0f))
+		*sdr_white = 1.0f;
+	if (!(*headroom >= 1.0f))
+		*headroom = 1.0f;
+	return enabled;
+}
+
 BOOL platform_video_initialize(unsigned long width, unsigned long height)
 {
 	int version;
@@ -2022,6 +2204,21 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	surface on; unless it could not start before (platform_video_reopen_for_gl) */
 	xgpu_vulkan = !platform_vulkan_refused && !strcmp(config_string("display.renderer"), "vulkan");
 	host_renderer_vulkan = xgpu_vulkan;
+#endif
+
+#if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_GLES2)
+	/* display.hdr_output's floating-point window (scRGB), for an OpenGL
+	window on an HDR display; bgfx has its own HDR10 swap chain */
+	if (platform_float_window < 0)
+	{
+		platform_float_window = config_boolean("display.hdr") && config_boolean("display.hdr_output")
+#ifdef HALO_BGFX
+			&& !xgpu_bgfx
+#endif
+			;
+	}
+	if (platform_float_window)
+		platform_float_window_attributes(TRUE);
 #endif
 
 #ifdef HALO_ANDROID
@@ -2118,6 +2315,10 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 #endif
 	if (!platform_window)
 	{
+#if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_GLES2)
+		if (platform_float_window_refused())
+			return platform_video_initialize(width, height);
+#endif
 		platform_log("SDL_CreateWindow failed: %s", SDL_GetError());
 		return FALSE;
 	}
@@ -2193,6 +2394,10 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		platform_gl_context = SDL_GL_CreateContext(platform_window);
 	}
 #endif
+#if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_GLES2)
+	if (!platform_gl_context && platform_float_window_refused())
+		return platform_video_initialize(width, height);
+#endif
 	if (!platform_gl_context)
 	{
 		platform_log("cannot create an OpenGL context: %s", SDL_GetError());
@@ -2245,6 +2450,24 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	(void)version;
 	platform_event_thread = SDL_GetCurrentThreadID();
 	platform_log("OpenGL %s on %s", (const char *)glGetString(GL_VERSION), (const char *)glGetString(GL_RENDERER));
+#if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_GLES2)
+	{
+		int floating = 0;
+		float sdr_white, headroom;
+		BOOL hdr;
+
+		/* (the window as the driver gave it: a floating-point one that was
+		asked for may still be 8-bit) */
+		if (platform_float_window && SDL_GL_GetAttribute(SDL_GL_FLOATBUFFERS, &floating) && !floating)
+		{
+			platform_log("HDR output: the driver gave an 8-bit window, not a floating-point one");
+			platform_float_window = FALSE;
+		}
+		hdr = platform_video_hdr(&sdr_white, &headroom);
+		platform_log("display: HDR %s (SDR white %.2f, headroom %.2f), %s window", hdr ? "on" : "off", sdr_white,
+			headroom, platform_float_window ? "floating-point" : "8-bit");
+	}
+#endif
 #ifndef HALO_ANDROID
 	platform_mouse_capture(TRUE);
 #endif
@@ -3241,6 +3464,7 @@ void platform_pump_events(void)
 	updater_poll(platform_window);
 #endif
 	pthread_mutex_lock(&input_lock);
+	gamepad_pumps++;
 	while (SDL_PollEvent(&event))
 	{
 #ifndef HALO_ANDROID
@@ -3467,6 +3691,7 @@ void platform_pump_events(void)
 			memset(input_state.keys, 0, sizeof(input_state.keys));
 			memset(input_state.mouse_buttons, 0, sizeof(input_state.mouse_buttons));
 			memset(mouse_buttons_pressed, 0, sizeof(mouse_buttons_pressed));
+			gamepad_presses_clear();
 			input_state.focused = FALSE;
 #ifdef MOUSE_WARP_FALLBACK
 			/* port: the held mouse let go while another window has the focus */
@@ -3494,6 +3719,13 @@ void platform_pump_events(void)
 			touch_input_event(event.type, &event.tfinger);
 			break;
 #endif
+		/* (a tap counted until the controller's next reading) */
+		case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+			gamepad_button_pressed(event.gbutton.which, event.gbutton.button);
+			break;
+		case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+			gamepad_trigger_moved(event.gaxis.which, event.gaxis.axis, event.gaxis.value);
+			break;
 		case SDL_EVENT_GAMEPAD_ADDED:
 #if defined(HALO_ANDROID) && !defined(HALO_IOS)
 			/* (the guest reaches SDL only through host_imports.list, which
@@ -3523,6 +3755,7 @@ void platform_pump_events(void)
 			{
 				SDL_Gamepad *gamepad = SDL_GetGamepadFromID(event.gdevice.which);
 
+				gamepad_presses_forget(event.gdevice.which);
 				if (gamepad)
 					SDL_CloseGamepad(gamepad);
 			}
@@ -3546,7 +3779,7 @@ void platform_pump_events(void)
 					platform_log("Internet play: opened %s",
 						p2p_invite_log_text(event.drop.data, shown, sizeof(shown)));
 				}
-				p2p_join_invite(event.drop.data);
+				p2p_link_opened(event.drop.data, 0);
 			}
 			break;
 #endif

@@ -206,7 +206,10 @@ static int mcc_resource_equal(FILE *a,FILE *b)
     return !ferror(a) && !ferror(b);
 }
 
-int mcc_resources_select(struct mcc_runtime *runtime,void *raw)
+/* chester (GulchCE): (paths) the local files a check matched against the
+host's SHA-256, one per resource type: exactly those are used, never
+another set in their place */
+int mcc_resources_select_paths(struct mcc_runtime *runtime,void *raw,char const paths[2][128])
 {
     struct mcc_resources *resources;
     unsigned type;
@@ -225,13 +228,15 @@ int mcc_resources_select(struct mcc_runtime *runtime,void *raw)
         if (!(type==1 ? runtime->report.external_bitmap_count : runtime->report.external_sound_count)) continue;
         probe.type=type;probe.file=selected;probe.shared=NULL;
         /* Explicit package and legacy root files are authoritative. */
-        status=mcc_resource_open(selected,type,runtime->level_name,NULL,runtime->failure,sizeof(runtime->failure));
-        if (!status) return 0;
+        status=mcc_resource_open(selected,type,runtime->level_name,paths ? paths[type-1] : NULL,
+            runtime->failure,sizeof(runtime->failure));
+        if (!status || (paths && status<0)) return 0;
         if (status==1) {
             /* port: a Workshop item's own file, with the rest of its references
              * in MCC's shared sets ("InheritSharedFiles": "FromMCC": Aerial's
              * h1_spillway's flag base is the singleplayer set's) */
-            if (!mcc_cache_visit_resources(raw,&runtime->report,mcc_resource_check,&probe)) {
+            if (!(paths && mcc_package_shared_resource(selected->path,type)) &&
+                !mcc_cache_visit_resources(raw,&runtime->report,mcc_resource_check,&probe)) {
                 static char const *const folders[]={"maps_mcc","mcc_maps"};
                 struct mcc_resource_file *shared=resources->shared[type-1];
                 int folder;
@@ -258,11 +263,11 @@ int mcc_resources_select(struct mcc_runtime *runtime,void *raw)
                     "%s does not match. Install the matching MCC package resource.",type==1 ? "bitmaps.map" : "sounds.map");
                 return 0;
             }
-        } else for (set=0;set<2;set++) {
+        } else for (set=1;set<MCC_PACKAGE_BASE_SETS;set++) {
             struct mcc_resource_file candidate;
             char path[128];
             memset(&candidate,0,sizeof(candidate));
-            snprintf(path,sizeof(path),"mcc_maps/_shared/%s/%s.map",set ? "multiplayer" : "singleplayer",type==1 ? "bitmaps" : "sounds");
+            if (!mcc_package_base_resource_path(type,(unsigned)set,path)) return 0;
             status=mcc_resource_open(&candidate,type,runtime->level_name,path,runtime->failure,sizeof(runtime->failure));
             if (!status) return 0;
             if (status<0) continue;
@@ -290,6 +295,65 @@ int mcc_resources_select(struct mcc_runtime *runtime,void *raw)
         }
         error(_error_silent,"mcc resources: using %s (required by %s)",selected->path,runtime->level_name);
     }
+    return 1;
+}
+
+int mcc_resources_select(struct mcc_runtime *runtime,void *raw)
+{
+    return mcc_resources_select_paths(runtime,raw,NULL);
+}
+
+/* chester (GulchCE): each type's distinct local files that satisfy the map,
+in the loader's order. A package's own file is the only choice, and a broken
+one fails before any base set is tried. */
+static int mcc_resources_candidates(struct mcc_runtime *runtime,void *raw,
+    struct mcc_resource_candidates *choices)
+{
+    unsigned type,set,i;
+    memset(choices,0,sizeof(*choices));
+    for (type=1;type<=2;type++) {
+        unsigned *count=&choices->count[type-1];
+        if (!(type==1 ? runtime->report.external_bitmap_count : runtime->report.external_sound_count)) {
+            *count=1;
+            continue;
+        }
+        for (set=0;set<MCC_PACKAGE_BASE_SETS;set++) {
+            struct mcc_resource_file file;
+            struct mcc_resource_probe probe;
+            char path[128];
+            int authoritative,valid;
+            if (!mcc_package_resource_candidate(runtime->level_name,type,set,path)) {
+                snprintf(runtime->failure,sizeof(runtime->failure),
+                    "Cannot read %s. Check access to this MCC resource.",type==1 ? "bitmaps.map" : "sounds.map");
+                return 0;
+            }
+            authoritative=!mcc_package_shared_resource(path,type);
+            for (i=0;i<*count;i++) if (!strcmp(path,choices->paths[type-1][i])) break;
+            if (i<*count) continue;
+            memset(&file,0,sizeof(file));
+            runtime->failure[0]=0;
+            valid=mcc_resource_open(&file,type,runtime->level_name,path,runtime->failure,sizeof(runtime->failure));
+            if (valid==1) {
+                probe.type=type;probe.file=&file;probe.shared=NULL;
+                valid=mcc_cache_visit_resources(raw,&runtime->report,mcc_resource_check,&probe);
+                /* (a Workshop item's own file may lean on MCC's shared sets: its
+                 * selection checks that, so it stays the choice here) */
+                if (!valid && authoritative) valid=1;
+            } else valid=0;
+            mcc_resource_close(&file);
+            if (valid) strcpy(choices->paths[type-1][(*count)++],path);
+            if (authoritative) {
+                if (!valid) return 0;
+                break;
+            }
+        }
+        if (!*count) {
+            if (!runtime->failure[0]) snprintf(runtime->failure,sizeof(runtime->failure),
+                "No matching %s. Install its MCC package resources beside the level.",type==1 ? "bitmaps.map" : "sounds.map");
+            return 0;
+        }
+    }
+    runtime->failure[0]=0;
     return 1;
 }
 
@@ -411,7 +475,12 @@ static int mcc_resources_inspect(char const *name,struct mcc_cache_source const 
     status=mcc_cache_load(source,raw,identity.tag_data_size,&runtime.report);
     problem=mcc_status_explanation(status);
     if (status!=MCC_CACHE_OK) goto done;
-    ok=mcc_resources_select(&runtime,raw);
+    /* (a joined game's base resources: the sets that matched the host's SHA-256) */
+    {
+        char chosen[2][128];
+        ok=mcc_resources_select_paths(&runtime,raw,
+            mcc_identity_resources(name,chosen) ? (char const (*)[128])chosen : NULL);
+    }
     problem="The required MCC resources could not be checked. See debug.txt for the failing check.";
     if (ok && digest) ok=mcc_resources_fingerprint(&runtime,digest);
     if (ok && checksum) ok=mcc_resources_checksum(&runtime,
@@ -436,6 +505,60 @@ int mcc_resources_probe_explain(char const *name,struct mcc_cache_source const *
 int mcc_resources_fingerprint_probe(char const *name,struct mcc_cache_source const *source,unsigned char digest[32])
 {
     return mcc_resources_inspect(name,source,NULL,digest,NULL,0);
+}
+
+/* chester (GulchCE): the host's SHA-256 decides between this machine's base
+resource sets. Every distinct usable combination is fingerprinted, the
+loader's own order first; paths gets the one that matches. 1 for a match,
+0 for none, -1 when the map or a resource can't be read (reason says why). */
+int mcc_resources_fingerprint_match(char const *name,struct mcc_cache_source const *source,
+    unsigned char const expected[32],char paths[2][128],char *reason,size_t reason_size)
+{
+    struct mcc_runtime runtime;
+    struct mcc_resource_candidates choices;
+    unsigned char header[MCC_CACHE_HEADER_BYTES],actual[32];
+    struct mcc_cache_identity identity;
+    void *raw=NULL;
+    unsigned index,combinations;
+    int result=-1;
+    enum mcc_cache_status status=MCC_CACHE_READ_FAILED;
+    if (reason && reason_size) reason[0]=0;
+    memset(&runtime,0,sizeof(runtime));
+    if (!source || !source->read || !mcc_package_name(name,runtime.level_name) ||
+        !source->read(source->context,0,sizeof(header),header)) goto done;
+    status=mcc_cache_identify(header,sizeof(header),source->size,&identity);
+    if (status!=MCC_CACHE_OK) goto done;
+    raw=malloc(identity.tag_data_size);
+    status=MCC_CACHE_NO_MEMORY;
+    if (!raw) goto done;
+    runtime.source=*source;
+    status=mcc_cache_load(source,raw,identity.tag_data_size,&runtime.report);
+    if (status!=MCC_CACHE_OK || !mcc_resources_candidates(&runtime,raw,&choices)) goto done;
+    combinations=choices.count[0]*choices.count[1];
+    result=0;
+    for (index=0;index<combinations;index++) {
+        char selection[2][128];
+        int ok;
+        strcpy(selection[0],choices.paths[0][index%choices.count[0]]);
+        strcpy(selection[1],choices.paths[1][index/choices.count[0]]);
+        mcc_resources_dispose(&runtime);
+        runtime.failure[0]=0;
+        ok=mcc_resources_select_paths(&runtime,raw,(char const (*)[128])selection) &&
+            mcc_resources_fingerprint(&runtime,actual);
+        if (ok && !memcmp(actual,expected,32)) {
+            if (combinations>1) error(_error_silent,"mcc resources: %s matched the host with %s and %s",
+                runtime.level_name,selection[0][0] ? selection[0] : "(no bitmaps)",
+                selection[1][0] ? selection[1] : "(no sounds)");
+            if (paths) memcpy(paths,selection,sizeof(selection));
+            result=1;
+            break;
+        }
+    }
+done:
+    if (result<0 && reason && reason_size) snprintf(reason,reason_size,"%s",
+        runtime.failure[0] ? runtime.failure : mcc_status_explanation(status));
+    mcc_resources_dispose(&runtime);free(raw);
+    return result;
 }
 
 #include "mcc_resource_check.inl"

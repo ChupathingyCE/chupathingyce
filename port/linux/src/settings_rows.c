@@ -83,17 +83,19 @@ struct settings_row
 };
 
 #ifdef HALO_BGFX
+/* (OpenGL is the default; bgfx's are still being tested, and their names
+say so, as config.toml's help does) */
 #ifdef __APPLE__
 static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
-static const char *const renderer_names[] = { "OPENGL", "METAL", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "METAL (TESTING)", NULL };
 #elif defined(_WIN32)
 /* ("d3d11": bgfx on Direct3D 11, for testing; each falls back to
 OpenGL) */
 static const char *const renderer_choices[] = { "gl", "bgfx", "d3d11", NULL };
-static const char *const renderer_names[] = { "OPENGL", "VULKAN", "DIRECT3D 11", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (TESTING)", "DIRECT3D 11 (TESTING)", NULL };
 #else
 static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
-static const char *const renderer_names[] = { "OPENGL", "VULKAN", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (TESTING)", NULL };
 #endif
 #endif
 /* (Gearbox's menus, "gearbox" or the older "pc", are no longer one: such a
@@ -123,13 +125,25 @@ static const char *const background_choices[] = { "auto", "plain", "cellwall", N
 static const char *const background_names[] = { "AUTO", "PLAIN", "CELLWALL", NULL };
 /* display.light_effects' (port/linux/game/lighting_config.c) */
 static const char *const light_effects_choices[] = { "auto", "high", "low", "off", NULL };
+/* display.hdr's (d3d8_gl.c, xgpu_tone_map.h): the paper white and the UI's
+white in nits (0 the display's, or the paper white's), the peak in nits (0
+the display's) */
+static const char *const hdr_white_choices[] = { "0", "80", "100", "120", "160", "200", "250", "300", "400", "500", NULL };
+static const char *const hdr_white_names[] = { "AUTO", "80", "100", "120", "160", "200", "250", "300", "400", "500", NULL };
+static const char *const hdr_ui_names[] = { "SAME", "80", "100", "120", "160", "200", "250", "300", "400", "500", NULL };
+static const char *const hdr_peak_choices[] = { "0", "400", "600", "800", "1000", "1500", "2000", "4000", NULL };
+static const char *const hdr_peak_names[] = { "AUTO", "400", "600", "800", "1000", "1500", "2000", "4000", NULL };
+#ifdef HALO_HD_BUTTONS
+/* the prompts' buttons (ui_overlay.c): input.button_style's, input.button_look's
+and input.hud_buttons' */
+static const char *const button_style_choices[] = { "auto", "duke", "xbox", "playstation", "switch", NULL };
+static const char *const button_look_choices[] = { "gem", "flat", NULL };
+static const char *const hud_buttons_choices[] = { "classic", "hd", NULL };
+#endif
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
 {
-#ifdef HALO_BGFX
-	{ _in_display, "RENDERER", "display.renderer", _kind_choices, renderer_choices, renderer_names, 1, 0 },
-#endif
 	{ _in_display, "DISPLAY MODE", "display.mode", _kind_words, NULL, NULL, 0, 1 },
 #ifdef HALO_LAUNCHER
 	{ _in_display, "RESOLUTION", "display.resolution", _kind_resolutions, NULL, NULL, 0, 1 },
@@ -138,12 +152,24 @@ static const struct settings_row settings_rows[] =
 	{ _in_display, "V-SYNC", "display.vsync", _kind_toggle, NULL, NULL, 0, 1 },
 	{ _in_display, "VARIABLE REFRESH", "display.vrr", _kind_words, NULL, NULL, 0, 1 },
 	{ _in_display, "ANTI-ALIASING", "display.anti_aliasing", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_display, "HDR", "display.hdr", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_display, "HDR DISPLAY", "display.hdr_output", _kind_toggle, NULL, NULL, 1, 0 },
+	{ _in_display, "TONE MAPPING", "display.hdr_tone_mapping", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_display, "HDR BRIGHTNESS", "display.hdr_paper_white", _kind_choices, hdr_white_choices, hdr_white_names, 0, 0 },
+	{ _in_display, "HDR PEAK", "display.hdr_peak", _kind_choices, hdr_peak_choices, hdr_peak_names, 0, 0 },
+	{ _in_display, "HUD BRIGHTNESS", "display.hdr_ui_nits", _kind_choices, hdr_white_choices, hdr_ui_names, 0, 0 },
+	/* (below the common rows: OpenGL, the default, is the one most keep) */
+#ifdef HALO_BGFX
+	{ _in_display, "RENDERER", "display.renderer", _kind_choices, renderer_choices, renderer_names, 1, 0 },
+#endif
 	{ _in_display, "MENU STYLE", "display.menus", _kind_choices, menus_choices, NULL, 0, 0 },
 #ifdef HALO_TITLE_CHOICE
 	{ _in_display, "TITLE FONT", "display.title_font", _kind_choices, title_font_choices, NULL, 0, 0 },
 #endif
 	{ _in_display, "PERFORMANCE", "display.particle_limit", _kind_preset, NULL, NULL, 0, 0 },
 	{ _in_display, "LIGHT EFFECTS", "display.light_effects", _kind_choices, light_effects_choices, NULL, 0, 0 },
+	{ _in_display | _in_guide, "CAMO WEAPON FIX", "display.camo_weapon_fix", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_display | _in_guide, "PLASMA SPARKS", "display.plasma_sparks", _kind_toggle, NULL, NULL, 0, 0 },
 
 #ifdef HALO_LAUNCHER
 	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },
@@ -152,6 +178,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_audio, "HEADPHONE 3D", "audio.hrtf", _kind_choices, hrtf_choices, NULL, 0, 0 },
 	{ _in_audio, "REVERB", "audio.reverb", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio, "DOPPLER", "audio.doppler", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_audio | _in_guide, "MODS", "game.mods", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio, "BUFFER SIZE", "audio.buffer_frames", _kind_choices, buffer_choices, NULL, 1, 0 },
 	{ _in_audio, "RESAMPLING", "audio.resampling", _kind_words, NULL, NULL, 0, 0 },
 
@@ -182,6 +209,12 @@ static const struct settings_row settings_rows[] =
 	{ _in_network | _in_guide, "SHOW WHEN I'M PLAYING", "network.share_presence", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "SCOREBOARD ICONS", "display.scoreboard_icons", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "THEME", "display.theme", _kind_choices, theme_choices, theme_names, 0, 0 },
+#ifdef HALO_HD_BUTTONS
+	{ _in_display | _in_guide, "BUTTONS", "input.button_style", _kind_choices, button_style_choices, NULL, 0, 0 },
+	{ _in_display | _in_guide, "MENU BUTTONS", "input.button_look", _kind_choices, button_look_choices, NULL, 0, 0 },
+	{ _in_display | _in_guide, "HUD BUTTONS", "input.hud_buttons", _kind_choices, hud_buttons_choices, NULL, 0, 0 },
+#endif
+	{ _in_network, "JOIN SCREEN", "display.join_screen", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "BACKGROUND", "delta.guide_background", _kind_choices, background_choices, background_names, 0, 0 },
 	{ _in_network, "DISCORD", "discord.presence", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "CRASH REPORTS", "crash_reports.upload", _kind_words, NULL, NULL, 0, 0 },

@@ -51,8 +51,11 @@ Each ear sums the low passes' outputs and the voice, weighted (the band's
 gain less the next's), into its own line, and reads it its delay later
 (Catmull-Rom), whole frames for a still sound, as the Xbox's.
 
-A sound close to the head (within HRTF_NEAR) fades to the middle, the ears
-alike and at once, as the pan centres one within its minimum distance. The
+A sound close to the head fades to the middle, the ears alike and at once,
+as the pan centres one within its minimum distance: hrtf_place's center, the
+voice's minimum distance (at least HRTF_NEAR). The player's own weapon, a
+little to the right of the eye, and footsteps stay in the middle, as with the
+pan; with HRTF_NEAR alone they played up to 5 dB louder on one side. The
 parameters ramp over PARAMETER_RAMP_FRAMES, as the gains do: a turn of the
 head moves the sound smoothly from ear to ear, with no step. Recorded on an
 Xbox, a step of the position went from 10% to 90% within 1 ms; ramped over
@@ -412,15 +415,19 @@ static void hrtf_lookup(float azimuth, float elevation, struct hrtf_direction *o
 }
 
 /* the HRTF's parameters for a sound right, up and ahead of the head, as
-far away (world units); behind: on 5.1, a sound behind mirrored ahead, as
-the back pair plays it (hrtf_behind) */
-static void hrtf_place(float right, float up, float ahead, float distance, BOOL behind,
+far away (world units), faded to the middle inside center (world units, at
+least HRTF_NEAR); behind: on 5.1, a sound behind mirrored ahead, as the back
+pair plays it (hrtf_behind) */
+static void hrtf_place(float right, float up, float ahead, float distance, float center, BOOL behind,
 	struct hrtf_parameters *parameters)
 {
-	float strength = distance < HRTF_NEAR ? distance / HRTF_NEAR : 1.0f, azimuth = 0.0f, elevation = 0.0f;
+	float strength, azimuth = 0.0f, elevation = 0.0f;
 	struct hrtf_direction direction;
 	int mirrored = 0, ear, band;
 
+	if (center < HRTF_NEAR)
+		center = HRTF_NEAR;
+	strength = distance < center ? distance / center : 1.0f;
 	if (distance > 1.0e-4f)
 	{
 		azimuth = atan2f(fabsf(right), ahead) * (180.0f / 3.14159265f);
