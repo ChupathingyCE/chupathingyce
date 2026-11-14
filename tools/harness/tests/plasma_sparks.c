@@ -106,6 +106,14 @@ int main(int argc, char **argv)
 		CHECK(frames_drawn(60.0f) >= 2, "on: drawn %d frames at 60 a second", frames_drawn(60.0f));
 		CHECK(frames_drawn(144.0f) >= 4, "on: drawn %d frames at 144 a second", frames_drawn(144.0f));
 	}
+	CASE("frames")
+	{
+		/* a sequence of more than one sprite (a muzzle flash's) is left as it was */
+		particles_plasma_sparks = FALSE;
+		make();
+		sequences[0].sprites.count = 3;
+		CHECK(particle_first_frame_time(&the_definition, 1.0f / 144.0f) == 1.0f / 144.0f, "a longer sequence's time changed");
+	}
 	CASE("looping")
 	{
 		/* a particle that loops is left as it was, either way */

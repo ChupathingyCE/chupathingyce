@@ -1100,8 +1100,8 @@ void particle_new(
 	return;
 }
 
-/* port: display.plasma_sparks. A particle that plays one sequence and ends
-(no looping or final sequences) is made in a tick, and on the Xbox the first
+/* port: display.plasma_sparks. A particle that plays one sequence of a
+single sprite and ends (no looping or final sequences) is made in a tick, and on the Xbox the first
 update after it, a whole tick, ran a frame of it out before it was drawn: one
 whose sequence is a single frame at 30 frames a second never showed. The blue
 bolts off a live plasma grenade (detonation start's plasma electric bolts:
@@ -1116,11 +1116,26 @@ static real particle_first_frame_time(
 	struct particle_definition const *definition,
 	real dt)
 {
+	struct bitmap_group *bitmap = bitmap_group_get(definition->bitmap.index);
+	short sequence;
+
 	if (definition->looping_sequence_count > 0 ||
 		definition->final_sequence_count > 0 ||
 		TEST_FLAG(definition->flags, _particle_definition_animate_once_per_frame_bit))
 	{
 		return dt;
+	}
+	/* (only one whose sequences are a single sprite each, which the first
+	update ran out: one with more frames is left as it was) */
+	for (sequence = definition->first_sequence_index;
+		sequence < definition->first_sequence_index + definition->initial_sequence_count;
+		sequence++)
+	{
+		if (sequence < 0 || sequence >= bitmap->sequences.count ||
+			TAG_BLOCK_GET_ELEMENT(&bitmap->sequences, sequence, struct bitmap_group_sequence)->sprites.count > 1)
+		{
+			return dt;
+		}
 	}
 	if (particles_plasma_sparks)
 		return 0.0f;
@@ -1147,7 +1162,18 @@ void particles_update(
 		static real counted_seconds;
 
 		particles_limit = config_integer("display.particle_limit");
-		particles_plasma_sparks = config_boolean("display.plasma_sparks") != 0;
+		{
+			/* (read again only when the settings change: a string's
+			lookup each frame on the consoles) */
+			extern unsigned long config_changes(void);
+			static unsigned long plasma_sparks_read_at = (unsigned long)-1;
+
+			if (plasma_sparks_read_at != config_changes())
+			{
+				plasma_sparks_read_at = config_changes();
+				particles_plasma_sparks = config_boolean("display.plasma_sparks") != 0;
+			}
+		}
 		counted_frames++;
 		counted_alive += particle_data->actual_count;
 		counted_most = MAX(counted_most, (long)particle_data->actual_count);

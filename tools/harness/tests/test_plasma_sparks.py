@@ -8,12 +8,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from harness import CHECK_FAILED, build, enum_with, function, mutated, read, run
 
-CASES = ["xbox", "sparks", "looping"]
+CASES = ["xbox", "sparks", "frames", "looping"]
 CONTROLS = [
     # (the time the frame took, as before: the bolts showed at high frame rates)
     ("return MAX(dt, 1.0f / TICKS_PER_SECOND);", "return dt;", "xbox"),
     ("\tif (particles_plasma_sparks)\n\t\treturn 0.0f;\n", "", "sparks"),
     ("\tif (definition->looping_sequence_count > 0 ||\n", "\tif (", "looping"),
+    ("struct bitmap_group_sequence)->sprites.count > 1)", "struct bitmap_group_sequence)->sprites.count > 99)", "frames"),
 ]
 
 
