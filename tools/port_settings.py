@@ -160,8 +160,20 @@ SCREENS = {
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
             ]),
-            # (input.keyboard_prompts is in config.toml alone: the prompts
-            # follow the device used last)
+            # (the prompts' buttons: input.button_style, DKrumpp's HD
+            # buttons where the build has them, HALO_HD_BUTTONS. AUTO follows
+            # the controller used last; input.keyboard_prompts is in
+            # config.toml alone)
+            ("buttons", "BUTTONS", "The buttons prompts show.", [
+                ("STYLE:", "input.button_style",
+                 [("AUTO", "auto"), ("DUKE", "duke"), ("XBOX", "xbox"), ("PLAYSTATION", "playstation"),
+                  ("SWITCH", "switch")],
+                 "Auto follows the controller you use.", "desktop android"),
+                ("MENU LOOK:", "input.button_look", [("GEM", "gem"), ("FLAT", "flat")],
+                 "The buttons in menus and the Guide.", "desktop android"),
+                ("IN GAME:", "input.hud_buttons", [("CLASSIC", "classic"), ("HD", "hd")],
+                 "Classic is the map's own. HD is flat.", "desktop android"),
+            ]),
             ("interface", "INTERFACE", "The menus, HUD and scoreboard.", [
                 # (read when the game starts: menu_tags.c)
                 ("MENU STYLE:", "display.menus",
@@ -270,6 +282,8 @@ SCREENS = {
              "Copy your game's invite link when you host.", NOT_CONSOLE),
             ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
              "Let a game you host start with only you.", None),
+            ("JOIN SCREEN:", "display.join_screen", ON_OFF,
+             "Show the loading screen while joining a game.", "desktop android"),
         ],
         "views": [
             # (update.channel's help is update.h's UPDATE_CHANNEL_HELP, as
