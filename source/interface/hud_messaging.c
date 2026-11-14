@@ -150,6 +150,9 @@ symbols in this file:
 #ifdef HALO_MEDAL_ICONS
 #include "../../port/linux/game/medal_hud.h" /* port: display.medals */
 #endif
+#ifdef HALO_HD_BUTTONS
+#include "../../port/linux/game/hud_buttons.h" /* port: input.hud_buttons */
+#endif
 
 #include <stddef.h>
 #ifdef HALO_64BIT
@@ -520,6 +523,9 @@ static short hud_message_icon_shift = 0;
 static boolean hud_message_text_ink_valid = FALSE;
 static real hud_message_text_ink_x1 = 0.0f;
 static boolean hud_message_after_icon = FALSE;
+/* port: the HUD globals' button icon render_state_bitmap draws, or NONE
+for another picture (input.hud_buttons: hud_buttons.c) */
+static short hud_message_button_index = NONE;
 static real hud_message_icon_x1 = 0.0f;
 static real hud_message_icon_gap = 0.0f;
 
@@ -832,6 +838,33 @@ static void render_state_bitmap(
 		scale = local_player_count() > 1 ? 0.75f : 1.0f;
 		point.x = (short)(icon->offset.x * scale + cursor_bounds->x0 + hud_message_icon_shift);
 		point.y = (short)(cursor_bounds->y1 - icon->offset.y * scale);
+#ifdef HALO_HD_BUTTONS
+		/* port: a button in HD where the map's picture goes, at its size
+		(input.hud_buttons); the words after it keep their places */
+		{
+			real drawn_width = (clip ? (clip->x1 - clip->x0) : 1.0f) * bitmap->width * bitmap_scale * scale;
+			real drawn_height = (clip ? (clip->y1 - clip->y0) : 1.0f) * bitmap->height * bitmap_scale * scale;
+			/* (the message's fade, as a share of the messages' own color's
+			alpha: the map's pictures are drawn as bright as at full) */
+			real base_alpha = (real)((hud_globals->messaging.color.color >> 24) & 0xFF);
+			real fade = base_alpha > 0.0f ? (real)((color >> 24) & 0xFF) / base_alpha : 1.0f;
+
+			if (hud_message_button_index == NONE ||
+				!hud_buttons_draw(hud_message_button_index, (real)point.x, (real)point.y - drawn_height, drawn_width,
+					drawn_height, MIN(fade, 1.0f)))
+			{
+				hud_draw_bitmap_direct(
+					bitmap,
+					_hud_corner_bottom_left,
+					&point,
+					clip,
+					scale * bitmap_scale,
+					0.0f,
+					TEST_FLAG(icon->flags, _hud_icon_use_color_bit) ? icon->color : color,
+					FALSE);
+			}
+		}
+#else
 		hud_draw_bitmap_direct(
 			bitmap,
 			_hud_corner_bottom_left,
@@ -841,6 +874,7 @@ static void render_state_bitmap(
 			0.0f,
 			TEST_FLAG(icon->flags, _hud_icon_use_color_bit) ? icon->color : color,
 			FALSE);
+#endif
 		if (TEST_FLAG(icon->flags, _hud_icon_absolute_width_bit))
 			cursor_bounds->x0 = (short)(icon->width_offset * scale + point.x);
 		else if (clip)
@@ -2254,11 +2288,14 @@ void hud_messaging_update(
 								}
 								else
 								{
+									/* port: which button it is (input.hud_buttons) */
+									hud_message_button_index = icon_index;
 									render_state_bitmap(
 										&line_bounds,
 										&line_cursor,
 										pixel_color,
 										icon);
+									hud_message_button_index = NONE;
 								}
 							}
 							else

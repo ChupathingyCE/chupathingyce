@@ -2157,8 +2157,20 @@ static void views_show(struct widget_instance *list, char const *view)
 /* "port settings views init" (the list's created): the screen's own rows */
 static boolean settings_views_init(struct widget_instance *list)
 {
-	snprintf(settings_view, sizeof(settings_view), "%s", "main");
+	/* (debug.menu_open's "...#view=<name>": that nested list open, to look
+	at it) */
+	char const *debug = strstr(config_string("debug.menu_open"), "#view=");
+
+	snprintf(settings_view, sizeof(settings_view), "%s", debug ? debug + 6 : "main");
 	views_show(list, settings_view);
+	if (debug)
+	{
+		short index;
+		struct widget_instance *first = first_row_shown(list, &index);
+
+		if (first)
+			focus_widget(list, first);
+	}
 	return TRUE;
 }
 

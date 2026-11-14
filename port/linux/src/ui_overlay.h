@@ -39,8 +39,12 @@ enum
 	UI_ALIGN_RIGHT,
 };
 
-/* a controller's button, drawn as the device the player last used names
-it: an Xbox-like pad's by snapchipper's icons (port/assets/prompts), a
+/* a controller's button, drawn as input.button_style names it: AUTO, as
+the device the player last used names it, or one style for every pad
+(DUKE, XBOX, PLAYSTATION, SWITCH; the keyboard keeps its key caps). The
+Duke's, and a PlayStation pad's and a Switch pad's face buttons, by
+DKrumpp's HD buttons (port/assets/buttons_hd, gem or flat:
+input.button_look); else an Xbox-like pad's by snapchipper's icons (port/assets/prompts), a
 Nintendo pad's as grey buttons with its own letters, a PlayStation pad's
 face buttons by Kenney's Input Prompts, a Steam Deck's, a Steam
 Controller's and a Wii U pad's every button by Kenney's, the others' as
@@ -144,6 +148,10 @@ void ui_overlay_layer(int layer);
 color's alpha dims it (a prompt that does nothing now) */
 float ui_overlay_button(int button, float size, float x, float y, unsigned int color);
 float ui_overlay_button_width(int button, float size);
+/* the same in a game's prompts (input.hud_buttons): DKrumpp's flat buttons,
+whatever input.button_look gives the menus (he drew the gems for menus) */
+float ui_overlay_hud_button(int button, float size, float x, float y, unsigned int color);
+float ui_overlay_hud_button_width(int button, float size);
 
 /* whether the keyboard (or the mouse) was used last: a screen whose keys
 are not the game's (the Guide's Q, E and M) draws its own key caps, as the

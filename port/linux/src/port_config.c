@@ -552,6 +552,10 @@ static const struct config_setting config_settings[] =
 		"from its first time. false makes each one when it is first drawn." },
 #endif
 #ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+	{ "display.join_screen", _config_boolean, "true", "HALO_JOIN_SCREEN", _environment_value, _platform_all,
+		"Show the loading screen while a game is joined or its map downloads,\n"
+		"with what is going on and B to cancel. false: a small panel over the\n"
+		"game list." },
 	{ "display.xbox_loading_picture", _config_boolean, "true", "HALO_XBOX_LOADING_PICTURE", _environment_value,
 		_platform_all,
 		"true: the loading screen shows the Xbox's own picture, xbox_loading.tga\n"
@@ -832,6 +836,16 @@ static const struct config_setting config_settings[] =
 		"slowing: 1 (100%) as before, 0.5 half as fast." },
 	{ "input.keyboard_prompts", _config_boolean, "true", "HALO_KEYBOARD_PROMPTS", _environment_value, _platform_desktop,
 		"Show keys in button prompts while you use the keyboard and mouse." },
+	{ "input.button_style", _config_string, "\"auto\"", "HALO_BUTTON_STYLE", _environment_value, _platform_all,
+		"The controller buttons the prompts show: \"auto\" (the controller you\n"
+		"use), or one style for every controller: \"duke\" (the original Xbox's),\n"
+		"\"xbox\", \"playstation\" or \"switch\". The keyboard shows its keys.\n"
+		"The Xbox menus show their own." },
+	{ "input.button_look", _config_string, "\"gem\"", "HALO_BUTTON_LOOK", _environment_value, _platform_all,
+		"The look of the menus' and the Guide's buttons: \"gem\" or \"flat\"." },
+	{ "input.hud_buttons", _config_string, "\"classic\"", "HALO_HUD_BUTTONS", _environment_value, _platform_all,
+		"The buttons in a game's prompts (\"Hold X to pick up\"): \"classic\", the\n"
+		"map's own, or \"hd\", input.button_style's flat buttons." },
 	{ "input.touch_controls", _config_string, "\"on\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
 		"On-screen touch controls: \"on\" or \"off\". \"auto\" shows them only\n"
 		"when no controller is connected." },
@@ -1827,6 +1841,10 @@ static const struct config_setting config_settings[] =
 	{ "debug.workshop_offer", _config_string, "\"\"", "HALO_WORKSHOP_OFFER", _environment_value, _platform_desktop,
 		"A join's missing Workshop map offered over the main menu once, as\n"
 		"\"<item id>:<title>\", for tests. Leave it empty for none." },
+	{ "debug.join_screen", _config_string, "\"\"", "HALO_JOIN_SCREEN_PREVIEW", _environment_value, _platform_desktop,
+		"The join screen (display.join_screen) over the main menu once, with\n"
+		"nothing joined, for tests and screenshots: \"connecting\" or\n"
+		"\"downloading\", then \":<game name>\" if you like. Leave it empty for none." },
 	{ "debug.workshop_search", _config_string, "\"\"", "HALO_WORKSHOP_SEARCH", _environment_value, _platform_desktop,
 		"The Delta Guide Workshop's search box shown with these words, then\n"
 		"searched, for screenshots. Leave it empty for none." },
@@ -4413,6 +4431,9 @@ static const struct
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
 	{ "display.title_font", { "classic", "cyborg", "halo", NULL }, "\"classic\"" },
 	{ "display.console_style", { "dropdown", "classic", NULL }, "\"dropdown\"" },
+	{ "input.button_style", { "auto", "duke", "xbox", "playstation", "switch", NULL }, "\"auto\"" },
+	{ "input.button_look", { "gem", "flat", NULL }, "\"gem\"" },
+	{ "input.hud_buttons", { "classic", "hd", NULL }, "\"classic\"" },
 	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"none\"" },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
