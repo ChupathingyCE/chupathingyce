@@ -61,12 +61,12 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (close together, for the twelve rows of INTERFACE to fit above a
-        # help line, which sits lower than other screens' for them)
-        # (22, not the 24 of the other screens: thirteen lines, with VARIABLE
-        # REFRESH and HDR SETUP, above the help line)
+        # (close together, 22 to the other screens' 24, for the thirteen lines
+        # of the desktop's list (VARIABLE REFRESH and HDR SETUP among them)
+        # and the twelve rows of INTERFACE to fit above a help line, which
+        # sits lower than other screens' for them)
         "spacing": 22,
-        "help_top": 362,
+        "help_top": 368,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's resolution and anti-aliasing in
