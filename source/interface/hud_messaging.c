@@ -149,9 +149,9 @@ symbols in this file:
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #ifdef HALO_MEDAL_ICONS
 #include "../../port/linux/game/medal_hud.h" /* port: display.medals */
-#ifdef HALO_GAME_BROWSER
-#include "../../port/linux/game/hud_buttons.h" /* port: input.hud_buttons */
 #endif
+#ifdef HALO_HD_BUTTONS
+#include "../../port/linux/game/hud_buttons.h" /* port: input.hud_buttons */
 #endif
 
 #include <stddef.h>
@@ -838,7 +838,7 @@ static void render_state_bitmap(
 		scale = local_player_count() > 1 ? 0.75f : 1.0f;
 		point.x = (short)(icon->offset.x * scale + cursor_bounds->x0 + hud_message_icon_shift);
 		point.y = (short)(cursor_bounds->y1 - icon->offset.y * scale);
-#ifdef HALO_GAME_BROWSER
+#ifdef HALO_HD_BUTTONS
 		/* port: a button in HD where the map's picture goes, at its size
 		(input.hud_buttons); the words after it keep their places */
 		{

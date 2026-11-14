@@ -168,13 +168,23 @@ SCREENS = {
                 ("STYLE:", "input.button_style",
                  [("AUTO", "auto"), ("DUKE", "duke"), ("XBOX", "xbox"), ("PLAYSTATION", "playstation"),
                   ("SWITCH", "switch")],
-                 "Auto follows the controller you use.", "desktop android"),
+                 "Auto follows the controller you use.", "desktop android switch"),
                 ("MENU LOOK:", "input.button_look", [("GEM", "gem"), ("FLAT", "flat")],
-                 "The buttons in menus and the Guide.", "desktop android"),
+                 "The buttons in menus and the Guide.", "desktop android switch"),
                 ("IN GAME:", "input.hud_buttons", [("CLASSIC", "classic"), ("HD", "hd")],
-                 "Classic is the map's own. HD is flat.", "desktop android"),
+                 "Classic: the game's own buttons.", "desktop android switch"),
             ]),
-            ("interface", "INTERFACE", "The menus, HUD and scoreboard.", [
+            # (the scoreboard's own, out of INTERFACE so its rows fit above
+            # the help line)
+            ("scoreboard", "SCOREBOARD", "How the scoreboard looks.", [
+                ("LAYOUT:", "display.scoreboard_team_layout", [("TEAMS", "teams"), ("BY SCORE", "score")],
+                 "Show team games by team, or all players by score.", None),
+                ("PANEL:", "display.scoreboard_background", ON_OFF,
+                 "Draw a panel behind the scoreboard.", None),
+                ("ICONS:", "display.scoreboard_icons", ON_OFF,
+                 "Platform logos and the Delta mark beside names.\nOff shows just names and scores.", None),
+            ]),
+            ("interface", "INTERFACE", "The menus and the HUD.", [
                 # (read when the game starts: menu_tags.c)
                 ("MENU STYLE:", "display.menus",
                  [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox")],
@@ -187,12 +197,6 @@ SCREENS = {
                 ("PLAYER NAME SIZE:", "display.player_name_scale",
                  [(f"{value:g}x", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)],
                  "Adjust the size of player names.", NOT_CONSOLE),
-                ("SCOREBOARD LAYOUT:", "display.scoreboard_team_layout", [("TEAMS", "teams"), ("BY SCORE", "score")],
-                 "Show team games by team, or all players by score.", None),
-                ("SCOREBOARD PANEL:", "display.scoreboard_background", ON_OFF,
-                 "Draw a panel behind the scoreboard.", None),
-                ("SCOREBOARD ICONS:", "display.scoreboard_icons", ON_OFF,
-                 "Platform logos and the Delta mark beside names.\nOff shows just names and scores.", None),
                 ("POWERUP TIMERS:", "display.powerup_timers", ON_OFF,
                  "Show the time left on your powerups.", None),
                 ("MATCH TIMER:", "display.match_timer",

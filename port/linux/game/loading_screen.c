@@ -32,6 +32,8 @@ seconds (game.c), the menus' accept skips the rest of the wait
 
 /* sdl_platform.c */
 void platform_menus_set_active(int active);
+/* port_config.c */
+unsigned long config_changes(void);
 
 /* ---------- constants */
 
@@ -256,6 +258,9 @@ static struct
 	unsigned int picture[240][320];
 	unsigned int mask[16][128];
 	boolean ready;
+	/* (config_changes when it was read: display.xbox_loading_picture or the
+	maps folder changed, the picture is read again) */
+	unsigned long read_at;
 	unsigned long started_at;
 	unsigned long stepped_at;
 } loading_screen_join;
@@ -268,6 +273,7 @@ static void loading_screen_join_prepare(
 	long x, y;
 
 	loading_screen_join.ready = TRUE;
+	csmemset(loading_screen_join.picture, 0, sizeof(loading_screen_join.picture));
 	for (y = 0; y < 16; y++)
 	{
 		double glow = pow(sin(3.1415f * (y * (1.f / 15.f))), 0.75);
@@ -317,8 +323,11 @@ unsigned char const *loading_screen_join_frame(
 {
 	unsigned long now = system_milliseconds();
 
-	if (!loading_screen_join.ready)
+	if (!loading_screen_join.ready || loading_screen_join.read_at != config_changes())
+	{
+		loading_screen_join.read_at = config_changes();
 		loading_screen_join_prepare();
+	}
 	if (restart)
 	{
 		csmemset(loading_screen.frame, 0, sizeof(loading_screen.frame));

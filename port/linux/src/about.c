@@ -60,7 +60,7 @@ static const struct about_entry page[] =
 	{ _line_text, "HUD art: Aerocatia and Jessie (Halo PC Restored)." },
 	{ _line_text, "Interface font: fizzy (Cyborg Interface Gothic)." },
 	{ _line_text, "Controller icons: snapchipper." },
-	{ _line_text, "HD controller buttons: DKrumpp." },
+	{ _line_text, "UI art (HD controller buttons): DKrumpp." },
 	{ _line_text, "HD HUD testing: ugoboom." },
 	{ _line_text, "Chimera: SnowyMouse and contributors." },
 	{ _line_text, "Xbox 3D sound and reverb: the OpenH1 contributors and chestahh." },

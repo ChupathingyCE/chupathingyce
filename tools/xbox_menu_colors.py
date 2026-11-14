@@ -12,8 +12,9 @@ the Xbox's size and compared with it, texel for texel; where their colors
 differ by more than TOLERANCE in a channel, each channel gets the gain and
 offset that best take the redraw's colors to the Xbox's (least squares,
 weighted by coverage), applied to the redraw at its own size. Its alpha is
-left as it is. No color is chosen by hand: they all come from the player's
-ui.map.
+left as it is. No color is chosen by hand: they all come from your copy of
+the Xbox's ui.map, which is only read (none of its texels are committed; the
+redraws, recolored, are).
 
 --check: only says which redraws differ, and by how much. Needs Pillow and
 NumPy (and tools/hud_assets.py, which reads the Xbox's map).
