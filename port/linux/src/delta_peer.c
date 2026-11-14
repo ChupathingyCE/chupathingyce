@@ -2791,6 +2791,22 @@ int delta_peer_machine_pending(const struct delta_peer *peer, delta_u32 now, int
 	return !elapsed(now, peer->machine_seen_time[machine_index], DELTA_PEER_HANDSHAKE_TIME);
 }
 
+int delta_peer_machine_session(const struct delta_peer *peer, delta_u32 now, int machine_index)
+{
+	const struct delta_peer_game_machine *machine;
+
+	if (peer->mode != _mode_host || !valid_machine(machine_index))
+		return -1;
+	machine = host_game_machine(peer, machine_index);
+	if (!machine || machine->local)
+		return -1;
+	if (peer->peers[machine_index].used)
+		return 1;
+	if (!peer->machine_seen[machine_index])
+		return -1;
+	return elapsed(now, peer->machine_seen_time[machine_index], DELTA_PEER_HANDSHAKE_TIME) ? 0 : -1;
+}
+
 int delta_peer_machine_legacy_version(const struct delta_peer *peer, int machine_index)
 {
 	if (peer->mode != _mode_host || !valid_machine(machine_index) || !peer->peers[machine_index].used)

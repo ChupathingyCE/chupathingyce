@@ -1254,6 +1254,10 @@ static const struct config_setting config_settings[] =
 	{ "network.chat_legacy", _config_boolean, "true", "HALO_NET_CHAT_LEGACY", _environment_value, _platform_all,
 		"In games you host, let OpenCE players chat too while network.chat is\n"
 		"on. Their own text chat is bridged in." },
+	{ "network.opence_welcome", _config_boolean, "false", "HALO_NET_OPENCE_WELCOME", _environment_value,
+		_platform_all,
+		"In games you host, tell each OpenCE player once, in their chat, that\n"
+		"this is a Chupathingy game. Chupathingy players never see it." },
 	{ "network.keep_parties_together", _config_boolean, "true", "HALO_NET_KEEP_PARTIES_TOGETHER", _environment_value,
 		_platform_all,
 		"In team games you host, put a party's players on one team when the\n"

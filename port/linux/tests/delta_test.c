@@ -3355,6 +3355,8 @@ static void test_bomb(void)
 	CHECK(!delta_peer_machine_pending(&nodes[0].peer, now, 0));
 	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
 	CHECK(delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 0) == -1);
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 3) == -1);
 	for (step = 0; step < 3; step++, now += 300)
 		frame(now, 4, joined, 1);
 	/* the handshakes: one agreed, one did not (at once), one silent */
@@ -3371,6 +3373,15 @@ static void test_bomb(void)
 		frame(now, 4, joined, 1);
 	CHECK(delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
 	CHECK(!delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	/* (sessions: the two of ours, the silent one none; the host's own and
+	machines not in the game not known) */
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 1) == 1);
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 2) == 1);
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 3) == 0);
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 0) == -1);
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 7) == -1);
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, -1) == -1);
+	CHECK(delta_peer_machine_session(&nodes[1].peer, now, 3) == -1);
 	/* (machines not in the game, and nonsense, lack nothing) */
 	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 7, _delta_capability_bomb));
 	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, -1, _delta_capability_bomb));
@@ -3383,6 +3394,7 @@ static void test_bomb(void)
 	game_add(3);
 	frame(now, 4, joined, 1);
 	CHECK(delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 3) == -1);
 	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
 	/* ... the room has bomb once every machine does */
 	game_remove(2);

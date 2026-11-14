@@ -8082,7 +8082,7 @@ with it), the internet play port, the game type (left and right choose
 another, Y or A edits it), and the host's rules of config.toml
 (network.team_change and its margin, network.chat_filter,
 network.block_mouse_aim_assist, network.allow_player_names,
-network.allow_follow_camera), written as START GAME (A) opens the lobby.
+network.allow_follow_camera, network.opence_welcome), written as START GAME (A) opens the lobby.
 The host's rules are a nested list, as the settings screens' are: HOST
 RULES opens it, and B goes back out of it. B leaves them as they were.
 
@@ -8128,6 +8128,7 @@ enum
 	_host_row_aim_assist,
 	_host_row_player_names,
 	_host_row_follow_camera,
+	_host_row_opence_welcome,
 	/* (the row that opens the host's rules, those above) */
 	_host_row_rules,
 	_host_row_start,
@@ -8138,7 +8139,7 @@ static wchar_t const *const host_row_labels[NUMBER_OF_HOST_ROWS] =
 {
 	L"GAME NAME:", L"MAX PLAYERS:", L"PUBLIC LOBBY:", L"PASSWORD:", L"PORT:", L"GAME TYPE:", L"TEAM SWITCHING:",
 	L"TEAM SWITCH MARGIN:", L"CHAT FILTER:", L"MOUSE AIM ASSIST:", L"PLAYER NAMES:",
-	L"FOLLOW CAMERA:", L"HOST RULES", L"START GAME",
+	L"FOLLOW CAMERA:", L"OPENCE WELCOME:", L"HOST RULES", L"START GAME",
 };
 
 /* the editor's pages, by their screens' names */
@@ -8169,6 +8170,7 @@ static struct
 	boolean block_aim_assist;
 	boolean player_names;
 	boolean follow_camera;
+	boolean opence_welcome;
 	long port;
 	/* the rows shown, in their places */
 	short rows[64];
@@ -8188,7 +8190,7 @@ static struct
 	struct game_variant base_variant;
 	struct game_variant_options base_options;
 #endif
-} host_setup = { NULL, 0, 1, TRUE, FALSE, FALSE, FALSE, 0, { 0 }, 0, 0, 0, { 0 }, 0 };
+} host_setup = { NULL, 0, 1, TRUE, FALSE, FALSE, FALSE, FALSE, 0, { 0 }, 0, 0, 0, { 0 }, 0 };
 
 long config_integer(char const *name);
 
@@ -8313,6 +8315,7 @@ static void host_setup_read(void)
 	host_setup.block_aim_assist = config_boolean("network.block_mouse_aim_assist") != 0;
 	host_setup.player_names = config_boolean("network.allow_player_names") != 0;
 	host_setup.follow_camera = config_boolean("network.allow_follow_camera") != 0;
+	host_setup.opence_welcome = config_boolean("network.opence_welcome") != 0;
 	host_setup.port = PIN(config_integer("network.tunnel_port"), 0, 65535);
 }
 
@@ -8325,7 +8328,7 @@ static boolean host_listing_shown(void)
 /* whether a row is one of the host's rules (HOST RULES' nested list) */
 static boolean host_rules_row(short row)
 {
-	return row >= _host_row_team_change && row <= _host_row_follow_camera;
+	return row >= _host_row_team_change && row <= _host_row_opence_welcome;
 }
 
 static void host_setup_rows(void)
@@ -8421,6 +8424,9 @@ static boolean host_setup_value(short row, wchar_t *text)
 	case _host_row_follow_camera:
 		ustrncpy(text, host_setup.follow_camera ? L"ALLOWED" : L"OFF", ROW_TEXT_LENGTH - 1);
 		return TRUE;
+	case _host_row_opence_welcome:
+		ustrncpy(text, host_setup.opence_welcome ? L"ON" : L"OFF", ROW_TEXT_LENGTH - 1);
+		return TRUE;
 	case _host_row_name:
 		wide_to_text(multiplayer.game_name, ascii, sizeof(ascii));
 		for (index = 0; ascii[index] && index < ROW_TEXT_LENGTH - 1; index++)
@@ -8484,8 +8490,11 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_follow_camera:
 		return host_setup.follow_camera ? L"Players can watch a teammate while they wait to respawn." :
 			L"Only the death camera while waiting to respawn, as on the Xbox.";
+	case _host_row_opence_welcome:
+		return host_setup.opence_welcome ? L"OpenCE players get one line about Chupathingy." :
+			L"OpenCE players get no line from you.";
 	case _host_row_rules:
-		return L"Team switching, chat filter, aim assist, player names, follow camera.";
+		return L"Team switching, chat filter, aim assist, player names, follow camera, OpenCE welcome.";
 	case _host_row_start:
 		return host_help_with_status(L"Open the lobby.", with_status, NUMBEROF(with_status));
 	}
@@ -8560,6 +8569,9 @@ static boolean host_setup_change(short row, short direction)
 	case _host_row_follow_camera:
 		host_setup.follow_camera = !host_setup.follow_camera;
 		return TRUE;
+	case _host_row_opence_welcome:
+		host_setup.opence_welcome = !host_setup.opence_welcome;
+		return TRUE;
 	}
 	return FALSE;
 }
@@ -8597,6 +8609,7 @@ static boolean host_setup_start(struct widget_instance *widget, boolean *widget_
 	host_write("network.block_mouse_aim_assist", host_setup.block_aim_assist ? "true" : "false");
 	host_write("network.allow_player_names", host_setup.player_names ? "true" : "false");
 	host_write("network.allow_follow_camera", host_setup.follow_camera ? "true" : "false");
+	host_write("network.opence_welcome", host_setup.opence_welcome ? "true" : "false");
 	snprintf(text, sizeof(text), "%ld", host_setup.port);
 	host_write("network.tunnel_port", text);
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
@@ -8625,6 +8638,8 @@ static void host_setup_defaults(void)
 		!strcmp(text, "true");
 	host_setup.player_names = config_default("network.allow_player_names", text, sizeof(text)) && !strcmp(text, "true");
 	host_setup.follow_camera = config_default("network.allow_follow_camera", text, sizeof(text)) &&
+		!strcmp(text, "true");
+	host_setup.opence_welcome = config_default("network.opence_welcome", text, sizeof(text)) &&
 		!strcmp(text, "true");
 	host_setup.port = config_default("network.tunnel_port", text, sizeof(text)) ? atol(text) : 0;
 	multiplayer.maximum_players_index = HOST_DEFAULT_MAXIMUM_PLAYERS_INDEX;
@@ -9116,6 +9131,9 @@ static boolean host_initialize(struct widget_instance *list)
 					ui_widget_port_gametype_choose(gametypes[last]);
 			}
 		}
+		/* (debug.menu_open's "...#view=rules": HOST RULES open, to look at it) */
+		if (strstr(config_string("debug.menu_open"), "#view=rules"))
+			host_setup.rules_open = TRUE;
 		return TRUE;
 	}
 #ifdef HALO_GAME_BROWSER
