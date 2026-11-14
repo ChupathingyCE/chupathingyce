@@ -89,15 +89,7 @@ order and spelling: at most count of them into files, and how many */
 int map_archive_listing_files(const char *listing, unsigned int size, const char *name,
 	char files[][MAP_ARCHIVE_LISTING_NAME_SIZE], int count);
 
-/* <name>.map unpacked from the zip archive io reads, written through io's
-write (nothing else in the archive is written anywhere): 1 with its size in
-*map_size, else 0 with why in error. Refused whole: an archive that is not
-a zip this reads (no ZIP64, nothing split, encrypted or compressed but by
-deflate), that names any entry with a path that leaves its folder ("..", an
-absolute path, a drive), that has no entry <name>.map at its top or more than
-one, or whose entry is larger than MAP_ARCHIVE_MAXIMUM_SIZE, lies outside the
-archive, or does not unpack to its stated size and CRC-32 */
-/* any archive's entries (a tag archive's: port/linux/game/loose_tags.c),
+/* any archive's entries (a tag archive's: port/linux/src/port_mods.c),
 each one's name as the archive spells it and its unpacked size to proc,
 which returns 0 to stop: 1 when the directory was read, 0 with error when
 it is damaged, split, ZIP64, over 8192 entries, or any entry names a path
@@ -111,6 +103,14 @@ through io's write: 1 with its size, as map_archive_extract */
 int map_archive_extract_entry(const struct map_archive_io *io, const char *name, unsigned int maximum_size,
 	unsigned int *size, char *error, int error_size);
 
+/* <name>.map unpacked from the zip archive io reads, written through io's
+write (nothing else in the archive is written anywhere): 1 with its size in
+*map_size, else 0 with why in error. Refused whole: an archive that is not
+a zip this reads (no ZIP64, nothing split, encrypted or compressed but by
+deflate), that names any entry with a path that leaves its folder ("..", an
+absolute path, a drive), that has no entry <name>.map at its top or more than
+one, or whose entry is larger than MAP_ARCHIVE_MAXIMUM_SIZE, lies outside the
+archive, or does not unpack to its stated size and CRC-32 */
 int map_archive_extract(const struct map_archive_io *io, const char *name, unsigned int *map_size, char *error,
 	int error_size);
 

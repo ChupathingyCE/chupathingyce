@@ -42,6 +42,7 @@ builds and its own Custom Edition sound path.
 #include "main/console.h"
 #include "mods.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -57,9 +58,9 @@ void platform_log(char const *format, ...);
 samples, their bitmaps' tags and their models' geometry; bitmaps' pixels
 are read as they are drawn) */
 #if defined(HALO_ANDROID)
-#define MAXIMUM_KEPT_BYTES (192UL * 1024 * 1024)
+#define MAXIMUM_KEPT_BYTES (96UL * 1024 * 1024)
 #else
-#define MAXIMUM_KEPT_BYTES (512UL * 1024 * 1024)
+#define MAXIMUM_KEPT_BYTES (160UL * 1024 * 1024)
 #endif
 
 /* ---------- globals */
@@ -80,6 +81,8 @@ static struct
 	long sound_count;
 	/* why nothing is played on this map, or NULL (said once a map) */
 	char const *held;
+	/* the memory budget's refusal, said once a map */
+	boolean budget_told;
 } mods_globals;
 
 /* ---------- private code */
@@ -120,7 +123,7 @@ short mods_read_short(
 real mods_read_real(
 	byte const *bytes)
 {
-	unsigned long bits = mods_read_be32(bytes);
+	uint32_t bits = (uint32_t)mods_read_be32(bytes);
 	real value;
 
 	memcpy(&value, &bits, sizeof(value));
@@ -209,6 +212,13 @@ boolean mods_memory_take(
 {
 	if (size > MAXIMUM_KEPT_BYTES - mods_globals.kept_bytes)
 	{
+		/* (said once a map: the files after it are left out the same way) */
+		if (!mods_globals.budget_told)
+		{
+			platform_log("mods: %lu KB kept is all the mods may keep in memory (%lu KB more asked): the rest of their files are left out",
+				mods_globals.kept_bytes / 1024, size / 1024);
+			mods_globals.budget_told = TRUE;
+		}
 		return FALSE;
 	}
 	mods_globals.kept_bytes += size;
@@ -299,6 +309,7 @@ static void mods_let_go(
 	mods_globals.map_loaded = FALSE;
 	mods_globals.enabled = FALSE;
 	mods_globals.held = NULL;
+	mods_globals.budget_told = FALSE;
 	mods_globals.map_name[0] = 0;
 	mods_globals.kept_bytes = 0;
 	mods_globals.sound_count = 0;
@@ -361,6 +372,13 @@ void mods_apply(
 	}
 	port_mods_scan();
 	mods_globals.scans = port_mods_scans();
+	/* (a network game, or game.mods false: the order is kept, nothing
+	played, as the load path does) */
+	if (mods_globals.held)
+	{
+		platform_log("mods: the new order is kept; not played on this map (%s)", mods_globals.held);
+		return;
+	}
 	if (mods_globals.enabled)
 	{
 		mods_update(FALSE, FALSE);

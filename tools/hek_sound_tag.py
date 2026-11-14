@@ -1,5 +1,5 @@
 """Writes Halo Editing Kit sound tags (.sound, .sound_looping) for the mods
-tests (tools/test_mods.py) and for trying the mods folder by hand
+tests (tools/test_mod_archives.py) and for trying the mods folder by hand
 (docs/mods.md): a 16-bit PCM .sound from a WAV file, or from a tone made
 here, split into chained permutations the way tool.exe and invader-sound
 split long sounds, and a .sound_looping that plays it.
@@ -21,7 +21,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 import argparse
 import math
+import shutil
 import struct
+import subprocess
+import tempfile
 import wave
 from pathlib import Path
 
@@ -30,7 +33,7 @@ SOUND_LOOPING = b"lsnd"
 SOUND_VERSION = 4
 SOUND_LOOPING_VERSION = 3
 
-CLASS_MUSIC = 4
+CLASS_MUSIC = 32
 ENCODING_MONO = 0
 ENCODING_STEREO = 1
 RATE_22050 = 0
@@ -152,7 +155,24 @@ def split(samples, frame_size):
     return [samples[i:i + step] for i in range(0, len(samples), step)] or [b""]
 
 
-def sound_from_samples(samples, rate, channels, name="default", sound_class=CLASS_MUSIC, do_split=True):
+def ogg_encode(samples, rate, channels):
+    """Big-endian 16-bit samples as an Ogg Vorbis stream, through ffmpeg."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise SystemExit("--ogg needs ffmpeg on the PATH")
+    with tempfile.TemporaryDirectory() as folder:
+        out = Path(folder) / "chunk.ogg"
+        # (libvorbis where ffmpeg has it, else its own vorbis encoder)
+        for encoder in (["-c:a", "libvorbis", "-q:a", "6"], ["-c:a", "vorbis", "-strict", "-2", "-b:a", "192k"]):
+            result = subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-f", "s16be", "-ar", str(rate), "-ac",
+                                     str(channels), "-i", "pipe:0", *encoder, str(out)], input=samples)
+            if result.returncode == 0:
+                return out.read_bytes()
+        raise SystemExit("ffmpeg could not encode Ogg Vorbis")
+
+
+def sound_from_samples(samples, rate, channels, name="default", sound_class=CLASS_MUSIC, do_split=True, ogg=False):
+    """A .sound of 16-bit PCM samples (big-endian), or of each chunk encoded as Ogg Vorbis."""
     if rate not in (22050, 44100):
         raise SystemExit("the rate must be 22050 or 44100")
     if channels not in (1, 2):
@@ -160,11 +180,18 @@ def sound_from_samples(samples, rate, channels, name="default", sound_class=CLAS
     chunks = split(samples, 2 * channels) if do_split else [samples]
     permutations = []
     for index, chunk in enumerate(chunks):
-        permutations.append(permutation(name if index == 0 else f"{name}_{index}", chunk,
-                                        next_index=index + 1 if index + 1 < len(chunks) else -1))
+        data = ogg_encode(chunk, rate, channels) if ogg else chunk
+        fields, _ = permutation(name if index == 0 else f"{name}_{index}", data,
+                                compression=COMPRESSION_OGG if ogg else COMPRESSION_PCM,
+                                next_index=index + 1 if index + 1 < len(chunks) else -1)
+        if ogg:
+            # (the buffer size: the decoded PCM's bytes, as tool.exe keeps it)
+            fields = fields[:0x3C] + struct.pack(">I", len(chunk)) + fields[0x40:]
+        permutations.append((fields, data))
     ranges = [pitch_range("default", permutations, 1)]
     return sound(ranges, sound_class=sound_class, encoding=ENCODING_STEREO if channels == 2 else ENCODING_MONO,
-                 rate=RATE_44100 if rate == 44100 else RATE_22050)
+                 rate=RATE_44100 if rate == 44100 else RATE_22050,
+                 compression=COMPRESSION_OGG if ogg else COMPRESSION_PCM)
 
 
 def main():
@@ -176,17 +203,18 @@ def main():
     parser.add_argument("--rate", type=int, default=44100)
     parser.add_argument("--stereo", action="store_true")
     parser.add_argument("--no-split", action="store_true", help="one permutation however long")
+    parser.add_argument("--ogg", action="store_true", help="Ogg Vorbis permutations (ffmpeg), not PCM")
     parser.add_argument("--looping", metavar="SOUND_PATH", help="write a .sound_looping of this sound tag path")
     args = parser.parse_args()
     if args.looping:
         out = looping_sound(args.looping)
     elif args.wav:
         samples, rate, channels = read_wav(args.wav)
-        out = sound_from_samples(samples, rate, channels, do_split=not args.no_split)
+        out = sound_from_samples(samples, rate, channels, do_split=not args.no_split, ogg=args.ogg)
     elif args.tone:
         channels = 2 if args.stereo else 1
         out = sound_from_samples(tone(args.tone, args.seconds, args.rate, channels), args.rate, channels,
-                                 do_split=not args.no_split)
+                                 do_split=not args.no_split, ogg=args.ogg)
     else:
         parser.error("--wav, --tone or --looping")
     args.out.parent.mkdir(parents=True, exist_ok=True)

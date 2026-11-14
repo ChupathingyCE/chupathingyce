@@ -649,7 +649,8 @@ static void mods_find(const char *root)
 		long index;
 
 		snprintf(path, sizeof(path), "%s/%s", root, name);
-		if (name[0] == '.' || posix_stat(path, &information) != 0 ||
+		/* (a link is not followed: a mod is what is in the folder) */
+		if (name[0] == '.' || posix_is_link(path) || posix_stat(path, &information) != 0 ||
 			(!(information.flags & _posix_file_is_directory) && !archive_name(name)))
 		{
 			continue;
@@ -1061,7 +1062,7 @@ static void files_list(long mod, const char *path, const char *key, int depth)
 			platform_log("mods: the path of %s/%s is too long: it is left out", path, name);
 			continue;
 		}
-		if (posix_stat(child_path, &information) != 0)
+		if (posix_is_link(child_path) || posix_stat(child_path, &information) != 0)
 			continue;
 		if (information.flags & _posix_file_is_directory)
 			files_list(mod, child_path, child_key, depth + 1);
@@ -1101,12 +1102,39 @@ static int archive_entry_list(void *context, const char *name, unsigned int size
 	return 1;
 }
 
+/* the files listed from index `first` on taken back (an archive refused
+partway through its directory lists none of its entries) */
+static void files_truncate(long first)
+{
+	long index;
+
+	for (index = first; index < port_mods.file_count; index++)
+	{
+		port_mods.mods[port_mods.files[index].mod].file_count--;
+		free(port_mods.files[index].key);
+		free(port_mods.files[index].path);
+		free(port_mods.files[index].entry);
+	}
+	port_mods.file_count = first;
+	/* (the hash chains, made again without them) */
+	for (index = 0; index < FILE_BUCKET_COUNT; index++)
+		port_mods.buckets[index] = -1;
+	for (index = 0; index < port_mods.file_count; index++)
+	{
+		struct port_mod_file *file = &port_mods.files[index];
+
+		file->next = port_mods.buckets[file->hash % FILE_BUCKET_COUNT];
+		port_mods.buckets[file->hash % FILE_BUCKET_COUNT] = index;
+	}
+}
+
 static void archive_list(long mod, const char *path)
 {
 	struct archive_reader reader;
 	struct map_archive_io io;
 	struct archive_listing listing;
 	char error[256];
+	long first = port_mods.file_count;
 
 	if (!archive_open(&reader, path, &io))
 	{
@@ -1116,7 +1144,10 @@ static void archive_list(long mod, const char *path)
 	listing.mod = mod;
 	listing.path = path;
 	if (!map_archive_entries(&io, archive_entry_list, &listing, error, sizeof(error)))
-		platform_log("mods: %s: %s", path, error);
+	{
+		platform_log("mods: %s: %s; none of it is played", path, error);
+		files_truncate(first);
+	}
 	archive_close(&reader);
 }
 

@@ -70,6 +70,7 @@ char *tag_get_name(long tag_index);
 (port/linux/game/ce_vorbis.c) */
 int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sample_rate, short **samples);
 int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int wanted);
+void ce_vorbis_free(short *samples);
 
 /* ---------- constants */
 
@@ -81,6 +82,14 @@ int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int 
 #define SOUND_SIZE 0xA4
 #define PITCH_RANGE_SIZE 0x48
 #define PERMUTATION_SIZE 0x7C
+typedef char mod_sound_size_assert[sizeof(struct sound_definition) == SOUND_SIZE ? 1 : -1];
+typedef char mod_pitch_range_size_assert[sizeof(struct sound_pitch_range) == PITCH_RANGE_SIZE ? 1 : -1];
+typedef char mod_permutation_size_assert[sizeof(struct sound_permutation) == PERMUTATION_SIZE ? 1 : -1];
+/* Tool's ranges for what the mixer divides by or scales with: a denormal
+pitch would make its rate infinite, a huge gain would clip everything */
+#define MINIMUM_PITCH 0.001f
+#define MAXIMUM_PITCH 1000.f
+#define MAXIMUM_GAIN 16.f
 
 #define SOUND_COMPRESSION_NONE 0
 #define SOUND_COMPRESSION_XBOX_ADPCM 1
@@ -337,9 +346,8 @@ static byte *samples_make(
 	short *made_compression,
 	char const **reason)
 {
-	short *samples = NULL;
-	int frames;
-	int from_rate = (int)rate;
+	short *made;
+	unsigned long frames;
 
 	*made_bytes = 0;
 	*made_compression = SOUND_COMPRESSION_NONE;
@@ -367,60 +375,112 @@ static byte *samples_make(
 	{
 		unsigned long index;
 
-		frames = (int)(size / (2 * (unsigned long)channels));
-		if (frames <= 0 || size > 0x7fffffff)
+		frames = size / (2 * (unsigned long)channels);
+		if (frames == 0 || size > 0x7fffffff)
 		{
 			*reason = "a permutation's PCM samples are not whole frames";
 			return NULL;
 		}
-		samples = malloc(size);
-		if (!samples)
+		made = malloc(size);
+		if (!made)
 		{
 			*reason = "out of memory";
 			return NULL;
 		}
 		for (index = 0; index < size / 2; index++)
-			samples[index] = (short)(((unsigned)data[index * 2] << 8) | data[index * 2 + 1]);
+			made[index] = (short)(((unsigned)data[index * 2] << 8) | data[index * 2 + 1]);
+		/* (mono at 44 kHz comes down to the 22 kHz the Xbox's channels take:
+		each two frames averaged into one, in place) */
+		if (rate != encoded_rate)
+		{
+			unsigned long frame;
+
+			if (rate != encoded_rate * 2)
+			{
+				free(made);
+				*reason = "a permutation's rate is neither the sound's nor twice it";
+				return NULL;
+			}
+			frames /= 2;
+			for (frame = 0; frame < frames; frame++)
+			{
+				long channel;
+
+				for (channel = 0; channel < channels; channel++)
+				{
+					made[frame * channels + channel] = (short)(((int)made[(2 * frame) * channels + channel] +
+						(int)made[(2 * frame + 1) * channels + channel]) / 2);
+				}
+			}
+			if (frames == 0)
+			{
+				free(made);
+				*reason = "a permutation's PCM samples are not whole frames";
+				return NULL;
+			}
+		}
 	}
 	else
 	{
+		/* (ce_vorbis.c allocates with the C library's malloc, not the game's:
+		its samples are copied into the game's memory and freed with
+		ce_vorbis_free, on every path) */
+		short *decoded = NULL;
 		int decoded_channels = 0;
+		int decoded_rate = (int)rate;
+		int decoded_frames;
 
 		if (size > 0x7fffffff)
 		{
 			*reason = "a permutation's Ogg Vorbis is too large";
 			return NULL;
 		}
-		frames = ce_vorbis_decode(data, (int)size, &decoded_channels, &from_rate, &samples);
-		if (frames <= 0 || !samples)
+		decoded_frames = ce_vorbis_decode(data, (int)size, &decoded_channels, &decoded_rate, &decoded);
+		if (decoded_frames <= 0 || !decoded)
 		{
-			if (samples)
-				free(samples);
+			if (decoded)
+				ce_vorbis_free(decoded);
 			*reason = "a permutation's Ogg Vorbis cannot be decoded";
 			return NULL;
 		}
 		if (decoded_channels != channels)
 		{
-			free(samples);
+			ce_vorbis_free(decoded);
 			*reason = "a permutation's Ogg Vorbis has not the sound's channels";
 			return NULL;
 		}
-	}
-	if (from_rate != encoded_rate)
-	{
-		int resampled = ce_vorbis_resample(&samples, frames, (int)channels, from_rate, (int)encoded_rate);
-
-		if (resampled <= 0)
+		if (decoded_rate != encoded_rate)
 		{
-			free(samples);
-			*reason = "a permutation's rate is neither the sound's nor half or twice it";
+			int resampled = ce_vorbis_resample(&decoded, decoded_frames, (int)channels, decoded_rate, (int)encoded_rate);
+
+			if (resampled <= 0)
+			{
+				ce_vorbis_free(decoded);
+				*reason = "a permutation's rate is neither the sound's nor half or twice it";
+				return NULL;
+			}
+			decoded_frames = resampled;
+		}
+		frames = (unsigned long)decoded_frames;
+		if (frames > MAXIMUM_SOUND_DATA_SIZE / (2 * (unsigned long)channels))
+		{
+			ce_vorbis_free(decoded);
+			*reason = "a permutation is longer than a sound cache block takes";
 			return NULL;
 		}
-		frames = resampled;
+		made = malloc(frames * 2 * (unsigned long)channels);
+		if (!made)
+		{
+			ce_vorbis_free(decoded);
+			*reason = "out of memory";
+			return NULL;
+		}
+		memcpy(made, decoded, frames * 2 * (unsigned long)channels);
+		ce_vorbis_free(decoded);
 	}
-	*made_bytes = (unsigned long)frames * 2 * (unsigned long)channels;
+	*made_bytes = frames * 2 * (unsigned long)channels;
 	*made_compression = SOUND_COMPRESSION_NONE;
-	return (byte *)samples;
+	return (byte *)made;
 }
 
 /* The sound the tag file `file` makes for the map's sound tag
@@ -516,10 +576,20 @@ static struct mod_sound *mod_sound_new(
 		goto refused;
 	}
 	definition_defaults(definition);
-	*reason = "a value of the sound is out of range";
+	*reason = "a value of the sound is out of Tool's range";
 	if (!mods_finite_real(definition->maximum_bend_per_second) ||
-		MIN(definition->random_pitch_bounds.lower, definition->random_pitch_bounds.upper) *
-			MIN(definition->zero_pitch_modifier, definition->one_pitch_modifier) <= 0.f)
+		definition->random_pitch_bounds.lower < MINIMUM_PITCH || definition->random_pitch_bounds.lower > MAXIMUM_PITCH ||
+		definition->random_pitch_bounds.upper < MINIMUM_PITCH || definition->random_pitch_bounds.upper > MAXIMUM_PITCH ||
+		definition->zero_pitch_modifier < MINIMUM_PITCH || definition->zero_pitch_modifier > MAXIMUM_PITCH ||
+		definition->one_pitch_modifier < MINIMUM_PITCH || definition->one_pitch_modifier > MAXIMUM_PITCH ||
+		definition->zero_gain_modifier < 0.f || definition->zero_gain_modifier > MAXIMUM_GAIN ||
+		definition->one_gain_modifier < 0.f || definition->one_gain_modifier > MAXIMUM_GAIN ||
+		definition->gain_modifier < -MAXIMUM_GAIN || definition->gain_modifier > MAXIMUM_GAIN ||
+		definition->skip_fraction < 0.f || definition->skip_fraction > 1.f ||
+		definition->zero_skip_fraction_modifier < 0.f || definition->zero_skip_fraction_modifier > MAXIMUM_GAIN ||
+		definition->one_skip_fraction_modifier < 0.f || definition->one_skip_fraction_modifier > MAXIMUM_GAIN ||
+		definition->maximum_distance > 100000.f || definition->minimum_distance > definition->maximum_distance ||
+		definition->maximum_bend_per_second > MAXIMUM_PITCH)
 	{
 		goto refused;
 	}
@@ -619,12 +689,16 @@ static struct mod_sound *mod_sound_new(
 				goto refused;
 			}
 			/* (as a map's build makes them) */
-			if (range->natural_pitch <= 0.f)
+			if (range->natural_pitch == 0.f)
 				range->natural_pitch = 1.f;
 			range->bend_bounds.lower = MIN(range->bend_bounds.lower, range->natural_pitch);
 			range->bend_bounds.upper = MAX(range->bend_bounds.upper, range->natural_pitch);
-			if (range->bend_bounds.lower < 0.f)
+			*reason = "a pitch range's pitch is out of Tool's range";
+			if (range->natural_pitch < MINIMUM_PITCH || range->natural_pitch > MAXIMUM_PITCH ||
+				range->bend_bounds.lower < 0.f || range->bend_bounds.upper > MAXIMUM_PITCH)
+			{
 				goto refused;
+			}
 			range->playback_rate = 1.f / range->natural_pitch;
 			range->played_permutation_mask = 0xFFFFFFFF;
 			range->previous_permutation_index = NONE;
@@ -672,6 +746,8 @@ static struct mod_sound *mod_sound_new(
 				permutation->gain = mods_read_real(bytes + offsetof(struct sound_permutation, gain));
 				if (compression != definition->compression ||
 					!mods_finite_real(permutation->skip_fraction) || !mods_finite_real(permutation->gain) ||
+					permutation->skip_fraction < 0.f || permutation->skip_fraction > 1.f ||
+					permutation->gain < 0.f || permutation->gain > MAXIMUM_GAIN ||
 					(linked && next != NONE && (next < 0 || (unsigned long)next >= count)) ||
 					(compression == SOUND_COMPRESSION_XBOX_ADPCM && samples_size % (ADPCM_BLOCK_BYTES * channels)) ||
 					(compression == SOUND_COMPRESSION_NONE && samples_size % (2 * channels)))

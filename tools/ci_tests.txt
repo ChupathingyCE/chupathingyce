@@ -1,7 +1,7 @@
 # The tests the Build workflow (.github/workflows/build.yml, linux-tests) runs
-# with pytest: one per line, sorted. A file not in the commit being built
 # is left out with a notice (a release branch's commit may not have every
 # test main has). Add yours on its own line, in order.
+# with pytest: one per line, sorted. A file not in the commit being built
 tools/test_about_version.py
 tools/test_address_limit.py
 tools/test_android_asm_convert.py
@@ -30,11 +30,11 @@ tools/test_coop_level_prompt.py
 tools/test_coop_spectate.py
 tools/test_crash_null_call.py
 tools/test_debug_camera.py
+tools/test_delta.py
 tools/test_delta_compat.py
 tools/test_delta_input_rules.py
 tools/test_delta_menu_art.py
 tools/test_delta_peer.py
-tools/test_delta.py
 tools/test_determinism.py
 tools/test_discord_activity.py
 tools/test_discord_register.py
@@ -80,6 +80,7 @@ tools/test_mcc_bsp_vertices.py
 tools/test_mcc_cache_format.py
 tools/test_mcc_cameras.py
 tools/test_mcc_check_failed.py
+tools/test_mcc_checkpoint_footer.py
 tools/test_mcc_chicago.py
 tools/test_mcc_damage_tags.py
 tools/test_mcc_effects_gain.py
@@ -99,11 +100,11 @@ tools/test_mcc_score_hint.py
 tools/test_mcc_seats.py
 tools/test_mcc_share_decline.py
 tools/test_mcc_skulls.py
-tools/test_mcc_checkpoint_footer.py
 tools/test_mcc_validation.py
 tools/test_mcc_workshop.py
-tools/test_menu_text_fit.py
 tools/test_medal_rules.py
+tools/test_menu_text_fit.py
+tools/test_mod_archives.py
 tools/test_net43_host.py
 tools/test_network_rules.py
 tools/test_network_test_startup.py
