@@ -42,9 +42,19 @@ NEVER_SAID = {5: "md_maps (retired)", 9: "console_slots (retired)", 12: "ping (t
               18: "host_cheats (the list's alone)"}
 KNOWN_CAPABILITIES = 26
 # the platform registry (docs/delta/registry.md, "Platforms"; registry.json)
-PLATFORMS = ["unknown", "pc_windows", "pc_macos", "pc_linux", "android", "steam_deck", "xbox", "xbox360", "wiiu",
-             "switch", "psp", "vita", "xbox_uwp", "pc_freebsd", "ps3", "ps4", "ps5", "n64", "pc_legacy",
-             "steamlink", "ios", "tvos"]
+# the platform keys, by number, from the registry (docs/delta/registry.json):
+# the one list, so a new number never needs an edit here
+def _platform_keys():
+    import json, pathlib
+    path = pathlib.Path(__file__).resolve().parent.parent.parent / "docs" / "delta" / "registry.json"
+    rows = json.loads(path.read_text(encoding="utf-8"))["platforms"]
+    keys = {}
+    for row in rows:
+        keys[int(row["number"])] = row["key"]
+    return [keys.get(number, f"platform {number}") for number in range(max(keys) + 1)]
+
+
+PLATFORMS = _platform_keys()
 # the OpenCE network versions our builds know (delta.h: 11 is the newest
 # breaking one; 45 the built-in maximum today)
 LEGACY_OLDEST = 11
