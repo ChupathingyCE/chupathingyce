@@ -73,9 +73,9 @@ def test_numbers_match_the_code():
 
 def test_other_platform_lists_use_registered_keys():
     keys = {platform["key"] for platform in REGISTRY["platforms"] if platform["key"]}
+    # conformance.py reads its platform list from registry.json itself
     conformance = (ROOT / "tools" / "delta-ref" / "conformance.py").read_text()
-    listed = re.findall(r'"(\w+)"', conformance[conformance.index("PLATFORMS = ["):conformance.index("]", conformance.index("PLATFORMS = ["))])
-    assert listed == [platform["key"] for platform in REGISTRY["platforms"] if platform["key"]]
+    assert "registry.json" in conformance and "PLATFORMS = [" not in conformance
     icons = (ROOT / "tools" / "platform_icons_font.py").read_text()
     for key, numbers in re.findall(r'"(\w+)": \(([\d, ]+)\)', icons):
         if key != "playstation":
