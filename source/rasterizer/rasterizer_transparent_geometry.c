@@ -691,7 +691,8 @@ static void rasterizer_sort_external(
 /* port: the first-person weapon camouflaged (OpenH1 #875). Its model parts are
 drawn as active camouflage here, after the world, not first as an opaque
 weapon is, so their depth was tested against the world's and a wall near
-the player cut parts of the weapon and arms away, as on the Xbox. A run of
+the player cut parts of the weapon and arms away, as on the Xbox, which
+stays the default (display.camo_weapon_fix turns the fix on). A run of
 first-person groups with a camouflaged one is drawn in the front of the depth
 range alone: never behind the world, still in order among its own parts. A
 run without one keeps the whole range, as the opaque weapon's depth (drawn in
@@ -702,12 +703,36 @@ OpenH1 team */
 /* (rasterizer_xbox_transparent_geometry.c; rasterizer_xbox.c) */
 boolean rasterizer_transparent_geometry_group_camouflaged(struct transparent_geometry_group const *group);
 void rasterizer_set_depth_range(real minimum, real maximum);
+/* (the platform layer's: port/linux/src/port_config.c) */
+int config_boolean(const char *name);
+unsigned long config_changes(void);
+
+/* port: display.camo_weapon_fix, read once per change of the settings: off
+(the default) draws the camouflaged weapon as the Xbox did, cut by walls */
+static boolean rasterizer_camo_weapon_fix(
+	void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean fix;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		fix = config_boolean("display.camo_weapon_fix") != 0;
+	}
+
+	return fix;
+}
 
 static boolean rasterizer_first_person_camouflaged(
 	long first_group_index)
 {
 	long group_index;
 
+	if (!rasterizer_camo_weapon_fix())
+	{
+		return FALSE;
+	}
 	for (group_index = first_group_index; group_index < transparent_geometry_group_count; group_index++)
 	{
 		struct transparent_geometry_group const *group =

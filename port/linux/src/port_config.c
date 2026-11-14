@@ -607,6 +607,11 @@ static const struct config_setting config_settings[] =
 		"lighting, as on the Xbox. \"auto\" is \"high\", or \"off\" on a software\n"
 		"renderer. It changes only what is drawn, and players are lit by it\n"
 		"only a little. Based on chester's dynamic lighting in GulchCE." },
+	{ "display.camo_weapon_fix", _config_boolean, "false", "HALO_CAMO_WEAPON_FIX", _environment_value,
+		_platform_all,
+		"true: your camouflaged first-person weapon is drawn in front of walls.\n"
+		"false (the default): walls close by cut it away, as on the Xbox.\n"
+		"Drawing only. Based on work by goatbutt and the OpenH1 team." },
 	{ "display.doors_block_light", _config_boolean, "true", "HALO_DOORS_BLOCK_LIGHT", _environment_value,
 		_platform_all,
 		"A closed door stops a light behind it from lighting your side, such as\n"
