@@ -287,9 +287,23 @@ def test_weapons_follow_the_client():
     game, and a weapon put away is still its holder's (not dropped)"""
     source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
     action = _function(source, "boolean server_ce_local_action")
-    assert "action->desired_weapon_index = update.weapon < MAXIMUM_WEAPONS_PER_UNIT" in action
-    assert "action->desired_zoom_level = update.zoom < 0x8000" in action
-    assert "grenade_counts[update.grenade] > 0" in action
+    assert "server_ce_choices(client, local_player_index, &update, action);" in action
+    choices = _function(source, "static void server_ce_choices")
+    # each choice given once, as it changes (the game's own changes stand)
+    assert "if (update->weapon != client->chosen_weapon)" in choices
+    assert "if (update->zoom != client->chosen_zoom)" in choices
+    # a new unit: the last unit's choices are not given again
+    assert "client->chosen_unit != unit_index" in choices
+    # a zoom level the weapon has, else none
+    assert "update->zoom < levels ? (short)update->zoom : NONE" in choices
+    # the wire's grenade is the type itself (0 frag, 1 plasma: checked
+    # against the client's HUD and a throw, 2026-11-14)
+    assert "action->desired_grenade_index = (short)update->grenade;" in choices
+    assert "grenade_counts[update->grenade] > 0" in choices
+    # the biped messages carry the plasma count first (a 1.0.10 client's
+    # HUD: frags only showed as plasmas before)
+    messages = (ROOT / "server/platform/ce_messages.c").read_text(encoding="utf-8")
+    assert messages.count("grenades[1], 3);\n\tput_bits(payload, (unsigned int)") == 2
     items = _function(source, "static void update_items")
     assert items.count("weapon_holder(") >= 3
     control = (ROOT / "source/game/player_control.c").read_text(encoding="utf-8")

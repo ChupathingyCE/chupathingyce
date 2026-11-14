@@ -35,6 +35,7 @@ gamespy_listing, whose port takes the joins): off by default.
 #include "networking/network_game_manager.h"
 #include "networking/network_server_manager.h"
 #include "items/weapons.h"
+#include "items/weapon_definitions.h"
 #include "objects/objects.h"
 #include "units/units.h"
 #include "dedicated.h"
@@ -172,6 +173,13 @@ struct ce_client
 	to replay from our corrections) */
 	struct ce_client_update current;
 	boolean have_current;
+	/* the weapon and zoom its client chose last, as given to its player
+	(a choice is given once, as it changes: between choices the game's
+	own, such as readying a weapon picked up, stand), and the unit they
+	were for (a new unit: none given yet) */
+	int chosen_weapon;
+	int chosen_zoom;
+	long chosen_unit;
 	/* when its actions last changed (system_milliseconds; 0: not yet), for
 	the AFK limit (server_conduct.c) */
 	unsigned long input_time;
@@ -371,6 +379,7 @@ static void client_reset(
 	client->welcomed = kept.welcomed;
 	client->input_time = kept.input_time;
 	client->start_vehicle = NONE;
+	client->chosen_unit = NONE;
 	csmemcpy(client->name, kept.name, sizeof(client->name));
 	for (index = 0; index < TRACKED_PLAYERS; index++)
 	{
@@ -1745,6 +1754,65 @@ void server_ce_update(
 	}
 }
 
+/* the weapon, grenade and zoom a client chose, onto its player's action
+(which holds the game's own choices): the weapon and zoom only as they
+change, so the game's own changes (a weapon readied as it is picked up,
+a swap, a new unit's first weapon) aren't pulled back by a choice the
+client made before them. The wire's values: weapon 0-3, grenade 0 frag
+and 1 plasma (as the client's HUD shows them), zoom the level; all bits
+set is none */
+static void server_ce_choices(
+	struct ce_client *client,
+	short local_player_index,
+	struct ce_client_update const *update,
+	struct player_action *action)
+{
+	long player_index = local_player_get_player_index(local_player_index);
+	long unit_index = player_index == NONE ? NONE : player_get(player_index)->unit_index;
+	struct unit_datum *unit;
+
+	if (unit_index == NONE)
+	{
+		client->chosen_unit = NONE;
+		return;
+	}
+	/* (a new unit: what the client chose for the last one is not given
+	again; only what it chooses next) */
+	if (client->chosen_unit != unit_index)
+	{
+		client->chosen_unit = unit_index;
+		client->chosen_weapon = update->weapon;
+		client->chosen_zoom = update->zoom;
+		return;
+	}
+	unit = unit_get(unit_index);
+	if (update->weapon != client->chosen_weapon)
+	{
+		client->chosen_weapon = update->weapon;
+		if (update->weapon < MAXIMUM_WEAPONS_PER_UNIT && unit_inventory_get_weapon(unit_index, (short)update->weapon) != NONE)
+		{
+			action->desired_weapon_index = (short)update->weapon;
+			action->desired_zoom_level = NONE;
+		}
+	}
+	if (update->zoom != client->chosen_zoom)
+	{
+		long weapon_index = unit_inventory_get_weapon(unit_index, unit->unit.current_weapon_index);
+		short levels = weapon_index == NONE ? 0 :
+			weapon_definition_get(weapon_get(weapon_index)->definition_index)->weapon.zoom_level_count;
+
+		client->chosen_zoom = update->zoom;
+		/* (a level the weapon has, else none: a level past them would
+		count as zoomed for aim assist) */
+		action->desired_zoom_level = update->zoom < levels ? (short)update->zoom : NONE;
+	}
+	/* (the grenade, always: the client's HUD shows its own choice from the
+	start, and the game changes it only when one type runs out, which the
+	client follows. A type it has none of is left to the game) */
+	if (update->grenade < NUMBER_OF_UNIT_GRENADE_TYPES && unit->unit.grenade_counts[update->grenade] > 0)
+		action->desired_grenade_index = (short)update->grenade;
+}
+
 boolean server_ce_local_action(
 	short local_player_index,
 	struct player_action *action)
@@ -1775,7 +1843,9 @@ boolean server_ce_local_action(
 			/* (its actions changed: it is not away) */
 			if (!client->have_current || update.control_flags != client->current.control_flags ||
 				update.throttle != client->current.throttle || update.yaw != client->current.yaw ||
-				update.pitch != client->current.pitch || update.primary_trigger != client->current.primary_trigger)
+				update.pitch != client->current.pitch || update.primary_trigger != client->current.primary_trigger ||
+				update.weapon != client->current.weapon || update.grenade != client->current.grenade ||
+				update.zoom != client->current.zoom)
 			{
 				client->input_time = system_milliseconds() ? system_milliseconds() : 1;
 			}
@@ -1802,10 +1872,15 @@ boolean server_ce_local_action(
 	}
 	if (!client->have_current)
 	{
+		short weapon = action->desired_weapon_index;
+		short grenade = action->desired_grenade_index;
+		short zoom = action->desired_zoom_level;
+
+		/* (no actions yet: still, with the game's own weapon choices) */
 		csmemset(action, 0, sizeof(*action));
-		action->desired_weapon_index = NONE;
-		action->desired_grenade_index = NONE;
-		action->desired_zoom_level = NONE;
+		action->desired_weapon_index = weapon;
+		action->desired_grenade_index = grenade;
+		action->desired_zoom_level = zoom;
 		return TRUE;
 	}
 	update = client->current;
@@ -1816,22 +1891,7 @@ boolean server_ce_local_action(
 	action->throttle.i = forward;
 	action->throttle.j = left;
 	action->primary_trigger = update.primary_trigger ? 1.0f : 0.0f;
-	/* (the weapon, grenade and zoom it wants: its client picks them, as
-	ours do; all bits set, or out of range, is none) */
-	action->desired_weapon_index = update.weapon < MAXIMUM_WEAPONS_PER_UNIT ? (short)update.weapon : NONE;
-	action->desired_zoom_level = update.zoom < 0x8000 ? (short)update.zoom : NONE;
-	/* (a grenade it has none of is left to the game's own choice) */
-	if (update.grenade != 3)
-	{
-		long player_index = local_player_get_player_index(local_player_index);
-		long unit_index = player_index == NONE ? NONE : player_get(player_index)->unit_index;
-
-		if (unit_index != NONE && update.grenade < NUMBER_OF_UNIT_GRENADE_TYPES &&
-			unit_get(unit_index)->unit.grenade_counts[update.grenade] > 0)
-		{
-			action->desired_grenade_index = (short)update.grenade;
-		}
-	}
+	server_ce_choices(client, local_player_index, &update, action);
 	return TRUE;
 }
 

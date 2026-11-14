@@ -142,6 +142,7 @@ struct ce_biped_create
 	int unknown_6bits_a;
 	/* the first baseline number of its updates (1) */
 	int baseline;
+	/* by type (0 frag, 1 plasma) */
 	int grenades[2];
 	/* its vitality (ce_body_bits, ce_shield_bits) */
 	int body;
@@ -160,6 +161,7 @@ struct ce_biped_update
 	int object;
 	int baseline;
 	int apply_shield;
+	/* by type (0 frag, 1 plasma) */
 	int grenades[2];
 	int body;
 	int shield;
