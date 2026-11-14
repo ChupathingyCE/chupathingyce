@@ -136,6 +136,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_display, "WINDOW SIZE", "display.window_size", _kind_window_sizes, NULL, NULL, 0, 1 },
 #endif
 	{ _in_display, "V-SYNC", "display.vsync", _kind_toggle, NULL, NULL, 0, 1 },
+	{ _in_display, "VARIABLE REFRESH", "display.vrr", _kind_words, NULL, NULL, 0, 1 },
 	{ _in_display, "ANTI-ALIASING", "display.anti_aliasing", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_display, "MENU STYLE", "display.menus", _kind_choices, menus_choices, NULL, 0, 0 },
 #ifdef HALO_TITLE_CHOICE
