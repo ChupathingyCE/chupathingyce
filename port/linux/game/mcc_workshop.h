@@ -3,6 +3,8 @@
 #ifndef MCC_WORKSHOP_H
 #define MCC_WORKSHOP_H
 
+#include <stddef.h> /* wchar_t */
+
 #define MCC_WORKSHOP_ID_SIZE 24
 #define MCC_WORKSHOP_TITLE_SIZE 40
 #define MCC_WORKSHOP_SIDECAR "workshop_id.txt"
@@ -45,6 +47,12 @@ int mcc_workshop_wire_unpack(char const name[128], struct mcc_workshop_item *ite
  * name record: its Workshop tail, else, for an MCC level in a folder named by
  * an item id, that item; 1 when there is one with an id */
 int mcc_workshop_listing(char const name[128], struct mcc_workshop_item *item);
+/* port: (a host's announcement) an MCC level's name for players without it:
+ * catalog_name, this machine's name for the level (NULL for none), when it
+ * is more than the level's file made readable ("Blood Gulch" for
+ * mcc_maps\<item>\20), else item_title; printable ASCII, 1 when there is one */
+int mcc_workshop_map_title(char const *level, wchar_t const *catalog_name, char const *item_title, char *title,
+    unsigned size);
 /* port: (a joiner, refused) the item of the host's map name record: its
  * Workshop tail, else, for an MCC level in a folder the host named by an item
  * id (as Steam names it: OpenCE's hosts send no tail,
