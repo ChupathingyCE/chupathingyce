@@ -1765,6 +1765,15 @@ static struct bg_shader *bg_shader_get(const char *glsl, BOOL fragment, int flag
 	if ((shader = bg_shader_find(hash)) != NULL)
 	{
 		free(source);
+		/* (asked for before, and still on a compiler thread: waited for) */
+		if (wait && shader->job)
+		{
+			pthread_mutex_lock(&bg_jobs.lock);
+			while (!shader->done)
+				pthread_cond_wait(&bg_jobs.finished, &bg_jobs.lock);
+			pthread_mutex_unlock(&bg_jobs.lock);
+			bg_shader_ready(shader);
+		}
 		return shader;
 	}
 	shader = bg_shader_add(hash, fragment, uniform_size);
@@ -5963,6 +5972,15 @@ static BOOL bg_initialize(void)
 		fragment = bg_shader_get(bg_crt_fragment_source, TRUE, 0, "CRT filter pixel", TRUE);
 		if (!vertex->failed && !fragment->failed)
 			bg.crt = bgfx_create_program(vertex->shader, fragment->shader, false);
+	}
+
+	/* (the overlay's shaders, which its first draw waits for, made by the
+	compiler threads meanwhile: on Metal its compile was a frame of over
+	100 ms the first time a build drew the overlay, in the menus) */
+	if (bg_metal_prepares())
+	{
+		bg_shader_get(bg_overlay_vertex_source, FALSE, 0, "overlay vertex", FALSE);
+		bg_shader_get(bg_overlay_fragment_source, TRUE, 0, "overlay pixel", FALSE);
 	}
 
 	/* (gl_initialize's: the guest memory writes that make textures stale,
