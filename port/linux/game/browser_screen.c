@@ -177,7 +177,7 @@ enum
 
 /* OpenCE's bare name of a map this machine has neither as a Custom Edition
 nor as an MCC map (ce_map_ask_host): the list's words for it */
-#define ASK_HOST_TEXT "Custom Edition or MCC map. Join to find out."
+#define ASK_HOST_TEXT "Map not installed. Join to see if it's Custom Edition or MCC."
 #define ASK_HOST_TITLE "Custom Edition or MCC map"
 
 /* whether a game's map can be played here (ce_map_state) */
