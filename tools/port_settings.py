@@ -1238,10 +1238,12 @@ WIDGET_PATCHES = {
         "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/slayer_button_bar": [
             '<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/op_mode" x="54" y="253"/>',
         ]}},
+    # (a ninth row: the help text and the buttons move down to make room)
     "main_menu/settings_select/multiplayer_setup/player_options_edit/player_options_menu": {"insert_before": {
         "main_menu/settings_select/multiplayer_setup/player_options_edit/player_button_bar": [
             '<child widget="main_menu/settings_select/multiplayer_setup/player_options_edit/op_hardcore" x="54" y="313"/>',
-        ]}},
+        ]}, "offsets": {"main_menu/settings_select/multiplayer_setup/player_options_edit/player_button_bar": (0, 430)}},
+    "main_menu/settings_select/multiplayer_setup/player_options_edit/player_options_help": {"set": {"top": 350}},
     # (the PC's Vehicles row's Start opened Item Options)
     "main_menu/settings_select/multiplayer_setup/playlist_edit/playlist_edit_vehicles_list_item": {"handlers": [
         '<on event="a" open="main_menu/settings_select/multiplayer_setup/vehicle_options_edit/vehicle_options_screen"/>',
