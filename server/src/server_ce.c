@@ -52,8 +52,12 @@ gamespy_listing, whose port takes the joins): off by default.
 #include "../platform/ce_messages.h"
 #include "../platform/gamespy_listing.h"
 
-/* (game_engine_ctf.c's, the server's) */
+/* (game_engine_ctf.c's and the other game types', the server's) */
 void game_engine_ctf_get_state(long scores[2], long *flag_swap_timer);
+void game_engine_oddball_get_state(long const **individual_scores, long const **team_scores, long const **ball_owners);
+long const *game_engine_king_get_state(long *hill_id);
+void game_engine_race_get_state(long const **first_flags, long const **lap_flags, long const **team_laps,
+	unsigned long *lap_completed_value, long *rally_flag);
 /* (network_server_manager_internal.h's) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 /* (port/linux/game/network_distributed.c's: bans.txt) */
@@ -176,6 +180,9 @@ struct ce_client
 	long ctf_scores_sent[2];
 	long ctf_swap_sent;
 	boolean ctf_known;
+	/* the other game types' state as told last (game_type_state) */
+	unsigned int game_type_sent[CE_GAME_TYPE_VALUES];
+	int game_type_count;
 	/* the roster it was told last (game settings), to tell it again as it
 	changes */
 	struct ce_network_player roster[CE_GAME_PLAYERS];
@@ -313,7 +320,8 @@ state told them as it changes): the others stay Slayer to them */
 static boolean engine_told(
 	long engine)
 {
-	return engine == game_engine_slayer || engine == game_engine_ctf;
+	return engine == game_engine_slayer || engine == game_engine_ctf || engine == game_engine_oddball ||
+		engine == game_engine_king || engine == game_engine_race;
 }
 
 /* the game's own variant, over Custom Edition's Slayer: the game type and
@@ -387,6 +395,12 @@ static void settings_from_variant(
 		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", name);
 	else if (variant->game_engine_index == game_engine_ctf)
 		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "CTF");
+	else if (variant->game_engine_index == game_engine_oddball)
+		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "Oddball");
+	else if (variant->game_engine_index == game_engine_king)
+		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "King");
+	else if (variant->game_engine_index == game_engine_race)
+		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "Race");
 	else if (universal->teams)
 		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "Team Slayer");
 }
@@ -1223,6 +1237,83 @@ static void player_statistics(
 	statistics->speed_multiplier = player->speed_multiplier;
 }
 
+/* the game type's state as a client is told it (Oddball, King, Race):
+its message type and numbers, each player's by its number on that
+client's wire, each team's by team; 0: none for this game type */
+static int game_type_state(
+	struct ce_client const *client,
+	unsigned int values[CE_GAME_TYPE_VALUES],
+	int *count)
+{
+	long engine = game_engine ? game_engine_get_variant()->game_engine_index : NONE;
+	int slot, team;
+
+	csmemset(values, 0, sizeof(unsigned int) * CE_GAME_TYPE_VALUES);
+	/* (a value by player: its slot in the client's roster; by team: the
+	team as the client has it) */
+#define BY_PLAYER(out, array) \
+	for (slot = 0; slot < client->roster_count && slot < CE_GAME_PLAYERS; slot++) \
+	{ \
+		long player_index = client->roster_players[slot]; \
+		if (player_index != NONE && DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) < HALO_PORT_MAXIMUM_NETWORK_PLAYERS) \
+			(out)[slot] = (unsigned int)(array)[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)]; \
+	}
+#define BY_TEAM(out, array) \
+	for (team = 0; team < CE_GAME_PLAYERS; team++) \
+		(out)[team] = (unsigned int)(array)[team];
+	if (engine == game_engine_oddball)
+	{
+		long const *individual, *teams, *owners;
+		int ball;
+
+		game_engine_oddball_get_state(&individual, &teams, &owners);
+		BY_PLAYER(values, individual);
+		BY_TEAM(values + 16, teams);
+		/* (the carriers by player: 0 for none, as a new game's state has
+		them (our capture of Custom Edition's server), else the ball's
+		number plus one) */
+		for (ball = 0; ball < 16; ball++)
+		{
+			for (slot = 0; owners[ball] != NONE && slot < client->roster_count && slot < CE_GAME_PLAYERS; slot++)
+			{
+				if (client->roster_players[slot] == owners[ball])
+					values[32 + slot] = (unsigned int)ball + 1;
+			}
+		}
+		*count = 48;
+		return CE_DELTA_ODDBALL_UPDATE;
+	}
+	if (engine == game_engine_king)
+	{
+		long hill;
+		long const *scores = game_engine_king_get_state(&hill);
+
+		BY_TEAM(values, scores);
+		values[16] = (unsigned int)hill;
+		*count = 17;
+		return CE_DELTA_KING_UPDATE;
+	}
+	if (engine == game_engine_race)
+	{
+		long const *first_flags, *lap_flags, *team_laps;
+		unsigned long lap_completed;
+		long rally;
+
+		game_engine_race_get_state(&first_flags, &lap_flags, &team_laps, &lap_completed, &rally);
+		BY_TEAM(values, team_laps);
+		BY_PLAYER(values + 16, first_flags);
+		BY_PLAYER(values + 32, lap_flags);
+		values[48] = (unsigned int)lap_completed;
+		values[49] = (unsigned int)rally;
+		*count = 50;
+		return CE_DELTA_RACE_UPDATE;
+	}
+#undef BY_PLAYER
+#undef BY_TEAM
+	*count = 0;
+	return 0;
+}
+
 /* (each player's numbers and, in Slayer, the scores, as they change: what
 the client's scoreboard and carnage report show) */
 static void send_scores(
@@ -1283,6 +1374,21 @@ static void send_scores(
 			any = TRUE;
 		}
 		client->ctf_swap_sent = swap_timer;
+	}
+	/* (Oddball's, King's and Race's state as it changes) */
+	{
+		unsigned int values[CE_GAME_TYPE_VALUES];
+		int count;
+		int type = game_type_state(client, values, &count);
+
+		if (type && (count != client->game_type_count ||
+			csmemcmp(values, client->game_type_sent, sizeof(unsigned int) * count)))
+		{
+			ce_payload_put_game_type_update(&payload, type, values, count);
+			csmemcpy(client->game_type_sent, values, sizeof(unsigned int) * count);
+			client->game_type_count = count;
+			any = TRUE;
+		}
 	}
 	data_iterator_new(&iterator, player_data);
 	while ((player = data_iterator_next(&iterator)) != NULL)

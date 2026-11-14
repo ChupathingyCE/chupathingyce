@@ -317,6 +317,26 @@ extern long timeout_for_endgame_sound;
 
 static struct race_globals race_globals = { 0 };
 
+#ifdef HALO_SERVER
+/* port: Race's state as Custom Edition's clients are told it
+(server/src/server_ce.c): each player's first flag and laps' flags (by
+absolute player index), each team's laps, the flags of a whole lap and
+the rally flag */
+void game_engine_race_get_state(
+	long const **first_flags,
+	long const **lap_flags,
+	long const **team_laps,
+	unsigned long *lap_completed_value,
+	long *rally_flag)
+{
+	*first_flags = race_globals.first_flag;
+	*lap_flags = race_globals.lap_bit_vector;
+	*team_laps = race_globals.team_laps;
+	*lap_completed_value = race_globals.lap_completed_value;
+	*rally_flag = race_globals.rally_flag;
+}
+#endif
+
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
 

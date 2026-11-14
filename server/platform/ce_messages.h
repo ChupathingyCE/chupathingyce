@@ -52,6 +52,16 @@ enum
 	the team with the flag (the definitions of Kornner Studios' OpenSauce,
 	GPL-3.0, Halo1_CE.message_delta_definitions.xml) */
 	CE_DELTA_CTF_UPDATE = 17,
+	/* the other game types' states, each a run of 32-bit numbers (Kornner
+	Studios' OpenSauce definitions, lengths checked against our captures of
+	Custom Edition's server): Oddball each player's score, each team's and
+	each player's ball, if any (16 each); King each team's score (16) and the
+	hill; Race each team's laps, each player's first flag and laps' flags
+	(16 each), a whole lap's flags and the rally flag */
+	CE_DELTA_ODDBALL_UPDATE = 18,
+	CE_DELTA_KING_UPDATE = 19,
+	CE_DELTA_RACE_UPDATE = 20,
+	CE_GAME_TYPE_VALUES = 50,
 	CE_DELTA_PLAYER_STATISTICS = 21,
 	/* the game's end, step by step (a 32-bit number: 1 the delay before
 	the scores, 2 and 3 the scores coming up and shown) */
@@ -396,6 +406,8 @@ void ce_payload_put_player_statistics(struct ce_payload *payload, int player,
 void ce_payload_put_server_keep_alive(struct ce_payload *payload, int index, unsigned int value);
 /* the payload's length in bytes (written in its first 11 bits), or 0 */
 /* where the game is past its end (CE_DELTA_POSTGAME_MODE) */
+/* a game type's state (CE_DELTA_ODDBALL_UPDATE, ...): its numbers in order */
+void ce_payload_put_game_type_update(struct ce_payload *payload, int type, const unsigned int *values, int count);
 /* Capture the Flag's state */
 void ce_payload_put_ctf_update(struct ce_payload *payload, unsigned int flag_swap_timer, const int scores[2],
 	int team_with_flag);

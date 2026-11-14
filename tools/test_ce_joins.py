@@ -755,6 +755,27 @@ def test_ctf_reaches_custom_edition():
     assert "server_ce_multiplayer_sound(sound_index);" in sounds
 
 
+def test_game_types_match_captures(harness):  # noqa: F811
+    """Oddball's, King's and Race's state as our captures of Custom Edition's
+    server have it at a join (research captures odd1, king1, race1: a new
+    game's, all zero): the message and its length, the next message's start
+    found right after it"""
+    import subprocess
+
+    for kind, count, length in ((18, 48, 1536), (19, 17, 544), (20, 50, 1600)):
+        out = subprocess.run([str(harness), "gametype", str(kind), str(count)], capture_output=True, text=True,
+                             check=True).stdout.strip()
+        bits = bits_of(out)
+        assert bits[11:19] == "10" + "".join(str((kind >> i) & 1) for i in range(6))
+        assert int(bits[:11][::-1], 2) == (11 + 8 + length + 7) // 8
+        assert set(bits[19:19 + length]) == {"0"}
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    told = _function(source, "static boolean engine_told")
+    for engine in ("game_engine_oddball", "game_engine_king", "game_engine_race"):
+        assert engine in told
+    assert "ce_payload_put_game_type_update(&payload, type, values, count);" in _function(source, "static void send_scores")
+
+
 def test_welcome_line():
     """the default welcome line fits Custom Edition's chat, and comes once,
     a minute into a player's first game"""
