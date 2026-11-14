@@ -8629,12 +8629,14 @@ static boolean host_setup_start(struct widget_instance *widget, boolean *widget_
 	}
 #endif
 	/* (the Chupathingy menus' lobby over it: its countdown waits for
-	START GAME, lobby_screen.c) */
+	START GAME, lobby_screen.c, the game list's builds alone) */
+#ifdef HALO_GAME_BROWSER
 	{
 		void lobby_screen_hosted_opened(void);
 
 		lobby_screen_hosted_opened();
 	}
+#endif
 	return ui_widget_port_open(widget, HOST_LOBBY_SCREEN, widget_deleted);
 }
 
