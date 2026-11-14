@@ -2441,7 +2441,7 @@ void server_ce_multiplayer_message(
 			continue;
 		}
 		ce_payload_begin(&payload, out, sizeof(out));
-		ce_payload_put_hud_message(&payload, network_player_number(player_index), (unsigned int)message,
+		ce_payload_put_hud_message(&payload, network_player_number(client, player_index), (unsigned int)message,
 			(unsigned int)message_data);
 		ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE);
 	}
