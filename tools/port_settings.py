@@ -117,8 +117,6 @@ SCREENS = {
              [("OFF", "off"), ("FXAA", "fxaa"), ("MSAA 2X", "msaa2x"), ("MSAA 4X", "msaa4x")],
              "Smooth jagged edges.",
              "android", "anti_aliasing_android"),
-            ("HDR:", "display.hdr", ON_OFF,
-             "Keep the light of explosions, plasma and glows past\nwhite, and roll it off instead of clipping.", "desktop"),
             ("FIELD OF VIEW:", "display.field_of_view",
              [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
               for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
@@ -132,7 +130,9 @@ SCREENS = {
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
-            ("hdr", "HDR SETUP", "The HDR display, tone mapping and brightness.", [
+            ("hdr", "HDR SETUP", "HDR, the HDR display, tone mapping and brightness.", [
+                ("HDR:", "display.hdr", ON_OFF,
+                 "Keep the light of explosions, plasma and glows past\nwhite, and roll it off instead of clipping.", "desktop"),
                 ("HDR DISPLAY:", "display.hdr_output", ON_OFF,
                  "With HDR, on an HDR display, show that light\nbrighter than white. From the next start.", "desktop"),
                 ("TONE MAPPING:", "display.hdr_tone_mapping",
