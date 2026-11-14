@@ -157,7 +157,7 @@ static void hrtf_response(double azimuth, double elevation, float *out)
 	float mono[MIX_CHUNK_FRAMES];
 	double az = azimuth * M_PI / 180, el = elevation * M_PI / 180;
 	unsigned long at;
-	hrtf_place((float)(cos(el) * sin(az)), (float)sin(el), (float)(cos(el) * cos(az)), 3.0f, FALSE, &p);
+	hrtf_place((float)(cos(el) * sin(az)), (float)sin(el), (float)(cos(el) * cos(az)), 3.0f, 0.0f, FALSE, &p);
 	p.gain = 1.0f; p.pair[0] = 1.0f; p.pair[1] = 0.0f;
 	stream->hrtf_current = p;
 	memset(out, 0, FRAMES * 2 * sizeof(float));
