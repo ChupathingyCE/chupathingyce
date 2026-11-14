@@ -481,12 +481,7 @@ static char const *map_display_name(
 		{
 			while (strpbrk(last, "\\/"))
 				last = strpbrk(last, "\\/") + 1;
-			/* (a Workshop item's file is often just a number, "20" for
-			mcc_maps\3477809506\20: no name to anyone, so it says what it is) */
-			if (last[0] && !last[strspn(last, "0123456789")])
-				snprintf(text, (size_t)size, "Workshop map [MCC]");
-			else
-				snprintf(text, (size_t)size, "%s [MCC]", last);
+			snprintf(text, (size_t)size, "%s [MCC]", last);
 		}
 		return text;
 	}
@@ -531,11 +526,25 @@ static char const *game_map_display_name(
 		return text;
 	}
 	/* (an MCC map this machine hasn't got: its name as the host or the
-	list says it, "Blood Gulch", with the mark, in place of its file's) */
-	if (mcc_level_name(game->map) && game->map_title[0] && mcc_maps_find(game->map) == NONE)
+	list says it, "Blood Gulch", in place of its file's; a file that is
+	just a number, "20" for mcc_maps\3477809506\20, names nothing, so it
+	says what it is. Its MCC badge shows beside it) */
+	if (mcc_level_name(game->map) && mcc_maps_find(game->map) == NONE)
 	{
-		snprintf(text, (size_t)size, "%s [MCC]", game->map_title);
-		return text;
+		char const *last = game->map;
+
+		while (strpbrk(last, "\\/"))
+			last = strpbrk(last, "\\/") + 1;
+		if (game->map_title[0])
+		{
+			snprintf(text, (size_t)size, "%s", game->map_title);
+			return text;
+		}
+		if (last[0] && !last[strspn(last, "0123456789")])
+		{
+			snprintf(text, (size_t)size, "Workshop map");
+			return text;
+		}
 	}
 	return map_display_name(game->map, text, size);
 }
@@ -1136,6 +1145,8 @@ static void offer_workshop_item(
 	csmemset(&browser_screen.offer_progress, 0, sizeof(browser_screen.offer_progress));
 	csstrncpy(browser_screen.offer_join_invite, game->invite, sizeof(browser_screen.offer_join_invite) - 1);
 	browser_screen.offer_join_invite[sizeof(browser_screen.offer_join_invite) - 1] = 0;
+	/* (the panel's "<game> plays a map you don't have") */
+	utf8_name(game->name, browser_screen.connecting_name, sizeof(browser_screen.connecting_name));
 	browser_screen.offer_time = system_milliseconds();
 	browser_screen.offer = _offer_asking;
 	platform_log("workshop: the game's MCC map is Workshop item %s; Steam is asked for its details", id);
