@@ -83,17 +83,19 @@ struct settings_row
 };
 
 #ifdef HALO_BGFX
+/* (OpenGL is the default; bgfx's are still being tested, and their names
+say so, as config.toml's help does) */
 #ifdef __APPLE__
 static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
-static const char *const renderer_names[] = { "OPENGL", "METAL", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "METAL (TESTING)", NULL };
 #elif defined(_WIN32)
 /* ("d3d11": bgfx on Direct3D 11, for testing; each falls back to
 OpenGL) */
 static const char *const renderer_choices[] = { "gl", "bgfx", "d3d11", NULL };
-static const char *const renderer_names[] = { "OPENGL", "VULKAN", "DIRECT3D 11", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (TESTING)", "DIRECT3D 11 (TESTING)", NULL };
 #else
 static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
-static const char *const renderer_names[] = { "OPENGL", "VULKAN", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (TESTING)", NULL };
 #endif
 #endif
 /* (Gearbox's menus, "gearbox" or the older "pc", are no longer one: such a
@@ -142,9 +144,6 @@ static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISO
 
 static const struct settings_row settings_rows[] =
 {
-#ifdef HALO_BGFX
-	{ _in_display, "RENDERER", "display.renderer", _kind_choices, renderer_choices, renderer_names, 1, 0 },
-#endif
 	{ _in_display, "DISPLAY MODE", "display.mode", _kind_words, NULL, NULL, 0, 1 },
 #ifdef HALO_LAUNCHER
 	{ _in_display, "RESOLUTION", "display.resolution", _kind_resolutions, NULL, NULL, 0, 1 },
@@ -159,6 +158,10 @@ static const struct settings_row settings_rows[] =
 	{ _in_display, "HDR BRIGHTNESS", "display.hdr_paper_white", _kind_choices, hdr_white_choices, hdr_white_names, 0, 0 },
 	{ _in_display, "HDR PEAK", "display.hdr_peak", _kind_choices, hdr_peak_choices, hdr_peak_names, 0, 0 },
 	{ _in_display, "HUD BRIGHTNESS", "display.hdr_ui_nits", _kind_choices, hdr_white_choices, hdr_ui_names, 0, 0 },
+	/* (below the common rows: OpenGL, the default, is the one most keep) */
+#ifdef HALO_BGFX
+	{ _in_display, "RENDERER", "display.renderer", _kind_choices, renderer_choices, renderer_names, 1, 0 },
+#endif
 	{ _in_display, "MENU STYLE", "display.menus", _kind_choices, menus_choices, NULL, 0, 0 },
 #ifdef HALO_TITLE_CHOICE
 	{ _in_display, "TITLE FONT", "display.title_font", _kind_choices, title_font_choices, NULL, 0, 0 },
