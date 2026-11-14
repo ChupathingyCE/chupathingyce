@@ -63,11 +63,10 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (close together, 22 to the other screens' 24, for the rows of the
-        # desktop's main list (VARIABLE REFRESH and its five links among them)
-        # and INTERFACE to fit above a help line, which sits lower than other
-        # screens' for them: tools/test_settings_layout.py)
-        "spacing": 22,
+        # (24, Controls Setup's, with the help line a little lower than the
+        # other screens' for the desktop's main list: its six places and
+        # six links end at 365: tools/test_settings_layout.py)
+        "spacing": 24,
         "help_top": 368,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
@@ -98,8 +97,6 @@ SCREENS = {
              [("480 (XBOX)", "480"), ("720", "720"), ("900", "900"), ("1080", "1080"), ("NATIVE", "native")],
              "Higher is sharper, but uses more battery.",
              "android", "resolution_android"),
-            ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
-             "Native draws at full resolution. Original draws at\n640x480 and scales it up.", "desktop"),
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Sync frames to the display.", NOT_CONSOLE),
             # (display.vrr: sdl_platform.c's platform_vrr, port/linux/src/vrr.h)
@@ -125,15 +122,31 @@ SCREENS = {
              [("OFF", "off"), ("FXAA", "fxaa"), ("MSAA 2X", "msaa2x"), ("MSAA 4X", "msaa4x")],
              "Smooth jagged edges.",
              "android", "anti_aliasing_android"),
-            ("FIELD OF VIEW:", "display.field_of_view",
-             [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
-              for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
-             "Adjust the field of view.",
-             None),
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
+            # (the view's own rows, the field of view first: a page of their
+            # own, so that the main list and ADVANCED sit 24 apart)
+            ("view", "VIEW", "The field of view, in and out of vehicles, and the reticle.", [
+                ("FIELD OF VIEW:", "display.field_of_view",
+                 [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
+                  for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
+                 "Adjust the field of view.",
+                 None),
+                ("VEHICLE FOV:", "display.vehicle_field_of_view",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
+                 "The field of view in vehicles.\nSame keeps it as before.", None),
+                ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
+                 "How wide your weapon is drawn.\nSame follows the view.", None),
+                ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
+                 "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
+            ]),
             ("advanced", "ADVANCED", "Shadows, lighting and detail.", [
+                # (out of the main list, so that its rows sit 24 apart as
+                # Controls Setup's: a row few change)
+                ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
+                 "Native draws at full resolution. Original draws at\n640x480 and scales it up.", "desktop"),
                 ("SHADOW RESOLUTION:", "display.shadow_resolution",
                  [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],
                  "The detail of object shadows.",
@@ -157,16 +170,6 @@ SCREENS = {
                 ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
                  [("OFF", "0"), ("2X", "2"), ("4X", "4"), ("8X", "8"), ("16X", "16")],
                  "Sharper textures seen at an angle.", None),
-                ("VEHICLE FOV:", "display.vehicle_field_of_view",
-                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
-                 "The field of view in vehicles.\nSame keeps it as before.", None),
-                # (the field of view's other two, out of the main list so its
-                # rows and links fit above the help line)
-                ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
-                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
-                 "How wide your weapon is drawn.\nSame follows the view.", None),
-                ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
-                 "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
@@ -212,8 +215,6 @@ SCREENS = {
                 ("FOLLOW CAMERA:", "display.follow_camera",
                  [("OFF", "off"), ("LONG WAITS", "long_waits"), ("ALWAYS", "always")],
                  "While dead, follow a player's view, if the host allows it.", None),
-                ("VERSION WATERMARK:", "display.version_watermark", ON_OFF,
-                 "Show the version while playing.", None),
             ]),
             # (the text's fonts and the console: TEXT, so that INTERFACE's
             # rows fit above the help line, test_settings_layout.py)
@@ -257,8 +258,8 @@ SCREENS = {
     "audio_settings": {
         "screen": "audio_settings_screen",
         "header": ("header_profile_audio_settings", f"{PE}/audio_settings/header_profile_audio_settings"),
-        # (27, not 30: ten rows with MODS, the last above the help line)
-        "spacing": 27,
+        # (30, as the Xbox's lists: nine rows, the last above the help line)
+        "spacing": 30,
         "rows": [
             ("MASTER VOLUME:", "audio.volume", VOLUMES, "Adjust the overall volume.", None),
             ("MUSIC VOLUME:", "audio.music_volume", VOLUMES, "Adjust the music volume.", None),
@@ -281,8 +282,6 @@ SCREENS = {
             # (the mods folder's tag files: port/linux/game/mods.c, docs/mods.md)
             ("MODS:", "game.mods", ON_OFF,
              "Sound tags from the mods folder replace a map's.\nLocal games only; see docs/mods.md.", None),
-            ("SOUND:", "audio.enabled", ON_OFF,
-             "Turn all sound on or off. Takes effect on restart.", None),
         ],
     },
     # (chat.quick_messages, a list of lines, is in config.toml alone. The
@@ -291,10 +290,10 @@ SCREENS = {
     "network_setup": {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
-        # (a little closer than the other screens', for its eleven rows, JOIN
-        # SCREEN among them: the last, PRIVACY, ends at 371, under the help
-        # line, as Privacy's)
-        "spacing": 27,
+        # (30, as the Xbox's lists, with the help line a little lower for its
+        # ten rows, JOIN SCREEN among them: the last, PRIVACY, ends at 371,
+        # as Privacy's)
+        "spacing": 30,
         "help_top": 376,
         # (its help is its own text, which menu_functions.c reads from its
         # help_strings, and sets to how INSTALL UPDATE's install goes)
@@ -317,8 +316,6 @@ SCREENS = {
              "Join a game from an invite link on the clipboard.", NOT_CONSOLE),
             ("COPY INVITE LINK:", "network.copy_to_clipboard", ON_OFF,
              "Copy your game's invite link when you host.", NOT_CONSOLE),
-            ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
-             "Let a game you host start with only you.", None),
             ("JOIN SCREEN:", "display.join_screen", ON_OFF,
              "Show the loading screen while joining a game.", "desktop android"),
         ],
@@ -1037,7 +1034,7 @@ MT = "main_menu/multiplayer_type_select"
 # in turn: menu_functions.c's gametype_option_help)
 SLAYER_EDIT = "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit"
 STRING_INSERTS = {
-    f"{PE}/profile_edit_options": [(10, ["PRIVACY", "INTERFACE", "CONTROLS", "DISPLAY", "AUDIO", "ONLINE"])],
+    f"{PE}/profile_edit_options": [(10, ["PRIVACY", "INTERFACE", "CONTROLS SETUP", "VIDEO SETUP", "AUDIO SETUP", "NETWORK SETUP"])],
     f"{SLAYER_EDIT}/var_kills_to_win": [(5, ["75", "100", "150", "200", "250", "500"])],
     f"{SLAYER_EDIT}/cap_slayer": [(11, [
         "Seventy-five kills to win.",

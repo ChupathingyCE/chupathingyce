@@ -1340,10 +1340,10 @@
 		<string text="ABOUT"/>
 		<string text="PRIVACY"/>
 		<string text="INTERFACE"/>
-		<string text="CONTROLS"/>
-		<string text="DISPLAY"/>
-		<string text="AUDIO"/>
-		<string text="ONLINE"/>
+		<string text="CONTROLS SETUP"/>
+		<string text="VIDEO SETUP"/>
+		<string text="AUDIO SETUP"/>
+		<string text="NETWORK SETUP"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/cap_video_settings_strings">
 		<string text="Select a display resolution."/>
