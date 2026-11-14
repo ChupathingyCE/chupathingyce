@@ -611,7 +611,8 @@ def _setting_rows(base: str, spec: dict) -> tuple:
             if None in platforms:
                 platform = None if shown else NOT_CONSOLE
             else:
-                platform = " ".join(sorted({name for names in platforms for name in names.split()}))
+                names = {name for names in platforms for name in names.split()}
+                platform = " ".join(name for name in [*NOT_CONSOLE.split(), CONSOLE] if name in names)
             rows.append((f"{base}/op_{key}", platform, place))
             extra += _link_row(base, key, label_index)
         else:

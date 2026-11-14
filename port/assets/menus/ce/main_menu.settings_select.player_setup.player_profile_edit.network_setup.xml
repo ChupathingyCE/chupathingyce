@@ -23,9 +23,9 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_copy_to_clipboard" x="54" y="223" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_start_with_one_player" x="54" y="253" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_start_with_one_player" x="54" y="103" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_updates" x="54" y="283" platform="android desktop switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_chat" x="54" y="313" platform="android desktop switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_privacy" x="54" y="343" platform="android desktop switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_updates" x="54" y="283" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_chat" x="54" y="313" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_privacy" x="54" y="343" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/view_updates" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_auto" x="54" y="73" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_channel" x="54" y="103" platform="desktop android switch"/>
