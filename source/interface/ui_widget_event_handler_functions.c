@@ -949,6 +949,7 @@ boolean playlist_profile_get_options(long playlist_profile_index, struct game_va
 /* port: network co-op from the Chupathingy menus' Select Map
 (port/linux/game/menu_functions.c) */
 boolean pc_menus_host_cooperative_shown(void);
+boolean pc_menus_coop_first_take(void);
 boolean pc_menus_host_cooperative_choose(struct widget_instance *widget, char const *map_name,
 	boolean *widget_deleted);
 #endif
@@ -3156,6 +3157,15 @@ static boolean multiplayer_level_list_initialize(
 	used last left as it is */
 	if (level_count && mcc_maps_level_first(level_names[0]))
 		widget->parameters.list.selected_index = 0;
+#endif
+#ifdef HALO_GAME_BROWSER
+	/* port: from the co-op screen's ONLINE: on the campaign's first level,
+	after the multiplayer maps (menu_functions.c's coop_online) */
+	if (pc_menus_coop_first_take() && pc_menus_host_cooperative_shown() &&
+		level_count > (short)ui_map_list_count())
+	{
+		widget->parameters.list.selected_index = (short)ui_map_list_count();
+	}
 #endif
 #if defined(HALO_MAP_LIST) && !defined(HALO_CONSOLE_NO_DEBUG_TOOLS)
 	/* port: debug.menu_open's "#multiplayer_last": on the last map, for

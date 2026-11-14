@@ -2866,6 +2866,35 @@ static boolean coop_player2_choose(short controller)
 	return TRUE;
 }
 
+/* "port coop online" (the co-op screen's ONLINE, Y): network co-op instead of
+split screen, through the host flow Online Games' CREATE GAME opens (Select
+Map, GAME SETUP, the lobby), one player again, with Select Map on the
+campaign's first level (pc_menus_coop_first_take). #1252 */
+static boolean pc_menus_coop_first;
+
+boolean pc_menus_coop_first_take(void)
+{
+	boolean first = pc_menus_coop_first;
+
+	pc_menus_coop_first = FALSE;
+	return first;
+}
+
+static boolean coop_online(void)
+{
+#ifdef HALO_GAME_BROWSER
+	boolean browser_screen_create_game(void);
+
+	player_spawn_count = 1;
+	player_ui_reset_single_player_local_player_controllers();
+	pc_menus_coop_first = TRUE;
+	if (browser_screen_create_game())
+		return TRUE;
+	pc_menus_coop_first = FALSE;
+#endif
+	return campaign_fail();
+}
+
 /* ---------- Controls Setup: the keyboard and mouse's controls
 (port/linux/include/halo_keyboard.h), shown a group at a time, two
 bindings each */
@@ -10168,6 +10197,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port coop player 2"))
 		{
 			return coop_player2_choose(controller);
+		}
+		else if (!strcmp(name, "port coop online"))
+		{
+			return coop_online();
 		}
 		else if (!strcmp(name, "request del player profile"))
 		{

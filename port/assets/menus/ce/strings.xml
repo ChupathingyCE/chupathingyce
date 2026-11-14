@@ -374,7 +374,7 @@
 		<string text="Join a game by its invite\nlink."/>
 		<string text="Host a game on the\nInternet."/>
 		<string text="Host a game on your LAN\nonly."/>
-		<string text="Play the campaign with a\nfriend in split screen."/>
+		<string text="Play the campaign with a\nfriend in split screen,\nor online."/>
 		<string text="Set all the attributes for your \nmultiplayer gametypes and\nkeep them for future use."/>
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/multiplayer_options">
