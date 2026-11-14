@@ -439,6 +439,19 @@ void platform_video_drawable_size(int *width, int *height)
 	*height = 480;
 }
 
+/* (display.hdr's: the server has no display, and no window) */
+BOOL platform_video_hdr(float *sdr_white, float *headroom)
+{
+	*sdr_white = 1.0f;
+	*headroom = 1.0f;
+	return FALSE;
+}
+
+BOOL platform_video_float_window(void)
+{
+	return FALSE;
+}
+
 void platform_video_window_size(int *width, int *height)
 {
 	*width = 640;
