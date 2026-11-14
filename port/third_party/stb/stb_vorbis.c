@@ -3840,10 +3840,10 @@ static int start_decoder(vorb *f)
       }
 
       if (!compute_codewords(c, lengths, c->entries, values)) {
-         // ChupathingyCE: a sparse codebook's temporaries all go, not the values alone
+         // ChupathingyCE: a sparse codebook's temporary lengths go too (its
+         // codewords are vorbis_deinit's to free)
          if (c->sparse) {
             setup_temp_free(f, values, 0);
-            setup_temp_free(f, c->codewords, sizeof(*c->codewords)*c->sorted_entries);
             setup_temp_free(f, lengths, c->entries);
          }
          return error(f, VORBIS_invalid_setup);
