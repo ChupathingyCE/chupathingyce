@@ -10865,6 +10865,20 @@ static boolean unit_animation_set_state(
 				weapon_animation_name);
 		}
 
+		/* port: Stubbs's graphs leave out states a seat never needs (a
+		fleeing civilian's seat has no turns), and a state with no animation
+		drew the bind pose: in Stubbs mode such a state plays the weapon
+		class's idle instead (Halo's graphs have them all) */
+		if (animation_index == NONE &&
+			weapon_class_animation_index != NONE &&
+			stubbs_mode_active() &&
+			unit_animation_state_can_be_entered_without_animation(new_state) &&
+			_unit_weapon_class_animation_idle < weapon_class->animations.count)
+		{
+			animation_index = animation_graph_animation_index_get(
+				&weapon_class->animations)[_unit_weapon_class_animation_idle].animation_index;
+		}
+
 		if (animation_index == NONE)
 		{
 			if (!unit_animation_state_can_be_entered_without_animation(new_state))
