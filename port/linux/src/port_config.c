@@ -347,6 +347,11 @@ static const struct config_setting config_settings[] =
 	{ "display.shadow_resolution", _config_integer, DEFAULT_SHADOW_RESOLUTION, "HALO_SHADOW_RESOLUTION",
 		_environment_value, _platform_all,
 		"Shadow size in pixels: 128, 256, 512 or 1024. The Xbox used 128." },
+	{ "display.shadow_filtering", _config_boolean, "true", "HALO_SHADOW_FILTERING", _environment_value, _platform_all,
+		"Soften the edges of object shadows, as the Xbox did. false draws\n"
+		"them sharp (best with a higher display.shadow_resolution). The\n"
+		"rasterizer_shadows_convolution console global sets it until this\n"
+		"changes." },
 	{ "display.anisotropic_filtering", _config_integer, "0", "HALO_ANISOTROPIC_FILTERING", _environment_value,
 		_platform_all,
 		"Sharper textures seen at an angle: 0, 2, 4, 8 or 16.\n"
@@ -358,6 +363,11 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_xbox,
 		"The weapon's field of view, from 50 to 120.\n"
 		"0 uses display.field_of_view." },
+	{ "display.vehicle_field_of_view", _config_real, "0.0", "HALO_VEHICLE_FIELD_OF_VIEW", _environment_value,
+		_platform_all | _platform_xbox,
+		"The field of view in a vehicle's seat, from 50 to 120. 0 keeps it\n"
+		"as before: display.field_of_view in first person, the game's own in\n"
+		"third person." },
 	{ "display.reticle_scales_with_fov", _config_boolean, "true", "HALO_RETICLE_SCALES_WITH_FOV", _environment_value,
 		_platform_all | _platform_xbox,
 		"Size the reticle to the field of view, so it matches the weapon's\n"
@@ -812,6 +822,14 @@ static const struct config_setting config_settings[] =
 		"Moving the mouse forward looks down." },
 	{ "input.mouse_aim_assist", _config_boolean, "false", "HALO_MOUSE_AIM_ASSIST", _environment_value, _platform_all,
 		"Give the mouse aim assist, as a controller has." },
+	{ "input.mouse_zoom_sensitivity", _config_real, "1.0", "HALO_MOUSE_ZOOM_SENSITIVITY", _environment_value,
+		_platform_all,
+		"How fast the mouse turns while zoomed in, times the zoom's own\n"
+		"slowing: 1 (100%) as before, 0.5 half as fast." },
+	{ "input.stick_zoom_sensitivity", _config_real, "1.0", "HALO_STICK_ZOOM_SENSITIVITY", _environment_value,
+		_platform_all,
+		"How fast the right stick turns while zoomed in, times the zoom's own\n"
+		"slowing: 1 (100%) as before, 0.5 half as fast." },
 	{ "input.keyboard_prompts", _config_boolean, "true", "HALO_KEYBOARD_PROMPTS", _environment_value, _platform_desktop,
 		"Show keys in button prompts while you use the keyboard and mouse." },
 	{ "input.touch_controls", _config_string, "\"on\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
@@ -894,6 +912,9 @@ static const struct config_setting config_settings[] =
 	{ "controls.voice_channel", _config_string, "\"B\"", "HALO_KEY_VOICE_CHANNEL", _environment_value, _platform_all,
 		"Switch the voice channel you talk on: party, team, proximity.\n"
 		"On a controller, press the D-pad left." },
+	{ "controls.vehicle_secondary_fire", _config_string, "\"\"", "HALO_KEY_VEHICLE_SECONDARY_FIRE", _environment_value,
+		_platform_all,
+		"A vehicle's secondary fire. Empty uses the grenade key, as before." },
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	{ "controls.controller_layout", _config_string, "\"\"", "HALO_CONTROLLER_LAYOUT", _environment_value,
 		_platform_all,

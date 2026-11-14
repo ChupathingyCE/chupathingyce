@@ -840,7 +840,7 @@ static const char *const binding_settings[NUMBER_OF_HALO_KEYBOARD_ACTIONS] =
 	"controls.jump", "controls.crouch", "controls.fire", "controls.throw_grenade", "controls.melee",
 	"controls.reload", "controls.zoom", "controls.switch_weapon", "controls.switch_grenade", "controls.action",
 	"controls.flashlight", "controls.scoreboard", "controls.pause", "controls.chat_all", "controls.chat_team",
-	"controls.chat_log", "controls.push_to_talk", "controls.voice_channel",
+	"controls.chat_log", "controls.push_to_talk", "controls.voice_channel", "controls.vehicle_secondary_fire",
 };
 
 static const struct
@@ -1030,6 +1030,21 @@ static void bindings_read(void)
 			text += length;
 		}
 	}
+}
+
+int halo_keyboard_action_bound(int action)
+{
+	int slot;
+
+	if (action < 0 || action >= NUMBER_OF_HALO_KEYBOARD_ACTIONS)
+		return FALSE;
+	bindings_read();
+	for (slot = 0; slot < MAXIMUM_BINDINGS; slot++)
+	{
+		if (bindings[action][slot] >= 0)
+			return TRUE;
+	}
+	return FALSE;
 }
 
 static BOOL input_held(const struct platform_input_state *input, int code)

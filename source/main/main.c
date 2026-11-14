@@ -382,6 +382,7 @@ symbols in this file:
 #include "networking/network_server_manager.h" /* port: a co-op game's level won */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "camera/director.h"
+#include "units/units.h" /* port: the vehicle field of view */
 #include "camera/observer.h"
 #include "cutscene/cinematics.h"
 #include "effects/player_effects.h"
@@ -1218,6 +1219,103 @@ static real first_person_field_of_view_scale(
 	return scale;
 }
 
+/* port: display.vehicle_field_of_view, the view's width in degrees in a
+vehicle's seat, driver, gunner or passenger, first or third person, as the
+tangent scale first_person_field_of_view_scale gives: 50 to 120; 0 (the
+default) as before, a first-person seat at display.field_of_view and a
+third-person one at the game's own. On foot the third-person views (death,
+the neutral one) keep the game's, as before. */
+static real vehicle_field_of_view_scale(
+	short perspective)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static real scale = 0.f;
+
+	if (read_at != config_changes())
+	{
+		real degrees = (real)config_real("display.vehicle_field_of_view");
+
+		read_at = config_changes();
+		if (!valid_real(degrees) || degrees <= 0.0f)
+			scale = 0.f;
+		else
+		{
+			degrees = PIN(degrees, 50.0f, 120.0f);
+			scale = tangent(DEGREES_TO_RADIANS(degrees) * 0.5f) / tangent(DEGREES_TO_RADIANS(70.0f) * 0.5f);
+		}
+	}
+
+	if (scale > 0.f)
+		return scale;
+	return perspective == _director_perspective_first_person ? first_person_field_of_view_scale() : 1.f;
+}
+
+/* port: whether the local player's unit sits in a vehicle's seat */
+static boolean local_player_seated(
+	short local_player_index)
+{
+	long player_index = local_player_get_player_index(local_player_index);
+	struct player_datum *player = player_index != NONE ? player_try_and_get(player_index) : NULL;
+	struct unit_datum *unit = player && player->unit_index != NONE ? unit_try_and_get(player->unit_index) : NULL;
+
+	return unit && unit->object.parent_object_index != NONE && unit->unit.parent_seat_index != NONE;
+}
+
+/* port: the view's tangent scale for each local player this frame
+(local_view_field_of_view_update): what set_window_camera_values widens
+the view by and the reticle is sized by, so both are the same frame's */
+static real local_view_scales[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS] = { 1.f, 1.f, 1.f, 1.f };
+/* how far each is into a vehicle's view, 0 on foot to 1 seated, and when */
+static real local_view_vehicle_weights[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+static unsigned long local_view_times[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+
+/* the time getting in or out eases the view between the two widths over */
+#define VEHICLE_VIEW_EASE_MILLISECONDS 500
+
+/* port: the local player's view scale, once a frame: in first person
+display.field_of_view's; in a vehicle's seat display.vehicle_field_of_view's,
+eased between the two over half a second (smoothstep) as the unit gets in
+or out, turning back from where it is if that reverses; the game's own
+in any other view (a scripted camera, death), which also ends an ease, so
+a respawn starts at the view on foot at once */
+static real local_view_field_of_view_update(
+	short local_player_index)
+{
+	short perspective;
+	unsigned long now = system_milliseconds();
+	real step, weight, on_foot;
+
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+		return 1.f;
+	perspective = director_get_perspective(local_player_index);
+	step = (real)(now - local_view_times[local_player_index]) / (real)VEHICLE_VIEW_EASE_MILLISECONDS;
+	local_view_times[local_player_index] = now;
+	if (perspective != _director_perspective_first_person && perspective != _director_perspective_third_person)
+	{
+		local_view_vehicle_weights[local_player_index] = 0.f;
+		return local_view_scales[local_player_index] = 1.f;
+	}
+	if (!local_player_seated(local_player_index))
+	{
+		if (perspective != _director_perspective_first_person)
+		{
+			/* (third person on foot: death's view) */
+			local_view_vehicle_weights[local_player_index] = 0.f;
+			return local_view_scales[local_player_index] = 1.f;
+		}
+		step = -step;
+	}
+	weight = PIN(local_view_vehicle_weights[local_player_index] + PIN(step, -1.f, 1.f), 0.f, 1.f);
+	local_view_vehicle_weights[local_player_index] = weight;
+	weight = weight * weight * (3.f - 2.f * weight);
+	/* (the view on foot that a vehicle's eases from: first person's; a seat
+	that the game shows in third person starts at the game's own) */
+	on_foot = perspective == _director_perspective_first_person ? first_person_field_of_view_scale() : 1.f;
+	local_view_scales[local_player_index] = on_foot + (vehicle_field_of_view_scale(perspective) - on_foot) * weight;
+
+	return local_view_scales[local_player_index];
+}
+
 /* port: display.viewmodel_field_of_view, the first-person weapon's and
 arms' own view width in degrees across a 4:3 picture (0, the default: the
 view's, display.field_of_view; else 50 to 120), as what the first-person
@@ -1266,13 +1364,14 @@ real first_person_reticle_scale(
 		enabled = config_boolean("display.reticle_scales_with_fov") != 0;
 	}
 	if (!enabled ||
-		local_player_index == NONE ||
+		local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS ||
 		director_get_perspective(local_player_index) != _director_perspective_first_person)
 	{
 		return 1.0f;
 	}
 
-	return 1.0f / first_person_field_of_view_scale();
+	/* (this frame's view's: local_view_field_of_view_update) */
+	return 1.0f / local_view_scales[local_player_index];
 }
 
 /* port: TRUE when display.field_of_view has the first-person view at
@@ -1281,9 +1380,9 @@ rasterizer_xbox_environment_fog.c) */
 boolean first_person_field_of_view_widened(
 	short local_player_index)
 {
-	return local_player_index != NONE &&
+	return local_player_index >= 0 && local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS &&
 		director_get_perspective(local_player_index) == _director_perspective_first_person &&
-		first_person_field_of_view_scale() != 1.0f;
+		local_view_scales[local_player_index] != 1.0f;
 }
 
 /* port: display.far_clip_distance, how far the world is drawn (1024 as on
@@ -1309,20 +1408,49 @@ static real far_clip_distance_floor(
 	return distance;
 }
 
+#ifndef HALO_XBOX_CONSOLE
+/* port: display.shadow_filtering, the object shadows' blur (the
+rasterizer_shadows_convolution console global, on as on the Xbox): set to
+the setting when it changes, so the console global still overrides it
+until the setting itself changes again. The original Xbox keeps its own. */
+static void shadow_filtering_apply(
+	void)
+{
+	extern int config_boolean(char const *name);
+	static unsigned long read_at = (unsigned long)-1;
+	static int applied = -1;
+
+	if (read_at != config_changes())
+	{
+		int value = config_boolean("display.shadow_filtering") != 0;
+
+		read_at = config_changes();
+		/* (only when the setting itself changes: a change of another
+		leaves the console global as it was set) */
+		if (value != applied)
+		{
+			applied = value;
+			rasterizer_debug_options.shadow_convolution_enabled = (boolean)value;
+		}
+	}
+}
+#endif
+
 void set_window_camera_values(
 	struct render_window *window,
 	struct observer_result const *observer)
 {
+#ifndef HALO_XBOX_CONSOLE
+	shadow_filtering_apply();
+#endif
 	if (observer)
 	{
 		real field_of_view_tangent = render_camera_get_adjusted_field_of_view_tangent(observer->field_of_view);
 
-		/* port: display.field_of_view, in first person */
-		if (window->local_player_index != NONE &&
-			director_get_perspective(window->local_player_index) == _director_perspective_first_person)
-		{
-			field_of_view_tangent *= first_person_field_of_view_scale();
-		}
+		/* port: display.field_of_view, in first person, and
+		display.vehicle_field_of_view in a vehicle's seat */
+		if (window->local_player_index != NONE)
+			field_of_view_tangent *= local_view_field_of_view_update(window->local_player_index);
 		window->rasterizer_camera.position = observer->position;
 		window->rasterizer_camera.forward = observer->forward;
 		window->rasterizer_camera.up = observer->up;
