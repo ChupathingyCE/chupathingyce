@@ -475,7 +475,12 @@ static int mcc_resources_inspect(char const *name,struct mcc_cache_source const 
     status=mcc_cache_load(source,raw,identity.tag_data_size,&runtime.report);
     problem=mcc_status_explanation(status);
     if (status!=MCC_CACHE_OK) goto done;
-    ok=mcc_resources_select(&runtime,raw);
+    /* (a joined game's base resources: the sets that matched the host's SHA-256) */
+    {
+        char chosen[2][128];
+        ok=mcc_resources_select_paths(&runtime,raw,
+            mcc_identity_resources(name,chosen) ? (char const (*)[128])chosen : NULL);
+    }
     problem="The required MCC resources could not be checked. See debug.txt for the failing check.";
     if (ok && digest) ok=mcc_resources_fingerprint(&runtime,digest);
     if (ok && checksum) ok=mcc_resources_checksum(&runtime,

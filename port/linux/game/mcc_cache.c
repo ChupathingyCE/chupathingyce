@@ -78,8 +78,13 @@ static int mcc_cache_probe(char const *name, struct mcc_cache_source const *sour
     char *reason, size_t reason_size)
 {
     struct mcc_precache_snapshot before, after;
+    char chosen[2][128];
     int stamped = mcc_precache_snapshot(name, &before);
     if (reason && reason_size) reason[0]=0;
+    /* (a joined game's own base resources, picked by the host's SHA-256: never
+     * a result kept from the loader's own choice) */
+    if (mcc_identity_resources(name, chosen))
+        return mcc_resources_probe_explain(name, source, checksum, reason, reason_size);
     if (mcc_validation_lookup(name, checksum, NULL)) return 1;
     if (stamped && mcc_validation.checksum && !strcmp(name, mcc_validation.name) &&
         !memcmp(&before, &mcc_validation.files, sizeof(before))) {
