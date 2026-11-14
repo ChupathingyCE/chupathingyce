@@ -7204,6 +7204,26 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	for a surface without Data, which d3d8_surface_initialize leaves when
 	contiguous memory runs out, and logs; #1298) */
 	back_buffer = device.gl_ready ? render_target_get(&device.back_buffer) : NULL;
+	if (device.gl_ready && !back_buffer)
+	{
+		/* (said once: the frame is skipped, the window left black, and
+		debug.txt says why) */
+		static BOOL said;
+
+		if (!said)
+		{
+			unsigned long width = 0, height = 0;
+			BOOL depth = FALSE;
+			int window_width = 0, window_height = 0;
+
+			said = TRUE;
+			surface_dimensions(&device.back_buffer, &width, &height, &depth);
+			platform_video_drawable_size(&window_width, &window_height);
+			platform_log("Direct3D: no back buffer to present (data %08lx, %lux%lu, format %08lx, window %dx%d): "
+				"frames are skipped", (unsigned long)device.back_buffer.Data, width, height,
+				(unsigned long)device.back_buffer.Format, window_width, window_height);
+		}
+	}
 	if (back_buffer)
 	{
 		int window_width, window_height, width, height, x, y;
