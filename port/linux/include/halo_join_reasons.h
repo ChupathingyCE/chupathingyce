@@ -64,7 +64,7 @@ enum join_reason
 /* %s: the family, "Halo PC" or "HaloMD" */
 #define JOIN_REASON_MAPS_UNSUPPORTED "%s maps don't work on this build."
 /* %s: the game type's name */
-#define JOIN_REASON_OPENCE_GAME_TYPE "Uses an OpenCE game type Chupathingy doesn't have yet: %s."
+#define JOIN_REASON_OPENCE_GAME_TYPE "Uses a game type Chupathingy doesn't have yet: %s."
 #define JOIN_REASON_NEEDS_BOMB "Needs a Chupathingy build with Bomb."
 #define JOIN_REASON_NOT_OPEN "Not taking players right now."
 #define JOIN_REASON_FULL "Game is full."
@@ -129,7 +129,7 @@ game list does (an OpenCE master lists it: browser.c, field 24). The same
 words in Online Games, the Server Browser and the site's game list (puma,
 web/site.js HOST_LABEL_OPENCE_SERVER); a description, never a badge or a
 judgment, and it grants nothing */
-#define HOST_LABEL_OPENCE_SERVER "OpenCE dedicated"
+#define HOST_LABEL_OPENCE_SERVER "Legacy server"
 
 /* a reason as a wide string (menu_functions.c's text): JOIN_WIDE(JOIN_REASON_FULL) */
 #define JOIN_WIDE_TEXT(text) L##text
