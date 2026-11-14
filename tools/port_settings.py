@@ -63,7 +63,9 @@ SCREENS = {
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
         # (close together, for the twelve rows of INTERFACE to fit above a
         # help line, which sits lower than other screens' for them)
-        "spacing": 24,
+        # (22, not the 24 of the other screens: thirteen lines, with VARIABLE
+        # REFRESH and HDR SETUP, above the help line)
+        "spacing": 22,
         "help_top": 362,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
