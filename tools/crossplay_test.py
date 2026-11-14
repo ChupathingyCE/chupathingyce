@@ -24,7 +24,7 @@ build brings its own SDL 3 (libSDL3.so.0 beside the game), for OpenCE builds
 that need a newer SDL 3 than the machine has. `check` checks an earlier
 run's logs again.
 
---ours-table names a legacy table file (docs/delta.md, "Local override")
+--ours-table names a legacy table file (docs/delta-implementation.md, "Local override")
 for our copies: how a build is made to announce, and join, an OpenCE number
 its built-in table doesn't have yet, which is the claim the test checks
 before a published table makes it. Without it ours uses what it was built
@@ -995,7 +995,7 @@ def main():
     run_parser.add_argument("--server", help="ChupathingyCE's dedicated server, for the server step")
     run_parser.add_argument("--server-gametype", default="slayer", choices=["slayer", "ctf"],
                             help="the server's game (slayer): in CTF a Delta server also writes the old "
-                                 "advertisement layout for released clients (docs/delta.md, \"The transition\")")
+                                 "advertisement layout for released clients (docs/delta/peer.md, \"The transition\")")
     run_parser.add_argument("--ce-maps", help="a folder of Custom Edition maps (and bitmaps.map, sounds.map, loc.map), "
                             "as both builds' custom_maps; then --map custom_maps\\NAME plays one")
     run_parser.add_argument("--ours-table", help="a legacy table file for our copies (HALO_LEGACY_TABLE)")

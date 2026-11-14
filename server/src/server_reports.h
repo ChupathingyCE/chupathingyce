@@ -1,7 +1,7 @@
 /*
 SERVER_REPORTS.H
 
-Players' reports of other players (docs/delta.md, Reports;
+Players' reports of other players (docs/delta/peer.md, Reports;
 server/docs/moderation.md): the moderators' queue. A ChupathingyCE player
 reports another from DELTA's PLAYERS HERE or the scoreboard (Delta Peer's
 REPORT); server_reports.c (the game's main thread) checks it and makes the
@@ -79,7 +79,7 @@ struct server_report
 /* ---------- the limits on reports (the main thread's)
 
 Each counted by who reports and who is reported: a verified player's
-account (their proof bound to this server: docs/delta.md, "Verified
+account (their proof bound to this server: docs/delta/peer.md, "Verified
 names"), else the player themselves this game (their datum index, which a
 new player in a slot someone left, or the same player back after leaving,
 never has). Never by a machine's slot. A reporter: 3 a minute, 10 a game,

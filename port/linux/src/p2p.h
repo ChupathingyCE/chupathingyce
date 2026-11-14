@@ -78,7 +78,7 @@ int p2p_peer_address(const unsigned char *identifier, unsigned long *address);
 is open, and network.ping_games), the hosts asked about may be probed; never
 when internet play is off */
 void p2p_probe_browse(int on);
-/* Delta's doorbell (browser.c; docs/delta.md, "The doorbell"): listened
+/* Delta's doorbell (browser.c; docs/delta/link.md, "The doorbell"): listened
 for over the signalling connections to our brokers, NULL or "" for none
 (0 while internet play is off: nothing taken); and the rings heard since
 the last call */

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Makes, signs and checks Delta's legacy table (docs/delta.md, "The legacy
-table as config"; the game's side is port/linux/src/delta.c).
+"""Makes, signs and checks Delta's legacy table (docs/delta/versioning.md, "The
+signed table"; the game's side is port/linux/src/delta.c).
 
 The table is a JSON document, legacy.json:
 
@@ -12,7 +12,7 @@ The table is a JSON document, legacy.json:
 
 ("platform_policy" is optional and reserved: per-platform limits Delta Peer
 is to read, each bounded by the build's own hard limits). A row of a wire
-from chupa-38a on may carry "layouts" (docs/delta.md, "Layouts"): facts
+from chupa-38a on may carry "layouts" (docs/delta/versioning.md, "Layouts"): facts
 about OpenCE versions, by version, that its builds read by data:
 
     "chupa-38a": {"announce": 32, "minimum": 11, "maximum": 39,
@@ -27,14 +27,14 @@ a fact holding until the next,
 and used by a build only past its own DELTA_LEGACY_NEWEST and within
 network_rules.h's limits (this tool refuses a fact past them).
 
-A row may also carry "hosting" (docs/delta.md, "Auto-announce"): versions
+A row may also carry "hosting" (docs/delta/versioning.md, "Auto-announce"): versions
 the cross-play gate proved for hosting alone, oldest first, past its
 announce; builds from auto-announce on announce the newest, older ones skip
 it:
 
     "chupa-39a": {"announce": 39, "minimum": 11, "maximum": 40, "hosting": [41]}
 
-A row of a wire from chupa-41a on may also carry "requires" (docs/delta.md,
+A row of a wire from chupa-41a on may also carry "requires" (docs/delta/versioning.md,
 "Host protections"): the host protections (delta.h's DELTA_HOST_PROTECTIONS)
 a host must have to announce any number the row proves past its build's
 own; a build without one announces its own number and still joins the row's

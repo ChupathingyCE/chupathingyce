@@ -89,7 +89,7 @@ def wire_key(name):
 
 def test_console_floor():
     """every wire from the console floor on reaches back to it
-    (DELTA_WIRE_CONSOLE_FLOOR, docs/delta.md, "The console floor"): the
+    (DELTA_WIRE_CONSOLE_FLOOR, docs/delta/versioning.md, "The console floor"): the
     oldest wire a console build in the wild plays, so that a new PC wire
     never splits the consoles from the PCs. Raise the floor only when every
     console port has shipped a newer wire."""
@@ -701,7 +701,7 @@ def test_loader_says_once_that_no_table_is_published(checker, tmp_path):
 
 # each released wire's newest version (DELTA_WIRE_LEGACY_NEWEST): never
 # changed once released, a build that learns a newer version's rules has a
-# new wire (docs/delta.md, "When the wire changes")
+# new wire (docs/delta/versioning.md, "When the wire changes")
 RELEASED_WIRE_NEWEST = {"chupa-28a": 28, "chupa-29a": 29, "chupa-32a": 33, "chupa-38a": 38, "chupa-39a": 39,
                        "chupa-41a": 41, "chupa-43a": 43, "chupa-44a": 44}
 
@@ -980,7 +980,7 @@ def test_loader_drops_bad_layouts(keys, checker, tmp_path, name, layouts):
     assert " serial 0 " in state_line(output)[0], name
 
 
-# OpenCE's 43 as a row of the table (chupa-43a's facts; docs/delta.md, "Layouts")
+# OpenCE's 43 as a row of the table (chupa-43a's facts; docs/delta/versioning.md, "Layouts")
 FACT_43 = {"settings_size": 13200, "join_request_extra": 236, "join_request_fill": "zeros",
            "join_request_version_at": 234, "header_extra": 4, "epoch_kind": 96,
            "unit_state_parts": [{"bit": 7, "size": 28, "at": "after_up"}, {"bit": 6, "size": 30, "at": "last"}],

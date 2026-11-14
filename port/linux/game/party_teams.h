@@ -2,7 +2,7 @@
 PARTY_TEAMS.H
 
 Keeping a party on one team in team games this machine hosts
-(party_teams.c; docs/delta.md, Party teams).
+(party_teams.c; docs/delta/peer.md, Party teams).
 */
 
 #ifndef __PARTY_TEAMS_H

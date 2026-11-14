@@ -1,7 +1,7 @@
 /*
 IDENTITY.C
 
-Delta's device identity, stage A (identity.h; docs/delta.md, "Device
+Delta's device identity, stage A (identity.h; docs/delta/link.md, "Device
 identity"). No SDL and no game: the certificates, the signed messages, the
 requests' text and the schedule. browser.c's thread holds the files and
 does the asking.

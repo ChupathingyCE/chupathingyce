@@ -2,7 +2,7 @@
 CHAT.H
 
 Text chat between Chupathingy machines, bridged to OpenCE's (chat.c;
-docs/delta.md, Chat).
+docs/delta/peer.md, Chat).
 */
 
 #ifndef __CHAT_H

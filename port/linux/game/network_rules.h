@@ -184,7 +184,7 @@ enum
 };
 
 /* the game modes as a build says them in its HELLO and WELCOME (Delta Peer's
-modes field, docs/delta.md, "Game modes"): a bit a game type it plays by
+modes field, docs/delta/peer.md, "Game modes"): a bit a game type it plays by
 OpenCE's version 35 rules. A host's game needs the bits of its mode and of
 Hardcore (network_rules_modes_needed); a machine without them is refused
 (network_rules_mode_refusal). NETWORK_RULES_MODES_PLAYED is what this build
@@ -458,7 +458,7 @@ struct network_rules_layout
 };
 
 /* ---------- chupa-43a's facts: generic, so that a version's layout of them
-is a table row (docs/delta.md, "Layouts")
+is a table row (docs/delta/versioning.md, "Layouts")
 
 The join request's version word: 16 bits in the packet codec's order
 (big-endian, as the request's other shorts), at a fact's offset

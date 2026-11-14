@@ -1,7 +1,7 @@
 /*
 MODERATION_SCREEN.C
 
-Moderation in the game (configure.py --game-browser; docs/delta.md,
+Moderation in the game (configure.py --game-browser; docs/delta/peer.md,
 Moderation): on a dedicated server that speaks Delta Peer and offers
 moderation (delta_moderation.h), a moderator signs in with the moderator
 key made from their player key, and warns, kicks or bans players and ends

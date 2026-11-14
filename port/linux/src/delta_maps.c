@@ -1,7 +1,7 @@
 /*
 DELTA_MAPS.C
 
-Halo PC maps' identity for Delta Peer's ce_maps capability (docs/delta.md,
+Halo PC maps' identity for Delta Peer's ce_maps capability (docs/delta/peer.md,
 "Map identity"): a map's family, its file's name, its size and the
 BLAKE2b-256 hash of every byte of it, as MAP carries them (delta_wire.h).
 

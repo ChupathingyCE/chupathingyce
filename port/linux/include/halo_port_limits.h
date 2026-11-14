@@ -123,7 +123,7 @@ so the range is the client's. */
 #define HALO_PORT_NETWORK_VERSION_MINIMUM 11
 #define HALO_PORT_NETWORK_VERSION_MAXIMUM 45
 /* ... the numbers in use (port/linux/src/delta.c): the three above, until a
-legacy table (docs/delta.md) widens them; code asks these, not the numbers */
+legacy table (docs/delta/versioning.md) widens them; code asks these, not the numbers */
 int delta_legacy_announce(void);
 int delta_legacy_minimum(void);
 int delta_legacy_maximum(void);

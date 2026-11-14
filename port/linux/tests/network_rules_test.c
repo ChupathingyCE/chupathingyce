@@ -1046,7 +1046,7 @@ static void test_layout_record(void)
 }
 
 /* the facts of OpenCE's network version 43 as a table row says them
-(docs/delta.md, "Layouts"): the record 64 bytes longer, the join request's
+(docs/delta/versioning.md, "Layouts"): the record 64 bytes longer, the join request's
 version word, the 12-byte header with its checkpoint epoch and boundary (96), the unit
 state's deck (bit 7, 28 bytes after the up) and scripted pose (bit 6, 30
 bytes last), riders thrown from a vehicle on its side, and the MCC-only

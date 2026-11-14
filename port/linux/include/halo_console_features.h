@@ -65,7 +65,7 @@ HALO_CONSOLE_NO_MEDAL_ICONS
 	(HALO_GAME_BROWSER), which no console build has
 HALO_CONSOLE_NO_DELTA_IDENTITY
 	no device key, device certificate or site token (port/linux/src/
-	identity.c, browser.c; docs/delta.md, "Device identity"), and no
+	identity.c, browser.c; docs/delta/link.md, "Device identity"), and no
 	verified names in games (Delta Peer's identity capability, never
 	offered: "Verified names"): every console for now, until their own
 	endpoints come; the player key alone, and game names, as before
@@ -342,7 +342,7 @@ HALO_CONSOLE_HOST_PLAYERS
 	the most players a game this console hosts takes, whatever its network
 	tables hold (HALO_CONSOLE_PLAYERS) and whatever Delta says: the original
 	Xbox hosts 16, on LAN or online, and joins games of up to 32 in its
-	builds of 32 (network_server_manager.c's hosted maximum; docs/delta.md,
+	builds of 32 (network_server_manager.c's hosted maximum; docs/delta/peer.md,
 	"Platform policy"). Without it a host takes as many as its tables hold
 HALO_CONSOLE_SERVER_CLOSE_GRACE
 	the original game's one-second wait when a hosted game ends, before the

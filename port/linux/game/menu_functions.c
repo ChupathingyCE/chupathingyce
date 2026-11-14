@@ -5713,7 +5713,7 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 	return browser_game_version_state(listed);
 }
 
-/* the Rules line's host, when the list has it (docs/delta.md, Delta List):
+/* the Rules line's host, when the list has it (docs/delta/list.md, Delta List):
 " (MAC HOST, DELTA)", " (DEDICATED, LINUX, DELTA)", " (OPENCE LEGACY, NETWORK
 32)"; a listing the list lacks while it answers is OpenCE's; "" if not known */
 static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *text, short size)
