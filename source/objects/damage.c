@@ -142,6 +142,7 @@ symbols in this file:
 #include "mcc_ui_teams.h"
 #include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_regions.h" /* port: port/linux/game/stubbs_regions.c */
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
 
 /* network_game_globals.c's */
@@ -2746,12 +2747,14 @@ static void object_permutation_shield_regions(
 	struct collision_model *collision_model =
 		collision_model_definition_get(definition->object.collision_model.index);
 	short region_index;
+	short region_count;
+	byte *region_permutations = object_get_region_permutations(object_index, &region_count);
 
 	/* port: no more regions than the object's region_permutations holds (a
 	map's count; past them are the change colors and the node blocks; retail
 	has up to 5) */
 	for (region_index = 0;
-		region_index < MIN(collision_model->resistance.regions.count, MAXIMUM_REGIONS_PER_OBJECT);
+		region_index < MIN(collision_model->resistance.regions.count, region_count);
 		region_index++)
 	{
 		struct damage_region *region = TAG_BLOCK_GET_ELEMENT(
@@ -2762,9 +2765,10 @@ static void object_permutation_shield_regions(
 		if (TEST_FLAG(region->flags, _object_region_missing_when_shield_is_zero_bit) &&
 			region->permutations.count > 1)
 		{
-			object->object.region_permutations[region_index] = !active;
+			region_permutations[region_index] = !active;
 		}
 	}
+	stubbs_regions_changed(object_index); /* port: Stubbs mode only */
 
 	return;
 }

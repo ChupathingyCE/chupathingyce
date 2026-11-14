@@ -374,6 +374,9 @@ short object_get_next_cluster(struct object_cluster_iterator *iterator, long obj
 void *object_try_and_get_and_verify_type(long object_index, unsigned long valid_type_flags);
 void *object_get_and_verify_type(long object_index, unsigned long valid_type_flags);
 void object_iterator_new(struct object_iterator *iterator, unsigned long type_flags, byte flags);
+/* port: the object's region permutations and the regions they cover (its
+own eight, or Stubbs mode's sixteen: port/linux/game/stubbs_regions.c) */
+byte *object_get_region_permutations(long object_index, short *region_count);
 void *object_iterator_next(struct object_iterator *iterator);
 long object_get_ultimate_parent(long object_index);
 void object_add_scenario_permutation(long object_index, struct scenario_object_permutation *permutation);
