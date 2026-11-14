@@ -235,6 +235,8 @@ static void keyboard_hold_ticks(
 	return;
 }
 
+static boolean local_player_is_seated(short controller_index);
+
 static void keyboard_controls_update(
 	long controller_index,
 	struct game_input_state *state)
@@ -242,6 +244,17 @@ static void keyboard_controls_update(
 	unsigned long held = halo_keyboard_actions((short)controller_index);
 	long control_index;
 	long x, y;
+
+	/* (controls.vehicle_secondary_fire, when it has a key: in a vehicle's
+	seat the grenade control, a vehicle's secondary fire, is its key's and
+	not the grenade key's) */
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+	if (halo_keyboard_action_bound(HALO_KEYBOARD_VEHICLE_SECONDARY_FIRE) &&
+		local_player_is_seated((short)controller_index))
+	{
+		SET_FLAG(held, HALO_KEYBOARD_THROW_GRENADE, TEST_FLAG(held, HALO_KEYBOARD_VEHICLE_SECONDARY_FIRE));
+	}
+#endif
 
 	for (control_index = 0; control_index < NUMBER_OF_GAME_CONTROLS; control_index++)
 	{
@@ -1018,6 +1031,22 @@ void input_abstraction_update(
 }
 
 /* ---------- private code */
+
+/* port: whether the controller's local player sits in a vehicle's seat */
+static boolean local_player_is_seated(
+	short controller_index)
+{
+	long player_index;
+	struct player_datum *player;
+	struct unit_datum *unit;
+
+	if (controller_index < 0 || controller_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+		return FALSE;
+	player_index = local_player_get_player_index(controller_index);
+	player = player_index != NONE ? player_try_and_get(player_index) : NULL;
+	unit = player ? unit_try_and_get(player->unit_index) : NULL;
+	return unit && unit->object.parent_object_index != NONE && unit->unit.parent_seat_index != NONE;
+}
 
 static boolean local_player_is_piloting_aircraft(
 	short controller_index)

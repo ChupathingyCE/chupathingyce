@@ -216,6 +216,7 @@ symbols in this file:
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
 #include "stubbs_engine.h" /* port: port/linux/game/stubbs_engine.c */
 #include "stubbs_possession.h" /* port: port/linux/game/stubbs_possession.c */
+#include "main/console.h" /* port: console_is_active */
 
 /* ---------- constants */
 
@@ -386,6 +387,33 @@ boolean player_autoaim_flag = TRUE;
 boolean player_magnetism_flag = TRUE;
 boolean controls_swapped = TRUE;
 real player_look_zoomed_scale = 0.5f;
+
+/* port: how much a zoomed view turns, on top of the zoom's own slowing
+(retail's turn divided by the magnification): input.mouse_zoom_sensitivity
+for the mouse and input.stick_zoom_sensitivity for the stick, 1 (100%) by
+default; a build without them (the original Xbox's) reads 0, retail's 1 */
+static real player_control_zoom_sensitivity(
+	boolean mouse)
+{
+	extern double config_real(char const *name);
+	extern unsigned long config_changes(void);
+	static unsigned long read_at = (unsigned long)-1;
+	static real sensitivities[2] = { 1.f, 1.f };
+
+	if (read_at != config_changes())
+	{
+		short index;
+
+		read_at = config_changes();
+		for (index = 0; index < 2; index++)
+		{
+			real value = (real)config_real(index ? "input.mouse_zoom_sensitivity" : "input.stick_zoom_sensitivity");
+
+			sensitivities[index] = valid_real(value) && value > 0.f ? PIN(value, 0.1f, 4.f) : 1.f;
+		}
+	}
+	return sensitivities[mouse ? 1 : 0];
+}
 
 static struct profile_section player_control_update_section = {"player_control_update", NONE, TRUE};
 
@@ -1279,6 +1307,8 @@ static void get_local_player_input_blob(
 							player->unit_index,
 							control->zoom_level);
 
+						/* port: input.stick_zoom_sensitivity */
+						inverse_zoom *= player_control_zoom_sensitivity(FALSE);
 						look_delta.yaw *= inverse_zoom;
 						look_delta.pitch *= inverse_zoom;
 					}
@@ -1382,7 +1412,8 @@ static void get_local_player_input_blob(
 						real mouse_yaw;
 						real mouse_pitch;
 
-						if (halo_linux_mouse_look(gamepad_index, &mouse_yaw, &mouse_pitch))
+						/* (port: read, and let go of, while the console is open) */
+						if (halo_linux_mouse_look(gamepad_index, &mouse_yaw, &mouse_pitch) && !console_is_active())
 						{
 							if (player->unit_index != NONE && control->zoom_level != NONE)
 							{
@@ -1390,6 +1421,8 @@ static void get_local_player_input_blob(
 									player->unit_index,
 									control->zoom_level);
 
+								/* port: input.mouse_zoom_sensitivity */
+								inverse_zoom *= player_control_zoom_sensitivity(TRUE);
 								mouse_yaw *= inverse_zoom;
 								mouse_pitch *= inverse_zoom;
 							}

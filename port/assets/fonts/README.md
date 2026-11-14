@@ -14,6 +14,7 @@ instead (`display.high_res_font`, from `data/fonts/` beside the maps).
 | `CyborgInterfaceGothic-Regular.ttf` | `ui\large_ui`, `ui\interstate`, `ui\small_ui`, our own screens' text, Chupathingy's loading picture, and the titles when `display.title_font` is `"cyborg"` (`port/assets/titles_cyborg`) | Cyborg Interface Gothic by fizzy (below) |
 | `ChupathingyTitles-Regular.ttf` | the menus' titles, as pictures (`port/assets/titles`), and our own screens' titles: `display.title_font = "classic"`, the default | Chupathingy Titles: Newtown, respaced for this project (`tools/title_font.py`) |
 | `Newtown-Regular.ttf` | (Chupathingy Titles' source) | Newtown by Roger White, unmodified |
+| `Hack-Bold.ttf` | the console's text (`terminal.c`), the `"console"` role in `fonts.json`: never a player's font | Hack 3.003 by Source Foundry, Bold, unmodified (below) |
 | `Overpass-900.ttf` | (drew the large tags until 0.8.0) | Overpass, weight 900 (Black) |
 | `Overpass-750.ttf` | (drew `ui\small_ui` until 0.8.0) | Overpass, weight 750 |
 
@@ -39,6 +40,15 @@ Withrington) follows the same Highway Gothic road-sign alphabet and is
 under the SIL Open Font License 1.1 (`Overpass-OFL.txt`), without a
 Reserved Font Name. Matched against the maps' glyphs, its weights 900 and 750 overlap
 them as much as Interstate Bold does, at the same letter widths.
+
+The console (the `~` key) is drawn in Hack Bold, the font Chimera draws
+its console in, with the high-res text on: a monospaced font made for code
+from Bitstream Vera Sans Mono and DejaVu Sans Mono, a little smaller than
+the map's console font so more of a line fits. It is `Hack-Bold.ttf` from
+Hack's release v3.003 (https://github.com/source-foundry/Hack), unmodified,
+under the MIT License for Hack's work and the Bitstream Vera License for
+the Bitstream Vera glyphs (`Hack-LICENSE.txt`, both texts). The original
+Xbox and the consoles draw the map's console font, as retail.
 
 The menus' titles are pictures of text in the maps, set in another
 commercial typeface. Chupathingy Titles stands in for it: Newtown, a

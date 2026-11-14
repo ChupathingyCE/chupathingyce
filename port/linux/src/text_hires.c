@@ -15,6 +15,10 @@ game's placeholder bitmap stands for (xbox_textures.c) is the atlas, its new
 rows uploaded when the placeholder is bound. A change of the display's
 scale (a window made fullscreen) or a full atlas starts it over.
 
+The console's lines are drawn in a font of their own, the "console" role's
+(rasterizer_text_set_console_font, while terminal.c draws them), sized and
+fitted to the console's font tag in the same way.
+
 The player's own fonts (display.high_res_font, display.high_res_font_large)
 are read from their files when the settings name them, and each font tag's
 font is read again, in its place (rasterizer_text.c keeps the fonts' numbers),
@@ -247,7 +251,9 @@ static void font_load(long font)
 		return;
 	large = embedded->role && !strcmp(embedded->role, "large");
 	fonts[font].width = embedded->width > 0.0f ? embedded->width : 1.0f;
-	if (player_fonts[large].data)
+	/* (the console's font, role "console", is always the built-in one: the
+	player's fonts stand in for the menus' and the HUD's text) */
+	if (player_fonts[large].data && !(embedded->role && !strcmp(embedded->role, "console")))
 	{
 		const unsigned char *data = player_fonts[large].data;
 

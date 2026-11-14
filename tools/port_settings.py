@@ -25,6 +25,8 @@ YES_NO = [("YES", "true"), ("NO", "false")]
 ON_OFF = [("ON", "true"), ("OFF", "false")]
 SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4)]
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
+# how fast a zoomed view turns, on top of the zoom's own slowing
+ZOOM_SENSITIVITIES = [(f"{round(value * 100)}%", f"{value:g}") for value in (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2)]
 
 # A row that does something rather than set a setting (A runs its function,
 # port/linux/game/menu_functions.c's), with a value its function shows in
@@ -61,10 +63,11 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (close together, for the twelve rows of INTERFACE to fit above a
-        # help line, which sits lower than other screens' for them)
+        # (close together, for the rows of the main list (with its three
+        # links) and INTERFACE to fit above a help line, which sits lower
+        # than other screens' for them: tools/test_settings_layout.py)
         "spacing": 24,
-        "help_top": 362,
+        "help_top": 366,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's resolution and anti-aliasing in
@@ -139,6 +142,8 @@ SCREENS = {
                  [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],
                  "The detail of object shadows.",
                  None),
+                ("SOFT SHADOWS:", "display.shadow_filtering", ON_OFF,
+                 "Soften the edges of object shadows.\nOff draws them sharp.", None),
                 ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
                  "Light models per pixel instead of per vertex.", None),
                 ("LIGHT EFFECTS:", "display.light_effects",
@@ -152,6 +157,9 @@ SCREENS = {
                 ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
                  [("OFF", "0"), ("2X", "2"), ("4X", "4"), ("8X", "8"), ("16X", "16")],
                  "Sharper textures seen at an angle.", None),
+                ("VEHICLE FOV:", "display.vehicle_field_of_view",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
+                 "The field of view in vehicles.\nSame keeps it as before.", None),
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
@@ -165,8 +173,6 @@ SCREENS = {
                  "Takes effect on restart.", NOT_CONSOLE),
                 ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
                  "Draw the HUD in high resolution.", NOT_CONSOLE),
-                ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
-                 "Draw text and titles in high resolution.", NOT_CONSOLE),
                 ("PLAYER NAMES:", "display.player_names",
                  [("NONE", "none"), ("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies")],
                  "Names above players, where the host allows them.", NOT_CONSOLE),
@@ -189,6 +195,16 @@ SCREENS = {
                  "While dead, follow a player's view, if the host allows it.", None),
                 ("VERSION WATERMARK:", "display.version_watermark", ON_OFF,
                  "Show the version while playing.", None),
+            ]),
+            # (the text's fonts and the console: TEXT, so that INTERFACE's
+            # rows fit above the help line, test_settings_layout.py)
+            ("text", "TEXT", "High-res text, titles and the console.", [
+                ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
+                 "Draw text and titles in high resolution.", NOT_CONSOLE),
+                # (the ~ key's console: terminal.c's drop-down one, or the
+                # Xbox's lines at the bottom)
+                ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],
+                 "Drop-down slides down from the top.\nClassic is the Xbox's.", NOT_CONSOLE),
                 ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg"), ("HALO", "halo")],
                  "Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files.",
                  # (not on the consoles, the Switch included, which have the
@@ -312,10 +328,14 @@ MOUSE_ROWS = [
      "Moving the mouse forward looks down.", NOT_CONSOLE),
     ("AIM ASSIST:", "input.mouse_aim_assist", ON_OFF,
      "Use controller aim assist with the mouse.", NOT_CONSOLE),
+    ("ZOOM SENSITIVITY:", "input.mouse_zoom_sensitivity", ZOOM_SENSITIVITIES,
+     "How fast the mouse turns while zoomed in.", NOT_CONSOLE),
 ]
 GAMEPAD_ROWS = [
     ("LOOK SENSITIVITY:", "profile.look_sensitivity", [(str(step), str(step)) for step in range(1, 11)],
      "Adjust the look sensitivity.", None),
+    ("ZOOM SENSITIVITY:", "input.stick_zoom_sensitivity", ZOOM_SENSITIVITIES,
+     "How fast the stick turns while zoomed in.", None),
     ("INVERT LOOK:", "profile.invert_look", YES_NO, "Pushing the right stick up looks down.", None),
     ("INVERT FLIGHT:", "profile.flight_inversion", YES_NO,
      "Pushing up flies down in flying vehicles.", None),
@@ -332,7 +352,7 @@ GAMEPAD_ROWS = [
 # port/linux/game/menu_functions.c's table of them), then the mouse's
 # settings (MOUSE_ROWS) in the same list
 CONTROL_GROUPS = ["MOVEMENT", "WEAPONS", "ACTIONS", "MOUSE"]
-CONTROL_ROWS = 7
+CONTROL_ROWS = 9
 
 # the profile menu's words for what its items now open
 STRING_OVERRIDES = {
