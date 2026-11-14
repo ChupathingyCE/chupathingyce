@@ -97,6 +97,9 @@ enum
 	display, the sound, the controls and the like, are left out of its file;
 	an older file's lines and the environment still set them, as before */
 	_platform_server = 32,
+	/* (of the GL-layer consoles, only the Xbox 360: its present blit is the
+	one that applies display.gamma for now) */
+	_platform_xbox360 = 64,
 };
 
 struct config_setting
@@ -2180,7 +2183,7 @@ static const struct config_setting config_settings[] =
 		"vertices where they are in memory. false copies every vertex for each\n"
 		"frame instead, as the other renderer does: slower, for comparing when\n"
 		"models look broken. Read when Chupathingy starts." },
-	{ "display.gamma", _config_real, "1.0", NULL, _environment_value, _platform_console_gl,
+	{ "display.gamma", _config_real, "1.0", NULL, _environment_value, _platform_xbox360,
 		"The console's picture on its way to the screen: 1.0 shows it as drawn;\n"
 		"higher values lift the dark areas (the picture is raised to 1/gamma),\n"
 		"lower ones deepen them. For matching the original Xbox on the same TV." },
@@ -2288,6 +2291,8 @@ static const struct
 #define CONFIG_PLATFORM _platform_android
 #elif defined(HALO_XBOX_CONSOLE)
 #define CONFIG_PLATFORM _platform_xbox
+#elif defined(HALO_XBOX360_CONSOLE)
+#define CONFIG_PLATFORM (_platform_desktop | _platform_windows | _platform_console_gl | _platform_xbox360)
 #elif defined(HALO_CONSOLE_GL_LAYER) && defined(_WIN32)
 #define CONFIG_PLATFORM (_platform_desktop | _platform_windows | _platform_console_gl)
 #elif defined(HALO_CONSOLE_GL_LAYER)
