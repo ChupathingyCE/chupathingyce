@@ -232,6 +232,18 @@ void hs_recompile(
 boolean hs_compile_and_evaluate(
 	char const *expression);
 
+#ifndef HALO_XBOX_CONSOLE
+/* port: for the drop-down console's plain wording (terminal.c): a
+function's usage, "game_speed <real>", and the name closest to a word
+typed that is none */
+boolean hs_function_usage(char const *name, char *usage, long size);
+boolean hs_closest_name(char const *word, char *name, long size);
+int hs_function_text_tail(char const *name, void *context);
+boolean hs_function_help(char const *name, char const **help, char const **returns);
+char const *hs_function_name_at(short index);
+char const *hs_global_type_name(char const *name);
+#endif
+
 short hs_tokens_enumerate(
 	char const *substring,
 	long type_flags,
