@@ -6430,6 +6430,13 @@ static void network_game_server_delta_refusals(
 			if (mode_refusal == NETWORK_RULES_MODE_PLAYS && !pack_map && !mcc_map)
 				continue;
 		}
+		/* (still in its window, with only the mode to judge: wait for it; an
+		OpenCE machine never says HELLO and is judged by the number once the
+		window is over) */
+		else if (modes_needed && !number_changed && !pack_map && !mcc_map)
+		{
+			continue;
+		}
 		if (number_changed && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) &&
 			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps))
 		{
