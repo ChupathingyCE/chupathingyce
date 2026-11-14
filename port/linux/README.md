@@ -1099,9 +1099,13 @@ To join a game, do one of these steps:
 - Enter `chupathingy <link>`.
 - Accept a Discord invite. Refer to "Discord".
 
-When the machines connect, the game of the host shows in Multiplayer,
-System Link. Join the game as on a local network. System link on a local
-network does not need an invite.
+A link that you open (the first step, or a Discord invite) goes straight
+in: once the main menu is up (at once if the game already runs, after the
+start if the link started it), Online Games opens, connects to the host and
+joins its game, as a game picked there does. A link opened while you play
+a game, and a pasted link, work as before: when the machines connect, the
+game of the host shows in Multiplayer, System Link. Join the game as on a
+local network. System link on a local network does not need an invite.
 
 ### Server browser
 

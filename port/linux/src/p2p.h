@@ -28,6 +28,15 @@ int p2p_join_invite(const char *text);
 /* p2p_join_invite for the invite of a public game without a password (a
 listing's), which a player in it shares on Discord too (discord.show_join) */
 int p2p_join_listed_invite(const char *text);
+/* an invite link opened from outside the game (a link clicked while it was
+closed or running, Discord's Join): joined from the main menu through Online
+Games once the menus are up, in a game as p2p_join_invite (p2p.c) */
+void p2p_link_opened(const char *text, int public);
+#ifdef HALO_GAME_BROWSER
+/* the link p2p_link_opened holds for the menus, taken (invite_prompt.c):
+nonzero if there was one; public as p2p_join_listed_invite's */
+int p2p_take_link_join(char *text, int size, int *public);
+#endif
 #ifdef HALO_GAME_BROWSER
 /* the invite of the game this machine hosts on the internet (its 44 digits,
 without halo://join/); 0 when it hosts none (browser.c) */

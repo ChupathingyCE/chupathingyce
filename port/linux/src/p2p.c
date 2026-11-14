@@ -2953,12 +2953,73 @@ int p2p_join_listed_invite(const char *text)
 	return join_invite_text(text, 1);
 }
 
+#ifdef HALO_GAME_BROWSER
+/* an invite link opened from outside the game (the command line it was
+started with, a link handed over by a second copy, macOS's open event,
+Android's join_link.txt, Discord's Join): held for the menus, which join it
+through Online Games once the main menu is up, as a party's link is, so the
+link starts the game and goes straight in (#994). In a game it is joined
+as before, its host listed under System Link (invite_prompt.c,
+p2p_take_link_join). Not held for a dedicated server or the probe, which
+have no menus. */
+static char link_join[256];
+static int link_join_public;
+
+static int hold_link_join(const char *text, int public)
+{
+	unsigned char hash[P2P_KEY_HASH_SIZE], token[P2P_TOKEN_SIZE];
+	char shown[128];
+
+	if (!text || browser_headless() ||
+		p2p_parse_invite(text, hash, token, NULL) <= 0)
+	{
+		return 0;
+	}
+	pthread_mutex_lock(&p2p_lock);
+	snprintf(link_join, sizeof(link_join), "%s", text);
+	link_join_public = public;
+	pthread_mutex_unlock(&p2p_lock);
+	platform_log("Internet play: opened %s; it is joined once the menus are up",
+		p2p_invite_log_text(text, shown, sizeof(shown)));
+	return 1;
+}
+
+int p2p_take_link_join(char *text, int size, int *public)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = link_join[0] != 0 && size > (int)strlen(link_join);
+	if (result)
+	{
+		snprintf(text, (size_t)size, "%s", link_join);
+		*public = link_join_public;
+		link_join[0] = 0;
+	}
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+#endif
+
+void p2p_link_opened(const char *text, int public)
+{
+#ifdef HALO_GAME_BROWSER
+	if (hold_link_join(text, public))
+		return;
+#endif
+	join_invite_text(text, public);
+}
+
 void p2p_invite_received(const char *text, int public)
 {
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE)
 	/* (a party's link opened while the game runs: the Guide asks about it,
 	browser.c; join_invite alone would drop it) */
 	if (browser_party_link(text))
+		return;
+#endif
+#ifdef HALO_GAME_BROWSER
+	if (hold_link_join(text, public))
 		return;
 #endif
 	/* (an older version's is logged as such) */
@@ -4411,5 +4472,5 @@ void p2p_initialize(unsigned long local_address)
 		pending_startup_public = 0;
 	}
 	else if (command_line_invite(invite, sizeof(invite)))
-		p2p_join_invite(invite);
+		p2p_link_opened(invite, 0);
 }

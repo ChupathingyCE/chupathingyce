@@ -35,6 +35,10 @@ void platform_log(char const *format, ...);
 int platform_take_clipboard_invite(char *text, int size);
 void platform_text_field(int typing);
 int p2p_join_invite(char const *text);
+int p2p_join_listed_invite(char const *text);
+int p2p_take_link_join(char *text, int size, int *public);
+boolean browser_screen_join_link(char const *link, char const *name);
+boolean main_menu_is_active(void);
 char const *p2p_invite_link_digits(char const *text);
 int p2p_locked_invite_waiting(void);
 int p2p_locked_invite_unlock(char const *password);
@@ -426,10 +430,42 @@ boolean invite_prompt_active(
 
 /* each frame (ui_widget.c's process_ui_widgets), before the menus: an
 invite the platform found taken, and asked about once a menu is up */
+/* an invite link opened from outside the game (p2p_link_opened): once the
+main menu is up, Online Games opens and joins it, as a party's link does
+(the game started for the link waits for its menus); in a game, its host is
+listed under System Link, as before. A locked link (Online Games takes only
+an open one's digits) asks for its password here. */
+static void take_opened_link(
+	void)
+{
+	static boolean main_menu_seen = FALSE;
+	char link[INVITE_TEXT_SIZE];
+	char name[64] = { 0 };
+	char map[64];
+	int open = 0;
+
+	if (main_menu_is_active())
+		main_menu_seen = TRUE;
+	if (!main_menu_seen || !p2p_take_link_join(link, sizeof(link), &open))
+		return;
+	/* (named as the game list names it, if it lists it) */
+	if (!browser_screen_invite_game(link, name, sizeof(name), map, sizeof(map)))
+		csstrncpy(name, "the game", sizeof(name) - 1);
+	if (browser_screen_join_link(link, name))
+		platform_log("Internet play: joining the opened link through Online Games");
+	/* (open: the same invite again, now public, joins nothing new: p2p.c) */
+	if (open)
+		p2p_join_listed_invite(link);
+	else
+		p2p_join_invite(link);
+}
+
 void invite_prompt_update(
 	boolean menu_open)
 {
 	char text[INVITE_TEXT_SIZE];
+
+	take_opened_link();
 
 	/* (a question asked while an invite's waited, once that is answered) */
 	if (invite_prompt.ask_waiting && !invite_prompt.pending)

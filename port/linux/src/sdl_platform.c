@@ -3465,7 +3465,7 @@ void platform_pump_events(void)
 					platform_log("Internet play: opened %s",
 						p2p_invite_log_text(event.drop.data, shown, sizeof(shown)));
 				}
-				p2p_join_invite(event.drop.data);
+				p2p_link_opened(event.drop.data, 0);
 			}
 			break;
 #endif
