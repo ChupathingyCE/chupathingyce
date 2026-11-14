@@ -7187,6 +7187,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 {
 	static long screenshot_every = -1;
 	static int screenshot_window = -1;
+	struct render_target_entry *back_buffer;
 
 	RENDER_TIME_BEGIN();
 
@@ -7199,9 +7200,12 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	if (screenshot_window < 0)
 		screenshot_window = config_boolean("debug.screenshot_window") ? 1 : 0;
 
-	if (device.gl_ready)
+	/* (no back buffer without its memory: render_target_get finds nothing
+	for a surface without Data, which d3d8_surface_initialize leaves when
+	contiguous memory runs out, and logs; #1298) */
+	back_buffer = device.gl_ready ? render_target_get(&device.back_buffer) : NULL;
+	if (back_buffer)
 	{
-		struct render_target_entry *back_buffer = render_target_get(&device.back_buffer);
 		int window_width, window_height, width, height, x, y;
 		GLuint read_framebuffer;
 #ifdef HALO_IOS
