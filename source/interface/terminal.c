@@ -571,10 +571,11 @@ wheel, scroll it; "^ ^ ^" under the scrollback says there is more below.
 Tab's candidates are a list under the panel, Tab and Shift+Tab choosing one.
 
 Its lines are worded and colored for it as they are kept
-(terminal_scrollback_add): the commands typed in blue after "> ", the
-script compiler's errors in plain words (terminal_wording, the one table of
-them) in red after "Error:", warnings in amber after "Warning:", answers in
-light grey-blue and the game's own notes in a dimmer grey. Retail's lines
+(terminal_scrollback_add): the commands typed after the shell's prompt
+(terminal_prompt), the script compiler's errors as a shell words them
+(terminal_wording, the one table of them: "chupathingy: command not found:
+sv_") in red, warnings in amber after "warning: ", answers in light
+grey-blue and the game's own notes in a dimmer grey. Retail's lines
 are never changed: "classic" draws the console as retail does, the prompt
 at the bottom and the last lines above it, fading, in retail's words. The
 game keeps running underneath, as retail's console let it (a network game
@@ -718,7 +719,7 @@ static struct
 	{ "this is not a valid real number.", "expected a number: %s" },
 	{ "this is not a valid type.", "no such type: %s" },
 	{ "i expected \"true\" or \"false\".", "expected true or false: %s" },
-	{ "shorts must be in the range [-32767, 32768].", "out of range (-32767 to 32768): %s" },
+	{ "shorts must be in the range [-32767, 32768].", "out of range (-32768 to 32767): %s" },
 	{ "this left parenthesis is unmatched.", "missing a closing parenthesis" },
 	{ "this quoted constant is unterminated.", "missing a closing quote" },
 	{ "unterminated comment.", "missing the end of a comment" },

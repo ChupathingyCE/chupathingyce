@@ -27,22 +27,25 @@ static int is_space(char character)
 	return character == ' ' || character == '\t';
 }
 
-/* the line's words: bare, quoted, or a parenthesized expression whole */
-static int split(char const *line, struct word *words, int maximum, int *count)
+/* the line's words, at most maximum of them: bare, quoted, or a
+parenthesized expression whole; *rest is where it stopped */
+static int split(char const *line, struct word *words, int maximum, int *count, char const **rest)
 {
 	char const *at = line;
 
 	*count = 0;
+	*rest = line;
 	while (*at)
 	{
 		struct word *word;
 
 		while (is_space(*at))
 			at++;
+		*rest = at;
 		if (!*at)
 			break;
 		if (*count >= maximum)
-			return _console_shell_too_long;
+			return _console_shell_ok;
 		word = &words[(*count)++];
 		word->quoted = 0;
 		if (*at == '"' || *at == '\'')
@@ -82,14 +85,20 @@ static int split(char const *line, struct word *words, int maximum, int *count)
 			} while (depth > 0 || in_quote);
 			word->length = (size_t)(at - word->start);
 		}
+		else if (*at == ')')
+		{
+			/* (a shell user quotes a ")" of their own) */
+			return _console_shell_unmatched_parenthesis;
+		}
 		else
 		{
 			word->start = at;
-			while (*at && !is_space(*at) && *at != '"' && *at != '\'' && *at != '(')
+			while (*at && !is_space(*at) && *at != '"' && *at != '\'' && *at != '(' && *at != ')')
 				at++;
 			word->length = (size_t)(at - word->start);
 		}
 	}
+	*rest = at;
 	return _console_shell_ok;
 }
 
@@ -130,12 +139,16 @@ int console_shell_translate(char const *line, char *expression, size_t size,
 	char command[64];
 	int count, result, index, tail = -1;
 	size_t used = 0;
+	char const *rest;
 
 	if (!size)
 		return _console_shell_too_long;
 	expression[0] = 0;
 	while (is_space(*line))
 		line++;
+	/* (the scripts' compiler runs no line with a ";": hs.c) */
+	if (strchr(line, ';'))
+		return _console_shell_semicolon;
 	/* (the console's own form, whole) */
 	if (*line == '(')
 	{
@@ -145,7 +158,8 @@ int console_shell_translate(char const *line, char *expression, size_t size,
 			length--;
 		return append(expression, size, &used, line, length) ? _console_shell_ok : _console_shell_too_long;
 	}
-	result = split(line, words, MAXIMUM_WORDS, &count);
+	/* the command, and how many values it takes when its last is text */
+	result = split(line, words, 1, &count, &rest);
 	if (result != _console_shell_ok)
 		return result;
 	if (!count)
@@ -156,30 +170,44 @@ int console_shell_translate(char const *line, char *expression, size_t size,
 		command[words[0].length] = 0;
 		tail = text_tail(command, context);
 	}
+	/* the words: all of them, or with a text value last, the command and
+	the values before it, the rest of the line being that text as typed */
+	result = split(line, words, tail > 0 ? tail : MAXIMUM_WORDS, &count, &rest);
+	if (result != _console_shell_ok)
+		return result;
+	if (tail <= 0 && *rest)
+		return _console_shell_too_long;
 	for (index = 0; index < count; index++)
 	{
 		if (index && !append(expression, size, &used, " ", 1))
 			goto too_long;
-		/* (the last value is text and more words are left: the rest of the
-		line, as typed, is that text) */
-		if (tail > 0 && index == tail && count - 1 > tail)
-		{
-			int rest;
-
-			if (!append(expression, size, &used, "\"", 1))
-				goto too_long;
-			for (rest = index; rest < count; rest++)
-			{
-				if (rest > index && !append(expression, size, &used, " ", 1))
-					goto too_long;
-				if (!append_word(expression, size, &used, &words[rest], 0))
-					goto too_long;
-			}
-			if (!append(expression, size, &used, "\"", 1))
-				goto too_long;
-			break;
-		}
 		if (!append_word(expression, size, &used, &words[index], words[index].quoted))
+			goto too_long;
+	}
+	if (tail > 0 && *rest)
+	{
+		size_t length = strlen(rest);
+		size_t index_in_rest;
+
+		while (length && is_space(rest[length - 1]))
+			length--;
+		/* (one quoted value, whole: its inside) */
+		if (length >= 2 && (rest[0] == '"' || rest[0] == '\'') && rest[length - 1] == rest[0] &&
+			!memchr(rest + 1, rest[0], length - 2))
+		{
+			rest++;
+			length -= 2;
+		}
+		if (!append(expression, size, &used, " \"", 2))
+			goto too_long;
+		for (index_in_rest = 0; index_in_rest < length; index_in_rest++)
+		{
+			if (rest[index_in_rest] == '"')
+				continue;
+			if (!append(expression, size, &used, rest + index_in_rest, 1))
+				goto too_long;
+		}
+		if (!append(expression, size, &used, "\"", 1))
 			goto too_long;
 	}
 	return _console_shell_ok;

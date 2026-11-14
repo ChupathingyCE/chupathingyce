@@ -395,6 +395,26 @@ static void console_shell_help(
 	terminal_shell_error("chupathingy: help: no such command: %s", topic);
 }
 
+/* port: whether a line is one of the host's commands that take a player's
+name (hs.c's hs_host_player_command reads them from the line) */
+static boolean console_shell_host_command(
+	char const *command)
+{
+	static char const *const commands[] = { "ban", "kick", "bringto", "profile_reset_campaign" };
+	short index;
+
+	while (*command == ' ' || *command == '(')
+		command++;
+	for (index = 0; index < (short)NUMBEROF(commands); index++)
+	{
+		long length = (long)strlen(commands[index]);
+
+		if (!strncmp(command, commands[index], length) && (command[length] == ' ' || !command[length]))
+			return TRUE;
+	}
+	return FALSE;
+}
+
 /* port: a line typed into the drop-down console, as a shell runs it:
 TRUE when it was the shell's own (clear, help) and is done */
 static boolean console_shell_builtin(
@@ -490,7 +510,17 @@ static boolean console_process_command(
 
 		if (console_shell_builtin(command))
 			return TRUE;
+		/* (the host's commands that take a player's name, which hs.c reads
+		from the line itself: as typed, so a name keeps its brackets,
+		parentheses and quotes) */
+		if (console_shell_host_command(command))
+			return hs_compile_and_evaluate(command);
 		problem = console_shell_translate(command, expression, sizeof(expression), hs_function_text_tail, NULL);
+		if (problem == _console_shell_semicolon)
+		{
+			terminal_shell_error("chupathingy: ';' is not supported: run one command at a time");
+			return FALSE;
+		}
 		if (problem == _console_shell_unterminated_quote)
 		{
 			terminal_shell_error("chupathingy: missing a closing quote");

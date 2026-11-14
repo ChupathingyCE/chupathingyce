@@ -53,22 +53,35 @@ int main(void)
 	check("sv_say \"hello there\"", _console_shell_ok, "sv_say \"hello there\"");
 	check("sv_say 'hello there'", _console_shell_ok, "sv_say \"hello there\"");
 	check("print 'say \"hi\"'", _console_shell_ok, "print \"say hi\"");
+	check("print \"a b\"", _console_shell_ok, "print \"a b\"");
 	check("object_create \"warthog\"", _console_shell_ok, "object_create \"warthog\"");
-	/* a text value takes the rest of the line */
+	/* a text value takes the rest of the line, as typed */
 	check("sv_say hello there", _console_shell_ok, "sv_say \"hello there\"");
-	check("sv_say hello 'big' world 2", _console_shell_ok, "sv_say \"hello big world 2\"");
-	check("sv_say hi", _console_shell_ok, "sv_say hi");
+	check("sv_say hello 'big' world 2", _console_shell_ok, "sv_say \"hello 'big' world 2\"");
+	check("sv_say hi", _console_shell_ok, "sv_say \"hi\"");
+	check("sv_say I'm back", _console_shell_ok, "sv_say \"I'm back\"");
+	check("sv_say :(", _console_shell_ok, "sv_say \":(\"");
+	check("sv_say ok :)", _console_shell_ok, "sv_say \"ok :)\"");
+	check("sv_say hi (x \"y\")", _console_shell_ok, "sv_say \"hi (x y)\"");
+	check("sv_say trailing\"", _console_shell_ok, "sv_say \"trailing\"");
+	check("sv_say   spaced out   ", _console_shell_ok, "sv_say \"spaced out\"");
+	check("sv_say", _console_shell_ok, "sv_say");
 	/* a call inside a call, passed through */
 	check("game_speed (* 2 0.5)", _console_shell_ok, "game_speed (* 2 0.5)");
-	check("print (if (= 1 1) \"a b\" \"c\")", _console_shell_ok, "print (if (= 1 1) \"a b\" \"c\")");
+	check("print (if (= 1 1) \"a b\" \"c\")", _console_shell_ok, "print \"(if (= 1 1) a b c)\"");
+	check("game_speed (if (= 1 1) 2 1)", _console_shell_ok, "game_speed (if (= 1 1) 2 1)");
 	/* the console's own form, whole */
 	check("(game_speed 2)", _console_shell_ok, "(game_speed 2)");
 	check("  (sv_say \"hello there\")  ", _console_shell_ok, "(sv_say \"hello there\")");
 	check("(game_speed", _console_shell_ok, "(game_speed");
 	/* what is wrong */
-	check("sv_say \"hello", _console_shell_unterminated_quote, "");
-	check("sv_say 'hello", _console_shell_unterminated_quote, "");
+	check("object_create \"hello", _console_shell_unterminated_quote, "");
+	check("object_create 'hello", _console_shell_unterminated_quote, "");
 	check("game_speed (* 2 1", _console_shell_unmatched_parenthesis, "");
+	check("game_speed 2)", _console_shell_unmatched_parenthesis, "");
+	check("foo a) (bar 1)", _console_shell_unmatched_parenthesis, "");
+	check("sv_say hi;quit", _console_shell_semicolon, "");
+	check("(sv_say \"hi\");(quit)", _console_shell_semicolon, "");
 	if (console_shell_translate("sv_say hello there", small, sizeof(small), text_tail, NULL) != _console_shell_too_long ||
 		small[0])
 	{

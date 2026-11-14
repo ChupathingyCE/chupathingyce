@@ -5,10 +5,13 @@ The drop-down console's typing, as a shell's (source/main/console.c): a line
 typed is made the script expression the console runs, without changing
 what the scripts' compiler takes. Words are the values after a command,
 'single' or "double" quoted text is one value, a parenthesized expression
-is passed through as it is (a call inside a call), and a line that starts
-with "(" is the console's own form, passed through whole. A command whose
-last value is text takes the rest of the line as that text, so
-sv_say hello there says "hello there". The compiler then reads a line as
+is passed through as it is (a call inside a call), a ")" outside one is
+an error, and a line that starts with "(" is the console's own form, passed
+through whole. A command whose last value is text takes the rest of the
+line as it was typed as that text (apostrophes and parentheses too, a
+double quote dropped: the scripts' text cannot hold one), so
+sv_say I'm back :( says "I'm back :(", and sv_say "hello there" stays as
+it is. The compiler then reads a line as
 retail's console did: a bare command wrapped in parentheses, a global and a
 value set. No game dependency: port/linux/tests/console_shell_test.c builds
 it on its own.
@@ -36,6 +39,8 @@ enum
 	_console_shell_unmatched_parenthesis,
 	/* the expression would not fit */
 	_console_shell_too_long,
+	/* a ";": the scripts' compiler runs no line that has one */
+	_console_shell_semicolon,
 };
 
 /* line as the script expression to run, into expression (size bytes):
