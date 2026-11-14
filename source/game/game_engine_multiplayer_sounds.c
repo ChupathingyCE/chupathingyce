@@ -232,6 +232,18 @@ static long get_sound_length_in_ticks(
 	return (long)(sound_definition_get(sound->index)->longest_permutation_length * TICKS_PER_SECOND) / 1000;
 }
 
+/* port: audio.hit_sounds' tone, the globals' "ting" (sound 0x2B, which
+Halo PC's HUD played on a hit; the maps' globals have it where the Bomb
+game's grab uses it), played at once, never queued, where the map has it:
+the damage code (source/objects/damage.c) asks for it */
+void game_engine_play_hit_sound(
+	void)
+{
+	/* (the map's globals checked for it there) */
+	_game_engine_play_multiplayer_sound(_multiplayer_sound_ting);
+	return;
+}
+
 void game_engine_play_multiplayer_sound(
 	long sound_index)
 {

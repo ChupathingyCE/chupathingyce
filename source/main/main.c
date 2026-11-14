@@ -1350,28 +1350,33 @@ items' offsets from the middle) is scaled by in the local player's
 first-person view: the inverse of the field of view's tangent scale, as the
 world's image is (the screen's aspect and the zoom scale both alike), so the
 reticle still covers the weapon's spread. 1 at 70, the Xbox's, in any other
-view, or with the setting off. */
+view, or with the setting off. Times display.reticle_scale, the size the
+player picked (1 the Xbox's), in first person. */
 real first_person_reticle_scale(
 	short local_player_index)
 {
 	extern int config_boolean(char const *name);
+	extern double config_real(char const *name);
 	static unsigned long read_at = (unsigned long)-1;
 	static boolean enabled = FALSE;
+	static real size = 1.0f;
 
 	if (read_at != config_changes())
 	{
 		read_at = config_changes();
 		enabled = config_boolean("display.reticle_scales_with_fov") != 0;
+		size = PIN((real)config_real("display.reticle_scale"), 0.5f, 2.0f);
 	}
-	if (!enabled ||
-		local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS ||
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS ||
 		director_get_perspective(local_player_index) != _director_perspective_first_person)
 	{
 		return 1.0f;
 	}
+	if (!enabled)
+		return size;
 
 	/* (this frame's view's: local_view_field_of_view_update) */
-	return 1.0f / local_view_scales[local_player_index];
+	return size / local_view_scales[local_player_index];
 }
 
 /* port: TRUE when display.field_of_view has the first-person view at

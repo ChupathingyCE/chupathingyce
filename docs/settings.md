@@ -51,6 +51,8 @@ A few people look for most:
 | `display.title_font` | The font of the menus' titles: `"classic"` (the default, looks like Halo's own titles), `"cyborg"` (the same font as the menu text) or `"halo"` (the screens' titles in Halo's own lettering, made from your own `ui.map`; nothing is saved or shared). A change shows at once. The consoles have `"classic"` only. |
 | `display.high_res_font`, `display.high_res_font_large` | Your own font file for the sharp text and Online Games, in place of the built-in fonts: put it in `data/fonts` beside `maps` and give its name (`high_res_font = "MyFont.ttf"`), or a full path. `_large` sets one for the large text only. Empty uses the built-in fonts; a file that can't be read is noted in `logs/debug.txt` and the built-in font is used. The font is yours: Chupathingy ships none but its own free ones, and never sends yours anywhere. |
 | `display.field_of_view` | How wide the first-person view is, in degrees: 70 (the Xbox's) by default, 50 to 120. |
+| `display.reticle_scale` | The reticle's size, `0.5` to `2.0`; `1.0` (the default) is the Xbox's. Video Setup, View: Reticle Size. |
+| `display.first_person_weapon` | `false` hides your weapon and arms in first person; `true` (the default) draws them. Video Setup, View: Weapon Model. |
 | `display.camo_weapon_fix` | `false` (the default) lets a wall close by cut away your camouflaged first-person weapon, as on the Xbox. `true` draws it in front of walls. Drawing only. Video Setup, Advanced: Camo Weapon Fix. Based on work by goatbutt and the OpenH1 team. |
 | `display.plasma_sparks` | `false` (the default) leaves out the blue sparks off a live plasma grenade, as on the Xbox, which never drew them. `true` draws them, at any frame rate. Drawing only. Video Setup, Advanced: Plasma Sparks. Thanks to ugoboom for the idea. |
 | `display.doors_block_light` | `true` (the default) stops a light behind a closed door from lighting your side of it, such as a plasma bolt in the next room. `false` lets it through, as on the Xbox. Drawing only. Video Setup, Advanced: Doors Block Light. |
@@ -72,6 +74,7 @@ A few people look for most:
 | `audio.voice_volume`, `audio.voice_volume_party`, `_team`, `_proximity`, `_everyone` | Voices' volume, and each channel's, from 0.0 to 2.0. A channel at 0 is off: the host sends you none of it. |
 | `audio.voice_input_device`, `audio.voice_open_mic_level`, `audio.voice_positional` | The microphone (empty for the system's), how loud you must be for open mic to send, and whether proximity voices use the game's 3D sound (else a plain pan and fade). |
 | `display.voice_speakers` | Show who is talking in voice chat, small, at the top right (on by default). Your own channel shows there while you talk either way. |
+| `audio.hit_sounds` | `true`: a short tone when your shot hits another player in multiplayer, as Halo PC had. `false` (the default) is the Xbox's: none. Audio Setup: Hit Sounds. |
 | `audio.doppler` | Moving sounds shift in pitch as on the Xbox (on by default). |
 | `audio.reverb` | Sounds echo to match the place you are in, as the Xbox's reverb did (on by default; off on the slowest consoles). |
 | `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |
@@ -80,6 +83,7 @@ A few people look for most:
 | `input.button_look` | The menus' and the Guide's buttons: `"gem"` (the default) or `"flat"`. |
 | `input.hud_buttons` | The buttons in a game's prompts ("Hold X to pick up"): `"classic"` (the default: the map's own) or `"hd"` (the style's flat buttons). |
 | `controls.*` | Every key: `controls.jump = "Space"`, or two at once, such as `"F, Mouse 4"`. |
+| `controls.walk` | A walk key for the keyboard: held, you move at half speed, as a stick pushed halfway. Empty (the default) is none. Controls Setup: Walk. |
 | `controls.delta`, `controls.delta_button` | The key that opens the Delta Guide: `"F3"` (on a Mac, F3 or the backslash key). OPEN KEY in the Delta Guide's SETTINGS. A controller's Guide button opens it too, unless Steam or the Xbox Game Bar takes that button. |
 | `controls.push_to_talk`, `controls.voice_channel` | Hold `"V"` to talk in voice chat, and press `"B"` to switch the voice channel. |
 | `controls.screenshot` | The screenshot key: `"F9"` by default, and Print Screen always works too. Screenshots go to `screenshots/` beside `maps/`, named after the map and the time. Desktop only. |

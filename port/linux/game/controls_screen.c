@@ -148,6 +148,7 @@ static struct
 	{ "controls.strafe_right", "STRAFE RIGHT", 0 },
 	{ "controls.jump", "JUMP", 0 },
 	{ "controls.crouch", "CROUCH", 0 },
+	{ "controls.walk", "WALK", 0 },
 	{ "controls.fire", "FIRE", 1 },
 	{ "controls.throw_grenade", "THROW GRENADE", 1 },
 	{ "controls.vehicle_secondary_fire", "VEHICLE ALT FIRE", 1 },

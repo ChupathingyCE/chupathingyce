@@ -871,6 +871,8 @@ boolean game_engine_force_autopickup(
 
 void game_engine_play_multiplayer_sound(
 	long sound_index);
+/* port: the hit tone (audio.hit_sounds), where the map's globals have it */
+void game_engine_play_hit_sound(void);
 #ifdef HALO_GAME_BROWSER
 boolean game_engine_multiplayer_sound_exists(
 	long sound_index);

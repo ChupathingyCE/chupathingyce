@@ -540,10 +540,29 @@ static boolean first_person_weapon_fists_frame(
 }
 #endif
 
+/* port: display.first_person_weapon: false leaves the weapon and arms
+undrawn (their animation, lights and markers go on as before: only the
+drawing is skipped) */
+static boolean first_person_weapon_shown(
+	void)
+{
+	extern int config_boolean(char const *name);
+	extern unsigned long config_changes(void);
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean shown = TRUE;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		shown = config_boolean("display.first_person_weapon") != 0;
+	}
+	return shown;
+}
+
 void first_person_weapon_draw(
 	void)
 {
-	if (render.local_player_index!=NONE)
+	if (render.local_player_index!=NONE && first_person_weapon_shown())
 	{
 		struct first_person_weapon *first_person_weapon= first_person_weapon_get(render.local_player_index);
 
