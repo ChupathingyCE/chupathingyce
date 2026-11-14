@@ -63,7 +63,7 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (close together, for the rows of the main list (with its three
+        # (close together, for the rows of the main list (with its four
         # links) and INTERFACE to fit above a help line, which sits lower
         # than other screens' for them: tools/test_settings_layout.py)
         "spacing": 24,
@@ -125,11 +125,6 @@ SCREENS = {
               for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
              "Adjust the field of view.",
              None),
-            ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
-             [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
-             "How wide your weapon is drawn.\nSame follows the view.", None),
-            ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
-             "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
@@ -156,6 +151,13 @@ SCREENS = {
                 ("VEHICLE FOV:", "display.vehicle_field_of_view",
                  [("SAME", "0")] + [(f"{value}", f"{value}") for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
                  "The field of view in vehicles.\nSame keeps it as before.", None),
+                # (the field of view's other two, out of the main list so its
+                # rows and links fit above the help line)
+                ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
+                 "How wide your weapon is drawn.\nSame follows the view.", None),
+                ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
+                 "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
@@ -174,17 +176,7 @@ SCREENS = {
                 ("IN GAME:", "input.hud_buttons", [("CLASSIC", "classic"), ("HD", "hd")],
                  "Classic: the game's own buttons.", "desktop android switch"),
             ]),
-            # (the scoreboard's own, out of INTERFACE so its rows fit above
-            # the help line)
-            ("scoreboard", "SCOREBOARD", "How the scoreboard looks.", [
-                ("LAYOUT:", "display.scoreboard_team_layout", [("TEAMS", "teams"), ("BY SCORE", "score")],
-                 "Show team games by team, or all players by score.", None),
-                ("PANEL:", "display.scoreboard_background", ON_OFF,
-                 "Draw a panel behind the scoreboard.", None),
-                ("ICONS:", "display.scoreboard_icons", ON_OFF,
-                 "Platform logos and the Delta mark beside names.\nOff shows just names and scores.", None),
-            ]),
-            ("interface", "INTERFACE", "The menus and the HUD.", [
+            ("interface", "INTERFACE", "The menus, HUD and scoreboard.", [
                 # (read when the game starts: menu_tags.c)
                 ("MENU STYLE:", "display.menus",
                  [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox")],
@@ -197,6 +189,12 @@ SCREENS = {
                 ("PLAYER NAME SIZE:", "display.player_name_scale",
                  [(f"{value:g}x", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)],
                  "Adjust the size of player names.", NOT_CONSOLE),
+                ("SCOREBOARD LAYOUT:", "display.scoreboard_team_layout", [("TEAMS", "teams"), ("BY SCORE", "score")],
+                 "Show team games by team, or all players by score.", None),
+                ("SCOREBOARD PANEL:", "display.scoreboard_background", ON_OFF,
+                 "Draw a panel behind the scoreboard.", None),
+                ("SCOREBOARD ICONS:", "display.scoreboard_icons", ON_OFF,
+                 "Platform logos and the Delta mark beside names.\nOff shows just names and scores.", None),
                 ("POWERUP TIMERS:", "display.powerup_timers", ON_OFF,
                  "Show the time left on your powerups.", None),
                 ("MATCH TIMER:", "display.match_timer",
@@ -259,9 +257,10 @@ SCREENS = {
     "network_setup": {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
-        "spacing": 30,
-        # (the help line under the ten rows, as Privacy's: the last,
-        # PRIVACY, ends at 371)
+        # (a little closer than the other screens', for its eleven rows, JOIN
+        # SCREEN among them: the last, PRIVACY, ends at 371, under the help
+        # line, as Privacy's)
+        "spacing": 27,
         "help_top": 376,
         # (its help is its own text, which menu_functions.c reads from its
         # help_strings, and sets to how INSTALL UPDATE's install goes)
