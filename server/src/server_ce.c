@@ -52,6 +52,8 @@ gamespy_listing, whose port takes the joins): off by default.
 #include "../platform/ce_messages.h"
 #include "../platform/gamespy_listing.h"
 
+/* (game_engine_ctf.c's, the server's) */
+void game_engine_ctf_get_state(long scores[2], long *flag_swap_timer);
 /* (network_server_manager_internal.h's) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 /* (port/linux/game/network_distributed.c's: bans.txt) */
@@ -169,6 +171,10 @@ struct ce_client
 	struct ce_player_statistics statistics_sent[CE_GAME_PLAYERS];
 	boolean statistics_known[CE_GAME_PLAYERS];
 	boolean scores_known;
+	/* Capture the Flag's scores and flag swap timer as told last */
+	long ctf_scores_sent[2];
+	long ctf_swap_sent;
+	boolean ctf_known;
 	/* the roster it was told last (game settings), to tell it again as it
 	changes */
 	struct ce_network_player roster[CE_GAME_PLAYERS];
@@ -231,6 +237,8 @@ static struct
 	boolean between_games;
 	/* the game settings' random number, one a game */
 	unsigned int random_seed;
+	/* the server is showing a HUD message (server_ce_showing_message) */
+	boolean showing_message;
 	/* what every client's roster is built from, this tick (roster_signature) */
 	unsigned long roster_signature;
 } ce;
@@ -283,10 +291,18 @@ static void put_text(
 	out[index] = 0;
 }
 
-/* the game's own variant, over Custom Edition's Slayer: teams, the radar
-and player options, respawns, health, the score and limits (Slayer and
-Team Slayer: the other games stay Slayer to a Custom Edition client for
-now). The universal fields are Halo PC's game variant's, in its order:
+/* whether a game type is shown to Custom Edition clients as it is (its
+state told them as it changes): the others stay Slayer to them */
+static boolean engine_told(
+	long engine)
+{
+	return engine == game_engine_slayer || engine == game_engine_ctf;
+}
+
+/* the game's own variant, over Custom Edition's Slayer: the game type and
+its own settings (Halo PC's engine variant starts as the Xbox's does: its
+first bytes are ours), teams, the radar and player options, respawns,
+health, the score and limits. The universal fields are Halo PC's game variant's, in its order:
 teams; flags (other players on the radar, friend indicators, infinite
 grenades, no shields, invisible, generic equipment, friends only on the
 radar); objective indicator; odd man out; respawn growth, respawn time and
@@ -302,9 +318,13 @@ static void settings_from_variant(
 	unsigned int flags;
 	char name[sizeof(settings->variant_name)];
 
-	if (!variant || variant->game_engine_index != game_engine_slayer)
+	if (!variant || !engine_told(variant->game_engine_index))
 		return;
 	universal = &variant->universal_variant;
+	settings->engine = (int)variant->game_engine_index;
+	csmemset(settings->engine_variant, 0, sizeof(settings->engine_variant));
+	csmemcpy(settings->engine_variant, &variant->game_engine_variant,
+		MIN(sizeof(variant->game_engine_variant), sizeof(settings->engine_variant)));
 	/* (bit 8, unknown, as Custom Edition's own server sends it) */
 	flags = settings->universal[4] & ~0x7fu;
 	if (TEST_FLAG(universal->flags, _game_variant_draw_object_in_motion_sensor_bit) &&
@@ -348,6 +368,8 @@ static void settings_from_variant(
 	put_text(name, sizeof(name), variant->human_readable_game_description);
 	if (name[0])
 		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", name);
+	else if (variant->game_engine_index == game_engine_ctf)
+		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "CTF");
 	else if (universal->teams)
 		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "Team Slayer");
 }
@@ -910,7 +932,8 @@ static void put_object_start(
 	csmemset(create, 0, sizeof(*create));
 	create->definition = (unsigned int)object->definition_index;
 	create->object = number;
-	create->owner = 0xffff;
+	/* (its owner team: a flag's is its team's; none: 0xffff) */
+	create->owner = object->object.owner_team_index == NONE ? 0xffff : (int)(object->object.owner_team_index & 0xffff);
 	ce_direction(&object->object.forward.i, create->forward);
 	ce_direction(&object->object.up.i, create->up);
 	create->position[0] = object->object.position.x;
@@ -1144,6 +1167,14 @@ static void player_statistics(
 	statistics->betrayals = player->statistics.friendly_fire_kills & 0xffff;
 	statistics->deaths = player->statistics.deaths & 0xffff;
 	statistics->suicides = player->statistics.suicides & 0xffff;
+	/* (the game type's own three: a flag's grabs, returns and captures;
+	the ball's time, kills of its carrier and kills with it; ...) */
+	{
+		short const *specific = (short const *)&player->statistics.multiplayer_statistics;
+
+		for (index = 0; index < 3; index++)
+			statistics->game_specific[index] = specific[index] & 0xffff;
+	}
 	statistics->multiplayer_special = (int)player->multiplayer_special;
 	statistics->speed_multiplier = player->speed_multiplier;
 }
@@ -1185,6 +1216,28 @@ static void send_scores(
 			client->scores_known = TRUE;
 			any = TRUE;
 		}
+	}
+	/* (Capture the Flag's scores as they change, and its flag swap timer as
+	it starts again: a client counts it down itself) */
+	if (game_engine && game_engine_get_variant()->game_engine_index == game_engine_ctf)
+	{
+		long scores[2], swap_timer;
+
+		game_engine_ctf_get_state(scores, &swap_timer);
+		if (!client->ctf_known || scores[0] != client->ctf_scores_sent[0] || scores[1] != client->ctf_scores_sent[1] ||
+			swap_timer > client->ctf_swap_sent)
+		{
+			int sent[2];
+
+			sent[0] = (int)scores[0];
+			sent[1] = (int)scores[1];
+			ce_payload_put_ctf_update(&payload, (unsigned int)swap_timer, sent, 0);
+			client->ctf_scores_sent[0] = scores[0];
+			client->ctf_scores_sent[1] = scores[1];
+			client->ctf_known = TRUE;
+			any = TRUE;
+		}
+		client->ctf_swap_sent = swap_timer;
 	}
 	data_iterator_new(&iterator, player_data);
 	while ((player = data_iterator_next(&iterator)) != NULL)
@@ -1363,6 +1416,10 @@ static void update_items(
 			client->item_holder[other] = NONE;
 			break;
 		}
+		/* (a flag or ball: its note on the holder's HUD first, as Custom
+		Edition's own server sends it) */
+		if (weapon_is_flag(iterator.index))
+			ce_payload_put_hud_add_item(reliable, (unsigned int)object->definition_index, 0, 0);
 		csmemset(&result, 0, sizeof(result));
 		result.player = holder_player;
 		result.weapon_pickup = 1;
@@ -1419,7 +1476,14 @@ static void update_items(
 			continue;
 		if (client->item_state[number] == ITEM_HELD && holder == NONE)
 		{
-			/* (let go, not for another: put where it fell) */
+			/* (let go, not for another: by a player still in the game (a flag
+			or ball dropped), the drop its client's game plays, as Custom
+			Edition's own server tells it; then put where it fell) */
+			long former = client->item_holder[number];
+			int former_number = former == NONE ? 0 : network_object(former, FALSE);
+
+			if (former_number && object_try_and_get(former) && unit_player_number(client, former))
+				ce_payload_put_unit_drop_weapon(reliable, former_number, number, TRUE);
 			put_item_update(client, reliable, number, iterator.index);
 			item_told(client, number, iterator.index, ITEM_WORLD, NONE, (client->item_baseline[number] + 1) & 0xff);
 			continue;
@@ -2297,6 +2361,76 @@ boolean server_ce_players_present(
 			return TRUE;
 	}
 	return FALSE;
+}
+
+/* a message on a player's HUD (game_engine.c's game_show_score_one_player):
+told to the player's Custom Edition client, as Custom Edition's own server
+tells it */
+void server_ce_multiplayer_message(
+	long player_index,
+	long message,
+	long message_data)
+{
+	short index;
+
+	for (index = 0; ce.enabled && index < CE_LOCAL_PLAYERS; index++)
+	{
+		struct ce_client *client = &ce.clients[index];
+		struct ce_payload payload;
+		unsigned char out[32];
+
+		if (!client->active || !client->loaded || client->phase != CE_PHASE_PLAYING ||
+			local_player_get_player_index(index) != player_index)
+		{
+			continue;
+		}
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_hud_message(&payload, network_player_number(player_index), (unsigned int)message,
+			(unsigned int)message_data);
+		ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE);
+	}
+}
+
+/* while the server shows a message (its sounds are its client's to play) */
+void server_ce_showing_message(
+	boolean showing)
+{
+	ce.showing_message = showing;
+}
+
+/* one of the game's multiplayer sounds (game_engine_multiplayer_sounds.c):
+every Custom Edition client hears it, as Custom Edition's own server sends
+it; but not one the server played for its own players' sake (a message's,
+a respawn's countdown, a teleporter's), which a client plays itself */
+void server_ce_multiplayer_sound(
+	long sound_index)
+{
+	enum
+	{
+		/* (game_engine_multiplayer_sounds.c's) */
+		SOUND_TELEPORTER_ACTIVATE = 0x1B,
+		SOUND_COUNTDOWN_FOR_RESPAWN = 0x1D,
+		SOUND_PLAYER_RESPAWN = 0x1F,
+	};
+	short index;
+
+	if (!ce.enabled || ce.showing_message || sound_index == SOUND_TELEPORTER_ACTIVATE ||
+		sound_index == SOUND_COUNTDOWN_FOR_RESPAWN || sound_index == SOUND_PLAYER_RESPAWN)
+	{
+		return;
+	}
+	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+	{
+		struct ce_client *client = &ce.clients[index];
+		struct ce_payload payload;
+		unsigned char out[16];
+
+		if (!client->active || !client->loaded || client->phase != CE_PHASE_PLAYING)
+			continue;
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_multiplayer_sound(&payload, (unsigned int)sound_index);
+		ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE);
+	}
 }
 
 unsigned long server_ce_input_time(

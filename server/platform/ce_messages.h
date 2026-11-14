@@ -44,11 +44,25 @@ enum
 	CE_DELTA_UNIT_KILLED = 12,
 	CE_DELTA_CLIENT_UPDATE = 13,
 	CE_DELTA_CHAT = 15,
+	/* a weapon or equipment picked up: its HUD's note (the item's
+	definition, a message offset and a quantity) */
+	CE_DELTA_HUD_ADD_ITEM = 6,
 	CE_DELTA_SLAYER_SCORES = 16,
+	/* Capture the Flag's state: the flag swap timer, each team's score and
+	the team with the flag (the definitions of Kornner Studios' OpenSauce,
+	GPL-3.0, Halo1_CE.message_delta_definitions.xml) */
+	CE_DELTA_CTF_UPDATE = 17,
 	CE_DELTA_PLAYER_STATISTICS = 21,
 	/* the game's end, step by step (a 32-bit number: 1 the delay before
 	the scores, 2 and 3 the scores coming up and shown) */
 	CE_DELTA_POSTGAME_MODE = 22,
+	/* a message on a player's HUD: the player, the game engine's message
+	number and its data (another player's handle, a team, a time) */
+	CE_DELTA_MULTIPLAYER_HUD_MESSAGE = 24,
+	/* one of the game's multiplayer sounds (globals' list, by index) */
+	CE_DELTA_MULTIPLAYER_SOUND = 25,
+	/* a unit lets its weapon in hand go (a flag, a ball) */
+	CE_DELTA_UNIT_DROP_CURRENT_WEAPON = 27,
 	CE_DELTA_LOCAL_PLAYER_UPDATE = 35,
 	CE_DELTA_LOCAL_VEHICLE_UPDATE = 36,
 	CE_DELTA_REMOTE_PLAYER_ACTIONS = 37,
@@ -380,6 +394,16 @@ void ce_payload_put_player_statistics(struct ce_payload *payload, int player,
 void ce_payload_put_server_keep_alive(struct ce_payload *payload, int index, unsigned int value);
 /* the payload's length in bytes (written in its first 11 bits), or 0 */
 /* where the game is past its end (CE_DELTA_POSTGAME_MODE) */
+/* Capture the Flag's state */
+void ce_payload_put_ctf_update(struct ce_payload *payload, unsigned int flag_swap_timer, const int scores[2],
+	int team_with_flag);
+/* a HUD message for a player (its wire number) */
+void ce_payload_put_hud_message(struct ce_payload *payload, int player, unsigned int message, unsigned int data);
+void ce_payload_put_multiplayer_sound(struct ce_payload *payload, unsigned int sound);
+/* a unit (its object number) lets the weapon (its object number) go */
+void ce_payload_put_unit_drop_weapon(struct ce_payload *payload, int unit, int weapon, int immediate);
+/* an item's note on its new holder's HUD */
+void ce_payload_put_hud_add_item(struct ce_payload *payload, unsigned int definition, int offset, int quantity);
 void ce_payload_put_postgame_mode(struct ce_payload *payload, int mode);
 int ce_payload_end(struct ce_payload *payload);
 
