@@ -217,6 +217,9 @@ SCREENS = {
              "Room echo, and muffled sound behind walls.", None),
             ("DOPPLER:", "audio.doppler", ON_OFF,
              "Pitch shift of moving sounds, as on the Xbox.", None),
+            # (the mods folder's tag files: port/linux/game/mods.c, docs/mods.md)
+            ("MODS:", "game.mods", ON_OFF,
+             "Sound tags from the mods folder replace a map's.\nLocal games only; see docs/mods.md.", None),
             ("SOUND:", "audio.enabled", ON_OFF,
              "Turn all sound on or off. Takes effect on restart.", None),
         ],

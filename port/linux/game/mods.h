@@ -31,7 +31,6 @@ MB; a bitmap's pixels are read as they are drawn) */
 /* ---------- structures */
 
 struct sound_permutation;
-struct bitmap_data;
 struct vertex_buffer;
 
 /* ---------- prototypes/PORT_MODS.C (the platform layer's: port_mods.h) */
@@ -100,30 +99,5 @@ void mod_sounds_tags_unloaded(void);
 /* (sound_cache_start_loading_sound) whether a permutation is a mod's,
 read at once into buffer */
 boolean mod_sounds_read(struct sound_permutation const *permutation, void *buffer);
-
-/* ---------- prototypes/MOD_BITMAPS.C */
-
-long mod_bitmaps_update(boolean remove_all, boolean at_load);
-void mod_bitmaps_tags_unloaded(void);
-/* (texture_cache_start_loading_bitmap) whether a bitmap is a mod's, its
-pixels read at once into buffer and made the hardware's */
-boolean mod_bitmaps_read(struct bitmap_data *bitmap, void *buffer);
-/* whether a bitmap is a mod's (whose linear rows are padded as they load) */
-boolean mod_bitmaps_contain(struct bitmap_data const *bitmap);
-
-/* ---------- prototypes/MOD_STRINGS.C */
-
-long mod_strings_update(boolean remove_all, boolean at_load);
-void mod_strings_tags_unloaded(void);
-
-/* ---------- prototypes/MOD_MODELS.C */
-
-long mod_models_update(boolean remove_all, boolean at_load);
-/* (before the tags go: the map's models are given back, unless give_back
-is FALSE (the tags are gone already), and the mods' buffers let go) */
-void mod_models_tags_unloaded(boolean give_back);
-/* (custom_edition_part_palette) the nodes a mod's part of a model of many
-nodes is drawn with, by its vertex buffer: their count, 0 for any other */
-short mod_models_part_palette(struct vertex_buffer const *vertex_buffer, byte const **nodes);
 
 #endif

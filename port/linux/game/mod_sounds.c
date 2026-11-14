@@ -6,16 +6,19 @@ tag file of (tags\sound\...\name.sound) is played from that file instead of
 the map, and mods_reload, typed at the console, reads them again: a changed
 file is taken, a removed one gives the map's sound back.
 
-A tag file is Halo PC's (big-endian, version 4): the sound, the path of its
-promotion sound, its pitch ranges, then each range's permutations, each
-followed by its samples, mouth data and subtitle data. Every count, size and
-offset is checked against the file, which must end where the last of them
-does, and every value the game divides by or steps through against what the
-game takes; a file that is not is said and left out. Its samples (16-bit
-PCM, Xbox ADPCM or Ogg Vorbis, mono or stereo at 22 or 44 kHz) are made the
-Xbox ADPCM this build plays as a Custom Edition map's are
-(custom_edition_sounds_encode: mono at 22 kHz, stereo at its own rate), so
-they play through the map's channels as its sounds do. The values a map's
+A tag file is the Halo Editing Kit's (big-endian, version 4): the sound,
+the path of its promotion sound, its pitch ranges, then each range's
+permutations, each followed by its samples, mouth data and subtitle data.
+Every count, size and offset is checked against the file, which must end
+where the last of them does, and every value the game divides by or steps
+through against what the game takes; a file that is not is said and left
+out. Its samples (16-bit PCM, Xbox ADPCM or Ogg Vorbis, mono or stereo at
+22 or 44 kHz) are made what this build plays as a Custom Edition map's
+sounds are (ce_resources.c, ce_vorbis.c): Xbox ADPCM as it is, 16-bit PCM
+in the host's byte order (the file's is big-endian), Ogg Vorbis decoded to
+PCM; mono at 22 kHz, stereo at its own rate, as the Xbox's channels take
+them (sound_manager.c), so they play through the map's channels as its
+sounds do. The values a map's
 build (tool.exe, Invader) fills in are filled in as it does: the defaults
 of the sound's class, the pitch ranges' playback rates, the per-tick bend.
 The longest permutation length is Tool's measure of a permutation, a split
@@ -35,7 +38,13 @@ address, so nothing is changed under one: when a reload changes anything,
 every sound stops and the sound cache lets go what is not playing first,
 then the definitions change, and the permutations that went are freed once
 no cache block holds them (at the latest when the map goes).
+
+Based on MrBruh's mod_sounds.c in OpenCE (71bf206b and dd16971b, CC0,
+before its license changed), thanks! Reworked for this tree: its 64-bit
+builds' Xbox addresses in the tags, and its own PCM and Ogg Vorbis path.
 */
+
+#ifdef HALO_MODS
 
 /* ---------- headers */
 
@@ -47,7 +56,7 @@ no cache block holds them (at the latest when the map goes).
 #include "sound/sound_definitions.h"
 #include "sound/sound_manager.h"
 #include "tag_files/tag_groups.h"
-#include "custom_edition_cache.h"
+#include "cache/physical_memory_map.h"
 #include "mods.h"
 
 #include <math.h>
@@ -57,6 +66,10 @@ no cache block holds them (at the latest when the map goes).
 
 /* the game's (port) */
 char *tag_get_name(long tag_index);
+/* a Custom Edition map's Ogg Vorbis sounds' decoder and resampler
+(port/linux/game/ce_vorbis.c) */
+int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sample_rate, short **samples);
+int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int wanted);
 
 /* ---------- constants */
 
@@ -160,7 +173,7 @@ static void mod_sound_free(
 	for (permutation_index = 0; permutation_index < sound->permutation_count; permutation_index++)
 	{
 		if (sound->permutations[permutation_index].samples.address)
-			free(sound->permutations[permutation_index].samples.address);
+			free(xbox_pointer(sound->permutations[permutation_index].samples.address));
 	}
 	/* (the game's free, debug_free, does not take NULL) */
 	if (sound->permutations)
@@ -307,6 +320,109 @@ static real permutation_length(
 	return samples * 1000.f * channel_modifier * format_modifier * range->natural_pitch / ((real)rate * slowest);
 }
 
+/* The permutation's samples `data` (`size` bytes of `compression`,
+`channels` channels at `rate`) as this build plays them at `encoded_rate`:
+Xbox ADPCM as it is, 16-bit PCM in the host's order (the file's is
+big-endian), Ogg Vorbis decoded to PCM (ce_vorbis.c), at half or twice the
+rate brought to it. A buffer of the game's allocator of *made_bytes, its
+compression in *made_compression; NULL with *reason when they cannot be. */
+static byte *samples_make(
+	byte const *data,
+	unsigned long size,
+	short compression,
+	long channels,
+	long rate,
+	long encoded_rate,
+	unsigned long *made_bytes,
+	short *made_compression,
+	char const **reason)
+{
+	short *samples = NULL;
+	int frames;
+	int from_rate = (int)rate;
+
+	*made_bytes = 0;
+	*made_compression = SOUND_COMPRESSION_NONE;
+	if (compression == SOUND_COMPRESSION_XBOX_ADPCM)
+	{
+		byte *copy;
+
+		if (rate != encoded_rate)
+		{
+			*reason = "a mono Xbox ADPCM permutation at 44 kHz, which the Xbox's channels do not play";
+			return NULL;
+		}
+		copy = malloc(size);
+		if (!copy)
+		{
+			*reason = "out of memory";
+			return NULL;
+		}
+		memcpy(copy, data, size);
+		*made_bytes = size;
+		*made_compression = SOUND_COMPRESSION_XBOX_ADPCM;
+		return copy;
+	}
+	if (compression == SOUND_COMPRESSION_NONE)
+	{
+		unsigned long index;
+
+		frames = (int)(size / (2 * (unsigned long)channels));
+		if (frames <= 0 || size > 0x7fffffff)
+		{
+			*reason = "a permutation's PCM samples are not whole frames";
+			return NULL;
+		}
+		samples = malloc(size);
+		if (!samples)
+		{
+			*reason = "out of memory";
+			return NULL;
+		}
+		for (index = 0; index < size / 2; index++)
+			samples[index] = (short)(((unsigned)data[index * 2] << 8) | data[index * 2 + 1]);
+	}
+	else
+	{
+		int decoded_channels = 0;
+
+		if (size > 0x7fffffff)
+		{
+			*reason = "a permutation's Ogg Vorbis is too large";
+			return NULL;
+		}
+		frames = ce_vorbis_decode(data, (int)size, &decoded_channels, &from_rate, &samples);
+		if (frames <= 0 || !samples)
+		{
+			if (samples)
+				free(samples);
+			*reason = "a permutation's Ogg Vorbis cannot be decoded";
+			return NULL;
+		}
+		if (decoded_channels != channels)
+		{
+			free(samples);
+			*reason = "a permutation's Ogg Vorbis has not the sound's channels";
+			return NULL;
+		}
+	}
+	if (from_rate != encoded_rate)
+	{
+		int resampled = ce_vorbis_resample(&samples, frames, (int)channels, from_rate, (int)encoded_rate);
+
+		if (resampled <= 0)
+		{
+			free(samples);
+			*reason = "a permutation's rate is neither the sound's nor half or twice it";
+			return NULL;
+		}
+		frames = resampled;
+	}
+	*made_bytes = (unsigned long)frames * 2 * (unsigned long)channels;
+	*made_compression = SOUND_COMPRESSION_NONE;
+	return (byte *)samples;
+}
+
 /* The sound the tag file `file` makes for the map's sound tag
 `tag_index`, or NULL with *reason saying why not. */
 static struct mod_sound *mod_sound_new(
@@ -417,7 +533,7 @@ static struct mod_sound *mod_sound_new(
 	promotion_length = mods_read_be32(root + offsetof(struct sound_definition, promotion_sound.name_length));
 	definition->promotion_sound.group_tag = SOUND_DEFINITION_TAG;
 	definition->promotion_sound.index = NONE;
-	definition->promotion_sound.name = NULL;
+	definition->promotion_sound.name = XBOX_NULL;
 	definition->promotion_sound.name_length = 0;
 	if (promotion_length)
 	{
@@ -436,8 +552,8 @@ static struct mod_sound *mod_sound_new(
 		if (promotion_index != NONE)
 		{
 			definition->promotion_sound.index = promotion_index;
-			definition->promotion_sound.name = tag_get_name(promotion_index);
-			definition->promotion_sound.name_length = (long)strlen(definition->promotion_sound.name);
+			definition->promotion_sound.name = xbox_address(tag_get_name(promotion_index));
+			definition->promotion_sound.name_length = (long)strlen(tag_get_name(promotion_index));
 		}
 	}
 
@@ -514,8 +630,8 @@ static struct mod_sound *mod_sound_new(
 			range->previous_permutation_index = NONE;
 			range->forced_permutation_index = NONE;
 			range->permutations.count = (long)count;
-			range->permutations.address = permutations;
-			range->permutations.definition = NULL;
+			range->permutations.address = xbox_address(permutations);
+			range->permutations.definition = XBOX_NULL;
 
 			/* each permutation, its samples made this build's */
 			lengths = (real *)malloc(count * sizeof(real));
@@ -536,6 +652,7 @@ static struct mod_sound *mod_sound_new(
 				short next = mods_read_short(bytes + offsetof(struct sound_permutation, next_permutation_index));
 				byte const *samples = file + cursor;
 				unsigned long encoded_bytes = 0;
+				short made_compression = SOUND_COMPRESSION_NONE;
 
 				sound->permutation_count++;
 				*reason = "a permutation's data is not in the file";
@@ -566,41 +683,37 @@ static struct mod_sound *mod_sound_new(
 				lengths[permutation_index] = permutation_length(definition, range, compression,
 					samples_size, buffer_size, rate);
 
-				/* the samples (Xbox ADPCM at the rate played is played as it is) */
-				if (compression == SOUND_COMPRESSION_XBOX_ADPCM && rate == encoded_rate)
+				/* the samples, made what this build plays */
 				{
-					permutation->samples.address = malloc(samples_size);
-					if (permutation->samples.address)
+					byte *made = samples_make(samples, samples_size, compression, channels, rate, encoded_rate,
+						&encoded_bytes, &made_compression, reason);
+
+					if (!made)
 					{
-						memcpy(permutation->samples.address, samples, samples_size);
-						encoded_bytes = samples_size;
+						free(lengths);
+						goto refused;
 					}
-				}
-				else
-				{
-					permutation->samples.address = custom_edition_sounds_encode(samples, (long)samples_size,
-						compression, TRUE, channels, rate, encoded_rate, &encoded_bytes);
-				}
-				if (!permutation->samples.address || encoded_bytes > MAXIMUM_SOUND_DATA_SIZE)
-				{
-					*reason = permutation->samples.address ?
-						"a permutation is longer than a sound cache block takes" :
-						"a permutation's samples cannot be decoded";
-					free(lengths);
-					goto refused;
+					if (encoded_bytes > MAXIMUM_SOUND_DATA_SIZE || encoded_bytes > SOUND_CACHE_SIZE)
+					{
+						*reason = "a permutation is longer than a sound cache block takes";
+						free(made);
+						free(lengths);
+						goto refused;
+					}
+					permutation->samples.address = xbox_address(made);
 				}
 				permutation->samples.size = (long)encoded_bytes;
 				permutation->samples.file_offset = 0;
-				permutation->compression = SOUND_COMPRESSION_XBOX_ADPCM;
+				permutation->compression = made_compression;
 				permutation->sample_buffer_size = 0;
 				sound->kept_bytes += encoded_bytes;
 				cursor += samples_size;
 				/* (the mouth and subtitle data stay in the file kept) */
 				permutation->mouth_data.size = (long)mouth_size;
-				permutation->mouth_data.address = mouth_size ? file + cursor : NULL;
+				permutation->mouth_data.address = mouth_size ? xbox_address(file + cursor) : XBOX_NULL;
 				cursor += mouth_size;
 				permutation->subtitle_data.size = (long)subtitle_size;
-				permutation->subtitle_data.address = subtitle_size ? file + cursor : NULL;
+				permutation->subtitle_data.address = subtitle_size ? xbox_address(file + cursor) : XBOX_NULL;
 				cursor += subtitle_size;
 				/* the sound cache's (xbox_sound_cache.c: block, address, tag) */
 				permutation->unknown0 = NONE;
@@ -652,10 +765,12 @@ static struct mod_sound *mod_sound_new(
 	}
 
 	definition->longest_permutation_length = (long)longest;
-	definition->compression = SOUND_COMPRESSION_XBOX_ADPCM;
+	/* (every permutation's: Xbox ADPCM stays, the rest is PCM now) */
+	definition->compression = definition->compression == SOUND_COMPRESSION_XBOX_ADPCM ?
+		SOUND_COMPRESSION_XBOX_ADPCM : SOUND_COMPRESSION_NONE;
 	definition->sample_rate = encoded_rate == 44100 ? 1 : 0;
 	definition->pitch_ranges.count = (long)range_count;
-	definition->pitch_ranges.address = sound->ranges;
+	definition->pitch_ranges.address = xbox_address(sound->ranges);
 	sound->file = file;
 	sound->file_size = file_size;
 	sound->kept_bytes += file_size;
@@ -923,10 +1038,12 @@ boolean mod_sounds_read(
 	{
 		if (permutation >= sound->permutations && permutation < sound->permutations + sound->permutation_count)
 		{
-			memcpy(buffer, permutation->samples.address, (size_t)permutation->samples.size);
+			memcpy(buffer, xbox_pointer(permutation->samples.address), (size_t)permutation->samples.size);
 			return TRUE;
 		}
 	}
 
 	return FALSE;
 }
+
+#endif /* HALO_MODS */

@@ -310,7 +310,9 @@ def musl_math_cflags(abi: str) -> str:
 # and map packs' Xbox maps (maps_cex/<name>.map, <name>@cex:
 # port/linux/game/ui_map_list.c, map_packs.c; HALO_MAP_LIST), which the
 # original Xbox's build has too (port/xbox/build.py).
-CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION", "-DHALO_MAP_LIST"]
+# ... and the mods folder (port/linux/game/mods.c, port_mods.c: HALO_MODS),
+# which a console port defines when it builds those units too
+CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION", "-DHALO_MAP_LIST", "-DHALO_MODS"]
 # ... and on the desktop builds alone (Linux, macOS, Windows and the
 # dedicated server), those maps compressed with Chimera's chimera-compress
 # (port/linux/src/map_compressed.c, with ZSTD_SOURCES). The consoles that

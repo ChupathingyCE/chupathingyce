@@ -2,34 +2,43 @@
 MODS.C
 
 Mods: tag files played over a map's tags on this machine, as a resource
-pack is: a map's sounds (mod_sounds.c), bitmaps (mod_bitmaps.c), text
-(mod_strings.c) and models (mod_models.c) from Halo PC tag files, as the
-Halo Editing Kit and Invader write them, in the mods of the mods folder that
-are on, in their load order (port/linux/src/port_mods.c; the main menu's
-Mods chooses: menu_functions.c; the mod.toml files: docs/mods.md). Nothing a
-mod plays is anything the machines of a network game must agree on: no tag
-that the game simulates is played from a file (a model's nodes, markers and
-regions must be the map's: only what is drawn of it is the file's), and no
-mod is sent to another machine, so a mod is this machine's alone, in any
-game.
+pack is: a map's sounds (mod_sounds.c) from Halo Editing Kit tag files, as
+the HEK and Invader write them, in the mods of the mods folder that are on,
+in their load order (port/linux/src/port_mods.c; the mod.toml files:
+docs/mods.md). Bitmaps, strings and models are the next groups to come.
+
+A mod is this machine's alone: nothing of it is sent to another machine.
+A sound of another length still changes what the host's scripts and AI wait
+for, and a louder or quieter sound what a player hears of others, so in a
+network game the mods are not played unless the host's content is known to
+match (today: never; the mods are played in local games, campaign, split
+screen and solo multiplayer, and the log says when they are not).
 
 When a map's tags load (scenario_tags_load), when the console asks
-(mods_reload) and when the Mods menu's OK keeps a new order (mods_apply),
-the mods are found again, and each of the map's tags of those groups that a
-mod has a file of (tags\<its name>.<its group's extension>)
-is played from the file, made what this build plays: the tag's definition
-takes the file's values in place, so everything that holds the tag keeps
-holding it, and the map's own values come back when the file goes. A file
-that is not what its group's reader can trust (each checks every count,
-offset and value against the file and against what the game reads), or
-that does not fit what the map's tags ask of the tag it replaces, is said
-and left out, and the map's tag played. mods_enable false gives every tag
-back until mods_enable true, or until the map changes.
+(mods_reload) and when a Mods menu's OK keeps a new order (mods_apply), the
+mods are found again, and each of the map's tags of those groups that a mod
+has a file of (tags\<its name>.<its group's extension>) is played from the
+file, made what this build plays: the tag's definition takes the file's
+values in place, so everything that holds the tag keeps holding it, and the
+map's own values come back when the file goes. A file that is not what its
+group's reader can trust (each checks every count, offset and value against
+the file and against what the game reads), or that does not fit what the
+map's tags ask of the tag it replaces, is said and left out, and the map's
+tag played. mods_enable false gives every tag back until mods_enable true,
+or until the map changes. game.mods = false (config.toml, the MODS row of
+the settings) plays no mod at all.
+
+Based on MrBruh's client-side mods in OpenCE (dd16971b and its follow-ups,
+CC0, before its license changed), thanks! Reworked for this tree's 64-bit
+builds and its own Custom Edition sound path.
 */
+
+#ifdef HALO_MODS
 
 /* ---------- headers */
 
 #include "cseries.h"
+#include "game/game.h"
 #include "main/console.h"
 #include "mods.h"
 
@@ -38,13 +47,16 @@ back until mods_enable true, or until the map changes.
 
 /* the game's (port) */
 char *tag_get_name(long tag_index);
+short game_connection(void);
+int config_boolean(const char *name);
+void platform_log(char const *format, ...);
 
 /* ---------- constants */
 
 /* the most the mods' tags keep in memory (their files, their sounds'
 samples, their bitmaps' tags and their models' geometry; bitmaps' pixels
 are read as they are drawn) */
-#if defined(HALO_ANDROID) || defined(HALO_WEB)
+#if defined(HALO_ANDROID)
 #define MAXIMUM_KEPT_BYTES (192UL * 1024 * 1024)
 #else
 #define MAXIMUM_KEPT_BYTES (512UL * 1024 * 1024)
@@ -64,11 +76,10 @@ static struct
 	/* the groups' updates say what they did at the console (not as the
 	Mods menu applies them) */
 	boolean say;
-	/* how many of the map's strings, bitmaps, sounds and models the mods play */
-	long string_count;
-	long bitmap_count;
+	/* how many of the map's sounds the mods play */
 	long sound_count;
-	long model_count;
+	/* why nothing is played on this map, or NULL (said once a map) */
+	char const *held;
 } mods_globals;
 
 /* ---------- private code */
@@ -80,10 +91,7 @@ static void mods_update(
 	boolean remove_all,
 	boolean at_load)
 {
-	mods_globals.string_count = mod_strings_update(remove_all, at_load);
-	mods_globals.bitmap_count = mod_bitmaps_update(remove_all, at_load);
 	mods_globals.sound_count = mod_sounds_update(remove_all, at_load);
-	mods_globals.model_count = mod_models_update(remove_all, at_load);
 
 	return;
 }
@@ -245,8 +253,24 @@ void mods_tags_loaded(
 		mods_let_go(FALSE);
 	mods_globals.map_loaded = TRUE;
 	mods_globals.enabled = TRUE;
+	mods_globals.held = NULL;
 	csstrncpy(mods_globals.map_name, map_name ? map_name : "", sizeof(mods_globals.map_name) - 1);
 	mods_globals.map_name[sizeof(mods_globals.map_name) - 1] = 0;
+	/* (off: nothing is even looked for) */
+	if (!config_boolean("game.mods"))
+	{
+		mods_globals.held = "game.mods is false";
+		platform_log("mods: off (game.mods is false)");
+		return;
+	}
+	/* (a network game: the mods are not played unless the host's content
+	is known to match, which nothing tells yet) */
+	if (game_connection() != _game_connection_local)
+	{
+		mods_globals.held = "a network game: the host's content must match";
+		platform_log("mods: not played in a network game (the host's content must match); a local game plays them");
+		return;
+	}
 	/* (found again, unless the menus of this map just found them: the
 	first map's, menu_tags.c) */
 	if (port_mods_scans() == mods_globals.scans)
@@ -255,28 +279,29 @@ void mods_tags_loaded(
 	if (port_mods_played())
 	{
 		mods_update(FALSE, TRUE);
+		platform_log("mods: %ld of %s's sounds are the mods'", mods_globals.sound_count, mods_globals.map_name);
+	}
+	else
+	{
+		platform_log("mods: off (no mod in the mods folder)");
 	}
 
 	return;
 }
 
-/* Every group lets go of what it made for the map; the map's models get
-their own definitions back if `give_back` (their tags are still there). */
+/* Every group lets go of what it made for the map (`give_back`: its tags
+are still there to be given their own definitions back). */
 static void mods_let_go(
 	boolean give_back)
 {
+	(void)give_back;
 	mod_sounds_tags_unloaded();
-	mod_bitmaps_tags_unloaded();
-	mod_models_tags_unloaded(give_back);
-	mod_strings_tags_unloaded();
 	mods_globals.map_loaded = FALSE;
 	mods_globals.enabled = FALSE;
+	mods_globals.held = NULL;
 	mods_globals.map_name[0] = 0;
 	mods_globals.kept_bytes = 0;
-	mods_globals.string_count = 0;
-	mods_globals.bitmap_count = 0;
 	mods_globals.sound_count = 0;
-	mods_globals.model_count = 0;
 
 	return;
 }
@@ -303,6 +328,11 @@ void mods_reload(
 {
 	if (!mods_globals.map_loaded)
 	{
+		return;
+	}
+	if (mods_globals.held)
+	{
+		console_warning("mods: not played on this map (%s)", mods_globals.held);
 		return;
 	}
 	if (!mods_globals.enabled)
@@ -348,6 +378,11 @@ void mods_enable(
 	{
 		return;
 	}
+	if (mods_globals.held)
+	{
+		console_warning("mods: not played on this map (%s)", mods_globals.held);
+		return;
+	}
 	mods_globals.enabled = enabled;
 	if (enabled)
 	{
@@ -384,11 +419,14 @@ void mods_list(
 	}
 	if (mods_globals.map_loaded)
 	{
-		if (mods_globals.enabled)
+		if (mods_globals.held)
 		{
-			console_printf(FALSE, "mods: on %s, %ld string lists, %ld bitmaps, %ld sounds and %ld models are theirs (%lu KB kept)",
-				mods_globals.map_name, mods_globals.string_count, mods_globals.bitmap_count, mods_globals.sound_count,
-				mods_globals.model_count, mods_globals.kept_bytes / 1024);
+			console_printf(FALSE, "mods: not played on %s (%s)", mods_globals.map_name, mods_globals.held);
+		}
+		else if (mods_globals.enabled)
+		{
+			console_printf(FALSE, "mods: on %s, %ld sounds are theirs (%lu KB kept)",
+				mods_globals.map_name, mods_globals.sound_count, mods_globals.kept_bytes / 1024);
 		}
 		else
 		{
@@ -398,3 +436,5 @@ void mods_list(
 
 	return;
 }
+
+#endif /* HALO_MODS */

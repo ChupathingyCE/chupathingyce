@@ -97,6 +97,20 @@ deflate), that names any entry with a path that leaves its folder ("..", an
 absolute path, a drive), that has no entry <name>.map at its top or more than
 one, or whose entry is larger than MAP_ARCHIVE_MAXIMUM_SIZE, lies outside the
 archive, or does not unpack to its stated size and CRC-32 */
+/* any archive's entries (a tag archive's: port/linux/game/loose_tags.c),
+each one's name as the archive spells it and its unpacked size to proc,
+which returns 0 to stop: 1 when the directory was read, 0 with error when
+it is damaged, split, ZIP64, over 8192 entries, or any entry names a path
+outside its folder (no name is ever a path here either) */
+typedef int (*map_archive_entry_proc)(void *context, const char *name, unsigned int size);
+int map_archive_entries(const struct map_archive_io *io, map_archive_entry_proc proc, void *context, char *error,
+	int error_size);
+
+/* the entry named name (any case), at most maximum_size bytes unpacked,
+through io's write: 1 with its size, as map_archive_extract */
+int map_archive_extract_entry(const struct map_archive_io *io, const char *name, unsigned int maximum_size,
+	unsigned int *size, char *error, int error_size);
+
 int map_archive_extract(const struct map_archive_io *io, const char *name, unsigned int *map_size, char *error,
 	int error_size);
 

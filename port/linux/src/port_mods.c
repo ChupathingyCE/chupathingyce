@@ -3,7 +3,9 @@ PORT_MODS.C
 
 The mods (port_mods.h): folders in the data root's mods folder, each with a
 mod.toml saying what it is and a tags folder of Halo PC tag files, as the
-Halo Editing Kit and Invader write them (tags/sound/.../name.sound). The
+Halo Editing Kit and Invader write them (tags/sound/.../name.sound), or zip
+archives (.pk3, .zip) with the same inside (map_archive.c reads them; one
+without a mod.toml is a mod named after its file). The
 game plays a map's tags from the files of the mods that are on
 (port/linux/game/mods.c): only those of this machine's sounds, bitmaps,
 text and models (what is drawn of them), so that a mod changes nothing
@@ -46,6 +48,7 @@ at startup whether to play them anyway, turn those named off, or quit
 (port_mods_conflicts).
 */
 
+#include "map_archive.h"
 #include "platform.h"
 #include "port_config.h"
 #include "port_mods.h"
@@ -57,10 +60,6 @@ at startup whether to play them anyway, turn those named off, or quit
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef HALO_WEB
-/* (port/web/src/web_library.js) */
-void web_js_post(int kind, const char *text);
-#endif
 
 /* ---------- constants */
 
@@ -118,6 +117,8 @@ struct port_mod
 	/* why it is not played whatever the menu says, or NULL */
 	const char *refusal;
 	long file_count;
+	/* a zip archive (.pk3, .zip) in the mods folder, not a folder */
+	int archive;
 };
 
 struct port_mod_file
@@ -127,7 +128,10 @@ struct port_mod_file
 	long mod;
 	/* lower case, backslashes */
 	char *key;
+	/* the file's path, or its archive's, with the entry's name in it */
 	char *path;
+	char *entry;
+	unsigned long size;
 };
 
 /* ---------- globals */
@@ -280,6 +284,7 @@ static void files_dispose(void)
 	{
 		free(port_mods.files[index].key);
 		free(port_mods.files[index].path);
+		free(port_mods.files[index].entry);
 	}
 	free(port_mods.files);
 	port_mods.files = NULL;
@@ -342,31 +347,18 @@ static const char *toml_text(toml_datum_t table, const char *key, const char *pa
 }
 
 /* reads the mod.toml of the mod in `folder`; 0 when there is none */
-static int mod_read(struct port_mod *mod, const char *root, const char *folder)
+/* what mod.toml's text says of a mod (the mod's folder's name is its name
+and id until it says otherwise): 1, the text freed */
+static int mod_parse(struct port_mod *mod, const char *path, const char *folder, char *text, size_t size)
 {
 	static const char *const keys[] =
 	{
 		"name", "id", "version", "authors", "description", "maps", "load_after", "load_before", "incompatible", "format",
 	};
-	char path[MAXIMUM_PATH_LENGTH];
-	size_t size = 0;
-	char *text;
 	toml_result_t result;
 	toml_datum_t value;
 	int index;
 
-	memset(mod, 0, sizeof(*mod));
-	mod->order = -1;
-	text_copy(mod->folder, sizeof(mod->folder), folder);
-	text_copy(mod->id, sizeof(mod->id), folder);
-	text_copy(mod->name, sizeof(mod->name), folder);
-	snprintf(path, sizeof(path), "%s/%s/mod.toml", root, folder);
-	text = config_file_read(path, &size);
-	if (!text)
-	{
-		platform_log("mods: %s/%s has no mod.toml: it is not a mod", root, folder);
-		return 0;
-	}
 	result = toml_parse(text, (int)size);
 	free(text);
 	if (!result.ok)
@@ -467,6 +459,180 @@ static int mod_read(struct port_mod *mod, const char *root, const char *folder)
 }
 
 /* the mods in the data root's mods folder, in their folders' order */
+
+static int mod_read(struct port_mod *mod, const char *root, const char *folder)
+{
+	char path[MAXIMUM_PATH_LENGTH];
+	size_t size = 0;
+	char *text;
+
+	memset(mod, 0, sizeof(*mod));
+	mod->order = -1;
+	text_copy(mod->folder, sizeof(mod->folder), folder);
+	text_copy(mod->id, sizeof(mod->id), folder);
+	text_copy(mod->name, sizeof(mod->name), folder);
+	snprintf(path, sizeof(path), "%s/%s/mod.toml", root, folder);
+	text = config_file_read(path, &size);
+	if (!text)
+	{
+		platform_log("mods: %s/%s has no mod.toml: it is not a mod", root, folder);
+		return 0;
+	}
+	return mod_parse(mod, path, folder, text, size);
+}
+
+/* ---------- archives (a .pk3 or .zip in the mods folder: map_archive.c reads it) */
+
+struct archive_reader
+{
+#ifdef HALO_ARM64_GUEST
+	FILE *stream;
+#else
+	SDL_IOStream *stream;
+#endif
+	/* what an entry unpacks into */
+	unsigned char *out;
+	unsigned long out_size;
+	unsigned long out_capacity;
+};
+
+static int archive_read(void *context, unsigned int offset, void *buffer, unsigned int size)
+{
+	struct archive_reader *reader = (struct archive_reader *)context;
+
+#ifdef HALO_ARM64_GUEST
+	return fseek(reader->stream, (long)offset, SEEK_SET) == 0 && fread(buffer, 1, size, reader->stream) == size;
+#else
+	return SDL_SeekIO(reader->stream, (Sint64)offset, SDL_IO_SEEK_SET) >= 0 &&
+		SDL_ReadIO(reader->stream, buffer, size) == size;
+#endif
+}
+
+static int archive_write(void *context, const void *buffer, unsigned int size)
+{
+	struct archive_reader *reader = (struct archive_reader *)context;
+
+	if (size > reader->out_capacity - reader->out_size)
+		return 0;
+	memcpy(reader->out + reader->out_size, buffer, size);
+	reader->out_size += size;
+	return 1;
+}
+
+/* the archive at path open to read: 1 with io set up */
+static int archive_open(struct archive_reader *reader, const char *path, struct map_archive_io *io)
+{
+	struct posix_file_information information;
+
+	memset(reader, 0, sizeof(*reader));
+	memset(io, 0, sizeof(*io));
+	if (posix_stat(path, &information) != 0 || information.size_high)
+		return 0;
+#ifdef HALO_ARM64_GUEST
+	reader->stream = fopen(path, "rb");
+#else
+	reader->stream = SDL_IOFromFile(path, "rb");
+#endif
+	if (!reader->stream)
+		return 0;
+	io->context = reader;
+	io->archive_size = (unsigned int)information.size_low;
+	io->read = archive_read;
+	io->write = archive_write;
+	io->stop = NULL;
+	return 1;
+}
+
+static void archive_close(struct archive_reader *reader)
+{
+	if (reader->stream)
+	{
+#ifdef HALO_ARM64_GUEST
+		fclose(reader->stream);
+#else
+		SDL_CloseIO(reader->stream);
+#endif
+	}
+	reader->stream = NULL;
+}
+
+/* the entry `entry` of the archive at `path`, whole, in a buffer of
+malloc's (free it), at most `maximum` bytes; NULL when it cannot be read
+(said in the log when `say`) */
+static unsigned char *archive_entry_read(const char *path, const char *entry, unsigned long maximum,
+	unsigned long *size, int say)
+{
+	struct archive_reader reader;
+	struct map_archive_io io;
+	char error[256];
+	unsigned int unpacked = 0;
+	unsigned char *out;
+
+	*size = 0;
+	if (!archive_open(&reader, path, &io))
+		return NULL;
+	/* (the entry's size is read from the directory as it unpacks: room for
+	the most allowed, trimmed after) */
+	out = malloc(maximum ? maximum : 1);
+	if (!out)
+	{
+		archive_close(&reader);
+		return NULL;
+	}
+	reader.out = out;
+	reader.out_capacity = maximum;
+	if (!map_archive_extract_entry(&io, entry, (unsigned int)maximum, &unpacked, error, sizeof(error)))
+	{
+		if (say)
+			platform_log("mods: %s: %s: %s", path, entry, error);
+		archive_close(&reader);
+		free(out);
+		return NULL;
+	}
+	archive_close(&reader);
+	*size = unpacked;
+	return out;
+}
+
+/* whether name ends in .pk3 or .zip, in any case */
+static int archive_name(const char *name)
+{
+	size_t length = strlen(name);
+	const char *extension = length > 4 ? name + length - 4 : "";
+
+	return extension[0] == '.' && ((lower(extension[1]) == 'p' && lower(extension[2]) == 'k' && extension[3] == '3') ||
+		(lower(extension[1]) == 'z' && lower(extension[2]) == 'i' && lower(extension[3]) == 'p'));
+}
+
+/* a mod that is an archive: named after its file, what its mod.toml says
+when it has one */
+static int mod_read_archive(struct port_mod *mod, const char *root, const char *file_name)
+{
+	char path[MAXIMUM_PATH_LENGTH];
+	char base[MAXIMUM_MOD_FOLDER_LENGTH];
+	unsigned long size = 0;
+	unsigned char *text;
+
+	memset(mod, 0, sizeof(*mod));
+	mod->order = -1;
+	mod->archive = 1;
+	text_copy(mod->folder, sizeof(mod->folder), file_name);
+	text_copy(base, sizeof(base), file_name);
+	base[strlen(base) - 4] = 0;
+	text_copy(mod->id, sizeof(mod->id), base);
+	text_copy(mod->name, sizeof(mod->name), base);
+	snprintf(path, sizeof(path), "%s/%s", root, file_name);
+	text = archive_entry_read(path, "mod.toml", 1 << 20, &size, 0);
+	if (!text)
+	{
+		platform_log("mods: %s has no mod.toml: played as %s", file_name, base);
+		return 1;
+	}
+	/* (mod_parse frees the text with the C library's free, as
+	config_file_read's is freed) */
+	return mod_parse(mod, path, base, (char *)text, (size_t)size);
+}
+
 static void mods_find(const char *root)
 {
 	void *directory = posix_directory_open(root);
@@ -483,8 +649,11 @@ static void mods_find(const char *root)
 		long index;
 
 		snprintf(path, sizeof(path), "%s/%s", root, name);
-		if (name[0] == '.' || posix_stat(path, &information) != 0 || !(information.flags & _posix_file_is_directory))
+		if (name[0] == '.' || posix_stat(path, &information) != 0 ||
+			(!(information.flags & _posix_file_is_directory) && !archive_name(name)))
+		{
 			continue;
+		}
 		if (strlen(name) >= MAXIMUM_MOD_FOLDER_LENGTH)
 		{
 			platform_log("mods: the folder name %s is longer than %d characters: it is not a mod", name,
@@ -497,8 +666,11 @@ static void mods_find(const char *root)
 				name);
 			break;
 		}
-		if (!mod_read(&mod, root, name))
+		if (!((information.flags & _posix_file_is_directory) ? mod_read(&mod, root, name) :
+			mod_read_archive(&mod, root, name)))
+		{
 			continue;
+		}
 		/* (sorted by folder, alphabetically: the default load order, the
 		same on every system) */
 		for (index = port_mods.mod_count; index > 0 && names_compare(port_mods.mods[index - 1].folder, mod.folder) > 0;
@@ -804,7 +976,7 @@ static int text_file_write(const char *path, const char *text)
 	return written;
 }
 
-static long file_add(long mod, const char *key, const char *path)
+static long file_add(long mod, const char *key, const char *path, const char *entry, unsigned long size)
 {
 	struct port_mod_file *file;
 
@@ -831,10 +1003,13 @@ static long file_add(long mod, const char *key, const char *path)
 	file = &port_mods.files[port_mods.file_count];
 	file->key = strdup(key);
 	file->path = strdup(path);
-	if (!file->key || !file->path)
+	file->entry = entry ? strdup(entry) : NULL;
+	file->size = size;
+	if (!file->key || !file->path || (entry && !file->entry))
 	{
 		free(file->key);
 		free(file->path);
+		free(file->entry);
 		platform_log("mods: out of memory for the list of their files");
 		return -1;
 	}
@@ -891,9 +1066,58 @@ static void files_list(long mod, const char *path, const char *key, int depth)
 		if (information.flags & _posix_file_is_directory)
 			files_list(mod, child_path, child_key, depth + 1);
 		else
-			file_add(mod, child_key, child_path);
+			file_add(mod, child_key, child_path, NULL, 0);
 	}
 	posix_directory_close(directory);
+}
+
+/* the entries of an archive mod under tags/, listed as a folder's files are */
+struct archive_listing
+{
+	long mod;
+	const char *path;
+};
+
+static int archive_entry_list(void *context, const char *name, unsigned int size)
+{
+	struct archive_listing *listing = (struct archive_listing *)context;
+	char key[MAXIMUM_PATH_LENGTH];
+	size_t length = strlen(name);
+
+	/* (tags/ or tags\, then a file's path: a folder entry ends in a slash) */
+	if (length < 6 || lower(name[0]) != 't' || lower(name[1]) != 'a' || lower(name[2]) != 'g' || lower(name[3]) != 's' ||
+		(name[4] != '/' && name[4] != '\\') || name[length - 1] == '/' || name[length - 1] == '\\')
+	{
+		return 1;
+	}
+	if (port_mods.full_reported)
+		return 0;
+	if (!key_make(name + 5, key, sizeof(key)))
+	{
+		platform_log("mods: the path of %s: %s is too long: it is left out", listing->path, name);
+		return 1;
+	}
+	file_add(listing->mod, key, listing->path, name, size);
+	return 1;
+}
+
+static void archive_list(long mod, const char *path)
+{
+	struct archive_reader reader;
+	struct map_archive_io io;
+	struct archive_listing listing;
+	char error[256];
+
+	if (!archive_open(&reader, path, &io))
+	{
+		platform_log("mods: %s cannot be opened", path);
+		return;
+	}
+	listing.mod = mod;
+	listing.path = path;
+	if (!map_archive_entries(&io, archive_entry_list, &listing, error, sizeof(error)))
+		platform_log("mods: %s: %s", path, error);
+	archive_close(&reader);
 }
 
 static int mod_for_map(const struct port_mod *mod, const char *map_name)
@@ -943,8 +1167,16 @@ long port_mods_scan(void)
 		if (mod->order < 0)
 			continue;
 		port_mods.played_count++;
-		snprintf(path, sizeof(path), "%s/%s/tags", root, mod->folder);
-		files_list(mod_index, path, "", 0);
+		if (mod->archive)
+		{
+			snprintf(path, sizeof(path), "%s/%s", root, mod->folder);
+			archive_list(mod_index, path);
+		}
+		else
+		{
+			snprintf(path, sizeof(path), "%s/%s/tags", root, mod->folder);
+			files_list(mod_index, path, "", 0);
+		}
 		platform_log("mods: %s (%s%s%s) plays %ld tag files%s", mod->folder, mod->name, mod->version[0] ? " " : "",
 			mod->version, mod->file_count, mod->maps ? " on the maps it names" : "");
 	}
@@ -998,7 +1230,8 @@ int port_mods_file_stamp(long file, unsigned long *size, unsigned long stamp[2])
 	{
 		return 0;
 	}
-	*size = information.size_low;
+	/* (an archive's entry: its size as the directory says, its archive's time) */
+	*size = port_mods.files[file].entry ? port_mods.files[file].size : information.size_low;
 	stamp[0] = information.modification_seconds;
 	stamp[1] = information.modification_nanoseconds;
 	return 1;
@@ -1020,6 +1253,35 @@ int port_mods_file_read(long file, unsigned long offset, void *buffer, unsigned 
 	if (file < 0 || file >= port_mods.file_count)
 		return 0;
 	path = port_mods.files[file].path;
+	/* (an archive's entry: unpacked whole, then the bytes asked for) */
+	if (port_mods.files[file].entry)
+	{
+		unsigned long unpacked = 0;
+		unsigned char *whole = archive_entry_read(path, port_mods.files[file].entry, port_mods.files[file].size,
+			&unpacked, 1);
+
+		if (!whole)
+			return 0;
+		if (offset > unpacked || size > unpacked - offset)
+		{
+			free(whole);
+			return 0;
+		}
+		while (done < size)
+		{
+			unsigned long wanted = size - done;
+			unsigned char *destination = (unsigned char *)buffer + done;
+
+			if (bounce && wanted > READ_BOUNCE_SIZE)
+				wanted = READ_BOUNCE_SIZE;
+			if (bounce)
+				memory_watch_prepare_write(destination, wanted);
+			memcpy(destination, whole + offset + done, wanted);
+			done += wanted;
+		}
+		free(whole);
+		return 1;
+	}
 	if (bounce && !(staging = malloc(READ_BOUNCE_SIZE)))
 		return 0;
 #ifdef HALO_ARM64_GUEST
@@ -1370,66 +1632,12 @@ void port_mods_disable_conflicting(void)
 void port_mods_startup(void)
 {
 	char conflicts[2048];
-	char names[256];
-	char message[2400];
-	char disable[96];
-	const char *labels[3];
-	int answer;
 
 	port_mods_scan();
 	if (!port_mods_conflicts(conflicts, sizeof(conflicts)))
 		return;
-	port_mods_conflicting_names(names, sizeof(names));
+	/* (no box asks yet: they are played as they are, and the log says
+	which conflict; the Mods menu, when it comes, turns them off) */
 	platform_log("mods: %s", conflicts);
-	/* (not for runs nobody is watching, as platform_show_message's
-	messages are not: they play them) */
-	if (config_boolean("debug.hidden_window") || config_boolean("debug.null_renderer") ||
-		config_real("debug.exit_after") > 0.0 || *config_string("debug.network_test"))
-	{
-		platform_log("mods: played as they are, nobody being asked");
-		return;
-	}
-	snprintf(message, sizeof(message),
-		"Mods in the mods folder say they cannot be played together:\n\n%s\n\n"
-		"Play them all anyway, turn off %s, or quit? (The main menu's Mods turns mods on and off.)",
-		conflicts, names);
-	snprintf(disable, sizeof(disable), "Turn off %s", names);
-	/* (a long list of names is cut short on its button, at a whole
-	character) */
-	if (strlen(disable) > 40)
-	{
-		disable[37] = 0;
-		utf8_trim(disable);
-		strcat(disable, "...");
-	}
-	labels[0] = "Play anyway";
-	labels[1] = disable;
-	labels[2] = "Quit";
-	answer = platform_ask("Halo: mods that cannot be played together", message, labels, 3, 0);
-	if (answer == 1)
-	{
-		/* (played so even when load_order.toml cannot be written:
-		port_mods_save keeps it) */
-		port_mods_disable_conflicting();
-		port_mods_save();
-		port_mods_scan();
-	}
-	else if (answer == 2)
-	{
-		platform_log("mods: quitting, as asked, over mods that cannot be played together");
-#ifdef HALO_WEB
-		/* (the page starts again: a worker's exit does not end the page's
-		game) */
-		web_js_post(4, "quit");
-#endif
-		exit(EXIT_SUCCESS);
-	}
-	else if (answer < 0)
-	{
-		platform_log("mods: cannot ask (%s): played all anyway", SDL_GetError());
-	}
-	else
-	{
-		platform_log("mods: played all anyway");
-	}
+	platform_log("mods: played as they are (mods_list at the console says which; load_order.toml's disabled turns one off)");
 }
