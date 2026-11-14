@@ -162,7 +162,9 @@ static const struct settings_row settings_rows[] =
 #ifdef HALO_BGFX
 	{ _in_display, "RENDERER", "display.renderer", _kind_choices, renderer_choices, renderer_names, 1, 0 },
 #endif
-	{ _in_display, "MENU STYLE", "display.menus", _kind_choices, menus_choices, NULL, 0, 0 },
+	/* (in the Guide too: the way back from the Xbox's menus, which have no
+	screen of it, #1210) */
+	{ _in_display | _in_guide, "MENU STYLE", "display.menus", _kind_choices, menus_choices, NULL, 0, 0 },
 #ifdef HALO_TITLE_CHOICE
 	{ _in_display, "TITLE FONT", "display.title_font", _kind_choices, title_font_choices, NULL, 0, 0 },
 #endif
