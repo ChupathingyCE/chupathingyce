@@ -5713,6 +5713,28 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 }
 #endif
 
+/* only the games this build can join (game_list_rules.h): a game the list
+has by the list's word (browser_game_shown), a listing it lacks by its own
+number (browser_version_shown); every game with debug.show_all_games */
+static void lobby_browser_joinable_games(void)
+{
+	short index, kept;
+
+	for (index = kept = 0; index < lobby_browser.count; index++)
+	{
+#ifdef HALO_GAME_BROWSER
+		struct browser_game const *listed = lobby_browser_listed_game(&lobby_browser.games[index]);
+		int shown = listed ? browser_game_shown(listed) : browser_version_shown(lobby_browser.games[index].version);
+#else
+		int shown = browser_version_shown(lobby_browser.games[index].version);
+#endif
+
+		if (shown)
+			lobby_browser.games[kept++] = lobby_browser.games[index];
+	}
+	lobby_browser.count = kept;
+}
+
 /* why a game of another network version is not joined (state from
 lobby_browser_version_state), as every list says it (halo_join_reasons.h) */
 static void lobby_browser_version_text(int state, short version, wchar_t *text, short size)
@@ -5813,6 +5835,7 @@ static void lobby_browser_update(struct widget_instance *list)
 	lobby_browser.count = lobby_browser_valid_games(lobby_browser.games,
 		(short)p2p_lobby_games(lobby_browser.games, LOBBY_BROWSER_GAMES));
 	lobby_browser_add_listed();
+	lobby_browser_joinable_games();
 	lobby_browser_sort();
 	focused = lobby_browser_rows_place(list);
 	/* (the first game found takes the focus from the buttons, which had it
