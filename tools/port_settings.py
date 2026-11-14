@@ -1046,6 +1046,15 @@ STRING_INSERTS = {
         "Two hundred kills to win.",
         "Two hundred and fifty kills to win.",
         "Five hundred kills to win.",
+    ]), (26, [
+        # (the game modes layer's MODE, after TIME LIMIT's: docs/modes.md;
+        # menu_tags.c's EDITOR_*_HELP_* for the Xbox's menus)
+        "No mode. The game plays by the rules above.",
+        "SWAT. No shields, and one shot to the head kills.",
+    ])],
+    "main_menu/settings_select/multiplayer_setup/player_options_edit/cap_player_options": [(28, [
+        "The usual motion tracker and aim assist.",
+        "No motion tracker and no aim assist. A kill brings\\nyour health and shields back to full.",
     ])],
 }
 
