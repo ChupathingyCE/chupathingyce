@@ -2475,6 +2475,307 @@ static void host_setup_patch(void)
 	}
 }
 
+#ifdef HALO_GAME_BROWSER
+/* ---------- the Xbox's menus' game type editor: the game modes layer's rows
+
+The Xbox's Slayer rules screen gets MODE (NONE, SWAT) and its player
+options screen HARDCORE (OFF, ON) (docs/modes.md), each a row one past the
+list's last, as far below it as the list's rows are apart: a copy of the
+last row (its look), its label a copy of that row's with its own text, and a
+spinner copied from a row of the Xbox's whose spinner is as wide as the
+items want, where that row has it. The screens' own functions read and set
+them past their own rows (ui_widget_event_handler_functions.c,
+playlist_profile_mode_row). Player Options' help text and button key move
+down to make room, as the Chupathingy menus' do. Let go by
+menu_tags_unloaded, as the pause menu's buttons are. */
+
+#define EDITOR_XBOX "ui\\shell\\main_menu\\settings_select\\multiplayer_setup\\"
+#define EDITOR_ROWS_TAGS (2 * 6)
+/* (Player Options' help text and button key, lower by these) */
+#define EDITOR_HELP_DOWN 29
+#define EDITOR_KEY_DOWN 16
+/* the rows' helps, each value's */
+#define EDITOR_MODE_HELP_NONE "No mode. The game plays by the rules above."
+#define EDITOR_MODE_HELP_SWAT "SWAT. No shields, and one shot to the head kills."
+#define EDITOR_HARDCORE_HELP_OFF "The usual motion tracker and aim assist."
+#define EDITOR_HARDCORE_HELP_ON "No motion tracker and no aim assist. A kill brings\nyour health and shields back to full."
+
+/* a definition copied, the copy's own */
+static struct ui_widget_definition *widget_copy(long tag)
+{
+	struct ui_widget_definition *copy = allocate(sizeof(*copy));
+
+	if (copy)
+		memcpy(copy, tag_get(UI_WIDGET_DEFINITION_TAG, tag), sizeof(*copy));
+	return copy;
+}
+
+/* whether the string list's string ends with a colon (the screen's labels
+do, or not: the new one as they are) */
+static boolean strings_colon(long strings_tag, short index)
+{
+	struct string_list const *list;
+	struct string_list_entry const *entries;
+	unsigned short const *characters;
+	long length;
+
+	if (strings_tag == NONE)
+		return FALSE;
+	list = tag_get(UNICODE_STRING_LIST_TAG, strings_tag);
+	if (index < 0 || index >= list->strings.count)
+		return FALSE;
+	entries = xbox_pointer(list->strings.address);
+	characters = xbox_pointer(entries[index].string.address);
+	for (length = entries[index].string.size / (long)sizeof(unsigned short); length > 0 && !characters[length - 1];
+		length--)
+	{
+	}
+	return length > 0 && characters[length - 1] == ':';
+}
+
+/* the list's help text (its description's strings, each row's values'
+helps in turn: "game settings lists text update") with the new row's
+helps after the rows' own */
+static void editor_row_helps(struct cache_file_tag_instance *instances, struct ui_widget_definition const *list,
+	long rows, char const *name, char const *const *helps, long help_count)
+{
+	struct ui_widget_child_reference const *children = xbox_pointer(list->child_widgets.address);
+	struct ui_widget_definition *help;
+	struct string_list const *old;
+	struct string_list *strings;
+	struct string_list_entry *entries;
+	struct string_list_entry const *old_entries;
+	long row, total = 0, index, tag;
+	char help_name[96];
+
+	if (list->extended_description_widget.index == NONE)
+		return;
+	help = tag_get(UI_WIDGET_DEFINITION_TAG, list->extended_description_widget.index);
+	if (help->text_label_string_list.index == NONE)
+		return;
+	/* (the helps before the new row's: as many as the rows' values) */
+	for (row = 0; row < rows; row++)
+	{
+		struct ui_widget_definition const *definition;
+		struct ui_widget_child_reference const *parts;
+		long part;
+
+		if (children[row].widget_tag.index == NONE)
+			continue;
+		definition = tag_get(UI_WIDGET_DEFINITION_TAG, children[row].widget_tag.index);
+		parts = xbox_pointer(definition->child_widgets.address);
+		for (part = 0; part < definition->child_widgets.count; part++)
+		{
+			struct ui_widget_definition const *spinner;
+
+			if (parts[part].widget_tag.index == NONE)
+				continue;
+			spinner = tag_get(UI_WIDGET_DEFINITION_TAG, parts[part].widget_tag.index);
+			if (spinner->type == _widget_type_spinner_list && spinner->text_label_string_list.index != NONE)
+			{
+				total += ((struct string_list const *)tag_get(UNICODE_STRING_LIST_TAG,
+					spinner->text_label_string_list.index))->strings.count;
+			}
+		}
+	}
+	old = tag_get(UNICODE_STRING_LIST_TAG, help->text_label_string_list.index);
+	old_entries = xbox_pointer(old->strings.address);
+	strings = string_list_build(helps, help_count);
+	entries = allocate((total + help_count) * sizeof(*entries));
+	if (!strings || !entries || build.failed)
+		return;
+	/* (the old strings, or an empty one where there are fewer) */
+	for (index = 0; index < total; index++)
+	{
+		if (index < old->strings.count)
+			entries[index] = old_entries[index];
+		else
+		{
+			entries[index].string.size = 0;
+			entries[index].string.address = XBOX_NULL;
+		}
+	}
+	memcpy(entries + total, xbox_pointer(strings->strings.address), help_count * sizeof(*entries));
+	strings->strings.count = total + help_count;
+	strings->strings.address = XBOX_ADDRESS(entries);
+	tag = next_tag();
+	snprintf(help_name, sizeof(help_name), "xbox/%s/help", name);
+	instance_set(instances, UNICODE_STRING_LIST_TAG, tag, help_name, " text", strings);
+	reference_set(&help->text_label_string_list, UNICODE_STRING_LIST_TAG, tag);
+}
+
+/* the row put past the list's last: FALSE if the screen is not the Xbox's
+(not found, or not as the Xbox has it) */
+static boolean editor_row_xbox(struct cache_file_tag_instance *instances, char const *list_name,
+	char const *spinner_row_name, char const *name, char const *label, char const *const *items, char const *const *helps,
+	long item_count)
+{
+	long list_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, list_name);
+	long spinner_row_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, spinner_row_name);
+	struct ui_widget_definition *list;
+	struct ui_widget_child_reference const *children;
+	struct ui_widget_child_reference *grown, *parts;
+	struct ui_widget_definition const *model, *spinner_row;
+	struct ui_widget_child_reference const *model_parts, *spinner_parts;
+	struct ui_widget_definition *row, *text, *spinner;
+	long count, row_tag, text_tag, text_strings_tag, spinner_tag, spinner_strings_tag;
+	char row_name[96], text_name[96], spinner_name[96], label_text[32];
+	short spacing;
+
+	if (list_tag == NONE || spinner_row_tag == NONE)
+		return FALSE;
+	list = tag_get(UI_WIDGET_DEFINITION_TAG, list_tag);
+	children = xbox_pointer(list->child_widgets.address);
+	count = list->child_widgets.count;
+	if (list->type != _widget_type_column_list || count < 2 || children[count - 1].widget_tag.index == NONE)
+		return FALSE;
+	model = tag_get(UI_WIDGET_DEFINITION_TAG, children[count - 1].widget_tag.index);
+	model_parts = xbox_pointer(model->child_widgets.address);
+	spinner_row = tag_get(UI_WIDGET_DEFINITION_TAG, spinner_row_tag);
+	spinner_parts = xbox_pointer(spinner_row->child_widgets.address);
+	spacing = (short)(children[count - 1].vertical_offset - children[count - 2].vertical_offset);
+	/* (a row of a label and a spinner, the Xbox's: anything else is not
+	patched) */
+	if (model->child_widgets.count != 2 || spinner_row->child_widgets.count != 2 || spacing <= 0 ||
+		model_parts[0].widget_tag.index == NONE || spinner_parts[1].widget_tag.index == NONE ||
+		((struct ui_widget_definition const *)tag_get(UI_WIDGET_DEFINITION_TAG, spinner_parts[1].widget_tag.index))->type !=
+		_widget_type_spinner_list)
+	{
+		return FALSE;
+	}
+	row = widget_copy(children[count - 1].widget_tag.index);
+	text = widget_copy(model_parts[0].widget_tag.index);
+	spinner = widget_copy(spinner_parts[1].widget_tag.index);
+	parts = allocate(2 * sizeof(*parts));
+	grown = allocate((count + 1) * sizeof(*grown));
+	if (!row || !text || !spinner || !parts || !grown)
+		return FALSE;
+	snprintf(label_text, sizeof(label_text), "%s%s", label,
+		strings_colon(text->text_label_string_list.index, text->string_list_index) ? ":" : "");
+	snprintf(row_name, sizeof(row_name), "xbox/%s/op_%s", name, name);
+	snprintf(text_name, sizeof(text_name), "xbox/%s/%s_label", name, name);
+	snprintf(spinner_name, sizeof(spinner_name), "xbox/%s/%s_spinner", name, name);
+	row_tag = next_tag();
+	text_tag = next_tag();
+	text_strings_tag = next_tag();
+	spinner_tag = next_tag();
+	spinner_strings_tag = next_tag();
+	{
+		char const *label_strings[1];
+
+		label_strings[0] = label_text;
+		instance_set(instances, UNICODE_STRING_LIST_TAG, text_strings_tag, text_name, " text",
+			string_list_build(label_strings, 1));
+	}
+	instance_set(instances, UNICODE_STRING_LIST_TAG, spinner_strings_tag, spinner_name, " items",
+		string_list_build(items, item_count));
+	reference_set(&text->text_label_string_list, UNICODE_STRING_LIST_TAG, text_strings_tag);
+	text->string_list_index = 0;
+	reference_set(&spinner->text_label_string_list, UNICODE_STRING_LIST_TAG, spinner_strings_tag);
+	spinner->string_list_index = 0;
+	instance_set(instances, UI_WIDGET_DEFINITION_TAG, text_tag, text_name, "", text);
+	instance_set(instances, UI_WIDGET_DEFINITION_TAG, spinner_tag, spinner_name, "", spinner);
+	/* (the label where the model's is, the spinner where its own row has it) */
+	parts[0] = model_parts[0];
+	reference_set(&parts[0].widget_tag, UI_WIDGET_DEFINITION_TAG, text_tag);
+	parts[1] = spinner_parts[1];
+	reference_set(&parts[1].widget_tag, UI_WIDGET_DEFINITION_TAG, spinner_tag);
+	row->child_widgets.address = XBOX_ADDRESS(parts);
+	row->child_widgets.count = 2;
+	instance_set(instances, UI_WIDGET_DEFINITION_TAG, row_tag, row_name, "", row);
+	memcpy(grown, children, count * sizeof(*grown));
+	grown[count] = children[count - 1];
+	grown[count].vertical_offset = (short)(children[count - 1].vertical_offset + spacing);
+	reference_set(&grown[count].widget_tag, UI_WIDGET_DEFINITION_TAG, row_tag);
+	list->child_widgets.address = XBOX_ADDRESS(grown);
+	list->child_widgets.count = count + 1;
+	editor_row_helps(instances, list, count, name, helps, item_count);
+	return TRUE;
+}
+
+/* Player Options' help text and button key, lower (its ninth row sits
+where the help text was) */
+static void editor_player_options_room(void)
+{
+	long screen_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, EDITOR_XBOX "player_options_edit\\player_options_screen");
+	long help_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, EDITOR_XBOX "player_options_edit\\player_options_help");
+	long key_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, "ui\\shell\\main_menu\\button_key_options");
+
+	if (help_tag != NONE)
+	{
+		struct ui_widget_definition *help = tag_get(UI_WIDGET_DEFINITION_TAG, help_tag);
+
+		help->bounds.y0 = (short)(help->bounds.y0 + EDITOR_HELP_DOWN);
+		help->bounds.y1 = (short)(help->bounds.y1 + EDITOR_HELP_DOWN);
+	}
+	if (screen_tag != NONE && key_tag != NONE)
+	{
+		struct ui_widget_definition *screen = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+		struct ui_widget_child_reference *parts = xbox_pointer(screen->child_widgets.address);
+		long part;
+
+		for (part = 0; part < screen->child_widgets.count; part++)
+		{
+			if (parts[part].widget_tag.index == key_tag)
+				parts[part].vertical_offset = (short)(parts[part].vertical_offset + EDITOR_KEY_DOWN);
+		}
+	}
+}
+
+static void editor_rows_xbox(void)
+{
+	static char const *const modes[] = { "NONE", "SWAT" };
+	static char const *const hardcore[] = { "OFF", "ON" };
+	/* (as the Chupathingy menus' are: port/assets/menus/ce/strings.xml) */
+	static char const *const mode_helps[] = { EDITOR_MODE_HELP_NONE, EDITOR_MODE_HELP_SWAT };
+	static char const *const hardcore_helps[] = { EDITOR_HARDCORE_HELP_OFF, EDITOR_HARDCORE_HELP_ON };
+	struct cache_file_tag_instance *instances;
+	long index;
+	boolean slayer, players;
+
+	memset(&build, 0, sizeof(build));
+	instances = instances_grow(EDITOR_ROWS_TAGS, &build.first_index, &build.first_salt);
+	if (!instances)
+	{
+		menu_tags_release();
+		memset(&build, 0, sizeof(build));
+		return;
+	}
+	for (index = build.first_index; index < build.first_index + EDITOR_ROWS_TAGS; index++)
+	{
+		instances[index].group_tag = NONE;
+		instances[index].tag_index = NONE;
+#ifdef HALO_64BIT
+		if (!menu_tags.empty_name)
+			menu_tags.empty_name = allocate(1);
+		instances[index].name = XBOX_ADDRESS(menu_tags.empty_name);
+#else
+		instances[index].name = "";
+#endif
+	}
+	cache_files_set_tag_instances(instances, build.first_index + EDITOR_ROWS_TAGS);
+	/* (MODE's spinner as wide as RESPAWN TIME's, HARDCORE's as SHIELDS') */
+	slayer = editor_row_xbox(instances, EDITOR_XBOX "playlist_edit\\slayer_edit\\slayer_options_menu",
+		EDITOR_XBOX "player_options_edit\\op_respawn_time", "mode", "MODE", modes, mode_helps, NUMBEROF(modes));
+	players = !build.failed && editor_row_xbox(instances, EDITOR_XBOX "player_options_edit\\player_options_menu",
+		EDITOR_XBOX "player_options_edit\\op_shields", "hardcore", "HARDCORE", hardcore, hardcore_helps,
+		NUMBEROF(hardcore));
+	if (build.failed)
+	{
+		platform_log("menus: the game type editor's MODE and HARDCORE not added");
+		menu_tags_release();
+	}
+	else
+	{
+		if (players)
+			editor_player_options_room();
+		cache_files_set_tag_instances(instances, build.first_index + build.next);
+		platform_log("menus: the game type editor has%s%s", slayer ? " MODE" : "", players ? " HARDCORE" : "");
+	}
+	memset(&build, 0, sizeof(build));
+}
+#endif
+
 void menu_tags_loaded(
 	char const *map_name)
 {
@@ -2504,6 +2805,11 @@ void menu_tags_loaded(
 	it in a client's game that was not a team game) */
 	if (menus_chosen() == _menus_xbox)
 	{
+#ifdef HALO_GAME_BROWSER
+		/* (ui.map: the game type editor's MODE and HARDCORE) */
+		if (!game_map)
+			editor_rows_xbox();
+#endif
 		if (game_map && (pause_controls_offered() || (tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
 			(global_network_game_server_get() != NULL || team_change_pause_offered() ||
 			tag_loaded(UI_WIDGET_DEFINITION_TAG, CUSTOM_CHANGE_SETTINGS_BUTTON) != NONE))))

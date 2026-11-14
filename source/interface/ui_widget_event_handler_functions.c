@@ -4172,6 +4172,31 @@ static boolean playlist_profile_change_koth_rules(
 	return FALSE;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: the Xbox menus' rows of the game modes layer (docs/modes.md: MODE
+under Slayer's rules, HARDCORE under the player options), which menu_tags.c
+(editor_rows_xbox) puts one past each screen's own last row: the further
+options' byte at offset, NONE or OFF the spinner's first item. A list
+without the row (no row past the last) is left as it is */
+static void playlist_profile_mode_row(
+	struct widget_instance *list_item,
+	long offset,
+	boolean save)
+{
+	byte *modes = player_ui_get_edit_mode_options();
+	struct widget_instance *option_spinner = list_item ? list_item->child : NULL;
+
+	while (option_spinner && option_spinner->type != 2)
+		option_spinner = option_spinner->next;
+	if (!option_spinner || !modes)
+		return;
+	if (save)
+		modes[offset] = (byte)(option_spinner->parameters.list.selected_index == 1);
+	else
+		option_spinner->parameters.list.selected_index = modes[offset] ? 1 : 0;
+}
+#endif
+
 static boolean playlist_profile_change_slayer_rules(
 	struct widget_instance *widget,
 	struct event_record *event,
@@ -4254,6 +4279,9 @@ static boolean playlist_profile_change_slayer_rules(
 		case 1: profile[0x1C] = FALSE; break;
 		default: error(2, "unknown option selected in 'teams' option spinner list"); break;
 		}
+#ifdef HALO_GAME_BROWSER
+		playlist_profile_mode_row(list_item->next, 0, TRUE);
+#endif
 		ui_widgets_pop_stack(widget->local_player_index);
 		return TRUE;
 	}
@@ -5232,6 +5260,9 @@ static boolean playlist_profile_initialize_slayer_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3000, option_spinner, "expected 'teams' option spinner list");
+#ifdef HALO_GAME_BROWSER
+		playlist_profile_mode_row(list_item->next, 0, FALSE);
+#endif
 		switch (profile[0x1C])
 		{
 		case 0: option_spinner->parameters.list.selected_index = 1; return TRUE;
@@ -5650,6 +5681,9 @@ static boolean playlist_profile_initialize_player_options(
 		case 300: option_spinner->parameters.list.selected_index = 2; break;
 		case 450: option_spinner->parameters.list.selected_index = 3; break;
 		}
+#ifdef HALO_GAME_BROWSER
+		playlist_profile_mode_row(list_item->next, 1, FALSE);
+#endif
 		return TRUE;
 	}
 	error(2, "failed to retrieve editable game variant");
@@ -5917,6 +5951,9 @@ static boolean playlist_profile_change_player_options(
 			case 3: *(long *)(profile + 0x34) = 450; break;
 			default: error(2, "unknown option selected in 'suicide penalty' option spinner list"); break;
 			}
+#ifdef HALO_GAME_BROWSER
+			playlist_profile_mode_row(list_item->next, 1, TRUE);
+#endif
 		}
 	}
 	else
