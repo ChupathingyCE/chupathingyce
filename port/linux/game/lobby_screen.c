@@ -26,8 +26,8 @@ Three states, from what the game says:
   docs/delta.md), CHANGE TEAM is the Xbox's swap, GAME DETAILS the rules.
   A host without Delta's READY (OpenCE's, an older build, the Xbox menus)
   gets the Xbox's START SOONER instead. A machine that never says READY in
-  a lobby (one without it, or without this lobby up) counts as ready, and a
-  split screen's guests are ready with their machine's first player.
+  a lobby (one without it, or without this lobby up) counts as ready, and
+  each of a split screen's players says READY on their own controller.
 - server: a dedicated server (a host machine with no player). As joined
   without READY: the server's own countdown decides.
 
@@ -186,6 +186,8 @@ enum
 enum
 {
 	MAXIMUM_ROWS = HALO_PORT_MAXIMUM_NETWORK_PLAYERS,
+	/* this machine's players (its controllers) */
+	LOCAL_PLAYERS = 4,
 	MAXIMUM_MENU = LOBBY_LAYOUT_MAXIMUM_MENU_ROWS,
 	MAXIMUM_FACTS = LOBBY_LAYOUT_MAXIMUM_FACTS,
 	MAXIMUM_TARGETS = 160,
@@ -372,9 +374,11 @@ static struct
 	/* (the host: which players' machines said anything, READY or not, in
 	this lobby; the client: whether it said its state in this lobby) */
 	unsigned char said[MAXIMUM_ROWS];
-	boolean announced;
-	boolean my_ready;
-	unsigned long ready_said_time;
+	boolean announced[LOCAL_PLAYERS];
+	/* (each of this machine's players: a split screen's guests ready up
+	on their own controllers) */
+	boolean my_ready[LOCAL_PLAYERS];
+	unsigned long ready_said_time[LOCAL_PLAYERS];
 	struct delta_wire_lobby_state host_state;
 	unsigned int host_state_generation;
 	/* a dialog over the screen, its row and its selected line */
@@ -652,20 +656,6 @@ static boolean host_player_ready(struct network_game const *game, short player_i
 		return TRUE;
 	if (lobby.ready[player_index])
 		return TRUE;
-	/* (a split screen's guests are ready with their machine's first player:
-	the client says READY for it alone) */
-	{
-		long index;
-
-		for (index = 0; index < (long)NUMBEROF(game->players); index++)
-		{
-			if (lobby.ready[index] && network_player_is_valid(&game->players[index]) &&
-				(short)game->players[index].machine_index == (short)machine)
-			{
-				return TRUE;
-			}
-		}
-	}
 	/* (a machine that never said anything in this lobby: one without this
 	lobby up, the Xbox menus' or display.lobby off, counts as ready, as one
 	without Delta's READY does; a lobby says its state as it opens) */
@@ -710,8 +700,9 @@ static boolean client_player_ready(short player_index)
 	return delta_wire_lobby_state_ready(&lobby.host_state, player_index) != 0;
 }
 
-/* this machine's first player in the game (its player list index), or NONE */
-static short local_player_index(struct network_game const *game)
+/* this machine's player of a controller in the game (its player list
+index), or NONE */
+static short local_player_of(struct network_game const *game, short controller)
 {
 	short local = network_game_client_get_local_machine_index();
 	long index;
@@ -719,7 +710,7 @@ static short local_player_index(struct network_game const *game)
 	for (index = 0; game && local != NONE && index < (long)NUMBEROF(game->players); index++)
 	{
 		if (network_player_is_valid(&game->players[index]) && (short)game->players[index].machine_index == local &&
-			game->players[index].controller_index == 0)
+			game->players[index].controller_index == controller)
 		{
 			return (short)index;
 		}
@@ -727,39 +718,52 @@ static short local_player_index(struct network_game const *game)
 	return NONE;
 }
 
+/* this machine's first player */
+static short local_player_index(struct network_game const *game)
+{
+	return local_player_of(game, 0);
+}
+
 /* the client's READY, said to the host and said again while its state
 doesn't show it */
 static void client_ready_frame(struct network_game const *game)
 {
-	short player = local_player_index(game);
 	unsigned long now = system_milliseconds();
+	short controller;
 
 	lobby.host_state_generation = delta_peer_game_lobby_state(&lobby.host_state);
 	lobby.has_ready = delta_peer_game_lobby_ready() != 0;
-	if (!lobby.has_ready || player == NONE)
+	if (!lobby.has_ready)
 		return;
-	/* (said once as the lobby opens, NOT READY too, so the host counts this
-	machine's READY and not it as a machine without the lobby) */
-	if (!lobby.announced)
+	for (controller = 0; controller < LOCAL_PLAYERS; controller++)
 	{
-		delta_peer_game_lobby_say(player, lobby.my_ready);
-		lobby.announced = TRUE;
-		lobby.ready_said_time = now;
-		return;
+		short player = local_player_of(game, controller);
+
+		if (player == NONE)
+			continue;
+		/* (said once as the lobby opens, NOT READY too, so the host counts
+		this machine's READY and not it as a machine without the lobby) */
+		if (!lobby.announced[controller])
+		{
+			delta_peer_game_lobby_say(player, lobby.my_ready[controller]);
+			lobby.announced[controller] = TRUE;
+			lobby.ready_said_time[controller] = now;
+			continue;
+		}
+		/* (said again while the host's state doesn't show it: ready and not
+		shown, or shown ready after saying not any more) */
+		if (lobby.host_state_generation)
+		{
+			if ((delta_wire_lobby_state_ready(&lobby.host_state, player) != 0) == (lobby.my_ready[controller] != FALSE))
+				continue;
+		}
+		else if (!lobby.my_ready[controller])
+			continue;
+		if (lobby.ready_said_time[controller] && now - lobby.ready_said_time[controller] < READY_RESEND)
+			continue;
+		delta_peer_game_lobby_say(player, lobby.my_ready[controller]);
+		lobby.ready_said_time[controller] = now;
 	}
-	/* (said again while the host's state doesn't show it: ready and not
-	shown, or shown ready after saying not any more) */
-	if (lobby.host_state_generation)
-	{
-		if ((delta_wire_lobby_state_ready(&lobby.host_state, player) != 0) == (lobby.my_ready != FALSE))
-			return;
-	}
-	else if (!lobby.my_ready)
-		return;
-	if (lobby.ready_said_time && now - lobby.ready_said_time < READY_RESEND)
-		return;
-	delta_peer_game_lobby_say(player, lobby.my_ready);
-	lobby.ready_said_time = now;
 }
 
 /* ---------- reading the game */
@@ -1019,7 +1023,7 @@ static void read_menu(struct network_game_server *server)
 		break;
 	case _lobby_joined:
 		if (lobby.has_ready)
-			menu_add(_menu_ready, "READY", lobby.my_ready ? "Ready" : "Not ready", TRUE);
+			menu_add(_menu_ready, "READY", lobby.my_ready[0] ? "Ready" : "Not ready", TRUE);
 		else
 			menu_add(_menu_start_sooner, "START SOONER", "", TRUE);
 		if (lobby.teams)
@@ -1078,7 +1082,7 @@ static void read_status(struct network_game_server *server)
 			copy_text(lobby.status, sizeof(lobby.status), lobby.count < 2 ? "Waiting for players" : "Everyone is ready");
 		break;
 	case _lobby_joined:
-		copy_text(lobby.status, sizeof(lobby.status), lobby.has_ready && !lobby.my_ready ? "You are not ready" :
+		copy_text(lobby.status, sizeof(lobby.status), lobby.has_ready && !lobby.my_ready[0] ? "You are not ready" :
 			"Waiting for the host");
 		break;
 	case _lobby_server:
@@ -1298,7 +1302,7 @@ static void debug_sample(char const *spec)
 	}
 	sort_rows();
 	lobby.has_ready = lobby.state == _lobby_joined;
-	lobby.my_ready = FALSE;
+	memset(lobby.my_ready, 0, sizeof(lobby.my_ready));
 	lobby.started = FALSE;
 	/* (the host's name is its crowned row's) */
 	lobby.host_name[0] = 0;
@@ -1383,12 +1387,12 @@ static void lobby_opened(void)
 	lobby.opened_time = system_milliseconds();
 	lobby.started = FALSE;
 	lobby.held = FALSE;
-	lobby.my_ready = FALSE;
-	lobby.ready_said_time = 0;
+	memset(lobby.my_ready, 0, sizeof(lobby.my_ready));
+	memset(lobby.ready_said_time, 0, sizeof(lobby.ready_said_time));
 	lobby.host_state_generation = 0;
 	memset(lobby.ready, 0, sizeof(lobby.ready));
 	memset(lobby.said, 0, sizeof(lobby.said));
-	lobby.announced = FALSE;
+	memset(lobby.announced, 0, sizeof(lobby.announced));
 	/* (the host's countdown waits for START GAME) */
 	if (server && start_by_button())
 	{
@@ -1613,16 +1617,22 @@ static void start_game(boolean start)
 	}
 }
 
-static void toggle_ready(void)
+/* a controller's READY: its own player's (a split screen's guest too) */
+static void toggle_ready(short controller)
 {
 	struct network_game *game = network_game_get_game();
-	short player = local_player_index(game);
+	short player;
 
-	lobby.my_ready = !lobby.my_ready;
-	if (lobby.debug || player == NONE)
+	if (controller < 0 || controller >= LOCAL_PLAYERS)
+		controller = 0;
+	player = local_player_of(game, controller);
+	if (!lobby.debug && player == NONE)
 		return;
-	delta_peer_game_lobby_say(player, lobby.my_ready);
-	lobby.ready_said_time = system_milliseconds();
+	lobby.my_ready[controller] = !lobby.my_ready[controller];
+	if (lobby.debug)
+		return;
+	delta_peer_game_lobby_say(player, lobby.my_ready[controller]);
+	lobby.ready_said_time[controller] = system_milliseconds();
 }
 
 static void start_sooner(void)
@@ -1657,7 +1667,7 @@ static void menu_act(short controller)
 		if (!lobby.debug)
 			ui_widget_port_open_screen(HOST_SETUP_SCREEN);
 		break;
-	case _menu_ready: toggle_ready(); break;
+	case _menu_ready: toggle_ready(controller); break;
 	case _menu_start_sooner: start_sooner(); break;
 	case _menu_change_team: swap_team(controller); break;
 	case _menu_details:
