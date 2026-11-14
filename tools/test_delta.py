@@ -795,13 +795,12 @@ def layout_program(tmp_path_factory):
         pytest.skip("no C compiler")
     directory = tmp_path_factory.mktemp("layouts")
     game = ROOT / "port" / "linux" / "game"
-    source = game / "network_rules_layout_check.c"
-    try:
-        source.write_text(C_LAYOUT, encoding="utf-8")
-        subprocess.run([cc, "-std=c11", "-Wall", "-Werror", str(source), str(game / "network_rules.c"), "-o",
-                        str(directory / "layouts")], check=True, capture_output=True, text=True)
-    finally:
-        source.unlink(missing_ok=True)
+    # (in the test's own folder, not the game's: a build configured while it
+    # was there listed it, and failed once it was gone)
+    source = directory / "network_rules_layout_check.c"
+    source.write_text(C_LAYOUT, encoding="utf-8")
+    subprocess.run([cc, "-std=c11", "-Wall", "-Werror", f"-I{game}", str(source), str(game / "network_rules.c"),
+                    "-o", str(directory / "layouts")], check=True, capture_output=True, text=True)
     return directory / "layouts"
 
 

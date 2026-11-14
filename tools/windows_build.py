@@ -288,7 +288,9 @@ WINDOWS64 = WindowsTarget(
 WINDOWS64_SERVER = replace(
     WINDOWS64,
     name="server-windows64",
-    abi_flags=[*WINDOWS64.abi_flags, "-DHALO_SERVER"],
+    # (no mods folder on a server: port_mods.c reads archives through SDL's
+    # IO, which the server does not link)
+    abi_flags=[*(flag for flag in WINDOWS64.abi_flags if flag not in MODS_DEFINES), "-DHALO_SERVER"],
     comment="The dedicated server for 64-bit Windows (ninja server-windows64)",
     server=True,
     bgfx=False,
