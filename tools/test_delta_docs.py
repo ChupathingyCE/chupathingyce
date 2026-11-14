@@ -4,7 +4,7 @@
 """Delta's documentation holds together: every relative link in the spec
 (docs/delta/) and the pages around it reaches a file and a heading that
 exist; the spec links out of its folder only to the reference client or by
-full URL, so it can move to a repository of its own (docs/delta/MOVING.md);
+full URL, so it can be published or moved on its own (docs/delta/MOVING.md);
 and every place in the code that cites a section of a Delta page
 ("docs/delta/peer.md, Chat") names a heading that page has."""
 import re
@@ -63,18 +63,18 @@ def test_spec_is_self_contained():
 def test_code_cites_real_sections():
     """'docs/delta/peer.md, "Chat"' and 'docs/delta/peer.md, Chat' in the
     code and docs: the page exists and has the heading"""
-    files = subprocess.run(["git", "grep", "-l", "-E", r"docs/delta(/[a-z]+\.md|-implementation\.md)"], cwd=ROOT,
+    files = subprocess.run(["git", "grep", "-l", "-E", r"docs/delta(/[A-Za-z]+\.md|-implementation\.md)"], cwd=ROOT,
                            capture_output=True, text=True).stdout.split()
     wrong = []
     for name in files:
         text = (ROOT / name).read_text(encoding="utf-8", errors="replace")
         flat = re.sub(r"\s*\n\s*(?:\*|#|//|/\*)?\s*", " ", text)
-        for page, rest in re.findall(r"docs/(delta/[a-z]+\.md|delta-implementation\.md)`?,? (.{0,80})", flat):
+        for page, rest in re.findall(r"docs/(delta/[A-Za-z]+\.md|delta-implementation\.md)`?(?:'s)?[,:]? ?\(?(.{0,80})", flat):
             path = ROOT / "docs" / page
             if not path.exists():
                 wrong.append((name, page))
                 continue
-            quoted = re.match(r'\\?"([^"\\]+)\\?"', rest)
+            quoted = re.match(r'\\?"([A-Z][^"\\]{0,60})\\?"', rest)
             if quoted:
                 if quoted.group(1) not in headings(path):
                     wrong.append((name, page, quoted.group(1)))

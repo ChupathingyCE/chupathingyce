@@ -41,9 +41,10 @@
 # list (Delta List), stats, the site link, GameSpy, map sharing and map
 # downloads off; the control panel off; the game list's and the maps
 # index's addresses a closed local port, and a local legacy table, so no
-# signed table is fetched either. After it starts, and every few seconds
-# while it runs, the script checks every socket the server holds is on the
-# loopback address, and stops it if not.
+# signed table is fetched either. Those settings are what keep it here. As a
+# second guard, the script checks the server's sockets every few seconds
+# while it runs, and stops it if one is off the loopback address (a socket
+# opened and closed between two checks goes unseen).
 
 set -euo pipefail
 

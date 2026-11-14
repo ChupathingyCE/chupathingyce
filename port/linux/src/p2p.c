@@ -3758,7 +3758,7 @@ static void poll_invite_file(void)
 
 /* ---------- the thread */
 
-/* ---------- pings before joining (p2p_probe.c; docs/delta/README.md) */
+/* ---------- pings before joining (p2p_probe.c; docs/delta/list.md) */
 
 /* a probe is never a peer: the host keeps its id a few seconds and answers
 its pings, and the game never hears of it. Addresses stay in memory: none is

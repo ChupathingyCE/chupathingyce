@@ -79,7 +79,7 @@ of a game.
 | [clients.md](clients.md) | registering an app that signs players in on the site |
 | [security.md](security.md) | how Delta treats hostile input, and where each part's checks are |
 | [ports.md](ports.md) | a port's path to playing with everyone, with the reference client and its tools |
-| [MOVING.md](MOVING.md) | which files move to the Delta repository |
+| [MOVING.md](MOVING.md) | which files make up the spec, and which are the game's |
 
 How Chupathingy's own game and server implement all of this (settings,
 menus, files) is on the game side: [delta-implementation.md](https://github.com/ChupathingyCE/chupathingyce/blob/main/docs/delta-implementation.md).

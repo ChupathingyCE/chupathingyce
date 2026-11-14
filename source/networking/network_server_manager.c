@@ -6463,7 +6463,7 @@ static void network_game_server_delta_refusals(
 			continue;
 		}
 		/* (an MCC map: a machine without Delta, OpenCE's own, plays it by its own
-		MCC support; a Delta machine needs mcc_maps: docs/delta/README.md, bit 24) */
+		MCC support; a Delta machine needs mcc_maps: docs/delta/registry.md, bit 24) */
 		if (!number_changed && mcc_map && mode_refusal == NETWORK_RULES_MODE_PLAYS &&
 			(delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) ||
 			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps)))

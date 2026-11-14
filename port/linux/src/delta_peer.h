@@ -1,7 +1,7 @@
 /*
 DELTA_PEER.H
 
-Delta Peer (docs/delta/README.md): ChupathingyCE's own messages between the
+Delta Peer (docs/delta/peer.md): ChupathingyCE's own messages between the
 machines of one game, beside OpenCE's game protocol, which stays as it is.
 
 - A host that speaks it listens on DELTA_PEER_PORT (the game's port + 10)

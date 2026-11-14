@@ -307,14 +307,15 @@ void dref_client_tick(struct dref_client *client, uint32_t now_ms)
 int dref_client_receive(struct dref_client *client, uint32_t now_ms, const uint8_t *data, int size)
 {
 	struct dref_header header;
-	const uint8_t *payload = data + DREF_HEADER_SIZE;
+	const uint8_t *payload;
 
 	(void)now_ms;
-	if ((client->state != DREF_CLIENT_WAITING && client->state != DREF_CLIENT_DELTA) ||
+	if (!data || (client->state != DREF_CLIENT_WAITING && client->state != DREF_CLIENT_DELTA) ||
 		!dref_header_read(data, size, &header) || header.session != client->session)
 	{
 		return 0;
 	}
+	payload = data + DREF_HEADER_SIZE;
 	if (header.major != DREF_MAJOR)
 	{
 		/* (another major says LEGACY and nothing else) */
@@ -410,13 +411,14 @@ static int wire_text(const uint8_t *text, int length)
 
 int dref_advert_read(const uint8_t *reserved, int size, struct dref_advert *advert)
 {
-	const uint8_t *tag = reserved + DREF_TAG_OFFSET;
+	const uint8_t *tag;
 	uint8_t check = 0xA5;
 	int index;
 
 	zero(advert, (int)sizeof(*advert));
 	if (!reserved || size < DREF_RESERVED_SIZE)
 		return 0;
+	tag = reserved + DREF_TAG_OFFSET;
 	advert->version = get16(reserved + DREF_RESERVED_VERSION);
 	advert->flags = reserved[DREF_RESERVED_FLAGS];
 	advert->kind = reserved[DREF_RESERVED_KIND];

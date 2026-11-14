@@ -25,7 +25,7 @@ team and this game's score, place, kills and deaths (event_log.c).
 
 #include <stddef.h>
 
-/* the batch's "schema" (docs/delta/README.md: later versions only add fields) */
+/* the batch's "schema" (docs/delta/stats.md: later versions only add fields) */
 #define EVENT_LOG_SCHEMA 2
 
 enum

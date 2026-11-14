@@ -32,14 +32,13 @@ is in [peer.md](peer.md#platform-policy).
 | 12 | `xbox_uwp` | XBS | Xbox Series | console | ReviveMe | community port |
 | 13 | `pc_freebsd` | BSD | FreeBSD | pc | Renkoto (port/unix) | in our tree |
 | 14 | `ps3` | PS3 | PS3 | console | Mayo's fork | community port |
-| 15 | `ps4` | PS4 | PS4 | console |  | reserved, no known port |
+| 15 | `ps4` | PS4 | PS4 | console | MobSlicer152 | in use |
 | 16 | `ps5` | PS5 | PS5 | console |  | reserved, no known port |
 | 17 | `n64` | N64 | N64 | console | JackT | community port |
 | 18 | `pc_legacy` | LGCY | Legacy PC | pc | JackT | community port |
-| 19 | `steamlink` | LINK | Steam Link | console | Chupathingy32 | in progress |
+| 19 | `steamlink` | LINK | Steam Link | console | Steam Link build (port work by JizzyRivers) | in progress |
 | 20 | `ios` | IOS | iOS | handheld | JizzyRivers (`port/ios`) | in use (approved 2026-11-04) |
 | 21 | `tvos` | ATV | Apple TV | console | JizzyRivers (`port/ios`) | in use (approved 2026-11-04) |
-| 22 | (none yet) |  | Dreamcast | console | JiltedValkyrie's dc-halo | requested, pending owner |
 
 ### How to ask for a number
 
@@ -121,10 +120,9 @@ Numbers seen in the wild:
 
 | Version | Who announces it |
 | --- | --- |
-| 22 | older Xbox and Chupathingy builds (as reported; not found in this repository's code, signed table or tests) |
-| 32 | older Chupathingy and console builds; what 0.9.1's servers announce |
-| 41 | 0.8.1d to 0.9.0 (chupa-41a's signed row); a 0.9.2 development build's built-in announce |
-| 42 | a Dreamcast port (as reported) |
+| 32 | older Chupathingy and console builds |
+| 41 | chupa-41a's builds (0.8.1d to 0.9.0) |
+| 42 | ports that play 42's layout; our clients play it by the host's number |
 | 43 | hosts of MCC maps |
 | 44 | current |
 | version with bit 15 set (0x8000) | a GOAT H1 host closed to other builds: closed, never joinable |

@@ -1,7 +1,7 @@
 /*
 EVENT_LOG.C
 
-Delta Stats' event log (event_log.h, docs/delta/README.md): one game's players and
+Delta Stats' event log (event_log.h, docs/delta/stats.md): one game's players and
 events, kept within fixed limits, and the game's batch made of them, as
 JSON (schema 1).
 

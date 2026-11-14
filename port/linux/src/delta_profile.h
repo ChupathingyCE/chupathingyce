@@ -1,8 +1,8 @@
 /*
 DELTA_PROFILE.H
 
-Delta Profile in the game (configure.py --game-browser; docs/delta/README.md,
-Delta Profile): the site's answers about this copy's own profile
+Delta Profile in the game (configure.py --game-browser; docs/delta-implementation.md,
+Delta Profile in the game): the site's answers about this copy's own profile
 (POST /v1/game/profile, /v1/game/unlink, /v1/game/privacy) and about the
 profiles other players share in a game (POST /v1/game/players), read from
 their JSON into plain structures. Only reading here: browser.c asks the

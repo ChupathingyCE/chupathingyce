@@ -389,7 +389,7 @@ carnage report confirmed with this copy's player key (browser.c); and the
 public player ID it confirms them as */
 void browser_claim_game(const unsigned short (*names)[BROWSER_PLAYER_NAME_LENGTH], int count);
 int browser_player_id(char *text, int size);
-/* the moderator key (Delta Peer's moderation, docs/delta/README.md): an Ed25519
+/* the moderator key (Delta Peer's moderation, docs/delta/peer.md): an Ed25519
 key pair made from this copy's player key, whose public half a dedicated
 server's moderators file names. Its signature of a message and its public
 key: 1, else 0 (no player key). The public key alone as 64 hex digits */

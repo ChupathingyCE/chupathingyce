@@ -225,7 +225,7 @@ void delta_peer_local_key(struct delta_platform_key *key)
 	host holds a key to its platform's row, never above it (delta_peer.c):
 	the original Xbox's row hosts 16 and joins 32 unless its player sets
 	network.platform_limits = "off"; the Xbox 360's and the Wii U's rows are
-	32 (docs/delta/README.md) */
+	32 (docs/delta/peer.md, Platform policy) */
 	key->host_players = (unsigned char)HALO_CONSOLE_PLAYERS;
 	key->join_players = (unsigned char)HALO_CONSOLE_PLAYERS;
 	if (key->join_players_opt_in < key->join_players)

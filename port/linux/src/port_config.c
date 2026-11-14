@@ -1477,7 +1477,7 @@ static const struct config_setting config_settings[] =
 	{ "network.legacy_table", _config_string, "\"\"", "HALO_LEGACY_TABLE", _environment_value,
 		_platform_all | _platform_server,
 		"For testing only: an unsigned legacy table file that sets the OpenCE\n"
-		"network versions (docs/delta/README.md). Leave it empty for none." },
+		"network versions (docs/delta/versioning.md, The signed table). Leave it empty for none." },
 
 	/* ---- launcher: the setup screen (launcher.c) */
 	{ "launcher.show_at_start", _config_string, "\"when_needed\"", "HALO_LAUNCHER_SHOW", _environment_value,

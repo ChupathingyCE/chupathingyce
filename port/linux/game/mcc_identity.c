@@ -157,7 +157,7 @@ int mcc_identity_host_ready(char const *map)
 }
 
 /* port: the host's MCC part of a 43-layout settings record (13,200 bytes:
-docs/delta/README.md's chupa-43a), over the bytes of it at offset (length of them)
+docs/delta/versioning.md's chupa-43a), over the bytes of it at offset (length of them)
 in data: the map name's Workshop tail (bytes 64 to 127 of the name, at
 name_offset), and the two digests after the local data, its last 64 bytes:
 the content's (chester's fingerprint), then the package metadata's (zero: not

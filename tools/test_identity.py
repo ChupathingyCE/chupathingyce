@@ -2,7 +2,7 @@
 the certificates, the signed messages, the requests' text and the
 schedule), with the build machine's C compiler and Monocypher, and checks
 that the C test's vectors are port/linux/tests/identity_vectors.json's (the
-ones docs/delta/README.md shows, and the site's and command's tests check)."""
+ones docs/delta/link.md shows, and the site's and command's tests check)."""
 import json
 import re
 import shutil

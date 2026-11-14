@@ -59,7 +59,7 @@ def test_rules_header_builds_as_gnu89(tmp_path):
 
 
 def test_medal_keys_match_the_docs():
-    """Every medal's key is in docs/delta/README.md's list, in the same order."""
+    """Every medal's key is in docs/delta/stats.md's list, in the same order."""
     header = (ROOT / "port" / "linux" / "src" / "medal_rules.h").read_text()
     keys = re.search(r"static char const \*const keys\[NUMBER_OF_MEDALS\] = \{(.*?)\};", header, re.S).group(1)
     keys = re.findall(r'"([a-z_]+)"', keys)

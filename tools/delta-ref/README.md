@@ -24,4 +24,12 @@ python3 conformance.py --help
 | `loopback_host.sh` | our dedicated server on 127.0.0.1 alone, to join from your port |
 | (game side) | `tools/delta_ref_capture/` in the game's repository makes `golden.h` from the game's own code and tests this client against its real host |
 
+## On bare metal
+
+The client calls nothing, but a compiler may still emit calls to `memset`
+and `memcpy` for struct copies and clears, so a port without a C library
+must supply those two. It may also add a stack protector that wants
+`__stack_chk_guard` and `__stack_chk_fail`; build with
+`-fno-stack-protector` to leave it out.
+
 GPL-3.0-or-later, like the rest of the repository.

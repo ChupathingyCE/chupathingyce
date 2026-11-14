@@ -2762,7 +2762,7 @@ static const char *local_platform_name(void)
 	return delta_peer_platform_name(key.platform);
 }
 
-/* the announcement's fields about the host (Delta List, docs/delta/README.md):
+/* the announcement's fields about the host (Delta List, docs/delta/list.md):
 the Delta major it hosts with (0: the legacy protocol alone), its platform
 key, architecture, build, capabilities and its game's machines by platform
 (counts only). A list from before them ignores them */

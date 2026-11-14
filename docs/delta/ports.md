@@ -315,9 +315,9 @@ needs `sudo ifconfig lo0 alias 127.0.0.2 up` first).
 It hosts on 127.0.0.1 alone: system link bound to and announced on
 127.0.0.1, internet play, UPnP, the public lobby, the game list, stats,
 GameSpy, the site link and map downloads off, and a local legacy table, so
-it fetches no table either. After it starts, and every few seconds while it
-runs, it checks every socket the server holds is on 127.0.0.1, and stops the
-server if one isn't. Join it from your port (or an emulator) on the same
+it fetches no table either. Those settings are what keep it on this
+machine. As a second guard, it checks the server's sockets every few seconds
+and stops the server if one is off the loopback address. Join it from your port (or an emulator) on the same
 machine, then read its log: it says when your machine speaks Delta, and the
 room's player limit your key set. The server writes a `config.toml` beside
 its program the first time if there is none; its settings are only

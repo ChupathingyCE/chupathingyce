@@ -4,7 +4,7 @@ SERVER_MODERATION.C
 Delta Control in the game (server_moderation.h; server/docs/moderation.md).
 
 A ChupathingyCE game that joins the server agrees Delta Peer's moderation
-capability (docs/delta/README.md). Its player proves their moderator key when they
+capability (docs/delta/peer.md, Moderation). Its player proves their moderator key when they
 sign in from the game's Moderation screen (an Ed25519 signature of the
 session's challenge, with a key made from their player key, which never
 leaves their machine); Delta Peer checks it, and tells this unit the

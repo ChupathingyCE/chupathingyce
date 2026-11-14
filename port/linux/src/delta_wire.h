@@ -163,7 +163,7 @@ enum
 	changes, their margin, reserved; a later version may append fields */
 	DELTA_WIRE_HOST_RULES_SIZE = 8,
 	DELTA_WIRE_HOST_RULES_VERSION = 1,
-	/* the number the host's game is played at (docs/delta/README.md, Host number):
+	/* the number the host's game is played at (docs/delta/peer.md, Wire format: HOST_NUMBER):
 	version, reserved, the number (16 bits, little-endian), reserved */
 	DELTA_WIRE_HOST_NUMBER_SIZE = 8,
 	DELTA_WIRE_HOST_NUMBER_VERSION = 1,

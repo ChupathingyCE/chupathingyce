@@ -1,8 +1,8 @@
 /*
 PROFILE_SCREEN.C
 
-Delta Profile in the game (configure.py --game-browser; docs/delta/README.md,
-Delta Profile): the player's own profile on the Chupathingy site, as this
+Delta Profile in the game (configure.py --game-browser; docs/delta-implementation.md,
+Delta Profile in the game): the player's own profile on the Chupathingy site, as this
 copy's player key reaches it (browser.c's browser_profile_*). The game
 shows it and links or unlinks this copy; it never makes, renames or deletes
 a profile, and account matters (password, email, two-step sign-in, export,

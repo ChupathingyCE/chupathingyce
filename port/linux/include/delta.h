@@ -130,7 +130,7 @@ enum delta_capability
 	_delta_capability_bomb = 11,
 	/* a host answers Online Games' pings before joining (p2p_probe.c):
 	announced on Delta List only, never offered in a HELLO or WELCOME
-	(docs/delta/README.md, Pings before joining) */
+	(docs/delta/list.md, Pings before joining) */
 	_delta_capability_ping = 12,
 	/* TRAITS' movement and melee traits (jump, gravity, melee reach): a
 	player has them only while its machine and the host both agreed to it,
@@ -418,7 +418,7 @@ has shipped a newer wire. */
 #define DELTA_WIRE_FIRST_ADVERTISED "chupa-29a"
 #define DELTA_WIRE_COMPATIBILITY(X) \
 	X("chupa-29a", "chupa-28a") /* maps by their own names: 29 also takes 28's hashed names and checksums */ \
-	X("chupa-32a", "chupa-28a") /* 30 to 32 are additive; a host of 32 plays with 28 to 31 (docs/delta/README.md) */ \
+	X("chupa-32a", "chupa-28a") /* 30 to 32 are additive; a host of 32 plays with 28 to 31 (docs/delta/versioning.md) */ \
 	X("chupa-38a", "chupa-28a") /* 33 to 38 played by the host's number; a host announcing 32 plays as chupa-32a's */ \
 	X("chupa-39a", "chupa-28a") /* the tagged advertisement and 39's dedicated flag; the game's messages as chupa-38a's, a host announcing 32 plays as chupa-32a's */ \
 	X("chupa-41a", "chupa-28a") /* the longer join request to hosts of 40 on; the game's messages as chupa-39a's */ \

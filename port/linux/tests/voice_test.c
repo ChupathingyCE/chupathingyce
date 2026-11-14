@@ -5,7 +5,7 @@ Voice chat's tests that need no game or device (tools/test_voice.py): the
 jitter buffer (port/linux/src/voice_jitter.c), and Opus set up as voice.c
 sets it up, its frames within the host's size cap at every quality, lost
 frames rebuilt from the next one's FEC, and what encoding and decoding cost
-on this machine (printed, for docs/delta/README.md's figures).
+on this machine (printed, for docs/delta/peer.md's figures).
 */
 
 #include "../src/voice_jitter.h"

@@ -112,20 +112,29 @@ Since 0.8.0a a wire is not an island. `DELTA_WIRE_COMPATIBILITY` in
 `delta.h` gives each wire the oldest wire it plays the game with, without a
 desync and without losing what the older wire has: a feature the older wire
 lacks is dropped or unused with it, and content it can't play ends the join
-cleanly. `chupa-43a` (the generic layout facts, "Layouts": OpenCE's 43 as
-a table row; its game with every older number as `chupa-41a`'s), `chupa-41a`
-(0.8.1d on: the longer join request to OpenCE hosts of 40 and later) and `chupa-39a` (0.8.1b and 0.8.1c: the Delta tag below)
-play with `chupa-28a` and newer, and send the game's messages as
-`chupa-38a`'s. `chupa-38a` (the builds with OpenCE's 33 to 38) plays with
-`chupa-28a` and newer, as `chupa-32a` does: a host of 32 is the same game to
-both, and a host of 35 or later sends each Delta machine the settings record
-of the newest version its HELLO says it reads. `chupa-32a` plays with
-`chupa-28a` and newer (OpenCE's 30 to 32 are additive: a machine of 29 drops
-message 90 and ignores the co-op input byte; 31's keep-alive, stamp window
-and stream-only messages were already in 29); `chupa-29a` plays with
-`chupa-28a`. A row is written with its release and
-never changed: a build can't learn of a newer one, so a host also says its
-range in its advertisement.
+cleanly. Every wire from `chupa-29a` on plays with `chupa-28a` and newer
+([registry.md](registry.md#wire-ids) lists each wire's builds):
+
+- `chupa-44b` (0.9.2: the game modes layer) sends the game's messages as
+  `chupa-44a`'s; a game of a mode refuses older wires with a notice rather
+  than desyncing.
+- `chupa-44a` (0.9.1: network version 44 built in, MCC games at the newest
+  proven number, MCC package requests declined) sends them as `chupa-43a`'s.
+- `chupa-43a` (the layout facts a table row can carry, "Layouts") plays every
+  older number as `chupa-41a` does.
+- `chupa-41a` (0.8.1d on: the longer join request to hosts of 40 and later)
+  and `chupa-39a` (0.8.1b and 0.8.1c: the Delta tag) send the game's
+  messages as `chupa-38a`'s.
+- `chupa-38a` (the builds with 33 to 38) plays as `chupa-32a` does: a host of
+  32 is the same game to both, and a host of 35 or later sends each Delta
+  machine the settings record of the newest version its HELLO says it reads.
+- `chupa-32a` (30 to 32 are additive: a machine of 29 drops message 90 and
+  ignores the co-op input byte; 31's keep-alive, stamp window and
+  stream-only messages were already in 29) and `chupa-29a` play with
+  `chupa-28a`.
+
+A row is written with its release and never changed: a build can't learn of
+a newer one, so a host also says its range in its advertisement.
 
 **The client's decision**: it joins when the host's
 own wire is in the client's range (the client's oldest to its own), or the
@@ -194,7 +203,7 @@ breaking one is 11, so our clients join hosts of 11 and later.
 | 36 | build-266 | The host's shield effects, a new message (91, 12 bytes, reliable: the header, 0 to 5 as a 16-bit value, 16 bits of 0), sent to a client when it has loaded and once each game; a machine of 35 drops it. Our clients take it and draw stock, the only look they have | additive |
 | 37 | build-268 | A listed game's kind: one byte, an OpenCE game type in its low seven bits (0 none, 1 SWAT, 2 Infection, 3 Gun Game) and Hardcore in bit 7. In the LAN advertisement it is the fourth reserved byte (zero before), in the internet listing the first byte of the 8-byte stamp before the signature (the signature covers it; the length is unchanged). A game type counts only on the Slayer engine; Hardcore alone names the engine (HARDCORE SLAYER). It decides only the name in the list. Our clients take any value, name the games they do not play and mark them like a game of a newer build; our own hosts send 0. A Delta host's fourth reserved byte is its Delta major (below), so an OpenCE 37 client reads a Delta host's kind as 1 | additive |
 | 38 | build-268 | The shield effects message takes a seventh value, 6, "players": the host does not dictate and each machine uses its own player's settings. A machine of 37 or older drops it. Ours draws stock for every value | additive |
-| 39 | build-294 | A dedicated server's game: the advertisement's flag 0x04 (until then Delta's, which moved to the Delta tag for it) and the internet listing's flag 32 (ours is 128; a dedicated server sets both). OpenCE's browser shows DEDICATED only for servers its master server lists, so ours appear under ALL GAMES, as we don't speak its master (below). No message or record changed. Our dedicated servers set the flag 0x04 when they announce 39 or later or host with Delta, and the listing's flag 32 when they announce 39 or later; the built-in announce stays 32, and a newer number comes from the signed table ("Auto-announce"). The row's first build is the oldest published OpenCE release whose commit has the change (checked by git ancestry on 2026-10-27); older releases were removed, so an earlier one may have had it | additive |
+| 39 | build-294 | A dedicated server's game: the advertisement's flag 0x04 (until then Delta's, which moved to the Delta tag for it) and the internet listing's flag 32 (ours is 128; a dedicated server sets both). OpenCE's browser shows DEDICATED only for servers its master server lists, so ours appear under ALL GAMES, as we don't speak its master (below). No message or record changed. Our dedicated servers set the flag 0x04 when they announce 39 or later or host with Delta, and the listing's flag 32 when they announce 39 or later; a desktop build or dedicated server with no table row for its wire hosts at 41 (the last release's row, `DELTA_BUILT_IN_HOSTING`), a console build at its own `HALO_PORT_NETWORK_VERSION` (32), and a newer number comes from the signed table ([Auto-announce](#auto-announce)). The row's first build is the oldest published OpenCE release whose commit has the change (checked by git ancestry on 2026-10-27); older releases were removed, so an earlier one may have had it | additive |
 | 40 | build-334 | The client's join request is 234 bytes longer after the hardware id (a pass and a proof for OpenCE's own servers). A host of 40 or later drops a request of another length without a reply; an older host reads the first 0x70 bytes and ignores the rest. Our clients send the bytes as zeros to hosts of 40 and later (wire `chupa-41a`; the length is a layout fact, "Layouts"). A dedicated server's refusals 8 to 12 are new; our clients say them plainly. In no release of OpenCE's alone | additive |
 | 41 | build-334 | A refusal 13 (too many machines from one address), messages 78 and 79 laid out anew, and 94 and 95 (map votes) new. Our machines drop the vote messages unread, and a host tells an OpenCE player who votes, once, that it has no votes. Co-op's flags bit 2 (a dedicated host) is ignored | additive |
 | 42 | build-344 | In no release of its own: the join request gains a version word, the distributed header grows to 12 bytes (a checkpoint epoch, and the host's boundary message 96), a unit state gains a scripted pose (bit 6), the settings record is 64 bytes longer, and MCC-only messages are added. Played by the host's number | additive |

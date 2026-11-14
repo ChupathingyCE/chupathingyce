@@ -39,7 +39,7 @@ is named as OpenCE's build-145 names it, custom_maps\<name>, and HaloMD's
 and Halo PC retail's maps maps_md\<name>.md and maps_pc\<name>.pc, and a
 pack's Xbox map maps_<pack>\<name>.<pack>, which no OpenCE client (nor a
 ChupathingyCE build before map packs) has (map_family_wire_name); Delta Peer carries each map's
-identity between ChupathingyCE machines (docs/delta/README.md).
+identity between ChupathingyCE machines (docs/delta/peer.md, Map identity).
 */
 
 #ifndef HALO_MAP_FAMILIES_H
