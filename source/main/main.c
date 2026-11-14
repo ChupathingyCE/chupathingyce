@@ -3805,6 +3805,11 @@ void main_loop(
 		input_frame_begin();
 		MAIN_STAGE("input_update");
 		input_update();
+#ifndef HALO_XBOX_CONSOLE
+		/* port: the console's controller B and Back, and the controllers
+		left alone while it is open (console.c) */
+		console_input_update();
+#endif
 		MAIN_STAGE("input_abstraction_update");
 		input_abstraction_update();
 		MAIN_STAGE("shell_idle");

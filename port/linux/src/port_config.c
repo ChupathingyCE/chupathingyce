@@ -436,6 +436,12 @@ static const struct config_setting config_settings[] =
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the text and titles of the menus and the HUD with sharp,\n"
 		"high-res fonts." },
+	{ "display.console_style", _config_string, "\"dropdown\"", "HALO_CONSOLE_STYLE", _environment_value, _platform_all,
+		"How the console (the ~ key) looks: \"dropdown\", a panel that slides\n"
+		"down from the top with its scrollback (PgUp, PgDn, the wheel), or\n"
+		"\"classic\", the Xbox's lines at the bottom of the screen." },
+	{ "display.console_height", _config_real, "0.45", "HALO_CONSOLE_HEIGHT", _environment_value, _platform_all,
+		"How much of the screen the drop-down console covers, 0.2 to 0.9." },
 	{ "display.title_font", _config_string, "\"classic\"", "HALO_TITLE_FONT", _environment_value, _platform_all,
 		"The font of the menus' titles. \"classic\" looks like Halo's own titles.\n"
 		"\"cyborg\" uses the same font as the menu text. \"halo\" draws the\n"
@@ -4385,6 +4391,7 @@ static const struct
 	"xbox", and the player told once: config_menus_retired_pending) */
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
 	{ "display.title_font", { "classic", "cyborg", "halo", NULL }, "\"classic\"" },
+	{ "display.console_style", { "dropdown", "classic", NULL }, "\"dropdown\"" },
 	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"none\"" },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },

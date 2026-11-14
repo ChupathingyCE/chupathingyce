@@ -249,3 +249,9 @@ DWORD WINAPI XInputDebugGetKeystroke(PXINPUT_DEBUG_KEYSTROKE keystroke)
 	memset(keystroke, 0, sizeof(*keystroke));
 	return ERROR_HANDLE_EOF;
 }
+
+/* the mouse wheel for the console's scrollback (xinput_sdl.c's): none */
+int halo_console_wheel_steps(void)
+{
+	return 0;
+}

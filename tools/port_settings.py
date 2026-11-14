@@ -61,10 +61,11 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (close together, for the twelve rows of INTERFACE to fit above a
-        # help line, which sits lower than other screens' for them)
+        # (close together, for the rows of the main list (with its three
+        # links) and INTERFACE to fit above a help line, which sits lower
+        # than other screens' for them: tools/test_settings_layout.py)
         "spacing": 24,
-        "help_top": 362,
+        "help_top": 366,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's resolution and anti-aliasing in
@@ -165,8 +166,6 @@ SCREENS = {
                  "Takes effect on restart.", NOT_CONSOLE),
                 ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
                  "Draw the HUD in high resolution.", NOT_CONSOLE),
-                ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
-                 "Draw text and titles in high resolution.", NOT_CONSOLE),
                 ("PLAYER NAMES:", "display.player_names",
                  [("NONE", "none"), ("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies")],
                  "Names above players, where the host allows them.", NOT_CONSOLE),
@@ -189,6 +188,16 @@ SCREENS = {
                  "While dead, follow a player's view, if the host allows it.", None),
                 ("VERSION WATERMARK:", "display.version_watermark", ON_OFF,
                  "Show the version while playing.", None),
+            ]),
+            # (the text's fonts and the console: TEXT, so that INTERFACE's
+            # rows fit above the help line, test_settings_layout.py)
+            ("text", "TEXT", "High-res text, titles and the console.", [
+                ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
+                 "Draw text and titles in high resolution.", NOT_CONSOLE),
+                # (the ~ key's console: terminal.c's drop-down one, or the
+                # Xbox's lines at the bottom)
+                ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],
+                 "Drop-down slides down from the top.\nClassic is the Xbox's.", NOT_CONSOLE),
                 ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg"), ("HALO", "halo")],
                  "Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files.",
                  # (not on the consoles, the Switch included, which have the

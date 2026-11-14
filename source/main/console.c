@@ -67,7 +67,13 @@ symbols in this file:
 
 enum
 {
+#if defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE)
 	MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS = 8,
+#else
+	/* port: more of them, kept across restarts on the desktop
+	(console_history_save) */
+	MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS = 64,
+#endif
 };
 
 /* ---------- macros */
@@ -134,6 +140,37 @@ void console_open(
 
 	return;
 }
+
+#ifndef HALO_XBOX_CONSOLE
+/* port: each frame, before the game and the menus read the controllers
+(main.c, after input_update): while the console is open, a controller's B
+or Back closes it when let go of (never on the press, so the press reaches
+nothing else), and the controllers count as untouched for everything else
+(input_suppress: no stick, trigger or button moves the player or the menus
+while it is open, in a network game too). The keyboard's keys are the
+console's already. */
+void console_input_update(
+	void)
+{
+	static boolean close_pending = FALSE;
+	struct gamepad_state const *gamepad;
+
+	if (!console_globals.active)
+	{
+		close_pending = FALSE;
+		return;
+	}
+	gamepad = input_has_gamepad(0) ? input_get_gamepad_state(0) : NULL;
+	if (gamepad && (gamepad->buttons[_gamepad_analog_button_b] || gamepad->buttons[_gamepad_binary_button_back]))
+		close_pending = TRUE;
+	else if (close_pending)
+	{
+		close_pending = FALSE;
+		console_close();
+	}
+	input_suppress();
+}
+#endif
 
 void console_close(
 	void)
@@ -213,6 +250,81 @@ void console_warning(
 	return;
 }
 
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+/* port: the commands typed, kept across restarts in the save root's
+private/console_history.txt, oldest first (read when the console first
+opens, written after each command) */
+#define CONSOLE_PERSISTENT_HISTORY
+/* port/linux/src/platform.h's, and port_folders.h's _port_folder_private
+(the save root's private/; port/linux/tests/port_folders_test.c checks the
+number) */
+const char *platform_folder(int folder);
+#define CONSOLE_HISTORY_FOLDER 3
+
+static void console_history_path(
+	char *path,
+	unsigned long size)
+{
+	char const *folder = platform_folder(CONSOLE_HISTORY_FOLDER);
+
+	if (folder && *folder)
+		snprintf(path, size, "%s/console_history.txt", folder);
+	else
+		path[0] = 0;
+}
+
+static void console_history_save(
+	void)
+{
+	char path[1024];
+	FILE *file;
+	short index;
+
+	console_history_path(path, sizeof(path));
+	if (!path[0] || !(file = fopen(path, "w")))
+		return;
+	for (index = (short)(console_globals.previous_command_count - 1); index >= 0; index--)
+	{
+		fprintf(file, "%s\n", console_globals.previous_commands[
+			(console_globals.newest_previous_command_index - index + MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS) %
+				MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS]);
+	}
+	fclose(file);
+}
+
+static void console_history_load(
+	void)
+{
+	static boolean loaded = FALSE;
+	char path[1024];
+	char line[256];
+	FILE *file;
+
+	if (loaded)
+		return;
+	loaded = TRUE;
+	console_history_path(path, sizeof(path));
+	if (!path[0] || !(file = fopen(path, "r")))
+		return;
+	while (fgets(line, sizeof(line), file))
+	{
+		short index;
+
+		line[strcspn(line, "\r\n")] = 0;
+		if (!line[0])
+			continue;
+		index = (short)((console_globals.newest_previous_command_index + 1) % MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS);
+		console_globals.newest_previous_command_index = index;
+		csstrncpy(console_globals.previous_commands[index], line, NUMBEROF(console_globals.previous_commands[index]) - 1);
+		console_globals.previous_commands[index][NUMBEROF(console_globals.previous_commands[index]) - 1] = 0;
+		console_globals.previous_command_count =
+			MIN(console_globals.previous_command_count + 1, MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS);
+	}
+	console_globals.selected_previous_command_index = NONE;
+	fclose(file);
+}
+#endif
+
 static boolean console_process_command(
 	const char *command)
 {
@@ -231,6 +343,9 @@ static boolean console_process_command(
 
 	console_globals.previous_command_count = MIN(console_globals.previous_command_count + 1, MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS);
 	console_globals.selected_previous_command_index = NONE;
+#ifdef CONSOLE_PERSISTENT_HISTORY
+	console_history_save();
+#endif
 
 	return hs_compile_and_evaluate(command);
 }
@@ -411,6 +526,9 @@ void console_startup(
 		while (fgets(buffer, NUMBEROF(buffer)-1, file))
 		{
 			strtok(buffer, "\r\n\t");
+#ifndef CONSOLE_PERSISTENT_HISTORY
+			/* (port: on the desktop, where the history is the player's own
+			commands kept across restarts, init.txt's lines stay out of it) */
 			newest_previous_command_index = (console_globals.newest_previous_command_index + 1) % MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS;
 
 			console_globals.newest_previous_command_index = newest_previous_command_index;
@@ -419,6 +537,7 @@ void console_startup(
 			console_globals.previous_command_count = MIN(console_globals.previous_command_count + 1, MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS);
 
 			console_globals.selected_previous_command_index = NONE;
+#endif
 #ifdef HALO_CONSOLE_BRINGUP_LOG
 			/* port: "later <command>" in init.txt runs the command once the
 			game has run 60 frames (after the map and its players exist, as
@@ -533,6 +652,9 @@ boolean console_update(
 	}
 	else if (input_key_is_down(_key_backquote) == TRUE && !console_globals.active)
 	{
+#ifdef CONSOLE_PERSISTENT_HISTORY
+		console_history_load();
+#endif
 		console_globals.input_state.result[0] = '\0';
 		console_globals.active = terminal_gets_begin(&console_globals.input_state);
 		profile_global_enable = FALSE;
