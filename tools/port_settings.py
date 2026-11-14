@@ -150,6 +150,8 @@ SCREENS = {
                  "Walls never cut your camouflaged weapon.\nOff looks like the Xbox.", None),
                 ("DOORS BLOCK LIGHT:", "display.doors_block_light", ON_OFF,
                  "A closed door stops light from the other side.\nOff lets it through, as on the Xbox.", None),
+                ("PLASMA SPARKS:", "display.plasma_sparks", ON_OFF,
+                 "Sparks off a live plasma grenade.\nOff looks like the Xbox.", None),
                 ("FULL MODEL DETAIL:", "display.full_model_detail", ON_OFF,
                  "Always draw models at their highest detail.", None),
                 ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
