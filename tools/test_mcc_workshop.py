@@ -95,6 +95,21 @@ int main(void) {
  CHECK(!mcc_workshop_host_item(name,&back));
  memset(name,0,sizeof(name));strcpy(name,"levels\\test\\bloodgulch\\bloodgulch");
  CHECK(!mcc_workshop_host_item(name,&back));
+ /* the listing's map name: the catalog's own name for a numbered file, never the number */
+ CHECK(mcc_workshop_map_title("mcc_maps\\3477809506\\20",L"Blood Gulch","CE Digsite Multiplayer",title,sizeof(title)));
+ CHECK(!strcmp(title,"Blood Gulch"));
+ CHECK(mcc_workshop_map_title("mcc_maps\\3477809506\\20",L"20","CE Digsite Multiplayer",title,sizeof(title)));
+ CHECK(!strcmp(title,"CE Digsite Multiplayer"));
+ CHECK(mcc_workshop_map_title("mcc_maps\\3477809506\\34",NULL,"CE Digsite Multiplayer",title,sizeof(title)));
+ CHECK(!strcmp(title,"CE Digsite Multiplayer"));
+ CHECK(!mcc_workshop_map_title("mcc_maps\\3477809506\\34",NULL,"",title,sizeof(title)) && !title[0]);
+ /* (the file made readable is no name of its own; this machine's package mark is left off) */
+ CHECK(!mcc_workshop_map_title("mcc_maps\\2906110850\\blood_covenant",L"Blood Covenant",NULL,title,sizeof(title)));
+ CHECK(mcc_workshop_map_title("mcc_maps\\mypack\\portent",L"Portent Remix [mypack]","",title,sizeof(title)));
+ CHECK(!strcmp(title,"Portent Remix"));
+ CHECK(mcc_workshop_map_title("mcc_maps\\1\\x",L"Caf\xe9","",title,sizeof(title)) && !strcmp(title,"Caf?"));
+ CHECK(mcc_workshop_map_title("mcc_maps\\1\\x",L"A long name that does not fit the field at all","",title,8) &&
+     !strcmp(title,"A long "));
  /* the texts */
  strcpy(item.id,"2899609719");strcpy(item.title,"Better Creek");
  mcc_workshop_refusal_text(MCC_WORKSHOP_MISSING,&item,"pat_beavercreek",text,sizeof(text));
