@@ -117,6 +117,7 @@ the right button is B.
 #include <time.h>
 #include "../src/playlist_download.h"
 #include "../src/ui_overlay.h"
+#include "loading_screen.h"
 #include "halo_ui_map_list.h"
 #include "halo_ui_pointer.h"
 #ifdef HALO_HOST_MAP_DOWNLOADS
@@ -323,6 +324,12 @@ static struct
 	(ce_map_ask_host): a Custom Edition map that can't be had is given up
 	when the host names it (wait_for_host) */
 	boolean connecting_asked_host;
+	/* the join screen (display.join_screen: draw_join_screen): up last
+frame (a new one starts its loop from black), and debug.join_screen's
+preview (_join_screen_connecting or _join_screen_downloading, its start) */
+	boolean join_screen_up;
+	short join_preview;
+	unsigned long join_preview_time;
 	/* a Custom Edition map the game being joined needs (_offer_*): its
 	file's name, the host's version of it (its header's checksum, 0 if not
 	known), "Don't ask again" ticked, and the download's progress */
@@ -397,14 +404,6 @@ static struct
 	char password_name[64];
 	char password_text[PASSWORD_LENGTH + 1];
 	unsigned long password_time;
-	/* a game picked to join: its panel up (JOIN or CANCEL) before anything
-	is joined, the game's invite, and when the panel opened; the invite
-	answered JOIN, joined from here on without asking again (a playlist's
-	maps offered after it, a missing map's offer) */
-	boolean join_ask_open;
-	char join_ask_invite[BROWSER_INVITE_LENGTH + 1];
-	unsigned long join_ask_time;
-	char join_answered[BROWSER_INVITE_LENGTH + 1];
 } browser_screen;
 
 /* ---------- private code */
@@ -1493,7 +1492,6 @@ static boolean fold_selected(void);
 static short find_game(char const *invite, long length);
 static void join_invite(char const *invite, unsigned short const *name, boolean open);
 static void password_open(struct browser_game const *game);
-static boolean join_asked(struct browser_game const *game);
 static void fetch_games(void);
 
 /* a game's playlist's map set checked, if it has one this run has not
@@ -1530,10 +1528,7 @@ static void playlist_offer_end(
 	/* (the maps' folders asked again: some may be there now) */
 	browser_screen.ce_map_time = system_milliseconds() - CE_MAP_CHECK_INTERVAL - 1;
 	if (!join)
-	{
-		browser_screen.join_answered[0] = 0;
 		return;
-	}
 	fetch_games();
 	index = find_game(browser_screen.playlist_invite, BROWSER_INVITE_LENGTH + 1);
 	if (index != NONE)
@@ -1690,9 +1685,6 @@ static void join_selected(
 		set_status(game_type_blocker(game));
 		return;
 	}
-	/* (JOIN asked first: a pick alone joins nothing) */
-	if (!join_asked(game))
-		return;
 	/* (a verified playlist's game: its map set checked first, the missing
 	maps offered, and the game joined after: playlist_offer_follow) */
 	if (playlist_offer_begin(game))
@@ -1787,83 +1779,6 @@ static void join_invite(
 	if (name)
 		utf8_name(name, browser_screen.connecting_name, sizeof(browser_screen.connecting_name));
 	browser_screen.connecting_time = system_milliseconds();
-	browser_screen.join_answered[0] = 0;
-}
-
-/* ---------- a game's JOIN: asked before a game picked is joined, as a
-pick is not a join (a click on a game picks it; Enter or A on it, or a
-click on the picked one, asks). A game with a password is asked by its
-password's panel instead, and one that can't be joined says why without
-asking */
-
-/* whether the join of the game picked goes on: TRUE once it was answered
-JOIN (or its password's panel asks); else its panel opened */
-static boolean join_asked(
-	struct browser_game const *game)
-{
-	if (browser_screen.join_answered[0] && !strcmp(browser_screen.join_answered, game->invite))
-		return TRUE;
-	if (game->locked)
-		return TRUE;
-	/* (a Custom Edition map that is missing and can't be downloaded, with no
-	playlist to offer it: the footer's why, not a question) */
-	if (!(game->playlist[0] && playlist_download_possible()) && ce_map_state(game, FALSE) >= _ce_map_missing &&
-		!ce_map_downloadable(game) && !ce_map_ask_host(game))
-	{
-		return TRUE;
-	}
-	browser_screen.join_ask_open = TRUE;
-	csstrncpy(browser_screen.join_ask_invite, game->invite, sizeof(browser_screen.join_ask_invite) - 1);
-	browser_screen.join_ask_invite[sizeof(browser_screen.join_ask_invite) - 1] = 0;
-	browser_screen.join_ask_time = system_milliseconds();
-	return FALSE;
-}
-
-static void join_ask_close(
-	void)
-{
-	browser_screen.join_ask_open = FALSE;
-	browser_screen.join_ask_invite[0] = 0;
-}
-
-/* the game asked about, as the list has it now; NULL once it is gone */
-static struct browser_game const *join_ask_game(
-	void)
-{
-	short index = find_game(browser_screen.join_ask_invite, BROWSER_INVITE_LENGTH + 1);
-
-	return index != NONE ? &browser_screen.games[index] : NULL;
-}
-
-static void join_ask_button(
-	short button)
-{
-	short index;
-
-	switch (button)
-	{
-	case _gamepad_analog_button_a:
-	case _gamepad_binary_button_start:
-		index = find_game(browser_screen.join_ask_invite, BROWSER_INVITE_LENGTH + 1);
-		if (index == NONE)
-		{
-			join_ask_close();
-			set_status("The game is no longer listed.");
-			break;
-		}
-		csstrncpy(browser_screen.join_answered, browser_screen.join_ask_invite,
-			sizeof(browser_screen.join_answered) - 1);
-		browser_screen.join_answered[sizeof(browser_screen.join_answered) - 1] = 0;
-		join_ask_close();
-		browser_screen.selected = index;
-		platform_log("Online Games: JOIN answered");
-		join_selected();
-		break;
-	case _gamepad_analog_button_b:
-		join_ask_close();
-		break;
-	default: break;
-	}
 }
 
 /* ---------- a game's password: typed on the keyboard (Ctrl+V pastes) into
@@ -2592,8 +2507,6 @@ void browser_screen_open(
 	if (browser_screen.connect_open)
 		close_link_profile();
 	password_close();
-	join_ask_close();
-	browser_screen.join_answered[0] = 0;
 	browser_screen.opened_time = system_milliseconds();
 	/* (the menu's A, still queued, is not a pick) */
 	event_manager_flush();
@@ -2949,6 +2862,13 @@ static void press(
 {
 	if (system_milliseconds() - browser_screen.connect_changed_time < CONNECT_SETTLE)
 		return;
+	/* (debug.join_screen's preview: B closes it, back to the list) */
+	if (browser_screen.join_preview)
+	{
+		if (button == _gamepad_analog_button_b)
+			browser_screen.join_preview = 0;
+		return;
+	}
 	/* (Link Profile's panel takes the buttons while it is up, and the map
 offer's while it is) */
 	if (browser_screen.connect_open)
@@ -2972,12 +2892,6 @@ offer's while it is) */
 	{
 		if (system_milliseconds() - browser_screen.password_time >= CONNECT_SETTLE)
 			password_button(button);
-		return;
-	}
-	if (browser_screen.join_ask_open)
-	{
-		if (system_milliseconds() - browser_screen.join_ask_time >= CONNECT_SETTLE)
-			join_ask_button(button);
 		return;
 	}
 	switch (button)
@@ -3087,9 +3001,6 @@ void browser_screen_debug_join(
 	if (index < 0 || index >= browser_screen.count)
 		return;
 	browser_screen.selected = (short)index;
-	/* (the test's own host: JOIN taken as answered) */
-	csstrncpy(browser_screen.join_answered, browser_screen.games[index].invite, sizeof(browser_screen.join_answered) - 1);
-	browser_screen.join_answered[sizeof(browser_screen.join_answered) - 1] = 0;
 	join_selected();
 }
 
@@ -3123,7 +3034,11 @@ void browser_screen_process(
 	struct event_record event;
 
 	fetch_games();
-	if (browser_screen.offer == _offer_asking && browser_screen.offer_workshop)
+	if (browser_screen.join_preview)
+	{
+		/* (debug.join_screen's preview: nothing joined to follow) */
+	}
+	else if (browser_screen.offer == _offer_asking && browser_screen.offer_workshop)
 		follow_workshop_check();
 	if (browser_screen.offer == _offer_downloading)
 		follow_download();
@@ -3153,7 +3068,7 @@ void browser_screen_process(
 			press(event.data.button.index);
 		else if (event.type == BROWSER_EVENT_LEFT_STICK && !browser_screen.connect_open &&
 			browser_screen.offer == _offer_none && browser_screen.playlist_offer == _playlist_none &&
-			!browser_screen.password_open && !browser_screen.join_ask_open)
+			!browser_screen.password_open)
 		{
 			if (event.data.stick.y == SHORT_MAX)
 				held_step(-1);
@@ -3167,12 +3082,9 @@ void browser_screen_process(
 	}
 	if (browser_screen.selected >= browser_screen.count)
 		browser_screen.selected = (short)MAX(0, browser_screen.count - 1);
-	/* (the panels go with the screen) */
+	/* (the panel goes with the screen) */
 	if (!browser_screen.active)
-	{
 		password_close();
-		join_ask_close();
-	}
 	/* (the widgets behind take nothing while the browser is up) */
 	event_manager_flush();
 	follow_listings();
@@ -4088,6 +4000,63 @@ static void draw_dont_ask(
 	add_target(center - width / 2 - 6, y - 6, center + width / 2 + 6, y + glyph + 6, UI_BUTTON_Y);
 }
 
+/* a download's words, as it goes (the map offer's and the join screen's):
+its title ("Downloading bloodgulch.map"), the detail under it ("12.3 of
+29.0 MB", "Checking..."), and how much of it is done (0 to 1) */
+static void download_words(
+	char *title,
+	size_t title_size,
+	char *detail,
+	size_t detail_size,
+	float *done)
+{
+	struct map_download_progress const *progress = &browser_screen.offer_progress;
+	char text[192];
+
+	*done = 0.0f;
+	if (browser_screen.offer_workshop)
+		snprintf(text, sizeof(text), "Getting %s", browser_screen.offer_display);
+	else if (progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY)
+		snprintf(text, sizeof(text), "Downloading %s.map from " MAP_REPO_TITLE, browser_screen.offer_display);
+	else if (progress->source == MAP_DOWNLOAD_SOURCE_HOST)
+		snprintf(text, sizeof(text), "Downloading %s.map from the host", browser_screen.offer_display);
+	else
+		snprintf(text, sizeof(text), "Downloading %s.map", browser_screen.offer_display);
+	snprintf(title, title_size, "%s", text);
+	switch (progress->phase)
+	{
+	case MAP_DOWNLOAD_RECEIVING:
+		if (progress->total)
+		{
+			snprintf(text, sizeof(text), "%.1f of %.1f MB", progress->received / 1048576.0,
+				progress->total / 1048576.0);
+			*done = (float)progress->received / (float)progress->total;
+		}
+		else
+			snprintf(text, sizeof(text), "%.1f MB", progress->received / 1048576.0);
+		break;
+	case MAP_DOWNLOAD_UNPACKING:
+		snprintf(text, sizeof(text), "Unpacking\xE2\x80\xA6 %.1f MB", progress->received / 1048576.0);
+		*done = 1.0f;
+		break;
+	case MAP_DOWNLOAD_CHECKING:
+		snprintf(text, sizeof(text), "Checking\xE2\x80\xA6");
+		*done = 1.0f;
+		break;
+	default:
+		if (browser_screen.offer_workshop)
+		{
+			snprintf(text, sizeof(text), "Asking Steam\xE2\x80\xA6");
+			break;
+		}
+		snprintf(text, sizeof(text), progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY ?
+			"Connecting to " MAP_REPO_TITLE "\xE2\x80\xA6" : progress->source == MAP_DOWNLOAD_SOURCE_HOST ?
+			"Joining the host's game\xE2\x80\xA6" : "Connecting to the map repository\xE2\x80\xA6");
+		break;
+	}
+	snprintf(detail, detail_size, "%s", text);
+}
+
 static void draw_map_offer(
 	void)
 {
@@ -4195,47 +4164,11 @@ static void draw_map_offer(
 	{
 		float bar_x = CONNECT_X + 40, bar_width = CONNECT_WIDTH - 80;
 		float done = 0.0f;
+		char detail[192];
 
-		if (browser_screen.offer_workshop)
-			snprintf(text, sizeof(text), "Getting %s", browser_screen.offer_display);
-		else if (progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY)
-			snprintf(text, sizeof(text), "Downloading %s.map from " MAP_REPO_TITLE, browser_screen.offer_display);
-		else if (progress->source == MAP_DOWNLOAD_SOURCE_HOST)
-			snprintf(text, sizeof(text), "Downloading %s.map from the host", browser_screen.offer_display);
-		else
-			snprintf(text, sizeof(text), "Downloading %s.map", browser_screen.offer_display);
+		download_words(text, sizeof(text), detail, sizeof(detail), &done);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 88, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
-		switch (progress->phase)
-		{
-		case MAP_DOWNLOAD_RECEIVING:
-			if (progress->total)
-			{
-				snprintf(text, sizeof(text), "%.1f of %.1f MB", progress->received / 1048576.0,
-					progress->total / 1048576.0);
-				done = (float)progress->received / (float)progress->total;
-			}
-			else
-				snprintf(text, sizeof(text), "%.1f MB", progress->received / 1048576.0);
-			break;
-		case MAP_DOWNLOAD_UNPACKING:
-			snprintf(text, sizeof(text), "Unpacking\xE2\x80\xA6 %.1f MB", progress->received / 1048576.0);
-			done = 1.0f;
-			break;
-		case MAP_DOWNLOAD_CHECKING:
-			snprintf(text, sizeof(text), "Checking\xE2\x80\xA6");
-			done = 1.0f;
-			break;
-		default:
-			if (browser_screen.offer_workshop)
-			{
-				snprintf(text, sizeof(text), "Asking Steam\xE2\x80\xA6");
-				break;
-			}
-			snprintf(text, sizeof(text), progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY ?
-				"Connecting to " MAP_REPO_TITLE "\xE2\x80\xA6" : progress->source == MAP_DOWNLOAD_SOURCE_HOST ?
-				"Joining the host's game\xE2\x80\xA6" : "Connecting to the map repository\xE2\x80\xA6");
-			break;
-		}
+		snprintf(text, sizeof(text), "%s", detail);
 		ui_overlay_rect(bar_x, CONNECT_Y + 126, bar_width, 12, 6, 0x0A1E44FF);
 		if (done > 0.0f)
 		{
@@ -4304,58 +4237,6 @@ static void draw_map_offer(
 	}
 }
 
-/* a game's JOIN asked: its name, map and players, who joins it, and
-JOIN or CANCEL */
-static void draw_join_ask(
-	void)
-{
-	static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
-	static char const *const words[] = { "=CANCEL", "=JOIN" };
-	struct browser_game const *game = join_ask_game();
-	float center = CONNECT_X + CONNECT_WIDTH / 2;
-	char text[192], name[64], map[64], type[64];
-	float size = 17.0f;
-
-	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, "Join game");
-	if (!game)
-	{
-		ui_overlay_text(UI_FONT_MENU, 12.0f, center, CONNECT_Y + 130, UI_ALIGN_CENTER, COLOR_WARN,
-			"The game is no longer listed.");
-		dialog_prompt(UI_BUTTON_B, "=CLOSE");
-		return;
-	}
-	utf8_name(game->name, name, sizeof(name));
-	while (size > 10.0f && ui_overlay_text_width(UI_FONT_MENU, size, name) > CONNECT_WIDTH - 60)
-		size -= 0.5f;
-	ui_overlay_text_glow(UI_FONT_MENU, size, center, CONNECT_Y + 112, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, name);
-	snprintf(text, sizeof(text), "%s  \xC2\xB7  %s", game_map_display_name(game, map, sizeof(map)),
-		type_name(game, type, sizeof(type)));
-	ui_overlay_text(UI_FONT_MENU, 12.0f, center, CONNECT_Y + 150, UI_ALIGN_CENTER, COLOR_TEXT, text);
-	snprintf(text, sizeof(text), "%d/%d players", game->players, game->maximum_players);
-	ui_overlay_text(UI_FONT_MENU, 12.0f, center, CONNECT_Y + 170, UI_ALIGN_CENTER, COLOR_TEXT, text);
-	{
-		struct player_profile profile;
-		char player[64];
-		long index;
-
-		/* (the profile join_first_player joins with) */
-		if (first_player_profile(&profile) != NONE)
-		{
-			for (index = 0; index < (long)sizeof(player) - 1 && index < NUMBEROF(profile.player_name) &&
-				profile.player_name[index]; index++)
-			{
-				player[index] = profile.player_name[index] < 0x80 ? (char)profile.player_name[index] : '?';
-			}
-			player[index] = 0;
-			snprintf(text, sizeof(text), "Playing as %s", player);
-			ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 206, UI_ALIGN_CENTER, COLOR_DIM, text);
-		}
-	}
-	dialog_prompts(NUMBEROF(buttons), buttons, words);
-}
-
-/* a game's password asked for: the stars typed in a field, a caret
-blinking after them, and what a wrong one says */
 static void draw_password(
 	void)
 {
@@ -5197,6 +5078,118 @@ static void draw_bar_prompts(
 		PROMPT_BUTTON, PROMPT_TEXT, BAR_Y, 480);
 }
 
+/* ---------- the join screen: the Xbox's loading screen while a game is
+joined or its map downloads (display.join_screen), with what is going on
+and B to cancel, in place of the list (OpenRift's idea, #992) */
+
+enum
+{
+	_join_screen_none,
+	_join_screen_connecting,
+	_join_screen_downloading,
+};
+
+/* debug.join_screen "connecting" or "downloading" (":<name>" the game's):
+the join screen over the main menu once, with nothing joined, for tests and
+screenshots; B closes it */
+void browser_screen_debug_join_screen(
+	void)
+{
+	static boolean debug_join_done;
+	char const *preview = config_string("debug.join_screen");
+	boolean main_menu_is_active(void);
+	char const *colon;
+
+	if (debug_join_done || !preview || !preview[0] || !main_menu_is_active())
+		return;
+	debug_join_done = TRUE;
+	browser_screen_open();
+	colon = strchr(preview, ':');
+	browser_screen.join_preview = !strncmp(preview, "downloading", 11) ? _join_screen_downloading :
+		_join_screen_connecting;
+	browser_screen.join_preview_time = system_milliseconds();
+	snprintf(browser_screen.connecting_name, sizeof(browser_screen.connecting_name), "%s",
+		colon ? colon + 1 : "Blood Gulch Bash");
+	snprintf(browser_screen.offer_display, sizeof(browser_screen.offer_display), "%s", "bloodgorge3");
+}
+
+/* what the join screen shows now, or _join_screen_none for the screen as
+it was (the setting off, a question asked, nothing joined) */
+static short join_screen_mode(
+	void)
+{
+#if defined(HALO_CONSOLE_NO_LOADING_PICTURE)
+	return _join_screen_none;
+#else
+	if (!config_boolean("display.join_screen"))
+		return _join_screen_none;
+	if (browser_screen.join_preview)
+		return browser_screen.join_preview;
+	if (browser_screen.offer == _offer_downloading)
+		return _join_screen_downloading;
+	if (browser_screen.connecting && browser_screen.offer == _offer_none && !browser_screen.connect_open &&
+		browser_screen.playlist_offer == _playlist_none && !browser_screen.password_open)
+	{
+		return _join_screen_connecting;
+	}
+	return _join_screen_none;
+#endif
+}
+
+#if !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
+static void draw_join_screen(
+	short mode,
+	float margin)
+{
+	static int serial;
+	unsigned char const *picture = loading_screen_join_frame(!browser_screen.join_screen_up);
+	char title[192];
+	char detail[192];
+	float done = 0.0f;
+	float width;
+
+	browser_screen.join_screen_up = TRUE;
+	ui_overlay_layer(0);
+	/* the loading screen, 4:3 in the middle and black beside it, as the
+	game's own is drawn */
+	ui_overlay_rect(-margin, 0, 640 + 2 * margin, 480, 0, 0x000000FF);
+	serial = serial == 0x7FFFFFFF ? 2 : serial + 1;
+	ui_overlay_picture(serial, picture, 640, 480, 0, 0, 640, 480, 0xFFFFFFFF);
+
+	/* what is going on, low on it, and B to cancel under that */
+	if (mode == _join_screen_downloading && browser_screen.join_preview)
+	{
+		/* (debug.join_screen's: a download of 29 MB that loops) */
+		done = (float)((system_milliseconds() - browser_screen.join_preview_time) % 12000) / 12000.0f;
+		snprintf(title, sizeof(title), "Downloading %s.map", browser_screen.offer_display);
+		snprintf(detail, sizeof(detail), "%.1f of %.1f MB", done * 29.0f, 29.0f);
+	}
+	else if (mode == _join_screen_downloading)
+		download_words(title, sizeof(title), detail, sizeof(detail), &done);
+	else
+	{
+		snprintf(title, sizeof(title), "Connecting to %s", browser_screen.connecting_name);
+		detail[0] = 0;
+	}
+	ui_overlay_text_glow(UI_FONT_MENU, 15.0f, 320, 384, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, title);
+	if (mode == _join_screen_downloading)
+	{
+		float bar_x = 190, bar_width = 260;
+		char percent[16];
+
+		ui_overlay_rect(bar_x, 408, bar_width, 6, 3, 0x0A1E44C0);
+		if (done > 0.0f)
+			ui_overlay_gradient(bar_x, 408, bar_width * (done < 1.0f ? done : 1.0f), 6, 3, 0x8FC4FFFF, 0x2A62C8FF);
+		ui_overlay_outline(bar_x, 408, bar_width, 6, 3, 1.0f, 0x4F9DFFC0);
+		snprintf(percent, sizeof(percent), "%d%%", (int)(done * 100.0f + 0.5f));
+		ui_overlay_text(UI_FONT_MENU, 10.0f, bar_x - 8, 405, UI_ALIGN_RIGHT, COLOR_TEXT, percent);
+		ui_overlay_text(UI_FONT_MENU, 10.0f, 320, 420, UI_ALIGN_CENTER, COLOR_TEXT, detail);
+	}
+	width = prompt_width_sized(UI_BUTTON_B, "=CANCEL", PROMPT_BUTTON, PROMPT_TEXT);
+	prompt_sized(UI_BUTTON_B, "=CANCEL", 320 - width / 2, 442, PROMPT_BUTTON, PROMPT_TEXT, TRUE, 436, 470);
+}
+#endif
+
 void browser_screen_render(
 	void)
 {
@@ -5206,13 +5199,27 @@ void browser_screen_render(
 		&browser_screen.games[browser_screen.selected] : NULL;
 	boolean dialog = browser_screen.connect_open || browser_screen.offer != _offer_none ||
 		browser_screen.playlist_offer != _playlist_none ||
-		browser_screen.password_open || browser_screen.join_ask_open;
+		browser_screen.password_open;
 
 	/* (what the pointer may press, as this frame draws it) */
 	browser_screen.target_count = 0;
 	browser_screen.drawn_first = NONE;
 	if (!ui_overlay_available())
 		return;
+
+#if !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
+	/* (joining, or the map downloading: the join screen in the list's place) */
+	{
+		short join_mode = join_screen_mode();
+
+		if (join_mode != _join_screen_none)
+		{
+			draw_join_screen(join_mode, margin);
+			return;
+		}
+		browser_screen.join_screen_up = FALSE;
+	}
+#endif
 
 	/* the title and the band, over the menus' own background, its
 	widescreen margins too */
@@ -5265,8 +5272,6 @@ void browser_screen_render(
 			draw_map_offer();
 		else if (browser_screen.password_open)
 			draw_password();
-		else if (browser_screen.join_ask_open)
-			draw_join_ask();
 		else
 			draw_playlist_offer();
 		ui_overlay_layer(0);
@@ -5307,7 +5312,7 @@ void browser_screen_pointer(
 		press(_gamepad_analog_button_b);
 	/* (positive: away from the player, or a finger moving down: back) */
 	if (pointer->wheel_steps && !browser_screen.connect_open && browser_screen.offer == _offer_none &&
-		browser_screen.playlist_offer == _playlist_none && !browser_screen.join_ask_open)
+		browser_screen.playlist_offer == _playlist_none)
 		step((short)-pointer->wheel_steps);
 	if (!pointer->left_clicks || !browser_screen.active)
 		return;
@@ -5353,6 +5358,7 @@ void browser_screen_pointer(
 	}
 	/* (not through the panel of a game being joined) */
 	if (browser_screen.drawn_first != NONE && !browser_screen.connect_open && !browser_screen.connecting &&
+		!browser_screen.join_preview &&
 		browser_screen.offer == _offer_none && browser_screen.playlist_offer == _playlist_none &&
 		pointer->click_x >= LIST_X && pointer->click_x < LIST_X + LIST_WIDTH &&
 		pointer->click_y >= LIST_Y + LIST_HEAD && pointer->click_y < LIST_Y + LIST_HEAD + ROWS_PER_PAGE * LIST_ROW)

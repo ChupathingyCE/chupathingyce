@@ -25,6 +25,10 @@ seconds (game.c), the menus' accept skips the rest of the wait
 #include "input/input.h"
 
 #include "loading_screen.h"
+#include "loading_picture.h"
+
+#include <math.h>
+#include <stdio.h>
 
 /* sdl_platform.c */
 void platform_menus_set_active(int active);
@@ -154,7 +158,35 @@ boolean loading_screen_step_due(
 	return TRUE;
 }
 
+/* a step of the picture (loading_screen_draw's), into loading_screen.frame */
+static void loading_screen_compute(
+	float progress,
+	float brightness,
+	float fade_alpha,
+	unsigned int const *picture,
+	long picture_width,
+	long picture_height,
+	unsigned int const *mask,
+	long mask_width,
+	long mask_height);
+
 void loading_screen_draw(
+	float progress,
+	float brightness,
+	float fade_alpha,
+	unsigned int const *picture,
+	long picture_width,
+	long picture_height,
+	unsigned int const *mask,
+	long mask_width,
+	long mask_height)
+{
+	loading_screen_compute(progress, brightness, fade_alpha, picture, picture_width, picture_height, mask, mask_width,
+		mask_height);
+	halo_draw_picture(&loading_screen.frame[0][0][0], LOADING_SCREEN_WIDTH, LOADING_SCREEN_HEIGHT);
+}
+
+static void loading_screen_compute(
 	float progress,
 	float brightness,
 	float fade_alpha,
@@ -208,8 +240,109 @@ void loading_screen_draw(
 			loading_screen.frame[y][x][3] = 255;
 		}
 	}
-	halo_draw_picture(&loading_screen.frame[0][0][0], LOADING_SCREEN_WIDTH, LOADING_SCREEN_HEIGHT);
 }
+
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
+/* ---------- the join screen's (display.join_screen: browser_screen.c) */
+
+/* how long one of its loops takes, a load's sweep from dark to dark */
+#define LOADING_SCREEN_JOIN_LOOP_MILLISECONDS 3600
+
+static struct
+{
+	/* the loading picture as progress_bar.c reads it into its texture
+	(tgaLoadImageData: its blue, as the Xbox's), and the glow band's
+	(progress_bar_create_mask_texture's) */
+	unsigned int picture[240][320];
+	unsigned int mask[16][128];
+	boolean ready;
+	unsigned long started_at;
+	unsigned long stepped_at;
+} loading_screen_join;
+
+static void loading_screen_join_prepare(
+	void)
+{
+	char path[256];
+	FILE *file;
+	long x, y;
+
+	loading_screen_join.ready = TRUE;
+	for (y = 0; y < 16; y++)
+	{
+		double glow = pow(sin(3.1415f * (y * (1.f / 15.f))), 0.75);
+
+		for (x = 0; x < 128; x++)
+		{
+			unsigned int intensity = (unsigned char)(((float)(sin(3.1415f * (x * (1.f / 127.f))) * glow) *
+				(250.f / 255.f) + 5.f / 255.f) * 255.f);
+
+			loading_screen_join.mask[y][x] = (intensity << 24) | (intensity << 16) | (intensity << 8) | intensity;
+		}
+	}
+	loading_picture_path(path, sizeof(path));
+	file = fopen(path, "rb");
+	if (file)
+	{
+		unsigned char header[18];
+
+		/* (an uncompressed 24-bit picture of 320 by 240 alone, as
+		progress_bar.c reads, its rows from the bottom) */
+		if (fread(header, 1, sizeof(header), file) == sizeof(header) && header[2] == 2 && header[16] == 24 &&
+			(header[12] | header[13] << 8) == 320 && (header[14] | header[15] << 8) == 240)
+		{
+			fseek(file, (long)header[0], SEEK_CUR);
+			for (y = 0; y < 240; y++)
+			{
+				unsigned int *pixel = loading_screen_join.picture[240 - y - 1];
+
+				for (x = 0; x < 320; x++)
+				{
+					unsigned char color[3] = { 0, 0, 0 };
+					unsigned int intensity;
+
+					if (fread(color, 1, 3, file) != 3)
+						break;
+					intensity = color[0];
+					pixel[x] = ((intensity << 9) | (intensity & ~1u)) << 7 | intensity >> 2;
+				}
+			}
+		}
+		fclose(file);
+	}
+}
+
+unsigned char const *loading_screen_join_frame(
+	boolean restart)
+{
+	unsigned long now = system_milliseconds();
+
+	if (!loading_screen_join.ready)
+		loading_screen_join_prepare();
+	if (restart)
+	{
+		csmemset(loading_screen.frame, 0, sizeof(loading_screen.frame));
+		loading_screen_join.started_at = now;
+		loading_screen_join.stepped_at = now - LOADING_SCREEN_STEP_MILLISECONDS;
+	}
+	/* (a step each refresh, as the Xbox's: 60 a second, however fast the
+	frames come) */
+	while (now - loading_screen_join.stepped_at >= LOADING_SCREEN_STEP_MILLISECONDS)
+	{
+		float progress = (float)((loading_screen_join.stepped_at - loading_screen_join.started_at) %
+			LOADING_SCREEN_JOIN_LOOP_MILLISECONDS) / (float)LOADING_SCREEN_JOIN_LOOP_MILLISECONDS;
+		float brightness = (float)pow(sin(progress * 3.14159), 0.9f);
+
+		loading_screen_join.stepped_at += LOADING_SCREEN_STEP_MILLISECONDS;
+		/* (a long wait between frames: the steps it missed are not caught up) */
+		if (now - loading_screen_join.stepped_at > 4 * LOADING_SCREEN_STEP_MILLISECONDS)
+			loading_screen_join.stepped_at = now - LOADING_SCREEN_STEP_MILLISECONDS;
+		loading_screen_compute(progress, brightness, progress < 0.9f ? 0.9f : 0.9f - (progress - 0.9f) * 9.f,
+			&loading_screen_join.picture[0][0], 320, 240, &loading_screen_join.mask[0][0], 128, 16);
+	}
+	return &loading_screen.frame[0][0][0];
+}
+#endif
 
 /* the keys drive the first controller as they do in the menus, which the
 loading screen stands in for (the menus set it again each frame once they
