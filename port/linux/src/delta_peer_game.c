@@ -688,6 +688,9 @@ int delta_peer_protocol(void)
 		/* (a client asks a dedicated server for its badge; a host offers it
 		only with a certificate: host_badge, docs/server-badges.md) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_server_badge;
+		/* (the lobby's READY: a player host offers it while its lobby is up
+		(lobby_screen.c sets its lobby host); a client says it) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_lobby_ready;
 #ifndef HALO_CONSOLE_NO_GUIDE
 		/* (a party's tag: the Guide's party says it to the host, and a host
 		keeps a party on one team where it can, party_teams.c) */
@@ -1907,6 +1910,38 @@ int delta_peer_game_server_badge(struct server_badge *badge)
 }
 
 /* ---------- reports (port/linux/game/report_player.c, server/src/server_reports.c) */
+
+void delta_peer_game_set_lobby_host(const struct delta_peer_lobby_host *host)
+{
+	delta_peer_protocol();
+	delta_peer_set_lobby_host(&delta_game.peer, host);
+}
+
+void delta_peer_game_set_lobby_state(const struct delta_wire_lobby_state *state)
+{
+	if (!delta_game.ready || delta_game.role != _role_host)
+		return;
+	delta_peer_set_lobby_state(&delta_game.peer, state);
+}
+
+int delta_peer_game_lobby_ready(void)
+{
+	return delta_game.ready && delta_game.role == _role_client && delta_peer_client_lobby_ready(&delta_game.peer);
+}
+
+unsigned int delta_peer_game_lobby_say(int player, int ready)
+{
+	if (!delta_game.ready || delta_game.role != _role_client)
+		return 0;
+	return delta_peer_client_lobby_say(&delta_game.peer, player, ready);
+}
+
+unsigned int delta_peer_game_lobby_state(struct delta_wire_lobby_state *state)
+{
+	if (!delta_game.ready || delta_game.role != _role_client)
+		return 0;
+	return delta_peer_client_lobby_state(&delta_game.peer, state);
+}
 
 void delta_peer_game_set_report_host(const struct delta_peer_report_host *host)
 {

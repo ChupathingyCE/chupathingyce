@@ -8613,6 +8613,30 @@ static boolean host_setup_start(struct widget_instance *widget, boolean *widget_
 	snprintf(text, sizeof(text), "%ld", host_setup.port);
 	host_write("network.tunnel_port", text);
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	/* (opened from the Chupathingy menus' lobby (its GAME SETUP), whose
+	pregame screen is right under: back to it, not a second one over it) */
+#if defined(HALO_GUIDE) && (!defined(HALO_MCC) || HALO_MCC)
+	{
+		long ui_widget_port_history_top(void);
+		long pregame = tag_loaded('DeLa', HOST_LOBBY_SCREEN);
+
+		if (pregame != NONE && ui_widget_port_history_top() == pregame)
+		{
+			ui_widget_port_go_back(widget);
+			*widget_deleted = TRUE;
+			return TRUE;
+		}
+	}
+#endif
+	/* (the Chupathingy menus' lobby over it: its countdown waits for
+	START GAME, lobby_screen.c, the game list's builds alone) */
+#ifdef HALO_GAME_BROWSER
+	{
+		void lobby_screen_hosted_opened(void);
+
+		lobby_screen_hosted_opened();
+	}
+#endif
 	return ui_widget_port_open(widget, HOST_LOBBY_SCREEN, widget_deleted);
 }
 

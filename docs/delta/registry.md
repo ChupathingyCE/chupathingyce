@@ -85,6 +85,7 @@ never carries: retired ones, and the game list's own.
 | 23 | `reports` | in use |  |
 | 24 | `mcc_maps` | in use |  |
 | 25 | `game_modes` | in use |  |
+| 26 | `lobby_ready` | in use |  |
 
 ## Wire IDs
 

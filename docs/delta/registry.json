@@ -366,6 +366,12 @@
       "name": "game_modes",
       "status": "in use",
       "ports_never_send": false
+    },
+    {
+      "bit": 26,
+      "name": "lobby_ready",
+      "status": "in use",
+      "ports_never_send": false
     }
   ],
   "wires": {
