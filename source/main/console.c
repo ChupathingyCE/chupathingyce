@@ -679,38 +679,16 @@ static void console_complete(
 			}
 		}
 
-		/* port: the drop-down console, as zsh: Tab completes what the
-		candidates have in common; when that adds nothing, they are listed
-		in columns, and Tab again goes through them one at a time
+		/* port: the drop-down console: Tab completes what the candidates
+		have in common; when that adds nothing, they are listed under it,
+		and Tab again goes through them one at a time
 		(terminal_completion_cycle) */
 		if (listed && (long)strlen(token) >= last_similar_character_index + 1)
 		{
-			short width = 0;
-			short per_line;
-			char line[256];
-
-			for (token_num = 0; token_num < count; token_num++)
-				width = (short)MAX(width, (short)strlen(matching_items[token_num]));
-			width += 2;
-			per_line = (short)MAX(1, terminal_columns() / width);
-			line[0] = 0;
-			for (token_num = 0; token_num < count; token_num++)
-			{
-				long length = (long)strlen(line);
-
-				snprintf(line + length, sizeof(line) - length, "%-*s", width, matching_items[token_num]);
-				if (token_num % per_line == per_line - 1)
-				{
-					terminal_shell_output("%s", line);
-					line[0] = 0;
-				}
-			}
-			if (line[0])
-				terminal_shell_output("%s", line);
 			terminal_completion_show((char const **)matching_items, count,
 				(short)(token - console_globals.input_state.result));
 		}
-		else if (print_second_column && (token_num - 1) % 4 != 3)
+		else if (!listed && print_second_column && (token_num - 1) % 4 != 3)
 		{
 			console_printf(FALSE, "%s", print_buffer);
 		}

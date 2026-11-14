@@ -969,7 +969,47 @@ static void terminal_scrollback_add(
 /* the shell's prompt, "openrift@chupathingy:bloodgulch $ " (the
 profile's name, then the map, or "menu" in the menus), the host left out
 on a narrow screen: where its user, host, path and "$ " end, in marks */
-static boolean terminal_prompt_wide = TRUE;
+/* whether the screen is 1000 pixels wide or more, for the prompt's host
+(the window's units are the 480 lines'), as it is now: an echo is the same
+as the prompt drawn with it */
+static boolean terminal_prompt_wide(
+	void)
+{
+#if !defined(HALO_CONSOLE)
+	return (render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0) * halo_screen_pixel_scale() >= 1000.f;
+#else
+	return FALSE;
+#endif
+}
+
+/* the console's character width as terminal_draw_line draws it
+(terminal_font_scale times as wide; the console's font is monospaced),
+where the first character sits past its bounds' left, and the columns of
+the screen with padding at each side, as they are now (help and Tab's
+columns ask before the panel is first drawn) */
+static void terminal_dropdown_measure(
+	long font_tag_index,
+	short padding,
+	real *width,
+	real *lead,
+	long *columns)
+{
+	rectangle2d window = render.camera.viewport_bounds;
+	rectangle2d measured, cursor;
+
+	offset_rectangle2d(&window, -render.camera.viewport_bounds.x0, -render.camera.viewport_bounds.y0);
+	draw_string_set_draw_mode(font_tag_index, NONE, 0, 0, global_real_argb_white);
+	/* (the advance: twenty less ten, so neither end's spacing counts) */
+	draw_string_compute_bounds(&window, "mmmmmmmmmmmmmmmmmmmm", &measured, &cursor);
+	*width = (real)(measured.x1 - measured.x0);
+	draw_string_compute_bounds(&window, "mmmmmmmmmm", &measured, &cursor);
+	*width = (*width - (measured.x1 - measured.x0)) / 10.f;
+	*lead = (real)(measured.x0 - window.x0) * terminal_font_scale();
+	if (*width <= 0.f)
+		*width = 8.f;
+	*width *= terminal_font_scale();
+	*columns = window.x1 > window.x0 ? (long)((window.x1 - window.x0 - 2 * padding) / *width) : 100;
+}
 
 static void terminal_prompt(
 	char *prompt,
@@ -1018,7 +1058,7 @@ static void terminal_prompt(
 	}
 	length = snprintf(prompt, size, "%s", user);
 	marks[0] = (short)MIN(length, size - 1);
-	length = snprintf(prompt + marks[0], size - marks[0], "%s:", terminal_prompt_wide ? "@chupathingy" : "");
+	length = snprintf(prompt + marks[0], size - marks[0], "%s:", terminal_prompt_wide() ? "@chupathingy" : "");
 	marks[1] = (short)MIN(marks[0] + length, size - 1);
 	length = snprintf(prompt + marks[1], size - marks[1], "%s", map);
 	marks[2] = (short)MIN(marks[1] + length, size - 1);
@@ -1098,13 +1138,16 @@ void terminal_scrollback_clear(
 	terminal_scrollback_offset = 0;
 }
 
-/* (the columns of the panel as last drawn) */
-static long terminal_dropdown_columns = 100;
-
 short terminal_columns(
 	void)
 {
-	return (short)PIN(terminal_dropdown_columns, 20, 400);
+	long font_tag_index = interface_get_tag_index(_interface_font_terminal);
+	real width, lead;
+	long columns = 100;
+
+	if (font_tag_index != NONE)
+		terminal_dropdown_measure(font_tag_index, 8, &width, &lead, &columns);
+	return (short)PIN(columns, 20, 400);
 }
 
 /* ---------- Ctrl+R: the history searched back
@@ -1435,10 +1478,9 @@ static void terminal_completion_draw(
 	short right;
 	boolean more = terminal_completion.count > TERMINAL_COMPLETION_ROWS;
 
-	/* (only while Tab goes through them: listed, they are in the scrollback) */
-	if (terminal_completion.count < 2 || terminal_completion.pick == NONE)
+	if (terminal_completion.count < 2)
 		return;
-	if (terminal_completion.pick >= rows)
+	if (terminal_completion.pick != NONE && terminal_completion.pick >= rows)
 		first = (short)(terminal_completion.pick - rows + 1);
 	for (index = 0; index < terminal_completion.count; index++)
 		longest = (short)MAX(longest, (short)strlen(terminal_completion.names[index]));
@@ -1488,7 +1530,7 @@ static boolean terminal_dropdown_draw(
 	/* (across the whole screen, not the HUD's safe area retail's console
 	keeps to) */
 	rectangle2d window = render.camera.viewport_bounds;
-	rectangle2d bounds, measured, cursor_bounds;
+	rectangle2d bounds;
 	real eased, full_height, shift, width, lead;
 	short padding = (short)MAX(line_height / 2, 2);
 	short panel_top, panel_bottom, header_bottom, prompt_top, rows_bottom, text_left;
@@ -1520,31 +1562,8 @@ static boolean terminal_dropdown_draw(
 	panel_top = (short)(window.y0 + shift);
 	panel_bottom = (short)(window.y0 + full_height * eased);
 
-	/* (a character's width, as terminal_draw_line draws them:
-	terminal_font_scale times as wide; the console's font is monospaced) */
-	bounds = window;
-	draw_string_set_draw_mode(font_tag_index, NONE, 0, 0, global_real_argb_white);
-	/* (the advance: twenty less ten, so neither end's spacing counts) */
-	draw_string_compute_bounds(&bounds, "mmmmmmmmmmmmmmmmmmmm", &measured, &cursor_bounds);
-	width = (real)(measured.x1 - measured.x0);
-	draw_string_compute_bounds(&bounds, "mmmmmmmmmm", &measured, &cursor_bounds);
-	width = (width - (measured.x1 - measured.x0)) / 10.f;
-	/* (and where the first character sits past the bounds' left: the caret
-	goes where the characters are) */
-	lead = (real)(measured.x0 - bounds.x0) * terminal_font_scale();
-	if (width <= 0.f)
-		width = 8.f;
-	width *= terminal_font_scale();
+	terminal_dropdown_measure(font_tag_index, padding, &width, &lead, &columns);
 	text_left = (short)(window.x0 + padding);
-	columns = (long)((window.x1 - window.x0 - 2 * padding) / width);
-	terminal_dropdown_columns = columns;
-	/* (the prompt's host left out below 1000 pixels wide; the window's
-	units are the 480 lines') */
-#if !defined(HALO_CONSOLE)
-	terminal_prompt_wide = (window.x1 - window.x0) * halo_screen_pixel_scale() >= 1000.f;
-#else
-	terminal_prompt_wide = FALSE;
-#endif
 
 	/* the panel, its top line and its bottom edge */
 	terminal_dropdown_fill(window.x0, window.y0, window.x1, panel_bottom, TERMINAL_PANEL_COLOR, TERMINAL_PANEL_PASSES);
