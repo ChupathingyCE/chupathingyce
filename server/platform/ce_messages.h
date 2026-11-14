@@ -226,12 +226,14 @@ struct ce_vehicle_update
 	struct ce_vehicle_motion motion;
 };
 
-/* a player's biped and weapons, by object index (0: none) */
+/* a player's biped and weapons, by object index (0: none); its team (what
+its client's HUD shows as its own team); the field names follow Kornner
+Studios' OpenSauce (GPL-3.0) message delta definitions */
 struct ce_player_spawn
 {
 	int player;
 	int biped;
-	unsigned int unknown_large;
+	unsigned int team;
 	int unknown_object;
 	int unknown_medium;
 	int weapons[4];
