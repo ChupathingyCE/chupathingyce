@@ -1614,6 +1614,11 @@ static const struct config_setting config_settings[] =
 		"computer's account name. Off, your home folder is written as ~\n"
 		"(%USERPROFILE% on Windows). Don't post a debug.txt written with this\n"
 		"on. Takes effect at the next start." },
+	{ "debug.show_all_games", _config_boolean, "false", "HALO_SHOW_ALL_GAMES", _environment_set_is_true,
+		_platform_all,
+		"Online Games and the Server Browser list every game, those this build\n"
+		"can't join too (marked by version), for tests. Off, they list only\n"
+		"games you can join." },
 	{ "debug.telnet_console", _config_boolean, "false", "HALO_TELNET_CONSOLE", _environment_set_is_true,
 		_platform_all | _platform_server,
 		"Open a console on 127.0.0.1, at debug.telnet_console_port. It has no\n"

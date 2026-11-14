@@ -265,14 +265,17 @@ scheme), empty for none */
 void browser_server_name(char *text, int size);
 
 /* the listed games, asking the server for the list again if the last one
-is more than a few seconds old: with games of other network versions
-(browser_game_version_state), without this machine's own. Returns their
+is more than a few seconds old: only those this build can join
+(browser_game_shown), without this machine's own. Returns their
 count. The list's games come first; then, while the public listings are
 followed (browser_follow_listings), each game heard on the brokers that the
 list lacks (direct): an OpenCE (legacy) game while the list answers, and
 any host's while it is down, so a list outage costs no game the brokers
 carry. */
 int browser_get_games(struct browser_game *games, int maximum_count);
+/* whether the lists show a listed game: one this build can join
+(game_list_rules.h), or any game with debug.show_all_games on */
+int browser_game_shown(const struct browser_game *game);
 /* whether this build can join a game by its network version: 0 if it can
 (or may try), -1 if the game runs an older version, 1 a newer one */
 int browser_game_version_state(const struct browser_game *game);
@@ -282,6 +285,12 @@ int browser_game_host_cheats(const struct browser_game *game);
 /* the same for a bare network version (a listing over the brokers has no
 game list entry): -1 older, 1 newer, 0 joinable. Every build */
 int browser_version_state(int version);
+/* the same as browser_game_shown for a bare network version (a broker
+listing the game list lacks). Every build */
+int browser_version_shown(int version);
+/* debug.show_all_games: the lists show games of every version, marked, for
+tests. Every build */
+int browser_show_all_games(void);
 /* whether a game's map (a scenario's name or path) is a campaign level: a
 co-op game */
 /* (browser.c) an MCC map's kind, from the game's MCC catalog (NULL: none) */

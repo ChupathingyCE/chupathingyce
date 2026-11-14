@@ -16,9 +16,10 @@ server forgets a game it is not told about for a while, so a copy of the
 game that quits without withdrawing drops off by itself.
 
 Browsing: browser_get_games asks for the list when the last one is more
-than LIST_INTERVAL old, and returns what it has meanwhile. Games of another
-network version than this machine can join are kept too, for the screens to
-mark (browser_game_version_state); never this machine's own. The list is
+than LIST_INTERVAL old, and returns what it has meanwhile: only the games
+this build can join (browser_game_shown, game_list_rules.h; all of them
+with debug.show_all_games, which the screens mark: browser_game_version_state),
+never this machine's own. The list is
 the main source; the public listings heard on the brokers (p2p_lobby.c,
 mqtt.chupathingy.org among them) add the games it lacks (direct): OpenCE's
 (legacy) while it answers, and every host's while it is down. So losing
@@ -4956,6 +4957,8 @@ static void add_known(struct browser_game *games, int count)
 /* (every build, with the game browser or without: the menus' lobbies ask
 it too, port/linux/game/menu_functions.c) */
 #include "browser.h"
+#include "game_list_rules.h"
+#include "port_config.h"
 
 #include <string.h>
 
@@ -5047,6 +5050,17 @@ int browser_version_state(int version)
 	return version > delta_legacy_maximum() ? 1 : 0;
 }
 
+int browser_show_all_games(void)
+{
+	return config_boolean("debug.show_all_games");
+}
+
+int browser_version_shown(int version)
+{
+	return browser_show_all_games() ||
+		game_list_joinable((unsigned int)version, 0, delta_legacy_minimum(), delta_legacy_maximum());
+}
+
 #ifdef HALO_GAME_BROWSER
 
 int browser_game_host_cheats(const struct browser_game *game)
@@ -5060,6 +5074,34 @@ int browser_game_version_state(const struct browser_game *game)
 	if (game->protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence)
 		return 0;
 	return browser_version_state(game->version);
+}
+
+int browser_game_shown(const struct browser_game *game)
+{
+	return browser_show_all_games() || game_list_joinable(game->version,
+		game->protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence,
+		delta_legacy_minimum(), delta_legacy_maximum());
+}
+
+/* the games of count that the lists show (browser_game_shown), in their
+order; returns how many */
+static int keep_shown(struct browser_game *games, int count)
+{
+	int delta = delta_peer_protocol() != _delta_peer_protocol_opence;
+	int minimum = delta_legacy_minimum(), maximum = delta_legacy_maximum();
+	int index, kept;
+
+	if (browser_show_all_games())
+		return count;
+	for (index = kept = 0; index < count; index++)
+	{
+		if (game_list_joinable(games[index].version, delta && games[index].protocol == BROWSER_PROTOCOL_DELTA,
+			minimum, maximum))
+		{
+			games[kept++] = games[index];
+		}
+	}
+	return kept;
 }
 
 int browser_get_games(struct browser_game *games, int maximum_count)
@@ -5086,7 +5128,12 @@ int browser_get_games(struct browser_game *games, int maximum_count)
 	}
 	pthread_mutex_unlock(&browser_lock);
 	read_listings();
+	/* (only the games this build can join, game_list_rules.h: the list's
+	first, so that those hidden leave their room to the games heard
+	directly, then those) */
+	count = keep_shown(games, count);
 	count = add_direct(games, count, maximum_count, browser_list_status() == BROWSER_LIST_ANSWERED);
+	count = keep_shown(games, count);
 	add_known(games, count);
 	return count;
 }
