@@ -43,7 +43,7 @@ the file.
 | `HALO_DEDICATED_GAMESPY_VERSION` | the server's version | The version (`gamever`) the queries and heartbeats report. |
 | `HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS` | `8` | The most machines that may join from one internet address, 0 to 16 (`max_machines_per_address`; 0: no limit). A machine past it is told there are too many players from its address. Local network addresses (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16) are never limited. Players behind one carrier-grade NAT (100.64/10) can share an address, which is why the default is generous. Internet play counts each player by the address their connection comes from. |
 | `HALO_DEDICATED_CE_JOINS` | `false` | `true`: answer Halo Custom Edition 1.0.10 join attempts on the GameSpy port ([below](#custom-edition-join-attempts)); needs `gamespy_listing`. |
-| `HALO_DEDICATED_CE_WELCOME` | a line about cross-play | The chat line each Custom Edition player gets as they join (`ce_welcome`, up to 255 characters). Set but empty: none. |
+| `HALO_DEDICATED_CE_WELCOME` | a line about cross-play | The chat line each Custom Edition player gets once, a minute into their first game (`ce_welcome`, up to 255 characters). Set but empty: none. |
 | `HALO_DEDICATED_BETRAYAL_KICK` | `0` | Betrayals (teammates killed) in one game that kick a player, 1 to 100; they are warned one short of it, and a second such kick within 24 hours bans them for 30 minutes ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off. `sv_set betrayal_kick 3` sets it while the server runs. |
 | `HALO_DEDICATED_AFK_KICK_MINUTES` | `0` | Minutes without input in a game in progress that kick a player, 1 to 120, warned 30 seconds before; never in the lobby or the carnage report, never a moderator ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off (`afk_kick_minutes`). |
 | `HALO_DEDICATED_KEEP_PARTIES_TOGETHER` | `false` | `true`: in team games, Chupathingy players in one party go to one team where the teams stay within one player of each other: in the lobby (a member moved, or traded with a player in no party), and a late joiner before they spawn. Players can still change team in the lobby afterwards. `false` places them as the Xbox did (`keep_parties_together`; [docs/delta/peer.md](../../docs/delta/peer.md#party-teams)). |
@@ -195,7 +195,7 @@ What works:
   scores.
 - Weapons and equipment on the ground, picking them up and dropping them.
 - Vehicles: getting in and out of seats, and driving.
-- A welcome line in their chat as they join (`ce_welcome`), and `sv_say`.
+- A welcome line in their chat a minute into their first game (`ce_welcome`), and `sv_say`.
 - The end of a game and the next one: the scores come up on their screen,
   and when the next game starts they join it again by themselves (their
   client reconnects, as it does on Custom Edition's own servers) and keep

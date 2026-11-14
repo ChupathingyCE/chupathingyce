@@ -90,6 +90,8 @@ enum
 	for the next game at most this long after it was told to reconnect */
 	POSTGAME_KEEP_ALIVE_MILLISECONDS = 5000,
 	REJOIN_WAIT_MILLISECONDS = 45000,
+	/* the welcome line, this long after a client first has the map loaded */
+	WELCOME_DELAY_MILLISECONDS = 60000,
 };
 
 /* where a client is between games */
@@ -167,6 +169,9 @@ struct ce_client
 	boolean statistics_known[CE_GAME_PLAYERS];
 	boolean scores_known;
 	boolean welcomed;
+	/* when it first had the map loaded (system_milliseconds; 0: not yet):
+	the welcome line comes a while after */
+	unsigned long joined_time;
 	/* the update being played (its ticks left), as the client's own game
 	plays it: each update holds for its tick count, in order (but a client
 	that got ahead is caught up: its game keeps only its last few updates
@@ -377,6 +382,7 @@ static void client_reset(
 	client->peer = kept.peer;
 	client->address = kept.address;
 	client->welcomed = kept.welcomed;
+	client->joined_time = kept.joined_time;
 	client->input_time = kept.input_time;
 	client->start_vehicle = NONE;
 	client->chosen_unit = NONE;
@@ -1676,9 +1682,8 @@ void server_ce_update(
 			if (client)
 			{
 				client->loaded = TRUE;
-				if (!client->welcomed && server_ce_welcome()[0])
-					send_chat(client, server_ce_welcome());
-				client->welcomed = TRUE;
+				if (!client->joined_time)
+					client->joined_time = system_milliseconds() ? system_milliseconds() : 1;
 			}
 			break;
 		case CE_EVENT_LEFT:
@@ -1746,6 +1751,16 @@ void server_ce_update(
 		struct ce_client *client = &ce.clients[index];
 
 		/* (and through the moments before the scores, as the game plays on) */
+		/* (the welcome line, once, a minute into its first game: by then
+		its player has looked around, and the line isn't lost in the
+		join's own messages) */
+		if (client->active && client->loaded && client->phase == CE_PHASE_PLAYING && !client->welcomed &&
+			client->joined_time && system_milliseconds() - client->joined_time >= WELCOME_DELAY_MILLISECONDS)
+		{
+			if (server_ce_welcome()[0])
+				send_chat(client, server_ce_welcome());
+			client->welcomed = TRUE;
+		}
 		if (client->active && client->loaded && (client->phase == CE_PHASE_PLAYING ||
 			(client->phase == CE_PHASE_ENDED && game_engine_postgame_mode() != 0)))
 		{
@@ -1901,7 +1916,7 @@ void server_ce_set_welcome(
 {
 	/* (short: Custom Edition's chat doesn't wrap, and a 640-wide screen
 	shows about 90 characters of a line) */
-	static char const default_welcome[] = "Welcome to our Chupathingy Cross-Play Server. More at chupathingy.org";
+	static char const default_welcome[] = "Playing on Chupathingy: free, runs Halo PC and Xbox maps. chupathingy.org";
 
 	snprintf(ce.welcome, sizeof(ce.welcome), "%s", text ? text : default_welcome);
 	ce.welcome_set = TRUE;
