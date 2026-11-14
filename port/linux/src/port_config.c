@@ -2074,6 +2074,10 @@ static const struct config_setting config_settings[] =
 		"vertices where they are in memory. false copies every vertex for each\n"
 		"frame instead, as the other renderer does: slower, for comparing when\n"
 		"models look broken. Read when Chupathingy starts." },
+	{ "display.gamma", _config_real, "1.0", NULL, _environment_value, _platform_console_gl,
+		"The console's picture on its way to the screen: 1.0 shows it as drawn;\n"
+		"higher values lift the dark areas (the picture is raised to 1/gamma),\n"
+		"lower ones deepen them. For matching the original Xbox on the same TV." },
 	{ "console.picture_frame", _config_integer, "0", NULL, _environment_value, _platform_console_gl,
 		"For comparing the renderers: the picture of this frame, and of the\n"
 		"frame three times as late, written beside the game as pictureN.raw\n"
