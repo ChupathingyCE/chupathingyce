@@ -4020,6 +4020,9 @@ client, server or tool that speaks it. Nothing in it depends on being
 Chupathingy, and nothing is kept secret but signing keys. An app that
 wants to sign players in on our site registers a client ID first:
 [delta-clients.md](delta-clients.md).
+A port of Halo that wants to play with everyone starts with
+[delta-for-ports.md](delta-for-ports.md): the part of this page it needs, a
+small reference client in C, and a test host.
 
 Delta may grow past OpenCE's game protocol: a capability can change the game
 protocol itself (co-op, CE map identity, sync), not only add messages beside
