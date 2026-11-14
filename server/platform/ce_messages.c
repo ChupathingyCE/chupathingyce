@@ -749,7 +749,7 @@ static int read_client_update(struct reader *reader, int every_field, struct ce_
 	{
 		if (!get_bits(reader, 16, &value))
 			return 0;
-		update->unknown_medium = (int)value;
+		update->zoom = (int)value;
 	}
 	return 1;
 }

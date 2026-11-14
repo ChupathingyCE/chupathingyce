@@ -249,9 +249,11 @@ struct ce_client_update
 	/* 2 bits a direction: forward/back, then left/right (ce_messages.c) */
 	int throttle;
 	int primary_trigger;
+	/* the weapon, grenade and zoom level it wants (3, 2 and 16 bits;
+	all set: none) */
 	int weapon;
 	int grenade;
-	int unknown_medium;
+	int zoom;
 };
 
 /* another player's actions, as a client animates them */

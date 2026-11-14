@@ -264,11 +264,36 @@ def test_client_updates_from_capture(harness):  # noqa: F811
     lines = subprocess.run([str(harness), "updates", *captured], capture_output=True, text=True,
                            check=True).stdout.splitlines()
     assert lines[0] == ("read 1 id 0 ticks 9 flags 0 yaw 0.3106 pitch 0.0000 throttle 0 trigger 0 weapon 0 grenade 3 "
-                        "medium 65535")
+                        "zoom 65535")
     assert "ticks 3 flags 0" in lines[1] and "throttle 8" in lines[1]
     assert "ticks 2 flags 2" in lines[2] and "throttle 0" in lines[2]
     assert "ticks 4 flags 0" in lines[3]
     assert "yaw 0.1039" in lines[4] and "throttle 8" in lines[4]
+
+
+def test_weapon_switch_from_capture(harness):  # noqa: F811
+    """A 1.0.10 client's first update (no zoom, its grenade) and its switch
+    to its second weapon (our capture, 2026-11-15) read as such."""
+    import subprocess
+    captured = ["0cb8290c90892c2b9ffeffb7", "06b809e29134"]
+    lines = subprocess.run([str(harness), "updates", *captured], capture_output=True, text=True,
+                           check=True).stdout.splitlines()
+    assert "weapon 0 grenade 1 zoom 65535" in lines[0]
+    assert "weapon 1 grenade 1 zoom 65535" in lines[1]
+
+
+def test_weapons_follow_the_client():
+    """A Custom Edition player's weapon, zoom and grenade choices reach the
+    game, and a weapon put away is still its holder's (not dropped)"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    action = _function(source, "boolean server_ce_local_action")
+    assert "action->desired_weapon_index = update.weapon < MAXIMUM_WEAPONS_PER_UNIT" in action
+    assert "action->desired_zoom_level = update.zoom < 0x8000" in action
+    assert "grenade_counts[update.grenade] > 0" in action
+    items = _function(source, "static void update_items")
+    assert items.count("weapon_holder(") >= 3
+    control = (ROOT / "source/game/player_control.c").read_text(encoding="utf-8")
+    assert "player->desired_weapon_index = action.desired_weapon_index;" in control
 
 
 def update_payload(yaw, pitch):

@@ -68,6 +68,8 @@ enum
 	/* the wire's object numbers (9 bits; 0 is none) */
 	NETWORK_OBJECTS = 511,
 	TRACKED_PLAYERS = 32,
+	/* the units' weapons a tick can know the holders of */
+	HELD_WEAPONS = 512,
 	PAYLOAD_SIZE = 1200,
 	/* a client's own biped's place, this often */
 	LOCAL_UPDATE_TICKS = 15,
@@ -992,6 +994,57 @@ static void put_item_update(
 go, and as players pick weapons up and let them go: a weapon picked up is
 the action its client's game plays (a pickup, or a swap for the weapon
 held); one let go is put where our game has it */
+/* the units' weapons and their holders, as update_items found them (a
+weapon a unit holds but is not using is detached from it, so its parent
+says nothing of who holds it) */
+static struct
+{
+	long weapon[HELD_WEAPONS];
+	long holder[HELD_WEAPONS];
+	int count;
+} held;
+
+static void held_weapons_update(
+	void)
+{
+	struct object_iterator iterator;
+	struct object_datum *object;
+
+	held.count = 0;
+	object_iterator_new(&iterator, _object_mask_unit, 0);
+	while ((object = object_iterator_next(&iterator)) != NULL)
+	{
+		struct unit_datum *unit = (struct unit_datum *)object;
+		int index;
+
+		for (index = 0; index < MAXIMUM_WEAPONS_PER_UNIT && held.count < HELD_WEAPONS; index++)
+		{
+			if (unit->unit.weapon_object_indices[index] == NONE)
+				continue;
+			held.weapon[held.count] = unit->unit.weapon_object_indices[index];
+			held.holder[held.count] = iterator.index;
+			held.count++;
+		}
+	}
+}
+
+/* who holds a weapon (in hand or put away), else its parent */
+static long weapon_holder(
+	long weapon_index)
+{
+	struct object_datum *object = object_get(weapon_index);
+	int index;
+
+	if (object->object.parent_object_index != NONE)
+		return object->object.parent_object_index;
+	for (index = 0; index < held.count; index++)
+	{
+		if (held.weapon[index] == weapon_index)
+			return held.holder[index];
+	}
+	return NONE;
+}
+
 static void update_items(
 	struct ce_client *client,
 	struct ce_payload *reliable)
@@ -1000,6 +1053,7 @@ static void update_items(
 	struct object_datum *object;
 	int number;
 
+	held_weapons_update();
 	/* (items gone: taken away) */
 	for (number = 1; number <= NETWORK_OBJECTS; number++)
 	{
@@ -1015,7 +1069,7 @@ static void update_items(
 	object_iterator_new(&iterator, _object_mask_weapon, 0);
 	while ((object = object_iterator_next(&iterator)) != NULL)
 	{
-		long holder = object->object.parent_object_index;
+		long holder = weapon_holder(iterator.index);
 		int holder_player = holder == NONE ? 0 : unit_player_number(client, holder);
 		struct ce_action_result result;
 		int dropped = 0, other;
@@ -1032,7 +1086,8 @@ static void update_items(
 			struct object_datum *let_go;
 
 			if (client->item_state[other] != ITEM_HELD || client->item_holder[other] != holder ||
-				(let_go = object_try_and_get(client->item[other])) == NULL || let_go->object.parent_object_index != NONE)
+				(let_go = object_try_and_get(client->item[other])) == NULL ||
+				(TEST_FLAG(_object_mask_weapon, let_go->object.type) ? weapon_holder(client->item[other]) : let_go->object.parent_object_index) != NONE)
 			{
 				continue;
 			}
@@ -1056,8 +1111,8 @@ static void update_items(
 	object_iterator_new(&iterator, _object_mask_weapon | _object_mask_equipment, 0);
 	while ((object = object_iterator_next(&iterator)) != NULL)
 	{
-		long holder = object->object.parent_object_index;
 		boolean weapon = TEST_FLAG(_object_mask_weapon, object->object.type);
+		long holder = weapon ? weapon_holder(iterator.index) : object->object.parent_object_index;
 		int holder_player = holder == NONE ? 0 : unit_player_number(client, holder);
 
 		/* (a full payload: the rest next tick) */
@@ -1761,6 +1816,22 @@ boolean server_ce_local_action(
 	action->throttle.i = forward;
 	action->throttle.j = left;
 	action->primary_trigger = update.primary_trigger ? 1.0f : 0.0f;
+	/* (the weapon, grenade and zoom it wants: its client picks them, as
+	ours do; all bits set, or out of range, is none) */
+	action->desired_weapon_index = update.weapon < MAXIMUM_WEAPONS_PER_UNIT ? (short)update.weapon : NONE;
+	action->desired_zoom_level = update.zoom < 0x8000 ? (short)update.zoom : NONE;
+	/* (a grenade it has none of is left to the game's own choice) */
+	if (update.grenade != 3)
+	{
+		long player_index = local_player_get_player_index(local_player_index);
+		long unit_index = player_index == NONE ? NONE : player_get(player_index)->unit_index;
+
+		if (unit_index != NONE && update.grenade < NUMBER_OF_UNIT_GRENADE_TYPES &&
+			unit_get(unit_index)->unit.grenade_counts[update.grenade] > 0)
+		{
+			action->desired_grenade_index = (short)update.grenade;
+		}
+	}
 	return TRUE;
 }
 
