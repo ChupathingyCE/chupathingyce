@@ -98,7 +98,7 @@ Do the first start in Desktop Mode. Game Mode can't show the file picker.
 6. Go back to Game Mode and play it from your library.
 
 Updates work in Game Mode. The main menu says when a new version is out,
-and you install it in Settings > Online > Updates.
+and you install it in Settings > Network Setup > Updates.
 
 ### Android
 
@@ -168,7 +168,7 @@ the program). The game leaves an old one where it is.
 
 ### Update channels
 
-The update channel picks which builds the game updates to. Set it in Settings > Online > Updates, on the setup screen's Updates tab, or as `channel` in the `[update]` section of `config.toml`:
+The update channel picks which builds the game updates to. Set it in Settings > Network Setup > Updates, on the setup screen's Updates tab, or as `channel` in the `[update]` section of `config.toml`:
 
 | Channel | Gets |
 |---|---|
