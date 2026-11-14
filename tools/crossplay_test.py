@@ -311,6 +311,7 @@ def read_games(lines):
             if state["alive"]:
                 state["position"] = (float(player.group(3)), float(player.group(4)), float(player.group(5)))
                 state["health"] = float(player.group(6))
+                state["shield"] = float(player.group(7))
             players[int(player.group(1))] = state
         counters = {"hits": int(match.group(5)), "dealt": int(match.group(6)), "rejected": int(match.group(7))}
         if match.group(10) is not None:
@@ -650,25 +651,20 @@ def check_mode(mode, host, client, late, back, steps):
         return
     first = host_games[0]
     if mode == "swat":
+        # (the first game's seconds alone, on each machine: the second game
+        # is CTF, with shields)
         shields = []
         for copy in (host, client, late, back):
             games, _ = read_games(copy.out())
             if copy is not host:
                 match_games(host_games, games)
             for game in games:
-                if copy is not host and game.host_game != 0:
+                if (copy is host and game is not first) or (copy is not host and game.host_game != 0):
                     continue
-                if copy is host and game is not first:
-                    continue
-                for line in copy.out():
-                    match = TICK_LINE.search(line)
-                    if not match:
-                        continue
-                    for player in PLAYER.finditer(match.group(2)):
-                        if player.group(2) != "dead" and float(player.group(7)) > 0.0:
-                            shields.append((copy.name.split("/")[-1], int(match.group(1)), int(player.group(1)),
-                                float(player.group(7))))
-                break
+                for tick, players, *_ in game.ticks:
+                    for index, state in players.items():
+                        if state["alive"] and state.get("shield", 0.0) > 0.0:
+                            shields.append((copy.name.split("/")[-1], tick, index, state["shield"]))
         steps["no_shields"] = step(not shields, "no living player logged a shield above zero on any machine" if not shields
             else f"shields above zero (copy, tick, player, shield): {shields[:8]}")
     else:
