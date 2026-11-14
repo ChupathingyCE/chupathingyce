@@ -62,6 +62,7 @@ static void check_layout(float width, int players, int teams, int menu_rows, int
 	content.width = width;
 	content.height = LOBBY_LAYOUT_BAR_TOP - LOBBY_LAYOUT_BAND_BOTTOM;
 	CHECK(lobby_rect_inside(layout.band, screen) && lobby_rect_inside(layout.bar, screen), "the band or bar is off screen");
+	CHECK(layout.bar.y + layout.bar.height == LOBBY_LAYOUT_HEIGHT, "the bar stops short of the bottom");
 	CHECK(lobby_rect_inside(layout.list_head, content), "the list head leaves the content at %g", width);
 	CHECK(lobby_rect_inside(layout.card, content), "the card leaves the content at %g", width);
 	CHECK(lobby_rect_inside(layout.facts, content), "the facts leave the content at %g", width);
@@ -96,12 +97,11 @@ static void check_layout(float width, int players, int teams, int menu_rows, int
 			layout.count[column]);
 	}
 	/* a row's pieces, left to right, inside the column's width */
-	CHECK(layout.stripe_width < layout.emblem_x && layout.emblem_x + layout.emblem_size < layout.name_x,
-		"the stripe, emblem and name overlap");
-	CHECK(layout.name_x + layout.name_width < layout.platform_x - 6, "the name runs into the platform at %g (%d columns)",
+	CHECK(layout.stripe_width < layout.name_x, "the stripe and name overlap");
+	CHECK(layout.name_x + layout.name_width <= layout.voice_x - 6, "the name runs into the voice icon at %g (%d columns)",
 		width, layout.columns);
-	CHECK(layout.platform_x + 6 <= layout.voice_x && layout.voice_x + layout.voice_width <= layout.right_x - layout.right_width,
-		"the platform, voice and right column overlap at %g (%d columns)", width, layout.columns);
+	CHECK(layout.voice_x + layout.voice_width <= layout.right_x - layout.right_width,
+		"the voice and right column overlap at %g (%d columns)", width, layout.columns);
 	CHECK(layout.right_x <= layout.column[0].width, "the right column leaves the row at %g", width);
 	CHECK(layout.name_width >= 60, "a name has only %g at %g wide with %d columns", layout.name_width, width,
 		layout.columns);

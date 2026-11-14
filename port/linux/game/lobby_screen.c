@@ -215,7 +215,7 @@ enum
 #define HEAD_SIZE 8.0f
 #define MENU_SIZE 11.0f
 #define NOTE_SIZE 7.0f
-#define FACT_SIZE 7.5f
+#define FACT_SIZE 9.0f
 #define STATUS_SIZE 8.5f
 #define PROMPT_BUTTON 18.0f
 #define PROMPT_TEXT 13.0f
@@ -747,24 +747,27 @@ static void sort_rows(void)
 	}
 }
 
+/* the line under a name: the team first, then one tag (the host has its
+crown beside the name) */
 static void row_sub_line(struct lobby_row *row)
 {
-	if (row->host)
-		copy_text(row->sub, sizeof(row->sub), "Host");
-	else if (row->you)
-		copy_text(row->sub, sizeof(row->sub), "You");
+	char const *team = lobby.teams ? (row->team ? "Blue team" : "Red team") : "";
+	char tag[32] = "";
+
+	if (row->you)
+		copy_text(tag, sizeof(tag), "You");
 	else if (row->local)
-		snprintf(row->sub, sizeof(row->sub), "Player %d here", row->controller_index + 1);
+		snprintf(tag, sizeof(tag), "Player %d here", row->controller_index + 1);
 	else if (in_party(row->name))
-		copy_text(row->sub, sizeof(row->sub), "In your party");
+		copy_text(tag, sizeof(tag), "Party");
 	else if (is_friend(row->name))
-		copy_text(row->sub, sizeof(row->sub), "Friend");
-	else if (!row->delta && lobby.state != _lobby_preview)
-		copy_text(row->sub, sizeof(row->sub), "OpenCE player");
-	else if (lobby.teams)
-		copy_text(row->sub, sizeof(row->sub), row->team ? "Blue team" : "Red team");
+		copy_text(tag, sizeof(tag), "Friend");
+	else if (!row->delta && lobby.state != _lobby_preview && !row->host)
+		copy_text(tag, sizeof(tag), "OpenCE");
+	if (team[0] && tag[0])
+		snprintf(row->sub, sizeof(row->sub), "%s  /  %s", team, tag);
 	else
-		row->sub[0] = 0;
+		snprintf(row->sub, sizeof(row->sub), "%s", team[0] ? team : tag);
 }
 
 static void read_type(struct network_game const *game)
@@ -823,8 +826,6 @@ static void read_facts(struct network_game const *game)
 		copy_text(value, sizeof(value), "None");
 	fact_set("Time limit", value);
 	fact_set("Teams", lobby.teams ? "Red vs Blue" : "Free for all");
-	snprintf(value, sizeof(value), "%d of %d", lobby.count, lobby.maximum_players);
-	fact_set("Players", value);
 }
 
 /* the rows from the game's player list */
@@ -919,7 +920,7 @@ static void read_band(struct network_game const *game, boolean hosting)
 	}
 	else
 		copy_text(lobby.kicker, sizeof(lobby.kicker), hosting ? "HOSTED GAME" : "JOINED GAME");
-	snprintf(lobby.chip, sizeof(lobby.chip), "%d OF %d", lobby.count, lobby.maximum_players);
+	lobby.chip[0] = 0;
 }
 
 static void menu_add(short action, char const *label, char const *note, boolean on)
@@ -966,7 +967,7 @@ static void read_menu(struct network_game_server *server)
 		}
 		menu_add(_menu_change_map, "CHANGE MAP", "", !lobby.started);
 		menu_add(_menu_game_setup, "GAME SETUP", "", !lobby.started);
-		menu_add(_menu_invite, "INVITE FRIENDS", "Guide", TRUE);
+		menu_add(_menu_invite, "INVITE FRIENDS", "", TRUE);
 		break;
 	case _lobby_joined:
 		if (lobby.has_ready)
@@ -982,7 +983,7 @@ static void read_menu(struct network_game_server *server)
 			menu_add(_menu_change_team, "CHANGE TEAM", note, TRUE);
 		}
 		menu_add(_menu_details, "GAME DETAILS", "", TRUE);
-		menu_add(_menu_invite, "INVITE FRIENDS", "Guide", TRUE);
+		menu_add(_menu_invite, "INVITE FRIENDS", "", TRUE);
 		break;
 	case _lobby_server:
 		if (lobby.teams)
@@ -994,7 +995,7 @@ static void read_menu(struct network_game_server *server)
 			menu_add(_menu_change_team, "CHANGE TEAM", note, TRUE);
 		}
 		menu_add(_menu_details, "GAME DETAILS", "", TRUE);
-		menu_add(_menu_invite, "INVITE FRIENDS", "Guide", TRUE);
+		menu_add(_menu_invite, "INVITE FRIENDS", "", TRUE);
 		break;
 	case _lobby_preview:
 		menu_add(_menu_join, "JOIN THE GAME", lobby.preview_game.open ? "" : "Full", lobby.preview_game.open);
@@ -1154,11 +1155,11 @@ static void read_preview(void)
 		upper_text(lobby.badge);
 	}
 	lobby.host_name[0] = 0;
+	/* (the count is the list's head's alone) */
 	if (game->ping >= 0)
-		snprintf(lobby.chip, sizeof(lobby.chip), "%d OF %d  PING %s%d", game->players, game->maximum_players,
-			game->ping_estimated ? "~" : "", game->ping);
+		snprintf(lobby.chip, sizeof(lobby.chip), "PING %s%d", game->ping_estimated ? "~" : "", game->ping);
 	else
-		snprintf(lobby.chip, sizeof(lobby.chip), "%d OF %d", game->players, game->maximum_players);
+		lobby.chip[0] = 0;
 	lobby.fact_count = 0;
 	if (game->score_limit > 0)
 	{
@@ -1166,8 +1167,6 @@ static void read_preview(void)
 		fact_set("Score to win", value);
 	}
 	fact_set("Teams", lobby.teams ? "Red vs Blue" : "Free for all");
-	snprintf(value, sizeof(value), "%d of %d", game->players, game->maximum_players);
-	fact_set("Players", value);
 	if (game->region[0])
 		fact_set("Region", game->region);
 	lobby.seconds = 0;
@@ -1232,8 +1231,16 @@ static void debug_sample(char const *spec)
 			copy_text(row->name, sizeof(row->name), "WWWWWWWWWWWWWWWWWWWWWWWW");
 		else
 			copy_text(row->name, sizeof(row->name), names[index % NUMBEROF(names)]);
-		copy_text(row->sub, sizeof(row->sub), row->host ? "Host" : row->you ? "You" : index == 1 ? "In your party" :
-			index == 3 ? "Friend" : !row->delta ? "OpenCE player" : teams ? (row->team ? "Blue team" : "Red team") : "");
+		{
+			char const *team = teams ? (row->team ? "Blue team" : "Red team") : "";
+			char const *tag = row->you ? "You" : index == 1 ? "Party" : index == 3 ? "Friend" :
+				!row->delta && !row->host ? "OpenCE" : "";
+
+			if (team[0] && tag[0])
+				snprintf(row->sub, sizeof(row->sub), "%s  /  %s", team, tag);
+			else
+				snprintf(row->sub, sizeof(row->sub), "%s", team[0] ? team : tag);
+		}
 	}
 	sort_rows();
 	lobby.has_ready = lobby.state == _lobby_joined;
@@ -1260,18 +1267,11 @@ static void debug_sample(char const *spec)
 	default:
 		break;
 	}
-	snprintf(lobby.chip, sizeof(lobby.chip), lobby.state == _lobby_preview ? "%d OF %d  PING 37" : "%d OF %d",
-		lobby.count, lobby.maximum_players);
+	copy_text(lobby.chip, sizeof(lobby.chip), lobby.state == _lobby_preview ? "PING 37" : "");
 	lobby.fact_count = 0;
 	fact_set("Score to win", teams ? "50 kills" : "25 kills");
 	fact_set("Time limit", "15 minutes");
 	fact_set("Teams", teams ? "Red vs Blue" : "Free for all");
-	{
-		char value[40];
-
-		snprintf(value, sizeof(value), "%d of %d", lobby.count, lobby.maximum_players);
-		fact_set("Players", value);
-	}
 	memset(&lobby.preview_game, 0, sizeof(lobby.preview_game));
 	lobby.preview_game.open = 1;
 	lobby.seconds = strstr(spec, "countdown") ? 5 : 0;
@@ -1981,20 +1981,26 @@ static void draw_voice(float x, float y, float size, unsigned int color)
 static void draw_band(void)
 {
 	struct lobby_layout const *layout = &lobby.layout;
-	float right = 640 + layout->margin - PROMPTS_RIGHT_EDGE, x, y;
+	float right = 640 + layout->margin - PROMPTS_RIGHT_EDGE, x, y, left;
 	char text[80];
 
 	ui_overlay_band(layout->band.x, layout->band.x + layout->band.width, LOBBY_LAYOUT_BAND_BOTTOM, LOBBY_LAYOUT_BAR_TOP);
-	ui_overlay_text_glow(UI_FONT_MENU, 8.0f, 64, KICKER_Y, UI_ALIGN_LEFT, COLOR_KICKER, COLOR_HALO, lobby.kicker);
-	/* (the title in the Xbox screens' size and place, cut to its room) */
-	fitted(lobby.title, right - 64 - 220, 13.5f, text, sizeof(text));
-	ui_overlay_text_glow(UI_FONT_TITLE, 13.5f, 64, TITLE_Y, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE, text);
-	/* the host (its crown) or the server's badge, and the chip, at the right */
+	/* (the kicker and the title lined up with the players' column, the
+	title in the Xbox screens' size, cut to its room) */
+	left = layout->list_head.x + 2;
+	ui_overlay_text_glow(UI_FONT_MENU, 8.0f, left, KICKER_Y, UI_ALIGN_LEFT, COLOR_KICKER, COLOR_HALO, lobby.kicker);
+	fitted(lobby.title, right - left - 220, 13.5f, text, sizeof(text));
+	ui_overlay_text_glow(UI_FONT_TITLE, 13.5f, left, TITLE_Y, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE, text);
+	/* the host or the server's badge at the right (the crown is the host's
+	row's alone), and the chip (a preview's ping) */
 	x = right;
 	y = 14;
-	ui_overlay_outline(x - ui_overlay_text_width(UI_FONT_MENU, 8.0f, lobby.chip) - 12, y - 4, ui_overlay_text_width(UI_FONT_MENU, 8.0f, lobby.chip) + 12,
-		16, 2, 1.0f, 0x7CC0FF80);
-	ui_overlay_text_glow(UI_FONT_MENU, 8.0f, x - 6, y, UI_ALIGN_RIGHT, COLOR_KICKER, COLOR_HALO, lobby.chip);
+	if (lobby.chip[0])
+	{
+		ui_overlay_outline(x - ui_overlay_text_width(UI_FONT_MENU, 8.0f, lobby.chip) - 12, y - 4,
+			ui_overlay_text_width(UI_FONT_MENU, 8.0f, lobby.chip) + 12, 16, 2, 1.0f, 0x7CC0FF80);
+		ui_overlay_text_glow(UI_FONT_MENU, 8.0f, x - 6, y, UI_ALIGN_RIGHT, COLOR_KICKER, COLOR_HALO, lobby.chip);
+	}
 	y = 36;
 	if (lobby.badge[0])
 		ui_overlay_text_glow(UI_FONT_MENU, 8.5f, x, y, UI_ALIGN_RIGHT, COLOR_BADGE, COLOR_HALO, lobby.badge);
@@ -2004,8 +2010,7 @@ static void draw_band(void)
 
 		snprintf(text, sizeof(text), "HOST: %s", fitted(lobby.host_name, 120, 8.5f, name, sizeof(name)));
 		upper_text(text);
-		x -= ui_overlay_text_glow(UI_FONT_MENU, 8.5f, x, y, UI_ALIGN_RIGHT, COLOR_TEXT, COLOR_HALO, text) + 5;
-		draw_crown(x - 9, y, 9, COLOR_CROWN);
+		ui_overlay_text_glow(UI_FONT_MENU, 8.5f, x, y, UI_ALIGN_RIGHT, COLOR_TEXT, COLOR_HALO, text);
 	}
 }
 
@@ -2034,10 +2039,9 @@ static void draw_row(struct lobby_row const *row, short order, int column, int v
 		ui_overlay_outline(x, y, r.width, height, 3, 1.25f, COLOR_SELECTION_EDGE);
 	}
 	add_target(x, y, x + r.width, y + height, NONE, order, NONE);
-	/* the team's stripe, the armor color */
+	/* the team's stripe */
 	if (lobby.teams)
 		ui_overlay_rect(x, y, layout->stripe_width, height, 1, row->team ? COLOR_BLUE_TEAM : COLOR_RED_TEAM);
-	draw_emblem(row, x + layout->emblem_x, y + (height - layout->emblem_size) * 0.5f, layout->emblem_size);
 	/* the name, with the Delta mark and the crown after it while they fit */
 	text_x = x + layout->name_x;
 	width = layout->name_width - (row->verified ? 12 : 0) - (row->host ? 13 : 0);
@@ -2056,9 +2060,6 @@ static void draw_row(struct lobby_row const *row, short order, int column, int v
 		fitted(row->sub, layout->name_width, SUB_SIZE, text, sizeof(text));
 		ui_overlay_text(UI_FONT_MENU, SUB_SIZE, x + layout->name_x, sub_y, UI_ALIGN_LEFT, COLOR_DIM, text);
 	}
-	/* the platform's logo (none for a machine that doesn't say) */
-	if (row->platform)
-		ui_overlay_platform(row->platform, 11.0f, x + layout->platform_x, y + (height - 11.0f) * 0.5f, COLOR_LABEL, 0);
 	/* the voice icon while they talk, a dim one while muted */
 	if (row->talking || row->muted)
 		draw_voice(x + layout->voice_x, y + (height - 10.0f) * 0.5f, 10.0f, row->muted ? COLOR_MUTED : COLOR_VOICE);
@@ -2096,6 +2097,16 @@ static void draw_open_slot(int column, int visible_row)
 	ui_overlay_outline(r.x, r.y + 1, r.width, r.height - 2, 3, 0.75f, COLOR_OPEN);
 	ui_overlay_text(UI_FONT_MENU, 7.0f, r.x + 10, r.y + (r.height - 7.0f) * 0.5f + 0.5f, UI_ALIGN_LEFT, COLOR_OPEN,
 		"OPEN SLOT");
+}
+
+/* a column's open slots past the ones it shows */
+static int open_past(int column)
+{
+	struct lobby_layout const *layout = &lobby.layout;
+	int open = layout->columns == 2 ? lobby.maximum_players / 2 - layout->count[column] :
+		lobby.maximum_players - lobby.count;
+
+	return lobby.state == _lobby_preview ? 0 : open - layout->open[column];
 }
 
 static void draw_list(void)
@@ -2155,6 +2166,15 @@ static void draw_list(void)
 			ui_overlay_text_glow(UI_FONT_MENU, 7.0f, c.x + c.width - 6, c.y + c.height + 1, UI_ALIGN_RIGHT, COLOR_KICKER,
 				COLOR_HALO, text);
 		}
+		/* (open slots past the ones shown) */
+		else if (open_past(column) > 0)
+		{
+			struct lobby_rect c = layout->column[column];
+
+			snprintf(text, sizeof(text), "+%d OPEN", open_past(column));
+			ui_overlay_text_glow(UI_FONT_MENU, 7.0f, c.x + c.width - 6, c.y + c.height + 1, UI_ALIGN_RIGHT, COLOR_KICKER,
+				COLOR_HALO, text);
+		}
 	}
 }
 
@@ -2162,35 +2182,42 @@ static void draw_card(void)
 {
 	struct lobby_layout const *layout = &lobby.layout;
 	struct lobby_rect c = layout->card;
-	float strip = 26.0f, picture_height = c.height - strip, y;
+	/* (the picture in its own shape, the menus' 140 by 116, at the left;
+	the map's name, the game type and the countdown beside it) */
+	float inset = 4.0f, picture_height = c.height - inset * 2, picture_width = picture_height * 140.0f / 116.0f;
+	float text_x, text_width, y;
 	char text[80];
 
-	/* the picture (the game's own, in a cut-out of the overlay, so nothing
-	of the overlay shows over it), or the countdown in its place */
+	ui_overlay_rect(c.x, c.y, c.width, c.height, 0, COLOR_CARD_SHADE);
+	ui_overlay_outline(c.x - 1, c.y - 1, c.width + 2, c.height + 2, 2, 1.0f, 0x4F9DFFC0);
+	if (picture_width > c.width * 0.6f)
+	{
+		picture_width = c.width * 0.6f;
+		picture_height = picture_width * 116.0f / 140.0f;
+	}
+	if (!covered())
+		browser_screen_map_picture(lobby.map, c.x + inset, c.y + inset, picture_width, picture_height);
+	else
+		ui_overlay_rect(c.x + inset, c.y + inset, picture_width, picture_height, 0, 0x0A1A33FF);
+	text_x = c.x + inset + picture_width + 10;
+	text_width = c.x + c.width - 8 - text_x;
+	y = c.y + 8;
+	ui_overlay_text(UI_FONT_MENU, 6.5f, text_x, y, UI_ALIGN_LEFT, COLOR_DIM,
+		lobby.state == _lobby_preview ? "NOW PLAYING" : lobby.state == _lobby_server ? "NEXT GAME" : "MAP");
+	y += 10;
+	fitted(lobby.map_name, text_width, 12.0f, text, sizeof(text));
+	ui_overlay_text_glow(UI_FONT_MENU, 12.0f, text_x, y, UI_ALIGN_LEFT, COLOR_TEXT, COLOR_HALO, text);
+	y += 16;
+	fitted(lobby.type_name, text_width, 9.0f, text, sizeof(text));
+	ui_overlay_text_glow(UI_FONT_MENU, 9.0f, text_x, y, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_HALO, text);
+	/* the countdown, under them */
 	if (lobby.seconds > 0)
 	{
-		ui_overlay_rect(c.x, c.y, c.width, picture_height, 0, 0x000021F0);
-		ui_overlay_text_glow(UI_FONT_MENU, 8.0f, c.x + c.width * 0.5f, c.y + picture_height * 0.5f - 26, UI_ALIGN_CENTER,
-			COLOR_KICKER, COLOR_HALO, "GAME STARTS IN");
+		y = c.y + c.height - 48;
+		ui_overlay_text_glow(UI_FONT_MENU, 7.5f, text_x, y, UI_ALIGN_LEFT, COLOR_KICKER, COLOR_HALO, "GAME STARTS IN");
 		snprintf(text, sizeof(text), "%d", lobby.seconds);
-		ui_overlay_text_glow(UI_FONT_MENU, 36.0f, c.x + c.width * 0.5f, c.y + picture_height * 0.5f - 14, UI_ALIGN_CENTER,
-			COLOR_TEXT, COLOR_TITLE, text);
+		ui_overlay_text_glow(UI_FONT_MENU, 28.0f, text_x, y + 10, UI_ALIGN_LEFT, COLOR_TEXT, COLOR_TITLE, text);
 	}
-	else if (!covered())
-		browser_screen_map_picture(lobby.map, c.x, c.y, c.width, picture_height);
-	else
-		ui_overlay_rect(c.x, c.y, c.width, picture_height, 0, 0x0A1A33FF);
-	/* the strip under it: the map's name and the game type, and what the
-	picture is of */
-	ui_overlay_rect(c.x, c.y + picture_height, c.width, strip, 0, COLOR_CARD_SHADE);
-	ui_overlay_outline(c.x - 1, c.y - 1, c.width + 2, c.height + 2, 2, 1.0f, 0x4F9DFFC0);
-	y = c.y + picture_height + 3;
-	fitted(lobby.map_name, c.width * 0.6f - 12, 11.0f, text, sizeof(text));
-	ui_overlay_text_glow(UI_FONT_MENU, 11.0f, c.x + 8, y, UI_ALIGN_LEFT, COLOR_TEXT, COLOR_HALO, text);
-	fitted(lobby.type_name, c.width * 0.4f - 8, 7.5f, text, sizeof(text));
-	ui_overlay_text_glow(UI_FONT_MENU, 7.5f, c.x + c.width - 8, y + 1.5f, UI_ALIGN_RIGHT, COLOR_TITLE, COLOR_HALO, text);
-	ui_overlay_text(UI_FONT_MENU, 6.0f, c.x + 8, y + 13.5f, UI_ALIGN_LEFT, COLOR_DIM,
-		lobby.state == _lobby_preview ? "NOW PLAYING" : lobby.state == _lobby_server ? "NEXT GAME" : "MAP");
 }
 
 static void draw_facts(void)
@@ -2206,8 +2233,8 @@ static void draw_facts(void)
 		float y = layout->facts.y + (index / 2) * layout->fact_line;
 		float width;
 
-		snprintf(text, sizeof(text), "%s: ", lobby.facts[index].key);
-		width = ui_overlay_text(UI_FONT_MENU, FACT_SIZE, x, y, UI_ALIGN_LEFT, COLOR_DIM, text);
+		snprintf(text, sizeof(text), "%s:", lobby.facts[index].key);
+		width = ui_overlay_text(UI_FONT_MENU, FACT_SIZE, x, y, UI_ALIGN_LEFT, COLOR_DIM, text) + FACT_SIZE * 0.4f;
 		fitted(lobby.facts[index].value, half - width - 6, FACT_SIZE, value, sizeof(value));
 		ui_overlay_text(UI_FONT_MENU, FACT_SIZE, x + width, y, UI_ALIGN_LEFT, COLOR_TEXT, value);
 	}
@@ -2251,7 +2278,7 @@ static void draw_bar(void)
 {
 	struct lobby_layout const *layout = &lobby.layout;
 	float right = 640 + layout->margin - PROMPTS_RIGHT_EDGE;
-	float y = LOBBY_LAYOUT_BAR_TOP + (LOBBY_LAYOUT_BAR_BOTTOM - LOBBY_LAYOUT_BAR_TOP - PROMPT_BUTTON) / 2;
+	float y = LOBBY_LAYOUT_BAR_TOP + (LOBBY_LAYOUT_HEIGHT - LOBBY_LAYOUT_BAR_TOP - PROMPT_BUTTON) / 2;
 	int buttons[4];
 	char const *words[4];
 	boolean on[4];
@@ -2259,7 +2286,8 @@ static void draw_bar(void)
 	float width = 0, x;
 	char text[160];
 
-	ui_overlay_prompt_bar(layout->bar.x, layout->bar.x + layout->bar.width, LOBBY_LAYOUT_BAR_TOP, LOBBY_LAYOUT_BAR_BOTTOM);
+	/* (the bar to the screen's bottom, its prompts in its middle) */
+	ui_overlay_prompt_bar(layout->bar.x, layout->bar.x + layout->bar.width, LOBBY_LAYOUT_BAR_TOP, LOBBY_LAYOUT_HEIGHT);
 	buttons[count] = UI_BUTTON_Y;
 	words[count] = lobby.state == _lobby_preview ? "=PLAYER" : "=PLAYER DETAILS";
 	on[count++] = lobby.count > 0;
@@ -2281,12 +2309,12 @@ static void draw_bar(void)
 	/* the status line, in the room left of the prompts */
 	fitted(lobby.status, x - (layout->bar.x + PROMPTS_RIGHT_EDGE) - 16, STATUS_SIZE, text, sizeof(text));
 	ui_overlay_text_glow(UI_FONT_MENU, STATUS_SIZE, layout->bar.x + PROMPTS_RIGHT_EDGE,
-		LOBBY_LAYOUT_BAR_TOP + (LOBBY_LAYOUT_BAR_BOTTOM - LOBBY_LAYOUT_BAR_TOP - STATUS_SIZE) / 2 + 0.5f, UI_ALIGN_LEFT,
+		LOBBY_LAYOUT_BAR_TOP + (LOBBY_LAYOUT_HEIGHT - LOBBY_LAYOUT_BAR_TOP - STATUS_SIZE) / 2 + 0.5f, UI_ALIGN_LEFT,
 		COLOR_DIM, COLOR_HALO, text);
 	for (index = 0; index < count; index++)
 	{
 		x = prompt(buttons[index], words[index], x, y, PROMPT_BUTTON, PROMPT_TEXT, on[index], LOBBY_LAYOUT_BAR_TOP,
-			LOBBY_LAYOUT_BAR_BOTTOM) + PROMPT_GAP;
+			LOBBY_LAYOUT_HEIGHT) + PROMPT_GAP;
 	}
 }
 
@@ -2327,8 +2355,7 @@ static void draw_dialog(void)
 		}
 		if (row->platform)
 		{
-			ui_overlay_platform(row->platform, 10.0f, x + 22, line_y, COLOR_LABEL, 0);
-			ui_overlay_text(UI_FONT_MENU, DIALOG_SIZE, x + 34, line_y, UI_ALIGN_LEFT, COLOR_DIM,
+			ui_overlay_text(UI_FONT_MENU, DIALOG_SIZE, x + 16, line_y, UI_ALIGN_LEFT, COLOR_DIM,
 				delta_platform_label(row->platform));
 			line_y += 13;
 		}

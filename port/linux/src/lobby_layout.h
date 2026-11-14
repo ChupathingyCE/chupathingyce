@@ -25,12 +25,11 @@ enum
 	LOBBY_LAYOUT_COLUMNS = 2,
 	LOBBY_LAYOUT_MAXIMUM_MENU_ROWS = 6,
 	LOBBY_LAYOUT_MAXIMUM_FACTS = 6,
-	/* the menus' height, and the band and the prompt bar as Online Games
-	has them (browser_screen.c) */
+	/* the menus' height, the band as Online Games has it (browser_screen.c),
+	and the prompt bar's top (it runs to the screen's bottom) */
 	LOBBY_LAYOUT_HEIGHT = 480,
 	LOBBY_LAYOUT_BAND_BOTTOM = 70,
 	LOBBY_LAYOUT_BAR_TOP = 409,
-	LOBBY_LAYOUT_BAR_BOTTOM = 445,
 };
 
 struct lobby_rect
@@ -76,14 +75,11 @@ struct lobby_layout
 	int first[LOBBY_LAYOUT_COLUMNS];
 	int count[LOBBY_LAYOUT_COLUMNS];
 	int open[LOBBY_LAYOUT_COLUMNS];
-	/* a row's pieces, from its column's left: the team stripe, the emblem
-	(a square), the name's left and the width it may take, the platform
-	logo's middle, the voice icon's left, and the right column's right
-	edge (READY, a score) */
+	/* a row's pieces, from its column's left: the team stripe, the name's
+	left and the width it may take, the voice icon's left, and the right
+	column's right edge (READY, a score) */
 	float stripe_width;
-	float emblem_x, emblem_size;
 	float name_x, name_width;
-	float platform_x;
 	float voice_x, voice_width;
 	float right_x, right_width;
 	/* the map card, the facts (two a line) and the menu */

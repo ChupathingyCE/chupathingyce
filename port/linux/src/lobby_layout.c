@@ -26,7 +26,7 @@ enum
 	/* between the list and the card */
 	CARD_GAP = 14,
 	CARD_HEIGHT = 118,
-	FACT_LINE = 11,
+	FACT_LINE = 13,
 	MENU_ROW = 22,
 	/* the narrowest the card's column may be, and the widest the list */
 	CARD_LEAST = 230,
@@ -99,7 +99,8 @@ int lobby_layout_compute(const struct lobby_layout_inputs *inputs, struct lobby_
 	right = 640 + layout->margin - EDGE;
 	content = right - left;
 	layout->band = rect(-layout->margin, 0, width, LOBBY_LAYOUT_BAND_BOTTOM);
-	layout->bar = rect(-layout->margin, LOBBY_LAYOUT_BAR_TOP, width, LOBBY_LAYOUT_BAR_BOTTOM - LOBBY_LAYOUT_BAR_TOP);
+	/* (the bar to the screen's bottom) */
+	layout->bar = rect(-layout->margin, LOBBY_LAYOUT_BAR_TOP, width, LOBBY_LAYOUT_HEIGHT - LOBBY_LAYOUT_BAR_TOP);
 
 	/* the list takes a little over half; the card's column keeps its least */
 	list_width = least(content * 0.58f, LIST_MOST);
@@ -150,15 +151,14 @@ int lobby_layout_compute(const struct lobby_layout_inputs *inputs, struct lobby_
 	/* a row's pieces: the right column narrow in two columns (a mark, a
 	score), wide in one (READY, NOT READY) */
 	layout->stripe_width = 4;
-	layout->emblem_x = 8;
-	layout->emblem_size = 18;
-	layout->name_x = 32;
+	/* (the team's stripe is the row's color: no armor-color square, and no
+	platform logos, so the name takes their room) */
+	layout->name_x = 12;
 	layout->right_width = layout->columns == 2 ? 22 : 48;
 	layout->right_x = column_width - 6;
 	layout->voice_width = 10;
 	layout->voice_x = layout->right_x - layout->right_width - 6 - layout->voice_width;
-	layout->platform_x = layout->voice_x - 6 - 6;
-	layout->name_width = layout->platform_x - 7 - 4 - layout->name_x;
+	layout->name_width = layout->voice_x - 6 - layout->name_x;
 
 	/* the card, the facts and the menu down the right */
 	y = LIST_TOP;
