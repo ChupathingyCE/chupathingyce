@@ -79,6 +79,10 @@ HALO_CONSOLE_NO_STUBBS
 	no Stubbs mode (port/linux/game/stubbs_mode.c: game.pack_menus =
 	"stubbs" with a maps_stubbs folder): every console, until the mode is
 	finished on the desktop and sized to each one's memory
+HALO_CONSOLE_SHADOW_MAP_MAXIMUM
+	the largest shadow map, in pixels a side (display.shadow_resolution is
+	held to it, d3d8_gl.c): the Xbox 360's 512, as its EDRAM holds no
+	1024x1024 maps beside the screen; consoles without it take any size
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads
@@ -484,6 +488,9 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "x360"
+/* (its shadow maps: 512x512 at most, beside the screen in its 10 MB of EDRAM;
+d3d8_gl.c) */
+#define HALO_CONSOLE_SHADOW_MAP_MAXIMUM 512
 #ifdef HALO_CONSOLE_DEBUG_TOOLS
 #define HALO_CONSOLE_BRINGUP_LOG 1
 #endif

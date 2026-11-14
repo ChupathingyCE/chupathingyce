@@ -541,15 +541,18 @@ static long shadow_scale_choose(void)
 
 	while (scale < SHADOW_MAP_MAXIMUM_SCALE && SHADOW_MAP_SIZE * scale * 2 <= resolution)
 		scale *= 2;
-#ifdef HALO_CONSOLE_GL_LAYER
-	/* (the console's EDRAM: the screen, the 3D view and its depth leave
+#ifdef HALO_CONSOLE_SHADOW_MAP_MAXIMUM
+	/* (the Xbox 360's EDRAM: the screen, the 3D view and its depth leave
 	room for the two 512x512 maps, not for 1024x1024 ones, which then got
 	no target at all and drew over the view) */
-	if (scale > SHADOW_MAP_MAXIMUM_SCALE / 2)
+	while (scale > 1 && SHADOW_MAP_SIZE * scale > HALO_CONSOLE_SHADOW_MAP_MAXIMUM)
 	{
-		platform_log("shadow maps: display.shadow_resolution %ld is more than the console's EDRAM holds beside "
-			"the screen; drawing them at %d", resolution, SHADOW_MAP_SIZE * SHADOW_MAP_MAXIMUM_SCALE / 2);
-		scale = SHADOW_MAP_MAXIMUM_SCALE / 2;
+		scale /= 2;
+		if (SHADOW_MAP_SIZE * scale <= HALO_CONSOLE_SHADOW_MAP_MAXIMUM)
+		{
+			platform_log("shadow maps: display.shadow_resolution %ld is more than the console's EDRAM holds beside "
+				"the screen; drawing them at %ld", resolution, (long)(SHADOW_MAP_SIZE * scale));
+		}
 	}
 #endif
 	return scale;
