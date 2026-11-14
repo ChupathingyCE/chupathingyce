@@ -891,7 +891,9 @@ def test_install_row_wiring():
     # (the files are port_settings.py's, as written)
     assert gearbox == "\n".join(port_settings.settings_files()[gearbox_name])
     assert pages == "\n".join(port_settings.chupathingy_settings_pages())
-    row = f'<child widget="{base}/op_install_update" x="54" y="133" platform="desktop"/>'
+    # (the third place of UPDATES' list: 73 and two rows down)
+    y = 73 + 2 * port_settings.SCREENS["network_setup"]["spacing"]
+    row = f'<child widget="{base}/op_install_update" x="54" y="{y}" platform="desktop"/>'
     for text in (gearbox, pages):
         updates = text.index(f'<child widget="{base}/view_updates"')
         assert text.index(row) > updates
