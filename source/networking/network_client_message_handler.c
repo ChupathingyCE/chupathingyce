@@ -1132,6 +1132,7 @@ void network_rules_extended_options_default(unsigned char *options);
 void network_rules_extended_options_sanitize(unsigned char *options);
 int network_rules_extended_options_mode(unsigned char const *options, int slayer, int teams, int *hardcore);
 void display_error_text_deferred(wchar_t const *text, short local_player_index);
+void display_error_text_when_main_menu_loaded(wchar_t const *text);
 
 enum
 {
@@ -1194,7 +1195,10 @@ static boolean network_game_client_leave_unsupported_game_type(
 	if (!text)
 		return FALSE;
 	network_event("cross-play: leaving the host's game: it plays OpenCE's %s, which this build does not", name);
-	display_error_text_deferred(text, NONE);
+	/* (queued for the main menu the leave goes back to, ahead of the
+	rejection's own "closed", which then finds an error queued and stays
+	quiet: a deferred error was dropped on the way there, #1243) */
+	display_error_text_when_main_menu_loaded(text);
 	network_game_client_rejected_by_game(client, source_address, _rejection_code_game_is_closed);
 	return TRUE;
 }
@@ -1360,7 +1364,7 @@ static boolean network_game_client_receive_game_settings_piece(
 					network_game_client_settings_folded.variant.human_readable_game_description))
 				{
 					network_event("co-op: leaving the host's game: it is co-op, which the original Xbox does not play");
-					display_error_text_deferred(L"This game is network co-op,\r\nwhich the original Xbox\r\ndoesn't play yet.", NONE);
+					display_error_text_when_main_menu_loaded(L"This game is network co-op,\r\nwhich the original Xbox\r\ndoesn't play yet.");
 					network_game_client_rejected_by_game(client, source_address, _rejection_code_game_is_closed);
 					return TRUE;
 				}
