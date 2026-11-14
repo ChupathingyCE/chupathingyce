@@ -67,6 +67,7 @@ SCALARS = {
     "int": 4, "unsigned int": 4, "long": 4, "unsigned long": 4, "real": 4, "float": 4, "dword": 4,
     "long int": 4, "unsigned long int": 4, "tag": 4, "datum_index": 4, "string_id": 4, "angle": 4,
     "fraction": 4, "argb_color": 4, "real_fraction": 4, "DWORD": 4, "LONG": 4, "ULONG": 4, "UINT": 4,
+    "pixel32": 4,
     "WORD": 2, "BYTE": 1, "BOOL": 4, "FLOAT": 4, "size_t": 4, "time_t": 4, "__time32_t": 4,
     "long long": 8, "unsigned long long": 8, "__int64": 8, "unsigned __int64": 8, "double": 8,
     "__time64_t": 8, "long double": 8, "qword": 8,
