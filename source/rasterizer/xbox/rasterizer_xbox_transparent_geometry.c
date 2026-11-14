@@ -1090,6 +1090,14 @@ by another object's group sorted between), a counter was drawn in the
 world's projection, and the next run's copy of the screen
 (rasterizer_active_camouflage_cache_primary_render_target) held it, so the
 camouflage showed it again, moved: a double counter. From OpenH1 (erin.cena) */
+/* port: whether the group is drawn as active camouflage
+(rasterizer_transparent_geometry.c's rasterizer_first_person_camouflaged, OpenH1 #875) */
+boolean rasterizer_transparent_geometry_group_camouflaged(
+	struct transparent_geometry_group const *group)
+{
+	return group->effect_type == _render_model_effect_type_active_camouflage;
+}
+
 static boolean active_camouflage_same_view(
 	struct transparent_geometry_group const *group,
 	long source_object_index,

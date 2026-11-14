@@ -117,20 +117,22 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_shadow_filtering" x="54" y="95"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_per_pixel_lighting" x="54" y="117"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_light_effects" x="54" y="139" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_doors_block_light" x="54" y="161" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_doors_block_light" x="54" y="139" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_full_model_detail" x="54" y="183" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_full_model_detail" x="54" y="161" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anisotropic_filtering" x="54" y="205" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anisotropic_filtering" x="54" y="183" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_vehicle_field_of_view" x="54" y="227" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_vehicle_field_of_view" x="54" y="205" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_viewmodel_field_of_view" x="54" y="249" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_viewmodel_field_of_view" x="54" y="227" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scales_with_fov" x="54" y="271" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scales_with_fov" x="54" y="249" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_far_clip_distance" x="54" y="293" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_far_clip_distance" x="54" y="271" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_camo_weapon_fix" x="54" y="161" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_camo_weapon_fix" x="54" y="139" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_doors_block_light" x="54" y="183" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_doors_block_light" x="54" y="161" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_full_model_detail" x="54" y="205" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_full_model_detail" x="54" y="183" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anisotropic_filtering" x="54" y="227" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anisotropic_filtering" x="54" y="205" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_vehicle_field_of_view" x="54" y="249" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_vehicle_field_of_view" x="54" y="227" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_viewmodel_field_of_view" x="54" y="271" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_viewmodel_field_of_view" x="54" y="249" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scales_with_fov" x="54" y="293" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scales_with_fov" x="54" y="271" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_far_clip_distance" x="54" y="315" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_far_clip_distance" x="54" y="293" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_buttons" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_button_style" x="54" y="73" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_button_look" x="54" y="95" platform="desktop android switch"/>

@@ -146,6 +146,8 @@ SCREENS = {
                  [("AUTO", "auto"), ("HIGH", "high"), ("LOW", "low"), ("OFF", "off")],
                  "Light from shots, muzzle flashes and glowing things.\nOff looks like the Xbox. Auto turns it off when slow.",
                  "desktop"),
+                ("CAMO WEAPON FIX:", "display.camo_weapon_fix", ON_OFF,
+                 "Walls never cut your camouflaged weapon.\nOff looks like the Xbox.", None),
                 ("DOORS BLOCK LIGHT:", "display.doors_block_light", ON_OFF,
                  "A closed door stops light from the other side.\nOff lets it through, as on the Xbox.", None),
                 ("FULL MODEL DETAIL:", "display.full_model_detail", ON_OFF,

@@ -661,6 +661,11 @@ static const struct config_setting config_settings[] =
 		"lighting, as on the Xbox. \"auto\" is \"high\", or \"off\" on a software\n"
 		"renderer. It changes only what is drawn, and players are lit by it\n"
 		"only a little. Based on chester's dynamic lighting in GulchCE." },
+	{ "display.camo_weapon_fix", _config_boolean, "false", "HALO_CAMO_WEAPON_FIX", _environment_value,
+		_platform_all,
+		"true: your camouflaged first-person weapon is drawn in front of walls.\n"
+		"false (the default): walls close by cut it away, as on the Xbox.\n"
+		"Drawing only. Based on work by goatbutt and the OpenH1 team." },
 	{ "display.doors_block_light", _config_boolean, "true", "HALO_DOORS_BLOCK_LIGHT", _environment_value,
 		_platform_all,
 		"A closed door stops a light behind it from lighting your side, such as\n"
@@ -1703,6 +1708,18 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_test_fall", _config_real, "0.0", "HALO_NETWORK_TEST_FALL", _environment_value, _platform_all,
 		"In an automated test game, the last player is lifted 10 world units\n"
 		"every this many seconds, for a fall that kills. 0 never does." },
+	{ "debug.network_test_place", _config_string, "\"\"", "HALO_NETWORK_TEST_PLACE", _environment_value,
+		_platform_all,
+		"In an automated test game, \"<x> <y> <z> <yaw> <pitch>[@<seconds>]\" puts\n"
+		"the first local player there, facing that way (degrees), that many\n"
+		"seconds in (1 if not given), once. Empty never does. For automated\n"
+		"tests only: it moves a player in the game itself, so never leave it\n"
+		"set on a host." },
+	{ "debug.network_test_camouflage", _config_real, "0.0", "HALO_NETWORK_TEST_CAMOUFLAGE", _environment_value,
+		_platform_all,
+		"In an automated test game, every player gets active camouflage this\n"
+		"many seconds in, for 20 seconds. 0 never does. For automated tests\n"
+		"only: it changes the game itself, so never leave it set on a host." },
 	{ "debug.network_test_melee", _config_real, "0.0", "HALO_NETWORK_TEST_MELEE", _environment_value, _platform_all,
 		"Every this many seconds, an automated test host brings its last player\n"
 		"in front of its first, and one strikes the other with melee. The host's\n"
