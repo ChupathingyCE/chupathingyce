@@ -28,6 +28,7 @@ and return none, 0 or false.
 #include "game/players.h"
 #include "units/units.h"
 #include "models/model_definitions.h"
+#include "objects/object_types.h"
 #include "game/game.h"
 #include "stubbs_mode.h"
 #include "stubbs_functions.h"
@@ -845,4 +846,38 @@ static void stubbs_function_evaluate(
 		break;
 	}
 	hs_return(thread_index, value);
+}
+
+/* ---------- a name placed on demand
+
+A Stubbs map places some of its named units "not automatically" and its
+scripts hand the name straight to ai_attach (a10's spare zombies for the
+whistle lesson): the name has no object until it is used. hs_cast
+(hs_runtime.c) creates such a unit as a script casts its name, for a name
+whose placement says so and that has no object yet. */
+
+boolean stubbs_functions_name_placed_on_demand(
+	short object_name_index)
+{
+	struct scenario *scenario = global_scenario_get();
+	struct scenario_object_name *name;
+	struct tag_block *placements;
+	struct scenario_object_datum *placement;
+	long placement_size;
+
+	if (!scenario || !VALID_INDEX(object_name_index, scenario->object_names.count))
+		return FALSE;
+	name = TAG_BLOCK_GET_ELEMENT(&scenario->object_names, object_name_index, struct scenario_object_name);
+	if (!VALID_INDEX(name->runtime_object_type, NUMBER_OF_OBJECT_TYPES) ||
+		object_type_definition_get(name->runtime_object_type)->placement_tag_block_offset == NONE ||
+		object_type_definition_get(name->runtime_object_type)->palette_tag_block_offset == NONE)
+	{
+		return FALSE;
+	}
+	placements = scenario_get_object_type_scenario_datums(scenario, name->runtime_object_type, &placement_size);
+	if (!placements || !VALID_INDEX(name->runtime_scenario_datum_index, placements->count))
+		return FALSE;
+	placement = (struct scenario_object_datum *)tag_block_get_element_with_size(
+		placements, name->runtime_scenario_datum_index, placement_size);
+	return TEST_FLAG(placement->placement_flags, 0) != 0; /* (bit 0: not placed automatically) */
 }

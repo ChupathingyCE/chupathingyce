@@ -237,11 +237,14 @@ escaped); returns its length */
 int browser_json_name(char *out, int size, const unsigned short *name, int length);
 
 /* the hosted game's Steam Workshop item (an MCC map's: its id and title, ""
-for none), for the announcement's workshop_id and workshop_title; called
-before browser_host_update, which takes it with the game */
+for none), for the announcement's workshop_id and workshop_title, and the
+map's own name for players without it ("Blood Gulch" for a file named 20,
+"" for none: the announcement's map_title, marked MCC); called before
+browser_host_update, which takes it with the game */
 #define BROWSER_WORKSHOP_ID_LENGTH 24
 #define BROWSER_WORKSHOP_TITLE_LENGTH 40
-void browser_host_workshop(const char *id, const char *title);
+#define BROWSER_MAP_TITLE_LENGTH 48
+void browser_host_workshop(const char *id, const char *title, const char *map_title);
 
 /* the hosted game's game type (its variant's name, NULL for a variant
 without one; a co-op game's difficulty, -1 for none), for the

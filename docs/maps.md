@@ -334,5 +334,9 @@ others are told why.
 
 The pack's own `ui.map` isn't used: the game's menus stay the game's. To play
 with the pack's own menus instead, set `game.pack_menus = "cex"` in
-`config.toml` and restart. A pack folder needs a name of 1 to 8 letters and
-digits, other than `ce`, `md`, `pc`, `de`, `fr`, `es` and `it`.
+`config.toml` and restart. With the pack's menus, the game plays the pack's
+own movies too: put them in a `bink` folder beside its `ui.map`
+(`maps_cex/bink/intro.bik`, `credits.bik`, `attract1.bik` and so on). A movie
+the pack doesn't have plays from the game's own `bink` folder. A pack folder
+needs a name of 1 to 8 letters and digits, other than `ce`, `md`, `pc`, `de`,
+`fr`, `es` and `it`.
