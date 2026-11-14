@@ -1,6 +1,6 @@
 # Delta clients: using our site from your own build
 
-Delta is open (see [delta.md](delta.md), "An open network"). If you make a
+Delta is open (see [For developers](README.md#for-developers)). If you make a
 fork, a port or a tool that speaks Delta, you're welcome to sign your players
 in on our site with Quick Connect and use their Delta profiles. This page is
 how to do that without stepping on anyone.
@@ -46,7 +46,7 @@ they approve every device themselves, and they can revoke it.
    - **Contact**: an email address or an `https://` address. Only the site's
      admins see it. We use it if your app is causing trouble.
    - **Platforms**: the platform keys your builds report (see
-     [delta.md](delta.md), "Platform keys"). A device that reports another
+     [Platform keys](peer.md#platform-keys)). A device that reports another
      platform is refused. Need a new key? Ask us, as for a platform number.
    - **Scopes**: what your app needs (below). `moderate` isn't on the
      form: ask us once your app is approved.
@@ -83,9 +83,8 @@ Please don't ship our ID. A request with no client ID, or with
 `chupathingy`, is treated as Chupathingy itself.
 
 Give your build its own device key, too. Our code keeps the key as
-`delta_device.key` in the save root (`identity_slot_files` in
-`identity.c`), and the save root is `ChupathingyCE` or `chupathingyce`
-(`save_folder_default` in `save_folder.h`). A fork that keeps both finds the
+`delta_device.key` in the save root, and the save root is `ChupathingyCE` or `chupathingyce`.
+A fork that keeps both finds the
 player's Chupathingy key and tries to sign it in as your app. The site
 refuses that with 409 `"other_client": true`: a device key stays with the
 app it first signed in through. Change the save root's folder name to your
@@ -93,8 +92,8 @@ app's (best, so your saves stay apart too), or at least the key's file
 name.
 
 Everything else is the same as for our builds: the nonce, the signatures,
-the poll, the confirm, refresh and tokens ([delta.md](delta.md), "Device
-identity" and "Devices"). The `token` answer's `"scopes"` says what your
+the poll, the confirm, refresh and tokens ([Device identity](link.md#device-identity)
+and [Devices](link.md#devices)). The `token` answer's `"scopes"` says what your
 device may do right now.
 
 ## Scopes
@@ -124,7 +123,7 @@ Taking `profile` away also ends the site sessions your devices opened.
 
 If you run a host or server that checks certificates, go by the capability
 bits in each one and fetch the revocation list (`/v1/identity/revoked`,
-[delta.md](delta.md)). That list is how a suspension reaches you.
+[link.md](link.md#devices)). That list is how a suspension reaches you.
 
 ## Limits
 
@@ -162,7 +161,7 @@ By registering, you agree to these. We'll suspend an app that breaks them.
   on Chupathingy or works with Delta is fine and welcome.
 - **Keep players' data private.** What your app gets from our site is the
   player's to share, not yours to sell or publish. Don't show addresses,
-  ever (our own rule: see [privacy.md](privacy.md)). Don't keep more than
+  ever (our own rule: see [privacy.md](https://github.com/ChupathingyCE/chupathingyce/blob/main/docs/privacy.md)). Don't keep more than
   your app needs.
 - **Say what you collect.** If your app collects anything on its own
   (analytics, crash reports, stats), say so plainly on your homepage, let

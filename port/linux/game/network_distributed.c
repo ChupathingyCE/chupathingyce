@@ -3963,6 +3963,15 @@ boolean network_aim_assist_blocked(
 {
 	short connection = game_connection();
 
+#ifdef HALO_GAME_BROWSER
+	/* (Hardcore: no aim assist for any device, game_modes.c) */
+	{
+		boolean game_mode_no_aim_assist(void);
+
+		if (game_in_progress() && !main_menu_is_active() && game_mode_no_aim_assist())
+			return TRUE;
+	}
+#endif
 	return network_rules_aim_assist_blocks(game_in_progress(), main_menu_is_active(),
 		connection == _game_connection_network_server, connection == _game_connection_network_client,
 		distributed_aim_assist_setting(), distributed_aim_assist_blocked_by_host);
@@ -4052,7 +4061,7 @@ static void distributed_unknown_kind(
 		(unsigned int)delta_legacy_announce();
 
 	/* (OpenCE's client_build, a player's build, repository and mods: dropped
-	unread and unlogged, and never sent: docs/delta.md, "Never send message
+	unread and unlogged, and never sent: docs/delta/versioning.md, "Never send message
 	92") */
 	if (type == DISTRIBUTED_CLIENT_BUILD_KIND)
 		return;
@@ -4731,6 +4740,25 @@ static void distributed_send_notice(
 		_distributed_to_clients_reliably);
 }
 
+void distributed_send_notice_to_machine(
+	long machine_index,
+	char const *text)
+{
+	struct
+	{
+		struct distributed_message_header header;
+		char text[MAXIMUM_NOTICE_LENGTH];
+	} message;
+	long length = csstrlen(text);
+
+	if (length > MAXIMUM_NOTICE_LENGTH - 1)
+		length = MAXIMUM_NOTICE_LENGTH - 1;
+	csmemset(&message, 0, sizeof(message));
+	csmemcpy(message.text, text, length);
+	distributed_send_to_machine_reliably(machine_index, &message, _distributed_message_notice, 0,
+		(word)(sizeof(message.header) + length + 1));
+}
+
 /* (the host) the names of a client machine's players, in ASCII, for a
 notice ("?" for what is not ASCII) */
 static void distributed_machine_player_names(
@@ -5236,7 +5264,7 @@ boolean network_distributed_identity_banned(
 /* (the dedicated server's sv_ban_account) a Delta account banned that need
 not be in the game: a line of BANS_FILE with only its account (32 hex
 digits), for ever (until 0) or until then, its handle as the players';
-docs/delta.md, "Shared ban lists". TRUE if written */
+docs/delta/control.md, "Shared ban lists". TRUE if written */
 boolean network_distributed_ban_account(
 	char const *account,
 	char const *handle,

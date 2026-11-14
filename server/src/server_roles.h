@@ -58,7 +58,7 @@ places), its permissions and, in who (who_size bytes, may be NULL), the
 name it goes by there ("Odb718", or "alice (account)"); 0 none */
 int server_roles_key_role(const unsigned char *key, unsigned int *permissions, char *who, int who_size);
 
-/* the role a verified player's Delta account has (docs/delta.md, "Verified
+/* the role a verified player's Delta account has (docs/delta/peer.md, "Verified
 names"): the moderators file's account lines (16 bytes), and the site's
 role list by the account each entry carries (an entry with none gives
 nothing; handle, may be NULL, only names it); permissions and who as

@@ -1319,6 +1319,11 @@ static void textures_make(struct vk_command_draw *draw, struct nv2a_pixel_shader
 			if ((name = text_hires_atlas_texture(texture->Data)) != 0)
 			{
 				id = name;
+				/* (distance fields are read between their texels: filtered,
+				and decoded by the shader) */
+				hires = text_hires_atlas_fields() != 0;
+				if (stage == 0)
+					key->text_fields = hires;
 			}
 			else if ((name = menu_art_texture(texture->Data, &levels)) != 0)
 			{

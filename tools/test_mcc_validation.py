@@ -35,6 +35,7 @@ int mcc_precache_snapshot(char const *name, struct mcc_precache_snapshot *out) {
 static char const *mcc_identity_local_name(char const *name) {return name;}
 static int mcc_identity_prepare_host(char const *name) {(void)name; prepares++;return identity_ok;}
 static int mcc_identity_check(char const *name) {(void)name;return identity_ok;}
+static int mcc_identity_resources(char const *name, char paths[2][128]) {(void)name;(void)paths;return 0;}
 static FILE *mcc_open(char const *name, struct mcc_cache_source *s, struct mcc_cache_identity *i) {
     (void)s;(void)i;return name && !strncmp(name,"mcc_maps/",9) ? (FILE *)1 : NULL;
 }

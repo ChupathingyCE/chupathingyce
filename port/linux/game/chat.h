@@ -2,7 +2,7 @@
 CHAT.H
 
 Text chat between Chupathingy machines, bridged to OpenCE's (chat.c;
-docs/delta.md, Chat).
+docs/delta/peer.md, Chat).
 */
 
 #ifndef __CHAT_H
@@ -68,6 +68,16 @@ void chat_host_set_cooldown(int seconds);
 int chat_host_cooldown(void);
 void chat_host_set_welcome(char const *text);
 char const *chat_host_welcome(void);
+
+/* the line each OpenCE player (no Delta session) is sent once a join, a few
+seconds after they spawn, that this is a Chupathingy game (opence_welcome.h):
+on or off, and its text (1 to 63 characters of printable ASCII without '|';
+NULL, empty or another: the default). A dedicated server's opence_welcome
+and opence_welcome_text; a player's host reads network.opence_welcome, with
+the default text. Off unless set */
+void chat_host_set_opence_welcome(int on, char const *text);
+int chat_host_opence_welcome(void);
+char const *chat_host_opence_welcome_text(void);
 
 /* this copy's own mute of a machine's player (the chat log's M, and the
 Guide's Players here): whether they are muted, and muted or not. wchar_t

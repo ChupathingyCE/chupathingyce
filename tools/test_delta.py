@@ -89,7 +89,7 @@ def wire_key(name):
 
 def test_console_floor():
     """every wire from the console floor on reaches back to it
-    (DELTA_WIRE_CONSOLE_FLOOR, docs/delta.md, "The console floor"): the
+    (DELTA_WIRE_CONSOLE_FLOOR, docs/delta/versioning.md, "The console floor"): the
     oldest wire a console build in the wild plays, so that a new PC wire
     never splits the consoles from the PCs. Raise the floor only when every
     console port has shipped a newer wire."""
@@ -701,9 +701,9 @@ def test_loader_says_once_that_no_table_is_published(checker, tmp_path):
 
 # each released wire's newest version (DELTA_WIRE_LEGACY_NEWEST): never
 # changed once released, a build that learns a newer version's rules has a
-# new wire (docs/delta.md, "When the wire changes")
+# new wire (docs/delta/versioning.md, "When the wire changes")
 RELEASED_WIRE_NEWEST = {"chupa-28a": 28, "chupa-29a": 29, "chupa-32a": 33, "chupa-38a": 38, "chupa-39a": 39,
-                       "chupa-41a": 41, "chupa-43a": 43}
+                       "chupa-41a": 41, "chupa-43a": 43, "chupa-44a": 44}
 
 
 def test_wire_changes_with_the_rules():
@@ -717,10 +717,13 @@ def test_wire_changes_with_the_rules():
     assert delta_table.wire() in ledger, "DELTA_WIRE has no row in DELTA_WIRE_LEGACY_NEWEST"
     assert ledger[delta_table.wire()] == define(text, "DELTA_LEGACY_NEWEST") == rows()[-1][0], \
         "a build that learns a newer version's rules (DELTA_LEGACY_VERSIONS' newest) needs a new DELTA_WIRE"
-    # (each wire's row once, in order, and each plays with older wires)
+    # (each wire's row once, in order, and each plays with older wires; a
+    # wire that learns a behavior at the same OpenCE number takes the next
+    # letter, chupa-44b after chupa-44a)
     names = list(ledger)
-    numbers = [int(re.fullmatch(r"chupa-(\d+)[a-z]", name).group(1)) for name in names]
-    assert numbers == sorted(set(numbers))
+    ids = [(int(match.group(1)), match.group(2)) for match in
+           (re.fullmatch(r"chupa-(\d+)([a-z])", name) for name in names)]
+    assert ids == sorted(set(ids))
     assert list(ledger.values()) == sorted(ledger.values())
     compatibility = text[text.index("#define DELTA_WIRE_COMPATIBILITY(X)"):]
     compatibility = compatibility[:compatibility.index("\n\n")]
@@ -795,13 +798,12 @@ def layout_program(tmp_path_factory):
         pytest.skip("no C compiler")
     directory = tmp_path_factory.mktemp("layouts")
     game = ROOT / "port" / "linux" / "game"
-    source = game / "network_rules_layout_check.c"
-    try:
-        source.write_text(C_LAYOUT, encoding="utf-8")
-        subprocess.run([cc, "-std=c11", "-Wall", "-Werror", str(source), str(game / "network_rules.c"), "-o",
-                        str(directory / "layouts")], check=True, capture_output=True, text=True)
-    finally:
-        source.unlink(missing_ok=True)
+    # (in the test's own folder, not the game's: a build configured while it
+    # was there listed it, and failed once it was gone)
+    source = directory / "network_rules_layout_check.c"
+    source.write_text(C_LAYOUT, encoding="utf-8")
+    subprocess.run([cc, "-std=c11", "-Wall", "-Werror", f"-I{game}", str(source), str(game / "network_rules.c"),
+                    "-o", str(directory / "layouts")], check=True, capture_output=True, text=True)
     return directory / "layouts"
 
 
@@ -978,7 +980,7 @@ def test_loader_drops_bad_layouts(keys, checker, tmp_path, name, layouts):
     assert " serial 0 " in state_line(output)[0], name
 
 
-# OpenCE's 43 as a row of the table (chupa-43a's facts; docs/delta.md, "Layouts")
+# OpenCE's 43 as a row of the table (chupa-43a's facts; docs/delta/versioning.md, "Layouts")
 FACT_43 = {"settings_size": 13200, "join_request_extra": 236, "join_request_fill": "zeros",
            "join_request_version_at": 234, "header_extra": 4, "epoch_kind": 96,
            "unit_state_parts": [{"bit": 7, "size": 28, "at": "after_up"}, {"bit": 6, "size": 30, "at": "last"}],

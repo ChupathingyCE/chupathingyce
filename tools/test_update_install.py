@@ -868,7 +868,7 @@ def test_where_to_update_under_gamescope():
     INSTALL UPDATE (tools/port_settings.py), in both menu styles"""
     import port_settings
     header = (ROOT / "port/linux/src/update.h").read_text()
-    assert '#define UPDATER_GAMESCOPE_WHERE "in Settings > Online > Updates"' in header
+    assert '#define UPDATER_GAMESCOPE_WHERE "in Settings > Network Setup > Updates"' in header
     assert '"from Desktop Mode"' not in (ROOT / "port/linux/src/updater.c").read_text()
     assert "build_identity_watermark_update(updater_latest_version, UPDATER_GAMESCOPE_WHERE)" in \
         (ROOT / "port/linux/src/updater.c").read_text()
@@ -891,7 +891,9 @@ def test_install_row_wiring():
     # (the files are port_settings.py's, as written)
     assert gearbox == "\n".join(port_settings.settings_files()[gearbox_name])
     assert pages == "\n".join(port_settings.chupathingy_settings_pages())
-    row = f'<child widget="{base}/op_install_update" x="54" y="133" platform="desktop"/>'
+    # (the third place of UPDATES' list: 73 and two rows down)
+    y = 73 + 2 * port_settings.SCREENS["network_setup"]["spacing"]
+    row = f'<child widget="{base}/op_install_update" x="54" y="{y}" platform="desktop"/>'
     for text in (gearbox, pages):
         updates = text.index(f'<child widget="{base}/view_updates"')
         assert text.index(row) > updates
@@ -921,7 +923,7 @@ def test_no_question_under_gamescope(keys, builds, server, tmp_path):
     name = appimage.name
     lines = run_appimage(tmp_path, appimage, server, f"{OLD} {name}", {**GAMESCOPE, **NO_ANSWER})
     assert has(lines, f"{OLD} {name} update: {NEW} is out (this is {OLD}); not asking under gamescope")
-    assert has(lines, f"{OLD} {name} watermark: {OLD} - {NEW} is out: update in Settings > Online > Updates")
+    assert has(lines, f"{OLD} {name} watermark: {OLD} - {NEW} is out: update in Settings > Network Setup > Updates")
     assert shown_nothing(lines)
     assert not has(lines, "downloading") and snapshot(folder) == before
 
@@ -961,7 +963,7 @@ def test_page_install_under_gamescope(keys, builds, server, tmp_path):
     server.release(NEW, release, [ASSET, APPIMAGE, "updates.json", "updates.json.sig"])
     name = appimage.name
     lines = run_appimage(tmp_path, appimage, server, f"{NEW} {name}", {**GAMESCOPE, **NO_ANSWER, **PAGE})
-    assert has(lines, f"{OLD} {name} watermark: {OLD} - {NEW} is out: update in Settings > Online > Updates")
+    assert has(lines, f"{OLD} {name} watermark: {OLD} - {NEW} is out: update in Settings > Network Setup > Updates")
     assert has(lines, f"{OLD} {name} page: installing")
     assert has(lines, f"{OLD} {name} update: installing version {NEW} from the game's own page (under gamescope")
     assert has(lines, f"{OLD} {name} page: Downloading {NEW}")

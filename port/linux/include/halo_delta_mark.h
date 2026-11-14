@@ -34,6 +34,69 @@ static inline int halo_delta_mark_gap(
 	return height / 4 > 2 ? height / 4 : 2;
 }
 
+/* the mark as an outline, for a distance field of it (text_hires.c): a
+triangle standing on its base, width by height units (y up from the base:
+the apex at the top), its strokes a sixth of its height. corners gets the
+outer triangle's corners clockwise (the apex, the base's right, the base's
+left) and then the inner triangle's the other way round (its apex, its
+left, its right): where the edges before and after each corner, moved a
+stroke inward, meet. Nothing with a height of 0 or less. */
+static inline void halo_delta_mark_outline(
+	double width,
+	double height,
+	double corners[6][2])
+{
+	double const stroke = height / 6.0;
+	double outer[3][2];
+	double normals[3][3];
+	int edge, corner;
+
+	if (height <= 0.0 || width <= 0.0)
+		return;
+	outer[0][0] = 0.5 * width;
+	outer[0][1] = height;
+	outer[1][0] = width;
+	outer[1][1] = 0.0;
+	outer[2][0] = 0.0;
+	outer[2][1] = 0.0;
+	/* (each edge's inward normal, a unit long, and its offset: a point's
+	distance inside the edge is n.p + c) */
+	for (edge = 0; edge < 3; edge++)
+	{
+		double const *a = outer[edge], *b = outer[(edge + 1) % 3], *c = outer[(edge + 2) % 3];
+		double nx = a[1] - b[1], ny = b[0] - a[0];
+		double length = nx * nx + ny * ny, guess;
+		int step;
+
+		/* (a square root without math.h: Newton's, from a guess) */
+		guess = length > 1.0 ? length * 0.5 : 1.0;
+		for (step = 0; step < 40; step++)
+			guess = 0.5 * (guess + length / guess);
+		nx /= guess;
+		ny /= guess;
+		if (nx * c[0] + ny * c[1] - (nx * a[0] + ny * a[1]) < 0.0)
+		{
+			nx = -nx;
+			ny = -ny;
+		}
+		normals[edge][0] = nx;
+		normals[edge][1] = ny;
+		normals[edge][2] = -(nx * a[0] + ny * a[1]);
+	}
+	for (corner = 0; corner < 3; corner++)
+	{
+		double const *before = normals[(corner + 2) % 3], *after = normals[corner];
+		double determinant = before[0] * after[1] - before[1] * after[0];
+		double rb = stroke - before[2], ra = stroke - after[2];
+
+		corners[corner][0] = outer[corner][0];
+		corners[corner][1] = outer[corner][1];
+		/* (the inner corners in the order 0, 2, 1: the other way round) */
+		corners[3 + (3 - corner) % 3][0] = (rb * after[1] - before[1] * ra) / determinant;
+		corners[3 + (3 - corner) % 3][1] = (before[0] * ra - rb * after[0]) / determinant;
+	}
+}
+
 /* the mark drawn as coverage (0 to 255, a byte a pixel) into width by
 height pixels, rows stride bytes apart: the outline of a triangle standing
 on its base, its strokes about a sixth of its height (one pixel at least),

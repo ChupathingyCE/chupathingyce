@@ -43,6 +43,14 @@ enum halo_keyboard_action
 	held, and the next channel */
 	HALO_KEYBOARD_PUSH_TO_TALK,
 	HALO_KEYBOARD_VOICE_CHANNEL,
+	/* a vehicle's secondary fire (source/input/input_abstraction.c): in a
+	vehicle's seat, when it has a key, it is the grenade control's in place
+	of the grenade key's (with none, the grenade key's, as retail) */
+	HALO_KEYBOARD_VEHICLE_SECONDARY_FIRE,
+	/* walk (source/input/input_abstraction.c): while held, the keyboard
+	moves at half speed, as a stick pushed halfway does (with no key, the
+	keyboard runs, as retail) */
+	HALO_KEYBOARD_WALK,
 	NUMBER_OF_HALO_KEYBOARD_ACTIONS
 };
 
@@ -50,6 +58,9 @@ enum halo_keyboard_action
 (a bit for each halo_keyboard_action): theirs is the first's; none while a
 menu or the console is up */
 unsigned long halo_keyboard_actions(short controller_index);
+
+/* whether an action has a key or button bound to it */
+int halo_keyboard_action_bound(int action);
 
 /* the game's button prompts show the keyboard's keys, not the
 controller's buttons (the keyboard or mouse used last, unless

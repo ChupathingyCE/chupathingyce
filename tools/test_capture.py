@@ -35,9 +35,12 @@ def test_gl_screenshot_after_overlay():
 def test_gl_screenshot_reads_the_window():
 	body = function_body(read(SRC / "d3d8_gl.c"), "static void gl_capture_frame(")
 	assert "platform_window_framebuffer()" in body
-	assert "framebuffer_get(" not in body
-	# (the window's rows come bottom first)
-	assert "TRUE, TRUE, &gl_capture.released" in body
+	# (only a floating-point window, display.hdr_output's, has the shot
+	# read from the game's frame instead: its 8 bits are no picture)
+	assert body.count("framebuffer_get(") == 1 and "if (hdr.float_window)" in body
+	assert "gl_capture.from_frame ? gl_capture.frame_framebuffer :" in body
+	# (the window's rows come bottom first; the frame's from the top)
+	assert "TRUE, !gl_capture.from_frame, &gl_capture.released" in body
 
 
 def test_bgfx_screenshot_after_overlay():

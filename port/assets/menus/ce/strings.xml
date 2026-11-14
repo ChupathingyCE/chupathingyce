@@ -589,6 +589,8 @@
 		<string text="Every time you cause your own death, there will be a \nfive-second wait before you can rejoin the game. "/>
 		<string text="You'll wait ten seconds after you cause your own \ndeath before you can return to the game."/>
 		<string text="When you suicide, you must wait fifteen seconds \nbefore you can respawn. This will give you an idea of \nwhat eternity is like."/>
+		<string text="The usual motion tracker and aim assist."/>
+		<string text="No motion tracker and no aim assist. A kill brings\nyour health and shields back to full."/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/player_options_edit/player_options_labels">
 		<string text="NUMBER OF LIVES:"/>
@@ -979,6 +981,8 @@
 		<string text="This game will have a 25 minute time limit.  It will\nend after the time limit is up or someone wins."/>
 		<string text="This game will have a 30 minute time limit.  It will\nend after the time limit is up or someone wins."/>
 		<string text="This game will have a 45 minute time limit.  It will\nend after the time limit is up or someone wins."/>
+		<string text="No mode. The game plays by the rules above."/>
+		<string text="SWAT. No shields, and one shot to the head kills."/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/slayer_labels">
 		<string text="DEATH BONUS:"/>
@@ -1340,10 +1344,10 @@
 		<string text="ABOUT"/>
 		<string text="PRIVACY"/>
 		<string text="INTERFACE"/>
-		<string text="CONTROLS"/>
-		<string text="DISPLAY"/>
-		<string text="AUDIO"/>
-		<string text="ONLINE"/>
+		<string text="CONTROLS SETUP"/>
+		<string text="VIDEO SETUP"/>
+		<string text="AUDIO SETUP"/>
+		<string text="NETWORK SETUP"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/cap_video_settings_strings">
 		<string text="Select a display resolution."/>

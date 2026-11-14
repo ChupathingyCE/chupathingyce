@@ -45,6 +45,8 @@ enum
 	ZIP_MAXIMUM_COMMENT = 0xffff,
 	/* entries read, at most (a map's archive holds one, or a few beside it) */
 	ZIP_MAXIMUM_ENTRIES = 256,
+	/* ... and a tag archive's (a mod's folder of tags: loose_tags.c) */
+	ZIP_TAGS_MAXIMUM_ENTRIES = 8192,
 	ZIP_MAXIMUM_NAME = 512,
 	ZIP_FLAG_ENCRYPTED = 0x0001,
 	ZIP_METHOD_STORED = 0,
@@ -148,7 +150,7 @@ static int name_escapes(const char *name, unsigned int length)
 /* the end of central directory record: the central directory's offset,
 size and entry count; 0 if it is not a zip this reads */
 static int find_end(const struct map_archive_io *io, unsigned int *directory_offset, unsigned int *directory_size,
-	unsigned int *entries, char *error, int error_size)
+	unsigned int *entries, unsigned int maximum_entries, char *error, int error_size)
 {
 	unsigned int tail_size = io->archive_size < ZIP_END_SIZE + ZIP_MAXIMUM_COMMENT ? io->archive_size :
 		ZIP_END_SIZE + ZIP_MAXIMUM_COMMENT;
@@ -199,8 +201,144 @@ static int find_end(const struct map_archive_io *io, unsigned int *directory_off
 	free(tail);
 	if (!found)
 		return refuse(error, error_size, "the download is not a zip archive");
-	if (*entries > ZIP_MAXIMUM_ENTRIES)
-		return refuse(error, error_size, "the archive has %u entries (at most %d)", *entries, ZIP_MAXIMUM_ENTRIES);
+	if (*entries > maximum_entries)
+		return refuse(error, error_size, "the archive has %u entries (at most %u)", *entries, maximum_entries);
+	return 1;
+}
+
+static int unpack_entry(const struct map_archive_io *io, int method, unsigned int data_offset,
+	unsigned int compressed_size, unsigned int size, unsigned int crc, char *error, int error_size);
+
+/* an entry of the central directory, as the walk below gives it */
+struct directory_entry
+{
+	char name[ZIP_MAXIMUM_NAME];
+	unsigned int name_length;
+	int method;
+	unsigned int crc;
+	unsigned int compressed_size;
+	unsigned int size;
+	unsigned int local_offset;
+	int encrypted;
+};
+
+/* the central directory's entries in turn to proc, which returns 0 to
+stop the walk (1 then, the walk ended by it: *stopped says so); 0 with
+error when the directory is damaged or any entry names a path outside
+its folder */
+static int directory_each(const struct map_archive_io *io, unsigned int maximum_entries,
+	int (*proc)(void *context, const struct directory_entry *entry), void *context, int *stopped,
+	unsigned int *directory_offset_out, char *error, int error_size)
+{
+	unsigned int directory_offset, directory_size, entries, entry, offset;
+
+	*stopped = 0;
+	if (!find_end(io, &directory_offset, &directory_size, &entries, maximum_entries, error, error_size))
+		return 0;
+	if (directory_offset_out)
+		*directory_offset_out = directory_offset;
+	offset = directory_offset;
+	for (entry = 0; entry < entries; entry++)
+	{
+		unsigned char header[ZIP_CENTRAL_SIZE];
+		struct directory_entry found;
+		unsigned int extra_length, comment_length;
+
+		if (!within(offset, ZIP_CENTRAL_SIZE, directory_offset + directory_size) ||
+			!io->read(io->context, offset, header, ZIP_CENTRAL_SIZE) || read_32(header) != ZIP_CENTRAL_SIGNATURE)
+		{
+			return refuse(error, error_size, "the archive's directory is damaged");
+		}
+		memset(&found, 0, sizeof(found));
+		found.name_length = read_16(header + 28);
+		extra_length = read_16(header + 30);
+		comment_length = read_16(header + 32);
+		if (found.name_length >= sizeof(found.name) ||
+			!within(offset + ZIP_CENTRAL_SIZE, found.name_length + extra_length + comment_length,
+				directory_offset + directory_size) ||
+			!io->read(io->context, offset + ZIP_CENTRAL_SIZE, found.name, found.name_length))
+		{
+			return refuse(error, error_size, "the archive's directory is damaged");
+		}
+		if (name_escapes(found.name, found.name_length))
+			return refuse(error, error_size, "the archive names a path outside its folder");
+		found.name[found.name_length] = 0;
+		found.encrypted = (read_16(header + 8) & ZIP_FLAG_ENCRYPTED) != 0;
+		found.method = (int)read_16(header + 10);
+		found.crc = read_32(header + 16);
+		found.compressed_size = read_32(header + 20);
+		found.size = read_32(header + 24);
+		found.local_offset = read_32(header + 42);
+		if (!proc(context, &found))
+		{
+			*stopped = 1;
+			return 1;
+		}
+		offset += ZIP_CENTRAL_SIZE + found.name_length + extra_length + comment_length;
+	}
+	return 1;
+}
+
+/* the entry's data unpacked through io's write: its local header checked,
+its data within the archive before the directory */
+static int unpack_directory_entry(const struct map_archive_io *io, const struct directory_entry *entry,
+	unsigned int directory_offset, const char *what, char *error, int error_size)
+{
+	unsigned char local[ZIP_LOCAL_SIZE];
+	unsigned int data_offset;
+
+	if (entry->encrypted)
+		return refuse(error, error_size, "the archive's %s is encrypted", what);
+	if (entry->method != ZIP_METHOD_STORED && entry->method != ZIP_METHOD_DEFLATED)
+	{
+		return refuse(error, error_size, "the archive's %s is compressed by method %d, which this does not read",
+			what, entry->method);
+	}
+	if (entry->method == ZIP_METHOD_STORED && entry->compressed_size != entry->size)
+		return refuse(error, error_size, "the archive's %s has two sizes", what);
+	if (!within(entry->local_offset, ZIP_LOCAL_SIZE, directory_offset) ||
+		!io->read(io->context, entry->local_offset, local, ZIP_LOCAL_SIZE) || read_32(local) != ZIP_LOCAL_SIGNATURE)
+	{
+		return refuse(error, error_size, "the archive's %s entry is damaged", what);
+	}
+	if (!within(entry->local_offset + ZIP_LOCAL_SIZE, read_16(local + 26) + read_16(local + 28), directory_offset))
+		return refuse(error, error_size, "the archive's %s entry is damaged", what);
+	data_offset = entry->local_offset + ZIP_LOCAL_SIZE + read_16(local + 26) + read_16(local + 28);
+	if (!within(data_offset, entry->compressed_size, directory_offset))
+		return refuse(error, error_size, "the archive's %s lies outside it", what);
+	return unpack_entry(io, entry->method, data_offset, entry->compressed_size, entry->size, entry->crc, error,
+		error_size);
+}
+
+struct entry_walk
+{
+	map_archive_entry_proc proc;
+	void *context;
+};
+
+static int entry_walk_proc(void *context, const struct directory_entry *entry)
+{
+	struct entry_walk *walk = (struct entry_walk *)context;
+
+	return walk->proc(walk->context, entry->name, entry->size);
+}
+
+struct entry_search
+{
+	const char *wanted;
+	struct directory_entry found;
+	int count;
+};
+
+static int entry_search_proc(void *context, const struct directory_entry *entry)
+{
+	struct entry_search *search = (struct entry_search *)context;
+
+	if (same_name(entry->name, entry->name_length, search->wanted))
+	{
+		search->found = *entry;
+		search->count++;
+	}
 	return 1;
 }
 
@@ -426,7 +564,7 @@ int map_archive_extract(const struct map_archive_io *io, const char *name, unsig
 	if (io->archive_size > MAP_ARCHIVE_MAXIMUM_SIZE)
 		return refuse(error, error_size, "the download is over %d MB", MAP_ARCHIVE_MAXIMUM_SIZE >> 20);
 	snprintf(wanted, sizeof(wanted), "%s.map", name);
-	if (!find_end(io, &directory_offset, &directory_size, &entries, error, error_size))
+	if (!find_end(io, &directory_offset, &directory_size, &entries, ZIP_MAXIMUM_ENTRIES, error, error_size))
 		return 0;
 	offset = directory_offset;
 	for (entry = 0; entry < entries; entry++)
@@ -501,6 +639,48 @@ int map_archive_extract(const struct map_archive_io *io, const char *name, unsig
 			return 0;
 	}
 	*map_size = found_size;
+	return 1;
+}
+
+int map_archive_entries(const struct map_archive_io *io, map_archive_entry_proc proc, void *context, char *error,
+	int error_size)
+{
+	struct entry_walk walk;
+	int stopped;
+
+	if (error && error_size > 0)
+		error[0] = 0;
+	walk.proc = proc;
+	walk.context = context;
+	return directory_each(io, ZIP_TAGS_MAXIMUM_ENTRIES, entry_walk_proc, &walk, &stopped, NULL, error, error_size);
+}
+
+int map_archive_extract_entry(const struct map_archive_io *io, const char *name, unsigned int maximum_size,
+	unsigned int *size, char *error, int error_size)
+{
+	struct entry_search search;
+	unsigned int directory_offset;
+	int stopped;
+
+	if (error && error_size > 0)
+		error[0] = 0;
+	*size = 0;
+	memset(&search, 0, sizeof(search));
+	search.wanted = name;
+	if (!directory_each(io, ZIP_TAGS_MAXIMUM_ENTRIES, entry_search_proc, &search, &stopped, &directory_offset, error,
+		error_size))
+	{
+		return 0;
+	}
+	if (search.count == 0)
+		return refuse(error, error_size, "the archive has no %s", name);
+	if (search.count > 1)
+		return refuse(error, error_size, "the archive holds %s more than once", name);
+	if (search.found.size > maximum_size)
+		return refuse(error, error_size, "%s is %u bytes unpacked (at most %u)", name, search.found.size, maximum_size);
+	if (!unpack_directory_entry(io, &search.found, directory_offset, name, error, error_size))
+		return 0;
+	*size = search.found.size;
 	return 1;
 }
 

@@ -1,7 +1,7 @@
 /*
 PARTY_TEAMS.C
 
-Keeping a party on one team (docs/delta.md, Party teams): the Guide's
+Keeping a party on one team (docs/delta/peer.md, Party teams): the Guide's
 party members each tell the host their party's tag over Delta Peer
 (PARTY_TAG, the party_teams capability), and a host that keeps parties
 together (network.keep_parties_together, on for a player's host; a dedicated

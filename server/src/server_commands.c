@@ -148,7 +148,7 @@ void host_rules_set_joins_locked(boolean locked);
 boolean host_rules_joins_locked(void);
 boolean host_rules_lock_has_players(void);
 boolean host_rules_host_late_join_hold(void);
-/* (network_distributed.c's: an account's ban, docs/delta.md "Shared ban
+/* (network_distributed.c's: an account's ban, docs/delta/control.md "Shared ban
 lists") */
 boolean network_distributed_ban_account(char const *account, char const *handle, char const *reason,
 	unsigned long until);
@@ -1022,7 +1022,7 @@ static boolean command_players(
 				snprintf(key_text + 2 * (byte - key), 3, "%02x", *byte);
 			role = server_roles_key_role(key, NULL, NULL, 0);
 		}
-		/* (the Delta profile their game proved: docs/delta.md, "Verified
+		/* (the Delta profile their game proved: docs/delta/peer.md, "Verified
 		names"; its account's role here counts as theirs) */
 		verified = server_moderation_machine_profile(player->machine_index, player->controller_index, handle,
 			(int)sizeof(handle), &device, &account_role);
@@ -2032,7 +2032,7 @@ static boolean command_warn(
 	return TRUE;
 }
 
-/* ---------- text chat (port/linux/game/chat.c; docs/delta.md, Chat) */
+/* ---------- text chat (port/linux/game/chat.c; docs/delta/peer.md, Chat) */
 
 static boolean command_say(
 	struct command_line const *line,
@@ -2286,7 +2286,7 @@ static boolean command_mod_add(
 	name[0] = 0;
 	if (line->count == 4)
 		snprintf(name, sizeof(name), "%s", line->words[3]);
-	/* a key given whole (64 hex digits), a Delta account (32: docs/delta.md,
+	/* a key given whole (64 hex digits), a Delta account (32: docs/delta/peer.md,
 	"Verified names"), else a player of the game whose game proved a key, or
 	proved their profile */
 	if (strlen(line->words[1]) == 32)

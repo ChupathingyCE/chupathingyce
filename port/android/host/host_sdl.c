@@ -361,14 +361,20 @@ uint32_t host_sdl_open_audio_stream(uint32_t device, const void *spec, uint32_t 
 	return binding->handle;
 }
 
+/* (the mix's own put, from its stream's callback, checks the thread's own
+binding before any handle lookup: the device's thread takes no lock the
+game's threads take every frame, which a game thread preempted while holding
+it would make the device wait on. Based on goatbutt and the OpenH1 team's
+change to their host) */
 int host_sdl_put_audio_stream_data(uint32_t stream, const void *data, int length)
 {
-	SDL_AudioStream *object = handle_get(stream, _handle_audio);
+	SDL_AudioStream *object;
 
-	if (!object)
-		return 0;
 	if (calling_back && calling_back->handle == stream)
 		return audio_keep(calling_back, data, length);
+	object = handle_get(stream, _handle_audio);
+	if (!object)
+		return 0;
 	return SDL_PutAudioStreamData(object, data, length);
 }
 

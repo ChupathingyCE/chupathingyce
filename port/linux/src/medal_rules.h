@@ -27,7 +27,7 @@ for the HUD, the service record and the site.
 
 A betrayal or a suicide earns nothing, and ends the dead player's sprees.
 The keys are the site's (stats.chupathingy.org's site.js, MEDALS) and the
-reports' ("medals": {key: count}, docs/delta.md "Medals").
+reports' ("medals": {key: count}, docs/delta/stats.md "Medals").
 
 Header only (static inline functions, the platform layer's C, nothing of the
 game's): the recorder, the event log, the consoles' builds and the unit

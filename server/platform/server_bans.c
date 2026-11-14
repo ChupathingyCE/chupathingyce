@@ -1,7 +1,7 @@
 /*
 SERVER_BANS.C
 
-Shared ban lists (server_bans.h; docs/delta.md, "Shared ban lists"). What
+Shared ban lists (server_bans.h; docs/delta/control.md, "Shared ban lists"). What
 goes to the site is read from bans.txt (the lines that name an account or
 a device, never an address or hardware ID), and sent again only when it
 changed since the site last said what it has. What comes from the site is

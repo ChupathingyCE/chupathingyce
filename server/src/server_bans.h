@@ -1,7 +1,7 @@
 /*
 SERVER_BANS.H
 
-Shared ban lists (docs/delta.md, "Shared ban lists";
+Shared ban lists (docs/delta/control.md, "Shared ban lists";
 server/docs/moderation.md): a linked server's bans that name a Delta
 account or device, sent to its owner's list on the site while ban_share is
 on, and the entries of the lists its owner subscribed it to, kept in

@@ -291,7 +291,10 @@ struct console_draw
 void console_draw(const struct console_draw *draw);
 
 /* the viewport's (state.viewport) or the rectangles' pixels of the targets,
-cleared: flags 1 color, 2 depth, 4 stencil */
+cleared: flags 1 color, 2 depth, 4 stencil. With color, the channels to
+clear are named as the Xbox names them (0x10 red, 0x20 green, 0x40 blue,
+0x80 alpha: D3DCLEAR_TARGET_R to _A); none named is all four. A renderer
+that cannot clear some channels alone clears all of them */
 void console_clear(unsigned long flags, const unsigned long *rectangles, unsigned long rectangle_count,
 	unsigned long color, float depth, unsigned long stencil);
 

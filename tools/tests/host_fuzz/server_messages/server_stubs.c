@@ -161,6 +161,17 @@ long game_set_game_variant(void);
 long game_set_game_variant(void) { return 0; }
 long game_set_game_variant_options(void);
 long game_set_game_variant_options(void) { return 0; }
+long game_set_game_mode_options(void);
+long game_set_game_mode_options(void) { return 0; }
+long delta_peer_game_machine_modes(void);
+long delta_peer_game_machine_modes(void) { return 0; }
+static unsigned char stub_mode_options[16];
+unsigned char const *player_ui_get_game_mode_options(void);
+unsigned char const *player_ui_get_game_mode_options(void) { return stub_mode_options; }
+unsigned char const *network_game_client_mode_options(void);
+unsigned char const *network_game_client_mode_options(void) { return stub_mode_options; }
+long p2p_set_game_kind(void);
+long p2p_set_game_kind(void) { return 0; }
 long game_time_end(void);
 long game_time_end(void) { return 0; }
 long game_unload(void);
@@ -205,6 +216,10 @@ long mcc_identity_prepare_host(void);
 long mcc_identity_prepare_host(void) { return 0; }
 long mcc_level_name(void);
 long mcc_level_name(void) { return 0; }
+long mcc_maps_find(void);
+long mcc_maps_find(void) { return -1; }
+long mcc_maps_name(void);
+long mcc_maps_name(void) { return 0; }
 long mcc_main_network_load_failed(void);
 long mcc_main_network_load_failed(void) { return 0; }
 long mcc_ui_team_request(void);
@@ -221,6 +236,8 @@ long mcc_validation_update(void);
 long mcc_validation_update(void) { return 0; }
 long mcc_workshop_listing(void);
 long mcc_workshop_listing(void) { return 0; }
+long mcc_workshop_map_title(void);
+long mcc_workshop_map_title(void) { return 0; }
 long network_connection_connected(void);
 long network_connection_connected(void) { return 0; }
 long network_connection_delete(void);
@@ -335,3 +352,13 @@ long stubbs_mode_active(void);
 long stubbs_mode_active(void) { return 0; }
 long stubbs_multiplayer_remote_machine_refused(void);
 long stubbs_multiplayer_remote_machine_refused(void) { return 0; }
+long cache_files_map_loadable(void);
+long cache_files_map_loadable(void) { return 0; }
+long game_precache_new_map_refusable(void);
+long game_precache_new_map_refusable(void) { return 0; }
+long errors_clear(void);
+long errors_clear(void) { return 0; }
+long network_game_abort(void);
+long network_game_abort(void) { return 0; }
+long main_goto_main_menu(void);
+long main_goto_main_menu(void) { return 0; }

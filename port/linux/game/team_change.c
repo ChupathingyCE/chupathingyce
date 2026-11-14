@@ -1,7 +1,7 @@
 /*
 TEAM_CHANGE.C
 
-Changing teams during a team game (docs/delta.md, Team changes): Halo PC's
+Changing teams during a team game (docs/delta/peer.md, Team changes): Halo PC's
 in-game CHANGE TEAMS. The Xbox let a player choose a team only in the
 pregame lobby, and so does a host by default: it is the host's to allow.
 

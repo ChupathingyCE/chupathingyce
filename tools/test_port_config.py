@@ -56,6 +56,7 @@ DEFAULTS = {
 		"display.player_names": "none",
 		"display.follow_camera": "off",
 		"network.team_change": "off",
+		"audio.resampling": "xbox",
 	},
 	"desktop32": {
 		"display.anti_aliasing": "off",
@@ -67,6 +68,7 @@ DEFAULTS = {
 		"display.player_names": "none",
 		"display.follow_camera": "off",
 		"network.team_change": "off",
+		"audio.resampling": "xbox",
 	},
 	"android": {
 		"display.anti_aliasing": "off",
@@ -78,6 +80,7 @@ DEFAULTS = {
 		"display.player_names": "none",
 		"display.follow_camera": "off",
 		"network.team_change": "off",
+		"audio.resampling": "xbox",
 	},
 	"server": {
 		"display.anti_aliasing": "off",
@@ -96,6 +99,7 @@ DEFAULTS = {
 		"network.tunnel_port": "0",
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "off",
+		"audio.resampling": "xbox",
 		"display.player_names": "none",
 		"display.follow_camera": "off",
 		"network.team_change": "off",
@@ -116,22 +120,26 @@ OLD = {
 	"display.player_names": "all",
 	"display.follow_camera": "long_waits",
 	"network.team_change": "balanced",
+	"audio.resampling": "sinc",
 }
 CHANGED = {
-	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change"],
-	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change"],
-	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change"],
+	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling"],
+	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling"],
+	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling"],
 	"server": [],
-	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player", "display.follow_camera", "network.team_change"],
+	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player", "display.follow_camera", "network.team_change",
+		"audio.resampling"],
 }
 # the changes of the second question (game.defaults_answered = 2), the
-# third (3), the fourth (4) and the latest (CONFIG_DEFAULTS_GENERATION): a
-# file answered for an earlier one is asked about the later ones only
+# third (3), the fourth (4), the fifth (5) and the latest
+# (CONFIG_DEFAULTS_GENERATION): a file answered for an earlier one is asked
+# about the later ones only
 SECOND = ["network.tunnel_port"]
 THIRD = ["game.start_with_one_player"]
 FOURTH = ["audio.hrtf"]
-LATEST = ["display.player_names", "display.follow_camera", "network.team_change"]
-GENERATION = "5"
+FIFTH = ["display.player_names", "display.follow_camera", "network.team_change"]
+LATEST = ["audio.resampling"]
+GENERATION = "6"
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
@@ -422,7 +430,7 @@ def test_answered_earlier(program, directory, defaults, kind):
 	about the later changes only (Headphone 3D, no names above heads), and a
 	value kept then stays whatever the answer now. A Headphone 3D the player
 	set themselves, on, off or auto, is never asked about nor changed."""
-	latest = [name for name in FOURTH + LATEST if name in CHANGED[kind]]
+	latest = [name for name in FOURTH + FIFTH + LATEST if name in CHANGED[kind]]
 	if not latest:
 		return
 	for answer in ("keep", "new"):
@@ -487,7 +495,7 @@ def test_answered_first_question(program, directory, defaults, kind):
 	"""A file answered for v0.8.0's question (defaults_answered = 1): asked
 	about the later changes alone (the hosting port, starting alone, Headphone
 	3D), once; its other settings stay as they are."""
-	changed = [name for name in CHANGED[kind] if name in SECOND + THIRD + FOURTH + LATEST]
+	changed = [name for name in CHANGED[kind] if name in SECOND + THIRD + FOURTH + FIFTH + LATEST]
 	if not changed:
 		return
 	for answer in ("keep", "new"):
@@ -545,7 +553,7 @@ def test_start_alone(program, directory, defaults, kind):
 		return
 	# a file answered for the second question: this one is asked, with the
 	# later ones (Headphone 3D)
-	later = [name for name in CHANGED[kind] if name in THIRD + FOURTH + LATEST]
+	later = [name for name in CHANGED[kind] if name in THIRD + FOURTH + FIFTH + LATEST]
 	for answer in ("keep", "new"):
 		case = Case(program, directory / f"alone_{answer}")
 		text = previous_release_file(case, kind)

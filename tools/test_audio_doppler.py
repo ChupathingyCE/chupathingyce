@@ -6,11 +6,17 @@
   the listener that speed at 30 to 240 frames a second (and at 20, two ticks
   in some frames), as the Xbox did at 30. The negative control is the
   observer's own velocity, the last frame's, which jumps about at 144.
-- dsound_sdl.c's doppler_glide: a new Doppler shift is reached over a tick,
-  in even steps, a voice starting over taking it at once.
+- dsound_sdl.c's doppler_ratio: the first order shift an Xbox gave, as the
+  OpenH1 team recorded it (a source passing at 20 units a second 1.178
+  coming and 0.822 going, at 40 1.356 and 0.644); the old law's figures
+  (1.216 and 0.849) are the negative control.
 - dsound_sdl.c's resampler (its tables and its tap sum at the output rate or
   slower): a 22.05 kHz voice resampled to 48 kHz keeps a 10 kHz tone, and the
-  images of a 10 kHz and a 5 kHz tone are far down.
+  images of a 10 kHz and a 5 kHz tone are far down; the Xbox's own low pass
+  (xbox_resampler_initialize) samples a click at half the output's rate as
+  the Xbox did (0.598, -0.120, 0.024, -0.003).
+- dsound_sdl.c's subsonic filter: 3 dB down at 20 Hz, under 0.2 dB from 30 Hz
+  up, 24 dB down at 10 Hz, and a steady offset gone.
 
 No game assets are needed. Run with Python and a C compiler (cc) on PATH.
 """
@@ -58,6 +64,7 @@ PRELUDE = r'''
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 typedef float real;
 typedef int boolean;
 typedef int BOOL;
@@ -66,6 +73,17 @@ typedef int BOOL;
 #define OUTPUT_RATE 48000
 #define TICKS_PER_SECOND 30
 typedef struct { real i, j, k; } real_vector3d;
+typedef unsigned long DWORD;
+#define DS3DMODE_NORMAL 0
+#define DS3DMODE_HEADRELATIVE 1
+#define DS3DMODE_DISABLE 2
+#define MAXIMUM_OUTPUT_CHANNELS 8
+static unsigned long output_channels = 2;
+static BOOL doppler_enabled = TRUE;
+struct sdl_stream { BOOL has_3d; DWORD mode; float position[3]; float velocity[3]; };
+static struct { float position[3]; float velocity[3]; float distance_factor; } listener = { {0, 0, 0}, {0, 0, 0}, 3.048f };
+static float dot3(const float *a, const float *b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+static float clamp_real(float value, float low, float high) { return value < low ? low : value > high ? high : value; }
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #c); return 1; } } while (0)
 '''
 
@@ -180,22 +198,35 @@ int main(void)
         CHECK(average.velocity.i == 3.f && average.velocity.j == -2.f && average.velocity.k == 1.f);
     }
 
-    /* the Doppler shift's glide: a tick, in even steps; a start, at once */
+    /* the Doppler shift: a source far down the line coming at, then going
+    away at 20 and 40 units a second, as recorded on an Xbox */
     {
-        float current = 1.f, target = 1.f, previous = 1.f, value = 1.f;
-        unsigned long left = 0, frames = 0;
-        int mixes;
+        static const float speeds[] = { 20.f, 40.f };
+        static const float coming[] = { 1.178f, 1.356f }, going[] = { 0.822f, 0.644f };
+        struct sdl_stream voice = { TRUE, DS3DMODE_NORMAL, { -1000.f, 0.f, 0.f }, { 0.f, 0.f, 0.f } };
 
-        for (mixes = 0; value != 1.25f && mixes < 100; mixes++)
+        for (index = 0; index < 2; index++)
         {
-            value = doppler_glide(&current, &target, &left, 1.25f, 256, FALSE);
-            CHECK(value >= previous && value - previous <= 0.25f * 256 / DOPPLER_GLIDE_FRAMES + 1e-5f);
-            previous = value;
-            frames += 256;
+            float toward, away;
+
+            voice.position[0] = -1000.f;
+            voice.velocity[0] = speeds[index];
+            toward = doppler_ratio(&voice);
+            voice.position[0] = 1000.f;
+            away = doppler_ratio(&voice);
+            printf("Doppler at %.0f units a second: %.3f coming (Xbox %.3f), %.3f going (Xbox %.3f)\n", speeds[index],
+                toward, coming[index], away, going[index]);
+            CHECK(fabsf(toward - coming[index]) < 0.002f && fabsf(away - going[index]) < 0.002f);
+            /* (the old law's 1.216, 1.551: a fast pass too high) */
+            CHECK(fabsf(toward - 1.216f) > 0.02f);
         }
-        printf("Doppler 1.00 to 1.25: %lu frames (a tick is %d)\n", frames, DOPPLER_GLIDE_FRAMES);
-        CHECK(value == 1.25f && frames >= DOPPLER_GLIDE_FRAMES && frames < DOPPLER_GLIDE_FRAMES + 256);
-        CHECK(doppler_glide(&current, &target, &left, 0.8f, 256, TRUE) == 0.8f);
+        /* (an octave either way at most) */
+        voice.position[0] = -1000.f;
+        voice.velocity[0] = 1000.f;
+        CHECK(doppler_ratio(&voice) == 2.f);
+        doppler_enabled = FALSE;
+        CHECK(doppler_ratio(&voice) == 1.f);
+        doppler_enabled = TRUE;
     }
 
     /* the resampler */
@@ -211,6 +242,61 @@ int main(void)
         CHECK(fabs(pass5) < 0.1);
         CHECK(pass10 > -2.0 && pass10 < 0.1);
         CHECK(image10 < -60.0 && image5 < -60.0);
+    }
+
+    /* the Xbox's low pass: a click in a 24 kHz voice, sampled halfway
+    between its frames (recorded: 0.598, -0.120, 0.024, -0.003), and on a
+    frame exactly the frame */
+    xbox_resampler_initialize();
+    {
+        static const float recorded[] = { 0.598f, -0.120f, 0.024f, -0.003f };
+        int tap;
+
+        printf("the Xbox's low pass halfway between frames:");
+        for (tap = 0; tap < XBOX_RESAMPLER_ZERO_CROSSINGS; tap++)
+        {
+            float weight = xbox_phases[RESAMPLER_TABLE_STEPS / 2][XBOX_RESAMPLER_ZERO_CROSSINGS - 1 - tap];
+
+            printf(" %.3f", weight);
+            CHECK(fabsf(weight - recorded[tap]) < 0.0025f);
+        }
+        printf("\n");
+        for (tap = 0; tap < XBOX_RESAMPLER_TAPS; tap++)
+            CHECK(xbox_phases[0][tap] == (tap == XBOX_RESAMPLER_ZERO_CROSSINGS - 1 ? 1.f : 0.f));
+    }
+
+    /* the subsonic filter: tones' levels once settled, and an offset */
+    {
+        static const double frequencies[] = { 10.0, 15.0, 20.0, 30.0, 40.0, 1000.0 };
+        static const double low[] = { -26.0, -12.0, -3.5, -0.3, -0.1, -0.05 }, high[] = { -22.0, -8.0, -2.5, 0.05, 0.05, 0.05 };
+        enum { FRAMES = 4 * OUTPUT_RATE };
+        static float block[FRAMES * 2];
+        unsigned long frame;
+
+        for (index = 0; index < sizeof(frequencies) / sizeof(frequencies[0]); index++)
+        {
+            double level;
+
+            memset(subsonic_state, 0, sizeof(subsonic_state));
+            for (frame = 0; frame < FRAMES; frame++)
+                block[frame * 2] = block[frame * 2 + 1] = (float)sin(2.0 * M_PI * frequencies[index] * frame / OUTPUT_RATE);
+            subsonic(block, FRAMES);
+            {
+                static float left[FRAMES / 2];
+
+                for (frame = 0; frame < FRAMES / 2; frame++)
+                    left[frame] = block[(FRAMES / 2 + frame) * 2];
+                level = tone_level(left, FRAMES / 2, frequencies[index], OUTPUT_RATE);
+            }
+            printf("subsonic filter at %.0f Hz: %.2f dB\n", frequencies[index], level);
+            CHECK(level > low[index] && level < high[index]);
+        }
+        memset(subsonic_state, 0, sizeof(subsonic_state));
+        for (frame = 0; frame < FRAMES; frame++)
+            block[frame * 2] = block[frame * 2 + 1] = 0.25f;
+        subsonic(block, FRAMES);
+        printf("subsonic filter: an offset of 0.25 is %.6f after 4 s\n", block[(FRAMES - 1) * 2]);
+        CHECK(fabsf(block[(FRAMES - 1) * 2]) < 1e-4f);
     }
     puts("PASS");
     return 0;
@@ -229,18 +315,23 @@ def main():
         + structure(observer, "observer_tick_velocity")
         + function(observer, "observer_tick_velocity_add")
         + defines(mixer, "RESAMPLER_")
-        + "#define DOPPLER_GLIDE_FRAMES (OUTPUT_RATE / 30)\n"
-        + function(mixer, "doppler_glide")
+        + defines(mixer, "XBOX_RESAMPLER_")
+        + defines(mixer, "DOPPLER_")
+        + function(mixer, "doppler_ratio")
         + "static float resampler_table[RESAMPLER_ZERO_CROSSINGS * RESAMPLER_TABLE_STEPS + 2];\n"
         + "static float resampler_phases[RESAMPLER_TABLE_STEPS + 1][2 * RESAMPLER_ZERO_CROSSINGS];\n"
         + function(mixer, "bessel_i0")
         + function(mixer, "resampler_initialize")
         + function(mixer, "resampler_weight")
         + function(mixer, "resampler_phases_initialize")
+        + "static float xbox_phases[RESAMPLER_TABLE_STEPS + 1][XBOX_RESAMPLER_TAPS];\n"
+        + "static float xbox_deltas[RESAMPLER_TABLE_STEPS][XBOX_RESAMPLER_TAPS];\n"
+        + function(mixer, "xbox_resampler_initialize")
+        + re.search(r"^static const double subsonic_sections.*?^\};\n", mixer, re.M | re.S).group(0)
+        + "static double subsonic_state[MAXIMUM_OUTPUT_CHANNELS][2][2];\n"
+        + function(mixer, "subsonic")
         + TESTS
     )
-    if "#define DOPPLER_GLIDE_FRAMES (OUTPUT_RATE / 30)" not in mixer:
-        raise ValueError("DOPPLER_GLIDE_FRAMES changed: update this test")
     compiler = [args.cc, "-std=gnu11", "-O2"]
     if sys.platform != "win32":
         compiler.append("-lm")

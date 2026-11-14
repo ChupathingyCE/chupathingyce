@@ -14,7 +14,7 @@ permissions are kept on file and can be shown on request.
 | thelinkin3000 | His Switch port work (warthog-switch) | GPL-3.0-or-later | 2026-10-21 |
 | Mayo (Mayo1970) | His PS3 port work, hosted as warthog-ps3 in the ChupathingyCE organization | GPL-3.0-or-later, his own code | 2026-11-03 |
 | Lord BirchWood (BirchWoodGod) | His fix taken as #809 (from his OpenCE pull request #366) | GPL-3.0, with credit | 2026-11-07 |
-| The OpenH1 team | Their work in OpenH1 | We re-implement from their work rather than copy it, and credit by handle | 2026-11-06 |
+| The OpenH1 team (goatbutt and others) | Their own code in OpenH1, from any date | Relicensed by them to GPL-3.0, with credit by handle; OpenCE's own code inside OpenH1 after 2026-10-19 is not included | 2026-11-10 |
 
 ## Art and maps
 
@@ -23,6 +23,7 @@ permissions are kept on file and can be shown on request.
 | Aerocatia, with Jessie | HUD assets from halopc-restored | With credit | 2026-10-14 |
 | Joeveno | Favela Gulch, ported as a Halo map | With credit; his art keeps its own terms | 2026-10-30 |
 | SlappyThePirate | grifball.map (Grifball Beta, 2011) and the assets from it | With credit; hosted on our site, not in git | 2026-10-16 |
+| DKrumpp | HD controller buttons: the original Xbox (Duke), PlayStation and Switch buttons (`port/assets/buttons_hd`) | Used with permission, credit DKrumpp; not under our GPL | 2026-11-13 |
 | Marshall Kirk McKusick | The BSD Daemon, as the FreeBSD platform icon | With his notice: "BSD Daemon used with permission," linked to [his copyright page](http://www.mckusick.com/copyright.html) | 2026-11-11 |
 
 ## Used under their own licenses
@@ -34,7 +35,9 @@ authors.
   2026-10-19 07:12 UTC, when it moved to the AGPL, was released under terms
   that let us use it. We take nothing added after that time.
 - **OpenH1, before its license change.** Commits authored before the same
-  time. Later work is only re-implemented, never copied.
+  time. Later work by the OpenH1 team's own authors is covered by their
+  permission above; OpenCE's later code carried in OpenH1 is not, and we
+  don't take it.
 - **mastercheese-dev/OpenCE.** Commits by that fork's own authors before
   2026-10-28 21:18 UTC, while the fork was CC0.
 - **Chimera** (SnowyMouse and contributors) and **Demon** and **Invader**

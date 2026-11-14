@@ -95,18 +95,81 @@ static const char *const thumbnail_path[] = { "Images", "Thumbnail", NULL };
 static const char *const large_path[] = { "Images", "Large", NULL };
 
 /* a plain item-relative path: not empty, not absolute or drive-lettered, no "..", no control characters */
-static int path_is_plain(const char *path)
+/* whether the count bytes at a are b's, letters in any case */
+static int same_letters(const char *a, const char *b, size_t count)
 {
-	const char *c;
+	size_t index;
 
-	if (!path[0] || path[0] == '/' || path[0] == '\\' || path[1] == ':')
-		return 0;
-	for (c = path; *c; c++)
+	for (index = 0; index < count; index++)
 	{
-		if ((unsigned char)*c < 0x20 || *c == 0x7F || (c[0] == '.' && c[1] == '.'))
+		char x = a[index], y = b[index];
+
+		if (x >= 'A' && x <= 'Z')
+			x = (char)(x - 'A' + 'a');
+		if (x != y)
 			return 0;
 	}
 	return 1;
+}
+
+/* one part of a path (length bytes at name) that is a plain file or folder
+name on every system the game runs on: not empty, no separator, drive or
+stream colon, wildcard, quote or control character, not made only of dots,
+not ending in a dot or space (Windows drops those, so "a." would be "a"),
+not starting with a space, and not one of Windows' device names (CON, NUL,
+COM1...) with or without an extension */
+static int component_is_plain(const char *name, size_t length)
+{
+	static const char *const devices[] = { "con", "prn", "aux", "nul", "conin$", "conout$" };
+	size_t index, stem;
+	int dots = 1;
+
+	if (!length || name[0] == ' ' || name[length - 1] == '.' || name[length - 1] == ' ')
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		unsigned char c = (unsigned char)name[index];
+
+		if (c < 0x20 || c == 0x7F || strchr("/\\:*?\"<>|", c))
+			return 0;
+		if (c != '.')
+			dots = 0;
+	}
+	if (dots)
+		return 0;
+	for (stem = 0; stem < length && name[stem] != '.'; stem++)
+		;
+	for (index = 0; index < sizeof(devices) / sizeof(devices[0]); index++)
+	{
+		if (stem == strlen(devices[index]) && same_letters(name, devices[index], stem))
+			return 0;
+	}
+	if (stem == 4 && (same_letters(name, "com", 3) || same_letters(name, "lpt", 3)) &&
+		name[3] >= '0' && name[3] <= '9')
+		return 0;
+	return 1;
+}
+
+/* a relative path inside the item's folder: plain names joined by / or \,
+never absolute, never a drive, never a "..": nothing outside the item */
+static int path_is_plain(const char *path)
+{
+	const char *start = path, *c;
+
+	/* (no ".." anywhere, as before: not even inside a name) */
+	if (!path[0] || path[0] == '/' || path[0] == '\\' || strstr(path, ".."))
+		return 0;
+	for (c = path; ; c++)
+	{
+		if (!*c || *c == '/' || *c == '\\')
+		{
+			if (!component_is_plain(start, (size_t)(c - start)))
+				return 0;
+			if (!*c)
+				return 1;
+			start = c + 1;
+		}
+	}
 }
 
 static void slashes(char *path)
@@ -185,22 +248,23 @@ int steam_workshop_read_map(const char *text, int length, struct steam_workshop_
 		if (*c == '/' || *c == '\\')
 			name = c + 1;
 	}
-	for (c = name; *c; c++)
-	{
-		/* the name becomes a file name: no separator, drive colon or control character */
-		if ((unsigned char)*c < 0x20 || *c == 0x7F || *c == ':')
-			break;
-	}
-	if (!name[0] || *c || strlen(name) >= sizeof(map->name) || !strcmp(name, ".") || !strcmp(name, ".."))
-	{
-		memset(map, 0, sizeof(*map));
+	/* the name becomes a file name (<name>.map) and part of the level's name:
+	checked as a plain name both as written and without its .map, so that
+	"...map" can't become ".." */
+	name_length = (unsigned)strlen(name);
+	if (!component_is_plain(name, name_length) || name_length >= sizeof(map->name))
 		return 0;
-	}
 	strcpy(map->name, name);
 	/* (the file's name, whether or not the manifest wrote its extension) */
-	name_length = (unsigned)strlen(map->name);
 	if (name_length > 4 && !strcmp(map->name + name_length - 4, ".map"))
+	{
 		map->name[name_length - 4] = 0;
+		if (!component_is_plain(map->name, name_length - 4))
+		{
+			memset(map, 0, sizeof(*map));
+			return 0;
+		}
+	}
 	neutral_title(text, length, map->title);
 	if (mcc_json_string(text, length, thumbnail_path, thumbnail, sizeof(thumbnail)) && path_is_plain(thumbnail))
 	{

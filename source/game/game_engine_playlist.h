@@ -73,6 +73,18 @@ struct game_variant *build_game_variant_grifball(
 	struct game_variant *variant);
 struct game_variant *build_game_variant_grifball_open_pitch(
 	struct game_variant *variant);
+/* port: the game modes layer's built-ins (game_modes.c, docs/modes.md):
+SWAT, and Hardcore Slayer, CTF, Oddball and King */
+struct game_variant *build_game_variant_swat(
+	struct game_variant *variant);
+struct game_variant *build_game_variant_hardcore(
+	struct game_variant *variant);
+struct game_variant *build_game_variant_hc_ctf(
+	struct game_variant *variant);
+struct game_variant *build_game_variant_hc_oddball(
+	struct game_variant *variant);
+struct game_variant *build_game_variant_hc_king(
+	struct game_variant *variant);
 #endif
 struct game_variant *build_game_variant_team_king(
 	struct game_variant *variant);

@@ -6,7 +6,7 @@ probe (p2p_probe.c), a game's ping is estimated from its region, as the
 list gives it ("EU-DE": continent and country), and this machine's round
 trip to the anchors the list names (GET /v1/anchors.txt), timed once a run.
 Shown with a tilde ("~85"). No address is in any of it but the anchors'
-own host names. docs/delta.md, "Pings before joining".
+own host names. docs/delta/list.md, "Pings before joining".
 */
 
 #ifndef __HALO_LINUX_BROWSER_PING_H

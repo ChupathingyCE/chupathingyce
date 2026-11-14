@@ -2,7 +2,7 @@
 PROFILE_NAMES.C
 
 Players by their Delta profile on the scoreboard, in the lobby and postgame
-(display.profile_names; docs/delta.md, "Verified names"): a player whose
+(display.profile_names; docs/delta/peer.md, "Verified names"): a player whose
 game proved who they are over Delta Peer (the identity capability: their
 device certificate, checked by the host and again by this copy) shows by
 their one name: their handle (the Delta Tag, which the certificate names)

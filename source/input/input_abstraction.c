@@ -235,6 +235,8 @@ static void keyboard_hold_ticks(
 	return;
 }
 
+static boolean local_player_is_seated(short controller_index);
+
 static void keyboard_controls_update(
 	long controller_index,
 	struct game_input_state *state)
@@ -242,6 +244,17 @@ static void keyboard_controls_update(
 	unsigned long held = halo_keyboard_actions((short)controller_index);
 	long control_index;
 	long x, y;
+
+	/* (controls.vehicle_secondary_fire, when it has a key: in a vehicle's
+	seat the grenade control, a vehicle's secondary fire, is its key's and
+	not the grenade key's) */
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+	if (halo_keyboard_action_bound(HALO_KEYBOARD_VEHICLE_SECONDARY_FIRE) &&
+		local_player_is_seated((short)controller_index))
+	{
+		SET_FLAG(held, HALO_KEYBOARD_THROW_GRENADE, TEST_FLAG(held, HALO_KEYBOARD_VEHICLE_SECONDARY_FIRE));
+	}
+#endif
 
 	for (control_index = 0; control_index < NUMBER_OF_GAME_CONTROLS; control_index++)
 	{
@@ -265,6 +278,12 @@ static void keyboard_controls_update(
 		/* (diagonals on the unit circle) */
 		real length = x && y ? 0.70710678f : 1.f;
 
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+		/* (controls.walk, when it has a key: held, the keyboard moves at
+		half speed, as a stick pushed halfway) */
+		if (halo_keyboard_action_bound(HALO_KEYBOARD_WALK) && TEST_FLAG(held, HALO_KEYBOARD_WALK))
+			length *= 0.5f;
+#endif
 		state->forward_movement = y * length;
 		state->strafe = -x * length;
 	}
@@ -350,6 +369,22 @@ static long port_icon_button_action(
 	return NONE;
 }
 
+/* port: whether the prompts name keys in capitals, "[SPACE]" and "Hold TAB
+for score", as the Xbox's own prompts name BACK: with the Chupathingy menus
+(menu_tags.c's pc_menus_set). The Xbox's menus keep Halo PC's wording,
+"[Space]" and 'Hold "Tab" for score'. */
+boolean input_abstraction_port_prompt_capitals(
+	void)
+{
+#ifdef HALO_GAME_BROWSER
+	short pc_menus_set(void);
+
+	return pc_menus_set() == 2;
+#else
+	return FALSE;
+#endif
+}
+
 /* port: the keyboard's key for a button icon, "[E]", while the prompts
 show the keys (halo_keyboard_prompts: Halo PC's prompts, the keyboard or
 mouse used last), for the first player, whose controls they are; FALSE
@@ -429,6 +464,15 @@ boolean input_abstraction_port_icon_key(
 		return FALSE;
 	if (!shown[0])
 		return FALSE;
+	/* (in capitals with the Chupathingy menus: "[SPACE]") */
+	if (input_abstraction_port_prompt_capitals())
+	{
+		for (index = 0; shown[index]; index++)
+		{
+			if (shown[index] >= 'a' && shown[index] <= 'z')
+				shown[index] = (char)(shown[index] - 'a' + 'A');
+		}
+	}
 	text[0] = L'[';
 	for (index = 0; shown[index] && index < count - 3; index++)
 		text[index + 1] = (wchar_t)(unsigned char)shown[index];
@@ -440,7 +484,9 @@ boolean input_abstraction_port_icon_key(
 /* port: the keyboard's key for the multiplayer HUD's "Hold BACK for score"
 (game_engine.c): the word BACK becomes the scoreboard key, in quotes, as
 Halo PC words it ('Hold "Tab" for score'), while the prompts show the keys;
-a controller's stays the Xbox's, BACK with none */
+in capitals and without quotes with the Chupathingy menus ("Hold TAB for
+score", as the Xbox's BACK: input_abstraction_port_prompt_capitals); a
+controller's stays the Xbox's, BACK with none */
 void input_abstraction_port_back_word(
 	wchar_t *message,
 	long count)
@@ -463,8 +509,10 @@ void input_abstraction_port_back_word(
 	/* (the key without its brackets: the sentence names it) */
 	for (key_length = 0; key[key_length + 1] && key[key_length + 1] != L']'; key_length++)
 		;
-	/* (quoted, unless the text quotes it already) */
-	quotes = start > 0 && start + 4 < length && message[start - 1] == L'"' && message[start + 4] == L'"' ? 0 : 2;
+	/* (quoted, unless the text quotes it already, or the key is in
+	capitals: "Hold TAB for score") */
+	quotes = input_abstraction_port_prompt_capitals() ||
+		(start > 0 && start + 4 < length && message[start - 1] == L'"' && message[start + 4] == L'"') ? 0 : 2;
 	if (start + 4 > length || length - 4 + key_length + quotes >= count)
 		return;
 	memmove(message + start + key_length + quotes, message + start + 4, (length - start - 4 + 1) * sizeof(wchar_t));
@@ -1018,6 +1066,22 @@ void input_abstraction_update(
 }
 
 /* ---------- private code */
+
+/* port: whether the controller's local player sits in a vehicle's seat */
+static boolean local_player_is_seated(
+	short controller_index)
+{
+	long player_index;
+	struct player_datum *player;
+	struct unit_datum *unit;
+
+	if (controller_index < 0 || controller_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+		return FALSE;
+	player_index = local_player_get_player_index(controller_index);
+	player = player_index != NONE ? player_try_and_get(player_index) : NULL;
+	unit = player ? unit_try_and_get(player->unit_index) : NULL;
+	return unit && unit->object.parent_object_index != NONE && unit->unit.parent_seat_index != NONE;
+}
 
 static boolean local_player_is_piloting_aircraft(
 	short controller_index)

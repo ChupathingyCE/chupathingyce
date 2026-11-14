@@ -9,7 +9,7 @@ stands takes the game's 3D path: its distance, its pan or Headphone 3D, and
 the room's reverb.
 
 Opus is set up as OpenCE's voice sets it up, so that a frame can pass
-between the two unchanged later (docs/delta.md, "Voice bridge (planned)"):
+between the two unchanged if a bridge is ever built:
 48 kHz mono, 20 ms frames, VOIP with the voice signal, variable bitrate at
 the host's quality (8 to 64 kbps, 24 unless the host says), in-band FEC for
 10% loss, complexity 5, and each frame no bigger than the host's cap.

@@ -19,38 +19,39 @@ setup_entry.xml's. -->
 		<child widget="chupathingy/prompts/a" x="490" y="414"/>
 		<child widget="chupathingy/prompts/select" x="512" y="414"/>
 	</widget>
-	<!-- (its rows 28 apart, and SAVE CHANGES under its line at the
-	bottom; CONTROLS, DISPLAY, AUDIO and ONLINE open their pages, DISPLAY's and
-	ONLINE's with nested lists of more) -->
+	<!-- (its rows 33 apart, as the Xbox's EDIT PROFILE SETTINGS has its
+	rows (and Halo PC's), and SAVE CHANGES under its line at the bottom;
+	CONTROLS SETUP, VIDEO SETUP, AUDIO SETUP and NETWORK SETUP open their
+	pages, VIDEO SETUP's and NETWORK SETUP's with nested lists of more) -->
 	<widget name="chupathingy/settings/list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items" description="chupathingy/settings/description">
 		<data input="plyr prof edit select menu upd8"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/name_profile_item"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/color_profile_item" y="-171"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/color_profile_item" y="-166"/>
 		<child widget="chupathingy/settings/controls_item"/>
 		<child widget="chupathingy/settings/display_item"/>
 		<child widget="chupathingy/settings/audio_settings_item"/>
 		<child widget="chupathingy/settings/online_item"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/about_item" y="-64"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/about_item" y="-34"/>
 		<child widget="chupathingy/settings/setup_entry"/>
 		<child widget="chupathingy/settings/save_item"/>
 	</widget>
 	<!-- (the rows that open a list of pages or a page: chupathingy/settings_pages.xml) -->
-	<widget name="chupathingy/settings/controls_item" type="text" left="51" top="134" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="12" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+	<widget name="chupathingy/settings/controls_item" type="text" left="51" top="144" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="12" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
 		<on event="a" open="chupathingy/settings/controls_setup_screen"/>
 		<on event="start" open="chupathingy/settings/controls_setup_screen"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<widget name="chupathingy/settings/display_item" type="text" left="51" top="162" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="13" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+	<widget name="chupathingy/settings/display_item" type="text" left="51" top="177" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="13" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
 		<on event="a" open="chupathingy/settings/video_settings_screen"/>
 		<on event="start" open="chupathingy/settings/video_settings_screen"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<widget name="chupathingy/settings/audio_settings_item" type="text" left="51" top="190" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="14" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+	<widget name="chupathingy/settings/audio_settings_item" type="text" left="51" top="210" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="14" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
 		<on event="a" open="chupathingy/settings/audio_settings_screen"/>
 		<on event="start" open="chupathingy/settings/audio_settings_screen"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<widget name="chupathingy/settings/online_item" type="text" left="51" top="218" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="15" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+	<widget name="chupathingy/settings/online_item" type="text" left="51" top="243" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="15" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
 		<on event="a" open="chupathingy/settings/network_setup_screen"/>
 		<on event="start" open="chupathingy/settings/network_setup_screen"/>
 		<on event="left_mouse" run="mouse emit accept event"/>

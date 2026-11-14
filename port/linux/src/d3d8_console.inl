@@ -1238,8 +1238,10 @@ static void cr_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOL
 
 	if (!cr_bind_targets(&has_depth))
 		return;
+	/* (and the channels named: the fog screen clears the 3D view's alpha
+	alone, D3DCLEAR_TARGET_A, under the picture it fogs) */
 	if (flags & D3DCLEAR_TARGET)
-		clear |= 1;
+		clear |= 1 | (flags & D3DCLEAR_TARGET);
 	if (has_depth && (flags & D3DCLEAR_ZBUFFER))
 		clear |= 2;
 	if (has_depth && (flags & D3DCLEAR_STENCIL))

@@ -17,6 +17,7 @@ Register values are clamped to [-1, 1] between stages, as on the hardware.
 
 #include "plasma_model_shader.h"
 #include "xgpu.h"
+#include "xgpu_tone_map.h"
 #include "port_config.h"
 #include "mcc_environment_shader.h"
 
@@ -375,6 +376,22 @@ static void sample(struct xgpu_text *text, const struct nv2a_pixel_shader_key *k
 	}
 }
 
+/* texture 0's texel read as the high-res text's distance field
+(nv2a_pixel_shader_key's text_fields): the median of red, green and blue is
+the distance to the glyph's edge, 0.5 on it; it is made the coverage of the
+edge over one pixel of the screen (XGPU_TEXT_FIELD_RANGE texels of the field
+are as many pixels as the lookup's derivatives make them, at least one), the
+texel white with that alpha, as the maps' fonts' are */
+static void text_fields_decode(struct xgpu_text *text, const char *coordinates)
+{
+	xgpu_text_append(text,
+		"\t{\n\t\tvec2 uv = (%s).xy * texture_scale[0].xy * vec2(textureSize(tex0, 0));\n"
+		"\t\tvec2 texels = max(fwidth(uv), vec2(1e-6));\n"
+		"\t\tfloat pixels = max(" XGPU_TEXT_FIELD_RANGE_TEXT " * 0.5 * (1.0 / texels.x + 1.0 / texels.y), 1.0);\n"
+		"\t\tfloat field_distance = max(min(t0.r, t0.g), min(max(t0.r, t0.g), t0.b));\n"
+		"\t\tt0 = vec4(1.0, 1.0, 1.0, clamp((field_distance - 0.5) * pixels + 0.5, 0.0, 1.0));\n\t}\n", coordinates);
+}
+
 static void texture_stage(struct xgpu_text *text, const struct nv2a_pixel_shader_key *key, int stage)
 {
 	const DWORD *state = key->combiner_state;
@@ -406,6 +423,8 @@ static void texture_stage(struct xgpu_text *text, const struct nv2a_pixel_shader
 				"\t\tfloat threshold = texelFetch(tex0, pixel, 0).r;\n"
 				"\t\tif (threshold > 0.0) t0.rb = vec2(threshold);\n\t}\n", coordinates);
 		}
+		if (stage == 0 && key->text_fields && key->sampler_type[stage] == _xgpu_sampler_2d)
+			text_fields_decode(text, coordinates);
 		break;
 	case _mode_cubemap:
 		snprintf(coordinates, sizeof(coordinates), "xT%d", stage);
@@ -672,6 +691,9 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 		xgpu_text_append(&text, "uniform %s tex%d;\n", sampler_declaration(key->sampler_type[stage]), stage);
 	if (key->per_pixel_lighting)
 		model_lighting(&text, key->per_pixel_lighting == 2, key->plasma_model);
+	/* (display.hdr's glow: xgpu_tone_map.h) */
+	if (key->hdr)
+		xgpu_text_append(&text, XGPU_HDR_GLOW_GLSL);
 	xgpu_text_append(&text,
 		NV2A_FINITE
 		"float signed_byte(float x)\n"
@@ -803,6 +825,18 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 	/* (no component not a number: nv2a_finite, xgpu.h) */
 	xgpu_text_append(&text,
 		"\tresult = nv2a_finite(result);\n"
-		"\tfragment_color = clamp(result, 0.0, 1.0);\n}\n");
+		"\tfragment_color = clamp(result, 0.0, 1.0);\n");
+	/* (display.hdr: a glow's color brightened past white toward its
+	ceiling, after the clamp the NV2A gave every draw: xgpu_tone_map.h) */
+	if (key->hdr == _xgpu_hdr_tag_weapon_glow)
+		xgpu_text_append(&text, "\tfragment_color.rgb = hdr_glow(fragment_color.rgb, " XGPU_HDR_GLOW_KNEE ", "
+			XGPU_HDR_WEAPON_CEILING ");\n");
+	else if (key->hdr == _xgpu_hdr_tag_hud_glow)
+		xgpu_text_append(&text, "\tfragment_color.rgb = hdr_glow(fragment_color.rgb, " XGPU_HDR_GLOW_KNEE ", "
+			XGPU_HDR_HUD_CEILING ");\n");
+	else if (key->hdr == _xgpu_hdr_tag_light)
+		xgpu_text_append(&text, "\tfragment_color.rgb = hdr_glow(fragment_color.rgb, " XGPU_HDR_LIGHT_KNEE ", "
+			XGPU_HDR_LIGHT_CEILING ");\n");
+	xgpu_text_append(&text, "}\n");
 	return text.buffer;
 }

@@ -729,12 +729,17 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 		SCREEN_GEOMETRY_VERTEX_TYPE,
 		SCREEN_GEOMETRY_VERTEX_SHADER_PERMUTATION);
 
+	/* port: a meter flashing glows past paper white, with display.hdr
+	(port/linux/src/d3d8_gl.c, xgpu_tone_map.h) */
+	halo_hdr_draw_kind(meter && (meter->flash_color & 0x00FFFFFF) && !meter->flash_color_is_negative ?
+		HALO_HDR_KIND_HUD_GLOW : HALO_HDR_KIND_NONE);
 	IDirect3DDevice8_Begin(global_d3d_device, D3DPT_TRIANGLEFAN);
 	for (vertex_index = 0; vertex_index < NUMBER_OF_VERTICES_PER_QUADRILATERAL; vertex_index++)
 	{
 		submit_screen_vertex(&vertices[vertex_index]);
 	}
 	IDirect3DDevice8_End(global_d3d_device);
+	halo_hdr_draw_kind(HALO_HDR_KIND_NONE);
 
 	/* port: a meter's stages past the Xbox's four (the smoothed edges' and a
 	Halo PC meter's, above) taken back out of the shared pixel shader, which

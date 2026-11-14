@@ -2920,6 +2920,26 @@ waits for every machine to have loaded it */
 the host's crossing switches the BSP */
 #define COOP_HOST_WAIT_MESSAGE_TICKS (3 * TICKS_PER_SECOND)
 
+/* port: network co-op: player_teleport where it has found no room for the
+player beside the unit, with the other players left out of the test, so the
+player may stand in them (as coop_scripts.c's teleports do; players pass
+through each other until they are apart). Only where the alternative is a
+player outside the loaded structure BSP, where they would fall out of the
+world. From the OpenH1 team's fix (g0atbutt, OpenH1 b3694d50). */
+static boolean players_coop_teleport_stacked(
+	long player_index,
+	long source_unit_index,
+	real_point3d const *position)
+{
+	boolean result;
+
+	biped_fix_ignore_players(TRUE);
+	result = player_teleport(player_index, source_unit_index, position);
+	biped_fix_ignore_players(FALSE);
+
+	return result;
+}
+
 /* Co-op host, each tick: a player stranded for COOP_STRANDED_TICKS is moved
 beside a grounded teammate inside the BSP, else any teammate inside it, else
 to the last checkpoint. Skipped while scripts hold the controls, since
@@ -2956,6 +2976,12 @@ static void players_coop_rescue_stranded(
 		{
 			rescued = player_teleport(iterator.datum_index, teammate_index,
 				&object_get(teammate_index)->object.bounding_sphere_center);
+			/* (in them where there is no room beside them) */
+			if (!rescued)
+			{
+				rescued = players_coop_teleport_stacked(iterator.datum_index, teammate_index,
+					&object_get(teammate_index)->object.bounding_sphere_center);
+			}
 		}
 		else
 		{
@@ -3384,6 +3410,14 @@ static void player_teleport_on_bsp_switch(
 				crosser, so the rest go beside whoever is already in */
 				if (!teleport_succeeded && network_coop_active())
 					teleport_succeeded = player_place_beside_teammate(player_index);
+				/* port: and where nobody has room, onto the crosser,
+				standing in them (players_coop_teleport_stacked): left
+				where they were, they would be outside the new BSP */
+				if (!teleport_succeeded && network_coop_active() && source_unit_index != NONE)
+				{
+					teleport_succeeded = players_coop_teleport_stacked(player_index, source_unit_index,
+						&object_get(source_unit_index)->object.bounding_sphere_center);
+				}
 			}
 			else
 			{

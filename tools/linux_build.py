@@ -311,6 +311,11 @@ def musl_math_cflags(abi: str) -> str:
 # port/linux/game/ui_map_list.c, map_packs.c; HALO_MAP_LIST), which the
 # original Xbox's build has too (port/xbox/build.py).
 CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION", "-DHALO_MAP_LIST"]
+# ... and the mods folder (port/linux/game/mods.c, mod_sounds.c and
+# port/linux/src/port_mods.c, which need SDL3 and tomlc17): the desktop
+# builds and Android. A console port that takes CUSTOM_EDITION_DEFINES (the
+# Switch) leaves it out until it builds those units too
+MODS_DEFINES = ["-DHALO_MODS"]
 # ... and on the desktop builds alone (Linux, macOS, Windows and the
 # dedicated server), those maps compressed with Chimera's chimera-compress
 # (port/linux/src/map_compressed.c, with ZSTD_SOURCES). The consoles that
@@ -615,7 +620,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     # does not, so that an overrun nobody has met cannot end a game)
     abi = " ".join(_retarget(LINUX_ABI_FLAGS, units.target_flags) + target
                    + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
-                   + browser_defines + CUSTOM_EDITION_DEFINES + COMPRESSED_MAP_DEFINES + units.extra_flags
+                   + browser_defines + CUSTOM_EDITION_DEFINES + MODS_DEFINES + COMPRESSED_MAP_DEFINES + units.extra_flags
                    + units.ffmpeg[0])
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"

@@ -1,7 +1,7 @@
 /*
 CONTROL_LINK_PROTOCOL.H
 
-Delta Control's link to the Chupathingy site as bytes (docs/delta.md, Delta
+Delta Control's link to the Chupathingy site as bytes (docs/delta/control.md, Delta
 Control; control_link.c does the requests and the thread): the server's
 signed requests (Ed25519, Monocypher's crypto_ed25519_sign), the site's
 answers' MACs (BLAKE2b keyed with the link's secret), a small strict JSON

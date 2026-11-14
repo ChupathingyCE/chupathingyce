@@ -31,6 +31,14 @@ char const *mcc_identity_local_name(char const *name);
 int mcc_identity_check(char const *name);
 int mcc_identity_loaded(char const *name, struct mcc_runtime *runtime);
 int mcc_content_probe(char const *name, unsigned char digest[32]);
+/* chester (GulchCE): name's package against the host's digest, with each of
+this machine's base resource sets in turn: 1 and the sets chosen, 0 for no
+match, -1 if it can't be read (reason says why) */
+int mcc_content_match(char const *name, unsigned char const digest[32], char paths[2][128],
+    char *reason, unsigned long reason_size);
+/* the joined game's chosen base resource sets for name's map: 0 for the
+loader's own choice */
+int mcc_identity_resources(char const *name, char paths[2][128]);
 int mcc_resources_fingerprint(struct mcc_runtime *runtime, unsigned char digest[32]);
 int mcc_resources_fingerprint_probe(char const *name, struct mcc_cache_source const *source,
     unsigned char digest[32]);

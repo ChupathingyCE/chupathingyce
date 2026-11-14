@@ -125,6 +125,7 @@ symbols in this file:
 #include "cluster_partitions.h"
 #include "mcc_cache.h"
 #include "mcc_checkpoint.h"
+#include "stubbs_regions.h"
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_invalidate(void);
 /* port: hs_runtime.c's and hs_globals_external.c's (game_state_image_accept) */
@@ -218,7 +219,10 @@ static game_state_after_load_proc after_load_procs[] =
 	game_state_set_revert_time,
 	player_control_fix_for_loaded_game_state,
 	director_initialize_for_saved_game,
-	scripted_hud_messages_clear
+	scripted_hud_messages_clear,
+	/* port: Stubbs mode's region rows start again from the objects put back
+	(port/linux/game/stubbs_regions.c) */
+	stubbs_regions_forget
 };
 
 /* ---------- public code */

@@ -20,6 +20,11 @@ void console_initialize(void);
 void console_initialize_for_new_map(void);
 void console_open(void);
 void console_close(void);
+#ifndef HALO_XBOX_CONSOLE
+/* port: the controllers while the console is open (console.c), each frame
+before the game and the menus read them */
+void console_input_update(void);
+#endif
 boolean console_is_active(void);
 void console_printf(boolean clear, const char *format, ...);
 void console_warning(const char *format, ...);

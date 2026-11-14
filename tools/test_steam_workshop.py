@@ -381,6 +381,45 @@ def test_map_text(tool, tmp_path):
     assert run(tool, "map", path)[0]["ok"] == "0"
 
 
+# a scenario whose file name is only dots once its .map is taken off, or
+# that no system can hold as a file name (#1277)
+@pytest.mark.parametrize("scenario", ["levels\\...map", "levels\\..map", "....map", "...", "maps\\x..map",
+                                      "maps\\name.", "maps\\name .map", "maps\\ name", "maps\\a*b",
+                                      "maps\\a?b.map", "maps\\a|b", "maps\\a<b>", "maps\\a\"b",
+                                      "maps\\con.map", "maps\\NUL", "maps\\com1.map", "maps\\LPT9",
+                                      "maps\\aux.x.map", "maps\\a\x7fb"])
+def test_map_refuses_names_that_are_not_plain_files(tool, tmp_path, scenario):
+    path = tmp_path / "map.json"
+    path.write_text(json.dumps({"ScenarioFile": scenario}))
+    assert run(tool, "map", path)[0]["ok"] == "0", scenario
+
+
+@pytest.mark.parametrize("scenario,name", [("maps\\h1.ctf.map", "h1.ctf"), ("x\\.hidden.map", ".hidden"),
+                                           ("a\\b\\Combat Revolved v2.map", "Combat Revolved v2"),
+                                           ("console.map", "console"), ("com10.map", "com10")])
+def test_map_keeps_plain_names_with_dots_and_spaces(tool, tmp_path, scenario, name):
+    path = tmp_path / "map.json"
+    path.write_text(json.dumps({"ScenarioFile": scenario}))
+    fields, _ = run(tool, "map", path)
+    assert (fields["ok"], fields["name"]) == ("1", name)
+
+
+@pytest.mark.parametrize("thumbnail", ["images/..png", "images\\con.png", "images/a:b.png", "images/x./y.png",
+                                       "images//y.png"])
+def test_map_preview_paths_stay_plain(tool, tmp_path, thumbnail):
+    path = tmp_path / "map.json"
+    path.write_text(json.dumps({"ScenarioFile": "x", "Images": {"Thumbnail": thumbnail}}))
+    fields, _ = run(tool, "map", path)
+    assert fields["ok"] == "1" and fields["thumbnail"] == "", thumbnail
+
+
+@pytest.mark.parametrize("bad", ["maps\\x..json", "maps\\nul.json", "maps\\a:b.json", "maps\\x.\\a.json"])
+def test_item_refuses_map_paths_with_odd_names(tool, tmp_path, bad):
+    path = tmp_path / "ModInfo.json"
+    path.write_text(item_json(GameModContents={"MultiplayerMaps": [bad]}))
+    assert run(tool, "item", path)[0]["ok"] == "0"
+
+
 def test_library_list(tool, tmp_path):
     path = tmp_path / "libraryfolders.vdf"
     path.write_text('"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"/opt/user/.local/share/Steam"\n'

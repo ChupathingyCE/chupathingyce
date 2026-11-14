@@ -2,7 +2,7 @@
 the certificates, the signed messages, the requests' text and the
 schedule), with the build machine's C compiler and Monocypher, and checks
 that the C test's vectors are port/linux/tests/identity_vectors.json's (the
-ones docs/delta.md shows, and the site's and command's tests check)."""
+ones docs/delta/link.md shows, and the site's and command's tests check)."""
 import json
 import re
 import shutil
@@ -102,7 +102,7 @@ def test_identity_32_bit(tmp_path):
 
 
 def test_delta_names_rules():
-    """The owner's rules for names on Delta (docs/delta.md, "Verified
+    """The owner's rules for names on Delta (docs/delta/peer.md, "Verified
     names"): the @ mark on by default; a Halo profile linked to a Delta
     profile joins under its handle; a guest's games are never claimed or
     reported for a profile."""
@@ -119,7 +119,7 @@ def test_delta_names_rules():
 
 def test_names_read_the_same_everywhere():
     """A player on Delta reads by the same name in chat, the kill feed, the
-    quit line and under the crosshair as on the scoreboard (docs/delta.md,
+    quit line and under the crosshair as on the scoreboard (docs/delta/peer.md,
     "Verified names"): each goes through profile_names_player."""
     chat = (ROOT / "port" / "linux" / "game" / "chat.c").read_text()
     heard = chat[chat.index("static void line_heard("):]

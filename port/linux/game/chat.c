@@ -1,7 +1,7 @@
 /*
 CHAT.C
 
-Text chat between Chupathingy machines (chat.h; docs/delta.md, Chat), over
+Text chat between Chupathingy machines (chat.h; docs/delta/peer.md, Chat), over
 Delta Peer (delta_chat_game.h), and bridged to OpenCE's own text chat
 (delta_chat_bridge.h), which goes over the game's distributed messages.
 OpenCE machines never agree to Delta's chat capability; a host sends them
@@ -81,6 +81,7 @@ keeps fewer lines. HALO_CONSOLE_NO_CHAT leaves all of it out.
 #include "halo_keyboard.h"
 #include "network_coop.h"
 #include "network_distributed.h"
+#include "opence_welcome.h"
 #include "../src/delta_chat.h"
 #include "../src/delta_chat_bridge.h"
 #include "../src/delta_chat_game.h"
@@ -231,6 +232,13 @@ static struct
 #ifdef CHAT_HOST
 	boolean welcomed[MACHINES];
 	struct delta_chat_filter host_filter;
+	/* the line to OpenCE players that this is a Chupathingy game: on (set:
+	a dedicated server's; else a player's host's network.opence_welcome),
+	its text (empty: the default), and who was sent it */
+	boolean opence_welcome_set;
+	boolean opence_welcome_on;
+	char opence_welcome_text[OPENCE_WELCOME_TEXT_SIZE];
+	struct opence_welcome opence_welcome;
 #endif
 	int (*moderator_check)(int machine_index);
 	/* the part played last frame (a new game starts the log's state again) */
@@ -845,6 +853,64 @@ static void host_welcome(void)
 	}
 }
 
+/* the line to each OpenCE machine (one with no Delta session once its
+handshake's window is over) that this is a Chupathingy game, once a join, a
+few seconds after its player first spawns (opence_welcome.h), as the game's
+notice (OpenCE's servers' server messages: their client shows it in its
+chat whatever its chat's own state); a Delta machine never. With it off,
+who is here is still followed, so turning it on tells those who come next
+and those here now. */
+static void host_opence_welcome(void)
+{
+	struct network_game *game = chat_game();
+	short local = network_game_client_get_local_machine_index();
+	boolean present[MACHINES], spawned[MACHINES];
+	boolean on = (boolean)chat_host_opence_welcome();
+	unsigned long now = system_milliseconds();
+	struct data_iterator iterator;
+	struct player_datum *player;
+	long index;
+
+	csmemset(present, 0, sizeof(present));
+	csmemset(spawned, 0, sizeof(spawned));
+	if (game)
+	{
+		for (index = 0; index < HALO_PORT_MAXIMUM_NETWORK_PLAYERS; index++)
+		{
+			short machine = game->players[index].machine_index;
+
+			if (network_player_is_valid(&game->players[index]) && machine >= 0 && machine < MACHINES &&
+				machine != local)
+			{
+				present[machine] = TRUE;
+			}
+		}
+	}
+	if (game_in_progress() && player_data)
+	{
+		data_iterator_new(&iterator, player_data);
+		while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		{
+			short machine = player->network_player_data.machine_index;
+
+			if (!player->quit_out_of_game && player->unit_index != NONE && machine >= 0 && machine < MACHINES)
+				spawned[machine] = TRUE;
+		}
+	}
+	for (index = 0; index < MACHINES; index++)
+	{
+		int session = present[index] ? delta_peer_game_machine_session((int)index) : -1;
+		int kind = !on || session < 0 ? _opence_welcome_unknown : session ? _opence_welcome_delta :
+			_opence_welcome_opence;
+
+		if (opence_welcome_due(&chat.opence_welcome, (int)index, present[index], kind, spawned[index], now))
+		{
+			distributed_send_notice_to_machine(index, chat_host_opence_welcome_text());
+			platform_log("chat: the OpenCE welcome sent to machine %ld", index);
+		}
+	}
+}
+
 void chat_host_set(int mode, int filter)
 {
 	chat.host_set = TRUE;
@@ -883,6 +949,36 @@ void chat_host_set_welcome(char const *text)
 char const *chat_host_welcome(void)
 {
 	return chat.host_welcome;
+}
+
+void chat_host_set_opence_welcome(int on, char const *text)
+{
+	char copy[sizeof(chat.opence_welcome_text)];
+
+	/* text may be chat_host_opence_welcome_text() itself: copy it before
+	clearing */
+	copy[0] = 0;
+	if (text && opence_welcome_text_valid(text))
+		snprintf(copy, sizeof(copy), "%s", text);
+	chat.opence_welcome_set = TRUE;
+	chat.opence_welcome_on = on != 0;
+	memcpy(chat.opence_welcome_text, copy, sizeof(copy));
+}
+
+int chat_host_opence_welcome(void)
+{
+	if (chat.opence_welcome_set)
+		return chat.opence_welcome_on;
+#ifndef HALO_SERVER
+	return config_boolean("network.opence_welcome");
+#else
+	return 0;
+#endif
+}
+
+char const *chat_host_opence_welcome_text(void)
+{
+	return chat.opence_welcome_text[0] ? chat.opence_welcome_text : opence_welcome_default_text;
 }
 
 void chat_host_set_legacy(int legacy)
@@ -1787,6 +1883,7 @@ void chat_update(void)
 		chat.said_no_host = FALSE;
 #ifdef CHAT_HOST
 		csmemset(chat.welcomed, 0, sizeof(chat.welcomed));
+		opence_welcome_reset(&chat.opence_welcome);
 #endif
 		chat.mute_count = 0;
 		chat.test_next = NULL;
@@ -1806,6 +1903,7 @@ void chat_update(void)
 	{
 		host_settings();
 		host_welcome();
+		host_opence_welcome();
 		bridge_host_frame();
 	}
 #endif

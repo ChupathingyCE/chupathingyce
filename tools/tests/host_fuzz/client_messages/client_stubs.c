@@ -115,6 +115,8 @@ long display_error(void);
 long display_error(void) { return 0; }
 long display_error_text_deferred(void);
 long display_error_text_deferred(void) { return 0; }
+long display_error_text_when_main_menu_loaded(void);
+long display_error_text_when_main_menu_loaded(void) { return 0; }
 long display_error_when_main_menu_loaded(void);
 long display_error_when_main_menu_loaded(void) { return 0; }
 long game_connection_set(void);
@@ -145,6 +147,11 @@ long game_set_game_variant(void);
 long game_set_game_variant(void) { return 0; }
 long game_set_game_variant_options(void);
 long game_set_game_variant_options(void) { return 0; }
+long game_set_game_mode_options(void);
+long game_set_game_mode_options(void) { return 0; }
+static unsigned char stub_mode_options[16];
+unsigned char const *network_game_mode_options(void);
+unsigned char const *network_game_mode_options(void) { return stub_mode_options; }
 long game_time_end(void);
 long game_time_end(void) { return 0; }
 long game_time_set_distributed(void);
@@ -255,3 +262,13 @@ long network_distributed_mcc_share_message(void);
 long network_distributed_mcc_share_message(void) { return 0; }
 long stubbs_multiplayer_join_refused(void);
 long stubbs_multiplayer_join_refused(void) { return 0; }
+long mcc_level_name(void);
+long mcc_level_name(void) { return 0; }
+long cache_files_map_loadable(void);
+long cache_files_map_loadable(void) { return 0; }
+long game_precache_new_map_refusable(void);
+long game_precache_new_map_refusable(void) { return 0; }
+long errors_clear(void);
+long errors_clear(void) { return 0; }
+long main_goto_main_menu(void);
+long main_goto_main_menu(void) { return 0; }

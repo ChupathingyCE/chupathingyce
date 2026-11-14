@@ -6,7 +6,7 @@ game's host through signalling (PROBE), the host answers with its addresses
 (PROBE_ANSWER, signed), and the prober pings the host's tunnel socket with
 small datagrams bound to the probe's id, which the host answers with the
 same bytes. A probe is never a peer: no session, no slot, nothing the game
-sees. docs/delta.md, "Pings before joining".
+sees. docs/delta/list.md, "Pings before joining".
 
 This unit is the part without sockets, clocks or keys: the formats, the
 host's table of probes and the prober's, each given the time. p2p.c and

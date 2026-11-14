@@ -1685,10 +1685,9 @@ static void cache_copy_run_decompression(
 		if (zlib_result == Z_STREAM_END &&
 			zlib_stream->total_out != (uLong)(self->header.size - sizeof(self->header)))
 		{
-			match_vassert(
-				"c:\\halo\\SOURCE\\cache\\cache_files_decompress_windows.c",
-				1248,
-				FALSE,
+			/* port: logged, not asserted: a damaged map file is refused
+			(game_precache_new_map_refusable), where the Xbox's stopped */
+			error(_error_silent, "%s",
 				csprintf(
 					decompressor_globals.message,
 					"decompression ended after %lu of %ld bytes",
@@ -1717,10 +1716,8 @@ static void cache_copy_run_decompression(
 			if (cache_copy_stop_requested())
 				break;
 
-			match_vassert(
-				"c:\\halo\\SOURCE\\cache\\cache_files_decompress_windows.c",
-				1248,
-				FALSE,
+			/* port: (logged, not asserted: as above) */
+			error(_error_silent, "%s",
 				csprintf(
 					decompressor_globals.message,
 					"decompression fucked up with error code (%d), msg '%s'",

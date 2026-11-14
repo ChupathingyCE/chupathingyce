@@ -17,6 +17,9 @@ ATTRACT_MODE.C
 #include "errors.h"
 #include "event_manager.h"
 #include "network_game_globals.h"
+#ifdef HALO_MAP_LIST
+#include "halo_map_packs.h"
+#endif
 
 /* ---------- constants */
 
@@ -163,6 +166,15 @@ const char *attract_mode_get_localized_movie_path(
 			break;
 		}
 
+#ifdef HALO_MAP_LIST
+		/* port: with a map pack's own menus (game.pack_menus: Halo CE+'s),
+		the pack's own movie, from the bink folder beside its ui.map, when it
+		has one; else the game's, as always (halo_map_packs.h) */
+		if (!attempted_languages && map_pack_menus_movie_path(bss_00453ae8, bss_00453ae8, NUMBEROF(bss_00453ae8)))
+		{
+			break;
+		}
+#endif
 		if (file_exists(file_reference_create_from_path(&movie_file, bss_00453ae8, FALSE)))
 		{
 			break;

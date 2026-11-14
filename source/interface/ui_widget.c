@@ -715,6 +715,13 @@ boolean moderation_screen_active(void);
 void moderation_screen_update(boolean menu_open);
 void moderation_screen_process(void);
 void moderation_screen_render(void);
+/* port: the Chupathingy menus' game lobby over the Xbox's pregame screen
+(port/linux/game/lobby_screen.c, the game list's builds) */
+boolean lobby_screen_active(void);
+void lobby_screen_update(boolean menu_open);
+void lobby_screen_process(void);
+void lobby_screen_render(void);
+void lobby_screen_pointer(struct halo_ui_pointer const *pointer);
 /* the menus' pointer, while it is up (its own taps and clicks) */
 void browser_screen_pointer(struct halo_ui_pointer const *pointer);
 #ifndef HALO_CONSOLE_NO_CONTROLS
@@ -2476,7 +2483,8 @@ static boolean ui_widget_screens_of_code_active(
 	void)
 {
 #ifdef HALO_GAME_BROWSER
-	boolean active = invite_prompt_active() || browser_screen_active() || moderation_screen_active();
+	boolean active = invite_prompt_active() || browser_screen_active() || moderation_screen_active() ||
+		lobby_screen_active();
 
 #ifdef HALO_GUIDE
 	active = active || guide_active();
@@ -3979,16 +3987,19 @@ static short ui_widget_list_position(
 }
 
 #ifdef HALO_GAME_BROWSER
-/* ---------- SETUP (the Xbox's menus)
+/* ---------- MORE SETTINGS and SETUP (the Xbox's menus)
 
-A row of the Xbox's EDIT PROFILE SETTINGS, after CHANGE COLOR: back to the
-setup screen (port/linux/src/launcher.c), as the Gearbox and Chupathingy
-menus have it (port/assets/menus/chupathingy/setup_entry.xml). When the
-menus' tags load, the list gets a copy of CHANGE COLOR's row a row under
-it, and SAVE CHANGES and the line over it move down a row; the copy's text,
-its A and its description are this code's, told apart by its place.
-Not in a game's tags, nor with launcher.menu_entry false
-(pc_menu_setup_offered). */
+Rows of the Xbox's EDIT PROFILE SETTINGS, after CHANGE COLOR: MORE
+SETTINGS, the Guide's settings on MENU STYLE (the way back to the
+Chupathingy menus, and to the settings the Xbox's menus have no screen for:
+#1210), and SETUP, back to the setup screen (port/linux/src/launcher.c), as
+the Chupathingy menus have it (port/assets/menus/chupathingy/setup_entry.xml).
+When the menus' tags load, the list gets a copy of CHANGE COLOR's row for
+each, a row under it and under each other, and SAVE CHANGES and the line
+over it move down as many rows; the copies' text, their A and their
+descriptions are this code's, told apart by their place. Not in a game's
+tags; MORE SETTINGS with the Guide (HALO_GUIDE), SETUP unless
+launcher.menu_entry is false (pc_menu_setup_offered). */
 
 #define SETUP_ENTRY_LIST "ui\\shell\\main_menu\\settings_select\\player_setup\\player_profile_edit\\profile_edit_select_list"
 #define SETUP_ENTRY_MAIN_MENU "ui\\shell\\main_menu\\main_menu"
@@ -4003,6 +4014,10 @@ enum
 	SETUP_ENTRY_COPIED = 3,
 	SETUP_ENTRY_SAVE = 4,
 	SETUP_ENTRY_POSITION = 4,
+	/* (the rows put in, in their order) */
+	_setup_entry_more_settings = 0,
+	_setup_entry_setup,
+	NUMBER_OF_SETUP_ENTRIES,
 };
 
 static struct
@@ -4010,8 +4025,11 @@ static struct
 	long list_tag;
 	long description_text_tag;
 	struct ui_widget_child_reference *children;
-	boolean described;
-} setup_entry = { NONE, NONE, NULL, FALSE };
+	/* the rows put in, in their order, and which one is described (NONE: none) */
+	short count;
+	short kinds[NUMBER_OF_SETUP_ENTRIES];
+	short described;
+} setup_entry = { NONE, NONE, NULL, 0, { 0 }, NONE };
 
 static void ui_widget_setup_entry_tags_loaded(
 	void)
@@ -4024,13 +4042,19 @@ static void ui_widget_setup_entry_tags_loaded(
 	struct ui_widget_child_reference *children;
 	long screen_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, SETUP_ENTRY_SCREEN);
 	long line_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, SETUP_ENTRY_LINE);
-	short row;
+	short row, count = 0;
 	long index;
 
 	setup_entry.list_tag = NONE;
 	setup_entry.description_text_tag = NONE;
+#ifdef HALO_GUIDE
+	setup_entry.kinds[count++] = _setup_entry_more_settings;
+#endif
+	if (pc_menu_setup_offered())
+		setup_entry.kinds[count++] = _setup_entry_setup;
+	setup_entry.count = count;
 	/* (the Xbox's menus' alone, at the main menu's) */
-	if (pc_menus_set() != 0 || !pc_menu_setup_offered() || list_tag == NONE ||
+	if (pc_menus_set() != 0 || !count || list_tag == NONE ||
 		tag_loaded(UI_WIDGET_DEFINITION_TAG, SETUP_ENTRY_MAIN_MENU) == NONE)
 	{
 		return;
@@ -4047,19 +4071,22 @@ static void ui_widget_setup_entry_tags_loaded(
 		ui_widget_definition_get(old_children[SETUP_ENTRY_COPIED - 1].widget_tag.index)->bounds.y0);
 	if (row <= 0 || row > 60)
 		return;
-	children = system_malloc((SETUP_ENTRY_ROWS + 1) * sizeof(*children));
+	children = system_malloc((SETUP_ENTRY_ROWS + count) * sizeof(*children));
 	setup_entry.children = children;
 	if (!children)
 		return;
 	csmemcpy(children, old_children, SETUP_ENTRY_POSITION * sizeof(*children));
-	children[SETUP_ENTRY_POSITION] = old_children[SETUP_ENTRY_COPIED];
-	children[SETUP_ENTRY_POSITION].vertical_offset += row;
-	children[SETUP_ENTRY_POSITION + 1] = old_children[SETUP_ENTRY_SAVE];
-	children[SETUP_ENTRY_POSITION + 1].vertical_offset += row;
+	for (index = 0; index < count; index++)
+	{
+		children[SETUP_ENTRY_POSITION + index] = old_children[SETUP_ENTRY_COPIED];
+		children[SETUP_ENTRY_POSITION + index].vertical_offset += (short)(row * (index + 1));
+	}
+	children[SETUP_ENTRY_POSITION + count] = old_children[SETUP_ENTRY_SAVE];
+	children[SETUP_ENTRY_POSITION + count].vertical_offset += (short)(row * count);
 	list->child_widgets.address = XBOX_ADDRESS(children);
-	list->child_widgets.count = SETUP_ENTRY_ROWS + 1;
+	list->child_widgets.count = SETUP_ENTRY_ROWS + count;
 	setup_entry.list_tag = list_tag;
-	/* the line over SAVE CHANGES, a row lower */
+	/* the line over SAVE CHANGES, as many rows lower */
 	if (screen_tag != NONE && line_tag != NONE)
 	{
 		struct ui_widget_definition *screen = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
@@ -4069,7 +4096,7 @@ static void ui_widget_setup_entry_tags_loaded(
 		for (index = 0; index < screen->child_widgets.count; index++)
 		{
 			if (screen_children[index].widget_tag.index == line_tag)
-				screen_children[index].vertical_offset += row;
+				screen_children[index].vertical_offset += (short)(row * count);
 		}
 	}
 }
@@ -4080,7 +4107,9 @@ static boolean ui_widget_setup_entry_list(
 	return setup_entry.list_tag != NONE && widget && widget->definition_tag_index == setup_entry.list_tag;
 }
 
-static boolean ui_widget_setup_entry_item(
+/* which row put in a widget is (_setup_entry_more_settings, _setup_entry_setup),
+or NONE */
+static short ui_widget_setup_entry_kind(
 	struct widget_instance *widget)
 {
 	short position = 0;
@@ -4089,25 +4118,47 @@ static boolean ui_widget_setup_entry_item(
 	if (setup_entry.list_tag == NONE || !widget || !widget->parent ||
 		widget->parent->definition_tag_index != setup_entry.list_tag)
 	{
-		return FALSE;
+		return NONE;
 	}
 	for (child = widget->parent->child; child && child != widget; child = child->next)
 		position++;
-	return child && position == SETUP_ENTRY_POSITION;
+	if (!child || position < SETUP_ENTRY_POSITION || position >= SETUP_ENTRY_POSITION + setup_entry.count)
+		return NONE;
+	return setup_entry.kinds[position - SETUP_ENTRY_POSITION];
+}
+
+static boolean ui_widget_setup_entry_item(
+	struct widget_instance *widget)
+{
+	return ui_widget_setup_entry_kind(widget) != NONE;
+}
+
+/* the row's words and its description's */
+static wchar_t const *ui_widget_setup_entry_label(
+	short kind)
+{
+	return kind == _setup_entry_more_settings ? L"MORE SETTINGS" : L"SETUP";
+}
+
+static wchar_t const *ui_widget_setup_entry_words(
+	short kind)
+{
+	return kind == _setup_entry_more_settings ? L"Menu style and the\r\nGuide's settings." :
+		L"Opens the setup screen.\r\nChupathingy restarts.";
 }
 
 /* the list's description for its focused item (ui_widget_game_data_input_
-functions.c): SETUP's words, the picture left as it was; SAVE CHANGES' own
-after it */
+functions.c): a row put in's words, the picture left as it was; SAVE
+CHANGES' own after them */
 short ui_widget_setup_entry_description(
 	struct widget_instance *list_widget,
 	short index)
 {
-	setup_entry.described = FALSE;
+	setup_entry.described = NONE;
 	if (!ui_widget_setup_entry_list(list_widget) || index < SETUP_ENTRY_POSITION)
 		return index;
-	if (index > SETUP_ENTRY_POSITION)
-		return (short)(index - 1);
+	if (index >= SETUP_ENTRY_POSITION + setup_entry.count)
+		return (short)(index - setup_entry.count);
 	if (list_widget->parameters.list.extended_description && list_widget->parameters.list.extended_description->child &&
 		list_widget->parameters.list.extended_description->child->next)
 	{
@@ -4116,7 +4167,7 @@ short ui_widget_setup_entry_description(
 		setup_entry.description_text_tag =
 			list_widget->parameters.list.extended_description->child->definition_tag_index;
 	}
-	setup_entry.described = TRUE;
+	setup_entry.described = setup_entry.kinds[index - SETUP_ENTRY_POSITION];
 	return NONE;
 }
 #endif
@@ -4351,8 +4402,8 @@ static void event_handler_dispatch(
 	}
 #endif
 #ifdef HALO_GAME_BROWSER
-	/* SETUP (CHANGE COLOR's row copied): the setup screen, none of CHANGE
-	COLOR's */
+	/* MORE SETTINGS and SETUP (CHANGE COLOR's row copied): the Guide's
+	settings on MENU STYLE, or the setup screen; none of CHANGE COLOR's */
 	if (ui_widget_setup_entry_item(widget))
 	{
 		if (handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start)
@@ -4360,7 +4411,16 @@ static void event_handler_dispatch(
 			extern boolean pc_menu_setup_open(void);
 
 			ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
-			pc_menu_setup_open();
+#ifdef HALO_GUIDE
+			if (ui_widget_setup_entry_kind(widget) == _setup_entry_more_settings)
+			{
+				extern void guide_open_setting(char const *key);
+
+				guide_open_setting("display.menus");
+			}
+			else
+#endif
+				pc_menu_setup_open();
 		}
 		return;
 	}
@@ -5908,6 +5968,27 @@ void network_game_reset_to_pregame_ui(
 		if (global_network_game_server_get())
 		{
 			network_game_server_pause_countdown(global_network_game_server_get(), TRUE);
+#ifdef HALO_GAME_BROWSER
+			/* port: the Chupathingy menus' host lands in its lobby (the
+			countdown held, CHANGE MAP there), as Halo 2's does
+			(port/linux/game/lobby_screen.c) */
+			{
+				boolean lobby_screen_host_returns_to_lobby(void);
+				void lobby_screen_hosted_opened(void);
+
+				if (lobby_screen_host_returns_to_lobby())
+				{
+					lobby_screen_hosted_opened();
+					if (!ui_widget_load_by_name_or_tag(
+						"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen",
+						NONE, NULL, NONE, NONE, NONE, NONE))
+					{
+						error(_error_silent, "failed to load networked pregame status screen");
+					}
+					return;
+				}
+			}
+#endif
 			/* port: with the PC version's menus, theirs (port/linux/game/menu_tags.c) */
 			if (!ui_widget_load_by_name_or_tag(
 				pc_menus_screen("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\connected_map_select_postgame_wrapper"),
@@ -6596,9 +6677,9 @@ static void widget_instance_render_text_box(
 #endif
 #ifdef HALO_GAME_BROWSER
 		else if (ui_widget_setup_entry_item(widget))
-			string = L"SETUP";
-		else if (setup_entry.described && widget->definition_tag_index == setup_entry.description_text_tag)
-			string = L"Opens the setup screen.\r\nChupathingy restarts.";
+			string = (wchar_t *)ui_widget_setup_entry_label(ui_widget_setup_entry_kind(widget));
+		else if (setup_entry.described != NONE && widget->definition_tag_index == setup_entry.description_text_tag)
+			string = (wchar_t *)ui_widget_setup_entry_words(setup_entry.described);
 #endif
 #ifdef HALO_CONSOLE_MAP_BROWSER
 		else if (ui_widget_map_browser_item(widget))
@@ -8508,6 +8589,8 @@ static void ui_widgets_process_mouse(
 		browser_screen_pointer(&pointer);
 	else if (pointer_active && !keyboard_active && moderation_screen_active())
 		moderation_screen_pointer(&pointer);
+	else if (pointer_active && !keyboard_active && lobby_screen_active())
+		lobby_screen_pointer(&pointer);
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	else if (pointer_active && !keyboard_active && controls_screen_active())
 		controls_screen_pointer(&pointer);
@@ -8801,6 +8884,33 @@ static short ui_widget_port_key_cap_shift(
 }
 #endif
 
+#ifdef HALO_GAME_BROWSER
+/* port: a screen's game data functions (ui_widget_game_data_input_
+functions.c), its own and its children's, as its drawing runs them, for a
+screen of code drawn in its place (the game lobby over the Xbox's pregame
+screen, whose functions join this machine's players to the game) */
+static void widget_instance_game_data_recursive(
+	struct widget_instance *widget)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(widget->definition_tag_index);
+	struct widget_instance *child;
+	long input_index;
+
+	for (input_index = 0; input_index < definition->game_data_inputs.count; input_index++)
+	{
+		struct ui_widget_game_data_input_reference *input =
+			(struct ui_widget_game_data_input_reference *)xbox_pointer(definition->game_data_inputs.address) +
+			input_index;
+
+		ui_widget_game_data_function_invoke(widget, input->function);
+	}
+	if (!widget->visible)
+		return;
+	for (child = widget->child; child; child = child->next)
+		widget_instance_game_data_recursive(child);
+}
+
+#endif
 static void widget_instance_render_recursive(
 	struct widget_instance *widget,
 	rectangle2d *clip_rect,
@@ -9180,6 +9290,14 @@ void render_ui_widgets(
 			it, an error dialog still is) */
 			if (should_render && browser_screen_active() && !widget->widget_is_error_dialog)
 				should_render = FALSE;
+			/* (the game lobby covers the Xbox's pregame screen the same way;
+			the screen's game data still runs, undrawn: its players joined
+			to the game, its teams and countdown) */
+			if (should_render && lobby_screen_active() && !widget->widget_is_error_dialog)
+			{
+				should_render = FALSE;
+				widget_instance_game_data_recursive(widget);
+			}
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
 			/* (Delta Profile's screen of code too; its dialogs alone are
 			drawn over the menus) */
@@ -9282,6 +9400,10 @@ void render_ui_widgets(
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 	if (browser_screen_active())
 		browser_screen_render();
+#ifdef HALO_GAME_BROWSER
+	else if (lobby_screen_active())
+		lobby_screen_render();
+#endif
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
 	profile_screen_render();
 #endif
@@ -10592,6 +10714,17 @@ void process_ui_widgets(
 
 		return;
 	}
+#ifdef HALO_GAME_BROWSER
+	/* port: the Chupathingy menus' game lobby, over the Xbox's pregame
+	screen (the game list's builds: lobby_screen.c) */
+	lobby_screen_update(widget_globals.active_widgets[0] != NULL);
+	if (lobby_screen_active())
+	{
+		lobby_screen_process();
+
+		return;
+	}
+#endif
 #endif
 	if (attract_mode_should_start())
 	{
@@ -10927,6 +11060,115 @@ long ui_widget_port_history_top(
 Chupathingy menus' Delta Profile), as an item of it would open it: back
 returns to it */
 boolean ui_widget_port_open(struct widget_instance *widget, char const *name, boolean *widget_deleted);
+
+/* port: the screen up (the first player's), NULL for none (lobby_screen.c
+asks whether it is the Xbox's pregame screen) */
+struct widget_instance *ui_widget_port_top_screen(
+	void)
+{
+	return widget_globals.active_widgets[0];
+}
+
+/* port: where the game lobby's B goes (lobby_screen.c): the screen the
+game came from, as Halo 2's lobby leaves to it, not back through the new
+game's setup screens. The screen (NONE: none known) and its focused item */
+static struct
+{
+	long screen;
+	long list;
+	short item;
+} lobby_origin = { NONE, NONE, NONE };
+
+char const *pc_menus_main_menu_name(void);
+
+/* as a lobby opens: a game joined from the game list (the Multiplayer
+menu on ONLINE GAMES); else, a game made here, the screen under its map
+select in the first player's history (ONLINE GAMES' or System Link's).
+None there: a lobby back from a game (its history gone) keeps the last
+one; any other (System Link's join) has its own history */
+void ui_widget_port_lobby_origin_set(
+	boolean joined_from_online_games)
+{
+	long map_select = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_MAP_SELECT);
+	struct widget_stack_node *node;
+	boolean found = FALSE;
+
+	if (joined_from_online_games)
+	{
+		lobby_origin.screen = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_SCREEN);
+		lobby_origin.list = online_games.list_tag;
+		lobby_origin.item = ONLINE_GAMES_POSITION;
+		return;
+	}
+	/* (the deepest: CHANGE MAP's map select is another screen) */
+	for (node = widget_globals.widget_stack[0]; map_select != NONE && node; node = node->next)
+	{
+		if (node->data.previous_widget_tag == map_select && node->next)
+		{
+			lobby_origin.screen = node->next->data.previous_widget_tag;
+			lobby_origin.list = node->next->data.focused_child_parent_widget_tag;
+			lobby_origin.item = node->next->data.focused_child_index;
+			found = TRUE;
+		}
+	}
+	if (!found && widget_globals.widget_stack[0])
+		lobby_origin.screen = NONE;
+}
+
+/* whether the lobby's B lands on the Multiplayer menu's ONLINE GAMES (the
+game list opens over it then) */
+boolean ui_widget_port_lobby_origin_online_games(
+	void)
+{
+	return lobby_origin.screen != NONE &&
+		lobby_origin.screen == tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_SCREEN) &&
+		lobby_origin.item == ONLINE_GAMES_POSITION;
+}
+
+/* before the lobby's B (the Xbox pregame screen's own, which goes back):
+the first player's history made to end on the origin, the screens above
+it (the map select, Select Gametype, GAME SETUP) dropped; not in the
+history, the main menu then the origin. The origin ends the game left
+behind as it opens (the Multiplayer menu, System Link's list) */
+void ui_widget_port_lobby_leave_history(
+	void)
+{
+	struct widget_stack_node **top = &widget_globals.widget_stack[0];
+	struct widget_stack_node *node;
+	struct widget_stack_node *deepest = NULL;
+	struct widget_stack_data data;
+	long main_menu = tag_loaded(UI_WIDGET_DEFINITION_TAG, pc_menus_main_menu_name());
+	short local_player_index = widget_globals.active_widgets[0] ?
+		widget_globals.active_widgets[0]->local_player_index : NONE;
+
+	if (lobby_origin.screen == NONE)
+		return;
+	for (node = *top; node; node = node->next)
+	{
+		if (node->data.previous_widget_tag == lobby_origin.screen)
+			deepest = node;
+	}
+	if (deepest)
+	{
+		while (*top != deepest)
+			pop_widget(top, &data);
+		return;
+	}
+	dispose_widget_stack(top);
+	if (main_menu != NONE && main_menu != lobby_origin.screen)
+	{
+		data.previous_widget_tag = main_menu;
+		data.focused_child_parent_widget_tag = NONE;
+		data.focused_child_index = NONE;
+		data.local_player_index = local_player_index;
+		push_widget(top, &data);
+	}
+	data.previous_widget_tag = lobby_origin.screen;
+	data.focused_child_parent_widget_tag = lobby_origin.list;
+	data.focused_child_index = lobby_origin.item;
+	data.local_player_index = local_player_index;
+	push_widget(top, &data);
+}
 
 boolean ui_widget_port_open_screen(
 	char const *name)

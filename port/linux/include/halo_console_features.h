@@ -65,7 +65,7 @@ HALO_CONSOLE_NO_MEDAL_ICONS
 	(HALO_GAME_BROWSER), which no console build has
 HALO_CONSOLE_NO_DELTA_IDENTITY
 	no device key, device certificate or site token (port/linux/src/
-	identity.c, browser.c; docs/delta.md, "Device identity"), and no
+	identity.c, browser.c; docs/delta/link.md, "Device identity"), and no
 	verified names in games (Delta Peer's identity capability, never
 	offered: "Verified names"): every console for now, until their own
 	endpoints come; the player key alone, and game names, as before
@@ -79,6 +79,10 @@ HALO_CONSOLE_NO_STUBBS
 	no Stubbs mode (port/linux/game/stubbs_mode.c: game.pack_menus =
 	"stubbs" with a maps_stubbs folder): every console, until the mode is
 	finished on the desktop and sized to each one's memory
+HALO_CONSOLE_SHADOW_MAP_MAXIMUM
+	the largest shadow map, in pixels a side (display.shadow_resolution is
+	held to it, d3d8_gl.c): the Xbox 360's 512, as its EDRAM holds no
+	1024x1024 maps beside the screen; consoles without it take any size
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads
@@ -338,7 +342,7 @@ HALO_CONSOLE_HOST_PLAYERS
 	the most players a game this console hosts takes, whatever its network
 	tables hold (HALO_CONSOLE_PLAYERS) and whatever Delta says: the original
 	Xbox hosts 16, on LAN or online, and joins games of up to 32 in its
-	builds of 32 (network_server_manager.c's hosted maximum; docs/delta.md,
+	builds of 32 (network_server_manager.c's hosted maximum; docs/delta/peer.md,
 	"Platform policy"). Without it a host takes as many as its tables hold
 HALO_CONSOLE_SERVER_CLOSE_GRACE
 	the original game's one-second wait when a hosted game ends, before the
@@ -473,6 +477,7 @@ larger maps take a campaign map's there as well) */
 #ifdef HALO_XBOX360_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
 #define HALO_CONSOLE_NO_WRITE_WATCH 1
+#define HALO_CONSOLE_GPU_RESOURCE_HOOKS 1
 #define HALO_CONSOLE_DEBUG_CHANNEL 1
 #define HALO_CONSOLE_HALT_TO_LAUNCHER 1
 #define HALO_CONSOLE_GL_LAYER 1
@@ -484,6 +489,9 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_MENU_PLATFORM "x360"
+/* (its shadow maps: 512x512 at most, beside the screen in its 10 MB of EDRAM;
+d3d8_gl.c) */
+#define HALO_CONSOLE_SHADOW_MAP_MAXIMUM 512
 #ifdef HALO_CONSOLE_DEBUG_TOOLS
 #define HALO_CONSOLE_BRINGUP_LOG 1
 #endif
@@ -542,6 +550,19 @@ them one day; the builds embed the 64-pixel one) */
 #endif
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_MEDAL_ICONS) && !defined(HALO_SERVER)
 #define HALO_MEDAL_ICONS 1
+#endif
+
+/* DKrumpp's HD buttons (port/assets/buttons_hd: the Duke's, PlayStation's
+and Switch's, gem and flat), the prompts' input.button_style and
+input.hud_buttons: the builds with the overlay's prompts (HALO_GAME_BROWSER)
+but the dedicated server's. Not on an OpenGL ES 2 console, whose icons are
+one texture of them stacked, 40 of them past its texture size; those keep
+the prompts they have */
+#if defined(HALO_CONSOLE_GLES2) && !defined(HALO_CONSOLE_NO_HD_BUTTONS)
+#define HALO_CONSOLE_NO_HD_BUTTONS 1
+#endif
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_HD_BUTTONS) && !defined(HALO_SERVER)
+#define HALO_HD_BUTTONS 1
 #endif
 
 /* screenshots and clips (port/linux/src/capture.c): the desktop builds'

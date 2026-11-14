@@ -89,6 +89,7 @@ static boolean cache_files_precache_map_begin(char const *name, boolean copy) {
 /* (a copy that never started never finishes) */
 static short cache_files_precache_map_status(real *progress) { (void)progress; status_asks++; return _cached_map_file_in_progress; }
 static void cache_files_precache_map_end(void) { ends++; }
+static void cache_files_precache_map_abandon(void) { ends++; }
 static void cache_files_precache_map_queue_end(void) {}
 static void cache_files_precache_set_priority(boolean b) { (void)b; }
 static void main_queue_map_name(char const *n) { (void)n; }
@@ -125,6 +126,10 @@ int main(int argc, char **argv)
 
 def precache_source(game_c):
     body = function(game_c, "game_precache_new_map")
+    # (its body is game_precache_map's, which a refused map's precache shares:
+    # game_precache_new_map_refusable)
+    if "game_precache_map(" in body:
+        body = function(game_c, "game_precache_map") + "\n" + body
     # (a void return, as before the fix, still compiles: its result is then 1)
     if body.startswith("void game_precache_new_map("):
         body = body.replace("void game_precache_new_map(", "void precache_void(", 1)

@@ -97,6 +97,19 @@ UI_FONT_FILES += list(PROMPT_FONTS.values())
 PROMPT_ICONS = [Path("port/assets/prompts") / f"{name}.png" for name in (
     "button-a", "button-b", "button-x", "button-y", "button-start", "trigger-left", "trigger-right", "bumper-left",
     "bumper-right", "button-back")]
+# then DKrumpp's HD buttons (port/assets/buttons_hd, tools/hd_button_assets.py),
+# in the builds with them (HALO_HD_BUTTONS: halo_console_features.h), in
+# ui_overlay.c's order (HD_ICON_*): the Duke's in his gem style (A, B, X, Y,
+# Start, LT, RT, white, black, Back), its face buttons flat, then the
+# PlayStation's and the Switch's face buttons, gem then flat
+HD_BUTTON_ICONS = [Path("port/assets/buttons_hd") / f"{name}.png" for name in (
+    "duke-a-gem", "duke-b-gem", "duke-x-gem", "duke-y-gem", "duke-start", "duke-trigger-left", "duke-trigger-right",
+    "duke-white", "duke-black", "duke-back",
+    "duke-a-flat", "duke-b-flat", "duke-x-flat", "duke-y-flat",
+    "ps-cross-gem", "ps-circle-gem", "ps-square-gem", "ps-triangle-gem",
+    "ps-cross-flat", "ps-circle-flat", "ps-square-flat", "ps-triangle-flat",
+    "switch-b-gem", "switch-a-gem", "switch-y-gem", "switch-x-gem",
+    "switch-b-flat", "switch-a-flat", "switch-y-flat", "switch-x-flat")]
 # the medals' icons (port/assets/medals, tools/medal_assets.py from the site's
 # medals): the 64-pixel atlas, in the builds with them (HALO_MEDAL_ICONS:
 # halo_console_features.h). The 32-pixel one is kept for a console later
@@ -226,7 +239,7 @@ def ui_fonts_build(n: Any, prefix: str, output: Path, sln: Any, prompt_fonts: Op
         description=f"{prefix.upper()} EMBED $out",
     )
     n.build(outputs=output, rule=f"{prefix}_embed_fonts",
-            implicit=[Path("tools/embed_assets.py"), FONT_LIST, *UI_FONT_FILES, *PROMPT_ICONS,
+            implicit=[Path("tools/embed_assets.py"), FONT_LIST, *UI_FONT_FILES, *PROMPT_ICONS, *HD_BUTTON_ICONS,
                       MEDAL_ATLAS])
     return [output]
 
@@ -286,20 +299,28 @@ def overlay_fonts(output: Path, embedded: List[Path]) -> None:
     # the prompts' icons, as their pixels (RGBA, rows from the top), each
     # square and of one size
     size = 0
-    for index, path in enumerate(PROMPT_ICONS):
+    for index, path in enumerate(PROMPT_ICONS + HD_BUTTON_ICONS):
         width, height, pixels = png_rgba((ROOT / path).read_bytes(), str(path))
         if width != height or (size and width != size):
             sys.exit(f"{path}: the prompts' icons must be square and of one size")
         size = width
+        if index == len(PROMPT_ICONS):
+            lines.append("#ifdef HALO_HD_BUTTONS")
         lines.append(f"static const unsigned int icon{index}[] = {{")
         lines.extend(words(pixels))
         lines.append("};")
         lines.append("")
-    lines.append("/* (ui_overlay.c's: the prompts' icons, each ui_prompt_icon_size square) */")
+    if HD_BUTTON_ICONS:
+        lines.append("#endif")
+    lines.append("/* (ui_overlay.c's: the prompts' icons, each ui_prompt_icon_size square;")
+    lines.append("DKrumpp's after them where the build has them) */")
     lines.append(f"const int ui_prompt_icon_size = {size};")
-    lines.append(f"const unsigned int *const ui_prompt_icons[{len(PROMPT_ICONS)}] =")
+    lines.append("const unsigned int *const ui_prompt_icons[] =")
     lines.append("{")
     lines.append("\t" + ", ".join(f"icon{index}" for index in range(len(PROMPT_ICONS))) + ",")
+    lines.append("#ifdef HALO_HD_BUTTONS")
+    lines.append("\t" + ", ".join(f"icon{len(PROMPT_ICONS) + index}" for index in range(len(HD_BUTTON_ICONS))) + ",")
+    lines.append("#endif")
     lines.append("};")
     lines.append("")
     # the medals' icons: one atlas, RGBA, rows from the top, a cell each

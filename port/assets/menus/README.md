@@ -188,3 +188,7 @@ map=...>`), else a placeholder, placed where the PC version's picture is in
 its frame (`--pictures`: only where, not the picture, is read);
 `NON_HANDDRAWN.md` lists both. It needs `rsvg-convert`, Pillow, NumPy and
 SciPy.
+
+`tools/xbox_menu_colors.py --ui-map .../ui.map` then gives the redraws the
+Xbox's own colors where they kept Halo PC's tint (the rows' backgrounds, the
+list items): run it after `tools/ce_menus.py` redraws them.

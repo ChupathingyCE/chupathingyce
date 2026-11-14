@@ -229,7 +229,7 @@ It is on by default; set `HALO_NET_REPORT_EVENTS=false` to turn it off:
 
 The log takes at most 2.4 MB of memory (the default limit), and a 15-minute
 game of 16 players is about a 30 KB upload (gzip); encoding and compressing
-even an hour's game takes a few milliseconds. The format and the upload are in docs/delta.md, "Delta
+even an hour's game takes a few milliseconds. The format and the upload are in docs/delta/stats.md, "Delta
 Stats". Tell your players: the site's Delta page says what is collected,
 and players can hide their stats from their profile.
 

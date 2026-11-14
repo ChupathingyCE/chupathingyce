@@ -38,7 +38,8 @@ def test_depth_format_from_caps():
 	# (no target is made with a fixed depth format any more)
 	assert "depth ? BGFX_TEXTURE_FORMAT_D24S8" not in source
 	target = function_body(source, "static struct bg_target *bg_target_get(")
-	assert "depth ? bg.depth_format : BGFX_TEXTURE_FORMAT_BGRA8" in target
+	# (display.hdr: the back buffer in RGBA16F, the rest BGRA8)
+	assert "depth ? bg.depth_format : wide ? BGFX_TEXTURE_FORMAT_RGBA16F : BGFX_TEXTURE_FORMAT_BGRA8" in target
 	samples = function_body(source, "static int bg_screen_samples(")
 	assert "caps->formats[bg.depth_format] & bit" in samples
 	# (D24S8 first: the game's stencil)

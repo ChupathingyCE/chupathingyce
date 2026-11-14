@@ -1,7 +1,7 @@
 /*
 DELTA_CHAT_BRIDGE.H
 
-The bridge between Delta chat (docs/delta.md, Chat) and OpenCE's in-game
+The bridge between Delta chat (docs/delta/peer.md, Chat) and OpenCE's in-game
 text chat: OpenCE's three distributed messages (their wire format as their
 CC0 version of 2026-10-18 has it), the text's conversion each way, and the
 host's checks of a line an OpenCE machine says. Plain C with no platform

@@ -60,6 +60,29 @@ replaced: a state that lasts, such as the shader cache's compile
 line does. */
 void terminal_status_printf(real_argb_color const *color, char const *format, ...);
 #endif
+/* port: the drop-down console (terminal.c; nothing on a build without it,
+and with display.console_style "classic"): a command typed, echoed in its
+scrollback; Tab's candidates shown in a list under it (wanted: whether it
+draws them, else console.c prints them as retail), the next (or, -1, the
+previous) chosen, and the list put away */
+void terminal_echo_command(char const *command);
+boolean terminal_completion_wanted(void);
+void terminal_completion_show(char const **names, short count, short column);
+char const *terminal_completion_cycle(short direction);
+void terminal_completion_clear(void);
+/* port: the drop-down console's shell (terminal.c): whether it is the
+style in use, a line of its own in its colors (an answer, a note, an
+error), the scrollback cleared (clear, Ctrl+L), and the columns a line
+has on the screen */
+boolean terminal_shell_style(void);
+void terminal_shell_output(char const *format, ...);
+void terminal_shell_note(char const *format, ...);
+void terminal_shell_error(char const *format, ...);
+void terminal_scrollback_clear(void);
+short terminal_columns(void);
+/* port: console.c's: the command typed age commands ago (0 the newest) */
+char const *console_history_entry(short age);
+
 /* port: kinds of what is logged, and whether the console shows a kind on
 screen (config.toml's game.console_log) */
 enum

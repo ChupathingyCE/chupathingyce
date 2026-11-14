@@ -54,7 +54,11 @@ boolean collision_model_instance_new(
 
 		instance->object_index = object_index;
 		instance->model = collision_model_definition_get(object_definition->object.collision_model.index);
-		instance->region_permutation_indices = object->object.region_permutations;
+		{
+			short region_count;
+
+			instance->region_permutation_indices = object_get_region_permutations(object_index, &region_count);
+		}
 		instance->matrices = object_get_node_matrices(object_index);
 
 		/* port: a collision model (from the map) with more nodes than its

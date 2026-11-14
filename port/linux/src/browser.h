@@ -35,10 +35,10 @@ those a listed game keeps (as many as the Online Games screen shows) */
 #define BROWSER_LISTED_ROSTER 16
 /* a listed game's machines by platform: Delta's registry
 (NUMBER_OF_DELTA_PLATFORMS), then those without Delta */
-#define BROWSER_MACHINE_KINDS 23
+#define BROWSER_MACHINE_KINDS 24
 
 /* how a listed game is hosted, and on what protocol, as the list says
-(docs/delta.md, Delta List): not known (an older host, or one listed by its
+(docs/delta/list.md, Delta List): not known (an older host, or one listed by its
 invite) is 0 */
 enum
 {
@@ -237,11 +237,14 @@ escaped); returns its length */
 int browser_json_name(char *out, int size, const unsigned short *name, int length);
 
 /* the hosted game's Steam Workshop item (an MCC map's: its id and title, ""
-for none), for the announcement's workshop_id and workshop_title; called
-before browser_host_update, which takes it with the game */
+for none), for the announcement's workshop_id and workshop_title, and the
+map's own name for players without it ("Blood Gulch" for a file named 20,
+"" for none: the announcement's map_title, marked MCC); called before
+browser_host_update, which takes it with the game */
 #define BROWSER_WORKSHOP_ID_LENGTH 24
 #define BROWSER_WORKSHOP_TITLE_LENGTH 40
-void browser_host_workshop(const char *id, const char *title);
+#define BROWSER_MAP_TITLE_LENGTH 48
+void browser_host_workshop(const char *id, const char *title, const char *map_title);
 
 /* the hosted game's game type (its variant's name, NULL for a variant
 without one; a co-op game's difficulty, -1 for none), for the
@@ -262,14 +265,17 @@ scheme), empty for none */
 void browser_server_name(char *text, int size);
 
 /* the listed games, asking the server for the list again if the last one
-is more than a few seconds old: with games of other network versions
-(browser_game_version_state), without this machine's own. Returns their
+is more than a few seconds old: only those this build can join
+(browser_game_shown), without this machine's own. Returns their
 count. The list's games come first; then, while the public listings are
 followed (browser_follow_listings), each game heard on the brokers that the
 list lacks (direct): an OpenCE (legacy) game while the list answers, and
 any host's while it is down, so a list outage costs no game the brokers
 carry. */
 int browser_get_games(struct browser_game *games, int maximum_count);
+/* whether the lists show a listed game: one this build can join
+(game_list_rules.h), or any game with debug.show_all_games on */
+int browser_game_shown(const struct browser_game *game);
 /* whether this build can join a game by its network version: 0 if it can
 (or may try), -1 if the game runs an older version, 1 a newer one */
 int browser_game_version_state(const struct browser_game *game);
@@ -279,6 +285,12 @@ int browser_game_host_cheats(const struct browser_game *game);
 /* the same for a bare network version (a listing over the brokers has no
 game list entry): -1 older, 1 newer, 0 joinable. Every build */
 int browser_version_state(int version);
+/* the same as browser_game_shown for a bare network version (a broker
+listing the game list lacks). Every build */
+int browser_version_shown(int version);
+/* debug.show_all_games: the lists show games of every version, marked, for
+tests. Every build */
+int browser_show_all_games(void);
 /* whether a game's map (a scenario's name or path) is a campaign level: a
 co-op game */
 /* (browser.c) an MCC map's kind, from the game's MCC catalog (NULL: none) */
@@ -377,7 +389,7 @@ carnage report confirmed with this copy's player key (browser.c); and the
 public player ID it confirms them as */
 void browser_claim_game(const unsigned short (*names)[BROWSER_PLAYER_NAME_LENGTH], int count);
 int browser_player_id(char *text, int size);
-/* the moderator key (Delta Peer's moderation, docs/delta.md): an Ed25519
+/* the moderator key (Delta Peer's moderation, docs/delta/peer.md): an Ed25519
 key pair made from this copy's player key, whose public half a dedicated
 server's moderators file names. Its signature of a message and its public
 key: 1, else 0 (no player key). The public key alone as 64 hex digits */
@@ -530,7 +542,7 @@ struct browser_social_result
 /* 0 if one is still out */
 int browser_social_act(int action, const char *handle);
 
-/* a report's clip (docs/delta.md, Reports): the file at path sent to the
+/* a report's clip (docs/delta/peer.md, Reports): the file at path sent to the
 site with the report's token (16 bytes), on the browser's thread: 1 if
 taken (one at a time). Its state: BROWSER_CLIP_* */
 enum
@@ -641,7 +653,7 @@ the site's /v1/game/clan, its result the action's. 0 for a handle the site
 could not have given. Not on the consoles (no DELTA there yet) */
 int browser_profile_clan_member(const char *action, const char *handle);
 
-/* the devices (docs/delta.md, Devices): this device signed out (its
+/* the devices (docs/delta/link.md, Devices): this device signed out (its
 certificate dropped, its key kept; nothing goes to the site as the account
 until it signs in again by code), and another device of the account revoked
 (by its ID, 32 hex digits); each the action's result */
@@ -692,7 +704,7 @@ background, or they have none to show). Kept for the run */
 #define BROWSER_PLAYER_CARDS 64
 int browser_player_card(const char *player_id, struct delta_profile_card *card);
 
-/* verified names in games (Delta Peer's identity capability; docs/delta.md,
+/* verified names in games (Delta Peer's identity capability; docs/delta/peer.md,
 "Verified names"). This copy's device certificate and its issuer's, to
 prove a local player whose Halo profile is signed in to account (32 bytes
 of the certificate's account; NULL: the copy's own): 1 with them (the

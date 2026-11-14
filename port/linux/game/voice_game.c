@@ -1,7 +1,7 @@
 /*
 VOICE_GAME.C
 
-Voice chat in the game (voice_game.h; docs/delta.md, Voice), over Delta
+Voice chat in the game (voice_game.h; docs/delta/peer.md, Voice), over Delta
 Peer: the host's rules and its view of the game for routing, and this
 copy's player talking and hearing.
 

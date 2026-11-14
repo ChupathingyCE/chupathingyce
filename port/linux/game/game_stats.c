@@ -939,6 +939,18 @@ void game_stats_game_extra(
 #ifdef HALO_GAME_BROWSER
 		if (game_engine_bomb_report_game(bomb, sizeof(bomb)))
 			used = stats_append(text, size, used, "%s, ", bomb);
+		/* (the game modes layer's: new members only, docs/modes.md) */
+		{
+			long game_mode_active(void);
+			boolean game_mode_hardcore(void);
+			static char const *const mode_names[] = { NULL, "swat", "infection", "gun_game" };
+			long mode = game_mode_active();
+
+			if (mode > 0 && mode < 4)
+				used = stats_append(text, size, used, "\"mode\": \"%s\", ", mode_names[mode]);
+			if (game_mode_hardcore())
+				used = stats_append(text, size, used, "\"hardcore\": true, ");
+		}
 #endif
 	}
 	used = stats_append(text, size, used,

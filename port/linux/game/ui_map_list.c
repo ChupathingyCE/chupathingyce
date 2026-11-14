@@ -1230,16 +1230,26 @@ boolean ui_map_list_mcc_offered(
 	return TRUE;
 }
 
+/* the Workshop item the Guide's PLAY handed over (mcc_maps_set_first_item),
+as the view was last made for it ("": none), and whether the rows are its
+maps alone: it has multiplayer maps in the list (#1301) */
+static char view_item[80];
+static boolean view_item_only;
+
+static boolean view_item_entry(struct ui_map_entry const *entry)
+{
+	return entry->source == _ui_map_list_source_mcc && mcc_maps_level_first(entry->map_name);
+}
+
 static boolean view_matches(struct ui_map_entry const *entry)
 {
 	char name[DISPLAY_NAME_LENGTH * 2];
 
 	if (entry->source == _ui_map_list_source_mcc && !ui_map_list_mcc_offered())
 		return FALSE;
-	/* (the Workshop item the Guide's PLAY handed over: shown whatever the
-	view, mcc_maps_set_first_item) */
-	if (entry->source == _ui_map_list_source_mcc && mcc_maps_level_first(entry->map_name))
-		return TRUE;
+	/* (the item's maps: shown whatever the view, and nothing else) */
+	if (view_item_only)
+		return view_item_entry(entry);
 	if (view.source != _ui_map_list_source_all && entry->source != view.source)
 		return FALSE;
 	if (!view.search[0])
@@ -1321,6 +1331,13 @@ static int view_compare(void const *a, void const *b)
 multiplayer maps the view leaves out, then the MCC campaign maps */
 static boolean view_mcc_offered = TRUE;
 
+static boolean view_campaign_row(struct ui_map_entry const *entry)
+{
+	if (entry->source == _ui_map_list_source_mcc && !ui_map_list_mcc_offered())
+		return FALSE;
+	return !view_item_only || view_item_entry(entry);
+}
+
 static void view_apply(void)
 {
 	long entry, rows = 0, shown, campaign_shown;
@@ -1328,6 +1345,10 @@ static void view_apply(void)
 
 	for (source = 0; source < NUMBER_OF_UI_MAP_LIST_SOURCES; source++)
 		view.present[source] = FALSE;
+	snprintf(view_item, sizeof(view_item), "%s", mcc_maps_first_item());
+	view_item_only = FALSE;
+	for (entry = 0; view_item[0] && entry < ui_map_list_found_multiplayer && !view_item_only; entry++)
+		view_item_only = view_item_entry(&ui_map_list[entry]) && ui_map_list_mcc_offered();
 	for (entry = 0; entry < ui_map_list_found_multiplayer; entry++)
 	{
 		view.present[_ui_map_list_source_all] = TRUE;
@@ -1346,17 +1367,18 @@ static void view_apply(void)
 		{
 			short kept = ui_map_list_view[row];
 
-			if (ui_map_list[kept].source == _ui_map_list_source_mcc && mcc_maps_level_first(ui_map_list[kept].map_name))
+			if (view_item_entry(&ui_map_list[kept]))
 			{
 				memmove(&ui_map_list_view[first + 1], &ui_map_list_view[first], (size_t)(row - first) * sizeof(ui_map_list_view[0]));
 				ui_map_list_view[first++] = kept;
 			}
 		}
 	}
-	/* (the campaign's rows, less MCC's while they aren't offered) */
+	/* (the campaign's rows, less MCC's while they aren't offered, and only
+	the item's with its maps alone) */
 	for (entry = ui_map_list_found_multiplayer; entry < ui_map_list_found_campaign_end; entry++)
 	{
-		if (ui_map_list[entry].source != _ui_map_list_source_mcc || ui_map_list_mcc_offered())
+		if (view_campaign_row(&ui_map_list[entry]))
 			ui_map_list_view[rows++] = (short)entry;
 	}
 	campaign_shown = rows - shown;
@@ -1371,7 +1393,7 @@ static void view_apply(void)
 	}
 	for (entry = ui_map_list_found_multiplayer; entry < ui_map_list_found_campaign_end; entry++)
 	{
-		if (ui_map_list[entry].source == _ui_map_list_source_mcc && !ui_map_list_mcc_offered())
+		if (!view_campaign_row(&ui_map_list[entry]))
 			ui_map_list_view[rows++] = (short)entry;
 	}
 	for (entry = ui_map_list_found_campaign_end; entry < ui_map_list_count_value; entry++)
@@ -1384,12 +1406,16 @@ static void view_apply(void)
 	view.serial++;
 }
 
-/* the view again when hosting began or ended since it was made (MCC's rows) */
+/* the view again when hosting began or ended since it was made (MCC's rows),
+or PLAY's item was handed over or let go */
 static void view_refresh(
 	void)
 {
-	if (ui_map_list_count_value && view_mcc_offered != ui_map_list_mcc_offered())
+	if (ui_map_list_count_value && (view_mcc_offered != ui_map_list_mcc_offered() ||
+		strcmp(view_item, mcc_maps_first_item())))
+	{
 		view_apply();
+	}
 }
 
 void ui_map_list_view_set(

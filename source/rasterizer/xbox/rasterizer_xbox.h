@@ -89,6 +89,9 @@ void rasterizer_set_target(
 	pixel32 background_color,
 	boolean clear,
 	boolean use_zbuffer);
+void rasterizer_get_depth_range(
+	real *minimum,
+	real *maximum);
 void rasterizer_set_depth_range(
 	real minimum,
 	real maximum);

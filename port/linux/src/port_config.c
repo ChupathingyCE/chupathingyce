@@ -97,6 +97,9 @@ enum
 	display, the sound, the controls and the like, are left out of its file;
 	an older file's lines and the environment still set them, as before */
 	_platform_server = 32,
+	/* (of the GL-layer consoles, only the Xbox 360: its present blit is the
+	one that applies display.gamma for now) */
+	_platform_xbox360 = 64,
 };
 
 struct config_setting
@@ -323,6 +326,13 @@ static const struct config_setting config_settings[] =
 		"and it heats up a phone. Under gamescope (the Steam Deck's Game Mode),\n"
 		"the display's refresh rate or a whole fraction of it (60 at 60 Hz, or\n"
 		"30) keeps the frames in step with the display, as V-Sync does." },
+	{ "display.vrr", _config_string, "\"off\"", "HALO_VRR", _environment_value, _platform_desktop,
+		"For a variable refresh display (G-SYNC, FreeSync). \"on\" shows the\n"
+		"frames with V-Sync and holds them 3 a second under the refresh rate\n"
+		"(117 at 120 Hz; display.max_fps where it is lower), so each frame is\n"
+		"shown as soon as it is ready, without tearing or V-Sync's lag. \"auto\"\n"
+		"turns it on only where the system says VRR is active (gamescope, or a\n"
+		"Linux desktop that has it on). \"off\" leaves the frames as they were." },
 	{ "display.interpolation", _config_boolean, "true", "HALO_INTERPOLATION", _environment_value, _platform_all,
 		"Draw a frame for every display refresh. The game runs 30 ticks a\n"
 		"second, and the frames between them are blended. false keeps the\n"
@@ -337,9 +347,48 @@ static const struct config_setting config_settings[] =
 		"\"msaa4x\" or \"msaa8x\". Android has \"off\", \"fxaa\", \"msaa2x\" and\n"
 		"\"msaa4x\". The default is \"msaa2x\" on 64-bit computers. It is \"off\"\n"
 		"on 32-bit computers and Android." },
+	{ "display.hdr", _config_boolean, "false", "HALO_HDR", _environment_value, _platform_desktop,
+		"Draw the 3D view into a floating-point back buffer, which keeps what\n"
+		"the game's additive effects (explosions, plasma, lights, the sun's\n"
+		"glare) add past white, and tone map it before the HUD is drawn:\n"
+		"display.hdr_tone_mapping brings it back to the display's range\n"
+		"instead of clipping it. The glows the game draws (teleporters, light\n"
+		"fixtures, energy shields, plasma bolts, the weapon's displays) go\n"
+		"past white. false draws into 8 bits a channel, as the Xbox does." },
+	{ "display.hdr_output", _config_boolean, "false", "HALO_HDR_OUTPUT", _environment_value, _platform_desktop,
+		"With display.hdr, send HDR to a display that has it (the operating\n"
+		"system's HDR must be on): the bgfx renderer's HDR10 swap chain, or\n"
+		"on OpenGL a floating-point window (scRGB), taken up when the game\n"
+		"starts. What is past white is then shown brighter than white rather\n"
+		"than tone mapped down to it." },
+	{ "display.hdr_tone_mapping", _config_string, "\"neutral\"", "HALO_HDR_TONE_MAPPING", _environment_value,
+		_platform_desktop,
+		"With display.hdr, the curve that brings what is past white into the\n"
+		"display's range: \"neutral\" (the picture as drawn, with only its\n"
+		"brightest parts rolled off), \"aces\" (filmic, more contrast) or\n"
+		"\"reinhard\" (softer, and darker throughout)." },
+	{ "display.hdr_exposure", _config_real, "1.0", "HALO_HDR_EXPOSURE", _environment_value, _platform_desktop,
+		"With display.hdr, the 3D view's brightness in linear light before it\n"
+		"is tone mapped, 0.25 to 4.0." },
+	{ "display.hdr_paper_white", _config_integer, "0", "HALO_HDR_PAPER_WHITE", _environment_value,
+		_platform_desktop,
+		"With display.hdr_output: how bright the game's white (surfaces, the\n"
+		"HUD, the menus) is, in nits, 80 to 500. 0 is the display's own SDR\n"
+		"white (Windows' SDR brightness)." },
+	{ "display.hdr_peak", _config_integer, "0", "HALO_HDR_PEAK", _environment_value, _platform_desktop,
+		"With display.hdr_output: the brightest highlight, in nits, 400 to\n"
+		"10000. 0 asks the display." },
+	{ "display.hdr_ui_nits", _config_integer, "0", "HALO_HDR_UI_NITS", _environment_value, _platform_desktop,
+		"With display.hdr_output: the HUD's and the menus' white, in nits, 80\n"
+		"to 500, no brighter than the peak. 0 is the paper white's." },
 	{ "display.shadow_resolution", _config_integer, DEFAULT_SHADOW_RESOLUTION, "HALO_SHADOW_RESOLUTION",
 		_environment_value, _platform_all,
 		"Shadow size in pixels: 128, 256, 512 or 1024. The Xbox used 128." },
+	{ "display.shadow_filtering", _config_boolean, "true", "HALO_SHADOW_FILTERING", _environment_value, _platform_all,
+		"Soften the edges of object shadows, as the Xbox did. false draws\n"
+		"them sharp (best with a higher display.shadow_resolution). The\n"
+		"rasterizer_shadows_convolution console global sets it until this\n"
+		"changes." },
 	{ "display.anisotropic_filtering", _config_integer, "0", "HALO_ANISOTROPIC_FILTERING", _environment_value,
 		_platform_all,
 		"Sharper textures seen at an angle: 0, 2, 4, 8 or 16.\n"
@@ -351,10 +400,20 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_xbox,
 		"The weapon's field of view, from 50 to 120.\n"
 		"0 uses display.field_of_view." },
+	{ "display.vehicle_field_of_view", _config_real, "0.0", "HALO_VEHICLE_FIELD_OF_VIEW", _environment_value,
+		_platform_all | _platform_xbox,
+		"The field of view in a vehicle's seat, from 50 to 120. 0 keeps it\n"
+		"as before: display.field_of_view in first person, the game's own in\n"
+		"third person." },
 	{ "display.reticle_scales_with_fov", _config_boolean, "true", "HALO_RETICLE_SCALES_WITH_FOV", _environment_value,
 		_platform_all | _platform_xbox,
 		"Size the reticle to the field of view, so it matches the weapon's\n"
 		"spread on screen. It makes no difference at 70." },
+	{ "display.reticle_scale", _config_real, "1.0", "HALO_RETICLE_SCALE", _environment_value, _platform_all,
+		"The reticle's size, 0.5 to 2. 1 is the Xbox's." },
+	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
+		_platform_all,
+		"Draw your weapon and arms. false hides them." },
 	{ "display.widescreen", _config_string, "\"dashboard\"", NULL, _environment_value, _platform_xbox,
 		"Widescreen on a 16:9 TV. \"dashboard\" follows the Xbox dashboard:\n"
 		"with Widescreen set there, the game shows more to the sides and the\n"
@@ -429,6 +488,19 @@ static const struct config_setting config_settings[] =
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the text and titles of the menus and the HUD with sharp,\n"
 		"high-res fonts." },
+#ifndef HALO_CONSOLE_NO_TEXT_FIELDS
+	{ "display.high_res_text_fields", _config_boolean, "true", "HALO_HIGH_RES_TEXT_FIELDS", _environment_value,
+		_platform_all,
+		"With display.high_res_text: draw each letter from a distance field,\n"
+		"sharp at any size and any resolution. false draws the letters as\n"
+		"pictures made for the window's size, as before." },
+#endif
+	{ "display.console_style", _config_string, "\"dropdown\"", "HALO_CONSOLE_STYLE", _environment_value, _platform_all,
+		"How the console (the ~ key) looks: \"dropdown\", a panel that slides\n"
+		"down from the top with its scrollback (PgUp, PgDn, the wheel), or\n"
+		"\"classic\", the Xbox's lines at the bottom of the screen." },
+	{ "display.console_height", _config_real, "0.45", "HALO_CONSOLE_HEIGHT", _environment_value, _platform_all,
+		"How much of the screen the drop-down console covers, 0.2 to 0.9." },
 	{ "display.title_font", _config_string, "\"classic\"", "HALO_TITLE_FONT", _environment_value, _platform_all,
 		"The font of the menus' titles. \"classic\" looks like Halo's own titles.\n"
 		"\"cyborg\" uses the same font as the menu text. \"halo\" draws the\n"
@@ -528,7 +600,20 @@ static const struct config_setting config_settings[] =
 		"stock maps' list comes with the game, and any other map's is kept\n"
 		"from its first time. false makes each one when it is first drawn." },
 #endif
+	{ "display.lobby", _config_boolean, "true", "HALO_LOBBY", _environment_value, _platform_all,
+		"The game lobby of the Chupathingy menus: the players with their\n"
+		"teams and READY, the map and the host's menu, for a game you host\n"
+		"or joined and for dedicated servers. false: the Xbox's System Link\n"
+		"screen, as the Xbox menus have it." },
+	{ "network.lobby_start", _config_string, "\"button\"", "HALO_NET_LOBBY_START", _environment_value, _platform_all,
+		"In the game lobby of a game you host: \"button\" (the default) holds\n"
+		"the countdown until you choose START GAME; \"auto\" lets it run by\n"
+		"itself once enough players are in, as the Xbox's lobby does." },
 #ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+	{ "display.join_screen", _config_boolean, "true", "HALO_JOIN_SCREEN", _environment_value, _platform_all,
+		"Show the loading screen while a game is joined or its map downloads,\n"
+		"with what is going on and B to cancel. false: a small panel over the\n"
+		"game list." },
 	{ "display.xbox_loading_picture", _config_boolean, "true", "HALO_XBOX_LOADING_PICTURE", _environment_value,
 		_platform_all,
 		"true: the loading screen shows the Xbox's own picture, xbox_loading.tga\n"
@@ -600,11 +685,21 @@ static const struct config_setting config_settings[] =
 		"lighting, as on the Xbox. \"auto\" is \"high\", or \"off\" on a software\n"
 		"renderer. It changes only what is drawn, and players are lit by it\n"
 		"only a little. Based on chester's dynamic lighting in GulchCE." },
+	{ "display.camo_weapon_fix", _config_boolean, "false", "HALO_CAMO_WEAPON_FIX", _environment_value,
+		_platform_all,
+		"true: your camouflaged first-person weapon is drawn in front of walls.\n"
+		"false (the default): walls close by cut it away, as on the Xbox.\n"
+		"Drawing only. Based on work by goatbutt and the OpenH1 team." },
 	{ "display.doors_block_light", _config_boolean, "true", "HALO_DOORS_BLOCK_LIGHT", _environment_value,
 		_platform_all,
 		"A closed door stops a light behind it from lighting your side, such as\n"
 		"a plasma bolt in the next room. false lets the light through, as on\n"
 		"the Xbox." },
+	{ "display.plasma_sparks", _config_boolean, "false", "HALO_PLASMA_SPARKS", _environment_value,
+		_platform_all,
+		"The blue sparks off a live plasma grenade, which the Xbox never drew\n"
+		"(at 30 frames a second they end before they are drawn). false: as on\n"
+		"the Xbox, at any frame rate. Thanks to ugoboom for the idea." },
 	{ "display.particle_limit", _config_integer, DEFAULT_PARTICLE_LIMIT, "HALO_PARTICLE_LIMIT", _environment_value,
 		_platform_all,
 		"The most particles alive at once: sparks, smoke, casings and debris.\n"
@@ -728,6 +823,9 @@ static const struct config_setting config_settings[] =
 		"stereo. \"on\" or \"off\". Turn it off if it sounds odd on your\n"
 		"speakers. \"auto\" turns it on when the output's name says it is\n"
 		"headphones. Stereo output only." },
+	{ "audio.hit_sounds", _config_boolean, "false", "HALO_HIT_SOUNDS", _environment_value, _platform_all,
+		"A short tone when your shot hits another player in multiplayer, as\n"
+		"Halo PC had. false is the Xbox's: none." },
 	{ "audio.doppler", _config_boolean, "true", "HALO_AUDIO_DOPPLER", _environment_value, _platform_all,
 		"Shift the pitch of moving sounds, like a Warthog or a projectile going\n"
 		"past, as the Xbox did. false keeps every sound at its own pitch." },
@@ -746,9 +844,12 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_CONSOLE_LIGHT_AUDIO
 	{ "audio.resampling", _config_string, "\"linear\"", "HALO_AUDIO_RESAMPLING", _environment_value, _platform_all,
 #else
-	{ "audio.resampling", _config_string, "\"sinc\"", "HALO_AUDIO_RESAMPLING", _environment_value, _platform_all,
+	{ "audio.resampling", _config_string, "\"xbox\"", "HALO_AUDIO_RESAMPLING", _environment_value, _platform_all,
 #endif
-		"How sounds are converted to 48 kHz: \"sinc\" or \"linear\"." },
+		"How sounds are converted to 48 kHz: \"xbox\" as the Xbox did, through\n"
+		"its short low pass; \"sinc\" with a longer one, which keeps out the\n"
+		"little above a sound's own rate the Xbox let through; \"linear\"\n"
+		"between neighboring samples, the brightest and harshest." },
 #ifdef HALO_PORT_VOICE_AUDIO
 	/* ---- voice chat (port/linux/src/voice.c, port/linux/game/voice_game.c) */
 	{ "audio.voice_chat", _config_string, "\"off\"", "HALO_VOICE_CHAT", _environment_value, _platform_all,
@@ -796,8 +897,26 @@ static const struct config_setting config_settings[] =
 		"Moving the mouse forward looks down." },
 	{ "input.mouse_aim_assist", _config_boolean, "false", "HALO_MOUSE_AIM_ASSIST", _environment_value, _platform_all,
 		"Give the mouse aim assist, as a controller has." },
+	{ "input.mouse_zoom_sensitivity", _config_real, "1.0", "HALO_MOUSE_ZOOM_SENSITIVITY", _environment_value,
+		_platform_all,
+		"How fast the mouse turns while zoomed in, times the zoom's own\n"
+		"slowing: 1 (100%) as before, 0.5 half as fast." },
+	{ "input.stick_zoom_sensitivity", _config_real, "1.0", "HALO_STICK_ZOOM_SENSITIVITY", _environment_value,
+		_platform_all,
+		"How fast the right stick turns while zoomed in, times the zoom's own\n"
+		"slowing: 1 (100%) as before, 0.5 half as fast." },
 	{ "input.keyboard_prompts", _config_boolean, "true", "HALO_KEYBOARD_PROMPTS", _environment_value, _platform_desktop,
 		"Show keys in button prompts while you use the keyboard and mouse." },
+	{ "input.button_style", _config_string, "\"auto\"", "HALO_BUTTON_STYLE", _environment_value, _platform_all,
+		"The controller buttons the prompts show: \"auto\" (the controller you\n"
+		"use), or one style for every controller: \"duke\" (the original Xbox's),\n"
+		"\"xbox\", \"playstation\" or \"switch\". The keyboard shows its keys.\n"
+		"The Xbox menus show their own." },
+	{ "input.button_look", _config_string, "\"gem\"", "HALO_BUTTON_LOOK", _environment_value, _platform_all,
+		"The look of the menus' and the Guide's buttons: \"gem\" or \"flat\"." },
+	{ "input.hud_buttons", _config_string, "\"classic\"", "HALO_HUD_BUTTONS", _environment_value, _platform_all,
+		"The buttons in a game's prompts (\"Hold X to pick up\"): \"classic\", the\n"
+		"map's own, or \"hd\", input.button_style's flat buttons." },
 	{ "input.touch_controls", _config_string, "\"on\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
 		"On-screen touch controls: \"on\" or \"off\". \"auto\" shows them only\n"
 		"when no controller is connected." },
@@ -878,6 +997,12 @@ static const struct config_setting config_settings[] =
 	{ "controls.voice_channel", _config_string, "\"B\"", "HALO_KEY_VOICE_CHANNEL", _environment_value, _platform_all,
 		"Switch the voice channel you talk on: party, team, proximity.\n"
 		"On a controller, press the D-pad left." },
+	{ "controls.vehicle_secondary_fire", _config_string, "\"\"", "HALO_KEY_VEHICLE_SECONDARY_FIRE", _environment_value,
+		_platform_all,
+		"A vehicle's secondary fire. Empty uses the grenade key, as before." },
+	{ "controls.walk", _config_string, "\"\"", "HALO_KEY_WALK", _environment_value, _platform_all,
+		"Walk while held: half speed, as a stick pushed halfway. Empty is\n"
+		"none, as before." },
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	{ "controls.controller_layout", _config_string, "\"\"", "HALO_CONTROLLER_LAYOUT", _environment_value,
 		_platform_all,
@@ -1138,6 +1263,10 @@ static const struct config_setting config_settings[] =
 	{ "network.chat_legacy", _config_boolean, "true", "HALO_NET_CHAT_LEGACY", _environment_value, _platform_all,
 		"In games you host, let OpenCE players chat too while network.chat is\n"
 		"on. Their own text chat is bridged in." },
+	{ "network.opence_welcome", _config_boolean, "false", "HALO_NET_OPENCE_WELCOME", _environment_value,
+		_platform_all,
+		"In games you host, tell each OpenCE player once, in their chat, that\n"
+		"this is a Chupathingy game. Chupathingy players never see it." },
 	{ "network.keep_parties_together", _config_boolean, "true", "HALO_NET_KEEP_PARTIES_TOGETHER", _environment_value,
 		_platform_all,
 		"In team games you host, put a party's players on one team when the\n"
@@ -1357,7 +1486,7 @@ static const struct config_setting config_settings[] =
 	{ "network.legacy_table", _config_string, "\"\"", "HALO_LEGACY_TABLE", _environment_value,
 		_platform_all | _platform_server,
 		"For testing only: an unsigned legacy table file that sets the OpenCE\n"
-		"network versions (docs/delta.md). Leave it empty for none." },
+		"network versions (docs/delta/versioning.md, The signed table). Leave it empty for none." },
 
 	/* ---- launcher: the setup screen (launcher.c) */
 	{ "launcher.show_at_start", _config_string, "\"when_needed\"", "HALO_LAUNCHER_SHOW", _environment_value,
@@ -1444,6 +1573,11 @@ static const struct config_setting config_settings[] =
 		"Workshop items. Empty uses automatic discovery: Windows registry, Linux\n"
 		"Steam/XDG hints, macOS's Steam folder, usual folders and their libraries. Windows paths use single\n"
 		"quotes: 'D:\\Steam'." },
+	{ "game.mods", _config_boolean, "true", "HALO_MODS", _environment_value, _platform_all,
+		"Play the mods in the mods folder beside maps: Halo Editing Kit tag files\n"
+		"(sounds for now) over a map's own, as a resource pack. Nothing happens\n"
+		"while the folder is empty. Local games only: a network game plays the\n"
+		"map's own tags. See docs/mods.md." },
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
 		"Workshop campaign maps are listed either way. Reopen the map list after\n"
@@ -1511,6 +1645,11 @@ static const struct config_setting config_settings[] =
 		"computer's account name. Off, your home folder is written as ~\n"
 		"(%USERPROFILE% on Windows). Don't post a debug.txt written with this\n"
 		"on. Takes effect at the next start." },
+	{ "debug.show_all_games", _config_boolean, "false", "HALO_SHOW_ALL_GAMES", _environment_set_is_true,
+		_platform_all,
+		"Online Games and the Server Browser list every game, those this build\n"
+		"can't join too (marked by version), for tests. Off, they list only\n"
+		"games you can join." },
 	{ "debug.telnet_console", _config_boolean, "false", "HALO_TELNET_CONSOLE", _environment_set_is_true,
 		_platform_all | _platform_server,
 		"Open a console on 127.0.0.1, at debug.telnet_console_port. It has no\n"
@@ -1613,6 +1752,18 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_test_fall", _config_real, "0.0", "HALO_NETWORK_TEST_FALL", _environment_value, _platform_all,
 		"In an automated test game, the last player is lifted 10 world units\n"
 		"every this many seconds, for a fall that kills. 0 never does." },
+	{ "debug.network_test_place", _config_string, "\"\"", "HALO_NETWORK_TEST_PLACE", _environment_value,
+		_platform_all,
+		"In an automated test game, \"<x> <y> <z> <yaw> <pitch>[@<seconds>]\" puts\n"
+		"the first local player there, facing that way (degrees), that many\n"
+		"seconds in (1 if not given), once. Empty never does. For automated\n"
+		"tests only: it moves a player in the game itself, so never leave it\n"
+		"set on a host." },
+	{ "debug.network_test_camouflage", _config_real, "0.0", "HALO_NETWORK_TEST_CAMOUFLAGE", _environment_value,
+		_platform_all,
+		"In an automated test game, every player gets active camouflage this\n"
+		"many seconds in, for 20 seconds. 0 never does. For automated tests\n"
+		"only: it changes the game itself, so never leave it set on a host." },
 	{ "debug.network_test_melee", _config_real, "0.0", "HALO_NETWORK_TEST_MELEE", _environment_value, _platform_all,
 		"Every this many seconds, an automated test host brings its last player\n"
 		"in front of its first, and one strikes the other with melee. The host's\n"
@@ -1790,6 +1941,16 @@ static const struct config_setting config_settings[] =
 	{ "debug.workshop_offer", _config_string, "\"\"", "HALO_WORKSHOP_OFFER", _environment_value, _platform_desktop,
 		"A join's missing Workshop map offered over the main menu once, as\n"
 		"\"<item id>:<title>\", for tests. Leave it empty for none." },
+	{ "debug.join_screen", _config_string, "\"\"", "HALO_JOIN_SCREEN_PREVIEW", _environment_value, _platform_desktop,
+		"The join screen (display.join_screen) over the main menu once, with\n"
+		"nothing joined, for tests and screenshots: \"connecting\" or\n"
+		"\"downloading\", then \":<game name>\" if you like. Leave it empty for none." },
+	{ "debug.lobby_preview", _config_string, "\"\"", "HALO_LOBBY_PREVIEW", _environment_value, _platform_desktop,
+		"The game lobby over the main menu once, with sample players, for\n"
+		"tests and screenshots: \"hosted\", \"joined\", \"server\" or\n"
+		"\"preview\", then \":<players>\" (8), and \"long\" for long names,\n"
+		"\"ffa\" for no teams, \"countdown\" for the countdown. Leave it\n"
+		"empty for none." },
 	{ "debug.workshop_search", _config_string, "\"\"", "HALO_WORKSHOP_SEARCH", _environment_value, _platform_desktop,
 		"The Delta Guide Workshop's search box shown with these words, then\n"
 		"searched, for screenshots. Leave it empty for none." },
@@ -1841,6 +2002,12 @@ static const struct config_setting config_settings[] =
 		"Log every frame in a map's first minute that comes more than this many\n"
 		"milliseconds after the one before it, and how many there were. 33 is\n"
 		"two frames at 60 Hz. 0 for none." },
+	{ "debug.frame_log", _config_string, "\"\"", "HALO_FRAME_LOG", _environment_value, _platform_all,
+		"A file to write a line to for each frame drawn once a determinism\n"
+		"replay's game has started (the benchmark, tools/bench.py): the game's\n"
+		"tick, the frame's microseconds since the one before, and the game\n"
+		"thread's CPU microseconds in it (-1 where not known). Leave it empty\n"
+		"for none." },
 	{ "debug.frame_times", _config_string, "\"\"", "HALO_FRAME_TIMES", _environment_value, _platform_all,
 		"A file to write every frame's time to: the wall clock, the milliseconds\n"
 		"since the frame before, the map; and a line when a map has loaded. For\n"
@@ -2058,6 +2225,10 @@ static const struct config_setting config_settings[] =
 		"vertices where they are in memory. false copies every vertex for each\n"
 		"frame instead, as the other renderer does: slower, for comparing when\n"
 		"models look broken. Read when Chupathingy starts." },
+	{ "display.gamma", _config_real, "1.0", NULL, _environment_value, _platform_xbox360,
+		"The console's picture on its way to the screen: 1.0 shows it as drawn;\n"
+		"higher values lift the dark areas (the picture is raised to 1/gamma),\n"
+		"lower ones deepen them. For matching the original Xbox on the same TV." },
 	{ "console.picture_frame", _config_integer, "0", NULL, _environment_value, _platform_console_gl,
 		"For comparing the renderers: the picture of this frame, and of the\n"
 		"frame three times as late, written beside the game as pictureN.raw\n"
@@ -2067,6 +2238,13 @@ static const struct config_setting config_settings[] =
 		"For sizing the menus' memory: write a line to debug.txt each time the\n"
 		"menus reach a new high in widget memory, by 1 KB or more, with the\n"
 		"pool's size. Read once the menus start." },
+	{ "console.ce_reduce_bitmaps", _config_boolean, "true", NULL, _environment_value, _platform_xbox,
+		"On a 64 MB console, a Custom Edition map's large textures load at half\n"
+		"size (a 2048x2048 lightmap at a quarter), so a Halo 2 map's frame fits\n"
+		"the console's texture memory, as the Xbox's own maps were made to. The\n"
+		"HUD and the menus keep theirs. false loads every texture whole, which\n"
+		"can halt a large map. A console with 128 MB or more never does this.\n"
+		"Read as each map loads." },
 	{ "console.debug_geometry", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
 		"For development: the debug build's debug geometry, the lines and\n"
 		"triangles that debug commands draw. Its buffers take 1440 KB. It is\n"
@@ -2162,6 +2340,8 @@ static const struct
 #define CONFIG_PLATFORM _platform_android
 #elif defined(HALO_XBOX_CONSOLE)
 #define CONFIG_PLATFORM _platform_xbox
+#elif defined(HALO_XBOX360_CONSOLE)
+#define CONFIG_PLATFORM (_platform_desktop | _platform_windows | _platform_console_gl | _platform_xbox360)
 #elif defined(HALO_CONSOLE_GL_LAYER) && defined(_WIN32)
 #define CONFIG_PLATFORM (_platform_desktop | _platform_windows | _platform_console_gl)
 #elif defined(HALO_CONSOLE_GL_LAYER)
@@ -2547,9 +2727,10 @@ version changed) */
 ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
 starting alone (game.start_with_one_player); 4, Headphone 3D on; 5, the
 Xbox's multiplayer by default (v0.9.0: no names above heads, no follow
-camera, no team changes in games you host). A file
-answered for an earlier generation is asked about the later ones only */
-#define CONFIG_DEFAULTS_GENERATION 5
+camera, no team changes in games you host); 6, the Xbox's own resampler
+(v0.9.1a). A file answered for an earlier generation is asked about the
+later ones only */
+#define CONFIG_DEFAULTS_GENERATION 6
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# Chupathingy uses this line to update the file. Leave it as it is.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -3307,6 +3488,11 @@ static const struct
 	/* team changes while the teams stay balanced, the default of the games
 	a player hosted until v0.9.0 (a file that names a rule keeps it) */
 	{ "network.team_change", "\"balanced\"", 0, "No team changes in games you host, as on the Xbox", 5 },
+#ifndef HALO_CONSOLE_LIGHT_AUDIO
+	/* the long windowed sinc, the default until the Xbox's own resampler
+	(a file that names "sinc" keeps it) */
+	{ "audio.resampling", "\"sinc\"", 0, "Sounds resampled as the Xbox did", 6 },
+#endif
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
@@ -4357,11 +4543,17 @@ static const struct
 	{ "delta.guide_background", { "auto", "plain", "cellwall", NULL }, "\"auto\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
+	{ "display.vrr", { "off", "on", "auto", NULL }, "\"off\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
+	{ "display.hdr_tone_mapping", { "neutral", "aces", "reinhard", NULL }, "\"neutral\"" },
 	/* ("gearbox" and the older "pc", Gearbox's retired menus, are read as
 	"xbox", and the player told once: config_menus_retired_pending) */
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
 	{ "display.title_font", { "classic", "cyborg", "halo", NULL }, "\"classic\"" },
+	{ "display.console_style", { "dropdown", "classic", NULL }, "\"dropdown\"" },
+	{ "input.button_style", { "auto", "duke", "xbox", "playstation", "switch", NULL }, "\"auto\"" },
+	{ "input.button_look", { "gem", "flat", NULL }, "\"gem\"" },
+	{ "input.hud_buttons", { "classic", "hd", NULL }, "\"classic\"" },
 	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"none\"" },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
@@ -4371,7 +4563,7 @@ static const struct
 	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
-	{ "audio.resampling", { "sinc", "linear", NULL }, "\"sinc\"" },
+	{ "audio.resampling", { "xbox", "sinc", "linear", NULL }, "\"xbox\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
 	{ "game.console_log", { "important", "all", "none", NULL }, "\"important\"" },
 	{ "game.move_old_map_folders", { "ask", "yes", "no", NULL }, "\"ask\"" },

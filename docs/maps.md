@@ -76,6 +76,13 @@ badged, and it can be joined only by players who have that map: the game
 says which file is missing and where it goes. The Xbox maps from your disc
 image are still needed. Chupathingy doesn't come with any of these files.
 
+**Custom Edition maps on a 64 MB Xbox.** A stock 64 MB Xbox loads a
+Custom Edition map's large textures at half size (a 2048x2048 lightmap at a
+quarter), so a Halo 2 map's frame fits its texture memory, as the Xbox's own
+maps were made to. The HUD and the menus keep theirs. `console.ce_reduce_bitmaps
+= false` in the Xbox's `config.toml` loads every texture whole, which can halt a
+large map. A console with 128 MB or more always loads them whole.
+
 **HD HUDs on Custom Edition maps.** Custom Edition maps can draw their HUD in
 high resolution. For the HD HUD on every map that uses Custom Edition's shared
 HUD, use the `bitmaps.map`, `sounds.map` and `loc.map` from Aerocatia's
@@ -334,5 +341,9 @@ others are told why.
 
 The pack's own `ui.map` isn't used: the game's menus stay the game's. To play
 with the pack's own menus instead, set `game.pack_menus = "cex"` in
-`config.toml` and restart. A pack folder needs a name of 1 to 8 letters and
-digits, other than `ce`, `md`, `pc`, `de`, `fr`, `es` and `it`.
+`config.toml` and restart. With the pack's menus, the game plays the pack's
+own movies too: put them in a `bink` folder beside its `ui.map`
+(`maps_cex/bink/intro.bik`, `credits.bik`, `attract1.bik` and so on). A movie
+the pack doesn't have plays from the game's own `bink` folder. A pack folder
+needs a name of 1 to 8 letters and digits, other than `ce`, `md`, `pc`, `de`,
+`fr`, `es` and `it`.

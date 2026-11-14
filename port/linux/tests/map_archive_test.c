@@ -164,6 +164,13 @@ static int selftest(void)
 	return failures ? 1 : 0;
 }
 
+static int print_entry(void *context, const char *name, unsigned int size)
+{
+	(void)context;
+	printf("entry %u %s\n", size, name);
+	return 1;
+}
+
 int main(int argc, char **argv)
 {
 	char error[160] = "";
@@ -180,6 +187,71 @@ int main(int argc, char **argv)
 	}
 	if (argc == 2 && !strcmp(argv[1], "selftest"))
 		return selftest();
+	/* a tag archive's entries (port_mods.c): each name and size, or the
+	refusal */
+	if (argc == 3 && !strcmp(argv[1], "entries"))
+	{
+		struct memory memory;
+		struct map_archive_io io;
+		char error[256];
+		unsigned int size;
+
+		memset(&memory, 0, sizeof(memory));
+		memory.archive = read_file(argv[2], &size);
+		if (!memory.archive)
+		{
+			printf("cannot read %s\n", argv[2]);
+			return 1;
+		}
+		memory.archive_size = size;
+		io.context = &memory;
+		io.archive_size = size;
+		io.read = memory_read;
+		io.write = memory_write;
+		io.stop = NULL;
+		if (!map_archive_entries(&io, print_entry, NULL, error, sizeof(error)))
+			printf("refused: %s\n", error);
+		else
+			printf("ok\n");
+		free(memory.archive);
+		return 0;
+	}
+	/* one entry unpacked, at most argv[4] bytes: its size and a CRC-32 of
+	what came out, or the refusal */
+	if (argc == 5 && !strcmp(argv[1], "entry"))
+	{
+		struct memory memory;
+		struct map_archive_io io;
+		char error[256];
+		unsigned int size, unpacked;
+
+		memset(&memory, 0, sizeof(memory));
+		memory.archive = read_file(argv[2], &size);
+		if (!memory.archive)
+		{
+			printf("cannot read %s\n", argv[2]);
+			return 1;
+		}
+		memory.archive_size = size;
+		io.context = &memory;
+		io.archive_size = size;
+		io.read = memory_read;
+		io.write = memory_write;
+		io.stop = NULL;
+		if (!map_archive_extract_entry(&io, argv[3], (unsigned int)strtoul(argv[4], NULL, 10), &unpacked, error,
+			sizeof(error)))
+		{
+			printf("refused: %s\n", error);
+		}
+		else
+		{
+			printf("ok %u %08lx\n", unpacked,
+				(unsigned long)z_crc32(z_crc32(0L, Z_NULL, 0), memory.map, memory.map_size));
+		}
+		free(memory.map);
+		free(memory.archive);
+		return 0;
+	}
 	if (argc == 4 && !strcmp(argv[1], "listing"))
 	{
 		char files[4][MAP_ARCHIVE_LISTING_NAME_SIZE];
