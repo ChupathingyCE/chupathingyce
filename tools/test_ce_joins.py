@@ -294,8 +294,10 @@ def test_weapons_follow_the_client():
     assert "if (update->zoom != client->chosen_zoom)" in choices
     # a new unit: the last unit's choices are not given again
     assert "client->chosen_unit != unit_index" in choices
-    # a zoom level the weapon has, else none
-    assert "update->zoom < levels ? (short)update->zoom : NONE" in choices
+    # a zoom level the weapon has, else none, given once the weapon it is
+    # for is in hand (one asked during a switch waits for it)
+    assert "client->pending_zoom < levels ? (short)client->pending_zoom : NONE" in choices
+    assert "unit->unit.current_weapon_index == unit->unit.desired_weapon_index" in choices
     # the wire's grenade is the type itself (0 frag, 1 plasma: checked
     # against the client's HUD and a throw, 2026-11-14)
     assert "action->desired_grenade_index = (short)update->grenade;" in choices
