@@ -309,7 +309,11 @@ def test_two_menu_sets():
                           "".join(path.read_text() for path in MENUS.rglob("*.xml")))
     assert spinners and all(values == "chupathingy|xbox" for values in spinners), spinners
     guide = (root / "port/linux/game/guide.c").read_text()
-    assert '"Gearbox menus were retired.",\n\t\t\t"You\'re on the Xbox menus now; change it in Settings."' in guide
+    assert '"Gearbox menus were retired.",\n\t\t\t"You\'re on the Xbox menus now. MENU STYLE is in the Guide."' in guide
+    # (and the Guide's SETTINGS has MENU STYLE, which the Xbox menus' MORE SETTINGS opens on: #1210)
+    assert re.search(r'\{ _in_display \| _in_guide, "MENU STYLE", "display\.menus"', rows)
+    widget = (root / "source/interface/ui_widget.c").read_text()
+    assert 'guide_open_setting("display.menus");' in widget and 'L"MORE SETTINGS"' in widget
     # (written as "xbox" once the note is drawn, so it comes once)
     drawn = guide[guide.index("static void render_toast(void)"):]
     assert "config_menus_retired_seen();" in drawn[:drawn.index("\n}\n")]

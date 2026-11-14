@@ -435,7 +435,9 @@ screens open, close and move between each other as the PC version's.
 The Gearbox menus (Halo PC's, `"gearbox"` or the older `"pc"`) were a third
 set until 0.9.1. They were retired as a menu set: a file that names them gets
 the Xbox menus, the game says so once ("Gearbox menus were retired. You're on
-the Xbox menus now; change it in Settings.") and writes `"xbox"` in its place.
+the Xbox menus now. MENU STYLE is in the Guide.") and writes `"xbox"` in its
+place. The Delta Guide's SETTINGS has MENU STYLE, and the Xbox menus' EDIT
+PROFILE SETTINGS has MORE SETTINGS, which opens it there.
 Their screens stay in `port/assets/menus/ce`: the Chupathingy menus are built
 from many of them, and the rest are kept for extra screens.
 

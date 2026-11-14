@@ -1241,7 +1241,7 @@ static void setting_change(short setting, short direction)
 	{
 		settings_row_change(row, direction < 0 ? -1 : 1);
 		/* (the menus' DELTA rows are put in as the menus load) */
-		if (!strcmp(settings_row_key(row), "delta.menu_item"))
+		if (!strcmp(settings_row_key(row), "delta.menu_item") || !strcmp(settings_row_key(row), "display.menus"))
 			message_set("Takes effect next time the menus load");
 	}
 }
@@ -3295,7 +3295,7 @@ static void hint_update(boolean menu_open)
 	{
 		guide.menus_retired_queued = TRUE;
 		social_toast_push(&guide.toasts, _toast_menus_retired, "menus_retired", "Gearbox menus were retired.",
-			"You're on the Xbox menus now; change it in Settings.", "");
+			"You're on the Xbox menus now. MENU STYLE is in the Guide.", "");
 	}
 	shown = (int)config_integer("delta.hint_shown");
 	if (delta_hint_due(shown, config_boolean("delta.menu_item")))
