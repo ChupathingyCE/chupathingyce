@@ -46,14 +46,26 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 			int index;
 
 			for (index = 0; index < item.map_count; index++)
-				if (!memchr(item.map_json[index], 0, sizeof(item.map_json[index])))
+				if (!memchr(item.map_json[index], 0, sizeof(item.map_json[index])) ||
+					item.map_json[index][0] == '/' || item.map_json[index][0] == '\\' ||
+					strstr(item.map_json[index], "..") || strchr(item.map_json[index], ':'))
 					abort();
 		}
 		break;
 	case 1:
-		if (steam_workshop_read_map(text, length, &map) && (!map.name[0] || strchr(map.name, '/') ||
-			strchr(map.name, '\\') || !strcmp(map.name, "..")))
-			abort();
+		/* (a map's name is a plain file name: no separator or colon, not
+		only dots, not ending in a dot or space) */
+		if (steam_workshop_read_map(text, length, &map))
+		{
+			size_t name_length = strlen(map.name);
+
+			if (!name_length || strpbrk(map.name, "/\\:") || strspn(map.name, ".") == name_length ||
+				map.name[name_length - 1] == '.' || map.name[name_length - 1] == ' ')
+				abort();
+			if ((map.thumbnail[0] && (map.thumbnail[0] == '/' || strstr(map.thumbnail, ".."))) ||
+				(map.large[0] && (map.large[0] == '/' || strstr(map.large, ".."))))
+				abort();
+		}
 		break;
 	default:
 		steam_workshop_read_libraries(text, length, paths, STEAM_WORKSHOP_MAXIMUM_LIBRARIES);
