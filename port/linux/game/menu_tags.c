@@ -3132,7 +3132,10 @@ short pc_menu_string_index(
 
 /* the screen the engine opens by name after a network game (the Xbox's),
 or ours where the PC version's menus are up: the host's map select, the
-lobby (the Chupathingy menus keep the Xbox's) */
+lobby. The Chupathingy menus keep the Xbox's pregame screen's name: their
+game lobby (port/linux/game/lobby_screen.c) is drawn over it whenever it is
+up, whichever way it was reached (a join, GAME SETUP's START GAME, System
+Link, the end of a game) */
 char const *pc_menus_screen(
 	char const *name)
 {

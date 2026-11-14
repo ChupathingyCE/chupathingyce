@@ -2037,8 +2037,10 @@ static boolean network_game_join_game_from_server_list(
 									focused_child_parent_widget_tag = widget->parent->definition_tag_index;
 								else
 									focused_child_parent_widget_tag = NONE;
+								/* port: the menus' own pregame screen where they have one
+								(port/linux/game/menu_tags.c), as every other join does */
 								if (!ui_widget_load_by_name_or_tag(
-									"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen",
+									pc_menus_screen("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen"),
 									NONE,
 									NULL,
 									NONE,

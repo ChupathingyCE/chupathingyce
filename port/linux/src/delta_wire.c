@@ -1503,6 +1503,86 @@ int delta_wire_write_host_rules(unsigned char *data, delta_u32 session, const st
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HOST_RULES_SIZE;
 }
 
+/* ---------- the lobby's READY */
+
+int delta_wire_read_lobby_ready(const unsigned char *payload, int size, struct delta_wire_lobby_ready *ready)
+{
+	clear(ready, (int)sizeof(*ready));
+	if (!payload || size < DELTA_WIRE_LOBBY_READY_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	ready->sequence = read_u32(payload);
+	ready->player = payload[4];
+	ready->ready = payload[5];
+	if (ready->ready > 1 || ready->player >= DELTA_WIRE_LOBBY_PLAYERS)
+	{
+		clear(ready, (int)sizeof(*ready));
+		return 0;
+	}
+	return 1;
+}
+
+int delta_wire_write_lobby_ready(unsigned char *data, delta_u32 session, const struct delta_wire_lobby_ready *ready)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (ready->ready > 1 || ready->player >= DELTA_WIRE_LOBBY_PLAYERS)
+		return 0;
+	clear(payload, DELTA_WIRE_LOBBY_READY_SIZE);
+	write_u32(payload, ready->sequence);
+	payload[4] = ready->player;
+	payload[5] = ready->ready;
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_lobby_ready, DELTA_WIRE_LOBBY_READY_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_LOBBY_READY_SIZE;
+}
+
+int delta_wire_read_lobby_state(const unsigned char *payload, int size, struct delta_wire_lobby_state *state)
+{
+	clear(state, (int)sizeof(*state));
+	if (!payload || size < DELTA_WIRE_LOBBY_STATE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD || !payload[0])
+		return 0;
+	state->flags = (unsigned char)(payload[1] & DELTA_WIRE_LOBBY_KNOWN_FLAGS);
+	state->generation = read_u32(payload + 4);
+	copy(state->ready, payload + 8, DELTA_WIRE_LOBBY_READY_BYTES);
+	if (!state->generation)
+	{
+		clear(state, (int)sizeof(*state));
+		return 0;
+	}
+	return 1;
+}
+
+int delta_wire_write_lobby_state(unsigned char *data, delta_u32 session, const struct delta_wire_lobby_state *state)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if ((state->flags & ~DELTA_WIRE_LOBBY_KNOWN_FLAGS) || !state->generation)
+		return 0;
+	clear(payload, DELTA_WIRE_LOBBY_STATE_SIZE);
+	payload[0] = DELTA_WIRE_LOBBY_STATE_VERSION;
+	payload[1] = state->flags;
+	write_u32(payload + 4, state->generation);
+	copy(payload + 8, state->ready, DELTA_WIRE_LOBBY_READY_BYTES);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_lobby_state, DELTA_WIRE_LOBBY_STATE_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_LOBBY_STATE_SIZE;
+}
+
+int delta_wire_lobby_state_ready(const struct delta_wire_lobby_state *state, int player)
+{
+	if (!state || player < 0 || player >= DELTA_WIRE_LOBBY_PLAYERS)
+		return 0;
+	return (state->ready[player / 8] >> (player % 8)) & 1;
+}
+
+void delta_wire_lobby_state_set(struct delta_wire_lobby_state *state, int player, int ready)
+{
+	if (!state || player < 0 || player >= DELTA_WIRE_LOBBY_PLAYERS)
+		return;
+	if (ready)
+		state->ready[player / 8] |= (unsigned char)(1 << (player % 8));
+	else
+		state->ready[player / 8] &= (unsigned char)~(1 << (player % 8));
+}
+
 /* ---------- the host's number */
 
 int delta_wire_read_host_number(const unsigned char *payload, int size, unsigned *number)

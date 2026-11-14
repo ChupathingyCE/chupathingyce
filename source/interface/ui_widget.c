@@ -715,6 +715,13 @@ boolean moderation_screen_active(void);
 void moderation_screen_update(boolean menu_open);
 void moderation_screen_process(void);
 void moderation_screen_render(void);
+/* port: the Chupathingy menus' game lobby over the Xbox's pregame screen
+(port/linux/game/lobby_screen.c) */
+boolean lobby_screen_active(void);
+void lobby_screen_update(boolean menu_open);
+void lobby_screen_process(void);
+void lobby_screen_render(void);
+void lobby_screen_pointer(struct halo_ui_pointer const *pointer);
 /* the menus' pointer, while it is up (its own taps and clicks) */
 void browser_screen_pointer(struct halo_ui_pointer const *pointer);
 #ifndef HALO_CONSOLE_NO_CONTROLS
@@ -2476,7 +2483,8 @@ static boolean ui_widget_screens_of_code_active(
 	void)
 {
 #ifdef HALO_GAME_BROWSER
-	boolean active = invite_prompt_active() || browser_screen_active() || moderation_screen_active();
+	boolean active = invite_prompt_active() || browser_screen_active() || moderation_screen_active() ||
+		lobby_screen_active();
 
 #ifdef HALO_GUIDE
 	active = active || guide_active();
@@ -5882,6 +5890,27 @@ void network_game_reset_to_pregame_ui(
 		if (global_network_game_server_get())
 		{
 			network_game_server_pause_countdown(global_network_game_server_get(), TRUE);
+#ifdef HALO_GAME_BROWSER
+			/* port: the Chupathingy menus' host lands in its lobby (the
+			countdown held, CHANGE MAP there), as Halo 2's does
+			(port/linux/game/lobby_screen.c) */
+			{
+				boolean lobby_screen_host_returns_to_lobby(void);
+				void lobby_screen_hosted_opened(void);
+
+				if (lobby_screen_host_returns_to_lobby())
+				{
+					lobby_screen_hosted_opened();
+					if (!ui_widget_load_by_name_or_tag(
+						"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen",
+						NONE, NULL, NONE, NONE, NONE, NONE))
+					{
+						error(_error_silent, "failed to load networked pregame status screen");
+					}
+					return;
+				}
+			}
+#endif
 			/* port: with the PC version's menus, theirs (port/linux/game/menu_tags.c) */
 			if (!ui_widget_load_by_name_or_tag(
 				pc_menus_screen("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\connected_map_select_postgame_wrapper"),
@@ -8476,6 +8505,8 @@ static void ui_widgets_process_mouse(
 		browser_screen_pointer(&pointer);
 	else if (pointer_active && !keyboard_active && moderation_screen_active())
 		moderation_screen_pointer(&pointer);
+	else if (pointer_active && !keyboard_active && lobby_screen_active())
+		lobby_screen_pointer(&pointer);
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	else if (pointer_active && !keyboard_active && controls_screen_active())
 		controls_screen_pointer(&pointer);
@@ -9148,6 +9179,9 @@ void render_ui_widgets(
 			it, an error dialog still is) */
 			if (should_render && browser_screen_active() && !widget->widget_is_error_dialog)
 				should_render = FALSE;
+			/* (the game lobby covers the Xbox's pregame screen the same way) */
+			if (should_render && lobby_screen_active() && !widget->widget_is_error_dialog)
+				should_render = FALSE;
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
 			/* (Delta Profile's screen of code too; its dialogs alone are
 			drawn over the menus) */
@@ -9250,6 +9284,8 @@ void render_ui_widgets(
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 	if (browser_screen_active())
 		browser_screen_render();
+	else if (lobby_screen_active())
+		lobby_screen_render();
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
 	profile_screen_render();
 #endif
@@ -10560,6 +10596,14 @@ void process_ui_widgets(
 
 		return;
 	}
+	/* port: the Chupathingy menus' game lobby, over the Xbox's pregame screen */
+	lobby_screen_update(widget_globals.active_widgets[0] != NULL);
+	if (lobby_screen_active())
+	{
+		lobby_screen_process();
+
+		return;
+	}
 #endif
 	if (attract_mode_should_start())
 	{
@@ -10895,6 +10939,14 @@ long ui_widget_port_history_top(
 Chupathingy menus' Delta Profile), as an item of it would open it: back
 returns to it */
 boolean ui_widget_port_open(struct widget_instance *widget, char const *name, boolean *widget_deleted);
+
+/* port: the screen up (the first player's), NULL for none (lobby_screen.c
+asks whether it is the Xbox's pregame screen) */
+struct widget_instance *ui_widget_port_top_screen(
+	void)
+{
+	return widget_globals.active_widgets[0];
+}
 
 boolean ui_widget_port_open_screen(
 	char const *name)

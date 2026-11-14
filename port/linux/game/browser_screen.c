@@ -118,6 +118,7 @@ the right button is B.
 #include "../src/playlist_download.h"
 #include "../src/ui_overlay.h"
 #include "loading_screen.h"
+#include "lobby_screen.h"
 #include "halo_ui_map_list.h"
 #include "halo_ui_pointer.h"
 #ifdef HALO_HOST_MAP_DOWNLOADS
@@ -320,6 +321,11 @@ static struct
 	/* the game being joined: whether its host's advertised map was checked
 	(wait_for_host) */
 	boolean connecting_map_checked;
+	/* the host's advertisement, once found, and whether the lobby's preview
+	of a game under way was shown for this join (lobby_screen.c) */
+	struct network_invite_advertisement connecting_advertisement;
+	boolean connecting_advertised;
+	boolean connecting_previewed;
 	/* it was let through only to ask its host which map it plays
 	(ce_map_ask_host): a Custom Edition map that can't be had is given up
 	when the host names it (wait_for_host) */
@@ -1774,6 +1780,8 @@ static void join_invite(
 	}
 	browser_screen.connecting = TRUE;
 	browser_screen.connecting_map_checked = FALSE;
+	browser_screen.connecting_advertised = FALSE;
+	browser_screen.connecting_previewed = FALSE;
 	browser_screen.connecting_asked_host = FALSE;
 	browser_screen.rejoin_pending = FALSE;
 	csstrncpy(browser_screen.connecting_invite, invite, sizeof(browser_screen.connecting_invite) - 1);
@@ -1927,6 +1935,9 @@ static void wait_for_host(
 			return;
 		}
 		browser_screen.connecting_map_checked = TRUE;
+		browser_screen.connecting_advertised = found > 0;
+		if (found > 0)
+			browser_screen.connecting_advertisement = advertisement;
 #ifdef HALO_CUSTOM_EDITION
 		if (found > 0)
 		{
@@ -1969,6 +1980,36 @@ static void wait_for_host(
 			}
 		}
 #endif
+	}
+	/* (a game under way: the lobby's preview of it first, with what the
+	list and the host say; JOIN THE GAME goes on, B gives the join up) */
+	if (browser_screen.connecting_advertised && browser_screen.connecting_advertisement.in_progress &&
+		!browser_screen.connecting_previewed)
+	{
+		struct browser_game const *listed = NULL;
+		short index;
+
+		for (index = 0; index < browser_screen.count; index++)
+		{
+			if (!strcmp(browser_screen.games[index].invite, browser_screen.connecting_invite))
+				listed = &browser_screen.games[index];
+		}
+		browser_screen.connecting_previewed = TRUE;
+		if (lobby_screen_preview_open(listed, &browser_screen.connecting_advertisement))
+			return;
+	}
+	if (lobby_screen_preview_active())
+	{
+		int answer = lobby_screen_preview_answer();
+
+		if (answer < 0)
+		{
+			browser_screen.connecting = FALSE;
+			set_status("");
+			return;
+		}
+		if (!answer)
+			return;
 	}
 	joined = network_game_client_join_invite_host(browser_screen.connecting_invite);
 	if (joined > 0)
@@ -3072,7 +3113,15 @@ void browser_screen_process(
 		browser_connect_get(&browser_screen.connect);
 	if (browser_screen.password_open)
 		password_type();
-	while (browser_screen.active && get_next_event(&event, NONE))
+	/* (the lobby's preview of a game under way takes the buttons while it
+	is up: lobby_screen.c) */
+	if (lobby_screen_preview_active())
+	{
+		lobby_screen_process();
+		if (!lobby_screen_preview_active())
+			wait_for_host();
+	}
+	while (browser_screen.active && !lobby_screen_preview_active() && get_next_event(&event, NONE))
 	{
 		/* (a d-pad direction held steps at the menus' pace, held_step; every
 		other button acts once a press, as the menus' buttons do: a held
@@ -3533,12 +3582,33 @@ static void draw_bitmap_picture(
 		box is the picture's shape, so that it is drawn whole, its middle in
 		the box's: draw_bitmap_in_rect takes a part's size, not its place) */
 		rectangle2d art;
+		float box_shape = (float)(x1 - x0) / (float)MAX(1, y1 - y0);
+		short shown_width = (short)MIN(art_width, bitmap->width), shown_height = (short)MIN(art_height, bitmap->height);
 
 		art.x0 = 0;
 		art.y0 = 0;
-		art.x1 = (short)MIN(art_width, bitmap->width);
-		art.y1 = (short)MIN(art_height, bitmap->height);
+		art.x1 = shown_width;
+		art.y1 = shown_height;
+		/* (a box of another shape than the picture's, the game lobby's wide
+		card: the picture's middle cropped to the box's shape, not stretched;
+		the part's place is draw_bitmap_texel_x and _y, its size the art rect) */
+		if (box_shape > (float)shown_width / (float)shown_height + 0.05f)
+		{
+			short height = (short)((float)shown_width / box_shape);
+
+			draw_bitmap_texel_y = (short)((shown_height - height) / 2);
+			art.y1 = height;
+		}
+		else if (box_shape < (float)shown_width / (float)shown_height - 0.05f)
+		{
+			short width = (short)((float)shown_height * box_shape);
+
+			draw_bitmap_texel_x = (short)((shown_width - width) / 2);
+			art.x1 = width;
+		}
 		draw_bitmap_in_rect(bitmap, &bounds, &art, NULL, 0xFFFFFFFF, NULL, FALSE);
+		draw_bitmap_texel_x = 0;
+		draw_bitmap_texel_y = 0;
 	}
 }
 
@@ -4934,6 +5004,136 @@ static void draw_list_footer(
 }
 
 /* the selected game's details: its pictures, its lines and who is in it */
+/* a map's picture in a box (x, y, width, height): the menus' own, else the
+site's (a stock map's, while it loads or without one: map_art.c), else a
+card with the map's name over its family's color (a custom map's); the
+box's outline over it. The details' and the game lobby's
+(browser_screen_map_picture) */
+static void draw_map_picture(
+	char const *map,
+	char const *map_label,
+	float x,
+	float y,
+	float width,
+	float height)
+{
+	short map_frame = NUMBEROF(map_picture_order);
+	char file[BROWSER_MAP_LENGTH];
+	char item_id[24];
+	short family = map_family(map);
+	short x0 = (short)x, y0 = (short)y, x1 = (short)(x + width), y1 = (short)(y + height);
+	long index;
+
+	map_file(map, file, sizeof(file));
+	{
+		boolean drawn = FALSE;
+		char art_path[64];
+
+		if (family == _map_family_xbox)
+		{
+			for (index = 0; index < NUMBEROF(map_picture_order); index++)
+			{
+				if (!strcmp(file, map_picture_order[index]))
+					map_frame = (short)index;
+			}
+			/* (the menus' picture of an unknown map is a question mark: none) */
+			if (map_frame < NUMBEROF(map_picture_order))
+			{
+				drawn = draw_picture("ui\\shell\\bitmaps\\mp_map_grafix", map_frame, 140, 116, x0, y0,
+					x1, y1);
+			}
+			/* (a co-op game's level: the level select menus' picture of it,
+			its frame the level's place) */
+			else if (campaign_level_index(file) >= 0)
+			{
+				drawn = draw_picture("ui\\shell\\bitmaps\\sp_levels", (short)campaign_level_index(file), 140, 116,
+					x0, y0, x1, y1);
+			}
+		}
+#ifdef HALO_CUSTOM_EDITION
+		else
+		{
+			/* (Halo PC's picture of one of its own maps) */
+			struct bitmap_data *bitmap = ui_map_list_family_picture(family, file);
+
+			if (bitmap)
+			{
+				draw_bitmap_picture(bitmap, 140, 116, x0, y0, x1,
+					y1);
+				drawn = TRUE;
+			}
+		}
+#endif
+		/* (an MCC map: the site's picture of its Workshop item, else the
+		item's own, kept or Steam's, before it is downloaded too) */
+		if (!drawn && mcc_map_item(map, item_id, sizeof(item_id)))
+		{
+			unsigned char const *pixels;
+			int width, height, serial;
+			char site_path[48];
+
+			/* (the site's picture of it first, maps/mcc/<item id>; then Steam's) */
+			if (snprintf(site_path, sizeof(site_path), "maps/mcc/%s", item_id) < (int)sizeof(site_path) &&
+				map_art_get(site_path, &pixels, &width, &height, &serial) == MAP_ART_READY)
+			{
+				draw_art_picture(pixels, width, height, serial, x, y, width,
+					height);
+				drawn = TRUE;
+			}
+			else if ((pixels = workshop_browser_picture_of(item_id, &width, &height, &serial)) != NULL)
+			{
+				draw_art_picture(pixels, width, height, serial, x, y, width,
+					height);
+				drawn = TRUE;
+			}
+		}
+		/* (a map pack's map has its stock file's name, not its art: a card;
+		a custom map's is the site's own picture of it, if it has one) */
+		if (!drawn && family != _map_family_pack &&
+			(map_art_site_path(family == _map_family_xbox, file, art_path, (int)sizeof(art_path)) ||
+			((family == _map_family_halomd || family == _map_family_custom_edition) &&
+			map_art_custom_site_path(family == _map_family_halomd, file, art_path, (int)sizeof(art_path)))))
+		{
+			unsigned char const *pixels;
+			int width, height, serial;
+
+			if (map_art_get(art_path, &pixels, &width, &height, &serial) == MAP_ART_READY)
+			{
+				draw_art_picture(pixels, width, height, serial, x, y, width,
+					height);
+				drawn = TRUE;
+			}
+		}
+		if (!drawn)
+		{
+			draw_card(map_label, map_family_kind(family), map_family_color(family), x, y,
+				width, height);
+		}
+	}
+	ui_overlay_outline(x - 1, y - 1, width + 2, height + 2, 2, 1.0f, 0x4F9DFFC0);
+}
+
+void browser_screen_map_picture(
+	char const *map,
+	float x,
+	float y,
+	float width,
+	float height)
+{
+	char map_name[64];
+
+	draw_map_picture(map, map_display_name(map, map_name, sizeof(map_name)), x, y, width, height);
+}
+
+/* a map's name as players know it (map_display_name), for the game lobby */
+char const *browser_screen_map_name(
+	char const *map,
+	char *text,
+	long size)
+{
+	return map_display_name(map, text, size);
+}
+
 static void draw_details(
 	struct browser_game const *selected)
 {
@@ -4951,92 +5151,7 @@ stock map's, while it loads or without one: map_art.c), else a card with
 the map's name over its family's color (a custom map's) */
 	map_file(selected->map, file, sizeof(file));
 	map_label = game_map_display_name(selected, map_name, sizeof(map_name));
-	{
-		boolean drawn = FALSE;
-		char art_path[64];
-
-		if (family == _map_family_xbox)
-		{
-			for (index = 0; index < NUMBEROF(map_picture_order); index++)
-			{
-				if (!strcmp(file, map_picture_order[index]))
-					map_frame = (short)index;
-			}
-			/* (the menus' picture of an unknown map is a question mark: none) */
-			if (map_frame < NUMBEROF(map_picture_order))
-			{
-				drawn = draw_picture("ui\\shell\\bitmaps\\mp_map_grafix", map_frame, 140, 116, MAP_PICTURE_X, PICTURE_Y,
-					MAP_PICTURE_X + MAP_PICTURE_WIDTH, PICTURE_Y + PICTURE_HEIGHT);
-			}
-			/* (a co-op game's level: the level select menus' picture of it,
-			its frame the level's place) */
-			else if (campaign_level_index(file) >= 0)
-			{
-				drawn = draw_picture("ui\\shell\\bitmaps\\sp_levels", (short)campaign_level_index(file), 140, 116,
-					MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_X + MAP_PICTURE_WIDTH, PICTURE_Y + PICTURE_HEIGHT);
-			}
-		}
-#ifdef HALO_CUSTOM_EDITION
-		else
-		{
-			/* (Halo PC's picture of one of its own maps) */
-			struct bitmap_data *bitmap = ui_map_list_family_picture(family, file);
-
-			if (bitmap)
-			{
-				draw_bitmap_picture(bitmap, 140, 116, MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_X + MAP_PICTURE_WIDTH,
-					PICTURE_Y + PICTURE_HEIGHT);
-				drawn = TRUE;
-			}
-		}
-#endif
-		/* (an MCC map: the site's picture of its Workshop item, else the
-		item's own, kept or Steam's, before it is downloaded too) */
-		if (!drawn && mcc_map_item(selected->map, item_id, sizeof(item_id)))
-		{
-			unsigned char const *pixels;
-			int width, height, serial;
-			char site_path[48];
-
-			/* (the site's picture of it first, maps/mcc/<item id>; then Steam's) */
-			if (snprintf(site_path, sizeof(site_path), "maps/mcc/%s", item_id) < (int)sizeof(site_path) &&
-				map_art_get(site_path, &pixels, &width, &height, &serial) == MAP_ART_READY)
-			{
-				draw_art_picture(pixels, width, height, serial, MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_WIDTH,
-					PICTURE_HEIGHT);
-				drawn = TRUE;
-			}
-			else if ((pixels = workshop_browser_picture_of(item_id, &width, &height, &serial)) != NULL)
-			{
-				draw_art_picture(pixels, width, height, serial, MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_WIDTH,
-					PICTURE_HEIGHT);
-				drawn = TRUE;
-			}
-		}
-		/* (a map pack's map has its stock file's name, not its art: a card;
-		a custom map's is the site's own picture of it, if it has one) */
-		if (!drawn && family != _map_family_pack &&
-			(map_art_site_path(family == _map_family_xbox, file, art_path, (int)sizeof(art_path)) ||
-			((family == _map_family_halomd || family == _map_family_custom_edition) &&
-			map_art_custom_site_path(family == _map_family_halomd, file, art_path, (int)sizeof(art_path)))))
-		{
-			unsigned char const *pixels;
-			int width, height, serial;
-
-			if (map_art_get(art_path, &pixels, &width, &height, &serial) == MAP_ART_READY)
-			{
-				draw_art_picture(pixels, width, height, serial, MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_WIDTH,
-					PICTURE_HEIGHT);
-				drawn = TRUE;
-			}
-		}
-		if (!drawn)
-		{
-			draw_card(map_label, map_family_kind(family), map_family_color(family), MAP_PICTURE_X, PICTURE_Y,
-				MAP_PICTURE_WIDTH, PICTURE_HEIGHT);
-		}
-	}
-	ui_overlay_outline(MAP_PICTURE_X - 1, PICTURE_Y - 1, MAP_PICTURE_WIDTH + 2, PICTURE_HEIGHT + 2, 2, 1.0f, 0x4F9DFFC0);
+	draw_map_picture(selected->map, map_label, MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_WIDTH, PICTURE_HEIGHT);
 	/* (the game type's: a card with its name for one the menus have no
 	picture of) */
 	if (selected->engine <= 0 || selected->engine >= NUMBEROF(engine_picture) ||
@@ -5347,6 +5462,12 @@ void browser_screen_render(
 	browser_screen.drawn_first = NONE;
 	if (!ui_overlay_available())
 		return;
+	/* (the lobby's preview of a game under way, in the list's place) */
+	if (lobby_screen_preview_active())
+	{
+		lobby_screen_render();
+		return;
+	}
 
 #if !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
 	/* (joining, or the map downloading: the join screen in the list's place) */
@@ -5449,6 +5570,11 @@ void browser_screen_pointer(
 
 	if (!browser_screen.active)
 		return;
+	if (lobby_screen_preview_active())
+	{
+		lobby_screen_pointer(pointer);
+		return;
+	}
 	if (pointer->right_clicks)
 		press(_gamepad_analog_button_b);
 	/* (positive: away from the player, or a finger moving down: back) */

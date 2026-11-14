@@ -166,6 +166,21 @@ enum
 	/* the number the host's game is played at (docs/delta/peer.md, Wire format: HOST_NUMBER):
 	version, reserved, the number (16 bits, little-endian), reserved */
 	DELTA_WIRE_HOST_NUMBER_SIZE = 8,
+	/* the lobby's READY (docs/delta.md, Lobby ready): LOBBY_READY is a
+	sequence, the player (the game's player list index), ready (0 or 1),
+	reserved; LOBBY_STATE is a version, flags, reserved, the host's
+	generation, then a bit for each of the game's players, in player list
+	order (128: the native builds' sessions), set while ready */
+	DELTA_WIRE_LOBBY_READY_SIZE = 8,
+	DELTA_WIRE_LOBBY_STATE_SIZE = 24,
+	DELTA_WIRE_LOBBY_STATE_VERSION = 1,
+	DELTA_WIRE_LOBBY_PLAYERS = 128,
+	DELTA_WIRE_LOBBY_READY_BYTES = DELTA_WIRE_LOBBY_PLAYERS / 8,
+	/* LOBBY_STATE's flags: the host started the countdown (START GAME), and
+	the host waits for READY (its START GAME says who isn't) */
+	DELTA_WIRE_LOBBY_STARTED = 0x01,
+	DELTA_WIRE_LOBBY_WAITS = 0x02,
+	DELTA_WIRE_LOBBY_KNOWN_FLAGS = 0x03,
 	DELTA_WIRE_HOST_NUMBER_VERSION = 1,
 	/* HOST_RULES's team changes (team_change.h's policies), and the most
 	their margin may be */
@@ -524,7 +539,13 @@ enum delta_message_type
 	its game is played at, whenever it changes in the lobby (an MCC map's
 	game at 43, another's at the usual number) and every few seconds; the
 	client plays the host's next record and messages at it, without leaving */
-	_delta_message_host_number = 39
+	_delta_message_host_number = 39,
+	/* the lobby's READY (both agreed to lobby_ready): client to host, one
+	of its players is ready, or not any more */
+	_delta_message_lobby_ready = 40,
+	/* host to client: who is ready, and whether the host started the
+	countdown, whenever it changes and every few seconds */
+	_delta_message_lobby_state = 41
 };
 
 /* voice's channels: who a player talks to (VOICE_UP, VOICE_DOWN); a number
@@ -981,6 +1002,25 @@ struct delta_wire_host_rules
 	unsigned char team_change_margin;
 };
 
+/* the lobby's READY (LOBBY_READY, LOBBY_STATE) */
+struct delta_wire_lobby_ready
+{
+	delta_u32 sequence;
+	/* the game's player list index */
+	unsigned char player;
+	unsigned char ready;
+};
+
+struct delta_wire_lobby_state
+{
+	/* DELTA_WIRE_LOBBY_* flags (those this build knows) */
+	unsigned char flags;
+	/* the host's count, raised each time the state changes (never 0) */
+	delta_u32 generation;
+	/* bit n: the player at player list index n is ready */
+	unsigned char ready[DELTA_WIRE_LOBBY_READY_BYTES];
+};
+
 /* voice (VOICE_UP, VOICE_DOWN, VOICE_CONFIG); the Opus packet itself is
 read in place: payload + DELTA_WIRE_VOICE_*_SIZE, length bytes */
 struct delta_wire_voice_up
@@ -1256,6 +1296,16 @@ int delta_wire_write_report_result(unsigned char *data, delta_u32 session,
 knows; a team change or margin past their ranges is refused */
 int delta_wire_read_host_rules(const unsigned char *payload, int size, struct delta_wire_host_rules *rules);
 int delta_wire_write_host_rules(unsigned char *data, delta_u32 session, const struct delta_wire_host_rules *rules);
+/* the lobby's READY: a ready other than 0 or 1 is refused; a state of a
+later version is read as far as this build knows, unknown flags ignored,
+version 0 or generation 0 refused */
+int delta_wire_read_lobby_ready(const unsigned char *payload, int size, struct delta_wire_lobby_ready *ready);
+int delta_wire_write_lobby_ready(unsigned char *data, delta_u32 session, const struct delta_wire_lobby_ready *ready);
+int delta_wire_read_lobby_state(const unsigned char *payload, int size, struct delta_wire_lobby_state *state);
+int delta_wire_write_lobby_state(unsigned char *data, delta_u32 session, const struct delta_wire_lobby_state *state);
+/* a player's bit of a LOBBY_STATE (0 past its players) */
+int delta_wire_lobby_state_ready(const struct delta_wire_lobby_state *state, int player);
+void delta_wire_lobby_state_set(struct delta_wire_lobby_state *state, int player, int ready);
 /* the host's number: 1 to 65535 (0 is refused); a later version is read as
 far as this build knows */
 int delta_wire_read_host_number(const unsigned char *payload, int size, unsigned *number);
