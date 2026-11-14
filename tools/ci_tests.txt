@@ -15,6 +15,7 @@ tools/test_bgfx_vulkan_start.py
 tools/test_build_workflow.py
 tools/test_campaign_levels.py
 tools/test_capture.py
+tools/test_ce_bitmap_reduce.py
 tools/test_ce_effect_flags.py
 tools/test_ce_joins.py
 tools/test_ce_resource_maps.py

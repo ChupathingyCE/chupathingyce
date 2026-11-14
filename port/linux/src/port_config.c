@@ -2193,6 +2193,13 @@ static const struct config_setting config_settings[] =
 		"For sizing the menus' memory: write a line to debug.txt each time the\n"
 		"menus reach a new high in widget memory, by 1 KB or more, with the\n"
 		"pool's size. Read once the menus start." },
+	{ "console.ce_reduce_bitmaps", _config_boolean, "true", NULL, _environment_value, _platform_xbox,
+		"On a 64 MB console, a Custom Edition map's large textures load at half\n"
+		"size (a 2048x2048 lightmap at a quarter), so a Halo 2 map's frame fits\n"
+		"the console's texture memory, as the Xbox's own maps were made to. The\n"
+		"HUD and the menus keep theirs. false loads every texture whole, which\n"
+		"can halt a large map. A console with 128 MB or more never does this.\n"
+		"Read as each map loads." },
 	{ "console.debug_geometry", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
 		"For development: the debug build's debug geometry, the lines and\n"
 		"triangles that debug commands draw. Its buffers take 1440 KB. It is\n"
