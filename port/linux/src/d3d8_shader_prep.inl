@@ -735,6 +735,68 @@ static void prep_hitches(void)
 	}
 }
 
+/* (debug.frame_log: a line for each frame drawn once a determinism replay's
+game has started, for the benchmark, tools/bench.py: the game's tick, the
+frame's microseconds since the one before, and the game thread's CPU
+microseconds in it, -1 where not known. The ticks are the recording's on
+every build and renderer, so two runs' frames cover the same game. Based on
+work by goatbutt and the OpenH1 team) */
+/* (port/linux/game/determinism_check.c's) */
+long determinism_check_ticks_done(void);
+
+static struct
+{
+	FILE *file;
+	BOOL checked;
+	double last;
+	long long cpu_ns;
+} frame_log = { NULL, FALSE, -1.0, -1 };
+
+static long long frame_log_thread_cpu_ns(void)
+{
+#ifdef CLOCK_THREAD_CPUTIME_ID
+	struct timespec now;
+
+	if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now) == 0)
+		return (long long)now.tv_sec * 1000000000LL + (long long)now.tv_nsec;
+#endif
+	return -1;
+}
+
+static void prep_frame_log(void)
+{
+	double now;
+	long long cpu_ns, cpu;
+	long tick;
+
+	if (!frame_log.checked)
+	{
+		const char *path = config_string("debug.frame_log");
+
+		frame_log.checked = TRUE;
+		if (path && *path)
+		{
+			frame_log.file = fopen(path, "w");
+			if (frame_log.file)
+				fprintf(frame_log.file, "# frame log 1: tick frame_us cpu_us\n");
+			else
+				platform_log("debug.frame_log: %s could not be made", path);
+		}
+	}
+	if (!frame_log.file)
+		return;
+	now = prep_seconds();
+	cpu_ns = frame_log_thread_cpu_ns();
+	tick = determinism_check_ticks_done();
+	if (tick >= 0 && frame_log.last > 0.0)
+	{
+		cpu = cpu_ns >= 0 && frame_log.cpu_ns >= 0 ? (cpu_ns - frame_log.cpu_ns) / 1000 : -1;
+		fprintf(frame_log.file, "%ld %lld %lld\n", tick, (long long)((now - frame_log.last) * 1e6), cpu);
+	}
+	frame_log.last = now;
+	frame_log.cpu_ns = cpu_ns;
+}
+
 static void prep_present(void)
 {
 	prep_frame();
@@ -744,4 +806,5 @@ static void prep_present(void)
 		prep.flushed_frame = device.frame;
 	}
 	prep_hitches();
+	prep_frame_log();
 }

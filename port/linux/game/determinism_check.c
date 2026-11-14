@@ -417,7 +417,24 @@ void determinism_check_tick_end(
 		determinism_finish("done");
 }
 
+/* the ticks the check's game has run, -1 before it starts or without the
+check (debug.frame_log's: the benchmark's frames counted from the same
+tick on every build) */
+long determinism_check_ticks_done(
+	void)
+{
+	if (determinism_globals.mode == _determinism_off || !determinism_globals.started)
+		return -1;
+	return determinism_globals.ticks_done;
+}
+
 #else
+
+long determinism_check_ticks_done(
+	void)
+{
+	return -1;
+}
 
 void determinism_check_game_load(
 	unsigned long *random_seed)

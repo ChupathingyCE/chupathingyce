@@ -323,6 +323,13 @@ static const struct config_setting config_settings[] =
 		"and it heats up a phone. Under gamescope (the Steam Deck's Game Mode),\n"
 		"the display's refresh rate or a whole fraction of it (60 at 60 Hz, or\n"
 		"30) keeps the frames in step with the display, as V-Sync does." },
+	{ "display.vrr", _config_string, "\"off\"", "HALO_VRR", _environment_value, _platform_desktop,
+		"For a variable refresh display (G-SYNC, FreeSync). \"on\" shows the\n"
+		"frames with V-Sync and holds them 3 a second under the refresh rate\n"
+		"(117 at 120 Hz; display.max_fps where it is lower), so each frame is\n"
+		"shown as soon as it is ready, without tearing or V-Sync's lag. \"auto\"\n"
+		"turns it on only where the system says VRR is active (gamescope, or a\n"
+		"Linux desktop that has it on). \"off\" leaves the frames as they were." },
 	{ "display.interpolation", _config_boolean, "true", "HALO_INTERPOLATION", _environment_value, _platform_all,
 		"Draw a frame for every display refresh. The game runs 30 ticks a\n"
 		"second, and the frames between them are blended. false keeps the\n"
@@ -1841,6 +1848,12 @@ static const struct config_setting config_settings[] =
 		"Log every frame in a map's first minute that comes more than this many\n"
 		"milliseconds after the one before it, and how many there were. 33 is\n"
 		"two frames at 60 Hz. 0 for none." },
+	{ "debug.frame_log", _config_string, "\"\"", "HALO_FRAME_LOG", _environment_value, _platform_all,
+		"A file to write a line to for each frame drawn once a determinism\n"
+		"replay's game has started (the benchmark, tools/bench.py): the game's\n"
+		"tick, the frame's microseconds since the one before, and the game\n"
+		"thread's CPU microseconds in it (-1 where not known). Leave it empty\n"
+		"for none." },
 	{ "debug.frame_times", _config_string, "\"\"", "HALO_FRAME_TIMES", _environment_value, _platform_all,
 		"A file to write every frame's time to: the wall clock, the milliseconds\n"
 		"since the frame before, the map; and a line when a map has loaded. For\n"
@@ -4357,6 +4370,7 @@ static const struct
 	{ "delta.guide_background", { "auto", "plain", "cellwall", NULL }, "\"auto\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
+	{ "display.vrr", { "off", "on", "auto", NULL }, "\"off\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
 	/* ("gearbox" and the older "pc", Gearbox's retired menus, are read as
 	"xbox", and the player told once: config_menus_retired_pending) */

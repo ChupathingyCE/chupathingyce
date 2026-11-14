@@ -145,6 +145,7 @@ tools/test_update_channels.py
 tools/test_update_manifest.py
 tools/test_updater_follow_ups.py
 tools/test_vote_notice.py
+tools/test_vrr.py
 tools/test_workshop_list.py
 tools/test_workshop_play_history.py
 tools/test_workshop_questions.py
