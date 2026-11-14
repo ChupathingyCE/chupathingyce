@@ -28,6 +28,10 @@ and debug.network_test_pickup (the last player stands on a weapon lying
 about that many seconds in, and a joining machine's player holds the action
 button a second later, to pick it up).
 
+debug.network_test_split adds split screen players to the host's machine and
+has them leave one by one as the game goes on (and with :rejoin join again),
+for the crash a split screen player's leaving could bring later on.
+
 Called from the main loop every frame (main.c).
 */
 
@@ -111,6 +115,14 @@ static struct
 	char pickup_weapon[64];
 	long score_to_win;
 	long logged_time;
+	/* debug.network_test_split: the split screen players, the seconds between
+	leaves, whether they join again, and who is in the game */
+	short split_players;
+	real split_seconds;
+	boolean split_rejoin;
+	short split_added;
+	short split_left;
+	boolean split_in_game[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 } network_test;
 
 /* the variant at the index of the list (copied to name), FALSE past its end */
@@ -170,6 +182,18 @@ static void network_test_read_settings(
 	snprintf(network_test.pickup_weapon, sizeof(network_test.pickup_weapon), "%s",
 		config_string("debug.network_test_pickup_weapon"));
 	network_test.score_to_win = (long)config_integer("debug.network_test_score");
+	{
+		char const *split = config_string("debug.network_test_split");
+		int players = 0;
+		float split_seconds = 0.0f;
+
+		if (sscanf(split, "%d:%f", &players, &split_seconds) == 2)
+		{
+			network_test.split_players = (short)PIN(players, 1, MAXIMUM_NUMBER_OF_LOCAL_PLAYERS);
+			network_test.split_seconds = split_seconds;
+			network_test.split_rejoin = strstr(split, ":rejoin") != NULL;
+		}
+	}
 	if (network_test.mode != _network_test_off)
 		platform_log("network test: %s", setting);
 }
@@ -724,6 +748,54 @@ static void network_test_pickup(
 	}
 }
 
+/* debug.network_test_split: the last split screen player still in the game
+leaves, as Quit on their pause menu does (ui_widget_event_handler_functions.c's
+network_game_remove_local_player); with :rejoin, half the interval later they
+come back, as a split screen player who joins the game in progress */
+static void network_test_split_update(
+	void)
+{
+	long interval = (long)(network_test.split_seconds * TICKS_PER_SECOND);
+	long now = game_time_get();
+	short controller;
+
+	if (network_test.split_players < 2 || interval <= 0 || now < interval)
+		return;
+	if (now % interval < TICKS_PER_SECOND)
+	{
+		for (controller = network_test.split_players - 1; controller > 0; controller--)
+		{
+			if (network_test.split_in_game[controller])
+				break;
+		}
+		if (controller > 0)
+		{
+			platform_log("network test: split screen player %d leaves (local players %d)", controller + 1,
+				(int)local_player_count());
+			network_game_client_local_player_quit(controller);
+			if (local_player_count() > 1)
+				player_ui_local_player_left_multiplayer_game(controller);
+			network_test.split_in_game[controller] = FALSE;
+			network_test.split_left = controller;
+		}
+	}
+	if (network_test.split_rejoin && network_test.split_left > 0 &&
+		(now + interval / 2) % interval < TICKS_PER_SECOND && global_network_game_client_get())
+	{
+		controller = network_test.split_left;
+		if (network_game_client_add_player(global_network_game_client_get(), controller))
+		{
+			platform_log("network test: split screen player %d joins again", controller + 1);
+			network_test.split_in_game[controller] = TRUE;
+		}
+		else
+		{
+			platform_log("network test: split screen player %d could not join again", controller + 1);
+		}
+		network_test.split_left = 0;
+	}
+}
+
 void network_test_update(
 	boolean main_menu_loaded,
 	real seconds)
@@ -741,6 +813,8 @@ void network_test_update(
 	{
 		network_test.logged_time = game_time_get();
 		network_test_log_players();
+		if (network_test.mode == _network_test_host)
+			network_test_split_update();
 		if (network_test.shoot_interval > 0.0f &&
 			game_time_get() % MAX(1, (long)(network_test.shoot_interval * TICKS_PER_SECOND)) < TICKS_PER_SECOND)
 		{
@@ -970,6 +1044,21 @@ void network_test_update(
 			}
 			if (!network_test.player_added && network_test.setup_seconds >= 2.0f && global_network_game_client_get())
 				network_test.player_added = network_game_client_add_player(global_network_game_client_get(), 0);
+			/* (debug.network_test_split: the split screen players, as each
+			pressing A in the lobby adds them) */
+			if (network_test.player_added && network_test.split_added + 1 < network_test.split_players &&
+				network_test.setup_seconds >= 2.5f + network_test.split_added * 0.5f)
+			{
+				short controller = (short)(network_test.split_added + 1);
+
+				if (network_game_client_add_player(global_network_game_client_get(), controller))
+				{
+					player_ui_local_player_joined_multiplayer_game(controller);
+					network_test.split_in_game[controller] = TRUE;
+					platform_log("network test: split screen player %d added", controller + 1);
+				}
+				network_test.split_added++;
+			}
 			if (network_test.setup_seconds >= network_test.start_delay)
 			{
 				network_test.started = TRUE;

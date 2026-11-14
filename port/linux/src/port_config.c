@@ -351,6 +351,12 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The weapon network_test_pickup stands the player on: the first whose tag\n"
 		"name has this in it (\"sniper\", say); empty any." },
+	{ "debug.network_test_split", _config_string, "\"\"", "HALO_NETWORK_TEST_SPLIT", _environment_value, _platform_all,
+		"Split screen leaves for an automated test host: \"<players>:<seconds>\"\n"
+		"adds that many split screen players (controllers 1 to 4), and every this\n"
+		"many seconds the last one still in the game leaves, as Quit on their\n"
+		"pause menu does; \":rejoin\" after it adds each back half that later;\n"
+		"empty none." },
 	{ "debug.telnet_console", _config_boolean, "false", "HALO_TELNET_CONSOLE", _environment_set_is_true, _platform_all,
 		"Listen on 127.0.0.1 (port telnet_console_port) for a script console that\n"
 		"runs what it is sent as the game's console does, with no password; false\n"
