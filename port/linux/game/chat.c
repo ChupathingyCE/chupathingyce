@@ -953,11 +953,16 @@ char const *chat_host_welcome(void)
 
 void chat_host_set_opence_welcome(int on, char const *text)
 {
+	char copy[sizeof(chat.opence_welcome_text)];
+
+	/* text may be chat_host_opence_welcome_text() itself: copy it before
+	clearing */
+	copy[0] = 0;
+	if (text && opence_welcome_text_valid(text))
+		snprintf(copy, sizeof(copy), "%s", text);
 	chat.opence_welcome_set = TRUE;
 	chat.opence_welcome_on = on != 0;
-	chat.opence_welcome_text[0] = 0;
-	if (text && opence_welcome_text_valid(text))
-		snprintf(chat.opence_welcome_text, sizeof(chat.opence_welcome_text), "%s", text);
+	memcpy(chat.opence_welcome_text, copy, sizeof(copy));
 }
 
 int chat_host_opence_welcome(void)
