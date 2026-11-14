@@ -81,14 +81,20 @@ void halo_screen_anti_alias(short x0, short y0, short x1, short y1);
 anti-aliasing (source/render/render.c), and what the code drawing knows of
 the draws that follow (HALO_HDR_KIND_*, 0 none: port/linux/src/d3d8_gl.c's
 hdr_draw_tag, xgpu_tone_map.h) */
-#ifdef HALO_XBOX_CONSOLE
-/* (the original Xbox draws into its own 8 bits: nothing to do, and no stub
-to add in its port) */
-#define halo_screen_tone_map(x0, y0, x1, y1) ((void)0)
-#define halo_hdr_draw_kind(kind) ((void)0)
-#else
+/* (the ports with port/linux/src/d3d8_gl.c, the desktop's and Android's,
+have them; the others, the original Xbox's, the Switch's and the PS3's own
+renderers, draw into their own 8 bits: nothing to do, and no stub to add
+in their ports) */
+#if defined(HALO_LINUX_PLATFORM_LAYER) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_SWITCH_CONSOLE) && \
+	!defined(HALO_CONSOLE) && !defined(HALO_CONSOLE_GL_LAYER)
+#define HALO_PORT_HDR 1
+#endif
+#ifdef HALO_PORT_HDR
 void halo_screen_tone_map(short x0, short y0, short x1, short y1);
 void halo_hdr_draw_kind(int kind);
+#else
+#define halo_screen_tone_map(x0, y0, x1, y1) ((void)0)
+#define halo_hdr_draw_kind(kind) ((void)sizeof(kind))
 #endif
 #ifndef HALO_HDR_KIND_NONE
 #define HALO_HDR_KIND_NONE 0

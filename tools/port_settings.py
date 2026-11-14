@@ -130,27 +130,6 @@ SCREENS = {
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
-            ("hdr", "HDR SETUP", "HDR, the HDR display, tone mapping and brightness.", [
-                ("HDR:", "display.hdr", ON_OFF,
-                 "Keep the light of explosions, plasma and glows past\nwhite, and roll it off instead of clipping.", "desktop"),
-                ("HDR DISPLAY:", "display.hdr_output", ON_OFF,
-                 "With HDR, on an HDR display, show that light\nbrighter than white. From the next start.", "desktop"),
-                ("TONE MAPPING:", "display.hdr_tone_mapping",
-                 [("NEUTRAL", "neutral"), ("ACES", "aces"), ("REINHARD", "reinhard")],
-                 "Neutral keeps the picture and rolls off only the\nbrightest parts. ACES is filmic, Reinhard softer.", "desktop"),
-                ("EXPOSURE:", "display.hdr_exposure",
-                 [(f"{value:g}", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)],
-                 "The view's brightness before tone mapping.", "desktop"),
-                ("HDR BRIGHTNESS:", "display.hdr_paper_white",
-                 [("AUTO", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
-                 "How bright white is on an HDR display, in nits.\nAuto is the display's own.", "desktop"),
-                ("HDR PEAK:", "display.hdr_peak",
-                 [("AUTO", "0")] + [(f"{value}", f"{value}") for value in (400, 600, 800, 1000, 1500, 2000, 4000)],
-                 "The brightest highlight on an HDR display,\nin nits. Auto asks the display.", "desktop"),
-                ("HUD BRIGHTNESS:", "display.hdr_ui_nits",
-                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
-                 "The HUD's and menus' white on an HDR display,\nin nits.", "desktop"),
-            ]),
             ("advanced", "ADVANCED", "Shadows, lighting and detail.", [
                 ("SHADOW RESOLUTION:", "display.shadow_resolution",
                  [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],
@@ -212,6 +191,27 @@ SCREENS = {
                  # classic titles only: HALO_CONSOLE_NO_TITLE_CHOICE; last,
                  # so the Switch's list has no gap)
                  "desktop android"),
+            ]),
+            ("hdr", "HDR SETUP", "HDR, the HDR display, tone mapping and brightness.", [
+                ("HDR:", "display.hdr", ON_OFF,
+                 "Keep the light of explosions, plasma and glows past\nwhite, and roll it off instead of clipping.", "desktop"),
+                ("HDR DISPLAY:", "display.hdr_output", ON_OFF,
+                 "With HDR, on an HDR display, show that light\nbrighter than white. From the next start.", "desktop"),
+                ("TONE MAPPING:", "display.hdr_tone_mapping",
+                 [("NEUTRAL", "neutral"), ("ACES", "aces"), ("REINHARD", "reinhard")],
+                 "Neutral keeps the picture and rolls off only the\nbrightest parts. ACES is filmic, Reinhard softer.", "desktop"),
+                ("EXPOSURE:", "display.hdr_exposure",
+                 [(f"{value:g}", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)],
+                 "The view's brightness before tone mapping.", "desktop"),
+                ("HDR BRIGHTNESS:", "display.hdr_paper_white",
+                 [("AUTO", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
+                 "How bright white is on an HDR display, in nits.\nAuto is the display's own.", "desktop"),
+                ("HDR PEAK:", "display.hdr_peak",
+                 [("AUTO", "0")] + [(f"{value}", f"{value}") for value in (400, 600, 800, 1000, 1500, 2000, 4000)],
+                 "The brightest highlight on an HDR display,\nin nits. Auto asks the display.", "desktop"),
+                ("HUD BRIGHTNESS:", "display.hdr_ui_nits",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
+                 "The HUD's and menus' white on an HDR display,\nin nits.", "desktop"),
             ]),
         ],
     },
@@ -605,7 +605,14 @@ def _setting_rows(base: str, spec: dict) -> tuple:
         elif entry[0] == "link":
             _, view, key, place, label_index = entry
             shown = any(_on_console(row[4]) for row in views[view])
-            rows.append((f"{base}/op_{key}", None if shown else NOT_CONSOLE, place))
+            # (a list every row of which is on the same few platforms opens
+            # only there: HDR SETUP on the desktop alone)
+            platforms = {row[4] for row in views[view]}
+            if None in platforms:
+                platform = None if shown else NOT_CONSOLE
+            else:
+                platform = " ".join(sorted({name for names in platforms for name in names.split()}))
+            rows.append((f"{base}/op_{key}", platform, place))
             extra += _link_row(base, key, label_index)
         else:
             _, row, key, place, label_index = entry

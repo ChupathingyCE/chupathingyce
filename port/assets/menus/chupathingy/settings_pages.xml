@@ -103,19 +103,11 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_viewmodel_field_of_view" x="54" y="121" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scales_with_fov" x="54" y="265" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scales_with_fov" x="54" y="145" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_hdr" x="54" y="289" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_advanced" x="54" y="313" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_advanced" x="54" y="289" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_advanced" x="54" y="169" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_interface" x="54" y="337" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_interface" x="54" y="313" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_interface" x="54" y="193" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_hdr" x="54" y="73"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr" x="54" y="73" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_output" x="54" y="97" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_tone_mapping" x="54" y="121" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_exposure" x="54" y="145" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_paper_white" x="54" y="169" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_peak" x="54" y="193" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_ui_nits" x="54" y="217" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_hdr" x="54" y="337" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_advanced" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_shadow_resolution" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_per_pixel_lighting" x="54" y="97"/>
@@ -149,6 +141,14 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_version_watermark" x="54" y="337" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_version_watermark" x="54" y="217" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_title_font" x="54" y="361" platform="desktop android"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_hdr" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr" x="54" y="73" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_output" x="54" y="97" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_tone_mapping" x="54" y="121" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_exposure" x="54" y="145" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_paper_white" x="54" y="169" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_peak" x="54" y="193" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hdr_ui_nits" x="54" y="217" platform="desktop"/>
 	</widget>
 	<widget name="chupathingy/settings/audio_settings_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>
@@ -207,9 +207,9 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_copy_to_clipboard" x="54" y="223" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_start_with_one_player" x="54" y="253" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_start_with_one_player" x="54" y="103" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_updates" x="54" y="283" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_chat" x="54" y="313" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_privacy" x="54" y="343" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_updates" x="54" y="283" platform="android desktop switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_chat" x="54" y="313" platform="android desktop switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_privacy" x="54" y="343" platform="android desktop switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/view_updates" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_auto" x="54" y="73" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_channel" x="54" y="103" platform="desktop android switch"/>

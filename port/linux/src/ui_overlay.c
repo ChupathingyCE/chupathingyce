@@ -130,7 +130,7 @@ static struct
 	GLint icon_count_location;
 	GLint y_flip_location;
 #endif
-	GLint scale_location, atlas_location, icons_location, picture_location, cutouts_location, window_height_location;
+	GLint scale_location, atlas_location, icons_location, picture_location, cutouts_location, window_height_location, output_location;
 	/* the picture (ui_overlay_picture): the serial and pixels last given,
 	and the serial in the texture */
 	int picture_serial, picture_width, picture_height, picture_uploaded;
@@ -1323,8 +1323,12 @@ static const char fragment_source[] =
 	"uniform vec4 cellwall_parameters[3];\n"
 	UI_OVERLAY_CELLWALL_GLSL
 #endif
+	/* (display.hdr: the window's encoding, xgpu_tone_map.h: x 2 for a
+	floating-point window's linear light, y its paper white in its units, z
+	the UI's white over it, w the peak; else the color as it is) */
+	"uniform vec4 output_encoding;\n"
 	"out vec4 fragment;\n"
-	"void main()\n"
+	"vec4 overlay_color()\n"
 	"{\n"
 	"\tfloat alpha;\n"
 	/* (the game's own pictures show through: x0, y0, x1, y1 in window pixels
@@ -1341,17 +1345,15 @@ static const char fragment_source[] =
 	/* the cellwall (its ray in the texture coordinates) */
 	"\tif (v_edge.x < -5.5)\n"
 	"\t{\n"
-	"\t\tfragment = cellwall(v_texture_coordinate, cellwall_parameters[0], cellwall_parameters[1],\n"
+	"\t\treturn cellwall(v_texture_coordinate, cellwall_parameters[0], cellwall_parameters[1],\n"
 	"\t\t\tcellwall_parameters[2], v_color);\n"
-	"\t\treturn;\n"
 	"\t}\n"
 #endif
 	/* a medal (premultiplied, as an icon) */
 	"\tif (v_edge.x < -4.5)\n"
 	"\t{\n"
 	"\t\tvec4 texel = texture(medals, v_texture_coordinate);\n"
-	"\t\tfragment = vec4(texel.rgb / max(texel.a, 0.001), texel.a) * v_color;\n"
-	"\t\treturn;\n"
+	"\t\treturn vec4(texel.rgb / max(texel.a, 0.001), texel.a) * v_color;\n"
 	"\t}\n"
 	/* the plasma: the noise map twice, at the menus' two scales, its bright
 	threads where the two meet, in a rounded rectangle (edge.y its corners'
@@ -1366,14 +1368,12 @@ static const char fragment_source[] =
 	"\t\tfloat a1 = t1.a * dot(t1.rgb, vec3(0.3333));\n"
 	"\t\tfloat thread = pow(clamp(1.0 - abs(a0 - a1) * 3.0, 0.0, 1.0), 8.0);\n"
 	"\t\tvec3 color = v_color.rgb * (0.8 + 0.6 * a0 * a1) + plasma_thread.rgb * thread * 0.18;\n"
-	"\t\tfragment = vec4(color, v_color.a * clamp(0.5 - d, 0.0, 1.0) * (0.92 + 0.08 * thread));\n"
-	"\t\treturn;\n"
+	"\t\treturn vec4(color, v_color.a * clamp(0.5 - d, 0.0, 1.0) * (0.92 + 0.08 * thread));\n"
 	"\t}\n"
 	/* the picture */
 	"\tif (v_edge.x < -2.5)\n"
 	"\t{\n"
-	"\t\tfragment = texture(picture, v_texture_coordinate) * v_color;\n"
-	"\t\treturn;\n"
+	"\t\treturn texture(picture, v_texture_coordinate) * v_color;\n"
 	"\t}\n"
 	/* an icon (premultiplied: its color undone after filtering) */
 	"\tif (v_edge.x < -1.5)\n"
@@ -1383,8 +1383,7 @@ static const char fragment_source[] =
 #else
 	"\t\tvec4 texel = texture(icons, vec3(v_texture_coordinate, v_shape.x));\n"
 #endif
-	"\t\tfragment = vec4(texel.rgb / max(texel.a, 0.001), texel.a) * v_color;\n"
-	"\t\treturn;\n"
+	"\t\treturn vec4(texel.rgb / max(texel.a, 0.001), texel.a) * v_color;\n"
 	"\t}\n"
 	"\tif (v_texture_coordinate.x >= 0.0)\n"
 	"\t\talpha = texture(atlas, v_texture_coordinate).r;\n"
@@ -1399,7 +1398,14 @@ static const char fragment_source[] =
 	"\t\tif (v_edge.y > 0.0)\n"
 	"\t\t\talpha *= clamp(d + v_edge.y + 0.5, 0.0, 1.0);\n"
 	"\t}\n"
-	"\tfragment = vec4(v_color.rgb, v_color.a * alpha);\n"
+	"\treturn vec4(v_color.rgb, v_color.a * alpha);\n"
+	"}\n"
+	"void main()\n"
+	"{\n"
+	"\tvec4 color = overlay_color();\n"
+	"\tif (output_encoding.x > 1.5)\n"
+	"\t\tcolor.rgb = min(pow(max(color.rgb, vec3(0.0)), vec3(2.2)) * output_encoding.z, vec3(output_encoding.w)) * output_encoding.y;\n"
+	"\tfragment = color;\n"
 	"}\n";
 
 static GLuint compile(GLenum type, const char *body)
@@ -1532,6 +1538,7 @@ static int set_up(void)
 	overlay.plasma_thread_location = glGetUniformLocation(overlay.program, "plasma_thread");
 	overlay.cellwall_location = glGetUniformLocation(overlay.program, "cellwall_parameters");
 	overlay.cutouts_location = glGetUniformLocation(overlay.program, "cutouts");
+	overlay.output_location = glGetUniformLocation(overlay.program, "output_encoding");
 	overlay.window_height_location = glGetUniformLocation(overlay.program, "window_height");
 
 	{
@@ -1955,6 +1962,15 @@ void ui_overlay_present_to(unsigned int framebuffer, int width, int height)
 #define overlay_target_framebuffer platform_window_framebuffer()
 #endif
 
+/* the window's encoding (d3d8_gl.c's hdr_window_encoding): the color as it
+is until it is set */
+static float overlay_output[4];
+
+void ui_overlay_set_output(const float encoding[4])
+{
+	memcpy(overlay_output, encoding, sizeof(overlay_output));
+}
+
 void ui_overlay_present(int x, int y, int width, int height, int window_width, int window_height)
 {
 	float scale, origin_x, origin_y;
@@ -2287,6 +2303,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 			cutouts[cutout][3] = origin_y + overlay.cutouts[cutout][3] * scale;
 		}
 		glUniform4fv(overlay.cutouts_location, 4, &cutouts[0][0]);
+		glUniform4fv(overlay.output_location, 1, overlay_output);
 		glUniform1f(overlay.window_height_location, (float)window_height);
 	}
 	glBindVertexArray(overlay.vertex_array);
