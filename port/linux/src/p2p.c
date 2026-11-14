@@ -2961,7 +2961,10 @@ through Online Games once the main menu is up, as a party's link is, so the
 link starts the game and goes straight in (#994). In a game it is joined
 as before, its host listed under System Link (invite_prompt.c,
 p2p_take_link_join). Not held for a dedicated server or the probe, which
-have no menus. */
+have no menus. Under a lock of its own: the p2p thread holds p2p_lock
+while it hands a link over (handoff_readable, Discord's Join,
+poll_invite_file), and the game thread takes the link. */
+static pthread_mutex_t link_join_lock = PTHREAD_MUTEX_INITIALIZER;
 static char link_join[256];
 static int link_join_public;
 
@@ -2975,10 +2978,10 @@ static int hold_link_join(const char *text, int public)
 	{
 		return 0;
 	}
-	pthread_mutex_lock(&p2p_lock);
+	pthread_mutex_lock(&link_join_lock);
 	snprintf(link_join, sizeof(link_join), "%s", text);
 	link_join_public = public;
-	pthread_mutex_unlock(&p2p_lock);
+	pthread_mutex_unlock(&link_join_lock);
 	platform_log("Internet play: opened %s; it is joined once the menus are up",
 		p2p_invite_log_text(text, shown, sizeof(shown)));
 	return 1;
@@ -2988,7 +2991,7 @@ int p2p_take_link_join(char *text, int size, int *public)
 {
 	int result;
 
-	pthread_mutex_lock(&p2p_lock);
+	pthread_mutex_lock(&link_join_lock);
 	result = link_join[0] != 0 && size > (int)strlen(link_join);
 	if (result)
 	{
@@ -2996,7 +2999,7 @@ int p2p_take_link_join(char *text, int size, int *public)
 		*public = link_join_public;
 		link_join[0] = 0;
 	}
-	pthread_mutex_unlock(&p2p_lock);
+	pthread_mutex_unlock(&link_join_lock);
 	return result;
 }
 #endif

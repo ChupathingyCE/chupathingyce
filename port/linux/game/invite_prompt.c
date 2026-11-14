@@ -37,7 +37,8 @@ void platform_text_field(int typing);
 int p2p_join_invite(char const *text);
 int p2p_join_listed_invite(char const *text);
 int p2p_take_link_join(char *text, int size, int *public);
-boolean browser_screen_join_link(char const *link, char const *name);
+boolean browser_screen_join_link_listed(char const *link, char const *name, boolean open);
+boolean game_in_progress(void);
 boolean main_menu_is_active(void);
 char const *p2p_invite_link_digits(char const *text);
 int p2p_locked_invite_waiting(void);
@@ -446,15 +447,18 @@ static void take_opened_link(
 
 	if (main_menu_is_active())
 		main_menu_seen = TRUE;
-	if (!main_menu_seen || !p2p_take_link_join(link, sizeof(link), &open))
+	/* (a start that went into a game without the main menu, as init.txt's
+	map_name does, takes it there, as a link opened in a game) */
+	if (!main_menu_seen && !(game_in_progress() && !main_menu_is_active()))
+		return;
+	if (!p2p_take_link_join(link, sizeof(link), &open))
 		return;
 	/* (named as the game list names it, if it lists it) */
 	if (!browser_screen_invite_game(link, name, sizeof(name), map, sizeof(map)))
 		csstrncpy(name, "the game", sizeof(name) - 1);
-	if (browser_screen_join_link(link, name))
+	if (browser_screen_join_link_listed(link, name, open))
 		platform_log("Internet play: joining the opened link through Online Games");
-	/* (open: the same invite again, now public, joins nothing new: p2p.c) */
-	if (open)
+	else if (open)
 		p2p_join_listed_invite(link);
 	else
 		p2p_join_invite(link);

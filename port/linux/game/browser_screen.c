@@ -2632,9 +2632,21 @@ boolean browser_screen_open_map_offer(
 following its leader, guide.c): the screen opens over the menus and joins
 it as a pasted link does, saying who it follows. FALSE for text with no
 invite, or with no menus up */
+boolean browser_screen_join_link_listed(char const *link, char const *name, boolean open);
+
 boolean browser_screen_join_link(
 	char const *link,
 	char const *name)
+{
+	return browser_screen_join_link_listed(link, name, FALSE);
+}
+
+/* browser_screen_join_link, open TRUE for a public game's invite (a
+listing's, which Discord's Join gives: p2p_join_listed_invite) */
+boolean browser_screen_join_link_listed(
+	char const *link,
+	char const *name,
+	boolean open)
 {
 	char code[BROWSER_INVITE_LENGTH + 1];
 	char const *start = link;
@@ -2655,7 +2667,7 @@ boolean browser_screen_join_link(
 		return FALSE;
 	if (!browser_screen.active)
 		browser_screen_open();
-	join_invite(code, NULL, FALSE);
+	join_invite(code, NULL, open);
 	if (name && name[0])
 	{
 		csstrncpy(browser_screen.connecting_name, name, sizeof(browser_screen.connecting_name) - 1);
