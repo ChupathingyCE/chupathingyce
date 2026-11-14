@@ -1733,7 +1733,7 @@ static void join_selected(
 }
 
 /* the game whose MCC map was offered, joined now that the map is in place,
-as A on it does (the list's JOIN taken as answered); gone from the list,
+as A on it does; gone from the list,
 nothing joined */
 static void join_offered_game(
 	void)
@@ -1748,8 +1748,6 @@ static void join_offered_game(
 		return;
 	}
 	browser_screen.selected = index;
-	csstrncpy(browser_screen.join_answered, browser_screen.offer_join_invite, sizeof(browser_screen.join_answered) - 1);
-	browser_screen.join_answered[sizeof(browser_screen.join_answered) - 1] = 0;
 	browser_screen.offer_join_invite[0] = 0;
 	browser_screen.offer_workshop = FALSE;
 	platform_log("workshop: the item is in place; joining the game");
