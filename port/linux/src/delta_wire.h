@@ -679,6 +679,9 @@ struct delta_wire_hello
 	delta_u32 legacy_table_serial;
 	struct delta_platform_key key;
 	char build[DELTA_WIRE_BUILD_SIZE + 1];
+	/* the game modes it plays (network_rules.h's NETWORK_RULES_MODES_*),
+	after the build text; 0 from a build before them (docs/modes.md) */
+	delta_u32 modes;
 };
 
 struct delta_wire_welcome
@@ -693,7 +696,12 @@ struct delta_wire_welcome
 	delta_u32 legacy_table_serial;
 	struct delta_platform_key key;
 	char build[DELTA_WIRE_BUILD_SIZE + 1];
+	/* the game modes the host plays, after the build text (as HELLO's) */
+	delta_u32 modes;
 };
+
+/* the modes field's size, after the build text of a HELLO or WELCOME */
+#define DELTA_WIRE_MODES_SIZE 4
 
 enum
 {

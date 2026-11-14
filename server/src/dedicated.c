@@ -1096,6 +1096,8 @@ static boolean set_entry(
 	for the same variant) */
 	player_ui_set_game_variant(&variant);
 	player_ui_set_game_variant_options(&options);
+	/* (and its further options, the game modes layer's: docs/modes.md) */
+	player_ui_set_game_mode_options(server_gametype_resolved_modes());
 	network_game_server_change_game_variant(server, &variant);
 	dedicated.entry_teams = variant.universal_variant.teams ? TRUE : FALSE;
 	if (!dedicated.chosen_playing)

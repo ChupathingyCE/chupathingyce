@@ -132,11 +132,13 @@ number announced until its end (delta.h, auto-announce) */
 void delta_legacy_hold(int hold);
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
 then flags, then (version 37) the game's kind: an OpenCE game type in the low
-seven bits, Hardcore in bit 7; our hosts play none and send 0. A Delta host's
+seven bits, Hardcore in bit 7; our hosts send the game modes layer's kind
+(docs/modes.md) when they announce 37 or later, 0 before. A Delta host's
 own bytes are at the tail (delta.h, DELTA_ADVERTISED_TAG_OFFSET). */
 #define HALO_PORT_ADVERTISED_VERSION_OFFSET 0
 #define HALO_PORT_ADVERTISED_FLAGS_OFFSET 2
 #define HALO_PORT_ADVERTISED_KIND_OFFSET 3
+#define HALO_PORT_ADVERTISED_KIND_VERSION 37
 /* ... the host plays the distributed netcode (always, since the lockstep
 netcode was removed; hosts of version 4 built before then may not) */
 #define HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG 0x01

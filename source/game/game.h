@@ -159,6 +159,11 @@ defaults once it is set, then the network game's */
 struct game_variant_options;
 void game_set_game_variant_options(struct game_variant_options const *options);
 struct game_variant_options const *game_variant_options_get(void);
+/* port: and the gametype's further options (source/game/game_modes.c): the
+game modes layer's, given after the variant and the PC options, as the
+network game's are; the layer's forced settings go on the game's own copy
+of the variant (NULL: the defaults, no mode) */
+void game_set_game_mode_options(unsigned char const *options);
 void game_set_game_engine_index(short index);
 boolean game_all_quiet(
 	void);

@@ -33,6 +33,12 @@ const struct server_builtin server_builtins[] =
 	{ "bomb", SERVER_ENGINE_BOMB },
 	{ "grifball", SERVER_ENGINE_BOMB },
 	{ "grifball_open_pitch", SERVER_ENGINE_BOMB },
+	/* (the game modes layer's: docs/modes.md) */
+	{ "swat", SERVER_ENGINE_SLAYER },
+	{ "hardcore", SERVER_ENGINE_SLAYER },
+	{ "hc_ctf", SERVER_ENGINE_CTF },
+	{ "hc_oddball", SERVER_ENGINE_ODDBALL },
+	{ "hc_king", SERVER_ENGINE_KING },
 };
 
 const int server_builtin_count = (int)(sizeof(server_builtins) / sizeof(server_builtins[0]));
@@ -47,8 +53,13 @@ static const struct server_choice base_choices[] =
 	{ "slayer", 0 }, { "team_slayer", 1 }, { "elimination", 2 }, { "ctf", 3 }, { "ironctf", 4 }, { "king", 5 },
 	{ "team_king", 6 }, { "oddball", 7 }, { "team_oddball", 8 }, { "stalker", 9 }, { "accumulation", 10 },
 	{ "race", 11 }, { "team_race", 12 }, { "rally", 13 }, { "bomb", 14 }, { "grifball", 15 },
-	{ "grifball_open_pitch", 16 },
+	{ "grifball_open_pitch", 16 }, { "swat", 17 }, { "hardcore", 18 }, { "hc_ctf", 19 }, { "hc_oddball", 20 },
+	{ "hc_king", 21 },
 };
+
+/* (the game modes layer's modes: network_rules.h's mode byte; those this
+build plays, docs/modes.md) */
+static const struct server_choice mode_choices[] = { { "none", 0 }, { "swat", 1 } };
 
 /* (game_engine.c's game_engine_weapons) */
 static const struct server_choice weapon_set_choices[] =
@@ -201,6 +212,9 @@ const struct server_gametype_field server_gametype_fields[SERVER_GAMETYPE_FIELDS
 		"no weapons, grenades or powerups; the map's energy sword if it has one" },
 	{ "bomb.traits", CHOICE(bomb_traits_choices), SERVER_ENGINE_BOMB, "Player traits",
 		"grifball: one hit kills, the carrier fast and overshielded" },
+
+	{ "mode", CHOICE(mode_choices), SERVER_ENGINE_SLAYER, "Mode", "swat: no shields, a headshot kills" },
+	{ "hardcore", BOOLEAN, 0, "Hardcore", "no motion tracker, no aim assist, a kill restores the killer" },
 };
 
 /* ---------- the settings file's */

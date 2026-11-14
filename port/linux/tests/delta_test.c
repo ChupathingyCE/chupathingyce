@@ -2582,10 +2582,12 @@ static void test_platform_names(void)
 static void test_wire_byte_order(void)
 {
 	static const unsigned char expected[] = {
-		'D', 'P', DELTA_MAJOR, _delta_message_hello, 0x1B, 0x00, 0x00, 0x00, 0x01, 0xEF, 0xCD, 0xAB,
+		'D', 'P', DELTA_MAJOR, _delta_message_hello, 0x1F, 0x00, 0x00, 0x00, 0x01, 0xEF, 0xCD, 0xAB,
 		0x04, 0x03, 0x02, 0x01, 0x27, 0x01, 0x07, 0x07, 0xD4, 0xC3, 0xB2, 0xA1,
 		_delta_platform_xbox360, DELTA_PLATFORM_KEY_VERSION, 0x00, 0x10, 0x10, 0x80, 0x09, 0x00,
-		'W', 'a', 'r', 't', 'h', 'o', 'g'
+		'W', 'a', 'r', 't', 'h', 'o', 'g',
+		/* (the game modes, after the build text: SWAT and Hardcore) */
+		0x03, 0x00, 0x00, 0x00
 	};
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
 	struct delta_wire_header header;
@@ -2604,14 +2606,20 @@ static void test_wire_byte_order(void)
 	hello.key.join_players_opt_in = 128;
 	hello.key.memory_class = 9;
 	strcpy(hello.build, "Warthog");
+	hello.modes = 0x03;
 	size = delta_wire_write_hello(data, 0xABCDEF01u, &hello);
 	CHECK(size == (int)sizeof(expected) && !memcmp(data, expected, sizeof(expected)));
 	CHECK(delta_wire_read_header(expected, (int)sizeof(expected), &header));
-	CHECK(header.session == 0xABCDEF01u && header.length == 0x1B);
+	CHECK(header.session == 0xABCDEF01u && header.length == 0x1F);
 	CHECK(delta_wire_read_hello(expected + 12, header.length, &hello_back));
 	CHECK(hello_back.capabilities == 0x01020304u && hello_back.legacy_version == 0x0127);
 	CHECK(hello_back.legacy_table_serial == 0xA1B2C3D4u && hello_back.key.platform == _delta_platform_xbox360);
 	CHECK(hello_back.key.join_players_opt_in == 128 && !strcmp(hello_back.build, "Warthog"));
+	CHECK(hello_back.modes == 0x03);
+	/* (a HELLO from a build before the modes ends with the build text: read,
+	with no modes) */
+	CHECK(delta_wire_read_hello(expected + 12, 0x1B, &hello_back) && hello_back.modes == 0 &&
+		!strcmp(hello_back.build, "Warthog"));
 }
 
 static void test_wire(void)
@@ -2633,8 +2641,9 @@ static void test_wire(void)
 	hello.legacy_table_serial = 42;
 	pc_key(&hello.key, _delta_platform_pc_linux);
 	strcpy(hello.build, "ChupathingyCE 0.6.5b");
+	hello.modes = 0x02;
 	size = delta_wire_write_hello(data, 0xABCDEF01u, &hello);
-	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HELLO_SIZE + (int)strlen(hello.build));
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HELLO_SIZE + (int)strlen(hello.build) + DELTA_WIRE_MODES_SIZE);
 	CHECK(data[0] == 'D' && data[1] == 'P' && data[2] == DELTA_MAJOR && data[3] == _delta_message_hello);
 	CHECK(delta_wire_read_header(data, size, &header));
 	CHECK(header.session == 0xABCDEF01u && header.type == _delta_message_hello && header.length == size - 12);
@@ -2642,6 +2651,7 @@ static void test_wire(void)
 	CHECK(hello_back.capabilities == 3 && hello_back.legacy_version == 18 && hello_back.machine_index == 7);
 	CHECK(hello_back.legacy_table_serial == 42 && !strcmp(hello_back.build, hello.build));
 	CHECK(!memcmp(&hello_back.key, &hello.key, sizeof(hello.key)));
+	CHECK(hello_back.modes == 0x02);
 	/* (every shorter datagram is refused: the header's length, or the
 	payload's fields) */
 	for (cut = 0; cut < size; cut++)
@@ -2675,11 +2685,16 @@ static void test_wire(void)
 	pc_key(&welcome.key, _delta_platform_pc_macos);
 	welcome.key.flags = DELTA_PLATFORM_KEY_DEDICATED;
 	strcpy(welcome.build, "server");
+	welcome.modes = 0x03;
 	size = delta_wire_write_welcome(data, 5, &welcome);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_WELCOME_SIZE + 6 + DELTA_WIRE_MODES_SIZE);
 	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_welcome);
 	CHECK(delta_wire_read_welcome(data + 12, header.length, &welcome_back));
 	CHECK(welcome_back.agreed == 1 && welcome_back.host_machine_index == 0xFF && welcome_back.legacy_table_serial == 9);
 	CHECK(!memcmp(&welcome_back.key, &welcome.key, sizeof(welcome.key)) && !strcmp(welcome_back.build, "server"));
+	CHECK(welcome_back.modes == 0x03);
+	/* (a WELCOME from a host before the modes: none) */
+	CHECK(delta_wire_read_welcome(data + 12, DELTA_WIRE_WELCOME_SIZE + 6, &welcome_back) && welcome_back.modes == 0);
 	for (cut = 0; cut < DELTA_WIRE_WELCOME_SIZE + 6; cut++)
 		CHECK(!delta_wire_read_welcome(data + 12, cut, &welcome_back));
 

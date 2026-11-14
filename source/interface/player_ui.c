@@ -237,8 +237,12 @@ static struct
 {
 	struct game_variant_options original;
 	struct game_variant_options current;
+	/* (and the further options, the game modes layer's) */
+	byte original_modes[16];
+	byte current_modes[16];
 } player_ui_edit_options;
 static struct game_variant_options player_ui_multiplayer_options;
+static byte player_ui_multiplayer_modes[16];
 static char player1_profile_path[0x100] = { 0 };
 
 /* ---------- public code */
@@ -392,6 +396,12 @@ struct game_variant_options *player_ui_get_edit_playlist_options(
 	return player_ui_get_edit_playlist_profile() ? &player_ui_edit_options.current : NULL;
 }
 
+byte *player_ui_get_edit_mode_options(
+	void)
+{
+	return player_ui_get_edit_playlist_profile() ? player_ui_edit_options.current_modes : NULL;
+}
+
 boolean player_ui_edit_profile_is_dirty(
 	void)
 {
@@ -436,7 +446,9 @@ boolean player_ui_edit_profile_is_dirty(
 					sizeof(struct game_variant)) ||
 					/* port: and its PC options */
 					csmemcmp(&player_ui_edit_options.original, &player_ui_edit_options.current,
-						sizeof(struct game_variant_options)))
+						sizeof(struct game_variant_options)) ||
+					csmemcmp(player_ui_edit_options.original_modes, player_ui_edit_options.current_modes,
+						sizeof(player_ui_edit_options.current_modes)))
 				{
 					result = TRUE;
 				}
@@ -637,8 +649,10 @@ void player_ui_set_game_variant(
 
 	csmemcpy(&player_ui_globals.multiplayer_variant, variant, sizeof(*variant));
 	player_ui_globals.multiplayer_variant_specified = TRUE;
-	/* port: its PC options, the defaults until they are given */
+	/* port: its PC options, the defaults until they are given, and its
+	further options (none) */
 	game_variant_options_default(variant, &player_ui_multiplayer_options);
+	player_ui_set_game_mode_options(NULL);
 	return;
 }
 
@@ -653,6 +667,28 @@ struct game_variant_options const *player_ui_get_game_variant_options(
 	void)
 {
 	return &player_ui_multiplayer_options;
+}
+
+void player_ui_set_game_mode_options(
+	byte const *modes)
+{
+	if (modes)
+		csmemcpy(player_ui_multiplayer_modes, modes, sizeof(player_ui_multiplayer_modes));
+	else
+	{
+		/* (the defaults: network_rules_extended_options_default's, which
+		the game knows as game_mode_options_default; here as bytes, so that
+		a build without the layer has them too) */
+		static byte const defaults[16] = { 0, 0, 1, 150, 200, 5, 10, 1, 0, 1, 0, 0, 0, 0, 0, 0 };
+
+		csmemcpy(player_ui_multiplayer_modes, defaults, sizeof(player_ui_multiplayer_modes));
+	}
+}
+
+byte const *player_ui_get_game_mode_options(
+	void)
+{
+	return player_ui_multiplayer_modes;
 }
 
 boolean player_ui_game_variant_specified(
@@ -822,6 +858,9 @@ void player_ui_begin_editing_profile(
 				/* port: and its PC options */
 				playlist_profile_get_options(profile_index, &player_ui_edit_options.original);
 				player_ui_edit_options.current = player_ui_edit_options.original;
+				playlist_profile_get_mode_options(profile_index, player_ui_edit_options.original_modes);
+				csmemcpy(player_ui_edit_options.current_modes, player_ui_edit_options.original_modes,
+					sizeof(player_ui_edit_options.current_modes));
 			}
 			else
 			{
@@ -909,10 +948,11 @@ boolean player_ui_save_profile(
 						player_ui_globals.edit_profile.current.variant.human_readable_game_description);
 					if (new_profile_index != NONE)
 					{
-						playlist_profile_save_with_options(
+						playlist_profile_save_with_modes(
 							new_profile_index,
 							&player_ui_globals.edit_profile.current.variant,
-							&player_ui_edit_options.current);
+							&player_ui_edit_options.current,
+							player_ui_edit_options.current_modes);
 						player_ui_globals.edit_profile_index = new_profile_index;
 						if (saved_game_file_get_path_to_enclosing_directory(
 							new_profile_index,
@@ -937,10 +977,11 @@ boolean player_ui_save_profile(
 			}
 			else
 			{
-				playlist_profile_save_with_options(
+				playlist_profile_save_with_modes(
 					player_ui_globals.edit_profile_index,
 					&player_ui_globals.edit_profile.current.variant,
-					&player_ui_edit_options.current);
+					&player_ui_edit_options.current,
+					player_ui_edit_options.current_modes);
 				if (saved_game_file_get_path_to_enclosing_directory(
 					player_ui_globals.edit_profile_index,
 					directory_path))

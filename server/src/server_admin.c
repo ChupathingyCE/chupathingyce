@@ -42,6 +42,7 @@ given both (dedicated.c). Nothing a client is sent is new.
 #include "voice_game.h"
 #include "server_conduct.h"
 #include "server_gametype_variant.h"
+#include "game/game_modes.h"
 
 /* (text chat's, port/linux/game/chat.h) */
 void chat_host_set(int mode, int filter);
@@ -523,6 +524,9 @@ static boolean gametype_read(
 	return TRUE;
 }
 
+/* (the further options of the game type last resolved) */
+static unsigned char server_gametype_resolved_mode_bytes[16];
+
 boolean server_gametype_resolve(
 	char const *name,
 	struct game_variant *variant,
@@ -537,8 +541,16 @@ boolean server_gametype_resolve(
 		problem[0] = 0;
 	if (builtin >= 0)
 	{
+		long mode_builtin = game_mode_builtin_named(name);
+
 		game_engine_get_variant_by_name(variant, name);
-		game_variant_options_default(variant, options);
+		if (mode_builtin != NONE)
+			game_mode_builtin_options(mode_builtin, variant, options, server_gametype_resolved_mode_bytes);
+		else
+		{
+			game_variant_options_default(variant, options);
+			game_mode_options_of_builtin(name, server_gametype_resolved_mode_bytes);
+		}
 		return TRUE;
 	}
 	if (!server_config_name_valid(name))
@@ -549,7 +561,14 @@ boolean server_gametype_resolve(
 	if (!gametype_read(name, &gametype, problem, problem_size))
 		return FALSE;
 	server_gametype_variant_build(&gametype, variant, options);
+	server_gametype_mode_options(&gametype, server_gametype_resolved_mode_bytes);
 	return TRUE;
+}
+
+unsigned char const *server_gametype_resolved_modes(
+	void)
+{
+	return server_gametype_resolved_mode_bytes;
 }
 
 /* a game type's engine, as a file's base gives it (0: none) */

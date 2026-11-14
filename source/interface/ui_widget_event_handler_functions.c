@@ -934,6 +934,7 @@ symbols in this file:
 /* port: (saved games/playlist_profile.h's, whose other prototypes this unit
 declares its own way; the 64-bit build takes no implicit declarations) */
 boolean playlist_profile_get_options(long playlist_profile_index, struct game_variant_options *options);
+boolean playlist_profile_get_mode_options(long playlist_profile_index, byte *modes);
 #endif
 #include "text/unicode.h"
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
@@ -6155,9 +6156,13 @@ static boolean multiplayer_profile_set_for_game(
 		PC menus' choice gives them, ui_widget_port_gametype_choose) */
 		{
 			struct game_variant_options options;
+			byte modes[16];
 
 			if (playlist_profile_get_options(profile_index, &options))
 				player_ui_set_game_variant_options(&options);
+			/* (and its further options, the game modes layer's) */
+			if (playlist_profile_get_mode_options(profile_index, modes))
+				player_ui_set_game_mode_options(modes);
 		}
 		if (server)
 			network_game_server_change_game_variant(server, &profile);
@@ -6576,12 +6581,16 @@ boolean ui_widget_port_gametype_choose(
 	if (saved_game_file_get_path_to_enclosing_directory(profile_index, directory_path))
 		saved_game_file_remember_last_used_multiplayer_variant_directory(directory_path);
 	player_ui_set_game_variant(&profile);
-	/* (and its PC options: game_engine.h) */
+	/* (and its PC options: game_engine.h; and its further options, the
+	game modes layer's) */
 	{
 		struct game_variant_options options;
+		byte modes[16];
 
 		playlist_profile_get_options(profile_index, &options);
 		player_ui_set_game_variant_options(&options);
+		playlist_profile_get_mode_options(profile_index, modes);
+		player_ui_set_game_mode_options(modes);
 	}
 	if (server)
 		network_game_server_change_game_variant(server, &profile);
@@ -6753,15 +6762,20 @@ boolean ui_widget_port_gametype_delete(
 	return TRUE;
 }
 
-/* the game's gametype (Server Setup's options' copy), the server's */
+/* the game's gametype (Server Setup's options' copy), the server's; and its
+further options (NULL: as they are) */
 boolean ui_widget_port_game_variant_set(
 	struct game_variant *variant,
-	struct game_variant_options const *options)
+	struct game_variant_options const *options,
+	byte const *modes)
 {
 	void *server = global_network_game_server_get();
+	byte kept[16];
 
+	csmemcpy(kept, player_ui_get_game_mode_options(), sizeof(kept));
 	player_ui_set_game_variant(variant);
 	player_ui_set_game_variant_options(options);
+	player_ui_set_game_mode_options(modes ? modes : kept);
 	if (server)
 		network_game_server_change_game_variant(server, variant);
 	return TRUE;

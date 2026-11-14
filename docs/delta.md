@@ -158,13 +158,15 @@ shares.
 | 22 | `voice` | voice chat (VOICE_UP, VOICE_DOWN, VOICE_CONFIG): a player talks on a channel, the host relays each frame by its rules without decoding it. Agreed per pair, so OpenCE machines and builds without voice are never sent any. See "Voice" |
 | 23 | `reports` | a dedicated server takes its players' reports of other players (REPORT, REPORT_RESULT); see "Reports" |
 | 24 | `mcc_maps` | MCC maps (maps_mcc and Steam Workshop items) and their game messages (OpenCE 43's numbers 97 to 100) in a 43-layout session. Room-wide for an MCC map: a host playing one drops every Delta machine without it (an older build, a console); a machine without Delta (OpenCE 43) plays by its own MCC support |
+| 25 | `game_modes` | the game modes layer ([modes.md](modes.md)): OpenCE's game types played by their version 35 rules. Which modes a machine plays rides in the modes field of its HELLO and WELCOME (bit 0 SWAT, 1 Hardcore, 2 Gun Game, 3 Infection), so one bit serves them all. Room-wide for a game of a mode: a host playing one drops every Delta machine without the capability or that mode's bit, and every machine without Delta when the host announces a number before 35 (it would read a record without the mode); an OpenCE machine of 35 or later plays by its own code. See "Game modes" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
 `ce_maps`, `moderation` (see "Moderation"), `chat` and `server_messages`
 (see "Chat"), `bomb`, `bomb_movement` and `bomb_traits` ([bomb.md](bomb.md)),
 `ping`, `team_change`, `object_sync`, `host_cheats`, `host_rules`,
-`identity` (see "Verified names"), `party_teams` and `voice` (see "Voice"). No
+`identity` (see "Verified names"), `party_teams` and `voice` (see "Voice"),
+`game_modes` (see "Game modes"). No
 build sets `coop`, `ai_sync`, `vote` or `server_badge` yet. The first two's values are
 claims, shown as claims, never used for game state:
 
@@ -387,8 +389,8 @@ a later version may append):
 
 | Type | Name | Way | Payload |
 | --- | --- | --- | --- |
-| 1 | HELLO | client to host | capabilities (4), legacy number (2), machine index (1), build length (1, at most 31), legacy table serial (4), platform key (8), build (printable ASCII) |
-| 2 | WELCOME | host to client | host's capabilities (4), agreed (4), legacy number (2), host's machine index (1; 255 none), build length (1), legacy table serial (4), platform key (8), build |
+| 1 | HELLO | client to host | capabilities (4), legacy number (2), machine index (1), build length (1, at most 31), legacy table serial (4), platform key (8), build (printable ASCII); then, from `chupa-44b`, the game modes it plays (4: bit 0 SWAT, 1 Hardcore, 2 Gun Game, 3 Infection; a build before them sends none, read as 0) |
+| 2 | WELCOME | host to client | host's capabilities (4), agreed (4), legacy number (2), host's machine index (1; 255 none), build length (1), legacy table serial (4), platform key (8), build; then, from `chupa-44b`, the game modes the host plays (4, as HELLO's) |
 | 3 | LEGACY | host to client | none (the header's major is the host's) |
 | 4 | ROSTER | host to client | room capabilities (4), room's player limit (1), reserved (3), entry count (1, at most 32), reserved (3), then 36-byte entries: machine index (1), flags (1: 0x01 Delta, 0x02 platform key present, 0x04 profile present), reserved (2), agreed capabilities (4), platform key (8), profile revision (4), player ID (16) |
 | 5 | BYE | either | none |
@@ -690,6 +692,40 @@ bridge), `port/linux/src/delta_chat.c` (the filter and the host's rules)
 and `port/linux/src/delta_chat_bridge.c` (OpenCE's entries, the text's
 conversion, the bridge's checks), both tested in `delta_test.c`, and the dedicated server's `sv_say`, `sv_chat`, `sv_mute`
 and `sv_unmute` (`server/docs/admin.md`).
+
+### Game modes
+
+The game modes layer ([modes.md](modes.md)) plays OpenCE's game types by
+their version 35 rules: SWAT and Hardcore in this build, Gun Game and
+Infection to come. Nothing of a mode travels over Delta Peer: every rule
+comes from the gametype's 16 further option bytes in the game settings
+record, which OpenCE's machines carry too, and from the engine's own state.
+Delta carries only who can play:
+
+- **The capability**: `game_modes`, bit 25, with a **modes field** of 4
+  bytes after the build text of HELLO and WELCOME (one bit a mode:
+  `network_rules.h`'s `NETWORK_RULES_MODES_*`). A build before the field
+  sends none, which reads as no modes. The signed table's kill switch
+  turns the capability off like any other.
+- **The refusal** (`network_game_server_delta_refusals`,
+  `network_rules_mode_refusal`): while the hosted game's options make it
+  a mode game, a Delta machine without `game_modes` or the mode's bit is
+  dropped with the rejection code `_rejection_code_version_too_old`, and
+  every player gets a notice: "Player can't play SWAT: their build doesn't
+  have it". A machine without Delta (OpenCE's, an older build's) plays on a
+  host announcing 35 or later, where its record carries the mode, and is
+  dropped on a host announcing an older number, where it would read a
+  record without one and desync: "Player can't play SWAT: it needs network
+  version 35 or later". The lobby waits for the handshake's window as a
+  Bomb game's does ([bomb.md](bomb.md), "Delta only"); a machine joining a
+  game in progress is dropped before it loads the game.
+- **The wire**: `chupa-44b`. A mode game is content an older wire cannot
+  play, so it ends the join cleanly; everything else plays as `chupa-44a`.
+- **The kind** (OpenCE's 37): a host announcing 37 or later puts the game's
+  kind (the mode in the low 7 bits, Hardcore in bit 7) in the
+  advertisement's byte 3 and the internet listing's stamp, and leaves the
+  old Delta layout out of such a game's advertisement, since byte 3 is the
+  kind's. Our lists mark only the kinds this build does not play.
 
 ### Team changes
 

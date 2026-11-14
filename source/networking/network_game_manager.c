@@ -902,6 +902,16 @@ boolean network_game_create_game_objects(
 		game_set_game_variant(&game->variant);
 		/* port: and its PC options */
 		game_set_game_variant_options(&game->variant_options);
+#ifdef HALO_GAME_BROWSER
+		/* port: and the gametype's further options (the game modes layer,
+		docs/modes.md): the host's own, or a client's from its host's record
+		(network_server_manager.c) */
+		{
+			unsigned char const *network_game_mode_options(void);
+
+			game_set_game_mode_options(network_game_mode_options());
+		}
+#endif
 	}
 
 	if (game_load(&options))

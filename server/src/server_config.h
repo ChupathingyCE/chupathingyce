@@ -196,6 +196,12 @@ enum
 	SERVER_GAMETYPE_BOMB_MELEE_ONLY,
 	SERVER_GAMETYPE_BOMB_TRAITS,
 
+	/* the game modes layer's (docs/modes.md): the mode (Slayer's only) and
+	Hardcore (any engine but Bomb); their values are the gametype's further
+	options' bytes (server_gametype_mode_options) */
+	SERVER_GAMETYPE_MODE,
+	SERVER_GAMETYPE_HARDCORE,
+
 	SERVER_GAMETYPE_FIELDS,
 	/* a side's vehicles, "pc": every one the map places, as Halo PC places
 	them (game_engine.h's VARIANT_VEHICLE_SET_PC); "custom": their counts */
