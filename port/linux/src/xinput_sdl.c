@@ -100,6 +100,9 @@ static pthread_mutex_t mouse_lock = PTHREAD_MUTEX_INITIALIZER;
 static float mouse_pending_x, mouse_pending_y;
 static unsigned long mouse_polls_unconsumed = 0;
 static float mouse_wheel_accumulated = 0.0f;
+/* the wheel's turn for the console's scrollback (halo_console_wheel_steps),
+whether the mouse is captured or not */
+static float console_wheel_accumulated = 0.0f;
 /* the wheel's switch (wheel_update): when the wheel last moved, until when
 Y is held, and whether a scroll is under way */
 static Uint64 wheel_moved_ms = 0;
@@ -324,6 +327,7 @@ static void mouse_poll(const struct platform_input_state *input)
 		mouse_pending_x = 0.0f;
 		mouse_pending_y = 0.0f;
 	}
+	console_wheel_accumulated += input->mouse_wheel;
 	if (!input->mouse_released)
 	{
 		int button;
@@ -1830,6 +1834,20 @@ static void test_input_gamepad(XINPUT_GAMEPAD *pad)
 		pad->bAnalogButtons[XINPUT_GAMEPAD_A] = 255;
 	if (fmod(t, 7.0) < 0.2)
 		pad->bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] = 255;
+}
+
+/* the mouse wheel's whole notches since the last call, away from the
+player positive (the console's scrollback, terminal.c: it asks each frame,
+open or not, so that a turn before it opened is not kept) */
+int halo_console_wheel_steps(void)
+{
+	int steps;
+
+	pthread_mutex_lock(&mouse_lock);
+	steps = (int)console_wheel_accumulated;
+	console_wheel_accumulated -= (float)steps;
+	pthread_mutex_unlock(&mouse_lock);
+	return steps;
 }
 
 static void wheel_update(void)

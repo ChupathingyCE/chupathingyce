@@ -163,6 +163,10 @@ SCREENS = {
                  "Draw the HUD in high resolution.", NOT_CONSOLE),
                 ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
                  "Draw text and titles in high resolution.", NOT_CONSOLE),
+                # (the ~ key's console: terminal.c's drop-down one, or the
+                # Xbox's lines at the bottom)
+                ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],
+                 "Drop-down slides down from the top.\nClassic is the Xbox's.", NOT_CONSOLE),
                 ("PLAYER NAMES:", "display.player_names",
                  [("NONE", "none"), ("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies")],
                  "Names above players, where the host allows them.", NOT_CONSOLE),
