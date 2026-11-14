@@ -2106,6 +2106,99 @@ static void focus_widget(struct widget_instance *list, struct widget_instance *r
 	}
 }
 
+/* A nested list of more rows than fit above the help line (Video Setup's
+INTERFACE, sixteen rows: tools/port_settings.py's "scrolls") scrolls. Its
+rows keep the places the layout gave them, and the window shown is as tall
+as the screen's own list; the rows before and after the window are put off
+the screen, where they are not drawn but still take the focus, and the
+window follows the row with the focus. The rows' own offsets are those the
+list was made with. A list that fits is left as it is. */
+#define VIEW_ROWS 128
+#define VIEW_OFF_SCREEN 600
+static struct widget_instance *view_offsets_list;
+static short view_offsets[VIEW_ROWS];
+static char view_scrolled[32];
+static short view_first;
+
+static void views_scroll(struct widget_instance *list, char const *view)
+{
+	struct widget_instance *child;
+	struct widget_instance const *mark = NULL;
+	short index, top = 32767, last_main = 0, last = 0, focused = NONE, spacing = 0, window;
+
+	if (view_offsets_list != list)
+	{
+		view_offsets_list = list;
+		for (index = 0, child = list->child; child && index < VIEW_ROWS; child = child->next, index++)
+			view_offsets[index] = child->vertical_offset;
+		view_scrolled[0] = 0;
+	}
+	if (strcmp(view_scrolled, view))
+	{
+		snprintf(view_scrolled, sizeof(view_scrolled), "%s", view);
+		view_first = 0;
+	}
+	/* (the screen's own list's last place, the window's bottom; the rows
+	shown: their first place, their last, and the one with the focus) */
+	for (index = 0, child = list->child; child && index < VIEW_ROWS; child = child->next, index++)
+	{
+		if (view_mark(child))
+		{
+			mark = child;
+			continue;
+		}
+		if (strncmp(child->name, "op_", 3))
+			continue;
+		if (!mark || view_mark_has(mark->name, "main"))
+			last_main = MAX(last_main, view_offsets[index]);
+		if (!child->visible)
+			continue;
+		top = MIN(top, view_offsets[index]);
+		last = MAX(last, view_offsets[index]);
+		if (child == list->focused_child)
+			focused = view_offsets[index];
+	}
+	/* (the rows' spacing: the least step between two shown) */
+	for (index = 0, child = list->child; child && index < VIEW_ROWS; child = child->next, index++)
+	{
+		short step = (short)(view_offsets[index] - top);
+
+		if (child->visible && !view_mark(child) && !strncmp(child->name, "op_", 3) && step > 0 &&
+			(!spacing || step < spacing))
+		{
+			spacing = step;
+		}
+	}
+	if (last <= last_main || !spacing)
+	{
+		for (index = 0, child = list->child; child && index < VIEW_ROWS; child = child->next, index++)
+			child->vertical_offset = view_offsets[index];
+		view_first = 0;
+		return;
+	}
+	window = (short)(last_main - top);
+	if (focused != NONE)
+	{
+		if (focused < top + view_first * spacing)
+			view_first = (short)((focused - top) / spacing);
+		else if (focused > top + view_first * spacing + window)
+			view_first = (short)((focused - top - window + spacing - 1) / spacing);
+	}
+	view_first = (short)PIN(view_first, 0, (last - top - window + spacing - 1) / spacing);
+	for (index = 0, child = list->child; child && index < VIEW_ROWS; child = child->next, index++)
+	{
+		short offset = (short)(view_offsets[index] - view_first * spacing);
+
+		if (!child->visible || view_mark(child) || strncmp(child->name, "op_", 3))
+			continue;
+		if (offset < top)
+			offset -= VIEW_OFF_SCREEN;
+		else if (offset > top + window)
+			offset += VIEW_OFF_SCREEN;
+		child->vertical_offset = offset;
+	}
+}
+
 /* the view's rows shown, the others hidden; the focus, on a row hidden,
 to the first shown. And the Chupathingy menus' B prompt: BACK in a nested
 list, CANCEL in the screen's own */
@@ -2127,6 +2220,7 @@ static void views_show(struct widget_instance *list, char const *view)
 		if (!strncmp(child->name, "op_", 3))
 			child->visible = !mark || view_mark_has(mark->name, view);
 	}
+	views_scroll(list, view);
 	if (list->focused_child && !list->focused_child->visible)
 	{
 		short index;
