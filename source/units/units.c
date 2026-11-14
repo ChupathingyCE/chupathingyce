@@ -9101,6 +9101,11 @@ void unit_cause_player_melee_damage(
 #ifdef HALO_GAME_BROWSER
 	real melee_reach;
 #endif
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: the region and node the best ray hit, for Stubbs mode (below) */
+	short best_region_index = NONE;
+	short best_node_index = NONE;
+#endif
 
 	unit = unit_get(unit_index);
 	unit_definition = unit_definition_get(unit->definition_index);
@@ -9208,6 +9213,12 @@ void unit_cause_player_melee_damage(
 							best_object_type = hit_object->object.type;
 							hit_material_type = collision.material_type;
 							best_object_fraction = collision.t;
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+							best_region_index = hit_object_index==collision.object_index ?
+								collision.region_index : NONE;
+							best_node_index = hit_object_index==collision.object_index ?
+								collision.node_index : NONE;
+#endif
 						}
 					}
 						break;
@@ -9360,6 +9371,23 @@ void unit_cause_player_melee_damage(
 
 				if (object_get(best_object_index)->object.type==_object_type_biped)
 				{
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+					/* port: in Stubbs mode the blow lands on the region it
+					hit, so a limb can be torn off by punches (the maul
+					boss's arm, a60); Halo's melee names no region (Stubbs
+					mode only: port/linux/game/stubbs_player.c) */
+					if (stubbs_mode_active())
+					{
+						object_cause_damage(
+							&damage_data,
+							best_object_index,
+							best_node_index,
+							best_region_index,
+							NONE,
+							NULL);
+					}
+					else
+#endif
 					object_cause_damage(
 						&damage_data,
 						best_object_index,
