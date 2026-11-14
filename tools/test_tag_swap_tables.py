@@ -58,3 +58,13 @@ def test_portal_and_fog_plane_vertices_still_swapped():
     fog_plane = next(value for name, value in tables.items() if "structure_fog_plane_schema" in name)
     assert (52, 0, "union real_point3d") in portal[1]
     assert (20, 0, "union real_point3d") in fog_plane[1]
+
+
+def test_pixel32_fields_are_swapped():
+    # (a packed ARGB colour is a dword the game reads whole: the fog screen's
+    # at 0xA0 of the fog tag was left in the Xbox's byte order, which drowned
+    # the swamp levels and the Library in blue and then black on the 360)
+    assert tag_swap_generate.SCALARS["pixel32"] == 4
+    fog = next(value for name, value in layouts().items() if name.startswith("group fog "))
+    size, ops = fog
+    assert any(kind == 4 and offset <= 0xA0 < offset + 4 * count for offset, kind, count in ops)
