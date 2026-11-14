@@ -38,7 +38,7 @@ class Action(tuple):
         return super().__new__(cls, (label, None, run, help_text, platform, key))
 
 
-# update.h's UPDATER_GAMESCOPE_WHERE names the page: Settings > Online >
+# update.h's UPDATER_GAMESCOPE_WHERE names the page: Settings > Network Setup >
 # Updates (tools/test_update_install.py checks they agree)
 INSTALL_UPDATE = Action("INSTALL UPDATE:", "install_update", "port update install",
                         "Download the new version. Chupathingy restarts.", "desktop")
