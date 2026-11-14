@@ -527,6 +527,7 @@ static void stubbs_object_flag_set(
 	}
 }
 
+#ifndef HALO_CONSOLE_NO_STUBBS /* (the header's empty one on a console) */
 boolean stubbs_functions_object_cannot(
 	long object_index,
 	short what)
@@ -543,6 +544,7 @@ boolean stubbs_functions_object_cannot(
 	}
 	return FALSE;
 }
+#endif
 
 /* (a region's index in the object's model, by name: NONE for none) */
 static short stubbs_object_region_index(
