@@ -25,6 +25,8 @@ YES_NO = [("YES", "true"), ("NO", "false")]
 ON_OFF = [("ON", "true"), ("OFF", "false")]
 SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4)]
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
+# how fast a zoomed view turns, on top of the zoom's own slowing
+ZOOM_SENSITIVITIES = [(f"{round(value * 100)}%", f"{value:g}") for value in (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2)]
 
 # A row that does something rather than set a setting (A runs its function,
 # port/linux/game/menu_functions.c's), with a value its function shows in
@@ -136,6 +138,8 @@ SCREENS = {
                  [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],
                  "The detail of object shadows.",
                  None),
+                ("SHADOW FILTERING:", "display.shadow_filtering", ON_OFF,
+                 "Soften the edges of object shadows.\nOff draws them sharp.", None),
                 ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
                  "Light models per pixel instead of per vertex.", None),
                 ("LIGHT EFFECTS:", "display.light_effects",
@@ -149,6 +153,9 @@ SCREENS = {
                 ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
                  [("OFF", "0"), ("2X", "2"), ("4X", "4"), ("8X", "8"), ("16X", "16")],
                  "Sharper textures seen at an angle.", None),
+                ("VEHICLE FOV:", "display.vehicle_field_of_view",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
+                 "The field of view in vehicles.\nSame follows Field of View.", None),
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
@@ -317,10 +324,14 @@ MOUSE_ROWS = [
      "Moving the mouse forward looks down.", NOT_CONSOLE),
     ("AIM ASSIST:", "input.mouse_aim_assist", ON_OFF,
      "Use controller aim assist with the mouse.", NOT_CONSOLE),
+    ("ZOOM SENSITIVITY:", "input.mouse_zoom_sensitivity", ZOOM_SENSITIVITIES,
+     "How fast the mouse turns while zoomed in.", NOT_CONSOLE),
 ]
 GAMEPAD_ROWS = [
     ("LOOK SENSITIVITY:", "profile.look_sensitivity", [(str(step), str(step)) for step in range(1, 11)],
      "Adjust the look sensitivity.", None),
+    ("ZOOM SENSITIVITY:", "input.stick_zoom_sensitivity", ZOOM_SENSITIVITIES,
+     "How fast the stick turns while zoomed in.", None),
     ("INVERT LOOK:", "profile.invert_look", YES_NO, "Pushing the right stick up looks down.", None),
     ("INVERT FLIGHT:", "profile.flight_inversion", YES_NO,
      "Pushing up flies down in flying vehicles.", None),
@@ -337,7 +348,7 @@ GAMEPAD_ROWS = [
 # port/linux/game/menu_functions.c's table of them), then the mouse's
 # settings (MOUSE_ROWS) in the same list
 CONTROL_GROUPS = ["MOVEMENT", "WEAPONS", "ACTIONS", "MOUSE"]
-CONTROL_ROWS = 7
+CONTROL_ROWS = 9
 
 # the profile menu's words for what its items now open
 STRING_OVERRIDES = {

@@ -2871,7 +2871,7 @@ static boolean coop_player2_choose(short controller)
 bindings each */
 
 #define CONTROL_BINDINGS 2
-#define CONTROL_ROWS 7
+#define CONTROL_ROWS 9
 #define CONTROL_NAME_LENGTH 32
 
 static struct
@@ -2889,6 +2889,7 @@ static struct
 	{ "controls.crouch", L"CROUCH", 0 },
 	{ "controls.fire", L"FIRE", 1 },
 	{ "controls.throw_grenade", L"THROW GRENADE", 1 },
+	{ "controls.vehicle_secondary_fire", L"VEHICLE ALT FIRE", 1 },
 	{ "controls.melee", L"MELEE", 1 },
 	{ "controls.reload", L"RELOAD", 1 },
 	{ "controls.zoom", L"ZOOM", 1 },
