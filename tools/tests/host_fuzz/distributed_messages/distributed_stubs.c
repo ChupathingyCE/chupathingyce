@@ -168,6 +168,8 @@ long game_engine_read_network_state(void);
 long game_engine_read_network_state(void) { return 0; }
 long game_engine_traits_active(void);
 long game_engine_traits_active(void) { return 0; }
+long game_mode_no_aim_assist(void);
+long game_mode_no_aim_assist(void) { return 0; }
 long game_engine_write_network_state(void);
 long game_engine_write_network_state(void) { return 0; }
 long game_players_are_double_speed(void);

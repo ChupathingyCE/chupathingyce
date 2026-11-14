@@ -2262,13 +2262,15 @@ static char const *game_type_blocker(
 	long last = game_engine_race;
 #endif
 
-	/* (a game of OpenCE's own game types, by the kind its listing says, as the
-	game's own message says it on joining: network_client_message_handler.c) */
+	/* (a game of OpenCE's own game types this build does not play, by the
+	kind its listing says, as the game's own message says it on joining:
+	network_client_message_handler.c; SWAT and Hardcore are played,
+	docs/modes.md) */
 	{
 		static char opence_text[96];
 		char const *kind = network_rules_kind_name(game->kind, game->engine, 0);
 
-		if (kind)
+		if (kind && network_rules_modes_unplayed(network_rules_kind_needed(game->kind, game->engine)))
 		{
 			snprintf(opence_text, sizeof(opence_text), JOIN_REASON_OPENCE_GAME_TYPE, kind);
 			return opence_text;

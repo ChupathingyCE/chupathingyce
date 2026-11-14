@@ -167,9 +167,11 @@ static long profile_write(
 {
 	struct game_variant variant;
 	struct game_variant_options options;
+	byte modes[16];
 	long profile_index = gametype_files_profile_find(title);
 
 	gametype_build(gametype, title, &variant, &options);
+	server_gametype_mode_options(gametype, modes);
 	if (profile_index == NONE)
 	{
 		wchar_t name[SERVER_GAMETYPE_TITLE_SIZE];
@@ -187,7 +189,7 @@ static long profile_write(
 		}
 	}
 	gametype_files_importing = TRUE;
-	playlist_profile_save_with_options(profile_index, &variant, &options);
+	playlist_profile_save_with_modes(profile_index, &variant, &options, modes);
 	gametype_files_importing = FALSE;
 	return profile_index;
 }
@@ -277,6 +279,7 @@ void gametype_files_profile_saved(
 	struct server_gametype gametype;
 	char title[SERVER_GAMETYPE_TITLE_SIZE];
 	char name[GAMETYPE_FOLDER_NAME_SIZE];
+	byte modes[16];
 
 	if (gametype_files_importing || ((unsigned long)profile_index & READ_ONLY_BIT) ||
 		!profile_title(profile_index, title))
@@ -284,6 +287,9 @@ void gametype_files_profile_saved(
 		return;
 	}
 	server_gametype_variant_capture(variant, options, title, &gametype);
+	/* (and its further options, as the saved gametype has them by now) */
+	playlist_profile_get_mode_options(profile_index, modes);
+	server_gametype_variant_capture_modes(&gametype, modes);
 	gametype_files_name(title, name, sizeof(name));
 	file_write(&gametype, name);
 }
@@ -340,6 +346,7 @@ void gametype_files_import(
 			struct game_variant variant;
 			struct game_variant_options options;
 			struct server_gametype saved, filed;
+			byte modes[16];
 
 			/* (the same game: left as it is. Both as a file of the game
 			they make holds them: a file may give a setting its base's
@@ -347,9 +354,13 @@ void gametype_files_import(
 			if (!playlist_profile_get(profile_index, &variant))
 				continue;
 			playlist_profile_get_options(profile_index, &options);
+			playlist_profile_get_mode_options(profile_index, modes);
 			server_gametype_variant_capture(&variant, &options, title, &saved);
+			server_gametype_variant_capture_modes(&saved, modes);
 			gametype_build(&gametype, title, &variant, &options);
+			server_gametype_mode_options(&gametype, modes);
 			server_gametype_variant_capture(&variant, &options, title, &filed);
+			server_gametype_variant_capture_modes(&filed, modes);
 			if (gametypes_same(&saved, &filed))
 				continue;
 		}

@@ -107,6 +107,7 @@ network_test_update, which does nothing there */
 #include "networking/network_server_manager.h"
 #include "game/game.h"
 #include "game/game_engine.h"
+#include "game/game_modes.h" /* the game modes layer's built-ins (swat, hardcore, ...) */
 #include "game/players.h"
 #include "objects/objects.h"
 #include "units/units.h"
@@ -1953,6 +1954,23 @@ void network_test_update(
 					if (network_test.score_to_win > 0)
 						variant.universal_variant.score_to_win = network_test.score_to_win;
 					player_ui_set_game_variant(&variant);
+#ifdef HALO_GAME_BROWSER
+					/* (a game modes layer built-in: its PC options and further
+					options too, as choosing it in the menus gives them) */
+					{
+						long builtin = game_mode_builtin_named(variant_name);
+
+						if (builtin != NONE)
+						{
+							struct game_variant_options options;
+							byte modes[16];
+
+							game_mode_builtin_options(builtin, &variant, &options, modes);
+							player_ui_set_game_variant_options(&options);
+							player_ui_set_game_mode_options(modes);
+						}
+					}
+#endif
 					network_game_server_change_game_variant(global_network_game_server_get(), &variant);
 				}
 				network_test.map_set = TRUE;

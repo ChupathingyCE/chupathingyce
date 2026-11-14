@@ -183,6 +183,82 @@ enum
 	NETWORK_RULES_NUMBER_OF_MODES
 };
 
+/* the game modes as a build says them in its HELLO and WELCOME (Delta Peer's
+modes field, docs/delta.md, "Game modes"): a bit a game type it plays by
+OpenCE's version 35 rules. A host's game needs the bits of its mode and of
+Hardcore (network_rules_modes_needed); a machine without them is refused
+(network_rules_mode_refusal). NETWORK_RULES_MODES_PLAYED is what this build
+plays: SWAT and Hardcore where their rules are compiled in (source/game/
+game_modes.c, HALO_GAME_BROWSER: docs/modes.md), none elsewhere (the
+consoles, which leave such a game with the plain notice); Gun Game and
+Infection are left */
+enum
+{
+	NETWORK_RULES_MODES_SWAT = 0x01,
+	NETWORK_RULES_MODES_HARDCORE = 0x02,
+	NETWORK_RULES_MODES_GUN_GAME = 0x04,
+	NETWORK_RULES_MODES_INFECTION = 0x08
+};
+#ifdef HALO_GAME_BROWSER
+#define NETWORK_RULES_MODES_PLAYED (NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE)
+#else
+#define NETWORK_RULES_MODES_PLAYED 0
+#endif
+/* the first OpenCE version whose record carries the modes (an OpenCE machine
+of an older one reads a record without them) */
+#define NETWORK_RULES_MODES_VERSION 35
+/* the game engines, as the game's variant numbers them (1 CTF to 5 Race, 6
+Bomb: a game type of ours that plays no mode and no Hardcore) */
+#define NETWORK_RULES_ENGINE_SLAYER 2
+#define NETWORK_RULES_ENGINE_BOMB 6
+/* the modes a game needs: its (sanitized) options' mode as it plays on the
+variant's engine (1 CTF to 6 Bomb) and teams (network_rules_extended_options_mode),
+and Hardcore; none on the Bomb engine */
+unsigned network_rules_modes_needed(uint8_t const *options, int engine, int teams);
+/* whether a build whose HELLO says played (NETWORK_RULES_MODES_PLAYED for
+this one) plays a game that needs these bits */
+int network_rules_modes_played(unsigned played, unsigned needed);
+/* the mode and hardcore of a game, as the modes a game needs say them (the
+mode 0 for none) */
+int network_rules_modes_mode(unsigned needed, int *hardcore);
+/* the further options a host of this build sends: sanitized, and a mode or
+Hardcore this build does not play made none (an OpenCE machine plays what
+the record says; a game this host cannot play is not sent) */
+void network_rules_mode_options_host(uint8_t *options);
+/* a built-in game type's further options: the defaults with its mode and
+hardcore (spec 7.3) */
+void network_rules_mode_options_builtin(int mode, int hardcore, uint8_t *options);
+/* the kind byte of a listing or an advertisement (version 37): the mode in
+the low 7 bits, Hardcore in bit 7; and the modes a listed game of a kind
+needs (as network_rules_modes_needed: the mode on the Slayer engine alone, an
+unknown mode none, Hardcore on any engine but Bomb) */
+int network_rules_kind_byte(int mode, int hardcore);
+unsigned network_rules_kind_needed(int kind, int engine);
+/* what a host does with a machine of its game when the game needs modes:
+plays, or is refused for its build (a Delta machine without the capability
+or the bits) or for its version (a machine without Delta, OpenCE's or an
+older build's, when the host announces a number before 35: it would read a
+record without the modes and desync). has_delta: the machine said HELLO;
+has_capability: it agreed to game_modes; machine_modes: its HELLO's modes;
+announce: the number the host announces. A game that needs none plays with
+every machine */
+enum
+{
+	NETWORK_RULES_MODE_PLAYS = 0,
+	NETWORK_RULES_MODE_REFUSE_BUILD,
+	NETWORK_RULES_MODE_REFUSE_VERSION
+};
+int network_rules_mode_refusal(unsigned needed, int has_delta, int has_capability, unsigned machine_modes,
+	unsigned announce);
+/* the name of a game a build does not play, for a notice: "SWAT",
+"Hardcore", "Gun Game", "Infection" (the mode's before Hardcore's); "" for
+a game that needs nothing */
+char const *network_rules_modes_name(unsigned needed);
+/* the name of what a game needs that this build does not play (the mode's
+before Hardcore's), or NULL when it plays all of it: the reason a client of
+this build leaves such a game */
+char const *network_rules_modes_unplayed(unsigned needed);
+
 /* the host's shield effects (message 91, reliable, to a client): the header,
 the effects as a 16-bit value (0 stock to 6; 6 leaves each machine its own player's look) and 16 bits that are 0 */
 #define NETWORK_RULES_SHIELD_EFFECTS_KIND 91

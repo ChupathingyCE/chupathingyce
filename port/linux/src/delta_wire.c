@@ -184,7 +184,9 @@ int delta_platform_policy_coop(int platform)
 	7  build length (1, at most 31)
 	8  legacy table serial (4)
 	12 platform key (8)
-	20 build (the length's bytes) */
+	20 build (the length's bytes)
+	then, from chupa-44b on, the game modes (4): a build before them reads
+	the fields it knows and sends none (read as 0) */
 
 int delta_wire_read_hello(const unsigned char *payload, int size, struct delta_wire_hello *hello)
 {
@@ -202,6 +204,8 @@ int delta_wire_read_hello(const unsigned char *payload, int size, struct delta_w
 	hello->legacy_table_serial = read_u32(payload + 8);
 	delta_wire_read_key(payload + 12, &hello->key);
 	read_text(payload + DELTA_WIRE_HELLO_SIZE, length, hello->build);
+	if (size >= DELTA_WIRE_HELLO_SIZE + length + DELTA_WIRE_MODES_SIZE)
+		hello->modes = read_u32(payload + DELTA_WIRE_HELLO_SIZE + length);
 	return 1;
 }
 
@@ -217,8 +221,10 @@ int delta_wire_write_hello(unsigned char *data, delta_u32 session, const struct 
 	write_u32(payload + 8, hello->legacy_table_serial);
 	delta_wire_write_key(payload + 12, &hello->key);
 	write_text(payload + DELTA_WIRE_HELLO_SIZE, hello->build, length);
-	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_hello, DELTA_WIRE_HELLO_SIZE + length, session);
-	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HELLO_SIZE + length;
+	write_u32(payload + DELTA_WIRE_HELLO_SIZE + length, hello->modes);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_hello,
+		DELTA_WIRE_HELLO_SIZE + length + DELTA_WIRE_MODES_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HELLO_SIZE + length + DELTA_WIRE_MODES_SIZE;
 }
 
 /* ---------- WELCOME
@@ -229,7 +235,8 @@ int delta_wire_write_hello(unsigned char *data, delta_u32 session, const struct 
 	11 build length (1, at most 31)
 	12 legacy table serial (4)
 	16 platform key (8)
-	24 build */
+	24 build
+	then, from chupa-44b on, the game modes (4), as HELLO's */
 
 int delta_wire_read_welcome(const unsigned char *payload, int size, struct delta_wire_welcome *welcome)
 {
@@ -248,6 +255,8 @@ int delta_wire_read_welcome(const unsigned char *payload, int size, struct delta
 	welcome->legacy_table_serial = read_u32(payload + 12);
 	delta_wire_read_key(payload + 16, &welcome->key);
 	read_text(payload + DELTA_WIRE_WELCOME_SIZE, length, welcome->build);
+	if (size >= DELTA_WIRE_WELCOME_SIZE + length + DELTA_WIRE_MODES_SIZE)
+		welcome->modes = read_u32(payload + DELTA_WIRE_WELCOME_SIZE + length);
 	return 1;
 }
 
@@ -264,8 +273,10 @@ int delta_wire_write_welcome(unsigned char *data, delta_u32 session, const struc
 	write_u32(payload + 12, welcome->legacy_table_serial);
 	delta_wire_write_key(payload + 16, &welcome->key);
 	write_text(payload + DELTA_WIRE_WELCOME_SIZE, welcome->build, length);
-	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_welcome, DELTA_WIRE_WELCOME_SIZE + length, session);
-	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_WELCOME_SIZE + length;
+	write_u32(payload + DELTA_WIRE_WELCOME_SIZE + length, welcome->modes);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_welcome,
+		DELTA_WIRE_WELCOME_SIZE + length + DELTA_WIRE_MODES_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_WELCOME_SIZE + length + DELTA_WIRE_MODES_SIZE;
 }
 
 /* ---------- ROSTER

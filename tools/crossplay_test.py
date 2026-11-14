@@ -69,6 +69,16 @@ OpenCE client joining its lobby and another its game in progress:
 The ours-host direction is the check that a normal game with the same host
 build is unchanged.
 
+The game modes directions (swat, hardcore; docs/modes.md) play SWAT then
+CTF, and Hardcore Slayer then CTF, our host with their client and their host
+with ours (--only swat, --only hardcore), with the usual steps and one of
+the mode's own:
+
+| Step | Pass when |
+| --- | --- |
+| no_shields | (swat) no living player on either machine ever logs a shield above zero |
+| restore | (hardcore) after each kill the killer's health reads full on the host within 2 s |
+
 The result, JSON:
 
     {"pass": true, "ours": {...}, "theirs": {...}, "directions": [
@@ -301,6 +311,7 @@ def read_games(lines):
             if state["alive"]:
                 state["position"] = (float(player.group(3)), float(player.group(4)), float(player.group(5)))
                 state["health"] = float(player.group(6))
+                state["shield"] = float(player.group(7))
             players[int(player.group(1))] = state
         counters = {"hits": int(match.group(5)), "dealt": int(match.group(6)), "rejected": int(match.group(7))}
         if match.group(10) is not None:
@@ -630,6 +641,52 @@ def check_grifball(host, client, late):
     return steps
 
 
+def check_mode(mode, host, client, late, back, steps):
+    """The game modes' own step (docs/modes.md), added to a direction's
+    usual steps from the first game's logs: SWAT's no shields on either
+    machine, Hardcore's restore of the killer on the host."""
+    host_games, _ = read_games(host.out())
+    if not host_games:
+        steps["no_shields" if mode == "swat" else "restore"] = step(False, "not reached: no game")
+        return
+    first = host_games[0]
+    if mode == "swat":
+        # (the first game's seconds alone, on each machine: the second game
+        # is CTF, with shields)
+        shields = []
+        for copy in (host, client, late, back):
+            games, _ = read_games(copy.out())
+            if copy is not host:
+                match_games(host_games, games)
+            for game in games:
+                if (copy is host and game is not first) or (copy is not host and game.host_game != 0):
+                    continue
+                for tick, players, *_ in game.ticks:
+                    for index, state in players.items():
+                        if state["alive"] and state.get("shield", 0.0) > 0.0:
+                            shields.append((copy.name.split("/")[-1], tick, index, state["shield"]))
+        steps["no_shields"] = step(not shields, "no living player logged a shield above zero on any machine" if not shields
+            else f"shields above zero (copy, tick, player, shield): {shields[:8]}")
+    else:
+        restored, missed = 0, []
+        before = {}
+        for tick, players, *_ in first.ticks:
+            for index, state in players.items():
+                if index in before and state["kills"] > before[index]:
+                    # (the killer, whichever player it is (the scripted
+                    # killer differs by direction), back to full within 2 s)
+                    later = [entry[1].get(index) for entry in first.ticks if tick <= entry[0] <= tick + 2 * TICKS_PER_SECOND]
+                    full = any(killer and killer["alive"] and killer["health"] >= 0.99 for killer in later)
+                    if full:
+                        restored += 1
+                    elif any(killer and killer["alive"] for killer in later):
+                        missed.append((tick, index, [killer["health"] for killer in later if killer and killer["alive"]]))
+                before[index] = state["kills"]
+        steps["restore"] = step(restored > 0 and not missed,
+            f"{restored} kill(s) with the killer's health back to full on the host within 2 s"
+            + (f"; not restored (tick, victim, killer's health after): {missed[:6]}" if missed else ""))
+
+
 # ---------- a run
 
 def addresses(base):
@@ -680,6 +737,27 @@ def plan(args):
             (f"{name}/late-{client_kind}", client_kind, late, None, HARD_LIMIT),
             (f"{name}/back-{client_kind}", client_kind, back, None, HARD_LIMIT)],
             "phase": 1 if name.startswith("control-") else 0})
+    # (the game modes: SWAT then CTF, Hardcore then CTF, both ways)
+    for mode, offset in (("swat", 60), ("hardcore", 70)):
+        if args.only and mode not in args.only:
+            continue
+        for host_kind, client_kind, more in (("ours", "theirs", 0), ("theirs", "ours", 5)):
+            name = f"{mode}-{host_kind}-host"
+            host_address, client_address, late_address = addresses(base + offset + more)
+            mode_variants = [mode, "ctf"]
+            host = dict(host_test, HALO_NET_ADDRESS=host_address, HALO_NET_BROADCAST=f"{client_address},{late_address}",
+                HALO_NETWORK_TEST=f"host:{host_map(args.map, host_kind)}:{','.join(mode_variants)}")
+            client = dict(join_test, HALO_NET_ADDRESS=client_address, HALO_NET_BROADCAST=host_address,
+                HALO_TEST_INPUT=f"bot:{61 + more}")
+            late = dict(join_test, HALO_NET_ADDRESS=late_address, HALO_NET_BROADCAST=host_address,
+                HALO_TEST_INPUT=f"bot:{67 + more}")
+            back = dict(client, HALO_TEST_INPUT=f"bot:{71 + more}")
+            directions.append({"name": name, "variants": mode_variants, "mode": mode, "copies": [
+                (f"{name}/host-{host_kind}", host_kind, host, 0, HARD_LIMIT),
+                (f"{name}/client-{client_kind}", client_kind, client, JOIN_DELAY, HARD_LIMIT),
+                (f"{name}/late-{client_kind}", client_kind, late, None, HARD_LIMIT),
+                (f"{name}/back-{client_kind}", client_kind, back, None, HARD_LIMIT)],
+                "phase": 0})
     if not args.only or "grifball" in args.only:
         host_address, client_address, late_address = addresses(base + 30)
         directions.append({"name": "grifball", "variants": ["grifball"], "grifball": True, "phase": 0, "copies": [
@@ -822,6 +900,8 @@ def report(args, directions, seconds):
             steps, versions = check_grifball(*copies), []
         else:
             steps, versions = check_direction(*copies, direction["variants"])
+            if direction.get("mode"):
+                check_mode(direction["mode"], *copies, steps)
         steps["stability"], warnings = stability(copies)
         # (a refused OpenCE client's test quits by itself, cleanly: not a crash)
         if direction.get("grifball") and not steps["stability"]["pass"]:
@@ -931,7 +1011,8 @@ def main():
     for sub in (run_parser, check_parser):
         sub.add_argument("--maps", required=sub is run_parser, help="the Xbox maps folder (NTSC)")
         sub.add_argument("--map", default="bloodgulch")
-        sub.add_argument("--only", action="append", choices=["ours-host", "theirs-host", "server", "grifball"])
+        sub.add_argument("--only", action="append", choices=["ours-host", "theirs-host", "server", "grifball", "swat",
+            "hardcore"])
         sub.add_argument("--no-baseline", action="store_true", help="leave out each build playing itself")
         sub.add_argument("--work", required=True, help="a scratch folder for the copies' folders and logs")
         sub.add_argument("--out", required=True, help="the JSON result")

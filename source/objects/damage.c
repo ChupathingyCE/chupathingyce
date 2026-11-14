@@ -144,6 +144,7 @@ symbols in this file:
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_regions.h" /* port: port/linux/game/stubbs_regions.c */
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
+#include "game/game_modes.h" /* port: SWAT's headshots (docs/modes.md) */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1265,9 +1266,28 @@ static void object_damage_body(
 
 	if (!TEST_FLAG(object->object.damage_flags, _object_cannot_take_damage_bit))
 	{
+		boolean headshots = TEST_FLAG(damage_definition->flags, _damage_can_cause_headshots_bit);
+
+#ifdef HALO_GAME_BROWSER
+		/* port: SWAT (game_modes.c, the host's rule): a shot (bullet,
+		sniper, plasma, needle or shotgun damage; not melee, not an
+		explosion) on a player's biped's head kills, as if the damage could
+		cause headshots */
+		if (!headshots && damage_amount > 0.f && object->object.type == _object_type_biped &&
+			unit_get(object_index)->unit.player_index != NONE &&
+			(damage_definition->category == _damage_category_bullet ||
+				damage_definition->category == _damage_category_sniper ||
+				damage_definition->category == _damage_category_plasma ||
+				damage_definition->category == _damage_category_needle ||
+				damage_definition->category == _damage_category_shotgun) &&
+			game_mode_swat_headshot(damage_definition->category))
+		{
+			headshots = TRUE;
+		}
+#endif
 		if (damage_amount > 0.f && TEST_FLAG(damage_material->flags, _damage_material_head_bit))
 		{
-			if (TEST_FLAG(damage_definition->flags, _damage_can_cause_headshots_bit))
+			if (headshots)
 			{
 				if (game_engine_running() ||
 					object->object.type != _object_type_biped ||

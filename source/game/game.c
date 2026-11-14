@@ -193,6 +193,7 @@ struct game_options;
 #include "tag_files/tag_files.h"
 #include "cseries/cseries_windows.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
+#include "game_modes.h" /* port: the game modes layer (docs/modes.md) */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -498,8 +499,12 @@ void game_set_game_variant(
 	{
 		game_variant_global = *variant;
 	}
-	/* port: its PC options, until the network game's are given */
+	/* port: its PC options, until the network game's are given, and no
+	further options (the game modes layer's) until they are */
 	game_variant_options_default(&game_variant_global, &game_variant_options_global);
+#ifdef HALO_GAME_BROWSER
+	game_mode_options_set(NULL);
+#endif
 
 	return;
 }
@@ -519,6 +524,17 @@ struct game_variant_options const *game_variant_options_get(
 	void)
 {
 	return &game_variant_options_global;
+}
+
+void game_set_game_mode_options(
+	unsigned char const *options)
+{
+#ifdef HALO_GAME_BROWSER
+	game_mode_options_set(options);
+	game_mode_variant_overrides(&game_variant_global);
+#else
+	(void)options;
+#endif
 }
 
 void game_set_game_engine_index(

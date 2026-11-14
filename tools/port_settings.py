@@ -1043,6 +1043,15 @@ STRING_INSERTS = {
         "Two hundred kills to win.",
         "Two hundred and fifty kills to win.",
         "Five hundred kills to win.",
+    ]), (26, [
+        # (the game modes layer's MODE, after TIME LIMIT's: docs/modes.md;
+        # menu_tags.c's EDITOR_*_HELP_* for the Xbox's menus)
+        "No mode. The game plays by the rules above.",
+        "SWAT. No shields, and one shot to the head kills.",
+    ])],
+    "main_menu/settings_select/multiplayer_setup/player_options_edit/cap_player_options": [(28, [
+        "The usual motion tracker and aim assist.",
+        "No motion tracker and no aim assist. A kill brings\\nyour health and shields back to full.",
     ])],
 }
 
@@ -1229,6 +1238,18 @@ WIDGET_PATCHES = {
             f'<child widget="main_menu/settings_select/multiplayer_setup/item_options_edit/op_primary_weapon" x="54" y="223"/>',
             f'<child widget="main_menu/settings_select/multiplayer_setup/item_options_edit/op_secondary_weapon" x="54" y="253"/>',
         ]}},
+    # (the game modes layer's rows, docs/modes.md: Slayer's MODE under TIME
+    # LIMIT, the player options' HARDCORE under SUICIDE PENALTY)
+    "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/slayer_options_menu": {"insert_before": {
+        "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/slayer_button_bar": [
+            '<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/op_mode" x="54" y="253"/>',
+        ]}},
+    # (a ninth row: the help text and the buttons move down to make room)
+    "main_menu/settings_select/multiplayer_setup/player_options_edit/player_options_menu": {"insert_before": {
+        "main_menu/settings_select/multiplayer_setup/player_options_edit/player_button_bar": [
+            '<child widget="main_menu/settings_select/multiplayer_setup/player_options_edit/op_hardcore" x="54" y="313"/>',
+        ]}, "offsets": {"main_menu/settings_select/multiplayer_setup/player_options_edit/player_button_bar": (0, 430)}},
+    "main_menu/settings_select/multiplayer_setup/player_options_edit/player_options_help": {"set": {"top": 350}},
     # (the PC's Vehicles row's Start opened Item Options)
     "main_menu/settings_select/multiplayer_setup/playlist_edit/playlist_edit_vehicles_list_item": {"handlers": [
         '<on event="a" open="main_menu/settings_select/multiplayer_setup/vehicle_options_edit/vehicle_options_screen"/>',
@@ -1890,6 +1911,45 @@ def _item_options_extras() -> list:
     return lines
 
 
+SLAYER_EDIT_BASE = "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit"
+PLAYER_OPTIONS_BASE = "main_menu/settings_select/multiplayer_setup/player_options_edit"
+
+
+def _mode_row(base: str, key: str, label: str, strings: list) -> list:
+    """one option row of the game modes layer's (docs/modes.md), in the
+    screen's own geometry: its label (a string list of its own), and a
+    spinner the game fills by name (menu_functions.c's gametype_options)"""
+    lines = _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
+                                          ("flags", "pass_unhandled_to_focused_child"),
+                                          ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                    [f'<child widget="{base}/{key}_label"/>',
+                     f'<child widget="{base}/{key}_spinner" x="320" y="1"/>'])
+    lines += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
+                                              ("string_list", f"{base}/{key}_labels"), ("font", "ui\\large_ui"),
+                                              ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    lines += _widget(f"{base}/{key}_spinner",
+                     [("type", "spinner"), ("left", 2), ("top", 2), ("width", 148), ("height", 20),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                      ("string_list", f"{base}/var_{key}"), ("font", "ui\\large_ui"), ("color", "#FF2896FF"),
+                      ("align", "center"), ("text_y", 4), ("list_flags", "items_from_strings"),
+                      ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
+                      ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 150 19 156")],
+                     ['<on event="left_mouse" run="mouse spinner 1wide click"/>'])
+    lines += _strings(f"{base}/{key}_labels", [label])
+    lines += _strings(f"{base}/var_{key}", strings)
+    return lines
+
+
+def _slayer_mode_extras() -> list:
+    """the Slayer rules screen's MODE row (NONE, SWAT: docs/modes.md)"""
+    return _mode_row(SLAYER_EDIT_BASE, "mode", "MODE:", ["NONE", "SWAT"])
+
+
+def _player_hardcore_extras() -> list:
+    """the player options screen's HARDCORE row (OFF, ON)"""
+    return _mode_row(PLAYER_OPTIONS_BASE, "hardcore", "HARDCORE:", ["OFF", "ON"])
+
+
 def _map_kind() -> list:
     """the map lists' first row (New Game's and the Map screen's), as the
     gametype list's chooser: a spinner of SINGLEPLAYER or MULTIPLAYER maps,
@@ -1922,6 +1982,8 @@ def multiplayer_files() -> dict:
         f"{MT}/coop".replace("/", ".") + ".xml": head + _coop() + ["</menus>", ""],
         "main_menu/new_select".replace("/", ".") + ".port.xml": head + _map_kind() + ["</menus>", ""],
         "main_menu/settings_select/multiplayer_setup/item_options_edit".replace("/", ".") + ".port.xml": head + _item_options_extras() + ["</menus>", ""],
+        SLAYER_EDIT_BASE.replace("/", ".") + ".port.xml": head + _slayer_mode_extras() + ["</menus>", ""],
+        PLAYER_OPTIONS_BASE.replace("/", ".") + ".port.xml": head + _player_hardcore_extras() + ["</menus>", ""],
     }
 
 

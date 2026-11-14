@@ -703,7 +703,7 @@ def test_loader_says_once_that_no_table_is_published(checker, tmp_path):
 # changed once released, a build that learns a newer version's rules has a
 # new wire (docs/delta.md, "When the wire changes")
 RELEASED_WIRE_NEWEST = {"chupa-28a": 28, "chupa-29a": 29, "chupa-32a": 33, "chupa-38a": 38, "chupa-39a": 39,
-                       "chupa-41a": 41, "chupa-43a": 43}
+                       "chupa-41a": 41, "chupa-43a": 43, "chupa-44a": 44}
 
 
 def test_wire_changes_with_the_rules():
@@ -717,10 +717,13 @@ def test_wire_changes_with_the_rules():
     assert delta_table.wire() in ledger, "DELTA_WIRE has no row in DELTA_WIRE_LEGACY_NEWEST"
     assert ledger[delta_table.wire()] == define(text, "DELTA_LEGACY_NEWEST") == rows()[-1][0], \
         "a build that learns a newer version's rules (DELTA_LEGACY_VERSIONS' newest) needs a new DELTA_WIRE"
-    # (each wire's row once, in order, and each plays with older wires)
+    # (each wire's row once, in order, and each plays with older wires; a
+    # wire that learns a behavior at the same OpenCE number takes the next
+    # letter, chupa-44b after chupa-44a)
     names = list(ledger)
-    numbers = [int(re.fullmatch(r"chupa-(\d+)[a-z]", name).group(1)) for name in names]
-    assert numbers == sorted(set(numbers))
+    ids = [(int(match.group(1)), match.group(2)) for match in
+           (re.fullmatch(r"chupa-(\d+)([a-z])", name) for name in names)]
+    assert ids == sorted(set(ids))
     assert list(ledger.values()) == sorted(ledger.values())
     compatibility = text[text.index("#define DELTA_WIRE_COMPATIBILITY(X)"):]
     compatibility = compatibility[:compatibility.index("\n\n")]

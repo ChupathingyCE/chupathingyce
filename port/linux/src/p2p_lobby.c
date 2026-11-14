@@ -190,6 +190,9 @@ static struct
 	char map[P2P_LISTING_MAP_SIZE + 1];
 	char gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	int engine_type;
+	/* the game's kind (version 37: the game modes layer's mode and
+	Hardcore), the stamp's first byte to a host announcing 37 or later */
+	int kind;
 	int flags;
 	/* a dedicated server hosts (p2p_set_hosting_dedicated) */
 	int dedicated;
@@ -337,6 +340,8 @@ static int listing_make(unsigned char *bytes, int flags)
 	size += put_text(bytes + size, lobby.map, P2P_LISTING_MAP_SIZE);
 	size += put_text(bytes + size, lobby.gametype, P2P_LISTING_GAMETYPE_SIZE);
 	memset(bytes + size, 0, STAMP_SIZE);
+	if (version >= HALO_PORT_ADVERTISED_KIND_VERSION && !(flags & _listing_closed))
+		bytes[size] = (unsigned char)lobby.kind;
 	size += STAMP_SIZE;
 	memcpy(data, signature_label, sizeof(signature_label) - 1);
 	memcpy(data + sizeof(signature_label) - 1, signed_part, (size_t)size);
@@ -903,6 +908,18 @@ void p2p_set_hosting_password(const char *password)
 	pthread_mutex_unlock(&p2p_lock);
 	memset(key, 0, sizeof(key));
 	memset(join_key, 0, sizeof(join_key));
+}
+
+void p2p_set_game_kind(int kind)
+{
+	kind &= 0xFF;
+	if (kind == lobby.kind)
+		return;
+	pthread_mutex_lock(&p2p_lock);
+	lobby.kind = kind;
+	if (lobby.listed)
+		republish_soon(0);
+	pthread_mutex_unlock(&p2p_lock);
 }
 
 void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int open,

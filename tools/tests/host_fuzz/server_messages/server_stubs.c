@@ -161,6 +161,17 @@ long game_set_game_variant(void);
 long game_set_game_variant(void) { return 0; }
 long game_set_game_variant_options(void);
 long game_set_game_variant_options(void) { return 0; }
+long game_set_game_mode_options(void);
+long game_set_game_mode_options(void) { return 0; }
+long delta_peer_game_machine_modes(void);
+long delta_peer_game_machine_modes(void) { return 0; }
+static unsigned char stub_mode_options[16];
+unsigned char const *player_ui_get_game_mode_options(void);
+unsigned char const *player_ui_get_game_mode_options(void) { return stub_mode_options; }
+unsigned char const *network_game_client_mode_options(void);
+unsigned char const *network_game_client_mode_options(void) { return stub_mode_options; }
+long p2p_set_game_kind(void);
+long p2p_set_game_kind(void) { return 0; }
 long game_time_end(void);
 long game_time_end(void) { return 0; }
 long game_unload(void);

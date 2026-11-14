@@ -628,6 +628,8 @@ boolean cache_file_tags_are_ce(void);
 #include "mcc_objects.h"
 #include "mcc_player.h"
 #include "mcc_ui_teams.h"
+#include "game_modes.h" /* port: the game modes layer (docs/modes.md) */
+#include "game_engine_playlist.h" /* port: the built-ins' builders */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -5243,6 +5245,10 @@ void game_engine_player_killed(
 			dead_player_index,
 			friendly_fire);
 	}
+#ifdef HALO_GAME_BROWSER
+	/* port: Hardcore's restore of the killer (game_modes.c), the host's */
+	game_mode_player_killed(killing_player_index, dead_player_index, friendly_fire);
+#endif
 
 	same_player = killing_player_index == dead_player_index;
 	if (killing_player_index != NONE && dead_player_index != NONE)
@@ -5575,6 +5581,11 @@ boolean game_engine_draw_object_in_motion_sensor(
 
 	if (game_engine)
 		draw_object = TEST_FLAG(global_variant.universal_variant.flags, _game_variant_draw_object_in_motion_sensor_bit);
+#ifdef HALO_GAME_BROWSER
+	/* port: Hardcore draws no motion sensor (game_modes.c) */
+	if (draw_object && game_engine && game_mode_hides_motion_sensor())
+		draw_object = FALSE;
+#endif
 	/* port: friends only: the viewer's team's */
 	if (draw_object && game_engine && global_variant.universal_variant.teams &&
 		game_variant_options_get()->radar_players == _radar_players_friends &&
@@ -5606,6 +5617,11 @@ boolean game_engine_hud_draw_motion_sensor(
 			default_draw_motion_sensor = FALSE;
 
 		draw_motion_sensor |= default_draw_motion_sensor;
+#ifdef HALO_GAME_BROWSER
+		/* port: Hardcore draws no motion sensor (game_modes.c) */
+		if (game_mode_hides_motion_sensor())
+			draw_motion_sensor = FALSE;
+#endif
 	}
 
 	return draw_motion_sensor;
@@ -7640,6 +7656,17 @@ struct game_variant *game_engine_get_variant_by_name(
 		result = *build_game_variant_grifball(&temporary);
 	else if (csstrcmp(name, "grifball_open_pitch") == 0)
 		result = *build_game_variant_grifball_open_pitch(&temporary);
+	/* (the game modes layer's: game_modes.c) */
+	else if (csstrcmp(name, "swat") == 0)
+		result = *build_game_variant_swat(&temporary);
+	else if (csstrcmp(name, "hardcore") == 0)
+		result = *build_game_variant_hardcore(&temporary);
+	else if (csstrcmp(name, "hc_ctf") == 0)
+		result = *build_game_variant_hc_ctf(&temporary);
+	else if (csstrcmp(name, "hc_oddball") == 0)
+		result = *build_game_variant_hc_oddball(&temporary);
+	else if (csstrcmp(name, "hc_king") == 0)
+		result = *build_game_variant_hc_king(&temporary);
 #endif
 
 	*variant = result;
@@ -7767,6 +7794,71 @@ boolean game_engine_allow_integrated_lights(
 
 	return allow_integrated_lights;
 }
+
+#ifdef HALO_GAME_BROWSER
+/* port: the game modes layer's built-ins (game_modes.c, docs/modes.md). The
+settings are OpenCE's built-ins' as our specification lists them; each one's
+PC options and further options are game_mode_builtin_options's */
+struct game_variant *build_game_variant_swat(
+	struct game_variant *variant)
+{
+	struct game_variant result;
+
+	/* team Slayer: no shields, no grenades, no vehicles, a 5-second
+	respawn, nobody on the motion sensor, goals by nav point */
+	build_game_variant_team_slayer(&result);
+	ustrncpy(result.human_readable_game_description, L"SWAT",
+		NUMBEROF(result.human_readable_game_description) - 1);
+	SET_FLAG(result.universal_variant.flags, _game_variant_no_shields_bit, TRUE);
+	SET_FLAG(result.universal_variant.flags, _game_variant_draw_object_in_motion_sensor_bit, FALSE);
+	result.universal_variant.goal_radar = _radar_nav_point;
+	result.universal_variant.respawn_time = 150;
+	result.universal_variant.weapon_set = _game_engine_weapons_no_grenades;
+	result.universal_variant.vehicle_set = _game_engine_vehicles_none;
+	*variant = result;
+	return variant;
+}
+
+/* (Hardcore: the engine's team game type, nobody on the motion sensor,
+which Hardcore does not draw; friendly fire on is the PC options') */
+static struct game_variant *build_game_variant_hardcore_of(
+	struct game_variant *variant,
+	struct game_variant *(*build)(struct game_variant *variant),
+	wchar_t const *name)
+{
+	struct game_variant result;
+
+	build(&result);
+	ustrncpy(result.human_readable_game_description, name, NUMBEROF(result.human_readable_game_description) - 1);
+	SET_FLAG(result.universal_variant.flags, _game_variant_draw_object_in_motion_sensor_bit, FALSE);
+	*variant = result;
+	return variant;
+}
+
+struct game_variant *build_game_variant_hardcore(
+	struct game_variant *variant)
+{
+	return build_game_variant_hardcore_of(variant, build_game_variant_team_slayer, L"Hardcore");
+}
+
+struct game_variant *build_game_variant_hc_ctf(
+	struct game_variant *variant)
+{
+	return build_game_variant_hardcore_of(variant, build_game_variant_ctf, L"HC CTF");
+}
+
+struct game_variant *build_game_variant_hc_oddball(
+	struct game_variant *variant)
+{
+	return build_game_variant_hardcore_of(variant, build_game_variant_team_oddball, L"HC Oddball");
+}
+
+struct game_variant *build_game_variant_hc_king(
+	struct game_variant *variant)
+{
+	return build_game_variant_hardcore_of(variant, build_game_variant_team_king, L"HC King");
+}
+#endif
 
 void game_engine_variant_cleanup(
 	struct game_variant *variant)

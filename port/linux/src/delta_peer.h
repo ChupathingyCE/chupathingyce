@@ -590,6 +590,9 @@ struct delta_peer_card
 struct delta_peer_local
 {
 	delta_u32 capabilities;
+	/* the game modes it plays (network_rules.h's NETWORK_RULES_MODES_*),
+	said in its HELLO and WELCOME (docs/modes.md) */
+	delta_u32 modes;
 	unsigned short legacy_version;
 	/* (with no legacy_table_serial in the env: this, which never changes) */
 	delta_u32 legacy_table_serial;
@@ -986,6 +989,10 @@ cannot reach the host). 0 for one that has it, one still in its window, the
 host's own, or a machine not in the game; a capability this host does not
 offer itself is lacked by every other machine */
 int delta_peer_machine_lacks(const struct delta_peer *peer, delta_u32 now, int machine_index, int capability);
+/* (the host's) the game modes a machine's HELLO said it plays (0 while this
+machine is not the host, the machine has no session, or its build said none:
+docs/modes.md) */
+delta_u32 delta_peer_machine_modes(const struct delta_peer *peer, int machine_index);
 /* ... and whether one is still in its window: in the game, not the host's,
 no session yet and its window not over (a game that needs the capability
 waits for it) */
@@ -1270,7 +1277,7 @@ while hosting with Delta the Delta tag at their tail (delta_compat.h), and,
 with the flag 0x04 already in the flags and a game engine (engine, its stock
 index) other than DELTA_ADVERTISED_KIND_ENGINE, the old layout's major and
 slot for released clients (docs/delta.md, "The transition") */
-void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine);
+void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine, int kind);
 /* whether this host's advertisement has had the old layout: then a released
 client from before the tag may say HELLO with an older network version
 (DELTA_TAG_OLDEST_LEGACY, delta.h) */
@@ -1353,6 +1360,12 @@ unsigned delta_peer_game_host_number(void);
 int delta_peer_game_host_agreed_mcc_maps(void);
 delta_u32 delta_peer_game_host_rules(struct delta_wire_host_rules *rules);
 int delta_peer_game_machine_lacks(int machine_index, int capability);
+/* ... and the game modes its HELLO said it plays (delta_peer_machine_modes;
+0 while this host has no Delta, or the machine no session) */
+unsigned delta_peer_game_machine_modes(int machine_index);
+/* (the client's) the game modes its host's WELCOME said it plays (0: none,
+or not a client of a Delta host) */
+unsigned delta_peer_game_host_modes(void);
 /* whether a player's machine agreed to a capability with the host, as this
 machine knows it (its own, the host's, the roster's); none for a player
 without one */

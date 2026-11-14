@@ -7238,7 +7238,11 @@ place) */
 
 boolean ui_widget_port_gametype_edit_begin(long profile_index);
 boolean ui_widget_port_gametype_save(struct widget_instance *widget, boolean *widget_deleted);
-boolean ui_widget_port_game_variant_set(struct game_variant *variant, struct game_variant_options const *options);
+boolean ui_widget_port_game_variant_set(struct game_variant *variant, struct game_variant_options const *options,
+	byte const *modes);
+byte *player_ui_get_edit_mode_options(void);
+void player_ui_set_game_mode_options(byte const *modes);
+byte const *player_ui_get_game_mode_options(void);
 boolean ui_widget_port_gametype_delete(long profile_index);
 
 #define GAMETYPE_EDIT_ROWS 11
@@ -7255,6 +7259,8 @@ static struct
 	boolean setup;
 	struct game_variant setup_variant;
 	struct game_variant_options setup_options;
+	/* (and the gametype's further options, the game modes layer's) */
+	byte setup_modes[16];
 	/* the vehicle screen's side shown */
 	short vehicle_side;
 } gametype_edit = { { 0 }, 0, 0, 0, TRUE, NONE, FALSE };
@@ -7269,6 +7275,12 @@ static struct game_variant_options *edit_options(void)
 	return gametype_edit.setup ? &gametype_edit.setup_options : player_ui_get_edit_playlist_options();
 }
 
+/* (the further options being edited: the game modes layer's 16 bytes) */
+static byte *edit_modes(void)
+{
+	return gametype_edit.setup ? gametype_edit.setup_modes : player_ui_get_edit_mode_options();
+}
+
 enum
 {
 	_option_long,		/* a long of the variant */
@@ -7277,7 +7289,8 @@ enum
 	_option_health,		/* the variant's health, tenths */
 	_option_short,		/* a short of the options */
 	_option_option_byte,	/* a byte of the options */
-	_option_radar		/* the options' radar players, and the variant's flag */
+	_option_radar,		/* the options' radar players, and the variant's flag */
+	_option_mode_byte	/* a byte of the further options (the game modes layer's) */
 };
 
 struct gametype_option
@@ -7382,6 +7395,11 @@ static struct gametype_option const gametype_options[] =
 	/* vehicle options (the side's set and counts: vehicles_update) */
 	{ "vehicles_respawn_spinner", _option_short, OPTIONS_FIELD(vehicle_respawn_time), 0, 7,
 		{ 0, 30, 60, 90, 120, 180, 300 } },
+	/* the game modes layer's (docs/modes.md): Slayer's MODE (NONE, SWAT) and
+	the player options' HARDCORE (OFF, ON), bytes 0 and 1 of the further
+	options */
+	{ "mode_spinner", _option_mode_byte, 0, 0, 2, { 0, 1 } },
+	{ "hardcore_spinner", _option_mode_byte, 1, 0, 2, { 0, 1 } },
 };
 
 /* (an instance's name is its definition's cut to 31 characters:
@@ -7401,7 +7419,7 @@ static struct gametype_option const *gametype_option_named(char const *spinner)
 }
 
 static long gametype_option_value(struct gametype_option const *option, struct game_variant *variant,
-	struct game_variant_options *options)
+	struct game_variant_options *options, byte const *modes)
 {
 	byte *v = (byte *)variant;
 	byte *o = (byte *)options;
@@ -7415,18 +7433,23 @@ static long gametype_option_value(struct gametype_option const *option, struct g
 	case _option_short: return *(short *)(o + option->offset);
 	case _option_option_byte: return o[option->offset];
 	case _option_radar: return options->radar_players;
+	case _option_mode_byte: return modes ? modes[option->offset] : 0;
 	}
 	return 0;
 }
 
 static void gametype_option_value_set(struct gametype_option const *option, long value, struct game_variant *variant,
-	struct game_variant_options *options)
+	struct game_variant_options *options, byte *modes)
 {
 	byte *v = (byte *)variant;
 	byte *o = (byte *)options;
 
 	switch (option->kind)
 	{
+	case _option_mode_byte:
+		if (modes)
+			modes[option->offset] = (byte)value;
+		break;
 	case _option_long: *(long *)(v + option->offset) = value; break;
 	case _option_byte: v[option->offset] = (byte)value; break;
 	case _option_flag:
@@ -7473,6 +7496,7 @@ static void gametype_options_each(struct widget_instance *list, boolean save)
 {
 	struct game_variant *variant = edit_variant();
 	struct game_variant_options *options = edit_options();
+	byte *modes = edit_modes();
 	struct widget_instance *row;
 
 	if (!variant || !options)
@@ -7493,11 +7517,11 @@ static void gametype_options_each(struct widget_instance *list, boolean save)
 			{
 				short index = (short)PIN(spinner->parameters.list.selected_index, 0, option->count - 1);
 
-				gametype_option_value_set(option, option->values[index], variant, options);
+				gametype_option_value_set(option, option->values[index], variant, options, modes);
 			}
 			else
 				spinner->parameters.list.selected_index =
-					gametype_option_index(option, gametype_option_value(option, variant, options));
+					gametype_option_index(option, gametype_option_value(option, variant, options, modes));
 		}
 	}
 }
@@ -7657,6 +7681,7 @@ static void gametype_setup_begin(void)
 	if (!player_ui_game_variant_specified(&gametype_edit.setup_variant))
 		return;
 	gametype_edit.setup_options = *player_ui_get_game_variant_options();
+	csmemcpy(gametype_edit.setup_modes, player_ui_get_game_mode_options(), sizeof(gametype_edit.setup_modes));
 	gametype_edit.setup = TRUE;
 	gametype_edit.vehicle_side = 0;
 }
@@ -7669,7 +7694,8 @@ static void gametype_setup_end(void)
 static boolean gametype_setup_apply(void)
 {
 	boolean applied = !gametype_edit.setup ||
-		ui_widget_port_game_variant_set(&gametype_edit.setup_variant, &gametype_edit.setup_options);
+		ui_widget_port_game_variant_set(&gametype_edit.setup_variant, &gametype_edit.setup_options,
+			gametype_edit.setup_modes);
 
 	gametype_edit.setup = FALSE;
 	return applied;
@@ -8519,9 +8545,10 @@ static short const host_page_fields[NUMBER_OF_HOST_PAGES][24] =
 	},
 };
 
-/* (GENERAL's last, past its room in the table above) */
+/* (GENERAL's last, past its room in the table above; and the game modes
+layer's MODE and HARDCORE, docs/modes.md) */
 static short const host_general_more[] = { SERVER_GAMETYPE_ODDBALL_TRAIT_WITHOUT_BALL, SERVER_GAMETYPE_RACE_TYPE,
-	SERVER_GAMETYPE_RACE_TEAM_SCORING };
+	SERVER_GAMETYPE_RACE_TEAM_SCORING, SERVER_GAMETYPE_MODE, SERVER_GAMETYPE_HARDCORE };
 
 /* the base's values, for the settings the game type does not give */
 static void host_edit_base(void)
@@ -8545,6 +8572,12 @@ static long host_edit_value(short field)
 {
 	if (host_setup.gametype.set[field])
 		return host_setup.gametype.values[field];
+	/* (the further options' settings: the base's own) */
+	if (field == SERVER_GAMETYPE_MODE || field == SERVER_GAMETYPE_HARDCORE)
+	{
+		return server_gametype_base_mode_value(PIN(host_setup.gametype.values[SERVER_GAMETYPE_BASE], 0,
+			server_builtin_count - 1), field);
+	}
 	host_edit_base();
 	return server_gametype_variant_value(field, &host_setup.base_variant, &host_setup.base_options);
 }
@@ -8566,6 +8599,9 @@ static boolean host_edit_shown(short field)
 	case SERVER_GAMETYPE_PRIMARY_WEAPON:
 	case SERVER_GAMETYPE_SECONDARY_WEAPON:
 		return host_edit_value(SERVER_GAMETYPE_LOADOUT) == _loadout_custom;
+	/* (no Hardcore on a Bomb game type) */
+	case SERVER_GAMETYPE_HARDCORE:
+		return host_edit_engine() != SERVER_ENGINE_BOMB;
 	}
 	if (field >= SERVER_GAMETYPE_RED_WARTHOG && field <= SERVER_GAMETYPE_RED_GUN_TURRET)
 		return host_edit_value(SERVER_GAMETYPE_RED_VEHICLES) == SERVER_VEHICLES_CUSTOM;
@@ -8816,6 +8852,8 @@ static void host_edit_begin(void)
 	}
 	title[index] = 0;
 	server_gametype_variant_capture(&variant, &options, title, &host_setup.gametype);
+	/* (and its further options, the game modes layer's) */
+	server_gametype_variant_capture_modes(&host_setup.gametype, player_ui_get_game_mode_options());
 	host_setup.base_cached = 0;
 	host_setup.editing = TRUE;
 }
@@ -8864,6 +8902,7 @@ static boolean host_edit_save(struct widget_instance *widget, boolean *widget_de
 {
 	struct game_variant variant;
 	struct game_variant_options options;
+	byte modes[16];
 	short index;
 
 	if (text_field_editing(NULL))
@@ -8884,6 +8923,7 @@ static boolean host_edit_save(struct widget_instance *widget, boolean *widget_de
 		return FALSE;
 	}
 	server_gametype_variant_build(&host_setup.gametype, &variant, &options);
+	server_gametype_mode_options(&host_setup.gametype, modes);
 	for (index = 0; index < NUMBEROF(variant.human_readable_game_description) - 1 && host_setup.gametype.title[index];
 		index++)
 	{
@@ -8891,7 +8931,7 @@ static boolean host_edit_save(struct widget_instance *widget, boolean *widget_de
 	}
 	for (; index < NUMBEROF(variant.human_readable_game_description); index++)
 		variant.human_readable_game_description[index] = 0;
-	ui_widget_port_game_variant_set(&variant, &options);
+	ui_widget_port_game_variant_set(&variant, &options, modes);
 	host_setup.editing = FALSE;
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	ui_widget_port_go_back(widget);

@@ -934,6 +934,7 @@ symbols in this file:
 /* port: (saved games/playlist_profile.h's, whose other prototypes this unit
 declares its own way; the 64-bit build takes no implicit declarations) */
 boolean playlist_profile_get_options(long playlist_profile_index, struct game_variant_options *options);
+boolean playlist_profile_get_mode_options(long playlist_profile_index, byte *modes);
 #endif
 #include "text/unicode.h"
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
@@ -4171,6 +4172,31 @@ static boolean playlist_profile_change_koth_rules(
 	return FALSE;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: the Xbox menus' rows of the game modes layer (docs/modes.md: MODE
+under Slayer's rules, HARDCORE under the player options), which menu_tags.c
+(editor_rows_xbox) puts one past each screen's own last row: the further
+options' byte at offset, NONE or OFF the spinner's first item. A list
+without the row (no row past the last) is left as it is */
+static void playlist_profile_mode_row(
+	struct widget_instance *list_item,
+	long offset,
+	boolean save)
+{
+	byte *modes = player_ui_get_edit_mode_options();
+	struct widget_instance *option_spinner = list_item ? list_item->child : NULL;
+
+	while (option_spinner && option_spinner->type != 2)
+		option_spinner = option_spinner->next;
+	if (!option_spinner || !modes)
+		return;
+	if (save)
+		modes[offset] = (byte)(option_spinner->parameters.list.selected_index == 1);
+	else
+		option_spinner->parameters.list.selected_index = modes[offset] ? 1 : 0;
+}
+#endif
+
 static boolean playlist_profile_change_slayer_rules(
 	struct widget_instance *widget,
 	struct event_record *event,
@@ -4253,6 +4279,9 @@ static boolean playlist_profile_change_slayer_rules(
 		case 1: profile[0x1C] = FALSE; break;
 		default: error(2, "unknown option selected in 'teams' option spinner list"); break;
 		}
+#ifdef HALO_GAME_BROWSER
+		playlist_profile_mode_row(list_item->next, 0, TRUE);
+#endif
 		ui_widgets_pop_stack(widget->local_player_index);
 		return TRUE;
 	}
@@ -5231,6 +5260,9 @@ static boolean playlist_profile_initialize_slayer_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3000, option_spinner, "expected 'teams' option spinner list");
+#ifdef HALO_GAME_BROWSER
+		playlist_profile_mode_row(list_item->next, 0, FALSE);
+#endif
 		switch (profile[0x1C])
 		{
 		case 0: option_spinner->parameters.list.selected_index = 1; return TRUE;
@@ -5649,6 +5681,9 @@ static boolean playlist_profile_initialize_player_options(
 		case 300: option_spinner->parameters.list.selected_index = 2; break;
 		case 450: option_spinner->parameters.list.selected_index = 3; break;
 		}
+#ifdef HALO_GAME_BROWSER
+		playlist_profile_mode_row(list_item->next, 1, FALSE);
+#endif
 		return TRUE;
 	}
 	error(2, "failed to retrieve editable game variant");
@@ -5916,6 +5951,9 @@ static boolean playlist_profile_change_player_options(
 			case 3: *(long *)(profile + 0x34) = 450; break;
 			default: error(2, "unknown option selected in 'suicide penalty' option spinner list"); break;
 			}
+#ifdef HALO_GAME_BROWSER
+			playlist_profile_mode_row(list_item->next, 1, TRUE);
+#endif
 		}
 	}
 	else
@@ -6155,9 +6193,13 @@ static boolean multiplayer_profile_set_for_game(
 		PC menus' choice gives them, ui_widget_port_gametype_choose) */
 		{
 			struct game_variant_options options;
+			byte modes[16];
 
 			if (playlist_profile_get_options(profile_index, &options))
 				player_ui_set_game_variant_options(&options);
+			/* (and its further options, the game modes layer's) */
+			if (playlist_profile_get_mode_options(profile_index, modes))
+				player_ui_set_game_mode_options(modes);
 		}
 		if (server)
 			network_game_server_change_game_variant(server, &profile);
@@ -6576,12 +6618,16 @@ boolean ui_widget_port_gametype_choose(
 	if (saved_game_file_get_path_to_enclosing_directory(profile_index, directory_path))
 		saved_game_file_remember_last_used_multiplayer_variant_directory(directory_path);
 	player_ui_set_game_variant(&profile);
-	/* (and its PC options: game_engine.h) */
+	/* (and its PC options: game_engine.h; and its further options, the
+	game modes layer's) */
 	{
 		struct game_variant_options options;
+		byte modes[16];
 
 		playlist_profile_get_options(profile_index, &options);
 		player_ui_set_game_variant_options(&options);
+		playlist_profile_get_mode_options(profile_index, modes);
+		player_ui_set_game_mode_options(modes);
 	}
 	if (server)
 		network_game_server_change_game_variant(server, &profile);
@@ -6753,15 +6799,20 @@ boolean ui_widget_port_gametype_delete(
 	return TRUE;
 }
 
-/* the game's gametype (Server Setup's options' copy), the server's */
+/* the game's gametype (Server Setup's options' copy), the server's; and its
+further options (NULL: as they are) */
 boolean ui_widget_port_game_variant_set(
 	struct game_variant *variant,
-	struct game_variant_options const *options)
+	struct game_variant_options const *options,
+	byte const *modes)
 {
 	void *server = global_network_game_server_get();
+	byte kept[16];
 
+	csmemcpy(kept, player_ui_get_game_mode_options(), sizeof(kept));
 	player_ui_set_game_variant(variant);
 	player_ui_set_game_variant_options(options);
+	player_ui_set_game_mode_options(modes ? modes : kept);
 	if (server)
 		network_game_server_change_game_variant(server, variant);
 	return TRUE;

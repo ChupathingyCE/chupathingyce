@@ -147,6 +147,11 @@ long game_set_game_variant(void);
 long game_set_game_variant(void) { return 0; }
 long game_set_game_variant_options(void);
 long game_set_game_variant_options(void) { return 0; }
+long game_set_game_mode_options(void);
+long game_set_game_mode_options(void) { return 0; }
+static unsigned char stub_mode_options[16];
+unsigned char const *network_game_mode_options(void);
+unsigned char const *network_game_mode_options(void) { return stub_mode_options; }
 long game_time_end(void);
 long game_time_end(void) { return 0; }
 long game_time_set_distributed(void);
