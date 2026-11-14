@@ -600,16 +600,16 @@ static const struct config_setting config_settings[] =
 		"stock maps' list comes with the game, and any other map's is kept\n"
 		"from its first time. false makes each one when it is first drawn." },
 #endif
-#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
 	{ "display.lobby", _config_boolean, "true", "HALO_LOBBY", _environment_value, _platform_all,
 		"The game lobby of the Chupathingy menus: the players with their\n"
-		"teams, platforms and READY, the map and the host's menu, for a game\n"
-		"you host or joined and for dedicated servers. false: the Xbox's\n"
-		"System Link screen, as the Xbox menus have it." },
+		"teams and READY, the map and the host's menu, for a game you host\n"
+		"or joined and for dedicated servers. false: the Xbox's System Link\n"
+		"screen, as the Xbox menus have it." },
 	{ "network.lobby_start", _config_string, "\"button\"", "HALO_NET_LOBBY_START", _environment_value, _platform_all,
 		"In the game lobby of a game you host: \"button\" (the default) holds\n"
 		"the countdown until you choose START GAME; \"auto\" lets it run by\n"
 		"itself once enough players are in, as the Xbox's lobby does." },
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
 	{ "display.join_screen", _config_boolean, "true", "HALO_JOIN_SCREEN", _environment_value, _platform_all,
 		"Show the loading screen while a game is joined or its map downloads,\n"
 		"with what is going on and B to cancel. false: a small panel over the\n"

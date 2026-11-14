@@ -791,6 +791,9 @@ struct delta_peer
 	/* the lobby's state (delta_peer_set_lobby_state): its generation is
 	the state's own (0: none set) */
 	struct delta_wire_lobby_state lobby_state;
+	/* whether it is sent (the lobby up): off between lobbies, its generation
+	kept, so that the next lobby's state is newer than any a client holds */
+	int lobby_state_active;
 	/* the host's number (delta_peer_set_host_number), and a number raised
 	each time it changes (0: none set) */
 	unsigned number;

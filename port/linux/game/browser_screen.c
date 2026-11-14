@@ -5070,21 +5070,19 @@ static void draw_map_picture(
 		if (!drawn && mcc_map_item(map, item_id, sizeof(item_id)))
 		{
 			unsigned char const *pixels;
-			int width, height, serial;
+			int art_width, art_height, serial;
 			char site_path[48];
 
 			/* (the site's picture of it first, maps/mcc/<item id>; then Steam's) */
 			if (snprintf(site_path, sizeof(site_path), "maps/mcc/%s", item_id) < (int)sizeof(site_path) &&
-				map_art_get(site_path, &pixels, &width, &height, &serial) == MAP_ART_READY)
+				map_art_get(site_path, &pixels, &art_width, &art_height, &serial) == MAP_ART_READY)
 			{
-				draw_art_picture(pixels, width, height, serial, x, y, width,
-					height);
+				draw_art_picture(pixels, art_width, art_height, serial, x, y, width, height);
 				drawn = TRUE;
 			}
-			else if ((pixels = workshop_browser_picture_of(item_id, &width, &height, &serial)) != NULL)
+			else if ((pixels = workshop_browser_picture_of(item_id, &art_width, &art_height, &serial)) != NULL)
 			{
-				draw_art_picture(pixels, width, height, serial, x, y, width,
-					height);
+				draw_art_picture(pixels, art_width, art_height, serial, x, y, width, height);
 				drawn = TRUE;
 			}
 		}
@@ -5096,12 +5094,11 @@ static void draw_map_picture(
 			map_art_custom_site_path(family == _map_family_halomd, file, art_path, (int)sizeof(art_path)))))
 		{
 			unsigned char const *pixels;
-			int width, height, serial;
+			int art_width, art_height, serial;
 
-			if (map_art_get(art_path, &pixels, &width, &height, &serial) == MAP_ART_READY)
+			if (map_art_get(art_path, &pixels, &art_width, &art_height, &serial) == MAP_ART_READY)
 			{
-				draw_art_picture(pixels, width, height, serial, x, y, width,
-					height);
+				draw_art_picture(pixels, art_width, art_height, serial, x, y, width, height);
 				drawn = TRUE;
 			}
 		}

@@ -1596,7 +1596,7 @@ static void test_lobby(void)
 	int joined[3] = { 0, 1, 1 };
 	struct delta_wire_lobby_state state, heard;
 	delta_u32 now = 5000, generation, sequence;
-	int step;
+	int step, round;
 
 	memset(&host_lobby, 0, sizeof(host_lobby));
 	node_start(0, HOST_IPV4, DELTA_PEER_PORT, LOBBY_READY_BIT, _delta_platform_pc_linux, 0, 0);
@@ -1668,6 +1668,35 @@ static void test_lobby(void)
 	for (step = 0; step < 4; step++, now += 300)
 		frame(now, 3, joined, 1);
 	CHECK(delta_peer_client_lobby_state(&nodes[1].peer, &heard) && delta_wire_lobby_state_ready(&heard, 1));
+	/* a game, or GAME SETUP or CHANGE MAP over the lobby, then the lobby
+	back: none in between (nothing sent), and the next state newer than
+	what the client holds, its READY marks the new lobby's */
+	generation = delta_peer_client_lobby_state(&nodes[1].peer, NULL);
+	for (round = 0; round < 2; round++)
+	{
+		delta_peer_set_lobby_state(&nodes[0].peer, NULL);
+		now += DELTA_PEER_LOBBY_STATE_INTERVAL + 100;
+		frame(now, 3, joined, 1);
+		CHECK(delta_peer_client_lobby_state(&nodes[1].peer, NULL) == generation);
+		memset(&state, 0, sizeof(state));
+		state.flags = DELTA_WIRE_LOBBY_WAITS;
+		delta_wire_lobby_state_set(&state, 0, 1);
+		delta_peer_set_lobby_state(&nodes[0].peer, &state);
+		now += 300;
+		frame(now, 3, joined, 1);
+		CHECK(delta_peer_client_lobby_state(&nodes[1].peer, &heard) > generation &&
+			delta_wire_lobby_state_ready(&heard, 0) && !delta_wire_lobby_state_ready(&heard, 1) &&
+			!(heard.flags & DELTA_WIRE_LOBBY_STARTED));
+		generation = delta_peer_client_lobby_state(&nodes[1].peer, NULL);
+		/* (the client's READY in the new lobby is heard and sent back) */
+		delta_wire_lobby_state_set(&state, 1, 1);
+		delta_peer_set_lobby_state(&nodes[0].peer, &state);
+		now += 300;
+		frame(now, 3, joined, 1);
+		CHECK(delta_peer_client_lobby_state(&nodes[1].peer, &heard) == generation + 1 &&
+			delta_wire_lobby_state_ready(&heard, 1));
+		generation++;
+	}
 	/* the lobby gone: no state sent, the next session not offered it */
 	delta_peer_set_lobby_state(&nodes[0].peer, NULL);
 	delta_peer_set_lobby_host(&nodes[0].peer, NULL);

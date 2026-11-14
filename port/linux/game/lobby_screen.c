@@ -7,15 +7,16 @@ the Xbox's pregame screen as Online Games is (browser_screen.c), in place
 of the System Link screen's four machine panels. The Xbox menus keep the
 Xbox's screen (display.menus "xbox"), and display.lobby turns this one off.
 
-The players on the left, one row each: the team's stripe, the player's
-armor color, their name (their Delta profile's when they share it:
-profile_names.c) with the Delta mark and the host's crown, a line under it
-(Host, You, In your party, Friend, the team), their platform's logo, a
-voice icon while they talk, and READY or NOT READY (a score for a game
-under way). A team game that doesn't fit one column shows the red team on
-the left and the blue on the right. On the right the map's card with the
-game type, a few facts (the score to win, the time limit, teams, players)
-and the menu of what this player can do; the countdown over the card.
+The players on the left, one row each: the team's stripe, their name
+(their Delta profile's when they share it: profile_names.c) with the Delta
+mark and the host's crown, a line under it (the team, then You, Party,
+Friend or OpenCE), a voice icon while they talk, and READY or NOT READY (a
+score for a game under way); the count in the list's head, and "+N OPEN"
+past the open slots shown. A team game that doesn't fit one column shows
+the red team on the left and the blue on the right. On the right the map's
+card (its picture in its own shape, the map's name, the game type and the
+countdown), the rules (the score to win, the time limit, teams) and the
+menu of what this player can do.
 
 Three states, from what the game says:
 - hosted: this machine's server. START GAME lets the countdown run
@@ -23,8 +24,10 @@ Three states, from what the game says:
   GAME SETUP the Chupathingy menus' setup, INVITE FRIENDS the Guide's party.
 - joined: someone else's game. READY tells the host over Delta (lobby_ready:
   docs/delta.md), CHANGE TEAM is the Xbox's swap, GAME DETAILS the rules.
-  A host without Delta's READY (OpenCE's, an older build) gets the Xbox's
-  START SOONER instead.
+  A host without Delta's READY (OpenCE's, an older build, the Xbox menus)
+  gets the Xbox's START SOONER instead. A machine that never says READY in
+  a lobby (one without it, or without this lobby up) counts as ready, and a
+  split screen's guests are ready with their machine's first player.
 - server: a dedicated server (a host machine with no player). As joined
   without READY: the server's own countdown decides.
 
@@ -37,8 +40,9 @@ answer).
 The retail pregame mechanics stay: B leaves through the Xbox screen's own
 handler (netgame_unjoin_player), the team swap is the Xbox's, the countdown
 is the server's (START GAME only lets it run: network_game_server_pause_
-countdown), and a second controller's START joins split screen through the
-Xbox screen as it did.
+countdown), and a second controller's START joins split screen and its B
+takes that player out, through the Xbox screen as they did (the first
+controller's B is the lobby's LEAVE).
 
 Input: up and down move in the list or the menu, left and right (and the
 shoulders) move between the panes, A acts, B leaves, X changes team, Y opens
@@ -81,6 +85,7 @@ state with sample players over the main menu, for screenshots and tests.
 #include "halo_profile_screen.h"
 #include "halo_port_limits.h"
 #include "lobby_screen.h"
+#include "halo_map_families.h"
 #include "voice_game.h"
 #include "chat.h"
 #include "guide.h"
@@ -210,11 +215,11 @@ enum
 };
 
 #define NAME_SIZE 10.0f
-#define SUB_SIZE 6.5f
+#define SUB_SIZE 7.5f
 #define RIGHT_SIZE 7.5f
 #define HEAD_SIZE 8.0f
 #define MENU_SIZE 11.0f
-#define NOTE_SIZE 7.0f
+#define NOTE_SIZE 8.0f
 #define FACT_SIZE 9.0f
 #define STATUS_SIZE 8.5f
 #define PROMPT_BUTTON 18.0f
@@ -364,6 +369,10 @@ static struct
 	boolean started;
 	boolean held;
 	unsigned char ready[MAXIMUM_ROWS];
+	/* (the host: which players' machines said anything, READY or not, in
+	this lobby; the client: whether it said its state in this lobby) */
+	unsigned char said[MAXIMUM_ROWS];
+	boolean announced;
 	boolean my_ready;
 	unsigned long ready_said_time;
 	struct delta_wire_lobby_state host_state;
@@ -626,6 +635,7 @@ static int host_ready_said(void *context, int machine_index, int player, int rea
 		return 0;
 	}
 	lobby.ready[player] = (unsigned char)(ready ? 1 : 0);
+	lobby.said[player] = 1;
 	return 1;
 }
 
@@ -642,7 +652,36 @@ static boolean host_player_ready(struct network_game const *game, short player_i
 		return TRUE;
 	if (lobby.ready[player_index])
 		return TRUE;
-	return delta_peer_game_machine_lacks(machine, _delta_capability_lobby_ready) != 0;
+	/* (a split screen's guests are ready with their machine's first player:
+	the client says READY for it alone) */
+	{
+		long index;
+
+		for (index = 0; index < (long)NUMBEROF(game->players); index++)
+		{
+			if (lobby.ready[index] && network_player_is_valid(&game->players[index]) &&
+				(short)game->players[index].machine_index == (short)machine)
+			{
+				return TRUE;
+			}
+		}
+	}
+	/* (a machine that never said anything in this lobby: one without this
+	lobby up, the Xbox menus' or display.lobby off, counts as ready, as one
+	without Delta's READY does; a lobby says its state as it opens) */
+	{
+		long index;
+
+		for (index = 0; index < (long)NUMBEROF(game->players); index++)
+		{
+			if (lobby.said[index] && network_player_is_valid(&game->players[index]) &&
+				(short)game->players[index].machine_index == (short)machine)
+			{
+				return FALSE;
+			}
+		}
+	}
+	return TRUE;
 }
 
 /* the host's state for the clients, each frame it hosts */
@@ -699,6 +738,15 @@ static void client_ready_frame(struct network_game const *game)
 	lobby.has_ready = delta_peer_game_lobby_ready() != 0;
 	if (!lobby.has_ready || player == NONE)
 		return;
+	/* (said once as the lobby opens, NOT READY too, so the host counts this
+	machine's READY and not it as a machine without the lobby) */
+	if (!lobby.announced)
+	{
+		delta_peer_game_lobby_say(player, lobby.my_ready);
+		lobby.announced = TRUE;
+		lobby.ready_said_time = now;
+		return;
+	}
 	/* (said again while the host's state doesn't show it: ready and not
 	shown, or shown ready after saying not any more) */
 	if (lobby.host_state_generation)
@@ -1068,15 +1116,9 @@ static void read_game(void)
 	social_read();
 	lobby.teams = game->variant.universal_variant.teams != 0;
 	lobby.maximum_players = (short)game->maximum_players;
-	/* (the game's map is its scenario's path, levels\test\bloodgulch\bloodgulch:
-	its file's name is what the pictures and names go by) */
-	{
-		char const *file = game->map.name;
-
-		while (strpbrk(file, "\\/"))
-			file = strpbrk(file, "\\/") + 1;
-		copy_text(lobby.map, sizeof(lobby.map), file);
-	}
+	/* (the game's map as the game's protocol names it, custom_maps\name and
+	so on, made this port's name, name@ce, for the pictures and names) */
+	map_family_from_wire_name(game->map.name, lobby.map, sizeof(lobby.map));
 	browser_screen_map_name(lobby.map, lobby.map_name, sizeof(lobby.map_name));
 	upper_text(lobby.map_name);
 	read_type(game);
@@ -1199,7 +1241,19 @@ static void debug_sample(char const *spec)
 	lobby.teams = teams;
 	lobby.maximum_players = (short)(players <= 16 ? 16 : players);
 	copy_text(lobby.map, sizeof(lobby.map), "bloodgulch");
-	copy_text(lobby.map_name, sizeof(lobby.map_name), "BLOOD GULCH");
+	/* (map=<the game's map>, as the game names it: custom_maps\name) */
+	if (strstr(spec, "map="))
+	{
+		char const *start = strstr(spec, "map=") + 4;
+		size_t length = strcspn(start, ":");
+
+		char wire[128];
+
+		snprintf(wire, sizeof(wire), "%.*s", (int)length, start);
+		map_family_from_wire_name(wire, lobby.map, sizeof(lobby.map));
+	}
+	browser_screen_map_name(lobby.map, lobby.map_name, sizeof(lobby.map_name));
+	upper_text(lobby.map_name);
 	copy_text(lobby.type_name, sizeof(lobby.type_name), teams ? "TEAM SLAYER" : "SLAYER");
 	lobby.count = 0;
 	for (index = 0; index < players; index++)
@@ -1246,17 +1300,22 @@ static void debug_sample(char const *spec)
 	lobby.has_ready = lobby.state == _lobby_joined;
 	lobby.my_ready = FALSE;
 	lobby.started = FALSE;
+	/* (the host's name is its crowned row's) */
+	lobby.host_name[0] = 0;
+	for (index = 0; index < lobby.count; index++)
+	{
+		if (lobby.rows[index].host && (lobby.state == _lobby_hosted || lobby.state == _lobby_joined))
+			copy_text(lobby.host_name, sizeof(lobby.host_name), lobby.rows[index].name);
+	}
 	switch (lobby.state)
 	{
 	case _lobby_hosted:
 		copy_text(lobby.kicker, sizeof(lobby.kicker), "HOSTED GAME");
 		copy_text(lobby.title, sizeof(lobby.title), "GAME LOBBY");
-		copy_text(lobby.host_name, sizeof(lobby.host_name), "Sarge");
 		break;
 	case _lobby_joined:
 		copy_text(lobby.kicker, sizeof(lobby.kicker), "JOINED GAME");
 		copy_text(lobby.title, sizeof(lobby.title), "GAME LOBBY");
-		copy_text(lobby.host_name, sizeof(lobby.host_name), "Sarge");
 		break;
 	case _lobby_server:
 	case _lobby_preview:
@@ -1328,6 +1387,8 @@ static void lobby_opened(void)
 	lobby.ready_said_time = 0;
 	lobby.host_state_generation = 0;
 	memset(lobby.ready, 0, sizeof(lobby.ready));
+	memset(lobby.said, 0, sizeof(lobby.said));
+	lobby.announced = FALSE;
 	/* (the host's countdown waits for START GAME) */
 	if (server && start_by_button())
 	{
@@ -1770,10 +1831,30 @@ static void held_step(short button)
 	}
 }
 
+/* a second controller's START (it joins split screen) and B (its player
+leaves, the machine's others staying): the Xbox pregame screen's own */
+static void guest_press(short button, short controller)
+{
+	boolean deleted = FALSE;
+	struct widget_instance *leaf = lobby.widget;
+
+	if (!leaf)
+		return;
+	while (leaf->focused_child)
+		leaf = leaf->focused_child;
+	ui_widget_port_dispatch_event(leaf, button, controller, &deleted);
+}
+
 static void press(short button, short controller)
 {
 	if (system_milliseconds() - lobby.opened_time < SETTLE)
 		return;
+	if (controller > 0 && !lobby.debug && !lobby.preview &&
+		(button == _gamepad_binary_button_start || button == _gamepad_analog_button_b))
+	{
+		guest_press(button, controller);
+		return;
+	}
 	if (lobby.dialog != _dialog_none)
 	{
 		switch (button)
@@ -2078,7 +2159,7 @@ static void draw_row(struct lobby_row const *row, short order, int column, int v
 			if (row->ready)
 				ui_overlay_rect(x + layout->right_x - 8, y + (height - 6) * 0.5f, 6, 6, 3, right_color);
 			else
-				ui_overlay_outline(x + layout->right_x - 8, y + (height - 6) * 0.5f, 6, 6, 3, 1.0f, right_color);
+				ui_overlay_outline(x + layout->right_x - 8, y + (height - 6) * 0.5f, 6, 6, 3, 1.5f, COLOR_TEXT);
 		}
 		else
 			right_text = row->ready ? "READY" : "NOT READY";
@@ -2298,7 +2379,7 @@ static void draw_bar(void)
 		on[count++] = TRUE;
 	}
 	buttons[count] = UI_BUTTON_B;
-	words[count] = lobby.state == _lobby_preview || lobby.debug ? "=BACK" : "=LEAVE";
+	words[count] = lobby.state == _lobby_preview ? "=BACK" : "=LEAVE";
 	on[count++] = TRUE;
 	buttons[count] = UI_BUTTON_A;
 	words[count] = "=SELECT";

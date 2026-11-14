@@ -1937,18 +1937,21 @@ void delta_peer_set_lobby_state(struct delta_peer *peer, const struct delta_wire
 	int index;
 	struct delta_wire_lobby_state next;
 
+	/* (none: not sent, the generation kept; a client holds the last one it
+	heard, and ignores any older, so the next lobby's must be newer) */
 	if (!state)
 	{
-		memset(&peer->lobby_state, 0, sizeof(peer->lobby_state));
+		peer->lobby_state_active = 0;
 		return;
 	}
 	next = *state;
 	next.generation = peer->lobby_state.generation;
-	if (peer->lobby_state.generation && !memcmp(&peer->lobby_state, &next, sizeof(next)))
+	if (peer->lobby_state_active && peer->lobby_state.generation && !memcmp(&peer->lobby_state, &next, sizeof(next)))
 		return;
 	/* (never 0, which is none; each client is sent it at once) */
 	next.generation = peer->lobby_state.generation + 1 ? peer->lobby_state.generation + 1 : 1;
 	peer->lobby_state = next;
+	peer->lobby_state_active = 1;
 	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
 		peer->peers[index].lobby_sent_generation = 0;
 }
@@ -1960,8 +1963,11 @@ static void host_send_lobby_state(struct delta_peer *peer, delta_u32 now)
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
 	int index;
 
-	if (!peer->lobby_state.generation || !(offered(peer) & CAPABILITY(_delta_capability_lobby_ready)))
+	if (!peer->lobby_state_active || !peer->lobby_state.generation ||
+		!(offered(peer) & CAPABILITY(_delta_capability_lobby_ready)))
+	{
 		return;
+	}
 	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
 	{
 		struct delta_peer_host_peer *client = &peer->peers[index];

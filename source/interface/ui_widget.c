@@ -716,7 +716,7 @@ void moderation_screen_update(boolean menu_open);
 void moderation_screen_process(void);
 void moderation_screen_render(void);
 /* port: the Chupathingy menus' game lobby over the Xbox's pregame screen
-(port/linux/game/lobby_screen.c) */
+(port/linux/game/lobby_screen.c, the game list's builds) */
 boolean lobby_screen_active(void);
 void lobby_screen_update(boolean menu_open);
 void lobby_screen_process(void);
@@ -9316,8 +9316,10 @@ void render_ui_widgets(
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 	if (browser_screen_active())
 		browser_screen_render();
+#ifdef HALO_GAME_BROWSER
 	else if (lobby_screen_active())
 		lobby_screen_render();
+#endif
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
 	profile_screen_render();
 #endif
@@ -10628,7 +10630,9 @@ void process_ui_widgets(
 
 		return;
 	}
-	/* port: the Chupathingy menus' game lobby, over the Xbox's pregame screen */
+#ifdef HALO_GAME_BROWSER
+	/* port: the Chupathingy menus' game lobby, over the Xbox's pregame
+	screen (the game list's builds: lobby_screen.c) */
 	lobby_screen_update(widget_globals.active_widgets[0] != NULL);
 	if (lobby_screen_active())
 	{
@@ -10636,6 +10640,7 @@ void process_ui_widgets(
 
 		return;
 	}
+#endif
 #endif
 	if (attract_mode_should_start())
 	{
