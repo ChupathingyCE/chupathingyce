@@ -188,15 +188,22 @@ modes field, docs/delta.md, "Game modes"): a bit a game type it plays by
 OpenCE's version 35 rules. A host's game needs the bits of its mode and of
 Hardcore (network_rules_modes_needed); a machine without them is refused
 (network_rules_mode_refusal). NETWORK_RULES_MODES_PLAYED is what this build
-plays: SWAT and Hardcore (docs/modes.md); Gun Game and Infection are left */
+plays: SWAT and Hardcore where their rules are compiled in (source/game/
+game_modes.c, HALO_GAME_BROWSER: docs/modes.md), none elsewhere (the
+consoles, which leave such a game with the plain notice); Gun Game and
+Infection are left */
 enum
 {
 	NETWORK_RULES_MODES_SWAT = 0x01,
 	NETWORK_RULES_MODES_HARDCORE = 0x02,
 	NETWORK_RULES_MODES_GUN_GAME = 0x04,
-	NETWORK_RULES_MODES_INFECTION = 0x08,
-	NETWORK_RULES_MODES_PLAYED = NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE
+	NETWORK_RULES_MODES_INFECTION = 0x08
 };
+#ifdef HALO_GAME_BROWSER
+#define NETWORK_RULES_MODES_PLAYED (NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE)
+#else
+#define NETWORK_RULES_MODES_PLAYED 0
+#endif
 /* the first OpenCE version whose record carries the modes (an OpenCE machine
 of an older one reads a record without them) */
 #define NETWORK_RULES_MODES_VERSION 35

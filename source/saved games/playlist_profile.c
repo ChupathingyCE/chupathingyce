@@ -89,6 +89,7 @@ symbols in this file:
 #ifdef HALO_GAME_BROWSER
 #include "gametype_files.h" /* port: port/linux/game/gametype_files.c */
 #include "game/game_modes.h" /* port: the game modes layer's built-ins and further options */
+#include "../../port/linux/game/network_rules.h" /* port: the further options' defaults (every build's) */
 #endif
 /* the saved game file checksum is an XDK content signature. */
 #include <xtl.h>
@@ -605,11 +606,7 @@ boolean playlist_profile_get_mode_options(
 		if (playlist_profile_options_from_block(block, &options, modes))
 			return TRUE;
 	}
-#ifdef HALO_GAME_BROWSER
-	game_mode_options_default(modes);
-#else
-	csmemset(modes, 0, PLAYLIST_PROFILE_MODE_OPTIONS_SIZE);
-#endif
+	network_rules_extended_options_default(modes);
 	return FALSE;
 }
 
@@ -654,11 +651,7 @@ void playlist_profile_save_with_modes(
 			csmemcpy(playlist_profile_write_modes, modes, sizeof(playlist_profile_write_modes));
 		else
 		{
-#ifdef HALO_GAME_BROWSER
-			game_mode_options_default(playlist_profile_write_modes);
-#else
-			csmemset(playlist_profile_write_modes, 0, sizeof(playlist_profile_write_modes));
-#endif
+			network_rules_extended_options_default(playlist_profile_write_modes);
 		}
 		playlist_profile_write(playlist_profile_index, variant);
 #ifdef HALO_GAME_BROWSER
@@ -1124,11 +1117,7 @@ static boolean playlist_profile_options_from_block(
 			csmemcpy(modes, data + sizeof(header) + sizeof(*options), PLAYLIST_PROFILE_MODE_OPTIONS_SIZE);
 		else
 		{
-#ifdef HALO_GAME_BROWSER
-			game_mode_options_default(modes);
-#else
-			csmemset(modes, 0, PLAYLIST_PROFILE_MODE_OPTIONS_SIZE);
-#endif
+			network_rules_extended_options_default(modes);
 		}
 	}
 	options->friendly_fire = (short)PIN(options->friendly_fire, 0, NUMBER_OF_FRIENDLY_FIRE_MODES - 1);
@@ -1151,17 +1140,29 @@ static void playlist_profile_options_to_block(
 {
 	struct playlist_profile_options_header header;
 	byte *data = block + PLAYLIST_PROFILE_OPTIONS_OFFSET;
-	unsigned long size = sizeof(header) + sizeof(*options) + PLAYLIST_PROFILE_MODE_OPTIONS_SIZE;
+	byte defaults[PLAYLIST_PROFILE_MODE_OPTIONS_SIZE];
+	unsigned long size;
 
+	/* (version 1, the PC options alone, when the further options are the
+	defaults: builds before the modes read only that, and would lose the PC
+	options of a version 2 block) */
+	network_rules_extended_options_default(defaults);
 	header.magic = PLAYLIST_PROFILE_OPTIONS_MAGIC;
-	header.version = PLAYLIST_PROFILE_OPTIONS_VERSION;
-	header.size = sizeof(*options) + PLAYLIST_PROFILE_MODE_OPTIONS_SIZE;
+	if (!modes || !csmemcmp(modes, defaults, sizeof(defaults)))
+	{
+		header.version = PLAYLIST_PROFILE_OPTIONS_VERSION_FIRST;
+		header.size = sizeof(*options);
+	}
+	else
+	{
+		header.version = PLAYLIST_PROFILE_OPTIONS_VERSION;
+		header.size = sizeof(*options) + PLAYLIST_PROFILE_MODE_OPTIONS_SIZE;
+	}
+	size = sizeof(header) + header.size;
 	csmemcpy(data, &header, sizeof(header));
 	csmemcpy(data + sizeof(header), options, sizeof(*options));
-	if (modes)
+	if (header.version == PLAYLIST_PROFILE_OPTIONS_VERSION)
 		csmemcpy(data + sizeof(header) + sizeof(*options), modes, PLAYLIST_PROFILE_MODE_OPTIONS_SIZE);
-	else
-		csmemset(data + sizeof(header) + sizeof(*options), 0, PLAYLIST_PROFILE_MODE_OPTIONS_SIZE);
 	saved_game_file_generate_checksum(data, size, (XCALCSIG_SIGNATURE *)(data + size));
 }
 

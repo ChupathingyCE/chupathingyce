@@ -28,14 +28,16 @@ def compiler():
     return None
 
 
-def test_rules(tmp_path):
-    """the rules' C tests, warnings as errors"""
+@pytest.mark.parametrize("defines", [["-DHALO_GAME_BROWSER"], []], ids=["desktop", "console"])
+def test_rules(tmp_path, defines):
+    """the rules' C tests, warnings as errors: as the desktop builds have
+    them, and as a console's (no HALO_GAME_BROWSER: no modes played)"""
     cc = compiler()
     if not cc:
         pytest.skip("no C compiler")
     binary = tmp_path / "network_rules_test"
     build = subprocess.run(
-        [cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
+        [cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1", *defines,
          str(ROOT / "port/linux/tests/network_rules_test.c"), str(ROOT / "port/linux/game/network_rules.c"),
          "-o", str(binary)],
         capture_output=True, text=True)

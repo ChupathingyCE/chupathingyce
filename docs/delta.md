@@ -706,7 +706,13 @@ Delta carries only who can play:
   bytes after the build text of HELLO and WELCOME (one bit a mode:
   `network_rules.h`'s `NETWORK_RULES_MODES_*`). A build before the field
   sends none, which reads as no modes. The signed table's kill switch
-  turns the capability off like any other.
+  turns the capability off like any other, and only between Delta
+  machines: a host still hosts its mode game, but every Delta machine
+  then lacks the capability and is dropped from it, while OpenCE machines
+  at 35 or later play on; our clients keep playing OpenCE hosts' modes,
+  which need no capability. A build without the modes' rules (a console's)
+  plays none and offers none: it leaves an OpenCE mode game with the plain
+  notice, and its host sends no mode.
 - **The refusal** (`network_game_server_delta_refusals`,
   `network_rules_mode_refusal`): while the hosted game's options make it
   a mode game, a Delta machine without `game_modes` or the mode's bit is

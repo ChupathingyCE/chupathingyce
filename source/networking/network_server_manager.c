@@ -6441,7 +6441,14 @@ static void network_game_server_delta_refusals(
 			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps))
 		{
 			number_changed = FALSE;
-			if (!bomb && !pack_map && !mcc_map)
+			/* (a mode game's: judged by the mode too, as above) */
+			if (modes_needed)
+			{
+				mode_refusal = network_rules_mode_refusal(modes_needed, TRUE,
+					!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_game_modes),
+					delta_peer_game_machine_modes(machine->machine_index), (unsigned)delta_legacy_announce());
+			}
+			if (!bomb && !pack_map && !mcc_map && mode_refusal == NETWORK_RULES_MODE_PLAYS)
 				continue;
 		}
 		/* (bomb_traits: a Grifball test build 2 or 3 says TRAITS as 18) */

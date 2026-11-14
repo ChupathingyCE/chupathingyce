@@ -574,14 +574,21 @@ static void test_game_modes(void)
 		hardcore_out == 1);
 	CHECK(network_rules_modes_mode(0, &hardcore_out) == NETWORK_RULES_MODE_NONE && hardcore_out == 0);
 
-	/* what this build plays: SWAT and Hardcore, not Gun Game or Infection */
+	/* what this build plays: SWAT and Hardcore where the rules are compiled
+	in, not Gun Game or Infection; nothing on a console */
+#ifdef HALO_GAME_BROWSER
 	CHECK(NETWORK_RULES_MODES_PLAYED == (NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE));
-	CHECK(network_rules_modes_played(NETWORK_RULES_MODES_PLAYED, 0));
 	CHECK(network_rules_modes_played(NETWORK_RULES_MODES_PLAYED, NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE));
-	CHECK(!network_rules_modes_played(NETWORK_RULES_MODES_PLAYED, NETWORK_RULES_MODES_INFECTION));
-	CHECK(!network_rules_modes_played(0, NETWORK_RULES_MODES_SWAT));
 	CHECK(network_rules_modes_unplayed(NETWORK_RULES_MODES_SWAT) == NULL);
 	CHECK(!strcmp(network_rules_modes_unplayed(NETWORK_RULES_MODES_INFECTION | NETWORK_RULES_MODES_HARDCORE), "Infection"));
+#else
+	CHECK(NETWORK_RULES_MODES_PLAYED == 0);
+	CHECK(!strcmp(network_rules_modes_unplayed(NETWORK_RULES_MODES_SWAT), "SWAT"));
+	CHECK(!strcmp(network_rules_modes_unplayed(NETWORK_RULES_MODES_HARDCORE), "Hardcore"));
+#endif
+	CHECK(network_rules_modes_played(NETWORK_RULES_MODES_PLAYED, 0));
+	CHECK(!network_rules_modes_played(NETWORK_RULES_MODES_PLAYED, NETWORK_RULES_MODES_INFECTION));
+	CHECK(!network_rules_modes_played(0, NETWORK_RULES_MODES_SWAT));
 	CHECK(!strcmp(network_rules_modes_unplayed(NETWORK_RULES_MODES_GUN_GAME), "Gun Game"));
 	CHECK(!strcmp(network_rules_modes_name(NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE), "SWAT"));
 	CHECK(!strcmp(network_rules_modes_name(NETWORK_RULES_MODES_HARDCORE), "Hardcore"));
@@ -595,7 +602,12 @@ static void test_game_modes(void)
 	options[1] = 7;
 	options[15] = 0xFF;
 	network_rules_mode_options_host(options);
+#ifdef HALO_GAME_BROWSER
 	CHECK(options[0] == 1 && options[1] == 1 && options[15] == 0);
+#else
+	/* (a console host sends neither: it has not got their rules) */
+	CHECK(options[0] == 0 && options[1] == 0 && options[15] == 0);
+#endif
 
 	/* the kind byte (37) and what a listed game of a kind needs */
 	CHECK(network_rules_kind_byte(NETWORK_RULES_MODE_SWAT, 1) == 0x81);

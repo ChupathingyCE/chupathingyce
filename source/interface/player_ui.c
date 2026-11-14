@@ -162,6 +162,7 @@ symbols in this file:
 #include "main/main.h"
 #include "tag_files/tag_groups.h"
 #include "player_ui.h"
+#include "../../port/linux/game/network_rules.h" /* port: the further options' defaults */
 #include "mcc_ui.h"
 #ifndef HALO_CONSOLE_NO_CONTROLS
 #include "../../port/linux/src/controller_layout.h"
@@ -676,12 +677,8 @@ void player_ui_set_game_mode_options(
 		csmemcpy(player_ui_multiplayer_modes, modes, sizeof(player_ui_multiplayer_modes));
 	else
 	{
-		/* (the defaults: network_rules_extended_options_default's, which
-		the game knows as game_mode_options_default; here as bytes, so that
-		a build without the layer has them too) */
-		static byte const defaults[16] = { 0, 0, 1, 150, 200, 5, 10, 1, 0, 1, 0, 0, 0, 0, 0, 0 };
-
-		csmemcpy(player_ui_multiplayer_modes, defaults, sizeof(player_ui_multiplayer_modes));
+		/* (the defaults, every build's: network_rules.c) */
+		network_rules_extended_options_default(player_ui_multiplayer_modes);
 	}
 }
 
