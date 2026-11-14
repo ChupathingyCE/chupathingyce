@@ -84,7 +84,9 @@ int mcc_package_base_resource_path(unsigned type,unsigned set,char path[128])
 {
     if (type<1 || type>2 || set>=MCC_PACKAGE_BASE_SETS) return 0;
     if (!set) return mcc_package_resource_path("mcc_maps/root",type,path);
-    snprintf(path,128,"mcc_maps/_shared/%s/%s.map",set==1 ? "singleplayer" : "multiplayer",
+    /* port: (in maps_mcc too: mcc_maps_folder; a literal mcc_maps/_shared was
+     * only found by Steam discovery's redirect, never in maps_mcc itself) */
+    snprintf(path,128,"%s/_shared/%s/%s.map",mcc_maps_folder(),set==1 ? "singleplayer" : "multiplayer",
         type==1 ? "bitmaps" : "sounds");
     return 1;
 }

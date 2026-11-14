@@ -72,6 +72,7 @@ static int mcc_package_resource_path(char const *name, unsigned type, char path[
     else snprintf(path, 128, "maps_mcc/pack/%s.map", type == 1 ? "bitmaps" : "sounds");
     return 1;
 }
+static char const *mcc_maps_folder(void) { return "mcc_maps"; }
 static char const *mcc_status_explanation(enum mcc_cache_status status) { (void)status; return "unreadable"; }
 static enum mcc_cache_status mcc_cache_identify(void const *h, size_t n, uint32_t size, struct mcc_cache_identity *id)
 { (void)h; (void)n; (void)size; id->tag_data_size = 16; return MCC_CACHE_OK; }
