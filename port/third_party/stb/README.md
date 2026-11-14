@@ -10,8 +10,9 @@ licensed, as the user chooses (see `LICENSE`), vendored unchanged from
   (`port/linux/src/text_hires.c`); and the overlay's text with the fonts
   of `port/linux/ui/fonts` (`port/linux/src/ui_overlay.c`, the game browser's).
 - `stb_image.h` v2.30: PNG and JPEG decoding, for the overlay's pictures.
-  One change, marked `ChupathingyCE`: `stbi__getn` copies nothing for 0
-  bytes (an empty first IDAT chunk had no buffer to copy to).
+  Two changes, marked `ChupathingyCE`: `stbi__getn` copies nothing for 0
+  bytes, and an empty IDAT chunk is not read at all (an empty first IDAT
+  chunk had no buffer to copy to or offset).
 - `stb_image_write.h` v1.16 (same commit as stb_truetype): PNG encoding,
   for the player's screenshots (`port/linux/src/capture.c`).
 - `stb_vorbis.c` v1.22 (same commit): Ogg Vorbis decoding, for Halo PC's
