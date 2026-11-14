@@ -77,4 +77,40 @@ FILE *mcc_package_resource_open(char const *name,unsigned type,char path[128])
     }
     return file;
 }
+
+/* chester (GulchCE): the base resource sets in the loader's order, the
+legacy root first, then MCC's singleplayer and multiplayer sets */
+int mcc_package_base_resource_path(unsigned type,unsigned set,char path[128])
+{
+    if (type<1 || type>2 || set>=MCC_PACKAGE_BASE_SETS) return 0;
+    if (!set) return mcc_package_resource_path("mcc_maps/root",type,path);
+    /* port: (in maps_mcc too: mcc_maps_folder; a literal mcc_maps/_shared was
+     * only found by Steam discovery's redirect, never in maps_mcc itself) */
+    snprintf(path,128,"%s/_shared/%s/%s.map",mcc_maps_folder(),set==1 ? "singleplayer" : "multiplayer",
+        type==1 ? "bitmaps" : "sounds");
+    return 1;
+}
+
+int mcc_package_shared_resource(char const *path,unsigned type)
+{
+    char expected[128];
+    unsigned set;
+    if (!path) return 0;
+    for (set=0;set<MCC_PACKAGE_BASE_SETS;set++)
+        if (mcc_package_base_resource_path(type,set,expected) && !strcmp(path,expected)) return 1;
+    return 0;
+}
+
+int mcc_package_resource_candidate(char const *name,unsigned type,unsigned set,char path[128])
+{
+    FILE *file;
+    if (set>=MCC_PACKAGE_BASE_SETS || !mcc_package_resource_path(name,type,path)) return 0;
+    if (!mcc_package_shared_resource(path,type)) {
+        errno=0;
+        file=fopen(path,"rb");
+        if (file) {fclose(file);return 1;}
+        if (errno!=ENOENT) return 0;
+    }
+    return mcc_package_base_resource_path(type,set,path);
+}
 #endif /* HALO_MCC */

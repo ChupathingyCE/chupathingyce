@@ -9,4 +9,11 @@ int mcc_package_map_path(char const *name, char path[128]);
 int mcc_package_resource_path(char const *name, unsigned type, char path[128]);
 /* Package first, MCC root only on ENOENT; path records the selected/failed file. */
 FILE *mcc_package_resource_open(char const *name, unsigned type, char path[128]);
+/* chester (GulchCE): base candidates in loader order: legacy root,
+ * singleplayer, multiplayer. A present package override is the only
+ * candidate; otherwise one fixed base set. */
+#define MCC_PACKAGE_BASE_SETS 3
+int mcc_package_base_resource_path(unsigned type, unsigned set, char path[128]);
+int mcc_package_resource_candidate(char const *name, unsigned type, unsigned set, char path[128]);
+int mcc_package_shared_resource(char const *path, unsigned type);
 #endif
