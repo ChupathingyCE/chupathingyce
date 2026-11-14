@@ -816,6 +816,56 @@ boolean map_pack_menus_known(
 	return known && !_stricmp(known->pack, pack) && !_stricmp(known->file, "ui");
 }
 
+boolean map_pack_menus_movie_path(
+	char const *movie,
+	char *path,
+	long size)
+{
+	static char const *const languages[] = { "_de", "_fr", "_es", "_it" };
+	char const *pack = map_pack_menus();
+	char const *file = movie;
+	char const *cursor;
+	char folder[256], candidate[256], stem[64];
+	char *ui;
+	long index;
+	size_t length;
+
+	if (!pack || !movie || size <= 0 || !map_pack_file_path(pack, "ui", folder, sizeof(folder)))
+		return FALSE;
+	for (cursor = movie; *cursor; cursor++)
+	{
+		if (*cursor == '\\' || *cursor == '/')
+			file = cursor + 1;
+	}
+	/* (the folder that has the pack's ui.map: maps_cex\, or an alias's) */
+	ui = strrchr(folder, '\\');
+	if (!ui || !file[0] || strlen(file) >= sizeof(stem))
+		return FALSE;
+	ui[1] = 0;
+	snprintf(stem, sizeof(stem), "%s", file);
+	for (index = -1; index < (long)NUMBEROF(languages); index++)
+	{
+		/* (the movie as asked for, then without its language) */
+		if (index >= 0)
+		{
+			length = strlen(stem);
+			if (length < 8 || _stricmp(stem + length - 4, ".bik") ||
+				_strnicmp(stem + length - 7, languages[index], 3))
+				continue;
+			memmove(stem + length - 7, stem + length - 4, 5);
+		}
+		if (snprintf(candidate, sizeof(candidate), "%sbink\\%s", folder, stem) < (int)sizeof(candidate) &&
+			strlen(candidate) < (size_t)size && file_exists(candidate))
+		{
+			snprintf(path, (size_t)size, "%s", candidate);
+			return TRUE;
+		}
+		if (index >= 0)
+			break;
+	}
+	return FALSE;
+}
+
 void map_pack_menus_map_name(
 	char const *map_name,
 	char *name,
