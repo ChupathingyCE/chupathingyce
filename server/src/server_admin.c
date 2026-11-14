@@ -53,6 +53,9 @@ int chat_host_legacy(void);
 int chat_host_cooldown(void);
 void chat_host_set_welcome(char const *text);
 char const *chat_host_welcome(void);
+void chat_host_set_opence_welcome(int on, char const *text);
+int chat_host_opence_welcome(void);
+char const *chat_host_opence_welcome_text(void);
 /* (team changes', port/linux/game/team_change.h) */
 void team_change_host_set(int policy, int margin);
 int team_change_host_policy(void);
@@ -460,6 +463,8 @@ static boolean write_settings(
 		csstrcpy(settings.welcome, change->welcome);
 	if (change->set[SERVER_SETTING_CE_WELCOME])
 		csstrcpy(settings.ce_welcome, change->ce_welcome);
+	if (change->set[SERVER_SETTING_OPENCE_WELCOME_TEXT])
+		csstrcpy(settings.opence_welcome_text, change->opence_welcome_text);
 	if (server_settings_format(&settings, text, sizeof(text)) < 0)
 	{
 		command_output_printf(output, "the settings do not fit in %s\n", SETTINGS_FILE);
@@ -1658,6 +1663,10 @@ static void setting_now(
 	case SERVER_SETTING_WELCOME: snprintf(text, (size_t)size, "%s", chat_host_welcome()); break;
 	case SERVER_SETTING_CHAT_COOLDOWN: snprintf(text, (size_t)size, "%d", chat_host_cooldown()); break;
 	case SERVER_SETTING_CHAT_LEGACY: snprintf(text, (size_t)size, "%s", chat_host_legacy() ? "true" : "false"); break;
+	case SERVER_SETTING_OPENCE_WELCOME:
+		snprintf(text, (size_t)size, "%s", chat_host_opence_welcome() ? "true" : "false");
+		break;
+	case SERVER_SETTING_OPENCE_WELCOME_TEXT: snprintf(text, (size_t)size, "%s", chat_host_opence_welcome_text()); break;
 #endif
 	case SERVER_SETTING_POSTGAME_SECONDS: snprintf(text, (size_t)size, "%ld", status->postgame_seconds); break;
 	case SERVER_SETTING_SKIP_LOBBY: snprintf(text, (size_t)size, "%s", status->skip_lobby ? "true" : "false"); break;
@@ -1741,6 +1750,8 @@ static void setting_saved(
 		snprintf(text, (size_t)size, "%s", settings->welcome);
 	else if (setting == SERVER_SETTING_CE_WELCOME)
 		snprintf(text, (size_t)size, "%s", settings->ce_welcome);
+	else if (setting == SERVER_SETTING_OPENCE_WELCOME_TEXT)
+		snprintf(text, (size_t)size, "%s", settings->opence_welcome_text);
 	else if (server_settings_table[setting].kind == SERVER_FIELD_BOOLEAN)
 		snprintf(text, (size_t)size, "%s", settings->values[setting] ? "true" : "false");
 	else
@@ -1763,6 +1774,7 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_BETRAYAL_KICK || setting == SERVER_SETTING_AFK_KICK_MINUTES ||
 		setting == SERVER_SETTING_CE_WELCOME || setting == SERVER_SETTING_KEEP_PARTIES_TOGETHER ||
 		setting == SERVER_SETTING_LATE_JOIN_HOLD || setting == SERVER_SETTING_BAN_SHARE ||
+		setting == SERVER_SETTING_OPENCE_WELCOME || setting == SERVER_SETTING_OPENCE_WELCOME_TEXT ||
 		(setting >= SERVER_SETTING_VOICE && setting <= SERVER_SETTING_VOICE_KBPS);
 }
 
@@ -1880,7 +1892,8 @@ boolean server_admin_set(
 				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port, ce_joins, "
 				"allow_player_names, allow_follow_camera, max_machines_per_address, betrayal_kick, "
 				"afk_kick_minutes, ce_welcome, keep_parties_together, late_join_hold, ban_share, voice, voice_team, "
-				"voice_proximity, voice_everyone, voice_party, voice_lobby, voice_range, voice_kbps)\n");
+				"voice_proximity, voice_everyone, voice_party, voice_lobby, voice_range, voice_kbps, opence_welcome, "
+				"opence_welcome_text)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1923,6 +1936,12 @@ boolean server_admin_set(
 	case SERVER_SETTING_WELCOME: chat_host_set_welcome(change.welcome); break;
 	case SERVER_SETTING_CHAT_COOLDOWN: chat_host_set_cooldown(change.values[setting]); break;
 	case SERVER_SETTING_CHAT_LEGACY: chat_host_set_legacy(change.values[setting]); break;
+	case SERVER_SETTING_OPENCE_WELCOME:
+		chat_host_set_opence_welcome(change.values[setting], chat_host_opence_welcome_text());
+		break;
+	case SERVER_SETTING_OPENCE_WELCOME_TEXT:
+		chat_host_set_opence_welcome(chat_host_opence_welcome(), change.opence_welcome_text);
+		break;
 #endif
 	case SERVER_SETTING_POSTGAME_SECONDS: dedicated_server_set_postgame_seconds(change.values[setting]); break;
 	case SERVER_SETTING_SKIP_LOBBY: dedicated_server_set_skip_lobby(change.values[setting] ? TRUE : FALSE); break;

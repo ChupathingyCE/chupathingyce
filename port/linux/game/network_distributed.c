@@ -4731,6 +4731,25 @@ static void distributed_send_notice(
 		_distributed_to_clients_reliably);
 }
 
+void distributed_send_notice_to_machine(
+	long machine_index,
+	char const *text)
+{
+	struct
+	{
+		struct distributed_message_header header;
+		char text[MAXIMUM_NOTICE_LENGTH];
+	} message;
+	long length = csstrlen(text);
+
+	if (length > MAXIMUM_NOTICE_LENGTH - 1)
+		length = MAXIMUM_NOTICE_LENGTH - 1;
+	csmemset(&message, 0, sizeof(message));
+	csmemcpy(message.text, text, length);
+	distributed_send_to_machine_reliably(machine_index, &message, _distributed_message_notice, 0,
+		(word)(sizeof(message.header) + length + 1));
+}
+
 /* (the host) the names of a client machine's players, in ASCII, for a
 notice ("?" for what is not ASCII) */
 static void distributed_machine_player_names(
