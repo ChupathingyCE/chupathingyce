@@ -188,8 +188,8 @@
       "tag": "IOS",
       "name": "iOS",
       "class": "handheld",
-      "for": "",
-      "status": "reserved, no known port"
+      "for": "JizzyRivers (port/ios)",
+      "status": "in use (approved 2026-11-04)"
     },
     {
       "number": 21,
@@ -197,8 +197,8 @@
       "tag": "ATV",
       "name": "Apple TV",
       "class": "console",
-      "for": "",
-      "status": "reserved, no known port"
+      "for": "JizzyRivers (port/ios)",
+      "status": "in use (approved 2026-11-04)"
     },
     {
       "number": 22,

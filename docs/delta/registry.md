@@ -37,8 +37,8 @@ is in [peer.md](peer.md#platform-policy).
 | 17 | `n64` | N64 | N64 | console | JackT | community port |
 | 18 | `pc_legacy` | LGCY | Legacy PC | pc | JackT | community port |
 | 19 | `steamlink` | LINK | Steam Link | console | Chupathingy32 | in progress |
-| 20 | `ios` | IOS | iOS | handheld |  | reserved, no known port |
-| 21 | `tvos` | ATV | Apple TV | console |  | reserved, no known port |
+| 20 | `ios` | IOS | iOS | handheld | JizzyRivers (`port/ios`) | in use (approved 2026-11-04) |
+| 21 | `tvos` | ATV | Apple TV | console | JizzyRivers (`port/ios`) | in use (approved 2026-11-04) |
 | 22 | (none yet) |  | Dreamcast | console | JiltedValkyrie's dc-halo | requested, pending owner |
 
 ### How to ask for a number
