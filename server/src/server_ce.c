@@ -131,6 +131,7 @@ struct ce_client
 	added, and the unit created for it */
 	long announced[TRACKED_PLAYERS];
 	long announced_team[TRACKED_PLAYERS];
+	int announced_list[TRACKED_PLAYERS];
 	long unit_sent[TRACKED_PLAYERS];
 	/* each player's last unit it was told died: taken away once our game
 	takes the body away */
@@ -178,6 +179,8 @@ struct ce_client
 	/* the roster it was told last (game settings), to tell it again as it
 	changes */
 	struct ce_network_player roster[CE_GAME_PLAYERS];
+	/* each of those slots' player (its datum handle; NONE: none) */
+	long roster_players[CE_GAME_PLAYERS];
 	int roster_count;
 	boolean roster_known;
 	/* what the roster was built from as it was told last (roster_signature)
@@ -271,10 +274,24 @@ static int network_object(
 	return 0;
 }
 
+/* a player's number on a client's wire (5 bits; 0: none): its slot in the
+roster that client was told, plus one, so a client's 16 players are
+always numbered within its own player table (a game of more players
+than 16 tells each client 16 of them). A player not in its roster: 0 */
 static int network_player_number(
+	struct ce_client const *client,
 	long player_index)
 {
-	return (int)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) + 1;
+	int slot;
+
+	if (player_index == NONE)
+		return 0;
+	for (slot = 0; slot < client->roster_count; slot++)
+	{
+		if (client->roster_players[slot] == player_index)
+			return slot + 1;
+	}
+	return 0;
 }
 
 /* ---------- the roster */
@@ -408,23 +425,36 @@ static long network_player_team(
 	return player->team_index;
 }
 
-/* a roster color: in a team game, its team's, as Custom Edition's own
-server sends it (red 1, blue 0, whatever the player's own color) */
-static int team_color(
-	struct ce_game_settings const *settings,
-	int team,
-	int color)
+/* a network game's player's datum (its handle), by machine and
+controller: NONE while the game has none for it */
+static long network_player_datum(
+	struct network_player const *player)
 {
-	if (!settings->universal[0])
-		return color;
-	return team == 0 ? 1 : 0;
+	struct data_iterator iterator;
+	struct player_datum *datum;
+
+	if (player_data)
+	{
+		data_iterator_new(&iterator, player_data);
+		while ((datum = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		{
+			if (datum->network_player_data.machine_index == player->machine_index &&
+				datum->network_player_data.controller_index == player->controller_index)
+			{
+				return iterator.datum_index;
+			}
+		}
+	}
+	return NONE;
 }
 
+/* (slot_players, if any: each slot's player, NONE for none) */
 static void game_settings_for(
 	int peer,
 	char const *name,
 	long own_player,
-	struct ce_game_settings *settings)
+	struct ce_game_settings *settings,
+	long *slot_players)
 {
 	struct dedicated_status status;
 	struct network_game_server *server = global_network_game_server_get();
@@ -436,6 +466,11 @@ static void game_settings_for(
 	long index;
 
 	dedicated_server_get_status(&status);
+	if (slot_players)
+	{
+		for (index = 0; index < CE_GAME_PLAYERS; index++)
+			slot_players[index] = NONE;
+	}
 	ce_game_settings_slayer(settings);
 	settings_from_variant(settings);
 	snprintf(settings->name, sizeof(settings->name), "%s", status.name);
@@ -480,8 +515,9 @@ static void game_settings_for(
 			slot->controller = 0;
 			team = network_player_team(player);
 			slot->team = wire_team(team);
-			slot->color = team_color(settings, slot->team, slot->color);
 			slot->list_index = settings->player_count;
+			if (slot_players)
+				slot_players[settings->player_count] = network_player_datum(player);
 			settings->player_count++;
 		}
 	}
@@ -494,8 +530,9 @@ static void game_settings_for(
 		slot->machine = peer;
 		slot->controller = 0;
 		slot->team = own && own_player != NONE ? wire_team(player_get(own_player)->team_index) : 0;
-		slot->color = team_color(settings, slot->team, slot->color);
 		slot->list_index = settings->player_count;
+		if (slot_players)
+			slot_players[settings->player_count] = own_player;
 		settings->player_count++;
 	}
 }
@@ -551,9 +588,11 @@ static unsigned long roster_signature(
 /* (the roster a client was told, as one record: told again as it changes) */
 static void roster_told(
 	struct ce_client *client,
-	struct ce_game_settings const *settings)
+	struct ce_game_settings const *settings,
+	long const *slot_players)
 {
 	csmemcpy(client->roster, settings->players, sizeof(client->roster));
+	csmemcpy(client->roster_players, slot_players, sizeof(client->roster_players));
 	client->roster_count = settings->player_count;
 	client->roster_known = TRUE;
 }
@@ -568,21 +607,22 @@ static void send_roster(
 	struct ce_game_settings settings;
 	struct ce_payload payload;
 	unsigned char out[PAYLOAD_SIZE];
-
+	long slot_players[CE_GAME_PLAYERS];
 	long own_player = local_player_get_player_index(local_index);
 
 	/* (nothing it is built from changed: the same roster) */
 	if (client->roster_known && client->roster_signature == ce.roster_signature && client->roster_own_player == own_player)
 		return;
-	game_settings_for(client->peer, client->name, own_player, &settings);
+	game_settings_for(client->peer, client->name, own_player, &settings, slot_players);
 	if (!client->roster_known || client->roster_count != settings.player_count ||
-		csmemcmp(client->roster, settings.players, sizeof(client->roster)))
+		csmemcmp(client->roster, settings.players, sizeof(client->roster)) ||
+		csmemcmp(client->roster_players, slot_players, sizeof(client->roster_players)))
 	{
 		ce_payload_begin(&payload, out, sizeof(out));
 		ce_payload_put_game_settings(&payload, &settings);
 		if (!ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE))
 			return;
-		roster_told(client, &settings);
+		roster_told(client, &settings, slot_players);
 	}
 	client->roster_signature = ce.roster_signature;
 	client->roster_own_player = own_player;
@@ -688,19 +728,20 @@ static boolean accept_join(
 {
 	static const unsigned char begin_game[] = { 1, 0, 0, 0, 0, CE_MESSAGE_BEGIN_GAME };
 	struct ce_game_settings settings;
+	long slot_players[CE_GAME_PLAYERS];
 	struct ce_payload payload;
 	unsigned char out[PAYLOAD_SIZE];
 
 	struct ce_client *client = client_for_peer(peer, NULL);
 
-	game_settings_for(peer, name, own_player, &settings);
+	game_settings_for(peer, name, own_player, &settings, slot_players);
 	ce_payload_begin(&payload, out, sizeof(out));
 	ce_payload_put_game_settings(&payload, &settings);
 	ce_payload_put_message(&payload, begin_game, sizeof(begin_game));
 	if (ce_transport_accept(peer, out, ce_payload_end(&payload)) == 0)
 		return FALSE;
 	if (client)
-		roster_told(client, &settings);
+		roster_told(client, &settings, slot_players);
 	return TRUE;
 }
 
@@ -1017,9 +1058,12 @@ static void send_unit(
 
 	ce_payload_begin(&payload, out, sizeof(out));
 	csmemset(&spawn, 0, sizeof(spawn));
-	spawn.player = network_player_number(player_index);
+	spawn.player = network_player_number(client, player_index);
 	spawn.biped = biped_number;
 	spawn.unknown_medium = 0xffff;
+	/* (its team: the client's HUD shows its own player's team from this,
+	and a team game's biped colors follow it) */
+	spawn.team = (unsigned int)wire_team(player_get(player_index)->team_index);
 	for (index = 0; index < MAXIMUM_WEAPONS_PER_UNIT; index++)
 	{
 		long weapon_index = unit->unit.weapon_object_indices[index];
@@ -1043,7 +1087,7 @@ static void send_unit(
 	/* (its owner team, its player's: a client takes a player's team
 from its biped) */
 	biped.object.owner = wire_team(player_get(player_index)->team_index);
-	biped.object.player = network_player_number(player_index);
+	biped.object.player = network_player_number(client, player_index);
 	/* (its colors as our game made them, its team's in a team game; none
 made: white) */
 	for (index = 0; index < 4; index++)
@@ -1202,10 +1246,11 @@ static void send_scores(
 		data_iterator_new(&iterator, player_data);
 		while ((player = data_iterator_next(&iterator)) != NULL)
 		{
-			long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
+			int number = network_player_number(client, iterator.datum_index);
 
-			if (absolute < CE_GAME_PLAYERS)
-				scores[absolute] = (int)game_engine->get_player_score(iterator.datum_index, _get_score_individual);
+			/* (by its number on the client's wire) */
+			if (number)
+				scores[number - 1] = (int)game_engine->get_player_score(iterator.datum_index, _get_score_individual);
 		}
 		if (!client->scores_known || csmemcmp(scores, client->scores_sent, sizeof(scores)) ||
 			csmemcmp(team_scores, client->team_scores_sent, sizeof(team_scores)))
@@ -1253,7 +1298,7 @@ static void send_scores(
 		{
 			continue;
 		}
-		ce_payload_put_player_statistics(&payload, network_player_number(iterator.datum_index), &statistics);
+		ce_payload_put_player_statistics(&payload, network_player_number(client, iterator.datum_index), &statistics);
 		client->statistics_sent[absolute] = statistics;
 		client->statistics_known[absolute] = TRUE;
 		any = TRUE;
@@ -1279,7 +1324,7 @@ static int unit_player_number(
 		long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
 
 		if (player->unit_index == unit_index && absolute < TRACKED_PLAYERS && client->unit_sent[absolute] == unit_index)
-			return network_player_number(iterator.datum_index);
+			return network_player_number(client, iterator.datum_index);
 	}
 	return 0;
 }
@@ -1653,7 +1698,7 @@ static void update_seat(
 		struct ce_action_result result;
 
 		csmemset(&result, 0, sizeof(result));
-		result.player = network_player_number(player_index);
+		result.player = network_player_number(client, player_index);
 		result.object = vehicle_number;
 		result.result = _player_action_result_enter_vehicle;
 		result.seat = seat & 0xffff;
@@ -1673,7 +1718,7 @@ static void update_client(
 	unsigned char out[PAYLOAD_SIZE], reliable_out[PAYLOAD_SIZE];
 	long own_player = local_player_get_player_index(local_index);
 	boolean any = FALSE;
-	int length;
+	int length, list;
 
 	send_roster(client, local_index);
 	ce_payload_begin(&payload, out, sizeof(out));
@@ -1686,9 +1731,17 @@ static void update_client(
 
 		if (absolute >= TRACKED_PLAYERS)
 			continue;
-		/* (a player new to the client, or on another team now: its client
-takes a player's team from this) */
-		if (client->announced[absolute] != player_index || client->announced_team[absolute] != player->team_index)
+		/* (its slot in the roster this client was told: a player not in it
+		yet waits for the roster that has it) */
+		for (list = 0; list < client->roster_count && client->roster_players[list] != player_index; list++)
+			;
+		if (list >= client->roster_count)
+			continue;
+		/* (a player new to the client, on another team now, or in another
+		roster slot (players before it left): its client takes a player's
+		team and roster slot from this) */
+		if (client->announced[absolute] != player_index || client->announced_team[absolute] != player->team_index ||
+			client->announced_list[absolute] != list)
 		{
 			struct ce_payload added;
 			unsigned char added_out[64];
@@ -1696,14 +1749,15 @@ takes a player's team from this) */
 			boolean again = client->announced[absolute] == player_index;
 
 			ce_payload_begin(&added, added_out, sizeof(added_out));
-			ce_payload_put_player_add(&added, player->network_player_data.player_list_index,
-				(unsigned int)player_index, network_player_number(player_index),
+			ce_payload_put_player_add(&added, list,
+				(unsigned int)player_index, network_player_number(client, player_index),
 				wire_team(player->team_index));
 			added_length = ce_payload_end(&added);
 			if (ce_transport_send(client->peer, added_out, added_length, TRUE))
 			{
 				client->announced[absolute] = player_index;
 				client->announced_team[absolute] = player->team_index;
+				client->announced_list[absolute] = list;
 				if (!again)
 					client->unit_sent[absolute] = NONE;
 			}
@@ -1774,7 +1828,7 @@ takes a player's team from this) */
 			float position[3];
 
 			csmemset(&actions, 0, sizeof(actions));
-			actions.player = network_player_number(player_index);
+			actions.player = network_player_number(client, player_index);
 			actions.update_id = client->update_id;
 			actions.ticks = 1;
 			actions.control_flags = unit->unit.control_flags & 0x7fff;
@@ -1930,7 +1984,9 @@ static boolean between_games(
 				leave(client->peer);
 				return FALSE;
 			}
-			game_settings_for(client->peer, client->name, NONE, &settings);
+			/* (its own player as itself, its seat kept for the next game) */
+			game_settings_for(client->peer, client->name, local_player_get_player_index((short)(client - ce.clients)),
+				&settings, NULL);
 			settings.map[0] = 0;
 			ce_payload_begin(&payload, out, sizeof(out));
 			ce_payload_put_game_settings(&payload, &settings);

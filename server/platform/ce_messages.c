@@ -306,7 +306,7 @@ void ce_payload_put_player_spawn(struct ce_payload *payload, const struct ce_pla
 	put_delta_header(payload, CE_DELTA_PLAYER_SPAWN);
 	put_bits(payload, (unsigned int)spawn->player, 5);
 	put_bits(payload, (unsigned int)spawn->biped, 9);
-	put_bits(payload, spawn->unknown_large, 32);
+	put_bits(payload, spawn->team, 32);
 	put_bits(payload, (unsigned int)spawn->unknown_object, 9);
 	put_bits(payload, (unsigned int)spawn->unknown_medium, 16);
 	for (index = 0; index < 4; index++)
