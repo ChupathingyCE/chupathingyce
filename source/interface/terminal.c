@@ -110,6 +110,8 @@ struct output_line_datum
 
 /* ---------- prototypes */
 
+static short terminal_font_line_height(short line_height);
+static void terminal_draw_line(long font_tag_index, rectangle2d const *bounds, char const *text);
 static void terminal_remove_line(long line_index);
 static boolean terminal_update_input(void);
 static void terminal_update_output(void);
@@ -223,8 +225,13 @@ void terminal_draw(
 	{
 		struct font_header *font = font_definition_get(font_tag_index);
 		short line_height = font->ascending_height + font->descending_height + font->leading_height;
+		short font_line_height = line_height;
 		/* port: preserve native line spacing outside MCC maps. */
 		line_height = mcc_terminal_line_height(font_tag_index, line_height);
+		/* port: and the high-res console's, a little smaller (an MCC map's
+		scaled terminal font keeps its own: terminal_draw_line) */
+		if (line_height == font_line_height)
+			line_height = terminal_font_line_height(line_height);
 		if (terminal_globals.input_state)
 		{
 			short buff_len;
@@ -254,9 +261,9 @@ void terminal_draw(
 				}
 				buffer[cursor_index] = '_';
 			}
-			/* port: MCC terminal font scaling does not modify the font tag. */
-			if (!mcc_terminal_draw(font_tag_index, &terminal_gets_bounds, buffer))
-			rasterizer_draw_string(&terminal_gets_bounds, NULL, NULL, 0, buffer);
+			/* port: MCC terminal font scaling does not modify the font tag;
+			the high-res console's font and size (terminal_draw_line) */
+			terminal_draw_line(font_tag_index, &terminal_gets_bounds, buffer);
 		}
 
 		if (terminal_render_enable == 1 || (terminal_render_enable >= 2 && terminal_globals.input_state))
@@ -298,9 +305,9 @@ void terminal_draw(
 				}
 
 				draw_string_set_draw_mode(font_tag_index, NONE, 0, 0, &color);
-				/* port: MCC-only scaling, also applied to console output. */
-				if (!mcc_terminal_draw(font_tag_index, &terminal_gets_bounds, line->buffer))
-				rasterizer_draw_string(&terminal_gets_bounds, NULL, NULL, 0, line->buffer);
+				/* port: MCC-only scaling, also applied to console output, and
+				the high-res console's font and size (terminal_draw_line) */
+				terminal_draw_line(font_tag_index, &terminal_gets_bounds, line->buffer);
 				draw_string_set_tab_stops(terminal_tab_stops, 0);
 			}
 		}
@@ -443,6 +450,68 @@ void terminal_status_printf(
 #endif
 
 /* ---------- private code */
+
+#ifndef HALO_CONSOLE_NO_HIRES
+/* port/linux/src/text_hires.c's */
+int text_hires_enabled(void);
+
+/* port: the console with display.high_res_text on: its lines in the
+console's own font (fonts.json's "console" role, Hack Bold) and this much
+smaller, so that more of a line fits; off, the map's font at its size, as
+retail. The consoles draw the map's font (HALO_CONSOLE_NO_HIRES). */
+#define TERMINAL_HIRES_SCALE 0.85f
+
+static real terminal_font_scale(
+	void)
+{
+	return text_hires_enabled() ? TERMINAL_HIRES_SCALE : 1.f;
+}
+#else
+#define terminal_font_scale() 1.f
+#endif
+
+/* port: the console's line height, as its font is drawn (terminal_draw_line) */
+static short terminal_font_line_height(
+	short line_height)
+{
+	real scale = terminal_font_scale();
+
+	return scale == 1.f ? line_height : (short)(line_height * scale + 0.5f);
+}
+
+/* port: a line of the console, in its bounds: an MCC map's terminal font
+scaled down (mcc_terminal_draw), else with the high-res text on in the
+console's own font, terminal_font_scale times as large (laid out over the
+bounds made as much wider, so that a line still reaches across the screen) */
+static void terminal_draw_line(
+	long font_tag_index,
+	rectangle2d const *bounds,
+	char const *text)
+{
+	real scale = terminal_font_scale();
+
+	rasterizer_text_set_console_font(scale != 1.f);
+	if (!mcc_terminal_draw(font_tag_index, bounds, text))
+	{
+		if (scale != 1.f)
+		{
+			rectangle2d layout = *bounds;
+
+			layout.x1 = (short)PIN(bounds->x0 + (bounds->x1 - bounds->x0) / scale, SHORT_MIN, SHORT_MAX);
+			layout.y1 = (short)PIN(bounds->y0 + (bounds->y1 - bounds->y0) / scale + 1.f, SHORT_MIN, SHORT_MAX);
+			rasterizer_text_set_scale(scale, (real)bounds->x0, (real)bounds->y0);
+			rasterizer_draw_string(&layout, NULL, NULL, 0, text);
+			rasterizer_text_set_scale(1.f, 0.f, 0.f);
+		}
+		else
+		{
+			rasterizer_draw_string(bounds, NULL, NULL, 0, text);
+		}
+	}
+	rasterizer_text_set_console_font(FALSE);
+
+	return;
+}
 
 static void terminal_remove_line(
 	long line_index)

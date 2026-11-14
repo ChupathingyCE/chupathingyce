@@ -948,6 +948,10 @@ void rasterizer_text_set_scale(
 	real scale,
 	real origin_x,
 	real origin_y);
+/* port: the text drawn next is the console's, in its own high-res font
+while the high-res text is on (TRUE until set back to FALSE) */
+void rasterizer_text_set_console_font(
+	boolean console);
 void rasterizer_text_cache_flush(
 	void);
 void rasterizer_text_cache_dispose(

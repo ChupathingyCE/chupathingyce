@@ -255,9 +255,13 @@ static struct
 {
 	struct font_header *font;
 	real oversample;
+	boolean console;
 	long hires_font;
 } hires_text_fonts[MAXIMUM_HIRES_TEXT_FONTS];
 static short hires_text_next_font = 0;
+/* port: the console's lines drawn in the console's own high-res font
+(rasterizer_text_set_console_font) */
+static boolean hires_text_console = FALSE;
 /* port: the text's scale about a point (rasterizer_text_set_scale) */
 static real text_scale = 1.0f;
 static real text_scale_origin_x = 0.0f;
@@ -781,6 +785,17 @@ void rasterizer_text_set_scale(
 	return;
 }
 
+/* port: the text drawn next is the console's (terminal.c): with the
+high-res text on, drawn in the console's own font (fonts.json's "console"
+role) in place of its tag's, laid out as before */
+void rasterizer_text_set_console_font(
+	boolean console)
+{
+	hires_text_console = console;
+
+	return;
+}
+
 /* port: a character's quad, scaled (rasterizer_text_set_scale) */
 static void rasterizer_text_draw_scaled_character(
 	struct dynamic_screen_vertex const *vertices)
@@ -831,8 +846,11 @@ static long hires_text_font_get(
 	font = font_definition_get(font_index);
 	for (font_slot = 0; font_slot < MAXIMUM_HIRES_TEXT_FONTS; font_slot++)
 	{
-		if (hires_text_fonts[font_slot].font == font && hires_text_fonts[font_slot].oversample == oversample)
+		if (hires_text_fonts[font_slot].font == font && hires_text_fonts[font_slot].oversample == oversample &&
+			hires_text_fonts[font_slot].console == hires_text_console)
+		{
 			return hires_text_fonts[font_slot].hires_font;
+		}
 	}
 	/* (A to Z, then a to z; 0 where the tag has not the letter) */
 	for (letter = 0; letter < TEXT_HIRES_FIT_LETTERS; letter++)
@@ -864,11 +882,13 @@ static long hires_text_font_get(
 		}
 	}
 	hires_font = top == NONE ? NONE :
-		text_hires_font(tag_get_name(font_index), (float)(bottom - top + 1), letter_widths, (float)oversample);
+		text_hires_font(hires_text_console ? "console" : tag_get_name(font_index), (float)(bottom - top + 1),
+			letter_widths, (float)oversample);
 	if (hires_font < 0)
 		hires_font = NONE;
 	hires_text_fonts[hires_text_next_font].font = font;
 	hires_text_fonts[hires_text_next_font].oversample = oversample;
+	hires_text_fonts[hires_text_next_font].console = hires_text_console;
 	hires_text_fonts[hires_text_next_font].hires_font = hires_font;
 	hires_text_next_font = (short)((hires_text_next_font + 1) % MAXIMUM_HIRES_TEXT_FONTS);
 

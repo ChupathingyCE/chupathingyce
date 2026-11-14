@@ -486,6 +486,27 @@
       ]
     },
     {
+      "name": "Hack",
+      "use": "The console's font (Hack Bold), with the high-res text on.",
+      "source": "https://github.com/source-foundry/Hack (release v3.003)",
+      "copyright": [
+        "Copyright (c) 2018 Source Foundry Authors",
+        "Bitstream Vera Sans Mono: Copyright (c) 2003 by Bitstream, Inc. All Rights Reserved. Bitstream Vera is a trademark of Bitstream, Inc."
+      ],
+      "license": "MIT License (Hack); Bitstream Vera License (Bitstream Vera Sans Mono)",
+      "files": [
+        "port/assets/fonts/Hack-LICENSE.txt"
+      ],
+      "packages": [
+        "game",
+        "server"
+      ],
+      "covers": [
+        "port/assets/fonts/Hack-LICENSE.txt",
+        "port/assets/fonts/Hack-Bold.ttf"
+      ]
+    },
+    {
       "name": "Overpass",
       "use": "Fonts for text and for the glyphs Cyborg Interface Gothic takes from it.",
       "source": "https://github.com/RedHatOfficial/Overpass",
