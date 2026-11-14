@@ -906,6 +906,9 @@ static void handle_one_player_input(
 				player->control_flags = action.control_flags;
 				player->throttle = action.throttle;
 				player->primary_trigger = action.primary_trigger;
+				player->desired_weapon_index = action.desired_weapon_index;
+				player->desired_grenade_index = action.desired_grenade_index;
+				player->zoom_level = action.desired_zoom_level;
 			}
 		}
 #endif

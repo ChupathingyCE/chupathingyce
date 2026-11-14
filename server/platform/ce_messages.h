@@ -142,6 +142,7 @@ struct ce_biped_create
 	int unknown_6bits_a;
 	/* the first baseline number of its updates (1) */
 	int baseline;
+	/* by type (0 frag, 1 plasma) */
 	int grenades[2];
 	/* its vitality (ce_body_bits, ce_shield_bits) */
 	int body;
@@ -160,6 +161,7 @@ struct ce_biped_update
 	int object;
 	int baseline;
 	int apply_shield;
+	/* by type (0 frag, 1 plasma) */
 	int grenades[2];
 	int body;
 	int shield;
@@ -249,9 +251,11 @@ struct ce_client_update
 	/* 2 bits a direction: forward/back, then left/right (ce_messages.c) */
 	int throttle;
 	int primary_trigger;
+	/* the weapon, grenade and zoom level it wants (3, 2 and 16 bits;
+	all set: none) */
 	int weapon;
 	int grenade;
-	int unknown_medium;
+	int zoom;
 };
 
 /* another player's actions, as a client animates them */
