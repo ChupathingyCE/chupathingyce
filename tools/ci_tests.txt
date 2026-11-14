@@ -30,11 +30,11 @@ tools/test_coop_level_prompt.py
 tools/test_coop_spectate.py
 tools/test_crash_null_call.py
 tools/test_debug_camera.py
+tools/test_delta.py
 tools/test_delta_compat.py
 tools/test_delta_input_rules.py
 tools/test_delta_menu_art.py
 tools/test_delta_peer.py
-tools/test_delta.py
 tools/test_determinism.py
 tools/test_discord_activity.py
 tools/test_discord_register.py
@@ -69,6 +69,7 @@ tools/test_map_fuzz.py
 tools/test_map_host_download.py
 tools/test_map_installed.py
 tools/test_map_list_view.py
+tools/test_map_name.py
 tools/test_map_packs.py
 tools/test_map_put_in_place.py
 tools/test_map_repo.py
@@ -80,6 +81,7 @@ tools/test_mcc_bsp_vertices.py
 tools/test_mcc_cache_format.py
 tools/test_mcc_cameras.py
 tools/test_mcc_check_failed.py
+tools/test_mcc_checkpoint_footer.py
 tools/test_mcc_chicago.py
 tools/test_mcc_damage_tags.py
 tools/test_mcc_effects_gain.py
@@ -99,11 +101,10 @@ tools/test_mcc_score_hint.py
 tools/test_mcc_seats.py
 tools/test_mcc_share_decline.py
 tools/test_mcc_skulls.py
-tools/test_mcc_checkpoint_footer.py
 tools/test_mcc_validation.py
 tools/test_mcc_workshop.py
-tools/test_menu_text_fit.py
 tools/test_medal_rules.py
+tools/test_menu_text_fit.py
 tools/test_net43_host.py
 tools/test_network_rules.py
 tools/test_network_test_startup.py

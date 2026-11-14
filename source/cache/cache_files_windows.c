@@ -365,6 +365,10 @@ static void cache_file_get_map_path(
 static boolean cache_file_read_header_from_dvd(
 	const char *map_name,
 	struct cache_file_header *header);
+static boolean cache_file_read_header_checked( /* port */
+	const char *map_name,
+	struct cache_file_header *header,
+	boolean fatal);
 static short cached_map_files_find_free_map(
 	long file_length,
 	short scenario_type);
@@ -906,6 +910,69 @@ void cache_files_display_map_error(
 	return;
 }
 
+/* port: whether a map can be loaded: in the cache already (a Custom Edition
+map opened and not refused: cached_map_files_find_map), or one the precache
+would copy. A map named at the console (map_name), in init.txt or by another
+machine is asked about before the game it would end is left: the Xbox's
+precache took a map it could not find for a damaged disc and stopped the game
+for good (display_error_damaged_media, main_loop_of_death). Why a map is
+refused goes to debug.txt. An MCC level is left to its own checks
+(mcc_cache_require, #1149). Based on work by goatbutt and the OpenH1 team. */
+boolean cache_files_map_loadable(
+	const char *map_name,
+	char *reason,
+	long reason_size)
+{
+	const char *cache_map_name;
+	struct cache_file_header header;
+	char header_file[64];
+
+	if (reason && reason_size > 0)
+		reason[0] = 0;
+	if (!map_name || !map_name[0])
+	{
+		error(_error_silent, "no map named");
+		return FALSE;
+	}
+	if (mcc_level_name(map_name))
+		return TRUE;
+	if (cache_files_precache_map_loaded(map_name))
+		return TRUE;
+	cache_map_name = tag_name_strip_path(map_name);
+#ifdef HALO_CUSTOM_EDITION
+	if (ce_map_name_is(cache_map_name))
+	{
+		/* (refused as it was opened: ce_map_open said why) */
+		if (reason && reason_size > 0 && !_stricmp(ce_refused_map_name, cache_map_name) && ce_refused_map_message[0])
+		{
+			strncpy(reason, ce_refused_map_message, (size_t)reason_size - 1);
+			reason[reason_size - 1] = 0;
+		}
+		error(_error_silent, "couldn't open map '%s' (%s)", cache_map_name, map_name);
+		return FALSE;
+	}
+#endif
+	if (!cache_map_name[0] || !cache_file_read_header_checked(cache_map_name, &header, FALSE))
+	{
+		error(_error_silent, "couldn't find map '%s' (%s), or it is no map this build runs", cache_map_name, map_name);
+		return FALSE;
+	}
+	map_family_parse(cache_map_name, header_file, sizeof(header_file));
+	if (_stricmp(header.name, header_file) != 0 || strlen(cache_map_name) >= sizeof(header.name))
+	{
+		error(_error_silent, "map '%s' names itself '%s' in its header: refused", cache_map_name, header.name);
+		return FALSE;
+	}
+	if (cached_map_files_find_free_map(header.file_length, header.scenario_type) == NONE)
+	{
+		error(_error_silent, "no cache file can hold map '%s' (%08x bytes, type %d)",
+			cache_map_name, header.file_length, header.scenario_type);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
 boolean cache_files_precache_map_begin(
 	const char *map_name,
 	boolean copy_map)
@@ -1056,6 +1123,28 @@ void cache_files_precache_map_end(
 		cache_file_globals.copying_to_map_file_name);
 	cache_file_globals.copy_in_progress = FALSE;
 	cache_file_globals.copying_to_map_file_index = NONE;
+
+	return;
+}
+
+/* port: a copy that failed, ended with its slot holding no map (its header
+cleared), so that what the copy wrote is never taken for the map: a refused
+map's (game_precache_new_map_refusable), where the Xbox stopped for good */
+void cache_files_precache_map_abandon(
+	void)
+{
+	short map_file_index = cache_file_globals.copying_to_map_file_index;
+
+	if (!cache_file_globals.copy_in_progress)
+		return;
+	cache_files_precache_map_end();
+	if (map_file_index != NONE)
+	{
+		struct cached_map_file *map_file = cached_map_file_get(map_file_index);
+
+		memset(&map_file->header, 0, sizeof(struct cache_file_header));
+		memset(&map_file->last_modification_date, 0, sizeof(FILETIME));
+	}
 
 	return;
 }
@@ -1747,9 +1836,12 @@ static void cache_file_get_map_path(
 	return;
 }
 
-static boolean cache_file_read_header_from_dvd(
+/* port: (with fatal FALSE, a file that is no cache file is refused without
+its assertion: cache_files_map_loadable) */
+static boolean cache_file_read_header_checked(
 	const char *map_name,
-	struct cache_file_header *header)
+	struct cache_file_header *header,
+	boolean fatal)
 {
 	boolean result = FALSE;
 	char path[256];
@@ -1775,7 +1867,7 @@ static boolean cache_file_read_header_from_dvd(
 			&bytes_read,
 			NULL) &&
 			bytes_read == sizeof(struct cache_file_header) &&
-			cache_file_header_verify(header, path, TRUE))
+			cache_file_header_verify(header, path, fatal))
 		{
 			result = TRUE;
 		}
@@ -1783,6 +1875,13 @@ static boolean cache_file_read_header_from_dvd(
 	}
 
 	return result;
+}
+
+static boolean cache_file_read_header_from_dvd(
+	const char *map_name,
+	struct cache_file_header *header)
+{
+	return cache_file_read_header_checked(map_name, header, TRUE);
 }
 
 static short cached_map_files_find_free_map(
