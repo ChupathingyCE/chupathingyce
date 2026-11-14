@@ -791,7 +791,15 @@ static boolean terminal_dropdown_draw(
 
 	panel = window;
 	panel.y1 = (short)(window.y0 + full_height * eased);
-	draw_quad(&panel, 0xE0060A12);
+	/* (near-opaque, as a panel of its own: draw_quad's texture, the
+	game's default one, halves the color's alpha, so the dim is laid on
+	three times, about 90% over the game) */
+	{
+		short pass;
+
+		for (pass = 0; pass < 3; pass++)
+			draw_quad(&panel, 0xF0060A12);
+	}
 	/* (its bottom edge) */
 	bounds = panel;
 	bounds.y0 = (short)(panel.y1 - 2);
