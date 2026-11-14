@@ -551,11 +551,11 @@
 		<string text="The menus, HUD and scoreboard."/>
 		<string text="Keep the light of explosions, plasma and glows past\nwhite, and roll it off instead of clipping."/>
 		<string text="With HDR, on an HDR display, show that light\nbrighter than white. From the next start."/>
-		<string text="Neutral keeps the picture and rolls off the brightest\nparts. ACES is filmic. Reinhard is softer."/>
+		<string text="Neutral keeps the picture and rolls off only the\nbrightest parts. ACES is filmic, Reinhard softer."/>
 		<string text="The view's brightness before tone mapping."/>
 		<string text="How bright white is on an HDR display, in nits.\nAuto is the display's own."/>
-		<string text="The brightest highlight on an HDR display, in nits.\nAuto asks the display."/>
-		<string text="The HUD's and menus' white on an HDR display, in nits."/>
+		<string text="The brightest highlight on an HDR display,\nin nits. Auto asks the display."/>
+		<string text="The HUD's and menus' white on an HDR display,\nin nits."/>
 		<string text="The detail of object shadows."/>
 		<string text="Light models per pixel instead of per vertex."/>
 		<string text="Light from shots, muzzle flashes and glowing things.\nOff looks like the Xbox. Auto turns it off when slow."/>
