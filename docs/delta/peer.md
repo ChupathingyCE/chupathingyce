@@ -103,6 +103,7 @@ How Delta's versions meet the game protocol's: [versioning.md](versioning.md).
 | 23 | `reports` | a dedicated server takes its players' reports of other players (REPORT, REPORT_RESULT); see "Reports" |
 | 24 | `mcc_maps` | MCC maps (maps_mcc and Steam Workshop items) and their game messages (OpenCE 43's numbers 97 to 100) in a 43-layout session. Room-wide for an MCC map: a host playing one drops every Delta machine without it (an older build, a console); a machine without Delta (OpenCE 43) plays by its own MCC support |
 | 25 | `game_modes` | the game modes layer ([modes.md](https://github.com/ChupathingyCE/chupathingyce/blob/main/docs/modes.md)): OpenCE's game types played by their version 35 rules. Which modes a machine plays rides in the modes field of its HELLO and WELCOME (bit 0 SWAT, 1 Hardcore, 2 Gun Game, 3 Infection), so one bit serves them all. Room-wide for a game of a mode: a host playing one drops every Delta machine without the capability or that mode's bit, and every machine without Delta when the host announces a number before 35 (it would read a record without the mode); a machine without Delta of 35 or later plays by its own code. See "Game modes" |
+| 26 | `lobby_ready` | the game lobby's READY: a client says whether its player is ready (LOBBY_READY), the host says who is and whether it started the countdown (LOBBY_STATE); see "Lobby ready". A player host offers it while its lobby is up; a dedicated server never does. A machine without it counts as ready |
 
 `platform` is the one capability a port needs for plain cross-play. Bits 5
 and 9 were retired before use: never set them. Bits 12 (`ping`) and 18
@@ -273,6 +274,8 @@ a later version may append):
 | 37 | REPORT | client to host | sequence (4, above the session's last), target's machine (1), target's player (1, the absolute index of the player's datum in the host's player data, as the game's player datum index has it), reason (1: 1 cheating, 2 abuse in chat or voice, 3 griefing or betraying, 4 an offensive name, 5 something else), flags (1: 0x01 the reporter would attach a clip), reserved (16: zeros; a host ignores them) |
 | 38 | REPORT_RESULT | host to client | sequence (4, the REPORT's), result (1: 0 taken, 1 too soon, 2 no such player, 3 not taken here, 4 already reported), flags (1: 0x01 send the clip: the server is linked to the site), reserved (2), clip token (16, the host's: zeros without 0x01). A host before the token sent the first 8 bytes alone, and its 0x01 is read as no clip |
 | 39 | HOST_NUMBER | host to client, if both agreed to `mcc_maps` | version (1; 1 now, 0 refused, a later one read as far as this build knows it), reserved (1), the network version the host's game is played at (2, little-endian; 0 refused), reserved (4). Sent at once when it changes, every second for the 20 seconds after, then every 5 seconds. When a host's lobby moves to an MCC map (its game at the MCC number, 44 from `chupa-44a`) or back, a client with `mcc_maps` plays the host's next settings record and messages at the new number without leaving (a record of another size from such a host is passed over, not fatal); the host sends its record again every 2 seconds for 20 seconds. A client that still has the map before never starts the game: the pregame load timeout drops it. Any other machine that joined at the old number is dropped with a notice |
+| 40 | LOBBY_READY | client to host, if both agreed to `lobby_ready` | sequence (4, above the session's last), player (1, the game's player list index, under 128), ready (1: 0 or 1), reserved (2). A sequence not above the last, a ready past 1 or a player past 127 is dropped; at most 2 a second from one machine, 8 at once |
+| 41 | LOBBY_STATE | host to client, if both agreed to `lobby_ready` | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 the host started the countdown, 0x02 the host waits for READY; others ignored), reserved (2), generation (4, the host's count, raised each time the state changes; 0 refused), then 16 bytes of bits, bit n set while the player at player list index n is ready. Sent at once when it changes and every 3 seconds; a client keeps the newest generation |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -771,6 +774,45 @@ Delta carries only who can play:
   advertisement's byte 3 and the internet listing's stamp, and leaves the
   old Delta layout out of such a game's advertisement, since byte 3 is the
   kind's. Our lists mark only the kinds this build does not play.
+
+## Lobby ready
+
+The Chupathingy menus' game lobby ([`port/linux/game/lobby_screen.c`](https://github.com/ChupathingyCE/chupathingyce/blob/main/port/linux/game/lobby_screen.c)) has
+Halo 2's READY: a player says they are ready, the host sees who isn't, and
+the host's START GAME lets the countdown run. The game protocol has no
+word for it, so it rides on `lobby_ready` (bit 26):
+
+- **The client says it.** READY in the lobby's menu sends LOBBY_READY for
+  the player of the controller that chose it (each of a split screen's
+  players readies on their own), and again every 2 seconds while the
+  host's state doesn't show it (a datagram lost). Not ready any more sends
+  it with 0.
+- **The host keeps it.** A player host's lobby takes LOBBY_READY for a
+  player of the machine that sent it (another machine's player is
+  dropped), and counts as ready its own players (the host starts), and
+  every player on a machine that didn't agree to `lobby_ready`: an OpenCE
+  player, an older Chupathingy, a console without it. So a mixed lobby
+  never waits on a machine that can't answer.
+- **Everyone hears it.** LOBBY_STATE goes to each client that agreed, at
+  once when it changes and every 3 seconds: the ready bits by player list
+  index, and whether the host pressed START GAME. The lobby shows READY or
+  NOT READY beside each player from it.
+- **The countdown stays the game's.** START GAME only lets the server's
+  countdown run (`network_game_server_pause_countdown`), CANCEL START holds
+  it again, and the Xbox's own rules for starting (machines, teams, the
+  minimum players) still apply. `network.lobby_start` "auto" keeps the
+  Xbox's self-starting countdown; the automated tests' host runs that way.
+- **A host without it** (OpenCE's, an older build, the Xbox menus) offers
+  no READY: the lobby shows the Xbox's START SOONER in its place, which asks
+  for the countdown to hurry as the Xbox's lobby did. A dedicated server's
+  lobby shows neither: its own countdown decides.
+- **A client that never says** (one without it, or one whose lobby isn't
+  up: the Xbox menus, `display.lobby` off) counts as ready. A lobby says
+  each of its players' state once as it opens, NOT READY too. Each of a
+  split screen's players says READY on their own controller.
+- **Each lobby is newer.** Between lobbies (a game, GAME SETUP, CHANGE MAP)
+  the host sends no state but keeps its generation, so the next lobby's
+  state is newer than the one a client holds.
 
 ## Team changes
 

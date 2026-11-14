@@ -35,6 +35,7 @@ gamespy_listing, whose port takes the joins): off by default.
 #include "networking/network_game_manager.h"
 #include "networking/network_server_manager.h"
 #include "items/weapons.h"
+#include "items/weapon_definitions.h"
 #include "objects/objects.h"
 #include "units/units.h"
 #include "dedicated.h"
@@ -68,6 +69,8 @@ enum
 	/* the wire's object numbers (9 bits; 0 is none) */
 	NETWORK_OBJECTS = 511,
 	TRACKED_PLAYERS = 32,
+	/* the units' weapons a tick can know the holders of */
+	HELD_WEAPONS = 512,
 	PAYLOAD_SIZE = 1200,
 	/* a client's own biped's place, this often */
 	LOCAL_UPDATE_TICKS = 15,
@@ -87,6 +90,8 @@ enum
 	for the next game at most this long after it was told to reconnect */
 	POSTGAME_KEEP_ALIVE_MILLISECONDS = 5000,
 	REJOIN_WAIT_MILLISECONDS = 45000,
+	/* the welcome line, this long after a client first has the map loaded */
+	WELCOME_DELAY_MILLISECONDS = 60000,
 };
 
 /* where a client is between games */
@@ -164,12 +169,22 @@ struct ce_client
 	boolean statistics_known[CE_GAME_PLAYERS];
 	boolean scores_known;
 	boolean welcomed;
+	/* when it first had the map loaded (system_milliseconds; 0: not yet):
+	the welcome line comes a while after */
+	unsigned long joined_time;
 	/* the update being played (its ticks left), as the client's own game
 	plays it: each update holds for its tick count, in order (but a client
 	that got ahead is caught up: its game keeps only its last few updates
 	to replay from our corrections) */
 	struct ce_client_update current;
 	boolean have_current;
+	/* the weapon and zoom its client chose last, as given to its player
+	(a choice is given once, as it changes: between choices the game's
+	own, such as readying a weapon picked up, stand), and the unit they
+	were for (a new unit: none given yet) */
+	int chosen_weapon;
+	int chosen_zoom;
+	long chosen_unit;
 	/* when its actions last changed (system_milliseconds; 0: not yet), for
 	the AFK limit (server_conduct.c) */
 	unsigned long input_time;
@@ -367,8 +382,10 @@ static void client_reset(
 	client->peer = kept.peer;
 	client->address = kept.address;
 	client->welcomed = kept.welcomed;
+	client->joined_time = kept.joined_time;
 	client->input_time = kept.input_time;
 	client->start_vehicle = NONE;
+	client->chosen_unit = NONE;
 	csmemcpy(client->name, kept.name, sizeof(client->name));
 	for (index = 0; index < TRACKED_PLAYERS; index++)
 	{
@@ -992,6 +1009,57 @@ static void put_item_update(
 go, and as players pick weapons up and let them go: a weapon picked up is
 the action its client's game plays (a pickup, or a swap for the weapon
 held); one let go is put where our game has it */
+/* the units' weapons and their holders, as update_items found them (a
+weapon a unit holds but is not using is detached from it, so its parent
+says nothing of who holds it) */
+static struct
+{
+	long weapon[HELD_WEAPONS];
+	long holder[HELD_WEAPONS];
+	int count;
+} held;
+
+static void held_weapons_update(
+	void)
+{
+	struct object_iterator iterator;
+	struct object_datum *object;
+
+	held.count = 0;
+	object_iterator_new(&iterator, _object_mask_unit, 0);
+	while ((object = object_iterator_next(&iterator)) != NULL)
+	{
+		struct unit_datum *unit = (struct unit_datum *)object;
+		int index;
+
+		for (index = 0; index < MAXIMUM_WEAPONS_PER_UNIT && held.count < HELD_WEAPONS; index++)
+		{
+			if (unit->unit.weapon_object_indices[index] == NONE)
+				continue;
+			held.weapon[held.count] = unit->unit.weapon_object_indices[index];
+			held.holder[held.count] = iterator.index;
+			held.count++;
+		}
+	}
+}
+
+/* who holds a weapon (in hand or put away), else its parent */
+static long weapon_holder(
+	long weapon_index)
+{
+	struct object_datum *object = object_get(weapon_index);
+	int index;
+
+	if (object->object.parent_object_index != NONE)
+		return object->object.parent_object_index;
+	for (index = 0; index < held.count; index++)
+	{
+		if (held.weapon[index] == weapon_index)
+			return held.holder[index];
+	}
+	return NONE;
+}
+
 static void update_items(
 	struct ce_client *client,
 	struct ce_payload *reliable)
@@ -1000,6 +1068,7 @@ static void update_items(
 	struct object_datum *object;
 	int number;
 
+	held_weapons_update();
 	/* (items gone: taken away) */
 	for (number = 1; number <= NETWORK_OBJECTS; number++)
 	{
@@ -1015,7 +1084,7 @@ static void update_items(
 	object_iterator_new(&iterator, _object_mask_weapon, 0);
 	while ((object = object_iterator_next(&iterator)) != NULL)
 	{
-		long holder = object->object.parent_object_index;
+		long holder = weapon_holder(iterator.index);
 		int holder_player = holder == NONE ? 0 : unit_player_number(client, holder);
 		struct ce_action_result result;
 		int dropped = 0, other;
@@ -1032,7 +1101,8 @@ static void update_items(
 			struct object_datum *let_go;
 
 			if (client->item_state[other] != ITEM_HELD || client->item_holder[other] != holder ||
-				(let_go = object_try_and_get(client->item[other])) == NULL || let_go->object.parent_object_index != NONE)
+				(let_go = object_try_and_get(client->item[other])) == NULL ||
+				(TEST_FLAG(_object_mask_weapon, let_go->object.type) ? weapon_holder(client->item[other]) : let_go->object.parent_object_index) != NONE)
 			{
 				continue;
 			}
@@ -1056,8 +1126,8 @@ static void update_items(
 	object_iterator_new(&iterator, _object_mask_weapon | _object_mask_equipment, 0);
 	while ((object = object_iterator_next(&iterator)) != NULL)
 	{
-		long holder = object->object.parent_object_index;
 		boolean weapon = TEST_FLAG(_object_mask_weapon, object->object.type);
+		long holder = weapon ? weapon_holder(iterator.index) : object->object.parent_object_index;
 		int holder_player = holder == NONE ? 0 : unit_player_number(client, holder);
 
 		/* (a full payload: the rest next tick) */
@@ -1612,9 +1682,8 @@ void server_ce_update(
 			if (client)
 			{
 				client->loaded = TRUE;
-				if (!client->welcomed && server_ce_welcome()[0])
-					send_chat(client, server_ce_welcome());
-				client->welcomed = TRUE;
+				if (!client->joined_time)
+					client->joined_time = system_milliseconds() ? system_milliseconds() : 1;
 			}
 			break;
 		case CE_EVENT_LEFT:
@@ -1682,12 +1751,81 @@ void server_ce_update(
 		struct ce_client *client = &ce.clients[index];
 
 		/* (and through the moments before the scores, as the game plays on) */
+		/* (the welcome line, once, a minute into its first game: by then
+		its player has looked around, and the line isn't lost in the
+		join's own messages) */
+		if (client->active && client->loaded && client->phase == CE_PHASE_PLAYING && !client->welcomed &&
+			client->joined_time && system_milliseconds() - client->joined_time >= WELCOME_DELAY_MILLISECONDS)
+		{
+			if (server_ce_welcome()[0])
+				send_chat(client, server_ce_welcome());
+			client->welcomed = TRUE;
+		}
 		if (client->active && client->loaded && (client->phase == CE_PHASE_PLAYING ||
 			(client->phase == CE_PHASE_ENDED && game_engine_postgame_mode() != 0)))
 		{
 			update_client(client, index);
 		}
 	}
+}
+
+/* the weapon, grenade and zoom a client chose, onto its player's action
+(which holds the game's own choices): the weapon and zoom only as they
+change, so the game's own changes (a weapon readied as it is picked up,
+a swap, a new unit's first weapon) aren't pulled back by a choice the
+client made before them. The wire's values: weapon 0-3, grenade 0 frag
+and 1 plasma (as the client's HUD shows them), zoom the level; all bits
+set is none */
+static void server_ce_choices(
+	struct ce_client *client,
+	short local_player_index,
+	struct ce_client_update const *update,
+	struct player_action *action)
+{
+	long player_index = local_player_get_player_index(local_player_index);
+	long unit_index = player_index == NONE ? NONE : player_get(player_index)->unit_index;
+	struct unit_datum *unit;
+
+	if (unit_index == NONE)
+	{
+		client->chosen_unit = NONE;
+		return;
+	}
+	/* (a new unit: what the client chose for the last one is not given
+	again; only what it chooses next) */
+	if (client->chosen_unit != unit_index)
+	{
+		client->chosen_unit = unit_index;
+		client->chosen_weapon = update->weapon;
+		client->chosen_zoom = update->zoom;
+		return;
+	}
+	unit = unit_get(unit_index);
+	if (update->weapon != client->chosen_weapon)
+	{
+		client->chosen_weapon = update->weapon;
+		if (update->weapon < MAXIMUM_WEAPONS_PER_UNIT && unit_inventory_get_weapon(unit_index, (short)update->weapon) != NONE)
+		{
+			action->desired_weapon_index = (short)update->weapon;
+			action->desired_zoom_level = NONE;
+		}
+	}
+	if (update->zoom != client->chosen_zoom)
+	{
+		long weapon_index = unit_inventory_get_weapon(unit_index, unit->unit.current_weapon_index);
+		short levels = weapon_index == NONE ? 0 :
+			weapon_definition_get(weapon_get(weapon_index)->definition_index)->weapon.zoom_level_count;
+
+		client->chosen_zoom = update->zoom;
+		/* (a level the weapon has, else none: a level past them would
+		count as zoomed for aim assist) */
+		action->desired_zoom_level = update->zoom < levels ? (short)update->zoom : NONE;
+	}
+	/* (the grenade, always: the client's HUD shows its own choice from the
+	start, and the game changes it only when one type runs out, which the
+	client follows. A type it has none of is left to the game) */
+	if (update->grenade < NUMBER_OF_UNIT_GRENADE_TYPES && unit->unit.grenade_counts[update->grenade] > 0)
+		action->desired_grenade_index = (short)update->grenade;
 }
 
 boolean server_ce_local_action(
@@ -1720,7 +1858,9 @@ boolean server_ce_local_action(
 			/* (its actions changed: it is not away) */
 			if (!client->have_current || update.control_flags != client->current.control_flags ||
 				update.throttle != client->current.throttle || update.yaw != client->current.yaw ||
-				update.pitch != client->current.pitch || update.primary_trigger != client->current.primary_trigger)
+				update.pitch != client->current.pitch || update.primary_trigger != client->current.primary_trigger ||
+				update.weapon != client->current.weapon || update.grenade != client->current.grenade ||
+				update.zoom != client->current.zoom)
 			{
 				client->input_time = system_milliseconds() ? system_milliseconds() : 1;
 			}
@@ -1747,10 +1887,15 @@ boolean server_ce_local_action(
 	}
 	if (!client->have_current)
 	{
+		short weapon = action->desired_weapon_index;
+		short grenade = action->desired_grenade_index;
+		short zoom = action->desired_zoom_level;
+
+		/* (no actions yet: still, with the game's own weapon choices) */
 		csmemset(action, 0, sizeof(*action));
-		action->desired_weapon_index = NONE;
-		action->desired_grenade_index = NONE;
-		action->desired_zoom_level = NONE;
+		action->desired_weapon_index = weapon;
+		action->desired_grenade_index = grenade;
+		action->desired_zoom_level = zoom;
 		return TRUE;
 	}
 	update = client->current;
@@ -1761,6 +1906,7 @@ boolean server_ce_local_action(
 	action->throttle.i = forward;
 	action->throttle.j = left;
 	action->primary_trigger = update.primary_trigger ? 1.0f : 0.0f;
+	server_ce_choices(client, local_player_index, &update, action);
 	return TRUE;
 }
 
@@ -1770,7 +1916,7 @@ void server_ce_set_welcome(
 {
 	/* (short: Custom Edition's chat doesn't wrap, and a 640-wide screen
 	shows about 90 characters of a line) */
-	static char const default_welcome[] = "Welcome to our Chupathingy Cross-Play Server. More at chupathingy.org";
+	static char const default_welcome[] = "Playing on Chupathingy: free, runs Halo PC and Xbox maps. chupathingy.org";
 
 	snprintf(ce.welcome, sizeof(ce.welcome), "%s", text ? text : default_welcome);
 	ce.welcome_set = TRUE;

@@ -290,8 +290,10 @@ void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_bip
 	put_bits(payload, (unsigned int)biped->baseline, 8);
 	put_position(payload, biped->object.position);
 	put_zero_velocity(payload);
-	put_bits(payload, (unsigned int)biped->grenades[0], 3);
+	/* (the second grenade type's count first: a 1.0.10 client takes the
+	first number for its plasma grenades, as its HUD shows) */
 	put_bits(payload, (unsigned int)biped->grenades[1], 3);
+	put_bits(payload, (unsigned int)biped->grenades[0], 3);
 	put_bits(payload, (unsigned int)biped->body, 3);
 	put_bits(payload, (unsigned int)biped->shield, 6);
 	put_bits(payload, (unsigned int)biped->unknown_boolean_b, 1);
@@ -491,8 +493,10 @@ void ce_payload_put_biped_update(struct ce_payload *payload, const struct ce_bip
 	/* (the client keeps it as its baseline) */
 	put_bits(payload, 1, 1);
 	put_bits(payload, update->apply_shield ? 1 : 0, 1);
-	put_bits(payload, (unsigned int)update->grenades[0], 3);
+	/* (the second grenade type's count first: a 1.0.10 client takes the
+	first number for its plasma grenades, as its HUD shows) */
 	put_bits(payload, (unsigned int)update->grenades[1], 3);
+	put_bits(payload, (unsigned int)update->grenades[0], 3);
 	put_bits(payload, (unsigned int)update->body, 3);
 	put_bits(payload, (unsigned int)update->shield, 6);
 	put_bits(payload, (unsigned int)update->unknown_boolean, 1);
@@ -749,7 +753,7 @@ static int read_client_update(struct reader *reader, int every_field, struct ce_
 	{
 		if (!get_bits(reader, 16, &value))
 			return 0;
-		update->unknown_medium = (int)value;
+		update->zoom = (int)value;
 	}
 	return 1;
 }

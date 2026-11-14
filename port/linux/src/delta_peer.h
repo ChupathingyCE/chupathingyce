@@ -138,6 +138,11 @@ enum
 	own rules space them out further: team_change.c) */
 	DELTA_PEER_TEAM_RATE = 1,
 	DELTA_PEER_TEAM_BURST = 3,
+	/* the lobby's READY: LOBBY_READY a host takes from one machine, and
+	how often the state goes to each client unchanged */
+	DELTA_PEER_LOBBY_RATE = 2,
+	DELTA_PEER_LOBBY_BURST = 8,
+	DELTA_PEER_LOBBY_STATE_INTERVAL = 3000,
 
 	/* server badges (docs/server-badges.md): the client asks its host this
 	often, at most this many times a session; the host answers one machine
@@ -383,6 +388,16 @@ struct delta_peer_team_host
 	delta_team_result), the player's team now in team, and with too soon the
 	seconds to wait in seconds */
 	int (*request)(void *context, int machine_index, int player, int team, int *team_now, int *seconds);
+};
+
+/* a host's lobby (the game's: port/linux/game/lobby_screen.c); a host with
+none (a dedicated server, the Xbox menus) does not offer lobby_ready */
+struct delta_peer_lobby_host
+{
+	void *context;
+	/* a machine says one of its players (the game's player list index) is
+	ready, or not any more: 1 taken, 0 not (no such player of the machine) */
+	int (*ready)(void *context, int machine_index, int player, int ready);
 };
 
 /* a host's reports (the dedicated server's: server/src/server_reports.c); a
@@ -689,6 +704,12 @@ struct delta_peer_host_peer
 	/* reports: the last REPORT's sequence, and their rate */
 	delta_u32 report_sequence;
 	struct delta_rate report_rate;
+	/* the lobby's READY: the last LOBBY_READY's sequence and their rate,
+	and the lobby's state as last sent to it (lobby_generation), and when */
+	delta_u32 lobby_sequence;
+	struct delta_rate lobby_rate;
+	delta_u32 lobby_sent_generation;
+	delta_u32 lobby_time;
 	struct delta_peer_host_voice voice;
 	/* verified names: its proofs' rate, the challenge last said, and each
 	card's generation as last sent to it (0: not sent), and when every card
@@ -767,6 +788,12 @@ struct delta_peer
 	each time they change (0: none set) */
 	struct delta_wire_host_rules rules;
 	delta_u32 rules_generation;
+	/* the lobby's state (delta_peer_set_lobby_state): its generation is
+	the state's own (0: none set) */
+	struct delta_wire_lobby_state lobby_state;
+	/* whether it is sent (the lobby up): off between lobbies, its generation
+	kept, so that the next lobby's state is newer than any a client holds */
+	int lobby_state_active;
 	/* the host's number (delta_peer_set_host_number), and a number raised
 	each time it changes (0: none set) */
 	unsigned number;
@@ -807,6 +834,10 @@ struct delta_peer
 	change (0: none heard) */
 	struct delta_wire_host_rules host_rules;
 	delta_u32 host_rules_generation;
+	/* the lobby's state (LOBBY_STATE) as last heard (its generation 0:
+	none heard), and the client's last LOBBY_READY's sequence */
+	struct delta_wire_lobby_state host_lobby_state;
+	delta_u32 lobby_sequence;
 	/* the host's number (HOST_NUMBER), and a number raised each time it
 	changes (0: none heard) */
 	unsigned host_number;
@@ -856,6 +887,8 @@ struct delta_peer
 	delta_u32 team_sequence;
 	delta_u32 team_results;
 	struct delta_wire_team_result team_result;
+	/* the lobby's READY: the host's (NULL: none, not offered) */
+	const struct delta_peer_lobby_host *lobby_host;
 	/* reports: the host's (NULL: none, not offered); the client's last
 	REPORT's sequence, and the results heard (how many, the last) */
 	const struct delta_peer_report_host *report_host;
@@ -1106,6 +1139,30 @@ delta_u32 delta_peer_client_team_request(struct delta_peer *peer, int player, in
 /* (client) the results heard so far (a count that only grows), and the
 last in result */
 delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct delta_wire_team_result *result);
+
+/* ---------- the lobby's READY (docs/delta/peer.md, Lobby ready)
+
+A client says one of its players is ready, or not any more (LOBBY_READY,
+both agreed to lobby_ready); the host keeps who is ready and tells every
+client that agreed (LOBBY_STATE) at once when it changes and every few
+seconds. A machine without lobby_ready counts as ready: the host decides
+that, not the wire. */
+
+/* (host) its lobby (NULL: none; lobby_ready is then not offered to clients
+that say HELLO from now) */
+void delta_peer_set_lobby_host(struct delta_peer *peer, const struct delta_peer_lobby_host *host);
+/* (host) the lobby's state, sent to each client that agreed to lobby_ready
+(NULL: none, nothing sent). Called each frame; the state's generation is
+raised here each time it differs from the last */
+void delta_peer_set_lobby_state(struct delta_peer *peer, const struct delta_wire_lobby_state *state);
+/* (client) whether the host agreed to lobby_ready */
+int delta_peer_client_lobby_ready(const struct delta_peer *peer);
+/* (client) its player (the game's player list index) is ready, or not any
+more: the message's sequence, 0 if not sent */
+delta_u32 delta_peer_client_lobby_say(struct delta_peer *peer, int player, int ready);
+/* (client) the lobby's state as last heard, in state, and its generation
+(0: none heard) */
+delta_u32 delta_peer_client_lobby_state(const struct delta_peer *peer, struct delta_wire_lobby_state *state);
 
 /* ---------- party teams (docs/delta/peer.md, Party teams)
 
@@ -1413,6 +1470,15 @@ reporter would attach one, and the results heard (a clip goes with the
 token the host sent back) */
 void delta_peer_game_set_report_host(const struct delta_peer_report_host *host);
 int delta_peer_game_report_ready(void);
+/* the lobby's READY (port/linux/game/lobby_screen.c): the host's lobby
+(NULL: none, lobby_ready not offered) and its state for the clients; the
+client's word for its player, and the host's state as last heard (its
+generation, 0 for none) */
+void delta_peer_game_set_lobby_host(const struct delta_peer_lobby_host *host);
+void delta_peer_game_set_lobby_state(const struct delta_wire_lobby_state *state);
+int delta_peer_game_lobby_ready(void);
+unsigned int delta_peer_game_lobby_say(int player, int ready);
+unsigned int delta_peer_game_lobby_state(struct delta_wire_lobby_state *state);
 unsigned int delta_peer_game_report(int machine_index, int player, int reason, int clip);
 unsigned int delta_peer_game_report_result(struct delta_wire_report_result *result);
 

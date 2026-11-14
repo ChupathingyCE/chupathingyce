@@ -95,6 +95,9 @@ static delta_u32 offered(const struct delta_peer *peer)
 	/* (nor reports without its report host) */
 	if (peer->mode == _mode_host && !peer->report_host)
 		capabilities &= ~CAPABILITY(_delta_capability_reports);
+	/* (nor the lobby's READY without its lobby) */
+	if (peer->mode == _mode_host && !peer->lobby_host)
+		capabilities &= ~CAPABILITY(_delta_capability_lobby_ready);
 	/* (nor voice without its rules) */
 	if (peer->mode == _mode_host && !peer->voice_hosting)
 		capabilities &= ~CAPABILITY(_delta_capability_voice);
@@ -227,6 +230,7 @@ static void forget_all(struct delta_peer *peer)
 	peer->host_traits_generation = 0;
 	memset(&peer->host_rules, 0, sizeof(peer->host_rules));
 	peer->host_rules_generation = 0;
+	memset(&peer->host_lobby_state, 0, sizeof(peer->host_lobby_state));
 	peer->host_number = 0;
 	peer->host_number_generation = 0;
 	memset(peer->machine_seen, 0, sizeof(peer->machine_seen));
@@ -1903,6 +1907,121 @@ static void host_team_request(struct delta_peer *peer, delta_u32 now, int machin
 	peer_send(peer, client->ipv4, client->port, data, delta_wire_write_team_result(data, client->session, &result));
 }
 
+/* ---------- the lobby's READY */
+
+void delta_peer_set_lobby_host(struct delta_peer *peer, const struct delta_peer_lobby_host *host)
+{
+	peer->lobby_host = host;
+}
+
+static void host_lobby_ready(struct delta_peer *peer, delta_u32 now, int machine_index,
+	const struct delta_wire_header *header, const unsigned char *payload)
+{
+	struct delta_peer_host_peer *client = &peer->peers[machine_index];
+	struct delta_wire_lobby_ready ready;
+
+	if (!(client->agreed & offered(peer) & CAPABILITY(_delta_capability_lobby_ready)) || !peer->lobby_host ||
+		!delta_wire_read_lobby_ready(payload, header->length, &ready) || ready.sequence <= client->lobby_sequence ||
+		!delta_rate_take(&client->lobby_rate, now, DELTA_PEER_LOBBY_RATE, DELTA_PEER_LOBBY_BURST))
+	{
+		peer->dropped++;
+		return;
+	}
+	client->lobby_sequence = ready.sequence;
+	if (!peer->lobby_host->ready(peer->lobby_host->context, machine_index, ready.player, ready.ready))
+		peer->dropped++;
+}
+
+void delta_peer_set_lobby_state(struct delta_peer *peer, const struct delta_wire_lobby_state *state)
+{
+	int index;
+	struct delta_wire_lobby_state next;
+
+	/* (none: not sent, the generation kept; a client holds the last one it
+	heard, and ignores any older, so the next lobby's must be newer) */
+	if (!state)
+	{
+		peer->lobby_state_active = 0;
+		return;
+	}
+	next = *state;
+	next.generation = peer->lobby_state.generation;
+	if (peer->lobby_state_active && peer->lobby_state.generation && !memcmp(&peer->lobby_state, &next, sizeof(next)))
+		return;
+	/* (never 0, which is none; each client is sent it at once) */
+	next.generation = peer->lobby_state.generation + 1 ? peer->lobby_state.generation + 1 : 1;
+	peer->lobby_state = next;
+	peer->lobby_state_active = 1;
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+		peer->peers[index].lobby_sent_generation = 0;
+}
+
+/* the lobby's state to each client that agreed to lobby_ready: at once when
+it changed (or the client is new), then every DELTA_PEER_LOBBY_STATE_INTERVAL */
+static void host_send_lobby_state(struct delta_peer *peer, delta_u32 now)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int index;
+
+	if (!peer->lobby_state_active || !peer->lobby_state.generation ||
+		!(offered(peer) & CAPABILITY(_delta_capability_lobby_ready)))
+	{
+		return;
+	}
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		struct delta_peer_host_peer *client = &peer->peers[index];
+		int size;
+
+		if (!client->used || !(client->agreed & CAPABILITY(_delta_capability_lobby_ready)))
+			continue;
+		if (client->lobby_sent_generation == peer->lobby_state.generation &&
+			!elapsed(now, client->lobby_time, DELTA_PEER_LOBBY_STATE_INTERVAL))
+		{
+			continue;
+		}
+		size = delta_wire_write_lobby_state(data, client->session, &peer->lobby_state);
+		if (!size)
+			return;
+		peer_send(peer, client->ipv4, client->port, data, size);
+		client->lobby_sent_generation = peer->lobby_state.generation;
+		client->lobby_time = now;
+	}
+}
+
+int delta_peer_client_lobby_ready(const struct delta_peer *peer)
+{
+	return client_chatting(peer, _delta_capability_lobby_ready);
+}
+
+delta_u32 delta_peer_client_lobby_say(struct delta_peer *peer, int player, int ready)
+{
+	struct delta_wire_lobby_ready message;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int size;
+
+	if (!delta_peer_client_lobby_ready(peer) || player < 0 || player >= DELTA_WIRE_LOBBY_PLAYERS)
+		return 0;
+	memset(&message, 0, sizeof(message));
+	message.sequence = ++peer->lobby_sequence;
+	if (!message.sequence)
+		message.sequence = ++peer->lobby_sequence;
+	message.player = (unsigned char)player;
+	message.ready = (unsigned char)(ready ? 1 : 0);
+	size = delta_wire_write_lobby_ready(data, peer->session, &message);
+	if (!size)
+		return 0;
+	peer_send(peer, peer->host_ipv4, peer->host_port, data, size);
+	return message.sequence;
+}
+
+delta_u32 delta_peer_client_lobby_state(const struct delta_peer *peer, struct delta_wire_lobby_state *state)
+{
+	if (state)
+		*state = peer->host_lobby_state;
+	return peer->host_lobby_state.generation;
+}
+
 /* ---------- server badges */
 
 void delta_peer_set_badge_host(struct delta_peer *peer, const struct delta_peer_badge_host *host)
@@ -2374,6 +2493,18 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 			say(peer, "Delta Peer: machine %d is %s", machine_index, client->has_party_tag ? "in a party" :
 				"in no party");
 		}
+		break;
+	}
+	case _delta_message_lobby_ready:
+	{
+		int machine_index = host_find_session(peer, ipv4, header.session);
+
+		if (machine_index < 0)
+		{
+			peer->dropped++;
+			break;
+		}
+		host_lobby_ready(peer, now, machine_index, &header, payload);
 		break;
 	}
 	case _delta_message_team_request:
@@ -2964,6 +3095,7 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 	host_send_traits(peer, now);
 	host_send_rules(peer, now);
 	host_send_number(peer, now);
+	host_send_lobby_state(peer, now);
 	host_identity_frame(peer, now);
 
 	{
@@ -3083,6 +3215,7 @@ static void client_legacy(struct delta_peer *peer, const char *why)
 	peer->host_traits_generation = 0;
 	memset(&peer->host_rules, 0, sizeof(peer->host_rules));
 	peer->host_rules_generation = 0;
+	memset(&peer->host_lobby_state, 0, sizeof(peer->host_lobby_state));
 	peer->host_number = 0;
 	peer->host_number_generation = 0;
 	memset(peer->machines, 0, sizeof(peer->machines));
@@ -3695,6 +3828,22 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 				peer->host_number_generation + 1 ? peer->host_number_generation + 1 : 1;
 			say(peer, "Delta Peer: the host's game is played at OpenCE network version %u", number);
 		}
+		break;
+	}
+	case _delta_message_lobby_state:
+	{
+		struct delta_wire_lobby_state state;
+
+		if (peer->client_state != _delta_peer_client_delta ||
+			!(peer->agreed & offered(peer) & CAPABILITY(_delta_capability_lobby_ready)) ||
+			!delta_wire_read_lobby_state(payload, header.length, &state))
+		{
+			peer->dropped++;
+			break;
+		}
+		/* (the host's newest wins; a datagram that arrives late is passed over) */
+		if (!peer->host_lobby_state.generation || (delta_u32)(state.generation - peer->host_lobby_state.generation) < 0x80000000u)
+			peer->host_lobby_state = state;
 		break;
 	}
 	case _delta_message_host_rules:

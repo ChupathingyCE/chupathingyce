@@ -209,6 +209,12 @@ enum delta_capability
 	number it announces is older than 35 (such a machine would read a record
 	without the mode); an OpenCE machine of 35 or later plays by its own code */
 	_delta_capability_game_modes = 25,
+	/* the lobby's READY (docs/delta/peer.md, Lobby ready): a client says whether
+	each of its players is ready (LOBBY_READY) and the host tells everyone
+	who is and whether it started the countdown (LOBBY_STATE). A machine
+	without it (OpenCE's, an older build) counts as ready. A player host
+	offers it while its lobby is up; a dedicated server never does */
+	_delta_capability_lobby_ready = 26,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };
