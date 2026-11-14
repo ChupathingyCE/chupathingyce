@@ -1,0 +1,504 @@
+{
+  "registry": 1,
+  "description": "Every number Delta assigns. registry.md explains each one; tools/test_delta_registry.py checks this file against the game's code.",
+  "platforms": [
+    {
+      "number": 0,
+      "key": "unknown",
+      "tag": "",
+      "name": "",
+      "class": null,
+      "for": "",
+      "status": "a machine that doesn't say"
+    },
+    {
+      "number": 1,
+      "key": "pc_windows",
+      "tag": "WIN",
+      "name": "Windows",
+      "class": "pc",
+      "for": "Chupathingy",
+      "status": "ours"
+    },
+    {
+      "number": 2,
+      "key": "pc_macos",
+      "tag": "MAC",
+      "name": "Mac",
+      "class": "pc",
+      "for": "Chupathingy",
+      "status": "ours"
+    },
+    {
+      "number": 3,
+      "key": "pc_linux",
+      "tag": "LNX",
+      "name": "Linux",
+      "class": "pc",
+      "for": "Chupathingy",
+      "status": "ours"
+    },
+    {
+      "number": 4,
+      "key": "android",
+      "tag": "AND",
+      "name": "Android",
+      "class": "handheld",
+      "for": "Chupathingy",
+      "status": "ours"
+    },
+    {
+      "number": 5,
+      "key": "steam_deck",
+      "tag": "STEAMOS",
+      "name": "SteamOS",
+      "class": "handheld",
+      "for": "Chupathingy",
+      "status": "ours"
+    },
+    {
+      "number": 6,
+      "key": "xbox",
+      "tag": "XBOX",
+      "name": "Xbox",
+      "class": "console",
+      "for": "Chupathingy (warthog-xbox)",
+      "status": "ours"
+    },
+    {
+      "number": 7,
+      "key": "xbox360",
+      "tag": "360",
+      "name": "Xbox 360",
+      "class": "console",
+      "for": "Chupathingy (warthog-360)",
+      "status": "ours"
+    },
+    {
+      "number": 8,
+      "key": "wiiu",
+      "tag": "WIIU",
+      "name": "Wii U",
+      "class": "console",
+      "for": "Chupathingy (warthog-wiiu)",
+      "status": "ours"
+    },
+    {
+      "number": 9,
+      "key": "switch",
+      "tag": "NX",
+      "name": "Switch",
+      "class": "console",
+      "for": "Chupathingy (warthog-switch), port by thelinkin",
+      "status": "ours"
+    },
+    {
+      "number": 10,
+      "key": "psp",
+      "tag": "PSP",
+      "name": "PSP",
+      "class": "handheld",
+      "for": "Sheepdog01",
+      "status": "community port"
+    },
+    {
+      "number": 11,
+      "key": "vita",
+      "tag": "VITA",
+      "name": "Vita",
+      "class": "handheld",
+      "for": "Lord BirchWood",
+      "status": "community port"
+    },
+    {
+      "number": 12,
+      "key": "xbox_uwp",
+      "tag": "XBS",
+      "name": "Xbox Series",
+      "class": "console",
+      "for": "ReviveMe",
+      "status": "community port"
+    },
+    {
+      "number": 13,
+      "key": "pc_freebsd",
+      "tag": "BSD",
+      "name": "FreeBSD",
+      "class": "pc",
+      "for": "Renkoto (port/unix)",
+      "status": "in our tree"
+    },
+    {
+      "number": 14,
+      "key": "ps3",
+      "tag": "PS3",
+      "name": "PS3",
+      "class": "console",
+      "for": "Mayo's fork",
+      "status": "community port"
+    },
+    {
+      "number": 15,
+      "key": "ps4",
+      "tag": "PS4",
+      "name": "PS4",
+      "class": "console",
+      "for": "",
+      "status": "reserved, no known port"
+    },
+    {
+      "number": 16,
+      "key": "ps5",
+      "tag": "PS5",
+      "name": "PS5",
+      "class": "console",
+      "for": "",
+      "status": "reserved, no known port"
+    },
+    {
+      "number": 17,
+      "key": "n64",
+      "tag": "N64",
+      "name": "N64",
+      "class": "console",
+      "for": "JackT",
+      "status": "community port"
+    },
+    {
+      "number": 18,
+      "key": "pc_legacy",
+      "tag": "LGCY",
+      "name": "Legacy PC",
+      "class": "pc",
+      "for": "JackT",
+      "status": "community port"
+    },
+    {
+      "number": 19,
+      "key": "steamlink",
+      "tag": "LINK",
+      "name": "Steam Link",
+      "class": "console",
+      "for": "Chupathingy32",
+      "status": "in progress"
+    },
+    {
+      "number": 20,
+      "key": "ios",
+      "tag": "IOS",
+      "name": "iOS",
+      "class": "handheld",
+      "for": "",
+      "status": "reserved, no known port"
+    },
+    {
+      "number": 21,
+      "key": "tvos",
+      "tag": "ATV",
+      "name": "Apple TV",
+      "class": "console",
+      "for": "",
+      "status": "reserved, no known port"
+    },
+    {
+      "number": 22,
+      "key": null,
+      "tag": null,
+      "name": "Dreamcast",
+      "class": "console",
+      "for": "JiltedValkyrie's dc-halo",
+      "status": "requested, pending owner"
+    }
+  ],
+  "capabilities": [
+    {
+      "bit": 0,
+      "name": "platform",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 1,
+      "name": "profile",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 2,
+      "name": "server_messages",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 3,
+      "name": "chat",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 4,
+      "name": "ce_maps",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 5,
+      "name": "md_maps",
+      "status": "retired",
+      "ports_never_send": true
+    },
+    {
+      "bit": 6,
+      "name": "coop",
+      "status": "assigned, not offered yet",
+      "ports_never_send": false
+    },
+    {
+      "bit": 7,
+      "name": "ai_sync",
+      "status": "assigned, not offered yet",
+      "ports_never_send": false
+    },
+    {
+      "bit": 8,
+      "name": "vote",
+      "status": "assigned, not offered yet",
+      "ports_never_send": false
+    },
+    {
+      "bit": 9,
+      "name": "console_slots",
+      "status": "retired",
+      "ports_never_send": true
+    },
+    {
+      "bit": 10,
+      "name": "moderation",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 11,
+      "name": "bomb",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 12,
+      "name": "ping",
+      "status": "list only",
+      "ports_never_send": true
+    },
+    {
+      "bit": 13,
+      "name": "bomb_movement",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 14,
+      "name": "bomb_traits",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 15,
+      "name": "team_change",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 16,
+      "name": "server_badge",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 17,
+      "name": "object_sync",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 18,
+      "name": "host_cheats",
+      "status": "list only",
+      "ports_never_send": true
+    },
+    {
+      "bit": 19,
+      "name": "host_rules",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 20,
+      "name": "identity",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 21,
+      "name": "party_teams",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 22,
+      "name": "voice",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 23,
+      "name": "reports",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 24,
+      "name": "mcc_maps",
+      "status": "in use",
+      "ports_never_send": false
+    },
+    {
+      "bit": 25,
+      "name": "game_modes",
+      "status": "in use",
+      "ports_never_send": false
+    }
+  ],
+  "wires": {
+    "current": "chupa-44b",
+    "console_floor": "chupa-32a",
+    "first_advertised": "chupa-29a",
+    "list": [
+      {
+        "wire": "chupa-20a",
+        "oldest_compatible": null,
+        "newest_network_version": null,
+        "builds": "0.7.0b"
+      },
+      {
+        "wire": "chupa-23a",
+        "oldest_compatible": null,
+        "newest_network_version": null,
+        "builds": "0.7.1b"
+      },
+      {
+        "wire": "chupa-24a",
+        "oldest_compatible": null,
+        "newest_network_version": null,
+        "builds": "0.7.1c to 0.7.1e"
+      },
+      {
+        "wire": "chupa-26a",
+        "oldest_compatible": null,
+        "newest_network_version": null,
+        "builds": "0.7.2e, 0.7.3e"
+      },
+      {
+        "wire": "chupa-28a",
+        "oldest_compatible": null,
+        "newest_network_version": 28,
+        "builds": "0.7.4e, 0.7.5"
+      },
+      {
+        "wire": "chupa-29a",
+        "oldest_compatible": "chupa-28a",
+        "newest_network_version": 29,
+        "builds": "0.7.5a and later 0.7.5 builds"
+      },
+      {
+        "wire": "chupa-32a",
+        "oldest_compatible": "chupa-28a",
+        "newest_network_version": 33,
+        "builds": "0.8.0 to 0.8.0g, consoles of 2026-10-21"
+      },
+      {
+        "wire": "chupa-38a",
+        "oldest_compatible": "chupa-28a",
+        "newest_network_version": 38,
+        "builds": "0.8.0h"
+      },
+      {
+        "wire": "chupa-39a",
+        "oldest_compatible": "chupa-28a",
+        "newest_network_version": 39,
+        "builds": "0.8.1b, 0.8.1c"
+      },
+      {
+        "wire": "chupa-41a",
+        "oldest_compatible": "chupa-28a",
+        "newest_network_version": 41,
+        "builds": "0.8.1d to 0.9.0"
+      },
+      {
+        "wire": "chupa-43a",
+        "oldest_compatible": "chupa-28a",
+        "newest_network_version": 43,
+        "builds": "development builds before 0.9.1 (no release)"
+      },
+      {
+        "wire": "chupa-44a",
+        "oldest_compatible": "chupa-28a",
+        "newest_network_version": 44,
+        "builds": "0.9.1, 0.9.1a"
+      },
+      {
+        "wire": "chupa-44b",
+        "oldest_compatible": "chupa-28a",
+        "newest_network_version": 44,
+        "builds": "0.9.2 (in development)"
+      }
+    ]
+  },
+  "network_versions": {
+    "joined_by_our_clients": [
+      11,
+      45
+    ],
+    "newest_breaking": 11,
+    "seen": [
+      {
+        "version": 22,
+        "by": "older Xbox and Chupathingy builds (as reported; not found in this repository's code, signed table or tests)"
+      },
+      {
+        "version": 32,
+        "by": "older Chupathingy and console builds; what 0.9.1's servers announce"
+      },
+      {
+        "version": 41,
+        "by": "0.8.1d to 0.9.0 (chupa-41a's signed row); a 0.9.2 development build's built-in announce"
+      },
+      {
+        "version": 42,
+        "by": "a Dreamcast port (as reported)"
+      },
+      {
+        "version": 43,
+        "by": "hosts of MCC maps"
+      },
+      {
+        "version": 44,
+        "by": "current"
+      }
+    ],
+    "closed_bit": {
+      "value": 32768,
+      "meaning": "a GOAT H1 host closed to other builds sets bit 15 of its version: closed, never joinable"
+    }
+  },
+  "ports": {
+    "game": 5150,
+    "system_link_search": 5151,
+    "delta_peer": 5160,
+    "map_share_tcp": 5153
+  },
+  "xbox_title_id": {
+    "value": "0x43480001",
+    "where": "the original Xbox build (warthog-xbox), not this repository"
+  },
+  "delta_major": 1
+}
