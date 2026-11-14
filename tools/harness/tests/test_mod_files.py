@@ -43,5 +43,5 @@ def test_case(case):
 @pytest.mark.parametrize("control", NEGATIVE_CONTROLS)
 def test_negative_control(control):
     fault, faulty_function, case = NEGATIVE_CONTROLS[control]
-    status, output = run(build(f"mod_files_{control}", generated(fault, faulty_function)), case)
-    assert status == CHECK_FAILED, output
+    status, output = run(build("mod_files", generated(fault, faulty_function)), case)
+    assert status == CHECK_FAILED, f"the code with a fault ({control}) passed '{case}': the test cannot see it"
