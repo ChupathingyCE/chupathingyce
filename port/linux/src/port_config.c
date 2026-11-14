@@ -605,6 +605,11 @@ static const struct config_setting config_settings[] =
 		"A closed door stops a light behind it from lighting your side, such as\n"
 		"a plasma bolt in the next room. false lets the light through, as on\n"
 		"the Xbox." },
+	{ "display.plasma_sparks", _config_boolean, "false", "HALO_PLASMA_SPARKS", _environment_value,
+		_platform_all,
+		"The blue sparks off a live plasma grenade, which the Xbox never drew\n"
+		"(at 30 frames a second they end before they are drawn). false: as on\n"
+		"the Xbox, at any frame rate. Thanks to ugoboom for the idea." },
 	{ "display.particle_limit", _config_integer, DEFAULT_PARTICLE_LIMIT, "HALO_PARTICLE_LIMIT", _environment_value,
 		_platform_all,
 		"The most particles alive at once: sparks, smoke, casings and debris.\n"

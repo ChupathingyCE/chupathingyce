@@ -143,6 +143,7 @@ static const struct settings_row settings_rows[] =
 #endif
 	{ _in_display, "PERFORMANCE", "display.particle_limit", _kind_preset, NULL, NULL, 0, 0 },
 	{ _in_display, "LIGHT EFFECTS", "display.light_effects", _kind_choices, light_effects_choices, NULL, 0, 0 },
+	{ _in_display | _in_guide, "PLASMA SPARKS", "display.plasma_sparks", _kind_toggle, NULL, NULL, 0, 0 },
 
 #ifdef HALO_LAUNCHER
 	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },

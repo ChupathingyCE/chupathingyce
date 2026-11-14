@@ -1100,6 +1100,33 @@ void particle_new(
 	return;
 }
 
+/* port: display.plasma_sparks. A particle that plays one sequence and ends
+(no looping or final sequences) is made in a tick, and on the Xbox the first
+update after it, a whole tick, ran a frame of it out before it was drawn: one
+whose sequence is a single frame at 30 frames a second never showed. The blue
+bolts off a live plasma grenade (detonation start's plasma electric bolts:
+one sprite at 30 frames a second) are such particles. The native builds
+update particles every frame, so at high frame rates they showed for a frame
+or two, and at 30 not at all. Off (the default): a new particle's first update
+is a whole tick, as on the Xbox, at any frame rate. On: it is drawn once
+before its first update, at any frame rate. Thanks to ugoboom. */
+static boolean particles_plasma_sparks;
+
+static real particle_first_frame_time(
+	struct particle_definition const *definition,
+	real dt)
+{
+	if (definition->looping_sequence_count > 0 ||
+		definition->final_sequence_count > 0 ||
+		TEST_FLAG(definition->flags, _particle_definition_animate_once_per_frame_bit))
+	{
+		return dt;
+	}
+	if (particles_plasma_sparks)
+		return 0.0f;
+	return MAX(dt, 1.0f / TICKS_PER_SECOND);
+}
+
 void particles_update(
 	real dt)
 {
@@ -1114,11 +1141,13 @@ void particles_update(
 
 	{
 		extern long config_integer(const char *name);
+		extern int config_boolean(const char *name);
 		extern void platform_log(const char *format, ...);
 		static long counted_frames, counted_alive, counted_most;
 		static real counted_seconds;
 
 		particles_limit = config_integer("display.particle_limit");
+		particles_plasma_sparks = config_boolean("display.plasma_sparks") != 0;
 		counted_frames++;
 		counted_alive += particle_data->actual_count;
 		counted_most = MAX(counted_most, (long)particle_data->actual_count);
@@ -1187,7 +1216,8 @@ void particles_update(
 			}
 			else
 			{
-				if (particle_update_frame_time(particle_index, dt))
+				if (particle_update_frame_time(particle_index,
+					was_new ? particle_first_frame_time(definition, dt) : dt))
 				{
 #ifdef HALO_XBOX_CONSOLE
 					/* the Xbox runs at the game's 30 Hz; the tick mode's tables are left out to save its memory */
