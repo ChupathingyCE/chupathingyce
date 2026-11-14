@@ -1623,6 +1623,15 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_test_fall", _config_real, "0.0", "HALO_NETWORK_TEST_FALL", _environment_value, _platform_all,
 		"In an automated test game, the last player is lifted 10 world units\n"
 		"every this many seconds, for a fall that kills. 0 never does." },
+	{ "debug.network_test_place", _config_string, "\"\"", "HALO_NETWORK_TEST_PLACE", _environment_value,
+		_platform_all,
+		"In an automated test game, \"<x> <y> <z> <yaw> <pitch>[@<seconds>]\" puts\n"
+		"the first local player there, facing that way (degrees), that many\n"
+		"seconds in (1 if not given), once. Empty never does." },
+	{ "debug.network_test_camouflage", _config_real, "0.0", "HALO_NETWORK_TEST_CAMOUFLAGE", _environment_value,
+		_platform_all,
+		"In an automated test game, every player gets active camouflage this\n"
+		"many seconds in, for 20 seconds. 0 never does." },
 	{ "debug.network_test_melee", _config_real, "0.0", "HALO_NETWORK_TEST_MELEE", _environment_value, _platform_all,
 		"Every this many seconds, an automated test host brings its last player\n"
 		"in front of its first, and one strikes the other with melee. The host's\n"

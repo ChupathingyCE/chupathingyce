@@ -805,6 +805,9 @@ extern D3DCAPS8 global_d3d_caps;
 /* port: the viewport rasterizer_set_target gave the device last, for
 rasterizer_set_depth_range */
 static D3DVIEWPORT8 rasterizer_target_viewport;
+/* port: the depth range it is drawn in now (rasterizer_set_depth_range,
+rasterizer_get_depth_range) */
+static real rasterizer_depth_range[2] = { 0.0f, 1.0f };
 static boolean suppress_window_begin_end = FALSE;
 static short previous_window_index = 0;
 
@@ -1680,6 +1683,8 @@ void rasterizer_set_target(
 	viewport.MinZ = 0.0f;
 	viewport.MaxZ = 1.0f;
 	rasterizer_target_viewport = viewport;
+	rasterizer_depth_range[0] = 0.0f;
+	rasterizer_depth_range[1] = 1.0f;
 	IDirect3DDevice8_SetViewport(global_d3d_device, &viewport);
 	if (clear)
 	{
@@ -1713,7 +1718,22 @@ void rasterizer_set_depth_range(
 
 	viewport.MinZ = minimum;
 	viewport.MaxZ = maximum;
+	rasterizer_depth_range[0] = minimum;
+	rasterizer_depth_range[1] = maximum;
 	IDirect3DDevice8_SetViewport(global_d3d_device, &viewport);
+
+	return;
+}
+
+/* port: the depth range the target is drawn in now: a pass that switches
+targets and back (the active camouflage's copy of the screen) puts it back
+with rasterizer_set_depth_range, since rasterizer_set_target resets it */
+void rasterizer_get_depth_range(
+	real *minimum,
+	real *maximum)
+{
+	*minimum = rasterizer_depth_range[0];
+	*maximum = rasterizer_depth_range[1];
 
 	return;
 }
