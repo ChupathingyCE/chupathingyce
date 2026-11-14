@@ -273,7 +273,7 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"HALO_DEDICATED_AFK_KICK_MINUTES", "Minutes without input in a game that kick a player, moderators never "
 		"(0: off)" },
 	{ "ce_welcome", SERVER_FIELD_STRING, 0, SERVER_SETTINGS_CE_WELCOME_SIZE - 1, "HALO_DEDICATED_CE_WELCOME",
-		"Chat line each Custom Edition player gets as they join (empty: none)" },
+		"Chat line each Custom Edition player gets once, a minute into their first game (empty: none)" },
 	{ "keep_parties_together", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_KEEP_PARTIES_TOGETHER",
 		"Put a Chupathingy party's players on one team where the teams stay within one player of each other" },
 	{ "late_join_hold", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_LATE_JOIN_HOLD",

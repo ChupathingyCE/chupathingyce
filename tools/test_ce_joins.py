@@ -654,12 +654,16 @@ def test_only_custom_edition_maps():
 
 
 def test_welcome_line():
-    """the default welcome line fits Custom Edition's chat"""
+    """the default welcome line fits Custom Edition's chat, and comes once,
+    a minute into a player's first game"""
     source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
     body = _function(source, "void server_ce_set_welcome")
     text = "".join(part for part in __import__("re").findall(r'"((?:[^"\\]|\\.)*)"', body.split("snprintf")[0]))
-    assert text.startswith("Welcome to our Chupathingy Cross-Play Server.")
+    assert text == "Playing on Chupathingy: free, runs Halo PC and Xbox maps. chupathingy.org"
     assert len(text) <= 80 and text.isascii()
+    assert "WELCOME_DELAY_MILLISECONDS = 60000" in source
+    assert "system_milliseconds() - client->joined_time >= WELCOME_DELAY_MILLISECONDS" in source
+    assert "client->welcomed = kept.welcomed;" in source
 
 
 class JoinServer(Server):
