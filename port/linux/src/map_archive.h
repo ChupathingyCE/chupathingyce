@@ -89,6 +89,20 @@ order and spelling: at most count of them into files, and how many */
 int map_archive_listing_files(const char *listing, unsigned int size, const char *name,
 	char files[][MAP_ARCHIVE_LISTING_NAME_SIZE], int count);
 
+/* any archive's entries (a tag archive's: port/linux/src/port_mods.c),
+each one's name as the archive spells it and its unpacked size to proc,
+which returns 0 to stop: 1 when the directory was read, 0 with error when
+it is damaged, split, ZIP64, over 8192 entries, or any entry names a path
+outside its folder (no name is ever a path here either) */
+typedef int (*map_archive_entry_proc)(void *context, const char *name, unsigned int size);
+int map_archive_entries(const struct map_archive_io *io, map_archive_entry_proc proc, void *context, char *error,
+	int error_size);
+
+/* the entry named name (any case), at most maximum_size bytes unpacked,
+through io's write: 1 with its size, as map_archive_extract */
+int map_archive_extract_entry(const struct map_archive_io *io, const char *name, unsigned int maximum_size,
+	unsigned int *size, char *error, int error_size);
+
 /* <name>.map unpacked from the zip archive io reads, written through io's
 write (nothing else in the archive is written anywhere): 1 with its size in
 *map_size, else 0 with why in error. Refused whole: an archive that is not

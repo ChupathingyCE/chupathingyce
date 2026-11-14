@@ -240,7 +240,8 @@ SCREENS = {
     "audio_settings": {
         "screen": "audio_settings_screen",
         "header": ("header_profile_audio_settings", f"{PE}/audio_settings/header_profile_audio_settings"),
-        "spacing": 30,
+        # (27, not 30: ten rows with MODS, the last above the help line)
+        "spacing": 27,
         "rows": [
             ("MASTER VOLUME:", "audio.volume", VOLUMES, "Adjust the overall volume.", None),
             ("MUSIC VOLUME:", "audio.music_volume", VOLUMES, "Adjust the music volume.", None),
@@ -260,6 +261,9 @@ SCREENS = {
              "Room echo, and muffled sound behind walls.", None),
             ("DOPPLER:", "audio.doppler", ON_OFF,
              "Pitch shift of moving sounds, as on the Xbox.", None),
+            # (the mods folder's tag files: port/linux/game/mods.c, docs/mods.md)
+            ("MODS:", "game.mods", ON_OFF,
+             "Sound tags from the mods folder replace a map's.\nLocal games only; see docs/mods.md.", None),
             ("SOUND:", "audio.enabled", ON_OFF,
              "Turn all sound on or off. Takes effect on restart.", None),
         ],

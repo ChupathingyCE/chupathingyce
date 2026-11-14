@@ -166,6 +166,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_audio, "HEADPHONE 3D", "audio.hrtf", _kind_choices, hrtf_choices, NULL, 0, 0 },
 	{ _in_audio, "REVERB", "audio.reverb", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio, "DOPPLER", "audio.doppler", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_audio | _in_guide, "MODS", "game.mods", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio, "BUFFER SIZE", "audio.buffer_frames", _kind_choices, buffer_choices, NULL, 1, 0 },
 	{ _in_audio, "RESAMPLING", "audio.resampling", _kind_words, NULL, NULL, 0, 0 },
 

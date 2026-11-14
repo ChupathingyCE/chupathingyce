@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Sequence, Set
 
 from .linux_build import (
     CUSTOM_EDITION_DEFINES,
+    MODS_DEFINES,
     EXPAT_DIR,
     EXPAT_SOURCES,
     GAME_FLAGS as LINUX_GAME_FLAGS,
@@ -84,6 +85,7 @@ LP64_ABI_FLAGS = [
     "-DHALO_64BIT",
     # Halo PC's Custom Edition maps (linux_build.py, CUSTOM_EDITION_DEFINES)
     *CUSTOM_EDITION_DEFINES,
+    *MODS_DEFINES,
     # the C library's checked printf macros collide with the MSVC names
     "-D_FORTIFY_SOURCE=0",
     OPTIMISATION,

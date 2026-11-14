@@ -1515,6 +1515,11 @@ static const struct config_setting config_settings[] =
 		"Workshop items. Empty uses automatic discovery: Windows registry, Linux\n"
 		"Steam/XDG hints, macOS's Steam folder, usual folders and their libraries. Windows paths use single\n"
 		"quotes: 'D:\\Steam'." },
+	{ "game.mods", _config_boolean, "true", "HALO_MODS", _environment_value, _platform_all,
+		"Play the mods in the mods folder beside maps: Halo Editing Kit tag files\n"
+		"(sounds for now) over a map's own, as a resource pack. Nothing happens\n"
+		"while the folder is empty. Local games only: a network game plays the\n"
+		"map's own tags. See docs/mods.md." },
 	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
 		"Use explicit MCC campaign manifests for mission ordering and progression.\n"
 		"Workshop campaign maps are listed either way. Reopen the map list after\n"

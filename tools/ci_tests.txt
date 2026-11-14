@@ -106,6 +106,7 @@ tools/test_mcc_validation.py
 tools/test_mcc_workshop.py
 tools/test_medal_rules.py
 tools/test_menu_text_fit.py
+tools/test_mod_archives.py
 tools/test_net43_host.py
 tools/test_network_rules.py
 tools/test_network_test_startup.py

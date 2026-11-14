@@ -689,6 +689,15 @@ void scenario_tags_unload(
 #endif
 	sound_cache_close();
 	texture_cache_close();
+#ifdef HALO_MODS
+	/* port: the mods' tags go, after the sound cache that held their
+	sounds (port/linux/game/mods.c) */
+	{
+		extern void mods_tags_unloaded(void);
+
+		mods_tags_unloaded();
+	}
+#endif
 	/* MCC's appended pause table unwinds before the native menu table. */
 	{
 		mcc_pause_runtime_unload();
@@ -2081,6 +2090,14 @@ long scenario_tags_load(
 
 				menu_tags_loaded(cache_file_globals.header.name);
 			}
+#ifdef HALO_MODS
+			/* port: and the mods' sounds, last (port/linux/game/mods.c) */
+			{
+				extern void mods_tags_loaded(char const *map_name);
+
+				mods_tags_loaded(stripped_scenario_name);
+			}
+#endif
 			return ce_header->scenario_tag_index;
 		}
 #endif
@@ -2213,6 +2230,15 @@ long scenario_tags_load(
 				extern void ui_widget_online_games_tags_loaded(void);
 
 				ui_widget_online_games_tags_loaded();
+			}
+#endif
+#ifdef HALO_MODS
+			/* port: the mods' sounds played over the map's, last, over the
+			menus' tags too (the mods folder: port/linux/game/mods.c) */
+			{
+				extern void mods_tags_loaded(char const *map_name);
+
+				mods_tags_loaded(stripped_scenario_name);
 			}
 #endif
 			result = cache_file_globals.tag_header->scenario_tag_index;
