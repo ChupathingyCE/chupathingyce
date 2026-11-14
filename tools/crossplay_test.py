@@ -77,7 +77,7 @@ the mode's own:
 | Step | Pass when |
 | --- | --- |
 | no_shields | (swat) no living player on either machine ever logs a shield above zero |
-| restore | (hardcore) after each scripted kill (the first player kills the last) the first player's health reads full on the host within 2 s |
+| restore | (hardcore) after each kill the killer's health reads full on the host within 2 s |
 
 The result, JSON:
 
@@ -672,15 +672,16 @@ def check_mode(mode, host, client, late, back, steps):
         before = {}
         for tick, players, *_ in first.ticks:
             for index, state in players.items():
-                if index in before and state["deaths"] > before[index] and index != 0:
-                    # (the killer, player 0, back to full within 2 s)
-                    later = [entry[1].get(0) for entry in first.ticks if tick <= entry[0] <= tick + 2 * TICKS_PER_SECOND]
+                if index in before and state["kills"] > before[index]:
+                    # (the killer, whichever player it is (the scripted
+                    # killer differs by direction), back to full within 2 s)
+                    later = [entry[1].get(index) for entry in first.ticks if tick <= entry[0] <= tick + 2 * TICKS_PER_SECOND]
                     full = any(killer and killer["alive"] and killer["health"] >= 0.99 for killer in later)
                     if full:
                         restored += 1
                     elif any(killer and killer["alive"] for killer in later):
                         missed.append((tick, index, [killer["health"] for killer in later if killer and killer["alive"]]))
-                before[index] = state["deaths"]
+                before[index] = state["kills"]
         steps["restore"] = step(restored > 0 and not missed,
             f"{restored} kill(s) with the killer's health back to full on the host within 2 s"
             + (f"; not restored (tick, victim, killer's health after): {missed[:6]}" if missed else ""))
