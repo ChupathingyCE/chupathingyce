@@ -419,6 +419,7 @@ static void set_status(
 }
 
 static void utf8_text(unsigned short const *name, long length, char *text, long size);
+static void utf8_whole(char *text);
 
 /* a game's map: its file's name (the path's last part, without a Halo PC
 map's @ce or @md), and its family (halo_map_families.h) */
@@ -1194,6 +1195,8 @@ static void follow_workshop_check(
 	{
 		csstrncpy(browser_screen.offer_display, title, sizeof(browser_screen.offer_display) - 1);
 		browser_screen.offer_display[sizeof(browser_screen.offer_display) - 1] = 0;
+		/* (Steam's title may have been cut to the check's buffer mid-character) */
+		utf8_whole(browser_screen.offer_display);
 	}
 	browser_screen.offer_workshop_size = size;
 	limit = config_integer("network.workshop_downloads_limit_mb");
@@ -4069,6 +4072,34 @@ static void draw_link_profile(
 void console_ring_picture(float fraction);
 #endif
 
+/* (UTF-8) the start of the character at or before text[length]: a cut there
+never splits a character */
+static long utf8_boundary(
+	char const *text,
+	long length)
+{
+	while (length > 0 && ((unsigned char)text[length] & 0xC0) == 0x80)
+		length--;
+	return length;
+}
+
+/* (UTF-8) text with a last character that was cut short (a title cut to its
+buffer elsewhere) dropped */
+static void utf8_whole(
+	char *text)
+{
+	long length = (long)strlen(text), start, need;
+	unsigned char lead;
+
+	if (!length)
+		return;
+	start = utf8_boundary(text, length - 1);
+	lead = (unsigned char)text[start];
+	need = lead < 0x80 ? 1 : lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 0;
+	if (length - start != need)
+		text[start] = 0;
+}
+
 /* text in the offer's big glowing lines, centered at x from y down, split at
 spaces into lines that fit width (at most lines of them, the last ending in
 an ellipsis when the rest doesn't fit); the next line's y */
@@ -4098,6 +4129,8 @@ static float draw_fitted_lines(
 				next++;
 			while (next < rest && cursor[next] != ' ')
 				next++;
+			if (next >= (long)sizeof(line) - 8)
+				break;
 			snprintf(line, sizeof(line), "%.*s", (int)next, cursor);
 			if (ui_overlay_text_width(UI_FONT_MENU, 15.0f, line) > width)
 				break;
@@ -4106,11 +4139,20 @@ static float draw_fitted_lines(
 		}
 		if (!fits)
 		{
-			for (length = 1; length < rest && length < (long)sizeof(line) - 4; length++)
+			/* (whole characters: at least one, so the text moves on) */
+			length = 1;
+			while (length < rest && ((unsigned char)cursor[length] & 0xC0) == 0x80)
+				length++;
+			while (length < rest && length < (long)sizeof(line) - 8)
 			{
-				snprintf(line, sizeof(line), "%.*s", (int)(length + 1), cursor);
+				long next = length + 1;
+
+				while (next < rest && ((unsigned char)cursor[next] & 0xC0) == 0x80)
+					next++;
+				snprintf(line, sizeof(line), "%.*s", (int)next, cursor);
 				if (ui_overlay_text_width(UI_FONT_MENU, 15.0f, line) > width)
 					break;
+				length = next;
 			}
 		}
 		snprintf(line, sizeof(line), "%.*s", (int)length, cursor);
@@ -4127,7 +4169,8 @@ static float draw_fitted_lines(
 				snprintf(shown, sizeof(shown), "%s\xE2\x80\xA6", line);
 				if (!length || ui_overlay_text_width(UI_FONT_MENU, 15.0f, shown) <= width)
 					break;
-				line[--length] = 0;
+				length = utf8_boundary(line, length - 1);
+				line[length] = 0;
 				while (length && line[length - 1] == ' ')
 					line[--length] = 0;
 			}
