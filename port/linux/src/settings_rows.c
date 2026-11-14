@@ -140,6 +140,9 @@ static const char *const button_style_choices[] = { "auto", "duke", "xbox", "pla
 static const char *const button_look_choices[] = { "gem", "flat", NULL };
 static const char *const hud_buttons_choices[] = { "classic", "hd", NULL };
 #endif
+/* the reticle's size (display.reticle_scale), as Video Setup's View shows it */
+static const char *const reticle_size_choices[] = { "0.5", "0.75", "1", "1.25", "1.5", "2", NULL };
+static const char *const reticle_size_names[] = { "50%", "75%", "100%", "125%", "150%", "200%", NULL };
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
@@ -162,16 +165,26 @@ static const struct settings_row settings_rows[] =
 #ifdef HALO_BGFX
 	{ _in_display, "RENDERER", "display.renderer", _kind_choices, renderer_choices, renderer_names, 1, 0 },
 #endif
-	/* (in the Guide too: the way back from the Xbox's menus, which have no
+	/* (the menus, text and buttons, as Video Setup's INTERFACE orders them;
+	in the Guide too: the way back from the Xbox's menus, which have no
 	screen of it, #1210) */
 	{ _in_display | _in_guide, "MENU STYLE", "display.menus", _kind_choices, menus_choices, NULL, 0, 0 },
 #ifdef HALO_TITLE_CHOICE
 	{ _in_display, "TITLE FONT", "display.title_font", _kind_choices, title_font_choices, NULL, 0, 0 },
 #endif
+#ifdef HALO_HD_BUTTONS
+	{ _in_display | _in_guide, "BUTTON STYLE", "input.button_style", _kind_choices, button_style_choices, NULL, 0, 0 },
+	{ _in_display | _in_guide, "MENU BUTTONS", "input.button_look", _kind_choices, button_look_choices, NULL, 0, 0 },
+	{ _in_display | _in_guide, "HUD BUTTONS", "input.hud_buttons", _kind_choices, hud_buttons_choices, NULL, 0, 0 },
+#endif
+	{ _in_display | _in_guide, "SCOREBOARD ICONS", "display.scoreboard_icons", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display, "PERFORMANCE", "display.particle_limit", _kind_preset, NULL, NULL, 0, 0 },
 	{ _in_display, "LIGHT EFFECTS", "display.light_effects", _kind_choices, light_effects_choices, NULL, 0, 0 },
 	{ _in_display | _in_guide, "CAMO WEAPON FIX", "display.camo_weapon_fix", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "PLASMA SPARKS", "display.plasma_sparks", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_display | _in_guide, "RETICLE SIZE", "display.reticle_scale", _kind_choices, reticle_size_choices,
+	  reticle_size_names, 0, 0 },
+	{ _in_display | _in_guide, "WEAPON MODEL", "display.first_person_weapon", _kind_toggle, NULL, NULL, 0, 0 },
 
 #ifdef HALO_LAUNCHER
 	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },
@@ -180,6 +193,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_audio, "HEADPHONE 3D", "audio.hrtf", _kind_choices, hrtf_choices, NULL, 0, 0 },
 	{ _in_audio, "REVERB", "audio.reverb", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio, "DOPPLER", "audio.doppler", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_audio | _in_guide, "HIT SOUNDS", "audio.hit_sounds", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio | _in_guide, "MODS", "game.mods", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_audio, "BUFFER SIZE", "audio.buffer_frames", _kind_choices, buffer_choices, NULL, 1, 0 },
 	{ _in_audio, "RESAMPLING", "audio.resampling", _kind_words, NULL, NULL, 0, 0 },
@@ -209,13 +223,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_guide, "NOTIFICATIONS IN GAME", "delta.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "FRIEND ONLINE ALERTS", "delta.notify_online", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "SHOW WHEN I'M PLAYING", "network.share_presence", _kind_toggle, NULL, NULL, 0, 0 },
-	{ _in_display | _in_guide, "SCOREBOARD ICONS", "display.scoreboard_icons", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "THEME", "display.theme", _kind_choices, theme_choices, theme_names, 0, 0 },
-#ifdef HALO_HD_BUTTONS
-	{ _in_display | _in_guide, "BUTTONS", "input.button_style", _kind_choices, button_style_choices, NULL, 0, 0 },
-	{ _in_display | _in_guide, "MENU BUTTONS", "input.button_look", _kind_choices, button_look_choices, NULL, 0, 0 },
-	{ _in_display | _in_guide, "HUD BUTTONS", "input.hud_buttons", _kind_choices, hud_buttons_choices, NULL, 0, 0 },
-#endif
 	{ _in_network, "JOIN SCREEN", "display.join_screen", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "BACKGROUND", "delta.guide_background", _kind_choices, background_choices, background_names, 0, 0 },
 	{ _in_network, "DISCORD", "discord.presence", _kind_words, NULL, NULL, 0, 0 },

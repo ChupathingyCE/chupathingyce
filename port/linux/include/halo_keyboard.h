@@ -47,6 +47,10 @@ enum halo_keyboard_action
 	vehicle's seat, when it has a key, it is the grenade control's in place
 	of the grenade key's (with none, the grenade key's, as retail) */
 	HALO_KEYBOARD_VEHICLE_SECONDARY_FIRE,
+	/* walk (source/input/input_abstraction.c): while held, the keyboard
+	moves at half speed, as a stick pushed halfway does (with no key, the
+	keyboard runs, as retail) */
+	HALO_KEYBOARD_WALK,
 	NUMBER_OF_HALO_KEYBOARD_ACTIONS
 };
 

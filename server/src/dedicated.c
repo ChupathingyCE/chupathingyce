@@ -93,6 +93,8 @@ void chat_host_set(int mode, int filter);
 void chat_host_set_cooldown(int seconds);
 void chat_host_set_legacy(int legacy);
 void chat_host_set_welcome(char const *text);
+void chat_host_set_opence_welcome(int on, char const *text);
+char const *chat_host_opence_welcome_text(void);
 #endif
 /* (team changes', port/linux/game/team_change.h: 0 off, 1 balanced, 2 allow) */
 void team_change_host_set(int policy, int margin);
@@ -566,6 +568,22 @@ static void initialize(
 		chat_host_set_welcome(welcome);
 		if (welcome && welcome[0])
 			error(_error_silent, "dedicated: a welcome message for each Chupathingy player");
+	}
+	/* the line each OpenCE player gets that this is a Chupathingy server: off
+	unless set, its text the built-in one unless set */
+	{
+		char const *text = getenv("HALO_DEDICATED_OPENCE_WELCOME_TEXT");
+		boolean on = setting_flag("HALO_DEDICATED_OPENCE_WELCOME", &settings, SERVER_SETTING_OPENCE_WELCOME, FALSE);
+
+		if ((!text || !text[0]) && settings.set[SERVER_SETTING_OPENCE_WELCOME_TEXT])
+			text = settings.opence_welcome_text;
+		chat_host_set_opence_welcome(on, text);
+		if (text && text[0] && strcmp(text, chat_host_opence_welcome_text()))
+			error(_error_silent, "dedicated: HALO_DEDICATED_OPENCE_WELCOME_TEXT is not 1 to 63 characters of printable "
+				"ASCII without |: the built-in line");
+		if (on)
+			error(_error_silent, "dedicated: OpenCE players told this is a Chupathingy server: %s",
+				chat_host_opence_welcome_text());
 	}
 #endif
 	/* players changing teams during a game: off (the Xbox's) unless set;

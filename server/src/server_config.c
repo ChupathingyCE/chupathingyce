@@ -294,6 +294,10 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"How near is near for proximity voice, in world units" },
 	{ "voice_kbps", SERVER_FIELD_INTEGER, 8, 64, "HALO_DEDICATED_VOICE_KBPS",
 		"Voice quality in kbps (higher costs the server more upload)" },
+	{ "opence_welcome", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_OPENCE_WELCOME",
+		"Tell each OpenCE player once, in their chat, that this is a Chupathingy server" },
+	{ "opence_welcome_text", SERVER_FIELD_STRING, 0, SERVER_SETTINGS_OPENCE_WELCOME_SIZE - 1,
+		"HALO_DEDICATED_OPENCE_WELCOME_TEXT", "The line OpenCE players get (63 characters at most; empty: the built-in one)" },
 };
 
 /* ---------- private code */
@@ -1212,23 +1216,32 @@ static int setting_value(int setting, const struct toml_value *value, int line, 
 			}
 			snprintf(settings->name, sizeof(settings->name), "%s", value->string);
 		}
-		else if (setting == SERVER_SETTING_WELCOME || setting == SERVER_SETTING_CE_WELCOME)
+		else if (setting == SERVER_SETTING_WELCOME || setting == SERVER_SETTING_CE_WELCOME ||
+			setting == SERVER_SETTING_OPENCE_WELCOME_TEXT)
 		{
-			char *welcome = setting == SERVER_SETTING_WELCOME ? settings->welcome : settings->ce_welcome;
-			size_t size = setting == SERVER_SETTING_WELCOME ? sizeof(settings->welcome) : sizeof(settings->ce_welcome);
+			char *welcome = setting == SERVER_SETTING_WELCOME ? settings->welcome :
+				setting == SERVER_SETTING_CE_WELCOME ? settings->ce_welcome : settings->opence_welcome_text;
+			size_t size = setting == SERVER_SETTING_WELCOME ? sizeof(settings->welcome) :
+				setting == SERVER_SETTING_CE_WELCOME ? sizeof(settings->ce_welcome) :
+				sizeof(settings->opence_welcome_text);
 			size_t index, length = strlen(value->string);
 
 			if (length >= size)
 			{
 				set_error(error, error_size, line, setting == SERVER_SETTING_WELCOME ?
-					"welcome is 127 characters at most%s" : "ce_welcome is 255 characters at most%s", NULL, NULL);
+					"welcome is 127 characters at most%s" : setting == SERVER_SETTING_CE_WELCOME ?
+					"ce_welcome is 255 characters at most%s" :
+					"opence_welcome_text is 63 characters at most (one line of OpenCE's chat)%s", NULL, NULL);
 				return 0;
 			}
 			for (index = 0; index < length; index++)
 			{
-				if ((unsigned char)value->string[index] < 0x20 || (unsigned char)value->string[index] > 0x7e)
+				/* (OpenCE's chat takes no '|') */
+				if ((unsigned char)value->string[index] < 0x20 || (unsigned char)value->string[index] > 0x7e ||
+					(setting == SERVER_SETTING_OPENCE_WELCOME_TEXT && value->string[index] == '|'))
 				{
-					set_error(error, error_size, line, "%s is printable ASCII%s", description->key, NULL);
+					set_error(error, error_size, line, setting == SERVER_SETTING_OPENCE_WELCOME_TEXT ?
+						"%s is printable ASCII without |%s" : "%s is printable ASCII%s", description->key, NULL);
 					return 0;
 				}
 			}
@@ -1353,7 +1366,8 @@ int server_settings_format(const struct server_settings *settings, char *out, si
 			snprintf(value, sizeof(value), "%s", settings->values[setting] ? "true" : "false");
 		else if (!quoted(setting == SERVER_SETTING_NAME ? settings->name : setting == SERVER_SETTING_PLAYLIST ?
 			settings->playlist : setting == SERVER_SETTING_WELCOME ? settings->welcome :
-			setting == SERVER_SETTING_CE_WELCOME ? settings->ce_welcome : settings->playlist_environment,
+			setting == SERVER_SETTING_CE_WELCOME ? settings->ce_welcome :
+			setting == SERVER_SETTING_OPENCE_WELCOME_TEXT ? settings->opence_welcome_text : settings->playlist_environment,
 			value, sizeof(value)))
 		{
 			return -1;

@@ -409,6 +409,11 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_xbox,
 		"Size the reticle to the field of view, so it matches the weapon's\n"
 		"spread on screen. It makes no difference at 70." },
+	{ "display.reticle_scale", _config_real, "1.0", "HALO_RETICLE_SCALE", _environment_value, _platform_all,
+		"The reticle's size, 0.5 to 2. 1 is the Xbox's." },
+	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
+		_platform_all,
+		"Draw your weapon and arms. false hides them." },
 	{ "display.widescreen", _config_string, "\"dashboard\"", NULL, _environment_value, _platform_xbox,
 		"Widescreen on a 16:9 TV. \"dashboard\" follows the Xbox dashboard:\n"
 		"with Widescreen set there, the game shows more to the sides and the\n"
@@ -809,6 +814,9 @@ static const struct config_setting config_settings[] =
 		"stereo. \"on\" or \"off\". Turn it off if it sounds odd on your\n"
 		"speakers. \"auto\" turns it on when the output's name says it is\n"
 		"headphones. Stereo output only." },
+	{ "audio.hit_sounds", _config_boolean, "false", "HALO_HIT_SOUNDS", _environment_value, _platform_all,
+		"A short tone when your shot hits another player in multiplayer, as\n"
+		"Halo PC had. false is the Xbox's: none." },
 	{ "audio.doppler", _config_boolean, "true", "HALO_AUDIO_DOPPLER", _environment_value, _platform_all,
 		"Shift the pitch of moving sounds, like a Warthog or a projectile going\n"
 		"past, as the Xbox did. false keeps every sound at its own pitch." },
@@ -983,6 +991,9 @@ static const struct config_setting config_settings[] =
 	{ "controls.vehicle_secondary_fire", _config_string, "\"\"", "HALO_KEY_VEHICLE_SECONDARY_FIRE", _environment_value,
 		_platform_all,
 		"A vehicle's secondary fire. Empty uses the grenade key, as before." },
+	{ "controls.walk", _config_string, "\"\"", "HALO_KEY_WALK", _environment_value, _platform_all,
+		"Walk while held: half speed, as a stick pushed halfway. Empty is\n"
+		"none, as before." },
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	{ "controls.controller_layout", _config_string, "\"\"", "HALO_CONTROLLER_LAYOUT", _environment_value,
 		_platform_all,
@@ -1243,6 +1254,10 @@ static const struct config_setting config_settings[] =
 	{ "network.chat_legacy", _config_boolean, "true", "HALO_NET_CHAT_LEGACY", _environment_value, _platform_all,
 		"In games you host, let OpenCE players chat too while network.chat is\n"
 		"on. Their own text chat is bridged in." },
+	{ "network.opence_welcome", _config_boolean, "false", "HALO_NET_OPENCE_WELCOME", _environment_value,
+		_platform_all,
+		"In games you host, tell each OpenCE player once, in their chat, that\n"
+		"this is a Chupathingy game. Chupathingy players never see it." },
 	{ "network.keep_parties_together", _config_boolean, "true", "HALO_NET_KEEP_PARTIES_TOGETHER", _environment_value,
 		_platform_all,
 		"In team games you host, put a party's players on one team when the\n"

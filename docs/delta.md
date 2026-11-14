@@ -672,6 +672,17 @@ of Delta's goes into the game protocol.
     a refusal to one that says a line anyway. A vehicle line from OpenCE is
     a team line here (Delta has no narrower scope), and a team line in a
     game without teams is everyone's, as OpenCE has it.
+  - **The OpenCE welcome** (off unless the host turns it on: a dedicated
+    server's `opence_welcome`, a player's host's `network.opence_welcome`):
+    a machine with no Delta session once its handshake's window is over
+    gets one line, a few seconds after its player first spawns, once each
+    time it joins, that this is a Chupathingy game. It goes as the game's
+    notice message (17), the way OpenCE's own servers send their server
+    messages, so their client shows it in its chat even where its chat is
+    off; at most 63 characters of printable ASCII without `|`, one line of
+    their chat. A Delta machine never gets it, nor does any machine while
+    the host has no Delta (nobody can be told apart). `port/linux/game/
+    opence_welcome.c` decides it, tested in `opence_welcome_test.c`.
   - **A Chupathingy client** whose host has no Delta chat (an OpenCE host)
     follows that host's `chat_config`: it says its lines as `chat_up` once
     the host allows chat, and shows each `chat_down` as a line of the
