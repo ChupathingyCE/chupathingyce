@@ -48,6 +48,11 @@ at startup whether to play them anyway, turn those named off, or quit
 (port_mods_conflicts).
 */
 
+/* (the builds with the mods folder: the desktop builds and Android,
+linux_build.py MODS_DEFINES; the dedicated server and the consoles leave
+this unit empty) */
+#ifdef HALO_MODS
+
 #include "map_archive.h"
 #include "platform.h"
 #include "port_config.h"
@@ -1672,3 +1677,5 @@ void port_mods_startup(void)
 	platform_log("mods: %s", conflicts);
 	platform_log("mods: played as they are (mods_list at the console says which; load_order.toml's disabled turns one off)");
 }
+
+#endif /* HALO_MODS */
