@@ -22,5 +22,7 @@ licensed, as the user chooses (see `LICENSE`), vendored unchanged from
   comment lengths and the comment count kept within the stream, the comment
   list zeroed and its length reset when it cannot be read, room for all 16
   submaps, a failed sparse codebook decode not used as an index, a
-  codebook's entries times dimensions bounded, and the flat run after a
-  floor's last point masked to the table as `draw_line` masks its own.
+  codebook's entries times dimensions bounded, the flat run after a
+  floor's last point masked to the table as `draw_line` masks its own, and
+  no temporary allocation of 0 bytes (as upstream's v1.24: a sparse
+  codebook of no entries leaked its lengths).
