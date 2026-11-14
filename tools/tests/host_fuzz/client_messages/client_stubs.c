@@ -115,6 +115,8 @@ long display_error(void);
 long display_error(void) { return 0; }
 long display_error_text_deferred(void);
 long display_error_text_deferred(void) { return 0; }
+long display_error_text_when_main_menu_loaded(void);
+long display_error_text_when_main_menu_loaded(void) { return 0; }
 long display_error_when_main_menu_loaded(void);
 long display_error_when_main_menu_loaded(void) { return 0; }
 long game_connection_set(void);
