@@ -1,7 +1,7 @@
 /*
 DELTA_WIRE.H
 
-Delta Peer's wire format (docs/delta.md, "Wire format"): its datagrams'
+Delta Peer's wire format (docs/delta/peer.md, "Wire format"): its datagrams'
 header and messages, encoded and decoded. Every decoder takes the bytes as
 hostile input: sizes are checked before anything is read, counts capped,
 text kept to printable ASCII, and nothing is allocated. Trailing bytes after
@@ -97,7 +97,7 @@ enum
 	client not yet given one) */
 	DELTA_WIRE_NO_MACHINE = 0xFF,
 
-	/* moderation (docs/delta.md, Moderation): Ed25519's keys, signatures,
+	/* moderation (docs/delta/peer.md, Moderation): Ed25519's keys, signatures,
 	and the challenge's nonce */
 	DELTA_WIRE_MODERATION_KEY_SIZE = 32,
 	DELTA_WIRE_MODERATION_SIGNATURE_SIZE = 64,
@@ -126,7 +126,7 @@ enum
 	/* a signed message's bytes, at most (moderation_*_message) */
 	DELTA_WIRE_MODERATION_MESSAGE_SIZE = 256,
 
-	/* chat (docs/delta.md, Chat): a player's line, at most this many bytes
+	/* chat (docs/delta/peer.md, Chat): a player's line, at most this many bytes
 	of UTF-8 and characters; the host's own (server and system lines) at
 	most this many bytes; a speaker's name as the host gives it */
 	DELTA_WIRE_CHAT_SAY_TEXT_SIZE = 120,
@@ -139,9 +139,9 @@ enum
 	DELTA_WIRE_CHAT_LINE_SIZE = 12,
 	DELTA_WIRE_CHAT_REFUSED_SIZE = 8,
 
-	/* party teams (docs/delta.md, Party teams): the party's tag */
+	/* party teams (docs/delta/peer.md, Party teams): the party's tag */
 	DELTA_WIRE_PARTY_TAG_SIZE = 8,
-	/* reports (docs/delta.md, Reports): REPORT's and REPORT_RESULT's sizes
+	/* reports (docs/delta/peer.md, Reports): REPORT's and REPORT_RESULT's sizes
 	(REPORT_RESULT's first 8 bytes alone from a host before the clip
 	token), and the clip token the host makes */
 	DELTA_WIRE_REPORT_SIZE = 24,
@@ -153,19 +153,34 @@ enum
 	/* REPORT_RESULT's flags: send the clip (the host is linked to the site) */
 	DELTA_WIRE_REPORT_SEND_CLIP = 0x01,
 
-	/* team changes (docs/delta.md, Team changes) */
+	/* team changes (docs/delta/peer.md, Team changes) */
 	DELTA_WIRE_TEAM_REQUEST_SIZE = 8,
 	DELTA_WIRE_TEAM_RESULT_SIZE = 8,
 	/* TEAM_REQUEST's team: whichever team the player is not on */
 	DELTA_WIRE_TEAM_OTHER = 0xFF,
 
-	/* the host's rules (docs/delta.md, Host rules): version, flags, team
+	/* the host's rules (docs/delta/peer.md, Host rules): version, flags, team
 	changes, their margin, reserved; a later version may append fields */
 	DELTA_WIRE_HOST_RULES_SIZE = 8,
 	DELTA_WIRE_HOST_RULES_VERSION = 1,
-	/* the number the host's game is played at (docs/delta.md, Host number):
+	/* the number the host's game is played at (docs/delta/peer.md, Wire format: HOST_NUMBER):
 	version, reserved, the number (16 bits, little-endian), reserved */
 	DELTA_WIRE_HOST_NUMBER_SIZE = 8,
+	/* the lobby's READY (docs/delta/peer.md, Lobby ready): LOBBY_READY is a
+	sequence, the player (the game's player list index), ready (0 or 1),
+	reserved; LOBBY_STATE is a version, flags, reserved, the host's
+	generation, then a bit for each of the game's players, in player list
+	order (128: the native builds' sessions), set while ready */
+	DELTA_WIRE_LOBBY_READY_SIZE = 8,
+	DELTA_WIRE_LOBBY_STATE_SIZE = 24,
+	DELTA_WIRE_LOBBY_STATE_VERSION = 1,
+	DELTA_WIRE_LOBBY_PLAYERS = 128,
+	DELTA_WIRE_LOBBY_READY_BYTES = DELTA_WIRE_LOBBY_PLAYERS / 8,
+	/* LOBBY_STATE's flags: the host started the countdown (START GAME), and
+	the host waits for READY (its START GAME says who isn't) */
+	DELTA_WIRE_LOBBY_STARTED = 0x01,
+	DELTA_WIRE_LOBBY_WAITS = 0x02,
+	DELTA_WIRE_LOBBY_KNOWN_FLAGS = 0x03,
 	DELTA_WIRE_HOST_NUMBER_VERSION = 1,
 	/* HOST_RULES's team changes (team_change.h's policies), and the most
 	their margin may be */
@@ -174,7 +189,7 @@ enum
 	DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW = 2,
 	DELTA_WIRE_HOST_TEAM_CHANGE_MAXIMUM_MARGIN = 16,
 
-	/* object sync (docs/delta.md, Object sync): UNIT_VITALS's count and
+	/* object sync (docs/delta/peer.md, Object sync): UNIT_VITALS's count and
 	reserved bytes, then 12-byte entries, as many as a datagram holds */
 	DELTA_WIRE_UNIT_VITALS_SIZE = 4,
 	DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE = 12,
@@ -192,7 +207,7 @@ enum
 	/* (the game's MAXIMUM_OBJECT_NAMES_PER_SCENARIO) */
 	DELTA_WIRE_MAXIMUM_OBJECT_NAMES = 512,
 
-	/* voice (docs/delta.md, Voice): VOICE_UP's and VOICE_DOWN's fixed
+	/* voice (docs/delta/peer.md, Voice): VOICE_UP's and VOICE_DOWN's fixed
 	parts (the Opus packet follows), VOICE_CONFIG's, a party's tag (after
 	an empty VOICE_UP), the most an Opus packet may be (its length is a
 	byte), and the host's quality's range and its proximity's (tenths of a
@@ -221,7 +236,7 @@ enum
 	nonce, the invite and the session; anything else (0, the first
 	drafts' nonce alone) shows no badge */
 	DELTA_WIRE_BADGE_PROOF_BOUND = 2,
-	/* verified names (docs/delta.md, Verified names): the messages'
+	/* verified names (docs/delta/peer.md, Verified names): the messages'
 	version, the local players a machine proves (0 to 3), the host's nonce
 	and binding, the certificates' sizes (identity.h's CISS and CDEV), a
 	Delta Tag's bytes, an Ed25519 signature */
@@ -459,7 +474,7 @@ enum delta_message_type
 	its file's name, size and hash), whenever it changes and with each
 	roster */
 	_delta_message_map = 17,
-	/* chat (docs/delta.md, Chat): host to client, if both agreed to chat or
+	/* chat (docs/delta/peer.md, Chat): host to client, if both agreed to chat or
 	server_messages: what the host relays, and whether this player is
 	muted */
 	_delta_message_chat_config = 18,
@@ -524,7 +539,13 @@ enum delta_message_type
 	its game is played at, whenever it changes in the lobby (an MCC map's
 	game at 43, another's at the usual number) and every few seconds; the
 	client plays the host's next record and messages at it, without leaving */
-	_delta_message_host_number = 39
+	_delta_message_host_number = 39,
+	/* the lobby's READY (both agreed to lobby_ready): client to host, one
+	of its players is ready, or not any more */
+	_delta_message_lobby_ready = 40,
+	/* host to client: who is ready, and whether the host started the
+	countdown, whenever it changes and every few seconds */
+	_delta_message_lobby_state = 41
 };
 
 /* voice's channels: who a player talks to (VOICE_UP, VOICE_DOWN); a number
@@ -620,7 +641,7 @@ enum
 	/* a follow camera while waiting to respawn (display.follow_camera) */
 	DELTA_WIRE_HOST_FOLLOW_CAMERA = 0x02,
 	/* a player who joins a game in progress waits for the next game, and
-	watches (docs/delta.md, Host rules) */
+	watches (docs/delta/peer.md, Host rules) */
 	DELTA_WIRE_HOST_LATE_JOIN_HOLD = 0x04,
 	/* the host takes no new machines now (sv_lock) */
 	DELTA_WIRE_HOST_JOINS_LOCKED = 0x08,
@@ -679,6 +700,9 @@ struct delta_wire_hello
 	delta_u32 legacy_table_serial;
 	struct delta_platform_key key;
 	char build[DELTA_WIRE_BUILD_SIZE + 1];
+	/* the game modes it plays (network_rules.h's NETWORK_RULES_MODES_*),
+	after the build text; 0 from a build before them (docs/modes.md) */
+	delta_u32 modes;
 };
 
 struct delta_wire_welcome
@@ -693,7 +717,12 @@ struct delta_wire_welcome
 	delta_u32 legacy_table_serial;
 	struct delta_platform_key key;
 	char build[DELTA_WIRE_BUILD_SIZE + 1];
+	/* the game modes the host plays, after the build text (as HELLO's) */
+	delta_u32 modes;
 };
+
+/* the modes field's size, after the build text of a HELLO or WELCOME */
+#define DELTA_WIRE_MODES_SIZE 4
 
 enum
 {
@@ -803,7 +832,7 @@ struct delta_wire_mod_challenge
 	char binding[DELTA_WIRE_MODERATION_BINDING_SIZE + 1];
 };
 
-/* verified names (docs/delta.md, Verified names) */
+/* verified names (docs/delta/peer.md, Verified names) */
 struct delta_wire_id_challenge
 {
 	unsigned char nonce[DELTA_WIRE_IDENTITY_NONCE_SIZE];
@@ -971,6 +1000,25 @@ struct delta_wire_host_rules
 	/* DELTA_WIRE_HOST_TEAM_CHANGE_*, and its margin (balanced's) */
 	unsigned char team_change;
 	unsigned char team_change_margin;
+};
+
+/* the lobby's READY (LOBBY_READY, LOBBY_STATE) */
+struct delta_wire_lobby_ready
+{
+	delta_u32 sequence;
+	/* the game's player list index */
+	unsigned char player;
+	unsigned char ready;
+};
+
+struct delta_wire_lobby_state
+{
+	/* DELTA_WIRE_LOBBY_* flags (those this build knows) */
+	unsigned char flags;
+	/* the host's count, raised each time the state changes (never 0) */
+	delta_u32 generation;
+	/* bit n: the player at player list index n is ready */
+	unsigned char ready[DELTA_WIRE_LOBBY_READY_BYTES];
 };
 
 /* voice (VOICE_UP, VOICE_DOWN, VOICE_CONFIG); the Opus packet itself is
@@ -1248,6 +1296,16 @@ int delta_wire_write_report_result(unsigned char *data, delta_u32 session,
 knows; a team change or margin past their ranges is refused */
 int delta_wire_read_host_rules(const unsigned char *payload, int size, struct delta_wire_host_rules *rules);
 int delta_wire_write_host_rules(unsigned char *data, delta_u32 session, const struct delta_wire_host_rules *rules);
+/* the lobby's READY: a ready other than 0 or 1 is refused; a state of a
+later version is read as far as this build knows, unknown flags ignored,
+version 0 or generation 0 refused */
+int delta_wire_read_lobby_ready(const unsigned char *payload, int size, struct delta_wire_lobby_ready *ready);
+int delta_wire_write_lobby_ready(unsigned char *data, delta_u32 session, const struct delta_wire_lobby_ready *ready);
+int delta_wire_read_lobby_state(const unsigned char *payload, int size, struct delta_wire_lobby_state *state);
+int delta_wire_write_lobby_state(unsigned char *data, delta_u32 session, const struct delta_wire_lobby_state *state);
+/* a player's bit of a LOBBY_STATE (0 past its players) */
+int delta_wire_lobby_state_ready(const struct delta_wire_lobby_state *state, int player);
+void delta_wire_lobby_state_set(struct delta_wire_lobby_state *state, int player, int ready);
 /* the host's number: 1 to 65535 (0 is refused); a later version is read as
 far as this build knows */
 int delta_wire_read_host_number(const unsigned char *payload, int size, unsigned *number);

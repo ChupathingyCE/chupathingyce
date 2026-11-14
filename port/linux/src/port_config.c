@@ -409,6 +409,11 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_xbox,
 		"Size the reticle to the field of view, so it matches the weapon's\n"
 		"spread on screen. It makes no difference at 70." },
+	{ "display.reticle_scale", _config_real, "1.0", "HALO_RETICLE_SCALE", _environment_value, _platform_all,
+		"The reticle's size, 0.5 to 2. 1 is the Xbox's." },
+	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
+		_platform_all,
+		"Draw your weapon and arms. false hides them." },
 	{ "display.widescreen", _config_string, "\"dashboard\"", NULL, _environment_value, _platform_xbox,
 		"Widescreen on a 16:9 TV. \"dashboard\" follows the Xbox dashboard:\n"
 		"with Widescreen set there, the game shows more to the sides and the\n"
@@ -483,6 +488,13 @@ static const struct config_setting config_settings[] =
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the text and titles of the menus and the HUD with sharp,\n"
 		"high-res fonts." },
+#ifndef HALO_CONSOLE_NO_TEXT_FIELDS
+	{ "display.high_res_text_fields", _config_boolean, "true", "HALO_HIGH_RES_TEXT_FIELDS", _environment_value,
+		_platform_all,
+		"With display.high_res_text: draw each letter from a distance field,\n"
+		"sharp at any size and any resolution. false draws the letters as\n"
+		"pictures made for the window's size, as before." },
+#endif
 	{ "display.console_style", _config_string, "\"dropdown\"", "HALO_CONSOLE_STYLE", _environment_value, _platform_all,
 		"How the console (the ~ key) looks: \"dropdown\", a panel that slides\n"
 		"down from the top with its scrollback (PgUp, PgDn, the wheel), or\n"
@@ -588,6 +600,15 @@ static const struct config_setting config_settings[] =
 		"stock maps' list comes with the game, and any other map's is kept\n"
 		"from its first time. false makes each one when it is first drawn." },
 #endif
+	{ "display.lobby", _config_boolean, "true", "HALO_LOBBY", _environment_value, _platform_all,
+		"The game lobby of the Chupathingy menus: the players with their\n"
+		"teams and READY, the map and the host's menu, for a game you host\n"
+		"or joined and for dedicated servers. false: the Xbox's System Link\n"
+		"screen, as the Xbox menus have it." },
+	{ "network.lobby_start", _config_string, "\"button\"", "HALO_NET_LOBBY_START", _environment_value, _platform_all,
+		"In the game lobby of a game you host: \"button\" (the default) holds\n"
+		"the countdown until you choose START GAME; \"auto\" lets it run by\n"
+		"itself once enough players are in, as the Xbox's lobby does." },
 #ifndef HALO_CONSOLE_NO_LOADING_PICTURE
 	{ "display.join_screen", _config_boolean, "true", "HALO_JOIN_SCREEN", _environment_value, _platform_all,
 		"Show the loading screen while a game is joined or its map downloads,\n"
@@ -802,6 +823,9 @@ static const struct config_setting config_settings[] =
 		"stereo. \"on\" or \"off\". Turn it off if it sounds odd on your\n"
 		"speakers. \"auto\" turns it on when the output's name says it is\n"
 		"headphones. Stereo output only." },
+	{ "audio.hit_sounds", _config_boolean, "false", "HALO_HIT_SOUNDS", _environment_value, _platform_all,
+		"A short tone when your shot hits another player in multiplayer, as\n"
+		"Halo PC had. false is the Xbox's: none." },
 	{ "audio.doppler", _config_boolean, "true", "HALO_AUDIO_DOPPLER", _environment_value, _platform_all,
 		"Shift the pitch of moving sounds, like a Warthog or a projectile going\n"
 		"past, as the Xbox did. false keeps every sound at its own pitch." },
@@ -976,6 +1000,9 @@ static const struct config_setting config_settings[] =
 	{ "controls.vehicle_secondary_fire", _config_string, "\"\"", "HALO_KEY_VEHICLE_SECONDARY_FIRE", _environment_value,
 		_platform_all,
 		"A vehicle's secondary fire. Empty uses the grenade key, as before." },
+	{ "controls.walk", _config_string, "\"\"", "HALO_KEY_WALK", _environment_value, _platform_all,
+		"Walk while held: half speed, as a stick pushed halfway. Empty is\n"
+		"none, as before." },
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	{ "controls.controller_layout", _config_string, "\"\"", "HALO_CONTROLLER_LAYOUT", _environment_value,
 		_platform_all,
@@ -1236,6 +1263,10 @@ static const struct config_setting config_settings[] =
 	{ "network.chat_legacy", _config_boolean, "true", "HALO_NET_CHAT_LEGACY", _environment_value, _platform_all,
 		"In games you host, let OpenCE players chat too while network.chat is\n"
 		"on. Their own text chat is bridged in." },
+	{ "network.opence_welcome", _config_boolean, "false", "HALO_NET_OPENCE_WELCOME", _environment_value,
+		_platform_all,
+		"In games you host, tell each OpenCE player once, in their chat, that\n"
+		"this is a Chupathingy game. Chupathingy players never see it." },
 	{ "network.keep_parties_together", _config_boolean, "true", "HALO_NET_KEEP_PARTIES_TOGETHER", _environment_value,
 		_platform_all,
 		"In team games you host, put a party's players on one team when the\n"
@@ -1455,7 +1486,7 @@ static const struct config_setting config_settings[] =
 	{ "network.legacy_table", _config_string, "\"\"", "HALO_LEGACY_TABLE", _environment_value,
 		_platform_all | _platform_server,
 		"For testing only: an unsigned legacy table file that sets the OpenCE\n"
-		"network versions (docs/delta.md). Leave it empty for none." },
+		"network versions (docs/delta/versioning.md, The signed table). Leave it empty for none." },
 
 	/* ---- launcher: the setup screen (launcher.c) */
 	{ "launcher.show_at_start", _config_string, "\"when_needed\"", "HALO_LAUNCHER_SHOW", _environment_value,
@@ -1614,6 +1645,11 @@ static const struct config_setting config_settings[] =
 		"computer's account name. Off, your home folder is written as ~\n"
 		"(%USERPROFILE% on Windows). Don't post a debug.txt written with this\n"
 		"on. Takes effect at the next start." },
+	{ "debug.show_all_games", _config_boolean, "false", "HALO_SHOW_ALL_GAMES", _environment_set_is_true,
+		_platform_all,
+		"Online Games and the Server Browser list every game, those this build\n"
+		"can't join too (marked by version), for tests. Off, they list only\n"
+		"games you can join." },
 	{ "debug.telnet_console", _config_boolean, "false", "HALO_TELNET_CONSOLE", _environment_set_is_true,
 		_platform_all | _platform_server,
 		"Open a console on 127.0.0.1, at debug.telnet_console_port. It has no\n"
@@ -1909,6 +1945,12 @@ static const struct config_setting config_settings[] =
 		"The join screen (display.join_screen) over the main menu once, with\n"
 		"nothing joined, for tests and screenshots: \"connecting\" or\n"
 		"\"downloading\", then \":<game name>\" if you like. Leave it empty for none." },
+	{ "debug.lobby_preview", _config_string, "\"\"", "HALO_LOBBY_PREVIEW", _environment_value, _platform_desktop,
+		"The game lobby over the main menu once, with sample players, for\n"
+		"tests and screenshots: \"hosted\", \"joined\", \"server\" or\n"
+		"\"preview\", then \":<players>\" (8), and \"long\" for long names,\n"
+		"\"ffa\" for no teams, \"countdown\" for the countdown. Leave it\n"
+		"empty for none." },
 	{ "debug.workshop_search", _config_string, "\"\"", "HALO_WORKSHOP_SEARCH", _environment_value, _platform_desktop,
 		"The Delta Guide Workshop's search box shown with these words, then\n"
 		"searched, for screenshots. Leave it empty for none." },
@@ -2196,6 +2238,13 @@ static const struct config_setting config_settings[] =
 		"For sizing the menus' memory: write a line to debug.txt each time the\n"
 		"menus reach a new high in widget memory, by 1 KB or more, with the\n"
 		"pool's size. Read once the menus start." },
+	{ "console.ce_reduce_bitmaps", _config_boolean, "true", NULL, _environment_value, _platform_xbox,
+		"On a 64 MB console, a Custom Edition map's large textures load at half\n"
+		"size (a 2048x2048 lightmap at a quarter), so a Halo 2 map's frame fits\n"
+		"the console's texture memory, as the Xbox's own maps were made to. The\n"
+		"HUD and the menus keep theirs. false loads every texture whole, which\n"
+		"can halt a large map. A console with 128 MB or more never does this.\n"
+		"Read as each map loads." },
 	{ "console.debug_geometry", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
 		"For development: the debug build's debug geometry, the lines and\n"
 		"triangles that debug commands draw. Its buffers take 1440 KB. It is\n"

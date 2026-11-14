@@ -36,7 +36,9 @@ platform_ce_meter_in_pc_channels, and the meter shader reads them there
 HALO_CONSOLE_CE_SHARED_TAG_CACHE (with HALO_CUSTOM_EDITION): a console with no
 room for a second tag cache lends its own to a Custom Edition map: the map
 checked as it loads, the load's memory borrowed and given back, by the port's
-platform_ce_* hooks (platform_ce_alias says whether it is in use)
+platform_ce_* hooks (platform_ce_alias says whether it is in use); its
+large bitmaps also start at their next level, the HUD's and the menus'
+excepted (ce_bitmap_reduce.h, ce_repairs.c; console.ce_reduce_bitmaps)
 HALO_CONSOLE_CE_MODEL_DATA_WINDOWS (with HALO_CUSTOM_EDITION): a Custom
 Edition map's model data (a Halo 2 map's is 14 MB) read through two small
 windows as its models are checked and made, not whole: a console's memory
@@ -75,6 +77,13 @@ port/linux/game/hud_hires_tags.c): a console draws the maps' own fonts and
 bitmaps, as retail, without the atlas's texture memory */
 #ifndef HALO_CONSOLE_NO_HIRES
 #define HALO_CONSOLE_NO_HIRES
+#endif
+
+/* the high-res text's glyphs as distance fields (text_hires.c), which the
+desktop and Android pixel shaders decode (nv2a_psh.c): a console's own
+renderer has no such shader, so its atlas keeps the rasterized glyphs */
+#ifndef HALO_CONSOLE_NO_TEXT_FIELDS
+#define HALO_CONSOLE_NO_TEXT_FIELDS
 #endif
 
 /* the players' names above their heads (interface/hud.c): retail names
@@ -167,7 +176,7 @@ and the Wii U too, which set their own switch and not HALO_CONSOLE */
 #define HALO_CONSOLE_NO_VOICE
 #endif
 
-/* voice chat over Delta Peer (docs/delta.md, Voice): the desktop builds'
+/* voice chat over Delta Peer (docs/delta/peer.md, Voice): the desktop builds'
 and Android's (HALO_GAME_BROWSER), as host and client, and the dedicated
 server's as a relay alone; HALO_PORT_VOICE_AUDIO is the microphone, Opus
 and playback, which a dedicated server (HALO_SERVER) leaves out: it relays

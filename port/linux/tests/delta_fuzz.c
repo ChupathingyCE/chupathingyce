@@ -255,6 +255,15 @@ static void names(void *context, const struct delta_wire_object_names *names)
 }
 
 static const struct delta_peer_team_host team_host = { NULL, team_request };
+
+static int lobby_ready(void *context, int machine_index, int player, int ready)
+{
+	(void)context;
+	(void)machine_index;
+	return player < DELTA_WIRE_LOBBY_PLAYERS && ready <= 1;
+}
+
+static const struct delta_peer_lobby_host lobby_host = { NULL, lobby_ready };
 static const struct delta_peer_report_host report_host = { NULL, report };
 static const struct delta_peer_badge_host badge_host = { NULL, badge_answer };
 static const struct delta_peer_voice_client voice_client = { NULL, heard };
@@ -290,6 +299,7 @@ static void start(void)
 	delta_peer_set_chat_host(&host, &chat_host);
 	delta_peer_set_moderation_binding(&host, "0123456789abcdef0123456789abcdef");
 	delta_peer_set_team_host(&host, &team_host);
+	delta_peer_set_lobby_host(&host, &lobby_host);
 	delta_peer_set_report_host(&host, &report_host);
 	delta_peer_set_badge_host(&host, &badge_host);
 	delta_peer_set_voice_client(&client, &voice_client);
@@ -408,6 +418,18 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size)
 				__builtin_trap();
 			if (delta_wire_read_team_result(payload, header.length, &result) &&
 				(result.team > 1 || result.result > _delta_team_refused_last))
+				__builtin_trap();
+		}
+		{
+			struct delta_wire_lobby_ready ready;
+			struct delta_wire_lobby_state state;
+			const unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+			if (delta_wire_read_lobby_ready(payload, header.length, &ready) &&
+				(ready.ready > 1 || ready.player >= DELTA_WIRE_LOBBY_PLAYERS))
+				__builtin_trap();
+			if (delta_wire_read_lobby_state(payload, header.length, &state) &&
+				((state.flags & ~DELTA_WIRE_LOBBY_KNOWN_FLAGS) || !state.generation))
 				__builtin_trap();
 		}
 		{

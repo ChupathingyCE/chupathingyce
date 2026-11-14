@@ -179,7 +179,7 @@ boolean browser_screen_join_screen_shown(void);
 void platform_open_url(char const *url);
 #ifdef DELTA_PEER_IDENTITY_CARDS
 /* delta_peer_game.c's: a player verified in this game (the identity
-capability, docs/delta.md "Verified names") */
+capability, docs/delta/peer.md "Verified names") */
 int delta_peer_game_player_identity(int machine_index, int local_player, struct delta_peer_identity *identity);
 #endif
 

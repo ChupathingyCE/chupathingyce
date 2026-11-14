@@ -8,6 +8,7 @@ OBJECTS.C
 #include "objects.h"
 #include "mcc_object_names.h" /* port: port/linux/game/mcc_object_names.c */
 #include "mcc_objects.h" /* port: port/linux/game/mcc_objects.c */
+#include "stubbs_regions.h" /* port: port/linux/game/stubbs_regions.c */
 
 #include "damage.h"
 #include "light_definitions.h"
@@ -174,6 +175,26 @@ static long sort_dumps(struct dump_datum const *dump1, struct dump_datum const *
 static void object_add_to_dump(long object_index, struct dump_datum *dump);
 static void object_dump_write(FILE *stream, struct dump_datum *dump);
 static short object_find_region_permutations_available_with_variant(struct model_region *region, short variant_number, short *available_indices);
+
+/* port: the object's region permutations and how many regions they cover:
+its own eight, or in Stubbs mode sixteen kept beside it (Stubbs's
+characters have regions past eight: port/linux/game/stubbs_regions.c) */
+byte *object_get_region_permutations(
+	long object_index,
+	short *region_count)
+{
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	byte *permutations = stubbs_regions_permutations(object_index);
+
+	if (permutations)
+	{
+		*region_count = STUBBS_MAXIMUM_REGIONS_PER_OBJECT;
+		return permutations;
+	}
+#endif
+	*region_count = MAXIMUM_REGIONS_PER_OBJECT;
+	return object_get(object_index)->object.region_permutations;
+}
 static boolean object_select_random_region_permutations_by_variant(long object_index, struct model *model, short variant_number);
 static short object_determine_variant_number(long object_index, struct model *model);
 static void object_choose_random_region_permutations(long object_index);
@@ -1537,10 +1558,12 @@ void object_permute_region(
 	{
 		short region_index;
 		struct model* model = model_definition_get(object_definition->object.model.index);
+		short region_count;
+		byte *region_permutations = object_get_region_permutations(object_index, &region_count);
 		
 		/* port: no more regions than the object's region_permutations holds
 		(a map's count; retail has up to 8) */
-		for (region_index = 0; region_index<MIN(model->regions.count, MAXIMUM_REGIONS_PER_OBJECT); region_index++)
+		for (region_index = 0; region_index<MIN(model->regions.count, region_count); region_index++)
 		{
 			if (desired_region_index==NONE || desired_region_index==region_index)
 			{
@@ -1562,12 +1585,13 @@ void object_permute_region(
 					
 					if (!_stricmp(permutation->name, permutation_name))
 					{
-						object->object.region_permutations[region_index] = active_flag ? permutation_index : 0;
+						region_permutations[region_index] = active_flag ? permutation_index : 0;
 						break;
 					}
 				}
 			}
 		}
+		stubbs_regions_changed(object_index); /* port: Stubbs mode only */
 	}
 
 	return;
@@ -2002,11 +2026,12 @@ short object_get_marker_by_name(
 	the ticks too (port/linux/game/render_interpolation.c). While a tick runs,
 	which is when the game asks for markers, this is the same array. */
 	real_matrix4x3 const *matrices = object_get_node_matrices(object_index);
+	short region_count;
 
 	marker = model_get_marker_by_name(
 		object_definition->object.model.index,
 		name,
-		object->object.region_permutations,
+		object_get_region_permutations(object_index, &region_count),
 		FALSE,
 		NONE,
 		matrices,
@@ -3679,7 +3704,9 @@ long object_new(
 				}
 
 				object_choose_random_change_colors(object_index, data->change_colors);
+				stubbs_regions_object_new(object_index); /* port: Stubbs mode only */
 				object_choose_random_region_permutations(object_index);
+				stubbs_regions_changed(object_index); /* port: Stubbs mode only */
 				object_initialize_vitality(object_index, NULL, NULL);
 				object_compute_node_matrices(object_index);
 				object_reconnect_to_map(object_index, NULL);
@@ -5064,14 +5091,14 @@ static boolean object_select_random_region_permutations_by_variant(
 {
 	short available_permutation_indices[32];
 	short region_index;
-
-	struct object_datum *object = object_get(object_index);
+	short region_count;
+	byte *region_permutations = object_get_region_permutations(object_index, &region_count);
 	boolean result = TRUE;
 
 	/* port: no more regions than the object's region_permutations holds (a
 	map's count; past them are the change colors and the node blocks; retail
 	has up to 8) */
-	for (region_index =0; region_index<MIN(model->regions.count, MAXIMUM_REGIONS_PER_OBJECT); region_index++)
+	for (region_index =0; region_index<MIN(model->regions.count, region_count); region_index++)
 	{
 		struct model_region *region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index, struct model_region);
 		short permutation_index = object_find_region_permutations_available_with_variant(region, variant_number, available_permutation_indices);
@@ -5083,13 +5110,13 @@ static boolean object_select_random_region_permutations_by_variant(
 
 		if (!permutation_index)
 		{
-			object->object.region_permutations[region_index] = 0;
+			region_permutations[region_index] = 0;
 			result = FALSE;
 		}
 		else
 		{
 			short permutation_num = permutation_index==1 ? 0 : random_range(0, permutation_index);
-			object->object.region_permutations[region_index] = available_permutation_indices[permutation_num];
+			region_permutations[region_index] = available_permutation_indices[permutation_num];
 		}
 	}
 
@@ -5101,20 +5128,20 @@ static short object_determine_variant_number(
 	struct model *model)
 {
 	short region_index;
-
-	struct object_datum *object = object_get(object_index);
+	short region_count;
+	byte *region_permutations = object_get_region_permutations(object_index, &region_count);
 	short result = 0;
 
 	/* port: the regions object_select_random_region_permutations_by_variant
 	chose for (a map's count) */
-	for (region_index =0; region_index<MIN(model->regions.count, MAXIMUM_REGIONS_PER_OBJECT)&& !result; region_index++)
+	for (region_index =0; region_index<MIN(model->regions.count, region_count)&& !result; region_index++)
 	{
 		struct model_region* region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index, struct model_region);
-		if (object->object.region_permutations[region_index] < region->permutations.count)
+		if (region_permutations[region_index] < region->permutations.count)
 		{
 			result = TAG_BLOCK_GET_ELEMENT(
 				&region->permutations,
-				object->object.region_permutations[region_index],
+				region_permutations[region_index],
 				struct model_region_permutation
 			)->variant_number;
 		}

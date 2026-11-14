@@ -1,7 +1,7 @@
 """Delta Stats' event log and its compression (port/linux/src/event_log.c,
 event_gzip.c), through server/tests/events_test.c built with the build
 machine's C compiler (under AddressSanitizer and UndefinedBehaviorSanitizer
-where it has them): the batch is the documented schema (docs/delta.md,
+where it has them): the batch is the documented schema (docs/delta/stats.md,
 "Delta Stats"), its limits hold, its gzip inflates with zlib, and random
 calls never make a batch that is not JSON."""
 import gzip

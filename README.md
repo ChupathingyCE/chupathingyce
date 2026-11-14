@@ -109,7 +109,7 @@ Where your maps, settings and saves go: [docs/install.md](docs/install.md#where-
 - **Invite a friend.** Send them your game's invite link.
 - **Play the campaign together.** Host it online from Create Game. [Here's how](docs/online.md#online-co-op).
 
-Chupathingy players on every platform play together. **Compatible with OpenCE build-355 (network version 44) for online play:** their players can join your games, and you can join theirs.
+Chupathingy players on every platform play together. They also play with players on other Halo CE builds when the versions match.
 
 Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends-cant-join).
 
@@ -185,7 +185,7 @@ The dedicated server runs a playlist of games around the clock. It runs on Linux
 
 ## Builds
 
-Releases are the stable builds, and the game updates itself from them. Want the newest changes early? Pick an update channel in Settings > Online > Updates, or on the setup screen's Updates tab:
+Releases are the stable builds, and the game updates itself from them. Want the newest changes early? Pick an update channel in Settings > Network Setup > Updates, or on the setup screen's Updates tab:
 
 - **Release** (the default) gets releases only.
 - **Testing** gets test builds first, and may have bugs.
@@ -282,6 +282,9 @@ with their authors credited in each commit.
   resampler and limiter, a lighter scope zoom at high resolutions, and a
   map's first frame drawn through every shader, which lists the stock maps'
   shaders and makes bgfx's pipelines before play.
+- goatbutt and the OpenH1 team: the high-res text drawn from distance
+  fields (sharp at any size), the fixed benchmark, the variable refresh
+  cap and the camouflaged weapon fix.
 - chestahh (GulchCE): lens flares and light
   glows back on AMD graphics, less stutter the first time a texture is drawn
   on Windows, host cheat and shadow setup fixes, and the Halo MCC map
@@ -358,8 +361,9 @@ with their authors credited in each commit.
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
   Expat, Monocypher, zlib, Zstandard (BSD-3-Clause), the LZMA SDK's decoder
-  (Igor Pavlov, public domain), SMAA, and Project Nayuki's QR Code generator
-  (MIT). Their licenses are
+  (Igor Pavlov, public domain), SMAA, Project Nayuki's QR Code generator
+  (MIT), and msdfgen by Viktor Chlumsky (MIT; its algorithms translated to
+  C by goatbutt and the OpenH1 team, `port/third_party/msdfgen`). Their licenses are
   beside them in `port/third_party`. The 64-bit desktop builds' test
   renderer uses bgfx, bx and bimg by Branimir Karadžić (BSD-2-Clause), with
   glslang and SPIRV-Cross (Khronos, BSD-3-Clause and Apache-2.0), fetched

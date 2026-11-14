@@ -1,5 +1,5 @@
 """Tests of Delta's doorbell in internet play's signalling
-(port/linux/src/p2p_signal.c; docs/delta.md, "The doorbell"), against a
+(port/linux/src/p2p_signal.c; docs/delta/link.md, "The doorbell"), against a
 local mosquitto set up as our brokers are: the anonymous listener carries
 signalling (hceu/, for clients with or without a user name) and lets a
 client read only doorbell/<its user name>; the site rings through its own

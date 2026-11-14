@@ -76,6 +76,13 @@ badged, and it can be joined only by players who have that map: the game
 says which file is missing and where it goes. The Xbox maps from your disc
 image are still needed. Chupathingy doesn't come with any of these files.
 
+**Custom Edition maps on a 64 MB Xbox.** A stock 64 MB Xbox loads a
+Custom Edition map's large textures at half size (a 2048x2048 lightmap at a
+quarter), so a Halo 2 map's frame fits its texture memory, as the Xbox's own
+maps were made to. The HUD and the menus keep theirs. `console.ce_reduce_bitmaps
+= false` in the Xbox's `config.toml` loads every texture whole, which can halt a
+large map. A console with 128 MB or more always loads them whole.
+
 **HD HUDs on Custom Edition maps.** Custom Edition maps can draw their HUD in
 high resolution. For the HD HUD on every map that uses Custom Edition's shared
 HUD, use the `bitmaps.map`, `sounds.map` and `loc.map` from Aerocatia's

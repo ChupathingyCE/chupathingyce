@@ -1,7 +1,7 @@
 /*
 IDENTITY.H
 
-Delta's device identity (docs/delta.md, "Device identity" and "Devices"):
+Delta's device identity (docs/delta/link.md, "Device identity" and "Devices"):
 this copy's device key, the site's device certificates (CDEV) for it under an
 issuer certificate (CISS) the identity root keys vouch for
 (identity_key.h), the revocation list (CREV), the requests a device signs,
@@ -41,7 +41,7 @@ enum
 	IDENTITY_GRACE = 600,
 };
 
-/* the Delta client this build signs in as (docs/delta-clients.md): sent
+/* the Delta client this build signs in as (docs/delta/clients.md): sent
 with Quick Connect's start and the player key's enroll. "chupathingy" is
 Chupathingy's own builds; a fork registers its own at the site's
 /delta/clients and builds with -DIDENTITY_CLIENT_ID='"its-id"'. Printable
@@ -334,7 +334,7 @@ enum
 	IDENTITY_SENT_UNKNOWN_TOKEN,
 };
 int identity_token_sent(struct identity_state *state, int status, const char *response, unsigned long now);
-/* more than one account on a copy (docs/delta.md, Devices): each Halo
+/* more than one account on a copy (docs/delta/link.md, Devices): each Halo
 profile that signs in to its own account has a device key of its own,
 delta_device_<n>.key and .cert (n from 1); delta_accounts.txt in the save
 root maps a Halo profile (its save folder's name) to n, one "name n" a
@@ -350,7 +350,7 @@ int identity_key_allowed(const struct identity_state *state, unsigned long now);
 /* a game or report of the player's confirmed: an unknown copy asks again soon */
 void identity_confirmed(struct identity_state *state, unsigned long now);
 
-/* ---------- proofs in games (Delta Peer's identity capability; docs/delta.md,
+/* ---------- proofs in games (Delta Peer's identity capability; docs/delta/peer.md,
 "Verified names") */
 
 enum

@@ -66,6 +66,7 @@ symbols in this file:
 #include "units/unit_definitions.h"
 #include "units/units.h"
 #include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
+#include "game_modes.h" /* port: Hardcore's aim (docs/modes.md) */
 
 /* ---------- constants */
 
@@ -585,7 +586,12 @@ long player_aim_projectile(
 		global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
 	global_current_collision_users[global_current_collision_user_depth++] = _collision_user_aim_assist;
 
-	if (unit_get_aim_assist_parameters(aiming_unit_index, unit_get_zoom_level(aiming_unit_index), &parameters))
+	if (
+#ifdef HALO_GAME_BROWSER
+		/* port: Hardcore: no autoaim (game_modes.c) */
+		!game_mode_no_aim_assist() &&
+#endif
+		unit_get_aim_assist_parameters(aiming_unit_index, unit_get_zoom_level(aiming_unit_index), &parameters))
 	{
 		real_point3d camera_position;
 		real_vector3d camera_direction;
@@ -683,7 +689,13 @@ long local_player_aim_assist(
 		long aiming_unit_index= unit_get_aiming_unit_index(player->unit_index);
 		struct aim_assist_parameters parameters;
 
-		if (unit_get_aim_assist_parameters(aiming_unit_index, player_control_get_zoom_level(local_player_index), &parameters))
+		if (
+#ifdef HALO_GAME_BROWSER
+			/* port: Hardcore: no autoaim and no magnetism, for every input
+			device (game_modes.c) */
+			!game_mode_no_aim_assist() &&
+#endif
+			unit_get_aim_assist_parameters(aiming_unit_index, player_control_get_zoom_level(local_player_index), &parameters))
 		{
 			struct observer_result const *camera= observer_get_camera(local_player_index);
 			struct aim_assist_target target;

@@ -8,7 +8,7 @@ SETTINGS (source/interface/ui_widget.c). A starts Chupathingy again on the
 setup screen. A child named setup_entry is left out in a game, and with
 launcher.menu_entry = false (menu_tags.c). -->
 <menus>
-	<widget name="chupathingy/settings/setup_entry" type="text" left="51" top="274" width="232" height="32" bitmap="bitmaps/list_item_bkd" text="SETUP" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+	<widget name="chupathingy/settings/setup_entry" type="text" left="51" top="309" width="232" height="32" bitmap="bitmaps/list_item_bkd" text="SETUP" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
 		<on event="a" run="port setup open"/>
 		<on event="start" run="port setup open"/>
 		<on event="left_mouse" run="mouse emit accept event"/>

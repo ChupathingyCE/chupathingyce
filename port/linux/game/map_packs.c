@@ -903,7 +903,7 @@ void map_pack_menus_map_name(
 
 A host's announcement (port/linux/src/browser.c) names a pack's map by its
 name, its pack's and the pack's tag, so that the list, the site and players
-without the pack show "Gothra (Halo CE+)" (docs/delta.md, "Delta List").
+without the pack show "Gothra (Halo CE+)" (docs/delta/list.md, "Delta List").
 Plain types: the platform layer calls it. */
 
 int map_pack_listing(

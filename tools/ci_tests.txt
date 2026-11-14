@@ -15,6 +15,7 @@ tools/test_bgfx_vulkan_start.py
 tools/test_build_workflow.py
 tools/test_campaign_levels.py
 tools/test_capture.py
+tools/test_ce_bitmap_reduce.py
 tools/test_ce_effect_flags.py
 tools/test_ce_joins.py
 tools/test_ce_resource_maps.py
@@ -34,14 +35,18 @@ tools/test_crash_null_call.py
 tools/test_debug_camera.py
 tools/test_delta.py
 tools/test_delta_compat.py
+tools/test_delta_docs.py
 tools/test_delta_input_rules.py
 tools/test_delta_menu_art.py
 tools/test_delta_peer.py
+tools/test_delta_ref.py
+tools/test_delta_registry.py
 tools/test_determinism.py
 tools/test_discord_activity.py
 tools/test_discord_register.py
 tools/test_event_log.py
 tools/test_footer_prompts.py
+tools/test_game_list_rules.py
 tools/test_gamespy_listing.py
 tools/test_guide_layout.py
 tools/test_guide_themes.py
@@ -61,6 +66,7 @@ tools/test_link_register.py
 tools/test_linux_port.py
 tools/test_listen_address.py
 tools/test_lobby_budget.py
+tools/test_lobby_layout.py
 tools/test_lobby_switch_prompt.py
 tools/test_log_paths.py
 tools/test_log_root.py
@@ -112,6 +118,7 @@ tools/test_net43_host.py
 tools/test_network_rules.py
 tools/test_network_test_startup.py
 tools/test_online_games_list.py
+tools/test_opence_welcome.py
 tools/test_p2p_copies.py
 tools/test_p2p_host_port.py
 tools/test_p2p_public_address.py
@@ -140,6 +147,7 @@ tools/test_social.py
 tools/test_steam_bridge.py
 tools/test_steam_content.py
 tools/test_steam_workshop.py
+tools/test_stubbs_regions.py
 tools/test_tag_swap_tables.py
 tools/test_third_party_notices.py
 tools/test_title_tool.py

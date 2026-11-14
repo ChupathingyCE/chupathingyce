@@ -47,6 +47,17 @@ void playlist_profile_save_with_options(
 	long playlist_profile_index,
 	struct game_variant *variant,
 	struct game_variant_options const *options);
+/* port: and its further options (the game modes layer's 16 bytes,
+source/game/game_modes.c): the file's, else the defaults; a gametype saved
+with both (NULL modes: the defaults) */
+boolean playlist_profile_get_mode_options(
+	long playlist_profile_index,
+	byte *modes);
+void playlist_profile_save_with_modes(
+	long playlist_profile_index,
+	struct game_variant *variant,
+	struct game_variant_options const *options,
+	byte const *modes);
 void playlist_profile_delete(
 	long playlist_profile_index);
 boolean playlist_profile_get_from_path(

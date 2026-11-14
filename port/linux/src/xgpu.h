@@ -253,7 +253,14 @@ struct xgpu_texture_description
 	BOOL hires;         /* a high-res HUD texture drawn in the texture's place (hud_hires.h) */
 	BOOL hires_coverage; /* ... whose green is its coverage (a meter's) */
 	BOOL hires_point_threshold; /* ... whose red holds discrete segment data */
+	BOOL hires_fields;  /* the high-res text's atlas of distance fields (text_hires.h) */
 };
+
+/* the range of the high-res text's distance fields (text_hires.c): texels
+of the field from its lowest value to its highest, a distance of range
+texels; and as the shaders' source has it (nv2a_psh.c's decode) */
+#define XGPU_TEXT_FIELD_RANGE 6
+#define XGPU_TEXT_FIELD_RANGE_TEXT "6.0"
 
 void xgpu_texture_describe(DWORD format_word, DWORD size_word, struct xgpu_texture_description *description);
 /* bytes of one face, mip levels included (cube faces are padded) */

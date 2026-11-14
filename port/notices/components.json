@@ -268,6 +268,24 @@
       ]
     },
     {
+      "name": "msdfgen",
+      "use": "The high-res text's glyphs as multi-channel signed distance fields (msdfgen's algorithms translated to C by goatbutt and the OpenH1 team).",
+      "source": "https://github.com/Chlumsky/msdfgen (commit 1c106ed8117893bf943e577f62eb0665fb271e46)",
+      "copyright": [
+        "Copyright (c) 2014 - 2025 Viktor Chlumsky"
+      ],
+      "license": "MIT",
+      "files": [
+        "port/third_party/msdfgen/LICENSE"
+      ],
+      "packages": [
+        "game"
+      ],
+      "covers": [
+        "port/third_party/msdfgen"
+      ]
+    },
+    {
       "name": "musl",
       "use": "Maths functions in every build, so every computer plays the same; and the C library of the Android app's game and of the Linux dedicated servers.",
       "source": "https://musl.libc.org (release 1.2.5)",

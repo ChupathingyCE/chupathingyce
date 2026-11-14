@@ -160,7 +160,7 @@ and what each hook asks of the port, or on its compile lines:
 
 ### Link Profile on a console
 
-`port/console/link` is a console's Link Profile (docs/delta.md, "Delta
+`port/console/link` is a console's Link Profile (docs/delta/link.md, "Delta
 Link"): `console_link.c` (the device key, the code, the requests, plain C)
 and `console_link_panel.c` (the DELTA PROFILE panel over Online Games, game
 code). A port builds both, with `port/third_party/qrcodegen` and the

@@ -1,7 +1,7 @@
 /*
 REPORT_PLAYER.C
 
-Reporting a player to a dedicated server's moderators (docs/delta.md,
+Reporting a player to a dedicated server's moderators (docs/delta/peer.md,
 Reports). DELTA's PLAYERS HERE offers REPORT on another player when the
 host takes reports (Delta Peer's reports capability: only a dedicated
 server does). The player picks a reason from a short list, then whether to

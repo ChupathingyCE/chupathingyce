@@ -16,9 +16,10 @@ server forgets a game it is not told about for a while, so a copy of the
 game that quits without withdrawing drops off by itself.
 
 Browsing: browser_get_games asks for the list when the last one is more
-than LIST_INTERVAL old, and returns what it has meanwhile. Games of another
-network version than this machine can join are kept too, for the screens to
-mark (browser_game_version_state); never this machine's own. The list is
+than LIST_INTERVAL old, and returns what it has meanwhile: only the games
+this build can join (browser_game_shown, game_list_rules.h; all of them
+with debug.show_all_games, which the screens mark: browser_game_version_state),
+never this machine's own. The list is
 the main source; the public listings heard on the brokers (p2p_lobby.c,
 mqtt.chupathingy.org among them) add the games it lacks (direct): OpenCE's
 (legacy) while it answers, and every host's while it is down. So losing
@@ -255,7 +256,7 @@ static struct
 	/* the code is Quick Connect's (the device key's), not the player key's */
 	int connect_quick;
 
-	/* the devices (docs/delta.md, Devices): this one signed out, another
+	/* the devices (docs/delta/link.md, Devices): this one signed out, another
 	revoked (its ID), and another device's code approved (Link a device:
 	its state, what the site said, and when it was last asked) */
 	int device_sign_out_wanted;
@@ -599,7 +600,7 @@ static int safe_for_key(const char *url)
 	return http_url_safe_for_secret(url);
 }
 
-/* ---------- Delta's device identity (identity.c; docs/delta.md, "Device
+/* ---------- Delta's device identity (identity.c; docs/delta/link.md, "Device
 identity")
 
 Beside the player key, each copy has a device key of its own
@@ -1162,7 +1163,7 @@ int browser_identity_moderator_sign(const unsigned char *message, int size, unsi
 #endif
 
 #ifdef HALO_DELTA_PEER_IDENTITY
-/* ---------- verified names: the revocation list (docs/delta.md, Verified
+/* ---------- verified names: the revocation list (docs/delta/peer.md, Verified
 names). Asked of the site every ten minutes (GET /v1/identity/revoked),
 checked (its issuer by the root keys, the list by its issuer, a serial past
 the one kept) and kept in delta_revoked.bin in the save root, so a host or
@@ -1569,7 +1570,7 @@ static void connect_failed(int serial, const char *message)
 }
 
 #ifdef HALO_DELTA_IDENTITY
-/* ---------- sign-in by code (Quick Connect; docs/delta.md, Devices)
+/* ---------- sign-in by code (Quick Connect; docs/delta/link.md, Devices)
 
 On a site that speaks device identity, Link Profile asks for a code with
 this copy's device key (POST /v1/identity/device/start, signed) and works
@@ -2761,7 +2762,7 @@ static const char *local_platform_name(void)
 	return delta_peer_platform_name(key.platform);
 }
 
-/* the announcement's fields about the host (Delta List, docs/delta.md):
+/* the announcement's fields about the host (Delta List, docs/delta/list.md):
 the Delta major it hosts with (0: the legacy protocol alone), its platform
 key, architecture, build, capabilities and its game's machines by platform
 (counts only). A list from before them ignores them */
@@ -3161,7 +3162,7 @@ static void parse_roster(char *text, struct browser_game *game)
 }
 
 /* the host's fields (?fields=17: platform, hosting, protocol, machines;
-docs/delta.md, Delta List): what is not known is left 0 */
+docs/delta/list.md, Delta List): what is not known is left 0 */
 static void parse_host(char **fields, struct browser_game *game)
 {
 	char *entry;
@@ -3771,7 +3772,7 @@ static void social_action(int action, const char *handle, char *response, struct
 		social_log(BROWSER_SOCIAL_LOADED, read);
 }
 
-/* ---------- the doorbell (docs/delta.md, "The doorbell")
+/* ---------- the doorbell (docs/delta/link.md, "The doorbell")
 
 While this copy is linked, the site gave it a doorbell and network.doorbell
 is on, internet play's signalling listens for it on our own brokers, over
@@ -4003,7 +4004,7 @@ static void update_party(void)
 
 #endif /* HALO_CONSOLE_NO_GUIDE */
 
-/* ---------- a report's clip (docs/delta.md, Reports)
+/* ---------- a report's clip (docs/delta/peer.md, Reports)
 
 A report a linked server took with REPORT_RESULT's "send the clip": the
 clip's file goes to the site with the token the server made (the report it
@@ -4956,6 +4957,8 @@ static void add_known(struct browser_game *games, int count)
 /* (every build, with the game browser or without: the menus' lobbies ask
 it too, port/linux/game/menu_functions.c) */
 #include "browser.h"
+#include "game_list_rules.h"
+#include "port_config.h"
 
 #include <string.h>
 
@@ -5047,6 +5050,17 @@ int browser_version_state(int version)
 	return version > delta_legacy_maximum() ? 1 : 0;
 }
 
+int browser_show_all_games(void)
+{
+	return config_boolean("debug.show_all_games");
+}
+
+int browser_version_shown(int version)
+{
+	return browser_show_all_games() ||
+		game_list_joinable((unsigned int)version, 0, delta_legacy_minimum(), delta_legacy_maximum());
+}
+
 #ifdef HALO_GAME_BROWSER
 
 int browser_game_host_cheats(const struct browser_game *game)
@@ -5060,6 +5074,34 @@ int browser_game_version_state(const struct browser_game *game)
 	if (game->protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence)
 		return 0;
 	return browser_version_state(game->version);
+}
+
+int browser_game_shown(const struct browser_game *game)
+{
+	return browser_show_all_games() || game_list_joinable(game->version,
+		game->protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence,
+		delta_legacy_minimum(), delta_legacy_maximum());
+}
+
+/* the games of count that the lists show (browser_game_shown), in their
+order; returns how many */
+static int keep_shown(struct browser_game *games, int count)
+{
+	int delta = delta_peer_protocol() != _delta_peer_protocol_opence;
+	int minimum = delta_legacy_minimum(), maximum = delta_legacy_maximum();
+	int index, kept;
+
+	if (browser_show_all_games())
+		return count;
+	for (index = kept = 0; index < count; index++)
+	{
+		if (game_list_joinable(games[index].version, delta && games[index].protocol == BROWSER_PROTOCOL_DELTA,
+			minimum, maximum))
+		{
+			games[kept++] = games[index];
+		}
+	}
+	return kept;
 }
 
 int browser_get_games(struct browser_game *games, int maximum_count)
@@ -5086,7 +5128,12 @@ int browser_get_games(struct browser_game *games, int maximum_count)
 	}
 	pthread_mutex_unlock(&browser_lock);
 	read_listings();
+	/* (only the games this build can join, game_list_rules.h: the list's
+	first, so that those hidden leave their room to the games heard
+	directly, then those) */
+	count = keep_shown(games, count);
 	count = add_direct(games, count, maximum_count, browser_list_status() == BROWSER_LIST_ANSWERED);
+	count = keep_shown(games, count);
 	add_known(games, count);
 	return count;
 }

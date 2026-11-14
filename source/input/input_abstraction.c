@@ -278,6 +278,12 @@ static void keyboard_controls_update(
 		/* (diagonals on the unit circle) */
 		real length = x && y ? 0.70710678f : 1.f;
 
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+		/* (controls.walk, when it has a key: held, the keyboard moves at
+		half speed, as a stick pushed halfway) */
+		if (halo_keyboard_action_bound(HALO_KEYBOARD_WALK) && TEST_FLAG(held, HALO_KEYBOARD_WALK))
+			length *= 0.5f;
+#endif
 		state->forward_movement = y * length;
 		state->strafe = -x * length;
 	}

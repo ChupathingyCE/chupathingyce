@@ -71,6 +71,8 @@ void display_error_text_when_main_menu_loaded(const unsigned short *text);
 /* the newest network version whose layout this build reads (port/linux/game/
 network_rules.c) */
 unsigned network_rules_layout_newest(void);
+/* (and the game modes this build plays: NETWORK_RULES_MODES_PLAYED) */
+#include "../game/network_rules.h"
 
 enum
 {
@@ -142,7 +144,7 @@ static int local_platform(void)
 {
 #if defined(HALO_DELTA_PLATFORM)
 	/* (a port's own number, set by its build: -DHALO_DELTA_PLATFORM=
-	_delta_platform_ps3, say; docs/delta.md, "Platform numbers") */
+	_delta_platform_ps3, say; docs/delta/peer.md, "Platform numbers") */
 	return HALO_DELTA_PLATFORM;
 #elif defined(HALO_XBOX_CONSOLE)
 	/* (before _WIN32: the console's build is a Windows target's too) */
@@ -223,7 +225,7 @@ void delta_peer_local_key(struct delta_platform_key *key)
 	host holds a key to its platform's row, never above it (delta_peer.c):
 	the original Xbox's row hosts 16 and joins 32 unless its player sets
 	network.platform_limits = "off"; the Xbox 360's and the Wii U's rows are
-	32 (docs/delta.md) */
+	32 (docs/delta/peer.md, Platform policy) */
 	key->host_players = (unsigned char)HALO_CONSOLE_PLAYERS;
 	key->join_players = (unsigned char)HALO_CONSOLE_PLAYERS;
 	if (key->join_players_opt_in < key->join_players)
@@ -451,7 +453,7 @@ static void identity_revoked_changed(void)
 }
 
 #ifdef HALO_DELTA_PEER_IDENTITY
-/* verified names (docs/delta.md, Verified names): a proof checked, as a host
+/* verified names (docs/delta/peer.md, Verified names): a proof checked, as a host
 and as a client of a relayed card: the chain to the root keys, the dates by
 this machine's clock, play, the revocation list this copy last fetched, and
 the device key's signature of the host's nonce, binding, machine, local
@@ -658,7 +660,7 @@ int delta_peer_protocol(void)
 #else
 		local.capabilities = (delta_u32)1 << _delta_capability_platform | (delta_u32)1 << _delta_capability_profile |
 			(delta_u32)1 << _delta_capability_ce_maps;
-		/* (text chat and the host's own lines: docs/delta.md, Chat) */
+		/* (text chat and the host's own lines: docs/delta/peer.md, Chat) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_chat |
 			(delta_u32)1 << _delta_capability_server_messages;
 		/* (changing teams during a game: a host offers it once its team
@@ -686,6 +688,9 @@ int delta_peer_protocol(void)
 		/* (a client asks a dedicated server for its badge; a host offers it
 		only with a certificate: host_badge, docs/server-badges.md) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_server_badge;
+		/* (the lobby's READY: a player host offers it while its lobby is up
+		(lobby_screen.c sets its lobby host); a client says it) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_lobby_ready;
 #ifndef HALO_CONSOLE_NO_GUIDE
 		/* (a party's tag: the Guide's party says it to the host, and a host
 		keeps a party on one team where it can, party_teams.c) */
@@ -707,6 +712,10 @@ int delta_peer_protocol(void)
 		local.capabilities |= (delta_u32)1 << _delta_capability_bomb;
 		local.capabilities |= (delta_u32)1 << _delta_capability_bomb_movement;
 		local.capabilities |= (delta_u32)1 << _delta_capability_bomb_traits;
+		/* (the game modes layer, and which modes this build plays:
+		source/game/game_modes.c, docs/modes.md) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_game_modes;
+		local.modes = NETWORK_RULES_MODES_PLAYED;
 #endif
 		/* (the newest network version whose rules it plays as a client: a
 		host sends it the settings record of that version's layout, by the
@@ -1191,22 +1200,27 @@ unsigned char delta_peer_advertised_flags(void)
 typedef char delta_dedicated_flag_is_old_flag[HALO_PORT_ADVERTISED_DEDICATED_FLAG == DELTA_ADVERTISED_FLAG &&
 	HALO_PORT_ADVERTISED_FLAGS_OFFSET == DELTA_ADVERTISED_FLAGS_OFFSET ? 1 : -1];
 
-void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine)
+void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine, int kind)
 {
 	if (size < DELTA_ADVERTISED_RESERVED_SIZE)
 		return;
-	/* (the game's kind, version 37: this build plays none of OpenCE's game
-	types) */
+	/* (the game's kind, version 37: the game modes layer's mode and
+	Hardcore (docs/modes.md), to a host announcing 37 or later; 0 before,
+	where OpenCE's browsers do not read the byte) */
 	memset(reserved + HALO_PORT_ADVERTISED_KIND_OFFSET, 0,
 		DELTA_ADVERTISED_TAG_OFFSET - HALO_PORT_ADVERTISED_KIND_OFFSET);
+	if (delta_legacy_announce() >= HALO_PORT_ADVERTISED_KIND_VERSION)
+		reserved[HALO_PORT_ADVERTISED_KIND_OFFSET] = (unsigned char)kind;
 	memset(reserved + DELTA_ADVERTISED_TAG_OFFSET, 0, DELTA_ADVERTISED_TAG_SIZE);
 	if (!delta_peer_hosting_delta())
 		return;
 	delta_compat_advertise(reserved, size, DELTA_MAJOR, DELTA_WIRE);
 	/* (and for released clients, the old layout where it clashes with none
 	of OpenCE's meanings: with the flag, a dedicated server's, and in a game
-	whose kind OpenCE's browsers do not read) */
-	if ((reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG) && engine != DELTA_ADVERTISED_KIND_ENGINE)
+	whose kind OpenCE's browsers do not read, nor one with a kind of its
+	own, whose byte 3 is the kind's) */
+	if ((reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG) && engine != DELTA_ADVERTISED_KIND_ENGINE &&
+		!reserved[HALO_PORT_ADVERTISED_KIND_OFFSET])
 	{
 		delta_compat_advertise_old(reserved, size, DELTA_MAJOR, DELTA_WIRE);
 		delta_game.advertised_old = 1;
@@ -1436,6 +1450,23 @@ int delta_peer_game_machine_lacks(int machine_index, int capability)
 	return delta_peer_machine_lacks(&delta_game.peer, GetTickCount(), machine_index, capability);
 }
 
+unsigned delta_peer_game_machine_modes(int machine_index)
+{
+	if (delta_peer_protocol() == _delta_peer_protocol_opence || delta_game.role != _role_host || !delta_game.port)
+		return 0;
+	return (unsigned)delta_peer_machine_modes(&delta_game.peer, machine_index);
+}
+
+unsigned delta_peer_game_host_modes(void)
+{
+	if (!delta_game.ready || delta_game.role != _role_client ||
+		delta_game.peer.client_state != _delta_peer_client_delta)
+	{
+		return 0;
+	}
+	return (unsigned)delta_game.peer.welcome.modes;
+}
+
 int delta_peer_game_player_has(int player_index, int capability)
 {
 	struct delta_peer_machine machine;
@@ -1458,6 +1489,13 @@ int delta_peer_game_machine_pending(int machine_index)
 	if (delta_peer_protocol() == _delta_peer_protocol_opence || delta_game.role != _role_host || !delta_game.port)
 		return 0;
 	return delta_peer_machine_pending(&delta_game.peer, GetTickCount(), machine_index);
+}
+
+int delta_peer_game_machine_session(int machine_index)
+{
+	if (delta_peer_protocol() == _delta_peer_protocol_opence || delta_game.role != _role_host || !delta_game.port)
+		return -1;
+	return delta_peer_machine_session(&delta_game.peer, GetTickCount(), machine_index);
 }
 
 int delta_peer_game_machine_legacy_version(int machine_index)
@@ -1872,6 +1910,38 @@ int delta_peer_game_server_badge(struct server_badge *badge)
 }
 
 /* ---------- reports (port/linux/game/report_player.c, server/src/server_reports.c) */
+
+void delta_peer_game_set_lobby_host(const struct delta_peer_lobby_host *host)
+{
+	delta_peer_protocol();
+	delta_peer_set_lobby_host(&delta_game.peer, host);
+}
+
+void delta_peer_game_set_lobby_state(const struct delta_wire_lobby_state *state)
+{
+	if (!delta_game.ready || delta_game.role != _role_host)
+		return;
+	delta_peer_set_lobby_state(&delta_game.peer, state);
+}
+
+int delta_peer_game_lobby_ready(void)
+{
+	return delta_game.ready && delta_game.role == _role_client && delta_peer_client_lobby_ready(&delta_game.peer);
+}
+
+unsigned int delta_peer_game_lobby_say(int player, int ready)
+{
+	if (!delta_game.ready || delta_game.role != _role_client)
+		return 0;
+	return delta_peer_client_lobby_say(&delta_game.peer, player, ready);
+}
+
+unsigned int delta_peer_game_lobby_state(struct delta_wire_lobby_state *state)
+{
+	if (!delta_game.ready || delta_game.role != _role_client)
+		return 0;
+	return delta_peer_client_lobby_state(&delta_game.peer, state);
+}
 
 void delta_peer_game_set_report_host(const struct delta_peer_report_host *host)
 {

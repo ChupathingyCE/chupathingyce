@@ -1930,7 +1930,7 @@ static boolean install_update_begin(struct widget_instance *widget)
 		ui_play_audio_feedback_sound(SOUND_ERROR);
 		return TRUE;
 	}
-	platform_log("menus: installing the update (Settings > Online > Updates)");
+	platform_log("menus: installing the update (Settings > Network Setup > Updates)");
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return TRUE;
 }
@@ -2106,6 +2106,128 @@ static void focus_widget(struct widget_instance *list, struct widget_instance *r
 	}
 }
 
+/* A nested list of more rows than fit above the help line (Video Setup's
+INTERFACE, sixteen rows) scrolls: only the views tools/port_settings.py
+names in "scrolls", listed here (tools/test_settings_layout.py checks the
+two agree). Its rows keep the places the layout gave them, and the window
+shown runs from the list's first row to the last that ends above the help
+line, the place port_settings.py gives the view's mark; the rows before and after it are put off the screen, where they are
+not drawn but still take the focus, and the window follows the row with the
+focus. Every other list, and a scrolling one that fits, keeps the places it
+was made with. */
+#define VIEW_ROWS 128
+#define VIEW_OFF_SCREEN 600
+static char const *const scrolling_views[] = { "interface" };
+static struct widget_instance *view_offsets_list;
+static short view_offsets[VIEW_ROWS];
+static char view_scrolled[32];
+static short view_first;
+
+static boolean view_scrolls(char const *view)
+{
+	size_t index;
+
+	for (index = 0; index < NUMBEROF(scrolling_views); index++)
+	{
+		if (!strcmp(view, scrolling_views[index]))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* the rows' places as the list was made: put back */
+static void views_unscroll(struct widget_instance *list)
+{
+	struct widget_instance *child;
+	short index;
+
+	if (view_offsets_list != list)
+		return;
+	for (index = 0, child = list->child; child && index < VIEW_ROWS; child = child->next, index++)
+		child->vertical_offset = view_offsets[index];
+	view_first = 0;
+}
+
+static void views_scroll(struct widget_instance *list, char const *view)
+{
+	struct widget_instance *child;
+	short index, top = 32767, last = 0, focused = NONE, spacing = 0, bottom = 0, window;
+
+	if (!view_scrolls(view))
+	{
+		views_unscroll(list);
+		return;
+	}
+	if (view_offsets_list != list)
+	{
+		view_offsets_list = list;
+		for (index = 0, child = list->child; child && index < VIEW_ROWS; child = child->next, index++)
+			view_offsets[index] = child->vertical_offset;
+		view_scrolled[0] = 0;
+	}
+	if (strcmp(view_scrolled, view))
+	{
+		snprintf(view_scrolled, sizeof(view_scrolled), "%s", view);
+		view_first = 0;
+	}
+	/* (the rows shown: their first place, their last, and the one with the
+	focus; the window's bottom, the view's mark's place) */
+	for (index = 0, child = list->child; child && index < VIEW_ROWS; child = child->next, index++)
+	{
+		if (view_mark(child))
+		{
+			if (view_mark_has(child->name, view))
+				bottom = MAX(bottom, view_offsets[index]);
+			continue;
+		}
+		if (strncmp(child->name, "op_", 3))
+			continue;
+		if (!child->visible)
+			continue;
+		top = MIN(top, view_offsets[index]);
+		last = MAX(last, view_offsets[index]);
+		if (child == list->focused_child)
+			focused = view_offsets[index];
+	}
+	/* (the rows' spacing: the least step between two shown) */
+	for (index = 0, child = list->child; child && index < VIEW_ROWS; child = child->next, index++)
+	{
+		short step = (short)(view_offsets[index] - top);
+
+		if (child->visible && !view_mark(child) && !strncmp(child->name, "op_", 3) && step > 0 &&
+			(!spacing || step < spacing))
+		{
+			spacing = step;
+		}
+	}
+	if (!spacing || last <= bottom)
+	{
+		views_unscroll(list);
+		return;
+	}
+	window = (short)((bottom - top) / spacing * spacing);
+	if (focused != NONE)
+	{
+		if (focused < top + view_first * spacing)
+			view_first = (short)((focused - top) / spacing);
+		else if (focused > top + view_first * spacing + window)
+			view_first = (short)((focused - top - window + spacing - 1) / spacing);
+	}
+	view_first = (short)PIN(view_first, 0, (last - top - window + spacing - 1) / spacing);
+	for (index = 0, child = list->child; child && index < VIEW_ROWS; child = child->next, index++)
+	{
+		short offset = (short)(view_offsets[index] - view_first * spacing);
+
+		if (!child->visible || view_mark(child) || strncmp(child->name, "op_", 3))
+			continue;
+		if (offset < top)
+			offset -= VIEW_OFF_SCREEN;
+		else if (offset > top + window)
+			offset += VIEW_OFF_SCREEN;
+		child->vertical_offset = offset;
+	}
+}
+
 /* the view's rows shown, the others hidden; the focus, on a row hidden,
 to the first shown. And the Chupathingy menus' B prompt: BACK in a nested
 list, CANCEL in the screen's own */
@@ -2127,6 +2249,7 @@ static void views_show(struct widget_instance *list, char const *view)
 		if (!strncmp(child->name, "op_", 3))
 			child->visible = !mark || view_mark_has(mark->name, view);
 	}
+	views_scroll(list, view);
 	if (list->focused_child && !list->focused_child->visible)
 	{
 		short index;
@@ -2162,6 +2285,9 @@ static boolean settings_views_init(struct widget_instance *list)
 	char const *debug = strstr(config_string("debug.menu_open"), "#view=");
 
 	snprintf(settings_view, sizeof(settings_view), "%s", debug ? debug + 6 : "main");
+	/* (a new list: none of an earlier screen's places, though it may have
+	that list's address) */
+	view_offsets_list = NULL;
 	views_show(list, settings_view);
 	if (debug)
 	{
@@ -2899,6 +3025,7 @@ static struct
 	{ "controls.strafe_right", L"STRAFE RIGHT", 0 },
 	{ "controls.jump", L"JUMP", 0 },
 	{ "controls.crouch", L"CROUCH", 0 },
+	{ "controls.walk", L"WALK", 0 },
 	{ "controls.fire", L"FIRE", 1 },
 	{ "controls.throw_grenade", L"THROW GRENADE", 1 },
 	{ "controls.vehicle_secondary_fire", L"VEHICLE ALT FIRE", 1 },
@@ -5586,7 +5713,7 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 	return browser_game_version_state(listed);
 }
 
-/* the Rules line's host, when the list has it (docs/delta.md, Delta List):
+/* the Rules line's host, when the list has it (docs/delta/list.md, Delta List):
 " (MAC HOST, DELTA)", " (DEDICATED, LINUX, DELTA)", " (OPENCE LEGACY, NETWORK
 32)"; a listing the list lacks while it answers is OpenCE's; "" if not known */
 static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *text, short size)
@@ -5713,6 +5840,28 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 }
 #endif
 
+/* only the games this build can join (game_list_rules.h): a game the list
+has by the list's word (browser_game_shown), a listing it lacks by its own
+number (browser_version_shown); every game with debug.show_all_games */
+static void lobby_browser_joinable_games(void)
+{
+	short index, kept;
+
+	for (index = kept = 0; index < lobby_browser.count; index++)
+	{
+#ifdef HALO_GAME_BROWSER
+		struct browser_game const *listed = lobby_browser_listed_game(&lobby_browser.games[index]);
+		int shown = listed ? browser_game_shown(listed) : browser_version_shown(lobby_browser.games[index].version);
+#else
+		int shown = browser_version_shown(lobby_browser.games[index].version);
+#endif
+
+		if (shown)
+			lobby_browser.games[kept++] = lobby_browser.games[index];
+	}
+	lobby_browser.count = kept;
+}
+
 /* why a game of another network version is not joined (state from
 lobby_browser_version_state), as every list says it (halo_join_reasons.h) */
 static void lobby_browser_version_text(int state, short version, wchar_t *text, short size)
@@ -5813,6 +5962,7 @@ static void lobby_browser_update(struct widget_instance *list)
 	lobby_browser.count = lobby_browser_valid_games(lobby_browser.games,
 		(short)p2p_lobby_games(lobby_browser.games, LOBBY_BROWSER_GAMES));
 	lobby_browser_add_listed();
+	lobby_browser_joinable_games();
 	lobby_browser_sort();
 	focused = lobby_browser_rows_place(list);
 	/* (the first game found takes the focus from the buttons, which had it
@@ -7215,7 +7365,11 @@ place) */
 
 boolean ui_widget_port_gametype_edit_begin(long profile_index);
 boolean ui_widget_port_gametype_save(struct widget_instance *widget, boolean *widget_deleted);
-boolean ui_widget_port_game_variant_set(struct game_variant *variant, struct game_variant_options const *options);
+boolean ui_widget_port_game_variant_set(struct game_variant *variant, struct game_variant_options const *options,
+	byte const *modes);
+byte *player_ui_get_edit_mode_options(void);
+void player_ui_set_game_mode_options(byte const *modes);
+byte const *player_ui_get_game_mode_options(void);
 boolean ui_widget_port_gametype_delete(long profile_index);
 
 #define GAMETYPE_EDIT_ROWS 11
@@ -7232,6 +7386,8 @@ static struct
 	boolean setup;
 	struct game_variant setup_variant;
 	struct game_variant_options setup_options;
+	/* (and the gametype's further options, the game modes layer's) */
+	byte setup_modes[16];
 	/* the vehicle screen's side shown */
 	short vehicle_side;
 } gametype_edit = { { 0 }, 0, 0, 0, TRUE, NONE, FALSE };
@@ -7246,6 +7402,12 @@ static struct game_variant_options *edit_options(void)
 	return gametype_edit.setup ? &gametype_edit.setup_options : player_ui_get_edit_playlist_options();
 }
 
+/* (the further options being edited: the game modes layer's 16 bytes) */
+static byte *edit_modes(void)
+{
+	return gametype_edit.setup ? gametype_edit.setup_modes : player_ui_get_edit_mode_options();
+}
+
 enum
 {
 	_option_long,		/* a long of the variant */
@@ -7254,7 +7416,8 @@ enum
 	_option_health,		/* the variant's health, tenths */
 	_option_short,		/* a short of the options */
 	_option_option_byte,	/* a byte of the options */
-	_option_radar		/* the options' radar players, and the variant's flag */
+	_option_radar,		/* the options' radar players, and the variant's flag */
+	_option_mode_byte	/* a byte of the further options (the game modes layer's) */
 };
 
 struct gametype_option
@@ -7359,6 +7522,11 @@ static struct gametype_option const gametype_options[] =
 	/* vehicle options (the side's set and counts: vehicles_update) */
 	{ "vehicles_respawn_spinner", _option_short, OPTIONS_FIELD(vehicle_respawn_time), 0, 7,
 		{ 0, 30, 60, 90, 120, 180, 300 } },
+	/* the game modes layer's (docs/modes.md): Slayer's MODE (NONE, SWAT) and
+	the player options' HARDCORE (OFF, ON), bytes 0 and 1 of the further
+	options */
+	{ "mode_spinner", _option_mode_byte, 0, 0, 2, { 0, 1 } },
+	{ "hardcore_spinner", _option_mode_byte, 1, 0, 2, { 0, 1 } },
 };
 
 /* (an instance's name is its definition's cut to 31 characters:
@@ -7378,7 +7546,7 @@ static struct gametype_option const *gametype_option_named(char const *spinner)
 }
 
 static long gametype_option_value(struct gametype_option const *option, struct game_variant *variant,
-	struct game_variant_options *options)
+	struct game_variant_options *options, byte const *modes)
 {
 	byte *v = (byte *)variant;
 	byte *o = (byte *)options;
@@ -7392,18 +7560,23 @@ static long gametype_option_value(struct gametype_option const *option, struct g
 	case _option_short: return *(short *)(o + option->offset);
 	case _option_option_byte: return o[option->offset];
 	case _option_radar: return options->radar_players;
+	case _option_mode_byte: return modes ? modes[option->offset] : 0;
 	}
 	return 0;
 }
 
 static void gametype_option_value_set(struct gametype_option const *option, long value, struct game_variant *variant,
-	struct game_variant_options *options)
+	struct game_variant_options *options, byte *modes)
 {
 	byte *v = (byte *)variant;
 	byte *o = (byte *)options;
 
 	switch (option->kind)
 	{
+	case _option_mode_byte:
+		if (modes)
+			modes[option->offset] = (byte)value;
+		break;
 	case _option_long: *(long *)(v + option->offset) = value; break;
 	case _option_byte: v[option->offset] = (byte)value; break;
 	case _option_flag:
@@ -7450,6 +7623,7 @@ static void gametype_options_each(struct widget_instance *list, boolean save)
 {
 	struct game_variant *variant = edit_variant();
 	struct game_variant_options *options = edit_options();
+	byte *modes = edit_modes();
 	struct widget_instance *row;
 
 	if (!variant || !options)
@@ -7470,11 +7644,11 @@ static void gametype_options_each(struct widget_instance *list, boolean save)
 			{
 				short index = (short)PIN(spinner->parameters.list.selected_index, 0, option->count - 1);
 
-				gametype_option_value_set(option, option->values[index], variant, options);
+				gametype_option_value_set(option, option->values[index], variant, options, modes);
 			}
 			else
 				spinner->parameters.list.selected_index =
-					gametype_option_index(option, gametype_option_value(option, variant, options));
+					gametype_option_index(option, gametype_option_value(option, variant, options, modes));
 		}
 	}
 }
@@ -7634,6 +7808,7 @@ static void gametype_setup_begin(void)
 	if (!player_ui_game_variant_specified(&gametype_edit.setup_variant))
 		return;
 	gametype_edit.setup_options = *player_ui_get_game_variant_options();
+	csmemcpy(gametype_edit.setup_modes, player_ui_get_game_mode_options(), sizeof(gametype_edit.setup_modes));
 	gametype_edit.setup = TRUE;
 	gametype_edit.vehicle_side = 0;
 }
@@ -7646,7 +7821,8 @@ static void gametype_setup_end(void)
 static boolean gametype_setup_apply(void)
 {
 	boolean applied = !gametype_edit.setup ||
-		ui_widget_port_game_variant_set(&gametype_edit.setup_variant, &gametype_edit.setup_options);
+		ui_widget_port_game_variant_set(&gametype_edit.setup_variant, &gametype_edit.setup_options,
+			gametype_edit.setup_modes);
 
 	gametype_edit.setup = FALSE;
 	return applied;
@@ -7906,7 +8082,7 @@ with it), the internet play port, the game type (left and right choose
 another, Y or A edits it), and the host's rules of config.toml
 (network.team_change and its margin, network.chat_filter,
 network.block_mouse_aim_assist, network.allow_player_names,
-network.allow_follow_camera), written as START GAME (A) opens the lobby.
+network.allow_follow_camera, network.opence_welcome), written as START GAME (A) opens the lobby.
 The host's rules are a nested list, as the settings screens' are: HOST
 RULES opens it, and B goes back out of it. B leaves them as they were.
 
@@ -7952,6 +8128,7 @@ enum
 	_host_row_aim_assist,
 	_host_row_player_names,
 	_host_row_follow_camera,
+	_host_row_opence_welcome,
 	/* (the row that opens the host's rules, those above) */
 	_host_row_rules,
 	_host_row_start,
@@ -7962,7 +8139,7 @@ static wchar_t const *const host_row_labels[NUMBER_OF_HOST_ROWS] =
 {
 	L"GAME NAME:", L"MAX PLAYERS:", L"PUBLIC LOBBY:", L"PASSWORD:", L"PORT:", L"GAME TYPE:", L"TEAM SWITCHING:",
 	L"TEAM SWITCH MARGIN:", L"CHAT FILTER:", L"MOUSE AIM ASSIST:", L"PLAYER NAMES:",
-	L"FOLLOW CAMERA:", L"HOST RULES", L"START GAME",
+	L"FOLLOW CAMERA:", L"OPENCE WELCOME:", L"HOST RULES", L"START GAME",
 };
 
 /* the editor's pages, by their screens' names */
@@ -7993,6 +8170,7 @@ static struct
 	boolean block_aim_assist;
 	boolean player_names;
 	boolean follow_camera;
+	boolean opence_welcome;
 	long port;
 	/* the rows shown, in their places */
 	short rows[64];
@@ -8012,7 +8190,7 @@ static struct
 	struct game_variant base_variant;
 	struct game_variant_options base_options;
 #endif
-} host_setup = { NULL, 0, 1, TRUE, FALSE, FALSE, FALSE, 0, { 0 }, 0, 0, 0, { 0 }, 0 };
+} host_setup = { NULL, 0, 1, TRUE, FALSE, FALSE, FALSE, FALSE, 0, { 0 }, 0, 0, 0, { 0 }, 0 };
 
 long config_integer(char const *name);
 
@@ -8137,6 +8315,7 @@ static void host_setup_read(void)
 	host_setup.block_aim_assist = config_boolean("network.block_mouse_aim_assist") != 0;
 	host_setup.player_names = config_boolean("network.allow_player_names") != 0;
 	host_setup.follow_camera = config_boolean("network.allow_follow_camera") != 0;
+	host_setup.opence_welcome = config_boolean("network.opence_welcome") != 0;
 	host_setup.port = PIN(config_integer("network.tunnel_port"), 0, 65535);
 }
 
@@ -8149,7 +8328,7 @@ static boolean host_listing_shown(void)
 /* whether a row is one of the host's rules (HOST RULES' nested list) */
 static boolean host_rules_row(short row)
 {
-	return row >= _host_row_team_change && row <= _host_row_follow_camera;
+	return row >= _host_row_team_change && row <= _host_row_opence_welcome;
 }
 
 static void host_setup_rows(void)
@@ -8245,6 +8424,9 @@ static boolean host_setup_value(short row, wchar_t *text)
 	case _host_row_follow_camera:
 		ustrncpy(text, host_setup.follow_camera ? L"ALLOWED" : L"OFF", ROW_TEXT_LENGTH - 1);
 		return TRUE;
+	case _host_row_opence_welcome:
+		ustrncpy(text, host_setup.opence_welcome ? L"ON" : L"OFF", ROW_TEXT_LENGTH - 1);
+		return TRUE;
 	case _host_row_name:
 		wide_to_text(multiplayer.game_name, ascii, sizeof(ascii));
 		for (index = 0; ascii[index] && index < ROW_TEXT_LENGTH - 1; index++)
@@ -8308,8 +8490,11 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_follow_camera:
 		return host_setup.follow_camera ? L"Players can watch a teammate while they wait to respawn." :
 			L"Only the death camera while waiting to respawn, as on the Xbox.";
+	case _host_row_opence_welcome:
+		return host_setup.opence_welcome ? L"OpenCE players get one line about Chupathingy." :
+			L"OpenCE players get no line from you.";
 	case _host_row_rules:
-		return L"Team switching, chat filter, aim assist, player names, follow camera.";
+		return L"Team switching, chat filter, aim assist, player names, follow camera, OpenCE welcome.";
 	case _host_row_start:
 		return host_help_with_status(L"Open the lobby.", with_status, NUMBEROF(with_status));
 	}
@@ -8384,6 +8569,9 @@ static boolean host_setup_change(short row, short direction)
 	case _host_row_follow_camera:
 		host_setup.follow_camera = !host_setup.follow_camera;
 		return TRUE;
+	case _host_row_opence_welcome:
+		host_setup.opence_welcome = !host_setup.opence_welcome;
+		return TRUE;
 	}
 	return FALSE;
 }
@@ -8421,9 +8609,34 @@ static boolean host_setup_start(struct widget_instance *widget, boolean *widget_
 	host_write("network.block_mouse_aim_assist", host_setup.block_aim_assist ? "true" : "false");
 	host_write("network.allow_player_names", host_setup.player_names ? "true" : "false");
 	host_write("network.allow_follow_camera", host_setup.follow_camera ? "true" : "false");
+	host_write("network.opence_welcome", host_setup.opence_welcome ? "true" : "false");
 	snprintf(text, sizeof(text), "%ld", host_setup.port);
 	host_write("network.tunnel_port", text);
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	/* (opened from the Chupathingy menus' lobby (its GAME SETUP), whose
+	pregame screen is right under: back to it, not a second one over it) */
+#if defined(HALO_GUIDE) && (!defined(HALO_MCC) || HALO_MCC)
+	{
+		long ui_widget_port_history_top(void);
+		long pregame = tag_loaded('DeLa', HOST_LOBBY_SCREEN);
+
+		if (pregame != NONE && ui_widget_port_history_top() == pregame)
+		{
+			ui_widget_port_go_back(widget);
+			*widget_deleted = TRUE;
+			return TRUE;
+		}
+	}
+#endif
+	/* (the Chupathingy menus' lobby over it: its countdown waits for
+	START GAME, lobby_screen.c, the game list's builds alone) */
+#ifdef HALO_GAME_BROWSER
+	{
+		void lobby_screen_hosted_opened(void);
+
+		lobby_screen_hosted_opened();
+	}
+#endif
 	return ui_widget_port_open(widget, HOST_LOBBY_SCREEN, widget_deleted);
 }
 
@@ -8449,6 +8662,8 @@ static void host_setup_defaults(void)
 		!strcmp(text, "true");
 	host_setup.player_names = config_default("network.allow_player_names", text, sizeof(text)) && !strcmp(text, "true");
 	host_setup.follow_camera = config_default("network.allow_follow_camera", text, sizeof(text)) &&
+		!strcmp(text, "true");
+	host_setup.opence_welcome = config_default("network.opence_welcome", text, sizeof(text)) &&
 		!strcmp(text, "true");
 	host_setup.port = config_default("network.tunnel_port", text, sizeof(text)) ? atol(text) : 0;
 	multiplayer.maximum_players_index = HOST_DEFAULT_MAXIMUM_PLAYERS_INDEX;
@@ -8496,9 +8711,10 @@ static short const host_page_fields[NUMBER_OF_HOST_PAGES][24] =
 	},
 };
 
-/* (GENERAL's last, past its room in the table above) */
+/* (GENERAL's last, past its room in the table above; and the game modes
+layer's MODE and HARDCORE, docs/modes.md) */
 static short const host_general_more[] = { SERVER_GAMETYPE_ODDBALL_TRAIT_WITHOUT_BALL, SERVER_GAMETYPE_RACE_TYPE,
-	SERVER_GAMETYPE_RACE_TEAM_SCORING };
+	SERVER_GAMETYPE_RACE_TEAM_SCORING, SERVER_GAMETYPE_MODE, SERVER_GAMETYPE_HARDCORE };
 
 /* the base's values, for the settings the game type does not give */
 static void host_edit_base(void)
@@ -8522,6 +8738,12 @@ static long host_edit_value(short field)
 {
 	if (host_setup.gametype.set[field])
 		return host_setup.gametype.values[field];
+	/* (the further options' settings: the base's own) */
+	if (field == SERVER_GAMETYPE_MODE || field == SERVER_GAMETYPE_HARDCORE)
+	{
+		return server_gametype_base_mode_value(PIN(host_setup.gametype.values[SERVER_GAMETYPE_BASE], 0,
+			server_builtin_count - 1), field);
+	}
 	host_edit_base();
 	return server_gametype_variant_value(field, &host_setup.base_variant, &host_setup.base_options);
 }
@@ -8543,6 +8765,9 @@ static boolean host_edit_shown(short field)
 	case SERVER_GAMETYPE_PRIMARY_WEAPON:
 	case SERVER_GAMETYPE_SECONDARY_WEAPON:
 		return host_edit_value(SERVER_GAMETYPE_LOADOUT) == _loadout_custom;
+	/* (no Hardcore on a Bomb game type) */
+	case SERVER_GAMETYPE_HARDCORE:
+		return host_edit_engine() != SERVER_ENGINE_BOMB;
 	}
 	if (field >= SERVER_GAMETYPE_RED_WARTHOG && field <= SERVER_GAMETYPE_RED_GUN_TURRET)
 		return host_edit_value(SERVER_GAMETYPE_RED_VEHICLES) == SERVER_VEHICLES_CUSTOM;
@@ -8793,6 +9018,8 @@ static void host_edit_begin(void)
 	}
 	title[index] = 0;
 	server_gametype_variant_capture(&variant, &options, title, &host_setup.gametype);
+	/* (and its further options, the game modes layer's) */
+	server_gametype_variant_capture_modes(&host_setup.gametype, player_ui_get_game_mode_options());
 	host_setup.base_cached = 0;
 	host_setup.editing = TRUE;
 }
@@ -8841,6 +9068,7 @@ static boolean host_edit_save(struct widget_instance *widget, boolean *widget_de
 {
 	struct game_variant variant;
 	struct game_variant_options options;
+	byte modes[16];
 	short index;
 
 	if (text_field_editing(NULL))
@@ -8861,6 +9089,7 @@ static boolean host_edit_save(struct widget_instance *widget, boolean *widget_de
 		return FALSE;
 	}
 	server_gametype_variant_build(&host_setup.gametype, &variant, &options);
+	server_gametype_mode_options(&host_setup.gametype, modes);
 	for (index = 0; index < NUMBEROF(variant.human_readable_game_description) - 1 && host_setup.gametype.title[index];
 		index++)
 	{
@@ -8868,7 +9097,7 @@ static boolean host_edit_save(struct widget_instance *widget, boolean *widget_de
 	}
 	for (; index < NUMBEROF(variant.human_readable_game_description); index++)
 		variant.human_readable_game_description[index] = 0;
-	ui_widget_port_game_variant_set(&variant, &options);
+	ui_widget_port_game_variant_set(&variant, &options, modes);
 	host_setup.editing = FALSE;
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	ui_widget_port_go_back(widget);
@@ -8926,6 +9155,9 @@ static boolean host_initialize(struct widget_instance *list)
 					ui_widget_port_gametype_choose(gametypes[last]);
 			}
 		}
+		/* (debug.menu_open's "...#view=rules": HOST RULES open, to look at it) */
+		if (strstr(config_string("debug.menu_open"), "#view=rules"))
+			host_setup.rules_open = TRUE;
 		return TRUE;
 	}
 #ifdef HALO_GAME_BROWSER

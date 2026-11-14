@@ -27,6 +27,7 @@ SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
 # how fast a zoomed view turns, on top of the zoom's own slowing
 ZOOM_SENSITIVITIES = [(f"{round(value * 100)}%", f"{value:g}") for value in (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2)]
+RETICLE_SIZES = [(f"{round(value * 100)}%", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)]
 
 # A row that does something rather than set a setting (A runs its function,
 # port/linux/game/menu_functions.c's), with a value its function shows in
@@ -38,7 +39,7 @@ class Action(tuple):
         return super().__new__(cls, (label, None, run, help_text, platform, key))
 
 
-# update.h's UPDATER_GAMESCOPE_WHERE names the page: Settings > Online >
+# update.h's UPDATER_GAMESCOPE_WHERE names the page: Settings > Network Setup >
 # Updates (tools/test_update_install.py checks they agree)
 INSTALL_UPDATE = Action("INSTALL UPDATE:", "install_update", "port update install",
                         "Download the new version. Chupathingy restarts.", "desktop")
@@ -63,12 +64,14 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (close together, 22 to the other screens' 24, for the rows of the
-        # desktop's main list (VARIABLE REFRESH and its five links among them)
-        # and INTERFACE to fit above a help line, which sits lower than other
-        # screens' for them: tools/test_settings_layout.py)
-        "spacing": 22,
+        # (24, Controls Setup's, with the help line a little lower than the
+        # other screens' for the desktop's main list: its six places and
+        # five links end at 341: tools/test_settings_layout.py)
+        "spacing": 24,
         "help_top": 368,
+        # (nested lists of more rows than fit above the help line, which
+        # menu_functions.c scrolls: views_scroll)
+        "scrolls": ["interface"],
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's resolution and anti-aliasing in
@@ -98,8 +101,6 @@ SCREENS = {
              [("480 (XBOX)", "480"), ("720", "720"), ("900", "900"), ("1080", "1080"), ("NATIVE", "native")],
              "Higher is sharper, but uses more battery.",
              "android", "resolution_android"),
-            ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
-             "Native draws at full resolution. Original draws at\n640x480 and scales it up.", "desktop"),
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Sync frames to the display.", NOT_CONSOLE),
             # (display.vrr: sdl_platform.c's platform_vrr, port/linux/src/vrr.h)
@@ -125,15 +126,35 @@ SCREENS = {
              [("OFF", "off"), ("FXAA", "fxaa"), ("MSAA 2X", "msaa2x"), ("MSAA 4X", "msaa4x")],
              "Smooth jagged edges.",
              "android", "anti_aliasing_android"),
-            ("FIELD OF VIEW:", "display.field_of_view",
-             [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
-              for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
-             "Adjust the field of view.",
-             None),
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
+            # (the view's own rows, the field of view first: a page of their
+            # own, so that the main list and ADVANCED sit 24 apart)
+            ("view", "VIEW", "The field of view, in and out of vehicles, and the reticle.", [
+                ("FIELD OF VIEW:", "display.field_of_view",
+                 [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
+                  for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
+                 "Adjust the field of view.",
+                 None),
+                ("VEHICLE FOV:", "display.vehicle_field_of_view",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
+                 "The field of view in vehicles.\nSame keeps it as before.", None),
+                ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
+                 "How wide your weapon is drawn.\nSame follows the view.", None),
+                ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
+                 "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
+                ("RETICLE SIZE:", "display.reticle_scale", RETICLE_SIZES,
+                 "The reticle's size. 100% is the Xbox's.", None),
+                ("WEAPON MODEL:", "display.first_person_weapon", ON_OFF,
+                 "Draw your weapon and arms. Off hides them.", None),
+            ]),
             ("advanced", "ADVANCED", "Shadows, lighting and detail.", [
+                # (out of the main list, so that its rows sit 24 apart as
+                # Controls Setup's: a row few change)
+                ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
+                 "Native draws at full resolution. Original draws at\n640x480 and scales it up.", "desktop"),
                 ("SHADOW RESOLUTION:", "display.shadow_resolution",
                  [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],
                  "The detail of object shadows.",
@@ -157,41 +178,43 @@ SCREENS = {
                 ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
                  [("OFF", "0"), ("2X", "2"), ("4X", "4"), ("8X", "8"), ("16X", "16")],
                  "Sharper textures seen at an angle.", None),
-                ("VEHICLE FOV:", "display.vehicle_field_of_view",
-                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
-                 "The field of view in vehicles.\nSame keeps it as before.", None),
-                # (the field of view's other two, out of the main list so its
-                # rows and links fit above the help line)
-                ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
-                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
-                 "How wide your weapon is drawn.\nSame follows the view.", None),
-                ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
-                 "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
             ]),
-            # (the prompts' buttons: input.button_style, DKrumpp's HD
-            # buttons where the build has them, HALO_HD_BUTTONS. AUTO follows
-            # the controller used last; input.keyboard_prompts is in
-            # config.toml alone)
-            ("buttons", "BUTTONS", "The buttons prompts show.", [
-                ("STYLE:", "input.button_style",
-                 [("AUTO", "auto"), ("DUKE", "duke"), ("XBOX", "xbox"), ("PLAYSTATION", "playstation"),
-                  ("SWITCH", "switch")],
-                 "Auto follows the controller you use.", "desktop android switch"),
-                ("MENU LOOK:", "input.button_look", [("GEM", "gem"), ("FLAT", "flat")],
-                 "The buttons in menus and the Guide.", "desktop android switch"),
-                ("IN GAME:", "input.hud_buttons", [("CLASSIC", "classic"), ("HD", "hd")],
-                 "Classic: the game's own buttons.", "desktop android switch"),
-            ]),
-            ("interface", "INTERFACE", "The menus, HUD and scoreboard.", [
+            # (the menus, text, buttons, HUD and scoreboard in one list:
+            # more rows than fit above the help line, so it scrolls:
+            # menu_functions.c's views_scroll, "scrolls" below)
+            ("interface", "INTERFACE", "The menus, text, buttons, HUD and scoreboard.", [
                 # (read when the game starts: menu_tags.c)
                 ("MENU STYLE:", "display.menus",
                  [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox")],
                  "Takes effect on restart.", NOT_CONSOLE),
+                ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg"), ("HALO", "halo")],
+                 "Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files.",
+                 # (not on the consoles, the Switch included, which have the
+                 # classic titles only: HALO_CONSOLE_NO_TITLE_CHOICE)
+                 "desktop android"),
+                ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
+                 "Draw text and titles in high resolution.", NOT_CONSOLE),
                 ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
                  "Draw the HUD in high resolution.", NOT_CONSOLE),
+                # (the ~ key's console: terminal.c's drop-down one, or the
+                # Xbox's lines at the bottom)
+                ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],
+                 "Drop-down slides down from the top.\nClassic is the Xbox's.", NOT_CONSOLE),
+                # (the prompts' buttons: input.button_style, DKrumpp's HD
+                # buttons where the build has them, HALO_HD_BUTTONS. AUTO
+                # follows the controller used last; input.keyboard_prompts
+                # is in config.toml alone)
+                ("BUTTON STYLE:", "input.button_style",
+                 [("AUTO", "auto"), ("DUKE", "duke"), ("XBOX", "xbox"), ("PLAYSTATION", "playstation"),
+                  ("SWITCH", "switch")],
+                 "The buttons prompts show. Auto follows the controller\nyou use.", "desktop android switch"),
+                ("MENU BUTTONS:", "input.button_look", [("GEM", "gem"), ("FLAT", "flat")],
+                 "The buttons in menus and the Guide.", "desktop android switch"),
+                ("HUD BUTTONS:", "input.hud_buttons", [("CLASSIC", "classic"), ("HD", "hd")],
+                 "Classic: the game's own buttons.", "desktop android switch"),
                 ("PLAYER NAMES:", "display.player_names",
                  [("NONE", "none"), ("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies")],
                  "Names above players, where the host allows them.", NOT_CONSOLE),
@@ -212,24 +235,6 @@ SCREENS = {
                 ("FOLLOW CAMERA:", "display.follow_camera",
                  [("OFF", "off"), ("LONG WAITS", "long_waits"), ("ALWAYS", "always")],
                  "While dead, follow a player's view, if the host allows it.", None),
-                ("VERSION WATERMARK:", "display.version_watermark", ON_OFF,
-                 "Show the version while playing.", None),
-            ]),
-            # (the text's fonts and the console: TEXT, so that INTERFACE's
-            # rows fit above the help line, test_settings_layout.py)
-            ("text", "TEXT", "High-res text, titles and the console.", [
-                ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
-                 "Draw text and titles in high resolution.", NOT_CONSOLE),
-                # (the ~ key's console: terminal.c's drop-down one, or the
-                # Xbox's lines at the bottom)
-                ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],
-                 "Drop-down slides down from the top.\nClassic is the Xbox's.", NOT_CONSOLE),
-                ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg"), ("HALO", "halo")],
-                 "Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files.",
-                 # (not on the consoles, the Switch included, which have the
-                 # classic titles only: HALO_CONSOLE_NO_TITLE_CHOICE; last,
-                 # so the Switch's list has no gap)
-                 "desktop android"),
             ]),
             ("hdr", "HDR SETUP", "HDR, the HDR display, tone mapping and brightness.", [
                 ("HDR:", "display.hdr", ON_OFF,
@@ -257,8 +262,10 @@ SCREENS = {
     "audio_settings": {
         "screen": "audio_settings_screen",
         "header": ("header_profile_audio_settings", f"{PE}/audio_settings/header_profile_audio_settings"),
-        # (27, not 30: ten rows with MODS, the last above the help line)
-        "spacing": 27,
+        # (30, as the Xbox's lists, with the help line a little lower for
+        # its ten rows, as Network Setup's: the last, MODS, ends at 371)
+        "spacing": 30,
+        "help_top": 376,
         "rows": [
             ("MASTER VOLUME:", "audio.volume", VOLUMES, "Adjust the overall volume.", None),
             ("MUSIC VOLUME:", "audio.music_volume", VOLUMES, "Adjust the music volume.", None),
@@ -278,11 +285,11 @@ SCREENS = {
              "Room echo, and muffled sound behind walls.", None),
             ("DOPPLER:", "audio.doppler", ON_OFF,
              "Pitch shift of moving sounds, as on the Xbox.", None),
+            ("HIT SOUNDS:", "audio.hit_sounds", ON_OFF,
+             "A tone when your shot hits another player.", None),
             # (the mods folder's tag files: port/linux/game/mods.c, docs/mods.md)
             ("MODS:", "game.mods", ON_OFF,
              "Sound tags from the mods folder replace a map's.\nLocal games only; see docs/mods.md.", None),
-            ("SOUND:", "audio.enabled", ON_OFF,
-             "Turn all sound on or off. Takes effect on restart.", None),
         ],
     },
     # (chat.quick_messages, a list of lines, is in config.toml alone. The
@@ -291,10 +298,10 @@ SCREENS = {
     "network_setup": {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
-        # (a little closer than the other screens', for its eleven rows, JOIN
-        # SCREEN among them: the last, PRIVACY, ends at 371, under the help
-        # line, as Privacy's)
-        "spacing": 27,
+        # (30, as the Xbox's lists, with the help line a little lower for its
+        # ten rows, JOIN SCREEN among them: the last, PRIVACY, ends at 371,
+        # as Privacy's)
+        "spacing": 30,
         "help_top": 376,
         # (its help is its own text, which menu_functions.c reads from its
         # help_strings, and sets to how INSTALL UPDATE's install goes)
@@ -317,8 +324,6 @@ SCREENS = {
              "Join a game from an invite link on the clipboard.", NOT_CONSOLE),
             ("COPY INVITE LINK:", "network.copy_to_clipboard", ON_OFF,
              "Copy your game's invite link when you host.", NOT_CONSOLE),
-            ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
-             "Let a game you host start with only you.", None),
             ("JOIN SCREEN:", "display.join_screen", ON_OFF,
              "Show the loading screen while joining a game.", "desktop android"),
         ],
@@ -650,7 +655,13 @@ def _setting_rows(base: str, spec: dict) -> tuple:
     views = {view: view_rows for view, _, _, view_rows in spec.get("views", [])}
     for entry in entries:
         if entry[0] == "mark":
-            rows.append((f"{base}/view_{entry[1]}", None, 0))
+            # (a list that scrolls has its mark at the last place whose row
+            # ends above the help line: the window's bottom, menu_functions.c's
+            # views_scroll; the marks are not drawn)
+            place = 0
+            if entry[1] in spec.get("scrolls", ()):
+                place = (spec.get("help_top", 350) - 28 - 73) // spec["spacing"]
+            rows.append((f"{base}/view_{entry[1]}", None, place))
             extra += _mark(base, entry[1])
         elif entry[0] == "link":
             _, view, key, place, label_index = entry
@@ -1037,7 +1048,7 @@ MT = "main_menu/multiplayer_type_select"
 # in turn: menu_functions.c's gametype_option_help)
 SLAYER_EDIT = "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit"
 STRING_INSERTS = {
-    f"{PE}/profile_edit_options": [(10, ["PRIVACY", "INTERFACE", "CONTROLS", "DISPLAY", "AUDIO", "ONLINE"])],
+    f"{PE}/profile_edit_options": [(10, ["PRIVACY", "INTERFACE", "CONTROLS SETUP", "VIDEO SETUP", "AUDIO SETUP", "NETWORK SETUP"])],
     f"{SLAYER_EDIT}/var_kills_to_win": [(5, ["75", "100", "150", "200", "250", "500"])],
     f"{SLAYER_EDIT}/cap_slayer": [(11, [
         "Seventy-five kills to win.",
@@ -1046,6 +1057,15 @@ STRING_INSERTS = {
         "Two hundred kills to win.",
         "Two hundred and fifty kills to win.",
         "Five hundred kills to win.",
+    ]), (26, [
+        # (the game modes layer's MODE, after TIME LIMIT's: docs/modes.md;
+        # menu_tags.c's EDITOR_*_HELP_* for the Xbox's menus)
+        "No mode. The game plays by the rules above.",
+        "SWAT. No shields, and one shot to the head kills.",
+    ])],
+    "main_menu/settings_select/multiplayer_setup/player_options_edit/cap_player_options": [(28, [
+        "The usual motion tracker and aim assist.",
+        "No motion tracker and no aim assist. A kill brings\\nyour health and shields back to full.",
     ])],
 }
 
@@ -1232,6 +1252,18 @@ WIDGET_PATCHES = {
             f'<child widget="main_menu/settings_select/multiplayer_setup/item_options_edit/op_primary_weapon" x="54" y="223"/>',
             f'<child widget="main_menu/settings_select/multiplayer_setup/item_options_edit/op_secondary_weapon" x="54" y="253"/>',
         ]}},
+    # (the game modes layer's rows, docs/modes.md: Slayer's MODE under TIME
+    # LIMIT, the player options' HARDCORE under SUICIDE PENALTY)
+    "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/slayer_options_menu": {"insert_before": {
+        "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/slayer_button_bar": [
+            '<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/op_mode" x="54" y="253"/>',
+        ]}},
+    # (a ninth row: the help text and the buttons move down to make room)
+    "main_menu/settings_select/multiplayer_setup/player_options_edit/player_options_menu": {"insert_before": {
+        "main_menu/settings_select/multiplayer_setup/player_options_edit/player_button_bar": [
+            '<child widget="main_menu/settings_select/multiplayer_setup/player_options_edit/op_hardcore" x="54" y="313"/>',
+        ]}, "offsets": {"main_menu/settings_select/multiplayer_setup/player_options_edit/player_button_bar": (0, 430)}},
+    "main_menu/settings_select/multiplayer_setup/player_options_edit/player_options_help": {"set": {"top": 350}},
     # (the PC's Vehicles row's Start opened Item Options)
     "main_menu/settings_select/multiplayer_setup/playlist_edit/playlist_edit_vehicles_list_item": {"handlers": [
         '<on event="a" open="main_menu/settings_select/multiplayer_setup/vehicle_options_edit/vehicle_options_screen"/>',
@@ -1893,6 +1925,45 @@ def _item_options_extras() -> list:
     return lines
 
 
+SLAYER_EDIT_BASE = "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit"
+PLAYER_OPTIONS_BASE = "main_menu/settings_select/multiplayer_setup/player_options_edit"
+
+
+def _mode_row(base: str, key: str, label: str, strings: list) -> list:
+    """one option row of the game modes layer's (docs/modes.md), in the
+    screen's own geometry: its label (a string list of its own), and a
+    spinner the game fills by name (menu_functions.c's gametype_options)"""
+    lines = _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
+                                          ("flags", "pass_unhandled_to_focused_child"),
+                                          ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                    [f'<child widget="{base}/{key}_label"/>',
+                     f'<child widget="{base}/{key}_spinner" x="320" y="1"/>'])
+    lines += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
+                                              ("string_list", f"{base}/{key}_labels"), ("font", "ui\\large_ui"),
+                                              ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    lines += _widget(f"{base}/{key}_spinner",
+                     [("type", "spinner"), ("left", 2), ("top", 2), ("width", 148), ("height", 20),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                      ("string_list", f"{base}/var_{key}"), ("font", "ui\\large_ui"), ("color", "#FF2896FF"),
+                      ("align", "center"), ("text_y", 4), ("list_flags", "items_from_strings"),
+                      ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
+                      ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 150 19 156")],
+                     ['<on event="left_mouse" run="mouse spinner 1wide click"/>'])
+    lines += _strings(f"{base}/{key}_labels", [label])
+    lines += _strings(f"{base}/var_{key}", strings)
+    return lines
+
+
+def _slayer_mode_extras() -> list:
+    """the Slayer rules screen's MODE row (NONE, SWAT: docs/modes.md)"""
+    return _mode_row(SLAYER_EDIT_BASE, "mode", "MODE:", ["NONE", "SWAT"])
+
+
+def _player_hardcore_extras() -> list:
+    """the player options screen's HARDCORE row (OFF, ON)"""
+    return _mode_row(PLAYER_OPTIONS_BASE, "hardcore", "HARDCORE:", ["OFF", "ON"])
+
+
 def _map_kind() -> list:
     """the map lists' first row (New Game's and the Map screen's), as the
     gametype list's chooser: a spinner of SINGLEPLAYER or MULTIPLAYER maps,
@@ -1925,6 +1996,8 @@ def multiplayer_files() -> dict:
         f"{MT}/coop".replace("/", ".") + ".xml": head + _coop() + ["</menus>", ""],
         "main_menu/new_select".replace("/", ".") + ".port.xml": head + _map_kind() + ["</menus>", ""],
         "main_menu/settings_select/multiplayer_setup/item_options_edit".replace("/", ".") + ".port.xml": head + _item_options_extras() + ["</menus>", ""],
+        SLAYER_EDIT_BASE.replace("/", ".") + ".port.xml": head + _slayer_mode_extras() + ["</menus>", ""],
+        PLAYER_OPTIONS_BASE.replace("/", ".") + ".port.xml": head + _player_hardcore_extras() + ["</menus>", ""],
     }
 
 

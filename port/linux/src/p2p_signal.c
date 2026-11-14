@@ -8,7 +8,7 @@ a broker that refuses 5). Every broker is used at once, so any one of them
 working is enough (an answer goes back through each broker a request came
 through).
 Our own brokers (*.chupathingy.org) also carry Delta's doorbell
-(p2p_signal_doorbell; docs/delta.md, "The doorbell"): a linked copy's
+(p2p_signal_doorbell; docs/delta/link.md, "The doorbell"): a linked copy's
 connection to them names the doorbell as its MQTT user name and subscribes
 to doorbell/<doorbell>, which only the site writes and only a connection of
 that user name may read (the brokers' ACL). A ring is one byte; the Guide

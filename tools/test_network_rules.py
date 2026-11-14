@@ -28,14 +28,16 @@ def compiler():
     return None
 
 
-def test_rules(tmp_path):
-    """the rules' C tests, warnings as errors"""
+@pytest.mark.parametrize("defines", [["-DHALO_GAME_BROWSER"], []], ids=["desktop", "console"])
+def test_rules(tmp_path, defines):
+    """the rules' C tests, warnings as errors: as the desktop builds have
+    them, and as a console's (no HALO_GAME_BROWSER: no modes played)"""
     cc = compiler()
     if not cc:
         pytest.skip("no C compiler")
     binary = tmp_path / "network_rules_test"
     build = subprocess.run(
-        [cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
+        [cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1", *defines,
          str(ROOT / "port/linux/tests/network_rules_test.c"), str(ROOT / "port/linux/game/network_rules.c"),
          "-o", str(binary)],
         capture_output=True, text=True)
@@ -157,7 +159,7 @@ def test_the_version_and_the_wire():
     limits = (ROOT / "port/linux/include/halo_port_limits.h").read_text(encoding="utf-8")
     delta = (ROOT / "port/linux/include/delta.h").read_text(encoding="utf-8")
     assert "#define HALO_PORT_NETWORK_VERSION 32\n" in limits
-    assert '#define DELTA_WIRE "chupa-44a"' in delta
+    assert '#define DELTA_WIRE "chupa-44b"' in delta
     for number in (30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44):
         assert re.search(rf'X\({number}, "build-\d+", additive\)', delta)
     assert "#define HALO_PORT_NETWORK_VERSION_MAXIMUM 45\n" in limits

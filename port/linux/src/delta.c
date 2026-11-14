@@ -1,7 +1,7 @@
 /*
 DELTA.C
 
-The legacy number in use (docs/delta.md, "The legacy table as config"): the
+The legacy number in use (docs/delta/versioning.md, "The signed table"): the
 OpenCE network version a host announces, and the range of hosts' versions a
 client joins.
 
@@ -109,7 +109,7 @@ static const char *const delta_capability_names[] =
 	"platform", "profile", "server_messages", "chat", "ce_maps", "md_maps", "coop", "ai_sync", "vote",
 	"console_slots", "moderation", "bomb", "ping", "bomb_movement", "bomb_traits", "team_change",
 	"server_badge", "object_sync", "host_cheats", "host_rules", "identity",
-	"party_teams", "voice", "reports", "mcc_maps",
+	"party_teams", "voice", "reports", "mcc_maps", "game_modes", "lobby_ready",
 };
 _Static_assert(sizeof(delta_capability_names) / sizeof(*delta_capability_names) == NUMBER_OF_DELTA_CAPABILITIES,
 	"a name for each capability");

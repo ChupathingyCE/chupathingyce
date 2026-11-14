@@ -1,7 +1,7 @@
 /*
 LATE_JOIN.H
 
-Late joiners waiting for the next game (late_join.c; docs/delta.md, Host
+Late joiners waiting for the next game (late_join.c; docs/delta/peer.md, Host
 rules): a host option, off by default.
 */
 

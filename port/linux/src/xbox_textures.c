@@ -1221,6 +1221,10 @@ static GLuint texture_entry_result(struct texture_entry *entry, GLenum *target,
 		if (atlas)
 		{
 			description->levels = 1;
+			/* (distance fields are read between their texels: filtered,
+			and decoded by the shader) */
+			if (text_hires_atlas_fields())
+				description->hires = description->hires_fields = TRUE;
 			return atlas;
 		}
 	}

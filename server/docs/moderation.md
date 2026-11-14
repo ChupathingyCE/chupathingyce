@@ -57,7 +57,7 @@ every server), so other servers never learn it.
 
 A player can also be known by their **Delta account**. A Chupathingy game
 that shares its profile proves who its players are when it joins, with its
-device certificate (docs/delta.md, "Verified names"). Only a proof bound to
+device certificate (docs/delta/peer.md, "Verified names"). Only a proof bound to
 this server counts here: the player joined through the server's invite, so
 their game could check the challenge came from this server. The server
 checks it, and the Players page shows each such player's profile. When the
@@ -187,7 +187,7 @@ Off by default: Halo spawns them at once.
 
 A linked server can share its bans with other servers and take theirs.
 Both are off until you turn them on, and both go only by Delta account and
-device (the bans that name one: "Verified names" in docs/delta.md), never
+device (the bans that name one: "Verified names" in docs/delta/peer.md), never
 by address or hardware ID.
 
 - **Share:** `sv_set ban_share 1` here, and "Share my bans" for this
