@@ -52,10 +52,26 @@ extern unsigned char progress_bar_is_active(void);
 
 /* the controller's button icons (port/assets/prompts, generated with the
 fonts by tools/embed_assets.py --fonts): A, B, X, Y, Start, LT, RT, LB, RB,
-Back, each ui_prompt_icon_size square, RGBA */
+Back, each ui_prompt_icon_size square, RGBA; then, in the builds with them
+(HALO_HD_BUTTONS), DKrumpp's (port/assets/buttons_hd): the Duke's ten in
+his gem style (in the same order: LB the white button, RB the black), its
+four face buttons flat, then the PlayStation's and the Switch's four face
+buttons gem then flat, each in UI_BUTTON_A to Y's order (the Switch's by
+position, as SDL gives them: its B, A, Y and X) */
 enum
 {
-	NUMBER_OF_ICONS = 10,
+	SNAPCHIPPER_ICONS = 10,
+	HD_DUKE_GEM = SNAPCHIPPER_ICONS,
+	HD_DUKE_FLAT = HD_DUKE_GEM + 10,
+	HD_PLAYSTATION_GEM = HD_DUKE_FLAT + 4,
+	HD_PLAYSTATION_FLAT = HD_PLAYSTATION_GEM + 4,
+	HD_SWITCH_GEM = HD_PLAYSTATION_FLAT + 4,
+	HD_SWITCH_FLAT = HD_SWITCH_GEM + 4,
+#ifdef HALO_HD_BUTTONS
+	NUMBER_OF_ICONS = HD_SWITCH_FLAT + 4,
+#else
+	NUMBER_OF_ICONS = SNAPCHIPPER_ICONS,
+#endif
 	/* (a quad's radius that marks it as an icon's, or as the picture's) */
 	ICON_MARK = -2,
 	PICTURE_MARK = -3,
@@ -236,6 +252,65 @@ static int scheme(void)
 	int value = platform_prompt_scheme();
 
 	return value >= 0 && value < NUMBER_OF_PROMPT_SCHEMES ? value : PROMPT_SCHEME_XBOX;
+}
+
+/* AUTO's buttons for an Xbox-like pad: 0 snapchipper's (as before the HD
+buttons), 1 DKrumpp's Duke ones */
+#define AUTO_XBOX_PAD_DUKE 0
+
+/* input.button_style's choices: the controller used last, or one named */
+enum
+{
+	BUTTON_STYLE_AUTO,
+	BUTTON_STYLE_DUKE,
+	BUTTON_STYLE_XBOX,
+	BUTTON_STYLE_PLAYSTATION,
+	BUTTON_STYLE_SWITCH,
+};
+
+/* input.button_style and input.button_look (whether the menus' buttons
+are DKrumpp's flat ones, not his gems), read again when the settings change */
+static void button_settings(int *style, int *flat)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static int read_style, read_flat;
+
+	if (read_at != config_changes())
+	{
+		static const char *const names[] = { "auto", "duke", "xbox", "playstation", "switch" };
+		const char *value = config_string("input.button_style");
+		int index;
+
+		read_at = config_changes();
+		read_style = BUTTON_STYLE_AUTO;
+		for (index = 0; value && index < (int)(sizeof(names) / sizeof(names[0])); index++)
+		{
+			if (!strcmp(value, names[index]))
+				read_style = index;
+		}
+		value = config_string("input.button_look");
+		read_flat = value && !strcmp(value, "flat");
+	}
+	*style = read_style;
+	*flat = read_flat;
+}
+
+/* the device a prompt is drawn as: the one used last, or input.button_style's
+(the keyboard's key caps stay while it was used last) */
+static int style_scheme(int style)
+{
+	int device = scheme();
+
+	if (device == PROMPT_SCHEME_KEYBOARD)
+		return device;
+	switch (style)
+	{
+	case BUTTON_STYLE_DUKE:
+	case BUTTON_STYLE_XBOX: return PROMPT_SCHEME_XBOX;
+	case BUTTON_STYLE_PLAYSTATION: return PROMPT_SCHEME_PLAYSTATION;
+	case BUTTON_STYLE_SWITCH: return PROMPT_SCHEME_NINTENDO;
+	default: return device;
+	}
 }
 
 /* ---------- gathering */
@@ -1143,15 +1218,54 @@ static float pill_width(const char *label, float size)
 	return width > size * 1.3f ? width : size * 1.3f;
 }
 
-float ui_overlay_button_width(int button, float size)
+/* the icon a button is drawn with for a style (input.button_style) and
+look (flat: DKrumpp's flat buttons, else his gems), its device's (style_scheme)
+the one used last, or -1 for the device's own drawing (Kenney's, a pill, a
+key cap) */
+static int prompt_icon(int button, int style, int flat, int device)
 {
-	int device = scheme();
+	if (device == PROMPT_SCHEME_KEYBOARD)
+		return -1;
+#ifdef HALO_HD_BUTTONS
+	/* (AUTO with an Xbox-like pad: snapchipper's, unless AUTO_XBOX_PAD_DUKE) */
+	if (style == BUTTON_STYLE_AUTO && device == PROMPT_SCHEME_XBOX && AUTO_XBOX_PAD_DUKE)
+		style = BUTTON_STYLE_DUKE;
+	/* (the Duke's: his gems, the face buttons flat if asked; the d-pad has none) */
+	if (style == BUTTON_STYLE_DUKE)
+	{
+		if (flat && face_button(button))
+			return HD_DUKE_FLAT + button;
+		return button_icon(button) >= 0 ? HD_DUKE_GEM + button_icon(button) : -1;
+	}
+	/* (a PlayStation pad's and a Switch pad's face buttons, his; their other
+	buttons stay Kenney's and the pills: he drew none) */
+	if (device == PROMPT_SCHEME_PLAYSTATION && face_button(button))
+		return (flat ? HD_PLAYSTATION_FLAT : HD_PLAYSTATION_GEM) + button;
+	if (device == PROMPT_SCHEME_NINTENDO && face_button(button))
+		return (flat ? HD_SWITCH_FLAT : HD_SWITCH_GEM) + button;
+#else
+	(void)style;
+	(void)flat;
+#endif
+	/* (an Xbox-like pad's: snapchipper's) */
+	if (device == PROMPT_SCHEME_XBOX && button_icon(button) >= 0)
+		return button_icon(button);
+	return -1;
+}
+
+static float button_width_look(int button, float size, int flat_override)
+{
+	int style, flat, device, icon;
 
 	if (button < 0 || button >= NUMBER_OF_UI_BUTTONS)
 		return 0.0f;
-	/* (an Xbox-like pad's: its icon) */
-	if (device == PROMPT_SCHEME_XBOX && button_icon(button) >= 0)
-		return icon_width(button_icon(button), size);
+	button_settings(&style, &flat);
+	if (flat_override >= 0)
+		flat = flat_override;
+	device = style_scheme(style);
+	icon = prompt_icon(button, style, flat, device);
+	if (icon >= 0)
+		return icon_width(icon, size);
 	/* (Kenney's shape, as wide as it draws: a PlayStation pad's face
 	buttons, every button of the Steam and Wii U pads) */
 	if (((device == PROMPT_SCHEME_PLAYSTATION && face_button(button)) || kenney_device(device)) &&
@@ -1164,18 +1278,29 @@ float ui_overlay_button_width(int button, float size)
 	return pill_width(pill_label(device, button), size);
 }
 
-float ui_overlay_button(int button, float size, float x, float y, unsigned int color)
+float ui_overlay_button_width(int button, float size)
 {
-	int device = scheme();
+	return button_width_look(button, size, -1);
+}
+
+static float button_look(int button, float size, float x, float y, unsigned int color, int flat_override)
+{
+	int style, flat, device, icon;
 	float share = (float)(color & 0xFF) / 255.0f;
 	const char *label;
 
 	if (button < 0 || button >= NUMBER_OF_UI_BUTTONS)
 		return 0.0f;
+	button_settings(&style, &flat);
+	if (flat_override >= 0)
+		flat = flat_override;
+	device = style_scheme(style);
 	label = pill_label(device, button);
-	/* an Xbox-like pad's buttons: their icons (snapchipper's) */
-	if (device == PROMPT_SCHEME_XBOX && button_icon(button) >= 0)
-		return draw_icon(button_icon(button), size, x, y, fade(0xFFFFFFFF, share));
+	/* the buttons with icons: snapchipper's (an Xbox-like pad's), DKrumpp's
+	(the Duke's, a PlayStation pad's and a Switch pad's face buttons) */
+	icon = prompt_icon(button, style, flat, device);
+	if (icon >= 0)
+		return draw_icon(icon, size, x, y, fade(0xFFFFFFFF, share));
 	/* Kenney's glyphs: a PlayStation pad's face buttons, and every button
 	of the Steam and Wii U pads */
 	if (((device == PROMPT_SCHEME_PLAYSTATION && face_button(button)) || kenney_device(device)) &&
@@ -1221,6 +1346,21 @@ float ui_overlay_button(int button, float size, float x, float y, unsigned int c
 			UI_ALIGN_CENTER, fade(key ? 0x1A2230FF : 0xFFFFFFFF, share), label);
 		return width;
 	}
+}
+
+float ui_overlay_button(int button, float size, float x, float y, unsigned int color)
+{
+	return button_look(button, size, x, y, color, -1);
+}
+
+float ui_overlay_hud_button_width(int button, float size)
+{
+	return button_width_look(button, size, 1);
+}
+
+float ui_overlay_hud_button(int button, float size, float x, float y, unsigned int color)
+{
+	return button_look(button, size, x, y, color, 1);
 }
 
 int ui_overlay_keyboard(void)

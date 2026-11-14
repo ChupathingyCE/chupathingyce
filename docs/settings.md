@@ -57,6 +57,7 @@ A few people look for most:
 | `display.match_timer_position` | Where the clock goes: `"top"` (the default) or `"bottom_right"`, like later Halo games. |
 | `display.player_names` | Names over players' heads: `"all"`, `"allies"`, `"enemies"` or `"none"` (the default, as on the Xbox). Only where the host allows them (`network.allow_player_names`). |
 | `display.follow_camera` | After you die, watch a living player's view: `"off"` (the default, as on the Xbox), `"long_waits"` (only during a long respawn wait) or `"always"`. LB and RB, or Q and E, switch players. Only where the host allows it (`network.allow_follow_camera`). |
+| `display.join_screen` | While a game is joined or its map downloads, the loading screen with what is going on and B to cancel (on by default). `false`: a small panel over the game list. Settings > Online > JOIN SCREEN. |
 | `display.xbox_loading_picture` | `true` (the default) shows the Xbox's own loading picture, `xbox_loading.tga` in your maps folder, and Chupathingy's when that file isn't there. `false` always shows Chupathingy's. Not on consoles. |
 | `game.unlock_all_levels` | `true` gives new profiles every campaign level. By default a new profile starts at The Pillar of Autumn, as on the Xbox. Profiles made by earlier versions had every level open; `profile_reset_campaign` in the console starts one over. |
 | `game.mods` | `true` plays the mods in the `mods` folder beside `maps` (tag files over a map's sounds, as a resource pack; see [mods.md](mods.md)). Nothing happens while the folder is empty. Local games only. |
@@ -73,6 +74,9 @@ A few people look for most:
 | `audio.reverb` | Sounds echo to match the place you are in, as the Xbox's reverb did (on by default; off on the slowest consoles). |
 | `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |
 | `input.keyboard_prompts` | Button prompts follow the device you used last: keys after the keyboard or mouse, as Halo PC did, and buttons after a controller. This setting is no longer in the menus; `false` keeps the controller's buttons everywhere. |
+| `input.button_style` | The buttons prompts show: `"auto"` (the default: the controller you use), or one style for every controller: `"duke"` (the original Xbox controller's), `"xbox"`, `"playstation"` or `"switch"`. The keyboard shows its keys. The Xbox menus show their own. Settings > Video > BUTTONS, and the Delta Guide's SETTINGS. |
+| `input.button_look` | The menus' and the Guide's buttons: `"gem"` (the default) or `"flat"`. |
+| `input.hud_buttons` | The buttons in a game's prompts ("Hold X to pick up"): `"classic"` (the default: the map's own) or `"hd"` (the style's flat buttons). |
 | `controls.*` | Every key: `controls.jump = "Space"`, or two at once, such as `"F, Mouse 4"`. |
 | `controls.delta`, `controls.delta_button` | The key that opens the Delta Guide: `"F3"` (on a Mac, F3 or the backslash key). OPEN KEY in the Delta Guide's SETTINGS. A controller's Guide button opens it too, unless Steam or the Xbox Game Bar takes that button. |
 | `controls.push_to_talk`, `controls.voice_channel` | Hold `"V"` to talk in voice chat, and press `"B"` to switch the voice channel. |

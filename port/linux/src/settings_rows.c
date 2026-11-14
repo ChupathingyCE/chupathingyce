@@ -131,6 +131,13 @@ static const char *const hdr_white_names[] = { "AUTO", "80", "100", "120", "160"
 static const char *const hdr_ui_names[] = { "SAME", "80", "100", "120", "160", "200", "250", "300", "400", "500", NULL };
 static const char *const hdr_peak_choices[] = { "0", "400", "600", "800", "1000", "1500", "2000", "4000", NULL };
 static const char *const hdr_peak_names[] = { "AUTO", "400", "600", "800", "1000", "1500", "2000", "4000", NULL };
+#ifdef HALO_HD_BUTTONS
+/* the prompts' buttons (ui_overlay.c): input.button_style's, input.button_look's
+and input.hud_buttons' */
+static const char *const button_style_choices[] = { "auto", "duke", "xbox", "playstation", "switch", NULL };
+static const char *const button_look_choices[] = { "gem", "flat", NULL };
+static const char *const hud_buttons_choices[] = { "classic", "hd", NULL };
+#endif
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
@@ -197,6 +204,12 @@ static const struct settings_row settings_rows[] =
 	{ _in_network | _in_guide, "SHOW WHEN I'M PLAYING", "network.share_presence", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "SCOREBOARD ICONS", "display.scoreboard_icons", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "THEME", "display.theme", _kind_choices, theme_choices, theme_names, 0, 0 },
+#ifdef HALO_HD_BUTTONS
+	{ _in_display | _in_guide, "BUTTONS", "input.button_style", _kind_choices, button_style_choices, NULL, 0, 0 },
+	{ _in_display | _in_guide, "MENU BUTTONS", "input.button_look", _kind_choices, button_look_choices, NULL, 0, 0 },
+	{ _in_display | _in_guide, "HUD BUTTONS", "input.hud_buttons", _kind_choices, hud_buttons_choices, NULL, 0, 0 },
+#endif
+	{ _in_network, "JOIN SCREEN", "display.join_screen", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "BACKGROUND", "delta.guide_background", _kind_choices, background_choices, background_names, 0, 0 },
 	{ _in_network, "DISCORD", "discord.presence", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "CRASH REPORTS", "crash_reports.upload", _kind_words, NULL, NULL, 0, 0 },

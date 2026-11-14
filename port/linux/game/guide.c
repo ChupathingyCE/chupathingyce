@@ -173,6 +173,8 @@ char const *delta_peer_platform_name(int platform);
 void delta_peer_game_set_party_tag(unsigned char const *tag);
 /* browser_screen.c's: a game joined by its link over the menus */
 boolean browser_screen_join_link(char const *link, char const *name);
+/* browser_screen.c's: whether the join screen covers the menus */
+boolean browser_screen_join_screen_shown(void);
 /* the platform layer's (sdl_platform.c) */
 void platform_open_url(char const *url);
 #ifdef DELTA_PEER_IDENTITY_CARDS
@@ -4939,8 +4941,8 @@ static void render_toast(void)
 		guide.toast_shown = FALSE;
 		return;
 	}
-	/* (never over the loading screen) */
-	if (!toast_visible())
+	/* (never over the loading screen, nor the join screen's prompts) */
+	if (!toast_visible() || browser_screen_join_screen_shown())
 		return;
 #ifdef HALO_CAPTURE
 	/* (a screenshot's toast is not in the next screenshot: the frame drawn
@@ -5300,9 +5302,10 @@ void guide_update(boolean menu_open)
 	guide_workshop_update(guide.open && guide.section == SOCIAL_SECTION_WORKSHOP);
 	if (guide.open && !section_shown(guide.section))
 		section_go((short)(guide.section + 1));
-	/* (a toast waits out the intro's video and a map's loading: its time
-	starts once it can show) */
-	if (guide.toast_shown && (bink_playback_active() || (!main_menu_is_active() && !game_map_loaded())))
+	/* (a toast waits out the intro's video, a map's loading and the join
+	screen: its time starts once it can show) */
+	if (guide.toast_shown && (bink_playback_active() || browser_screen_join_screen_shown() ||
+		(!main_menu_is_active() && !game_map_loaded())))
 		guide.toast_time = system_milliseconds();
 	/* (debug.delta_open and debug.delta_toast: for screenshots and tests,
 	once a run) */

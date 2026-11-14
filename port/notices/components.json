@@ -656,6 +656,22 @@
       ]
     },
     {
+      "name": "HD controller buttons",
+      "use": "The Duke's, PlayStation's and Switch's buttons in the prompts (input.button_style, input.hud_buttons).",
+      "source": "DKrumpp's hd_buttons_v1 (Chupathingy Discord, November 11, 2026)",
+      "copyright": [
+        "DKrumpp"
+      ],
+      "license": "Used with DKrumpp's permission, with credit",
+      "credit": "HD controller buttons by DKrumpp, used with permission (November 2026). They are not covered by Chupathingy's license; anyone reusing them should credit DKrumpp and ask him. port/assets/buttons_hd/README.md lists the files.",
+      "packages": [
+        "game"
+      ],
+      "covers": [
+        "port/assets/buttons_hd"
+      ]
+    },
+    {
       "name": "Halo PC Restored HUD art",
       "use": "The high-res HUD on the Xbox maps.",
       "source": "https://github.com/Aerocatia/halopc-restored (release r220)",

@@ -544,6 +544,19 @@ them one day; the builds embed the 64-pixel one) */
 #define HALO_MEDAL_ICONS 1
 #endif
 
+/* DKrumpp's HD buttons (port/assets/buttons_hd: the Duke's, PlayStation's
+and Switch's, gem and flat), the prompts' input.button_style and
+input.hud_buttons: the builds with the overlay's prompts (HALO_GAME_BROWSER)
+but the dedicated server's. Not on an OpenGL ES 2 console, whose icons are
+one texture of them stacked, 40 of them past its texture size; those keep
+the prompts they have */
+#if defined(HALO_CONSOLE_GLES2) && !defined(HALO_CONSOLE_NO_HD_BUTTONS)
+#define HALO_CONSOLE_NO_HD_BUTTONS 1
+#endif
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_HD_BUTTONS) && !defined(HALO_SERVER)
+#define HALO_HD_BUTTONS 1
+#endif
+
 /* screenshots and clips (port/linux/src/capture.c): the desktop builds'
 alone, with DELTA's toasts; not the consoles, the phones or the
 dedicated server */

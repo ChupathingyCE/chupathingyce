@@ -57,6 +57,7 @@ static __inline void stubbs_functions_action_note(short local_player_index, unsi
 { (void)local_player_index; (void)unit_control_flags; (void)switch_grenades; (void)throttle_forward; (void)throttle_left; }
 static __inline void stubbs_functions_action_reset(void) { }
 static __inline boolean stubbs_functions_object_cannot(long object_index, short what) { (void)object_index; (void)what; return FALSE; }
+static __inline boolean stubbs_functions_name_placed_on_demand(short object_name_index) { (void)object_name_index; return FALSE; }
 #endif
 
 #endif

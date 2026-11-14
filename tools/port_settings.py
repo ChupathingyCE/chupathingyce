@@ -64,9 +64,8 @@ SCREENS = {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
         # (close together, 22 to the other screens' 24, for the rows of the
-        # desktop's main list (VARIABLE REFRESH and its four links among them,
-        # RETICLE FOLLOWS FOV in ADVANCED by VEHICLE FOV to make room) and
-        # INTERFACE to fit above a help line, which sits lower than other
+        # desktop's main list (VARIABLE REFRESH and its five links among them)
+        # and INTERFACE to fit above a help line, which sits lower than other
         # screens' for them: tools/test_settings_layout.py)
         "spacing": 22,
         "help_top": 368,
@@ -131,9 +130,6 @@ SCREENS = {
               for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
              "Adjust the field of view.",
              None),
-            ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
-             [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
-             "How wide your weapon is drawn.\nSame follows the view.", None),
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
@@ -160,14 +156,31 @@ SCREENS = {
                 ("VEHICLE FOV:", "display.vehicle_field_of_view",
                  [("SAME", "0")] + [(f"{value}", f"{value}") for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
                  "The field of view in vehicles.\nSame keeps it as before.", None),
+                # (the field of view's other two, out of the main list so its
+                # rows and links fit above the help line)
+                ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
+                 "How wide your weapon is drawn.\nSame follows the view.", None),
                 ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
                  "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
             ]),
-            # (input.keyboard_prompts is in config.toml alone: the prompts
-            # follow the device used last)
+            # (the prompts' buttons: input.button_style, DKrumpp's HD
+            # buttons where the build has them, HALO_HD_BUTTONS. AUTO follows
+            # the controller used last; input.keyboard_prompts is in
+            # config.toml alone)
+            ("buttons", "BUTTONS", "The buttons prompts show.", [
+                ("STYLE:", "input.button_style",
+                 [("AUTO", "auto"), ("DUKE", "duke"), ("XBOX", "xbox"), ("PLAYSTATION", "playstation"),
+                  ("SWITCH", "switch")],
+                 "Auto follows the controller you use.", "desktop android switch"),
+                ("MENU LOOK:", "input.button_look", [("GEM", "gem"), ("FLAT", "flat")],
+                 "The buttons in menus and the Guide.", "desktop android switch"),
+                ("IN GAME:", "input.hud_buttons", [("CLASSIC", "classic"), ("HD", "hd")],
+                 "Classic: the game's own buttons.", "desktop android switch"),
+            ]),
             ("interface", "INTERFACE", "The menus, HUD and scoreboard.", [
                 # (read when the game starts: menu_tags.c)
                 ("MENU STYLE:", "display.menus",
@@ -274,9 +287,10 @@ SCREENS = {
     "network_setup": {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
-        "spacing": 30,
-        # (the help line under the ten rows, as Privacy's: the last,
-        # PRIVACY, ends at 371)
+        # (a little closer than the other screens', for its eleven rows, JOIN
+        # SCREEN among them: the last, PRIVACY, ends at 371, under the help
+        # line, as Privacy's)
+        "spacing": 27,
         "help_top": 376,
         # (its help is its own text, which menu_functions.c reads from its
         # help_strings, and sets to how INSTALL UPDATE's install goes)
@@ -301,6 +315,8 @@ SCREENS = {
              "Copy your game's invite link when you host.", NOT_CONSOLE),
             ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
              "Let a game you host start with only you.", None),
+            ("JOIN SCREEN:", "display.join_screen", ON_OFF,
+             "Show the loading screen while joining a game.", "desktop android"),
         ],
         "views": [
             # (update.channel's help is update.h's UPDATE_CHANNEL_HELP, as

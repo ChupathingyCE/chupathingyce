@@ -322,6 +322,9 @@ with their authors credited in each commit.
   mOTA-lEV's [OpenCE-Faber](https://github.com/SutlabSol/OpenCE-Faber),
   used under GPL-3.0 with his permission.
 - Controller button icons by snapchipper, CC0 (`port/assets/prompts`).
+- HD controller buttons (the original Xbox controller's, PlayStation's and
+  Switch's) by DKrumpp, used with permission (`port/assets/buttons_hd`); not
+  under our license.
 - The Xbox's 3D sound and reverb (`audio.hrtf`, `audio.reverb`): the HRTF
   measured on an Xbox and the reconstruction of its DSP reverb are
   [OpenH1](https://github.com/OpenH1/OpenH1)'s work, brought into

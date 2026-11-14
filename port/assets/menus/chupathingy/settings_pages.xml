@@ -105,12 +105,11 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anti_aliasing_android" x="54" y="205" platform="android"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_field_of_view" x="54" y="227" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_field_of_view" x="54" y="95" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_viewmodel_field_of_view" x="54" y="249" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_viewmodel_field_of_view" x="54" y="117" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_advanced" x="54" y="271" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_advanced" x="54" y="139" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_advanced" x="54" y="249" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_advanced" x="54" y="117" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_buttons" x="54" y="271" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_interface" x="54" y="293" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_interface" x="54" y="161" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_interface" x="54" y="139" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_text" x="54" y="315" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_hdr" x="54" y="337" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_advanced" x="54" y="73"/>
@@ -126,10 +125,16 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anisotropic_filtering" x="54" y="183" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_vehicle_field_of_view" x="54" y="227" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_vehicle_field_of_view" x="54" y="205" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scales_with_fov" x="54" y="249" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scales_with_fov" x="54" y="227" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_far_clip_distance" x="54" y="271" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_far_clip_distance" x="54" y="249" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_viewmodel_field_of_view" x="54" y="249" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_viewmodel_field_of_view" x="54" y="227" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scales_with_fov" x="54" y="271" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_reticle_scales_with_fov" x="54" y="249" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_far_clip_distance" x="54" y="293" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_far_clip_distance" x="54" y="271" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_buttons" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_button_style" x="54" y="73" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_button_look" x="54" y="95" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_hud_buttons" x="54" y="117" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_interface" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_menus" x="54" y="73" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_high_res_hud" x="54" y="95" platform="desktop android switch"/>
@@ -214,33 +219,34 @@
 		<on event="y" run="port settings defaults"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/view_main" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_online" x="54" y="73"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_allow_upnp" x="54" y="103" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_map_downloads" x="54" y="133" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_map_downloads_from_host" x="54" y="163" platform="desktop android"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_join_from_clipboard" x="54" y="193" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_copy_to_clipboard" x="54" y="223" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_start_with_one_player" x="54" y="253" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_start_with_one_player" x="54" y="103" platform="console"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_updates" x="54" y="283" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_chat" x="54" y="313" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_allow_upnp" x="54" y="100" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_map_downloads" x="54" y="127" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_map_downloads_from_host" x="54" y="154" platform="desktop android"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_join_from_clipboard" x="54" y="181" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_copy_to_clipboard" x="54" y="208" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_start_with_one_player" x="54" y="235" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_start_with_one_player" x="54" y="100" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_join_screen" x="54" y="262" platform="desktop android"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_updates" x="54" y="289" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_chat" x="54" y="316" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_privacy" x="54" y="343" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/view_updates" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_auto" x="54" y="73" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_channel" x="54" y="103" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_install_update" x="54" y="133" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_channel" x="54" y="100" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_install_update" x="54" y="127" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/view_chat" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_enabled" x="54" y="73" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_show" x="54" y="103" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_filter" x="54" y="133" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_streamer_mode" x="54" y="163" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_show" x="54" y="100" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_filter" x="54" y="127" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_streamer_mode" x="54" y="154" platform="desktop android switch"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/view_privacy" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_report_hosted_games" x="54" y="73" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_report_events" x="54" y="103" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_report_joined_games" x="54" y="133" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_upload" x="54" y="163" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_presence" x="54" y="193" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_show_server_name" x="54" y="223" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_show_join" x="54" y="253" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_report_events" x="54" y="100" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_report_joined_games" x="54" y="127" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_upload" x="54" y="154" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_presence" x="54" y="181" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_show_server_name" x="54" y="208" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_show_join" x="54" y="235" platform="desktop"/>
 	</widget>
 	<widget name="chupathingy/settings/delta_privacy_setup_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" run="port settings back"/>
