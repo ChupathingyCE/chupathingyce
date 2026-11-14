@@ -50,6 +50,9 @@ static long long view_entry_added(struct ui_map_entry *entry) { return entry->ad
 static char const *first_item = "";
 static boolean mcc_maps_level_first(char const *level)
 { return *first_item && !strncasecmp(level, first_item, strlen(first_item)); }
+static char const *mcc_maps_first_item(void) { return first_item; }
+static char view_item[80];
+static boolean view_item_only;
 """
 
 DRIVER = r"""
@@ -109,14 +112,26 @@ int main(void)
 	add("timberland", _ui_map_list_source_ce, 5);
 	add("mcc_maps\\7\\beta", _ui_map_list_source_mcc, 3);
 	add("mcc_maps\\7\\alpha", _ui_map_list_source_mcc, 4);
+	add("mcc_maps\\8\\other", _ui_map_list_source_mcc, 5);
 	ui_map_list_found_multiplayer = ui_map_list_count_value;
 	add("a10", _ui_map_list_source_xbox, 0);
+	add("mcc_maps\\7\\gamma", _ui_map_list_source_mcc, 0);
 	ui_map_list_found_campaign_end = ui_map_list_count_value;
 	first_item = "mcc_maps\\7\\";
 	set(_ui_map_list_source_all, _ui_map_list_sort_default, "");
 	show("first");
 	set(_ui_map_list_source_ce, _ui_map_list_sort_name, "timber");
 	show("first_narrowed");
+	/* (an item with no multiplayer maps here: the list as it was) */
+	first_item = "mcc_maps\\9\\";
+	set(_ui_map_list_source_all, _ui_map_list_sort_default, "");
+	show("first_campaign_only");
+	/* (hosting a network game, MCC maps not offered: the list as it is then) */
+	first_item = "mcc_maps\\7\\";
+	hosting = TRUE;
+	set(_ui_map_list_source_all, _ui_map_list_sort_default, "");
+	show("first_hosting");
+	hosting = FALSE;
 	first_item = "";
 	set(_ui_map_list_source_all, _ui_map_list_sort_default, "");
 	show("first_reset");
@@ -131,7 +146,7 @@ def output(tmp_path_factory):
     if not compiler:
         pytest.skip("no C compiler")
     code = PRELUDE + "\n".join(function(SOURCE, name) for name in (
-        "view_lower", "view_contains", "view_matches", "view_compare", "view_apply")) + DRIVER
+        "view_lower", "view_contains", "view_item_entry", "view_matches", "view_compare", "view_campaign_row", "view_apply")) + DRIVER
     work = tmp_path_factory.mktemp("map-list-view")
     (work / "view.c").write_text(code)
     exe = work / "view"
@@ -169,17 +184,24 @@ def test_no_mcc_maps_while_hosting_a_network_game(output):
     assert rows(output, "hosting") == ["bloodgulch", "timberland", "Damnation", "|", "a10"]
 
 
-def test_the_item_play_handed_over_leads_the_rows(output):
-    # (its maps in their own order, before the rest of the view's)
-    assert rows(output, "first") == ["mcc_maps\\7\\beta", "mcc_maps\\7\\alpha", "bloodgulch", "timberland",
-                                     "|", "a10"]
-    # (shown whatever Show and Search say, in the view's order)
-    assert rows(output, "first_narrowed") == ["mcc_maps\\7\\alpha", "mcc_maps\\7\\beta", "timberland", "|", "a10"]
+def test_the_item_play_handed_over_is_all_the_rows(output):
+    """#1301: PLAY's map select listed every installed map, the item's first; it lists the item's maps alone"""
+    # (its maps in their own order, its campaign level after them)
+    assert rows(output, "first") == ["mcc_maps\\7\\beta", "mcc_maps\\7\\alpha", "|", "mcc_maps\\7\\gamma"]
+    # (whatever Show and Search say, in the view's order)
+    assert rows(output, "first_narrowed") == ["mcc_maps\\7\\alpha", "mcc_maps\\7\\beta", "|", "mcc_maps\\7\\gamma"]
+
+
+def test_an_item_without_multiplayer_maps_keeps_the_list(output):
+    assert rows(output, "first_campaign_only") == ["bloodgulch", "timberland", "mcc_maps\\7\\beta",
+                                                   "mcc_maps\\7\\alpha", "mcc_maps\\8\\other", "|", "a10",
+                                                   "mcc_maps\\7\\gamma"]
+    assert rows(output, "first_hosting") == ["bloodgulch", "timberland", "|", "a10"]
 
 
 def test_the_item_let_go_leaves_the_list_as_it_was(output):
     assert rows(output, "first_reset") == ["bloodgulch", "timberland", "mcc_maps\\7\\beta", "mcc_maps\\7\\alpha",
-                                           "|", "a10"]
+                                           "mcc_maps\\8\\other", "|", "a10", "mcc_maps\\7\\gamma"]
 
 
 def test_desktop_list_has_room_for_the_mcc_catalog():

@@ -35,6 +35,8 @@ boolean mcc_maps_campaign_order(char const *level_name);
 its maps lead mcc_maps_type_index's lists (and so the map lists), and the
 campaign list opens once on its first (mcc_maps_take_first_focus) */
 void mcc_maps_set_first_item(char const *item_id);
+/* the start of its maps' names, mcc_maps\<item id>\ ("": none) */
+char const *mcc_maps_first_item(void);
 boolean mcc_maps_level_first(char const *level_name);
 boolean mcc_maps_take_first_focus(void);
 /* The title of the Steam Workshop item with this id when it is subscribed here and has one. */
@@ -78,6 +80,7 @@ the shared code calls do nothing, their arguments unevaluated */
 #define mcc_maps_type_index(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (short)NONE)
 #define mcc_maps_set_first_item(a0) ((void)sizeof(a0))
 #define mcc_maps_level_first(a0) ((void)sizeof(a0), (boolean)0)
+#define mcc_maps_first_item() ((char const *)"")
 #define mcc_maps_take_first_focus() ((boolean)0)
 #define mcc_maps_campaign_order(a0) ((void)sizeof(a0), (boolean)0)
 #endif

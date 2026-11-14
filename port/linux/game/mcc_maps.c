@@ -614,6 +614,11 @@ void mcc_maps_set_first_item(char const *item_id)
 	mcc_maps_first.focus = mcc_maps_first.prefix[0] != 0;
 }
 
+char const *mcc_maps_first_item(void)
+{
+	return mcc_maps_first.prefix;
+}
+
 boolean mcc_maps_level_first(char const *level_name)
 {
 	return mcc_maps_first.prefix[0] && level_name &&
