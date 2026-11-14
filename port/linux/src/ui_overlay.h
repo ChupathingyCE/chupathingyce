@@ -375,6 +375,9 @@ void ui_style_card(float left, float right, float y, const char *name, const cha
 
 /* (d3d8_gl.c, at Present: the frame's drawing, in the picture's place in
 the window, x and y its lower left corner in GL's window coordinates) */
+/* the window's encoding for the overlay's shader (xgpu_tone_map.h, from
+d3d8_gl.c): x 2 for a floating-point window's linear light */
+void ui_overlay_set_output(const float encoding[4]);
 void ui_overlay_present(int x, int y, int width, int height, int window_width, int window_height);
 
 #endif

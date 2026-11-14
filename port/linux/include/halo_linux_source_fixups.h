@@ -77,6 +77,41 @@ void halo_vertex_shader_lighting(unsigned long handle);
 /* display.anti_aliasing's pass over a window's 3D view, before the HUD and
 menus (source/render/render.c): the window's bounds on the screen */
 void halo_screen_anti_alias(short x0, short y0, short x1, short y1);
+/* display.hdr's tone mapping of a window's 3D view, before its
+anti-aliasing (source/render/render.c), and what the code drawing knows of
+the draws that follow (HALO_HDR_KIND_*, 0 none: port/linux/src/d3d8_gl.c's
+hdr_draw_tag, xgpu_tone_map.h) */
+/* (the ports with port/linux/src/d3d8_gl.c, the desktop's and Android's,
+have them; the others, the original Xbox's, the Switch's and the PS3's own
+renderers, draw into their own 8 bits: nothing to do, and no stub to add
+in their ports) */
+#if defined(HALO_LINUX_PLATFORM_LAYER) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_SWITCH_CONSOLE) && \
+	!defined(HALO_CONSOLE) && !defined(HALO_CONSOLE_GL_LAYER)
+#define HALO_PORT_HDR 1
+#endif
+#ifdef HALO_PORT_HDR
+void halo_screen_tone_map(short x0, short y0, short x1, short y1);
+void halo_hdr_draw_kind(int kind);
+#else
+#define halo_screen_tone_map(x0, y0, x1, y1) ((void)0)
+#define halo_hdr_draw_kind(kind) ((void)sizeof(kind))
+#endif
+#ifndef HALO_HDR_KIND_NONE
+#define HALO_HDR_KIND_NONE 0
+/* a transparent part of the first-person weapon (and the bits below) */
+#define HALO_HDR_KIND_FIRST_PERSON 1
+/* ... its shader draws a number (the assault rifle's ammunition) */
+#define HALO_HDR_KIND_NUMERIC 2
+/* ... its shader is a meter (a plasma weapon's heat) */
+#define HALO_HDR_KIND_METER 4
+/* a deliberate glow of the HUD's: a meter flashing, the motion tracker */
+#define HALO_HDR_KIND_HUD_GLOW 16
+/* a surface that is light (in the 3D view): a transparent shader the map
+says emits light (its radiosity power: a teleporter's field, a light
+fixture), a plasma shader (an energy shield), a light's volume (a plasma
+bolt's) */
+#define HALO_HDR_KIND_LIGHT 32
+#endif
 /* the loading screen's picture, RGBA bytes with its top row first, over the
 whole back buffer (port/linux/src/d3d8_gl.c, port/linux/game/loading_screen.c) */
 void halo_draw_picture(const unsigned char *rgba, long width, long height);

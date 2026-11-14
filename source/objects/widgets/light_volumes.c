@@ -273,6 +273,9 @@ void light_volume_render(
 				short count;
 				short sprite_index;
 
+				/* port: (display.hdr: a light's volume is light, as a plasma
+				bolt's: port/linux/src/xgpu_tone_map.h) */
+				halo_hdr_draw_kind(HALO_HDR_KIND_LIGHT);
 				rasterizer_widget_begin(
 					_widget_type_internal_sprite,
 					FLAG(_rasterizer_widget_z_enable_bit));
@@ -316,6 +319,7 @@ void light_volume_render(
 						real_argb_color_to_pixel32(&color));
 				}
 				rasterizer_widget_end();
+				halo_hdr_draw_kind(HALO_HDR_KIND_NONE); /* port: (drawn) */
 			}
 		}
 	}

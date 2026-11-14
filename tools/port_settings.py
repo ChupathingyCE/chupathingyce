@@ -63,11 +63,13 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (close together, for the rows of the main list (with its three
-        # links) and INTERFACE to fit above a help line, which sits lower
-        # than other screens' for them: tools/test_settings_layout.py)
-        "spacing": 24,
-        "help_top": 366,
+        # (close together, 22 to the other screens' 24, for the rows of the
+        # desktop's main list (VARIABLE REFRESH and its four links among them,
+        # RETICLE FOLLOWS FOV in ADVANCED by VEHICLE FOV to make room) and
+        # INTERFACE to fit above a help line, which sits lower than other
+        # screens' for them: tools/test_settings_layout.py)
+        "spacing": 22,
+        "help_top": 368,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's resolution and anti-aliasing in
@@ -132,8 +134,6 @@ SCREENS = {
             ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
              [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
              "How wide your weapon is drawn.\nSame follows the view.", None),
-            ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
-             "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
@@ -160,6 +160,8 @@ SCREENS = {
                 ("VEHICLE FOV:", "display.vehicle_field_of_view",
                  [("SAME", "0")] + [(f"{value}", f"{value}") for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
                  "The field of view in vehicles.\nSame keeps it as before.", None),
+                ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
+                 "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
@@ -211,6 +213,27 @@ SCREENS = {
                  # classic titles only: HALO_CONSOLE_NO_TITLE_CHOICE; last,
                  # so the Switch's list has no gap)
                  "desktop android"),
+            ]),
+            ("hdr", "HDR SETUP", "HDR, the HDR display, tone mapping and brightness.", [
+                ("HDR:", "display.hdr", ON_OFF,
+                 "Keep the light of explosions, plasma and glows past\nwhite, and roll it off instead of clipping.", "desktop"),
+                ("HDR DISPLAY:", "display.hdr_output", ON_OFF,
+                 "With HDR, on an HDR display, show that light\nbrighter than white. From the next start.", "desktop"),
+                ("TONE MAPPING:", "display.hdr_tone_mapping",
+                 [("NEUTRAL", "neutral"), ("ACES", "aces"), ("REINHARD", "reinhard")],
+                 "Neutral keeps the picture and rolls off only the\nbrightest parts. ACES is filmic, Reinhard softer.", "desktop"),
+                ("EXPOSURE:", "display.hdr_exposure",
+                 [(f"{value:g}", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)],
+                 "The view's brightness before tone mapping.", "desktop"),
+                ("HDR BRIGHTNESS:", "display.hdr_paper_white",
+                 [("AUTO", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
+                 "How bright white is on an HDR display, in nits.\nAuto is the display's own.", "desktop"),
+                ("HDR PEAK:", "display.hdr_peak",
+                 [("AUTO", "0")] + [(f"{value}", f"{value}") for value in (400, 600, 800, 1000, 1500, 2000, 4000)],
+                 "The brightest highlight on an HDR display,\nin nits. Auto asks the display.", "desktop"),
+                ("HUD BRIGHTNESS:", "display.hdr_ui_nits",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
+                 "The HUD's and menus' white on an HDR display,\nin nits.", "desktop"),
             ]),
         ],
     },
@@ -608,7 +631,15 @@ def _setting_rows(base: str, spec: dict) -> tuple:
         elif entry[0] == "link":
             _, view, key, place, label_index = entry
             shown = any(_on_console(row[4]) for row in views[view])
-            rows.append((f"{base}/op_{key}", None if shown else NOT_CONSOLE, place))
+            # (a list every row of which is on the same few platforms opens
+            # only there: HDR SETUP on the desktop alone)
+            platforms = {row[4] for row in views[view]}
+            if None in platforms:
+                platform = None if shown else NOT_CONSOLE
+            else:
+                names = {name for names in platforms for name in names.split()}
+                platform = " ".join(name for name in [*NOT_CONSOLE.split(), CONSOLE] if name in names)
+            rows.append((f"{base}/op_{key}", platform, place))
             extra += _link_row(base, key, label_index)
         else:
             _, row, key, place, label_index = entry

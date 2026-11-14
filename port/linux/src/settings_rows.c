@@ -123,6 +123,14 @@ static const char *const background_choices[] = { "auto", "plain", "cellwall", N
 static const char *const background_names[] = { "AUTO", "PLAIN", "CELLWALL", NULL };
 /* display.light_effects' (port/linux/game/lighting_config.c) */
 static const char *const light_effects_choices[] = { "auto", "high", "low", "off", NULL };
+/* display.hdr's (d3d8_gl.c, xgpu_tone_map.h): the paper white and the UI's
+white in nits (0 the display's, or the paper white's), the peak in nits (0
+the display's) */
+static const char *const hdr_white_choices[] = { "0", "80", "100", "120", "160", "200", "250", "300", "400", "500", NULL };
+static const char *const hdr_white_names[] = { "AUTO", "80", "100", "120", "160", "200", "250", "300", "400", "500", NULL };
+static const char *const hdr_ui_names[] = { "SAME", "80", "100", "120", "160", "200", "250", "300", "400", "500", NULL };
+static const char *const hdr_peak_choices[] = { "0", "400", "600", "800", "1000", "1500", "2000", "4000", NULL };
+static const char *const hdr_peak_names[] = { "AUTO", "400", "600", "800", "1000", "1500", "2000", "4000", NULL };
 static const char *const theme_names[] = { "HALO BLUE", "DASHBOARD GREEN", "VISOR ORANGE", "LIVE ORANGE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
@@ -138,6 +146,12 @@ static const struct settings_row settings_rows[] =
 	{ _in_display, "V-SYNC", "display.vsync", _kind_toggle, NULL, NULL, 0, 1 },
 	{ _in_display, "VARIABLE REFRESH", "display.vrr", _kind_words, NULL, NULL, 0, 1 },
 	{ _in_display, "ANTI-ALIASING", "display.anti_aliasing", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_display, "HDR", "display.hdr", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_display, "HDR DISPLAY", "display.hdr_output", _kind_toggle, NULL, NULL, 1, 0 },
+	{ _in_display, "TONE MAPPING", "display.hdr_tone_mapping", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_display, "HDR BRIGHTNESS", "display.hdr_paper_white", _kind_choices, hdr_white_choices, hdr_white_names, 0, 0 },
+	{ _in_display, "HDR PEAK", "display.hdr_peak", _kind_choices, hdr_peak_choices, hdr_peak_names, 0, 0 },
+	{ _in_display, "HUD BRIGHTNESS", "display.hdr_ui_nits", _kind_choices, hdr_white_choices, hdr_ui_names, 0, 0 },
 	{ _in_display, "MENU STYLE", "display.menus", _kind_choices, menus_choices, NULL, 0, 0 },
 #ifdef HALO_TITLE_CHOICE
 	{ _in_display, "TITLE FONT", "display.title_font", _kind_choices, title_font_choices, NULL, 0, 0 },

@@ -48,9 +48,10 @@ k <vertex code> <flags> <packed mask> <pixel key number>
   function, 114 fog, 115 the fog table mode, 116 sample counting, 117
   coverage alpha, 118 per-pixel lighting, 119 the alpha test's samples, 120
   point thresholds, 121 the Light effects, 122 an MCC map's bump
-  attenuation. A new field takes the next number, and a number is never
-  used again, so an older list still reads: a slot a build doesn't know is
-  skipped, and a field a list doesn't give is 0.
+  attenuation, 123 display.hdr's glow (a draw brightened past white). A
+  new field takes the next number, and a number is never used again, so
+  an older list still reads: a slot a build doesn't know is skipped, and a
+  field a list doesn't give is 0.
 - `map` starts one map's keys, by its file's name. A map's own list has no
   `map` line.
 - `k` is a key: the vertex program's code hash (FNV-1a, 64 bits, of its
