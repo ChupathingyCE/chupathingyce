@@ -15,13 +15,19 @@ one of two kinds of glyph:
 
 - Distance fields (display.high_res_text_fields, the default): each glyph's
   multi-channel signed distance field (port/third_party/msdfgen/msdf_gen.h)
-  is made once, as it is first drawn, at a fixed size (FIELD_EM texels to
-  the em), and the pixel shader draws its edge sharp at whatever size the
-  display gives it (nv2a_psh.c, from the key's text_fields:
-  text_hires_atlas_fields). A field is shared by every font tag drawn with
-  the same font file; a change of the display's size changes nothing, and
-  a full atlas starts it over. Based on work by goatbutt and the OpenH1
-  team (their text_hires.c and msdf_gen.h).
+  is made once, at a fixed size (FIELD_EM texels to the em), and the pixel
+  shader draws its edge sharp at whatever size the display gives it
+  (nv2a_psh.c, from the key's text_fields: text_hires_atlas_fields). A
+  font's ASCII and Latin-1 glyphs are made ahead on a worker thread as the
+  font is loaded; any other glyph is made as it is first drawn, within a
+  budget of the frame's time (FIELDS_FRAME_BUDGET_US), or else by the
+  worker, the glyph drawn rasterized (a stand-in in the same atlas) until
+  its field is there. A glyph whose field cannot be made (an outline of
+  more edges than the generator holds) keeps its stand-in. A field is
+  shared by every font tag drawn with the same font file; a change of the
+  display's size changes nothing, and a full atlas starts it over. Based
+  on work by goatbutt and the OpenH1 team (their text_hires.c and
+  msdf_gen.h).
 - Rasterized glyphs (display.high_res_text_fields false, and a console's
   own renderer): a glyph is rasterized when first drawn, at the display's
   pixels per unit of the 480 lines, into an 8-bit atlas. A change of the
@@ -54,6 +60,8 @@ when the settings change while the game runs.
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include <time.h>
+#include <pthread.h>
 
 #define STBTT_STATIC
 #define STB_TRUETYPE_IMPLEMENTATION
@@ -171,6 +179,8 @@ static int fields_wanted(void)
 
 #ifdef TEXT_FIELDS
 static void fields_reset(void);
+static void fields_drain(void);
+static void fields_prewarm(long font);
 #endif
 
 /* the atlas emptied: every glyph to be rasterized again */
@@ -291,7 +301,7 @@ static float font_fit(long font)
 
 /* the font of a slot read (again), from the player's file for its role or
 else its built-in one: its scale 0 when it has none */
-static void font_load(long font)
+static void font_load_face(long font)
 {
 	const struct text_hires_embedded *embedded = embedded_font(fonts[font].tag);
 	int large, x0, y0, x1, y1;
@@ -333,6 +343,17 @@ static void font_load(long font)
 	}
 }
 
+/* the font of a slot read (again), and its common glyphs' fields made
+ahead, on the worker thread */
+static void font_load(long font)
+{
+	font_load_face(font);
+#ifdef TEXT_FIELDS
+	if (fonts[font].scale > 0.0f)
+		fields_prewarm(font);
+#endif
+}
+
 /* the player's fonts read again when their settings changed, and every
 font with them (the atlas's glyphs then drawn again) */
 static void player_fonts_check(void)
@@ -352,6 +373,10 @@ static void player_fonts_check(void)
 	}
 	if (!changed)
 		return;
+#ifdef TEXT_FIELDS
+	/* (the worker may be reading the files' data) */
+	fields_drain();
+#endif
 	for (role = 0; role < 2; role++)
 	{
 		free(player_fonts[role].data);
@@ -392,11 +417,21 @@ box that hold the field's reach, half the range and one more */
 /* the verified mark's shape, drawn in units of its own: its height */
 #define MARK_UNITS 1000.0
 #define MARK_INDEX (-1)
+/* a stand-in's key: the glyph rasterized for the display's pixels while
+its field is made, or for good when the field cannot be */
+#define STAND_IN_BIT 0x40000000
+/* the most time a frame spends making fields on its own thread
+(microseconds within a frame's worth of time): the rest wait for the worker
+and are drawn as stand-ins meanwhile */
+#define FIELDS_FRAME_BUDGET_US 1500
+#define FIELDS_FRAME_US 16000
 
 /* a glyph's field: the font file it is of (by its data, as stb_truetype
-holds it) and its glyph index, its texels in the atlas (width 0: the glyph
-has no ink), the atlas's texels to the font unit, and the field's corner
-in font units (y up) */
+holds it) and its glyph index (STAND_IN_BIT: a stand-in), its texels in the
+atlas (width 0: the glyph has no ink, or could not be made: failed), the
+atlas's texels to the font unit, and the field's corner in font units (y
+up); for a stand-in, the display's pixels to the font unit it was
+rasterized at (pixels) */
 struct field
 {
 	const unsigned char *data;
@@ -404,6 +439,8 @@ struct field
 	short x, y, width, height;
 	float scale;
 	float left, top;
+	float pixels;
+	unsigned char failed;
 };
 
 static struct
@@ -414,9 +451,57 @@ static struct
 	/* (field numbers + 1, by file and glyph) */
 	short table[FIELD_TABLE_SIZE];
 	int pack_x, pack_y, pack_row_height;
+	/* the time this frame's worth of time has spent making fields on its
+	own thread (fields_budget) */
+	struct timespec window;
+	long spent_us;
 } fields;
 /* (the mark's "font file") */
 static const unsigned char mark_data[1];
+
+/* ---------- the worker: fields made ahead, on a thread of their own */
+
+enum
+{
+	_job_free,
+	_job_queued,
+	_job_making,
+	_job_done
+};
+
+/* a glyph the worker makes: its font (a slot's, which stays put), the
+field it made (rgba NULL: no ink, or failed) */
+struct field_job
+{
+	const stbtt_fontinfo *info;
+	const unsigned char *data;
+	int index;
+	int state;
+	unsigned char *rgba;
+	int width, height, failed;
+	float left, top, scale;
+};
+
+#define FIELD_JOBS 1024
+
+static struct
+{
+	struct field_job jobs[FIELD_JOBS];
+	/* the ring: the next job added, made and collected */
+	int add, make, collect;
+	pthread_mutex_t lock;
+	pthread_cond_t wake, made;
+	int running;
+	/* what the worker made ahead since it was last reported: fields and
+	microseconds */
+	long ahead_count, ahead_us;
+} work = { { { NULL, NULL, 0, 0, NULL, 0, 0, 0, 0.0f, 0.0f, 0.0f } }, 0, 0, 0,
+	PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, 0, 0 };
+
+static long elapsed_us(const struct timespec *from, const struct timespec *to)
+{
+	return (long)((to->tv_sec - from->tv_sec) * 1000000L + (to->tv_nsec - from->tv_nsec) / 1000L);
+}
 
 static unsigned long field_hash(const unsigned char *data, int index)
 {
@@ -448,8 +533,24 @@ static struct field *field_find(const unsigned char *data, int index)
 	return NULL;
 }
 
+/* the job of a glyph queued or made and not yet collected, or NULL (with
+the lock held): the ring's live jobs, from the next collected to the last
+added, looked through (a thousand at the most, and only while a glyph has
+no field yet) */
+static struct field_job *job_find(const unsigned char *data, int index)
+{
+	int job;
+
+	for (job = work.collect; job != work.add; job = (job + 1) % FIELD_JOBS)
+	{
+		if (work.jobs[job].state != _job_free && work.jobs[job].data == data && work.jobs[job].index == index)
+			return &work.jobs[job];
+	}
+	return NULL;
+}
+
 /* the atlas emptied: every field to be made again, and the texture
-written whole (nothing until the first field is made: field_make) */
+written whole (nothing until the first field is made: field_place) */
 static void fields_reset(void)
 {
 	if (!fields.pixels)
@@ -462,16 +563,77 @@ static void fields_reset(void)
 	dirty_bottom = FIELDS_HEIGHT;
 }
 
-/* a shape's field made into the atlas: the shape (stb_truetype's outline,
-in units of the file, y up) within its box, at scale texels to the unit;
-NULL when there is no room for it even once the atlas is emptied, or the
-outline is more than the generator holds */
-static struct field *field_make(const unsigned char *data, int index, const struct msdf_vertex *shape, int count,
-	int x0, int y0, int x1, int y1, float scale)
+/* a glyph's field made: its outline (in units of the file, y up, as
+stb_truetype gives it) within its box at scale texels to the unit, into
+*rgba (NULL: no ink); FALSE if it cannot be made (an outline of more edges
+than the generator holds, or no memory). On any thread. */
+static int field_generate(const struct msdf_vertex *shape, int count, int x0, int y0, int x1, int y1, float scale,
+	unsigned char **rgba, int *width, int *height, float *left, float *top)
+{
+	*rgba = NULL;
+	*width = *height = 0;
+	*left = *top = 0.0f;
+	if (x1 <= x0 || y1 <= y0)
+		return 1;
+	*width = (int)ceilf((float)(x1 - x0) * scale) + 2 * FIELD_PAD;
+	*height = (int)ceilf((float)(y1 - y0) * scale) + 2 * FIELD_PAD;
+	*left = (float)x0 - (float)FIELD_PAD / scale;
+	*top = (float)y1 + (float)FIELD_PAD / scale;
+	if (*width + 1 > FIELDS_WIDTH || *height + 1 > FIELDS_HEIGHT)
+		return 0;
+	*rgba = malloc((size_t)*width * *height * 4);
+	if (!*rgba || !msdf_generate(shape, count, scale, *left, *top, (double)FIELD_RANGE, *width, *height, *rgba))
+	{
+		free(*rgba);
+		*rgba = NULL;
+		return 0;
+	}
+	return 1;
+}
+
+/* a font's glyph's field made (field_generate), from its outline */
+static int glyph_generate(const stbtt_fontinfo *info, int index, float scale, unsigned char **rgba, int *width,
+	int *height, float *left, float *top)
+{
+	stbtt_vertex *vertices = NULL;
+	struct msdf_vertex *shape;
+	int count, vertex, x0 = 0, y0 = 0, x1 = 0, y1 = 0, made;
+
+	if (!stbtt_GetGlyphBox(info, index, &x0, &y0, &x1, &y1))
+		x0 = y0 = x1 = y1 = 0;
+	count = stbtt_GetGlyphShape(info, index, &vertices);
+	shape = malloc(sizeof(*shape) * (size_t)(count > 0 ? count : 1));
+	if (!shape)
+	{
+		stbtt_FreeShape(info, vertices);
+		*rgba = NULL;
+		return 0;
+	}
+	for (vertex = 0; vertex < count; vertex++)
+	{
+		shape[vertex].type = vertices[vertex].type;
+		shape[vertex].x = vertices[vertex].x;
+		shape[vertex].y = vertices[vertex].y;
+		shape[vertex].cx = vertices[vertex].cx;
+		shape[vertex].cy = vertices[vertex].cy;
+		shape[vertex].cx1 = vertices[vertex].cx1;
+		shape[vertex].cy1 = vertices[vertex].cy1;
+	}
+	made = field_generate(shape, count, x0, y0, x1, y1, scale, rgba, width, height, left, top);
+	stbtt_FreeShape(info, vertices);
+	free(shape);
+	return made;
+}
+
+/* texels (width by height, RGBA) put into the atlas as the field of a
+glyph, keyed by its file and index: NULL rgba for a glyph with no ink, or
+one that failed (then kept as failed, never tried again); NULL when there
+is no room for it even once the atlas is emptied */
+static struct field *field_place(const unsigned char *data, int index, const unsigned char *rgba, int width,
+	int height, float left, float top, float scale, float pixels, int failed)
 {
 	struct field *field;
-	unsigned char *rgba;
-	int width, height, row, attempt;
+	int row, attempt;
 
 	if (!fields.pixels)
 	{
@@ -487,14 +649,13 @@ static struct field *field_make(const unsigned char *data, int index, const stru
 	field->data = data;
 	field->index = index;
 	field->scale = scale;
-	if (x1 <= x0 || y1 <= y0)
+	field->pixels = pixels;
+	field->failed = (unsigned char)(failed != 0);
+	if (!rgba || width <= 0 || height <= 0)
 	{
-		/* (no ink: a space) */
 		field_table_add(fields.count++);
 		return field;
 	}
-	width = (int)ceilf((float)(x1 - x0) * scale) + 2 * FIELD_PAD;
-	height = (int)ceilf((float)(y1 - y0) * scale) + 2 * FIELD_PAD;
 	if (width + 1 > FIELDS_WIDTH || height + 1 > FIELDS_HEIGHT)
 		return NULL;
 	for (attempt = 0; attempt < 2; attempt++)
@@ -513,25 +674,19 @@ static struct field *field_make(const unsigned char *data, int index, const stru
 		field->data = data;
 		field->index = index;
 		field->scale = scale;
+		field->pixels = pixels;
 	}
 	field->x = (short)fields.pack_x;
 	field->y = (short)fields.pack_y;
 	field->width = (short)width;
 	field->height = (short)height;
-	field->left = (float)x0 - (float)FIELD_PAD / scale;
-	field->top = (float)y1 + (float)FIELD_PAD / scale;
-	rgba = malloc((size_t)width * height * 4);
-	if (!rgba || !msdf_generate(shape, count, scale, field->left, field->top, (double)FIELD_RANGE, width, height, rgba))
-	{
-		free(rgba);
-		return NULL;
-	}
+	field->left = left;
+	field->top = top;
 	for (row = 0; row < height; row++)
 	{
 		memcpy(fields.pixels + ((size_t)(field->y + row) * FIELDS_WIDTH + field->x) * 4,
 			rgba + (size_t)row * width * 4, (size_t)width * 4);
 	}
-	free(rgba);
 	if (field->y < dirty_top)
 		dirty_top = field->y;
 	if (field->y + height > dirty_bottom)
@@ -543,40 +698,248 @@ static struct field *field_make(const unsigned char *data, int index, const stru
 	return field;
 }
 
-/* a font's glyph's field, made now if it is not yet */
+static void *fields_worker_main(void *unused)
+{
+	(void)unused;
+	pthread_mutex_lock(&work.lock);
+	for (;;)
+	{
+		struct field_job *job;
+		struct timespec from, to;
+		unsigned char *rgba = NULL;
+		int width = 0, height = 0, failed;
+		float left = 0.0f, top = 0.0f;
+
+		while (work.jobs[work.make].state != _job_queued)
+			pthread_cond_wait(&work.wake, &work.lock);
+		job = &work.jobs[work.make];
+		work.make = (work.make + 1) % FIELD_JOBS;
+		job->state = _job_making;
+		pthread_mutex_unlock(&work.lock);
+		clock_gettime(CLOCK_MONOTONIC, &from);
+		failed = !glyph_generate(job->info, job->index, job->scale, &rgba, &width, &height, &left, &top);
+		clock_gettime(CLOCK_MONOTONIC, &to);
+		pthread_mutex_lock(&work.lock);
+		job->rgba = rgba;
+		job->width = width;
+		job->height = height;
+		job->left = left;
+		job->top = top;
+		job->failed = failed;
+		job->state = _job_done;
+		work.ahead_count++;
+		work.ahead_us += elapsed_us(&from, &to);
+		pthread_cond_broadcast(&work.made);
+	}
+	return NULL;
+}
+
+/* a glyph queued for the worker (with the lock held): FALSE when the ring
+is full, or it is queued already */
+static int job_add(const stbtt_fontinfo *info, const unsigned char *data, int index, float scale)
+{
+	struct field_job *job = &work.jobs[work.add];
+
+	if (job->state != _job_free || job_find(data, index))
+		return 0;
+	if (!work.running)
+	{
+		pthread_t thread;
+
+		if (pthread_create(&thread, NULL, fields_worker_main, NULL) != 0)
+			return 0;
+		pthread_detach(thread);
+		work.running = 1;
+	}
+	memset(job, 0, sizeof(*job));
+	job->info = info;
+	job->data = data;
+	job->index = index;
+	job->scale = scale;
+	job->state = _job_queued;
+	work.add = (work.add + 1) % FIELD_JOBS;
+	pthread_cond_signal(&work.wake);
+	return 1;
+}
+
+/* the fields the worker has made put into the atlas, in order (the ring's
+jobs freed as they are) */
+static void fields_collect(void)
+{
+	pthread_mutex_lock(&work.lock);
+	while (work.jobs[work.collect].state == _job_done)
+	{
+		struct field_job *job = &work.jobs[work.collect];
+		unsigned char *rgba = job->rgba;
+
+		job->rgba = NULL;
+		pthread_mutex_unlock(&work.lock);
+		field_place(job->data, job->index, rgba, job->width, job->height, job->left, job->top, job->scale, 0.0f,
+			job->failed);
+		free(rgba);
+		pthread_mutex_lock(&work.lock);
+		job->state = _job_free;
+		work.collect = (work.collect + 1) % FIELD_JOBS;
+	}
+	if (work.ahead_count && work.jobs[work.collect].state == _job_free)
+	{
+		platform_log("high-res text: %ld fields made ahead in %ld ms", work.ahead_count, work.ahead_us / 1000);
+		work.ahead_count = 0;
+		work.ahead_us = 0;
+	}
+	pthread_mutex_unlock(&work.lock);
+}
+
+/* the worker's queue emptied and the worker idle (the font files' data
+about to be freed): what it made is let go */
+static void fields_drain(void)
+{
+	int job;
+
+	pthread_mutex_lock(&work.lock);
+	for (job = 0; job < FIELD_JOBS; job++)
+	{
+		if (work.jobs[job].state == _job_queued)
+			work.jobs[job].state = _job_done;
+	}
+	for (job = 0; job < FIELD_JOBS; job++)
+	{
+		while (work.jobs[job].state == _job_making)
+			pthread_cond_wait(&work.made, &work.lock);
+	}
+	for (job = 0; job < FIELD_JOBS; job++)
+	{
+		free(work.jobs[job].rgba);
+		work.jobs[job].rgba = NULL;
+		work.jobs[job].state = _job_free;
+	}
+	work.add = work.make = work.collect = 0;
+	work.ahead_count = 0;
+	work.ahead_us = 0;
+	pthread_mutex_unlock(&work.lock);
+}
+
+/* a font's common glyphs (ASCII and Latin-1) queued for the worker, as
+the font is loaded, so that the text's first draw finds them made */
+static void fields_prewarm(long font)
+{
+	const stbtt_fontinfo *info = &fonts[font].info;
+	float scale = stbtt_ScaleForMappingEmToPixels(info, (float)FIELD_EM);
+	unsigned long code;
+
+	if (!fields_wanted())
+		return;
+	pthread_mutex_lock(&work.lock);
+	for (code = 33; code < 256; code++)
+	{
+		int index;
+
+		if (code >= 127 && code < 161)
+			continue;
+		index = stbtt_FindGlyphIndex(info, (int)code);
+		if (index && !field_find(info->data, index))
+			job_add(info, info->data, index, scale);
+	}
+	pthread_mutex_unlock(&work.lock);
+}
+
+/* whether this frame's worth of time has room to make a field on its own
+thread, and the time spent charged to it after */
+static int fields_budget(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	if (elapsed_us(&fields.window, &now) > FIELDS_FRAME_US)
+	{
+		fields.window = now;
+		fields.spent_us = 0;
+	}
+	return fields.spent_us < FIELDS_FRAME_BUDGET_US;
+}
+
+static void fields_charge(const struct timespec *from)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	fields.spent_us += elapsed_us(from, &now);
+}
+
+/* a font's glyph's field: made already (NULL while the worker is still
+making it, or when it cannot be, the field then marked failed), else made
+now within the frame's budget, else queued for the worker */
 static struct field *glyph_field(long font, int index)
 {
 	const stbtt_fontinfo *info = &fonts[font].info;
 	struct field *field = field_find(info->data, index);
-	stbtt_vertex *vertices = NULL;
-	struct msdf_vertex *shape;
-	int count, vertex, x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+	float scale;
+	int queued;
 
 	if (field)
 		return field;
-	if (!stbtt_GetGlyphBox(info, index, &x0, &y0, &x1, &y1))
-		x0 = y0 = x1 = y1 = 0;
-	count = stbtt_GetGlyphShape(info, index, &vertices);
-	shape = malloc(sizeof(*shape) * (size_t)(count > 0 ? count : 1));
-	if (!shape)
+	pthread_mutex_lock(&work.lock);
+	queued = job_find(info->data, index) != NULL;
+	pthread_mutex_unlock(&work.lock);
+	if (queued)
+		return NULL;
+	scale = stbtt_ScaleForMappingEmToPixels(info, (float)FIELD_EM);
+	if (fields_budget())
 	{
-		stbtt_FreeShape(info, vertices);
+		struct timespec from;
+		unsigned char *rgba = NULL;
+		int width = 0, height = 0, failed;
+		float left = 0.0f, top = 0.0f;
+
+		clock_gettime(CLOCK_MONOTONIC, &from);
+		failed = !glyph_generate(info, index, scale, &rgba, &width, &height, &left, &top);
+		field = field_place(info->data, index, rgba, width, height, left, top, scale, 0.0f, failed);
+		free(rgba);
+		fields_charge(&from);
+		return field;
+	}
+	pthread_mutex_lock(&work.lock);
+	job_add(info, info->data, index, scale);
+	pthread_mutex_unlock(&work.lock);
+	return NULL;
+}
+
+/* the glyph rasterized at the display's pixels (as the rasterized atlas
+would have it) into the fields' atlas, as a stand-in while its field is
+made or for good: its coverage written so that the shader's decode gives it
+back where the texels are the screen's pixels (the median 0.5 + (coverage
+- 0.5) / range); NULL when there is no room */
+static struct field *stand_in_field(long font, int index, float pixels_x, float pixels, int x0, int y0, int x1,
+	int y1)
+{
+	const stbtt_fontinfo *info = &fonts[font].info;
+	struct field *field = field_find(info->data, index | STAND_IN_BIT);
+	int width = x1 - x0, height = y1 - y0, texel;
+	unsigned char *coverage, *rgba;
+
+	if (field && fabsf(field->pixels - pixels) < pixels * 0.01f)
+		return field;
+	if (width <= 0 || height <= 0)
+		return NULL;
+	coverage = calloc((size_t)width * height, 1);
+	rgba = malloc((size_t)width * height * 4);
+	if (!coverage || !rgba)
+	{
+		free(coverage);
+		free(rgba);
 		return NULL;
 	}
-	for (vertex = 0; vertex < count; vertex++)
+	stbtt_MakeGlyphBitmap(info, coverage, width, height, width, pixels_x, pixels, index);
+	for (texel = 0; texel < width * height; texel++)
 	{
-		shape[vertex].type = vertices[vertex].type;
-		shape[vertex].x = vertices[vertex].x;
-		shape[vertex].y = vertices[vertex].y;
-		shape[vertex].cx = vertices[vertex].cx;
-		shape[vertex].cy = vertices[vertex].cy;
-		shape[vertex].cx1 = vertices[vertex].cx1;
-		shape[vertex].cy1 = vertices[vertex].cy1;
+		int value = 128 + ((int)coverage[texel] - 128) / FIELD_RANGE;
+
+		rgba[texel * 4 + 0] = rgba[texel * 4 + 1] = rgba[texel * 4 + 2] = (unsigned char)value;
+		rgba[texel * 4 + 3] = (unsigned char)value;
 	}
-	field = field_make(info->data, index, shape, count, x0, y0, x1, y1,
-		stbtt_ScaleForMappingEmToPixels(info, (float)FIELD_EM));
-	stbtt_FreeShape(info, vertices);
-	free(shape);
+	field = field_place(info->data, index | STAND_IN_BIT, rgba, width, height, 0.0f, 0.0f, 0.0f, pixels, 0);
+	free(coverage);
+	free(rgba);
 	return field;
 }
 
@@ -600,22 +963,29 @@ static void mark_shape(struct msdf_vertex *shape)
 	}
 }
 
-/* the mark's field, made now if it is not yet, about a capital's height at
-FIELD_EM texels to the em */
+/* the mark's field, made now if it is not yet (six edges: a moment), about
+a capital's height at FIELD_EM texels to the em */
 static struct field *mark_field(void)
 {
 	struct field *field = field_find(mark_data, MARK_INDEX);
 	struct msdf_vertex shape[MARK_VERTICES];
+	unsigned char *rgba = NULL;
+	int width = 0, height = 0, failed;
+	float left = 0.0f, top = 0.0f, scale = (float)(FIELD_EM * 0.72 / MARK_UNITS);
 
 	if (field)
 		return field;
 	mark_shape(shape);
-	return field_make(mark_data, MARK_INDEX, shape, MARK_VERTICES, 0, 0, (int)(MARK_UNITS * 1.125 + 0.5),
-		(int)MARK_UNITS, (float)(FIELD_EM * 0.72 / MARK_UNITS));
+	failed = !field_generate(shape, MARK_VERTICES, 0, 0, (int)(MARK_UNITS * 1.125 + 0.5), (int)MARK_UNITS, scale,
+		&rgba, &width, &height, &left, &top);
+	field = field_place(mark_data, MARK_INDEX, rgba, width, height, left, top, scale, 0.0f, failed);
+	free(rgba);
+	return field;
 }
 
 /* text_hires_glyph, from the fields: the quad as the rasterized glyph's
-would be, mapped onto the glyph's field */
+would be, mapped onto the glyph's field, or onto its stand-in while the
+field is made */
 static int fields_glyph(long font, unsigned long code, struct text_hires_glyph *glyph)
 {
 	float scale = halo_screen_pixel_scale();
@@ -628,6 +998,7 @@ static int fields_glyph(long font, unsigned long code, struct text_hires_glyph *
 	int x0 = 0, y0 = 0, x1 = 0, y1 = 0, advance = 0, bearing = 0;
 	struct field *field;
 
+	fields_collect();
 	if (!index)
 	{
 		/* (the verified mark, where the font has no Delta: as the
@@ -654,15 +1025,27 @@ static int fields_glyph(long font, unsigned long code, struct text_hires_glyph *
 	stbtt_GetGlyphBitmapBox(&fonts[font].info, index, pixels_x, pixels, &x0, &y0, &x1, &y1);
 	if (x1 <= x0 || y1 <= y0)
 		return 0;
-	field = glyph_field(font, index);
-	if (!field || !field->width)
-		return 0;
 	stbtt_GetGlyphHMetrics(&fonts[font].info, index, &advance, &bearing);
 	glyph->left = x0 / pixel_scale;
 	glyph->top = y0 / pixel_scale;
 	glyph->right = x1 / pixel_scale;
 	glyph->bottom = y1 / pixel_scale;
 	glyph->advance = advance * fonts[font].scale * fonts[font].width;
+	field = glyph_field(font, index);
+	if (!field || field->failed)
+	{
+		/* (its stand-in: the rasterized glyph, its quad the whole of it) */
+		field = stand_in_field(font, index, pixels_x, pixels, x0, y0, x1, y1);
+		if (!field || !field->width)
+			return 0;
+		glyph->u0 = field->x * u_scale;
+		glyph->u1 = (field->x + field->width) * u_scale;
+		glyph->v0 = field->y * v_scale;
+		glyph->v1 = (field->y + field->height) * v_scale;
+		return 1;
+	}
+	if (!field->width)
+		return 0;
 	/* (the quad's corners in the field: the pixels' box, y down, in font
 	units, y up) */
 	glyph->u0 = (field->x + (x0 / pixels_x - field->left) * field->scale) * u_scale;

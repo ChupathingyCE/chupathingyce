@@ -364,8 +364,8 @@ static void text_fields_decode(struct xgpu_text *text, const char *coordinates)
 		"\t{\n\t\tvec2 uv = (%s).xy * texture_scale[0].xy * vec2(textureSize(tex0, 0));\n"
 		"\t\tvec2 texels = max(fwidth(uv), vec2(1e-6));\n"
 		"\t\tfloat pixels = max(" XGPU_TEXT_FIELD_RANGE_TEXT " * 0.5 * (1.0 / texels.x + 1.0 / texels.y), 1.0);\n"
-		"\t\tfloat distance = max(min(t0.r, t0.g), min(max(t0.r, t0.g), t0.b));\n"
-		"\t\tt0 = vec4(1.0, 1.0, 1.0, clamp((distance - 0.5) * pixels + 0.5, 0.0, 1.0));\n\t}\n", coordinates);
+		"\t\tfloat field_distance = max(min(t0.r, t0.g), min(max(t0.r, t0.g), t0.b));\n"
+		"\t\tt0 = vec4(1.0, 1.0, 1.0, clamp((field_distance - 0.5) * pixels + 0.5, 0.0, 1.0));\n\t}\n", coordinates);
 }
 
 static void texture_stage(struct xgpu_text *text, const struct nv2a_pixel_shader_key *key, int stage)
