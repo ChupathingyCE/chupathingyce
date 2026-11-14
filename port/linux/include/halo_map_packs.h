@@ -137,6 +137,13 @@ boolean map_pack_menus_known(void);
 other name as it is */
 void map_pack_menus_map_name(char const *map_name, char *name, long size);
 
+/* a movie of the game's ("d:\\bink\\intro_de.bik") as the pack whose own
+menus are played has it: its bink folder, beside its ui.map
+(maps_cex\\bink\\intro_de.bik), else the movie without its language
+(intro.bik), into path. FALSE, path untouched, with no pack's menus or no
+such movie: the game's own then plays */
+boolean map_pack_menus_movie_path(char const *movie, char *path, long size);
+
 /* a listed map's name, its pack's name and the pack's tag (map_name as the
 game names it, <file>@<pack>), for a host's announcement: 0 (all empty) for
 another family's map. Plain types: the platform layer calls it */

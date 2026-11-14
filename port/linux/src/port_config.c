@@ -323,6 +323,13 @@ static const struct config_setting config_settings[] =
 		"and it heats up a phone. Under gamescope (the Steam Deck's Game Mode),\n"
 		"the display's refresh rate or a whole fraction of it (60 at 60 Hz, or\n"
 		"30) keeps the frames in step with the display, as V-Sync does." },
+	{ "display.vrr", _config_string, "\"off\"", "HALO_VRR", _environment_value, _platform_desktop,
+		"For a variable refresh display (G-SYNC, FreeSync). \"on\" shows the\n"
+		"frames with V-Sync and holds them 3 a second under the refresh rate\n"
+		"(117 at 120 Hz; display.max_fps where it is lower), so each frame is\n"
+		"shown as soon as it is ready, without tearing or V-Sync's lag. \"auto\"\n"
+		"turns it on only where the system says VRR is active (gamescope, or a\n"
+		"Linux desktop that has it on). \"off\" leaves the frames as they were." },
 	{ "display.interpolation", _config_boolean, "true", "HALO_INTERPOLATION", _environment_value, _platform_all,
 		"Draw a frame for every display refresh. The game runs 30 ticks a\n"
 		"second, and the frames between them are blended. false keeps the\n"
@@ -746,9 +753,12 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_CONSOLE_LIGHT_AUDIO
 	{ "audio.resampling", _config_string, "\"linear\"", "HALO_AUDIO_RESAMPLING", _environment_value, _platform_all,
 #else
-	{ "audio.resampling", _config_string, "\"sinc\"", "HALO_AUDIO_RESAMPLING", _environment_value, _platform_all,
+	{ "audio.resampling", _config_string, "\"xbox\"", "HALO_AUDIO_RESAMPLING", _environment_value, _platform_all,
 #endif
-		"How sounds are converted to 48 kHz: \"sinc\" or \"linear\"." },
+		"How sounds are converted to 48 kHz: \"xbox\" as the Xbox did, through\n"
+		"its short low pass; \"sinc\" with a longer one, which keeps out the\n"
+		"little above a sound's own rate the Xbox let through; \"linear\"\n"
+		"between neighboring samples, the brightest and harshest." },
 #ifdef HALO_PORT_VOICE_AUDIO
 	/* ---- voice chat (port/linux/src/voice.c, port/linux/game/voice_game.c) */
 	{ "audio.voice_chat", _config_string, "\"off\"", "HALO_VOICE_CHAT", _environment_value, _platform_all,
@@ -1841,6 +1851,12 @@ static const struct config_setting config_settings[] =
 		"Log every frame in a map's first minute that comes more than this many\n"
 		"milliseconds after the one before it, and how many there were. 33 is\n"
 		"two frames at 60 Hz. 0 for none." },
+	{ "debug.frame_log", _config_string, "\"\"", "HALO_FRAME_LOG", _environment_value, _platform_all,
+		"A file to write a line to for each frame drawn once a determinism\n"
+		"replay's game has started (the benchmark, tools/bench.py): the game's\n"
+		"tick, the frame's microseconds since the one before, and the game\n"
+		"thread's CPU microseconds in it (-1 where not known). Leave it empty\n"
+		"for none." },
 	{ "debug.frame_times", _config_string, "\"\"", "HALO_FRAME_TIMES", _environment_value, _platform_all,
 		"A file to write every frame's time to: the wall clock, the milliseconds\n"
 		"since the frame before, the map; and a line when a map has loaded. For\n"
@@ -2547,9 +2563,10 @@ version changed) */
 ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
 starting alone (game.start_with_one_player); 4, Headphone 3D on; 5, the
 Xbox's multiplayer by default (v0.9.0: no names above heads, no follow
-camera, no team changes in games you host). A file
-answered for an earlier generation is asked about the later ones only */
-#define CONFIG_DEFAULTS_GENERATION 5
+camera, no team changes in games you host); 6, the Xbox's own resampler
+(v0.9.1a). A file answered for an earlier generation is asked about the
+later ones only */
+#define CONFIG_DEFAULTS_GENERATION 6
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# Chupathingy uses this line to update the file. Leave it as it is.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -3307,6 +3324,11 @@ static const struct
 	/* team changes while the teams stay balanced, the default of the games
 	a player hosted until v0.9.0 (a file that names a rule keeps it) */
 	{ "network.team_change", "\"balanced\"", 0, "No team changes in games you host, as on the Xbox", 5 },
+#ifndef HALO_CONSOLE_LIGHT_AUDIO
+	/* the long windowed sinc, the default until the Xbox's own resampler
+	(a file that names "sinc" keeps it) */
+	{ "audio.resampling", "\"sinc\"", 0, "Sounds resampled as the Xbox did", 6 },
+#endif
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
@@ -4357,6 +4379,7 @@ static const struct
 	{ "delta.guide_background", { "auto", "plain", "cellwall", NULL }, "\"auto\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
+	{ "display.vrr", { "off", "on", "auto", NULL }, "\"off\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
 	/* ("gearbox" and the older "pc", Gearbox's retired menus, are read as
 	"xbox", and the player told once: config_menus_retired_pending) */
@@ -4371,7 +4394,7 @@ static const struct
 	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
-	{ "audio.resampling", { "sinc", "linear", NULL }, "\"sinc\"" },
+	{ "audio.resampling", { "xbox", "sinc", "linear", NULL }, "\"xbox\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
 	{ "game.console_log", { "important", "all", "none", NULL }, "\"important\"" },
 	{ "game.move_old_map_folders", { "ask", "yes", "no", NULL }, "\"ask\"" },

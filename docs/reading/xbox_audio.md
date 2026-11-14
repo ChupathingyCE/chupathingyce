@@ -28,9 +28,39 @@ as chestahh brought them into [GulchCE](https://github.com/chestahh/GulchCE)
   parameters.
 
 The rest of that GulchCE commit (its resamplers, LFE filter, level floor,
-Doppler law and test fixtures) was not taken; Chupathingy's mixer keeps its
+Doppler law and test fixtures) was not taken then; Chupathingy's mixer keeps its
 own resampling, Doppler, obstruction and surround handling around the two
-models.
+models. Some of it came later, compared one by one against our mixer (below).
+
+## More of the OpenH1 team's measurements (0.9.1a)
+
+The OpenH1 team (goatbutt and the OpenH1 team) recorded more of an Xbox
+after 2026-11-06 and matched their mixer to it. Each change was tried on our
+mixer and kept only where it measured closer to the Xbox, with no second
+path beside the old one:
+
+- **The Xbox's resampler** (`audio.resampling = "xbox"`, the new default): a
+  sinc at the source's Nyquist rate over four frames each side, Kaiser beta
+  8.3, never narrowed. A click at half the output's rate comes out as the
+  Xbox's did (0.599, -0.120, 0.023, -0.002 against the Xbox's 0.598, -0.120,
+  0.024, -0.003). It leaves some images above a 22 kHz sound's band, as the
+  Xbox did. `"sinc"` keeps the longer, cleaner low pass.
+- **The Doppler law**: the first order 1 + (vl + vs) / c. An Xbox shifted a
+  source passing at 20 units a second by 1.178 and 0.822, at 40 by 1.356 and
+  0.644; the old law gave 1.216 and 0.849, then 1.551 and 0.738.
+- **Parameter ramps** of 64 frames (1.3 ms), carried from one mix to the
+  next, for volume, pan, pitch (the Doppler shift too, stepped at each of the
+  game's updates rather than glided), the low passes and the HRTF. An Xbox
+  settles each within 1 to 2 ms. A change now takes the same time however
+  many frames SDL asks for.
+- **A voice's own Room HF** does nothing on an Xbox; the environment's Room
+  HF and occlusion still muffle the room send.
+- **A 20 Hz high pass** before the limiter, for the maps' sounds that carry
+  energy below hearing.
+
+The 100 ms hold of a new room's reverb delays was already in
+`dsound_xbox_reverb.inl`. `tools/test_audio_doppler.py` checks the Doppler
+law, the Xbox resampler's weights and the high pass.
 
 ## What they replaced, and why
 

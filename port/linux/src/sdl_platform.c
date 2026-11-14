@@ -25,6 +25,7 @@ and the debug keyboard that the game's console reads.
 #include "map_repo.h"
 #include "crash_report.h"
 #include "launcher.h"
+#include "vrr.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -1842,6 +1843,64 @@ static float platform_refresh_rate(void)
 #endif
 }
 
+/* ---------- display.vrr (vrr.h)
+
+With VRR on, the frames are shown with vsync and held to 3 a second under
+the refresh rate (frame_interval_ns), so a G-SYNC or FreeSync display shows
+each as it comes. "auto" asks the system every VRR_ASK_MS; the choice and
+its reason are logged as they change. Off (the default): as before. Based
+on work by goatbutt and the OpenH1 team. */
+static BOOL platform_vrr(void)
+{
+#ifndef HALO_ANDROID
+	static unsigned long read_at = (unsigned long)-1;
+	static Uint64 asked_at;
+	static int on = -1, mode = VRR_MODE_OFF;
+	static char reason[160];
+	char why[160];
+	int now_on;
+	Uint64 now = SDL_GetTicks();
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		mode = vrr_mode(config_string("display.vrr"));
+	}
+	else if (on >= 0 && (mode != VRR_MODE_AUTO || now - asked_at < VRR_ASK_MS))
+		return on ? TRUE : FALSE;
+	asked_at = now;
+	now_on = vrr_decide(mode, mode == VRR_MODE_AUTO ? vrr_system() : VRR_SYSTEM_NONE, why, sizeof(why));
+	if (now_on != on || strcmp(why, reason))
+	{
+		/* (the first word logged only when it is something other than off) */
+		if (on >= 0 || now_on || mode != VRR_MODE_OFF)
+		{
+			float rate = vrr_frame_rate(platform_refresh_rate(), config_integer("display.max_fps"));
+
+			if (now_on && rate > 0.0f)
+				platform_log("display: VRR on (%s): vsync on, at most %.0f frames a second at %.2f Hz", why,
+					(double)rate, (double)platform_refresh_rate());
+			else if (now_on)
+				platform_log("display: VRR on (%s): vsync on, the display's refresh rate not known yet", why);
+			else
+				platform_log("display: VRR off (%s)", why);
+		}
+		snprintf(reason, sizeof(reason), "%s", why);
+	}
+	on = now_on;
+	return on ? TRUE : FALSE;
+#else
+	return FALSE;
+#endif
+}
+
+/* whether the frames are shown with vsync: display.vsync, or VRR on (the
+bgfx renderer's reset flags read it too: d3d8_bgfx.inl) */
+int platform_vsync_on(void)
+{
+	return config_boolean("display.vsync") || platform_vrr();
+}
+
 #if !defined(__APPLE__) || defined(HALO_IOS)
 #ifdef SWAP_INTERVAL_IN_STEP
 /* whether gamescope runs the game: GAMESCOPE_WAYLAND_DISPLAY, which it sets
@@ -2177,11 +2236,11 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		void macos_set_swap_interval(int interval);
 
 		version = SDL_GL_SetSwapInterval(0);
-		macos_set_swap_interval(config_boolean("display.vsync") ? 1 : 0);
+		macos_set_swap_interval(platform_vsync_on() ? 1 : 0);
 	}
 #else
 	version = 0;
-	platform_swap_interval_apply(TRUE, config_boolean("display.vsync"), config_integer("display.max_fps"));
+	platform_swap_interval_apply(TRUE, platform_vsync_on(), config_integer("display.max_fps"));
 #endif
 	(void)version;
 	platform_event_thread = SDL_GetCurrentThreadID();
@@ -2276,10 +2335,10 @@ void platform_display_apply(void)
 		/* (the context's own interval, as at start-up: SDL's stays off) */
 		void macos_set_swap_interval(int interval);
 
-		macos_set_swap_interval(config_boolean("display.vsync") ? 1 : 0);
+		macos_set_swap_interval(platform_vsync_on() ? 1 : 0);
 	}
 #else
-	platform_swap_interval_apply(TRUE, config_boolean("display.vsync"), config_integer("display.max_fps"));
+	platform_swap_interval_apply(TRUE, platform_vsync_on(), config_integer("display.max_fps"));
 #endif
 }
 
@@ -2337,13 +2396,35 @@ static Uint64 frame_interval_ns(void)
 	static int vsync;
 	static long maximum;
 	static unsigned long read_at = (unsigned long)-1;
+	static int vrr_applied = -1;
 	float rate;
+	int vrr = platform_vrr();
 
 	if (read_at != config_changes())
 	{
 		read_at = config_changes();
 		vsync = config_boolean("display.vsync");
 		maximum = config_integer("display.max_fps");
+	}
+	/* (VRR turned on or off, by auto's system: the window's vsync again) */
+	if (vrr_applied >= 0 && vrr != vrr_applied && platform_window)
+	{
+#if defined(__APPLE__) && !defined(HALO_IOS)
+		void macos_set_swap_interval(int interval);
+
+		if (platform_gl_context)
+			macos_set_swap_interval(vsync || vrr ? 1 : 0);
+#else
+		platform_swap_interval_apply(TRUE, vsync || vrr, maximum);
+#endif
+	}
+	vrr_applied = vrr;
+	if (vrr)
+	{
+		/* (VRR's ceiling, or display.max_fps under it; vsync alone where
+		the refresh rate is not known) */
+		rate = vrr_frame_rate(platform_refresh_rate(), maximum);
+		return rate > 0.0f ? (Uint64)(1e9f / rate) : 0;
 	}
 #ifdef SWAP_INTERVAL_IN_STEP
 	/* (in step with the display, or no longer: the refresh rate known only
