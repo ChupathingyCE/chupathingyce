@@ -13,6 +13,10 @@ console, the log and the sound system as nothing. */
 
 #include <sys/mman.h>
 #include <stdarg.h>
+/* (the game is built as strict C, which hides it on Linux: world_setup.c) */
+#if defined(__linux__) && !defined(MAP_ANONYMOUS)
+#define MAP_ANONYMOUS 0x20
+#endif
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
