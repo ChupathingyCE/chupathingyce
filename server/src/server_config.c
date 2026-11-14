@@ -1085,7 +1085,7 @@ int server_gametype_format(const struct server_gametype *gametype, const char *n
 {
 	size_t length = 0;
 	char table[TOML_KEY_SIZE] = "";
-	int field;
+	int field, pass;
 
 	if (!size)
 		return -1;
@@ -1095,13 +1095,16 @@ int server_gametype_format(const struct server_gametype *gametype, const char *n
 	{
 		return -1;
 	}
+	/* (the top-level settings first, then each table's: a top-level one
+listed after a table's, as mode and hardcore are, would read as the table's) */
+	for (pass = 0; pass < 2; pass++)
 	for (field = 0; field < SERVER_GAMETYPE_FIELDS; field++)
 	{
 		const char *key = server_gametype_fields[field].key;
 		const char *dot = strchr(key, '.');
 		char value[TOML_STRING_SIZE + 8];
 
-		if (!gametype->set[field])
+		if (!gametype->set[field] || (dot != NULL) != (pass == 1))
 			continue;
 		if (dot && ((size_t)(dot - key) != strlen(table) || strncmp(key, table, (size_t)(dot - key))))
 		{
