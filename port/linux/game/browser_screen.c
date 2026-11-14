@@ -5134,6 +5134,14 @@ static short join_screen_mode(
 #endif
 }
 
+/* whether the join screen covers the menus now (guide.c holds its toasts
+until it closes, so a hint never sits on its prompts) */
+boolean browser_screen_join_screen_shown(
+	void)
+{
+	return browser_screen.active && join_screen_mode() != _join_screen_none;
+}
+
 #if !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
 static void draw_join_screen(
 	short mode,
