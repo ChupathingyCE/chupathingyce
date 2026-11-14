@@ -87,6 +87,15 @@ HRTF's from the recordings):
 Both cost the same: about 0.06% of one core per voice for the HRTF, and
 0.2% for the reverb.
 
+The reverb's delay lines are read by cursors kept modulo each line's size,
+not by a division per tap, and a frame with no fade running reads the new
+environment alone; its output is the same to the bit (tools/test_xbox_audio.py
+checks both). Per 256-frame mix: 3.3 µs on an Apple M-series core (4.9
+before), 9.7 µs on a Ryzen 5 2600 (20.3 before), and on the 360's PowerPC
+111,500 instructions with no divisions, where it was 174,700 with 2,048
+divisions and 14,700 multiplies (counted in an emulator; 0.9.0's reverb was
+166,500).
+
 ## How the mixer uses them
 
 `hrtf_place` gives a voice's parameters from its direction and distance;
