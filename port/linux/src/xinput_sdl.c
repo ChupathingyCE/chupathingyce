@@ -345,9 +345,14 @@ static void mouse_poll(const struct platform_input_state *input)
 			last_input_scheme = 0;
 			last_input_seen = TRUE;
 		}
-		mouse_wheel_accumulated += input->mouse_wheel;
-		if (input->mouse_wheel != 0.0f)
-			wheel_moved_ms = SDL_GetTicks();
+		/* (the wheel scrolls the console while it is open, never the
+		weapons) */
+		if (!console_is_active())
+		{
+			mouse_wheel_accumulated += input->mouse_wheel;
+			if (input->mouse_wheel != 0.0f)
+				wheel_moved_ms = SDL_GetTicks();
+		}
 	}
 	pthread_mutex_unlock(&mouse_lock);
 }

@@ -73,6 +73,8 @@ int main(void)
 	CHECK(!strcmp(port_folder_name(_port_folder_logs), "logs"));
 	CHECK(!strcmp(port_folder_name(_port_folder_cache), "cache"));
 	CHECK(!strcmp(port_folder_name(_port_folder_private), "private"));
+	/* (source/main/console.c names it by its number: CONSOLE_HISTORY_FOLDER) */
+	CHECK(_port_folder_private == 3);
 	CHECK(!strcmp(port_folder_name(_port_folder_gametypes), "gametypes"));
 	CHECK(!strcmp(port_folder_name(_port_folder_screenshots), "screenshots"));
 	CHECK(!strcmp(port_folder_name(_port_folder_clips), "clips"));

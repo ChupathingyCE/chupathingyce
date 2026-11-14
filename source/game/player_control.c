@@ -216,6 +216,7 @@ symbols in this file:
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
 #include "stubbs_engine.h" /* port: port/linux/game/stubbs_engine.c */
 #include "stubbs_possession.h" /* port: port/linux/game/stubbs_possession.c */
+#include "main/console.h" /* port: console_is_active */
 
 /* ---------- constants */
 
@@ -1382,7 +1383,8 @@ static void get_local_player_input_blob(
 						real mouse_yaw;
 						real mouse_pitch;
 
-						if (halo_linux_mouse_look(gamepad_index, &mouse_yaw, &mouse_pitch))
+						/* (port: read, and let go of, while the console is open) */
+						if (halo_linux_mouse_look(gamepad_index, &mouse_yaw, &mouse_pitch) && !console_is_active())
 						{
 							if (player->unit_index != NONE && control->zoom_level != NONE)
 							{
