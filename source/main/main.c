@@ -1696,6 +1696,8 @@ static void main_new_map(
 /* port: the solo map's name before map_name changed it (main_set_map_name),
 for a change that is refused (main_map_change_failed) */
 static char main_map_name_before_change[NUMBEROF(main_globals.soloplayer_map_name)];
+/* (and whether it was: a change that came another way keeps the name) */
+static boolean main_map_name_before_change_captured;
 
 /* port: a map that can't be loaded (a name typed wrong at the console or in
 init.txt, a map file missing or damaged) is refused before the game it would
@@ -1731,9 +1733,13 @@ static void main_map_change_failed(
 		display_error_text_deferred(text, NONE);
 	else
 		display_error_text_when_main_menu_loaded(text);
-	csstrncpy(main_globals.soloplayer_map_name, main_map_name_before_change,
-		NUMBEROF(main_globals.soloplayer_map_name) - 1);
-	main_globals.soloplayer_map_name[NUMBEROF(main_globals.soloplayer_map_name) - 1] = 0;
+	if (main_map_name_before_change_captured)
+	{
+		csstrncpy(main_globals.soloplayer_map_name, main_map_name_before_change,
+			NUMBEROF(main_globals.soloplayer_map_name) - 1);
+		main_globals.soloplayer_map_name[NUMBEROF(main_globals.soloplayer_map_name) - 1] = 0;
+		main_map_name_before_change_captured = FALSE;
+	}
 	main_globals.defer_map_change = FALSE;
 	main_globals.map_change_load_timer = 0;
 
@@ -2659,6 +2665,7 @@ void main_set_map_name(
 		csstrncpy(main_map_name_before_change, main_globals.soloplayer_map_name,
 			NUMBEROF(main_map_name_before_change) - 1);
 		main_map_name_before_change[NUMBEROF(main_map_name_before_change) - 1] = 0;
+		main_map_name_before_change_captured = TRUE;
 	}
 	csstrncpy(main_globals.soloplayer_map_name, map_name, NUMBEROF(main_globals.soloplayer_map_name) - 1);
 	main_globals.soloplayer_map_name[NUMBEROF(main_globals.soloplayer_map_name) - 1] = 0;

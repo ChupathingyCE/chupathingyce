@@ -263,8 +263,6 @@ long cache_files_map_loadable(void);
 long cache_files_map_loadable(void) { return 0; }
 long game_precache_new_map_refusable(void);
 long game_precache_new_map_refusable(void) { return 0; }
-long display_error_text_when_main_menu_loaded(void);
-long display_error_text_when_main_menu_loaded(void) { return 0; }
 long errors_clear(void);
 long errors_clear(void) { return 0; }
 long main_goto_main_menu(void);
