@@ -2892,6 +2892,17 @@ boolean browser_screen_create_game(
 	return ui_widget_online_games_create_game();
 }
 
+/* the Multiplayer menu's ONLINE CO-OP (menu_functions.c's
+pc_menus_coop_online): Create Game, as Y makes one, from ONLINE CO-OP */
+boolean browser_screen_create_coop_game(
+	void)
+{
+	boolean ui_widget_online_games_create_coop_game(void);
+
+	join_first_player();
+	return ui_widget_online_games_create_coop_game();
+}
+
 /* the selection moved by move games, kept on the list */
 static void step(
 	short move)
