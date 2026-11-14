@@ -827,9 +827,9 @@ above was told from one ahead. The model places a voice (hrtf_place) and
 renders it (hrtf_process); this mixer keeps its own way around them: a
 voice's share of the rendering fades in and out with hrtf_level
 (hrtf_share), the rest of it the stereo pan's, and the parameters ramp over
-PARAMETER_RAMP_FRAMES as the gains do (hrtf_mix). Inside HRTF_NEAR the model
-fades a sound to the middle, as the pan keeps the player's own weapon and
-footsteps in the head.
+PARAMETER_RAMP_FRAMES as the gains do (hrtf_mix). Inside a voice's minimum
+distance (at least HRTF_NEAR) the model fades a sound to the middle, as the
+pan keeps the player's own weapon and footsteps in the head.
 2D voices, the reverb and surround output are as they were. */
 
 /* (whether the band low passes are set: hrtf_initialize) */
@@ -847,16 +847,17 @@ static float hrtf_share(const struct sdl_stream *stream)
 	return hrtf_level;
 }
 
-/* a voice's target for this mix (hrtf_place), its gain the pan's in the
-middle (-3 dB an ear) with the voice's distance, direct path, cone and
-volume, at share of it */
+/* a voice's target for this mix (hrtf_place, centered inside the voice's
+minimum distance as spatialize's pan is), its gain the pan's in the middle
+(-3 dB an ear) with the voice's distance, direct path, cone and volume, at
+share of it */
 static float hrtf_target(const struct sdl_stream *stream, float share, struct hrtf_parameters *target)
 {
 	float side, up, ahead, distance;
 
 	voice_direction(stream, &side, &up, &ahead);
 	distance = sqrtf(side * side + up * up + ahead * ahead);
-	hrtf_place(side, up, ahead, distance, FALSE, target);
+	hrtf_place(side, up, ahead, distance, stream->minimum_distance, FALSE, target);
 	target->gain = 0.70710678f * share * distance_attenuation(stream, distance, listener.rolloff_factor) *
 		gain_from_millibels(stream->direct) * voice_cone_gain(stream) * stream->volume * master_volume;
 	target->pair[0] = 1.0f;
