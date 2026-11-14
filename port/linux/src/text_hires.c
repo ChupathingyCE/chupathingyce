@@ -9,11 +9,27 @@ from the tag's character widths, is kept, and the fonts were chosen to fit
 the Xbox maps' widths. A tag whose letters are narrower than its font's (a
 Custom Edition loc.map's) gets the font narrowed until its letters are, on
 the whole, as wide as the tag's, so that they do not run into each other.
-A glyph is rasterized when first drawn, at the display's
-pixels per unit of the 480 lines, into an 8-bit atlas; the GL texture the
-game's placeholder bitmap stands for (xbox_textures.c) is the atlas, its new
-rows uploaded when the placeholder is bound. A change of the display's
-scale (a window made fullscreen) or a full atlas starts it over.
+The GL texture the game's placeholder bitmap stands for (xbox_textures.c)
+is the atlas, its new rows uploaded when the placeholder is bound. It holds
+one of two kinds of glyph:
+
+- Distance fields (display.high_res_text_fields, the default): each glyph's
+  multi-channel signed distance field (port/third_party/msdfgen/msdf_gen.h)
+  is made once, as it is first drawn, at a fixed size (FIELD_EM texels to
+  the em), and the pixel shader draws its edge sharp at whatever size the
+  display gives it (nv2a_psh.c, from the key's text_fields:
+  text_hires_atlas_fields). A field is shared by every font tag drawn with
+  the same font file; a change of the display's size changes nothing, and
+  a full atlas starts it over. Based on work by goatbutt and the OpenH1
+  team (their text_hires.c and msdf_gen.h).
+- Rasterized glyphs (display.high_res_text_fields false, and a console's
+  own renderer): a glyph is rasterized when first drawn, at the display's
+  pixels per unit of the 480 lines, into an 8-bit atlas. A change of the
+  display's scale (a window made fullscreen) or a full atlas starts it over.
+
+Either way the glyph's quad, advance and ink are the font's box for it at
+the display's pixels (stbtt_GetGlyphBitmapBox), so the text is laid out and
+cut the same.
 
 The console's lines are drawn in a font of their own, the "console" role's
 (rasterizer_text_set_console_font, while terminal.c draws them), sized and
@@ -42,6 +58,13 @@ when the settings change while the game runs.
 #define STBTT_STATIC
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "../../third_party/stb/stb_truetype.h"
+
+/* (a console's own renderer draws the atlas without the fields' decode:
+halo_port_features.h) */
+#if !defined(HALO_CONSOLE_NO_TEXT_FIELDS) && !defined(HALO_CONSOLE_HOST_ART)
+#define TEXT_FIELDS 1
+#include "../../third_party/msdfgen/msdf_gen.h"
+#endif
 
 /* (the Xbox maps' tags and a Custom Edition loc.map's, which share names,
 each at its oversamples) */
@@ -94,9 +117,13 @@ static struct
 static unsigned char *atlas;
 static float atlas_scale;   /* the pixels per unit its glyphs have */
 static int pack_x, pack_y, pack_row_height;
+/* the rows of the atlas (either kind's) written since they were last
+uploaded: [dirty_top, dirty_bottom) */
 static int dirty_top = ATLAS_SIZE, dirty_bottom;
 static unsigned long placeholder_data, placeholder_width, placeholder_height;
 static GLuint atlas_texture;
+/* whether the texture holds the fields (made again when the kind changes) */
+static int atlas_texture_fields;
 
 /* tag names compared as the game does, ignoring case (and without the POSIX
 strcasecmp, which the Windows build has not) */
@@ -122,6 +149,29 @@ int text_hires_enabled(void)
 	}
 	return enabled;
 }
+
+/* whether the glyphs are drawn from distance fields now
+(display.high_res_text_fields; never on a console's own renderer) */
+static int fields_wanted(void)
+{
+#ifdef TEXT_FIELDS
+	static int wanted;
+	static unsigned long read_at = (unsigned long)-1;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		wanted = config_boolean("display.high_res_text_fields");
+	}
+	return wanted;
+#else
+	return 0;
+#endif
+}
+
+#ifdef TEXT_FIELDS
+static void fields_reset(void);
+#endif
 
 /* the atlas emptied: every glyph to be rasterized again */
 static void atlas_reset(float scale)
@@ -312,9 +362,317 @@ static void player_fonts_check(void)
 	}
 	for (font = 0; font < font_count; font++)
 		font_load(font);
-	/* (every glyph rasterized again) */
+	/* (every glyph made again: the fields are keyed by the font files'
+	data, which the next file read may be given again) */
 	atlas_scale = -1.0f;
+#ifdef TEXT_FIELDS
+	fields_reset();
+#endif
 }
+
+/* ---------- the distance fields */
+
+#ifdef TEXT_FIELDS
+
+/* the fields' atlas: RGBA texels, 8 MB here and as the texture (half the
+rasterized atlas's texture), holding about 800 glyphs' fields */
+#define FIELDS_WIDTH 2048
+#define FIELDS_HEIGHT 1024
+/* texels to the em a field is made at: a field is read at any size, and
+48 keeps the curves of the largest text (a title at 4K, 90 pixels to the
+em) and the corners of the smallest (small_ui in a 640x480 window, 11) */
+#define FIELD_EM 48
+/* texels of the field from its lowest value to its highest (the shader
+agrees: XGPU_TEXT_FIELD_RANGE), and the clear texels around each glyph's
+box that hold the field's reach, half the range and one more */
+#define FIELD_RANGE XGPU_TEXT_FIELD_RANGE
+#define FIELD_PAD (FIELD_RANGE / 2 + 1)
+#define FIELD_COUNT 2048
+#define FIELD_TABLE_SIZE (FIELD_COUNT * 2)
+/* the verified mark's shape, drawn in units of its own: its height */
+#define MARK_UNITS 1000.0
+#define MARK_INDEX (-1)
+
+/* a glyph's field: the font file it is of (by its data, as stb_truetype
+holds it) and its glyph index, its texels in the atlas (width 0: the glyph
+has no ink), the atlas's texels to the font unit, and the field's corner
+in font units (y up) */
+struct field
+{
+	const unsigned char *data;
+	int index;
+	short x, y, width, height;
+	float scale;
+	float left, top;
+};
+
+static struct
+{
+	unsigned char *pixels;
+	struct field fields[FIELD_COUNT];
+	int count;
+	/* (field numbers + 1, by file and glyph) */
+	short table[FIELD_TABLE_SIZE];
+	int pack_x, pack_y, pack_row_height;
+} fields;
+/* (the mark's "font file") */
+static const unsigned char mark_data[1];
+
+static unsigned long field_hash(const unsigned char *data, int index)
+{
+	return ((unsigned long)(size_t)data * 2654435761UL ^ (unsigned long)(index + 1) * 40503UL) &
+		(FIELD_TABLE_SIZE - 1);
+}
+
+static void field_table_add(int field)
+{
+	unsigned long slot = field_hash(fields.fields[field].data, fields.fields[field].index);
+
+	while (fields.table[slot])
+		slot = (slot + 1) & (FIELD_TABLE_SIZE - 1);
+	fields.table[slot] = (short)(field + 1);
+}
+
+static struct field *field_find(const unsigned char *data, int index)
+{
+	unsigned long slot = field_hash(data, index);
+
+	while (fields.table[slot])
+	{
+		struct field *field = &fields.fields[fields.table[slot] - 1];
+
+		if (field->data == data && field->index == index)
+			return field;
+		slot = (slot + 1) & (FIELD_TABLE_SIZE - 1);
+	}
+	return NULL;
+}
+
+/* the atlas emptied: every field to be made again, and the texture
+written whole (nothing until the first field is made: field_make) */
+static void fields_reset(void)
+{
+	if (!fields.pixels)
+		return;
+	memset(fields.pixels, 0, (size_t)FIELDS_WIDTH * FIELDS_HEIGHT * 4);
+	memset(fields.table, 0, sizeof(fields.table));
+	fields.count = 0;
+	fields.pack_x = fields.pack_y = fields.pack_row_height = 0;
+	dirty_top = 0;
+	dirty_bottom = FIELDS_HEIGHT;
+}
+
+/* a shape's field made into the atlas: the shape (stb_truetype's outline,
+in units of the file, y up) within its box, at scale texels to the unit;
+NULL when there is no room for it even once the atlas is emptied, or the
+outline is more than the generator holds */
+static struct field *field_make(const unsigned char *data, int index, const struct msdf_vertex *shape, int count,
+	int x0, int y0, int x1, int y1, float scale)
+{
+	struct field *field;
+	unsigned char *rgba;
+	int width, height, row, attempt;
+
+	if (!fields.pixels)
+	{
+		fields.pixels = calloc((size_t)FIELDS_WIDTH * FIELDS_HEIGHT, 4);
+		if (!fields.pixels)
+			return NULL;
+		fields_reset();
+	}
+	if (fields.count >= FIELD_COUNT)
+		fields_reset();
+	field = &fields.fields[fields.count];
+	memset(field, 0, sizeof(*field));
+	field->data = data;
+	field->index = index;
+	field->scale = scale;
+	if (x1 <= x0 || y1 <= y0)
+	{
+		/* (no ink: a space) */
+		field_table_add(fields.count++);
+		return field;
+	}
+	width = (int)ceilf((float)(x1 - x0) * scale) + 2 * FIELD_PAD;
+	height = (int)ceilf((float)(y1 - y0) * scale) + 2 * FIELD_PAD;
+	if (width + 1 > FIELDS_WIDTH || height + 1 > FIELDS_HEIGHT)
+		return NULL;
+	for (attempt = 0; attempt < 2; attempt++)
+	{
+		if (fields.pack_x + width > FIELDS_WIDTH)
+		{
+			fields.pack_x = 0;
+			fields.pack_y += fields.pack_row_height + 1;
+			fields.pack_row_height = 0;
+		}
+		if (fields.pack_y + height <= FIELDS_HEIGHT)
+			break;
+		fields_reset();
+		field = &fields.fields[fields.count];
+		memset(field, 0, sizeof(*field));
+		field->data = data;
+		field->index = index;
+		field->scale = scale;
+	}
+	field->x = (short)fields.pack_x;
+	field->y = (short)fields.pack_y;
+	field->width = (short)width;
+	field->height = (short)height;
+	field->left = (float)x0 - (float)FIELD_PAD / scale;
+	field->top = (float)y1 + (float)FIELD_PAD / scale;
+	rgba = malloc((size_t)width * height * 4);
+	if (!rgba || !msdf_generate(shape, count, scale, field->left, field->top, (double)FIELD_RANGE, width, height, rgba))
+	{
+		free(rgba);
+		return NULL;
+	}
+	for (row = 0; row < height; row++)
+	{
+		memcpy(fields.pixels + ((size_t)(field->y + row) * FIELDS_WIDTH + field->x) * 4,
+			rgba + (size_t)row * width * 4, (size_t)width * 4);
+	}
+	free(rgba);
+	if (field->y < dirty_top)
+		dirty_top = field->y;
+	if (field->y + height > dirty_bottom)
+		dirty_bottom = field->y + height;
+	fields.pack_x += width + 1;
+	if (height > fields.pack_row_height)
+		fields.pack_row_height = height;
+	field_table_add(fields.count++);
+	return field;
+}
+
+/* a font's glyph's field, made now if it is not yet */
+static struct field *glyph_field(long font, int index)
+{
+	const stbtt_fontinfo *info = &fonts[font].info;
+	struct field *field = field_find(info->data, index);
+	stbtt_vertex *vertices = NULL;
+	struct msdf_vertex *shape;
+	int count, vertex, x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+
+	if (field)
+		return field;
+	if (!stbtt_GetGlyphBox(info, index, &x0, &y0, &x1, &y1))
+		x0 = y0 = x1 = y1 = 0;
+	count = stbtt_GetGlyphShape(info, index, &vertices);
+	shape = malloc(sizeof(*shape) * (size_t)(count > 0 ? count : 1));
+	if (!shape)
+	{
+		stbtt_FreeShape(info, vertices);
+		return NULL;
+	}
+	for (vertex = 0; vertex < count; vertex++)
+	{
+		shape[vertex].type = vertices[vertex].type;
+		shape[vertex].x = vertices[vertex].x;
+		shape[vertex].y = vertices[vertex].y;
+		shape[vertex].cx = vertices[vertex].cx;
+		shape[vertex].cy = vertices[vertex].cy;
+		shape[vertex].cx1 = vertices[vertex].cx1;
+		shape[vertex].cy1 = vertices[vertex].cy1;
+	}
+	field = field_make(info->data, index, shape, count, x0, y0, x1, y1,
+		stbtt_ScaleForMappingEmToPixels(info, (float)FIELD_EM));
+	stbtt_FreeShape(info, vertices);
+	free(shape);
+	return field;
+}
+
+/* the verified mark's outline (halo_delta_mark_outline: the triangle
+halo_delta_mark_draw draws, its strokes a sixth of its height), MARK_UNITS
+tall and a little wider, y up from its base, as a font's contours go: the
+outer triangle clockwise and the inner one the other way round; 6 vertices */
+#define MARK_VERTICES 6
+static void mark_shape(struct msdf_vertex *shape)
+{
+	double corners[6][2];
+	int vertex;
+
+	halo_delta_mark_outline(MARK_UNITS * 1.125, MARK_UNITS, corners);
+	memset(shape, 0, sizeof(*shape) * MARK_VERTICES);
+	for (vertex = 0; vertex < MARK_VERTICES; vertex++)
+	{
+		shape[vertex].type = vertex % 3 == 0 ? 1 : 2;
+		shape[vertex].x = corners[vertex][0];
+		shape[vertex].y = corners[vertex][1];
+	}
+}
+
+/* the mark's field, made now if it is not yet, about a capital's height at
+FIELD_EM texels to the em */
+static struct field *mark_field(void)
+{
+	struct field *field = field_find(mark_data, MARK_INDEX);
+	struct msdf_vertex shape[MARK_VERTICES];
+
+	if (field)
+		return field;
+	mark_shape(shape);
+	return field_make(mark_data, MARK_INDEX, shape, MARK_VERTICES, 0, 0, (int)(MARK_UNITS * 1.125 + 0.5),
+		(int)MARK_UNITS, (float)(FIELD_EM * 0.72 / MARK_UNITS));
+}
+
+/* text_hires_glyph, from the fields: the quad as the rasterized glyph's
+would be, mapped onto the glyph's field */
+static int fields_glyph(long font, unsigned long code, struct text_hires_glyph *glyph)
+{
+	float scale = halo_screen_pixel_scale();
+	float pixel_scale = scale * fonts[font].oversample;
+	float pixels = fonts[font].scale * pixel_scale;
+	float pixels_x = pixels * fonts[font].width;
+	float u_scale = (float)placeholder_width / FIELDS_WIDTH;
+	float v_scale = (float)placeholder_height / FIELDS_HEIGHT;
+	int index = stbtt_FindGlyphIndex(&fonts[font].info, (int)code);
+	int x0 = 0, y0 = 0, x1 = 0, y1 = 0, advance = 0, bearing = 0;
+	struct field *field;
+
+	if (!index)
+	{
+		/* (the verified mark, where the font has no Delta: as the
+		rasterized glyph is sized, the height of the tag's capitals) */
+		int mark_height, mark_width;
+
+		if (code != HALO_DELTA_MARK || !(field = mark_field()) || !field->width)
+			return 0;
+		mark_height = (int)(fonts[font].cap_height * pixel_scale + 0.5f);
+		if (mark_height < 1)
+			mark_height = 1;
+		mark_width = halo_delta_mark_width(mark_height);
+		glyph->left = 0.0f;
+		glyph->top = -(float)mark_height / pixel_scale;
+		glyph->right = (float)mark_width / pixel_scale;
+		glyph->bottom = 0.0f;
+		glyph->advance = (float)(mark_width + halo_delta_mark_gap(mark_height)) / pixel_scale;
+		glyph->u0 = (field->x + (0.0f - field->left) * field->scale) * u_scale;
+		glyph->u1 = (field->x + ((float)(MARK_UNITS * 1.125) - field->left) * field->scale) * u_scale;
+		glyph->v0 = (field->y + (field->top - (float)MARK_UNITS) * field->scale) * v_scale;
+		glyph->v1 = (field->y + (field->top - 0.0f) * field->scale) * v_scale;
+		return 1;
+	}
+	stbtt_GetGlyphBitmapBox(&fonts[font].info, index, pixels_x, pixels, &x0, &y0, &x1, &y1);
+	if (x1 <= x0 || y1 <= y0)
+		return 0;
+	field = glyph_field(font, index);
+	if (!field || !field->width)
+		return 0;
+	stbtt_GetGlyphHMetrics(&fonts[font].info, index, &advance, &bearing);
+	glyph->left = x0 / pixel_scale;
+	glyph->top = y0 / pixel_scale;
+	glyph->right = x1 / pixel_scale;
+	glyph->bottom = y1 / pixel_scale;
+	glyph->advance = advance * fonts[font].scale * fonts[font].width;
+	/* (the quad's corners in the field: the pixels' box, y down, in font
+	units, y up) */
+	glyph->u0 = (field->x + (x0 / pixels_x - field->left) * field->scale) * u_scale;
+	glyph->u1 = (field->x + (x1 / pixels_x - field->left) * field->scale) * u_scale;
+	glyph->v0 = (field->y + (field->top + y0 / pixels) * field->scale) * v_scale;
+	glyph->v1 = (field->y + (field->top + y1 / pixels) * field->scale) * v_scale;
+	return 1;
+}
+
+#endif /* TEXT_FIELDS */
 
 long text_hires_font(char const *tag_name, float cap_height, short const *letter_widths, float oversample)
 {
@@ -371,6 +729,10 @@ int text_hires_glyph(long font, unsigned long code, struct text_hires_glyph *gly
 	player_fonts_check();
 	if (font < 0 || font >= font_count || fonts[font].scale <= 0.0f || !placeholder_data || scale <= 0.0f)
 		return 0;
+#ifdef TEXT_FIELDS
+	if (fields_wanted())
+		return fields_glyph(font, code, glyph);
+#endif
 	if (!atlas || scale != atlas_scale)
 		atlas_reset(scale);
 	if (!atlas)
@@ -486,108 +848,148 @@ void text_hires_register_atlas(const unsigned long *texture, unsigned long width
 	placeholder_height = height;
 }
 
-unsigned int text_hires_atlas_texture(unsigned long data)
+int text_hires_atlas_fields(void)
 {
-	if (!data || data != placeholder_data || !atlas)
-		return 0;
+	return fields_wanted();
+}
+
+/* the rows [top, top + rows) of the texture written, RGBA */
+static void texture_rows(unsigned long top, unsigned long width, unsigned long rows, const unsigned char *rgba)
+{
 #ifdef HALO_BGFX
 	if (xgpu_bgfx)
 	{
-		/* (the bgfx backend's texture: d3d8_bgfx.inl) */
-		if (!atlas_texture)
-		{
-			atlas_texture = xgpu_bgfx_texture_create(ATLAS_SIZE, ATLAS_SIZE, NULL, FALSE);
-			dirty_top = 0;
-			dirty_bottom = ATLAS_SIZE;
-		}
-		if (atlas_texture && dirty_top < dirty_bottom)
-		{
-			long rows = dirty_bottom - dirty_top, index;
-			unsigned char *texels = malloc((size_t)rows * ATLAS_SIZE * 4);
-			const unsigned char *coverage = atlas + (long)dirty_top * ATLAS_SIZE;
-
-			if (texels)
-			{
-				for (index = 0; index < rows * ATLAS_SIZE; index++)
-				{
-					texels[index * 4 + 0] = texels[index * 4 + 1] = texels[index * 4 + 2] = 255;
-					texels[index * 4 + 3] = coverage[index];
-				}
-				xgpu_bgfx_texture_rows(atlas_texture, (unsigned long)dirty_top, ATLAS_SIZE, (unsigned long)rows, texels);
-				free(texels);
-				dirty_top = ATLAS_SIZE;
-				dirty_bottom = 0;
-			}
-		}
-		return atlas_texture;
+		xgpu_bgfx_texture_rows(atlas_texture, top, width, rows, rgba);
+		return;
 	}
 #endif
 #ifdef HALO_VULKAN
 	if (xgpu_vulkan)
 	{
-		/* (the Vulkan backend's image: d3d8_vk.inl) */
-		if (!atlas_texture)
+		xgpu_vulkan_texture_rows(atlas_texture, top, width, rows, rgba);
+		return;
+	}
+#endif
+	glBindTexture(GL_TEXTURE_2D, atlas_texture);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, (GLint)top, (GLsizei)width, (GLsizei)rows, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	xgpu_gl_state_invalidate();
+}
+
+static void texture_delete(void)
+{
+	if (!atlas_texture)
+		return;
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+	{
+		xgpu_bgfx_texture_delete(atlas_texture);
+		atlas_texture = 0;
+		return;
+	}
+#endif
+#ifdef HALO_VULKAN
+	if (xgpu_vulkan)
+	{
+		xgpu_vulkan_texture_delete(atlas_texture);
+		atlas_texture = 0;
+		return;
+	}
+#endif
+	glDeleteTextures(1, &atlas_texture);
+	xgpu_gl_state_invalidate();
+	atlas_texture = 0;
+}
+
+unsigned int text_hires_atlas_texture(unsigned long data)
+{
+	int kind = fields_wanted();
+	unsigned long width = ATLAS_SIZE, height = ATLAS_SIZE;
+
+	if (!data || data != placeholder_data)
+		return 0;
+#ifdef TEXT_FIELDS
+	if (kind)
+	{
+		if (!fields.pixels)
+			return 0;
+		width = FIELDS_WIDTH;
+		height = FIELDS_HEIGHT;
+	}
+	else
+#endif
+	if (!atlas)
+	{
+		return 0;
+	}
+	/* (the texture of the other kind of glyph, from before the setting
+	changed: made again, whole) */
+	if (atlas_texture && atlas_texture_fields != kind)
+		texture_delete();
+	if (!atlas_texture)
+	{
+#ifdef HALO_BGFX
+		if (xgpu_bgfx)
 		{
-			atlas_texture = xgpu_vulkan_texture_create(ATLAS_SIZE, ATLAS_SIZE, NULL, FALSE);
-			dirty_top = 0;
-			dirty_bottom = ATLAS_SIZE;
+			/* (the bgfx backend's texture: d3d8_bgfx.inl) */
+			atlas_texture = xgpu_bgfx_texture_create(width, height, NULL, FALSE);
 		}
-		if (atlas_texture && dirty_top < dirty_bottom)
+		else
+#endif
+#ifdef HALO_VULKAN
+		if (xgpu_vulkan)
 		{
-			long rows = dirty_bottom - dirty_top, index;
+			/* (the Vulkan backend's image: d3d8_vk.inl) */
+			atlas_texture = xgpu_vulkan_texture_create(width, height, NULL, FALSE);
+		}
+		else
+#endif
+		{
+			glGenTextures(1, &atlas_texture);
+			glBindTexture(GL_TEXTURE_2D, atlas_texture);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)width, (GLsizei)height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+			xgpu_gl_state_invalidate();
+		}
+		atlas_texture_fields = kind;
+		dirty_top = 0;
+		dirty_bottom = (int)height;
+	}
+	if (atlas_texture && dirty_top < dirty_bottom)
+	{
+		long rows = dirty_bottom - dirty_top;
+
+#ifdef TEXT_FIELDS
+		if (kind)
+		{
+			/* (the fields, as they are) */
+			texture_rows((unsigned long)dirty_top, width, (unsigned long)rows,
+				fields.pixels + (size_t)dirty_top * FIELDS_WIDTH * 4);
+			dirty_top = (int)height;
+			dirty_bottom = 0;
+		}
+		else
+#endif
+		{
+			/* (white, the glyph's coverage its alpha, as the maps' fonts are) */
 			unsigned char *texels = malloc((size_t)rows * ATLAS_SIZE * 4);
-			const unsigned char *coverage = atlas + (long)dirty_top * ATLAS_SIZE;
 
 			if (texels)
 			{
+				long index;
+				const unsigned char *coverage = atlas + (long)dirty_top * ATLAS_SIZE;
+
 				for (index = 0; index < rows * ATLAS_SIZE; index++)
 				{
 					texels[index * 4 + 0] = texels[index * 4 + 1] = texels[index * 4 + 2] = 255;
 					texels[index * 4 + 3] = coverage[index];
 				}
-				xgpu_vulkan_texture_rows(atlas_texture, (unsigned long)dirty_top, ATLAS_SIZE, (unsigned long)rows, texels);
+				texture_rows((unsigned long)dirty_top, ATLAS_SIZE, (unsigned long)rows, texels);
 				free(texels);
-				dirty_top = ATLAS_SIZE;
+				dirty_top = (int)height;
 				dirty_bottom = 0;
 			}
-		}
-		return atlas_texture;
-	}
-#endif
-	if (!atlas_texture)
-	{
-		glGenTextures(1, &atlas_texture);
-		glBindTexture(GL_TEXTURE_2D, atlas_texture);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, ATLAS_SIZE, ATLAS_SIZE, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-		xgpu_gl_state_invalidate();
-		dirty_top = 0;
-		dirty_bottom = ATLAS_SIZE;
-	}
-	if (dirty_top < dirty_bottom)
-	{
-		/* (white, the glyph's coverage its alpha, as the maps' fonts are) */
-		long rows = dirty_bottom - dirty_top;
-		unsigned char *texels = malloc((size_t)rows * ATLAS_SIZE * 4);
-
-		if (texels)
-		{
-			long index;
-			const unsigned char *coverage = atlas + (long)dirty_top * ATLAS_SIZE;
-
-			for (index = 0; index < rows * ATLAS_SIZE; index++)
-			{
-				texels[index * 4 + 0] = texels[index * 4 + 1] = texels[index * 4 + 2] = 255;
-				texels[index * 4 + 3] = coverage[index];
-			}
-			glBindTexture(GL_TEXTURE_2D, atlas_texture);
-			glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, dirty_top, ATLAS_SIZE, (GLsizei)rows, GL_RGBA, GL_UNSIGNED_BYTE, texels);
-			xgpu_gl_state_invalidate();
-			free(texels);
-			dirty_top = ATLAS_SIZE;
-			dirty_bottom = 0;
 		}
 	}
 	return atlas_texture;

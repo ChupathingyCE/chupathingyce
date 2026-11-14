@@ -56,6 +56,11 @@ struct nv2a_pixel_shader_key
 	light, brightened past white toward its ceiling (xgpu_tone_map.h's
 	_xgpu_hdr_tag_*, 0 for a draw left as it is: d3d8_gl.c's hdr_draw_tag) */
 	unsigned char hdr;
+	/* texture 0 is the high-res text's atlas of distance fields
+	(text_hires.h, text_hires_atlas_fields): its texel is read as white, its
+	alpha the coverage of the glyph's edge, the median of red, green and blue
+	at 0.5, smoothed over one pixel of the screen (XGPU_TEXT_FIELD_RANGE) */
+	unsigned char text_fields;
 };
 
 #endif

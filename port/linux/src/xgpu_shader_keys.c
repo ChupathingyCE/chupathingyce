@@ -60,13 +60,14 @@ enum
 	_slot_plasma_model,
 	_slot_mcc_bump_attenuation,
 	_slot_hdr,
-	_slot_last = _slot_hdr
+	_slot_text_fields,
+	_slot_last = _slot_text_fields
 };
 
 /* (a field added to nv2a_pixel_shader_key needs a slot here: the key's last
-field is hdr, with no more than padding after it) */
+field is text_fields, with no more than padding after it) */
 typedef char pixel_key_slots_assert[sizeof(struct nv2a_pixel_shader_key) -
-	offsetof(struct nv2a_pixel_shader_key, hdr) <= sizeof(unsigned long) ? 1 : -1];
+	offsetof(struct nv2a_pixel_shader_key, text_fields) <= sizeof(unsigned long) ? 1 : -1];
 
 static unsigned char *slot_byte(struct nv2a_pixel_shader_key *key, unsigned long slot)
 {
@@ -88,6 +89,7 @@ static unsigned char *slot_byte(struct nv2a_pixel_shader_key *key, unsigned long
 	case _slot_plasma_model: return &key->plasma_model;
 	case _slot_mcc_bump_attenuation: return &key->mcc_bump_attenuation;
 	case _slot_hdr: return &key->hdr;
+	case _slot_text_fields: return &key->text_fields;
 	}
 	return NULL;
 }

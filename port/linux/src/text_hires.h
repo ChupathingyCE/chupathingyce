@@ -73,8 +73,12 @@ and its size; NULL forgets it */
 void text_hires_register_atlas(const unsigned long *texture, unsigned long width, unsigned long height);
 
 /* the GL texture of the atlas when data (a D3D texture's Data) is its
-placeholder's, its rasterized glyphs uploaded; 0 otherwise */
+placeholder's, its new glyphs uploaded; 0 otherwise */
 unsigned int text_hires_atlas_texture(unsigned long data);
+/* whether the atlas's texels are the glyphs' distance fields now
+(display.high_res_text_fields), which the pixel shader decodes
+(nv2a_pixel_shader_key's text_fields), rather than rasterized glyphs */
+int text_hires_atlas_fields(void);
 
 /* d3d8_gl.c: the display's pixels for each of the 480 lines */
 float halo_screen_pixel_scale(void);

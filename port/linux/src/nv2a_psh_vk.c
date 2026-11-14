@@ -352,6 +352,22 @@ static void sample(struct xgpu_text *text, const struct nv2a_pixel_shader_key *k
 	}
 }
 
+/* texture 0's texel read as the high-res text's distance field
+(nv2a_pixel_shader_key's text_fields; as nv2a_psh.c's): the median of red, green and blue is
+the distance to the glyph's edge, 0.5 on it; it is made the coverage of the
+edge over one pixel of the screen (XGPU_TEXT_FIELD_RANGE texels of the field
+are as many pixels as the lookup's derivatives make them, at least one), the
+texel white with that alpha, as the maps' fonts' are */
+static void text_fields_decode(struct xgpu_text *text, const char *coordinates)
+{
+	xgpu_text_append(text,
+		"\t{\n\t\tvec2 uv = (%s).xy * texture_scale[0].xy * vec2(textureSize(tex0, 0));\n"
+		"\t\tvec2 texels = max(fwidth(uv), vec2(1e-6));\n"
+		"\t\tfloat pixels = max(" XGPU_TEXT_FIELD_RANGE_TEXT " * 0.5 * (1.0 / texels.x + 1.0 / texels.y), 1.0);\n"
+		"\t\tfloat distance = max(min(t0.r, t0.g), min(max(t0.r, t0.g), t0.b));\n"
+		"\t\tt0 = vec4(1.0, 1.0, 1.0, clamp((distance - 0.5) * pixels + 0.5, 0.0, 1.0));\n\t}\n", coordinates);
+}
+
 static void texture_stage(struct xgpu_text *text, const struct nv2a_pixel_shader_key *key, int stage)
 {
 	const DWORD *state = key->combiner_state;
@@ -372,6 +388,8 @@ static void texture_stage(struct xgpu_text *text, const struct nv2a_pixel_shader
 		xgpu_text_append(text, "\tt%d = ", stage);
 		sample(text, key, stage, coordinates);
 		xgpu_text_append(text, ";\n");
+		if (stage == 0 && key->text_fields && key->sampler_type[stage] == _xgpu_sampler_2d)
+			text_fields_decode(text, coordinates);
 		break;
 	case _mode_cubemap:
 		snprintf(coordinates, sizeof(coordinates), "xT%d", stage);

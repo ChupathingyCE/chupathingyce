@@ -21,6 +21,14 @@ instead (`display.high_res_font`, from `data/fonts/` beside the maps).
 The maps' fonts are Interstate (Tobias Frere-Jones, The Font Bureau), a
 commercial typeface that cannot be shipped.
 
+Each glyph is drawn from a multi-channel signed distance field
+(`port/third_party/msdfgen`, msdfgen's algorithms translated to C by
+goatbutt and the OpenH1 team), made once at 48 texels to the em as the
+glyph is first drawn, so it is sharp at any size and any resolution;
+`display.high_res_text_fields = false` rasterizes the glyphs for the
+window's size instead, as before 0.9.3. A player's own font gets its fields
+the same way.
+
 Cyborg Interface Gothic was made by fizzy (Discord: ._o.) for this game's
 text, to match Halo's interface font: many of its glyphs are derived from
 Overpass, the others drawn by them. It is under the SIL Open Font License

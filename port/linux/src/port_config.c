@@ -480,6 +480,11 @@ static const struct config_setting config_settings[] =
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the text and titles of the menus and the HUD with sharp,\n"
 		"high-res fonts." },
+	{ "display.high_res_text_fields", _config_boolean, "true", "HALO_HIGH_RES_TEXT_FIELDS", _environment_value,
+		_platform_all,
+		"With display.high_res_text: draw each letter from a distance field,\n"
+		"sharp at any size and any resolution. false draws the letters as\n"
+		"pictures made for the window's size, as before." },
 	{ "display.console_style", _config_string, "\"dropdown\"", "HALO_CONSOLE_STYLE", _environment_value, _platform_all,
 		"How the console (the ~ key) looks: \"dropdown\", a panel that slides\n"
 		"down from the top with its scrollback (PgUp, PgDn, the wheel), or\n"
