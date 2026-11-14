@@ -33,6 +33,9 @@ struct mcc_client_binding {
     char session[64], local[64];
     unsigned char digest[32];
     struct mcc_precache_snapshot files;
+    /* chester (GulchCE): the local base resources that matched the host's
+     * SHA-256 (empty: the loader's own choice) */
+    char resources[2][128];
 };
 static struct mcc_client_binding mcc_client_identity;
 
@@ -191,12 +194,16 @@ int mcc_identity_host_admission(unsigned char identity[196])
     return 1;
 }
 
+/* 1 when name's package (with one of this machine's base resource sets)
+ * is the host's digest: resources gets the sets chosen, empty for the
+ * loader's own; 0 when not; -1 when it can't be read (reason says why) */
 static int mcc_identity_matches(char const *name,unsigned char const digest[32],
-    struct mcc_precache_snapshot *validated)
+    struct mcc_precache_snapshot *validated,char resources[2][128],char *reason,size_t reason_size)
 {
     struct mcc_precache_snapshot before,after;
-    unsigned char actual[32];
+    char chosen[2][128];
     int ok;
+    if (reason && reason_size) reason[0]=0;
     if (!mcc_precache_snapshot(name,&before)) return 0;
     /* The host's loopback client admits the very package just fingerprinted
      * for these settings. Rehashing it here stalls remote join requests.
@@ -206,13 +213,23 @@ static int mcc_identity_matches(char const *name,unsigned char const digest[32],
         !memcmp(digest,mcc_host_identity.digest,32) &&
         !memcmp(&before,&mcc_host_identity.files,sizeof(before))) {
         if (validated) *validated=before;
+        if (resources) memset(resources,0,2*128);
         return 1;
     }
-    ok=mcc_content_probe(name,actual) &&
-        !memcmp(actual,digest,32) && mcc_precache_snapshot(name,&after) &&
-        !memcmp(&before,&after,sizeof(before));
-    if (ok && validated) *validated=after;
+    memset(chosen,0,sizeof(chosen));
+    ok=mcc_content_match(name,digest,chosen,reason,reason_size);
+    if (ok>0 && (!mcc_precache_snapshot(name,&after) || memcmp(&before,&after,sizeof(before)))) ok=0;
+    if (ok>0 && validated) *validated=after;
+    if (ok>0 && resources) memcpy(resources,chosen,sizeof(chosen));
     return ok;
+}
+
+int mcc_identity_resources(char const *name,char paths[2][128])
+{
+    if (!mcc_identity_expected(name) ||
+        (!mcc_client_identity.resources[0][0] && !mcc_client_identity.resources[1][0])) return 0;
+    memcpy(paths,mcc_client_identity.resources,sizeof(mcc_client_identity.resources));
+    return 1;
 }
 
 /* port: the host's MCC content fingerprint travels in its game settings,
@@ -316,12 +333,13 @@ static int mcc_identity_seen(struct mcc_client_binding const *previous,char cons
 
 int mcc_identity_accept(struct network_game const *game)
 {
-    char session[64],selected[64];
+    char session[64],selected[64],resources[2][128],candidate_resources[2][128],reason[320]="",problem[320];
     char const *leaf,*candidate,*candidate_leaf;
     unsigned char zero[32]={0};
     short i,count;
     unsigned candidates=0,matches=0;
-    struct mcc_precache_snapshot selected_files;
+    int status,tried;
+    struct mcc_precache_snapshot selected_files,tried_files,files;
     unsigned char const *digest=mcc_identity_session_digest(game);
     struct mcc_client_binding previous=mcc_client_identity;
     memset(&mcc_client_identity,0,sizeof(mcc_client_identity));
@@ -336,7 +354,9 @@ int mcc_identity_accept(struct network_game const *game)
         return mcc_identity_error("Couldn't check this game's MCC map. The host may need to restart the game.");
     if (mcc_identity_seen(&previous,session,digest)) return 1;
     /* A verified exact installation is unambiguous even with duplicate copies. */
-    if (mcc_identity_matches(session,digest,&selected_files)) {
+    tried=mcc_precache_snapshot(session,&tried_files);
+    status=mcc_identity_matches(session,digest,&selected_files,resources,reason,sizeof(reason));
+    if (status>0) {
         strcpy(selected,session);
         matches=1;
     } else {
@@ -344,8 +364,10 @@ int mcc_identity_accept(struct network_game const *game)
         mcc_maps_rescan();
         count=mcc_maps_count(FALSE);
         /* Discovery may have made the exact package available since the first
-         * probe. Prefer it before looking for aliases with the same leaf. */
-        if (mcc_identity_matches(session,digest,&selected_files)) {
+         * probe. Prefer it before looking for aliases with the same leaf, but
+         * hash it again only if its files changed (chester, GulchCE). */
+        if ((!tried || !mcc_precache_snapshot(session,&files) || memcmp(&files,&tried_files,sizeof(files))) &&
+            mcc_identity_matches(session,digest,&selected_files,resources,problem,sizeof(problem))>0) {
             strcpy(selected,session);
             matches=1;
         }
@@ -361,15 +383,20 @@ int mcc_identity_accept(struct network_game const *game)
                 candidate=mcc_maps_level_name(i);
                 candidate_leaf=strrchr(candidate,'\\')+1;
                 if (csstrcasecmp(leaf,candidate_leaf) || !csstrcasecmp(candidate,session)) continue;
-                if (mcc_identity_matches(candidate,digest,&selected_files)) {
+                status=mcc_identity_matches(candidate,digest,&selected_files,candidate_resources,problem,sizeof(problem));
+                if (status<0 && !reason[0]) strcpy(reason,problem);
+                if (status>0) {
                     strcpy(selected,candidate);
+                    memcpy(resources,candidate_resources,sizeof(resources));
                     if (++matches>1) return mcc_identity_error("Several local MCC packages match the host. Keep one matching copy, or use the host's package folder name.");
                 }
             }
         }
     }
-    if (!matches) return mcc_identity_refusal(game,session);
+    /* (a package that is here but couldn't be read says so, not "missing") */
+    if (!matches) return reason[0] ? mcc_identity_error(reason) : mcc_identity_refusal(game,session);
     mcc_client_identity.files=selected_files;
+    memcpy(mcc_client_identity.resources,resources,sizeof(resources));
     strcpy(mcc_client_identity.session,session);
     strcpy(mcc_client_identity.local,selected);
     memcpy(mcc_client_identity.digest,digest,32);
@@ -385,7 +412,7 @@ int mcc_identity_check(char const *name)
     if (!expected) return 1;
     if (!mcc_precache_snapshot(mcc_client_identity.local,&files)) return 0;
     if (!memcmp(&files,&mcc_client_identity.files,sizeof(files))) return 1;
-    return mcc_identity_matches(mcc_client_identity.local,expected,NULL);
+    return mcc_identity_matches(mcc_client_identity.local,expected,NULL,mcc_client_identity.resources,NULL,0)>0;
 }
 
 int mcc_identity_loaded(char const *name,struct mcc_runtime *runtime)

@@ -8,6 +8,9 @@ as it likes, each with another map version (which makes the client check the
 record again): each check hashed the whole package on the game thread, and a
 host could hold its clients' games still that way.
 
+A package that doesn't match isn't hashed a second time after the catalog
+is scanned again, unless its files changed (chester's, GulchCE).
+
 The real mcc_identity_seen, mcc_identity_matches and mcc_identity_accept
 are compiled on their own over a fake package whose hashing is counted.
 Needs only a C compiler.
@@ -50,6 +53,7 @@ struct mcc_client_binding {
     char session[64], local[64];
     unsigned char digest[32];
     struct mcc_precache_snapshot files;
+    char resources[2][128];
 };
 static struct mcc_client_binding mcc_client_identity;
 static unsigned char host_digest[32] = { 7 };
@@ -72,12 +76,13 @@ static int mcc_precache_snapshot(char const *name, struct mcc_precache_snapshot 
     files->time = package_time;
     return 1;
 }
-static int mcc_content_probe(char const *name, unsigned char *actual)
+static unsigned char package_digest[32] = { 7 };
+static int mcc_content_match(char const *name, unsigned char const *digest, char paths[2][128],
+    char *reason, unsigned long size)
 {
-    (void)name;
+    (void)name; (void)paths; (void)reason; (void)size;
     probes++;
-    memcpy(actual, host_digest, 32);
-    return 1;
+    return !memcmp(digest, package_digest, 32);
 }
 """
 
@@ -107,6 +112,9 @@ int main(void)
 
         mcc_identity_accept(&game);
         if (probes == before) { printf("another digest was taken without a check\n"); return 1; }
+        /* (chester, GulchCE) the exact package, unchanged after the rescan,
+         * is hashed once, not again before its aliases */
+        if (probes != before + 1) { printf("an unchanged package was hashed %d times\n", probes - before); return 1; }
     }
     printf("mcc_identity_reuse_test: ok\n");
     return 0;

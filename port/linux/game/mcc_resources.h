@@ -3,6 +3,7 @@
 #define MCC_RESOURCES_H
 #include <stdint.h>
 #include <stddef.h>
+#include "mcc_package.h"
 struct mcc_runtime;
 struct mcc_cache_source;
 struct mcc_resource_check;
@@ -12,6 +13,16 @@ int mcc_resources_check_step(struct mcc_resource_check *check, uint32_t *checksu
     unsigned char digest[32]);
 void mcc_resources_check_end(struct mcc_resource_check *check);
 int mcc_resources_select(struct mcc_runtime *runtime, void *raw);
+/* chester (GulchCE): local paths a host match chose, never the host's own */
+int mcc_resources_select_paths(struct mcc_runtime *runtime, void *raw, char const paths[2][128]);
+/* Distinct usable local files per type. An unused type has one empty
+ * choice; a package's own file is the only choice for its type. */
+struct mcc_resource_candidates {
+    unsigned count[2];
+    char paths[2][MCC_PACKAGE_BASE_SETS][128];
+};
+int mcc_resources_fingerprint_match(char const *name, struct mcc_cache_source const *source,
+    unsigned char const expected[32], char paths[2][128], char *reason, size_t reason_size);
 int mcc_resources_checksum(struct mcc_runtime *runtime, unsigned mask, uint32_t *checksum);
 int mcc_resources_probe(char const *name, struct mcc_cache_source const *source, uint32_t *checksum);
 int mcc_resources_probe_explain(char const *name, struct mcc_cache_source const *source,

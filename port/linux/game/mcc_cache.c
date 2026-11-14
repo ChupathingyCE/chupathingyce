@@ -236,6 +236,20 @@ int mcc_content_probe(char const *name,unsigned char digest[32])
     return ok;
 }
 
+int mcc_content_match(char const *name,unsigned char const digest[32],char paths[2][128],
+    char *reason,unsigned long reason_size)
+{
+    struct mcc_cache_identity identity;
+    struct mcc_cache_source source;
+    FILE *stream=mcc_open(name,&source,&identity);
+    int result;
+    if (reason && reason_size) reason[0]=0;
+    if (!stream) return 0;
+    result=mcc_resources_fingerprint_match(name,&source,digest,paths,reason,(size_t)reason_size);
+    fclose(stream);
+    return result;
+}
+
 boolean mcc_cache_present(char const *name, unsigned long checksum, char *message, long size)
 {
     struct mcc_cache_identity identity;
@@ -388,7 +402,7 @@ struct cache_file_tag_header *mcc_cache_tags_load(char const *name, void *header
     unsigned char *raw = NULL;
     enum mcc_cache_status status;
     uint32_t package_checksum;
-    char memory_problem[192];
+    char memory_problem[192],resource_paths[2][128];
     char const *problem = "the map could not be opened";
     mcc_cache_tags_unload();
     /* port: in a network game, only one whose layout carries MCC's messages
@@ -416,7 +430,9 @@ struct cache_file_tag_header *mcc_cache_tags_load(char const *name, void *header
         (unsigned long)runtime->report.problem_location);
     if (status != MCC_CACHE_OK) goto failed;
     problem = "Its MCC resources could not be selected. See debug.txt for the failing check.";
-    if (!mcc_resources_select(runtime,raw)) goto failed;
+    /* (a joined game's base resources: the sets that matched the host's SHA-256) */
+    if (!mcc_resources_select_paths(runtime,raw,
+        mcc_identity_resources(name,resource_paths) ? (char const (*)[128])resource_paths : NULL)) goto failed;
     mcc_loading_update(MCC_LOADING_RESOURCES, 1, 3);
     problem = "Its map resources could not be read completely. Check that the files are accessible.";
     if (!mcc_resources_checksum(runtime,
