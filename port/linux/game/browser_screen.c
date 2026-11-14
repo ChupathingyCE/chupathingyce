@@ -328,8 +328,9 @@ static struct
 	known), "Don't ask again" ticked, and the download's progress */
 	short offer;
 	char offer_file[32];
-	/* (the name the player knows it by: a hashed name's base, map_archive.h) */
-	char offer_display[32];
+	/* (the name the player knows it by: a hashed name's base, map_archive.h;
+	a Workshop item's whole Steam title, which can be long) */
+	char offer_display[132];
 	/* (a stock map's panel: heading and two lines, from map_family_stock_need) */
 	char offer_stock_first[96];
 	char offer_stock_second[160];
@@ -418,6 +419,7 @@ static void set_status(
 }
 
 static void utf8_text(unsigned short const *name, long length, char *text, long size);
+static void utf8_whole(char *text);
 
 /* a game's map: its file's name (the path's last part, without a Halo PC
 map's @ce or @md), and its family (halo_map_families.h) */
@@ -1193,6 +1195,8 @@ static void follow_workshop_check(
 	{
 		csstrncpy(browser_screen.offer_display, title, sizeof(browser_screen.offer_display) - 1);
 		browser_screen.offer_display[sizeof(browser_screen.offer_display) - 1] = 0;
+		/* (Steam's title may have been cut to the check's buffer mid-character) */
+		utf8_whole(browser_screen.offer_display);
 	}
 	browser_screen.offer_workshop_size = size;
 	limit = config_integer("network.workshop_downloads_limit_mb");
@@ -4080,6 +4084,116 @@ static void draw_link_profile(
 void console_ring_picture(float fraction);
 #endif
 
+/* (UTF-8) the start of the character at or before text[length]: a cut there
+never splits a character */
+static long utf8_boundary(
+	char const *text,
+	long length)
+{
+	while (length > 0 && ((unsigned char)text[length] & 0xC0) == 0x80)
+		length--;
+	return length;
+}
+
+/* (UTF-8) text with a last character that was cut short (a title cut to its
+buffer elsewhere) dropped */
+static void utf8_whole(
+	char *text)
+{
+	long length = (long)strlen(text), start, need;
+	unsigned char lead;
+
+	if (!length)
+		return;
+	start = utf8_boundary(text, length - 1);
+	lead = (unsigned char)text[start];
+	need = lead < 0x80 ? 1 : lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 0;
+	if (length - start != need)
+		text[start] = 0;
+}
+
+/* text in the offer's big glowing lines, centered at x from y down, split at
+spaces into lines that fit width (at most lines of them, the last ending in
+an ellipsis when the rest doesn't fit); the next line's y */
+static float draw_fitted_lines(
+	char const *text,
+	float x,
+	float y,
+	float width,
+	int lines)
+{
+	char line[192];
+	char const *cursor = text;
+	int count;
+
+	for (count = 0; count < lines && *cursor; count++)
+	{
+		long length = 0, fits = 0;
+		long rest = (long)strlen(cursor);
+
+		/* (the longest run of whole words that fits: a word too long for a
+		line alone is cut where it stops fitting) */
+		while (length < rest && length < (long)sizeof(line) - 4)
+		{
+			long next = length;
+
+			while (next < rest && cursor[next] == ' ')
+				next++;
+			while (next < rest && cursor[next] != ' ')
+				next++;
+			if (next >= (long)sizeof(line) - 8)
+				break;
+			snprintf(line, sizeof(line), "%.*s", (int)next, cursor);
+			if (ui_overlay_text_width(UI_FONT_MENU, 15.0f, line) > width)
+				break;
+			length = next;
+			fits = 1;
+		}
+		if (!fits)
+		{
+			/* (whole characters: at least one, so the text moves on) */
+			length = 1;
+			while (length < rest && ((unsigned char)cursor[length] & 0xC0) == 0x80)
+				length++;
+			while (length < rest && length < (long)sizeof(line) - 8)
+			{
+				long next = length + 1;
+
+				while (next < rest && ((unsigned char)cursor[next] & 0xC0) == 0x80)
+					next++;
+				snprintf(line, sizeof(line), "%.*s", (int)next, cursor);
+				if (ui_overlay_text_width(UI_FONT_MENU, 15.0f, line) > width)
+					break;
+				length = next;
+			}
+		}
+		snprintf(line, sizeof(line), "%.*s", (int)length, cursor);
+		cursor += length;
+		while (*cursor == ' ')
+			cursor++;
+		/* (the last line, with more to come: as much as fits beside "...") */
+		if (count == lines - 1 && *cursor)
+		{
+			char shown[sizeof(line) + 4];
+
+			for (;;)
+			{
+				snprintf(shown, sizeof(shown), "%s\xE2\x80\xA6", line);
+				if (!length || ui_overlay_text_width(UI_FONT_MENU, 15.0f, shown) <= width)
+					break;
+				length = utf8_boundary(line, length - 1);
+				line[length] = 0;
+				while (length && line[length - 1] == ' ')
+					line[--length] = 0;
+			}
+			snprintf(line, sizeof(line), "%s", shown);
+		}
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, x, y, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, line);
+		y += 20;
+	}
+	return y;
+}
+
 /* the offer's "Don't ask again" at y, ticked or not (Y, or a click on it) */
 static void draw_dont_ask(
 	float y)
@@ -4148,16 +4262,19 @@ static void draw_map_offer(
 				dialog_prompt(UI_BUTTON_B, "=CANCEL");
 				break;
 			}
+			/* (a long Steam title wraps, two lines at most, rather than being cut) */
 			snprintf(text, sizeof(text), "Get %s", browser_screen.offer_display);
-			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 86, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
-				text);
-			if (browser_screen.offer_workshop_size > 0)
-				snprintf(text, sizeof(text), "from the Steam Workshop (%.1f MB)?",
-					(double)browser_screen.offer_workshop_size / 1048576.0);
-			else
-				snprintf(text, sizeof(text), "from the Steam Workshop?");
-			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
-				text);
+			{
+				float next = draw_fitted_lines(text, center, CONNECT_Y + 86, CONNECT_WIDTH - 40, 2);
+
+				if (browser_screen.offer_workshop_size > 0)
+					snprintf(text, sizeof(text), "from the Steam Workshop (%.1f MB)?",
+						(double)browser_screen.offer_workshop_size / 1048576.0);
+				else
+					snprintf(text, sizeof(text), "from the Steam Workshop?");
+				ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, next, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
+					text);
+			}
 			/* (YES, ALWAYS and NO: WORKSHOP_JOIN_ALWAYS_BUTTON; else the tick box) */
 			if (WORKSHOP_JOIN_ALWAYS_BUTTON)
 			{
@@ -4209,14 +4326,19 @@ static void draw_map_offer(
 		float done = 0.0f;
 
 		if (browser_screen.offer_workshop)
+		{
+			/* (one line over the progress bar: a long title ends in "...") */
 			snprintf(text, sizeof(text), "Getting %s", browser_screen.offer_display);
+			draw_fitted_lines(text, center, CONNECT_Y + 88, CONNECT_WIDTH - 40, 1);
+		}
 		else if (progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY)
 			snprintf(text, sizeof(text), "Downloading %s.map from " MAP_REPO_TITLE, browser_screen.offer_display);
 		else if (progress->source == MAP_DOWNLOAD_SOURCE_HOST)
 			snprintf(text, sizeof(text), "Downloading %s.map from the host", browser_screen.offer_display);
 		else
 			snprintf(text, sizeof(text), "Downloading %s.map", browser_screen.offer_display);
-		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 88, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
+		if (!browser_screen.offer_workshop)
+			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 88, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		switch (progress->phase)
 		{
 		case MAP_DOWNLOAD_RECEIVING:
