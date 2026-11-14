@@ -776,10 +776,12 @@ evaluation, as before */
 #else
 #include "mcc_script_threads.inl" /* port: MCC-only bounded thread storage. */
 #include "mcc_script_runtime.inl"
+#endif
+#include "hs_library_external.h" /* port: (hs_object_create, below) */
+/* port: (in every build: hs_cast asks Stubbs mode for a name placed on
+demand, and a console's header gives the empty one) */
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
-#include "hs_library_external.h"
-#endif
 
 void hs_runtime_initialize(
 	void)
