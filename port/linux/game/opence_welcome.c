@@ -14,7 +14,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 /* ---------- globals */
 
-char const opence_welcome_default_text[] = "Welcome! This server plays best in Chupathingy: chupathingy.org";
+char const opence_welcome_default_text[] = "A Chupathingy server. It plays better on Delta: chupathingy.org";
 
 /* ---------- public code */
 
