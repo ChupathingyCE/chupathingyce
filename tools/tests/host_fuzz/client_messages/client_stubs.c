@@ -257,3 +257,13 @@ long network_distributed_mcc_share_message(void);
 long network_distributed_mcc_share_message(void) { return 0; }
 long stubbs_multiplayer_join_refused(void);
 long stubbs_multiplayer_join_refused(void) { return 0; }
+long mcc_level_name(void);
+long mcc_level_name(void) { return 0; }
+long cache_files_map_loadable(void);
+long cache_files_map_loadable(void) { return 0; }
+long game_precache_new_map_refusable(void);
+long game_precache_new_map_refusable(void) { return 0; }
+long errors_clear(void);
+long errors_clear(void) { return 0; }
+long main_goto_main_menu(void);
+long main_goto_main_menu(void) { return 0; }

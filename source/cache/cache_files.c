@@ -1797,21 +1797,36 @@ boolean cache_files_give_time_to_precache(
 			cache_files_precache_map_end();
 		}
 
+		/* port: a map whose copy failed, or that can't be copied at all, is
+		not tried again each frame, nor the damaged disc error's for good: the
+		game that needs it refuses it as it starts (network_game_create_game_objects,
+		game_precache_new_map_refusable), and goes back to the menus */
+		static char refused_map_name[256];
+
 		if (cache_files_precache_in_progress())
 		{
 			real progress;
 			short status = cache_files_precache_map_status(&progress);
 
 			if (status == 2)
-				display_error_damaged_media();
+			{
+				error(_error_silent, "background copy of map '%s' failed: it is refused when its game starts", map_name);
+				cache_files_precache_map_abandon();
+				strncpy(refused_map_name, map_name, sizeof(refused_map_name) - 1);
+				refused_map_name[sizeof(refused_map_name) - 1] = 0;
+			}
 			else if (status == 1)
 				cache_files_precache_map_end();
 		}
-		else
+		else if (_stricmp(refused_map_name, map_name) != 0)
 		{
 			cache_files_precache_set_priority(0);
 			if (!cache_files_precache_map_begin(map_name, FALSE))
-				cache_files_display_map_error(map_name);
+			{
+				error(_error_silent, "map '%s' can't be copied: it is refused when its game starts", map_name);
+				strncpy(refused_map_name, map_name, sizeof(refused_map_name) - 1);
+				refused_map_name[sizeof(refused_map_name) - 1] = 0;
+			}
 		}
 	}
 
