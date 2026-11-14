@@ -22,10 +22,14 @@ byte *stubbs_regions_permutations(long object_index);
 void stubbs_regions_object_new(long object_index);
 /* after a change: the object's own eight follow */
 void stubbs_regions_changed(long object_index);
+/* after a checkpoint revert or a saved game load: every row starts over from
+its object's eight */
+void stubbs_regions_forget(void);
 #else
 static __inline byte *stubbs_regions_permutations(long object_index) { (void)object_index; return NULL; }
 static __inline void stubbs_regions_object_new(long object_index) { (void)object_index; }
 static __inline void stubbs_regions_changed(long object_index) { (void)object_index; }
+static __inline void stubbs_regions_forget(void) { }
 #endif
 
 #endif

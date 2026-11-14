@@ -12,9 +12,13 @@ without a chest, towers missing from the skyline.
 In Stubbs mode an object's permutations live here, sixteen per object, and
 the object's own eight are kept a copy of the first eight (saved games, the
 network and Halo's code read those). A row belongs to one object by its
-datum index: a new object, or a saved one restored into a slot, starts from
-the object's eight, the rest at their first permutation. Halo mode never
-comes here (stubbs_mode.c).
+datum index: a new object starts from the object's eight, the rest at their
+first permutation. A checkpoint revert or a saved game load puts objects back
+under the same datum indices, so every row is forgotten then
+(stubbs_regions_forget, game_state.c) and starts again from its object's
+eight: the game state holds only those, so regions 8 to 15 come back at their
+first permutation after a revert or a load. Halo mode never comes here
+(stubbs_mode.c).
 */
 
 #include "stubbs_regions.h"
@@ -97,6 +101,17 @@ void stubbs_regions_changed(
 		memcpy(object->object.region_permutations, row->permutations,
 			sizeof(object->object.region_permutations));
 	}
+}
+
+void stubbs_regions_forget(
+	void)
+{
+	long index;
+
+	if (!stubbs_mode_active())
+		return;
+	for (index = 0; index < HALO_PORT_MAXIMUM_OBJECTS_PER_MAP; index++)
+		stubbs_region_rows[index].object_index = NONE;
 }
 
 #endif
