@@ -144,7 +144,7 @@ static int local_platform(void)
 {
 #if defined(HALO_DELTA_PLATFORM)
 	/* (a port's own number, set by its build: -DHALO_DELTA_PLATFORM=
-	_delta_platform_ps3, say; docs/delta.md, "Platform numbers") */
+	_delta_platform_ps3, say; docs/delta/peer.md, "Platform numbers") */
 	return HALO_DELTA_PLATFORM;
 #elif defined(HALO_XBOX_CONSOLE)
 	/* (before _WIN32: the console's build is a Windows target's too) */
@@ -225,7 +225,7 @@ void delta_peer_local_key(struct delta_platform_key *key)
 	host holds a key to its platform's row, never above it (delta_peer.c):
 	the original Xbox's row hosts 16 and joins 32 unless its player sets
 	network.platform_limits = "off"; the Xbox 360's and the Wii U's rows are
-	32 (docs/delta.md) */
+	32 (docs/delta/README.md) */
 	key->host_players = (unsigned char)HALO_CONSOLE_PLAYERS;
 	key->join_players = (unsigned char)HALO_CONSOLE_PLAYERS;
 	if (key->join_players_opt_in < key->join_players)
@@ -453,7 +453,7 @@ static void identity_revoked_changed(void)
 }
 
 #ifdef HALO_DELTA_PEER_IDENTITY
-/* verified names (docs/delta.md, Verified names): a proof checked, as a host
+/* verified names (docs/delta/peer.md, Verified names): a proof checked, as a host
 and as a client of a relayed card: the chain to the root keys, the dates by
 this machine's clock, play, the revocation list this copy last fetched, and
 the device key's signature of the host's nonce, binding, machine, local
@@ -660,7 +660,7 @@ int delta_peer_protocol(void)
 #else
 		local.capabilities = (delta_u32)1 << _delta_capability_platform | (delta_u32)1 << _delta_capability_profile |
 			(delta_u32)1 << _delta_capability_ce_maps;
-		/* (text chat and the host's own lines: docs/delta.md, Chat) */
+		/* (text chat and the host's own lines: docs/delta/peer.md, Chat) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_chat |
 			(delta_u32)1 << _delta_capability_server_messages;
 		/* (changing teams during a game: a host offers it once its team

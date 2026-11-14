@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 DELTA_REF.C
 
-The reference client of delta_ref.h. Layouts are docs/delta.md's ("Wire
+The reference client of delta_ref.h. Layouts are docs/delta/peer.md's ("Wire
 format", "The advertisement"); tools/delta-ref/golden.h holds bytes the
 game's own code wrote, which the tests compare these with.
 */

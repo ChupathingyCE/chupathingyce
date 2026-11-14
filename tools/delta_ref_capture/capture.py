@@ -3,12 +3,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Golden packets and the interop test for the Delta reference client
 (tools/delta-ref), built from the game's own Delta code in this repository.
+This folder stays with the game's code; tools/delta-ref and docs/delta can
+move on their own (docs/delta/MOVING.md).
 
     capture.py golden [--check]
         builds capture/golden_capture.c with port/linux/src/delta_wire.c,
         delta_compat.c and browser.c's form encoding, and writes
         tools/delta-ref/golden.h (--check: fails if the file differs, so a
-        change to our wire shows up as a change to the goldens)
+        change to our wire shows up as a change to the goldens, and if a
+        hex example in docs/delta/peer.md is not its golden packet's bytes)
     capture.py interop
         builds capture/interop_test.c: the reference client against the
         game's real Delta Peer host and client sessions (delta_peer.c), in
@@ -26,8 +29,9 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-KIT = HERE.parent
-ROOT = KIT.parent.parent
+ROOT = HERE.parent.parent
+KIT = ROOT / "tools" / "delta-ref"
+PEER_DOC = ROOT / "docs" / "delta" / "peer.md"
 INCLUDE = ROOT / "port" / "linux" / "include"
 SRC = ROOT / "port" / "linux" / "src"
 MONOCYPHER = ROOT / "port" / "third_party" / "monocypher"
@@ -64,6 +68,36 @@ def build(cc, sources, output, include_dirs):
         sys.exit("capture.py: build failed\n" + result.stdout + result.stderr)
 
 
+def golden_arrays(text):
+    return {name: bytes(int(byte, 16) for byte in re.findall(r"0x([0-9a-f]{2})", body))
+            for name, body in re.findall(r"static const uint8_t (\w+)\[\d+\] = \{(.*?)\};", text, re.S)}
+
+
+def doc_examples():
+    """the hex blocks of peer.md (```hex <golden name>): each line's leading
+    two-digit hex tokens, up to the first word that is not one"""
+    examples = {}
+    for name, body in re.findall(r"^```hex (\w+)\n(.*?)^```", PEER_DOC.read_text(encoding="utf-8"), re.S | re.M):
+        data = bytearray()
+        for line in body.splitlines():
+            for token in line.split():
+                if not re.fullmatch(r"[0-9a-f]{2}", token):
+                    break
+                data.append(int(token, 16))
+        examples[name] = bytes(data)
+    return examples
+
+
+def check_doc(goldens):
+    examples = doc_examples()
+    if not examples:
+        sys.exit("capture.py: no hex examples in docs/delta/peer.md")
+    for name, data in examples.items():
+        if goldens.get(name) != data:
+            sys.exit(f"capture.py: docs/delta/peer.md's example {name} is not golden.h's bytes")
+    print(f"capture.py: peer.md's {len(examples)} examples match golden.h")
+
+
 def golden(check):
     cc = compiler()
     with tempfile.TemporaryDirectory(prefix="delta-ref-") as work:
@@ -77,6 +111,7 @@ def golden(check):
             sys.exit("capture.py: golden.h differs from what the game's code writes now; run capture.py golden "
                      "and look at what changed")
         print("capture.py: golden.h matches the game's code")
+        check_doc(golden_arrays(output))
     else:
         GOLDEN.write_text(output)
         print(f"capture.py: wrote {GOLDEN.relative_to(ROOT)}")

@@ -1,7 +1,7 @@
 /*
 IDENTITY_KEY.H
 
-The identity root keys (docs/delta.md, "Device identity"): Ed25519, 32 bytes
+The identity root keys (docs/delta/link.md, "Device identity"): Ed25519, 32 bytes
 each. They sign only the site's issuer certificate (CISS), and the issuer
 signs the device certificates (identity.c checks the chain). The private
 halves live only in CI's secrets (command's keys.yml, set identity), never

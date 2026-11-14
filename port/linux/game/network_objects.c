@@ -2237,7 +2237,7 @@ void network_objects_apply_vehicle_predictions(
 }
 
 #ifdef HALO_GAME_BROWSER
-/* ---------- object sync over Delta Peer (docs/delta.md, Object sync)
+/* ---------- object sync over Delta Peer (docs/delta/peer.md, Object sync)
 
 What the game's own messages leave out of the host's objects, to the
 clients that agreed to Delta Peer's object_sync (OpenCE's and older builds'

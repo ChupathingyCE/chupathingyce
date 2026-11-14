@@ -3274,7 +3274,7 @@ static char const *type_name(
 	return text;
 }
 
-/* ---------- a listed game's host, as the list says it (docs/delta.md, Delta
+/* ---------- a listed game's host, as the list says it (docs/delta/list.md, Delta
 List: a ChupathingyCE host's own word; nothing of an older or OpenCE host) */
 
 /* its platform (delta.h's registry), short for the row's tag and in full

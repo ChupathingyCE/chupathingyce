@@ -38,7 +38,7 @@ those a listed game keeps (as many as the Online Games screen shows) */
 #define BROWSER_MACHINE_KINDS 23
 
 /* how a listed game is hosted, and on what protocol, as the list says
-(docs/delta.md, Delta List): not known (an older host, or one listed by its
+(docs/delta/list.md, Delta List): not known (an older host, or one listed by its
 invite) is 0 */
 enum
 {
@@ -389,7 +389,7 @@ carnage report confirmed with this copy's player key (browser.c); and the
 public player ID it confirms them as */
 void browser_claim_game(const unsigned short (*names)[BROWSER_PLAYER_NAME_LENGTH], int count);
 int browser_player_id(char *text, int size);
-/* the moderator key (Delta Peer's moderation, docs/delta.md): an Ed25519
+/* the moderator key (Delta Peer's moderation, docs/delta/README.md): an Ed25519
 key pair made from this copy's player key, whose public half a dedicated
 server's moderators file names. Its signature of a message and its public
 key: 1, else 0 (no player key). The public key alone as 64 hex digits */
@@ -542,7 +542,7 @@ struct browser_social_result
 /* 0 if one is still out */
 int browser_social_act(int action, const char *handle);
 
-/* a report's clip (docs/delta.md, Reports): the file at path sent to the
+/* a report's clip (docs/delta/peer.md, Reports): the file at path sent to the
 site with the report's token (16 bytes), on the browser's thread: 1 if
 taken (one at a time). Its state: BROWSER_CLIP_* */
 enum
@@ -653,7 +653,7 @@ the site's /v1/game/clan, its result the action's. 0 for a handle the site
 could not have given. Not on the consoles (no DELTA there yet) */
 int browser_profile_clan_member(const char *action, const char *handle);
 
-/* the devices (docs/delta.md, Devices): this device signed out (its
+/* the devices (docs/delta/link.md, Devices): this device signed out (its
 certificate dropped, its key kept; nothing goes to the site as the account
 until it signs in again by code), and another device of the account revoked
 (by its ID, 32 hex digits); each the action's result */
@@ -704,7 +704,7 @@ background, or they have none to show). Kept for the run */
 #define BROWSER_PLAYER_CARDS 64
 int browser_player_card(const char *player_id, struct delta_profile_card *card);
 
-/* verified names in games (Delta Peer's identity capability; docs/delta.md,
+/* verified names in games (Delta Peer's identity capability; docs/delta/peer.md,
 "Verified names"). This copy's device certificate and its issuer's, to
 prove a local player whose Halo profile is signed in to account (32 bytes
 of the certificate's account; NULL: the copy's own): 1 with them (the

@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: 2026 The Chupathingy contributors
 # SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Checks a port's Delta packets against docs/delta.md and
-docs/delta-for-ports.md. Python 3 alone, nothing to install.
+"""Checks a port's Delta packets against docs/delta/peer.md and
+docs/delta/ports.md. Python 3 alone, nothing to install.
 
     conformance.py check FILE...
         datagrams the port sent to a host's Delta port (5160): a file of hex,
@@ -35,13 +35,13 @@ MAXIMUM_DATAGRAM = 1200
 BUILD_MOST = 31
 TYPES = {1: "HELLO", 2: "WELCOME", 3: "LEGACY", 4: "ROSTER", 5: "BYE", 6: "PROFILE", 7: "TABLE", 8: "TABLE_HAVE"}
 # what a client sends its host in the minimum kit (others are features a
-# port would have read docs/delta.md for)
+# port would have read docs/delta/peer.md for)
 CLIENT_TYPES = {1, 5, 6, 8}
 # capability bits: a HELLO never carries these (retired, or the list's alone)
 NEVER_SAID = {5: "md_maps (retired)", 9: "console_slots (retired)", 12: "ping (the list's alone)",
               18: "host_cheats (the list's alone)"}
 KNOWN_CAPABILITIES = 26
-# the platform registry (docs/delta.md, "Platform numbers")
+# the platform registry (docs/delta/registry.md, "Platforms"; registry.json)
 PLATFORMS = ["unknown", "pc_windows", "pc_macos", "pc_linux", "android", "steam_deck", "xbox", "xbox360", "wiiu",
              "switch", "psp", "vita", "xbox_uwp", "pc_freebsd", "ps3", "ps4", "ps5", "n64", "pc_legacy",
              "steamlink", "ios", "tvos"]
@@ -79,7 +79,7 @@ def platform_name(number):
 def check_key(report, where, key):
     platform, version, flags, host, join, opt_in, memory, reserved = key
     if platform == 0:
-        report.warn(where, "platform 0 (unknown): ask for your port's number, docs/delta.md \"Platform numbers\"")
+        report.warn(where, "platform 0 (unknown): ask for your port's number, docs/delta/registry.md")
     elif platform >= len(PLATFORMS):
         report.fail(where, f"platform {platform} is not in the registry: ask for a number, never pick one")
     if version != 1:
@@ -122,7 +122,7 @@ def check_hello(report, where, payload):
     extra = capabilities & ~1 & ~sum(1 << bit for bit in NEVER_SAID)
     if extra:
         report.warn(where, f"capabilities past platform (0x{extra:08x}): each one is a feature you must then "
-                    "speak in full (docs/delta.md)")
+                    "speak in full (docs/delta/peer.md)")
     if legacy < LEGACY_OLDEST:
         report.fail(where, f"network version {legacy}: our builds play {LEGACY_OLDEST} and later")
     elif legacy > LEGACY_NEWEST_KNOWN:

@@ -174,7 +174,7 @@ and the Wii U too, which set their own switch and not HALO_CONSOLE */
 #define HALO_CONSOLE_NO_VOICE
 #endif
 
-/* voice chat over Delta Peer (docs/delta.md, Voice): the desktop builds'
+/* voice chat over Delta Peer (docs/delta/peer.md, Voice): the desktop builds'
 and Android's (HALO_GAME_BROWSER), as host and client, and the dedicated
 server's as a relay alone; HALO_PORT_VOICE_AUDIO is the microphone, Opus
 and playback, which a dedicated server (HALO_SERVER) leaves out: it relays

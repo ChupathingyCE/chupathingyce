@@ -1,7 +1,7 @@
 /*
 P2P_PROBE.C
 
-Online Games' pings before joining (p2p_probe.h; docs/delta.md, "Pings
+Online Games' pings before joining (p2p_probe.h; docs/delta/list.md, "Pings
 before joining"): the formats, the host's table of probes and the
 prober's, without sockets, clocks or keys, so that the unit tests
 (port/linux/tests/ping_test.c) run it as the game does.

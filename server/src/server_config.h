@@ -281,7 +281,7 @@ enum
 	(once it is another, HALO_DEDICATED's is played) */
 	SERVER_SETTING_PLAYLIST,
 	SERVER_SETTING_PLAYLIST_ENVIRONMENT,
-	/* text chat (docs/delta.md, Chat): 0 off, 1 team lines alone, 2 on; and
+	/* text chat (docs/delta/peer.md, Chat): 0 off, 1 team lines alone, 2 on; and
 	whether lines with blocked words are passed on */
 	SERVER_SETTING_CHAT,
 	SERVER_SETTING_CHAT_FILTER,

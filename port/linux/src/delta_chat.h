@@ -1,7 +1,7 @@
 /*
 DELTA_CHAT.H
 
-Text chat's rules that need no game (docs/delta.md, Chat): the blocked-words
+Text chat's rules that need no game (docs/delta/peer.md, Chat): the blocked-words
 filter, the host's decision on a line, and the duplicate check. Plain C with
 no platform dependency and no allocation, so the tests
 (port/linux/tests/delta_test.c), the dedicated server and the game build it

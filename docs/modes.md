@@ -79,7 +79,7 @@ never clamped. `port/linux/game/network_rules.c` holds the rules and
 An OpenCE client joins only a host of exactly its own number, so OpenCE
 players meet our mode games on a host announcing 35 or later. Delta
 machines play them on any host that has the mode. The rest is the host's
-refusal, like a Bomb game's ([delta.md](delta.md), "Game modes"):
+refusal, like a Bomb game's ([README.md](delta/README.md), "Game modes"):
 
 | Machine | Host announces 35 or later | Host announces under 35 |
 | --- | --- | --- |

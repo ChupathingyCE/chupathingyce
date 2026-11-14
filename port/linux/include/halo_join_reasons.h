@@ -2,7 +2,7 @@
 HALO_JOIN_REASONS.H
 
 Why a game can't be joined, in the player's words: one short sentence for
-each reason, the same in every place that says it (docs/delta-compatibility.md
+each reason, the same in every place that says it (docs/delta/versioning.md
 section 6). The Xbox-style Online Games list (port/linux/game/browser_screen.c),
 the PC Server Browser (port/linux/game/menu_functions.c, server_browser.c), a
 failed join (source/networking/network_client_manager.c) and the site's game

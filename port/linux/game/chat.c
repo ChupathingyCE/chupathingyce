@@ -1,7 +1,7 @@
 /*
 CHAT.C
 
-Text chat between Chupathingy machines (chat.h; docs/delta.md, Chat), over
+Text chat between Chupathingy machines (chat.h; docs/delta/peer.md, Chat), over
 Delta Peer (delta_chat_game.h), and bridged to OpenCE's own text chat
 (delta_chat_bridge.h), which goes over the game's distributed messages.
 OpenCE machines never agree to Delta's chat capability; a host sends them

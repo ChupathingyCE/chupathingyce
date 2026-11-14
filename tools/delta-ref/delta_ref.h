@@ -9,8 +9,8 @@ A small reference client for Delta Peer, for other people's ports of Halo:
 the handshake (HELLO, WELCOME, LEGACY, BYE, and the ROSTER's room fields),
 the capability bits, and a game's advertisement (the reserved bytes a host
 announces and a client reads). It is the minimum a port needs to join the
-Delta network for plain cross-play; docs/delta-for-ports.md is the guide,
-docs/delta.md the full spec.
+Delta network for plain cross-play; docs/delta/ports.md is the guide,
+docs/delta/peer.md the full spec.
 
 Plain C99. No allocation (every buffer is the caller's), no threads, no
 clock, no randomness and no OS calls: the port passes in the time, a random
@@ -28,7 +28,7 @@ is read, and nothing is written past a buffer's size.
 
 #include <stdint.h>
 
-/* ---------- numbers from docs/delta.md */
+/* ---------- numbers from docs/delta/peer.md and registry.md */
 
 enum
 {
@@ -102,7 +102,7 @@ enum
 #define DREF_CAPS_NEVER_SAID \
 	((1u << DREF_CAP_MD_MAPS) | (1u << DREF_CAP_CONSOLE_SLOTS) | (1u << DREF_CAP_PING) | (1u << DREF_CAP_HOST_CHEATS))
 
-/* platform numbers (docs/delta.md, "Platform numbers"). Ask for one before
+/* platform numbers (docs/delta/registry.md, "Platforms"). Ask for one before
 you ship; never pick a free one yourself. */
 enum
 {
@@ -308,7 +308,7 @@ struct dref_advert
 read (the size was enough) */
 int dref_advert_read(const uint8_t *reserved, int size, struct dref_advert *advert);
 /* a host's reserved bytes: OpenCE's version, flags and kind, the rest zero
-(a port has no Delta tag of its own: docs/delta-for-ports.md) */
+(a port has no Delta tag of its own: docs/delta/ports.md) */
 void dref_advert_write(uint8_t *reserved, unsigned version, unsigned flags, unsigned kind);
 
 /* The join mark: a client that will say HELLO marks its join request in its

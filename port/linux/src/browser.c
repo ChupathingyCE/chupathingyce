@@ -256,7 +256,7 @@ static struct
 	/* the code is Quick Connect's (the device key's), not the player key's */
 	int connect_quick;
 
-	/* the devices (docs/delta.md, Devices): this one signed out, another
+	/* the devices (docs/delta/link.md, Devices): this one signed out, another
 	revoked (its ID), and another device's code approved (Link a device:
 	its state, what the site said, and when it was last asked) */
 	int device_sign_out_wanted;
@@ -600,7 +600,7 @@ static int safe_for_key(const char *url)
 	return http_url_safe_for_secret(url);
 }
 
-/* ---------- Delta's device identity (identity.c; docs/delta.md, "Device
+/* ---------- Delta's device identity (identity.c; docs/delta/link.md, "Device
 identity")
 
 Beside the player key, each copy has a device key of its own
@@ -1163,7 +1163,7 @@ int browser_identity_moderator_sign(const unsigned char *message, int size, unsi
 #endif
 
 #ifdef HALO_DELTA_PEER_IDENTITY
-/* ---------- verified names: the revocation list (docs/delta.md, Verified
+/* ---------- verified names: the revocation list (docs/delta/peer.md, Verified
 names). Asked of the site every ten minutes (GET /v1/identity/revoked),
 checked (its issuer by the root keys, the list by its issuer, a serial past
 the one kept) and kept in delta_revoked.bin in the save root, so a host or
@@ -1570,7 +1570,7 @@ static void connect_failed(int serial, const char *message)
 }
 
 #ifdef HALO_DELTA_IDENTITY
-/* ---------- sign-in by code (Quick Connect; docs/delta.md, Devices)
+/* ---------- sign-in by code (Quick Connect; docs/delta/link.md, Devices)
 
 On a site that speaks device identity, Link Profile asks for a code with
 this copy's device key (POST /v1/identity/device/start, signed) and works
@@ -2762,7 +2762,7 @@ static const char *local_platform_name(void)
 	return delta_peer_platform_name(key.platform);
 }
 
-/* the announcement's fields about the host (Delta List, docs/delta.md):
+/* the announcement's fields about the host (Delta List, docs/delta/README.md):
 the Delta major it hosts with (0: the legacy protocol alone), its platform
 key, architecture, build, capabilities and its game's machines by platform
 (counts only). A list from before them ignores them */
@@ -3162,7 +3162,7 @@ static void parse_roster(char *text, struct browser_game *game)
 }
 
 /* the host's fields (?fields=17: platform, hosting, protocol, machines;
-docs/delta.md, Delta List): what is not known is left 0 */
+docs/delta/list.md, Delta List): what is not known is left 0 */
 static void parse_host(char **fields, struct browser_game *game)
 {
 	char *entry;
@@ -3772,7 +3772,7 @@ static void social_action(int action, const char *handle, char *response, struct
 		social_log(BROWSER_SOCIAL_LOADED, read);
 }
 
-/* ---------- the doorbell (docs/delta.md, "The doorbell")
+/* ---------- the doorbell (docs/delta/link.md, "The doorbell")
 
 While this copy is linked, the site gave it a doorbell and network.doorbell
 is on, internet play's signalling listens for it on our own brokers, over
@@ -4004,7 +4004,7 @@ static void update_party(void)
 
 #endif /* HALO_CONSOLE_NO_GUIDE */
 
-/* ---------- a report's clip (docs/delta.md, Reports)
+/* ---------- a report's clip (docs/delta/peer.md, Reports)
 
 A report a linked server took with REPORT_RESULT's "send the clip": the
 clip's file goes to the site with the token the server made (the report it

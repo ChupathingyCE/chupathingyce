@@ -1,7 +1,7 @@
 /*
 DELTA_PEER.H
 
-Delta Peer (docs/delta.md): ChupathingyCE's own messages between the
+Delta Peer (docs/delta/README.md): ChupathingyCE's own messages between the
 machines of one game, beside OpenCE's game protocol, which stays as it is.
 
 - A host that speaks it listens on DELTA_PEER_PORT (the game's port + 10)
@@ -120,7 +120,7 @@ enum
 	DELTA_PEER_MODERATION_SIGNATURE_BURST = 2,
 	DELTA_PEER_MODERATION_BIND_TIME = 120000,
 
-	/* chat (docs/delta.md, Chat): the host takes CHAT_SAY from a machine at
+	/* chat (docs/delta/peer.md, Chat): the host takes CHAT_SAY from a machine at
 	most this often (and at once), says CHAT_CONFIG again this often (and on
 	a change, no sooner than the roster's gap); a client takes CHAT_LINE at
 	most this often (and at once), and keeps the last lines it heard */
@@ -151,7 +151,7 @@ enum
 	DELTA_PEER_REPORT_RATE = 1,
 	DELTA_PEER_REPORT_BURST = 3,
 
-	/* voice (docs/delta.md, Voice), budgets of its own beside the ones
+	/* voice (docs/delta/peer.md, Voice), budgets of its own beside the ones
 	above (50 frames a second would take a machine's whole budget): VOICE_UP
 	a host takes from a machine, a second (and at once), and VOICE_DOWN a
 	client takes from its host; the machines talking at once, on a dedicated
@@ -176,7 +176,7 @@ enum
 	DELTA_PEER_VOICE_CONFIG_EXPIRY = 25000,
 	DELTA_PEER_VOICE_FRAME_DATAGRAMS = 256,
 
-	/* verified names (docs/delta.md, Verified names; milliseconds where a
+	/* verified names (docs/delta/peer.md, Verified names; milliseconds where a
 	time): the host says ID_CHALLENGE this often; checks a machine's proofs
 	at most this often (and at once: one for each local player); sends every
 	card to every client again this often, at most this many cards a frame
@@ -227,7 +227,7 @@ may have (a console leaves verified names out for now, and keeps one) */
 #define DELTA_PEER_IDENTITY_CARDS DELTA_PEER_MAXIMUM_PLAYERS
 #endif
 
-/* a verified player, as a checked proof says (docs/delta.md, Verified
+/* a verified player, as a checked proof says (docs/delta/peer.md, Verified
 names): the device certificate's account, handle and the rest, and the tag
 its proof claims (the site's own card has the last word on it) */
 struct delta_peer_identity
@@ -448,7 +448,7 @@ struct delta_peer_host_voice
 	delta_u32 config_time;
 };
 
-/* the client's object sync (docs/delta.md, Object sync): what its host's
+/* the client's object sync (docs/delta/peer.md, Object sync): what its host's
 UNIT_VITALS and OBJECT_NAMES said, each as it comes (both agreed to
 object_sync; read and checked for their shape, not what they name) */
 struct delta_peer_objects_client
@@ -1008,7 +1008,7 @@ said their HALO_PORT_NETWORK_VERSION, 32 or older): 0 for one without a session
 (an OpenCE machine, or one whose HELLO has not come yet) */
 int delta_peer_machine_legacy_version(const struct delta_peer *peer, int machine_index);
 
-/* ---------- moderation (docs/delta.md, Moderation)
+/* ---------- moderation (docs/delta/peer.md, Moderation)
 
 The host's: a client that agreed to moderation is sent a challenge (a nonce
 of its session, and the host's binding); it signs in by signing it with its
@@ -1050,7 +1050,7 @@ delta_u32 delta_peer_client_moderation_action(struct delta_peer *peer, int actio
 /* (client) the player's answer to the waiting bind: 1 if sent */
 int delta_peer_client_moderation_bind_answer(struct delta_peer *peer, int accepted);
 
-/* ---------- chat (docs/delta.md, Chat)
+/* ---------- chat (docs/delta/peer.md, Chat)
 
 Player lines need chat agreed by both sides; the host's own lines (server
 and system kinds) need server_messages. The host checks each CHAT_SAY's
@@ -1088,7 +1088,7 @@ number index of them: 1 if it is still kept */
 delta_u32 delta_peer_client_chat_received(const struct delta_peer *peer);
 int delta_peer_client_chat_get(const struct delta_peer *peer, delta_u32 index, struct delta_wire_chat_line *line);
 
-/* ---------- team changes (docs/delta.md, Team changes)
+/* ---------- team changes (docs/delta/peer.md, Team changes)
 
 A client asks for its player to change teams (TEAM_REQUEST, both agreed to
 team_change); the host checks the session, the rising sequence and its
@@ -1107,7 +1107,7 @@ delta_u32 delta_peer_client_team_request(struct delta_peer *peer, int player, in
 last in result */
 delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct delta_wire_team_result *result);
 
-/* ---------- party teams (docs/delta.md, Party teams)
+/* ---------- party teams (docs/delta/peer.md, Party teams)
 
 A client in a party sends its host the party's tag (PARTY_TAG, both agreed
 to party_teams), as it changes and every DELTA_PEER_PARTY_TAG_INTERVAL; the
@@ -1120,7 +1120,7 @@ void delta_peer_client_set_party_tag(struct delta_peer *peer, const unsigned cha
 not agreed, in no party) */
 int delta_peer_machine_party_tag(const struct delta_peer *peer, int machine_index, unsigned char *tag);
 
-/* ---------- reports (docs/delta.md, Reports)
+/* ---------- reports (docs/delta/peer.md, Reports)
 
 A client's player reports another (REPORT, both agreed to reports); the
 host checks the session, the rising sequence and its budget, then asks its
@@ -1137,7 +1137,7 @@ delta_u32 delta_peer_client_report(struct delta_peer *peer, const struct delta_w
 last in result */
 delta_u32 delta_peer_client_report_result(const struct delta_peer *peer, struct delta_wire_report_result *result);
 
-/* ---------- object sync (docs/delta.md, Object sync)
+/* ---------- object sync (docs/delta/peer.md, Object sync)
 
 The host's game says what the game's own messages leave out of its objects:
 units' shield and health (UNIT_VITALS) and objects' scenario names
@@ -1154,7 +1154,7 @@ int delta_peer_client_objects_ready(const struct delta_peer *peer);
 /* (client) where what the host says goes (NULL: nowhere, dropped) */
 void delta_peer_set_objects_client(struct delta_peer *peer, const struct delta_peer_objects_client *client);
 
-/* ---------- voice (docs/delta.md, Voice)
+/* ---------- voice (docs/delta/peer.md, Voice)
 
 A client says its player's frames on a channel (VOICE_UP); with no frame,
 every DELTA_PEER_VOICE_HEARS_INTERVAL, it says the channels it hears and its
@@ -1200,7 +1200,7 @@ is global for any listener of the same party) */
 int delta_peer_voice_route(const struct delta_wire_voice_config *rules, const struct delta_peer_voice_world *world,
 	int speaker_machine, int listener_machine, int channel);
 
-/* ---------- verified names (docs/delta.md, Verified names)
+/* ---------- verified names (docs/delta/peer.md, Verified names)
 
 With identity agreed, the host challenges each client's session with a
 nonce of its own and its binding (ID_CHALLENGE); each local player whose
@@ -1281,7 +1281,7 @@ and flags: the kind (0: this build plays none of OpenCE's game types), and
 while hosting with Delta the Delta tag at their tail (delta_compat.h), and,
 with the flag 0x04 already in the flags and a game engine (engine, its stock
 index) other than DELTA_ADVERTISED_KIND_ENGINE, the old layout's major and
-slot for released clients (docs/delta.md, "The transition") */
+slot for released clients (docs/delta/peer.md, "The transition") */
 void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine, int kind);
 /* whether this host's advertisement has had the old layout: then a released
 client from before the tag may say HELLO with an older network version
@@ -1446,7 +1446,7 @@ int delta_peer_game_voice_config(struct delta_wire_voice_config *config);
 int delta_peer_game_voice_talking(int machine_index);
 
 /* ---------- what Delta List says of a hosted game (browser.c's
-announcement; docs/delta.md, Delta List) */
+announcement; docs/delta/list.md, Delta List) */
 
 /* a game's machines by platform: the registry's numbers, then those
 without Delta (OpenCE's) */

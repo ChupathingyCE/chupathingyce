@@ -70,7 +70,7 @@ names:
   and `badge_key`, the server key the certificate names (`/v1/games`, and
   `/v1/games.txt` fields 26 to 28 with `?fields=28`).
 - **Joining.** Over Delta Peer (`server_badge`, BADGE_ASK and BADGE in
-  [delta.md](delta.md), "Server badges"): signed with the same key,
+  [README.md](delta/README.md), "Server badges"): signed with the same key,
   `chupathingy server badge proof v2\n`, the client's fresh nonce (32
   bytes), the invite the client joined in lowercase, `\n`, the Delta Peer
   session in 8 lowercase hexadecimal digits and `\n`. Binding the invite

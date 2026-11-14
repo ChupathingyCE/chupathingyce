@@ -1030,7 +1030,7 @@ void delta_peer_moderation_roles_changed(struct delta_peer *peer)
 	peer->moderation_roles_dirty = 1;
 }
 
-/* ---------- chat (docs/delta.md, Chat) */
+/* ---------- chat (docs/delta/peer.md, Chat) */
 
 /* whether a machine's session takes lines of a kind: a player's need chat
 agreed, the host's own server_messages */
@@ -3742,7 +3742,7 @@ void delta_peer_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4, 
 		peer->dropped++;
 }
 
-/* ---------- verified names (docs/delta.md, Verified names) */
+/* ---------- verified names (docs/delta/peer.md, Verified names) */
 
 static int host_identity_agreed(const struct delta_peer *peer, int machine_index)
 {

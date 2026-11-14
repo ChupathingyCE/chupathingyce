@@ -1,7 +1,7 @@
 /*
 DELTA.C
 
-The legacy number in use (docs/delta.md, "The legacy table as config"): the
+The legacy number in use (docs/delta/versioning.md, "The signed table"): the
 OpenCE network version a host announces, and the range of hosts' versions a
 client joins.
 

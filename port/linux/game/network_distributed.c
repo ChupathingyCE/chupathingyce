@@ -4061,7 +4061,7 @@ static void distributed_unknown_kind(
 		(unsigned int)delta_legacy_announce();
 
 	/* (OpenCE's client_build, a player's build, repository and mods: dropped
-	unread and unlogged, and never sent: docs/delta.md, "Never send message
+	unread and unlogged, and never sent: docs/delta/versioning.md, "Never send message
 	92") */
 	if (type == DISTRIBUTED_CLIENT_BUILD_KIND)
 		return;
@@ -5264,7 +5264,7 @@ boolean network_distributed_identity_banned(
 /* (the dedicated server's sv_ban_account) a Delta account banned that need
 not be in the game: a line of BANS_FILE with only its account (32 hex
 digits), for ever (until 0) or until then, its handle as the players';
-docs/delta.md, "Shared ban lists". TRUE if written */
+docs/delta/control.md, "Shared ban lists". TRUE if written */
 boolean network_distributed_ban_account(
 	char const *account,
 	char const *handle,

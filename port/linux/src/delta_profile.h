@@ -1,7 +1,7 @@
 /*
 DELTA_PROFILE.H
 
-Delta Profile in the game (configure.py --game-browser; docs/delta.md,
+Delta Profile in the game (configure.py --game-browser; docs/delta/README.md,
 Delta Profile): the site's answers about this copy's own profile
 (POST /v1/game/profile, /v1/game/unlink, /v1/game/privacy) and about the
 profiles other players share in a game (POST /v1/game/players), read from
@@ -65,7 +65,7 @@ struct delta_profile_copy
 	int first;
 };
 
-/* a device of the account (docs/delta.md, Devices): signed in to it by
+/* a device of the account (docs/delta/link.md, Devices): signed in to it by
 code, or one of its copies' */
 struct delta_profile_device
 {
@@ -114,7 +114,7 @@ struct delta_profile_clan_member
 	struct social_game game;
 };
 
-/* a clan (docs/delta.md, Clans): the profile's own, or one that invited it */
+/* a clan (docs/delta/link.md, Clans): the profile's own, or one that invited it */
 struct delta_profile_clan
 {
 	int id;

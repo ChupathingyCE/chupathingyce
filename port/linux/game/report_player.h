@@ -2,7 +2,7 @@
 REPORT_PLAYER.H
 
 Reporting a player to a dedicated server's moderators (report_player.c;
-docs/delta.md, Reports): DELTA's PLAYERS HERE, and the scoreboard's way
+docs/delta/peer.md, Reports): DELTA's PLAYERS HERE, and the scoreboard's way
 there.
 */
 

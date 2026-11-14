@@ -78,4 +78,4 @@ scheme in place of `ios`, `iOS`, `lib` and `ChupathingyCE`, and the
 - The Vision Pro only runs the iPad app: visionOS has no OpenGL ES for its
   own apps.
 
-Delta knows these builds as `ios` (20) and `tvos` (21) (docs/delta.md).
+Delta knows these builds as `ios` (20) and `tvos` (21) (docs/delta/README.md).

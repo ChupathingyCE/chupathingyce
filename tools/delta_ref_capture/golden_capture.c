@@ -8,7 +8,7 @@ GOLDEN_CAPTURE.C
 Writes tools/delta-ref/golden.h: bytes the game's own Delta code makes
 (port/linux/src/delta_wire.c and delta_compat.c, and browser.c's form
 encoding), which the reference client's test compares its own with. Built
-and run by tools/delta-ref/capture/capture.py; never by a port.
+and run by tools/delta_ref_capture/capture.py; never by a port.
 */
 
 #include "delta.h"
@@ -54,7 +54,7 @@ int main(void)
 
 	printf("/*\nSPDX-FileCopyrightText: 2026 The Chupathingy contributors\n"
 		"SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev\nSPDX-License-Identifier: GPL-3.0-or-later\n\n"
-		"GOLDEN.H\n\nMade by tools/delta-ref/capture/capture.py from the game's own Delta code\n"
+		"GOLDEN.H\n\nMade by tools/delta_ref_capture/capture.py from the game's own Delta code\n"
 		"(delta_wire.c, delta_compat.c, browser.c's form encoding) at wire %s.\n"
 		"Do not edit: run capture.py again.\n*/\n\n#include <stdint.h>\n\n", DELTA_WIRE);
 	printf("#define GOLDEN_WIRE \"%s\"\n#define GOLDEN_MAJOR %d\n#define GOLDEN_PEER_PORT %d\n\n", DELTA_WIRE,

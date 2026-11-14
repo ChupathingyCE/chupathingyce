@@ -68,7 +68,7 @@ def test_library_makes_no_calls():
 def test_goldens_are_the_games_bytes():
     if not compiler():
         pytest.skip("no C compiler")
-    run = subprocess.run([sys.executable, str(KIT / "capture" / "capture.py"), "golden", "--check"],
+    run = subprocess.run([sys.executable, str(ROOT / "tools" / "delta_ref_capture" / "capture.py"), "golden", "--check"],
                          capture_output=True, text=True)
     assert run.returncode == 0, run.stdout + run.stderr
 
@@ -76,7 +76,7 @@ def test_goldens_are_the_games_bytes():
 def test_handshake_with_the_real_host():
     if not compiler():
         pytest.skip("no C compiler")
-    run = subprocess.run([sys.executable, str(KIT / "capture" / "capture.py"), "interop"], capture_output=True,
+    run = subprocess.run([sys.executable, str(ROOT / "tools" / "delta_ref_capture" / "capture.py"), "interop"], capture_output=True,
                          text=True, timeout=600)
     assert run.returncode == 0, run.stdout + run.stderr
     assert "interop_test: ok" in run.stdout

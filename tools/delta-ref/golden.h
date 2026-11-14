@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 GOLDEN.H
 
-Made by tools/delta-ref/capture/capture.py from the game's own Delta code
+Made by tools/delta_ref_capture/capture.py from the game's own Delta code
 (delta_wire.c, delta_compat.c, browser.c's form encoding) at wire chupa-44b.
 Do not edit: run capture.py again.
 */

@@ -2,7 +2,7 @@
 IDENTITY_TEST.C
 
 Tests of Delta's device identity (port/linux/src/identity.c): the shared
-test vectors of docs/delta.md ("Device identity", also
+test vectors of docs/delta/link.md ("Device identity", also
 port/linux/tests/identity_vectors.json, which tools/test_identity.py checks
 these against), malformed certificates and lists, the chain with root keys
 and without, the requests' text, the answers and the schedule. Built and

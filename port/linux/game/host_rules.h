@@ -1,7 +1,7 @@
 /*
 HOST_RULES.H
 
-The host's rules for its players' extras (host_rules.c; docs/delta.md, Host
+The host's rules for its players' extras (host_rules.c; docs/delta/peer.md, Host
 rules): what a player may turn on beyond the Xbox's game, as the host of
 the game allows it.
 */

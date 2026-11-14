@@ -1,7 +1,7 @@
 /*
 CONTROL_LINK.C
 
-Delta Control's link to the Chupathingy site, stats.chupathingy.org (server_link.h; docs/delta.md,
+Delta Control's link to the Chupathingy site, stats.chupathingy.org (server_link.h; docs/delta/control.md,
 Delta Control). Off until the server's owner links it (sv_link), and off
 for good with HALO_DEDICATED_LINK=false.
 

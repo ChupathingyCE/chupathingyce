@@ -8,7 +8,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 A small C99 client for Delta Peer, for other people's ports of Halo: the
 handshake, the capability bits and the game's advertisement. The guide is
-[docs/delta-for-ports.md](../../docs/delta-for-ports.md).
+[docs/delta/ports.md](../../docs/delta/ports.md).
 
 ```sh
 make            # builds delta_ref.o and runs the tests (BUILD=dir for elsewhere)
@@ -22,6 +22,6 @@ python3 conformance.py --help
 | `delta_ref_test.c`, `golden.h` | its tests, against packets our own code wrote |
 | `conformance.py` | checks a port's packets, or stands in for a host on 127.0.0.1 |
 | `loopback_host.sh` | our dedicated server on 127.0.0.1 alone, to join from your port |
-| `capture/` | makes `golden.h` from our code, and tests the client against our real host (`capture.py golden --check`, `capture.py interop`, from this repository) |
+| (game side) | `tools/delta_ref_capture/` in the game's repository makes `golden.h` from the game's own code and tests this client against its real host |
 
 GPL-3.0-or-later, like the rest of the repository.
