@@ -5733,7 +5733,7 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 			browser_list_status() == BROWSER_LIST_ANSWERED)
 		{
 			usnprintf(text, size - 1, L" (%s, NETWORK %d)",
-				game->opence_server ? L"LEGACY SERVER" : game->dedicated ? L"DEDICATED, LEGACY" : L"LEGACY",
+				game->opence_server ? JOIN_WIDE(HOST_LABEL_OPENCE_SERVER) : game->dedicated ? L"DEDICATED, LEGACY" : L"LEGACY",
 				game->version);
 			text[size - 1] = 0;
 		}
@@ -5753,9 +5753,10 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 		listed->badge == _server_badge_tier_community ? L"COMMUNITY SERVER" :
 		dedicated ? (listed->hosting == BROWSER_HOSTING_OFFICIAL ? L"OFFICIAL SERVER" : L"DEDICATED") : L"",
 		dedicated && platform[0] ? L", " : L"", platform, !dedicated && platform[0] ? L" HOST" : L"",
-		(dedicated || platform[0]) && listed->protocol ? L", " : L"",
+		(dedicated || platform[0]) && listed->protocol &&
+			!(listed->protocol == BROWSER_PROTOCOL_OPENCE && listed->opence_server) ? L", " : L"",
 		listed->protocol == BROWSER_PROTOCOL_DELTA ? L"DELTA" : L"",
-		listed->protocol == BROWSER_PROTOCOL_OPENCE ? L"LEGACY" : L"");
+		listed->protocol == BROWSER_PROTOCOL_OPENCE && !listed->opence_server ? L"LEGACY" : L"");
 	/* (its network version: an OpenCE host's always, a Delta host's when not this build's) */
 	if (listed->version && (listed->protocol == BROWSER_PROTOCOL_OPENCE ||
 		(listed->protocol == BROWSER_PROTOCOL_DELTA && listed->version != delta_legacy_announce())))

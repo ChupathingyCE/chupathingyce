@@ -639,7 +639,7 @@ static const struct config_setting config_settings[] =
 		"dedicated servers)." },
 	{ "display.opence_empty_servers", _config_string, "\"folded\"", "HALO_OPENCE_EMPTY_SERVERS", _environment_value,
 		_platform_all,
-		"Empty OpenCE dedicated servers in Online Games' ALL and OPENCE lists:\n"
+		"Empty OpenCE dedicated servers in Online Games' ALL and LEGACY lists:\n"
 		"\"folded\" puts them in one row at the end (A opens it), \"shown\"\n"
 		"lists each one." },
 #endif
