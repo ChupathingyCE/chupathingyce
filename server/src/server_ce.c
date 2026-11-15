@@ -1463,8 +1463,12 @@ static void update_items(
 		}
 		/* (a flag or ball: its note on the holder's HUD first, as Custom
 		Edition's own server sends it) */
-		if (weapon_is_flag(iterator.index))
+		if (weapon_is_flag(iterator.index) && holder_player == network_player_number(client, local_player_get_player_index(
+			(short)(client - ce.clients))))
+		{
+			/* (the note is its own player's: only the holder's client) */
 			ce_payload_put_hud_add_item(reliable, (unsigned int)object->definition_index, 0, 0);
+		}
 		csmemset(&result, 0, sizeof(result));
 		result.player = holder_player;
 		result.weapon_pickup = 1;
