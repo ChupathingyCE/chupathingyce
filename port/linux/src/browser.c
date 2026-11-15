@@ -48,6 +48,7 @@ with it under the lock.
 #include "browser_ping.h"
 #include "qrcodegen.h"
 #include "delta_profile.h"
+#include "server_names.h"
 #ifndef HALO_CONSOLE_NO_GUIDE
 #include "social.h"
 #endif
@@ -4197,6 +4198,43 @@ int browser_clip_state(void)
 	return state;
 }
 
+/* the site's blocked names (/v1/blocked-names: blocked_names.txt's lines,
+the site's own additions among them), read again each NAMES_INTERVAL and
+handed to the game's thread (take_list_names); until one is read, and when
+the site has none, the lists use the built-in copy */
+enum { NAMES_INTERVAL = 3600, NAMES_RETRY = 300, NAMES_RESPONSE_SIZE = 32768 };
+static unsigned long names_asked;
+/* (read, not yet taken: under browser_lock) */
+static struct server_names_list *names_pending;
+
+static void update_names(void)
+{
+	char url[512], error[256];
+	struct server_names_list *list;
+	char *response;
+	time_t now = time(NULL);
+
+	if (now <= 0 || (names_asked && (unsigned long)now < names_asked))
+		return;
+	names_asked = (unsigned long)now + NAMES_RETRY;
+	server_url("/v1/blocked-names", url, sizeof(url));
+	response = malloc(NAMES_RESPONSE_SIZE);
+	list = malloc(sizeof(*list));
+	if (response && list &&
+		posix_browser_request(url, NULL, NULL, response, NAMES_RESPONSE_SIZE, error, sizeof(error)) == 200 &&
+		server_names_list_parse(list, response, strlen(response)) > 0)
+	{
+		pthread_mutex_lock(&browser_lock);
+		free(names_pending);
+		names_pending = list;
+		list = NULL;
+		pthread_mutex_unlock(&browser_lock);
+		names_asked = (unsigned long)now + NAMES_INTERVAL;
+	}
+	free(response);
+	free(list);
+}
+
 static void *browser_thread(void *unused)
 {
 	(void)unused;
@@ -4227,6 +4265,7 @@ static void *browser_thread(void *unused)
 			update_party();
 #endif
 			update_cards();
+			update_names();
 			update_list();
 			update_anchors();
 			update_clip_upload();
@@ -4871,7 +4910,8 @@ static int add_direct(struct browser_game *games, int count, int maximum_count, 
 			locked_code(listing, sealed);
 			code = sealed;
 		}
-		if (strlen(code) != BROWSER_INVITE_LENGTH ||
+		/* (an older build's listing is not listed: game_list_broker_listed) */
+		if (strlen(code) != BROWSER_INVITE_LENGTH || !browser_listing_shown(listing->version) ||
 			!SDL_strncasecmp(code, own, 2 * P2P_KEY_HASH_SIZE) || listing_on_list(listing, code, games, listed))
 		{
 			continue;
@@ -4957,10 +4997,55 @@ static void add_known(struct browser_game *games, int count)
 /* (every build, with the game browser or without: the menus' lobbies ask
 it too, port/linux/game/menu_functions.c) */
 #include "browser.h"
+#include "delta_chat.h"
 #include "game_list_rules.h"
 #include "port_config.h"
+#include "server_names.h"
 
+#include <stdlib.h>
 #include <string.h>
+
+/* the blocked names the lists hide games of (server_names.h, compared as the
+site compares them): the site's (update_names), else the built-in copy of
+the list (delta_chat_blocked_words). The game's thread's alone */
+static struct server_names_list *list_names;
+
+/* the site's list, once the browser thread has read one */
+static void take_list_names(void)
+{
+#ifdef HALO_GAME_BROWSER
+	struct server_names_list *list;
+
+	pthread_mutex_lock(&browser_lock);
+	list = names_pending;
+	names_pending = NULL;
+	pthread_mutex_unlock(&browser_lock);
+	if (list)
+	{
+		free(list_names);
+		list_names = list;
+	}
+#endif
+	if (!list_names && (list_names = malloc(sizeof(*list_names))) != NULL)
+		server_names_list_parse(list_names, delta_chat_blocked_words, strlen(delta_chat_blocked_words));
+}
+
+int browser_name_blocked_text(const char *name)
+{
+	take_list_names();
+	return server_names_list_blocked_text(list_names, name);
+}
+
+int browser_name_blocked(const unsigned short *name, int length)
+{
+	unsigned int characters[64];
+	int count;
+
+	take_list_names();
+	for (count = 0; count < length && count < 64 && name[count]; count++)
+		characters[count] = name[count];
+	return server_names_list_blocked(list_names, characters, count);
+}
 
 /* whether two names are the same, ASCII letters in either case (every
 build has this: the server's and Android's link no SDL string functions) */
@@ -5061,6 +5146,12 @@ int browser_version_shown(int version)
 		game_list_joinable((unsigned int)version, 0, delta_legacy_minimum(), delta_legacy_maximum());
 }
 
+int browser_listing_shown(int version)
+{
+	return browser_show_all_games() ||
+		(game_list_broker_listed((unsigned int)version) && browser_version_shown(version));
+}
+
 #ifdef HALO_GAME_BROWSER
 
 int browser_game_host_cheats(const struct browser_game *game)
@@ -5104,6 +5195,20 @@ static int keep_shown(struct browser_game *games, int count)
 	return kept;
 }
 
+/* the games of count whose names are not blocked (browser_name_blocked,
+even with debug.show_all_games), in their order; returns how many */
+static int keep_named(struct browser_game *games, int count)
+{
+	int index, kept;
+
+	for (index = kept = 0; index < count; index++)
+	{
+		if (!browser_name_blocked(games[index].name, BROWSER_NAME_LENGTH))
+			games[kept++] = games[index];
+	}
+	return kept;
+}
+
 int browser_get_games(struct browser_game *games, int maximum_count)
 {
 	int count;
@@ -5134,6 +5239,7 @@ int browser_get_games(struct browser_game *games, int maximum_count)
 	count = keep_shown(games, count);
 	count = add_direct(games, count, maximum_count, browser_list_status() == BROWSER_LIST_ANSWERED);
 	count = keep_shown(games, count);
+	count = keep_named(games, count);
 	add_known(games, count);
 	return count;
 }
