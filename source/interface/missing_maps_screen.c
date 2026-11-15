@@ -247,7 +247,8 @@ static void missing_maps_add_line(
 	line->text[sizeof(line->text) - 1] = 0;
 	line->color = color;
 	line->scale = scale;
-	error(_error_silent, "missing maps screen: %s", text);
+	if (text[0])
+		error(_error_silent, "missing maps screen: %s", text);
 
 	return;
 }
