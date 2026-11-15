@@ -1388,6 +1388,10 @@ boolean ce_resources_check(
 	if (!types)
 		return ce_refuse("no memory to check its resources");
 	valid = ce_resources_place(image, tag_instances, tag_count, end_free, types, next_free, &copied);
+	/* (the tags as they are now, with the resource maps' copied in: as
+	loading must find them, ce_resources_tags_loaded) */
+	if (valid)
+		ce_resources_digest(image);
 	for (index = 0; valid && index < tag_count; index++)
 	{
 		struct ce_tag_instance const *instance = (struct ce_tag_instance const *)((byte const *)tag_instances +
@@ -1436,7 +1440,10 @@ boolean ce_resources_tags_loaded(
 	/* (writing nothing over the tag header or tag index, as when the map
 	was checked: ce_map_checks.h) */
 	ce_tags_guard_begin_loaded(tag_instances, tag_count);
-	if (!ce_resources_place(&image, tag_instances, tag_count, end_free, ce_indexed_tags, &next, &copied))
+	/* (and only as they were when the map was checked: a resource map
+	changed since then is refused, ce_map_checks.c) */
+	if (!ce_map_loaded_resources_unchanged(
+		ce_resources_place(&image, tag_instances, tag_count, end_free, ce_indexed_tags, &next, &copied) ? &image : NULL))
 	{
 		ce_tags_guard_end();
 		return FALSE;

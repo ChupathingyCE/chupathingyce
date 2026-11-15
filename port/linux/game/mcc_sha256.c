@@ -3,7 +3,10 @@
 #ifndef HALO_MCC
 #include "../include/halo_port_features.h"
 #endif
-#if !defined(HALO_MCC) || HALO_MCC /* Halo MCC maps (halo_port_features.h, above): a console builds this to nothing */
+/* Halo MCC maps (halo_port_features.h, above), and Custom Edition maps' checked
+reads (port/linux/game/ce_map_checks.c): a console with neither builds this to
+nothing */
+#if !defined(HALO_MCC) || HALO_MCC || defined(HALO_CUSTOM_EDITION)
 #include "mcc_sha256.h"
 #include <string.h>
 
@@ -78,8 +81,17 @@ void mcc_sha256_add(struct mcc_sha256 *context, const void *data, int size)
 	context->length += (unsigned long long)size;
 	while (size > 0)
 	{
-		int count = 64 - context->used < size ? 64 - context->used : size;
+		int count;
 
+		/* (whole blocks straight from the data: a map's tags are megabytes) */
+		if (!context->used && size >= 64)
+		{
+			mcc_sha256_block(context, bytes);
+			bytes += 64;
+			size -= 64;
+			continue;
+		}
+		count = 64 - context->used < size ? 64 - context->used : size;
 		memcpy(context->block + context->used, bytes, (size_t)count);
 		context->used += count;
 		bytes += count;
@@ -113,4 +125,4 @@ void mcc_sha256_end(struct mcc_sha256 *context, unsigned char *digest)
 	}
 }
 
-#endif /* HALO_MCC */
+#endif /* HALO_MCC || HALO_CUSTOM_EDITION */
