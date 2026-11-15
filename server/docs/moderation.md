@@ -155,6 +155,15 @@ they're still in the game, ban their account if they left
 (`sv_ban_account`), or close the report (`sv_report_close`). Each report is
 a line of `reports.log` in the data folder. Never an address.
 
+The server keeps the last 200 reports. When it's full, a closed report
+makes room first, then the oldest one the site already took (it's still on
+the site and in `reports.log`). If every report is open and none is on the
+site yet, new reports are refused until a moderator closes some. Players
+who haven't verified are limited together by their address as well as one
+by one (3 a minute and 10 a game), so leaving and joining again doesn't let
+anyone flood the queue. The address is only compared in memory during the
+game. It's never logged, kept with a report or sent anywhere.
+
 OpenCE players can be reported by their game name. Those reports stay on
 this server.
 
@@ -179,7 +188,8 @@ locked), and a restart unlocks.
 With `late_join_hold` on (`sv_set late_join_hold 1`), a player who joins a
 game in progress doesn't spawn until the next game. They watch a living
 player through the follow camera, with "Waiting for the next game" on
-screen (an OpenCE player gets a line in their chat). The wait is never
+screen (an OpenCE player gets a line in their chat). In a team game they
+only watch their own team, even when none of it is alive. The wait is never
 longer than 5 minutes, and a player who drops and comes back isn't held.
 Off by default: Halo spawns them at once.
 
@@ -205,6 +215,13 @@ by address or hardware ID.
   keeps the ban. Unlinking drops the lists. A shared ban's ref is made with
   this server's own key (`shared_bans.key`), so it says nothing about the
   bans.txt line it came from.
+
+Shared bans only catch players who prove a verified Delta account or a
+device bound to this server. That's on purpose: nothing else about a
+player is safe to send to other servers. A player who proves neither (an
+OpenCE player, or a Chupathingy player who hasn't verified) isn't matched
+by any shared list. Your own `bans.txt` still bans them here by hardware ID
+or address, as always.
 
 ### Betrayal and AFK limits
 

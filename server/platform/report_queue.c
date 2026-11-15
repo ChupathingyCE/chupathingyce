@@ -37,8 +37,9 @@ static pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 static struct
 {
 	struct server_report reports[SERVER_REPORTS_KEPT];
-	/* whether the site still has to take each */
+	/* whether the site still has to take each, and whether it took it */
 	int for_site[SERVER_REPORTS_KEPT];
+	int site_took[SERVER_REPORTS_KEPT];
 	int count;
 	unsigned int next_id;
 } queue;
@@ -148,11 +149,17 @@ unsigned int server_reports_add(struct server_report *report)
 	pthread_mutex_lock(&queue_mutex);
 	if (queue.count == SERVER_REPORTS_KEPT)
 	{
-		/* (room: the oldest closed one. None closed: the new one is refused,
-		never an open one let go, which a flood of reports would otherwise
-		push out before the moderators or the site saw it) */
+		/* (room: the oldest closed one, else the oldest the site took, which
+		its moderators have there and reports.log keeps. Neither: the new one
+		is refused, never another open one let go, which a flood of reports
+		would otherwise push out before the moderators or the site saw it) */
 		for (index = 0; index < queue.count && !queue.reports[index].closed; index++)
 			;
+		if (index == queue.count)
+		{
+			for (index = 0; index < queue.count && !queue.site_took[index]; index++)
+				;
+		}
 		if (index == queue.count)
 		{
 			pthread_mutex_unlock(&queue_mutex);
@@ -162,6 +169,8 @@ unsigned int server_reports_add(struct server_report *report)
 			sizeof(queue.reports[0]));
 		memmove(&queue.for_site[index], &queue.for_site[index + 1], (size_t)(queue.count - index - 1) *
 			sizeof(queue.for_site[0]));
+		memmove(&queue.site_took[index], &queue.site_took[index + 1], (size_t)(queue.count - index - 1) *
+			sizeof(queue.site_took[0]));
 		queue.count--;
 	}
 	report->id = ++queue.next_id;
@@ -179,6 +188,7 @@ unsigned int server_reports_add(struct server_report *report)
 	queue.reports[queue.count] = *report;
 	/* (OpenCE players' reports stay here) */
 	queue.for_site[queue.count] = report->target.delta;
+	queue.site_took[queue.count] = 0;
 	queue.count++;
 	log_line(report, "report");
 	pthread_mutex_unlock(&queue_mutex);
@@ -329,7 +339,12 @@ void server_reports_site_taken(const char refs[][SERVER_REPORT_ID_SIZE], int cou
 		for (index = 0; index < queue.count; index++)
 		{
 			if (!strcmp(queue.reports[index].ref, refs[ref]))
+			{
+				/* (only one it sent: an OpenCE player's never goes there) */
+				if (queue.for_site[index])
+					queue.site_took[index] = 1;
 				queue.for_site[index] = 0;
+			}
 		}
 	}
 	pthread_mutex_unlock(&queue_mutex);
@@ -356,6 +371,15 @@ static struct
 		int count;
 	} targets[SERVER_REPORTS_TARGETS_KEPT];
 	int target_count;
+	/* unverified reporters' addresses: when their last reports were taken
+	and their count this game (in memory, never logged or sent) */
+	struct
+	{
+		unsigned long address;
+		long long times[SERVER_REPORTS_PER_MINUTE];
+		int count;
+	} addresses[SERVER_REPORTS_ADDRESSES_KEPT];
+	int address_count;
 } limits;
 
 static int same_who(const struct server_report_who *a, const struct server_report_who *b)
@@ -372,6 +396,22 @@ static int reporter_slot(const struct server_report_who *who)
 	for (index = 0; index < limits.reporter_count; index++)
 	{
 		if (same_who(&limits.reporters[index].who, who))
+			return index;
+	}
+	return -1;
+}
+
+/* an unverified reporter's address's place in the limits, -1 none (or a
+verified reporter, or no address known) */
+static int address_slot(const struct server_report_who *who)
+{
+	int index;
+
+	if (who->has_account || !who->address)
+		return -1;
+	for (index = 0; index < limits.address_count; index++)
+	{
+		if (limits.addresses[index].address == who->address)
 			return index;
 	}
 	return -1;
@@ -408,6 +448,18 @@ int server_reports_limit_check(const struct server_report_who *reporter, const s
 		{
 			return SERVER_REPORT_LIMIT_TOO_SOON;
 		}
+	}
+	if (!reporter->has_account && reporter->address)
+	{
+		int address = address_slot(reporter);
+
+		if (address >= 0 && (limits.addresses[address].count >= SERVER_REPORTS_PER_GAME ||
+			(limits.addresses[address].times[0] && now - limits.addresses[address].times[0] < 60)))
+		{
+			return SERVER_REPORT_LIMIT_TOO_SOON;
+		}
+		if (address < 0 && limits.address_count >= SERVER_REPORTS_ADDRESSES_KEPT)
+			return SERVER_REPORT_LIMIT_TOO_SOON;
 	}
 	if (target_index >= 0 && limits.targets[target_index].count >= SERVER_REPORTS_PER_TARGET)
 		return SERVER_REPORT_LIMIT_ALREADY;
@@ -448,10 +500,30 @@ void server_reports_limit_count(const struct server_report_who *reporter, const 
 		limits.reporters[slot].reported[limits.reporters[slot].reported_count++] = *target;
 	if (target_index >= 0)
 		limits.targets[target_index].count++;
+	if (!reporter->has_account && reporter->address)
+	{
+		int address = address_slot(reporter);
+
+		if (address < 0 && limits.address_count < SERVER_REPORTS_ADDRESSES_KEPT)
+		{
+			address = limits.address_count++;
+			memset(&limits.addresses[address], 0, sizeof(limits.addresses[address]));
+			limits.addresses[address].address = reporter->address;
+		}
+		if (address >= 0)
+		{
+			for (index = 0; index < SERVER_REPORTS_PER_MINUTE - 1; index++)
+				limits.addresses[address].times[index] = limits.addresses[address].times[index + 1];
+			limits.addresses[address].times[SERVER_REPORTS_PER_MINUTE - 1] = now;
+			limits.addresses[address].count++;
+		}
+	}
 }
 
 void server_reports_limit_reset(void)
 {
 	limits.reporter_count = 0;
 	limits.target_count = 0;
+	limits.address_count = 0;
+	memset(limits.addresses, 0, sizeof(limits.addresses));
 }
