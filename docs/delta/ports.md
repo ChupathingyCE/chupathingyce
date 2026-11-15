@@ -23,8 +23,9 @@ test against.
    nothing lost. That's [the handshake](peer.md#handshake).
 4. Offer one capability, `platform` (bit 0). It tells the host what your
    machine can take, so the host keeps the game to your limits.
-5. Read the host's advertisement, and when you host, write yours without a
-   Delta tag ([below](#the-advertisement)).
+5. Read the host's advertisement to know whether to say HELLO
+   ([below](#the-advertisement)). If your port hosts games too, see
+   [If you host games from your port](#if-you-host-games-from-your-port).
 6. Run the tests in [Testing your port](#testing-your-port) until they pass.
 
 Nobody needs an account for any of this. Accounts, profiles, friends,
@@ -42,7 +43,7 @@ Read these in [peer.md](peer.md), in this order:
 | HELLO, WELCOME, LEGACY, BYE, ROSTER | [Handshake](peer.md#handshake), [Wire format](peer.md#wire-format), [Examples](peer.md#examples) | send HELLO, read WELCOME (use only `agreed` bits you offered), accept LEGACY of any major, send BYE when you leave, read the ROSTER's room limit if you like |
 | Capability bits | [Capability registry](peer.md#capability-registry) | offer bit 0 alone; never 5, 9, 12 or 18; ignore bits you don't know |
 | Platform key | [Platform keys](peer.md#platform-keys), [Platform policy](peer.md#platform-policy) | your number, your hosting and join limits, your memory |
-| The advertisement | [The advertisement](peer.md#the-advertisement) | read the tag to know whether to say HELLO; write OpenCE's fields alone |
+| The advertisement | [The advertisement](peer.md#the-advertisement) | read the tag to know whether to say HELLO; if you host, what to write is [below](#if-you-host-games-from-your-port) |
 | The join mark | [The join mark](peer.md#the-join-mark) | optional: mark your join so a Delta host waits for your HELLO |
 | Version rules | [The legacy number](versioning.md#the-legacy-number), [The signed table](versioning.md#the-signed-table) | which numbers you join and announce |
 
@@ -54,13 +55,10 @@ thousands of random and cut-short datagrams.
 
 ### The advertisement
 
-A wire ID names a revision of Chupathingy's own game code, so a port of other
-code has none, and a Delta tag would tell our clients to join you by rules
-your code doesn't follow. When you host, write the network version, the flags
-and the kind ([The advertisement](peer.md#the-advertisement)) and leave bytes
-4 to 25 zero. Our clients join your game by its number, as they join any host
-without Delta. When you join, read the host's tag (or the old layout) only to
-decide whether to say HELLO; `dref_advert_read` does it.
+When you join, read the host's tag (or the old layout) only to decide
+whether to say HELLO; `dref_advert_read` does it. What to write in your own,
+if your port hosts, is in
+[If you host games from your port](#if-you-host-games-from-your-port).
 
 ### The game list
 
@@ -96,8 +94,10 @@ Each game has one network version: the number its host announces.
   your HELLO before it sends the record. We haven't tested a port this way
   yet: try it against the loopback host with `--announce` set past your N
   before you rely on it, and when in doubt, join only at your own number.
-- **Your host:** announce your N. Our clients join hosts from 11 to 45
-  today (the range rises with each network number we follow).
+- **If your port hosts:** announcing your N is what we recommend
+  ([If you host games from your port](#if-you-host-games-from-your-port)).
+  Our clients join hosts from 11 to 45 today (the range rises with each
+  network number we follow).
 - **Which number our hosts announce** comes from the signed legacy table
   (`/v1/delta/legacy` on the site, or the `delta-table` branch on GitHub), the
   row for each build's wire: the `announce` number, with `minimum` and
@@ -212,28 +212,60 @@ key may always claim lower limits than your row; a host takes the lower one.
 consoles through a floor: the oldest wire a console build in the wild plays
 ([The console floor](versioning.md#the-console-floor), `chupa-32a` today). Every new build must still
 play with it, so a console that never updates holds everyone to its level.
-A port on this page never touches the floor: it has no wire, and our hosts
+A port on this page never touches that floor: it has no wire, and our hosts
 go by its network number and its HELLO, game by game. What a slow port does
 need is for our hosts to keep serving its number's layouts. Today that is
 every number from 11 on, and we never drop one ([Principles](versioning.md#principles)).
 
-Planned, not built: a row of its own for each port in the signed legacy
-table, saying the oldest network version our hosts must keep serving for
-that platform and the limits its policy row starts from. That way a port's
-needs can change without a release of ours and without moving the console
-floor for everyone else. Until then, tell us your N when you ask for your
-platform number, and we track it by hand.
+**A floor of your own, if you want one.** From 0.9.2 the signed legacy
+table can carry a floor for each platform: the oldest network version a
+Delta machine of that platform may say in its HELLO and still play with our
+hosts ([Platform floors](versioning.md#platform-floors)). It is yours
+alone: raising it moves no other port's, and our consoles' moves nothing of
+yours. A port has none until it asks for one, and then our hosts play its
+machines at that number and newer. A machine of your platform under it is
+told it needs a newer build instead of joining a game it might not play
+right. That's useful once you ship a fix older builds don't have and you'd
+rather those players update. Ask in the issue for your platform number, or
+any time after; it changes with a new signed table, not a release of ours.
 
-## Hosting with Delta
+## If you host games from your port
 
-A port that hosts plays fine with our clients with no Delta at all: they
-join it by its number, as they join OpenCE's hosts. Answering HELLO as a
-host (WELCOME, the roster, keeping the room to every machine's limit) is
-more work, and its advertisement needs an answer we don't have yet: a tag
-carries a wire ID, and wire IDs name revisions of our code. If your port
-wants to host with Delta, open an issue and we'll work out the wire rule for
-ports together. The reference client already writes WELCOME, so the bytes
-are covered.
+How your port hosts is your call. If you intend to host games from it,
+here's how it works with our builds and what we recommend.
+
+**What we recommend: join by default.** Most players find games through
+system link, invites or a game list, and joining is all plain cross-play
+needs. A port that only joins, with the handshake above, already plays with
+everyone. Hosting can come later, or not at all.
+
+**Why not a Delta tag.** A host that speaks Delta puts a tag in its
+advertisement with a wire ID ([The advertisement](peer.md#the-advertisement)).
+A wire ID claims "this host runs exactly this revision of Chupathingy's game
+code", and our clients decide by it whether to join and which rules to play
+by ([Wire compatibility ranges](versioning.md#wire-compatibility-ranges)).
+A port of other code can't make that claim, so a tag would have our clients
+join you by rules your code doesn't follow, and a game could fall out of
+step mid-match. That's the one thing we'd ask you not to do.
+
+**Your options, plainly:**
+
+- **Announce the legacy number.** Write your network version N, the flags
+  and the kind, and leave bytes 4 to 25 zero, as an OpenCE host does. Our
+  clients join you by your number, as they join any host without Delta, and
+  OpenCE's clients of the same number do too. `conformance.py advert` checks
+  it. This is what we recommend for a port that hosts.
+- **Have a floor row for your platform.** If your older builds shouldn't
+  play with newer ones, ask for a floor in the signed table
+  ([A floor of your own](#what-we-do-on-our-side-for-a-slow-console)). It
+  works on the joining side: our hosts turn away your platform's machines
+  under it, and you can do the same for machines that join yours. It
+  doesn't change how your advertisement looks.
+- **Answer HELLO as a host.** WELCOME, the roster, and keeping the room to
+  every machine's limit are more work, and still no tag (above). The
+  reference client already writes WELCOME, so the bytes are covered. If you
+  want to go this way, open an issue and we'll work out the details with
+  you.
 
 ## Testing your port
 
@@ -339,11 +371,14 @@ defaults, and the script's settings win over it.
 - [ ] You take only WELCOME, LEGACY, BYE and ROSTER from your host's address
       and port with your session, and ignore every other type.
 - [ ] You say BYE when you leave.
-- [ ] Your advertisement passes `conformance.py advert`: your N, the flags,
-      and no Delta tag.
 - [ ] Against `loopback_host.sh`, your port joins, the server's log says
       your machine speaks Delta with your platform, and the game's player
       limit drops to your join limit.
+
+If your port hosts:
+
+- [ ] Your advertisement passes `conformance.py advert`: your N, the flags,
+      and no Delta tag.
 - [ ] An OpenCE client and one of our clients both join a game your port
       hosts at your N.
 
