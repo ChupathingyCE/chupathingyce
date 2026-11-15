@@ -234,6 +234,12 @@ HALO_CONSOLE_SETUP_SCREENS
 	console_setup_screen_open, console_setup_screen_progress and
 	console_setup_screen_close, and a failure with console_setup_notice
 	(updater.c)
+HALO_CONSOLE_MISSING_MAPS_SCREEN
+	a console with no setup flow before the game: when ui.map is not found
+	the game says so on a plain screen of its own, drawn without any map
+	(source/interface/missing_maps_screen.c), with the folder it looked in
+	and the maps it needs, until the player quits to the system's menu.
+	The menus' error screen is in ui.map itself. Every console
 HALO_CONSOLE_APP_CERTIFICATES
 	a console whose own certificate authorities are too old for today's
 	servers: the app's bundle, which its launch script names in
@@ -508,6 +514,13 @@ console gets them sized to its limits later */
 server's, which has no player) */
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE) && !defined(HALO_SERVER)
 #define HALO_GUIDE 1
+#endif
+
+/* the plain missing maps screen (missing_maps_screen.c): every console; the
+desktops check the maps before the game starts (sdl_platform.c) */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_MISSING_MAPS_SCREEN)
+#define HALO_CONSOLE_MISSING_MAPS_SCREEN 1
 #endif
 
 /* a missing Custom Edition map downloaded from the game's host, peer to

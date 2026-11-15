@@ -186,6 +186,7 @@ symbols in this file:
 #include "cache/cache_files_decompress_windows.h"
 #include "cache/texture_cache.h"
 #include "interface/ui_widget.h"
+#include "interface/missing_maps_screen.h" /* port: a console with no ui.map */
 #ifdef HALO_CUSTOM_EDITION
 #include "main/console.h"
 #endif
@@ -1069,6 +1070,12 @@ boolean cache_files_precache_map_begin(
 		{
 			error(_error_silent, "couldn't find map '%s' on the DVD", cache_map_name);
 			error(_error_silent, "full path name '%s'", map_name);
+#ifdef HALO_CONSOLE_MISSING_MAPS_SCREEN
+			/* port: no ui.map: the error screen is in it, so a console
+			showed nothing (#1344); a plain screen of its own says so */
+			if (!_stricmp(cache_map_name, "ui"))
+				missing_maps_screen(map_name);
+#endif
 			if (copy_map)
 			{
 				cache_files_display_map_error(map_name);
