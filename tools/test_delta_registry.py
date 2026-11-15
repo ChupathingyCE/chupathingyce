@@ -60,6 +60,21 @@ def test_wires_match_delta_h():
     assert wires["current"] in listed and wires["console_floor"] in listed
 
 
+def test_platform_floors_match_the_code():
+    floors = REGISTRY["platform_floors"]
+    assert floors["section"] == "platform_floors"
+    assert floors["rows_maximum"] == int(re.search(r"#define DELTA_PLATFORM_FLOORS_MAXIMUM (\d+)", DELTA_H).group(1))
+    assert floors["consoles_without_a_row"] == REGISTRY["wires"]["console_floor"]
+    keys = {platform["key"] for platform in REGISTRY["platforms"] if platform["key"] not in ("", "unknown")}
+    section = REGISTRY_MD[REGISTRY_MD.index("## Platform floors"):REGISTRY_MD.index("## Network versions")]
+    assert f"at most {floors['rows_maximum']} rows" in section and f"`{floors['consoles_without_a_row']}`" in section
+    for row in floors["rows"]:
+        assert row["platform"] in keys, row
+        assert 11 <= row["network"] <= 65535 and row["since_table"] >= 1 and row["why"]
+        assert f"| `{row['platform']}` | {row['network']} | {row['since_table']} |" in section, row
+    assert ("None yet." in section) == (not floors["rows"])
+
+
 def test_numbers_match_the_code():
     minimum = int(re.search(r"HALO_PORT_NETWORK_VERSION_MINIMUM (\d+)", LIMITS_H).group(1))
     maximum = int(re.search(r"HALO_PORT_NETWORK_VERSION_MAXIMUM (\d+)", LIMITS_H).group(1))
