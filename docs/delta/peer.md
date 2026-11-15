@@ -1412,15 +1412,19 @@ and show their handle until their owner picks its capitals.
   the mark is drawn as a plain outline triangle the height of their
   capitals, in the row's color. `display.scoreboard_icons` off (SCOREBOARD
   ICONS) leaves out the mark and the logos together: names and scores only.
-  Every @ in anyone else's game name is left out, wherever it is, and so
-  are spaces, dots, invisible marks, Deltas and up-pointing triangles left
+  Every @ in anyone else's game name is left out, wherever it is (with
+  the signs that read as one: ©, the circled a's and the combining
+  enclosing circle), and so are combining marks and Hangul fillers, and
+  spaces, dots, invisible marks, Deltas and up-pointing triangles left
   at its front, so " @Milenko", ".@Milenko", "·@Milenko", "ΔMilenko" and
   "▲ Milenko" all show as "Milenko" (and as "Player N" next to a verified
   Milenko). A player who isn't connected to Delta (no
   linked profile, or a guest) never has the mark.
 - **The same name everywhere.** The scoreboard, the postgame report, the
-  lobby, the Delta Guide, chat, the kill feed and the other HUD lines (a player
-  quitting, the name under the crosshair) all show a player the same way:
+  lobby, the Delta Guide, chat, the kill feed, the corner score, the names
+  above heads, the game types' lines (Slayer's target, Oddball, King of the
+  Hill, Race, Bomb) and the other HUD lines (a player quitting, the name
+  under the crosshair) all show a player the same way:
   a verified player by their Delta name, an impersonation as "Player N".
 - **On Delta you play under your verified name.** A Halo profile linked to
   a Delta profile (it would prove: shared, not a guest, with a certificate
@@ -1444,8 +1448,9 @@ against the same vectors):
 1. Each character becomes the letter it looks like: A-Z as a-z; 0 o, 1 i,
    3 e, 4 a, 5 s, 7 t, 8 b; @ a, $ s, ! i, | i; the accented Latin letters
    (Latin-1 and Latin Extended-A, U+00C0 to U+017F) as their base letter
-   ("ó" o, "Ä" a, "Ł" l, "ß" s); and the Cyrillic and Greek letters drawn
-   like Latin ones.
+   ("ó" o, "Ä" a, "Ł" l, "ß" s); the full-width digits and Latin letters
+   (U+FF10 to U+FF19, U+FF21 to U+FF3A, U+FF41 to U+FF5A) as the plain
+   ones; and the Cyrillic and Greek letters drawn like Latin ones.
 2. The digits 2, 6 and 9 stay digits, so "milenko2" and "milenko9" are
    different names, as "milenko1" ("miienkoi") is from both.
 3. Everything else is dropped (spaces, separators, signs not above, ×
@@ -1453,14 +1458,17 @@ against the same vectors):
 4. Then rn reads as m, vv as w and l as i.
 
 On the site:
-- A new handle that looks like the handle of a profile that proves who it
-  is in games (it has a device that isn't revoked or signed out) is
+- A new handle that looks like the handle of any profile that proves who
+  it is in games (it has a device that isn't revoked or signed out) is
   refused. It is checked when the name is asked for and again when the
   email link that makes the profile is opened, so a look-alike asked for
-  early can't be made after the real player enrolls.
+  early can't be made after the real player enrolls. The link checks
+  blocked and reserved names again too.
 - Any other look-alike is made, but marked: its public card and service
-  record carry `looks_like` with the older handle, and the admin panel
-  lists it with the reserved and blocked names.
+  record carry `looks_like` with the oldest handle it looks like, and the
+  admin panel lists it with the reserved and blocked names. An admin can
+  clear a mark or move it to another profile whose name looks like it, so
+  a squatter's look-alikes made first can't leave the real owner marked.
 - The move to one name marks every existing pair, once: the older profile
   keeps its name clean, and each later one is marked.
 
