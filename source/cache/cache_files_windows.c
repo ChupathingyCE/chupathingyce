@@ -1234,6 +1234,16 @@ short cache_file_read(
 }
 
 #ifdef HALO_PS3
+boolean cache_file_ui_map_path(char *path)
+{
+	short index = cached_map_files_find_map("ui");
+
+	if (index == NONE || index >= NUMBER_OF_CACHED_MAP_FILES)
+		return FALSE;
+	cached_map_file_get_path(index, path);
+	return TRUE;
+}
+
 /* port: the open map's cache file, whose bsps port/ps3/xbox/bsp_keep.c reads ahead; FALSE when none */
 boolean cache_file_open_map_path(
 	char *path)

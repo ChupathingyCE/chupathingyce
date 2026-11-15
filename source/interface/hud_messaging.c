@@ -1135,6 +1135,7 @@ void hud_render_timer(
 		}
 	}
 
+#ifndef HALO_PS3
 	if (time_code_time != NONE)
 	{
 		long stop_time = time_code_stop_time;
@@ -1144,6 +1145,7 @@ void hud_render_timer(
 		sprintf(temporary, "%d", stop_time - time_code_time);
 		render_debug_string(TRUE, temporary);
 	}
+#endif
 
 	return;
 }

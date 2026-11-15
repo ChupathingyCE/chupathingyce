@@ -109,6 +109,12 @@ campaign's has six pieces) */
 #define PLACEHOLDER_SIZE 4
 #ifdef HALO_PS3
 int menu_art_rsx_button(char const *tag);
+int menu_art_rsx_map_frame(char const *tag, long frame, long *width, long *height);
+void menu_art_rsx_keep_map_frame(char const *tag, long frame, long width, long height, long offset, long bytes,
+	unsigned long format, unsigned long size, long row_pitch, char const *path);
+void menu_art_rsx_register_map(unsigned long data, int frame);
+boolean texture_cache_menu_format(struct bitmap_data *bitmap, unsigned long *format, unsigned long *size, long *row_pitch);
+boolean cache_file_ui_map_path(char *path);
 #endif
 
 enum
@@ -908,6 +914,9 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 		struct bitmap_data *bitmap = &bitmaps[frame];
 		char const *png = data->png;
 		long width = data->width, height = data->height;
+#ifdef HALO_PS3
+		int kept_frame = -1;
+#endif
 
 		/* (a frame of the map's: a copy of its bitmap, which the texture cache
 		loads from the map as its own; in a game map that has not got it,
@@ -923,6 +932,26 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 				png = data->map;
 				width = data->width > 0 ? data->width : 32;
 				height = data->height > 0 ? data->height : 32;
+			}
+			else if ((kept_frame = menu_art_rsx_map_frame(data->map, data->index, &width, &height)) >= 0)
+			{
+				if (data->width > 0 && data->height > 0 && data->width <= 2048 && data->height <= 2048)
+				{
+					struct menu_frame_placement *placements = realloc(menu_tags.placements,
+						(menu_tags.placement_count + 1) * sizeof(*menu_tags.placements));
+
+					if (placements)
+					{
+						menu_tags.placements = placements;
+						placements[menu_tags.placement_count].bitmap = bitmap;
+						placements[menu_tags.placement_count].x = (short)PIN(data->x, -2048, 2048);
+						placements[menu_tags.placement_count].y = (short)PIN(data->y, -2048, 2048);
+						placements[menu_tags.placement_count].width = (short)data->width;
+						placements[menu_tags.placement_count].height = (short)data->height;
+						placements[menu_tags.placement_count].texel_y = 0;
+						menu_tags.placement_count++;
+					}
+				}
 			}
 #endif
 		}
@@ -940,6 +969,18 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 				return group;
 			}
 			memcpy(bitmap, XBOX_POINTER(struct bitmap_data, group_source->bitmaps.address) + data->index, sizeof(*bitmap));
+#ifdef HALO_PS3
+			if (!build.game_map)
+			{
+				unsigned long format, size;
+				long row_pitch;
+				char path[256];
+
+				if (cache_file_ui_map_path(path) && texture_cache_menu_format(bitmap, &format, &size, &row_pitch))
+					menu_art_rsx_keep_map_frame(data->map, data->index, bitmap->width, bitmap->height,
+						bitmap->pixels_offset, bitmap->pixels_size, format, size, row_pitch, path);
+			}
+#endif
 			bitmap->cache_block_index = NONE;
 			bitmap->base_address = XBOX_NULL;
 			/* (scaled to a size of the file's: the texture stays the map's,
@@ -992,6 +1033,10 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 		/* (none without a renderer: debug.null_renderer) */
 		if (bitmap->hardware_format)
 			halo_menus_art_register(xbox_pointer(bitmap->hardware_format), png);
+#ifdef HALO_PS3
+		if (bitmap->hardware_format && kept_frame >= 0)
+			menu_art_rsx_register_map(((unsigned long const *)xbox_pointer(bitmap->hardware_format))[1], kept_frame);
+#endif
 	}
 	return group;
 }

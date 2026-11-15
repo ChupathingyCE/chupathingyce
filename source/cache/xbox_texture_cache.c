@@ -398,6 +398,23 @@ void texture_cache_delete(
 	return;
 }
 
+#ifdef HALO_PS3
+boolean texture_cache_menu_format(struct bitmap_data *bitmap, unsigned long *format, unsigned long *size,
+	long *row_pitch)
+{
+	D3DBaseTexture texture;
+
+	if (!texture_cache_bitmap_valid(bitmap) || bitmap->type != _bitmap_type_2d)
+		return FALSE;
+	memset(&texture, 0, sizeof(texture));
+	texture_cache_initialize_hardware_format(bitmap, &texture);
+	*format = texture.Format;
+	*size = texture.Size;
+	*row_pitch = TEST_FLAG(bitmap->flags, _bitmap_linear_bit) ? bitmap_mipmap_get_row_pitch(bitmap, 0) : 0;
+	return TRUE;
+}
+#endif
+
 void texture_cache_open(
 	void)
 {
