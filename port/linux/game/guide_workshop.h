@@ -59,6 +59,10 @@ void guide_workshop_row_click(short row, boolean touch);
 /* the wheel over an item page's description scrolls it (TRUE: taken), a
 click on it gives it the focus (TRUE: taken); x and y as the targets are */
 boolean guide_workshop_wheel(short x, short y, short steps);
+/* the pointer on the list's and the description's scroll bars (drag the
+thumb, a press on the track a page): TRUE when its press was theirs */
+struct halo_ui_pointer;
+boolean guide_workshop_scroll_pointer(struct halo_ui_pointer const *pointer);
 boolean guide_workshop_click(short x, short y);
 void guide_workshop_option_click(short option);
 char const *guide_workshop_prompt(void);

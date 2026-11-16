@@ -53,6 +53,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "../src/settings_rows.h"
 #include "../src/guide_layout.h"
 #include "guide_workshop.h"
+#include "halo_ui_pointer.h"
 #include "mcc_maps.h"
 
 /* menu_functions.c's: PLAY handed to the menus' own flows */
@@ -244,6 +245,9 @@ static struct
 	it took the focus (guide_layout_marquee) */
 	int marquee_key;
 	unsigned long marquee_time, marquee_drawn;
+	/* the list's and the description's scroll bars, as last drawn, for the
+	mouse (guide_layout_scroll_bar_pointer) */
+	struct guide_scroll_bar list_bar, description_bar;
 } workshop_view;
 
 /* ---------- private code */
@@ -1663,6 +1667,27 @@ boolean guide_workshop_wheel(short x, short y, short steps)
 	return FALSE;
 }
 
+boolean guide_workshop_scroll_pointer(struct halo_ui_pointer const *pointer)
+{
+	int taken_list = 0, taken_description = 0, scroll;
+	boolean pressed = pointer->left_clicks > 0;
+
+	/* (the list: its rows move, the focus where it was, as the wheel) */
+	scroll = guide_layout_scroll_bar_pointer(&workshop_view.list_bar, workshop_view.first, pointer->x, pointer->y,
+		pointer->left_down, pressed, pointer->click_x, pointer->click_y, &taken_list);
+	if (scroll >= 0)
+	{
+		workshop_view.first = (short)scroll;
+		workshop_view.follow = FALSE;
+	}
+	scroll = guide_layout_scroll_bar_pointer(&workshop_view.description_bar, workshop_view.description_scroll,
+		pointer->x, pointer->y, pointer->left_down, pressed && !taken_list, pointer->click_x, pointer->click_y,
+		&taken_description);
+	if (scroll >= 0)
+		workshop_view.description_scroll = (short)scroll;
+	return taken_list || taken_description;
+}
+
 boolean guide_workshop_click(short x, short y)
 {
 	if (!over_description(x, y) || workshop_view.description_count <= workshop_view.description_shown)
@@ -1894,9 +1919,19 @@ static void description_render(struct workshop_browser_item const *item, struct 
 	track.height = lines * DESCRIPTION_LINE - 2;
 	if (guide_layout_scroll_thumb(track, count, lines, workshop_view.description_scroll, 8.0f, &thumb))
 	{
+		struct guide_scroll_bar *bar = &workshop_view.description_bar;
+
+		bar->track = track;
+		bar->thumb = thumb;
+		bar->count = count;
+		bar->shown = lines;
 		ui_overlay_rect(track.x, track.y, track.width, track.height, 1.5f, 0xFFFFFF1F);
-		ui_overlay_rect(thumb.x, thumb.y, thumb.width, thumb.height, 1.5f,
-			workshop_view.description_on && workshop_view.page ? COLOR_VALUE : 0xFFFFFF80);
+		/* (under the pointer or dragged: wider and brighter) */
+		if (bar->hover)
+			ui_overlay_rect(thumb.x - 1, thumb.y, thumb.width + 2, thumb.height, 2.0f, COLOR_VALUE);
+		else
+			ui_overlay_rect(thumb.x, thumb.y, thumb.width, thumb.height, 1.5f,
+				workshop_view.description_on && workshop_view.page ? COLOR_VALUE : 0xFFFFFF80);
 	}
 }
 
@@ -2168,8 +2203,18 @@ static void list_render(float left, float top, float bottom,
 		if (guide_layout_scroll_thumb(track, workshop_view.row_count, workshop_view.shown_rows, workshop_view.first,
 			10.0f, &thumb))
 		{
+			struct guide_scroll_bar *bar = &workshop_view.list_bar;
+
+			bar->track = track;
+			bar->thumb = thumb;
+			bar->count = workshop_view.row_count;
+			bar->shown = workshop_view.shown_rows;
 			ui_overlay_rect(track.x, track.y, track.width, track.height, 1.5f, 0xFFFFFF1A);
-			ui_overlay_rect(thumb.x, thumb.y, thumb.width, thumb.height, 1.5f, 0xFFFFFF80);
+			/* (under the pointer or dragged: wider and brighter) */
+			if (bar->hover)
+				ui_overlay_rect(thumb.x - 1, thumb.y, thumb.width + 2, thumb.height, 2.0f, COLOR_VALUE);
+			else
+				ui_overlay_rect(thumb.x, thumb.y, thumb.width, thumb.height, 1.5f, 0xFFFFFF80);
 		}
 	}
 }
@@ -2302,6 +2347,9 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 
 	rows_sync();
 	workshop_view.description_x0 = workshop_view.description_x1 = 0;
+	/* (each bar there only while drawn this frame) */
+	workshop_view.list_bar.thumb.height = 0;
+	workshop_view.description_bar.thumb.height = 0;
 	list_render(left, top, bottom, target);
 	/* the chosen item's page (the last one chosen while the focus is above
 	the items) */

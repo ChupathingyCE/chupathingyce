@@ -3925,6 +3925,7 @@ BOOL platform_ui_pointer_read(struct platform_ui_pointer *pointer)
 	pthread_mutex_lock(&input_lock);
 	active = input_state.ui_pointer;
 	*pointer = ui_pointer;
+	pointer->left_down = (mouse_buttons_down >> SDL_BUTTON_LEFT) & 1u;
 	ui_pointer.moved = FALSE;
 	ui_pointer.left_clicks = 0;
 	ui_pointer.right_clicks = 0;
@@ -3961,6 +3962,7 @@ BOOL platform_ui_pointer_read(struct platform_ui_pointer *pointer)
 	pthread_mutex_lock(&input_lock);
 	active = input_state.ui_pointer;
 	touch_input_menu_read(pointer);
+	pointer->left_down = FALSE;
 	pthread_mutex_unlock(&input_lock);
 	return active;
 }
