@@ -45,13 +45,24 @@ int config_boolean(char const *name);
 int config_write(char const *name, char const *value);
 void network_game_server_port_set_cooperative_friendly_fire(short friendly_fire); /* (network_server_manager.c) */
 
-/* whether online co-op's friendly fire is on (network.coop_friendly_fire
-other than "off": "on", "shields_only" or "explosives_only") */
+/* whether online co-op's friendly fire is on: the game's own rule while
+co-op runs (what the host deals damage by), else network.coop_friendly_fire
+other than "off" ("on", "shields_only" or "explosives_only") */
 boolean mcc_ui_coop_friendly_fire_on(void)
 {
-    char const *value = config_string("network.coop_friendly_fire");
+    char const *value;
 
+    if (network_coop_active())
+        return network_game_get_game()->variant_options.friendly_fire != _friendly_fire_off;
+    value = config_string("network.coop_friendly_fire");
     return !value || strcmp(value, "off") != 0;
+}
+
+/* whether the pause menu offers the friendly fire toggle: on the hosting
+machine only (a client's click would change nothing in the game) */
+boolean mcc_ui_coop_friendly_fire_shown(void)
+{
+    return global_network_game_server_get() != NULL;
 }
 boolean pc_menu_tag(long tag_index);
 boolean ui_widget_port_dispatch_event(struct widget_instance *widget, short type, short controller, boolean *deleted);
@@ -299,7 +310,7 @@ boolean mcc_ui_event_function(struct widget_instance *widget,
             return TRUE;
         case MCC_PAUSE_ACTION_SETTINGS: function = 137; break;
         case MCC_PAUSE_ACTION_FRIENDLY_FIRE:
-            if (!network_coop_active()) { *result = FALSE; return TRUE; }
+            if (!network_coop_active() || !mcc_ui_coop_friendly_fire_shown()) { *result = FALSE; return TRUE; }
             {
                 /* (network.coop_friendly_fire: anything but "off" shows ON;
                 the toggle sets "on" or "off", and a host takes it at once) */

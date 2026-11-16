@@ -92,7 +92,7 @@ static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "METAL (BGFX, 
 /* ("d3d11": bgfx on Direct3D 11, for testing; each falls back to
 OpenGL) */
 static const char *const renderer_choices[] = { "gl", "bgfx", "d3d11", NULL };
-static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (BGFX, TESTING)", "DIRECT3D 11 (BGFX, TESTING)", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (BGFX, TESTING)", "D3D11 (BGFX, TESTING)", NULL };
 #else
 static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
 static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (BGFX, TESTING)", NULL };
