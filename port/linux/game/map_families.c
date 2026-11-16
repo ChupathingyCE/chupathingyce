@@ -14,6 +14,7 @@ play it); the files are looked for only on the builds that play such maps
 #include "halo_join_reasons.h"
 #ifdef HALO_MAP_LIST
 #include "halo_map_packs.h"
+#include "spv3_mode.h"
 #endif
 #include "../src/map_archive.h"
 #include "../src/map_file_hash.h"
@@ -736,6 +737,14 @@ static boolean place_file(
 	long count, index;
 	struct map_family_place const *places = family_places(family, &count);
 
+#ifdef HALO_MAP_LIST
+	/* (in SPV3 mode, its maps first: maps_spv3\<file>.yelo, spv3_mode.c) */
+	if (family == _map_family_custom_edition && spv3_mode_map_path(file, path, size) &&
+		place_cache_file(path, size, family_cache_version(family)))
+	{
+		return TRUE;
+	}
+#endif
 	for (index = 0; index < count; index++)
 	{
 		char folder[256];
@@ -1011,6 +1020,23 @@ boolean map_family_resource(
 {
 	long index;
 
+#ifdef HALO_MAP_LIST
+	/* (in SPV3 mode, SPV3's own: maps_spv3\bitmaps.map and the rest, which
+	its maps' resources are offsets into, spv3_mode.c) */
+	if (spv3_mode_active())
+	{
+		HANDLE file;
+
+		snprintf(path, (size_t)size, "d:\\%s\\%s.map", SPV3_MODE_FOLDER, name);
+		file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (file != INVALID_HANDLE_VALUE)
+		{
+			CloseHandle(file);
+			return TRUE;
+		}
+		spv3_mode_log("%s.map is not in %s: Custom Edition's places are read instead", name, SPV3_MODE_FOLDER);
+	}
+#endif
 	for (index = 0; index < NUMBEROF(resource_places); index++)
 	{
 		char folder[256];

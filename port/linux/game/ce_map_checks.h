@@ -20,13 +20,17 @@ enum
 {
 	/* (cache_files.c's: where a Custom Edition map's tags are) */
 	CE_IMAGE_TAG_CACHE_BASE = 0x40440000,
-	CE_IMAGE_TAG_CACHE_SIZE = 0x01700000,
 	CE_TAG_INSTANCE_SIZE = 0x20,
 	/* the most one allocation of the port's converted models and level takes
 	(ce_resources_allocate): a strip of a part's most triangles (ce_models.c),
 	aligned */
 	CE_LARGEST_CONVERSION_ALLOCATION = 0x20000,
 };
+
+/* (and its size: Custom Edition's, or OpenSauce's in SPV3 mode with its
+window mapped, port/linux/game/spv3_mode.c) */
+#include "spv3_mode.h"
+#define CE_IMAGE_TAG_CACHE_SIZE (spv3_mode_tag_cache_size(0x01700000UL))
 
 /* the room above the tag cache for the port's converted models and level
 (port/linux/src/platform.h): its size, 0 if it is not mapped, and always 0

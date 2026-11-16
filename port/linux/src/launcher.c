@@ -1105,6 +1105,15 @@ static void modes_find(void)
 		if (!valid || !SDL_strcasecmp(suffix, "ce") || !SDL_strcasecmp(suffix, "pc") || !SDL_strcasecmp(suffix, "md"))
 			continue;
 		snprintf(path, sizeof(path), "%s/%s", launcher.root, name);
+		/* (SPV3, early: its menus are its ui.yelo, a Custom Edition map read
+		with OpenSauce's larger tag window, port/linux/game/spv3_mode.c; only
+		with the player's own install here, never a download) */
+		if (!SDL_strcasecmp(suffix, "spv3"))
+		{
+			if (posix_find_entry_case_insensitive(path, "ui.yelo", on_disk, sizeof(on_disk)))
+				mode_add("spv3", "SPV3 (early)", "SPV3", name, 1);
+			continue;
+		}
 		if (!posix_find_entry_case_insensitive(path, "ui.map", on_disk, sizeof(on_disk)))
 			continue;
 		pack = known_pack(suffix);
