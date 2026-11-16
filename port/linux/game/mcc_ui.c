@@ -50,10 +50,12 @@ co-op runs (what the host deals damage by), else network.coop_friendly_fire
 other than "off" ("on", "shields_only" or "explosives_only") */
 boolean mcc_ui_coop_friendly_fire_on(void)
 {
+    struct network_game *game;
     char const *value;
 
-    if (network_coop_active())
-        return network_game_get_game()->variant_options.friendly_fire != _friendly_fire_off;
+    /* (no game while connecting or tearing down, though co-op may say active) */
+    if (network_coop_active() && (game = network_game_get_game()) != NULL)
+        return game->variant_options.friendly_fire != _friendly_fire_off;
     value = config_string("network.coop_friendly_fire");
     return !value || strcmp(value, "off") != 0;
 }
