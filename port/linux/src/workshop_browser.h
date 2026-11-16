@@ -51,7 +51,7 @@ tools/test_workshop_list.py).
 
 enum
 {
-	WORKSHOP_BROWSER_MAXIMUM_ITEMS = 64,
+	WORKSHOP_BROWSER_MAXIMUM_ITEMS = 128,
 	WORKSHOP_BROWSER_ID_SIZE = 24,
 	WORKSHOP_BROWSER_TITLE_SIZE = 64,
 	WORKSHOP_BROWSER_AUTHOR_SIZE = 48,
@@ -241,10 +241,13 @@ int workshop_browser_page_previous(void);
 const char *workshop_browser_setup_button(int index);
 int workshop_browser_setup_press(int index);
 /* the list as shown: the setup rows, the find row, then the items the
-filter and search keep, in the sort's order. Popular, New, Top rated and
+filter and search keep, in the sort's order: Steam's page alone, its
+installed items marked by their state; INSTALLED every installed item,
+from any library, whatever the page. Popular, New, Top rated and
 Updated ask Steam's page for that order (and the search's words), once per
 change; A-Z sorts what is loaded. The search also keeps, at once, the
-loaded and installed items whose title, kind or description has the words */
+loaded items (under INSTALLED, the installed ones) whose title, kind or
+description has the words */
 int workshop_browser_filter(void);
 int workshop_browser_sort(void);
 const char *workshop_browser_search(void);

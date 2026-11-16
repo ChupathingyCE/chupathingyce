@@ -312,7 +312,8 @@ static int item_listed(const char *id)
 	return 0;
 }
 
-/* the installed items the list lacks, after its own */
+/* the installed items the list lacks, after its own: shown only under
+INSTALLED (kept), never on Steam's pages */
 static void local_items_look(void)
 {
 	int library;
@@ -399,13 +400,23 @@ static void link_row_make(void)
 	item->step = WORKSHOP_STEP_TO_DO;
 }
 
+/* the items of Steam's page (not the installed ones found beside it, nor setup rows) */
+static int page_item_count(void)
+{
+	int index, count = 0;
+
+	for (index = 0; index < workshop.count; index++)
+		count += !workshop.items[index].setup && !workshop.items[index].local;
+	return count;
+}
+
 /* the list's end: Steam's page, and the way to the next */
 static int page_row_offered(void)
 {
 	const char *setting = config_string("network.workshop_url");
 
 	return workshop.filter != WORKSHOP_FILTER_INSTALLED && (!setting || !setting[0]) &&
-		workshop.status == WORKSHOP_LIST_LOADED && (workshop.page > 1 || workshop.count >= 20);
+		workshop.status == WORKSHOP_LIST_LOADED && (workshop.page > 1 || page_item_count() >= 20);
 }
 
 static void page_row_make(void)
@@ -2009,6 +2020,10 @@ static int contains_words(const char *text, const char *words)
 
 static int kept(const struct workshop_browser_item *item)
 {
+	/* (an installed item Steam's page lacks: only under INSTALLED; one on the
+	page stays where Steam put it, its row saying Installed) */
+	if (item->local && workshop.filter != WORKSHOP_FILTER_INSTALLED)
+		return 0;
 	switch (workshop.filter)
 	{
 	case WORKSHOP_FILTER_MULTIPLAYER: if (!(item->tags & WORKSHOP_TAG_MULTIPLAYER)) return 0; break;
@@ -2136,8 +2151,10 @@ int workshop_browser_filter_offered(int filter)
 	{
 		const struct workshop_browser_item *item = &workshop.items[index];
 
-		if (!item->setup && ((filter == WORKSHOP_FILTER_MULTIPLAYER && (item->tags & WORKSHOP_TAG_MULTIPLAYER)) ||
-			(filter == WORKSHOP_FILTER_CAMPAIGN && (item->tags & WORKSHOP_TAG_CAMPAIGN)) ||
+		/* (Multiplayer and Campaign: Steam's page's own items) */
+		if (!item->setup && ((filter == WORKSHOP_FILTER_MULTIPLAYER && !item->local &&
+			(item->tags & WORKSHOP_TAG_MULTIPLAYER)) ||
+			(filter == WORKSHOP_FILTER_CAMPAIGN && !item->local && (item->tags & WORKSHOP_TAG_CAMPAIGN)) ||
 			(filter == WORKSHOP_FILTER_INSTALLED && item->state == WORKSHOP_ITEM_INSTALLED)))
 		{
 			return 1;
