@@ -245,6 +245,8 @@ int workshop_browser_link_offered(void);
 /* Steam's browse page shown (1 the first), and the next or the one before
 asked for (each kept ten minutes); 0 when there is none that way */
 int workshop_browser_page(void);
+/* how many pages Steam has for the list's search (0: not known) */
+int workshop_browser_page_count(void);
 /* the game's own Steam download, once Steam is linked: turned on (the
 link is the player's yes) and connected while the tab is open. Each frame */
 void workshop_browser_link_follow(void);
@@ -268,9 +270,10 @@ filter and search keep, in the sort's order: Steam's page alone, its
 installed items marked by their state; INSTALLED every installed item,
 from any library, whatever the page. Popular, New, Top rated and
 Updated ask Steam's page for that order (and the search's words), once per
-change; A-Z sorts what is loaded. The search also keeps, at once, the
+change; A-Z sorts what is loaded. The search also keeps only the
 loaded items (under INSTALLED, the installed ones) whose title, kind or
-description has the words */
+description has the words. While another page of Steam's is coming, the
+list has none of the last one's */
 int workshop_browser_filter(void);
 int workshop_browser_sort(void);
 const char *workshop_browser_search(void);
@@ -291,7 +294,8 @@ int workshop_browser_in_own_library(int index);
 /* CANCEL on a GET: the download stopped, its part deleted, the item back
 to Not installed (0 when it isn't being got) */
 int workshop_browser_cancel(int index);
-/* the list failed: "Offline" (no answer) or "Failed"; "" when it didn't */
+/* the list failed, or the last page asked for did and the list is the one
+before: "Offline" (no answer) or "Failed"; "" when it didn't */
 const char *workshop_browser_list_why(void);
 /* WORKSHOP FOLDER: the system's folder picker opened (0 where there is
 none), and its answer taken each frame (the downloads' folder set) */

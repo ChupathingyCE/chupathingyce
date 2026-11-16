@@ -1733,7 +1733,7 @@ char const *guide_workshop_prompt(void)
 	{
 	case _row_show:
 	case _row_sort: return "CHANGE";
-	case _row_page: return "NEXT PAGE";
+	case _row_page: return workshop_browser_page_offered(1) ? "NEXT PAGE" : "PREVIOUS";
 	case _row_search: return "SEARCH";
 	case _row_steam: return "LINK";
 	case _row_retry: return "RETRY";
@@ -1955,17 +1955,21 @@ static void heading_render(float left, float top, short status)
 	float right = left + LIST_WIDTH;
 	int busy = workshop_browser_busy_seconds();
 
-	if (workshop_browser_filter() != WORKSHOP_FILTER_INSTALLED)
-		snprintf(heading, sizeof(heading), "MCC WORKSHOP - PAGE %d", workshop_browser_page());
-	else
+	if (workshop_browser_filter() == WORKSHOP_FILTER_INSTALLED)
 		snprintf(heading, sizeof(heading), "MCC WORKSHOP");
+	else if (workshop_browser_page_count() > 0)
+		snprintf(heading, sizeof(heading), "MCC WORKSHOP - PAGE %d OF %d", workshop_browser_page(),
+			workshop_browser_page_count());
+	else
+		snprintf(heading, sizeof(heading), "MCC WORKSHOP - PAGE %d", workshop_browser_page());
 	ui_style_text(UI_TEXT_HEADING, left, top, UI_ALIGN_LEFT, heading);
 	word[0] = 0;
+	/* (also when the page asked for failed and the list kept the one before) */
 	if (status == WORKSHOP_LIST_LOADING)
 		snprintf(word, sizeof(word), "Loading");
-	else if (status == WORKSHOP_LIST_FAILED && busy)
+	else if (workshop_browser_list_why()[0] && busy)
 		snprintf(word, sizeof(word), "Steam busy, %ds", busy);
-	else if (status == WORKSHOP_LIST_FAILED)
+	else
 		snprintf(word, sizeof(word), "%s", workshop_browser_list_why());
 	if (word[0])
 		ui_style_text(UI_TEXT_LABEL, right, top + 1, UI_ALIGN_RIGHT, word);
@@ -2052,7 +2056,10 @@ static void control_render(short row, float left, float y, boolean on,
 		row_arrows(row, left, y, LIST_WIDTH, CONTROL_HEIGHT, value, target);
 		return;
 	case _row_page:
-		snprintf(value, sizeof(value), "%d", workshop_browser_page());
+		if (workshop_browser_page_count() > 0)
+			snprintf(value, sizeof(value), "%d OF %d", workshop_browser_page(), workshop_browser_page_count());
+		else
+			snprintf(value, sizeof(value), "%d", workshop_browser_page());
 		ui_style_setting(left, y, LIST_WIDTH, CONTROL_HEIGHT, 0.9f, "PAGE", NULL, value, on);
 		row_arrows(row, left, y, LIST_WIDTH, CONTROL_HEIGHT, value, target);
 		return;

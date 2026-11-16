@@ -111,6 +111,8 @@ static struct
 	int answered;
 	int answer_count;
 	struct workshop_browser_item answer[WORKSHOP_BROWSER_MAXIMUM_ITEMS];
+	/* the browse page's count of pages and items for its search (0 unknown) */
+	int answer_pages, answer_total;
 	/* the browse page's creators and their names, for the names known */
 	int answer_author_count;
 	struct workshop_browser_author answer_authors[BROWSE_PAGE_ITEMS];
@@ -132,6 +134,14 @@ static struct
 	char search[64];
 	char web_url[512];
 	char web_fetched[512];
+	/* the page whose items the list holds, and its search's count of pages
+	(0 unknown); another asked for (web_url) and not here yet: its items
+	not shown (no other page's under its number), "Loading" instead */
+	char shown_url[512];
+	int page_count;
+	int awaiting;
+	/* the page asked for failed with another's items kept: why, said on top */
+	int kept_failed;
 	/* the list as shown: indices into items, -1 the find row */
 	int view[WORKSHOP_BROWSER_MAXIMUM_ITEMS + 3];
 	int view_count;
@@ -147,6 +157,7 @@ static struct
 		char url[512];
 		unsigned long time;
 		int count;
+		int page_count;
 		struct workshop_browser_item items[BROWSE_PAGE_ITEMS];
 	} pages[PAGE_CACHE];
 	int page_next_slot;
@@ -442,8 +453,12 @@ static int page_row_offered(void)
 {
 	const char *setting = config_string("network.workshop_url");
 
-	return workshop.filter != WORKSHOP_FILTER_INSTALLED && (!setting || !setting[0]) &&
-		workshop.status == WORKSHOP_LIST_LOADED && (workshop.page > 1 || page_item_count() >= 20);
+	if (workshop.filter == WORKSHOP_FILTER_INSTALLED || (setting && setting[0]))
+		return 0;
+	/* (the search's count of pages known: the row stays while one loads) */
+	if (workshop.page_count > 1 || (workshop.page > 1 && workshop.status != WORKSHOP_LIST_NOT_SET_UP))
+		return 1;
+	return workshop.status == WORKSHOP_LIST_LOADED && !workshop.page_count && page_item_count() >= 20;
 }
 
 static void page_row_make(void)
@@ -464,6 +479,11 @@ static void page_row_make(void)
 int workshop_browser_page(void)
 {
 	return workshop.page > 0 ? workshop.page : 1;
+}
+
+int workshop_browser_page_count(void)
+{
+	return workshop.page_count;
 }
 
 int workshop_browser_page_next(void);
@@ -1614,7 +1634,7 @@ static void *web_thread(void *context)
 	static char ids[BROWSE_PAGE_ITEMS][WORKSHOP_BROWSER_ID_SIZE];
 	static struct workshop_browser_author authors[BROWSE_PAGE_ITEMS];
 	char *response = malloc(BROWSE_PAGE_DOCUMENT + 1), *body = NULL, error[128];
-	int status = 0, count = -1, id_count = 0, author_count = 0, index, length;
+	int status = 0, count = -1, id_count = 0, author_count = 0, pages = 0, total = 0, index, length;
 	size_t size;
 
 	error[0] = 0;
@@ -1624,8 +1644,10 @@ static void *web_thread(void *context)
 	if (status == 200)
 	{
 		id_count = workshop_browser_read_browse_ids(response, (int)strlen(response), ids, BROWSE_PAGE_ITEMS);
-		/* (who made each: the page's own list names them) */
+		/* (who made each: the page's own list names them; and how many pages
+		its search has) */
 		author_count = workshop_browser_read_browse_authors(response, (int)strlen(response), authors, BROWSE_PAGE_ITEMS);
+		workshop_browser_read_browse_pages(response, (int)strlen(response), &pages, &total);
 	}
 	if (status == 200 && !id_count)
 		platform_log("Workshop: Steam's browse page had no items (%d bytes)", response ? (int)strlen(response) : 0);
@@ -1664,6 +1686,8 @@ static void *web_thread(void *context)
 	workshop.answer_count = count;
 	if (count > 0)
 		memcpy(workshop.answer, found, sizeof(found[0]) * (size_t)count);
+	workshop.answer_pages = pages;
+	workshop.answer_total = total;
 	workshop.answer_author_count = author_count;
 	if (author_count > 0)
 		memcpy(workshop.answer_authors, authors, sizeof(authors[0]) * (size_t)author_count);
@@ -1713,6 +1737,8 @@ static void web_ask(void)
 	pthread_t thread;
 
 	web_url_make();
+	/* (another page than the list's: its items hidden until it comes) */
+	workshop.awaiting = strcmp(workshop.web_url, workshop.shown_url) != 0;
 	/* (a page seen in the last ten minutes: taken as it was) */
 	{
 		int slot;
@@ -1726,6 +1752,8 @@ static void web_ask(void)
 				if (!workshop.fetching)
 				{
 					workshop.answer_count = workshop.pages[slot].count;
+					workshop.answer_pages = workshop.pages[slot].page_count;
+					workshop.answer_author_count = 0;
 					memcpy(workshop.answer, workshop.pages[slot].items,
 						sizeof(workshop.answer[0]) * (size_t)workshop.pages[slot].count);
 					workshop.answered = 1;
@@ -1741,8 +1769,13 @@ static void web_ask(void)
 		!retry_backoff_ready(&workshop.web_retry, now) ||
 		config_boolean("debug.workshop_no_steam"))
 	{
-		if (workshop.status == WORKSHOP_LIST_LOADING || workshop.status == WORKSHOP_LIST_NOT_SET_UP)
-			workshop.status = workshop.web_time ? WORKSHOP_LIST_LOADED : WORKSHOP_LIST_FAILED;
+		/* (the list's own page: as it was; another one not asked for now:
+		failed, RETRY asking it) */
+		if (workshop.status == WORKSHOP_LIST_LOADING || workshop.status == WORKSHOP_LIST_NOT_SET_UP ||
+			workshop.awaiting)
+		{
+			workshop.status = workshop.web_time && !workshop.awaiting ? WORKSHOP_LIST_LOADED : WORKSHOP_LIST_FAILED;
+		}
 		return;
 	}
 	pthread_mutex_lock(&workshop.lock);
@@ -1892,10 +1925,13 @@ static void list_take(void)
 				after = BROWSE_BACKOFF / 1000;
 			retry_backoff_failed(&workshop.web_retry, system_milliseconds(), workshop.web_status, after);
 		}
-		/* (a failed page keeps the list it had, if any) */
+		/* (a failed page keeps the list it had, if any: its own page asked
+		again, LOADED as it was; another page asked for, FAILED, RETRY there
+		and the list's items hidden under the other page's number) */
 		if (workshop.answer_count < 0 && workshop.web_time)
 		{
-			workshop.status = WORKSHOP_LIST_LOADED;
+			workshop.kept_failed = 1;
+			workshop.status = workshop.awaiting ? WORKSHOP_LIST_FAILED : WORKSHOP_LIST_LOADED;
 			pthread_mutex_unlock(&workshop.lock);
 			return;
 		}
@@ -1919,13 +1955,26 @@ static void list_take(void)
 			workshop.pages[found].time = system_milliseconds();
 		}
 		workshop.pages[found].count = workshop.answer_count;
+		workshop.pages[found].page_count = workshop.answer_pages;
 		memcpy(workshop.pages[found].items, workshop.answer, sizeof(workshop.answer[0]) * (size_t)workshop.answer_count);
+	}
+	/* (an answer for a page no longer asked for: the player turned on, or
+	changed the sort, while it came. Kept, and the one asked for now asked) */
+	if (workshop.answer_count >= 0 && workshop.web_fetched[0] && strcmp(workshop.web_fetched, workshop.web_url))
+	{
+		pthread_mutex_unlock(&workshop.lock);
+		web_ask();
+		return;
 	}
 	if (workshop.answer_count >= 0)
 	{
 		workshop.count = workshop.answer_count;
 		memcpy(workshop.items, workshop.answer, sizeof(workshop.items[0]) * (size_t)workshop.count);
 		workshop.status = WORKSHOP_LIST_LOADED;
+		snprintf(workshop.shown_url, sizeof(workshop.shown_url), "%s", workshop.web_fetched);
+		workshop.page_count = workshop.answer_pages;
+		workshop.awaiting = 0;
+		workshop.kept_failed = 0;
 	}
 	else
 		workshop.status = WORKSHOP_LIST_FAILED;
@@ -2277,6 +2326,9 @@ static void view_build(void)
 	workshop.view[count++] = -1;
 	for (index = 0; index < workshop.count && count < (int)(sizeof(workshop.view) / sizeof(workshop.view[0])); index++)
 	{
+		/* (another page asked for: this one's items not shown under its number) */
+		if (workshop.awaiting && !workshop.items[index].local && workshop.filter != WORKSHOP_FILTER_INSTALLED)
+			continue;
 		if (!workshop.items[index].setup && kept(&workshop.items[index]))
 			workshop.view[count++] = index;
 	}
@@ -2390,13 +2442,13 @@ int workshop_browser_retry(void)
 int workshop_browser_page_offered(int step)
 {
 	if (step > 0)
-		return page_row_offered() && workshop.page < 100;
+		return page_row_offered() && workshop_browser_page() < (workshop.page_count > 0 ? workshop.page_count : 100);
 	return workshop_browser_page() > 1 && workshop.filter != WORKSHOP_FILTER_INSTALLED;
 }
 
 int workshop_browser_page_next(void)
 {
-	if (!page_row_offered() || workshop.page >= 100)
+	if (!workshop_browser_page_offered(1))
 		return 0;
 	workshop.page = workshop_browser_page() + 1;
 	list_again();
@@ -2405,7 +2457,7 @@ int workshop_browser_page_next(void)
 
 int workshop_browser_page_previous(void)
 {
-	if (workshop_browser_page() <= 1)
+	if (!workshop_browser_page_offered(-1))
 		return 0;
 	workshop.page = workshop_browser_page() - 1;
 	list_again();
@@ -2776,7 +2828,7 @@ int workshop_browser_cancel(int index)
 
 const char *workshop_browser_list_why(void)
 {
-	if (workshop.status != WORKSHOP_LIST_FAILED)
+	if (workshop.status != WORKSHOP_LIST_FAILED && !workshop.kept_failed)
 		return "";
 	/* (no answer at all: offline; an answer that wasn't a list: failed) */
 	return workshop.web_retry.status <= 0 ? "Offline" : "Failed";

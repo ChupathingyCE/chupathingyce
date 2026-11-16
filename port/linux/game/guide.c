@@ -4753,8 +4753,8 @@ static void prompt_add(struct ui_style_prompt *prompts, short *count, int button
 
 static void render_prompts(void)
 {
-	struct ui_style_prompt prompts[4];
-	float starts[4], ends[4];
+	struct ui_style_prompt prompts[6];
+	float starts[6], ends[6];
 	char const *word = NULL;
 	short count = 0, index;
 	boolean back = FALSE, add_friend = FALSE;
@@ -4805,11 +4805,12 @@ static void render_prompts(void)
 	case SOCIAL_SECTION_WORKSHOP:
 		word = guide_workshop_prompt();
 		back = guide_workshop_in_page();
-		/* (Steam's list a page at a time: RT, Page Down on a keyboard) */
+		/* (Steam's list a page at a time: LT and RT, Page Up and Page Down
+		on a keyboard; each shown while it goes somewhere) */
+		if (guide_workshop_page_offered(-1))
+			prompt_add(prompts, &count, UI_BUTTON_LEFT_TRIGGER, "PGUP", "PREVIOUS");
 		if (guide_workshop_page_offered(1))
 			prompt_add(prompts, &count, UI_BUTTON_RIGHT_TRIGGER, "PGDN", "NEXT PAGE");
-		else if (guide_workshop_page_offered(-1))
-			prompt_add(prompts, &count, UI_BUTTON_LEFT_TRIGGER, "PGUP", "PREVIOUS");
 		break;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
