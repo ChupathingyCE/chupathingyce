@@ -853,8 +853,10 @@ static void family_scan(struct family *family, int list)
 				snprintf(state, sizeof(state), "Not a Halo map");
 			else if (version == MAP_VERSION_XBOX)
 				snprintf(state, sizeof(state), "Xbox map: goes in maps");
-			else if (version == MAP_VERSION_HALO_PC || version == MAP_VERSION_CUSTOM_EDITION)
-				snprintf(state, sizeof(state), "Halo PC map: maps_ce");
+			else if (version == MAP_VERSION_CUSTOM_EDITION)
+				snprintf(state, sizeof(state), "CE map: goes in maps_ce");
+			else if (version == MAP_VERSION_HALO_PC)
+				snprintf(state, sizeof(state), "Halo PC map: maps_pc");
 			else
 				snprintf(state, sizeof(state), "Unknown format (v%ld)", version);
 			if (list)
