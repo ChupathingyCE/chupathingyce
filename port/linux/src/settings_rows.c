@@ -87,15 +87,15 @@ struct settings_row
 say so, as config.toml's help does) */
 #ifdef __APPLE__
 static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
-static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "METAL (TESTING)", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "METAL (BGFX, TESTING)", NULL };
 #elif defined(_WIN32)
 /* ("d3d11": bgfx on Direct3D 11, for testing; each falls back to
 OpenGL) */
 static const char *const renderer_choices[] = { "gl", "bgfx", "d3d11", NULL };
-static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (TESTING)", "DIRECT3D 11 (TESTING)", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (BGFX, TESTING)", "D3D11 (BGFX, TESTING)", NULL };
 #else
 static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
-static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (TESTING)", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (BGFX, TESTING)", NULL };
 #endif
 #endif
 /* (Gearbox's menus, "gearbox" or the older "pc", are no longer one: such a
