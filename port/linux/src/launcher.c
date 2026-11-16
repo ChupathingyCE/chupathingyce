@@ -856,7 +856,7 @@ static void family_scan(struct family *family, int list)
 			else if (version == MAP_VERSION_CUSTOM_EDITION)
 				snprintf(state, sizeof(state), "CE map: goes in maps_ce");
 			else if (version == MAP_VERSION_HALO_PC)
-				snprintf(state, sizeof(state), "Halo PC map: maps_pc");
+				snprintf(state, sizeof(state), "Halo PC map: goes in maps_pc");
 			else
 				snprintf(state, sizeof(state), "Unknown format (v%ld)", version);
 			if (list)
@@ -1608,7 +1608,7 @@ static void build_rows(void)
 			snprintf(row->help, sizeof(row->help), "Missing: %s", family->missing_names);
 		}
 		else if (family->stray)
-			snprintf(row->help, sizeof(row->help), "Halo PC maps go in maps_ce, maps_pc or maps_md.");
+			snprintf(row->help, sizeof(row->help), "CE maps go in maps_ce, Halo PC maps in maps_pc, HaloMD in maps_md.");
 		switch (family->kind)
 		{
 		case _family_xbox:
