@@ -69,7 +69,8 @@ void spv3_mode_scripts_summary(long dropped_scripts, long scripts, long dropped_
 map for that it does not have */
 void spv3_mode_note_resource_miss(char const *kind, char const *tag_name);
 
-/* a change the loader made to a map's tags (ce_repairs.c): counted and its
+/* a change SPV3 mode made to what a map asks for (a camera point narrowed,
+camera_scripting.c; a grenade type passed over, units.c): counted and its
 first ones logged */
 void spv3_mode_note_correction(char const *what);
 

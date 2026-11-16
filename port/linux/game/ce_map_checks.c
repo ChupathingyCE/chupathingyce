@@ -1132,12 +1132,14 @@ boolean ce_map_check(
 	ce_message[0] = 0;
 	ce_checking = TRUE;
 	ce_checking_bsp_count = 0;
+	/* (SPV3 mode's survey, logged before the checks: nothing in other modes) */
+	if (file_size != INVALID_FILE_SIZE && !file_size_high)
+		ce_spv3_survey(file, map_name, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
 	if (file_size == INVALID_FILE_SIZE || file_size_high || file_size > CE_MAXIMUM_FILE_SIZE)
 		valid = ce_refuse("its size could not be read, or is over 2 GB");
 	else if (file_length < CE_HEADER_SIZE || (unsigned long)file_length > file_size)
 		valid = ce_refuse("it is cut short: its header says %ld bytes, the file has %lu", file_length, file_size);
-	else if ((ce_spv3_survey(file, map_name, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size),
-		ce_needs_opensauce(file, map_name)))
+	else if (ce_needs_opensauce(file, map_name))
 	{
 		ce_refusal_explain("It needs OpenSauce.");
 		valid = ce_refuse("it needs OpenSauce (its OpenSauce header asks for memory upgrades or mod data)");

@@ -1110,8 +1110,14 @@ static void modes_find(void)
 		with the player's own install here, never a download) */
 		if (!SDL_strcasecmp(suffix, "spv3"))
 		{
+#if defined(HALO_64BIT) && defined(HALO_CUSTOM_EDITION) && !defined(HALO_WINDOW_TRANSLATED)
 			if (posix_find_entry_case_insensitive(path, "ui.yelo", on_disk, sizeof(on_disk)))
 				mode_add("spv3", "SPV3 (early)", "SPV3", name, 1);
+#else
+			/* (only the 64-bit desktop builds map the larger tag window its
+			maps need: port/linux/src/xbox_heap.c) */
+			platform_log("launcher: %s is here, but SPV3 needs a 64-bit desktop build", name);
+#endif
 			continue;
 		}
 		if (!posix_find_entry_case_insensitive(path, "ui.map", on_disk, sizeof(on_disk)))

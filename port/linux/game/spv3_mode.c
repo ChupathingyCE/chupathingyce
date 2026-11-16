@@ -390,7 +390,10 @@ void spv3_mode_survey(
 	tag_count = spv3_read32(tags, 12);
 	spv3_mode_log("%s: %lu tags (Custom Edition's limit 5120, OpenSauce's %d), tag index at 0x%08lX", map_name,
 		tag_count, SPV3_OPENSAUCE_TAG_COUNT, instances);
-	if (!spv3_at(tags, tag_data_size, instances, tag_count * SPV3_TAG_INSTANCE_SIZE))
+	/* (the count against the tag data first: its product with the instance
+	size would wrap in 32 bits) */
+	if (tag_count > tag_data_size / SPV3_TAG_INSTANCE_SIZE ||
+		!spv3_at(tags, tag_data_size, instances, tag_count * SPV3_TAG_INSTANCE_SIZE))
 	{
 		spv3_mode_log("%s: the tag index is outside the tag data: no more survey", map_name);
 		return;
@@ -402,6 +405,8 @@ void spv3_mode_survey(
 		char group[5];
 		long found;
 
+		if (!instance)
+			break;
 		spv3_group_text(spv3_read32(instance, 0), group);
 		for (found = 0; found < group_count && memcmp(groups[found].group, group, 4); found++)
 			;
@@ -484,8 +489,8 @@ void spv3_mode_survey(
 			size = spv3_read32(reference, 4);
 			base = spv3_read32(reference, 8);
 			spv3_mode_log("%s: BSP %ld: %lu bytes at file %lu, linked at 0x%08lX to 0x%08lX: %s", map_name, bsp, size,
-				spv3_read32(reference, 0), base, base + size,
-				base >= SPV3_TAG_BASE && base + size <= window_top ? "inside the tag window" :
+				spv3_read32(reference, 0), base, (base + size) & 0xFFFFFFFFUL,
+				base >= SPV3_TAG_BASE && base <= window_top && size <= window_top - base ? "inside the tag window" :
 					"OUTSIDE the tag window");
 		}
 	}
