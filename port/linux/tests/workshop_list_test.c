@@ -4,6 +4,10 @@ WORKSHOP_LIST_TEST.C
 Tests of the WORKSHOP section's list document and words
 (port/linux/src/workshop_list.c, workshop_browser.h). Built and run by
 tools/test_workshop_list.py; exits nonzero on a failure.
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #define WORKSHOP_LIST_ONLY

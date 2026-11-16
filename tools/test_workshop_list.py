@@ -1,6 +1,11 @@
 """Runs the C tests of the Delta Guide's Workshop list document
 (port/linux/src/workshop_list.c), with the build machine's C compiler. The
-unit has no SDL, game or file system dependency, so it compiles anywhere."""
+unit has no SDL, game or file system dependency, so it compiles anywhere.
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
+"""
 import os
 import shutil
 import subprocess

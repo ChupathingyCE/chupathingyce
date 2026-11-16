@@ -44,6 +44,10 @@ in the order the Guide lists them.
 The parsing (workshop_list.c) has no game, SDL or file system, so its tests
 build anywhere (port/linux/tests/workshop_list_test.c,
 tools/test_workshop_list.py).
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef WORKSHOP_BROWSER_H

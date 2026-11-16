@@ -4,6 +4,10 @@ GUIDE_WORKSHOP.H
 The Guide's WORKSHOP section (guide_workshop.c), between RECENT and SERVICE
 RECORD: Halo: MCC's Steam Workshop items for Halo CE, shown only on a
 computer with MCC from Steam (workshop_browser.h).
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef GUIDE_WORKSHOP_H

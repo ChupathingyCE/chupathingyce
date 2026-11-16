@@ -8,6 +8,10 @@ the reader (steam_workshop.c): 0, an item's manifest (its title, engine,
 campaign flag and maps' json paths); 1, a map's json (its scenario file's
 name, its title and images); 2, Steam's libraryfolders.vdf (its "path"
 values). The rest is the text, in an allocation of exactly its size.
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "../src/steam_workshop.h"
