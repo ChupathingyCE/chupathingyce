@@ -169,6 +169,9 @@ enum
 	/* whether the selected game's Halo PC map is in its family's folders,
 	asked again this often */
 	CE_MAP_CHECK_INTERVAL = 1000,
+	/* and a list's names (opence_names) asked again one at a time, at
+	least this long after the last one's asking ended */
+	CE_MAP_REFRESH_SPACING = 50,
 	/* a failed download of the map a game was left for, shown this long
 	before the join is given up (A or B sooner) */
 	OFFER_FAILED_REJOIN_MILLISECONDS = 8000,
@@ -570,7 +573,15 @@ do a Custom Edition map (tools/tests/opence_mcc: "portent" for
 mcc_maps\<item id>\portent). What this machine makes of each such name,
 asked of its folders at most every CE_MAP_CHECK_INTERVAL: its MCC level of
 that file (map_family_listed_mcc), else whether it has a Custom Edition
-map by it. One for each game a list holds, so a list's every name is kept */
+map by it. One for each game a list holds, so a list's every name is kept.
+A name not asked about before is asked at once; one whose answer is old is
+asked again only CE_MAP_REFRESH_SPACING after the last asking ended, and
+keeps its old answer till then. Asked together, a list's names all came due
+in the same frame, which then asked about each of them again, every second:
+a map's six places and the three resource maps' three each, some fifteen
+files a name. A stutter each second on a desktop's disk; on the Switch's
+card, where a list of twenty took longer than a second to ask about, every
+frame */
 static struct
 {
 	char listed[BROWSER_MAP_LENGTH];
@@ -600,6 +611,8 @@ static long opence_name_entry(
 	long version)
 {
 	static long next;
+	/* (when the last asking ended) */
+	static unsigned long asked;
 	long entry, found = NONE;
 
 	for (entry = 0; entry < (long)NUMBEROF(opence_names); entry++)
@@ -610,8 +623,11 @@ static long opence_name_entry(
 			break;
 		}
 	}
-	if (found != NONE && system_milliseconds() - opence_names[found].time <= CE_MAP_CHECK_INTERVAL)
+	if (found != NONE && (system_milliseconds() - opence_names[found].time <= CE_MAP_CHECK_INTERVAL ||
+		system_milliseconds() - asked < CE_MAP_REFRESH_SPACING))
+	{
 		return found;
+	}
 	if (found == NONE)
 	{
 		found = next;
@@ -631,7 +647,7 @@ static long opence_name_entry(
 	{
 		opence_names[found].level[0] = 0;
 	}
-	opence_names[found].time = system_milliseconds();
+	opence_names[found].time = asked = system_milliseconds();
 	return found;
 }
 
