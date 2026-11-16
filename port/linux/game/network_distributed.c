@@ -5332,9 +5332,15 @@ void network_distributed_ban_until(
 		p2p_discord_sanitize(discord_name, sizeof(discord_name),
 			distributed_client_identities[machine_index].discord_name, 1);
 	}
+	/* (a player's Discord account is the host's to know, never the lobby's:
+	it is in the bans file, and in this host's log; the notice names the
+	player's game name alone) */
 	if (discord_id[0] || discord_name[0])
+	{
 		snprintf(discord, sizeof(discord), " (Discord: %s, %s)", discord_name, discord_id);
-	snprintf(notice, sizeof(notice), "%s%s %s", kept_names, discord, reason);
+		error(_error_log, "banned %s%s: %s", kept_names, discord, reason);
+	}
+	snprintf(notice, sizeof(notice), "%s %s", kept_names, reason);
 	/* (to every client in the game: in the lobby, the host's own) */
 	if (game_in_progress())
 		distributed_send_notice(notice);
