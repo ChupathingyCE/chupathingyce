@@ -1,14 +1,16 @@
 # Federation (proposal)
 
 **Status: proposal.** Nothing on this page is built yet. It describes how
-any project can run its own Delta network, with its own accounts and
-servers, and still play and verify names with every other network. Comments
+any project can run its own network on the open network spec (the formats
+on these pages), with its own accounts and servers, and still play and
+verify names with every other network. Delta is Chupathingy's
+implementation and network: one network among others, not the spec itself. Comments
 are welcome on the issue tracker.
 
 ## The idea
 
-Delta today has one network: Chupathingy's site issues the certificates that
-prove a player's name ([link.md](link.md#device-identity)). That works, but
+Today there is one network, Delta: Chupathingy's site issues the
+certificates that prove a player's name ([link.md](link.md#device-identity)). That works, but
 it means every port, fork or community that wants verified names, friends or
 profiles has to rely on one project's servers.
 
@@ -25,7 +27,7 @@ network, and the networks work together:
   only stop getting new certificates until it's back.
 - **Optional for everyone.** A game, a port or a server that doesn't take
   part loses nothing. The legacy game protocol stays the common ground, as
-  everywhere in Delta.
+  everywhere in the spec.
 
 ## Names
 
@@ -49,7 +51,7 @@ someone:example.org
 
 ## How a name is checked
 
-Each network uses the same chain Delta already has
+Each network uses the same chain the spec already defines
 ([link.md](link.md#device-identity)), with its own keys:
 
 1. **Root keys** (a primary and a recovery key), kept offline by the network.
@@ -64,12 +66,12 @@ Each network uses the same chain Delta already has
 Federation adds one thing: **which networks' root keys to trust.**
 
 - Every game ships with a **list of networks**: each one's domain and root
-  keys. The list is a signed document, like the signed Delta table
+  keys. The list is a signed document, like the signed table of network versions
   ([versioning.md](versioning.md)), so it can be updated without a new
   release.
 - A network asks to be listed by publishing its root keys at a well-known
   address on its domain, for example
-  `https://example.org/.well-known/delta/roots.json`, and asking the list's
+  `https://example.org/.well-known/open-network/roots.json`, and asking the list's
   maintainers. Listing means "this network's names are checked", nothing
   more; it gives nobody any access to anyone's servers.
 - A game, server or player may also add or remove networks locally (a
@@ -118,11 +120,11 @@ A port or fork that wants its own accounts and verified names:
 
 1. Run an issuer and sign-in (the formats are in [link.md](link.md)).
 2. Make root keys, publish them at your domain, and ask to be listed.
-3. Your players' names then show and verify in every Delta game, as
-   `handle:yourdomain`.
+3. Your players' names then show and verify in every game that speaks the
+   spec, as `handle:yourdomain`.
 
 Today, before federation exists, a port can register an app and sign its
-players in with Chupathingy's network ([clients.md](clients.md)).
+players in with Delta, Chupathingy's network ([clients.md](clients.md)).
 
 ## Order of work
 
