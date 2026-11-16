@@ -165,6 +165,18 @@ before it, a failure, not taken for the new try's) */
 	int step;
 	/* Steam's picture of it (its CDN, https only); "" none */
 	char preview_url[200];
+	/* who made it: Steam's id of its creator (the details'), "" unknown; its
+	name goes in author once Steam says it */
+	char creator[WORKSHOP_BROWSER_ID_SIZE];
+};
+
+/* an item of Steam's browse page and who made it (the page's own words) */
+struct workshop_browser_author
+{
+	char id[WORKSHOP_BROWSER_ID_SIZE];
+	char creator[WORKSHOP_BROWSER_ID_SIZE];
+	/* "" when the page doesn't name them */
+	char name[WORKSHOP_BROWSER_AUTHOR_SIZE];
 };
 
 /* ---------- the list's text (workshop_list.c) */
@@ -177,11 +189,22 @@ int workshop_browser_read_list(const char *text, int length, struct workshop_bro
 how many Halo CE items of MCC's (consumer app 976730, tag Halo1, result 1)
 were written, with their title, kind (campaign, multiplayer or, tagged both,
 campaign+multiplayer), size when Steam
-gives one, update time and a plain description; -1 if it is not one */
+gives one, update time, creator's id and a plain description; -1 if it is not one */
 int workshop_browser_read_details(const char *text, int length, struct workshop_browser_item *items, int maximum);
 /* the item ids on a page of Steam's public Workshop browse page (the digits
 after each "filedetails/?id="), each once, in the page's order: how many */
 int workshop_browser_read_browse_ids(const char *text, int length, char (*ids)[WORKSHOP_BROWSER_ID_SIZE], int maximum);
+/* the browse page's items with their creators and, where the page names
+them, the creators' Steam names (the page carries its list as data: each
+item's creator, and each creator's name): how many, in the page's order */
+int workshop_browser_read_browse_authors(const char *text, int length, struct workshop_browser_author *authors,
+	int maximum);
+/* the browse page's count of pages and of items for its search: 1 when it
+says (0 otherwise, both left as they were) */
+int workshop_browser_read_browse_pages(const char *text, int length, int *pages, int *total);
+/* a Steam profile's public XML (steamcommunity.com/profiles/<id>/?xml=1): its
+name, 1 when it has one */
+int workshop_browser_read_profile_name(const char *text, int length, char *name, int size);
 /* whether text is a Workshop item id: 1 to 20 digits */
 int workshop_browser_id_valid(const char *text);
 /* the page of an item in the Steam client: steam://url/CommunityFilePage/<id>; 0 for a bad id */

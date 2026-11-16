@@ -76,6 +76,9 @@ enum
 	/* Steam's pages kept (each BROWSE_KEEP) */
 	PAGE_CACHE = 6,
 	BROWSE_BACKOFF = 10 * 60 * 1000,
+	/* the creators' names known this run (the browse pages', their profiles') */
+	AUTHOR_CACHE = 256,
+	PROFILE_DOCUMENT = 256 * 1024,
 };
 
 /* Steam's public Workshop browse page: MCC's Halo CE items (tag Halo1),
@@ -84,6 +87,9 @@ gives everything shown) */
 #define BROWSE_PAGE_URL "https://steamcommunity.com/workshop/browse/?appid=976730&requiredtags%5B%5D=Halo1" \
 	"&section=readytouseitems"
 #define DETAILS_URL "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
+/* a creator's public profile, as XML (no key): their name, where the browse
+page didn't give it (an installed item no page has shown) */
+#define PROFILE_URL "https://steamcommunity.com/profiles/%s/?xml=1"
 
 /* an item's details from Steam's public, keyless GetPublishedFileDetails:
 the item page's text where nothing else gives it (macOS, whose Steam won't
@@ -105,6 +111,9 @@ static struct
 	int answered;
 	int answer_count;
 	struct workshop_browser_item answer[WORKSHOP_BROWSER_MAXIMUM_ITEMS];
+	/* the browse page's creators and their names, for the names known */
+	int answer_author_count;
+	struct workshop_browser_author answer_authors[BROWSE_PAGE_ITEMS];
 
 	/* the main thread's */
 	int status;
@@ -162,6 +171,24 @@ static struct
 	struct workshop_browser_item details_answer[DETAILS_BATCH];
 	int details_count;
 	struct details_entry details[DETAILS_CACHE];
+	/* the creators' names (main thread's): asked of their profiles one at a
+	time (failed: not again this run), the thread's answer */
+	struct
+	{
+		char creator[WORKSHOP_BROWSER_ID_SIZE];
+		char name[WORKSHOP_BROWSER_AUTHOR_SIZE];
+		/* asked of the profile (and answered or not) */
+		int asked;
+	} authors[AUTHOR_CACHE];
+	int author_count;
+	int author_next;
+	int profile_fetching;
+	int profile_answered;
+	char profile_creator[WORKSHOP_BROWSER_ID_SIZE];
+	char profile_name[WORKSHOP_BROWSER_AUTHOR_SIZE];
+	int profile_status;
+	long profile_retry_after;
+	struct retry_backoff profile_retry;
 	/* the section shows (workshop_browser_open until _close) */
 	int tab_open;
 	/* GET on the Halo CE files row: asked of steamcmd once the bridge is up */
@@ -786,6 +813,151 @@ static void details_apply(struct workshop_browser_item *item)
 		snprintf(item->preview_url, sizeof(item->preview_url), "%s", entry->item.preview_url);
 	if (!item->tags)
 		item->tags = entry->item.tags;
+	if (!item->creator[0])
+		snprintf(item->creator, sizeof(item->creator), "%s", entry->item.creator);
+}
+
+/* ---------- the creators' names */
+
+static int author_find(const char *creator)
+{
+	int index;
+
+	for (index = 0; creator[0] && index < workshop.author_count; index++)
+	{
+		if (!strcmp(workshop.authors[index].creator, creator))
+			return index;
+	}
+	return -1;
+}
+
+/* a creator's name kept (the oldest let go once full) */
+static void author_put(const char *creator, const char *name, int asked)
+{
+	int index = author_find(creator);
+
+	if (!workshop_browser_id_valid(creator))
+		return;
+	if (index < 0)
+	{
+		if (workshop.author_count < AUTHOR_CACHE)
+			index = workshop.author_count++;
+		else
+		{
+			index = workshop.author_next;
+			workshop.author_next = (workshop.author_next + 1) % AUTHOR_CACHE;
+		}
+		memset(&workshop.authors[index], 0, sizeof(workshop.authors[index]));
+		snprintf(workshop.authors[index].creator, sizeof(workshop.authors[index].creator), "%s", creator);
+	}
+	if (name && name[0])
+		snprintf(workshop.authors[index].name, sizeof(workshop.authors[index].name), "%s", name);
+	workshop.authors[index].asked |= asked;
+}
+
+/* the name of the item's creator, where it is known */
+static void author_apply(struct workshop_browser_item *item)
+{
+	int index;
+
+	if (item->setup || item->author[0] || (index = author_find(item->creator)) < 0 || !workshop.authors[index].name[0])
+		return;
+	snprintf(item->author, sizeof(item->author), "%s", workshop.authors[index].name);
+}
+
+#ifdef HALO_GAME_BROWSER
+static void *profile_thread(void *context)
+{
+	char *creator = context, url[128], error[128], name[WORKSHOP_BROWSER_AUTHOR_SIZE];
+	char *response = malloc(PROFILE_DOCUMENT + 1);
+	int status = 0;
+
+	error[0] = name[0] = 0;
+	snprintf(url, sizeof(url), PROFILE_URL, creator);
+	if (response)
+	{
+		status = posix_browser_request_as(url, NULL, NULL, build_identity_user_agent(), response, PROFILE_DOCUMENT + 1,
+			error, sizeof(error));
+		if (status == 200 && !workshop_browser_read_profile_name(response, (int)strlen(response), name, sizeof(name)))
+			name[0] = 0;
+	}
+	pthread_mutex_lock(&workshop.lock);
+	snprintf(workshop.profile_creator, sizeof(workshop.profile_creator), "%s", creator);
+	snprintf(workshop.profile_name, sizeof(workshop.profile_name), "%s", name);
+	workshop.profile_status = status;
+	workshop.profile_retry_after = retry_backoff_after(error);
+	workshop.profile_answered = 1;
+	workshop.profile_fetching = 0;
+	pthread_mutex_unlock(&workshop.lock);
+	free(response);
+	free(creator);
+	return NULL;
+}
+#endif
+
+/* the answer taken in, and the next creator without a name asked for: one
+at a time, never on the main thread, each once a run */
+static void profile_step(void)
+{
+	int index;
+
+	pthread_mutex_lock(&workshop.lock);
+	if (workshop.profile_answered)
+	{
+		workshop.profile_answered = 0;
+		if (workshop.profile_status == 200)
+			retry_backoff_answered(&workshop.profile_retry);
+		else
+			retry_backoff_failed(&workshop.profile_retry, system_milliseconds(), workshop.profile_status,
+				workshop.profile_retry_after);
+		/* (no answer at all: asked again after the wait; any answer, named or
+		not, kept for this run) */
+		author_put(workshop.profile_creator, workshop.profile_name, workshop.profile_status != 0);
+		if (workshop.profile_status == 0 && (index = author_find(workshop.profile_creator)) >= 0)
+			workshop.authors[index].asked = 0;
+		for (index = 0; index < workshop.count; index++)
+			author_apply(&workshop.items[index]);
+	}
+	if (workshop.profile_fetching)
+	{
+		pthread_mutex_unlock(&workshop.lock);
+		return;
+	}
+	pthread_mutex_unlock(&workshop.lock);
+#ifdef HALO_GAME_BROWSER
+	if (config_boolean("debug.workshop_no_steam") || !retry_backoff_ready(&workshop.profile_retry, system_milliseconds()))
+		return;
+	for (index = 0; index < workshop.count; index++)
+	{
+		struct workshop_browser_item *item = &workshop.items[index];
+		int known = author_find(item->creator);
+		pthread_t thread;
+		char *creator;
+
+		if (item->setup || item->author[0] || !workshop_browser_id_valid(item->creator) ||
+			(known >= 0 && workshop.authors[known].asked))
+		{
+			continue;
+		}
+		author_put(item->creator, NULL, 1);
+		if (!(creator = malloc(strlen(item->creator) + 1)))
+			return;
+		strcpy(creator, item->creator);
+		pthread_mutex_lock(&workshop.lock);
+		workshop.profile_fetching = 1;
+		pthread_mutex_unlock(&workshop.lock);
+		if (pthread_create(&thread, NULL, profile_thread, creator) == 0)
+			pthread_detach(thread);
+		else
+		{
+			free(creator);
+			pthread_mutex_lock(&workshop.lock);
+			workshop.profile_fetching = 0;
+			pthread_mutex_unlock(&workshop.lock);
+		}
+		return;
+	}
+#endif
 }
 
 /* ---------- pictures */
@@ -1355,7 +1527,10 @@ static void details_step(void)
 			}
 		}
 		for (index = 0; index < workshop.count; index++)
+		{
 			details_apply(&workshop.items[index]);
+			author_apply(&workshop.items[index]);
+		}
 	}
 	if (workshop.details_fetching)
 	{
@@ -1437,8 +1612,9 @@ static void *web_thread(void *context)
 	char *url = context;
 	static struct workshop_browser_item found[BROWSE_PAGE_ITEMS];
 	static char ids[BROWSE_PAGE_ITEMS][WORKSHOP_BROWSER_ID_SIZE];
+	static struct workshop_browser_author authors[BROWSE_PAGE_ITEMS];
 	char *response = malloc(BROWSE_PAGE_DOCUMENT + 1), *body = NULL, error[128];
-	int status = 0, count = -1, id_count = 0, index, length;
+	int status = 0, count = -1, id_count = 0, author_count = 0, index, length;
 	size_t size;
 
 	error[0] = 0;
@@ -1446,7 +1622,11 @@ static void *web_thread(void *context)
 		status = posix_browser_request_as(url, NULL, NULL, build_identity_user_agent(), response,
 			BROWSE_PAGE_DOCUMENT + 1, error, sizeof(error));
 	if (status == 200)
+	{
 		id_count = workshop_browser_read_browse_ids(response, (int)strlen(response), ids, BROWSE_PAGE_ITEMS);
+		/* (who made each: the page's own list names them) */
+		author_count = workshop_browser_read_browse_authors(response, (int)strlen(response), authors, BROWSE_PAGE_ITEMS);
+	}
 	if (status == 200 && !id_count)
 		platform_log("Workshop: Steam's browse page had no items (%d bytes)", response ? (int)strlen(response) : 0);
 	/* (no item on a page without a search: not Steam's list after all, a
@@ -1464,6 +1644,16 @@ static void *web_thread(void *context)
 		if (status == 200)
 			count = workshop_browser_read_details(response, (int)strlen(response), found, BROWSE_PAGE_ITEMS);
 	}
+	for (index = 0; index < count; index++)
+	{
+		int author;
+
+		for (author = 0; author < author_count; author++)
+		{
+			if (!strcmp(authors[author].id, found[index].id) && authors[author].name[0])
+				snprintf(found[index].author, sizeof(found[index].author), "%s", authors[author].name);
+		}
+	}
 	/* (Steam's "too many requests": -2, held off a while) */
 	if (status == 429)
 		count = -2;
@@ -1474,6 +1664,9 @@ static void *web_thread(void *context)
 	workshop.answer_count = count;
 	if (count > 0)
 		memcpy(workshop.answer, found, sizeof(found[0]) * (size_t)count);
+	workshop.answer_author_count = author_count;
+	if (author_count > 0)
+		memcpy(workshop.answer_authors, authors, sizeof(authors[0]) * (size_t)author_count);
 	workshop.answered = 1;
 	workshop.web_answer = 1;
 	workshop.fetching = 0;
@@ -1681,6 +1874,10 @@ static void list_take(void)
 	{
 		workshop.web_answer = 0;
 		preview.changes++;
+		/* (the page's creators' names, kept for the installed items too) */
+		for (index = 0; index < workshop.answer_author_count; index++)
+			author_put(workshop.answer_authors[index].creator, workshop.answer_authors[index].name, 0);
+		workshop.answer_author_count = 0;
 		if (workshop.answer_count >= 0)
 		{
 			workshop.web_time = system_milliseconds();
@@ -1745,7 +1942,10 @@ static void list_take(void)
 	local_items_look();
 	setup_rows_update();
 	for (index = 0; index < workshop.count; index++)
+	{
 		details_apply(&workshop.items[index]);
+		author_apply(&workshop.items[index]);
+	}
 }
 
 /* ---------- public code */
@@ -1934,6 +2134,7 @@ int workshop_browser_poll(void)
 	}
 	list_take();
 	details_step();
+	profile_step();
 	pending_run();
 	steam_link_discard_follow();
 	if (now - workshop.watch_time < WATCH_INTERVAL)

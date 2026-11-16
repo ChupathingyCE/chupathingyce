@@ -896,6 +896,22 @@ static void text_line(int kind, float x, float y, float width, int align, char c
 	ui_style_text(kind, x, y, align, shown);
 }
 
+/* an item's line of facts and its author's name, as much as fits with the
+name whole: "Kind - 48 MB - by Name", else without the size, else the name
+alone (cut only when even that is too wide) */
+static void facts_line(int kind, float x, float y, float width, char const *what, char const *size,
+	char const *author)
+{
+	char line[160];
+
+	snprintf(line, sizeof(line), "%s%s%s%s%s", what, size[0] ? " - " : "", size, author[0] ? " - by " : "", author);
+	if (author[0] && kind_width(kind, line) > width + 0.5f && size[0])
+		snprintf(line, sizeof(line), "%s - by %s", what, author);
+	if (author[0] && kind_width(kind, line) > width + 0.5f)
+		snprintf(line, sizeof(line), "by %s", author);
+	text_line(kind, x, y, width, UI_ALIGN_LEFT, line);
+}
+
 /* (a focused line not drawn for this long lost the focus in between) */
 #define MARQUEE_GAP 250
 
@@ -2049,7 +2065,7 @@ static void item_row_render(short row, float left, float y, boolean on)
 {
 	struct workshop_browser_item const *item = row_item(row);
 	short view = workshop_view.row_view[row];
-	char line[160], shown[GUIDE_LAYOUT_LINE_SIZE];
+	char shown[GUIDE_LAYOUT_LINE_SIZE];
 	char const *state;
 	float state_width;
 
@@ -2064,13 +2080,8 @@ static void item_row_render(short row, float left, float y, boolean on)
 		text_line(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, shown_title(item));
 	/* (an author's name of letters the font lacks: left out, as a title's) */
 	ui_overlay_text_shown(UI_FONT_MENU, item->author, shown, sizeof(shown));
-	if (item->setup)
-		snprintf(line, sizeof(line), "%s", "Setup");
-	else if (shown[0])
-		snprintf(line, sizeof(line), "%s - %s", workshop_browser_kind_name(item->kind), shown);
-	else
-		snprintf(line, sizeof(line), "%s", workshop_browser_kind_name(item->kind));
-	text_line(UI_TEXT_STATUS, left + 10, y + 17, LIST_WIDTH - 20 - state_width, UI_ALIGN_LEFT, line);
+	facts_line(UI_TEXT_STATUS, left + 10, y + 17, LIST_WIDTH - 20 - state_width,
+		item->setup ? "Setup" : workshop_browser_kind_name(item->kind), "", shown);
 	ui_overlay_text(UI_FONT_MENU, 8.0f, left + LIST_WIDTH - 10, y + 17, UI_ALIGN_RIGHT, item_color(item, view), state);
 }
 
@@ -2164,7 +2175,7 @@ static void page_render(short row, float x, float top, float width, float bottom
 	struct guide_rect pane = { x, top, width, bottom - top };
 	struct guide_page_layout layout;
 	short options[MAXIMUM_OPTIONS], option_count, index;
-	char note_text[96], line[160], size[24], shown[GUIDE_LAYOUT_LINE_SIZE];
+	char note_text[96], size[24], shown[GUIDE_LAYOUT_LINE_SIZE];
 	float bar, state_width;
 	char const *note, *state;
 	boolean live = row == workshop_view.row;
@@ -2182,15 +2193,14 @@ static void page_render(short row, float x, float top, float width, float bottom
 		text_line(UI_TEXT_TITLE, layout.title.x, layout.title.y, layout.title.width, UI_ALIGN_LEFT, shown_title(item));
 	/* (its kind and size, its author, and where it stands) */
 	workshop_browser_size_text(item->size, size, sizeof(size));
+	state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 9.0f, state) + 8 : 0;
 	{
 		char author[WORKSHOP_BROWSER_AUTHOR_SIZE];
 
 		ui_overlay_text_shown(UI_FONT_MENU, item->author, author, sizeof(author));
-		snprintf(line, sizeof(line), "%s%s%s%s%s", item->setup ? "Setup" : workshop_browser_kind_name(item->kind),
-			size[0] ? " - " : "", size, author[0] ? " - by " : "", author);
+		facts_line(UI_TEXT_LINE, layout.status.x, layout.status.y, layout.status.width - state_width,
+			item->setup ? "Setup" : workshop_browser_kind_name(item->kind), size, author);
 	}
-	state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 9.0f, state) + 8 : 0;
-	text_line(UI_TEXT_LINE, layout.status.x, layout.status.y, layout.status.width - state_width, UI_ALIGN_LEFT, line);
 	ui_overlay_text(UI_FONT_MENU, 9.0f, layout.status.x + layout.status.width, layout.status.y + 1, UI_ALIGN_RIGHT,
 		item_color(item, view), state);
 	/* (its picture in its box, the item's own or Steam's; until it comes, or
