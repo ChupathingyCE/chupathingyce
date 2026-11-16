@@ -1688,6 +1688,12 @@ boolean guide_workshop_scroll_pointer(struct halo_ui_pointer const *pointer)
 	return taken_list || taken_description;
 }
 
+void guide_workshop_scroll_release(void)
+{
+	workshop_view.list_bar.hover = workshop_view.list_bar.dragging = 0;
+	workshop_view.description_bar.hover = workshop_view.description_bar.dragging = 0;
+}
+
 boolean guide_workshop_click(short x, short y)
 {
 	if (!over_description(x, y) || workshop_view.description_count <= workshop_view.description_shown)

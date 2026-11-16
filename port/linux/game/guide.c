@@ -5667,8 +5667,17 @@ static boolean scroll_bars_pointer(struct halo_ui_pointer const *pointer)
 {
 	int taken = 0, scroll;
 
+	/* (no bar's turn: none left hovered or dragging, nothing stuck) */
 	if (!guide.open || guide.about || pointer->touch || guide_workshop_link_modal() || guide_logs_modal())
+	{
+		guide.settings_bar.hover = guide.settings_bar.dragging = 0;
+		guide_workshop_scroll_release();
 		return FALSE;
+	}
+	if (guide.section != SOCIAL_SECTION_SETTINGS)
+		guide.settings_bar.hover = guide.settings_bar.dragging = 0;
+	if (guide.section != SOCIAL_SECTION_WORKSHOP)
+		guide_workshop_scroll_release();
 	if (guide.section == SOCIAL_SECTION_WORKSHOP)
 		return guide_workshop_scroll_pointer(pointer);
 	if (guide.section != SOCIAL_SECTION_SETTINGS)

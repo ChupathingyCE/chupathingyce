@@ -67,6 +67,8 @@ boolean guide_workshop_wheel(short x, short y, short steps);
 thumb, a press on the track a page): TRUE when its press was theirs */
 struct halo_ui_pointer;
 boolean guide_workshop_scroll_pointer(struct halo_ui_pointer const *pointer);
+/* the bars let go: none hovered or dragging */
+void guide_workshop_scroll_release(void);
 boolean guide_workshop_click(short x, short y);
 void guide_workshop_option_click(short option);
 char const *guide_workshop_prompt(void);
@@ -108,6 +110,8 @@ calls do nothing, their arguments unevaluated */
 #define guide_workshop_arrow_click(a0) ((void)sizeof(a0), (void)0)
 #define guide_workshop_wheel(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (boolean)0)
 #define guide_workshop_click(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (boolean)0)
+#define guide_workshop_scroll_pointer(a0) ((void)sizeof(a0), (boolean)0)
+#define guide_workshop_scroll_release() ((void)0)
 #define guide_workshop_activate() ((void)0)
 #define guide_workshop_back() ((boolean)0)
 #define guide_workshop_row_click(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (void)0)
