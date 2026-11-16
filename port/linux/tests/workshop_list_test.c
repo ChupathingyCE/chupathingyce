@@ -188,6 +188,9 @@ int main(void)
 		CHECK(workshop_browser_read_browse_pages(page, (int)strlen(page), &pages, &total) == 1 && pages == 23 &&
 			total == 665);
 		CHECK(workshop_browser_read_browse_pages("<html>", 6, &pages, &total) == 0 && pages == 23);
+		/* (a page saying more pages than the browser goes to: its limit) */
+		CHECK(workshop_browser_read_browse_pages("\\\"total_pages\\\":999999999,", 26, &pages, &total) == 1 &&
+			pages == WORKSHOP_BROWSER_MAXIMUM_PAGES);
 	}
 	{
 		/* a name too long for its field: cut, not inside a character */

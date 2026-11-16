@@ -65,6 +65,8 @@ enum
 	/* the largest list document read */
 	WORKSHOP_BROWSER_MAXIMUM_DOCUMENT = 128 * 1024,
 	WORKSHOP_BROWSER_PREVIEW_WIDTH = 768,
+	/* the most pages of Steam's list the browser goes to */
+	WORKSHOP_BROWSER_MAXIMUM_PAGES = 100,
 };
 
 /* where an item stands on this computer */
@@ -205,8 +207,9 @@ them, the creators' Steam names (the page carries its list as data: each
 item's creator, and each creator's name): how many, in the page's order */
 int workshop_browser_read_browse_authors(const char *text, int length, struct workshop_browser_author *authors,
 	int maximum);
-/* the browse page's count of pages and of items for its search: 1 when it
-says (0 otherwise, both left as they were) */
+/* the browse page's count of pages (at most WORKSHOP_BROWSER_MAXIMUM_PAGES)
+and of items for its search: 1 when it says (0 otherwise, both left as they
+were) */
 int workshop_browser_read_browse_pages(const char *text, int length, int *pages, int *total);
 /* a Steam profile's public XML (steamcommunity.com/profiles/<id>/?xml=1): its
 name, 1 when it has one */

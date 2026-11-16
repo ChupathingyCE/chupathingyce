@@ -79,6 +79,8 @@ enum
 	/* the creators' names known this run (the browse pages', their profiles') */
 	AUTHOR_CACHE = 256,
 	PROFILE_DOCUMENT = 256 * 1024,
+	/* the least time between two profiles asked for */
+	PROFILE_GAP = 1500,
 };
 
 /* Steam's public Workshop browse page: MCC's Halo CE items (tag Halo1),
@@ -112,7 +114,7 @@ static struct
 	int answer_count;
 	struct workshop_browser_item answer[WORKSHOP_BROWSER_MAXIMUM_ITEMS];
 	/* the browse page's count of pages and items for its search (0 unknown) */
-	int answer_pages, answer_total;
+	int answer_pages;
 	/* the browse page's creators and their names, for the names known */
 	int answer_author_count;
 	struct workshop_browser_author answer_authors[BROWSE_PAGE_ITEMS];
@@ -201,6 +203,7 @@ static struct
 	char profile_name[WORKSHOP_BROWSER_AUTHOR_SIZE];
 	int profile_status;
 	long profile_retry_after;
+	unsigned long profile_time;
 	struct retry_backoff profile_retry;
 	/* the section shows (workshop_browser_open until _close) */
 	int tab_open;
@@ -918,7 +921,9 @@ static void *profile_thread(void *context)
 #endif
 
 /* the answer taken in, and the next creator without a name asked for: one
-at a time, never on the main thread, each once a run */
+at a time, PROFILE_GAP apart, never on the main thread, each once a run
+(once answered: no answer, a busy Steam's 429 or a 5xx asked again after
+the wait) */
 static void profile_step(void)
 {
 	int index;
@@ -932,11 +937,14 @@ static void profile_step(void)
 		else
 			retry_backoff_failed(&workshop.profile_retry, system_milliseconds(), workshop.profile_status,
 				workshop.profile_retry_after);
-		/* (no answer at all: asked again after the wait; any answer, named or
-		not, kept for this run) */
-		author_put(workshop.profile_creator, workshop.profile_name, workshop.profile_status != 0);
-		if (workshop.profile_status == 0 && (index = author_find(workshop.profile_creator)) >= 0)
-			workshop.authors[index].asked = 0;
+		{
+			int again = workshop.profile_status == 0 || workshop.profile_status == 429 ||
+				workshop.profile_status >= 500;
+
+			author_put(workshop.profile_creator, workshop.profile_name, !again);
+			if (again && (index = author_find(workshop.profile_creator)) >= 0)
+				workshop.authors[index].asked = 0;
+		}
 		for (index = 0; index < workshop.count; index++)
 			author_apply(&workshop.items[index]);
 	}
@@ -947,8 +955,11 @@ static void profile_step(void)
 	}
 	pthread_mutex_unlock(&workshop.lock);
 #ifdef HALO_GAME_BROWSER
-	if (config_boolean("debug.workshop_no_steam") || !retry_backoff_ready(&workshop.profile_retry, system_milliseconds()))
+	if (config_boolean("debug.workshop_no_steam") || !retry_backoff_ready(&workshop.profile_retry, system_milliseconds()) ||
+		(workshop.profile_time && system_milliseconds() - workshop.profile_time < PROFILE_GAP))
+	{
 		return;
+	}
 	for (index = 0; index < workshop.count; index++)
 	{
 		struct workshop_browser_item *item = &workshop.items[index];
@@ -957,13 +968,17 @@ static void profile_step(void)
 		char *creator;
 
 		if (item->setup || item->author[0] || !workshop_browser_id_valid(item->creator) ||
-			(known >= 0 && workshop.authors[known].asked))
+			(known >= 0 && (workshop.authors[known].asked || workshop.authors[known].name[0])))
 		{
+			/* (a name known since: put on the item, nothing asked) */
+			if (known >= 0 && !item->author[0])
+				author_apply(item);
 			continue;
 		}
-		author_put(item->creator, NULL, 1);
 		if (!(creator = malloc(strlen(item->creator) + 1)))
 			return;
+		author_put(item->creator, NULL, 1);
+		workshop.profile_time = system_milliseconds();
 		strcpy(creator, item->creator);
 		pthread_mutex_lock(&workshop.lock);
 		workshop.profile_fetching = 1;
@@ -976,6 +991,9 @@ static void profile_step(void)
 			pthread_mutex_lock(&workshop.lock);
 			workshop.profile_fetching = 0;
 			pthread_mutex_unlock(&workshop.lock);
+			/* (not asked after all: asked on a later step) */
+			if ((known = author_find(item->creator)) >= 0)
+				workshop.authors[known].asked = 0;
 		}
 		return;
 	}
@@ -1689,7 +1707,6 @@ static void *web_thread(void *context)
 	if (count > 0)
 		memcpy(workshop.answer, found, sizeof(found[0]) * (size_t)count);
 	workshop.answer_pages = pages;
-	workshop.answer_total = total;
 	workshop.answer_author_count = author_count;
 	if (author_count > 0)
 		memcpy(workshop.answer_authors, authors, sizeof(authors[0]) * (size_t)author_count);
@@ -1946,6 +1963,15 @@ static void list_take(void)
 			if (workshop.answer_count == -2 && !after)
 				after = BROWSE_BACKOFF / 1000;
 			retry_backoff_failed(&workshop.web_retry, system_milliseconds(), workshop.web_status, after);
+		}
+		/* (a failed answer for a page no longer asked for: the one asked for
+		now asked, after the wait just set, never the player's newer choice
+		undone) */
+		if (workshop.answer_count < 0 && workshop.web_fetched[0] && strcmp(workshop.web_fetched, workshop.web_url))
+		{
+			pthread_mutex_unlock(&workshop.lock);
+			web_ask();
+			return;
 		}
 		/* (a failed page keeps the list it had, if any, under its own page,
 		sort and search, the heading saying why) */
@@ -2465,7 +2491,8 @@ int workshop_browser_retry(void)
 int workshop_browser_page_offered(int step)
 {
 	if (step > 0)
-		return page_row_offered() && workshop_browser_page() < (workshop.page_count > 0 ? workshop.page_count : 100);
+		return page_row_offered() && workshop_browser_page() < (workshop.page_count > 0 &&
+			workshop.page_count < WORKSHOP_BROWSER_MAXIMUM_PAGES ? workshop.page_count : WORKSHOP_BROWSER_MAXIMUM_PAGES);
 	return workshop_browser_page() > 1 && workshop.filter != WORKSHOP_FILTER_INSTALLED;
 }
 
@@ -2507,6 +2534,8 @@ static void list_again(void)
 void workshop_browser_set_sort(int sort)
 {
 	workshop.page = 1;
+	/* (the new order's count of pages comes with it) */
+	workshop.page_count = 0;
 	workshop.sort = sort >= 0 && sort < WORKSHOP_SORT_COUNT ? sort : WORKSHOP_SORT_POPULAR;
 	list_again();
 }
@@ -2516,6 +2545,8 @@ void workshop_browser_set_search(const char *text)
 	size_t length;
 
 	workshop.page = 1;
+	/* (the new search's count of pages comes with it) */
+	workshop.page_count = 0;
 	/* (spaces around the words dropped: only spaces is no search, the find
 	row saying "Search" rather than a blank title) */
 	for (text = text ? text : ""; *text == ' '; text++)

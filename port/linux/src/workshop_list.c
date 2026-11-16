@@ -769,6 +769,9 @@ int workshop_browser_read_browse_pages(const char *text, int length, int *pages,
 	if (!(at = find_in(text, end, pages_key)) || !digits_at(at + sizeof(pages_key) - 1, end, digits, 10))
 		return 0;
 	found_pages = atoi(digits);
+	/* (no more pages than the browser goes to, whatever the page says) */
+	if (found_pages > WORKSHOP_BROWSER_MAXIMUM_PAGES)
+		found_pages = WORKSHOP_BROWSER_MAXIMUM_PAGES;
 	if ((at = find_in(text, end, total_key)) != NULL && digits_at(at + sizeof(total_key) - 1, end, digits, 10))
 		found_total = atoi(digits);
 	*pages = found_pages;
