@@ -6,7 +6,12 @@ menu, never to no menu at all (#1133). Each screen in it is on its item
 that opens the next, as the menus leave it, a screen of another menu set
 found by its name's last part (Gearbox's MULTIPLAYER opens its own
 Multiplayer menu). ui_widget.c's real functions, compiled against a few
-stand-in widget tags, no maps or game needed."""
+stand-in widget tags, no maps or game needed.
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
+"""
 import re
 import shutil
 import subprocess

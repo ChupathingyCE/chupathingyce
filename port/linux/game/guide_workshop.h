@@ -4,6 +4,10 @@ GUIDE_WORKSHOP.H
 The Guide's WORKSHOP section (guide_workshop.c), between RECENT and SERVICE
 RECORD: Halo: MCC's Steam Workshop items for Halo CE, shown only on a
 computer with MCC from Steam (workshop_browser.h).
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef GUIDE_WORKSHOP_H
@@ -59,6 +63,12 @@ void guide_workshop_row_click(short row, boolean touch);
 /* the wheel over an item page's description scrolls it (TRUE: taken), a
 click on it gives it the focus (TRUE: taken); x and y as the targets are */
 boolean guide_workshop_wheel(short x, short y, short steps);
+/* the pointer on the list's and the description's scroll bars (drag the
+thumb, a press on the track a page): TRUE when its press was theirs */
+struct halo_ui_pointer;
+boolean guide_workshop_scroll_pointer(struct halo_ui_pointer const *pointer);
+/* the bars let go: none hovered or dragging */
+void guide_workshop_scroll_release(void);
 boolean guide_workshop_click(short x, short y);
 void guide_workshop_option_click(short option);
 char const *guide_workshop_prompt(void);
@@ -100,6 +110,8 @@ calls do nothing, their arguments unevaluated */
 #define guide_workshop_arrow_click(a0) ((void)sizeof(a0), (void)0)
 #define guide_workshop_wheel(a0, a1, a2) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (boolean)0)
 #define guide_workshop_click(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (boolean)0)
+#define guide_workshop_scroll_pointer(a0) ((void)sizeof(a0), (boolean)0)
+#define guide_workshop_scroll_release() ((void)0)
 #define guide_workshop_activate() ((void)0)
 #define guide_workshop_back() ((boolean)0)
 #define guide_workshop_row_click(a0, a1) ((void)sizeof(a0), (void)sizeof(a1), (void)0)
