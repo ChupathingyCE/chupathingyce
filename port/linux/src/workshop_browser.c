@@ -138,6 +138,8 @@ static struct
 	(0 unknown); another asked for (web_url) and not here yet: its items
 	not shown (no other page's under its number), "Loading" instead */
 	char shown_url[512];
+	int shown_page, shown_sort;
+	char shown_search[64];
 	int page_count;
 	int awaiting;
 	/* the page asked for failed with another's items kept: why, said on top */
@@ -1727,6 +1729,20 @@ static void web_url_make(void)
 	}
 }
 
+/* the page asked for can't come now (it failed, or Steam holds us off): the
+list's own page, sort and search back, as its items are, its heading saying
+why (workshop_browser_list_why) */
+static void shown_again(void)
+{
+	workshop.page = workshop.shown_page;
+	workshop.sort = workshop.shown_sort;
+	snprintf(workshop.search, sizeof(workshop.search), "%s", workshop.shown_search);
+	web_url_make();
+	workshop.awaiting = 0;
+	workshop.kept_failed = 1;
+	workshop.status = WORKSHOP_LIST_LOADED;
+}
+
 /* the list from Steam's public browse page: once, then kept ten minutes,
 and not while Steam holds us off */
 static void web_ask(void)
@@ -1769,13 +1785,19 @@ static void web_ask(void)
 		!retry_backoff_ready(&workshop.web_retry, now) ||
 		config_boolean("debug.workshop_no_steam"))
 	{
+		int fetching;
+
 		/* (the list's own page: as it was; another one not asked for now:
-		failed, RETRY asking it) */
-		if (workshop.status == WORKSHOP_LIST_LOADING || workshop.status == WORKSHOP_LIST_NOT_SET_UP ||
-			workshop.awaiting)
-		{
-			workshop.status = workshop.web_time && !workshop.awaiting ? WORKSHOP_LIST_LOADED : WORKSHOP_LIST_FAILED;
-		}
+		the list's own kept, saying why; one on its way: left to come) */
+		pthread_mutex_lock(&workshop.lock);
+		fetching = workshop.fetching;
+		pthread_mutex_unlock(&workshop.lock);
+		if (fetching)
+			return;
+		if (workshop.awaiting && workshop.shown_url[0])
+			shown_again();
+		else if (workshop.status == WORKSHOP_LIST_LOADING || workshop.status == WORKSHOP_LIST_NOT_SET_UP)
+			workshop.status = workshop.web_time ? WORKSHOP_LIST_LOADED : WORKSHOP_LIST_FAILED;
 		return;
 	}
 	pthread_mutex_lock(&workshop.lock);
@@ -1925,13 +1947,11 @@ static void list_take(void)
 				after = BROWSE_BACKOFF / 1000;
 			retry_backoff_failed(&workshop.web_retry, system_milliseconds(), workshop.web_status, after);
 		}
-		/* (a failed page keeps the list it had, if any: its own page asked
-		again, LOADED as it was; another page asked for, FAILED, RETRY there
-		and the list's items hidden under the other page's number) */
-		if (workshop.answer_count < 0 && workshop.web_time)
+		/* (a failed page keeps the list it had, if any, under its own page,
+		sort and search, the heading saying why) */
+		if (workshop.answer_count < 0 && workshop.web_time && workshop.shown_url[0])
 		{
-			workshop.kept_failed = 1;
-			workshop.status = workshop.awaiting ? WORKSHOP_LIST_FAILED : WORKSHOP_LIST_LOADED;
+			shown_again();
 			pthread_mutex_unlock(&workshop.lock);
 			return;
 		}
@@ -1972,6 +1992,9 @@ static void list_take(void)
 		memcpy(workshop.items, workshop.answer, sizeof(workshop.items[0]) * (size_t)workshop.count);
 		workshop.status = WORKSHOP_LIST_LOADED;
 		snprintf(workshop.shown_url, sizeof(workshop.shown_url), "%s", workshop.web_fetched);
+		workshop.shown_page = workshop_browser_page();
+		workshop.shown_sort = workshop.sort;
+		snprintf(workshop.shown_search, sizeof(workshop.shown_search), "%s", workshop.search);
 		workshop.page_count = workshop.answer_pages;
 		workshop.awaiting = 0;
 		workshop.kept_failed = 0;
