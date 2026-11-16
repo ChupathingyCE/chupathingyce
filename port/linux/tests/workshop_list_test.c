@@ -63,11 +63,11 @@ int main(void)
 		int index;
 
 		strcpy(text, "{\"version\":1,\"items\":[{\"id\":\"1\",\"title\":\"");
-		for (index = 0; index < 40; index++)
+		for (index = 0; index < 100; index++)
 			strcat(text, "\xC3\xA9");
 		strcat(text, "\"}]}");
 		CHECK(read_text(text) == 1);
-		CHECK(strlen(items[0].title) == 62);
+		CHECK(strlen(items[0].title) == 158);
 	}
 	CHECK(workshop_browser_steam_url("2962107814", url, sizeof(url)) &&
 		!strcmp(url, "steam://url/CommunityFilePage/2962107814"));
