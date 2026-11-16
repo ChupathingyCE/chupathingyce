@@ -377,6 +377,9 @@ with their authors credited in each commit.
   most of the Custom Edition fixes.
 - Sabriel, roundzabout and Mega: Grifball playtesting and the bugs and
   tweaks it turned up.
+- Testing, with bug reports and logs over many builds: FASTNOOB, FLTHY, Fujibayashi Kyou, Mega, OpenRift, roundzabout, Sabriel, Shadow Phoenix, snapchipper, TanFlo and ugoboom.
+- Console testing on real hardware (original Xbox, Xbox 360, Wii U and
+  Switch): BoganEsky, claire, deeechrome, grizz_85, JanusDuo, LD50 II, LukeShortCloud, magoostus, re4thewin, The Real Napsta, TomiG117, UncookedMoa, X-ISO, xpb4me and Xiyl.
 
 </details>
 
