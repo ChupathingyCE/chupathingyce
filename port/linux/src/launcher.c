@@ -844,9 +844,25 @@ static void family_scan(struct family *family, int list)
 		}
 		else
 		{
+			/* (why, as far as the header says: shown on the row, and in the
+			log with the version found) */
+			char state[32];
+
 			family->broken++;
+			if (version == 0)
+				snprintf(state, sizeof(state), "Not a Halo map");
+			else if (version == MAP_VERSION_XBOX)
+				snprintf(state, sizeof(state), "Xbox map: goes in maps");
+			else if (version == MAP_VERSION_HALO_PC || version == MAP_VERSION_CUSTOM_EDITION)
+				snprintf(state, sizeof(state), "Halo PC map: maps_ce");
+			else
+				snprintf(state, sizeof(state), "Unknown format (v%ld)", version);
 			if (list)
-				map_entry_add(name, "Broken", COLOR_RED);
+			{
+				map_entry_add(name, state, COLOR_RED);
+				platform_log("maps: %s/%s can't be played here: %s (header version %ld)", family->folder, name, state,
+					version);
+			}
 		}
 	}
 	posix_directory_close(directory);
