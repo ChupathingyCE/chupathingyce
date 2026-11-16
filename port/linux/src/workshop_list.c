@@ -440,7 +440,9 @@ int workshop_browser_read_details(const char *text, int length, struct workshop_
 	return found ? count : -1;
 }
 
-int workshop_browser_read_browse_ids(const char *text, int length, char (*ids)[WORKSHOP_BROWSER_ID_SIZE], int maximum)
+/* the item ids of the page's links to items, each once, in the page's order
+(the page's older form, without its list as data) */
+static int browse_link_ids(const char *text, int length, char (*ids)[WORKSHOP_BROWSER_ID_SIZE], int maximum)
 {
 	static const char marker[] = "filedetails/?id=";
 	const char *at = text, *end = text + (length > 0 ? length : 0);
@@ -733,6 +735,24 @@ int workshop_browser_read_browse_authors(const char *text, int length, struct wo
 				copy_cut(authors[index].name, sizeof(authors[index].name), name);
 		}
 	}
+	return count;
+}
+
+int workshop_browser_read_browse_ids(const char *text, int length, char (*ids)[WORKSHOP_BROWSER_ID_SIZE], int maximum)
+{
+	struct workshop_browser_author listed[64];
+	int count, index;
+
+	if (!text || length <= 0 || maximum <= 0)
+		return 0;
+	/* (the page's own list, where it has one: its items alone, in its order,
+	never an item that a description links to) */
+	count = workshop_browser_read_browse_authors(text, length, listed,
+		maximum < (int)(sizeof(listed) / sizeof(listed[0])) ? maximum : (int)(sizeof(listed) / sizeof(listed[0])));
+	if (count <= 0)
+		return browse_link_ids(text, length, ids, maximum);
+	for (index = 0; index < count; index++)
+		memcpy(ids[index], listed[index].id, sizeof(ids[index]));
 	return count;
 }
 

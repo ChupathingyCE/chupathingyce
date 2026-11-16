@@ -143,6 +143,19 @@ int main(void)
 		CHECK(workshop_browser_read_browse_ids(page, (int)strlen(page), ids, 1) == 1);
 	}
 	{
+		/* a page with its list as data: only the list's items, not one that
+		a description links to, nor a collection's children */
+		static const char page[] = "<a href=\"filedetails/?id=2894901917\">\\\"results\\\":["
+			"{\\\"publishedfileid\\\":\\\"3839152667\\\",\\\"creator\\\":\\\"1\\\",\\\"short_description\\\":"
+			"\\\"from filedetails/?id=2894901917\\\",\\\"children\\\":[{\\\"publishedfileid\\\":\\\"9\\\"}]},"
+			"{\\\"publishedfileid\\\":\\\"3840175164\\\",\\\"creator\\\":\\\"2\\\"}]";
+		char ids[8][WORKSHOP_BROWSER_ID_SIZE];
+
+		CHECK(workshop_browser_read_browse_ids(page, (int)strlen(page), ids, 8) == 2);
+		CHECK(!strcmp(ids[0], "3839152667") && !strcmp(ids[1], "3840175164"));
+		CHECK(workshop_browser_read_browse_ids(page, (int)strlen(page), ids, 1) == 1);
+	}
+	{
 		/* the browse page's data: each item's creator, and the creators'
 		names (escaped as a script's string holds them) */
 		static const char page[] =

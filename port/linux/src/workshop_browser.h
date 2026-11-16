@@ -191,8 +191,9 @@ were written, with their title, kind (campaign, multiplayer or, tagged both,
 campaign+multiplayer), size when Steam
 gives one, update time, creator's id and a plain description; -1 if it is not one */
 int workshop_browser_read_details(const char *text, int length, struct workshop_browser_item *items, int maximum);
-/* the item ids on a page of Steam's public Workshop browse page (the digits
-after each "filedetails/?id="), each once, in the page's order: how many */
+/* the item ids on a page of Steam's public Workshop browse page, each once,
+in the page's order: its list's items (the page carries the list as data),
+or, on a page without it, the digits after each "filedetails/?id=": how many */
 int workshop_browser_read_browse_ids(const char *text, int length, char (*ids)[WORKSHOP_BROWSER_ID_SIZE], int maximum);
 /* the browse page's items with their creators and, where the page names
 them, the creators' Steam names (the page carries its list as data: each
