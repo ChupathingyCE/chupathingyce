@@ -711,6 +711,15 @@ static short sound_find_channel(
 	long sound_index);
 static void prioritize_sounds(
 	void);
+#ifdef HALO_CUSTOM_EDITION
+static void sound_voices_full_log(
+	long sound_index,
+	long victim_sound_index);
+static void sound_voices_peak_note(
+	short channel_type_flags);
+static void sound_voices_peak_log(
+	void);
+#endif
 
 /* ---------- globals */
 
@@ -3251,6 +3260,9 @@ static void process_looping_sounds(
 void sound_dispose_from_old_map(
 	void)
 {
+#ifdef HALO_CUSTOM_EDITION
+	sound_voices_peak_log();
+#endif
 	if (!sound_manager_globals.paused &&
 		sound_manager_globals.initialized &&
 		sound_manager_globals.enabled)
@@ -3738,11 +3750,17 @@ static void prioritize_sounds(
 							"sound_valid_for_channel(definition->compression, definition->encoding, definition->sample_rate, sound->source.spatialization_mode, channel->type_flags)");
 						if (channel->sound_index != NONE)
 						{
+#ifdef HALO_CUSTOM_EDITION
+							sound_voices_full_log(sound_index, channel->sound_index);
+#endif
 							sound_stop(channel->sound_index);
 						}
 
 						channel->sound_index = sound_index;
 						sound->start_time = sound_manager_globals.render_time;
+#ifdef HALO_CUSTOM_EDITION
+						sound_voices_peak_note(channel->type_flags);
+#endif
 					}
 					else
 					{
@@ -3754,6 +3772,9 @@ static void prioritize_sounds(
 				}
 				else
 				{
+#ifdef HALO_CUSTOM_EDITION
+					sound_voices_full_log(sound_index, NONE);
+#endif
 					sound_stop(sound_index);
 				}
 			}
@@ -4049,3 +4070,197 @@ void sound_render(
 
 	return;
 }
+
+#ifdef HALO_CUSTOM_EDITION
+/* port: when every channel a sound could play on is busy (its type's voices
+all in use), it takes one from a sound it preempts, or is not played. One
+line in debug.txt for it, the first at once and then at most one every few
+seconds for each type, with how many more there were; and the most of each
+type's voices that were in use at once, when the map is left. Losing a
+voice to another of the same sound (its sound class's limit on instances)
+is the game's own rule, and not told */
+enum
+{
+	SOUND_VOICES_LOG_INTERVAL_MILLISECONDS = 5000,
+	NUMBER_OF_SOUND_CHANNEL_TYPE_FLAGS = 16,
+};
+
+static struct
+{
+	long last_time;
+	long stolen;
+	long dropped;
+	short peak;
+	boolean told;
+} sound_voices_log[NUMBER_OF_SOUND_CHANNEL_TYPE_FLAGS];
+
+static char const *sound_voices_type_name(
+	short channel_type_flags)
+{
+	static char name[64];
+
+	sprintf(name, "%s%s%s %s",
+		TEST_FLAG(channel_type_flags, _sound_channel_3d_bit) ? "3D " : "",
+		TEST_FLAG(channel_type_flags, _sound_channel_stereo_bit) ? "stereo" : "mono",
+		TEST_FLAG(channel_type_flags, _sound_channel_44k_bit) ? " 44 kHz" : "",
+		TEST_FLAG(channel_type_flags, _sound_channel_compressed_bit) ? "Xbox ADPCM" : "PCM");
+	return name;
+}
+
+/* the channels of a type, and how many of them are busy */
+static short sound_voices_count(
+	short channel_type_flags,
+	short *busy)
+{
+	short channel_index;
+	short count = 0;
+
+	*busy = 0;
+	for (
+		channel_index = 0;
+		channel_index < sound_manager_globals.channel_count;
+		channel_index++)
+	{
+		struct sound_channel_datum *channel = channel_get(channel_index);
+
+		if (channel->type_flags == channel_type_flags)
+		{
+			count++;
+			if (channel->sound_index != NONE)
+			{
+				(*busy)++;
+			}
+		}
+	}
+
+	return count;
+}
+
+static void sound_voices_full_log(
+	long sound_index,
+	long victim_sound_index)
+{
+	struct sound_datum *sound = sound_get(sound_index);
+	struct sound_definition *definition =
+		sound_definition_get(sound->definition_index);
+	short channel_type_flags = NONE;
+	short channel_index;
+	short count;
+	short busy;
+	long now;
+
+	if (victim_sound_index != NONE &&
+		sound_get(victim_sound_index)->definition_index == sound->definition_index)
+	{
+		return;
+	}
+
+	for (
+		channel_index = 0;
+		channel_index < sound_manager_globals.channel_count &&
+			channel_type_flags == NONE;
+		channel_index++)
+	{
+		struct sound_channel_datum *channel = channel_get(channel_index);
+
+		if (sound_valid_for_channel(
+				definition->compression,
+				definition->encoding,
+				definition->sample_rate,
+				sound->source.spatialization_mode,
+				channel->type_flags))
+		{
+			channel_type_flags = channel->type_flags;
+		}
+	}
+
+	if (channel_type_flags < 0 || channel_type_flags >= NUMBER_OF_SOUND_CHANNEL_TYPE_FLAGS)
+	{
+		return;
+	}
+
+	count = sound_voices_count(channel_type_flags, &busy);
+	if (busy < count)
+	{
+		return;
+	}
+
+	if (victim_sound_index != NONE)
+	{
+		sound_voices_log[channel_type_flags].stolen++;
+	}
+	else
+	{
+		sound_voices_log[channel_type_flags].dropped++;
+	}
+
+	now = (long)system_milliseconds();
+	if (sound_voices_log[channel_type_flags].told &&
+		now - sound_voices_log[channel_type_flags].last_time < SOUND_VOICES_LOG_INTERVAL_MILLISECONDS)
+	{
+		return;
+	}
+
+	if (victim_sound_index != NONE)
+	{
+		char victim_name[256];
+
+		/* (tag_get_name's is one buffer) */
+		sprintf(victim_name, "%.255s", tag_get_name(sound_get(victim_sound_index)->definition_index));
+		error(_error_silent, "sound: all %d %s voices in use: %s took the voice of %s "
+			"(%ld taken, %ld not played since the last line)",
+			count, sound_voices_type_name(channel_type_flags),
+			tag_get_name(sound->definition_index), victim_name,
+			sound_voices_log[channel_type_flags].stolen,
+			sound_voices_log[channel_type_flags].dropped);
+	}
+	else
+	{
+		error(_error_silent, "sound: all %d %s voices in use: %s not played "
+			"(%ld taken, %ld not played since the last line)",
+			count, sound_voices_type_name(channel_type_flags),
+			tag_get_name(sound->definition_index),
+			sound_voices_log[channel_type_flags].stolen,
+			sound_voices_log[channel_type_flags].dropped);
+	}
+	sound_voices_log[channel_type_flags].told = TRUE;
+	sound_voices_log[channel_type_flags].last_time = now;
+	sound_voices_log[channel_type_flags].stolen = 0;
+	sound_voices_log[channel_type_flags].dropped = 0;
+}
+
+static void sound_voices_peak_note(
+	short channel_type_flags)
+{
+	short busy;
+
+	if (channel_type_flags >= 0 && channel_type_flags < NUMBER_OF_SOUND_CHANNEL_TYPE_FLAGS)
+	{
+		sound_voices_count(channel_type_flags, &busy);
+		if (busy > sound_voices_log[channel_type_flags].peak)
+		{
+			sound_voices_log[channel_type_flags].peak = busy;
+		}
+	}
+}
+
+static void sound_voices_peak_log(
+	void)
+{
+	short channel_type_flags;
+
+	for (channel_type_flags = 0; channel_type_flags < NUMBER_OF_SOUND_CHANNEL_TYPE_FLAGS; channel_type_flags++)
+	{
+		if (sound_voices_log[channel_type_flags].peak > 0)
+		{
+			short busy;
+
+			error(_error_silent, "sound: at most %d of %d %s voices in use at once on this map",
+				sound_voices_log[channel_type_flags].peak,
+				sound_voices_count(channel_type_flags, &busy),
+				sound_voices_type_name(channel_type_flags));
+		}
+	}
+	csmemset(sound_voices_log, 0, sizeof(sound_voices_log));
+}
+#endif
