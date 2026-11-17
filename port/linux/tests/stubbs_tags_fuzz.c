@@ -68,6 +68,61 @@ NEVER(D3DDevice_SetRenderState_TextureFactor) NEVER(D3DDevice_SetRenderState_Two
 NEVER(D3DDevice_SetRenderState_VertexBlend) NEVER(D3DDevice_SetRenderState_YuvEnable)
 NEVER(D3DDevice_SetRenderState_ZBias) NEVER(D3DDevice_SetRenderState_ZEnable)
 
+/* the tags' address (Stubbs's tag cache) as a pointer into tags, NULL past them */
+static unsigned char *tags_at(unsigned char *tags, size_t size, uint32_t address, size_t length)
+{
+	uint32_t offset = address - 0x8038B000U;
+
+	if (address < 0x8038B000U || offset > size || length > size - offset)
+		return NULL;
+	return tags + offset;
+}
+
+/* an animation that shares another's frame data and has a data size left
+must have its owner's data: one with a size and no data refuses the whole
+map (tag_validate.c), where the game plays no data. Here nothing is read
+from a file, so no share finds data and every such size must be 0 */
+static void check_shared_animations(unsigned char *tags, size_t size)
+{
+	uint32_t instances, count, index;
+
+	memcpy(&instances, tags, 4);
+	memcpy(&count, tags + 0x0C, 4);
+	if (count > 0xFFFF || !tags_at(tags, size, instances, (size_t)count * 0x20))
+		return;
+	for (index = 0; index < count; index++)
+	{
+		unsigned char *instance = tags_at(tags, size, instances, (size_t)count * 0x20) + index * 0x20;
+		unsigned char *graph, *animations;
+		uint32_t group, address, animation_count, animations_address, animation_index;
+
+		memcpy(&group, instance, 4);
+		memcpy(&address, instance + 0x14, 4);
+		if (group != 0x616E7472U || !(graph = tags_at(tags, size, address, 0x80)))
+			continue;
+		memcpy(&animation_count, graph + 0x74, 4);
+		memcpy(&animations_address, graph + 0x78, 4);
+		if (!animation_count || animation_count > 0x1000 ||
+			!(animations = tags_at(tags, size, animations_address, (size_t)animation_count * 0xB4)))
+		{
+			continue;
+		}
+		for (animation_index = 0; animation_index < animation_count; animation_index++)
+		{
+			unsigned char *animation = animations + animation_index * 0xB4;
+			int16_t shared_index;
+			int32_t data_size;
+			uint32_t data_address;
+
+			memcpy(&shared_index, animation + 0x68, 2);
+			memcpy(&data_size, animation + 0xA0, 4);
+			memcpy(&data_address, animation + 0xAC, 4);
+			if (shared_index != -1 && data_size > 0 && !data_address)
+				abort();
+		}
+	}
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
 	unsigned char *tags;
@@ -79,6 +134,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		return 0;
 	memcpy(tags, data, size);
 	stubbs_mode_convert_tags(tags, (unsigned int)size);
+	check_shared_animations(tags, size);
 	free(tags);
 	return 0;
 }

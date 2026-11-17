@@ -969,7 +969,10 @@ static void setup_free(vorb *f, void *p)
 
 static void *setup_temp_malloc(vorb *f, int sz)
 {
-   if (sz < 0 || sz > 0x7fffffff - 7) return NULL; // ChupathingyCE: no size that overflows the rounding
+   // ChupathingyCE: no size that overflows the rounding, and none of 0 (as
+   // upstream v1.24): a sparse codebook of no entries took malloc(0) for its
+   // lengths, then failed on setup_malloc(0) and never freed them
+   if (sz <= 0 || sz > 0x7fffffff - 7) return NULL;
    sz = (sz+7) & ~7; // round up to nearest 8 for alignment of future allocs.
    if (f->alloc.alloc_buffer) {
       if (f->temp_offset - sz < f->setup_offset) return NULL;

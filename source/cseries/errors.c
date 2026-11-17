@@ -130,6 +130,52 @@ char *error_get(
 	return error_globals.message_buffer;
 }
 
+/* port: debug.txt's drive: D:, the game's own folder. An Xbox whose D: is
+read-only (an emulator or XeFu running the game from its disc) writes to
+T: instead, the title's own folder on the hard disk; chosen at the first
+line, and every later file (debug.old.txt) goes on the same drive */
+static char debug_file_port_drive = 'd';
+
+static void debug_file_port_name(
+	char *path,
+	size_t size,
+	char const *name)
+{
+	snprintf(path, size, "%c:\\%s", debug_file_port_drive, name);
+}
+
+static FILE *debug_file_port_open(
+	char const *mode)
+{
+	char path[32];
+	FILE *file;
+
+	debug_file_port_name(path, sizeof(path), "debug.txt");
+	file = fopen(path, mode);
+#ifdef HALO_XBOX_CONSOLE
+	if (!file && debug_file_port_drive == 'd')
+	{
+		debug_file_port_drive = 't';
+		debug_file_port_name(path, sizeof(path), "debug.txt");
+		file = fopen(path, mode);
+		if (!file)
+			debug_file_port_drive = 'd';
+	}
+#endif
+	return file;
+}
+
+/* port: where debug.txt is now ("d:\\debug.txt", or T:'s), for the port's
+own lines (xbox_boot_log) */
+char const *error_log_path(
+	void)
+{
+	static char path[32];
+
+	debug_file_port_name(path, sizeof(path), "debug.txt");
+	return path;
+}
+
 #ifndef HALO_CONSOLE_LOG_BUFFER
 /* The native builds keep the log open and flush each line: opening and
 closing it per line takes milliseconds on Windows, and a host logs
@@ -192,7 +238,7 @@ static void write_to_debug_file(
 	file = debug_file_port;
 	if (!file)
 	{
-		file = fopen("d:\\debug.txt", "a+b");
+		file = debug_file_port_open("a+b");
 		if (!file)
 		{
 			__sync_lock_release(&debug_file_port_lock);
@@ -287,11 +333,15 @@ static void debug_file_port_write(
 	{
 		fclose(file);
 		debug_file_port = NULL;
-		remove("d:\\debug.old.txt");
-		/* (or, where it cannot be renamed, begun again in place) */
-		file = rename("d:\\debug.txt", "d:\\debug.old.txt") ?
-			fopen("d:\\debug.txt", "w+b") :
-			fopen("d:\\debug.txt", "a+b");
+		{
+			char path[32], old_path[32];
+
+			debug_file_port_name(path, sizeof(path), "debug.txt");
+			debug_file_port_name(old_path, sizeof(old_path), "debug.old.txt");
+			remove(old_path);
+			/* (or, where it cannot be renamed, begun again in place) */
+			file = rename(path, old_path) ? fopen(path, "w+b") : fopen(path, "a+b");
+		}
 		if (!file)
 		{
 			return;
@@ -343,7 +393,7 @@ void error_log_flush(
 	}
 	if (error_log_buffer_size > 0)
 	{
-		FILE *handle = fopen("d:\\debug.txt", "a+b");
+		FILE *handle = debug_file_port_open("a+b");
 
 		if (handle)
 		{

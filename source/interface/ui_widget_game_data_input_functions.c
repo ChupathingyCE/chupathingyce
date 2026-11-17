@@ -1255,6 +1255,29 @@ static void server_list_menu_update(
 					(server->open == TRUE) ? 20 : 21;
 				map_name_text->parameters.text_box.string_list_index =
 					map_bitmap->animation.current_frame_index;
+#ifdef HALO_MAP_LIST
+				/* port: a map past the Xbox's (a network co-op game's campaign
+				level, not "Unknown Level") as the menus' map list names it and
+				shows it, as the pregame screen does */
+				if (map_bitmap->animation.current_frame_index == 13 &&
+					(strchr(map_name, '@') || main_get_solo_level_from_name(map_name) != NONE ||
+					!strncmp(map_name, "mcc_maps\\", 9)))
+				{
+					/* (a campaign level by the list's name for it: a host
+					says "levels\test\a10\a10" where the list has
+					"levels\a10\a10") */
+					short level = main_get_solo_level_from_name(map_name);
+					long row = ui_map_list_lookup(level != NONE && main_get_solo_level_name(level) ?
+						main_get_solo_level_name(level) : map_name);
+
+					if (row != NONE)
+					{
+						map_bitmap->animation.current_frame_index = ui_map_list_picture_index(row);
+						map_name_text->parameters.text_box.string_list_index =
+							ui_map_list_string_index(row, _ui_map_list_string_lobby_name);
+					}
+				}
+#endif
 
 				switch (server->engine_type)
 				{
@@ -1283,6 +1306,21 @@ static void server_list_menu_update(
 						_multiplayer_game_text_string_unknown_game_type;
 					break;
 				}
+#if defined(HALO_MAP_LIST) && defined(HALO_GAME_BROWSER)
+				/* port: a network co-op game (a campaign level): co-op, as the
+				menus' map list names its game */
+				if (main_get_solo_level_from_name(map_name) != NONE &&
+					main_get_solo_level_name(main_get_solo_level_from_name(map_name)))
+				{
+					long row = ui_map_list_lookup(main_get_solo_level_name(main_get_solo_level_from_name(map_name)));
+
+					if (row != NONE && ui_map_list_row_is_campaign(row))
+					{
+						ruleset_text->parameters.text_box.string_list_index =
+							ui_map_list_string_index(row, _ui_map_list_string_game_type);
+					}
+				}
+#endif
 
 				teams_text->parameters.text_box.string_list_index =
 					(server->has_teams == TRUE) ? 12 : 13;

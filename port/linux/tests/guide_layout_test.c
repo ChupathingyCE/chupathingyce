@@ -444,6 +444,57 @@ static void check_scroll(void)
 	CHECK(thumb.height >= 8, "a thumb too small to see: %g", thumb.height);
 }
 
+/* the mouse on a scroll bar: a press on the track pages, a press on the
+thumb drags it (to the end and back), the thumb hovered under the pointer,
+a press elsewhere not the bar's */
+static void check_scroll_bar(void)
+{
+	struct guide_scroll_bar bar;
+	struct guide_rect track = { 300, 100, 3, 120 };
+	int scroll = 0, taken, wanted;
+
+	memset(&bar, 0, sizeof(bar));
+	bar.track = track;
+	bar.count = 40;
+	bar.shown = 10;
+	guide_layout_scroll_thumb(track, 40, 10, scroll, 8, &bar.thumb);
+	/* (no bar: nothing taken) */
+	{
+		struct guide_scroll_bar none;
+
+		memset(&none, 0, sizeof(none));
+		CHECK(guide_layout_scroll_bar_pointer(&none, 0, 301, 150, 1, 1, 301, 150, &taken) == -1 && !taken,
+			"a bar with no thumb took a press");
+	}
+	CHECK(guide_layout_scroll_bar_pointer(&bar, scroll, 100, 150, 0, 1, 100, 150, &taken) == -1 && !taken,
+		"a press beside the bar was taken");
+	CHECK(guide_layout_scroll_bar_pointer(&bar, scroll, 304, 105, 0, 0, 0, 0, &taken) == -1 && bar.hover,
+		"the thumb not hovered under the pointer (in reach of the slim bar)");
+	CHECK(guide_layout_scroll_bar_pointer(&bar, scroll, 304, 200, 0, 0, 0, 0, &taken) == -1 && !bar.hover,
+		"the thumb hovered with the pointer below it");
+	wanted = guide_layout_scroll_bar_pointer(&bar, scroll, 301, 200, 0, 1, 301, 200, &taken);
+	CHECK(taken && wanted == 10, "a press below the thumb didn't page down: %d", wanted);
+	scroll = wanted;
+	guide_layout_scroll_thumb(track, 40, 10, scroll, 8, &bar.thumb);
+	wanted = guide_layout_scroll_bar_pointer(&bar, scroll, 301, 101, 0, 1, 301, 101, &taken);
+	CHECK(taken && wanted == 0, "a press above the thumb didn't page up: %d", wanted);
+	scroll = 0;
+	guide_layout_scroll_thumb(track, 40, 10, scroll, 8, &bar.thumb);
+	/* (pressed on the thumb: a drag; to the track's end is the last page) */
+	CHECK(guide_layout_scroll_bar_pointer(&bar, scroll, 301, 105, 1, 1, 301, 105, &taken) == -1 && taken &&
+		bar.dragging, "a press on the thumb didn't start a drag");
+	wanted = guide_layout_scroll_bar_pointer(&bar, scroll, 301, 400, 1, 0, 0, 0, &taken);
+	CHECK(wanted == 30 && bar.hover, "a drag to the end didn't reach the last line: %d", wanted);
+	scroll = wanted;
+	wanted = guide_layout_scroll_bar_pointer(&bar, scroll, 301, 105 + 45, 1, 0, 0, 0, &taken);
+	CHECK(wanted > 0 && wanted < 30, "a drag halfway: %d", wanted);
+	scroll = wanted;
+	wanted = guide_layout_scroll_bar_pointer(&bar, scroll, 301, 0, 1, 0, 0, 0, &taken);
+	CHECK(wanted == 0, "a drag above the top: %d", wanted);
+	CHECK(guide_layout_scroll_bar_pointer(&bar, 0, 301, 300, 0, 0, 0, 0, &taken) == -1 && !bar.dragging,
+		"the drag went on with the button up");
+}
+
 /* (a font with Latin letters only, as the menus' faces: no CJK) */
 static int latin_only(void *context, unsigned int codepoint)
 {
@@ -480,6 +531,7 @@ int main(void)
 	check_shown();
 	check_marquee();
 	check_scroll();
+	check_scroll_bar();
 	check_bounds();
 	check_plain();
 	check_fit();
