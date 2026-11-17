@@ -17,7 +17,7 @@ failure.
 
 #include "../src/command_line.h"
 #include "../src/server_config.h"
-#include "../src/server_names.h"
+#include "../../port/linux/src/server_names.h"
 #include "../platform/control_protocol.h"
 #include "../platform/control_web.h"
 #include "../platform/control_roles.h"

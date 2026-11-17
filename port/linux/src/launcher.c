@@ -598,6 +598,23 @@ static long map_version(const char *path)
 	return (long)version;
 }
 
+/* whether an Xbox map's data is still compressed, as the game reads it: a
+zlib stream right after the header (0x800). A map someone unpacked with a
+tool (no zlib there) stops the game with an assert as it loads */
+static int xbox_map_compressed(const char *path)
+{
+	unsigned char start[2];
+	FILE *file = fopen(path, "rb");
+	int compressed = 0;
+
+	if (!file)
+		return 0;
+	if (fseek(file, 0x800, SEEK_SET) == 0 && fread(start, 1, sizeof(start), file) == sizeof(start))
+		compressed = (start[0] & 0x0F) == 8 && (start[0] << 8 | start[1]) % 31 == 0;
+	fclose(file);
+	return compressed;
+}
+
 /* the library of known Xbox map packs (map_packs.c's, xbox_mod_maps.h):
 their folders' names and their maps' files, for the packs' rows */
 struct xbox_mod_pack
@@ -822,7 +839,18 @@ static void family_scan(struct family *family, int list)
 		version = map_version(path);
 		if (family->kind == _family_xbox && !SDL_strcasecmp(name, "ui.map"))
 			family->ui_version = version;
-		if (family_version_good(family, version))
+		if (version == MAP_VERSION_XBOX && family_version_good(family, version) && !xbox_map_compressed(path))
+		{
+			/* (unpacked by a tool: the game can't load it) */
+			family->broken++;
+			if (list)
+			{
+				map_entry_add(name, "Unpacked: use the original", COLOR_RED);
+				platform_log("maps: %s/%s can't be played here: its data was unpacked by a tool (no zlib at 0x800)",
+					family->folder, name);
+			}
+		}
+		else if (family_version_good(family, version))
 		{
 			family->good++;
 			if (list)
@@ -1605,7 +1633,12 @@ static void build_rows(void)
 		if ((family->kind == _family_custom_edition || family_needs_resources(family) ||
 			family->kind == _family_pack) && family->missing)
 		{
-			snprintf(row->help, sizeof(row->help), "Missing: %s", family->missing_names);
+			/* (the resource maps every Halo PC family reads are Custom
+			Edition's, in maps_ce, whichever family's page this is) */
+			if (family_needs_resources(family) && family->kind != _family_custom_edition)
+				snprintf(row->help, sizeof(row->help), "Missing in maps_ce: %s (Custom Edition's)", family->missing_names);
+			else
+				snprintf(row->help, sizeof(row->help), "Missing: %s", family->missing_names);
 		}
 		else if (family->stray)
 			snprintf(row->help, sizeof(row->help), "CE maps go in maps_ce, Halo PC maps in maps_pc, HaloMD in maps_md.");
@@ -2471,8 +2504,8 @@ static void make_folders(void)
 	{
 		{ "maps", "Put the Xbox maps here: the files in the maps folder of your Halo disc, with ui.map.\n" },
 		{ "maps_ce", "Put Custom Edition maps here, with Custom Edition's bitmaps.map, sounds.map and loc.map.\n" },
-		{ "maps_pc", "Put the maps from your Halo PC disc here.\n" },
-		{ "maps_md", "Put HaloMD maps here.\n" },
+		{ "maps_pc", "Put the maps from your Halo PC disc here. They also need Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce.\n" },
+		{ "maps_md", "Put HaloMD maps here. They also need Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce.\n" },
 	};
 	size_t index;
 
