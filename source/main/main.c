@@ -2372,7 +2372,12 @@ static void main_revert_map_private(
 {
 	/* (a network client never reverts on its own: its game is the host's) */
 	if (main_coop_host())
-		main_coop_host_revert();
+	{
+		/* (no saved state to go back to while everyone is dead: the respawn
+		the loss would have given them, whose timer main_revert_map stopped) */
+		if (!main_coop_host_revert() && players_are_all_dead())
+			players_respawn_at_checkpoint();
+	}
 	else if (game_connection() != _game_connection_network_client)
 	{
 		game_state_revert();

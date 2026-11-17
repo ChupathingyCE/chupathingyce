@@ -2093,8 +2093,18 @@ static boolean pause_game_restart_at_checkpoint(
 	/* port: in network co-op only the host reverts, and everyone follows
 	(main.c's main_coop_host_revert); a joined machine's game is the host's,
 	and its menu has no such row (menu_tags.c) */
-	if (network_coop_active() && !global_network_game_server_get())
-		return FALSE;
+	if (network_coop_active())
+	{
+		if (!global_network_game_server_get())
+			return FALSE;
+		/* (nothing saved yet, or the save failed: the level starts over, as
+		the campaign's revert does then (game_state_revert), for everyone) */
+		if (!game_state_port_saved_game_valid())
+		{
+			main_coop_restart_level();
+			return TRUE;
+		}
+	}
 	main_revert_map();
 	return TRUE;
 }
