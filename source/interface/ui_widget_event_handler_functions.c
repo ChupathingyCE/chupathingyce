@@ -2112,7 +2112,7 @@ static boolean pause_game_restart_level(
 	{
 		if (!global_network_game_server_get())
 			return FALSE;
-		network_game_server_port_cooperative_won(NULL);
+		main_coop_restart_level();
 		return TRUE;
 	}
 	main_reset_map();

@@ -1010,6 +1010,16 @@ void main_revert_map(
 	return;
 }
 
+/* port: the network co-op host's RESTART LEVEL (the pause menu), done from
+the main loop rather than from the menu's event (main_coop_restart_private) */
+static boolean main_coop_restart_requested;
+
+void main_coop_restart_level(
+	void)
+{
+	main_coop_restart_requested = TRUE;
+}
+
 void main_skip_cinematic(
 	void)
 {
@@ -3974,6 +3984,15 @@ void main_loop(
 			{
 				MAIN_STAGE("main_won_map_private");
 				main_won_map_private();
+			}
+
+			/* port: the co-op host's RESTART LEVEL: everyone back to the lobby
+			on the same level (network_server_manager.c) */
+			if (main_coop_restart_requested)
+			{
+				main_coop_restart_requested = FALSE;
+				if (main_coop_host())
+					network_game_server_port_cooperative_restart();
 			}
 
 			if (main_globals.respawn)
