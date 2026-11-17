@@ -150,6 +150,9 @@ struct ce_client
 	unsigned char item_baseline[NETWORK_OBJECTS + 1];
 	float item_position[NETWORK_OBJECTS + 1][3];
 	int item_rounds[NETWORK_OBJECTS + 1];
+	/* (and its team as told: a client takes an object's team only as it is
+	created) */
+	short item_owner[NETWORK_OBJECTS + 1];
 	long item_tick[NETWORK_OBJECTS + 1];
 	/* each player's vehicle and seat as it was told (NONE: on foot) */
 	long vehicle_sent[TRACKED_PLAYERS];
@@ -177,6 +180,7 @@ struct ce_client
 	/* Capture the Flag's scores and flag swap timer as told last */
 	long ctf_scores_sent[2];
 	long ctf_swap_sent;
+	long ctf_team_sent;
 	boolean ctf_known;
 	/* the roster it was told last (game settings), to tell it again as it
 	changes */
@@ -1048,6 +1052,7 @@ static void item_told(
 	client->item_position[number][1] = object->object.position.y;
 	client->item_position[number][2] = object->object.position.z;
 	client->item_rounds[number] = TEST_FLAG(_object_mask_weapon, object->object.type) ? weapon_rounds(object_index) : 0;
+	client->item_owner[number] = object->object.owner_team_index;
 	client->item_tick[number] = game_time_get();
 }
 
@@ -1286,15 +1291,35 @@ static void send_scores(
 	{
 		long scores[2], swap_timer;
 
+		long team_with_flag = 0;
+
 		game_engine_ctf_get_state(scores, &swap_timer);
+		/* (one flag: the team whose flag it is, as Custom Edition's own
+		server tells it (the flag's own team); two flags: 0, as it does) */
+		if (game_engine_get_variant()->game_engine_variant.ctf.single_flag_time > 0)
+		{
+			struct object_iterator flags;
+			struct object_datum *flag;
+
+			object_iterator_new(&flags, _object_mask_weapon, 0);
+			while ((flag = object_iterator_next(&flags)) != NULL)
+			{
+				if (weapon_is_flag(flags.index) && flag->object.owner_team_index != NONE)
+				{
+					team_with_flag = flag->object.owner_team_index;
+					break;
+				}
+			}
+		}
 		if (!client->ctf_known || scores[0] != client->ctf_scores_sent[0] || scores[1] != client->ctf_scores_sent[1] ||
-			swap_timer > client->ctf_swap_sent)
+			swap_timer > client->ctf_swap_sent || team_with_flag != client->ctf_team_sent)
 		{
 			int sent[2];
 
 			sent[0] = (int)scores[0];
 			sent[1] = (int)scores[1];
-			ce_payload_put_ctf_update(&payload, (unsigned int)swap_timer, sent, 0);
+			ce_payload_put_ctf_update(&payload, (unsigned int)swap_timer, sent, (int)team_with_flag);
+			client->ctf_team_sent = team_with_flag;
 			client->ctf_scores_sent[0] = scores[0];
 			client->ctf_scores_sent[1] = scores[1];
 			client->ctf_known = TRUE;
@@ -1438,11 +1463,16 @@ static void update_items(
 	int number;
 
 	held_weapons_update();
-	/* (items gone: taken away) */
+	/* (items gone: taken away; and a flag whose team changed (one flag
+	Capture the Flag, its sides swapped): taken away and made again, as
+	Custom Edition's own server makes the flag for the other team) */
 	for (number = 1; number <= NETWORK_OBJECTS; number++)
 	{
+		struct object_datum *item;
+
 		if (client->item[number] != NONE && client->item_state[number] != ITEM_UNKNOWN &&
-			(!object_try_and_get(client->item[number]) || ce.objects[number] != client->item[number]))
+			((item = object_try_and_get(client->item[number])) == NULL || ce.objects[number] != client->item[number] ||
+				(weapon_is_flag(client->item[number]) && item->object.owner_team_index != client->item_owner[number])))
 		{
 			ce_payload_put_object_delete(reliable, number);
 			client->item[number] = NONE;
