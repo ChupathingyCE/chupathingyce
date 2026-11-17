@@ -1315,7 +1315,16 @@ long hs_runtime_evaluate(
 				return NONE;
 			}
 
-			return thread->result;
+			/* port: an expression that is done at once (a constant, a
+			global, or a call a map's scripts may not make, which
+			hs_scenario_functions_check skips) leaves no frame to run: its
+			thread is let go here. It was kept, and hs_runtime_update then
+			ran a console command with nothing on its stack (a halt in
+			hs_thread_main, as from SPV3's menu scripts) */
+			result = thread->result;
+			hs_thread_delete(thread_index);
+
+			return result;
 		}
 
 		error(_error_silent, "there are not enough threads to execute that command.");
@@ -2860,6 +2869,21 @@ static void hs_thread_main(
 		valid_thread(thread), "corrupted stack.");
 
 	thread->sleep_until = 0;
+	/* port: a thread with nothing on its stack that is no script's has
+	nothing to run: it is let go, and logged, where the assert below stopped
+	the game (hs_runtime_evaluate no longer leaves one) */
+	if (thread->stack==(struct hs_stack_frame *)thread->stack_data && !script)
+	{
+		error(_error_silent, "hs thread %s #%08lX has nothing to run; dropping it",
+			hs_thread_format(thread_index), (unsigned long)thread_index);
+		if (thread->type==_hs_thread_type_console_command)
+			hs_thread_delete(thread_index);
+		else
+			thread->sleep_until = NONE;
+		hs_runtime_globals.executing_thread_index = NONE;
+
+		return;
+	}
 	if (thread->stack==(struct hs_stack_frame *)thread->stack_data)
 	{
 		match_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x2c3, script);

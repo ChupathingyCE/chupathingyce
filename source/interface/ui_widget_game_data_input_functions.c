@@ -802,15 +802,49 @@ static void widget_function_null(
 	return;
 }
 
+/* port: a list whose extended description isn't laid out as the stock
+menus' (a map's own menus: SPV3's ui.yelo hangs one on a list of its own) has
+none drawn: the asserts below stopped the game for good. The stock maps'
+lists all pass, so nothing changes for them. Logged once per function */
+static boolean extended_description_fits(
+	struct widget_instance *list_widget,
+	char const *function_name,
+	boolean *reported)
+{
+	struct widget_instance *description;
+	struct ui_widget_definition *description_definition;
+
+	description = list_widget ? list_widget->parameters.list.extended_description : NULL;
+	description_definition = description ? ui_widget_definition_get(description->definition_tag_index) : NULL;
+	if (list_widget && list_widget->focused_child && description && description_definition &&
+		description_definition->child_count == 2 && description->child && description->child->next)
+	{
+		return TRUE;
+	}
+	if (!*reported)
+	{
+		error(_error_silent, "%s: this list's extended description isn't the stock menus' (two children); none drawn",
+			function_name);
+		*reported = TRUE;
+	}
+
+	return FALSE;
+}
+
 static void settings_menu_update_extended_description(
 	struct widget_instance *list_widget)
 {
-	struct ui_widget_definition *description_definition = ui_widget_definition_get(
-		list_widget->parameters.list.extended_description->definition_tag_index);
+	struct ui_widget_definition *description_definition;
 	struct widget_instance *description_picture;
 	struct widget_instance *description_text;
 	struct widget_instance *child;
 	short index;
+	static boolean reported = FALSE;
+
+	if (!extended_description_fits(list_widget, "settings_menu_update_extended_description", &reported))
+		return;
+	description_definition = ui_widget_definition_get(
+		list_widget->parameters.list.extended_description->definition_tag_index);
 
 	match_vassert(
 		"c:\\halo\\SOURCE\\interface\\ui_widget_game_data_input_functions.c",
@@ -831,6 +865,17 @@ static void settings_menu_update_extended_description(
 
 	if (index != NONE)
 	{
+		/* port: (as above: a picture and a text box, or none drawn) */
+		if (description_picture->type != _ui_widget_type_bitmap ||
+			description_text->type != _ui_widget_type_text_box)
+		{
+			if (!reported)
+			{
+				error(_error_silent, "settings_menu_update_extended_description: this list's extended description isn't a picture and a text box; none drawn");
+				reported = TRUE;
+			}
+			return;
+		}
 		match_vassert(
 			"c:\\halo\\SOURCE\\interface\\ui_widget_game_data_input_functions.c",
 			0x138,
@@ -855,7 +900,11 @@ static void playlist_settings_menu_update_extended_description(
 	struct widget_instance *description_child;
 	struct ui_widget_definition *description_definition;
 	short index;
+	static boolean reported = FALSE;
 
+	/* port: (extended_description_fits) */
+	if (!extended_description_fits(list_widget, "playlist_settings_menu_update_extended_description", &reported))
+		return;
 	match_vassert(
 		"c:\\halo\\SOURCE\\interface\\ui_widget_game_data_input_functions.c",
 		0x14D,
@@ -890,7 +939,11 @@ static void playlist_gametype_select_menu_update_extended_description(
 	struct widget_instance *description_child;
 	struct ui_widget_definition *description_definition;
 	short index;
+	static boolean reported = FALSE;
 
+	/* port: (extended_description_fits) */
+	if (!extended_description_fits(list_widget, "playlist_gametype_select_menu_update_extended_description", &reported))
+		return;
 	match_vassert(
 		"c:\\halo\\SOURCE\\interface\\ui_widget_game_data_input_functions.c",
 		0x173,
