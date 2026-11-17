@@ -787,6 +787,12 @@ def test_game_types_match_captures(harness):  # noqa: F811
     for engine in ("game_engine_oddball", "game_engine_king", "game_engine_race"):
         assert engine in told
     assert "ce_payload_put_game_type_update(&payload, type, values, count);" in _function(source, "static void send_scores")
+    # (Oddball's and King's times go in seconds, as a Custom Edition client
+    # counts them; the ball's five-second beep is its carrier's client's)
+    state = _function(source, "static int game_type_state")
+    assert state.count("/= TICKS_PER_SECOND;") == 2
+    sound = _function(source, "void server_ce_multiplayer_sound")
+    assert "sound_index == SOUND_COUNTDOWN_TIMER_END && game_engine &&" in sound
 
 
 def test_welcome_line():

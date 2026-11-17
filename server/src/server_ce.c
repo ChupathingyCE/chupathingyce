@@ -1269,6 +1269,10 @@ static int game_type_state(
 		game_engine_oddball_get_state(&individual, &teams, &owners);
 		BY_PLAYER(values, individual);
 		BY_TEAM(values + 16, teams);
+		/* (times in seconds, as a Custom Edition client counts them: our
+		ticks showed 52 seconds as 25:47; and so told once a second) */
+		for (slot = 0; slot < 32; slot++)
+			values[slot] /= TICKS_PER_SECOND;
 		/* (the carriers by player: 0 for none, as a new game's state has
 		them (our capture of Custom Edition's server), else the ball's
 		number plus one) */
@@ -1289,6 +1293,9 @@ static int game_type_state(
 		long const *scores = game_engine_king_get_state(&hill);
 
 		BY_TEAM(values, scores);
+		/* (times in seconds, as Oddball's) */
+		for (team = 0; team < 16; team++)
+			values[team] /= TICKS_PER_SECOND;
 		values[16] = (unsigned int)hill;
 		*count = 17;
 		return CE_DELTA_KING_UPDATE;
@@ -2599,11 +2606,20 @@ void server_ce_multiplayer_sound(
 		SOUND_TELEPORTER_ACTIVATE = 0x1B,
 		SOUND_COUNTDOWN_FOR_RESPAWN = 0x1D,
 		SOUND_PLAYER_RESPAWN = 0x1F,
+		SOUND_COUNTDOWN_TIMER_END = 0x2A,
 	};
 	short index;
 
 	if (!ce.enabled || ce.showing_message || sound_index == SOUND_TELEPORTER_ACTIVATE ||
 		sound_index == SOUND_COUNTDOWN_FOR_RESPAWN || sound_index == SOUND_PLAYER_RESPAWN)
+	{
+		return;
+	}
+	/* (the ball's beep every five seconds its carrier holds it: its
+	carrier's client counts the time and beeps itself, and Custom
+	Edition's own server sends no such sound) */
+	if (sound_index == SOUND_COUNTDOWN_TIMER_END && game_engine &&
+		game_engine_get_variant()->game_engine_index == game_engine_oddball)
 	{
 		return;
 	}
