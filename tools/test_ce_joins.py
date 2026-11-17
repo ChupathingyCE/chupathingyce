@@ -683,6 +683,11 @@ def test_between_games_messages_match_capture():
     assert "if (client && client->phase == CE_PHASE_RECONNECTING)\n\t\t\t\tclient->peer = NONE;" in update
     join = _function(source, "static boolean join")
     assert join.index("CE_PHASE_RECONNECTING") < join.index("network_distributed_banned(")
+    # (a lobby of only Custom Edition players, seats of the server's own
+    # machine, counts down to the next game without another machine)
+    manager = (ROOT / "source/networking/network_server_manager.c").read_text(encoding="utf-8")
+    countdown = _function(manager, "void network_game_server_update_countdown")
+    assert "if (server_ce_players_present())\n\t\t\t\t\t\t\tother_players = TRUE;" in countdown
 
 
 def test_only_custom_edition_maps():
