@@ -683,6 +683,11 @@ def test_between_games_messages_match_capture():
     assert "if (client && client->phase == CE_PHASE_RECONNECTING)\n\t\t\t\tclient->peer = NONE;" in update
     join = _function(source, "static boolean join")
     assert join.index("CE_PHASE_RECONNECTING") < join.index("network_distributed_banned(")
+    # (a lobby of only Custom Edition players, seats of the server's own
+    # machine, counts down to the next game without another machine)
+    manager = (ROOT / "source/networking/network_server_manager.c").read_text(encoding="utf-8")
+    countdown = _function(manager, "void network_game_server_update_countdown")
+    assert "if (server_ce_players_present())\n\t\t\t\t\t\t\tother_players = TRUE;" in countdown
 
 
 def test_only_custom_edition_maps():
@@ -753,6 +758,9 @@ def test_ctf_reaches_custom_edition():
     assert "server_ce_multiplayer_message(player_index, message, message_data);" in engine
     sounds = (ROOT / "source/game/game_engine_multiplayer_sounds.c").read_text(encoding="utf-8")
     assert "server_ce_multiplayer_sound(sound_index);" in sounds
+    # (a capture's message shows the scores its client has: they go first)
+    message = _function(source, "void server_ce_multiplayer_message")
+    assert message.index("send_scores(client);") < message.index("ce_payload_put_hud_message(")
 
 
 def test_game_types_match_captures(harness):  # noqa: F811
