@@ -161,6 +161,12 @@ struct ce_client
 	/* each player's vehicle and seat as it was told (NONE: on foot) */
 	long vehicle_sent[TRACKED_PLAYERS];
 	short seat_sent[TRACKED_PLAYERS];
+	/* in a free for all, the team each player has on its wire (ffa_teams):
+	given once, kept while the player stays in its roster, so a player's
+	team never moves under its biped; by absolute index, with the player
+	it was given to */
+	signed char ffa_team[TRACKED_PLAYERS];
+	long ffa_player[TRACKED_PLAYERS];
 	int update_id;
 	int sequence;
 	int local_sequence;
@@ -307,18 +313,80 @@ static int network_player_number(
 	return 0;
 }
 
+/* whether a Custom Edition client is shown a team game: a game type it is
+shown as it is (engine_told), with teams; any other (Bomb, shown as
+Slayer) is a free for all to it. The roster and every player's and
+biped's team follow this one test */
+static boolean engine_told(long engine);
+
+static boolean ce_team_game(
+	void)
+{
+	struct game_variant const *variant = game_engine ? game_engine_get_variant() : NULL;
+
+	return variant && engine_told(variant->game_engine_index) && variant->universal_variant.teams;
+}
+
+/* a free for all's teams on a client's wire: each player of its roster
+keeps the team it was given while it stays in that roster; a player new
+to it takes the lowest team no other there holds. So no two of a client's
+16 share one, and no player's team changes under its biped as players
+before it leave */
+static void ffa_teams(
+	struct ce_client *client,
+	long const *players,
+	int count)
+{
+	unsigned int used = 0;
+	int slot, pass;
+
+	/* (first the players keeping theirs, then the new ones) */
+	for (pass = 0; pass < 2; pass++)
+	{
+		for (slot = 0; slot < count; slot++)
+		{
+			long player_index = players[slot];
+			long absolute;
+			int team;
+
+			if (player_index == NONE || (absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)) >= TRACKED_PLAYERS)
+				continue;
+			team = client->ffa_player[absolute] == player_index ? client->ffa_team[absolute] : -1;
+			if (pass == 0)
+			{
+				if (team >= 0 && team < CE_GAME_PLAYERS && !(used & (1u << team)))
+					used |= 1u << team;
+				else
+					client->ffa_player[absolute] = NONE;
+				continue;
+			}
+			if (client->ffa_player[absolute] == player_index)
+				continue;
+			for (team = 0; team < CE_GAME_PLAYERS && (used & (1u << team)); team++)
+				;
+			used |= 1u << team;
+			client->ffa_team[absolute] = (signed char)team;
+			client->ffa_player[absolute] = player_index;
+		}
+	}
+}
+
 /* a player's team on a client's wire: a team game's team; in a free for
-all (each player its own team) its slot in that client's roster, as its
-number is, so no two of a client's 16 share one */
+all (each player its own team) the team ffa_teams gave it on that client */
 static int client_team(
 	struct ce_client const *client,
 	long player_index)
 {
-	int number = network_player_number(client, player_index);
 	long team = player_index == NONE ? NONE : player_get(player_index)->team_index;
 
-	if (!game_engine_has_teams() && number)
-		return number - 1;
+	if (!ce_team_game() && player_index != NONE)
+	{
+		long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+
+		if (absolute < TRACKED_PLAYERS && client->ffa_player[absolute] == player_index)
+			return client->ffa_team[absolute];
+		return 0;
+	}
 	if (team == NONE || team < 0)
 		return 0;
 	return (int)(team % CE_GAME_PLAYERS);
@@ -560,8 +628,9 @@ static void game_settings_for(
 			slot->color = player->primary_color_index;
 			slot->controller = 0;
 			team = network_player_team(player);
-			/* (a free for all: its slot, as client_team has it) */
-			slot->team = settings->universal[0] ? wire_team(team) : settings->player_count;
+			/* (a free for all: its slot until the client's own teams are
+			given, ffa_teams_told) */
+			slot->team = ce_team_game() ? wire_team(team) : settings->player_count;
 			slot->list_index = settings->player_count;
 			if (slot_players)
 				slot_players[settings->player_count] = network_player_datum(player);
@@ -576,7 +645,7 @@ static void game_settings_for(
 		slot->color = own ? own->primary_color_index : 0;
 		slot->machine = peer;
 		slot->controller = 0;
-		slot->team = !settings->universal[0] ? settings->player_count :
+		slot->team = !ce_team_game() ? settings->player_count :
 			own && own_player != NONE ? wire_team(player_get(own_player)->team_index) : 0;
 		slot->list_index = settings->player_count;
 		if (slot_players)
@@ -652,6 +721,29 @@ static void roster_told(
 	client->roster_known = TRUE;
 }
 
+/* a free for all's roster with the client's own teams (ffa_teams) */
+static void ffa_teams_told(
+	struct ce_client *client,
+	struct ce_game_settings *settings,
+	long const *slot_players)
+{
+	int slot;
+
+	if (ce_team_game())
+		return;
+	ffa_teams(client, slot_players, settings->player_count);
+	for (slot = 0; slot < settings->player_count; slot++)
+	{
+		long player_index = slot_players[slot];
+
+		if (player_index != NONE && DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) < TRACKED_PLAYERS &&
+			client->ffa_player[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)] == player_index)
+		{
+			settings->players[slot].team = client->ffa_team[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)];
+		}
+	}
+}
+
 /* the roster again, as players come, go or change teams: Custom Edition's
 own server sends its clients the whole game settings again, so their
 scoreboards, names and friends follow */
@@ -669,6 +761,7 @@ static void send_roster(
 	if (client->roster_known && client->roster_signature == ce.roster_signature && client->roster_own_player == own_player)
 		return;
 	game_settings_for(client->peer, client->name, own_player, &settings, slot_players);
+	ffa_teams_told(client, &settings, slot_players);
 	if (!client->roster_known || client->roster_count != settings.player_count ||
 		csmemcmp(client->roster, settings.players, sizeof(client->roster)) ||
 		csmemcmp(client->roster_players, slot_players, sizeof(client->roster_players)))
@@ -746,6 +839,7 @@ static void client_reset(
 	for (index = 0; index < TRACKED_PLAYERS; index++)
 	{
 		client->announced[index] = NONE;
+		client->ffa_player[index] = NONE;
 		client->unit_sent[index] = NONE;
 		client->body[index] = NONE;
 		client->vehicle_sent[index] = NONE;
@@ -790,6 +884,8 @@ static boolean accept_join(
 	struct ce_client *client = client_for_peer(peer, NULL);
 
 	game_settings_for(peer, name, own_player, &settings, slot_players);
+	if (client)
+		ffa_teams_told(client, &settings, slot_players);
 	ce_payload_begin(&payload, out, sizeof(out));
 	ce_payload_put_game_settings(&payload, &settings);
 	ce_payload_put_message(&payload, begin_game, sizeof(begin_game));
@@ -1322,10 +1418,10 @@ static int game_type_state(
 		if (player_index != NONE && DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) < HALO_PORT_MAXIMUM_NETWORK_PLAYERS) \
 			(out)[slot] = (unsigned int)(array)[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)]; \
 	}
-	/* (by team: in a free for all each player's team is its roster slot
-	on this client (client_team), so its value goes by slot) */
+	/* (by team: in a free for all each player's own team on this client
+	(client_team), so its value goes under that team) */
 #define BY_TEAM(out, array) \
-	if (game_engine_has_teams()) \
+	if (ce_team_game()) \
 	{ \
 		for (team = 0; team < CE_GAME_PLAYERS; team++) \
 			(out)[team] = (unsigned int)(array)[team]; \
@@ -1339,7 +1435,7 @@ static int game_type_state(
 			long player_index = client->roster_players[slot]; \
 			long own_team = player_index == NONE ? NONE : player_get(player_index)->team_index; \
 			if (own_team >= 0 && own_team < HALO_PORT_MAXIMUM_NETWORK_PLAYERS) \
-				(out)[slot] = (unsigned int)(array)[own_team]; \
+				(out)[client_team(client, player_index)] = (unsigned int)(array)[own_team]; \
 		} \
 	}
 	if (engine == game_engine_oddball)
@@ -2708,11 +2804,12 @@ void server_ce_multiplayer_message(
 		}
 		/* (a player the message names (a killer, a carrier): its client
 		knows the players of its roster by the handles it was told
-		(player add); one outside its roster, none) */
+		(player add), and may look the one named up without a check; one
+		outside its roster: not told) */
 		if (data != NONE && (data >> 16) != 0 && player_data && player_try_and_get(data) &&
 			!network_player_number(client, data))
 		{
-			data = NONE;
+			continue;
 		}
 		/* (the scores first: a capture's message shows them, "You scored
 		1 to 0", from what its client has) */

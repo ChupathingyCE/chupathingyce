@@ -775,6 +775,7 @@ def test_ctf_reaches_custom_edition():
     # Slayer's; a named player outside the client's roster, none)
     assert "message >= FIRST_GAME_TYPE_MESSAGE &&" in message and "engine_told(" in message
     assert "!network_player_number(client, data)" in message
+    assert "!network_player_number(client, data))\n\t\t{\n\t\t\tcontinue;" in message
     # (one flag: the flag's team in its state, and the flag made again as
     # its sides swap, as Custom Edition's own server does (research capture
     # rs1, Assault): a client takes an object's team only at its creation)
@@ -826,9 +827,21 @@ def test_game_types_match_captures(harness):  # noqa: F811
     assert "changed = values[16] != client->game_type_sent[16];" in scores
     # (a free for all's teams are roster slots, one per player on a client,
     # in the roster, the spawns, the bipeds and the game type's numbers)
-    assert "if (!game_engine_has_teams() && number)\n\t\treturn number - 1;" in _function(source, "static int client_team")
-    assert "(out)[slot] = (unsigned int)(array)[own_team];" in state
-    assert source.count("client_team(client, player_index)") == 3
+    # (kept by each player while it stays in the roster, so a biped's team
+    # never goes stale as players before it leave; one test of team or free
+    # for all for the roster and the players' and bipeds' teams: Bomb, shown
+    # as Slayer, is a free for all everywhere)
+    assert "client->ffa_player[absolute] == player_index" in _function(source, "static int client_team")
+    assert "if (!ce_team_game() && player_index != NONE)" in _function(source, "static int client_team")
+    ffa = _function(source, "static void ffa_teams")
+    assert "team = client->ffa_player[absolute] == player_index ? client->ffa_team[absolute] : -1;" in ffa
+    assert "engine_told(variant->game_engine_index) && variant->universal_variant.teams" in \
+        _function(source, "static boolean ce_team_game")
+    roster = _function(source, "static void game_settings_for")
+    assert "settings->universal[0] ?" not in roster and "game_engine_has_teams()" not in source
+    assert "ffa_teams_told(client, &settings, slot_players);" in _function(source, "static void send_roster")
+    assert "(out)[client_team(client, player_index)] = (unsigned int)(array)[own_team];" in state
+    assert source.count("client_team(client, player_index)") == 4
     statistics = _function(source, "static void player_statistics")
     assert "statistics->game_specific[0] = (specific[0] / TICKS_PER_SECOND) & 0xffff;" in statistics
     sound = _function(source, "void server_ce_multiplayer_sound")
