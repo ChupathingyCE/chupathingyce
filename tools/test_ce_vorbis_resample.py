@@ -52,6 +52,21 @@ int main(void)
 	while (scanf("%15s %lf %lf", mode, &frequency, &measured) == 3)
 	{
 		int halve = !strcmp(mode, "halve");
+		if (!strcmp(mode, "steady") || !strcmp(mode, "steady2"))
+		{
+			/* a steady level of <frequency> frames, halved or doubled: the
+			largest step away from it anywhere, the ends too */
+			int frames = (int)frequency, i, out, worst = 0;
+			short *samples = malloc((size_t)frames * sizeof(*samples));
+			for (i = 0; i < frames; i++)
+				samples[i] = 10000;
+			out = ce_vorbis_resample(&samples, frames, 1, mode[6] ? 22050 : 44100, mode[6] ? 44100 : 22050);
+			for (i = 0; i < out; i++)
+				worst = abs(samples[i] - 10000) > worst ? abs(samples[i] - 10000) : worst;
+			printf("%d %d 0\n", out, worst);
+			free(samples);
+			continue;
+		}
 		int channels = 2, rate = halve ? 44100 : 22050, wanted = halve ? 22050 : 44100;
 		int frames = halve ? FRAMES : FRAMES / 2, i, out;
 		short *samples = malloc((size_t)frames * channels * sizeof(*samples));
@@ -123,6 +138,16 @@ def test_halving_drops_what_would_fold_back(frequency):
     # (a tone above 11.025 kHz folds to 22.05 kHz less it)
     _, db, _ = halved(frequency, 22050 - frequency)
     assert db < -60, f"{frequency} Hz folds back to {22050 - frequency} Hz at {db:.1f} dB"
+
+
+@pytest.mark.parametrize("frames", [2, 3, 10, 95, 96, 97, 1000])
+def test_a_steady_level_stays_steady_to_the_ends(frames):
+    (halved_frames, worst, _), = run([("steady", frames, 0)])
+    assert halved_frames == frames // 2
+    assert worst <= 1
+    (doubled_frames, worst, _), = run([("steady2", frames, 0)])
+    assert doubled_frames == frames * 2
+    assert worst <= 1
 
 
 @pytest.mark.parametrize("frequency", [1000, 5000, 9000])

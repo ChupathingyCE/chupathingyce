@@ -199,13 +199,29 @@ int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int 
 				int middle = 2 * frame;
 				double sum = 0.5 * copy[middle * channels + channel];
 
-				for (tap = 0; tap < CE_VORBIS_HALF_BAND_TAPS; tap++)
+				/* (away from the ends, read directly: the original Xbox
+				does this at a map's load too) */
+				if (middle >= 2 * CE_VORBIS_HALF_BAND_TAPS && middle + 2 * CE_VORBIS_HALF_BAND_TAPS < frames)
 				{
-					int offset = 2 * tap + 1;
+					const short *at = copy + middle * channels + channel;
 
-					sum += ce_vorbis_half_band[tap] *
-						(ce_vorbis_sample(copy, frames, channels, channel, middle - offset) +
-						ce_vorbis_sample(copy, frames, channels, channel, middle + offset));
+					for (tap = 0; tap < CE_VORBIS_HALF_BAND_TAPS; tap++)
+					{
+						int offset = (2 * tap + 1) * channels;
+
+						sum += ce_vorbis_half_band[tap] * (at[-offset] + at[offset]);
+					}
+				}
+				else
+				{
+					for (tap = 0; tap < CE_VORBIS_HALF_BAND_TAPS; tap++)
+					{
+						int offset = 2 * tap + 1;
+
+						sum += ce_vorbis_half_band[tap] *
+							(ce_vorbis_sample(copy, frames, channels, channel, middle - offset) +
+							ce_vorbis_sample(copy, frames, channels, channel, middle + offset));
+					}
 				}
 				in[frame * channels + channel] = ce_vorbis_clamp(sum);
 			}
