@@ -1230,8 +1230,16 @@ static void player_statistics(
 	{
 		short const *specific = (short const *)&player->statistics.multiplayer_statistics;
 
+		long engine = game_engine ? game_engine_get_variant()->game_engine_index : NONE;
+
 		for (index = 0; index < 3; index++)
 			statistics->game_specific[index] = specific[index] & 0xffff;
+		/* (the ball's and the hill's time in seconds, as Custom Edition's
+		own server sends them: a King player's time on the scoreboard is
+		this one; Race's lap times stay in ticks, which its client turns
+		into seconds) */
+		if (engine == game_engine_oddball || engine == game_engine_king)
+			statistics->game_specific[0] = (specific[0] / TICKS_PER_SECOND) & 0xffff;
 	}
 	statistics->multiplayer_special = (int)player->multiplayer_special;
 	statistics->speed_multiplier = player->speed_multiplier;
@@ -1382,14 +1390,24 @@ static void send_scores(
 		}
 		client->ctf_swap_sent = swap_timer;
 	}
-	/* (Oddball's, King's and Race's state as it changes) */
+	/* (Oddball's, King's and Race's state: as a client joins, and then as
+	Custom Edition's own server tells it: the hill as it moves, Race's as it
+	changes. The times its client counts itself, as Custom Edition's
+	server leaves them to it: told again, they ran off on the scoreboard) */
 	{
 		unsigned int values[CE_GAME_TYPE_VALUES];
 		int count;
 		int type = game_type_state(client, values, &count);
+		boolean changed = type && count != client->game_type_count;
 
-		if (type && (count != client->game_type_count ||
-			csmemcmp(values, client->game_type_sent, sizeof(unsigned int) * count)))
+		if (type && !changed)
+		{
+			if (type == CE_DELTA_KING_UPDATE)
+				changed = values[16] != client->game_type_sent[16];
+			else if (type == CE_DELTA_RACE_UPDATE)
+				changed = csmemcmp(values, client->game_type_sent, sizeof(unsigned int) * count) != 0;
+		}
+		if (changed)
 		{
 			ce_payload_put_game_type_update(&payload, type, values, count);
 			csmemcpy(client->game_type_sent, values, sizeof(unsigned int) * count);

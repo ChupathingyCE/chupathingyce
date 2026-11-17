@@ -791,6 +791,11 @@ def test_game_types_match_captures(harness):  # noqa: F811
     # counts them; the ball's five-second beep is its carrier's client's)
     state = _function(source, "static int game_type_state")
     assert state.count("/= TICKS_PER_SECOND;") == 2
+    # (and told as a client joins: its client counts them itself)
+    scores = _function(source, "static void send_scores")
+    assert "changed = values[16] != client->game_type_sent[16];" in scores
+    statistics = _function(source, "static void player_statistics")
+    assert "statistics->game_specific[0] = (specific[0] / TICKS_PER_SECOND) & 0xffff;" in statistics
     sound = _function(source, "void server_ce_multiplayer_sound")
     assert "sound_index == SOUND_COUNTDOWN_TIMER_END && game_engine &&" in sound
 
