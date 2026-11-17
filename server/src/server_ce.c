@@ -1618,7 +1618,8 @@ static void update_items(
 
 		if (client->item[number] != NONE && client->item_state[number] != ITEM_UNKNOWN &&
 			((item = object_try_and_get(client->item[number])) == NULL || ce.objects[number] != client->item[number] ||
-				(weapon_is_flag(client->item[number]) && item->object.owner_team_index != client->item_owner[number])))
+				(TEST_FLAG(_object_mask_weapon, item->object.type) && weapon_is_flag(client->item[number]) &&
+					item->object.owner_team_index != client->item_owner[number])))
 		{
 			ce_payload_put_object_delete(reliable, number);
 			client->item[number] = NONE;
