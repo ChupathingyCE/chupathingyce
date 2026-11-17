@@ -4207,6 +4207,20 @@ static unsigned long names_asked;
 /* (read, not yet taken: under browser_lock) */
 static struct server_names_list *names_pending;
 
+/* the length of a blocked-names response's whole lines: all of it, unless it
+filled the buffer, when its last line may be cut short (a word cut short
+blocks other names than the site meant), so that line is left out */
+static size_t names_complete_length(const char *response)
+{
+	size_t length = strlen(response);
+	const char *last;
+
+	if (length < NAMES_RESPONSE_SIZE - 1)
+		return length;
+	last = strrchr(response, '\n');
+	return last ? (size_t)(last - response) + 1 : 0;
+}
+
 static void update_names(void)
 {
 	char url[512], error[256];
@@ -4222,7 +4236,7 @@ static void update_names(void)
 	list = malloc(sizeof(*list));
 	if (response && list &&
 		posix_browser_request(url, NULL, NULL, response, NAMES_RESPONSE_SIZE, error, sizeof(error)) == 200 &&
-		server_names_list_parse(list, response, strlen(response)) > 0)
+		server_names_list_parse(list, response, names_complete_length(response)) > 0)
 	{
 		pthread_mutex_lock(&browser_lock);
 		free(names_pending);
