@@ -220,7 +220,7 @@ enum
 	datagram, the objects over the host's stream: the two come in the same
 	frame at a spawn, the datagram read first), and how long (the host's
 	refresh comes then anyway) */
-	MAXIMUM_PENDING_INVENTORIES = 16,
+	MAXIMUM_PENDING_INVENTORIES = 64,
 	PENDING_INVENTORY_TICKS = INVENTORY_REFRESH_TICKS,
 };
 
