@@ -252,6 +252,10 @@ struct p2p_listing
 	/* the host's (its XNADDR's abEnet once reached) */
 	unsigned char identifier[6];
 	char name[P2P_LISTING_NAME_SIZE + 1];
+	/* the name as the host sent it (UTF-8; control bytes as spaces), for
+	the blocked-names check: name is printable ASCII for the menus' font,
+	where a letter outside ASCII is '?', which the check can't see past */
+	char name_utf8[P2P_LISTING_NAME_SIZE + 1];
 	char map[P2P_LISTING_MAP_SIZE + 1];
 	char gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	unsigned char player_count, maximum_player_count, engine_type;

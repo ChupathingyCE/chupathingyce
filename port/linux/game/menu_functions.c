@@ -5843,7 +5843,8 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 
 /* only the games this build can join (game_list_rules.h): a game the list
 has by the list's word (browser_game_shown), a listing it lacks by its own
-number (browser_version_shown); every game with debug.show_all_games */
+number (browser_listing_shown: not an older build's); every game with
+debug.show_all_games. Never a game of a blocked name (browser_name_blocked_text) */
 static void lobby_browser_joinable_games(void)
 {
 	short index, kept;
@@ -5852,11 +5853,14 @@ static void lobby_browser_joinable_games(void)
 	{
 #ifdef HALO_GAME_BROWSER
 		struct browser_game const *listed = lobby_browser_listed_game(&lobby_browser.games[index]);
-		int shown = listed ? browser_game_shown(listed) : browser_version_shown(lobby_browser.games[index].version);
+		int shown = listed ? browser_game_shown(listed) : browser_listing_shown(lobby_browser.games[index].version);
 #else
-		int shown = browser_version_shown(lobby_browser.games[index].version);
+		int shown = browser_listing_shown(lobby_browser.games[index].version);
 #endif
 
+		if (shown && (browser_name_blocked_text(lobby_browser.games[index].name) ||
+			browser_name_blocked_text(lobby_browser.games[index].name_utf8)))
+			shown = 0;
 		if (shown)
 			lobby_browser.games[kept++] = lobby_browser.games[index];
 	}

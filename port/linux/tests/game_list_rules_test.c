@@ -12,8 +12,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #include "../src/game_list_rules.h"
+#include "../src/server_names.h"
 
 #include <stdio.h>
+#include <string.h>
+
+/* the built-in blocked names list (delta_chat_words.c) */
+extern const char delta_chat_blocked_words[];
 
 static int failures;
 
@@ -71,6 +76,36 @@ int main(void)
 	/* a range a table widened */
 	CHECK(game_list_joinable(47, 0, 11, 47));
 	CHECK(!game_list_joinable(48, 0, 11, 47));
+	/* broker listings: only 35 and newer are listed */
+	CHECK(GAME_LIST_BROKER_MINIMUM_VERSION == 35u);
+	CHECK(!game_list_broker_listed(0));
+	CHECK(!game_list_broker_listed(26));
+	CHECK(!game_list_broker_listed(34));
+	CHECK(game_list_broker_listed(35));
+	CHECK(game_list_broker_listed(44));
+	/* (the closed bit is not a newer number) */
+	CHECK(!game_list_broker_listed(0x8000u | 26));
+	/* blocked names, as the site compares them (case, look-alikes, spaces,
+	digits at the end, repeated letters); the list's words are in ROT13 */
+	{
+		static struct server_names_list list, other;
+
+		CHECK(server_names_list_parse(&list, delta_chat_blocked_words, strlen(delta_chat_blocked_words)) > 40);
+		CHECK(server_names_list_blocked_text(&list, "Adolf Hitler"));
+		CHECK(server_names_list_blocked_text(&list, "ADOLF H1TL3R"));
+		CHECK(server_names_list_blocked_text(&list, "h i t l e r 88"));
+		CHECK(server_names_list_blocked_text(&list, "Hiiitler"));
+		CHECK(server_names_list_blocked_text(&list, "\xd0\xbditler"));
+		CHECK(!server_names_list_blocked_text(&list, "Halo Night"));
+		CHECK(!server_names_list_blocked_text(&list, "Blood Gulch 24/7"));
+		CHECK(!server_names_list_blocked_text(&list, ""));
+		/* a list of its own, apart from another */
+		CHECK(server_names_list_parse(&other, "whole uryyb\n", 12) == 1);
+		CHECK(server_names_list_blocked_text(&other, "hello"));
+		CHECK(!server_names_list_blocked_text(&other, "hello there"));
+		CHECK(!server_names_list_blocked_text(&list, "hello"));
+		CHECK(!server_names_list_blocked_text(NULL, "Adolf Hitler"));
+	}
 	if (failures)
 		printf("%d failed\n", failures);
 	return failures != 0;
