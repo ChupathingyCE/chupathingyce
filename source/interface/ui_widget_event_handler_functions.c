@@ -2090,8 +2090,10 @@ static boolean pause_game_restart_at_checkpoint(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	/* port: in co-op this would revert only this machine */
-	if (network_coop_active())
+	/* port: in network co-op only the host reverts, and everyone follows
+	(main.c's main_coop_host_revert); a joined machine's game is the host's,
+	and its menu has no such row (menu_tags.c) */
+	if (network_coop_active() && !global_network_game_server_get())
 		return FALSE;
 	main_revert_map();
 	return TRUE;
@@ -2102,9 +2104,17 @@ static boolean pause_game_restart_level(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	/* port: in co-op this would restart only this machine */
+	/* port: in network co-op the host's restart takes everyone back to the
+	lobby with the same level, to start it again together (a reset here would
+	restart this machine alone); a joined machine's menu has no such row
+	(menu_tags.c) */
 	if (network_coop_active())
-		return FALSE;
+	{
+		if (!global_network_game_server_get())
+			return FALSE;
+		network_game_server_port_cooperative_won(NULL);
+		return TRUE;
+	}
 	main_reset_map();
 	return TRUE;
 }

@@ -61,6 +61,9 @@ int platform_audio_device_names(char const **names, int maximum);
 
 /* the game's network server (this machine hosts: network_game_globals.c) */
 void *global_network_game_server_get(void);
+/* (game.c's, and its _game_connection_network_client: a joined machine) */
+short game_connection(void);
+enum { GAME_CONNECTION_NETWORK_CLIENT = 1 };
 /* whether the pause menu has CHANGE TEAMS (team_change.c) */
 boolean team_change_pause_offered(void);
 int config_boolean(char const *name);
@@ -1750,6 +1753,31 @@ SETTINGS stands for it), and GAME OPTIONS while it opens Halo PC's stock
 list alone (CHOOSE TEAM, RESTART GAME, NEW GAME and BACK: CHANGE TEAMS and
 the host's END GAME stand for them, and Halo PC's functions behind them are
 not this engine's). A map's own rows are kept. */
+/* (a network co-op game this machine joined: its campaign pause screen has
+no REVERT or RESTART, which only the host's game does: pause_patch) */
+static boolean pause_coop_joined;
+
+/* whether the button runs one of the campaign's pause rows that restart:
+REVERT TO CHECKPOINT and RESTART LEVEL */
+static boolean pause_row_restarts(struct ui_widget_definition const *button)
+{
+	struct ui_widget_event_handler_reference const *handlers = xbox_pointer(button->event_handlers.address);
+	long revert = ui_function_named("pause game restart at checkpoint");
+	long restart = ui_function_named("pause game restart level");
+	long handler;
+
+	for (handler = 0; handler < button->event_handlers.count; handler++)
+	{
+		if (TEST_FLAG(handlers[handler].flags, _event_handler_run_function_bit) &&
+			((revert != NONE && handlers[handler].function == revert) ||
+			(restart != NONE && handlers[handler].function == restart)))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
 static boolean pause_row_replaced(long button_tag)
 {
 	static char const *const stock_options[] = { "\\choose_team_button", "\\restart_game_button",
@@ -1760,6 +1788,8 @@ static boolean pause_row_replaced(long button_tag)
 
 	if (button_tag == NONE)
 		return FALSE;
+	if (pause_coop_joined && pause_row_restarts(tag_get(UI_WIDGET_DEFINITION_TAG, button_tag)))
+		return TRUE;
 	if (tag_name_ends(button_tag, "\\pause_game\\change_settings_button"))
 		return TRUE;
 	if (!tag_name_ends(button_tag, "\\pause_game\\game_options_button"))
@@ -2184,10 +2214,12 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	short grow = 0;
 
 	/* the campaign's (a network co-op game's too): no END GAME, which is
-	the multiplayer game engine's */
+	the multiplayer game engine's; a joined co-op game's, no REVERT or
+	RESTART (pause_row_replaced) */
+	pause_coop_joined = solo_screen != NONE && game_connection() == GAME_CONNECTION_NETWORK_CLIENT;
 	if (solo_screen != NONE)
 	{
-		if (settings || pause_controls_offered() || pause_guide_offered())
+		if (settings || pause_controls_offered() || pause_guide_offered() || pause_coop_joined)
 			pause_screen_patch(instances, solo_screen, NONE, FALSE, settings, FALSE, &patched_list, &grow, &box_grown);
 	}
 	else if (collection != NONE)
