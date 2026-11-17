@@ -761,6 +761,11 @@ def test_ctf_reaches_custom_edition():
     # (a capture's message shows the scores its client has: they go first)
     message = _function(source, "void server_ce_multiplayer_message")
     assert message.index("send_scores(client);") < message.index("ce_payload_put_hud_message(")
+    # (a game type's messages are two further on in Custom Edition's list:
+    # Capture the Flag's capture, 31 here, is its 33, "You scored 1 to 0")
+    assert "ce_message_number(message)" in message
+    numbers = _function(source, "static unsigned int ce_message_number")
+    assert "FIRST_GAME_TYPE_MESSAGE = 30," in numbers and "CE_FIRST_GAME_TYPE_MESSAGE = 32," in numbers
 
 
 def test_welcome_line():

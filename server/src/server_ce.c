@@ -2423,6 +2423,25 @@ boolean server_ce_players_present(
 	return FALSE;
 }
 
+/* a HUD message's number as Custom Edition has it: the game's own messages
+are ours up to the time left (30); then Custom Edition has one more of its
+own (31, "You were telefragged"), and a game type's messages start after
+them (32, Capture the Flag's "Red Team 1 Blue Team 0"), where ours start at
+30 (every one checked on a real client) */
+static unsigned int ce_message_number(
+	long message)
+{
+	enum
+	{
+		FIRST_GAME_TYPE_MESSAGE = 30,
+		CE_FIRST_GAME_TYPE_MESSAGE = 32,
+	};
+
+	if (message >= FIRST_GAME_TYPE_MESSAGE)
+		return (unsigned int)(message - FIRST_GAME_TYPE_MESSAGE + CE_FIRST_GAME_TYPE_MESSAGE);
+	return (unsigned int)message;
+}
+
 /* a message on a player's HUD (game_engine.c's game_show_score_one_player):
 told to the player's Custom Edition client, as Custom Edition's own server
 tells it */
@@ -2448,7 +2467,7 @@ void server_ce_multiplayer_message(
 		1 to 0", from what its client has) */
 		send_scores(client);
 		ce_payload_begin(&payload, out, sizeof(out));
-		ce_payload_put_hud_message(&payload, network_player_number(client, player_index), (unsigned int)message,
+		ce_payload_put_hud_message(&payload, network_player_number(client, player_index), ce_message_number(message),
 			(unsigned int)message_data);
 		ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE);
 	}
