@@ -30,6 +30,22 @@ tables and `halo_port_limits.h` against each other, and
 The reference client for ports, `tools/delta-ref`, is checked against
 `delta_wire.c`'s own bytes by `tools/delta_ref_capture/capture.py`.
 
+## Notes by spec section
+
+Where Chupathingy's side of each part of the spec lives. These notes used to
+sit in the spec pages; they are about this implementation only.
+
+- **[peer.md Chat](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#chat).** The game's side is `port/linux/game/chat.c` (keys, the log, routing, the bridge), `port/linux/src/delta_chat.c` (the filter and the host's rules) and `port/linux/src/delta_chat_bridge.c` (OpenCE's entries, the text's conversion, the bridge's checks), both tested in `delta_test.c`, and the dedicated server's `sv_say`, `sv_chat`, `sv_mute` and `sv_unmute`.
+- **[peer.md Team changes](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#team-changes).** The game's side is `port/linux/game/team_change.c`, its pause menu row in all the menu sets, and the dedicated server's settings and `sv_team`.
+- **[peer.md Host rules](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#host-rules).** The game's side is `port/linux/game/host_rules.c` and `port/linux/game/late_join.c`.
+- **[peer.md Reports](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#reports).** The game's side is `port/linux/game/report_player.c` (the Delta Guide's PLAYERS HERE and the scoreboard's REPORT), the dedicated server's `server/src/server_reports.c` (`sv_reports`, the control panel's Reports).
+- **[peer.md Server badges](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#server-badges).** The game's side is `port/linux/src/server_badge.c` and `port/linux/src/delta_peer_game.c`; the dedicated server's certificate is `server_badge.cert` in its data folder.
+- **[peer.md Voice](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#voice).** The game's side is `port/linux/game/voice_game.c` (the channels, the host's rules and its view of the game), `port/linux/src/voice.c` (the microphone, Opus and the voices' playback, through the game's mixer, `dsound_sdl.c`) and `port/linux/src/voice_jitter.c`; Delta Peer's checks and routing are in `delta_peer.c`, all tested in `delta_test.c` and `voice_test.c`. A dedicated server relays without any audio or Opus of its own. The consoles leave voice out for now: a console is never sent any.
+- **[peer.md Party teams](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#party-teams).** The host's side is `port/linux/game/party_teams.c` (which change: the plan in `port/linux/src/party_teams_plan.c`, tested by `tools/test_party_teams.py`); the members' tag comes from `port/linux/game/guide.c`.
+- **[peer.md Object sync](https://github.com/ChupathingyCE/delta-spec/blob/main/peer.md#object-sync).** It is offered by the builds with the game list (`HALO_GAME_BROWSER`: the desktop builds, Android, the Switch and the dedicated server), not by the original Xbox's. The game's side is `port/linux/game/network_objects.c`.
+- **[stats.md Medals](https://github.com/ChupathingyCE/delta-spec/blob/main/stats.md#medals).** The names and icons are the site's too, one set for both. `tools/medal_assets.py`, run by hand with a checkout of ChupathingyCE/puma, reads `site.js`'s tables (`MEDALS`, `TIERS`, `SHAPES`, `GLYPHS`), draws each icon as the site's `medalSVG` does, and writes `port/assets/medals` (`medals.json` and an atlas of 64 pixels a medal, which the builds embed, and one of 32 for a console later) and `port/linux/src/medal_icons.h`. puma's `test_medals_sync.py` keeps the digest of the tables the game was made from, so a change on the site says to run it again; `tools/test_medal_rules.py` checks every key of `medal_rules.h` has its entry and icon.
+- **[list.md Pings before joining](https://github.com/ChupathingyCE/delta-spec/blob/main/list.md#pings-before-joining).** `port/linux/tests/ping_test.c` tests the formats with hostile input, the host's limits, the prober's measuring, the anchors and the Ping column's order; `HALO_NETWORK_TEST=browse` opens Online Games and logs each game's ping, for two copies on one machine.
+
 ## The advertisement in the code
 
 The tag and the old layout ([peer.md](delta/peer.md#the-advertisement)) are
