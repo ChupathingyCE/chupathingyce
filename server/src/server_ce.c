@@ -154,6 +154,9 @@ struct ce_client
 	unsigned char item_baseline[NETWORK_OBJECTS + 1];
 	float item_position[NETWORK_OBJECTS + 1][3];
 	int item_rounds[NETWORK_OBJECTS + 1];
+	/* (and its team as told: a client takes an object's team only as it is
+	created) */
+	short item_owner[NETWORK_OBJECTS + 1];
 	long item_tick[NETWORK_OBJECTS + 1];
 	/* each player's vehicle and seat as it was told (NONE: on foot) */
 	long vehicle_sent[TRACKED_PLAYERS];
@@ -173,12 +176,15 @@ struct ce_client
 	/* the scores and numbers it was told last (by absolute index) */
 	int scores_sent[CE_GAME_PLAYERS];
 	int team_scores_sent[CE_GAME_PLAYERS];
-	struct ce_player_statistics statistics_sent[CE_GAME_PLAYERS];
-	boolean statistics_known[CE_GAME_PLAYERS];
+	/* (by the player's absolute index: a roster takes players in the
+	game's order, so its 16 can be any of the first TRACKED_PLAYERS) */
+	struct ce_player_statistics statistics_sent[TRACKED_PLAYERS];
+	boolean statistics_known[TRACKED_PLAYERS];
 	boolean scores_known;
 	/* Capture the Flag's scores and flag swap timer as told last */
 	long ctf_scores_sent[2];
 	long ctf_swap_sent;
+	long ctf_team_sent;
 	boolean ctf_known;
 	/* the other game types' state as told last (game_type_state) */
 	unsigned int game_type_sent[CE_GAME_TYPE_VALUES];
@@ -511,6 +517,15 @@ static void game_settings_for(
 			/* (the client's own player always; the others, at most 15) */
 			if (!is_own && others >= CE_GAME_PLAYERS - 1)
 				continue;
+			/* (and only players the client's updates can carry: a player
+			past the first TRACKED_PLAYERS is never added to it) */
+			if (!is_own)
+			{
+				long datum = network_player_datum(player);
+
+				if (datum != NONE && DATUM_INDEX_TO_ABSOLUTE_INDEX(datum) >= TRACKED_PLAYERS)
+					continue;
+			}
 			if (!is_own)
 				others++;
 			if (is_own)
@@ -606,6 +621,13 @@ static void roster_told(
 	long const *slot_players)
 {
 	csmemcpy(client->roster, settings->players, sizeof(client->roster));
+	/* (a player numbered differently now: its numbers told again under
+	its new number) */
+	if (csmemcmp(client->roster_players, slot_players, sizeof(client->roster_players)))
+	{
+		csmemset(client->statistics_known, 0, sizeof(client->statistics_known));
+		client->scores_known = FALSE;
+	}
 	csmemcpy(client->roster_players, slot_players, sizeof(client->roster_players));
 	client->roster_count = settings->player_count;
 	client->roster_known = TRUE;
@@ -1044,6 +1066,7 @@ static void item_told(
 	client->item_position[number][1] = object->object.position.y;
 	client->item_position[number][2] = object->object.position.z;
 	client->item_rounds[number] = TEST_FLAG(_object_mask_weapon, object->object.type) ? weapon_rounds(object_index) : 0;
+	client->item_owner[number] = object->object.owner_team_index;
 	client->item_tick[number] = game_time_get();
 }
 
@@ -1374,15 +1397,35 @@ static void send_scores(
 	{
 		long scores[2], swap_timer;
 
+		long team_with_flag = 0;
+
 		game_engine_ctf_get_state(scores, &swap_timer);
+		/* (one flag: the team whose flag it is, as Custom Edition's own
+		server tells it (the flag's own team); two flags: 0, as it does) */
+		if (game_engine_get_variant()->game_engine_variant.ctf.single_flag_time > 0)
+		{
+			struct object_iterator flags;
+			struct object_datum *flag;
+
+			object_iterator_new(&flags, _object_mask_weapon, 0);
+			while ((flag = object_iterator_next(&flags)) != NULL)
+			{
+				if (weapon_is_flag(flags.index) && flag->object.owner_team_index != NONE)
+				{
+					team_with_flag = flag->object.owner_team_index;
+					break;
+				}
+			}
+		}
 		if (!client->ctf_known || scores[0] != client->ctf_scores_sent[0] || scores[1] != client->ctf_scores_sent[1] ||
-			swap_timer > client->ctf_swap_sent)
+			swap_timer > client->ctf_swap_sent || team_with_flag != client->ctf_team_sent)
 		{
 			int sent[2];
 
 			sent[0] = (int)scores[0];
 			sent[1] = (int)scores[1];
-			ce_payload_put_ctf_update(&payload, (unsigned int)swap_timer, sent, 0);
+			ce_payload_put_ctf_update(&payload, (unsigned int)swap_timer, sent, (int)team_with_flag);
+			client->ctf_team_sent = team_with_flag;
 			client->ctf_scores_sent[0] = scores[0];
 			client->ctf_scores_sent[1] = scores[1];
 			client->ctf_known = TRUE;
@@ -1422,8 +1465,11 @@ static void send_scores(
 		long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
 		struct ce_player_statistics statistics;
 
-		if (absolute >= CE_GAME_PLAYERS || client->announced[absolute] != iterator.datum_index)
+		if (absolute >= TRACKED_PLAYERS || client->announced[absolute] != iterator.datum_index ||
+			!network_player_number(client, iterator.datum_index))
+		{
 			continue;
+		}
 		player_statistics(player, &statistics);
 		if (client->statistics_known[absolute] &&
 			!csmemcmp(&statistics, &client->statistics_sent[absolute], sizeof(statistics)))
@@ -1549,11 +1595,16 @@ static void update_items(
 	int number;
 
 	held_weapons_update();
-	/* (items gone: taken away) */
+	/* (items gone: taken away; and a flag whose team changed (one flag
+	Capture the Flag, its sides swapped): taken away and made again, as
+	Custom Edition's own server makes the flag for the other team) */
 	for (number = 1; number <= NETWORK_OBJECTS; number++)
 	{
+		struct object_datum *item;
+
 		if (client->item[number] != NONE && client->item_state[number] != ITEM_UNKNOWN &&
-			(!object_try_and_get(client->item[number]) || ce.objects[number] != client->item[number]))
+			((item = object_try_and_get(client->item[number])) == NULL || ce.objects[number] != client->item[number] ||
+				(weapon_is_flag(client->item[number]) && item->object.owner_team_index != client->item_owner[number])))
 		{
 			ce_payload_put_object_delete(reliable, number);
 			client->item[number] = NONE;
@@ -2560,15 +2611,15 @@ are ours up to the time left (30); then Custom Edition has one more of its
 own (31, "You were telefragged"), and a game type's messages start after
 them (32, Capture the Flag's "Red Team 1 Blue Team 0"), where ours start at
 30 (every one checked on a real client) */
+enum
+{
+	FIRST_GAME_TYPE_MESSAGE = 30,
+	CE_FIRST_GAME_TYPE_MESSAGE = 32,
+};
+
 static unsigned int ce_message_number(
 	long message)
 {
-	enum
-	{
-		FIRST_GAME_TYPE_MESSAGE = 30,
-		CE_FIRST_GAME_TYPE_MESSAGE = 32,
-	};
-
 	if (message >= FIRST_GAME_TYPE_MESSAGE)
 		return (unsigned int)(message - FIRST_GAME_TYPE_MESSAGE + CE_FIRST_GAME_TYPE_MESSAGE);
 	return (unsigned int)message;
@@ -2584,23 +2635,40 @@ void server_ce_multiplayer_message(
 {
 	short index;
 
+	/* (a game type a Custom Edition client is shown as Slayer (Bomb): its
+	own messages would read as Slayer's there, "You scored" as "new
+	target"; not told) */
+	if (message >= FIRST_GAME_TYPE_MESSAGE &&
+		(!game_engine || !engine_told(game_engine_get_variant()->game_engine_index)))
+	{
+		return;
+	}
 	for (index = 0; ce.enabled && index < CE_LOCAL_PLAYERS; index++)
 	{
 		struct ce_client *client = &ce.clients[index];
 		struct ce_payload payload;
 		unsigned char out[32];
+		long data = message_data;
 
 		if (!client->active || !client->loaded || client->phase != CE_PHASE_PLAYING ||
 			local_player_get_player_index(index) != player_index)
 		{
 			continue;
 		}
+		/* (a player the message names (a killer, a carrier): its client
+		knows the players of its roster by the handles it was told
+		(player add); one outside its roster, none) */
+		if (data != NONE && (data >> 16) != 0 && player_data && player_try_and_get(data) &&
+			!network_player_number(client, data))
+		{
+			data = NONE;
+		}
 		/* (the scores first: a capture's message shows them, "You scored
 		1 to 0", from what its client has) */
 		send_scores(client);
 		ce_payload_begin(&payload, out, sizeof(out));
 		ce_payload_put_hud_message(&payload, network_player_number(client, player_index), ce_message_number(message),
-			(unsigned int)message_data);
+			(unsigned int)data);
 		ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE);
 	}
 }

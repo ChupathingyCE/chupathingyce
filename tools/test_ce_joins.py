@@ -765,7 +765,32 @@ def test_ctf_reaches_custom_edition():
     # Capture the Flag's capture, 31 here, is its 33, "You scored 1 to 0")
     assert "ce_message_number(message)" in message
     numbers = _function(source, "static unsigned int ce_message_number")
-    assert "FIRST_GAME_TYPE_MESSAGE = 30," in numbers and "CE_FIRST_GAME_TYPE_MESSAGE = 32," in numbers
+    assert "FIRST_GAME_TYPE_MESSAGE = 30," in source and "CE_FIRST_GAME_TYPE_MESSAGE = 32," in source
+    # (not a game type shown as Slayer (Bomb): its messages would read as
+    # Slayer's; a named player outside the client's roster, none)
+    assert "message >= FIRST_GAME_TYPE_MESSAGE &&" in message and "engine_told(" in message
+    assert "!network_player_number(client, data)" in message
+    # (one flag: the flag's team in its state, and the flag made again as
+    # its sides swap, as Custom Edition's own server does (research capture
+    # rs1, Assault): a client takes an object's team only at its creation)
+    scores = _function(source, "static void send_scores")
+    assert "team_with_flag = flag->object.owner_team_index;" in scores
+    items = _function(source, "static void update_items")
+    assert "item->object.owner_team_index != client->item_owner[number]" in items
+
+
+def test_roster_players_get_their_numbers():
+    """a roster takes the first 15 other players in the game's order,
+    whatever their index: each one's numbers reach its client, and a player
+    the client's updates can't carry is not listed"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    assert "struct ce_player_statistics statistics_sent[TRACKED_PLAYERS];" in source
+    scores = _function(source, "static void send_scores")
+    assert "absolute >= TRACKED_PLAYERS || client->announced[absolute] != iterator.datum_index" in scores
+    roster = _function(source, "static void game_settings_for")
+    assert "DATUM_INDEX_TO_ABSOLUTE_INDEX(datum) >= TRACKED_PLAYERS" in roster
+    told = _function(source, "static void roster_told")
+    assert "csmemset(client->statistics_known, 0, sizeof(client->statistics_known));" in told
 
 
 def test_game_types_match_captures(harness):  # noqa: F811
