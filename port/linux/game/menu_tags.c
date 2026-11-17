@@ -1757,25 +1757,13 @@ not this engine's). A map's own rows are kept. */
 no REVERT or RESTART, which only the host's game does: pause_patch) */
 static boolean pause_coop_joined;
 
-/* whether the button runs one of the campaign's pause rows that restart:
-REVERT TO CHECKPOINT and RESTART LEVEL */
-static boolean pause_row_restarts(struct ui_widget_definition const *button)
+/* whether the button is one of the campaign's pause rows that restart:
+REVERT TO SAVED and RESTART LEVEL (each opens its confirmation, whose OK runs
+"pause game restart at checkpoint" or "pause game restart level") */
+static boolean pause_row_restarts(long button_tag)
 {
-	struct ui_widget_event_handler_reference const *handlers = xbox_pointer(button->event_handlers.address);
-	long revert = ui_function_named("pause game restart at checkpoint");
-	long restart = ui_function_named("pause game restart level");
-	long handler;
-
-	for (handler = 0; handler < button->event_handlers.count; handler++)
-	{
-		if (TEST_FLAG(handlers[handler].flags, _event_handler_run_function_bit) &&
-			((revert != NONE && handlers[handler].function == revert) ||
-			(restart != NONE && handlers[handler].function == restart)))
-		{
-			return TRUE;
-		}
-	}
-	return FALSE;
+	return tag_name_ends(button_tag, "\\solo_game\\pause_game\\restart_at_save_point_button") ||
+		tag_name_ends(button_tag, "\\solo_game\\pause_game\\restart_level_button");
 }
 
 static boolean pause_row_replaced(long button_tag)
@@ -1788,7 +1776,7 @@ static boolean pause_row_replaced(long button_tag)
 
 	if (button_tag == NONE)
 		return FALSE;
-	if (pause_coop_joined && pause_row_restarts(tag_get(UI_WIDGET_DEFINITION_TAG, button_tag)))
+	if (pause_coop_joined && pause_row_restarts(button_tag))
 		return TRUE;
 	if (tag_name_ends(button_tag, "\\pause_game\\change_settings_button"))
 		return TRUE;
