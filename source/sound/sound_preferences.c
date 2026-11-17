@@ -29,8 +29,10 @@ static struct sound_preferences default_sound_preferences =
 {
 	0,
 #ifdef HALO_CUSTOM_EDITION
-	{ 10, 51, 10, 10, 2, 4, 4, 1 },
-	{ 9, 46, 9, 9, 2, 4, 4, 1 },
+	/* (port: the PCM types have as many voices as the Xbox's: Custom Edition
+	maps' weapons and effects can be Ogg Vorbis, and ran out of them) */
+	{ 10, 51, 10, 10, 10, 51, 10, 10 },
+	{ 9, 46, 9, 9, 9, 46, 9, 9 },
 #else
 	{ 10, 51, 10, 10 },
 	{ 9, 46, 9, 9 },
