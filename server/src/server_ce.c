@@ -2444,6 +2444,9 @@ void server_ce_multiplayer_message(
 		{
 			continue;
 		}
+		/* (the scores first: a capture's message shows them, "You scored
+		1 to 0", from what its client has) */
+		send_scores(client);
 		ce_payload_begin(&payload, out, sizeof(out));
 		ce_payload_put_hud_message(&payload, network_player_number(client, player_index), (unsigned int)message,
 			(unsigned int)message_data);

@@ -753,6 +753,9 @@ def test_ctf_reaches_custom_edition():
     assert "server_ce_multiplayer_message(player_index, message, message_data);" in engine
     sounds = (ROOT / "source/game/game_engine_multiplayer_sounds.c").read_text(encoding="utf-8")
     assert "server_ce_multiplayer_sound(sound_index);" in sounds
+    # (a capture's message shows the scores its client has: they go first)
+    message = _function(source, "void server_ce_multiplayer_message")
+    assert message.index("send_scores(client);") < message.index("ce_payload_put_hud_message(")
 
 
 def test_welcome_line():
