@@ -4924,6 +4924,10 @@ static int add_direct(struct browser_game *games, int count, int maximum_count, 
 			locked_code(listing, sealed);
 			code = sealed;
 		}
+		/* (a blocked name, checked on the name as the host sent it: the
+		names here are ASCII, where a letter outside it is '?') */
+		if (browser_name_blocked_text(listing->name_utf8))
+			continue;
 		/* (an older build's listing is not listed: game_list_broker_listed) */
 		if (strlen(code) != BROWSER_INVITE_LENGTH || !browser_listing_shown(listing->version) ||
 			!SDL_strncasecmp(code, own, 2 * P2P_KEY_HASH_SIZE) || listing_on_list(listing, code, games, listed))

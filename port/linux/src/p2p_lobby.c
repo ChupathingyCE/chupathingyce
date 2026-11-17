@@ -145,6 +145,8 @@ struct listing
 	unsigned char sealed_token[P2P_SEALED_TOKEN_SIZE];
 	int player_count, maximum_player_count, engine_type;
 	char name[P2P_LISTING_NAME_SIZE + 1];
+	/* (as sent, for the blocked-names check: struct p2p_listing's) */
+	char name_utf8[P2P_LISTING_NAME_SIZE + 1];
 	char map[P2P_LISTING_MAP_SIZE + 1];
 	char gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	/* the stamp's first byte: the game's kind (version 37; the rest of the
@@ -363,6 +365,21 @@ static int get_text(const unsigned char *bytes, int size, int *offset, char *tex
 	return 1;
 }
 
+/* a text field as sent (UTF-8), control bytes as spaces, cut to size: the
+blocked-names check's copy of a name (struct p2p_listing's name_utf8) */
+static void copy_utf8(char *destination, int size, const char *source, int source_size)
+{
+	int index;
+
+	for (index = 0; index < size && index < source_size && source[index]; index++)
+	{
+		unsigned char character = (unsigned char)source[index];
+
+		destination[index] = character < 0x20 || character == 0x7F ? ' ' : (char)character;
+	}
+	destination[index] = 0;
+}
+
 /* reads a listing (not its signature); 0 if it is malformed */
 static int listing_read(const unsigned char *bytes, int size, struct listing *listing)
 {
@@ -400,6 +417,11 @@ static int listing_read(const unsigned char *bytes, int size, struct listing *li
 	listing->player_count = bytes[offset++];
 	listing->maximum_player_count = bytes[offset++];
 	listing->engine_type = bytes[offset++];
+	/* (the name's bytes as sent, before get_text makes them ASCII) */
+	if (offset < size && bytes[offset] <= P2P_LISTING_NAME_SIZE && offset + 1 + bytes[offset] <= size)
+		copy_utf8(listing->name_utf8, P2P_LISTING_NAME_SIZE, (const char *)bytes + offset + 1, bytes[offset]);
+	else
+		listing->name_utf8[0] = 0;
 	if (!get_text(bytes, size, &offset, listing->name, P2P_LISTING_NAME_SIZE) ||
 		!get_text(bytes, size, &offset, listing->map, P2P_LISTING_MAP_SIZE) ||
 		!get_text(bytes, size, &offset, listing->gametype, P2P_LISTING_GAMETYPE_SIZE))
@@ -755,6 +777,7 @@ static void listing_take(const struct queued *queued, const struct listing *list
 	}
 	p2p_identifier_from_hash(queued->key_hash, shown->identifier);
 	memcpy(shown->name, listing->name, sizeof(shown->name));
+	memcpy(shown->name_utf8, listing->name_utf8, sizeof(shown->name_utf8));
 	memcpy(shown->map, listing->map, sizeof(shown->map));
 	memcpy(shown->gametype, listing->gametype, sizeof(shown->gametype));
 	shown->player_count = (unsigned char)listing->player_count;

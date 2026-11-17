@@ -5858,7 +5858,8 @@ static void lobby_browser_joinable_games(void)
 		int shown = browser_listing_shown(lobby_browser.games[index].version);
 #endif
 
-		if (shown && browser_name_blocked_text(lobby_browser.games[index].name))
+		if (shown && (browser_name_blocked_text(lobby_browser.games[index].name) ||
+			browser_name_blocked_text(lobby_browser.games[index].name_utf8)))
 			shown = 0;
 		if (shown)
 			lobby_browser.games[kept++] = lobby_browser.games[index];
