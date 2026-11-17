@@ -100,6 +100,7 @@ void platform_log(char const *format, ...);
 boolean pc_menus_chupathingy(void);
 boolean invite_prompt_active(void);
 boolean server_ok_to_countdown(struct network_game_server *server);
+boolean network_game_server_lobby_is_open(struct network_game_server *server);
 void network_game_server_dedicated_start_countdown(struct network_game_server *server);
 void network_game_server_keep_menus_variant(struct network_game_server *server);
 boolean ui_widget_port_dispatch_event(struct widget_instance *widget, short event_type, short controller_index,
@@ -1034,7 +1035,15 @@ static void read_menu(struct network_game_server *server)
 	{
 	case _lobby_hosted:
 		if (lobby.started)
-			menu_add(_menu_cancel_start, "CANCEL START", "", TRUE);
+		{
+			/* (A shortens the countdown, as the Xbox's did; cancelling is
+			the row below, and only while the lobby is still open: once
+			the game has begun loading, the start can't be taken back) */
+			boolean open = !server || network_game_server_lobby_is_open(server);
+
+			menu_add(_menu_start_sooner, "START SOONER", "", open);
+			menu_add(_menu_cancel_start, "CANCEL START", "", open);
+		}
 		else
 		{
 			if (not_ready)
@@ -1692,7 +1701,16 @@ static void menu_act(short controller)
 	switch (row->action)
 	{
 	case _menu_start: start_game(TRUE); break;
-	case _menu_cancel_start: start_game(FALSE); break;
+	case _menu_cancel_start:
+	{
+		struct network_game_server *server = global_network_game_server_get();
+
+		/* (not once the start went out: the server would sit in its lobby
+		with the start sent, and refuse every change) */
+		if (!server || network_game_server_lobby_is_open(server))
+			start_game(FALSE);
+		break;
+	}
 	case _menu_change_map:
 		if (!lobby.debug)
 		{
