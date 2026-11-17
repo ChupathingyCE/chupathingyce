@@ -824,6 +824,11 @@ def test_game_types_match_captures(harness):  # noqa: F811
     # (and told as a client joins: its client counts them itself)
     scores = _function(source, "static void send_scores")
     assert "changed = values[16] != client->game_type_sent[16];" in scores
+    # (a free for all's teams are roster slots, one per player on a client,
+    # in the roster, the spawns, the bipeds and the game type's numbers)
+    assert "if (!game_engine_has_teams() && number)\n\t\treturn number - 1;" in _function(source, "static int client_team")
+    assert "(out)[slot] = (unsigned int)(array)[own_team];" in state
+    assert source.count("client_team(client, player_index)") == 3
     statistics = _function(source, "static void player_statistics")
     assert "statistics->game_specific[0] = (specific[0] / TICKS_PER_SECOND) & 0xffff;" in statistics
     sound = _function(source, "void server_ce_multiplayer_sound")

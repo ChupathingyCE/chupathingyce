@@ -307,6 +307,23 @@ static int network_player_number(
 	return 0;
 }
 
+/* a player's team on a client's wire: a team game's team; in a free for
+all (each player its own team) its slot in that client's roster, as its
+number is, so no two of a client's 16 share one */
+static int client_team(
+	struct ce_client const *client,
+	long player_index)
+{
+	int number = network_player_number(client, player_index);
+	long team = player_index == NONE ? NONE : player_get(player_index)->team_index;
+
+	if (!game_engine_has_teams() && number)
+		return number - 1;
+	if (team == NONE || team < 0)
+		return 0;
+	return (int)(team % CE_GAME_PLAYERS);
+}
+
 /* ---------- the roster */
 
 static void put_text(
@@ -543,7 +560,8 @@ static void game_settings_for(
 			slot->color = player->primary_color_index;
 			slot->controller = 0;
 			team = network_player_team(player);
-			slot->team = wire_team(team);
+			/* (a free for all: its slot, as client_team has it) */
+			slot->team = settings->universal[0] ? wire_team(team) : settings->player_count;
 			slot->list_index = settings->player_count;
 			if (slot_players)
 				slot_players[settings->player_count] = network_player_datum(player);
@@ -558,7 +576,8 @@ static void game_settings_for(
 		slot->color = own ? own->primary_color_index : 0;
 		slot->machine = peer;
 		slot->controller = 0;
-		slot->team = own && own_player != NONE ? wire_team(player_get(own_player)->team_index) : 0;
+		slot->team = !settings->universal[0] ? settings->player_count :
+			own && own_player != NONE ? wire_team(player_get(own_player)->team_index) : 0;
 		slot->list_index = settings->player_count;
 		if (slot_players)
 			slot_players[settings->player_count] = own_player;
@@ -1114,7 +1133,7 @@ static void send_unit(
 	spawn.unknown_medium = 0xffff;
 	/* (its team: the client's HUD shows its own player's team from this,
 	and a team game's biped colors follow it) */
-	spawn.team = (unsigned int)wire_team(player_get(player_index)->team_index);
+	spawn.team = (unsigned int)client_team(client, player_index);
 	for (index = 0; index < MAXIMUM_WEAPONS_PER_UNIT; index++)
 	{
 		long weapon_index = unit->unit.weapon_object_indices[index];
@@ -1137,7 +1156,7 @@ static void send_unit(
 	put_object_start(&biped.object, unit_index, biped_number);
 	/* (its owner team, its player's: a client takes a player's team
 from its biped) */
-	biped.object.owner = wire_team(player_get(player_index)->team_index);
+	biped.object.owner = client_team(client, player_index);
 	biped.object.player = network_player_number(client, player_index);
 	/* (its colors as our game made them, its team's in a team game; none
 made: white) */
@@ -1303,9 +1322,26 @@ static int game_type_state(
 		if (player_index != NONE && DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) < HALO_PORT_MAXIMUM_NETWORK_PLAYERS) \
 			(out)[slot] = (unsigned int)(array)[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)]; \
 	}
+	/* (by team: in a free for all each player's team is its roster slot
+	on this client (client_team), so its value goes by slot) */
 #define BY_TEAM(out, array) \
-	for (team = 0; team < CE_GAME_PLAYERS; team++) \
-		(out)[team] = (unsigned int)(array)[team];
+	if (game_engine_has_teams()) \
+	{ \
+		for (team = 0; team < CE_GAME_PLAYERS; team++) \
+			(out)[team] = (unsigned int)(array)[team]; \
+	} \
+	else \
+	{ \
+		for (team = 0; team < CE_GAME_PLAYERS; team++) \
+			(out)[team] = 0; \
+		for (slot = 0; slot < client->roster_count && slot < CE_GAME_PLAYERS; slot++) \
+		{ \
+			long player_index = client->roster_players[slot]; \
+			long own_team = player_index == NONE ? NONE : player_get(player_index)->team_index; \
+			if (own_team >= 0 && own_team < HALO_PORT_MAXIMUM_NETWORK_PLAYERS) \
+				(out)[slot] = (unsigned int)(array)[own_team]; \
+		} \
+	}
 	if (engine == game_engine_oddball)
 	{
 		long const *individual, *teams, *owners;
@@ -1953,7 +1989,7 @@ static void update_client(
 			ce_payload_begin(&added, added_out, sizeof(added_out));
 			ce_payload_put_player_add(&added, list,
 				(unsigned int)player_index, network_player_number(client, player_index),
-				wire_team(player->team_index));
+				client_team(client, player_index));
 			added_length = ce_payload_end(&added);
 			if (ce_transport_send(client->peer, added_out, added_length, TRUE))
 			{
