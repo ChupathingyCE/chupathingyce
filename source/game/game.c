@@ -120,6 +120,7 @@ struct game_options;
 
 #include "cseries/cseries.h"
 #include "game/game.h"
+#include "stubbs_horde.h" /* port: port/linux/game/stubbs_horde.c */
 #include "ai/ai.h"
 #include "bink/bink_playback.h"
 #include "bungie_net/network/transport.h"
@@ -184,12 +185,15 @@ struct game_options;
 #ifdef HALO_64BIT
 #include "rasterizer/common/rasterizer_common.h"
 #endif
+#include "mcc_loading.h" /* port: port/linux/game/mcc_loading.c */
+#include "mcc_cache.h" /* port: mcc_level_name */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "loading_screen.h" /* port: port/linux/game/loading_screen.c */
 #include "networking/network_game_globals.h"
 #include "tag_files/tag_files.h"
 #include "cseries/cseries_windows.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
+#include "game_modes.h" /* port: the game modes layer (docs/modes.md) */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -351,20 +355,29 @@ void game_tick(
 	cheats_network_client_enforce();
 	remove_quitting_players_from_game();
 	game_allegiance_update();
+	HALO_PERF_BEGIN(_halo_perf_tick_units);
 	units_update();
+	HALO_PERF_END(_halo_perf_tick_units);
 	/* (the host's actors drive the host's units, which a client of the
 	distributed netcode has from the host: its own would fight the host's
 	positions, and could place objects of their own) */
+	HALO_PERF_BEGIN(_halo_perf_tick_ai);
 	if (!network_game_distributed_client())
 		ai_update();
 	else
 		network_actors_drive();
+	HALO_PERF_END(_halo_perf_tick_ai);
+	stubbs_horde_update(); /* port: Stubbs mode only (port/linux/game/stubbs_horde.c) */
+	HALO_PERF_BEGIN(_halo_perf_tick_units);
 	players_update_before_game();
+	HALO_PERF_END(_halo_perf_tick_units);
 
 	seconds_per_tick = game_globals->players_are_double_speed
 		? 1.0f / (2 * TICKS_PER_SECOND)
 		: 1.0f / TICKS_PER_SECOND;
+	HALO_PERF_BEGIN(_halo_perf_tick_effects);
 	effects_update(seconds_per_tick);
+	HALO_PERF_END(_halo_perf_tick_effects);
 	/* An antenna's chain is a simulation of the Xbox's own step, an update a
 	tick: stepped a frame at a time, its springs, its carry and its points'
 	physics act against the frames' own movement of it, and a vehicle at
@@ -375,7 +388,9 @@ void game_tick(
 	rumble_update();
 	first_person_weapons_update();
 	unlock_global_random_seed();
+	HALO_PERF_BEGIN(_halo_perf_tick_game_engine);
 	game_engine_update();
+	HALO_PERF_END(_halo_perf_tick_game_engine);
 	editor_update();
 	/* port: in network co-op only the host runs the scripts. A client running
 	them would place the map's actors and objects a second time and make
@@ -383,10 +398,17 @@ void game_tick(
 	if (!(network_game_distributed_client() && network_coop_active()))
 		hs_update();
 	recorded_animations_update();
+	HALO_PERF_BEGIN(_halo_perf_tick_objects);
 	objects_update();
+	HALO_PERF_END(_halo_perf_tick_objects);
+	HALO_PERF_BEGIN(_halo_perf_tick_units);
 	players_update_after_game();
+	HALO_PERF_END(_halo_perf_tick_units);
 	hud_update();
 	player_effect_update();
+	/* port: the wind steps once a tick (scenario.c; it stepped by the
+	frames' time) */
+	scenario_tick_update();
 	/* port: and at its end, before the frame draws the lights */
 	game_state_check_data_arrays();
 	lights_port_recover();
@@ -477,8 +499,12 @@ void game_set_game_variant(
 	{
 		game_variant_global = *variant;
 	}
-	/* port: its PC options, until the network game's are given */
+	/* port: its PC options, until the network game's are given, and no
+	further options (the game modes layer's) until they are */
 	game_variant_options_default(&game_variant_global, &game_variant_options_global);
+#ifdef HALO_GAME_BROWSER
+	game_mode_options_set(NULL);
+#endif
 
 	return;
 }
@@ -498,6 +524,17 @@ struct game_variant_options const *game_variant_options_get(
 	void)
 {
 	return &game_variant_options_global;
+}
+
+void game_set_game_mode_options(
+	unsigned char const *options)
+{
+#ifdef HALO_GAME_BROWSER
+	game_mode_options_set(options);
+	game_mode_variant_overrides(&game_variant_global);
+#else
+	(void)options;
+#endif
 }
 
 void game_set_game_engine_index(
@@ -618,6 +655,7 @@ boolean game_load(
 		game_options_verify(options));
 
 	random_seed_debug_log(TRUE);
+	mcc_loading_begin(options->map_name); /* port: no-op for Xbox/CE loads */
 	csmemcpy(&game_globals->options, options, sizeof(*options));
 	/* port: debug.determinism's games all play from one seed
 	(port/linux/game/determinism_check.c) */
@@ -629,6 +667,7 @@ boolean game_load(
 		game_globals->map_loaded = TRUE;
 	}
 
+	mcc_loading_end(game_globals->map_loaded); /* port: includes failed MCC loads */
 	return game_globals->map_loaded;
 }
 
@@ -812,9 +851,14 @@ void game_dispose(
 	return;
 }
 
-void game_precache_new_map(
+/* port: a map's precache; refusable, a map that can't be copied into the
+cache (its file missing, cut short or damaged) returns FALSE, the game as it
+was, where the Xbox's took it for a damaged disc (display_error_damaged_media),
+whose error stops the game for good (game_precache_new_map_refusable) */
+static boolean game_precache_map(
 	char *map_name,
-	boolean blocking)
+	boolean blocking,
+	boolean refusable)
 {
 	long map_status;
 	/* port: display.loading_screen */
@@ -838,12 +882,25 @@ void game_precache_new_map(
 		}
 
 		if (!cache_files_precache_in_progress() &&
-			!cache_files_precache_map_begin(map_name, blocking))
+			!cache_files_precache_map_begin(map_name, blocking && !refusable))
 		{
+			/* port: an MCC level that isn't there (mcc_cache_require
+			wrote why to debug.txt and queued it for the menus) is not
+			waited for: nothing is being copied. The load that follows
+			fails too and goes back to the menus (mcc_main_load_failed,
+			or the network game's own failure) */
+			if (mcc_level_name(map_name))
+			{
+				error(_error_silent, "mcc: %s can't be loaded; not waiting for it", map_name);
+				return FALSE;
+			}
 			error(
 				_error_silent,
 				"shouldn't be here... map '%s' doesn't exist",
 				map_name);
+			/* port: (refused: the game as it was) */
+			if (blocking && refusable)
+				return FALSE;
 			if (blocking)
 			{
 				match_vassert(
@@ -858,8 +915,9 @@ void game_precache_new_map(
 		if (blocking)
 		{
 			struct game_runtime_globals_prefix *globals = game_globals;
-#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
-			/* port: the console's renderer (the Switch's: port/switch/guest/dk_shaders.c) */
+#ifdef HALO_MAP_LOAD_HOOKS
+			/* port: the renderer's (the desktop's and Android's: port/linux/src/d3d8_shader_prep.inl; the
+			Switch's: port/switch/guest/dk_shaders.c) */
 			extern int d3d8_gl_map_waiting(void);
 			extern float d3d8_gl_map_progress(void);
 #endif
@@ -873,10 +931,10 @@ void game_precache_new_map(
 					cache_files_precache_is_copying_map(map_name));
 			ui_widget_load_progress_widget();
 			progress_bar_begin(global_scenario_index != NONE);
-#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
+#ifdef HALO_MAP_LOAD_HOOKS
 			/* port: the map's shaders are compiled under the loading screen,
-			which stays up for them once the map is read, for ten seconds at
-			most from here (port/switch/guest/dk_shaders.c) */
+			which stays up for them once the map is read, for some seconds at
+			most from here (port/linux/src/d3d8_shader_prep.inl, port/switch/guest/dk_shaders.c) */
 			{
 				extern void d3d8_gl_map_loading(const char *name);
 
@@ -889,12 +947,14 @@ void game_precache_new_map(
 				/* port: (asked until it is done, then held) */
 				if (!map_status)
 				{
-					map_status = cache_files_precache_map_status(
-						&game_globals->loading_progress);
+					/* port: (no copy going: nothing will finish, #1149) */
+					map_status = cache_files_precache_in_progress() ?
+						cache_files_precache_map_status(&game_globals->loading_progress) :
+						_cached_map_file_failed;
 				}
-#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
+#ifdef HALO_MAP_LOAD_HOOKS
 				/* port: the loading screen's progress is half the map's copy and half its shaders
-				(port/switch/guest/dk_shaders.c), never going back, so that its light sweeps across the whole
+				(d3d8_shader_prep.inl, port/switch/guest/dk_shaders.c), never going back, so that its light sweeps across the whole
 				time it is up and not across the copy alone, then dark through the shaders' wait */
 				{
 					static real shown;
@@ -921,7 +981,7 @@ void game_precache_new_map(
 				main_present_frame();
 			}
 			while (!map_status ||
-#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
+#ifdef HALO_MAP_LOAD_HOOKS
 				(map_status == _cached_map_file_success && d3d8_gl_map_waiting()) ||
 #endif
 				(map_status != _cached_map_file_failed &&
@@ -929,6 +989,17 @@ void game_precache_new_map(
 
 			progress_bar_end();
 			ui_widgets_close_all();
+			/* port: (refused, its copy ended: the cache slot is emptied as
+			the copy fails) */
+			if (map_status == _cached_map_file_failed && refusable)
+			{
+				error(_error_silent, "the copy of map '%s' into the cache failed", map_name);
+				cache_files_precache_map_abandon();
+				globals = game_globals;
+				globals->map_load_in_progress = FALSE;
+				globals->loading_progress = 0.0f;
+				return FALSE;
+			}
 			if (map_status == _cached_map_file_failed)
 				display_error_damaged_media();
 			cache_files_precache_map_end();
@@ -962,7 +1033,24 @@ void game_precache_new_map(
 			player_ui_remember_player1_profile(TRUE);
 	}
 
-	return;
+	return TRUE;
+}
+
+boolean game_precache_new_map(
+	char *map_name,
+	boolean blocking)
+{
+	return game_precache_map(map_name, blocking, FALSE);
+}
+
+/* port: a map precached, blocking, as game_precache_new_map does, but a map
+that can't be copied into the cache returns FALSE with nothing of the current
+game disposed of (main_change_map_name, network_game_create_game_objects).
+Based on work by goatbutt and the OpenH1 team. */
+boolean game_precache_new_map_refusable(
+	char *map_name)
+{
+	return game_precache_map(map_name, TRUE, TRUE);
 }
 
 void game_dispose_from_old_map(

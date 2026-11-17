@@ -165,7 +165,7 @@ int main(void)
 		memset(keys, 0x22, 32);
 		memset(keys + 32, 0x33, 32);
 		memset(keys + 64, 0x44, 32);
-		server_roles_set_site_handles(2, handles, handle_roles, site_roles, key_counts);
+		server_roles_set_site_handles(2, handles, handle_roles, site_roles, key_counts, NULL);
 		server_roles_set_site(3, keys, key_roles, key_names, 7);
 		server_roles_set_site_state(SERVER_SITE_ROLES_CACHED, (long long)time(NULL) - 3600, SERVER_ROLE_ADMIN, 24);
 	}

@@ -23,7 +23,8 @@ shader_texture_animation.h, rasterizer_xbox_models.c,
 rasterizer_xbox_environment.c, rasterizer_lights.c, shaders.c). Any other
 the game evaluates is evaluated as the first (periodic_functions.c).
 
-Every block and field read lies in the map's tag cache, or is passed over.
+Every block and field read lies in the map's tag cache, or is passed over, and
+no field written lies over its tag header or tag index (ce_map_checks.h).
 */
 
 #ifdef HALO_CUSTOM_EDITION
@@ -133,19 +134,6 @@ static struct
 
 /* ---------- private code */
 
-/* size bytes at an Xbox address in the map's tag cache, or NULL */
-static byte *ce_functions_pointer(
-	unsigned long address,
-	unsigned long size)
-{
-	if (address < CE_IMAGE_TAG_CACHE_BASE || address - CE_IMAGE_TAG_CACHE_BASE > CE_IMAGE_TAG_CACHE_SIZE ||
-		size > CE_IMAGE_TAG_CACHE_SIZE - (address - CE_IMAGE_TAG_CACHE_BASE))
-	{
-		return NULL;
-	}
-	return xbox_pointer(address);
-}
-
 /* a function field naming one of count functions: if it names none, the one
 its bytes name the other way round, or the first */
 static void ce_function_field(
@@ -158,15 +146,16 @@ static void ce_function_field(
 
 	if (value >= 0 && value < count)
 		return;
+	/* (not one over the tag header or tag index: ce_map_checks.h) */
+	if (!ce_tags_writable(field, sizeof(short)))
+		return;
 	*(short *)field = swapped >= 0 && swapped < count ? swapped : 0;
 	(*fixed)++;
 	if (ce_functions.logged < CE_FUNCTIONS_MAXIMUM_LOGGED)
 	{
-		char const *name = (char const *)ce_functions_pointer(ce_functions.instance->name, 1);
-
 		error(_error_silent, "Custom Edition maps: %s names %s function %d, made %d",
-			name ? name : "a tag", count == CE_PERIODIC_FUNCTION_COUNT ? "periodic" : "transition", value,
-			*(short *)field);
+			ce_loaded_tag_name(ce_functions.instance), count == CE_PERIODIC_FUNCTION_COUNT ? "periodic" : "transition",
+			value, *(short *)field);
 		ce_functions.logged++;
 	}
 }
@@ -192,7 +181,7 @@ static byte *ce_functions_block(
 	*count = *(long const *)block;
 	if (*count <= 0 || *count > CE_FUNCTIONS_MAXIMUM_ELEMENTS)
 		return NULL;
-	return ce_functions_pointer(*(unsigned long const *)(block + TAG_BLOCK_ADDRESS_OFFSET),
+	return ce_loaded_pointer(*(unsigned long const *)(block + TAG_BLOCK_ADDRESS_OFFSET),
 		(unsigned long)*count * element_size);
 }
 
@@ -253,6 +242,7 @@ void ce_functions_tags_loaded(
 	long index;
 
 	csmemset(&ce_functions, 0, sizeof(ce_functions));
+	ce_tags_guard_begin_loaded(tag_instances, tag_count);
 	for (index = 0; index < tag_count; index++)
 	{
 		struct ce_tag_instance const *instance = (struct ce_tag_instance const *)((byte *)tag_instances +
@@ -266,13 +256,13 @@ void ce_functions_tags_loaded(
 		if (group_tag == 'obje' || instance->parent_group_tags[0] == 'obje' ||
 			instance->parent_group_tags[1] == 'obje')
 		{
-			tag = ce_functions_pointer(instance->base_address, OBJECT_FUNCTIONS_OFFSET + TAG_BLOCK_SIZE);
+			tag = ce_loaded_pointer(instance->base_address, OBJECT_FUNCTIONS_OFFSET + TAG_BLOCK_SIZE);
 			if (tag)
 				ce_object_functions(tag);
 		}
 		else if (group_tag == 'jpt!')
 		{
-			tag = ce_functions_pointer(instance->base_address, DAMAGE_EFFECT_READ_SIZE);
+			tag = ce_loaded_pointer(instance->base_address, DAMAGE_EFFECT_READ_SIZE);
 			if (tag)
 			{
 				ce_transition_function(tag + DAMAGE_EFFECT_SCREEN_FLASH_FADE_OFFSET);
@@ -285,13 +275,13 @@ void ce_functions_tags_loaded(
 		}
 		else if (group_tag == 'cdmg')
 		{
-			tag = ce_functions_pointer(instance->base_address, CONTINUOUS_DAMAGE_EFFECT_READ_SIZE);
+			tag = ce_loaded_pointer(instance->base_address, CONTINUOUS_DAMAGE_EFFECT_READ_SIZE);
 			if (tag)
 				ce_periodic_function(tag + CONTINUOUS_DAMAGE_EFFECT_CAMERA_SHAKE_FUNCTION_OFFSET);
 		}
 		else if (group_tag == 'schi' || group_tag == 'scex')
 		{
-			tag = ce_functions_pointer(instance->base_address, CHICAGO_READ_SIZE);
+			tag = ce_loaded_pointer(instance->base_address, CHICAGO_READ_SIZE);
 			if (tag)
 			{
 				ce_chicago_maps(tag + CHICAGO_MAPS_OFFSET);
@@ -301,7 +291,7 @@ void ce_functions_tags_loaded(
 		}
 		else if (group_tag == 'soso')
 		{
-			tag = ce_functions_pointer(instance->base_address, MODEL_SHADER_READ_SIZE);
+			tag = ce_loaded_pointer(instance->base_address, MODEL_SHADER_READ_SIZE);
 			if (tag)
 			{
 				ce_periodic_function(tag + MODEL_SHADER_SELF_ILLUMINATION_FUNCTION_OFFSET);
@@ -310,7 +300,7 @@ void ce_functions_tags_loaded(
 		}
 		else if (group_tag == 'senv')
 		{
-			tag = ce_functions_pointer(instance->base_address, ENVIRONMENT_SHADER_READ_SIZE);
+			tag = ce_loaded_pointer(instance->base_address, ENVIRONMENT_SHADER_READ_SIZE);
 			if (tag)
 			{
 				ce_periodic_function(tag + ENVIRONMENT_SHADER_U_FUNCTION_OFFSET);
@@ -322,7 +312,7 @@ void ce_functions_tags_loaded(
 		}
 		else if (group_tag == 'ligh')
 		{
-			tag = ce_functions_pointer(instance->base_address, LIGHT_READ_SIZE);
+			tag = ce_loaded_pointer(instance->base_address, LIGHT_READ_SIZE);
 			if (tag)
 			{
 				ce_periodic_function(tag + LIGHT_GEL_YAW_FUNCTION_OFFSET);
@@ -332,11 +322,12 @@ void ce_functions_tags_loaded(
 		}
 		else if (group_tag == 'lens')
 		{
-			tag = ce_functions_pointer(instance->base_address, LENS_FLARE_READ_SIZE);
+			tag = ce_loaded_pointer(instance->base_address, LENS_FLARE_READ_SIZE);
 			if (tag)
 				ce_lens_flare_reflections(tag);
 		}
 	}
+	ce_tags_guard_end();
 	error(_error_silent, "Custom Edition maps: %ld periodic and %ld transition functions there are none of made valid",
 		ce_functions.periodic, ce_functions.transition);
 }

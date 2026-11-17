@@ -661,6 +661,29 @@ HRESULT WINAPI D3DDevice_CreateIndexBuffer(UINT length, DWORD usage, D3DFORMAT f
 	return S_OK;
 }
 
+#ifdef HALO_CONSOLE_NO_WRITE_WATCH
+/* as D3DVertexBuffer_Lock: the renderers cannot see the indices written
+(the dynamic triangles - the HUD's, the menus', the particles' - are
+rewritten in a locked index buffer every frame), so the lock says it, and
+whatever was kept of them (their extents, a copy the GPU reads) is made
+again. Size 0 is the whole buffer. */
+void d3d8_index_buffer_locked(D3DIndexBuffer *buffer, UINT offset, UINT size)
+{
+	unsigned char *data = buffer && buffer->Data ? (unsigned char *)xbox_pointer(buffer->Data) : NULL;
+
+	if (!data)
+		return;
+	if (!size)
+	{
+		unsigned long length = platform_contiguous_block_size(data);
+
+		size = length > offset ? (UINT)(length - offset) : 0;
+	}
+	if (size)
+		memory_watch_prepare_write(data + offset, size);
+}
+#endif
+
 /* ---------- palettes */
 
 static unsigned long palette_entry_count(D3DPALETTESIZE size)

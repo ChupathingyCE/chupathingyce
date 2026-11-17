@@ -54,6 +54,19 @@ void player_ui_set_game_variant_options(
 	struct game_variant_options const *options);
 struct game_variant_options const *player_ui_get_game_variant_options(
 	void);
+/* port: and the further options (the game modes layer's 16 bytes,
+source/game/game_modes.c) of the gametype being edited, and of the
+multiplayer gametype (the defaults until given) */
+byte *player_ui_get_edit_mode_options(
+	void);
+void player_ui_set_game_mode_options(
+	byte const *modes);
+byte const *player_ui_get_game_mode_options(
+	void);
+/* port: (player_ui.c) */
+long player_ui_get_edit_profile_index(
+	void);
+
 boolean player_ui_edit_profile_is_dirty(
 	void);
 boolean player_ui_save_profile(

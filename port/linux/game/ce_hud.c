@@ -22,7 +22,10 @@ know, which are put right when the map's tags load:
     HUD's scale, not its placement's, so a number keeps the flag, and
     hud_draw_numbers draws a flagged number's digits at half size (a custom
     HUD's ammunition and grenade counts: grifball's Halo 3 HUD drew them
-    twice Halo PC's size, over its panels).
+    twice Halo PC's size, over its panels). A weapon's or grenade's
+    overlays' and crosshairs' items keep their scale with the flag: Halo PC
+    scales only elements by it (Custom Edition draws a Halo 2 anniversary
+    map's flagged grenade icons at their full scale).
   - A HUD meter's bitmap: the meter shader (rasterizer_xbox_dynavobgeom.c)
     compares the texel's color with the meter's value (the order the meter
     fills in) and draws only where there is alpha (its shape). Halo PC keeps
@@ -30,7 +33,10 @@ know, which are put right when the map's tags load:
     alpha. Every bitmap a unit or weapon HUD interface draws as a meter is
     listed (ce_hud_bitmap_is_meter), and the texture cache has the renderer
     sample its channels from where Halo PC keeps them (xbox_texture_cache.c,
-    D3DCOMMON_PORT_PC_METER; xbox_textures.c, a texture swizzle). A meter
+    D3DCOMMON_PORT_PC_METER; xbox_textures.c, a texture swizzle; on the
+    original Xbox, a 32-bit one's channels are swapped as it loads and the
+    meter shader reads a compressed one's where they are,
+    rasterizer_xbox_dynavobgeom.c). A meter
     flagged "use Xbox shading" (MCC's flag, which Chimera reads too) has
     its bitmap in the Xbox's order, as halopc-restored's Xbox order meters
     and custom HUDs do, so its bitmap is not listed and is drawn as the
@@ -197,6 +203,8 @@ enum
 	TAG_BLOCK_SIZE = 0x0c,
 	PLACEMENT_SIZE = 0x10,
 	CE_HUD_MAXIMUM_ELEMENTS = 0x1000,
+	/* (and of a bitmap group's bitmaps: ce_resources.c's most) */
+	CE_HUD_MAXIMUM_BITMAPS = 0x10000,
 };
 
 /* ---------- globals */
@@ -211,8 +219,10 @@ static long ce_hud_meter_bitmap_count;
 
 /* the Xbox's button icons (ui.map's), read once: its HUD globals' button
 icons, and its message icons bitmap's sequences (each with its first sprite
-here), sprites and bitmaps (textures of their own) */
-static struct
+here), sprites and bitmaps (textures of their own). About 50 KB, so it is
+allocated at the first Custom Edition map that needs them, not kept in
+every build's memory from the start */
+static struct ce_xbox_button_icons
 {
 	boolean read;
 	boolean ready;
@@ -225,7 +235,10 @@ static struct
 	byte sprites[MAXIMUM_XBOX_MESSAGE_SPRITES * BITMAP_SPRITE_SIZE];
 	long bitmap_count;
 	struct bitmap_data *bitmaps[MAXIMUM_XBOX_MESSAGE_BITMAPS];
-} ce_xbox_button_icons;
+} *ce_xbox_button_icons_data;
+/* (only once ce_hud_xbox_button_icons has allocated it: everything else
+that reads it runs after it said they are ready) */
+#define ce_xbox_button_icons (*ce_xbox_button_icons_data)
 
 /* the message icons bitmaps given the Xbox's (a map's HUD globals may share
 one), and where the Xbox's sequences begin in each */
@@ -265,15 +278,37 @@ static byte *ce_hud_bitmap_group(
 	instance = (struct ce_tag_instance *)((byte *)ce_hud_tag_instances + (tag_index & 0xffff) * CE_TAG_INSTANCE_SIZE);
 	if (instance->group_tag != 'bitm' || instance->tag_index != (unsigned long)tag_index || !instance->base_address)
 		return NULL;
-	return xbox_pointer(instance->base_address);
+	return ce_loaded_pointer(instance->base_address, BITMAP_GROUP_SIZE);
+}
+
+/* a block's count elements (each element_size bytes) in the tag cache, or
+NULL (and logged: ce_map_checks.h) */
+static byte *ce_hud_block_elements(
+	byte const *block,
+	unsigned long element_size,
+	long *count)
+{
+	unsigned long address = ce_hud_read_long(block + TAG_BLOCK_ADDRESS_OFFSET);
+	byte *elements;
+
+	*count = (long)ce_hud_read_long(block + TAG_BLOCK_COUNT_OFFSET);
+	if (*count <= 0 || !address)
+		return NULL;
+	elements = *count <= CE_HUD_MAXIMUM_ELEMENTS ? ce_loaded_pointer(address, (unsigned long)*count * element_size) :
+		NULL;
+	if (!elements)
+		ce_contained("a HUD's %ld elements at %08lx are outside its tag cache", *count, address);
+	return elements;
 }
 
 /* a placement, drawing the bitmap the reference `bitmap` names (NULL: none):
-with the high resolution scale, its own or forced by its bitmap, drawn at
-half its scale, and with its bitmap's 0.5 HUD scale at half that */
+with the high resolution scale, its own (if `own_flag`) or forced by its
+bitmap, drawn at half its scale, and with its bitmap's 0.5 HUD scale at
+half that */
 static void ce_hud_placement(
 	byte *placement,
-	byte const *bitmap)
+	byte const *bitmap,
+	boolean own_flag)
 {
 	unsigned short *flags = (unsigned short *)(placement + PLACEMENT_SCALING_FLAGS_OFFSET);
 	byte const *bitmap_group = bitmap ? ce_hud_bitmap_group(bitmap) : NULL;
@@ -281,14 +316,15 @@ static void ce_hud_placement(
 		*(unsigned short const *)(bitmap_group + BITMAP_GROUP_FLAGS_OFFSET) : 0;
 	float scale = 1.0f;
 
-	if ((*flags & PLACEMENT_HIGH_RESOLUTION_SCALE_FLAG) ||
+	if ((own_flag && (*flags & PLACEMENT_HIGH_RESOLUTION_SCALE_FLAG)) ||
 		(bitmap_flags & BITMAP_GROUP_FORCE_HIGH_RESOLUTION_SCALE_FLAG))
 	{
 		scale *= 0.5f;
 	}
 	if (bitmap_flags & BITMAP_GROUP_HALF_HUD_SCALE_FLAG)
 		scale *= 0.5f;
-	if (scale != 1.0f)
+	/* (not over the tag header or tag index: ce_map_checks.h) */
+	if (scale != 1.0f && ce_tags_writable(placement, PLACEMENT_SIZE))
 	{
 		*(float *)(placement + PLACEMENT_SCALE_X_OFFSET) *= scale;
 		*(float *)(placement + PLACEMENT_SCALE_Y_OFFSET) *= scale;
@@ -301,11 +337,14 @@ static void ce_hud_placement(
 static void ce_hud_element_placement(
 	byte *element)
 {
-	ce_hud_placement(element, element + ELEMENT_BITMAP_OFFSET);
+	ce_hud_placement(element, element + ELEMENT_BITMAP_OFFSET, TRUE);
 }
 
 /* the placement at `offset` in each element of a block: a static or meter
-element's (each drawing its own bitmap), or another's, drawing `bitmap` */
+element's (each drawing its own bitmap), or an overlay's item, drawing
+`bitmap`. Halo PC draws an overlay's item at its scale, flagged for the high
+resolution scale or not (a Halo 2 anniversary map's grenade icons, which
+Custom Edition draws at their full scale): only its bitmap's flags scale it */
 static void ce_hud_block_placements(
 	byte *block,
 	unsigned long element_size,
@@ -313,20 +352,17 @@ static void ce_hud_block_placements(
 	boolean elements,
 	byte const *bitmap)
 {
-	long count = (long)ce_hud_read_long(block + TAG_BLOCK_COUNT_OFFSET);
-	unsigned long address = ce_hud_read_long(block + TAG_BLOCK_ADDRESS_OFFSET);
-	long index;
+	long count, index;
+	byte *placements = ce_hud_block_elements(block, element_size, &count);
 
-	if (count <= 0 || !address)
-		return;
-	for (index = 0; index < count; index++)
+	for (index = 0; placements && index < count; index++)
 	{
-		byte *placement = (byte *)xbox_pointer(address) + index * element_size + offset;
+		byte *placement = placements + index * element_size + offset;
 
 		if (elements)
 			ce_hud_element_placement(placement);
 		else
-			ce_hud_placement(placement, bitmap);
+			ce_hud_placement(placement, bitmap, FALSE);
 	}
 }
 
@@ -337,15 +373,12 @@ static void ce_hud_items_placements(
 	unsigned long element_size,
 	unsigned long item_size)
 {
-	long count = (long)ce_hud_read_long(block + TAG_BLOCK_COUNT_OFFSET);
-	unsigned long address = ce_hud_read_long(block + TAG_BLOCK_ADDRESS_OFFSET);
-	long index;
+	long count, index;
+	byte *elements = ce_hud_block_elements(block, element_size, &count);
 
-	if (count <= 0 || !address)
-		return;
-	for (index = 0; index < count; index++)
+	for (index = 0; elements && index < count; index++)
 	{
-		byte *element = (byte *)xbox_pointer(address) + index * element_size;
+		byte *element = elements + index * element_size;
 
 		ce_hud_block_placements(element + WEAPON_HUD_ITEMS_OFFSET, item_size, 0, FALSE,
 			element + WEAPON_HUD_BITMAP_OFFSET);
@@ -357,7 +390,7 @@ unless the meter says they are in the Xbox's order */
 static void ce_hud_meter_bitmap(
 	byte const *element)
 {
-	byte *bitmap_group;
+	byte *bitmap_group, *bitmaps;
 	long count;
 	unsigned long address;
 	long index;
@@ -371,9 +404,15 @@ static void ce_hud_meter_bitmap(
 	address = ce_hud_read_long(bitmap_group + BITMAP_GROUP_BITMAPS_OFFSET + TAG_BLOCK_ADDRESS_OFFSET);
 	if (count <= 0 || !address)
 		return;
+	bitmaps = count <= CE_HUD_MAXIMUM_BITMAPS ? ce_loaded_pointer(address, (unsigned long)count * BITMAP_SIZE) : NULL;
+	if (!bitmaps)
+	{
+		ce_contained("a meter's %ld bitmaps at %08lx are outside its tag cache", count, address);
+		return;
+	}
 	for (index = 0; index < count; index++)
 	{
-		void const *bitmap = (byte *)xbox_pointer(address) + index * BITMAP_SIZE;
+		void const *bitmap = bitmaps + index * BITMAP_SIZE;
 
 		if (ce_hud_bitmap_is_meter(bitmap))
 			continue;
@@ -393,14 +432,11 @@ static void ce_hud_block_meter_bitmaps(
 	unsigned long element_size,
 	unsigned long offset)
 {
-	long count = (long)ce_hud_read_long(block + TAG_BLOCK_COUNT_OFFSET);
-	unsigned long address = ce_hud_read_long(block + TAG_BLOCK_ADDRESS_OFFSET);
-	long index;
+	long count, index;
+	byte *elements = ce_hud_block_elements(block, element_size, &count);
 
-	if (count <= 0 || !address)
-		return;
-	for (index = 0; index < count; index++)
-		ce_hud_meter_bitmap((byte *)xbox_pointer(address) + index * element_size + offset);
+	for (index = 0; elements && index < count; index++)
+		ce_hud_meter_bitmap(elements + index * element_size + offset);
 }
 
 static void ce_hud_unit_interface(
@@ -427,7 +463,7 @@ static void ce_hud_unit_interface(
 	for (index = 0; index < NUMBEROF(placements); index++)
 		ce_hud_element_placement(hud + placements[index]);
 	/* (the blips' placement draws no bitmap of its own) */
-	ce_hud_placement(hud + UNIT_HUD_BLIP_PLACEMENT_OFFSET, NULL);
+	ce_hud_placement(hud + UNIT_HUD_BLIP_PLACEMENT_OFFSET, NULL, TRUE);
 	ce_hud_block_placements(hud + UNIT_HUD_AUXILARY_OVERLAYS_OFFSET, AUXILARY_OVERLAY_SIZE, 0, TRUE, NULL);
 	ce_hud_block_placements(hud + UNIT_HUD_AUXILARY_METERS_OFFSET, AUXILARY_METER_SIZE,
 		AUXILARY_METER_BACKGROUND_OFFSET, TRUE, NULL);
@@ -660,11 +696,22 @@ static boolean ce_hud_xbox_button_icons(
 	z_stream stream;
 	boolean inflated = FALSE;
 
+	if (!ce_xbox_button_icons_data)
+	{
+		ce_xbox_button_icons_data = system_malloc(sizeof(*ce_xbox_button_icons_data));
+		if (!ce_xbox_button_icons_data)
+		{
+			error(_error_silent, "Custom Edition maps: no memory for the Xbox's button icons; HUD messages draw no "
+				"controller buttons");
+			return FALSE;
+		}
+		memset(ce_xbox_button_icons_data, 0, sizeof(*ce_xbox_button_icons_data));
+	}
 	if (ce_xbox_button_icons.read)
 		return ce_xbox_button_icons.ready;
 	ce_xbox_button_icons.read = TRUE;
 	snprintf(path, sizeof(path), "%sui.map", cache_files_map_directory());
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 	{
 		error(_error_silent, "Custom Edition maps: no %s; HUD messages draw no controller buttons", path);
@@ -739,8 +786,14 @@ static void ce_hud_button_icons(
 	instance = ce_hud_instance(image, (unsigned long)xbox_address(ce_hud_tag_instances), ce_hud_tag_count,
 		ce_read_long(hud + HUD_GLOBALS_MESSAGING_ICONS_OFFSET + TAG_REFERENCE_INDEX_OFFSET), 'bitm');
 	group = instance ? ce_image_pointer(image, instance->base_address, BITMAP_GROUP_SIZE) : NULL;
-	if (!group || !ce_hud_xbox_button_icons())
+	/* (the blocks it writes: not over the tag header or tag index,
+	ce_map_checks.h) */
+	if (!group || !ce_tags_writable(hud + HUD_GLOBALS_BUTTON_ICONS_OFFSET, TAG_BLOCK_SIZE) ||
+		!ce_tags_writable(group + BITMAP_GROUP_SEQUENCES_OFFSET, BITMAP_GROUP_SIZE - BITMAP_GROUP_SEQUENCES_OFFSET) ||
+		!ce_hud_xbox_button_icons())
+	{
 		return;
+	}
 	for (index = 0; index < ce_hud_button_icon_group_count; index++)
 	{
 		if (ce_hud_button_icon_groups[index].bitmap_group == group)
@@ -772,6 +825,13 @@ static void ce_hud_button_icons(
 				"controller buttons");
 			return;
 		}
+		/* (tag data, which the meters' bitmaps are then read from:
+		ce_loaded_pointer) */
+		ce_loaded_tags_add(new_sequences,
+			(unsigned long)(sequence_count + ce_xbox_button_icons.sequence_count) * BITMAP_SEQUENCE_SIZE);
+		ce_loaded_tags_add(new_sprites, (unsigned long)ce_xbox_button_icons.sprite_count * BITMAP_SPRITE_SIZE);
+		ce_loaded_tags_add(new_bitmaps, (unsigned long)(bitmap_count + ce_xbox_button_icons.bitmap_count) * BITMAP_SIZE);
+		ce_loaded_tags_add(new_icons, (unsigned long)ce_xbox_button_icons.icon_count * HUD_GLOBALS_BUTTON_ICON_SIZE);
 		/* (the map's sequences and bitmaps, then the Xbox's: their sprites'
 		bitmaps after the map's) */
 		if (sequence_count)
@@ -828,6 +888,7 @@ static void ce_hud_button_icons(
 		new_icons = ce_resources_allocate((unsigned long)ce_xbox_button_icons.icon_count * HUD_GLOBALS_BUTTON_ICON_SIZE);
 		if (!new_icons)
 			return;
+		ce_loaded_tags_add(new_icons, (unsigned long)ce_xbox_button_icons.icon_count * HUD_GLOBALS_BUTTON_ICON_SIZE);
 	}
 	/* (the Xbox's button icons, each naming its sequence after the map's) */
 	icons = xbox_pointer(new_icons);
@@ -858,6 +919,7 @@ void ce_hud_tags_loaded(
 	ce_hud_tag_instances = tag_instances;
 	ce_hud_tag_count = tag_count;
 	ce_hud_placements_halved = 0;
+	ce_tags_guard_begin_loaded(tag_instances, tag_count);
 	ce_hud_meter_bitmap_count = 0;
 	/* (the button icons first: a message icons bitmap's bitmaps are moved,
 	and the meters' are listed by where they are) */
@@ -872,18 +934,40 @@ void ce_hud_tags_loaded(
 		struct ce_tag_instance *instance = (struct ce_tag_instance *)((byte *)tag_instances +
 			index * CE_TAG_INSTANCE_SIZE);
 
-		if (instance->group_tag == 'hudg' && instance->base_address)
-			ce_hud_button_icons(xbox_pointer(instance->base_address), &image);
+		byte *hud;
+
+		if (instance->group_tag != 'hudg' || !instance->base_address)
+			continue;
+		hud = ce_loaded_pointer(instance->base_address, HUD_GLOBALS_BUTTON_ICONS_OFFSET + TAG_BLOCK_SIZE);
+		if (hud)
+			ce_hud_button_icons(hud, &image);
+		else
+			ce_contained("HUD globals %08lx are outside its tag cache", instance->base_address);
 	}
 	for (index = 0; index < tag_count; index++)
 	{
 		struct ce_tag_instance *instance = (struct ce_tag_instance *)((byte *)tag_instances +
 			index * CE_TAG_INSTANCE_SIZE);
+		unsigned long size;
 		byte *hud;
 
+		/* (as much of each as is read: ce_hud_check's) */
+		switch (instance->group_tag)
+		{
+		case 'unhi': size = UNIT_HUD_AUXILARY_METERS_OFFSET + TAG_BLOCK_SIZE; break;
+		case 'wphi': size = WEAPON_HUD_OVERLAYS_OFFSET + TAG_BLOCK_SIZE; break;
+		case 'grhi': size = GRENADE_HUD_OVERLAY_ITEMS_OFFSET + TAG_BLOCK_SIZE; break;
+		case 'hudg': size = HUD_GLOBALS_MESSAGING_PLACEMENT_OFFSET + PLACEMENT_SIZE; break;
+		default: continue;
+		}
 		if (!instance->base_address)
 			continue;
-		hud = xbox_pointer(instance->base_address);
+		hud = ce_loaded_pointer(instance->base_address, size);
+		if (!hud)
+		{
+			ce_contained("HUD %08lx is outside its tag cache", instance->base_address);
+			continue;
+		}
 		switch (instance->group_tag)
 		{
 		case 'unhi':
@@ -898,12 +982,13 @@ void ce_hud_tags_loaded(
 		case 'hudg':
 			/* (the messages' placement places their text as well as
 			their icons: only its own flag scales it) */
-			ce_hud_placement(hud + HUD_GLOBALS_MESSAGING_PLACEMENT_OFFSET, NULL);
+			ce_hud_placement(hud + HUD_GLOBALS_MESSAGING_PLACEMENT_OFFSET, NULL, TRUE);
 			break;
 		}
 	}
 	error(_error_silent, "Custom Edition maps: %ld HUD placements at half their scale or less, %ld meter bitmaps sampled in "
 		"Halo PC's channels", ce_hud_placements_halved, ce_hud_meter_bitmap_count);
+	ce_tags_guard_end();
 	ce_hud_tag_instances = NULL;
 	ce_hud_tag_count = 0;
 }

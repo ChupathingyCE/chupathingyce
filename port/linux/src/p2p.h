@@ -25,6 +25,18 @@ int p2p_hand_off_invite(void);
 /* joins the game an invite link or code leads to; text may hold other
 words around it. Returns nonzero if it held an invite */
 int p2p_join_invite(const char *text);
+/* p2p_join_invite for the invite of a public game without a password (a
+listing's), which a player in it shares on Discord too (discord.show_join) */
+int p2p_join_listed_invite(const char *text);
+/* an invite link opened from outside the game (a link clicked while it was
+closed or running, Discord's Join): joined from the main menu through Online
+Games once the menus are up, in a game as p2p_join_invite (p2p.c) */
+void p2p_link_opened(const char *text, int public);
+#ifdef HALO_GAME_BROWSER
+/* the link p2p_link_opened holds for the menus, taken (invite_prompt.c):
+nonzero if there was one; public as p2p_join_listed_invite's */
+int p2p_take_link_join(char *text, int size, int *public);
+#endif
 #ifdef HALO_GAME_BROWSER
 /* the invite of the game this machine hosts on the internet (its 44 digits,
 without halo://join/); 0 when it hosts none (browser.c) */
@@ -66,6 +78,12 @@ int p2p_peer_address(const unsigned char *identifier, unsigned long *address);
 is open, and network.ping_games), the hosts asked about may be probed; never
 when internet play is off */
 void p2p_probe_browse(int on);
+/* Delta's doorbell (browser.c; docs/delta/link.md, "The doorbell"): listened
+for over the signalling connections to our brokers, NULL or "" for none
+(0 while internet play is off: nothing taken); and the rings heard since
+the last call */
+int p2p_doorbell(const char *doorbell);
+int p2p_doorbell_rings(void);
 /* the round trip in milliseconds to the host of an invite (its code: the
 host's key hash and token in hexadecimal), as a probe measured it; -1 if
 none has. wanted: probe it (only a host that answers pings, as the list
@@ -154,6 +172,20 @@ void p2p_set_hosting_allowed(int allowed);
 /* the invite link of the game this machine hosts (empty, 0: none, or LAN
 only) */
 int p2p_invite_link(char *link, int size);
+/* the site's join page, before an invite's digits: the link a copied invite
+is (p2p_invite_share_link), which opens halo://join/<digits> in the game */
+#define P2P_INVITE_PAGE "https://chupathingy.org/join/"
+/* the hosts (and the hosts under them) whose /join/<digits> pages are read
+as invites, as halo://join/ links are */
+#define P2P_INVITE_PAGE_HOSTS "chupathingy.org", "halo.milenko.org"
+/* where an invite's digits start in text: after its halo://join/, or after a
+join page's https://chupathingy.org/join/; NULL if text has neither */
+const char *p2p_invite_link_digits(const char *text);
+/* the link to share for an invite (a copy for the clipboard): a
+halo://join/ link as its join page (P2P_INVITE_PAGE), which Discord and
+chat programs make a link of, anything else as it is. 1, or 0 if it does
+not fit */
+int p2p_invite_share_link(const char *invite, char *link, int size);
 /* an invite (a link or a code, or any text holding one) as the log shows
 it: its first digits only, since players post their logs and an invite lets
 anyone join; the dedicated server's log, its operator's, has it whole */

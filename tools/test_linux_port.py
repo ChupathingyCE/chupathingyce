@@ -290,6 +290,37 @@ def test_menus_are_well_formed():
             assert name in names, f"{where} {name}"
 
 
+def test_two_menu_sets():
+    """Two menu sets to choose: the Chupathingy menus and the Xbox's. Gearbox's
+    ("gearbox", or the older "pc") is not one now: menu_tags.c's
+    menus_chosen gives the Xbox's for it, every MENU STYLE choice offers the
+    two, and the game tells the player once, in the main menu's note in the
+    game's own look (guide.c's _toast_menus_retired), never an OS dialog
+    (tools/test_port_config.py)."""
+    root = MENUS.parent.parent.parent
+    tags = (root / "port/linux/game/menu_tags.c").read_text()
+    chosen = tags[tags.index("static short menus_chosen(void)\n{"):]
+    chosen = chosen[:chosen.index("\n}\n")]
+    assert "return _menus_pc" not in chosen
+    assert re.search(r'"gearbox"\) \|\| !strcmp\(lower, "pc"\)', chosen)
+    rows = (root / "port/linux/src/settings_rows.c").read_text()
+    assert 'menus_choices[] = { "chupathingy", "xbox", NULL };' in rows
+    spinners = re.findall(r'setting="display\.menus" values="([^"]+)"',
+                          "".join(path.read_text() for path in MENUS.rglob("*.xml")))
+    assert spinners and all(values == "chupathingy|xbox" for values in spinners), spinners
+    guide = (root / "port/linux/game/guide.c").read_text()
+    assert '"Gearbox menus were retired.",\n\t\t\t"You\'re on the Xbox menus now. MENU STYLE is in the Guide."' in guide
+    # (and the Guide's SETTINGS has MENU STYLE, which the Xbox menus' MORE SETTINGS opens on: #1210)
+    assert re.search(r'\{ _in_display \| _in_guide, "MENU STYLE", "display\.menus"', rows)
+    widget = (root / "source/interface/ui_widget.c").read_text()
+    assert 'guide_open_setting("display.menus");' in widget and 'L"MORE SETTINGS"' in widget
+    # (written as "xbox" once the note is drawn, so it comes once)
+    drawn = guide[guide.index("static void render_toast(void)"):]
+    assert "config_menus_retired_seen();" in drawn[:drawn.index("\n}\n")]
+    platform = (root / "port/linux/src/sdl_platform.c").read_text()
+    assert "menus_retired" not in platform and "Gearbox" not in platform
+
+
 def test_menu_settings_exist():
     """Every setting a menu's spinner sets is one of config.toml's
     (port/linux/src/port_config.c) or of the profile (menu_functions.c), and
@@ -303,9 +334,14 @@ def test_menu_settings_exist():
     for path in (MENUS / "ce").glob("*.xml"):
         for setting in re.findall(r'setting="([^"]+)"', path.read_text()):
             assert setting in known | profile, f"{path.name}: {setting}"
-    controls = set(re.findall(r'"(controls\.[a-z_]+)"', (root / "port/linux/src/xinput_sdl.c").read_text()))
+    # (DELTA's key and button: its own Settings set them, not the Controls screen; game/guide.c)
+    guide = {"controls.delta", "controls.delta_button"}
+    # (and the screenshot and clip keys, desktop-only and set in config.toml:
+    # port/linux/src/capture.c)
+    guide |= {"controls.screenshot", "controls.capture_buttons", "controls.clip"}
+    controls = set(re.findall(r'"(controls\.[a-z_]+)"', (root / "port/linux/src/xinput_sdl.c").read_text())) - guide
     # (controls.controller_layout is the controller's, not a key's: controller_layout.c)
-    assert controls == {name for name in known if name.startswith("controls.")} - {"controls.controller_layout"}
+    assert controls == {name for name in known if name.startswith("controls.")} - {"controls.controller_layout"} - guide
     assert controls == set(re.findall(r'\{ "(controls\.[a-z_]+)", L"', functions))
 
 
@@ -347,6 +383,22 @@ def test_joined_invite_follows_the_joined_host():
     joined = re.search(r"^int p2p_joined_invite\(.*?^\}", p2p, re.M | re.S).group(0)
     assert "!p2p.hosting" in joined
 
+
+
+def test_movie_lets_go_of_its_flags_before_the_main_menu_loads():
+    """#267: a movie that returns to the main menu (the intro) lifts the
+    menus' input suppression, and lets go of its flags and frame rate
+    throttle before main_menu_load, so a movie that load starts keeps its
+    own flags (and the suppression it set stays its to lift)."""
+    root = Path(__file__).resolve().parent.parent
+    bink = (root / "source/bink/bink_playback.c").read_text()
+    stop = re.search(r"^void bink_playback_stop\(.*?^\}", bink, re.M | re.S).group(0)
+    assert stop.index("event_manager_suppress(FALSE);") < stop.index("main_menu_load();")
+    assert stop.index("flags = bink_globals.flags;") < stop.index("bink_globals.flags = 0;")
+    assert stop.index("bink_globals.flags = 0;") < stop.index("main_menu_load();")
+    assert stop.index("global_frame_rate_throttle = saved_frame_rate_throttle;") < stop.index("main_menu_load();")
+    assert "TEST_FLAG(flags, _bink_playback_return_to_main_menu_when_finished_bit)" in stop
+    assert stop.count("bink_globals.flags = 0;") == 1
 
 def test_report_hosted_games_keeps_listing():
     """network.report_hosted_games = false stops what a host sends the game
@@ -445,7 +497,8 @@ def test_default_brokers_are_brokers_txt():
 def test_p2p_signatures_and_listings(tmp_path):
     """internet play's Ed25519 (RFC 8032), the X25519 key of a seed, and the
     server browser's listings from host to browser (tools/p2p_lobby_check.c),
-    built with the flags ninja gives the platform layer"""
+    built with the flags ninja gives the platform layer; and a broker's burst
+    on subscribing, whose live games the queue's intake checks keep"""
     import shlex
 
     if not shutil.which("clang") or not shutil.which("ninja") or not Path("build.ninja").is_file():
@@ -467,18 +520,28 @@ def test_p2p_signatures_and_listings(tmp_path):
             continue
         else:
             flags.append(word)
-    program = tmp_path / "p2p_lobby_check"
-    built = subprocess.run(["clang", *flags, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all", "-o",
-                            str(program), "tools/p2p_lobby_check.c", "port/linux/src/p2p_crypto.c",
-                            "port/linux/src/p2p_lobby.c", "port/linux/src/p2p_copies.c",
-                            "port/linux/src/delta_compat.c",
-                            "port/third_party/monocypher/monocypher.c",
-                            "port/third_party/monocypher/monocypher-ed25519.c"],
-                           capture_output=True, text=True)
-    assert built.returncode == 0, built.stderr[-4000:]
-    result = subprocess.run([str(program)], capture_output=True, text=True, timeout=60)
+
+    def build(name, *defines):
+        program = tmp_path / name
+        built = subprocess.run(["clang", *flags, *defines, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all",
+                                "-o", str(program), "tools/p2p_lobby_check.c", "port/linux/src/p2p_crypto.c",
+                                "port/linux/src/p2p_lobby.c", "port/linux/src/p2p_copies.c",
+                                "port/linux/src/delta_compat.c",
+                                "port/third_party/monocypher/monocypher.c",
+                                "port/third_party/monocypher/monocypher-ed25519.c"],
+                               capture_output=True, text=True)
+        assert built.returncode == 0, built.stderr[-4000:]
+        return program
+
+    result = subprocess.run([str(build("p2p_lobby_check"))], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout
     assert "PASS" in result.stdout
+    # a broker's burst on subscribing, with the queue's intake reading a
+    # listing's time alone (1) or its version alone (2): live games lost
+    for checks in (1, 2):
+        program = build(f"p2p_lobby_check_{checks}", f"-DP2P_LOBBY_INTAKE_CHECKS={checks}")
+        result = subprocess.run([str(program), "burst"], capture_output=True, text=True, timeout=60)
+        assert result.returncode == 1 and "BURST FAIL" in result.stdout, (checks, result.stdout)
 
 
 # ---------- system link's stand-in machines (tools/system_link_bots.py)
@@ -531,8 +594,8 @@ def test_system_link_bots_messages_are_the_games():
 
 def test_network_format_is_the_recorded_one():
     """what the machines send each other is what port/linux/network_format.txt
-    records for HALO_PORT_NETWORK_VERSION, and NETCODE.md says what that
-    version changed"""
+    records for MCC_PROTOCOL_VERSION, and NETCODE.md says what that version
+    changed. The ordinary OpenCE contract is pinned by test_mcc_protocol.py."""
     from tools import network_format
 
     problems = network_format.check()
@@ -584,3 +647,14 @@ def test_menus_quit_on_android():
     pump = re.search(r"^void platform_pump_events\(.*?^\}", platform, re.M | re.S).group(0)
     assert re.search(r"if \(android_quit_requested\)\s*\{[^}]*exit\(EXIT_SUCCESS\);", pump)
     assert "SDL_PushEvent" not in (root / "port/android/host_imports.list").read_text()
+
+
+def test_guide_test_steps_are_for_debug_builds_only():
+    """debug.delta_test presses DELTA's buttons (accepting an invite,
+    kicking from a clan): a release build (HALO_RELEASE) compiles that out
+    and keeps the setting harmless"""
+    guide = (Path(__file__).resolve().parent.parent / "port/linux/game/guide.c").read_text()
+    gated = re.search(r"#ifdef HALO_RELEASE\nstatic void debug_steps\(void\)\n\{\n\}\n#else\n(.*?)\n#endif\n", guide, re.S)
+    assert gated, "debug_steps has no empty release version"
+    assert 'config_string("debug.delta_test")' in gated.group(1)
+    assert guide.count('"debug.delta_test"') == 1

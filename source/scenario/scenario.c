@@ -167,6 +167,7 @@ symbols in this file:
 #include "ai/ai.h"
 #include "bink/bink_playback.h"
 #include "cache/cache_files.h"
+#include "mcc_cache.h"
 #include "cseries/errors.h"
 #include "effects/contrails.h"
 #include "effects/decals.h"
@@ -194,6 +195,7 @@ symbols in this file:
 #include "sound/sound_manager.h"
 #include "structures/structure_bsp_definitions.h"
 #include "units/units.h"
+#include "structure_culling.h" /* port: port/linux/game/structure_culling.c */
 
 /* ---------- constants */
 
@@ -340,20 +342,23 @@ void scenario_dispose_from_old_map(
 void scenario_frame_update(
 	real delta_time)
 {
-	/* A frame was a tick on the Xbox; the native builds draw several frames
-	per tick (port/linux/game/render_interpolation.c), and the wind steps
-	its random walk once an update: step it once per 30 Hz tick of game
-	time. */
-	static real leftover_ticks = 0.f;
-	long ticks;
+	/* port: a frame was a tick on the Xbox; the native builds draw several
+	frames per tick (port/linux/game/render_interpolation.c). The wind's
+	random walk steps once an update, so it steps once a tick, at the tick's
+	end (game_tick, scenario_tick_update), as the Xbox's frame came after its
+	tick. Counted from the frames' time it stepped a frame sooner or later by
+	the frame rate, and the antennas the ticks move swung with it. */
+	(void)delta_time;
 
-	leftover_ticks += delta_time * TICKS_PER_SECOND;
-	ticks = (long)leftover_ticks;
-	leftover_ticks -= (real)ticks;
-	for (ticks = MIN(ticks, 4); ticks > 0; ticks--)
-	{
-		wind_update();
-	}
+	return;
+}
+
+/* port: the wind's step of the tick (game.c's game_tick). wind_update draws
+only from the local random seed, never the game's. */
+void scenario_tick_update(
+	void)
+{
+	wind_update();
 
 	return;
 }
@@ -366,6 +371,8 @@ void scenario_unload(
 		0xA4,
 		!bink_playback_active());
 
+	/* port: release pointers into the bsp before its tags go away */
+	structure_culling_dispose();
 	scenario_tags_unload();
 	global_scenario_index = NONE;
 	global_structure_bsp_index = NONE;
@@ -1118,6 +1125,18 @@ boolean scenario_switch_structure_bsp(
 		checked. (A map's first bsp refused refuses the map: scenario_load) */
 		if (!loaded)
 		{
+			/* MCC admission failures must reach scenario_load's cleanup and
+			main_new_map's menu recovery without entering the modal error loop. */
+			if (mcc_cache_tags_loaded() && old_structure_bsp_index == NONE)
+			{
+				error(_error_silent, "mcc: failed to load initial structure bsp #%d", structure_bsp_index);
+				global_structure_bsp = NULL;
+				global_collision_bsp = NULL;
+				global_bsp3d = NULL;
+				collision_log_enable(TRUE);
+				main_start_time();
+				return FALSE;
+			}
 			error(_error_immediate, "failed to load structure bsp #%d", structure_bsp_index);
 			global_structure_bsp = NULL;
 			global_collision_bsp = NULL;
@@ -1154,6 +1173,9 @@ boolean scenario_switch_structure_bsp(
 				struct collision_bsp);
 			scenario_globals->structure_bsp_index = structure_bsp_index;
 			global_structure_bsp_index = structure_bsp_index;
+			/* port: cache buckets while the newly current bsp's tags are loaded */
+			structure_culling_load_settings();
+			structure_culling_structure_bsp_loaded();
 
 			if (had_old_structure_bsp)
 			{
@@ -1217,11 +1239,11 @@ boolean scenario_load(
 				tag_loaded(GAME_GLOBALS_TAG, "globals\\globals"));
 			if (scenario_switch_structure_bsp(0))
 				result = TRUE;
-#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
-			/* port: a console's renderer (the Switch's deko3d renderer, the
-			first) puts this map's shaders first in its compile queue and loads them now, under the loading
-			screen, rather than at their first draw (port/switch/guest,
-			dk_shaders.c); the OpenGL renderer does nothing with it */
+#ifdef HALO_MAP_LOAD_HOOKS
+			/* port: the renderer puts this map's shaders first in its compile queue and loads them now,
+			under the loading screen, rather than at their first draw (port/linux/src/d3d8_shader_prep.inl;
+			the Switch's deko3d renderer: port/switch/guest, dk_shaders.c), and keeps the map's own list
+			of them from here */
 			if (result)
 			{
 				extern void d3d8_gl_map_loaded(const char *name);
@@ -1257,6 +1279,11 @@ missing_tag_loop:
 		if (missing_tag)
 			goto missing_tag_loop;
 	}
+
+	/* A rejected initial MCC BSP never reaches game_load's map_loaded state.
+	Release its tags here so the following menu or map has its own I/O owner. */
+	if (!result && mcc_cache_tags_loaded())
+		scenario_unload();
 
 	return result;
 }

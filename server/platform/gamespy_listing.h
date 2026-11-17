@@ -91,5 +91,8 @@ int gamespy_heartbeat(const struct gamespy_status *status, const char *gamever, 
 	int statechanged, const char *localip, int localport, unsigned char *out, int size);
 /* the answer to a master's challenge (length bytes), its text into out */
 void gamespy_challenge_response(const unsigned char *challenge, int length, char *out, int size);
+/* whether the listing may reply to address (in network order) in second
+now: 1, counted against the address and the server, or 0 */
+int gamespy_reply_allowed(unsigned int address, long now);
 
 #endif

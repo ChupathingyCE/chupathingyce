@@ -82,6 +82,10 @@ boolean cache_files_map_needs_delta(
 void cache_files_show_multiplayer_unavailable(
 	char const *map_name,
 	char const *build);
+boolean cache_files_map_host_refused(
+	char const *map_name,
+	char *message,
+	long size);
 unsigned long cache_files_map_version(
 	char const *map_name);
 
@@ -100,6 +104,8 @@ unsigned long cache_files_map_choose(
 boolean cache_files_map_present(
 	char const *map_name,
 	unsigned long version);
+boolean cache_files_map_installed(
+	char const *map_name);
 
 unsigned long cache_files_get_checksum(
 	void);
@@ -184,6 +190,9 @@ void cache_files_precache_map_end(
 	void);
 void cache_files_precache_map_queue_end(
 	void);
+/* port: a failed copy ended, its slot left empty (cache_files_windows.c) */
+void cache_files_precache_map_abandon(
+	void);
 
 boolean cache_files_precache_map_begin(
 	char const *map_name,
@@ -191,6 +200,13 @@ boolean cache_files_precache_map_begin(
 /* port: the error for a map that could not be precached (cache_files_windows.c) */
 void cache_files_display_map_error(
 	char const *map_name);
+/* port: whether a map can be loaded, asked before the game it would end is
+left (cache_files_windows.c); the reason it can't is logged, and a Custom
+Edition map's refusal is written to reason (when it has one) */
+boolean cache_files_map_loadable(
+	char const *map_name,
+	char *reason,
+	long reason_size);
 
 void cache_file_promote_read(
 	short request_index);

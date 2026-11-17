@@ -38,6 +38,7 @@ does.
 #include "networking/network_client_manager.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
+#include "mcc_workshop.h" /* an MCC map's Workshop item */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -196,11 +197,15 @@ static void report(
 	char const *cursor;
 	char json[1024];
 
-	/* (the map's name, without its path: levels\test\bloodgulch\bloodgulch) */
-	for (cursor = advertisement->map_name; *cursor; cursor++)
+	/* (the map's name, without its path: levels\test\bloodgulch\bloodgulch;
+	an MCC map's whole, mcc_maps\<package>\<level>, its package naming it) */
+	if (_strnicmp(advertisement->map_name, "mcc_maps\\", 9))
 	{
-		if (*cursor == '\\' || *cursor == '/')
-			map = cursor + 1;
+		for (cursor = advertisement->map_name; *cursor; cursor++)
+		{
+			if (*cursor == '\\' || *cursor == '/')
+				map = cursor + 1;
+		}
 	}
 	utf8_name(advertisement->game_name, NUMBEROF(advertisement->game_name), name, sizeof(name));
 	json_text(escaped_name, sizeof(escaped_name), name);
@@ -214,6 +219,19 @@ static void report(
 		advertisement->has_teams ? "true" : "false", (unsigned int)advertisement->network_version,
 		advertisement->compatible ? "true" : "false", advertisement->machine_count, advertisement->score_limit,
 		advertisement->in_progress ? "true" : "false");
+	/* (an MCC map's Steam Workshop item: fields older readers ignore) */
+	{
+		struct mcc_workshop_item item;
+		char escaped_title[MCC_WORKSHOP_TITLE_SIZE * 2];
+		size_t length = strlen(json);
+
+		if (length > 1 && mcc_workshop_listing(advertisement->map_name, &item))
+		{
+			json_text(escaped_title, sizeof(escaped_title), item.title);
+			snprintf(json + length - 1, sizeof(json) - (length - 1), ", \"workshop_id\": \"%s\", \"workshop_title\": \"%s\"}",
+				item.id, escaped_title);
+		}
+	}
 	finish(json, 0);
 }
 

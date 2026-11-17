@@ -264,11 +264,50 @@ def test_client_updates_from_capture(harness):  # noqa: F811
     lines = subprocess.run([str(harness), "updates", *captured], capture_output=True, text=True,
                            check=True).stdout.splitlines()
     assert lines[0] == ("read 1 id 0 ticks 9 flags 0 yaw 0.3106 pitch 0.0000 throttle 0 trigger 0 weapon 0 grenade 3 "
-                        "medium 65535")
+                        "zoom 65535")
     assert "ticks 3 flags 0" in lines[1] and "throttle 8" in lines[1]
     assert "ticks 2 flags 2" in lines[2] and "throttle 0" in lines[2]
     assert "ticks 4 flags 0" in lines[3]
     assert "yaw 0.1039" in lines[4] and "throttle 8" in lines[4]
+
+
+def test_weapon_switch_from_capture(harness):  # noqa: F811
+    """A 1.0.10 client's first update (no zoom, its grenade) and its switch
+    to its second weapon (our capture, 2026-11-15) read as such."""
+    import subprocess
+    captured = ["0cb8290c90892c2b9ffeffb7", "06b809e29134"]
+    lines = subprocess.run([str(harness), "updates", *captured], capture_output=True, text=True,
+                           check=True).stdout.splitlines()
+    assert "weapon 0 grenade 1 zoom 65535" in lines[0]
+    assert "weapon 1 grenade 1 zoom 65535" in lines[1]
+
+
+def test_weapons_follow_the_client():
+    """A Custom Edition player's weapon, zoom and grenade choices reach the
+    game, and a weapon put away is still its holder's (not dropped)"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    action = _function(source, "boolean server_ce_local_action")
+    assert "server_ce_choices(client, local_player_index, &update, action);" in action
+    choices = _function(source, "static void server_ce_choices")
+    # each choice given once, as it changes (the game's own changes stand)
+    assert "if (update->weapon != client->chosen_weapon)" in choices
+    assert "if (update->zoom != client->chosen_zoom)" in choices
+    # a new unit: the last unit's choices are not given again
+    assert "client->chosen_unit != unit_index" in choices
+    # a zoom level the weapon has, else none
+    assert "update->zoom < levels ? (short)update->zoom : NONE" in choices
+    # the wire's grenade is the type itself (0 frag, 1 plasma: checked
+    # against the client's HUD and a throw, 2026-11-14)
+    assert "action->desired_grenade_index = (short)update->grenade;" in choices
+    assert "grenade_counts[update->grenade] > 0" in choices
+    # the biped messages carry the plasma count first (a 1.0.10 client's
+    # HUD: frags only showed as plasmas before)
+    messages = (ROOT / "server/platform/ce_messages.c").read_text(encoding="utf-8")
+    assert messages.count("grenades[1], 3);\n\tput_bits(payload, (unsigned int)") == 2
+    items = _function(source, "static void update_items")
+    assert items.count("weapon_holder(") >= 3
+    control = (ROOT / "source/game/player_control.c").read_text(encoding="utf-8")
+    assert "player->desired_weapon_index = action.desired_weapon_index;" in control
 
 
 def update_payload(yaw, pitch):
@@ -506,7 +545,9 @@ def test_join_is_refused_cleanly(harness):  # noqa: F811
         client.send(b"\xfe\xfe\x64" + struct.pack(">H", client.in_sequence))
         assert client.receive() == b"\xfe\xfe\x68"
         assert server.wait_for_output("asks to join: \"Tester\"")
-        assert server.wait_for_output("the join was refused")
+        # (the harness has no game: the join went to the game side, which
+        # refused it)
+        assert server.wait_for_output("harness: the join was refused (no game)")
     finally:
         server.stop()
 
@@ -527,6 +568,31 @@ def test_wrong_answer_closes(harness):  # noqa: F811
         server.stop()
 
 
+def test_unanswered_challenges_hold_no_places(harness):  # noqa: F811
+    """A connection's first packet is anyone's, from any address: challenges
+    left unanswered, enough to take every place, keep no player out."""
+    import time
+    server = JoinServer(harness)
+    squatters = []
+    try:
+        # (as fast as one address is answered, a few a second)
+        for index in range(16):
+            squatter = Client(server.port)
+            squatter.send(b"\xfe\xfe\x01\x00\x00\x00\x00" + new_challenge(squatter.rng))
+            assert squatter.receive()[2] == 2
+            squatters.append(squatter)
+            if index % 3 == 2:
+                time.sleep(1.1)
+        time.sleep(1.1)
+        client = Client(server.port)
+        client.handshake()
+        assert client.reliable()[0][-1] == 4
+    finally:
+        for squatter in squatters:
+            squatter.sock.close()
+        server.stop()
+
+
 def test_off_by_default(harness):  # noqa: F811
     server = Server(harness)
     client = Client(server.port)
@@ -544,53 +610,106 @@ def _function(source, name):
     return source[start:source.index("\n}\n", start) + 3]
 
 
-def test_server_side_off_without_the_switch():
-    """the game side (server/src/server_ce.c) does nothing without the
-    development switch: no events read, no player's input taken, no player
-    found to kick, tell or time"""
+def test_server_side_off_without_the_setting():
+    """the game side (server/src/server_ce.c) does nothing unless ce_joins
+    (and the GameSpy listing whose port takes the joins) is on: no events
+    read, no player's input taken, no player found to kick, tell or time.
+    No development switch is left"""
     source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
     update = _function(source, "void server_ce_update")
-    assert 'ce.enabled = accept && !strcmp(accept, "1");' in update
-    assert update.index("if (!ce.enabled)\n\t\treturn;") < update.index("ce_transport_next_event(")
+    assert "ce.enabled = server_gamespy_enabled() && server_gamespy_joins();" in update
+    assert update.index("if (!ce.enabled)\n\t{") < update.index("ce_transport_next_event(")
+    for path in ("server/src/server_ce.c", "server/platform/gamespy_listing.c", "server/platform/ce_transport.c"):
+        assert "HALO_DEDICATED_CE_ACCEPT" not in (ROOT / path).read_text(encoding="utf-8")
     assert "if (!ce.enabled ||" in _function(source, "boolean server_ce_local_action")
     assert "if (!ce.enabled)\n\t\treturn NULL;" in _function(source, "static struct ce_client *client_for_player")
 
 
 def test_joins_held_to_host_limits():
-    """a Custom Edition join is checked against the bans and the limit on
-    the machines of one address before it takes a seat"""
+    """a Custom Edition join is checked against the join lock, the bans and
+    the limit on the machines of one address before it takes a seat"""
     source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
     join = _function(source, "static boolean join")
+    # (and none new while joins are locked: sv_lock keeps Custom Edition
+    # players out as it does Chupathingy machines; a client back for the
+    # next game was in already)
+    assert join.index("CE_PHASE_RECONNECTING") < join.index("if (host_rules_joins_locked())")
+    assert join.index("if (host_rules_joins_locked())") < join.index("network_game_client_add_named_player(")
+    locked = join[join.index("if (host_rules_joins_locked())"):]
+    assert locked.index("ce_transport_refuse(event->peer, CE_REJECT_FULL);") < locked.index("return TRUE;")
     assert join.index("network_distributed_banned(event->address, NULL)") < join.index("address_full(event->address)")
     assert join.index("address_full(event->address)") < join.index("network_game_client_add_named_player(")
     assert "network_distributed_address_full(address, others, count)" in \
         _function(source, "static boolean address_full")
 
 
+# (our capture of Custom Edition 1.0.10's server ending a game for
+# sv_map_next: the step after the scores came up, alone in its payload, and
+# the step before them with game over, its data packet, after it)
+CAPTURED_POSTGAME_3 = "07c81a00000080"
+CAPTURED_POSTGAME_2_OVER = "3fc812000000c008100000000090d1b2"
+
+
+def test_postgame_matches_capture(harness):  # noqa: F811
+    import subprocess
+    out = subprocess.run([str(harness), "postgame", "3"], capture_output=True, text=True, check=True).stdout.strip()
+    used = 11 + 39
+    assert bits_of(out)[:used] == bits_of(CAPTURED_POSTGAME_3)[:used]
+    out = subprocess.run([str(harness), "postgame", "2", "over"], capture_output=True, text=True,
+                         check=True).stdout.strip()
+    used = 11 + 39 + 17 + 6 * 8
+    assert bits_of(out)[11:used] == bits_of(CAPTURED_POSTGAME_2_OVER)[11:used]
+
+
+def test_between_games_messages_match_capture():
+    """the data packets of a game's end and the next game's start, as Custom
+    Edition 1.0.10's server sent them in our capture: game over (25), the
+    scores' keep-alive (13) and the reconnect (33: zero, then 1000 big-endian:
+    the client closes its connection and connects again a second later)"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    header = (ROOT / "server/platform/ce_messages.h").read_text(encoding="utf-8")
+    between = _function(source, "static boolean between_games")
+    assert "game_over[] = { 1, 0, 0, 0, 0, CE_MESSAGE_GAME_OVER };" in between
+    assert "keep_alive[] = { 1, 0, 0, CE_MESSAGE_POSTGAME_KEEP_ALIVE };" in between
+    assert "reconnect[] = { 1, 0, 0, 0, 0, 0, 0, 3, 0xe8, CE_MESSAGE_RECONNECT };" in between
+    for name, value in (("CE_MESSAGE_POSTGAME_KEEP_ALIVE", 13), ("CE_MESSAGE_GAME_OVER", 25),
+                        ("CE_MESSAGE_RECONNECT", 33), ("CE_DELTA_POSTGAME_MODE", 22)):
+        assert f"\t{name} = {value}," in header
+    # (a reconnecting client's old connection closing keeps its seat; its new
+    # connection is matched by address and name)
+    update = _function(source, "void server_ce_update")
+    assert "if (client && client->phase == CE_PHASE_RECONNECTING)\n\t\t\t\tclient->peer = NONE;" in update
+    join = _function(source, "static boolean join")
+    assert join.index("CE_PHASE_RECONNECTING") < join.index("network_distributed_banned(")
+
+
+def test_only_custom_edition_maps():
+    """Custom Edition players join and stay only while a Custom Edition map
+    plays (the same .map file on both sides)"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    assert '!strcmp(at + 1, "ce")' in _function(source, "static boolean map_playable")
+    assert "map_playable(status.map)" in _function(source, "static boolean join")
+    assert "map_playable(status->map)" in _function(source, "static boolean between_games")
+
+
 def test_welcome_line():
-    """the default welcome line fits Custom Edition's chat"""
+    """the default welcome line fits Custom Edition's chat, and comes once,
+    a minute into a player's first game"""
     source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
     body = _function(source, "void server_ce_set_welcome")
     text = "".join(part for part in __import__("re").findall(r'"((?:[^"\\]|\\.)*)"', body.split("snprintf")[0]))
-    assert text.startswith("Welcome to our Chupathingy Cross-Play Server.")
+    assert text == "Playing on Chupathingy: free, runs Halo PC and Xbox maps. chupathingy.org"
     assert len(text) <= 80 and text.isascii()
+    assert "WELCOME_DELAY_MILLISECONDS = 60000" in source
+    assert "system_milliseconds() - client->joined_time >= WELCOME_DELAY_MILLISECONDS" in source
+    assert "client->welcomed = kept.welcomed;" in source
 
 
 class JoinServer(Server):
     """the harness with Custom Edition's join wire on"""
 
     def __init__(self, harness):  # noqa: F811
-        import subprocess
-        import threading
-        from tools.test_gamespy_listing import free_udp_port
-        self.port = free_udp_port()
-        self.process = subprocess.Popen([str(harness), str(self.port), "", "0.0.0-test", "3", "joins"],
-                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-        line = self.process.stdout.readline().strip()
-        assert line == "started", line
-        self.output = []
-        self.reader = threading.Thread(target=self.read, daemon=True)
-        self.reader.start()
+        super().__init__(harness, extra=("joins",))
 
     def wait_for_output(self, text, seconds=3.0):
         import time

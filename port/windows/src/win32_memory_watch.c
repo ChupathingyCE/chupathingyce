@@ -105,18 +105,34 @@ void memory_watch_protect(unsigned long address, unsigned long size)
 	if (!watch_active || !size || !in_window(address))
 		return;
 	first = page_index(address);
+	/* (clamped before the sum, which could wrap) */
+	if (size > PLATFORM_CONTIGUOUS_SIZE - (address - PLATFORM_CONTIGUOUS_BASE))
+		size = PLATFORM_CONTIGUOUS_SIZE - (address - PLATFORM_CONTIGUOUS_BASE);
 	last = page_index(address + size - 1);
-	if (last >= WATCH_PAGE_COUNT)
-		last = WATCH_PAGE_COUNT - 1;
 	for (page = first; page <= last; page++)
 	{
 		if (page_protected[page] != 1)
 		{
+			unsigned long begin = page, retry;
 			DWORD previous;
 
-			page_protected[page] = 1;
-			VirtualProtect(WATCH_POINTER(PLATFORM_CONTIGUOUS_BASE + page * WATCH_PAGE_SIZE), WATCH_PAGE_SIZE,
-				PAGE_READONLY, &previous);
+			/* A texture spans hundreds of adjacent pages: one protection
+			change for the run, not a kernel call (and TLB flush) a page,
+			which stuttered the first time a texture or effect was drawn.
+			The pages are marked first, so a write meanwhile is caught.
+			Pages of separate reservations cannot change together; then
+			one page at a time, as before. Based on work by chester
+			(GulchCE). */
+			while (page <= last && page_protected[page] != 1)
+				page_protected[page++] = 1;
+			if (!VirtualProtect(WATCH_POINTER(PLATFORM_CONTIGUOUS_BASE + begin * WATCH_PAGE_SIZE),
+				(page - begin) * WATCH_PAGE_SIZE, PAGE_READONLY, &previous))
+			{
+				for (retry = begin; retry < page; retry++)
+					VirtualProtect(WATCH_POINTER(PLATFORM_CONTIGUOUS_BASE + retry * WATCH_PAGE_SIZE),
+						WATCH_PAGE_SIZE, PAGE_READONLY, &previous);
+			}
+			page--;
 		}
 	}
 }

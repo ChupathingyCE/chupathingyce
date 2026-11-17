@@ -23,11 +23,19 @@
 	<string>dev</string>
 	<key>CFBundleVersion</key>
 	<string>dev</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.action-games</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-	<!-- internet play invite links (halo://) -->
+	<!-- voice chat: macOS asks the player the first time they talk (push
+	to talk or open mic), never when the game starts -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Chupathingy uses the microphone for voice chat, only while you talk. Nothing is recorded.</string>
+	<!-- internet play invite links (halo://), and Discord starting the game
+	for a friend's Join (discord-<discord.application_id>://, the default
+	application's: port/linux/src/discord_register.h) -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -36,6 +44,15 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>chupathingy</string>
+				<string>halo</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Discord Join</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>discord-1560397272166957136</string>
 			</array>
 		</dict>
 	</array>

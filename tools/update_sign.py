@@ -32,7 +32,7 @@ Ed25519, so nothing beyond Python's own library is needed:
     update_sign.py verify [--public <hex>] <version> <zip>...
                                                          checks them against update_key.h's keys
     update_sign.py public <key.pem>                      the key's public half, for update_key.h
-    update_sign.py manifest <key.pem> <version> --tag T [--debug-tag D] [--commit C] <file>...
+    update_sign.py manifest <key.pem> <version> --tag T [--debug-tag D] [--commit C] [--channel N] <file>...
                                                          writes and signs updates.json beside the files
 
 A key is made with: openssl genpkey -algorithm ed25519 -out key.pem
@@ -56,6 +56,8 @@ WORD = re.compile(r"^[A-Za-z0-9._+-]{1,127}$")
 UPDATE_FILE = re.compile(r"^chupathingyce-([a-z0-9]+)-(release|debug)\.(zip|AppImage)$")
 KINDS = {"zip": "zip", "AppImage": "appimage"}
 MANIFEST_FORMAT = "chupathingyce-updates 1"
+# the update channels a list may say it is (update_manifest.h)
+CHANNELS = ("release", "testing", "nightly")
 # the game's executable by its names from 0.9.0: a zip with one starts it
 # after an update (the list's "main"), not the halo or halo.exe beside it,
 # which is only the stub that starts it (port/linux/src/rename_stub.h); a
@@ -102,11 +104,15 @@ def main_name(path: Path):
     return next((name for name in MAIN_NAMES if name in names), None)
 
 
-def manifest_text(version: str, tag: str, debug_tag: str, commit: str, files) -> bytes:
+def manifest_text(version: str, tag: str, debug_tag: str, commit: str, files, channel: str = None) -> bytes:
     """updates.json for the files (the ones named as update files; others,
-    the servers' zips, are left out)"""
+    the servers' zips, are left out); with channel ("release", "testing" or
+    "nightly", as the release workflows write from 0.9.1: update_manifest.h),
+    the list says whose it is"""
     if not WORD.match(version) or not WORD.match(tag) or not WORD.match(debug_tag):
         raise SystemExit(f"not a version or tag: {version!r} {tag!r} {debug_tag!r}")
+    if channel is not None and channel not in CHANNELS:
+        raise SystemExit(f"not a channel: {channel!r}")
     entries = []
     for path in sorted(map(Path, files), key=lambda path: path.name):
         match = UPDATE_FILE.match(path.name)
@@ -121,14 +127,17 @@ def manifest_text(version: str, tag: str, debug_tag: str, commit: str, files) ->
             entries[-1]["main"] = main
     if not entries:
         raise SystemExit("no update files to list")
-    document = {"format": MANIFEST_FORMAT, "version": version, "commit": commit, "files": entries}
+    document = {"format": MANIFEST_FORMAT, "version": version}
+    if channel is not None:
+        document["channel"] = channel
+    document.update({"commit": commit, "files": entries})
     return (json.dumps(document, indent=2) + "\n").encode()
 
 
-def manifest(key: Path, version: str, tag: str, debug_tag: str, commit: str, files) -> None:
+def manifest(key: Path, version: str, tag: str, debug_tag: str, commit: str, files, channel: str = None) -> None:
     files = list(map(Path, files))
     path = files[0].parent / "updates.json"
-    path.write_bytes(manifest_text(version, tag, debug_tag, commit, files))
+    path.write_bytes(manifest_text(version, tag, debug_tag, commit, files, channel))
     Path(f"{path}.sig").write_text(sign_bytes(key, path.read_bytes()).hex() + "\n")
     print(path)
     print(f"{path}.sig")
@@ -217,13 +226,14 @@ def main() -> int:
     command.add_argument("--tag", required=True, help="the release's tag (v<version>)")
     command.add_argument("--debug-tag", help="the debug builds' release's tag (default: the release's, -debug)")
     command.add_argument("--commit", default="")
+    command.add_argument("--channel", choices=CHANNELS, help="whose list it is (from 0.9.1; none: as before)")
     command.add_argument("files", nargs="+")
     arguments = parser.parse_args()
     if arguments.command == "sign":
         sign(arguments.key, arguments.version, arguments.zips)
     elif arguments.command == "manifest":
         manifest(arguments.key, arguments.version, arguments.tag, arguments.debug_tag or f"{arguments.tag}-debug",
-                 arguments.commit, arguments.files)
+                 arguments.commit, arguments.files, arguments.channel)
     elif arguments.command == "verify":
         keys = [bytes.fromhex(arguments.public)] if arguments.public else None
         return verify(arguments.version, arguments.zips, keys)

@@ -196,6 +196,12 @@ enum
 	SERVER_GAMETYPE_BOMB_MELEE_ONLY,
 	SERVER_GAMETYPE_BOMB_TRAITS,
 
+	/* the game modes layer's (docs/modes.md): the mode (Slayer's only) and
+	Hardcore (any engine but Bomb); their values are the gametype's further
+	options' bytes (server_gametype_mode_options) */
+	SERVER_GAMETYPE_MODE,
+	SERVER_GAMETYPE_HARDCORE,
+
 	SERVER_GAMETYPE_FIELDS,
 	/* a side's vehicles, "pc": every one the map places, as Halo PC places
 	them (game_engine.h's VARIANT_VEHICLE_SET_PC); "custom": their counts */
@@ -275,7 +281,7 @@ enum
 	(once it is another, HALO_DEDICATED's is played) */
 	SERVER_SETTING_PLAYLIST,
 	SERVER_SETTING_PLAYLIST_ENVIRONMENT,
-	/* text chat (docs/delta.md, Chat): 0 off, 1 team lines alone, 2 on; and
+	/* text chat (docs/delta/peer.md, Chat): 0 off, 1 team lines alone, 2 on; and
 	whether lines with blocked words are passed on */
 	SERVER_SETTING_CHAT,
 	SERVER_SETTING_CHAT_FILTER,
@@ -320,6 +326,32 @@ enum
 	/* the line each Custom Edition player gets in their chat as they join
 	(server/src/server_ce.c; empty: none) */
 	SERVER_SETTING_CE_WELCOME,
+	/* a party's players kept on one team where the teams stay even
+	(port/linux/game/party_teams.h; Delta Peer's party teams) */
+	SERVER_SETTING_KEEP_PARTIES_TOGETHER,
+	/* a player who joins a game in progress waits for the next game
+	(port/linux/game/late_join.h) */
+	SERVER_SETTING_LATE_JOIN_HOLD,
+	/* the bans that name a Delta account or device sent to the site's shared
+	ban lists while linked (server_bans.h) */
+	SERVER_SETTING_BAN_SHARE,
+	/* voice chat (port/linux/game/voice_game.h): relayed at all, its
+	channels (team, proximity, everyone, party), everyone heard in the
+	lobby, how near is near (world units) and its quality (kbps). The server
+	relays voice without decoding it */
+	SERVER_SETTING_VOICE,
+	SERVER_SETTING_VOICE_TEAM,
+	SERVER_SETTING_VOICE_PROXIMITY,
+	SERVER_SETTING_VOICE_EVERYONE,
+	SERVER_SETTING_VOICE_PARTY,
+	SERVER_SETTING_VOICE_LOBBY,
+	SERVER_SETTING_VOICE_RANGE,
+	SERVER_SETTING_VOICE_KBPS,
+	/* the line each OpenCE player (no Delta session) gets once a join, that
+	this is a Chupathingy server (port/linux/game/opence_welcome.h): on or
+	off (off unless set), and its text (the built-in one unless set) */
+	SERVER_SETTING_OPENCE_WELCOME,
+	SERVER_SETTING_OPENCE_WELCOME_TEXT,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,
@@ -336,6 +368,9 @@ enum
 	SERVER_SETTINGS_WELCOME_SIZE = 128,
 	/* a Custom Edition welcome's characters, at most (its chat line's) */
 	SERVER_SETTINGS_CE_WELCOME_SIZE = 256,
+	/* an OpenCE welcome's characters, at most, and their end (one line of
+	OpenCE's chat: opence_welcome.h's OPENCE_WELCOME_TEXT_SIZE) */
+	SERVER_SETTINGS_OPENCE_WELCOME_SIZE = 64,
 };
 
 struct server_setting
@@ -360,6 +395,7 @@ struct server_settings
 	char playlist_environment[SERVER_SETTINGS_PATH_SIZE];
 	char welcome[SERVER_SETTINGS_WELCOME_SIZE];
 	char ce_welcome[SERVER_SETTINGS_CE_WELCOME_SIZE];
+	char opence_welcome_text[SERVER_SETTINGS_OPENCE_WELCOME_SIZE];
 };
 
 /* whether text is a path a setting may name: a file in the data folder,

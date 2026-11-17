@@ -43,6 +43,10 @@ enum
 	LARGEST_FILE = 256 * 1024,
 	/* seconds before a failed download is asked for again */
 	RETRY_SECONDS = 60,
+	/* a picture's body, at most (not the hours a map gets: the connection
+	is shared with the game list, stats, updater and control link while it
+	is open) */
+	DEADLINE_MILLISECONDS = 30 * 1000,
 };
 
 /* the stock maps the site has pictures of: the Xbox's (art/maps), then
@@ -187,6 +191,7 @@ static unsigned char *download(const char *path, int *size, int *missing)
 		*missing = status == 404;
 		return NULL;
 	}
+	posix_browser_download_deadline(handle, DEADLINE_MILLISECONDS);
 	data = malloc(LARGEST_FILE);
 	while (data && *size < LARGEST_FILE && (got = posix_browser_download_read(handle, data + *size,
 		LARGEST_FILE - *size)) > 0)

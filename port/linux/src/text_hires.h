@@ -46,11 +46,15 @@ struct text_hires_glyph
 	float advance;
 };
 
+/* the letters a font is fitted to its tag by: A to Z, then a to z */
+#define TEXT_HIRES_FIT_LETTERS 52
+
 /* the font standing for a font tag, sized so that its capitals are
-cap_height units tall, its glyphs rasterized with oversample times the
-display's pixels (for text drawn scaled up); -1 if none, or
-display.high_res_text is off */
-long text_hires_font(char const *tag_name, float cap_height, float oversample);
+cap_height units tall and narrowed where its letters are wider than the
+tag's letter_widths (TEXT_HIRES_FIT_LETTERS of them, 0 for a letter the tag
+has not), its glyphs rasterized with oversample times the display's pixels
+(for text drawn scaled up); -1 if none, or display.high_res_text is off */
+long text_hires_font(char const *tag_name, float cap_height, short const *letter_widths, float oversample);
 /* the player's font file for the large role (or the small: every other),
 whole, into path: display.high_res_font_large, else display.high_res_font,
 a relative one in data/fonts/; 0 when neither is set (the built-in fonts),
@@ -69,8 +73,12 @@ and its size; NULL forgets it */
 void text_hires_register_atlas(const unsigned long *texture, unsigned long width, unsigned long height);
 
 /* the GL texture of the atlas when data (a D3D texture's Data) is its
-placeholder's, its rasterized glyphs uploaded; 0 otherwise */
+placeholder's, its new glyphs uploaded; 0 otherwise */
 unsigned int text_hires_atlas_texture(unsigned long data);
+/* whether the atlas's texels are the glyphs' distance fields now
+(display.high_res_text_fields), which the pixel shader decodes
+(nv2a_pixel_shader_key's text_fields), rather than rasterized glyphs */
+int text_hires_atlas_fields(void);
 
 /* d3d8_gl.c: the display's pixels for each of the 480 lines */
 float halo_screen_pixel_scale(void);

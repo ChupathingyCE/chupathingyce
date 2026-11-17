@@ -5,6 +5,7 @@ to the same manifests; and the setting it goes by."""
 import copy
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -355,9 +356,11 @@ def test_the_setting_is_documented_and_defaults_to_ask():
 
 
 def test_the_staged_cex_pack_reads_as_a_manifest():
-    """the CE+ X 1.01 entries (the mirror's files.json, when it is here)"""
-    staged = Path.home() / "chupathingyce-work" / "mirror-staging" / "packs" / "cex" / "1.01" / "files.json"
-    if not staged.is_file():
+    """the CE+ X 1.01 entries (a mirror's files.json, named by
+    HALO_PLAYLIST_PACK_FILES)"""
+    named = os.environ.get("HALO_PLAYLIST_PACK_FILES")
+    staged = Path(named) if named else None
+    if not staged or not staged.is_file():
         pytest.skip("no staged pack here")
     pack = json.loads(staged.read_text())
     manifest = {"playlist_maps": 1, "playlist": "c_cex", "name": "[C] CE+ X", "serial": 1, "issued": 0,

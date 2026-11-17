@@ -1,5 +1,9 @@
 # Android
 
+The Android download is the native 64-bit build: see "The native 64-bit
+build" below (`ninja android64_apk`). The rest of this page starts with the
+older build, which is no longer released.
+
 `ninja android` builds the game for 64-bit ARM Android (arm64-v8a).
 `ninja android_apk` makes an app from it:
 `port/android/app/build/outputs/apk/debug/app-debug.apk`.
@@ -41,7 +45,9 @@ ninja) and these items:
 The app is `dev.horrible.chupathingyce`, and its name on the device is
 Chupathingy. Refer to "App ID, signing and versions".
 
-## The native 64-bit build (experimental)
+<a id="the-native-64-bit-build-experimental"></a>
+
+## The native 64-bit build
 
 `ninja android64` builds the game as native 64-bit code (LP64), as the
 Linux x86-64, Windows x64 and macOS builds do (`HALO_64BIT`,
@@ -58,9 +64,10 @@ the same Gradle module built with `-Pnative64`, so the two builds' APKs
 sit side by side. It is the same app: the same ID
 (`dev.horrible.chupathingyce`), name, key and version code. Either build
 installs over the other and keeps the data folder and the saves. Its
-updates come from the release asset `chupathingyce-android64-<config>.zip`,
-the usual build's from `chupathingyce-android-<config>.zip` (refer to
-"Updates").
+updates come from the release asset `chupathingyce-android64-<config>.zip`.
+Since 0.9.0a the 64-bit app is the only Android download. CI no longer builds
+the usual build's `chupathingyce-android-<config>.zip`; its code stays here
+(refer to "Updates").
 
 The game does not use fixed addresses. Its Xbox address space (4 GB,
 `source/cseries/xbox_address.h`) is reserved wherever the process has room,
@@ -255,6 +262,7 @@ These settings are only for Android:
 | `input.touch_controls` | The touch controls in a game. `"on"` (the default): shown on a touchscreen, also with a controller connected. `"auto"`: shown only while no controller is connected. `"off"`: never shown. A device without a touchscreen never shows them. The menus take taps with each value. |
 | `display.screen_width` | The number of columns of the 480-line picture. `0` (the default): the shape of the display (1068 on a 20:9 phone). `640`: the 4:3 shape of the Xbox. |
 | `display.resolution_limit` | The lines the game draws at, scaled up to the display. `"480"` (the default): the game's own. `"720"`, `"900"`, `"1080"` (or any number between): sharper, but more work for the GPU and the battery. `"native"`: the display's own. Never more than the display has. Video Setup's Resolution sets it, and a change applies at once. |
+| `display.stats_log` | `false` (the default): `true` writes a line a second to the log with the frame rate, the mode, the map, the renderer and the size of the 3D view, for a bug report or to compare two builds. |
 | `display.texture_decode` | Where the compressed (DXT) textures of the maps are unpacked. `"auto"` (the default): by the game on Adreno graphics (Snapdragon), whose driver draws them with dark speckles, and by the driver on other graphics. `"gpu"`: by the driver. `"cpu"`: by the game, as they load (more memory, as on Mali). |
 | `debug.sample_seconds` | Refer to "Find problems". |
 
@@ -380,6 +388,18 @@ over a build with the same code. The code increases when `VERSION`
 increases, and it never decreases. The minor number and the patch number
 must be less than 100: the build stops if they are not. `versionName` is
 the full version, for example `0.6.2b-nightly.3`.
+
+## Graphics: OpenGL ES and Vulkan
+
+The game draws with OpenGL ES by default. A Vulkan renderer is there to try,
+for phones whose OpenGL ES driver draws the game wrongly or slowly: in
+`config.toml`, in the `[display]` section, set `renderer = "vulkan"` and
+start the game again. If Vulkan cannot start, the game uses OpenGL ES, and
+the log says why. On a phone with a Qualcomm Adreno GPU, `vk_driver = "auto"`
+also uses Turnip, the open-source Vulkan driver, which the launcher downloads
+once into the game's data folder. [VULKAN.md](VULKAN.md) has the settings,
+what is not drawn with it yet, and how it is built. The renderer is
+thelinkin3000's (PR #152).
 
 ## Widescreen
 

@@ -351,6 +351,14 @@ static void memory_pool_verify(
 	match_assert("c:\\halo\\SOURCE\\memory\\memory_pool.c", 340, pool->signature==POOL_SIGNATURE);
 	match_assert("c:\\halo\\SOURCE\\memory\\memory_pool.c", 341, pool->size>0);
 
+#if defined(HALO_RELEASE) || defined(HALO_CONSOLE_NO_DEBUG_ASSERTS)
+	/* port: the walk over every block of the pool is a check only, at each
+	block got, made and moved (every object's create and delete): a release
+	build and a console's release-style build leave it out, as the retail
+	game did; the pool's own checks above stay */
+	(void)block;
+	(void)previous_block;
+#else
 	previous_block = NULL;
 	for (block = pool->first_block; block; block = block->next_block)
 	{
@@ -362,6 +370,7 @@ static void memory_pool_verify(
 		match_assert("c:\\halo\\SOURCE\\memory\\memory_pool.c", 359, (byte *)block+block->size<=(byte *)pool->base_address+pool->size);
 		previous_block = block;
 	}
+#endif
 	return;
 }
 
@@ -381,9 +390,15 @@ static struct memory_pool_block *memory_pool_block_get(
 		block->reference==reference,
 		csprintf(temporary, "expected reference %08x but got %08x", block->reference, reference));
 
+#if defined(HALO_RELEASE) || defined(HALO_CONSOLE_NO_DEBUG_ASSERTS)
+	/* port: (the search for the block among the pool's is a check only, as
+	memory_pool_verify's walk is; the reference check above stays) */
+	(void)other_block;
+#else
 	for (other_block = pool->first_block; other_block && block != other_block; other_block = other_block->next_block)
 	{
 	}
 	match_assert("c:\\halo\\SOURCE\\memory\\memory_pool.c", 388, other_block);
+#endif
 	return block;
 }

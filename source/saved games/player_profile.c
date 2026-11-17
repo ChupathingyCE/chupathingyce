@@ -278,6 +278,15 @@ void player_profile_delete(
 	return;
 }
 
+/* port: a profile as a file holds it, its name ended within it (a file
+whose checksum is right may come from anyone: its name's twelve characters
+all set ran on into the fields after it, wherever the name was read as text) */
+static void player_profile_loaded(
+	struct player_profile *profile)
+{
+	profile->player_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH-1] = 0;
+}
+
 boolean player_profile_get_from_path(
 	char *full_path,
 	struct player_profile *profile)
@@ -299,6 +308,7 @@ boolean player_profile_get_from_path(
 			if (!csmemcmp(&checksum, block+sizeof(struct player_profile), sizeof(checksum)))
 			{
 				csmemcpy(profile, block, sizeof(struct player_profile));
+				player_profile_loaded(profile);
 				succeeded = TRUE;
 			}
 			else
@@ -605,16 +615,18 @@ void player_profile_save_level_completed(
 	level = main_get_current_solo_level();
 	difficulty = game_difficulty_level_get();
 
-	match_assert("c:\\halo\\SOURCE\\saved games\\player_profile.c", 0x19D, (level==NONE || ((level>=0) && (level<NUMBER_OF_SINGLE_PLAYER_LEVELS))) && (difficulty >= 0) && (difficulty < NUMBER_OF_GAME_DIFFICULTY_LEVELS));
-
 	/* port: a level not in the campaign (a Halo PC map's, whose scripts may
-	end it with game_won) is none of the profile's, whose flags it would
-	write before; its difficulty one of the profile's too */
+	end it with game_won, or Stubbs's eleventh and twelfth, past Halo's ten)
+	is none of the profile's, whose flags it would write before; its
+	difficulty one of the profile's too. Checked before the assertion below,
+	which halted a debug build at c40's first checkpoint */
 	if (level < 0 || level >= NUMBER_OF_SINGLE_PLAYER_LEVELS ||
 		difficulty < 0 || difficulty >= NUMBER_OF_GAME_DIFFICULTY_LEVELS)
 	{
 		return;
 	}
+
+	match_assert("c:\\halo\\SOURCE\\saved games\\player_profile.c", 0x19D, (level==NONE || ((level>=0) && (level<NUMBER_OF_SINGLE_PLAYER_LEVELS))) && (difficulty >= 0) && (difficulty < NUMBER_OF_GAME_DIFFICULTY_LEVELS));
 
 	player_profile_index = player_ui_get_active_player_profile_index(local_player_index);
 
@@ -718,6 +730,7 @@ static boolean player_profile_read(
 					if (!csmemcmp(&checksum, block+sizeof(struct player_profile), sizeof(checksum)))
 					{
 						csmemcpy(profile, block, sizeof(struct player_profile));
+						player_profile_loaded(profile);
 					}
 					else
 					{

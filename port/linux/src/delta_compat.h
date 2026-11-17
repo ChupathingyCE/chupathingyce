@@ -1,7 +1,7 @@
 /*
 DELTA_COMPAT.H
 
-Wire compatibility ranges (docs/delta.md, "Wire compatibility ranges"): which
+Wire compatibility ranges (docs/delta/versioning.md, "Wire compatibility ranges"): which
 game wires play together, how a host says so in its advertisement, and how a
 client decides from it. No dependency but the C library, so the unit tests
 (tools/test_delta_compat.py) and the ports build it alone; plain C89.

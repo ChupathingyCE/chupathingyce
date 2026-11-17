@@ -105,6 +105,14 @@ enum
 	_rasterizer_geometry_sky_bit = 4
 };
 
+/* port: (rasterizer_water_fog_past_world) */
+enum
+{
+	_rasterizer_drawing_mode_normal = 0,
+	_render_planar_fog_mode_normal = 1,
+	_fog_definition_atmosphere_dominant_bit = 1
+};
+
 /* ---------- macros */
 
 #define SHADER_GET_TRANSPARENT_WATER(shader) \
@@ -196,6 +204,13 @@ typedef char verify_water_definition_ripples_offset[
 	offsetof(struct shader_transparent_water_definition, ripples) == 0x124 ? 1 : -1];
 typedef char verify_pixel_shader_definition_size[
 	sizeof(struct pixel_shader_definition) == 0xF0 ? 1 : -1];
+
+/* ---------- prototypes */
+
+static void rasterizer_water_fog_past_world(
+	struct transparent_geometry_group const *group,
+	short vertex_type,
+	short permutation_index);
 
 /* ---------- globals */
 
@@ -623,6 +638,12 @@ void rasterizer_water_draw(
 		draw_depth_only = TEST_FLAG(water->flags, _shader_transparent_water_draw_before_fog_bit) &&
 			!TEST_FLAG(group->geometry_flags, _rasterizer_geometry_no_queue_bit) &&
 			!TEST_FLAG(group->geometry_flags, _rasterizer_geometry_sky_bit);
+		/* port: the fog where the world ends under the water, before the
+		water writes its depth */
+		if (!TEST_FLAG(group->geometry_flags, _rasterizer_geometry_sky_bit))
+		{
+			rasterizer_water_fog_past_world(group, vertex_type, permutation_index);
+		}
 		if (draw_depth_only)
 		{
 			IDirect3DDevice8_SetRenderState(
@@ -1035,3 +1056,115 @@ void rasterizer_water_draw(
 }
 
 /* ---------- private code */
+
+/* port: fog the water's surface where nothing of the world is behind it.
+The water's passes take their color from what is under the surface (the
+background, modulated, and the reflection added), and under the fog plane
+the environment fog has drawn that in the planar fog's color. Past the
+world's edge under the water, though, nothing is drawn but the sky, which
+no fog reaches. On b30's beach the sea floor ends about 930 world units
+out, short of the far clip at 1024, so the water was laid over the sky and
+its reflection added to the sky's brightness: a white band along the
+horizon. The view there goes down into the fog without end, so it gets the
+planar fog's maximum density, with the atmospheric fog's share that the
+environment fog gives the eye's height above the plane
+(_rasterizer_environment_fog_begin's eye densities), so it meets the water
+over the sea floor without a seam.
+
+It draws behind everything else, in the depth buffer's last step before
+the far plane (a range of none would lose the far clip), with the depth
+test, so it reaches only pixels nothing nearer has drawn. It runs before
+the water writes its depth (a water drawn before the fog writes that
+first, on its own), and only where the camera is above the fog plane and
+the water's surface is parallel to it, so the view through the water goes
+down into the fog.
+
+Based on work by erin.cena in OpenH1. */
+static void rasterizer_water_fog_past_world(
+	struct transparent_geometry_group const *group,
+	short vertex_type,
+	short permutation_index)
+{
+	struct render_fog const *fog = &global_window_parameters.fog;
+	struct render_camera const *camera = &global_window_parameters.camera;
+	real water_normal_length;
+	real eye_height;
+	real planar_density;
+	real atmospheric_density;
+	real alpha;
+	real_rgb_color color;
+
+	if (rasterizer_debug_options.drawing_mode != _rasterizer_drawing_mode_normal ||
+		!rasterizer_debug_options.draw_environment_fog ||
+		fog->planar_mode != _render_planar_fog_mode_normal)
+	{
+		return;
+	}
+	water_normal_length = magnitude3d(&group->plane.n);
+	eye_height = plane3d_distance_to_point(&fog->plane, &camera->position);
+	planar_density = PIN(fog->planar_maximum_density, 0.0f, 1.0f);
+	if (planar_density <= 0.0f ||
+		water_normal_length <= 0.0f ||
+		eye_height <= 0.0f ||
+		plane3d_distance_to_point(&group->plane, &camera->position) <= 0.0f ||
+		dot_product3d(&group->plane.n, &fog->plane.n) <= 0.99f * water_normal_length)
+	{
+		return;
+	}
+
+	atmospheric_density = fog->atmospheric_maximum_distance > 0.0f ?
+		PIN(eye_height / fog->atmospheric_maximum_distance, 0.0f, 1.0f) : 0.0f;
+	if (TEST_FLAG(fog->fog_definition_flags, _fog_definition_atmosphere_dominant_bit))
+	{
+		atmospheric_density = 1.0f;
+	}
+	atmospheric_density = PIN(atmospheric_density * fog->atmospheric_maximum_density, 0.0f, 1.0f);
+	alpha = 1.0f - (1.0f - planar_density) * (1.0f - atmospheric_density);
+	if (alpha <= 0.0f)
+	{
+		return;
+	}
+	color.red = (fog->planar_color.red * planar_density * (1.0f - atmospheric_density) +
+		fog->atmospheric_color.red * atmospheric_density) / alpha;
+	color.green = (fog->planar_color.green * planar_density * (1.0f - atmospheric_density) +
+		fog->atmospheric_color.green * atmospheric_density) / alpha;
+	color.blue = (fog->planar_color.blue * planar_density * (1.0f - atmospheric_density) +
+		fog->atmospheric_color.blue * atmospheric_density) / alpha;
+	color.red = PIN(color.red, 0.0f, 1.0f);
+	color.green = PIN(color.green, 0.0f, 1.0f);
+	color.blue = PIN(color.blue, 0.0f, 1.0f);
+
+	IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_CULLMODE, D3DCULL_NONE);
+	SetRenderStateSmart(
+		D3DRS_COLORWRITEENABLE,
+		D3DCOLORWRITEENABLE_RED |
+		D3DCOLORWRITEENABLE_GREEN |
+		D3DCOLORWRITEENABLE_BLUE);
+	SetRenderStateSmart(D3DRS_ALPHABLENDENABLE, TRUE);
+	SetRenderStateSmart(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+	SetRenderStateSmart(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+	SetRenderStateSmart(D3DRS_BLENDOP, D3DBLENDOP_ADD);
+	SetRenderStateSmart(D3DRS_ALPHATESTENABLE, FALSE);
+	SetRenderStateSmart(D3DRS_ZENABLE, TRUE);
+	SetRenderStateSmart(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+	SetRenderStateSmart(D3DRS_ZWRITEENABLE, FALSE);
+	rasterizer_set_vertex_shader_permutation(
+		_vertex_shader_transparent_water_opacity,
+		vertex_type,
+		permutation_index);
+
+	/* the fog's color and density: rgb = c0, alpha = c0 */
+	csmemset(&pixel_shader, 0, sizeof(pixel_shader));
+	pixel_shader.combiner_count = 1;
+	pixel_shader.final_combiner_inputs_abcd = 0x00000001;
+	pixel_shader.final_combiner_inputs_efg = 0x00001100;
+	pixel_shader.final_combiner_constant_0 = real_rgb_color_to_pixel32(&color) |
+		real_alpha_to_pixel32(PIN(alpha, 0.0f, 1.0f));
+	rasterizer_set_pixel_shader(&pixel_shader);
+
+	rasterizer_set_depth_range(1.0f - 1.0f / 16777216.0f, 1.0f);
+	rasterizer_transparent_geometry_group_draw__internal(group, FALSE);
+	rasterizer_set_depth_range(0.0f, 1.0f);
+
+	return;
+}

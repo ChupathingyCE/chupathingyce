@@ -615,6 +615,10 @@ boolean game_engine_running(
 	void);
 boolean game_engine_showing_postgame(
 	void);
+/* port: 0 while the game plays, then 1 to 3 as it ends (game_engine.c's
+game_engine_mode) */
+long game_engine_postgame_mode(
+	void);
 /* port: the carnage report's prompt as last drawn, in the menus'
 coordinates: its line's top and bottom, its ends, and where its second part
 begins (right when it has one); FALSE when it is not up */
@@ -818,6 +822,9 @@ boolean game_engine_should_end_game(
 void game_engine_clear_goal_position(
 	short goal_index);
 
+void game_engine_objective_weapon_deleted(
+	long weapon_index);
+
 long get_flag_definition_index(
 	void);
 
@@ -864,6 +871,8 @@ boolean game_engine_force_autopickup(
 
 void game_engine_play_multiplayer_sound(
 	long sound_index);
+/* port: the hit tone (audio.hit_sounds), where the map's globals have it */
+void game_engine_play_hit_sound(void);
 #ifdef HALO_GAME_BROWSER
 boolean game_engine_multiplayer_sound_exists(
 	long sound_index);
@@ -895,6 +904,12 @@ long game_engine_remap_weapon(long weapon_definition_index);
 
 boolean game_engine_allow_integrated_lights(
 	long object_index);
+#ifdef HALO_CONSOLE_MATCH_LIGHT_LIMITS
+/* port: the match's flashlight beams left undrawn (a drawing choice only:
+game_engine_build_lighting, object_lights.c) */
+boolean game_engine_flashlight_beams_hidden(
+	void);
+#endif
 
 void game_engine_player_killed(
 	long killing_player_index,

@@ -986,6 +986,17 @@ void _rasterizer_dynamic_vertices_delete(
 	return;
 }
 
+/* port: how many more dynamic vertex buffers a frame may have
+(_rasterizer_dynamic_vertices_new keeps the last one back): each sprite
+group a run of particles makes takes one (render_particles) */
+long rasterizer_dynamic_vertex_buffer_free_count(
+	void)
+{
+	long free_count = (RASTERIZER_MAXIMUM_DYNAMIC_VERTEX_BUFFERS - 1) - dynamic_vertices.buffer_count;
+
+	return free_count > 0 ? free_count : 0;
+}
+
 void rasterizer_draw_dynamic_vertices(
 	long first_primitive_index,
 	long primitive_count,

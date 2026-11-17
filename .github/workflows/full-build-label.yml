@@ -1,0 +1,56 @@
+name: Full build
+
+# The "ci: full" label on a pull request: its latest Build is run again, and
+# that Build's plan job, which reads the labels when it runs, builds every
+# platform (build.yml, "What runs when"). When the Build has not reached its
+# plan job yet, it sees the label itself and nothing is re-run. Any other
+# label does nothing. pull_request_target, so that it can re-run a fork's
+# pull request's Build; it runs no code from the pull request.
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  rerun:
+    if: "github.event.label.name == 'ci: full'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: write
+    steps:
+      - name: Run the Build again
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          run=$(gh api "repos/$REPOSITORY/actions/workflows/build.yml/runs?event=pull_request&head_sha=$HEAD&per_page=1" \
+            --jq '.workflow_runs[0].id // empty')
+          if [ -z "$run" ]; then
+            echo "::notice::no Build for $HEAD (a change to documentation alone builds nothing)"
+            exit 0
+          fi
+          echo "Build: https://github.com/$REPOSITORY/actions/runs/$run"
+          plan=$(gh api "repos/$REPOSITORY/actions/runs/$run/jobs?per_page=100" \
+            --jq '[.jobs[] | select(.name == "plan")][0].status // "none"')
+          case "$plan" in
+            queued|waiting|pending|none)
+              echo "its plan job has not run yet ($plan): it reads the label itself"
+              exit 0 ;;
+          esac
+          status=$(gh api "repos/$REPOSITORY/actions/runs/$run" --jq .status)
+          if [ "$status" != completed ]; then
+            gh run cancel "$run" -R "$REPOSITORY"
+            for _ in $(seq 60); do
+              status=$(gh api "repos/$REPOSITORY/actions/runs/$run" --jq .status)
+              [ "$status" = completed ] && break
+              sleep 5
+            done
+            [ "$status" = completed ] || { echo "::error::run $run did not stop"; exit 1; }
+          fi
+          gh run rerun "$run" -R "$REPOSITORY"
+          echo "::notice::run $run started again with the full matrix"

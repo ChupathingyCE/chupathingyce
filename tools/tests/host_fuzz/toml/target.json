@@ -1,0 +1,16 @@
+{
+  "about": "config.toml's parser (tomlc17), as port_config.c calls it; AddressSanitizer only (tomlc17, kept as upstream wrote it, sizes its pages the offsetof way from a null pointer)",
+  "harness": "port/linux/tests/toml_fuzz.c",
+  "sources": [
+    "port/third_party/tomlc17/tomlc17.c"
+  ],
+  "includes": [
+    "port/third_party/tomlc17"
+  ],
+  "flags": [
+    "-std=gnu11",
+    "-w",
+    "-fno-sanitize=undefined"
+  ],
+  "max_len": 8192
+}

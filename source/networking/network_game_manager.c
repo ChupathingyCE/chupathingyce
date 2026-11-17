@@ -93,8 +93,21 @@ symbols in this file:
 #include "objects/objects.h"
 #include "units/units.h"
 #include "text/unicode.h"
+#include "late_join.h" /* port: port/linux/game/late_join.c */
+#include "mcc_main.h" /* port: mcc_main_network_load_failed */
+#include "mcc_cache.h" /* port: mcc_level_name */
+#include "cache/cache_files.h" /* port: cache_files_map_loadable */
+#include "interface/ui_widget.h" /* port: display_error_text_when_main_menu_loaded */
+
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+/* port: port/linux/game/profile_names.c's */
+boolean profile_names_local_game_name(long local_player, wchar_t *name, long size);
+#endif
 
 #include <xtl.h>
+#ifdef HALO_GAME_BROWSER
+#include "map_share.h" /* port: the map bot's machine name */
+#endif
 
 #ifdef HALO_64BIT
 /* (declared for the 64-bit build, which takes no implicit declarations; the
@@ -258,6 +271,15 @@ void network_game_generate_local_machine_name(
 	char ascii_machine_name[32];
 	HANDLE find_handle;
 
+#ifdef HALO_GAME_BROWSER
+	/* port: the map bot's machine says what it is (port/linux/game/map_share_client.c) */
+	if (map_share_fetch_machine_name())
+	{
+		ascii_to_wide(map_share_fetch_machine_name(), machine_name, 32 * sizeof(wchar_t));
+		machine_name[31] = 0;
+		return;
+	}
+#endif
 	/* port: a machine that brings one player to the game (the one who
 	joined multiplayer on it) is named after that player's profile, not the
 	system's random nickname: the system link list shows a host's game by it */
@@ -279,6 +301,11 @@ void network_game_generate_local_machine_name(
 			struct player_profile profile;
 
 			player_ui_get_active_player_profile(joined_player_index, &profile);
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+			/* (a profile linked to a Delta profile: its verified handle) */
+			profile_names_local_game_name(joined_player_index, profile.player_name,
+				MAXIMUM_PLAYER_PROFILE_NAME_LENGTH);
+#endif
 			if (profile.player_name[0])
 			{
 				ustrncpy(machine_name, profile.player_name, MAXIMUM_PLAYER_PROFILE_NAME_LENGTH);
@@ -422,6 +449,12 @@ boolean network_game_has_free_player_slot(
 
 	if (game->player_count >= game->maximum_players)
 		return FALSE;
+#ifdef HALO_CONSOLE_HOST_PLAYERS
+	/* port: a console's own hosting limit, whatever the game's settings
+	say (halo_console_features.h: the original Xbox hosts 16) */
+	if (game->player_count >= HALO_CONSOLE_HOST_PLAYERS)
+		return FALSE;
+#endif
 #ifdef HALO_GAME_BROWSER
 	/* port: no more players than a Delta machine of the hosted game says it
 	takes (its platform key: a console; port/linux/src/delta_peer.h). No
@@ -558,6 +591,9 @@ boolean network_game_spawn_player(
 	if (player_index != NONE)
 	{
 		player->player_list_index = (char)player_index;
+		/* port: a player made for a game in progress may wait for the next
+		(late_join.c: the host's rule) */
+		late_join_player_added(player_index);
 		return TRUE;
 	}
 
@@ -765,6 +801,36 @@ boolean network_game_remove_machine(
 	return result;
 }
 
+/* port: a network game whose map this machine can't load is left for the
+main menu with the reason, not the Xbox's damaged disc for good, nor a game
+with no map and no menus. As an MCC level's (mcc_main_network_load_failed),
+both are queued: this runs from a network receive. The failed load's delayed
+errors are cleared, or the main menu's map would take them for its own.
+Based on work by goatbutt and the OpenH1 team */
+static void network_game_map_load_failed(
+	char const *map_name)
+{
+	static wchar_t text[320];
+	char message[320];
+	short index;
+
+	if (mcc_main_network_load_failed(map_name))
+		return;
+	error(_error_silent, "network game: can't load map '%s': leaving the game", map_name);
+	snprintf(message, sizeof(message),
+		"Couldn't load the game's map \"%.63s\". It's missing from the maps folder or damaged.",
+		strrchr(map_name, '\\') ? strrchr(map_name, '\\') + 1 : map_name);
+	for (index = 0; message[index] && index < NUMBEROF(text) - 1; index++)
+		text[index] = (wchar_t)(unsigned char)message[index];
+	text[index] = 0;
+	display_error_text_when_main_menu_loaded(text);
+	errors_clear();
+	network_game_abort();
+	main_goto_main_menu();
+
+	return;
+}
+
 boolean network_game_create_game_objects(
 	struct network_game *game)
 {
@@ -799,7 +865,25 @@ boolean network_game_create_game_objects(
 			break;
 	}
 
-	game_precache_new_map(options.map_name, TRUE);
+	/* port: an MCC level that isn't there ends the network game and goes
+	back to the menus with its reason, before the menus are unloaded (#1149) */
+	if (mcc_level_name(options.map_name))
+	{
+		if (!game_precache_new_map(options.map_name, TRUE))
+		{
+			mcc_main_network_load_failed(options.map_name);
+			return FALSE;
+		}
+	}
+	/* port: and any other map this machine can't load (a name another
+	machine sent that is no map here, a map file damaged), refused before
+	the menus are unloaded (network_game_map_load_failed) */
+	else if (!cache_files_map_loadable(options.map_name, NULL, 0) ||
+		!game_precache_new_map_refusable(options.map_name))
+	{
+		network_game_map_load_failed(options.map_name);
+		return FALSE;
+	}
 	main_menu_unload();
 
 	/* port: and whenever a map is loaded. After a game the client is back in
@@ -818,6 +902,16 @@ boolean network_game_create_game_objects(
 		game_set_game_variant(&game->variant);
 		/* port: and its PC options */
 		game_set_game_variant_options(&game->variant_options);
+#ifdef HALO_GAME_BROWSER
+		/* port: and the gametype's further options (the game modes layer,
+		docs/modes.md): the host's own, or a client's from its host's record
+		(network_server_manager.c) */
+		{
+			unsigned char const *network_game_mode_options(void);
+
+			game_set_game_mode_options(network_game_mode_options());
+		}
+#endif
 	}
 
 	if (game_load(&options))
@@ -845,7 +939,10 @@ boolean network_game_create_game_objects(
 	}
 	else
 	{
-		error(0, "game_load() failed.");
+		/* port: not _error_immediate (0), which stopped the game for good
+		(halt_and_catch_fire): the game is left, and an MCC level's too */
+		error(_error_silent, "game_load() failed.");
+		network_game_map_load_failed(options.map_name);
 	}
 
 	return game->local_data.game_objects_loaded;

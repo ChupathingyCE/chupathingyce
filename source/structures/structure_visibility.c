@@ -118,7 +118,9 @@ symbols in this file:
 #include "scenario/sky_definitions.h"
 #include "shaders/shader_definitions.h"
 #include "structures/structure_bsp_definitions.h"
+#include "rasterizer/rasterizer_vertex_byte_order.h" /* port: (the surface walk's vertices) */
 #include "tag_files/tag_groups.h"
+#include "structure_culling.h" /* port: port/linux/game/structure_culling.c */
 
 /* ---------- constants */
 
@@ -342,9 +344,10 @@ static boolean warned_about_structure_bsp_depth;
 static struct structure_visibility_globals structure_visibility_globals;
 static struct profile_section render_structure_visibility_portal_traversal =
 	{ "render_structure_visibility_portal_traversal", NONE, TRUE };
-static struct profile_section render_structure_visibility_subcluster_traversal =
+/* port: shared with the culling walk so both paths use the same profile sections */
+struct profile_section render_structure_visibility_subcluster_traversal =
 	{ "render_structure_visibility_subcluster_traversal", NONE, TRUE };
-static struct profile_section render_structure_visibility_surface_traversal =
+struct profile_section render_structure_visibility_surface_traversal =
 	{ "render_structure_visibility_surface_traversal", NONE, TRUE };
 real structure_sphere_threshold = 2.0f;
 
@@ -595,28 +598,34 @@ static void structure_visibility_traverse_surface_lists(
 						&structure->surfaces,
 						surface_index,
 						struct structure_visibility_surface);
-					real_point3d const *vertex0 = (real_point3d const *)(
-						(byte *)xbox_pointer(material->compressed_vertex_data.address) +
-						surface->vertex_indices[0] * COMPRESSED_STRUCTURE_VERTEX_SIZE);
-					real_point3d const *vertex1 = (real_point3d const *)(
-						(byte *)xbox_pointer(material->compressed_vertex_data.address) +
-						surface->vertex_indices[1] * COMPRESSED_STRUCTURE_VERTEX_SIZE);
-					real_point3d const *vertex2 = (real_point3d const *)(
-						(byte *)xbox_pointer(material->compressed_vertex_data.address) +
-						surface->vertex_indices[2] * COMPRESSED_STRUCTURE_VERTEX_SIZE);
+					/* port: the vertices' positions, read as the map keeps
+					them, little-endian, on any machine (a big-endian
+					console's cast read got other numbers;
+					rasterizer_vertex_byte_order.h) */
+					byte const *vertices = (byte const *)xbox_pointer(material->compressed_vertex_data.address);
+					real_point3d points[3];
+					short point_index;
 
 					/* port: (vertex_limit) */
 					if (surface->vertex_indices[0] < vertex_limit &&
 						surface->vertex_indices[1] < vertex_limit &&
-						surface->vertex_indices[2] < vertex_limit &&
-						render_frustum_triangle_visible(
-						frustum,
-						vertex0,
-						vertex1,
-						vertex2))
+						surface->vertex_indices[2] < vertex_limit)
 					{
-						BIT_VECTOR_SET_FLAG(render.environment_surface_flags, surface_index, TRUE);
-						render.environment_surface_count++;
+						for (point_index = 0; point_index < 3; point_index++)
+						{
+							vertex_data_read_point(
+								vertices + surface->vertex_indices[point_index] * COMPRESSED_STRUCTURE_VERTEX_SIZE,
+								&points[point_index].x);
+						}
+						if (render_frustum_triangle_visible(
+							frustum,
+							&points[0],
+							&points[1],
+							&points[2]))
+						{
+							BIT_VECTOR_SET_FLAG(render.environment_surface_flags, surface_index, TRUE);
+							render.environment_surface_count++;
+						}
 					}
 				}
 
@@ -1987,7 +1996,11 @@ void structure_visibility_compute(
 		0,
 		struct structure_visibility_cluster)->subclusters.count)
 	{
-		structure_visibility_traverse_subclusters(structure);
+		/* port: retain the original walk when culling is disabled or unavailable */
+		if (!structure_culling_traverse(structure))
+		{
+			structure_visibility_traverse_subclusters(structure);
+		}
 	}
 	else
 	{
@@ -2003,7 +2016,11 @@ void structure_visibility_compute(
 			warned_about_missing_subclusters = TRUE;
 		}
 
-		structure_visibility_traverse_surface_lists(structure);
+		/* port: retain the original walk when culling is disabled or unavailable */
+		if (!structure_culling_traverse(structure))
+		{
+			structure_visibility_traverse_surface_lists(structure);
+		}
 	}
 
 	return;

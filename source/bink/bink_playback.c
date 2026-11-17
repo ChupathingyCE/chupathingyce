@@ -389,6 +389,11 @@ void bink_decompress_audio_frame(
 	void);
 static void bink_draw_frame(
 	void);
+#ifndef HALO_XBOX_CONSOLE
+/* sdl_platform.c's (the desktop and Android builds; the server's is
+server_platform.c's) */
+extern int platform_movie_skip_pressed(void) __attribute__((weak));
+#endif
 static boolean bink_query_analog_controller_buttons(
 	void);
 static void bink_free_texture_cache(
@@ -449,6 +454,7 @@ void bink_playback_stop(
 	void)
 {
 	boolean saved_frame_rate_throttle;
+	unsigned long flags;
 
 	if (!bink_globals.initialized)
 		return;
@@ -464,12 +470,18 @@ void bink_playback_stop(
 
 	bink_free_texture_cache();
 
-	if (TEST_FLAG(bink_globals.flags, _bink_playback_return_to_main_menu_when_finished_bit))
-		main_menu_load();
-
+	/* port: the movie's flags and frame rate throttle let go before the main
+	menu loads, not after: a movie the load starts keeps its own. Cleared
+	after, its flags would be lost and the menus' input left suppressed with
+	nothing to lift it (#267, the D-pad and stick dead after the intro) */
+	flags = bink_globals.flags;
 	saved_frame_rate_throttle = bink_saved_frame_rate_throttle;
 	bink_globals.flags = 0;
 	global_frame_rate_throttle = saved_frame_rate_throttle;
+
+	if (TEST_FLAG(flags, _bink_playback_return_to_main_menu_when_finished_bit))
+		main_menu_load();
+
 	attract_mode_reset_timer();
 
 	return;
@@ -657,6 +669,11 @@ void bink_playback_start(
 			bink_globals.screen_geometry.map[0]= &bink_bitmap;
 
 			bink_globals.flags= flags;
+#ifndef HALO_XBOX_CONSOLE
+			/* port: what was pressed before the movie doesn't skip it */
+			if (platform_movie_skip_pressed)
+				platform_movie_skip_pressed();
+#endif
 			if (TEST_FLAG(flags, _bink_playback_prevent_events_to_ui_bit))
 			{
 				bink_get_memory_available("begin event_manager");
@@ -1064,6 +1081,14 @@ static boolean bink_query_analog_controller_buttons(
 	/* tap on touchscreen or mouse click skips */
 	if (input_mouse_button_is_down(0) || input_mouse_button_is_down(1))
 		return TRUE;
+#ifndef HALO_XBOX_CONSOLE
+	/* port: a key, mouse button or touch pressed since the movie started
+	(sdl_platform.c): the keyboard reaches the game only in text and the
+	console, and the mouse isn't the Xbox's (input_mouse_button_is_down is
+	its stub). Weak, as a console's build without it skips by its pad */
+	if (platform_movie_skip_pressed && platform_movie_skip_pressed())
+		return TRUE;
+#endif
 	/* any key press skips */
 	if (input_get_key(&key))
 		return TRUE;

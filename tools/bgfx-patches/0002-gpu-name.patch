@@ -1,0 +1,80 @@
+diff --git a/src/bgfx.cpp b/src/bgfx.cpp
+index 65c5eab2..17fadb5a 100644
+--- a/src/bgfx.cpp
++++ b/src/bgfx.cpp
+@@ -34,6 +34,11 @@ BX_ERROR_RESULT(BGFX_ERROR_FRAME_BUFFER_VALIDATION, BX_MAKEFOURCC('b', 'g', 0, 2
+ BX_ERROR_RESULT(BGFX_ERROR_IDENTIFIER_VALIDATION,   BX_MAKEFOURCC('b', 'g', 0, 3) );
+ BX_ERROR_RESULT(BGFX_ERROR_VIDEO_CODEC_VALIDATION,  BX_MAKEFOURCC('b', 'g', 0, 4) );
+ 
++// The name of the GPU the renderer draws with, set by the renderers that
++// know it, for the application to read (it declares the same array).
++extern "C" char bgfx_gpu_name[256];
++char bgfx_gpu_name[256];
++
+ namespace bgfx
+ {
+ #define BGFX_API_THREAD_MAGIC UINT32_C(0x78666762)
+diff --git a/src/renderer_mtl.cpp b/src/renderer_mtl.cpp
+index 785128e6..cf10e6ad 100644
+--- a/src/renderer_mtl.cpp
++++ b/src/renderer_mtl.cpp
+@@ -31,6 +31,7 @@ struct bgfx_mtl_stats_t
+ };
+ extern "C" bgfx_mtl_stats_t bgfx_mtl_stats;
+ bgfx_mtl_stats_t bgfx_mtl_stats;
++extern "C" char bgfx_gpu_name[256];
+ 
+ namespace bgfx { namespace mtl
+ {
+@@ -950,6 +951,8 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 				return false;
+ 			}
+ 
++			bx::strCopy(bgfx_gpu_name, sizeof(bgfx_gpu_name), m_device->name()->utf8String() );
++
+ 			if (m_device->supportsFamily(MTL::GPUFamilyApple4) )
+ 			{
+ 				g_caps.vendorId = BGFX_PCI_ID_APPLE;
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+index e490fbd9..6771cc92 100644
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -10,6 +10,8 @@
+ #	include "renderer_vk.h"
+ #	include "video_vk.h"
+ 
++extern "C" char bgfx_gpu_name[256];
++
+ #if BX_PLATFORM_OSX
+ #	import <Cocoa/Cocoa.h>
+ #	import <Foundation/Foundation.h>
+@@ -1926,6 +1928,7 @@ VK_IMPORT_INSTANCE
+ 				g_caps.deviceId = uint16_t(m_deviceProperties.deviceID);
+ 
+ 				BX_TRACE("Using physical device %d: %s", physicalDeviceIdx, m_deviceProperties.deviceName);
++				bx::strCopy(bgfx_gpu_name, sizeof(bgfx_gpu_name), m_deviceProperties.deviceName);
+ 
+ 				VkPhysicalDeviceFeatures supportedFeatures;
+ 
+diff --git a/src/dxgi.cpp b/src/dxgi.cpp
+index bb969724..13a6400e 100644
+--- a/src/dxgi.cpp
++++ b/src/dxgi.cpp
+@@ -8,6 +8,8 @@
+ #if BGFX_CONFIG_RENDERER_DIRECT3D11 || (BGFX_CONFIG_RENDERER_DIRECT3D12 && !BX_PLATFORM_LINUX)
+ 
+ #include "dxgi.h"
++
++extern "C" char bgfx_gpu_name[256];
+ #include "renderer_d3d.h"
+ 
+ #if BX_PLATFORM_WINDOWS
+@@ -448,6 +450,8 @@ namespace bgfx
+ 				: (uint16_t)m_adapterDesc.VendorId
+ 				;
+ 			_caps.deviceId = (uint16_t)m_adapterDesc.DeviceId;
++			WideCharToMultiByte(CP_UTF8, 0, m_adapterDesc.Description, -1, bgfx_gpu_name, sizeof(bgfx_gpu_name) - 1, NULL, NULL);
++			bgfx_gpu_name[sizeof(bgfx_gpu_name) - 1] = '\0';
+ 		}
+ 
+ 		return true;

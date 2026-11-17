@@ -100,6 +100,7 @@ symbols in this file:
 #include "rasterizer/rasterizer_model_types.h"
 #include "rasterizer_geometry.h"
 #include "rasterizer_geometry_compression.h"
+#include "rasterizer_vertex_byte_order.h"
 
 /* ---------- constants */
 
@@ -291,7 +292,11 @@ void environment_vertex_compressed_get_point(
 	match_assert("c:\\halo\\SOURCE\\rasterizer\\rasterizer_geometry.c", 438, vertex);
 	match_assert("c:\\halo\\SOURCE\\rasterizer\\rasterizer_geometry.c", 439, point);
 
-	*point = vertex->position;
+	/* port: the map's little-endian bytes on any machine
+	(rasterizer_vertex_byte_order.h) */
+	point->x = vertex_data_read_float(&vertex->position.x);
+	point->y = vertex_data_read_float(&vertex->position.y);
+	point->z = vertex_data_read_float(&vertex->position.z);
 
 	return;
 }
@@ -303,7 +308,8 @@ void environment_vertex_compressed_get_normal(
 	match_assert("c:\\halo\\SOURCE\\rasterizer\\rasterizer_geometry.c", 450, vertex);
 	match_assert("c:\\halo\\SOURCE\\rasterizer\\rasterizer_geometry.c", 451, normal);
 
-	*normal = uncompress_int32_to_real_vector3d(vertex->normal);
+	/* port: (rasterizer_vertex_byte_order.h) */
+	*normal = uncompress_int32_to_real_vector3d(vertex_data_read_dword(&vertex->normal));
 
 	return;
 }
@@ -315,7 +321,9 @@ void environment_vertex_compressed_get_texcoord(
 	match_assert("c:\\halo\\SOURCE\\rasterizer\\rasterizer_geometry.c", 462, vertex);
 	match_assert("c:\\halo\\SOURCE\\rasterizer\\rasterizer_geometry.c", 463, texcoord);
 
-	*texcoord = vertex->texcoord;
+	/* port: (rasterizer_vertex_byte_order.h) */
+	texcoord->x = vertex_data_read_float(&vertex->texcoord.x);
+	texcoord->y = vertex_data_read_float(&vertex->texcoord.y);
 
 	return;
 }
@@ -327,7 +335,8 @@ void environment_lightmap_vertex_compressed_get_incident_radiosity(
 	match_assert("c:\\halo\\SOURCE\\rasterizer\\rasterizer_geometry.c", 474, vertex);
 	match_assert("c:\\halo\\SOURCE\\rasterizer\\rasterizer_geometry.c", 475, normal);
 
-	*normal = uncompress_int32_to_real_vector3d(vertex->incident_radiosity);
+	/* port: (rasterizer_vertex_byte_order.h) */
+	*normal = uncompress_int32_to_real_vector3d(vertex_data_read_dword(&vertex->incident_radiosity));
 
 	return;
 }
@@ -339,8 +348,9 @@ void environment_lightmap_vertex_compressed_get_texcoord(
 	match_assert("c:\\halo\\SOURCE\\rasterizer\\rasterizer_geometry.c", 486, vertex);
 	match_assert("c:\\halo\\SOURCE\\rasterizer\\rasterizer_geometry.c", 487, texcoord);
 
-	texcoord->n[0] = ((real)vertex->lightmap_u * 2.0f + 1.0f) * (1.0f / 65535.0f);
-	texcoord->n[1] = ((real)vertex->lightmap_v * 2.0f + 1.0f) * (1.0f / 65535.0f);
+	/* port: (rasterizer_vertex_byte_order.h) */
+	texcoord->n[0] = ((real)vertex_data_read_short(&vertex->lightmap_u) * 2.0f + 1.0f) * (1.0f / 65535.0f);
+	texcoord->n[1] = ((real)vertex_data_read_short(&vertex->lightmap_v) * 2.0f + 1.0f) * (1.0f / 65535.0f);
 
 	return;
 }

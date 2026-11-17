@@ -402,6 +402,7 @@
     status: loadStatus,
     players: loadPlayers,
     maps: loadMaps,
+    reports: loadReports,
     bans: loadBans,
     log: loadLog,
     playlists: loadPlaylists,
@@ -469,11 +470,115 @@
       ['Version', status.version + ' (network ' + status.network_version + ')'],
     ];
     if (status.skipped) rows.push(['Last skipped', status.skipped]);
+    if (status.locked !== undefined) rows.push(['Joins', status.locked ? 'Locked' : 'Open']);
+    if (status.late_join_hold !== undefined) rows.push(['Late joiners', status.late_join_hold ? 'Wait for the next game' : 'Spawn at once']);
+    if (status.open_reports) rows.push(['Reports', status.open_reports + ' open']);
     facts.replaceChildren();
     rows.forEach(([name, value]) => {
       facts.append(element('dt', name), element('dd', value));
     });
+    showReportsBadge(status.open_reports || 0);
+    const lock = $('lock-controls');
+    lock.hidden = status.locked === undefined || !can(0x004);
+    $('lock-toggle').textContent = status.locked ? 'Unlock joins' : 'Lock joins';
+    $('lock-toggle').dataset.locked = status.locked ? '1' : '';
     showJoin(status);
+  }
+
+  function showReportsBadge(open) {
+    const badge = $('reports-badge');
+    badge.textContent = open ? String(open) : '';
+    badge.hidden = !open;
+  }
+
+  async function toggleLock() {
+    const locked = $('lock-toggle').dataset.locked === '1';
+    if (!locked && !(await confirmAction('Lock joins? Nobody new can join until you unlock. Players in the game stay.', 'Lock'))) return;
+    try {
+      await command(locked ? 'sv_unlock' : 'sv_lock');
+      await loadStatus();
+    } catch (error) {
+      failed(error);
+    }
+  }
+
+  // ---------- reports
+
+  const REPORT_REASONS = { 1: 'Cheating', 2: 'Abuse', 3: 'Griefing', 4: 'Name', 5: 'Other' };
+
+  function reportPlayer(player) {
+    const text = player.name + (player.handle ? ' @' + player.handle : '') + (player.delta ? '' : ' (OpenCE)');
+    return text;
+  }
+
+  async function loadReports() {
+    const [data, players] = await Promise.all([api('/v1/reports'), api('/v1/players').catch(() => null)]);
+    const showClosed = $('reports-closed').checked;
+    const body = $('reports-body');
+    const list = data.reports.filter((report) => showClosed || !report.closed);
+    $('reports-count').textContent = String(data.open);
+    showReportsBadge(data.open);
+    body.replaceChildren();
+    if (!list.length) {
+      const row = element('tr');
+      const cell = element('td', showClosed ? 'No reports' : 'No open reports', 'empty');
+      cell.colSpan = 9;
+      row.append(cell);
+      body.append(row);
+      return;
+    }
+    list.forEach((report) => {
+      const row = element('tr', null, report.closed ? 'closed' : '');
+      const evidence = report.evidence;
+      const refused = evidence.movement + evidence.vehicle + evidence.hits + evidence.clock;
+      const refusedCell = element('td', String(refused), 'num');
+      refusedCell.title = 'movement ' + evidence.movement + ', vehicle ' + evidence.vehicle + ', hits ' + evidence.hits + ', clock ' + evidence.clock;
+      const clip = element('td', report.clip ? 'On the site' : '-');
+      const actions = element('td', null, 'actions');
+      // (the reported player, if still in the game by the same name and number)
+      const here = players && players.players.find((player) => player.number === report.player && player.name === report.target.name);
+      if (!report.closed) {
+        if (here && can(0x002)) actions.append(button('Warn', 'small', () => reportAct(report, 'sv_warn ' + here.number + ' ' + quote('Reported for ' + (REPORT_REASONS[report.reason] || 'something').toLowerCase()))));
+        if (here && can(0x004)) actions.append(button('Kick', 'small', () => reportAct(report, 'sv_kick ' + here.number + ' ' + quote('Reported'))));
+        if (here && can(0x008)) actions.append(button('Ban 1 day', 'small', () => reportAct(report, 'sv_ban ' + here.number + ' 1d ' + quote('Reported'))));
+        if (!here && report.target.account && can(0x008)) actions.append(button('Ban account 1 day', 'small', () => reportAct(report, 'sv_ban_account ' + report.target.account + ' 1d ' + quote('Reported'))));
+        actions.append(button('Close', 'small', () => closeReport(report)));
+      } else {
+        actions.append(element('span', 'Closed by ' + (report.closed_by || '-'), 'hint'));
+      }
+      row.append(
+        element('td', String(report.id), 'num'),
+        element('td', new Date(report.time * 1000).toLocaleString()),
+        element('td', reportPlayer(report.target)),
+        element('td', REPORT_REASONS[report.reason] || '?'),
+        element('td', reportPlayer(report.reporter)),
+        element('td', report.map + (report.game_type ? ', ' + report.game_type : '')),
+        refusedCell,
+        clip,
+        actions,
+      );
+      body.append(row);
+    });
+  }
+
+  async function reportAct(report, line) {
+    if (!(await confirmAction('Run "' + line + '" for report #' + report.id + '?', 'Do it'))) return;
+    try {
+      await command(line);
+      await command('sv_report_close ' + report.id);
+      await loadReports();
+    } catch (error) {
+      failed(error);
+    }
+  }
+
+  async function closeReport(report) {
+    try {
+      await command('sv_report_close ' + report.id);
+      await loadReports();
+    } catch (error) {
+      failed(error);
+    }
   }
 
   // ---------- can people join? (sv_status's reach: ports and states only)
@@ -603,7 +708,7 @@
     if (!data.players.length) {
       const row = element('tr');
       const cell = element('td', 'No players', 'empty');
-      cell.colSpan = moderator ? 8 : 7;
+      cell.colSpan = moderator ? 9 : 8;
       row.append(cell);
       body.append(row);
       return;
@@ -627,6 +732,7 @@
       row.append(
         element('td', player.number, 'num'),
         element('td', player.name),
+        profileCell(player),
         team,
         element('td', player.score === null ? '-' : player.score, 'num'),
         element('td', player.ping === null ? '-' : player.ping, 'num'),
@@ -636,6 +742,19 @@
       row.append(actions);
       body.append(row);
     });
+  }
+
+  // the Delta profile a player's game proved (verified, so never just a
+  // name they typed), and the device they play on
+  const DEVICES = { pc_windows: 'Windows', pc_macos: 'Mac', pc_linux: 'Linux', pc_freebsd: 'FreeBSD',
+    android: 'Android', steam_deck: 'Steam Deck', ios: 'iPhone', xbox: 'Xbox', xbox360: 'Xbox 360',
+    wiiu: 'Wii U', switch: 'Switch', xbox_uwp: 'Xbox Series' };
+  function profileCell(player) {
+    if (player.profile === null || player.profile === undefined) return element('td', '-');
+    const device = DEVICES[player.device] || player.device || '';
+    const cell = element('td', player.profile ? '@' + player.profile : 'No profile');
+    if (device) cell.append(element('span', ' ' + device, 'muted'));
+    return cell;
   }
 
   // a player's refusals: the total, and each kind it has any of
@@ -809,6 +928,7 @@
     const body = $('bans-body');
     $('bans-count').textContent = String(data.count);
     body.replaceChildren();
+    loadShared(data);
     if (!data.bans.length) {
       const row = element('tr');
       const cell = element('td', 'No bans', 'empty');
@@ -831,6 +951,52 @@
       );
       body.append(row);
     });
+  }
+
+  function loadShared(data) {
+    const body = $('shared-body');
+    const shared = data.shared || [];
+    $('shared-count').textContent = String(shared.length);
+    body.replaceChildren();
+    if (!shared.length) {
+      const row = element('tr');
+      const cell = element('td', 'No shared bans', 'empty');
+      cell.colSpan = 7;
+      row.append(cell);
+      body.append(row);
+    }
+    const now = Date.now() / 1000;
+    shared.forEach((entry) => {
+      const row = element('tr', null, entry.excepted ? 'closed' : '');
+      const actions = element('td', null, 'actions');
+      if (entry.excepted) actions.append(element('span', 'Let in here', 'hint'));
+      else if (can(0x020)) actions.append(button('Unban here', 'small', () => unbanShared(entry)));
+      row.append(
+        element('td', entry.number, 'num'),
+        element('td', entry.list || '-'),
+        element('td', entry.source || '-'),
+        element('td', entry.players || '-'),
+        element('td', entry.until === null ? 'forever' : duration(Math.max(0, entry.until - now))),
+        element('td', entry.reason || '-'),
+        actions,
+      );
+      body.append(row);
+    });
+    api('/v1/ban_lists').then((lists) => {
+      const names = lists.lists.map((list) => list.name + ' (' + list.entries + ')').join(', ');
+      $('shared-state').textContent = 'Sharing this server\'s bans: ' + (lists.sharing ? 'on' : 'off') + '. ' +
+        (names ? 'Lists: ' + names + '.' : 'No lists taken.');
+    }).catch(() => { $('shared-state').textContent = ''; });
+  }
+
+  async function unbanShared(entry) {
+    if (!(await confirmAction('Let ' + (entry.players || 'this player') + ' in on this server? The list keeps the ban.', 'Unban here'))) return;
+    try {
+      await command('sv_unban ' + entry.number);
+      await loadBans();
+    } catch (error) {
+      failed(error);
+    }
   }
 
   async function unban(entry) {
@@ -960,6 +1126,28 @@
     $('link-stop').hidden = link.state === 'off';
     $('link-stop').textContent = link.state === 'linking' ? 'Stop linking' : 'Unlink';
     if (before === 'linking' && linkState === 'linked') show('Linked to ' + link.owner + '\'s account.');
+    showBadge(link.badge || { state: 'off' });
+  }
+
+  // the server badge (docs/server-badges.md): what this server's
+  // server_badge.cert is, while it's linked
+  const BADGE_TIERS = { official: 'Official server', developer: 'Developer server', community: 'Community server' };
+  function showBadge(badge) {
+    const day = badge.expires ? new Date(badge.expires * 1000).toLocaleDateString() : '';
+    const states = {
+      none: 'None',
+      checking: 'Checking',
+      unreadable: 'server_badge.cert is not a certificate',
+      other_server: 'For another link key. Ask for a new one on the site.',
+      not_signed: 'Not signed by a badge key this build knows',
+      unknown_tier: 'A kind this build doesn\'t know',
+      expired: 'Expired ' + day + '. Ask for a new one on the site.',
+      not_yet: 'Not valid yet',
+      good: (BADGE_TIERS[badge.tier] || badge.tier) + (badge.label ? ' (' + badge.label + ')' : '') +
+        (day ? ', until ' + day : ''),
+    };
+    $('link-badge').hidden = badge.state === 'off' || !states[badge.state];
+    $('link-badge').textContent = 'Server badge: ' + (states[badge.state] || '');
   }
 
   async function copyLink() {
@@ -1462,6 +1650,8 @@
     $('map-form').addEventListener('submit', playMap);
     $('skip').addEventListener('click', skip);
     $('end-game').addEventListener('click', endGame);
+    $('lock-toggle').addEventListener('click', toggleLock);
+    $('reports-closed').addEventListener('change', () => loadReports().catch(failed));
     $('name-form').addEventListener('submit', setNameAndPlayers);
     $('set-key').addEventListener('change', settingKind);
     $('link-copy').addEventListener('click', copyLink);

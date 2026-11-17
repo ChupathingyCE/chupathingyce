@@ -37,6 +37,7 @@ network co-op spectator's (coop_spectate_camera).
 
 #include "halo_port_limits.h"
 #include "follow_camera.h"
+#include "late_join.h"
 
 /* ---------- constants */
 
@@ -309,6 +310,21 @@ long follow_camera_unit(
 	player = player_get(self);
 	/* checked every frame so a press is never missed or counted twice */
 	pressed = follow_camera_pressed(player->network_player_data.controller_index);
+	/* a late joiner waiting for the next game (late_join.c: the host's rule)
+	watches a living player at once, whatever this player's setting */
+	if (late_join_waiting(self))
+	{
+		long *watched = &follow_camera_locals[local_player_index].watched;
+
+		if (follow_camera_locals[local_player_index].dead_since == NONE)
+			follow_camera_locals[local_player_index].dead_since = game_time_get();
+		if (!follow_camera_locals[local_player_index].following || !follow_camera_can_watch(self, *watched))
+			*watched = follow_camera_first(self, NONE);
+		follow_camera_locals[local_player_index].following = TRUE;
+		if (pressed)
+			*watched = follow_camera_next(self, *watched, pressed);
+		return *watched != NONE ? player_get(*watched)->unit_index : NONE;
+	}
 	/* alive: back to the player's own view; keep `watched`, so the next
 	death starts on the same teammate */
 	if (player->unit_index != NONE || game_engine_showing_postgame() ||
@@ -387,18 +403,27 @@ void follow_camera_draw(
 	{
 		return;
 	}
+	font = font_definition_get(font_index);
+	height = (short)(font->ascending_height + font->descending_height);
+	color.alpha = 0.8f;
+	/* a late joiner's wait, a line above (late_join.c) */
+	if (late_join_waiting(local_player_get_player_index(local_player_index)))
+	{
+		bounds = render.camera.window_bounds;
+		bounds.y0 = (short)(bounds.y1 - 2 * height - 30);
+		bounds.y1 = (short)(bounds.y1 - height - 30);
+		draw_string_set_draw_mode(font_index, NONE, 2, 0, &color);
+		rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, L"WAITING FOR THE NEXT GAME");
+	}
 	watched = follow_camera_locals[local_player_index].watched;
 	if (watched == NONE || !player_try_and_get(watched))
 		return;
 	usnprintf(text, NUMBEROF(text) - 1, L"FOLLOWING %.12s", player_get(watched)->name);
 	text[NUMBEROF(text) - 1] = 0;
 	/* one line, centered near the bottom of the view, in the HUD's font */
-	font = font_definition_get(font_index);
-	height = (short)(font->ascending_height + font->descending_height);
 	bounds = render.camera.window_bounds;
 	bounds.y0 = (short)(bounds.y1 - height - 24);
 	bounds.y1 = (short)(bounds.y1 - 24);
-	color.alpha = 0.8f;
 	/* draw mode 2: centered */
 	draw_string_set_draw_mode(font_index, NONE, 2, 0, &color);
 	rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, text);

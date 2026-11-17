@@ -23,11 +23,15 @@ enum
 #ifdef HALO_CUSTOM_EDITION
 /* port: bitmap group flags made after the Xbox's and Halo PC's tags, for
 the HUD: MCC's "0.5 HUD scale" and Chimera's "force HUD use high resolution
-scale" (hud_bitmap_group_scale, ce_hud.c) */
+scale" (hud_bitmap_group_scale, ce_hud.c); and the port's own, set as a
+HaloMD map loads: a bitmap whose pixels Custom Edition's bitmaps.map has
+not, drawn with another's (ce_resources.c, ce_retail_bitmaps), which the
+weather does not draw (weather_particle_systems.c) */
 enum
 {
 	_bitmap_group_half_hud_scale_bit = 4,
 	_bitmap_group_force_hud_high_resolution_scale_bit = 7,
+	_bitmap_group_port_stood_in_bit = 15,
 };
 #endif
 

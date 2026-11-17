@@ -8,8 +8,10 @@ base64. Plain C, for the platform layer and the system side alike.
 
 #include "build_identity.h"
 #include "log_address.h"
+#include "log_paths.h"
 #include "crash_report.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -225,6 +227,21 @@ size_t crash_report_redact(const char *text, size_t length, char *out, size_t si
 		size_t found = 0;
 		int public_address = 0;
 
+		const char *placeholder;
+		size_t home = log_paths_home_at(text, length, used, &placeholder);
+
+		/* (the home folder, as ~: log_paths.h) */
+		if (home)
+		{
+			size_t placeholder_length = strlen(placeholder);
+
+			if (written + placeholder_length >= size)
+				break;
+			memcpy(out + written, placeholder, placeholder_length);
+			written += placeholder_length;
+			used += home;
+			continue;
+		}
 		if (!word(previous) && previous != '.' && previous != ':')
 		{
 			if ((found = ipv4_at(text + used, length - used, bytes)) != 0)
@@ -385,10 +402,43 @@ static size_t log_tail(const char *log, size_t size)
 	return start;
 }
 
+/* the renderer the log names last (d3d8_gl.c's "renderer=NAME" line): its
+length, written to out (NUL terminated); 0 for none */
+size_t crash_report_renderer(const char *log, size_t size, char *out, size_t out_size)
+{
+	static const char key[] = "renderer=";
+	size_t found = 0, index, length = 0;
+	int any = 0;
+
+	if (!out_size)
+		return 0;
+	for (index = 0; log && index + sizeof(key) - 1 <= size; index++)
+	{
+		if (!memcmp(log + index, key, sizeof(key) - 1) && (index == 0 || log[index - 1] == ' ' ||
+			log[index - 1] == '\n' || log[index - 1] == ':' || log[index - 1] == ']'))
+		{
+			found = index + sizeof(key) - 1;
+			any = 1;
+		}
+	}
+	if (any)
+	{
+		while (found + length < size && length + 1 < out_size && (isalnum((unsigned char)log[found + length]) ||
+			log[found + length] == '-' || log[found + length] == '_'))
+		{
+			out[length] = log[found + length];
+			length++;
+		}
+	}
+	out[length] = 0;
+	return length;
+}
+
 char *crash_report_body(const char *report, const char *log, size_t log_size, const void *dump, size_t dump_size,
 	size_t *length)
 {
-	static const char *const keys[] = { "version", "channel", "commit", "platform", "architecture", "os", "exception" };
+	static const char *const keys[] = { "version", "channel", "commit", "platform", "architecture", "os", "exception",
+		"renderer" };
 	struct crash_text body = { 0 };
 	const char *line;
 	int frames = 0;
@@ -412,6 +462,15 @@ char *crash_report_body(const char *report, const char *log, size_t log_size, co
 				break;
 			}
 		}
+	}
+	/* (a report without the renderer: the one its log names) */
+	if (!strstr(report, "\nrenderer ") && strncmp(report, "renderer ", 9))
+	{
+		char renderer[32];
+		size_t renderer_length = crash_report_renderer(log, log_size, renderer, sizeof(renderer));
+
+		if (renderer_length)
+			json_field(&body, "renderer", renderer, renderer_length);
 	}
 	text_string(&body, ", \"frames\": [");
 	for (line = report; line && *line && frames < CRASH_REPORT_FRAMES;
@@ -443,9 +502,18 @@ char *crash_report_body(const char *report, const char *log, size_t log_size, co
 	}
 	if (dump && dump_size && dump_size <= CRASH_REPORT_MAXIMUM_DUMP)
 	{
-		text_string(&body, ", \"minidump\": \"");
-		base64(&body, dump, dump_size);
-		text_string(&body, "\"");
+		/* (its modules' paths without the account name: log_paths.h) */
+		unsigned char *masked = malloc(dump_size);
+
+		if (masked)
+		{
+			memcpy(masked, dump, dump_size);
+			log_paths_mask(masked, dump_size);
+			text_string(&body, ", \"minidump\": \"");
+			base64(&body, masked, dump_size);
+			text_string(&body, "\"");
+			free(masked);
+		}
 	}
 	text_string(&body, "}");
 	if (body.failed)

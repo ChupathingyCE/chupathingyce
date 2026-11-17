@@ -39,7 +39,7 @@ is named as OpenCE's build-145 names it, custom_maps\<name>, and HaloMD's
 and Halo PC retail's maps maps_md\<name>.md and maps_pc\<name>.pc, and a
 pack's Xbox map maps_<pack>\<name>.<pack>, which no OpenCE client (nor a
 ChupathingyCE build before map packs) has (map_family_wire_name); Delta Peer carries each map's
-identity between ChupathingyCE machines (docs/delta.md).
+identity between ChupathingyCE machines (docs/delta/peer.md, Map identity).
 */
 
 #ifndef HALO_MAP_FAMILIES_H
@@ -66,6 +66,55 @@ or suffix that is not an Xbox map (deathisland, hugeass: how OpenCE's hosts
 announce every Halo PC map) is a Custom Edition map's, as in the game's
 protocol (custom_maps\<name>) */
 short map_family_parse_listed(char const *map, char *file, long size);
+
+/* the first OpenCE network version whose hosts play MCC maps */
+#define MAP_FAMILY_OPENCE_MCC_VERSION 42
+
+/* an OpenCE host's public listing names an MCC map by its file alone
+("portent" for mcc_maps\<item id>\portent), as it names a Custom Edition
+map: the level of this machine's MCC maps whose file is that name, into
+level (size bytes), for a game listed at network version
+MAP_FAMILY_OPENCE_MCC_VERSION or later whose map is a bare file name that is
+not one of the Xbox's maps, when this machine has no Custom Edition map by
+that name (ce_present: then it stays the Custom Edition map it always was).
+level_at(index, context) is the index'th of count MCC levels
+(mcc_maps\<package>\<map>); the first with the name is taken (the join
+checks the host's content fingerprint whichever package it is). TRUE when
+found */
+boolean map_family_listed_mcc(char const *map, long version, boolean ce_present,
+	char const *(*level_at)(long index, void *context), long count, void *context, char *level, long size);
+
+/* whether a listed game's map is OpenCE's bare name of a map this machine
+has neither as an MCC map (mcc_found: map_family_listed_mcc) nor as a
+Custom Edition map (ce_present): from network version
+MAP_FAMILY_OPENCE_MCC_VERSION, by a host that says no platform (our own
+hosts do, and name an MCC map in full), a bare file name that is not an
+Xbox map. Only the host's own name for it, on joining, says which it is */
+boolean map_family_opence_unknown(char const *map, long version, boolean has_platform, boolean ce_present,
+	boolean mcc_found);
+
+/* what a list says, and does, of a game's missing map, in this order: one
+of Halo PC's own (stock: copied from Halo PC), one that may be downloaded
+(downloadable: on joining), then OpenCE's bare name of a map this machine
+has neither kind of (opence_unknown: joined to find out which it is),
+else not to be had here */
+enum
+{
+	_map_family_missing_stock,
+	_map_family_missing_download,
+	_map_family_missing_ask_host,
+	_map_family_missing_blocked,
+};
+short map_family_missing_kind(boolean stock, boolean downloadable, boolean opence_unknown);
+
+/* a join, once its host advertises its map: whether it is given up before
+the map is loaded because the advertised map is a Custom Edition map
+(advertised_family) this machine lacks (present), and that can't be had
+(stock, downloadable: those are offered), when the join was let through
+only to ask the host (asked_host: _map_family_missing_ask_host). Any other
+join goes on as it always did */
+boolean map_family_asked_host_gives_up(boolean asked_host, short advertised_family, boolean present, boolean stock,
+	boolean downloadable);
 
 /* (a pack's name, at most, without its terminator) */
 #define MAP_PACK_ID_LENGTH 8
@@ -154,6 +203,17 @@ long map_family_cache_version(short family);
 Halo PC's ui), in maps_ce or its older places: FALSE if there is none (path
 then the place it goes) */
 boolean map_family_resource(char const *name, char *path, long size);
+
+/* whether Custom Edition's resource maps (bitmaps.map, sounds.map, loc.map),
+which every family past the Xbox's reads, are in maps_ce or its older places
+and are Custom Edition's: FALSE if one is missing, is not a resource map of
+its kind, or is Halo PC retail's own (whose resources are named for their
+pixels' and permutations' numbers, not Custom Edition's <path>__pixels and
+<path>__permutations). message (size bytes; NULL for none) is then what the
+player is told (MAP_REASON_CE_RESOURCES, halo_join_reasons.h). Each place
+looked at is logged when the answer changes; the files are read again only
+when one of them changes */
+boolean map_family_resources_ready(char *message, long size);
 
 /* the file of a map of a family past the Xbox's (its file's name without
 the suffix), as cache_files_windows.c opens it: the path (for CreateFileA)

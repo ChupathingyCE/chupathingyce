@@ -1665,6 +1665,9 @@ static void stbi__skip(stbi__context *s, int n)
 #else
 static int stbi__getn(stbi__context *s, stbi_uc *buffer, int n)
 {
+   // ChupathingyCE: nothing to read, so no copy: a PNG's first IDAT can be empty, with
+   // no buffer yet, and memcpy takes no null pointer even for 0 bytes
+   if (n == 0) return 1;
    if (s->io.read) {
       int blen = (int) (s->img_buffer_end - s->img_buffer);
       if (blen < n) {
@@ -5191,7 +5194,9 @@ static int stbi__parse_png_file(stbi__png *z, int scan, int req_comp)
                p = (stbi_uc *) STBI_REALLOC_SIZED(z->idata, idata_limit_old, idata_limit); if (p == NULL) return stbi__err("outofmem", "Out of memory");
                z->idata = p;
             }
-            if (!stbi__getn(s, z->idata+ioff,c.length)) return stbi__err("outofdata","Corrupt PNG");
+            // ChupathingyCE: an empty chunk reads nothing (an empty first IDAT has
+            // no buffer yet, and a null pointer takes no offset, even 0)
+            if (c.length && !stbi__getn(s, z->idata+ioff,c.length)) return stbi__err("outofdata","Corrupt PNG");
             ioff += c.length;
             break;
          }

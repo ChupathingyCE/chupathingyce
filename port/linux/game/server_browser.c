@@ -42,6 +42,9 @@ enum
 	_ce_map_present,
 	_ce_map_missing,
 	_ce_map_unsupported,
+	/* a map past the Xbox's, without Custom Edition's resource maps here
+	(map_family_resources_ready) */
+	_ce_map_no_resources,
 };
 
 /* ---------- globals */
@@ -82,7 +85,8 @@ static short ce_map_state(char const *map)
 	{
 		csstrncpy(ce_map_check.map, map, sizeof(ce_map_check.map) - 1);
 		ce_map_check.map[sizeof(ce_map_check.map) - 1] = 0;
-		ce_map_check.answer = ui_map_list_map_present(map) ? _ce_map_present : _ce_map_missing;
+		ce_map_check.answer = family != _map_family_pack && !map_family_resources_ready(NULL, 0) ?
+			_ce_map_no_resources : ui_map_list_map_present(map) ? _ce_map_present : _ce_map_missing;
 		ce_map_check.time = system_milliseconds();
 	}
 	return ce_map_check.answer;
@@ -149,6 +153,9 @@ boolean server_browser_map_blocked(char const *map, wchar_t *message, short leng
 		break;
 	case _ce_map_unsupported:
 		snprintf(text, sizeof(text), JOIN_REASON_MAPS_UNSUPPORTED, family == _map_family_halomd ? "HaloMD" : "Halo PC");
+		break;
+	case _ce_map_no_resources:
+		snprintf(text, sizeof(text), "%s", JOIN_REASON_CE_RESOURCES);
 		break;
 	default:
 		return FALSE;

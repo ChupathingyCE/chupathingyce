@@ -1,0 +1,7 @@
+{
+  "about": "the debug telnet console: a client's bytes, 32 a frame, and that a browser's HTTP request runs no script",
+  "harness": "tools/tests/telnet_console_fuzz.c",
+  "game_sources": ["source/networking/telnet_console.c"],
+  "max_len": 4096,
+  "sources": []
+}

@@ -114,6 +114,8 @@ symbols in this file:
 #include "rasterizer/rasterizer_model_types.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
 #include "game/game_engine.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_looks.h" /* port: port/linux/game/stubbs_looks.c */
 
 /* ---------- constants */
 
@@ -397,6 +399,9 @@ void render_objects(
 		first_person_pass = !first_person_pass;
 	}
 	while (first_person_pass);
+	/* port: Stubbs mode's corn (port/linux/game/stubbs_vegetation.c) */
+	if (stubbs_mode_active())
+		stubbs_vegetation_render();
 
 	rasterizer_models_end();
 
@@ -530,6 +535,7 @@ static void render_object_list(
 	while (object_index != NONE)
 	{
 		struct object_datum *object = object_get(object_index);
+		short region_count; /* port: the regions an object's permutations cover */
 
 		if (!object_is_first_person_camera(object_index) || render.camera.mirrored)
 		{
@@ -587,7 +593,7 @@ static void render_object_list(
 							model_effect.modifier_shader->base.type))
 						{
 							model_effect.modifier_animation.colors =
-								object->object.outgoing_change_colors;
+								object_get_change_colors(object_index);
 							model_effect.modifier_animation.values =
 								object_get_function_values(object_index);
 						}
@@ -603,18 +609,20 @@ static void render_object_list(
 
 					if (TEST_FLAG(_object_mask_unit, object->object.type))
 					{
-						struct unit_datum *unit = unit_get(object_index);
+						/* port: between the last two ticks, as the unit is
+						drawn (render_interpolation.c) */
+						real super_amount;
+						real active_camouflage = unit_get_drawn_camouflage(object_index, &super_amount);
 
-						if (unit->unit.active_camouflage > 0.f)
+						if (active_camouflage > 0.f)
 						{
 							model_effect.type =
 								_render_model_effect_type_active_camouflage;
 							model_effect.source_object_index = object_index;
 							model_effect.source_object_centroid =
 								object->object.bounding_sphere_center;
-							model_effect.intensity = unit->unit.active_camouflage;
-							model_effect.parameter =
-								unit->unit.active_camouflage_super_amount;
+							model_effect.intensity = active_camouflage;
+							model_effect.parameter = super_amount;
 						}
 					}
 
@@ -669,8 +677,8 @@ static void render_object_list(
 						definition->object.model.index,
 						level_of_detail_pixels,
 						object_get_node_matrices(object_index),
-						object->object.region_permutations,
-						object->object.outgoing_change_colors,
+						object_get_region_permutations(object_index, &region_count),
+						object_get_change_colors(object_index),
 						object_get_function_values(object_index),
 						data->lighting,
 						&object->object.bounding_sphere_center,
@@ -691,8 +699,8 @@ static void render_object_list(
 						definition->object.model.index,
 						level_of_detail_pixels * 0.3f,
 						object_get_node_matrices(object_index),
-						object->object.region_permutations,
-						object->object.outgoing_change_colors,
+						object_get_region_permutations(object_index, &region_count),
+						object_get_change_colors(object_index),
 						object_get_function_values(object_index),
 						data->lighting,
 						&object->object.bounding_sphere_center,
@@ -708,7 +716,7 @@ static void render_object_list(
 			{
 				struct render_animation animation;
 
-				animation.colors = object->object.outgoing_change_colors;
+				animation.colors = object_get_change_colors(object_index);
 				animation.values = object_get_function_values(object_index);
 				widgets_render(object_index, data->lighting, &animation);
 			}
@@ -830,11 +838,12 @@ static boolean render_object_shadow_begin(
 	object = object_get(data->object_index);
 	if (TEST_FLAG(_object_mask_unit, object->object.type))
 	{
-		struct unit_datum *unit = unit_get(data->object_index);
+		real super_amount;
+		real active_camouflage = unit_get_drawn_camouflage(data->object_index, &super_amount);
 
-		if (unit->unit.active_camouflage > 0.f)
+		if (active_camouflage > 0.f)
 		{
-			shadow_intensity = (1.f - unit->unit.active_camouflage) * level_of_detail;
+			shadow_intensity = (1.f - active_camouflage) * level_of_detail;
 		}
 	}
 
@@ -953,7 +962,7 @@ static void object_render_state_refresh(
 	struct object_render_state *state = object_render_state_get(render_state_index);
 	long scene_age = render.scene_index - state->render_scene_index;
 	long render_age = render.frame_index - state->render_frame_index;
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	/* The native builds draw several frames per tick
 	(port/linux/game/render_interpolation.c), and a refresh moves the lighting
 	a fixed step toward its target: refresh at the intervals in ticks the
@@ -970,7 +979,10 @@ static void object_render_state_refresh(
 		refresh_age = 1;
 	}
 
-	if (TEST_FLAG(object_get(object_index)->object.flags, _object_static_lighting_recompute_bit))
+	if (TEST_FLAG(object_get(object_index)->object.flags, _object_static_lighting_recompute_bit) ||
+		/* port: and in Stubbs mode a unit's, lit where its body is
+		(port/linux/game/stubbs_looks.c) */
+		(stubbs_mode_active() && stubbs_looks_object_lit_at_body(object_index)))
 	{
 		if (level_of_detail_pixels > OBJECT_RENDER_STATE_LARGE_PIXELS)
 		{
@@ -995,12 +1007,17 @@ static void object_render_state_refresh(
 		rebuild = TRUE;
 	}
 
+	/* port: (and taken at once, not eased toward only while it moves: a
+	unit's body moves by its animation, its origin standing still) */
+	if (refresh && stubbs_mode_active() && stubbs_looks_object_lit_at_body(object_index))
+		rebuild = TRUE;
+
 	if (rebuild || refresh)
 	{
 		state->object_index = object_index;
 		lights_prepare_for_object_static(object_index, &state->desired_lighting);
 		state->level_of_detail_pixels = level_of_detail_pixels;
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		state->refresh_frame_index = game_time_get();
 #else
 		state->refresh_frame_index = render.frame_index;

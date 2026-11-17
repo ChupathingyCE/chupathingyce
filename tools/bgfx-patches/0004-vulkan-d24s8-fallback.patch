@@ -1,0 +1,22 @@
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -2293,9 +2293,18 @@ VK_IMPORT_INSTANCE
+ 					VkFormatProperties fp;
+ 					vkGetPhysicalDeviceFormatProperties(m_physicalDevice, VK_FORMAT_D24_UNORM_S8_UINT, &fp);
+ 
++					// D24S8 falls back to D32_SFLOAT_S8_UINT, as it always
++					// was before, when the device has no D24_UNORM_S8_UINT
++					// attachment (AMD's drivers, RADV included): the spec
++					// guarantees one of the two
++					VkFormatProperties fp32;
++					vkGetPhysicalDeviceFormatProperties(m_physicalDevice, VK_FORMAT_D32_SFLOAT_S8_UINT, &fp32);
++
+ 					s_textureFormat[TextureFormat::D24S8].m_fmtDsv =
+ 						0 != (fp.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+ 						? VK_FORMAT_D24_UNORM_S8_UINT
++						: 0 != (fp32.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
++						? VK_FORMAT_D32_SFLOAT_S8_UINT
+ 						: VK_FORMAT_UNDEFINED
+ 						;
+ 

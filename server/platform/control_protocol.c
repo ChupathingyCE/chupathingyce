@@ -778,6 +778,73 @@ int control_session_text_valid(const char *text)
 	return session_form(text, strlen(text));
 }
 
+/* whether host (length bytes) is name, with a port after it if name has
+none ("panel.example.org" takes "panel.example.org:443") */
+static int host_is(const char *host, size_t length, const char *name, size_t name_length)
+{
+	size_t index;
+
+	if (!name_length || length < name_length)
+		return 0;
+	for (index = 0; index < name_length; index++)
+	{
+		if (lower((unsigned char)host[index]) != lower((unsigned char)name[index]))
+			return 0;
+	}
+	if (length == name_length)
+		return 1;
+	/* (a port: digits after a colon, and only if the name gave none) */
+	if (host[name_length] != ':' || length == name_length + 1 || length - name_length - 1 > 5 ||
+		(name[name_length - 1] != ']' && memchr(name, ':', name_length)))
+	{
+		return 0;
+	}
+	for (index = name_length + 1; index < length; index++)
+	{
+		if (host[index] < '0' || host[index] > '9')
+			return 0;
+	}
+	return 1;
+}
+
+int control_host_allowed(const char *host, const char *list, int loopback)
+{
+	static const char *const own[] = { "localhost", "127.0.0.1", "[::1]" };
+	size_t length = strlen(host);
+	size_t index;
+
+	if (!length)
+		return 0;
+	if (loopback)
+	{
+		for (index = 0; index < sizeof(own) / sizeof(own[0]); index++)
+		{
+			if (host_is(host, length, own[index], strlen(own[index])))
+				return 1;
+		}
+	}
+	while (list && *list)
+	{
+		const char *end = strchr(list, ',');
+		size_t item_length = end ? (size_t)(end - list) : strlen(list);
+		const char *item = list;
+
+		while (item_length && (*item == ' ' || *item == '\t'))
+		{
+			item++;
+			item_length--;
+		}
+		while (item_length && (item[item_length - 1] == ' ' || item[item_length - 1] == '\t'))
+			item_length--;
+		if (host_is(host, length, item, item_length))
+			return 1;
+		if (!end)
+			break;
+		list = end + 1;
+	}
+	return 0;
+}
+
 int control_parse_log_query(const char *query, uint64_t *since)
 {
 	uint64_t value = 0;
@@ -874,6 +941,7 @@ const char *control_status_text(int status)
 	case 414: return "URI Too Long";
 	case 415: return "Unsupported Media Type";
 	case 417: return "Expectation Failed";
+	case 421: return "Misdirected Request";
 	case 429: return "Too Many Requests";
 	case 431: return "Request Header Fields Too Large";
 	case 500: return "Internal Server Error";

@@ -1824,7 +1824,8 @@ void rasterizer_models_begin(
 	struct collision_result collision;
 	real_vector3d vector;
 
-	if (!skip_obscurer_test)
+	/* port: only debug vertex selection uses the obscuring object's index. */
+	if (!skip_obscurer_test && rasterizer_debug_model_vertices_enabled)
 	{
 		match_assert(
 			"c:\\halo\\SOURCE\\rasterizer\\rasterizer.c",

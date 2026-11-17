@@ -8,6 +8,7 @@ Game type files as the game's gametypes, and back (server_gametype_variant.h).
 
 #include "cseries.h"
 #include "game/game_engine.h"
+#include "game/game_modes.h"
 #include "server_config.h"
 #include "server_gametype_variant.h"
 
@@ -263,6 +264,77 @@ void server_gametype_variant_build(
 	server_gametype_variant_apply(gametype, variant, options);
 }
 
+/* (the mode byte and the hardcore byte of the further options:
+network_rules.h's NETWORK_RULES_OPTION_MODE and _HARDCORE) */
+enum
+{
+	MODE_OPTION_MODE = 0,
+	MODE_OPTION_HARDCORE = 1,
+	/* (SERVER_ENGINE_BOMB plays no mode and no Hardcore) */
+	MODE_ENGINE_BOMB = 6
+};
+
+long server_gametype_base_mode_value(
+	int base,
+	short field)
+{
+	unsigned char modes[16];
+
+	if (base < 0 || base >= server_builtin_count)
+		base = 0;
+	game_mode_options_of_builtin(server_builtins[base].name, modes);
+	if (field == SERVER_GAMETYPE_MODE)
+		return modes[MODE_OPTION_MODE];
+	if (field == SERVER_GAMETYPE_HARDCORE)
+		return modes[MODE_OPTION_HARDCORE];
+	return 0;
+}
+
+void server_gametype_mode_options(
+	struct server_gametype const *gametype,
+	unsigned char *modes)
+{
+	int base = gametype->values[SERVER_GAMETYPE_BASE];
+
+	if (base < 0 || base >= server_builtin_count)
+		base = 0;
+	game_mode_options_of_builtin(server_builtins[base].name, modes);
+	if (gametype->set[SERVER_GAMETYPE_MODE])
+		modes[MODE_OPTION_MODE] = (unsigned char)gametype->values[SERVER_GAMETYPE_MODE];
+	if (gametype->set[SERVER_GAMETYPE_HARDCORE])
+		modes[MODE_OPTION_HARDCORE] = gametype->values[SERVER_GAMETYPE_HARDCORE] ? 1 : 0;
+	/* (a Bomb game type plays neither) */
+	if (server_builtins[base].engine == MODE_ENGINE_BOMB)
+		modes[MODE_OPTION_MODE] = modes[MODE_OPTION_HARDCORE] = 0;
+}
+
+void server_gametype_variant_capture_modes(
+	struct server_gametype *gametype,
+	unsigned char const *modes)
+{
+	int base = gametype->values[SERVER_GAMETYPE_BASE];
+	long value;
+
+	if (!modes || base < 0 || base >= server_builtin_count || server_builtins[base].engine == MODE_ENGINE_BOMB)
+		return;
+	if (server_builtins[base].engine == SERVER_ENGINE_SLAYER)
+	{
+		value = modes[MODE_OPTION_MODE];
+		if (value != server_gametype_base_mode_value(base, SERVER_GAMETYPE_MODE) &&
+			field_holds(SERVER_GAMETYPE_MODE, &value))
+		{
+			gametype->values[SERVER_GAMETYPE_MODE] = (int)value;
+			gametype->set[SERVER_GAMETYPE_MODE] = TRUE;
+		}
+	}
+	value = modes[MODE_OPTION_HARDCORE] != 0;
+	if (value != server_gametype_base_mode_value(base, SERVER_GAMETYPE_HARDCORE))
+	{
+		gametype->values[SERVER_GAMETYPE_HARDCORE] = (int)value;
+		gametype->set[SERVER_GAMETYPE_HARDCORE] = TRUE;
+	}
+}
+
 int server_gametype_variant_base(
 	struct game_variant const *variant)
 {
@@ -318,6 +390,9 @@ void server_gametype_variant_capture(
 		long value;
 
 		if (server_gametype_fields[field].engine && server_gametype_fields[field].engine != engine)
+			continue;
+		/* (the further options': server_gametype_variant_capture_modes) */
+		if (field == SERVER_GAMETYPE_MODE || field == SERVER_GAMETYPE_HARDCORE)
 			continue;
 		value = server_gametype_variant_value(field, variant, options);
 		if (value == server_gametype_variant_value(field, &base_variant, &base_options) || !field_holds(field, &value))

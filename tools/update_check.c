@@ -8,8 +8,17 @@ does what it is told and prints the answer:
 
 	find LIST VERSION PLATFORM CONFIGURATION KIND
 	              "found TAG NAME SIZE SHA256 [MAIN]", "missing: WHY" or "refused: WHY"
+	channel LIST CHANNEL VERSION PLATFORM CONFIGURATION KIND
+	              the same, in a channel's feed list (update_manifest_find_channel)
+	about LIST CHANNEL
+	              "version V" or "refused: WHY" (update_manifest_about)
 	document FILE SIGNATURE
-	              "signed" or "not signed: WHY" (the file's exact bytes)
+	              "signed" or "not signed: WHY" (the file's exact bytes, by a release key)
+	feed FILE SIGNATURE
+	              the same, by a release key or the prerelease key
+	              (HALO_UPDATE_TEST_PRERELEASE_KEY)
+	compare A B   "newer", "older", "same" or "not versions"
+	release V     "release" or "not a release" (update_version_release)
 	zip FILE ASSET VERSION SIGNATURE
 	              "signed" or "not signed: WHY" (a zip's .sig, as before the list)
 	sha256 FILE   the file's SHA-256
@@ -63,6 +72,58 @@ int main(int argc, char **argv)
 			printf("found %s %s %llu %s%s%s\n", tag, name, file_size, sha256, main_name[0] ? " " : "", main_name);
 		else
 			printf("%s: %s\n", result == _update_manifest_missing ? "missing" : "refused", error);
+		return 0;
+	}
+	if (argc == 8 && !strcmp(argv[1], "channel"))
+	{
+		char tag[160], name[160], main_name[160], sha256[UPDATE_SHA256_TEXT_SIZE];
+		unsigned long long file_size = 0;
+		int result;
+
+		data = read_file(argv[2], &size);
+		result = update_manifest_find_channel((const char *)data, size, argv[3], argv[4], argv[5], argv[6], argv[7],
+			tag, sizeof(tag), name, sizeof(name), &file_size, sha256, sizeof(sha256), main_name, sizeof(main_name),
+			error, sizeof(error));
+		if (result == _update_manifest_found)
+			printf("found %s %s %llu %s%s%s\n", tag, name, file_size, sha256, main_name[0] ? " " : "", main_name);
+		else
+			printf("%s: %s\n", result == _update_manifest_missing ? "missing" : "refused", error);
+		return 0;
+	}
+	if (argc == 4 && !strcmp(argv[1], "about"))
+	{
+		char version[64];
+
+		data = read_file(argv[2], &size);
+		if (update_manifest_about((const char *)data, size, argv[3], version, sizeof(version), error, sizeof(error)) ==
+			_update_manifest_found)
+		{
+			printf("version %s\n", version);
+		}
+		else
+			printf("refused: %s\n", error);
+		return 0;
+	}
+	if (argc == 4 && !strcmp(argv[1], "compare"))
+	{
+		int comparable, order = update_version_compare(argv[2], argv[3], &comparable);
+
+		printf("%s\n", !comparable ? "not versions" : order > 0 ? "newer" : order < 0 ? "older" : "same");
+		return 0;
+	}
+	if (argc == 3 && !strcmp(argv[1], "release"))
+	{
+		printf("%s\n", update_version_release(argv[2]) ? "release" : "not a release");
+		return 0;
+	}
+	if (argc == 4 && !strcmp(argv[1], "feed"))
+	{
+		data = read_file(argv[2], &size);
+		signature = read_file(argv[3], &signature_size);
+		if (update_signature_check_feed(data, size, (const char *)signature, signature_size, error, sizeof(error)))
+			printf("signed\n");
+		else
+			printf("not signed: %s\n", error);
 		return 0;
 	}
 	if (argc == 4 && !strcmp(argv[1], "document"))

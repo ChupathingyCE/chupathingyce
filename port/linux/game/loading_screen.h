@@ -37,4 +37,13 @@ display.loading_screen's seconds (game.c): the rest of the wait is skipped */
 boolean loading_screen_skip_pressed(
 	void);
 
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
+/* the join screen's picture (display.join_screen, browser_screen.c): the
+loading screen's, its sweep looped while a game is joined or its map
+downloads, 640 by 480, RGBA; restart starts it from black. A new step
+at most 60 times a second, else the last again */
+unsigned char const *loading_screen_join_frame(
+	boolean restart);
+#endif
+
 #endif

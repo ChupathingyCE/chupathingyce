@@ -18,10 +18,31 @@ controller's settings and buttons.
 from xml.sax.saxutils import quoteattr
 
 PE = "main_menu/settings_select/player_setup/player_profile_edit"
+# update.channel's help line (port/linux/src/update.h's UPDATE_CHANNEL_HELP,
+# which the setup screen shows: tools/test_update_channels.py checks they agree)
+UPDATE_CHANNEL_HELP = "Testing gets new features first and may have bugs. Going back waits for the next release."
 YES_NO = [("YES", "true"), ("NO", "false")]
 ON_OFF = [("ON", "true"), ("OFF", "false")]
 SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4)]
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
+# how fast a zoomed view turns, on top of the zoom's own slowing
+ZOOM_SENSITIVITIES = [(f"{round(value * 100)}%", f"{value:g}") for value in (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2)]
+RETICLE_SIZES = [(f"{round(value * 100)}%", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)]
+
+# A row that does something rather than set a setting (A runs its function,
+# port/linux/game/menu_functions.c's), with a value its function shows in
+# place of a spinner: Network Setup's INSTALL UPDATE. It stands in a list of
+# rows as a setting's row does, (label, None, function, help, platform, key),
+# and menu_functions.c shows or hides it.
+class Action(tuple):
+    def __new__(cls, label, key, run, help_text, platform):
+        return super().__new__(cls, (label, None, run, help_text, platform, key))
+
+
+# update.h's UPDATER_GAMESCOPE_WHERE names the page: Settings > Network Setup >
+# Updates (tools/test_update_install.py checks they agree)
+INSTALL_UPDATE = Action("INSTALL UPDATE:", "install_update", "port update install",
+                        "Download the new version. Chupathingy restarts.", "desktop")
 
 # A row's platform: None for every platform, else the names it is on,
 # separated by spaces (port/linux/src/menu_files.c): "desktop", "android",
@@ -43,9 +64,14 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (close together, for the eleven rows of INTERFACE to fit above a
-        # help line)
+        # (24, Controls Setup's, with the help line a little lower than the
+        # other screens' for the desktop's main list: its six places and
+        # five links end at 341: tools/test_settings_layout.py)
         "spacing": 24,
+        "help_top": 368,
+        # (nested lists of more rows than fit above the help line, which
+        # menu_functions.c scrolls: views_scroll)
+        "scrolls": ["interface"],
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's resolution and anti-aliasing in
@@ -75,10 +101,12 @@ SCREENS = {
              [("480 (XBOX)", "480"), ("720", "720"), ("900", "900"), ("1080", "1080"), ("NATIVE", "native")],
              "Higher is sharper, but uses more battery.",
              "android", "resolution_android"),
-            ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
-             "Native draws at full resolution. Original draws at\n640x480 and scales it up.", "desktop"),
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Sync frames to the display.", NOT_CONSOLE),
+            # (display.vrr: sdl_platform.c's platform_vrr, port/linux/src/vrr.h)
+            ("VARIABLE REFRESH:", "display.vrr", [("OFF", "off"), ("ON", "on"), ("AUTO", "auto")],
+             "For G-SYNC or FreeSync: V-Sync with the frame rate held\njust under the refresh rate. Auto follows the system.",
+             "desktop"),
             # (port/linux/game/menu_functions.c: 30 also turns display.interpolation
             # off, the others on, on every platform. Instant Aim,
             # display.direct_camera, is in config.toml alone)
@@ -98,26 +126,53 @@ SCREENS = {
              [("OFF", "off"), ("FXAA", "fxaa"), ("MSAA 2X", "msaa2x"), ("MSAA 4X", "msaa4x")],
              "Smooth jagged edges.",
              "android", "anti_aliasing_android"),
-            ("FIELD OF VIEW:", "display.field_of_view",
-             [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
-              for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
-             "Adjust the field of view.",
-             None),
-            ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
-             [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
-             "How wide your weapon is drawn.\nSame follows the view.", None),
-            ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
-             "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
+            # (the view's own rows, the field of view first: a page of their
+            # own, so that the main list and ADVANCED sit 24 apart)
+            ("view", "VIEW", "The field of view, in and out of vehicles, and the reticle.", [
+                ("FIELD OF VIEW:", "display.field_of_view",
+                 [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
+                  for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
+                 "Adjust the field of view.",
+                 None),
+                ("VEHICLE FOV:", "display.vehicle_field_of_view",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
+                 "The field of view in vehicles.\nSame keeps it as before.", None),
+                ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
+                 "How wide your weapon is drawn.\nSame follows the view.", None),
+                ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
+                 "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
+                ("RETICLE SIZE:", "display.reticle_scale", RETICLE_SIZES,
+                 "The reticle's size. 100% is the Xbox's.", None),
+                ("WEAPON MODEL:", "display.first_person_weapon", ON_OFF,
+                 "Draw your weapon and arms. Off hides them.", None),
+            ]),
             ("advanced", "ADVANCED", "Shadows, lighting and detail.", [
+                # (out of the main list, so that its rows sit 24 apart as
+                # Controls Setup's: a row few change)
+                ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
+                 "Native draws at full resolution. Original draws at\n640x480 and scales it up.", "desktop"),
                 ("SHADOW RESOLUTION:", "display.shadow_resolution",
                  [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],
                  "The detail of object shadows.",
                  None),
+                ("SOFT SHADOWS:", "display.shadow_filtering", ON_OFF,
+                 "Soften the edges of object shadows.\nOff draws them sharp.", None),
                 ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
                  "Light models per pixel instead of per vertex.", None),
+                ("LIGHT EFFECTS:", "display.light_effects",
+                 [("AUTO", "auto"), ("HIGH", "high"), ("LOW", "low"), ("OFF", "off")],
+                 "Light from shots, muzzle flashes and glowing things.\nOff looks like the Xbox. Auto turns it off when slow.",
+                 "desktop"),
+                ("CAMO WEAPON FIX:", "display.camo_weapon_fix", ON_OFF,
+                 "Walls never cut your camouflaged weapon.\nOff looks like the Xbox.", None),
+                ("DOORS BLOCK LIGHT:", "display.doors_block_light", ON_OFF,
+                 "A closed door stops light from the other side.\nOff lets it through, as on the Xbox.", None),
+                ("PLASMA SPARKS:", "display.plasma_sparks", ON_OFF,
+                 "Sparks off a live plasma grenade.\nOff looks like the Xbox.", None),
                 ("FULL MODEL DETAIL:", "display.full_model_detail", ON_OFF,
                  "Always draw models at their highest detail.", None),
                 ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
@@ -127,17 +182,39 @@ SCREENS = {
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
             ]),
-            # (input.keyboard_prompts is in config.toml alone: the prompts
-            # follow the device used last)
-            ("interface", "INTERFACE", "The menus, HUD and scoreboard.", [
+            # (the menus, text, buttons, HUD and scoreboard in one list:
+            # more rows than fit above the help line, so it scrolls:
+            # menu_functions.c's views_scroll, "scrolls" below)
+            ("interface", "INTERFACE", "The menus, text, buttons, HUD and scoreboard.", [
                 # (read when the game starts: menu_tags.c)
                 ("MENU STYLE:", "display.menus",
-                 [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox"), ("GEARBOX", "gearbox")],
+                 [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox")],
                  "Takes effect on restart.", NOT_CONSOLE),
-                ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
-                 "Draw the HUD in high resolution.", NOT_CONSOLE),
+                ("TITLE FONT:", "display.title_font", [("CLASSIC", "classic"), ("CYBORG", "cyborg"), ("HALO", "halo")],
+                 "Classic looks like Halo's titles. Cyborg matches the text.\nHalo makes them from your own Halo files.",
+                 # (not on the consoles, the Switch included, which have the
+                 # classic titles only: HALO_CONSOLE_NO_TITLE_CHOICE)
+                 "desktop android"),
                 ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
                  "Draw text and titles in high resolution.", NOT_CONSOLE),
+                ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
+                 "Draw the HUD in high resolution.", NOT_CONSOLE),
+                # (the ~ key's console: terminal.c's drop-down one, or the
+                # Xbox's lines at the bottom)
+                ("CONSOLE:", "display.console_style", [("DROP-DOWN", "dropdown"), ("CLASSIC", "classic")],
+                 "Drop-down slides down from the top.\nClassic is the Xbox's.", NOT_CONSOLE),
+                # (the prompts' buttons: input.button_style, DKrumpp's HD
+                # buttons where the build has them, HALO_HD_BUTTONS. AUTO
+                # follows the controller used last; input.keyboard_prompts
+                # is in config.toml alone)
+                ("BUTTON STYLE:", "input.button_style",
+                 [("AUTO", "auto"), ("DUKE", "duke"), ("XBOX", "xbox"), ("PLAYSTATION", "playstation"),
+                  ("SWITCH", "switch")],
+                 "The buttons prompts show. Auto follows the controller\nyou use.", "desktop android switch"),
+                ("MENU BUTTONS:", "input.button_look", [("GEM", "gem"), ("FLAT", "flat")],
+                 "The buttons in menus and the Guide.", "desktop android switch"),
+                ("HUD BUTTONS:", "input.hud_buttons", [("CLASSIC", "classic"), ("HD", "hd")],
+                 "Classic: the game's own buttons.", "desktop android switch"),
                 ("PLAYER NAMES:", "display.player_names",
                  [("NONE", "none"), ("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies")],
                  "Names above players, where the host allows them.", NOT_CONSOLE),
@@ -148,22 +225,47 @@ SCREENS = {
                  "Show team games by team, or all players by score.", None),
                 ("SCOREBOARD PANEL:", "display.scoreboard_background", ON_OFF,
                  "Draw a panel behind the scoreboard.", None),
+                ("SCOREBOARD ICONS:", "display.scoreboard_icons", ON_OFF,
+                 "Platform logos and the Delta mark beside names.\nOff shows just names and scores.", None),
                 ("POWERUP TIMERS:", "display.powerup_timers", ON_OFF,
                  "Show the time left on your powerups.", None),
-                ("MATCH TIMER:", "display.match_timer", ON_OFF,
-                 "Show the time left at the top of the screen.", None),
+                ("MATCH TIMER:", "display.match_timer",
+                 [("OFF", "off"), ("REMAINING", "remaining"), ("ELAPSED", "elapsed")],
+                 "Show the time left, or the time played, in multiplayer.", None),
                 ("FOLLOW CAMERA:", "display.follow_camera",
                  [("OFF", "off"), ("LONG WAITS", "long_waits"), ("ALWAYS", "always")],
                  "While dead, follow a player's view, if the host allows it.", None),
-                ("VERSION WATERMARK:", "display.version_watermark", ON_OFF,
-                 "Show the version while playing.", None),
+            ]),
+            ("hdr", "HDR SETUP", "HDR, the HDR display, tone mapping and brightness.", [
+                ("HDR:", "display.hdr", ON_OFF,
+                 "Keep the light of explosions, plasma and glows past\nwhite, and roll it off instead of clipping.", "desktop"),
+                ("HDR DISPLAY:", "display.hdr_output", ON_OFF,
+                 "With HDR, on an HDR display, show that light\nbrighter than white. From the next start.", "desktop"),
+                ("TONE MAPPING:", "display.hdr_tone_mapping",
+                 [("NEUTRAL", "neutral"), ("ACES", "aces"), ("REINHARD", "reinhard")],
+                 "Neutral keeps the picture and rolls off only the\nbrightest parts. ACES is filmic, Reinhard softer.", "desktop"),
+                ("EXPOSURE:", "display.hdr_exposure",
+                 [(f"{value:g}", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)],
+                 "The view's brightness before tone mapping.", "desktop"),
+                ("HDR BRIGHTNESS:", "display.hdr_paper_white",
+                 [("AUTO", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
+                 "How bright white is on an HDR display, in nits.\nAuto is the display's own.", "desktop"),
+                ("HDR PEAK:", "display.hdr_peak",
+                 [("AUTO", "0")] + [(f"{value}", f"{value}") for value in (400, 600, 800, 1000, 1500, 2000, 4000)],
+                 "The brightest highlight on an HDR display,\nin nits. Auto asks the display.", "desktop"),
+                ("HUD BRIGHTNESS:", "display.hdr_ui_nits",
+                 [("SAME", "0")] + [(f"{value}", f"{value}") for value in (80, 100, 120, 160, 200, 250, 300, 400, 500)],
+                 "The HUD's and menus' white on an HDR display,\nin nits.", "desktop"),
             ]),
         ],
     },
     "audio_settings": {
         "screen": "audio_settings_screen",
         "header": ("header_profile_audio_settings", f"{PE}/audio_settings/header_profile_audio_settings"),
+        # (30, as the Xbox's lists, with the help line a little lower for
+        # its ten rows, as Network Setup's: the last, MODS, ends at 371)
         "spacing": 30,
+        "help_top": 376,
         "rows": [
             ("MASTER VOLUME:", "audio.volume", VOLUMES, "Adjust the overall volume.", None),
             ("MUSIC VOLUME:", "audio.music_volume", VOLUMES, "Adjust the music volume.", None),
@@ -183,8 +285,11 @@ SCREENS = {
              "Room echo, and muffled sound behind walls.", None),
             ("DOPPLER:", "audio.doppler", ON_OFF,
              "Pitch shift of moving sounds, as on the Xbox.", None),
-            ("SOUND:", "audio.enabled", ON_OFF,
-             "Turn all sound on or off. Takes effect on restart.", None),
+            ("HIT SOUNDS:", "audio.hit_sounds", ON_OFF,
+             "A tone when your shot hits another player.", None),
+            # (the mods folder's tag files: port/linux/game/mods.c, docs/mods.md)
+            ("MODS:", "game.mods", ON_OFF,
+             "Sound tags from the mods folder replace a map's.\nLocal games only; see docs/mods.md.", None),
         ],
     },
     # (chat.quick_messages, a list of lines, is in config.toml alone. The
@@ -193,7 +298,14 @@ SCREENS = {
     "network_setup": {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
+        # (30, as the Xbox's lists, with the help line a little lower for its
+        # ten rows, JOIN SCREEN among them: the last, PRIVACY, ends at 371,
+        # as Privacy's)
         "spacing": 30,
+        "help_top": 376,
+        # (its help is its own text, which menu_functions.c reads from its
+        # help_strings, and sets to how INSTALL UPDATE's install goes)
+        "help_text": True,
         "rows": [
             ("INTERNET PLAY:", "network.online", ON_OFF,
              "Host and join games over the internet.", None),
@@ -201,17 +313,32 @@ SCREENS = {
              "Ask the router to forward the game's port.", NOT_CONSOLE),
             ("MAP DOWNLOADS:", "network.map_downloads", [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
              "Download missing Custom Edition maps.", NOT_CONSOLE),
+            # (port/linux/src/map_download.c, "From the host": its help is the
+            # disclaimer, the one place besides the download's own question
+            # where ALWAYS can be picked)
+            ("MAPS FROM HOSTS:", "network.map_downloads_from_host",
+             [("OFF", "off"), ("ASK", "ask"), ("ALWAYS", "always")],
+             "From the host, not us, and we haven't checked them.", "desktop android"),
             ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard",
              [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
              "Join a game from an invite link on the clipboard.", NOT_CONSOLE),
             ("COPY INVITE LINK:", "network.copy_to_clipboard", ON_OFF,
              "Copy your game's invite link when you host.", NOT_CONSOLE),
-            ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
-             "Check for a new version at startup.", NOT_CONSOLE),
-            ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
-             "Let a game you host start with only you.", None),
+            ("JOIN SCREEN:", "display.join_screen", ON_OFF,
+             "Show the loading screen while joining a game.", "desktop android"),
         ],
         "views": [
+            # (update.channel's help is update.h's UPDATE_CHANNEL_HELP, as
+            # the setup screen shows it)
+            ("updates", "UPDATES", "Update checks, and which builds you get.", [
+                ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
+                 "Check for a new version at startup.", NOT_CONSOLE),
+                ("CHANNEL:", "update.channel", [("RELEASE", "release"), ("TESTING", "testing"), ("NIGHTLY", "nightly")],
+                 UPDATE_CHANNEL_HELP, NOT_CONSOLE),
+                # (shown once a newer version is found; how the install
+                # goes is its value and the help line: menu_functions.c)
+                INSTALL_UPDATE,
+            ]),
             ("chat", "CHAT", "Text chat and the word filter.", [
                 ("CHAT:", "chat.enabled", ON_OFF, "Text chat with other players.", NOT_CONSOLE),
                 ("SHOW CHAT:", "chat.show", [("ALL", "all"), ("TEAM", "team"), ("OFF", "off")],
@@ -234,8 +361,8 @@ SCREENS = {
                  "Choose what your Discord status shows.", "desktop"),
                 ("DISCORD SERVER NAME:", "discord.show_server_name", [("SHOW", "true"), ("HIDE", "false")],
                  "Show the game's name on Discord.", "desktop"),
-                ("DISCORD JOIN BUTTON:", "discord.show_join", ON_OFF,
-                 "Show a Join button on Discord while hosting.", "desktop"),
+                ("DISCORD INVITES:", "discord.show_join", ON_OFF,
+                 "Let Discord friends join your public game.", "desktop"),
             ]),
         ],
     },
@@ -253,10 +380,14 @@ MOUSE_ROWS = [
      "Moving the mouse forward looks down.", NOT_CONSOLE),
     ("AIM ASSIST:", "input.mouse_aim_assist", ON_OFF,
      "Use controller aim assist with the mouse.", NOT_CONSOLE),
+    ("ZOOM SENSITIVITY:", "input.mouse_zoom_sensitivity", ZOOM_SENSITIVITIES,
+     "How fast the mouse turns while zoomed in.", NOT_CONSOLE),
 ]
 GAMEPAD_ROWS = [
     ("LOOK SENSITIVITY:", "profile.look_sensitivity", [(str(step), str(step)) for step in range(1, 11)],
      "Adjust the look sensitivity.", None),
+    ("ZOOM SENSITIVITY:", "input.stick_zoom_sensitivity", ZOOM_SENSITIVITIES,
+     "How fast the stick turns while zoomed in.", None),
     ("INVERT LOOK:", "profile.invert_look", YES_NO, "Pushing the right stick up looks down.", None),
     ("INVERT FLIGHT:", "profile.flight_inversion", YES_NO,
      "Pushing up flies down in flying vehicles.", None),
@@ -273,7 +404,7 @@ GAMEPAD_ROWS = [
 # port/linux/game/menu_functions.c's table of them), then the mouse's
 # settings (MOUSE_ROWS) in the same list
 CONTROL_GROUPS = ["MOVEMENT", "WEAPONS", "ACTIONS", "MOUSE"]
-CONTROL_ROWS = 7
+CONTROL_ROWS = 9
 
 # the profile menu's words for what its items now open
 STRING_OVERRIDES = {
@@ -428,6 +559,27 @@ def _setting_row(base: str, row: tuple, key: str, label_index: int) -> list:
     return lines
 
 
+def _action_row(base: str, row: Action, key: str, label_index: int) -> list:
+    """an Action's row: its label, and its value (a text of its own, which
+    its function sets)"""
+    label, _, run, _, platform, *_ = row
+    lines = _widget(f"{base}/op_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                                         ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF"),
+                                         ("platform", platform)],
+                    [f'<on event="a" run="{run}"/>', f'<on event="start" run="{run}"/>',
+                     '<on event="left_mouse" run="mouse emit accept event"/>',
+                     f'<child{attributes([("widget", f"{base}/{key}_label")])}/>',
+                     f'<child{attributes([("widget", f"{base}/{key}_value"), ("x", 320), ("y", 1)])}/>'])
+    lines += _widget(f"{base}/{key}_label",
+                     [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
+                      ("string_list", f"{base}/labels"), ("string_index", label_index), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    lines += _widget(f"{base}/{key}_value",
+                     [("type", "text"), ("controller", 1), ("width", 170), ("height", 22), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF"), ("align", "center"), ("text_y", 3), ("text_flags", "no_focus_test")], [])
+    return lines
+
+
 def _link_row(base: str, key: str, label_index: int) -> list:
     """a row that opens a nested list (VIEWS): its label alone"""
     lines = _widget(f"{base}/op_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
@@ -503,18 +655,35 @@ def _setting_rows(base: str, spec: dict) -> tuple:
     views = {view: view_rows for view, _, _, view_rows in spec.get("views", [])}
     for entry in entries:
         if entry[0] == "mark":
-            rows.append((f"{base}/view_{entry[1]}", None, 0))
+            # (a list that scrolls has its mark at the last place whose row
+            # ends above the help line: the window's bottom, menu_functions.c's
+            # views_scroll; the marks are not drawn)
+            place = 0
+            if entry[1] in spec.get("scrolls", ()):
+                place = (spec.get("help_top", 350) - 28 - 73) // spec["spacing"]
+            rows.append((f"{base}/view_{entry[1]}", None, place))
             extra += _mark(base, entry[1])
         elif entry[0] == "link":
             _, view, key, place, label_index = entry
             shown = any(_on_console(row[4]) for row in views[view])
-            rows.append((f"{base}/op_{key}", None if shown else NOT_CONSOLE, place))
+            # (a list every row of which is on the same few platforms opens
+            # only there: HDR SETUP on the desktop alone)
+            platforms = {row[4] for row in views[view]}
+            if None in platforms:
+                platform = None if shown else NOT_CONSOLE
+            else:
+                names = {name for names in platforms for name in names.split()}
+                platform = " ".join(name for name in [*NOT_CONSOLE.split(), CONSOLE] if name in names)
+            rows.append((f"{base}/op_{key}", platform, place))
             extra += _link_row(base, key, label_index)
         else:
             _, row, key, place, label_index = entry
             if row[1] not in spec.get("unplaced", ()):
                 rows.append((f"{base}/op_{key}", row[4], place))
-            extra += _setting_row(base, row, key, label_index)
+            if isinstance(row, Action):
+                extra += _action_row(base, row, key, label_index)
+            else:
+                extra += _setting_row(base, row, key, label_index)
     # (the help of the row whose label is string n is n + 1: the buttons' is 0)
     strings = _strings(f"{base}/labels", labels)
     strings += _strings(f"{base}/help_strings", [""] + [text.replace("\n", "\\n") for text in helps])
@@ -596,9 +765,12 @@ def _controls_rows() -> tuple:
             helps.append(row[3])
 
     # (the consoles have the controller's settings alone: no keyboard or
-    # mouse, and no buttons page or layout, which HALO_CONSOLE_NO_CONTROLS
-    # leaves out; menu_functions.c shows the controller's settings when the
-    # list has no DEVICE)
+    # mouse, and no buttons page, which HALO_CONSOLE_NO_CONTROLS leaves out;
+    # menu_functions.c shows the controller's settings when the list has no
+    # DEVICE. They keep BUTTON LAYOUT, the profile's presets without Custom,
+    # as the Xbox's Controller Settings had: a spinner of their own,
+    # layout_console_spinner, which menu_functions.c's console_layout_* read
+    # and set)
     rows.append((f"{base}/op_device", NOT_CONSOLE, 0))
     extra += _chooser(base, "device", "DEVICE:", CONTROLS_DEVICES)
     # the keyboard and mouse's
@@ -631,21 +803,23 @@ def _controls_rows() -> tuple:
     rows.append((f"{base}/op_page", NOT_CONSOLE, 1))
     extra += _chooser(base, "page", "SHOW:", CONTROLLER_PAGES)
     mark("gamepad")
-    rows.append((f"{base}/op_layout", NOT_CONSOLE, 2))
+    rows.append((f"{base}/op_layout", None, 2))
     extra += _widget(f"{base}/op_layout", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                            ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                      [f'<child{attributes([("widget", f"{base}/layout_label")])}/>',
-                      f'<child{attributes([("widget", f"{base}/layout_spinner"), ("x", 320), ("y", 1)])}/>'])
+                      f'<child{attributes([("widget", f"{base}/layout_spinner"), ("x", 320), ("y", 1), ("platform", NOT_CONSOLE)])}/>',
+                      f'<child{attributes([("widget", f"{base}/layout_console_spinner"), ("x", 320), ("y", 1), ("platform", CONSOLE)])}/>'])
     extra += _widget(f"{base}/layout_label",
                      [("type", "text"), ("controller", 1), ("width", 300), ("height", 22), ("text", "BUTTON LAYOUT:"),
                       ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
-    extra += _widget(f"{base}/layout_spinner",
-                     [("type", "spinner"), ("left", 3), ("top", 2), ("width", 147), ("height", 20),
-                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
-                      ("strings", "|".join(CONTROLLER_PRESETS)), ("font", "ui\\large_ui"), ("color", "#FF2896FF"),
-                      ("align", "center"), ("text_y", 1), ("header_bitmap", "bitmaps/arrow_sm_left"),
-                      ("footer_bitmap", "bitmaps/arrow_sm_right"), ("header_bounds", "7 -6 19 0"),
-                      ("footer_bounds", "7 150 19 156")], [])
+    for name, presets in (("layout_spinner", CONTROLLER_PRESETS), ("layout_console_spinner", CONTROLLER_PRESETS[:-1])):
+        extra += _widget(f"{base}/{name}",
+                         [("type", "spinner"), ("left", 3), ("top", 2), ("width", 147), ("height", 20),
+                          ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                          ("strings", "|".join(presets)), ("font", "ui\\large_ui"), ("color", "#FF2896FF"),
+                          ("align", "center"), ("text_y", 1), ("header_bitmap", "bitmaps/arrow_sm_left"),
+                          ("footer_bitmap", "bitmaps/arrow_sm_right"), ("header_bounds", "7 -6 19 0"),
+                          ("footer_bounds", "7 150 19 156")], [])
     settings(GAMEPAD_ROWS, 3)
     mark("buttons")
     for index, label in enumerate(CONTROLLER_ACTIONS):
@@ -747,6 +921,8 @@ CHUPATHINGY_ONLY = {
         "consoles": False,
         "header": ("header_privacy", "chupathingy/delta_profile/header_privacy"),
         "spacing": 30,
+        # (the help line under the ten rows: the last, FRIENDS, ends at 371)
+        "help_top": 376,
         "rows": [
             ("SHARE MY PROFILE:", "network.share_profile", ON_OFF,
              "Show your Delta name to Chupathingy players.", None),
@@ -766,6 +942,23 @@ CHUPATHINGY_ONLY = {
              "What Discord shows while you play.", "desktop"),
             ("SHOW PROFILE NAMES:", "display.profile_names", ON_OFF,
              "Show players by their Delta names.", None),
+        ],
+        # (the friends' privacy, the site's friends.py: a list of its own,
+        # so every row keeps the page's spacing)
+        "views": [
+            ("friends", "FRIENDS", "Who can reach you and see you on Delta.", [
+                ("APPEAR OFFLINE:", "site.appear_offline", [("NO", "false"), ("YES", "true")],
+                 "Show as offline to your friends.", None),
+                ("FRIEND REQUESTS FROM:", "site.friend_requests",
+                 [("EVERYONE", "everyone"), ("FRIENDS+", "friends_of_friends"), ("NOBODY", "nobody")],
+                 "FRIENDS+ means your friends' friends too.", None),
+                ("WHO CAN JOIN ME:", "site.who_can_join",
+                 [("FRIENDS", "friends"), ("ANYONE", "anyone"), ("INVITE ONLY", "invite")],
+                 "Who can join your game from Delta.", None),
+                ("SHOW MY STATUS TO:", "site.clan_presence",
+                 [("FRIENDS", "friends"), ("FRIENDS+CLAN", "friends_and_clan")],
+                 "Who sees when you're on and what you play.", None),
+            ]),
         ],
     },
 }
@@ -855,7 +1048,7 @@ MT = "main_menu/multiplayer_type_select"
 # in turn: menu_functions.c's gametype_option_help)
 SLAYER_EDIT = "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit"
 STRING_INSERTS = {
-    f"{PE}/profile_edit_options": [(10, ["PRIVACY", "INTERFACE", "CONTROLS", "DISPLAY", "AUDIO", "ONLINE"])],
+    f"{PE}/profile_edit_options": [(10, ["PRIVACY", "INTERFACE", "CONTROLS SETUP", "VIDEO SETUP", "AUDIO SETUP", "NETWORK SETUP"])],
     f"{SLAYER_EDIT}/var_kills_to_win": [(5, ["75", "100", "150", "200", "250", "500"])],
     f"{SLAYER_EDIT}/cap_slayer": [(11, [
         "Seventy-five kills to win.",
@@ -864,6 +1057,15 @@ STRING_INSERTS = {
         "Two hundred kills to win.",
         "Two hundred and fifty kills to win.",
         "Five hundred kills to win.",
+    ]), (26, [
+        # (the game modes layer's MODE, after TIME LIMIT's: docs/modes.md;
+        # menu_tags.c's EDITOR_*_HELP_* for the Xbox's menus)
+        "No mode. The game plays by the rules above.",
+        "SWAT. No shields, and one shot to the head kills.",
+    ])],
+    "main_menu/settings_select/multiplayer_setup/player_options_edit/cap_player_options": [(28, [
+        "The usual motion tracker and aim assist.",
+        "No motion tracker and no aim assist. A kill brings\\nyour health and shields back to full.",
     ])],
 }
 
@@ -960,6 +1162,11 @@ WIDGET_PATCHES = {
         "offsets": {f"{PE}/controller_setup_profile_item": (0, -166), f"{PE}/gamepads_profile_item": (0, 33),
                     f"{PE}/network_settings_profile_item": (0, -34)},
     },
+    # (SETUP beside OK and CANCEL: the way back to the setup screen, its
+    # widget port/assets/menus/chupathingy/setup_entry.xml's)
+    f"{PE}/profile_edit_button_bar": {"insert_before": {
+        f"{PE}/profile_edit_button_ok": ['<child widget="gearbox/setup_entry" x="250" y="1"/>'],
+    }},
     f"{PE}/controller_setup_profile_item": {"set": {"string_index": 12}, "handlers": [
         f'<on event="a" open="{PE}/{CONTROLS_SCREEN}/{CONTROLS_SPEC["screen"]}"/>',
         f'<on event="start" open="{PE}/{CONTROLS_SCREEN}/{CONTROLS_SPEC["screen"]}"/>',
@@ -972,6 +1179,12 @@ WIDGET_PATCHES = {
         f'<on event="start" open="{PE}/{CONTROLS_SCREEN}/{CONTROLS_SPEC["screen"]}"/>',
         '<on event="left_mouse" run="mouse emit accept event"/>',
     ]} for row in ("gamepads", "mouse_settings")},
+    # (ABOUT: the About screen, in the Guide: menu_functions.c's about_open)
+    f"{PE}/about_item": {"handlers": [
+        '<on event="a" run="port about open"/>',
+        '<on event="start" run="port about open"/>',
+        '<on event="left_mouse" run="mouse emit accept event"/>',
+    ]},
     f"{PE}/audio_settings_profile_item": {"set": {"string_index": 14}},
     # (the profile settings' picture: on CONTROLS' row, the profile's
     # button settings, BITMAP_FRAMES; menu_functions.c's
@@ -1039,6 +1252,18 @@ WIDGET_PATCHES = {
             f'<child widget="main_menu/settings_select/multiplayer_setup/item_options_edit/op_primary_weapon" x="54" y="223"/>',
             f'<child widget="main_menu/settings_select/multiplayer_setup/item_options_edit/op_secondary_weapon" x="54" y="253"/>',
         ]}},
+    # (the game modes layer's rows, docs/modes.md: Slayer's MODE under TIME
+    # LIMIT, the player options' HARDCORE under SUICIDE PENALTY)
+    "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/slayer_options_menu": {"insert_before": {
+        "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/slayer_button_bar": [
+            '<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/op_mode" x="54" y="253"/>',
+        ]}},
+    # (a ninth row: the help text and the buttons move down to make room)
+    "main_menu/settings_select/multiplayer_setup/player_options_edit/player_options_menu": {"insert_before": {
+        "main_menu/settings_select/multiplayer_setup/player_options_edit/player_button_bar": [
+            '<child widget="main_menu/settings_select/multiplayer_setup/player_options_edit/op_hardcore" x="54" y="313"/>',
+        ]}, "offsets": {"main_menu/settings_select/multiplayer_setup/player_options_edit/player_button_bar": (0, 430)}},
+    "main_menu/settings_select/multiplayer_setup/player_options_edit/player_options_help": {"set": {"top": 350}},
     # (the PC's Vehicles row's Start opened Item Options)
     "main_menu/settings_select/multiplayer_setup/playlist_edit/playlist_edit_vehicles_list_item": {"handlers": [
         '<on event="a" open="main_menu/settings_select/multiplayer_setup/vehicle_options_edit/vehicle_options_screen"/>',
@@ -1090,10 +1315,18 @@ TITLES = {
     f"{MT}/server_settings/header_host_options": "HOST OPTIONS",
 }
 
+# the titles of the Chupathingy menus' own screens, which their files name
+# (port/assets/menus/chupathingy/delta_profile.xml): drawn as TITLES are
+CHUPATHINGY_TITLES = {
+    "chupathingy/delta_profile/header_delta_profile": "DELTA PROFILE",
+    "chupathingy/delta_profile/header_privacy": "PRIVACY",
+}
+
 
 def title_backdrop(width: float) -> str:
     """a header's dark backdrop, as the PC headers' redraws have it, for text
-    width units wide (the text is set over it in OpenCE: ce_menus.py)"""
+    width units wide (the text is set over it in Cyborg Interface Gothic:
+    ce_menus.py)"""
     return "\n".join([
         '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="64" viewBox="0 0 512 64">',
         "  <defs>",
@@ -1692,6 +1925,45 @@ def _item_options_extras() -> list:
     return lines
 
 
+SLAYER_EDIT_BASE = "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit"
+PLAYER_OPTIONS_BASE = "main_menu/settings_select/multiplayer_setup/player_options_edit"
+
+
+def _mode_row(base: str, key: str, label: str, strings: list) -> list:
+    """one option row of the game modes layer's (docs/modes.md), in the
+    screen's own geometry: its label (a string list of its own), and a
+    spinner the game fills by name (menu_functions.c's gametype_options)"""
+    lines = _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
+                                          ("flags", "pass_unhandled_to_focused_child"),
+                                          ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                    [f'<child widget="{base}/{key}_label"/>',
+                     f'<child widget="{base}/{key}_spinner" x="320" y="1"/>'])
+    lines += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
+                                              ("string_list", f"{base}/{key}_labels"), ("font", "ui\\large_ui"),
+                                              ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    lines += _widget(f"{base}/{key}_spinner",
+                     [("type", "spinner"), ("left", 2), ("top", 2), ("width", 148), ("height", 20),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                      ("string_list", f"{base}/var_{key}"), ("font", "ui\\large_ui"), ("color", "#FF2896FF"),
+                      ("align", "center"), ("text_y", 4), ("list_flags", "items_from_strings"),
+                      ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
+                      ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 150 19 156")],
+                     ['<on event="left_mouse" run="mouse spinner 1wide click"/>'])
+    lines += _strings(f"{base}/{key}_labels", [label])
+    lines += _strings(f"{base}/var_{key}", strings)
+    return lines
+
+
+def _slayer_mode_extras() -> list:
+    """the Slayer rules screen's MODE row (NONE, SWAT: docs/modes.md)"""
+    return _mode_row(SLAYER_EDIT_BASE, "mode", "MODE:", ["NONE", "SWAT"])
+
+
+def _player_hardcore_extras() -> list:
+    """the player options screen's HARDCORE row (OFF, ON)"""
+    return _mode_row(PLAYER_OPTIONS_BASE, "hardcore", "HARDCORE:", ["OFF", "ON"])
+
+
 def _map_kind() -> list:
     """the map lists' first row (New Game's and the Map screen's), as the
     gametype list's chooser: a spinner of SINGLEPLAYER or MULTIPLAYER maps,
@@ -1724,6 +1996,8 @@ def multiplayer_files() -> dict:
         f"{MT}/coop".replace("/", ".") + ".xml": head + _coop() + ["</menus>", ""],
         "main_menu/new_select".replace("/", ".") + ".port.xml": head + _map_kind() + ["</menus>", ""],
         "main_menu/settings_select/multiplayer_setup/item_options_edit".replace("/", ".") + ".port.xml": head + _item_options_extras() + ["</menus>", ""],
+        SLAYER_EDIT_BASE.replace("/", ".") + ".port.xml": head + _slayer_mode_extras() + ["</menus>", ""],
+        PLAYER_OPTIONS_BASE.replace("/", ".") + ".port.xml": head + _player_hardcore_extras() + ["</menus>", ""],
     }
 
 

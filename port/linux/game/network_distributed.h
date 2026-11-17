@@ -203,6 +203,16 @@ a longer message is split where a batch is full */
 
 /* ---------- prototypes/NETWORK_DISTRIBUTED.C */
 
+/* (a host whose game's layout has a checkpoint epoch: network_rules.h,
+"chupa-43a's facts") a co-op revert: the next epoch, and its boundary to
+every loaded client before anything of it */
+void network_distributed_checkpoint_boundary(void);
+/* the checkpoint epoch: the host's, a client's last taken (0 none) */
+unsigned int network_distributed_epoch(void);
+/* the height of a vehicle's up below which its riders leave it on the
+ground: 0 (upside down) but in a network game whose layout says another */
+real network_distributed_rider_ejection_up(void);
+
 /* sends a message (its header filled in here) where destination says: the
 unreliable ones gathered into one datagram a machine each tick */
 void distributed_send(void *message, byte type, short count, word size, short destination);
@@ -211,6 +221,11 @@ void distributed_client_send_identity(void);
 void distributed_send_to_machine(long machine_index, void *message, byte type, short count, word size);
 /* ... reliably to one client (the host) */
 void distributed_send_to_machine_reliably(long machine_index, void *message, byte type, short count, word size);
+/* (the host) a text in one client's console and, on a client that shows
+its host's notices there, its chat (_distributed_message_notice, as OpenCE's
+servers send their server messages): printable ASCII, cut to the notice's
+159 characters */
+void distributed_send_notice_to_machine(long machine_index, char const *text);
 /* the player at an absolute index, or NULL */
 struct player_datum *distributed_player(short player_index);
 /* a player's absolute index for a message, NO_PLAYER for none; and back */
@@ -347,6 +362,10 @@ again, having failed to make one of them */
 void network_objects_client_asked(long machine_index, boolean again);
 void network_objects_handle_changes(void const *entries, short count);
 void network_objects_handle_synchronized(void);
+/* (a client) whether it has the host's objects, and their reset at a newer
+checkpoint epoch (FALSE) or at its snapshot's end (TRUE) */
+boolean network_objects_client_synchronized(void);
+void network_objects_checkpoint_reset(boolean synchronized_again);
 void network_objects_handle_states(void const *entries, short count);
 void network_objects_handle_inventories(void const *entries, short count);
 /* (a client) its own player picked up the weapon, to ready once its unit has it */
@@ -374,6 +393,11 @@ short network_objects_send_period(long machine_index, real_point3d const *positi
 /* ---------- prototypes/NETWORK_DAMAGE.C */
 
 void network_damage_new_game(void);
+/* the host's tables (history, trails, rates): allocated while this machine
+hosts (network_game_server_create), FALSE with no memory for them; freed
+when it stops (network_game_server_dispose) */
+boolean network_damage_host_tables_allocate(void);
+void network_damage_host_tables_free(void);
 /* the host: a grenade a player's unit threw (units.c), whose damage that
 player's machine reports */
 void network_damage_note_grenade(long unit_index, short grenade_type);

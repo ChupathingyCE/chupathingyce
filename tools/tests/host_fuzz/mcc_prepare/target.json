@@ -1,0 +1,36 @@
+{
+  "about": "an MCC map's tags as loading prepares them after the reader: HUD, tags, scripts, geometry, then the MCC tag validator",
+  "harness": "port/linux/tests/mcc_prepare_fuzz.c",
+  "game_sources": [
+    "port/linux/game/mcc_cache_format.c",
+    "port/linux/game/mcc_tags.c",
+    "port/linux/game/mcc_hud.c",
+    "port/linux/game/mcc_recordings.c",
+    "port/linux/game/mcc_syntax.c",
+    "port/linux/game/mcc_scripts.c",
+    "port/linux/game/mcc_script_parameters.c",
+    "port/linux/game/mcc_geometry.c",
+    "port/linux/game/mcc_tag_validate.c",
+    "port/linux/game/tag_validate.c",
+    "source/rasterizer/rasterizer_geometry.c",
+    "port/linux/game/tag_schema_collision.c",
+    "port/linux/game/tag_schema_effects.c",
+    "port/linux/game/tag_schema_groups.c",
+    "port/linux/game/tag_schema_models.c",
+    "port/linux/game/tag_schema_objects.c",
+    "port/linux/game/tag_schema_render.c",
+    "port/linux/game/tag_schema_scenario.c"
+  ],
+  "game_flags": [
+    "-DXBOX_ADDRESS_SPACE_BASE=0x300000000000ULL",
+    "-fno-sanitize=float-cast-overflow"
+  ],
+  "includes": [
+    "port/linux/game"
+  ],
+  "flags": [
+    "-std=gnu11",
+    "-w"
+  ],
+  "max_len": 65536
+}

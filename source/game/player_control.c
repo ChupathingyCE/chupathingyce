@@ -208,9 +208,15 @@ symbols in this file:
 #include "units/units.h"
 #include "units/vehicle_definitions.h"
 #include "units/vehicles.h"
+#include "mcc_seats.h" /* port: port/linux/game/mcc_seats.c */
 
 #include "real_math.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
+#include "stubbs_engine.h" /* port: port/linux/game/stubbs_engine.c */
+#include "stubbs_possession.h" /* port: port/linux/game/stubbs_possession.c */
+#include "main/console.h" /* port: console_is_active */
 
 /* ---------- constants */
 
@@ -382,6 +388,33 @@ boolean player_magnetism_flag = TRUE;
 boolean controls_swapped = TRUE;
 real player_look_zoomed_scale = 0.5f;
 
+/* port: how much a zoomed view turns, on top of the zoom's own slowing
+(retail's turn divided by the magnification): input.mouse_zoom_sensitivity
+for the mouse and input.stick_zoom_sensitivity for the stick, 1 (100%) by
+default; a build without them (the original Xbox's) reads 0, retail's 1 */
+static real player_control_zoom_sensitivity(
+	boolean mouse)
+{
+	extern double config_real(char const *name);
+	extern unsigned long config_changes(void);
+	static unsigned long read_at = (unsigned long)-1;
+	static real sensitivities[2] = { 1.f, 1.f };
+
+	if (read_at != config_changes())
+	{
+		short index;
+
+		read_at = config_changes();
+		for (index = 0; index < 2; index++)
+		{
+			real value = (real)config_real(index ? "input.mouse_zoom_sensitivity" : "input.stick_zoom_sensitivity");
+
+			sensitivities[index] = valid_real(value) && value > 0.f ? PIN(value, 0.1f, 4.f) : 1.f;
+		}
+	}
+	return sensitivities[mouse ? 1 : 0];
+}
+
 static struct profile_section player_control_update_section = {"player_control_update", NONE, TRUE};
 
 static struct player_control_globals_data *player_control_globals;
@@ -397,6 +430,12 @@ limits were stepped once per input update, a tick on the Xbox, so they step
 by the ticks the frame lasted; an impulse applied from a tick steps by one. */
 static real player_control_angle_step_ticks = 1.f;
 static real player_control_autolevel_time[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+/* port: each local player's movement and look change as player control
+made them from the sticks, keys and mouse (sensitivity and inversion
+applied), kept before the director's inhibit zeroes them: the debug camera
+flies by them (player_control_get_debug_camera_input, director.c) */
+static real_vector2d player_control_debug_camera_throttle[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+static real_euler_angles2d player_control_debug_camera_facing[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 
 /* ---------- public code */
 
@@ -556,6 +595,8 @@ void player_control_get_unit_camera_info(
 			}
 		}
 
+		/* port: MCC biped seats carry the same authored camera as vehicles. */
+		mcc_seat_camera(camera_info);
 		if (camera_info->seat_index == NONE)
 		{
 			camera_info->camera = &unit_definition_get(unit->definition_index)->unit.camera;
@@ -621,6 +662,16 @@ static boolean player_control_port_menu_has_controller(
 	if (!player)
 		return FALSE;
 	gamepad_index = player->local_player_index;
+#ifdef HALO_GUIDE
+	/* (the Guide: the first player's controls are its own while it is
+	open, port/linux/game/guide.c) */
+	{
+		extern boolean guide_takes_player(void);
+
+		if (gamepad_index == 0 && guide_takes_player())
+			return TRUE;
+	}
+#endif
 	return gamepad_index >= 0 && gamepad_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS &&
 		ui_widgets_active_for_local_player(gamepad_index);
 }
@@ -657,8 +708,15 @@ static void handle_one_player_input(
 			player->desired_angles.yaw);
 	}
 
-	if (director_inhibited_input(local_player_index) ||
-		player_control_port_menu_has_controller(local_player_index))
+	/* port: (a menu over the player's controller takes its input before
+	the debug camera's copy is kept; the director's inhibit after it) */
+	if (player_control_port_menu_has_controller(local_player_index))
+	{
+		csmemset(&input, 0, sizeof(input));
+	}
+	player_control_debug_camera_throttle[local_player_index] = input.throttle;
+	player_control_debug_camera_facing[local_player_index] = input.facing_delta;
+	if (director_inhibited_input(local_player_index))
 	{
 		csmemset(&input, 0, sizeof(input));
 	}
@@ -679,6 +737,13 @@ static void handle_one_player_input(
 				players_set_local_player_unit(local_player_index, unit_index);
 			}
 		}
+		/* port: Stubbs's hand (Stubbs mode only: port/linux/game/stubbs_engine.c) */
+		if (stubbs_mode_active())
+			stubbs_engine_player_input(local_player_index, &input.player_control_flags,
+				FLAG(_player_control_rotate_grenades_bit), input.unit_control_flags);
+		/* port: and the hand on a human's head (port/linux/game/stubbs_possession.c) */
+		if (stubbs_mode_active())
+			stubbs_possession_player_input(local_player_index, input.unit_control_flags);
 		if (TEST_FLAG(input.player_control_flags, _player_control_debug_ninja_rope_bit) &&
 			player->unit_index != NONE)
 		{
@@ -841,6 +906,9 @@ static void handle_one_player_input(
 				player->control_flags = action.control_flags;
 				player->throttle = action.throttle;
 				player->primary_trigger = action.primary_trigger;
+				player->desired_weapon_index = action.desired_weapon_index;
+				player->desired_grenade_index = action.desired_grenade_index;
+				player->zoom_level = action.desired_zoom_level;
 			}
 		}
 #endif
@@ -855,6 +923,26 @@ static void handle_one_player_input(
 			action.desired_facing.yaw);
 		update_client_queue(&action);
 	}
+
+	return;
+}
+
+/* port: a local player's movement (throttle, -1 to 1 forward and left) and
+look change (radians this update) as player control last made them, before
+the director's inhibit (the debug camera's: director.c) */
+void player_control_get_debug_camera_input(
+	short local_player_index,
+	real_vector2d *throttle,
+	real_euler_angles2d *facing_delta)
+{
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+	{
+		csmemset(throttle, 0, sizeof(*throttle));
+		csmemset(facing_delta, 0, sizeof(*facing_delta));
+		return;
+	}
+	*throttle = player_control_debug_camera_throttle[local_player_index];
+	*facing_delta = player_control_debug_camera_facing[local_player_index];
 
 	return;
 }
@@ -1222,6 +1310,8 @@ static void get_local_player_input_blob(
 							player->unit_index,
 							control->zoom_level);
 
+						/* port: input.stick_zoom_sensitivity */
+						inverse_zoom *= player_control_zoom_sensitivity(FALSE);
 						look_delta.yaw *= inverse_zoom;
 						look_delta.pitch *= inverse_zoom;
 					}
@@ -1325,7 +1415,8 @@ static void get_local_player_input_blob(
 						real mouse_yaw;
 						real mouse_pitch;
 
-						if (halo_linux_mouse_look(gamepad_index, &mouse_yaw, &mouse_pitch))
+						/* (port: read, and let go of, while the console is open) */
+						if (halo_linux_mouse_look(gamepad_index, &mouse_yaw, &mouse_pitch) && !console_is_active())
 						{
 							if (player->unit_index != NONE && control->zoom_level != NONE)
 							{
@@ -1333,6 +1424,8 @@ static void get_local_player_input_blob(
 									player->unit_index,
 									control->zoom_level);
 
+								/* port: input.mouse_zoom_sensitivity */
+								inverse_zoom *= player_control_zoom_sensitivity(TRUE);
 								mouse_yaw *= inverse_zoom;
 								mouse_pitch *= inverse_zoom;
 							}
@@ -1505,6 +1598,9 @@ static void get_local_player_input_blob(
 					_button_back))
 				{
 					input->back = gamepad->buttons[_gamepad_analog_button_b];
+					/* port: and the keyboard's key for it */
+					if (!input->back)
+						input->back = input_abstraction_port_back(gamepad_index);
 				}
 				if (!TEST_FLAG(
 					control->inhibited_button_bit_vector,
@@ -1619,6 +1715,14 @@ static void get_local_player_input_blob(
 		}
 	}
 
+	/* port: and Stubbs the Zombie's action tests, beside Halo's (Stubbs mode
+	only: port/linux/game/stubbs_functions.c) */
+	if (stubbs_mode_active())
+	{
+		stubbs_functions_action_note(local_player_index, input->unit_control_flags,
+			TEST_FLAG(input->player_control_flags, _player_control_rotate_grenades_bit),
+			input->throttle.i, input->throttle.j);
+	}
 	player_control_action_test_check_reset_input_blob(input);
 	match_assert_valid_real(
 		"c:\\halo\\SOURCE\\game\\player_control.c",
@@ -1635,6 +1739,9 @@ void player_control_action_test_reset(
 
 	globals->action_flags = 0;
 	globals->action_test_flags = 0;
+	/* port: Stubbs the Zombie's too (Stubbs mode only) */
+	if (stubbs_mode_active())
+		stubbs_functions_action_reset();
 	return;
 }
 

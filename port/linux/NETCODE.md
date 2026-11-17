@@ -57,7 +57,8 @@ with ideas from VALORANT's netcode articles, keeping the 30 Hz tick:
   running ahead or doubling back drags the team through the level (while
   none of the host's players are alive, anyone's crossing does); a client
   standing on a loading zone is told it waits for the host. A player
-  outside the loaded BSP and falling for two seconds is brought back beside
+  outside the loaded BSP for two seconds, falling or standing on nothing
+  at all (not on an object, such as an elevator in its shaft), is brought back beside
   the host, else a teammate. A dead
   player watches a living teammate (`coop_spectate.c`) and comes back
   beside one once it is safe. With everyone dead they come back where they
@@ -224,13 +225,13 @@ client is blocked until a host of 32 or later speaks, and a host never takes
 the message. A client's input entry says in its third byte (padding before)
 whether its player plays co-op without friendly fire; this host reads it and
 decides friendly fire by its own setting. Messages 87 to 89 are OpenCE's
-text chat, which Delta chat bridges (`docs/delta.md`, Chat): a build without
+text chat, which Delta chat bridges (`docs/delta/peer.md`, Chat): a build without
 them drops them as unknown, so they take no version of their own.
 
 Versions 33 to 41 are OpenCE's, which this build's clients play by the
 version the host advertised (`network_rules_of_version`; a host not known
 plays by the older rules). Its hosts announce the built-in 32, or the newest
-number the signed legacy table proves for hosting (docs/delta.md,
+number the signed legacy table proves for hosting (docs/delta/versioning.md,
 "Auto-announce"). Version 33 adds a
 second bit to the settings' co-op byte (bit 1: the players' hits do their AI
 allies no harm), which only a host acts on. Version 34 changes no message:
@@ -268,7 +269,14 @@ an older one. Version 41 adds a refusal 13 (too many machines from one
 address), lays out the vote messages 78 and 79 anew, and adds 94 and 95 (map
 votes); this build drops all four unread, and its hosts tell an OpenCE player
 who votes, the first time in a game, that the host has no votes. Refusals 8 to 13 are said
-plainly to the player.
+plainly to the player. Versions 42 to 44 are built in from wire `chupa-43a` (44, OpenCE's
+build-355, is 43's layout under a new number: `chupa-44a`), and later ones
+are played by a signed table's layout facts, generic ones from
+`chupa-43a` (`docs/delta/versioning.md`, "Layouts"): a version word in the join request, more bytes in every
+distributed header (a checkpoint epoch, with the host's boundary message
+before its objects and at each co-op revert), unit state parts a reader
+passes over, and the height of a vehicle's up that throws its riders. A
+game whose version's layout has none of them plays as before.
 
 A host plays by the number it announces (`delta_legacy_announce()`: the
 built-in one, or a legacy table's), which is the number of every OpenCE
@@ -305,10 +313,10 @@ draws no glow or overshield of its own. From 37 the advertisement's fourth
 reserved byte (the game's kind) is 0, and from 39 a dedicated server sets
 the advertisement's flag 0x04 and the internet listing's flag 32 (OpenCE's
 dedicated flags). A Delta host's own bytes are the Delta tag at the reserved
-bytes' tail (docs/delta.md, "The advertisement"). For released clients a
+bytes' tail (docs/delta/peer.md, "The advertisement"). For released clients a
 dedicated server that hosts with Delta also sets 0x04 and, in a game that
 is not Slayer, writes the old layout's major and slot from byte 3, where
-OpenCE names no kind (docs/delta.md, "The transition").
+OpenCE names no kind (docs/delta/peer.md, "The transition").
 
 A host never checks a joining client's version: the client reads the
 host's from its advertisement and joins only a version it plays with. That
@@ -316,10 +324,10 @@ is its own, or one of a range (HALO_PORT_NETWORK_VERSION_MINIMUM to
 HALO_PORT_NETWORK_VERSION_MAXIMUM, halo_port_limits.h) of versions that
 differ from it only in messages the other machine drops, not knowing them,
 or whose rules it plays by the host's version (above). This build has
-version 32 built in and joins hosts of 11 to 42: back to version 11, the
-newest breaking one, and one past the newest it knows (41), which it
+version 32 built in and joins hosts of 11 to 45: back to version 11, the
+newest breaking one, and one past the newest it knows (44), which it
 presumes additive. A signed legacy table widens the range without a
-release (docs/delta.md, "The legacy number"). The game browser lists the
+release (docs/delta/versioning.md, "The legacy number"). The game browser lists the
 range's games.
 
 `port/linux/network_format.txt` records the wire format of the current
@@ -502,7 +510,11 @@ a pregame keep-alive every five seconds from the host
      and delete theirs to match. A client that has loaded asks for all the
      host's objects and is told when it has them; from then on it deletes
      any such object the host has not told it of, and nothing but the
-     host's word deletes the host's.
+     host's word deletes the host's. That word deletes a CTF flag or an
+     oddball too, which the game itself never deletes (an assertion
+     stops a build that is not `--release` there, where a release host
+     goes on and tells its clients): the client takes it out of its
+     carrier's hands, and the goal its game type shows at it goes with it.
    - The objects placed when the map loads are placed alike everywhere:
      the host's word finds a client's already there. Past loading, a
      client's own objects (projectiles, effects: what only it sees) take
@@ -540,7 +552,13 @@ a pregame keep-alive every five seconds from the host
    rest is on the ground, so it lies limp again where it stops instead of
    keeping the pose of its fall in the air. A client puts its copies there, and the difference is
    drawn fading over a few ticks (`render_interpolation.c`) instead of a
-   jump. A client drives its own player's vehicle and sends where it is,
+   jump. A vehicle no player drives is carried between those updates along
+   the positions the host sent, a recording's lifepod as well as a Pelican.
+   Its physics velocity swings about that path, so the carry steps from
+   one of those positions to the next, and a jump further than a step of
+   the path is left where the host put it. The host's word that it is at
+   rest stops that step, and the step is kept only for the last gap
+   between positions, so a late word does not drive it on. A client drives its own player's vehicle and sends where it is,
    which the host takes within a tolerance, as it does its own player's
    unit, and no further from an anchor (one it took, a newer once a
    second) than the vehicle moves in the client's ticks since, those no

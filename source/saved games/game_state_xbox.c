@@ -98,6 +98,7 @@ symbols in this file:
 #include "cseries/cseries.h"
 #include "cseries/errors.h"
 #include "interface/player_ui.h"
+#include "main/main.h"
 #include "memory/crc.h"
 #include "saved games/game_state.h"
 #include "sound/sound_manager.h"
@@ -785,6 +786,10 @@ void game_state_read_from_persistent_storage(
 				csprintf(temporary, "failed to read from persistent storage (#%d)",
 					GetLastError()));
 			delete_persistent_storage();
+			/* port: the file was read over the game state before it was
+			refused (game_state_read_in_place): the map starts over, as a
+			revert's refused file does (game_state_revert) */
+			main_reset_map();
 		}
 		(void)buffer;
 #else

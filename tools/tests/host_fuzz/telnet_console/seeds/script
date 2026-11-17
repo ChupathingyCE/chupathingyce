@@ -1,0 +1,2 @@
+(print "hello")
+(game_speed 1)

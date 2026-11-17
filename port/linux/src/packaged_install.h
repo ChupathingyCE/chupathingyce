@@ -75,11 +75,12 @@ static inline int packaged_install_marked(const char *environment, int file_pres
 #endif
 }
 
-/* whether the game's own files (its data, config.toml and logs) go in the
-save root's usual place, not the executable's folder (Linux): an AppImage
-(mounted read-only), a packaged install, or an executable's folder the game
-cannot write (folder_writable 0) that holds no setup of its own (no maps/
-and no config.toml: folder_has_setup 0), which is kept where it is */
+/* whether one kind of the game's own files (its data and logs, or
+config.toml) goes in the save root's usual place, not the executable's
+folder (Linux): an AppImage (mounted read-only), a packaged install, or an
+executable's folder the game cannot write (folder_writable 0) that does not
+hold that kind of its own (no maps/ for the data, no config.toml for the
+settings: folder_has_setup 0), which is kept where it is */
 static inline int packaged_install_files_in_home(int appimage, int packaged, int folder_writable,
 	int folder_has_setup)
 {

@@ -7,6 +7,12 @@
   ],
   "frameworks": [
     "OpenGL",
-    "CoreGraphics"
+    "CoreGraphics",
+    "CoreFoundation",
+    "CoreServices",
+    "VideoToolbox",
+    "CoreMedia",
+    "CoreVideo",
+    "Security"
   ]
 }

@@ -281,6 +281,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
+#include "mcc_grenades.h"
 #include "actors.h"
 #include "actor_definitions.h"
 #include "actor_placement.h"
@@ -318,6 +319,8 @@ symbols in this file:
 #include "units/vehicle_definitions.h"
 #include "units/vehicles.h"
 #include "networking/network_game_globals.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 /* ---------- constants */
 
@@ -2465,6 +2468,8 @@ void actor_customize_unit(
 			actor_variant_definition->items.grenades_lower_bound,
 			actor_variant_definition->items.grenades_upper_bound + 1);
 
+		/* port: MCC's Catch skull: an enemy carries more (mcc_skulls.c) */
+		grenade_count = mcc_skulls_actor_grenades(unit->object.owner_team_index, grenade_count);
 		unit_add_grenade_type_to_inventory(
 			unit_index,
 			actor_variant_definition->grenade_combat.grenade_type,
@@ -2503,9 +2508,11 @@ void actor_customize_unit(
 		}
 	}
 
+	/* port: or MCC's Assassins skull, every enemy cloaked (mcc_skulls.c) */
 	if ((actor_variant_definition->flags &
 		(FLAG(_actor_variant_definition_active_camouflage_bit) |
-			FLAG(_actor_variant_definition_super_active_camouflage_bit))) != 0)
+			FLAG(_actor_variant_definition_super_active_camouflage_bit))) != 0 ||
+		mcc_skulls_actor_cloaked(unit->object.owner_team_index))
 	{
 		if (TEST_FLAG(
 			actor_variant_definition->flags,
@@ -2630,6 +2637,15 @@ long actor_create_for_unit(
 					actor->state.noncombat_sequence_id = noncombat_sequence_id;
 
 					actor_is_swarm = actor->meta.swarm;
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+					/* port: Stubbs's actor types are its own list, longer than
+					Halo's: one of its humans lands on Halo's infection form
+					and would be refused as "swarm". A Stubbs actor keeps a
+					type of its own kind instead (Stubbs mode only:
+					port/linux/game/stubbs_mode.c) */
+					if (stubbs_mode_active() && actor_is_swarm != actor_type_get_swarm(actor->meta.type))
+						actor->meta.type = actor_is_swarm ? _actor_infection_form : _actor_marine;
+#endif
 					if (actor_is_swarm != actor_type_get_swarm(actor->meta.type))
 					{
 						char const *actor_description = actor_is_swarm ? "swarm" : "individual";
@@ -3370,6 +3386,8 @@ void actor_died(
 			grenade_roll < actor_variant_definition->items.dont_drop_grenades_chance)
 		{
 			csmemset(unit->unit.grenade_counts, 0, sizeof(unit->unit.grenade_counts));
+			if (mcc_grenades_active())
+				mcc_grenades_clear(actor->meta.unit_index);
 		}
 
 		if (weapon_index != NONE)

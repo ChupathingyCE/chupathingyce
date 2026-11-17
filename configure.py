@@ -81,7 +81,7 @@ parser.add_argument(
     action="store_true",
     help="native ports (Linux, macOS): the original Xbox build's network and object limits "
     "(HALO_CONSOLE_LIMITS: 16 players and machines, 2,048 objects), to test the console's side of "
-    "cross-play against the PC builds on one computer (docs/cross-play.md); never a build to ship",
+    "cross-play against the PC builds on one computer; never a build to ship",
 )
 parser.add_argument(
     "--window-rebase",
@@ -134,6 +134,11 @@ parser.add_argument(
     help="profile-guided optimisation from this profile instead",
 )
 parser.add_argument(
+    "--android-vulkan-validation",
+    action="store_true",
+    help="put the Vulkan validation layer in the Android app (debug.vk_validation; adds about 30 MB)",
+)
+parser.add_argument(
     "--android-ndk",
     type=str,
     help="Android NDK for `ninja android` and `ninja android64` (default: ANDROID_NDK_HOME, or the newest under the Android SDK)",
@@ -182,6 +187,7 @@ sln = SimpleNamespace(
     port_pgo=args.pgo,
     port_pgo_profile=args.pgo_profile,
     android_ndk=args.android_ndk,
+    android_vulkan_validation=args.android_vulkan_validation,
     android_guest_cc=args.android_guest_cc,
     with_ffmpeg=args.with_ffmpeg,
     console_no_debug_asserts=args.console_no_debug_asserts,

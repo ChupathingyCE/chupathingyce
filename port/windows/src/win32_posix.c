@@ -23,6 +23,51 @@ Xbox memory window uses. Also the process start-up the Windows build needs.
 
 /* ---------- start-up */
 
+void *win32_system_library(const char *name)
+{
+	wchar_t path[MAX_PATH];
+	UINT length = GetSystemDirectoryW(path, MAX_PATH);
+
+	/* (System32's full path, which every Windows takes: the
+	LOAD_LIBRARY_SEARCH flags need KB2533623 on Windows 7) */
+	if (!length || length + 2 >= MAX_PATH)
+		return NULL;
+	path[length++] = L'\\';
+	if (!MultiByteToWideChar(CP_UTF8, 0, name, -1, path + length, (int)(MAX_PATH - length)))
+		return NULL;
+	return (void *)LoadLibraryExW(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+}
+
+void win32_library_identity(void *module, char *text, unsigned long size)
+{
+	typedef const char *(__cdecl *wine_version)(void);
+	wchar_t path[MAX_PATH];
+	DWORD handle = 0, length;
+	unsigned major = 0, minor = 0, build = 0, revision = 0;
+	wine_version wine = (wine_version)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version");
+
+	if (GetModuleFileNameW((HMODULE)module, path, MAX_PATH) &&
+		(length = GetFileVersionInfoSizeW(path, &handle)) != 0)
+	{
+		void *data = malloc(length);
+		VS_FIXEDFILEINFO *info;
+		UINT info_length;
+
+		if (data && GetFileVersionInfoW(path, 0, length, data) &&
+			VerQueryValueW(data, L"\\", (void **)&info, &info_length) && info_length >= sizeof(*info))
+		{
+			major = HIWORD(info->dwFileVersionMS);
+			minor = LOWORD(info->dwFileVersionMS);
+			build = HIWORD(info->dwFileVersionLS);
+			revision = LOWORD(info->dwFileVersionLS);
+		}
+		free(data);
+	}
+	/* (Wine's own DLLs carry Windows-like versions: which one it is too) */
+	snprintf(text, size, "%u.%u.%u.%u %s%s", major, minor, build, revision, wine ? "wine " : "native",
+		wine ? wine() : "");
+}
+
 /* laptops with a second, faster GPU (NVIDIA Optimus, AMD switchable
 graphics) run a program on the integrated one unless it exports these */
 __declspec(dllexport) DWORD NvOptimusEnablement = 1;
@@ -34,12 +79,81 @@ int crash_reporter_process(void);
 /* xbox_files.c's: the logs folder, before the game knows its data root */
 int platform_logs_folder_early(char *path, unsigned long size);
 
+/* Windows 11 throttles a process whose windows are minimized or behind
+others: EcoQoS (a slower, more efficient core and clock) and its timer
+resolution requests ignored, so the 1 ms of timeBeginPeriod (below) turns
+back into 15.6 ms. The game keeps simulating and sending in the background
+(a network game, a host, a player alt-tabbed out), so it opts out of both,
+for a little power. SetProcessInformation's ProcessPowerThrottling is from
+Windows 10 1709 and its IGNORE_TIMER_RESOLUTION from Windows 11: an older
+Windows refuses the flag (asked again without it) or has no such call (the
+game runs on as before). Based on work by goatbutt and the OpenH1 team. */
+#define POWER_THROTTLING_INFORMATION_CLASS 4 /* ProcessPowerThrottling */
+#define POWER_THROTTLING_VERSION 1
+#define POWER_THROTTLING_EXECUTION_SPEED 0x1
+#define POWER_THROTTLING_IGNORE_TIMER_RESOLUTION 0x4
+
+struct power_throttling_state
+{
+	ULONG version;
+	ULONG control_mask;
+	ULONG state_mask;
+};
+
+static void power_throttling_opt_out(void)
+{
+	typedef BOOL (WINAPI *set_information_function)(HANDLE, int, void *, DWORD);
+	HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+	set_information_function set_information = kernel ?
+		(set_information_function)(void *)GetProcAddress(kernel, "SetProcessInformation") : NULL;
+	struct power_throttling_state state;
+	DWORD error;
+
+	if (!set_information)
+	{
+		fprintf(stderr, "power throttling: left to Windows (no SetProcessInformation)\n");
+		return;
+	}
+	/* (a set control bit with its state bit clear: that throttling off) */
+	memset(&state, 0, sizeof(state));
+	state.version = POWER_THROTTLING_VERSION;
+	state.control_mask = POWER_THROTTLING_EXECUTION_SPEED | POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+	if (set_information(GetCurrentProcess(), POWER_THROTTLING_INFORMATION_CLASS, &state, sizeof(state)))
+	{
+		fprintf(stderr, "power throttling: off (full speed and the 1 ms timer kept in the background)\n");
+		return;
+	}
+	error = GetLastError();
+	state.control_mask = POWER_THROTTLING_EXECUTION_SPEED;
+	if (set_information(GetCurrentProcess(), POWER_THROTTLING_INFORMATION_CLASS, &state, sizeof(state)))
+	{
+		fprintf(stderr, "power throttling: off; this Windows keeps the timer's own (error %lu)\n",
+			(unsigned long)error);
+		return;
+	}
+	fprintf(stderr, "power throttling: left to Windows (error %lu)\n", (unsigned long)GetLastError());
+}
+
 __attribute__((constructor))
 static void windows_startup(void)
 {
 	/* files are binary unless opened otherwise, as on the Xbox (the C
 	runtime's default text mode would translate line ends) */
 	_set_fmode(_O_BINARY);
+	/* DLLs the game loads by name come from its own folder and System32,
+	never the working directory or PATH, where a planted one could stand in
+	(a game started from a downloads folder). The DLLs it links (SDL3.dll)
+	are loaded before this runs, from its folder as before. (Looked up, not
+	imported: Windows 7 without KB2533623 has no such call, and an import
+	of one would keep the game from starting there) */
+	{
+		typedef BOOL (WINAPI *set_directories_proc)(DWORD flags);
+		set_directories_proc set_directories = (set_directories_proc)(void *)GetProcAddress(
+			GetModuleHandleW(L"kernel32.dll"), "SetDefaultDllDirectories");
+
+		if (set_directories)
+			set_directories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+	}
 	/* Sleep() waits in 1 ms steps rather than the default 15.6 ms: the
 	game's frame pacing sleeps for short intervals */
 	timeBeginPeriod(1);
@@ -60,6 +174,8 @@ static void windows_startup(void)
 				setvbuf(stderr, NULL, _IONBF, 0);
 		}
 	}
+	/* (after the log is open, so its line lands in halo.log) */
+	power_throttling_opt_out();
 }
 
 #ifdef HALO_64BIT

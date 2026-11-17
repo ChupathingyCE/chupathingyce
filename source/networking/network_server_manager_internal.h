@@ -48,6 +48,12 @@ boolean network_game_server_client_machine_is_loaded(
 void network_game_server_late_joiner_loaded(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *machine);
+/* a player of a machine joining the game in progress, still in its pregame
+screen, changes their settings; FALSE if the machine is not such a one */
+boolean network_game_server_late_joiner_player_settings(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine,
+	struct network_player const *player);
 /* the machine was heard from (its timeout, network_server_manager.c) */
 void network_game_server_client_machine_heard(
 	struct network_game_server *server,

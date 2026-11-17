@@ -54,6 +54,7 @@ symbols in this file:
 #include "cache/cache_files.h"
 #include "camera/director.h"
 #include "camera/observer.h"
+#include "game/game.h" /* port: game_connection, cheat_objects */
 #include "game/game_globals.h"
 #include "game/players.h"
 #include "hs/hs.h"
@@ -140,7 +141,7 @@ cheats, its object_create), this game: past network.host_console_objects
 (32 unless set; 8 while an original Xbox machine plays, whose object array
 is the PC's eighth) the next is refused, and none is kept at an index past
 the Xbox's own half (1,024: one there takes the place of the console's own
-objects, docs/cross-play.md, "Object slots"). A map's own scripts are not
+objects, port/linux/game/network_objects.c). A map's own scripts are not
 counted: the objects they make by name are the map's, one each at most */
 enum
 {
@@ -522,6 +523,17 @@ static void cheat_objects(
 				real angle_separation = CEILING(2*_pi/reference_count, _pi/8);
 				real angle = arctangent(forward.i, forward.j)+
 					(reference_index-reference_count/2)*angle_separation;
+
+				/* port: a network game's host makes no flag or ball (a weapon
+				that must be readied): those belong to the game engine, and
+				clients refuse one it does not own. Found in chester's GulchCE. */
+				if (game_connection() == _game_connection_network_server &&
+					object_definition_get(references[reference_index].index)->object.type == _object_type_weapon &&
+					TEST_FLAG(weapon_definition_get(references[reference_index].index)->weapon.flags,
+						_weapon_must_be_readied_bit))
+				{
+					continue;
+				}
 
 				object_placement_data_new(&data, references[reference_index].index, NONE);
 

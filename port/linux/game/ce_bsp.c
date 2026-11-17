@@ -52,6 +52,9 @@ enum
 	the tag cache in any case) */
 	CE_MAXIMUM_BSP_LIGHTMAPS = 0x10000,
 	CE_MAXIMUM_LIGHTMAP_MATERIALS = 0x10000,
+	/* (the materials of every lightmap together, capped far above any real
+	map's, whose BSP has a few thousand, #1089) */
+	CE_MAXIMUM_BSP_MATERIALS = 0x100000,
 	CE_MAXIMUM_MATERIAL_VERTICES = 0x100000,
 	/* (the room ce_vertex_buffer takes of the tag cache) */
 	CE_BUFFER_HEADER_ROOM = 16,
@@ -149,6 +152,7 @@ boolean ce_bsp_check(
 	unsigned long words[6];
 	byte *structure, *lightmaps;
 	long lightmap_count, lightmap_index;
+	unsigned long materials_walked = 0;
 
 	*bytes = 0;
 	if (!header)
@@ -210,6 +214,12 @@ than sphere_intersects_cluster_portal projects into an array on the stack */
 		{
 			return FALSE;
 		}
+		materials_walked += (unsigned long)material_count;
+		if (materials_walked > CE_MAXIMUM_BSP_MATERIALS)
+		{
+			return ce_refuse("a structure BSP's lightmaps name more than %lu materials in all",
+				(unsigned long)CE_MAXIMUM_BSP_MATERIALS);
+		}
 		for (material_index = 0; material_index < material_count; material_index++)
 		{
 			struct structure_material *material = (struct structure_material *)(materials +
@@ -241,14 +251,19 @@ than sphere_intersects_cluster_portal projects into an array on the stack */
 				return ce_refuse("a structure BSP's material's vertices (%lu bytes) are fewer than its counts (%lu)",
 					data_size, needed);
 			}
-			*bytes += (lightmap_vertex_count ? 2 : 1) * CE_BUFFER_HEADER_ROOM;
+			if (!ce_room_add(bytes, (lightmap_vertex_count ? 2 : 1) * CE_BUFFER_HEADER_ROOM,
+				"a structure BSP's vertex buffers"))
+			{
+				return FALSE;
+			}
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 			/* (on a 64 MB console the compressed vertices are in the tag cache
 			too: port/xbox's xbox_ce_files.c) */
-			if (platform_ce_alias)
+			if (platform_ce_alias && !ce_room_add(bytes, ((unsigned long)vertex_count *
+				ENVIRONMENT_VERTEX_COMPRESSED_SIZE + (unsigned long)lightmap_vertex_count *
+				LIGHTMAP_VERTEX_COMPRESSED_SIZE + 15) & ~15UL, "a structure BSP's vertices"))
 			{
-				*bytes += ((unsigned long)vertex_count * ENVIRONMENT_VERTEX_COMPRESSED_SIZE +
-					(unsigned long)lightmap_vertex_count * LIGHTMAP_VERTEX_COMPRESSED_SIZE + 15) & ~15UL;
+				return FALSE;
 			}
 #endif
 		}
@@ -278,12 +293,22 @@ void ce_bsp_loaded(
 			long lightmap_vertex_count = material->lightmap_vertices.count;
 			long environment_size = vertex_count * ENVIRONMENT_VERTEX_COMPRESSED_SIZE;
 			long size = environment_size + lightmap_vertex_count * LIGHTMAP_VERTEX_COMPRESSED_SIZE;
-			byte *uncompressed = xbox_pointer(material->uncompressed_vertex_data.address);
+			byte *uncompressed;
 			byte *compressed;
 
-			if (material->vertices.type != _rasterizer_vertex_type_environment_uncompressed || vertex_count <= 0 ||
-				!uncompressed)
+			if (material->vertices.type != _rasterizer_vertex_type_environment_uncompressed || vertex_count <= 0)
+				continue;
+			/* (its vertices, all of them, in the tag cache, as ce_bsp_check
+			found them in the BSP: else passed over, ce_map_checks.h) */
+			uncompressed = vertex_count <= CE_MAXIMUM_MATERIAL_VERTICES &&
+				(!lightmap_vertex_count || lightmap_vertex_count == vertex_count) ?
+				ce_loaded_bsp_pointer(material->uncompressed_vertex_data.address,
+					(unsigned long)vertex_count * ENVIRONMENT_VERTEX_UNCOMPRESSED_SIZE +
+					(unsigned long)lightmap_vertex_count * LIGHTMAP_VERTEX_UNCOMPRESSED_SIZE) : NULL;
+			if (!uncompressed)
 			{
+				ce_contained("a structure BSP material's %ld vertices at %08lx are outside its tag cache", vertex_count,
+					(unsigned long)material->uncompressed_vertex_data.address);
 				continue;
 			}
 			compressed = XPhysicalAlloc(size, -1, 0, PAGE_READWRITE);

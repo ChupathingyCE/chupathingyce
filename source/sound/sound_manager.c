@@ -219,6 +219,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
+#include "mcc_campaign.h" /* port: port/linux/game/mcc_campaign.c */
 #include "errors.h"
 #include "data.h"
 #include "cseries/profile.h"
@@ -1153,6 +1154,11 @@ static real sound_manager_master_gain(
 {
 	real gain = sound_class_get_gain(class_index) * sound_manager_port_volume(class_index);
 
+	/* port: MCC scripts own effects gain and map-local muting; inactive maps get 1. */
+	{
+		gain *= mcc_campaign_mix_gain(class_index == _sound_class_music);
+	}
+
 	if (class_index != _sound_class_scripted_dialog_to_player &&
 		class_index != _sound_class_scripted_dialog_to_other &&
 		class_index != _sound_class_scripted_dialog_force_unspatialized)
@@ -1191,6 +1197,20 @@ static boolean refresh_sound(
 		0x59F,
 		sound->playing_channel_index==NONE ||
 			channel_get(sound->playing_channel_index)->sound_index==sound_index);
+
+	/* port: a track of a looping sound that is gone stops, even when it
+	started this millisecond. The test of the start time below skips the
+	tracking, which is what notices the looping sound is gone, and a
+	looping sound not refreshed since the last frame is deleted
+	(process_looping_sounds): with three frames in one millisecond (no
+	frame limit, the null renderer) the track went on to
+	update_channel_for_looping_sound, which read the deleted looping
+	sound. BUG (original): the Xbox's frames were never that close. */
+	if (sound->type != _sound_impulse &&
+		!datum_try_and_get(looping_sound_data, sound->source_identifier))
+	{
+		return FALSE;
+	}
 
 	if (TEST_FLAG(sound->flags, _sound_delayed_bit) ||
 		!sound->track_proc ||
@@ -3907,8 +3927,10 @@ static void refresh_listener(
 				&camera->position,
 				&camera->forward,
 				&camera->up);
-#ifndef HALO_XBOX_CONSOLE
-			/* (a tick's velocity, not the last frame's: observer.c) */
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
+			/* (a tick's velocity, not the last frame's: observer.c; a
+			console at one frame a tick takes the frame's, as the Xbox did) */
+			if (halo_port_frames_between_ticks())
 			{
 				real_vector3d velocity;
 
@@ -3918,12 +3940,14 @@ static void refresh_listener(
 					&velocity,
 					&listener->velocity);
 			}
-#else
-			matrix4x3_inverse_transform_vector(
-				&listener->matrix,
-				&camera->velocity,
-				&listener->velocity);
+			else
 #endif
+			{
+				matrix4x3_inverse_transform_vector(
+					&listener->matrix,
+					&camera->velocity,
+					&listener->velocity);
+			}
 		}
 		else
 		{
@@ -3988,7 +4012,7 @@ void sound_render(
 				((real)render_time - sound_manager_globals.render_time) *
 				0.029999999f;
 			sound_manager_globals.render_time = render_time;
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 			/* Sounds are rendered once a frame, and a frame is well under a
 			tick on the native builds, so the ticks truncate to none and
 			scripted sound class fades would never move: carry the

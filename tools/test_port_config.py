@@ -21,6 +21,8 @@ player's can have:
   goes on under the new one, and the old name's lines are taken out;
 - a file with a retired setting (debug.solo_game): it loads, its value
   carries over to the setting that took its place once, and its lines go;
+- a 0.9.0 file with the Guide's names (controls.guide, [guide]): each value
+  goes on under DELTA's name, unasked, and [guide] goes;
 - a new file's layout: the top block, each section once with its note, and
   the Advanced part ([debug], [console]) last;
 - the per-platform defaults of each build (DEFAULTS below).
@@ -33,6 +35,7 @@ Needs only a C compiler. Usage: test_port_config.py [--cc clang]
 import argparse
 import os
 import re
+import resource
 import shutil
 import subprocess
 import sys
@@ -53,6 +56,7 @@ DEFAULTS = {
 		"display.player_names": "none",
 		"display.follow_camera": "off",
 		"network.team_change": "off",
+		"audio.resampling": "xbox",
 	},
 	"desktop32": {
 		"display.anti_aliasing": "off",
@@ -64,6 +68,7 @@ DEFAULTS = {
 		"display.player_names": "none",
 		"display.follow_camera": "off",
 		"network.team_change": "off",
+		"audio.resampling": "xbox",
 	},
 	"android": {
 		"display.anti_aliasing": "off",
@@ -75,6 +80,7 @@ DEFAULTS = {
 		"display.player_names": "none",
 		"display.follow_camera": "off",
 		"network.team_change": "off",
+		"audio.resampling": "xbox",
 	},
 	"server": {
 		"display.anti_aliasing": "off",
@@ -93,6 +99,7 @@ DEFAULTS = {
 		"network.tunnel_port": "0",
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "off",
+		"audio.resampling": "xbox",
 		"display.player_names": "none",
 		"display.follow_camera": "off",
 		"network.team_change": "off",
@@ -113,22 +120,26 @@ OLD = {
 	"display.player_names": "all",
 	"display.follow_camera": "long_waits",
 	"network.team_change": "balanced",
+	"audio.resampling": "sinc",
 }
 CHANGED = {
-	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change"],
-	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change"],
-	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change"],
+	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling"],
+	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling"],
+	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change", "audio.resampling"],
 	"server": [],
-	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player", "display.follow_camera", "network.team_change"],
+	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player", "display.follow_camera", "network.team_change",
+		"audio.resampling"],
 }
 # the changes of the second question (game.defaults_answered = 2), the
-# third (3), the fourth (4) and the latest (CONFIG_DEFAULTS_GENERATION): a
-# file answered for an earlier one is asked about the later ones only
+# third (3), the fourth (4), the fifth (5) and the latest
+# (CONFIG_DEFAULTS_GENERATION): a file answered for an earlier one is asked
+# about the later ones only
 SECOND = ["network.tunnel_port"]
 THIRD = ["game.start_with_one_player"]
 FOURTH = ["audio.hrtf"]
-LATEST = ["display.player_names", "display.follow_camera", "network.team_change"]
-GENERATION = "5"
+FIFTH = ["display.player_names", "display.follow_camera", "network.team_change"]
+LATEST = ["audio.resampling"]
+GENERATION = "6"
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
@@ -139,6 +150,8 @@ DEFINES = {
 	"android": ["-U__APPLE__", "-DHALO_ANDROID", "-DHALO_GAME_BROWSER"],
 	"server": ["-U__APPLE__", "-DHALO_SERVER", "-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
 	"console": ["-U__APPLE__", "-DHALO_CONSOLE", "-DHALO_CONSOLE_GL_LAYER", "-DHALO_GAME_BROWSER"],
+	# (the original Xbox's: the settings only, test_xbox_follows_new_defaults)
+	"xbox": ["-U__APPLE__", "-DHALO_CONSOLE", "-DHALO_XBOX_CONSOLE", "-D_strnicmp=strncasecmp"],
 }
 
 STUB_PLATFORM = """#include <stddef.h>
@@ -195,6 +208,13 @@ STUB_SDL = """#include <stdbool.h>
 const char *SDL_GetBasePath(void);
 bool SDL_CreateDirectory(const char *path);
 void *SDL_LoadFile(const char *path, size_t *size);
+typedef struct SDL_IOStream SDL_IOStream;
+SDL_IOStream *SDL_IOFromFile(const char *file, const char *mode);
+size_t SDL_WriteIO(SDL_IOStream *context, const void *data, size_t size);
+bool SDL_FlushIO(SDL_IOStream *context);
+bool SDL_CloseIO(SDL_IOStream *context);
+bool SDL_RenamePath(const char *old_path, const char *new_path);
+bool SDL_RemovePath(const char *path);
 bool SDL_SaveFile(const char *path, const void *data, size_t size);
 void SDL_free(void *memory);
 enum { SDL_PATHTYPE_NONE, SDL_PATHTYPE_FILE, SDL_PATHTYPE_DIRECTORY, SDL_PATHTYPE_OTHER };
@@ -242,7 +262,7 @@ class Case:
 		environment["HALO_DATA_ROOT"] = str(self.folder)
 		environment.update(environment_extra or {})
 		result = subprocess.run([str(self.program), *arguments], capture_output=True, text=True,
-			env=environment, check=True)
+			env=environment, check=True, cwd=self.folder)
 		values = dict(re.findall(r"^([a-z_]+\.[a-z_0-9]+)=(.*)$", result.stdout, re.M))
 		return values, result.stdout
 
@@ -331,6 +351,15 @@ def previous_release_file(case, kind):
 	return text
 
 
+def test_unique_settings(program, directory, defaults, kind):
+	"""no setting, and no environment variable, is named twice in a kind of
+	build's table: a second entry would never be read (the first is found),
+	and the setting it shadows would read the wrong type"""
+	case = Case(program, directory / "unique")
+	_, output = case.run("duplicates")
+	check("duplicates=none" in output, f"named twice: {output.strip()}")
+
+
 def test_new_file(program, directory, defaults, kind):
 	case = Case(program, directory / "new")
 	values, _ = case.get(*defaults)
@@ -401,7 +430,7 @@ def test_answered_earlier(program, directory, defaults, kind):
 	about the later changes only (Headphone 3D, no names above heads), and a
 	value kept then stays whatever the answer now. A Headphone 3D the player
 	set themselves, on, off or auto, is never asked about nor changed."""
-	latest = [name for name in FOURTH + LATEST if name in CHANGED[kind]]
+	latest = [name for name in FOURTH + FIFTH + LATEST if name in CHANGED[kind]]
 	if not latest:
 		return
 	for answer in ("keep", "new"):
@@ -466,7 +495,7 @@ def test_answered_first_question(program, directory, defaults, kind):
 	"""A file answered for v0.8.0's question (defaults_answered = 1): asked
 	about the later changes alone (the hosting port, starting alone, Headphone
 	3D), once; its other settings stay as they are."""
-	changed = [name for name in CHANGED[kind] if name in SECOND + THIRD + FOURTH + LATEST]
+	changed = [name for name in CHANGED[kind] if name in SECOND + THIRD + FOURTH + FIFTH + LATEST]
 	if not changed:
 		return
 	for answer in ("keep", "new"):
@@ -524,7 +553,7 @@ def test_start_alone(program, directory, defaults, kind):
 		return
 	# a file answered for the second question: this one is asked, with the
 	# later ones (Headphone 3D)
-	later = [name for name in CHANGED[kind] if name in THIRD + FOURTH + LATEST]
+	later = [name for name in CHANGED[kind] if name in THIRD + FOURTH + FIFTH + LATEST]
 	for answer in ("keep", "new"):
 		case = Case(program, directory / f"alone_{answer}")
 		text = previous_release_file(case, kind)
@@ -795,6 +824,114 @@ def test_retired_setting(program, directory, defaults, kind):
 	check(values["game.start_with_one_player"] == "false", f"retired/environment 0: {values}")
 
 
+def test_delta_renamed(program, directory, defaults, kind):
+	"""The Guide's settings, named DELTA's in v0.9.1 (config_renamed in
+	port_config.c): a 0.9.0 file with controls.guide, controls.guide_button
+	and a [guide] section loads without a word about an unknown setting or a
+	question, each value the player chose goes on under its new name
+	(controls.delta, controls.delta_button, delta.*), a value already under
+	the new name is the one kept, a line only commented out is taken out, and
+	the emptied [guide] section goes. The next start changes nothing. The old
+	environment variables still work, under the new ones."""
+	values, _ = Case(program, directory / "delta_probe").get("controls.delta")
+	if "controls.delta" not in values:
+		return
+	moved = ("controls.delta_button", "delta.hold_back", "delta.pause_menu", "delta.notify_in_game")
+	case = Case(program, directory / "delta_renamed")
+	text = fresh_file(case, kind)
+	# (the file as 0.9.0 wrote it: the new names not there yet)
+	for key in ("delta", "delta_button", "hold_back", "pause_menu", "notify_in_game"):
+		text = re.sub(rf"\n(# [^\n]*\n)*# {key} = [^\n]*\n", "", text)
+	text = text.replace("\n[controls]\n", "\n[controls]\n"
+		"\n# The key that opens and closes the Guide: F3 to F8.\n"
+		"# (one run: HALO_KEY_GUIDE=<value>)\nguide = \"F5\"\n"
+		"\n# Open the Guide with the controller's Guide button.\n"
+		"# (one run: HALO_GUIDE_BUTTON=<value>)\nguide_button = false\n", 1)
+	text = text.replace("\n[delta]\n", "\n[guide]\n"
+		"# The Guide, which opens over the menus or a game (F3).\n"
+		"\n# Open the Guide by holding Back for about half a second in the menus.\n"
+		"# (one run: HALO_GUIDE_HOLD_BACK=<value>)\nhold_back = true\n"
+		"\n# Put GUIDE in the pause menu, in every menu set.\n"
+		"# (one run: HALO_GUIDE_PAUSE_MENU=<value>)\n# pause_menu = true\n"
+		"\n# Show the Guide's notifications during a game.\n"
+		"# (one run: HALO_GUIDE_NOTIFY_IN_GAME=<value>)\nnotify_in_game = true\n"
+		"\n[delta]\n", 1)
+	# (and one already under its new name, which is kept)
+	text = re.sub(r"(\n\[delta\]\n(# [^\n]*\n)*)", r"\1\nnotify_in_game = false\n", text, count=1)
+	check("[guide]" in text and "\nguide = " in text, "delta: the 0.9.0 file was not made")
+	case.path.write_text(text)
+	asked = pending(case)[0]
+	values, output = case.get("controls.delta", *moved)
+	expected = {"controls.delta": "F5", "controls.delta_button": "false", "delta.hold_back": "true",
+		"delta.pause_menu": "true", "delta.notify_in_game": "false"}
+	check(values == expected, f"delta: {values}, not {expected}")
+	check("unknown setting" not in output and "cannot be read" not in output, f"delta: {output}")
+	check(pending(case)[0] == asked, "delta: the rename asks a question")
+	text = case.text()
+	check("[guide]" not in text and "The Guide, which opens" not in text, "delta: [guide] stays")
+	check(not re.search(r"^#?\s*guide(_button)?\s*=", text, re.M), "delta: the old controls lines stay")
+	check("HALO_GUIDE" not in text and "HALO_KEY_GUIDE" not in text, "delta: the old help text stays")
+	controls = text[text.index("\n[controls]\n"):]
+	controls = controls[:controls.index("\n[", 1)]
+	check(re.search(r'^delta = "F5"$', controls, re.M) and re.search(r"^delta_button = false$", controls, re.M),
+		"delta: the keys are not in [controls]")
+	delta = text[text.index("\n[delta]\n"):]
+	delta = delta[:delta.index("\n[", 1)] if "\n[" in delta[1:] else delta
+	check(re.search(r"^hold_back = true$", delta, re.M), "delta: hold_back is not in [delta]")
+	check(re.findall(r"^notify_in_game = .*$", delta, re.M) == ["notify_in_game = false"],
+		"delta: notify_in_game is not the new name's")
+	check(len(value_lines(text, "pause_menu")[1]) == 1 and not value_lines(text, "pause_menu")[0],
+		"delta: pause_menu is not commented out once")
+	# (the moved value with its help text, and a blank line before each section)
+	check(re.search(r"^# Open the Delta Guide by holding Back[^\n]*\n(# [^\n]*\n)*hold_back = true$", delta, re.M),
+		"delta: hold_back has no help text")
+	check(not re.search(r"[^\n]\n\[[a-z_]+\]$", text, re.M), "delta: a section without a blank line before it")
+	before = text
+	case.get("controls.delta")
+	check(case.text() == before, "delta: the file changed on the next start")
+	# (the old environment variables, and the new over the old)
+	case = Case(program, directory / "delta_environment")
+	values, _ = case.run("get", "controls.delta", "delta.hold_back", "debug.delta_row",
+		environment_extra={"HALO_KEY_GUIDE": "F6", "HALO_GUIDE_HOLD_BACK": "true", "HALO_GUIDE_ROW": "2"})
+	check(values["controls.delta"] == "F6" and values["delta.hold_back"] == "true" and values["debug.delta_row"] == "2",
+		f"delta/environment: {values}")
+	values, _ = case.run("get", "controls.delta", environment_extra={"HALO_KEY_GUIDE": "F6", "HALO_KEY_DELTA": "F7"})
+	check(values["controls.delta"] == "F7", f"delta/environment both: {values}")
+
+
+def test_interrupted_write(program, directory, defaults, kind):
+	"""a write stopped part way (the process killed as the file grows past a
+	limit, as a crash or a power loss stops it) leaves the old file whole:
+	the text goes to config.toml.new, and only a finished one is renamed
+	over config.toml; the next write takes the stray one's place"""
+	# (a console on the shared GL layer still writes in place: its own
+	# repository's SDL stand-ins have no SDL_RenamePath yet, port_config.c)
+	if kind == "console":
+		return
+	case = Case(program, directory / "interrupted")
+	fresh_file(case, kind)
+	case.run("write", "network.tunnel_port", "2310")
+	before = case.text()
+	limit = len(before.encode()) // 2
+
+	def small_files():
+		resource.setrlimit(resource.RLIMIT_FSIZE, (limit, limit))
+
+	environment = {key: value for key, value in os.environ.items()
+		if not key.startswith("HALO_") and key != "APPIMAGE"}
+	environment["PORT_CONFIG_TEST_FOLDER"] = str(case.folder)
+	environment["HALO_DATA_ROOT"] = str(case.folder)
+	result = subprocess.run([str(case.program), "write", "network.tunnel_port", "2320"], capture_output=True,
+		env=environment, preexec_fn=small_files)
+	check(result.returncode != 0, f"interrupted: the write was not stopped ({limit} bytes of {len(before)})")
+	check(case.text() == before, "interrupted: config.toml changed by a write that did not finish")
+	values, _ = case.get("network.tunnel_port")
+	check(values["network.tunnel_port"] == "2310", f"interrupted: tunnel_port is {values['network.tunnel_port']}")
+	values, _ = case.run("write", "network.tunnel_port", "2330")
+	check(values["network.tunnel_port"] == "2330", f"after: tunnel_port is {values['network.tunnel_port']}")
+	check(not (case.folder / "config.toml.new").exists(), "after: config.toml.new left beside the file")
+
+
 def test_layout(program, directory, defaults, kind):
 	"""A new file's layout: the top block, each section once with its note,
 	the everyday sections first, and the advanced ones ([debug], and
@@ -859,6 +996,39 @@ def test_old_browser_address(program, directory, defaults, kind):
 	values, _ = case.get("network.browser_url")
 	check(values["network.browser_url"] == "https://lists.example.org", "custom browser_url lost")
 	check('browser_url = "https://lists.example.org"' in case.text(), "custom browser_url not kept in the file")
+
+
+def test_gearbox_menus_retired(program, directory, defaults, kind):
+	"""The Gearbox menus are no longer a menu set: a file that chose them
+	("gearbox", or the older "pc", in any case) is told once
+	(config_menus_retired_pending, the main menu's note in guide.c), then has
+	display.menus = "xbox" written, the menus it gets, and is not told
+	again. The two menu sets left, and a file that leaves the setting
+	alone, are never told."""
+	case = Case(program, directory / "menus_retired")
+
+	def retired():
+		values, output = case.run("menus_retired")
+		return re.search(r"^menus_retired=(\d)$", output, re.M).group(1) == "1", values
+
+	fresh_file(case, kind)
+	check(not retired()[0], f"menus_retired/{kind}: a new file is told")
+	for chosen in ("xbox", "chupathingy"):
+		case.path.write_text(f'config_version = 2\n\n[display]\nmenus = "{chosen}"\n')
+		check(not retired()[0], f"menus_retired/{kind}: {chosen} is told")
+	for chosen in ("gearbox", "pc", "Gearbox"):
+		case.path.write_text(f'config_version = 2\n\n[display]\nmenus = "{chosen}"\n')
+		told, values = retired()
+		check(told, f"menus_retired/{kind}: {chosen} is not told")
+		check(chosen in case.text(), f"menus_retired/{kind}: {chosen} rewritten before the player was told")
+		_, output = case.run("menus_retired_seen")
+		check("menus_retired=0" in output, f"menus_retired/{kind}: {chosen} still told after: {output}")
+		check(re.search(r'^menus = "xbox"$', case.text(), re.M) is not None,
+			f"menus_retired/{kind}: {chosen} not written as xbox: {case.text()!r}")
+		check(value_lines(case.text(), "menus")[0] == ['menus = "xbox"'],
+			f"menus_retired/{kind}: {chosen} still in the file: {value_lines(case.text(), 'menus')}")
+		told, values = retired()
+		check(not told and values["display.menus"] == "xbox", f"menus_retired/{kind}: told again: {values}")
 
 
 def test_packaged_install(program, directory, defaults, kind):
@@ -988,6 +1158,55 @@ def test_server_file(program, directory, defaults, kind):
 	check(pending(case)[0] == 0, "server/old: asked about something")
 
 
+def test_follow_file(program, directory, defaults, kind):
+	"""config.toml edited while the game runs: a live setting (the volumes)
+	is seen within about a second even though config_changes is called
+	for every glyph drawn, and that call stays cheap."""
+	case = Case(program, directory / "follow")
+	case.path.write_text("[audio]\n# effects_volume = 1.0\n")
+	values, output = case.run("follow", str(case.path))
+	match = re.search(r"follow_ms=(\d+) moved=(\d)", output)
+	if kind == "console":
+		return
+	check(match is not None, f"follow/{kind}: no answer: {output!r}")
+	check(match.group(2) == "1", f"follow/{kind}: an edit of config.toml was not seen")
+	check(int(match.group(1)) <= 2500, f"follow/{kind}: an edit took {match.group(1)} ms to be seen")
+	_, output = case.run("bench", "2000000")
+	match = re.search(r"bench_ns_per_call=([0-9.]+)", output)
+	check(match is not None, f"follow/{kind}: no timing: {output!r}")
+	# (generous: a call is a few nanoseconds; a clock call or a file look
+	# on every call would be many times this)
+	check(float(match.group(1)) < 200.0, f"follow/{kind}: config_changes takes {match.group(1)} ns a call")
+
+
+def test_xbox_follows_new_defaults(program, directory):
+	"""The original Xbox has no screen to ask about new defaults on: a file it
+	wrote before one changed, the setting commented out at the old default,
+	follows the new one (an Xbox that ran an earlier build kept waiting for a
+	second player, warthog-xbox#106), and nothing is left pending; a value the
+	file names keeps."""
+	case = Case(program, directory / "xbox_follow")
+	# (the Xbox's file is d:\\config.toml, which here is that name in the
+	# folder the test runs in)
+	case.path = case.folder / "d:\\config.toml"
+	text = fresh_file(case, "xbox")
+	for key, old in (("start_with_one_player", "false"), ("follow_camera", '"long_waits"')):
+		text = re.sub(rf"^# {key} = .*$", f"# {key} = {old}", text, flags=re.M)
+	case.path.write_text(text)
+	count, output = pending(case)
+	check(count == 0, f"xbox/follow: asked: {count} {output}")
+	values, _ = case.get("game.start_with_one_player", "display.follow_camera")
+	check(values["game.start_with_one_player"] == "true" and values["display.follow_camera"] == "off",
+		f"xbox/follow: {values}")
+	case = Case(program, directory / "xbox_chosen")
+	case.path = case.folder / "d:\\config.toml"
+	text = fresh_file(case, "xbox")
+	text = re.sub(r"^# start_with_one_player = .*$", "start_with_one_player = false", text, flags=re.M)
+	case.path.write_text(text)
+	values, _ = case.get("game.start_with_one_player")
+	check(values["game.start_with_one_player"] == "false", f"xbox/chosen: {values}")
+
+
 def main():
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	parser.add_argument("--cc", default=os.environ.get("CC", "cc"))
@@ -995,16 +1214,23 @@ def main():
 	failures = 0
 	with tempfile.TemporaryDirectory() as directory:
 		directory = Path(directory)
+		program = build(arguments.cc, "xbox", directory / "xbox")
+		try:
+			test_xbox_follows_new_defaults(program, directory / "xbox" / "cases")
+			print("ok   xbox: test_xbox_follows_new_defaults")
+		except AssertionError as error:
+			print(f"FAIL xbox: test_xbox_follows_new_defaults: {error}")
+			failures += 1
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
 			if kind == "desktop32":
 				global OLD_SERVER_FILE
 				OLD_SERVER_FILE = make_old_server_file(program, directory / kind / "cases")
-			for test in (test_new_file, test_previous_release_file, test_answered_first_question,
+			for test in (test_unique_settings, test_new_file, test_previous_release_file, test_answered_first_question,
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
-				test_retired_setting, test_layout, test_old_browser_address, test_packaged_install,
-				test_server_file):
+				test_retired_setting, test_delta_renamed, test_interrupted_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
+				test_server_file, test_follow_file):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

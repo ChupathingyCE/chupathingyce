@@ -47,6 +47,13 @@ Link's: console_gles2_layer) */
 #define HALO_GL_ES 1
 #endif
 
+/* (no mods folder on the dedicated server, which shares the Linux builds'
+flags: port_mods.c reads archives through SDL's IO, which the server does
+not link; windows_build.py leaves HALO_MODS out of its server) */
+#if defined(HALO_SERVER) && defined(HALO_MODS)
+#undef HALO_MODS
+#endif
+
 /* ---------- XDK architecture selection (MSVC predefines these) */
 
 #define _X86_ 1

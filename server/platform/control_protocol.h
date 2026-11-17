@@ -151,6 +151,13 @@ int control_parse_fields(const char *body, size_t length, const char *const *nam
 digits) */
 int control_session_text_valid(const char *text);
 
+/* whether a request's Host (or X-Forwarded-Host) value is one of the names
+an operator listed (HALO_DEDICATED_CONTROL_HOSTS: comma separated, a name
+or an address, with a port to allow only that port), in either case; with
+loopback set, this machine's own names count too (localhost, 127.0.0.1,
+[::1], with any port: an SSH tunnel's). An empty value is none of them */
+int control_host_allowed(const char *host, const char *list, int loopback);
+
 /* the log's query, "since=<number>" or nothing (0): 1, else 0 */
 int control_parse_log_query(const char *query, uint64_t *since);
 

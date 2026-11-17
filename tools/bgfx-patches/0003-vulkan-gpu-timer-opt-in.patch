@@ -1,0 +1,41 @@
+diff --git a/src/bgfx.cpp b/src/bgfx.cpp
+index 17fadb5a..75576ac7 100644
+--- a/src/bgfx.cpp
++++ b/src/bgfx.cpp
+@@ -39,6 +39,12 @@ BX_ERROR_RESULT(BGFX_ERROR_VIDEO_CODEC_VALIDATION,  BX_MAKEFOURCC('b', 'g', 0, 4
+ extern "C" char bgfx_gpu_name[256];
+ char bgfx_gpu_name[256];
+ 
++// Whether the Vulkan renderer times each frame on the GPU, set by the
++// application before bgfx::init (it declares the same variable). Off, it
++// writes no timestamps: NVIDIA's driver crashed in the frame's first one.
++extern "C" int bgfx_vk_gpu_timer;
++int bgfx_vk_gpu_timer;
++
+ namespace bgfx
+ {
+ #define BGFX_API_THREAD_MAGIC UINT32_C(0x78666762)
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+index 6771cc92..ae39b15f 100644
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -11,6 +11,7 @@
+ #	include "video_vk.h"
+ 
+ extern "C" char bgfx_gpu_name[256];
++extern "C" int bgfx_vk_gpu_timer;
+ 
+ #if BX_PLATFORM_OSX
+ #	import <Cocoa/Cocoa.h>
+@@ -2194,7 +2195,10 @@ VK_IMPORT_INSTANCE
+ 					&& customBorderColorFeatures.customBorderColors
+ 					;
+ 
+-				m_timerQuerySupport = m_deviceProperties.limits.timestampComputeAndGraphics;
++				m_timerQuerySupport = 0 != bgfx_vk_gpu_timer
++					&& m_deviceProperties.limits.timestampComputeAndGraphics
++					;
++				m_gpuTimer.m_frequency = 0;
+ 
+ 				m_swapchainMaintenance1Supported = true
+ 					&& s_extension[Extension::EXT_swapchain_maintenance1].m_supported

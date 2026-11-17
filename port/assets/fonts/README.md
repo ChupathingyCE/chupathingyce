@@ -11,14 +11,23 @@ instead (`display.high_res_font`, from `data/fonts/` beside the maps).
 
 | File | Draws | From |
 | --- | --- | --- |
-| `CyborgInterfaceGothic-Regular.ttf` | `ui\large_ui`, `ui\interstate`, `ui\small_ui`, and Online Games' menu text | Cyborg Interface Gothic by fizzy (below) |
+| `CyborgInterfaceGothic-Regular.ttf` | `ui\large_ui`, `ui\interstate`, `ui\small_ui`, our own screens' text, Chupathingy's loading picture, and the titles when `display.title_font` is `"cyborg"` (`port/assets/titles_cyborg`) | Cyborg Interface Gothic by fizzy (below) |
+| `ChupathingyTitles-Regular.ttf` | the menus' titles, as pictures (`port/assets/titles`), and our own screens' titles: `display.title_font = "classic"`, the default | Chupathingy Titles: Newtown, respaced for this project (`tools/title_font.py`) |
+| `Newtown-Regular.ttf` | (Chupathingy Titles' source) | Newtown by Roger White, unmodified |
+| `Hack-Bold.ttf` | the console's text (`terminal.c`), the `"console"` role in `fonts.json`: never a player's font | Hack 3.003 by Source Foundry, Bold, unmodified (below) |
 | `Overpass-900.ttf` | (drew the large tags until 0.8.0) | Overpass, weight 900 (Black) |
 | `Overpass-750.ttf` | (drew `ui\small_ui` until 0.8.0) | Overpass, weight 750 |
-| `OpenCE-Regular.ttf` | the menus' titles, as pictures (`port/assets/titles`) | OpenCE: Newtown, respaced for this project (`tools/title_font.py`) |
-| `Newtown-Regular.ttf` | (OpenCE's source) | Newtown by Roger White, unmodified |
 
 The maps' fonts are Interstate (Tobias Frere-Jones, The Font Bureau), a
 commercial typeface that cannot be shipped.
+
+Each glyph is drawn from a multi-channel signed distance field
+(`port/third_party/msdfgen`, msdfgen's algorithms translated to C by
+goatbutt and the OpenH1 team), made once at 48 texels to the em (the
+common glyphs ahead, on a worker thread), so it is sharp at any size and any resolution;
+`display.high_res_text_fields = false` rasterizes the glyphs for the
+window's size instead, as before 0.9.3. A player's own font gets its fields
+the same way.
 
 Cyborg Interface Gothic was made by fizzy (Discord: ._o.) for this game's
 text, to match Halo's interface font: many of its glyphs are derived from
@@ -40,23 +49,60 @@ under the SIL Open Font License 1.1 (`Overpass-OFL.txt`), without a
 Reserved Font Name. Matched against the maps' glyphs, its weights 900 and 750 overlap
 them as much as Interstate Bold does, at the same letter widths.
 
+The console (the `~` key) is drawn in Hack Bold, the font Chimera draws
+its console in, with the high-res text on: a monospaced font made for code
+from Bitstream Vera Sans Mono and DejaVu Sans Mono, a little smaller than
+the map's console font so more of a line fits. It is `Hack-Bold.ttf` from
+Hack's release v3.003 (https://github.com/source-foundry/Hack), unmodified,
+under the MIT License for Hack's work and the Bitstream Vera License for
+the Bitstream Vera glyphs (`Hack-LICENSE.txt`, both texts). The original
+Xbox and the consoles draw the map's console font, as retail.
+
 The menus' titles are pictures of text in the maps, set in another
-commercial typeface. OpenCE (Open Community Edition) stands in for it:
-Newtown, a typeface in the same style by Roger White (1994), which its author
-released into the public domain (`Newtown-LICENSE.txt` quotes his statement
-and where it is archived), respaced for this project. Only its spacing is
-changed, its outlines are Newtown's: each letter's side spaces and the
-kerning pairs are measured from where the letters sit in the maps' titles.
-OpenCE is under the SIL Open Font License 1.1 (`OpenCE-OFL.txt`), without a
-Reserved Font Name. `tools/title_assets.py` draws the menus' titles with it,
-and the builds embed those pictures; the overlay's screens (Online Games)
-draw their titles with it too, so the builds embed it, and the release
-packages carry `OpenCE-OFL.txt`. To measure its spacing
-again and rebuild it:
+commercial typeface. Chupathingy Titles stands in for it: Newtown, a
+typeface in the same style by Roger White (1994), which its author released
+into the public domain (`Newtown-LICENSE.txt` quotes his statement and where
+it is archived), respaced for this project. Only its spacing is changed,
+its outlines are Newtown's: each letter's side spaces and the kerning pairs
+are measured from where the letters sit in the maps' titles. Chupathingy
+Titles is under the SIL Open Font License 1.1 (`ChupathingyTitles-OFL.txt`,
+which keeps its copyright line), without a Reserved Font Name.
+`tools/title_assets.py` draws the menus' titles with it (the classic set,
+`port/assets/titles`), each letter where the map's letter is, and
+`tools/ce_menus.py --titles` the titles our menus add (`ce/port`). The
+overlay's screens (Online Games, the Delta Profile, the setup screen) draw
+their titles with it too, so the builds embed it, and the release packages
+carry `ChupathingyTitles-OFL.txt` in their `THIRD-PARTY-NOTICES.txt`.
+
+`display.title_font = "cyborg"` draws the titles in Cyborg Interface Gothic
+instead: a second set of pictures (`port/assets/titles_cyborg`, the menus'
+`ce/port_cyborg`), set at the font's own even spacing over the same plates,
+at the old text's place, width and capital height, and the overlay's titles
+at the classic ones' capital height. The consoles embed the classic set
+only (`HALO_CONSOLE_NO_TITLE_CHOICE`).
+
+`display.title_font = "halo"` draws the screens' titles in Halo's own
+lettering, and nothing of it ships: the title tool
+(`port/linux/src/title_tool.c`) makes them on the player's machine from
+the player's own `ui.map`. It reads the title pictures out of the map,
+rebuilds each letter at a higher resolution from every place it appears in
+them (the same letter at many sub-texel positions), and sets the titles
+again at 4x with those letters, where the map's letters are, over their
+own plates. It keeps them in memory only; no font file or picture is
+written. The titles it makes are the `"from_files"` ones in `titles.json`
+(the 26 screens' headers); where it can't make one (another language's
+maps, or a modified `ui.map`), and for the main menu's items, the carnage
+report and our own screens, the classic set is drawn. Thanks to OpenRift412,
+whose #1103 showed how the titles should look in Halo's own lettering.
+
+To measure Chupathingy Titles'
+spacing again and draw the titles again:
 
     python3 tools/title_font.py --measure    # paste the values into tools/title_font.py
     python3 tools/title_font.py
     python3 tools/title_assets.py --map assets/maps/ui.map
+    python3 tools/title_assets.py --map assets/maps/ui.map --set cyborg
+    python3 tools/ce_menus.py --titles
 
 The Overpass files are static instances of Google Fonts' variable Overpass
 (`ofl/overpass/Overpass[wght].ttf`, google/fonts commit

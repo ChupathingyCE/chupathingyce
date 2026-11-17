@@ -48,6 +48,41 @@ public final class UpdateManifestTest {
             System.out.println(answer(text, args[2], args[3], args[4], args[5]));
             return;
         }
+        // (the channels' feeds and the versions' order, answered as
+        // tools/update_check.c's channel, about and compare)
+        if (args.length == 7 && args[0].equals("channel")) {
+            String text = new String(Files.readAllBytes(Paths.get(args[1])), StandardCharsets.UTF_8);
+
+            try {
+                UpdateManifest.Entry found = UpdateManifest.findChannel(text, args[2], args[3], args[4], args[5], args[6]);
+
+                System.out.println(found == null ? "missing" : "found " + found.tag + " " + found.name + " "
+                    + found.size + " " + found.sha256);
+            } catch (UpdateManifest.Refused e) {
+                System.out.println("refused");
+            }
+            return;
+        }
+        if (args.length == 3 && args[0].equals("about")) {
+            String text = new String(Files.readAllBytes(Paths.get(args[1])), StandardCharsets.UTF_8);
+
+            try {
+                System.out.println("version " + UpdateManifest.about(text, args[2]));
+            } catch (UpdateManifest.Refused e) {
+                System.out.println("refused");
+            }
+            return;
+        }
+        if (args.length == 2 && args[0].equals("release")) {
+            System.out.println(UpdateManifest.release(args[1]) ? "release" : "not a release");
+            return;
+        }
+        if (args.length == 3 && args[0].equals("compare")) {
+            Integer order = UpdateManifest.compare(args[1], args[2]);
+
+            System.out.println(order == null ? "not versions" : order > 0 ? "newer" : order < 0 ? "older" : "same");
+            return;
+        }
         String hash = "ab".repeat(32);
         String good = entry("android", "release", "zip", "v0.8.0", "chupathingyce-android-release.zip", "1000", hash);
         check(answer(list("0.8.0", good), "0.8.0", "android", "release", "zip")
@@ -97,6 +132,17 @@ public final class UpdateManifestTest {
             "a changed list is turned away");
         check(UpdateManifest.check(document, "00", new String[] { key }) == UpdateManifest.Check.NOT_SIGNED,
             "a signature that is not one is turned away");
+        // (the feeds: an all-zero prerelease key is none, so a list signed by
+        // another key is refused, and only a checked signature lets a feed be
+        // used: never NOT_CHECKED, as before Android 13)
+        check(UpdateManifest.PRERELEASE_KEYS.length == 1 && UpdateManifest.PRERELEASE_KEYS[0].matches("0{64}"),
+            "the prerelease key is not made yet");
+        document[10] ^= 1;
+        check(UpdateManifest.checkFeed(document, signature) == UpdateManifest.Check.NOT_SIGNED,
+            "a feed signed by a key that is neither the release's nor the prerelease's is refused");
+        check(UpdateManifest.feedUsable(UpdateManifest.Check.SIGNED), "a checked feed is used");
+        check(!UpdateManifest.feedUsable(UpdateManifest.Check.NOT_CHECKED), "an unchecked feed is never used");
+        check(!UpdateManifest.feedUsable(UpdateManifest.Check.NOT_SIGNED), "an unsigned feed is never used");
         check(UpdateManifest.sha256(new byte[0])
             .equals("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"), "SHA-256");
         System.out.println("UpdateManifestTest: passed");

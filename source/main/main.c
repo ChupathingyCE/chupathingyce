@@ -336,6 +336,7 @@ symbols in this file:
 #include "cseries/profile.h"
 #include "cseries/cseries_windows.h"
 #include "main.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 #include "real_math.h"
 #include "game.h"
 #include "game_engine.h"
@@ -381,6 +382,7 @@ symbols in this file:
 #include "networking/network_server_manager.h" /* port: a co-op game's level won */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "camera/director.h"
+#include "units/units.h" /* port: the vehicle field of view */
 #include "camera/observer.h"
 #include "cutscene/cinematics.h"
 #include "effects/player_effects.h"
@@ -397,6 +399,11 @@ symbols in this file:
 #include "interface/marketing_and_strategic_business_development.h"
 #endif
 #include "halo_perf_log.h" /* port: console.perf_log */
+#include "plasma_lighting.h" /* port: port/linux/game/plasma_lighting.c */
+#include "mcc_cache.h"
+#include "mcc_main.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_campaign.h" /* port: port/linux/game/stubbs_campaign.c */
 
 /* port: the main loop's stage, for the console's bring-up watchdog
 (port/xbox/src/xbox_port.c); nothing elsewhere */
@@ -422,6 +429,13 @@ enum
 {
 	_text_justification_left = 0,
 	_text_justification_right,
+};
+
+/* port: a network game's frame this long or longer is noted in debug.txt
+(milliseconds; a client's connection times out after 15 seconds of silence) */
+enum
+{
+	LONG_NETWORK_FRAME_MILLISECONDS = 2000,
 };
 
 /* ---------- macros */
@@ -688,9 +702,17 @@ void team_change_update(void);
 #endif
 #ifdef HALO_GAME_BROWSER
 void host_rules_update(void);
+void party_teams_update(void);
+void map_share_update(void);
+#ifdef HALO_HOST_MAP_DOWNLOADS
+void browser_screen_host_download_update(void);
+#endif
 #endif
 #ifdef HALO_PORT_CHAT
 void chat_update(void);
+#endif
+#ifdef HALO_PORT_VOICE
+void voice_game_update(void);
 #endif
 
 /* ---------- prototypes */
@@ -1197,6 +1219,103 @@ static real first_person_field_of_view_scale(
 	return scale;
 }
 
+/* port: display.vehicle_field_of_view, the view's width in degrees in a
+vehicle's seat, driver, gunner or passenger, first or third person, as the
+tangent scale first_person_field_of_view_scale gives: 50 to 120; 0 (the
+default) as before, a first-person seat at display.field_of_view and a
+third-person one at the game's own. On foot the third-person views (death,
+the neutral one) keep the game's, as before. */
+static real vehicle_field_of_view_scale(
+	short perspective)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static real scale = 0.f;
+
+	if (read_at != config_changes())
+	{
+		real degrees = (real)config_real("display.vehicle_field_of_view");
+
+		read_at = config_changes();
+		if (!valid_real(degrees) || degrees <= 0.0f)
+			scale = 0.f;
+		else
+		{
+			degrees = PIN(degrees, 50.0f, 120.0f);
+			scale = tangent(DEGREES_TO_RADIANS(degrees) * 0.5f) / tangent(DEGREES_TO_RADIANS(70.0f) * 0.5f);
+		}
+	}
+
+	if (scale > 0.f)
+		return scale;
+	return perspective == _director_perspective_first_person ? first_person_field_of_view_scale() : 1.f;
+}
+
+/* port: whether the local player's unit sits in a vehicle's seat */
+static boolean local_player_seated(
+	short local_player_index)
+{
+	long player_index = local_player_get_player_index(local_player_index);
+	struct player_datum *player = player_index != NONE ? player_try_and_get(player_index) : NULL;
+	struct unit_datum *unit = player && player->unit_index != NONE ? unit_try_and_get(player->unit_index) : NULL;
+
+	return unit && unit->object.parent_object_index != NONE && unit->unit.parent_seat_index != NONE;
+}
+
+/* port: the view's tangent scale for each local player this frame
+(local_view_field_of_view_update): what set_window_camera_values widens
+the view by and the reticle is sized by, so both are the same frame's */
+static real local_view_scales[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS] = { 1.f, 1.f, 1.f, 1.f };
+/* how far each is into a vehicle's view, 0 on foot to 1 seated, and when */
+static real local_view_vehicle_weights[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+static unsigned long local_view_times[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+
+/* the time getting in or out eases the view between the two widths over */
+#define VEHICLE_VIEW_EASE_MILLISECONDS 500
+
+/* port: the local player's view scale, once a frame: in first person
+display.field_of_view's; in a vehicle's seat display.vehicle_field_of_view's,
+eased between the two over half a second (smoothstep) as the unit gets in
+or out, turning back from where it is if that reverses; the game's own
+in any other view (a scripted camera, death), which also ends an ease, so
+a respawn starts at the view on foot at once */
+static real local_view_field_of_view_update(
+	short local_player_index)
+{
+	short perspective;
+	unsigned long now = system_milliseconds();
+	real step, weight, on_foot;
+
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+		return 1.f;
+	perspective = director_get_perspective(local_player_index);
+	step = (real)(now - local_view_times[local_player_index]) / (real)VEHICLE_VIEW_EASE_MILLISECONDS;
+	local_view_times[local_player_index] = now;
+	if (perspective != _director_perspective_first_person && perspective != _director_perspective_third_person)
+	{
+		local_view_vehicle_weights[local_player_index] = 0.f;
+		return local_view_scales[local_player_index] = 1.f;
+	}
+	if (!local_player_seated(local_player_index))
+	{
+		if (perspective != _director_perspective_first_person)
+		{
+			/* (third person on foot: death's view) */
+			local_view_vehicle_weights[local_player_index] = 0.f;
+			return local_view_scales[local_player_index] = 1.f;
+		}
+		step = -step;
+	}
+	weight = PIN(local_view_vehicle_weights[local_player_index] + PIN(step, -1.f, 1.f), 0.f, 1.f);
+	local_view_vehicle_weights[local_player_index] = weight;
+	weight = weight * weight * (3.f - 2.f * weight);
+	/* (the view on foot that a vehicle's eases from: first person's; a seat
+	that the game shows in third person starts at the game's own) */
+	on_foot = perspective == _director_perspective_first_person ? first_person_field_of_view_scale() : 1.f;
+	local_view_scales[local_player_index] = on_foot + (vehicle_field_of_view_scale(perspective) - on_foot) * weight;
+
+	return local_view_scales[local_player_index];
+}
+
 /* port: display.viewmodel_field_of_view, the first-person weapon's and
 arms' own view width in degrees across a 4:3 picture (0, the default: the
 view's, display.field_of_view; else 50 to 120), as what the first-person
@@ -1231,27 +1350,47 @@ items' offsets from the middle) is scaled by in the local player's
 first-person view: the inverse of the field of view's tangent scale, as the
 world's image is (the screen's aspect and the zoom scale both alike), so the
 reticle still covers the weapon's spread. 1 at 70, the Xbox's, in any other
-view, or with the setting off. */
+view, or with the setting off. Times display.reticle_scale, the size the
+player picked (1 the Xbox's), in first person. */
 real first_person_reticle_scale(
 	short local_player_index)
 {
 	extern int config_boolean(char const *name);
+	extern double config_real(char const *name);
 	static unsigned long read_at = (unsigned long)-1;
 	static boolean enabled = FALSE;
+	static real size = 1.0f;
 
 	if (read_at != config_changes())
 	{
 		read_at = config_changes();
 		enabled = config_boolean("display.reticle_scales_with_fov") != 0;
+#ifndef HALO_XBOX_CONSOLE
+		/* (the Xbox's config.toml has no such key: 1 there, as retail) */
+		size = PIN((real)config_real("display.reticle_scale"), 0.5f, 2.0f);
+#endif
 	}
-	if (!enabled ||
-		local_player_index == NONE ||
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS ||
 		director_get_perspective(local_player_index) != _director_perspective_first_person)
 	{
 		return 1.0f;
 	}
+	if (!enabled)
+		return size;
 
-	return 1.0f / first_person_field_of_view_scale();
+	/* (this frame's view's: local_view_field_of_view_update) */
+	return size / local_view_scales[local_player_index];
+}
+
+/* port: TRUE when display.field_of_view has the first-person view at
+other than the stock 70 degrees (the screen fog's canopy redraw,
+rasterizer_xbox_environment_fog.c) */
+boolean first_person_field_of_view_widened(
+	short local_player_index)
+{
+	return local_player_index >= 0 && local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS &&
+		director_get_perspective(local_player_index) == _director_perspective_first_person &&
+		local_view_scales[local_player_index] != 1.0f;
 }
 
 /* port: display.far_clip_distance, how far the world is drawn (1024 as on
@@ -1277,20 +1416,49 @@ static real far_clip_distance_floor(
 	return distance;
 }
 
+#ifndef HALO_XBOX_CONSOLE
+/* port: display.shadow_filtering, the object shadows' blur (the
+rasterizer_shadows_convolution console global, on as on the Xbox): set to
+the setting when it changes, so the console global still overrides it
+until the setting itself changes again. The original Xbox keeps its own. */
+static void shadow_filtering_apply(
+	void)
+{
+	extern int config_boolean(char const *name);
+	static unsigned long read_at = (unsigned long)-1;
+	static int applied = -1;
+
+	if (read_at != config_changes())
+	{
+		int value = config_boolean("display.shadow_filtering") != 0;
+
+		read_at = config_changes();
+		/* (only when the setting itself changes: a change of another
+		leaves the console global as it was set) */
+		if (value != applied)
+		{
+			applied = value;
+			rasterizer_debug_options.shadow_convolution_enabled = (boolean)value;
+		}
+	}
+}
+#endif
+
 void set_window_camera_values(
 	struct render_window *window,
 	struct observer_result const *observer)
 {
+#ifndef HALO_XBOX_CONSOLE
+	shadow_filtering_apply();
+#endif
 	if (observer)
 	{
 		real field_of_view_tangent = render_camera_get_adjusted_field_of_view_tangent(observer->field_of_view);
 
-		/* port: display.field_of_view, in first person */
-		if (window->local_player_index != NONE &&
-			director_get_perspective(window->local_player_index) == _director_perspective_first_person)
-		{
-			field_of_view_tangent *= first_person_field_of_view_scale();
-		}
+		/* port: display.field_of_view, in first person, and
+		display.vehicle_field_of_view in a vehicle's seat */
+		if (window->local_player_index != NONE)
+			field_of_view_tangent *= local_view_field_of_view_update(window->local_player_index);
 		window->rasterizer_camera.position = observer->position;
 		window->rasterizer_camera.forward = observer->forward;
 		window->rasterizer_camera.up = observer->up;
@@ -1408,6 +1576,13 @@ short main_get_solo_level_from_name(
 	char lower_name[128] = { 0 };
 	short level;
 
+	/* port: Stubbs mode's levels, and only those (a pack's map's name has
+	@stubbs: port/linux/game/stubbs_campaign.c) */
+	if (stubbs_mode_active())
+		return stubbs_campaign_level_from_name(name, NONE);
+	if (mcc_level_name(name))
+		return NONE;
+
 	/* port: a Halo PC map (name@ce, @pc or @md) is never one of the
 	campaign's levels, whatever its name holds (OpenCE's build-145 found
 	this of its Custom Edition maps) */
@@ -1454,6 +1629,9 @@ char const *main_get_solo_level_name(
 
 	if (level >= 0 && level < NUMBEROF(scenario_paths))
 		result = scenario_paths[level];
+	/* port: Stubbs mode's levels (port/linux/game/stubbs_campaign.c) */
+	if (stubbs_mode_active())
+		result = stubbs_campaign_level_name(level, result);
 
 	return result;
 }
@@ -1590,6 +1768,8 @@ short main_get_window_count(
 	return single_window ? 1 : PIN(local_player_count(), 1, MAXIMUM_WINDOWS);
 }
 
+static void main_map_change_failed(char const *map_name, char const *reason); /* port: (below) */
+
 static void main_new_map(
 	struct game_options *options)
 {
@@ -1600,6 +1780,21 @@ static void main_new_map(
 	}
 	else
 	{
+		if (mcc_main_load_failed(options->map_name))
+			return;
+		/* port: a map that doesn't load (its tags damaged) goes back to the
+		main menu with its reason, where the Xbox stopped for good
+		(_error_immediate: halt_and_catch_fire); the main menu's own map
+		failing is as it was. Based on work by goatbutt and the OpenH1 team */
+		if (!main_globals.main_menu_scenario_loaded)
+		{
+			error(_error_silent, "game_load() failed.");
+			main_map_change_failed(options->map_name, NULL);
+			errors_clear();
+			main_goto_main_menu();
+			main_menu_load();
+			return;
+		}
 		error(_error_immediate, "game_load() failed.");
 	}
 
@@ -1634,9 +1829,90 @@ static void main_new_map(
 	return;
 }
 
+/* port: the solo map's name before map_name changed it (main_set_map_name),
+for a change that is refused (main_map_change_failed) */
+static char main_map_name_before_change[NUMBEROF(main_globals.soloplayer_map_name)];
+/* (and whether it was: a change that came another way keeps the name) */
+static boolean main_map_name_before_change_captured;
+
+/* port: a map that can't be loaded (a name typed wrong at the console or in
+init.txt, a map file missing or damaged) is refused before the game it would
+end is left: the reason goes to debug.txt and the console, and to the menus'
+error dialog, and the game stays as it was. The Xbox's precache took a
+missing map for a damaged disc, whose error stopped the game for good
+(display_error_damaged_media, main_loop_of_death). Based on work by goatbutt
+and the OpenH1 team */
+static void main_map_change_failed(
+	char const *map_name,
+	char const *reason)
+{
+	static wchar_t text[320];
+	char message[320];
+	short index;
+
+	error(_error_silent, "can't load map '%s'", map_name);
+	console_warning("can't load map '%s' (debug.txt says why)", map_name);
+	if (reason && reason[0])
+		snprintf(message, sizeof(message), "%s", reason);
+	else
+	{
+		char const *file_name = strrchr(map_name, '\\') ? strrchr(map_name, '\\') + 1 : map_name;
+
+		/* (the map's own name: a level's path doesn't fit the dialog) */
+		snprintf(message, sizeof(message),
+			"Couldn't load the map \"%.63s\". It's missing from the maps folder or damaged.", file_name);
+	}
+	for (index = 0; message[index] && index < NUMBEROF(text) - 1; index++)
+		text[index] = (wchar_t)(unsigned char)message[index];
+	text[index] = 0;
+	if (main_globals.main_menu_scenario_loaded)
+		display_error_text_deferred(text, NONE);
+	else
+		display_error_text_when_main_menu_loaded(text);
+	if (main_map_name_before_change_captured)
+	{
+		csstrncpy(main_globals.soloplayer_map_name, main_map_name_before_change,
+			NUMBEROF(main_globals.soloplayer_map_name) - 1);
+		main_globals.soloplayer_map_name[NUMBEROF(main_globals.soloplayer_map_name) - 1] = 0;
+		main_map_name_before_change_captured = FALSE;
+	}
+	main_globals.defer_map_change = FALSE;
+	main_globals.map_change_load_timer = 0;
+
+	return;
+}
+
+static boolean main_map_change_refused(
+	char const *map_name)
+{
+	char reason[320];
+
+	if (cache_files_map_loadable(map_name, reason, sizeof(reason)))
+		return FALSE;
+	main_map_change_failed(map_name, reason);
+
+	return TRUE;
+}
+
 static void main_change_map_name(
 	void)
 {
+	/* port: an MCC level that isn't there (map_name, a stale list's Load
+	Level), asked for from the menus, never leaves them: its reason is in
+	debug.txt and on the main menu, as for a missing map (#1149) */
+	if (main_globals.main_menu_scenario_loaded == TRUE &&
+		!main_globals.map_change_load_timer &&
+		main_globals.connection == _game_connection_local &&
+		mcc_level_name(main_globals.soloplayer_map_name) &&
+		!mcc_cache_require(main_globals.soloplayer_map_name, 0))
+	{
+		main_globals.defer_map_change = FALSE;
+		main_goto_main_menu();
+		return;
+	}
+	/* port: (a map that can't be loaded refused, the game as it was) */
+	if (!main_globals.map_change_load_timer && main_map_change_refused(main_globals.soloplayer_map_name))
+		return;
 	if (main_globals.main_menu_scenario_loaded == TRUE)
 	{
 		if (!main_globals.map_change_load_timer)
@@ -1666,6 +1942,22 @@ static void main_change_map_name(
 
 	if (main_globals.frame_start_milliseconds >= main_globals.map_change_load_timer)
 	{
+		/* port: the map copied into the cache before anything of this game
+		is left, as the main menu's map is (main_load_ui_scenario): a map
+		whose copy fails (its file cut short or damaged) is refused and the
+		game stays. The menus the copy's loading screen closed are opened
+		again. (An MCC level has its own checks: #1149) */
+		if (game_in_progress() && main_globals.connection == _game_connection_local &&
+			!mcc_level_name(main_globals.soloplayer_map_name) &&
+			!game_precache_new_map_refusable(main_globals.soloplayer_map_name))
+		{
+			ui_widgets_set_fade_value(-1.0f);
+			ui_widgets_inhibit_processing(FALSE);
+			if (main_globals.main_menu_scenario_loaded)
+				main_screen_shell_load();
+			main_map_change_failed(main_globals.soloplayer_map_name, NULL);
+			return;
+		}
 		ui_widgets_set_fade_value(-1.0f);
 		ui_stop_main_menu_music();
 		main_menu_active(FALSE);
@@ -1685,12 +1977,21 @@ static void main_change_map_name(
 			options.map_name[NUMBEROF(options.map_name) - 1] = 0;
 			options.difficulty = global_difficulty_level;
 			game_dispose_from_old_map();
-			game_precache_new_map(options.map_name, TRUE);
+			/* port: an MCC level that isn't there goes back to the menus
+			with its reason, as one that fails to load does (#1149) */
+			if (!game_precache_new_map(options.map_name, TRUE) && mcc_main_load_failed(options.map_name))
+			{
+				main_globals.map_change_load_timer = 0;
+				return;
+			}
 			game_unload();
 			main_new_map(&options);
 
+			/* port: (Stubbs mode's last two levels are past the ten of Halo's
+			profile) */
 			for (local_player_index = 0;
-				local_player_index < player_spawn_count;
+				local_player_index < player_spawn_count &&
+					(!stubbs_mode_active() || main_get_current_solo_level() < NUMBER_OF_SINGLE_PLAYER_LEVELS);
 				local_player_index++)
 			{
 				player_profile_save_last_level_played(local_player_index);
@@ -1980,6 +2281,9 @@ void main_load_ui_scenario(
 void main_roll_credits(
 	void)
 {
+	/* port: standalone MCC scenarios finish through their own menu transition. */
+	if (mcc_main_map_completed())
+		return;
 	error(_error_silent, "congratulations, you won the game!");
 	main_menu_load();
 	game_end_credits_start();
@@ -2250,7 +2554,10 @@ static void main_lost_map_private(
 		they were at the last checkpoint, without a revert. A mission the
 		scripts failed (game_lost, with players still alive: d40's timer,
 		a50's Keyes) does revert, or its failure cutscene would never end. */
-		if (game_connection() != _game_connection_network_server)
+		/* port: MCC's Iron skull: a dead solo player's level restarts (mcc_skulls.c) */
+		if (mcc_skulls_restart_on_death())
+			main_reset_map();
+		else if (game_connection() != _game_connection_network_server)
 			game_state_revert();
 		else if (players_are_all_dead() || !main_coop_host_revert())
 			players_respawn_at_checkpoint();
@@ -2415,6 +2722,14 @@ static void main_won_map_private(
 	short level;
 	short local_player_index;
 
+	/* port: explicit MCC campaigns own their mission order and host decision.
+	 * The Xbox/CE level table below cannot represent package mission identities. */
+	if (mcc_main_campaign_won())
+	{
+		main_globals.won_map = FALSE;
+		return;
+	}
+
 	/* port: when a network co-op level is won, the round ends for everyone as
 	in multiplayer, back to the lobby, and the next round is the campaign's
 	next level (The Maw's: The Pillar of Autumn). A level not in the campaign
@@ -2432,6 +2747,28 @@ static void main_won_map_private(
 	}
 	main_globals.want_to_be_at_main_menu = TRUE;
 	main_globals.won_map = FALSE;
+	/* port: Stubbs mode's next level, its twelve in its order, each
+	profile's finished levels its own (port/linux/game/stubbs_campaign.c);
+	after the last, the main menu */
+	if (stubbs_mode_active())
+	{
+		char const *next;
+
+		/* (the profile's own flags too, for the menus' Load Level list:
+		Halo's ten places hold a10_plaza to c30_lab) */
+		for (local_player_index = 0; local_player_index < player_spawn_count; local_player_index++)
+			player_profile_save_level_completed(local_player_index);
+		next = stubbs_campaign_level_won(main_globals.soloplayer_map_name, player_spawn_count);
+
+		if (next)
+		{
+			main_set_map_name(next);
+			main_disallow_persistent_storage();
+		}
+		else
+			main_goto_main_menu();
+		return;
+	}
 	level = main_get_solo_level_from_name(main_globals.soloplayer_map_name);
 	/* port: a level not in the campaign (a Halo PC map's) has no next one,
 	rather than the first */
@@ -2458,6 +2795,14 @@ void main_set_map_name(
 	map_name = pack_map_name;
 #endif
 	main_globals.want_to_be_at_main_menu = FALSE;
+	/* port: (the name a refused change goes back to: main_map_change_failed) */
+	if (!main_globals.defer_map_change)
+	{
+		csstrncpy(main_map_name_before_change, main_globals.soloplayer_map_name,
+			NUMBEROF(main_map_name_before_change) - 1);
+		main_map_name_before_change[NUMBEROF(main_map_name_before_change) - 1] = 0;
+		main_map_name_before_change_captured = TRUE;
+	}
 	csstrncpy(main_globals.soloplayer_map_name, map_name, NUMBEROF(main_globals.soloplayer_map_name) - 1);
 	main_globals.soloplayer_map_name[NUMBEROF(main_globals.soloplayer_map_name) - 1] = 0;
 	main_globals.allow_persistent_storage = TRUE;
@@ -2907,6 +3252,13 @@ static void main_setup_connection(
 		main_globals.want_to_be_at_main_menu = TRUE;
 		main_menu_load();
 	}
+	/* port: init.txt's map_name naming a map that can't be loaded: refused,
+	and the main menu loaded in its place (main_map_change_refused) */
+	else if (main_map_change_refused(main_globals.soloplayer_map_name))
+	{
+		main_globals.want_to_be_at_main_menu = TRUE;
+		main_menu_load();
+	}
 	else
 	{
 		main_globals.connection = _game_connection_local;
@@ -2917,7 +3269,20 @@ static void main_setup_connection(
 			NUMBEROF(options.map_name) - 1);
 		options.map_name[NUMBEROF(options.map_name) - 1] = 0;
 		options.difficulty = global_difficulty_level;
-		game_precache_new_map(options.map_name, TRUE);
+		/* port: (as main_change_map_name's, #1149) */
+		if (mcc_level_name(options.map_name))
+		{
+			if (!game_precache_new_map(options.map_name, TRUE) && mcc_main_load_failed(options.map_name))
+				return;
+		}
+		/* port: (and one whose copy fails: game_precache_new_map_refusable) */
+		else if (!game_precache_new_map_refusable(options.map_name))
+		{
+			main_map_change_failed(options.map_name, NULL);
+			main_globals.want_to_be_at_main_menu = TRUE;
+			main_menu_load();
+			return;
+		}
 		game_dispose_from_old_map();
 		main_new_map(&options);
 	}
@@ -3066,6 +3431,15 @@ static void main_version_watermark_render(
 		shown = system_milliseconds() - main_version_box_shown < 250;
 	else
 		shown = config_boolean("display.version_watermark") && !ui_widgets_active();
+#ifdef HALO_GUIDE
+	{
+		/* (the Delta Guide over it: hidden, not peeking out under its panel) */
+		extern boolean guide_active(void);
+
+		if (guide_active())
+			shown = FALSE;
+	}
+#endif
 	if (!shown)
 		return;
 	font_tag_index = tag_loaded(FONT_GROUP_TAG, "ui\\small_ui");
@@ -3451,7 +3825,7 @@ static void main_game_render(
 			MAIN_STAGE("render: observer_get_camera");
 			observer = observer_get_camera(window->local_player_index);
 			MAIN_STAGE("render: render_interpolation_camera");
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 			observer = render_interpolation_camera(window->local_player_index, observer);
 #endif
 		}
@@ -3692,6 +4066,11 @@ void main_loop(
 		input_frame_begin();
 		MAIN_STAGE("input_update");
 		input_update();
+#ifndef HALO_XBOX_CONSOLE
+		/* port: the console's controller B and Back, and the controllers
+		left alone while it is open (console.c) */
+		console_input_update();
+#endif
 		MAIN_STAGE("input_abstraction_update");
 		input_abstraction_update();
 		MAIN_STAGE("shell_idle");
@@ -3715,6 +4094,18 @@ void main_loop(
 #ifdef HALO_GAME_BROWSER
 			/* the host's rules for its players' extras (port/linux/game/host_rules.c) */
 			host_rules_update();
+			/* a party kept on one team in games this machine hosts
+			(port/linux/game/party_teams.c) */
+			party_teams_update();
+			/* map sharing's host (port/linux/game/map_share_host.c) */
+			MAIN_STAGE("map_share_update");
+			map_share_update();
+#endif
+#ifdef HALO_HOST_MAP_DOWNLOADS
+			/* a player's download of a map from the host, whatever screen is
+			up (port/linux/game/browser_screen.c) */
+			MAIN_STAGE("browser_screen_host_download_update");
+			browser_screen_host_download_update();
 #endif
 #ifdef HALO_PORT_CHAT
 			/* text chat (port/linux/game/chat.c; on a console, its client's
@@ -3722,10 +4113,34 @@ void main_loop(
 			MAIN_STAGE("chat_update");
 			chat_update();
 #endif
+#ifdef HALO_PORT_VOICE
+			/* voice chat (port/linux/game/voice_game.c; a dedicated server
+			relays it) */
+			MAIN_STAGE("voice_update");
+			voice_game_update();
+#endif
 			/* the audio probe's scripted recording (port/linux/game/audio_probe.c),
 			on the consoles too */
 			MAIN_STAGE("audio_probe_update");
 			audio_probe_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
+			/* port: a frame of a network game that took seconds (a hitch,
+			a stall of the renderer) noted in debug.txt, nothing having been
+			sent or read meanwhile: why a machine timed out of a game, or
+			another lost it, can then be read */
+			{
+				static unsigned long previous_network_frame_milliseconds;
+				unsigned long now = system_milliseconds();
+
+				if ((main_globals.connection==_game_connection_network_client ||
+					main_globals.connection==_game_connection_network_server) && game_in_progress() &&
+					previous_network_frame_milliseconds &&
+					now-previous_network_frame_milliseconds>=LONG_NETWORK_FRAME_MILLISECONDS)
+				{
+					error(_error_silent, "a frame of %lu ms in a network game (nothing sent or read meanwhile)",
+						now-previous_network_frame_milliseconds);
+				}
+				previous_network_frame_milliseconds = now;
+			}
 			HALO_PERF_BEGIN(_halo_perf_network);
 			connection = main_globals.connection;
 			if (connection==_game_connection_network_client)
@@ -3846,7 +4261,7 @@ void main_loop(
 					render_frame = main_globals.main_menu_scenario_loaded ||
 						(main_globals.halt_time_scale &&
 							(game_time_get_paused() || game_time_get_elapsed()>0 || game_time_get_speed()<1.0f));
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 					/* frames between ticks too (render_interpolation.c) */
 					if (halo_interpolation_enabled())
 						render_frame = main_globals.main_menu_scenario_loaded || main_globals.halt_time_scale;
@@ -3876,7 +4291,7 @@ void main_loop(
 					MAIN_STAGE("profile_render_start");
 					profile_render_start();
 					MAIN_STAGE("render_interpolation_frame_begin");
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 					render_interpolation_frame_begin();
 					MAIN_STAGE("main_game_render");
 					HALO_PERF_BEGIN(_halo_perf_render);
@@ -3890,6 +4305,10 @@ void main_loop(
 					main_game_render((double)main_globals.seconds_elapsed);
 					HALO_PERF_END(_halo_perf_render);
 #endif
+					/* port: the lights the Light effects changed for the
+					frame put back before the next tick reads them
+					(port/linux/game/plasma_lighting.c) */
+					plasma_lighting_frame_end();
 					profile_render_end();
 				}
 			}

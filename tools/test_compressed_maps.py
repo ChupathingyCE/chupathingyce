@@ -242,7 +242,7 @@ def real_map():
     named = os.environ.get("HALO_TEST_CE_MAP")
     if named:
         return Path(named)
-    for root in (os.environ.get("HALO_DATA_ROOT"), ROOT / "assets", Path.home() / "halo-ce-decomp-port" / "assets"):
+    for root in (os.environ.get("HALO_DATA_ROOT"), ROOT / "assets"):
         if root and (Path(root) / "maps_ce" / "sneak.map").is_file():
             return Path(root) / "maps_ce" / "sneak.map"
     return None

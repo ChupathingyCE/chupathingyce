@@ -80,6 +80,26 @@ REFERENCE = """
 """.strip()
 
 
+class ninja_lock:
+	"""Holds build/.ninja-test.lock while ninja runs (where fcntl is)."""
+
+	def __enter__(self):
+		self.file = None
+		try:
+			import fcntl
+		except ImportError:
+			return self
+		(ROOT / "build").mkdir(exist_ok=True)
+		self.file = open(ROOT / "build" / ".ninja-test.lock", "w")
+		fcntl.flock(self.file, fcntl.LOCK_EX)
+		return self
+
+	def __exit__(self, *exception):
+		if self.file:
+			self.file.close()
+		return False
+
+
 def object_command(build, source):
 	"""The build's compile command for a source, as ninja runs it."""
 	# (a universal macOS build keeps one object folder per architecture,
@@ -88,7 +108,10 @@ def object_command(build, source):
 	native = f"build/{build}/obj-{platform.machine()}/{source[:-2]}.o"
 	if subprocess.run(["ninja", "-t", "query", target], cwd=ROOT, capture_output=True).returncode != 0:
 		target = native
-	subprocess.run(["ninja", target], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+	# (one ninja at a time across pytest-xdist's workers: two at once fetched
+	# FFmpeg's source into the same folder and one failed)
+	with ninja_lock():
+		subprocess.run(["ninja", target], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
 	command = subprocess.run(["ninja", "-t", "commands", target], cwd=ROOT, check=True,
 		capture_output=True, text=True).stdout.strip().splitlines()[-1]
 	return shlex.split(command), target

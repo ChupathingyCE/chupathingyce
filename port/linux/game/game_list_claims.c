@@ -25,6 +25,22 @@ enum
 
 static boolean game_over_seen;
 
+#if !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+/* port/linux/game/profile_names.c's */
+boolean profile_names_local_guest(long local_player);
+#endif
+
+static boolean local_guest(
+	short local_player_index)
+{
+#if !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+	return profile_names_local_guest(local_player_index);
+#else
+	(void)local_player_index;
+	return FALSE;
+#endif
+}
+
 void game_list_claims_update(
 	void)
 {
@@ -44,7 +60,9 @@ void game_list_claims_update(
 		while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL &&
 			count < MAXIMUM_CLAIMED_PLAYERS)
 		{
-			if (player->local_player_index != NONE)
+			/* (a guest Halo profile isn't connected to Delta: its line stays
+			unclaimed, so the game is never recorded for a profile) */
+			if (player->local_player_index != NONE && !local_guest(player->local_player_index))
 			{
 				csmemcpy(names[count], player->name, sizeof(names[count]));
 				count++;

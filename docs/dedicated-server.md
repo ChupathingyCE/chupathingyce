@@ -4,7 +4,7 @@ The dedicated server is its own download for Linux, for x86, x64 and
 arm64 machines (Oracle Cloud's free tier and Raspberry Pis included), and for
 64-bit Windows. A new server walks you through its setup in its control
 panel, and the Status tab says whether people can join. See
-the **[ChupathingyCE Dedicated Server](../server/README.md)**, with which
+the [Chupathingy Dedicated Server](../server/README.md) page, with which
 download fits your machine, a quick start, playlists, settings, Docker and
 systemd.
 

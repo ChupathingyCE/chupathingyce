@@ -18,10 +18,21 @@ the masters the last heartbeat). Its notices go to standard output.
                                 (a payload of one unit killed, as hex)
   gamespy_harness scores        (a payload of Slayer's scores and a player's
                                  numbers, all zero as a new game's, as hex)
+  gamespy_harness postgame <mode> [over]
+                                (a payload of the game's end at that step,
+                                 and game over after it, as hex)
+  gamespy_harness replies <count> <address>...
+                                (count queries in one second, from each
+                                 address in turn: how many replies each
+                                 address is allowed, one line each)
+
+With joins on, the harness has no game: each join is refused as a game
+between games would refuse it (reason 0), and the log says so.
 */
 
 #include "../platform/gamespy_listing.h"
 #include "../platform/ce_messages.h"
+#include "../platform/ce_transport.h"
 
 #include <poll.h>
 #include <stdio.h>
@@ -45,6 +56,21 @@ int main(int argc, char **argv)
 		printf("%s\n", name);
 		return 0;
 	}
+	if (argc >= 4 && !strcmp(argv[1], "replies"))
+	{
+		int allowed[16] = { 0 };
+		int addresses = argc - 3 < 16 ? argc - 3 : 16;
+		int query;
+
+		for (query = 0; query < atoi(argv[2]); query++)
+		{
+			index = query % addresses;
+			allowed[index] += gamespy_reply_allowed((unsigned int)strtoul(argv[3 + index], NULL, 0), 1000);
+		}
+		for (index = 0; index < addresses; index++)
+			printf("%d\n", allowed[index]);
+		return 0;
+	}
 	if (argc >= 3 && !strcmp(argv[1], "updates"))
 	{
 		struct ce_client_update update;
@@ -64,9 +90,9 @@ int main(int argc, char **argv)
 				payload[index] = (unsigned char)byte;
 			}
 			printf("read %d", ce_payload_read_client_updates(payload, length, &update, NULL, NULL));
-			printf(" id %d ticks %d flags %u yaw %.4f pitch %.4f throttle %d trigger %d weapon %d grenade %d medium %d\n",
+			printf(" id %d ticks %d flags %u yaw %.4f pitch %.4f throttle %d trigger %d weapon %d grenade %d zoom %d\n",
 				update.update_id, update.ticks, update.control_flags, update.yaw, update.pitch, update.throttle,
-				update.primary_trigger, update.weapon, update.grenade, update.unknown_medium);
+				update.primary_trigger, update.weapon, update.grenade, update.zoom);
 		}
 		return 0;
 	}
@@ -125,6 +151,23 @@ int main(int argc, char **argv)
 		ce_payload_put_weapon_create(&payload, &weapon);
 		ce_payload_put_biped_create(&payload, &biped);
 		ce_payload_put_player_spawn(&payload, &spawn);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		return 0;
+	}
+	if ((argc == 3 || argc == 4) && !strcmp(argv[1], "postgame"))
+	{
+		static const unsigned char game_over[] = { 1, 0, 0, 0, 0, CE_MESSAGE_GAME_OVER };
+		struct ce_payload payload;
+		unsigned char out[32];
+		int length;
+
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_postgame_mode(&payload, atoi(argv[2]));
+		if (argc == 4)
+			ce_payload_put_message(&payload, game_over, sizeof(game_over));
 		length = ce_payload_end(&payload);
 		for (index = 0; index < length; index++)
 			printf("%02x", out[index]);
@@ -408,6 +451,19 @@ int main(int argc, char **argv)
 			printf("%s\n", notice);
 			fflush(stdout);
 		}
+		/* (no game here: joins refused) */
+		{
+			struct ce_event event;
+
+			while (ce_transport_next_event(&event))
+			{
+				if (event.type != CE_EVENT_JOIN)
+					continue;
+				ce_transport_refuse(event.peer, CE_REJECT_UNKNOWN);
+				printf("harness: the join was refused (no game)\n");
+				fflush(stdout);
+			}
+		}
 		if (poll(&input, 1, 100) > 0)
 		{
 			ssize_t got = read(0, buffer, sizeof(buffer));
@@ -423,6 +479,10 @@ int main(int argc, char **argv)
 		}
 	}
 	gamespy_listing_stop();
+	/* (the notices still queued, the last ones the thread gave before it
+	stopped among them: none is lost) */
+	while (gamespy_listing_next_notice(notice, sizeof(notice)))
+		printf("%s\n", notice);
 	printf("stopped\n");
 	return 0;
 }

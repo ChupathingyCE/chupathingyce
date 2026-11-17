@@ -1,7 +1,14 @@
 /*
 STUBBS_MODE.H
 
-Stubbs the Zombie's maps as a preliminary mode (port/linux/game/stubbs_mode.c).
+Stubbs the Zombie's maps as a preliminary mode (port/linux/game/stubbs_mode.c):
+whether it is on, and its maps' tags read as Halo's. Each part of the mode
+has a header and a file of its own, so work on one never touches another's:
+- stubbs_campaign.h: its levels and their order (stubbs_campaign.c);
+- stubbs_player.h: the camera, the HUD and the image effects
+(stubbs_player.c, stubbs_image_effects.c);
+- stubbs_functions.h: its script functions (stubbs_functions.c);
+- stubbs_multiplayer.h: the two-player game (stubbs_multiplayer.c).
 */
 
 #ifndef STUBBS_MODE_H
@@ -37,12 +44,5 @@ boolean stubbs_mode_owns_data(void const *address, long size);
 /* a Stubbs structure BSP just read (its header at bsp_base, size bytes)
 rewritten where Halo's differs, before its schema check */
 void stubbs_mode_convert_structure_bsp(void *bsp_base, unsigned long size);
-
-/* Stubbs's script functions (stubbs_functions.c): how many there are (none
-outside Stubbs mode), one by its index among them, and a name's index (NONE) */
-struct hs_function_definition;
-long stubbs_function_count(void);
-struct hs_function_definition *stubbs_function_get(long index);
-long stubbs_function_find(char const *name);
 
 #endif

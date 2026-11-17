@@ -2,7 +2,7 @@
 DELTA_MAPS.H
 
 Halo PC maps' identity for Delta Peer's ce_maps capability (delta_maps.c,
-docs/delta.md "Map identity").
+docs/delta/peer.md "Map identity").
 */
 
 #ifndef HALO_DELTA_MAPS_H

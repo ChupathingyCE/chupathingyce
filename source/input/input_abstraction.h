@@ -58,6 +58,8 @@ boolean input_abstraction_port_reload(
 	short controller_index);
 byte input_abstraction_port_accept(
 	short controller_index);
+byte input_abstraction_port_back(
+	short controller_index);
 boolean input_abstraction_port_action_only(
 	short controller_index);
 boolean input_abstraction_port_crouch(

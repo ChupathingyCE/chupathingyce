@@ -78,6 +78,7 @@ static const struct console_reports_port *port;
 thread sets it only while it is clear, the thread clears it last */
 static volatile int sending;
 static int told_no_identity;
+static int told_no_invite;
 
 static void log_line(const char *text)
 {
@@ -221,8 +222,18 @@ int console_reports_joined_game(int teams, int red_score, int blue_score, int du
 	int kind;
 
 	/* (the player's choice first: off sends nothing, nor asks anything) */
-	if (!config_boolean("network.report_joined_games") || !p2p_joined_invite(invite, sizeof(invite)))
+	if (!config_boolean("network.report_joined_games"))
 		return 0;
+	/* (only a game joined from Online Games has an invite the site knows it
+	by: a system link game is not reported. Said once, so that a player who
+	expects a report sees why there is none in debug.txt) */
+	if (!p2p_joined_invite(invite, sizeof(invite)))
+	{
+		if (!told_no_invite)
+			log_line("Game list: the joined game is not reported: it has no Online Games invite (only games joined from Online Games are reported)");
+		told_no_invite = 1;
+		return 0;
+	}
 	if (!port)
 		console_reports_port_start();
 	if (!port)

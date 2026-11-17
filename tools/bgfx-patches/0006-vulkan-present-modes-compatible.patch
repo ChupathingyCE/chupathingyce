@@ -1,0 +1,87 @@
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -7153,7 +7153,6 @@
+ 			// each gap got a fallback input at a location another
+ 			// attribute has, which the spec forbids)
+ 		}
+-		}
+ 
+ 		bx::HashMurmur2A murmur;
+ 		murmur.begin();
+@@ -9699,7 +9698,56 @@
+ 	{
+ 		release(m_surface);
+ 	}
++
++	// whether _other is in the list of present modes a swapchain made with
++	// _mode may switch to (VK_EXT_surface_maintenance1); false without the
++	// query, or when the query fails
++	static bool presentModesCompatible(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface, VkPresentModeKHR _mode, VkPresentModeKHR _other)
++	{
++		PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR getCapabilities2 = (PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR)vkGetInstanceProcAddr(s_renderVK->m_instance, "vkGetPhysicalDeviceSurfaceCapabilities2KHR");
++
++		if (NULL == getCapabilities2)
++		{
++			return false;
++		}
++
++		VkSurfacePresentModeEXT presentMode;
++		presentMode.sType = VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_EXT;
++		presentMode.pNext = NULL;
++		presentMode.presentMode = _mode;
+ 
++		VkPhysicalDeviceSurfaceInfo2KHR surfaceInfo;
++		surfaceInfo.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
++		surfaceInfo.pNext = &presentMode;
++		surfaceInfo.surface = _surface;
++
++		VkPresentModeKHR compatible[16];
++		VkSurfacePresentModeCompatibilityEXT compatibility;
++		compatibility.sType = VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_COMPATIBILITY_EXT;
++		compatibility.pNext = NULL;
++		compatibility.presentModeCount = BX_COUNTOF(compatible);
++		compatibility.pPresentModes = compatible;
++
++		VkSurfaceCapabilities2KHR capabilities;
++		capabilities.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR;
++		capabilities.pNext = &compatibility;
++
++		if (VK_SUCCESS != getCapabilities2(_physicalDevice, &surfaceInfo, &capabilities) )
++		{
++			return false;
++		}
++
++		for (uint32_t ii = 0; ii < compatibility.presentModeCount && ii < BX_COUNTOF(compatible); ++ii)
++		{
++			if (compatible[ii] == _other)
++			{
++				return true;
++			}
++		}
++
++		return false;
++	}
++
+ 	VkResult SwapChainVK::createSwapChain()
+ 	{
+ 		BGFX_PROFILER_SCOPE("SwapChainVK::createSwapchain", kColorFrame);
+@@ -9881,7 +9929,18 @@
+ 
+ 		if (UINT32_MAX == m_presentModeWithVSyncIdx
+ 		||  UINT32_MAX == m_presentModeWithoutVSyncIdx)
++		{
++			s_renderVK->m_swapchainMaintenance1Supported = false;
++		}
++		else if (s_renderVK->m_swapchainMaintenance1Supported
++		     && !presentModesCompatible(physicalDevice, m_surface, m_sci.presentMode, m_vsync ? s_presentMode[m_presentModeWithoutVSyncIdx].mode : s_presentMode[m_presentModeWithVSyncIdx].mode) )
+ 		{
++			// the two modes a swapchain is told it may switch between must
++			// be compatible with the one it is made with
++			// (VK_EXT_surface_maintenance1's list), which Mesa's Wayland
++			// WSI does not grant FIFO and MAILBOX; listing them anyway is
++			// invalid usage, so such a surface does without the extension
++			BX_TRACE("Create swapchain: the vsync and no-vsync present modes are not compatible here, swapchain maintenance1 is not used.");
+ 			s_renderVK->m_swapchainMaintenance1Supported = false;
+ 		}
+ 		else if (s_renderVK->m_swapchainMaintenance1Supported)

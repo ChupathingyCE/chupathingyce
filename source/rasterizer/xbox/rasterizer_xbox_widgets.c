@@ -260,6 +260,23 @@ long _rasterizer_widget_get_occlusion_test_result(
 	return occlusion_test_result;
 }
 
+#ifndef HALO_CONSOLE_WAITED_VISIBILITY_TESTS
+/* port: (rasterizer_widgets.h) the count as the device has it now, a frame
+or more after its test. Never waited for, as the Xbox's was above */
+long rasterizer_widget_port_occlusion_test_count(
+	long index,
+	unsigned long *test)
+{
+	UINT count = 0;
+	ULONGLONG stamp = 0;
+
+	IDirect3DDevice8_GetVisibilityTestResult(global_d3d_device, index, &count, &stamp);
+	*test = (unsigned long)stamp;
+
+	return (long)MIN(count, (UINT)LONG_MAX);
+}
+#endif
+
 void _rasterizer_widget_submit(
 	long object_index,
 	long widget_index,
@@ -390,6 +407,10 @@ void _rasterizer_widget_begin(
 			vertex_constants[0][1] = 0.0f;
 			vertex_constants[0][2] = 0.0f;
 			vertex_constants[0][3] = -1.0f - 1.0f / viewport_width;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+			/* (the menus' columns centered: rasterizer_interface_begin) */
+			vertex_constants[0][3] += 2.0f * rasterizer_interface_offset_x() / viewport_width;
+#endif
 			vertex_constants[1][0] = 0.0f;
 			vertex_constants[1][1] = 1.0f / viewport_height * -2.0f;
 			vertex_constants[1][2] = 0.0f;
@@ -481,6 +502,10 @@ void _rasterizer_widget_begin(
 			vertex_constants[0][1] = 0.0f;
 			vertex_constants[0][2] = 0.0f;
 			vertex_constants[0][3] = -1.0f - 1.0f / viewport_width;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+			/* (the menus' columns centered: rasterizer_interface_begin) */
+			vertex_constants[0][3] += 2.0f * rasterizer_interface_offset_x() / viewport_width;
+#endif
 			vertex_constants[1][0] = 0.0f;
 			vertex_constants[1][1] = 1.0f / viewport_height * -2.0f;
 			vertex_constants[1][2] = 0.0f;
@@ -773,6 +798,9 @@ void _rasterizer_widget_draw_sprite3d(
 	real axis_y;
 	real scale_x;
 	real scale_y;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+	real pixel_aspect;
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\rasterizer\\xbox\\rasterizer_xbox_widgets.c",
@@ -790,6 +818,16 @@ void _rasterizer_widget_draw_sprite3d(
 			&projected_center,
 			&projected_axes))
 	{
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		/* port: the quad's corners mix its two axes (a square turned), so
+		they must be as long as each other. A 16:9 television stretches the
+		640 pixels, which makes the projected axis across that much shorter
+		in them: the square is made in the television's units, then drawn
+		narrower across the pixels by as much as the television widens them,
+		so a lens flare is round once stretched */
+		pixel_aspect = rasterizer_screen_pixel_aspect();
+		projected_axes.i *= pixel_aspect;
+#endif
 		if (rotation != 0.0f)
 		{
 			cos_theta = (real)cos(DEGREES_TO_RADIANS(rotation));
@@ -816,6 +854,9 @@ void _rasterizer_widget_draw_sprite3d(
 		{
 			scale_x = scale_y = 1.0f;
 		}
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		scale_x /= pixel_aspect;
+#endif
 
 		IDirect3DDevice8_Begin(
 			global_d3d_device,

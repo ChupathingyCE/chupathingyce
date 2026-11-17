@@ -58,6 +58,8 @@ struct free_node
 static pthread_mutex_t heap_lock = PTHREAD_MUTEX_INITIALIZER;
 static unsigned char *heap_next;
 static unsigned char *heap_end;
+/* the window the heap leaves alone (xbox_heap_reserve_window); 0: none */
+static unsigned int heap_hole_address, heap_hole_size;
 static struct free_node *small_free[SMALL_CLASS_COUNT];
 static struct free_node *large_free;
 #ifdef HALO_WINDOW_TRANSLATED
@@ -108,6 +110,14 @@ static struct heap_block *carve(size_t capacity)
 {
 	struct heap_block *block;
 
+	/* (over an MCC map's tag window: xbox_heap_reserve_window) */
+	if (heap_hole_size)
+	{
+		unsigned char *hole = xbox_pointer(heap_hole_address);
+
+		if (heap_next < hole + heap_hole_size && (size_t)(hole - heap_next) < sizeof(*block) + capacity)
+			heap_next = hole + heap_hole_size;
+	}
 	if ((size_t)(heap_end - heap_next) < sizeof(*block) + capacity)
 		return NULL;
 #ifdef HALO_WINDOW_TRANSLATED
@@ -140,6 +150,32 @@ are reused, not returned), for a console's memory report */
 size_t xbox_heap_used(void)
 {
 	return heap_next ? (size_t)(heap_next - (unsigned char *)xbox_pointer(XBOX_HEAP_BASE)) : 0;
+}
+
+#endif
+#ifndef HALO_WINDOW_TRANSLATED
+/* port: MCC maps are linked to their own tag addresses, 0x50000000 for
+MCC's tools, inside the heap's range: the heap leaves that window to them
+(port/linux/src/mcc_memory.c), stepping over it as it grows, from the first
+MCC map on for the rest of the run. FALSE when the heap has used the window
+already, or another is held */
+BOOL xbox_heap_reserve_window(unsigned int address, unsigned int size)
+{
+	BOOL result = FALSE;
+
+	pthread_mutex_lock(&heap_lock);
+	heap_initialize();
+	if (heap_hole_size)
+		result = heap_hole_address == address && heap_hole_size == size;
+	else if (address >= XBOX_HEAP_BASE && address <= XBOX_HEAP_END && size <= XBOX_HEAP_END - address &&
+		heap_next <= (unsigned char *)xbox_pointer(address))
+	{
+		heap_hole_address = address;
+		heap_hole_size = size;
+		result = TRUE;
+	}
+	pthread_mutex_unlock(&heap_lock);
+	return result;
 }
 
 #endif

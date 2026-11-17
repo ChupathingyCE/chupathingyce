@@ -12,8 +12,8 @@ the helmet and tusks of Chupathingy's icon.
 Inputs, all in the repository:
 - port/art/icon.svg, the icon, drawn at 1024 by 1024 by rsvg-convert
   (librsvg; Homebrew's or the distribution's librsvg package)
-- port/linux/ui/fonts/NotoSans-Bold.ttf, the text's font (SIL OFL,
-  port/linux/ui/fonts/OFL.txt)
+- port/assets/fonts/CyborgInterfaceGothic-Regular.ttf, the text's font,
+  the menus' (by fizzy, SIL OFL, port/assets/fonts/CyborgInterfaceGothic-OFL.txt)
 and Pillow and NumPy (pip install pillow numpy).
 
 The output is what progress_bar.c reads: 320 by 240, uncompressed 24-bit
@@ -35,7 +35,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 ICON = ROOT / "port/art/icon.svg"
-FONT = ROOT / "port/linux/ui/fonts/NotoSans-Bold.ttf"
+FONT = ROOT / "port/assets/fonts/CyborgInterfaceGothic-Regular.ttf"
 OUTPUT = ROOT / "port/assets/loading/chupathingy_loading.tga"
 WIDTH, HEIGHT = 1280, 960
 
@@ -94,13 +94,14 @@ def make_picture(icon: Image.Image) -> Image.Image:
     font = ImageFont.truetype(str(FONT), 62)
     text = "LOADING..."
     text_width = ImageDraw.Draw(picture).textlength(text, font=font)
-    tx, ty = (WIDTH - text_width) / 2, HEIGHT / 2 - 38
+    # (its baseline set where it was in Noto Sans Bold, the font before)
+    tx, ty = (WIDTH - text_width) / 2, HEIGHT / 2 + 28
     glow = Image.new("L", (WIDTH, HEIGHT), 0)
-    ImageDraw.Draw(glow).text((tx, ty), text, font=font, fill=255)
+    ImageDraw.Draw(glow).text((tx, ty), text, font=font, fill=255, anchor="ls")
     glow = glow.filter(ImageFilter.GaussianBlur(9))
     blue = Image.merge("RGB", (glow.point(lambda v: v * 40 // 255), glow.point(lambda v: v * 120 // 255), glow))
     picture = ImageChops.add(picture, blue)
-    ImageDraw.Draw(picture).text((tx, ty), text, font=font, fill=(232, 242, 255))
+    ImageDraw.Draw(picture).text((tx, ty), text, font=font, fill=(232, 242, 255), anchor="ls")
     return picture
 
 

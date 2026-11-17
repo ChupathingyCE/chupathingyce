@@ -27,6 +27,9 @@ enum weapon_export_function_mode
 	_weapon_function_integrated_light,
 	_weapon_function_primary_firing,
 	_weapon_function_secondary_firing,
+	/* port: Halo PC's (Custom Edition maps' flamethrower stream and firing sound) */
+	_weapon_function_primary_firing_on,
+	_weapon_function_secondary_firing_on,
 	NUMBER_OF_WEAPON_FUNCTION_MODES,
 };
 

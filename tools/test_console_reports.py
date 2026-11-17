@@ -81,7 +81,10 @@ def test_console_reports_gates():
     behind HALO_PORT_GAME_REPORTS (a console's HALO_CONSOLE_GAME_REPORTS)."""
     reports = (ROOT / "port/console/reports/console_reports.c").read_text()
     body = re.search(r"^int console_reports_joined_game\(.*?^\}", reports, re.M | re.S).group(0)
-    assert re.search(r'!config_boolean\("network\.report_joined_games"\)\s*\|\|\s*!p2p_joined_invite\(', body)
+    # (the opt-out, then the invite, each before anything else is asked)
+    opt_out = body.index('!config_boolean("network.report_joined_games")')
+    invite = body.index("!p2p_joined_invite(")
+    assert opt_out < invite < body.index("identity()")
     # (no tag function: a client's report tags no line)
     assert re.search(r"game_report_json\(prefix,.*?NULL,\s*NULL\);", body, re.S)
     features = (ROOT / "port/linux/include/halo_port_features.h").read_text()

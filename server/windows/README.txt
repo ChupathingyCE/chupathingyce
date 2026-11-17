@@ -109,10 +109,11 @@ itself, with the HALO_* variables set in that command prompt:
 Control panel
 -------------
 
-The control panel and moderators work as on Linux. Turn the panel on with
-HALO_DEDICATED_CONTROL=8080 in start-server.bat (this machine only: open
-http://127.0.0.1:8080), or HALO_DEDICATED_CONTROL=0.0.0.0:8443 for the
-network (HTTPS only). The first start prints a one-time setup link. See
+The control panel and moderators work as on Linux. The panel is on by
+default at http://127.0.0.1:8080 (this machine only). The first start
+prints a one-time setup link and opens it in your browser. Set
+HALO_DEDICATED_CONTROL=0.0.0.0:8443 in start-server.bat for the network
+(HTTPS only), or HALO_DEDICATED_CONTROL=off for no panel. See
 https://github.com/ChupathingyCE/chupathingyce/blob/main/server/docs/moderation.md
 
 

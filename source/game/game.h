@@ -132,7 +132,11 @@ void game_statistics_record_kill(
 void game_initialize(
 	void);
 void game_dispose(void);
-void game_precache_new_map(char *map_name, boolean blocking);
+/* port: FALSE when the map can't be loaded at all and nothing was waited for (an MCC level that
+isn't there, #1149: the error is queued for the menus); TRUE otherwise */
+boolean game_precache_new_map(char *map_name, boolean blocking);
+/* port: (game.c: a map whose copy fails returns FALSE, the game as it was) */
+boolean game_precache_new_map_refusable(char *map_name);
 boolean game_map_loading_in_progress(real *progress);
 void game_unload(
 	void);
@@ -155,6 +159,11 @@ defaults once it is set, then the network game's */
 struct game_variant_options;
 void game_set_game_variant_options(struct game_variant_options const *options);
 struct game_variant_options const *game_variant_options_get(void);
+/* port: and the gametype's further options (source/game/game_modes.c): the
+game modes layer's, given after the variant and the PC options, as the
+network game's are; the layer's forced settings go on the game's own copy
+of the variant (NULL: the defaults, no mode) */
+void game_set_game_mode_options(unsigned char const *options);
 void game_set_game_engine_index(short index);
 boolean game_all_quiet(
 	void);

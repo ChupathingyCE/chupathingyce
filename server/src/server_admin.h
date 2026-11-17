@@ -19,6 +19,9 @@ struct server_settings;
 /* a game type, by its name in a playlist: a built-in's (slayer, ctf, ...),
 else its file's (admin/gametypes/<name>.toml), built on its base. TRUE,
 else FALSE and why in problem */
+/* (and the gametype's further options, the game modes layer's 16 bytes, of
+the game type last resolved: a built-in's or its file's) */
+unsigned char const *server_gametype_resolved_modes(void);
 boolean server_gametype_resolve(char const *name, struct game_variant *variant, struct game_variant_options *options,
 	char *problem, long problem_size);
 
@@ -66,6 +69,8 @@ changed (0: not yet, or not a Custom Edition player) */
 boolean server_ce_player(long machine_index, long controller_index, unsigned long *address);
 boolean server_ce_tell(long machine_index, long controller_index, char const *text);
 unsigned long server_ce_input_time(long machine_index, long controller_index);
+/* whether any Custom Edition player has a seat (server_ce.c) */
+boolean server_ce_players_present(void);
 /* Halo Custom Edition 1.0.10's join wire answered on the same port */
 void server_gamespy_set_joins(boolean enabled);
 boolean server_gamespy_joins(void);

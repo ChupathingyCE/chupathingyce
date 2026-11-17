@@ -42,7 +42,12 @@ map keeps its channels, which the renderer has one order of. So does the
 multipurpose map of a model shader with MCC's flag for the Xbox's channel
 order (bit 6 of its flags, "multipurpose map uses og xbox channel order",
 which Halo PC leaves unused): tags made from the Xbox's carry it, their
-masks already where the Xbox's model shaders read them.
+masks already where the Xbox's model shaders read them. A model shader
+drawing such a bitmap as a multipurpose map in Halo PC's order (the fuel rod
+gun's first-person metal and the flamethrower's screen use their base map as
+their multipurpose map too) draws it from a copy of its bitmap_data that is
+listed, with a cache block, a texture and channels of its own
+(ce_models_multipurpose_bitmap, rasterizer_xbox_models.c).
 */
 
 #ifdef HALO_CUSTOM_EDITION
@@ -51,6 +56,7 @@ masks already where the Xbox's model shaders read them.
 #include "cseries_windows.h"
 #include "errors.h"
 #include "math/real_math.h"
+#include "bitmaps/bitmap_group.h"
 #include "rasterizer/rasterizer_geometry.h"
 #include "ce_map_checks.h"
 
@@ -109,8 +115,20 @@ enum
 	BITMAP_SIZE = 0x30,
 
 	CE_VERTEX_SIZE = 0x44,
+	/* (as many as a window of the model data holds: ce_map_checks.h) */
+	CE_WINDOW_VERTICES = CE_MODEL_DATA_WINDOW_SIZE / CE_VERTEX_SIZE,
+	CE_WINDOW_INDICES = CE_MODEL_DATA_WINDOW_SIZE / 2,
 	XBOX_VERTEX_SIZE = 0x20,
 	XBOX_MODEL_VERTEX_TYPE = 5, /* (_rasterizer_vertex_type_model_compressed) */
+
+	/* (the most elements of a block read as the map loads, more than any
+	holds: the checks hold them to fewer) */
+	CE_LOADED_MAXIMUM_ELEMENTS = 0x10000,
+	/* a part's most vertices and triangles (ce_part_check; the conversion
+	holds a part to them again, as what loading writes before it may share
+	the part's bytes) */
+	CE_MAXIMUM_PART_VERTICES = 0xffff,
+	CE_MAXIMUM_PART_TRIANGLES = 0xffff - 2,
 };
 
 /* ---------- structures */
@@ -142,6 +160,8 @@ struct xbox_vertex
 unsigned long ce_resources_allocate(unsigned long size);
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 extern int platform_ce_alias;
+void *platform_ce_scratch_malloc(size_t size);
+void platform_ce_scratch_free(void *address);
 #endif
 unsigned long ce_resources_free_mark(void);
 unsigned long compress_real_vector3d_to_int32_clamp(union real_vector3d const *v);
@@ -157,6 +177,15 @@ static long ce_vertex_memory_count;
 channels are Halo PC's */
 static void const **ce_multipurpose_bitmaps;
 static long ce_multipurpose_bitmap_count;
+
+/* the bitmaps drawn both in Halo PC's multipurpose order and in another
+way, each with the copy drawn as the multipurpose map (listed above) */
+static struct ce_multipurpose_copy
+{
+	void const *bitmap;
+	void *copy;
+} *ce_multipurpose_copies;
+static long ce_multipurpose_copy_count;
 
 /* ---------- private code */
 
@@ -181,10 +210,25 @@ static unsigned long ce_compress_vector(
 	return compress_real_vector3d_to_int32_clamp(&v);
 }
 
+/* the vertices of a part's (count of them, at vertex_offset in the model
+data) from first on, as many as a window holds: NULL if they could not be
+read */
+static byte const *ce_model_data_vertices(
+	struct ce_model_data *data,
+	unsigned long vertex_offset,
+	long first,
+	long count)
+{
+	long batch = count - first < CE_WINDOW_VERTICES ? count - first : CE_WINDOW_VERTICES;
+
+	return ce_model_data_at(data, vertex_offset + (unsigned long)first * CE_VERTEX_SIZE,
+		(unsigned long)batch * CE_VERTEX_SIZE);
+}
+
 /* a part's vertices compressed into contiguous memory behind a new vertex
 buffer: the buffer's address, or 0 */
 static unsigned long ce_part_vertices(
-	byte const *model_data,
+	struct ce_model_data *data,
 	unsigned long vertex_offset,
 	long count,
 	byte const *part)
@@ -194,9 +238,10 @@ static unsigned long ce_part_vertices(
 	unsigned long buffer_address = ce_resources_allocate(3 * sizeof(unsigned long));
 	byte local_node_count = part[CE_PART_LOCAL_NODE_COUNT_OFFSET];
 	boolean local_nodes = (*(unsigned long const *)part & CE_PART_LOCAL_NODES_FLAG) && local_node_count;
+	byte const *span = NULL;
 	long index;
 
-	if (!buffer_address || count <= 0)
+	if (!buffer_address || count <= 0 || count > CE_MAXIMUM_PART_VERTICES)
 		return 0;
 	vertices = XPhysicalAlloc(count * XBOX_VERTEX_SIZE, -1, 0, PAGE_READWRITE);
 	if (!vertices)
@@ -223,7 +268,14 @@ static unsigned long ce_part_vertices(
 		struct xbox_vertex *out = &vertices[index];
 		short node;
 
-		csmemcpy(&vertex, model_data + vertex_offset + index * CE_VERTEX_SIZE, sizeof(vertex));
+		/* (a window's worth of them at a time: ce_map_checks.h) */
+		if (index % CE_WINDOW_VERTICES == 0)
+		{
+			span = ce_model_data_vertices(data, vertex_offset, index, count);
+			if (!span)
+				return 0;
+		}
+		csmemcpy(&vertex, span + (index % CE_WINDOW_VERTICES) * CE_VERTEX_SIZE, sizeof(vertex));
 
 		out->position[0] = in->position[0];
 		out->position[1] = in->position[1];
@@ -259,7 +311,7 @@ static unsigned long ce_part_vertices(
 /* a part's triangle strip (count + 2 indices) copied into the tag cache
 behind a new index buffer: the buffer's address, or 0 */
 static unsigned long ce_part_triangles(
-	byte const *model_data,
+	struct ce_model_data *data,
 	unsigned long index_offset,
 	long count,
 	unsigned long *strip_address)
@@ -268,10 +320,20 @@ static unsigned long ce_part_triangles(
 	unsigned long indices = ce_resources_allocate(size);
 	unsigned long buffer_address = ce_resources_allocate(3 * sizeof(unsigned long));
 	unsigned long *buffer;
+	unsigned long copied;
 
-	if (!indices || !buffer_address || count < 0)
+	if (!indices || !buffer_address || count < 0 || count > CE_MAXIMUM_PART_TRIANGLES)
 		return 0;
-	csmemcpy(xbox_pointer(indices), model_data + index_offset, size);
+	/* (a window's worth at a time: ce_map_checks.h) */
+	for (copied = 0; copied < size; copied += CE_MODEL_DATA_WINDOW_SIZE)
+	{
+		unsigned long chunk = size - copied < CE_MODEL_DATA_WINDOW_SIZE ? size - copied : CE_MODEL_DATA_WINDOW_SIZE;
+		byte const *at = ce_model_data_at(data, index_offset + copied, chunk);
+
+		if (!at)
+			return 0;
+		csmemcpy((byte *)xbox_pointer(indices) + copied, at, chunk);
+	}
 	buffer = xbox_pointer(buffer_address);
 	buffer[0] = D3DCOMMON_TYPE_INDEXBUFFER | 1;
 	buffer[1] = indices;
@@ -305,7 +367,7 @@ static byte *ce_bitmap_group(
 	instance = (struct ce_tag_instance *)((byte *)tag_instances + (tag_index & 0xffff) * CE_TAG_INSTANCE_SIZE);
 	if (instance->group_tag != 'bitm' || instance->tag_index != (unsigned long)tag_index || !instance->base_address)
 		return NULL;
-	return xbox_pointer(instance->base_address);
+	return ce_loaded_pointer(instance->base_address, BITMAP_GROUP_BITMAPS_OFFSET + 8);
 }
 
 static boolean ce_multipurpose_bitmap_listed(
@@ -321,6 +383,32 @@ static boolean ce_multipurpose_bitmap_listed(
 	return FALSE;
 }
 
+/* a copy of a bitmap a model shader draws as its multipurpose map in Halo
+PC's order, which is also drawn another way and so keeps its channels: the
+copy has no cache block (it is loaded into one of its own, as a texture of
+its own) and is listed once the shaders have all been looked at
+(ce_multipurpose_bitmaps_find) */
+static void ce_multipurpose_copy_make(
+	void const *bitmap)
+{
+	struct ce_multipurpose_copy *copies;
+	struct bitmap_data *copy;
+
+	copies = realloc(ce_multipurpose_copies, (ce_multipurpose_copy_count + 1) * sizeof(*copies));
+	if (!copies)
+		return;
+	ce_multipurpose_copies = copies;
+	copy = malloc(sizeof(*copy));
+	if (!copy)
+		return;
+	memcpy(copy, bitmap, sizeof(*copy));
+	copy->cache_block_index = NONE;
+	copy->base_address = XBOX_NULL;
+	copies[ce_multipurpose_copy_count].bitmap = bitmap;
+	copies[ce_multipurpose_copy_count].copy = copy;
+	ce_multipurpose_copy_count++;
+}
+
 /* a bitmap group's bitmaps listed as multipurpose maps (once), or, with
 remove, taken off the list: the number listed or taken off */
 static long ce_multipurpose_bitmaps_list(
@@ -329,14 +417,22 @@ static long ce_multipurpose_bitmaps_list(
 {
 	long count = *(long const *)(bitmap_group + BITMAP_GROUP_BITMAPS_OFFSET);
 	unsigned long address = *(unsigned long const *)(bitmap_group + BITMAP_GROUP_BITMAPS_OFFSET + 4);
+	byte const *bitmaps;
 	long changed = 0;
 	long index;
 
 	if (count <= 0 || !address)
 		return 0;
+	bitmaps = count <= CE_LOADED_MAXIMUM_ELEMENTS ? ce_loaded_pointer(address, (unsigned long)count * BITMAP_SIZE) :
+		NULL;
+	if (!bitmaps)
+	{
+		ce_contained("a bitmap's %ld bitmaps at %08lx are outside its tag cache", count, address);
+		return 0;
+	}
 	for (index = 0; index < count; index++)
 	{
-		void const *bitmap = (byte const *)xbox_pointer(address) + index * BITMAP_SIZE;
+		void const *bitmap = bitmaps + index * BITMAP_SIZE;
 		long listed;
 
 		if (remove)
@@ -346,6 +442,7 @@ static long ce_multipurpose_bitmaps_list(
 				if (ce_multipurpose_bitmaps[listed] == bitmap)
 				{
 					ce_multipurpose_bitmaps[listed] = ce_multipurpose_bitmaps[--ce_multipurpose_bitmap_count];
+					ce_multipurpose_copy_make(bitmap);
 					changed++;
 					break;
 				}
@@ -397,7 +494,12 @@ static long ce_multipurpose_bitmaps_find(
 
 			if (instance->group_tag != 'soso' || !instance->base_address)
 				continue;
-			shader = xbox_pointer(instance->base_address);
+			shader = ce_loaded_pointer(instance->base_address, MODEL_SHADER_DETAIL_MAP_INDEX_OFFSET + 4);
+			if (!shader)
+			{
+				ce_contained("model shader %08lx is outside its tag cache", instance->base_address);
+				continue;
+			}
 			if (!pass)
 			{
 				if (ce_model_shader_multipurpose_is_xbox(shader))
@@ -427,10 +529,22 @@ static long ce_multipurpose_bitmaps_find(
 				kept += ce_multipurpose_bitmaps_list(group, TRUE);
 		}
 	}
+	/* (the copies listed: their bitmaps' addresses are no tag's, so the
+	second pass took none of them off) */
+	for (index = 0; index < ce_multipurpose_copy_count; index++)
+	{
+		void const **bitmaps = realloc((void *)ce_multipurpose_bitmaps,
+			(ce_multipurpose_bitmap_count + 1) * sizeof(void const *));
+
+		if (!bitmaps)
+			break;
+		ce_multipurpose_bitmaps = bitmaps;
+		ce_multipurpose_bitmaps[ce_multipurpose_bitmap_count++] = ce_multipurpose_copies[index].copy;
+	}
 	if (kept)
 	{
 		error(_error_silent, "Custom Edition maps: %ld multipurpose bitmaps also drawn as base or detail maps keep "
-			"their channels", kept);
+			"their channels there (%ld drawn as multipurpose maps from a copy)", kept, ce_multipurpose_copy_count);
 	}
 	if (xbox_order)
 	{
@@ -440,16 +554,11 @@ static long ce_multipurpose_bitmaps_find(
 	return ce_multipurpose_bitmap_count;
 }
 
-/* ---------- public code */
-
-/* a Custom Edition map's tags and resources loaded (cache_files.c): its
-gbxmodels made models; model_data its model data block (the vertices,
-vertex_data_size bytes, then the triangles) */
-boolean ce_models_tags_loaded(
+/* a map's gbxmodels made models, from its model data (ce_models_tags_loaded) */
+static boolean ce_models_convert(
 	void *tag_instances,
 	long tag_count,
-	byte const *model_data,
-	unsigned long vertex_data_size)
+	struct ce_model_data *data)
 {
 	long models = 0, parts_converted = 0;
 	long index;
@@ -465,15 +574,27 @@ boolean ce_models_tags_loaded(
 		byte *model;
 		unsigned long geometry_count, geometries;
 		unsigned long geometry;
+		byte *geometries_data;
 
 		if (instance->group_tag != 'mod2')
 			continue;
-		model = xbox_pointer(instance->base_address);
-		geometry_count = *(unsigned long *)(model + MODEL_GEOMETRIES_OFFSET);
-		geometries = *(unsigned long *)(model + MODEL_GEOMETRIES_OFFSET + 4);
+		model = ce_loaded_pointer(instance->base_address, MODEL_GEOMETRIES_OFFSET + 8);
+		geometry_count = model ? *(unsigned long *)(model + MODEL_GEOMETRIES_OFFSET) : 0;
+		geometries = model ? *(unsigned long *)(model + MODEL_GEOMETRIES_OFFSET + 4) : 0;
+		/* (its geometries, each one's parts written: in the tag cache, and
+		none over its tag header or tag index, ce_map_checks.h) */
+		geometries_data = geometry_count <= CE_LOADED_MAXIMUM_ELEMENTS ?
+			ce_loaded_pointer(geometries, geometry_count * GEOMETRY_SIZE) : NULL;
+		if (!model || (geometry_count && (!geometries_data ||
+			!ce_tags_writable(geometries_data, geometry_count * GEOMETRY_SIZE))))
+		{
+			ce_contained("model %08lx's %lu geometries at %08lx are outside its tag cache", instance->base_address,
+				geometry_count, geometries);
+			continue;
+		}
 		for (geometry = 0; geometry < geometry_count; geometry++)
 		{
-			byte *geometry_data = (byte *)xbox_pointer(geometries) + geometry * GEOMETRY_SIZE;
+			byte *geometry_data = geometries_data + geometry * GEOMETRY_SIZE;
 			unsigned long part_count = *(unsigned long *)(geometry_data + GEOMETRY_PARTS_OFFSET);
 			unsigned long ce_parts_address = *(unsigned long *)(geometry_data + GEOMETRY_PARTS_OFFSET + 4);
 			byte const *ce_parts;
@@ -482,7 +603,14 @@ boolean ce_models_tags_loaded(
 
 			if (part_count && converted && ce_parts_address >= converted)
 				continue;
-			ce_parts = xbox_pointer(ce_parts_address);
+			ce_parts = part_count <= CE_LOADED_MAXIMUM_ELEMENTS ?
+				ce_loaded_pointer(ce_parts_address, part_count * CE_PART_SIZE) : NULL;
+			if (part_count && !ce_parts)
+			{
+				ce_contained("a geometry's %lu parts at %08lx are outside its tag cache", part_count,
+					ce_parts_address);
+				continue;
+			}
 			xbox_parts_address = part_count ? ce_resources_allocate(part_count * XBOX_PART_SIZE) : 0;
 			if (part_count && !xbox_parts_address)
 			{
@@ -509,13 +637,13 @@ boolean ce_models_tags_loaded(
 				*(short *)(xbox_part + PART_TRIANGLE_BUFFER_OFFSET) = triangle_type;
 				*(long *)(xbox_part + PART_TRIANGLE_BUFFER_OFFSET + 4) = triangle_count;
 				*(unsigned long *)(xbox_part + PART_TRIANGLE_BUFFER_OFFSET + 12) =
-					ce_part_triangles(model_data, vertex_data_size + triangle_offset, triangle_count, &strip);
+					ce_part_triangles(data, data->vertex_data_size + triangle_offset, triangle_count, &strip);
 				*(unsigned long *)(xbox_part + PART_TRIANGLE_BUFFER_OFFSET + 8) = strip;
 				/* the vertex buffer: type, count, its vertices */
 				*(short *)(xbox_part + PART_VERTEX_BUFFER_OFFSET) = XBOX_MODEL_VERTEX_TYPE;
 				*(long *)(xbox_part + PART_VERTEX_BUFFER_OFFSET + 4) = vertex_count;
 				*(unsigned long *)(xbox_part + PART_VERTEX_BUFFER_OFFSET + 16) =
-					ce_part_vertices(model_data, vertex_offset, vertex_count, ce_part);
+					ce_part_vertices(data, vertex_offset, vertex_count, ce_part);
 				parts_converted++;
 			}
 			*(unsigned long *)(geometry_data + GEOMETRY_PARTS_OFFSET + 4) = xbox_parts_address;
@@ -526,6 +654,191 @@ boolean ce_models_tags_loaded(
 	error(_error_silent, "Custom Edition maps: %ld gbxmodels made models (%ld parts)", models, parts_converted);
 	return TRUE;
 }
+
+/* the same, writing nothing over the map's tag header or tag index
+(ce_map_checks.h) */
+static boolean ce_models_convert_guarded(
+	void *tag_instances,
+	long tag_count,
+	struct ce_model_data *data)
+{
+	boolean converted;
+
+	ce_tags_guard_begin_loaded(tag_instances, tag_count);
+	converted = ce_models_convert(tag_instances, tag_count, data);
+	ce_tags_guard_end();
+	return converted;
+}
+
+/* the model data's memory (ce_model_data_begin): on a 64 MB console, while a
+map loads, of what the load borrows */
+static void *ce_model_data_malloc(
+	unsigned long size)
+{
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	if (platform_ce_alias)
+		return platform_ce_scratch_malloc(size);
+#endif
+	return system_malloc(size);
+}
+
+static void ce_model_data_free(
+	void *address)
+{
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	if (platform_ce_alias)
+	{
+		platform_ce_scratch_free(address);
+		return;
+	}
+#endif
+	system_free(address);
+}
+
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+short cache_file_read(long tag_index, long offset, long size, void *buffer, boolean *completion_flag_reference,
+	boolean blocking);
+
+/* a window of the model data read from the map, as cache_files.c reads the
+rest of it (context: the model data's offset in the file) */
+static boolean ce_model_data_cache_read(
+	void *context,
+	unsigned long offset,
+	void *buffer,
+	unsigned long size)
+{
+	boolean read_complete = FALSE;
+
+	cache_file_read(NONE, (long)(*(unsigned long const *)context + offset), (long)size, buffer, &read_complete,
+		TRUE);
+	while (!read_complete)
+		SwitchToThread();
+	return TRUE;
+}
+#endif
+
+/* ---------- public code */
+
+byte const *ce_model_data_at(
+	struct ce_model_data *data,
+	unsigned long offset,
+	unsigned long size)
+{
+	short which;
+	unsigned long length;
+
+	/* (the model data whole: only within it) */
+	if (data->whole)
+		return offset <= data->size && size <= data->size - offset ? data->whole + offset : NULL;
+	/* (the vertices' window, or the strips') */
+	which = offset >= data->vertex_data_size;
+	if (offset >= data->window_offsets[which] && offset - data->window_offsets[which] <= data->window_sizes[which] &&
+		size <= data->window_sizes[which] - (offset - data->window_offsets[which]))
+	{
+		return data->windows + which * CE_MODEL_DATA_WINDOW_SIZE + (offset - data->window_offsets[which]);
+	}
+	/* (moved on, to just what was asked for: the parts are checked and made
+	in the order of their tags, not of the file, so reading on past it gains
+	nothing; the Halo 2 maps' 1500 reads are their 16 MB) */
+	data->window_sizes[which] = 0;
+	if (offset > data->size || size > CE_MODEL_DATA_WINDOW_SIZE || size > data->size - offset)
+		return NULL;
+	length = size;
+	if (!data->read(data->context, offset, data->windows + which * CE_MODEL_DATA_WINDOW_SIZE, length))
+		return NULL;
+	data->window_offsets[which] = offset;
+	data->window_sizes[which] = length;
+	return data->windows + which * CE_MODEL_DATA_WINDOW_SIZE;
+}
+
+boolean ce_model_data_begin(
+	struct ce_model_data *data)
+{
+	if (data->whole)
+		return TRUE;
+	data->window_sizes[0] = data->window_sizes[1] = 0;
+	/* (whole, in one read, if there is room for it) */
+	data->held = ce_model_data_malloc(data->size ? data->size : 1);
+	if (data->held)
+	{
+		if (data->read(data->context, 0, data->held, data->size))
+		{
+			data->whole = data->held;
+			return TRUE;
+		}
+		ce_model_data_free(data->held);
+		data->held = NULL;
+	}
+	else
+	{
+		error(_error_silent, "Custom Edition maps: no room for the model data whole (%lu bytes): read in parts",
+			data->size);
+	}
+	data->windows = ce_model_data_malloc(2 * CE_MODEL_DATA_WINDOW_SIZE);
+	return data->windows != NULL;
+}
+
+void ce_model_data_end(
+	struct ce_model_data *data)
+{
+	if (data->held)
+	{
+		ce_model_data_free(data->held);
+		data->held = NULL;
+		data->whole = NULL;
+	}
+	if (data->windows)
+	{
+		ce_model_data_free(data->windows);
+		data->windows = NULL;
+	}
+}
+
+/* a Custom Edition map's tags and resources loaded (cache_files.c): its
+gbxmodels made models; model_data its model data block (the vertices,
+vertex_data_size bytes, then the triangles), model_data_size bytes */
+boolean ce_models_tags_loaded(
+	void *tag_instances,
+	long tag_count,
+	byte const *model_data,
+	unsigned long vertex_data_size,
+	unsigned long model_data_size)
+{
+	struct ce_model_data data;
+
+	memset(&data, 0, sizeof(data));
+	data.whole = model_data;
+	data.size = model_data_size;
+	data.vertex_data_size = vertex_data_size;
+	return ce_models_convert_guarded(tag_instances, tag_count, &data);
+}
+
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+/* the same, the model data (size bytes at file_offset in the map) read as
+it is used (whole, or through windows: ce_map_checks.h); FALSE if there was
+no memory even for the windows */
+boolean ce_models_tags_loaded_read(
+	void *tag_instances,
+	long tag_count,
+	unsigned long file_offset,
+	unsigned long size,
+	unsigned long vertex_data_size)
+{
+	struct ce_model_data data;
+	boolean converted;
+
+	memset(&data, 0, sizeof(data));
+	data.size = size;
+	data.vertex_data_size = vertex_data_size;
+	data.read = ce_model_data_cache_read;
+	data.context = &file_offset;
+	if (!ce_model_data_begin(&data))
+		return FALSE;
+	converted = ce_models_convert_guarded(tag_instances, tag_count, &data);
+	ce_model_data_end(&data);
+	return converted;
+}
+#endif
 
 /* a Custom Edition map's shaders made the Xbox's (cache_files.c): Halo PC
 added a shader type after transparent chicago (7, transparent chicago
@@ -542,6 +855,7 @@ void ce_shaders_tags_loaded(
 	long extended = 0, shifted = 0;
 	long index;
 
+	ce_tags_guard_begin_loaded(tag_instances, tag_count);
 	for (index = 0; index < tag_count; index++)
 	{
 		struct ce_tag_instance *instance = (struct ce_tag_instance *)((byte *)tag_instances +
@@ -554,7 +868,19 @@ void ce_shaders_tags_loaded(
 		{
 			continue;
 		}
-		shader = xbox_pointer(instance->base_address);
+		/* (in the tag cache, and written nowhere over its tag header or
+		tag index: ce_map_checks.h) */
+		shader = ce_loaded_pointer(instance->base_address, CHICAGO_EXTENDED_EXTRA_FLAGS_OFFSET + 4);
+		if (!shader)
+		{
+			ce_contained("shader %08lx is outside its tag cache", instance->base_address);
+			continue;
+		}
+		if (!ce_tags_writable(shader + SHADER_TYPE_OFFSET, sizeof(short)) ||
+			(instance->group_tag == 'scex' && !ce_tags_writable(shader + CHICAGO_EXTRA_FLAGS_OFFSET, 4)))
+		{
+			continue;
+		}
 		type = (short *)(shader + SHADER_TYPE_OFFSET);
 		if (instance->group_tag == 'scex')
 		{
@@ -572,6 +898,7 @@ void ce_shaders_tags_loaded(
 			shifted++;
 		}
 	}
+	ce_tags_guard_end();
 	error(_error_silent, "Custom Edition maps: %ld extended chicago shaders made chicago ones, %ld shader types moved",
 		extended, shifted);
 	error(_error_silent, "Custom Edition maps: %ld multipurpose bitmaps sampled in Halo PC's channels",
@@ -595,6 +922,15 @@ void ce_models_tags_unloaded(
 		free((void *)ce_multipurpose_bitmaps);
 	ce_multipurpose_bitmaps = NULL;
 	ce_multipurpose_bitmap_count = 0;
+	/* (after the texture cache closed, which wrote to the copies it had
+	loaded: scenario_tags_unload) */
+	for (index = 0; index < ce_multipurpose_copy_count; index++)
+		free(ce_multipurpose_copies[index].copy);
+	/* (none made: the debug allocator refuses a NULL) */
+	if (ce_multipurpose_copies)
+		free(ce_multipurpose_copies);
+	ce_multipurpose_copies = NULL;
+	ce_multipurpose_copy_count = 0;
 }
 
 /* whether a bitmap (bitmap_data) of the map loaded is a Custom Edition model
@@ -603,6 +939,22 @@ boolean ce_models_bitmap_is_multipurpose(
 	void const *bitmap)
 {
 	return ce_multipurpose_bitmap_listed(bitmap);
+}
+
+/* the copy of a bitmap to draw as a model shader's multipurpose map in Halo
+PC's order (rasterizer_xbox_models.c), or NULL to draw the bitmap itself: a
+copy for each bitmap also drawn another way (ce_multipurpose_copy_make) */
+void const *ce_models_multipurpose_bitmap(
+	void const *bitmap)
+{
+	long index;
+
+	for (index = 0; index < ce_multipurpose_copy_count; index++)
+	{
+		if (ce_multipurpose_copies[index].bitmap == bitmap)
+			return ce_multipurpose_copies[index].copy;
+	}
+	return NULL;
 }
 
 /* ---------- checks (ce_map_checks.c) */
@@ -639,8 +991,6 @@ enum
 	their block, by its parts' shader indices, checked below: Halo PC's
 	engine took more, h3_foundry's spartan has 56; a part's index is a short) */
 	CE_MAXIMUM_MODEL_SHADERS = 0x7fff,
-	CE_MAXIMUM_PART_VERTICES = 0xffff,
-	CE_MAXIMUM_PART_TRIANGLES = 0xffff - 2,
 	CE_PART_SHADER_INDEX_OFFSET = 0x04,
 	CE_PART_PREVIOUS_PART_OFFSET = 0x06,
 	CE_PART_NEXT_PART_OFFSET = 0x07,
@@ -746,11 +1096,11 @@ static boolean ce_part_check(
 	byte const *part,
 	char const *name,
 	long node_count,
-	byte const *model_data,
-	unsigned long model_data_size,
-	unsigned long vertex_data_size,
+	struct ce_model_data *data,
 	unsigned long *bytes)
 {
+	unsigned long model_data_size = data->size;
+	unsigned long vertex_data_size = data->vertex_data_size;
 	short triangle_type = ce_read_short(part + PART_TRIANGLE_BUFFER_OFFSET);
 	long triangle_count = ce_read_long32(part + PART_TRIANGLE_BUFFER_OFFSET + 4);
 	unsigned long triangle_offset = (unsigned long)ce_read_long32(part + PART_TRIANGLE_BUFFER_OFFSET + 8);
@@ -759,6 +1109,7 @@ static boolean ce_part_check(
 	byte local_node_count = part[CE_PART_LOCAL_NODE_COUNT_OFFSET];
 	boolean local_nodes = (ce_read_long32(part) & CE_PART_LOCAL_NODES_FLAG) && local_node_count;
 	unsigned long index_count;
+	byte const *span = NULL;
 	long index;
 
 	if (triangle_type != CE_TRIANGLE_BUFFER_PRECOMPILED_STRIP || triangle_count < 0 ||
@@ -791,8 +1142,17 @@ static boolean ce_part_check(
 	{
 		word vertex_index;
 
-		memcpy(&vertex_index, model_data + vertex_data_size + triangle_offset + index * sizeof(word),
-			sizeof(vertex_index));
+		/* (a window's worth of them at a time: ce_map_checks.h) */
+		if (index % CE_WINDOW_INDICES == 0)
+		{
+			long batch = (long)index_count - index < CE_WINDOW_INDICES ? (long)index_count - index : CE_WINDOW_INDICES;
+
+			span = ce_model_data_at(data, vertex_data_size + triangle_offset + index * sizeof(word),
+				(unsigned long)batch * sizeof(word));
+			if (!span)
+				return ce_refuse("model %s: its model data could not be read", name);
+		}
+		memcpy(&vertex_index, span + (index % CE_WINDOW_INDICES) * sizeof(word), sizeof(vertex_index));
 		if (vertex_index >= vertex_count)
 			return ce_refuse("model %s: a part's strip names vertex %u of %ld", name, vertex_index, vertex_count);
 	}
@@ -802,7 +1162,13 @@ static boolean ce_part_check(
 		struct ce_vertex vertex;
 		short node;
 
-		memcpy(&vertex, model_data + vertex_offset + index * CE_VERTEX_SIZE, sizeof(vertex));
+		if (index % CE_WINDOW_VERTICES == 0)
+		{
+			span = ce_model_data_vertices(data, vertex_offset, index, vertex_count);
+			if (!span)
+				return ce_refuse("model %s: its model data could not be read", name);
+		}
+		memcpy(&vertex, span + (index % CE_WINDOW_VERTICES) * CE_VERTEX_SIZE, sizeof(vertex));
 		for (node = 0; node < 2; node++)
 		{
 			short node_index = vertex.node_indices[node];
@@ -820,12 +1186,16 @@ static boolean ce_part_check(
 			}
 		}
 	}
-	*bytes += CE_ALIGNED(index_count * sizeof(word)) + 2 * CE_BUFFER_HEADER_ROOM;
+	if (!ce_room_add(bytes, CE_ALIGNED(index_count * sizeof(word)) + 2 * CE_BUFFER_HEADER_ROOM, "its models"))
+		return FALSE;
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 	/* (on a 64 MB console its vertices are in the tag cache too: port/xbox's
 	xbox_ce_files.c) */
-	if (platform_ce_alias)
-		*bytes += CE_ALIGNED((unsigned long)vertex_count * XBOX_VERTEX_SIZE);
+	if (platform_ce_alias && !ce_room_add(bytes, CE_ALIGNED((unsigned long)vertex_count * XBOX_VERTEX_SIZE),
+		"its models"))
+	{
+		return FALSE;
+	}
 #endif
 	return TRUE;
 }
@@ -838,9 +1208,7 @@ boolean ce_models_check(
 	struct ce_image const *image,
 	void const *tag_instances,
 	long tag_count,
-	byte const *model_data,
-	unsigned long model_data_size,
-	unsigned long vertex_data_size,
+	struct ce_model_data *data,
 	unsigned long *bytes)
 {
 	long index;
@@ -942,7 +1310,8 @@ boolean ce_models_check(
 			{
 				return FALSE;
 			}
-			*bytes += CE_ALIGNED((unsigned long)part_count * XBOX_PART_SIZE);
+			if (!ce_room_add(bytes, CE_ALIGNED((unsigned long)part_count * XBOX_PART_SIZE), "its models"))
+				return FALSE;
 			for (part = 0; part < part_count; part++)
 			{
 				byte const *at = parts + part * CE_PART_SIZE;
@@ -962,7 +1331,7 @@ boolean ce_models_check(
 				}
 				if (primary < 0 || primary >= node_count || secondary < 0 || secondary >= node_count)
 					return ce_refuse("model %s: a part's centroid is on nodes %d and %d", name, primary, secondary);
-				if (!ce_part_check(at, name, node_count, model_data, model_data_size, vertex_data_size, bytes))
+				if (!ce_part_check(at, name, node_count, data, bytes))
 					return FALSE;
 			}
 		}

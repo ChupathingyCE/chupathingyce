@@ -41,7 +41,11 @@ def encipher(key: bytes, data: bytes) -> bytes:
 
 
 def challenge_response(challenge: bytes) -> bytes:
-    return base64.b64encode(encipher(GAME_KEY, challenge))
+    """base64 of the enciphered challenge, a short last group zero-filled and
+    written whole (no '=' padding), as Custom Edition 1.0.10's server writes
+    it (haloceded.exe 0x52c020)"""
+    data = encipher(GAME_KEY, challenge)
+    return base64.b64encode(data + b"\0" * (-len(data) % 3))
 
 
 def parse_pairs(fields):
@@ -132,7 +136,7 @@ class FakeMaster:
                 self.log("heartbeat: " + ", ".join(f"{key}={value}" for key, value in keys.items()
                                                     if not key.startswith("localip")))
                 if instance not in self.challenges and keys.get("statechanged") != "2":
-                    challenge = CAPTURED_CHALLENGE if not self.challenges else secrets.token_hex(9).encode()
+                    challenge = CAPTURED_CHALLENGE if not self.challenges else secrets.token_hex(10).encode()
                     self.challenges[instance] = challenge
                     self.socket.sendto(b"\xfe\xfd\x01" + instance + challenge + b"\x00", source)
             elif kind == 0x01:

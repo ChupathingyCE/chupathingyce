@@ -81,7 +81,7 @@ enum
 	MAXIMUM_TARGETS = 24,
 	KEY_BINDINGS = 2,
 	KEY_NAME_LENGTH = 32,
-	KEY_ROWS = 7,
+	KEY_ROWS = 9,
 	BUTTON_ROWS = 10,
 };
 
@@ -148,8 +148,10 @@ static struct
 	{ "controls.strafe_right", "STRAFE RIGHT", 0 },
 	{ "controls.jump", "JUMP", 0 },
 	{ "controls.crouch", "CROUCH", 0 },
+	{ "controls.walk", "WALK", 0 },
 	{ "controls.fire", "FIRE", 1 },
 	{ "controls.throw_grenade", "THROW GRENADE", 1 },
+	{ "controls.vehicle_secondary_fire", "VEHICLE ALT FIRE", 1 },
 	{ "controls.melee", "MELEE", 1 },
 	{ "controls.reload", "RELOAD", 1 },
 	{ "controls.zoom", "ZOOM", 1 },
@@ -162,6 +164,8 @@ static struct
 	{ "controls.chat_all", "CHAT", 2 },
 	{ "controls.chat_team", "TEAM CHAT", 2 },
 	{ "controls.chat_log", "CHAT LOG", 2 },
+	{ "controls.push_to_talk", "PUSH TO TALK", 2 },
+	{ "controls.voice_channel", "VOICE CHANNEL", 2 },
 };
 
 #define KEY_COUNT ((short)NUMBEROF(keys))

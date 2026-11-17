@@ -1,0 +1,16 @@
+{
+  "about": "a mod's .sound tag file as mod_sounds.c reads it over a map's sound (every count, offset and value checked, PCM swapped, Ogg Vorbis decoded through ce_vorbis.c), then given back: the whole mods path from a map's load to its unload with one tag and one file (the Xbox window at 48 TB, above the sanitizer's shadow, as tools/test_map_fuzz.py places it)",
+  "harness": "tools/tests/host_fuzz/mod_sound/mod_sound_fuzz.c",
+  "game_sources": [
+    {
+      "source": "port/linux/game/mods.c",
+      "append": "tools/tests/host_fuzz/mod_sound/mod_sound_stubs.c"
+    },
+    "port/linux/game/mod_sounds.c",
+    "port/linux/game/ce_vorbis.c"
+  ],
+  "max_len": 262144,
+  "game_flags": [
+    "-DXBOX_ADDRESS_SPACE_BASE=0x300000000000ULL"
+  ]
+}

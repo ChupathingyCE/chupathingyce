@@ -67,6 +67,7 @@ SCALARS = {
     "int": 4, "unsigned int": 4, "long": 4, "unsigned long": 4, "real": 4, "float": 4, "dword": 4,
     "long int": 4, "unsigned long int": 4, "tag": 4, "datum_index": 4, "string_id": 4, "angle": 4,
     "fraction": 4, "argb_color": 4, "real_fraction": 4, "DWORD": 4, "LONG": 4, "ULONG": 4, "UINT": 4,
+    "pixel32": 4,
     "WORD": 2, "BYTE": 1, "BOOL": 4, "FLOAT": 4, "size_t": 4, "time_t": 4, "__time32_t": 4,
     "long long": 8, "unsigned long long": 8, "__int64": 8, "unsigned __int64": 8, "double": 8,
     "__time64_t": 8, "long double": 8, "qword": 8,
@@ -822,7 +823,7 @@ SCHEMA_UNITS = "port/linux/game/tag_schema"
 # before the type does: { "name", offsetof(type, field), fields })
 SCHEMA_DEFINITION = re.compile(
     r"struct\s+tag_schema_definition\s+const\s+(\w+)\s*=\s*(?:TAG_SCHEMA_DEFINITION\(\s*\w+\s*,|"
-    r"\{\s*\"\w+\"\s*,\s*offsetof\()\s*((?:struct|union)\s+\w+)\s*,")
+    r"\{\s*\"\w+\"\s*,\s*offsetof\()\s*((?:struct|union)\s+\w+|\w+)\s*,")
 SCHEMA_BLOCK = re.compile(
     r"TAG_SCHEMA_(?:TOOL_)?BLOCK\(\s*((?:struct|union)\s+\w+)\s*,\s*([\w.]+)\s*,\s*(\w+)\s*,")
 SCHEMA_STRUCT = re.compile(
@@ -855,6 +856,22 @@ def member_owner(records: Dict[str, List[Tuple[int, Node]]], record: str, path: 
     return owner, names[-1]
 
 
+def schema_records_typedef(records: Dict[str, List[Tuple[int, Node]]], name: str) -> Optional[str]:
+    """a schema's type given by its typedef (`real_point3d`, a union): the
+    record of that name, so its blocks' elements (a mirror's points, a fog
+    plane's vertices) are swapped as the others are"""
+    for kind in ("union", "struct"):
+        if f"{kind} {name}" in records:
+            return f"{kind} {name}"
+    return None
+
+
+def schema_record(records: Dict[str, List[Tuple[int, Node]]], type_: str) -> Optional[str]:
+    if type_.startswith(("struct ", "union ")):
+        return type_
+    return schema_records_typedef(records, type_)
+
+
 def schema_views(records: Dict[str, List[Tuple[int, Node]]]) -> Tuple[Dict[Tuple[str, str], Set[str]],
                                                                          Dict[int, Set[str]],
                                                                          Dict[Tuple[str, str], Set[str]]]:
@@ -867,7 +884,9 @@ def schema_views(records: Dict[str, List[Tuple[int, Node]]]) -> Tuple[Dict[Tuple
     every_file: Dict[str, str] = {}
     each_file: List[Dict[str, str]] = []
     for text in texts:
-        own = {name: re.sub(r"\s+", " ", type_) for name, type_ in SCHEMA_DEFINITION.findall(text)}
+        own = {name: schema_record(records, re.sub(r"\s+", " ", type_))
+               for name, type_ in SCHEMA_DEFINITION.findall(text)}
+        own = {name: type_ for name, type_ in own.items() if type_}
         each_file.append(own)
         for name, type_ in own.items():
             every_file.setdefault(name, type_)

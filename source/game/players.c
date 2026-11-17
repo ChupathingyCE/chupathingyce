@@ -228,6 +228,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
+#include "mcc_player.h"
 #include "cseries/errors.h"
 #include "cseries/profile.h"
 #include "ai/ai.h"
@@ -261,9 +262,11 @@ symbols in this file:
 #include "objects/damage.h"
 #include "objects/damage_effect_definitions.h"
 #include "physics/collisions.h"
+#include "physics/collision_usage.h"
 #include "real_math.h"
 #include "render/render_debug.h"
 #include "players.h"
+#include "stubbs_horde.h" /* port: port/linux/game/stubbs_horde.c */
 #include "player_queues_new.h"
 #include "objects/objects.h"
 #include "saved games/game_state.h"
@@ -283,6 +286,7 @@ symbols in this file:
 #include "cseries/errors.h"
 #include "networking/network_messages.h"
 #endif
+#include "mcc_seats.h" /* port: port/linux/game/mcc_seats.c */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -702,6 +706,30 @@ long find_unused_local_player_index(
 void player_delete(
 	long player_index)
 {
+	short local_player_index;
+
+	/* port: a local player who quit the game in progress, whose slot
+	another machine's player takes (network_game_spawn_player), is no longer
+	this machine's local player. His handle left in the table was read by the
+	next input update (player_control.c), a halt on a datum that is gone or
+	another player's, and by a player joining again for that controller
+	(local_player_set_player_index). */
+	if (players_globals && player_index != NONE)
+	{
+		for (local_player_index = 0;
+			local_player_index < MAXIMUM_LOCAL_PLAYERS;
+			local_player_index++)
+		{
+			if (players_globals->local_players[local_player_index] != NONE &&
+				DATUM_INDEX_TO_ABSOLUTE_INDEX(players_globals->local_players[local_player_index]) ==
+					DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index))
+			{
+				players_globals->local_players[local_player_index] = NONE;
+				player_control_new_unit(local_player_index, NONE);
+			}
+		}
+	}
+
 	datum_delete(
 		player_data,
 		player_index);
@@ -1939,6 +1967,9 @@ static boolean player_handle_action(
 	case _player_action_result_evict_from_vehicle:
 	{
 		long nearby_unit_index;
+		/* port: MCC biped seats use host-validated interaction. */
+		if (mcc_seat_action(player_index, player->action_object_index, player->action_seat_index))
+			break;
 
 		if (unit_can_enter_seat(
 			player->unit_index,
@@ -2816,6 +2847,42 @@ static boolean players_coop_unit_grounded_anywhere(
 	return biped && !TEST_FLAG(biped->biped.flags, _biped_airborne_bit);
 }
 
+/* how far under a biped's feet something it stands on is looked for, and
+from how far above them */
+#define COOP_STANDING_ON_REACH 0.5f
+#define COOP_STANDING_ON_ABOVE 0.25f
+
+/* TRUE if a biped stands on an object: an elevator (bipeds.c keeps the one
+it last stood on for a moment after it steps off), or anything under its
+feet, as a vehicle's roof, scenery, a machine or a teammate. The biped keeps
+no other note of what it stands on, so the host looks straight down. */
+static boolean players_coop_unit_on_object(
+	long unit_index)
+{
+	struct biped_datum *biped = biped_try_and_get(unit_index);
+	struct collision_result collision;
+	real_point3d feet;
+	real_vector3d down = { 0.0f, 0.0f, -(COOP_STANDING_ON_ABOVE + COOP_STANDING_ON_REACH) };
+	boolean hit;
+
+	if (!biped)
+		return FALSE;
+	if (biped->biped.elevator_object_index != NONE)
+		return TRUE;
+	feet = biped->object.position;
+	feet.z += COOP_STANDING_ON_ABOVE;
+	match_assert("c:\\halo\\SOURCE\\game\\players.c", __LINE__,
+		global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
+	global_current_collision_users[global_current_collision_user_depth++] = _collision_user_bipeds;
+	hit = collision_test_vector(
+		FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_objects_bit) |
+			_collision_test_objects_all_types_flags,
+		&feet, &down, unit_index, &collision);
+	--global_current_collision_user_depth;
+
+	return hit;
+}
+
 /* TRUE if the unit is outside the loaded structure BSP, where it would fall
 forever: on foot, or in a vehicle that is empty or player-driven. AI-driven
 vehicles are ignored because the intro Pelicans fly outside the BSP. */
@@ -2827,18 +2894,20 @@ static boolean players_coop_unit_stranded(
 
 	if (players_coop_unit_in_structure(unit_index))
 		return FALSE;
-	/* (on foot: only while falling, not standing on something the BSP
+	/* (on foot: while falling, or standing on nothing at all, as someone
+	the scripts left in the last BSP is; not standing on an object the BSP
 	doesn't hold, such as an elevator in its shaft) */
 	if (vehicle_index == unit_index)
-		return !players_coop_unit_grounded_anywhere(unit_index);
+		return !players_coop_unit_grounded_anywhere(unit_index) || !players_coop_unit_on_object(unit_index);
 	driver_index = object_try_and_get_and_verify_type(vehicle_index, _object_mask_unit) ?
 		unit_get(vehicle_index)->unit.driver_object_index : NONE;
 	return driver_index == NONE || unit_get(driver_index)->unit.player_index != NONE;
 }
 
-/* How long a player can be falling outside the BSP before being brought
-back. A BSP switch settles in a tick or two; waiting longer avoids moving
-someone who is only crossing a seam or riding over a gap. */
+/* How long a player can be stranded outside the BSP (falling, or standing
+on nothing) before being brought back. A BSP switch settles in a tick or
+two; waiting longer avoids moving someone who is only crossing a seam or
+riding over a gap. */
 #define COOP_STRANDED_TICKS (2 * TICKS_PER_SECOND)
 
 /* After a BSP switch, how long the co-op host lets no other trigger switch
@@ -2850,6 +2919,26 @@ waits for every machine to have loaded it */
 /* how often a client's player standing on a loading zone is reminded that
 the host's crossing switches the BSP */
 #define COOP_HOST_WAIT_MESSAGE_TICKS (3 * TICKS_PER_SECOND)
+
+/* port: network co-op: player_teleport where it has found no room for the
+player beside the unit, with the other players left out of the test, so the
+player may stand in them (as coop_scripts.c's teleports do; players pass
+through each other until they are apart). Only where the alternative is a
+player outside the loaded structure BSP, where they would fall out of the
+world. From the OpenH1 team's fix (g0atbutt, OpenH1 b3694d50). */
+static boolean players_coop_teleport_stacked(
+	long player_index,
+	long source_unit_index,
+	real_point3d const *position)
+{
+	boolean result;
+
+	biped_fix_ignore_players(TRUE);
+	result = player_teleport(player_index, source_unit_index, position);
+	biped_fix_ignore_players(FALSE);
+
+	return result;
+}
 
 /* Co-op host, each tick: a player stranded for COOP_STRANDED_TICKS is moved
 beside a grounded teammate inside the BSP, else any teammate inside it, else
@@ -2887,6 +2976,12 @@ static void players_coop_rescue_stranded(
 		{
 			rescued = player_teleport(iterator.datum_index, teammate_index,
 				&object_get(teammate_index)->object.bounding_sphere_center);
+			/* (in them where there is no room beside them) */
+			if (!rescued)
+			{
+				rescued = players_coop_teleport_stacked(iterator.datum_index, teammate_index,
+					&object_get(teammate_index)->object.bounding_sphere_center);
+			}
 		}
 		else
 		{
@@ -3315,6 +3410,14 @@ static void player_teleport_on_bsp_switch(
 				crosser, so the rest go beside whoever is already in */
 				if (!teleport_succeeded && network_coop_active())
 					teleport_succeeded = player_place_beside_teammate(player_index);
+				/* port: and where nobody has room, onto the crosser,
+				standing in them (players_coop_teleport_stacked): left
+				where they were, they would be outside the new BSP */
+				if (!teleport_succeeded && network_coop_active() && source_unit_index != NONE)
+				{
+					teleport_succeeded = players_coop_teleport_stacked(player_index, source_unit_index,
+						&object_get(source_unit_index)->object.bounding_sphere_center);
+				}
 			}
 			else
 			{
@@ -3866,6 +3969,10 @@ static void player_examine_nearby_unit(
 	long player_index,
 	long unit_index)
 {
+	/* port: the legacy biped interaction remains empty outside MCC. */
+	short seat_index;
+	if (mcc_seat_nearby(player_index, unit_index, &seat_index))
+		player_set_action_result(player_index, _player_action_result_enter_vehicle, unit_index, seat_index);
 	return;
 }
 
@@ -4447,6 +4554,7 @@ void player_add_equipment(
 				starting_profile->starting_shield_modifier;
 			unit->object.body_vitality +=
 				starting_profile->starting_health_modifier;
+			mcc_player_profile_grenades(unit_index, starting_profile, reset_equipment);
 			unit = (struct unit_datum *)unit->unit.grenade_counts;
 			starting_profile =
 				(struct scenario_starting_profile *)starting_profile->grenade_counts;
@@ -4587,6 +4695,7 @@ void players_update_before_game(
 				(NONE == action->desired_weapon_index) ||
 				((action->desired_weapon_index >= 0) &&
 				(action->desired_weapon_index <= MAXIMUM_WEAPONS_PER_UNIT)));
+			if (!mcc_player_choice_supported(action->desired_grenade_index))
 			match_assert(
 				"c:\\halo\\SOURCE\\game\\players.c",
 				0x261,
@@ -4651,6 +4760,7 @@ void players_update_before_game(
 					(units.h, UNIT_CONTROL_PORT_ACTION_ONLY_BIT) */
 					if (TEST_FLAG(action->control_flags, _unit_control_action_bit) &&
 						unit->object.parent_object_index == NONE &&
+						!stubbs_horde_player_action(iterator.datum_index) && /* port: Stubbs mode only */
 						!player_handle_action(iterator.datum_index) &&
 						!TEST_FLAG(action->control_flags, UNIT_CONTROL_PORT_ACTION_ONLY_BIT))
 					{
@@ -4729,6 +4839,7 @@ void players_update_before_game(
 						(NONE == control_data.weapon_index) ||
 						((control_data.weapon_index >= 0) &&
 						(control_data.weapon_index <= MAXIMUM_WEAPONS_PER_UNIT)));
+					if (!mcc_player_choice_supported(control_data.grenade_index))
 					match_assert(
 						"c:\\halo\\SOURCE\\game\\players.c",
 						0x2E4,

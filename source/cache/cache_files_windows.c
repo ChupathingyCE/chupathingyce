@@ -197,6 +197,7 @@ a pack's Xbox maps, <file>@<pack>, are read from maps_<pack> */
 #include "tag_files/tag_files.h"
 #include "scenario/scenario_definitions.h"
 #include "rasterizer/rasterizer.h"
+#include "mcc_cache.h" /* independent MCC reads and namespace */
 
 #include <xtl.h>
 
@@ -290,6 +291,10 @@ struct cache_file_request
 	byte pad1F;
 };
 
+/* port: (cached_map_issue_async_request) how long a request the system is
+short of resources for is tried again before it fails */
+#define CACHED_MAP_ISSUE_RETRY_MILLISECONDS 5000
+
 typedef BOOL (WINAPI *cached_map_async_request_proc)(
 	HANDLE file,
 	void *buffer,
@@ -360,6 +365,10 @@ static void cache_file_get_map_path(
 static boolean cache_file_read_header_from_dvd(
 	const char *map_name,
 	struct cache_file_header *header);
+static boolean cache_file_read_header_checked( /* port */
+	const char *map_name,
+	struct cache_file_header *header,
+	boolean fatal);
 static short cached_map_files_find_free_map(
 	long file_length,
 	short scenario_type);
@@ -372,7 +381,7 @@ static void CALLBACK cache_file_blocking_io_completion_routine(
 	unsigned long error_code,
 	unsigned long bytes_transferred,
 	OVERLAPPED *overlapped);
-static void cached_map_issue_async_request(
+static boolean cached_map_issue_async_request(
 	cached_map_async_request_proc async_request_function,
 	HANDLE file,
 	OVERLAPPED *overlapped,
@@ -381,7 +390,7 @@ static void cached_map_issue_async_request(
 	long offset,
 	volatile boolean *completion_flag,
 	LPOVERLAPPED_COMPLETION_ROUTINE completion_routine);
-static void cached_map_issue_async_read(
+static boolean cached_map_issue_async_read(
 	HANDLE file,
 	OVERLAPPED *overlapped,
 	void *buffer,
@@ -389,7 +398,7 @@ static void cached_map_issue_async_read(
 	long offset,
 	volatile boolean *completion_flag,
 	LPOVERLAPPED_COMPLETION_ROUTINE completion_routine);
-static void cached_map_issue_async_write(
+static boolean cached_map_issue_async_write(
 	HANDLE file,
 	OVERLAPPED *overlapped,
 	void *buffer,
@@ -398,6 +407,7 @@ static void cached_map_issue_async_write(
 	volatile boolean *completion_flag,
 	LPOVERLAPPED_COMPLETION_ROUTINE completion_routine);
 static boolean cached_map_block_on_async_request(
+	boolean issued,
 	volatile boolean const *completion_flag);
 static void cached_map_file_get_path(
 	short map_file_index,
@@ -542,7 +552,23 @@ static boolean ce_map_open(
 		}
 		return FALSE;
 	}
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+	/* (Custom Edition's resource maps, which every such map reads: without
+	them, or with Halo PC's own in their place, it is refused before it is
+	read, saying what it needs, and asked again the next time, since the
+	player may have added them since: map_family_resources_ready logs each
+	place it looked) */
+	if (!map_family_resources_ready(ce_refused_map_message, sizeof(ce_refused_map_message)))
+	{
+		error(_error_silent, "%s map %s refused: Custom Edition's resource maps are missing or not Custom Edition's",
+			map_family_kind(family), map_name);
+		console_warning("%s map %s: %s", map_family_kind(family), map_name, MAP_REASON_CE_RESOURCES);
+		memset(ce_refused_map_name, 0, sizeof(ce_refused_map_name));
+		strncpy(ce_refused_map_name, map_name, sizeof(ce_refused_map_name) - 1);
+		ce_refused_map_size = 0;
+		ce_refused_map_checksum = 0;
+		return FALSE;
+	}
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 		return FALSE;
 	memset(&header, 0, sizeof(header));
@@ -850,6 +876,8 @@ boolean cache_files_precache_is_copying_map(
 boolean cache_files_precache_map_loaded(
 	const char *map_name)
 {
+	if (mcc_level_name(map_name))
+		return mcc_cache_available(map_name);
 	return cached_map_files_find_map(tag_name_strip_path(map_name)) != NONE;
 }
 
@@ -882,12 +910,77 @@ void cache_files_display_map_error(
 	return;
 }
 
+/* port: whether a map can be loaded: in the cache already (a Custom Edition
+map opened and not refused: cached_map_files_find_map), or one the precache
+would copy. A map named at the console (map_name), in init.txt or by another
+machine is asked about before the game it would end is left: the Xbox's
+precache took a map it could not find for a damaged disc and stopped the game
+for good (display_error_damaged_media, main_loop_of_death). Why a map is
+refused goes to debug.txt. An MCC level is left to its own checks
+(mcc_cache_require, #1149). Based on work by goatbutt and the OpenH1 team. */
+boolean cache_files_map_loadable(
+	const char *map_name,
+	char *reason,
+	long reason_size)
+{
+	const char *cache_map_name;
+	struct cache_file_header header;
+	char header_file[64];
+
+	if (reason && reason_size > 0)
+		reason[0] = 0;
+	if (!map_name || !map_name[0])
+	{
+		error(_error_silent, "no map named");
+		return FALSE;
+	}
+	if (mcc_level_name(map_name))
+		return TRUE;
+	if (cache_files_precache_map_loaded(map_name))
+		return TRUE;
+	cache_map_name = tag_name_strip_path(map_name);
+#ifdef HALO_CUSTOM_EDITION
+	if (ce_map_name_is(cache_map_name))
+	{
+		/* (refused as it was opened: ce_map_open said why) */
+		if (reason && reason_size > 0 && !_stricmp(ce_refused_map_name, cache_map_name) && ce_refused_map_message[0])
+		{
+			strncpy(reason, ce_refused_map_message, (size_t)reason_size - 1);
+			reason[reason_size - 1] = 0;
+		}
+		error(_error_silent, "couldn't open map '%s' (%s)", cache_map_name, map_name);
+		return FALSE;
+	}
+#endif
+	if (!cache_map_name[0] || !cache_file_read_header_checked(cache_map_name, &header, FALSE))
+	{
+		error(_error_silent, "couldn't find map '%s' (%s), or it is no map this build runs", cache_map_name, map_name);
+		return FALSE;
+	}
+	map_family_parse(cache_map_name, header_file, sizeof(header_file));
+	if (_stricmp(header.name, header_file) != 0 || strlen(cache_map_name) >= sizeof(header.name))
+	{
+		error(_error_silent, "map '%s' names itself '%s' in its header: refused", cache_map_name, header.name);
+		return FALSE;
+	}
+	if (cached_map_files_find_free_map(header.file_length, header.scenario_type) == NONE)
+	{
+		error(_error_silent, "no cache file can hold map '%s' (%08x bytes, type %d)",
+			cache_map_name, header.file_length, header.scenario_type);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
 boolean cache_files_precache_map_begin(
 	const char *map_name,
 	boolean copy_map)
 {
 	const char *cache_map_name = tag_name_strip_path(map_name);
 
+	if (mcc_level_name(map_name))
+		return mcc_cache_require(map_name, 0);
 	if (!cache_files_precache_map_loaded(map_name))
 	{
 		struct cache_file_header header;
@@ -1015,6 +1108,13 @@ void cache_files_precache_map_end(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		1031,
 		cache_file_globals.copy_in_progress);
+	/* port: with no copy, there is no slot to finish: its index is NONE,
+	and its header read from no file was #1149's hang */
+	if (!cache_file_globals.copy_in_progress)
+	{
+		error(_error_silent, "cache file: no map was being precached; nothing to finish");
+		return;
+	}
 	cache_copy_end();
 	texture_cache_return_memory();
 	cached_map_file_set_modification_date(cache_file_globals.copying_to_map_file_index);
@@ -1023,6 +1123,28 @@ void cache_files_precache_map_end(
 		cache_file_globals.copying_to_map_file_name);
 	cache_file_globals.copy_in_progress = FALSE;
 	cache_file_globals.copying_to_map_file_index = NONE;
+
+	return;
+}
+
+/* port: a copy that failed, ended with its slot holding no map (its header
+cleared), so that what the copy wrote is never taken for the map: a refused
+map's (game_precache_new_map_refusable), where the Xbox stopped for good */
+void cache_files_precache_map_abandon(
+	void)
+{
+	short map_file_index = cache_file_globals.copying_to_map_file_index;
+
+	if (!cache_file_globals.copy_in_progress)
+		return;
+	cache_files_precache_map_end();
+	if (map_file_index != NONE)
+	{
+		struct cached_map_file *map_file = cached_map_file_get(map_file_index);
+
+		memset(&map_file->header, 0, sizeof(struct cache_file_header));
+		memset(&map_file->last_modification_date, 0, sizeof(FILETIME));
+	}
 
 	return;
 }
@@ -1143,9 +1265,20 @@ short cache_file_read(
 	boolean *completion_flag_reference,
 	boolean blocking)
 {
-	short request_index = cache_request_next_free_index();
-	struct cache_file_request *request = cache_request_get(request_index);
+	short request_index;
+	struct cache_file_request *request;
 
+	/* port: an MCC map's reads are served at once, with no request of the
+	cache thread's (which could all be another map's still): a request index
+	that names none in flight */
+	if (mcc_cache_tags_loaded())
+	{
+		*completion_flag_reference = mcc_cache_read(tag_index, offset, size, buffer) ? TRUE :
+			(boolean)_cache_file_read_failed;
+		return 0;
+	}
+	request_index = cache_request_next_free_index();
+	request = cache_request_get(request_index);
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		269,
@@ -1412,15 +1545,16 @@ static void cache_files_open_cache_files(
 
 				completion_flag = FALSE;
 				CACHE_FILE_TRACE("cache file %d: header write issued", map_file_index);
-				cached_map_issue_async_write(
-					file,
-					&overlapped,
-					&blank_header,
-					sizeof(struct cache_file_header),
-					0,
-					&completion_flag,
-					cache_file_blocking_io_completion_routine);
-				cached_map_block_on_async_request(&completion_flag);
+				completion_flag = cached_map_block_on_async_request(
+					cached_map_issue_async_write(
+						file,
+						&overlapped,
+						&blank_header,
+						sizeof(struct cache_file_header),
+						0,
+						&completion_flag,
+						cache_file_blocking_io_completion_routine),
+					&completion_flag);
 				CACHE_FILE_TRACE("cache file %d: header write done (%d)", map_file_index, (int)completion_flag);
 #ifdef HALO_CONSOLE_CACHE_SCREEN
 				if (completion_flag)
@@ -1530,7 +1664,7 @@ static boolean cached_map_file_current(
 	boolean current = TRUE;
 
 	cache_file_get_map_path(cache_map_name, path);
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file != INVALID_HANDLE_VALUE)
 	{
 		FILETIME written;
@@ -1637,14 +1771,21 @@ static void cache_file_windows_thread_proc(
 				1327,
 				!best_request->running);
 			best_request->running = TRUE;
-			cached_map_issue_async_read(
+			/* port: a read that could not be issued completes as failed at
+			once, as one that failed does, rather than leaving its request
+			running with nothing to finish it */
+			if (!cached_map_issue_async_read(
 				file,
 				&best_request->overlapped,
 				best_request->buffer,
 				best_request->size,
 				best_request->overlapped.Offset,
 				(volatile boolean *)best_request->overlapped.hEvent,
-				cache_file_read_io_completion_routine);
+				cache_file_read_io_completion_routine))
+			{
+				cache_file_read_io_completion_routine((unsigned long)best_request->overlapped.Internal, 0,
+					&best_request->overlapped);
+			}
 		}
 	}
 
@@ -1695,9 +1836,12 @@ static void cache_file_get_map_path(
 	return;
 }
 
-static boolean cache_file_read_header_from_dvd(
+/* port: (with fatal FALSE, a file that is no cache file is refused without
+its assertion: cache_files_map_loadable) */
+static boolean cache_file_read_header_checked(
 	const char *map_name,
-	struct cache_file_header *header)
+	struct cache_file_header *header,
+	boolean fatal)
 {
 	boolean result = FALSE;
 	char path[256];
@@ -1707,7 +1851,7 @@ static boolean cache_file_read_header_from_dvd(
 	file = CreateFileA(
 		path,
 		GENERIC_READ,
-		0,
+		FILE_SHARE_READ,
 		NULL,
 		OPEN_EXISTING,
 		0,
@@ -1723,7 +1867,7 @@ static boolean cache_file_read_header_from_dvd(
 			&bytes_read,
 			NULL) &&
 			bytes_read == sizeof(struct cache_file_header) &&
-			cache_file_header_verify(header, path, TRUE))
+			cache_file_header_verify(header, path, fatal))
 		{
 			result = TRUE;
 		}
@@ -1731,6 +1875,13 @@ static boolean cache_file_read_header_from_dvd(
 	}
 
 	return result;
+}
+
+static boolean cache_file_read_header_from_dvd(
+	const char *map_name,
+	struct cache_file_header *header)
+{
+	return cache_file_read_header_checked(map_name, header, TRUE);
 }
 
 static short cached_map_files_find_free_map(
@@ -1853,12 +2004,14 @@ static void CALLBACK cache_file_blocking_io_completion_routine(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		1406,
 		overlapped->hEvent);
-	*(volatile boolean *)overlapped->hEvent = TRUE;
+	/* port: a request that failed completes as failed (not TRUE): what
+	waits on it stops waiting and sees it (cached_map_block_on_async_request) */
+	*(volatile boolean *)overlapped->hEvent = error_code == ERROR_SUCCESS ? TRUE : (boolean)_cache_file_read_failed;
 
 	return;
 }
 
-static void cached_map_issue_async_request(
+static boolean cached_map_issue_async_request(
 	cached_map_async_request_proc async_request_function,
 	HANDLE file,
 	OVERLAPPED *overlapped,
@@ -1899,37 +2052,58 @@ static void cached_map_issue_async_request(
 	overlapped->Offset = offset;
 	overlapped->OffsetHigh = 0;
 	overlapped->hEvent = (HANDLE)completion_flag;
-	while (TRUE)
+	/* port: a request that can't be issued (a closed or bad file: #1149's
+	missing MCC level once left a slot of none read here) fails instead of
+	being tried for ever, and one the system is short of resources for is
+	tried again for CACHED_MAP_ISSUE_RETRY_MILLISECONDS at most. The caller
+	sees FALSE: nothing was issued, so no completion will come */
 	{
-		unsigned long error_code;
+#ifndef HALO_CONSOLE_IO_RETRY_FOREVER
+		unsigned long first_try = GetTickCount();
+#endif
+
+		while (TRUE)
+		{
+			unsigned long error_code;
 
 #ifdef HALO_CONSOLE_WAIT_POLL
-		console_wait_poll();
+			console_wait_poll();
 #endif
-		SleepEx(0, TRUE);
-		SetLastError(ERROR_SUCCESS);
-		if (async_request_function(
-			file,
-			buffer,
-			size,
-			overlapped,
-			completion_routine))
-		{
-			break;
-		}
+			SleepEx(0, TRUE);
+			SetLastError(ERROR_SUCCESS);
+			if (async_request_function(
+				file,
+				buffer,
+				size,
+				overlapped,
+				completion_routine))
+			{
+				break;
+			}
 
-		error_code = GetLastError();
-		match_vassert(
-			"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
-			422,
-			error_code==ERROR_NOT_ENOUGH_MEMORY || error_code==ERROR_NO_SYSTEM_RESOURCES || error_code==ERROR_INVALID_USER_BUFFER,
-			csprintf(temporary, "Read/WriteFileEx() returned #%d", GetLastError()));
+			error_code = GetLastError();
+			/* (the original Xbox tries a short one for as long as it takes:
+			HALO_CONSOLE_IO_RETRY_FOREVER) */
+			if (!(error_code==ERROR_NOT_ENOUGH_MEMORY || error_code==ERROR_NO_SYSTEM_RESOURCES ||
+					error_code==ERROR_INVALID_USER_BUFFER)
+#ifndef HALO_CONSOLE_IO_RETRY_FOREVER
+				|| GetTickCount() - first_try >= CACHED_MAP_ISSUE_RETRY_MILLISECONDS
+#endif
+				)
+			{
+				error(_error_silent, "cache file: a %ld-byte request at %ld could not be issued (#%lu): failed",
+					size, offset, error_code);
+				overlapped->Internal = error_code ? error_code : ERROR_INVALID_HANDLE;
+				return FALSE;
+			}
+			Sleep(1);
+		}
 	}
 
-	return;
+	return TRUE;
 }
 
-static void cached_map_issue_async_read(
+static boolean cached_map_issue_async_read(
 	HANDLE file,
 	OVERLAPPED *overlapped,
 	void *buffer,
@@ -1938,7 +2112,7 @@ static void cached_map_issue_async_read(
 	volatile boolean *completion_flag,
 	LPOVERLAPPED_COMPLETION_ROUTINE completion_routine)
 {
-	cached_map_issue_async_request(
+	return cached_map_issue_async_request(
 		ReadFileEx,
 		file,
 		overlapped,
@@ -1947,11 +2121,9 @@ static void cached_map_issue_async_read(
 		offset,
 		completion_flag,
 		completion_routine);
-
-	return;
 }
 
-static void cached_map_issue_async_write(
+static boolean cached_map_issue_async_write(
 	HANDLE file,
 	OVERLAPPED *overlapped,
 	void *buffer,
@@ -1960,7 +2132,7 @@ static void cached_map_issue_async_write(
 	volatile boolean *completion_flag,
 	LPOVERLAPPED_COMPLETION_ROUTINE completion_routine)
 {
-	cached_map_issue_async_request(
+	return cached_map_issue_async_request(
 		(cached_map_async_request_proc)WriteFileEx,
 		file,
 		overlapped,
@@ -1969,15 +2141,18 @@ static void cached_map_issue_async_write(
 		offset,
 		completion_flag,
 		completion_routine);
-
-	return;
 }
 
 static boolean cached_map_block_on_async_request(
+	boolean issued,
 	volatile boolean const *completion_flag)
 {
 	boolean completed;
 
+	/* (a request that could not be issued has nothing to wait for:
+	cached_map_issue_async_request said so, and its flag was not set) */
+	if (!issued)
+		return FALSE;
 	while (!*completion_flag)
 	{
 #ifdef HALO_CONSOLE_WAIT_POLL
@@ -1988,7 +2163,7 @@ static boolean cached_map_block_on_async_request(
 			break;
 		}
 	}
-	completed = *completion_flag;
+	completed = *completion_flag == TRUE;
 
 	return completed;
 }
@@ -2026,16 +2201,16 @@ static void cached_map_file_read_header(
 	cached_map_file_get_path(map_file_index, path);
 	GetFileTime(map_file->file, &map_file->last_modification_date, NULL, NULL);
 	completion_flag = FALSE;
-	cached_map_issue_async_read(
-		map_file->file,
-		&overlapped,
-		&map_file->header,
-		sizeof(struct cache_file_header),
-		0,
-		&completion_flag,
-		cache_file_blocking_io_completion_routine);
-	cached_map_block_on_async_request(&completion_flag);
-	if (completion_flag)
+	if (cached_map_block_on_async_request(
+		cached_map_issue_async_read(
+			map_file->file,
+			&overlapped,
+			&map_file->header,
+			sizeof(struct cache_file_header),
+			0,
+			&completion_flag,
+			cache_file_blocking_io_completion_routine),
+		&completion_flag))
 	{
 		if (!cache_file_header_verify(&map_file->header, path, FALSE))
 		{
@@ -2078,17 +2253,19 @@ static void cached_map_file_name_family(
 		return;
 	}
 	completion_flag = FALSE;
-	cached_map_issue_async_read(map_file->file, &overlapped, &raw, sizeof(raw), 0, &completion_flag,
-		cache_file_blocking_io_completion_routine);
-	cached_map_block_on_async_request(&completion_flag);
+	completion_flag = cached_map_block_on_async_request(
+		cached_map_issue_async_read(map_file->file, &overlapped, &raw, sizeof(raw), 0, &completion_flag,
+			cache_file_blocking_io_completion_routine),
+		&completion_flag);
 	if (completion_flag)
 	{
 		memset(raw.name, 0, sizeof(raw.name));
 		strncpy(raw.name, map_name, sizeof(raw.name) - 1);
 		completion_flag = FALSE;
-		cached_map_issue_async_write(map_file->file, &overlapped, &raw, sizeof(raw), 0, &completion_flag,
-			cache_file_blocking_io_completion_routine);
-		cached_map_block_on_async_request(&completion_flag);
+		completion_flag = cached_map_block_on_async_request(
+			cached_map_issue_async_write(map_file->file, &overlapped, &raw, sizeof(raw), 0, &completion_flag,
+				cache_file_blocking_io_completion_routine),
+			&completion_flag);
 	}
 	if (!completion_flag)
 	{
@@ -2192,7 +2369,15 @@ static struct cached_map_file *cached_map_file_get(
 static void cached_map_file_invalidate(
 	short map_file_index)
 {
-	cached_map_file_get(map_file_index)->file = INVALID_HANDLE_VALUE;
+	struct cached_map_file *map_file = cached_map_file_get(map_file_index);
+
+	/* port: the handle is closed, not just forgotten (a cache slot that
+	failed its header read or a copy's write kept its file open) */
+	if (map_file->file != INVALID_HANDLE_VALUE && map_file->file != NULL)
+	{
+		CloseHandle(map_file->file);
+	}
+	map_file->file = INVALID_HANDLE_VALUE;
 
 	return;
 }

@@ -13,6 +13,53 @@ device itself (d3d8_gl.c).
 #include "platform.h"
 #include "gl.h"
 
+/* ---------- the desktop's two kinds of OpenGL
+
+The desktop renderer is written for OpenGL 4.5, and does without what came
+after 3.3 where macOS's OpenGL 4.1 lacks it (OpenGL ES has the same path):
+each vertex attribute pointed at on its own (no 4.3 vertex attribute
+binding), each texture unit bound on its own (no 4.4 multi-bind), mipmap
+levels copied with a blit (no 4.3 glCopyImageSubData), and D3D's clip space
+converted by the vertex shaders (no 4.5 glClipControl: nv2a_vsh.c).
+Windows, Linux and FreeBSD take that path when the driver has no OpenGL 4.5
+(an older integrated GPU's, game issue #78): sdl_platform.c then makes a
+3.3 context and sets xgpu_gl_legacy (gl_functions.c), and the entry points
+past 3.3 are left out, as on macOS (gl_functions_load).
+
+XGPU_GL_POINTERS: the build has the path without them; XGPU_GL_BINDINGS:
+the build has the 4.5 one; XGPU_GL_LEGACY: the path drawing now. */
+#if defined(HALO_GL_ES) || defined(__APPLE__)
+#define XGPU_GL_POINTERS 1
+#define XGPU_GL_BINDINGS 0
+#define XGPU_GL_LEGACY 1
+#elif defined(HALO_CONSOLE_GL_LAYER)
+#define XGPU_GL_POINTERS 0
+#define XGPU_GL_BINDINGS 1
+#define XGPU_GL_LEGACY 0
+#else
+#define XGPU_GL_POINTERS 1
+#define XGPU_GL_BINDINGS 1
+#define XGPU_GL_LEGACY_AT_RUN_TIME 1
+extern int xgpu_gl_legacy;
+#define XGPU_GL_LEGACY xgpu_gl_legacy
+#endif
+
+/* the desktop shaders' #version line: 4.5's, macOS's 4.1, or on an older
+driver the newest of 4.1, 4.0 and 3.3 its context has */
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+extern const char *xgpu_gl_version_line;
+#define XGPU_GL_VERSION_LINE xgpu_gl_version_line
+/* (GLSL 3.30's has no gl_SampleMask: alpha tested over the samples, nv2a_psh.c) */
+extern int xgpu_gl_sample_mask;
+#define XGPU_GL_SAMPLE_MASK xgpu_gl_sample_mask
+#elif defined(__APPLE__)
+#define XGPU_GL_VERSION_LINE "#version 410 core\n"
+#define XGPU_GL_SAMPLE_MASK 1
+#else
+#define XGPU_GL_VERSION_LINE "#version 450 core\n"
+#define XGPU_GL_SAMPLE_MASK 1
+#endif
+
 #ifdef HALO_GL_ES
 /* OpenGL ES features that are optional (d3d8_gl.c gl_initialize) */
 struct xgpu_capabilities
@@ -68,6 +115,19 @@ each program handed to linked() */
 GLuint xgpu_shader_cache_compile(GLenum type, const char *source, const char *what);
 void xgpu_shader_cache_linked(GLuint vertex_shader, GLuint fragment_shader);
 void xgpu_shader_cache_warm(void (*linked)(GLuint vertex_shader, GLuint fragment_shader, GLuint program));
+#ifdef HALO_SHADER_PREP
+/* the shaders a map's loading screen makes (d3d8_shader_prep.inl): a text's
+shader with its compile asked for and not waited on (one made before as it
+is), or 0; then whether it is compiled, kept in the file as any other: 1 it
+is, 0 it failed (its log written; the shader kept, as the renderer holds its
+name, so that a program linked of it fails and its draws are left out, and
+never saved, so that the next run compiles it again), -1 not yet (wait FALSE, on a driver that compiles in parallel). A draw that
+comes to a shader first waits for it. As for a linked program's. */
+extern BOOL xgpu_parallel_compile;
+GLuint xgpu_shader_cache_submit(GLenum type, const char *source);
+int xgpu_shader_cache_finish(GLuint shader, BOOL wait);
+int xgpu_program_finish(GLuint program, BOOL wait);
+#endif
 
 /* ---------- generated source text */
 
@@ -118,7 +178,7 @@ convert D3D's clip space themselves (nv2a_vsh.c) */
 #endif
 
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting);
+	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting, BOOL plasma_model);
 
 /* ---------- pixel shaders */
 
@@ -130,45 +190,23 @@ enum
 	_xgpu_sampler_cube,
 };
 
-/* everything a translated pixel shader depends on; the GLSL program cache
-is keyed by these bytes */
-struct nv2a_pixel_shader_key
-{
-	DWORD combiner_state[D3DRS_PS_MAX];
-	/* D3DRS_PSTEXTUREMODES lies past D3DRS_PS_MAX */
-	DWORD texture_modes;
-	unsigned char sampler_type[4];
-	unsigned char alpha_kill[4];
-	/* D3DTSS_COLORSIGN: channels (bit 0 alpha ... bit 3 blue, as
-	D3DTSIGN_*) that hold signed data in an unsigned texture format */
-	unsigned char color_sign[4];
-	/* D3DCMP_* function for the alpha test, or 0 when disabled */
-	unsigned long alpha_test_function;
-	unsigned char fog_enable;
-	unsigned char fog_table_mode;
-	/* inside a visibility test: count the samples that pass (Android) */
-	unsigned char count_samples;
-	/* a high-res HUD meter (hud_hires.h) drawn with the meter's blend (the
-	destination kept by the source's alpha): that alpha is eased to 1 by the
-	coverage texture 0's green holds, so that the meter darkens what is
-	behind it only where it covers it (the Xbox's point-sampled meters stop
-	at their texels' edges; filtered ones have a fringe of faint texels) */
-	unsigned char coverage_alpha;
-	/* a model lighting program's draw lit for each pixel
-	(display.per_pixel_lighting): nv2a_vertex_lighting's lights, or 0 for
-	the diffuse color the vertex shader computed */
-	unsigned char per_pixel_lighting;
-	/* drawn into a multisampled target (display.anti_aliasing's
-	multisampling), its samples a pixel: the alpha test covers samples in
-	proportion to how far alpha is past the reference, not all of the pixel
-	or none of it, so that cut-out edges (foliage, grates) are smoothed too */
-	unsigned char alpha_test_samples;
-	/* Discrete meter thresholds in texture 0's red are read at level zero,
-	without filtering. Coverage/brightness still use the filtered lookup. */
-	unsigned char point_threshold;
-};
+/* everything a translated pixel shader depends on (nv2a_pixel_key.h) */
+#include "nv2a_pixel_key.h"
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
+
+/* nv2a_finite, in the vertex and pixel shaders: a component that is not a
+number made 0, by its bits (a driver's fast math may drop a float test such as
+isnan). The NV2A made none, and a GPU draws one as anything: black, white or
+blocks. An infinite one is kept, for the clamps after it to take to the end of
+the range, as the NV2A did. A named function, so that a console that writes
+the GLSL into another language can give it its own body (the Xbox 360's has no
+integer bit operations) */
+#define NV2A_FINITE \
+	"vec4 nv2a_finite(vec4 v)\n" \
+	"{\n" \
+	"	return mix(v, vec4(0.0), greaterThan(floatBitsToUint(v) & uvec4(0x7fffffffu), uvec4(0x7f800000u)));\n" \
+	"}\n"
 
 #ifdef HALO_GL_ES
 /* ES samplers have no LOD bias of their own */
@@ -215,7 +253,14 @@ struct xgpu_texture_description
 	BOOL hires;         /* a high-res HUD texture drawn in the texture's place (hud_hires.h) */
 	BOOL hires_coverage; /* ... whose green is its coverage (a meter's) */
 	BOOL hires_point_threshold; /* ... whose red holds discrete segment data */
+	BOOL hires_fields;  /* the high-res text's atlas of distance fields (text_hires.h) */
 };
+
+/* the range of the high-res text's distance fields (text_hires.c): texels
+of the field from its lowest value to its highest, a distance of range
+texels; and as the shaders' source has it (nv2a_psh.c's decode) */
+#define XGPU_TEXT_FIELD_RANGE 6
+#define XGPU_TEXT_FIELD_RANGE_TEXT "6.0"
 
 void xgpu_texture_describe(DWORD format_word, DWORD size_word, struct xgpu_texture_description *description);
 /* bytes of one face, mip levels included (cube faces are padded) */
@@ -228,6 +273,47 @@ from guest memory as needed; *target receives GL_TEXTURE_2D etc. */
 GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *target,
 	struct xgpu_texture_description *description);
 void xgpu_texture_cache_begin_frame(void);
+/* for a port whose GL can run short of texture memory (the Xbox 360's):
+drops the textures not drawn in the last 'frames' frames (at least one; the
+next draw that needs one uploads it again), between frames, and returns how
+many it dropped */
+unsigned long xgpu_texture_cache_drop_idle(unsigned long frames);
+/* has the GL texture 'texture' uploaded again the next time it is drawn (the
+port could not make it, and has freed memory since) */
+void xgpu_texture_cache_reload(GLuint texture);
+/* the same for every texture the port says it is missing (more could not be
+made than it kept a list of); returns how many */
+unsigned long xgpu_texture_cache_reload_missing(int (*missing)(GLuint texture));
+/* (not on the consoles: HALO_CONSOLE_NO_GUIDE) a plain 2D texture's first
+level, read for the port's own drawing (the Guide's plasma: ui_overlay.h),
+as RGBA bytes with rows from the top; NULL for one it does not read (a cube,
+a volume, a palette's, larger than 1024 square) or without memory. The
+caller frees it */
+unsigned char *xgpu_texture_rgba(const DWORD *resource, unsigned long *width, unsigned long *height);
+
+/* MCC-owned immutable resources never enter the guest physical texture cache. */
+BOOL xgpu_mcc_texture_get(DWORD const *resource, D3DCOLOR const *palette,
+	GLuint *texture, GLenum *target, struct xgpu_texture_description *description);
+#if defined(HALO_MCC) && !HALO_MCC
+/* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks
+the shared code calls do nothing, their arguments unevaluated */
+#define xgpu_mcc_texture_get(a0, a1, a2, a3, a4) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (BOOL)0)
+#endif
+BOOL xgpu_mcc_texture_upload(GLuint texture, GLenum target,
+	struct xgpu_texture_description const *description, void const *pixels,
+	unsigned long bytes, D3DCOLOR const *palette);
+void xgpu_mcc_texture_unbind(DWORD const *resource);
+/* an MCC header's description and immutable pixels, for a renderer that
+uploads its own copies (the bgfx renderer); FALSE if resource is not one */
+BOOL xgpu_mcc_texture_source(DWORD const *resource, struct xgpu_texture_description *description,
+	void const **pixels, unsigned long *bytes, long *hud_asset);
+/* an MCC texture a renderer could not make, and why: logged (the first few,
+then the count when the map's textures go: mcc_texture_bridge.c) */
+void xgpu_mcc_texture_failed(struct xgpu_texture_description const *description, char const *reason);
+#if defined(HALO_MCC) && !HALO_MCC
+#define xgpu_mcc_texture_source(a0, a1, a2, a3, a4) ((void)sizeof(a0), (void)sizeof(a1), (void)sizeof(a2), (void)sizeof(a3), (void)sizeof(a4), (BOOL)0)
+#define xgpu_mcc_texture_failed(a0, a1) ((void)sizeof(a0), (void)sizeof(a1))
+#endif
 
 /* ---------- render targets */
 
@@ -253,23 +339,44 @@ struct xgpu_render_target
 	/* changes whenever the target is drawn into or cleared (d3d8_gl.c,
 	bind_targets) */
 	unsigned long written;
+	/* the texture's (and the multisampled renderbuffer's) internal format:
+	GL_RGBA8, GL_DEPTH24_STENCIL8, or GL_RGBA16F for the back buffer with
+	display.hdr (d3d8_gl.c) */
+	GLenum format;
 };
 
 /* the GL texture holding a render target with this physical address, or 0 */
 struct xgpu_render_target *xgpu_render_target_find(unsigned long data);
 
-#ifdef HALO_BGFX
-/* display.renderer is "bgfx": the bgfx test backend draws instead of OpenGL
-(d3d8_bgfx.inl), from platform_video_initialize on */
-extern BOOL xgpu_bgfx;
-/* a level of a texture that is not compressed, as 32-bit ARGB words (B, G,
-R, A in memory); FALSE without the memory for it */
+#if defined(HALO_BGFX) || defined(HALO_CONSOLE_NATIVE_RENDERER) || defined(HALO_VULKAN)
+/* a level of a texture that is not compressed, as 32-bit ARGB words in the
+processor's order (B, G, R, A in memory on a little-endian one); FALSE
+without the memory for it */
 BOOL xgpu_texture_decode_level(const struct xgpu_texture_description *description, unsigned long level,
 	const unsigned char *source, const D3DCOLOR *palette, unsigned long *destination);
 /* a compressed texture's DXT kind (1, 3 or 5; 0 for any other), and the
 bytes of one of its levels */
 int xgpu_texture_dxt(const struct xgpu_texture_description *description);
 unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *description, unsigned long level);
+#endif
+
+#ifdef HALO_VULKAN
+/* the Android app's Vulkan backend draws (display.renderer = "vulkan";
+d3d8_vk.inl): set as the window is made, so that nothing here makes an
+OpenGL context or calls OpenGL; cleared when it could not start */
+extern BOOL xgpu_vulkan;
+/* the textures the port's own modules make (hud_hires.c, text_hires.c,
+menu_files.c), as xgpu_bgfx_texture_create's: an image's number */
+unsigned int xgpu_vulkan_texture_create(unsigned long width, unsigned long height, const unsigned char *rgba,
+	BOOL mipmapped);
+void xgpu_vulkan_texture_rows(unsigned int name, unsigned long top, unsigned long width, unsigned long rows,
+	const unsigned char *rgba);
+void xgpu_vulkan_texture_delete(unsigned int name);
+#endif
+#ifdef HALO_BGFX
+/* display.renderer is "bgfx": the bgfx test backend draws instead of OpenGL
+(d3d8_bgfx.inl), from platform_video_initialize on */
+extern BOOL xgpu_bgfx;
 /* the port's own textures under the bgfx backend (the high-res text's atlas,
 HUD sheets, menu art): RGBA texels, made with their smaller levels when
 mipmapped; a name (nonzero) as the OpenGL path's texture names are */
@@ -278,10 +385,21 @@ unsigned int xgpu_bgfx_texture_create(unsigned long width, unsigned long height,
 void xgpu_bgfx_texture_rows(unsigned int name, unsigned long top, unsigned long width, unsigned long rows,
 	const unsigned char *rgba);
 void xgpu_bgfx_texture_delete(unsigned int name);
-/* the overlay's quads (ui_overlay.c) over the window's picture at Present */
-void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
+/* the setup launcher's frame before the game draws (launcher.c): bgfx
+started, the window cleared to color (0xRRGGBBAA), the overlay over it in
+the picture's place (x, y its lower left corner) and the window saved to
+screenshot (a .bmp's path, or NULL); FALSE if bgfx does not start */
+BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int height, const char *screenshot);
+/* the overlay's quads (ui_overlay.c) over the window's picture at Present
+(plasma_shift: the plasma's second map's place, then its threads' color;
+cellwall: the cellwall's motion, side and front tints, ui_overlay_cellwall;
+medals: the medals' atlas, premultiplied, while one is drawn, NULL before);
+whether the medals' atlas is the GPU's now (its pixels may be let go) */
+int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
+	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[8],
+	const float cellwall[12], const unsigned char *medals, int medals_width, int medals_height,
 	const float cutouts[4][4], int window_width, int window_height);
 #endif
 
@@ -297,9 +415,79 @@ cannot be (once FALSE, it stays so) */
 BOOL xgpu_post_prepare(BOOL smaa);
 
 /* FXAA, or SMAA, on the corners x0, y0 to x1, y1 (from row 0) of a render
-target's framebuffer, width by height, GL_RGBA8; FALSE if its programs do
-not build */
-BOOL xgpu_post_anti_alias(BOOL smaa, GLuint framebuffer, unsigned long width, unsigned long height,
-	const GLint corners[4]);
+target's framebuffer, width by height, of that internal format (GL_RGBA8, or
+GL_RGBA16F with display.hdr); FALSE if its programs do not build */
+BOOL xgpu_post_anti_alias(BOOL smaa, GLuint framebuffer, GLenum format, unsigned long width,
+	unsigned long height, const GLint corners[4]);
+
+/* ---------- high dynamic range (xgpu_tone_map.h)
+
+display.hdr (d3d8_gl.c): the back buffer is GL_RGBA16F, so that what the
+game's blending adds up past white is kept rather than clipped, and each
+window's 3D view is tone mapped here before the HUD and menus are drawn
+over it. The back buffer's values stay the game's, gamma encoded, 1.0 the
+display's white; past 1.0 only where an HDR display (display.hdr_output)
+can show it. Presentation then draws the back buffer into the window with a
+program of its own, which for an HDR display's scRGB framebuffer makes the
+values linear. */
+
+enum
+{
+	_xgpu_tone_mapping_neutral,
+	_xgpu_tone_mapping_aces,
+	_xgpu_tone_mapping_reinhard,
+	NUMBER_OF_XGPU_TONE_MAPPINGS
+};
+
+struct xgpu_tone_mapping
+{
+	int curve;
+	/* the scale of the linear values before the curve */
+	float exposure;
+	/* the brightest value the curve gives, in the display's whites: 1.0 for
+	SDR, an HDR display's headroom over paper white */
+	float peak;
+	/* the UI's white over paper white (display.hdr_ui_nits): the view is
+	left under the frame's 1 by it, so that the HUD is the brighter; 1 for
+	the same */
+	float ui;
+};
+
+/* the display's encodings at the present */
+enum
+{
+	/* the frame's values, clamped to [0, 1] (the window's 8 bits) */
+	_xgpu_hdr_output_sdr,
+	/* HDR10: Rec. 2020 primaries, SMPTE ST 2084 (PQ), 1.0 10 000 nits (bgfx's
+	swap chain) */
+	_xgpu_hdr_output_pq,
+	/* scRGB: linear light, 1.0 the output's own white (OpenGL's
+	floating-point window) */
+	_xgpu_hdr_output_linear,
+};
+
+/* the shaders' uniforms (xgpu_tone_map.h): tone from the tone mapping;
+encoding from the output, the paper white in the output's units (over
+10 000 nits for PQ, over the output's white for linear), and the tone
+mapping's UI white and peak */
+void xgpu_tone_map_set(float tone[4], const struct xgpu_tone_mapping *tone_mapping);
+void xgpu_tone_map_encoding(float encoding[4], int output, float paper_white,
+	const struct xgpu_tone_mapping *tone_mapping);
+
+/* the tone mapping and presentation programs made now; FALSE if they
+cannot be (once FALSE, it stays so) */
+BOOL xgpu_post_prepare_hdr(void);
+
+/* tone maps the corners (as xgpu_post_anti_alias's) of a GL_RGBA16F target:
+reads its pixels from source (its texture's framebuffer), writes the colour
+(not alpha) into destination (the same, or its multisampled renderbuffer's) */
+BOOL xgpu_post_tone_map(GLuint source, GLuint destination, unsigned long width, unsigned long height,
+	const GLint corners[4], const struct xgpu_tone_mapping *tone_mapping);
+
+/* draws a GL_RGBA16F target's texture into the bound draw framebuffer's x,
+y, width, height (the window's, row 0 at the bottom), turned the right way
+up: as it is (SDR), or, for an HDR display's scRGB framebuffer, made linear
+and scaled to the paper white (encoding: xgpu_tone_map_encoding's) */
+BOOL xgpu_post_present(GLuint texture, int x, int y, int width, int height, const float encoding[4]);
 
 #endif

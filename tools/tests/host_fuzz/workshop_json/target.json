@@ -1,0 +1,16 @@
+{
+  "about": "what a Steam Workshop item says of itself: its manifest, a map's json, and Steam's library folders",
+  "harness": "port/linux/tests/workshop_json_fuzz.c",
+  "sources": [
+    "port/linux/src/steam_workshop.c"
+  ],
+  "includes": [
+    "port/linux/src"
+  ],
+  "flags": [
+    "-std=gnu11",
+    "-w",
+    "-DHALO_MCC=1"
+  ],
+  "max_len": 8192
+}

@@ -8,6 +8,7 @@ build's keys (update_key.h).
 
 #include "update_signature.h"
 #include "update_key.h"
+#include "update_prerelease_key.h"
 
 #include "monocypher.h"
 #include "monocypher-ed25519.h"
@@ -17,6 +18,7 @@ build's keys (update_key.h).
 
 #define UPDATE_SIGNATURE_SIZE 64
 #define UPDATE_KEY_COUNT (sizeof(update_public_keys) / sizeof(*update_public_keys))
+#define UPDATE_PRERELEASE_KEY_COUNT (sizeof(update_prerelease_public_keys) / sizeof(*update_prerelease_public_keys))
 
 static int update_key_set(const unsigned char *key)
 {
@@ -120,9 +122,10 @@ static int update_signature_parse(const char *text, size_t length, unsigned char
 	return 1;
 }
 
-/* whether signature is one of message's by one of the build's keys */
+/* whether signature is one of message's by one of the build's release keys,
+or (prerelease: a testing or nightly feed's list) its prerelease keys */
 static int update_signature_by_key(const unsigned char *signature, const unsigned char *message, size_t length,
-	char *error, size_t error_size)
+	int prerelease, char *error, size_t error_size)
 {
 	size_t index;
 
@@ -135,7 +138,16 @@ static int update_signature_by_key(const unsigned char *signature, const unsigne
 			return 1;
 		}
 	}
-	snprintf(error, error_size, "its signature does not match ChupathingyCE's release key");
+	for (index = 0; prerelease && index < UPDATE_PRERELEASE_KEY_COUNT; index++)
+	{
+		if (update_key_set(update_prerelease_public_keys[index]) &&
+			crypto_ed25519_check(signature, update_prerelease_public_keys[index], message, length) == 0)
+		{
+			return 1;
+		}
+	}
+	snprintf(error, error_size, prerelease ? "its signature does not match ChupathingyCE's release or prerelease keys" :
+		"its signature does not match ChupathingyCE's release key");
 	return 0;
 }
 
@@ -157,12 +169,12 @@ int update_signature_check(const unsigned char *zip, size_t zip_size, const char
 		snprintf(error, error_size, "its name or version is not one");
 		return 0;
 	}
-	return update_signature_by_key(signature, (const unsigned char *)message, (size_t)message_length, error,
+	return update_signature_by_key(signature, (const unsigned char *)message, (size_t)message_length, 0, error,
 		error_size);
 }
 
-int update_signature_check_document(const unsigned char *document, size_t size, const char *signature_text,
-	size_t signature_length, char *error, size_t error_size)
+static int update_signature_document(const unsigned char *document, size_t size, const char *signature_text,
+	size_t signature_length, int prerelease, char *error, size_t error_size)
 {
 	unsigned char signature[UPDATE_SIGNATURE_SIZE];
 
@@ -171,5 +183,17 @@ int update_signature_check_document(const unsigned char *document, size_t size, 
 		snprintf(error, error_size, "its signature is not one");
 		return 0;
 	}
-	return update_signature_by_key(signature, document, size, error, error_size);
+	return update_signature_by_key(signature, document, size, prerelease, error, error_size);
+}
+
+int update_signature_check_document(const unsigned char *document, size_t size, const char *signature_text,
+	size_t signature_length, char *error, size_t error_size)
+{
+	return update_signature_document(document, size, signature_text, signature_length, 0, error, error_size);
+}
+
+int update_signature_check_feed(const unsigned char *document, size_t size, const char *signature_text,
+	size_t signature_length, char *error, size_t error_size)
+{
+	return update_signature_document(document, size, signature_text, signature_length, 1, error, error_size);
 }

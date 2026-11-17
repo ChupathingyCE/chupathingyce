@@ -20,6 +20,7 @@ tunnel's packets are sealed with keys only its two machines have.
 #include "monocypher.h"
 #include "monocypher-ed25519.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -785,6 +786,100 @@ static int invite_space(char character)
 	return character == ' ' || character == '\t' || character == '\r' || character == '\n';
 }
 
+/* the length of text's start that is prefix, ignoring case (0 if it isn't) */
+static int invite_prefix(const char *text, const char *prefix)
+{
+	int length;
+
+	for (length = 0; prefix[length]; length++)
+	{
+		char c = text[length] >= 'A' && text[length] <= 'Z' ? (char)(text[length] - 'A' + 'a') : text[length];
+
+		if (c != prefix[length])
+			return 0;
+	}
+	return length;
+}
+
+/* the length of a join page's address at text's start (http or https, a
+host of the site's, P2P_INVITE_PAGE_HOSTS, of letters, digits, dots and
+dashes only, then /join/), 0 if it isn't one */
+static int invite_page_prefix(const char *text)
+{
+	static const char *const hosts[] = { P2P_INVITE_PAGE_HOSTS };
+	int length = invite_prefix(text, "https://");
+	int host = 0, index;
+
+	if (!length)
+		length = invite_prefix(text, "http://");
+	if (!length)
+		return 0;
+	/* (a host's own letters only: it ends at the path, and anything else
+	there, ?, #, @ or a backslash, is no join page of the site's) */
+	for (;; host++)
+	{
+		char c = text[length + host];
+
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-'))
+			break;
+	}
+	if (text[length + host] != '/')
+		return 0;
+	for (index = 0; index < (int)(sizeof(hosts) / sizeof(*hosts)); index++)
+	{
+		int size = (int)strlen(hosts[index]);
+
+		/* (the host, or one under it: www., stats.) */
+		if (host >= size && invite_prefix(text + length + host - size, hosts[index]) &&
+			(host == size || text[length + host - size - 1] == '.') &&
+			invite_prefix(text + length + host, "/join/"))
+		{
+			return length + host + (int)strlen("/join/");
+		}
+	}
+	return 0;
+}
+
+const char *p2p_invite_link_digits(const char *text)
+{
+	const char *search;
+
+	for (search = text; search && *search; search++)
+	{
+		int length = invite_prefix(search, "halo://join/");
+
+		if (!length)
+			length = invite_page_prefix(search);
+		if (length)
+			return search + length;
+	}
+	return NULL;
+}
+
+int p2p_invite_share_link(const char *invite, char *link, int size)
+{
+	const char *digits = invite ? p2p_invite_link_digits(invite) : NULL;
+	int written;
+
+	if (size <= 0)
+		return 0;
+	link[0] = 0;
+	if (!invite)
+		return 0;
+	/* (a game's invite as the site's join page, which opens it in the game;
+	anything else as it is) */
+	if (digits && invite_prefix(invite, "halo://join/") && digits[0])
+		written = snprintf(link, (size_t)size, P2P_INVITE_PAGE "%s", digits);
+	else
+		written = snprintf(link, (size_t)size, "%s", invite);
+	if (written < 0 || written >= size)
+	{
+		link[0] = 0;
+		return 0;
+	}
+	return 1;
+}
+
 int p2p_parse_invite(const char *text, unsigned char *host_hash, unsigned char *token, unsigned char *check)
 {
 	unsigned char bytes[P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE + P2P_INVITE_CHECK_SIZE];
@@ -794,17 +889,8 @@ int p2p_parse_invite(const char *text, unsigned char *host_hash, unsigned char *
 	int digits;
 	int index;
 
-	for (search = text; *search && !start; search++)
-	{
-		static const char prefix[] = "halo://join/";
-		int length;
-
-		for (length = 0; prefix[length] && search[length] &&
-			(search[length] | 0x20) == prefix[length]; length++)
-			;
-		if (!prefix[length])
-			start = search + length;
-	}
+	/* (halo://join/, or the site's join page) */
+	start = p2p_invite_link_digits(text);
 	if (!start)
 	{
 		/* a bare code: the text is its digits alone (a locked one's after

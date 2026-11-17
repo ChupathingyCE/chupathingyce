@@ -2,7 +2,7 @@
 CHAT.H
 
 Text chat between Chupathingy machines, bridged to OpenCE's (chat.c;
-docs/delta.md, Chat).
+docs/delta/peer.md, Chat).
 */
 
 #ifndef __CHAT_H
@@ -42,6 +42,12 @@ logged once), from a machine (the host's, NONE on a client), and whether it
 came over the sender's stream (anything else is dropped) */
 void chat_bridge_message(long machine_index, int type, void const *entry, int size, int from_stream);
 
+/* (network_distributed.c, a client) the host's notice for the console
+(_distributed_message_notice), printable ASCII: also a line of the chat
+when the host has no Delta chat (an OpenCE host, which sends its server
+messages, its message of the day and its dedicated server's word that way) */
+void chat_host_console_notice(char const *text);
+
 /* the host's mode (enum delta_chat_mode) and whether it filters blocked
 words: a dedicated server's settings (a player's host reads network.chat
 and network.chat_filter) */
@@ -62,6 +68,23 @@ void chat_host_set_cooldown(int seconds);
 int chat_host_cooldown(void);
 void chat_host_set_welcome(char const *text);
 char const *chat_host_welcome(void);
+
+/* the line each OpenCE player (no Delta session) is sent once a join, a few
+seconds after they spawn, that this is a Chupathingy game (opence_welcome.h):
+on or off, and its text (1 to 63 characters of printable ASCII without '|';
+NULL, empty or another: the default). A dedicated server's opence_welcome
+and opence_welcome_text; a player's host reads network.opence_welcome, with
+the default text. Off unless set */
+void chat_host_set_opence_welcome(int on, char const *text);
+int chat_host_opence_welcome(void);
+char const *chat_host_opence_welcome_text(void);
+
+/* this copy's own mute of a machine's player (the chat log's M, and the
+Guide's Players here): whether they are muted, and muted or not. wchar_t
+is the game's UTF-16. To ask, machine NONE matches the name on any machine,
+and name NULL anyone muted on the machine */
+boolean chat_local_muted(short machine, wchar_t const *name);
+void chat_local_mute(short machine, wchar_t const *name, boolean mute);
 
 /* (the dedicated server's) whether a machine's player is signed in as a
 moderator with a role here: its lines are marked as a moderator's */

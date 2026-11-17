@@ -149,8 +149,13 @@ class Harness:
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             self.port = probe.getsockname()[1]
-        environment = dict(os.environ, HARNESS_DATA=str(data), HALO_DEDICATED_CONTROL=f"{listen}:{self.port}",
-                           HALO_DEDICATED_CONSOLE="true", ASAN_OPTIONS="detect_leaks=0", **(extra or {}))
+        # (listen None: HALO_DEDICATED_CONTROL not set, the default address;
+        # a setting of its own: HALO_DEDICATED_CONTROL in extra)
+        environment = {key: value for key, value in os.environ.items() if key != "HALO_DEDICATED_CONTROL"}
+        environment.update(HARNESS_DATA=str(data), HALO_DEDICATED_CONSOLE="true", ASAN_OPTIONS="detect_leaks=0")
+        if listen is not None:
+            environment["HALO_DEDICATED_CONTROL"] = f"{listen}:{self.port}"
+        environment.update(extra or {})
         self.process = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE, env=environment, text=True)
         self.lines = []
@@ -576,6 +581,38 @@ def test_setup_mode_with_an_owner_hosts_at_once(harness_binary, tmp_path):
         running.stop()
 
 
+def test_default_panel_on_a_taken_port_keeps_running(harness_binary, tmp_path):
+    """With HALO_DEDICATED_CONTROL not set, the panel is 127.0.0.1:8080's; when
+    that port is taken, one line says so and the server keeps running."""
+    holder = socket.socket()
+    try:
+        holder.bind(("127.0.0.1", 8080))
+        holder.listen(1)
+    except OSError:
+        pass  # (taken already: the same test)
+    try:
+        running = Harness(harness_binary, tmp_path / "data", listen=None, expect="127.0.0.1:8080 is taken")
+        try:
+            running.console("help", "ran help")
+            assert not (tmp_path / "data" / "control_setup_code.txt").exists()
+        finally:
+            running.stop()
+    finally:
+        holder.close()
+
+
+def test_panel_off(harness_binary, tmp_path):
+    """HALO_DEDICATED_CONTROL=off: no panel, no setup code, the console still."""
+    running = Harness(harness_binary, tmp_path / "data", listen=None, extra={"HALO_DEDICATED_CONTROL": "off"},
+                      expect="the console reads commands")
+    try:
+        running.console("help", "ran help")
+        assert not any("listen on" in line for line in running.lines)
+        assert not (tmp_path / "data" / "control_setup_code.txt").exists()
+    finally:
+        running.stop()
+
+
 # ---------- what the permission table covers, logins, second factors, slow clients
 
 
@@ -723,3 +760,62 @@ def test_slow_clients_do_not_hold_the_panel(harness):
     finally:
         for connection in idle:
             connection.close()
+
+
+def test_listed_host_names_only(harness_binary, tmp_path):
+    """HALO_DEDICATED_CONTROL_HOSTS: a request for another name (a page of
+    another site whose name now points at this machine: DNS rebinding) is
+    refused before anything else, a login too; the listed name and this
+    machine's own (an SSH tunnel's) are answered."""
+    running = Harness(harness_binary, tmp_path / "data", extra={"HALO_DEDICATED_CONTROL_HOSTS": "panel.example.org"})
+    try:
+        def request(host, path="/v1/hello", extra=""):
+            return Response(raw(running.port, f"GET {path} HTTP/1.1\r\nHost: {host}\r\n{extra}\r\n".encode()))
+
+        assert request("attacker.example:8080").status == 421
+        assert request("panel.example.org.attacker.example").status == 421
+        assert request("attacker.example", "/").status == 421
+        # (an X-Forwarded-Host must be listed too)
+        assert request(f"127.0.0.1:{running.port}", extra="X-Forwarded-Host: attacker.example\r\n").status == 421
+        body = json.dumps({"user": "nobody", "password": "a long enough password"}).encode()
+        refused = Response(raw(running.port, (f"POST /v1/login HTTP/1.1\r\nHost: attacker.example:{running.port}\r\n"
+                                              f"Origin: http://attacker.example:{running.port}\r\n"
+                                              "Content-Type: application/json\r\n"
+                                              f"Content-Length: {len(body)}\r\n\r\n").encode() + body))
+        assert refused.status == 421
+        assert request("panel.example.org").status == 200
+        assert request("PANEL.example.org:443", extra="X-Forwarded-Host: panel.example.org\r\n").status == 200
+        assert request(f"127.0.0.1:{running.port}").status == 200
+        assert request(f"localhost:{running.port}").status == 200
+        assert login(running).status == 200
+    finally:
+        running.stop()
+
+
+def test_session_password_checks_are_limited(harness):
+    """A session's own password checked again (changing it, turning the
+    second factor off) counts against the limits a login does: a stolen
+    session guesses no faster than a stranger at the login, and after five
+    wrong tries from the address, even the right password waits. (Each run
+    is a fresh harness with its own data folder: the limits are in memory.
+    An address with wrong tries lately leaves the last few checks of the
+    minute to everyone else, as a login does, so a guess may first have to
+    wait for one: that 429 is not the lockout.)"""
+    _, moderator = owner_and_moderator(harness)
+    wrongs = 0
+    deadline = time.time() + 60
+    while wrongs < 5:
+        wrong = http(harness, "POST", "/v1/account/password", moderator,
+                     {"password": f"guess number {wrongs}", "new_password": "a brand new password"})
+        if wrong.status == 429:
+            assert b"too many checks" in wrong.body and time.time() < deadline, wrong.body
+            time.sleep(1)
+            continue
+        assert wrong.status == 403, (wrongs, wrong.body)
+        wrongs += 1
+    refused = http(harness, "POST", "/v1/account/password", moderator,
+                   {"password": "orange team forever", "new_password": "a brand new password"})
+    assert refused.status == 429 and b"wrong passwords" in refused.body, refused.body
+    refused = http(harness, "POST", "/v1/account/totp/disable", moderator,
+                   {"password": "orange team forever", "code": "123456"})
+    assert refused.status == 429 and b"wrong passwords" in refused.body, refused.body

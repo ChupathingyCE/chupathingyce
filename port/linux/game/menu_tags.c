@@ -34,6 +34,7 @@ clock runs on).
 #include "cseries.h"
 #include "bitmaps/bitmap_group.h"
 #include "tag_files/tag_groups.h"
+#include "cache/cache_files.h"
 #include "text/text_group.h"
 #include "rasterizer/xbox/rasterizer_xbox_hardware_bitmaps.h"
 
@@ -93,10 +94,13 @@ adds to */
 #define MULTIPLAYER_COLLECTION "ui\\shell\\multiplayer"
 /* a campaign map's pause screen, which pause_patch adds to */
 #define SOLO_PAUSE_SCREEN "ui\\shell\\solo_game\\pause_game\\pause_game"
-/* the tags pause_patch adds: five buttons and their texts, and the middle
+/* a Custom Edition map's CHANGE SETTINGS, which pause_row_replaced takes out
+(the Halo PC screen it opens is in no map) */
+#define CUSTOM_CHANGE_SETTINGS_BUTTON "ui\\shell\\multiplayer_game\\pause_game\\change_settings_button"
+/* the tags pause_patch adds: six buttons and their texts, and the middle
 and bottom parts of the stock box's pieces, a widget and a bitmap each (the
 campaign's has six pieces) */
-#define PAUSE_PATCH_TAGS (10 + 4 * 6)
+#define PAUSE_PATCH_TAGS (12 + 4 * 6)
 /* what a frame of ui.map's is drawn as in a game map, which has not got it */
 #define BLANK_PNG "ce/port/blank__0.png"
 #define UI_WIDGET_DEFINITION_TAG 'DeLa'
@@ -381,7 +385,7 @@ static char const *const port_function_names[] =
 	"port pause end game",
 	"port pause change teams",
 	"port pause moderation",
-	"port pause controls", "controller screen init", "controller screen defaults", "controller begin binding",
+	"port pause controls", "port pause guide", "port about open", "port delta open", "controller screen init", "controller screen defaults", "controller begin binding",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
 	"port lobby player list initialize", "port lobby player choose",
@@ -410,6 +414,10 @@ static char const *const port_function_names[] =
 	/* (the settings screens' nested lists, and Controls Setup's) */
 	"port settings views init", "port settings view", "port settings back", "port settings accept",
 	"port controls init", "port controls defaults", "port controls accept", "port controls closed",
+	/* (SETUP: menu_functions.c) */
+	"port setup open",
+	/* (Network Setup's INSTALL UPDATE: menu_functions.c) */
+	"port update install",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -1121,6 +1129,30 @@ static long font_tag(char const *font, char const *file, long line)
 	return map_tag(FONT_TAG, path, file, line);
 }
 
+/* a child left out of its parent: SETUP (setup_entry, the way back to the
+setup screen) in a game's menus, where it would end the game, and where
+launcher.menu_entry turns it off */
+static boolean setup_left_out;
+
+static boolean child_left_out(struct halo_menu_child const *entry)
+{
+	extern boolean pc_menu_setup_offered(void);
+	char const *name = entry->nested != HALO_MENU_NONE ? build.menus->widgets[entry->nested].name : entry->widget;
+	char const *leaf = name && strrchr(name, '/') ? strrchr(name, '/') + 1 : name;
+
+	if (!leaf || strcmp(leaf, "setup_entry"))
+		return FALSE;
+	setup_left_out = build.game_map || !pc_menu_setup_offered();
+	return setup_left_out;
+}
+
+/* whether the menus built last have SETUP (menu_functions.c: the rows after
+it are a place higher without it) */
+boolean pc_menu_setup_shown(void)
+{
+	return !setup_left_out;
+}
+
 static void *widget_build(long widget_index)
 {
 	struct halo_menus const *menus = build.menus;
@@ -1292,9 +1324,9 @@ static void *widget_build(long widget_index)
 		reference_set(&definition->extended_description_widget, UI_WIDGET_DEFINITION_TAG,
 			tag_named(UI_WIDGET_DEFINITION_TAG, source->description, source->file, source->line));
 	}
-	/* the children */
+	/* the children (but SETUP, where it is left out: child_left_out) */
 	for (count = 0, child = source->first_child; child != HALO_MENU_NONE; child = menus->children[child].next)
-		count++;
+		count += !child_left_out(&menus->children[child]);
 	if (definition->type == _widget_type_spinner_list && count != 0 && count != 1 && count != 3)
 		problem(source->file, source->line, "a spinner has 0, 1 or 3 children:", source->name);
 	if (count)
@@ -1306,10 +1338,15 @@ static void *widget_build(long widget_index)
 		for (count = 0, child = source->first_child; children && child != HALO_MENU_NONE; child = menus->children[child].next)
 		{
 			struct halo_menu_child const *entry = &menus->children[child];
-			long tag_index = entry->nested != HALO_MENU_NONE ? build.widget_tags[entry->nested] :
+			long tag_index;
+			char const *name, *child_leaf;
+
+			if (child_left_out(entry))
+				continue;
+			tag_index = entry->nested != HALO_MENU_NONE ? build.widget_tags[entry->nested] :
 				tag_named(UI_WIDGET_DEFINITION_TAG, entry->widget, entry->file, entry->line);
-			char const *name = entry->nested != HALO_MENU_NONE ? menus->widgets[entry->nested].name : entry->widget;
-			char const *child_leaf = strrchr(name, '/') ? strrchr(name, '/') + 1 : name;
+			name = entry->nested != HALO_MENU_NONE ? menus->widgets[entry->nested].name : entry->widget;
+			child_leaf = strrchr(name, '/') ? strrchr(name, '/') + 1 : name;
 
 			reference_set(&children[count].widget_tag, UI_WIDGET_DEFINITION_TAG, tag_index);
 			strncpy(children[count].name, child_leaf, sizeof(children[count].name) - 1);
@@ -1478,10 +1515,20 @@ static void instance_set(struct cache_file_tag_instance *instances, long group_t
 	instance->base_address = XBOX_ADDRESS(definition);
 }
 
+/* the pause menus' DELTA's text (its string list's tag), for the count
+of what waits in the Guide (guide_pause_label); NONE in a map without it */
+static long pause_guide_label = NONE;
+
+long pc_menu_pause_guide_label(void)
+{
+	return pause_guide_label;
+}
+
 static void menu_tags_release(void)
 {
 	long index;
 
+	pause_guide_label = NONE;
 	for (index = 0; index < menu_tags.bitmap_count; index++)
 	{
 		if (menu_tags.bitmaps[index]->hardware_format)
@@ -1511,7 +1558,8 @@ static void menu_tags_release(void)
 /* ---------- the in-game pause menus (a campaign map's, a multiplayer map's)
 
 Their list gets SETTINGS after RESUME GAME, the menus' settings (as the
-main menu's SETTINGS opens them), and CONTROLS; a multiplayer map's, for
+main menu's SETTINGS opens them), CONTROLS, and DELTA (DELTA over the
+pause menu, delta.pause_menu); a multiplayer map's, for
 the host, MODERATION, the host's kick and ban of its players
 (moderation_screen.c, the builds with it), and END GAME, which ends the game
 as its time limit would: its players stay, and the host picks the next map
@@ -1536,12 +1584,13 @@ Gearbox menus' own */
 #define PAUSE_CONTROLS_SCREEN_CHUPATHINGY "chupathingy/settings/controls_setup_screen"
 #define PAUSE_BUTTON_SPACING 35
 
-/* display.menus: the Xbox's menus, Gearbox's Halo PC menus, or Chupathingy's (the
+/* display.menus: the Xbox's menus or Chupathingy's (the
 Xbox's, with the PC version's screens that the Xbox has not, in its look:
 port/assets/menus/chupathingy) */
 enum
 {
 	_menus_xbox,
+	/* (Gearbox's Halo PC menus, retired as a menu set: menus_chosen) */
 	_menus_pc,
 	_menus_chupathingy,
 };
@@ -1667,6 +1716,21 @@ static boolean pause_controls_offered(void)
 #endif
 }
 
+/* whether the pause menus have DELTA (DELTA over the pause menu,
+port/linux/game/guide.c), as delta.pause_menu says, in every menu set */
+static boolean pause_guide_offered(void)
+{
+#ifdef HALO_GUIDE
+	/* (the Guide is the first player's: not with split screen, where the
+	row would be dead in the others' pause menus) */
+	extern unsigned char pc_menu_split_players(void);
+
+	return config_boolean("delta.pause_menu") != 0 && !pc_menu_split_players();
+#else
+	return FALSE;
+#endif
+}
+
 /* whether a multiplayer game's pause menus have the host's MODERATION (the
 Moderation screen over them, moderation_screen.c: kick and ban): a game
 this machine hosts, in a build with the screen */
@@ -1762,7 +1826,8 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 	/* (the Xbox's menus have none of ours: the Controls screen, by code) */
 	long controls_widget = !controls || !build.menus ? NONE :
 		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_CONTROLS_SCREEN_CHUPATHINGY : PAUSE_CONTROLS_SCREEN);
-	long everyday = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE);
+	boolean guide_row = pause_guide_offered();
+	long everyday = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE) + (guide_row != FALSE);
 	long added = everyday + (end_game != FALSE) + (moderation != FALSE);
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[resume].widget_tag.index);
@@ -1772,9 +1837,9 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 		PAUSE_BUTTON_SPACING;
 	long quit = quit_function != NONE ? pause_quit_button(list, quit_function) : NONE;
 	long removed = 0, total;
-	void *buttons[5];
-	long tags[5];
-	char const *names[5];
+	void *buttons[6];
+	long tags[6];
+	char const *names[6];
 
 	*grow = 0;
 	for (child = resume + 1; child < count; child++)
@@ -1810,6 +1875,15 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 		buttons[added++] = pause_button(instances, model, "pause/controls_button", "CONTROLS",
 			function_index("port pause controls", "pause", 0),
 			controls_widget == NONE ? NONE : build.widget_tags[controls_widget], FALSE);
+	}
+	if (guide_row)
+	{
+		names[added] = "pause/guide_button";
+		tags[added] = next_tag();
+		buttons[added++] = pause_button(instances, model, "pause/guide_button", "DELTA",
+			function_index("port pause guide", "pause", 0), NONE, FALSE);
+		if (buttons[added - 1])
+			pause_guide_label = ((struct ui_widget_definition *)buttons[added - 1])->text_label_string_list.index;
 	}
 	if (moderation)
 	{
@@ -2113,7 +2187,7 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	the multiplayer game engine's */
 	if (solo_screen != NONE)
 	{
-		if (settings || pause_controls_offered())
+		if (settings || pause_controls_offered() || pause_guide_offered())
 			pause_screen_patch(instances, solo_screen, NONE, FALSE, settings, FALSE, &patched_list, &grow, &box_grown);
 	}
 	else if (collection != NONE)
@@ -2134,8 +2208,9 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	}
 	if (patched_list != NONE)
 	{
-		platform_log("menus: the pause menu has%s%s%s%s%s", change_teams ? " CHANGE TEAMS" : "",
+		platform_log("menus: the pause menu has%s%s%s%s%s%s", change_teams ? " CHANGE TEAMS" : "",
 			settings ? " SETTINGS" : "", pause_controls_offered() ? " CONTROLS" : "",
+			pause_guide_offered() ? " DELTA" : "",
 			solo_screen == NONE && pause_moderation_offered(host) ? " MODERATION" : "",
 			host && solo_screen == NONE ? " END GAME" : "");
 	}
@@ -2190,9 +2265,134 @@ static void pause_patch_xbox(void)
 }
 
 
-/* which display.menus asks for, in any case ("gearbox" or the older "pc"
-for Gearbox's; a value that is none of them is said once in the log, and is
-the Xbox's) */
+/* ---------- the main menus' DELTA (delta.menu_item, off by default: the
+main menu's note says how to open DELTA instead, guide.c)
+
+With it, each main menu has DELTA (DELTA over it, on PARTY: a party started, friends
+invited, the party brought to a game), in every menu set: the row in
+chupathingy/main_menu.xml put in the main menu's list before QUIT here, in
+the Chupathingy menus' and Gearbox's (its list is tools/ce_menus.py's, from
+the PC version's tags), and DELTA in Gearbox's Multiplayer button bar. The
+lists are patched as the menus load, so a change shows the next time they
+do. The Xbox's main menu stays the Xbox's (its
+rows are ui.map's pictures): there DELTA is the Multiplayer menu's row
+(ui_widget.c), the key and the Guide button. Not on the consoles (no DELTA
+there yet) nor with split screen's players (DELTA is the first player's). */
+
+#define DELTA_ROW "chupathingy/main_menu_delta"
+#define GEARBOX_MAIN_MENU_LIST "main_menu/main_menu_select_list"
+
+/* (delta.menu_item, as it is when the menus load: a change shows the
+next time they do) */
+static boolean main_menu_delta_offered(void)
+{
+#ifdef HALO_GUIDE
+	extern unsigned char pc_menu_split_players(void);
+
+	return config_boolean("delta.menu_item") != 0 && !pc_menu_split_players();
+#else
+	return FALSE;
+#endif
+}
+
+/* ui_widget.c's: whether the Multiplayer menu gets its DELTA row now */
+boolean pc_menu_delta_item_offered(void)
+{
+	return main_menu_delta_offered();
+}
+
+/* a row put in a list at "at" (the rows from there a row lower, the
+row's spacing the list's own) */
+static boolean list_row_insert(struct ui_widget_definition *list, long at, long row_tag)
+{
+	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
+	long count = list->child_widgets.count, child;
+	struct ui_widget_child_reference *grown;
+	short spacing;
+
+	if (count < 2 || at < 0 || at > count || row_tag == NONE)
+		return FALSE;
+	spacing = (short)(children[count - 1].vertical_offset - children[count - 2].vertical_offset);
+	grown = allocate((count + 1) * sizeof(*grown));
+	if (!grown || spacing <= 0)
+		return FALSE;
+	for (child = 0; child < at; child++)
+		grown[child] = children[child];
+	grown[at] = children[at < count ? at : count - 1];
+	reference_set(&grown[at].widget_tag, UI_WIDGET_DEFINITION_TAG, row_tag);
+	if (at == count)
+		grown[at].vertical_offset = (short)(children[count - 1].vertical_offset + spacing);
+	for (child = at; child < count; child++)
+	{
+		grown[child + 1] = children[child];
+		grown[child + 1].vertical_offset = (short)(grown[child + 1].vertical_offset + spacing);
+	}
+	list->child_widgets.address = XBOX_ADDRESS(grown);
+	list->child_widgets.count = count + 1;
+	return TRUE;
+}
+
+/* the main menu (Gearbox's or the Chupathingy menus' list): the DELTA row
+before QUIT */
+#define CHUPATHINGY_MAIN_MENU_LIST "chupathingy/main_menu_list"
+
+static void main_menu_delta_patch(void)
+{
+	long list = widget_named(menus_chosen() == _menus_chupathingy ? CHUPATHINGY_MAIN_MENU_LIST : GEARBOX_MAIN_MENU_LIST);
+	long row = widget_named(DELTA_ROW);
+	struct ui_widget_definition *definition;
+
+	if (!main_menu_delta_offered() || list == NONE || row == NONE)
+		return;
+	definition = tag_get(UI_WIDGET_DEFINITION_TAG, build.widget_tags[list]);
+	if (!definition || definition->type != _widget_type_column_list ||
+		!list_row_insert(definition, definition->child_widgets.count - 1, build.widget_tags[row]))
+	{
+		platform_log("menus: the main menu's DELTA not added");
+	}
+}
+
+/* Gearbox's Multiplayer menu: DELTA in its button bar, left of BACK (its
+list has no room for another row) */
+#define DELTA_BUTTON "chupathingy/button_delta"
+#define GEARBOX_MULTIPLAYER_BAR "main_menu/multiplayer_type_select/multiplayer_type_button_bar"
+
+static void multiplayer_delta_patch_gearbox(void)
+{
+	long bar = widget_named(GEARBOX_MULTIPLAYER_BAR), button = widget_named(DELTA_BUTTON);
+	struct ui_widget_definition *definition;
+	struct ui_widget_child_reference *children, *grown;
+	long count, child;
+
+	if (!main_menu_delta_offered() || bar == NONE || button == NONE)
+		return;
+	definition = tag_get(UI_WIDGET_DEFINITION_TAG, build.widget_tags[bar]);
+	count = definition ? definition->child_widgets.count : 0;
+	grown = count > 0 ? allocate((count + 1) * sizeof(*grown)) : NULL;
+	if (!grown)
+	{
+		platform_log("menus: the Multiplayer menu's DELTA not added");
+		return;
+	}
+	children = xbox_pointer(definition->child_widgets.address);
+	/* (first, so left and right go DELTA, BACK as they read) */
+	grown[0] = children[0];
+	reference_set(&grown[0].widget_tag, UI_WIDGET_DEFINITION_TAG, build.widget_tags[button]);
+	grown[0].horizontal_offset = (short)(children[0].horizontal_offset - 130);
+	for (child = 0; child < count; child++)
+		grown[child + 1] = children[child];
+	definition->child_widgets.address = XBOX_ADDRESS(grown);
+	definition->child_widgets.count = count + 1;
+}
+
+/* which display.menus asks for, in any case; a value that is none of them
+is said once in the log, and is the Xbox's. Gearbox's menus ("gearbox", or
+the older "pc") are no longer a menu set to choose: those values are the
+Xbox's too, and the player is told once, in the main
+menu's note (guide.c's _toast_menus_retired). Their screens, built from port/assets/menus/ce, stay
+in the game: the Chupathingy menus are made of many of them, and the rest
+are kept for extra screens (the _menus_pc paths here, which nothing chooses
+now) */
 static short menus_chosen(void)
 {
 	static boolean said;
@@ -2210,20 +2410,23 @@ static short menus_chosen(void)
 	lower[index] = 0;
 	if (value[index])
 		lower[0] = 0;
-	if (!strcmp(lower, "gearbox") || !strcmp(lower, "pc"))
-		return _menus_pc;
 	if (!strcmp(lower, "chupathingy"))
 		return _menus_chupathingy;
-	if (strcmp(lower, "xbox") && !said)
+	if (!said && (!strcmp(lower, "gearbox") || !strcmp(lower, "pc")))
 	{
-		platform_log("menus: display.menus \"%s\" is not \"xbox\", \"gearbox\" or \"chupathingy\": the Xbox's", value);
+		platform_log("menus: display.menus \"%s\": the Gearbox menus were retired; the Xbox's", value);
+		said = TRUE;
+	}
+	else if (strcmp(lower, "xbox") && !said)
+	{
+		platform_log("menus: display.menus \"%s\" is not \"chupathingy\" or \"xbox\": the Xbox's", value);
 		said = TRUE;
 	}
 	return _menus_xbox;
 }
 
-/* which menus display.menus asks for: 0 the Xbox's, 1 Gearbox's, 2 the
-Chupathingy menus (for what follows them outside the menus: the
+/* which menus display.menus asks for: 0 the Xbox's, 2 the Chupathingy
+menus (1 was Gearbox's, which nothing chooses now) (for what follows them outside the menus: the
 scoreboard's platform logos) */
 short pc_menus_set(
 	void)
@@ -2272,6 +2475,307 @@ static void host_setup_patch(void)
 	}
 }
 
+#ifdef HALO_GAME_BROWSER
+/* ---------- the Xbox's menus' game type editor: the game modes layer's rows
+
+The Xbox's Slayer rules screen gets MODE (NONE, SWAT) and its player
+options screen HARDCORE (OFF, ON) (docs/modes.md), each a row one past the
+list's last, as far below it as the list's rows are apart: a copy of the
+last row (its look), its label a copy of that row's with its own text, and a
+spinner copied from a row of the Xbox's whose spinner is as wide as the
+items want, where that row has it. The screens' own functions read and set
+them past their own rows (ui_widget_event_handler_functions.c,
+playlist_profile_mode_row). Player Options' help text and button key move
+down to make room, as the Chupathingy menus' do. Let go by
+menu_tags_unloaded, as the pause menu's buttons are. */
+
+#define EDITOR_XBOX "ui\\shell\\main_menu\\settings_select\\multiplayer_setup\\"
+#define EDITOR_ROWS_TAGS (2 * 6)
+/* (Player Options' help text and button key, lower by these) */
+#define EDITOR_HELP_DOWN 29
+#define EDITOR_KEY_DOWN 16
+/* the rows' helps, each value's */
+#define EDITOR_MODE_HELP_NONE "No mode. The game plays by the rules above."
+#define EDITOR_MODE_HELP_SWAT "SWAT. No shields, and one shot to the head kills."
+#define EDITOR_HARDCORE_HELP_OFF "The usual motion tracker and aim assist."
+#define EDITOR_HARDCORE_HELP_ON "No motion tracker and no aim assist. A kill brings\nyour health and shields back to full."
+
+/* a definition copied, the copy's own */
+static struct ui_widget_definition *widget_copy(long tag)
+{
+	struct ui_widget_definition *copy = allocate(sizeof(*copy));
+
+	if (copy)
+		memcpy(copy, tag_get(UI_WIDGET_DEFINITION_TAG, tag), sizeof(*copy));
+	return copy;
+}
+
+/* whether the string list's string ends with a colon (the screen's labels
+do, or not: the new one as they are) */
+static boolean strings_colon(long strings_tag, short index)
+{
+	struct string_list const *list;
+	struct string_list_entry const *entries;
+	unsigned short const *characters;
+	long length;
+
+	if (strings_tag == NONE)
+		return FALSE;
+	list = tag_get(UNICODE_STRING_LIST_TAG, strings_tag);
+	if (index < 0 || index >= list->strings.count)
+		return FALSE;
+	entries = xbox_pointer(list->strings.address);
+	characters = xbox_pointer(entries[index].string.address);
+	for (length = entries[index].string.size / (long)sizeof(unsigned short); length > 0 && !characters[length - 1];
+		length--)
+	{
+	}
+	return length > 0 && characters[length - 1] == ':';
+}
+
+/* the list's help text (its description's strings, each row's values'
+helps in turn: "game settings lists text update") with the new row's
+helps after the rows' own */
+static void editor_row_helps(struct cache_file_tag_instance *instances, struct ui_widget_definition const *list,
+	long rows, char const *name, char const *const *helps, long help_count)
+{
+	struct ui_widget_child_reference const *children = xbox_pointer(list->child_widgets.address);
+	struct ui_widget_definition *help;
+	struct string_list const *old;
+	struct string_list *strings;
+	struct string_list_entry *entries;
+	struct string_list_entry const *old_entries;
+	long row, total = 0, index, tag;
+	char help_name[96];
+
+	if (list->extended_description_widget.index == NONE)
+		return;
+	help = tag_get(UI_WIDGET_DEFINITION_TAG, list->extended_description_widget.index);
+	if (help->text_label_string_list.index == NONE)
+		return;
+	/* (the helps before the new row's: as many as the rows' values) */
+	for (row = 0; row < rows; row++)
+	{
+		struct ui_widget_definition const *definition;
+		struct ui_widget_child_reference const *parts;
+		long part;
+
+		if (children[row].widget_tag.index == NONE)
+			continue;
+		definition = tag_get(UI_WIDGET_DEFINITION_TAG, children[row].widget_tag.index);
+		parts = xbox_pointer(definition->child_widgets.address);
+		for (part = 0; part < definition->child_widgets.count; part++)
+		{
+			struct ui_widget_definition const *spinner;
+
+			if (parts[part].widget_tag.index == NONE)
+				continue;
+			spinner = tag_get(UI_WIDGET_DEFINITION_TAG, parts[part].widget_tag.index);
+			if (spinner->type == _widget_type_spinner_list && spinner->text_label_string_list.index != NONE)
+			{
+				total += ((struct string_list const *)tag_get(UNICODE_STRING_LIST_TAG,
+					spinner->text_label_string_list.index))->strings.count;
+			}
+		}
+	}
+	old = tag_get(UNICODE_STRING_LIST_TAG, help->text_label_string_list.index);
+	old_entries = xbox_pointer(old->strings.address);
+	strings = string_list_build(helps, help_count);
+	entries = allocate((total + help_count) * sizeof(*entries));
+	if (!strings || !entries || build.failed)
+		return;
+	/* (the old strings, or an empty one where there are fewer) */
+	for (index = 0; index < total; index++)
+	{
+		if (index < old->strings.count)
+			entries[index] = old_entries[index];
+		else
+		{
+			entries[index].string.size = 0;
+			entries[index].string.address = XBOX_NULL;
+		}
+	}
+	memcpy(entries + total, xbox_pointer(strings->strings.address), help_count * sizeof(*entries));
+	strings->strings.count = total + help_count;
+	strings->strings.address = XBOX_ADDRESS(entries);
+	tag = next_tag();
+	snprintf(help_name, sizeof(help_name), "xbox/%s/help", name);
+	instance_set(instances, UNICODE_STRING_LIST_TAG, tag, help_name, " text", strings);
+	reference_set(&help->text_label_string_list, UNICODE_STRING_LIST_TAG, tag);
+}
+
+/* the row put past the list's last: FALSE if the screen is not the Xbox's
+(not found, or not as the Xbox has it) */
+static boolean editor_row_xbox(struct cache_file_tag_instance *instances, char const *list_name,
+	char const *spinner_row_name, char const *name, char const *label, char const *const *items, char const *const *helps,
+	long item_count)
+{
+	long list_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, list_name);
+	long spinner_row_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, spinner_row_name);
+	struct ui_widget_definition *list;
+	struct ui_widget_child_reference const *children;
+	struct ui_widget_child_reference *grown, *parts;
+	struct ui_widget_definition const *model, *spinner_row;
+	struct ui_widget_child_reference const *model_parts, *spinner_parts;
+	struct ui_widget_definition *row, *text, *spinner;
+	long count, row_tag, text_tag, text_strings_tag, spinner_tag, spinner_strings_tag;
+	char row_name[96], text_name[96], spinner_name[96], label_text[32];
+	short spacing;
+
+	if (list_tag == NONE || spinner_row_tag == NONE)
+		return FALSE;
+	list = tag_get(UI_WIDGET_DEFINITION_TAG, list_tag);
+	children = xbox_pointer(list->child_widgets.address);
+	count = list->child_widgets.count;
+	if (list->type != _widget_type_column_list || count < 2 || children[count - 1].widget_tag.index == NONE)
+		return FALSE;
+	model = tag_get(UI_WIDGET_DEFINITION_TAG, children[count - 1].widget_tag.index);
+	model_parts = xbox_pointer(model->child_widgets.address);
+	spinner_row = tag_get(UI_WIDGET_DEFINITION_TAG, spinner_row_tag);
+	spinner_parts = xbox_pointer(spinner_row->child_widgets.address);
+	spacing = (short)(children[count - 1].vertical_offset - children[count - 2].vertical_offset);
+	/* (a row of a label and a spinner, the Xbox's: anything else is not
+	patched) */
+	if (model->child_widgets.count != 2 || spinner_row->child_widgets.count != 2 || spacing <= 0 ||
+		model_parts[0].widget_tag.index == NONE || spinner_parts[1].widget_tag.index == NONE ||
+		((struct ui_widget_definition const *)tag_get(UI_WIDGET_DEFINITION_TAG, spinner_parts[1].widget_tag.index))->type !=
+		_widget_type_spinner_list)
+	{
+		return FALSE;
+	}
+	row = widget_copy(children[count - 1].widget_tag.index);
+	text = widget_copy(model_parts[0].widget_tag.index);
+	spinner = widget_copy(spinner_parts[1].widget_tag.index);
+	parts = allocate(2 * sizeof(*parts));
+	grown = allocate((count + 1) * sizeof(*grown));
+	if (!row || !text || !spinner || !parts || !grown)
+		return FALSE;
+	snprintf(label_text, sizeof(label_text), "%s%s", label,
+		strings_colon(text->text_label_string_list.index, text->string_list_index) ? ":" : "");
+	snprintf(row_name, sizeof(row_name), "xbox/%s/op_%s", name, name);
+	snprintf(text_name, sizeof(text_name), "xbox/%s/%s_label", name, name);
+	snprintf(spinner_name, sizeof(spinner_name), "xbox/%s/%s_spinner", name, name);
+	row_tag = next_tag();
+	text_tag = next_tag();
+	text_strings_tag = next_tag();
+	spinner_tag = next_tag();
+	spinner_strings_tag = next_tag();
+	{
+		char const *label_strings[1];
+
+		label_strings[0] = label_text;
+		instance_set(instances, UNICODE_STRING_LIST_TAG, text_strings_tag, text_name, " text",
+			string_list_build(label_strings, 1));
+	}
+	instance_set(instances, UNICODE_STRING_LIST_TAG, spinner_strings_tag, spinner_name, " items",
+		string_list_build(items, item_count));
+	reference_set(&text->text_label_string_list, UNICODE_STRING_LIST_TAG, text_strings_tag);
+	text->string_list_index = 0;
+	reference_set(&spinner->text_label_string_list, UNICODE_STRING_LIST_TAG, spinner_strings_tag);
+	spinner->string_list_index = 0;
+	instance_set(instances, UI_WIDGET_DEFINITION_TAG, text_tag, text_name, "", text);
+	instance_set(instances, UI_WIDGET_DEFINITION_TAG, spinner_tag, spinner_name, "", spinner);
+	/* (the label where the model's is, the spinner where its own row has it) */
+	parts[0] = model_parts[0];
+	reference_set(&parts[0].widget_tag, UI_WIDGET_DEFINITION_TAG, text_tag);
+	parts[1] = spinner_parts[1];
+	reference_set(&parts[1].widget_tag, UI_WIDGET_DEFINITION_TAG, spinner_tag);
+	row->child_widgets.address = XBOX_ADDRESS(parts);
+	row->child_widgets.count = 2;
+	instance_set(instances, UI_WIDGET_DEFINITION_TAG, row_tag, row_name, "", row);
+	memcpy(grown, children, count * sizeof(*grown));
+	grown[count] = children[count - 1];
+	grown[count].vertical_offset = (short)(children[count - 1].vertical_offset + spacing);
+	reference_set(&grown[count].widget_tag, UI_WIDGET_DEFINITION_TAG, row_tag);
+	list->child_widgets.address = XBOX_ADDRESS(grown);
+	list->child_widgets.count = count + 1;
+	editor_row_helps(instances, list, count, name, helps, item_count);
+	return TRUE;
+}
+
+/* Player Options' help text and button key, lower (its ninth row sits
+where the help text was) */
+static void editor_player_options_room(void)
+{
+	long screen_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, EDITOR_XBOX "player_options_edit\\player_options_screen");
+	long help_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, EDITOR_XBOX "player_options_edit\\player_options_help");
+	long key_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, "ui\\shell\\main_menu\\button_key_options");
+
+	if (help_tag != NONE)
+	{
+		struct ui_widget_definition *help = tag_get(UI_WIDGET_DEFINITION_TAG, help_tag);
+
+		help->bounds.y0 = (short)(help->bounds.y0 + EDITOR_HELP_DOWN);
+		help->bounds.y1 = (short)(help->bounds.y1 + EDITOR_HELP_DOWN);
+	}
+	if (screen_tag != NONE && key_tag != NONE)
+	{
+		struct ui_widget_definition *screen = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+		struct ui_widget_child_reference *parts = xbox_pointer(screen->child_widgets.address);
+		long part;
+
+		for (part = 0; part < screen->child_widgets.count; part++)
+		{
+			if (parts[part].widget_tag.index == key_tag)
+				parts[part].vertical_offset = (short)(parts[part].vertical_offset + EDITOR_KEY_DOWN);
+		}
+	}
+}
+
+static void editor_rows_xbox(void)
+{
+	static char const *const modes[] = { "NONE", "SWAT" };
+	static char const *const hardcore[] = { "OFF", "ON" };
+	/* (as the Chupathingy menus' are: port/assets/menus/ce/strings.xml) */
+	static char const *const mode_helps[] = { EDITOR_MODE_HELP_NONE, EDITOR_MODE_HELP_SWAT };
+	static char const *const hardcore_helps[] = { EDITOR_HARDCORE_HELP_OFF, EDITOR_HARDCORE_HELP_ON };
+	struct cache_file_tag_instance *instances;
+	long index;
+	boolean slayer, players;
+
+	memset(&build, 0, sizeof(build));
+	instances = instances_grow(EDITOR_ROWS_TAGS, &build.first_index, &build.first_salt);
+	if (!instances)
+	{
+		menu_tags_release();
+		memset(&build, 0, sizeof(build));
+		return;
+	}
+	for (index = build.first_index; index < build.first_index + EDITOR_ROWS_TAGS; index++)
+	{
+		instances[index].group_tag = NONE;
+		instances[index].tag_index = NONE;
+#ifdef HALO_64BIT
+		if (!menu_tags.empty_name)
+			menu_tags.empty_name = allocate(1);
+		instances[index].name = XBOX_ADDRESS(menu_tags.empty_name);
+#else
+		instances[index].name = "";
+#endif
+	}
+	cache_files_set_tag_instances(instances, build.first_index + EDITOR_ROWS_TAGS);
+	/* (MODE's spinner as wide as RESPAWN TIME's, HARDCORE's as SHIELDS') */
+	slayer = editor_row_xbox(instances, EDITOR_XBOX "playlist_edit\\slayer_edit\\slayer_options_menu",
+		EDITOR_XBOX "player_options_edit\\op_respawn_time", "mode", "MODE", modes, mode_helps, NUMBEROF(modes));
+	players = !build.failed && editor_row_xbox(instances, EDITOR_XBOX "player_options_edit\\player_options_menu",
+		EDITOR_XBOX "player_options_edit\\op_shields", "hardcore", "HARDCORE", hardcore, hardcore_helps,
+		NUMBEROF(hardcore));
+	if (build.failed)
+	{
+		platform_log("menus: the game type editor's MODE and HARDCORE not added");
+		menu_tags_release();
+	}
+	else
+	{
+		if (players)
+			editor_player_options_room();
+		cache_files_set_tag_instances(instances, build.first_index + build.next);
+		platform_log("menus: the game type editor has%s%s", slayer ? " MODE" : "", players ? " HARDCORE" : "");
+	}
+	memset(&build, 0, sizeof(build));
+}
+#endif
+
 void menu_tags_loaded(
 	char const *map_name)
 {
@@ -2281,6 +2785,7 @@ void menu_tags_loaded(
 
 	boolean game_map = strcmp(map_name, "ui") != 0;
 
+	pause_guide_label = NONE;
 #ifdef HALO_GAME_BROWSER
 	/* (the save folder's game type files, in every menus' gametype lists:
 	gametype_files.c) */
@@ -2295,11 +2800,19 @@ void menu_tags_loaded(
 		return;
 	}
 	/* the Xbox's menus: only a multiplayer game's CHANGE TEAMS and the host's
-	END GAME, and CONTROLS */
+	END GAME, and CONTROLS; and a Custom Edition map's dead CHANGE SETTINGS
+	taken out even with none of them (a console, which has no CONTROLS, kept
+	it in a client's game that was not a team game) */
 	if (menus_chosen() == _menus_xbox)
 	{
+#ifdef HALO_GAME_BROWSER
+		/* (ui.map: the game type editor's MODE and HARDCORE) */
+		if (!game_map)
+			editor_rows_xbox();
+#endif
 		if (game_map && (pause_controls_offered() || (tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
-			(global_network_game_server_get() != NULL || team_change_pause_offered()))))
+			(global_network_game_server_get() != NULL || team_change_pause_offered() ||
+			tag_loaded(UI_WIDGET_DEFINITION_TAG, CUSTOM_CHANGE_SETTINGS_BUTTON) != NONE))))
 		{
 			pause_patch_xbox();
 		}
@@ -2423,6 +2936,13 @@ void menu_tags_loaded(
 	menu_tags.chupathingy = menus_chosen() == _menus_chupathingy;
 	if (menu_tags.chupathingy && !game_map)
 		host_setup_patch();
+	if (menus_chosen() == _menus_pc && !game_map)
+	{
+		main_menu_delta_patch();
+		multiplayer_delta_patch_gearbox();
+	}
+	else if (menus_chosen() == _menus_chupathingy && !game_map)
+		main_menu_delta_patch();
 	platform_log("menus: %ld widgets, %ld string lists and %ld bitmaps added to the map's %ld tags",
 		widget_count, own_lists + menus->string_list_count, menus->bitmap_count, build.first_index);
 	goto done;
@@ -2445,6 +2965,14 @@ void menu_tags_unloaded(
 {
 	if (menu_tags.loaded || menu_tags.block_count)
 		menu_tags_release();
+}
+
+/* the main menu of the menus up, by name (whatever debug.menu_open opens:
+the Guide's Workshop PLAY builds back's history down to it) */
+char const *pc_menus_main_menu_name(
+	void)
+{
+	return menu_tags.loaded && menu_tags.root[0] ? menu_tags.root : "ui\\shell\\main_menu\\main_menu";
 }
 
 char const *pc_menus_root_name(
@@ -2475,6 +3003,38 @@ char const *pc_menus_root_name(
 			return name;
 		}
 		platform_log("menus: debug.menu_open: there is no widget named %s", open);
+	}
+	/* (the Xbox's menus, and the Chupathingy menus' Xbox screens:
+	debug.menu_open names one of their screens, as "ui/shell/main_menu/...") */
+	if ((!menu_tags.loaded || menu_tags.chupathingy) && *open && !strncmp(open, "ui/", 3))
+	{
+		static char name[300];
+		long index;
+
+		snprintf(name, sizeof(name), "%s", open);
+		name[strcspn(name, "#")] = 0;
+		for (index = 0; name[index]; index++)
+		{
+			if (name[index] == '/')
+				name[index] = '\\';
+		}
+		if (tag_loaded(UI_WIDGET_DEFINITION_TAG, name) != NONE)
+			return name;
+		platform_log("menus: debug.menu_open: there is no widget named %s", open);
+		/* (the screens there are, to choose from) */
+		{
+			struct tag_iterator iterator;
+			long tag;
+
+			tag_iterator_new(&iterator, UI_WIDGET_DEFINITION_TAG);
+			while ((tag = tag_iterator_next(&iterator)) != NONE)
+			{
+				char const *tag_name = tag_get_name(tag);
+
+				if (strstr(tag_name, "_screen") || strstr(tag_name, "wrapper"))
+					platform_log("menus: debug.menu_open: a screen: %s", tag_name);
+			}
+		}
 	}
 	return menu_tags.loaded && menu_tags.root[0] ? menu_tags.root : "ui\\shell\\main_menu\\main_menu";
 }
@@ -2572,7 +3132,10 @@ short pc_menu_string_index(
 
 /* the screen the engine opens by name after a network game (the Xbox's),
 or ours where the PC version's menus are up: the host's map select, the
-lobby (the Chupathingy menus keep the Xbox's) */
+lobby. The Chupathingy menus keep the Xbox's pregame screen's name: their
+game lobby (port/linux/game/lobby_screen.c) is drawn over it whenever it is
+up, whichever way it was reached (a join, GAME SETUP's START GAME, System
+Link, the end of a game) */
 char const *pc_menus_screen(
 	char const *name)
 {
@@ -2719,6 +3282,98 @@ boolean pc_menu_button_key_cap(
 	(void)alpha;
 #endif
 	return FALSE;
+}
+
+/* a prompt in a picture of the menus' (the virtual keyboard's B and A,
+virtual_keyboard.c): which 0 for B, 1 for A, drawn as the footers' key cap
+or button, right-aligned in the bounds. TRUE when the menus' prompts stand
+for the pictures (which NONE: only whether they do, nothing drawn) */
+boolean pc_menu_keyboard_prompt(
+	long which,
+	short x0,
+	short y0,
+	short x1,
+	short y1)
+{
+#ifdef HALO_GAME_BROWSER
+	extern boolean moderation_screen_active(void);
+	/* (as pc_menu_key_cap_button: the keyboard's, and the Chupathingy
+	menus' for every device) */
+	boolean modern = menu_tags.loaded && menu_tags.chupathingy;
+	int button = which == 0 ? UI_BUTTON_B : UI_BUTTON_A;
+	float size;
+	float width;
+
+	(void)x0;
+	if (!halo_keyboard_prompts() && !modern)
+		return FALSE;
+	if (which == NONE || moderation_screen_active())
+		return TRUE;
+	size = (float)(y1 - y0) * 0.62f;
+	width = ui_overlay_button_width(button, size);
+	ui_overlay_button(button, size, (float)x1 - width, (float)y0 + ((float)(y1 - y0) - size) * 0.5f, 0xFFFFFFFF);
+	return TRUE;
+#else
+	(void)which;
+	(void)x0;
+	(void)y0;
+	(void)x1;
+	(void)y1;
+	return FALSE;
+#endif
+}
+
+/* the keyboard's key in a menu text's prompt ("Press [Enter] to Join",
+input_abstraction_port_icon_key's text) drawn as a key cap, as the footers'
+pictures are, at x on the line from y0 (its top) to y1 (its bottom), centered
+on its capital letters: its width, or 0 when it is written as text (no key
+caps here, or a name the menus' font may not have) */
+short pc_menu_text_key_cap(
+	wchar_t const *key_text,
+	short x,
+	short y0,
+	short y1,
+	float alpha)
+{
+#ifdef HALO_GAME_BROWSER
+	extern boolean moderation_screen_active(void);
+	char label[32];
+	int length = 0;
+	int index;
+	float height = (float)(y1 - y0);
+	float size;
+	float width;
+	unsigned int shade;
+
+	if (!key_text || key_text[0] != L'[' || height <= 0.f)
+		return 0;
+	for (index = 1; key_text[index] && key_text[index] != L']'; index++)
+	{
+		wchar_t character = key_text[index];
+
+		if (character < 0x20 || character > 0x7E || length >= (int)sizeof(label) - 1)
+			return 0;
+		label[length++] = (char)(character >= 'a' && character <= 'z' ? character - 'a' + 'A' : character);
+	}
+	label[length] = 0;
+	if (!length || key_text[index] != L']')
+		return 0;
+	size = height * 0.9f;
+	width = ui_overlay_key_width(label, size);
+	/* (hidden with the menu under the Moderation screen) */
+	if (moderation_screen_active())
+		return (short)ceilf(width);
+	shade = (unsigned int)(alpha < 0.f ? 0.f : alpha > 1.f ? 255.f : alpha * 255.f);
+	ui_overlay_key(label, size, (float)x, (float)y0 + height * 0.47f - size * 0.5f, 0xFFFFFF00 | shade);
+	return (short)ceilf(width);
+#else
+	(void)key_text;
+	(void)x;
+	(void)y0;
+	(void)y1;
+	(void)alpha;
+	return 0;
+#endif
 }
 
 /* the left edge of the key cap pc_menu_button_key_cap draws for a prompt

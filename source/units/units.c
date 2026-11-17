@@ -662,6 +662,7 @@ symbols in this file:
 #include "effects/effects.h"
 #include "effects/material_effect_definitions.h"
 #include "game/cheats.h"
+#include "mcc_script_effects.h" /* port: MCC host-approved jetpack prediction */
 #include "game/game_allegiance.h"
 #include "game/game_globals.h"
 #include "game/game_engine.h"
@@ -696,7 +697,13 @@ symbols in this file:
 #include "coop_enemies.h" /* port: port/linux/game/coop_enemies.c */
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_engine.h" /* port: port/linux/game/stubbs_engine.c */
+#include "stubbs_horde.h" /* port: port/linux/game/stubbs_horde.c */
+#include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
 #endif
+#include "mcc_grenades.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
+#include "mcc_campaign.h" /* port: an MCC map's unlimited ammunition */
 
 /* port: the control and animation impulses the host's actors give their
 units go to the clients' copies (port/linux/game/network_actors.c) */
@@ -1033,6 +1040,7 @@ void units_initialize(
 void units_initialize_for_new_map(
 	void)
 {
+	if (mcc_grenades_active()) mcc_grenades_reset();
 	memset(unit_globals, 0, offsetof(struct unit_globals, used_time));
 
 	return;
@@ -1083,6 +1091,7 @@ void unit_kill_no_statistics(
 void unit_delete(
 	long unit_index)
 {
+	if (mcc_grenades_active()) mcc_grenades_clear(unit_index);
 	return;
 }
 
@@ -1445,6 +1454,23 @@ short unit_get_zoom_level(
 	long unit_index)
 {
 	return unit_get(unit_index)->unit.current_zoom_level;
+}
+
+/* port: the unit's active camouflage and its super amount as drawn; while
+a frame is drawn, between the last two ticks
+(port/linux/game/render_interpolation.c) */
+real unit_get_drawn_camouflage(
+	long unit_index,
+	real *super_amount)
+{
+	struct unit_datum *unit;
+	real amount;
+
+	if (render_interpolation_unit_camouflage(unit_index, &amount, super_amount))
+		return amount;
+	unit = unit_get(unit_index);
+	*super_amount = unit->unit.active_camouflage_super_amount;
+	return unit->unit.active_camouflage;
 }
 
 real unit_get_zoom_magnification(
@@ -2027,6 +2053,7 @@ short unit_get_grenade_count(
 	long unit_index,
 	short grenade_type)
 {
+	if (mcc_grenades_active()) return mcc_grenades_get(unit_index, grenade_type);
 	struct unit_datum *unit = unit_get(unit_index);
 
 	if (grenade_type!=NONE)
@@ -2046,6 +2073,11 @@ short unit_get_grenade_count(
 short unit_get_current_grenade_type(
 	long unit_index)
 {
+	if (mcc_grenades_active())
+	{
+		short mcc_type = unit_get(unit_index)->unit.current_grenade_index;
+		return mcc_type >= 0 && mcc_type < mcc_grenades_type_count() ? mcc_type : NONE;
+	}
 	struct unit_datum *unit = unit_get(unit_index);
 
 	match_assert("c:\\halo\\SOURCE\\units\\units.c", 7864, unit->unit.current_grenade_index==NONE || (unit->unit.current_grenade_index>=0 && unit->unit.current_grenade_index<NUMBER_OF_UNIT_GRENADE_TYPES));
@@ -2058,6 +2090,7 @@ short unit_inventory_next_grenade(
 	short current_index,
 	short delta)
 {
+	if (mcc_grenades_active()) return mcc_grenades_next(unit_index, current_index, delta);
 	struct unit_datum *unit = unit_get(unit_index);
 	short next_index = NONE;
 	short index;
@@ -2124,6 +2157,7 @@ short unit_add_grenade_type_to_inventory(
 	short grenade_type,
 	short grenade_count)
 {
+	if (mcc_grenades_active()) return mcc_grenades_add(unit_index, grenade_type, grenade_count);
 	struct unit_datum *unit = unit_get(unit_index);
 
 	match_assert("c:\\halo\\SOURCE\\units\\units.c", 7309, grenade_count>=0);
@@ -2146,6 +2180,7 @@ boolean unit_add_grenade_to_inventory(
 	long unit_index,
 	long equipment_index)
 {
+	if (mcc_grenades_active()) return mcc_grenades_pickup(unit_index, equipment_index);
 	struct item_datum *equipment = equipment_get(equipment_index);
 	struct equipment_definition *equipment_definition =
 		equipment_definition_get(equipment->definition_index);
@@ -2653,6 +2688,7 @@ boolean unit_new(
 		result = TRUE;
 	}
 
+	if (result && mcc_grenades_active()) mcc_grenades_initialize_unit(unit_index);
 	return result;
 }
 
@@ -2780,7 +2816,12 @@ void unit_died(
 		object_set_garbage(unit_index, TRUE);
 		if (unit->unit.player_index != NONE)
 		{
-			player_died(unit->unit.player_index);
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+			/* port: Stubbs's hand, or a human it took, sends its player back
+			to his body (Stubbs mode only: port/linux/game/stubbs_engine.c) */
+			if (!(stubbs_mode_active() && stubbs_engine_player_unit_died(unit_index, unit->unit.player_index)))
+#endif
+				player_died(unit->unit.player_index);
 			unit->unit.player_index = NONE;
 		}
 
@@ -2830,6 +2871,8 @@ void unit_died(
 	}
 
 	unit->unit.speech.queued.priority = 0;
+	/* port: MCC's Famine skull halves what an AI's weapons drop with (mcc_skulls.c) */
+	mcc_skulls_unit_dropping_weapons(unit_index);
 	unit_drop_inventory_weapons(unit_index);
 	fresh_unit = unit_get(unit_index);
 	if (fresh_unit->unit.equipment_object_index != NONE)
@@ -2863,6 +2906,7 @@ static void unit_drop_grenades(
 	long grenade_type_count;
 	struct game_globals_grenade *grenade;
 
+	if (mcc_grenades_active()) mcc_grenades_drop_extra(unit_index, unit_drop_item);
 	unit = unit_get(unit_index);
 	grenade_count = unit->unit.grenade_counts;
 	grenade_count_negative_base =
@@ -4746,6 +4790,7 @@ void unit_place(
 				unit->unit.grenade_counts,
 				0,
 				sizeof(unit->unit.grenade_counts));
+			if (mcc_grenades_active()) mcc_grenades_clear(unit_index);
 
 			if (unit->unit.equipment_object_index!=NONE)
 			{
@@ -5588,7 +5633,8 @@ boolean unit_update(
 		* Grenade throw button
 		* Primary weapon fire button
 		*/
-		if (cheat.jetpack &&
+		/* port: the MCC jetpack combination must suppress firing on clients too. */
+		if ((cheat.jetpack || mcc_script_effect_enabled(MCC_EFFECT_JETPACK)) &&
 			TEST_FLAG(unit->unit.control_flags, _unit_control_weapon_primary_trigger_bit) &&
 			TEST_FLAG(unit->unit.control_flags, _unit_control_throw_grenade_bit))
 		{
@@ -5738,9 +5784,16 @@ boolean unit_update(
 				}
 			}
 
-			if (cheat.infinite_ammo && unit->unit.player_index!=NONE)
+			/* port: or an MCC map's unlimited ammunition (Bandanna: mcc_skulls.c) */
+			if ((cheat.infinite_ammo || mcc_campaign_unlimited_ammo()) && unit->unit.player_index!=NONE)
 			{
 				short grenade_index;
+				if (mcc_grenades_active())
+				{
+					short mcc_type;
+					for (mcc_type = 2; mcc_type < mcc_grenades_type_count(); ++mcc_type)
+						if (!mcc_grenades_get(unit_index, mcc_type)) mcc_grenades_set(unit_index, mcc_type, 1);
+				}
 
 				for (grenade_index = 0; grenade_index<NUMBEROF(unit->unit.grenade_counts); ++grenade_index)
 				{
@@ -6596,6 +6649,11 @@ static void unit_ping_animation(
 	{
 		return;
 	}
+	/* port: MCC's Ghost skull, "AI no longer flinch from attacks" (mcc_skulls.c) */
+	if (!killed && unit->unit.player_index==NONE && mcc_skull_active(MCC_SKULL_GHOST))
+	{
+		return;
+	}
 
 	{
 		unit_definition = unit_definition_get(unit->definition_index);
@@ -6955,6 +7013,12 @@ void unit_damage_aftermath(
 		damage_flags,
 		_object_being_damaged_body_depleted_bit);
 	feigned = FALSE;
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: a unit Stubbs's scripts said cannot die stays at no health
+	(Stubbs mode only: port/linux/game/stubbs_functions.c) */
+	if (lethal && stubbs_mode_active() && stubbs_functions_object_cannot(unit_index, _stubbs_object_cannot_die_bit))
+		lethal = FALSE;
+#endif
 
 	(void)body_damage_multiplier;
 
@@ -7272,6 +7336,10 @@ void unit_damage_aftermath(
 
 	if (lethal || feigned)
 	{
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+		if (lethal)
+			stubbs_horde_unit_damaged_to_death(unit_index, damage_data); /* port: Stubbs mode only */
+#endif
 		unit_died(unit_index, feigned);
 	}
 
@@ -7903,6 +7971,11 @@ static short unit_weapon_next_index(
 static void unit_throw_grenade_move_to_hand(
 	long unit_index)
 {
+	if (mcc_grenades_active() && unit_get(unit_index)->unit.current_grenade_index >= 2)
+	{
+		mcc_grenades_move_to_hand(unit_index);
+		return;
+	}
 	long object_index;
 
 	struct object_placement_data placement_data;
@@ -7917,7 +7990,7 @@ static void unit_throw_grenade_move_to_hand(
 
 	if ((
 		unit->unit.player_index==NONE ||
-		!cheat.infinite_ammo && !game_engine_infinite_grenades(unit->unit.player_index)) &&
+		!cheat.infinite_ammo && !mcc_campaign_unlimited_ammo() && !game_engine_infinite_grenades(unit->unit.player_index)) &&
 		(unit->unit.actor_index==NONE ||
 		!actor_has_unlimited_grenades(unit->unit.actor_index)))
 	{
@@ -9028,6 +9101,11 @@ void unit_cause_player_melee_damage(
 #ifdef HALO_GAME_BROWSER
 	real melee_reach;
 #endif
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: the region and node the best ray hit, for Stubbs mode (below) */
+	short best_region_index = NONE;
+	short best_node_index = NONE;
+#endif
 
 	unit = unit_get(unit_index);
 	unit_definition = unit_definition_get(unit->definition_index);
@@ -9135,6 +9213,12 @@ void unit_cause_player_melee_damage(
 							best_object_type = hit_object->object.type;
 							hit_material_type = collision.material_type;
 							best_object_fraction = collision.t;
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+							best_region_index = hit_object_index==collision.object_index ?
+								collision.region_index : NONE;
+							best_node_index = hit_object_index==collision.object_index ?
+								collision.node_index : NONE;
+#endif
 						}
 					}
 						break;
@@ -9287,6 +9371,25 @@ void unit_cause_player_melee_damage(
 
 				if (object_get(best_object_index)->object.type==_object_type_biped)
 				{
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+					/* port: in Stubbs mode the blow lands on the region it
+					hit, so a region with a damage threshold (a zombie's
+					arms, head and legs) wears down under punches; Halo's
+					melee names no region (Stubbs mode only:
+					port/linux/game/stubbs_player.c). The maul boss's arm
+					(a60) comes off by the tear move, not by damage */
+					if (stubbs_mode_active())
+					{
+						object_cause_damage(
+							&damage_data,
+							best_object_index,
+							best_node_index,
+							best_region_index,
+							NONE,
+							NULL);
+					}
+					else
+#endif
 					object_cause_damage(
 						&damage_data,
 						best_object_index,
@@ -10764,6 +10867,20 @@ static boolean unit_animation_set_state(
 				weapon_animation_name);
 		}
 
+		/* port: Stubbs's graphs leave out states a seat never needs (a
+		fleeing civilian's seat has no turns), and a state with no animation
+		drew the bind pose: in Stubbs mode such a state plays the weapon
+		class's idle instead (Halo's graphs have them all) */
+		if (animation_index == NONE &&
+			weapon_class_animation_index != NONE &&
+			stubbs_mode_active() &&
+			unit_animation_state_can_be_entered_without_animation(new_state) &&
+			_unit_weapon_class_animation_idle < weapon_class->animations.count)
+		{
+			animation_index = animation_graph_animation_index_get(
+				&weapon_class->animations)[_unit_weapon_class_animation_idle].animation_index;
+		}
+
 		if (animation_index == NONE)
 		{
 			if (!unit_animation_state_can_be_entered_without_animation(new_state))
@@ -11412,6 +11529,12 @@ void unit_control(
 		control_data->weapon_index==NONE ||
 			(control_data->weapon_index>=0 &&
 			control_data->weapon_index<MAXIMUM_WEAPONS_PER_UNIT));
+	if (mcc_grenades_active())
+	{
+		match_assert("MCC unit control", 1, control_data->grenade_index == NONE ||
+			(control_data->grenade_index >= 0 && control_data->grenade_index < mcc_grenades_type_count()));
+	}
+	else
 	match_assert(
 		"c:\\halo\\SOURCE\\units\\units.c",
 		0x5e9,

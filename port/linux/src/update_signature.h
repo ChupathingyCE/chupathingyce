@@ -24,6 +24,11 @@ signed as it is, its exact bytes, by the same key (updates.json.sig, 128 hex
 digits as well), as SHA256SUMS is: the list names each file's size and
 SHA-256, so its one signature covers them all.
 
+The testing and nightly channels' feeds (their lists: update_manifest.h)
+are signed the same way, by the prerelease key (update_prerelease_key.h) or
+a release key. The prerelease key is checked only there
+(update_signature_check_feed), never for a release's list or zip.
+
 Only bytes, sizes and strings cross here.
 */
 
@@ -49,6 +54,11 @@ int update_signature_check(const unsigned char *zip, size_t zip_size, const char
 /* whether signature_text is a signature, by one of the build's keys, of the
 document's exact bytes (a release's updates.json); if not, why in error */
 int update_signature_check_document(const unsigned char *document, size_t size, const char *signature_text,
+	size_t signature_length, char *error, size_t error_size);
+
+/* as update_signature_check_document, for a testing or nightly feed's list:
+by a release key or a prerelease key */
+int update_signature_check_feed(const unsigned char *document, size_t size, const char *signature_text,
 	size_t signature_length, char *error, size_t error_size);
 
 #endif

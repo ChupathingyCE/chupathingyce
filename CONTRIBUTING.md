@@ -19,7 +19,7 @@ Contributors are credited in the release notes.
 - One change per pull request, with how you tested it (which platforms you built and ran).
 - The shared game protocol stays as it is, so cross-play keeps working: don't change how games are joined or what's sent on the wire. New networked features go on Delta, Chupathingy's own channel, falling back silently when the other side doesn't speak it.
 - The 32-bit builds must stay byte-identical unless the change is meant for them: `tools/port_neutrality_check.py` checks it.
-- Every pull request builds each platform in its release configuration, and we merge it once that Build passes. Changes to documentation alone don't build. Pushes to `main` don't build either: the nightly checks it. Debug builds are made only for releases, nightlies and test builds.
+- Every pull request gets a quick check: the Linux build, the tests and the big-endian check, plus each platform whose own files it changes. Every platform builds on `main`, on batches, and on pull requests labeled `ci: full`, and before anything ships. Changes to documentation alone don't build. See [docs/ci.md](docs/ci.md).
 - Commit messages, pull requests and issues are public, and they're posted to the Chupathingy Discord.
 
 ## License
@@ -43,7 +43,7 @@ Test builds are the `nightly` release and `-testing` tags, outside the numbering
 
 ## Bugs
 
-Use [the bug report form](https://github.com/ChupathingyCE/chupathingyce/issues/new?template=bug.yml), or #bug-reports on the [Discord](https://discord.gg/chupathingy).
+Use [the bug report form](https://github.com/ChupathingyCE/chupathingyce/issues/new?template=bug.yml), or #bug-reports on the [Discord](https://discord.gg/chupathingy). Send your logs with it: [docs/help.md](docs/help.md#send-your-logs) says how.
 
 ## Game files
 

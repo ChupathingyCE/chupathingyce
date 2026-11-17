@@ -9,22 +9,31 @@ the file.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `HALO_DEDICATED` | (none) | The playlist, a path inside the data folder: `playlists/free_for_all.txt`. Required: without it the server only says how to start one. |
+| `HALO_DEDICATED` | (none) | The playlist, a path inside the data folder: `playlists/free_for_all.txt`. Without it, a server whose control panel is on waits for its [first-run setup](moderation.md#first-run-setup-no-console-needed), where you pick the playlist. With the panel off, it only says how to start one. |
 | `HALO_DEDICATED_NAME` | `Dedicated` | The server's name on the lists. 15 characters at most, the game's limit. |
 | `HALO_DEDICATED_MINIMUM_PLAYERS` | `1` | The players a game waits for before its countdown starts. |
 | `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players a game takes, up to 128 (`sv_maxplayers` in [admin.md](admin.md) changes it while running, until a restart: set here, the environment wins over the settings file). |
 | `HALO_DEDICATED_IDLE_LIMIT` | `5` | A game in which nobody scores for this many minutes ends. `0`: never. |
-| `HALO_DEDICATED_PUBLIC` | `true` | A public game, listed in every in-game Server Browser (OpenCE's and ChupathingyCE's) through internet play's brokers. `false`: not listed there; the game list still lists it, and its invite still works. |
+| `HALO_DEDICATED_PUBLIC` | `true` | A public game, listed in every in-game Server Browser (OpenCE's and Chupathingy's) through internet play's brokers. `false`: not listed there; the game list still lists it, and its invite still works. |
 | `HALO_DEDICATED_NAME_FILTER` | `false` | `true`: players with a blocked name are warned and kicked ([below](#blocked-names)); `sv_name_filter 1` on the console does the same. |
-| `HALO_DEDICATED_CHAT` | `2` | Text chat between ChupathingyCE players: `2` on, `1` team lines alone, `0` off (`sv_chat` sets it; the environment wins over the settings file). |
+| `HALO_DEDICATED_CHAT` | `2` | Text chat between Chupathingy players: `2` on, `1` team lines alone, `0` off (`sv_chat` sets it; the environment wins over the settings file). |
 | `HALO_DEDICATED_CHAT_FILTER` | `true` | A chat line with a word of `blocked_names.txt`'s list (the game has it built in) is not passed on; its sender's game says "Not sent: blocked words". Nobody is kicked. |
-| `HALO_DEDICATED_CHAT_LEGACY` | `true` | OpenCE players chat too, over their own text chat, bridged to ChupathingyCE's ([below](#text-chat)), while `HALO_DEDICATED_CHAT` is on. `false`: they get no chat here (`sv_set chat_legacy false`). |
+| `HALO_DEDICATED_CHAT_LEGACY` | `true` | OpenCE players chat too, over their own text chat, bridged to Chupathingy's ([below](#text-chat)), while `HALO_DEDICATED_CHAT` is on. `false`: they get no chat here (`sv_set chat_legacy false`). |
 | `HALO_DEDICATED_CHAT_COOLDOWN` | `5` | Once a player says lines faster than the chat allows (1 a second, 3 at once), their chat pauses for this many seconds and their game says "Chat paused for 5 seconds" (an older game says "Not sent: slow down"). `0`: no pause, each line past the limit is refused alone. Up to 600. |
 | `HALO_DEDICATED_TEAM_CHANGE` | `off` | Players changing teams during a team game (the pause menu's CHANGE TEAMS, [below](#team-changes)): `off` (players keep their team, as on the Xbox), `balanced` or `allow` (`0`, `1` or `2`; the settings file's `team_change`). Chupathingy players see CHANGE TEAMS only when it is on. |
 | `HALO_DEDICATED_TEAM_CHANGE_MARGIN` | `1` | With `balanced`, the most players one team may have over the other after a change, 0 to 16 (`team_change_margin`). |
-| `HALO_DEDICATED_ALLOW_PLAYER_NAMES` | `false` | `true`: Chupathingy players may show names above other players' heads (their `display.player_names`). `false` plays as the Xbox did: a name shows only on the player aimed at (`allow_player_names`; the host's rules, [docs/delta.md](../../docs/delta.md#host-rules)). |
+| `HALO_DEDICATED_ALLOW_PLAYER_NAMES` | `false` | `true`: Chupathingy players may show names above other players' heads (their `display.player_names`). `false` plays as the Xbox did: a name shows only on the player aimed at (`allow_player_names`; the host's rules, [docs/delta/peer.md](../../docs/delta/peer.md#host-rules)). |
+| `HALO_DEDICATED_VOICE` | `false` | Relay voice chat between Chupathingy players who turned it on (`voice`). Off by default, since every talker costs the server upload; turn it on with `voice = true` in the settings file, `sv_set voice 1`, or the control panel's Settings. The server never decodes, plays or keeps it, and relays 8 talkers at once at most. |
+| `HALO_DEDICATED_VOICE_TEAM`, `_PROXIMITY`, `_EVERYONE`, `_PARTY` | `true`, `true`, `false`, `true` | The channels players may talk on (`voice_team`, `voice_proximity`, `voice_everyone`, `voice_party`). |
+| `HALO_DEDICATED_VOICE_LOBBY` | `true` | Everyone hears everyone in the lobby and after a game (`voice_lobby`). |
+| `HALO_DEDICATED_VOICE_RANGE` | `15` | How near is near for proximity voice, 5 to 100 world units (`voice_range`). |
+| `HALO_DEDICATED_VOICE_KBPS` | `24` | Voice quality, 8 to 64 kbps (`voice_kbps`). Each talker costs the server about 5 KB/s of upload for each player hearing them at 24. |
 | `HALO_DEDICATED_ALLOW_FOLLOW_CAMERA` | `false` | `true`: Chupathingy players may watch a living player's view while they wait to respawn (their `display.follow_camera`). `false` plays as the Xbox did: the death camera alone (`allow_follow_camera`). |
+| `HALO_DEDICATED_LATE_JOIN_HOLD` | `false` | `true`: a player who joins a game in progress watches through the follow camera until the next game starts (everyone, OpenCE players too). `false` spawns them at once, as Halo does (`late_join_hold`). |
+| `HALO_DEDICATED_BAN_SHARE` | `false` | `true`: while linked, your bans that name a Delta account or device go to your shared ban list on the site (`ban_share`). Never an address. |
 | `HALO_DEDICATED_WELCOME` | (none) | A welcome: a server message each Chupathingy player gets in their chat as they join, up to 127 printable ASCII characters (`sv_welcome` sets it). OpenCE players get it as the host's notice in their chat, while they may chat. |
+| `HALO_DEDICATED_OPENCE_WELCOME` | `false` | `true`: each OpenCE player (no Delta) gets one line in their chat, a few seconds after they first spawn, once each time they join: that this is a Chupathingy server (`opence_welcome`). It goes as the host's notice, which OpenCE's client shows in its chat even where its own chat is off. Chupathingy players never see it. |
+| `HALO_DEDICATED_OPENCE_WELCOME_TEXT` | `A Chupathingy server. It plays better on Delta: chupathingy.org` | That line (`opence_welcome_text`): 1 to 63 printable ASCII characters without `|`, one line of OpenCE's chat. Empty, or anything else: the built-in line. `sv_set opence_welcome_text ...` changes it while the server runs. |
 | `HALO_DEDICATED_POSTGAME_SECONDS` | `20` | How long the carnage report shows after each game before the next game's lobby, 0 to 300 seconds. |
 | `HALO_DEDICATED_SKIP_LOBBY` | `false` | `true`: after the carnage report, if enough players stayed (`HALO_DEDICATED_MINIMUM_PLAYERS`, and teams as the game needs), the next game starts after a 3-second countdown instead of waiting out the lobby's. Otherwise the lobby opens as always. |
 | `HALO_DEDICATED_PLAYLIST_SHUFFLE` | `false` | `true`: each time the playlist starts over, its entries are put in a new random order (the first pass is in the file's order). The entry just played is not first in the next pass. `sv_set playlist_shuffle true` changes it while the server runs. |
@@ -34,14 +43,16 @@ the file.
 | `HALO_DEDICATED_GAMESPY_VERSION` | the server's version | The version (`gamever`) the queries and heartbeats report. |
 | `HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS` | `8` | The most machines that may join from one internet address, 0 to 16 (`max_machines_per_address`; 0: no limit). A machine past it is told there are too many players from its address. Local network addresses (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16) are never limited. Players behind one carrier-grade NAT (100.64/10) can share an address, which is why the default is generous. Internet play counts each player by the address their connection comes from. |
 | `HALO_DEDICATED_CE_JOINS` | `false` | `true`: answer Halo Custom Edition 1.0.10 join attempts on the GameSpy port ([below](#custom-edition-join-attempts)); needs `gamespy_listing`. |
-| `HALO_DEDICATED_CE_WELCOME` | a line about cross-play | The chat line each Custom Edition player gets as they join (`ce_welcome`, up to 255 characters). Set but empty: none. |
+| `HALO_DEDICATED_CE_WELCOME` | a line about cross-play | The chat line each Custom Edition player gets once, a minute into their first game (`ce_welcome`, up to 255 characters). Set but empty: none. |
 | `HALO_DEDICATED_BETRAYAL_KICK` | `0` | Betrayals (teammates killed) in one game that kick a player, 1 to 100; they are warned one short of it, and a second such kick within 24 hours bans them for 30 minutes ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off. `sv_set betrayal_kick 3` sets it while the server runs. |
 | `HALO_DEDICATED_AFK_KICK_MINUTES` | `0` | Minutes without input in a game in progress that kick a player, 1 to 120, warned 30 seconds before; never in the lobby or the carnage report, never a moderator ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off (`afk_kick_minutes`). |
+| `HALO_DEDICATED_KEEP_PARTIES_TOGETHER` | `false` | `true`: in team games, Chupathingy players in one party go to one team where the teams stay within one player of each other: in the lobby (a member moved, or traded with a player in no party), and a late joiner before they spawn. Players can still change team in the lobby afterwards. `false` places them as the Xbox did (`keep_parties_together`; [docs/delta/peer.md](../../docs/delta/peer.md#party-teams)). |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
 | `HALO_DEDICATED_CONSOLE` | on in a terminal | Commands typed on the server's standard input ([the console](admin.md#the-console)). `true`: read them even when it is not a terminal; `false`: never. |
-| `HALO_DEDICATED_CONTROL` | (off) | The [control API](admin.md#the-control-api)'s address: a port (`8080`, on 127.0.0.1 only) or an address and port (`127.0.0.1:8080`, `[::1]:8080`, `0.0.0.0:8443`). Its token is made and printed the first time, and the first owner's setup link. The [control panel](moderation.md#the-control-panel) is on the same address: plain HTTP on the loopback address, HTTPS beyond it. |
+| `HALO_DEDICATED_CONTROL` | `127.0.0.1:8080` (`off` in our Docker image) | The [control API](admin.md#the-control-api)'s address, or `off` for none: a port (`8080`, on 127.0.0.1 only) or an address and port (`127.0.0.1:8080`, `[::1]:8080`, `0.0.0.0:8443`). Its token is made and printed the first time, and the first owner's setup link. The [control panel](moderation.md#the-control-panel) is on the same address: plain HTTP on the loopback address, HTTPS beyond it. |
 | `HALO_DEDICATED_CONTROL_TLS` | `auto` | `auto`: HTTPS beyond the loopback address; `on`: always; `off`: never (refused on a public address). [moderation.md](moderation.md#remote-access-safely) |
 | `HALO_DEDICATED_CONTROL_TRUSTED_PROXY` | (none) | The reverse proxies in front of the control panel (their addresses, comma separated: `127.0.0.1`): their `X-Forwarded-For` names the client, so the login limits count each client and not the proxy. [admin.md](admin.md#reaching-it-safely) |
+| `HALO_DEDICATED_CONTROL_HOSTS` | (none: any) | The names the control panel answers to (comma separated: `admin.example.org`; with a port, only that port), besides the machine's own (`localhost`, `127.0.0.1`, `[::1]`, an SSH tunnel's). A request for any other name, or with an `X-Forwarded-Host` not listed, is refused (421): another site's page whose name was pointed at this machine (DNS rebinding) reaches nothing. [admin.md](admin.md#reaching-it-safely) |
 | `HALO_DEDICATED_CONTROL_CERT`, `HALO_DEDICATED_CONTROL_KEY` | (the server's own) | Your own certificate and key for the control panel's HTTPS (PEM, as certbot writes them; a path in the data folder or absolute). A renewal is taken within a minute. |
 | `HALO_DEDICATED_LINK` | `true` | `false` turns the [link to the Chupathingy site](moderation.md#the-link-to-the-chupathingy-site-optional) off for good. Until `sv_link`, it does nothing either way. |
 | `HALO_DEDICATED_LINK_URL` | `HALO_NET_BROWSER` if set, else `https://stats.chupathingy.org` | The site the server links to (HTTPS). |
@@ -52,13 +63,13 @@ The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
 `public` (from the next start), `name_filter`, `chat`, `chat_filter`,
 `welcome`, `postgame_seconds`, `skip_lobby`, `chat_cooldown`, `team_change`
-(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, `max_machines_per_address`, `betrayal_kick`, `afk_kick_minutes`, and the playlist
+(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, `max_machines_per_address`, `betrayal_kick`, `afk_kick_minutes`, `keep_parties_together`, `late_join_hold`, `ban_share`, `voice`, `voice_team`, `voice_proximity`, `voice_everyone`, `voice_party`, `voice_lobby`, `voice_range`, `voice_kbps`, `opence_welcome`, `opence_welcome_text`, and the playlist
 `sv_playlist_use` chose. `sv_set welcome Hello and welcome` takes
 the rest of the line as the value (quotes optional).
 
 ## Text chat
 
-ChupathingyCE players talk over Delta Peer ([docs/delta.md](../../docs/delta.md#chat)):
+Chupathingy players talk over Delta Peer ([docs/delta/peer.md](../../docs/delta/peer.md#chat)):
 the server checks each line (its rate, its text, the player's mute, the
 filter) and passes it to everyone, or to the speaker's team. It writes
 nothing of what is said: not to the log, not to the audit file. What it
@@ -72,9 +83,9 @@ are left out anyway.
 ## Team changes
 
 Players keep the team they joined, as on the Xbox, unless the server allows
-team changes. Then a ChupathingyCE player can change teams from the pause
+team changes. Then a Chupathingy player can change teams from the pause
 menu (CHANGE TEAMS, as on Halo PC). Their game asks the server over Delta
-Peer ([docs/delta.md](../../docs/delta.md#team-changes)) and the server
+Peer ([docs/delta/peer.md](../../docs/delta/peer.md#team-changes)) and the server
 decides:
 
 - `off` (the default): none (only `sv_team` moves players), and the pause
@@ -100,14 +111,14 @@ Blue) moves a player whatever the setting says.
 `HALO_DEDICATED_NAME_FILTER`) is off unless it is turned on. On, the server
 looks at each player's name as they join and whenever it changes, and a
 player whose name is blocked is sent a warning, "That name isn't allowed
-here. Pick another and rejoin.", which a ChupathingyCE game shows, and is
+here. Pick another and rejoin.", which a Chupathingy game shows, and is
 kicked three seconds later (at once if their game cannot show it), as
 `sv_kick` kicks. They may rejoin under another name. The log and the audit
 file say "kicked player 3: blocked name", never the name or the address.
 
 The names are `blocked_names.txt` in the data folder, which the server's
 download and its container's deploy scripts include: the same list the
-ChupathingyCE site uses, read as the server starts and again whenever the
+Chupathingy site uses, read as the server starts and again whenever the
 filter is turned on (`sv_name_filter 1` after editing it). Without the
 file the filter blocks nothing, and the log says so. Its header explains
 its form: a line an entry, `anywhere`, `whole` or `allow` and a word in
@@ -148,9 +159,10 @@ version), let a client tell it from a Custom Edition server, and `chimera`
 The version reported is the server's own (`HALO_DEDICATED_GAMESPY_VERSION`
 sets another). Custom Edition 1.0.10's server browser shows only servers
 reporting its own version, `01.00.10.0621`, so by default the server is in
-the masters' list but that browser does not show it. Its players cannot join
-this server, so reporting `01.00.10.0621` would show them a game they cannot
-join.
+the masters' list but that browser does not show it. Report
+`01.00.10.0621` only on a server that takes Custom Edition players
+(`ce_joins`, below) and plays Custom Edition maps, or the browser shows its
+players a game they cannot join.
 
 The UDP port must be open (forwarded) for the queries to reach the server
 from outside. The naming of Xbox maps is the Custom Edition community's,
@@ -162,19 +174,17 @@ Off unless `ce_joins` is on too (`sv_set ce_joins true`). The same UDP port
 then answers a Halo Custom Edition 1.0.10 client that connects to it: the
 connection's handshake, its key agreement and its enciphered, reliable
 messages, as Custom Edition's own server does them. The server tells the
-client its map (by the name above), reads its join request (the player's
-name goes in the log; the CD key hash is not logged) and, for now, refuses
-the join: the player gets Custom Edition's own "Unable to join the game
-server!" message, not a timeout. Playing in the game comes later. At most 16 Custom
-Edition clients are handled at once.
+client its map (by the name above) and reads its join request (the
+player's name goes in the log; the CD key hash is not logged).
 
-For development only, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead,
-while a game is being played on a map the Custom Edition player has too (a
-Custom Edition map, `bloodgulch@ce`: the same .map file on both sides). The
-player joins the game as one of the server's own players, moved by their
-client's input. Leave this off on a real server: it is still incomplete.
+The player joins while a game is being played on a map they have too: a
+Custom Edition map (`bloodgulch@ce`, the same .map file on both sides). They
+play as one of the server's own players, moved by their client's input.
+On any other map, or with no seat left, the join is refused with Custom
+Edition's own message, not a timeout. This is new: test it on your server
+before you rely on it.
 
-What works so far:
+What works:
 
 - Moving, aiming and shooting, both ways. Their own position is corrected
   to the server's twice a second, so their shots land at range.
@@ -185,7 +195,12 @@ What works so far:
   scores.
 - Weapons and equipment on the ground, picking them up and dropping them.
 - Vehicles: getting in and out of seats, and driving.
-- A welcome line in their chat as they join (`ce_welcome`), and `sv_say`.
+- A welcome line in their chat a minute into their first game (`ce_welcome`), and `sv_say`.
+- The end of a game and the next one: the scores come up on their screen,
+  and when the next game starts they join it again by themselves (their
+  client reconnects, as it does on Custom Edition's own servers) and keep
+  their seat. They are let go when the next map is not a Custom Edition
+  map, or when they don't come back within 45 seconds.
 - `sv_kick` and `sv_ban` (a ban is by their address). The bans, the limit
   on players from one address (`max_machines_per_address`) and the
   betrayal and AFK limits apply to them too: warnings go in their chat. The
@@ -194,10 +209,13 @@ What works so far:
 
 Not yet:
 
-- At most 4 Custom Edition players at once.
-- They join a game in progress only: the end of a game drops them, and a
-  join between games waits up to 12 seconds for the next one. An empty
-  server doesn't start a game for them.
+- At most 4 Custom Edition players at once (they are seats of the server's
+  own machine); a fifth is told the server is full.
+- Their client is told the game is Slayer, free for all: play Slayer with
+  them. Other game types and teams are not shown right on their side.
+- A join between games waits up to 12 seconds for the next one. On an
+  empty server, their player goes into the lobby and a game starts after a
+  short countdown.
 - Weapons and equipment coming back (respawning) on the ground.
 - Checked live only in part: a Chupathingy player in a vehicle as Custom
   Edition players see it, and swapping weapons.
@@ -231,15 +249,20 @@ settings is left as it is and still works.
 | `HALO_NET_REPORT_HOSTED` | `true` | `false`: the server stays listed, but sends no carnage reports or Delta Stats of its games. |
 | `HALO_NET_ONLINE` | `true` | Internet play: how players outside your network reach the server. `false` keeps it to the local network. |
 | `HALO_NET_TUNNEL_PORT` | `0` (any) | The UDP port internet play uses. A fixed one can be forwarded, for networks whose NAT stops connections. |
+| `HALO_NET_PUBLIC_ADDRESS` | (none) | The address players reach the server at, as `host` or `host:port`, when they come in through a relay or tunnel with its own address (a VPS forwarding UDP to a Docker bridge, frp). The server advertises it to the game list, invites and Online Games pings in place of the address STUN finds, and UPnP isn't asked. The port defaults to `HALO_NET_TUNNEL_PORT`, so set that too. The server then only answers players who reach it there and sends nothing to their addresses first, which a relay couldn't pass on. |
 | `HALO_NET_ALLOW_UPNP` | `true` | Let internet play ask the router to forward its port (UPnP). |
 | `HALO_NET_BROKERS_FILE` | `brokers.txt` | The file of internet play's MQTT brokers (one `host:port` on each line), beside the program unless a full path. Without one, the server uses the game's own list, the same as `port/assets/network/brokers.txt`. |
-| `HALO_NET_ANNOUNCE` | `latest` | The OpenCE network version the server announces. `latest` follows the newest one Chupathingy's signed table says our servers host well, so OpenCE's newest players see the server. The server checks for a new table every 30 minutes, and changes by itself between games, with no restart. A table row may name host protections a server needs for a number; a build without them announces its own number (32) and logs why. A number pins it, for example `32` for a server meant for console players on older builds ([Delta](../../docs/delta.md#auto-announce)). |
-| `HALO_LEGACY_TABLE` | (none) | A legacy table file, not signed, used in place of the signed ones: its row for the build's wire sets the OpenCE network versions the server announces and its range. For tests, and for an admin who knows better; the log warns at start, and the server neither fetches nor passes on signed tables meanwhile ([Delta](../../docs/delta.md#local-override)). To announce a newer or older number, use `HALO_NET_ANNOUNCE` instead. |
+| `HALO_NET_ANNOUNCE` | `latest` | The OpenCE network version the server announces. `latest` follows the newest one Chupathingy's signed table says our servers host well, so OpenCE's newest players see the server. The server checks for a new table every 30 minutes, and changes by itself between games, with no restart. A table row may name host protections a server needs for a number; a build without them announces its own number (32) and logs why. A number pins it, for example `32` for a server meant for console players on older builds ([Delta](../../docs/delta/versioning.md#auto-announce)). |
+| `HALO_LEGACY_TABLE` | (none) | A legacy table file, not signed, used in place of the signed ones: its row for the build's wire sets the OpenCE network versions the server announces and its range. For tests, and for an admin who knows better; the log warns at start, and the server neither fetches nor passes on signed tables meanwhile ([Delta](../../docs/delta-implementation.md#local-override)). To announce a newer or older number, use `HALO_NET_ANNOUNCE` instead. |
 | `HALO_NET_ADDRESS` | (any) | The IPv4 address system link uses. Several servers on one machine each need their own: `127.0.0.2`, `127.0.0.3`, ... ([Docker](docker.md#more-servers-on-the-same-host)). |
 | `HALO_NET_BROADCAST` | (the local network's) | Comma-separated addresses system link announces games to, instead of the local network's broadcast. |
-| `HALO_NET_PROTOCOL` | `auto` | Delta Peer ([docs/delta.md](../../docs/delta.md)), ChupathingyCE's messages beside OpenCE's protocol, on UDP port 5160 beside the game's 5150: `auto` speaks it with the machines that do (the rest play plain OpenCE); `opence` turns it off; `delta` is `auto` for now. |
-| `HALO_NET_HOST_PLATFORM_LIMITS` | `true` | Keep the game to the players its Delta machines' platforms take (an original Xbox: 16, unless its player opted out); `false` ignores them, for testing. |
+| `HALO_NET_PROTOCOL` | `auto` | Delta Peer ([docs/delta/peer.md](../../docs/delta/peer.md)), Chupathingy's messages beside OpenCE's protocol, on UDP port 5160 beside the game's 5150: `auto` speaks it with the machines that do (the rest play plain OpenCE); `opence` turns it off; `delta` is `auto` for now. |
+| `HALO_NET_HOST_PLATFORM_LIMITS` | `true` | Keep the game to the players its Delta machines' platforms take (an original Xbox joins up to 32, unless its player opted out); `false` ignores them, for testing. |
 | `HALO_NET_HIT_LINE_OF_SIGHT` | `true` | Refuse a client's reported hit through a wall: the shot needs a clear line to its target from where the server had the shooter (their view, head or vehicle seat's gun), or, for an explosion, from where it went off. Glass, what the projectile passes through, and homing or arcing projectiles are allowed for; melee and vehicle hits are not checked. `false` turns it off if good hits are refused (`network.hit_line_of_sight`). Players need nothing new. |
+| `HALO_NET_MAP_SHARE` | `false` | `true`: a player who joins without the server's Custom Edition map, and asks for it, gets it from the server: only the map it is on now, only the map file, only to machines in the game, over TCP port 5153 (open it as you open the game's port). A machine downloading is not dropped for having no player. Off by default; our [C] servers turn it on after the map bot's first invite test. `network.map_share`. Refer to "Map sharing" in [port/linux/README.md](../../port/linux/README.md#map-sharing). |
+| `HALO_NET_MAP_SHARE_UPLOAD` | `1024` | The most map sharing sends, in KB a second, for everyone downloading at once (16 to 20480). `network.map_share_upload`. |
+| `HALO_NET_LATE_JOIN_WAIT` | `5` | How many seconds a machine that joins a game in progress waits after its first player is in, so the players on its other controllers can join too (split screen), 0 to 30. It starts sooner when the machine has four players; 0 starts it at once. |
+| `HALO_NET_PREGAME_LOAD_TIMEOUT` | `90` | How many seconds after the lobby's countdown ends the server waits for a machine that hasn't said it has the map loaded. Then that machine is dropped, as a machine that times out is, and the game starts without it, so one stuck machine can't hold the lobby. The log says which machine (its number, never its address). 0 to 3600; `0` waits for ever (`network.pregame_load_timeout`). |
 | `HALO_NET_BLOCK_MOUSE_AIM_ASSIST` | `false` | The server's policy on aiming assist for the mouse and keyboard: `false` leaves each player's own setting (`input.mouse_aim_assist`); `true` turns the view's magnetism off for players aiming with the mouse, in every game of the server. Clients are told when they join and when it changes (network version 32). |
 | `HALO_PLAYLIST_ID` | (none) | The id of the playlist's verified map set on the Chupathingy site (`c_ce_maps`), sent with the game list entry so joining players can get missing maps ([Playlists](playlists.md#the-playlists-map-set)). |
 | `SSL_CERT_FILE` | the system's | The certificates the server checks stats.chupathingy.org's against, when they are somewhere unusual. |
@@ -260,12 +283,26 @@ that change the game are refused unless `HALO_NET_HOST_CHEATS=true`, and
 it may make at most that many objects a game. The `sv_*` commands are
 not affected.
 
+### More settings in config.toml
+
+These come from the game's settings and work on the server too. The full
+text of each is in [port/linux/README.md](../../port/linux/README.md).
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `HALO_NET_STUN` | Google's and Cloudflare's | The STUN servers that find the server's internet address, `host:port`, separated by commas (`network.stun_servers`). |
+| `HALO_DOWNLOADED_MAPS` | (none) | Maps treated as downloaded, separated by commas (`bloodgulch,hugeass@ce`), or `*` for all. Their scripts can't change the server's settings (`game.downloaded_maps`). |
+| `HALO_BOMB_SPAWNS` | (none) | Where the bomb goes on a map in Bomb and Grifball games: `"<map> <x> <y> [<z>]"`, entries separated by commas (`game.bomb_spawns`). |
+| `HALO_BOMB_ARM_TIME` | `1.0` | Seconds a planted bomb takes to arm, up to 10. `0` scores at once (`game.bomb_arm_time`). |
+| `HALO_BOMB_OPEN_PITCH_SPEED`, `_CARRIER_HEALTH`, `_CARRIER_RESISTANCE`, `_CARRIER_SHIELDS`, `_FUMBLE` | `0`, `0`, `0`, `none`, `true` | Grifball: Open Pitch tuning. `0` keeps the game type's own value (`game.bomb_open_pitch_*`). |
+
 ### Debug settings
 
 For testing and support. Leave them off on a real server.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
+| `HALO_LOG_FULL_PATHS` | `false` | Debug: write folder paths whole in `debug.txt`, with the account name. Off, the home folder is written as `~`. |
 | `HALO_TELNET_CONSOLE` | `false` | Debug: opens the game's script console on 127.0.0.1, at `HALO_TELNET_CONSOLE_PORT` (`2323`). It has no password. |
 | `HALO_NETWORK_LATENCY`, `HALO_NETWORK_LOSS`, `HALO_NETWORK_CORRUPT`, `HALO_NETWORK_CORRUPT_STREAM`, `HALO_NETWORK_CORRUPT_AFTER` | `0` | Debug: delay what is received (milliseconds), drop or damage a percent of it, after so many seconds. |
 
@@ -287,8 +324,9 @@ Commands for a running server (kick, ban, change the map, ...) are typed
 on its console or sent to its control API: [admin.md](admin.md).
 
 Exit statuses: `0` stopped as asked (SIGTERM, SIGINT); `1` no maps, or a
-playlist it cannot read; `2` no playlist (`HALO_DEDICATED`), or an argument
-it does not know.
+playlist it cannot read; `2` an argument it does not know, or no playlist
+(`HALO_DEDICATED`) while the control panel is off or the data folder's
+`playlists` folder is empty.
 
 ## The files it writes
 
@@ -301,9 +339,12 @@ accounts), `control_audit.log` (every change: [moderation.md](moderation.md)),
 `control_tls.key` (the panel's own certificate, when it is HTTPS),
 `delta_link.key` (the link to the Chupathingy site, once linked),
 `delta_roles.cache` (the site's roles, kept for a restart while the site is
-down), and
+down), `reports.log` (players' reports), and
 `admin/` (playlists, game types and settings made on the server:
 [playlists.md](playlists.md)). Keep them private, and back them up.
+
+The server also reads `server_badge.cert` from the data folder, if you put
+one there ([Server badges](../../docs/server-badges.md)).
 
 ## Probing a game
 

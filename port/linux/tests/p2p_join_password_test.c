@@ -168,6 +168,67 @@ int main(void)
 		check(p2p_parse_invite(text, hash, door, NULL) == -1, "an older version's link is told apart");
 		check(p2p_parse_invite("hello there", hash, door, NULL) == 0, "words are no invite");
 		check(p2p_parse_invite("play", hash, door, NULL) == 0, "a word beginning with p is no invite");
+
+		/* the site's join page: what a copied invite is, read as its link */
+		{
+			char shared[256], full[256];
+
+			memcpy(bytes, key_hash, P2P_KEY_HASH_SIZE);
+			memcpy(bytes + P2P_KEY_HASH_SIZE, token, P2P_TOKEN_SIZE);
+			hex(bytes, sizeof(bytes), code);
+			code[2 * sizeof(bytes)] = 0;
+			snprintf(full, sizeof(full), "halo://join/%s", code);
+			check(p2p_invite_share_link(full, shared, sizeof(shared)), "an invite has a link to share");
+			snprintf(text, sizeof(text), "https://chupathingy.org/join/%s", code);
+			check(!strcmp(shared, text), "the shared link is the site's join page");
+			check(p2p_parse_invite(shared, hash, door, NULL) == 1 && !memcmp(door, token, sizeof(token)),
+				"the join page's link parses as the invite");
+			snprintf(text, sizeof(text), "come play https://stats.chupathingy.org/join/%s/ tonight", code);
+			check(p2p_parse_invite(text, hash, door, NULL) == 1, "a join page under the site, in other words, parses");
+			snprintf(text, sizeof(text), "HTTPS://CHUPATHINGY.ORG/JOIN/%s", code);
+			check(p2p_parse_invite(text, hash, door, NULL) == 1, "a join page in capitals parses");
+			snprintf(text, sizeof(text), "https://halo.milenko.org/join/%s", code);
+			check(p2p_parse_invite(text, hash, door, NULL) == 1, "the site's older address parses");
+			snprintf(text, sizeof(text), "https://example.com/join/%s", code);
+			check(p2p_invite_link_digits(text) == NULL, "another site's join page is no invite link");
+			snprintf(text, sizeof(text), "https://notchupathingy.org/join/%s", code);
+			check(p2p_invite_link_digits(text) == NULL, "a host that only ends like the site's is not the site");
+			snprintf(text, sizeof(text), "https://chupathingy.org.example.com/join/%s", code);
+			check(p2p_invite_link_digits(text) == NULL, "the site's name inside another host is not the site");
+			check(p2p_invite_link_digits("https://chupathingy.org/party/ABCDEF") == NULL, "a party page is no invite");
+			/* a host ends at the path: ?, #, @, a backslash or a port in it is
+			no join page of the site's */
+			{
+				static const char *const tricks[] = {
+					"https://evil.com?.chupathingy.org/join/%s",
+					"https://evil.com#.chupathingy.org/join/%s",
+					"https://chupathingy.org@evil.com/join/%s",
+					"https://evil.com@chupathingy.org/join/%s",
+					"https://evil.com\\.chupathingy.org/join/%s",
+					"https://chupathingy.org:443/join/%s",
+					"https://chupathingy.org%%2F/join/%s",
+					"https://_x.chupathingy.org/join/%s",
+				};
+				int trick;
+
+				for (trick = 0; trick < (int)(sizeof(tricks) / sizeof(*tricks)); trick++)
+				{
+					snprintf(text, sizeof(text), tricks[trick], code);
+					check(p2p_invite_link_digits(text) == NULL, tricks[trick]);
+				}
+			}
+
+			/* a locked game's link goes as its page too, and reads back locked */
+			check(p2p_invite_share_link(link, shared, sizeof(shared)), "a locked invite has a link to share");
+			check(!strncmp(shared, "https://chupathingy.org/join/p", 30), "a locked invite's page keeps its p");
+			check(p2p_parse_invite(shared, hash, door, check_bytes) == 2, "a locked join page parses as locked");
+
+			/* anything else is shared as it is; too small is refused */
+			check(p2p_invite_share_link("halo://party/ABCDEF", shared, sizeof(shared)) &&
+				!strcmp(shared, "halo://party/ABCDEF"), "a party link is shared as it is");
+			check(!p2p_invite_share_link(full, shared, 20) && !shared[0], "a link that doesn't fit is refused");
+			check(!p2p_invite_share_link(NULL, shared, sizeof(shared)), "no invite, no link");
+		}
 	}
 
 	/* the server browser's listing (OpenCE's browsers too): its sealed token

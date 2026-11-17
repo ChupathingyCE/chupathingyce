@@ -20,6 +20,14 @@ the platform's both call it.
 *prefix, else 0 (no such file, or not read whole). A file is read once for
 its path, size and modification time; any thread may ask */
 int map_file_hash_prefix(const char *path, unsigned int *prefix);
+/* the same file's whole hash (MAP_ARCHIVE_HASH_SIZE bytes into hash), as
+Chupathingy maps' index names a file by its map hash (map_repo.h) */
+int map_file_hash_whole(const char *path, unsigned char *hash);
+/* both the file's hashes in one read, kept for the run as the others are:
+its map hash (MAP_ARCHIVE_HASH_SIZE bytes into hash) and its SHA-256 (32
+bytes into sha256, NULL: not wanted), as Chupathingy maps' blacklist names a
+file by either */
+int map_file_hash_both(const char *path, unsigned char *hash, unsigned char *sha256);
 /* ... and the version of the map in it, as a host of network version 29
 sends it (map_archive_hash_version: the prefix, or 1 for 0) */
 int map_file_hash_version(const char *path, unsigned int *version);

@@ -46,7 +46,7 @@ def environment(data):
     data.mkdir(parents=True, exist_ok=True)
     keep = {key: value for key, value in os.environ.items() if not key.startswith("HALO_")}
     return dict(keep, HARNESS_DATA=str(data), HALO_SAVE_ROOT=str(data), HARNESS_STDERR_LINES="4",
-                ASAN_OPTIONS="detect_leaks=0", TERM="xterm")
+                HALO_DEDICATED_CONTROL="off", ASAN_OPTIONS="detect_leaks=0", TERM="xterm")
 
 
 class Screen:

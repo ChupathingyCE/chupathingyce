@@ -182,6 +182,7 @@ symbols in this file:
 #include "units/units.h"
 #ifdef HALO_64BIT
 #include "game/game.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #endif
 
 
@@ -1104,6 +1105,13 @@ static boolean actor_look_decode_direction(
 		break;
 	}
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: a Stubbs map's look at a point that isn't anywhere (a10's cop
+	cars under their recordings sit at -1e38): no look, not a halt (Stubbs
+	mode only: port/linux/game/stubbs_mode.c) */
+	if (result && stubbs_mode_active() && !valid_realcmp(magnitude_squared3d(direction), 1.0f))
+		return FALSE;
+#endif
 	if (result)
 	{
 		real magnitude_squared = magnitude_squared3d(direction);

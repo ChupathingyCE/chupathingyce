@@ -1,0 +1,9 @@
+GET /v1/status HTTP/1.1
+Host: panel.example.org
+Authorization: Bearer chce_abababababababababababababababababababababababababababababababab
+X-Forwarded-For: 203.0.113.9, 10.0.0.2
+X-Forwarded-Proto: https
+Forwarded: for=1.2.3.4;proto=https
+X-Forwarded-Host: panel.example.org
+Sec-Fetch-Site: same-origin
+

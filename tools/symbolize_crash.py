@@ -6,8 +6,10 @@ a line: port/linux/src/crash_report.h):
 
     python tools/symbolize_crash.py logs/debug.txt path/to/chupathingy.exe
 
-(Both logs are in logs/ in the game's data folder since 0.8.0; before, debug.txt
-was in the data folder itself and halo.log beside the program.)
+(Both logs are in logs/ beside maps/ since 0.8.0, or in the save folder's
+logs/ when a custom save folder is set (paths.saves, HALO_SAVE_ROOT), or in
+paths.logs when that is set. Before 0.8.0, debug.txt was beside maps/ and
+halo.log beside the program.)
 
 The program must be the build that crashed (32- or 64-bit), with its .pdb
 beside it: chupathingy.exe and chupathingy.pdb from 0.9.0, halo.exe and

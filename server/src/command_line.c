@@ -342,6 +342,36 @@ int command_line_name_match(
 	return *name ? 1 : 2;
 }
 
+/* an MCC map's level name (mcc_maps.c): mcc_maps\<map> or
+mcc_maps\<package>\<map>, each part a file's name as below */
+static int mcc_map_name_valid(
+	const char *text)
+{
+	static const char prefix[] = "mcc_maps\\";
+	int index, parts = 0, part_length = 0;
+
+	for (index = 0; prefix[index]; index++)
+	{
+		if (lower(text[index]) != prefix[index])
+			return 0;
+	}
+	for (text += index; ; text++)
+	{
+		if (!*text || *text == '\\')
+		{
+			if (!part_length || text[-1] == ' ' || text[-1] == '.' || ++parts > 2)
+				return -1;
+			if (!*text)
+				return 1;
+			part_length = 0;
+			continue;
+		}
+		if (*text < 0x20 || *text > 0x7e || strchr(":<>?*/|\"@", *text) || (!part_length && *text == ' '))
+			return -1;
+		part_length++;
+	}
+}
+
 int command_line_map_name_valid(
 	const char *text)
 {
@@ -350,6 +380,8 @@ int command_line_map_name_valid(
 
 	if (!text)
 		return 0;
+	if (strlen(text) <= 63 && mcc_map_name_valid(text))
+		return mcc_map_name_valid(text) > 0;
 	length = (int)strlen(text);
 	if (length == 0 || length > 63)
 		return 0;

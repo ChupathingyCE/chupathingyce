@@ -6,6 +6,45 @@ release notes.
 
 ## Unreleased
 
+- `opence_welcome` (off by default): each OpenCE player gets one line in
+  their chat once they join, that this is a Chupathingy server.
+  `opence_welcome_text` sets the line, up to 63 characters. Chupathingy
+  players never see it.
+- A playlist entry whose map isn't installed on the server is skipped,
+  and a playlist with no installed map at all isn't hosted (the console
+  and the log say so) instead of the game ending at the switch.
+- Parties can stay together (`keep_parties_together`, off by default): in
+  team games, Chupathingy players in one party go to one team when the
+  teams stay within one player of each other. `sv_set keep_parties_together
+  true` turns it on while the server runs.
+- Players' reports: Chupathingy players report others from DELTA, and they
+  land in `sv_reports` and the panel's new Reports tab with the server's
+  refusal counts for that player. Linked servers send them to the site too,
+  where a clip the reporter attached is kept for 14 days. OpenCE players can
+  be reported by name; those reports stay on the server.
+- `sv_lock` and `sv_unlock` stop and start new joins (the panel's Status
+  tab, the game's Moderation screen and the site have it too). The game
+  list shows a locked server. It ends once the server has been empty for
+  10 seconds, and a restart unlocks.
+- `late_join_hold` (off by default): players who join a game in progress
+  watch until the next game.
+- Shared ban lists for linked servers (both off by default): `ban_share`
+  sends your account and device bans to your list on the site, and the
+  lists you pick on My servers come back as `sv_banlist`'s S entries
+  (`sv_ban_lists`, `sv_unban S<ref>` for an exception here).
+  `sv_ban_account` bans a Delta account that isn't in the game.
+- The control panel is on by default, at `http://127.0.0.1:8080` (this
+  machine only). New hosts get the one-time setup link on the console and in
+  `control_setup_code.txt`; on Windows the server also opens it in the
+  browser. `HALO_DEDICATED_CONTROL=off` turns it off. If port 8080 is taken,
+  the server logs one line and keeps hosting. Public addresses stay opt-in,
+  and our Docker image keeps the panel off until you set it.
+- Halo Custom Edition 1.0.10 players can play (`ce_joins`, still off by
+  default): a Custom Edition player joins a game on a Custom Edition map as
+  one of the server's own players (up to 4), and stays from one game and
+  map to the next, as on Custom Edition's own servers. The development
+  switch `HALO_DEDICATED_CE_ACCEPT` is gone. See "Custom Edition join
+  attempts" in server/docs/settings.md for what works and what doesn't yet.
 - Host rules, off by default as on the Xbox: `allow_player_names`
   (`HALO_DEDICATED_ALLOW_PLAYER_NAMES`) lets Chupathingy players show names
   above heads, and `allow_follow_camera`

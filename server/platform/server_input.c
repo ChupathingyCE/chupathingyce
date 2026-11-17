@@ -48,6 +48,19 @@ int halo_linux_mouse_aiming(short gamepad_index)
 	return FALSE;
 }
 
+/* the debug camera's mouse and keyboard (director.c): none */
+int halo_linux_debug_camera_input(short gamepad_index, int free_camera, int *up, int *down, int *switch_key,
+	float *wheel)
+{
+	(void)gamepad_index;
+	(void)free_camera;
+	*up = FALSE;
+	*down = FALSE;
+	*switch_key = FALSE;
+	*wheel = 0.0f;
+	return FALSE;
+}
+
 int platform_input_scheme(void)
 {
 	return 0;
@@ -235,4 +248,17 @@ DWORD WINAPI XInputDebugGetKeystroke(PXINPUT_DEBUG_KEYSTROKE keystroke)
 {
 	memset(keystroke, 0, sizeof(*keystroke));
 	return ERROR_HANDLE_EOF;
+}
+
+/* the mouse wheel for the console's scrollback (xinput_sdl.c's): none */
+int halo_console_wheel_steps(void)
+{
+	return 0;
+}
+
+/* the keyboard's bindings (xinput_sdl.c's): the server has none */
+int halo_keyboard_action_bound(int action)
+{
+	(void)action;
+	return 0;
 }

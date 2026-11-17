@@ -13,6 +13,10 @@ controller emulation (see sdl_platform.c).
 
 #define PLATFORM_MOUSE_BUTTON_COUNT 8
 
+/* the window closed, or the game was told to quit: logs "window closed",
+lets go of the OpenGL context and the window, and exits (sdl_platform.c) */
+void platform_exit_window_closed(void);
+
 struct platform_input_state
 {
 	unsigned char keys[SDL_SCANCODE_COUNT];
@@ -72,8 +76,12 @@ sees */
 void platform_input_scheme_used(void *gamepad);
 
 /* whether the game runs without anyone to answer a question (a test run, a
-null renderer, the Steam Deck's Game Mode): no launcher, no message boxes */
+null renderer, the Steam Deck's Game Mode): no message boxes */
 BOOL platform_run_is_quiet(void);
+/* whether it runs without anyone to watch it (a test run, a null renderer;
+not Game Mode, which shows the setup screen, drawn in the game's own window):
+no setup screen either */
+BOOL platform_run_is_unwatched(void);
 
 /* the maps out of a file the player picked (the first start, the
 launcher's Add maps), on a thread of their own: the kind of file it is
@@ -96,9 +104,18 @@ BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, u
 BOOL platform_sdl_initialize(void);
 /* creates the window and makes its OpenGL context current on this thread */
 BOOL platform_video_initialize(unsigned long width, unsigned long height);
-#ifdef HALO_BGFX
+#if defined(HALO_BGFX) || defined(HALO_VULKAN)
 /* the window again for OpenGL, when bgfx does not start (d3d8_bgfx.inl) */
 BOOL platform_video_reopen_for_gl(void);
+#ifdef HALO_VULKAN
+/* the one-time questions after a fallback (d3d8_vk.inl): to stay on OpenGL
+ES, or on the phone's own Vulkan driver, for good */
+void platform_offer_opengl_es(void);
+void platform_offer_system_driver(const char *driver);
+#endif
+/* display.renderer chooses bgfx: "bgfx", or on Windows "d3d11" (bgfx on
+Direct3D 11) */
+BOOL platform_bgfx_chosen(void);
 #endif
 #ifndef HALO_ANDROID
 BOOL platform_screen_mode(long *width, long *height);
@@ -113,6 +130,12 @@ that fit the desktop, and display.window_size's; how many. None on
 Android. */
 int platform_window_sizes(long *widths, long *heights, int maximum);
 void platform_video_drawable_size(int *width, int *height);
+/* whether the window's display shows HDR, with the desktop's white (in
+scRGB's units, 1.0 being 80 nits; 1.0 for macOS's EDR) and how many times
+brighter than it the display goes (1.0 without HDR); and whether the
+window's pixels are floating point (display.hdr_output, scRGB) */
+BOOL platform_video_hdr(float *sdr_white, float *headroom);
+BOOL platform_video_float_window(void);
 #ifdef HALO_IOS
 /* the part of the drawable the picture is shown in, in pixels from its top
 left: all of it, but where the platform keeps part for itself (iPhone Duo
@@ -133,8 +156,17 @@ elsewhere; on Android this is where finger events reach touch_input.c, which
 is why that module's state is only touched from the main thread */
 void platform_pump_events(void);
 void platform_show_message(const char *title, const char *message);
+/* after a Vulkan start that did not get going: asks whether to stay on OpenGL */
+void platform_offer_opengl(void);
 /* a snapshot of the input state; consume_motion resets the mouse deltas */
 void platform_input_read(struct platform_input_state *state, BOOL consume_motion);
+/* a trigger past this (of SDL's 0 to 32767) is pulled */
+#define PLATFORM_GAMEPAD_TRIGGER_PRESSED 8000
+/* a gamepad's buttons pressed (bits by SDL_GamepadButton) and triggers pulled
+(bit 0 the left, 1 the right) since this was last asked of it, by its
+joystick ID: the controller's reading ORs them into what is held, so a tap
+between two readings still counts */
+void platform_gamepad_presses_take(Uint32 id, Uint32 *buttons, unsigned int *triggers);
 /* the pointer in the menus (d3d8_gl.c, halo_ui_pointer_update) */
 struct platform_ui_pointer
 {
@@ -151,6 +183,8 @@ struct platform_ui_pointer
 	float down_x, down_y;
 	/* the pointer is the touchscreen (touch_input.c), not a mouse */
 	BOOL touch;
+	/* the left button held now (a scroll bar's drag); the mouse only */
+	BOOL left_down;
 };
 /* says whether a menu is up; the mouse is released for the menus (desktop),
 or the touchscreen goes to them (Android); a change of mode drops the gesture
@@ -168,6 +202,9 @@ void platform_test_pointer_event(float x, float y, int button, int wheel);
 which differ from the drawable's pixels on displays that scale */
 void platform_video_window_size(int *width, int *height);
 BOOL platform_next_keystroke(struct platform_keystroke *keystroke);
+/* nonzero when a key, mouse button or touch was pressed since the last call
+(which forgets them): a movie's skip (bink_playback.c) */
+int platform_movie_skip_pressed(void);
 /* the multiplayer scoreboard (game_engine.c) open or not: while it is, the
 mouse wheel and Page Up/Down scroll it instead of switching weapons; how
 far they moved it since the last call (notches and pages, down positive) */

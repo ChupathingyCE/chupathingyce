@@ -1,4 +1,4 @@
-"""Wire compatibility ranges (docs/delta.md, "Wire compatibility ranges"): the
+"""Wire compatibility ranges (docs/delta/versioning.md, "Wire compatibility ranges"): the
 C tests of port/linux/src/delta_compat.c (the advertisement's Delta tag, the
 old layout still read, OpenCE's bytes never taken for Delta, the join
 decision for each pair of wires),
@@ -16,7 +16,8 @@ from tools import fuzz_support  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 INCLUDE = ROOT / "port" / "linux" / "include"
 DELTA = INCLUDE / "delta.h"
-DOCS = ROOT / "docs" / "delta.md"
+DOCS = [ROOT / "docs" / "delta" / "versioning.md", ROOT / "docs" / "delta" / "peer.md"]
+IMPLEMENTATION = ROOT / "docs" / "delta-implementation.md"
 SOURCE = ROOT / "port" / "linux" / "src" / "delta_compat.c"
 TEST = ROOT / "port" / "linux" / "tests" / "delta_compat_test.c"
 
@@ -90,12 +91,14 @@ def test_rows():
 
 
 def test_documented():
-    docs = DOCS.read_text(encoding="utf-8")
-    assert "### Wire compatibility ranges" in docs
-    for needle in ("DELTA_WIRE_COMPATIBILITY", "DELTA_ADVERTISED_RANGE_OFFSET", "DELTA_ADVERTISED_TAG_OFFSET", "0xA5",
-                   "chupa-28a", "chupa-29a", "chupa-32a", "chupa-39a", "build-244", "no end date", "delta_compat_advertise_old",
-                   "DELTA_ADVERTISED_KIND_ENGINE"):
+    docs = "".join(page.read_text(encoding="utf-8") for page in DOCS)
+    assert "## Wire compatibility ranges" in docs
+    for needle in ("0xA5", "chupa-28a", "chupa-29a", "chupa-32a", "chupa-39a", "build-244", "no end date"):
         assert needle in docs, needle
+    implementation = IMPLEMENTATION.read_text(encoding="utf-8")
+    for needle in ("DELTA_WIRE_COMPATIBILITY", "DELTA_ADVERTISED_RANGE_OFFSET", "DELTA_ADVERTISED_TAG_OFFSET",
+                   "delta_compat_advertise_old", "DELTA_ADVERTISED_KIND_ENGINE"):
+        assert needle in implementation, needle
 
 
 def test_consoles_join_by_wire():

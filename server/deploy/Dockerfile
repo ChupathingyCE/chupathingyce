@@ -6,7 +6,8 @@
 #
 # The same file builds every architecture: the context holds each
 # architecture's server as bin/<Docker's name for it>/chupathingyce-server
-# (bin/386, bin/amd64, bin/arm64), and the platform built picks it. Nothing
+# (bin/386, bin/amd64, bin/arm64), beside its LICENSE.txt and
+# THIRD-PARTY-NOTICES.txt, and the platform built picks it. Nothing
 # runs while it builds, so buildx makes all three on any machine:
 #   docker buildx build --platform linux/386,linux/amd64,linux/arm64 .
 # (deploy.sh puts the one server it is given there, and builds for it)
@@ -25,14 +26,19 @@ LABEL org.opencontainers.image.title="Chupathingy Dedicated Server" \
 # --build-arg TARGETARCH=amd64, as deploy.sh does)
 ARG TARGETARCH
 
-COPY bin/${TARGETARCH}/chupathingyce-server /opt/chupathingyce/chupathingyce-server
+# (with its license and THIRD-PARTY-NOTICES.txt, which the server's zip
+# carries and the builds put beside it: the whole folder)
+COPY bin/${TARGETARCH}/ /opt/chupathingyce/
 WORKDIR /data
 
 # the data and saves in /data, the log in /data/logs (the data folder's
 # logs/) and what the server can make again in /data/cache; the run's key in
 # /tmp (it goes with the container); no settings file beside the program
-# (the environment's)
+# (the environment's); the control panel off until the operator sets
+# HALO_DEDICATED_CONTROL (in a container, 127.0.0.1 is the container's own,
+# or with the host's network, one port every server on the host would want)
 ENV HALO_DATA_ROOT=/data \
+	HALO_DEDICATED_CONTROL=off \
 	HALO_SAVE_ROOT=/data/saves \
 	HALO_CACHE_ROOT=/data/cache \
 	XDG_RUNTIME_DIR=/tmp

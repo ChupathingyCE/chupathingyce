@@ -1,0 +1,18 @@
+{
+  "about": "the overlay's picture decoder (stb_image, JPEG and PNG): Workshop previews, Steam pictures, map art (stb_image's IDCT and shifts wrap on purpose: those two checks are off)",
+  "harness": "port/linux/tests/ui_image_fuzz.c",
+  "sources": [
+    "port/linux/src/posix_ui_font.c"
+  ],
+  "includes": [
+    "port/linux/src",
+    "port/third_party/stb"
+  ],
+  "flags": [
+    "-std=gnu11",
+    "-w",
+    "-DHALO_GAME_BROWSER",
+    "-fno-sanitize=signed-integer-overflow,shift"
+  ],
+  "max_len": 65536
+}

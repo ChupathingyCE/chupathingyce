@@ -35,7 +35,7 @@ layout: saved games of builds before it no longer load. */
 
 #ifdef HALO_XBOX_CONSOLE
 /* the console (port/xbox) keeps the Xbox's game state and pools: its 64 MB
-hold no more (docs/cross-play.md) */
+hold no more */
 
 #if defined(HALO_CONSOLE_PLAYERS) && HALO_CONSOLE_PLAYERS > 16
 /* a test build of more than 16 players (configure.py --console-players)

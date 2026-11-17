@@ -98,6 +98,7 @@ symbols in this file:
 
 /* ---------- headers */
 
+#include "mcc_hud_draw.h"
 #include "cseries/cseries.h"
 #include "cseries/errors.h"
 #include "game_state.h"
@@ -127,6 +128,7 @@ symbols in this file:
 #include "cseries/errors.h"
 #endif
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "mcc_campaign.h"
 
 /* ---------- constants */
 
@@ -851,6 +853,7 @@ void custom_render_nav_point(
 			byte alpha;
 			real fade;
 
+			arrow_scale *= mcc_hud_bitmap_scale(bitmap_group_index);
 			point.x = (short)(long)screen_position.x;
 			point.y = (short)(long)screen_position.y;
 			alpha = (byte)PIN(fast_ftol_C(arrow->opacity)*255, 0, 255);
@@ -975,6 +978,11 @@ void hud_render_nav_points(
 						nav_point->reference_index,
 						&position,
 						&radius);
+					/* port: over the object as it is drawn between ticks, not
+					where the last tick left it (a step behind or ahead of a
+					moving ally or vehicle in most frames);
+					port/linux/game/render_interpolation.c */
+					render_interpolation_object_point(nav_point->reference_index, &position);
 				}
 				break;
 
@@ -993,6 +1001,30 @@ void hud_render_nav_points(
 			}
 
 			position.z += nav_point->z_offset;
+			/* port: a point added with no body keeps the cleared screen
+			kind. A spawn can land after that update and before this draw,
+			and NONE is not one of the arrow's sequences. */
+			if (nav_point->screen_type==NONE)
+			{
+				long unit_index = local_player_get_player_index(local_player_index)==NONE ?
+					NONE :
+					player_get(local_player_get_player_index(local_player_index))->unit_index;
+
+				if (unit_index==NONE)
+					continue;
+
+				{
+					real_point3d head_position;
+
+					unit_get_head_position(unit_index, &head_position);
+					nav_point->screen_type = hud_get_nav_point_render_type(
+						local_player_index,
+						&head_position,
+						&position,
+						nav_point->type==_hud_nav_point_type_object ?
+							nav_point->reference_index : NONE);
+				}
+			}
 			custom_render_nav_point(
 				local_player_index,
 				&position,
@@ -1002,6 +1034,10 @@ void hud_render_nav_points(
 	}
 
 	game_engine_render_nav_points(local_player_index);
+	/* port: MCC campaign markers have separate state (mcc_campaign.c). */
+	{
+		mcc_campaign_render(local_player_index);
+	}
 
 	return;
 }

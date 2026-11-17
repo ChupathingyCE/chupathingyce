@@ -22,8 +22,9 @@ rem set HALO_DEDICATED_MAXIMUM_PLAYERS=16
 rem set HALO_DEDICATED_MINIMUM_PLAYERS=1
 rem false: not listed in the in-game Server Browser
 rem set HALO_DEDICATED_PUBLIC=true
-rem the control panel, on this machine only (http://127.0.0.1:8080)
-rem set HALO_DEDICATED_CONTROL=8080
+rem the control panel: on this machine only by default
+rem (http://127.0.0.1:8080); another port, an address, or off
+rem set HALO_DEDICATED_CONTROL=off
 rem a fixed UDP port for internet play, for a firewall rule
 rem set HALO_NET_TUNNEL_PORT=2302
 rem the server's saves: the saves folder here, as a service's, not your

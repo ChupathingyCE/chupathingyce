@@ -13,6 +13,8 @@ links, the user's secret, and Discord's local pipe.
 #include <string.h>
 
 #include "posix.h"
+#include "discord_register.h"
+#include "link_register.h"
 
 /* ---------- the process */
 
@@ -61,29 +63,73 @@ posix_ulong posix_process_id(void)
 	return (posix_ulong)GetCurrentProcessId();
 }
 
-int posix_register_url_scheme(const char *scheme, const char *description)
+/* HKEY_CURRENT_USER's registry for discord_register_windows */
+static int registry_get(void *context, const char *key_name, const char *name, char *value, int size)
 {
-	/* HKEY_CURRENT_USER\Software\Classes\<scheme>, as Windows looks links up */
-	char executable[MAX_PATH], key_name[256], command[MAX_PATH + 16], label[256];
+	DWORD type = 0, length = (DWORD)size;
 	HKEY key;
-	BOOL ok = TRUE;
+	LONG status;
 
-	if (!GetModuleFileNameA(NULL, executable, sizeof(executable)))
+	(void)context;
+	if (size <= 0 || RegOpenKeyExA(HKEY_CURRENT_USER, key_name, 0, KEY_READ, &key) != ERROR_SUCCESS)
 		return 0;
-	snprintf(key_name, sizeof(key_name), "Software\\Classes\\%s", scheme);
-	snprintf(label, sizeof(label), "URL:%s", description);
-	if (RegCreateKeyExA(HKEY_CURRENT_USER, key_name, 0, NULL, 0, KEY_WRITE, NULL, &key, NULL) != ERROR_SUCCESS)
-		return 0;
-	ok &= RegSetValueExA(key, NULL, 0, REG_SZ, (const BYTE *)label, (DWORD)strlen(label) + 1) == ERROR_SUCCESS;
-	ok &= RegSetValueExA(key, "URL Protocol", 0, REG_SZ, (const BYTE *)"", 1) == ERROR_SUCCESS;
+	status = RegQueryValueExA(key, name, NULL, &type, (BYTE *)value, &length);
 	RegCloseKey(key);
-	snprintf(key_name, sizeof(key_name), "Software\\Classes\\%s\\shell\\open\\command", scheme);
-	snprintf(command, sizeof(command), "\"%s\" \"%%1\"", executable);
+	if (status != ERROR_SUCCESS || (type != REG_SZ && type != REG_EXPAND_SZ))
+		return 0;
+	if (length >= (DWORD)size)
+		length = (DWORD)size - 1;
+	value[length] = 0;
+	return 1;
+}
+
+static int registry_set(void *context, const char *key_name, const char *name, const char *value)
+{
+	HKEY key;
+	BOOL ok;
+
+	(void)context;
 	if (RegCreateKeyExA(HKEY_CURRENT_USER, key_name, 0, NULL, 0, KEY_WRITE, NULL, &key, NULL) != ERROR_SUCCESS)
 		return 0;
-	ok &= RegSetValueExA(key, NULL, 0, REG_SZ, (const BYTE *)command, (DWORD)strlen(command) + 1) == ERROR_SUCCESS;
+	ok = RegSetValueExA(key, name, 0, REG_SZ, (const BYTE *)value, (DWORD)strlen(value) + 1) == ERROR_SUCCESS;
 	RegCloseKey(key);
 	return ok ? 1 : 0;
+}
+
+static int file_exists(const char *path)
+{
+	return GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
+}
+
+int posix_register_url_scheme(const char *scheme, const char *description)
+{
+	/* HKEY_CURRENT_USER\Software\Classes\halo, as Windows looks links up,
+	unless another program's is there (link_register.h) */
+	static const struct discord_registry registry = { NULL, registry_get, registry_set };
+	char executable[MAX_PATH];
+	DWORD length = GetModuleFileNameA(NULL, executable, sizeof(executable));
+	int result;
+
+	(void)description;
+	if (strcmp(scheme, LINK_REGISTER_SCHEME) || !length || length >= sizeof(executable))
+		return 0;
+	result = link_register_windows(&registry, executable, file_exists);
+	if (result == DISCORD_REGISTER_LEFT)
+		return -1;
+	return result == DISCORD_REGISTER_WRITTEN || result == DISCORD_REGISTER_UNCHANGED;
+}
+
+int posix_register_discord_launch(const char *application)
+{
+	/* HKEY_CURRENT_USER\Software\Classes\discord-<application>, as the SDK
+	writes it (discord_register.h) */
+	static const struct discord_registry registry = { NULL, registry_get, registry_set };
+	char executable[MAX_PATH];
+	DWORD length = GetModuleFileNameA(NULL, executable, sizeof(executable));
+
+	if (!length || length >= sizeof(executable))
+		return DISCORD_REGISTER_FAILED;
+	return discord_register_windows(&registry, application, executable);
 }
 
 int posix_user_secret(unsigned char *secret, int size)

@@ -63,7 +63,6 @@ linux:
       - any-glob-to-any-file:
           - port/linux/README.md
           - port/linux/port.json
-          - port/linux/arm64/**
           - port/linux/src/posix_*.c
           - tools/linux_*.py
           - tools/linux64_build.py

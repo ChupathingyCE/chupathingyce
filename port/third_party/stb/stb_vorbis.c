@@ -969,7 +969,10 @@ static void setup_free(vorb *f, void *p)
 
 static void *setup_temp_malloc(vorb *f, int sz)
 {
-   if (sz < 0 || sz > 0x7fffffff - 7) return NULL; // ChupathingyCE: no size that overflows the rounding
+   // ChupathingyCE: no size that overflows the rounding, and none of 0 (as
+   // upstream v1.24): a sparse codebook of no entries took malloc(0) for its
+   // lengths, then failed on setup_malloc(0) and never freed them
+   if (sz <= 0 || sz > 0x7fffffff - 7) return NULL;
    sz = (sz+7) & ~7; // round up to nearest 8 for alignment of future allocs.
    if (f->alloc.alloc_buffer) {
       if (f->temp_offset - sz < f->setup_offset) return NULL;
@@ -3108,7 +3111,7 @@ static int do_floor(vorb *f, Mapping *map, int i, int n, float *target, YTYPE *f
       if (lx < n2) {
          // optimization of: draw_line(target, lx,ly, n,ly, n2);
          for (j=lx; j < n2; ++j)
-            LINE_OP(target[j], inverse_db_table[ly]);
+            LINE_OP(target[j], inverse_db_table[ly&255]); // ChupathingyCE: masked as draw_line's is (a floor value past 255 read past the table)
          CHECK(f);
       }
    }
@@ -3772,8 +3775,8 @@ static int start_decoder(vorb *f)
          while (current_entry < c->entries) {
             int limit = c->entries - current_entry;
             int n = get_bits(f, ilog(limit));
-            if (current_length >= 32) return error(f, VORBIS_invalid_setup);
-            if (current_entry + n > (int) c->entries) { return error(f, VORBIS_invalid_setup); }
+            if (current_length >= 32) { if (c->sparse) setup_temp_free(f, lengths, c->entries); return error(f, VORBIS_invalid_setup); } // ChupathingyCE: no leak of a sparse codebook's lengths
+            if (current_entry + n > (int) c->entries) { if (c->sparse) setup_temp_free(f, lengths, c->entries); return error(f, VORBIS_invalid_setup); }
             memset(lengths + current_entry, current_length, n);
             current_entry += n;
             ++current_length;
@@ -3785,7 +3788,7 @@ static int start_decoder(vorb *f)
                lengths[j] = get_bits(f, 5) + 1;
                ++total;
                if (lengths[j] == 32)
-                  return error(f, VORBIS_invalid_setup);
+                  { if (c->sparse) setup_temp_free(f, lengths, c->entries); return error(f, VORBIS_invalid_setup); }
             } else {
                lengths[j] = NO_CODE;
             }
@@ -3840,7 +3843,12 @@ static int start_decoder(vorb *f)
       }
 
       if (!compute_codewords(c, lengths, c->entries, values)) {
-         if (c->sparse) setup_temp_free(f, values, 0);
+         // ChupathingyCE: a sparse codebook's temporary lengths go too (its
+         // codewords are vorbis_deinit's to free)
+         if (c->sparse) {
+            setup_temp_free(f, values, 0);
+            setup_temp_free(f, lengths, c->entries);
+         }
          return error(f, VORBIS_invalid_setup);
       }
 

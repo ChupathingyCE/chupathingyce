@@ -76,6 +76,7 @@ symbols in this file:
 #include "networking/network_server_manager.h"
 #include "saved games/game_state.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
+#include "mcc_game_speed.h" /* port: port/linux/game/mcc_game_speed.c */
 /* port/linux/game/network_distributed.c's */
 void network_distributed_tick(void);
 /* port/linux/game/determinism_check.c's */
@@ -113,6 +114,10 @@ struct game_time_globals_struct
 /* ---------- globals */
 
 static struct game_time_globals_struct *game_time_globals;
+/* port: ticks were due and none could run (a client's clock held for the
+host, as while Online Games or System Link searches from the main menu): the
+frames drawn meanwhile stay on the last tick (game_time_get_tick_fraction) */
+static boolean game_time_ticks_waiting = FALSE;
 
 /* ---------- public code */
 
@@ -137,6 +142,7 @@ void game_time_initialize_for_new_map(
 	match_assert("c:\\halo\\SOURCE\\game\\game_time.c", 131, game_time_globals && !game_time_globals->initialized);
 	memset(game_time_globals, 0, sizeof(*game_time_globals));
 	game_time_globals->initialized = TRUE;
+	game_time_ticks_waiting = FALSE;
 
 	return;
 }
@@ -278,7 +284,15 @@ real game_time_get_tick_fraction(
 
 	if (!game_time_globals || !game_time_globals->active || game_time_globals->paused)
 		return 1.0f;
+	/* (no tick to blend toward: the clock running on into one that never
+	came drew the last two ticks' poses back and forth, a judder where the
+	Xbox's background stood still; #477) */
+	if (game_time_ticks_waiting)
+		return 1.0f;
 	fraction = game_time_globals->leftover_dt * game_time_globals->speed * TICKS_PER_SECOND;
+	/* port: MCC clients interpolate using only the host's approved speed. */
+	if (network_game_distributed_client())
+		fraction = game_time_globals->leftover_dt * mcc_game_speed_client(game_time_globals->speed) * TICKS_PER_SECOND;
 	return PIN(fraction, 0.0f, 1.0f);
 }
 
@@ -290,7 +304,7 @@ real game_time_get_speed(
 	/* port: a client of another's game runs at the host's speed (its own
 	set before it joined too: cheats_network_client_enforce) */
 	if (network_game_distributed_client())
-		return 1.0f;
+		return mcc_game_speed_client(1.0f); /* port: legacy clients remain at one */
 	return game_time_globals->speed;
 }
 
@@ -377,12 +391,28 @@ void game_time_update(
 	real time_delta_sec)
 {
 	match_assert("c:\\halo\\SOURCE\\game\\game_time.c", 205, game_time_globals);
+	/* port: MCC speed updates must continue when simulation is stopped. */
+	mcc_game_speed_frame();
 
 	if (game_time_globals->active)
 	{
 		long connection;
 		long ticks_elapsed;
-		real ticks_per_second = game_time_globals->speed*TICKS_PER_SECOND;
+		real ticks_per_second;
+
+		/* set_speed refuses a NaN or a value past 100; a value already stored
+		there would make every leftover a NaN */
+		if (!valid_real(game_time_globals->speed) || game_time_globals->speed < 0.f ||
+			game_time_globals->speed > 100.f)
+			game_time_globals->speed = 1.f;
+		if (!valid_real(game_time_globals->leftover_dt) ||
+			game_time_globals->leftover_dt < 0.f ||
+			game_time_globals->leftover_dt >= 100.f)
+			game_time_globals->leftover_dt = 0.f;
+		ticks_per_second = game_time_globals->speed*TICKS_PER_SECOND;
+		/* port: preserve native client cheat enforcement; use MCC host state separately. */
+		if (network_game_distributed_client())
+			ticks_per_second = mcc_game_speed_client(game_time_globals->speed)*TICKS_PER_SECOND;
 
 		/* The native builds draw several frames per tick
 		(port/linux/game/render_interpolation.c). A frame that runs no tick has
@@ -393,6 +423,10 @@ void game_time_update(
 		run as many times too fast as there are frames per tick. On the Xbox
 		every frame ran at least one tick. */
 		game_time_globals->last_local_time_elapsed = 0;
+
+		/* a NaN fails every comparison, so the frame cap keeps it */
+		if (!valid_real(time_delta_sec) || time_delta_sec < 0.f)
+			time_delta_sec = 0.f;
 
 		if (ticks_per_second > 0.f)
 		{
@@ -435,7 +469,11 @@ void game_time_update(
 			}
 
 			game_time_globals->leftover_dt = game_time - ticks_elapsed_real/ticks_per_second;
-			if (game_time_globals->leftover_dt < 0.f)
+			/* a NaN fails the old "< 0" reset and is then added back on every
+			later frame, which leaves the menu camera illegal for the session */
+			if (!valid_real(game_time_globals->leftover_dt) ||
+				game_time_globals->leftover_dt < 0.f ||
+				game_time_globals->leftover_dt >= 100.f)
 				game_time_globals->leftover_dt = 0.f;
 			match_assert("c:\\halo\\SOURCE\\game\\game_time.c", 306,
 				game_time_globals->leftover_dt>=0.f && game_time_globals->leftover_dt<100.f);
@@ -467,6 +505,7 @@ void game_time_update(
 				}
 				else
 					maximum_possible_server_time = update_client_get_maximum_possible_server_time();
+				game_time_ticks_waiting = maximum_possible_server_time <= game_time_globals->server_time;
 				if (maximum_possible_server_time > game_time_globals->server_time)
 				{
 					long final_server_time = MIN(maximum_possible_server_time, final_local_time);
@@ -483,7 +522,9 @@ void game_time_update(
 						game_time_globals->server_time++;
 						game_time_globals->local_time++;
 						/* the distributed netcode's per-tick state */
+						HALO_PERF_BEGIN(_halo_perf_tick_netcode);
 						network_distributed_tick();
+						HALO_PERF_END(_halo_perf_tick_netcode);
 						/* debug.determinism's hashes of the tick's state
 						(port/linux/game/determinism_check.c) */
 #ifndef HALO_CONSOLE_NO_NETWORK_TEST

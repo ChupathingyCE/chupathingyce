@@ -1,7 +1,7 @@
 /*
 TEAM_CHANGE.C
 
-Changing teams during a team game (docs/delta.md, Team changes): Halo PC's
+Changing teams during a team game (docs/delta/peer.md, Team changes): Halo PC's
 in-game CHANGE TEAMS. The Xbox let a player choose a team only in the
 pregame lobby, and so does a host by default: it is the host's to allow.
 
@@ -292,6 +292,22 @@ static int team_change_decide(long player_index, short team, boolean forced, sho
 	return _delta_team_changed;
 }
 
+boolean team_change_party_move(long player_index, short team)
+{
+	struct player_datum *player = player_index == NONE ? NULL : player_try_and_get(player_index);
+	struct team_change_player *change = change_of(player_index);
+
+	if (!player || !change || !global_network_game_server_get() || !game_engine_has_teams() ||
+		network_coop_active() || player->quit_out_of_game || player->unit_index != NONE || change->waiting ||
+		!VALID_INDEX(team, 2) || player->team_index == team)
+	{
+		return FALSE;
+	}
+	platform_log("party teams: player %ld joins their party's team", (long)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index));
+	team_change_apply(player_index, team);
+	return TRUE;
+}
+
 boolean team_change_death(long dead_player_index)
 {
 	struct team_change_player *change = change_of(dead_player_index);
@@ -377,6 +393,62 @@ int team_change_move(long list_index, short team, char *text, int size)
 	default: snprintf(text, (size_t)size, "not in the game"); break;
 	}
 	return result;
+}
+
+/* a player of a machine joining the game in progress picks a team in its
+pregame screen, before playing (network_game_server_late_joiner_player_settings,
+X#83): taken where the host allows changes, else only if the teams stay
+within the host's margin (at least 1), its team rule "off" too: the player
+has not played, so it is a pick, not a change. 1 if taken */
+long team_change_late_joiner(long list_index, short team)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+	struct network_player const *record;
+	struct data_iterator iterator;
+	struct player_datum *player;
+	long player_index = NONE;
+	long count[2] = { 0, 0 };
+	short current = NONE;
+	short team_now;
+	long seconds;
+	int margin;
+
+	if (!game || !player_data || !VALID_INDEX(list_index, HALO_PORT_MAXIMUM_NETWORK_PLAYERS) || !VALID_INDEX(team, 2))
+		return 0;
+	record = &game->players[list_index];
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		short player_team;
+
+		if (player->quit_out_of_game)
+			continue;
+		player_team = effective_team(iterator.datum_index, player);
+		if (player->network_player_data.machine_index == record->machine_index &&
+			player->network_player_data.controller_index == record->controller_index)
+		{
+			player_index = iterator.datum_index;
+			current = player_team;
+		}
+		if (VALID_INDEX(player_team, 2))
+			count[player_team]++;
+	}
+	if (player_index == NONE || !VALID_INDEX(current, 2) || current == team)
+		return 0;
+	margin = team_change_host_margin();
+	if (margin < 1)
+		margin = 1;
+	if (team_change_host_policy() != _team_change_allow && count[team] + 1 - (count[current] - 1) > margin)
+		return 0;
+	switch (team_change_decide(player_index, team, TRUE, &team_now, &seconds))
+	{
+	case _delta_team_changed:
+	case _delta_team_changes_at_respawn:
+		return team_now == team;
+	default:
+		return 0;
+	}
 }
 
 /* ---------- the player's */

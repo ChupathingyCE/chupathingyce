@@ -107,6 +107,9 @@ symbols in this file:
 #include "units/unit_definitions.h"
 #include "units/units.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
+#ifndef HALO_XBOX_CONSOLE
+#include "stats_log.h" /* port: port/linux/game/stats_log.c */
+#endif
 
 /* ---------- constants */
 
@@ -400,6 +403,10 @@ void interface_draw_fullscreen_overlays(
 	interface_splitscreen_render();
 	hud_render_timer();
 	terminal_draw();
+#ifndef HALO_XBOX_CONSOLE
+	/* port: display.stats_log, a line a second in the log (stats_log.c) */
+	stats_log_tick();
+#endif
 	main_framerate_render();
 	render_debug_profile();
 
@@ -745,8 +752,12 @@ void interface_draw_screen(
 		rasterizer_screen_effect(NULL);
 	}
 
+	/* port: the HUD in the interface's units, after the screen effect
+	(render_interface_begin) */
+	render_interface_begin(FALSE);
 	hud_draw_screen();
 	game_engine_post_rasterize();
+	render_interface_end(FALSE);
 
 	return;
 }

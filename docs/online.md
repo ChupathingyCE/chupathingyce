@@ -6,7 +6,7 @@ The short version is on the [front page](../README.md#play-online).
 
 Chupathingy players on every platform always play together.
 
-Chupathingy also plays with OpenCE players when the network versions match. The Xbox 360, Wii U and Switch builds join on network version 32 until their next updates, and our console servers announce 32 for them.
+Chupathingy also plays with OpenCE players when the network versions match. This release plays with OpenCE's network version 44, and still joins their 41 and 43 hosts. The console test builds of November 13 do the same.
 
 Browser builds can't join our games, and we can't join theirs.
 
@@ -20,23 +20,24 @@ Browser builds can't join our games, and we can't join theirs.
   without a new download. A change to how multiplayer plays still needs a
   release. The "Compatible with" line in the [README](../README.md#play-online)
   says which versions this release plays with.
-- **Delta** is Chupathingy's network family ([docs/delta.md](delta.md)):
+- **Delta** is Chupathingy's network family ([docs/delta](delta/README.md)):
   the game list, stats, profile links and dedicated server admin tools on
   [stats.chupathingy.org](https://stats.chupathingy.org), and a channel between
   Chupathingy machines for features of our own (how builds play together:
-  [docs/delta-compatibility.md](delta-compatibility.md)). Games with OpenCE players
-  use the shared game protocol, so everyone plays together.
+  [docs/delta/versioning.md](delta/versioning.md)). Games with OpenCE players
+  use the shared game protocol, so everyone plays together. Other apps can
+  sign players in there too, once registered
+  ([docs/delta/clients.md](delta/clients.md)).
 
 ## Joining, hosting and invites
 
 | You want to | Do this |
 | --- | --- |
-| Join a game | **Multiplayer → Online Games**, pick a game, press **A**. Or press **Join** on [stats.chupathingy.org](https://stats.chupathingy.org). Co-op games are listed too. A game with a lock has a password: **A** asks for it first. |
+| Join a game | **Multiplayer → Online Games**, pick a game, press **A**. **LB** and **RB** (**Q** and **C** on the keyboard) switch the list: ALL, CHUPATHINGY + PUBLIC (the default: our servers and everyone's public games, without OpenCE's dedicated servers), CHUPATHINGY, and OPENCE (OpenCE's dedicated servers, the empty ones in one row at the end that **A** opens). Or press **Join** on [stats.chupathingy.org](https://stats.chupathingy.org). Co-op games are listed too. A game with a lock has a password: **A** asks for it first. |
 | Host a game | **Multiplayer → Online Games → Y (Create Game)**, or host from System Link as usual. Your game is listed online by itself, on stats.chupathingy.org and in OpenCE's in-game Server Browser (`public_lobby`/`host_public` under `[network]` in `config.toml` turn that off). |
 | Invite a friend | When you host, the game copies an invite link (`halo://join/…`). Send it; opening it joins your game. |
 | Make an account | On [stats.chupathingy.org/profile](https://stats.chupathingy.org/profile), or press **Start** (or **F2** on the keyboard) in Online Games to make one for the player you already are. |
-| Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **RB** (or **C** on the keyboard) for Link Profile. On your phone or computer, go to [stats.chupathingy.org/connect](https://stats.chupathingy.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
-| Use the PC menus | Set `menus = "gearbox"` under `[display]` in `config.toml`. **Multiplayer → Join Game → Server Browser** lists the public games of every compatible build and the games of stats.chupathingy.org, each once. |
+| Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **Start** (or **F2** on the keyboard), then pick **LINK PROFILE**. On your phone or computer, go to [stats.chupathingy.org/connect](https://stats.chupathingy.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
 | List a game from a build that can't list itself | Sign in on the site, open **Host a Game**, and paste your invite link. |
 
 What the game sends to stats.chupathingy.org, and how to turn it off, is in [docs/privacy.md](privacy.md).
@@ -46,6 +47,46 @@ can join your games and you can join theirs. Games an OpenCE player hosts are
 recorded from the reports of the Chupathingy players in them; a game only
 one player reported counts only on that player's own record. Their hosts can
 still list them on the site (Host a Game).
+
+## The Delta Guide: friends and parties
+
+The Delta Guide is Delta in the game. Open it with **F3** (on a Mac, F3 or the
+backslash key), a controller's Guide button, or the pause menu. Android also
+has it in the main menu and the Multiplayer menu (`delta.menu_item` turns
+that on elsewhere). **LB** and **RB** (**Q** and **E**)
+switch its sections:
+
+- **FRIENDS**: who's online, invites and friend requests. Pick a friend to
+  join their game or invite them to yours.
+- **PARTY**: play together as a group of up to 8. Start a party, invite
+  friends, or join with a code. When the leader joins or hosts a game, the
+  party follows.
+- **PLAYERS HERE**: the players in your game. Mute someone, or add them
+  as a friend.
+- **RECENT**: Delta players from your last games.
+- **CLAN**: your clan, if you're in one. Clans are made on the site.
+- **SERVICE RECORD**: your stats and medals.
+- **SETTINGS**: the Delta Guide's own settings, and ABOUT.
+
+Friends, clans and recent players need a Delta profile. Sign in from the
+Delta Guide, or see the table above.
+
+### Party links
+
+**COPY PARTY LINK** in PARTY copies a link like
+`https://stats.chupathingy.org/party/ABCDEF`. Paste it in Discord or any chat.
+Your friends open it, and the game joins your party. The same screen shows
+the link as a QR code for phones.
+
+## Voice chat
+
+Voice chat is off until you turn it on. Pick PUSH TO TALK or OPEN MIC on
+the VOICE CHAT row of the Delta Guide's SETTINGS. With push to talk, hold **V**,
+or the D-pad right, to talk. **B**, or the D-pad left, switches who hears you: your party,
+your team, players near you, or everyone if the host allows it. Voice goes
+through the game's host and is never recorded. Voice chat works between
+Chupathingy players on Windows, Mac, Linux and Android. Every voice setting
+is in [docs/settings.md](settings.md).
 
 ## Hosting rules
 

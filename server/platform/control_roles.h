@@ -29,7 +29,7 @@ enum
 };
 
 /* permission bits (the same numbers on Delta Peer's MOD_STATE and the
-site's role lists: docs/delta.md, Delta Control) */
+site's role lists: docs/delta/control.md, Delta Control) */
 enum
 {
 	/* status, players, bans, the log, playlists, settings: reads */
@@ -110,6 +110,16 @@ struct control_moderator
 	int role;
 	uint8_t key[CONTROL_KEY_BYTES];
 	char name[CONTROL_DISPLAY_NAME_SIZE];
+	/* a Delta account's line (32 hex digits: a verified player's account,
+	docs/delta/peer.md, "Verified names"): its ID in key's first 16 bytes, the
+	rest zeros */
+	int account;
+};
+
+enum
+{
+	CONTROL_ACCOUNT_BYTES = 16,
+	CONTROL_ACCOUNT_TEXT = 2 * CONTROL_ACCOUNT_BYTES,
 };
 
 /* a line of the file: 1 a moderator, 0 a blank or comment line, -1 not a

@@ -199,12 +199,21 @@ symbols in this file:
 #include "game/players.h"
 #include "networking/network_client_manager.h"
 #include "networking/network_client_message_handler.h"
+#include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
 #include "networking/network_game_protocol.h"
 #include "networking/network_messages.h"
+#ifdef HALO_GAME_BROWSER
+#include "networking/network_connection.h"
+#include "map_share.h" /* port: map sharing's messages to the map bot's fetch */
+#endif
+unsigned delta_peer_game_host_number(void); /* port/linux/src/delta_peer_game.c */
+int delta_peer_game_host_agreed_mcc_maps(void); /* port/linux/src/delta_peer_game.c */
+#include "mcc_identity.h" /* port: the host's MCC content digest in a 43 record */
 
 /* port/linux/game/network_distributed.c's */
 void network_distributed_handle_message(long machine_index, word const *message, word size);
+boolean network_distributed_mcc_share_message(long machine_index, void const *message, word size);
 
 /* ---------- constants */
 
@@ -741,6 +750,17 @@ boolean network_game_client_handle_message(
 				address */
 				if (network_game_client_address_matches_server(client, source_address))
 				{
+#ifdef HALO_GAME_BROWSER
+					/* port: map sharing's (83 to 86), to a map fetch alone
+					(port/linux/game/map_share_client.c); anything else's
+					dropped below, as ever */
+					/* (port: OpenCE's MCC package answer, 104, which this
+					build never asks for: noted and dropped) */
+					if (network_distributed_mcc_share_message(NONE, message, message_size))
+						break;
+					if (!map_share_client_message(message, message_size,
+						!network_connection_last_read_was_unreliable()))
+#endif
 					network_distributed_handle_message(NONE, message, message_size);
 				}
 				else
@@ -1066,7 +1086,7 @@ machine or player past them is left, as a full game is, never half taken */
 /* (room for the record of network version 35 on, 16 bytes longer, and the
 most a signed table's layouts may add: network_rules.h's
 NETWORK_RULES_SETTINGS_MAXIMUM) */
-static byte network_game_client_settings_staging[HALO_PORT_WIRE_NETWORK_GAME_SIZE + 16 + 64];
+static byte network_game_client_settings_staging[HALO_PORT_WIRE_NETWORK_GAME_SIZE + 16 + 128];
 static struct network_game network_game_client_settings_folded;
 /* (the fold's offsets, network_game_layout.h's, against this build's record,
 network version 20's: co-op's cooperative_flags in the Xbox's padding byte
@@ -1088,7 +1108,7 @@ NETWORK_RULES_SETTINGS_MAXIMUM) */
 static struct
 {
 	struct network_game game;
-	byte further[16 + 64];
+	byte further[16 + 128];
 } network_game_client_settings_staging;
 #endif
 static long network_game_client_settings_staging_size = 0;
@@ -1103,19 +1123,25 @@ knows has the layout a signed legacy table's facts give it (network_rules.h,
 "layouts"): its options may be longer and bytes may follow the local data,
 which this build has no use for. */
 int network_rules_settings_size_taken(unsigned version, unsigned total_size);
+/* port: halo_port_limits.h's (the number this machine announces as a host) */
+int delta_legacy_announce(void);
+unsigned network_rules_client_settings_version(unsigned joined, int hosting, unsigned announce);
 int network_rules_settings_options_size(unsigned version, unsigned total_size);
 void network_rules_settings_fold(unsigned char *record, int total_size, int options_size, unsigned char *extended);
 void network_rules_extended_options_default(unsigned char *options);
 void network_rules_extended_options_sanitize(unsigned char *options);
 int network_rules_extended_options_mode(unsigned char const *options, int slayer, int teams, int *hardcore);
+unsigned network_rules_modes_needed(unsigned char const *options, int engine, int teams);
+char const *network_rules_modes_unplayed(unsigned needed);
 void display_error_text_deferred(wchar_t const *text, short local_player_index);
+void display_error_text_when_main_menu_loaded(wchar_t const *text);
 
 enum
 {
 	/* (network_rules.h's) */
 	NETWORK_GAME_CLIENT_SETTINGS_SIZE = 13120,
 	NETWORK_GAME_CLIENT_SETTINGS_EXTENDED_SIZE = 13120 + 16,
-	NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM = 13120 + 16 + 64,
+	NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM = 13120 + 16 + 128,
 	NETWORK_GAME_CLIENT_OPTIONS_SIZE = 0x1C,
 	NETWORK_GAME_CLIENT_EXTENDED_OPTIONS_VERSION = 35,
 };
@@ -1126,35 +1152,40 @@ typedef char network_game_client_settings_size_assert[
 
 static byte network_game_client_extended_options[16];
 
+/* port: the host's gametype's further options as this client last read them
+(the game modes layer's, source/game/game_modes.c: SWAT, Hardcore) */
+byte const *network_game_client_mode_options(
+	void)
+{
+	return network_game_client_extended_options;
+}
+
 /* the OpenCE game type the record plays that this build does not (its name
-for the player and the log), or NULL: Infection, Gun Game and SWAT on the
-Slayer engine, Hardcore on any (network_rules_extended_options_mode) */
+for the player and the log), or NULL: Infection and Gun Game on the Slayer
+engine (SWAT and Hardcore are played: source/game/game_modes.c,
+NETWORK_RULES_MODES_PLAYED) */
 static wchar_t const *network_game_client_unsupported_game_type(
 	struct network_game const *game,
 	char const **name)
 {
-	int hardcore;
-	int mode = network_rules_extended_options_mode(network_game_client_extended_options,
-		game->variant.game_engine_index == game_engine_slayer, game->variant.universal_variant.teams != 0, &hardcore);
+	static wchar_t text[96];
+	static wchar_t const head[] = L"Uses a game type\r\nChupathingy doesn't have yet:\r\n";
+	unsigned needed = network_rules_modes_needed(network_game_client_extended_options,
+		game->variant.game_engine_index, game->variant.universal_variant.teams != 0);
+	char const *unplayed = network_rules_modes_unplayed(needed);
+	long length = 0;
+	char const *character;
 
-	switch (mode)
-	{
-	case 1:
-		*name = "SWAT";
-		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nSWAT.";
-	case 2:
-		*name = "Infection";
-		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nInfection.";
-	case 3:
-		*name = "Gun Game";
-		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nGun Game.";
-	}
-	if (hardcore)
-	{
-		*name = "Hardcore";
-		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nHardcore.";
-	}
-	return NULL;
+	if (!unplayed)
+		return NULL;
+	*name = unplayed;
+	for (character = NULL; length < (long)NUMBEROF(head) - 1; length++)
+		text[length] = head[length];
+	for (character = unplayed; *character && length < (long)NUMBEROF(text) - 2; character++)
+		text[length++] = (wchar_t)*character;
+	text[length++] = L'.';
+	text[length] = 0;
+	return text;
 }
 
 /* port: a game of one of OpenCE's game types this build does not play is
@@ -1171,9 +1202,23 @@ static boolean network_game_client_leave_unsupported_game_type(
 	if (!text)
 		return FALSE;
 	network_event("cross-play: leaving the host's game: it plays OpenCE's %s, which this build does not", name);
-	display_error_text_deferred(text, NONE);
+	/* (queued for the main menu the leave goes back to, ahead of the
+	rejection's own "closed", which then finds an error queued and stays
+	quiet: a deferred error was dropped on the way there, #1243) */
+	display_error_text_when_main_menu_loaded(text);
 	network_game_client_rejected_by_game(client, source_address, _rejection_code_game_is_closed);
 	return TRUE;
+}
+
+/* port: the version whose record the host sends: its advertised one, but
+for the host's own machine (which joined its game at home, told none) the
+number this machine announces, whose record its server writes at every
+send: network_rules.h */
+static unsigned int network_game_client_settings_version(
+	void)
+{
+	return network_rules_client_settings_version(network_game_client_host_network_version(),
+		global_network_game_server_get() != NULL, (unsigned int)delta_legacy_announce());
 }
 
 static boolean network_game_client_receive_game_settings_piece(
@@ -1186,14 +1231,20 @@ static boolean network_game_client_receive_game_settings_piece(
 	/* port: the record's size by the host's version (13,120 bytes to 34,
 	13,136 from 35, a newer version's by the table's layouts), either of the
 	first two for a host not known */
-	if (!network_rules_settings_size_taken(network_game_client_host_network_version(), piece->total_size) ||
+	unsigned int host_version = network_game_client_settings_version();
+
+	if (!network_rules_settings_size_taken(host_version, piece->total_size) ||
 		piece->total_size > NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM ||
 		piece->length > sizeof(piece->data) ||
 		piece->offset + piece->length > piece->total_size)
 	{
-		network_event("got a message_server_game_settings_update piece for a different game layout");
+		network_event("got a message_server_game_settings_update piece for a different game layout (%u bytes, as %u)", (unsigned)piece->total_size, host_version);
 		network_game_client_settings_staging_size = 0;
-		result = FALSE;
+		/* port: the host's own machine, whose server's number changed in the
+		lobby (an MCC map's game at the MCC number: delta_legacy_host_game_at), may read
+		the last record of the number before; it takes the next. So does a
+		client of a Delta host with mcc_maps, whose HOST_NUMBER it follows */
+		result = global_network_game_server_get() != NULL || delta_peer_game_host_agreed_mcc_maps();
 	}
 	else
 	{
@@ -1219,10 +1270,14 @@ static boolean network_game_client_receive_game_settings_piece(
 				int options_size;
 
 				network_game_client_settings_staging_size = 0;
+				/* port: the host's MCC content digest, at the end of a 43 record
+				(mcc_identity.c) */
+				mcc_identity_wire_record((unsigned char const *)&network_game_client_settings_staging,
+					(long)piece->total_size);
 				/* port: a record of 35 on made the older layout, its further
 				options kept; an older one's are the defaults. A host not
 				known that sends the newer is taken for one of 35. */
-				options_size = network_rules_settings_options_size(network_game_client_host_network_version(),
+				options_size = network_rules_settings_options_size(host_version,
 					piece->total_size);
 				if (options_size > NETWORK_GAME_CLIENT_OPTIONS_SIZE)
 				{
@@ -1316,7 +1371,7 @@ static boolean network_game_client_receive_game_settings_piece(
 					network_game_client_settings_folded.variant.human_readable_game_description))
 				{
 					network_event("co-op: leaving the host's game: it is co-op, which the original Xbox does not play");
-					display_error_text_deferred(L"This game is network co-op,\r\nwhich the original Xbox\r\ndoesn't play yet.", NONE);
+					display_error_text_when_main_menu_loaded(L"This game is network co-op,\r\nwhich the original Xbox\r\ndoesn't play yet.");
 					network_game_client_rejected_by_game(client, source_address, _rejection_code_game_is_closed);
 					return TRUE;
 				}
@@ -1555,6 +1610,13 @@ static boolean network_game_client_handle_message_server_begin_game(
 				the message carries 16 bits of it: the rest from the first
 				game update, network_game_client_handle_game_update) */
 				network_game_client_late_join_time = (long)((unsigned long)begin_game.unused & 0xFFFF);
+#ifdef HALO_GAME_BROWSER
+				/* port: a map fetch's machine never loads the game: it stays
+				in the lobby until it leaves (port/linux/game/map_share_client.c) */
+				if (map_share_fetching())
+					result = TRUE;
+				else
+#endif
 				result = network_game_client_game_has_started(client);
 				if (!result)
 				{
@@ -1704,26 +1766,32 @@ static boolean network_game_client_handle_message_server_add_player_ingame(
 				PC host put in a slot past this build's (its datum, which every
 				machine shares) would not exist here, an invisible player; the
 				game is left as a full one is */
-				/* (a player of a machine past this build's that is not in the
-				game, as a modified host's bots, is given a free machine index,
-				as the settings record's fold gives it) */
+				/* (a player of a machine past this build's, as a host's bots,
+				is given a free machine index, as the settings record's fold
+				gives it: the one that machine has here already, which its
+				entry and its other players hold, counts as free for it) */
 				if (!VALID_INDEX(player.machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) && player.machine_index >= 0)
 				{
 					struct network_game *game = network_game_client_get_game(client);
 					unsigned char used[MAXIMUM_NETWORK_MACHINE_COUNT];
+					long own = network_game_client_machine_map.machine[(unsigned char)player.machine_index];
 					long index;
 					int given;
 
 					csmemset(used, 0, sizeof(used));
 					for (index = 0; game && index < MAXIMUM_NETWORK_MACHINE_COUNT; index++)
 					{
-						if (VALID_INDEX(game->machines[index].machine_index, MAXIMUM_NETWORK_MACHINE_COUNT))
+						if (VALID_INDEX(game->machines[index].machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) &&
+							game->machines[index].machine_index != own)
+						{
 							used[game->machines[index].machine_index] = TRUE;
+						}
 					}
 					for (index = 0; game && index < MAXIMUM_NUMBER_OF_PLAYERS; index++)
 					{
 						if (game->players[index].player_list_index != NONE &&
-							VALID_INDEX(game->players[index].machine_index, MAXIMUM_NETWORK_MACHINE_COUNT))
+							VALID_INDEX(game->players[index].machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) &&
+							game->players[index].machine_index != own)
 						{
 							used[game->players[index].machine_index] = TRUE;
 						}

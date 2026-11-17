@@ -1825,15 +1825,17 @@ void decal_new_from_collision(
 			sprite_bounds.x1 = sprite_bounds.y1 = 1.0f;
 		}
 
+		/* port: the bitmap asked for, but the decal made whether or not the
+		texture cache has it yet: what the cache holds is the renderer's and
+		the loading thread's, by the clock, and a decal left out moved
+		everything the local seed picks after it (the decal is drawn once its
+		bitmap is in) */
 		if (!permanent)
 		{
-			if (!_texture_cache_bitmap_get_hardware_format(
+			_texture_cache_bitmap_get_hardware_format(
 				TAG_BLOCK_GET_ELEMENT(&bitmap_group->bitmaps, bitmap_index, struct bitmap_data),
 				FALSE,
-				TRUE))
-			{
-				return;
-			}
+				TRUE);
 		}
 
 		{

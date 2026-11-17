@@ -750,6 +750,20 @@ boolean projectile_update(
 			326,
 			&projectile->object.translational_velocity);
 
+		/* port: an object that was deleted since the projectile was fired is no longer ignored or chased */
+		if (projectile->projectile.ignore_object_index != NONE &&
+			!object_try_and_get(projectile->projectile.ignore_object_index))
+		{
+			projectile->projectile.ignore_object_index = NONE;
+			ignore_object_index = NONE;
+		}
+
+		if (projectile->projectile.target_object_index != NONE &&
+			!unit_try_and_get(projectile->projectile.target_object_index))
+		{
+			projectile->projectile.target_object_index = NONE;
+		}
+
 		if (projectile->projectile.target_object_index != NONE &&
 			definition->projectile.guided_angular_velocity > 0.0f)
 		{

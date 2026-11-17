@@ -104,6 +104,7 @@ symbols in this file:
 #include "tag_files.h"
 #include "cache_files.h"
 #include "scenario.h"
+#include "scenario_definitions.h"
 #include "main.h"
 #include "objects.h"
 #include "game_sound.h"
@@ -122,8 +123,14 @@ symbols in this file:
 #include "lruv_cache.h"
 #include "memory_pool.h"
 #include "cluster_partitions.h"
+#include "mcc_cache.h"
+#include "mcc_checkpoint.h"
+#include "stubbs_regions.h"
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_invalidate(void);
+/* port: hs_runtime.c's and hs_globals_external.c's (game_state_image_accept) */
+extern struct data_array *hs_global_data;
+extern short const hs_external_global_count;
 
 void platform_log(const char *format, ...);
 
@@ -212,7 +219,10 @@ static game_state_after_load_proc after_load_procs[] =
 	game_state_set_revert_time,
 	player_control_fix_for_loaded_game_state,
 	director_initialize_for_saved_game,
-	scripted_hud_messages_clear
+	scripted_hud_messages_clear,
+	/* port: Stubbs mode's region rows start again from the objects put back
+	(port/linux/game/stubbs_regions.c) */
+	stubbs_regions_forget
 };
 
 /* ---------- public code */
@@ -328,6 +338,13 @@ void game_state_save(
 	void)
 {
 	game_state_call_before_save_procs();
+	/* MCC extra slots occupy only proven-unused CPU bytes in this image. */
+	if (mcc_cache_tags_loaded() && !mcc_checkpoint_capture(game_state_globals.base_address,
+		GAME_STATE_SIZE, game_state_globals.cpu_allocation_size, GAME_STATE_CPU_SIZE))
+	{
+		game_state_globals.saved_game_valid = FALSE;
+		return;
+	}
 
 	main_stop_time();
 	game_state_globals.saved_game_valid = (game_state_write_to_file()!=FALSE);
@@ -439,6 +456,9 @@ boolean game_state_test_persistent_storage(
 void game_state_save_core(
 	const char *name)
 {
+	if (mcc_cache_tags_loaded() && !mcc_checkpoint_capture(game_state_globals.base_address,
+		GAME_STATE_SIZE, game_state_globals.cpu_allocation_size, GAME_STATE_CPU_SIZE))
+		return;
 #ifndef HALO_XBOX_CONSOLE
 	/* the whole of the native builds' larger game state */
 	if (game_state_write_core(name, game_state_globals.base_address, GAME_STATE_SIZE))
@@ -557,11 +577,16 @@ static void game_state_allocation_record(
 	// retaining one out-of-line copy under its private address-derived name.
 	FILE *file = bss_004d27b0;
 
+	/* port: a developer's list of the allocations, which a console builds
+	only with its developer tools (each line a write and a flush, and the
+	file kept open) */
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 	if (!file)
 	{
 		file = fopen("d:\\gamestate.txt", "w");
 		bss_004d27b0 = file;
 	}
+#endif
 
 	if (file)
 	{
@@ -579,6 +604,14 @@ static void game_state_set_revert_time(
 	game_time_set_paused(FALSE);
 
 	return;
+}
+
+/* port: read-only arena bounds for MCC-owned state; no allocator changes. */
+void *game_state_port_cpu_region(unsigned long *used, unsigned long *capacity)
+{
+	*used=game_state_globals.cpu_allocation_size;
+	*capacity=GAME_STATE_CPU_SIZE;
+	return game_state_globals.base_address;
 }
 
 void *game_state_malloc(
@@ -879,6 +912,22 @@ static boolean game_state_image_lruv_cache_valid(
 	return game_state_image_data_valid(image, blocks_live, allocation->maximum_count, sizeof(struct lruv_cache_block));
 }
 
+/* whether a saved game's "hs globals" array (its count: one past the last
+datum) is laid out as this build lays it out for the map: the game's own
+globals first (hs_external_global_count of them, which differs from build to
+build: the desktop builds have the Custom Edition's 14 more than the Xbox's,
+and a build may add more), then the map's (hs_runtime_initialize_for_new_map).
+An image of another build's layout passes every other check, and its scripts
+would read the map's globals at the wrong places, or past the last one (a
+crash in hs_global_evaluate) */
+static boolean game_state_image_hs_globals_valid(
+	long image_count,
+	long external_count,
+	long scenario_count)
+{
+	return image_count == external_count + scenario_count;
+}
+
 boolean game_state_image_accept(
 	void *image,
 	long size)
@@ -911,9 +960,30 @@ boolean game_state_image_accept(
 		if (!valid)
 			return FALSE;
 	}
+	if (global_scenario_index != NONE && hs_global_data && hs_global_data->valid)
+	{
+		struct data_array const *globals = game_state_image_pointer(image, hs_global_data);
+		long scenario_count = global_scenario_get()->hs_globals.count;
+
+		if (!game_state_image_hs_globals_valid(globals->count, hs_external_global_count, scenario_count))
+		{
+			error(2, "the saved game is not taken: it was saved by a different build (its script globals "
+				"take %d places, this build's %ld: %d of the game's and %ld of the map's)",
+				globals->count, hs_external_global_count + scenario_count, hs_external_global_count,
+				scenario_count);
+
+			return FALSE;
+		}
+	}
+	if (mcc_cache_tags_loaded() && !mcc_checkpoint_validate(image, size,
+		game_state_globals.cpu_allocation_size, GAME_STATE_CPU_SIZE, game_state_globals.base_address))
+		return FALSE;
 	/* (the console reads straight into the game state: nothing to copy) */
 	if (image != game_state_globals.base_address)
 		csmemcpy(game_state_globals.base_address, image, size);
+	if (mcc_cache_tags_loaded() && !mcc_checkpoint_restore(game_state_globals.base_address, size,
+		game_state_globals.cpu_allocation_size, GAME_STATE_CPU_SIZE))
+		return FALSE;
 	error(_error_silent, "the saved game is taken");
 
 	return TRUE;

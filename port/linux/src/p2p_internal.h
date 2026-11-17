@@ -116,8 +116,9 @@ packet numbers would start again) */
 int p2p_peer_reoffered(const unsigned char *identifier, const unsigned char *secret,
 	const struct p2p_candidate *candidates, int count);
 /* an invite that arrived on the p2p thread (from Discord, or another copy
-of the game) */
-void p2p_invite_received(const char *text);
+of the game); public: a public game's (Discord's Join), which a player in
+it shares on Discord too */
+void p2p_invite_received(const char *text, int public);
 /* a new invite (token) for the game hosted, if its invite was listed in the
 server browser or on the game list (going private, or a password: those who
 saw it must not get in); under p2p_lock */
@@ -165,8 +166,18 @@ void p2p_signal_probe(const unsigned char *host_hash, const unsigned char *token
 /* the prober's reply topic (hceu/3/ and the reply id in hex) listened on;
 NULL for none */
 void p2p_signal_probe_topic(const unsigned char *reply);
+/* Delta's doorbell (32 of 0-9 and a-f; NULL or "" for none): listened for
+on our brokers, as their user name, starting signalling with only them if
+it was not started */
+void p2p_signal_doorbell(const char *doorbell);
+/* the rings heard since the last call */
+int p2p_signal_doorbell_rings(void);
 /* whether any broker is connected */
 int p2p_signal_connected(void);
+/* every broker's connection made anew at once: after the p2p thread was
+stopped (the process was suspended, or the machine slept), the old ones
+may carry nothing, and would be noticed only at their silence timeout */
+void p2p_signal_reconnect(void);
 /* the server browser's topics: the own slot and the queries (a listed
 game), and every slot (browsing) */
 void p2p_signal_lobby_topics(int listed, int browsing);
@@ -318,7 +329,10 @@ void p2p_discord_update(void);
 /* the Discord user signed in, as told (empty if none): under p2p_lock */
 void p2p_discord_user(char *id, int id_size, char *name, int name_size);
 /* the public game hosted, by its invite's code (the hex after halo://join/),
-for the activity's Join game button; NULL for none: under p2p_lock */
-void p2p_discord_set_join(const char *code);
+and its players, for the activity's join secret; NULL for none. party: the
+host's identifier (hex) for a public game this machine joined and is in,
+whose invite it shares too; NULL for this machine's own game. Under
+p2p_lock */
+void p2p_discord_set_join(const char *code, const char *party, int player_count, int maximum_player_count);
 
 #endif

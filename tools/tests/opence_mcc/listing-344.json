@@ -1,0 +1,45 @@
+{
+ "source": "OpenCE build-344 (14ff64c), halo-linux-release.zip from the project's GitHub release, run as a black box on loopback; HALO_NETWORK_TEST=host:mcc_maps\\2900306344\\portent:slayer, HALO_NETWORK_TEST_PUBLIC=true",
+ "redacted": "time, host key, invite token and signature zeroed; the host's player name replaced by Host",
+ "listing_format": "p2p_lobby.c listing_read: 'HL', format 1, version (16-bit big-endian), flags, sequence, time, key (32), token (16), players, most players, engine, name, map, gametype (each a length byte and text), stamp (8), signature (64)",
+ "listings": [
+  {
+   "what": "lobby, Xbox map (before the MCC map loads)",
+   "fields": {
+    "version": 43,
+    "flags": 1,
+    "player_count": 0,
+    "maximum_player_count": 128,
+    "engine_type": 0,
+    "name": "Host",
+    "map": "carousel",
+    "gametype": " Normal",
+    "stamp": "0000000000000000"
+   },
+   "listing_hex": "484c01002b01000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800004486f7374086361726f7573656c07204e6f726d616c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+   "what": "in game on mcc_maps\\2900306344\\portent",
+   "fields": {
+    "version": 43,
+    "flags": 1,
+    "player_count": 1,
+    "maximum_player_count": 128,
+    "engine_type": 2,
+    "name": "Host",
+    "map": "portent",
+    "gametype": "",
+    "stamp": "0000000000000000"
+   },
+   "listing_hex": "484c01002b01000000020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001800204486f737407706f7274656e7400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  }
+ ],
+ "advertisement_map_name": "mcc_maps\\2900306344\\portent",
+ "settings": {
+  "map_name": "mcc_maps\\2900306344\\portent",
+  "map_name_tail_64_127": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "map_version": "3d359a5d",
+  "content_sha256": "395ddc687fb95f99d9180dd96f62e1a826a1b25fb8389cc5b6184fda2a45b9a5",
+  "note": "the same with the package in mcc_maps, in a Steam library (HALO_STEAM_ROOT) and with workshop_id.txt beside it: no Workshop tail"
+ }
+}

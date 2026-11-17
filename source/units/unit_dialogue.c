@@ -718,7 +718,9 @@ void unit_notify_impulse_sound(
 		406,
 		unit->unit.speech.current.sound_definition_index == sound_definition_index);
 
-	unit->unit.speech.impulse_sound_index = impulse_sound_index;
+	/* port: not the sound manager's index (below) */
+	(void)impulse_sound_index;
+	unit->unit.speech.impulse_sound_index = NONE;
 	unit->unit.speech.played = TRUE;
 	unit->unit.speech.pre_delay_timer = 0;
 	ai_communication_started(
@@ -1033,13 +1035,18 @@ void unit_dialogue_update(
 
 				if (unit->unit.speech.current.sound_definition_index != NONE)
 				{
-					unit->unit.speech.impulse_sound_index = object_impulse_sound_new(
+					/* port: the sound manager's index not kept in the unit: it
+					is the mixer's, given if the sound can be heard and has a
+					channel (by the clock), and nothing reads it; the game state
+					is the same in every run without it */
+					object_impulse_sound_new(
 						unit_index,
 						unit->unit.speech.current.sound_definition_index,
 						node_index,
 						&position,
 						&forward,
 						1.0f);
+					unit->unit.speech.impulse_sound_index = NONE;
 					/* port: the AI's speech, heard on the clients too (they
 					play pain and death sounds themselves) */
 					if (unit->unit.player_index == NONE &&

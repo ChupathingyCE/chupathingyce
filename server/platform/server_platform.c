@@ -86,12 +86,14 @@ static void print_usage(FILE *stream)
 		"  HALO_DEDICATED_PUBLIC           false: not listed in the in-game Server Browser\n"
 		"  HALO_DEDICATED_COMMANDS         a file of commands in the data folder, run at start\n"
 		"  HALO_DEDICATED_CONSOLE          true/false: commands on standard input (on in a terminal)\n"
-		"  HALO_DEDICATED_CONTROL          the control API's port or address (off; 127.0.0.1)\n"
+		"  HALO_DEDICATED_CONTROL          the control panel's port or address (127.0.0.1:8080; off)\n"
 		"  HALO_DATA_ROOT, HALO_SAVE_ROOT  the data folder, and where saves go\n"
 		"\n"
 		"HALO_PROBE=<invite> reads the game an invite leads to, prints it and exits.\n"
 		"\n"
 		"  --version  prints the version\n"
+		"  --workshop-get <id>  downloads an MCC Workshop item once the server runs\n"
+		"             (link Steam first: sv_steam_link)\n"
 		"  --help     prints this\n"
 #ifdef _WIN32
 		"  --install-service [name]    makes a Windows service of this server, with the\n"
@@ -217,10 +219,10 @@ static int setting_off(const char *value)
 
 static int start_for_setup(void)
 {
-	const char *control = getenv("HALO_DEDICATED_CONTROL");
+	const char *control = server_control_setting();
 	char playlist[300];
 
-	if (!control || !control[0] || setting_off(control))
+	if (!control[0] || setting_off(control))
 	{
 		return 0;
 	}
@@ -289,6 +291,22 @@ static void server_arguments(void)
 			continue;
 		}
 #endif
+		/* (a Workshop item fetched once the server runs: sv_workshop_get's, by
+		the environment the game's side reads, HALO_WORKSHOP_GET) */
+		if (!strcmp(argument, "--workshop-get"))
+		{
+			char id[64] = "", list[1024];
+			const char *before = getenv("HALO_WORKSHOP_GET");
+
+			posix_command_line_argument(++index, id, sizeof(id));
+			snprintf(list, sizeof(list), "%s%s%s", before ? before : "", before && before[0] ? "," : "", id);
+#ifdef _WIN32
+			_putenv_s("HALO_WORKSHOP_GET", list);
+#else
+			setenv("HALO_WORKSHOP_GET", list, 1);
+#endif
+			continue;
+		}
 		if (!strcmp(argument, "--version") || !strcmp(argument, "-v"))
 		{
 			print_version();
@@ -421,6 +439,19 @@ void platform_video_drawable_size(int *width, int *height)
 	*height = 480;
 }
 
+/* (display.hdr's: the server has no display, and no window) */
+BOOL platform_video_hdr(float *sdr_white, float *headroom)
+{
+	*sdr_white = 1.0f;
+	*headroom = 1.0f;
+	return FALSE;
+}
+
+BOOL platform_video_float_window(void)
+{
+	return FALSE;
+}
+
 void platform_video_window_size(int *width, int *height)
 {
 	*width = 640;
@@ -477,6 +508,12 @@ void platform_open_url(const char *url)
 void platform_request_quit(void)
 {
 	stop_requested = 1;
+}
+
+/* (the server plays no movies: bink_playback.c) */
+int platform_movie_skip_pressed(void)
+{
+	return 0;
 }
 
 void platform_scoreboard_scroll(int open, long *notches, long *pages)

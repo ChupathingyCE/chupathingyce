@@ -15,8 +15,11 @@ A pixel shader runs in three parts:
 Register values are clamped to [-1, 1] between stages, as on the hardware.
 */
 
+#include "plasma_model_shader.h"
 #include "xgpu.h"
+#include "xgpu_tone_map.h"
 #include "port_config.h"
+#include "mcc_environment_shader.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -178,7 +181,7 @@ static const char *output_mapping(unsigned long flags)
 
 /* ---------- one general combiner stage */
 
-static void combiner_stage(struct xgpu_text *text, const DWORD *state, int stage)
+static void combiner_stage(struct xgpu_text *text, const DWORD *state, int stage, BOOL mcc_bump)
 {
 	DWORD combiner_count = state[D3DRS_PSCOMBINERCOUNT];
 	BOOL unique_c0 = (combiner_count & 0x1000) != 0;
@@ -208,7 +211,9 @@ static void combiner_stage(struct xgpu_text *text, const DWORD *state, int stage
 		combiner_input(text, inputs & 0xff, alpha, stage, unique_c0, unique_c1);
 		xgpu_text_append(text, ";\n");
 
-		if (!alpha && (flags & 0x02))
+		if (mcc_bump && !alpha && inputs == 0x484B0A01 && (flags & 0x02))
+			mcc_environment_shader_emit(text);
+		else if (!alpha && (flags & 0x02))
 			xgpu_text_append(text, "\t\tvec3 cAB = vec3(dot(cA, cB));\n");
 		else
 			xgpu_text_append(text, "\t\t%s %sAB = %sA * %sB;\n", type, prefix, prefix, prefix);
@@ -289,6 +294,19 @@ static unsigned long stage_mode(const struct nv2a_pixel_shader_key *key, int sta
 	return (key->texture_modes >> (5 * stage)) & 0x1f;
 }
 
+/* whether a stage replaces the fragment's depth (DOT_ZW) */
+static BOOL replaces_depth(const struct nv2a_pixel_shader_key *key)
+{
+	int stage;
+
+	for (stage = 1; stage < 4; stage++)
+	{
+		if (stage_mode(key, stage) == _mode_dot_zw)
+			return TRUE;
+	}
+	return FALSE;
+}
+
 static int stage_input(const DWORD *state, int stage)
 {
 	switch (stage)
@@ -325,12 +343,9 @@ static void dot_input(struct xgpu_text *text, const DWORD *state, int stage)
 	"precision highp samplerCube;\n"
 #else
 #define SAMPLE_BIAS ""
-#ifdef __APPLE__
-/* macOS stops at OpenGL 4.1 */
-#define SHADER_VERSION "#version 410 core\n"
-#else
-#define SHADER_VERSION "#version 450 core\n"
-#endif
+/* (macOS stops at OpenGL 4.1, and an older driver may be older: xgpu.h) */
+#define SHADER_VERSION_LINE XGPU_GL_VERSION_LINE
+#define SHADER_VERSION ""
 #endif
 
 static void sample(struct xgpu_text *text, const struct nv2a_pixel_shader_key *key, int stage, const char *coordinates)
@@ -359,6 +374,22 @@ static void sample(struct xgpu_text *text, const struct nv2a_pixel_shader_key *k
 			);
 		break;
 	}
+}
+
+/* texture 0's texel read as the high-res text's distance field
+(nv2a_pixel_shader_key's text_fields): the median of red, green and blue is
+the distance to the glyph's edge, 0.5 on it; it is made the coverage of the
+edge over one pixel of the screen (XGPU_TEXT_FIELD_RANGE texels of the field
+are as many pixels as the lookup's derivatives make them, at least one), the
+texel white with that alpha, as the maps' fonts' are */
+static void text_fields_decode(struct xgpu_text *text, const char *coordinates)
+{
+	xgpu_text_append(text,
+		"\t{\n\t\tvec2 uv = (%s).xy * texture_scale[0].xy * vec2(textureSize(tex0, 0));\n"
+		"\t\tvec2 texels = max(fwidth(uv), vec2(1e-6));\n"
+		"\t\tfloat pixels = max(" XGPU_TEXT_FIELD_RANGE_TEXT " * 0.5 * (1.0 / texels.x + 1.0 / texels.y), 1.0);\n"
+		"\t\tfloat field_distance = max(min(t0.r, t0.g), min(max(t0.r, t0.g), t0.b));\n"
+		"\t\tt0 = vec4(1.0, 1.0, 1.0, clamp((field_distance - 0.5) * pixels + 0.5, 0.0, 1.0));\n\t}\n", coordinates);
 }
 
 static void texture_stage(struct xgpu_text *text, const struct nv2a_pixel_shader_key *key, int stage)
@@ -392,6 +423,8 @@ static void texture_stage(struct xgpu_text *text, const struct nv2a_pixel_shader
 				"\t\tfloat threshold = texelFetch(tex0, pixel, 0).r;\n"
 				"\t\tif (threshold > 0.0) t0.rb = vec2(threshold);\n\t}\n", coordinates);
 		}
+		if (stage == 0 && key->text_fields && key->sampler_type[stage] == _xgpu_sampler_2d)
+			text_fields_decode(text, coordinates);
 		break;
 	case _mode_cubemap:
 		snprintf(coordinates, sizeof(coordinates), "xT%d", stage);
@@ -452,6 +485,20 @@ static void texture_stage(struct xgpu_text *text, const struct nv2a_pixel_shader
 		xgpu_text_append(text, "\tdot%d = dot(xT%d.xyz, ", stage, stage);
 		dot_input(text, state, stage);
 		xgpu_text_append(text, ");\n\tt%d = vec4(0.0);\n", stage);
+		/* the stage replaces the fragment's depth with the previous stage's
+		dot product over its own, in the depth buffer's units (the game's
+		z-sprites: a particle's card tested as the rounded puff its second
+		map describes, up to its radius nearer than the card, so that the
+		surface it stands on doesn't cut it in half). The game's depth
+		buffer is 24 bits and its viewport's depth range 0 to 1
+		(rasterizer_xbox.c), so the units are 1 / 16777215 of the window's
+		depth. A divisor that is not positive (a fragment behind the eye)
+		gives the far plane */
+		if (stage >= 1)
+		{
+			xgpu_text_append(text, "\treplaced_depth = dot%d > 0.0 ? clamp(dot%d / dot%d / 16777215.0, 0.0, 1.0) : 1.0;\n",
+				stage, stage - 1, stage);
+		}
 		break;
 	case _mode_dot_reflect_diffuse:
 		/* the normal takes its third component from stage 3's dot product */
@@ -547,9 +594,14 @@ world position the vertex program hands on and the same constants
 terms, clamped where the programs clamp them. The diffuse alpha, which the
 programs write apart (0, or planar fog's), is kept. */
 
-static void model_lighting(struct xgpu_text *text, BOOL point_lights)
+static void model_lighting(struct xgpu_text *text, BOOL point_lights, BOOL plasma_model)
 {
 	int light;
+
+	/* the Light effects' falloff and walls for their lights
+	(plasma_model_shader.c) */
+	if (point_lights && plasma_model)
+		plasma_model_emit_pixel(text);
 
 	xgpu_text_append(text,
 		"uniform vec4 model_lights[%d];\n"
@@ -577,12 +629,21 @@ static void model_lighting(struct xgpu_text *text, BOOL point_lights)
 			"\t{\n"
 			"\t\tvec3 to_light = model_lights[%d].xyz - xWorldPosition;\n"
 			"\t\tfloat distance_squared = dot(to_light, to_light);\n"
-			"\t\tvec3 l = to_light * inversesqrt(max(distance_squared, 1.0e-12));\n"
-			"\t\tlight += max(1.0 - distance_squared * model_lights[%d].w, 0.0) * clamp(dot(l, n), 0.0, 1.0) *\n"
+			"\t\tvec3 l = to_light * inversesqrt(max(distance_squared, 1.0e-12));\n", first);
+		if (plasma_model)
+			xgpu_text_append(text,
+				"\t\tlight += plasma_model_falloff(max(1.0 - distance_squared * model_lights[%d].w, 0.0), "
+				"plasma_model_slots[%d], %d, xWorldPosition) * clamp(dot(l, n), 0.0, 1.0) *\n",
+				first, light, light);
+		else
+			xgpu_text_append(text,
+				"\t\tlight += max(1.0 - distance_squared * model_lights[%d].w, 0.0) * clamp(dot(l, n), 0.0, 1.0) *\n",
+				first);
+		xgpu_text_append(text,
 			"\t\t\tclamp(dot(l, -model_lights[%d].xyz) * model_lights[%d].w + model_lights[%d].w, 0.0, 1.0) *\n"
 			"\t\t\tmodel_lights[%d].xyz;\n"
 			"\t}\n",
-			first, first, first + 1, first + 1, first + 2, first + 2);
+			first + 1, first + 1, first + 2, first + 2);
 	}
 	xgpu_text_append(text, "\treturn clamp(light, 0.0, 1.0);\n}\n");
 }
@@ -610,6 +671,9 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 			"layout(binding = 0, offset = 0) uniform atomic_uint visible_samples;\n");
 	}
 #endif
+#ifndef HALO_GL_ES
+	xgpu_text_append(&text, "%s", SHADER_VERSION_LINE);
+#endif
 	xgpu_text_append(&text,
 		SHADER_VERSION
 		"in vec4 xD0;\n"
@@ -626,8 +690,12 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 	for (stage = 0; stage < 4; stage++)
 		xgpu_text_append(&text, "uniform %s tex%d;\n", sampler_declaration(key->sampler_type[stage]), stage);
 	if (key->per_pixel_lighting)
-		model_lighting(&text, key->per_pixel_lighting == 2);
+		model_lighting(&text, key->per_pixel_lighting == 2, key->plasma_model);
+	/* (display.hdr's glow: xgpu_tone_map.h) */
+	if (key->hdr)
+		xgpu_text_append(&text, XGPU_HDR_GLOW_GLSL);
 	xgpu_text_append(&text,
+		NV2A_FINITE
 		"float signed_byte(float x)\n"
 		"{\n"
 		"	float b = floor(x * 255.0 + 0.5);\n"
@@ -645,6 +713,8 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 		"\tfloat dot0 = 0.0, dot1 = 0.0, dot2 = 0.0, dot3 = 0.0;\n");
 	if (key->per_pixel_lighting)
 		xgpu_text_append(&text, "\tv0.rgb = model_lighting();\n");
+	if (replaces_depth(key))
+		xgpu_text_append(&text, "\tfloat replaced_depth = 1.0;\n");
 
 	for (stage = 0; stage < 4; stage++)
 		texture_stage(&text, key, stage);
@@ -678,7 +748,7 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 		"\tvec4 r1 = vec4(0.0);\n");
 
 	for (stage = 0; stage < (int)combiner_count; stage++)
-		combiner_stage(&text, state, stage);
+		combiner_stage(&text, state, stage, key->mcc_bump_attenuation);
 
 	if (final_abcd == 0 && final_efg == 0)
 	{
@@ -750,6 +820,23 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 	if (key->count_samples)
 		xgpu_text_append(&text, "\tatomicCounterIncrement(visible_samples);\n");
 #endif
-	xgpu_text_append(&text, "\tfragment_color = clamp(result, 0.0, 1.0);\n}\n");
+	if (replaces_depth(key))
+		xgpu_text_append(&text, "\tgl_FragDepth = replaced_depth;\n");
+	/* (no component not a number: nv2a_finite, xgpu.h) */
+	xgpu_text_append(&text,
+		"\tresult = nv2a_finite(result);\n"
+		"\tfragment_color = clamp(result, 0.0, 1.0);\n");
+	/* (display.hdr: a glow's color brightened past white toward its
+	ceiling, after the clamp the NV2A gave every draw: xgpu_tone_map.h) */
+	if (key->hdr == _xgpu_hdr_tag_weapon_glow)
+		xgpu_text_append(&text, "\tfragment_color.rgb = hdr_glow(fragment_color.rgb, " XGPU_HDR_GLOW_KNEE ", "
+			XGPU_HDR_WEAPON_CEILING ");\n");
+	else if (key->hdr == _xgpu_hdr_tag_hud_glow)
+		xgpu_text_append(&text, "\tfragment_color.rgb = hdr_glow(fragment_color.rgb, " XGPU_HDR_GLOW_KNEE ", "
+			XGPU_HDR_HUD_CEILING ");\n");
+	else if (key->hdr == _xgpu_hdr_tag_light)
+		xgpu_text_append(&text, "\tfragment_color.rgb = hdr_glow(fragment_color.rgb, " XGPU_HDR_LIGHT_KNEE ", "
+			XGPU_HDR_LIGHT_CEILING ");\n");
+	xgpu_text_append(&text, "}\n");
 	return text.buffer;
 }

@@ -464,6 +464,20 @@ struct network_game_server *global_network_game_server_get(
 	return bss_004566dc.server;
 }
 
+/* port: whether the game this machine hosts is for its own players alone
+(split screen: no remote connection is taken), known from before its
+server's sockets are made until it is disposed of. The desktop builds bind
+such a game's listeners to this machine alone (xnet.c: halo_ws_bind). The
+menus say whether remote connections are taken before they make the
+server (split_screen_game_initialize, player_ui_fast_setup_network_server) */
+static boolean network_game_hosting_local;
+
+boolean network_game_port_hosting_local(
+	void)
+{
+	return network_game_hosting_local;
+}
+
 void dispose_global_network_game_server(
 	void)
 {
@@ -473,6 +487,7 @@ void dispose_global_network_game_server(
 		bss_004566dc.server = NULL;
 		bss_004566dc.quickstart_local = FALSE;
 	}
+	network_game_hosting_local = FALSE;
 
 	return;
 }
@@ -559,6 +574,7 @@ boolean network_game_client_start_frame(
 			network_game_server_dispose(global_network_game_server);
 			global_network_game_server = NULL;
 			bss_004566dc.quickstart_local = FALSE;
+			network_game_hosting_local = FALSE;
 		}
 
 		main_goto_main_menu();
@@ -826,11 +842,16 @@ boolean create_global_network_game_server(
 		0xD6,
 		global_network_game_server==NULL);
 
+	network_game_hosting_local = !bss_004566dc.accept_remote_connections;
 	global_network_game_server = network_game_server_create();
 	if (global_network_game_server)
 	{
 		network_game_set_random_seed(
 			seed_random(get_global_local_random_seed_address()));
+	}
+	else
+	{
+		network_game_hosting_local = FALSE;
 	}
 
 	return global_network_game_server != NULL;

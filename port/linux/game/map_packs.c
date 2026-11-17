@@ -134,7 +134,7 @@ static boolean folder_file_path(
 static boolean file_exists(
 	char const *path)
 {
-	HANDLE handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	HANDLE handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
 	if (handle == INVALID_HANDLE_VALUE)
 		return FALSE;
@@ -173,7 +173,7 @@ static unsigned long folder_fingerprint(
 	{
 		return 0;
 	}
-	handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (handle == INVALID_HANDLE_VALUE)
 		return 0;
 	size = GetFileSize(handle, NULL);
@@ -396,7 +396,7 @@ static char const *maplist_text(
 		for (index = 0; file == INVALID_HANDLE_VALUE && pack_folder_candidate(pack, index, name, sizeof(name)); index++)
 		{
 			snprintf(path, sizeof(path), "d:\\maps_%s\\maplist.txt", name);
-			file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+			file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		}
 		if (file != INVALID_HANDLE_VALUE)
 		{
@@ -468,7 +468,7 @@ static void list_pack(
 		snprintf(file, sizeof(file), "%.*s", (int)(length - 4), data.cFileName);
 		if (!_stricmp(file, "ui") || !folder_file_path(folder, file, path, sizeof(path)))
 			continue;
-		handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		if (handle == INVALID_HANDLE_VALUE)
 			continue;
 		/* (an Xbox cache file's header, as bytes: 'head' and the version
@@ -816,6 +816,56 @@ boolean map_pack_menus_known(
 	return known && !_stricmp(known->pack, pack) && !_stricmp(known->file, "ui");
 }
 
+boolean map_pack_menus_movie_path(
+	char const *movie,
+	char *path,
+	long size)
+{
+	static char const *const languages[] = { "_de", "_fr", "_es", "_it" };
+	char const *pack = map_pack_menus();
+	char const *file = movie;
+	char const *cursor;
+	char folder[256], candidate[256], stem[64];
+	char *ui;
+	long index;
+	size_t length;
+
+	if (!pack || !movie || size <= 0 || !map_pack_file_path(pack, "ui", folder, sizeof(folder)))
+		return FALSE;
+	for (cursor = movie; *cursor; cursor++)
+	{
+		if (*cursor == '\\' || *cursor == '/')
+			file = cursor + 1;
+	}
+	/* (the folder that has the pack's ui.map: maps_cex\, or an alias's) */
+	ui = strrchr(folder, '\\');
+	if (!ui || !file[0] || strlen(file) >= sizeof(stem))
+		return FALSE;
+	ui[1] = 0;
+	snprintf(stem, sizeof(stem), "%s", file);
+	for (index = -1; index < (long)NUMBEROF(languages); index++)
+	{
+		/* (the movie as asked for, then without its language) */
+		if (index >= 0)
+		{
+			length = strlen(stem);
+			if (length < 8 || _stricmp(stem + length - 4, ".bik") ||
+				_strnicmp(stem + length - 7, languages[index], 3))
+				continue;
+			memmove(stem + length - 7, stem + length - 4, 5);
+		}
+		if (snprintf(candidate, sizeof(candidate), "%sbink\\%s", folder, stem) < (int)sizeof(candidate) &&
+			strlen(candidate) < (size_t)size && file_exists(candidate))
+		{
+			snprintf(path, (size_t)size, "%s", candidate);
+			return TRUE;
+		}
+		if (index >= 0)
+			break;
+	}
+	return FALSE;
+}
+
 void map_pack_menus_map_name(
 	char const *map_name,
 	char *name,
@@ -853,7 +903,7 @@ void map_pack_menus_map_name(
 
 A host's announcement (port/linux/src/browser.c) names a pack's map by its
 name, its pack's and the pack's tag, so that the list, the site and players
-without the pack show "Gothra (Halo CE+)" (docs/delta.md, "Delta List").
+without the pack show "Gothra (Halo CE+)" (docs/delta/list.md, "Delta List").
 Plain types: the platform layer calls it. */
 
 int map_pack_listing(

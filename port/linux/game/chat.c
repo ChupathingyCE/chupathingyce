@@ -1,7 +1,7 @@
 /*
 CHAT.C
 
-Text chat between Chupathingy machines (chat.h; docs/delta.md, Chat), over
+Text chat between Chupathingy machines (chat.h; docs/delta/peer.md, Chat), over
 Delta Peer (delta_chat_game.h), and bridged to OpenCE's own text chat
 (delta_chat_bridge.h), which goes over the game's distributed messages.
 OpenCE machines never agree to Delta's chat capability; a host sends them
@@ -81,12 +81,16 @@ keeps fewer lines. HALO_CONSOLE_NO_CHAT leaves all of it out.
 #include "halo_keyboard.h"
 #include "network_coop.h"
 #include "network_distributed.h"
+#include "opence_welcome.h"
 #include "../src/delta_chat.h"
 #include "../src/delta_chat_bridge.h"
 #include "../src/delta_chat_game.h"
 #include "../src/delta_moderation.h"
 
 #include "chat.h"
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+#include "halo_profile_screen.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,6 +139,10 @@ enum
 	/* the host's settings told each OpenCE machine again this often (as
 	OpenCE's host does: one that joined since learns them) */
 	BRIDGE_CONFIG_TIME = 3000,
+	/* an OpenCE host's console notices kept in the chat: the same line
+	again within this long (milliseconds) is left out, of the last few */
+	NOTICE_REPEAT_TIME = 15000,
+	NOTICE_RECENT = 8,
 };
 
 /* a line's look: who said it */
@@ -224,6 +232,13 @@ static struct
 #ifdef CHAT_HOST
 	boolean welcomed[MACHINES];
 	struct delta_chat_filter host_filter;
+	/* the line to OpenCE players that this is a Chupathingy game: on (set:
+	a dedicated server's; else a player's host's network.opence_welcome),
+	its text (empty: the default), and who was sent it */
+	boolean opence_welcome_set;
+	boolean opence_welcome_on;
+	char opence_welcome_text[OPENCE_WELCOME_TEXT_SIZE];
+	struct opence_welcome opence_welcome;
 #endif
 	int (*moderator_check)(int machine_index);
 	/* the part played last frame (a new game starts the log's state again) */
@@ -244,6 +259,11 @@ static struct
 	struct delta_chat_bridge_budget bridge_budgets[MACHINES];
 #endif
 	boolean bridge_logged;
+	/* an OpenCE host's console notices put in the chat lately (their
+	fingerprints, and when) */
+	delta_u32 notice_fingerprints[NOTICE_RECENT];
+	unsigned long notice_times[NOTICE_RECENT];
+	short notice_next;
 } chat;
 
 /* ---------- text */
@@ -497,6 +517,20 @@ static void line_heard(struct delta_wire_chat_line const *line)
 	utf8_to_wide(line->name, line->name_length, name, NAME_LENGTH);
 	if (!server && machine != NONE && muted(machine, name))
 		return;
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+	/* (the speaker as the scoreboard shows them: a verified player by their
+	Delta name, an impersonation masked, a faked @ taken off) */
+	if (!server && line->speaker_player != 255)
+	{
+		wchar_t shown[NAME_LENGTH];
+
+		if (profile_names_player(line->speaker_player, shown, NAME_LENGTH))
+		{
+			ustrncpy(name, shown, NAME_LENGTH - 1);
+			name[NAME_LENGTH - 1] = 0;
+		}
+	}
+#endif
 	filter_read();
 	blocked = delta_chat_filter_check(&chat.filter, line->text, line->length, masked, (int)sizeof(masked));
 	if (blocked && !server)
@@ -819,6 +853,64 @@ static void host_welcome(void)
 	}
 }
 
+/* the line to each OpenCE machine (one with no Delta session once its
+handshake's window is over) that this is a Chupathingy game, once a join, a
+few seconds after its player first spawns (opence_welcome.h), as the game's
+notice (OpenCE's servers' server messages: their client shows it in its
+chat whatever its chat's own state); a Delta machine never. With it off,
+who is here is still followed, so turning it on tells those who come next
+and those here now. */
+static void host_opence_welcome(void)
+{
+	struct network_game *game = chat_game();
+	short local = network_game_client_get_local_machine_index();
+	boolean present[MACHINES], spawned[MACHINES];
+	boolean on = (boolean)chat_host_opence_welcome();
+	unsigned long now = system_milliseconds();
+	struct data_iterator iterator;
+	struct player_datum *player;
+	long index;
+
+	csmemset(present, 0, sizeof(present));
+	csmemset(spawned, 0, sizeof(spawned));
+	if (game)
+	{
+		for (index = 0; index < HALO_PORT_MAXIMUM_NETWORK_PLAYERS; index++)
+		{
+			short machine = game->players[index].machine_index;
+
+			if (network_player_is_valid(&game->players[index]) && machine >= 0 && machine < MACHINES &&
+				machine != local)
+			{
+				present[machine] = TRUE;
+			}
+		}
+	}
+	if (game_in_progress() && player_data)
+	{
+		data_iterator_new(&iterator, player_data);
+		while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		{
+			short machine = player->network_player_data.machine_index;
+
+			if (!player->quit_out_of_game && player->unit_index != NONE && machine >= 0 && machine < MACHINES)
+				spawned[machine] = TRUE;
+		}
+	}
+	for (index = 0; index < MACHINES; index++)
+	{
+		int session = present[index] ? delta_peer_game_machine_session((int)index) : -1;
+		int kind = !on || session < 0 ? _opence_welcome_unknown : session ? _opence_welcome_delta :
+			_opence_welcome_opence;
+
+		if (opence_welcome_due(&chat.opence_welcome, (int)index, present[index], kind, spawned[index], now))
+		{
+			distributed_send_notice_to_machine(index, chat_host_opence_welcome_text());
+			platform_log("chat: the OpenCE welcome sent to machine %ld", index);
+		}
+	}
+}
+
 void chat_host_set(int mode, int filter)
 {
 	chat.host_set = TRUE;
@@ -857,6 +949,36 @@ void chat_host_set_welcome(char const *text)
 char const *chat_host_welcome(void)
 {
 	return chat.host_welcome;
+}
+
+void chat_host_set_opence_welcome(int on, char const *text)
+{
+	char copy[sizeof(chat.opence_welcome_text)];
+
+	/* text may be chat_host_opence_welcome_text() itself: copy it before
+	clearing */
+	copy[0] = 0;
+	if (text && opence_welcome_text_valid(text))
+		snprintf(copy, sizeof(copy), "%s", text);
+	chat.opence_welcome_set = TRUE;
+	chat.opence_welcome_on = on != 0;
+	memcpy(chat.opence_welcome_text, copy, sizeof(copy));
+}
+
+int chat_host_opence_welcome(void)
+{
+	if (chat.opence_welcome_set)
+		return chat.opence_welcome_on;
+#ifndef HALO_SERVER
+	return config_boolean("network.opence_welcome");
+#else
+	return 0;
+#endif
+}
+
+char const *chat_host_opence_welcome_text(void)
+{
+	return chat.opence_welcome_text[0] ? chat.opence_welcome_text : opence_welcome_default_text;
 }
 
 void chat_host_set_legacy(int legacy)
@@ -1153,6 +1275,53 @@ void chat_bridge_message(long machine_index, int type, void const *entry, int si
 	}
 }
 
+/* (a client) an OpenCE host's console notice as a system line too, as its
+own players see it in their chat. Blank lines are left out, and a line seen
+again within NOTICE_REPEAT_TIME (a screen of notices sent each second) */
+void chat_host_console_notice(char const *text)
+{
+	struct delta_wire_chat_line line;
+	unsigned long now = system_milliseconds();
+	delta_u32 fingerprint;
+	int length, index;
+
+	/* (a host with Delta's chat says its lines there: its console notices
+	stay the console's) */
+	if (!text || game_connection() != _game_connection_network_client || delta_peer_game_chat_ready() ||
+		delta_capability_disabled(_delta_capability_chat))
+	{
+		return;
+	}
+	while (*text == ' ')
+		text++;
+	length = (int)strlen(text);
+	while (length > 0 && text[length - 1] == ' ')
+		length--;
+	if (length <= 0)
+		return;
+	if (length > DELTA_WIRE_CHAT_TEXT_SIZE)
+		length = DELTA_WIRE_CHAT_TEXT_SIZE;
+	fingerprint = delta_chat_fingerprint(text, length);
+	for (index = 0; index < NOTICE_RECENT; index++)
+	{
+		if (chat.notice_times[index] && chat.notice_fingerprints[index] == fingerprint &&
+			now - chat.notice_times[index] < NOTICE_REPEAT_TIME)
+		{
+			return;
+		}
+	}
+	chat.notice_fingerprints[chat.notice_next] = fingerprint;
+	chat.notice_times[chat.notice_next] = now ? now : 1;
+	chat.notice_next = (short)((chat.notice_next + 1) % NOTICE_RECENT);
+	csmemset(&line, 0, sizeof(line));
+	line.kind = _delta_chat_kind_system;
+	line.speaker_machine = DELTA_WIRE_NO_MACHINE;
+	line.speaker_player = 255;
+	line.length = length;
+	csmemcpy(line.text, text, length);
+	line_heard(&line);
+}
+
 /* (a client) the player's line said as OpenCE's: to the host as chat_up,
 from this copy's first player; FALSE if there was none to say */
 static boolean bridge_say(short scope, char const *text, int length)
@@ -1174,6 +1343,145 @@ static boolean bridge_say(short scope, char const *text, int length)
 	return TRUE;
 }
 
+/* ---------- the host's commands: "/mute <player> [minutes]" and "/unmute
+<player>", typed as lines, as OpenCE's hosts take them. Never said as a line
+(an OpenCE host shows a client's to everyone): a client is told that only
+the host mutes, and that the log mutes a player for this copy */
+
+static char ascii_lower(char c)
+{
+	return c >= 'A' && c <= 'Z' ? (char)(c - 'A' + 'a') : c;
+}
+
+/* whether the line begins with the word (a command's: ASCII's case aside),
+then a space or its end */
+static boolean command_word(char const *text, int length, char const *word)
+{
+	int size = (int)strlen(word);
+	int index;
+
+	if (length < size)
+		return FALSE;
+	for (index = 0; index < size; index++)
+	{
+		if (ascii_lower(text[index]) != word[index])
+			return FALSE;
+	}
+	return length == size || text[size] == ' ';
+}
+
+#ifdef CHAT_HOST
+/* (the host) the machine of the player named (ASCII's case aside), or of the
+only player whose name begins so; its name in found. NONE: none, or more
+than one, or this copy's own */
+static short command_machine(char const *name, int length, char *found, int found_size)
+{
+	struct network_game *game = chat_game();
+	short local = network_game_client_get_local_machine_index();
+	short exact = NONE, prefix = NONE;
+	int prefixes = 0;
+	long index;
+
+	if (!game || length <= 0)
+		return NONE;
+	for (index = 0; index < HALO_PORT_MAXIMUM_NETWORK_PLAYERS; index++)
+	{
+		char utf8[NAME_LENGTH * 3 + 1];
+		short machine = game->players[index].machine_index;
+		int size, at;
+
+		if (!network_player_is_valid(&game->players[index]) || machine < 0 || machine >= MACHINES ||
+			machine == local)
+		{
+			continue;
+		}
+		size = wide_to_utf8(game->players[index].name, NUMBEROF(game->players[index].name), utf8, (int)sizeof(utf8));
+		if (size < length)
+			continue;
+		for (at = 0; at < length && ascii_lower(utf8[at]) == ascii_lower(name[at]); at++)
+		{
+		}
+		if (at < length)
+			continue;
+		if (size == length)
+		{
+			if (exact == NONE)
+				snprintf(found, (size_t)found_size, "%s", utf8);
+			exact = exact == NONE || exact == machine ? machine : (short)-2;
+		}
+		else if (prefix != machine)
+		{
+			if (!prefixes)
+				snprintf(found, (size_t)found_size, "%s", utf8);
+			prefix = machine;
+			prefixes++;
+		}
+	}
+	if (exact >= 0)
+		return exact;
+	return exact == NONE && prefixes == 1 ? prefix : NONE;
+}
+#endif
+
+/* the line as a command, if it is one (TRUE: done with, never said) */
+static boolean command(char const *text, int length, int role)
+{
+	boolean mute = command_word(text, length, "/mute");
+#ifdef CHAT_HOST
+	char argument[INPUT_SIZE], found[NAME_LENGTH * 3 + 1], said[96];
+	int argument_length, minutes = 0;
+	char *last;
+	short machine;
+#endif
+
+	if (!mute && !command_word(text, length, "/unmute"))
+		return FALSE;
+#ifdef CHAT_HOST
+	if (role == 2)
+	{
+		argument_length = length - (mute ? 5 : 7);
+		snprintf(argument, sizeof(argument), "%.*s", argument_length, text + (mute ? 5 : 7));
+		argument_length = delta_chat_trim(argument, (int)strlen(argument));
+		machine = command_machine(argument, argument_length, found, (int)sizeof(found));
+		/* ("/mute <player> <minutes>": a name that ends in a number is the
+		name first) */
+		last = strrchr(argument, ' ');
+		if (mute && machine == NONE && last && last[1] >= '0' && last[1] <= '9')
+		{
+			minutes = atoi(last + 1);
+			*last = 0;
+			argument_length = delta_chat_trim(argument, (int)strlen(argument));
+			machine = command_machine(argument, argument_length, found, (int)sizeof(found));
+		}
+		if (!argument_length)
+			note(mute ? "/mute <player> [minutes]" : "/unmute <player>");
+		else if (machine == NONE)
+			note("No one here by that name");
+		else if (delta_peer_game_role() != 2)
+			note("Mutes need Delta on");
+		else
+		{
+			if (minutes > 24 * 60)
+				minutes = 24 * 60;
+			delta_peer_game_chat_mute(machine, mute, mute ? minutes : 0);
+			/* (an OpenCE machine is told now; a Delta one by its chat's settings) */
+			chat_host_notice_to_machine(machine, mute ? "You are muted" : "You are unmuted");
+			if (!mute)
+				snprintf(said, sizeof(said), "%.40s unmuted", found);
+			else if (minutes > 0)
+				snprintf(said, sizeof(said), "%.40s muted for %d minute%s", found, minutes, minutes == 1 ? "" : "s");
+			else
+				snprintf(said, sizeof(said), "%.40s muted until they leave", found);
+			note(said);
+		}
+		return TRUE;
+	}
+#endif
+	(void)role;
+	note("Only the host can mute players; the chat log (H) mutes one for you");
+	return TRUE;
+}
+
 /* the player's line said: to the host, or (hosting) routed here */
 static void say(short scope, char const *text, int length)
 {
@@ -1187,6 +1495,8 @@ static void say(short scope, char const *text, int length)
 		note(refusal_text(_delta_chat_refused_bad_text, scope, 0));
 		return;
 	}
+	if (command(text, length, role))
+		return;
 	chat.sent_scope = scope;
 #ifdef CHAT_HOST
 	if (role == 2)
@@ -1344,6 +1654,33 @@ static void mute_toggle(short machine, wchar_t const *name)
 		ustrncpy(chat.mutes[chat.mute_count].name, name, NAME_LENGTH - 1);
 		chat.mute_count++;
 	}
+}
+
+/* ---------- this copy's mutes, as the Guide's Players here sets them
+(guide.c): the chat log's own */
+
+boolean chat_local_muted(short machine, wchar_t const *name)
+{
+	short index;
+
+	if (machine != NONE && name)
+		return muted(machine, name);
+	/* (by name on any machine, or anyone on the machine) */
+	for (index = 0; index < chat.mute_count; index++)
+	{
+		if ((machine == NONE || chat.mutes[index].machine == machine) &&
+			(!name || same_wide(chat.mutes[index].name, name)))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+void chat_local_mute(short machine, wchar_t const *name, boolean mute)
+{
+	if (muted(machine, name) != (mute != FALSE))
+		mute_toggle(machine, name);
 }
 
 static void log_keys(void)
@@ -1546,6 +1883,7 @@ void chat_update(void)
 		chat.said_no_host = FALSE;
 #ifdef CHAT_HOST
 		csmemset(chat.welcomed, 0, sizeof(chat.welcomed));
+		opence_welcome_reset(&chat.opence_welcome);
 #endif
 		chat.mute_count = 0;
 		chat.test_next = NULL;
@@ -1565,6 +1903,7 @@ void chat_update(void)
 	{
 		host_settings();
 		host_welcome();
+		host_opence_welcome();
 		bridge_host_frame();
 	}
 #endif

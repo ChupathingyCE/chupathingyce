@@ -1,9 +1,21 @@
 {
-  "about": "the dedicated server's control API: requests, bodies, queries, log lines",
+  "about": "the dedicated server's control API: requests, every request's body, queries, a browser's checks, log lines; command lines, credentials', moderators' and blocked names' lines; the site's answers",
   "harness": "server/tests/control_fuzz.c",
-  "sources": ["server/platform/control_protocol.c", "port/third_party/monocypher/monocypher.c",
-              "port/third_party/monocypher/monocypher-ed25519.c"],
-  "includes": ["port/third_party/monocypher"],
-  "flags": ["-std=gnu11"],
+  "sources": [
+    "server/platform/control_protocol.c",
+    "server/platform/control_web.c",
+    "server/platform/control_roles.c",
+    "server/platform/control_link_protocol.c",
+    "server/src/command_line.c",
+    "server/src/server_names.c",
+    "port/third_party/monocypher/monocypher.c",
+    "port/third_party/monocypher/monocypher-ed25519.c"
+  ],
+  "includes": [
+    "port/third_party/monocypher"
+  ],
+  "flags": [
+    "-std=gnu11"
+  ],
   "max_len": 24576
 }

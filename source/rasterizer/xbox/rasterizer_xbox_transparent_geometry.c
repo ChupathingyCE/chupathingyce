@@ -138,6 +138,10 @@ symbols in this file:
 #include "rasterizer/rasterizer_console_vars.h"
 #include "rasterizer/rasterizer_active_camouflage.h"
 #include "rasterizer/rasterizer_geometry.h"
+/* port: vertex layouts for conservative world-space model bounds. */
+#include "rasterizer/rasterizer_model_types.h"
+/* port: use the model's node limit when validating skinning. */
+#include "models/model_definitions.h"
 #include "rasterizer/rasterizer_transparent_geometry.h"
 #include "rasterizer/xbox/rasterizer_xbox_internal.h"
 #include "render/render.h"
@@ -167,6 +171,8 @@ symbols in this file:
 #include "rasterizer/xbox/rasterizer_xbox_plasma_energy.h"
 #include "rasterizer/xbox/rasterizer_xbox_water.h"
 #include "rasterizer/xbox/shader_transparent_chicago_preprocessor.h"
+
+#include "needler_lighting.h" /* port: port/linux/game/needler_lighting.c */
 
 /* ---------- constants */
 
@@ -876,6 +882,56 @@ void rasterizer_transparent_geometry_dispose_aux_buffer(
 
 /* ---------- private code */
 
+#include "mcc_chicago.inl" /* port: MCC-only authored blending compatibility. */
+
+/* port: mesh and material checks run only when model tags load. */
+#include "rasterizer/rasterizer_transparent_enclosure.h"
+
+boolean rasterizer_transparent_geometry_is_enclosure(
+	struct shader const *glass, struct vertex_buffer const *outer,
+	struct triangle_buffer const *triangles,
+	struct shader const *energy, struct vertex_buffer const *inner)
+{
+	struct shader_transparent_glass_definition const *shell = (void const *)glass;
+	struct shader_transparent_generic const *core;
+	byte *outer_data = NULL, *inner_data = NULL, *index_data = NULL;
+	boolean result;
+
+	if (!glass || !energy || glass->base.type != _shader_type_transparent_glass ||
+		energy->base.type != _shader_type_transparent_generic)
+	{
+		return FALSE;
+	}
+	core = &((struct shader_transparent_generic_definition const *)energy)->generic;
+	if (!TEST_FLAG(shell->flags, _shader_transparent_glass_flag_two_sided_bit) ||
+		TEST_FLAG(shell->flags, _shader_transparent_glass_flag_decal_bit) ||
+		shell->reflection_type == _shader_transparent_glass_reflection_type_dynamic_mirror ||
+		core->flags != FLAG(_shader_transparent_flag_two_sided_bit) ||
+		TEST_FLAG(energy->base.radiosity.flags, _shader_radiosity_FILTHY_transparent_lit_bit) ||
+		core->framebuffer_blend_function != _framebuffer_blend_function_add ||
+		core->framebuffer_fade_mode != _framebuffer_fade_mode_none ||
+		core->extra_layers.count || core->lens_flare.index != NONE ||
+		!outer || !inner || !triangles || !outer->hardware_format || !inner->hardware_format ||
+		!triangles->hardware_format || outer->offset || inner->offset ||
+		(outer->type != _rasterizer_vertex_type_model_compressed && outer->type != _rasterizer_vertex_type_model_uncompressed) ||
+		(inner->type != _rasterizer_vertex_type_model_compressed && inner->type != _rasterizer_vertex_type_model_uncompressed) ||
+		(triangles->type != _triangle_buffer_type_triangles && triangles->type != _triangle_buffer_type_precompiled_strip))
+	{
+		return FALSE;
+	}
+	IDirect3DVertexBuffer8_Lock(XBOX_POINTER(IDirect3DVertexBuffer8, outer->hardware_format), 0, 0, &outer_data, D3DLOCK_READONLY);
+	IDirect3DVertexBuffer8_Lock(XBOX_POINTER(IDirect3DVertexBuffer8, inner->hardware_format), 0, 0, &inner_data, D3DLOCK_READONLY);
+	IDirect3DIndexBuffer8_Lock(XBOX_POINTER(IDirect3DIndexBuffer8, triangles->hardware_format), 0, 0, &index_data, D3DLOCK_READONLY);
+	result = rasterizer_transparent_encloses(outer_data, outer->count,
+		rasterizer_geometry_get_vertex_size(outer->type), (word const *)index_data,
+		triangles->count, triangles->type == _triangle_buffer_type_precompiled_strip,
+		inner_data, inner->count, rasterizer_geometry_get_vertex_size(inner->type));
+	IDirect3DIndexBuffer8_Unlock(XBOX_POINTER(IDirect3DIndexBuffer8, triangles->hardware_format));
+	IDirect3DVertexBuffer8_Unlock(XBOX_POINTER(IDirect3DVertexBuffer8, inner->hardware_format));
+	IDirect3DVertexBuffer8_Unlock(XBOX_POINTER(IDirect3DVertexBuffer8, outer->hardware_format));
+	return result;
+}
+
 /* port: an extra layer's draw, no deeper than the layers may nest (a map's
 layers could name each other in a loop); said once */
 static void transparent_geometry_layer_draw(
@@ -1021,6 +1077,110 @@ real_vector4d *offset_vector4d(
 	result->l = vector->l*scale + base->l;
 
 	return result;
+}
+
+/* port: a camouflaged object's model parts (its active camouflage) and its
+other parts (groups2: a weapon's ammo counter, a display, a glow) belong to
+one view: the first-person weapon's (its own projection and depth range,
+drawn after the world) or the world's. The other parts follow the last of
+the model parts of their object in their view, drawn once: a first-person
+weapon's after the arms' and the weapon's camouflage, a body's in the world
+after the body's. Drawn after an earlier run of its model parts (a run split
+by another object's group sorted between), a counter was drawn in the
+world's projection, and the next run's copy of the screen
+(rasterizer_active_camouflage_cache_primary_render_target) held it, so the
+camouflage showed it again, moved: a double counter. From OpenH1 (erin.cena) */
+/* port: whether the group is drawn as active camouflage
+(rasterizer_transparent_geometry.c's rasterizer_first_person_camouflaged, OpenH1 #875) */
+boolean rasterizer_transparent_geometry_group_camouflaged(
+	struct transparent_geometry_group const *group)
+{
+	return group->effect_type == _render_model_effect_type_active_camouflage;
+}
+
+static boolean active_camouflage_same_view(
+	struct transparent_geometry_group const *group,
+	long source_object_index,
+	unsigned long geometry_flags)
+{
+	return group->effect_type == _render_model_effect_type_active_camouflage &&
+		group->source_object_index == source_object_index &&
+		TEST_FLAG(group->geometry_flags, _rasterizer_geometry_first_person_bit) ==
+			TEST_FLAG(geometry_flags, _rasterizer_geometry_first_person_bit);
+}
+
+/* port: whether the group is the last of its object's camouflaged model parts
+in its view still to be drawn (one sorted after it and not drawn yet, or
+drawn with it as its presorted chain's, comes later) */
+static boolean active_camouflage_last_model_group(
+	struct transparent_geometry_group const *group)
+{
+	struct transparent_geometry_group const *next_group;
+
+	for (next_group = rasterizer_transparent_geometry_next_group(group);
+		next_group;
+		next_group = rasterizer_transparent_geometry_next_group(next_group))
+	{
+		if (next_group->shader &&
+			next_group->shader->base.type == _shader_type_model &&
+			active_camouflage_same_view(next_group, group->source_object_index, group->geometry_flags) &&
+			rasterizer_transparent_geometry_get_group_pending_status(next_group))
+		{
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+
+/* port: a camouflaged object's other part (groups2) drawn after this run of
+its model parts: the same object's, in the same view */
+static boolean active_camouflage_part_follows(
+	struct transparent_geometry_group const *part,
+	struct transparent_geometry_group const *group)
+{
+	return part->active_camouflage_transparent_source_object_index == group->source_object_index &&
+		active_camouflage_same_view(part, group->source_object_index, group->geometry_flags);
+}
+
+/* port: what display.hdr needs to know of a group's draws: the
+first-person weapon's own transparent parts (its displays and glows), a
+number or a meter among them: not its effects' particles (a muzzle flash is
+light), nor its shields' plasma; and, in the world (not the sky's), a
+surface that is light: a generic or chicago shader the map gives radiosity
+power (it lights the level: a teleporter's field, a light fixture), a
+plasma shader (an energy shield) (port/linux/src/d3d8_gl.c,
+xgpu_tone_map.h) */
+static int transparent_hdr_kind(
+	struct transparent_geometry_group const *group)
+{
+	short type = group->shader->base.type;
+	int kind = HALO_HDR_KIND_NONE;
+
+	if (TEST_FLAG(group->geometry_flags, _rasterizer_geometry_first_person_bit) &&
+		(type == _shader_type_transparent_generic || type == _shader_type_transparent_chicago ||
+			type == _shader_type_transparent_meter))
+	{
+		kind |= HALO_HDR_KIND_FIRST_PERSON;
+		if (type == _shader_type_transparent_meter)
+			kind |= HALO_HDR_KIND_METER;
+		if (type == _shader_type_transparent_generic &&
+			TEST_FLAG(((struct shader_transparent_generic_definition *)shader_get_and_verify_type(
+				group->shader, _shader_type_transparent_generic))->generic.flags, _shader_transparent_flag_numeric_bit))
+			kind |= HALO_HDR_KIND_NUMERIC;
+		if (type == _shader_type_transparent_chicago &&
+			TEST_FLAG(((struct shader_transparent_chicago_definition *)shader_get_and_verify_type(
+				group->shader, _shader_type_transparent_chicago))->chicago.flags, _shader_transparent_flag_numeric_bit))
+			kind |= HALO_HDR_KIND_NUMERIC;
+	}
+	else if (!TEST_FLAG(group->geometry_flags, _rasterizer_geometry_first_person_bit) &&
+		!TEST_FLAG(group->geometry_flags, _rasterizer_geometry_sky_bit) &&
+		(type == _shader_type_transparent_plasma ||
+			((type == _shader_type_transparent_generic || type == _shader_type_transparent_chicago) &&
+				group->shader->base.radiosity.power > 0.0f)))
+	{
+		kind |= HALO_HDR_KIND_LIGHT;
+	}
+	return kind;
 }
 
 void rasterizer_transparent_geometry_group_draw(
@@ -1359,14 +1519,9 @@ void rasterizer_transparent_geometry_group_draw(
 				group->shader->base.type == _shader_type_model &&
 				!dirty)
 			{
-				struct transparent_geometry_group const *next_group =
-					rasterizer_transparent_geometry_next_group(group);
-
-				if (!next_group ||
-					next_group->effect_type != _render_model_effect_type_active_camouflage ||
-					next_group->source_object_index != group->source_object_index ||
-					!next_group->shader ||
-					next_group->shader->base.type != _shader_type_model)
+				/* port: after the last of the object's model parts in this
+				view, not each run of them (active_camouflage_same_view) */
+				if (active_camouflage_last_model_group(group))
 					draw_active_camouflage_groups2 = TRUE;
 			}
 
@@ -1463,6 +1618,8 @@ void rasterizer_transparent_geometry_group_draw(
 						break;
 					}
 
+					/* port: (display.hdr's, until the group is drawn) */
+					halo_hdr_draw_kind(transparent_hdr_kind(group));
 					switch (group->shader->base.type)
 					{
 						case _shader_type_model:
@@ -1694,8 +1851,12 @@ void rasterizer_transparent_geometry_group_draw(
 
 									vsh_constants__zsprite[0][0] = z_far*depth_range/(z_far - z_near);
 									vsh_constants__zsprite[0][1] = -(vsh_constants__zsprite[0][0]*z_near);
+									/* port: the group's own radius (a part of a run of
+									particles), not the shared shader's last one */
 									vsh_constants__zsprite[0][2] =
-										radius_scale*shader_effect->secondary_map_radius;
+										radius_scale*rasterizer_transparent_geometry_group_secondary_map_radius(
+											group,
+											shader_effect->secondary_map_radius);
 									vsh_constants__zsprite[0][3] =
 										camera->z_near + 0.01f;
 									vsh_constants__zsprite[1][0] =
@@ -2350,6 +2511,9 @@ void rasterizer_transparent_geometry_group_draw(
 								pixel_shader.constant_0[stage_index] =
 									real_argb_color_to_pixel32(&constant_color0);
 							}
+							/* port: the Needler's core brighter (Light effects), before the fog */
+							needler_lighting_transparent(group->shader, &pixel_shader,
+								shader_transparent_generic->generic.stages.count);
 							break;
 						}
 
@@ -2654,6 +2818,9 @@ void rasterizer_transparent_geometry_group_draw(
 							success = success && shader_transparent_chicago_create(
 								group->shader,
 								&pixel_shader);
+							/* port: the Needler's needles brighter (Light effects), before the fog */
+							needler_lighting_transparent(group->shader, &pixel_shader,
+								shader_transparent_chicago->chicago.maps.count);
 
 							if (rasterizer_debug_options.draw_environment_fog)
 							{
@@ -2805,6 +2972,9 @@ void rasterizer_transparent_geometry_group_draw(
 									}
 								}
 							}
+							/* port: keep MCC blend semantics out of the legacy shader path. */
+							mcc_chicago_blend(&shader_transparent_chicago->chicago,
+								&pixel_shader, rasterizer_debug_options.draw_environment_fog);
 							break;
 						}
 
@@ -3510,6 +3680,8 @@ void rasterizer_transparent_geometry_group_draw(
 					rasterizer_set_pixel_shader(&pixel_shader);
 					rasterizer_transparent_geometry_group_draw__internal(group, FALSE);
 				}
+				/* port: (display.hdr's: the group is drawn) */
+				halo_hdr_draw_kind(HALO_HDR_KIND_NONE);
 
 				if (TEST_FLAG(group->geometry_flags, _rasterizer_geometry_no_zbuffer_bit) &&
 					global_window_parameters.rasterizer_target == 0)
@@ -3545,10 +3717,8 @@ void rasterizer_transparent_geometry_group_draw(
 
 			for (group_index = 0; group_index < group_count; group_index++)
 			{
-				if (groups2[group_index].active_camouflage_transparent_source_object_index ==
-						group->source_object_index &&
-					groups2[group_index].effect_type ==
-						_render_model_effect_type_active_camouflage)
+				/* port: and in its view (active_camouflage_same_view) */
+				if (active_camouflage_part_follows(&groups2[group_index], group))
 				{
 					rasterizer_transparent_geometry_group_draw(&groups2[group_index], TRUE);
 
@@ -3568,4 +3738,369 @@ void rasterizer_transparent_geometry_group_draw(
 	}
 
 	return;
+}
+
+/* port: use only a static BSP glass surface with a usable supplied plane. */
+static boolean transparent_planar_glass(struct transparent_geometry_group const *surface)
+{
+	real const *normal = (real const *)&surface->plane.n;
+	real length = 0;
+	short k;
+
+	if (!surface->shader || surface->shader->base.type != _shader_type_transparent_glass ||
+		surface->object_index || surface->source_object_index || surface->node_matrix_count ||
+		surface->effect_type || surface->active_camouflage_transparent_source_object_index ||
+		surface->cortana_hack || surface->previous_group_presorted_index != NONE ||
+		surface->next_group_presorted_index != NONE ||
+		!TEST_FLAG(surface->geometry_flags, _rasterizer_geometry_no_sort_bit) ||
+		(surface->geometry_flags & ~(FLAG(_rasterizer_geometry_no_sort_bit) | FLAG(_rasterizer_geometry_no_fog_bit) |
+			FLAG(_rasterizer_geometry_atmospheric_fog_but_no_planar_fog_bit))) ||
+		!(surface->plane.d > -1000000.0f && surface->plane.d < 1000000.0f))
+	{
+		return FALSE;
+	}
+	if (TEST_FLAG(((struct shader_transparent_glass_definition const *)surface->shader)->flags,
+		_shader_transparent_glass_flag_decal_bit) ||
+		((struct shader_transparent_glass_definition const *)surface->shader)->reflection_type ==
+			_shader_transparent_glass_reflection_type_dynamic_mirror)
+	{
+		return FALSE;
+	}
+	for (k = 0; k < 3; ++k)
+	{
+		if (!(normal[k] >= -1.001f && normal[k] <= 1.001f))
+		{
+			return FALSE;
+		}
+		length += normal[k] * normal[k];
+	}
+	return length > 0.998f && length < 1.002f;
+}
+
+/* port: bound the actual skinned positions once per group, only when planar
+   glass is queued. Unsupported or invalid geometry retains centroid sorting. */
+static boolean transparent_model_world_bounds(
+	struct transparent_geometry_group const *group, real bounds[2][3])
+{
+	struct vertex_buffer const *vertices = group->vertex_buffer;
+	real_matrix4x3 const *matrices = group->node_matrices;
+	byte *data = NULL;
+	long i, k, stride;
+	boolean valid = TRUE;
+
+	if (!group->shader || !shader_type_is_transparent(group->shader->base.type) ||
+		!shader_type_is_valid_for_model(group->shader->base.type) ||
+		group->shader->base.type == _shader_type_transparent_water ||
+		shader_is_water_decal(group->shader) || group->effect_type ||
+		group->cortana_hack || group->active_camouflage_transparent_source_object_index ||
+		(group->geometry_flags & ~(FLAG(_rasterizer_geometry_no_fog_bit) |
+			FLAG(_rasterizer_geometry_atmospheric_fog_but_no_planar_fog_bit) |
+			FLAG(_rasterizer_geometry_parts_define_local_nodes_bit))) ||
+		!vertices || !vertices->hardware_format || vertices->offset || vertices->count <= 0 ||
+		vertices->count > UNSIGNED_SHORT_MAX || !matrices || group->node_matrix_count <= 0 ||
+		group->node_matrix_count > MAXIMUM_NODES_PER_MODEL ||
+		(vertices->type != _rasterizer_vertex_type_model_compressed &&
+			vertices->type != _rasterizer_vertex_type_model_uncompressed))
+	{
+		return FALSE;
+	}
+	stride = rasterizer_geometry_get_vertex_size(vertices->type);
+	IDirect3DVertexBuffer8_Lock(XBOX_POINTER(IDirect3DVertexBuffer8, vertices->hardware_format), 0, 0, &data, D3DLOCK_READONLY);
+	if (!data)
+	{
+		valid = FALSE;
+	}
+	for (i = 0; valid && i < vertices->count; ++i)
+	{
+		real_point3d const *point = (real_point3d const *)(data + i * stride);
+		real_point3d world;
+		real const *p = (real const *)&world;
+		if (group->node_matrix_count == 1)
+		{
+			matrix4x3_transform_point(matrices, point, &world);
+		}
+		else
+		{
+			short nodes[2], node;
+			real weights[2];
+			world.x = world.y = world.z = 0;
+			if (vertices->type == _rasterizer_vertex_type_model_compressed)
+			{
+				struct model_vertex_compressed const *vertex = (void const *)point;
+				nodes[0] = vertex->nodes[0] / 3;
+				nodes[1] = vertex->nodes[1] / 3;
+				/* The draw declaration reads v6 as NORMSHORT1. Match GPU
+				   skinning rather than the legacy byte-based decompressor. */
+				weights[0] = (real)vertex->node_weight * (1.0f / 32767.0f);
+				weights[1] = 1.f - weights[0];
+				if ((weights[0] > 0 && vertex->nodes[0] % 3) ||
+					(weights[1] > 0 && vertex->nodes[1] % 3))
+				{
+					valid = FALSE;
+				}
+			}
+			else
+			{
+				struct model_vertex_uncompressed const *vertex = (void const *)point;
+				nodes[0] = vertex->nodes[0];
+				nodes[1] = vertex->nodes[1];
+				weights[0] = vertex->node_weights[0];
+				weights[1] = vertex->node_weights[1];
+				if (!(fabs(weights[0] + weights[1] - 1.f) < 0.00001f))
+				{
+					valid = FALSE;
+				}
+			}
+			for (node = 0; valid && node < 2; ++node)
+			{
+				real_point3d transformed;
+				if (!(weights[node] >= 0 && weights[node] <= 1))
+				{
+					valid = FALSE;
+				}
+				else if (weights[node] > 0)
+				{
+					if (!VALID_INDEX(nodes[node], group->node_matrix_count))
+					{
+						valid = FALSE;
+						break;
+					}
+					matrix4x3_transform_point(matrices + nodes[node], point, &transformed);
+					world.x += weights[node] * transformed.x;
+					world.y += weights[node] * transformed.y;
+					world.z += weights[node] * transformed.z;
+				}
+			}
+		}
+		for (k = 0; valid && k < 3; ++k)
+		{
+			if (!(p[k] > -1000000.0f && p[k] < 1000000.0f))
+			{
+				valid = FALSE;
+				break;
+			}
+			bounds[0][k] = i ? MIN(bounds[0][k], p[k]) : p[k];
+			bounds[1][k] = i ? MAX(bounds[1][k], p[k]) : p[k];
+		}
+	}
+	IDirect3DVertexBuffer8_Unlock(XBOX_POINTER(IDirect3DVertexBuffer8, vertices->hardware_format));
+	return valid;
+}
+
+/* port: the whole model block must lie on one side. Touching the plane within
+   float error is allowed; intersections and cameras on the plane are ambiguous. */
+static short transparent_plane_model_order(
+	struct transparent_geometry_group const *surface, real const bounds[2][3])
+{
+	real const *normal = (real const *)&surface->plane.n;
+	real const *camera = (real const *)&global_window_parameters.camera.position;
+	real low = -surface->plane.d, high = low, distance = low;
+	real epsilon = 0.0001f + 0.0000005f * fabs(surface->plane.d);
+	short side, k;
+
+	for (k = 0; k < 3; ++k)
+	{
+		if (!(camera[k] > -1000000.0f && camera[k] < 1000000.0f))
+		{
+			return 0;
+		}
+		low += normal[k] * bounds[normal[k] < 0 ? 1 : 0][k];
+		high += normal[k] * bounds[normal[k] < 0 ? 0 : 1][k];
+		distance += normal[k] * camera[k];
+	}
+	side = low >= -epsilon && high > epsilon ? 1 : high <= epsilon && low < -epsilon ? -1 : 0;
+	if (!side || !(fabs(distance) > epsilon))
+	{
+		return 0;
+	}
+	return (distance > 0) == (side > 0) ? -1 : 1;
+}
+
+/* port: native links dispatch a whole chain from either queued member. */
+static short transparent_chain_root(short index, long count)
+{
+	long steps;
+	for (steps = 0; steps < count; ++steps)
+	{
+		struct transparent_geometry_group const *group = rasterizer_transparent_geometry_get_group_from_presorted_index(index);
+		short previous = group->previous_group_presorted_index;
+		if (previous == NONE)
+		{
+			return index;
+		}
+		if (!VALID_INDEX(previous, count) ||
+			((struct transparent_geometry_group *)rasterizer_transparent_geometry_get_group_from_presorted_index(previous))->next_group_presorted_index != index)
+		{
+			return NONE;
+		}
+		index = previous;
+	}
+	return NONE;
+}
+
+/* port: preserve the order of surfaces and unrelated groups. Move a model
+   block immediately after its last required surface, or before its first.
+   Stable gaps avoid the old topological sort moving a floor across other
+   objects. Conflicting planes or malformed links leave the input untouched. */
+void rasterizer_transparent_geometry_order_models(short *order, long count)
+{
+	short roots[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS];
+	short units[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS];
+	short surfaces[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS];
+	short original_gap[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS];
+	short target_gap[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS];
+	short result[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS];
+	boolean seen[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS] = {0};
+	boolean unit_seen[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS] = {0};
+	long i, j, gap, phase, unit_count = 0, surface_count = 0, emitted = 0;
+	boolean changed = FALSE;
+
+	if (count < 2 || count > RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS)
+	{
+		return;
+	}
+	/* Avoid reading any model vertices in scenes without eligible BSP glass. */
+	for (i = 0; i < count; ++i)
+	{
+		if (transparent_planar_glass(rasterizer_transparent_geometry_get_group_from_presorted_index((short)i)))
+		{
+			++surface_count;
+		}
+	}
+	if (!surface_count)
+	{
+		return;
+	}
+	surface_count = 0;
+	for (i = 0; i < count; ++i)
+	{
+		short root;
+		if (!VALID_INDEX(order[i], count) || seen[order[i]])
+		{
+			return;
+		}
+		seen[order[i]] = TRUE;
+		root = transparent_chain_root(order[i], count);
+		if (root == NONE)
+		{
+			return;
+		}
+		roots[order[i]] = root;
+		if (!unit_seen[root])
+		{
+			unit_seen[root] = TRUE;
+			units[unit_count++] = root;
+			original_gap[root] = target_gap[root] = (short)surface_count;
+			if (transparent_planar_glass(rasterizer_transparent_geometry_get_group_from_presorted_index(root)))
+			{
+				surfaces[surface_count++] = root;
+				original_gap[root] = target_gap[root] = NONE;
+			}
+		}
+	}
+	for (i = 0; i < unit_count; ++i)
+	{
+		short root = units[i], member = root;
+		long steps = 0, k, lower = 0, upper = surface_count;
+		real bounds[2][3], part_bounds[2][3];
+		boolean valid = TRUE;
+		if (original_gap[root] == NONE)
+		{
+			continue;
+		}
+		do
+		{
+			struct transparent_geometry_group const *group;
+			if (!VALID_INDEX(member, count) || roots[member] != root || steps++ >= count)
+			{
+				return;
+			}
+			group = rasterizer_transparent_geometry_get_group_from_presorted_index(member);
+			if (group->object_index != ((struct transparent_geometry_group *)rasterizer_transparent_geometry_get_group_from_presorted_index(root))->object_index)
+			{
+				valid = FALSE;
+			}
+			if (valid && !transparent_model_world_bounds(group, part_bounds))
+			{
+				valid = FALSE;
+			}
+			if (valid)
+			{
+				for (k = 0; k < 3; ++k)
+				{
+					bounds[0][k] = steps == 1 ? part_bounds[0][k] : MIN(bounds[0][k], part_bounds[0][k]);
+					bounds[1][k] = steps == 1 ? part_bounds[1][k] : MAX(bounds[1][k], part_bounds[1][k]);
+				}
+			}
+			member = group->next_group_presorted_index;
+		}
+		while (member != NONE);
+		if (!valid)
+		{
+			continue;
+		}
+		for (j = 0; j < surface_count; ++j)
+		{
+			short relation = transparent_plane_model_order(
+				rasterizer_transparent_geometry_get_group_from_presorted_index(surfaces[j]), bounds);
+			if (relation < 0)
+			{
+				lower = MAX(lower, j + 1);
+			}
+			else if (relation > 0)
+			{
+				upper = MIN(upper, j);
+			}
+		}
+		if (lower > upper)
+		{
+			return;
+		}
+		target_gap[root] = (short)PIN(original_gap[root], lower, upper);
+		changed |= target_gap[root] != original_gap[root];
+	}
+	if (!changed)
+	{
+		return;
+	}
+	for (gap = 0; gap <= surface_count; ++gap)
+	{
+		/* Arrivals from earlier gaps, unchanged objects, arrivals from later
+		   gaps: each category retains its original centroid order. */
+		for (phase = -1; phase <= 1; ++phase)
+		{
+			for (i = 0; i < unit_count; ++i)
+			{
+				short root = units[i], member = root;
+				long direction = original_gap[root] < target_gap[root] ? -1 :
+					original_gap[root] > target_gap[root] ? 1 : 0;
+				if (target_gap[root] != gap || direction != phase)
+				{
+					continue;
+				}
+				do
+				{
+					if (emitted >= count)
+					{
+						return;
+					}
+					result[emitted++] = member;
+					member = ((struct transparent_geometry_group *)rasterizer_transparent_geometry_get_group_from_presorted_index(member))->next_group_presorted_index;
+				}
+				while (member != NONE);
+			}
+		}
+		if (gap < surface_count)
+		{
+			if (emitted >= count)
+			{
+				return;
+			}
+			result[emitted++] = surfaces[gap];
+		}
+	}
+	if (emitted == count)
+	{
+		memcpy(order, result, count * sizeof(*order));
+	}
 }

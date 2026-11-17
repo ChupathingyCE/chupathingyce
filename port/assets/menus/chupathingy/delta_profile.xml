@@ -45,8 +45,7 @@ Open on the Web, unlinking) are Online Games'. Privacy is a settings page
 	<!-- (the section: its name; the overview's Spartan with the name, handle,
 	badges and record (GAMES to MEDALS) beside it; then its rows: a label, a place for a recent
 	game, and a value at the right) -->
-	<widget name="chupathingy/delta_profile/card" width="640" height="480">
-		<child widget="chupathingy/profiles/panel"/>
+	<widget name="chupathingy/delta_profile/card" left="275" top="78" width="320" height="362" bitmap="bitmaps/list_field">
 		<child widget="chupathingy/delta_profile/kind" x="294" y="88"/>
 		<child widget="main_menu/multiplayer_type_select/connected/4way_profile_select/qtr_screen_profile_color_pic" x="280" y="118"/>
 		<child widget="chupathingy/delta_profile/title" x="400" y="124"/>

@@ -1,0 +1,17 @@
+# The tests the Build workflow (linux-tests) runs as scripts (python3 <file>),
+# for the ones written without pytest: one per line, sorted. A file not in
+# the commit being built is left out with a notice.
+tools/test_audio_doppler.py
+tools/test_bitmap_byte_order.py
+tools/test_button_mappings.py
+tools/test_console_https.py
+tools/test_controller_layout.py
+tools/test_light_storage.py
+tools/test_local_player_quit.py
+tools/test_menu_key_caps.py
+tools/test_port_config.py
+tools/test_rendered_lights_storage.py
+tools/test_saved_game_script_globals.py
+tools/test_split_screen_input.py
+tools/test_tag_byte_swap.py
+tools/test_tick_input.py

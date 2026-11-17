@@ -14,9 +14,10 @@ standard input and output are both a terminal, the line being typed is
 edited on a prompt line that the server's output goes above
 (server_terminal.c); otherwise its bytes are read as they come.
 
-The control API: HTTP/1.1 and JSON on a TCP listener of its own, off unless
-HALO_DEDICATED_CONTROL gives an address (127.0.0.1 unless it says another,
-which is warned of: it is plain HTTP, for a tunnel or a TLS proxy in front).
+The control API: HTTP/1.1 and JSON on a TCP listener of its own, on
+127.0.0.1:8080 (this machine only) unless HALO_DEDICATED_CONTROL gives
+another address (127.0.0.1 unless it says another; beyond the machine it is
+HTTPS, or warned of) or turns it off (off, false, no, 0, or empty).
   GET  /v1/status    the server's state (sv_status, as JSON)
   GET  /v1/players   its players (sv_players, as JSON)
   POST /v1/command   {"command": "sv_kick 3"}: a command run, its output
@@ -78,6 +79,10 @@ platform_log) are kept in a ring here, any public address in them hidden
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <shellapi.h>
+#pragma comment(lib, "shell32.lib")
+#endif
 
 /* the platform layer's (xbox_files.c, log_address.c): plain types */
 const char *platform_data_root(void);
@@ -260,6 +265,9 @@ static struct
 	int tls;
 	char fingerprint[CONTROL_TLS_FINGERPRINT_SIZE];
 	char listen_setting[96];
+	/* HALO_DEDICATED_CONTROL_HOSTS: the names a request may be for (empty:
+	any) */
+	char hosts[512];
 	/* HALO_DEDICATED_CONTROL_TRUSTED_PROXY's addresses */
 	uint8_t trusted_proxies[MAXIMUM_TRUSTED_PROXIES][16];
 	int trusted_proxy_count;
@@ -288,6 +296,10 @@ static struct
 	the first owner finishes it (POST /v1/setup/start, sv_setup_start) */
 	int setup_mode;
 	int setup_waiting;
+#ifdef _WIN32
+	/* the setup link just made, for open_setup_link (then wiped) */
+	char setup_link[256];
+#endif
 	/* each account's bind request (server_roles.h), 0 none */
 	unsigned int bind_request[MAXIMUM_ACCOUNTS];
 } panel;
@@ -869,9 +881,25 @@ static void make_setup_code(void)
 	}
 	fflush(stdout);
 	write_setup_code_file(code);
+#ifdef _WIN32
+	snprintf(panel.setup_link, sizeof(panel.setup_link), "%s://%s/#setup=%s", control.tls ? "https" : "http",
+		control.listen_setting, code);
+#endif
 	crypto_wipe(code, sizeof(code));
 	notice("the control panel's setup code was printed on the server's output and written to %s (it has no owner yet)",
 		SETUP_CODE_FILE);
+}
+
+/* Windows: the setup link just made, opened in the default browser, for a
+host who started the server from a window of their own (not a service,
+which has no console window), on this machine's panel only */
+static void open_setup_link(void)
+{
+#ifdef _WIN32
+	if (panel.setup_link[0] && control.listener_loopback && GetConsoleWindow())
+		ShellExecuteA(NULL, "open", panel.setup_link, NULL, NULL, SW_SHOWNORMAL);
+	crypto_wipe(panel.setup_link, sizeof(panel.setup_link));
+#endif
 }
 
 /* an invitation made, its code printed into code (code_size bytes) for
@@ -1365,6 +1393,13 @@ static void request_client(struct connection *connection, const struct control_r
 	}
 }
 
+const char *server_control_setting(void)
+{
+	const char *setting = getenv("HALO_DEDICATED_CONTROL");
+
+	return setting ? setting : SERVER_CONTROL_DEFAULT;
+}
+
 static int start_listener(const char *setting)
 {
 	struct sockaddr_storage address;
@@ -1432,7 +1467,12 @@ static int start_listener(const char *setting)
 		setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&one, sizeof(one));
 	if (bind(fd, (struct sockaddr *)&address, length) || listen(fd, 16) || host_socket_nonblocking(fd))
 	{
-		notice("the control API cannot listen on %s (%s): it is off", setting, strerror(host_socket_errno()));
+		if (!getenv("HALO_DEDICATED_CONTROL"))
+			notice("the control panel is off: %s is taken (%s). The game is served as usual; "
+				"HALO_DEDICATED_CONTROL=<port> picks another port, off turns the panel off", setting,
+				strerror(host_socket_errno()));
+		else
+			notice("the control API cannot listen on %s (%s): it is off", setting, strerror(host_socket_errno()));
 		host_socket_close(fd);
 		return 0;
 	}
@@ -2508,6 +2548,39 @@ static void json_qr(struct json_body *body, const char *text)
 }
 
 /* /v1/account/...: a person's own account (an account's session only) */
+/* a session's own password checked again (a change of it, the second
+factor turned off): within the limits a login's is (the address's wrong
+tries, the account's lock from this address, the checks a minute), so a
+session alone guesses no faster than a login. 1 if it may be checked now,
+else 0 with the response given */
+static int recheck_allowed(struct connection *connection, int account, int64_t now)
+{
+	int64_t retry_after = 0;
+
+	if (!control_limiter_allowed(&control.limiter, connection->tag, now, &retry_after) ||
+		!control_backoff_allowed(&panel.backoff[account], connection->tag, now, &retry_after))
+	{
+		char headers[64];
+
+		snprintf(headers, sizeof(headers), "Retry-After: %lld\r\n", (long long)(retry_after > 0 ? retry_after : 60));
+		respond_error(connection, 429, "too many wrong passwords from this address: try again later", headers);
+		return 0;
+	}
+	if (!control_limiter_take_check_from(&control.limiter, connection->tag, now))
+	{
+		respond_error(connection, 429, "too many checks: try again shortly", "Retry-After: 5\r\n");
+		return 0;
+	}
+	return 1;
+}
+
+/* a session's own password (or code) wrong: counted as a login's is */
+static void recheck_failed(struct connection *connection, int account, int64_t now)
+{
+	control_limiter_failed(&control.limiter, connection->tag, now);
+	control_backoff_failed(&panel.backoff[account], connection->tag, now);
+}
+
 static void handle_account(struct connection *connection, struct control_request *request, struct auth *auth,
 	int64_t now)
 {
@@ -2622,10 +2695,9 @@ static void handle_account(struct connection *connection, struct control_request
 			respond_error(connection, 403, "the owner requires a second factor", NULL);
 			return;
 		}
-		if (!control_limiter_take_check(&control.limiter, now))
+		if (!recheck_allowed(connection, auth->account, now))
 		{
 			crypto_wipe(password, sizeof(password));
-			respond_error(connection, 429, "too many checks: try again shortly", "Retry-After: 5\r\n");
 			return;
 		}
 		right = control_account_check(account, password) > 0 && account->has_totp &&
@@ -2633,7 +2705,7 @@ static void handle_account(struct connection *connection, struct control_request
 		crypto_wipe(password, sizeof(password));
 		if (!right)
 		{
-			control_backoff_failed(&panel.backoff[auth->account], connection->tag, now);
+			recheck_failed(connection, auth->account, now);
 			respond_error(connection, 403, "the password or code is not right", NULL);
 			return;
 		}
@@ -2669,11 +2741,10 @@ static void handle_account(struct connection *connection, struct control_request
 			respond_error(connection, 400, reason, NULL);
 			return;
 		}
-		if (!control_limiter_take_check(&control.limiter, now))
+		if (!recheck_allowed(connection, auth->account, now))
 		{
 			crypto_wipe(password, sizeof(password));
 			crypto_wipe(fresh, sizeof(fresh));
-			respond_error(connection, 429, "too many checks: try again shortly", "Retry-After: 5\r\n");
 			return;
 		}
 		right = control_account_check(account, password);
@@ -2683,7 +2754,7 @@ static void handle_account(struct connection *connection, struct control_request
 		{
 			crypto_wipe(fresh, sizeof(fresh));
 			if (!right)
-				control_backoff_failed(&panel.backoff[auth->account], connection->tag, now);
+				recheck_failed(connection, auth->account, now);
 			respond_error(connection, right ? 503 : 403, right ? "no memory" : "the password is not right", NULL);
 			return;
 		}
@@ -3237,6 +3308,8 @@ static void handle_request(struct connection *connection, struct control_request
 			{ "/v1/settings", "sv_settings", CONTROL_PERMISSION_VIEW },
 			{ "/v1/moderators", "sv_mod_list", CONTROL_PERMISSION_ROLES },
 			{ "/v1/link", "sv_link_status", CONTROL_PERMISSION_VIEW },
+			{ "/v1/reports", "sv_reports all", CONTROL_PERMISSION_WARN },
+			{ "/v1/ban_lists", "sv_ban_lists", CONTROL_PERMISSION_VIEW },
 		};
 		size_t index;
 
@@ -3404,7 +3477,22 @@ static void read_request(struct connection *connection)
 	if (connection->tls)
 		request.https = 1;
 	request_client(connection, &request);
-	handle_request(connection, &request);
+	/* (the names the operator listed, if any: a page of another site whose
+	name was pointed at this machine, DNS rebinding, is answered nothing) */
+	if (control.hosts[0] && (!control_host_allowed(request.host, control.hosts, 1) ||
+		(request.forwarded_host[0] && !control_host_allowed(request.forwarded_host, control.hosts, 0))))
+	{
+		char address[64];
+
+		crypto_wipe(request.token, sizeof(request.token));
+		crypto_wipe(request.session, sizeof(request.session));
+		address_text(connection->address, address, sizeof(address));
+		notice("a control request for a host name not in HALO_DEDICATED_CONTROL_HOSTS, from %s", address);
+		respond_error(connection, 421, "this panel does not answer to that host name (HALO_DEDICATED_CONTROL_HOSTS)",
+			NULL);
+	}
+	else
+		handle_request(connection, &request);
 	/* (the request's bytes, its token among them, not kept) */
 	crypto_wipe(connection->request, sizeof(connection->request));
 	connection->length = 0;
@@ -4157,7 +4245,7 @@ int server_control_setup_waiting(void)
 void server_control_start(void)
 {
 	const char *console = getenv("HALO_DEDICATED_CONSOLE");
-	const char *setting = getenv("HALO_DEDICATED_CONTROL");
+	const char *setting = server_control_setting();
 	pthread_t thread;
 	pthread_attr_t attributes;
 	int index;
@@ -4184,6 +4272,14 @@ void server_control_start(void)
 		{
 			control_web_sessions_initialize(&control.sessions, session_key);
 			read_trusted_proxies();
+			{
+				const char *hosts = getenv("HALO_DEDICATED_CONTROL_HOSTS");
+
+				snprintf(control.hosts, sizeof(control.hosts), "%s", hosts ? hosts : "");
+				if (control.hosts[0])
+					notice("the control panel answers only to %s, and this machine's own names "
+						"(HALO_DEDICATED_CONTROL_HOSTS)", control.hosts);
+			}
 			if (start_listener(setting))
 			{
 				/* the control panel's accounts, and the first owner's setup
@@ -4193,6 +4289,7 @@ void server_control_start(void)
 				if (owner_count())
 					forget_setup_code_file();
 				make_setup_code();
+				open_setup_link();
 				/* (a server started for the first-run setup waits to host
 				until its owner finishes it; one with an owner already, or
 				whose panel did not start, hosts at once) */

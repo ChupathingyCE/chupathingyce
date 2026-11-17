@@ -164,6 +164,12 @@ void render_objects(
 	void);
 void render_object_shadows(
 	void);
+/* port: the interface's layer over the 3D view (render.c): the HUD, or the
+menus' 640 columns, centered on a wider screen */
+void render_interface_begin(
+	boolean centered);
+void render_interface_end(
+	boolean centered);
 
 /* ---------- globals */
 

@@ -6,6 +6,9 @@ OBJECTS.C
 
 #include "cseries.h"
 #include "objects.h"
+#include "mcc_object_names.h" /* port: port/linux/game/mcc_object_names.c */
+#include "mcc_objects.h" /* port: port/linux/game/mcc_objects.c */
+#include "stubbs_regions.h" /* port: port/linux/game/stubbs_regions.c */
 
 #include "damage.h"
 #include "light_definitions.h"
@@ -54,6 +57,7 @@ OBJECTS.C
 #include "sound/game_sound.h"
 #include "structures/structure_bsp_definitions.h"
 #include "units/units.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_update(long object_index, real_point3d const *center, real radius);
 
@@ -171,6 +175,26 @@ static long sort_dumps(struct dump_datum const *dump1, struct dump_datum const *
 static void object_add_to_dump(long object_index, struct dump_datum *dump);
 static void object_dump_write(FILE *stream, struct dump_datum *dump);
 static short object_find_region_permutations_available_with_variant(struct model_region *region, short variant_number, short *available_indices);
+
+/* port: the object's region permutations and how many regions they cover:
+its own eight, or in Stubbs mode sixteen kept beside it (Stubbs's
+characters have regions past eight: port/linux/game/stubbs_regions.c) */
+byte *object_get_region_permutations(
+	long object_index,
+	short *region_count)
+{
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	byte *permutations = stubbs_regions_permutations(object_index);
+
+	if (permutations)
+	{
+		*region_count = STUBBS_MAXIMUM_REGIONS_PER_OBJECT;
+		return permutations;
+	}
+#endif
+	*region_count = MAXIMUM_REGIONS_PER_OBJECT;
+	return object_get(object_index)->object.region_permutations;
+}
 static boolean object_select_random_region_permutations_by_variant(long object_index, struct model *model, short variant_number);
 static short object_determine_variant_number(long object_index, struct model *model);
 static void object_choose_random_region_permutations(long object_index);
@@ -380,6 +404,9 @@ void object_set_object_index_for_name_index(
 	short name_index,
 	long object_index)
 {
+	/* port: expanded MCC names use a separate table. */
+	if (mcc_object_names_active()) { mcc_object_names_set(name_index, object_index); return; }
+
 	/* port: and one the name list holds (a map's count; retail has up to
 	448 names) */
 	if (VALID_INDEX(name_index, MIN(global_scenario_get()->object_names.count, MAXIMUM_OBJECT_NAMES_PER_SCENARIO)))
@@ -1317,6 +1344,18 @@ real *object_get_function_values(
 	return object_get(object_index)->object.outgoing_function_values;
 }
 
+/* port: the object's change colors; while a frame is drawn, between the
+last two ticks (port/linux/game/render_interpolation.c) */
+real_rgb_color *object_get_change_colors(
+	long object_index)
+{
+	real_rgb_color *interpolated = render_interpolation_object_change_colors(object_index);
+
+	if (interpolated)
+		return interpolated;
+	return object_get(object_index)->object.outgoing_change_colors;
+}
+
 char const *object_get_attachment_marker_name(
 	long object_index,
 	short attachment_index)
@@ -1519,10 +1558,12 @@ void object_permute_region(
 	{
 		short region_index;
 		struct model* model = model_definition_get(object_definition->object.model.index);
+		short region_count;
+		byte *region_permutations = object_get_region_permutations(object_index, &region_count);
 		
 		/* port: no more regions than the object's region_permutations holds
 		(a map's count; retail has up to 8) */
-		for (region_index = 0; region_index<MIN(model->regions.count, MAXIMUM_REGIONS_PER_OBJECT); region_index++)
+		for (region_index = 0; region_index<MIN(model->regions.count, region_count); region_index++)
 		{
 			if (desired_region_index==NONE || desired_region_index==region_index)
 			{
@@ -1544,12 +1585,13 @@ void object_permute_region(
 					
 					if (!_stricmp(permutation->name, permutation_name))
 					{
-						object->object.region_permutations[region_index] = active_flag ? permutation_index : 0;
+						region_permutations[region_index] = active_flag ? permutation_index : 0;
 						break;
 					}
 				}
 			}
 		}
+		stubbs_regions_changed(object_index); /* port: Stubbs mode only */
 	}
 
 	return;
@@ -1675,6 +1717,9 @@ short objects_in_clusters_by_indices(
 long object_index_from_name_index(
 	short name_index)
 {
+	/* port: expanded MCC names use a separate table. */
+	if (mcc_object_names_active()) return mcc_object_names_get(name_index);
+
 	return name_index>=0 && name_index<MAXIMUM_OBJECT_NAMES_PER_SCENARIO ? object_name_list[name_index] : NONE;
 }
 
@@ -1981,11 +2026,12 @@ short object_get_marker_by_name(
 	the ticks too (port/linux/game/render_interpolation.c). While a tick runs,
 	which is when the game asks for markers, this is the same array. */
 	real_matrix4x3 const *matrices = object_get_node_matrices(object_index);
+	short region_count;
 
 	marker = model_get_marker_by_name(
 		object_definition->object.model.index,
 		name,
-		object->object.region_permutations,
+		object_get_region_permutations(object_index, &region_count),
 		FALSE,
 		NONE,
 		matrices,
@@ -3658,7 +3704,9 @@ long object_new(
 				}
 
 				object_choose_random_change_colors(object_index, data->change_colors);
+				stubbs_regions_object_new(object_index); /* port: Stubbs mode only */
 				object_choose_random_region_permutations(object_index);
+				stubbs_regions_changed(object_index); /* port: Stubbs mode only */
 				object_initialize_vitality(object_index, NULL, NULL);
 				object_compute_node_matrices(object_index);
 				object_reconnect_to_map(object_index, NULL);
@@ -3823,9 +3871,18 @@ void object_attach_to_node(
 	return;
 }
 
+/* port: muzzle shots must exclude their shooter during the safety check. */
 boolean object_force_inside_bsp(
 	long object_index,
 	real_point3d const *known_good_point)
+{
+	return object_force_inside_bsp_ignoring(object_index, known_good_point, NONE);
+}
+
+boolean object_force_inside_bsp_ignoring(
+	long object_index,
+	real_point3d const *known_good_point,
+	long ignore_object_index)
 {
 	struct collision_result collision;
 
@@ -3835,7 +3892,7 @@ boolean object_force_inside_bsp(
 	match_assert("c:\\halo\\SOURCE\\objects\\objects.c", 2365, global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
 	global_current_collision_users[global_current_collision_user_depth++] = 19;
 	
-	if (collision_test_line(_collision_test_for_projectiles_flags, known_good_point, &object->object.position, NONE, &collision) ||
+	if (collision_test_line(_collision_test_for_projectiles_flags, known_good_point, &object->object.position, ignore_object_index, &collision) ||
 		object->object.location.cluster_index==NONE)
 	{
 		if (collision.location.cluster_index!=NONE)
@@ -3855,6 +3912,28 @@ boolean object_force_inside_bsp(
 
 	return result;
 }
+
+#ifdef HALO_PERF_LOG
+/* port: the perf log's phase for an object type's own update
+(halo_perf_log.h) */
+static int object_update_perf_phase(
+	short type)
+{
+	switch (type)
+	{
+	case _object_type_biped: return _halo_perf_objects_bipeds;
+	case _object_type_vehicle: return _halo_perf_objects_vehicles;
+	case _object_type_weapon: return _halo_perf_objects_weapons;
+	case _object_type_equipment:
+	case _object_type_garbage: return _halo_perf_objects_items;
+	case _object_type_projectile: return _halo_perf_objects_projectiles;
+	default: return _halo_perf_objects_other_types;
+	}
+}
+#define OBJECT_UPDATE_PERF_PHASE(type) object_update_perf_phase(type)
+#else
+#define OBJECT_UPDATE_PERF_PHASE(type) 0
+#endif
 
 static boolean object_update(
 	long object_index)
@@ -3887,17 +3966,26 @@ static boolean object_update(
 		elevator_sampled = object->object.type == _object_type_machine &&
 			machine_elevator_sample(object_index, &elevator_sample);
 
+		HALO_PERF_COUNT(_halo_perf_objects_updated, 1);
+		HALO_PERF_BEGIN(OBJECT_UPDATE_PERF_PHASE(object->object.type));
 		object_type_update(object_index);
+		HALO_PERF_END(OBJECT_UPDATE_PERF_PHASE(object->object.type));
 		if (object_definition->object.collision_model.index!=NONE)
 		{
+			HALO_PERF_BEGIN(_halo_perf_objects_damage);
 			object_damage_update(object_index);
+			HALO_PERF_END(_halo_perf_objects_damage);
 		}
 
+		HALO_PERF_BEGIN(_halo_perf_objects_functions);
 		object_type_export_function_values(object_index);
+		HALO_PERF_END(_halo_perf_objects_functions);
 
 		if (!TEST_FLAG(object->object.flags, _object_do_not_recompute_node_matrices_bit))
 		{
+			HALO_PERF_BEGIN(_halo_perf_objects_nodes);
 			object_compute_node_matrices(object_index);
+			HALO_PERF_END(_halo_perf_objects_nodes);
 		}
 
 		if (elevator_sampled)
@@ -3905,8 +3993,10 @@ static boolean object_update(
 			machine_elevator_carry_riders(object_index, &elevator_sample);
 		}
 
+		HALO_PERF_BEGIN(_halo_perf_objects_functions);
 		object_compute_function_values(object_index);
 		object_compute_change_colors(object_index);
+		HALO_PERF_END(_halo_perf_objects_functions);
 
 		if (
 			TEST_FLAG(object->object.flags, _object_dynamic_lighting_recompute_bit) &&
@@ -3916,7 +4006,9 @@ static boolean object_update(
 			)
 		)
 		{
+			HALO_PERF_BEGIN(_halo_perf_objects_lights);
 			object_connect_lights(object_index, TRUE, TRUE);
+			HALO_PERF_END(_halo_perf_objects_lights);
 		}
 
 		// Update children (if we have any)
@@ -3933,7 +4025,9 @@ static boolean object_update(
 			}
 		}
 
+		HALO_PERF_BEGIN(_halo_perf_objects_nodes);
 		object_postprocess_node_matrices(object_index);
+		HALO_PERF_END(_halo_perf_objects_nodes);
 	}
 
 	return result;
@@ -4533,6 +4627,7 @@ void objects_update(
 	memcpy(last_active_cluster_bits, active_cluster_bits, BIT_VECTOR_SIZE_IN_BYTES(cluster_count));
 	memcpy(active_cluster_bits, players_get_combined_pvs(), BIT_VECTOR_SIZE_IN_BYTES(cluster_count));
 
+	HALO_PERF_BEGIN(_halo_perf_objects_activation);
 	if (csmemcmp(last_active_cluster_bits, active_cluster_bits, BIT_VECTOR_SIZE_IN_BYTES(cluster_count)))
 	{
 		object_header = (struct object_header_datum *)xbox_pointer(object_header_data->data);
@@ -4544,8 +4639,14 @@ void objects_update(
 			{
 				if (TEST_FLAG(object_header->flags, _object_header_active_bit))
 				{
-					match_assert("c:\\halo\\SOURCE\\objects\\objects.c", 369, object_header->cluster_index!=NONE);
-					if (!BIT_VECTOR_TEST_FLAG(active_cluster_bits, object_header->cluster_index))
+					/* port: a carried weapon put back in the world, or an
+					object whose position is outside the map, can be active
+					with no cluster (a machine joining a game in progress
+					halted here); it is in no active cluster, rather than
+					reading the bits before the first */
+					if (object_header->cluster_index<0 ||
+						object_header->cluster_index>=cluster_count ||
+						!BIT_VECTOR_TEST_FLAG(active_cluster_bits, object_header->cluster_index))
 					{
 						if (TEST_FLAG(object_header->datum->object.flags, _object_deleted_when_deactivated_bit))
 						{
@@ -4575,6 +4676,7 @@ void objects_update(
 			active_cluster_bits,
 			cluster_count);
 	}
+	HALO_PERF_END(_halo_perf_objects_activation);
 
 	object_header = (struct object_header_datum *)xbox_pointer(object_header_data->data);
 	for (i = 0; i<object_header_data->count; ++object_header)
@@ -4623,7 +4725,9 @@ void objects_update(
 		++i;
 	}
 
+	HALO_PERF_BEGIN(_halo_perf_objects_garbage);
 	objects_garbage_collection();
+	HALO_PERF_END(_halo_perf_objects_garbage);
 
 	profile_exit(section);
 
@@ -4695,6 +4799,9 @@ static void object_name_list_free(
 static void object_name_list_clear(
 	void)
 {
+	/* port: clear MCC state on every new map and restart. */
+	if (mcc_object_names_active()) mcc_object_names_clear();
+
 	memset(object_name_list, NONE, MAXIMUM_OBJECT_NAMES_PER_SCENARIO * sizeof(*object_name_list));
 
 	return;
@@ -4705,6 +4812,9 @@ static void object_name_list_new(
 	short name_index)
 {
 	struct object_datum *object = object_get(object_index);
+
+	/* port: extended indices must not enter the legacy table. */
+	if (mcc_object_names_active()) { mcc_object_names_claim(name_index, object_index); return; }
 
 	match_assert(
 		"c:\\halo\\SOURCE\\objects\\objects.c",
@@ -4750,6 +4860,9 @@ void object_claim_scenario_name(
 	long object_index,
 	short name_index)
 {
+	/* port: expanded MCC names preserve the same first-owner rule. */
+	if (mcc_object_names_active()) { mcc_object_names_claim(name_index, object_index); return; }
+
 	if (object_index == NONE ||
 		!VALID_INDEX(name_index, MIN(global_scenario_get()->object_names.count, MAXIMUM_OBJECT_NAMES_PER_SCENARIO)) ||
 		object_name_list[name_index] != NONE)
@@ -4765,6 +4878,9 @@ static void object_name_list_delete(
 	long object_index)
 {
 	struct object_datum *object = object_get(object_index);
+
+	/* port: MCC also clears aliases outside the legacy name range. */
+	if (mcc_object_names_active()) { mcc_object_names_delete(object_index); return; }
 
 	if (object->object.name_index!=NONE)
 	{
@@ -4789,6 +4905,9 @@ static void object_name_list_delete(
 static long object_name_list_lookup(
 	short name_index)
 {
+	/* port: expanded MCC names use a separate table. */
+	if (mcc_object_names_active()) return mcc_object_names_get(name_index);
+
 	return VALID_INDEX(name_index, MAXIMUM_OBJECT_NAMES_PER_SCENARIO) ? object_name_list[name_index] : NONE;
 }
 
@@ -4972,14 +5091,14 @@ static boolean object_select_random_region_permutations_by_variant(
 {
 	short available_permutation_indices[32];
 	short region_index;
-
-	struct object_datum *object = object_get(object_index);
+	short region_count;
+	byte *region_permutations = object_get_region_permutations(object_index, &region_count);
 	boolean result = TRUE;
 
 	/* port: no more regions than the object's region_permutations holds (a
 	map's count; past them are the change colors and the node blocks; retail
 	has up to 8) */
-	for (region_index =0; region_index<MIN(model->regions.count, MAXIMUM_REGIONS_PER_OBJECT); region_index++)
+	for (region_index =0; region_index<MIN(model->regions.count, region_count); region_index++)
 	{
 		struct model_region *region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index, struct model_region);
 		short permutation_index = object_find_region_permutations_available_with_variant(region, variant_number, available_permutation_indices);
@@ -4991,13 +5110,13 @@ static boolean object_select_random_region_permutations_by_variant(
 
 		if (!permutation_index)
 		{
-			object->object.region_permutations[region_index] = 0;
+			region_permutations[region_index] = 0;
 			result = FALSE;
 		}
 		else
 		{
 			short permutation_num = permutation_index==1 ? 0 : random_range(0, permutation_index);
-			object->object.region_permutations[region_index] = available_permutation_indices[permutation_num];
+			region_permutations[region_index] = available_permutation_indices[permutation_num];
 		}
 	}
 
@@ -5009,20 +5128,20 @@ static short object_determine_variant_number(
 	struct model *model)
 {
 	short region_index;
-
-	struct object_datum *object = object_get(object_index);
+	short region_count;
+	byte *region_permutations = object_get_region_permutations(object_index, &region_count);
 	short result = 0;
 
 	/* port: the regions object_select_random_region_permutations_by_variant
 	chose for (a map's count) */
-	for (region_index =0; region_index<MIN(model->regions.count, MAXIMUM_REGIONS_PER_OBJECT)&& !result; region_index++)
+	for (region_index =0; region_index<MIN(model->regions.count, region_count)&& !result; region_index++)
 	{
 		struct model_region* region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index, struct model_region);
-		if (object->object.region_permutations[region_index] < region->permutations.count)
+		if (region_permutations[region_index] < region->permutations.count)
 		{
 			result = TAG_BLOCK_GET_ELEMENT(
 				&region->permutations,
-				object->object.region_permutations[region_index],
+				region_permutations[region_index],
 				struct model_region_permutation
 			)->variant_number;
 		}
@@ -5386,7 +5505,11 @@ static void object_compute_change_colors(
 				cc_index,
 				struct object_change_color_definition);
 
-			if (change_color->scaled_by)
+			/* port: MCC signed RGB functions are clamped below, after darkening. */
+			if (change_color->scaled_by && !mcc_object_color_extrapolate(
+				&object->object.outgoing_change_colors[cc_index], change_color->scale_flags,
+				&change_color->color_lower_bound, &change_color->color_upper_bound,
+				OBJECT_INCOMING_FUNCTION_GET_VALUE(object, change_color->scaled_by)))
 			{
 				rgb_colors_interpolate(
 					&object->object.outgoing_change_colors[cc_index],

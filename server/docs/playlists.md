@@ -58,8 +58,19 @@ All of them need Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map`
 in `maps_ce/`, and the x64 or arm64 server. Players need the same map file
 to join such a game. OpenCE (build-147) players can join a Custom Edition
 map's game with the map in their `custom_maps/`; HaloMD and Halo PC retail
-games are ChupathingyCE's only (an OpenCE player is told the map is
+games are Chupathingy's only (an OpenCE player is told the map is
 missing).
+
+The server doesn't host a map on Chupathingy maps' blacklist (maps that
+crash games or break the engine; see the game's `docs/maps.md`). It fetches
+the list when it starts and about once an hour after that. A playlist entry
+on such a map is skipped, and `sv_map` refuses it; both say why in the log.
+
+A playlist entry whose map isn't installed on the server is skipped too
+(the log says which), and the next game is the playlist's next one that is.
+If none of the playlist's maps is installed, the server doesn't host at all:
+it says so on its console and in the log, and looks again every 30 seconds,
+so installing a map, `sv_playlist_use` or `sv_map` gets it going.
 
 **Xbox map packs** (community packs of Xbox maps, such as Halo CE+ X), each
 in its own `maps_<pack>/` folder beside `maps/`, go in as `<name>@<pack>`:
@@ -83,7 +94,7 @@ can't join these games (they are told the map is missing). A pack's folder
 name is 1 to 8 letters and digits, other than `ce`, `md`, `pc`, `de`, `fr`,
 `es` and `it`.
 
-The older folders still work: `maps/ce/` (ChupathingyCE 0.7.0b and before),
+The older folders still work: `maps/ce/` (Chupathingy 0.7.0b and before),
 `md_maps/`, and OpenCE's `custom_maps/` for Custom Edition maps. A file
 named `<name>@ce.map` (`@md`, `@pc`) in `maps/` plays too. The server reads
 the old folders where they are and never moves them (the game's
@@ -126,6 +137,16 @@ A game type file can start from these (`base = "grifball"`) and change their
 own fields: `bomb.arm_time`, `bomb.reset_time` and `bomb.round_time`
 (seconds), `bomb.new_round_on_score`, `bomb.melee_only`, and `bomb.traits`
 (`"none"`, `"grifball"`, `"open_pitch"`).
+
+### SWAT and Hardcore
+
+The game modes ([docs/modes.md](../../docs/modes.md)) are OpenCE's game
+types played by their rules, so OpenCE players join them on a server
+announcing network version 35 or later. The built-ins are `swat`,
+`hardcore` (team Slayer), `hc_ctf`, `hc_oddball` and `hc_king`. A game type
+file with a Slayer base can set `mode = "swat"` (or `"none"`), and one with
+any base but Bomb `hardcore = true`. Chupathingy players on a build without
+the modes are dropped from such a game with a notice, as from a Bomb game.
 
 Settings of the server's (`config.toml`, or their environment
 variables) tune them:

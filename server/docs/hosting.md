@@ -70,10 +70,10 @@ The server is one file that runs on any Linux. Get it from the
 [latest release](https://github.com/ChupathingyCE/chupathingyce/releases/latest).
 Not sure which one? Run `uname -m`.
 
-- `chupathingyce-server-linux-x64` for `x86_64`: most VPSes and PCs.
-- `chupathingyce-server-linux-arm64` for `aarch64`: Oracle Cloud's free
-  tier, Raspberry Pi 4 and 5.
-- `chupathingyce-server-linux-x86` for `i686`: older 32-bit PCs.
+- `chupathingyce-server-linux-x64.zip` for `x86_64`: most VPSes and PCs.
+- `chupathingyce-server-linux-arm64.zip` for `aarch64`: Oracle Cloud's
+  free tier, Raspberry Pi 4 and 5.
+- `chupathingyce-server-linux-x86.zip` for `i686`: older 32-bit PCs.
 
 Unpack it, go to your data folder, and start the server with a playlist and
 a name:
@@ -134,18 +134,24 @@ same.
 ## The control panel
 
 The server has a web control panel: status, players, maps, playlists, bans,
-settings, the log and the people who run it. It is off unless you turn it
-on, and there is no default password.
+settings, the log and the people who run it. It is on by default, at
+`http://127.0.0.1:8080`, which only this machine can reach. There is no
+default password. Our Docker image keeps it off until you set it.
 
 ```sh
-HALO_DEDICATED_CONTROL=8080            # this machine only: 127.0.0.1:8080
+HALO_DEDICATED_CONTROL=9090            # another port, still this machine only
 HALO_DEDICATED_CONTROL=0.0.0.0:8443    # every address, HTTPS only
+HALO_DEDICATED_CONTROL=off             # no panel
 ```
+
+If port 8080 is taken, the server logs one line and keeps hosting without
+the panel. Set another port to get it back.
 
 The first time it starts, the server prints a one-time setup link on its
 console (`docker compose logs` with Docker) and writes the same code to
 `control_setup_code.txt` in the data folder. Open the link, choose a name
-and a password, then set up a second factor in My account.
+and a password, then set up a second factor in My account. On Windows, the
+server also opens the link in your browser the first time.
 
 You can also do the whole setup in the browser. Start the server with the
 panel on and no playlist (no `HALO_DEDICATED`). It waits instead of
@@ -181,7 +187,10 @@ the map from any browser, and give people roles.
 4. Check the server's name and add it.
 
 Your server connects out to the site, so linking needs no open ports.
-`sv_unlink` undoes it at any time. Details in
+`sv_unlink` undoes it at any time.
+
+A linked server can also ask for a badge on the site. See
+[Server badges](../../docs/server-badges.md#for-hosts). Details in
 [The link to the Chupathingy site](moderation.md#the-link-to-the-chupathingy-site-optional).
 
 ## Moderators

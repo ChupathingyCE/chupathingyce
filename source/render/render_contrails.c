@@ -401,15 +401,20 @@ static void render_contrail(
 
 			vertices -= vertex_count;
 			first_vertex = vertices;
+			/* port: the ends fade out by their color's alpha, its top byte. The
+			Xbox cleared the color's fourth byte in memory, which is alpha only
+			on a little-endian machine; on the big-endian consoles it was blue,
+			so a trail's ends stayed opaque and lost their blue (a white sniper
+			trail drew yellow) */
 			if (!(definition->flags & (1 << _contrail_first_point_unfaded_bit)))
 			{
-				((byte *)&first_vertex[0].color)[3] = 0;
-				((byte *)&first_vertex[1].color)[3] = 0;
+				first_vertex[0].color &= 0x00FFFFFF;
+				first_vertex[1].color &= 0x00FFFFFF;
 			}
 			if (!(definition->flags & (1 << _contrail_last_point_unfaded_bit)))
 			{
-				((byte *)&vertices[vertex_count - 1].color)[3] = 0;
-				((byte *)&vertices[vertex_count - 2].color)[3] = 0;
+				vertices[vertex_count - 1].color &= 0x00FFFFFF;
+				vertices[vertex_count - 2].color &= 0x00FFFFFF;
 			}
 			if (segment_count > 0)
 			{

@@ -138,6 +138,13 @@ symbols in this file:
 #include "units/bipeds.h"
 #include "units/units.h"
 #include "units/vehicles.h"
+#include "mcc_damage.h" /* port: port/linux/game/mcc_damage.c */
+#include "mcc_ui_teams.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_regions.h" /* port: port/linux/game/stubbs_regions.c */
+#include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
+#include "game/game_modes.h" /* port: SWAT's headshots (docs/modes.md) */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1028,7 +1035,14 @@ static void damage_data_validate_owner(
 {
 	if (damage->owner_player_index != NONE && !player_try_and_get(damage->owner_player_index))
 		damage->owner_player_index = NONE;
+	/* port: nor does damage keep an owner object that is gone */
+	if (damage->owner_object_index != NONE && !object_try_and_get(damage->owner_object_index))
+		damage->owner_object_index = NONE;
 }
+
+#ifndef HALO_XBOX_CONSOLE
+static void damage_port_hit_sound(long object_index, struct damage_data const *damage, real total_damage);
+#endif
 
 static void object_damage_aftermath(
 	long object_index,
@@ -1053,6 +1067,7 @@ static void object_damage_aftermath(
 		real_vector3d direction = damage->direction;
 		real_vector3d acceleration;
 		real acceleration_scale;
+		boolean mcc_accelerate_unit; /* port: MCC signed/vector damage impulses */
 
 		direction.k += 0.45f;
 		normalize3d(&direction);
@@ -1061,6 +1076,11 @@ static void object_damage_aftermath(
 			object_definition->object.acceleration_scale *
 			0.033333335f;
 		scale_vector3d(&direction, acceleration_scale, &acceleration);
+		/* port: MCC extension data cannot be represented by a scalar impulse. */
+		mcc_accelerate_unit = mcc_damage_acceleration(&damage_effect->damage,
+			object_definition->object.acceleration_scale, &direction, &acceleration);
+		/* port: MCC's Sputnik skull, objects "more easily displaced" (mcc_skulls.c) */
+		scale_vector3d(&acceleration, mcc_skulls_impulse_scale(), &acceleration);
 
 		switch (object->object.type)
 		{
@@ -1085,7 +1105,7 @@ static void object_damage_aftermath(
 			{
 				struct unit_datum const *unit = (struct unit_datum const *)object;
 
-				if (damage_effect->damage.instantaneous_acceleration > _real_epsilon &&
+				if (mcc_accelerate_unit && /* port: MCC admission, legacy scalar gate otherwise */
 					!TEST_FLAG(unit->unit.flags, _unit_impervious_bit))
 				{
 					if (object->object.type == _object_type_biped)
@@ -1149,16 +1169,24 @@ static void object_damage_aftermath(
 		no statistics on a machine that joined after, is no player's) */
 		if (player_index != NONE)
 		{
+			/* An MCC team-change death must come from this exact no-statistics
+			 * cause, not a real suicide racing the pending unit flag. */
+			mcc_ui_team_respawn_damage(player_index, object_index,
+				TEST_FLAG(damage->flags, _damage_no_statistics_bit) != 0);
 			game_engine_player_killed(
 				player_index,
 				object_index,
 				player_index,
 				TRUE);
+			mcc_ui_team_respawn_damage(player_index, object_index, FALSE);
 		}
 	}
 
 	if (TEST_FLAG(_object_mask_unit, object->object.type))
 	{
+#ifndef HALO_XBOX_CONSOLE
+		damage_port_hit_sound(object_index, damage, shield_damage + body_damage);
+#endif
 		unit_damage_aftermath(
 			object_index,
 			damage,
@@ -1171,6 +1199,45 @@ static void object_damage_aftermath(
 
 	return;
 }
+
+#ifndef HALO_XBOX_CONSOLE
+/* port: audio.hit_sounds, as Halo PC's multiplayer had: a short tone for
+the local player whose damage hit another player's unit (the aftermath
+runs on the host, and on a client as a replay of the host's, so a client
+hears its own hits), once a tick however many hits land in it; off, the
+Xbox's, by default; not in the Xbox's build */
+static void damage_port_hit_sound(
+	long object_index,
+	struct damage_data const *damage,
+	real total_damage)
+{
+	extern int config_boolean(char const *name);
+	extern unsigned long config_changes(void);
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean enabled = FALSE;
+	static long played_tick = NONE;
+	long player_index;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		enabled = config_boolean("audio.hit_sounds") != 0;
+	}
+	if (!enabled || total_damage <= 0.0f || damage->owner_player_index == NONE || !game_engine_running())
+		return;
+	player_index = player_index_from_unit_index(object_index);
+	if (player_index == NONE || player_index == damage->owner_player_index ||
+		player_get(damage->owner_player_index)->local_player_index == NONE)
+	{
+		return;
+	}
+	if (played_tick == game_time_get())
+		return;
+	played_tick = game_time_get();
+	game_engine_play_hit_sound();
+	return;
+}
+#endif
 
 static void object_damage_body(
 	long object_index,
@@ -1245,9 +1312,28 @@ static void object_damage_body(
 
 	if (!TEST_FLAG(object->object.damage_flags, _object_cannot_take_damage_bit))
 	{
+		boolean headshots = TEST_FLAG(damage_definition->flags, _damage_can_cause_headshots_bit);
+
+#ifdef HALO_GAME_BROWSER
+		/* port: SWAT (game_modes.c, the host's rule): a shot (bullet,
+		sniper, plasma, needle or shotgun damage; not melee, not an
+		explosion) on a player's biped's head kills, as if the damage could
+		cause headshots */
+		if (!headshots && damage_amount > 0.f && object->object.type == _object_type_biped &&
+			unit_get(object_index)->unit.player_index != NONE &&
+			(damage_definition->category == _damage_category_bullet ||
+				damage_definition->category == _damage_category_sniper ||
+				damage_definition->category == _damage_category_plasma ||
+				damage_definition->category == _damage_category_needle ||
+				damage_definition->category == _damage_category_shotgun) &&
+			game_mode_swat_headshot(damage_definition->category))
+		{
+			headshots = TRUE;
+		}
+#endif
 		if (damage_amount > 0.f && TEST_FLAG(damage_material->flags, _damage_material_head_bit))
 		{
-			if (TEST_FLAG(damage_definition->flags, _damage_can_cause_headshots_bit))
+			if (headshots)
 			{
 				if (game_engine_running() ||
 					object->object.type != _object_type_biped ||
@@ -1301,7 +1387,13 @@ static void object_damage_body(
 
 		object->object.region_damage[region_index] = (byte)(actual_damage*255.f + object->object.region_damage[region_index]);
 		if (region->damage_threshold > 0.f &&
-			object->object.region_damage[region_index]*(1.f/255.f) > region->damage_threshold)
+			object->object.region_damage[region_index]*(1.f/255.f) > region->damage_threshold
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+			/* port: unless Stubbs's scripts said it keeps its regions
+			(Stubbs mode only: port/linux/game/stubbs_functions.c) */
+			&& !(stubbs_mode_active() && stubbs_functions_object_cannot(object_index, _stubbs_object_cannot_lose_regions_bit))
+#endif
+			)
 		{
 			object_destroy_region(object_index, region_index);
 			SET_FLAG(*being_damaged_flags, _object_being_damaged_region_destroyed_bit, TRUE);
@@ -1515,6 +1607,10 @@ void object_cause_damage(
 
 			if (actor_index != NONE)
 				ai_adjust_damage(actor_index, damage, &total_damage);
+			/* port: MCC's Black Eye skull: a player's melee hit on an enemy
+			recharges their shields (mcc_skulls.c) */
+			if (damage_definition->category == _damage_category_melee)
+				mcc_skulls_melee_hit(damage->owner_object_index, object_index);
 		}
 	}
 
@@ -1991,12 +2087,13 @@ void area_of_effect_cause_damage(
 		return;
 	area_of_effect_nesting++;
 
+	/* port: MCC's Boom skull doubles an explosion's radius (mcc_skulls.c) */
 	object_count = objects_in_sphere(
 		0,
 		0,
 		&damage->location,
 		&damage->origin,
-		definition->cutoff_radius,
+		definition->cutoff_radius * mcc_skulls_blast_scale(),
 		object_indices,
 		NUMBEROF(object_indices));
 	if (object_count > 0)
@@ -2134,7 +2231,9 @@ void object_damage_update(
 		}
 		else if (object->object.shield_vitality < 1.f)
 		{
-			if (object->object.shield_stun_ticks == 0)
+			/* port: not a player's under MCC's Black Eye skull: their melee
+			hits recharge them instead (mcc_skulls_melee_hit) */
+			if (object->object.shield_stun_ticks == 0 && mcc_skulls_shields_recharge(object_index))
 			{
 				real shield_recharge =
 					collision_model->resistance.runtime_shield_recharge_velocity;
@@ -2625,12 +2724,13 @@ static void area_of_effect_cause_damage_to_object(
 			&object->object.bounding_sphere_center,
 			&damage->direction);
 		distance = normalize3d(&damage->direction);
-		radius_delta = damage_effect->cutoff_radius - damage_effect->falloff_radius;
+		/* port: MCC's Boom skull doubles an explosion's radii (mcc_skulls.c) */
+		radius_delta = (damage_effect->cutoff_radius - damage_effect->falloff_radius) * mcc_skulls_blast_scale();
 		if (radius_delta > 0.f)
 		{
 			scale = PIN(
 				1.f -
-					(distance - damage_effect->falloff_radius) /
+					(distance - damage_effect->falloff_radius * mcc_skulls_blast_scale()) /
 					radius_delta,
 				0.f,
 				1.f);
@@ -2713,12 +2813,14 @@ static void object_permutation_shield_regions(
 	struct collision_model *collision_model =
 		collision_model_definition_get(definition->object.collision_model.index);
 	short region_index;
+	short region_count;
+	byte *region_permutations = object_get_region_permutations(object_index, &region_count);
 
 	/* port: no more regions than the object's region_permutations holds (a
 	map's count; past them are the change colors and the node blocks; retail
 	has up to 5) */
 	for (region_index = 0;
-		region_index < MIN(collision_model->resistance.regions.count, MAXIMUM_REGIONS_PER_OBJECT);
+		region_index < MIN(collision_model->resistance.regions.count, region_count);
 		region_index++)
 	{
 		struct damage_region *region = TAG_BLOCK_GET_ELEMENT(
@@ -2729,9 +2831,10 @@ static void object_permutation_shield_regions(
 		if (TEST_FLAG(region->flags, _object_region_missing_when_shield_is_zero_bit) &&
 			region->permutations.count > 1)
 		{
-			object->object.region_permutations[region_index] = !active;
+			region_permutations[region_index] = !active;
 		}
 	}
+	stubbs_regions_changed(object_index); /* port: Stubbs mode only */
 
 	return;
 }

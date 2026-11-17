@@ -1,0 +1,23 @@
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -7142,11 +7142,18 @@
+ 				m_attrMask[attr]  = UINT16_MAX;
+ 				m_attrRemap[attr] = ii;
+ 			}
+-			else
++			else if (UINT16_MAX == id)
+ 			{
+ 				++m_numInstanceData;
+ 			}
++			// (any other unknown id, 0xfffe, is a location the shader
++			// does not read: a container that lists its inputs by
++			// location puts one in each gap, which is neither an
++			// attribute nor instance data. Counted as instance data,
++			// each gap got a fallback input at a location another
++			// attribute has, which the spec forbids)
+ 		}
++		}
+ 
+ 		bx::HashMurmur2A murmur;
+ 		murmur.begin();

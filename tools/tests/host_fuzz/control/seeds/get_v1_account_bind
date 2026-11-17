@@ -1,0 +1,5 @@
+GET /v1/account/bind HTTP/1.1
+Host: 127.0.0.1:8080
+Cookie: chce_session=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+X-Background: 1
+

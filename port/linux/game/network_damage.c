@@ -41,6 +41,7 @@ being hit looks and feels like on the clients).
 */
 
 #include "cseries.h"
+#include "cseries/cseries_windows.h"
 #include "cseries/errors.h"
 #include "game/game.h"
 #include "game/game_globals.h"
@@ -61,6 +62,7 @@ being hit looks and feels like on the clients).
 #include "network_distributed.h"
 #include "network_rules.h"
 #include "line_of_sight.h"
+#include "mcc_grenades.h"
 
 #include <math.h>
 
@@ -427,7 +429,7 @@ struct damage_sight
 };
 /* ... where each player's unit and vehicle were at each of the last ticks
 (and whether they drove it), and where they could see from */
-static struct damage_history_tick
+struct damage_history_tick
 {
 	long time;
 	struct
@@ -438,29 +440,43 @@ static struct damage_history_tick
 		boolean driving;
 	} objects[MAXIMUM_TRACKED_PLAYERS][2];
 	struct damage_sight sight[MAXIMUM_TRACKED_PLAYERS];
-} damage_history[TARGET_HISTORY_TICKS];
+};
 /* ... and where each player's living unit was every few ticks, longer (NONE
 for no time: none), how fast it or its vehicle went, and the size of the
 vehicle it rode */
-static struct damage_trail_point
+struct damage_trail_point
 {
 	long time;
 	real_point3d position;
 	real speed;
 	real radius;
 	struct damage_sight sight;
-} damage_trails[MAXIMUM_TRACKED_PLAYERS][PLAYER_TRAIL_POINTS];
+};
 /* ... what each weapon or grenade deals, as the tags have it (their walk
 is long): the hits a second of a damage effect from it, how it deals it
 (the _damage_source flags), and how far from its firer */
-static struct damage_rate_cache_entry
+struct damage_rate_cache_entry
 {
 	long source_index;
 	long damage_index;
 	real rate;
 	byte kinds;
 	struct damage_reach reach;
-} damage_rate_cache[DAMAGE_RATE_CACHE_SIZE];
+};
+/* ... the three above, the host's alone: allocated while this machine hosts
+(network_damage_host_tables_allocate, from network_game_server_create), so
+that a machine that only joins (most consoles, most of the time) doesn't
+carry them; NULL otherwise (about 400 KB) */
+static struct damage_host_tables
+{
+	struct damage_history_tick history[TARGET_HISTORY_TICKS];
+	struct damage_trail_point trails[MAXIMUM_TRACKED_PLAYERS][PLAYER_TRAIL_POINTS];
+	struct damage_rate_cache_entry rate_cache[DAMAGE_RATE_CACHE_SIZE];
+} *damage_host;
+static boolean damage_host_missing_logged;
+#define damage_history (damage_host->history)
+#define damage_trails (damage_host->trails)
+#define damage_rate_cache (damage_host->rate_cache)
 /* ... the players each damage event of this tick goes to the machines of
 (NONE for every machine), and the machine of its owner */
 static struct
@@ -1299,6 +1315,8 @@ static real distributed_source_deals(
 	unsigned long hash = ((unsigned long)source_index * 2654435761u) ^ ((unsigned long)damage_index * 40503u);
 	short probe;
 
+	if (!damage_host)
+		return distributed_source_deals_uncached(source_index, damage_index, grenade, kinds, reach);
 	for (probe = 0; probe < 16; probe++)
 	{
 		struct damage_rate_cache_entry *entry =
@@ -1387,6 +1405,14 @@ than one damage), the vehicle they drove lately; 0 when none of them deals
 it; how they deal it (the _damage_source flags); how far from them what
 they fire deals it; and the type of grenade when nothing but a grenade of
 theirs deals it, else NONE */
+#if defined(HALO_MCC) && HALO_MCC
+#include "mcc_network_damage.inc"
+#else
+/* (no MCC maps in this build: HALO_MCC) */
+#define mcc_network_extra_grenade_damage(player, damage_index, kinds, reach, grenade_type, grenade_rate) ((void)0)
+#define mcc_network_note_extra_grenade(unit_index, type) ((void)0)
+#endif
+
 static real distributed_player_deals(
 	short player_index,
 	long damage_index,
@@ -1466,6 +1492,7 @@ static real distributed_player_deals(
 			*kinds |= this_kinds;
 		}
 	}
+	mcc_network_extra_grenade_damage(player_index, damage_index, kinds, reach, grenade_type, &grenade_rate);
 	if (rate > 0.0f)
 		*grenade_type = NONE;
 	rate = MAX(rate, grenade_rate);
@@ -2444,6 +2471,13 @@ void network_damage_handle_reports(
 
 	/* (network.hit_line_of_sight, off if it misfires) */
 	damage_line_of_sight = config_boolean("network.hit_line_of_sight") != 0;
+	/* (no tables, which hosting allocates: none of the reports can be
+	checked, so none is dealt) */
+	if (!damage_host)
+	{
+		damage_rejected_reports += count;
+		return;
+	}
 	for (index = 0; index < count; index++)
 	{
 		struct distributed_hit_report const *report = &reports[index];
@@ -2499,7 +2533,8 @@ blow to all (NONE) */
 static void distributed_note_event_destinations(
 	void)
 {
-	struct damage_history_tick const *tick = &damage_history[game_time_get() & (TARGET_HISTORY_TICKS - 1)];
+	struct damage_history_tick const *tick =
+		damage_host ? &damage_history[game_time_get() & (TARGET_HISTORY_TICKS - 1)] : NULL;
 	short index;
 
 	for (index = 0; index < damage_event_count; index++)
@@ -2552,6 +2587,12 @@ static void distributed_note_event_destinations(
 			}
 			if (unit_player_index != NONE)
 				player_indices[(*count)++] = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(unit_player_index);
+		}
+		/* (no tables: every machine) */
+		if (!tick)
+		{
+			*count = NONE;
+			continue;
 		}
 		if (tick->time != game_time_get())
 			continue;
@@ -2662,7 +2703,8 @@ void network_damage_host_tick(
 
 	distributed_log_reports();
 	distributed_note_weapons();
-	distributed_note_targets();
+	if (damage_host)
+		distributed_note_targets();
 	distributed_note_event_destinations();
 	for (machine_number = 0; machine_number < machine_count; machine_number++)
 	{
@@ -2862,6 +2904,11 @@ void network_damage_note_grenade(
 	short index;
 	short slot = 0;
 
+	if (mcc_grenades_active() && grenade_type >= 2)
+	{
+		mcc_network_note_extra_grenade(unit_index, grenade_type);
+		return;
+	}
 	if (game_connection() != _game_connection_network_server || unit->unit.player_index == NONE ||
 		grenade_type < 0 || grenade_type >= NUMBER_OF_UNIT_GRENADE_TYPES)
 	{
@@ -2885,6 +2932,56 @@ void network_damage_note_grenade(
 	damage_players[player_index].throw_types[slot] = grenade_type;
 }
 
+/* the host's tables (damage_host), emptied */
+static void damage_host_tables_reset(
+	void)
+{
+	short player_index;
+	short index;
+
+	if (!damage_host)
+		return;
+	for (index = 0; index < TARGET_HISTORY_TICKS; index++)
+		damage_history[index].time = NONE;
+	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
+	{
+		for (index = 0; index < PLAYER_TRAIL_POINTS; index++)
+			damage_trails[player_index][index].time = NONE;
+	}
+	for (index = 0; index < DAMAGE_RATE_CACHE_SIZE; index++)
+		damage_rate_cache[index].source_index = NONE;
+}
+
+/* (network_distributed.h) */
+boolean network_damage_host_tables_allocate(
+	void)
+{
+	if (damage_host)
+		return TRUE;
+	damage_host = (struct damage_host_tables *)system_malloc(sizeof(*damage_host));
+	if (!damage_host)
+	{
+		if (!damage_host_missing_logged)
+		{
+			damage_host_missing_logged = TRUE;
+			error(_error_silent, "network damage: no memory for the host's tables (%lu KB): clients' hits not dealt",
+				(unsigned long)(sizeof(struct damage_host_tables) / 1024));
+		}
+		return FALSE;
+	}
+	damage_host_tables_reset();
+	return TRUE;
+}
+
+void network_damage_host_tables_free(
+	void)
+{
+	if (damage_host)
+		system_free(damage_host);
+	damage_host = NULL;
+	damage_host_missing_logged = FALSE;
+}
+
 void network_damage_new_game(
 	void)
 {
@@ -2895,8 +2992,7 @@ void network_damage_new_game(
 	damage_dealing_report = FALSE;
 	damage_replaying_kill = FALSE;
 	csmemset(damage_players, 0, sizeof(damage_players));
-	for (player_index = 0; player_index < TARGET_HISTORY_TICKS; player_index++)
-		damage_history[player_index].time = NONE;
+	damage_host_tables_reset();
 	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
 	{
 		short index;
@@ -2910,11 +3006,7 @@ void network_damage_new_game(
 		damage_players[player_index].hit_seconds = HIT_REPORT_BURST_SECONDS;
 		damage_explosions[player_index].time = NONE;
 		damage_explosions[player_index].count = 0;
-		for (index = 0; index < PLAYER_TRAIL_POINTS; index++)
-			damage_trails[player_index][index].time = NONE;
 	}
-	for (player_index = 0; player_index < DAMAGE_RATE_CACHE_SIZE; player_index++)
-		damage_rate_cache[player_index].source_index = NONE;
 }
 
 #ifdef HALO_BIG_ENDIAN

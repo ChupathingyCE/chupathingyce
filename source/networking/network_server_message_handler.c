@@ -258,17 +258,26 @@ symbols in this file:
 #include "networking/network_connection.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
+#include "mcc_identity.h" /* port: attach MCC content identity to host settings */
 #include "networking/network_game_protocol.h"
 #include "networking/network_messages.h"
 #include "networking/network_server_manager_internal.h"
 #include "networking/network_server_message_handler.h"
+#ifdef HALO_GAME_BROWSER
+#include "map_share.h" /* port: map sharing's requests (port/linux/game/map_share_host.c) */
+#endif
 #include "text/unicode.h"
 /* system_milliseconds(), for the settings update interval */
 #include "cseries/cseries_windows.h"
+#include "mcc_ui_teams.h"
 
 /* port/linux/game/network_distributed.c's */
+int network_rules_join_request_refused(unsigned version, unsigned char const *tail, int tail_size);
+int delta_legacy_announce(void);
 void network_distributed_handle_message(long machine_index, word const *message, word size);
 void network_distributed_handle_stream_message(long machine_index, word const *message, word size);
+boolean network_distributed_mcc_share_message(long machine_index, void const *message, word size);
+boolean network_distributed_mcc_admission_message(long machine_index, void const *message, word size);
 /* (the host's budget for a client machine's lobby messages) */
 boolean network_distributed_lobby_message_allowed(long machine_index);
 
@@ -449,9 +458,14 @@ struct message_client_settings_request
 	byte padding[3];
 };
 
+/* (one short on the wire, the request's countdown event: the client's
+struct is a short too. The original's long here took the short's two bytes
+as its low half only on a little-endian machine; a big-endian host read the
+other half) */
 struct message_client_game_start_request
 {
-	long countdown_time;
+	short countdown_event;
+	byte padding[2];
 };
 
 struct message_client_graceful_game_exit_pregame
@@ -859,6 +873,7 @@ void network_rules_settings_layout_copy(unsigned char const *record, unsigned ch
 	int offset, int length, unsigned char *out);
 int network_rules_host_static_damage_reported(unsigned announce, unsigned delta_version);
 void network_rules_extended_options_default(unsigned char *options);
+#include "../../port/linux/game/network_rules.h" /* port: the game modes' rules (docs/modes.md) */
 #ifdef HALO_GAME_BROWSER
 int delta_peer_hosting_delta(void);
 /* (the advertisement's game engine, as delta.h's DELTA_ADVERTISED_KIND_ENGINE
@@ -900,6 +915,10 @@ static struct network_game_server_settings_machine
 	long options;
 	boolean owed;
 	boolean marked;
+	/* port: the number this host announced when the size was decided, and
+	when the machine joined */
+	unsigned announce;
+	unsigned joined_number;
 } network_game_server_settings_machines[MAXIMUM_NETWORK_MACHINE_COUNT];
 
 /* the join mark of the join request being handled, for
@@ -934,6 +953,12 @@ static unsigned network_game_server_machine_delta_version(
 #endif
 }
 
+/* port: the number this host announced when the machine joined (0: not
+known) */
+unsigned network_game_server_machine_joined_number(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine);
+
 /* a machine has just been let into the game: its record is decided anew */
 static void network_game_server_settings_machine_joined(
 	struct network_game_server *server,
@@ -946,6 +971,7 @@ static void network_game_server_settings_machine_joined(
 		csmemset(&network_game_server_settings_machines[slot], 0, sizeof(network_game_server_settings_machines[slot]));
 		network_game_server_settings_machines[slot].connection = network_game_server_get_client_connection(machine);
 		network_game_server_settings_machines[slot].marked = network_game_server_join_marked;
+		network_game_server_settings_machines[slot].joined_number = (unsigned)delta_legacy_announce();
 	}
 }
 
@@ -965,6 +991,15 @@ static long network_game_server_settings_layout(
 	boolean waiting = FALSE;
 	long machine_index = NONE;
 
+	/* port: an MCC map's record goes out only with the host's content
+	identity: held (owed, network_game_server_settings_frame) until the
+	map's check is done, never sent with an all-zero one that every machine
+	refuses, the host's own too (mcc_identity.c, #1129) */
+	if (network_game_server_get_game(server) &&
+		!mcc_identity_host_ready(network_game_server_get_game(server)->map.name))
+	{
+		return 0;
+	}
 	if (slot == NONE)
 	{
 		if (options)
@@ -977,12 +1012,20 @@ static long network_game_server_settings_layout(
 		csmemset(entry, 0, sizeof(*entry));
 		entry->connection = connection;
 	}
+	/* (port: the host's own machine reads its server's number as it is now,
+	which a game on an MCC map changes in the lobby: delta_legacy_host_game_at) */
+	/* (and every machine its next record of that number: a Delta machine
+	with mcc_maps follows it, HOST_NUMBER; any other is dropped,
+	network_game_server_delta_refusals) */
+	if (entry->size && entry->announce != announce)
+		entry->size = 0;
 	if (entry->size)
 	{
 		if (options)
 			*options = entry->options;
 		return entry->size;
 	}
+	entry->announce = announce;
 	if (!entry->since)
 		entry->since = now ? now : 1;
 	/* (the host's own machine takes either: it joined by no advertisement) */
@@ -1040,7 +1083,13 @@ static boolean network_game_server_send_settings_pieces(
 	/* (a record of another layout goes as it is) */
 	if (wire_size != NETWORK_GAME_SERVER_SETTINGS_SIZE)
 		size = wire_size;
-	network_rules_extended_options_default(further);
+	/* (port: the host's gametype's further options, the game modes layer's:
+	network_server_manager.c) */
+	{
+		unsigned char const *network_game_server_mode_options(void);
+
+		csmemcpy(further, network_game_server_mode_options(), sizeof(further));
+	}
 	for (offset = 0; offset < size; offset += sizeof(message.data))
 	{
 		void *encoded_message;
@@ -1055,6 +1104,10 @@ static boolean network_game_server_send_settings_pieces(
 		else
 			network_rules_settings_layout_copy((unsigned char const *)wire, further, (int)options, (int)offset,
 				(int)message.length, message.data);
+		/* port: an MCC map's Workshop tail and digests in 43's record
+		(mcc_identity.c) */
+		mcc_identity_host_overlay((char const *)wire + offsetof(struct network_game, map.name), size, (long)offsetof(struct network_game, map.name),
+			offset, (long)message.length, (unsigned char *)message.data);
 		encoded_message = create_network_game_message(_message_server_game_settings_update, &message, sizeof(message));
 		if (!encoded_message || !network_game_server_send_message_to_client_machine(server, machine, encoded_message))
 			return FALSE;
@@ -1068,9 +1121,17 @@ boolean network_game_server_send_game_settings_to_client_machine(
 	void const *game,
 	long game_size)
 {
+#ifdef HALO_MCC_NETWORK
+	struct network_game mcc_settings; /* port: fingerprint extension, no host record mutation */
+#endif
 	long options = 0;
 	long size = network_game_server_settings_layout(server, machine, &options);
 	long slot;
+
+#ifdef HALO_MCC_NETWORK
+	game = mcc_identity_host_settings(game, game_size, &mcc_settings); /* port: MCC admission */
+	if (!game) return FALSE;
+#endif
 
 	/* (waited for: sent once its size is known) */
 	if (!size)
@@ -1415,10 +1476,18 @@ boolean network_game_server_send_game_settings_to_all_machines(
 	void const *game,
 	long game_size)
 {
+#ifdef HALO_MCC_NETWORK
+	struct network_game mcc_settings; /* port: fingerprint extension, no host record mutation */
+#endif
 	long machine_index;
 	long wire_size = game_size;
 	void const *wire;
 	boolean result = TRUE;
+
+#ifdef HALO_MCC_NETWORK
+	game = mcc_identity_host_settings(game, game_size, &mcc_settings); /* port: MCC admission */
+	if (!game) return FALSE;
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\networking\\network_server_message_handler.c",
@@ -1750,6 +1819,28 @@ boolean network_game_server_handle_client_message(
 
 			case _message_type_data:
 				/* the distributed netcode's messages (port/linux/NETCODE.md) */
+#ifdef HALO_GAME_BROWSER
+				/* port: map sharing's (83 to 86) from a machine that joined,
+				loaded or not, in the lobby or in the game: a machine
+				downloading the map has not loaded it (port/linux/game/
+				map_share_host.c) */
+				if (network_game_server_client_machine_is_joined_to_game(server, machine))
+				{
+					long machine_index;
+
+					network_game_server_get_client_machine(server, machine, &machine_index);
+					if (map_share_host_message(machine_index, message, message_buffer_size))
+						break;
+					/* (port: OpenCE's MCC package request, 103: declined,
+					mcc_network_messages.h) */
+					if (network_distributed_mcc_share_message(machine_index, message, message_buffer_size))
+						break;
+					/* (port: OpenCE's MCC admission hold, 105: answered,
+					mcc_network_messages.h) */
+					if (network_distributed_mcc_admission_message(machine_index, message, message_buffer_size))
+						break;
+				}
+#endif
 				/* (in game, from a machine that has loaded it, as a datagram
 				is: else dropped) */
 				if (network_game_server_client_machine_is_joined_to_game(server, machine) &&
@@ -2130,10 +2221,14 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			game that is not Slayer, the old layout for released clients:
 			port/linux/src/delta_peer.h) */
 			{ unsigned char delta_peer_advertised_flags(void);
-			  void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine);
+			  void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine, int kind);
+			  unsigned char const *network_game_server_mode_options(void);
+			  int hardcore;
+			  int mode = network_rules_modes_mode(network_rules_modes_needed(network_game_server_mode_options(),
+				  game->variant.game_engine_index, game->variant.universal_variant.teams != 0), &hardcore);
 			  advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] |= delta_peer_advertised_flags();
 			  delta_peer_advertised_wire(advertisement.reserved, (int)sizeof(advertisement.reserved),
-				  (int)game->variant.game_engine_index); }
+				  (int)game->variant.game_engine_index, network_rules_kind_byte(mode, hardcore)); }
 #endif
 			if (network_game_server_get_state(server, NULL) != _network_game_server_state_pregame ||
 				network_game_server_game_is_loading(server))
@@ -2291,6 +2386,18 @@ static boolean network_game_server_handle_message_client_join_game_request(
 		if (network_game_server_client_machine_is_joined_to_game(server, server_client_machine))
 		{
 			network_event("ignoring redundant join request from machine");
+		}
+		/* (port: where the layout of the number this host announces has a
+		version word, a request without it or of another number: dropped
+		without a reply, as such a host of OpenCE's does. The encoded request
+		is its version byte, the 0x70 bytes, the tail, its type byte) */
+		/* (the host's own machine joins at home with a request made for
+		the number it announces: network_game_client_initiate_join_game) */
+		else if (message_size >= 2 + 0x70 &&
+			network_rules_join_request_refused((unsigned)delta_legacy_announce(), (unsigned char const *)(message + 1) + 1 + 0x70,
+				message_size - 2 - 0x70))
+		{
+			network_event("ignoring a join request of another network version than this host's");
 		}
 		else if (decode_network_game_message(
 			&join_game_request,
@@ -2778,6 +2885,10 @@ static boolean network_game_server_handle_message_client_player_settings_request
 	word *message,
 	short message_size)
 {
+	/* MCC's in-game picker admits only an authenticated, team-only change. */
+	{
+		if (mcc_ui_team_request(server, client_machine, message, message_size)) return TRUE;
+	}
 	/* (port: not once the game has started: every machine loads it from
 	the settings sent with the start) */
 	if (network_game_server_lobby_is_open(server))
@@ -2837,6 +2948,33 @@ static boolean network_game_server_handle_message_client_player_settings_request
 			network_event("server failed to decode a message_client_player_settings_request packet");
 		}
 	}
+	/* port: a machine joining the game in progress, in its pregame screen
+	until it starts: its players' teams, as the host takes them
+	(network_game_server_late_joiner_player_settings, X#83) */
+	else if (network_game_server_get_state(server, NULL) == _network_game_server_state_ingame &&
+		!network_game_server_client_machine_is_loaded(server, client_machine))
+	{
+		struct network_player player;
+		short packet_type = _message_client_player_settings_request;
+		short packet_version = NETWORK_GAME_MESSAGE_VERSION;
+
+		message_size -= sizeof(word);
+		if (!decode_network_game_message(
+			&player,
+			message + 1,
+			&message_size,
+			&packet_type,
+			&packet_version,
+			_network_game_packet_class_client_pregame))
+		{
+			network_event("server failed to decode a message_client_player_settings_request packet");
+		}
+		else if (!network_game_server_late_joiner_player_settings(server, client_machine, &player))
+		{
+			network_event(
+				"failed to handle a message_client_player_settings_request because the machine is in the game");
+		}
+	}
 	else
 	{
 		network_event(
@@ -2867,8 +3005,7 @@ static boolean network_game_server_handle_message_client_game_start_request(
 			&packet_version,
 			_network_game_packet_class_client_pregame))
 		{
-			/* (a short on the wire: the rest of the long is not written) */
-			short countdown_event = (short)game_start_request.countdown_time;
+			short countdown_event = game_start_request.countdown_event;
 
 			/* port: the pregame screen's faster and slower, from any machine;
 			to stop the countdown or start at once (a script's), the host's own
@@ -3302,3 +3439,12 @@ typedef char message_server_game_advertise_wire_assert[
 	offsetof(struct message_server_game_advertise, flags) ==
 		offsetof(struct message_server_game_advertise, engine_type) + 10 ? 1 : -1];
 #endif
+
+unsigned network_game_server_machine_joined_number(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	long slot = network_game_server_settings_slot(server, machine);
+
+	return slot == NONE ? 0 : network_game_server_settings_machines[slot].joined_number;
+}

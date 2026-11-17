@@ -36,6 +36,8 @@ symbols in this file:
 #include "physical_memory_map.h"
 #include "main.h"
 #include "rasterizer/xbox/rasterizer_xbox.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_campaign.h" /* port: port/linux/game/stubbs_campaign.c */
 
 /* ---------- prototypes */
 
@@ -129,6 +131,10 @@ int main(
 	fuck_code_in_the_eye();
 	rasterizer_preinitialize__fill_you_up_with_the_devils_cock();
 	physical_memory_allocate();
+	/* port: Stubbs mode's profiles and saved games in a folder of their own,
+	before the game opens any of its files (port/linux/game/stubbs_campaign.c) */
+	if (stubbs_mode_active())
+		stubbs_campaign_initialize();
 #endif
 
 	__try

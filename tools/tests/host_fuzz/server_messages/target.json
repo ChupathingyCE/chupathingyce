@@ -1,0 +1,16 @@
+{
+  "about": "a client's game message as a host handles it: the host's handlers, its server and its game as the game builds them, after the decode (a lobby, a game, its end; machines joined and not)",
+  "harness": "tools/tests/host_fuzz/server_messages/server_messages_fuzz.c",
+  "sources": ["port/linux/game/network_rules.c", "tools/tests/host_fuzz/server_messages/server_stubs.c"],
+  "game_sources": [
+    "source/memory/data_packet_groups.c",
+    "source/memory/data_packets.c",
+    "source/memory/data_encoding.c",
+    "source/memory/byte_swapping.c",
+    "source/networking/network_messages.c",
+    "source/networking/network_server_message_handler.c",
+    {"source": "source/networking/network_server_manager.c", "append": "tools/tests/host_fuzz/server_messages/server_setup.c"},
+    "source/networking/network_game_manager.c"
+  ],
+  "max_len": 8192
+}

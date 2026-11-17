@@ -100,6 +100,7 @@ symbols in this file:
 #define REAL_MATH_EXTERNAL_REAL_LOCAL_RANDOM
 #define REAL_MATH_EXTERNAL_REAL_LOCAL_RANDOM_RANGE
 #include "interface/first_person_weapons.h"
+#include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 
 #include "cache/predicted_resources.h"
 #include "camera/director.h"
@@ -396,6 +397,13 @@ real pal_tags_first_person_fraction(short local_player_index, long graph_index, 
 /* ---------- globals */
 
 static struct first_person_weapon *first_person_weapons;
+/* port: the sound manager's index of each first-person weapon's sound, kept
+beside the game state: it is the mixer's (none when the sound cannot be
+heard or has no channel, by the clock), and the weapon's state went on
+differently with none. The state's current_sound_index holds the sound's
+definition, that the sound was begun. (A stale index, after a saved game is
+loaded, stops nothing: an index names its sound only.) */
+static long first_person_weapon_sound_indices[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 
 /* ---------- public code */
 
@@ -444,8 +452,11 @@ void first_person_weapons_initialize_for_new_map(
 			0,
 			sizeof(first_person_weapons[local_player_index]));
 		first_person_weapons[local_player_index].unit_index= NONE;
+		/* port: no weapon, not the weapon datum 0 the clear left */
+		first_person_weapons[local_player_index].weapon_index= NONE;
 		first_person_weapons[local_player_index].current_sound_index= NONE;
 		first_person_weapons[local_player_index].current_sound_state= NONE;
+		first_person_weapon_sound_indices[local_player_index]= NONE;
 	}
 
 	return;
@@ -529,10 +540,34 @@ static boolean first_person_weapon_fists_frame(
 }
 #endif
 
+/* port: display.first_person_weapon: false leaves the weapon and arms
+undrawn (their animation, lights and markers go on as before: only the
+drawing is skipped). Not the Xbox's: its config.toml has no such key (read
+as false there), so the weapon is always drawn, as retail. */
+static boolean first_person_weapon_shown(
+	void)
+{
+#ifdef HALO_XBOX_CONSOLE
+	return TRUE;
+#else
+	extern int config_boolean(char const *name);
+	extern unsigned long config_changes(void);
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean shown = TRUE;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		shown = config_boolean("display.first_person_weapon") != 0;
+	}
+	return shown;
+#endif
+}
+
 void first_person_weapon_draw(
 	void)
 {
-	if (render.local_player_index!=NONE)
+	if (render.local_player_index!=NONE && first_person_weapon_shown())
 	{
 		struct first_person_weapon *first_person_weapon= first_person_weapon_get(render.local_player_index);
 
@@ -566,14 +601,18 @@ void first_person_weapon_draw(
 					short fists_frame_index;
 					real fists_drop;
 #endif
+					/* port: between the last two ticks, as the world's
+					units are drawn (render_interpolation.c) */
+					real camouflage_super_amount;
+					real active_camouflage= unit_get_drawn_camouflage(unit_index, &camouflage_super_amount);
 
 					model_effect.modifier_shader= NULL;
 					if (TEST_FLAG(unit->unit.flags, _unit_active_camouflaged_bit) ||
-						unit->unit.active_camouflage>0.0f)
+						active_camouflage>0.0f)
 					{
 						model_effect.type= _render_model_effect_type_active_camouflage;
-						model_effect.intensity= unit->unit.active_camouflage;
-						model_effect.parameter= unit->unit.active_camouflage_super_amount;
+						model_effect.intensity= active_camouflage;
+						model_effect.parameter= camouflage_super_amount;
 						model_effect.source_object_index= unit_index;
 						model_effect.source_object_centroid= render.camera.position;
 					}
@@ -602,7 +641,7 @@ void first_person_weapon_draw(
 							0.0f,
 							model_node_matrices,
 							NULL,
-							weapon->object.outgoing_change_colors,
+							object_get_change_colors(first_person_weapon->weapon_index),
 							object_get_function_values(first_person_weapon->weapon_index),
 							lighting,
 							&render.camera.position,
@@ -634,7 +673,7 @@ void first_person_weapon_draw(
 							0.0f,
 							model_node_matrices,
 							NULL,
-							unit->object.outgoing_change_colors,
+							object_get_change_colors(unit_index),
 							object_get_function_values(unit_index),
 							lighting,
 							&render.camera.position,
@@ -704,7 +743,8 @@ void first_person_weapon_render_update(
 			first_person_weapon->weapon_index!=NONE)
 		{
 			boolean visible= director_get_perspective(render.local_player_index)==_director_perspective_first_person &&
-				player_control_get_zoom_level(render.local_player_index)==NONE;
+				player_control_get_zoom_level(render.local_player_index)==NONE &&
+				!mcc_skull_active(MCC_SKULL_BLIND); /* port: MCC's Blind skull (mcc_skulls.c) */
 
 			first_person_weapon_set_visibility(render.local_player_index, visible);
 			if (first_person_weapon->visible)
@@ -947,6 +987,11 @@ static void first_person_weapon_forget_weapon(
 	return;
 }
 
+/* port: MCC equipment replacement invalidates the cached weapon before deletion. */
+#if defined(HALO_MCC) && HALO_MCC
+#include "mcc_first_person.inl"
+#endif
+
 static void first_person_weapon_predict(
 	short local_player_index)
 {
@@ -1124,7 +1169,9 @@ static void first_person_weapon_set_state(
 							first_person_weapon->current_sound_index!=NONE &&
 							first_person_weapon->current_sound_state!=_first_person_weapon_state_overheating)
 						{
-							sound_stop_impulse(first_person_weapon->current_sound_index);
+							/* port: the sound manager's index (above) */
+							sound_stop_impulse(first_person_weapon_sound_indices[first_person_weapon-first_person_weapons]);
+							first_person_weapon_sound_indices[first_person_weapon-first_person_weapons]= NONE;
 							first_person_weapon->current_sound_index= NONE;
 							first_person_weapon->current_sound_state= NONE;
 						}
@@ -1189,7 +1236,7 @@ static void first_person_weapon_build_node_matrices(
 		euler_angles2d_from_vector3d(&first_person_weapon->render_facing, &render.camera.forward);
 		first_person_weapon->render_position= render.camera.position;
 	}
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	/* The native ports draw several frames per tick. The turning sway
 	(first_person_weapon_update) takes the facing change since the last
 	frame as a tick's worth: move the last facing on once a tick. */
@@ -1551,7 +1598,7 @@ static void first_person_weapon_build_node_matrices(
 			}
 		}
 #endif
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		/* the pose between the last two ticks (render_interpolation.c) */
 		/* port: no more nodes than the weapon's matrices hold (a map's count) */
 		render_interpolation_first_person(
@@ -1987,13 +2034,16 @@ static void first_person_weapon_update(
 		if (sound_definition_index!=NONE &&
 			director_get_perspective(local_player_index)==_director_perspective_first_person)
 		{
-			first_person_weapon->current_sound_index= object_impulse_sound_new(
+			/* port: the sound manager's index beside the game state, the
+			sound's definition in it (above) */
+			first_person_weapon_sound_indices[first_person_weapon-first_person_weapons]= object_impulse_sound_new(
 				first_person_weapon->weapon_index,
 				sound_definition_index,
 				NONE,
 				global_origin3d,
 				global_forward3d,
 				1.0f);
+			first_person_weapon->current_sound_index= sound_definition_index;
 			first_person_weapon->current_sound_state= first_person_weapon->state;
 		}
 

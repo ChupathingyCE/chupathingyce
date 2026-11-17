@@ -29,7 +29,7 @@ REASONS = {
     "MAP_DOWNLOAD": "Map not installed: %s. Join to download it.",
     "MAP_FROM_HALO_PC": "Map not installed: %s. Copy it from Halo PC into maps_pc or maps_ce.",
     "MAPS_UNSUPPORTED": "%s maps don't work on this build.",
-    "OPENCE_GAME_TYPE": "Uses an OpenCE game type Chupathingy doesn't have yet: %s.",
+    "OPENCE_GAME_TYPE": "Uses a game type Chupathingy doesn't have yet: %s.",
     "NEEDS_BOMB": "Needs a Chupathingy build with Bomb.",
     "NOT_OPEN": "Not taking players right now.",
     "FULL": "Game is full.",
@@ -37,10 +37,15 @@ REASONS = {
     "NO_ANSWER": "The host didn't answer.",
     # (a failed join's alone: the site's list never says it)
     "NO_CONNECTION": "Couldn't connect to the host.",
+    # (a console's failed join alone: a game on more machines than it holds)
+    "CONSOLE_FULL": "This game has more players than this console can hold.",
     # (the refusals of OpenCE hosts, said on a failed join only)
     "NO_VPN": "This server doesn't allow VPNs.",
     "DISCORD_LINK": "This server only lets in players who link a Discord account with OpenCE.",
     "ADDRESS_FULL": "Too many players from your address.",
+    # (a Custom Edition or HaloMD map on a build without CE's resource maps;
+    # said by the game's lists and a failed join, never the site's list)
+    "CE_RESOURCES": "Needs Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce.",
 }
 
 # the wording the lists had before, each its own way
@@ -65,7 +70,7 @@ def test_header_sentences():
 
 # the neutral label of an OpenCE dedicated server, as the site says it too
 # (puma web/site.js HOST_LABEL_OPENCE_SERVER)
-OPENCE_SERVER_LABEL = "OpenCE dedicated"
+OPENCE_SERVER_LABEL = "Legacy server"
 
 
 def test_opence_server_label():
@@ -125,4 +130,4 @@ def test_header_builds_alone(tmp_path):
     said = {value for key, value in lines.items() if key.isdigit() and value}
     assert said == {REASONS[name] for name in ("NEEDS_UPDATE", "HOST_OLDER", "OTHER_VERSION", "NEEDS_BOMB",
                                                 "NOT_OPEN", "FULL", "PASSWORD", "NO_ANSWER",
-                                                "NO_CONNECTION")}
+                                                "NO_CONNECTION", "CONSOLE_FULL")}

@@ -72,7 +72,8 @@ SERVER_NATIVE_SOURCES = [SERVER_PLATFORM_DIR / "sdl_headless.c", SERVER_PLATFORM
                          SERVER_PLATFORM_DIR / "server_roles.c", SERVER_PLATFORM_DIR / "control_link_protocol.c",
                          SERVER_PLATFORM_DIR / "control_link.c", SERVER_PLATFORM_DIR / "server_events.c",
                          SERVER_PLATFORM_DIR / "gamespy_listing.c", SERVER_PLATFORM_DIR / "ce_transport.c",
-                         SERVER_PLATFORM_DIR / "ce_messages.c"]
+                         SERVER_PLATFORM_DIR / "ce_messages.c", SERVER_PLATFORM_DIR / "server_bans.c",
+                         SERVER_PLATFORM_DIR / "report_queue.c"]
 # the Windows server's own (tools/windows_build.py, ninja server-windows64):
 # Ctrl+C, and the Windows service
 SERVER_WINDOWS_SOURCES = [SERVER_PLATFORM_DIR / "server_windows.c"]
@@ -83,6 +84,8 @@ SERVER_EXCLUDED = {
     "port/linux/src/xinput_sdl.c",
     "port/linux/src/updater.c",
     "port/linux/src/launcher.c",
+    # (voice: a server relays it, never decoding it, and links no Opus)
+    "port/linux/src/voice.c",
 }
 SERVER_DEFINES = ["-DHALO_SERVER"]
 OUTPUT_NAME = "chupathingyce-server"
@@ -269,7 +272,8 @@ def generate_server_build(n: Writer, sln: Any) -> None:
         march = server_march(arch, sln)
         lto_cflags, lto_ldflags = lto_flags(sln, build_dir / "thinlto-cache")
         generated = (hud_assets_build(n, rule_name, build_dir / "generated" / "hud_hires_assets.c")
-                     + ui_fonts_build(n, rule_name, build_dir / "generated" / "ui_fonts.c", server_sln))
+                     + ui_fonts_build(n, rule_name, build_dir / "generated" / "ui_fonts.c", server_sln,
+                                    prompt_fonts="none"))
         # (the web admin page's files: plain bytes, with the host's ABI as
         # control_web.c, which serves them)
         native_sources = SERVER_NATIVE_SOURCES + webui_build(n, rule_name, build_dir / "generated" / "webui_assets.c")

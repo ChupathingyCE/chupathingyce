@@ -44,7 +44,7 @@ picture of Gamepad Setup: the Xbox's Controller Setup's pictures of the button s
 ## Placeholders, to be redrawn
 
 The Xbox's map has none of these (or other pictures under the name), so each frame is a placeholder
-until it is redrawn.
+until it is redrawn. The placeholder is an empty, clear picture, so the panel shows nothing there.
 
 | File | Size | The PC version's picture |
 | --- | --- | --- |

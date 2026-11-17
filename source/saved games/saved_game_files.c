@@ -322,6 +322,7 @@ symbols in this file:
 #include "saved games/playlist_profile.h"
 #include "interface/player_ui.h"
 #include "text/text_group.h"
+#include "mcc_progress.h" /* port: port/linux/game/mcc_progress.c */
 #include "tag_files/tag_groups.h"
 /* the saved game file checksum is an XDK content signature, and enumerated
    saved game metadata is created/deleted through the XDK save game API. */
@@ -1100,6 +1101,8 @@ boolean synchronize_metadata_display_name_with_profile_name(
 							_snprintf(new_path, MAXIMUM_FILENAME_LENGTH, "%s%s", save_game_directory, "blam.sav");
 							new_path[MAXIMUM_FILENAME_LENGTH] = 0;
 							success = (boolean)CopyFileA(file.path, new_path, TRUE);
+							/* port: preserve the MCC-only companion before the old directory is deleted. */
+							if (success) success = mcc_progress_copy(file.path, save_game_directory);
 
 							if (success == TRUE)
 							{
