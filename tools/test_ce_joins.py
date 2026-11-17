@@ -781,7 +781,7 @@ def test_ctf_reaches_custom_edition():
     scores = _function(source, "static void send_scores")
     assert "team_with_flag = flag->object.owner_team_index;" in scores
     items = _function(source, "static void update_items")
-    assert "item->object.owner_team_index != client->item_owner[number]" in items
+    assert "TEST_FLAG(_object_mask_weapon, item->object.type) && weapon_is_flag(client->item[number])" in items
 
 
 def test_roster_players_get_their_numbers():
