@@ -775,6 +775,7 @@ def test_ctf_reaches_custom_edition():
     # Slayer's; a named player outside the client's roster, none)
     assert "message >= FIRST_GAME_TYPE_MESSAGE &&" in message and "engine_told(" in message
     assert "!network_player_number(client, data)" in message
+    assert "!network_player_number(client, data))\n\t\t{\n\t\t\tcontinue;" in message
     # (one flag: the flag's team in its state, and the flag made again as
     # its sides swap, as Custom Edition's own server does (research capture
     # rs1, Assault): a client takes an object's team only at its creation)
@@ -796,6 +797,55 @@ def test_roster_players_get_their_numbers():
     assert "DATUM_INDEX_TO_ABSOLUTE_INDEX(datum) >= TRACKED_PLAYERS" in roster
     told = _function(source, "static void roster_told")
     assert "csmemset(client->statistics_known, 0, sizeof(client->statistics_known));" in told
+
+
+def test_game_types_match_captures(harness):  # noqa: F811
+    """Oddball's, King's and Race's state as our captures of Custom Edition's
+    server have it at a join (research captures odd1, king1, race1: a new
+    game's, all zero): the message and its length, the next message's start
+    found right after it"""
+    import subprocess
+
+    for kind, count, length in ((18, 48, 1536), (19, 17, 544), (20, 50, 1600)):
+        out = subprocess.run([str(harness), "gametype", str(kind), str(count)], capture_output=True, text=True,
+                             check=True).stdout.strip()
+        bits = bits_of(out)
+        assert bits[11:19] == "10" + "".join(str((kind >> i) & 1) for i in range(6))
+        assert int(bits[:11][::-1], 2) == (11 + 8 + length + 7) // 8
+        assert set(bits[19:19 + length]) == {"0"}
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    told = _function(source, "static boolean engine_told")
+    for engine in ("game_engine_oddball", "game_engine_king", "game_engine_race"):
+        assert engine in told
+    assert "ce_payload_put_game_type_update(&payload, type, values, count);" in _function(source, "static void send_scores")
+    # (Oddball's and King's times go in seconds, as a Custom Edition client
+    # counts them; the ball's five-second beep is its carrier's client's)
+    state = _function(source, "static int game_type_state")
+    assert state.count("/= TICKS_PER_SECOND;") == 2
+    # (and told as a client joins: its client counts them itself)
+    scores = _function(source, "static void send_scores")
+    assert "changed = values[16] != client->game_type_sent[16];" in scores
+    # (a free for all's teams are roster slots, one per player on a client,
+    # in the roster, the spawns, the bipeds and the game type's numbers)
+    # (kept by each player while it stays in the roster, so a biped's team
+    # never goes stale as players before it leave; one test of team or free
+    # for all for the roster and the players' and bipeds' teams: Bomb, shown
+    # as Slayer, is a free for all everywhere)
+    assert "client->ffa_player[absolute] == player_index" in _function(source, "static int client_team")
+    assert "if (!ce_team_game() && player_index != NONE)" in _function(source, "static int client_team")
+    ffa = _function(source, "static void ffa_teams")
+    assert "team = client->ffa_player[absolute] == player_index ? client->ffa_team[absolute] : -1;" in ffa
+    assert "engine_told(variant->game_engine_index) && variant->universal_variant.teams" in \
+        _function(source, "static boolean ce_team_game")
+    roster = _function(source, "static void game_settings_for")
+    assert "settings->universal[0] ?" not in roster and "game_engine_has_teams()" not in source
+    assert "ffa_teams_told(client, &settings, slot_players);" in _function(source, "static void send_roster")
+    assert "(out)[client_team(client, player_index)] = (unsigned int)(array)[own_team];" in state
+    assert source.count("client_team(client, player_index)") == 4
+    statistics = _function(source, "static void player_statistics")
+    assert "statistics->game_specific[0] = (specific[0] / TICKS_PER_SECOND) & 0xffff;" in statistics
+    sound = _function(source, "void server_ce_multiplayer_sound")
+    assert "sound_index == SOUND_COUNTDOWN_TIMER_END && game_engine &&" in sound
 
 
 def test_welcome_line():

@@ -598,6 +598,15 @@ void ce_payload_put_chat(struct ce_payload *payload, int kind, int player, const
 		put_bits(payload, (unsigned char)text[index], 16);
 }
 
+void ce_payload_put_game_type_update(struct ce_payload *payload, int type, const unsigned int *values, int count)
+{
+	int index;
+
+	put_delta_header(payload, type);
+	for (index = 0; index < count; index++)
+		put_bits(payload, values[index], 32);
+}
+
 void ce_payload_put_ctf_update(struct ce_payload *payload, unsigned int flag_swap_timer, const int scores[2],
 	int team_with_flag)
 {

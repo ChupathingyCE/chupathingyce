@@ -188,6 +188,18 @@ real_rgb_color global_default_animation_colors[4];
 real global_default_animation_values[4];
 
 static struct king_globals king_globals = { 0 };
+
+#ifdef HALO_SERVER
+/* port: King of the Hill's scores (by team, a free-for-all's player its
+own) and its hill, as Custom Edition's clients are told them
+(server/src/server_ce.c) */
+long const *game_engine_king_get_state(
+	long *hill_id)
+{
+	*hill_id = king_globals.hill_id;
+	return king_globals.score;
+}
+#endif
 /* king_engine_num_hills: name from the 2003 PC demo PDB (file static short at king_globals+0x1AC),
  * corroborated by January: same .bss contribution offset, width and neighbours */
 static short king_engine_num_hills = 0;
