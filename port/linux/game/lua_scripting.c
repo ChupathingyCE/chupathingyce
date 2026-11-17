@@ -234,13 +234,12 @@ static char *lua_read_file(
 	char const *xbox_path,
 	unsigned int *size)
 {
-	char host_path[1024];
 	FILE *file;
 	char *buffer;
 	long length;
 
-	platform_translate_path(xbox_path, host_path, sizeof(host_path));
-	file = fopen(host_path, "rb");
+	/* (the game's fopen takes an Xbox path: port/linux/include/stdio.h) */
+	file = fopen(xbox_path, "rb");
 	if (!file)
 		return NULL;
 	if (fseek(file, 0, SEEK_END) != 0 || (length = ftell(file)) < 0 ||
