@@ -4881,9 +4881,24 @@ void network_game_server_update_countdown(
 				}
 				else
 				{
+					boolean other_players = network_game_server_get_client_machine_count(server) > 1;
+
+#ifdef HALO_SERVER
+					{
+						/* port: a dedicated server's Custom Edition players are
+						seats of its own machine (server_has_enough_machines):
+						with them there, the lobby counts down without another
+						machine, or a game with only them never starts
+						(server/src/server_ce.c) */
+						boolean server_ce_players_present(void);
+
+						if (server_ce_players_present())
+							other_players = TRUE;
+					}
+#endif
 					if (network_game_should_accept_remote_connections() == FALSE ||
 						network_game_solo_game() ||
-						network_game_server_get_client_machine_count(server) > 1)
+						other_players)
 					{
 						unsigned long countdown;
 
@@ -5164,6 +5179,19 @@ void network_game_server_port_cooperative_won(
 	on its scoreboard (game_engine.c); co-op has neither, and every machine
 	was left on the level's last screen. */
 	network_game_server_reset_to_pregame(server);
+}
+
+/* port: the co-op host's RESTART LEVEL (main.c's main loop, from the pause
+menu): the round ends for everyone and the lobby has the same level, as a won
+level's does. Only while the game is on: a second request once the server is
+back in the pregame would rebuild it from the multiplayer playlist */
+void network_game_server_port_cooperative_restart(
+	void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	if (server && server->state == _network_game_server_state_ingame)
+		network_game_server_port_cooperative_won(NULL);
 }
 
 /* port: reapply the co-op settings after a won round, since the playlist

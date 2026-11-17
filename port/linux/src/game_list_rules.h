@@ -18,6 +18,12 @@ or older number than the range, nor one that says no number (0: a host
 from before there were numbers). debug.show_all_games shows them all again,
 for tests. The site's list hides the same games (puma's game_list_rules).
 
+A game heard only on the brokers (OpenCE's public listings, p2p_lobby.c)
+is shown only when its number is GAME_LIST_BROKER_MINIMUM_VERSION or newer
+(game_list_broker_listed): older builds' listings are left out of the
+lists, though a game of theirs is still joined by its invite. A game whose
+name is on the blocked names list (server_names.h) is never shown.
+
 Header only, no game dependency; tested by port/linux/tests/
 game_list_rules_test.c (tools/test_game_list_rules.py).
 
@@ -33,6 +39,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 closed to other builds (network.allow_opence off) */
 #define GAME_LIST_CLOSED_VERSION 0x8000u
 
+/* the oldest network version a broker listing is shown under (the site
+lists the same: puma's game_list_rules.BROKER_MINIMUM_VERSION) */
+#define GAME_LIST_BROKER_MINIMUM_VERSION 35u
+
 /* whether a lists' game is one this build can join, and so shown: version,
 the number its host advertises (a list's, or a broker listing's); delta,
 nonzero when its host speaks Delta and this build does too; minimum and
@@ -44,6 +54,13 @@ static inline int game_list_joinable(unsigned int version, int delta, int minimu
 	if (delta)
 		return 1;
 	return version != 0 && (int)version >= minimum && (int)version <= maximum;
+}
+
+/* whether a game heard only on the brokers is listed, by the version its
+listing is under */
+static inline int game_list_broker_listed(unsigned int version)
+{
+	return (version & ~GAME_LIST_CLOSED_VERSION) >= GAME_LIST_BROKER_MINIMUM_VERSION;
 }
 
 #endif

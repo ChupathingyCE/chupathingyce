@@ -3346,8 +3346,23 @@ static void game_show_score_one_player(
 	long message,
 	long message_data)
 {
+#ifdef HALO_SERVER
+	/* port: a Custom Edition player's client is told the message, as Custom
+	Edition's own server tells it (server/src/server_ce.c); the sounds the
+	message plays as it is shown here (a double kill's) are its client's
+	to play, not everyone's */
+	void server_ce_multiplayer_message(long player_index, long message, long message_data);
+	void server_ce_showing_message(boolean showing);
+
+	if (message != NONE)
+		server_ce_multiplayer_message(player_index, message, message_data);
+	server_ce_showing_message(TRUE);
+#endif
 	if (message != NONE)
 		multiplayer_message(player_index, message, message_data);
+#ifdef HALO_SERVER
+	server_ce_showing_message(FALSE);
+#endif
 
 	return;
 }

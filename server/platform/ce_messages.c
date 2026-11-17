@@ -213,13 +213,13 @@ static void put_orientation(struct ce_payload *payload, const struct ce_object_c
 	put_bits(payload, object->up[1], 20);
 }
 
-void ce_payload_put_player_add(struct ce_payload *payload, int list_index, unsigned int handle, int player)
+void ce_payload_put_player_add(struct ce_payload *payload, int list_index, unsigned int handle, int player, int team)
 {
 	put_delta_header(payload, CE_DELTA_PLAYER_ADD);
 	put_bits(payload, (unsigned int)list_index, 8);
 	put_bits(payload, handle, 32);
 	put_bits(payload, (unsigned int)player, 5);
-	put_bits(payload, 0, 32);
+	put_bits(payload, (unsigned int)team, 32);
 }
 
 void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_weapon_create *weapon)
@@ -306,7 +306,7 @@ void ce_payload_put_player_spawn(struct ce_payload *payload, const struct ce_pla
 	put_delta_header(payload, CE_DELTA_PLAYER_SPAWN);
 	put_bits(payload, (unsigned int)spawn->player, 5);
 	put_bits(payload, (unsigned int)spawn->biped, 9);
-	put_bits(payload, spawn->unknown_large, 32);
+	put_bits(payload, spawn->team, 32);
 	put_bits(payload, (unsigned int)spawn->unknown_object, 9);
 	put_bits(payload, (unsigned int)spawn->unknown_medium, 16);
 	for (index = 0; index < 4; index++)
@@ -596,6 +596,48 @@ void ce_payload_put_chat(struct ce_payload *payload, int kind, int player, const
 	put_bits(payload, (unsigned int)length, 8);
 	for (index = 0; index < length; index++)
 		put_bits(payload, (unsigned char)text[index], 16);
+}
+
+void ce_payload_put_ctf_update(struct ce_payload *payload, unsigned int flag_swap_timer, const int scores[2],
+	int team_with_flag)
+{
+	put_delta_header(payload, CE_DELTA_CTF_UPDATE);
+	/* (header: the flag swap timer; then each team's score and the team
+	with the flag) */
+	put_bits(payload, flag_swap_timer, 32);
+	put_bits(payload, (unsigned int)scores[0], 32);
+	put_bits(payload, (unsigned int)scores[1], 32);
+	put_bits(payload, (unsigned int)team_with_flag, 8);
+}
+
+void ce_payload_put_hud_message(struct ce_payload *payload, int player, unsigned int message, unsigned int data)
+{
+	put_delta_header(payload, CE_DELTA_MULTIPLAYER_HUD_MESSAGE);
+	put_bits(payload, (unsigned int)player, 5);
+	put_bits(payload, message, 32);
+	put_bits(payload, data, 32);
+}
+
+void ce_payload_put_multiplayer_sound(struct ce_payload *payload, unsigned int sound)
+{
+	put_delta_header(payload, CE_DELTA_MULTIPLAYER_SOUND);
+	put_bits(payload, sound, 32);
+}
+
+void ce_payload_put_unit_drop_weapon(struct ce_payload *payload, int unit, int weapon, int immediate)
+{
+	put_delta_header(payload, CE_DELTA_UNIT_DROP_CURRENT_WEAPON);
+	put_bits(payload, (unsigned int)unit, 9);
+	put_bits(payload, (unsigned int)weapon, 9);
+	put_bits(payload, immediate ? 1 : 0, 1);
+}
+
+void ce_payload_put_hud_add_item(struct ce_payload *payload, unsigned int definition, int offset, int quantity)
+{
+	put_delta_header(payload, CE_DELTA_HUD_ADD_ITEM);
+	put_bits(payload, definition, 32);
+	put_bits(payload, (unsigned int)offset, 8);
+	put_bits(payload, (unsigned int)quantity, 16);
 }
 
 void ce_payload_put_postgame_mode(struct ce_payload *payload, int mode)

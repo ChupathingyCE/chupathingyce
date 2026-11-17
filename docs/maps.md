@@ -52,7 +52,7 @@ and their Map Browser (Multiplayer > MAP BROWSER) downloads them. Each kind has 
 | Folder | What goes in it | Played online as |
 | --- | --- | --- |
 | `maps_ce` | Halo PC Custom Edition maps, with Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` | `<name>@ce` |
-| `maps_md` | HaloMD maps (below) | `<name>@md` |
+| `maps_md` | HaloMD maps (below); they read Custom Edition's resource maps from `maps_ce` | `<name>@md` |
 | `maps_pc` | the maps of your own Halo PC (retail) disc | `<name>@pc` |
 
 Where the game's `maps` folder is:
