@@ -245,6 +245,12 @@ symbols in this file:
 #include <math.h>
 #include <stdio.h>
 
+/* port: the voices' log (sound_voices_full_log), on every port build but the
+original Xbox's, whose voices are its hardware's */
+#if defined(HALO_CUSTOM_EDITION) && !defined(HALO_XBOX_CONSOLE)
+#define SOUND_VOICES_LOG
+#endif
+
 /* ---------- constants */
 
 enum
@@ -711,7 +717,7 @@ static short sound_find_channel(
 	long sound_index);
 static void prioritize_sounds(
 	void);
-#ifdef HALO_CUSTOM_EDITION
+#ifdef SOUND_VOICES_LOG
 static void sound_voices_full_log(
 	long sound_index,
 	long victim_sound_index);
@@ -3260,7 +3266,7 @@ static void process_looping_sounds(
 void sound_dispose_from_old_map(
 	void)
 {
-#ifdef HALO_CUSTOM_EDITION
+#ifdef SOUND_VOICES_LOG
 	sound_voices_peak_log();
 #endif
 	if (!sound_manager_globals.paused &&
@@ -3750,7 +3756,7 @@ static void prioritize_sounds(
 							"sound_valid_for_channel(definition->compression, definition->encoding, definition->sample_rate, sound->source.spatialization_mode, channel->type_flags)");
 						if (channel->sound_index != NONE)
 						{
-#ifdef HALO_CUSTOM_EDITION
+#ifdef SOUND_VOICES_LOG
 							sound_voices_full_log(sound_index, channel->sound_index);
 #endif
 							sound_stop(channel->sound_index);
@@ -3758,7 +3764,7 @@ static void prioritize_sounds(
 
 						channel->sound_index = sound_index;
 						sound->start_time = sound_manager_globals.render_time;
-#ifdef HALO_CUSTOM_EDITION
+#ifdef SOUND_VOICES_LOG
 						sound_voices_peak_note(channel->type_flags);
 #endif
 					}
@@ -3772,7 +3778,7 @@ static void prioritize_sounds(
 				}
 				else
 				{
-#ifdef HALO_CUSTOM_EDITION
+#ifdef SOUND_VOICES_LOG
 					sound_voices_full_log(sound_index, NONE);
 #endif
 					sound_stop(sound_index);
@@ -4071,7 +4077,7 @@ void sound_render(
 	return;
 }
 
-#ifdef HALO_CUSTOM_EDITION
+#ifdef SOUND_VOICES_LOG
 /* port: when every channel a sound could play on is busy (its type's voices
 all in use), it takes one from a sound it preempts, or is not played. One
 line in debug.txt for it, the first at once and then at most one every few

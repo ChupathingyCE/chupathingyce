@@ -28,7 +28,12 @@ symbols in this file:
 static struct sound_preferences default_sound_preferences =
 {
 	0,
-#ifdef HALO_CUSTOM_EDITION
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_XBOX_CONSOLE)
+	/* (port: the original Xbox plays them on its own hardware voices, of
+	which the Xbox's types take most) */
+	{ 10, 51, 10, 10, 2, 4, 4, 1 },
+	{ 9, 46, 9, 9, 2, 4, 4, 1 },
+#elif defined(HALO_CUSTOM_EDITION)
 	/* (port: the PCM types have as many voices as the Xbox's: Custom Edition
 	maps' weapons and effects can be Ogg Vorbis, and ran out of them) */
 	{ 10, 51, 10, 10, 10, 51, 10, 10 },
