@@ -1263,7 +1263,12 @@ static void server_list_menu_update(
 					(strchr(map_name, '@') || main_get_solo_level_from_name(map_name) != NONE ||
 					!strncmp(map_name, "mcc_maps\\", 9)))
 				{
-					long row = ui_map_list_lookup(map_name);
+					/* (a campaign level by the list's name for it: a host
+					says "levels\test\a10\a10" where the list has
+					"levels\a10\a10") */
+					short level = main_get_solo_level_from_name(map_name);
+					long row = ui_map_list_lookup(level != NONE && main_get_solo_level_name(level) ?
+						main_get_solo_level_name(level) : map_name);
 
 					if (row != NONE)
 					{
@@ -1304,9 +1309,10 @@ static void server_list_menu_update(
 #if defined(HALO_MAP_LIST) && defined(HALO_GAME_BROWSER)
 				/* port: a network co-op game (a campaign level): co-op, as the
 				menus' map list names its game */
-				if (main_get_solo_level_from_name(map_name) != NONE)
+				if (main_get_solo_level_from_name(map_name) != NONE &&
+					main_get_solo_level_name(main_get_solo_level_from_name(map_name)))
 				{
-					long row = ui_map_list_lookup(map_name);
+					long row = ui_map_list_lookup(main_get_solo_level_name(main_get_solo_level_from_name(map_name)));
 
 					if (row != NONE && ui_map_list_row_is_campaign(row))
 					{
