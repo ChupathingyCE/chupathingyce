@@ -1605,7 +1605,12 @@ static void build_rows(void)
 		if ((family->kind == _family_custom_edition || family_needs_resources(family) ||
 			family->kind == _family_pack) && family->missing)
 		{
-			snprintf(row->help, sizeof(row->help), "Missing: %s", family->missing_names);
+			/* (the resource maps every Halo PC family reads are Custom
+			Edition's, in maps_ce, whichever family's page this is) */
+			if (family_needs_resources(family) && family->kind != _family_custom_edition)
+				snprintf(row->help, sizeof(row->help), "Missing in maps_ce: %s (Custom Edition's)", family->missing_names);
+			else
+				snprintf(row->help, sizeof(row->help), "Missing: %s", family->missing_names);
 		}
 		else if (family->stray)
 			snprintf(row->help, sizeof(row->help), "CE maps go in maps_ce, Halo PC maps in maps_pc, HaloMD in maps_md.");
@@ -2471,8 +2476,8 @@ static void make_folders(void)
 	{
 		{ "maps", "Put the Xbox maps here: the files in the maps folder of your Halo disc, with ui.map.\n" },
 		{ "maps_ce", "Put Custom Edition maps here, with Custom Edition's bitmaps.map, sounds.map and loc.map.\n" },
-		{ "maps_pc", "Put the maps from your Halo PC disc here.\n" },
-		{ "maps_md", "Put HaloMD maps here.\n" },
+		{ "maps_pc", "Put the maps from your Halo PC disc here. They also need Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce.\n" },
+		{ "maps_md", "Put HaloMD maps here. They also need Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce.\n" },
 	};
 	size_t index;
 
