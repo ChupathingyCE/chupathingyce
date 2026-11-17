@@ -371,7 +371,7 @@ static long mcc_pause_screen(short mode, short layout)
     buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_RESUME, MCC_PAUSE_ACTION_RESUME, NONE, 128);
     if (campaign_growth)
         buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_SETTINGS, MCC_PAUSE_ACTION_SETTINGS, NONE, 128);
-    if (campaign_growth && mode != SOLO)
+    if (campaign_growth && mode != SOLO && mcc_ui_coop_friendly_fire_shown())
         buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_FRIENDLY_ON, MCC_PAUSE_ACTION_FRIENDLY_FIRE, NONE, 128 | 16);
     if (campaign) {
         buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_REVERT, 0,

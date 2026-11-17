@@ -309,7 +309,7 @@ long mcc_pause_runtime_screen(short local_count, boolean first_player)
     network=game_connection()==_game_connection_network_server || game_connection()==_game_connection_network_client;
     host=global_network_game_server_get()!=NULL;
     if(global_scenario->type==1) teams=game_engine_get_variant()->universal_variant.teams;
-    mcc_pause_friendly_fire(config_boolean("network.coop_own_friendly_fire"));
+    mcc_pause_friendly_fire(mcc_ui_coop_friendly_fire_on());
     return mcc_pause_select(global_scenario->type==0,network,host,teams,local_count,first_player);
 }
 #else
