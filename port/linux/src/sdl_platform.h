@@ -183,6 +183,8 @@ struct platform_ui_pointer
 	float down_x, down_y;
 	/* the pointer is the touchscreen (touch_input.c), not a mouse */
 	BOOL touch;
+	/* the left button held now (a scroll bar's drag); the mouse only */
+	BOOL left_down;
 };
 /* says whether a menu is up; the mouse is released for the menus (desktop),
 or the touchscreen goes to them (Android); a change of mode drops the gesture

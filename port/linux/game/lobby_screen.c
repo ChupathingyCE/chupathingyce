@@ -815,7 +815,7 @@ static void row_sub_line(struct lobby_row *row)
 	else if (is_friend(row->name))
 		copy_text(tag, sizeof(tag), "Friend");
 	else if (!row->delta && lobby.state != _lobby_preview && !row->host)
-		copy_text(tag, sizeof(tag), "OpenCE");
+		copy_text(tag, sizeof(tag), "Legacy");
 	if (team[0] && tag[0])
 		snprintf(row->sub, sizeof(row->sub), "%s  /  %s", team, tag);
 	else
@@ -1292,7 +1292,7 @@ static void debug_sample(char const *spec)
 		{
 			char const *team = teams ? (row->team ? "Blue team" : "Red team") : "";
 			char const *tag = row->you ? "You" : index == 1 ? "Party" : index == 3 ? "Friend" :
-				!row->delta && !row->host ? "OpenCE" : "";
+				!row->delta && !row->host ? "Legacy" : "";
 
 			if (team[0] && tag[0])
 				snprintf(row->sub, sizeof(row->sub), "%s  /  %s", team, tag);
