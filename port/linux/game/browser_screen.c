@@ -267,7 +267,7 @@ enum
 	NUMBER_OF_VIEWS
 };
 
-static char const *const view_names[NUMBER_OF_VIEWS] = { "ALL", "CHUPATHINGY + PUBLIC", "CHUPATHINGY", "OPENCE" };
+static char const *const view_names[NUMBER_OF_VIEWS] = { "ALL", "CHUPATHINGY + PUBLIC", "CHUPATHINGY", "LEGACY" };
 /* (display.online_games_view's words for them) */
 static char const *const view_keys[NUMBER_OF_VIEWS] = { "all", "public", "chupathingy", "opence" };
 
@@ -2863,6 +2863,17 @@ boolean browser_screen_create_game(
 	return ui_widget_online_games_create_game();
 }
 
+/* the Multiplayer menu's ONLINE CO-OP (menu_functions.c's
+pc_menus_coop_online): Create Game, as Y makes one, from ONLINE CO-OP */
+boolean browser_screen_create_coop_game(
+	void)
+{
+	boolean ui_widget_online_games_create_coop_game(void);
+
+	join_first_player();
+	return ui_widget_online_games_create_coop_game();
+}
+
 /* the selection moved by move games, kept on the list */
 static void step(
 	short move)
@@ -3349,7 +3360,7 @@ static char const *host_tag(
 }
 
 /* the details' Host line ("Linux, Delta", "Official server (Linux), Delta",
-"OpenCE (legacy, network 26)"); NULL when the list does not say */
+"Legacy (network 26)"); NULL when the list does not say */
 static char const *host_text(
 	struct browser_game const *game,
 	char *text,
@@ -3359,14 +3370,14 @@ static char const *host_text(
 	char const *platform = game->has_platform && game->host_platform > 0 &&
 		game->host_platform < NUMBEROF(platform_names) ? platform_names[game->host_platform] : NULL;
 	char const *protocol = game->protocol == BROWSER_PROTOCOL_DELTA ? "Delta" :
-		game->protocol == BROWSER_PROTOCOL_OPENCE ? "OpenCE (legacy)" : NULL;
+		game->protocol == BROWSER_PROTOCOL_OPENCE ? "Legacy" : NULL;
 	char host[64], with_version[40];
 
 	/* (its network version: an OpenCE host's always, a Delta host's when it
 	is not this build's) */
 	if (game->protocol == BROWSER_PROTOCOL_OPENCE && game->version)
 	{
-		snprintf(with_version, sizeof(with_version), "OpenCE (legacy, network %d)", game->version);
+		snprintf(with_version, sizeof(with_version), "Legacy (network %d)", game->version);
 		protocol = with_version;
 	}
 	else if (game->protocol == BROWSER_PROTOCOL_DELTA && game->version && game->version != delta_legacy_announce())
@@ -3432,7 +3443,7 @@ static char const *machines_text(
 	}
 	count = game->machines[BROWSER_MACHINE_KINDS - 1];
 	if (count && used < size - 24)
-		used += snprintf(text + used, (size_t)(size - used), "%s%d OpenCE", used ? ", " : "", count);
+		used += snprintf(text + used, (size_t)(size - used), "%s%d legacy", used ? ", " : "", count);
 	return text;
 }
 
@@ -4919,7 +4930,7 @@ static void draw_empty_list(
 		if (browser_screen.view == _view_opence || browser_screen.view == _view_chupathingy)
 		{
 			ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFFA0,
-				browser_screen.view == _view_opence ? "No OpenCE servers right now." :
+				browser_screen.view == _view_opence ? "No legacy servers right now." :
 				"No Chupathingy games right now.");
 			return;
 		}

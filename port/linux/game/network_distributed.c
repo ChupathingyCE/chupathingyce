@@ -5332,9 +5332,15 @@ void network_distributed_ban_until(
 		p2p_discord_sanitize(discord_name, sizeof(discord_name),
 			distributed_client_identities[machine_index].discord_name, 1);
 	}
+	/* (a player's Discord account is the host's to know, never the lobby's:
+	it is in the bans file, and in this host's log; the notice names the
+	player's game name alone) */
 	if (discord_id[0] || discord_name[0])
+	{
 		snprintf(discord, sizeof(discord), " (Discord: %s, %s)", discord_name, discord_id);
-	snprintf(notice, sizeof(notice), "%s%s %s", kept_names, discord, reason);
+		error(_error_log, "banned %s%s: %s", kept_names, discord, reason);
+	}
+	snprintf(notice, sizeof(notice), "%s %s", kept_names, reason);
 	/* (to every client in the game: in the lobby, the host's own) */
 	if (game_in_progress())
 		distributed_send_notice(notice);
@@ -5599,11 +5605,17 @@ static void distributed_note_client_clock(
 					distributed_client_identities[machine_index].discord_id, 0);
 				p2p_discord_sanitize(discord_name, sizeof(discord_name),
 					distributed_client_identities[machine_index].discord_name, 1);
+				/* (a player's Discord account is the host's to know, never the
+				lobby's: it goes to this host's own log, and the notice says the
+				game's name alone) */
 				if (discord_id[0] || discord_name[0])
+				{
 					snprintf(discord, sizeof(discord), " (Discord: %s, %s)", discord_name, discord_id);
+					error(_error_log, "machine #%ld kicked for a speed hack%s", machine_index, discord);
+				}
 				snprintf(reason, sizeof(reason), "speed hack (game ran %.2f times as fast)", rate);
-				snprintf(text, sizeof(text), "%s%s kicked by the host: their game ran %.2f times as fast (a speed hack)",
-					names, discord, rate);
+				snprintf(text, sizeof(text), "%s kicked by the host: their game ran %.2f times as fast (a speed hack)",
+					names, rate);
 				distributed_send_notice(text);
 				distributed_log_cheater(machine_index, names, reason);
 			}
