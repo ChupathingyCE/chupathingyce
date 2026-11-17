@@ -160,6 +160,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         host = Lp64Host(
             name="macos",
             compressed_maps=True,
+            lua=True,
             target_flags=[target],
             game_flags=MACOS_GAME_FLAGS,
             posix_flags=MACOS_POSIX_FLAGS,

@@ -31,6 +31,8 @@ from .linux_build import (
     EXPAT_SOURCES,
     GAME_FLAGS as LINUX_GAME_FLAGS,
     KCP_DIR,
+    LUA_DEFINES,
+    LUA_DIR,
     LZMA_DIR,
     MBEDTLS_DIR,
     MINIUPNPC_DEFINES,
@@ -56,6 +58,7 @@ from .linux_build import (
     _quote,
     compile_launcher,
     game_sources,
+    lua_sources,
     game_browser_defines,
     miniupnpc_sources,
     musl_math_sources,
@@ -165,6 +168,8 @@ class Lp64Host:
     # Halo PC maps compressed with Chimera's chimera-compress, and zstd
     # (linux_build.py, COMPRESSED_MAP_DEFINES): the desktop builds'
     compressed_maps: bool = False
+    # mods' Lua scripts (linux_build.py, LUA_DEFINES): the desktop builds'
+    lua: bool = False
 
 
 @dataclass
@@ -271,8 +276,9 @@ class Lp64Build:
         # (the desktop builds, which have zstd: the Steam content client too,
         # port/linux/src/steam_content, steam_bridge_pipe.c)
         compressed_maps = [*COMPRESSED_MAP_DEFINES, "-DHALO_STEAM_CONTENT"] if host.compressed_maps else []
+        lua = [*LUA_DEFINES, f"-idirafter {LUA_DIR}"] if host.lua else []
         abi = " ".join([*host.target_flags, *LP64_ABI_FLAGS, *release, *game_browser_defines(sln),
-                        *compressed_maps])
+                        *compressed_maps, *lua])
         prefix_header = lp64(LINUX_PORT_DIR / "include" / "halo_linux_prefix.h")
         port_include = lp64(LINUX_PORT_DIR / "include")
         xdk = _quote(lp64(XDK_INCLUDE))
@@ -413,6 +419,11 @@ class Lp64Build:
                 add(source, " ".join([*native_third_party, "-std=gnu11", *OPUS_DEFINES,
                                       *(f"-I{OPUS_DIR / name}" for name in ("include", "celt", "silk", "silk/float"))]),
                     native=True)
+        # mods' Lua scripts' Lua (port/third_party/lua; lua_scripting.c), with
+        # the host's ABI: its API is its own types
+        if host.lua:
+            for source in lua_sources():
+                add(source, " ".join([*native_third_party, f"-I{LUA_DIR}"]), native=True)
         third_party = " ".join([abi, "-std=gnu11", "-w"])
         add(lp64(TOML_DIR / "tomlc17.c"), third_party)
         add(lp64(KCP_DIR / "ikcp.c"), third_party)

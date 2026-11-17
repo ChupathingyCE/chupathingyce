@@ -1,0 +1,751 @@
+/*
+LUA_CHIMERA_API.C
+
+Chimera's Lua API, for mods' scripts written for it (lua_scripting.c loads
+them): the functions a script calls, the variables it reads and the
+callbacks it sets, with Chimera's names, arguments, results and order, so
+that a script behaves as it does under Chimera.
+
+Adapted from Chimera (github.com/SnowyMouse/chimera, by Snowy Mouse, its
+current developers Aerocatia and Cambidd, and its contributors), its
+src/chimera/lua: lua_callback.cpp (set_callback, the callbacks and their
+priorities, the command callback's block), lua_game.cpp (console_out,
+execute_script, get_tag, ticks, tick_rate), lua_io.cpp (read_* and write_*,
+read_bit, write_bit, read_string8, write_string8), lua_script.cpp (running
+a script and its version check) and lua_variables.cpp (the script's
+variables), each GPL-3.0-only. Rewritten in C for this game: memory goes
+through Twiddlings (lua_twiddlings.c), never to an address as given, and
+what the game does not do yet is logged once and answered with nil.
+
+SPDX-FileCopyrightText: Snowy Mouse and the Chimera contributors
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-License-Identifier: GPL-3.0-only
+*/
+
+#ifdef HALO_LUA
+
+#include "cseries.h"
+#include "cache/cache_files.h"
+#include "game/game.h"
+#include "game/game_engine.h"
+#include "game/players.h"
+#include "hs/hs.h"
+#include "main/console.h"
+
+#include "lua_internal.h"
+#include "lua_twiddlings.h"
+
+#include <stdio.h>
+#include <string.h>
+
+/* ---------- constants */
+
+/* (no Chimera build: scripts that compare it see none) */
+#define LUA_CHIMERA_BUILD 0
+#define LUA_CHIMERA_FULL_BUILD "Chupathingy"
+
+/* Chimera's minimum timer interval and tick rate (lua_game.cpp) */
+#define LUA_MINIMUM_TICK_RATE 0.01
+
+/* ---------- globals */
+
+extern struct game_variant game_variant_global;
+
+/* the callbacks' names, as set_callback takes them (an underscore is a
+space: "map_load" is "map load") */
+static char const *const lua_callback_names[number_of_lua_callbacks] =
+{
+	"command",
+	"frame",
+	"preframe",
+	"map load",
+	"map preload",
+	"precamera",
+	"rcon message",
+	"spawn",
+	"prespawn",
+	"tick",
+	"pretick",
+	"unload",
+};
+
+/* the ones the game calls; the rest are taken and logged once */
+static boolean const lua_callback_called[number_of_lua_callbacks] =
+{
+	TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE, TRUE,
+};
+
+/* ---------- private code */
+
+static int lua_pcall_logged(
+	lua_State *state,
+	int arguments,
+	int results,
+	char const *where)
+{
+	int result = lua_pcall(state, arguments, results, 0);
+
+	if (result != LUA_OK)
+		lua_log_error(state, where);
+	return result;
+}
+
+static int lua_wrong_arguments(
+	lua_State *state,
+	char const *function)
+{
+	return luaL_error(state, "wrong number of arguments in %s", function);
+}
+
+/* a function of Chimera's API the game does not have yet: logged once, nil */
+static int lua_unsupported(
+	lua_State *state)
+{
+	char const *name = lua_tostring(state, lua_upvalueindex(1));
+	char key[96];
+
+	snprintf(key, sizeof(key), "function %s", name);
+	lua_log_once(key, "%s: %s is not supported yet: it does nothing", lua_script_from_state(state)->name, name);
+	lua_pushnil(state);
+	return 1;
+}
+
+static void lua_register_unsupported(
+	lua_State *state,
+	char const *name)
+{
+	lua_pushstring(state, name);
+	lua_pushcclosure(state, lua_unsupported, 1);
+	lua_setglobal(state, name);
+}
+
+/* set_callback's name, with an underscore taken as a space */
+static enum lua_callback lua_callback_from_name(
+	char const *name)
+{
+	short callback;
+
+	for (callback = 0; callback < number_of_lua_callbacks; callback++)
+	{
+		char const *expected = lua_callback_names[callback];
+		short index;
+
+		for (index = 0; expected[index] && name[index]; index++)
+		{
+			char character = name[index] == '_' ? ' ' : name[index];
+
+			if (character != expected[index])
+				break;
+		}
+		if (!expected[index] && !name[index])
+			return (enum lua_callback)callback;
+	}
+	return number_of_lua_callbacks;
+}
+
+/* set_callback(callback, [function], [priority]): the function's name, ""
+or none to clear it (lua_callback.cpp) */
+static int lua_set_callback(
+	lua_State *state)
+{
+	int arguments = lua_gettop(state);
+	char const *callback_name;
+	char const *function_name = "";
+	enum lua_callback callback;
+	enum lua_callback_priority priority = _lua_priority_default;
+	struct lua_script *script = lua_script_from_state(state);
+
+	if (arguments < 1 || arguments > 3)
+		return lua_wrong_arguments(state, "set_callback");
+	callback_name = luaL_checkstring(state, 1);
+	if (arguments >= 2 && !lua_isnil(state, 2))
+		function_name = luaL_checkstring(state, 2);
+	if (arguments == 3)
+	{
+		char const *text = luaL_checkstring(state, 3);
+
+		if (!strcmp(text, "before"))
+			priority = _lua_priority_before;
+		else if (!strcmp(text, "after"))
+			priority = _lua_priority_after;
+		else if (!strcmp(text, "final"))
+			priority = _lua_priority_final;
+	}
+	callback = lua_callback_from_name(callback_name);
+	if (callback == number_of_lua_callbacks)
+		return luaL_error(state, "invalid callback %s", callback_name);
+	if (function_name[0] && !lua_callback_called[callback])
+	{
+		char key[96];
+
+		snprintf(key, sizeof(key), "callback %s", lua_callback_names[callback]);
+		lua_log_once(key, "%s: the \"%s\" callback is not called yet", script->name, lua_callback_names[callback]);
+	}
+	csstrncpy(script->callbacks[callback].function, function_name, LUA_FUNCTION_NAME_LENGTH - 1);
+	script->callbacks[callback].function[LUA_FUNCTION_NAME_LENGTH - 1] = 0;
+	script->callbacks[callback].priority = priority;
+	return 0;
+}
+
+/* a value as console_out and hud_message print it */
+static char const *lua_message_argument(
+	lua_State *state,
+	int argument)
+{
+	if (lua_isboolean(state, argument))
+		return lua_toboolean(state, argument) ? "true" : "false";
+	if (lua_isnil(state, argument))
+		return "(nil)";
+	return luaL_checkstring(state, argument);
+}
+
+/* console_out(message, [[alpha,] red, green, blue]) */
+static int lua_console_out(
+	lua_State *state)
+{
+	int arguments = lua_gettop(state);
+	real_argb_color color = { 1.f, 1.f, 1.f, 1.f };
+	char const *message;
+	int offset = 0;
+
+	if (arguments != 1 && arguments != 4 && arguments != 5)
+		return lua_wrong_arguments(state, "console_out");
+	message = lua_message_argument(state, 1);
+	if (arguments >= 4)
+	{
+		if (arguments == 5)
+		{
+			color.alpha = (real)luaL_checknumber(state, 2);
+			offset = 1;
+		}
+		color.red = (real)luaL_checknumber(state, offset + 2);
+		color.green = (real)luaL_checknumber(state, offset + 3);
+		color.blue = (real)luaL_checknumber(state, offset + 4);
+	}
+	lua_console_line(&color, message);
+	return 0;
+}
+
+static int lua_console_is_open(
+	lua_State *state)
+{
+	lua_pushboolean(state, console_is_active());
+	return 1;
+}
+
+/* execute_script(expression): one of the game's script functions or
+globals, as the console runs it; a function the game does not have is
+logged once and skipped (OpenSauce's pp_* among them) */
+static int lua_execute_script(
+	lua_State *state)
+{
+	int arguments = lua_gettop(state);
+	char const *expression;
+	char word[128];
+	char const *cursor;
+	short length = 0;
+
+	if (arguments != 1 && arguments != 4 && arguments != 5)
+		return lua_wrong_arguments(state, "execute_script");
+	expression = luaL_checkstring(state, 1);
+	for (cursor = expression; *cursor == ' ' || *cursor == '\t' || *cursor == '('; cursor++)
+		;
+	while (cursor[length] && cursor[length] != ' ' && cursor[length] != '\t' && cursor[length] != ')' &&
+		length + 1 < (short)sizeof(word))
+	{
+		word[length] = cursor[length];
+		length++;
+	}
+	word[length] = 0;
+	if (!word[0])
+		return 0;
+	if (hs_find_function_by_name(word) == NONE && hs_find_global_by_name(word) == NONE)
+	{
+		char key[160];
+
+		snprintf(key, sizeof(key), "script %s", word);
+		lua_log_once(key, "%s: execute_script: the game has no %s: skipped", lua_script_from_state(state)->name,
+			word);
+		return 0;
+	}
+	hs_compile_and_evaluate(expression);
+	return 0;
+}
+
+/* get_tag(id) or get_tag(group, path): the tag's instance in the tag
+index, as an address, or nil */
+static int lua_get_tag(
+	lua_State *state)
+{
+	int arguments = lua_gettop(state);
+	unsigned int address = 0;
+
+	if (arguments == 1)
+	{
+		lua_Integer tag_index = luaL_checkinteger(state, 1);
+
+		if ((unsigned int)tag_index != 0xFFFFFFFFu)
+			address = twiddlings_tag_instance_address((long)(unsigned int)tag_index);
+	}
+	else if (arguments == 2)
+	{
+		char const *group = luaL_checkstring(state, 1);
+		char const *path = luaL_checkstring(state, 2);
+		unsigned long group_tag = 0;
+		short index;
+
+		/* (a group by its four characters; Chimera also takes its names
+		for the groups, not yet here) */
+		if (strlen(group) > 4)
+		{
+			char key[96];
+
+			snprintf(key, sizeof(key), "group name %s", group);
+			lua_log_once(key, "%s: get_tag: groups by name (%s) are not supported yet",
+				lua_script_from_state(state)->name, group);
+		}
+		else
+		{
+			for (index = 0; index < 4; index++)
+				group_tag = (group_tag << 8) | (unsigned char)(group[index] ? group[index] : ' ');
+			address = twiddlings_tag_instance_address_by_name(group_tag, path);
+		}
+	}
+	else
+	{
+		return lua_wrong_arguments(state, "get_tag");
+	}
+	if (address)
+		lua_pushinteger(state, address);
+	else
+		lua_pushnil(state);
+	return 1;
+}
+
+/* ticks(): the game's ticks, and how far into the next this frame is */
+static int lua_ticks(
+	lua_State *state)
+{
+	lua_pushnumber(state, game_time_initialized() ? (lua_Number)game_time_get() : 0.0);
+	return 1;
+}
+
+/* tick_rate([rate]): the ticks a second; setting it is not supported */
+static int lua_tick_rate(
+	lua_State *state)
+{
+	if (lua_gettop(state) == 1)
+	{
+		if (luaL_checknumber(state, 1) < LUA_MINIMUM_TICK_RATE)
+			return luaL_error(state, "tick rate too small");
+		lua_log_once("tick_rate set", "%s: tick_rate: changing the tick rate is not supported",
+			lua_script_from_state(state)->name);
+	}
+	lua_pushnumber(state, (lua_Number)TICKS_PER_SECOND);
+	return 1;
+}
+
+/* ---------- memory (lua_io.cpp), through Twiddlings */
+
+enum lua_memory_type
+{
+	_lua_memory_i8,
+	_lua_memory_i16,
+	_lua_memory_i32,
+	_lua_memory_u8,
+	_lua_memory_u16,
+	_lua_memory_u32,
+	_lua_memory_f32,
+	_lua_memory_f64
+};
+
+struct lua_memory_name
+{
+	char const *name;
+	enum lua_memory_type type;
+};
+
+/* Chimera's names for them, each a read_ and a write_ */
+static struct lua_memory_name const lua_memory_names[] =
+{
+	{ "i8", _lua_memory_i8 }, { "i16", _lua_memory_i16 }, { "i32", _lua_memory_i32 },
+	{ "u8", _lua_memory_u8 }, { "u16", _lua_memory_u16 }, { "u32", _lua_memory_u32 },
+	{ "byte", _lua_memory_u8 }, { "word", _lua_memory_u16 }, { "dword", _lua_memory_u32 },
+	{ "char", _lua_memory_i8 }, { "short", _lua_memory_i16 }, { "int", _lua_memory_i32 },
+	{ "long", _lua_memory_i32 },
+	{ "f32", _lua_memory_f32 }, { "f64", _lua_memory_f64 }, { "float", _lua_memory_f32 },
+	{ "double", _lua_memory_f64 },
+};
+
+static unsigned int lua_memory_size(
+	enum lua_memory_type type)
+{
+	switch (type)
+	{
+	case _lua_memory_i8:
+	case _lua_memory_u8:
+		return 1;
+	case _lua_memory_i16:
+	case _lua_memory_u16:
+		return 2;
+	case _lua_memory_f64:
+		return 8;
+	default:
+		return 4;
+	}
+}
+
+static unsigned int lua_check_address(
+	lua_State *state,
+	int argument)
+{
+	return (unsigned int)luaL_checkinteger(state, argument);
+}
+
+static int lua_read_memory(
+	lua_State *state)
+{
+	enum lua_memory_type type = (enum lua_memory_type)lua_tointeger(state, lua_upvalueindex(1));
+	union { signed char i8; short i16; int i32; unsigned char u8; unsigned short u16; unsigned int u32; float f32;
+		double f64; } value;
+	unsigned int address;
+
+	if (lua_gettop(state) != 1)
+		return lua_wrong_arguments(state, "read");
+	address = lua_check_address(state, 1);
+	twiddlings_read(address, &value, lua_memory_size(type));
+	switch (type)
+	{
+	case _lua_memory_i8: lua_pushinteger(state, value.i8); break;
+	case _lua_memory_i16: lua_pushinteger(state, value.i16); break;
+	case _lua_memory_i32: lua_pushinteger(state, value.i32); break;
+	case _lua_memory_u8: lua_pushinteger(state, value.u8); break;
+	case _lua_memory_u16: lua_pushinteger(state, value.u16); break;
+	case _lua_memory_u32: lua_pushinteger(state, value.u32); break;
+	case _lua_memory_f32: lua_pushnumber(state, value.f32); break;
+	case _lua_memory_f64: lua_pushnumber(state, value.f64); break;
+	}
+	return 1;
+}
+
+static int lua_write_memory(
+	lua_State *state)
+{
+	enum lua_memory_type type = (enum lua_memory_type)lua_tointeger(state, lua_upvalueindex(1));
+	union { signed char i8; short i16; int i32; unsigned char u8; unsigned short u16; unsigned int u32; float f32;
+		double f64; } value;
+	unsigned int address;
+
+	if (lua_gettop(state) != 2)
+		return lua_wrong_arguments(state, "write");
+	address = lua_check_address(state, 1);
+	switch (type)
+	{
+	case _lua_memory_i8: value.i8 = (signed char)luaL_checkinteger(state, 2); break;
+	case _lua_memory_i16: value.i16 = (short)luaL_checkinteger(state, 2); break;
+	case _lua_memory_i32: value.i32 = (int)luaL_checkinteger(state, 2); break;
+	case _lua_memory_u8: value.u8 = (unsigned char)luaL_checkinteger(state, 2); break;
+	case _lua_memory_u16: value.u16 = (unsigned short)luaL_checkinteger(state, 2); break;
+	case _lua_memory_u32: value.u32 = (unsigned int)luaL_checkinteger(state, 2); break;
+	case _lua_memory_f32: value.f32 = (float)luaL_checknumber(state, 2); break;
+	case _lua_memory_f64: value.f64 = (double)luaL_checknumber(state, 2); break;
+	}
+	twiddlings_write(address, &value, lua_memory_size(type));
+	return 0;
+}
+
+/* read_bit(address, bit): a bit of the 32-bit value there */
+static int lua_read_bit(
+	lua_State *state)
+{
+	unsigned int address, value = 0;
+	lua_Integer bit;
+
+	if (lua_gettop(state) != 2)
+		return lua_wrong_arguments(state, "read_bit");
+	address = lua_check_address(state, 1);
+	bit = luaL_checkinteger(state, 2);
+	if (bit < 0 || bit >= 32)
+		return luaL_error(state, "invalid argument 2 in read_bit");
+	twiddlings_read(address, &value, sizeof(value));
+	lua_pushinteger(state, (value >> bit) & 1);
+	return 1;
+}
+
+/* write_bit(address, bit, 0 or 1 or a boolean) */
+static int lua_write_bit(
+	lua_State *state)
+{
+	unsigned int address, value = 0;
+	lua_Integer bit;
+	int set;
+
+	if (lua_gettop(state) != 3)
+		return lua_wrong_arguments(state, "write_bit");
+	address = lua_check_address(state, 1);
+	bit = luaL_checkinteger(state, 2);
+	if (bit < 0 || bit >= 32)
+		return luaL_error(state, "invalid argument 2 in write_bit");
+	if (lua_isboolean(state, 3))
+	{
+		set = lua_toboolean(state, 3);
+	}
+	else
+	{
+		lua_Integer given = luaL_checkinteger(state, 3);
+
+		if (given > 1 || given < 0)
+			return luaL_error(state, "invalid argument 3 in write_bit");
+		set = (int)given;
+	}
+	if (!twiddlings_read(address, &value, sizeof(value)))
+	{
+		/* (refused: what is not read is not written) */
+		twiddlings_write(address, &value, sizeof(value));
+		return 0;
+	}
+	if (set)
+		value |= 1u << bit;
+	else
+		value &= ~(1u << bit);
+	twiddlings_write(address, &value, sizeof(value));
+	return 0;
+}
+
+static int lua_read_string8(
+	lua_State *state)
+{
+	char text[1024];
+
+	if (lua_gettop(state) != 1)
+		return lua_wrong_arguments(state, "read_string");
+	twiddlings_read_string(lua_check_address(state, 1), text, sizeof(text));
+	lua_pushstring(state, text);
+	return 1;
+}
+
+static int lua_write_string8(
+	lua_State *state)
+{
+	if (lua_gettop(state) != 2)
+		return lua_wrong_arguments(state, "write_string");
+	twiddlings_write_string(lua_check_address(state, 1), luaL_checkstring(state, 2));
+	return 0;
+}
+
+static void lua_register_memory(
+	lua_State *state)
+{
+	short index;
+
+	for (index = 0; index < (short)NUMBEROF(lua_memory_names); index++)
+	{
+		char name[32];
+
+		snprintf(name, sizeof(name), "read_%s", lua_memory_names[index].name);
+		lua_pushinteger(state, lua_memory_names[index].type);
+		lua_pushcclosure(state, lua_read_memory, 1);
+		lua_setglobal(state, name);
+		snprintf(name, sizeof(name), "write_%s", lua_memory_names[index].name);
+		lua_pushinteger(state, lua_memory_names[index].type);
+		lua_pushcclosure(state, lua_write_memory, 1);
+		lua_setglobal(state, name);
+	}
+	lua_register(state, "read_bit", lua_read_bit);
+	lua_register(state, "write_bit", lua_write_bit);
+	lua_register(state, "read_string8", lua_read_string8);
+	lua_register(state, "write_string8", lua_write_string8);
+	lua_register(state, "read_string", lua_read_string8);
+	lua_register(state, "write_string", lua_write_string8);
+}
+
+/* ---------- public code */
+
+void lua_chimera_api_register(
+	lua_State *state)
+{
+	static char const *const unsupported[] =
+	{
+		/* (objects and players come with Twiddlings' tables) */
+		"get_object", "get_player", "get_dynamic_player", "spawn_object", "delete_object",
+		"get_global", "set_global", "set_timer", "stop_timer",
+		"draw_text", "hud_message", "load_ui_widget", "create_font_override", "execute_chimera_command",
+		"create_directory", "remove_directory", "list_directory", "directory_exists",
+		"write_file", "read_file", "delete_file", "file_exists",
+	};
+	short index;
+
+	lua_register(state, "set_callback", lua_set_callback);
+	lua_register(state, "console_out", lua_console_out);
+	lua_register(state, "console_is_open", lua_console_is_open);
+	lua_register(state, "execute_script", lua_execute_script);
+	lua_register(state, "get_tag", lua_get_tag);
+	lua_register(state, "ticks", lua_ticks);
+	lua_register(state, "tick_rate", lua_tick_rate);
+	lua_register_memory(state);
+	for (index = 0; index < (short)NUMBEROF(unsupported); index++)
+		lua_register_unsupported(state, unsupported[index]);
+	lua_pushinteger(state, LUA_CHIMERA_BUILD);
+	lua_setglobal(state, "build");
+	lua_pushstring(state, LUA_CHIMERA_FULL_BUILD);
+	lua_setglobal(state, "full_build");
+	lua_chimera_api_refresh(state);
+}
+
+/* (lua_variables.cpp) */
+void lua_chimera_api_refresh(
+	lua_State *state)
+{
+	char const *map = "";
+	void const *header = cache_file_loaded_header();
+	boolean engine = game_time_initialized() && game_engine_running();
+	char name[0x20 + 1];
+
+	if (game_time_initialized() && local_player_exists(0) && local_player_get_player_index(0) != NONE)
+		lua_pushinteger(state, local_player_get_player_index(0) & 0xFFFF);
+	else
+		lua_pushnil(state);
+	lua_setglobal(state, "local_player_index");
+
+	/* (the cache header's name, as Chimera's: the scenario's) */
+	if (header)
+	{
+		memcpy(name, (char const *)header + 0x20, 0x20);
+		name[0x20] = 0;
+		map = name;
+	}
+	else if (cache_file_loaded_map_name())
+	{
+		map = cache_file_loaded_map_name();
+	}
+	lua_pushstring(state, map);
+	lua_setglobal(state, "map");
+
+	lua_pushboolean(state, FALSE);
+	lua_setglobal(state, "map_is_protected");
+
+	/* (a game type's game is the player's own here: "local", whose game
+	type Chimera leaves nil; a campaign is "none") */
+	lua_pushstring(state, engine ? "local" : "none");
+	lua_setglobal(state, "server_type");
+	lua_pushnil(state);
+	lua_setglobal(state, "gametype");
+}
+
+/* (lua_script.cpp's load_lua_script, after the state is made) */
+boolean lua_chimera_api_run(
+	struct lua_script *script,
+	char const *chunk,
+	unsigned int size)
+{
+	lua_State *state = script->state;
+	char chunk_name[LUA_SCRIPT_NAME_LENGTH + 1];
+
+	lua_pushstring(state, script->name);
+	lua_setglobal(state, "script_name");
+	lua_pushstring(state, script->kind == _lua_script_map ? "map" : "global");
+	lua_setglobal(state, "script_type");
+	lua_pushboolean(state, script->sandbox);
+	lua_setglobal(state, "sandboxed");
+
+	snprintf(chunk_name, sizeof(chunk_name), "=%s", script->name);
+	if (luaL_loadbufferx(state, chunk, size, chunk_name, "t") != LUA_OK)
+	{
+		lua_log_error(state, script->name);
+		lua_log("%s: did not load", script->name);
+		return FALSE;
+	}
+	if (lua_pcall_logged(state, 0, 0, script->name) != LUA_OK)
+	{
+		lua_log("%s: did not load", script->name);
+		return FALSE;
+	}
+
+	lua_getglobal(state, "clua_version");
+	if (lua_isnumber(state, -1))
+	{
+		double version = lua_tonumber(state, -1);
+
+		if (version > LUA_CHIMERA_API_VERSION)
+			lua_log("%s: asks for Chimera's Lua API %.3f, newer than this game's %.3f: it may not work", script->name,
+				version, LUA_CHIMERA_API_VERSION);
+		else if ((int)version < (int)LUA_CHIMERA_API_VERSION)
+			lua_log("%s: asks for Chimera's Lua API %.3f, too old for this game's %.3f: it may not work",
+				script->name, version, LUA_CHIMERA_API_VERSION);
+		else
+			script->version = version;
+	}
+	else
+	{
+		lua_log("%s: names no Chimera Lua API version (clua_version): it may not work", script->name);
+	}
+	lua_pop(state, 1);
+	script->loaded = TRUE;
+	return TRUE;
+}
+
+/* (lua_callback.cpp's basic_callback, at each priority) */
+void lua_chimera_api_call(
+	enum lua_callback callback)
+{
+	short priority;
+
+	for (priority = 0; priority < number_of_lua_priorities; priority++)
+	{
+		int index;
+
+		for (index = 0; index < lua_script_count; index++)
+		{
+			struct lua_script *script = &lua_scripts[index];
+			struct lua_script_callback const *entry = &script->callbacks[callback];
+			char where[LUA_SCRIPT_NAME_LENGTH + 32];
+
+			if (!script->loaded || !entry->function[0] || entry->priority != priority)
+				continue;
+			snprintf(where, sizeof(where), "%s (%s)", script->name, lua_callback_names[callback]);
+			lua_getglobal(script->state, entry->function);
+			lua_pcall_logged(script->state, 0, 0, where);
+		}
+	}
+}
+
+/* (lua_callback.cpp's allow_string_callback: a false result blocks, or
+true for a script older than 2.02; the final priority cannot block) */
+boolean lua_chimera_api_call_allow(
+	enum lua_callback callback,
+	char const *text)
+{
+	boolean allow = TRUE;
+	short priority;
+
+	for (priority = 0; priority < number_of_lua_priorities; priority++)
+	{
+		int index;
+
+		for (index = 0; index < lua_script_count && allow; index++)
+		{
+			struct lua_script *script = &lua_scripts[index];
+			struct lua_script_callback const *entry = &script->callbacks[callback];
+			char where[LUA_SCRIPT_NAME_LENGTH + 32];
+
+			if (!script->loaded || !entry->function[0] || entry->priority != priority)
+				continue;
+			snprintf(where, sizeof(where), "%s (%s)", script->name, lua_callback_names[callback]);
+			lua_getglobal(script->state, entry->function);
+			lua_pushstring(script->state, text);
+			if (lua_pcall_logged(script->state, 1, 1, where) == LUA_OK)
+			{
+				if (!lua_isnil(script->state, -1) && priority != _lua_priority_final)
+				{
+					allow = lua_toboolean(script->state, -1) ? TRUE : FALSE;
+					if (script->version < 2.02)
+						allow = !allow;
+				}
+				lua_pop(script->state, 1);
+			}
+		}
+	}
+	return allow;
+}
+
+#endif

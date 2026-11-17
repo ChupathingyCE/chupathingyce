@@ -62,6 +62,7 @@ symbols in this file:
 #include "input/input.h"
 #include "interface/terminal.h"
 #include "math/real_math.h"
+#include "lua_scripting.h"
 
 /* ---------- constants */
 
@@ -501,6 +502,10 @@ static boolean console_process_command(
 #endif
 	/* port: echoed in the drop-down console's scrollback, after its prompt */
 	terminal_echo_command(command);
+	/* port: a mod's Lua script may take the command for itself
+	(port/linux/game/lua_scripting.c, its "command" callback) */
+	if (!lua_scripting_command(command))
+		return TRUE;
 #ifdef CONSOLE_SHELL
 	/* port: the drop-down console's shell: its own commands, then the line
 	made the scripts' expression (console_shell.h) */

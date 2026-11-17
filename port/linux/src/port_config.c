@@ -1195,6 +1195,16 @@ static const struct config_setting config_settings[] =
 		"Chupathingy sets this after it asks about changed defaults.\n"
 		"Don't edit it." },
 
+#ifdef HALO_LUA
+	/* ---- lua: mods' scripts for Chimera's Lua API (port/linux/game/lua_scripting.c) */
+	{ "lua.scripts", _config_boolean, "false", "HALO_LUA_SCRIPTS", _environment_value, _platform_desktop,
+		"Run mods' Lua scripts made for Chimera, from the lua folder beside\n"
+		"maps/. A map pack's own are in lua/<pack>, like lua/spv3." },
+	{ "lua.twiddlings", _config_boolean, "true", "HALO_LUA_TWIDDLINGS", _environment_value, _platform_desktop,
+		"Let those scripts read and change the game's memory, translated\n"
+		"from Halo PC's. false makes every read 0 and refuses every write." },
+#endif
+
 	/* ---- network */
 	{ "network.online", _config_boolean, "true", "HALO_NET_ONLINE", _environment_value,
 		_platform_all | _platform_xbox | _platform_server, ONLINE_HELP },
@@ -2311,6 +2321,10 @@ static const struct
 	{ "game", 0,
 		"How games play. The bomb settings are for Bomb and Grifball games you\n"
 		"host." },
+#ifdef HALO_LUA
+	{ "lua", 0,
+		"Mods' Lua scripts made for Chimera." },
+#endif
 	{ "network", 0,
 #ifdef HALO_SERVER
 		"Internet play, the Server Browser, the game list and Delta Stats. Most\n"
