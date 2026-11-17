@@ -643,6 +643,11 @@ def test_joins_held_to_host_limits():
     assert join.index("address_full(event->address)") < join.index("network_game_client_add_named_player(")
     assert "network_distributed_address_full(address, others, count)" in \
         _function(source, "static boolean address_full")
+    # (16 players at most with Custom Edition players in: a CE client's game
+    # holds 16; a server without them keeps its own limit)
+    assert "game->player_count >= CE_GAME_PLAYERS" in join
+    manager = (ROOT / "source/networking/network_game_manager.c").read_text(encoding="utf-8")
+    assert "if (game->player_count >= 16 && server_ce_players_present())" in manager
 
 
 # (our capture of Custom Edition 1.0.10's server ending a game for
