@@ -832,6 +832,20 @@ static boolean join(
 		error(_error_silent, "ce: a Custom Edition player was turned away: the map is not a Custom Edition map");
 		return TRUE;
 	}
+	/* (a game of 16 players already: the most a Custom Edition client's
+	game holds; with Custom Edition players in, the server takes no more,
+	network_game_has_free_player_slot) */
+	{
+		struct network_game_server *server = global_network_game_server_get();
+		struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+
+		if (game && game->player_count >= CE_GAME_PLAYERS)
+		{
+			ce_transport_refuse(event->peer, CE_REJECT_FULL);
+			error(_error_silent, "ce: a Custom Edition player was turned away: the game has 16 players");
+			return TRUE;
+		}
+	}
 	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
 	{
 		if (!ce.clients[index].active && local_player_get_player_index(index) == NONE)
