@@ -528,7 +528,7 @@ textures read-only, with MCC-owned groups and frame selections. Unload drops
 these descriptors before the native menu loader releases the textures.
 Selection highlights are drawn independently with antialiased rounded edges.
 
-Friendly Fire changes only the existing `network.coop_own_friendly_fire`
+Friendly Fire changes only the existing `network.coop_friendly_fire` (on the hosting machine; it shows the game's own rule)
 preference, through the same configuration service as Xbox. The generated
 button reloads its label after a successful change. This introduces no new
 network message or authority: checkpoint/restart and End Game still require

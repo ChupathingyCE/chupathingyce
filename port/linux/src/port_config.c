@@ -639,7 +639,7 @@ static const struct config_setting config_settings[] =
 		"dedicated servers)." },
 	{ "display.opence_empty_servers", _config_string, "\"folded\"", "HALO_OPENCE_EMPTY_SERVERS", _environment_value,
 		_platform_all,
-		"Empty OpenCE dedicated servers in Online Games' ALL and OPENCE lists:\n"
+		"Empty OpenCE dedicated servers in Online Games' ALL and LEGACY lists:\n"
 		"\"folded\" puts them in one row at the end (A opens it), \"shown\"\n"
 		"lists each one." },
 #endif
@@ -781,13 +781,19 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_BGFX
 	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_desktop,
 		"What draws the game. \"gl\" is OpenGL, the default. \"bgfx\" is a new\n"
-		"renderer we are testing: Metal on macOS, Vulkan on Windows and Linux.\n"
+		"renderer we are testing: Metal on macOS, Vulkan on Windows and Linux\n"
+		"(the menu's VULKAN (BGFX, TESTING) or METAL (BGFX, TESTING)).\n"
 #ifdef _WIN32
 		"On Windows, \"d3d11\" draws with Direct3D 11 instead, for testing on\n"
 		"computers whose Vulkan is missing or bad.\n"
 #endif
 		"If it can't start, the game draws with OpenGL. Set \"gl\" to go back.\n"
 		"Read when Chupathingy starts." },
+#if defined(__APPLE__) && !defined(HALO_IOS)
+	{ "display.metal_hud", _config_boolean, "false", "HALO_METAL_HUD", _environment_set_is_true, _platform_desktop,
+		"Show Apple's Metal Performance HUD over the game: frame rate, frame\n"
+		"time and GPU time, drawn by macOS. Read when Chupathingy starts." },
+#endif
 	{ "display.crt_filter", _config_boolean, "false", "HALO_CRT_FILTER", _environment_set_is_true, _platform_desktop,
 		"Put a CRT look over the picture: scanlines, curvature and a phosphor\n"
 		"mask. Only the bgfx renderer has it for now." },
@@ -5073,6 +5079,24 @@ static const struct config_value *config_value(const char *name, enum config_typ
 		config_loaded = 1;
 	}
 	pthread_mutex_unlock(&config_lock);
+#if defined(__APPLE__) && !defined(HALO_IOS)
+	{
+		/* (display.metal_hud: macOS reads MTL_HUD_ENABLED as Metal starts,
+		so it is set at the first setting asked for, before any window or
+		GPU; an MTL_HUD_ENABLED already set is left alone) */
+		static int metal_hud_read;
+
+		if (!metal_hud_read)
+		{
+			metal_hud_read = 1;
+			if (config_boolean("display.metal_hud"))
+			{
+				setenv("MTL_HUD_ENABLED", "1", 0);
+				platform_log("display: Metal HUD on (display.metal_hud)");
+			}
+		}
+	}
+#endif
 	index = config_setting_index(name);
 	if (index < 0 || config_settings[index].type != type)
 	{

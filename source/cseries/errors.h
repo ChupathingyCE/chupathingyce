@@ -61,6 +61,11 @@ void write_to_error_file(
 	char *string,
 	boolean date);
 
+/* port: where debug.txt is now: "d:\\debug.txt", or an Xbox's T: when its D:
+can't be written (errors.c) */
+char const *error_log_path(
+	void);
+
 #ifdef HALO_CONSOLE_LOG_BUFFER
 /* port: the console's debug.txt lines wait in memory (errors.c): written out
 at once, and by the main loop once a second */

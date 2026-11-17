@@ -79,6 +79,10 @@ void network_game_server_port_set_settings(
 multiplayer; the next round is on next_map (NULL repeats the level). */
 void network_game_server_port_cooperative_won(
 	char const *next_map);
+/* port: the co-op host's RESTART LEVEL: as a won level's round end, the
+next round on the same level; nothing unless the game is on */
+void network_game_server_port_cooperative_restart(
+	void);
 /* port: co-op server settings: the difficulty, sent to clients, and the
 most players a co-op game starts with (Server Setup sets its own) */
 void network_game_server_port_set_cooperative(
