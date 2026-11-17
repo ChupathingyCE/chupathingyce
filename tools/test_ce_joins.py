@@ -713,7 +713,7 @@ def test_team_slayer():
     variant = _function(source, "static void settings_from_variant")
     assert "settings->universal[0] = universal->teams ? 1 : 0;" in variant
     assert "settings->universal[15] = (unsigned int)universal->score_to_win;" in variant
-    assert "variant->game_engine_index != game_engine_slayer" in variant
+    assert "!engine_told(variant->game_engine_index)" in variant
     roster = _function(source, "static void game_settings_for")
     assert "team = network_player_team(player);" in roster
     assert "settings->random_seed = ce.random_seed;" in roster
@@ -724,6 +724,64 @@ def test_team_slayer():
     assert "ce_message_new_client_challenge(challenge_text, peer_number(peer)," in transport
     messages = (ROOT / "server/platform/ce_messages.c").read_text(encoding="utf-8")
     assert "put_bits(payload, (unsigned int)team, 32);" in messages
+
+
+def test_ctf_matches_capture(harness):  # noqa: F811
+    """Capture the Flag's messages as our capture of Custom Edition's own
+    server has them (research capture real-ce-ctf-grab-drop): the grab (the
+    team's sound, the flag's HUD note, the pickup), a carrier's drop, a HUD
+    message, and a new game's state (no swap timer, no scores, no team)"""
+    import subprocess
+
+    def run(step):
+        return subprocess.run([str(harness), "ctf", step], capture_output=True, text=True, check=True).stdout.strip()
+
+    # (the grab's 210 bits; the last byte's unused bits are whatever the
+    # server's buffer held)
+    assert bits_of(run("grab"))[:210] == bits_of("1b285b000000c8b0365042070000480901000000020e00feff0128")[:210]
+    assert run("drop") == "0568a32120"
+    assert run("message") == "0b080b1e00000078690000"
+    state = bits_of(run("state"))
+    # (a delta, all fields, type 17; then 104 zero bits)
+    assert state[11:19] == "10100010" and set(state[19:19 + 104]) == {"0"}
+
+
+def test_ctf_reaches_custom_edition():
+    """Capture the Flag is shown as it is: the game type and its own settings,
+    the flags' teams, its state as it changes, the HUD's messages and the
+    game's sounds, and a carrier's drop"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    assert "engine == game_engine_slayer || engine == game_engine_ctf" in _function(source, "static boolean engine_told")
+    assert "csmemcpy(settings->engine_variant, &variant->game_engine_variant," in _function(
+        source, "static void settings_from_variant")
+    assert "object->object.owner_team_index == NONE ? 0xffff" in _function(source, "static void put_object_start")
+    assert "ce_payload_put_ctf_update(&payload" in _function(source, "static void send_scores")
+    assert "ce_payload_put_unit_drop_weapon(reliable" in _function(source, "static void update_items")
+    assert "ce_payload_put_hud_add_item(reliable" in _function(source, "static void update_items")
+    assert "ce.showing_message" in _function(source, "void server_ce_multiplayer_sound")
+    engine = (ROOT / "source/game/game_engine.c").read_text(encoding="utf-8")
+    assert "server_ce_multiplayer_message(player_index, message, message_data);" in engine
+    sounds = (ROOT / "source/game/game_engine_multiplayer_sounds.c").read_text(encoding="utf-8")
+    assert "server_ce_multiplayer_sound(sound_index);" in sounds
+    # (a capture's message shows the scores its client has: they go first)
+    message = _function(source, "void server_ce_multiplayer_message")
+    assert message.index("send_scores(client);") < message.index("ce_payload_put_hud_message(")
+    # (a game type's messages are two further on in Custom Edition's list:
+    # Capture the Flag's capture, 31 here, is its 33, "You scored 1 to 0")
+    assert "ce_message_number(message)" in message
+    numbers = _function(source, "static unsigned int ce_message_number")
+    assert "FIRST_GAME_TYPE_MESSAGE = 30," in source and "CE_FIRST_GAME_TYPE_MESSAGE = 32," in source
+    # (not a game type shown as Slayer (Bomb): its messages would read as
+    # Slayer's; a named player outside the client's roster, none)
+    assert "message >= FIRST_GAME_TYPE_MESSAGE &&" in message and "engine_told(" in message
+    assert "!network_player_number(client, data)" in message
+    # (one flag: the flag's team in its state, and the flag made again as
+    # its sides swap, as Custom Edition's own server does (research capture
+    # rs1, Assault): a client takes an object's team only at its creation)
+    scores = _function(source, "static void send_scores")
+    assert "team_with_flag = flag->object.owner_team_index;" in scores
+    items = _function(source, "static void update_items")
+    assert "TEST_FLAG(_object_mask_weapon, item->object.type) && weapon_is_flag(client->item[number])" in items
 
 
 def test_roster_players_get_their_numbers():
