@@ -165,6 +165,9 @@ static const struct settings_row settings_rows[] =
 #ifdef HALO_BGFX
 	{ _in_display, "RENDERER", "display.renderer", _kind_choices, renderer_choices, renderer_names, 1, 0 },
 #endif
+#if defined(__APPLE__) && !defined(HALO_IOS)
+	{ _in_display, "METAL HUD", "display.metal_hud", _kind_toggle, NULL, NULL, 1, 0 },
+#endif
 	/* (the menus, text and buttons, as Video Setup's INTERFACE orders them;
 	in the Guide too: the way back from the Xbox's menus, which have no
 	screen of it, #1210) */
