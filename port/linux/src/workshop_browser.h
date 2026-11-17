@@ -44,6 +44,10 @@ in the order the Guide lists them.
 The parsing (workshop_list.c) has no game, SDL or file system, so its tests
 build anywhere (port/linux/tests/workshop_list_test.c,
 tools/test_workshop_list.py).
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #ifndef WORKSHOP_BROWSER_H
@@ -51,15 +55,18 @@ tools/test_workshop_list.py).
 
 enum
 {
-	WORKSHOP_BROWSER_MAXIMUM_ITEMS = 64,
+	WORKSHOP_BROWSER_MAXIMUM_ITEMS = 128,
 	WORKSHOP_BROWSER_ID_SIZE = 24,
-	WORKSHOP_BROWSER_TITLE_SIZE = 64,
+	/* (Steam's titles are at most 128 characters: kept whole) */
+	WORKSHOP_BROWSER_TITLE_SIZE = 160,
 	WORKSHOP_BROWSER_AUTHOR_SIZE = 48,
 	WORKSHOP_BROWSER_KIND_SIZE = 32,
 	WORKSHOP_BROWSER_DESCRIPTION_SIZE = 400,
 	/* the largest list document read */
 	WORKSHOP_BROWSER_MAXIMUM_DOCUMENT = 128 * 1024,
 	WORKSHOP_BROWSER_PREVIEW_WIDTH = 768,
+	/* the most pages of Steam's list the browser goes to */
+	WORKSHOP_BROWSER_MAXIMUM_PAGES = 100,
 };
 
 /* where an item stands on this computer */
@@ -165,6 +172,18 @@ before it, a failure, not taken for the new try's) */
 	int step;
 	/* Steam's picture of it (its CDN, https only); "" none */
 	char preview_url[200];
+	/* who made it: Steam's id of its creator (the details'), "" unknown; its
+	name goes in author once Steam says it */
+	char creator[WORKSHOP_BROWSER_ID_SIZE];
+};
+
+/* an item of Steam's browse page and who made it (the page's own words) */
+struct workshop_browser_author
+{
+	char id[WORKSHOP_BROWSER_ID_SIZE];
+	char creator[WORKSHOP_BROWSER_ID_SIZE];
+	/* "" when the page doesn't name them */
+	char name[WORKSHOP_BROWSER_AUTHOR_SIZE];
 };
 
 /* ---------- the list's text (workshop_list.c) */
@@ -177,11 +196,24 @@ int workshop_browser_read_list(const char *text, int length, struct workshop_bro
 how many Halo CE items of MCC's (consumer app 976730, tag Halo1, result 1)
 were written, with their title, kind (campaign, multiplayer or, tagged both,
 campaign+multiplayer), size when Steam
-gives one, update time and a plain description; -1 if it is not one */
+gives one, update time, creator's id and a plain description; -1 if it is not one */
 int workshop_browser_read_details(const char *text, int length, struct workshop_browser_item *items, int maximum);
-/* the item ids on a page of Steam's public Workshop browse page (the digits
-after each "filedetails/?id="), each once, in the page's order: how many */
+/* the item ids on a page of Steam's public Workshop browse page, each once,
+in the page's order: its list's items (the page carries the list as data),
+or, on a page without it, the digits after each "filedetails/?id=": how many */
 int workshop_browser_read_browse_ids(const char *text, int length, char (*ids)[WORKSHOP_BROWSER_ID_SIZE], int maximum);
+/* the browse page's items with their creators and, where the page names
+them, the creators' Steam names (the page carries its list as data: each
+item's creator, and each creator's name): how many, in the page's order */
+int workshop_browser_read_browse_authors(const char *text, int length, struct workshop_browser_author *authors,
+	int maximum);
+/* the browse page's count of pages (at most WORKSHOP_BROWSER_MAXIMUM_PAGES)
+and of items for its search: 1 when it says (0 otherwise, both left as they
+were) */
+int workshop_browser_read_browse_pages(const char *text, int length, int *pages, int *total);
+/* a Steam profile's public XML (steamcommunity.com/profiles/<id>/?xml=1): its
+name, 1 when it has one */
+int workshop_browser_read_profile_name(const char *text, int length, char *name, int size);
 /* whether text is a Workshop item id: 1 to 20 digits */
 int workshop_browser_id_valid(const char *text);
 /* the page of an item in the Steam client: steam://url/CommunityFilePage/<id>; 0 for a bad id */
@@ -222,6 +254,8 @@ int workshop_browser_link_offered(void);
 /* Steam's browse page shown (1 the first), and the next or the one before
 asked for (each kept ten minutes); 0 when there is none that way */
 int workshop_browser_page(void);
+/* how many pages Steam has for the list's search (0: not known) */
+int workshop_browser_page_count(void);
 /* the game's own Steam download, once Steam is linked: turned on (the
 link is the player's yes) and connected while the tab is open. Each frame */
 void workshop_browser_link_follow(void);
@@ -241,10 +275,14 @@ int workshop_browser_page_previous(void);
 const char *workshop_browser_setup_button(int index);
 int workshop_browser_setup_press(int index);
 /* the list as shown: the setup rows, the find row, then the items the
-filter and search keep, in the sort's order. Popular, New, Top rated and
+filter and search keep, in the sort's order: Steam's page alone, its
+installed items marked by their state; INSTALLED every installed item,
+from any library, whatever the page. Popular, New, Top rated and
 Updated ask Steam's page for that order (and the search's words), once per
-change; A-Z sorts what is loaded. The search also keeps, at once, the
-loaded and installed items whose title, kind or description has the words */
+change; A-Z sorts what is loaded. The search also keeps only the
+loaded items (under INSTALLED, the installed ones) whose title, kind or
+description has the words. While another page of Steam's is coming, the
+list has none of the last one's */
 int workshop_browser_filter(void);
 int workshop_browser_sort(void);
 const char *workshop_browser_search(void);
@@ -265,7 +303,8 @@ int workshop_browser_in_own_library(int index);
 /* CANCEL on a GET: the download stopped, its part deleted, the item back
 to Not installed (0 when it isn't being got) */
 int workshop_browser_cancel(int index);
-/* the list failed: "Offline" (no answer) or "Failed"; "" when it didn't */
+/* the list failed, or the last page asked for did and the list is the one
+before: "Offline" (no answer) or "Failed"; "" when it didn't */
 const char *workshop_browser_list_why(void);
 /* WORKSHOP FOLDER: the system's folder picker opened (0 where there is
 none), and its answer taken each frame (the downloads' folder set) */

@@ -5166,6 +5166,19 @@ void network_game_server_port_cooperative_won(
 	network_game_server_reset_to_pregame(server);
 }
 
+/* port: the co-op host's RESTART LEVEL (main.c's main loop, from the pause
+menu): the round ends for everyone and the lobby has the same level, as a won
+level's does. Only while the game is on: a second request once the server is
+back in the pregame would rebuild it from the multiplayer playlist */
+void network_game_server_port_cooperative_restart(
+	void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	if (server && server->state == _network_game_server_state_ingame)
+		network_game_server_port_cooperative_won(NULL);
+}
+
 /* port: reapply the co-op settings after a won round, since the playlist
 the next round is set up from (network_game_server_setup_game_from_playlist)
 has a multiplayer gametype and map */

@@ -926,7 +926,9 @@ void ce_models_tags_unloaded(
 	loaded: scenario_tags_unload) */
 	for (index = 0; index < ce_multipurpose_copy_count; index++)
 		free(ce_multipurpose_copies[index].copy);
-	free(ce_multipurpose_copies);
+	/* (none made: the debug allocator refuses a NULL) */
+	if (ce_multipurpose_copies)
+		free(ce_multipurpose_copies);
 	ce_multipurpose_copies = NULL;
 	ce_multipurpose_copy_count = 0;
 }

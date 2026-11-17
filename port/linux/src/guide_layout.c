@@ -626,3 +626,46 @@ int guide_layout_scroll_thumb(struct guide_rect track, int count, int shown, int
 	thumb->y = track.y + (track.height - height) * (float)scroll / (float)(count - shown);
 	return 1;
 }
+
+/* whether a point is in a rect widened by reach each side */
+static int scroll_bar_hit(struct guide_rect rect, float reach, float x, float y)
+{
+	return x >= rect.x - reach && x < rect.x + rect.width + reach && y >= rect.y && y < rect.y + rect.height;
+}
+
+int guide_layout_scroll_bar_pointer(struct guide_scroll_bar *bar, int scroll, float x, float y, int down,
+	int pressed, float press_x, float press_y, int *taken)
+{
+	float room;
+	int most, wanted = -1;
+
+	*taken = 0;
+	if (bar->thumb.height <= 0 || bar->count <= bar->shown || bar->shown <= 0)
+	{
+		bar->hover = bar->dragging = 0;
+		return -1;
+	}
+	most = bar->count - bar->shown;
+	if (pressed && scroll_bar_hit(bar->track, GUIDE_SCROLL_BAR_REACH, press_x, press_y))
+	{
+		*taken = 1;
+		if (press_y >= bar->thumb.y && press_y < bar->thumb.y + bar->thumb.height)
+		{
+			bar->dragging = 1;
+			bar->grab = press_y - bar->thumb.y;
+		}
+		else
+			wanted = guide_layout_scroll_clamp(scroll + (press_y < bar->thumb.y ? -bar->shown : bar->shown),
+				bar->count, bar->shown);
+	}
+	else if (bar->dragging && !down)
+		bar->dragging = 0;
+	else if (bar->dragging)
+	{
+		room = bar->track.height - bar->thumb.height;
+		wanted = room > 0 ? (int)((y - bar->grab - bar->track.y) / room * (float)most + 0.5f) : 0;
+		wanted = guide_layout_scroll_clamp(wanted, bar->count, bar->shown);
+	}
+	bar->hover = bar->dragging || scroll_bar_hit(bar->thumb, GUIDE_SCROLL_BAR_REACH, x, y);
+	return wanted >= 0 && wanted != scroll ? wanted : -1;
+}

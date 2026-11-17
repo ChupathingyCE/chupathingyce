@@ -57,6 +57,10 @@ short mcc_pause_key_button(long parent, long child);
 short mcc_pause_key_offset(long parent, long child, short accept_width, short back_width);
 void mcc_pause_dispose(void);
 void mcc_pause_friendly_fire(boolean enabled);
+/* whether online co-op friendly fire is on (mcc_ui.c: network.coop_friendly_fire not "off") */
+boolean mcc_ui_coop_friendly_fire_on(void);
+/* whether it's offered: on the hosting machine only (mcc_ui.c) */
+boolean mcc_ui_coop_friendly_fire_shown(void);
 
 #if defined(HALO_MCC) && !HALO_MCC
 /* no MCC maps in this build (HALO_MCC, halo_port_features.h): the hooks

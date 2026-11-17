@@ -87,15 +87,15 @@ struct settings_row
 say so, as config.toml's help does) */
 #ifdef __APPLE__
 static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
-static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "METAL (TESTING)", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "METAL (BGFX, TESTING)", NULL };
 #elif defined(_WIN32)
 /* ("d3d11": bgfx on Direct3D 11, for testing; each falls back to
 OpenGL) */
 static const char *const renderer_choices[] = { "gl", "bgfx", "d3d11", NULL };
-static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (TESTING)", "DIRECT3D 11 (TESTING)", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (BGFX, TESTING)", "D3D11 (BGFX, TESTING)", NULL };
 #else
 static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
-static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (TESTING)", NULL };
+static const char *const renderer_names[] = { "OPENGL (DEFAULT)", "VULKAN (BGFX, TESTING)", NULL };
 #endif
 #endif
 /* (Gearbox's menus, "gearbox" or the older "pc", are no longer one: such a
@@ -164,6 +164,9 @@ static const struct settings_row settings_rows[] =
 	/* (below the common rows: OpenGL, the default, is the one most keep) */
 #ifdef HALO_BGFX
 	{ _in_display, "RENDERER", "display.renderer", _kind_choices, renderer_choices, renderer_names, 1, 0 },
+#endif
+#if defined(__APPLE__) && !defined(HALO_IOS)
+	{ _in_display, "METAL HUD", "display.metal_hud", _kind_toggle, NULL, NULL, 1, 0 },
 #endif
 	/* (the menus, text and buttons, as Video Setup's INTERFACE orders them;
 	in the Guide too: the way back from the Xbox's menus, which have no
