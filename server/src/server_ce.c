@@ -128,6 +128,7 @@ struct ce_client
 	/* what this client was told of each player (by absolute index):
 	added, and the unit created for it */
 	long announced[TRACKED_PLAYERS];
+	long announced_team[TRACKED_PLAYERS];
 	long unit_sent[TRACKED_PLAYERS];
 	/* each player's last unit it was told died: taken away once our game
 	takes the body away */
@@ -168,6 +169,15 @@ struct ce_client
 	struct ce_player_statistics statistics_sent[CE_GAME_PLAYERS];
 	boolean statistics_known[CE_GAME_PLAYERS];
 	boolean scores_known;
+	/* the roster it was told last (game settings), to tell it again as it
+	changes */
+	struct ce_network_player roster[CE_GAME_PLAYERS];
+	int roster_count;
+	boolean roster_known;
+	/* what the roster was built from as it was told last (roster_signature)
+	and the client's own player then */
+	unsigned long roster_signature;
+	long roster_own_player;
 	boolean welcomed;
 	/* when it first had the map loaded (system_milliseconds; 0: not yet):
 	the welcome line comes a while after */
@@ -184,6 +194,9 @@ struct ce_client
 	were for (a new unit: none given yet) */
 	int chosen_weapon;
 	int chosen_zoom;
+	/* a zoom chosen while a weapon was still being readied: given once the
+	weapon is in hand (its levels are the new weapon's); NONE: none */
+	int pending_zoom;
 	long chosen_unit;
 	/* when its actions last changed (system_milliseconds; 0: not yet), for
 	the AFK limit (server_conduct.c) */
@@ -216,6 +229,10 @@ static struct
 	/* no game played since the last one: the objects' wire numbers start
 	over with the next */
 	boolean between_games;
+	/* the game settings' random number, one a game */
+	unsigned int random_seed;
+	/* what every client's roster is built from, this tick (roster_signature) */
+	unsigned long roster_signature;
 } ce;
 
 /* ---------- objects' wire numbers */
@@ -266,6 +283,121 @@ static void put_text(
 	out[index] = 0;
 }
 
+/* the game's own variant, over Custom Edition's Slayer: teams, the radar
+and player options, respawns, health, the score and limits (Slayer and
+Team Slayer: the other games stay Slayer to a Custom Edition client for
+now). The universal fields are Halo PC's game variant's, in its order:
+teams; flags (other players on the radar, friend indicators, infinite
+grenades, no shields, invisible, generic equipment, friends only on the
+radar); objective indicator; odd man out; respawn growth, respawn time and
+suicide penalty (ticks); lives; health; score; weapons; each team's
+vehicles; vehicle respawn; friendly fire; its penalty (ticks); team
+balance; time limit (ticks) */
+static void settings_from_variant(
+	struct ce_game_settings *settings)
+{
+	struct game_variant const *variant = game_engine_get_variant();
+	struct game_variant_options const *options = game_variant_options_get();
+	struct universal_variant const *universal;
+	unsigned int flags;
+	char name[sizeof(settings->variant_name)];
+
+	if (!variant || variant->game_engine_index != game_engine_slayer)
+		return;
+	universal = &variant->universal_variant;
+	/* (bit 8, unknown, as Custom Edition's own server sends it) */
+	flags = settings->universal[4] & ~0x7fu;
+	if (TEST_FLAG(universal->flags, _game_variant_draw_object_in_motion_sensor_bit) &&
+		(!options || options->radar_players != _radar_players_none))
+	{
+		flags |= 1u << 0;
+		if (options && options->radar_players == _radar_players_friends)
+			flags |= 1u << 6;
+	}
+	if (TEST_FLAG(universal->flags, _game_variant_allow_friendly_navpoints_bit))
+		flags |= 1u << 1;
+	if (TEST_FLAG(universal->flags, _game_variant_infinite_grenades_bit))
+		flags |= 1u << 2;
+	if (TEST_FLAG(universal->flags, _game_variant_no_shields_bit))
+		flags |= 1u << 3;
+	if (TEST_FLAG(universal->flags, _game_variant_always_invisible_bit))
+		flags |= 1u << 4;
+	if (TEST_FLAG(universal->flags, _game_variant_generic_starting_equipment_bit))
+		flags |= 1u << 5;
+	settings->universal[0] = universal->teams ? 1 : 0;
+	settings->universal[4] = flags;
+	settings->universal[5] = (unsigned int)universal->goal_radar;
+	settings->universal[6] = universal->odd_man_out ? 1 : 0;
+	settings->universal[10] = (unsigned int)universal->respawn_time_growth;
+	settings->universal[11] = (unsigned int)universal->respawn_time;
+	settings->universal[12] = (unsigned int)universal->suicide_penalty;
+	settings->universal[13] = (unsigned int)universal->lives;
+	csmemcpy(&settings->universal[14], &universal->health, sizeof(settings->universal[14]));
+	settings->universal[15] = (unsigned int)universal->score_to_win;
+	settings->universal[16] = (unsigned int)universal->weapon_set;
+	if (options)
+	{
+		if (universal->teams)
+		{
+			settings->universal[21] = (unsigned int)(options->friendly_fire_penalty * TICKS_PER_SECOND);
+			settings->universal[22] = options->auto_team_balance ? 1 : 0;
+		}
+		if (options->time_limit > 0)
+			settings->universal[23] = (unsigned int)(options->time_limit * 60 * TICKS_PER_SECOND);
+	}
+	put_text(name, sizeof(name), variant->human_readable_game_description);
+	if (name[0])
+		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", name);
+	else if (universal->teams)
+		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "Team Slayer");
+}
+
+/* a team as a Custom Edition client takes it (its team tables hold 16): in a
+team game the game's own; in a free-for-all each player's own (its slot),
+which past 16 players wraps (a client holds at most 16 players anyway) */
+static int wire_team(
+	long team)
+{
+	if (team == NONE || team < 0)
+		return 0;
+	return (int)(team % CE_GAME_PLAYERS);
+}
+
+/* a player's team as the game has it (the network game's own record can
+lag behind its auto balance and moves), by machine and controller */
+static long network_player_team(
+	struct network_player const *player)
+{
+	struct data_iterator iterator;
+	struct player_datum *datum;
+
+	if (player_data)
+	{
+		data_iterator_new(&iterator, player_data);
+		while ((datum = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		{
+			if (datum->network_player_data.machine_index == player->machine_index &&
+				datum->network_player_data.controller_index == player->controller_index)
+			{
+				return datum->team_index;
+			}
+		}
+	}
+	return player->team_index;
+}
+
+/* a roster color: in a team game, its team's, as Custom Edition's own
+server sends it (red 1, blue 0, whatever the player's own color) */
+static int team_color(
+	struct ce_game_settings const *settings,
+	int team,
+	int color)
+{
+	if (!settings->universal[0])
+		return color;
+	return team == 0 ? 1 : 0;
+}
+
 static void game_settings_for(
 	int peer,
 	char const *name,
@@ -275,57 +407,163 @@ static void game_settings_for(
 	struct dedicated_status status;
 	struct network_game_server *server = global_network_game_server_get();
 	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+	struct network_player const *own = own_player == NONE ? NULL : &player_get(own_player)->network_player_data;
+	boolean own_listed = FALSE;
 	int machine = 15;
+	int others = 0;
 	long index;
 
 	dedicated_server_get_status(&status);
 	ce_game_settings_slayer(settings);
+	settings_from_variant(settings);
 	snprintf(settings->name, sizeof(settings->name), "%s", status.name);
 	gamespy_map_name(status.map, settings->map, sizeof(settings->map));
 	settings->maximum_players = CE_GAME_PLAYERS;
-	settings->random_seed = (unsigned int)rand();
-	/* (the game's players, then the joining one; each its own machine
-	number, the joining one the number its challenge told it) */
+	/* (the same for every client, all game: Custom Edition's own server
+	sends one number again as its roster changes) */
+	settings->random_seed = ce.random_seed;
+	/* (the game's players in the game's order, each its own machine number,
+	the client's own player the number its challenge told it; a player not
+	in the game yet, last) */
 	if (game)
 	{
-		for (index = 0; index < game->player_count && settings->player_count < CE_GAME_PLAYERS - 1; index++)
+		for (index = 0; index < game->player_count; index++)
 		{
 			struct network_player *player = &game->players[index];
 			struct ce_network_player *slot = &settings->players[settings->player_count];
+			long team;
+			boolean is_own;
 
 			if (!network_player_is_valid(player))
 				continue;
-			/* (a player joining again for the next game: listed last, as
-			the joining one) */
-			if (own_player != NONE)
+			is_own = own && player->machine_index == own->machine_index && player->controller_index == own->controller_index;
+			/* (the client's own player always; the others, at most 15) */
+			if (!is_own && others >= CE_GAME_PLAYERS - 1)
+				continue;
+			if (!is_own)
+				others++;
+			if (is_own)
 			{
-				struct network_player const *own = &player_get(own_player)->network_player_data;
-
-				if (player->machine_index == own->machine_index && player->controller_index == own->controller_index)
-					continue;
+				own_listed = TRUE;
+				slot->machine = peer;
 			}
-			if (machine == peer)
-				machine--;
+			else
+			{
+				if (machine == peer)
+					machine--;
+				slot->machine = machine--;
+			}
 			put_text(slot->name, sizeof(slot->name), player->name);
 			slot->color = player->primary_color_index;
-			slot->machine = machine--;
 			slot->controller = 0;
-			slot->team = player->team_index == NONE ? 0 : player->team_index;
+			team = network_player_team(player);
+			slot->team = wire_team(team);
+			slot->color = team_color(settings, slot->team, slot->color);
 			slot->list_index = settings->player_count;
 			settings->player_count++;
 		}
 	}
+	if (!own_listed && settings->player_count < CE_GAME_PLAYERS)
 	{
 		struct ce_network_player *slot = &settings->players[settings->player_count];
 
 		snprintf(slot->name, sizeof(slot->name), "%s", name[0] ? name : "Player");
-		slot->color = 0;
+		slot->color = own ? own->primary_color_index : 0;
 		slot->machine = peer;
 		slot->controller = 0;
-		slot->team = 0;
+		slot->team = own && own_player != NONE ? wire_team(player_get(own_player)->team_index) : 0;
+		slot->color = team_color(settings, slot->team, slot->color);
 		slot->list_index = settings->player_count;
 		settings->player_count++;
 	}
+}
+
+/* what the rosters are built from, as one number: the network game's
+players (who, where, their names and colors) and each player's team as
+the game has it. Taken once a tick; a client's roster is built again only
+as it changes */
+static unsigned long roster_signature(
+	void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+	unsigned long hash = 2166136261u;
+	long index;
+
+#define ROSTER_MIX(value) (hash = (hash ^ (unsigned long)(value)) * 16777619u)
+	if (game)
+	{
+		ROSTER_MIX(game->player_count);
+		for (index = 0; index < game->player_count; index++)
+		{
+			struct network_player const *player = &game->players[index];
+			int character;
+
+			ROSTER_MIX(network_player_is_valid(player));
+			ROSTER_MIX(player->machine_index);
+			ROSTER_MIX(player->controller_index);
+			ROSTER_MIX(player->primary_color_index);
+			ROSTER_MIX(player->team_index);
+			for (character = 0; character < 12 && player->name[character]; character++)
+				ROSTER_MIX(player->name[character]);
+		}
+	}
+	if (player_data)
+	{
+		struct data_iterator iterator;
+		struct player_datum *datum;
+
+		data_iterator_new(&iterator, player_data);
+		while ((datum = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		{
+			ROSTER_MIX(iterator.datum_index);
+			ROSTER_MIX(datum->network_player_data.machine_index);
+			ROSTER_MIX(datum->network_player_data.controller_index);
+			ROSTER_MIX(datum->team_index);
+		}
+	}
+#undef ROSTER_MIX
+	return hash;
+}
+
+/* (the roster a client was told, as one record: told again as it changes) */
+static void roster_told(
+	struct ce_client *client,
+	struct ce_game_settings const *settings)
+{
+	csmemcpy(client->roster, settings->players, sizeof(client->roster));
+	client->roster_count = settings->player_count;
+	client->roster_known = TRUE;
+}
+
+/* the roster again, as players come, go or change teams: Custom Edition's
+own server sends its clients the whole game settings again, so their
+scoreboards, names and friends follow */
+static void send_roster(
+	struct ce_client *client,
+	short local_index)
+{
+	struct ce_game_settings settings;
+	struct ce_payload payload;
+	unsigned char out[PAYLOAD_SIZE];
+
+	long own_player = local_player_get_player_index(local_index);
+
+	/* (nothing it is built from changed: the same roster) */
+	if (client->roster_known && client->roster_signature == ce.roster_signature && client->roster_own_player == own_player)
+		return;
+	game_settings_for(client->peer, client->name, own_player, &settings);
+	if (!client->roster_known || client->roster_count != settings.player_count ||
+		csmemcmp(client->roster, settings.players, sizeof(client->roster)))
+	{
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_game_settings(&payload, &settings);
+		if (!ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE))
+			return;
+		roster_told(client, &settings);
+	}
+	client->roster_signature = ce.roster_signature;
+	client->roster_own_player = own_player;
 }
 
 /* ---------- joins */
@@ -386,6 +624,7 @@ static void client_reset(
 	client->input_time = kept.input_time;
 	client->start_vehicle = NONE;
 	client->chosen_unit = NONE;
+	client->pending_zoom = NONE;
 	csmemcpy(client->name, kept.name, sizeof(client->name));
 	for (index = 0; index < TRACKED_PLAYERS; index++)
 	{
@@ -430,11 +669,17 @@ static boolean accept_join(
 	struct ce_payload payload;
 	unsigned char out[PAYLOAD_SIZE];
 
+	struct ce_client *client = client_for_peer(peer, NULL);
+
 	game_settings_for(peer, name, own_player, &settings);
 	ce_payload_begin(&payload, out, sizeof(out));
 	ce_payload_put_game_settings(&payload, &settings);
 	ce_payload_put_message(&payload, begin_game, sizeof(begin_game));
-	return ce_transport_accept(peer, out, ce_payload_end(&payload)) != 0;
+	if (ce_transport_accept(peer, out, ce_payload_end(&payload)) == 0)
+		return FALSE;
+	if (client)
+		roster_told(client, &settings);
+	return TRUE;
 }
 
 /* a client back for the next game, on its connection: its seat kept (its
@@ -516,7 +761,8 @@ static boolean join(
 	if (!ce_transport_awaiting(event->peer))
 		return TRUE;
 	dedicated_server_get_status(&status);
-	/* (a join that took a seat in the lobby: answered once the game plays) */
+	/* (a join that took a seat: answered once its player is in the game,
+	in the lobby once the game plays) */
 	if ((client = client_for_peer(event->peer, &index)) != NULL && client->phase == CE_PHASE_LOBBY)
 	{
 		/* (a client gives up on a join in about 15 seconds: the short
@@ -535,7 +781,7 @@ static boolean join(
 			error(_error_silent, "ce: a Custom Edition player's join was gone before the game took it");
 			return TRUE;
 		}
-		error(_error_silent, "ce: Custom Edition player \"%s\" joins the game started for them", event->name);
+		error(_error_silent, "ce: Custom Edition player \"%s\" is in the game", event->name);
 		return TRUE;
 	}
 	/* (a client back for the next game, on its new connection: the seat
@@ -586,6 +832,20 @@ static boolean join(
 		error(_error_silent, "ce: a Custom Edition player was turned away: the map is not a Custom Edition map");
 		return TRUE;
 	}
+	/* (a game of 16 players already: the most a Custom Edition client's
+	game holds; with Custom Edition players in, the server takes no more,
+	network_game_has_free_player_slot) */
+	{
+		struct network_game_server *server = global_network_game_server_get();
+		struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+
+		if (game && game->player_count >= CE_GAME_PLAYERS)
+		{
+			ce_transport_refuse(event->peer, CE_REJECT_FULL);
+			error(_error_silent, "ce: a Custom Edition player was turned away: the game has 16 players");
+			return TRUE;
+		}
+	}
 	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
 	{
 		if (!ce.clients[index].active && local_player_get_player_index(index) == NONE)
@@ -615,21 +875,14 @@ static boolean join(
 	ce.clients[index].address = event->address;
 	snprintf(ce.clients[index].name, sizeof(ce.clients[index].name), "%s", event->name);
 	client_reset(&ce.clients[index]);
+	/* (answered once its player is in the game, so its client is told the
+	team the game gave it: in the lobby, once the game it waits for plays) */
+	ce.clients[index].phase = CE_PHASE_LOBBY;
 	if (status.state == _dedicated_state_lobby)
-	{
-		ce.clients[index].phase = CE_PHASE_LOBBY;
 		error(_error_silent, "ce: Custom Edition player \"%s\" waits in the lobby as local player %d", event->name, index);
-		return FALSE;
-	}
-	if (!accept_join(event->peer, event->name, NONE))
-	{
-		/* (the join went while it waited: its player taken out again) */
-		leave(event->peer);
-		error(_error_silent, "ce: a Custom Edition player's join was gone before the game took it");
-		return TRUE;
-	}
-	error(_error_silent, "ce: Custom Edition player \"%s\" joins as local player %d", event->name, index);
-	return TRUE;
+	else
+		error(_error_silent, "ce: Custom Edition player \"%s\" joins as local player %d", event->name, index);
+	return FALSE;
 }
 
 static void leave_client(
@@ -778,10 +1031,21 @@ static void send_unit(
 	}
 	csmemset(&biped, 0, sizeof(biped));
 	put_object_start(&biped.object, unit_index, biped_number);
-	biped.object.owner = 0;
+	/* (its owner team, its player's: a client takes a player's team
+from its biped) */
+	biped.object.owner = wire_team(player_get(player_index)->team_index);
 	biped.object.player = network_player_number(player_index);
-	for (index = 0; index < 12; index++)
-		biped.change_colors[index] = 1.0f;
+	/* (its colors as our game made them, its team's in a team game; none
+made: white) */
+	for (index = 0; index < 4; index++)
+	{
+		real_rgb_color const *color = &unit->object.base_change_colors[index];
+		boolean made = color->red > 0.0f || color->green > 0.0f || color->blue > 0.0f;
+
+		biped.change_colors[index * 3 + 0] = made ? color->red : 1.0f;
+		biped.change_colors[index * 3 + 1] = made ? color->green : 1.0f;
+		biped.change_colors[index * 3 + 2] = made ? color->blue : 1.0f;
+	}
 	biped.unknown_6bits_a = 63;
 	biped.baseline = 1;
 	biped.grenades[0] = unit->unit.grenade_counts[0] & 7;
@@ -1361,6 +1625,7 @@ static void update_client(
 	boolean any = FALSE;
 	int length;
 
+	send_roster(client, local_index);
 	ce_payload_begin(&payload, out, sizeof(out));
 	ce_payload_begin(&reliable, reliable_out, sizeof(reliable_out));
 	data_iterator_new(&iterator, player_data);
@@ -1371,20 +1636,26 @@ static void update_client(
 
 		if (absolute >= TRACKED_PLAYERS)
 			continue;
-		if (client->announced[absolute] != player_index)
+		/* (a player new to the client, or on another team now: its client
+takes a player's team from this) */
+		if (client->announced[absolute] != player_index || client->announced_team[absolute] != player->team_index)
 		{
 			struct ce_payload added;
 			unsigned char added_out[64];
 			int added_length;
+			boolean again = client->announced[absolute] == player_index;
 
 			ce_payload_begin(&added, added_out, sizeof(added_out));
 			ce_payload_put_player_add(&added, player->network_player_data.player_list_index,
-				(unsigned int)player_index, network_player_number(player_index));
+				(unsigned int)player_index, network_player_number(player_index),
+				wire_team(player->team_index));
 			added_length = ce_payload_end(&added);
 			if (ce_transport_send(client->peer, added_out, added_length, TRUE))
 			{
 				client->announced[absolute] = player_index;
-				client->unit_sent[absolute] = NONE;
+				client->announced_team[absolute] = player->team_index;
+				if (!again)
+					client->unit_sent[absolute] = NONE;
 			}
 		}
 		/* (a body our game took away: taken away on the client too) */
@@ -1649,6 +1920,7 @@ void server_ce_update(
 		ce.configured = TRUE;
 		for (number = 0; number <= NETWORK_OBJECTS; number++)
 			ce.objects[number] = NONE;
+		ce.random_seed = (unsigned int)rand();
 	}
 	ce.enabled = server_gamespy_enabled() && server_gamespy_joins();
 	if (!ce.enabled)
@@ -1731,6 +2003,8 @@ void server_ce_update(
 		for (number = 0; number <= NETWORK_OBJECTS; number++)
 			ce.objects[number] = NONE;
 		ce.between_games = FALSE;
+		/* (and its random number, one a game) */
+		ce.random_seed = (unsigned int)rand();
 	}
 	/* (the game's end, and on to the next game) */
 	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
@@ -1746,6 +2020,7 @@ void server_ce_update(
 	if (game_time_get() == last_tick)
 		return;
 	last_tick = game_time_get();
+	ce.roster_signature = roster_signature();
 	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
 	{
 		struct ce_client *client = &ce.clients[index];
@@ -1798,6 +2073,7 @@ static void server_ce_choices(
 		client->chosen_unit = unit_index;
 		client->chosen_weapon = update->weapon;
 		client->chosen_zoom = update->zoom;
+		client->pending_zoom = NONE;
 		return;
 	}
 	unit = unit_get(unit_index);
@@ -1812,14 +2088,22 @@ static void server_ce_choices(
 	}
 	if (update->zoom != client->chosen_zoom)
 	{
+		client->chosen_zoom = update->zoom;
+		client->pending_zoom = update->zoom;
+	}
+	/* (given once the weapon it is for is in hand: one asked during a
+	switch waits for the switch, else the old weapon's levels would cap it) */
+	if (client->pending_zoom != NONE && unit->unit.current_weapon_index == unit->unit.desired_weapon_index &&
+		action->desired_weapon_index == unit->unit.current_weapon_index)
+	{
 		long weapon_index = unit_inventory_get_weapon(unit_index, unit->unit.current_weapon_index);
 		short levels = weapon_index == NONE ? 0 :
 			weapon_definition_get(weapon_get(weapon_index)->definition_index)->weapon.zoom_level_count;
 
-		client->chosen_zoom = update->zoom;
 		/* (a level the weapon has, else none: a level past them would
 		count as zoomed for aim assist) */
-		action->desired_zoom_level = update->zoom < levels ? (short)update->zoom : NONE;
+		action->desired_zoom_level = client->pending_zoom < levels ? (short)client->pending_zoom : NONE;
+		client->pending_zoom = NONE;
 	}
 	/* (the grenade, always: the client's HUD shows its own choice from the
 	start, and the game changes it only when one type runs out, which the

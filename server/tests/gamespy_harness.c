@@ -147,7 +147,7 @@ int main(int argc, char **argv)
 		spawn.unknown_medium = 0xffff;
 		spawn.weapons[0] = 49;
 		ce_payload_begin(&payload, out, sizeof(out));
-		ce_payload_put_player_add(&payload, 0, 0xec700000u, 1);
+		ce_payload_put_player_add(&payload, 0, 0xec700000u, 1, 0);
 		ce_payload_put_weapon_create(&payload, &weapon);
 		ce_payload_put_biped_create(&payload, &biped);
 		ce_payload_put_player_spawn(&payload, &spawn);

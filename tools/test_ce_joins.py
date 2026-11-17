@@ -294,8 +294,10 @@ def test_weapons_follow_the_client():
     assert "if (update->zoom != client->chosen_zoom)" in choices
     # a new unit: the last unit's choices are not given again
     assert "client->chosen_unit != unit_index" in choices
-    # a zoom level the weapon has, else none
-    assert "update->zoom < levels ? (short)update->zoom : NONE" in choices
+    # a zoom level the weapon has, else none, given once the weapon it is
+    # for is in hand (one asked during a switch waits for it)
+    assert "client->pending_zoom < levels ? (short)client->pending_zoom : NONE" in choices
+    assert "unit->unit.current_weapon_index == unit->unit.desired_weapon_index" in choices
     # the wire's grenade is the type itself (0 frag, 1 plasma: checked
     # against the client's HUD and a throw, 2026-11-14)
     assert "action->desired_grenade_index = (short)update->grenade;" in choices
@@ -641,6 +643,11 @@ def test_joins_held_to_host_limits():
     assert join.index("address_full(event->address)") < join.index("network_game_client_add_named_player(")
     assert "network_distributed_address_full(address, others, count)" in \
         _function(source, "static boolean address_full")
+    # (16 players at most with Custom Edition players in: a CE client's game
+    # holds 16; a server without them keeps its own limit)
+    assert "game->player_count >= CE_GAME_PLAYERS" in join
+    manager = (ROOT / "source/networking/network_game_manager.c").read_text(encoding="utf-8")
+    assert "if (game->player_count >= 16 && server_ce_players_present())" in manager
 
 
 # (our capture of Custom Edition 1.0.10's server ending a game for
@@ -681,6 +688,11 @@ def test_between_games_messages_match_capture():
     assert "if (client && client->phase == CE_PHASE_RECONNECTING)\n\t\t\t\tclient->peer = NONE;" in update
     join = _function(source, "static boolean join")
     assert join.index("CE_PHASE_RECONNECTING") < join.index("network_distributed_banned(")
+    # (a lobby of only Custom Edition players, seats of the server's own
+    # machine, counts down to the next game without another machine)
+    manager = (ROOT / "source/networking/network_server_manager.c").read_text(encoding="utf-8")
+    countdown = _function(manager, "void network_game_server_update_countdown")
+    assert "if (server_ce_players_present())\n\t\t\t\t\t\t\tother_players = TRUE;" in countdown
 
 
 def test_only_custom_edition_maps():
@@ -690,6 +702,28 @@ def test_only_custom_edition_maps():
     assert '!strcmp(at + 1, "ce")' in _function(source, "static boolean map_playable")
     assert "map_playable(status.map)" in _function(source, "static boolean join")
     assert "map_playable(status->map)" in _function(source, "static boolean between_games")
+
+
+def test_team_slayer():
+    """Team Slayer reaches a Custom Edition client: the game's own variant
+    over Custom Edition's Slayer, each player's team in the roster (sent
+    again as players come, go or change teams), and a second client told
+    its own machine number, so it finds its player in that roster"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    variant = _function(source, "static void settings_from_variant")
+    assert "settings->universal[0] = universal->teams ? 1 : 0;" in variant
+    assert "settings->universal[15] = (unsigned int)universal->score_to_win;" in variant
+    assert "variant->game_engine_index != game_engine_slayer" in variant
+    roster = _function(source, "static void game_settings_for")
+    assert "team = network_player_team(player);" in roster
+    assert "settings->random_seed = ce.random_seed;" in roster
+    assert "send_roster(client, local_index);" in _function(source, "static void update_client")
+    assert "client->announced_team[absolute] != player->team_index" in source
+    transport = (ROOT / "server/platform/ce_transport.c").read_text(encoding="utf-8")
+    assert "out[13] = (unsigned char)machine;" in transport
+    assert "ce_message_new_client_challenge(challenge_text, peer_number(peer)," in transport
+    messages = (ROOT / "server/platform/ce_messages.c").read_text(encoding="utf-8")
+    assert "put_bits(payload, (unsigned int)team, 32);" in messages
 
 
 def test_welcome_line():
