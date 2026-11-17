@@ -200,6 +200,10 @@ struct lua_script *lua_script_from_state(
 	return &lua_scripts[0];
 }
 
+/* Lua's own allocator (lauxlib.c's, with the host's C library, not the
+game's memory: this unit's malloc is the game's) */
+static lua_Alloc lua_host_allocate = NULL;
+
 /* the state's allocator: Lua's own, held to LUA_SCRIPT_MEMORY_LIMIT */
 static void *lua_allocate(
 	void *user,
@@ -214,7 +218,7 @@ static void *lua_allocate(
 		old_size = 0;
 	if (!new_size)
 	{
-		free(block);
+		lua_host_allocate(NULL, block, old_size, 0);
 		script->memory -= (unsigned int)old_size;
 		return NULL;
 	}
@@ -223,7 +227,7 @@ static void *lua_allocate(
 		lua_log_once(script->name, "%s: is over its %u MB of memory", script->name, LUA_SCRIPT_MEMORY_LIMIT >> 20);
 		return NULL;
 	}
-	result = realloc(block, new_size);
+	result = lua_host_allocate(NULL, block, old_size, new_size);
 	if (result)
 		script->memory = script->memory - (unsigned int)old_size + (unsigned int)new_size;
 	return result;
@@ -701,7 +705,17 @@ static void lua_script_load(
 	script->kind = kind;
 	script->sandbox = FALSE;
 	script->version = LUA_CHIMERA_API_VERSION;
-	script->state = lua_newstate(lua_allocate, script);
+	if (!lua_host_allocate)
+	{
+		lua_State *probe = luaL_newstate();
+
+		if (probe)
+		{
+			lua_host_allocate = lua_getallocf(probe, NULL);
+			lua_close(probe);
+		}
+	}
+	script->state = lua_host_allocate ? lua_newstate(lua_allocate, script) : NULL;
 	if (!script->state)
 	{
 		lua_log("%s: no memory for it", name);
