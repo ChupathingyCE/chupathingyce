@@ -1,8 +1,10 @@
 /*
 SERVER_NAMES.C
 
-The dedicated server's blocked names (server_names.h): the list, and a
-name's key compared with it, as the ChupathingyCE site compares it.
+The blocked names (server_names.h): a list, and a name's key compared with
+it, as the ChupathingyCE site compares it. The dedicated server's
+(sv_name_filter) is the one list kept here; the game lists keep their own
+(browser.c).
 
   whole     a name is blocked when its key, or its key with runs of the
             same letter squeezed to one, is the word
@@ -23,10 +25,8 @@ name's key compared with it, as the ChupathingyCE site compares it.
 
 enum
 {
-	/* the list's entries, at most */
-	NAMES_MAXIMUM_ENTRIES = 512,
-	/* a word, with its end */
-	NAMES_WORD_SIZE = 48,
+	NAMES_MAXIMUM_ENTRIES = SERVER_NAMES_MAXIMUM_ENTRIES,
+	NAMES_WORD_SIZE = SERVER_NAMES_WORD_SIZE,
 	/* a name's characters looked at, at most (a player's name is 11) */
 	NAMES_MAXIMUM_CHARACTERS = 64,
 	/* a key, with its end (a character is at most 3 of the key's) */
@@ -40,21 +40,11 @@ enum
 	_names_allow,
 };
 
-/* ---------- structures */
-
-struct names_entry
-{
-	int kind;
-	int length;
-	char word[NAMES_WORD_SIZE];
-	/* the word with runs of a letter squeezed to one */
-	char squeezed[NAMES_WORD_SIZE];
-};
-
 /* ---------- globals */
 
-static struct names_entry names_entries[NAMES_MAXIMUM_ENTRIES];
-static int names_entry_count;
+/* the dedicated server's list (server_names_parse), made on its first
+reading: no room taken in a copy that never reads one */
+static struct server_names_list *names_list;
 
 /* Latin-1 and Latin Extended-A (U+00A0 to U+017F) in lower case, their
 accents dropped (Unicode's compatibility decomposition, its combining marks
@@ -238,8 +228,8 @@ static void take_out(char *text, const char *word)
 
 static int compare_allow_length(const void *a, const void *b)
 {
-	const struct names_entry *first = (const struct names_entry *)a;
-	const struct names_entry *second = (const struct names_entry *)b;
+	const struct server_names_entry *first = (const struct server_names_entry *)a;
+	const struct server_names_entry *second = (const struct server_names_entry *)b;
 
 	if (first->kind != second->kind)
 		return first->kind - second->kind;
@@ -248,28 +238,18 @@ static int compare_allow_length(const void *a, const void *b)
 
 /* ---------- public code */
 
-void server_names_clear(void)
-{
-	names_entry_count = 0;
-}
-
-int server_names_count(void)
-{
-	return names_entry_count;
-}
-
-int server_names_parse(const char *text, size_t length)
+int server_names_list_parse(struct server_names_list *list, const char *text, size_t length)
 {
 	size_t position = 0;
 
-	names_entry_count = 0;
+	list->count = 0;
 	while (text && position < length)
 	{
 		char line[128];
 		char kind[16];
 		char word[NAMES_WORD_SIZE];
 		size_t line_length = 0;
-		struct names_entry *entry;
+		struct server_names_entry *entry;
 		int index;
 		int valid = 1;
 
@@ -285,9 +265,9 @@ int server_names_parse(const char *text, size_t length)
 			line[--line_length] = 0;
 		if (!line[0] || line[0] == '#')
 			continue;
-		if (sscanf(line, "%15s %47s", kind, word) != 2 || names_entry_count >= NAMES_MAXIMUM_ENTRIES)
+		if (sscanf(line, "%15s %47s", kind, word) != 2 || list->count >= NAMES_MAXIMUM_ENTRIES)
 			continue;
-		entry = &names_entries[names_entry_count];
+		entry = &list->entries[list->count];
 		if (!strcmp(kind, "anywhere"))
 			entry->kind = _names_anywhere;
 		else if (!strcmp(kind, "whole"))
@@ -315,29 +295,29 @@ int server_names_parse(const char *text, size_t length)
 		entry->word[index] = 0;
 		entry->length = index;
 		squeeze(entry->word, entry->squeezed, sizeof(entry->squeezed));
-		names_entry_count++;
+		list->count++;
 	}
 	/* (the allow words, longest first) */
-	qsort(names_entries, (size_t)names_entry_count, sizeof(names_entries[0]), compare_allow_length);
-	return names_entry_count;
+	qsort(list->entries, (size_t)list->count, sizeof(list->entries[0]), compare_allow_length);
+	return list->count;
 }
 
-int server_names_blocked(const unsigned int *characters, int count)
+int server_names_list_blocked(const struct server_names_list *list, const unsigned int *characters, int count)
 {
 	char key[NAMES_KEY_SIZE];
 	char squeezed[NAMES_KEY_SIZE];
 	int variant;
 	int index;
 
-	if (!names_entry_count || !characters || count <= 0)
+	if (!list || !list->count || !characters || count <= 0)
 		return 0;
 	name_key(characters, count, key);
 	if (!key[0])
 		return 0;
 	squeeze(key, squeezed, sizeof(squeezed));
-	for (index = 0; index < names_entry_count; index++)
+	for (index = 0; index < list->count; index++)
 	{
-		const struct names_entry *entry = &names_entries[index];
+		const struct server_names_entry *entry = &list->entries[index];
 
 		if (entry->kind == _names_whole && (!strcmp(key, entry->word) || !strcmp(squeezed, entry->word)))
 			return 1;
@@ -347,23 +327,23 @@ int server_names_blocked(const unsigned int *characters, int count)
 		char text[NAMES_KEY_SIZE];
 
 		memcpy(text, variant ? squeezed : key, sizeof(text));
-		for (index = 0; index < names_entry_count; index++)
+		for (index = 0; index < list->count; index++)
 		{
-			if (names_entries[index].kind != _names_allow)
+			if (list->entries[index].kind != _names_allow)
 				continue;
-			take_out(text, names_entries[index].word);
-			take_out(text, names_entries[index].squeezed);
+			take_out(text, list->entries[index].word);
+			take_out(text, list->entries[index].squeezed);
 		}
-		for (index = 0; index < names_entry_count; index++)
+		for (index = 0; index < list->count; index++)
 		{
-			if (names_entries[index].kind == _names_anywhere && strstr(text, names_entries[index].word))
+			if (list->entries[index].kind == _names_anywhere && strstr(text, list->entries[index].word))
 				return 1;
 		}
 	}
 	return 0;
 }
 
-int server_names_blocked_text(const char *text)
+int server_names_list_blocked_text(const struct server_names_list *list, const char *text)
 {
 	unsigned int characters[NAMES_MAXIMUM_CHARACTERS];
 	const unsigned char *cursor = (const unsigned char *)text;
@@ -381,5 +361,33 @@ int server_names_blocked_text(const char *text)
 			character = (character << 6) | (*cursor++ & 0x3F);
 		characters[count++] = character;
 	}
-	return server_names_blocked(characters, count);
+	return server_names_list_blocked(list, characters, count);
+}
+
+void server_names_clear(void)
+{
+	if (names_list)
+		names_list->count = 0;
+}
+
+int server_names_count(void)
+{
+	return names_list ? names_list->count : 0;
+}
+
+int server_names_parse(const char *text, size_t length)
+{
+	if (!names_list)
+		names_list = calloc(1, sizeof(*names_list));
+	return names_list ? server_names_list_parse(names_list, text, length) : 0;
+}
+
+int server_names_blocked(const unsigned int *characters, int count)
+{
+	return server_names_list_blocked(names_list, characters, count);
+}
+
+int server_names_blocked_text(const char *text)
+{
+	return server_names_list_blocked_text(names_list, text);
 }

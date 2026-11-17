@@ -2942,6 +2942,9 @@ Multiplayer go back to one player (main_menu_initialize,
 multiplayer_type_menu_initialize).
 With one gamepad, it is player 2's (pc_menu_split_players) */
 
+/* (ONLINE's: Select Map opens on the campaign's first level: coop_online) */
+static boolean pc_menus_coop_first;
+
 /* "port coop begin": two players, player 1 on its profile (campaign_profile)
 and the controller that chose co-op */
 static boolean coop_begin(short controller)
@@ -2950,6 +2953,8 @@ static boolean coop_begin(short controller)
 
 	player_spawn_count = 1;
 	player_ui_reset_single_player_local_player_controllers();
+	/* (a level preselected by ONLINE that Select Map never took) */
+	pc_menus_coop_first = FALSE;
 	if (!campaign_profile(controller, &profile))
 		return campaign_fail();
 	player_spawn_count = 2;
@@ -3002,6 +3007,33 @@ static boolean coop_player2_choose(short controller)
 	player_ui_set_single_player_local_player_controller(1, controller);
 	player_ui_set_active_player_profile(1, profile_list.indices[profile_list.chosen], &profile);
 	return TRUE;
+}
+
+/* the Multiplayer menu's ONLINE CO-OP (ui_widget.c): network co-op, through
+the host flow Online Games' CREATE GAME opens (Select Map, GAME SETUP, the
+lobby), with Select Map on the campaign's first level
+(pc_menus_coop_first_take). #1252 */
+boolean pc_menus_coop_first_take(void)
+{
+	boolean first = pc_menus_coop_first;
+
+	pc_menus_coop_first = FALSE;
+	return first;
+}
+
+boolean pc_menus_coop_online(void)
+{
+	/* (not on the original Xbox, which hosts no network co-op: Delta's
+	platform policy, xbox_coop.c) */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_XBOX_CONSOLE)
+	boolean browser_screen_create_coop_game(void);
+
+	pc_menus_coop_first = TRUE;
+	if (browser_screen_create_coop_game())
+		return TRUE;
+	pc_menus_coop_first = FALSE;
+#endif
+	return campaign_fail();
 }
 
 /* ---------- Controls Setup: the keyboard and mouse's controls
@@ -5713,8 +5745,8 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 	return browser_game_version_state(listed);
 }
 
-/* the Rules line's host, when the list has it (docs/delta/list.md, Delta List):
-" (MAC HOST, DELTA)", " (DEDICATED, LINUX, DELTA)", " (OPENCE LEGACY, NETWORK
+/* the Rules line's host, when the list has it (docs/delta/list.md, Delta
+List): " (MAC HOST, DELTA)", " (DEDICATED, LINUX, DELTA)", " (LEGACY, NETWORK
 32)"; a listing the list lacks while it answers is OpenCE's; "" if not known */
 static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *text, short size)
 {
@@ -5732,9 +5764,9 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 		if (config_boolean("network.online") && config_boolean("network.public_lobby") &&
 			browser_list_status() == BROWSER_LIST_ANSWERED)
 		{
-			usnprintf(text, size - 1, L" (%sOPENCE LEGACY, NETWORK %d%s)",
-				game->dedicated && !game->opence_server ? L"DEDICATED, " : L"",
-				game->version, game->opence_server ? L", " JOIN_WIDE(HOST_LABEL_OPENCE_SERVER) : L"");
+			usnprintf(text, size - 1, L" (%s, NETWORK %d)",
+				game->opence_server ? JOIN_WIDE(HOST_LABEL_OPENCE_SERVER) : game->dedicated ? L"DEDICATED, LEGACY" : L"LEGACY",
+				game->version);
 			text[size - 1] = 0;
 		}
 		/* (and with the list down, by its listing alone) */
@@ -5753,9 +5785,10 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 		listed->badge == _server_badge_tier_community ? L"COMMUNITY SERVER" :
 		dedicated ? (listed->hosting == BROWSER_HOSTING_OFFICIAL ? L"OFFICIAL SERVER" : L"DEDICATED") : L"",
 		dedicated && platform[0] ? L", " : L"", platform, !dedicated && platform[0] ? L" HOST" : L"",
-		(dedicated || platform[0]) && listed->protocol ? L", " : L"",
+		(dedicated || platform[0]) && listed->protocol &&
+			!(listed->protocol == BROWSER_PROTOCOL_OPENCE && listed->opence_server) ? L", " : L"",
 		listed->protocol == BROWSER_PROTOCOL_DELTA ? L"DELTA" : L"",
-		listed->protocol == BROWSER_PROTOCOL_OPENCE ? L"OPENCE LEGACY" : L"");
+		listed->protocol == BROWSER_PROTOCOL_OPENCE && !listed->opence_server ? L"LEGACY" : L"");
 	/* (its network version: an OpenCE host's always, a Delta host's when not this build's) */
 	if (listed->version && (listed->protocol == BROWSER_PROTOCOL_OPENCE ||
 		(listed->protocol == BROWSER_PROTOCOL_DELTA && listed->version != delta_legacy_announce())))
@@ -5842,7 +5875,8 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 
 /* only the games this build can join (game_list_rules.h): a game the list
 has by the list's word (browser_game_shown), a listing it lacks by its own
-number (browser_version_shown); every game with debug.show_all_games */
+number (browser_listing_shown: not an older build's); every game with
+debug.show_all_games. Never a game of a blocked name (browser_name_blocked_text) */
 static void lobby_browser_joinable_games(void)
 {
 	short index, kept;
@@ -5851,11 +5885,14 @@ static void lobby_browser_joinable_games(void)
 	{
 #ifdef HALO_GAME_BROWSER
 		struct browser_game const *listed = lobby_browser_listed_game(&lobby_browser.games[index]);
-		int shown = listed ? browser_game_shown(listed) : browser_version_shown(lobby_browser.games[index].version);
+		int shown = listed ? browser_game_shown(listed) : browser_listing_shown(lobby_browser.games[index].version);
 #else
-		int shown = browser_version_shown(lobby_browser.games[index].version);
+		int shown = browser_listing_shown(lobby_browser.games[index].version);
 #endif
 
+		if (shown && (browser_name_blocked_text(lobby_browser.games[index].name) ||
+			browser_name_blocked_text(lobby_browser.games[index].name_utf8)))
+			shown = 0;
 		if (shown)
 			lobby_browser.games[kept++] = lobby_browser.games[index];
 	}
@@ -10414,6 +10451,7 @@ boolean pc_menu_event_function_invoke(
 		{
 			return coop_player2_choose(controller);
 		}
+
 		else if (!strcmp(name, "request del player profile"))
 		{
 			return profile_delete_request();

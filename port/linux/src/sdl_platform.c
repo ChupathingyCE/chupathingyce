@@ -1911,11 +1911,25 @@ static void platform_vulkan_offer(void)
 BOOL platform_bgfx_chosen(void)
 {
 	const char *renderer = config_string("display.renderer");
+	static BOOL said;
 
 #ifdef _WIN32
 	if (strcmp(renderer, "d3d11") == 0)
 		return TRUE;
 #endif
+	/* (a value this build doesn't have, such as "vulkan", which only
+	Android reads: OpenGL draws, and the log says so once) */
+	if (!said && strcmp(renderer, "bgfx") && strcmp(renderer, "gl"))
+	{
+		said = TRUE;
+#ifdef _WIN32
+		platform_log("display.renderer \"%s\" isn't one this build has (\"gl\", \"bgfx\" or \"d3d11\"): "
+			"drawing with OpenGL", renderer);
+#else
+		platform_log("display.renderer \"%s\" isn't one this build has (\"gl\" or \"bgfx\"): drawing with OpenGL",
+			renderer);
+#endif
+	}
 	return strcmp(renderer, "bgfx") == 0;
 }
 #endif
@@ -3925,6 +3939,7 @@ BOOL platform_ui_pointer_read(struct platform_ui_pointer *pointer)
 	pthread_mutex_lock(&input_lock);
 	active = input_state.ui_pointer;
 	*pointer = ui_pointer;
+	pointer->left_down = (mouse_buttons_down >> SDL_BUTTON_LEFT) & 1u;
 	ui_pointer.moved = FALSE;
 	ui_pointer.left_clicks = 0;
 	ui_pointer.right_clicks = 0;
@@ -3961,6 +3976,7 @@ BOOL platform_ui_pointer_read(struct platform_ui_pointer *pointer)
 	pthread_mutex_lock(&input_lock);
 	active = input_state.ui_pointer;
 	touch_input_menu_read(pointer);
+	pointer->left_down = FALSE;
 	pthread_mutex_unlock(&input_lock);
 	return active;
 }

@@ -67,7 +67,7 @@ types only) */
 #include "server_conduct.h"
 #include "server_config.h"
 #include "server_moderation.h"
-#include "server_names.h"
+#include "../../port/linux/src/server_names.h"
 #include "host_evidence.h"
 /* (the Steam link and Workshop downloads: plain types) */
 #include "../../port/linux/src/steam_client_bridge.h"

@@ -292,7 +292,7 @@ hex, one a line, and run:
 
 ```sh
 python3 tools/delta-ref/conformance.py check my-port-packets.txt
-python3 tools/delta-ref/conformance.py advert 2c0001000000000000000000000000000000000000000000000000
+python3 tools/delta-ref/conformance.py advert 2c00010000000000000000000000000000000000000000000000
 python3 tools/delta-ref/conformance.py listen --seconds 60
 ```
 

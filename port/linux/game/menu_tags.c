@@ -61,6 +61,9 @@ int platform_audio_device_names(char const **names, int maximum);
 
 /* the game's network server (this machine hosts: network_game_globals.c) */
 void *global_network_game_server_get(void);
+/* (game.c's, and its _game_connection_network_client: a joined machine) */
+short game_connection(void);
+enum { GAME_CONNECTION_NETWORK_CLIENT = 1 };
 /* whether the pause menu has CHANGE TEAMS (team_change.c) */
 boolean team_change_pause_offered(void);
 int config_boolean(char const *name);
@@ -94,6 +97,9 @@ adds to */
 #define MULTIPLAYER_COLLECTION "ui\\shell\\multiplayer"
 /* a campaign map's pause screen, which pause_patch adds to */
 #define SOLO_PAUSE_SCREEN "ui\\shell\\solo_game\\pause_game\\pause_game"
+/* two players' campaign pause screen (a joined co-op game's loses its REVERT
+and RESTART: pause_patch) */
+#define SOLO_SPLIT_PAUSE_SCREEN "ui\\shell\\solo_game\\pause_game\\pause_game_split_screen"
 /* a Custom Edition map's CHANGE SETTINGS, which pause_row_replaced takes out
 (the Halo PC screen it opens is in no map) */
 #define CUSTOM_CHANGE_SETTINGS_BUTTON "ui\\shell\\multiplayer_game\\pause_game\\change_settings_button"
@@ -1750,6 +1756,34 @@ SETTINGS stands for it), and GAME OPTIONS while it opens Halo PC's stock
 list alone (CHOOSE TEAM, RESTART GAME, NEW GAME and BACK: CHANGE TEAMS and
 the host's END GAME stand for them, and Halo PC's functions behind them are
 not this engine's). A map's own rows are kept. */
+/* (a network co-op game this machine joined: its campaign pause screen has
+no REVERT or RESTART, which only the host's game does: pause_patch) */
+static boolean pause_coop_joined;
+/* (a screen whose list only loses those rows, gaining none of the menus':
+two players' split screen pause screen in a joined co-op game) */
+static boolean pause_rows_only;
+
+/* whether the button is one of the campaign's pause rows that restart:
+REVERT TO SAVED and RESTART LEVEL, one player's or two players' (split
+screen's coop_ ones). Each opens its confirmation, whose OK runs "pause game
+restart at checkpoint" or "pause game restart level" */
+static boolean pause_row_restarts(long button_tag)
+{
+	static char const *const rows[] = { "\\restart_at_save_point_button", "\\restart_level_button",
+		"\\coop_restart_at_save_point_button", "\\coop_restart_level_button" };
+	char const *name = button_tag == NONE ? NULL : tag_get_name(button_tag);
+	long row;
+
+	if (!name || !strstr(name, "\\solo_game\\pause_game\\"))
+		return FALSE;
+	for (row = 0; row < (long)NUMBEROF(rows); row++)
+	{
+		if (tag_name_ends(button_tag, rows[row]))
+			return TRUE;
+	}
+	return FALSE;
+}
+
 static boolean pause_row_replaced(long button_tag)
 {
 	static char const *const stock_options[] = { "\\choose_team_button", "\\restart_game_button",
@@ -1760,6 +1794,8 @@ static boolean pause_row_replaced(long button_tag)
 
 	if (button_tag == NONE)
 		return FALSE;
+	if (pause_coop_joined && pause_row_restarts(button_tag))
+		return TRUE;
 	if (tag_name_ends(button_tag, "\\pause_game\\change_settings_button"))
 		return TRUE;
 	if (!tag_name_ends(button_tag, "\\pause_game\\game_options_button"))
@@ -1819,14 +1855,14 @@ not patched */
 static boolean pause_list_patch(struct cache_file_tag_instance *instances, struct ui_widget_definition *list, long resume,
 	long quit_function, boolean change_teams, boolean settings, boolean end_game, short *grow)
 {
-	boolean moderation = pause_moderation_offered(end_game);
+	boolean moderation = !pause_rows_only && pause_moderation_offered(end_game);
 	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
 	long count = list->child_widgets.count, child;
-	boolean controls = pause_controls_offered();
+	boolean controls = !pause_rows_only && pause_controls_offered();
 	/* (the Xbox's menus have none of ours: the Controls screen, by code) */
 	long controls_widget = !controls || !build.menus ? NONE :
 		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_CONTROLS_SCREEN_CHUPATHINGY : PAUSE_CONTROLS_SCREEN);
-	boolean guide_row = pause_guide_offered();
+	boolean guide_row = !pause_rows_only && pause_guide_offered();
 	long everyday = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE) + (guide_row != FALSE);
 	long added = everyday + (end_game != FALSE) + (moderation != FALSE);
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
@@ -2108,6 +2144,9 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 			continue;
 		}
 		resume = pause_button_named(candidate, "\\resume_game_button");
+		/* (two players' co-op pause screen's) */
+		if (resume == NONE)
+			resume = pause_button_named(candidate, "\\coop_resume_game_button");
 		if (resume == NONE && quit_function != NONE && (resume = pause_quit_button(candidate, quit_function)) != NONE)
 			resume--;
 		if (resume < 0 || resume == NONE || *patched_list != NONE)
@@ -2176,6 +2215,7 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 {
 	long collection = tag_loaded('Soul', MULTIPLAYER_COLLECTION);
 	long solo_screen = tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN);
+	long split_screen = tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_SPLIT_PAUSE_SCREEN);
 	long quit_function = ui_function_named("mp game player quit");
 	boolean host = global_network_game_server_get() != NULL;
 	boolean change_teams = solo_screen == NONE && team_change_pause_offered();
@@ -2184,11 +2224,25 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	short grow = 0;
 
 	/* the campaign's (a network co-op game's too): no END GAME, which is
-	the multiplayer game engine's */
+	the multiplayer game engine's; a joined co-op game's, no REVERT or
+	RESTART (pause_row_replaced) */
+	pause_coop_joined = solo_screen != NONE && game_connection() == GAME_CONNECTION_NETWORK_CLIENT;
 	if (solo_screen != NONE)
 	{
-		if (settings || pause_controls_offered() || pause_guide_offered())
+		if (settings || pause_controls_offered() || pause_guide_offered() || pause_coop_joined)
 			pause_screen_patch(instances, solo_screen, NONE, FALSE, settings, FALSE, &patched_list, &grow, &box_grown);
+		/* (and two players' on a joined machine: only those rows out) */
+		if (pause_coop_joined && split_screen != NONE)
+		{
+			long split_list = NONE;
+			short split_grow = 0;
+			boolean split_box_grown = FALSE;
+
+			pause_rows_only = TRUE;
+			pause_screen_patch(instances, split_screen, NONE, FALSE, FALSE, FALSE, &split_list, &split_grow,
+				&split_box_grown);
+			pause_rows_only = FALSE;
+		}
 	}
 	else if (collection != NONE)
 	{
@@ -2810,7 +2864,9 @@ void menu_tags_loaded(
 		if (!game_map)
 			editor_rows_xbox();
 #endif
-		if (game_map && (pause_controls_offered() || (tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
+		if (game_map && (pause_controls_offered() || (tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) != NONE &&
+			game_connection() == GAME_CONNECTION_NETWORK_CLIENT) ||
+			(tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
 			(global_network_game_server_get() != NULL || team_change_pause_offered() ||
 			tag_loaded(UI_WIDGET_DEFINITION_TAG, CUSTOM_CHANGE_SETTINGS_BUTTON) != NONE))))
 		{
