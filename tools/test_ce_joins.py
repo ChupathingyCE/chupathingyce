@@ -765,7 +765,11 @@ def test_ctf_reaches_custom_edition():
     # Capture the Flag's capture, 31 here, is its 33, "You scored 1 to 0")
     assert "ce_message_number(message)" in message
     numbers = _function(source, "static unsigned int ce_message_number")
-    assert "FIRST_GAME_TYPE_MESSAGE = 30," in numbers and "CE_FIRST_GAME_TYPE_MESSAGE = 32," in numbers
+    assert "FIRST_GAME_TYPE_MESSAGE = 30," in source and "CE_FIRST_GAME_TYPE_MESSAGE = 32," in source
+    # (not a game type shown as Slayer (Bomb): its messages would read as
+    # Slayer's; a named player outside the client's roster, none)
+    assert "message >= FIRST_GAME_TYPE_MESSAGE &&" in message and "engine_told(" in message
+    assert "!network_player_number(client, data)" in message
 
 
 def test_roster_players_get_their_numbers():

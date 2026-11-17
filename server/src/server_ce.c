@@ -2449,15 +2449,15 @@ are ours up to the time left (30); then Custom Edition has one more of its
 own (31, "You were telefragged"), and a game type's messages start after
 them (32, Capture the Flag's "Red Team 1 Blue Team 0"), where ours start at
 30 (every one checked on a real client) */
+enum
+{
+	FIRST_GAME_TYPE_MESSAGE = 30,
+	CE_FIRST_GAME_TYPE_MESSAGE = 32,
+};
+
 static unsigned int ce_message_number(
 	long message)
 {
-	enum
-	{
-		FIRST_GAME_TYPE_MESSAGE = 30,
-		CE_FIRST_GAME_TYPE_MESSAGE = 32,
-	};
-
 	if (message >= FIRST_GAME_TYPE_MESSAGE)
 		return (unsigned int)(message - FIRST_GAME_TYPE_MESSAGE + CE_FIRST_GAME_TYPE_MESSAGE);
 	return (unsigned int)message;
@@ -2473,23 +2473,40 @@ void server_ce_multiplayer_message(
 {
 	short index;
 
+	/* (a game type a Custom Edition client is shown as Slayer (Bomb): its
+	own messages would read as Slayer's there, "You scored" as "new
+	target"; not told) */
+	if (message >= FIRST_GAME_TYPE_MESSAGE &&
+		(!game_engine || !engine_told(game_engine_get_variant()->game_engine_index)))
+	{
+		return;
+	}
 	for (index = 0; ce.enabled && index < CE_LOCAL_PLAYERS; index++)
 	{
 		struct ce_client *client = &ce.clients[index];
 		struct ce_payload payload;
 		unsigned char out[32];
+		long data = message_data;
 
 		if (!client->active || !client->loaded || client->phase != CE_PHASE_PLAYING ||
 			local_player_get_player_index(index) != player_index)
 		{
 			continue;
 		}
+		/* (a player the message names (a killer, a carrier): its client
+		knows the players of its roster by the handles it was told
+		(player add); one outside its roster, none) */
+		if (data != NONE && (data >> 16) != 0 && player_data && player_try_and_get(data) &&
+			!network_player_number(client, data))
+		{
+			data = NONE;
+		}
 		/* (the scores first: a capture's message shows them, "You scored
 		1 to 0", from what its client has) */
 		send_scores(client);
 		ce_payload_begin(&payload, out, sizeof(out));
 		ce_payload_put_hud_message(&payload, network_player_number(client, player_index), ce_message_number(message),
-			(unsigned int)message_data);
+			(unsigned int)data);
 		ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE);
 	}
 }
