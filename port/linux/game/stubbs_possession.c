@@ -444,6 +444,12 @@ long stubbs_possession_body_unit(
 	return stubbs_possessions[local_player_index].body_unit_index;
 }
 
+void stubbs_possession_tags_new_map(void)
+{
+	/* (the map's tags noted afresh: stubbs_mode_convert_tags) */
+	stubbs_possessable_definitions_noted = FALSE;
+}
+
 void stubbs_possession_player_input(
 	short local_player_index,
 	unsigned long unit_control_flags)
@@ -452,8 +458,6 @@ void stubbs_possession_player_input(
 	long player_index, unit_index, hand_unit_index;
 	boolean melee_pressed, action_pressed;
 
-	/* (the next map's tags noted afresh) */
-	stubbs_possessable_definitions_noted = FALSE;
 	if (local_player_index < 0 || local_player_index >= MAXIMUM_STUBBS_LOCAL_PLAYERS)
 		return;
 	possession = &stubbs_possessions[local_player_index];
