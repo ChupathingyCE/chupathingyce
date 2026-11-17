@@ -768,6 +768,20 @@ def test_ctf_reaches_custom_edition():
     assert "FIRST_GAME_TYPE_MESSAGE = 30," in numbers and "CE_FIRST_GAME_TYPE_MESSAGE = 32," in numbers
 
 
+def test_roster_players_get_their_numbers():
+    """a roster takes the first 15 other players in the game's order,
+    whatever their index: each one's numbers reach its client, and a player
+    the client's updates can't carry is not listed"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    assert "struct ce_player_statistics statistics_sent[TRACKED_PLAYERS];" in source
+    scores = _function(source, "static void send_scores")
+    assert "absolute >= TRACKED_PLAYERS || client->announced[absolute] != iterator.datum_index" in scores
+    roster = _function(source, "static void game_settings_for")
+    assert "DATUM_INDEX_TO_ABSOLUTE_INDEX(datum) >= TRACKED_PLAYERS" in roster
+    told = _function(source, "static void roster_told")
+    assert "csmemset(client->statistics_known, 0, sizeof(client->statistics_known));" in told
+
+
 def test_welcome_line():
     """the default welcome line fits Custom Edition's chat, and comes once,
     a minute into a player's first game"""

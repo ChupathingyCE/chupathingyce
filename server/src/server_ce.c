@@ -169,8 +169,10 @@ struct ce_client
 	/* the scores and numbers it was told last (by absolute index) */
 	int scores_sent[CE_GAME_PLAYERS];
 	int team_scores_sent[CE_GAME_PLAYERS];
-	struct ce_player_statistics statistics_sent[CE_GAME_PLAYERS];
-	boolean statistics_known[CE_GAME_PLAYERS];
+	/* (by the player's absolute index: a roster takes players in the
+	game's order, so its 16 can be any of the first TRACKED_PLAYERS) */
+	struct ce_player_statistics statistics_sent[TRACKED_PLAYERS];
+	boolean statistics_known[TRACKED_PLAYERS];
 	boolean scores_known;
 	/* Capture the Flag's scores and flag swap timer as told last */
 	long ctf_scores_sent[2];
@@ -497,6 +499,15 @@ static void game_settings_for(
 			/* (the client's own player always; the others, at most 15) */
 			if (!is_own && others >= CE_GAME_PLAYERS - 1)
 				continue;
+			/* (and only players the client's updates can carry: a player
+			past the first TRACKED_PLAYERS is never added to it) */
+			if (!is_own)
+			{
+				long datum = network_player_datum(player);
+
+				if (datum != NONE && DATUM_INDEX_TO_ABSOLUTE_INDEX(datum) >= TRACKED_PLAYERS)
+					continue;
+			}
 			if (!is_own)
 				others++;
 			if (is_own)
@@ -592,6 +603,13 @@ static void roster_told(
 	long const *slot_players)
 {
 	csmemcpy(client->roster, settings->players, sizeof(client->roster));
+	/* (a player numbered differently now: its numbers told again under
+	its new number) */
+	if (csmemcmp(client->roster_players, slot_players, sizeof(client->roster_players)))
+	{
+		csmemset(client->statistics_known, 0, sizeof(client->statistics_known));
+		client->scores_known = FALSE;
+	}
 	csmemcpy(client->roster_players, slot_players, sizeof(client->roster_players));
 	client->roster_count = settings->player_count;
 	client->roster_known = TRUE;
@@ -1290,8 +1308,11 @@ static void send_scores(
 		long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
 		struct ce_player_statistics statistics;
 
-		if (absolute >= CE_GAME_PLAYERS || client->announced[absolute] != iterator.datum_index)
+		if (absolute >= TRACKED_PLAYERS || client->announced[absolute] != iterator.datum_index ||
+			!network_player_number(client, iterator.datum_index))
+		{
 			continue;
+		}
 		player_statistics(player, &statistics);
 		if (client->statistics_known[absolute] &&
 			!csmemcmp(&statistics, &client->statistics_sent[absolute], sizeof(statistics)))
