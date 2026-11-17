@@ -1390,10 +1390,11 @@ static void send_scores(
 		}
 		client->ctf_swap_sent = swap_timer;
 	}
-	/* (Oddball's, King's and Race's state: as a client joins, and then as
-	Custom Edition's own server tells it: the hill as it moves, Race's as it
-	changes. The times its client counts itself, as Custom Edition's
-	server leaves them to it: told again, they ran off on the scoreboard) */
+	/* (Oddball's, King's and Race's state: as a client joins, and then the
+	hill as it moves, the ball's times (once a second: a Custom Edition
+	client does not count them itself) and Race's as they change. The
+	hill's times a client counts itself, as Custom Edition's own server
+	leaves them to it: told again, they ran off on the scoreboard) */
 	{
 		unsigned int values[CE_GAME_TYPE_VALUES];
 		int count;
@@ -1404,7 +1405,7 @@ static void send_scores(
 		{
 			if (type == CE_DELTA_KING_UPDATE)
 				changed = values[16] != client->game_type_sent[16];
-			else if (type == CE_DELTA_RACE_UPDATE)
+			else
 				changed = csmemcmp(values, client->game_type_sent, sizeof(unsigned int) * count) != 0;
 		}
 		if (changed)
