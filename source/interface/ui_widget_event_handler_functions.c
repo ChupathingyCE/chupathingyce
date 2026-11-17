@@ -950,6 +950,7 @@ boolean playlist_profile_get_mode_options(long playlist_profile_index, byte *mod
 /* port: network co-op from the Chupathingy menus' Select Map
 (port/linux/game/menu_functions.c) */
 boolean pc_menus_host_cooperative_shown(void);
+boolean pc_menus_coop_first_take(void);
 boolean pc_menus_host_cooperative_choose(struct widget_instance *widget, char const *map_name,
 	boolean *widget_deleted);
 #endif
@@ -2089,9 +2090,21 @@ static boolean pause_game_restart_at_checkpoint(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	/* port: in co-op this would revert only this machine */
+	/* port: in network co-op only the host reverts, and everyone follows
+	(main.c's main_coop_host_revert); a joined machine's game is the host's,
+	and its menu has no such row (menu_tags.c) */
 	if (network_coop_active())
-		return FALSE;
+	{
+		if (!global_network_game_server_get())
+			return FALSE;
+		/* (nothing saved yet, or the save failed: the level starts over, as
+		the campaign's revert does then (game_state_revert), for everyone) */
+		if (!game_state_port_saved_game_valid())
+		{
+			main_coop_restart_level();
+			return TRUE;
+		}
+	}
 	main_revert_map();
 	return TRUE;
 }
@@ -2101,9 +2114,17 @@ static boolean pause_game_restart_level(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	/* port: in co-op this would restart only this machine */
+	/* port: in network co-op the host's restart takes everyone back to the
+	lobby with the same level, to start it again together (a reset here would
+	restart this machine alone); a joined machine's menu has no such row
+	(menu_tags.c) */
 	if (network_coop_active())
-		return FALSE;
+	{
+		if (!global_network_game_server_get())
+			return FALSE;
+		main_coop_restart_level();
+		return TRUE;
+	}
 	main_reset_map();
 	return TRUE;
 }
@@ -3159,6 +3180,24 @@ static boolean multiplayer_level_list_initialize(
 	used last left as it is */
 	if (level_count && mcc_maps_level_first(level_names[0]))
 		widget->parameters.list.selected_index = 0;
+#endif
+#ifdef HALO_GAME_BROWSER
+	/* port: from the co-op screen's ONLINE: on the campaign's first level,
+	after the multiplayer maps (menu_functions.c's coop_online) */
+	if (pc_menus_coop_first_take() && pc_menus_host_cooperative_shown())
+	{
+		char const *first_level = main_get_solo_level_name(0);
+		short row;
+
+		for (row = 0; first_level && row < level_count; row++)
+		{
+			if (ui_map_list_row_is_campaign(row) && !_stricmp(level_names[row], first_level))
+			{
+				widget->parameters.list.selected_index = row;
+				break;
+			}
+		}
+	}
 #endif
 #if defined(HALO_MAP_LIST) && !defined(HALO_CONSOLE_NO_DEBUG_TOOLS)
 	/* port: debug.menu_open's "#multiplayer_last": on the last map, for

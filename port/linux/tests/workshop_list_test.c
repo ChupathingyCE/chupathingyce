@@ -4,6 +4,10 @@ WORKSHOP_LIST_TEST.C
 Tests of the WORKSHOP section's list document and words
 (port/linux/src/workshop_list.c, workshop_browser.h). Built and run by
 tools/test_workshop_list.py; exits nonzero on a failure.
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
 */
 
 #define WORKSHOP_LIST_ONLY
@@ -63,11 +67,11 @@ int main(void)
 		int index;
 
 		strcpy(text, "{\"version\":1,\"items\":[{\"id\":\"1\",\"title\":\"");
-		for (index = 0; index < 40; index++)
+		for (index = 0; index < 100; index++)
 			strcat(text, "\xC3\xA9");
 		strcat(text, "\"}]}");
 		CHECK(read_text(text) == 1);
-		CHECK(strlen(items[0].title) == 62);
+		CHECK(strlen(items[0].title) == 158);
 	}
 	CHECK(workshop_browser_steam_url("2962107814", url, sizeof(url)) &&
 		!strcmp(url, "steam://url/CommunityFilePage/2962107814"));
@@ -141,6 +145,83 @@ int main(void)
 		CHECK(workshop_browser_read_browse_ids(page, (int)strlen(page), ids, 8) == 2);
 		CHECK(!strcmp(ids[0], "2906110850") && !strcmp(ids[1], "3496468566"));
 		CHECK(workshop_browser_read_browse_ids(page, (int)strlen(page), ids, 1) == 1);
+	}
+	{
+		/* a page with its list as data: only the list's items, not one that
+		a description links to, nor a collection's children */
+		static const char page[] = "<a href=\"filedetails/?id=2894901917\">\\\"results\\\":["
+			"{\\\"publishedfileid\\\":\\\"3839152667\\\",\\\"creator\\\":\\\"1\\\",\\\"short_description\\\":"
+			"\\\"from filedetails/?id=2894901917\\\",\\\"children\\\":[{\\\"publishedfileid\\\":\\\"9\\\"}]},"
+			"{\\\"publishedfileid\\\":\\\"3840175164\\\",\\\"creator\\\":\\\"2\\\"}]";
+		char ids[8][WORKSHOP_BROWSER_ID_SIZE];
+
+		CHECK(workshop_browser_read_browse_ids(page, (int)strlen(page), ids, 8) == 2);
+		CHECK(!strcmp(ids[0], "3839152667") && !strcmp(ids[1], "3840175164"));
+		CHECK(workshop_browser_read_browse_ids(page, (int)strlen(page), ids, 1) == 1);
+	}
+	{
+		/* the browse page's data: each item's creator, and the creators'
+		names (escaped as a script's string holds them) */
+		static const char page[] =
+			"<a href=\"filedetails/?id=99\">"
+			"\\\"total_pages\\\":23,\\\"total_count\\\":665,\\\"results\\\":["
+			"{\\\"publishedfileid\\\":\\\"3839152667\\\",\\\"creator\\\":\\\"76561198076314335\\\",\\\"title\\\":\\\"A\\\","
+			"\\\"short_description\\\":\\\"see filedetails/?id=5 and \\\\\\\"publishedfileid\\\\\\\"\\\"},"
+			"{\\\"publishedfileid\\\":\\\"3666362121\\\",\\\"creator\\\":\\\"76561199347445160\\\",\\\"children\\\":["
+			"{\\\"publishedfileid\\\":\\\"1\\\",\\\"sortorder\\\":0}]},"
+			"{\\\"publishedfileid\\\":\\\"3840065526\\\",\\\"creator\\\":\\\"7\\\"},"
+			"{\\\"publishedfileid\\\":\\\"3839152667\\\",\\\"creator\\\":\\\"76561198076314335\\\"}],"
+			"\\\"next_cursor\\\":\\\"\\\",\\\"creator_player_link_details\\\":["
+			"{\\\"public_data\\\":{\\\"steamid\\\":\\\"76561198076314335\\\",\\\"persona_name\\\":\\\"x\\\\\\\"n\\\\\\\\x \\u00e9\\\\u00e8\\\"}},"
+			"{\\\"public_data\\\":{\\\"steamid\\\":\\\"76561199347445160\\\",\\\"profile_url\\\":\\\"\\\"}},"
+			"{\\\"public_data\\\":{\\\"steamid\\\":\\\"7\\\",\\\"persona_name\\\":\\\"\\ud83d\\ude00 Face\\\"}}]";
+		struct workshop_browser_author authors[8];
+		int pages = 0, total = 0;
+
+		CHECK(workshop_browser_read_browse_authors(page, (int)strlen(page), authors, 8) == 3);
+		CHECK(!strcmp(authors[0].id, "3839152667") && !strcmp(authors[0].creator, "76561198076314335"));
+		CHECK(!strcmp(authors[0].name, "x\"n\\x \xC3\xA9\xC3\xA8"));
+		CHECK(!strcmp(authors[1].id, "3666362121") && !authors[1].name[0]);
+		CHECK(!strcmp(authors[2].id, "3840065526") && !strcmp(authors[2].name, "\xF0\x9F\x98\x80 Face"));
+		CHECK(workshop_browser_read_browse_authors(page, (int)strlen(page), authors, 1) == 1);
+		CHECK(workshop_browser_read_browse_authors("no data", 7, authors, 8) == 0);
+		CHECK(workshop_browser_read_browse_pages(page, (int)strlen(page), &pages, &total) == 1 && pages == 23 &&
+			total == 665);
+		CHECK(workshop_browser_read_browse_pages("<html>", 6, &pages, &total) == 0 && pages == 23);
+		/* (a page saying more pages than the browser goes to: its limit) */
+		CHECK(workshop_browser_read_browse_pages("\\\"total_pages\\\":999999999,", 26, &pages, &total) == 1 &&
+			pages == WORKSHOP_BROWSER_MAXIMUM_PAGES);
+	}
+	{
+		/* a name too long for its field: cut, not inside a character */
+		static const char page[] = "\\\"results\\\":[{\\\"publishedfileid\\\":\\\"5\\\",\\\"creator\\\":\\\"6\\\"}],"
+			"\\\"creator_player_link_details\\\":[{\\\"steamid\\\":\\\"6\\\",\\\"persona_name\\\":\\\""
+			"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xC3\xA9\xC3\xA9\\\"}]";
+		struct workshop_browser_author authors[2];
+
+		CHECK(workshop_browser_read_browse_authors(page, (int)strlen(page), authors, 2) == 1);
+		CHECK(strlen(authors[0].name) == 45 + 2 && (unsigned char)authors[0].name[46] == 0xA9);
+	}
+	{
+		static const char profile[] = "<?xml version=\"1.0\"?><profile><steamID64>7656</steamID64>"
+			"<steamID><![CDATA[Some \xC3\xA9 one]]></steamID><onlineState>offline</onlineState></profile>";
+		char name[WORKSHOP_BROWSER_AUTHOR_SIZE], small[8];
+
+		CHECK(workshop_browser_read_profile_name(profile, (int)strlen(profile), name, (int)sizeof(name)) == 1);
+		CHECK(!strcmp(name, "Some \xC3\xA9 one"));
+		/* (cut at a character's edge) */
+		CHECK(workshop_browser_read_profile_name(profile, (int)strlen(profile), small, 7) == 1 && !strcmp(small, "Some "));
+		CHECK(workshop_browser_read_profile_name("<steamID><![CDATA[]]></steamID>", 31, name, (int)sizeof(name)) == 0);
+		CHECK(workshop_browser_read_profile_name("<response><error>", 17, name, (int)sizeof(name)) == 0);
+	}
+	{
+		/* the details' creator */
+		static const char details[] = "{\"response\":{\"publishedfiledetails\":[{\"publishedfileid\":\"5\","
+			"\"creator\":\"76561198076314335\",\"result\":1,\"consumer_app_id\":976730,\"title\":\"T\","
+			"\"tags\":[{\"tag\":\"Halo1\"}]}]}}";
+
+		CHECK(workshop_browser_read_details(details, (int)strlen(details), items, 4) == 1);
+		CHECK(!strcmp(items[0].creator, "76561198076314335"));
 	}
 	if (failures)
 		printf("%d failures\n", failures);

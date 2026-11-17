@@ -27,11 +27,11 @@ SOURCES = ROOT / "port/linux/ui/fonts/platform_icons"
 OUTPUT = ROOT / "port/linux/ui/fonts/platform_icons.ttf"
 BASE = 0xE100
 # each SVG's platforms, delta.h's enum delta_platform (unknown has no logo,
-# nor do the Nintendo 64, 17, the Legacy PC, 18, the Steam Link, 19, iOS,
-# 20, and the Apple TV, 21, yet)
+# nor do the Nintendo 64, 17, the Legacy PC, 18, iOS, 20, and the Apple
+# TV, 21, yet)
 PLATFORMS = {
     "pc_windows": (1,), "pc_macos": (2,), "pc_linux": (3,), "android": (4,), "steam_deck": (5,), "xbox": (6,),
-    "xbox360": (7,), "wiiu": (8,), "switch": (9,), "xbox_uwp": (12,), "pc_freebsd": (13,),
+    "xbox360": (7,), "wiiu": (8,), "switch": (9,), "xbox_uwp": (12,), "pc_freebsd": (13,), "steamlink": (19,),
     # (the PSP, the Vita, the PS3, the PS4 and the PS5)
     "playstation": (10, 11, 14, 15, 16),
 }
