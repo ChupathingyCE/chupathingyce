@@ -353,9 +353,20 @@ static boolean twiddlings_player_access(
 
 	if (!player)
 	{
+		/* (no player there yet: nothing, its object and the like none) */
+		unsigned int offset;
+
 		if (write)
 			return FALSE;
 		memset(value, 0, size);
+		for (offset = pc_offset; offset < pc_offset + size; offset++)
+		{
+			if (offset >= offsetof(struct player_datum, action_object_index) &&
+				offset < offsetof(struct player_datum, cluster_index))
+			{
+				((byte *)value)[offset - pc_offset] = 0xFF;
+			}
+		}
 		return TRUE;
 	}
 	range = twiddlings_range_at(twiddlings_player_ranges, (short)NUMBEROF(twiddlings_player_ranges), 0, pc_offset,
@@ -447,6 +458,19 @@ unsigned int twiddlings_player_address(
 	if (((unsigned long)player_index & 0xFFFF0000) && handle != player_index)
 		return 0;
 	return TWIDDLINGS_PLAYERS_BASE + absolute_index * TWIDDLINGS_PLAYER_STRIDE;
+}
+
+unsigned int twiddlings_player_slot_address(
+	long list_index)
+{
+	long player_index = twiddlings_player_by_list_index(list_index);
+	unsigned int count = player_data ? (unsigned int)player_data->maximum_count : 0;
+
+	if (player_index != NONE)
+		return twiddlings_player_address(player_index);
+	if (list_index < 0 || (unsigned int)list_index >= count)
+		return 0;
+	return TWIDDLINGS_PLAYERS_BASE + (unsigned int)list_index * TWIDDLINGS_PLAYER_STRIDE;
 }
 
 long twiddlings_player_by_list_index(

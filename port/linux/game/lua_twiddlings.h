@@ -44,6 +44,10 @@ unsigned int twiddlings_player_address(long player_index);
 /* the player whose place in the player list (Chimera's rcon id) is this,
 as a handle; NONE for none */
 long twiddlings_player_by_list_index(long list_index);
+/* get_player(index)'s address: that player's, or with none there yet, the
+slot's, which reads as that player once one is there (as the Chimera SPV3
+was written for gave a script that asks at the menus) */
+unsigned int twiddlings_player_slot_address(long list_index);
 
 /* (lua_twiddlings.c's) an access at the objects', the players' or the
 object table's addresses: -1 if the address is none of theirs, else whether

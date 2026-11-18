@@ -376,10 +376,14 @@ static int lua_get_player(
 	if (arguments > 1)
 		return lua_wrong_arguments(state, "get_player");
 	if (arguments == 0 || lua_isnil(state, 1))
+	{
 		player_index = lua_local_player();
+		lua_push_address(state, player_index == NONE ? 0 : twiddlings_player_address(player_index));
+	}
 	else
-		player_index = twiddlings_player_by_list_index((long)luaL_checkinteger(state, 1));
-	lua_push_address(state, player_index == NONE ? 0 : twiddlings_player_address(player_index));
+	{
+		lua_push_address(state, twiddlings_player_slot_address((long)luaL_checkinteger(state, 1)));
+	}
 	return 1;
 }
 
