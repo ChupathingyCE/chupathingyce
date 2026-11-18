@@ -1336,6 +1336,8 @@ boolean ce_map_loaded_tags_unchanged(
 	unsigned long size)
 {
 	ce_load_changed = FALSE;
+	if (!CE_MAP_LOAD_HASHED)
+		return TRUE;
 	return ce_map_loaded_matches(tag_data, size, ce_checked_digests.tags, "its tag data");
 }
 
@@ -1354,6 +1356,8 @@ boolean ce_map_loaded_resources_unchanged(
 		return FALSE;
 	if (!digest)
 		return ce_map_loaded_changed("a resource map's tags");
+	if (!CE_MAP_LOAD_HASHED)
+		return TRUE;
 	return memcmp(digest, ce_checked_digests.resources, CE_DIGEST_SIZE) ?
 		ce_map_loaded_changed("a resource map's tags") : TRUE;
 }
@@ -1363,6 +1367,8 @@ boolean ce_map_loaded_model_data_unchanged(
 {
 	if (ce_load_changed)
 		return FALSE;
+	if (!CE_MAP_LOAD_HASHED)
+		return TRUE;
 	return memcmp(digest, ce_checked_digests.model_data, CE_DIGEST_SIZE) ? ce_map_loaded_changed("its model data") :
 		TRUE;
 }
@@ -1387,6 +1393,8 @@ boolean ce_map_loaded_bsp_unchanged(
 			/* (a BSP loads again and again as a game goes on: the map is
 			refused from its next load, not stopped now) */
 			ce_load_changed = FALSE;
+			if (!CE_MAP_LOAD_HASHED)
+				return TRUE;
 			return ce_map_loaded_matches(bsp, size, ce_checked_digests.bsps[index], "a structure BSP");
 		}
 	}

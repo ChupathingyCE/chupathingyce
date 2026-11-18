@@ -845,8 +845,11 @@ boolean ce_models_tags_loaded(
 	{
 		byte digest[CE_DIGEST_SIZE];
 
-		if (!ce_model_data_digest(&data, digest) || !ce_map_loaded_model_data_unchanged(digest))
+		if (CE_MAP_LOAD_HASHED &&
+			(!ce_model_data_digest(&data, digest) || !ce_map_loaded_model_data_unchanged(digest)))
+		{
 			return FALSE;
+		}
 	}
 	return ce_models_convert_guarded(tag_instances, tag_count, &data);
 }
@@ -876,7 +879,8 @@ boolean ce_models_tags_loaded_read(
 	{
 		byte digest[CE_DIGEST_SIZE];
 
-		if (!ce_model_data_digest(&data, digest) || !ce_map_loaded_model_data_unchanged(digest))
+		if (CE_MAP_LOAD_HASHED &&
+			(!ce_model_data_digest(&data, digest) || !ce_map_loaded_model_data_unchanged(digest)))
 		{
 			ce_model_data_end(&data);
 			return FALSE;

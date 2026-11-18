@@ -207,8 +207,20 @@ boolean ce_map_check_loaded(void *tag_instances, long tag_count, unsigned long s
 map open was checked with, unchanged: a BSP loads only from one */
 boolean ce_map_bsp_reference_checked(void const *reference);
 
+/* whether a load hashes what it reads, to compare with what was checked
+(ce_map_loaded_*): not on the original Xbox, whose processor has no SHA
+instructions, so the hashes would add seconds to each load. Its maps are
+still checked as they are opened, and hashed then */
+#ifdef HALO_XBOX_CONSOLE
+#define CE_MAP_LOAD_HASHED 0
+#else
+#define CE_MAP_LOAD_HASHED 1
+#endif
+
 /* what a map's load reads, against what was read as it was checked (the
-bytes hashed: ce_map_checks.c). Each FALSE, logged, if they are not the
+bytes hashed: ce_map_checks.c; not on the original Xbox,
+CE_MAP_LOAD_HASHED, where only a resource map that can't be copied in, or a
+BSP not checked, is refused). Each FALSE, logged, if they are not the
 same, and the map is then checked again when it is next opened
 (ce_map_check_stale): its tag data as read (which begins each load), its
 tags with the resource maps' copied in (ce_resources.c: the hash of what

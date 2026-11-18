@@ -1297,7 +1297,8 @@ resource map after, and what it changed in the map's own tags (a retail
 map's bitmaps and sounds: ce_resources_placed). The map's tags are hashed
 once, as they are read (ce_map_checks.c): with them the same, and these,
 the tags with the resources copied in are the same, and are not hashed
-again whole */
+again whole. With no digest, nothing is hashed (a load on the original
+Xbox: CE_MAP_LOAD_HASHED) */
 static boolean ce_resources_place(
 	struct ce_image *image,
 	void *tag_instances,
@@ -1313,6 +1314,8 @@ static boolean ce_resources_place(
 	boolean placed;
 	long index;
 
+	if (!digest)
+		return ce_resources_place_read(image, tag_instances, tag_count, end_free, types, next_free, copied);
 	mcc_sha256_begin(&written);
 	ce_resources_written = &written;
 	placed = ce_resources_place_read(image, tag_instances, tag_count, end_free, types, next_free, copied);
@@ -1562,8 +1565,8 @@ boolean ce_resources_tags_loaded(
 	/* (and only as they were when the map was checked: a resource map
 	changed since then is refused, ce_map_checks.c) */
 	if (!ce_map_loaded_resources_unchanged(
-		ce_resources_place(&image, tag_instances, tag_count, end_free, ce_indexed_tags, &next, &copied, digest) ? digest :
-		NULL))
+		ce_resources_place(&image, tag_instances, tag_count, end_free, ce_indexed_tags, &next, &copied,
+			CE_MAP_LOAD_HASHED ? digest : NULL) ? digest : NULL))
 	{
 		ce_tags_guard_end();
 		return FALSE;
