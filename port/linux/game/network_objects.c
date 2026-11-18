@@ -459,28 +459,113 @@ static struct
 	real ground_height;
 	real ground_rise_speed;
 } objects_host_vehicle_predictions[MAXIMUM_TRACKED_PLAYERS];
-/* a client: the host's objects it has, by absolute index */
-static long objects_client_has[MAXIMUM_TRACKED_OBJECTS];
-/* ... the bipeds, no player's, the host said were dead while they lived
-here, and when it first did (DEAD_BIPED_FALLBACK_TICKS) */
-static struct
+/* The memory of the host's lists below and of a client's tables of the
+host's objects, one: a machine is the host of a game or a client of it,
+never both, and each side is used only as it is one (the host's lists in
+network_objects_host_tick, which network_distributed_tick runs on the host
+alone; the client's tables in the handlers of the host's messages, which
+network_distributed_handle_message takes on a client alone, in
+network_objects_client_tick, and in the calls below that ask
+network_game_distributed_client first). The client's are emptied before
+every game (network_objects_new_game), and before they are next used once
+the host's lists have been made in their memory (objects_client_tables),
+so a client never reads what hosting left there. About 140 KB more free
+in every game. */
+struct objects_client_tables;
+static union
 {
-	long object_index;
-	long time;
-} objects_client_dead[MAXIMUM_TRACKED_OBJECTS];
-/* ... where the host last had each unsteered vehicle, and when, and for
-how many ticks that step may be carried (distributed_client_note_unsteered_path) */
-static struct
+	/* The host's lists of a tick's states and inventories, made and sent in
+	one call each (distributed_host_send_states, _inventories), one after the
+	other and never together: they share their memory too. */
+	union
+	{
+		struct
+		{
+			/* (one come to rest may be in its turn too) */
+			struct distributed_object_state states[MAXIMUM_TRACKED_OBJECTS + RESTING_STATES_PER_TICK];
+			byte kinds[MAXIMUM_TRACKED_OBJECTS + RESTING_STATES_PER_TICK];
+		} states;
+		struct
+		{
+			struct distributed_inventory inventories[MAXIMUM_TRACKED_OBJECTS];
+			byte kinds[MAXIMUM_TRACKED_OBJECTS];
+			real_point3d origins[MAXIMUM_TRACKED_OBJECTS];
+		} inventories;
+	} host_send_lists;
+	struct objects_client_tables
+	{
+		/* a client: the host's objects it has, by absolute index */
+		long has[MAXIMUM_TRACKED_OBJECTS];
+		/* ... the bipeds, no player's, the host said were dead while they
+		lived here, and when it first did (DEAD_BIPED_FALLBACK_TICKS) */
+		struct
+		{
+			long object_index;
+			long time;
+		} dead[MAXIMUM_TRACKED_OBJECTS];
+		/* ... where the host last had each unsteered vehicle, and when, and
+		for how many ticks that step may be carried
+		(distributed_client_note_unsteered_path) */
+		struct
+		{
+			long object_index;
+			long time;
+			long coast_ticks;
+			real_point3d position;
+		} unsteered_path[MAXIMUM_TRACKED_OBJECTS];
+		/* ... its own objects made since the last tick (of any kind: those of
+		the kinds the host has go); objects_client_check_all looks through
+		all the objects instead (the host's all told, too many made, or made
+		where it cannot say) */
+		long new_objects[MAXIMUM_CLIENT_NEW_OBJECTS];
+		/* ... the host's latest damage animation pick of each type for each
+		unit, by absolute index: its number, and when it came (NONE once
+		played) */
+		struct
+		{
+			long unit_index;
+			short animation_index[NUMBER_OF_UNIT_DAMAGE_ANIMATIONS];
+			byte number[NUMBER_OF_UNIT_DAMAGE_ANIMATIONS];
+			long time[NUMBER_OF_UNIT_DAMAGE_ANIMATIONS];
+		} damage_animations[MAXIMUM_TRACKED_OBJECTS];
+	} client;
+} objects_role_memory;
+/* whether the host's lists have been made in it since the client's tables
+were last emptied */
+static boolean objects_role_memory_hosted;
+
+/* the client's tables, emptied first if the host's lists were made in their
+memory since (as network_objects_new_game empties them) */
+static void objects_client_tables_empty(
+	void)
 {
-	long object_index;
-	long time;
-	long coast_ticks;
-	real_point3d position;
-} objects_client_unsteered_path[MAXIMUM_TRACKED_OBJECTS];
-/* ... its own objects made since the last tick (of any kind: those of the
-kinds the host has go), and whether to look through all the objects
-instead (the host's all told, too many made, or made where it cannot say) */
-static long objects_client_new_objects[MAXIMUM_CLIENT_NEW_OBJECTS];
+	long absolute_index;
+
+	objects_role_memory_hosted = FALSE;
+	csmemset(&objects_role_memory.client, 0, sizeof(objects_role_memory.client));
+	for (absolute_index = 0; absolute_index < MAXIMUM_TRACKED_OBJECTS; absolute_index++)
+	{
+		objects_role_memory.client.has[absolute_index] = NONE;
+		objects_role_memory.client.dead[absolute_index].object_index = NONE;
+		objects_role_memory.client.unsteered_path[absolute_index].object_index = NONE;
+		objects_role_memory.client.unsteered_path[absolute_index].time = NONE;
+	}
+}
+
+static struct objects_client_tables *objects_client_tables(
+	void)
+{
+	if (objects_role_memory_hosted)
+		objects_client_tables_empty();
+	return &objects_role_memory.client;
+}
+
+#define host_send_lists (objects_role_memory.host_send_lists)
+#define objects_client_has (objects_client_tables()->has)
+#define objects_client_dead (objects_client_tables()->dead)
+#define objects_client_unsteered_path (objects_client_tables()->unsteered_path)
+#define objects_client_new_objects (objects_client_tables()->new_objects)
+#define client_damage_animations (objects_client_tables()->damage_animations)
 static short objects_client_new_object_count;
 static boolean objects_client_check_all;
 /* ... the lowest of its own indices that may be free (those below it
@@ -722,8 +807,11 @@ boolean network_objects_client_has(
 {
 	long absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index);
 
-	return object_index != NONE && absolute_index >= 0 && absolute_index < MAXIMUM_TRACKED_OBJECTS &&
-		objects_client_has[absolute_index] == object_index && object_try_and_get(object_index);
+	/* (only a client's: the host's memory of them is its lists',
+	objects_role_memory) */
+	return network_game_distributed_client() && object_index != NONE && absolute_index >= 0 &&
+		absolute_index < MAXIMUM_TRACKED_OBJECTS && objects_client_has[absolute_index] == object_index &&
+		object_try_and_get(object_index);
 }
 
 word network_objects_entry_size(
@@ -1079,15 +1167,6 @@ static struct
 static short host_damage_animation_count;
 static byte host_damage_animation_number;
 
-/* client: the host's latest pick of each type for each unit, by absolute
-index: its number, and when it came (NONE once played) */
-static struct
-{
-	long unit_index;
-	short animation_index[NUMBER_OF_UNIT_DAMAGE_ANIMATIONS];
-	byte number[NUMBER_OF_UNIT_DAMAGE_ANIMATIONS];
-	long time[NUMBER_OF_UNIT_DAMAGE_ANIMATIONS];
-} client_damage_animations[MAXIMUM_TRACKED_OBJECTS];
 
 /* whether the animation is one of the unit's graph */
 static boolean distributed_unit_has_animation(
@@ -1616,25 +1695,6 @@ static boolean distributed_host_moved_at_rest(
 	return moved;
 }
 
-/* The host's lists of a tick's states and inventories, made and sent in
-one call each (distributed_host_send_states, _inventories), one after the
-other and never together: they share their memory. On a console, which
-joins far more than it hosts, that is about 90 KB more free in every game. */
-static union
-{
-	struct
-	{
-		/* (one come to rest may be in its turn too) */
-		struct distributed_object_state states[MAXIMUM_TRACKED_OBJECTS + RESTING_STATES_PER_TICK];
-		byte kinds[MAXIMUM_TRACKED_OBJECTS + RESTING_STATES_PER_TICK];
-	} states;
-	struct
-	{
-		struct distributed_inventory inventories[MAXIMUM_TRACKED_OBJECTS];
-		byte kinds[MAXIMUM_TRACKED_OBJECTS];
-		real_point3d origins[MAXIMUM_TRACKED_OBJECTS];
-	} inventories;
-} host_send_lists;
 
 /* where the moving objects are, to each client those near its players
 every tick, those further less often, and the vehicle it drives itself
@@ -3066,6 +3126,8 @@ void network_objects_host_tick(
 #endif
 	distributed_host_update_objects();
 	distributed_host_find_viewers();
+	/* (the lists are made in the client's tables' memory: objects_role_memory) */
+	objects_role_memory_hosted = TRUE;
 	distributed_host_send_states();
 	distributed_host_send_inventories(game_time_get() % INVENTORY_INTERVAL_TICKS != 0);
 	distributed_host_send_damage_animations();
@@ -4510,7 +4572,9 @@ void network_objects_new_game(
 #endif
 	csmemset(objects_host_inventories, 0, sizeof(objects_host_inventories));
 	host_damage_animation_count = 0;
-	csmemset(client_damage_animations, 0, sizeof(client_damage_animations));
+	/* (a client's tables as the game started them, whatever hosting left in
+	their memory: objects_role_memory) */
+	objects_client_tables_empty();
 	for (absolute_index = 0; absolute_index < MAXIMUM_TRACKED_OBJECTS; absolute_index++)
 	{
 		objects_host_told[absolute_index] = NONE;
