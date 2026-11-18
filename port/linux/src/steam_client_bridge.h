@@ -84,7 +84,9 @@ enum
 
 enum
 {
-	STEAM_BRIDGE_MAXIMUM_ITEMS = 72,
+	/* (more than the Workshop tab holds, WORKSHOP_BROWSER_MAXIMUM_ITEMS, so
+	its look at every item each second doesn't make them push each other out) */
+	STEAM_BRIDGE_MAXIMUM_ITEMS = 160,
 	STEAM_BRIDGE_ID_SIZE = 24,
 	STEAM_BRIDGE_PATH_SIZE = 512,
 	/* SteamAPI_Init (or finding steamcmd) given this long, then the tab falls back */
