@@ -317,6 +317,26 @@ extern long timeout_for_endgame_sound;
 
 static struct race_globals race_globals = { 0 };
 
+#ifdef HALO_SERVER
+/* port: Race's state as Custom Edition's clients are told it
+(server/src/server_ce.c): each player's first flag and laps' flags (by
+absolute player index), each team's laps, the flags of a whole lap and
+the rally flag */
+void game_engine_race_get_state(
+	long const **first_flags,
+	long const **lap_flags,
+	long const **team_laps,
+	unsigned long *lap_completed_value,
+	long *rally_flag)
+{
+	*first_flags = race_globals.first_flag;
+	*lap_flags = race_globals.lap_bit_vector;
+	*team_laps = race_globals.team_laps;
+	*lap_completed_value = race_globals.lap_completed_value;
+	*rally_flag = race_globals.rally_flag;
+}
+#endif
+
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
 
@@ -881,6 +901,8 @@ static boolean race_engine_display_score(
 	struct player_datum *other_player = NULL;
 	long string_list_index;
 	wchar_t *string;
+	/* port: (the name the scoreboard shows: game_engine_player_shown_name) */
+	wchar_t shown_name[GAME_ENGINE_SHOWN_NAME_LENGTH];
 
 	switch (message)
 	{
@@ -924,7 +946,8 @@ static boolean race_engine_display_score(
 			}
 			else
 				string = L"";
-			usnprintf(buffer, buffer_size, ustring_format_checked(string, "s"), other_player->name);
+			usnprintf(buffer, buffer_size, ustring_format_checked(string, "s"),
+				game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)));
 		}
 		break;
 
@@ -939,7 +962,8 @@ static boolean race_engine_display_score(
 			}
 			else
 				string = L"";
-			usnprintf(buffer, buffer_size, ustring_format_checked(string, "s"), other_player->name);
+			usnprintf(buffer, buffer_size, ustring_format_checked(string, "s"),
+				game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)));
 		}
 		break;
 
@@ -981,7 +1005,7 @@ static boolean race_engine_display_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(string, "sd"),
-			other_player->name,
+			game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)),
 			other_player->statistics.multiplayer_statistics.race_statistics.laps + 1);
 		break;
 
@@ -999,7 +1023,7 @@ static boolean race_engine_display_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(string, "sd"),
-			other_player->name,
+			game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)),
 			other_player->statistics.multiplayer_statistics.race_statistics.laps);
 		break;
 

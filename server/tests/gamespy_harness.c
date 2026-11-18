@@ -22,6 +22,9 @@ the masters the last heartbeat). Its notices go to standard output.
                                  hex: "grab" the flag sound, HUD note and
                                  pickup; "drop" a carrier's drop; "message" a
                                  HUD message; "state" a new game's state)
+  gamespy_harness gametype <type> <count>
+                                (a payload of a game type's state, all zero
+                                 as a new game's, as hex)
   gamespy_harness postgame <mode> [over]
                                 (a payload of the game's end at that step,
                                  and game over after it, as hex)
@@ -200,6 +203,23 @@ int main(int argc, char **argv)
 
 		ce_payload_begin(&payload, out, sizeof(out));
 		ce_payload_put_chat(&payload, atoi(argv[2]), atoi(argv[3]), argv[4]);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		return 0;
+	}
+	if (argc == 4 && !strcmp(argv[1], "gametype"))
+	{
+		static const unsigned int zero[CE_GAME_TYPE_VALUES] = { 0 };
+		struct ce_payload payload;
+		unsigned char out[256];
+		int length, count = atoi(argv[3]);
+
+		if (count < 0 || count > CE_GAME_TYPE_VALUES)
+			return 1;
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_game_type_update(&payload, atoi(argv[2]), zero, count);
 		length = ce_payload_end(&payload);
 		for (index = 0; index < length; index++)
 			printf("%02x", out[index]);

@@ -1040,6 +1040,9 @@ HELLO, the newest whose rules it plays (DELTA_LEGACY_NEWEST; earlier builds
 said their HALO_PORT_NETWORK_VERSION, 32 or older): 0 for one without a session
 (an OpenCE machine, or one whose HELLO has not come yet) */
 int delta_peer_machine_legacy_version(const struct delta_peer *peer, int machine_index);
+/* ... and the platform its HELLO's key names: 0 (unknown) for one without a
+session */
+int delta_peer_machine_platform(const struct delta_peer *peer, int machine_index);
 
 /* ---------- moderation (docs/delta/peer.md, Moderation)
 
@@ -1439,6 +1442,16 @@ int delta_peer_game_machine_session(int machine_index);
 /* ... and the network version its HELLO said (delta_peer_machine_legacy_version;
 0 while this host has no Delta, or the machine no session) */
 int delta_peer_game_machine_legacy_version(int machine_index);
+/* ... and whether its HELLO is under its platform's floor in the legacy
+table in use (delta_platform_floor_refuses: delta.h): 0 while this host has
+no Delta, or the machine no session */
+int delta_peer_game_machine_under_floor(int machine_index);
+/* ... and the platform its HELLO's key names (0 as for the version) */
+int delta_peer_game_machine_platform(int machine_index);
+/* whether this machine is under its own platform's floor in the legacy
+table in use, by the network version its HELLO says: a host of ours drops
+it, so it joins no Delta host (and the floor, through *oldest, if asked) */
+int delta_peer_game_under_floor(int *oldest);
 /* the game's room: delta_peer_room_has and _room_limit of the session */
 int delta_peer_game_room_has(int capability);
 int delta_peer_game_room_limit(int limit);

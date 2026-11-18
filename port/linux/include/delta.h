@@ -639,6 +639,32 @@ tools/delta_table.py refuses a row that requires a name not listed here. */
 /* the most names a row's "requires" may give */
 #define DELTA_REQUIRES_MAXIMUM 16
 
+/* ---------- platform floors: the oldest build of each platform our hosts play
+
+The table's "platform_floors" (docs/delta/versioning.md, "Platform floors"):
+by a platform's key, the oldest network version a Delta machine of that
+platform may say in its HELLO and still play with a host of ours:
+{"dreamcast": {"network": 42}}. Each platform's floor is its own, so a slow
+port's moves no other platform's, nor our consoles'. A table without the
+section, or without a platform's row, leaves that platform as before: no
+floor at run time, every number from 11 on played (our consoles keep the
+build-time floor, DELTA_WIRE_CONSOLE_FLOOR, as ever). A host drops a Delta
+machine of a platform with a floor whose HELLO says an older number, with a
+notice (network_game_server_delta_refusals); a client under its own
+platform's floor joins no Delta host and says why. A machine without Delta,
+or one that names the unknown platform (0), is never judged by a floor.
+Builds before 0.9.2 skip the section as an unknown key. */
+/* the most rows a table's "platform_floors" may have (a table with more is
+dropped whole) */
+#define DELTA_PLATFORM_FLOORS_MAXIMUM 64
+/* the platform's floor in the table in use: the oldest network version its
+Delta machines play our hosts at, 0 for none */
+int delta_platform_floor(int platform);
+/* the rule host and client apply: whether a Delta machine of the platform
+whose HELLO says legacy_version is under its platform's floor (1), or plays
+(0: no floor, or at or past it) */
+int delta_platform_floor_refuses(int platform, int legacy_version);
+
 /* whether a local, unsigned table (network.legacy_table) is in use */
 int delta_legacy_override(void);
 /* whether this machine relays signed tables (Delta Peer: takes them from

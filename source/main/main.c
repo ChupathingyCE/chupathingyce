@@ -1805,6 +1805,18 @@ static void main_new_map(
 			main_menu_load();
 			return;
 		}
+#ifdef HALO_GAME_BROWSER
+		/* port: the menus' own map that doesn't load (a pack's maps the game
+		can't read, as Stubbs maps a tool unpacked) goes back to the setup
+		screen, which says why, where it stopped on a blue screen. A run
+		nobody watches stops as before */
+		{
+			extern boolean pc_menu_setup_after_failed_menus(char const *map_name);
+
+			if (pc_menu_setup_after_failed_menus(options->map_name))
+				return;
+		}
+#endif
 		error(_error_immediate, "game_load() failed.");
 	}
 
@@ -2265,6 +2277,18 @@ void main_load_ui_scenario(
 {
 	struct game_options options;
 
+#ifdef HALO_GAME_BROWSER
+	/* port: a menus' map that can't be copied into the cache (a pack's maps
+	the game can't read, as Stubbs maps a tool unpacked: no zlib stream)
+	goes back to the setup screen (main_new_map), where the copy's assert
+	stopped the game on a blue screen. Loaded, it is as before */
+	if (!game_precache_new_map_refusable("levels\\ui\\ui"))
+	{
+		extern boolean pc_menu_setup_after_failed_menus(char const *map_name);
+
+		pc_menu_setup_after_failed_menus("levels\\ui\\ui");
+	}
+#endif
 	game_precache_new_map("levels\\ui\\ui", TRUE);
 	match_assert("c:\\halo\\SOURCE\\main\\main.c", 1092,
 		!main_globals.main_menu_scenario_loaded);

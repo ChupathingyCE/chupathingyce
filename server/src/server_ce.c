@@ -52,8 +52,12 @@ gamespy_listing, whose port takes the joins): off by default.
 #include "../platform/ce_messages.h"
 #include "../platform/gamespy_listing.h"
 
-/* (game_engine_ctf.c's, the server's) */
+/* (game_engine_ctf.c's and the other game types', the server's) */
 void game_engine_ctf_get_state(long scores[2], long *flag_swap_timer);
+void game_engine_oddball_get_state(long const **individual_scores, long const **team_scores, long const **ball_owners);
+long const *game_engine_king_get_state(long *hill_id);
+void game_engine_race_get_state(long const **first_flags, long const **lap_flags, long const **team_laps,
+	unsigned long *lap_completed_value, long *rally_flag);
 /* (network_server_manager_internal.h's) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 /* (port/linux/game/network_distributed.c's: bans.txt) */
@@ -157,6 +161,12 @@ struct ce_client
 	/* each player's vehicle and seat as it was told (NONE: on foot) */
 	long vehicle_sent[TRACKED_PLAYERS];
 	short seat_sent[TRACKED_PLAYERS];
+	/* in a free for all, the team each player has on its wire (ffa_teams):
+	given once, kept while the player stays in its roster, so a player's
+	team never moves under its biped; by absolute index, with the player
+	it was given to */
+	signed char ffa_team[TRACKED_PLAYERS];
+	long ffa_player[TRACKED_PLAYERS];
 	int update_id;
 	int sequence;
 	int local_sequence;
@@ -182,6 +192,9 @@ struct ce_client
 	long ctf_swap_sent;
 	long ctf_team_sent;
 	boolean ctf_known;
+	/* the other game types' state as told last (game_type_state) */
+	unsigned int game_type_sent[CE_GAME_TYPE_VALUES];
+	int game_type_count;
 	/* the roster it was told last (game settings), to tell it again as it
 	changes */
 	struct ce_network_player roster[CE_GAME_PLAYERS];
@@ -300,6 +313,85 @@ static int network_player_number(
 	return 0;
 }
 
+/* whether a Custom Edition client is shown a team game: a game type it is
+shown as it is (engine_told), with teams; any other (Bomb, shown as
+Slayer) is a free for all to it. The roster and every player's and
+biped's team follow this one test */
+static boolean engine_told(long engine);
+
+static boolean ce_team_game(
+	void)
+{
+	struct game_variant const *variant = game_engine ? game_engine_get_variant() : NULL;
+
+	return variant && engine_told(variant->game_engine_index) && variant->universal_variant.teams;
+}
+
+/* a free for all's teams on a client's wire: each player of its roster
+keeps the team it was given while it stays in that roster; a player new
+to it takes the lowest team no other there holds. So no two of a client's
+16 share one, and no player's team changes under its biped as players
+before it leave */
+static void ffa_teams(
+	struct ce_client *client,
+	long const *players,
+	int count)
+{
+	unsigned int used = 0;
+	int slot, pass;
+
+	/* (first the players keeping theirs, then the new ones) */
+	for (pass = 0; pass < 2; pass++)
+	{
+		for (slot = 0; slot < count; slot++)
+		{
+			long player_index = players[slot];
+			long absolute;
+			int team;
+
+			if (player_index == NONE || (absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)) >= TRACKED_PLAYERS)
+				continue;
+			team = client->ffa_player[absolute] == player_index ? client->ffa_team[absolute] : -1;
+			if (pass == 0)
+			{
+				if (team >= 0 && team < CE_GAME_PLAYERS && !(used & (1u << team)))
+					used |= 1u << team;
+				else
+					client->ffa_player[absolute] = NONE;
+				continue;
+			}
+			if (client->ffa_player[absolute] == player_index)
+				continue;
+			for (team = 0; team < CE_GAME_PLAYERS && (used & (1u << team)); team++)
+				;
+			used |= 1u << team;
+			client->ffa_team[absolute] = (signed char)team;
+			client->ffa_player[absolute] = player_index;
+		}
+	}
+}
+
+/* a player's team on a client's wire: a team game's team; in a free for
+all (each player its own team) the team ffa_teams gave it on that client */
+static int client_team(
+	struct ce_client const *client,
+	long player_index)
+{
+	long team = player_index == NONE ? NONE : player_get(player_index)->team_index;
+
+	if (!ce_team_game() && player_index != NONE)
+	{
+		long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+
+		if (absolute < TRACKED_PLAYERS && client->ffa_player[absolute] == player_index)
+			return client->ffa_team[absolute];
+		return 0;
+	}
+	if (team == NONE || team < 0)
+		return 0;
+	return (int)(team % CE_GAME_PLAYERS);
+}
+
 /* ---------- the roster */
 
 static void put_text(
@@ -319,7 +411,8 @@ state told them as it changes): the others stay Slayer to them */
 static boolean engine_told(
 	long engine)
 {
-	return engine == game_engine_slayer || engine == game_engine_ctf;
+	return engine == game_engine_slayer || engine == game_engine_ctf || engine == game_engine_oddball ||
+		engine == game_engine_king || engine == game_engine_race;
 }
 
 /* the game's own variant, over Custom Edition's Slayer: the game type and
@@ -393,6 +486,12 @@ static void settings_from_variant(
 		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", name);
 	else if (variant->game_engine_index == game_engine_ctf)
 		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "CTF");
+	else if (variant->game_engine_index == game_engine_oddball)
+		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "Oddball");
+	else if (variant->game_engine_index == game_engine_king)
+		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "King");
+	else if (variant->game_engine_index == game_engine_race)
+		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "Race");
 	else if (universal->teams)
 		snprintf(settings->variant_name, sizeof(settings->variant_name), "%s", "Team Slayer");
 }
@@ -529,7 +628,9 @@ static void game_settings_for(
 			slot->color = player->primary_color_index;
 			slot->controller = 0;
 			team = network_player_team(player);
-			slot->team = wire_team(team);
+			/* (a free for all: its slot until the client's own teams are
+			given, ffa_teams_told) */
+			slot->team = ce_team_game() ? wire_team(team) : settings->player_count;
 			slot->list_index = settings->player_count;
 			if (slot_players)
 				slot_players[settings->player_count] = network_player_datum(player);
@@ -544,7 +645,8 @@ static void game_settings_for(
 		slot->color = own ? own->primary_color_index : 0;
 		slot->machine = peer;
 		slot->controller = 0;
-		slot->team = own && own_player != NONE ? wire_team(player_get(own_player)->team_index) : 0;
+		slot->team = !ce_team_game() ? settings->player_count :
+			own && own_player != NONE ? wire_team(player_get(own_player)->team_index) : 0;
 		slot->list_index = settings->player_count;
 		if (slot_players)
 			slot_players[settings->player_count] = own_player;
@@ -619,6 +721,29 @@ static void roster_told(
 	client->roster_known = TRUE;
 }
 
+/* a free for all's roster with the client's own teams (ffa_teams) */
+static void ffa_teams_told(
+	struct ce_client *client,
+	struct ce_game_settings *settings,
+	long const *slot_players)
+{
+	int slot;
+
+	if (ce_team_game())
+		return;
+	ffa_teams(client, slot_players, settings->player_count);
+	for (slot = 0; slot < settings->player_count; slot++)
+	{
+		long player_index = slot_players[slot];
+
+		if (player_index != NONE && DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) < TRACKED_PLAYERS &&
+			client->ffa_player[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)] == player_index)
+		{
+			settings->players[slot].team = client->ffa_team[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)];
+		}
+	}
+}
+
 /* the roster again, as players come, go or change teams: Custom Edition's
 own server sends its clients the whole game settings again, so their
 scoreboards, names and friends follow */
@@ -636,6 +761,7 @@ static void send_roster(
 	if (client->roster_known && client->roster_signature == ce.roster_signature && client->roster_own_player == own_player)
 		return;
 	game_settings_for(client->peer, client->name, own_player, &settings, slot_players);
+	ffa_teams_told(client, &settings, slot_players);
 	if (!client->roster_known || client->roster_count != settings.player_count ||
 		csmemcmp(client->roster, settings.players, sizeof(client->roster)) ||
 		csmemcmp(client->roster_players, slot_players, sizeof(client->roster_players)))
@@ -713,6 +839,7 @@ static void client_reset(
 	for (index = 0; index < TRACKED_PLAYERS; index++)
 	{
 		client->announced[index] = NONE;
+		client->ffa_player[index] = NONE;
 		client->unit_sent[index] = NONE;
 		client->body[index] = NONE;
 		client->vehicle_sent[index] = NONE;
@@ -757,6 +884,8 @@ static boolean accept_join(
 	struct ce_client *client = client_for_peer(peer, NULL);
 
 	game_settings_for(peer, name, own_player, &settings, slot_players);
+	if (client)
+		ffa_teams_told(client, &settings, slot_players);
 	ce_payload_begin(&payload, out, sizeof(out));
 	ce_payload_put_game_settings(&payload, &settings);
 	ce_payload_put_message(&payload, begin_game, sizeof(begin_game));
@@ -1100,7 +1229,7 @@ static void send_unit(
 	spawn.unknown_medium = 0xffff;
 	/* (its team: the client's HUD shows its own player's team from this,
 	and a team game's biped colors follow it) */
-	spawn.team = (unsigned int)wire_team(player_get(player_index)->team_index);
+	spawn.team = (unsigned int)client_team(client, player_index);
 	for (index = 0; index < MAXIMUM_WEAPONS_PER_UNIT; index++)
 	{
 		long weapon_index = unit->unit.weapon_object_indices[index];
@@ -1123,7 +1252,7 @@ static void send_unit(
 	put_object_start(&biped.object, unit_index, biped_number);
 	/* (its owner team, its player's: a client takes a player's team
 from its biped) */
-	biped.object.owner = wire_team(player_get(player_index)->team_index);
+	biped.object.owner = client_team(client, player_index);
 	biped.object.player = network_player_number(client, player_index);
 	/* (its colors as our game made them, its team's in a team game; none
 made: white) */
@@ -1253,11 +1382,120 @@ static void player_statistics(
 	{
 		short const *specific = (short const *)&player->statistics.multiplayer_statistics;
 
+		long engine = game_engine ? game_engine_get_variant()->game_engine_index : NONE;
+
 		for (index = 0; index < 3; index++)
 			statistics->game_specific[index] = specific[index] & 0xffff;
+		/* (the ball's and the hill's time in seconds, as Custom Edition's
+		own server sends them: a King player's time on the scoreboard is
+		this one; Race's lap times stay in ticks, which its client turns
+		into seconds) */
+		if (engine == game_engine_oddball || engine == game_engine_king)
+			statistics->game_specific[0] = (specific[0] / TICKS_PER_SECOND) & 0xffff;
 	}
 	statistics->multiplayer_special = (int)player->multiplayer_special;
 	statistics->speed_multiplier = player->speed_multiplier;
+}
+
+/* the game type's state as a client is told it (Oddball, King, Race):
+its message type and numbers, each player's by its number on that
+client's wire, each team's by team; 0: none for this game type */
+static int game_type_state(
+	struct ce_client const *client,
+	unsigned int values[CE_GAME_TYPE_VALUES],
+	int *count)
+{
+	long engine = game_engine ? game_engine_get_variant()->game_engine_index : NONE;
+	int slot, team;
+
+	csmemset(values, 0, sizeof(unsigned int) * CE_GAME_TYPE_VALUES);
+	/* (a value by player: its slot in the client's roster; by team: the
+	team as the client has it) */
+#define BY_PLAYER(out, array) \
+	for (slot = 0; slot < client->roster_count && slot < CE_GAME_PLAYERS; slot++) \
+	{ \
+		long player_index = client->roster_players[slot]; \
+		if (player_index != NONE && DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) < HALO_PORT_MAXIMUM_NETWORK_PLAYERS) \
+			(out)[slot] = (unsigned int)(array)[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)]; \
+	}
+	/* (by team: in a free for all each player's own team on this client
+	(client_team), so its value goes under that team) */
+#define BY_TEAM(out, array) \
+	if (ce_team_game()) \
+	{ \
+		for (team = 0; team < CE_GAME_PLAYERS; team++) \
+			(out)[team] = (unsigned int)(array)[team]; \
+	} \
+	else \
+	{ \
+		for (team = 0; team < CE_GAME_PLAYERS; team++) \
+			(out)[team] = 0; \
+		for (slot = 0; slot < client->roster_count && slot < CE_GAME_PLAYERS; slot++) \
+		{ \
+			long player_index = client->roster_players[slot]; \
+			long own_team = player_index == NONE ? NONE : player_get(player_index)->team_index; \
+			if (own_team >= 0 && own_team < HALO_PORT_MAXIMUM_NETWORK_PLAYERS) \
+				(out)[client_team(client, player_index)] = (unsigned int)(array)[own_team]; \
+		} \
+	}
+	if (engine == game_engine_oddball)
+	{
+		long const *individual, *teams, *owners;
+		int ball;
+
+		game_engine_oddball_get_state(&individual, &teams, &owners);
+		BY_PLAYER(values, individual);
+		BY_TEAM(values + 16, teams);
+		/* (times in seconds, as a Custom Edition client counts them: our
+		ticks showed 52 seconds as 25:47; and so told once a second) */
+		for (slot = 0; slot < 32; slot++)
+			values[slot] /= TICKS_PER_SECOND;
+		/* (the carriers by player: 0 for none, as a new game's state has
+		them (our capture of Custom Edition's server), else the ball's
+		number plus one) */
+		for (ball = 0; ball < 16; ball++)
+		{
+			for (slot = 0; owners[ball] != NONE && slot < client->roster_count && slot < CE_GAME_PLAYERS; slot++)
+			{
+				if (client->roster_players[slot] == owners[ball])
+					values[32 + slot] = (unsigned int)ball + 1;
+			}
+		}
+		*count = 48;
+		return CE_DELTA_ODDBALL_UPDATE;
+	}
+	if (engine == game_engine_king)
+	{
+		long hill;
+		long const *scores = game_engine_king_get_state(&hill);
+
+		BY_TEAM(values, scores);
+		/* (times in seconds, as Oddball's) */
+		for (team = 0; team < 16; team++)
+			values[team] /= TICKS_PER_SECOND;
+		values[16] = (unsigned int)hill;
+		*count = 17;
+		return CE_DELTA_KING_UPDATE;
+	}
+	if (engine == game_engine_race)
+	{
+		long const *first_flags, *lap_flags, *team_laps;
+		unsigned long lap_completed;
+		long rally;
+
+		game_engine_race_get_state(&first_flags, &lap_flags, &team_laps, &lap_completed, &rally);
+		BY_TEAM(values, team_laps);
+		BY_PLAYER(values + 16, first_flags);
+		BY_PLAYER(values + 32, lap_flags);
+		values[48] = (unsigned int)lap_completed;
+		values[49] = (unsigned int)rally;
+		*count = 50;
+		return CE_DELTA_RACE_UPDATE;
+	}
+#undef BY_PLAYER
+#undef BY_TEAM
+	*count = 0;
+	return 0;
 }
 
 /* (each player's numbers and, in Slayer, the scores, as they change: what
@@ -1340,6 +1578,32 @@ static void send_scores(
 			any = TRUE;
 		}
 		client->ctf_swap_sent = swap_timer;
+	}
+	/* (Oddball's, King's and Race's state: as a client joins, and then the
+	hill as it moves, the ball's times (once a second: a Custom Edition
+	client does not count them itself) and Race's as they change. The
+	hill's times a client counts itself, as Custom Edition's own server
+	leaves them to it: told again, they ran off on the scoreboard) */
+	{
+		unsigned int values[CE_GAME_TYPE_VALUES];
+		int count;
+		int type = game_type_state(client, values, &count);
+		boolean changed = type && count != client->game_type_count;
+
+		if (type && !changed)
+		{
+			if (type == CE_DELTA_KING_UPDATE)
+				changed = values[16] != client->game_type_sent[16];
+			else
+				changed = csmemcmp(values, client->game_type_sent, sizeof(unsigned int) * count) != 0;
+		}
+		if (changed)
+		{
+			ce_payload_put_game_type_update(&payload, type, values, count);
+			csmemcpy(client->game_type_sent, values, sizeof(unsigned int) * count);
+			client->game_type_count = count;
+			any = TRUE;
+		}
 	}
 	data_iterator_new(&iterator, player_data);
 	while ((player = data_iterator_next(&iterator)) != NULL)
@@ -1821,7 +2085,7 @@ static void update_client(
 			ce_payload_begin(&added, added_out, sizeof(added_out));
 			ce_payload_put_player_add(&added, list,
 				(unsigned int)player_index, network_player_number(client, player_index),
-				wire_team(player->team_index));
+				client_team(client, player_index));
 			added_length = ce_payload_end(&added);
 			if (ce_transport_send(client->peer, added_out, added_length, TRUE))
 			{
@@ -2540,11 +2804,12 @@ void server_ce_multiplayer_message(
 		}
 		/* (a player the message names (a killer, a carrier): its client
 		knows the players of its roster by the handles it was told
-		(player add); one outside its roster, none) */
+		(player add), and may look the one named up without a check; one
+		outside its roster: not told) */
 		if (data != NONE && (data >> 16) != 0 && player_data && player_try_and_get(data) &&
 			!network_player_number(client, data))
 		{
-			data = NONE;
+			continue;
 		}
 		/* (the scores first: a capture's message shows them, "You scored
 		1 to 0", from what its client has) */
@@ -2576,11 +2841,20 @@ void server_ce_multiplayer_sound(
 		SOUND_TELEPORTER_ACTIVATE = 0x1B,
 		SOUND_COUNTDOWN_FOR_RESPAWN = 0x1D,
 		SOUND_PLAYER_RESPAWN = 0x1F,
+		SOUND_COUNTDOWN_TIMER_END = 0x2A,
 	};
 	short index;
 
 	if (!ce.enabled || ce.showing_message || sound_index == SOUND_TELEPORTER_ACTIVATE ||
 		sound_index == SOUND_COUNTDOWN_FOR_RESPAWN || sound_index == SOUND_PLAYER_RESPAWN)
+	{
+		return;
+	}
+	/* (the ball's beep every five seconds its carrier holds it: its
+	carrier's client counts the time and beeps itself, and Custom
+	Edition's own server sends no such sound) */
+	if (sound_index == SOUND_COUNTDOWN_TIMER_END && game_engine &&
+		game_engine_get_variant()->game_engine_index == game_engine_oddball)
 	{
 		return;
 	}
