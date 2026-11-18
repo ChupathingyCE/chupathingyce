@@ -56,6 +56,14 @@ enum
 	MISSING_MAPS_LINE_LENGTH = 128,
 	/* (the native renderers' most in one clear: d3d8_console.inl) */
 	MISSING_MAPS_CLEAR_BATCH = 16,
+	/* the screen's rectangles, at most (its text is about 400) */
+	MISSING_MAPS_RECTANGLES = 2048,
+	/* the loop's pass, in milliseconds (the input's and the system's), the
+	passes drawn first (to fill the swap chain), and then a pass drawn every
+	so many (the picture back after the system's menus) */
+	MISSING_MAPS_PASS_MILLISECONDS = 16,
+	MISSING_MAPS_FIRST_DRAWS = 3,
+	MISSING_MAPS_DRAW_EVERY = 60,
 
 	/* the game's primary target (rasterizer_xbox.c's _rasterizer_target_render_primary) */
 	MISSING_MAPS_TARGET_RENDER_PRIMARY = 0
@@ -288,57 +296,44 @@ static void missing_maps_add_wrapped(
 	return;
 }
 
-/* the clears waiting to be sent, in one call per MISSING_MAPS_CLEAR_BATCH */
-static D3DRECT missing_maps_rectangles[MISSING_MAPS_CLEAR_BATCH];
-static long missing_maps_rectangle_count;
-static pixel32 missing_maps_rectangle_color;
-
-static void missing_maps_flush(
-	void)
+/* the screen's rectangles, laid out once (missing_maps_layout): each a run
+of a letter's pixels, runs that line up in the rows below one rectangle */
+struct missing_maps_rectangle
 {
-	if (missing_maps_rectangle_count)
-	{
-		IDirect3DDevice8_Clear(
-			global_d3d_device,
-			missing_maps_rectangle_count,
-			missing_maps_rectangles,
-			D3DCLEAR_TARGET,
-			missing_maps_rectangle_color,
-			1.0f,
-			0);
-		missing_maps_rectangle_count = 0;
-	}
+	D3DRECT bounds;
+	pixel32 color;
+};
 
-	return;
-}
+static struct missing_maps_rectangle missing_maps_rectangles[MISSING_MAPS_RECTANGLES];
+static long missing_maps_rectangle_count;
+/* (the size they were laid out for: 0 before the first) */
+static long missing_maps_layout_width;
+static long missing_maps_layout_height;
 
-static void missing_maps_rectangle(
+static long missing_maps_rectangle_add(
 	long x0,
 	long y0,
 	long x1,
 	long y1,
 	pixel32 color)
 {
-	D3DRECT *rectangle;
+	struct missing_maps_rectangle *rectangle;
 
-	if (missing_maps_rectangle_count &&
-		(missing_maps_rectangle_color != color || missing_maps_rectangle_count == MISSING_MAPS_CLEAR_BATCH))
-	{
-		missing_maps_flush();
-	}
-	missing_maps_rectangle_color = color;
-	rectangle = &missing_maps_rectangles[missing_maps_rectangle_count++];
-	rectangle->x1 = x0;
-	rectangle->y1 = y0;
-	rectangle->x2 = x1;
-	rectangle->y2 = y1;
+	if (missing_maps_rectangle_count >= MISSING_MAPS_RECTANGLES)
+		return NONE;
+	rectangle = &missing_maps_rectangles[missing_maps_rectangle_count];
+	rectangle->bounds.x1 = x0;
+	rectangle->bounds.y1 = y0;
+	rectangle->bounds.x2 = x1;
+	rectangle->bounds.y2 = y1;
+	rectangle->color = color;
 
-	return;
+	return missing_maps_rectangle_count++;
 }
 
-/* a line's letters, each row's runs of pixels a clear each, from x, y (its
-top left) */
-static void missing_maps_draw_text(
+/* a line's letters as rectangles, from x, y (its top left): each row's runs
+of pixels, a run the same as the one above it making that one taller */
+static void missing_maps_layout_text(
 	char const *text,
 	long x,
 	long y,
@@ -349,7 +344,11 @@ static void missing_maps_draw_text(
 	{
 		unsigned char character = (unsigned char)*text;
 		byte const *glyph;
-		short row;
+		/* (the row above's runs, by their first column: their end and their
+		rectangle, NONE for none) */
+		short open_end[MISSING_MAPS_GLYPH_WIDTH];
+		long open_rectangle[MISSING_MAPS_GLYPH_WIDTH];
+		short row, column;
 
 		if (character < MISSING_MAPS_FIRST_CHARACTER ||
 			character >= MISSING_MAPS_FIRST_CHARACTER + MISSING_MAPS_CHARACTERS)
@@ -357,10 +356,22 @@ static void missing_maps_draw_text(
 			character = '?';
 		}
 		glyph = missing_maps_glyphs[character - MISSING_MAPS_FIRST_CHARACTER];
+		for (column = 0; column < MISSING_MAPS_GLYPH_WIDTH; column++)
+		{
+			open_end[column] = 0;
+			open_rectangle[column] = NONE;
+		}
 		for (row = 0; row < MISSING_MAPS_GLYPH_ROWS; row++)
 		{
-			short column = 0;
+			short end[MISSING_MAPS_GLYPH_WIDTH];
+			long rectangle[MISSING_MAPS_GLYPH_WIDTH];
 
+			for (column = 0; column < MISSING_MAPS_GLYPH_WIDTH; column++)
+			{
+				end[column] = 0;
+				rectangle[column] = NONE;
+			}
+			column = 0;
 			while (column < MISSING_MAPS_GLYPH_WIDTH)
 			{
 				short run_start;
@@ -376,13 +387,95 @@ static void missing_maps_draw_text(
 				{
 					column++;
 				}
-				missing_maps_rectangle(
-					x + run_start * scale,
-					y + row * scale,
-					x + column * scale,
-					y + (row + 1) * scale,
-					color);
+				end[run_start] = column;
+				if (open_rectangle[run_start] != NONE && open_end[run_start] == column)
+				{
+					rectangle[run_start] = open_rectangle[run_start];
+					missing_maps_rectangles[rectangle[run_start]].bounds.y2 = y + (row + 1) * scale;
+				}
+				else
+				{
+					rectangle[run_start] = missing_maps_rectangle_add(
+						x + run_start * scale,
+						y + row * scale,
+						x + column * scale,
+						y + (row + 1) * scale,
+						color);
+				}
 			}
+			for (column = 0; column < MISSING_MAPS_GLYPH_WIDTH; column++)
+			{
+				open_end[column] = end[column];
+				open_rectangle[column] = rectangle[column];
+			}
+		}
+	}
+
+	return;
+}
+
+/* the lines laid out as rectangles for a screen of width by height, once
+(again only if the size changes) */
+static void missing_maps_layout(
+	long width,
+	long height)
+{
+	long block_height = 0;
+	long block_width = 0;
+	long x, y;
+	short line_index;
+
+	if (width == missing_maps_layout_width && height == missing_maps_layout_height)
+		return;
+	missing_maps_layout_width = width;
+	missing_maps_layout_height = height;
+	missing_maps_rectangle_count = 0;
+	for (line_index = 0; line_index < missing_maps_line_count; line_index++)
+	{
+		struct missing_maps_line const *line = &missing_maps_lines[line_index];
+		long line_width = (long)strlen(line->text) * MISSING_MAPS_CELL_WIDTH * line->scale;
+
+		block_height += MISSING_MAPS_CELL_HEIGHT * line->scale;
+		block_width = MAX(block_width, line_width);
+	}
+	/* (left aligned, the block in the middle of the screen) */
+	x = MAX(0, (width - block_width) / 2);
+	y = MAX(0, (height - block_height) / 2);
+	for (line_index = 0; line_index < missing_maps_line_count; line_index++)
+	{
+		struct missing_maps_line const *line = &missing_maps_lines[line_index];
+
+		missing_maps_layout_text(line->text, x, y, line->scale, line->color);
+		y += MISSING_MAPS_CELL_HEIGHT * line->scale;
+	}
+	error(_error_silent, "missing maps screen: %ld rectangles for %ldx%ld", missing_maps_rectangle_count, width, height);
+
+	return;
+}
+
+/* the rectangles drawn, up to MISSING_MAPS_CLEAR_BATCH of one color a clear */
+static void missing_maps_draw_rectangles(
+	void)
+{
+	D3DRECT batch[MISSING_MAPS_CLEAR_BATCH];
+	long count = 0;
+	pixel32 color = 0;
+	long index;
+
+	for (index = 0; index <= missing_maps_rectangle_count; index++)
+	{
+		struct missing_maps_rectangle const *rectangle =
+			index < missing_maps_rectangle_count ? &missing_maps_rectangles[index] : NULL;
+
+		if (count && (!rectangle || rectangle->color != color || count == MISSING_MAPS_CLEAR_BATCH))
+		{
+			IDirect3DDevice8_Clear(global_d3d_device, count, batch, D3DCLEAR_TARGET, color, 1.0f, 0);
+			count = 0;
+		}
+		if (rectangle)
+		{
+			color = rectangle->color;
+			batch[count++] = rectangle->bounds;
 		}
 	}
 
@@ -421,38 +514,18 @@ static void missing_maps_draw(
 	void)
 {
 	long width, height;
-	long block_height = 0;
-	long block_width = 0;
-	long x, y;
-	short line_index;
 
 	if (!missing_maps_frame_begin(&width, &height))
 		return;
-	for (line_index = 0; line_index < missing_maps_line_count; line_index++)
-	{
-		struct missing_maps_line const *line = &missing_maps_lines[line_index];
-		long line_width = (long)strlen(line->text) * MISSING_MAPS_CELL_WIDTH * line->scale;
-
-		block_height += MISSING_MAPS_CELL_HEIGHT * line->scale;
-		block_width = MAX(block_width, line_width);
-	}
-	/* (left aligned, the block in the middle of the screen) */
-	x = MAX(0, (width - block_width) / 2);
-	y = MAX(0, (height - block_height) / 2);
-	for (line_index = 0; line_index < missing_maps_line_count; line_index++)
-	{
-		struct missing_maps_line const *line = &missing_maps_lines[line_index];
-
-		missing_maps_draw_text(line->text, x, y, line->scale, line->color);
-		y += MISSING_MAPS_CELL_HEIGHT * line->scale;
-	}
-	missing_maps_flush();
+	missing_maps_layout(width, height);
+	missing_maps_draw_rectangles();
 	rasterizer_present(NULL, NULL);
 
 	return;
 }
 
-/* B or Back pressed (on any pad, or Escape) since the last frame */
+/* B or Back down (on any pad, or Escape): held counts, so a press between
+passes is not missed */
 static boolean missing_maps_quit_pressed(
 	void)
 {
@@ -465,7 +538,7 @@ static boolean missing_maps_quit_pressed(
 		struct gamepad_state const *gamepad = input_get_gamepad_state(gamepad_index);
 
 		if (gamepad &&
-			(gamepad->buttons[_gamepad_analog_button_b] == 1 || gamepad->buttons[_gamepad_binary_button_back] == 1))
+			(gamepad->buttons[_gamepad_analog_button_b] >= 1 || gamepad->buttons[_gamepad_binary_button_back] >= 1))
 		{
 			return TRUE;
 		}
@@ -483,6 +556,7 @@ void missing_maps_screen(
 	char line[MISSING_MAPS_LINE_LENGTH];
 	/* (the body's letters at twice their size: 46 to a line of 640) */
 	short const columns = (short)((640 - 2 * 24) / (MISSING_MAPS_CELL_WIDTH * 2));
+	unsigned long pass;
 
 	missing_maps_folder(folder, sizeof(folder));
 	error(_error_silent, "missing maps screen: '%s' not found in %s", map_name ? map_name : "ui", folder);
@@ -508,7 +582,10 @@ void missing_maps_screen(
 	}
 #endif
 
-	while (TRUE)
+	/* (the input and the system every pass; the picture, which stays, in
+	the first passes and then once a second: each clear is a draw of its own
+	on some renderers) */
+	for (pass = 0; ; pass++)
 	{
 		input_frame_begin();
 		input_update();
@@ -517,9 +594,10 @@ void missing_maps_screen(
 			error(_error_silent, "missing maps screen: quitting to the system's menu");
 			xbox_dashboard_launch();
 		}
-		missing_maps_draw();
+		if (pass < MISSING_MAPS_FIRST_DRAWS || pass % MISSING_MAPS_DRAW_EVERY == 0)
+			missing_maps_draw();
 		input_frame_end();
-		Sleep(16);
+		Sleep(MISSING_MAPS_PASS_MILLISECONDS);
 	}
 }
 
