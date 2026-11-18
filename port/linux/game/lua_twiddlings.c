@@ -10,7 +10,10 @@ used as it is. Each is resolved by the twiddlings table to one of:
   - the tag cache: a Custom Edition map's tags are read to Halo PC's
     addresses (0x40440000 up, cache_files.c), and Halo PC's tags are laid
     out as the Xbox's, so a tag's field is at the address a script expects.
-    Reads and writes, as on Halo PC (until the map loads again). Three
+    Reads and writes, as on Halo PC (until the map loads again). The tag
+    index is the exception: this game's loader keeps the instances
+    elsewhere, so Halo PC's (right after the header) are read from them,
+    and get_tag gives Halo PC's addresses. Three
     things are not as Halo PC had them: gbxmodels made Xbox models
     (ce_models.c), the HUD's high-resolution scale flags (ce_hud.c) and the
     BSPs' vertices (ce_bsp.c);
@@ -55,6 +58,10 @@ map): the header at the tag cache's base, its instances 0x20 bytes each */
 #define TAG_INSTANCE_GROUP_OFFSET 0x0
 #define TAG_INSTANCE_INDEX_OFFSET 0xC
 #define TAG_INSTANCE_NAME_OFFSET 0x10
+/* where Halo PC has the tag index: right after the header. This game's
+loader keeps the instances elsewhere (the header says where), so a script's
+address in Halo PC's index is moved onto them */
+#define PC_TAG_INSTANCES_OFFSET 0x28
 
 /* ---------- types */
 
@@ -144,6 +151,49 @@ static boolean twiddlings_tag_cache(
 	(void)end;
 	return FALSE;
 #endif
+}
+
+/* the tag index's instances, as this game has them, and their count */
+static boolean twiddlings_tag_index(
+	unsigned int *instances,
+	unsigned int *count)
+{
+	unsigned int base, end;
+
+	if (!twiddlings_tag_cache(&base, &end))
+		return FALSE;
+	*instances = *(unsigned int const *)twiddlings_pointer(base + TAG_HEADER_INSTANCES_OFFSET);
+	*count = *(unsigned int const *)twiddlings_pointer(base + TAG_HEADER_COUNT_OFFSET);
+	return *instances != 0;
+}
+
+/* Halo PC's tag index (its header's instances pointer, and the instances
+at base + 0x28), moved onto this game's: TRUE when the address is there */
+static boolean twiddlings_tag_index_read(
+	unsigned int address,
+	void *value,
+	unsigned int size)
+{
+	unsigned int base, end, instances, count, first;
+
+	if (!twiddlings_tag_cache(&base, &end) || !twiddlings_tag_index(&instances, &count))
+		return FALSE;
+	/* the header's instances pointer: Halo PC's */
+	if (address == base + TAG_HEADER_INSTANCES_OFFSET && size == sizeof(unsigned int))
+	{
+		unsigned int pc_instances = base + PC_TAG_INSTANCES_OFFSET;
+
+		memcpy(value, &pc_instances, sizeof(pc_instances));
+		return TRUE;
+	}
+	first = base + PC_TAG_INSTANCES_OFFSET;
+	if (instances == first || address < first || (address - first) / TAG_INSTANCE_SIZE >= count ||
+		(address - first) % TAG_INSTANCE_SIZE + size > TAG_INSTANCE_SIZE)
+	{
+		return FALSE;
+	}
+	memcpy(value, twiddlings_pointer(instances + (address - first)), size);
+	return TRUE;
 }
 
 /* the host pointer of [address, address + size) when all of it is in the
@@ -287,6 +337,8 @@ boolean twiddlings_read(
 		lua_log_once("twiddlings off", "twiddlings: off (lua.twiddlings), so every read is 0");
 		return FALSE;
 	}
+	if (twiddlings_tag_index_read(address, value, size))
+		return TRUE;
 	pointer = twiddlings_tag_cache_pointer(address, size);
 	if (pointer)
 	{
@@ -312,6 +364,16 @@ boolean twiddlings_write(
 	{
 		lua_log_once("twiddlings off w", "twiddlings: off (lua.twiddlings), so every write is refused");
 		return FALSE;
+	}
+	{
+		byte ignored[8];
+
+		/* (the tag index is read alone) */
+		if (size <= sizeof(ignored) && twiddlings_tag_index_read(address, ignored, size))
+		{
+			twiddlings_refused(_twiddlings_write, address);
+			return FALSE;
+		}
 	}
 	pointer = twiddlings_tag_cache_pointer(address, size);
 	if (pointer)
@@ -373,16 +435,11 @@ unsigned int twiddlings_tag_instance_address(
 {
 	unsigned int base, end, instances, count, absolute_index, instance;
 
-	if (tag_index == NONE || !twiddlings_tag_cache(&base, &end))
+	if (tag_index == NONE || !twiddlings_tag_cache(&base, &end) || !twiddlings_tag_index(&instances, &count))
 		return 0;
-	instances = *(unsigned int const *)twiddlings_pointer(base + TAG_HEADER_INSTANCES_OFFSET);
-	count = *(unsigned int const *)twiddlings_pointer(base + TAG_HEADER_COUNT_OFFSET);
 	absolute_index = (unsigned int)tag_index & 0xFFFF;
-	if (absolute_index >= count || instances < base || instances >= end ||
-		(end - instances) / TAG_INSTANCE_SIZE <= absolute_index)
-	{
+	if (absolute_index >= count)
 		return 0;
-	}
 	instance = instances + absolute_index * TAG_INSTANCE_SIZE;
 	/* (an index without a salt, as Chimera takes one) */
 	if (((unsigned int)tag_index & 0xFFFF0000) &&
@@ -390,7 +447,8 @@ unsigned int twiddlings_tag_instance_address(
 	{
 		return 0;
 	}
-	return instance;
+	/* (the instance where Halo PC has it: twiddlings_tag_index_read) */
+	return base + PC_TAG_INSTANCES_OFFSET + absolute_index * TAG_INSTANCE_SIZE;
 }
 
 unsigned int twiddlings_tag_instance_address_by_name(
@@ -399,14 +457,8 @@ unsigned int twiddlings_tag_instance_address_by_name(
 {
 	unsigned int base, end, instances, count, index;
 
-	if (!twiddlings_tag_cache(&base, &end))
+	if (!twiddlings_tag_cache(&base, &end) || !twiddlings_tag_index(&instances, &count))
 		return 0;
-	instances = *(unsigned int const *)twiddlings_pointer(base + TAG_HEADER_INSTANCES_OFFSET);
-	count = *(unsigned int const *)twiddlings_pointer(base + TAG_HEADER_COUNT_OFFSET);
-	if (instances < base || instances >= end)
-		return 0;
-	if (count > (end - instances) / TAG_INSTANCE_SIZE)
-		count = (end - instances) / TAG_INSTANCE_SIZE;
 	for (index = 0; index < count; index++)
 	{
 		unsigned int instance = instances + index * TAG_INSTANCE_SIZE;
@@ -419,7 +471,7 @@ unsigned int twiddlings_tag_instance_address_by_name(
 		if (!twiddlings_read_string(name, text, sizeof(text)))
 			continue;
 		if (!_stricmp(text, path))
-			return instance;
+			return base + PC_TAG_INSTANCES_OFFSET + index * TAG_INSTANCE_SIZE;
 	}
 	return 0;
 }
