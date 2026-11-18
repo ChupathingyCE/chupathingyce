@@ -16,9 +16,18 @@ player sends their logs.
 
 #include "halt_facts.h"
 
-/* whether it is shown: someone watches the run (platform_run_is_unwatched)
-and the overlay draws. Takes the first player's input from here on */
-int halt_screen_shown(void);
+/* what the halt screen does: HALT_SCREEN_SHOWN, drawn in the overlay (it
+takes the first player's input from here on, the console and chat closed);
+HALT_SCREEN_EXIT, nothing drawn and the game ends (a run nobody watches,
+or a halt on a thread other than the window's, which can neither draw nor
+read input); HALT_SCREEN_PLAIN, the game's own plain screen (no overlay) */
+enum
+{
+	HALT_SCREEN_PLAIN,
+	HALT_SCREEN_SHOWN,
+	HALT_SCREEN_EXIT,
+};
+int halt_screen_choose(void);
 /* a frame of it, drawn into the overlay, with the player's input since the
 last (RESTART and QUIT do not return) */
 void halt_screen_frame(struct halt_facts const *facts);

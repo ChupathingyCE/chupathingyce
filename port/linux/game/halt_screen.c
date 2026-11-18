@@ -32,6 +32,11 @@ void platform_open_url(char const *url);
 void platform_clipboard_set(const char *text);
 void platform_log(char const *format, ...);
 int platform_run_is_unwatched(void);
+int platform_on_event_thread(void);
+void platform_chat_typing(int typing);
+void platform_text_typing(int typing);
+void platform_text_field(int typing);
+void console_close(void);
 #if !defined(__ANDROID__)
 int updater_gamescope(void);
 #endif
@@ -241,10 +246,18 @@ static int log_rows_layout(struct halt_facts const *facts, float width)
 
 /* ---------- public code */
 
-int halt_screen_shown(void)
+int halt_screen_choose(void)
 {
-	if (!ui_overlay_available() || platform_run_is_unwatched())
-		return 0;
+	if (!platform_on_event_thread() || platform_run_is_unwatched())
+		return HALT_SCREEN_EXIT;
+	if (!ui_overlay_available())
+		return HALT_SCREEN_PLAIN;
+	/* (the keyboard is the screen's: the console, chat and a text field
+	no longer take it) */
+	console_close();
+	platform_chat_typing(0);
+	platform_text_typing(0);
+	platform_text_field(0);
 	halt_screen.way_count = 0;
 #ifdef HALO_LAUNCHER
 	halt_screen.ways[halt_screen.way_count++] = _halt_way_restart;
@@ -258,7 +271,7 @@ int halt_screen_shown(void)
 	/* (the first player's controller and keys are the screen's, as the
 	Guide takes them) */
 	platform_guide_capture(1);
-	return 1;
+	return HALT_SCREEN_SHOWN;
 }
 
 void halt_screen_frame(struct halt_facts const *facts)
