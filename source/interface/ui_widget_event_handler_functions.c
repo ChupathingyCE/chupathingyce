@@ -1815,11 +1815,10 @@ port/linux/game/stubbs_campaign.c) */
 static char *ui_single_player_level(
 	long level_index)
 {
-	char *name = event_handler_functions.single_player_levels[level_index];
-
+	/* (Stubbs's twelve: the last two are past Halo's ten, never read) */
 	if (stubbs_mode_active())
-		name = (char *)stubbs_campaign_level_name((short)level_index, name);
-	return name;
+		return (char *)stubbs_campaign_level_name((short)level_index, NULL);
+	return event_handler_functions.single_player_levels[level_index];
 }
 
 #ifdef HALO_MAP_LIST
@@ -4483,6 +4482,31 @@ static boolean solo_level_initialize_list_coop(
 	struct ui_widget_definition *definition;
 
 	memset(single_player_level_data, 0, sizeof(single_player_level_data));
+	/* port: Stubbs mode's twelve levels, those either player has reached
+	(port/linux/game/stubbs_campaign.c), as one player's list has them */
+	if (stubbs_mode_active())
+	{
+		short level;
+
+		for (level = 0; level < STUBBS_CAMPAIGN_LEVEL_COUNT; level++)
+		{
+			unsigned long flags = stubbs_campaign_level_flags(0, level) | stubbs_campaign_level_flags(1, level);
+
+			single_player_level_data[level].map_name = ui_single_player_level(level);
+			if (stubbs_campaign_level_available(0, level) || stubbs_campaign_level_available(1, level))
+			{
+				single_player_level_data[level].available = TRUE;
+				single_player_level_data[level].unknown5 = (flags >> 1) & 1;
+				single_player_level_data[level].unknown6 = (flags >> 2) & 1;
+				single_player_level_data[level].unknown7 = (flags >> 3) & 1;
+			}
+		}
+		widget->parameters.list.list_items = single_player_level_data;
+		widget->parameters.list.number_of_items = STUBBS_CAMPAIGN_LEVEL_COUNT;
+		widget->parameters.list.selected_index =
+			PIN(player_ui_get_last_single_player_level_played(0), 0, STUBBS_CAMPAIGN_LEVEL_COUNT - 1);
+		return TRUE;
+	}
 	{
 		player_ui_get_active_player_profile(0, &profile0);
 		player_profile_get_highest_completed_solo_level(&profile0, &highest_levels[0], &highest_difficulties[0]);
@@ -4606,18 +4630,21 @@ static boolean solo_level_set_next_map_name(
 	list_widget = widget;
 	result = FALSE;
 	/* port: Stubbs mode's twelve levels, its profiles' finished levels its
-	own (port/linux/game/stubbs_campaign.c) */
-	if (stubbs_mode_active() && player_spawn_count == 1)
+	own (port/linux/game/stubbs_campaign.c); with two players, either
+	player's */
+	if (stubbs_mode_active() && (player_spawn_count == 1 || player_spawn_count == 2))
 	{
 		short level = list_widget->parameters.list.selected_index;
 
-		if (!stubbs_campaign_level_available(0, level))
+		if (!stubbs_campaign_level_available(0, level) &&
+			(player_spawn_count != 2 || !stubbs_campaign_level_available(1, level)))
 		{
 			error(2, "this level is unavailable to you!");
 			ui_play_audio_feedback_sound(4);
 			return FALSE;
 		}
-		player_ui_remember_player1_profile(0);
+		if (player_spawn_count == 1)
+			player_ui_remember_player1_profile(0);
 		main_set_map_name(ui_single_player_level(level));
 		main_defer_map_map_change();
 		return TRUE;
