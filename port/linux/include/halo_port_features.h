@@ -224,6 +224,19 @@ build to nothing (plasma_occlusion.c's fields alone are 130 KB) */
 #define HALO_CONSOLE_NO_LIGHT_EFFECTS
 #endif
 
+/* an object's dark lights left out of the map's clusters (object_lights.c,
+light_port_connect_lit): an attached light whose function is at 0 and whose
+color there is black lights nothing and is not drawn, so it does not join
+its clusters each tick until it lights again. The same picture for less of
+the tick on a console's processor (warthog-xbox #109); the desktop builds
+connect every light, as retail did (their Light effects read them). Any
+console's build, whichever switches it sets on its own */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!defined(HALO_CONSOLE_SKIP_DARK_LIGHTS)
+#define HALO_CONSOLE_SKIP_DARK_LIGHTS
+#endif
+
 /* Halo MCC maps (port/linux/game/mcc_*.c, docs/mcc_maps.md): the desktop
 builds' and Android's, by a list of their systems, and on no console (any
 console's build, whichever switches it sets on its own: the original Xbox

@@ -221,6 +221,8 @@ enum
 	_point_light_attached_to_first_person_weapon_bit = 3,
 	/* port: a glow the Light effects made (light_port_glow_new) */
 	_point_light_port_glow_bit = 4,
+	/* port: dark at the last tick's update (light_port_connect_lit) */
+	_point_light_port_dark_bit = 5,
 };
 
 enum
@@ -2559,6 +2561,112 @@ void light_reconnect_to_map(
 
 	return;
 }
+
+#ifdef HALO_CONSOLE_SKIP_DARK_LIGHTS
+/* port: whether an object's attached light is dark: its function is at 0
+and its definition's color there is black, so lights_preprocess_scene
+would give it no color, and it would light nothing and not be drawn (nor
+its lens flare: lights_queue_lens_flare). A color that blends toward the
+object's change color (an alpha) is not black at 0, nor is one with a
+color at 0 (a plasma pistol's flare glows green). The light's function is
+the one this tick's object_compute_function_values gave. A console that
+draws the functions as sampled each tick (HALO_CONSOLE_NO_SMOOTH_FUNCTIONS)
+draws it by that value until the next tick; one that blends them draws it
+between the last two ticks' (light_port_connect_lit) */
+static boolean light_port_dark(
+	struct light_datum const *light)
+{
+	struct point_light_definition *definition;
+	real intensity;
+
+	if (light->parent_light_index != NONE ||
+		light->object_index == NONE ||
+		light->function_index == NONE ||
+		!TEST_FLAG(light->flags, _point_light_connects_to_map_bit))
+	{
+		return FALSE;
+	}
+	definition = light_definition_get(light->definition_index);
+	if (definition->color_lower_bound.red != 0.0f ||
+		definition->color_lower_bound.green != 0.0f ||
+		definition->color_lower_bound.blue != 0.0f ||
+		definition->color_lower_bound.alpha > _real_epsilon ||
+		definition->color_upper_bound.alpha > _real_epsilon)
+	{
+		return FALSE;
+	}
+	intensity = 1.0f;
+	object_get_function_value(light->object_index, light->function_index, &intensity);
+	return intensity == 0.0f;
+}
+
+/* port: object_connect_lights' work for one light, but a dark light (above)
+is left out of the map's clusters on the object's update (disconnect and
+reconnect), until a tick finds it lit and connects it again. Each tick every
+attached light of a unit, an item or a projectile leaves its clusters and
+joins them again (retail's object_update); most are dark: the flashlights
+and the muzzle flashes, off until used. On a 4-player Beaver Creek game
+they were 24 of the 37 lights connected a tick and 136 of their 175
+clusters (a flashlight reaches 11).
+
+A console that draws the functions as sampled each tick
+(HALO_CONSOLE_NO_SMOOTH_FUNCTIONS: the original Xbox, the Xbox 360, the Wii U)
+leaves a light out on the first tick it is dark. One that blends them between
+the last two ticks (the Switch, with display.interpolation) draws a light that
+went dark this tick fading from the last tick's value until the next tick, so
+it leaves the light out only from the second tick in a row it is dark: the
+frames between them blend two zeros. A light lit on a tick joins at once
+either way.
+
+It is still disconnected only if it is connected, as a dark light may be out
+already. Its color is made black, as a frame would make it:
+object_get_self_illumination reads it */
+void light_port_connect_lit(
+	long light_index,
+	boolean disconnect,
+	boolean reconnect)
+{
+	struct light_datum *light = light_get(light_index);
+
+	if (disconnect &&
+		(!TEST_FLAG(light->flags, _point_light_connects_to_map_bit) ||
+			TEST_FLAG(light->flags, _point_light_connected_to_map_bit)))
+	{
+		light_disconnect_from_map(light_index);
+	}
+	if (reconnect)
+	{
+		if (disconnect)
+		{
+			boolean dark = light_port_dark(light);
+			boolean leave_out = dark;
+
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+			/* (dark at the last tick's update too) */
+			leave_out = dark && TEST_FLAG(light->flags, _point_light_port_dark_bit);
+#endif
+			SET_FLAG(light->flags, _point_light_port_dark_bit, dark);
+			if (leave_out)
+			{
+				light->color = *global_real_rgb_black;
+				return;
+			}
+		}
+		else
+		{
+			/* (joining without the tick's update: the object shown again) */
+			SET_FLAG(light->flags, _point_light_port_dark_bit, FALSE);
+		}
+		light_reconnect_to_map(light_index);
+	}
+	else
+	{
+		SET_FLAG(light->flags, _point_light_port_dark_bit, FALSE);
+	}
+
+	return;
+}
+#endif
 
 /* port: the cluster lights_prepare_for_object_dynamic is finding an object's
 lights in, whose lights behind a closed door are passed over (door_portals.c);
