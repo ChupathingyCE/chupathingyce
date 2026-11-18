@@ -1574,12 +1574,29 @@ static void hs_stack_pop(
 	return;
 }
 
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+static boolean hs_trace_script(
+	struct hs_script const *script);
+#endif
+
 static void hs_wake(
 	long thread_index)
 {
 	struct hs_thread_datum *thread;
 
 	thread = datum_get(hs_thread_data, thread_index);
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+	if (thread->type==_hs_thread_type_script && thread->script_index>=0 &&
+		thread->script_index<global_scenario_get()->hs_scripts.count)
+	{
+		struct hs_script *woken = TAG_BLOCK_GET_ELEMENT(&global_scenario_get()->hs_scripts,
+			thread->script_index, struct hs_script);
+
+		if (hs_trace_script(woken))
+			error(_error_silent, "script %.32s: woken at tick %ld (it slept until %ld)", woken->name,
+				(long)game_time_get(), thread->sleep_until);
+	}
+#endif
 	if (thread->sleep_until != NONE)
 	{
 		thread->sleep_until = 0;
@@ -2851,12 +2868,76 @@ void hs_evaluate_sleep(
 	return;
 }
 
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+/* port: a test build's trace of one script into the log
+(--console-checkpoint-trace, warthog-xbox #84): each time its thread runs,
+the functions and scripts it calls, and when it sleeps until. A run that
+calls the same as the one before (a sleep_until testing its condition) is
+counted, not said again, so the lines show where the script moves on */
+#ifndef HALO_CONSOLE_SCRIPT_TRACE
+#define HALO_CONSOLE_SCRIPT_TRACE "mission_shoot"
+#endif
+
+static char hs_trace_run[480];
+static char hs_trace_last[480];
+static long hs_trace_repeats;
+static long hs_trace_lines;
+
+static boolean hs_trace_script(
+	struct hs_script const *script)
+{
+	return script && !strncmp(script->name, HALO_CONSOLE_SCRIPT_TRACE, sizeof(script->name));
+}
+
+static void hs_trace_call(
+	char const *name)
+{
+	size_t used = strlen(hs_trace_run);
+	size_t length;
+
+	if (!name)
+		name = "?";
+	length = strlen(name);
+	/* (what doesn't fit is left out) */
+	if (used + length + 2 < sizeof(hs_trace_run))
+	{
+		if (used)
+			hs_trace_run[used++] = ' ';
+		memcpy(hs_trace_run + used, name, length + 1);
+	}
+}
+
+static void hs_trace_end(
+	struct hs_script const *script,
+	long sleep_until)
+{
+	if (!strcmp(hs_trace_run, hs_trace_last))
+	{
+		hs_trace_repeats++;
+	}
+	else if (hs_trace_lines < 200)
+	{
+		hs_trace_lines++;
+		if (hs_trace_repeats)
+			error(_error_silent, "script %.32s: (the run before ran %ld more times)", script->name, hs_trace_repeats);
+		error(_error_silent, "script %.32s, tick %ld: %s; sleeps until %ld", script->name, (long)game_time_get(),
+			hs_trace_run[0] ? hs_trace_run : "(nothing called)", sleep_until);
+		strcpy(hs_trace_last, hs_trace_run);
+		hs_trace_repeats = 0;
+	}
+	hs_trace_run[0] = 0;
+}
+#endif
+
 static void hs_thread_main(
 	long thread_index)
 {
 	struct hs_thread_datum *thread = hs_thread_get(thread_index);
 	struct hs_script *script = NULL;
 	long *root_result;
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+	boolean traced;
+#endif
 
 	hs_runtime_globals.executing_thread_index = (short)thread_index;
 	if (thread->type==_hs_thread_type_script)
@@ -2899,6 +2980,11 @@ static void hs_thread_main(
 		}
 	}
 
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+	traced = hs_trace_script(script);
+	if (traced)
+		hs_trace_run[0] = 0;
+#endif
 	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x2bd, thread_index,
 		valid_thread(thread), "corrupted stack.");
 
@@ -2964,6 +3050,10 @@ static void hs_thread_main(
 
 			match_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x2d8, function->evaluate);
 
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+			if (traced && initialize)
+				hs_trace_call(function->name);
+#endif
 			/* port: MCC may release a completed conditional frame before
 			entering its selected branch; legacy evaluation is unchanged. */
 			if (!mcc_hs_if_tail(expression->index, thread_index, initialize))
@@ -2974,6 +3064,11 @@ static void hs_thread_main(
 		}
 		else
 		{
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+			if (traced && initialize)
+				hs_trace_call(TAG_BLOCK_GET_ELEMENT(&global_scenario_get()->hs_scripts, expression->index,
+					struct hs_script)->name);
+#endif
 			hs_script_evaluate(expression->index, thread_index, initialize);
 		}
 
@@ -3004,6 +3099,10 @@ static void hs_thread_main(
 		}
 	}
 
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+	if (traced)
+		hs_trace_end(script, thread->sleep_until);
+#endif
 	hs_runtime_globals.executing_thread_index = NONE;
 
 	return;

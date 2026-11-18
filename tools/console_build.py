@@ -190,6 +190,10 @@ def console_defines(sln: Any) -> List[str]:
         # --console-no-debug-asserts: the asserts compiled out, as retail
         # compiled them out, but for the memory checks (cseries.h)
         *(["-DHALO_CONSOLE_NO_DEBUG_ASSERTS"] if getattr(sln, "console_no_debug_asserts", False) else []),
+        # --console-checkpoint-trace: a test build's trace of checkpoints'
+        # waits and of one script into the log (source/main/main.c,
+        # source/hs/hs_runtime.c)
+        *(["-DHALO_CONSOLE_CHECKPOINT_TRACE"] if getattr(sln, "console_checkpoint_trace", False) else []),
         # --console-players: the players the network tables hold
         f"-DHALO_CONSOLE_PLAYERS={int(getattr(sln, 'console_players', 16) or 16)}",
     ]
@@ -218,6 +222,12 @@ def add_console_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="console builds: the debug decomp's developer tools (HALO_CONSOLE_DEBUG_TOOLS: the profiler, AI, "
         "render and collision debug, stack walker, libtiff and the bitmap tools), left out by default",
+    )
+    parser.add_argument(
+        "--console-checkpoint-trace",
+        action="store_true",
+        help="console builds: a test build that logs which safety check (game_safe_to_save) holds up each "
+        "checkpoint, and traces the script mission_shoot (HALO_CONSOLE_CHECKPOINT_TRACE). Off by default",
     )
     parser.add_argument(
         "--console-players",
