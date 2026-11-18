@@ -468,13 +468,38 @@ void door_portals_update(
 	struct structure_bsp *structure = global_structure_bsp_get();
 	struct object_iterator iterator;
 	struct machine_datum *machine;
+#ifdef HALO_CONSOLE_SETTINGS_ON_CHANGE
+	/* (read again only when the settings change: halo_port_features.h) */
+	extern unsigned long config_changes(void);
+	static unsigned long doors_block_light_read_at = (unsigned long)-1;
+	static boolean doors_block_light;
+
+	if (doors_block_light_read_at != config_changes())
+	{
+		doors_block_light_read_at = config_changes();
+		doors_block_light = config_boolean("display.doors_block_light") != 0;
+	}
+	/* (off, and nothing shut, blocked or kept: what the frame clears below
+	is clear already, a portal being marked shut only as shut_count counts
+	it and a light's row only as blocked_count does) */
+	if ((!structure || !doors_block_light) && !door_portals.door_count && !door_portals.shut_count &&
+		!door_portals.blocked_count)
+	{
+		door_portals.frame++;
+		return;
+	}
+#endif
 
 	memset(door_portals.shut, 0, sizeof(door_portals.shut));
 	memset(door_portals.light_rows, 0, sizeof(door_portals.light_rows));
 	door_portals.shut_count = 0;
 	door_portals.blocked_count = 0;
 	door_portals.frame++;
+#ifdef HALO_CONSOLE_SETTINGS_ON_CHANGE
+	if (!structure || !doors_block_light)
+#else
 	if (!structure || !config_boolean("display.doors_block_light"))
+#endif
 	{
 		/* (forgotten, so that when the setting is on again no door pairs
 		from a rest counted before) */

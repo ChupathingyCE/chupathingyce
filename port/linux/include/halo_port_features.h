@@ -214,6 +214,22 @@ HALO_CONSOLE, and its widescreen HUD drew the six stages */
 #define HALO_CONSOLE_NO_SMOOTH_METER_EDGES
 #endif
 
+/* the settings the game reads each frame or each scoreboard row (the
+particle limit, particles.c; the dynamic and specular light limits,
+object_lights.c; doors blocking light, door_portals.c; the scoreboard's
+icons and quit players, game_engine.c) read again only when the settings
+change (config_changes), as the HUD's are. Each read takes a lock and
+finds the setting by its name; one the build lacks (the original Xbox has
+no particle limit and no doors blocking light) is compared with every
+setting's name each time, then with the names it said it lacks. The same
+values; any console's build (warthog-xbox #109). The desktop builds read
+them each time, as before */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!defined(HALO_CONSOLE_SETTINGS_ON_CHANGE)
+#define HALO_CONSOLE_SETTINGS_ON_CHANGE
+#endif
+
 /* the Light effects (display.light_effects, port/linux/game/plasma_lighting.c):
 a desktop's lighting extra, on no console (any console's build, whichever
 switches it sets on its own): its headers give empty hooks, and its sources
