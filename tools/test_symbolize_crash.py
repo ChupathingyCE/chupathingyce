@@ -87,3 +87,11 @@ def test_elf_build_id():
     struct.pack_into("<QQ", section, 24, 64, len(note))
     assert module().elf_build_id(bytes(header) + note + bytes(section)) == descriptor.hex()
     assert module().elf_build_id(b"MZ") is None
+
+
+def test_other_modules_left_unnamed(tmp_path):
+    # (a system library's call, or "?" for none, is not named from the game's symbols)
+    output = symbolize(tmp_path, "chupathingy.exe+0x1910", "ntdll.dll+0x1405", "?+0x1001").stdout
+    assert "rasterizer_model_draw+0x10" in output
+    assert "render_model" not in output and "render_window" not in output
+    assert "ntdll.dll+0x1405" in output and "?+0x1001" in output

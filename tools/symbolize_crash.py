@@ -309,6 +309,16 @@ def symbolize_report(args) -> int:
     if symbols_path.suffix.lower() == ".pdb":
         own_id = pdb_id(symbols_path, pdbutil)
 
+    # (the game's own calls only: another module's, or "?" for none, would
+    # be named from the wrong symbols)
+    game_names = {"chupathingy", "halo", symbols_path.name.split(".")[0].lower()}
+
+    def ours(module: str) -> bool:
+        return not module or module.split(".")[0].lower() in game_names
+
+    shown = calls
+    calls = [(module, offset if ours(module) else None) for module, offset in calls]
+
     # (a return address is one past its call: every call after the first)
     def wanted(index: int, offset: int) -> int:
         return offset - (0 if index == 0 or args.exact else 1)
@@ -372,7 +382,7 @@ def symbolize_report(args) -> int:
     elif build_id and not own_id:
         print(f"note: the report's build_id is {build_id}; {symbols_path.name} has none to check it against "
               "(check its version and commit)", file=sys.stderr)
-    for index, (module, offset) in enumerate(calls):
+    for index, (module, offset) in enumerate(shown):
         name = f"{module}+0x{offset:x}" if offset is not None else module
         answer = lines.get(index) or ["?"]
         print(f"#{index:<2} {name}")
