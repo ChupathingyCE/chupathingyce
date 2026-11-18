@@ -4270,3 +4270,29 @@ static void sound_voices_peak_log(
 	csmemset(sound_voices_log, 0, sizeof(sound_voices_log));
 }
 #endif
+
+#ifdef HALO_XBOX_CONSOLE
+/* port: the definition of the sound a channel plays, or NONE, for the Xbox
+mixer's log line about a channel whose permutation is not in the tags
+(sound_dsound_xbox.c, warthog-xbox #154) */
+long sound_manager_channel_definition_index(
+	short channel_index)
+{
+	struct sound_channel_datum *channel;
+	struct sound_datum *sound;
+
+	if (!sound_data || channel_index<0 || channel_index>=sound_manager_globals.channel_count ||
+		channel_index>=MAXIMUM_SOUND_CHANNELS)
+	{
+		return NONE;
+	}
+	channel = &sound_channels[channel_index];
+	if (channel->sound_index==NONE)
+	{
+		return NONE;
+	}
+	sound = (struct sound_datum *)datum_try_and_get(sound_data, channel->sound_index);
+
+	return sound ? sound->definition_index : NONE;
+}
+#endif
