@@ -363,7 +363,9 @@ static int lua_get_object(
 }
 
 /* get_player([index]): the local player, or the one at that place in the
-player list, as an address, or nil */
+player list, as an address, or nil. A nil index is the local player, as the
+Chimera SPV3 was written for took it (its players.lua passes
+local_player_index, nil at the menus) */
 static int lua_get_player(
 	lua_State *state)
 {
@@ -372,7 +374,7 @@ static int lua_get_player(
 
 	if (arguments > 1)
 		return lua_wrong_arguments(state, "get_player");
-	if (arguments == 0)
+	if (arguments == 0 || lua_isnil(state, 1))
 		player_index = lua_local_player();
 	else
 		player_index = twiddlings_player_by_list_index((long)luaL_checkinteger(state, 1));
@@ -390,7 +392,7 @@ static int lua_get_dynamic_player(
 
 	if (arguments > 1)
 		return lua_wrong_arguments(state, "get_dynamic_player");
-	if (arguments == 0)
+	if (arguments == 0 || lua_isnil(state, 1))
 		player_index = lua_local_player();
 	else
 		player_index = twiddlings_player_by_list_index((long)luaL_checkinteger(state, 1));
