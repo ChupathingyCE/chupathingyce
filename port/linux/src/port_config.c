@@ -414,11 +414,13 @@ static const struct config_setting config_settings[] =
 	{ "display.first_person_weapon", _config_boolean, "true", "HALO_FIRST_PERSON_WEAPON", _environment_value,
 		_platform_all,
 		"Draw your weapon and arms. false hides them." },
-	{ "display.widescreen", _config_string, "\"dashboard\"", NULL, _environment_value, _platform_xbox,
-		"Widescreen on a 16:9 TV. \"dashboard\" follows the Xbox dashboard:\n"
-		"with Widescreen set there, the game shows more to the sides and the\n"
-		"HUD and menus fit the wide screen. \"off\" keeps the 4:3 picture, as\n"
-		"the original game did. Read when Chupathingy starts." },
+	{ "display.widescreen", _config_string, "\"off\"", NULL, _environment_value, _platform_xbox,
+		"Widescreen on a 16:9 TV. \"off\" keeps the 4:3 picture, as the\n"
+		"original game did: the sharpest, with every pixel of the HUD and\n"
+		"menus its own. \"dashboard\" follows the Xbox dashboard: with\n"
+		"Widescreen set there, the game shows more to the sides and the HUD\n"
+		"and menus are stretched to fit, a little softer. Read when\n"
+		"Chupathingy starts." },
 	{ "display.frame_rate", _config_integer, "30", NULL, _environment_value, _platform_xbox,
 		"Frames a second: 30, as the original game drew, or 60. The game\n"
 		"still runs 30 ticks a second. At 60 the view turns every frame and\n"
@@ -2754,9 +2756,9 @@ ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
 starting alone (game.start_with_one_player); 4, Headphone 3D on; 5, the
 Xbox's multiplayer by default (v0.9.0: no names above heads, no follow
 camera, no team changes in games you host); 6, the Xbox's own resampler
-(v0.9.1a). A file answered for an earlier generation is asked about the
-later ones only */
-#define CONFIG_DEFAULTS_GENERATION 6
+(v0.9.1a); 7, the original Xbox's 4:3 picture (v0.9.2). A file answered for
+an earlier generation is asked about the later ones only */
+#define CONFIG_DEFAULTS_GENERATION 7
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# Chupathingy uses this line to update the file. Leave it as it is.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -3519,6 +3521,11 @@ static const struct
 	(a file that names "sinc" keeps it) */
 	{ "audio.resampling", "\"sinc\"", 0, "Sounds resampled as the Xbox did", 6 },
 #endif
+	/* the original Xbox following the dashboard's widescreen, the default
+	until v0.9.2 made it 4:3 as the retail game was (warthog-xbox #114). A
+	file that names "dashboard" keeps it; one that left it commented out
+	follows "off" (config_find_new_defaults: the Xbox asks nothing) */
+	{ "display.widescreen", "\"dashboard\"", 0, "The 4:3 picture, as the original game had", 7 },
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
