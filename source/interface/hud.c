@@ -1181,7 +1181,9 @@ static void hud_draw_player_name(
 	real_point3d head_position;
 	real_point3d view_position;
 	real_point2d screen_position;
-	wchar_t name[NUMBEROF(player->name) + 1];
+	/* port: (the name the scoreboard shows: game_engine_player_shown_name) */
+	wchar_t name[GAME_ENGINE_SHOWN_NAME_LENGTH];
+	wchar_t const *shown;
 	real_argb_color color;
 	rectangle2d bounds;
 	struct font_header *font;
@@ -1246,9 +1248,15 @@ static void hud_draw_player_name(
 	bounds.x1 = x + 160;
 	bounds.y1 = y;
 	bounds.y0 = y - (font->ascending_height + font->descending_height);
-	for (index = 0; index < (short)NUMBEROF(player->name); index++)
-		name[index] = player->name[index];
-	name[NUMBEROF(player->name)] = 0;
+	/* port: a verified player by their Delta name, an impersonation masked,
+	as the scoreboard shows them; else the game name, as the Xbox drew it */
+	shown = game_engine_player_shown_name(player_index, name, NUMBEROF(name));
+	if (shown != name)
+	{
+		for (index = 0; index < (short)NUMBEROF(player->name); index++)
+			name[index] = shown[index];
+		name[NUMBEROF(player->name)] = 0;
+	}
 	if (ally)
 	{
 		hud_get_text_color(&color);
