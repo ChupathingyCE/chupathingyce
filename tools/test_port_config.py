@@ -139,7 +139,9 @@ THIRD = ["game.start_with_one_player"]
 FOURTH = ["audio.hrtf"]
 FIFTH = ["display.player_names", "display.follow_camera", "network.team_change"]
 LATEST = ["audio.resampling"]
-GENERATION = "6"
+# (the seventh, the original Xbox's 4:3 picture, is the Xbox's only, which
+# asks nothing: test_xbox_follows_new_defaults)
+GENERATION = "7"
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
@@ -1190,21 +1192,24 @@ def test_xbox_follows_new_defaults(program, directory):
 	# folder the test runs in)
 	case.path = case.folder / "d:\\config.toml"
 	text = fresh_file(case, "xbox")
-	for key, old in (("start_with_one_player", "false"), ("follow_camera", '"long_waits"')):
+	for key, old in (("start_with_one_player", "false"), ("follow_camera", '"long_waits"'),
+			("widescreen", '"dashboard"')):
 		text = re.sub(rf"^# {key} = .*$", f"# {key} = {old}", text, flags=re.M)
 	case.path.write_text(text)
 	count, output = pending(case)
 	check(count == 0, f"xbox/follow: asked: {count} {output}")
-	values, _ = case.get("game.start_with_one_player", "display.follow_camera")
-	check(values["game.start_with_one_player"] == "true" and values["display.follow_camera"] == "off",
-		f"xbox/follow: {values}")
+	values, _ = case.get("game.start_with_one_player", "display.follow_camera", "display.widescreen")
+	check(values["game.start_with_one_player"] == "true" and values["display.follow_camera"] == "off" and
+		values["display.widescreen"] == "off", f"xbox/follow: {values}")
 	case = Case(program, directory / "xbox_chosen")
 	case.path = case.folder / "d:\\config.toml"
 	text = fresh_file(case, "xbox")
 	text = re.sub(r"^# start_with_one_player = .*$", "start_with_one_player = false", text, flags=re.M)
+	text = re.sub(r"^# widescreen = .*$", 'widescreen = "dashboard"', text, flags=re.M)
 	case.path.write_text(text)
-	values, _ = case.get("game.start_with_one_player")
-	check(values["game.start_with_one_player"] == "false", f"xbox/chosen: {values}")
+	values, _ = case.get("game.start_with_one_player", "display.widescreen")
+	check(values["game.start_with_one_player"] == "false" and values["display.widescreen"] == "dashboard",
+		f"xbox/chosen: {values}")
 
 
 def main():

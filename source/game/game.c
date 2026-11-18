@@ -568,57 +568,70 @@ boolean game_all_quiet(
 	return TRUE;
 }
 
+/* port: says which check made it unsafe, as before (debug_game_save), and
+with HALO_CONSOLE_CHECKPOINT_TRACE keeps its name for main_save_map's trace
+in the log (warthog-xbox #84) */
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+char const *game_save_unsafe_check = NULL;
+#endif
+
+static void game_save_unsafe(
+	char const *check)
+{
+	if (debug_game_save)
+		console_warning("not safe to save: %s", check);
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+	game_save_unsafe_check = check;
+#endif
+}
+
 boolean game_safe_to_save(
 	void)
 {
 	boolean safe = TRUE;
 
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+	game_save_unsafe_check = NULL;
+#endif
+
 	if (ai_enemies_can_see_player())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: ai_enemies_can_see_player");
+		game_save_unsafe("ai_enemies_can_see_player");
 		safe = FALSE;
 	}
 	if (safe && dangerous_projectiles_near_player())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: dangerous_projectiles_near_player");
+		game_save_unsafe("dangerous_projectiles_near_player");
 		safe = FALSE;
 	}
 	if (safe && dangerous_items_near_player())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: dangerous_items_near_player");
+		game_save_unsafe("dangerous_items_near_player");
 		safe = FALSE;
 	}
 	if (safe && dangerous_effects_near_player())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: dangerous_effects_near_player");
+		game_save_unsafe("dangerous_effects_near_player");
 		safe = FALSE;
 	}
 	if (safe && any_unit_is_dangerous())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: any_unit_is_dangerous");
+		game_save_unsafe("any_unit_is_dangerous");
 		safe = FALSE;
 	}
 	if (safe && any_player_is_in_the_air())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: any_player_is_in_the_air");
+		game_save_unsafe("any_player_is_in_the_air");
 		safe = FALSE;
 	}
 	if (safe && any_player_is_dead())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: any_player_is_dead");
+		game_save_unsafe("any_player_is_dead");
 		safe = FALSE;
 	}
 	if (safe && vehicle_moving_near_any_player())
 	{
-		if (debug_game_save)
-			console_warning("not safe to save: vehicle_moving_near_any_player");
+		game_save_unsafe("vehicle_moving_near_any_player");
 		safe = FALSE;
 	}
 

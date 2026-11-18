@@ -220,30 +220,54 @@ def test_desktop_list_has_room_for_the_mcc_catalog():
     assert 0x4000 + desktop * per_row <= 0x7FFF
 
 
-def test_maps_left_out_of_a_full_list_are_counted(tmp_path):
-    """a map with no room left is counted and named for the log (ui_map_list_refresh), never dropped in silence"""
-    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
-    if not compiler:
-        pytest.skip("no C compiler")
-    prelude = r"""
+ADD_ENTRY_PRELUDE = r"""
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
 typedef int boolean;
 #define FALSE 0
+#define TRUE 1
+#define csmemcpy memcpy
 #define MAXIMUM_MAP_LIST 3
 #define MAP_NAME_LENGTH 64
 #define DISPLAY_NAME_LENGTH 32
 #define DESCRIPTION_LENGTH 32
-struct ui_map_entry { char map_name[MAP_NAME_LENGTH]; wchar_t display_name[DISPLAY_NAME_LENGTH],
-	lobby_name[DISPLAY_NAME_LENGTH], pane_name[DISPLAY_NAME_LENGTH], description[DESCRIPTION_LENGTH];
+#ifndef MAP_NAME_POOL
+#define MAP_NAME_POOL (MAXIMUM_MAP_LIST * MAP_NAME_LENGTH)
+#endif
+#ifndef TEXT_POOL
+#define TEXT_POOL (MAXIMUM_MAP_LIST * (3 * DISPLAY_NAME_LENGTH + DESCRIPTION_LENGTH))
+#endif
+struct ui_map_entry { char *map_name; wchar_t const *display_name, *lobby_name, *pane_name, *description;
 	short xbox_index, picture_index; wchar_t const *game_type; short source; boolean added_known; long long added; };
 static struct ui_map_entry ui_map_list[MAXIMUM_MAP_LIST];
 static long ui_map_list_count_value, ui_map_list_left_out;
 static short ui_map_list_adding_source;
 static char ui_map_list_first_left_out[MAP_NAME_LENGTH];
-static void wide_copy(wchar_t *out, long size, wchar_t const *text) { wcsncpy(out, text, (size_t)size - 1); }
+static char ui_map_list_name_pool[MAP_NAME_POOL];
+static wchar_t ui_map_list_text_pool[TEXT_POOL];
+static long ui_map_list_name_pool_used, ui_map_list_text_pool_used, ui_map_list_descriptions_dropped;
 """
+
+
+def add_entry_code() -> str:
+    return "\n".join(function(SOURCE, name) for name in (
+        "wide_length", "text_pool_add", "text_same", "add_entry_with_pane", "add_entry"))
+
+
+def build_add_entry(tmp_path, code: str, defines=()):
+    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if not compiler:
+        pytest.skip("no C compiler")
+    (tmp_path / "add.c").write_text(code)
+    build = subprocess.run([compiler, "-std=gnu99", "-w", *defines, str(tmp_path / "add.c"), "-o", str(tmp_path / "add")],
+                           capture_output=True, text=True)
+    assert build.returncode == 0, build.stderr
+    return subprocess.run([str(tmp_path / "add")], capture_output=True, text=True, check=True).stdout
+
+
+def test_maps_left_out_of_a_full_list_are_counted(tmp_path):
+    """a map with no room left is counted and named for the log (ui_map_list_refresh), never dropped in silence"""
     driver = r"""
 int main(void)
 {
@@ -255,12 +279,37 @@ int main(void)
 	return 0;
 }
 """
-    (tmp_path / "add.c").write_text(prelude + function(SOURCE, "add_entry") + driver)
-    build = subprocess.run([compiler, "-std=gnu99", "-w", str(tmp_path / "add.c"), "-o", str(tmp_path / "add")],
-                           capture_output=True, text=True)
-    assert build.returncode == 0, build.stderr
-    result = subprocess.run([str(tmp_path / "add")], capture_output=True, text=True, check=True)
-    assert result.stdout.split() == ["3", "2", "mcc_maps\\3477809506\\1"]
+    result = build_add_entry(tmp_path, ADD_ENTRY_PRELUDE + add_entry_code() + driver)
+    assert result.split() == ["3", "2", "mcc_maps\\3477809506\\1"]
+
+
+def test_rows_text_is_pooled(tmp_path):
+    """a row's names and description are held once at their own length: the pane's name is the lobby's unless it
+    differs, a description an earlier row's when the same, and a pool too full for a description drops only that,
+    for names the row (counted as left out)"""
+    driver = r"""
+int main(void)
+{
+	add_entry("a", L"Alpha", L"Alpha [CE]", L"same", -1, 0);
+	add_entry_with_pane("b", L"Beta", L"Beta [MCC]", L"Be-\r\nta", L"same", -1, 0);
+	printf("%d %d %d\n", ui_map_list[0].pane_name == ui_map_list[0].lobby_name,
+		ui_map_list[1].description == ui_map_list[0].description, !wcscmp(ui_map_list[1].pane_name, L"Be-\r\nta"));
+	printf("%ld %s %s\n", ui_map_list_text_pool_used, ui_map_list[0].map_name, ui_map_list[1].map_name);
+	/* (room for these names, not the description) */
+	add_entry("c", L"Gam", L"Gam", L"a long description", -1, 0);
+	printf("%ld %ld %d %ld\n", ui_map_list_count_value, ui_map_list_descriptions_dropped,
+		ui_map_list[2].description[0], ui_map_list_left_out);
+	ui_map_list_count_value = 2;
+	ui_map_list_text_pool_used = 48;
+	add_entry("d", L"Delta", L"Delta", L"", -1, 0);
+	printf("%ld %ld %s %ld\n", ui_map_list_count_value, ui_map_list_left_out, ui_map_list_first_left_out,
+		ui_map_list_text_pool_used);
+	return 0;
+}
+"""
+    # (the pool: Alpha 6 + Alpha [CE] 11 + same 5 + Beta 5 + Beta [MCC] 11 + Be-\r\nta 8 = 46, then Gam 4 twice: 54, full)
+    result = build_add_entry(tmp_path, ADD_ENTRY_PRELUDE + add_entry_code() + driver, ["-DTEXT_POOL=54"])
+    assert result.splitlines() == ["1 1 1", "46 a b", "3 1 0 0", "2 1 d 48"]
 
 
 def test_pack_maps_left_out_of_a_full_list_are_counted(tmp_path):
