@@ -261,3 +261,43 @@ int main(void)
     assert build.returncode == 0, build.stderr
     result = subprocess.run([str(tmp_path / "add")], capture_output=True, text=True, check=True)
     assert result.stdout.split() == ["3", "2", "mcc_maps\\3477809506\\1"]
+
+
+def test_pack_maps_left_out_of_a_full_list_are_counted(tmp_path):
+    """warthog-xbox #145: a pack's map with no room left is counted and named for the log too"""
+    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if not compiler:
+        pytest.skip("no C compiler")
+    prelude = r"""
+#include <stdio.h>
+#include <string.h>
+typedef int boolean;
+#define MAXIMUM_MAP_LIST 2
+#define MAP_NAME_LENGTH 64
+struct found_files { char names[MAXIMUM_MAP_LIST][MAP_NAME_LENGTH]; long count; };
+static long ui_map_list_left_out;
+static char ui_map_list_first_left_out[MAP_NAME_LENGTH];
+static boolean map_pack_map_name(char const *pack, char const *file, char *map, long size)
+{
+	snprintf(map, (size_t)size, "%s@%s", file, pack);
+	return 1;
+}
+"""
+    driver = r"""
+int main(void)
+{
+	static struct found_files found;
+	static char const *const files[] = { "bigass", "dustbowl", "hydrolysis", "coldsnap" };
+	int index;
+	for (index = 0; index < 4; index++)
+		pack_map_found("nhe", files[index], &found);
+	printf("%ld %ld %s\n", found.count, ui_map_list_left_out, ui_map_list_first_left_out);
+	return 0;
+}
+"""
+    (tmp_path / "pack.c").write_text(prelude + function(SOURCE, "pack_map_found") + driver)
+    build = subprocess.run([compiler, "-std=gnu99", "-w", str(tmp_path / "pack.c"), "-o", str(tmp_path / "pack")],
+                           capture_output=True, text=True)
+    assert build.returncode == 0, build.stderr
+    result = subprocess.run([str(tmp_path / "pack")], capture_output=True, text=True, check=True)
+    assert result.stdout.split() == ["2", "2", "hydrolysis@nhe"]

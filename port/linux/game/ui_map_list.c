@@ -191,8 +191,8 @@ enum
 {
 	XBOX_MAP_COUNT = 13,
 	/* (the Xbox's thirteen, then the Custom Edition, HaloMD, Halo PC and
-	map packs' maps found, up to this many rows in all; on the original
-	Xbox, which has a pack's alone, its thirteen and as many again) */
+	map packs' maps found, up to this many rows in all; the maps past it
+	are left out, and logged: ui_map_list_refresh) */
 #ifdef HALO_CONSOLE_MAP_LIST_ROWS
 	MAXIMUM_MAP_LIST = HALO_CONSOLE_MAP_LIST_ROWS,
 #else
@@ -1006,6 +1006,8 @@ static void pack_map_found(
 		if (map_pack_map_name(pack, file, found->names[found->count], MAP_NAME_LENGTH))
 			found->count++;
 	}
+	else if (!ui_map_list_left_out++)
+		snprintf(ui_map_list_first_left_out, sizeof(ui_map_list_first_left_out), "%s@%s", file, pack);
 }
 
 /* (packs' maps in the order of their packs, then of their files) */

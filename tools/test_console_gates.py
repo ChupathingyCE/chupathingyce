@@ -265,8 +265,8 @@ def map_list_rows(defines):
 @pytest.mark.parametrize("console", sorted(CONSOLES))
 def test_every_console_sizes_its_map_list(console):
     """#1140: the menus' map list's rows (ui_map_list.c) by capability, never by a console's name: the
-    original Xbox's 40, every other console's 256 (the Switch has no HALO_CONSOLE), the desktop's 2560"""
-    assert map_list_rows(CONSOLES[console]) == (40 if console == "xbox" else 256)
+    original Xbox's 128 (warthog-xbox #145), every other console's 256 (the Switch has no HALO_CONSOLE), the desktop's 2560"""
+    assert map_list_rows(CONSOLES[console]) == (128 if console == "xbox" else 256)
 
 
 def test_the_desktop_map_list_is_unsized():

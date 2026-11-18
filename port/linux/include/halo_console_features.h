@@ -46,7 +46,8 @@ HALO_CONSOLE_WIDGET_POOL_SIZE
 	ui_widget.c; console.widget_pool_log logs what the menus use)
 HALO_CONSOLE_MAP_LIST_ROWS
 	the rows of the menus' map list (port/linux/game/ui_map_list.c): the
-	original Xbox's 40, every other console's 256; the desktop builds and
+	original Xbox's 128 (about 0.75 KB of memory each, 96 KB in all), every
+	other console's 256; the desktop builds and
 	Android leave it undefined and hold 2560, room for a large Custom
 	Edition folder beside the whole MCC catalog
 HALO_CONSOLE_NO_GUIDE
@@ -536,9 +537,12 @@ consoles nor the dedicated server, which downloads nothing */
 #define HALO_HOST_MAP_DOWNLOADS 1
 #endif
 
-/* the menus' map list's rows (ui_map_list.c): a console's own size */
+/* the menus' map list's rows (ui_map_list.c): a console's own size. The
+original Xbox's: its 13, Custom Edition+ and a Custom Edition folder, and a
+pack or two of about 30 maps each (Halo: Not Halo Edition has 29), with room
+to spare; 40 left a pack listed last out (warthog-xbox #145) */
 #if defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_MAP_LIST_ROWS)
-#define HALO_CONSOLE_MAP_LIST_ROWS 40
+#define HALO_CONSOLE_MAP_LIST_ROWS 128
 #endif
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_MAP_LIST_ROWS)
