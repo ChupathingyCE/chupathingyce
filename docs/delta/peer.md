@@ -440,9 +440,10 @@ A reader knows a Delta host by a valid tag: both tag bytes, layout 1, the
 check, letters `a` to `z`, numbers from 1, and the oldest wire no newer than
 the host's own. Never by a flag bit. Machines without Delta leave and ignore
 the bytes. A wire ID names a revision of Chupathingy's game code
-([versioning.md](versioning.md#wire-compatibility-ranges)), so only a build
-of that code writes a tag; a port of other code writes none
-([ports.md](ports.md#the-advertisement)).
+([versioning.md](versioning.md#wire-compatibility-ranges)), so a tag
+belongs to a build of that code; a port of other code that hosts is joined
+by its number instead
+([ports.md](ports.md#if-you-host-games-from-your-port)).
 
 The tag sits at the tail because the front is the game protocol's: byte 3
 became the game's kind at version 37, and the flag 0x04 a dedicated server

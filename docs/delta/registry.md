@@ -111,6 +111,20 @@ wire hosts advertised is `chupa-29a`.
 | `chupa-44a` | 0.9.1, 0.9.1a | `chupa-28a` | 44 |
 | `chupa-44b` | 0.9.2 (in development) | `chupa-28a` | 44 |
 
+## Platform floors
+
+Each platform's own floor in the signed legacy table (`platform_floors`,
+[versioning.md](versioning.md#platform-floors)): the oldest network version a
+Delta machine of that platform may say in its HELLO and still play with our
+hosts. A table carries at most 64 rows. A platform without a row has no floor
+at run time; our consoles then keep the build-time console floor,
+`chupa-32a`. A row is added here when a table that carries it is signed.
+
+| Platform | Floor | Since table | Why |
+| --- | --- | --- | --- |
+
+None yet.
+
 ## Network versions
 
 The legacy protocol's network version, as hosts announce it
