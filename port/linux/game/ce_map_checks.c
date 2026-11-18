@@ -53,7 +53,11 @@ What the check read, the load reads again (the tags, the resource maps' tags
 copied in, the model data, each structure BSP as it loads): each is hashed
 (SHA-256) as it is checked, and again as it loads, and a map whose bytes
 are not the ones checked is refused then (ce_map_loaded_*), and checked
-again the next time it is opened.
+again the next time it is opened. Each byte is hashed once each time: the
+tags as they are read, and then only what copying the resource maps' tags
+in wrote (ce_resources_place: the copies, the tags' addresses, a retail
+map's bitmaps and sounds it changed), not the tags whole again. The hashing uses the processor's SHA-256
+instructions where it has them (mcc_sha256.c).
 */
 
 #ifdef HALO_CUSTOM_EDITION
@@ -1336,21 +1340,22 @@ boolean ce_map_loaded_tags_unchanged(
 }
 
 void ce_resources_digest(
-	struct ce_image const *image)
+	byte const digest[CE_DIGEST_SIZE])
 {
-	ce_digest(image->data, image->size, ce_checking_digests.resources);
+	memcpy(ce_checking_digests.resources, digest, CE_DIGEST_SIZE);
 }
 
 boolean ce_map_loaded_resources_unchanged(
-	struct ce_image const *image)
+	byte const digest[CE_DIGEST_SIZE])
 {
 	/* (none: they could not all be copied in, as they were when it was
 	checked) */
 	if (ce_load_changed)
 		return FALSE;
-	if (!image)
+	if (!digest)
 		return ce_map_loaded_changed("a resource map's tags");
-	return ce_map_loaded_matches(image->data, image->size, ce_checked_digests.resources, "a resource map's tags");
+	return memcmp(digest, ce_checked_digests.resources, CE_DIGEST_SIZE) ?
+		ce_map_loaded_changed("a resource map's tags") : TRUE;
 }
 
 boolean ce_map_loaded_model_data_unchanged(

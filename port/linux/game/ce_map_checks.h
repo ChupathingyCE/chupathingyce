@@ -211,20 +211,21 @@ boolean ce_map_bsp_reference_checked(void const *reference);
 bytes hashed: ce_map_checks.c). Each FALSE, logged, if they are not the
 same, and the map is then checked again when it is next opened
 (ce_map_check_stale): its tag data as read (which begins each load), its
-tags with the resource maps' copied in (ce_resources.c, as they are copied
-in; NULL if they could not all be), its model data's hash
+tags with the resource maps' copied in (ce_resources.c: the hash of what
+copying them in wrote, ce_resources_place; NULL if they could not all be
+copied in), its model data's hash
 (ce_model_data_digest), and a structure BSP as
 read (32 bytes of its reference, then its bytes; a BSP not checked is
 FALSE). Whether the load under way has found nothing changed */
 boolean ce_map_loaded_tags_unchanged(void const *tag_data, unsigned long size);
-boolean ce_map_loaded_resources_unchanged(struct ce_image const *image);
+boolean ce_map_loaded_resources_unchanged(byte const digest[CE_DIGEST_SIZE]);
 boolean ce_map_loaded_model_data_unchanged(byte const digest[CE_DIGEST_SIZE]);
 boolean ce_map_loaded_bsp_unchanged(void const *reference, void const *bsp, unsigned long size);
 boolean ce_map_loaded_unchanged(void);
 
-/* the map being checked's tags with its resource maps' copied in, hashed
-(ce_resources.c) */
-void ce_resources_digest(struct ce_image const *image);
+/* what copying the map being checked's resource maps' tags in wrote,
+hashed (ce_resources.c) */
+void ce_resources_digest(byte const digest[CE_DIGEST_SIZE]);
 
 /* whether the map open changed since it was checked (a load found so): it
 is opened, and checked, again (cache_files_windows.c) */
