@@ -2011,9 +2011,13 @@ static void progress_bar_render(
 	long sound_index;
 	long stage;
 
-	/* port: a step each refresh, as the Xbox's (loading_screen.c) */
+#ifndef HALO_XBOX_CONSOLE
+	/* port: a step each refresh, as the Xbox's (loading_screen.c); the
+	original Xbox's own build draws as the Xbox did, below, each step
+	waiting for the vertical blank */
 	if (!loading_screen_step_due())
 		return;
+#endif
 	wobble_phase+= 0.01f;
 	progress= (real)((sin(wobble_phase)*0.05 + progress - last_t)*0.2 + last_t);
 	if (progress>1.0)
@@ -2035,10 +2039,13 @@ static void progress_bar_render(
 		}
 	}
 
+#ifndef HALO_XBOX_CONSOLE
 	/* port: the Xbox's drawing below reads its front buffer through a
 	texture made from its address (this_is_awful) and draws with no vertex
 	shader, neither of which the port's Direct3D has: the CPU makes the same
-	picture from the same textures (port/linux/game/loading_screen.c) */
+	picture from the same textures (port/linux/game/loading_screen.c). The
+	original Xbox's build has the Xbox's Direct3D, and draws it so (its
+	loading_screen_draw is an empty one) */
 	if (progress_bar_mode.texture0 && progress_bar_mode.texture1)
 	{
 		D3DLOCKED_RECT picture;
@@ -2052,6 +2059,7 @@ static void progress_bar_render(
 		IDirect3DTexture8_UnlockRect(progress_bar_mode.texture0, 0);
 	}
 	return;
+#endif
 
 	current_time= GetTickCount();
 	IDirect3DDevice8_GetTransform(global_d3d_device, D3DTS_WORLD, &progress_bar_globals.saved_world);
