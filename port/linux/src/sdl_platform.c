@@ -3415,6 +3415,13 @@ void platform_scoreboard_scroll(int open, long *notches, long *pages)
 void console_performance_update(void);
 #endif
 
+/* whether this is the thread that has the window and its events (the
+halt screen draws only there: halt_screen.c) */
+int platform_on_event_thread(void)
+{
+	return platform_window && SDL_GetCurrentThreadID() == platform_event_thread;
+}
+
 void platform_pump_events(void)
 {
 	/* debug.exit_after (seconds) ends the game that long after the window

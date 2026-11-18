@@ -51,6 +51,7 @@ tools/test_game_list_rules.py
 tools/test_gamespy_listing.py
 tools/test_guide_layout.py
 tools/test_guide_themes.py
+tools/test_halt_facts.py
 tools/test_host_cheats.py
 tools/test_host_console_objects.py
 tools/test_host_evidence.py

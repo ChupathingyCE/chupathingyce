@@ -82,6 +82,8 @@ BOOL platform_run_is_quiet(void);
 not Game Mode, which shows the setup screen, drawn in the game's own window):
 no setup screen either */
 BOOL platform_run_is_unwatched(void);
+/* whether this is the thread with the window and its events */
+int platform_on_event_thread(void);
 
 /* the maps out of a file the player picked (the first start, the
 launcher's Add maps), on a thread of their own: the kind of file it is
