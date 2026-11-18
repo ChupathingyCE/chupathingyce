@@ -985,7 +985,13 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 	}
 	/* (checked again as they loaded: scenario_tags_load refuses them if not) */
 	if (!ce_map_check_loaded(instances, (long)tag_count, scenario_tag_index, "fuzz"))
+	{
+		if (fuzz_verbose)
+			fprintf(stderr, "map_fuzz: the map was refused as it loaded\n");
 		return;
+	}
+	if (fuzz_verbose)
+		fprintf(stderr, "map_fuzz: the map loaded\n");
 
 	/* each BSP, read where it loads (checked: ce_bsps_check) */
 	for (bsp_index = 0; bsp_index < bsp_count; bsp_index++)
@@ -1042,7 +1048,15 @@ static void fuzz_ce(unsigned char const *data, size_t size)
 	}
 	fuzz_exit_armed = TRUE;
 	if (ce_map_check(&fuzz_map_file, "fuzz", header->file_length, header->tag_data_offset, header->tag_data_size))
+	{
+		if (fuzz_verbose)
+			fprintf(stderr, "map_fuzz: the map passed its checks\n");
 		fuzz_ce_load(data, header);
+	}
+	else if (fuzz_verbose)
+	{
+		fprintf(stderr, "map_fuzz: the map was refused by its checks\n");
+	}
 	fuzz_exit_armed = FALSE;
 	fuzz_tags_are_ce = FALSE;
 	ce_resources_tags_unloaded();
