@@ -438,7 +438,7 @@ char *crash_report_body(const char *report, const char *log, size_t log_size, co
 	size_t *length)
 {
 	static const char *const keys[] = { "version", "channel", "commit", "platform", "architecture", "os", "exception",
-		"renderer" };
+		"renderer", "build_id" };
 	struct crash_text body = { 0 };
 	const char *line;
 	int frames = 0;

@@ -16,6 +16,10 @@ crashed:
 	exception c0000005            (a Windows exception's code, or SIGSEGV)
 	renderer bgfx-vulkan          (optional: else the log's last renderer=
 	                              line, d3d8_gl.c)
+	build_id 3F1A...              (optional: the program's own ID, which its
+	                              kept symbols carry (tools/symbolize_crash.py):
+	                              Windows' PDB GUID and age, the GNU build ID
+	                              note on Linux and FreeBSD, macOS's LC_UUID)
 	frame chupathingy.exe+0x1a2b3c (where it crashed, then its callers: a
 	frame ntdll.dll+0x4f2a0        module and the offset in it, "?" for none)
 
@@ -23,7 +27,8 @@ and crash_report_body makes the request's body of it, JSON:
 
 	{"format": 1, "version", "channel", "commit", "platform", "architecture",
 	 "os", "exception", "renderer" (gl, bgfx-metal, bgfx-vulkan, bgfx-d3d11,
-	 native, none; left out when not known), "frames": [...], "log": the log's last
+	 native, none; left out when not known), "build_id" (left out without
+	 one), "frames": [...], "log": the log's last
 	 CRASH_REPORT_LOG_LINES lines, "minidump": base64 (Windows; left out
 	 without one, or past CRASH_REPORT_MAXIMUM_DUMP bytes)}
 
