@@ -447,16 +447,6 @@ static void stubbs_driven_biped_add(
 
 /* ---------- public code */
 
-struct stubbs_special_attack const *stubbs_special_attacks_get(
-	long unit_definition_index,
-	short *count)
-{
-	struct stubbs_unit_definition const *definition = stubbs_unit_definition_get(unit_definition_index);
-
-	*count = definition ? definition->special_attack_count : 0;
-	return definition ? definition->special_attacks : NULL;
-}
-
 boolean stubbs_engine_unit_is_thrown(
 	long unit_index)
 {

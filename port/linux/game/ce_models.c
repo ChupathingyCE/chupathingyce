@@ -59,6 +59,7 @@ listed, with a cache block, a texture and channels of its own
 #include "bitmaps/bitmap_group.h"
 #include "rasterizer/rasterizer_geometry.h"
 #include "ce_map_checks.h"
+#include "mcc_sha256.h"
 
 #include <xtl.h>
 #include <stdlib.h>
@@ -778,6 +779,36 @@ boolean ce_model_data_begin(
 	return data->windows != NULL;
 }
 
+boolean ce_model_data_digest(
+	struct ce_model_data *data,
+	byte digest[CE_DIGEST_SIZE])
+{
+	struct mcc_sha256 context;
+	unsigned long offset = 0;
+
+	mcc_sha256_begin(&context);
+	while (offset < data->size)
+	{
+		unsigned long chunk = MIN(data->size - offset, (unsigned long)CE_MODEL_DATA_WINDOW_SIZE);
+		byte const *at;
+
+		if (data->whole)
+			at = data->whole + offset;
+		else
+		{
+			/* (the first window's, which is then moved on) */
+			data->window_sizes[0] = 0;
+			if (!data->read(data->context, offset, data->windows, chunk))
+				return FALSE;
+			at = data->windows;
+		}
+		mcc_sha256_add(&context, at, (int)chunk);
+		offset += chunk;
+	}
+	mcc_sha256_end(&context, digest);
+	return TRUE;
+}
+
 void ce_model_data_end(
 	struct ce_model_data *data)
 {
@@ -810,6 +841,16 @@ boolean ce_models_tags_loaded(
 	data.whole = model_data;
 	data.size = model_data_size;
 	data.vertex_data_size = vertex_data_size;
+	/* (only as it was checked: ce_map_checks.c) */
+	{
+		byte digest[CE_DIGEST_SIZE];
+
+		if (CE_MAP_HASHED &&
+			(!ce_model_data_digest(&data, digest) || !ce_map_loaded_model_data_unchanged(digest)))
+		{
+			return FALSE;
+		}
+	}
 	return ce_models_convert_guarded(tag_instances, tag_count, &data);
 }
 
@@ -834,6 +875,17 @@ boolean ce_models_tags_loaded_read(
 	data.context = &file_offset;
 	if (!ce_model_data_begin(&data))
 		return FALSE;
+	/* (only as it was checked: ce_map_checks.c) */
+	{
+		byte digest[CE_DIGEST_SIZE];
+
+		if (CE_MAP_HASHED &&
+			(!ce_model_data_digest(&data, digest) || !ce_map_loaded_model_data_unchanged(digest)))
+		{
+			ce_model_data_end(&data);
+			return FALSE;
+		}
+	}
 	converted = ce_models_convert_guarded(tag_instances, tag_count, &data);
 	ce_model_data_end(&data);
 	return converted;

@@ -4361,12 +4361,13 @@ static void solo_level_select_list_update_displayed_items(
 		}
 
 #ifdef HALO_MAP_LIST
-		/* port: an MCC campaign map's card, after the ten levels: its row of
-		the menus' map list (name, picture, description), no markers */
+		/* port: an MCC campaign map's card, or another campaign map's, after
+		the ten levels: its row of the menus' map list (name, picture,
+		description), no markers */
 		if (displayed_item_indices[item_index] >= 10)
 		{
-			extern char const *ui_widget_port_mcc_campaign_level(short row);
-			char const *level = ui_widget_port_mcc_campaign_level((short)(displayed_item_indices[item_index] - 10));
+			extern char const *ui_widget_port_campaign_maps_level(short row);
+			char const *level = ui_widget_port_campaign_maps_level((short)(displayed_item_indices[item_index] - 10));
 			long row = level ? ui_map_list_lookup(level) : NONE;
 
 			map_name->parameters.text_box.string_list_index = ui_map_list_string_index(row, _ui_map_list_string_name);

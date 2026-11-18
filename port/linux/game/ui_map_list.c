@@ -289,6 +289,9 @@ static long ui_map_list_multiplayer_count;
 campaign maps follow them, found by name only (New Game's SINGLEPLAYER rows
 name them: menu_functions.c), never a co-op game's */
 static long ui_map_list_campaign_end;
+/* the entries from here are the campaign maps that aren't the Xbox's levels
+(ui_map_list_custom_campaign_name) */
+static long ui_map_list_found_custom_campaign;
 
 #ifdef HALO_CUSTOM_EDITION
 /* ---------- prototypes */
@@ -746,7 +749,8 @@ static boolean map_file_details(
 suffix or .map) */
 static void add_pc_entry(
 	short family,
-	char const *file)
+	char const *file,
+	boolean campaign)
 {
 	char map_name[MAP_NAME_LENGTH];
 	wchar_t name[DISPLAY_NAME_LENGTH];
@@ -795,7 +799,7 @@ static void add_pc_entry(
 			break;
 		}
 	}
-	if (ce_index == CE_UNKNOWN_LEVEL)
+	if (ce_index == CE_UNKNOWN_LEVEL && !campaign)
 	{
 		/* (a map of another's making: what its own file says, laid out as
 		the Xbox's descriptions are: the tagline, the players, vehicles) */
@@ -1018,6 +1022,118 @@ static int pack_map_compare(
 	int order = _stricmp(strrchr(first, '@'), strrchr(second, '@'));
 
 	return order ? order : _stricmp(first, second);
+}
+
+/* a campaign map found that isn't one of the Xbox's levels: by its name,
+<file> in the maps folder or <file>@<pack> */
+static void custom_campaign_found(
+	char const *pack,
+	char const *file,
+	void *context)
+{
+	struct found_files *found = context;
+
+	if (found->count >= MAXIMUM_MAP_LIST)
+		return;
+	if (pack)
+	{
+		if (map_pack_map_name(pack, file, found->names[found->count], MAP_NAME_LENGTH))
+			found->count++;
+	}
+	else if (strlen(file) < MAP_NAME_LENGTH)
+		snprintf(found->names[found->count++], MAP_NAME_LENGTH, "%s", file);
+}
+
+/* (the maps folder's in the order of their names, then the packs' as
+pack_map_compare has them) */
+static int custom_campaign_compare(
+	void const *a,
+	void const *b)
+{
+	boolean first_pack = strrchr((char const *)a, '@') != NULL;
+	boolean second_pack = strrchr((char const *)b, '@') != NULL;
+
+	if (first_pack != second_pack)
+		return first_pack ? 1 : -1;
+	return first_pack ? pack_map_compare(a, b) : _stricmp((char const *)a, (char const *)b);
+}
+
+/* a campaign map of the maps folder's row: its file's name */
+static void add_xbox_campaign_entry(
+	char const *file)
+{
+	wchar_t name[DISPLAY_NAME_LENGTH];
+	wchar_t description[DESCRIPTION_LENGTH];
+	char text[DESCRIPTION_LENGTH];
+
+	wide_from_text(name, NUMBEROF(name), file);
+	snprintf(text, sizeof(text), "%s.map in maps", file);
+	wide_from_text(description, NUMBEROF(description), text);
+	add_entry(file, name, name, description, NONE, 9);
+}
+
+#ifdef HALO_CUSTOM_EDITION
+/* (the Xbox's levels' files' names, which Halo PC's own campaign has too) */
+static char const *const campaign_level_files[] =
+{
+	"a10", "a30", "a50", "b30", "b40", "c10", "c20", "c40", "d20", "d40",
+};
+#endif
+
+/* the campaign maps that aren't the Xbox's levels, for the Chupathingy
+menus' level select (after the levels: ui_widget.c): the maps folder's own
+and the map packs' (Xbox maps, the Xbox's loader), then those of the
+families past the Xbox's (their loader, as their multiplayer maps): each
+named as the map lists name its family's, with the unknown level's picture */
+static void add_custom_campaign_entries(
+	struct found_files *found)
+{
+	long file, entry;
+	short family;
+
+	found->count = 0;
+	ui_map_list_adding_source = _ui_map_list_source_xbox;
+	map_pack_list_campaign(custom_campaign_found, found);
+	qsort(found->names, found->count, MAP_NAME_LENGTH, custom_campaign_compare);
+	for (file = 0; file < found->count; file++)
+	{
+		if (strchr(found->names[file], '@'))
+			add_pack_entry(found->names[file], NONE);
+		else
+			add_xbox_campaign_entry(found->names[file]);
+	}
+#ifdef HALO_CUSTOM_EDITION
+	for (family = _map_family_custom_edition; family <= _map_family_halo_pc; family++)
+	{
+		extern int platform_ce_tag_cache_ready;
+
+		if (!platform_ce_tag_cache_ready)
+			break;
+#ifdef HALO_CONSOLE_NO_HALOMD_MAPS
+		if (family == _map_family_halomd)
+			continue;
+#endif
+		found->count = 0;
+		map_family_list_campaign(family, file_found, found);
+		if (found->count)
+			ce_ui_read();
+		ui_map_list_adding_source = family == _map_family_halomd ? _ui_map_list_source_md : _ui_map_list_source_ce;
+		qsort(found->names, found->count, MAP_NAME_LENGTH, (int (*)(void const *, void const *))_stricmp);
+		for (file = 0; file < found->count; file++)
+		{
+			long level;
+
+			for (level = 0; level < (long)NUMBEROF(campaign_level_files) &&
+				_stricmp(found->names[file], campaign_level_files[level]); level++)
+				;
+			if (level == (long)NUMBEROF(campaign_level_files))
+				add_pc_entry(family, found->names[file], TRUE);
+		}
+	}
+#endif
+	(void)family;
+	for (entry = ui_map_list_found_custom_campaign; entry < ui_map_list_count_value; entry++)
+		ui_map_list[entry].picture_index = ui_map_list_unknown_picture();
 }
 
 /* the campaign's levels, after the maps, for a network co-op game hosted
@@ -1557,7 +1673,7 @@ void ui_map_list_refresh(
 		/* (in the order of their names, as the list shows them) */
 		qsort(found.names, found.count, MAP_NAME_LENGTH, (int (*)(void const *, void const *))_stricmp);
 		for (file = 0; file < found.count; file++)
-			add_pc_entry(family, found.names[file]);
+			add_pc_entry(family, found.names[file], FALSE);
 		counts[family] = found.count;
 		/* (and its MCC maps, which are only said not to work) */
 		found.count = 0;
@@ -1606,6 +1722,8 @@ void ui_map_list_refresh(
 		if (index != NONE)
 			add_mcc_catalog_entry(index);
 	}
+	ui_map_list_found_custom_campaign = ui_map_list_count_value;
+	add_custom_campaign_entries(&found);
 	view_apply();
 	if (ui_map_list_left_out != logged_left_out)
 	{
@@ -1643,6 +1761,21 @@ boolean ui_map_list_row_is_campaign(
 	long row)
 {
 	return row >= ui_map_list_multiplayer_count && row < ui_map_list_campaign_end;
+}
+
+/* the campaign maps that aren't the Xbox's levels, in the order found */
+long ui_map_list_custom_campaign_count(
+	void)
+{
+	return ui_map_list_count_value - ui_map_list_found_custom_campaign;
+}
+
+char const *ui_map_list_custom_campaign_name(
+	long index)
+{
+	if (index < 0 || index >= ui_map_list_custom_campaign_count())
+		return NULL;
+	return ui_map_list[ui_map_list_found_custom_campaign + index].map_name;
 }
 
 long ui_map_list_count_all(

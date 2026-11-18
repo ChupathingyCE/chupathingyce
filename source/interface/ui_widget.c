@@ -2265,6 +2265,10 @@ boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name)
 	return TRUE;
 }
 
+/* port: whether the Chupathingy menus are up (port/linux/game/menu_tags.c) */
+boolean pc_menus_chupathingy(
+	void);
+
 /* the MCC catalog's campaign maps, after the campaign's ten levels in the
 Xbox's level select (ui_widget_event_handler_functions.c), at most this
 many: their level names, by row from 0 */
@@ -2282,6 +2286,39 @@ char const *ui_widget_port_mcc_campaign_level(short row)
 	short index = ui_widget_port_mcc_offered() ? mcc_maps_type_index(row, TRUE) : NONE;
 
 	return index != NONE ? mcc_maps_level_name(index) : NULL;
+}
+
+/* the rows after the campaign's ten levels in the level select: the MCC
+catalog's campaign maps, then, in the Chupathingy menus, the other campaign
+maps found (the maps folder's own, the map packs', Custom Edition's: the
+menus' map list, ui_map_list.c), at most this many */
+#define UI_WIDGET_PORT_CUSTOM_CAMPAIGN_ROWS 128
+
+static short ui_widget_port_custom_campaign_count(void)
+{
+#ifdef HALO_MAP_LIST
+	if (pc_menus_chupathingy())
+		return (short)MIN(ui_map_list_custom_campaign_count(), UI_WIDGET_PORT_CUSTOM_CAMPAIGN_ROWS);
+#endif
+	return 0;
+}
+
+short ui_widget_port_campaign_maps_count(void)
+{
+	return (short)(ui_widget_port_mcc_campaign_count() + ui_widget_port_custom_campaign_count());
+}
+
+char const *ui_widget_port_campaign_maps_level(short row)
+{
+	short mcc_count = ui_widget_port_mcc_campaign_count();
+
+	if (row < mcc_count)
+		return ui_widget_port_mcc_campaign_level(row);
+#ifdef HALO_MAP_LIST
+	if (row - mcc_count < ui_widget_port_custom_campaign_count())
+		return ui_map_list_custom_campaign_name(row - mcc_count);
+#endif
+	return NULL;
 }
 
 /* (the level and its co-op settings together, or nothing until the host
