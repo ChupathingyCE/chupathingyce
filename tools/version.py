@@ -109,7 +109,8 @@ def commit_inputs() -> List[Path]:
 
 
 # a GitHub repository's name, owner/name
-REPOSITORY = re.compile(r"^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$")
+# (fullmatch: a "$" would let a trailing newline through)
+REPOSITORY = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
 
 
 def update_repository() -> str:
@@ -120,7 +121,7 @@ def update_repository() -> str:
     repository = os.environ.get("HALO_UPDATE_REPOSITORY", "")
     if not repository:
         return ""
-    if not REPOSITORY.match(repository):
+    if not REPOSITORY.fullmatch(repository) or repository.split("/")[1] in (".", ".."):
         raise ValueError(f"HALO_UPDATE_REPOSITORY is not a GitHub repository's owner/name: {repository!r}")
     return repository
 

@@ -381,7 +381,8 @@ def test_build_update_repository(monkeypatch, repository, define):
     assert "#define UPDATE_REPOSITORY HALO_UPDATE_REPOSITORY" in updater
 
 
-@pytest.mark.parametrize("repository", ["chupathingy32", "a/b c", 'a/b"x', "https://github.com/a/b"])
+@pytest.mark.parametrize("repository", ["chupathingy32", "a/b c", 'a/b"x', "https://github.com/a/b",
+                                        "a/b\n", "a/..", "a/b/c"])
 def test_build_update_repository_refused(monkeypatch, repository):
     """anything but owner/name is refused, never written into a define"""
     monkeypatch.setenv("HALO_UPDATE_REPOSITORY", repository)
