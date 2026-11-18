@@ -63,7 +63,7 @@ int platform_audio_device_names(char const **names, int maximum);
 void *global_network_game_server_get(void);
 /* (game.c's, and its _game_connection_network_client: a joined machine) */
 short game_connection(void);
-enum { GAME_CONNECTION_NETWORK_CLIENT = 1 };
+enum { GAME_CONNECTION_NETWORK_CLIENT = 1, GAME_CONNECTION_NETWORK_SERVER = 2 };
 /* whether the pause menu has CHANGE TEAMS (team_change.c) */
 boolean team_change_pause_offered(void);
 int config_boolean(char const *name);
@@ -1722,12 +1722,14 @@ static boolean pause_controls_offered(void)
 #endif
 }
 
-/* (a campaign map's pause menu, a network co-op game's too: pause_patch) */
+/* (a campaign map's pause menu played on this machine alone, alone or split
+screen; not a network co-op game's, hosted or joined: pause_patch) */
 static boolean pause_campaign;
 
 /* whether the pause menus have DELTA (DELTA over the pause menu,
 port/linux/game/guide.c), as delta.pause_menu says, in every menu set: a
-multiplayer map's only, since the campaign's has little use for it */
+multiplayer map's and a network co-op game's (its invites and friends), not
+a campaign played on this machine alone, which has little use for it */
 static boolean pause_guide_offered(void)
 {
 #ifdef HALO_GUIDE
@@ -2234,7 +2236,8 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	the multiplayer game engine's; a joined co-op game's, no REVERT or
 	RESTART (pause_row_replaced) */
 	pause_coop_joined = solo_screen != NONE && game_connection() == GAME_CONNECTION_NETWORK_CLIENT;
-	pause_campaign = solo_screen != NONE;
+	pause_campaign = solo_screen != NONE && game_connection() != GAME_CONNECTION_NETWORK_CLIENT &&
+		game_connection() != GAME_CONNECTION_NETWORK_SERVER;
 	if (solo_screen != NONE)
 	{
 		if (settings || pause_controls_offered() || pause_guide_offered() || pause_coop_joined)
