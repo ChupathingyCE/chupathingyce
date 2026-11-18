@@ -262,6 +262,10 @@ opens, written after each command) */
 number) */
 const char *platform_folder(int folder);
 #define CONSOLE_HISTORY_FOLDER 3
+/* port/linux/src/xbox_files.c's: a host path opened as it is (this unit's
+fopen takes Xbox paths, and made the history's a path under the data root,
+so it was never kept) */
+FILE *platform_host_fopen(const char *path, const char *mode);
 
 static void console_history_path(
 	char *path,
@@ -275,6 +279,17 @@ static void console_history_path(
 		path[0] = 0;
 }
 
+/* whether a command carries a password (rcon's, sv_password's) */
+static boolean console_history_secret(
+	char const *command)
+{
+	while (*command == ' ' || *command == '(')
+		command++;
+	return (!strncmp(command, "rcon", 4) && (command[4] == ' ' || !command[4])) ||
+		(!strncmp(command, "sv_password", 11) && (command[11] == ' ' || !command[11])) ||
+		(!strncmp(command, "sv_rcon_password", 16) && (command[16] == ' ' || !command[16]));
+}
+
 static void console_history_save(
 	void)
 {
@@ -283,13 +298,18 @@ static void console_history_save(
 	short index;
 
 	console_history_path(path, sizeof(path));
-	if (!path[0] || !(file = fopen(path, "w")))
+	if (!path[0] || !(file = platform_host_fopen(path, "w")))
 		return;
 	for (index = (short)(console_globals.previous_command_count - 1); index >= 0; index--)
 	{
-		fprintf(file, "%s\n", console_globals.previous_commands[
+		char const *command = console_globals.previous_commands[
 			(console_globals.newest_previous_command_index - index + MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS) %
-				MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS]);
+				MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS];
+
+		/* (a password typed stays out of the file: kept for Up this run only) */
+		if (console_history_secret(command))
+			continue;
+		fprintf(file, "%s\n", command);
 	}
 	fclose(file);
 }
@@ -306,7 +326,7 @@ static void console_history_load(
 		return;
 	loaded = TRUE;
 	console_history_path(path, sizeof(path));
-	if (!path[0] || !(file = fopen(path, "r")))
+	if (!path[0] || !(file = platform_host_fopen(path, "r")))
 		return;
 	while (fgets(line, sizeof(line), file))
 	{

@@ -204,6 +204,10 @@ void platform_test_pointer_event(float x, float y, int button, int wheel);
 which differ from the drawable's pixels on displays that scale */
 void platform_video_window_size(int *width, int *height);
 BOOL platform_next_keystroke(struct platform_keystroke *keystroke);
+/* debug.test_input's typing (press: and type:): a key pressed and let go,
+as the keyboard's would be, into the keystrokes the game reads (a text
+box's, the console's); modifiers are SDL's (SDL_KMOD_*) */
+void platform_test_keystroke(int scancode, int modifiers);
 /* nonzero when a key, mouse button or touch was pressed since the last call
 (which forgets them): a movie's skip (bink_playback.c) */
 int platform_movie_skip_pressed(void);
