@@ -575,6 +575,7 @@ static struct network_game *current_game(void)
 
 static void social_read(void)
 {
+#ifndef HALO_CONSOLE_NO_GUIDE
 	unsigned long now = system_milliseconds();
 	struct social_party party;
 	int serial;
@@ -600,6 +601,9 @@ static void social_read(void)
 	serial = lobby.social_serial;
 	browser_social_get(&lobby.social, &serial);
 	lobby.social_serial = serial;
+#endif
+	/* (a build without the Guide, HALO_CONSOLE_NO_GUIDE, has no party or
+	friends to read: browser.c leaves them out) */
 }
 
 static boolean in_party(char const *name)
