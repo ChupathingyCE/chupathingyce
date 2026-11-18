@@ -10,4 +10,7 @@ struct mcc_sha256 {
 void mcc_sha256_begin(struct mcc_sha256 *context);
 void mcc_sha256_add(struct mcc_sha256 *context, void const *data, int size);
 void mcc_sha256_end(struct mcc_sha256 *context, unsigned char digest[32]);
+/* which code hashes: the processor's SHA-256 instructions or the portable code
+(MCC_SHA256_PORTABLE set in the environment: the portable code) */
+const char *mcc_sha256_implementation(void);
 #endif
