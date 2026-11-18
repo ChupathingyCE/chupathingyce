@@ -2213,7 +2213,10 @@ static void ce_sounds_decode(
 		if (from_map)
 			in_map++;
 	}
-	free(decoded);
+	/* (the game's free takes no NULL: a map whose sounds needed no decoding
+	never made the list) */
+	if (decoded)
+		free(decoded);
 	if (edges)
 		free(edges);
 	if (order)
