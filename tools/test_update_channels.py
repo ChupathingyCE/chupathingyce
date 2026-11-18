@@ -368,6 +368,27 @@ def test_build_update_channel(monkeypatch, version, release, channel):
     assert "port_config.c" in version_tool.VERSION_SOURCES
 
 
+@pytest.mark.parametrize("repository, define", [
+    ("", False), ("ChupathingyCE/chupathingy32", True)])
+def test_build_update_repository(monkeypatch, repository, define):
+    """a build given HALO_UPDATE_REPOSITORY (Chupathingy32's 32-bit builds)
+    updates from that repository's releases; without it, from the game's"""
+    monkeypatch.setenv("HALO_UPDATE_REPOSITORY", repository)
+    assert version_tool.update_repository() == repository
+    defines = version_tool.identity_defines()
+    assert (f'-DHALO_UPDATE_REPOSITORY=\\"{repository}\\"' in defines) == define
+    updater = (ROOT / "port/linux/src/updater.c").read_text()
+    assert "#define UPDATE_REPOSITORY HALO_UPDATE_REPOSITORY" in updater
+
+
+@pytest.mark.parametrize("repository", ["chupathingy32", "a/b c", 'a/b"x', "https://github.com/a/b"])
+def test_build_update_repository_refused(monkeypatch, repository):
+    """anything but owner/name is refused, never written into a define"""
+    monkeypatch.setenv("HALO_UPDATE_REPOSITORY", repository)
+    with pytest.raises(ValueError):
+        version_tool.update_repository()
+
+
 def test_the_channel_setting():
     config = (ROOT / "port/linux/src/port_config.c").read_text()
     assert '{ "update.channel", _config_string, UPDATE_CHANNEL_DEFAULT,' in config

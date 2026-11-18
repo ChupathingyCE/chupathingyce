@@ -108,6 +108,23 @@ def commit_inputs() -> List[Path]:
     return [path] if path.is_file() else []
 
 
+# a GitHub repository's name, owner/name
+REPOSITORY = re.compile(r"^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$")
+
+
+def update_repository() -> str:
+    """the GitHub repository whose releases this build updates from, when it
+    is not the game's own: HALO_UPDATE_REPOSITORY (owner/name), which
+    Chupathingy32's workflows give its 32-bit Windows and Linux builds; ""
+    for the game's releases. Its releases are signed with the game's keys"""
+    repository = os.environ.get("HALO_UPDATE_REPOSITORY", "")
+    if not repository:
+        return ""
+    if not REPOSITORY.match(repository):
+        raise ValueError(f"HALO_UPDATE_REPOSITORY is not a GitHub repository's owner/name: {repository!r}")
+    return repository
+
+
 # the sources given the version's defines (identity_defines): the
 # self-updater, the build's identity for the logs, and the settings
 # (update.channel's default is the build's update channel)
@@ -120,6 +137,8 @@ def identity_defines() -> str:
     defines = f'-DHALO_CHANNEL=\\"{channel()}\\" -DHALO_COMMIT=\\"{commit()}\\"'
     if update_channel():
         defines += f' -DHALO_UPDATE_CHANNEL=\\"{update_channel()}\\"'
+    if update_repository():
+        defines += f' -DHALO_UPDATE_REPOSITORY=\\"{update_repository()}\\"'
     return defines
 
 
