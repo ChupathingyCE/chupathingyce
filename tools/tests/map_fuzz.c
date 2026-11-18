@@ -197,6 +197,10 @@ void ce_models_tags_unloaded(void);
 void ce_hud_tags_unloaded(void);
 
 int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sample_rate, short **samples);
+int ce_vorbis_resample_piece(short **samples, int frames, int channels, int rate, int wanted,
+	const short *before, int before_frames, const short *after, int after_frames);
+int ce_vorbis_edges(const unsigned char *data, int size, int count, int whole, int *channels, int *sample_rate,
+	short *head, int *head_frames, short *tail, int *tail_frames);
 void ce_vorbis_free(short *samples);
 
 /* ---------- globals */
@@ -705,6 +709,21 @@ int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int 
 	return -1;
 }
 
+int ce_vorbis_resample_piece(short **samples, int frames, int channels, int rate, int wanted,
+	const short *before, int before_frames, const short *after, int after_frames)
+{
+	return -1;
+}
+
+int ce_vorbis_edges(const unsigned char *data, int size, int count, int whole, int *channels, int *sample_rate,
+	short *head, int *head_frames, short *tail, int *tail_frames)
+{
+	*channels = 0;
+	*sample_rate = 0;
+	*head_frames = *tail_frames = 0;
+	return -1;
+}
+
 void ce_vorbis_free(short *samples)
 {
 }
@@ -1049,6 +1068,32 @@ int LLVMFuzzerTestOneInput(unsigned char const *data, size_t size)
 			volatile short sink = samples[(size_t)frames * (size_t)channels - 1];
 
 			(void)sink;
+		}
+		/* (its ends read alone, as ce_resources.c reads a neighbor's) */
+		{
+			short head[48 * 2], tail[48 * 2];
+			int edge_channels, edge_rate, head_frames, tail_frames;
+
+			ce_vorbis_edges(data, (int)size, 48, 1, &edge_channels, &edge_rate, head, &head_frames, tail, &tail_frames);
+			ce_vorbis_edges(data, (int)size, 48, 0, &edge_channels, &edge_rate, head, &head_frames, tail, &tail_frames);
+		}
+		/* (and halved, then doubled, with its own first frames as both
+		neighbors: ce_resources.c's joins) */
+		if (frames > 0 && samples && frames <= 0x100000)
+		{
+			int edge = frames < 48 ? frames : 48;
+			short *context = malloc((size_t)edge * (size_t)channels * sizeof(*context));
+
+			if (context)
+			{
+				int halved;
+
+				memcpy(context, samples, (size_t)edge * (size_t)channels * sizeof(*context));
+				halved = ce_vorbis_resample_piece(&samples, frames, channels, 44100, 22050, context, edge, context, edge);
+				if (halved > 0)
+					ce_vorbis_resample_piece(&samples, halved, channels, 22050, 44100, context, edge / 2, context, edge / 2);
+				free(context);
+			}
 		}
 		ce_vorbis_free(samples);
 	}

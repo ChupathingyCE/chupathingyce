@@ -19,6 +19,7 @@ tools/test_ce_bitmap_reduce.py
 tools/test_ce_effect_flags.py
 tools/test_ce_joins.py
 tools/test_ce_resource_maps.py
+tools/test_ce_vorbis_resample.py
 tools/test_conduct_rules.py
 tools/test_config_console_replace.py
 tools/test_console_claims.py
