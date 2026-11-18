@@ -661,9 +661,11 @@ static struct tag_schema_definition const model_geometry_schema =
 
 #ifdef HALO_CUSTOM_EDITION
 /* a gbxmodel's part: no vertices or triangles of its own, as the Xbox's;
-its buffers are none until it is made the Xbox's (ce_models.c, which
+its index buffer none until it is made the Xbox's (ce_models.c, which
 reads its vertices and strip from the model data by their offsets, checked
-there) */
+there). Its vertex buffer's last word, where the Xbox's part has its
+hardware format, is Halo PC's offset of its vertices in the model data,
+which ce_models.c reads: it is kept */
 static boolean gbxmodel_geometry_part_check(
 	struct tag_validation *validation,
 	void *base)
@@ -671,7 +673,6 @@ static boolean gbxmodel_geometry_part_check(
 	struct gbxmodel_geometry_part *part = base;
 
 	model_geometry_part_blocks_check(validation, &part->part);
-	part->part.vertex_buffer.hardware_format = XBOX_NULL;
 	part->part.triangle_buffer.hardware_format = XBOX_NULL;
 
 	return TRUE;
