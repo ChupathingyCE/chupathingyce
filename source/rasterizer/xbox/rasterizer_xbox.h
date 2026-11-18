@@ -92,6 +92,10 @@ void rasterizer_set_target(
 void rasterizer_get_depth_range(
 	real *minimum,
 	real *maximum);
+/* port: a target's surface (the game's own, for missing_maps_screen.c) */
+D3DSurface *rasterizer_get_target(
+	short target,
+	short mipmap_index);
 void rasterizer_set_depth_range(
 	real minimum,
 	real maximum);
