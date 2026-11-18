@@ -182,6 +182,12 @@ short ui_widget_spinner_extra_description(
 boolean ui_widget_spinner_item_pictured(
 	struct widget_instance *spinner,
 	short item_index);
+/* port: and whether its list's picture shows the plain gamepad for it (as
+this frame: ui_widget.c draws it) */
+#define UI_WIDGET_PLAIN_GAMEPAD_FRAME 0x7E00
+boolean ui_widget_spinner_item_plain_gamepad(
+	struct widget_instance *spinner,
+	short item_index);
 void ui_widget_delete(
 	struct widget_instance *widget);
 void ui_widgets_close_all(
