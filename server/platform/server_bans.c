@@ -213,10 +213,11 @@ static int excepted(const char *ref)
 the data folder, 32 random bytes made the first time. A ref is the line
 keyed with it, so it says nothing of the line (its address or hardware
 ID) to anyone without the key, and stays the same while the line does.
-One that is there but not 32 bytes (cut short, or edited) is kept beside
-it as shared_bans.key.bad-<unix time> and said so in the log before a new
-one is made: a new key changes the ref of every ban this server shares.
-1, else 0 */
+A longer one is used by its first 32 bytes (a key copied with a newline
+after it keeps its refs). One under 32 bytes (cut short) is kept beside it
+as shared_bans.key.bad-<unix time> and said so in the log before a new one
+is made: a new key changes the ref of every ban this server shares. 1,
+else 0 */
 static int ref_key(void)
 {
 	char path[1024], temporary[1040];
@@ -228,10 +229,9 @@ static int ref_key(void)
 	file = fopen(path, "rb");
 	if (file)
 	{
-		uint8_t extra;
 		size_t got = fread(bans.ref_key, 1, sizeof(bans.ref_key), file);
 
-		bans.ref_key_read = got == sizeof(bans.ref_key) && fread(&extra, 1, 1, file) == 0;
+		bans.ref_key_read = got == sizeof(bans.ref_key);
 		fclose(file);
 		if (bans.ref_key_read)
 			return 1;
@@ -242,14 +242,12 @@ static int ref_key(void)
 			snprintf(backup, sizeof(backup), "%s.bad-%lld", path, when);
 			if (rename(path, backup) != 0)
 			{
-				platform_log("Shared bans: %s is not a key (%s 32 bytes) and could not be kept aside: shared bans "
-					"keep no refs until it is fixed or removed", REF_KEY_FILE, got < sizeof(bans.ref_key) ? "under" :
-					"over");
+				platform_log("Shared bans: %s is not a key (under 32 bytes) and could not be kept aside: shared bans "
+					"keep no refs until it is fixed or removed", REF_KEY_FILE);
 				return 0;
 			}
-			platform_log("Shared bans: %s is not a key (%s 32 bytes): kept as %s.bad-%lld, and a new one made. "
-				"Every ban this server shares gets a new ref", REF_KEY_FILE, got < sizeof(bans.ref_key) ? "under" :
-				"over", REF_KEY_FILE, when);
+			platform_log("Shared bans: %s is not a key (under 32 bytes): kept as %s.bad-%lld, and a new one made. "
+				"Every ban this server shares gets a new ref", REF_KEY_FILE, REF_KEY_FILE, when);
 		}
 	}
 	if (!host_random_bytes(bans.ref_key, sizeof(bans.ref_key)))

@@ -62,6 +62,9 @@ It is the 64-bit build of the other systems (`HALO_64BIT`: see
   if it cannot get that address. The executable does not use high-entropy
   address randomization, which could put the first allocations of the
   process in that range.
+- The game's heap (`port/linux/src/xbox_heap.c`) commits its part of
+  that space in 16 MB steps as the game uses it, not all 976 MB at start:
+  on Windows, committed memory must fit in memory plus the page file.
 - The write tracking and the crash reports of `src/win32_memory_watch.c`
   convert between Xbox addresses and the pointers of the process. A crash
   report gives the address of `chupathingy.exe` in that run, and the calls come

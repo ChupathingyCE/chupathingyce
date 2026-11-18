@@ -346,6 +346,9 @@ void ui_style_glass(float x, float y, float width, float height, float radius, u
 	unsigned int edge);
 /* a row's capsule: glass, the selected one lit with the plasma */
 void ui_style_row(float x, float y, float width, float height, int selected);
+/* a row's capsule for the one chosen while the focus is elsewhere (the
+item whose page is open beside the list): glass, with the selection's edge */
+void ui_style_row_chosen(float x, float y, float width, float height);
 /* a setting's row (settings_rows.h's, the Guide's and the setup screen's):
 its capsule (ui_style_row), its label in ui_style_text's UI_TEXT_NAME at
 scale times its size, a tag after it (badge, as "NEEDS A RESTART"; NULL:

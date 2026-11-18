@@ -56,6 +56,7 @@ clock runs on).
 void platform_log(char const *format, ...);
 char const *config_string(char const *name);
 int platform_display_resolutions(long *widths, long *heights, int maximum);
+int platform_display_native_size(long *width, long *height);
 int platform_window_sizes(long *widths, long *heights, int maximum);
 int platform_audio_device_names(char const **names, int maximum);
 
@@ -865,7 +866,23 @@ static long spinner_split(struct halo_menu_widget const *widget, boolean values,
 		return count;
 	}
 	if (widget->setting && !strcmp(widget->setting, "display.resolution"))
+	{
+#ifdef HALO_GUIDE
+		/* (NATIVE shown as the display's own size, as the sizes after it
+		are, so a display larger than they are shows as larger; the
+		spinner has no room for both) */
+		long native_width, native_height;
+		char *native;
+
+		if (!values && count >= 1 && platform_display_native_size(&native_width, &native_height) &&
+			(native = allocate(32)) != NULL)
+		{
+			snprintf(native, 32, "%ld x %ld", native_width, native_height);
+			pieces[0] = native;
+		}
+#endif
 		added = platform_display_resolutions(widths, heights, (int)(MAXIMUM_STRINGS - count));
+	}
 	else if (widget->setting && !strcmp(widget->setting, "display.window_size"))
 	{
 		added = platform_window_sizes(widths, heights, MAXIMUM_STRINGS);
@@ -1743,7 +1760,13 @@ this machine hosts, in a build with the screen */
 static boolean pause_moderation_offered(boolean host)
 {
 #ifdef HALO_GAME_BROWSER
-	return host;
+	/* (not in a split screen game of this machine's players alone, where
+	it has no one to act on and its row is one too many for the small
+	pause screens) */
+	extern unsigned char pc_menu_split_players(void);
+	extern boolean moderation_screen_others_in_game(void);
+
+	return host && (!pc_menu_split_players() || moderation_screen_others_in_game());
 #else
 	(void)host;
 	return FALSE;

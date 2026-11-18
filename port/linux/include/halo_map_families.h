@@ -255,6 +255,9 @@ boolean map_family_find_mcc(short family, char const *file, char *path, long siz
 /* every multiplayer map of a family past the Xbox's, in its folders: each
 one's file's name (without the suffix, each once), passed to found */
 void map_family_list(short family, void (*found)(char const *file, void *context), void *context);
+/* the same for its campaign maps (the menus' campaign lists them after
+the Xbox's levels: ui_map_list.c) */
+void map_family_list_campaign(short family, void (*found)(char const *file, void *context), void *context);
 /* the same for the family's MCC maps, which the menus list greyed */
 void map_family_list_mcc(short family, void (*found)(char const *file, void *context), void *context);
 #endif

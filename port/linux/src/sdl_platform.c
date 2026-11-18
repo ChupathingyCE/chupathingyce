@@ -1645,6 +1645,19 @@ static int platform_resolution_add(long *widths, long *heights, int count, int m
 	return count;
 }
 
+int platform_display_native_size(long *width, long *height)
+{
+	SDL_DisplayID display;
+
+	*width = *height = 0;
+	if (!platform_sdl_initialize())
+		return 0;
+	display = platform_window ? SDL_GetDisplayForWindow(platform_window) : 0;
+	if (!display)
+		display = SDL_GetPrimaryDisplay();
+	return platform_display_size(display, width, height) ? 1 : 0;
+}
+
 int platform_display_resolutions(long *widths, long *heights, int maximum)
 {
 	SDL_DisplayID display;
@@ -1735,6 +1748,12 @@ int platform_window_sizes(long *widths, long *heights, int maximum)
 }
 
 #else
+int platform_display_native_size(long *width, long *height)
+{
+	*width = *height = 0;
+	return 0;
+}
+
 int platform_display_resolutions(long *widths, long *heights, int maximum)
 {
 	(void)widths;

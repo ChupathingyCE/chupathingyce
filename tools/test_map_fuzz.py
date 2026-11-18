@@ -76,6 +76,8 @@ CUSTOM_EDITION = [
     "port/linux/game/ce_functions.c",
     # (Halo PC's tag schema, which the tags go through as they load)
     *VALIDATOR,
+    # (what the checks read, hashed: ce_map_checks.c)
+    "port/linux/game/mcc_sha256.c",
     "source/bitmaps/bitmaps.c",
     "source/rasterizer/rasterizer_geometry.c",
     "source/rasterizer/rasterizer_swizzle.c",
@@ -833,6 +835,57 @@ def test_fuzz(built, target, tmp_path):
                  f"-artifact_prefix={tmp_path}/")
     assert result.returncode == 0, result.stderr[-6000:]
 
+
+
+def ce_map_with_model_data_and_string(model_data_size=0x40):
+    """ce_map_of_tags's map with model data no model reads (model_data_size
+    bytes after its structure BSP) and an indexed unicode string list (its
+    resource in loc.map, by its path): the map, and a loc.map holding that
+    resource last, as its last 12 bytes"""
+    data, offsets = ce_map_of_tags([(b"ustr", 0x10)])
+    tags = 0x800
+    instance = offsets["instances"] + 0x20 * 2
+    # (indexed: its resource is the first in loc.map, whose path is its name)
+    struct.pack_into("<II", data, instance + 0x14, 0, 1)
+    model_offset = len(data)
+    data += bytes(range(256)) * (model_data_size // 256) + bytes(model_data_size % 256)
+    struct.pack_into("<i", data, 8, len(data))
+    struct.pack_into("<III", data, tags + 0x14, model_offset, 0, 0)
+    struct.pack_into("<II", data, tags + 0x1C, 0, model_data_size)
+    # (loc.map: its header, the path, the table of one resource, the resource:
+    # a string list of no strings)
+    name = b"fuzz\0\0\0\0"
+    table = 16 + len(name)
+    resource = table + 12
+    loc = struct.pack("<IIII", 3, 16, table, 1) + name + struct.pack("<III", 0, 12, resource) + bytes(12)
+    return bytes(data), loc
+
+
+def test_map_changed_after_the_checks(built, tmp_path):
+    """a map whose file changes between its checks and its load (#1088): its
+    tag data, its model data, its structure BSP, or a resource map's tag
+    copied in, each found not to be what was checked as the load reads it,
+    and the map refused; unchanged, the same map loads"""
+    binaries, _ = built
+    data, loc = ce_map_with_model_data_and_string()
+    resources = tmp_path / "resources"
+    resources.mkdir()
+    (resources / "loc.map").write_bytes(loc)
+    path = tmp_path / "changed.map"
+    path.write_bytes(data)
+    environment = {"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_RESOURCES": str(resources)}
+    result = run(binaries["ce"], [path], environment=environment)
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "fuzz: checked" in result.stderr and "1 indexed tags copied in" in result.stderr, result.stderr[-4000:]
+    assert "changed since" not in result.stderr, result.stderr[-4000:]
+    for part, what in (("tags", "its tag data"), ("resources", "a resource map's tags"),
+                       ("model", "its model data"), ("bsp", "a structure BSP")):
+        result = run(binaries["ce"], [path], environment={**environment, "MAP_FUZZ_CE_CHANGE": part})
+        assert result.returncode == 0, (part, result.stderr[-4000:])
+        assert "fuzz: checked" in result.stderr, (part, result.stderr[-4000:])
+        assert f"refused as it loaded: {what} changed since the map was checked" in result.stderr, \
+            (part, result.stderr[-4000:])
+        assert f"the load found its {part} changed" in result.stderr, (part, result.stderr[-4000:])
 
 # ---------- longer runs
 

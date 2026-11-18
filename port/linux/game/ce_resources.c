@@ -39,6 +39,7 @@ by their tags' paths (below).
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
 #include "ce_map_checks.h"
+#include "mcc_sha256.h"
 #include "halo_map_families.h"
 #include "halopc_bitmap_offsets.h"
 
@@ -164,6 +165,9 @@ address there, 0 while the tag cache's room is used. Allocations only ever
 move up, so a mark (ce_resources_free_mark) is the lowest address of all
 that is allocated after it */
 static unsigned long ce_room_next;
+/* what the placing of a map's resources wrote in its tags
+(ce_resources_place), hashed as it is written: NULL when not placing */
+static struct mcc_sha256 *ce_resources_written;
 
 /* ---------- private code */
 
@@ -178,6 +182,24 @@ static boolean ce_read(
 	if (SetFilePointer(file, (long)offset, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
 		return FALSE;
 	return ReadFile(file, buffer, size, &bytes_read, NULL) && bytes_read == size;
+}
+
+/* bytes of the image the placing of a map's resources may have written
+(a retail map's bitmaps and sounds, ce_retail_*): hashed, with where they
+are, while it places them (ce_resources_place) */
+static void ce_resources_placed(
+	struct ce_image const *image,
+	void const *at,
+	unsigned long size)
+{
+	unsigned long where[2];
+
+	if (!ce_resources_written || !at)
+		return;
+	where[0] = image->base + (unsigned long)((byte const *)at - image->data);
+	where[1] = size;
+	mcc_sha256_add(ce_resources_written, where, (int)sizeof(where));
+	mcc_sha256_add(ce_resources_written, at, (int)size);
 }
 
 static boolean ce_resource_map_open(
@@ -868,6 +890,9 @@ static boolean ce_retail_bitmaps(
 		free(theirs);
 	if (at_offset)
 		free(at_offset);
+	/* (its header and bitmaps, as they are now: ce_resources_place) */
+	ce_resources_placed(image, group, CE_BITMAP_GROUP_SIZE);
+	ce_resources_placed(image, bitmaps, (unsigned long)count * CE_BITMAP_DATA_SIZE);
 	*type = (byte)(_ce_resource_bitmaps + 1);
 	return TRUE;
 }
@@ -985,6 +1010,26 @@ static boolean ce_retail_sound(
 	}
 	if (copy)
 		free(copy);
+	/* (its header, pitch ranges and permutations, as they are now:
+	ce_resources_place) */
+	ce_resources_placed(image, sound, CE_SOUND_HEADER_SIZE);
+	if (ce_image_block(image, sound + CE_SOUND_PITCH_RANGES_OFFSET, CE_SOUND_PITCH_RANGE_SIZE, CE_MAXIMUM_ELEMENTS,
+		name, &range_count, &ranges))
+	{
+		ce_resources_placed(image, ranges, (unsigned long)range_count * CE_SOUND_PITCH_RANGE_SIZE);
+		for (range_index = 0; range_index < range_count; range_index++)
+		{
+			byte *permutations;
+			long permutation_count;
+
+			if (ce_image_block(image, ranges + range_index * CE_SOUND_PITCH_RANGE_SIZE +
+				CE_PITCH_RANGE_PERMUTATIONS_OFFSET, CE_SOUND_PERMUTATION_SIZE, CE_MAXIMUM_ELEMENTS, name,
+				&permutation_count, &permutations))
+			{
+				ce_resources_placed(image, permutations, (unsigned long)permutation_count * CE_SOUND_PERMUTATION_SIZE);
+			}
+		}
+	}
 	return TRUE;
 }
 
@@ -1073,7 +1118,7 @@ static void ce_sound_header(
 its tags (its size, which grows to take them in), below end_free, and
 relocated; each tag's resource map put in types (+1; 0 none), and the end
 of the copies in *next_free. FALSE (refused, saying why) if one cannot be */
-static boolean ce_resources_place(
+static boolean ce_resources_place_read(
 	struct ce_image *image,
 	void *tag_instances,
 	long tag_count,
@@ -1227,6 +1272,81 @@ static boolean ce_resources_place(
 			"Custom Edition's own is (a repacked one?)", reindexed);
 	}
 	*next_free = next;
+	return TRUE;
+}
+
+/* the resources copied in after a map's tags, hashed (size bytes at the
+Xbox address start, in the image) */
+static void ce_resources_placed_copies(
+	struct ce_image const *image,
+	struct mcc_sha256 *written,
+	unsigned long start,
+	unsigned long size)
+{
+	byte const *at = image->data + (start - image->base);
+
+	while (size)
+	{
+		unsigned long chunk = size < 0x40000000UL ? size : 0x40000000UL;
+
+		mcc_sha256_add(written, at, (int)chunk);
+		at += chunk;
+		size -= chunk;
+	}
+}
+
+/* ce_resources_place_read, and what it wrote hashed (digest): the resource
+maps' tags copied in after the map's (relocated), each tag's address and
+resource map after, and what it changed in the map's own tags (a retail
+map's bitmaps and sounds: ce_resources_placed). The map's tags are hashed
+once, as they are read (ce_map_checks.c): with them the same, and these,
+the tags with the resources copied in are the same, and are not hashed
+again whole. With no digest, nothing is hashed (the original Xbox's
+check and load: CE_MAP_HASHED) */
+static boolean ce_resources_place(
+	struct ce_image *image,
+	void *tag_instances,
+	long tag_count,
+	unsigned long end_free,
+	byte *types,
+	unsigned long *next_free,
+	long *copied,
+	byte digest[CE_DIGEST_SIZE])
+{
+	unsigned long copies = ((image->base + image->size) + 15) & ~15UL;
+	struct mcc_sha256 written;
+	boolean placed;
+	long index;
+
+	if (!digest)
+		return ce_resources_place_read(image, tag_instances, tag_count, end_free, types, next_free, copied);
+	mcc_sha256_begin(&written);
+	ce_resources_written = &written;
+	placed = ce_resources_place_read(image, tag_instances, tag_count, end_free, types, next_free, copied);
+	ce_resources_written = NULL;
+	if (!placed)
+		return FALSE;
+	/* (the copies, after the map's tags) */
+	if (*next_free > copies)
+		ce_resources_placed_copies(image, &written, copies, *next_free - copies);
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance const *instance = (struct ce_tag_instance const *)((byte const *)tag_instances +
+			index * CE_TAG_INSTANCE_SIZE);
+		unsigned long placement[2];
+
+		placement[0] = instance->base_address;
+		placement[1] = types[index];
+		mcc_sha256_add(&written, placement, (int)sizeof(placement));
+	}
+	{
+		unsigned long end[2];
+
+		end[0] = *next_free;
+		end[1] = (unsigned long)*copied;
+		mcc_sha256_add(&written, end, (int)sizeof(end));
+	}
+	mcc_sha256_end(&written, digest);
 	return TRUE;
 }
 
@@ -1386,12 +1506,18 @@ boolean ce_resources_check(
 	unsigned long *next_free)
 {
 	byte *types = malloc(tag_count);
+	byte digest[CE_DIGEST_SIZE];
 	long copied, index;
 	boolean valid;
 
 	if (!types)
 		return ce_refuse("no memory to check its resources");
-	valid = ce_resources_place(image, tag_instances, tag_count, end_free, types, next_free, &copied);
+	valid = ce_resources_place(image, tag_instances, tag_count, end_free, types, next_free, &copied,
+		CE_MAP_HASHED ? digest : NULL);
+	/* (what the tags had copied in, and from where: as loading must find
+	it, ce_resources_tags_loaded) */
+	if (valid && CE_MAP_HASHED)
+		ce_resources_digest(digest);
 	for (index = 0; valid && index < tag_count; index++)
 	{
 		struct ce_tag_instance const *instance = (struct ce_tag_instance const *)((byte const *)tag_instances +
@@ -1418,6 +1544,7 @@ boolean ce_resources_tags_loaded(
 	unsigned long end_free)
 {
 	struct ce_image image;
+	byte digest[CE_DIGEST_SIZE];
 	unsigned long next;
 	long copied = 0;
 	long index;
@@ -1440,7 +1567,11 @@ boolean ce_resources_tags_loaded(
 	/* (writing nothing over the tag header or tag index, as when the map
 	was checked: ce_map_checks.h) */
 	ce_tags_guard_begin_loaded(tag_instances, tag_count);
-	if (!ce_resources_place(&image, tag_instances, tag_count, end_free, ce_indexed_tags, &next, &copied))
+	/* (and only as they were when the map was checked: a resource map
+	changed since then is refused, ce_map_checks.c) */
+	if (!ce_map_loaded_resources_unchanged(
+		ce_resources_place(&image, tag_instances, tag_count, end_free, ce_indexed_tags, &next, &copied,
+			CE_MAP_HASHED ? digest : NULL) ? digest : NULL))
 	{
 		ce_tags_guard_end();
 		return FALSE;

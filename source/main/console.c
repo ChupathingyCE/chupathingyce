@@ -62,6 +62,7 @@ symbols in this file:
 #include "input/input.h"
 #include "interface/terminal.h"
 #include "math/real_math.h"
+#include "lua_scripting.h"
 
 /* ---------- constants */
 
@@ -279,15 +280,27 @@ static void console_history_path(
 		path[0] = 0;
 }
 
-/* whether a command carries a password (rcon's, sv_password's) */
+/* whether the command is the name, in any case, alone or followed by a space
+or a tab */
+static boolean console_history_command_is(
+	char const *command,
+	char const *name)
+{
+	size_t length = strlen(name);
+
+	return !_strnicmp(command, name, length) &&
+		(command[length] == ' ' || command[length] == '\t' || !command[length]);
+}
+
+/* whether a command carries a password (rcon's, sv_password's), however
+it is typed (the console takes any case, and a tab between words) */
 static boolean console_history_secret(
 	char const *command)
 {
-	while (*command == ' ' || *command == '(')
+	while (*command == ' ' || *command == '\t' || *command == '(')
 		command++;
-	return (!strncmp(command, "rcon", 4) && (command[4] == ' ' || !command[4])) ||
-		(!strncmp(command, "sv_password", 11) && (command[11] == ' ' || !command[11])) ||
-		(!strncmp(command, "sv_rcon_password", 16) && (command[16] == ' ' || !command[16]));
+	return console_history_command_is(command, "rcon") || console_history_command_is(command, "sv_password") ||
+		console_history_command_is(command, "sv_rcon_password");
 }
 
 static void console_history_save(
@@ -521,6 +534,10 @@ static boolean console_process_command(
 #endif
 	/* port: echoed in the drop-down console's scrollback, after its prompt */
 	terminal_echo_command(command);
+	/* port: a mod's Lua script may take the command for itself
+	(port/linux/game/lua_scripting.c, its "command" callback) */
+	if (!lua_scripting_command(command))
+		return TRUE;
 #ifdef CONSOLE_SHELL
 	/* port: the drop-down console's shell: its own commands, then the line
 	made the scripts' expression (console_shell.h) */

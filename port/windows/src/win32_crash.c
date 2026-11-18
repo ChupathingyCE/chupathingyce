@@ -418,11 +418,13 @@ static void crash_upload_pending(const wchar_t *folder)
 /* ---------- the reporter */
 
 /* a module's CodeView record (its PDB's id and name), from its image in the
-crashed game; its size, or 0 */
+crashed game (or in this one); its size, or 0. A 32-bit build's image has a
+PE32 header, a 64-bit one's PE32+ */
 static DWORD crash_codeview_record(HANDLE process, ULONG64 base, char *record, DWORD size)
 {
 	IMAGE_DOS_HEADER dos;
 	IMAGE_NT_HEADERS32 headers;
+	IMAGE_NT_HEADERS64 headers64;
 	IMAGE_DATA_DIRECTORY debug;
 	DWORD index;
 
@@ -430,12 +432,26 @@ static DWORD crash_codeview_record(HANDLE process, ULONG64 base, char *record, D
 		dos.e_magic != IMAGE_DOS_SIGNATURE ||
 		!ReadProcessMemory(process, (void *)(ULONG_PTR)(base + (ULONG64)dos.e_lfanew), &headers, sizeof(headers),
 			NULL) ||
-		headers.Signature != IMAGE_NT_SIGNATURE || headers.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC ||
-		headers.OptionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_DEBUG)
+		headers.Signature != IMAGE_NT_SIGNATURE)
 	{
 		return 0;
 	}
-	debug = headers.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG];
+	if (headers.OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC &&
+		headers.OptionalHeader.NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_DEBUG)
+	{
+		debug = headers.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG];
+	}
+	else if (headers.OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC &&
+		ReadProcessMemory(process, (void *)(ULONG_PTR)(base + (ULONG64)dos.e_lfanew), &headers64, sizeof(headers64),
+			NULL) &&
+		headers64.OptionalHeader.NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_DEBUG)
+	{
+		debug = headers64.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG];
+	}
+	else
+	{
+		return 0;
+	}
 	for (index = 0; index < debug.Size / sizeof(IMAGE_DEBUG_DIRECTORY) && index < 16; index++)
 	{
 		IMAGE_DEBUG_DIRECTORY entry;
@@ -456,6 +472,33 @@ static DWORD crash_codeview_record(HANDLE process, ULONG64 base, char *record, D
 		}
 	}
 	return 0;
+}
+
+/* this program's build ID (crash_report.h): its PDB's GUID and age, as a
+symbol server names them ("DB9B4BE72A0819C44C4C44205044422E1"), from its
+CodeView record; the reporter is the crashed game's own program, so its ID
+is the game's. Empty without one */
+static void crash_build_id(char *text, size_t size)
+{
+	char record[1024];
+	const unsigned char *guid = (const unsigned char *)record + 4;
+	unsigned long data1, age;
+	unsigned int data2, data3;
+
+	text[0] = 0;
+	if (!crash_codeview_record(GetCurrentProcess(), (ULONG64)(ULONG_PTR)GetModuleHandleW(NULL), record,
+		sizeof(record)))
+	{
+		return;
+	}
+	data1 = (unsigned long)guid[0] | (unsigned long)guid[1] << 8 | (unsigned long)guid[2] << 16 |
+		(unsigned long)guid[3] << 24;
+	data2 = (unsigned int)guid[4] | (unsigned int)guid[5] << 8;
+	data3 = (unsigned int)guid[6] | (unsigned int)guid[7] << 8;
+	age = (unsigned long)(unsigned char)record[20] | (unsigned long)(unsigned char)record[21] << 8 |
+		(unsigned long)(unsigned char)record[22] << 16 | (unsigned long)(unsigned char)record[23] << 24;
+	snprintf(text, size, "%08lX%04X%04X%02X%02X%02X%02X%02X%02X%02X%02X%lX", data1, data2, data3, guid[8], guid[9],
+		guid[10], guid[11], guid[12], guid[13], guid[14], guid[15], age);
 }
 
 /* Wine's MiniDumpWriteDump leaves out the modules' CodeView records, which
@@ -665,7 +708,7 @@ static void crash_write_report(HANDLE process, DWORD thread_id, ULONG_PTR except
 	STACKFRAME64 frame;
 	struct crash_body report = { 0 };
 	wchar_t path[PATH_SIZE];
-	char line[256], os[128];
+	char line[256], os[128], build_id[48];
 	HANDLE thread;
 	DWORD machine;
 	BOOL symbols;
@@ -683,6 +726,13 @@ static void crash_write_report(HANDLE process, DWORD thread_id, ULONG_PTR except
 		"exception %08lx\n", build_identity_version(), build_identity_channel(), build_identity_commit(),
 		build_identity_platform(), build_identity_architecture(), os, (unsigned long)record.ExceptionCode);
 	body_text(&report, line);
+	/* (which symbols are this build's: crash_report.h) */
+	crash_build_id(build_id, sizeof(build_id));
+	if (build_id[0])
+	{
+		snprintf(line, sizeof(line), "build_id %s\n", build_id);
+		body_text(&report, line);
+	}
 
 	memset(&frame, 0, sizeof(frame));
 #ifdef HALO_64BIT

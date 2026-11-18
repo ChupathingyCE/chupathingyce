@@ -113,7 +113,7 @@ int main(int count, char **arguments)
 				wide[2 * index] = (unsigned char)line[index];
 				wide[2 * index + 1] = 0;
 			}
-			body = crash_report_body("version 0.9.0d\nframe chupathingy+0x10\n", line, length, wide, 2 * length,
+			body = crash_report_body("version 0.9.0d\nbuild_id 4bd9cef9069f96b8\nframe chupathingy+0x10\n", line, length, wide, 2 * length,
 				&body_length);
 			printf("%s\n", body);
 			free(body);
@@ -282,6 +282,13 @@ def test_crash_report_body(program):
     dump = base64.b64decode(body["minidump"]).decode("utf-16-le")
     assert dump == "opened C:\\Users\\___\\AppData\\Roaming\\ChupathingyCE\\x.map"
 
+
+
+def test_crash_report_build_id(program):
+    """the report's build_id (crash_report.h), which finds its kept symbols"""
+    body = json.loads(run(program, ["a line"], "body")[0])
+    assert body["build_id"] == "4bd9cef9069f96b8"
+    assert body["frames"] == ["chupathingy+0x10"]
 
 
 def test_crash_report_renderer_from_log(program):

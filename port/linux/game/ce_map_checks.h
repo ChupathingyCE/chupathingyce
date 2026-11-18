@@ -26,6 +26,8 @@ enum
 	(ce_resources_allocate): a strip of a part's most triangles (ce_models.c),
 	aligned */
 	CE_LARGEST_CONVERSION_ALLOCATION = 0x20000,
+	/* a SHA-256 (what a map was checked from: ce_map_loaded_*) */
+	CE_DIGEST_SIZE = 32,
 };
 
 /* the room above the tag cache for the port's converted models and level
@@ -205,6 +207,43 @@ boolean ce_map_check_loaded(void *tag_instances, long tag_count, unsigned long s
 map open was checked with, unchanged: a BSP loads only from one */
 boolean ce_map_bsp_reference_checked(void const *reference);
 
+/* whether a map is hashed as it is checked, and again as it loads, to
+compare the two (ce_map_loaded_*): not on the original Xbox, whose processor
+has no SHA instructions, so the hashes would add seconds to each check and
+each load. Its maps are still checked as they are opened, and nothing
+there reads a hash */
+#ifdef HALO_XBOX_CONSOLE
+#define CE_MAP_HASHED 0
+#else
+#define CE_MAP_HASHED 1
+#endif
+
+/* what a map's load reads, against what was read as it was checked (the
+bytes hashed: ce_map_checks.c; not on the original Xbox,
+CE_MAP_HASHED, where only a resource map that can't be copied in, or a
+BSP not checked, is refused). Each FALSE, logged, if they are not the
+same, and the map is then checked again when it is next opened
+(ce_map_check_stale): its tag data as read (which begins each load), its
+tags with the resource maps' copied in (ce_resources.c: the hash of what
+copying them in wrote, ce_resources_place; NULL if they could not all be
+copied in), its model data's hash
+(ce_model_data_digest), and a structure BSP as
+read (32 bytes of its reference, then its bytes; a BSP not checked is
+FALSE). Whether the load under way has found nothing changed */
+boolean ce_map_loaded_tags_unchanged(void const *tag_data, unsigned long size);
+boolean ce_map_loaded_resources_unchanged(byte const digest[CE_DIGEST_SIZE]);
+boolean ce_map_loaded_model_data_unchanged(byte const digest[CE_DIGEST_SIZE]);
+boolean ce_map_loaded_bsp_unchanged(void const *reference, void const *bsp, unsigned long size);
+boolean ce_map_loaded_unchanged(void);
+
+/* what copying the map being checked's resource maps' tags in wrote,
+hashed (ce_resources.c) */
+void ce_resources_digest(byte const digest[CE_DIGEST_SIZE]);
+
+/* whether the map open changed since it was checked (a load found so): it
+is opened, and checked, again (cache_files_windows.c) */
+boolean ce_map_check_stale(void);
+
 /* the cache version of the map being checked or loaded (ce_map_checks.c):
 Custom Edition's (609), or Halo PC retail's (7: HaloMD's maps, played as
 <name>@md, whose bitmaps' pixels and sounds' samples are at offsets in Halo
@@ -259,6 +298,11 @@ is no memory even for those), and given back; nothing for model data already
 held whole */
 boolean ce_model_data_begin(struct ce_model_data *data);
 void ce_model_data_end(struct ce_model_data *data);
+
+/* the model data's SHA-256: of it whole, or read through its first window
+(begun: ce_model_data_begin), which is then moved on; FALSE if it could
+not all be read */
+boolean ce_model_data_digest(struct ce_model_data *data, byte digest[CE_DIGEST_SIZE]);
 
 #endif
 

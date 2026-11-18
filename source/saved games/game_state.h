@@ -38,6 +38,9 @@ void game_state_save(
 	void);
 void game_state_revert(
 	void);
+/* port: checkpoints saved since the game started (game_state.c) */
+unsigned long game_state_port_checkpoints_saved(
+	void);
 /* port: network co-op's (game_state.c) */
 boolean game_state_port_saved_game_valid(
 	void);
