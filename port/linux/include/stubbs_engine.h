@@ -56,10 +56,6 @@ struct stubbs_special_attack
 
 #ifndef HALO_CONSOLE_NO_STUBBS
 
-/* a unit definition's special attacks (NULL, *count 0, for a unit with
-none), as noted at the map's load */
-struct stubbs_special_attack const *stubbs_special_attacks_get(long unit_definition_index, short *count);
-
 /* a local player's thrown hand (NONE when it is on Stubbs's arm) */
 long stubbs_engine_hand_unit(short local_player_index);
 
@@ -116,8 +112,6 @@ void stubbs_engine_player_move_origin(long from_unit_index, long to_unit_index);
 
 #else
 /* (a console leaves Stubbs mode out: each hook is an empty one here) */
-static __inline struct stubbs_special_attack const *stubbs_special_attacks_get(long unit_definition_index, short *count)
-{ (void)unit_definition_index; *count = 0; return NULL; }
 static __inline long stubbs_engine_hand_unit(short local_player_index) { (void)local_player_index; return NONE; }
 static __inline boolean stubbs_engine_unit_is_thrown(long unit_index) { (void)unit_index; return FALSE; }
 static __inline void stubbs_engine_special_attack_credit(long unit_index, real credit) { (void)unit_index; (void)credit; }

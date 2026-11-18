@@ -835,6 +835,10 @@ static struct
 known, the host's own game); a client has the host's policies of the versions
 that have them (network_distributed.c's aim assist policy, version 32) */
 static unsigned int network_game_client_joined_version = 0xFFFF;
+/* port: (whether the game being joined is this machine's own, joined at home
+with no advertisement: its number is read again as the request goes out,
+since the host may change it as its game starts, for an MCC map) */
+static boolean network_game_client_joined_home = FALSE;
 #ifdef HALO_GAME_BROWSER
 /* port: the last refusal of a join, for the map bot's fetch: 1 full, 2 any other */
 static short network_game_client_fetch_rejection;
@@ -2274,6 +2278,7 @@ boolean network_game_client_initiate_join_game(
 
 		network_game_client_joined_version = advertised_index >= 0 && advertised_index < MAXIMUM_NETWORK_ADVERTISED_GAMES ?
 			network_game_client_advertised_versions[advertised_index].version : 0xFFFF;
+		network_game_client_joined_home = FALSE;
 		/* (a host of a wire before the policies of version 32 cannot speak
 		them, whatever number it announces) */
 		if (advertised_index >= 0 && advertised_index < MAXIMUM_NETWORK_ADVERTISED_GAMES)
@@ -2288,7 +2293,10 @@ boolean network_game_client_initiate_join_game(
 		number this machine announces, its request made for it, whose word a
 		host of a version that needs one checks) */
 		else if (global_network_game_server_get())
+		{
 			network_game_client_joined_version = (unsigned int)delta_legacy_announce();
+			network_game_client_joined_home = TRUE;
+		}
 	}
 	/* (whether an advertised game's host speaks Delta; the host's own game, joined through
 	127.0.0.1, is no advertised one) */
@@ -3299,6 +3307,21 @@ static boolean network_game_client_idle_joining(
 		{
 			if (!TEST_FLAG(client->flags, _network_game_client_join_request_sent_bit))
 			{
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
+				/* (port: this machine's own game: the number its host announces now,
+				which an MCC map changes as the game starts, after the join began) */
+				if (network_game_client_joined_home && global_network_game_server_get())
+				{
+					unsigned int now = (unsigned int)delta_legacy_announce();
+
+					if (now != network_game_client_joined_version)
+					{
+						network_event("joining this machine's own game at network version %u (was %u)", now,
+							network_game_client_joined_version);
+						network_game_client_joined_version = now;
+					}
+				}
+#endif
 				network_game_client_send_join_request(client, network_game_client_joined_version);
 				network_game_client_join_sent_time = system_milliseconds();
 				network_game_client_join_retried = FALSE;
