@@ -882,7 +882,8 @@ game, over `host_rules` (bit 19):
   player who joins a game in progress doesn't spawn until the next game
   starts. They watch through the follow camera (LB and RB switch who),
   whatever their own `display.follow_camera` says, with "Waiting for the
-  next game" under it. The host holds their spawn, so an OpenCE player who
+  next game" under it. In a team game they watch only their own team, even
+  when none of it is alive. The host holds their spawn, so an OpenCE player who
   joins late waits too and sees Halo's own death view, with a line in
   their chat saying why. Nobody else's game changes. A joiner spawns at
   once when no one else is playing, the wait ends with the game, and it
@@ -927,8 +928,13 @@ dedicated server registers them; a game a player hosts offers none).
   to its moderators' queue with what it knows: both players' game names,
   their verified handles when they proved one bound to this host, the map,
   the game type, and the host's refusal counts for the reported machine.
-Never an address. The queue keeps 200: when they are all
-  open, a new report is refused rather than one pushed out.
+Never an address. Unverified reporters of one address also
+  share one reporter's limits (3 a minute, 10 a game), so rejoining as a
+  new player doesn't start them over; the address is compared in memory
+  alone, never kept with a report or sent. The queue keeps 200: when it is
+  full a closed report makes room, then the oldest one the site already
+  took; when every report is open and none is on the site, a new report is
+  refused rather than one pushed out.
 - **OpenCE players** can be reported by their game name. Their reports stay
   on the host: they never go to the site. A report by an OpenCE player isn't
   possible (they can't send REPORT).
