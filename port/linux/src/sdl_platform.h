@@ -127,6 +127,9 @@ display's modes the game can draw at, largest first, each once, but the
 display's own (Native), and display.resolution's where it is none of them;
 how many. None on Android. */
 int platform_display_resolutions(long *widths, long *heights, int maximum);
+/* the size Native is: the window's display's own, in pixels; 0 if not
+known (Android) */
+int platform_display_native_size(long *width, long *height);
 /* Video Setup's window sizes: those of each shape (4:3, 16:10, 16:9, 21:9)
 that fit the desktop, and display.window_size's; how many. None on
 Android. */
