@@ -553,6 +553,8 @@ static boolean king_engine_display_score(
 	boolean result = TRUE;
 	long string_list_index;
 	wchar_t *string;
+	/* port: (the name the scoreboard shows: game_engine_player_shown_name) */
+	wchar_t shown_name[GAME_ENGINE_SHOWN_NAME_LENGTH];
 
 	switch (message)
 	{
@@ -590,7 +592,8 @@ static boolean king_engine_display_score(
 				}
 				else
 					string = L"";
-				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"), other_player->name, score);
+				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"),
+					game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)), score);
 			}
 			else if (message == king_message_enemy_on_the_hill)
 			{
@@ -603,7 +606,8 @@ static boolean king_engine_display_score(
 				}
 				else
 					string = L"";
-				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"), other_player->name, score);
+				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"),
+					game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)), score);
 			}
 			else
 			{

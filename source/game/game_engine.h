@@ -846,6 +846,18 @@ void game_engine_load_stage(
 void game_engine_end_game(
 	void);
 
+/* port: the longest name game_engine_player_shown_name gives, with its
+terminator */
+#define GAME_ENGINE_SHOWN_NAME_LENGTH 22
+
+/* port: a player's name as the scoreboard shows it: a verified player's
+Delta name, an impersonation masked, else the game name (in buffer, or the
+player's own) */
+wchar_t const *game_engine_player_shown_name(
+	long player_index,
+	wchar_t *buffer,
+	long size);
+
 void ticks_to_unicode_time_string(
 	long ticks,
 	unsigned long character_count,

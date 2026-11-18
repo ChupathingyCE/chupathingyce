@@ -1191,6 +1191,8 @@ static boolean oddball_engine_display_score(
 	boolean result = TRUE;
 	long string_list_index;
 	wchar_t *string;
+	/* port: (the name the scoreboard shows: game_engine_player_shown_name) */
+	wchar_t shown_name[GAME_ENGINE_SHOWN_NAME_LENGTH];
 
 	switch (message)
 	{
@@ -1233,7 +1235,8 @@ static boolean oddball_engine_display_score(
 			}
 			else
 				string = L"";
-			usnprintf(buffer, buffer_size, ustring_format_checked(string, "s"), other_player->name);
+			usnprintf(buffer, buffer_size, ustring_format_checked(string, "s"),
+				game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)));
 		}
 		break;
 
@@ -1276,7 +1279,8 @@ static boolean oddball_engine_display_score(
 			}
 			else
 				string = L"";
-			usnprintf(buffer, buffer_size, ustring_format_checked(string, "s"), other_player->name);
+			usnprintf(buffer, buffer_size, ustring_format_checked(string, "s"),
+				game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)));
 		}
 		break;
 
@@ -1314,7 +1318,8 @@ static boolean oddball_engine_display_score(
 				}
 				else
 					string = L"";
-				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"), other_player->name, score);
+				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"),
+					game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)), score);
 			}
 			else if (message == _oddball_message_enemy_has_the_ball_tick)
 			{
@@ -1327,7 +1332,8 @@ static boolean oddball_engine_display_score(
 				}
 				else
 					string = L"";
-				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"), other_player->name, score);
+				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"),
+					game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)), score);
 			}
 		}
 		break;

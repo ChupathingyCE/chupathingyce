@@ -514,6 +514,8 @@ static boolean slayer_engine_display_score(
 	struct player_datum *target_player;
 	wchar_t string[128];
 	boolean result = TRUE;
+	/* port: (the name the scoreboard shows: game_engine_player_shown_name) */
+	wchar_t shown_name[GAME_ENGINE_SHOWN_NAME_LENGTH];
 
 	player_get(player_index);
 	target_player = NULL;
@@ -548,7 +550,7 @@ static boolean slayer_engine_display_score(
 			buffer,
 			buffer_character_count,
 			ustring_format_checked(GET_MULTIPLAYER_GAME_TEXT(_string_new_target_name), "s"),
-			target_player->name);
+			game_engine_player_shown_name(message_data, shown_name, NUMBEROF(shown_name)));
 		break;
 
 	case _game_engine_message_show_score:
