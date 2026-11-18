@@ -1042,7 +1042,8 @@ static const struct config_setting config_settings[] =
 		"menus. While on, the menus get a Back tap once it is let go, never a\n"
 		"hold. Off by default: the Xbox's Back acts on press." },
 	{ "delta.pause_menu", _config_boolean, "true", "HALO_DELTA_PAUSE_MENU", _environment_value, _platform_all,
-		"Put the Delta Guide in the pause menu, in every menu set." },
+		"Put the Delta Guide in a multiplayer game's pause menu, in every menu\n"
+		"set. The campaign's pause menu has none." },
 #ifdef HALO_ANDROID
 	/* (a touch screen has no Guide button, and its controls hide in the
 	menus: the rows are the way in there) */

@@ -1722,11 +1722,18 @@ static boolean pause_controls_offered(void)
 #endif
 }
 
+/* (a campaign map's pause menu, a network co-op game's too: pause_patch) */
+static boolean pause_campaign;
+
 /* whether the pause menus have DELTA (DELTA over the pause menu,
-port/linux/game/guide.c), as delta.pause_menu says, in every menu set */
+port/linux/game/guide.c), as delta.pause_menu says, in every menu set: a
+multiplayer map's only, since the campaign's has little use for it */
 static boolean pause_guide_offered(void)
 {
 #ifdef HALO_GUIDE
+	if (pause_campaign)
+		return FALSE;
+
 	/* (the Guide is the first player's: not with split screen, where the
 	row would be dead in the others' pause menus) */
 	extern unsigned char pc_menu_split_players(void);
@@ -2227,6 +2234,7 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	the multiplayer game engine's; a joined co-op game's, no REVERT or
 	RESTART (pause_row_replaced) */
 	pause_coop_joined = solo_screen != NONE && game_connection() == GAME_CONNECTION_NETWORK_CLIENT;
+	pause_campaign = solo_screen != NONE;
 	if (solo_screen != NONE)
 	{
 		if (settings || pause_controls_offered() || pause_guide_offered() || pause_coop_joined)
