@@ -15,6 +15,7 @@ than a few KB kept.
 #include "halo_map_families.h"
 #include "halo_map_packs.h"
 #include "xbox_mod_maps.h"
+#include "stubbs_mode.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -39,6 +40,7 @@ enum
 	read as bytes), version and type (a short at 0x60: 1 multiplayer) */
 	CACHE_HEADER_READ = 0x64,
 	CACHE_HEADER_TYPE_OFFSET = 0x60,
+	CACHE_TYPE_CAMPAIGN = 0,
 	CACHE_TYPE_MULTIPLAYER = 1,
 	XBOX_CACHE_VERSION = 5,
 	/* the pack folders listed, at most, and a folder's name after maps_ at most
@@ -48,6 +50,13 @@ enum
 	FOLDER_LENGTH = 24,
 	/* the pack/file pairs whose folders are kept for the run */
 	FOLDERS_KEPT = 16,
+};
+
+/* the Xbox's campaign levels, by their files' names (a campaign map of the
+maps folder past these is another's making) */
+static char const *const xbox_campaign_levels[] =
+{
+	"a10", "a30", "a50", "b30", "b40", "c10", "c20", "c40", "d20", "d40",
 };
 
 /* ---------- prototypes */
@@ -439,9 +448,34 @@ static void tidy_name(
 	name[length] = 0;
 }
 
-/* a pack's multiplayer maps, passed to found */
+/* whether a file is an Xbox cache file (version 5) of a scenario type (a
+short at 0x60: 0 campaign, 1 multiplayer), read as bytes: 'head' and the
+version little endian, as the file has them on every machine */
+static boolean xbox_cache_file_of_type(
+	char const *path,
+	short type)
+{
+	unsigned char header[CACHE_HEADER_READ];
+	unsigned long bytes_read = 0;
+	boolean result = FALSE;
+	HANDLE handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+	if (handle == INVALID_HANDLE_VALUE)
+		return FALSE;
+	if (ReadFile(handle, header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header))
+	{
+		result = !memcmp(header, "daeh", 4) && header[4] == XBOX_CACHE_VERSION && !header[5] && !header[6] &&
+			!header[7] && header[CACHE_HEADER_TYPE_OFFSET] == (unsigned char)type &&
+			!header[CACHE_HEADER_TYPE_OFFSET + 1];
+	}
+	CloseHandle(handle);
+	return result;
+}
+
+/* a pack's maps of a scenario type, passed to found */
 static void list_pack(
 	char const *folder,
+	short type,
 	void (*found)(char const *pack, char const *file, void *context),
 	void *context)
 {
@@ -456,31 +490,15 @@ static void list_pack(
 	do
 	{
 		char file[MAP_PACK_FILE_LENGTH], path[256], pack[FOLDER_LENGTH], where[FOLDER_LENGTH];
-		unsigned char header[CACHE_HEADER_READ];
 		size_t length = strlen(data.cFileName);
-		unsigned long bytes_read = 0;
 		struct xbox_mod_map const *known;
-		HANDLE handle;
-		boolean multiplayer = FALSE;
 
 		if (length <= 4 || length - 4 >= sizeof(file) || _stricmp(data.cFileName + length - 4, ".map"))
 			continue;
 		snprintf(file, sizeof(file), "%.*s", (int)(length - 4), data.cFileName);
 		if (!_stricmp(file, "ui") || !folder_file_path(folder, file, path, sizeof(path)))
 			continue;
-		handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-		if (handle == INVALID_HANDLE_VALUE)
-			continue;
-		/* (an Xbox cache file's header, as bytes: 'head' and the version
-		little endian, as the file has them on every machine) */
-		if (ReadFile(handle, header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header))
-		{
-			multiplayer = !memcmp(header, "daeh", 4) && header[4] == XBOX_CACHE_VERSION && !header[5] && !header[6] &&
-				!header[7] && header[CACHE_HEADER_TYPE_OFFSET] == CACHE_TYPE_MULTIPLAYER &&
-				!header[CACHE_HEADER_TYPE_OFFSET + 1];
-		}
-		CloseHandle(handle);
-		if (!multiplayer)
+		if (!xbox_cache_file_of_type(path, type))
 			continue;
 		/* (its pack: the library's, by its fingerprint, else its folder's:
 		a pack does not depend on what its folder is called) */
@@ -725,7 +743,8 @@ short map_pack_names(
 	return _map_pack_name_file;
 }
 
-void map_pack_list(
+static void list_packs(
+	short type,
 	void (*found)(char const *pack, char const *file, void *context),
 	void *context)
 {
@@ -768,7 +787,59 @@ void map_pack_list(
 		CloseHandle(find);
 	}
 	for (index = 0; index < folder_count; index++)
-		list_pack(folders[index], found, context);
+	{
+		/* (Stubbs mode's levels are its own campaign's: stubbs_mode.c) */
+		if (type == CACHE_TYPE_CAMPAIGN && !_stricmp(folders[index], STUBBS_MODE_PACK_ID))
+			continue;
+		list_pack(folders[index], type, found, context);
+	}
+}
+
+void map_pack_list(
+	void (*found)(char const *pack, char const *file, void *context),
+	void *context)
+{
+	list_packs(CACHE_TYPE_MULTIPLAYER, found, context);
+}
+
+void map_pack_list_campaign(
+	void (*found)(char const *pack, char const *file, void *context),
+	void *context)
+{
+	WIN32_FIND_DATAA data;
+	char folder[256], pattern[288];
+	HANDLE find;
+
+	/* (the maps folder's own first: a file with no family's suffix, not
+	one of the Xbox's levels nor its menus) */
+	snprintf(folder, sizeof(folder), "%s", cache_files_map_directory());
+	snprintf(pattern, sizeof(pattern), "%s*.map", folder);
+	find = FindFirstFileA(pattern, &data);
+	if (find != INVALID_HANDLE_VALUE)
+	{
+		do
+		{
+			char file[MAP_PACK_FILE_LENGTH], path[384];
+			size_t length = strlen(data.cFileName);
+			long level;
+
+			if (length <= 4 || length - 4 >= sizeof(file) || _stricmp(data.cFileName + length - 4, ".map"))
+				continue;
+			snprintf(file, sizeof(file), "%.*s", (int)(length - 4), data.cFileName);
+			if (!_stricmp(file, "ui") || strpbrk(file, "\\/:@") || map_family_parse(file, NULL, 0) != _map_family_xbox)
+				continue;
+			for (level = 0; level < (long)NUMBEROF(xbox_campaign_levels) && _stricmp(file, xbox_campaign_levels[level]); level++)
+				;
+			if (level < (long)NUMBEROF(xbox_campaign_levels))
+				continue;
+			snprintf(path, sizeof(path), "%s%s", folder, data.cFileName);
+			if (xbox_cache_file_of_type(path, CACHE_TYPE_CAMPAIGN))
+				found(NULL, file, context);
+		}
+		while (FindNextFileA(find, &data));
+		CloseHandle(find);
+	}
+	list_packs(CACHE_TYPE_CAMPAIGN, found, context);
 }
 
 /* ---------- a pack's own menus
