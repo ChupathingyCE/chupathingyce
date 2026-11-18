@@ -70,6 +70,14 @@ SPDX-License-Identifier: GPL-3.0-only
 
 /* ---------- constants */
 
+/* a data array's elements (in a 64-bit build its data field is their Xbox
+address; in the others, their pointer) */
+#ifdef DATA_ARRAY_DATA
+#define TWIDDLINGS_ARRAY_DATA(array) DATA_ARRAY_DATA(array)
+#else
+#define TWIDDLINGS_ARRAY_DATA(array) ((void *)(array)->data)
+#endif
+
 /* the stand-in addresses (none of them Halo PC's or the tag cache's) */
 #define TWIDDLINGS_OBJECTS_BASE 0xD0000000u
 #define TWIDDLINGS_OBJECT_STRIDE 0x1000u
@@ -203,7 +211,7 @@ static byte *twiddlings_datum(
 
 	if (!array || !array->valid || absolute_index >= (unsigned int)array->maximum_count)
 		return NULL;
-	element = (byte *)DATA_ARRAY_DATA(array) + absolute_index * (unsigned int)array->size;
+	element = (byte *)TWIDDLINGS_ARRAY_DATA(array) + absolute_index * (unsigned int)array->size;
 	memcpy(&identifier, element, sizeof(identifier));
 	if (!identifier)
 		return NULL;
@@ -414,7 +422,7 @@ static boolean twiddlings_object_table_read(
 		return FALSE;
 	memset(bytes, 0, sizeof(bytes));
 	{
-		byte const *element = (byte const *)DATA_ARRAY_DATA(array) + index * (unsigned int)array->size;
+		byte const *element = (byte const *)TWIDDLINGS_ARRAY_DATA(array) + index * (unsigned int)array->size;
 		unsigned int object = twiddlings_object_address((long)index);
 
 		/* (its identifier, flags, type, cluster and size are this game's) */
