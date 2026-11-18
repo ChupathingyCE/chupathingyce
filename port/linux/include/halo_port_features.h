@@ -203,6 +203,26 @@ whose game list sends it), and a console's that sends its own reports
 #define HALO_PORT_GAME_REPORTS
 #endif
 
+/* the game's busiest units read a tag block's element inline
+(TAG_BLOCK_GET_ELEMENT, source/tag_files/tag_groups.h), with the checks of
+the function it calls elsewhere: the index in the block, the block's
+address set, and a Custom Edition map's tag cache bounds. Only a read that
+fails one calls it, which checks again and gives what it always gave. The
+debug decomp's accessor is a call at each use, about 23,000 a tick on
+Beaver Creek; the retail build had it inline. The units are
+tools/console_build.py's INLINE_ACCESSOR_SOURCES, which it builds with
+HALO_CONSOLE_HOT_UNIT: they make about 90% of those calls (warthog-xbox
+#109), at a fraction of the code the inline form costs in every unit. Any
+console's release-style build (--console-no-debug-asserts: the asserts the
+inline form skips are compiled out of the function there too); the desktop
+builds call the function, as before */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	defined(HALO_CONSOLE_NO_DEBUG_ASSERTS) && defined(HALO_CONSOLE_HOT_UNIT) && \
+	!defined(HALO_CONSOLE_INLINE_ACCESSORS)
+#define HALO_CONSOLE_INLINE_ACCESSORS
+#endif
+
 /* a filtered HUD meter's darkening faded over its edge, in two more combiner
 stages (source/rasterizer/xbox/rasterizer_xbox_dynavobgeom.c): a console
 draws its meters with retail's four stages, scaled or not. Every console's
