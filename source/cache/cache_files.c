@@ -1999,6 +1999,38 @@ long scenario_tags_load(
 						ce_header->scenario_tag_index);
 				}
 			}
+#ifndef HALO_CONSOLE_NO_TAG_VALIDATE
+			/* port: and every tag of it, its own and its resources' (all
+			that lies before the room the resources left), checked against
+			Halo PC's layout before the conversions read them
+			(port/linux/game/tag_schema_pc.c, tag_validate.c), as an Xbox
+			map's tags are against the Xbox's: a map whose tags' pointers
+			cannot be trusted is refused; what can be corrected is */
+			{
+				extern unsigned long ce_resources_free_mark(void);
+				unsigned long tags_end = ce_resources_free_mark();
+				long tags_size = tags_end > CE_TAG_CACHE_BASE + (unsigned long)cache_file_globals.header.tag_data_size &&
+					tags_end <= CE_TAG_CACHE_BASE + CE_TAG_CACHE_SIZE ?
+					(long)(tags_end - CE_TAG_CACHE_BASE) :
+					cache_file_globals.header.tag_data_size;
+
+				/* (HaloMD's, Halo PC retail's, with its tools' overlapping
+				blocks: tag_schema_pc.c) */
+				if (!tag_validate_tags_layout(cache_file_globals.header.version == 7 ? &tag_schema_pc_retail_layout :
+					&tag_schema_pc_layout, tag_cache_base_address, tags_size,
+					cache_file_globals.header.file_length, scenario_name))
+				{
+					error(_error_silent, "%s map %s: its tags are not Halo PC's layout; the map is not loaded",
+						cache_file_globals.header.version == 7 ? "HaloMD" : "Custom Edition", scenario_name);
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+					if (platform_ce_alias)
+						platform_ce_load_end();
+#endif
+					scenario_tags_unload();
+					return NONE;
+				}
+			}
+#endif
 			/* its gbxmodels made models, from its model data block
 			(port/linux/game/ce_models.c) */
 			{
@@ -2408,17 +2440,26 @@ boolean scenario_structure_bsp_load(
 	}
 
 	/* port: and checked against its schema, as the map's tags were
-	(port/linux/game/tag_validate.c); a Custom Edition or HaloMD map's
-	tags are Halo PC's layout, checked as they load (ce_map_checks.c) */
+	(port/linux/game/tag_validate.c) */
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 	/* (Stubbs mode: port/linux/game/stubbs_mode.c) */
 	stubbs_mode_convert_structure_bsp(xbox_pointer(reference->base_address), reference->file_size);
 #endif
 #ifndef HALO_CONSOLE_NO_TAG_VALIDATE
-	if (
 #ifdef HALO_CUSTOM_EDITION
-		!cache_file_is_ce &&
+	/* (a Custom Edition map's clusters' predicted resources repaired first,
+	as its tags' were before they were checked: port/linux/game/ce_repairs.c,
+	which reads only what was checked before the map was opened) */
+	if (cache_file_is_ce)
+	{
+		extern void ce_repairs_bsp_loaded(struct structure_bsp *structure);
+
+		ce_repairs_bsp_loaded(xbox_pointer(structure_bsp_header->base_address));
+	}
 #endif
+	/* (a Custom Edition map's as its tags were, in Halo PC's layout, before
+	its vertices are compressed: below) */
+	if (
 		!tag_validate_structure_bsp(
 		reference->structure_bsp.index,
 		xbox_pointer(reference->base_address),
@@ -2436,15 +2477,13 @@ boolean scenario_structure_bsp_load(
 	structure_bsp_header_register_vertex_buffers(cache_file_globals.structure_bsp_header);
 #ifdef HALO_CUSTOM_EDITION
 	/* port: a Custom Edition or HaloMD map's BSP: its vertices compressed,
-	as the Xbox's are (port/linux/game/ce_bsp.c), and its clusters'
-	predicted resources repaired (port/linux/game/ce_repairs.c) */
+	as the Xbox's are (port/linux/game/ce_bsp.c; its clusters' predicted
+	resources were repaired before it was checked, above) */
 	if (cache_file_is_ce)
 	{
 		extern void ce_bsp_loaded(struct structure_bsp *structure);
-		extern void ce_repairs_bsp_loaded(struct structure_bsp *structure);
 
 		ce_bsp_loaded(xbox_pointer(cache_file_globals.structure_bsp_header->base_address));
-		ce_repairs_bsp_loaded(xbox_pointer(cache_file_globals.structure_bsp_header->base_address));
 	}
 #endif
 	tag_instance = cache_get_tag_instance(reference->structure_bsp.index);
