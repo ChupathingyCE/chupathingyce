@@ -305,7 +305,9 @@ void *object_try_and_get_and_verify_type(
 	return result;
 }
 
-void *object_get_and_verify_type(
+/* (the name in parentheses: on the consoles it is also the inline form's
+macro, objects.h) */
+void *(object_get_and_verify_type)(
 	long object_index,
 	unsigned long valid_type_flags)
 {

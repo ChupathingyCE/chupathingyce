@@ -162,17 +162,7 @@ enum
 
 /* ---------- structures */
 
-struct cache_file_tag_instance
-{
-	long group_tag;
-	long parent_group_tags[2];
-	long tag_index;
-	/* Xbox addresses (as in cache_files.c) */
-	XPTR(char) name;
-	XPTR(void) base_address;
-	unsigned long unused[2];
-};
-
+/* (struct cache_file_tag_instance: tag_groups.h) */
 typedef char verify_cache_file_tag_instance_size[
 	sizeof(struct cache_file_tag_instance) == 0x20 ? 1 : -1];
 

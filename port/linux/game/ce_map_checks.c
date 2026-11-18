@@ -69,6 +69,7 @@ with the check as they load.
 #include "cseries_windows.h"
 #include "errors.h"
 #include "main/console.h"
+#include "tag_files/tag_groups.h"
 #include "ce_map_checks.h"
 #include "mcc_sha256.h"
 
@@ -1079,6 +1080,11 @@ tags were checked only as far as the port reads them, not read outside its
 tag cache (where its tags, resources, models and BSP are), but from zeroed
 bytes of their own, and logged; else, as always, the address */
 #define CE_TAGS_SCRATCH_LIMIT 0x40000UL
+#ifdef HALO_CUSTOM_EDITION
+/* (the bounds the consoles' inline TAG_BLOCK_GET_ELEMENT checks: tag_groups.h) */
+typedef char ce_tags_inline_bounds_assert[
+	TAG_GROUPS_CE_TAG_CACHE_BASE == CE_IMAGE_TAG_CACHE_BASE && TAG_GROUPS_CE_TAG_CACHE_SIZE == CE_IMAGE_TAG_CACHE_SIZE ? 1 : -1];
+#endif
 
 void *ce_tags_pointer(
 	unsigned long address,
