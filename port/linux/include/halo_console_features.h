@@ -46,10 +46,15 @@ HALO_CONSOLE_WIDGET_POOL_SIZE
 	ui_widget.c; console.widget_pool_log logs what the menus use)
 HALO_CONSOLE_MAP_LIST_ROWS
 	the rows of the menus' map list (port/linux/game/ui_map_list.c): the
-	original Xbox's 128 (about 0.75 KB of memory each, 96 KB in all), every
-	other console's 256; the desktop builds and
+	original Xbox's 128, every other console's 256; the desktop builds and
 	Android leave it undefined and hold 2560, room for a large Custom
-	Edition folder beside the whole MCC catalog
+	Edition folder beside the whole MCC catalog. A row's map name, names
+	and description are held in pools at their own length
+HALO_CONSOLE_MAP_LIST_TEXT
+	the wide characters of the map list's pooled names and descriptions:
+	the original Xbox's 12288 (24 KB for its 128 rows; a row past it keeps
+	its names but not its description, and one without room for its names
+	is left out, both logged). Without it, room for every row's longest
 HALO_CONSOLE_NO_GUIDE
 	no Guide (port/linux/game/guide.c, over any screen) and no presence
 	sent to the site (browser.c, network.share_presence), their settings
@@ -549,6 +554,12 @@ pack or two of about 30 maps each (Halo: Not Halo Edition has 29), with room
 to spare; 40 left a pack listed last out (warthog-xbox #145) */
 #if defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_MAP_LIST_ROWS)
 #define HALO_CONSOLE_MAP_LIST_ROWS 128
+#endif
+/* (and their names' and descriptions' wide characters, pooled: 24 KB, about
+100 a row. The Xbox's own rows keep theirs in ui.map, and the maps without
+a description share one) */
+#if defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_MAP_LIST_TEXT)
+#define HALO_CONSOLE_MAP_LIST_TEXT 12288
 #endif
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_MAP_LIST_ROWS)
