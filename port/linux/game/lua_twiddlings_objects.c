@@ -343,9 +343,23 @@ static boolean twiddlings_object_access(
 		return TRUE;
 	}
 	if (write)
+	{
+		struct object_header_block_reference const *nodes = &object->object.node_matrices;
+
 		memcpy((byte *)object + offset, value, size);
+		/* (a script that poses an object, as SPV3's first-person legs: the
+		frame draws the pose it set, not the ticks': lua_scripting.h) */
+		if (nodes->size > 0 && offset >= (unsigned int)(unsigned short)nodes->offset &&
+			offset < (unsigned int)(unsigned short)nodes->offset + (unsigned int)(unsigned short)nodes->size)
+		{
+			twiddlings_datum(object_header_data, absolute_index, &handle);
+			lua_scripting_note_posed(handle);
+		}
+	}
 	else
+	{
 		memcpy(value, (byte const *)object + offset, size);
+	}
 	return TRUE;
 }
 

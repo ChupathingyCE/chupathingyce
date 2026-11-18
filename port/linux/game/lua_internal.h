@@ -130,6 +130,9 @@ void lua_console_line(real_argb_color const *color, char const *text);
 /* TRUE while a script's execute_script compiles and runs its expression:
 the functions only it may name are found then (lua_scripting_hs_function_find) */
 extern boolean lua_execute_script_running;
+/* a script set an object's node matrices (Twiddlings, in the object's node
+block): drawn as set until the next tick (lua_scripting_object_posed) */
+void lua_scripting_note_posed(long object_index);
 
 /* ---------- lua_chimera_api.c */
 

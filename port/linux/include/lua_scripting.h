@@ -43,6 +43,11 @@ compile them; a number is its function at any time */
 struct hs_function_definition *lua_scripting_hs_function(short index);
 short lua_scripting_hs_function_find(char const *name);
 
+/* whether a script's preframe set this object's node matrices since the
+last tick (a Chimera script that poses an object, as SPV3's first-person
+legs): the frame draws them as set, not blended from the ticks' */
+boolean lua_scripting_object_posed(long object_index);
+
 #else
 
 static __inline void lua_scripting_map_load(void) { }
@@ -54,6 +59,7 @@ static __inline void lua_scripting_frame(void) { }
 static __inline boolean lua_scripting_command(char const *command) { (void)command; return TRUE; }
 #define lua_scripting_hs_function(index) ((void)sizeof(index), (struct hs_function_definition *)0)
 #define lua_scripting_hs_function_find(name) ((void)sizeof(name), (short)-1)
+#define lua_scripting_object_posed(object_index) ((void)sizeof(object_index), (boolean)0)
 
 #endif
 

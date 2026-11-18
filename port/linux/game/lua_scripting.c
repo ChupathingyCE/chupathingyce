@@ -72,6 +72,8 @@ void platform_translate_path(const char *xbox_path, char *host_path, unsigned lo
 /* the Windows folders a script is told it has (os.getenv) */
 #define LUA_VIRTUAL_PROFILE "C:\\Users\\Player"
 #define LUA_VIRTUAL_APPDATA "C:\\Users\\Player\\AppData\\Roaming"
+/* the objects a script may pose between two ticks (lua_scripting_object_posed) */
+#define LUA_MAXIMUM_POSED_OBJECTS 16
 /* execute_script's functions: Halo PC's, then OpenSauce's */
 #define LUA_HS_HALO_PC_FIRST LUA_HS_FUNCTION_FIRST
 #define LUA_HS_OPENSAUCE_FIRST (LUA_HS_FUNCTION_FIRST + 0x40)
@@ -82,6 +84,10 @@ void platform_translate_path(const char *xbox_path, char *host_path, unsigned lo
 struct lua_script lua_scripts[LUA_MAXIMUM_SCRIPTS];
 int lua_script_count = 0;
 boolean lua_execute_script_running = FALSE;
+
+/* the objects scripts posed since the last tick */
+static long lua_posed_objects[LUA_MAXIMUM_POSED_OBJECTS];
+static short lua_posed_object_count = 0;
 
 static struct
 {
@@ -908,6 +914,8 @@ void lua_scripting_pretick(
 {
 	int index;
 
+	/* (a tick poses every object anew) */
+	lua_posed_object_count = 0;
 	if (!lua_script_count)
 		return;
 	for (index = 0; index < lua_script_count; index++)
@@ -974,6 +982,38 @@ short lua_scripting_hs_function_find(
 	if (index != NONE && index < LUA_HS_OPENSAUCE_FIRST - LUA_HS_HALO_PC_FIRST)
 		return (short)(LUA_HS_HALO_PC_FIRST + index);
 	return NONE;
+}
+
+void lua_scripting_note_posed(
+	long object_index)
+{
+	short index;
+
+	for (index = 0; index < lua_posed_object_count; index++)
+	{
+		if (lua_posed_objects[index] == object_index)
+			return;
+	}
+	if (lua_posed_object_count < LUA_MAXIMUM_POSED_OBJECTS)
+	{
+		lua_posed_objects[lua_posed_object_count++] = object_index;
+		return;
+	}
+	lua_log_once("posed full", "more than %d objects posed by scripts in a tick: the rest are drawn as the ticks left "
+		"them", LUA_MAXIMUM_POSED_OBJECTS);
+}
+
+boolean lua_scripting_object_posed(
+	long object_index)
+{
+	short index;
+
+	for (index = 0; index < lua_posed_object_count; index++)
+	{
+		if (lua_posed_objects[index] == object_index)
+			return TRUE;
+	}
+	return FALSE;
 }
 
 #endif
