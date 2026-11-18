@@ -55,7 +55,15 @@ or reads past a tag's end:
     (cache_files.c);
   - an effect's flags, in Gearbox's layout ("must be deterministic" in bit
     2, where the Xbox has it in bit 1: ce_effect_flags.h): read as the
-    Xbox's, so that its effects are deterministic where Halo PC's are.
+    Xbox's, so that its effects are deterministic where Halo PC's are;
+  - a block or data that runs on into the next tag's root, which Halo PC's
+    retail tools left (a HaloMD map's scenario's script syntax and strings,
+    sized to their most where the tool wrote only what was used, and the
+    retail UI's var_kill_penalty strings' last definition word): given room
+    of its own, the map's bytes copied and the rest zero, so that what the
+    game writes there (a console command's syntax) is no other tag's. As the
+    tags load only (it takes room in the tag cache), before Halo PC's tag
+    schema checks them (tag_schema_pc.c).
 
 The repairs are made before the map is opened, to the image it is checked
 in (ce_map_checks.c, so that its checks see the map as it will play), and
@@ -98,6 +106,13 @@ enum
 	OBJECT_PREDICTED_RESOURCES_OFFSET = 0x170,
 	WEAPON_PREDICTED_RESOURCES_OFFSET = 0x4e4,
 	SCENARIO_PREDICTED_RESOURCES_OFFSET = 0xec,
+
+	/* the scenario's scripts' syntax and strings (scenario_definitions.h's
+	hs_syntax_data and hs_string_constants: tag data, its address at 0xc),
+	and a unicode string list's strings (a block of tag data) */
+	SCENARIO_SYNTAX_DATA_OFFSET = 0x474,
+	SCENARIO_STRING_CONSTANTS_OFFSET = 0x488,
+	UNICODE_STRING_SIZE = 0x14,
 	/* an object's modifier shader (object_definitions.h: a tag reference,
 	its tag index last) */
 	OBJECT_MODIFIER_SHADER_OFFSET = 0x90,
@@ -214,6 +229,10 @@ static struct
 /* the loaded map's tags (ce_repairs_tags_loaded), for its BSPs' */
 static struct ce_tag_instance *ce_loaded_instances;
 static long ce_loaded_tag_count;
+
+unsigned long ce_resources_allocate(unsigned long size);
+static long ce_overruns_repair(struct ce_image const *image, void *tag_instances, long tag_count,
+	unsigned long scenario_tag_index);
 
 /* ---------- private code */
 
@@ -888,7 +907,128 @@ void ce_repairs_tags_loaded(
 	checked: ce_map_checks.h) */
 	ce_tags_guard_begin_loaded(tag_instances, tag_count);
 	ce_repairs_apply(&image, tag_instances, tag_count, scenario_tag_index);
+	{
+		long moved = ce_overruns_repair(&image, tag_instances, tag_count, scenario_tag_index);
+
+		if (moved)
+			error(_error_silent, "%s map: %ld blocks and data that ran on into the next tag given room of their own",
+				ce_map_family_name(), moved);
+	}
 	ce_tags_guard_end();
+}
+
+/* the bytes at address that the map's data there has before the next tag's
+root (another tag's that lies in them): size bytes if none does */
+static unsigned long ce_bytes_before_a_root(
+	void *tag_instances,
+	long tag_count,
+	unsigned long address,
+	unsigned long size)
+{
+	unsigned long before = size;
+	long index;
+
+	for (index = 0; index < tag_count; index++)
+	{
+		unsigned long root = ce_instance(tag_instances, index)->base_address;
+
+		if (root > address && root - address < before)
+			before = root - address;
+	}
+	return before;
+}
+
+/* a tag block or data at field (its address at address_offset in it, its
+bytes size) whose bytes run on into the next tag's root, which Halo PC's
+retail tools left so (a HaloMD map's scenario's script syntax and strings,
+sized to their most, and the retail UI's var_kill_penalty strings' last
+definition word): given room of their own in the tag cache, the map's
+bytes before the next tag copied there and the rest zero, so that what the
+game writes there as it runs (a console command's syntax and strings) is
+not another tag's, and Halo PC's tag schema finds every tag's bytes its own
+(tag_schema_pc.c). TRUE if it was moved */
+static boolean ce_overrun_repair(
+	struct ce_image const *image,
+	void *tag_instances,
+	long tag_count,
+	byte *field,
+	unsigned long address_offset,
+	unsigned long size,
+	unsigned long other)
+{
+	unsigned long address = ce_read_long(field + address_offset);
+	unsigned long before;
+	unsigned long room;
+	byte *from, *to;
+
+	if (!size || !address || !ce_image_pointer(image, address, size) ||
+		!ce_tags_writable(field + address_offset, sizeof(unsigned long)))
+	{
+		return FALSE;
+	}
+	before = ce_bytes_before_a_root(tag_instances, tag_count, address, size);
+	/* (or before the tag's other data, other, which may follow it there:
+	the scenario's script strings after its syntax) */
+	if (other > address && other - address < before)
+		before = other - address;
+	if (before >= size)
+		return FALSE;
+	room = ce_resources_allocate(size);
+	to = room ? ce_image_pointer(image, room, size) : NULL;
+	from = ce_image_pointer(image, address, size);
+	if (!to || !from)
+		return FALSE;
+	memcpy(to, from, before);
+	memset(to + before, 0, size - before);
+	ce_write_long(field + address_offset, room);
+	return TRUE;
+}
+
+/* the loaded map's blocks and data that run on into the next tag
+(ce_overrun_repair): the scenario's scripts' syntax and strings, and each
+unicode string list's strings; how many were moved */
+static long ce_overruns_repair(
+	struct ce_image const *image,
+	void *tag_instances,
+	long tag_count,
+	unsigned long scenario_tag_index)
+{
+	struct ce_tag_instance *scenario = ce_instance_by_index(tag_instances, tag_count, scenario_tag_index);
+	long moved = 0;
+	long index;
+
+	if (scenario && scenario->group_tag == 'scnr')
+	{
+		byte *root = ce_image_pointer(image, scenario->base_address, SCENARIO_STRING_CONSTANTS_OFFSET + 0x14);
+
+		if (root)
+		{
+			unsigned long syntax = ce_read_long(root + SCENARIO_SYNTAX_DATA_OFFSET + 0x0c);
+			unsigned long strings = ce_read_long(root + SCENARIO_STRING_CONSTANTS_OFFSET + 0x0c);
+
+			moved += ce_overrun_repair(image, tag_instances, tag_count, root + SCENARIO_SYNTAX_DATA_OFFSET, 0x0c,
+				ce_read_long(root + SCENARIO_SYNTAX_DATA_OFFSET), strings);
+			moved += ce_overrun_repair(image, tag_instances, tag_count, root + SCENARIO_STRING_CONSTANTS_OFFSET, 0x0c,
+				ce_read_long(root + SCENARIO_STRING_CONSTANTS_OFFSET), syntax);
+		}
+	}
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance *instance = ce_instance(tag_instances, index);
+		byte *root;
+		long count;
+
+		if (instance->group_tag != 'ustr')
+			continue;
+		root = ce_image_pointer(image, instance->base_address, 0x0c);
+		count = root ? (long)ce_read_long(root) : 0;
+		if (count > 0 && count <= CE_MAXIMUM_ELEMENTS)
+		{
+			moved += ce_overrun_repair(image, tag_instances, tag_count, root, 0x04,
+				(unsigned long)count * UNICODE_STRING_SIZE, 0);
+		}
+	}
+	return moved;
 }
 
 /* one of its structure BSPs loaded (cache_files.c): its clusters'

@@ -1588,6 +1588,15 @@ BSP as it loads:
 - Checks that the schema cannot express run last: the BSPs' and the models'
   graphs, vertex and index buffers, and indices into other tags.
 
+Custom Edition and HaloMD maps go through the same checks as their tags
+load, in Halo PC's layout (`game/tag_schema_pc.c`): its own groups
+(gbxmodels and a few the Xbox has no tags of) before the Xbox's, which Halo
+PC's tags share. Their resources' tags are checked with them, after the
+repairs and before the conversions, and each BSP before its vertices are
+compressed. Halo PC's retail tools left some blocks overlapping others.
+In both kinds of map those are checked as their own, as HaloMD does, or
+made empty where the check would write over another tag.
+
 Each correction goes to `debug.txt`. The game's own maps need none.
 `build/linux/map_validate [--strict] map.map...` runs the same checks on map
 files without the game, and `tools/test_linux_port.py` runs it on the maps

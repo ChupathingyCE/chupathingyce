@@ -46,8 +46,9 @@ paths, ce_resources.c).
 
 A map that fails a check is refused: it is not opened, the reason is logged
 to debug.txt and shown on the console, and the game goes on as for a map
-that is not there. The check is what the port reads; the game reads the
-rest of a map's tags as it reads the Xbox's maps, trusting them.
+that is not there. The check is what the port reads; the rest of a map's
+tags are checked as they load, against Halo PC's tag schema (tag_schema_pc.c,
+tag_validate.c), as the Xbox's maps' are against theirs.
 
 What the check read, the load reads again (the tags, the resource maps' tags
 copied in, the model data, each structure BSP as it loads): each is hashed

@@ -60,6 +60,10 @@ enum
 	MAXIMUM_ANIMATION_DEFAULT_DATA_SIZE = MAXIMUM_NODES_PER_ANIMATION * 24,
 	MAXIMUM_ANIMATION_FRAME_INFO_SIZE = MAXIMUM_FRAMES_PER_ANIMATION * 16,
 
+	/* the most animations a Halo PC graph has (Invader's model_animations
+	definition: 2048, past the Xbox tools' 256) */
+	MAXIMUM_PC_ANIMATIONS_PER_GRAPH = 2048,
+
 	/* a compressed animation's header, up to its rotation node headers */
 	COMPRESSED_ANIMATION_HEADER_SIZE = 0x2C,
 };
@@ -128,6 +132,24 @@ struct model_triangle_element
 {
 	short vertex_indices[3];
 };
+
+#ifdef HALO_CUSTOM_EDITION
+/* a Halo PC gbxmodel's part (Invader's gbxmodel definition, by SnowyMouse
+and Aerocatia, GPL-3): the Xbox's, then its local nodes, the model's nodes
+its vertices name by their index among them. Its vertices and strip are in
+the map's model data (port/linux/game/ce_models.c, which checks them there
+and makes the part the Xbox's as the map loads) */
+struct gbxmodel_geometry_part
+{
+	struct model_geometry_part part;
+	byte pad[3];
+	byte local_node_count;
+	byte local_node_indices[22];
+	word pad2;
+};
+
+typedef char verify_gbxmodel_geometry_part_size[sizeof(struct gbxmodel_geometry_part) == 0x84 ? 1 : -1];
+#endif
 
 typedef char verify_model_shader_reference_size[sizeof(struct model_shader_reference) == 0x20 ? 1 : -1];
 typedef char verify_model_geometry_size[sizeof(struct model_geometry) == 0x30 ? 1 : -1];
@@ -371,6 +393,29 @@ count of its type's size fits from its vertex buffer's data, its triangles'
 indices fit from its index buffer's data and each names one of its
 vertices. A part whose buffers cannot be drawn gets none, and is not drawn
 (the draw takes none) */
+/* (a cache's parts keep no vertices or triangles of their own: the game
+draws from the buffers, and what reads those blocks, the debug vertex
+display, does so unchecked) */
+static void model_geometry_part_blocks_check(
+	struct tag_validation *validation,
+	struct model_geometry_part *part)
+{
+	if (part->uncompressed_vertices.count || part->compressed_vertices.count || part->triangles.count)
+	{
+		tag_validate_correct(validation, "has %ld uncompressed vertices, %ld compressed vertices and %ld triangles"
+			" of its own: none", part->uncompressed_vertices.count, part->compressed_vertices.count,
+			part->triangles.count);
+		part->uncompressed_vertices.count = 0;
+		part->uncompressed_vertices.address = XBOX_NULL;
+		part->compressed_vertices.count = 0;
+		part->compressed_vertices.address = XBOX_NULL;
+		part->triangles.count = 0;
+		part->triangles.address = XBOX_NULL;
+	}
+
+	return;
+}
+
 static boolean model_geometry_part_check(
 	struct tag_validation *validation,
 	void *base)
@@ -385,21 +430,7 @@ static boolean model_geometry_part_check(
 	long bad_index_count = 0;
 	long index;
 
-	/* (a cache's parts keep no vertices or triangles of their own: the game
-	draws from the buffers, and what reads those blocks, the debug vertex
-	display, does so unchecked) */
-	if (part->uncompressed_vertices.count || part->compressed_vertices.count || part->triangles.count)
-	{
-		tag_validate_correct(validation, "has %ld uncompressed vertices, %ld compressed vertices and %ld triangles"
-			" of its own: none", part->uncompressed_vertices.count, part->compressed_vertices.count,
-			part->triangles.count);
-		part->uncompressed_vertices.count = 0;
-		part->uncompressed_vertices.address = XBOX_NULL;
-		part->compressed_vertices.count = 0;
-		part->compressed_vertices.address = XBOX_NULL;
-		part->triangles.count = 0;
-		part->triangles.address = XBOX_NULL;
-	}
+	model_geometry_part_blocks_check(validation, part);
 	if (!vertex_buffer->hardware_format || !triangle_buffer->hardware_format)
 		return TRUE;
 	vertices = tag_validate_vertex_buffer_data(validation, xbox_pointer(vertex_buffer->hardware_format));
@@ -628,6 +659,64 @@ static struct tag_schema_field const model_geometry_fields[] =
 static struct tag_schema_definition const model_geometry_schema =
 	TAG_SCHEMA_DEFINITION(model_geometry, struct model_geometry, model_geometry_fields);
 
+#ifdef HALO_CUSTOM_EDITION
+/* a gbxmodel's part: no vertices or triangles of its own, as the Xbox's;
+its index buffer none until it is made the Xbox's (ce_models.c, which
+reads its vertices and strip from the model data by their offsets, checked
+there). Its vertex buffer's last word, where the Xbox's part has its
+hardware format, is Halo PC's offset of its vertices in the model data,
+which ce_models.c reads: it is kept */
+static boolean gbxmodel_geometry_part_check(
+	struct tag_validation *validation,
+	void *base)
+{
+	struct gbxmodel_geometry_part *part = base;
+
+	model_geometry_part_blocks_check(validation, &part->part);
+	part->part.triangle_buffer.hardware_format = XBOX_NULL;
+
+	return TRUE;
+}
+
+/* (its local nodes are checked against the model's nodes as the model's
+vertices are made, ce_models.c, which refuses a part with more than 22) */
+static struct tag_schema_field const gbxmodel_geometry_part_fields[] =
+{
+	TAG_SCHEMA_BLOCK_INDEX(struct gbxmodel_geometry_part, part.shader_index, TAG_SCHEMA_ROOT,
+		offsetof(struct model, shaders), 0),
+	TAG_SCHEMA_BLOCK_INDEX(struct gbxmodel_geometry_part, part.previous_part_index, 1,
+		offsetof(struct model_geometry, parts), FLAG(_tag_schema_none_bit)),
+	TAG_SCHEMA_BLOCK_INDEX(struct gbxmodel_geometry_part, part.next_part_index, 1,
+		offsetof(struct model_geometry, parts), FLAG(_tag_schema_none_bit)),
+	TAG_SCHEMA_BLOCK_INDEX(struct gbxmodel_geometry_part, part.centroid_primary_node_index, TAG_SCHEMA_ROOT,
+		offsetof(struct model, nodes), 0),
+	TAG_SCHEMA_BLOCK_INDEX(struct gbxmodel_geometry_part, part.centroid_secondary_node_index, TAG_SCHEMA_ROOT,
+		offsetof(struct model, nodes), 0),
+	TAG_SCHEMA_BLOCK(struct gbxmodel_geometry_part, part.uncompressed_vertices, model_vertex_uncompressed_schema,
+		MAXIMUM_VERTICES_PER_MODEL_GEOMETRY_PART),
+	TAG_SCHEMA_BLOCK(struct gbxmodel_geometry_part, part.compressed_vertices, model_vertex_compressed_schema,
+		MAXIMUM_VERTICES_PER_MODEL_GEOMETRY_PART),
+	TAG_SCHEMA_BLOCK(struct gbxmodel_geometry_part, part.triangles, model_triangle_schema,
+		MAXIMUM_TRIANGLES_PER_MODEL_GEOMETRY_PART),
+	TAG_SCHEMA_ENUM(struct gbxmodel_geometry_part, part.triangle_buffer.type, NUMBER_OF_TRIANGLE_BUFFER_TYPES, 0),
+	TAG_SCHEMA_ENUM(struct gbxmodel_geometry_part, part.vertex_buffer.type, NUMBER_OF_RASTERIZER_VERTEX_TYPES, 0),
+	TAG_SCHEMA_CHECK(gbxmodel_geometry_part_check),
+	TAG_SCHEMA_END
+};
+
+static struct tag_schema_definition const gbxmodel_geometry_part_schema =
+	TAG_SCHEMA_DEFINITION(gbxmodel_geometry_part, struct gbxmodel_geometry_part, gbxmodel_geometry_part_fields);
+
+static struct tag_schema_field const gbxmodel_geometry_fields[] =
+{
+	TAG_SCHEMA_BLOCK(struct model_geometry, parts, gbxmodel_geometry_part_schema, MAXIMUM_PARTS_PER_MODEL_GEOMETRY),
+	TAG_SCHEMA_END
+};
+
+static struct tag_schema_definition const gbxmodel_geometry_schema =
+	TAG_SCHEMA_DEFINITION(gbxmodel_geometry, struct model_geometry, gbxmodel_geometry_fields);
+#endif
+
 static struct tag_schema_field const model_shader_reference_fields[] =
 {
 	TAG_SCHEMA_REFERENCE(struct model_shader_reference, shader, TAG_SCHEMA_GROUPS('shdr')),
@@ -652,6 +741,23 @@ static struct tag_schema_field const model_fields[] =
 	TAG_SCHEMA_CHECK(model_check),
 	TAG_SCHEMA_END
 };
+
+#ifdef HALO_CUSTOM_EDITION
+/* a gbxmodel: a model whose geometries' parts are Halo PC's */
+static struct tag_schema_field const gbxmodel_fields[] =
+{
+	TAG_SCHEMA_BLOCK(struct model, markers, model_marker_schema, MAXIMUM_MARKERS_PER_MODEL),
+	TAG_SCHEMA_BLOCK(struct model, nodes, model_node_schema, MAXIMUM_NODES_PER_MODEL),
+	TAG_SCHEMA_BLOCK(struct model, regions, model_region_schema, MAXIMUM_REGIONS_PER_MODEL),
+	TAG_SCHEMA_BLOCK(struct model, geometries, gbxmodel_geometry_schema, MAXIMUM_GEOMETRIES_PER_MODEL),
+	TAG_SCHEMA_BLOCK(struct model, shaders, model_shader_reference_schema, MAXIMUM_SHADERS_PER_MODEL),
+	TAG_SCHEMA_CHECK(model_check),
+	TAG_SCHEMA_END
+};
+
+struct tag_schema_definition const tag_schema_gbxmodel_schema =
+	TAG_SCHEMA_DEFINITION(gbxmodel, struct model, gbxmodel_fields);
+#endif
 
 /* animations */
 
@@ -867,11 +973,17 @@ static boolean animation_graph_check(
 {
 	struct animation_graph *graph = base;
 	struct animation *animations = xbox_pointer(graph->animations.address);
-	/* (0 not walked, 1 on the list being walked, 2 walked; this build's
-	Halo PC maps are checked by their own loader, ce_map_checks.c, so a
-	graph here is the Xbox tools': at most their maximum) */
+	/* (0 not walked, 1 on the list being walked, 2 walked; a graph of the
+	Xbox's tools has at most their maximum, one of Halo PC's at most
+	Invader's, which the game takes: _tag_schema_layout_tool_maxima_kept_bit) */
+#ifdef HALO_CUSTOM_EDITION
+	static byte states[MAXIMUM_PC_ANIMATIONS_PER_GRAPH];
+	long maximum_count = TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_tool_maxima_kept_bit) ?
+		MAXIMUM_PC_ANIMATIONS_PER_GRAPH : MAXIMUM_ANIMATIONS_PER_GRAPH;
+#else
 	byte states[MAXIMUM_ANIMATIONS_PER_GRAPH];
 	long maximum_count = MAXIMUM_ANIMATIONS_PER_GRAPH;
+#endif
 	long first_index;
 
 	if (!node_tree_check(validation, xbox_pointer(graph->nodes.address), graph->nodes.count, sizeof(struct animation_graph_node),
