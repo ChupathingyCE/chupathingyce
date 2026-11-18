@@ -9109,25 +9109,15 @@ static void widget_instance_render_recursive(
 		}
 		if (plain_gamepad)
 		{
-			/* port: kept to the picture's own box, and moved so its gamepad
-			sits where Controller Setup's pictures have theirs, one texel to
-			a unit as they are drawn */
-			if (clip)
-			{
-				clip->x0 = MAX(clip->x0, bounds.x0);
-				clip->y0 = MAX(clip->y0, bounds.y0);
-				clip->x1 = MIN(clip->x1, bounds.x1);
-				clip->y1 = MIN(clip->y1, bounds.y1);
-			}
-			else
-			{
-				local_clip = bounds;
-				clip = &local_clip;
-			}
-			bounds.x0 += PLAIN_GAMEPAD_X;
-			bounds.y0 += PLAIN_GAMEPAD_Y;
-			bounds.x1 = (short)(bounds.x0 + bitmap->width);
-			bounds.y1 = (short)(bounds.y0 + bitmap->height);
+			/* port: moved so its gamepad sits where Controller Setup's
+			pictures have theirs, one texel to a unit as they are drawn, and
+			cut off at the picture's own box: by its bounds, which are its
+			texels too (a clip moves the corners, not the texels, and would
+			squeeze it) */
+			bounds.x0 = (short)(bounds.x0 + PLAIN_GAMEPAD_X);
+			bounds.y0 = (short)(bounds.y0 + PLAIN_GAMEPAD_Y);
+			bounds.x1 = (short)MIN(bounds.x1, bounds.x0 + bitmap->width);
+			bounds.y1 = (short)MIN(bounds.y1, bounds.y0 + bitmap->height);
 		}
 		if (TEST_FLAG(definition->flags, _widget_flash_background_bitmap_bit))
 		{
