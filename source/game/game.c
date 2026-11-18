@@ -763,6 +763,13 @@ void game_initialize_for_new_map(
 	/* port: mods' Lua scripts: the map's load, and their "map load"
 	(port/linux/game/lua_scripting.c) */
 	lua_scripting_map_load();
+	/* port: the [tuning] knobs the map is drawn with, a line in the log for
+	each game (port/linux/src/port_config.c) */
+	{
+		void config_tuning_log(const char *where);
+
+		config_tuning_log("map");
+	}
 #ifdef HALO_XBOX_CONSOLE
 	/* port: a test build of more than 16 players logs its memory at each
 	map's start (port/xbox/src/xbox_memory.c; nothing in a stock build) */
