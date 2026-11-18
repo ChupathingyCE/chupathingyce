@@ -4764,6 +4764,11 @@ static void object_connect_lights(
 		{
 			if (!object->object.attachment_types[i] && object->object.attachment_indices[i]!=NONE)
 			{
+#ifdef HALO_CONSOLE_SKIP_DARK_LIGHTS
+				/* port: a dark light stays out of the clusters
+				(object_lights.c, light_port_connect_lit) */
+				light_port_connect_lit(object->object.attachment_indices[i], disconnect, reconnect);
+#else
 				if (disconnect)
 				{
 					light_disconnect_from_map(object->object.attachment_indices[i]);
@@ -4772,6 +4777,7 @@ static void object_connect_lights(
 				{
 					light_reconnect_to_map(object->object.attachment_indices[i]);
 				}
+#endif
 			}
 		}
 	}
