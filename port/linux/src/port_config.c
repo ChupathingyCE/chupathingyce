@@ -459,6 +459,10 @@ static const struct config_setting config_settings[] =
 	{ "display.performance_hud_frames", _config_boolean, "false", "HALO_PERFORMANCE_HUD_FRAMES", _environment_value,
 		_platform_all,
 		"Whether performance mode draws the HUD's frames and backgrounds, its static pictures." },
+	{ "display.performance_online_cuts", _config_boolean, "false", "HALO_PERFORMANCE_ONLINE_CUTS", _environment_value,
+		_platform_all,
+		"Whether performance mode also leaves out the objects' transparent parts and the plants in network games.\n"
+		"Off, they are drawn in network games, so you see the same cover as everyone else." },
 #endif
 	{ "display.menus", _config_string, "\"chupathingy\"", "HALO_MENUS", _environment_value, _platform_all,
 		"Which menus to use: \"chupathingy\" or \"xbox\".\n"
