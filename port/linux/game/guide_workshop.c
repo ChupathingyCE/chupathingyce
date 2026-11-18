@@ -2109,7 +2109,9 @@ static void control_render(short row, float left, float y, boolean on,
 	}
 }
 
-static void item_row_render(short row, float left, float y, boolean on)
+/* on: the row with the focus; chosen: the item whose page is open beside
+the list, the focus on its page */
+static void item_row_render(short row, float left, float y, boolean on, boolean chosen)
 {
 	struct workshop_browser_item const *item = row_item(row);
 	short view = workshop_view.row_view[row];
@@ -2121,7 +2123,10 @@ static void item_row_render(short row, float left, float y, boolean on)
 		return;
 	state = item_word(item, view);
 	state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 8.0f, state) + 8 : 0;
-	ui_style_row(left, y, LIST_WIDTH, ROW_HEIGHT, on);
+	if (chosen && !on)
+		ui_style_row_chosen(left, y, LIST_WIDTH, ROW_HEIGHT);
+	else
+		ui_style_row(left, y, LIST_WIDTH, ROW_HEIGHT, on);
 	if (on)
 		text_line_focused(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, shown_title(item), 1 + row);
 	else
@@ -2169,7 +2174,7 @@ static void list_render(float left, float top, float bottom,
 		boolean on = row == workshop_view.row && !workshop_view.page;
 
 		if (workshop_view.row_kind[row] == _row_item)
-			item_row_render(row, left, y, on);
+			item_row_render(row, left, y, on, workshop_view.page && row == page_row());
 		else
 			control_render(row, left, y, on, target);
 		if (target)
