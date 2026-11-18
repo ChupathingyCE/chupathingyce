@@ -260,6 +260,8 @@ long network_damage_host_tables_allocate(void);
 long network_damage_host_tables_allocate(void) { return 0; }
 long network_damage_host_tables_free(void);
 long network_damage_host_tables_free(void) { return 0; }
+long network_game_port_hosting_local(void);
+long network_game_port_hosting_local(void) { return 0; }
 long network_distributed_address_full(void);
 long network_distributed_address_full(void) { return 0; }
 long network_distributed_address_limit(void);
@@ -368,3 +370,9 @@ long network_game_abort(void);
 long network_game_abort(void) { return 0; }
 long main_goto_main_menu(void);
 long main_goto_main_menu(void) { return 0; }
+/* (the host's late joiners' table: network_game_server_create takes it) */
+#include <stdlib.h>
+void *system_malloc(long size);
+void *system_malloc(long size) { return malloc((size_t)size); }
+void system_free(void *pointer);
+void system_free(void *pointer) { free(pointer); }

@@ -1350,6 +1350,8 @@ static boolean network_game_server_machine_may_add_player_ingame(
 /* port: (port/linux/game/network_distributed.h) */
 boolean network_damage_host_tables_allocate(void);
 void network_damage_host_tables_free(void);
+static boolean network_game_server_late_joiners_allocate(void);
+static void network_game_server_late_joiners_free(void);
 
 /* ---------- public code */
 
@@ -1367,6 +1369,23 @@ struct network_game_server *network_game_server_create(
 
 	csmemset(server, 0, sizeof(*server));
 
+	/* port: the host's tables, which a machine that only joins doesn't
+	carry: its damage tables (network_damage.c) and its late joiners'
+	players. A game others can join isn't hosted without them (its clients'
+	hits couldn't be dealt): it says so and the menus go on as when the
+	server can't be made. A split-screen game takes no hit reports or late
+	joiners and goes on without them */
+	if ((!network_damage_host_tables_allocate() || !network_game_server_late_joiners_allocate()) &&
+		!network_game_port_hosting_local())
+	{
+		error(_error_silent, "network server: not hosting: no memory for the host's tables");
+		display_error_text_when_main_menu_loaded(L"Not enough memory to host a game.");
+		network_damage_host_tables_free();
+		network_game_server_late_joiners_free();
+		network_game_server_memory_do_not_use_directly_in_use = FALSE;
+		return NULL;
+	}
+
 	if (server != NULL)
 	{
 		server->connection = network_connection_new(
@@ -1381,10 +1400,6 @@ struct network_game_server *network_game_server_create(
 			transport_server_initialize();
 #endif
 
-			/* port: the host's damage tables (network_damage.c), which a
-			machine that only joins doesn't carry; a host without them
-			deals none of its clients' hits, and says so */
-			network_damage_host_tables_allocate();
 			server->state = _network_game_server_state_pregame;
 			server->flags = FLAG(_network_game_server_game_valid_bit);
 			csmemset(&server->game, 0, sizeof(server->game));
@@ -1433,6 +1448,8 @@ struct network_game_server *network_game_server_create(
 			which the dispose's machine check reads; the port in use, by
 			another copy of the game, gets here) */
 			network_game_server_memory_do_not_use_directly_in_use = FALSE;
+			network_damage_host_tables_free();
+			network_game_server_late_joiners_free();
 			server = NULL;
 		}
 	}
@@ -1795,8 +1812,9 @@ newer one the legacy table proves is taken: port/linux/src/delta.c) */
 
 	if (server->connection)
 		network_connection_delete(server->connection);
-	/* port: and its damage tables */
+	/* port: and its damage tables and its late joiners' players */
 	network_damage_host_tables_free();
+	network_game_server_late_joiners_free();
 
 #ifdef xbox
 	/* port: native transports flush before closing sockets, and unregistering
@@ -3313,8 +3331,38 @@ static void network_game_server_refuse_late_joiner(
 
 /* the players in the settings each machine joining the game in progress
 was started with (by machine index): those added and gone while it loaded
-it, whose messages it did not hear, it is told of once it has */
-static struct network_player late_joiner_players[MAXIMUM_NETWORK_MACHINE_COUNT][NUMBEROF(((struct network_game *)0)->players)];
+it, whose messages it did not hear, it is told of once it has. The host's
+alone: allocated with the game (network_game_server_late_joiners_allocate,
+from network_game_server_create), so that a machine that only joins doesn't
+carry it; NULL otherwise, or if there was no memory for it in a
+split-screen game (network_game_server_create hosts no other game without
+it) */
+static struct network_player (*late_joiner_players)[NUMBEROF(((struct network_game *)0)->players)];
+
+static boolean network_game_server_late_joiners_allocate(
+	void)
+{
+	unsigned long size = MAXIMUM_NETWORK_MACHINE_COUNT * sizeof(*late_joiner_players);
+
+	if (late_joiner_players)
+		return TRUE;
+	late_joiner_players = system_malloc(size);
+	if (!late_joiner_players)
+	{
+		error(_error_silent, "network server: no memory for the late joiners' players (%lu KB)", size / 1024);
+		return FALSE;
+	}
+	csmemset(late_joiner_players, 0, size);
+	return TRUE;
+}
+
+static void network_game_server_late_joiners_free(
+	void)
+{
+	if (late_joiner_players)
+		system_free(late_joiner_players);
+	late_joiner_players = NULL;
+}
 
 static boolean network_game_server_same_player(
 	struct network_player const *player0,
@@ -3527,7 +3575,7 @@ static void network_game_server_start_late_joiner(
 	machine at its index by this: network_game_server_late_joiner_loaded) */
 	SET_FLAG(machine->flags, _network_client_machine_started_late_bit, TRUE);
 	machine->last_heard_time = system_milliseconds();
-	if (machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT)
+	if (late_joiner_players && machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT)
 	{
 		csmemcpy(late_joiner_players[machine->machine_index], server->game.players,
 			sizeof(late_joiner_players[machine->machine_index]));
@@ -3742,7 +3790,7 @@ void network_game_server_late_joiner_loaded(
 		network_game_server_frequent_updates_until[machine->machine_index] =
 			server->next_update_number + TICKS_PER_SECOND;
 	}
-	if (server->state == _network_game_server_state_ingame &&
+	if (server->state == _network_game_server_state_ingame && late_joiner_players &&
 		machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT)
 	{
 		struct network_player *started = late_joiner_players[machine->machine_index];
