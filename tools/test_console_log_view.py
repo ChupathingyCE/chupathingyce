@@ -66,4 +66,9 @@ def test_passwords_stay_out_of_the_history_file():
     secret = body(CONSOLE, "static boolean console_history_secret(\n")
     for command in ('"rcon"', '"sv_password"', '"sv_rcon_password"'):
         assert command in secret
+    # (any case, and a tab after the name or before it)
+    named = body(CONSOLE, "static boolean console_history_command_is(\n")
+    assert "_strnicmp(command, name, length)" in named
+    assert "command[length] == '\\t'" in named
+    assert "*command == '\\t'" in secret
     assert "if (console_history_secret(command))\n\t\t\tcontinue;" in body(CONSOLE, "static void console_history_save(\n")

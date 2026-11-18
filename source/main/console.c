@@ -279,15 +279,27 @@ static void console_history_path(
 		path[0] = 0;
 }
 
-/* whether a command carries a password (rcon's, sv_password's) */
+/* whether the command is the name, in any case, alone or followed by a space
+or a tab */
+static boolean console_history_command_is(
+	char const *command,
+	char const *name)
+{
+	size_t length = strlen(name);
+
+	return !_strnicmp(command, name, length) &&
+		(command[length] == ' ' || command[length] == '\t' || !command[length]);
+}
+
+/* whether a command carries a password (rcon's, sv_password's), however
+it is typed (the console takes any case, and a tab between words) */
 static boolean console_history_secret(
 	char const *command)
 {
-	while (*command == ' ' || *command == '(')
+	while (*command == ' ' || *command == '\t' || *command == '(')
 		command++;
-	return (!strncmp(command, "rcon", 4) && (command[4] == ' ' || !command[4])) ||
-		(!strncmp(command, "sv_password", 11) && (command[11] == ' ' || !command[11])) ||
-		(!strncmp(command, "sv_rcon_password", 16) && (command[16] == ' ' || !command[16]));
+	return console_history_command_is(command, "rcon") || console_history_command_is(command, "sv_password") ||
+		console_history_command_is(command, "sv_rcon_password");
 }
 
 static void console_history_save(
