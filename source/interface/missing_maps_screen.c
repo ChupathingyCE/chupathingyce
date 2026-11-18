@@ -304,7 +304,9 @@ struct missing_maps_rectangle
 	pixel32 color;
 };
 
-static struct missing_maps_rectangle missing_maps_rectangles[MISSING_MAPS_RECTANGLES];
+/* (taken from the heap when the screen is shown, which it is only on a
+console without maps, and kept: the screen never returns) */
+static struct missing_maps_rectangle *missing_maps_rectangles;
 static long missing_maps_rectangle_count;
 /* (the size they were laid out for: 0 before the first) */
 static long missing_maps_layout_width;
@@ -319,7 +321,7 @@ static long missing_maps_rectangle_add(
 {
 	struct missing_maps_rectangle *rectangle;
 
-	if (missing_maps_rectangle_count >= MISSING_MAPS_RECTANGLES)
+	if (!missing_maps_rectangles || missing_maps_rectangle_count >= MISSING_MAPS_RECTANGLES)
 		return NONE;
 	rectangle = &missing_maps_rectangles[missing_maps_rectangle_count];
 	rectangle->bounds.x1 = x0;
@@ -558,6 +560,10 @@ void missing_maps_screen(
 	short const columns = (short)((640 - 2 * 24) / (MISSING_MAPS_CELL_WIDTH * 2));
 	unsigned long pass;
 
+	if (!missing_maps_rectangles)
+		missing_maps_rectangles = system_malloc(MISSING_MAPS_RECTANGLES * sizeof(*missing_maps_rectangles));
+	if (!missing_maps_rectangles)
+		error(_error_silent, "missing maps screen: no memory for its rectangles");
 	missing_maps_folder(folder, sizeof(folder));
 	error(_error_silent, "missing maps screen: '%s' not found in %s", map_name ? map_name : "ui", folder);
 	missing_maps_line_count = 0;
