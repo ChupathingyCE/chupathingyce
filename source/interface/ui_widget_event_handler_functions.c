@@ -4650,11 +4650,12 @@ static boolean solo_level_set_next_map_name(
 		return TRUE;
 	}
 #ifdef HALO_MAP_LIST
-	/* port: an MCC campaign map's row, after the ten levels: always there */
+	/* port: an MCC campaign map's row, or another campaign map's, after the
+	ten levels: always there */
 	if (list_widget->parameters.list.selected_index >= 10)
 	{
-		extern char const *ui_widget_port_mcc_campaign_level(short row);
-		char const *level = ui_widget_port_mcc_campaign_level((short)(list_widget->parameters.list.selected_index - 10));
+		extern char const *ui_widget_port_campaign_maps_level(short row);
+		char const *level = ui_widget_port_campaign_maps_level((short)(list_widget->parameters.list.selected_index - 10));
 
 		if (!level)
 		{
@@ -6396,15 +6397,21 @@ static boolean solo_level_initialize_list_single_player(
 	widget->parameters.list.number_of_items = 10;
 	widget->parameters.list.selected_index = PIN(player_ui_get_last_single_player_level_played(0), 0, 9);
 #ifdef HALO_MAP_LIST
-	/* port: the MCC catalog's campaign maps after the ten levels, as the
-	menus' map lists have them (their cards: ui_widget_game_data_input_functions.c) */
+	/* port: the MCC catalog's campaign maps after the ten levels, then in
+	the Chupathingy menus the other campaign maps found, as the menus' map
+	lists have them (their cards: ui_widget_game_data_input_functions.c) */
 	{
 		extern short ui_widget_port_mcc_campaign_count(void);
+		extern short ui_widget_port_campaign_maps_count(void);
 		extern char const *config_string(char const *name);
 
-		/* (not in Stubbs mode, whose campaign is its own) */
+		/* (not in Stubbs mode, whose campaign is its own; the list found
+		anew, for maps added since) */
 		if (!stubbs_mode_active())
-			widget->parameters.list.number_of_items = (short)(10 + ui_widget_port_mcc_campaign_count());
+		{
+			ui_map_list_refresh(event_handler_functions.multiplayer_levels);
+			widget->parameters.list.number_of_items = (short)(10 + ui_widget_port_campaign_maps_count());
+		}
 		/* (on the Workshop item the Delta Guide's PLAY handed over: its
 		levels lead the MCC rows, mcc_maps.c) */
 		if (!stubbs_mode_active() && mcc_maps_take_first_focus() && ui_widget_port_mcc_campaign_count())

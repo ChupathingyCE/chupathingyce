@@ -80,6 +80,12 @@ long ui_map_list_count(void);
 Xbox's map list (builds with HALO_GAME_BROWSER; the maps alone on others) */
 long ui_map_list_count_with_campaign(void);
 boolean ui_map_list_row_is_campaign(long row);
+/* the campaign maps that aren't the Xbox's levels (the maps folder's own,
+the map packs', then Custom Edition's, HaloMD's and Halo PC's), found with
+the list, and the map name of each, in that order (NULL past them); their
+rows come after all the others */
+long ui_map_list_custom_campaign_count(void);
+char const *ui_map_list_custom_campaign_name(long index);
 /* every row, those the view leaves out too (ui_map_list_names has them all) */
 long ui_map_list_count_all(void);
 /* the rows' map names, for the list widget's items */
