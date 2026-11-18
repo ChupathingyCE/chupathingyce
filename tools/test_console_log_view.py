@@ -51,3 +51,19 @@ def test_history_by_host_path():
         assert "platform_host_fopen(path" in function
         assert "fopen(path" not in function.replace("platform_host_fopen(path", "")
     assert "FILE *platform_host_fopen(const char *path, const char *mode)\n{\n\treturn fopen(path, mode);" in FILES
+
+
+def test_filter_lets_the_console_close_and_copy():
+    keys = body(TERMINAL, "static boolean terminal_shell_key(\n")
+    assert keys.index("terminal_scrollback_copy();") < keys.index("if (terminal_filter.editing)")
+    editing = keys[keys.index("if (terminal_filter.editing)"):]
+    assert "key->key_code == _key_backquote" in editing[:400]
+    draw = body(TERMINAL, "static boolean terminal_dropdown_draw(\n")
+    assert "if (!open)\n\t\tterminal_filter.editing = FALSE;" in draw
+
+
+def test_passwords_stay_out_of_the_history_file():
+    secret = body(CONSOLE, "static boolean console_history_secret(\n")
+    for command in ('"rcon"', '"sv_password"', '"sv_rcon_password"'):
+        assert command in secret
+    assert "if (console_history_secret(command))\n\t\t\tcontinue;" in body(CONSOLE, "static void console_history_save(\n")

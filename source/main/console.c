@@ -279,6 +279,17 @@ static void console_history_path(
 		path[0] = 0;
 }
 
+/* whether a command carries a password (rcon's, sv_password's) */
+static boolean console_history_secret(
+	char const *command)
+{
+	while (*command == ' ' || *command == '(')
+		command++;
+	return (!strncmp(command, "rcon", 4) && (command[4] == ' ' || !command[4])) ||
+		(!strncmp(command, "sv_password", 11) && (command[11] == ' ' || !command[11])) ||
+		(!strncmp(command, "sv_rcon_password", 16) && (command[16] == ' ' || !command[16]));
+}
+
 static void console_history_save(
 	void)
 {
@@ -291,9 +302,14 @@ static void console_history_save(
 		return;
 	for (index = (short)(console_globals.previous_command_count - 1); index >= 0; index--)
 	{
-		fprintf(file, "%s\n", console_globals.previous_commands[
+		char const *command = console_globals.previous_commands[
 			(console_globals.newest_previous_command_index - index + MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS) %
-				MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS]);
+				MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS];
+
+		/* (a password typed stays out of the file: kept for Up this run only) */
+		if (console_history_secret(command))
+			continue;
+		fprintf(file, "%s\n", command);
 	}
 	fclose(file);
 }

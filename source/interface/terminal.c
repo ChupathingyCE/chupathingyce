@@ -1387,7 +1387,7 @@ void platform_clipboard_set(const char *text);
 #endif
 
 /* Ctrl+Shift+C: the scrollback's lines as shown (the filter's and quiet's),
-up to the view's newest, oldest first, on the clipboard */
+the newest that fit, oldest first, on the clipboard */
 static void terminal_scrollback_copy(
 	void)
 {
@@ -1396,10 +1396,9 @@ static void terminal_scrollback_copy(
 	long length = 0;
 	long first;
 	long line;
-	long skip = terminal_scrollback_offset;
 
-	/* (from the newest back to the oldest that fits, then written forward) */
-	(void)skip;
+	/* (the newest lines shown, as many as fit, whatever the view's scroll:
+	counted back from the newest, then written oldest first) */
 	for (first = 0; first < terminal_scrollback_count; first++)
 	{
 		long slot = (terminal_scrollback_next - 1 - first + 2 * TERMINAL_SCROLLBACK_LINES) % TERMINAL_SCROLLBACK_LINES;
@@ -1448,9 +1447,21 @@ static boolean terminal_shell_key(
 	}
 	if (key->key_code == _key_shift || key->key_code == _key_control || key->key_code == _key_alt)
 		return FALSE;
+	if (control && TEST_FLAG(key->modifier_flags, 0) && key->key_code == _key_c)
+	{
+		terminal_scrollback_copy();
+		return TRUE;
+	}
 	if (terminal_filter.editing)
 	{
 		long length = (long)strlen(terminal_filter.text);
+
+		/* (~ closes the console, as ever: the filter kept as typed) */
+		if (key->key_code == _key_backquote)
+		{
+			terminal_filter.editing = FALSE;
+			return FALSE;
+		}
 
 		if (key->key_code == _key_backspace)
 		{
@@ -1492,11 +1503,6 @@ static boolean terminal_shell_key(
 	{
 		terminal_filter.quiet = !terminal_filter.quiet;
 		terminal_scrollback_offset = 0;
-		return TRUE;
-	}
-	if (control && TEST_FLAG(key->modifier_flags, 0) && key->key_code == _key_c)
-	{
-		terminal_scrollback_copy();
 		return TRUE;
 	}
 	if (terminal_search.active)
@@ -1785,6 +1791,9 @@ static boolean terminal_dropdown_draw(
 	slide's) */
 	step = PIN(step, 0.f, 1.f);
 	terminal_dropdown.openness = PIN(terminal_dropdown.openness + (open ? step : -step), 0.f, 1.f);
+	/* (a filter being typed ends as the console closes; one kept stays) */
+	if (!open)
+		terminal_filter.editing = FALSE;
 	if (terminal_dropdown.openness <= 0.f)
 	{
 		terminal_scrollback_offset = 0;
