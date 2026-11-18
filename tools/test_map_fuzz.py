@@ -431,11 +431,14 @@ def test_room_counted_without_wrapping(built, tmp_path):
     assert result.returncode == 0, result.stderr[-4000:]
     assert "vertex buffers need more than the tag cache's" in result.stderr, result.stderr[-4000:]
     # (one block of materials shared by every lightmap, which no tool makes:
-    # Halo PC's tag schema refuses it once it corrects their vertices; the
-    # conversion alone, without it, compresses each material once)
+    # Halo PC's tag schema walks it as overlapping, as HaloMD plays such
+    # maps, and each material is compressed once; the conversion alone,
+    # without it, does the same)
     path.write_bytes(ce_map_bsp_materials(4, 3))
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
-    assert "structure BSP 0 was refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused" not in result.stderr, result.stderr[-4000:]
+    assert "3 BSP materials' vertices compressed" in result.stderr, result.stderr[-4000:]
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
     assert "fuzz: checked" in result.stderr and "3 BSP materials' vertices compressed" in result.stderr, \
         result.stderr[-4000:]
@@ -543,12 +546,12 @@ def test_tags_checked_again_as_they_load(built, tmp_path):
     assert "refused as it loaded: its scripts' syntax" in result.stderr, result.stderr[-4000:]
 
 
-def test_pc_schema_refuses_overlapping_blocks(built, tmp_path):
+def test_pc_schema_walks_overlapping_blocks(built, tmp_path):
     """a block of a group no conversion reads (an item collection's
     permutations) laid over another tag's root: before Halo PC's tag schema,
-    nothing checked it and the map loaded; now a Custom Edition map is
-    refused, and a HaloMD map's (whose retail tools overlapped blocks) is
-    checked as its own, its elements having nothing the walk writes to"""
+    nothing checked it and the map loaded; now it is checked as its own, its
+    elements having nothing the walk writes to, and the map loads, as HaloMD
+    plays such maps: a Custom Edition map's and a HaloMD map's alike"""
     binaries, _ = built
     base = TAG_CACHE["ce"]
     data, offsets = ce_map_of_tags([(b"itmc", 0x5C), (b"itmc", 0x5C)])
@@ -560,18 +563,14 @@ def test_pc_schema_refuses_overlapping_blocks(built, tmp_path):
     struct.pack_into("<iI", data, first, 1, base + second + 4 - 0x800)
     struct.pack_into("<4sIiI", data, second + 4 + 0x24, b"\xff\xff\xff\xff", name, 0, 0xFFFFFFFF)
     path = tmp_path / "collection_over_collection.map"
-    path.write_bytes(bytes(data))
-    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
-    assert result.returncode == 0, result.stderr[-4000:]
-    assert "which overlap another's" in result.stderr, result.stderr[-4000:]
-    assert "refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
-    struct.pack_into("<i", data, 4, 7)
-    path.write_bytes(bytes(data))
-    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
-    assert result.returncode == 0, result.stderr[-4000:]
-    assert "refused" not in result.stderr, result.stderr[-4000:]
-    assert "1 roots, blocks and data overlapping others'" in result.stderr, result.stderr[-4000:]
-    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+    for version in (609, 7):
+        struct.pack_into("<i", data, 4, version)
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "refused" not in result.stderr, result.stderr[-4000:]
+        assert "1 roots, blocks and data overlapping others'" in result.stderr, result.stderr[-4000:]
+        assert "the map loaded" in result.stderr, result.stderr[-4000:]
 
 
 def test_pc_schema_takes_gbxmodels(built, tmp_path):
@@ -712,9 +711,11 @@ def test_conversions_write_nothing_over_the_tag_index(built, tmp_path):
     path = tmp_path / "functions_over_index.map"
     path.write_bytes(bytes(data))
     # (Halo PC's tag schema refuses the map, the damage effect's root over
-    # the tag index; the conversions, without it, write nothing there)
+    # the tag index, whose corrections never settle; the conversions,
+    # without it, write nothing there)
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
     assert result.returncode == 0, result.stderr[-4000:]
+    assert "corrections still change others" in result.stderr, result.stderr[-4000:]
     assert "refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
     assert result.returncode == 0, result.stderr[-4000:]

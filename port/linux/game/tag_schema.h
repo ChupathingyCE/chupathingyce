@@ -330,10 +330,9 @@ Xbox's, whose layouts Halo PC's tags share */
 extern struct tag_schema_group const tag_schema_pc_groups[];
 /* (tag_schema_models.c's: a gbxmodel, a model with Halo PC's parts) */
 extern struct tag_schema_definition const tag_schema_gbxmodel_schema;
+/* (its tools' overlapping blocks walked as their own where safe:
+_tag_schema_layout_overlaps_walked_bit) */
 extern struct tag_schema_layout const tag_schema_pc_layout;
-/* Halo PC retail's (HaloMD's maps, cache version 7): the same, but for its
-tools' overlapping blocks (_tag_schema_layout_overlaps_walked_bit) */
-extern struct tag_schema_layout const tag_schema_pc_retail_layout;
 #endif
 
 /* ---------- prototypes/TAG_VALIDATE.C */

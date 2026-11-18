@@ -176,7 +176,6 @@ long tag_validate_corrections(void);
 #ifdef MAP_FUZZ_CE
 struct tag_schema_layout;
 extern struct tag_schema_layout const tag_schema_pc_layout;
-extern struct tag_schema_layout const tag_schema_pc_retail_layout;
 boolean tag_validate_tags_layout(struct tag_schema_layout const *layout, void *tag_header, long tag_data_size,
 	long file_length, char const *map_name);
 unsigned long ce_resources_free_mark(void);
@@ -992,8 +991,7 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 			tags_end <= CE_TAG_CACHE_BASE + CE_TAG_CACHE_SIZE ?
 			(long)(tags_end - CE_TAG_CACHE_BASE) : header->tag_data_size;
 
-		struct tag_schema_layout const *layout = header->version == CACHE_VERSION_RETAIL ? &tag_schema_pc_retail_layout :
-			&tag_schema_pc_layout;
+		struct tag_schema_layout const *layout = &tag_schema_pc_layout;
 
 		if (!tag_validate_tags_layout(layout, tag_cache, tags_size, header->file_length, "fuzz"))
 		{

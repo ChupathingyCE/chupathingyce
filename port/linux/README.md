@@ -1591,9 +1591,9 @@ load, in Halo PC's layout (`game/tag_schema_pc.c`): its own groups
 (gbxmodels and a few the Xbox has no tags of) before the Xbox's, which Halo
 PC's tags share. Their resources' tags are checked with them, after the
 repairs and before the conversions, and each BSP before its vertices are
-compressed. HaloMD maps were built by Halo PC's retail tools, which left
-some blocks overlapping others: those are checked as their own, or made
-none where the check would write over another tag.
+compressed. Halo PC's retail tools left some blocks overlapping others.
+In both kinds of map those are checked as their own, as HaloMD does, or
+made empty where the check would write over another tag.
 
 Each correction goes to `debug.txt`. The game's own maps need none.
 `build/linux/map_validate [--strict] map.map...` runs the same checks on map

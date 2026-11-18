@@ -1610,6 +1610,18 @@ boolean tag_validate_tags_layout(
 			break;
 		}
 	}
+	/* (corrections still made in the last pass may have changed what another
+	overlapping block reads, unchecked: the map is refused, as one whose
+	overlaps are not safe to play) */
+	if (valid && pass == MAXIMUM_OVERLAP_PASSES)
+	{
+		struct tag_validation validation;
+
+		validation_new(&validation, tag_header, (unsigned long)tag_data_size);
+		tag_validate_refuse(&validation, "has overlapping blocks whose corrections still change others after %d checks",
+			(int)MAXIMUM_OVERLAP_PASSES);
+		valid = FALSE;
+	}
 	tag_validate_globals.corrections = corrections;
 
 	return valid;

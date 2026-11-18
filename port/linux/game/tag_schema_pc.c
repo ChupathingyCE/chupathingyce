@@ -162,23 +162,13 @@ static unsigned long const tag_schema_pc_group_aliases[][2] =
 	{ 0, 0 }
 };
 
+/* (both Custom Edition's and HaloMD's: retail's tools left some blocks
+overlapping others, and Custom Edition's maps are played as HaloMD plays
+them, so an overlapping block is walked as its own where the walk writes
+nothing into it, and made none otherwise) */
 struct tag_schema_layout const tag_schema_pc_layout =
 {
 	"Halo PC",
-	tag_schema_pc_group_lists,
-	tag_schema_pc_group_aliases,
-	PC_TAG_CACHE_SIZE,
-	FLAG(_tag_schema_layout_pc_header_bit) |
-		FLAG(_tag_schema_layout_tool_maxima_kept_bit) |
-		FLAG(_tag_schema_layout_file_data_elsewhere_bit) |
-		FLAG(_tag_schema_layout_uncompressed_bsp_vertices_bit) |
-		FLAG(_tag_schema_layout_pc_shader_types_bit)
-};
-
-/* (HaloMD's maps, whose tools overlapped some of their blocks) */
-struct tag_schema_layout const tag_schema_pc_retail_layout =
-{
-	"Halo PC retail",
 	tag_schema_pc_group_lists,
 	tag_schema_pc_group_aliases,
 	PC_TAG_CACHE_SIZE,
