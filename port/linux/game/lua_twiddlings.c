@@ -68,6 +68,11 @@ map): the header at the tag cache's base, its instances 0x20 bytes each */
 loader keeps the instances elsewhere (the header says where), so a script's
 address in Halo PC's index is moved onto them */
 #define PC_TAG_INSTANCES_OFFSET 0x28
+/* a Custom Edition map's models are gbxmodels; this game's loader makes
+them models (ce_models.c), group and all, so the tag index answers Halo PC's
+group for them and get_tag finds them by it */
+#define PC_GBXMODEL_GROUP 'mod2'
+#define CONVERTED_MODEL_GROUP 'mode'
 
 /* ---------- types */
 
@@ -215,6 +220,17 @@ static boolean twiddlings_tag_index_read(
 		return FALSE;
 	}
 	memcpy(value, twiddlings_pointer(instances + (address - first)), size);
+	if ((address - first) % TAG_INSTANCE_SIZE == TAG_INSTANCE_GROUP_OFFSET && size == sizeof(unsigned int))
+	{
+		unsigned int group;
+
+		memcpy(&group, value, sizeof(group));
+		if (group == (unsigned int)CONVERTED_MODEL_GROUP)
+		{
+			group = PC_GBXMODEL_GROUP;
+			memcpy(value, &group, sizeof(group));
+		}
+	}
 	return TRUE;
 }
 
@@ -555,6 +571,8 @@ unsigned int twiddlings_tag_instance_address_by_name(
 		unsigned int group = *(unsigned int const *)twiddlings_pointer(instance + TAG_INSTANCE_GROUP_OFFSET);
 		char text[256];
 
+		if (group == (unsigned int)CONVERTED_MODEL_GROUP)
+			group = PC_GBXMODEL_GROUP;
 		if (group != (unsigned int)group_tag || name < base || name >= end)
 			continue;
 		if (!twiddlings_read_string(name, text, sizeof(text)))
