@@ -1743,7 +1743,13 @@ this machine hosts, in a build with the screen */
 static boolean pause_moderation_offered(boolean host)
 {
 #ifdef HALO_GAME_BROWSER
-	return host;
+	/* (not in a split screen game of this machine's players alone, where
+	it has no one to act on and its row is one too many for the small
+	pause screens) */
+	extern unsigned char pc_menu_split_players(void);
+	extern boolean moderation_screen_others_in_game(void);
+
+	return host && (!pc_menu_split_players() || moderation_screen_others_in_game());
 #else
 	(void)host;
 	return FALSE;
