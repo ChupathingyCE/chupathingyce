@@ -18,7 +18,9 @@ the build machine's C compiler, and test signals are put through it:
   with none still join without a step, and a tone keeps its shape up to
   the ends;
 - the mods folder's PCM sounds at 44.1 kHz mono go through the same filter
-  (port/linux/game/mod_sounds.c, samples_make).
+  (port/linux/game/mod_sounds.c, samples_make);
+- a permutation's ends read alone (ce_vorbis_edges) are the full
+  decode's, also for a stream whose last page gives another length.
 
 Needs clang (or cc) and Python 3 alone.
 
@@ -314,6 +316,75 @@ int main(void)
 """
 
 
+# ce_vorbis_edges against ce_vorbis_decode, on an Ogg Vorbis file named on
+# the command line: the frames each gives, and whether the first and last 48
+# frames are the same
+EDGES_HARNESS = r"""
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sample_rate, short **samples);
+int ce_vorbis_edges(const unsigned char *data, int size, int count, int whole, int *channels, int *sample_rate,
+	short *head, int *head_frames, short *tail, int *tail_frames);
+void ce_vorbis_free(short *samples);
+int main(int argc, char **argv)
+{
+	FILE *file = fopen(argv[1], "rb");
+	unsigned char *data;
+	long size;
+	int channels = 0, rate = 0, edge_channels = 0, edge_rate = 0, frames, edge_frames, head_frames, tail_frames, count;
+	short *samples = NULL, head[48 * 2], tail[48 * 2], head_alone[48 * 2], unused[48 * 2];
+	int alone_frames, alone_head_frames, alone_tail_frames;
+	fseek(file, 0, SEEK_END);
+	size = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	data = malloc((size_t)size);
+	fread(data, 1, (size_t)size, file);
+	fclose(file);
+	frames = ce_vorbis_decode(data, (int)size, &channels, &rate, &samples);
+	edge_frames = ce_vorbis_edges(data, (int)size, 48, 1, &edge_channels, &edge_rate, head, &head_frames, tail,
+		&tail_frames);
+	alone_frames = ce_vorbis_edges(data, (int)size, 48, 0, &edge_channels, &edge_rate, head_alone, &alone_head_frames,
+		unused, &alone_tail_frames);
+	count = frames < 48 ? frames : 48;
+	printf("%d %d %d %d %d\n", frames, edge_frames,
+		frames > 0 && alone_frames == count && alone_head_frames == count && alone_tail_frames == 0 &&
+			!memcmp(head_alone, samples, (size_t)count * channels * sizeof(short)),
+		frames > 0 && head_frames == count && !memcmp(head, samples, (size_t)count * channels * sizeof(short)),
+		frames > 0 && tail_frames == count &&
+			!memcmp(tail, samples + (size_t)(frames - count) * channels, (size_t)count * channels * sizeof(short)));
+	ce_vorbis_free(samples);
+	free(data);
+	return 0;
+}
+"""
+
+# synthetic test streams (tools/tests/vorbis: noise and a tone, encoded for
+# these tests): 44.1 and 22.05 kHz, and one shorter than the edges
+VORBIS_FILES = sorted((ROOT / "tools/tests/vorbis").glob("*.ogg"))
+
+
+def ogg_crc(page):
+    crc = 0
+    for byte in page:
+        crc ^= byte << 24
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x04C11DB7 if crc & 0x80000000 else crc << 1) & 0xFFFFFFFF
+    return crc
+
+
+def last_granule_changed(data, delta):
+    """the stream with its last page's granule position (its length) moved
+    by delta, its checksum made again"""
+    at = data.rindex(b"OggS")
+    page = bytearray(data[at:])
+    granule = max(0, int.from_bytes(page[6:14], "little") + delta)
+    page[6:14] = granule.to_bytes(8, "little")
+    page[22:26] = b"\0\0\0\0"
+    page[22:26] = ogg_crc(page).to_bytes(4, "little")
+    return data[:at] + bytes(page)
+
+
 def compiler():
     for name in (os.environ.get("CC"), "clang", "cc", "gcc"):
         if name and shutil.which(name):
@@ -478,6 +549,31 @@ def test_mods_folder_pcm_is_halved_through_the_filter():
     assert frames == 22050, out
     assert abs(tone) < 0.1
     assert folded < -60, f"15 kHz folds back to 7.05 kHz at {folded:.1f} dB"
+
+
+def edges_of(data, tmp_path, name):
+    path = tmp_path / name
+    path.write_bytes(data)
+    binary = build("edges", EDGES_HARNESS)
+    out = subprocess.run([str(binary), str(path)], capture_output=True, text=True, check=True).stdout.split()
+    return [int(value) for value in out]
+
+
+@pytest.mark.parametrize("path", VORBIS_FILES, ids=lambda path: path.name)
+@pytest.mark.parametrize("delta", [0, 4096, -100, 1 << 30])
+def test_edges_read_alone_are_the_full_decodes(path, delta, tmp_path):
+    # (ce_resources.c reads a neighbor's head alone, its first frames, and
+    # a tail by decoding a frame at a time, keeping only the last; a stream
+    # whose last page gives another length is decoded the same)
+    data = path.read_bytes()
+    if delta:
+        data = last_granule_changed(data, delta)
+    frames, edge_frames, head_alone_same, head_same, tail_same = edges_of(data, tmp_path, path.name)
+    assert edge_frames == frames
+    if delta == 0:
+        assert frames > 0
+    if frames > 0:
+        assert head_alone_same and head_same and tail_same
 
 
 if __name__ == "__main__":

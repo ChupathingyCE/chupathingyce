@@ -83,6 +83,86 @@ int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sa
 	return -1;
 }
 
+/* the first `count` frames (or all, if fewer) of what ce_vorbis_decode
+gives of a stream, the same samples, and with `whole` its last `count`
+too, without keeping the rest: decoded a frame at a time from the start, as
+ce_vorbis_decode decodes it, and without whole only as far as the head.
+(Not by a seek to the end: stb_vorbis's seek trusts the stream's pages,
+which a map's sounds may be anything.) With whole, the count of frames
+ce_vorbis_decode gives; else the head's; or -1 */
+int ce_vorbis_edges(const unsigned char *data, int size, int count, int whole, int *channels, int *sample_rate,
+	short *head, int *head_frames, short *tail, int *tail_frames)
+{
+	int error = 0;
+	stb_vorbis *vorbis = stb_vorbis_open_memory(data, size, &error, NULL);
+	short *buffer;
+	int total = 0, kept = 0, channel_count;
+
+	*head_frames = *tail_frames = 0;
+	if (!vorbis)
+		return -1;
+	*channels = channel_count = vorbis->channels;
+	*sample_rate = (int)vorbis->sample_rate;
+	if (count <= 0 || channel_count < 1 || channel_count > CE_VORBIS_MAXIMUM_CHANNELS)
+	{
+		stb_vorbis_close(vorbis);
+		return -1;
+	}
+	/* (a frame is at most 4096 samples a channel) */
+	buffer = malloc(4096 * CE_VORBIS_MAXIMUM_CHANNELS * sizeof(*buffer));
+	while (buffer)
+	{
+		int read = stb_vorbis_get_frame_short_interleaved(vorbis, channel_count, buffer,
+			4096 * CE_VORBIS_MAXIMUM_CHANNELS);
+		int keep, drop;
+
+		if (!read)
+			break;
+		if (*head_frames < count)
+		{
+			int more = read < count - *head_frames ? read : count - *head_frames;
+
+			memcpy(head + *head_frames * channel_count, buffer, (size_t)more * (size_t)channel_count * sizeof(*head));
+			*head_frames += more;
+			if (!whole && *head_frames == count)
+			{
+				total = count;
+				break;
+			}
+		}
+		total += read;
+		if (total > CE_VORBIS_MAXIMUM_FRAMES)
+		{
+			total = -1;
+			break;
+		}
+		/* (the last `count` frames of what was kept and this) */
+		keep = read < count ? read : count;
+		drop = kept + keep > count ? kept + keep - count : 0;
+		if (drop)
+		{
+			memmove(tail, tail + drop * channel_count, (size_t)(kept - drop) * (size_t)channel_count * sizeof(*tail));
+			kept -= drop;
+		}
+		memcpy(tail + kept * channel_count, buffer + (read - keep) * channel_count,
+			(size_t)keep * (size_t)channel_count * sizeof(*tail));
+		kept += keep;
+	}
+	if (!buffer)
+		total = -1;
+	free(buffer);
+	stb_vorbis_close(vorbis);
+	if (total < 0)
+	{
+		*head_frames = *tail_frames = 0;
+		return -1;
+	}
+	if (!whole)
+		return *head_frames;
+	*tail_frames = kept;
+	return total;
+}
+
 /* the half-band low pass a sound is brought to half or twice its rate
 through: a Kaiser-windowed sinc cut off at a quarter of the higher rate
 (11,025 Hz between 44.1 and 22.05 kHz), flat to about 10 kHz and more than

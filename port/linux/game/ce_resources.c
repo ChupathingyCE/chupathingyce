@@ -138,6 +138,8 @@ char const *cache_files_map_directory(void);
 HANDLE cache_files_ce_map_file(void);
 int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sample_rate, short **samples);
 int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int wanted);
+int ce_vorbis_edges(const unsigned char *data, int size, int count, int whole, int *channels, int *sample_rate,
+	short *head, int *head_frames, short *tail, int *tail_frames);
 int ce_vorbis_resample_piece(short **samples, int frames, int channels, int rate, int wanted,
 	const short *before, int before_frames, const short *after, int after_frames);
 void ce_vorbis_free(short *samples);
@@ -1615,9 +1617,14 @@ are their continuations) */
 
 /* a permutation's first and last frames as decoded, before it is brought
 to its sound's rate: its neighbors' context (a sound split into
-permutations played one after another, next_permutation_index) */
+permutations played one after another, next_permutation_index). Kept as
+each is decoded; a head not decoded yet is read alone (its first frames),
+and a tail only where a looped sound's pieces play round in a ring */
 struct ce_permutation_edges
 {
+	/* (its head read, and its tail; frames, once it is known) */
+	boolean head_ready;
+	boolean tail_ready;
 	int frames;
 	int channels;
 	int rate;
@@ -1677,44 +1684,85 @@ static unsigned long *ce_looped_sounds(void *tag_instances, long tag_count, long
 	return looped;
 }
 
-/* each Ogg Vorbis permutation's edges in a pitch range (`edges`, one a
-permutation; frames 0 for one that cannot be decoded) */
-static void ce_permutation_edges_read(byte *permutations, unsigned long permutation_count, HANDLE sounds_map,
-	HANDLE map_file, boolean from_sounds_map, struct ce_permutation_edges *edges)
+/* a permutation's head read alone (and with `whole`, its tail: the whole
+permutation decoded, a frame at a time), into `edge` */
+static void ce_permutation_edge_read(byte *at, HANDLE sounds_map, HANDLE map_file, boolean from_sounds_map,
+	boolean whole, struct ce_permutation_edges *edge)
 {
-	unsigned long permutation;
+	long size = *(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET);
+	unsigned long offset = *(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8);
+	HANDLE source = from_sounds_map || ce_samples_external(at) ? sounds_map : map_file;
+	unsigned char *data;
+	int frames = -1;
 
+	memset(edge, 0, sizeof(*edge));
+	/* (tried once) */
+	edge->head_ready = TRUE;
+	edge->tail_ready = whole;
+	if (size <= 0 || !source || *(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG)
+		return;
+	data = malloc((size_t)size);
+	if (data && ce_read(source, offset, data, (unsigned long)size))
+	{
+		frames = ce_vorbis_edges(data, size, CE_RESAMPLE_CONTEXT, whole, &edge->channels, &edge->rate, edge->head,
+			&edge->head_frames, edge->tail, &edge->tail_frames);
+	}
+	if (data)
+		free(data);
+	if (frames <= 0 || edge->channels < 1 || edge->channels > 2)
+	{
+		edge->channels = edge->rate = edge->head_frames = edge->tail_frames = 0;
+		return;
+	}
+	if (whole)
+		edge->frames = frames;
+}
+
+/* the order a pitch range's permutations are decoded in: each after the
+one played before it, so its tail is kept for the next (the rest, a ring,
+as they come) */
+static void ce_permutation_order(byte *permutations, unsigned long permutation_count, unsigned long *order)
+{
+	unsigned long count = 0, permutation;
+	/* (the game's allocator: no calloc, and free takes no NULL) */
+	byte *placed = malloc(permutation_count ? permutation_count : 1);
+
+	if (placed)
+		memset(placed, 0, permutation_count ? permutation_count : 1);
+	if (!placed)
+	{
+		for (permutation = 0; permutation < permutation_count; permutation++)
+			order[permutation] = permutation;
+		return;
+	}
 	for (permutation = 0; permutation < permutation_count; permutation++)
 	{
-		byte *at = permutations + permutation * CE_SOUND_PERMUTATION_SIZE;
-		long size = *(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET);
-		unsigned long offset = *(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8);
-		HANDLE source = from_sounds_map || ce_samples_external(at) ? sounds_map : map_file;
-		struct ce_permutation_edges *edge = &edges[permutation];
-		unsigned char *data;
-		short *samples = NULL;
-		int frames = -1;
+		unsigned long other;
+		boolean has_before = FALSE;
+		long next;
 
-		memset(edge, 0, sizeof(*edge));
-		if (size <= 0 || !source || *(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG)
-			continue;
-		data = malloc((size_t)size);
-		if (data && ce_read(source, offset, data, (unsigned long)size))
-			frames = ce_vorbis_decode(data, size, &edge->channels, &edge->rate, &samples);
-		if (data)
-			free(data);
-		if (frames > 0 && samples && edge->channels >= 1 && edge->channels <= 2)
+		for (other = 0; other < permutation_count && !has_before; other++)
 		{
-			int count = frames < CE_RESAMPLE_CONTEXT ? frames : CE_RESAMPLE_CONTEXT;
-
-			edge->frames = frames;
-			edge->head_frames = edge->tail_frames = count;
-			memcpy(edge->head, samples, (size_t)count * (size_t)edge->channels * sizeof(short));
-			memcpy(edge->tail, samples + (size_t)(frames - count) * (size_t)edge->channels,
-				(size_t)count * (size_t)edge->channels * sizeof(short));
+			has_before = other != permutation &&
+				*(short *)(permutations + other * CE_SOUND_PERMUTATION_SIZE + CE_PERMUTATION_NEXT_OFFSET) ==
+					(short)permutation;
 		}
-		ce_vorbis_free(samples);
+		if (has_before || placed[permutation])
+			continue;
+		/* (a chain's first: it and the ones after it) */
+		for (next = (long)permutation; next >= 0 && (unsigned long)next < permutation_count && !placed[next];
+			next = *(short *)(permutations + next * CE_SOUND_PERMUTATION_SIZE + CE_PERMUTATION_NEXT_OFFSET))
+		{
+			placed[next] = 1;
+			order[count++] = (unsigned long)next;
+		}
 	}
+	for (permutation = 0; permutation < permutation_count; permutation++)
+	{
+		if (!placed[permutation])
+			order[count++] = permutation;
+	}
+	free(placed);
 }
 
 /* the permutations played before and after `permutation` in its pitch
@@ -1794,7 +1842,7 @@ static void ce_sounds_decode(
 	long looped_count = 0;
 	unsigned long *looped = ce_looped_sounds(tag_instances, tag_count, &looped_count);
 	struct ce_permutation_edges *edges = NULL;
-	byte *edges_range = NULL;
+	unsigned long *order = NULL;
 
 	if (ce_decoded_sounds_file)
 	{
@@ -1880,7 +1928,8 @@ static void ce_sounds_decode(
 			if (file == INVALID_HANDLE_VALUE)
 			{
 				error(_error_silent, "Custom Edition maps: cannot write %s; Ogg Vorbis sounds will not play", path);
-				free(looped);
+				if (looped)
+					free(looped);
 				return;
 			}
 			sprintf(ce_decoded_sounds_path, "%s", path);
@@ -1905,19 +1954,43 @@ static void ce_sounds_decode(
 			unsigned long permutation_count;
 			byte *permutations = ce_sound_block(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET, CE_SOUND_PERMUTATION_SIZE,
 				&permutation_count);
-			unsigned long permutation;
+			unsigned long permutation, step;
 
-			for (permutation = 0; all && permutation < permutation_count; permutation++)
+			/* (an Ogg Vorbis sound's permutations each after the one played
+			before it, and their edges kept: ce_permutation_edges) */
+			if (ogg && permutation_count)
 			{
-				byte *at = permutations + permutation * CE_SOUND_PERMUTATION_SIZE;
-				long size = *(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET);
-				unsigned long offset = *(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8);
-				HANDLE source = ce_indexed_tags[index] || ce_samples_external(at) ? sounds_map : map_file;
+				struct ce_permutation_edges *grown_edges = realloc(edges, permutation_count * sizeof(*edges));
+				unsigned long *grown_order = realloc(order, permutation_count * sizeof(*order));
+
+				/* (none, if there is no room for them) */
+				if (!grown_edges && edges)
+					free(edges);
+				if (!grown_order && order)
+					free(order);
+				edges = grown_edges;
+				order = grown_order;
+				if (edges)
+					memset(edges, 0, permutation_count * sizeof(*edges));
+				if (order)
+					ce_permutation_order(permutations, permutation_count, order);
+			}
+			for (step = 0; all && step < permutation_count; step++)
+			{
+				byte *at;
+				long size;
+				unsigned long offset;
+				HANDLE source;
 				unsigned char *data;
 				short *samples = NULL;
 				int channels = 0, rate = 0, frames;
 				unsigned long bytes, bytes_written = 0;
 
+				permutation = ogg && order ? order[step] : step;
+				at = permutations + permutation * CE_SOUND_PERMUTATION_SIZE;
+				size = *(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET);
+				offset = *(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8);
+				source = ce_indexed_tags[index] || ce_samples_external(at) ? sounds_map : map_file;
 				if (size <= 0)
 					continue;
 				if (!source)
@@ -1974,6 +2047,21 @@ static void ce_sounds_decode(
 					ce_vorbis_decode(data, size, &channels, &rate, &samples) : -1;
 				if (data)
 					free(data);
+				/* (its edges, for its neighbors) */
+				if (edges && frames > 0 && samples && channels >= 1 && channels <= 2)
+				{
+					struct ce_permutation_edges *edge = &edges[permutation];
+					int count = frames < CE_RESAMPLE_CONTEXT ? frames : CE_RESAMPLE_CONTEXT;
+
+					edge->head_ready = edge->tail_ready = TRUE;
+					edge->frames = frames;
+					edge->channels = channels;
+					edge->rate = rate;
+					edge->head_frames = edge->tail_frames = count;
+					memcpy(edge->head, samples, (size_t)count * (size_t)channels * sizeof(short));
+					memcpy(edge->tail, samples + (size_t)(frames - count) * (size_t)channels,
+						(size_t)count * (size_t)channels * sizeof(short));
+				}
 				/* (one at twice the rate it is played at, or half it, brought
 				to it: ce_vorbis_resample, told once a map) */
 				if (frames > 0 && channels == (encoding ? 2 : 1) && rate != played_rate)
@@ -1985,18 +2073,6 @@ static void ce_sounds_decode(
 					/* (with the permutations played before and after it: a
 					long sound is split into several, and the filter reaches
 					across the joins) */
-					if (edges_range != range)
-					{
-						struct ce_permutation_edges *grown = realloc(edges, permutation_count * sizeof(*edges));
-
-						edges = grown;
-						edges_range = grown ? range : NULL;
-						if (grown)
-						{
-							ce_permutation_edges_read(permutations, permutation_count, sounds_map, map_file,
-								ce_indexed_tags[index] != 0, edges);
-						}
-					}
 					if (edges)
 					{
 						long before, after, looped_index;
@@ -2005,12 +2081,24 @@ static void ce_sounds_decode(
 							is_looped = is_looped || looped[looped_index] == instance->tag_index;
 						ce_permutation_neighbors(range, permutations, permutation_count, permutation, is_looped,
 							&before, &after);
-						if (before != NONE && edges[before].frames > 0 && edges[before].channels == channels &&
+						/* (one not decoded yet: the one after's head read alone;
+						the one before's tail only in a ring, read whole) */
+						if (before != NONE && !edges[before].tail_ready)
+						{
+							ce_permutation_edge_read(permutations + before * CE_SOUND_PERMUTATION_SIZE, sounds_map,
+								map_file, ce_indexed_tags[index] != 0, TRUE, &edges[before]);
+						}
+						if (after != NONE && !edges[after].head_ready)
+						{
+							ce_permutation_edge_read(permutations + after * CE_SOUND_PERMUTATION_SIZE, sounds_map,
+								map_file, ce_indexed_tags[index] != 0, FALSE, &edges[after]);
+						}
+						if (before != NONE && edges[before].tail_frames > 0 && edges[before].channels == channels &&
 							edges[before].rate == rate)
 						{
 							previous = &edges[before];
 						}
-						if (after != NONE && edges[after].frames > 0 && edges[after].channels == channels &&
+						if (after != NONE && edges[after].head_frames > 0 && edges[after].channels == channels &&
 							edges[after].rate == rate)
 						{
 							following = &edges[after];
@@ -2126,8 +2214,12 @@ static void ce_sounds_decode(
 			in_map++;
 	}
 	free(decoded);
-	free(edges);
-	free(looped);
+	if (edges)
+		free(edges);
+	if (order)
+		free(order);
+	if (looped)
+		free(looped);
 	ce_decoded_sounds_file = file;
 	error(_error_silent, "Custom Edition maps: %ld Ogg Vorbis sounds decoded, %ld of them the map's (%ld permutations, "
 		"%lu bytes; %ld permutations resampled to their sounds' rate, %ld of them with the permutations played "
