@@ -845,7 +845,7 @@ boolean ce_models_tags_loaded(
 	{
 		byte digest[CE_DIGEST_SIZE];
 
-		if (CE_MAP_LOAD_HASHED &&
+		if (CE_MAP_HASHED &&
 			(!ce_model_data_digest(&data, digest) || !ce_map_loaded_model_data_unchanged(digest)))
 		{
 			return FALSE;
@@ -879,7 +879,7 @@ boolean ce_models_tags_loaded_read(
 	{
 		byte digest[CE_DIGEST_SIZE];
 
-		if (CE_MAP_LOAD_HASHED &&
+		if (CE_MAP_HASHED &&
 			(!ce_model_data_digest(&data, digest) || !ce_map_loaded_model_data_unchanged(digest)))
 		{
 			ce_model_data_end(&data);

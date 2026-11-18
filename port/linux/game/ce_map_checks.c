@@ -57,7 +57,9 @@ again the next time it is opened. Each byte is hashed once each time: the
 tags as they are read, and then only what copying the resource maps' tags
 in wrote (ce_resources_place: the copies, the tags' addresses, a retail
 map's bitmaps and sounds it changed), not the tags whole again. The hashing uses the processor's SHA-256
-instructions where it has them (mcc_sha256.c).
+instructions where it has them (mcc_sha256.c). The original Xbox has none,
+and hashes nothing (CE_MAP_HASHED): its maps are checked, not compared
+with the check as they load.
 */
 
 #ifdef HALO_CUSTOM_EDITION
@@ -537,7 +539,8 @@ static boolean ce_bsps_check(
 		valid = ce_file_read(file, reference.file_offset, bsp.data, reference.file_size);
 		if (valid)
 		{
-			ce_digest(bsp.data, reference.file_size, ce_checking_digests.bsps[ce_checking_bsp_count]);
+			if (CE_MAP_HASHED)
+				ce_digest(bsp.data, reference.file_size, ce_checking_digests.bsps[ce_checking_bsp_count]);
 			valid = ce_bsp_check(&bsp, &bytes);
 		}
 		if (bsp.data)
@@ -612,7 +615,8 @@ static boolean ce_map_check_tags(
 		ce_refuse("its tag data could not be read");
 		goto done;
 	}
-	ce_digest(image.data, tag_data_size, ce_checking_digests.tags);
+	if (CE_MAP_HASHED)
+		ce_digest(image.data, tag_data_size, ce_checking_digests.tags);
 	memcpy(&header, image.data, sizeof(header));
 	if (header.signature != CE_TAG_HEADER_SIGNATURE)
 	{
@@ -697,7 +701,7 @@ static boolean ce_map_check_tags(
 		ce_refuse("no memory to read its model data (%lu bytes), even in parts", header.model_data_size);
 		goto done;
 	}
-	if (!ce_model_data_digest(&models, ce_checking_digests.model_data))
+	if (CE_MAP_HASHED && !ce_model_data_digest(&models, ce_checking_digests.model_data))
 	{
 		ce_refuse("its model data (%lu bytes) could not be read", header.model_data_size);
 		goto done;
@@ -710,7 +714,8 @@ static boolean ce_map_check_tags(
 		goto done;
 	}
 	models.whole = model_data;
-	ce_model_data_digest(&models, ce_checking_digests.model_data);
+	if (CE_MAP_HASHED)
+		ce_model_data_digest(&models, ce_checking_digests.model_data);
 #endif
 	if (!ce_models_check(&tags, instances, tag_count, &models, &model_bytes))
 		goto done;
@@ -1336,7 +1341,7 @@ boolean ce_map_loaded_tags_unchanged(
 	unsigned long size)
 {
 	ce_load_changed = FALSE;
-	if (!CE_MAP_LOAD_HASHED)
+	if (!CE_MAP_HASHED)
 		return TRUE;
 	return ce_map_loaded_matches(tag_data, size, ce_checked_digests.tags, "its tag data");
 }
@@ -1356,7 +1361,7 @@ boolean ce_map_loaded_resources_unchanged(
 		return FALSE;
 	if (!digest)
 		return ce_map_loaded_changed("a resource map's tags");
-	if (!CE_MAP_LOAD_HASHED)
+	if (!CE_MAP_HASHED)
 		return TRUE;
 	return memcmp(digest, ce_checked_digests.resources, CE_DIGEST_SIZE) ?
 		ce_map_loaded_changed("a resource map's tags") : TRUE;
@@ -1367,7 +1372,7 @@ boolean ce_map_loaded_model_data_unchanged(
 {
 	if (ce_load_changed)
 		return FALSE;
-	if (!CE_MAP_LOAD_HASHED)
+	if (!CE_MAP_HASHED)
 		return TRUE;
 	return memcmp(digest, ce_checked_digests.model_data, CE_DIGEST_SIZE) ? ce_map_loaded_changed("its model data") :
 		TRUE;
@@ -1393,7 +1398,7 @@ boolean ce_map_loaded_bsp_unchanged(
 			/* (a BSP loads again and again as a game goes on: the map is
 			refused from its next load, not stopped now) */
 			ce_load_changed = FALSE;
-			if (!CE_MAP_LOAD_HASHED)
+			if (!CE_MAP_HASHED)
 				return TRUE;
 			return ce_map_loaded_matches(bsp, size, ce_checked_digests.bsps[index], "a structure BSP");
 		}

@@ -1297,8 +1297,8 @@ resource map after, and what it changed in the map's own tags (a retail
 map's bitmaps and sounds: ce_resources_placed). The map's tags are hashed
 once, as they are read (ce_map_checks.c): with them the same, and these,
 the tags with the resources copied in are the same, and are not hashed
-again whole. With no digest, nothing is hashed (a load on the original
-Xbox: CE_MAP_LOAD_HASHED) */
+again whole. With no digest, nothing is hashed (the original Xbox's
+check and load: CE_MAP_HASHED) */
 static boolean ce_resources_place(
 	struct ce_image *image,
 	void *tag_instances,
@@ -1508,10 +1508,11 @@ boolean ce_resources_check(
 
 	if (!types)
 		return ce_refuse("no memory to check its resources");
-	valid = ce_resources_place(image, tag_instances, tag_count, end_free, types, next_free, &copied, digest);
+	valid = ce_resources_place(image, tag_instances, tag_count, end_free, types, next_free, &copied,
+		CE_MAP_HASHED ? digest : NULL);
 	/* (what the tags had copied in, and from where: as loading must find
 	it, ce_resources_tags_loaded) */
-	if (valid)
+	if (valid && CE_MAP_HASHED)
 		ce_resources_digest(digest);
 	for (index = 0; valid && index < tag_count; index++)
 	{
@@ -1566,7 +1567,7 @@ boolean ce_resources_tags_loaded(
 	changed since then is refused, ce_map_checks.c) */
 	if (!ce_map_loaded_resources_unchanged(
 		ce_resources_place(&image, tag_instances, tag_count, end_free, ce_indexed_tags, &next, &copied,
-			CE_MAP_LOAD_HASHED ? digest : NULL) ? digest : NULL))
+			CE_MAP_HASHED ? digest : NULL) ? digest : NULL))
 	{
 		ce_tags_guard_end();
 		return FALSE;
