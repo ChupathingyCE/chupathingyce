@@ -2994,7 +2994,7 @@ boolean network_damage_host_tables_allocate(
 		if (!damage_host_missing_logged)
 		{
 			damage_host_missing_logged = TRUE;
-			error(_error_silent, "network damage: no memory for the host's tables (%lu KB): clients' hits not dealt",
+			error(_error_silent, "network damage: no memory for the host's tables (%lu KB)",
 				(unsigned long)(sizeof(struct damage_host_tables) / 1024));
 		}
 		return FALSE;

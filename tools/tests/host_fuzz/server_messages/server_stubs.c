@@ -260,6 +260,8 @@ long network_damage_host_tables_allocate(void);
 long network_damage_host_tables_allocate(void) { return 0; }
 long network_damage_host_tables_free(void);
 long network_damage_host_tables_free(void) { return 0; }
+long network_game_port_hosting_local(void);
+long network_game_port_hosting_local(void) { return 0; }
 long network_distributed_address_full(void);
 long network_distributed_address_full(void) { return 0; }
 long network_distributed_address_limit(void);
