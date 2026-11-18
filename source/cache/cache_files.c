@@ -2016,12 +2016,12 @@ long scenario_tags_load(
 
 				/* (HaloMD's, Halo PC retail's, with its tools' overlapping
 				blocks: tag_schema_pc.c) */
-				if (!tag_validate_tags_layout(cache_file_globals.header.version == 7 ? &tag_schema_pc_retail_layout :
+				if (!tag_validate_tags_layout(cache_file_globals.header.version == CACHE_FILE_RETAIL_VERSION ? &tag_schema_pc_retail_layout :
 					&tag_schema_pc_layout, tag_cache_base_address, tags_size,
 					cache_file_globals.header.file_length, scenario_name))
 				{
 					error(_error_silent, "%s map %s: its tags are not Halo PC's layout; the map is not loaded",
-						cache_file_globals.header.version == 7 ? "HaloMD" : "Custom Edition", scenario_name);
+						cache_file_globals.header.version == CACHE_FILE_RETAIL_VERSION ? "HaloMD" : "Custom Edition", scenario_name);
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 					if (platform_ce_alias)
 						platform_ce_load_end();
