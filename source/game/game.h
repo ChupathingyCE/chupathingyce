@@ -169,6 +169,10 @@ boolean game_all_quiet(
 	void);
 boolean game_safe_to_save(
 	void);
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+/* port: the check that made game_safe_to_save's last answer no, or NULL */
+extern char const *game_save_unsafe_check;
+#endif
 boolean game_safe_to_speak(
 	void);
 boolean game_is_cooperative(void);
