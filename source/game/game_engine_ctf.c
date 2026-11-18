@@ -1553,6 +1553,19 @@ struct ctf_network_state
 typedef char verify_ctf_network_state_size[
 	sizeof(struct ctf_network_state) == 0x38 ? 1 : -1];
 
+#ifdef HALO_SERVER
+/* port: Capture the Flag's scores and flag swap timer, as Custom Edition's
+clients are told them (server/src/server_ce.c) */
+void game_engine_ctf_get_state(
+	long scores[2],
+	long *flag_swap_timer)
+{
+	scores[0] = ctf_globals.scores[0];
+	scores[1] = ctf_globals.scores[1];
+	*flag_swap_timer = ctf_globals.flag_swap_timer;
+}
+#endif
+
 /* the distributed netcode (port/linux/game/network_distributed.c): the game
 type's state the host sends its clients, which take it as it is */
 long game_engine_ctf_write_network_state(

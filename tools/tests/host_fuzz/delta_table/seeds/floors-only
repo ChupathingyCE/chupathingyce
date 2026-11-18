@@ -1,0 +1,1 @@
+{"delta_legacy": 1, "serial": 7, "wires": {}, "platform_floors": {"dreamcast": {"network": 42, "later": [1, {"a": 2}]}, "a_newer_platform": {"network": 50}, "unknown": {"network": 11}}}
