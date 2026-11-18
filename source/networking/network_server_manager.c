@@ -4881,9 +4881,24 @@ void network_game_server_update_countdown(
 				}
 				else
 				{
+					boolean other_players = network_game_server_get_client_machine_count(server) > 1;
+
+#ifdef HALO_SERVER
+					{
+						/* port: a dedicated server's Custom Edition players are
+						seats of its own machine (server_has_enough_machines):
+						with them there, the lobby counts down without another
+						machine, or a game with only them never starts
+						(server/src/server_ce.c) */
+						boolean server_ce_players_present(void);
+
+						if (server_ce_players_present())
+							other_players = TRUE;
+					}
+#endif
 					if (network_game_should_accept_remote_connections() == FALSE ||
 						network_game_solo_game() ||
-						network_game_server_get_client_machine_count(server) > 1)
+						other_players)
 					{
 						unsigned long countdown;
 
@@ -6418,7 +6433,9 @@ messages name definitions by tag index). Every Delta build offers the
 platform capability, consoles' too. Such a machine is dropped once its
 handshake's window is over, in the lobby or a game in progress (it may join
 again: the next game may be another), with a notice; the host plays on.
-Nothing happens in any other game */
+Nothing happens in any other game, but to a Delta machine whose HELLO is
+under its platform's floor in the legacy table in use (delta.h, "platform
+floors"), which is dropped the same way in any game */
 static void network_game_server_delta_refusals(
 	struct network_game_server *server)
 {
@@ -6429,21 +6446,28 @@ static void network_game_server_delta_refusals(
 	{
 		struct network_game_server_client_machine *machine = &server->client_machines[index];
 		unsigned long address;
-		boolean bomb = server->game.variant.game_engine_index == game_engine_bomb;
-		boolean mcc_map = !bomb && mcc_level_name(server->game.map.name);
-		boolean pack_map = !bomb && !mcc_map && cache_files_map_needs_delta(server->game.map.name);
+		/* (port: a Delta machine whose HELLO is under its platform's floor
+		in the legacy table in use (docs/delta/versioning.md, "Platform
+		floors"), in any game: judged by that alone) */
+		boolean under_floor = network_game_server_client_machine_is_joined_to_game(server, machine) &&
+			!network_game_server_client_machine_is_local(server, machine) &&
+			machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT &&
+			delta_peer_game_machine_under_floor(machine->machine_index);
+		boolean bomb = !under_floor && server->game.variant.game_engine_index == game_engine_bomb;
+		boolean mcc_map = !under_floor && !bomb && mcc_level_name(server->game.map.name);
+		boolean pack_map = !under_floor && !bomb && !mcc_map && cache_files_map_needs_delta(server->game.map.name);
 		/* (port: the number the game is played at changed since the machine
 		joined, as an MCC map's game at the MCC number does: only a Delta machine with
 		mcc_maps follows it, HOST_NUMBER; any other leaves with a notice) */
 		unsigned joined_number = network_game_server_machine_joined_number(server, machine);
-		boolean number_changed = joined_number && joined_number != (unsigned)delta_legacy_announce();
+		boolean number_changed = !under_floor && joined_number && joined_number != (unsigned)delta_legacy_announce();
 		/* (port: a game of the game modes layer (SWAT, Hardcore: docs/
 		modes.md): a Delta machine without the capability or the mode, or a
 		machine without Delta at a number before 35, cannot play it) */
-		unsigned modes_needed = bomb ? 0 : network_game_server_modes_needed(server);
+		unsigned modes_needed = bomb || under_floor ? 0 : network_game_server_modes_needed(server);
 		int mode_refusal = NETWORK_RULES_MODE_PLAYS;
 
-		if ((!bomb && !pack_map && !mcc_map && !number_changed && !modes_needed) ||
+		if ((!under_floor && !bomb && !pack_map && !mcc_map && !number_changed && !modes_needed) ||
 			!network_game_server_client_machine_is_joined_to_game(server, machine) ||
 			network_game_server_client_machine_is_local(server, machine) ||
 			machine->machine_index < 0 || machine->machine_index >= MAXIMUM_NETWORK_MACHINE_COUNT)
@@ -6538,7 +6562,15 @@ static void network_game_server_delta_refusals(
 				}
 				names[length] = 0;
 			}
-			if (number_changed)
+			if (under_floor)
+			{
+				snprintf(notice, sizeof(notice), "%s left: needs a newer build for their platform",
+					names[0] ? names : "A player");
+				network_event("client machine #%ld says network version %d, under its platform's floor (%d): dropped",
+					(long)machine->machine_index, delta_peer_game_machine_legacy_version(machine->machine_index),
+					delta_platform_floor(delta_peer_game_machine_platform(machine->machine_index)));
+			}
+			else if (number_changed)
 			{
 				snprintf(notice, sizeof(notice), "%s left: %s", names[0] ? names : "A player",
 					mcc_map ? "Needs MCC maps (this game now plays an MCC map)" :

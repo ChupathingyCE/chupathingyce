@@ -459,6 +459,12 @@
       }
     ]
   },
+  "platform_floors": {
+    "section": "platform_floors",
+    "rows_maximum": 64,
+    "consoles_without_a_row": "chupa-32a",
+    "rows": []
+  },
   "network_versions": {
     "joined_by_our_clients": [
       11,

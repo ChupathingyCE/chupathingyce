@@ -235,6 +235,13 @@ static long get_sound_length_in_ticks(
 void game_engine_play_multiplayer_sound(
 	long sound_index)
 {
+#ifdef HALO_SERVER
+	/* port: Custom Edition players' clients hear the game's sounds as
+	Custom Edition's own server sends them (server/src/server_ce.c) */
+	void server_ce_multiplayer_sound(long sound_index);
+
+	server_ce_multiplayer_sound(sound_index);
+#endif
 	if (sound_is_queueable[sound_index])
 	{
 		push_queued_sound(
