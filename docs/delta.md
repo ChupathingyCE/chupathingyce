@@ -36,6 +36,7 @@ find a section of the old page below.
 | The legacy number | [versioning.md#the-legacy-number](delta/versioning.md#the-legacy-number) |
 | Wire compatibility ranges | [versioning.md#wire-compatibility-ranges](delta/versioning.md#wire-compatibility-ranges) |
 | The console floor | [versioning.md#the-console-floor](delta/versioning.md#the-console-floor) |
+| Platform floors | [versioning.md#platform-floors](delta/versioning.md#platform-floors) |
 | Following policy | [versioning.md#legacy-compatibility](delta/versioning.md#legacy-compatibility) |
 | The compatibility table | [versioning.md#legacy-versions](delta/versioning.md#legacy-versions) |
 | Automation | [versioning.md#legacy-compatibility](delta/versioning.md#legacy-compatibility) |

@@ -121,6 +121,10 @@ long delta_peer_game_machine_legacy_version(void);
 long delta_peer_game_machine_legacy_version(void) { return 0; }
 long delta_peer_game_machine_pending(void);
 long delta_peer_game_machine_pending(void) { return 0; }
+long delta_peer_game_machine_platform(void);
+long delta_peer_game_machine_platform(void) { return 0; }
+long delta_peer_game_machine_under_floor(void);
+long delta_peer_game_machine_under_floor(void) { return 0; }
 long delta_peer_game_stop(void);
 long delta_peer_game_stop(void) { return 0; }
 long delta_peer_hosting_delta(void);
@@ -342,6 +346,8 @@ long write_endpoint(void);
 long write_endpoint(void) { return 0; }
 long delta_legacy_mcc_version(void);
 long delta_legacy_mcc_version(void) { return 0; }
+long delta_platform_floor(void);
+long delta_platform_floor(void) { return 0; }
 long network_distributed_mcc_share_message(void);
 long network_distributed_mcc_admission_holding(void);
 long network_distributed_mcc_admission_holding(void) { return 0; }

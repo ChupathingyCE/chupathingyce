@@ -28,6 +28,10 @@ the last map's */
 void stubbs_possession_note_unit_definition(void const *tag_instance, void const *definition,
 	void const *tag_cache, unsigned long tag_data_size);
 
+/* a map's tags about to be converted (stubbs_mode_convert_tags), as
+stubbs_engine_tags_new_map */
+void stubbs_possession_tags_new_map(void);
+
 /* a local player's input of a tick (player_control.c's
 handle_one_player_input, after stubbs_engine_player_input): driving the
 hand, melee or action by a human's head takes him; while a human is taken,
@@ -57,6 +61,7 @@ long stubbs_possession_body_unit(short local_player_index);
 static __inline void stubbs_possession_note_unit_definition(void const *tag_instance, void const *definition,
 	void const *tag_cache, unsigned long tag_data_size)
 { (void)tag_instance; (void)definition; (void)tag_cache; (void)tag_data_size; }
+static __inline void stubbs_possession_tags_new_map(void) { }
 static __inline void stubbs_possession_player_input(short local_player_index, unsigned long unit_control_flags)
 { (void)local_player_index; (void)unit_control_flags; }
 static __inline long stubbs_possession_body_unit(short local_player_index) { (void)local_player_index; return NONE; }

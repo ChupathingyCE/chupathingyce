@@ -3562,6 +3562,7 @@ port/linux/src/delta_peer_game.c) */
 #include "delta.h"
 /* port/linux/src/delta_peer_game.c's */
 int delta_peer_advertised_wire_matches(unsigned char const *reserved, int size, char *theirs, int theirs_size);
+int delta_peer_game_under_floor(int *oldest);
 #include "../../port/linux/src/delta_compat.h"
 #endif
 
@@ -3625,6 +3626,20 @@ boolean network_game_client_advertised_game_compatible(
 		int matches = delta_peer_advertised_wire_matches(network_game_client_advertised_versions[game_index].reserved,
 			(int)sizeof(network_game_client_advertised_versions[game_index].reserved), wire, (int)sizeof(wire));
 
+		/* (a Delta host drops a machine under its platform's floor in the
+		legacy table in use: said here, before joining, docs/delta/
+		versioning.md, "Platform floors") */
+		int oldest = 0;
+
+		if (matches > 0 && distributed && delta_peer_game_under_floor(&oldest))
+		{
+			csprintf(details, "Delta hosts now play this platform from network version %d. This build is on %u.",
+				oldest, network_rules_layout_newest());
+			if (tell)
+				network_event("not joining a Delta host: this build is under its platform's floor (%d)", oldest);
+			network_game_client_refuse(_join_reason_needs_update, JOIN_HINT_UPDATE, details, tell);
+			return FALSE;
+		}
 		if (matches > 0 && distributed)
 		{
 			network_event("joining a Delta host of this machine's wire (network version %u; this machine's is %u)",

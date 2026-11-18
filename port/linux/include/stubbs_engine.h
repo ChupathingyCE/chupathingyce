@@ -80,6 +80,11 @@ hands and bodies */
 void stubbs_engine_note_unit_definition(void const *tag_instance, void const *definition,
 	void const *tag_cache, unsigned long tag_data_size);
 
+/* a map's tags about to be converted (stubbs_mode_convert_tags): its first
+unit definition starts the lists afresh. Each map's, even with no player's
+input between them (the menus' map, then a level) */
+void stubbs_engine_tags_new_map(void);
+
 /* a local player's input of a tick (player_control.c's
 handle_one_player_input): the hand thrown, recalled or put on a human's
 head. hand_button is the hand's bit among the player control flags (Halo's
@@ -121,6 +126,7 @@ static __inline void stubbs_engine_hand_rides(short local_player_index, long uni
 static __inline void stubbs_engine_note_unit_definition(void const *tag_instance, void const *definition,
 	void const *tag_cache, unsigned long tag_data_size)
 { (void)tag_instance; (void)definition; (void)tag_cache; (void)tag_data_size; }
+static __inline void stubbs_engine_tags_new_map(void) { }
 static __inline void stubbs_engine_player_input(short local_player_index, unsigned long *player_control_flags,
 	unsigned long hand_button, unsigned long unit_control_flags)
 { (void)local_player_index; (void)player_control_flags; (void)hand_button; (void)unit_control_flags; }

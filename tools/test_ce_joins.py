@@ -294,8 +294,10 @@ def test_weapons_follow_the_client():
     assert "if (update->zoom != client->chosen_zoom)" in choices
     # a new unit: the last unit's choices are not given again
     assert "client->chosen_unit != unit_index" in choices
-    # a zoom level the weapon has, else none
-    assert "update->zoom < levels ? (short)update->zoom : NONE" in choices
+    # a zoom level the weapon has, else none, given once the weapon it is
+    # for is in hand (one asked during a switch waits for it)
+    assert "client->pending_zoom < levels ? (short)client->pending_zoom : NONE" in choices
+    assert "unit->unit.current_weapon_index == unit->unit.desired_weapon_index" in choices
     # the wire's grenade is the type itself (0 frag, 1 plasma: checked
     # against the client's HUD and a throw, 2026-11-14)
     assert "action->desired_grenade_index = (short)update->grenade;" in choices
@@ -641,6 +643,11 @@ def test_joins_held_to_host_limits():
     assert join.index("address_full(event->address)") < join.index("network_game_client_add_named_player(")
     assert "network_distributed_address_full(address, others, count)" in \
         _function(source, "static boolean address_full")
+    # (16 players at most with Custom Edition players in: a CE client's game
+    # holds 16; a server without them keeps its own limit)
+    assert "game->player_count >= CE_GAME_PLAYERS" in join
+    manager = (ROOT / "source/networking/network_game_manager.c").read_text(encoding="utf-8")
+    assert "if (game->player_count >= 16 && server_ce_players_present())" in manager
 
 
 # (our capture of Custom Edition 1.0.10's server ending a game for
@@ -681,6 +688,11 @@ def test_between_games_messages_match_capture():
     assert "if (client && client->phase == CE_PHASE_RECONNECTING)\n\t\t\t\tclient->peer = NONE;" in update
     join = _function(source, "static boolean join")
     assert join.index("CE_PHASE_RECONNECTING") < join.index("network_distributed_banned(")
+    # (a lobby of only Custom Edition players, seats of the server's own
+    # machine, counts down to the next game without another machine)
+    manager = (ROOT / "source/networking/network_server_manager.c").read_text(encoding="utf-8")
+    countdown = _function(manager, "void network_game_server_update_countdown")
+    assert "if (server_ce_players_present())\n\t\t\t\t\t\t\tother_players = TRUE;" in countdown
 
 
 def test_only_custom_edition_maps():
@@ -690,6 +702,150 @@ def test_only_custom_edition_maps():
     assert '!strcmp(at + 1, "ce")' in _function(source, "static boolean map_playable")
     assert "map_playable(status.map)" in _function(source, "static boolean join")
     assert "map_playable(status->map)" in _function(source, "static boolean between_games")
+
+
+def test_team_slayer():
+    """Team Slayer reaches a Custom Edition client: the game's own variant
+    over Custom Edition's Slayer, each player's team in the roster (sent
+    again as players come, go or change teams), and a second client told
+    its own machine number, so it finds its player in that roster"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    variant = _function(source, "static void settings_from_variant")
+    assert "settings->universal[0] = universal->teams ? 1 : 0;" in variant
+    assert "settings->universal[15] = (unsigned int)universal->score_to_win;" in variant
+    assert "!engine_told(variant->game_engine_index)" in variant
+    roster = _function(source, "static void game_settings_for")
+    assert "team = network_player_team(player);" in roster
+    assert "settings->random_seed = ce.random_seed;" in roster
+    assert "send_roster(client, local_index);" in _function(source, "static void update_client")
+    assert "client->announced_team[absolute] != player->team_index" in source
+    transport = (ROOT / "server/platform/ce_transport.c").read_text(encoding="utf-8")
+    assert "out[13] = (unsigned char)machine;" in transport
+    assert "ce_message_new_client_challenge(challenge_text, peer_number(peer)," in transport
+    messages = (ROOT / "server/platform/ce_messages.c").read_text(encoding="utf-8")
+    assert "put_bits(payload, (unsigned int)team, 32);" in messages
+
+
+def test_ctf_matches_capture(harness):  # noqa: F811
+    """Capture the Flag's messages as our capture of Custom Edition's own
+    server has them (research capture real-ce-ctf-grab-drop): the grab (the
+    team's sound, the flag's HUD note, the pickup), a carrier's drop, a HUD
+    message, and a new game's state (no swap timer, no scores, no team)"""
+    import subprocess
+
+    def run(step):
+        return subprocess.run([str(harness), "ctf", step], capture_output=True, text=True, check=True).stdout.strip()
+
+    # (the grab's 210 bits; the last byte's unused bits are whatever the
+    # server's buffer held)
+    assert bits_of(run("grab"))[:210] == bits_of("1b285b000000c8b0365042070000480901000000020e00feff0128")[:210]
+    assert run("drop") == "0568a32120"
+    assert run("message") == "0b080b1e00000078690000"
+    state = bits_of(run("state"))
+    # (a delta, all fields, type 17; then 104 zero bits)
+    assert state[11:19] == "10100010" and set(state[19:19 + 104]) == {"0"}
+
+
+def test_ctf_reaches_custom_edition():
+    """Capture the Flag is shown as it is: the game type and its own settings,
+    the flags' teams, its state as it changes, the HUD's messages and the
+    game's sounds, and a carrier's drop"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    assert "engine == game_engine_slayer || engine == game_engine_ctf" in _function(source, "static boolean engine_told")
+    assert "csmemcpy(settings->engine_variant, &variant->game_engine_variant," in _function(
+        source, "static void settings_from_variant")
+    assert "object->object.owner_team_index == NONE ? 0xffff" in _function(source, "static void put_object_start")
+    assert "ce_payload_put_ctf_update(&payload" in _function(source, "static void send_scores")
+    assert "ce_payload_put_unit_drop_weapon(reliable" in _function(source, "static void update_items")
+    assert "ce_payload_put_hud_add_item(reliable" in _function(source, "static void update_items")
+    assert "ce.showing_message" in _function(source, "void server_ce_multiplayer_sound")
+    engine = (ROOT / "source/game/game_engine.c").read_text(encoding="utf-8")
+    assert "server_ce_multiplayer_message(player_index, message, message_data);" in engine
+    sounds = (ROOT / "source/game/game_engine_multiplayer_sounds.c").read_text(encoding="utf-8")
+    assert "server_ce_multiplayer_sound(sound_index);" in sounds
+    # (a capture's message shows the scores its client has: they go first)
+    message = _function(source, "void server_ce_multiplayer_message")
+    assert message.index("send_scores(client);") < message.index("ce_payload_put_hud_message(")
+    # (a game type's messages are two further on in Custom Edition's list:
+    # Capture the Flag's capture, 31 here, is its 33, "You scored 1 to 0")
+    assert "ce_message_number(message)" in message
+    numbers = _function(source, "static unsigned int ce_message_number")
+    assert "FIRST_GAME_TYPE_MESSAGE = 30," in source and "CE_FIRST_GAME_TYPE_MESSAGE = 32," in source
+    # (not a game type shown as Slayer (Bomb): its messages would read as
+    # Slayer's; a named player outside the client's roster, none)
+    assert "message >= FIRST_GAME_TYPE_MESSAGE &&" in message and "engine_told(" in message
+    assert "!network_player_number(client, data)" in message
+    assert "!network_player_number(client, data))\n\t\t{\n\t\t\tcontinue;" in message
+    # (one flag: the flag's team in its state, and the flag made again as
+    # its sides swap, as Custom Edition's own server does (research capture
+    # rs1, Assault): a client takes an object's team only at its creation)
+    scores = _function(source, "static void send_scores")
+    assert "team_with_flag = flag->object.owner_team_index;" in scores
+    items = _function(source, "static void update_items")
+    assert "TEST_FLAG(_object_mask_weapon, item->object.type) && weapon_is_flag(client->item[number])" in items
+
+
+def test_roster_players_get_their_numbers():
+    """a roster takes the first 15 other players in the game's order,
+    whatever their index: each one's numbers reach its client, and a player
+    the client's updates can't carry is not listed"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    assert "struct ce_player_statistics statistics_sent[TRACKED_PLAYERS];" in source
+    scores = _function(source, "static void send_scores")
+    assert "absolute >= TRACKED_PLAYERS || client->announced[absolute] != iterator.datum_index" in scores
+    roster = _function(source, "static void game_settings_for")
+    assert "DATUM_INDEX_TO_ABSOLUTE_INDEX(datum) >= TRACKED_PLAYERS" in roster
+    told = _function(source, "static void roster_told")
+    assert "csmemset(client->statistics_known, 0, sizeof(client->statistics_known));" in told
+
+
+def test_game_types_match_captures(harness):  # noqa: F811
+    """Oddball's, King's and Race's state as our captures of Custom Edition's
+    server have it at a join (research captures odd1, king1, race1: a new
+    game's, all zero): the message and its length, the next message's start
+    found right after it"""
+    import subprocess
+
+    for kind, count, length in ((18, 48, 1536), (19, 17, 544), (20, 50, 1600)):
+        out = subprocess.run([str(harness), "gametype", str(kind), str(count)], capture_output=True, text=True,
+                             check=True).stdout.strip()
+        bits = bits_of(out)
+        assert bits[11:19] == "10" + "".join(str((kind >> i) & 1) for i in range(6))
+        assert int(bits[:11][::-1], 2) == (11 + 8 + length + 7) // 8
+        assert set(bits[19:19 + length]) == {"0"}
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    told = _function(source, "static boolean engine_told")
+    for engine in ("game_engine_oddball", "game_engine_king", "game_engine_race"):
+        assert engine in told
+    assert "ce_payload_put_game_type_update(&payload, type, values, count);" in _function(source, "static void send_scores")
+    # (Oddball's and King's times go in seconds, as a Custom Edition client
+    # counts them; the ball's five-second beep is its carrier's client's)
+    state = _function(source, "static int game_type_state")
+    assert state.count("/= TICKS_PER_SECOND;") == 2
+    # (and told as a client joins: its client counts them itself)
+    scores = _function(source, "static void send_scores")
+    assert "changed = values[16] != client->game_type_sent[16];" in scores
+    # (a free for all's teams are roster slots, one per player on a client,
+    # in the roster, the spawns, the bipeds and the game type's numbers)
+    # (kept by each player while it stays in the roster, so a biped's team
+    # never goes stale as players before it leave; one test of team or free
+    # for all for the roster and the players' and bipeds' teams: Bomb, shown
+    # as Slayer, is a free for all everywhere)
+    assert "client->ffa_player[absolute] == player_index" in _function(source, "static int client_team")
+    assert "if (!ce_team_game() && player_index != NONE)" in _function(source, "static int client_team")
+    ffa = _function(source, "static void ffa_teams")
+    assert "team = client->ffa_player[absolute] == player_index ? client->ffa_team[absolute] : -1;" in ffa
+    assert "engine_told(variant->game_engine_index) && variant->universal_variant.teams" in \
+        _function(source, "static boolean ce_team_game")
+    roster = _function(source, "static void game_settings_for")
+    assert "settings->universal[0] ?" not in roster and "game_engine_has_teams()" not in source
+    assert "ffa_teams_told(client, &settings, slot_players);" in _function(source, "static void send_roster")
+    assert "(out)[client_team(client, player_index)] = (unsigned int)(array)[own_team];" in state
+    assert source.count("client_team(client, player_index)") == 4
+    statistics = _function(source, "static void player_statistics")
+    assert "statistics->game_specific[0] = (specific[0] / TICKS_PER_SECOND) & 0xffff;" in statistics
+    sound = _function(source, "void server_ce_multiplayer_sound")
+    assert "sound_index == SOUND_COUNTDOWN_TIMER_END && game_engine &&" in sound
 
 
 def test_welcome_line():

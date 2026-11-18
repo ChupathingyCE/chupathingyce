@@ -6680,6 +6680,24 @@ boolean pc_menu_setup_offered(void)
 #endif
 }
 
+/* the menus' own map didn't load (main_new_map: a pack's maps the game can't
+read): the setup screen, which shows the folder's maps and why, rather than a
+blue screen. FALSE in a run nobody watches and in the builds without it */
+boolean pc_menu_setup_after_failed_menus(char const *map_name)
+{
+#ifdef HALO_LAUNCHER
+	extern BOOL platform_run_is_unwatched(void);
+
+	if (platform_run_is_unwatched())
+		return FALSE;
+	platform_log("the menus' map '%s' doesn't load: starting again on the setup screen", map_name);
+	return launcher_restart_to_setup() != 0;
+#else
+	(void)map_name;
+	return FALSE;
+#endif
+}
+
 /* "port setup open" (its A) */
 boolean pc_menu_setup_open(void)
 {
