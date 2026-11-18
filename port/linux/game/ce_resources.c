@@ -2031,7 +2031,8 @@ static void ce_sounds_decode(
 					{
 						error(_error_silent, "Custom Edition maps: %s: its samples in the map and sounds.map could not "
 							"be copied", ce_loaded_tag_name(instance));
-						free(data);
+						if (data)
+							free(data);
 						all = FALSE;
 						break;
 					}
