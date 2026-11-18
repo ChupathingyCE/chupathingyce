@@ -2031,7 +2031,8 @@ static void ce_sounds_decode(
 					{
 						error(_error_silent, "Custom Edition maps: %s: its samples in the map and sounds.map could not "
 							"be copied", ce_loaded_tag_name(instance));
-						free(data);
+						if (data)
+							free(data);
 						all = FALSE;
 						break;
 					}
@@ -2213,7 +2214,10 @@ static void ce_sounds_decode(
 		if (from_map)
 			in_map++;
 	}
-	free(decoded);
+	/* (the game's free takes no NULL: a map whose sounds needed no decoding
+	never made the list) */
+	if (decoded)
+		free(decoded);
 	if (edges)
 		free(edges);
 	if (order)
