@@ -1237,6 +1237,17 @@ void lua_chimera_api_timers(
 				lua_getfield(state, -1, "n");
 				arguments = (int)lua_tointeger(state, -1);
 				lua_pop(state, 1);
+				/* (room for its arguments, which set_timer takes any number
+				of: the stack has only LUA_MINSTACK for certain) */
+				if (arguments < 0 || !lua_checkstack(state, arguments + 1))
+				{
+					lua_pop(state, 2);
+					lua_log_once("timer arguments", "%s: timer %s has too many arguments: stopped", script->name,
+						timer->function);
+					lua_timer_remove(script, id);
+					timer = NULL;
+					break;
+				}
 				for (argument = 1; argument <= arguments; argument++)
 				{
 					lua_rawgeti(state, -1 - (argument - 1), argument);

@@ -668,7 +668,9 @@ static void opensauce_pp_global_command(
 struct hs_function_definition *lua_opensauce_hs_function(
 	short index)
 {
-	if (index < 0 || index >= (short)NUMBEROF(opensauce_functions))
+	/* (only on OpenSauce's maps, as they are found: another map's scripts
+	that name one by its number name none) */
+	if (index < 0 || index >= (short)NUMBEROF(opensauce_functions) || !lua_opensauce_map())
 		return NULL;
 	opensauce_functions_prepare();
 	return &opensauce_functions[index].definition;
