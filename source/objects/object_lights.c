@@ -419,6 +419,10 @@ typedef char verify_lights_globals_size[
 #endif
 /* ---------- prototypes */
 
+static boolean light_drawn_axes_valid(
+	real_vector3d const *forward,
+	real_vector3d const *up);
+
 static boolean should_render_lights(
 	void);
 static void light_marker_begin(
@@ -1574,6 +1578,18 @@ void lights_preprocess_scene(
 						}
 					}
 
+					/* port: a drawn direction that came out degenerate (zero,
+					not a number, or its forward along its up) would squeeze the
+					light's gel to a point and light everything around it evenly
+					(warthog-xbox #131): the tick's, which retail drew, instead */
+					if (light->parent_light_index == NONE &&
+						!light_drawn_axes_valid(&light_parameters.forward, &light_parameters.up) &&
+						light_drawn_axes_valid(&light->forward, &light->up))
+					{
+						light_parameters.forward = light->forward;
+						light_parameters.up = light->up;
+					}
+
 					light->rasterizer_light_index = rasterizer_light_submit(
 						&light_parameters);
 					debug_rasterizer_light_count = light->rasterizer_light_index + 1;
@@ -2058,6 +2074,24 @@ static void render_debug_light(
 }
 
 /* ---------- private code */
+
+/* port: whether a light's drawn forward and up are a usable frame: numbers,
+near unit length, and far from parallel (loose, as a marker's matrix may be
+scaled a little) */
+static boolean light_drawn_axes_valid(
+	real_vector3d const *forward,
+	real_vector3d const *up)
+{
+	real forward_squared = magnitude_squared3d(forward);
+	real up_squared = magnitude_squared3d(up);
+	real dot = dot_product3d(forward, up);
+
+	return
+		valid_real_vector3d(forward) && valid_real_vector3d(up) &&
+		forward_squared > 0.25f && forward_squared < 4.0f &&
+		up_squared > 0.25f && up_squared < 4.0f &&
+		dot*dot < 0.25f*forward_squared*up_squared;
+}
 
 static real light_attenuation(
 	real radius,
