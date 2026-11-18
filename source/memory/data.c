@@ -142,7 +142,9 @@ void *datum_try_and_get(
 	return header;
 }
 
-void *datum_get(
+/* (the name in parentheses: on the consoles it is also the inline form's
+macro, data.h) */
+void *(datum_get)(
 	struct data_array *data,
 	long index)
 {

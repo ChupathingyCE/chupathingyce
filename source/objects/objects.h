@@ -500,6 +500,26 @@ extern boolean debug_object_garbage_collection;
 
 extern struct data_array *object_header_data;
 
+#ifdef HALO_CONSOLE_INLINE_ACCESSORS
+/* port: a console's busiest units' object_get_and_verify_type
+(halo_port_features.h): the object without the call when its header is in
+use (datum_get's checks, data.h) and it is of one of the types asked for.
+Anything else is the function's, which asserts as always */
+static __inline__ void *object_get_and_verify_type_fast(
+	long object_index,
+	unsigned long valid_type_flags)
+{
+	struct object_header_datum *header = (struct object_header_datum *)datum_get_checked(object_header_data, object_index);
+
+	if (header && TEST_FLAG(valid_type_flags, header->datum->object.type))
+		return header->datum;
+
+	return (object_get_and_verify_type)(object_index, valid_type_flags);
+}
+#define object_get_and_verify_type(object_index, valid_type_flags) \
+	object_get_and_verify_type_fast((object_index), (valid_type_flags))
+#endif
+
 extern boolean debug_objects_position_velocity;
 extern boolean debug_objects_bounding_spheres;
 extern boolean debug_objects_collision_models;

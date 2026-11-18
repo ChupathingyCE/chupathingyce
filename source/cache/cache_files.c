@@ -172,16 +172,7 @@ enum
 
 /* ---------- structures */
 
-struct cache_file_tag_instance
-{
-	long group_tag;
-	long parent_group_tags[2];
-	long tag_index;
-	/* read from the cache file: Xbox addresses */
-	XPTR(char) name;
-	XPTR(void) base_address;
-	unsigned long unused[2];
-};
+/* (struct cache_file_tag_instance: tag_groups.h) */
 
 struct cache_file_tag_header
 {
@@ -323,6 +314,16 @@ static boolean cache_file_structure_bsp_reference_verify(
 /* ---------- globals */
 
 static struct cache_file_globals cache_file_globals = { 0 };
+#ifdef HALO_CONSOLE_ACCESSOR_STATE
+/* port: the loaded tags' count, for the consoles' inline tag_get
+(tag_groups.h): the tag header's own while tags are loaded, else a 0 */
+static long const cache_file_no_tags = 0;
+long const *cache_file_loaded_tag_count = &cache_file_no_tags;
+#define CACHE_FILE_TAG_COUNT_FOLLOW(loaded) \
+	(cache_file_loaded_tag_count = (loaded) ? &cache_file_globals.tag_header->tag_count : &cache_file_no_tags)
+#else
+#define CACHE_FILE_TAG_COUNT_FOLLOW(loaded) ((void)0)
+#endif
 /* port: the name the map loaded last was loaded by (scenario_tags_load) */
 static char cache_file_loaded_name[64];
 extern struct cache_file_tag_instance *global_tag_instances;
@@ -720,6 +721,7 @@ void scenario_tags_unload(
 	{
 		mcc_cache_tags_unload();
 		cache_file_globals.tags_loaded = FALSE;
+		CACHE_FILE_TAG_COUNT_FOLLOW(FALSE);
 		global_tag_instances = NULL;
 		return;
 	}
@@ -739,6 +741,7 @@ void scenario_tags_unload(
 #endif
 	tags_header_deregister_vertex_and_index_buffers(cache_file_globals.tag_header);
 	cache_file_globals.tags_loaded = FALSE;
+	CACHE_FILE_TAG_COUNT_FOLLOW(FALSE);
 	global_tag_instances = NULL;
 
 	return;
@@ -1861,6 +1864,7 @@ long scenario_tags_load(
 			extern void menu_tags_loaded(char const *map_name);
 			global_tag_instances = xbox_pointer(cache_file_globals.tag_header->tag_instances);
 			cache_file_globals.tags_loaded = TRUE;
+			CACHE_FILE_TAG_COUNT_FOLLOW(TRUE);
 			menu_tags_loaded(cache_file_globals.header.name);
 			{
 				if (!mcc_pause_runtime_load())
@@ -1945,6 +1949,7 @@ long scenario_tags_load(
 			cache_file_globals.tag_header = tag_cache_base_address;
 			global_tag_instances = xbox_pointer(ce_header->tag_instances);
 			cache_file_globals.tags_loaded = TRUE;
+			CACHE_FILE_TAG_COUNT_FOLLOW(TRUE);
 			error(_error_silent, "Custom Edition map %s: %ld tags, %ld model parts (%ld bytes of model data)",
 				scenario_name, ce_header->tag_count, ce_header->model_part_count, ce_header->model_data_size);
 			/* its indexed tags, from the resource maps, into the space between
@@ -2271,6 +2276,7 @@ long scenario_tags_load(
 			global_tag_instances = xbox_pointer(cache_file_globals.tag_header->tag_instances);
 			tags_header_register_vertex_and_index_buffers(cache_file_globals.tag_header);
 			cache_file_globals.tags_loaded = TRUE;
+			CACHE_FILE_TAG_COUNT_FOLLOW(TRUE);
 			/* port: a PAL map played as the NTSC maps are (port/linux/game/pal_tags.c) */
 			{
 				extern void pal_tags_loaded(char const *build);
@@ -2576,7 +2582,9 @@ void scenario_structure_bsp_unload(
 	return;
 }
 
-void *tag_get(
+/* (the name in parentheses: on the consoles it is also the inline form's
+macro, tag_groups.h) */
+void *(tag_get)(
 	long group_tag,
 	long tag_index)
 {
