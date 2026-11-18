@@ -404,6 +404,10 @@ symbols in this file:
 #include "mcc_main.h"
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_campaign.h" /* port: port/linux/game/stubbs_campaign.c */
+#include "halt_facts.h" /* port: the halt screen's facts */
+#ifdef HALO_GUIDE
+#include "halt_screen.h" /* port: port/linux/game/halt_screen.c */
+#endif
 
 /* port: the main loop's stage, for the console's bring-up watchdog
 (port/xbox/src/xbox_port.c); nothing elsewhere */
@@ -2166,6 +2170,14 @@ void main_crash(
 	/* BUG (original, deliberate): the "crash" script command ("crashes (for debugging).")
 	 * faults on purpose by storing this literal through the null pointer; the August and
 	 * September 2001 builds (debug and retail) and January all emit this one store. */
+	/* port: "crash halt" stops the game as a failed assert does, for testing
+	the halt screen (halt_and_catch_fire); any other string faults as before */
+	if (str && !csstrcmp(str, "halt"))
+	{
+		display_assert("crash halt: a halt asked for at the console", "c:\\halo\\SOURCE\\main\\main.c", __LINE__, TRUE);
+		halt_and_catch_fire();
+		return;
+	}
 	*(char **)NULL = "chucky was here!  NULL belongs to me!!!!!";
 	return;
 }
@@ -3647,6 +3659,90 @@ void main_framerate_render(
 	return;
 }
 
+/* port: the halt screen's facts (halt_facts.h), gathered once as the game
+stops: no tag lookup, no allocation */
+static struct halt_facts halt_screen_facts;
+/* (the log's end read into it) */
+static char halt_screen_log[8192];
+
+static void halt_screen_gather(
+	void)
+{
+	struct halt_facts *facts = &halt_screen_facts;
+	char const *reason;
+	char const *file;
+	long line;
+	FILE *log;
+
+	csmemset(facts, 0, sizeof(*facts));
+	reason = error_halt_place(&file, &line);
+	csstrncpy(facts->reason, reason[0] ? reason : "No reason given.", sizeof(facts->reason) - 1);
+	halt_facts_place(facts->place, (int)sizeof(facts->place), file, line);
+	halt_facts_map(facts->map, (int)sizeof(facts->map), cache_file_loaded_map_name());
+	if (stubbs_mode_active())
+	{
+		facts->mode = "Stubbs";
+	}
+	else if (mcc_cache_tags_loaded())
+	{
+		facts->mode = "MCC";
+	}
+	else if (facts->map[0] && CACHE_FILE_TAGS_ARE_CE())
+	{
+		facts->mode = "Custom Edition";
+	}
+	else
+	{
+		facts->mode = "Xbox";
+	}
+	facts->build = port_build_identity();
+
+	/* the log's end, as debug.txt has it (its addresses and home folder
+	already taken out as the lines were written) */
+	log = fopen(error_log_path(), "rb");
+	if (log)
+	{
+		long size;
+		long length = 0;
+
+		fseek(log, 0, SEEK_END);
+		size = ftell(log);
+		if (size > 0)
+		{
+			fseek(log, size > (long)sizeof(halt_screen_log) ? size - (long)sizeof(halt_screen_log) : 0, SEEK_SET);
+			length = (long)fread(halt_screen_log, 1, sizeof(halt_screen_log), log);
+		}
+		fclose(log);
+		halt_facts_log_lines(facts, halt_screen_log, (int)length);
+	}
+
+	return;
+}
+
+/* the facts as text, for the game's terminal font (the screen without the
+overlay) */
+static char halt_screen_text[4096];
+
+static void halt_screen_text_build(
+	void)
+{
+	struct halt_facts const *facts = &halt_screen_facts;
+	long length;
+	long index;
+
+	length = snprintf(halt_screen_text, sizeof(halt_screen_text),
+		"The game stopped\r\n\r\n%s\r\n%s%sMap: %s   Mode: %s\r\nBuild: %s\r\n\r\n",
+		facts->reason, facts->place, facts->place[0] ? "\r\n" : "", facts->map[0] ? facts->map : "none",
+		facts->mode, facts->build);
+	for (index = 0; index < facts->line_count && length > 0 && length < (long)sizeof(halt_screen_text); index++)
+	{
+		length += snprintf(halt_screen_text + length, sizeof(halt_screen_text) - (size_t)length, "%s\r\n",
+			facts->lines[index]);
+	}
+
+	return;
+}
+
 void halt_and_catch_fire(
 	void)
 {
@@ -3655,6 +3751,7 @@ void halt_and_catch_fire(
 	struct scenario *scenario;
 	struct rasterizer_frame_begin_parameters frame_parameters;
 	struct rasterizer_window_begin_parameters window_parameters;
+	boolean overlay_shown = FALSE;
 
 #ifdef HALO_CONSOLE_HALT_TO_LAUNCHER
 	{
@@ -3683,15 +3780,28 @@ void halt_and_catch_fire(
 			}
 		}
 
-		if (scenario)
+		/* port: what stopped the game, for the screen */
+		halt_screen_gather();
+		halt_screen_text_build();
+#ifdef HALO_GUIDE
+		/* port: the menus' look and the ways out, when someone is watching
+		(halt_screen.c); a run nobody watches keeps the plain screen */
+		overlay_shown = halt_screen_shown() != 0;
+#endif
+
+		font_tag_index = NONE;
+		if (!overlay_shown)
 		{
-			font_tag_index = interface_get_tag_index(_interface_font_terminal);
-		}
-		if (!scenario || font_tag_index == NONE)
-		{
-			font_tag_index = tag_loaded(
-				FONT_GROUP_TAG,
-				"old tags\\internal system plain");
+			if (scenario)
+			{
+				font_tag_index = interface_get_tag_index(_interface_font_terminal);
+			}
+			if (!scenario || font_tag_index == NONE)
+			{
+				font_tag_index = tag_loaded(
+					FONT_GROUP_TAG,
+					"old tags\\internal system plain");
+			}
 		}
 
 		while (TRUE)
@@ -3727,18 +3837,23 @@ void halt_and_catch_fire(
 				&window_parameters.frustum,
 				TRUE);
 			window_parameters.rasterizer_target = 0;
-			window_parameters.fog.atmospheric_color = *global_real_rgb_blue;
+			/* port: dark, as the menus' backdrop, rather than the Xbox's blue */
+			window_parameters.fog.atmospheric_color = *global_real_rgb_black;
 			window_parameters.fog.atmospheric_maximum_distance = 0.0f;
 			window_parameters.fog.atmospheric_minimum_distance = 0.0f;
 			window_parameters.fog.planar_mode = 0;
 			render.camera = window_parameters.camera;
 			rasterizer_window_begin(&window_parameters);
 
-			if (font_tag_index != NONE)
+			if (!overlay_shown && font_tag_index != NONE)
 			{
 				point2d cursor = { 0, 0 };
 				rectangle2d bounds = rasterizer_globals.reserved04.frame_bounds;
 
+				/* (inset from the screen's edges, as a television may cut
+				them) */
+				bounds.x0 += 24;
+				bounds.y0 += 24;
 				draw_string_set_draw_mode(
 					font_tag_index,
 					NONE,
@@ -3752,15 +3867,14 @@ void halt_and_catch_fire(
 					NULL,
 					&cursor,
 					-4,
-					port_build_identity());
-				bounds.y0 = cursor.y - 1;
-				rasterizer_draw_string(
-					&bounds,
-					NULL,
-					&cursor,
-					-4,
-					error_get());
+					halt_screen_text);
 			}
+#ifdef HALO_GUIDE
+			if (overlay_shown)
+			{
+				halt_screen_frame(&halt_screen_facts);
+			}
+#endif
 
 			rasterizer_transparent_geometry_draw(TRUE);
 			rasterizer_transparent_geometry_draw(FALSE);
@@ -3769,7 +3883,16 @@ void halt_and_catch_fire(
 			rasterizer_windows_end();
 			rasterizer_frame_end();
 			rasterizer_present(NULL, NULL);
+			/* port: the controllers read too, for the overlay's ways out */
+			if (overlay_shown)
+			{
+				input_frame_begin();
+			}
 			input_update();
+			if (overlay_shown)
+			{
+				input_frame_end();
+			}
 		}
 	}
 
