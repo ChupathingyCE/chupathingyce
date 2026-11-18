@@ -983,6 +983,48 @@ static boolean terminal_scrollback_shown(
 	return terminal_filter_matches(terminal_scrollback[slot].text);
 }
 
+/* a slot's text as shown: with a filter, a listing's row (entries in
+columns, as help and Tab print them, two spaces or more apart) keeps only
+the entries that match, so that a row is not shown for its other column */
+static char const *terminal_scrollback_text(
+	long slot,
+	char *filtered,
+	long size)
+{
+	char const *text = terminal_scrollback[slot].text;
+	char const *cursor = text;
+	long length = 0;
+
+	if (!terminal_filter.text[0] || terminal_scrollback[slot].marks[3] || !strstr(text, "  "))
+		return text;
+	while (*cursor)
+	{
+		char entry[TERMINAL_PRINTF_MAXIMUM_LINE_LENGTH + 1];
+		long entry_length = 0;
+
+		while (*cursor == ' ')
+			cursor++;
+		/* (an entry ends at two spaces, or the line's end) */
+		while (*cursor && !(cursor[0] == ' ' && cursor[1] == ' ') && entry_length < (long)sizeof(entry) - 1)
+			entry[entry_length++] = *cursor++;
+		while (entry_length && entry[entry_length - 1] == ' ')
+			entry_length--;
+		entry[entry_length] = 0;
+		if (entry_length && terminal_filter_matches(entry) && length + entry_length + 3 < size)
+		{
+			if (length)
+			{
+				filtered[length++] = ' ';
+				filtered[length++] = ' ';
+			}
+			memcpy(filtered + length, entry, (size_t)entry_length);
+			length += entry_length;
+		}
+	}
+	filtered[length] = 0;
+	return length ? filtered : text;
+}
+
 /* a line into the scrollback as it is: its text and color */
 static void terminal_scrollback_put(
 	char const *text,
@@ -1372,14 +1414,17 @@ static void terminal_scrollback_copy(
 	for (line = first - 1; line >= 0; line--)
 	{
 		long slot = (terminal_scrollback_next - 1 - line + 2 * TERMINAL_SCROLLBACK_LINES) % TERMINAL_SCROLLBACK_LINES;
+		char filtered[TERMINAL_PRINTF_MAXIMUM_LINE_LENGTH + 1];
+		char const *shown;
 		long size;
 
 		if (!terminal_scrollback_shown(slot))
 			continue;
-		size = (long)strlen(terminal_scrollback[slot].text);
+		shown = terminal_scrollback_text(slot, filtered, sizeof(filtered));
+		size = (long)strlen(shown);
 		if (length + size + 2 > (long)sizeof(text))
 			break;
-		memcpy(text + length, terminal_scrollback[slot].text, (size_t)size);
+		memcpy(text + length, shown, (size_t)size);
 		length += size;
 		text[length++] = '\n';
 	}
@@ -1912,16 +1957,19 @@ static boolean terminal_dropdown_draw(
 			short starts[TERMINAL_PRINTF_MAXIMUM_LINE_LENGTH / 8 + 2];
 			short count;
 			short row;
+			char filtered[TERMINAL_PRINTF_MAXIMUM_LINE_LENGTH + 1];
+			char const *text;
 
 			/* (the filter's and quiet's lines only) */
 			if (!terminal_scrollback_shown(slot))
 				continue;
-			count = terminal_wrap(terminal_scrollback[slot].text, terminal_scrollback[slot].tabstop, columns,
+			text = terminal_scrollback_text(slot, filtered, sizeof(filtered));
+			count = terminal_wrap(text, terminal_scrollback[slot].tabstop, columns,
 				starts, (short)NUMBEROF(starts));
 
 			for (row = (short)(count - 1); row >= 0 && y - line_height >= top; row--)
 			{
-				short end = row + 1 < count ? starts[row + 1] : (short)strlen(terminal_scrollback[slot].text);
+				short end = row + 1 < count ? starts[row + 1] : (short)strlen(text);
 
 				if (rows_to_skip > 0)
 				{
@@ -1933,12 +1981,12 @@ static boolean terminal_dropdown_draw(
 				y = bounds.y0;
 				if (!starts[row] && terminal_scrollback[slot].marks[3])
 				{
-					terminal_dropdown_prompt_text(font_tag_index, &bounds, terminal_scrollback[slot].text, end,
+					terminal_dropdown_prompt_text(font_tag_index, &bounds, text, end,
 						terminal_scrollback[slot].marks, &terminal_scrollback[slot].color, width);
 				}
 				else
 				{
-					terminal_dropdown_text(font_tag_index, &bounds, terminal_scrollback[slot].text + starts[row],
+					terminal_dropdown_text(font_tag_index, &bounds, text + starts[row],
 						(short)(end - starts[row]), &terminal_scrollback[slot].color, terminal_scrollback[slot].tabstop);
 				}
 			}
