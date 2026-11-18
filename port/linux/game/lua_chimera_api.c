@@ -48,6 +48,11 @@ SPDX-License-Identifier: GPL-3.0-only
 #define LUA_CHIMERA_BUILD 0
 #define LUA_CHIMERA_FULL_BUILD "Chupathingy"
 
+/* get_tag gave 0 for a tag that is not there until Chimera's API 2.050
+(the API it took from its -5xx builds, which scripts asking for 2.042, as
+SPV3's do, were written for); nil from then on */
+#define LUA_CHIMERA_GET_TAG_NIL_VERSION 2.050
+
 /* Chimera's minimum timer interval and tick rate (lua_game.cpp) */
 #define LUA_MINIMUM_TICK_RATE 0.01
 
@@ -280,8 +285,23 @@ static int lua_execute_script(
 	return 0;
 }
 
+/* the API version a script asks for: its clua_version as it stands (a
+script that runs its own code as it loads has set it by then; Chimera reads
+it once the script has run), else the API's */
+static double lua_api_version(
+	lua_State *state)
+{
+	double version = lua_script_from_state(state)->version;
+
+	if (lua_getglobal(state, "clua_version") == LUA_TNUMBER)
+		version = lua_tonumber(state, -1);
+	lua_pop(state, 1);
+	return version;
+}
+
 /* get_tag(id) or get_tag(group, path): the tag's instance in the tag
-index, as an address, or nil */
+index, as an address, or nil (0 for a script asking for an API before
+2.050) */
 static int lua_get_tag(
 	lua_State *state)
 {
@@ -325,6 +345,8 @@ static int lua_get_tag(
 	}
 	if (address)
 		lua_pushinteger(state, address);
+	else if (lua_api_version(state) < LUA_CHIMERA_GET_TAG_NIL_VERSION)
+		lua_pushinteger(state, 0);
 	else
 		lua_pushnil(state);
 	return 1;
