@@ -1926,7 +1926,7 @@ as a game name's: a longer name is cut with "...") */
 #define POSTGAME_PROFILE_NAME_LENGTH 12
 /* (the HUD's lines, the kill feed's and the crosshair's: a whole handle
 with its mark, the Delta, and 20 letters) */
-#define EVENT_PROFILE_NAME_LENGTH 22
+#define EVENT_PROFILE_NAME_LENGTH GAME_ENGINE_SHOWN_NAME_LENGTH
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port/linux/game/profile_names.c's */
 boolean profile_names_player(long player_index, wchar_t *name, long size);
@@ -1982,6 +1982,16 @@ static wchar_t const *scoreboard_player_name(
 	(void)size;
 #endif
 	return player->name;
+}
+
+/* port: a player's name as the scoreboard shows it (scoreboard_player_name),
+for the HUD's nameplates and the game types' lines (game_engine.h) */
+wchar_t const *game_engine_player_shown_name(
+	long player_index,
+	wchar_t *buffer,
+	long size)
+{
+	return scoreboard_player_name(player_index, player_get(player_index), buffer, size);
 }
 
 #ifdef HALO_GAME_BROWSER
@@ -2525,6 +2535,8 @@ static void game_engine_rasterize_in_game_score(
 		wchar_t *status_string;
 		wchar_t *place_string;
 		real_argb_color *row_color;
+		/* port: (the name the scoreboard shows: scoreboard_player_name) */
+		wchar_t shown_name[GAME_ENGINE_SHOWN_NAME_LENGTH];
 
 		is_current_player = player_index == entry_player_index;
 		if (player)
@@ -2576,7 +2588,7 @@ static void game_engine_rasterize_in_game_score(
 				NUMBEROF(row_string),
 				L"\t%s\t%s\t%s",
 				place_string,
-				player->name,
+				scoreboard_player_name(entry_player_index, player, shown_name, NUMBEROF(shown_name)),
 				status_string);
 			row_string[NUMBEROF(row_string) - 1] = 0;
 
@@ -3346,8 +3358,23 @@ static void game_show_score_one_player(
 	long message,
 	long message_data)
 {
+#ifdef HALO_SERVER
+	/* port: a Custom Edition player's client is told the message, as Custom
+	Edition's own server tells it (server/src/server_ce.c); the sounds the
+	message plays as it is shown here (a double kill's) are its client's
+	to play, not everyone's */
+	void server_ce_multiplayer_message(long player_index, long message, long message_data);
+	void server_ce_showing_message(boolean showing);
+
+	if (message != NONE)
+		server_ce_multiplayer_message(player_index, message, message_data);
+	server_ce_showing_message(TRUE);
+#endif
 	if (message != NONE)
 		multiplayer_message(player_index, message, message_data);
+#ifdef HALO_SERVER
+	server_ce_showing_message(FALSE);
+#endif
 
 	return;
 }

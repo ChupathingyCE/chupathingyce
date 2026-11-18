@@ -2251,6 +2251,8 @@ static void bomb_engine_player_killed_player(long killing_player_index, long kil
 static boolean bomb_engine_format_message(long player_index, long message, long message_data, wchar_t *buffer,
 	long buffer_size)
 {
+	/* port: (the name the scoreboard shows: game_engine_player_shown_name) */
+	wchar_t shown_name[GAME_ENGINE_SHOWN_NAME_LENGTH];
 	struct player_datum *player = player_get(player_index);
 	long team_index = VALID_INDEX(player->team_index, NUMBER_OF_BOMB_TEAMS) ? player->team_index : 0;
 	long other_team_index = (team_index + 1) % NUMBER_OF_BOMB_TEAMS;
@@ -2280,7 +2282,8 @@ static boolean bomb_engine_format_message(long player_index, long message, long 
 		if (carrier)
 		{
 			usnprintf(buffer, buffer_size, message == _bomb_message_ally_has_the_bomb ? L"%s has the bomb." :
-				L"%s has the bomb!", carrier->name);
+				L"%s has the bomb!",
+				game_engine_player_shown_name(message_data, shown_name, NUMBEROF(shown_name)));
 		}
 		else
 		{

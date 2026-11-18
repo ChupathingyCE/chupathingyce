@@ -359,6 +359,9 @@ with their authors credited in each commit.
   Halo PC fixes reference, the compressed map format, and the Lua API that
   mods' scripts use (`lua.scripts`), adapted from Chimera's own in
   `port/linux/game/lua_chimera_api.c` (GPL-3.0-only).
+- [OpenSauce](https://github.com/HaloMods/OpenSauce) by Kornner Studios
+  (GPL-3.0): its Halo Custom Edition message definitions, the reference for
+  the fields Custom Edition players' clients are sent.
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, Lua, tomlc17, musl's maths,
