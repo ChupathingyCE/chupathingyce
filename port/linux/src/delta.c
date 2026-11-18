@@ -13,7 +13,10 @@ widens the built-in numbers (announces a newer number, joins a wider range).
 The row may also carry "layouts" (delta.h): facts about newer OpenCE versions
 that network_rules.c reads them by (delta_legacy_layouts), within its limits;
 and "requires": the host protections (DELTA_HOST_PROTECTIONS) a host must
-have to announce more than this build's own number.
+have to announce more than this build's own number. Beside the rows, the
+table's "platform_floors" (delta.h): the oldest network version a Delta
+machine of a platform may say in its HELLO to play with our hosts, one
+platform's apart from every other's.
 
 Where tables come from, the newest serial winning (an equal or older one is
 never taken, so an old copy cannot roll a machine back):
@@ -114,6 +117,17 @@ static const char *const delta_capability_names[] =
 _Static_assert(sizeof(delta_capability_names) / sizeof(*delta_capability_names) == NUMBER_OF_DELTA_CAPABILITIES,
 	"a name for each capability");
 
+/* the platforms' keys (delta.h), as the table's "platform_floors" spells
+them */
+static const char *const delta_platform_keys[] =
+{
+#define DELTA_PLATFORM_KEY_ENTRY(platform, key, tag, name, capitals) key,
+	DELTA_PLATFORM_NAMES(DELTA_PLATFORM_KEY_ENTRY)
+#undef DELTA_PLATFORM_KEY_ENTRY
+};
+_Static_assert(sizeof(delta_platform_keys) / sizeof(*delta_platform_keys) == NUMBER_OF_DELTA_PLATFORMS,
+	"a key for each platform");
+
 /* the host protections (delta.h), as the table spells them, and whether
 this build has each */
 static const struct
@@ -149,6 +163,8 @@ struct delta_table
 	/* ... and the row's layouts, oldest first */
 	int layout_count;
 	struct delta_layout_fact layouts[DELTA_LAYOUT_FACTS];
+	/* the platforms' floors ("platform_floors"), by platform: 0 for none */
+	int floors[NUMBER_OF_DELTA_PLATFORMS];
 };
 
 static pthread_mutex_t delta_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -185,6 +201,8 @@ static struct
 	/* (delta_legacy_host_game_at) the number the next games this machine
 	hosts announce, 0 for the usual */
 	int host_game_at;
+	/* the platforms' floors in use (delta_platform_floor): 0 for none */
+	int floors[NUMBER_OF_DELTA_PLATFORMS];
 } delta;
 
 /* ---------- the document (JSON, hostile) */
@@ -842,6 +860,87 @@ static int json_disabled(struct json *json, struct delta_table *table)
 	return json_take(json, ']');
 }
 
+/* a platform's floor: {"network": N}, other keys passed over (a later
+build's) */
+static int json_floor(struct json *json, int *oldest)
+{
+	int seen = 0;
+
+	if (!json_take(json, '{'))
+		return 0;
+	if (json_take(json, '}'))
+		return 0;
+	do
+	{
+		const char *key;
+		int length, escaped;
+		long long value;
+
+		if (!json_string(json, &key, &length, &escaped) || !json_take(json, ':'))
+			return 0;
+		if (!escaped && json_is(key, length, "network"))
+		{
+			if (seen || !json_integer(json, 1, MAXIMUM_VERSION, &value))
+				return 0;
+			*oldest = (int)value;
+			seen = 1;
+		}
+		else if (!json_skip(json))
+			return 0;
+	} while (json_take(json, ','));
+	return json_take(json, '}') && seen;
+}
+
+/* "platform_floors": {"<platform>": floor, ...}, at most
+DELTA_PLATFORM_FLOORS_MAXIMUM, each platform once: the platforms this build
+knows read (but the unknown platform, which has none), the others checked
+and passed over (a newer build's platforms) */
+static int json_floors(struct json *json, struct delta_table *table)
+{
+	const char *names[DELTA_PLATFORM_FLOORS_MAXIMUM];
+	int lengths[DELTA_PLATFORM_FLOORS_MAXIMUM];
+	int count = 0;
+
+	if (!json_take(json, '{'))
+		return 0;
+	if (json_take(json, '}'))
+		return 1;
+	json->depth++;
+	do
+	{
+		const char *name;
+		int length, escaped, index, platform = -1;
+
+		if (count == DELTA_PLATFORM_FLOORS_MAXIMUM || !json_string(json, &name, &length, &escaped) ||
+			!json_take(json, ':'))
+		{
+			return 0;
+		}
+		/* (one floor a platform: two would read differently elsewhere) */
+		for (index = 0; index < count; index++)
+		{
+			if (lengths[index] == length && !memcmp(names[index], name, (size_t)length))
+				return 0;
+		}
+		names[count] = name;
+		lengths[count++] = length;
+		for (index = 1; !escaped && index < NUMBER_OF_DELTA_PLATFORMS; index++)
+		{
+			if (json_is(name, length, delta_platform_keys[index]))
+				platform = index;
+		}
+		if (platform < 0)
+		{
+			if (!json_skip(json))
+				return 0;
+		}
+		else if (!json_floor(json, &table->floors[platform]))
+			return 0;
+	} while (json_take(json, ','));
+	json->depth--;
+	return json_take(json, '}');
+}
+
 /* the document into table; 0 (and why) if it is not one this build reads */
 static int delta_table_parse(const char *document, size_t size, struct delta_table *table, const char **why)
 {
@@ -878,6 +977,8 @@ static int delta_table_parse(const char *document, size_t size, struct delta_tab
 			bit = 8, ok = json_wires(&json, table);
 		else if (json_is(key, length, "disabled_capabilities"))
 			bit = 16, ok = json_disabled(&json, table);
+		else if (json_is(key, length, "platform_floors"))
+			bit = 32, ok = json_floors(&json, table);
 		else
 			ok = json_skip(&json);
 		/* (a key twice would read differently elsewhere) */
@@ -998,6 +1099,31 @@ static void delta_use_built_in(void)
 	delta.follows[0] = 0;
 	delta.disabled = 0;
 	delta.layout_count = 0;
+	memset(delta.floors, 0, sizeof(delta.floors));
+}
+
+/* the table's platform floors into the ones in use (delta_lock held) */
+static void delta_use_floors(const struct delta_table *table)
+{
+	memcpy(delta.floors, table->floors, sizeof(delta.floors));
+}
+
+/* the table's platform floors, for the log: "dreamcast 42, n64 40" (none: "") */
+static void delta_floors_text(const struct delta_table *table, char *text, size_t size)
+{
+	int platform;
+
+	text[0] = 0;
+	for (platform = 1; platform < NUMBER_OF_DELTA_PLATFORMS; platform++)
+	{
+		size_t used = strlen(text);
+
+		if (table->floors[platform] && used < size)
+		{
+			snprintf(text + used, size - used, "%s%s %d", used ? ", " : "", delta_platform_keys[platform],
+				table->floors[platform]);
+		}
+	}
 }
 
 /* the table's row's layouts into the ones in use (delta_lock held) */
@@ -1205,6 +1331,7 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 	}
 	delta.disabled = table.disabled;
 	delta_use_layouts(&table);
+	delta_use_floors(&table);
 	maximum = delta.maximum;
 	pthread_mutex_unlock(&delta_lock);
 
@@ -1216,6 +1343,14 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 		table.has_row && table.follows[0] ? "; following OpenCE " : "", table.has_row ? table.follows : "",
 		table.has_row ? table.layout_count : 0);
 	delta_row_requires_said(&table, source);
+	{
+		char floors[512];
+
+		delta_floors_text(&table, floors, sizeof(floors));
+		if (floors[0])
+			platform_log("Delta: legacy table %u's platform floors (the oldest network version each plays with our hosts): %s",
+				table.serial, floors);
+	}
 	/* (from the cache's own copy, and only while the table is still the
 	one in use: another thread may take a newer one, and free this one,
 	meanwhile) */
@@ -1289,8 +1424,14 @@ static int delta_load_override(void)
 	}
 	if (ok)
 	{
+		char floors[512];
+
 		delta.disabled = table.disabled;
 		delta_use_layouts(&table);
+		delta_use_floors(&table);
+		delta_floors_text(&table, floors, sizeof(floors));
+		if (floors[0])
+			platform_log("Delta: the local legacy table's platform floors: %s", floors);
 	}
 	if (ok && table.has_row)
 	{
@@ -1787,6 +1928,26 @@ int delta_legacy_layouts(struct delta_layout_fact *facts, int count)
 		memcpy(facts, delta.layouts, sizeof(*facts) * (size_t)used);
 	pthread_mutex_unlock(&delta_lock);
 	return used > 0 ? used : 0;
+}
+
+int delta_platform_floor(int platform)
+{
+	int oldest;
+
+	if (platform <= 0 || platform >= NUMBER_OF_DELTA_PLATFORMS)
+		return 0;
+	pthread_once(&delta_once, delta_load);
+	pthread_mutex_lock(&delta_lock);
+	oldest = delta.floors[platform];
+	pthread_mutex_unlock(&delta_lock);
+	return oldest;
+}
+
+int delta_platform_floor_refuses(int platform, int legacy_version)
+{
+	int oldest = delta_platform_floor(platform);
+
+	return oldest > 0 && legacy_version < oldest;
 }
 
 int delta_legacy_override(void)

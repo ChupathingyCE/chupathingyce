@@ -105,6 +105,8 @@ long delta_peer_game_host_number(void);
 long delta_peer_game_host_number(void) { return 0; }
 long delta_peer_game_stop(void);
 long delta_peer_game_stop(void) { return 0; }
+long delta_peer_game_under_floor(void);
+long delta_peer_game_under_floor(void) { return 0; }
 long delta_peer_host_player_limit(void);
 long delta_peer_host_player_limit(void) { return 0; }
 long delta_wire_compare(void);

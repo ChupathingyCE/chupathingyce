@@ -577,6 +577,12 @@ void stubbs_engine_note_unit_definition(
 	stubbs_mode_log("unit tag %08lX has %ld special attacks", (unsigned long)noted->definition_index, count);
 }
 
+void stubbs_engine_tags_new_map(void)
+{
+	/* (the map's tags noted afresh: stubbs_mode_convert_tags) */
+	stubbs_unit_definitions_noted = FALSE;
+}
+
 void stubbs_engine_player_input(
 	short local_player_index,
 	unsigned long *player_control_flags,
@@ -588,8 +594,6 @@ void stubbs_engine_player_input(
 	long unit_index;
 	boolean hand_pressed;
 
-	/* (the next map's tags noted afresh) */
-	stubbs_unit_definitions_noted = FALSE;
 	if (local_player_index < 0 || local_player_index >= MAXIMUM_STUBBS_LOCAL_PLAYERS)
 		return;
 	local = &stubbs_local_players[local_player_index];
