@@ -2979,6 +2979,10 @@ static void distributed_handle_unit_state(
 	{
 		if (player->unit_index != NONE)
 			network_player_detach_unit(player_index);
+		/* (a respawn: its countdown's last beep, if this machine's countdown
+		hadn't reached it, #1418) */
+		else
+			game_engine_client_respawned(player_index);
 		distributed_unit_release_others(player_index, state->unit_index);
 		network_player_attach_unit(player_index, state->unit_index);
 		/* (a unit of a life this machine missed the end of, no player's

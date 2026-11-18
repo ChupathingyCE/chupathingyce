@@ -10120,6 +10120,27 @@ void game_engine_client_respawn_countdown(
 	return;
 }
 
+/* port: a distributed client's player given the unit the host spawned it
+with (network_distributed.c) before its own countdown ended, as it is when
+this machine's ticks run behind the host's: the countdown's last, higher
+beep played then, which the countdown would have played a tick before */
+void game_engine_client_respawned(
+	long player_index)
+{
+	struct player_datum *player;
+
+	if (!game_engine)
+		return;
+	player = player_get(player_index);
+	if (player->local_player_index != NONE && player->statistics.deaths > 0 && player->respawn_timer > 1)
+	{
+		player->respawn_timer = 1;
+		game_engine_play_multiplayer_sound(_multiplayer_sound_respawn);
+	}
+
+	return;
+}
+
 boolean game_engine_should_spawn_player(
 	long player_index)
 {

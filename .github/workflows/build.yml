@@ -1082,6 +1082,17 @@ jobs:
           Copy-Item "$env:RUNNER_TEMP\ccache-4.10.2-windows-x86_64\ccache.exe" "$env:RUNNER_TEMP\tools"
           Remove-Item ninja.zip, ccache.zip
           "$env:RUNNER_TEMP\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          # clang 22, as the Linux jobs have it from apt.llvm.org: the image's
+          # LLVM (20) is older than the STL of Visual Studio 18 (MSVC 14.52)
+          # accepts (error STL1000), and the committed profiles need 22
+          $ProgressPreference = "SilentlyContinue"
+          Invoke-WebRequest -OutFile llvm.exe https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe
+          if ((Get-FileHash llvm.exe -Algorithm SHA256).Hash -ne "16E5709785FEF73C854646241C4A92C5CD574318D1B33C63330DD7721903E55C") { throw "llvm.exe: unexpected SHA-256" }
+          Start-Process -Wait -FilePath .\llvm.exe -ArgumentList "/S", "/D=$env:RUNNER_TEMP\llvm"
+          Remove-Item llvm.exe
+          & "$env:RUNNER_TEMP\llvm\bin\clang.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "clang 22 did not install" }
+          "$env:RUNNER_TEMP\llvm\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - uses: actions/checkout@v4
         with:
@@ -1360,6 +1371,17 @@ jobs:
           Copy-Item "$env:RUNNER_TEMP\ccache-4.10.2-windows-x86_64\ccache.exe" "$env:RUNNER_TEMP\tools"
           Remove-Item ninja.zip, ccache.zip
           "$env:RUNNER_TEMP\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          # clang 22, as the Linux jobs have it from apt.llvm.org: the image's
+          # LLVM (20) is older than the STL of Visual Studio 18 (MSVC 14.52)
+          # accepts (error STL1000), and the committed profiles need 22
+          $ProgressPreference = "SilentlyContinue"
+          Invoke-WebRequest -OutFile llvm.exe https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe
+          if ((Get-FileHash llvm.exe -Algorithm SHA256).Hash -ne "16E5709785FEF73C854646241C4A92C5CD574318D1B33C63330DD7721903E55C") { throw "llvm.exe: unexpected SHA-256" }
+          Start-Process -Wait -FilePath .\llvm.exe -ArgumentList "/S", "/D=$env:RUNNER_TEMP\llvm"
+          Remove-Item llvm.exe
+          & "$env:RUNNER_TEMP\llvm\bin\clang.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "clang 22 did not install" }
+          "$env:RUNNER_TEMP\llvm\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - uses: actions/checkout@v4
         with:
@@ -1505,6 +1527,17 @@ jobs:
           Copy-Item "$env:RUNNER_TEMP\ccache-4.10.2-windows-x86_64\ccache.exe" "$env:RUNNER_TEMP\tools"
           Remove-Item ninja.zip, ccache.zip
           "$env:RUNNER_TEMP\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          # clang 22, as the Linux jobs have it from apt.llvm.org: the image's
+          # LLVM (20) is older than the STL of Visual Studio 18 (MSVC 14.52)
+          # accepts (error STL1000), and the committed profiles need 22
+          $ProgressPreference = "SilentlyContinue"
+          Invoke-WebRequest -OutFile llvm.exe https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe
+          if ((Get-FileHash llvm.exe -Algorithm SHA256).Hash -ne "16E5709785FEF73C854646241C4A92C5CD574318D1B33C63330DD7721903E55C") { throw "llvm.exe: unexpected SHA-256" }
+          Start-Process -Wait -FilePath .\llvm.exe -ArgumentList "/S", "/D=$env:RUNNER_TEMP\llvm"
+          Remove-Item llvm.exe
+          & "$env:RUNNER_TEMP\llvm\bin\clang.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "clang 22 did not install" }
+          "$env:RUNNER_TEMP\llvm\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - uses: actions/checkout@v4
         with:
