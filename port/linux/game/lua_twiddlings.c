@@ -19,7 +19,10 @@ used as it is. Each is resolved by the twiddlings table to one of:
     BSPs' vertices (ce_bsp.c);
   - a named Halo PC global the game has as a variable of its own (the
     difficulty, the players' look rates, the first-person camera, the
-    checkpoint count): read and written through it;
+    checkpoint count) or keeps for scripts (the players' digital forward
+    throttle, which haloce.exe's set_digital_forward_throttle sets: an
+    execute_script may call it, as lua_scripting.h has it): read and
+    written through it;
   - the objects and players a script is given (get_object, get_player) and
     Halo PC's object table: lua_twiddlings_objects.c;
   - while an OpenSauce map is loaded, what OpenSauce puts in haloce.exe's
@@ -42,6 +45,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "camera/director.h"
 #include "game/game.h"
 #include "game/players.h"
+#include "hs/hs.h"
 #include "saved games/game_state.h"
 
 #include "lua_internal.h"
@@ -52,6 +56,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include <string.h>
 
 /* (port/linux/src/port_config.c) */
+
+/* (hs_compile.c) */
+boolean hs_macro_function_parse(short function_index, long expression_index);
 int config_boolean(char const *name);
 
 /* ---------- constants */
@@ -107,8 +114,45 @@ static boolean twiddlings_camera(enum twiddlings_access access, short index, uns
 	unsigned int size);
 static boolean twiddlings_save_hash(enum twiddlings_access access, short index, unsigned int offset, void *value,
 	unsigned int size);
+static boolean twiddlings_digital_forward_throttle(enum twiddlings_access access, short index, unsigned int offset,
+	void *value, unsigned int size);
+static void twiddlings_set_digital_forward_throttle_evaluate(short function_index, long thread_index,
+	boolean initialize);
+static void twiddlings_get_digital_forward_throttle_evaluate(short function_index, long thread_index,
+	boolean initialize);
 
 /* ---------- globals */
+
+/* each local player's digital forward throttle, a preference of Halo PC's
+input (the keyboard's walk forward), which the Xbox's input never had: kept
+for scripts that set it (set_digital_forward_throttle) and read it back
+from Halo PC's memory, and moving no one */
+static real twiddlings_digital_forward_throttles[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+
+/* haloce.exe's script functions a script's execute_script may call (their
+arguments and results as haloce.exe 1.0.10 defines them): only from
+execute_script, never a map's scripts (lua_scripting_hs_function) */
+static struct
+{
+	struct hs_function_definition definition;
+	short other_parameters[1];
+} twiddlings_set_digital_forward_throttle_definition =
+{
+	{ _hs_type_void, 0, "set_digital_forward_throttle", hs_macro_function_parse,
+		twiddlings_set_digital_forward_throttle_evaluate, "sets a local player's digital forward throttle (Halo PC's)",
+		NULL, 2, { _hs_type_short_integer } }, { _hs_type_real }
+};
+static struct hs_function_definition twiddlings_get_digital_forward_throttle_definition =
+{
+	_hs_type_real, 0, "get_digital_forward_throttle", hs_macro_function_parse,
+	twiddlings_get_digital_forward_throttle_evaluate, "a local player's digital forward throttle (Halo PC's)",
+	NULL, 1, { _hs_type_short_integer }
+};
+static struct hs_function_definition *const twiddlings_hs_functions[] =
+{
+	&twiddlings_set_digital_forward_throttle_definition.definition,
+	&twiddlings_get_digital_forward_throttle_definition,
+};
 
 /* the twiddlings table's named globals: Halo CE 1.0.10's haloce.exe
 addresses scripts name, and what they are here. See the design notes for
@@ -129,6 +173,10 @@ static struct twiddlings_global const twiddlings_globals[] =
 	saves, so scripts read it to tell. Here it is the count of checkpoints
 	saved */
 	{ 0x0018DCC0, 0, 1, sizeof(unsigned int), "checkpoint saves", twiddlings_save_hash },
+	/* each local player's digital forward throttle (Halo PC's input
+	preferences, as get_ and set_digital_forward_throttle have them) */
+	{ 0x006ABB38, 0x85C, MAXIMUM_NUMBER_OF_LOCAL_PLAYERS, sizeof(real), "digital forward throttle",
+		twiddlings_digital_forward_throttle },
 };
 
 /* Halo PC's first-person camera update function (haloce.exe 1.0.10) */
@@ -381,6 +429,71 @@ static boolean twiddlings_save_hash(
 	return TRUE;
 }
 
+static boolean twiddlings_digital_forward_throttle(
+	enum twiddlings_access access,
+	short index,
+	unsigned int offset,
+	void *value,
+	unsigned int size)
+{
+	return twiddlings_real(&twiddlings_digital_forward_throttles[index], access, offset, value, size);
+}
+
+/* a local player's index as a script gives it: FALSE (logged) when none */
+static boolean twiddlings_local_player_index(
+	char const *function,
+	long value,
+	short *index)
+{
+	char key[96];
+
+	if (value >= 0 && value < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+	{
+		*index = (short)value;
+		return TRUE;
+	}
+	snprintf(key, sizeof(key), "twiddlings %s %ld", function, value);
+	lua_log_once(key, "execute_script: %s: there is no local player %ld", function, value);
+	return FALSE;
+}
+
+static void twiddlings_set_digital_forward_throttle_evaluate(
+	short function_index,
+	long thread_index,
+	boolean initialize)
+{
+	long *arguments = hs_macro_function_evaluate(function_index, thread_index, initialize);
+	short index;
+
+	if (!arguments)
+		return;
+	if (twiddlings_local_player_index("set_digital_forward_throttle", (long)(short)arguments[0], &index))
+	{
+		memcpy(&twiddlings_digital_forward_throttles[index], &arguments[1], sizeof(real));
+		lua_log_once("twiddlings set_digital_forward_throttle", "execute_script: set_digital_forward_throttle is "
+			"kept for scripts to read back; it moves no one here");
+	}
+	hs_return(thread_index, 0);
+}
+
+static void twiddlings_get_digital_forward_throttle_evaluate(
+	short function_index,
+	long thread_index,
+	boolean initialize)
+{
+	long *arguments = hs_macro_function_evaluate(function_index, thread_index, initialize);
+	union { real value; long bits; } result;
+	short index;
+
+	if (!arguments)
+		return;
+	result.bits = 0;
+	result.value = 0.f;
+	if (twiddlings_local_player_index("get_digital_forward_throttle", (long)(short)arguments[0], &index))
+		result.value = twiddlings_digital_forward_throttles[index];
+	hs_return(thread_index, result.bits);
+}
+
 static void twiddlings_refused(
 	enum twiddlings_access access,
 	unsigned int address)
@@ -581,6 +694,25 @@ unsigned int twiddlings_tag_instance_address_by_name(
 			return base + PC_TAG_INSTANCES_OFFSET + index * TAG_INSTANCE_SIZE;
 	}
 	return 0;
+}
+
+struct hs_function_definition *twiddlings_hs_function(
+	short index)
+{
+	return index >= 0 && index < (short)NUMBEROF(twiddlings_hs_functions) ? twiddlings_hs_functions[index] : NULL;
+}
+
+short twiddlings_hs_function_find(
+	char const *name)
+{
+	short index;
+
+	for (index = 0; index < (short)NUMBEROF(twiddlings_hs_functions); index++)
+	{
+		if (!_stricmp(name, twiddlings_hs_functions[index]->name))
+			return index;
+	}
+	return NONE;
 }
 
 #endif

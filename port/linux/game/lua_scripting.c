@@ -47,7 +47,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "interface/terminal.h"
 
 #include "lua_internal.h"
+#include "lua_opensauce.h"
 #include "lua_scripting.h"
+#include "lua_twiddlings.h"
 #include "lualib.h"
 
 #include <stdarg.h>
@@ -70,11 +72,16 @@ void platform_translate_path(const char *xbox_path, char *host_path, unsigned lo
 /* the Windows folders a script is told it has (os.getenv) */
 #define LUA_VIRTUAL_PROFILE "C:\\Users\\Player"
 #define LUA_VIRTUAL_APPDATA "C:\\Users\\Player\\AppData\\Roaming"
+/* execute_script's functions: Halo PC's, then OpenSauce's */
+#define LUA_HS_HALO_PC_FIRST LUA_HS_FUNCTION_FIRST
+#define LUA_HS_OPENSAUCE_FIRST (LUA_HS_FUNCTION_FIRST + 0x40)
+#define LUA_HS_FUNCTION_END (LUA_HS_FUNCTION_FIRST + 0x100)
 
 /* ---------- globals */
 
 struct lua_script lua_scripts[LUA_MAXIMUM_SCRIPTS];
 int lua_script_count = 0;
+boolean lua_execute_script_running = FALSE;
 
 static struct
 {
@@ -881,6 +888,7 @@ void lua_scripting_map_load(
 		}
 	}
 
+	lua_opensauce_map_load();
 	for (index = 0; index < lua_script_count; index++)
 		lua_chimera_api_refresh(lua_scripts[index].state);
 	if (lua_script_count)
@@ -910,8 +918,11 @@ void lua_scripting_pretick(
 void lua_scripting_tick(
 	void)
 {
-	if (lua_script_count)
-		lua_chimera_api_call(_lua_callback_tick);
+	if (!lua_script_count)
+		return;
+	lua_opensauce_tick();
+	lua_chimera_api_timers();
+	lua_chimera_api_call(_lua_callback_tick);
 }
 
 void lua_scripting_preframe(
@@ -924,8 +935,10 @@ void lua_scripting_preframe(
 void lua_scripting_frame(
 	void)
 {
-	if (lua_script_count)
-		lua_chimera_api_call(_lua_callback_frame);
+	if (!lua_script_count)
+		return;
+	lua_chimera_api_timers();
+	lua_chimera_api_call(_lua_callback_frame);
 }
 
 boolean lua_scripting_command(
@@ -934,6 +947,33 @@ boolean lua_scripting_command(
 	if (!lua_script_count)
 		return TRUE;
 	return lua_chimera_api_call_allow(_lua_callback_command, command);
+}
+
+struct hs_function_definition *lua_scripting_hs_function(
+	short index)
+{
+	if (index < LUA_HS_FUNCTION_FIRST || index >= LUA_HS_FUNCTION_END)
+		return NULL;
+	if (index < LUA_HS_OPENSAUCE_FIRST)
+		return twiddlings_hs_function((short)(index - LUA_HS_HALO_PC_FIRST));
+	return lua_opensauce_hs_function((short)(index - LUA_HS_OPENSAUCE_FIRST));
+}
+
+short lua_scripting_hs_function_find(
+	char const *name)
+{
+	short index;
+
+	if (!lua_execute_script_running || !name)
+		return NONE;
+	/* (OpenSauce's only on its maps: lua_opensauce.c) */
+	index = lua_opensauce_hs_function_find(name);
+	if (index != NONE && index < LUA_HS_FUNCTION_END - LUA_HS_OPENSAUCE_FIRST)
+		return (short)(LUA_HS_OPENSAUCE_FIRST + index);
+	index = twiddlings_hs_function_find(name);
+	if (index != NONE && index < LUA_HS_OPENSAUCE_FIRST - LUA_HS_HALO_PC_FIRST)
+		return (short)(LUA_HS_HALO_PC_FIRST + index);
+	return NONE;
 }
 
 #endif

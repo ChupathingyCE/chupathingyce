@@ -54,6 +54,12 @@ object table's addresses: -1 if the address is none of theirs, else whether
 it was done (FALSE: refused, logged) */
 int twiddlings_objects_access(boolean write, unsigned int address, void *value, unsigned int size);
 
+/* haloce.exe's script functions an execute_script may name (Halo PC's
+input preferences scripts use as storage), numbered from 0
+(lua_scripting_hs_function): NULL and NONE past them */
+struct hs_function_definition *twiddlings_hs_function(short index);
+short twiddlings_hs_function_find(char const *name);
+
 #endif
 
 #endif

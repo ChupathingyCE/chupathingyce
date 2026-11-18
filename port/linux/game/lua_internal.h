@@ -1,8 +1,9 @@
 /*
 LUA_INTERNAL.H
 
-What the Lua units share (lua_scripting.c, lua_chimera_api.c): a loaded
-script and its callbacks, and the log.
+What the Lua units share (lua_scripting.c, lua_chimera_api.c,
+lua_twiddlings.c, lua_opensauce.c): a loaded script, its callbacks and
+timers, and the log.
 
 SPDX-FileCopyrightText: 2026 The Chupathingy contributors
 SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
@@ -77,6 +78,20 @@ enum lua_script_kind
 	_lua_script_map
 };
 
+/* a script's timer (set_timer): its function called each interval_ms of
+real time with the arguments it was given (a table in the state's registry,
+by reference), until it returns false or is stopped */
+struct lua_timer
+{
+	long id;
+	double interval;
+	double passed;
+	char function[LUA_FUNCTION_NAME_LENGTH];
+	int arguments;
+};
+
+#define LUA_MAXIMUM_TIMERS 64
+
 struct lua_script
 {
 	lua_State *state;
@@ -92,6 +107,9 @@ struct lua_script
 	struct lua_script_callback callbacks[number_of_lua_callbacks];
 	/* bytes its Lua state holds, against LUA_SCRIPT_MEMORY_LIMIT */
 	unsigned int memory;
+	struct lua_timer timers[LUA_MAXIMUM_TIMERS];
+	short timer_count;
+	long next_timer_id;
 };
 
 /* ---------- lua_scripting.c */
@@ -109,6 +127,10 @@ void lua_log_error(lua_State *state, char const *where);
 /* a line in the console (and debug.txt), white unless given a color */
 void lua_console_line(real_argb_color const *color, char const *text);
 
+/* TRUE while a script's execute_script compiles and runs its expression:
+the functions only it may name are found then (lua_scripting_hs_function_find) */
+extern boolean lua_execute_script_running;
+
 /* ---------- lua_chimera_api.c */
 
 /* registers the API's functions and variables in a new script's state */
@@ -123,6 +145,9 @@ boolean lua_chimera_api_run(struct lua_script *script, char const *chunk, unsign
 void lua_chimera_api_call(enum lua_callback callback);
 /* the "command" and "rcon message" callbacks: FALSE when one blocked it */
 boolean lua_chimera_api_call_allow(enum lua_callback callback, char const *text);
+/* every script's timers whose time has come are called (Chimera checks
+them at each tick and each frame) */
+void lua_chimera_api_timers(void);
 /* the loaded scripts (lua_scripting.c) */
 extern struct lua_script lua_scripts[LUA_MAXIMUM_SCRIPTS];
 extern int lua_script_count;

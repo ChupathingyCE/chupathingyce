@@ -11,7 +11,9 @@ current developers Aerocatia and Cambidd, and its contributors), its
 src/chimera/lua: lua_callback.cpp (set_callback, the callbacks and their
 priorities, the command callback's block), lua_game.cpp (console_out,
 execute_script, get_tag, get_object, get_player, get_dynamic_player,
-spawn_object, delete_object, ticks, tick_rate), lua_io.cpp (read_* and write_*,
+spawn_object, delete_object, ticks, tick_rate, get_global, set_global,
+set_timer, stop_timer, and the timers' checks from lua_callback.cpp and
+lua_script.cpp), lua_io.cpp (read_* and write_*,
 read_bit, write_bit, read_string8, write_string8), lua_script.cpp (running
 a script and its version check) and lua_variables.cpp (the script's
 variables), each GPL-3.0-only. Rewritten in C for this game: memory goes
@@ -26,6 +28,7 @@ SPDX-License-Identifier: GPL-3.0-only
 #ifdef HALO_LUA
 
 #include "cseries.h"
+#include "cseries/cseries_windows.h"
 #include "cache/cache_files.h"
 #include "game/game.h"
 #include "game/game_engine.h"
@@ -53,8 +56,15 @@ SPDX-License-Identifier: GPL-3.0-only
 SPV3's do, were written for); nil from then on */
 #define LUA_CHIMERA_GET_TAG_NIL_VERSION 2.050
 
-/* Chimera's minimum timer interval and tick rate (lua_game.cpp) */
+/* Chimera's minimum timer interval (milliseconds) and tick rate
+(lua_game.cpp) */
+#define LUA_MINIMUM_TIMER_INTERVAL 0.1
 #define LUA_MINIMUM_TICK_RATE 0.01
+/* a timer's calls in one check at most: a pause (a map loading) owes a
+fast timer thousands, which are let go */
+#define LUA_MAXIMUM_TIMER_CALLS 100
+/* Chimera's timers' arguments as they were before its API 2.03: text */
+#define LUA_TIMER_TYPED_ARGUMENTS_VERSION 2.03
 
 /* ---------- globals */
 
@@ -253,6 +263,7 @@ static int lua_execute_script(
 	char word[128];
 	char const *cursor;
 	short length = 0;
+	boolean was_running;
 
 	if (arguments != 1 && arguments != 4 && arguments != 5)
 		return lua_wrong_arguments(state, "execute_script");
@@ -268,12 +279,18 @@ static int lua_execute_script(
 	word[length] = 0;
 	if (!word[0])
 		return 0;
+	/* (the functions only execute_script may name, Halo PC's and on its maps
+	OpenSauce's, are found while it runs: lua_scripting.h) */
+	was_running = lua_execute_script_running;
+	lua_execute_script_running = TRUE;
 	if (hs_find_function_by_name(word) == NONE && hs_find_global_by_name(word) == NONE)
 	{
 		char key[160];
 
-		/* (OpenSauce's, on an OpenSauce map: logged as OpenSauce's) */
-		if (lua_opensauce_script_word(lua_script_from_state(state)->name, word))
+		lua_execute_script_running = was_running;
+		/* (OpenSauce's, on an OpenSauce map: its globals kept, the rest
+		logged as OpenSauce's) */
+		if (lua_opensauce_script_word(lua_script_from_state(state)->name, word, expression))
 			return 0;
 
 		snprintf(key, sizeof(key), "script %s", word);
@@ -282,6 +299,226 @@ static int lua_execute_script(
 		return 0;
 	}
 	hs_compile_and_evaluate(expression);
+	lua_execute_script_running = was_running;
+	return 0;
+}
+
+/* get_global(name): a map's script global (lua_game.cpp, globals.cpp's
+read_global): a boolean, a number, or an error for none or one of a type it
+does not give (text, a script) */
+static int lua_get_global(
+	lua_State *state)
+{
+	long *value;
+	short type;
+
+	if (lua_gettop(state) != 1)
+		return lua_wrong_arguments(state, "get_global");
+	type = hs_runtime_scenario_global(luaL_checkstring(state, 1), &value);
+	switch (type)
+	{
+	case _hs_unparsed:
+	case _hs_special_form:
+	case _hs_function_name:
+	case _hs_passthrough:
+	case _hs_type_void:
+	case _hs_type_string:
+	case _hs_type_script:
+		return luaL_error(state, "global not found");
+	case _hs_type_boolean:
+		lua_pushboolean(state, (byte)*value != 0);
+		break;
+	case _hs_type_real:
+	{
+		real number;
+
+		memcpy(&number, value, sizeof(number));
+		lua_pushnumber(state, (lua_Number)number);
+		break;
+	}
+	case _hs_type_short_integer:
+		lua_pushinteger(state, (short)*value);
+		break;
+	default:
+		/* (a long, or a handle: an object, a unit, an AI, as Chimera gives
+		them) */
+		lua_pushinteger(state, (int)*value);
+		break;
+	}
+	return 1;
+}
+
+/* set_global(name, value) (lua_game.cpp): a boolean takes a boolean or a
+number; the rest a number */
+static int lua_set_global(
+	lua_State *state)
+{
+	char const *name;
+	long *value;
+	short type;
+
+	if (lua_gettop(state) != 2)
+		return lua_wrong_arguments(state, "set_global");
+	name = luaL_checkstring(state, 1);
+	type = hs_runtime_scenario_global(name, &value);
+	switch (type)
+	{
+	case _hs_unparsed:
+	case _hs_special_form:
+	case _hs_function_name:
+	case _hs_passthrough:
+	case _hs_type_void:
+	case _hs_type_string:
+	case _hs_type_script:
+		return luaL_error(state, "global not found");
+	case _hs_type_boolean:
+		if (lua_isboolean(state, 2))
+			*value = lua_toboolean(state, 2) ? TRUE : FALSE;
+		else if (lua_isnumber(state, 2))
+			*value = lua_tointeger(state, 2) != 0 ? TRUE : FALSE;
+		else
+			return luaL_error(state, "expected number or boolean for argument #%d", 2);
+		break;
+	case _hs_type_real:
+	{
+		real number;
+
+		if (!lua_isnumber(state, 2))
+			return luaL_error(state, "expected number for argument #%d", 2);
+		number = (real)lua_tonumber(state, 2);
+		memcpy(value, &number, sizeof(number));
+		break;
+	}
+	case _hs_type_short_integer:
+		if (!lua_isnumber(state, 2))
+			return luaL_error(state, "expected number for argument #%d", 2);
+		*value = (short)lua_tointeger(state, 2);
+		break;
+	case _hs_type_long_integer:
+		if (!lua_isnumber(state, 2))
+			return luaL_error(state, "expected number for argument #%d", 2);
+		*value = (long)(int)lua_tointeger(state, 2);
+		break;
+	default:
+	{
+		/* (a handle, which the game's own lists count: an object list's
+		references would go wrong, so a script reads them alone) */
+		char key[160];
+
+		snprintf(key, sizeof(key), "set_global %.100s", name);
+		lua_log_once(key, "%s: set_global: %.100s holds a handle, which scripts may read here but not set",
+			lua_script_from_state(state)->name, name);
+		break;
+	}
+	}
+	return 0;
+}
+
+/* a timer by its id, or NULL */
+static struct lua_timer *lua_timer_find(
+	struct lua_script *script,
+	long id)
+{
+	short index;
+
+	for (index = 0; index < script->timer_count; index++)
+	{
+		if (script->timers[index].id == id)
+			return &script->timers[index];
+	}
+	return NULL;
+}
+
+static void lua_timer_remove(
+	struct lua_script *script,
+	long id)
+{
+	short index;
+
+	for (index = 0; index < script->timer_count; index++)
+	{
+		if (script->timers[index].id == id)
+		{
+			luaL_unref(script->state, LUA_REGISTRYINDEX, script->timers[index].arguments);
+			script->timer_count--;
+			memmove(&script->timers[index], &script->timers[index + 1],
+				(size_t)(script->timer_count - index) * sizeof(script->timers[0]));
+			return;
+		}
+	}
+}
+
+/* set_timer(interval, function, ...): its id; the function is called every
+interval milliseconds with the arguments given, until it returns false or
+stop_timer stops it (lua_game.cpp, lua_script.cpp's check_argument) */
+static int lua_set_timer(
+	lua_State *state)
+{
+	int arguments = lua_gettop(state);
+	struct lua_script *script = lua_script_from_state(state);
+	struct lua_timer *timer;
+	double interval;
+	char const *function;
+	int argument;
+
+	if (arguments < 2)
+		return lua_wrong_arguments(state, "set_timer");
+	interval = luaL_checknumber(state, 1);
+	if (interval < LUA_MINIMUM_TIMER_INTERVAL)
+		return luaL_error(state, "interval must be at least 0.1 ms");
+	function = luaL_checkstring(state, 2);
+	if (script->timer_count >= LUA_MAXIMUM_TIMERS)
+		return luaL_error(state, "too many timers (%d)", LUA_MAXIMUM_TIMERS);
+	/* (its arguments in a table: booleans, text and nil, and numbers as text
+	as Chimera keeps them, or all as text for a script older than 2.03) */
+	lua_createtable(state, arguments - 2, 1);
+	for (argument = 3; argument <= arguments; argument++)
+	{
+		if (script->version >= LUA_TIMER_TYPED_ARGUMENTS_VERSION && lua_isboolean(state, argument))
+		{
+			lua_pushboolean(state, lua_toboolean(state, argument));
+		}
+		else if (lua_isstring(state, argument))
+		{
+			lua_pushvalue(state, argument);
+			lua_tostring(state, -1);
+		}
+		else if (script->version >= LUA_TIMER_TYPED_ARGUMENTS_VERSION && lua_isnil(state, argument))
+		{
+			lua_pushnil(state);
+		}
+		else
+		{
+			return luaL_error(state, "invalid timer argument");
+		}
+		lua_rawseti(state, -2, argument - 2);
+	}
+	lua_pushinteger(state, arguments - 2);
+	lua_setfield(state, -2, "n");
+	timer = &script->timers[script->timer_count++];
+	memset(timer, 0, sizeof(*timer));
+	timer->arguments = luaL_ref(state, LUA_REGISTRYINDEX);
+	timer->id = script->next_timer_id++;
+	timer->interval = interval;
+	csstrncpy(timer->function, function, LUA_FUNCTION_NAME_LENGTH - 1);
+	timer->function[LUA_FUNCTION_NAME_LENGTH - 1] = 0;
+	lua_pushinteger(state, timer->id);
+	return 1;
+}
+
+/* stop_timer(id) */
+static int lua_stop_timer(
+	lua_State *state)
+{
+	struct lua_script *script = lua_script_from_state(state);
+	long id;
+
+	if (lua_gettop(state) != 1)
+		return lua_wrong_arguments(state, "stop_timer");
+	id = (long)luaL_checkinteger(state, 1);
+	if (!lua_timer_find(script, id))
+		return luaL_error(state, "timer does not exist");
+	lua_timer_remove(script, id);
 	return 0;
 }
 
@@ -757,7 +994,6 @@ void lua_chimera_api_register(
 {
 	static char const *const unsupported[] =
 	{
-		"get_global", "set_global", "set_timer", "stop_timer",
 		"draw_text", "hud_message", "load_ui_widget", "create_font_override", "execute_chimera_command",
 		"create_directory", "remove_directory", "list_directory", "directory_exists",
 		"write_file", "read_file", "delete_file", "file_exists",
@@ -776,6 +1012,10 @@ void lua_chimera_api_register(
 	lua_register(state, "delete_object", lua_delete_object);
 	lua_register(state, "ticks", lua_ticks);
 	lua_register(state, "tick_rate", lua_tick_rate);
+	lua_register(state, "get_global", lua_get_global);
+	lua_register(state, "set_global", lua_set_global);
+	lua_register(state, "set_timer", lua_set_timer);
+	lua_register(state, "stop_timer", lua_stop_timer);
 	lua_register_memory(state);
 	for (index = 0; index < (short)NUMBEROF(unsupported); index++)
 		lua_register_unsupported(state, unsupported[index]);
@@ -940,6 +1180,85 @@ boolean lua_chimera_api_call_allow(
 		}
 	}
 	return allow;
+}
+
+/* (lua_callback.cpp's check_timers: real time since the last check, at
+each tick and each frame) */
+void lua_chimera_api_timers(
+	void)
+{
+	static unsigned long last = 0;
+	static boolean started = FALSE;
+	unsigned long now = system_milliseconds();
+	double elapsed = started ? (double)(unsigned long)(now - last) : 0.0;
+	int index;
+
+	last = now;
+	started = TRUE;
+	for (index = 0; index < lua_script_count; index++)
+	{
+		struct lua_script *script = &lua_scripts[index];
+		long ids[LUA_MAXIMUM_TIMERS];
+		short count = script->timer_count, timer_index;
+
+		if (!script->loaded)
+			continue;
+		/* (the timers as they are now: one a timer sets waits for the next
+		check) */
+		for (timer_index = 0; timer_index < count; timer_index++)
+			ids[timer_index] = script->timers[timer_index].id;
+		for (timer_index = 0; timer_index < count; timer_index++)
+		{
+			struct lua_timer *timer = lua_timer_find(script, ids[timer_index]);
+			short calls = 0;
+
+			if (!timer)
+				continue;
+			timer->passed += elapsed;
+			while (timer && timer->passed >= timer->interval)
+			{
+				lua_State *state = script->state;
+				char where[LUA_SCRIPT_NAME_LENGTH + LUA_FUNCTION_NAME_LENGTH + 16];
+				long id = timer->id;
+				int argument, arguments;
+				boolean stop = FALSE;
+
+				if (calls++ >= LUA_MAXIMUM_TIMER_CALLS)
+				{
+					lua_log_once("timer calls", "%s: timer %s owed more than %d calls at once: the rest let go",
+						script->name, timer->function, LUA_MAXIMUM_TIMER_CALLS);
+					timer->passed = 0.0;
+					break;
+				}
+				timer->passed -= timer->interval;
+				snprintf(where, sizeof(where), "%s (timer %s)", script->name, timer->function);
+				lua_getglobal(state, timer->function);
+				lua_rawgeti(state, LUA_REGISTRYINDEX, timer->arguments);
+				lua_getfield(state, -1, "n");
+				arguments = (int)lua_tointeger(state, -1);
+				lua_pop(state, 1);
+				for (argument = 1; argument <= arguments; argument++)
+				{
+					lua_rawgeti(state, -1 - (argument - 1), argument);
+				}
+				/* (the table out from under the function's arguments) */
+				lua_remove(state, -1 - arguments);
+				if (lua_pcall_logged(state, arguments, 1, where) == LUA_OK)
+				{
+					if (lua_isboolean(state, -1) && !lua_toboolean(state, -1))
+						stop = TRUE;
+					lua_pop(state, 1);
+				}
+				/* (the call may have stopped it, or set others) */
+				timer = lua_timer_find(script, id);
+				if (timer && stop)
+				{
+					lua_timer_remove(script, id);
+					timer = NULL;
+				}
+			}
+		}
+	}
 }
 
 #endif

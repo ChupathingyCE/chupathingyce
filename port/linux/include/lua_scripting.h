@@ -34,6 +34,15 @@ void lua_scripting_frame(void);
 "command" blocked it */
 boolean lua_scripting_command(char const *command);
 
+/* script functions only a Lua script's execute_script can name, which the
+game's own scripts don't have (Halo PC's, and OpenSauce's on its maps):
+numbered from LUA_HS_FUNCTION_FIRST, past every other table. A name is
+found only while a script's execute_script runs, so a map's scripts never
+compile them; a number is its function at any time */
+#define LUA_HS_FUNCTION_FIRST 0x7400
+struct hs_function_definition *lua_scripting_hs_function(short index);
+short lua_scripting_hs_function_find(char const *name);
+
 #else
 
 static __inline void lua_scripting_map_load(void) { }
@@ -43,6 +52,8 @@ static __inline void lua_scripting_tick(void) { }
 static __inline void lua_scripting_preframe(void) { }
 static __inline void lua_scripting_frame(void) { }
 static __inline boolean lua_scripting_command(char const *command) { (void)command; return TRUE; }
+#define lua_scripting_hs_function(index) ((void)sizeof(index), (struct hs_function_definition *)0)
+#define lua_scripting_hs_function_find(name) ((void)sizeof(name), (short)-1)
 
 #endif
 

@@ -26,9 +26,23 @@ what it is because OpenSauce runs (the f0 to f5 script globals' storage):
 map is not OpenSauce's */
 int twiddlings_opensauce_access(boolean write, unsigned int address, void *value, unsigned int size);
 
-/* whether a script function or global (execute_script's first word) is
-OpenSauce's, when the map is OpenSauce's: logged once as not here yet */
-boolean lua_opensauce_script_word(char const *script, char const *word);
+/* execute_script's expression whose first word the game's scripts don't
+have: when the map is OpenSauce's and the word is one of OpenSauce's
+post-processing globals, it is printed or set ("pp_motion_blur_enabled 1")
+and TRUE; one of OpenSauce's functions not here yet is logged once and
+TRUE; else FALSE */
+boolean lua_opensauce_script_word(char const *script, char const *word, char const *expression);
+
+/* OpenSauce's script functions here, numbered from 0
+(lua_scripting_hs_function): NULL past them. Found by name only on an
+OpenSauce map: NONE elsewhere */
+struct hs_function_definition *lua_opensauce_hs_function(short index);
+short lua_opensauce_hs_function_find(char const *name);
+
+/* a map loaded: OpenSauce's post-processing state starts over */
+void lua_opensauce_map_load(void);
+/* a tick: the post processing's fades go on */
+void lua_opensauce_tick(void);
 
 #endif
 
