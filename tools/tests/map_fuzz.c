@@ -173,6 +173,14 @@ int LLVMFuzzerTestOneInput(unsigned char const *data, size_t size);
 boolean tag_validate_tags(void *tag_header, long tag_data_size, long file_length, char const *map_name);
 boolean tag_validate_structure_bsp(long tag_index, void *base, long size);
 long tag_validate_corrections(void);
+#ifdef MAP_FUZZ_CE
+struct tag_schema_layout;
+extern struct tag_schema_layout const tag_schema_pc_layout;
+extern struct tag_schema_layout const tag_schema_pc_retail_layout;
+boolean tag_validate_tags_layout(struct tag_schema_layout const *layout, void *tag_header, long tag_data_size,
+	long file_length, char const *map_name);
+unsigned long ce_resources_free_mark(void);
+#endif
 
 boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset, long tag_data_size);
 boolean ce_map_bsp_reference_checked(void const *reference);
@@ -206,6 +214,10 @@ void ce_vorbis_free(short *samples);
 /* ---------- globals */
 
 static boolean fuzz_verbose;
+/* whether a Custom Edition map's tags go through Halo PC's tag schema as
+they load (MAP_FUZZ_CE_SCHEMA=0: not, so that a test reaches the
+conversions' own guards with a map the schema would refuse) */
+static boolean fuzz_ce_schema = TRUE;
 /* the map being changed (MAP_FUZZ_BASE), and a copy to change */
 static unsigned char *fuzz_base;
 static unsigned long fuzz_base_size;
@@ -801,6 +813,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 	char const *xbox_ui = getenv("MAP_FUZZ_XBOX_UI");
 
 	fuzz_verbose = getenv("MAP_FUZZ_VERBOSE") != NULL;
+	fuzz_ce_schema = !getenv("MAP_FUZZ_CE_SCHEMA") || strcmp(getenv("MAP_FUZZ_CE_SCHEMA"), "0");
 	fuzz_address_space_reserve();
 	if (base && *base)
 	{
@@ -968,6 +981,40 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 	ce_repairs_scenario_loaded(instances, (long)tag_count, scenario_tag_index);
 	ce_resources_tags_loaded(instances, (long)tag_count, CE_TAG_CACHE_BASE + header->tag_data_size, end_free);
 	ce_repairs_tags_loaded(instances, (long)tag_count, scenario_tag_index);
+	/* (every tag, its own and its resources', through Halo PC's schema
+	before the conversions read them: scenario_tags_load refuses the map if
+	not; and the tags as corrected need no more correcting, as an Xbox
+	map's) */
+	if (fuzz_ce_schema)
+	{
+		unsigned long tags_end = ce_resources_free_mark();
+		long tags_size = tags_end > CE_TAG_CACHE_BASE + (unsigned long)header->tag_data_size &&
+			tags_end <= CE_TAG_CACHE_BASE + CE_TAG_CACHE_SIZE ?
+			(long)(tags_end - CE_TAG_CACHE_BASE) : header->tag_data_size;
+
+		struct tag_schema_layout const *layout = header->version == CACHE_VERSION_RETAIL ? &tag_schema_pc_retail_layout :
+			&tag_schema_pc_layout;
+
+		if (!tag_validate_tags_layout(layout, tag_cache, tags_size, header->file_length, "fuzz"))
+		{
+			if (fuzz_verbose)
+				fprintf(stderr, "map_fuzz: the map was refused by Halo PC's tag schema\n");
+			return;
+		}
+		if (fuzz_verbose)
+			fprintf(stderr, "map_fuzz: Halo PC's tag schema made %ld corrections\n", (long)tag_validate_corrections());
+		if (tag_validate_corrections())
+		{
+			boolean valid = tag_validate_tags_layout(layout, tag_cache, tags_size, header->file_length, "fuzz");
+
+			if (!valid || tag_validate_corrections())
+			{
+				fprintf(stderr, "map_fuzz: the tags as corrected are not clean when checked again (%s, %ld more)\n",
+					valid ? "accepted" : "refused", (long)tag_validate_corrections());
+				abort();
+			}
+		}
+	}
 	model_data = system_malloc((long)model_data_size);
 	if (model_data)
 	{
@@ -1009,8 +1056,17 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 		}
 		memcpy(xbox_pointer(reference.base_address), data + reference.file_offset, (size_t)reference.file_size);
 		memcpy(&bsp_base, xbox_pointer(reference.base_address), 4);
-		ce_bsp_loaded(xbox_pointer(bsp_base));
+		/* (its predicted resources repaired, then through Halo PC's schema,
+		before its vertices are compressed: scenario_structure_bsp_load) */
 		ce_repairs_bsp_loaded(xbox_pointer(bsp_base));
+		if (fuzz_ce_schema &&
+			!tag_validate_structure_bsp(reference.tag_index, xbox_pointer(reference.base_address), reference.file_size))
+		{
+			if (fuzz_verbose)
+				fprintf(stderr, "map_fuzz: structure BSP %ld was refused by Halo PC's tag schema\n", (long)bsp_index);
+			continue;
+		}
+		ce_bsp_loaded(xbox_pointer(bsp_base));
 		ce_bsp_unloaded();
 	}
 }

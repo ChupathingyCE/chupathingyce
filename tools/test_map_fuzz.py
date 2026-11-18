@@ -74,6 +74,8 @@ CUSTOM_EDITION = [
     "port/linux/game/ce_hud.c",
     "port/linux/game/ce_repairs.c",
     "port/linux/game/ce_functions.c",
+    # (Halo PC's tag schema, which the tags go through as they load)
+    *VALIDATOR,
     "source/bitmaps/bitmaps.c",
     "source/rasterizer/rasterizer_geometry.c",
     "source/rasterizer/rasterizer_swizzle.c",
@@ -156,6 +158,26 @@ def xbox_map(name=b"fuzz"):
     return bytes(data)
 
 
+def ce_bsp(bsp_base, extra=0x40):
+    """a Custom Edition structure BSP that loads at bsp_base: its header, its
+    structure (0x288 bytes, its blocks empty but its collision BSP), extra
+    bytes, then its collision BSP of one node and one plane, which every
+    structure BSP has (Halo PC's tag schema refuses one without:
+    tag_schema_collision.c)"""
+    structure = 0x18
+    collision = structure + 0x288 + extra
+    bsp = bytearray(collision + 0x60 + 0x0C + 0x10)
+    struct.pack_into("<I", bsp, 0, bsp_base + structure)
+    struct.pack_into("<4s", bsp, 0x14, b"psbs")
+    struct.pack_into("<iI", bsp, structure + 0xB0, 1, bsp_base + collision)
+    # (its bsp3d nodes, then its planes: the node's plane 0, no children)
+    struct.pack_into("<iI", bsp, collision + 0x00, 1, bsp_base + collision + 0x60)
+    struct.pack_into("<iI", bsp, collision + 0x0C, 1, bsp_base + collision + 0x6C)
+    struct.pack_into("<iii", bsp, collision + 0x60, 0, -1, -1)
+    struct.pack_into("<ffff", bsp, collision + 0x6C, 0.0, 0.0, 1.0, 0.0)
+    return bsp
+
+
 def ce_map(name=b"fuzz", sound=None, weapon_hud_statics=None, bsp_reference_unused=0):
     """a Custom Edition map of a scenario and one empty structure BSP, its
     scripts' syntax an empty data array; with sound, a list of permutations
@@ -211,9 +233,7 @@ def ce_map(name=b"fuzz", sound=None, weapon_hud_statics=None, bsp_reference_unus
     tags += bytes((-len(tags)) % 16)
     tag_data_size = len(tags)
     bsp_offset = 0x800 + tag_data_size
-    bsp = bytearray(0x18 + 0x288 + 0x40)
-    struct.pack_into("<I", bsp, 0, base + 0x100000 + 0x18)
-    struct.pack_into("<4s", bsp, 0x14, b"psbs")
+    bsp = ce_bsp(base + 0x100000)
     model_offset = bsp_offset + len(bsp)
     # the tag header: instances, the scenario, checksum, count, model parts,
     # model data offset, model parts, vertex data size, model data size
@@ -254,9 +274,7 @@ def ce_map_bsp_materials(lightmaps, materials, vertex_count=1):
     lightmap_block = structure + 0x288
     material_block = lightmap_block + 0x20 * lightmaps
     vertices = material_block + 0x100 * materials
-    bsp = bytearray(vertices + 0x50)
-    struct.pack_into("<I", bsp, 0, bsp_base + structure)
-    struct.pack_into("<4s", bsp, 0x14, b"psbs")
+    bsp = ce_bsp(bsp_base, vertices + 0x50 - lightmap_block)
     struct.pack_into("<iI", bsp, structure + 0x104, lightmaps, bsp_base + lightmap_block)
     for lightmap in range(lightmaps):
         struct.pack_into("<iI", bsp, lightmap_block + 0x20 * lightmap + 0x14, materials, bsp_base + material_block)
@@ -299,9 +317,7 @@ def ce_map_of_tags(extra):
     tags += bytes((-len(tags)) % 16)
     tag_data_size = len(tags)
     bsp_offset = 0x800 + tag_data_size
-    bsp = bytearray(0x18 + 0x288 + 0x40)
-    struct.pack_into("<I", bsp, 0, base + 0x100000 + 0x18)
-    struct.pack_into("<4s", bsp, 0x14, b"psbs")
+    bsp = ce_bsp(base + 0x100000)
     model_offset = bsp_offset + len(bsp)
     struct.pack_into("<IIIIIIIII4s", tags, 0, base + instances, 0xE1740000, 0, tag_count, 0, model_offset, 0, 0, 0,
                      b"sgat")
@@ -414,8 +430,13 @@ def test_room_counted_without_wrapping(built, tmp_path):
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
     assert result.returncode == 0, result.stderr[-4000:]
     assert "vertex buffers need more than the tag cache's" in result.stderr, result.stderr[-4000:]
+    # (one block of materials shared by every lightmap, which no tool makes:
+    # Halo PC's tag schema refuses it once it corrects their vertices; the
+    # conversion alone, without it, compresses each material once)
     path.write_bytes(ce_map_bsp_materials(4, 3))
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert "structure BSP 0 was refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
     assert "fuzz: checked" in result.stderr and "3 BSP materials' vertices compressed" in result.stderr, \
         result.stderr[-4000:]
 
@@ -486,7 +507,12 @@ def test_bsp_reference_written_over(built, tmp_path):
     binaries, _ = built
     path = tmp_path / "hud_over_bsp.map"
     path.write_bytes(ce_map(weapon_hud_statics=-0x24, bsp_reference_unused=4))
+    # (Halo PC's tag schema refuses it, the HUD's root shorter than a weapon
+    # HUD's; without it, the BSP's load does)
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
     assert result.returncode == 0, result.stderr[-4000:]
     assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
     assert "not where it was checked" in result.stderr, result.stderr[-4000:]
@@ -506,10 +532,79 @@ def test_tags_checked_again_as_they_load(built, tmp_path):
     struct.pack_into("<I", data, 0x800 + instances + 0x40 + 0x14, syntax + 0x22 - 0x38)
     path = tmp_path / "damage_over_scripts.map"
     path.write_bytes(bytes(data))
+    # (Halo PC's tag schema refuses it first, the damage effect's root over
+    # the scripts' syntax; without it, the check after the conversions does)
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
     assert result.returncode == 0, result.stderr[-4000:]
     assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
     assert "refused as it loaded: its scripts' syntax" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_schema_refuses_overlapping_blocks(built, tmp_path):
+    """a block of a group no conversion reads (an item collection's
+    permutations) laid over another tag's root: before Halo PC's tag schema,
+    nothing checked it and the map loaded; now a Custom Edition map is
+    refused, and a HaloMD map's (whose retail tools overlapped blocks) is
+    checked as its own, its elements having nothing the walk writes to"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"itmc", 0x5C), (b"itmc", 0x5C)])
+    first, second = offsets["tags"]
+    # (one permutation of 0x54 bytes, from 4 bytes into the second
+    # collection's root: its item reference, 0x24 in, none and named as the
+    # map's tags are)
+    name = struct.unpack_from("<I", data, offsets["instances"] + 0x10)[0]
+    struct.pack_into("<iI", data, first, 1, base + second + 4 - 0x800)
+    struct.pack_into("<4sIiI", data, second + 4 + 0x24, b"\xff\xff\xff\xff", name, 0, 0xFFFFFFFF)
+    path = tmp_path / "collection_over_collection.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "which overlap another's" in result.stderr, result.stderr[-4000:]
+    assert "refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
+    struct.pack_into("<i", data, 4, 7)
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused" not in result.stderr, result.stderr[-4000:]
+    assert "1 roots, blocks and data overlapping others'" in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_schema_takes_gbxmodels(built, tmp_path):
+    """an object whose model is a gbxmodel (Halo PC's, which the Xbox's
+    schema has no group for): Halo PC's tag schema takes it where a model is
+    asked for, and walks the gbxmodel's own layout, its parts 0x84 bytes"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"scen", 0x1FC), (b"mod2", 0xE8 + 0x30 + 2 * 0x84 + 0x9C)])
+    scenery, model = offsets["tags"]
+    # (scenery: its object type, its model; the model's tag index is the
+    # fourth tag's)
+    struct.pack_into("<h", data, scenery, 6)
+    struct.pack_into("<4sIiI", data, scenery + 0x28, b"2dom", 0, 0, ((0xE174 + 3) << 16) | 3)
+    # (the gbxmodel: one geometry of two parts, each its shader none and its
+    # centroid's nodes none: Halo PC's part layout, local nodes at its end)
+    geometry = model + 0xE8
+    parts = geometry + 0x30
+    struct.pack_into("<iI", data, model + 0xC4, 1, base + geometry - 0x800)
+    struct.pack_into("<iI", data, geometry + 0x24, 2, base + parts - 0x800)
+    for part in range(2):
+        struct.pack_into("<Ihbbhh", data, parts + part * 0x84, 0, -1, -1, -1, -1, -1)
+    # (and one node, the root of its tree)
+    node = parts + 2 * 0x84
+    struct.pack_into("<iI", data, model + 0xB8, 1, base + node - 0x800)
+    struct.pack_into("<hhh", data, node + 0x20, -1, -1, -1)
+    path = tmp_path / "gbxmodel.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused" not in result.stderr, result.stderr[-4000:]
+    assert "not a tag of mode" not in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
 
 
 def test_conversions_read_only_the_tags(built, tmp_path):
@@ -528,7 +623,12 @@ def test_conversions_read_only_the_tags(built, tmp_path):
         struct.pack_into("<iI", data, 0x800 + tag + 0x158, 1, address)
         path = tmp_path / "functions_past_tags.map"
         path.write_bytes(bytes(data))
+        # (Halo PC's tag schema refuses the map; the conversions, without
+        # it, pass the block over)
         result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
         assert result.returncode == 0, result.stderr[-4000:]
         assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
         assert "0 periodic and 0 transition functions" in result.stderr, result.stderr[-4000:]
@@ -611,7 +711,12 @@ def test_conversions_write_nothing_over_the_tag_index(built, tmp_path):
     struct.pack_into("<I", data, offsets["instances"] + 2 * 0x20 + 0x14, base + (shader_address + 2 - 0x38 - 0x800))
     path = tmp_path / "functions_over_index.map"
     path.write_bytes(bytes(data))
+    # (Halo PC's tag schema refuses the map, the damage effect's root over
+    # the tag index; the conversions, without it, write nothing there)
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
     assert result.returncode == 0, result.stderr[-4000:]
     assert "refused" not in result.stderr, result.stderr[-4000:]
     assert "over its tag header or tag index" in result.stderr, result.stderr[-4000:]
