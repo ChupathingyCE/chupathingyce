@@ -3685,15 +3685,15 @@ static void halt_screen_gather(
 	}
 	else if (mcc_cache_tags_loaded())
 	{
-		facts->mode = "MCC";
+		facts->mode = "MCC map";
 	}
 	else if (facts->map[0] && CACHE_FILE_TAGS_ARE_CE())
 	{
-		facts->mode = "Custom Edition";
+		facts->mode = "Custom Edition map";
 	}
 	else
 	{
-		facts->mode = "Xbox";
+		facts->mode = "Xbox map";
 	}
 	facts->build = port_build_identity();
 
@@ -3731,9 +3731,9 @@ static void halt_screen_text_build(
 	long index;
 
 	length = snprintf(halt_screen_text, sizeof(halt_screen_text),
-		"The game stopped\r\n\r\n%s\r\n%s%sMap: %s   Mode: %s\r\nBuild: %s\r\n\r\n",
+		"The game stopped\r\n\r\n%s\r\n%s%sMap: %s%s%s%s\r\nBuild: %s\r\n\r\n",
 		facts->reason, facts->place, facts->place[0] ? "\r\n" : "", facts->map[0] ? facts->map : "none",
-		facts->mode, facts->build);
+		facts->map[0] ? " (" : "", facts->map[0] ? facts->mode : "", facts->map[0] ? ")" : "", facts->build);
 	for (index = 0; index < facts->line_count && length > 0 && length < (long)sizeof(halt_screen_text); index++)
 	{
 		length += snprintf(halt_screen_text + length, sizeof(halt_screen_text) - (size_t)length, "%s\r\n",

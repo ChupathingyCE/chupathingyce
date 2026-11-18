@@ -190,8 +190,8 @@ rows, its own rows indented), the oldest of the plain lines left out first
 when they are more than HALT_SCREEN_LOG_ROWS, then the oldest of all */
 enum
 {
-	HALT_SCREEN_LINE_ROWS = 3,
-	HALT_SCREEN_LOG_ROWS = 14,
+	HALT_SCREEN_LINE_ROWS = 5,
+	HALT_SCREEN_LOG_ROWS = 16,
 };
 static char log_rows[HALT_SCREEN_LOG_ROWS][GUIDE_LAYOUT_LINE_SIZE];
 static char log_row_important[HALT_SCREEN_LOG_ROWS];
@@ -279,7 +279,7 @@ void halt_screen_frame(struct halt_facts const *facts)
 	rows = log_rows_layout(facts, inner_width - 16);
 	box_height = (float)(rows ? rows : 1) * line_height + 12;
 	/* (the panel as tall as what is in it, in the middle of the screen) */
-	height = padding + 26 + (float)count * 14 + (facts->place[0] ? line_height : 0) + gap + 3 * 13 + gap + 13 +
+	height = padding + 26 + (float)count * 14 + (facts->place[0] ? line_height : 0) + gap + 2 * 13 + gap + 13 +
 		box_height + 14 + button_height + (halt_screen.status[0] ? 10 + line_height : 0) + padding;
 	top = (480 - height) * 0.5f;
 
@@ -308,14 +308,18 @@ void halt_screen_frame(struct halt_facts const *facts)
 	}
 	y += gap;
 
-	/* the map, the mode and the build */
-	ui_style_text(UI_TEXT_LABEL, inner_left, y, UI_ALIGN_LEFT, "Map");
-	text_fitted(UI_TEXT_LINE, inner_left + label_width, y, inner_width - label_width, UI_ALIGN_LEFT,
-		facts->map[0] ? facts->map : "None");
-	y += 13;
-	ui_style_text(UI_TEXT_LABEL, inner_left, y, UI_ALIGN_LEFT, "Mode");
-	text_fitted(UI_TEXT_LINE, inner_left + label_width, y, inner_width - label_width, UI_ALIGN_LEFT, facts->mode);
-	y += 13;
+	/* the map and its kind, and the build */
+	{
+		char map[128];
+
+		if (facts->map[0])
+			snprintf(map, sizeof(map), "%s (%s)", facts->map, facts->mode);
+		else
+			snprintf(map, sizeof(map), "None");
+		ui_style_text(UI_TEXT_LABEL, inner_left, y, UI_ALIGN_LEFT, "Map");
+		text_fitted(UI_TEXT_LINE, inner_left + label_width, y, inner_width - label_width, UI_ALIGN_LEFT, map);
+		y += 13;
+	}
 	ui_style_text(UI_TEXT_LABEL, inner_left, y, UI_ALIGN_LEFT, "Build");
 	text_fitted(UI_TEXT_LINE, inner_left + label_width, y, inner_width - label_width, UI_ALIGN_LEFT, facts->build);
 	y += 13 + gap;

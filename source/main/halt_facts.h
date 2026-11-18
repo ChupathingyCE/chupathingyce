@@ -28,7 +28,8 @@ struct halt_facts
 	char reason[256];
 	/* its file and line, as "cseries/errors.c:97" ("" for none) */
 	char place[HALT_FACTS_LINE_SIZE];
-	/* the map's name ("" before any) and the mode it was played in */
+	/* the map's name ("" before any) and its kind, in plain words ("Xbox
+	map", "Custom Edition map", "MCC map", "Stubbs") */
 	char map[64];
 	char const *mode;
 	char const *build;
