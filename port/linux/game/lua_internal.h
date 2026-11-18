@@ -14,6 +14,14 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #ifdef HALO_LUA
 
+/* (Lua's integers are long long, as the library is built: a C library that
+hides LLONG_MAX from the game's strict C89, FreeBSD's, is given it, so that
+luaconf.h agrees with the library's own build) */
+#include <limits.h>
+#if !defined(LLONG_MAX) && defined(__LONG_LONG_MAX__)
+#define LLONG_MAX __LONG_LONG_MAX__
+#define LLONG_MIN (-__LONG_LONG_MAX__ - 1LL)
+#endif
 #include "lua.h"
 #include "lauxlib.h"
 
