@@ -11,7 +11,7 @@ current developers Aerocatia and Cambidd, and its contributors), its
 src/chimera/lua: lua_callback.cpp (set_callback, the callbacks and their
 priorities, the command callback's block), lua_game.cpp (console_out,
 execute_script, get_tag, get_object, get_player, get_dynamic_player,
-ticks, tick_rate), lua_io.cpp (read_* and write_*,
+spawn_object, delete_object, ticks, tick_rate), lua_io.cpp (read_* and write_*,
 read_bit, write_bit, read_string8, write_string8), lua_script.cpp (running
 a script and its version check) and lua_variables.cpp (the script's
 variables), each GPL-3.0-only. Rewritten in C for this game: memory goes
@@ -33,6 +33,7 @@ SPDX-License-Identifier: GPL-3.0-only
 #include "hs/hs.h"
 #include "main/console.h"
 #include "memory/data.h"
+#include "objects/objects.h"
 
 #include "lua_internal.h"
 #include "lua_opensauce.h"
@@ -407,6 +408,85 @@ static int lua_get_dynamic_player(
 	return 1;
 }
 
+/* the object groups spawn_object takes */
+static unsigned long const lua_object_groups[] =
+{
+	'bipd', 'vehi', 'weap', 'eqip', 'garb', 'proj', 'scen', 'mach', 'ctrl', 'lifi', 'plac', 'ssce',
+};
+
+/* spawn_object(group, path, x, y, z) or spawn_object(tag id, x, y, z): a
+new object of that tag there, its handle (lua_game.cpp). A tag that is none
+or not an object's is an error, as in Chimera */
+static int lua_spawn_object(
+	lua_State *state)
+{
+	int arguments = lua_gettop(state);
+	int first;
+	unsigned int instance = 0, group = 0, tag_index = 0xFFFFFFFFu;
+	struct object_placement_data data;
+	long object_index;
+	short index;
+
+	if (arguments != 4 && arguments != 5)
+		return lua_wrong_arguments(state, "spawn_object");
+	if (lua_isnumber(state, 1))
+	{
+		instance = twiddlings_tag_instance_address((long)(unsigned int)luaL_checkinteger(state, 1));
+		first = 2;
+	}
+	else
+	{
+		char const *group_name = luaL_checkstring(state, 1);
+		char const *path = luaL_checkstring(state, 2);
+		unsigned long group_tag = 0;
+
+		for (index = 0; index < 4; index++)
+			group_tag = (group_tag << 8) | (unsigned char)(index < (short)strlen(group_name) ? group_name[index] : ' ');
+		instance = twiddlings_tag_instance_address_by_name(group_tag, path);
+		first = 3;
+	}
+	if (instance)
+	{
+		twiddlings_read(instance, &group, sizeof(group));
+		twiddlings_read(instance + 0xC, &tag_index, sizeof(tag_index));
+	}
+	for (index = 0; index < (short)NUMBEROF(lua_object_groups); index++)
+	{
+		if (group == (unsigned int)lua_object_groups[index])
+			break;
+	}
+	if (!instance || tag_index == 0xFFFFFFFFu || index == (short)NUMBEROF(lua_object_groups))
+		return luaL_error(state, "invalid tag in spawn_object");
+	if (!game_time_initialized())
+	{
+		lua_pushinteger(state, 0xFFFFFFFFu);
+		return 1;
+	}
+	object_placement_data_new(&data, (long)tag_index, NONE);
+	data.position.x = (real)luaL_checknumber(state, first);
+	data.position.y = (real)luaL_checknumber(state, first + 1);
+	data.position.z = (real)luaL_checknumber(state, first + 2);
+	object_index = object_new(&data);
+	lua_pushinteger(state, (lua_Integer)(unsigned int)object_index);
+	return 1;
+}
+
+/* delete_object(id) */
+static int lua_delete_object(
+	lua_State *state)
+{
+	long object_index;
+
+	if (lua_gettop(state) != 1)
+		return lua_wrong_arguments(state, "delete_object");
+	object_index = (long)(unsigned int)luaL_checkinteger(state, 1);
+	if (object_index == NONE)
+		return luaL_error(state, "invalid object id in delete_object");
+	if (game_time_initialized() && object_try_and_get(object_index))
+		object_delete(object_index);
+	return 0;
+}
+
 /* ticks(): the game's ticks, and how far into the next this frame is */
 static int lua_ticks(
 	lua_State *state)
@@ -651,7 +731,6 @@ void lua_chimera_api_register(
 {
 	static char const *const unsupported[] =
 	{
-		"spawn_object", "delete_object",
 		"get_global", "set_global", "set_timer", "stop_timer",
 		"draw_text", "hud_message", "load_ui_widget", "create_font_override", "execute_chimera_command",
 		"create_directory", "remove_directory", "list_directory", "directory_exists",
@@ -667,6 +746,8 @@ void lua_chimera_api_register(
 	lua_register(state, "get_object", lua_get_object);
 	lua_register(state, "get_player", lua_get_player);
 	lua_register(state, "get_dynamic_player", lua_get_dynamic_player);
+	lua_register(state, "spawn_object", lua_spawn_object);
+	lua_register(state, "delete_object", lua_delete_object);
 	lua_register(state, "ticks", lua_ticks);
 	lua_register(state, "tick_rate", lua_tick_rate);
 	lua_register_memory(state);
