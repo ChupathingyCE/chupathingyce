@@ -18,11 +18,14 @@ used as it is. Each is resolved by the twiddlings table to one of:
     (ce_models.c), the HUD's high-resolution scale flags (ce_hud.c) and the
     BSPs' vertices (ce_bsp.c);
   - a named Halo PC global the game has as a variable of its own (the
-    difficulty, the players' look rates): read and written through it;
+    difficulty, the players' look rates, the first-person camera, the
+    checkpoint count): read and written through it;
+  - the objects and players a script is given (get_object, get_player) and
+    Halo PC's object table: lua_twiddlings_objects.c;
+  - while an OpenSauce map is loaded, what OpenSauce puts in haloce.exe's
+    memory (the f0 to f5 script globals): lua_opensauce.c, apart;
   - anything else: reads give 0 and writes are refused, each address logged
     once.
-The objects and the players (get_object, get_player) come next: their
-Halo PC fields mapped onto the Xbox's by name.
 
 The setting lua.twiddlings turns it all off (every read 0, every write
 refused), to try a script without its memory access.
@@ -36,10 +39,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "cseries.h"
 #include "cache/cache_files.h"
+#include "camera/director.h"
 #include "game/game.h"
 #include "game/players.h"
+#include "saved games/game_state.h"
 
 #include "lua_internal.h"
+#include "lua_opensauce.h"
 #include "lua_twiddlings.h"
 
 #include <stdio.h>
@@ -92,6 +98,10 @@ static boolean twiddlings_look_yaw_rate(enum twiddlings_access access, short ind
 	void *value, unsigned int size);
 static boolean twiddlings_look_pitch_rate(enum twiddlings_access access, short index, unsigned int offset,
 	void *value, unsigned int size);
+static boolean twiddlings_camera(enum twiddlings_access access, short index, unsigned int offset, void *value,
+	unsigned int size);
+static boolean twiddlings_save_hash(enum twiddlings_access access, short index, unsigned int offset, void *value,
+	unsigned int size);
 
 /* ---------- globals */
 
@@ -105,7 +115,19 @@ static struct twiddlings_global const twiddlings_globals[] =
 	/* each local player's look rates (player0_look_yaw_rate and the rest) */
 	{ 0x006AAACC, 0x85C, MAXIMUM_NUMBER_OF_LOCAL_PLAYERS, sizeof(real), "look yaw rate", twiddlings_look_yaw_rate },
 	{ 0x006AAAD0, 0x85C, MAXIMUM_NUMBER_OF_LOCAL_PLAYERS, sizeof(real), "look pitch rate", twiddlings_look_pitch_rate },
+	/* the first local player's camera update (the director's at 0x647490,
+	its update function at +8: OpenSauce's s_director_data), which scripts
+	compare with the first-person camera's, 0x4476C0 */
+	{ 0x00647498, 0, 1, sizeof(unsigned int), "camera update", twiddlings_camera },
+	/* a word in the main thread's stack on Halo PC (its stack is 0x90000 to
+	0x190000 there), never a global: it happens to change as a checkpoint
+	saves, so scripts read it to tell. Here it is the count of checkpoints
+	saved */
+	{ 0x0018DCC0, 0, 1, sizeof(unsigned int), "checkpoint saves", twiddlings_save_hash },
 };
+
+/* Halo PC's first-person camera update function (haloce.exe 1.0.10) */
+#define PC_FIRST_PERSON_CAMERA_UPDATE 0x004476C0u
 
 /* ---------- private code */
 
@@ -309,6 +331,40 @@ static boolean twiddlings_look_pitch_rate(
 	return twiddlings_real(&player_look_pitch_rate[index], access, offset, value, size);
 }
 
+static boolean twiddlings_camera(
+	enum twiddlings_access access,
+	short index,
+	unsigned int offset,
+	void *value,
+	unsigned int size)
+{
+	unsigned int update = 0;
+
+	(void)index;
+	if (access == _twiddlings_write)
+		return FALSE;
+	if (game_time_initialized() && director_port_first_person(0))
+		update = PC_FIRST_PERSON_CAMERA_UPDATE;
+	memcpy(value, (byte const *)&update + offset, size);
+	return TRUE;
+}
+
+static boolean twiddlings_save_hash(
+	enum twiddlings_access access,
+	short index,
+	unsigned int offset,
+	void *value,
+	unsigned int size)
+{
+	unsigned int saves = (unsigned int)game_state_port_checkpoints_saved();
+
+	(void)index;
+	if (access == _twiddlings_write)
+		return FALSE;
+	memcpy(value, (byte const *)&saves + offset, size);
+	return TRUE;
+}
+
 static void twiddlings_refused(
 	enum twiddlings_access access,
 	unsigned int address)
@@ -330,6 +386,7 @@ boolean twiddlings_read(
 	unsigned int size)
 {
 	void *pointer;
+	int result;
 
 	memset(value, 0, size);
 	if (!twiddlings_enabled())
@@ -347,8 +404,14 @@ boolean twiddlings_read(
 	}
 	if (twiddlings_access_global(_twiddlings_read, address, value, size))
 		return TRUE;
+	result = twiddlings_objects_access(FALSE, address, value, size);
+	if (result < 0)
+		result = twiddlings_opensauce_access(FALSE, address, value, size);
+	if (result > 0)
+		return TRUE;
 	memset(value, 0, size);
-	twiddlings_refused(_twiddlings_read, address);
+	if (result < 0)
+		twiddlings_refused(_twiddlings_read, address);
 	return FALSE;
 }
 
@@ -359,6 +422,7 @@ boolean twiddlings_write(
 {
 	void *pointer;
 	byte copy[8];
+	int result;
 
 	if (!twiddlings_enabled())
 	{
@@ -386,6 +450,13 @@ boolean twiddlings_write(
 		memcpy(copy, value, size);
 		if (twiddlings_access_global(_twiddlings_write, address, copy, size))
 			return TRUE;
+		result = twiddlings_objects_access(TRUE, address, copy, size);
+		if (result < 0)
+			result = twiddlings_opensauce_access(TRUE, address, copy, size);
+		if (result > 0)
+			return TRUE;
+		if (!result)
+			return FALSE;
 	}
 	twiddlings_refused(_twiddlings_write, address);
 	return FALSE;
@@ -402,6 +473,24 @@ boolean twiddlings_read_string(
 	text[0] = 0;
 	if (!size)
 		return FALSE;
+	if (twiddlings_enabled() && (!twiddlings_tag_cache(&base, &end) || address < base || address >= end))
+	{
+		/* (an object's or a player's: a byte at a time, as they translate) */
+		char character = 0;
+
+		if (twiddlings_objects_access(FALSE, address, &character, 1) > 0)
+		{
+			length = 0;
+			while (character && length + 1 < size)
+			{
+				text[length++] = character;
+				if (twiddlings_objects_access(FALSE, address + length, &character, 1) <= 0)
+					break;
+			}
+			text[length] = 0;
+			return TRUE;
+		}
+	}
 	if (!twiddlings_enabled() || !twiddlings_tag_cache(&base, &end) || address < base || address >= end)
 	{
 		twiddlings_refused(_twiddlings_read, address);

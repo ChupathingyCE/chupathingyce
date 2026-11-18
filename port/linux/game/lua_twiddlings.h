@@ -36,6 +36,20 @@ unsigned int twiddlings_tag_instance_address(long tag_index);
 /* the same, by group and path (the path's case ignored); 0 for none */
 unsigned int twiddlings_tag_instance_address_by_name(unsigned long group_tag, char const *path);
 
+/* the stand-in address a script is given for an object (get_object), by
+its handle or its index alone: 0 for none (lua_twiddlings_objects.c) */
+unsigned int twiddlings_object_address(long object_index);
+/* the same for a player (get_player), by handle or index */
+unsigned int twiddlings_player_address(long player_index);
+/* the player whose place in the player list (Chimera's rcon id) is this,
+as a handle; NONE for none */
+long twiddlings_player_by_list_index(long list_index);
+
+/* (lua_twiddlings.c's) an access at the objects', the players' or the
+object table's addresses: -1 if the address is none of theirs, else whether
+it was done (FALSE: refused, logged) */
+int twiddlings_objects_access(boolean write, unsigned int address, void *value, unsigned int size);
+
 #endif
 
 #endif

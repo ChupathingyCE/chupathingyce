@@ -10,7 +10,8 @@ Adapted from Chimera (github.com/SnowyMouse/chimera, by Snowy Mouse, its
 current developers Aerocatia and Cambidd, and its contributors), its
 src/chimera/lua: lua_callback.cpp (set_callback, the callbacks and their
 priorities, the command callback's block), lua_game.cpp (console_out,
-execute_script, get_tag, ticks, tick_rate), lua_io.cpp (read_* and write_*,
+execute_script, get_tag, get_object, get_player, get_dynamic_player,
+ticks, tick_rate), lua_io.cpp (read_* and write_*,
 read_bit, write_bit, read_string8, write_string8), lua_script.cpp (running
 a script and its version check) and lua_variables.cpp (the script's
 variables), each GPL-3.0-only. Rewritten in C for this game: memory goes
@@ -31,8 +32,10 @@ SPDX-License-Identifier: GPL-3.0-only
 #include "game/players.h"
 #include "hs/hs.h"
 #include "main/console.h"
+#include "memory/data.h"
 
 #include "lua_internal.h"
+#include "lua_opensauce.h"
 #include "lua_twiddlings.h"
 
 #include <stdio.h>
@@ -263,6 +266,10 @@ static int lua_execute_script(
 	{
 		char key[160];
 
+		/* (OpenSauce's, on an OpenSauce map: logged as OpenSauce's) */
+		if (lua_opensauce_script_word(lua_script_from_state(state)->name, word))
+			return 0;
+
 		snprintf(key, sizeof(key), "script %s", word);
 		lua_log_once(key, "%s: execute_script: the game has no %s: skipped", lua_script_from_state(state)->name,
 			word);
@@ -319,6 +326,82 @@ static int lua_get_tag(
 		lua_pushinteger(state, address);
 	else
 		lua_pushnil(state);
+	return 1;
+}
+
+static void lua_push_address(
+	lua_State *state,
+	unsigned int address)
+{
+	if (address)
+		lua_pushinteger(state, address);
+	else
+		lua_pushnil(state);
+}
+
+/* the local player (Chimera's client player), as a handle */
+static long lua_local_player(
+	void)
+{
+	if (!game_time_initialized() || !local_player_exists(0))
+		return NONE;
+	return local_player_get_player_index(0);
+}
+
+/* get_object(id): the object, by its handle or its index alone, as an
+address (Twiddlings' stand-in for it), or nil */
+static int lua_get_object(
+	lua_State *state)
+{
+	lua_Integer id;
+
+	if (lua_gettop(state) != 1)
+		return lua_wrong_arguments(state, "get_object");
+	id = luaL_checkinteger(state, 1);
+	lua_push_address(state, twiddlings_object_address((long)(unsigned int)id));
+	return 1;
+}
+
+/* get_player([index]): the local player, or the one at that place in the
+player list, as an address, or nil */
+static int lua_get_player(
+	lua_State *state)
+{
+	int arguments = lua_gettop(state);
+	long player_index;
+
+	if (arguments > 1)
+		return lua_wrong_arguments(state, "get_player");
+	if (arguments == 0)
+		player_index = lua_local_player();
+	else
+		player_index = twiddlings_player_by_list_index((long)luaL_checkinteger(state, 1));
+	lua_push_address(state, player_index == NONE ? 0 : twiddlings_player_address(player_index));
+	return 1;
+}
+
+/* get_dynamic_player([index]): that player's object (its unit), or nil */
+static int lua_get_dynamic_player(
+	lua_State *state)
+{
+	int arguments = lua_gettop(state);
+	long player_index;
+	unsigned int address = 0;
+
+	if (arguments > 1)
+		return lua_wrong_arguments(state, "get_dynamic_player");
+	if (arguments == 0)
+		player_index = lua_local_player();
+	else
+		player_index = twiddlings_player_by_list_index((long)luaL_checkinteger(state, 1));
+	if (player_index != NONE)
+	{
+		struct player_datum *player = (struct player_datum *)datum_try_and_get(player_data, player_index);
+
+		if (player && player->unit_index != NONE)
+			address = twiddlings_object_address(player->unit_index);
+	}
+	lua_push_address(state, address);
 	return 1;
 }
 
@@ -566,8 +649,7 @@ void lua_chimera_api_register(
 {
 	static char const *const unsupported[] =
 	{
-		/* (objects and players come with Twiddlings' tables) */
-		"get_object", "get_player", "get_dynamic_player", "spawn_object", "delete_object",
+		"spawn_object", "delete_object",
 		"get_global", "set_global", "set_timer", "stop_timer",
 		"draw_text", "hud_message", "load_ui_widget", "create_font_override", "execute_chimera_command",
 		"create_directory", "remove_directory", "list_directory", "directory_exists",
@@ -580,6 +662,9 @@ void lua_chimera_api_register(
 	lua_register(state, "console_is_open", lua_console_is_open);
 	lua_register(state, "execute_script", lua_execute_script);
 	lua_register(state, "get_tag", lua_get_tag);
+	lua_register(state, "get_object", lua_get_object);
+	lua_register(state, "get_player", lua_get_player);
+	lua_register(state, "get_dynamic_player", lua_get_dynamic_player);
 	lua_register(state, "ticks", lua_ticks);
 	lua_register(state, "tick_rate", lua_tick_rate);
 	lua_register_memory(state);
