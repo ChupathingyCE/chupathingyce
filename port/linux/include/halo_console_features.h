@@ -263,6 +263,10 @@ HALO_PORT_UPDATE_API, HALO_PORT_UPDATE_REPOSITORY
 	signed with its own key, update_public_keys in the port's
 	halo_port_update_keys.h (update_key.h); the game's release key signs
 	nothing the port's server sends
+HALO_PORT_UPDATE_DOWNLOADS
+	with HALO_PORT_UPDATE_API, where the release's files are downloaded
+	from, when that is not the API's address and /releases/download (a
+	port on GitHub: https://github.com/<owner>/<name>/releases/download)
 HALO_PORT_UPDATE_SCRIPT, HALO_PORT_UPDATE_RESTART_EXIT_CODE
 	the launch script an update replaces with the game, and the code the
 	game exits with after an update for that script to start the new
