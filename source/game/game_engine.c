@@ -1538,7 +1538,21 @@ int config_boolean(const char *name);
 static boolean scoreboard_in_game_only(
 	void)
 {
+#ifdef HALO_CONSOLE_SETTINGS_ON_CHANGE
+	/* (read again only when the settings change: halo_port_features.h) */
+	extern unsigned long config_changes(void);
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean in_game_only;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		in_game_only = !config_boolean("display.show_quit_players");
+	}
+	return in_game_only;
+#else
 	return !config_boolean("display.show_quit_players");
+#endif
 }
 
 long populate_statistic_buffer(
@@ -2104,6 +2118,24 @@ own player) */
 static long scoreboard_scroll = 0;
 static boolean scoreboard_open = FALSE;
 
+#ifdef HALO_CONSOLE_SETTINGS_ON_CHANGE
+/* display.scoreboard_icons, read again only when the settings change
+(halo_port_features.h): asked for each row */
+static boolean scoreboard_icons_shown(
+	void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean shown;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		shown = config_boolean("display.scoreboard_icons") != 0;
+	}
+	return shown;
+}
+#endif
+
 /* display.scoreboard_team_layout: a team game's players in a column for each
 team ("teams", the red team's on the left), or all in order of score
 ("score") */
@@ -2221,7 +2253,11 @@ static void game_engine_rasterize_scoreboard(
 #endif
 	/* (the verified mark's room only when a player has it; neither it nor
 	the logos with display.scoreboard_icons off: names and scores alone) */
+#ifdef HALO_CONSOLE_SETTINGS_ON_CHANGE
+	for (index = 0; index < ranked_count && scoreboard_icons_shown(); index++)
+#else
 	for (index = 0; index < ranked_count && config_boolean("display.scoreboard_icons"); index++)
+#endif
 	{
 		if (!campaign && scoreboard_player_verified(ranked[index].player_index))
 		{

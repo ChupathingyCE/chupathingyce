@@ -1464,10 +1464,13 @@ real unit_get_drawn_camouflage(
 	real *super_amount)
 {
 	struct unit_datum *unit;
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	/* (a console draws it as sampled each tick: none between) */
 	real amount;
 
 	if (render_interpolation_unit_camouflage(unit_index, &amount, super_amount))
 		return amount;
+#endif
 	unit = unit_get(unit_index);
 	*super_amount = unit->unit.active_camouflage_super_amount;
 	return unit->unit.active_camouflage;

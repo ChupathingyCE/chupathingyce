@@ -2311,8 +2311,26 @@ static void port_dynamic_lights_choose(
 	if (chosen_frame == render.frame_index)
 		return;
 	chosen_frame = render.frame_index;
+#ifdef HALO_CONSOLE_SETTINGS_ON_CHANGE
+	{
+		/* (read again only when the settings change: halo_port_features.h) */
+		extern unsigned long config_changes(void);
+		static unsigned long limits_read_at = (unsigned long)-1;
+		static long limit_read, specular_limit_read;
+
+		if (limits_read_at != config_changes())
+		{
+			limits_read_at = config_changes();
+			limit_read = config_integer("display.dynamic_light_limit");
+			specular_limit_read = config_integer("display.specular_light_limit");
+		}
+		limit = limit_read;
+		specular_limit = specular_limit_read;
+	}
+#else
 	limit = config_integer("display.dynamic_light_limit");
 	specular_limit = config_integer("display.specular_light_limit");
+#endif
 	for (light_index = 0; light_index < lights_globals.scene_point_light_count; light_index++)
 	{
 		struct light_datum *light = light_get(lights_globals.scene_point_lights[light_index]);
