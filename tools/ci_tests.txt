@@ -28,6 +28,7 @@ tools/test_console_gl_check.py
 tools/test_console_host_players.py
 tools/test_console_light_limits.py
 tools/test_console_link.py
+tools/test_console_log_view.py
 tools/test_console_meter_stages.py
 tools/test_console_shell.py
 tools/test_coop_level_prompt.py

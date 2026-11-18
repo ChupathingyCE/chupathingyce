@@ -262,6 +262,10 @@ opens, written after each command) */
 number) */
 const char *platform_folder(int folder);
 #define CONSOLE_HISTORY_FOLDER 3
+/* port/linux/src/xbox_files.c's: a host path opened as it is (this unit's
+fopen takes Xbox paths, and made the history's a path under the data root,
+so it was never kept) */
+FILE *platform_host_fopen(const char *path, const char *mode);
 
 static void console_history_path(
 	char *path,
@@ -283,7 +287,7 @@ static void console_history_save(
 	short index;
 
 	console_history_path(path, sizeof(path));
-	if (!path[0] || !(file = fopen(path, "w")))
+	if (!path[0] || !(file = platform_host_fopen(path, "w")))
 		return;
 	for (index = (short)(console_globals.previous_command_count - 1); index >= 0; index--)
 	{
@@ -306,7 +310,7 @@ static void console_history_load(
 		return;
 	loaded = TRUE;
 	console_history_path(path, sizeof(path));
-	if (!path[0] || !(file = fopen(path, "r")))
+	if (!path[0] || !(file = platform_host_fopen(path, "r")))
 		return;
 	while (fgets(line, sizeof(line), file))
 	{
