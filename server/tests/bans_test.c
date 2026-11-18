@@ -594,6 +594,19 @@ static void test_report_limits(void)
 int main(int argc, char **argv)
 {
 	data_root = argc > 1 ? argv[1] : ".";
+	/* ("ref": the ref of one line with the key there now, printed alone,
+	for tools/test_server_bans.py's key with a newline after it) */
+	if (argc > 2 && !strcmp(argv[2], "ref"))
+	{
+		static const char line[] = "2026-11-09 10:00:00\tip=1.2.3.4\thwid=abc\tplayers=x\treason=r\t"
+			"account=0123456789abcdef0123456789abcdef\n";
+		struct server_shared_ban ban;
+
+		if (!server_bans_line_entry(line, 100, &ban))
+			return 1;
+		printf("%s\n", ban.ref);
+		return 0;
+	}
 	/* (a key cut short, there before the first ref: test_refs) */
 	{
 		char path[1024];
