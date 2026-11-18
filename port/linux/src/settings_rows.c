@@ -28,6 +28,7 @@ Default puts them back.
 #ifdef HALO_LAUNCHER
 /* (sdl_platform.c's and dsound_sdl.c's: the desktop's) */
 int platform_display_resolutions(long *widths, long *heights, int maximum);
+int platform_display_native_size(long *width, long *height);
 int platform_window_sizes(long *widths, long *heights, int maximum);
 int platform_audio_device_names(const char **names, int maximum);
 void platform_display_apply(void);
@@ -362,8 +363,18 @@ static void values_of(const struct settings_row *row, struct values *values)
 			platform_window_sizes(widths, heights, MAXIMUM_VALUES - 1);
 		char size[32];
 
+		/* (Native with the display's own size, so a display larger than
+		the sizes listed shows as larger) */
 		if (row->kind == _kind_resolutions)
-			values_add(values, "native", "NATIVE");
+		{
+			long native_width, native_height;
+
+			if (platform_display_native_size(&native_width, &native_height))
+				snprintf(size, sizeof(size), "NATIVE %ldx%ld", native_width, native_height);
+			else
+				snprintf(size, sizeof(size), "NATIVE");
+			values_add(values, "native", size);
+		}
 		for (index = 0; index < count; index++)
 		{
 			snprintf(size, sizeof(size), "%ldx%ld", widths[index], heights[index]);
@@ -437,6 +448,17 @@ void settings_rows_set_workshop_offered(int offered)
 	workshop_offered = offered;
 }
 
+/* whether the game shows in a window (display.mode, else display.fullscreen) */
+static int display_windowed(void)
+{
+	char mode[VALUE_SIZE];
+
+	current("display.mode", mode, sizeof(mode));
+	if (!mode[0])
+		return !config_boolean("display.fullscreen");
+	return same(mode, "windowed");
+}
+
 const struct settings_row *settings_row_at(int group, int index)
 {
 	int row;
@@ -454,6 +476,14 @@ const struct settings_row *settings_row_at(int group, int index)
 		/* (Workshop maps: where the Guide has WORKSHOP, MCC on this computer) */
 		if (!workshop_offered && !strcmp(settings_rows[row].key, "game.workshop_maps"))
 			continue;
+		/* (Resolution and Window Size in one place, as Video Setup has them:
+		Window Size in a window, where Resolution does nothing, and
+		Resolution otherwise) */
+		if ((settings_rows[row].kind == _kind_window_sizes && !display_windowed()) ||
+			(settings_rows[row].kind == _kind_resolutions && display_windowed()))
+		{
+			continue;
+		}
 		if (!index--)
 			return &settings_rows[row];
 	}
