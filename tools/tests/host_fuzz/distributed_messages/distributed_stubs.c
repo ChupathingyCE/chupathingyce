@@ -160,6 +160,8 @@ long game_allegiance_set_teams(void);
 long game_allegiance_set_teams(void) { return 0; }
 long game_engine_bomb_silent_death(void);
 long game_engine_bomb_silent_death(void) { return 0; }
+long game_engine_client_respawned(void);
+long game_engine_client_respawned(void) { return 0; }
 long game_engine_network_player_score(void);
 long game_engine_network_player_score(void) { return 0; }
 long game_engine_objective_weapon_deleted(void);

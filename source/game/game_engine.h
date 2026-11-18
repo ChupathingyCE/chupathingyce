@@ -712,6 +712,8 @@ boolean game_engine_should_spawn_player(
 	long player_index);
 void game_engine_client_respawn_countdown(
 	long player_index);
+void game_engine_client_respawned(
+	long player_index);
 void game_engine_postspawn_player_update(
 	long player_index);
 
