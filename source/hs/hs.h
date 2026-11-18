@@ -206,6 +206,11 @@ boolean hs_runtime_waiting_on_call(
 	void);
 char const *hs_runtime_get_executing_thread_name(
 	void);
+/* port: a map's own script global by its name, its value's place (Lua's
+get_global and set_global): its type, _hs_unparsed for none */
+short hs_runtime_scenario_global(
+	char const *name,
+	long **value);
 boolean hs_wake_by_name(
 	char const *name);
 void render_debug_scripting(
