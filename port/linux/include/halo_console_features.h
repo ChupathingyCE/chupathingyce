@@ -215,7 +215,9 @@ HALO_CONSOLE_PERFORMANCE_MODE
 	and console_performance_sky, console_performance_object_transparents,
 	console_performance_decoration_distance and
 	console_performance_hud_frames, what else it leaves out (render_sky.c,
-	render_objects.c, hud_draw.c)
+	render_objects.c, hud_draw.c). The objects' transparent parts and the
+	plants are see-through cover, so in a network game a port keeps them
+	unless display.performance_online_cuts is on (port_config.c)
 HALO_CONSOLE_CACHE_SCREEN
 	a console whose cache files are slow to make (a FAT32 stick, which writes
 	them full of zeros): they are made long a little at a time, and
