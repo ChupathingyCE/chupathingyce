@@ -81,7 +81,7 @@ static void print_usage(FILE *stream)
 		"                                  panel on, the panel's first-run setup chooses it)\n"
 		"  HALO_DEDICATED_NAME             the server's name (15 characters at most)\n"
 		"  HALO_DEDICATED_MINIMUM_PLAYERS  players a game waits for (1)\n"
-		"  HALO_DEDICATED_MAXIMUM_PLAYERS  players a game takes (12)\n"
+		"  HALO_DEDICATED_MAXIMUM_PLAYERS  players a game takes (16)\n"
 		"  HALO_DEDICATED_IDLE_LIMIT       minutes without a score that end a game (5; 0 never)\n"
 		"  HALO_DEDICATED_PUBLIC           false: not listed in the in-game Server Browser\n"
 		"  HALO_DEDICATED_COMMANDS         a file of commands in the data folder, run at start\n"

@@ -19,7 +19,7 @@
 #   --announce  the OpenCE network version the server announces (default:
 #               the build's own); our clients join a range around it, an
 #               OpenCE-style client only its exact number
-#   --players   the most players (12)
+#   --players   the most players (16)
 #   --address   the loopback address to host on (127.0.0.1); another of
 #               127.0.0.0/8 lets two copies run on one Linux machine
 #   --broadcast the loopback addresses the game is announced to, comma
@@ -48,7 +48,7 @@
 
 set -euo pipefail
 
-server="" maps="" map="bloodgulch" gametype="slayer" announce="" players="12" work="" seconds="" address="127.0.0.1" broadcast=""
+server="" maps="" map="bloodgulch" gametype="slayer" announce="" players="16" work="" seconds="" address="127.0.0.1" broadcast=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--server) server="$2"; shift 2 ;;
