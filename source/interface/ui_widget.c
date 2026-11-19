@@ -1954,10 +1954,9 @@ void draw_bitmap_in_rect(
 		columns. The menus are drawn shifted right by half the extra width
 		(halo_screen_ui_offset), so the bitmap reaches out that far each way */
 		{
-			extern boolean cache_file_tags_are_ce(void);
 			long extra = halo_screen_width() - 640;
 
-			if (extra > 0 && cache_file_tags_are_ce() &&
+			if (extra > 0 && CACHE_FILE_TAGS_ARE_CE() &&
 				rect->x0 <= 1 && rect->x1 >= 639 && rect->y0 <= 1 && rect->y1 >= 479 &&
 				(!clip_rect || (clip_rect->x0 <= 1 && clip_rect->x1 >= 639)))
 			{
