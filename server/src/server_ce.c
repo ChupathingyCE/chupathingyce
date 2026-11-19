@@ -6,11 +6,13 @@ Halo Custom Edition 1.0.10 players in the dedicated server's game
 map a Custom Edition client has too: a Custom Edition map, the same .map
 file on both sides, so the tags' handles match without any table.
 
-A Custom Edition player is one of the server machine's own players (as a
-split screen's would be), whose actions come from its client's updates
-(server_ce_local_action, from player_control.c) instead of a controller.
-So everyone else's game sees a player like any other, and the game runs
-it like any other.
+A Custom Edition client is a machine of the game of its own, with no
+connection (network_server_manager.c's virtual machines): its one player,
+at controller 0, is to every other machine a player of another machine
+like any other, and the host runs it from its client's updates
+(server_ce_take_actions, each update the host builds: the way a client
+machine's player's input comes in). So a game takes as many Custom Edition
+players as a Custom Edition client holds (16).
 
 What its client is told comes from the game's own state, each tick:
   - once it has loaded the map: every player (added), and each player's
@@ -29,6 +31,7 @@ gamespy_listing, whose port takes the joins): off by default.
 #include "game/game.h"
 #include "game/game_engine.h"
 #include "game/players.h"
+#include "game/player_queues_new.h"
 #include "memory/data.h"
 #include "networking/network_client_manager.h"
 #include "networking/network_game_globals.h"
@@ -70,8 +73,9 @@ long network_distributed_address_limit(void);
 
 enum
 {
-	/* a Custom Edition player is one of this machine's local players */
-	CE_LOCAL_PLAYERS = MAXIMUM_NUMBER_OF_LOCAL_PLAYERS,
+	/* the Custom Edition clients in a game, each its own machine: as many
+	as the transport takes, and a Custom Edition client's game holds */
+	CE_CLIENTS = CE_MAXIMUM_PEERS,
 	/* the wire's object numbers (9 bits; 0 is none) */
 	NETWORK_OBJECTS = 511,
 	TRACKED_PLAYERS = 32,
@@ -127,6 +131,9 @@ struct ce_client
 {
 	boolean active;
 	int peer;
+	/* its machine in the game (network_game_server_port_add_virtual_machine;
+	NONE: none), whose player at controller 0 is its player */
+	long machine_index;
 	char name[13];
 	unsigned long address;
 	boolean added;
@@ -222,6 +229,14 @@ struct ce_client
 	were for (a new unit: none given yet) */
 	int chosen_weapon;
 	int chosen_zoom;
+	/* the weapon, grenade and zoom its player's actions hold, kept as the
+	game keeps a local player's (player_control.c): the game's own choices
+	(a weapon picked up, readied, run out of) and the client's, given as
+	they change; and the unit they are of */
+	short weapon_choice;
+	short grenade_choice;
+	short zoom_choice;
+	long choice_unit;
 	/* a zoom chosen while a weapon was still being readied: given once the
 	weapon is in hand (its levels are the new weapon's); NONE: none */
 	int pending_zoom;
@@ -230,7 +245,6 @@ struct ce_client
 	the AFK limit (server_conduct.c) */
 	unsigned long input_time;
 	int ticks_left;
-	long played_tick;
 	/* between games (CE_PHASE_*), since when, the game's end as told (its
 	postgame mode), and the scores' keep-alive last sent */
 	int phase;
@@ -247,7 +261,7 @@ static struct
 	game (ce_welcome; empty: none) */
 	char welcome[CE_CHAT_SIZE + 1];
 	boolean welcome_set;
-	struct ce_client clients[CE_LOCAL_PLAYERS];
+	struct ce_client clients[CE_CLIENTS];
 	/* each wire number's object */
 	long objects[NETWORK_OBJECTS + 1];
 	/* joins waiting for a game to start, or for a seat a leaving player still holds */
@@ -553,6 +567,28 @@ static long network_player_datum(
 	return NONE;
 }
 
+/* a client's player (its datum handle): its machine's, at controller 0;
+NONE while the game has none for it */
+static long client_player(
+	struct ce_client const *client)
+{
+	struct data_iterator iterator;
+	struct player_datum *datum;
+
+	if (!client->active || client->machine_index == NONE || !player_data)
+		return NONE;
+	data_iterator_new(&iterator, player_data);
+	while ((datum = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		if (datum->network_player_data.machine_index == client->machine_index &&
+			datum->network_player_data.controller_index == 0)
+		{
+			return iterator.datum_index;
+		}
+	}
+	return NONE;
+}
+
 /* (slot_players, if any: each slot's player, NONE for none) */
 static void game_settings_for(
 	int peer,
@@ -748,14 +784,13 @@ static void ffa_teams_told(
 own server sends its clients the whole game settings again, so their
 scoreboards, names and friends follow */
 static void send_roster(
-	struct ce_client *client,
-	short local_index)
+	struct ce_client *client)
 {
 	struct ce_game_settings settings;
 	struct ce_payload payload;
 	unsigned char out[PAYLOAD_SIZE];
 	long slot_players[CE_GAME_PLAYERS];
-	long own_player = local_player_get_player_index(local_index);
+	long own_player = client_player(client);
 
 	/* (nothing it is built from changed: the same roster) */
 	if (client->roster_known && client->roster_signature == ce.roster_signature && client->roster_own_player == own_player)
@@ -779,19 +814,14 @@ static void send_roster(
 /* ---------- joins */
 
 static struct ce_client *client_for_peer(
-	int peer,
-	short *local_index)
+	int peer)
 {
 	short index;
 
-	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+	for (index = 0; index < CE_CLIENTS; index++)
 	{
 		if (ce.clients[index].active && ce.clients[index].peer == peer)
-		{
-			if (local_index)
-				*local_index = index;
 			return &ce.clients[index];
-		}
 	}
 	return NULL;
 }
@@ -828,6 +858,7 @@ static void client_reset(
 	csmemset(client, 0, sizeof(*client));
 	client->active = TRUE;
 	client->peer = kept.peer;
+	client->machine_index = kept.machine_index;
 	client->address = kept.address;
 	client->welcomed = kept.welcomed;
 	client->joined_time = kept.joined_time;
@@ -835,6 +866,10 @@ static void client_reset(
 	client->start_vehicle = NONE;
 	client->chosen_unit = NONE;
 	client->pending_zoom = NONE;
+	client->weapon_choice = NONE;
+	client->grenade_choice = NONE;
+	client->zoom_choice = NONE;
+	client->choice_unit = NONE;
 	csmemcpy(client->name, kept.name, sizeof(client->name));
 	for (index = 0; index < TRACKED_PLAYERS; index++)
 	{
@@ -881,7 +916,7 @@ static boolean accept_join(
 	struct ce_payload payload;
 	unsigned char out[PAYLOAD_SIZE];
 
-	struct ce_client *client = client_for_peer(peer, NULL);
+	struct ce_client *client = client_for_peer(peer);
 
 	game_settings_for(peer, name, own_player, &settings, slot_players);
 	if (client)
@@ -896,18 +931,37 @@ static boolean accept_join(
 	return TRUE;
 }
 
-/* a client back for the next game, on its connection: its seat kept (its
-player too, unless the game let it go) */
-static boolean rejoin(
-	struct ce_client *client,
-	short index)
+/* the client's machine in the game, and its player on it (in game, queued:
+the game adds it within a tick or two). FALSE: the game took neither */
+static boolean seat_client(
+	struct ce_client *client)
 {
 	wchar_t wide_name[13];
 
-	if (local_player_get_player_index(index) == NONE)
+	wide_player_name(client->name, wide_name);
+	if (client->machine_index == NONE || !network_game_server_port_machine_is_virtual(client->machine_index))
 	{
-		wide_player_name(client->name, wide_name);
-		if (!network_game_client_add_named_player(global_network_game_client_get(), index, wide_name, 0))
+		client->machine_index = network_game_server_port_add_virtual_machine(wide_name, client->address);
+		if (client->machine_index == NONE)
+			return FALSE;
+	}
+	if (client_player(client) != NONE)
+		return TRUE;
+	if (network_game_server_port_add_virtual_player(client->machine_index, wide_name, 0))
+		return TRUE;
+	network_game_server_port_remove_virtual_machine(client->machine_index);
+	client->machine_index = NONE;
+	return FALSE;
+}
+
+/* a client back for the next game, on its connection: its machine kept
+(its player too, unless the game let it go) */
+static boolean rejoin(
+	struct ce_client *client)
+{
+	if (client_player(client) == NONE)
+	{
+		if (!seat_client(client))
 		{
 			ce_transport_refuse(client->peer, CE_REJECT_UNKNOWN);
 			error(_error_silent, "ce: Custom Edition player \"%s\" could not join the next game", client->name);
@@ -917,7 +971,7 @@ static boolean rejoin(
 	}
 	client_reset(client);
 	error(_error_silent, "ce: Custom Edition player \"%s\" joins the next game", client->name);
-	if (!accept_join(client->peer, client->name, local_player_get_player_index(index)))
+	if (!accept_join(client->peer, client->name, client_player(client)))
 	{
 		leave(client->peer);
 		error(_error_silent, "ce: a Custom Edition player's join was gone before the game took it");
@@ -925,7 +979,6 @@ static boolean rejoin(
 	return TRUE;
 }
 
-/* FALSE: no seat yet (one is still being given up) */
 /* whether a Custom Edition client joining from this address (host byte
 order) goes past max_machines_per_address: the other machines in the game
 and the other Custom Edition clients counted by theirs */
@@ -955,10 +1008,17 @@ static boolean address_full(
 		if (other)
 			others[count++] = other;
 	}
-	for (index = 0; index < CE_LOCAL_PLAYERS && count < HALO_PORT_MAXIMUM_NETWORK_MACHINES; index++)
+	/* (and the Custom Edition clients whose machines have no player in the
+	game yet: one just in, or between games) */
+	for (index = 0; index < CE_CLIENTS && count < HALO_PORT_MAXIMUM_NETWORK_MACHINES; index++)
 	{
-		if (ce.clients[index].active)
+		long machine_index = ce.clients[index].machine_index;
+
+		if (ce.clients[index].active && (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES ||
+			!counted[machine_index]))
+		{
 			others[count++] = ce.clients[index].address;
+		}
 	}
 	return network_distributed_address_full(address, others, count);
 }
@@ -968,16 +1028,15 @@ static boolean join(
 {
 	struct dedicated_status status;
 	struct ce_client *client;
-	wchar_t wide_name[13];
 	short index;
 
 	/* (a join that went while it waited: nothing to answer) */
 	if (!ce_transport_awaiting(event->peer))
 		return TRUE;
 	dedicated_server_get_status(&status);
-	/* (a join that took a seat: answered once its player is in the game,
-	in the lobby once the game plays) */
-	if ((client = client_for_peer(event->peer, &index)) != NULL && client->phase == CE_PHASE_LOBBY)
+	/* (a join that has its machine: answered once its player is in the
+	game, in the lobby once the game plays) */
+	if ((client = client_for_peer(event->peer)) != NULL && client->phase == CE_PHASE_LOBBY)
 	{
 		/* (a client gives up on a join in about 15 seconds: the short
 		countdown, not the lobby's) */
@@ -985,11 +1044,11 @@ static boolean join(
 			dedicated_server_start_soon();
 		if (status.state != _dedicated_state_in_game)
 			return FALSE;
-		if (local_player_get_player_index(index) == NONE)
+		if (client_player(client) == NONE)
 			return FALSE;
 		client->phase = CE_PHASE_PLAYING;
 		client_reset(client);
-		if (!accept_join(event->peer, event->name, local_player_get_player_index(index)))
+		if (!accept_join(event->peer, event->name, client_player(client)))
 		{
 			leave(event->peer);
 			error(_error_silent, "ce: a Custom Edition player's join was gone before the game took it");
@@ -998,18 +1057,18 @@ static boolean join(
 		error(_error_silent, "ce: Custom Edition player \"%s\" is in the game", event->name);
 		return TRUE;
 	}
-	/* (a client back for the next game, on its new connection: the seat
+	/* (a client back for the next game, on its new connection: its machine
 	kept for it) */
-	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+	for (index = 0; index < CE_CLIENTS; index++)
 	{
 		client = &ce.clients[index];
 		if (client->active && client->phase == CE_PHASE_RECONNECTING && client->address == event->address &&
-			!strcmp(client->name, event->name) && client_for_peer(event->peer, NULL) == NULL)
+			!strcmp(client->name, event->name) && client_for_peer(event->peer) == NULL)
 		{
 			if (status.state != _dedicated_state_in_game)
 				return FALSE;
 			client->peer = event->peer;
-			return rejoin(client, index);
+			return rejoin(client);
 		}
 	}
 	/* (none new while joins are locked, sv_lock: as a Chupathingy machine
@@ -1048,71 +1107,66 @@ static boolean join(
 	}
 	/* (a game of 16 players already: the most a Custom Edition client's
 	game holds; with Custom Edition players in, the server takes no more,
-	network_game_has_free_player_slot) */
+	network_game_has_free_player_slot. Counted with the Custom Edition
+	players on their way in, whose players the game adds in a tick or two) */
 	{
 		struct network_game_server *server = global_network_game_server_get();
 		struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+		long coming = 0;
 
-		if (game && game->player_count >= CE_GAME_PLAYERS)
+		for (index = 0; index < CE_CLIENTS; index++)
+		{
+			if (ce.clients[index].active && client_player(&ce.clients[index]) == NONE)
+				coming++;
+		}
+		if (game && game->player_count + coming >= CE_GAME_PLAYERS)
 		{
 			ce_transport_refuse(event->peer, CE_REJECT_FULL);
 			error(_error_silent, "ce: a Custom Edition player was turned away: the game has 16 players");
 			return TRUE;
 		}
 	}
-	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+	for (index = 0; index < CE_CLIENTS && ce.clients[index].active; index++)
+		;
+	if (index == CE_CLIENTS)
 	{
-		if (!ce.clients[index].active && local_player_get_player_index(index) == NONE)
-			break;
-	}
-	if (index == CE_LOCAL_PLAYERS)
-	{
-		boolean leaving = FALSE;
-
-		for (index = 0; index < CE_LOCAL_PLAYERS; index++)
-			leaving |= !ce.clients[index].active;
-		if (leaving)
-			return FALSE;
 		ce_transport_refuse(event->peer, CE_REJECT_FULL);
-		error(_error_silent, "ce: a Custom Edition player was turned away: no seat");
+		error(_error_silent, "ce: a Custom Edition player was turned away: %d Custom Edition players in", CE_CLIENTS);
 		return TRUE;
 	}
-	wide_player_name(event->name, wide_name);
-	if (!network_game_client_add_named_player(global_network_game_client_get(), index, wide_name, 0))
+	client = &ce.clients[index];
+	csmemset(client, 0, sizeof(*client));
+	client->active = TRUE;
+	client->peer = event->peer;
+	client->machine_index = NONE;
+	client->address = event->address;
+	snprintf(client->name, sizeof(client->name), "%s", event->name);
+	if (!seat_client(client))
 	{
-		ce_transport_refuse(event->peer, CE_REJECT_UNKNOWN);
+		csmemset(client, 0, sizeof(*client));
+		ce_transport_refuse(event->peer, CE_REJECT_FULL);
 		error(_error_silent, "ce: a Custom Edition player was turned away: the game did not add them");
 		return TRUE;
 	}
-	csmemset(&ce.clients[index], 0, sizeof(ce.clients[index]));
-	ce.clients[index].peer = event->peer;
-	ce.clients[index].address = event->address;
-	snprintf(ce.clients[index].name, sizeof(ce.clients[index].name), "%s", event->name);
-	client_reset(&ce.clients[index]);
+	client_reset(client);
 	/* (answered once its player is in the game, so its client is told the
 	team the game gave it: in the lobby, once the game it waits for plays) */
 	ce.clients[index].phase = CE_PHASE_LOBBY;
 	if (status.state == _dedicated_state_lobby)
-		error(_error_silent, "ce: Custom Edition player \"%s\" waits in the lobby as local player %d", event->name, index);
+		error(_error_silent, "ce: Custom Edition player \"%s\" waits in the lobby as machine #%ld", event->name,
+			client->machine_index);
 	else
-		error(_error_silent, "ce: Custom Edition player \"%s\" joins as local player %d", event->name, index);
+		error(_error_silent, "ce: Custom Edition player \"%s\" joins as machine #%ld", event->name, client->machine_index);
 	return FALSE;
 }
 
 static void leave_client(
 	struct ce_client *client)
 {
-	short index = (short)(client - ce.clients);
-	long player_index;
-
-	player_index = local_player_get_player_index(index);
-	if (player_index != NONE)
-	{
-		struct player_datum *player = player_get(player_index);
-		struct network_player network_player = player->network_player_data;
-
-		network_game_client_request_remove_player(global_network_game_client_get(), &network_player);
-	}
+	/* (its machine out of the game, its player with it: every machine told
+	it quit) */
+	if (client->machine_index != NONE)
+		network_game_server_port_remove_virtual_machine(client->machine_index);
 	error(_error_silent, "ce: Custom Edition player \"%s\" left", client->name);
 	csmemset(client, 0, sizeof(*client));
 }
@@ -1120,7 +1174,7 @@ static void leave_client(
 static void leave(
 	int peer)
 {
-	struct ce_client *client = client_for_peer(peer, NULL);
+	struct ce_client *client = client_for_peer(peer);
 
 	if (client)
 		leave_client(client);
@@ -1793,8 +1847,7 @@ static void update_items(
 		}
 		/* (a flag or ball: its note on the holder's HUD first, as Custom
 		Edition's own server sends it) */
-		if (weapon_is_flag(iterator.index) && holder_player == network_player_number(client, local_player_get_player_index(
-			(short)(client - ce.clients))))
+		if (weapon_is_flag(iterator.index) && holder_player == network_player_number(client, client_player(client)))
 		{
 			/* (the note is its own player's: only the holder's client) */
 			ce_payload_put_hud_add_item(reliable, (unsigned int)object->definition_index, 0, 0);
@@ -2043,18 +2096,17 @@ static void update_seat(
 }
 
 static void update_client(
-	struct ce_client *client,
-	short local_index)
+	struct ce_client *client)
 {
 	struct data_iterator iterator;
 	struct player_datum *player;
 	struct ce_payload payload, reliable;
 	unsigned char out[PAYLOAD_SIZE], reliable_out[PAYLOAD_SIZE];
-	long own_player = local_player_get_player_index(local_index);
+	long own_player = client_player(client);
 	boolean any = FALSE;
 	int length, list;
 
-	send_roster(client, local_index);
+	send_roster(client);
 	ce_payload_begin(&payload, out, sizeof(out));
 	ce_payload_begin(&reliable, reliable_out, sizeof(reliable_out));
 	data_iterator_new(&iterator, player_data);
@@ -2319,8 +2371,7 @@ static boolean between_games(
 				return FALSE;
 			}
 			/* (its own player as itself, its seat kept for the next game) */
-			game_settings_for(client->peer, client->name, local_player_get_player_index((short)(client - ce.clients)),
-				&settings, NULL);
+			game_settings_for(client->peer, client->name, client_player(client), &settings, NULL);
 			settings.map[0] = 0;
 			ce_payload_begin(&payload, out, sizeof(out));
 			ce_payload_put_game_settings(&payload, &settings);
@@ -2367,7 +2418,7 @@ void server_ce_update(
 	{
 		/* (joins turned off: the transport closed its connections, so their
 		players go too) */
-		for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+		for (index = 0; index < CE_CLIENTS; index++)
 		{
 			if (ce.clients[index].active)
 				leave_client(&ce.clients[index]);
@@ -2377,8 +2428,7 @@ void server_ce_update(
 	}
 	while (ce_transport_next_event(&event))
 	{
-		short local_index;
-		struct ce_client *client = client_for_peer(event.peer, &local_index);
+		struct ce_client *client = client_for_peer(event.peer);
 
 		switch (event.type)
 		{
@@ -2416,7 +2466,7 @@ void server_ce_update(
 
 		if (!answered && system_milliseconds() - ce.waiting_time[index] > JOIN_WAIT_MILLISECONDS)
 		{
-			struct ce_client *reserved = client_for_peer(ce.waiting[index].peer, NULL);
+			struct ce_client *reserved = client_for_peer(ce.waiting[index].peer);
 
 			ce_transport_refuse(ce.waiting[index].peer, CE_REJECT_FULL);
 			error(_error_silent, "ce: a Custom Edition player was turned away: no game started in time");
@@ -2447,7 +2497,7 @@ void server_ce_update(
 		ce.random_seed = (unsigned int)rand();
 	}
 	/* (the game's end, and on to the next game) */
-	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+	for (index = 0; index < CE_CLIENTS; index++)
 	{
 		if (ce.clients[index].active)
 			between_games(&ce.clients[index], &status);
@@ -2461,7 +2511,7 @@ void server_ce_update(
 		return;
 	last_tick = game_time_get();
 	ce.roster_signature = roster_signature();
-	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+	for (index = 0; index < CE_CLIENTS; index++)
 	{
 		struct ce_client *client = &ce.clients[index];
 
@@ -2479,7 +2529,7 @@ void server_ce_update(
 		if (client->active && client->loaded && (client->phase == CE_PHASE_PLAYING ||
 			(client->phase == CE_PHASE_ENDED && game_engine_postgame_mode() != 0)))
 		{
-			update_client(client, index);
+			update_client(client);
 		}
 	}
 }
@@ -2493,11 +2543,10 @@ and 1 plasma (as the client's HUD shows them), zoom the level; all bits
 set is none */
 static void server_ce_choices(
 	struct ce_client *client,
-	short local_player_index,
+	long player_index,
 	struct ce_client_update const *update,
 	struct player_action *action)
 {
-	long player_index = local_player_get_player_index(local_player_index);
 	long unit_index = player_index == NONE ? NONE : player_get(player_index)->unit_index;
 	struct unit_datum *unit;
 
@@ -2552,76 +2601,106 @@ static void server_ce_choices(
 		action->desired_grenade_index = (short)update->grenade;
 }
 
-boolean server_ce_local_action(
-	short local_player_index,
+/* the weapon, grenade and zoom the game holds for the player between its
+client's choices, kept as player_control.c keeps a local player's: none
+for a new unit; the unit's own weapon when none is held, or the held one is
+gone (the next one if neither), a weapon that must be readied (a flag, a
+ball) taken at once, and the unit's grenade (or the next) when none is
+left of the one held */
+static void game_choices(
+	struct ce_client *client,
+	long unit_index)
+{
+	struct unit_datum *unit;
+	short must_be_readied_weapon;
+
+	if (unit_index != client->choice_unit)
+	{
+		client->choice_unit = unit_index;
+		client->weapon_choice = NONE;
+		client->grenade_choice = NONE;
+		client->zoom_choice = NONE;
+	}
+	if (unit_index == NONE)
+		return;
+	unit = unit_get(unit_index);
+	if (client->weapon_choice == NONE || unit_inventory_get_weapon(unit_index, client->weapon_choice) == NONE)
+		client->weapon_choice = unit->unit.desired_weapon_index;
+	if (client->weapon_choice == NONE || unit_inventory_get_weapon(unit_index, client->weapon_choice) == NONE)
+	{
+		client->weapon_choice = unit_inventory_next_weapon(unit_index, client->weapon_choice, FALSE);
+		client->zoom_choice = NONE;
+	}
+	must_be_readied_weapon = unit_inventory_get_must_be_readied_weapon(unit_index);
+	if (must_be_readied_weapon != NONE && client->weapon_choice != must_be_readied_weapon)
+	{
+		client->weapon_choice = must_be_readied_weapon;
+		client->zoom_choice = NONE;
+	}
+	if (client->grenade_choice == NONE || !unit_get_grenade_count(unit_index, client->grenade_choice))
+		client->grenade_choice = unit->unit.desired_grenade_index;
+	if (client->grenade_choice == NONE || !unit_get_grenade_count(unit_index, client->grenade_choice))
+		client->grenade_choice = unit_inventory_next_grenade(unit_index, client->grenade_choice, 1);
+}
+
+/* the player's action this update, from its client's updates: each plays
+for its tick count, in order (one that fell behind caught up); with none
+yet, or none read (its client between connections), still */
+static void client_action(
+	struct ce_client *client,
+	long player_index,
+	boolean read_updates,
 	struct player_action *action)
 {
-	struct ce_client *client;
 	struct ce_client_update update;
+	long unit_index = player_get(player_index)->unit_index;
 	float forward, left;
 
-	if (!ce.enabled || local_player_index < 0 || local_player_index >= CE_LOCAL_PLAYERS)
-		return FALSE;
-	client = &ce.clients[local_player_index];
-	if (!client->active)
-		return FALSE;
-	/* (each tick, the update being played goes on for its tick count; then
-	the next, in order. With none waiting, the last holds) */
-	if (client->played_tick != game_time_get())
+	game_choices(client, unit_index);
+	csmemset(action, 0, sizeof(*action));
+	action->desired_weapon_index = client->weapon_choice;
+	action->desired_grenade_index = client->grenade_choice;
+	action->desired_zoom_level = client->zoom_choice;
+	if (!read_updates)
+		return;
+	if (client->ticks_left > 0)
+		client->ticks_left--;
+	if (client->ticks_left > 0 && ce_transport_pending_updates(client->peer) > CAUGHT_UP_UPDATES)
+		client->ticks_left = 0;
+	if (client->ticks_left <= 0 && ce_transport_next_update(client->peer, &update))
 	{
-		client->played_tick = game_time_get();
-		if (client->ticks_left > 0)
-			client->ticks_left--;
-		if (client->ticks_left > 0 && ce_transport_pending_updates(client->peer) > CAUGHT_UP_UPDATES)
-			client->ticks_left = 0;
-		if (client->ticks_left <= 0 && ce_transport_next_update(client->peer, &update))
+		/* (its actions changed: it is not away) */
+		if (!client->have_current || update.control_flags != client->current.control_flags ||
+			update.throttle != client->current.throttle || update.yaw != client->current.yaw ||
+			update.pitch != client->current.pitch || update.primary_trigger != client->current.primary_trigger ||
+			update.weapon != client->current.weapon || update.grenade != client->current.grenade ||
+			update.zoom != client->current.zoom)
 		{
-			long unit_index = local_player_get_player_index(local_player_index) == NONE ? NONE :
-				player_get(local_player_get_player_index(local_player_index))->unit_index;
+			client->input_time = system_milliseconds() ? system_milliseconds() : 1;
+		}
+		client->current = update;
+		client->have_current = TRUE;
+		client->ticks_left = update.ticks > 0 ? update.ticks : 1;
+		/* (where its biped is now, before this tick moves it: where the
+		update begins) */
+		client->have_start = FALSE;
+		if (unit_index != NONE)
+		{
+			struct object_datum *object = object_get(unit_index);
 
-			/* (its actions changed: it is not away) */
-			if (!client->have_current || update.control_flags != client->current.control_flags ||
-				update.throttle != client->current.throttle || update.yaw != client->current.yaw ||
-				update.pitch != client->current.pitch || update.primary_trigger != client->current.primary_trigger ||
-				update.weapon != client->current.weapon || update.grenade != client->current.grenade ||
-				update.zoom != client->current.zoom)
-			{
-				client->input_time = system_milliseconds() ? system_milliseconds() : 1;
-			}
-			client->current = update;
-			client->have_current = TRUE;
-			client->ticks_left = update.ticks > 0 ? update.ticks : 1;
-			/* (where its biped is now, before this tick moves it: where the
-			update begins) */
-			client->have_start = FALSE;
-			if (unit_index != NONE)
-			{
-				struct object_datum *object = object_get(unit_index);
-
-				client->start_vehicle = object->object.parent_object_index;
-				if (client->start_vehicle != NONE)
-					vehicle_motion(client->start_vehicle, &client->start_motion);
-				client->start_position[0] = object->object.position.x;
-				client->start_position[1] = object->object.position.y;
-				client->start_position[2] = object->object.position.z;
-				client->start_update_id = update.update_id;
-				client->have_start = TRUE;
-			}
+			client->start_vehicle = object->object.parent_object_index;
+			if (client->start_vehicle != NONE)
+				vehicle_motion(client->start_vehicle, &client->start_motion);
+			client->start_position[0] = object->object.position.x;
+			client->start_position[1] = object->object.position.y;
+			client->start_position[2] = object->object.position.z;
+			client->start_update_id = update.update_id;
+			client->have_start = TRUE;
 		}
 	}
+	/* (no actions yet: still, with the game's own weapon choices) */
 	if (!client->have_current)
-	{
-		short weapon = action->desired_weapon_index;
-		short grenade = action->desired_grenade_index;
-		short zoom = action->desired_zoom_level;
-
-		/* (no actions yet: still, with the game's own weapon choices) */
-		csmemset(action, 0, sizeof(*action));
-		action->desired_weapon_index = weapon;
-		action->desired_grenade_index = grenade;
-		action->desired_zoom_level = zoom;
-		return TRUE;
-	}
+		return;
 	update = client->current;
 	ce_throttle(update.throttle, &forward, &left);
 	action->control_flags = update.control_flags;
@@ -2630,10 +2709,74 @@ boolean server_ce_local_action(
 	action->throttle.i = forward;
 	action->throttle.j = left;
 	action->primary_trigger = update.primary_trigger ? 1.0f : 0.0f;
-	server_ce_choices(client, local_player_index, &update, action);
-	return TRUE;
+	server_ce_choices(client, player_index, &update, action);
+	/* (the choices given, held from now on, as player_control.c keeps a
+	local player's) */
+	client->weapon_choice = action->desired_weapon_index;
+	client->grenade_choice = action->desired_grenade_index;
+	client->zoom_choice = action->desired_zoom_level;
 }
 
+void server_ce_take_actions(
+	long update_number)
+{
+	short index;
+
+	if (!ce.enabled)
+		return;
+	for (index = 0; index < CE_CLIENTS; index++)
+	{
+		struct ce_client *client = &ce.clients[index];
+		long player_index = client_player(client);
+		struct player_action action;
+		unsigned short control_flags;
+
+		if (player_index == NONE)
+			continue;
+		/* (its updates read only while it plays: in the lobby, or between
+		connections, its player stands still) */
+		client_action(client, player_index,
+			client->peer != NONE && (client->phase == CE_PHASE_PLAYING || client->phase == CE_PHASE_ENDED), &action);
+		control_flags = (unsigned short)action.control_flags;
+		/* (as a client machine's player's input comes in: this update's) */
+		update_server_handle_distributed_input(player_index, update_number, &action, &control_flags, 1);
+	}
+}
+
+/* the game's own weapon or zoom change for a player (player_control.c,
+for a player not this machine's own): a Custom Edition player's held
+choices follow it, as a local player's do */
+static struct ce_client *client_of_player(
+	long player_index)
+{
+	short index;
+
+	for (index = 0; ce.enabled && player_index != NONE && index < CE_CLIENTS; index++)
+	{
+		if (ce.clients[index].active && client_player(&ce.clients[index]) == player_index)
+			return &ce.clients[index];
+	}
+	return NULL;
+}
+
+void server_ce_set_desired_weapon(
+	long player_index,
+	short desired_weapon_index)
+{
+	struct ce_client *client = client_of_player(player_index);
+
+	if (client)
+		client->weapon_choice = desired_weapon_index;
+}
+
+void server_ce_unzoom(
+	long player_index)
+{
+	struct ce_client *client = client_of_player(player_index);
+
+	if (client)
+		client->zoom_choice = NONE;
+}
 
 void server_ce_set_welcome(
 	char const *text)
@@ -2660,7 +2803,7 @@ int server_ce_say(
 	short index;
 	int count = 0;
 
-	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+	for (index = 0; index < CE_CLIENTS; index++)
 	{
 		if (ce.clients[index].active && ce.clients[index].loaded)
 		{
@@ -2681,17 +2824,12 @@ static struct ce_client *client_for_player(
 
 	if (!ce.enabled)
 		return NULL;
-	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+	for (index = 0; index < CE_CLIENTS; index++)
 	{
 		struct ce_client *client = &ce.clients[index];
-		long player_index = local_player_get_player_index(index);
-		struct player_datum *player;
 
-		if (!client->active || player_index == NONE)
-			continue;
-		player = player_get(player_index);
-		if (player->network_player_data.machine_index == machine_index &&
-			player->network_player_data.controller_index == controller_index)
+		if (client->active && client->machine_index != NONE && client->machine_index == machine_index &&
+			controller_index == 0)
 		{
 			return client;
 		}
@@ -2745,7 +2883,7 @@ boolean server_ce_players_present(
 {
 	short index;
 
-	for (index = 0; ce.enabled && index < CE_LOCAL_PLAYERS; index++)
+	for (index = 0; ce.enabled && index < CE_CLIENTS; index++)
 	{
 		if (ce.clients[index].active)
 			return TRUE;
@@ -2790,7 +2928,7 @@ void server_ce_multiplayer_message(
 	{
 		return;
 	}
-	for (index = 0; ce.enabled && index < CE_LOCAL_PLAYERS; index++)
+	for (index = 0; ce.enabled && index < CE_CLIENTS; index++)
 	{
 		struct ce_client *client = &ce.clients[index];
 		struct ce_payload payload;
@@ -2798,7 +2936,7 @@ void server_ce_multiplayer_message(
 		long data = message_data;
 
 		if (!client->active || !client->loaded || client->phase != CE_PHASE_PLAYING ||
-			local_player_get_player_index(index) != player_index)
+			client_player(client) != player_index)
 		{
 			continue;
 		}
@@ -2858,7 +2996,7 @@ void server_ce_multiplayer_sound(
 	{
 		return;
 	}
-	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+	for (index = 0; index < CE_CLIENTS; index++)
 	{
 		struct ce_client *client = &ce.clients[index];
 		struct ce_payload payload;
@@ -2870,6 +3008,21 @@ void server_ce_multiplayer_sound(
 		ce_payload_put_multiplayer_sound(&payload, (unsigned int)sound_index);
 		ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE);
 	}
+}
+
+/* the host kicked or banned a Custom Edition player's machine (its
+Moderation screen, a kick for cheating: network_server_manager.c): its
+client let go, as sv_kick lets it go */
+void server_ce_machine_dropped(
+	long machine_index)
+{
+	struct ce_client *client = client_for_player(machine_index, 0);
+
+	if (!client)
+		return;
+	if (client->peer != NONE)
+		ce_transport_kick(client->peer, CE_REJECT_KICKED);
+	leave_client(client);
 }
 
 unsigned long server_ce_input_time(
