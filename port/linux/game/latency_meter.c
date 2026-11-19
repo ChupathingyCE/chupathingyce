@@ -189,10 +189,12 @@ static long latency_own_ping(
 frame with the meter up, or its first after a frame of its own that took
 longer than LATENCY_STALL_MILLISECONDS (a level loading, a BSP switching).
 Its own wait is not the host's silence: what came meanwhile is read in the
-frames after */
+frames after. Only the first of such frames in a row starts it over, so a
+machine slow all the time still shows a host gone quiet */
 static struct
 {
 	boolean listening;
+	boolean stalled;
 	unsigned long since;
 	unsigned long last_frame;
 } latency_listening;
@@ -206,9 +208,11 @@ static long latency_host_silent_milliseconds(
 	unsigned long now = system_milliseconds();
 	long silent = network_game_client_silent_milliseconds();
 	long messages = distributed_host_silent_milliseconds();
+	boolean stalled = latency_listening.listening && now - latency_listening.last_frame > LATENCY_STALL_MILLISECONDS;
 
-	if (!latency_listening.listening || now - latency_listening.last_frame > LATENCY_STALL_MILLISECONDS)
+	if (!latency_listening.listening || (stalled && !latency_listening.stalled))
 		latency_listening.since = now;
+	latency_listening.stalled = stalled;
 	latency_listening.listening = TRUE;
 	latency_listening.last_frame = now;
 	if (silent != NONE && messages != NONE)
