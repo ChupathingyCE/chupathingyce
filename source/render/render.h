@@ -154,7 +154,25 @@ enum
 	_render_tuning_lens_flares_bit,
 };
 
+/* port: what the [tuning] knobs (and the limits they set) left out, which
+render.c says every 300 frames in a "tuning: did" line, a frame's average:
+the dynamic lights let go and those lit without their shine (object_lights.c),
+the particles let go or not made (particles.c), the loose particles' sprites
+thinned (render_particles.c, particle_systems.c), the shadows and the
+objects left out (render_objects.c) */
+enum
+{
+	_render_tuning_lights_count,
+	_render_tuning_shine_count,
+	_render_tuning_particles_count,
+	_render_tuning_sprites_count,
+	_render_tuning_shadows_count,
+	_render_tuning_objects_count,
+	NUMBER_OF_RENDER_TUNING_COUNTS
+};
+
 void render_tuning_update(void);
+void render_tuning_count(short what, long count);
 boolean render_tuning_draws(short pass);
 short render_tuning_particle_thinning(long loose_particle_count);
 short render_tuning_particle_system_thinning(void);

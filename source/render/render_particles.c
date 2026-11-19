@@ -729,6 +729,7 @@ void render_particles(
 									{
 										built_particle_count--;
 										total_radius -= radius;
+										render_tuning_count(_render_tuning_sprites_count, 1);
 									}
 
 									particle->last_rendered_frame_index =

@@ -200,7 +200,28 @@ static struct
 	/* what the log last said was held in a network game: the knobs'
 	values, so each is said once a value */
 	long said_held;
+	/* what the knobs left out since the "tuning: did" line before
+	(render_tuning_count), over how many frames */
+	long counts[NUMBER_OF_RENDER_TUNING_COUNTS];
+	long counted_frames;
+	/* the frames tuning.effects left a pass out in, by pass */
+	long passes_left_out_frames[_render_tuning_lens_flares_bit + 1];
 } render_tuning_globals = { (unsigned long)-1, FALSE, 1, 0, 30.0f, 0.0f, 0, FALSE, 0 };
+
+/* (the frames a "tuning: did" line covers: 10 s at 30 frames a second) */
+#define RENDER_TUNING_SAID_FRAMES 300
+
+static char const *const render_tuning_count_names[NUMBER_OF_RENDER_TUNING_COUNTS] =
+{
+	"lights", "shine", "particles", "sprites", "shadows", "objects"
+};
+
+static char const *const render_tuning_pass_names[_render_tuning_lens_flares_bit + 1] =
+{
+	"shine", "reflections", "grass", "decals", "weather", "contrails", "lens_flares"
+};
+
+static void render_tuning_say_counts(void);
 
 /* the particles the Xbox draws at most, which a network game never thins
 under (as display.particle_limit: particles.c's PARTICLES_NETWORK_FLOOR) */
@@ -310,6 +331,76 @@ void render_tuning_update(
 		}
 		render_tuning_globals.passes_left_out = left_out;
 	}
+	/* (what the frame before left out, counted, and said every
+	RENDER_TUNING_SAID_FRAMES frames) */
+	{
+		short pass;
+
+		for (pass = 0; pass <= _render_tuning_lens_flares_bit; pass++)
+		{
+			if (TEST_FLAG(render_tuning_globals.passes_left_out, pass))
+				render_tuning_globals.passes_left_out_frames[pass]++;
+		}
+		if (++render_tuning_globals.counted_frames >= RENDER_TUNING_SAID_FRAMES)
+			render_tuning_say_counts();
+	}
+
+	return;
+}
+
+/* port: what a knob left out this frame (_render_tuning_*_count) */
+void render_tuning_count(
+	short what,
+	long count)
+{
+	if (what >= 0 && what < NUMBER_OF_RENDER_TUNING_COUNTS)
+		render_tuning_globals.counts[what] += count;
+
+	return;
+}
+
+/* port: every RENDER_TUNING_SAID_FRAMES frames, what the knobs left out, a
+frame's average ("tuning: did lights=-1.2 sprites=-40.5 passes=-shine,-grass
+(300 frames)"), so a player's log shows what each knob did to the scene
+they played; nothing when nothing was left out */
+static void render_tuning_say_counts(
+	void)
+{
+	extern void platform_log(const char *format, ...);
+	char line[256];
+	size_t length = 0;
+	short index;
+	long frames = render_tuning_globals.counted_frames;
+
+	line[0] = 0;
+	for (index = 0; index < NUMBER_OF_RENDER_TUNING_COUNTS && length < sizeof(line); index++)
+	{
+		long count = render_tuning_globals.counts[index];
+
+		if (count > 0)
+		{
+			length += (size_t)snprintf(line + length, sizeof(line) - length, " %s=-%.1f",
+				render_tuning_count_names[index], (double)count / (double)frames);
+		}
+	}
+	for (index = 0; index <= _render_tuning_lens_flares_bit && length < sizeof(line); index++)
+	{
+		if (render_tuning_globals.passes_left_out_frames[index] > 0)
+		{
+			boolean first = !strstr(line, " passes=");
+
+			length += (size_t)snprintf(line + length, sizeof(line) - length, "%s-%s", first ? " passes=" : ",",
+				render_tuning_pass_names[index]);
+		}
+	}
+	if (line[0])
+	{
+		platform_log("tuning: did%s (a frame, over %ld frames%s)", line, frames,
+			render_tuning_globals.network_game ? ", a network game" : "");
+	}
+	memset(render_tuning_globals.counts, 0, sizeof(render_tuning_globals.counts));
+	memset(render_tuning_globals.passes_left_out_frames, 0, sizeof(render_tuning_globals.passes_left_out_frames));
+	render_tuning_globals.counted_frames = 0;
 
 	return;
 }
