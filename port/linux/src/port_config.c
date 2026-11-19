@@ -1734,6 +1734,12 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_test_local_players", _config_integer, "1", "HALO_NETWORK_TEST_LOCAL_PLAYERS", _environment_value,
 		_platform_all,
 		"A test machine's players, from 1 to 4." },
+	{ "debug.network_test_split_leave", _config_string, "\"\"", "HALO_NETWORK_TEST_SPLIT_LEAVE", _environment_value,
+		_platform_all,
+		"A test host's split screen players (network_test_local_players) leave\n"
+		"one by one, the last first, every this many seconds, as Quit on their\n"
+		"pause menu does; \":rejoin\" after it (\"60:rejoin\") joins each again half\n"
+		"that later. Empty none." },
 	{ "debug.network_test_lobby_map", _config_string, "\"\"", "HALO_NETWORK_TEST_LOBBY_MAP", _environment_value, _platform_all,
 		"A test host changes its lobby to this map once another machine has joined." },
 	{ "debug.network_test_score", _config_integer, "0", "HALO_NETWORK_TEST_SCORE", _environment_value, _platform_all,
