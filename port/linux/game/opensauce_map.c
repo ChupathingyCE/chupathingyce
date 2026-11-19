@@ -30,8 +30,8 @@ project_yellow it honors at run time (the gravity scale, when it is above
 
 #include "cseries.h"
 #include "errors.h"
+#include "ce_map_checks.h"
 #include "opensauce.h"
-#include "spv3_mode.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -41,8 +41,6 @@ project_yellow it honors at run time (the gravity scale, when it is above
 
 enum
 {
-	OPENSAUCE_TAG_BASE = 0x40440000,
-	OPENSAUCE_STOCK_TAG_CACHE_SIZE = 0x01700000,
 	OPENSAUCE_VERSION_OFFSET = 0x04,
 	OPENSAUCE_FLAGS_OFFSET = 0x06,
 	OPENSAUCE_TAG_VERSIONS_OFFSET = 0x08,
@@ -150,12 +148,11 @@ static struct opensauce_tag_instance const *opensauce_tag_get(
 	if (tag_index == 0xFFFFFFFFUL || index >= (unsigned long)tag_count)
 		return NULL;
 	instance = &instances[index];
-	/* (within the tag cache in use: Custom Edition's, or OpenSauce's where
-	SPV3 mode mapped it, spv3_mode.c; a build that checks no tags reads none
-	outside it) */
+	/* (its root all within the loaded map's tags, ce_map_checks.c's
+	ce_loaded_pointer: on every build, its tags checked or not, and on a 64
+	MB console, whose tag cache's last megabyte is no memory) */
 	if (instance->tag_index != tag_index || instance->group_tag != group_tag ||
-		instance->address < OPENSAUCE_TAG_BASE ||
-		instance->address - OPENSAUCE_TAG_BASE > spv3_mode_tag_cache_size(OPENSAUCE_STOCK_TAG_CACHE_SIZE) - size)
+		!ce_loaded_pointer(instance->address, size))
 	{
 		return NULL;
 	}
