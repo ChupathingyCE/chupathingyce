@@ -1656,8 +1656,15 @@ Every ten seconds a line of JSON goes to `debug.monitor_output`:
   host's; its `own` count is this machine's own players alone;
 - the distributed messages each way by kind, and the datagrams and bytes
   each way;
-- the chat lines, the server's and the players', counted (the server's
-  text kept, a player's never);
+- every byte it read, from the join on: each game packet type (stream or
+  datagram: the game's reliable connection is TCP), each distributed kind,
+  the batches' framing, a layout's header bytes (44's checkpoint epoch),
+  Delta Peer's, and each reason a message was dropped; what no layer took
+  up is the report's "unaccounted" row;
+- the server's lines, by how they came (Delta's chat, or the host's
+  notices, OpenCE's servers' server messages, which a Delta client shows
+  on its console), and the players' chat, counted (the server's text kept,
+  a player's never);
 - the players, the bots (players sharing a machine: a dedicated server's
   own plays no one), and how often the host told this machine of each;
 - this machine's own frames (the longest, those over 50 and 100 ms): a gap
