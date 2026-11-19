@@ -1196,6 +1196,34 @@ def test_pc_copies_the_same_whatever_the_room(built, tmp_path):
     assert copies[None] and copies[None] == copies[16]
 
 
+
+def test_extended_chicago_with_only_two_stage_maps(built, tmp_path):
+    """an extended chicago shader (Halo PC's scex) is made a chicago one with
+    its four-stage maps; one with none, only two-stage maps, which Halo PC
+    draws then on any card, is given its two-stage maps (as MCC's are,
+    mcc_tags.c), not left with nothing to draw"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    for four_stage, given in ((0, 1), (1, 0)):
+        data, offsets = ce_map_of_tags([(b"scex", 0x78 + 2 * 0xDC)])
+        shader = offsets["tags"][0]
+        maps = base + shader + 0x78 - 0x800
+        struct.pack_into("<h", data, shader + 0x24, 7)
+        struct.pack_into("<iII", data, shader + 0x54, four_stage, maps + 0xDC if four_stage else 0, 0)
+        struct.pack_into("<iII", data, shader + 0x60, 1, maps, 0)
+        for element in (0, 1):
+            # (each map's bitmap none: 0x6C in, a tag reference)
+            struct.pack_into("<4sIiI", data, shader + 0x78 + element * 0xDC + 0x6C, b"mtib", 0, 0, 0xFFFFFFFF)
+        path = tmp_path / f"scex_{four_stage}.map"
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "1 extended chicago shaders made chicago ones" in result.stderr, result.stderr[-4000:]
+        assert ("%d extended chicago shaders with no four-stage maps drawn with their two-stage maps" % given) in \
+            result.stderr, result.stderr[-4000:]
+        assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
 def test_pc_netgame_flags_and_equipment_past_200(built, tmp_path):
     """a Halo PC map's netgame flags and equipment past the tools' 200 (four
     of HaloMD's maps have 202 to 317 flags, one 212 equipment): kept, as
@@ -1298,10 +1326,6 @@ def main():
     sys.exit(subprocess.run([str(binary), *arguments, str(corpus)], env=env).returncode)
 
 
-if __name__ == "__main__":
-    main()
-
-
 def opensauce_map(header=True, widgets_outside=False, syntax_nodes=None, netgame_flags=None):
     """a Custom Edition map with OpenSauce's header (no flags: the checks
     take it as they take any Custom Edition map) and its project_yellow
@@ -1401,3 +1425,47 @@ def test_opensauce_scripts_syntax_kept(built, tmp_path):
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
     assert result.returncode == 0, result.stderr[-4000:]
     assert "has 570076 bytes, more than the game's 380076" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_linear_bitmap_with_packed_rows_stays_linear(built, tmp_path):
+    """a Halo PC linear bitmap whose rows are packed, a row's texels after the
+    last's, not whole 64-byte steps (SPV3's menu logo, 1193 wide; HUD icons):
+    Halo PC's tag schema keeps it linear, as the texture cache reads such rows
+    (any_pitch). Cleared, it was read as swizzled, and drew sheared"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"bitm", 0x6C + 0x30 + 3 * 2 * 4)])
+    group = offsets["tags"][0]
+    bitmap = group + 0x6C
+    # (one bitmap, 3x2 a8r8g8b8: a 12-byte pitch; linear; its pixels after it)
+    struct.pack_into("<iI", data, group + 0x60, 1, base + bitmap - 0x800)
+    struct.pack_into("<4shhhhhHhhhhii", data, bitmap, b"mtib", 3, 2, 1, 0, 11, 1 << 4, 0, 0, 0, 0, 0x30, 24)
+    path = tmp_path / "pc_linear.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+    assert "is linear, but" not in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_actor_variant_grenade_type_past_the_games(built, tmp_path):
+    """an actor variant whose grenade type is OpenSauce's third or fourth (as
+    SPV3's maps have): in Halo PC's layout it is made the first, as an
+    equipment's past the game's two is, since the AI indexes the globals'
+    grenades and a unit's grenade counts by it; one within the game's two, and
+    the stock 'warthog gunner''s older-layout 0x7072, are left alone"""
+    binaries, _ = built
+    for grenade_type, corrected in ((3, True), (2, True), (1, False), (0x7072, False)):
+        data, offsets = ce_map_of_tags([(b"actv", 0x238)])
+        struct.pack_into("<h", data, offsets["tags"][0] + 0x180, grenade_type)
+        path = tmp_path / "actor_variant.map"
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert (f"grenade_combat.grenade_type is {grenade_type}, OpenSauce's, past the game's 2: 0"
+                in result.stderr) == corrected, \
+            result.stderr[-4000:]
+
+
+if __name__ == "__main__":
+    main()

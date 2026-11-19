@@ -644,6 +644,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
+#include "opensauce.h" /* port: port/linux/game/opensauce_map.c */
 #include "units.h"
 #include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 
@@ -1470,11 +1471,13 @@ real unit_get_drawn_camouflage(
 	real amount;
 
 	if (render_interpolation_unit_camouflage(unit_index, &amount, super_amount))
-		return amount;
+		return opensauce_map_drawn_camouflage(amount);
 #endif
 	unit = unit_get(unit_index);
 	*super_amount = unit->unit.active_camouflage_super_amount;
-	return unit->unit.active_camouflage;
+	/* port: as drawn (an OpenSauce map's scripts may set it past 1:
+	port/linux/game/opensauce_map.c) */
+	return opensauce_map_drawn_camouflage(unit->unit.active_camouflage);
 }
 
 real unit_get_zoom_magnification(
@@ -11989,6 +11992,16 @@ static void unit_verify_vectors(
 	char const *debugstring)
 {
 	char buffer[512];
+
+	/* port: a console's release-style build (HALO_ASSERTS_COMPILED_OUT)
+	doesn't check: the check logs and asserts, seven times a tick for each
+	unit, and the retail game has neither the check nor its messages */
+#ifdef HALO_ASSERTS_COMPILED_OUT
+	(void)unit_index;
+	(void)debugstring;
+	(void)buffer;
+	return;
+#endif
 
 	if (!unit_vectors_are_valid(unit_index))
 	{

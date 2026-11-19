@@ -397,6 +397,7 @@ symbols in this file:
 #include "stubbs_multiplayer.h" /* port: port/linux/game/stubbs_multiplayer.c */
 #ifdef HALO_GAME_BROWSER
 #include "map_share.h" /* port: the map bot's fetch (port/linux/game/map_share_client.c) */
+#include "net_monitor.h" /* port: the server monitor (port/linux/game/net_monitor.c) */
 #endif
 
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
@@ -1699,6 +1700,10 @@ boolean network_game_client_add_player(
 	under its verified handle, whatever the Halo profile is named (other
 	players see it as a plain game name) */
 	profile_names_local_game_name(local_player_index, player.name, NETWORK_PLAYER_NAME_LENGTH);
+#endif
+#ifdef HALO_GAME_BROWSER
+	/* port: the server monitor plays under its own name (debug.monitor_name) */
+	net_monitor_player_name(player.name, NETWORK_PLAYER_NAME_LENGTH);
 #endif
 	player.primary_color_index = profile.primary_color_index;
 	player.icon_index = NONE;

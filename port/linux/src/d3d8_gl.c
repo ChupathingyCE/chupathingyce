@@ -4502,7 +4502,11 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 					(const D3DCOLOR *)PLATFORM_PHYSICAL_TO_VIRTUAL(device.palettes[stage]->Data) : NULL;
 
 				gl_texture = xgpu_texture_get((const DWORD *)texture, palette, &gl_target, &description);
-				if (description.linear)
+				/* port: a Halo PC map's linear bitmap is sampled as Halo PC samples every
+				texture, its coordinates 0 to 1 (the game's draws of its bitmaps give
+				them so: xbox_texture_cache.c's D3DCOMMON_PORT_PC_LAYOUT); the Xbox's own
+				linear textures by texel */
+				if (description.linear && !(texture->Common & D3DCOMMON_PORT_PC_LAYOUT))
 				{
 					texture_scale[stage][0] = 1.0f / (float)description.width;
 					texture_scale[stage][1] = 1.0f / (float)description.height;

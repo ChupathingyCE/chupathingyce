@@ -69,6 +69,7 @@ same datum index (identifier and all), so that any message can name one:
 #include "cutscene/cinematics.h"
 #include "network_coop.h"
 #include "host_evidence.h"
+#include "net_monitor.h"
 #include "network_distributed.h"
 #include "network_rules.h"
 #include "cseries/errors.h"
@@ -3612,7 +3613,11 @@ static boolean distributed_client_correct_own_vehicle(
 	forward = object->object.forward;
 	up = object->object.up;
 	network_objects_correct(vehicle_index, &position, &forward, &up, NULL, NULL);
-	distributed_count_correction();
+	{
+		real distance = (real)sqrt(error.i * error.i + error.j * error.j + error.k * error.k);
+
+		distributed_count_correction(_net_monitor_own_vehicle, distance, net_monitor_snap(distance, 0.0f));
+	}
 	/* (the ticks noted since moved as it was, not corrected again) */
 	error.i = object->object.position.x - before.x;
 	error.j = object->object.position.y - before.y;
@@ -3836,7 +3841,11 @@ void network_objects_handle_states(
 		if (network_objects_reconcile(state->object_index, &state->position, &forward, &up, &velocity,
 			&angular_velocity, blend_distance))
 		{
-			distributed_count_correction();
+			real distance = (real)sqrt(dx * dx + dy * dy + dz * dz);
+
+			distributed_count_correction(own_vehicle ? _net_monitor_own_vehicle :
+				object->object.type == _object_type_vehicle ? _net_monitor_remote_vehicle : _net_monitor_object, distance,
+				net_monitor_snap(distance, blend_distance));
 		}
 		if (distributed_vehicle_unsteered(state->object_index))
 			distributed_client_note_unsteered_path(state->object_index, &state->position,
