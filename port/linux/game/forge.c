@@ -4440,6 +4440,9 @@ void forge_draw(
 
 	if (local_player_index != forge_globals.local_player_index || forge_globals.hud_hidden)
 		return;
+	/* (the Forge menu open: its panel alone, none of the monitor's lines) */
+	if (forge_menu_game_open())
+		return;
 	/* (the Spartan of a Forge game: how to be the monitor again) */
 	if (!forge_globals.active)
 	{

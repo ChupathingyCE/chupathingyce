@@ -21,9 +21,12 @@ each with its layouts counted, on the left; for the one chosen, the pane:
   type (forge_play_start).
 Y deletes the layout chosen, pressed twice (as the Guide's REMOVE).
 
-In a Forge game, the monitor's X (controls.forge_menu on the keyboard):
-- OBJECTS: the categories on the left, the chosen one's objects in the pane
-  (each with how many the layout has); A places it in the monitor's hand;
+In a Forge game, the monitor's X (controls.forge_menu on the keyboard)
+opens it as a narrow column at the right of the view, the map in view at
+its left (its title and the budget, the tabs, one list, the chosen row's
+box, the prompts):
+- OBJECTS (OBJECT BROWSER): the categories, A on one its objects (each
+  with how many the layout has); A places one in the monitor's hand;
 - PROPERTIES: what is held (an object or marker the layout placed), its
   rows as SETTINGS' (left and right change a value);
 - LAYOUTS: SAVE (under the layout's title), SAVE AS NEW, then the map's
@@ -1090,116 +1093,181 @@ static void render_lobby(void)
 	render_prompts(prompts, prompt_count);
 }
 
+/* ---- the game's: the narrow panel at the right of the view
+
+The Forge menu in a game is a column at the right, the map in view at its
+left so the monitor sees where it builds: its title and the budget at the
+top, the tabs, one list, the chosen row's box at the bottom and the prompts
+at its foot, in the Guide's fonts, colors, rows and prompts. */
+
+enum
+{
+	SIDE_X = 380, SIDE_Y = 24, SIDE_WIDTH = 236, SIDE_HEIGHT = 432,
+	SIDE_LEFT = SIDE_X + 12,
+	SIDE_RIGHT = SIDE_X + SIDE_WIDTH - 12,
+	SIDE_TITLE_Y = SIDE_Y + 10,
+	SIDE_RULE_Y = SIDE_Y + 34,
+	SIDE_TABS_Y = SIDE_Y + 42,
+	SIDE_TABS_HEIGHT = 18,
+	SIDE_HEADING_Y = SIDE_Y + 68,
+	SIDE_LIST_Y = SIDE_Y + 82,
+	SIDE_ROW_HEIGHT = 22,
+	SIDE_ROW_GAP = 3,
+	SIDE_PROMPTS_Y = SIDE_Y + SIDE_HEIGHT - 24,
+	SIDE_BOX_BOTTOM = SIDE_PROMPTS_Y - 6,
+	SIDE_BOX_Y = SIDE_BOX_BOTTOM - 76,
+	SIDE_LIST_BOTTOM = SIDE_BOX_Y - 6,
+};
+
+/* how many rows the list has room for */
+static short side_rows_shown(void)
+{
+	return (short)((SIDE_LIST_BOTTOM - SIDE_LIST_Y + SIDE_ROW_GAP) / (SIDE_ROW_HEIGHT + SIDE_ROW_GAP));
+}
+
+/* a row of the list: its name, a count or tag at its right */
+static void side_row(float y, boolean on, char const *name, char const *tag, boolean warning, short kind, short index)
+{
+	float size = ui_style_text_size(UI_TEXT_NAME);
+
+	ui_style_row(SIDE_LEFT, y, SIDE_RIGHT - SIDE_LEFT, SIDE_ROW_HEIGHT, on);
+	ui_style_text(warning ? UI_TEXT_WARNING : UI_TEXT_NAME, SIDE_LEFT + 10, y + (SIDE_ROW_HEIGHT - size) * 0.5f,
+		UI_ALIGN_LEFT, name);
+	if (tag && tag[0])
+	{
+		ui_overlay_text(UI_FONT_MENU, 9.5f, SIDE_RIGHT - 10, y + (SIDE_ROW_HEIGHT - 9.5f) * 0.5f, UI_ALIGN_RIGHT,
+			ui_style_color(UI_COLOR_NAME), tag);
+	}
+	target_add(SIDE_LEFT, y, SIDE_RIGHT, y + SIDE_ROW_HEIGHT, kind, index);
+}
+
+/* a setting's row of the list: its label, its value between the arrows
+(NULL: an action) */
+static void side_setting(float y, boolean on, char const *label, char const *value, short index)
+{
+	ui_style_setting(SIDE_LEFT, y, SIDE_RIGHT - SIDE_LEFT, SIDE_ROW_HEIGHT, 0.9f, label, NULL, value, on);
+	target_add(SIDE_LEFT, y, SIDE_RIGHT, y + SIDE_ROW_HEIGHT, _target_list, index);
+}
+
+/* the box at the bottom: a title and up to three lines */
+static void side_box(char const *title, char const *first, char const *second, char const *third)
+{
+	ui_style_glass(SIDE_LEFT, SIDE_BOX_Y, SIDE_RIGHT - SIDE_LEFT, SIDE_BOX_BOTTOM - SIDE_BOX_Y, 7,
+		ui_style_color(UI_COLOR_PANE), ui_style_color(UI_COLOR_ROW_EDGE));
+	if (title && title[0])
+		ui_style_text(UI_TEXT_TITLE, SIDE_LEFT + 10, SIDE_BOX_Y + 8, UI_ALIGN_LEFT, title);
+	if (first && first[0])
+		ui_style_text(UI_TEXT_LINE, SIDE_LEFT + 10, SIDE_BOX_Y + 28, UI_ALIGN_LEFT, first);
+	if (second && second[0])
+		ui_style_text(UI_TEXT_LABEL, SIDE_LEFT + 10, SIDE_BOX_Y + 43, UI_ALIGN_LEFT, second);
+	if (third && third[0])
+		ui_style_text(UI_TEXT_LABEL, SIDE_LEFT + 10, SIDE_BOX_Y + 57, UI_ALIGN_LEFT, third);
+}
+
+static void side_heading(char const *text)
+{
+	ui_style_text(UI_TEXT_HEADING, SIDE_LEFT, SIDE_HEADING_Y, UI_ALIGN_LEFT, text);
+}
+
+/* the session's last line (a save, a delete, an undo), a while */
+static char const *side_status(void)
+{
+	return forge_menu.view.status[0] && system_milliseconds() - forge_menu.view.status_time < MESSAGE_TIME ?
+		forge_menu.view.status : NULL;
+}
+
+static void upper(char *text)
+{
+	for (; *text; text++)
+	{
+		if (*text >= 'a' && *text <= 'z')
+			*text = (char)(*text - 'a' + 'A');
+	}
+}
+
 static void render_objects(void)
 {
-	short category, chosen = forge_menu.list_row[_game_tab_objects];
-	short items = forge_category_item_count(chosen), index, shown, first;
-	float y = BODY_Y + HEADING_HEIGHT, x = DETAIL_LEFT + 12, width = CONTENT_RIGHT - DETAIL_LEFT - 24;
-	char text[96];
+	short chosen = forge_menu.list_row[_game_tab_objects], index, shown = side_rows_shown(), first;
+	float y = SIDE_LIST_Y;
+	char tag[16], line[64], name[FORGE_NAME_SIZE];
 
-	snprintf(text, sizeof(text), "OBJECTS %d OF %d", forge_menu.view.objects, FORGE_MAXIMUM_OBJECTS);
-	ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, BODY_Y, UI_ALIGN_LEFT, text);
-	for (category = 0; category < NUMBER_OF_FORGE_CATEGORIES; category++)
+	if (!forge_menu.pane)
 	{
-		short count = forge_category_item_count(category);
-		short placed = forge_group_placed_count(category);
-		boolean on = category == chosen;
-
-		if (placed)
-			snprintf(text, sizeof(text), "%d to place - %d placed", count, placed);
-		else if (count)
-			snprintf(text, sizeof(text), "%d to place", count);
-		else
-			snprintf(text, sizeof(text), "%s", "None on this map");
-		if (on && forge_menu.pane)
+		side_heading("OBJECTS");
+		for (index = 0; index < NUMBER_OF_FORGE_CATEGORIES && index < shown; index++)
 		{
-			ui_style_row_chosen(CONTENT_LEFT, y, LIST_WIDTH, ROW_HEIGHT);
-			ui_style_text(UI_TEXT_NAME, CONTENT_LEFT + 12, y + 3, UI_ALIGN_LEFT, forge_category_name(category));
-			ui_style_text(UI_TEXT_STATUS, CONTENT_LEFT + 12, y + 17, UI_ALIGN_LEFT, text);
-			target_add(CONTENT_LEFT, y, CONTENT_LEFT + LIST_WIDTH, y + ROW_HEIGHT, _target_list, category);
+			snprintf(tag, sizeof(tag), "%d", forge_category_item_count(index));
+			side_row(y, index == chosen, forge_category_name(index), tag, FALSE, _target_list, index);
+			y += SIDE_ROW_HEIGHT + SIDE_ROW_GAP;
 		}
-		else
-		{
-			list_row(CONTENT_LEFT, y, LIST_WIDTH, on, forge_category_name(category), text, NULL, FALSE, _target_list, category);
-		}
-		y += ROW_HEIGHT + ROW_GAP;
+		snprintf(line, sizeof(line), "%d to place", forge_category_item_count(chosen));
+		snprintf(tag, sizeof(tag), "Placed: %d", forge_group_placed_count(chosen));
+		side_box(forge_category_name(chosen), line, tag, NULL);
+		return;
 	}
-	/* the pane: the category's objects */
-	render_pane_glass();
-	ui_style_text(UI_TEXT_TITLE, x, BODY_Y + 12, UI_ALIGN_LEFT, forge_category_name(chosen));
-	y = BODY_Y + 36;
-	shown = (short)((BODY_BOTTOM - 8 - y + OPTION_GAP) / (OPTION_HEIGHT + OPTION_GAP));
-	first = forge_menu.pane_first = scrolled(forge_menu.pane_first, forge_menu.pane_row, items, shown);
-	for (index = first; index < items && index < first + shown; index++)
+	/* (a category's objects, each with how many the layout has) */
 	{
+		short items = forge_category_item_count(chosen);
 		struct forge_item item;
-		char tag[16];
 
-		if (!forge_category_item(chosen, index, &item))
-			break;
-		tag[0] = 0;
-		if (item.placed)
-			snprintf(tag, sizeof(tag), "%d PLACED", item.placed);
-		pane_option(x, y, width, forge_menu.pane && index == forge_menu.pane_row, item.name, tag, index);
-		y += OPTION_HEIGHT + OPTION_GAP;
+		side_heading(forge_category_name(chosen));
+		first = forge_menu.pane_first = scrolled(forge_menu.pane_first, forge_menu.pane_row, items, shown);
+		for (index = first; index < items && index < first + shown; index++)
+		{
+			if (!forge_category_item(chosen, index, &item))
+				break;
+			tag[0] = 0;
+			if (item.placed)
+				snprintf(tag, sizeof(tag), "%d", item.placed);
+			side_row(y, index == forge_menu.pane_row, item.name, tag, FALSE, _target_pane, index);
+			y += SIDE_ROW_HEIGHT + SIDE_ROW_GAP;
+		}
+		if (!items)
+			ui_style_text(UI_TEXT_LABEL, SIDE_LEFT + 10, y + 4, UI_ALIGN_LEFT, "None on this map");
+		if (forge_category_item(chosen, forge_menu.pane_row, &item))
+		{
+			snprintf(name, sizeof(name), "%s", item.name);
+			upper(name);
+			snprintf(line, sizeof(line), "%s", forge_category_name(chosen));
+			snprintf(tag, sizeof(tag), "Placed: %d", item.placed);
+			side_box(name, tag, NULL, NULL);
+		}
 	}
-	if (!items)
-		ui_style_text(UI_TEXT_LABEL, x, y + 4, UI_ALIGN_LEFT, "None on this map");
-}
-
-static void render_settings_rows(short count, short chosen, short *first_row,
-	void (*row_text)(short row, char *label, int label_size, char *value, int value_size), float top)
-{
-	short shown = (short)((BODY_BOTTOM - top + ROW_GAP) / (SETTING_HEIGHT + ROW_GAP));
-	short first = *first_row = scrolled(*first_row, chosen, count, shown), row;
-	float y = top;
-
-	for (row = first; row < count && row < first + shown; row++)
-	{
-		char label[64], value[64];
-
-		row_text(row, label, sizeof(label), value, sizeof(value));
-		ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f, label, NULL,
-			value[0] ? value : NULL, row == chosen);
-		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_list, row);
-		y += SETTING_HEIGHT + ROW_GAP;
-	}
-}
-
-static void property_row_text(short row, char *label, int label_size, char *value, int value_size)
-{
-	forge_property_text(row, label, label_size, value, value_size);
 }
 
 static void render_properties(void)
 {
 	struct forge_properties properties;
-	short count = forge_property_count();
-	char text[96];
+	short count = forge_property_count(), row, shown = side_rows_shown();
+	short chosen = forge_menu.list_row[_game_tab_properties];
+	short first;
+	float y = SIDE_LIST_Y;
+	char name[FORGE_NAME_SIZE], line[64];
 
 	if (!count || !forge_properties_get(&properties))
 	{
-		ui_style_text(UI_TEXT_LINE, (CONTENT_LEFT + CONTENT_RIGHT) * 0.5f, (BODY_Y + BODY_BOTTOM) * 0.5f - 6, UI_ALIGN_CENTER,
-			"Nothing held");
+		side_heading("PROPERTIES");
+		ui_style_text(UI_TEXT_LINE, SIDE_LEFT + 10, SIDE_LIST_Y + 4, UI_ALIGN_LEFT, "Nothing held");
+		side_box("NOTHING HELD", NULL, NULL, NULL);
 		return;
 	}
+	snprintf(name, sizeof(name), "%s", properties.name);
+	upper(name);
+	side_heading(name);
+	first = forge_menu.list_first = scrolled(forge_menu.list_first, chosen, count, shown);
+	for (row = first; row < count && row < first + shown; row++)
+	{
+		char label[64], value[64];
+
+		forge_property_text(row, label, sizeof(label), value, sizeof(value));
+		side_setting(y, row == chosen, label, value[0] ? value : NULL, row);
+		y += SIDE_ROW_HEIGHT + SIDE_ROW_GAP;
+	}
+	line[0] = 0;
 	if (properties.has_position)
-	{
-		snprintf(text, sizeof(text), "%s - AT %.2f, %.2f, %.2f M", properties.name, properties.position[0],
-			properties.position[1], properties.position[2]);
-	}
-	else
-	{
-		snprintf(text, sizeof(text), "%s", properties.name);
-	}
-	for (count = 0; text[count]; count++)
-	{
-		if (text[count] >= 'a' && text[count] <= 'z')
-			text[count] = (char)(text[count] - 'a' + 'A');
-	}
-	ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, BODY_Y, UI_ALIGN_LEFT, text);
-	render_settings_rows(forge_property_count(), forge_menu.list_row[_game_tab_properties], &forge_menu.list_first,
-		property_row_text, BODY_Y + HEADING_HEIGHT);
+		snprintf(line, sizeof(line), "At %.1f, %.1f, %.1f m", properties.position[0], properties.position[1],
+			properties.position[2]);
+	side_box(name, line, side_status(), NULL);
 }
 
 static void render_layouts(void)
@@ -1207,60 +1275,40 @@ static void render_layouts(void)
 	short map_index = forge_menu.view.map_index;
 	short count = map_index != NONE ? map_entry_count(map_index) : 0;
 	short rows = (short)(NUMBER_OF_LAYOUTS_ACTIONS + count), chosen = forge_menu.list_row[_game_tab_layouts];
-	short row, shown, first;
-	float y = BODY_Y, x = DETAIL_LEFT + 12;
-	char text[160];
-	char title[FORGE_FILE_TITLE_SIZE];
+	short shown = side_rows_shown(), first, row;
+	float y = SIDE_LIST_Y;
+	char title[FORGE_FILE_TITLE_SIZE], line[96], date[96];
 
-	/* (SAVE and SAVE AS NEW, then the heading and the layouts, scrolled
-	under them) */
-	snprintf(text, sizeof(text), "Saves \"%s\"", forge_menu.view.save_title);
-	list_row(CONTENT_LEFT, y, LIST_WIDTH, chosen == _layouts_save, "SAVE", text, NULL, FALSE, _target_list, _layouts_save);
-	y += ROW_HEIGHT + ROW_GAP;
-	new_title(title, sizeof(title));
-	snprintf(text, sizeof(text), "As \"%s\"", title);
-	list_row(CONTENT_LEFT, y, LIST_WIDTH, chosen == _layouts_save_new, "SAVE AS NEW", text, NULL, FALSE, _target_list,
-		_layouts_save_new);
-	y += ROW_HEIGHT + ROW_GAP + 4;
-	snprintf(text, sizeof(text), "ON THIS MAP (%d)", count);
-	ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, y, UI_ALIGN_LEFT, text);
-	y += HEADING_HEIGHT;
-	shown = (short)((BODY_BOTTOM - y + ROW_GAP) / (ROW_HEIGHT + ROW_GAP));
-	first = forge_menu.list_first = scrolled(forge_menu.list_first, (short)MAX(chosen - NUMBER_OF_LAYOUTS_ACTIONS, 0), count,
-		shown);
-	for (row = first; row < count && row < first + shown; row++)
+	snprintf(line, sizeof(line), "LAYOUTS (%d)", count);
+	side_heading(line);
+	first = forge_menu.list_first = scrolled(forge_menu.list_first, chosen, rows, shown);
+	for (row = first; row < rows && row < first + shown; row++)
 	{
-		struct forge_store_entry const *entry = map_entry(map_index, row);
-		short list = (short)(row + NUMBER_OF_LAYOUTS_ACTIONS);
-		char status[96];
-		char const *name;
+		if (row == _layouts_save)
+			side_row(y, row == chosen, "SAVE", NULL, FALSE, _target_list, row);
+		else if (row == _layouts_save_new)
+			side_row(y, row == chosen, "SAVE AS NEW", NULL, FALSE, _target_list, row);
+		else
+		{
+			struct forge_store_entry const *entry = map_entry(map_index, (short)(row - NUMBER_OF_LAYOUTS_ACTIONS));
+			boolean confirm = armed(row, GUIDE_INPUT_Y) || armed(row, GUIDE_INPUT_A);
 
-		if (!entry)
-			break;
-		entry_status(entry, status, sizeof(status));
-		name = entry->title;
-		if (armed(list, GUIDE_INPUT_Y))
-			snprintf(status, sizeof(status), "%s", "Press again to delete it");
-		else if (armed(list, GUIDE_INPUT_A))
-			snprintf(status, sizeof(status), "%s", "Press again: what isn't saved is lost");
-		list_row(CONTENT_LEFT, y, LIST_WIDTH, chosen == list, name, status,
-			forge_menu.view.file[0] && !strcmp(entry->file_name, forge_menu.view.file) ? "CURRENT" : NULL,
-			armed(list, GUIDE_INPUT_Y) || armed(list, GUIDE_INPUT_A), _target_list, list);
-		y += ROW_HEIGHT + ROW_GAP;
+			if (!entry)
+				break;
+			side_row(y, row == chosen, armed(row, GUIDE_INPUT_Y) ? "CONFIRM DELETE" : armed(row, GUIDE_INPUT_A) ?
+				"CONFIRM LOAD" : entry->title, forge_menu.view.file[0] && !strcmp(entry->file_name, forge_menu.view.file) ?
+				"CURRENT" : NULL, confirm, _target_list, row);
+		}
+		y += SIDE_ROW_HEIGHT + SIDE_ROW_GAP;
 	}
-	if (!count)
-		ui_style_text(UI_TEXT_LABEL, CONTENT_LEFT + 12, y + 4, UI_ALIGN_LEFT, "None saved yet.");
-	/* the pane: the row chosen */
-	render_pane_glass();
 	if (chosen < NUMBER_OF_LAYOUTS_ACTIONS)
 	{
 		if (chosen == _layouts_save)
 			snprintf(title, sizeof(title), "%s", forge_menu.view.save_title);
 		else
 			new_title(title, sizeof(title));
-		ui_style_text(UI_TEXT_TITLE, x, BODY_Y + 12, UI_ALIGN_LEFT, title);
-		snprintf(text, sizeof(text), "Placed: %d of %d", forge_menu.view.objects, FORGE_MAXIMUM_OBJECTS);
-		ui_style_text(UI_TEXT_LINE, x, BODY_Y + 32, UI_ALIGN_LEFT, text);
+		snprintf(line, sizeof(line), "Placed: %d of %d", forge_menu.view.objects, FORGE_MAXIMUM_OBJECTS);
+		side_box(title, line, side_status(), NULL);
 	}
 	else
 	{
@@ -1268,21 +1316,13 @@ static void render_layouts(void)
 
 		if (entry)
 		{
-			ui_style_text(UI_TEXT_TITLE, x, BODY_Y + 12, UI_ALIGN_LEFT, entry->title);
-			entry_status(entry, text, sizeof(text));
-			ui_style_text(UI_TEXT_LINE, x, BODY_Y + 32, UI_ALIGN_LEFT, text);
+			entry_status(entry, line, sizeof(line));
+			date[0] = 0;
 			if (entry->author[0])
-			{
-				snprintf(text, sizeof(text), "By %s", entry->author);
-				ui_style_text(UI_TEXT_LABEL, x, BODY_Y + 48, UI_ALIGN_LEFT, text);
-			}
-			if (entry->description[0])
-				ui_style_text(UI_TEXT_LABEL, x, BODY_Y + 64, UI_ALIGN_LEFT, entry->description);
+				snprintf(date, sizeof(date), "By %s", entry->author);
+			side_box(entry->title, line, side_status() ? side_status() : date, NULL);
 		}
 	}
-	/* (what the last save or delete came to: the session's line) */
-	if (forge_menu.view.status[0] && system_milliseconds() - forge_menu.view.status_time < MESSAGE_TIME)
-		ui_style_text(UI_TEXT_LINE, x, BODY_Y + 84, UI_ALIGN_LEFT, forge_menu.view.status);
 }
 
 static void option_row_text(short row, char *label, int label_size, char *value, int value_size)
@@ -1311,86 +1351,101 @@ static void option_row_text(short row, char *label, int label_size, char *value,
 	}
 }
 
-/* CONTROLS: each control's button and key */
+/* CONTROLS: each control and what does it on the device used last */
 static void render_controls(void)
 {
-	float y = BODY_Y + HEADING_HEIGHT, middle = CONTENT_LEFT + 196, right = CONTENT_RIGHT - 12;
+	boolean keyboard = ui_overlay_keyboard() != 0;
+	float y = SIDE_LIST_Y;
 	short index;
 
-	ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, BODY_Y, UI_ALIGN_LEFT, "CONTROLS");
-	ui_style_text(UI_TEXT_HEADING, middle, BODY_Y, UI_ALIGN_LEFT, "CONTROLLER");
-	ui_style_text(UI_TEXT_HEADING, right, BODY_Y, UI_ALIGN_RIGHT, "KEYBOARD AND MOUSE");
+	side_heading(keyboard ? "CONTROLS - KEYBOARD" : "CONTROLS - CONTROLLER");
 	for (index = 0; index < (short)NUMBEROF(controls); index++)
 	{
 		char key[64], second[64];
 
 		key[0] = 0;
-		if (controls[index].key == NONE)
+		if (!keyboard)
+			snprintf(key, sizeof(key), "%s", controls[index].button);
+		else if (controls[index].key == NONE)
 			snprintf(key, sizeof(key), "%s", controls[index].keys);
-		else if (controls[index].key == HALO_FORGE_KEY_UP)
+		else if (controls[index].key == HALO_FORGE_KEY_UP || controls[index].key == HALO_FORGE_KEY_FARTHER)
 		{
-			halo_forge_key_shown(HALO_FORGE_KEY_UP, key, sizeof(key));
-			halo_forge_key_shown(HALO_FORGE_KEY_DOWN, second, sizeof(second));
-			snprintf(key + strlen(key), sizeof(key) - strlen(key), " / %s", second);
-		}
-		else if (controls[index].key == HALO_FORGE_KEY_FARTHER)
-		{
-			halo_forge_key_shown(HALO_FORGE_KEY_FARTHER, key, sizeof(key));
-			halo_forge_key_shown(HALO_FORGE_KEY_NEARER, second, sizeof(second));
+			halo_forge_key_shown(controls[index].key, key, sizeof(key));
+			halo_forge_key_shown(controls[index].key == HALO_FORGE_KEY_UP ? HALO_FORGE_KEY_DOWN : HALO_FORGE_KEY_NEARER,
+				second, sizeof(second));
 			snprintf(key + strlen(key), sizeof(key) - strlen(key), " / %s", second);
 		}
 		else if (!halo_forge_key_shown(controls[index].key, key, sizeof(key)))
 			snprintf(key, sizeof(key), "%s", "-");
-		ui_overlay_text(UI_FONT_MENU, 9.5f, CONTENT_LEFT + 12, y + 3, UI_ALIGN_LEFT, ui_style_color(UI_COLOR_LABEL_SOFT),
+		ui_overlay_text(UI_FONT_MENU, 8.5f, SIDE_LEFT + 4, y, UI_ALIGN_LEFT, ui_style_color(UI_COLOR_LABEL_SOFT),
 			controls[index].what);
-		ui_overlay_text(UI_FONT_MENU, 9.5f, middle, y + 3, UI_ALIGN_LEFT, 0xFFFFFFFF, controls[index].button);
-		ui_overlay_text(UI_FONT_MENU, 9.5f, right, y + 3, UI_ALIGN_RIGHT, 0xFFFFFFFF, key);
-		y += 17;
+		ui_overlay_text(UI_FONT_MENU, 8.5f, SIDE_RIGHT - 4, y, UI_ALIGN_RIGHT, 0xFFFFFFFF, key);
+		y += 17.5f;
 	}
 }
 
 static void render_options(void)
 {
-	short chosen = forge_menu.list_row[_game_tab_options];
+	short chosen = forge_menu.list_row[_game_tab_options], row, shown = side_rows_shown(), first;
+	float y = SIDE_LIST_Y;
 
 	if (forge_menu.controls_shown)
 	{
 		render_controls();
 		return;
 	}
-	render_settings_rows(NUMBER_OF_OPTIONS, chosen, &forge_menu.list_first, option_row_text, BODY_Y);
-	if (forge_menu.view.status[0] && system_milliseconds() - forge_menu.view.status_time < MESSAGE_TIME &&
-		chosen >= _option_undo && chosen <= _option_redo)
+	side_heading("OPTIONS");
+	first = forge_menu.list_first = scrolled(forge_menu.list_first, chosen, NUMBER_OF_OPTIONS, shown);
+	for (row = first; row < NUMBER_OF_OPTIONS && row < first + shown; row++)
 	{
-		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + 12, BODY_BOTTOM - 14, UI_ALIGN_LEFT, forge_menu.view.status);
+		char label[64], value[64];
+
+		option_row_text(row, label, sizeof(label), value, sizeof(value));
+		side_setting(y, row == chosen, label, value[0] ? value : NULL, row);
+		y += SIDE_ROW_HEIGHT + SIDE_ROW_GAP;
+	}
+	{
+		char label[64], value[64];
+
+		option_row_text(chosen, label, sizeof(label), value, sizeof(value));
+		side_box(label, value, side_status(), NULL);
 	}
 }
 
 static void render_game(void)
 {
-	struct ui_style_prompt prompts[6];
-	short prompt_count = 0;
+	static char const *const titles[NUMBER_OF_GAME_TABS] = { "OBJECT BROWSER", "PROPERTIES", "LAYOUTS", "OPTIONS" };
+	struct ui_style_prompt prompts[5];
+	float starts[5], ends[5], tab_starts[NUMBER_OF_GAME_TABS], tab_ends[NUMBER_OF_GAME_TABS];
+	short prompt_count = 0, index;
 	short row = forge_menu.list_row[forge_menu.tab];
-	char status[160];
+	char budget[32];
 
-	snprintf(status, sizeof(status), "%s - %d of %d objects", forge_menu.view.title[0] ? forge_menu.view.title :
-		"New layout", forge_menu.view.objects, FORGE_MAXIMUM_OBJECTS);
-	render_header(forge_map_name(forge_menu.view.map_index), status);
-	render_tabs(game_tab_names, NUMBER_OF_GAME_TABS);
+	ui_style_panel(SIDE_X, SIDE_Y, SIDE_WIDTH, SIDE_HEIGHT, 1.0f);
+	/* (the title, as the Guide's card's, and the budget) */
+	snprintf(budget, sizeof(budget), "%d / %d", forge_menu.view.objects, FORGE_MAXIMUM_OBJECTS);
+	{
+		/* (as large as fits left of the budget) */
+		float room = SIDE_RIGHT - SIDE_LEFT - ui_overlay_text_width(UI_FONT_MENU, 10.0f, budget) - 10.0f, size = 12.0f;
+
+		while (size > 7.0f && ui_overlay_text_width(UI_FONT_TITLE, size, titles[forge_menu.tab]) > room)
+			size -= 0.5f;
+		ui_overlay_text_glow(UI_FONT_TITLE, size, SIDE_LEFT, SIDE_TITLE_Y + (12.0f - size) * 0.5f, UI_ALIGN_LEFT,
+			ui_style_color(UI_COLOR_TITLE), ui_style_color(UI_COLOR_TITLE), titles[forge_menu.tab]);
+	}
+	ui_overlay_text(UI_FONT_MENU, 10.0f, SIDE_RIGHT, SIDE_TITLE_Y + 4, UI_ALIGN_RIGHT, ui_style_color(UI_COLOR_STATUS),
+		budget);
+	ui_overlay_rect(SIDE_LEFT - 4, SIDE_RULE_Y, SIDE_RIGHT - SIDE_LEFT + 8, 1, 0, ui_style_color(UI_COLOR_RULE));
+	ui_style_tabs(SIDE_LEFT, SIDE_RIGHT, SIDE_TABS_Y, SIDE_TABS_HEIGHT, game_tab_names, NUMBER_OF_GAME_TABS, forge_menu.tab,
+		"Q", "E", tab_starts, tab_ends);
+	for (index = 0; index < NUMBER_OF_GAME_TABS; index++)
+		target_add(tab_starts[index], SIDE_TABS_Y, tab_ends[index], SIDE_TABS_Y + SIDE_TABS_HEIGHT, _target_tab, index);
 	switch (forge_menu.tab)
 	{
 	case _game_tab_objects:
 		render_objects();
-		if (forge_menu.pane)
-		{
-			prompt_add(prompts, &prompt_count, UI_BUTTON_A, "ENTER", "PLACE");
-			prompt_add(prompts, &prompt_count, UI_BUTTON_B, "ESC", "BACK");
-		}
-		else
-		{
-			prompt_add(prompts, &prompt_count, UI_BUTTON_A, "ENTER", "SELECT");
-			prompt_add(prompts, &prompt_count, UI_BUTTON_B, "ESC", "CLOSE");
-		}
+		prompt_add(prompts, &prompt_count, UI_BUTTON_A, "ENTER", forge_menu.pane ? "PLACE" : "SELECT");
+		prompt_add(prompts, &prompt_count, UI_BUTTON_B, "ESC", forge_menu.pane ? "BACK" : "CLOSE");
 		break;
 	case _game_tab_properties:
 		render_properties();
@@ -1420,8 +1475,12 @@ static void render_game(void)
 		}
 		break;
 	}
-	render_message(CONTENT_LEFT, BODY_BOTTOM - 12);
-	render_prompts(prompts, prompt_count);
+	ui_style_prompts(SIDE_RIGHT, SIDE_PROMPTS_Y, 13.0f, prompts, prompt_count, starts, ends);
+	for (index = 0; index < prompt_count; index++)
+	{
+		target_add(starts[index] - 4, SIDE_PROMPTS_Y - 4, ends[index] + 4, SIDE_PROMPTS_Y + 17, _target_prompt,
+			(short)prompts[index].button);
+	}
 }
 
 /* behind the panel: the Guide's (delta.guide_background: the shade, or the
@@ -1710,12 +1769,18 @@ void forge_menu_render(
 	forge_menu.target_count = 0;
 	ui_overlay_layer(FORGE_MENU_LAYER);
 	ui_style_clock((unsigned int)system_milliseconds());
-	render_background();
-	ui_style_panel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 1.0f);
+	/* (the lobby: the Guide's panel over the menus; the game's: a column
+	at the right, the map in view) */
 	if (forge_menu.screen == _screen_lobby)
+	{
+		render_background();
+		ui_style_panel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 1.0f);
 		render_lobby();
+	}
 	else
+	{
 		render_game();
+	}
 	ui_overlay_layer(0);
 }
 

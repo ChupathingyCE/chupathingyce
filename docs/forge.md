@@ -47,9 +47,9 @@ The keyboard's keys are `controls.forge_*` in `config.toml` (see [settings.md](s
 
 ## The Forge menu
 
-X (E) opens the Forge menu over the game. It works like the Delta Guide: LB and RB (Q and E) change the tab, the d-pad (arrows or WASD) moves, A (Enter) chooses, B (Esc) goes back, and the mouse can click rows and prompts. X closes it.
+X (E) opens the Forge menu: a narrow panel at the right of the screen, so the map stays in view. Its title and the budget are at the top, then the tabs, the list, a box about the row chosen, and the prompts at its foot. It works like the Delta Guide: LB and RB (Q and E) change the tab, the d-pad (arrows or WASD) moves, A (Enter) chooses, B (Esc) goes back, and the mouse can click rows and prompts. X closes it.
 
-- OBJECTS: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, TELEPORTERS, OBJECTIVES, SPAWNING) with what each has, then the category's objects. A places the object in your hands. The heading shows the budget: 256 objects and markers.
+- OBJECT BROWSER: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, TELEPORTERS, OBJECTIVES, SPAWNING) with how many objects each has. A opens a category, and A on an object places it in your hands. The count at the top right is the budget: 256 objects and markers.
 
   ![OBJECTS](screenshots/forge-objects.jpg)
 
@@ -62,6 +62,8 @@ X (E) opens the Forge menu over the game. It works like the Delta Guide: LB and 
   ![LAYOUTS](screenshots/forge-layouts.jpg)
 
 - OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), PLAY AS SPARTAN and CONTROLS.
+
+  ![OPTIONS](screenshots/forge-options.jpg)
 
 A layout's spawn points replace the map's own for the players they fit (the game type, the team). A game type object replaces the map's own of that type (a CTF flag: that team's). Any type the layout has none of keeps the map's.
 
