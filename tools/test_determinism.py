@@ -188,14 +188,28 @@ def compare(first_name, first, second_name, second):
     return problems
 
 
-def run_check(binary, maps, work, game_map=DEFAULT_MAP, ticks=DEFAULT_TICKS, seed=DEFAULT_SEED, local_players=1):
-    """Records a game and replays it twice. Returns (problems, ticks compared)."""
+def run_check(binary, maps, work, game_map=DEFAULT_MAP, ticks=DEFAULT_TICKS, seed=DEFAULT_SEED, local_players=1,
+              air_turn_aim=False):
+    """Records a game and replays it twice. Returns (problems, ticks compared).
+    With air_turn_aim the recording is made with the host's 180 glitch fix on
+    (network.air_turn_aim) and the replays are run with it off in their own
+    settings: they must play by the recording's rule, kept in it."""
     os.makedirs(work, exist_ok=True)
     inputs = os.path.join(os.path.abspath(work), "inputs.bin")
     started = time.time()
-    record = play(binary, maps, work, "record", "record", inputs, game_map, ticks, seed, local_players)
-    replay_a = play(binary, maps, work, "replay-a", "replay", inputs, game_map, ticks, seed, local_players)
-    replay_b = play(binary, maps, work, "replay-b", "replay", inputs, game_map, ticks, seed, local_players)
+    record_env = {"HALO_NET_AIR_TURN_AIM": "true"} if air_turn_aim else None
+    replay_env = {"HALO_NET_AIR_TURN_AIM": "false"} if air_turn_aim else None
+    record = play(binary, maps, work, "record", "record", inputs, game_map, ticks, seed, local_players,
+        extra_env=record_env)
+    replay_a = play(binary, maps, work, "replay-a", "replay", inputs, game_map, ticks, seed, local_players,
+        extra_env=replay_env)
+    replay_b = play(binary, maps, work, "replay-b", "replay", inputs, game_map, ticks, seed, local_players,
+        extra_env=replay_env)
+    if air_turn_aim:
+        for name in ("record", "replay-a", "replay-b"):
+            with open(os.path.join(work, name, "out.log"), "rb") as output:
+                if b"air_turn_aim on" not in output.read():
+                    raise RuntimeError(f"{name}: didn't play with the recording's air_turn_aim")
     runs = {name: read_hashes(path) for name, path in
         (("record", record), ("replay-a", replay_a), ("replay-b", replay_b))}
     problems = []
@@ -220,6 +234,31 @@ def test_determinism(tmp_path):
     assert not problems, "\n".join(problems)
 
 
+def test_determinism_keeps_the_host_rule(tmp_path):
+    """pytest: a recording made with network.air_turn_aim on replays with it,
+    whatever the replay's own setting (needs a build and maps, as above)."""
+    import pytest
+
+    binary = os.environ.get("HALO_DETERMINISM_BINARY")
+    maps = os.environ.get("HALO_DETERMINISM_MAPS")
+    if not binary or not maps or not os.path.exists(binary) or \
+            not os.path.exists(os.path.join(maps, f"{DEFAULT_MAP}.map")):
+        pytest.skip("no build or maps (HALO_DETERMINISM_BINARY, HALO_DETERMINISM_MAPS)")
+    problems, _ = run_check(binary, maps, str(tmp_path), air_turn_aim=True)
+    assert not problems, "\n".join(problems)
+
+
+def test_recording_keeps_the_host_rule():
+    """No build needed: the recording's header carries the host's rule after
+    the seed, and a replay sets it over its own settings (determinism_check.c)."""
+    source = open(os.path.join(ROOT, "port", "linux", "game", "determinism_check.c"), encoding="utf-8").read()
+    assert '#define DETERMINISM_MAGIC "HDET2"' in source
+    record = source.index("fwrite(&determinism_globals.seed")
+    assert source.index("host_rules_host_air_turn_aim() ? FLAG(_determinism_rule_air_turn_aim_bit)", record) > record
+    replay = source.index('"replay:"')
+    assert source.index("host_rules_set_air_turn_aim(TEST_FLAG(rules, _determinism_rule_air_turn_aim_bit)", replay) > replay
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--binary", default=os.path.join(ROOT, "build", "linux", "chupathingy"))
@@ -229,13 +268,15 @@ def main():
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--local-players", type=int, default=1, help="split screen players, 1 to 4")
     parser.add_argument("--work", default=os.path.join(ROOT, "build", "determinism"))
+    parser.add_argument("--air-turn-aim", action="store_true",
+        help="record with network.air_turn_aim on, replay with it off: the replays must keep the recording's")
     args = parser.parse_args()
     if not os.path.exists(os.path.join(args.maps, f"{args.map}.map")):
         log(f"no {args.map}.map in {args.maps}: skipped")
         return 0
     try:
         problems, count = run_check(args.binary, args.maps, args.work, args.map, args.ticks, args.seed,
-            args.local_players)
+            args.local_players, args.air_turn_aim)
     except RuntimeError as error:
         log(str(error))
         return 1

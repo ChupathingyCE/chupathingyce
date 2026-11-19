@@ -5027,7 +5027,11 @@ unit's aim is held within its body's aiming bounds
 back until it lands, so a player's shot left at the bound's angle, not where
 the view (its desired aim) looked. With the rule, a player on foot whose
 unit has no aiming speed limits (its aim is its desired aim, held within
-the bounds) shoots along its desired aim. TRUE if the rule applies */
+the bounds) shoots along its desired aim. It lifts the holding wherever it
+happens, on the ground too (during some animations). It runs for every
+player's unit on this machine, a remote one's too: an older or OpenCE
+player's turned shot is drawn by this rule, while their own machine (whose
+hits count) fired it as the Xbox does. TRUE if the rule applies */
 static boolean unit_air_turn_aim(
 	struct unit_datum const *unit,
 	real_vector3d *direction)

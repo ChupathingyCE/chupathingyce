@@ -906,9 +906,15 @@ game, over `host_rules` (bit 19):
   away in mid-air doesn't turn back until it lands, so on the Xbox a shot
   fired after turning around in a jump leaves at an angle (the "180
   glitch"). With the rule a player on foot shoots where they aim, from no
-  further back than their eye. Each Chupathingy machine fires its own
-  players' shots by its host's rule; OpenCE and Custom Edition players fire
-  as on the Xbox.
+  further back than their eye. It lifts the aim holding wherever it happens,
+  on the ground too (during some animations), not only in mid-air. Each
+  machine fires its own players' shots by its own build: only players on a
+  build that knows 0x10 get the fix, and OpenCE, Custom Edition, console and
+  older Chupathingy players fire as on the Xbox. A machine that knows the
+  rule draws every player's shots by it, though, so it shows an older or
+  OpenCE player's turned shot going where they look while their own machine
+  fired it at an angle. That's only what is drawn: hits follow each
+  shooter's own machine.
 - **A host that says nothing** (OpenCE's, an older Chupathingy, a console
   without Delta) gets the Xbox's rules: no extras. A game played alone
   (split screen) is its own host's.
