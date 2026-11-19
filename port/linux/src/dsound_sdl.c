@@ -2647,6 +2647,13 @@ HRESULT WINAPI IDirectSound_SetI3DL2Listener(LPDIRECTSOUND sound, LPCDSI3DL2LIST
 	(void)apply;
 	mixer_lock_take();
 	environment = *listener_properties;
+	/* (no shorter a decay, and no lower a high frequency ratio, than
+	I3DL2's least, 0.1: the reverb divides by both, dsound_xbox_reverb.inl.
+	A map's empty sound environment has 0 for each) */
+	if (!(environment.flDecayTime >= 0.1f))
+		environment.flDecayTime = 0.1f;
+	if (!(environment.flDecayHFRatio >= 0.1f))
+		environment.flDecayHFRatio = 0.1f;
 	environment_serial++;
 	pthread_mutex_unlock(&mixer_lock);
 	return DS_OK;

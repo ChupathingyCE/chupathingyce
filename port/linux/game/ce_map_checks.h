@@ -231,6 +231,16 @@ copied in), its model data's hash
 read (32 bytes of its reference, then its bytes; a BSP not checked is
 FALSE). Whether the load under way has found nothing changed */
 boolean ce_map_loaded_tags_unchanged(void const *tag_data, unsigned long size);
+/* the bytes of zeroes the map open was checked with after its tag data, as
+its last tag's (a HaloMD map's that begins where its tag data ends,
+ce_map_checks.c's ce_tags_tail), or 0: the load puts the same there, and
+its resource maps' tags after them */
+unsigned long ce_map_checked_tags_tail(void);
+/* a cache file's tag data size as its header gives it, or, a HaloMD map's
+(version 7) whose header gives the file's length there, as some HaloMD tool
+wrote it (greatwall_1, za_1), the rest of the file after its tag data's
+offset, which Halo PC's loader read */
+long ce_map_header_tag_data_size(long version, long file_length, long tag_data_offset, long tag_data_size);
 boolean ce_map_loaded_resources_unchanged(byte const digest[CE_DIGEST_SIZE]);
 boolean ce_map_loaded_model_data_unchanged(byte const digest[CE_DIGEST_SIZE]);
 boolean ce_map_loaded_bsp_unchanged(void const *reference, void const *bsp, unsigned long size);

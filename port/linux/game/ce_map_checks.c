@@ -108,6 +108,13 @@ enum
 	CE_SCENARIO_BSP_REFERENCE_SIZE = 0x20,
 	CE_MAXIMUM_BSPS = 16, /* (scenario.h's MAXIMUM_STRUCTURE_BSPS_PER_SCENARIO) */
 	CE_BSP_GROUP = 'sbsp',
+	/* a HaloMD map's last tag whose data begins where its tag data ends
+	(ce_tags_tail): a sound environment (sound_environment_definitions.h)
+	or a wind (wind_definitions.h), its root's bytes */
+	CE_SOUND_ENVIRONMENT_GROUP = 'snde',
+	CE_SOUND_ENVIRONMENT_SIZE = 0x48,
+	CE_WIND_GROUP = 'wind',
+	CE_WIND_SIZE = 0x40,
 	/* a weapon's magazines and triggers (weapon_definitions.h), no more
 	than its datum has room for (weapons.h: two of each), and a trigger's
 	magazine, NONE or one of them */
@@ -222,6 +229,9 @@ struct ce_map_digests
 	byte resources[CE_DIGEST_SIZE];
 	byte model_data[CE_DIGEST_SIZE];
 	byte bsps[CE_MAXIMUM_BSPS][CE_DIGEST_SIZE];
+	/* and the zeroes read after its tag data as its last tag's
+	(ce_tags_tail), which the load gives it too */
+	unsigned long tags_tail;
 };
 static struct ce_map_digests ce_checked_digests;
 static struct ce_map_digests ce_checking_digests;
@@ -343,6 +353,29 @@ static struct ce_tag_instance const *ce_tag_instance_get(
 	if (tag_index == 0xffffffff || index >= (unsigned long)tag_count || instances[index].tag_index != tag_index)
 		return NULL;
 	return &instances[index];
+}
+
+/* the bytes of zeroes a HaloMD map's last tag is read as, or 0: a sound
+environment or wind whose data begins exactly where the tag data ends
+(tags_end), with no bytes of its own. Some HaloMD tool wrote ten of the
+archive's maps so (alternate_1, corrupted_1, vast_1), and Halo PC read the
+tag from whatever followed its tag data; here it is an empty one, all
+zeroes, in room kept for it after the tag data (as the load keeps it:
+ce_map_checked_tags_tail). No other tag, and no other address, is taken */
+static unsigned long ce_tags_tail(
+	struct ce_tag_instance const *instances,
+	long tag_count,
+	unsigned long tags_end)
+{
+	struct ce_tag_instance const *last = &instances[tag_count - 1];
+
+	if (ce_map_cache_version != CE_CACHE_VERSION_RETAIL || last->indexed || last->base_address != tags_end ||
+		(last->tag_index & 0xffff) != (unsigned long)(tag_count - 1))
+	{
+		return 0;
+	}
+	return last->group_tag == CE_SOUND_ENVIRONMENT_GROUP ? CE_SOUND_ENVIRONMENT_SIZE :
+		last->group_tag == CE_WIND_GROUP ? CE_WIND_SIZE : 0;
 }
 
 static boolean ce_tag_index_check(
@@ -636,6 +669,26 @@ static boolean ce_map_check_tags(
 	{
 		ce_refuse("its %ld tags' instances (at %08lx) are not in its tag data", tag_count, header.tag_instances);
 		goto done;
+	}
+	/* (a HaloMD map's last tag that begins where its tag data ends, read
+	as zeroes after it: ce_tags_tail) */
+	ce_checking_digests.tags_tail = ce_tags_tail(instances, tag_count, image.base + image.size);
+	if (ce_checking_digests.tags_tail)
+	{
+		struct ce_tag_instance const *last = &instances[tag_count - 1];
+		char const *name = ce_image_pointer(&image, last->name, 1);
+
+		if (tag_data_size > CE_IMAGE_TAG_CACHE_SIZE - ce_checking_digests.tags_tail)
+		{
+			ce_refusal_explain("It is too big for the game's tag cache.");
+			ce_refuse("its tag data (%lu bytes) and its last tag's are larger than the tag cache (%lu bytes)",
+				tag_data_size, (unsigned long)CE_IMAGE_TAG_CACHE_SIZE);
+			goto done;
+		}
+		memset(image.data + image.size, 0, ce_checking_digests.tags_tail);
+		image.size += ce_checking_digests.tags_tail;
+		error(_error_silent, "%s map: its last tag, %s, begins where its tag data ends: read as an empty one",
+			ce_map_family_name(), name && memchr(name, 0, image.base + image.size - last->name) ? name : "(no name)");
 	}
 	if (!ce_tag_index_check(&image, instances, tag_count))
 		goto done;
@@ -1341,6 +1394,26 @@ static boolean ce_map_loaded_matches(
 
 	ce_digest(data, size, digest);
 	return memcmp(digest, checked, CE_DIGEST_SIZE) ? ce_map_loaded_changed(what) : TRUE;
+}
+
+unsigned long ce_map_checked_tags_tail(
+	void)
+{
+	return ce_checked_digests.tags_tail;
+}
+
+long ce_map_header_tag_data_size(
+	long version,
+	long file_length,
+	long tag_data_offset,
+	long tag_data_size)
+{
+	if (version == CE_CACHE_VERSION_RETAIL && tag_data_size == file_length && tag_data_offset >= CE_HEADER_SIZE &&
+		tag_data_offset < file_length)
+	{
+		return file_length - tag_data_offset;
+	}
+	return tag_data_size;
 }
 
 boolean ce_map_loaded_tags_unchanged(

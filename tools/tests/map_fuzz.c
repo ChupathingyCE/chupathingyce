@@ -188,6 +188,8 @@ unsigned long ce_resources_free_mark(void);
 #endif
 
 boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset, long tag_data_size);
+unsigned long ce_map_checked_tags_tail(void);
+long ce_map_header_tag_data_size(long version, long file_length, long tag_data_offset, long tag_data_size);
 boolean ce_map_bsp_reference_checked(void const *reference);
 extern long ce_map_cache_version;
 boolean ce_resources_tags_loaded(void *tag_instances, long tag_count, unsigned long first_free,
@@ -1053,6 +1055,7 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 	byte *model_data;
 	/* (the tag header, which no conversion writes over: ce_tags_writable) */
 	byte tag_header[CE_TAG_HEADER_SIZE];
+	unsigned long tags_tail;
 
 	memset(tag_cache, 0xCD, CE_TAG_CACHE_SIZE);
 	memcpy(tag_cache, data + header->tag_data_offset, (size_t)header->tag_data_size);
@@ -1069,6 +1072,10 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 	memcpy(&vertex_data_size, tag_cache + 0x1C, 4);
 	memcpy(&model_data_size, tag_cache + 0x20, 4);
 	memcpy(tag_header, tag_cache, sizeof(tag_header));
+	/* (a HaloMD map's last tag that begins where its tag data ends, zeroes
+	after it, as it was checked: scenario_tags_load) */
+	tags_tail = ce_map_checked_tags_tail();
+	memset(tag_cache + header->tag_data_size, 0, tags_tail);
 	instances = xbox_pointer(tag_instances);
 	fuzz_tags_are_ce = TRUE;
 
@@ -1085,7 +1092,8 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 	}
 	ce_loaded_bsps_low(end_free);
 	ce_repairs_scenario_loaded(instances, (long)tag_count, scenario_tag_index);
-	ce_resources_tags_loaded(instances, (long)tag_count, CE_TAG_CACHE_BASE + header->tag_data_size, end_free);
+	ce_resources_tags_loaded(instances, (long)tag_count, CE_TAG_CACHE_BASE + header->tag_data_size + tags_tail,
+		end_free);
 	if (!ce_map_loaded_unchanged())
 	{
 		fuzz_ce_refused("resources");
@@ -1099,9 +1107,10 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 	if (fuzz_ce_schema)
 	{
 		unsigned long tags_end = ce_resources_free_mark();
-		long tags_size = tags_end > CE_TAG_CACHE_BASE + (unsigned long)header->tag_data_size &&
+		unsigned long own_size = (unsigned long)header->tag_data_size + tags_tail;
+		long tags_size = tags_end > CE_TAG_CACHE_BASE + own_size &&
 			tags_end <= CE_TAG_CACHE_BASE + CE_TAG_CACHE_SIZE ?
-			(long)(tags_end - CE_TAG_CACHE_BASE) : header->tag_data_size;
+			(long)(tags_end - CE_TAG_CACHE_BASE) : (long)own_size;
 
 		struct tag_schema_layout const *layout = &tag_schema_pc_layout;
 
@@ -1205,6 +1214,16 @@ static void fuzz_ce(unsigned char const *data, size_t size)
 	cache_files_windows.c reads it) */
 	if (!header_copy.file_length && size <= 0x7fffffff)
 		header_copy.file_length = (long)size;
+	/* (a HaloMD map's tag data size given as its file's length, read as
+	the rest of the file, as cache_file_header_verify reads it) */
+	{
+		long tag_data_size = ce_map_header_tag_data_size(header_copy.version, header_copy.file_length,
+			header_copy.tag_data_offset, header_copy.tag_data_size);
+
+		if (fuzz_verbose && tag_data_size != header_copy.tag_data_size)
+			fprintf(stderr, "map_fuzz: the header's tag data size is the file's length: read as %ld\n", tag_data_size);
+		header_copy.tag_data_size = tag_data_size;
+	}
 	if (!fuzz_header_valid(header, size) ||
 		(header->version != CACHE_VERSION_CUSTOM_EDITION && header->version != CACHE_VERSION_RETAIL))
 	{
