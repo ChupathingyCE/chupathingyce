@@ -3688,9 +3688,10 @@ static char const *controls_page_view(struct widget_instance *list)
 {
 	if (controls_device_shown(list) == _controls_device_keyboard_mouse)
 		return spinner_shown(list, "group_spinner") == CONTROL_GROUP_MOUSE ? "mouse" : "keyboard";
-#ifdef HALO_SWITCH_CONSOLE
-	/* port: the controller's third page, the gyroscope's settings (the
-	Switch's rows: tools/switch_menus.py in its port) */
+#ifdef HALO_PORT_GYRO_AIM
+	/* port: the controller's third page, the gyroscope's settings
+	(tools/port_settings.py's GYRO_ROWS; the Switch's own rows:
+	tools/switch_menus.py in its port) */
 	if (spinner_shown(list, "page_spinner") == 2)
 		return "gyro";
 #endif
@@ -3827,7 +3828,7 @@ static void controls_page_update(struct widget_instance *list)
 	else if (focused == named(list, "op_group", 0))
 		line = "Choose a group of keys, or the mouse.";
 	else if (focused == named(list, "op_page", 0))
-#ifdef HALO_SWITCH_CONSOLE
+#ifdef HALO_PORT_GYRO_AIM
 		line = "Choose the controller's settings, buttons or gyro.";
 #else
 #line 2888
@@ -3893,7 +3894,7 @@ static boolean controls_page_defaults(struct widget_instance *widget)
 		return TRUE;
 	}
 	settings_each_in_view(list, "gamepad", setting_default_show);
-#ifdef HALO_SWITCH_CONSOLE
+#ifdef HALO_PORT_GYRO_AIM
 	settings_each_in_view(list, "gyro", setting_default_show);
 #endif
 #line 2940

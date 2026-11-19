@@ -2248,44 +2248,51 @@ static void merge_button(XINPUT_GAMEPAD *pad, int analog_index, BOOL down)
 		pad->bAnalogButtons[analog_index] = 0xff;
 }
 
-#ifdef HALO_SWITCH_CONSOLE
-/* ---------- gyro aiming (the Switch)
+#ifdef HALO_PORT_GYRO_AIM
+/* ---------- gyro aiming
 
 The controller's gyroscope turns the view as well as the stick, each local
-player from their own pad: the host reads the sensor (port/switch/host/
-host_sdl2.c, host_sdl_gamepad_gyro) and gives the turn since the last call
-in radians, which player_control.c adds to the view as it adds the mouse's.
-Whether it aims is input.gyro_aim (true always, zoom only while zoomed in:
-halo_linux_gyro_zoom_only), and its horizontal and vertical sensitivity and
-invert are its own, apart from the stick's. */
-void host_sdl_gamepad_gyro(unsigned int gamepad, float *yaw, float *pitch);
+player from their own pad, as player_control.c adds the mouse's turn: the
+turn since the last call, in radians (halo_linux_gyro_look). Whether it
+aims is input.gyro_aim (true always, zoom only while zoomed in:
+halo_linux_gyro_zoom_only); its sensitivity and invert are its own, apart
+from the stick's (gyro_aim.h).
+
+With SDL's sensors (HALO_PORT_GYRO_SDL) a pad's gyroscope and accelerometer
+are turned on the first time its player's turn is asked for while gyro aim
+is on, and off again when it is turned off. Each gyroscope sample goes
+through the pad's filter (Lord BirchWood's: gyro_aim.c) as SDL's events
+bring it (platform_gamepad_sensor). On the Switch the host reads the sensor
+(port/switch/host/host_sdl2.c, host_sdl_gamepad_gyro) and gives the turn
+already added up, with its own filter. */
+#include "gyro_aim.h"
 
 static struct
 {
-	int enabled;
-	int zoom_only;
-	int invert_horizontal;
-	int invert_vertical;
-	float sensitivity_horizontal;
-	float sensitivity_vertical;
+	struct gyro_aim_settings settings;
 	unsigned long read_at;
-} gyro = { 0, 0, 0, 0, 1.0f, 1.0f, (unsigned long)-1 };
+} gyro = { { 0 }, (unsigned long)-1 };
 
 /* (read again when the settings change) */
 static void gyro_settings_read(void)
 {
-	const char *aim;
-
 	if (gyro.read_at == config_changes())
 		return;
 	gyro.read_at = config_changes();
-	aim = config_string("input.gyro_aim");
-	gyro.zoom_only = !strcmp(aim, "zoom");
-	gyro.enabled = gyro.zoom_only || !strcmp(aim, "true");
-	gyro.invert_horizontal = config_boolean("input.gyro_invert_horizontal");
-	gyro.invert_vertical = config_boolean("input.gyro_invert_vertical");
-	gyro.sensitivity_horizontal = (float)config_real("input.gyro_sensitivity_horizontal");
-	gyro.sensitivity_vertical = (float)config_real("input.gyro_sensitivity_vertical");
+	gyro_aim_settings_parse(&gyro.settings, config_string("input.gyro_aim"),
+#ifdef HALO_PORT_GYRO_SDL
+		config_string("input.gyro_horizontal_axis"),
+#else
+		NULL,
+#endif
+		config_real("input.gyro_sensitivity_horizontal"), config_real("input.gyro_sensitivity_vertical"),
+		config_boolean("input.gyro_invert_horizontal"), config_boolean("input.gyro_invert_vertical"),
+#ifdef HALO_PORT_GYRO_SDL
+		config_real("input.gyro_deadzone")
+#else
+		GYRO_AIM_DEADZONE_DEFAULT
+#endif
+		);
 }
 
 /* whether the gyroscope aims only while the player is zoomed in
@@ -2293,30 +2300,253 @@ static void gyro_settings_read(void)
 int halo_linux_gyro_zoom_only(void)
 {
 	gyro_settings_read();
-	return gyro.zoom_only;
+	return gyro.settings.zoom_only;
 }
 
+#ifdef HALO_PORT_GYRO_SDL
+/* the pads whose sensors are on, or that have none */
+#define GYRO_PADS 8
+/* a turn the game has not taken for this long is dropped: the view does not
+jump when play comes back from the menus or a pause */
+#define GYRO_STALE_MS 200
+
+enum
+{
+	_gyro_pad_free,
+	_gyro_pad_on,
+	_gyro_pad_no_sensor,
+	/* (SDL listed a gyroscope but would not turn it on: not asked again
+	until gyro aim is turned off and on, so the log says it once) */
+	_gyro_pad_failed,
+};
+
+struct gyro_pad
+{
+	SDL_JoystickID id;
+	int state;
+	struct gyro_filter filter;
+	/* the latest accelerometer reading (g), if the pad has one */
+	int has_accel;
+	float accel[3];
+	/* the previous gyroscope sample's time (nanoseconds), 0 for none */
+	Uint64 sample_ns;
+	/* the turn not yet taken, and when it last was */
+	float angle[3];
+	Uint64 taken_ms;
+};
+
+/* (SDL's events arrive on the thread that pumps them, the turn is taken
+on the game's) */
+static pthread_mutex_t gyro_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct gyro_pad gyro_pads[GYRO_PADS];
+static float gyro_deadzone;
+static int gyro_sensors_wanted;
+
+static struct gyro_pad *gyro_pad_find(SDL_JoystickID id)
+{
+	int index;
+
+	for (index = 0; index < GYRO_PADS; index++)
+		if (gyro_pads[index].state != _gyro_pad_free && gyro_pads[index].id == id)
+			return &gyro_pads[index];
+	return NULL;
+}
+
+/* a pad's place: a free one, else the one asked for the longest ago (a
+controller gone: SDL never gives an ID twice) */
+static struct gyro_pad *gyro_pad_add(SDL_JoystickID id)
+{
+	struct gyro_pad *pad = NULL;
+	int index;
+
+	for (index = 0; index < GYRO_PADS && !pad; index++)
+		if (gyro_pads[index].state == _gyro_pad_free)
+			pad = &gyro_pads[index];
+	if (!pad)
+	{
+		pad = &gyro_pads[0];
+		for (index = 1; index < GYRO_PADS; index++)
+			if (gyro_pads[index].taken_ms < pad->taken_ms)
+				pad = &gyro_pads[index];
+	}
+	memset(pad, 0, sizeof(*pad));
+	pad->id = id;
+	gyro_filter_reset(&pad->filter);
+	return pad;
+}
+
+/* gyro aim turned off or on: every pad's sensors off, as the game
+started, and every pad forgotten, so that one found with no gyroscope is
+asked again */
+static void gyro_sensors_off(void)
+{
+	SDL_JoystickID ids[GYRO_PADS];
+	int index, count = 0;
+
+	pthread_mutex_lock(&gyro_lock);
+	for (index = 0; index < GYRO_PADS; index++)
+	{
+		if (gyro_pads[index].state == _gyro_pad_on)
+			ids[count++] = gyro_pads[index].id;
+		gyro_pads[index].state = _gyro_pad_free;
+	}
+	pthread_mutex_unlock(&gyro_lock);
+	for (index = 0; index < count; index++)
+	{
+		SDL_Gamepad *gamepad = SDL_GetGamepadFromID(ids[index]);
+
+		if (gamepad)
+		{
+			SDL_SetGamepadSensorEnabled(gamepad, SDL_SENSOR_GYRO, false);
+			SDL_SetGamepadSensorEnabled(gamepad, SDL_SENSOR_ACCEL, false);
+		}
+	}
+}
+
+/* the sensors follow input.gyro_aim, in the menus too (XInputGetState,
+each frame): turned off, every pad's go off at once */
+static void gyro_sensors_follow(void)
+{
+	gyro_settings_read();
+	if (gyro.settings.enabled == gyro_sensors_wanted)
+		return;
+	gyro_sensors_wanted = gyro.settings.enabled;
+	gyro_sensors_off();
+}
+
+/* a pad's sensors on, the first time its turn is asked for; FALSE for a
+pad with no gyroscope. A pad found with none is asked again each time
+(cheap: SDL keeps the answer), so a sensor SDL finds later is used; a
+controller plugged in again is a new ID to SDL, asked anew */
+static BOOL gyro_sensors_on(SDL_Gamepad *gamepad, SDL_JoystickID id)
+{
+	struct gyro_pad *pad;
+	BOOL on, listed;
+
+	pthread_mutex_lock(&gyro_lock);
+	pad = gyro_pad_find(id);
+	if (pad)
+	{
+		on = pad->state == _gyro_pad_on;
+		pthread_mutex_unlock(&gyro_lock);
+		if (on || pad->state == _gyro_pad_failed || !SDL_GamepadHasSensor(gamepad, SDL_SENSOR_GYRO))
+			return on;
+		pthread_mutex_lock(&gyro_lock);
+		/* (it has one now: asked again below) */
+		pad = gyro_pad_find(id);
+		if (pad)
+			pad->state = _gyro_pad_free;
+	}
+	pthread_mutex_unlock(&gyro_lock);
+	listed = SDL_GamepadHasSensor(gamepad, SDL_SENSOR_GYRO);
+	on = listed && SDL_SetGamepadSensorEnabled(gamepad, SDL_SENSOR_GYRO, true);
+	if (on && SDL_GamepadHasSensor(gamepad, SDL_SENSOR_ACCEL))
+		SDL_SetGamepadSensorEnabled(gamepad, SDL_SENSOR_ACCEL, true);
+	{
+		const char *name = SDL_GetGamepadName(gamepad);
+
+		platform_log("gyro aim: %s %s", name ? name : "(unnamed)",
+			on ? "aims with its gyroscope" : "has no gyroscope SDL can read");
+	}
+	pthread_mutex_lock(&gyro_lock);
+	pad = gyro_pad_add(id);
+	pad->state = on ? _gyro_pad_on : listed ? _gyro_pad_failed : _gyro_pad_no_sensor;
+	pad->taken_ms = SDL_GetTicks();
+	pthread_mutex_unlock(&gyro_lock);
+	return on;
+}
+
+/* a sensor's reading, from SDL's events (sdl_platform.c): data is the
+gyroscope's radians a second or the accelerometer's metres a second
+squared, on SDL's axes (gyro_aim.h's); timestamp_ns the reading's time */
+void platform_gamepad_sensor(Uint32 id, int sensor, const float *data, Uint64 timestamp_ns)
+{
+	struct gyro_pad *pad;
+
+	pthread_mutex_lock(&gyro_lock);
+	pad = gyro_pad_find((SDL_JoystickID)id);
+	if (pad && pad->state == _gyro_pad_on)
+	{
+		if (sensor == SDL_SENSOR_ACCEL)
+		{
+			pad->has_accel = TRUE;
+			pad->accel[0] = data[0] / SDL_STANDARD_GRAVITY;
+			pad->accel[1] = data[1] / SDL_STANDARD_GRAVITY;
+			pad->accel[2] = data[2] / SDL_STANDARD_GRAVITY;
+		}
+		else if (sensor == SDL_SENSOR_GYRO)
+		{
+			float dt = pad->sample_ns && timestamp_ns > pad->sample_ns ?
+				(float)(timestamp_ns - pad->sample_ns) * 1.0e-9f : 0.0f;
+
+			pad->sample_ns = timestamp_ns;
+			/* (the bias is learnt all the same) */
+			if (SDL_GetTicks() - pad->taken_ms > GYRO_STALE_MS)
+				pad->angle[0] = pad->angle[1] = pad->angle[2] = 0.0f;
+			gyro_filter_sample(&pad->filter, data, pad->has_accel ? pad->accel : NULL, dt, gyro_deadzone,
+				pad->angle);
+		}
+	}
+	pthread_mutex_unlock(&gyro_lock);
+}
+#elif defined(HALO_SWITCH_CONSOLE)
+void host_sdl_gamepad_gyro(unsigned int gamepad, float *yaw, float *pitch);
+#endif
+
 /* radians of yaw and pitch the pad on port gamepad_index turned since the
-last call, with the settings' sensitivity and invert; FALSE for nothing */
+last call, with the settings' axis, sensitivity and invert; FALSE for
+nothing */
 int halo_linux_gyro_look(short gamepad_index, float *yaw, float *pitch)
 {
+#if defined(HALO_PORT_GYRO_SDL) || defined(HALO_SWITCH_CONSOLE)
 	SDL_Gamepad *gamepads[PORT_COUNT];
 	SDL_Gamepad *gamepad;
 	int count;
-	float turn_yaw, turn_pitch;
+#endif
 
 	*yaw = 0.0f;
 	*pitch = 0.0f;
 	gyro_settings_read();
-	if (!gyro.enabled || gamepad_index < 0)
+#ifdef HALO_PORT_GYRO_SDL
+	gyro_sensors_follow();
+#endif
+	if (!gyro.settings.enabled || gamepad_index < 0)
 		return FALSE;
+#if defined(HALO_PORT_GYRO_SDL) || defined(HALO_SWITCH_CONSOLE)
 	count = sdl_gamepads(gamepads);
 	gamepad = port_gamepad(gamepads, count, gamepad_index);
 	if (!gamepad)
 		return FALSE;
-	host_sdl_gamepad_gyro((unsigned int)(uintptr_t)gamepad, &turn_yaw, &turn_pitch);
-	*yaw = (gyro.invert_horizontal ? -turn_yaw : turn_yaw) * gyro.sensitivity_horizontal;
-	*pitch = (gyro.invert_vertical ? -turn_pitch : turn_pitch) * gyro.sensitivity_vertical;
+#endif
+#ifdef HALO_PORT_GYRO_SDL
+	{
+		SDL_JoystickID id = SDL_GetGamepadID(gamepad);
+		struct gyro_pad *pad;
+		float angle[3] = { 0.0f, 0.0f, 0.0f };
+
+		if (!gyro_sensors_on(gamepad, id))
+			return FALSE;
+		pthread_mutex_lock(&gyro_lock);
+		gyro_deadzone = gyro.settings.deadzone;
+		pad = gyro_pad_find(id);
+		if (pad)
+		{
+			if (SDL_GetTicks() - pad->taken_ms <= GYRO_STALE_MS)
+				memcpy(angle, pad->angle, sizeof(angle));
+			memset(pad->angle, 0, sizeof(pad->angle));
+			pad->taken_ms = SDL_GetTicks();
+		}
+		pthread_mutex_unlock(&gyro_lock);
+		gyro_aim_look(&gyro.settings, angle, yaw, pitch);
+	}
+#elif defined(HALO_SWITCH_CONSOLE)
+	{
+		float turn_yaw, turn_pitch;
+
+		host_sdl_gamepad_gyro((unsigned int)(uintptr_t)gamepad, &turn_yaw, &turn_pitch);
+		gyro_aim_turn(&gyro.settings, turn_yaw, turn_pitch, yaw, pitch);
+	}
+#endif
 	return *yaw != 0.0f || *pitch != 0.0f;
 }
 #endif
@@ -2636,6 +2866,11 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 	test_virtual_pads_update();
 #endif
 	platform_pump_events();
+#ifdef HALO_PORT_GYRO_SDL
+	/* (gyro aim's sensors off as soon as it is turned off) */
+	if (port == 0)
+		gyro_sensors_follow();
+#endif
 	count = sdl_gamepads(gamepads);
 	if (port == 0)
 	{

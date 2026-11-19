@@ -230,9 +230,13 @@ The buttons at the top of the screen:
   you push "Touch".
 - "Options" opens these items:
   - "General": the phone's vibration (on by default; it follows the
-    vibration setting of the game's profile), aiming with the gyroscope
-    (off by default), "Hide or add buttons" (hide a button, add a copy of
-    a button) and "Edit buttons size".
+    vibration setting of the game's profile), aiming with the phone's
+    gyroscope (off by default; its motion goes through the same filter as
+    a controller's gyro aim, `port/linux/src/gyro_aim.c`, with the
+    default deadzone of 0.75 degrees a second: `input.gyro_deadzone` and
+    the other `input.gyro_*` settings are the controllers'), "Hide or add
+    buttons" (hide a button, add a copy of a button) and "Edit buttons
+    size".
   - "Edit buttons layout": drag the controls to new positions, then push
     "Save and exit". "Export" and "Import" write and read a layout file
     with the file picker of the system.
@@ -240,6 +244,13 @@ The buttons at the top of the screen:
 
 The app keeps the layout in its own preferences, not in `config.toml`.
 Removing the app's data or the app removes the layout.
+
+A controller's gyroscope aims as on the desktop (`input.gyro_aim`, Controls
+Setup's GYRO page). SDL reads a controller's gyroscope through Android's
+own sensors for input devices, which Android 12 and later have: a
+DualSense or DualShock 4 over Bluetooth or USB, with no extra permission.
+On Android 9 to 11, or with a controller Android gives no sensors for, the
+log says `gyro aim: <controller> has no gyroscope SDL can read`.
 
 ## Settings
 
