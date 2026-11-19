@@ -192,6 +192,10 @@ long mcc_identity_wire_record(void);
 long mcc_identity_wire_record(void) { return 0; }
 long mcc_main_network_load_failed(void);
 long mcc_main_network_load_failed(void) { return 0; }
+long net_monitor_game_message(void);
+long net_monitor_game_message(void) { return 0; }
+long net_monitor_player_name(void);
+long net_monitor_player_name(void) { return 0; }
 long network_connection_connect(void);
 long network_connection_connect(void) { return 0; }
 long network_connection_connected(void);
