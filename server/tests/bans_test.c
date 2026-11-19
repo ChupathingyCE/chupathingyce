@@ -14,6 +14,8 @@ in a data folder of its own.
 #include "../platform/control_protocol.h"
 #include "monocypher.h"
 
+#include <dirent.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +39,43 @@ static void check(int ok, const char *text, int line)
 const char *platform_data_root(void)
 {
 	return data_root;
+}
+
+/* (the log: the last line, to look at) */
+static char last_log[512];
+
+void platform_log(const char *format, ...)
+{
+	va_list arguments;
+
+	va_start(arguments, format);
+	vsnprintf(last_log, sizeof(last_log), format, arguments);
+	va_end(arguments);
+}
+
+/* the refs in shared_unbans.txt now, and whether ref is one */
+static int exceptions_file_count(const char *ref, int *has)
+{
+	char path[1024], line[128];
+	FILE *file;
+	int count = 0;
+
+	*has = 0;
+	snprintf(path, sizeof(path), "%s/shared_unbans.txt", data_root);
+	file = fopen(path, "r");
+	if (!file)
+		return 0;
+	while (fgets(line, sizeof(line), file))
+	{
+		if (line[0] == '#')
+			continue;
+		line[strcspn(line, "\n")] = 0;
+		count++;
+		if (ref && !strcmp(line, ref))
+			*has = 1;
+	}
+	fclose(file);
+	return count;
 }
 
 static void write_bans(const char *text)
@@ -100,6 +139,33 @@ static void test_refs(void)
 		CHECK(fread(key, 1, sizeof(key), file) == 32);
 		fclose(file);
 	}
+	/* (the key cut short before the first ref, main: kept aside, said so,
+	and a new one made) */
+	{
+		DIR *directory = opendir(data_root);
+		struct dirent *entry;
+		int backups = 0;
+
+		while (directory && (entry = readdir(directory)) != NULL)
+		{
+			if (!strncmp(entry->d_name, "shared_bans.key.bad-", 20))
+			{
+				snprintf(path, sizeof(path), "%s/%s", data_root, entry->d_name);
+				file = fopen(path, "rb");
+				if (file)
+				{
+					unsigned char key[64];
+
+					backups += fread(key, 1, sizeof(key), file) == 5 && !memcmp(key, "short", 5);
+					fclose(file);
+				}
+			}
+		}
+		if (directory)
+			closedir(directory);
+		CHECK(backups == 1);
+		CHECK(strstr(last_log, "shared_bans.key is not a key (under 32 bytes): kept as shared_bans.key.bad-") != NULL);
+	}
 }
 
 /* sv_unban S<digits>: an entry found by its ref's first digits, never by a
@@ -132,7 +198,8 @@ static void test_find(void)
 	bans[2] = got;
 	server_bans_set_shared(bans, 3, 2, 0);
 	CHECK(server_bans_shared_find("aaaaaaaa", &got, NULL) && !strcmp(got.ref, "aaaaaaaa00000000000000000000000a"));
-	/* exceptions full of bans no list has now: they go to make room */
+	/* exceptions full of bans no list has now: the oldest of them alone
+	makes room */
 	for (index = 0; index < 512; index++)
 	{
 		char ref[33];
@@ -142,8 +209,37 @@ static void test_find(void)
 	}
 	CHECK(server_bans_except("aaaaaaaa00000000000000000000000a", 1));
 	CHECK(server_bans_shared_find("aaaaaaaa", &got, &index) && index);
+	{
+		char ref[33];
+		int has;
+
+		snprintf(ref, sizeof(ref), "%032x", 0x100);
+		CHECK(exceptions_file_count(ref, &has) == 512 && !has);
+		snprintf(ref, sizeof(ref), "%032x", 0x101);
+		CHECK(exceptions_file_count(ref, &has) == 512 && has);
+	}
+	CHECK(server_bans_except("aaaaaaab11111111111111111111111c", 1));
 	CHECK(server_bans_except("aaaaaaaa00000000000000000000000a", 0));
+	/* (no lists at all, as when the site answers with none for a while:
+	full, nothing goes, and the new exception is refused) */
 	server_bans_set_shared(NULL, 0, 0, 0);
+	CHECK(server_bans_except("aaaaaaaa00000000000000000000000a", 1));
+	{
+		char ref[33];
+		int has;
+
+		CHECK(!server_bans_except("bbbbbbbb00000000000000000000000b", 1));
+		CHECK(exceptions_file_count("bbbbbbbb00000000000000000000000b", &has) == 512 && !has);
+		snprintf(ref, sizeof(ref), "%032x", 0x102);
+		CHECK(exceptions_file_count(ref, &has) == 512 && has);
+	}
+	/* (cleared for what follows) */
+	{
+		char path[1024];
+
+		snprintf(path, sizeof(path), "%s/shared_unbans.txt", data_root);
+		remove(path);
+	}
 }
 
 static void test_share(void)
@@ -267,6 +363,7 @@ static void test_reports(void)
 	static struct server_report report;
 	static char text[512 * 1024];
 	char refs[1][SERVER_REPORT_ID_SIZE];
+	char site_ref[SERVER_REPORT_ID_SIZE] = "", open_ref[SERVER_REPORT_ID_SIZE] = "";
 	unsigned int first, index;
 
 	memset(&report, 0, sizeof(report));
@@ -339,7 +436,12 @@ static void test_reports(void)
 			memset(&report, 0, sizeof(report));
 			report.reason = SERVER_REPORT_OTHER;
 			snprintf(report.target.name, sizeof(report.target.name), "p%u", index);
+			/* (p10 a Delta player's, which goes to the site; p11 an OpenCE
+			player's, which never does) */
+			report.target.delta = index == 10;
 			taken += server_reports_add(&report) ? 1 : 0;
+			if (index == 10 || index == 11)
+				snprintf(index == 10 ? site_ref : open_ref, SERVER_REPORT_ID_SIZE, "%s", report.ref);
 		}
 		/* (room for 195 open beside the 5 kept, and the closed one's place) */
 		CHECK(taken == SERVER_REPORTS_KEPT - 5 + 1);
@@ -347,6 +449,19 @@ static void test_reports(void)
 	CHECK(server_reports_open() == SERVER_REPORTS_KEPT);
 	server_reports_text(1, 1, text, sizeof(text));
 	CHECK(strstr(text, "OpenGuy") && !strstr(text, "closed by Odb") && strstr(text, "\"p0\"") && !strstr(text, "\"p199\""));
+	/* (full of open reports: the oldest the site took makes room, never
+	one it didn't, nor an OpenCE player's it was never sent) */
+	memset(&report, 0, sizeof(report));
+	report.reason = SERVER_REPORT_OTHER;
+	snprintf(report.target.name, sizeof(report.target.name), "after");
+	CHECK(!server_reports_add(&report));
+	server_reports_site_taken((const char (*)[SERVER_REPORT_ID_SIZE])&open_ref, 1);
+	CHECK(!server_reports_add(&report));
+	server_reports_site_taken((const char (*)[SERVER_REPORT_ID_SIZE])&site_ref, 1);
+	CHECK(server_reports_add(&report));
+	CHECK(!server_reports_add(&report));
+	server_reports_text(1, 1, text, sizeof(text));
+	CHECK(strstr(text, "\"after\"") && !strstr(text, "\"p10\"") && strstr(text, "\"p11\""));
 	CHECK(!strcmp(server_report_reason_name(SERVER_REPORT_GRIEFING), "griefing or betraying") &&
 		!strcmp(server_report_reason_name(99), "?"));
 }
@@ -435,6 +550,42 @@ static void test_report_limits(void)
 		late.player = 0x300000;
 		CHECK(server_reports_limit_check(&late, &other, now) == SERVER_REPORT_LIMIT_TOO_SOON);
 	}
+	/* (unverified reporters of one address share a reporter's limits: a
+	throwaway rejoin, a new player each time, does not start them over. A
+	verified reporter there has their own, and an unknown address none) */
+	server_reports_limit_reset();
+	{
+		struct server_report_who rejoin = a, someone = a, verified_there = verified;
+
+		rejoin.address = 0x0a000001;
+		verified_there.address = 0x0a000001;
+		for (index = 0; index < SERVER_REPORTS_PER_MINUTE; index++)
+		{
+			rejoin.player = 0x400000 + index;
+			someone.player = 0x500000 + index;
+			CHECK(server_reports_limit_check(&rejoin, &someone, now + index) == SERVER_REPORT_LIMIT_OK);
+			server_reports_limit_count(&rejoin, &someone, now + index);
+		}
+		rejoin.player = 0x400100;
+		someone.player = 0x500100;
+		CHECK(server_reports_limit_check(&rejoin, &someone, now + 30) == SERVER_REPORT_LIMIT_TOO_SOON);
+		CHECK(server_reports_limit_check(&verified_there, &someone, now + 30) == SERVER_REPORT_LIMIT_OK);
+		rejoin.address = 0;
+		CHECK(server_reports_limit_check(&rejoin, &someone, now + 30) == SERVER_REPORT_LIMIT_OK);
+		rejoin.address = 0x0a000001;
+		for (index = SERVER_REPORTS_PER_MINUTE; index < SERVER_REPORTS_PER_GAME; index++)
+		{
+			rejoin.player = 0x400000 + index;
+			someone.player = 0x500000 + index;
+			CHECK(server_reports_limit_check(&rejoin, &someone, now + 100 * index) == SERVER_REPORT_LIMIT_OK);
+			server_reports_limit_count(&rejoin, &someone, now + 100 * index);
+		}
+		rejoin.player = 0x400200;
+		someone.player = 0x500200;
+		CHECK(server_reports_limit_check(&rejoin, &someone, now + 100000) == SERVER_REPORT_LIMIT_TOO_SOON);
+		server_reports_limit_reset();
+		CHECK(server_reports_limit_check(&rejoin, &someone, now + 100000) == SERVER_REPORT_LIMIT_OK);
+	}
 	/* (a new game: they start over) */
 	server_reports_limit_reset();
 	CHECK(server_reports_limit_check(&a, &target, now) == SERVER_REPORT_LIMIT_OK);
@@ -443,6 +594,32 @@ static void test_report_limits(void)
 int main(int argc, char **argv)
 {
 	data_root = argc > 1 ? argv[1] : ".";
+	/* ("ref": the ref of one line with the key there now, printed alone,
+	for tools/test_server_bans.py's key with a newline after it) */
+	if (argc > 2 && !strcmp(argv[2], "ref"))
+	{
+		static const char line[] = "2026-11-09 10:00:00\tip=1.2.3.4\thwid=abc\tplayers=x\treason=r\t"
+			"account=0123456789abcdef0123456789abcdef\n";
+		struct server_shared_ban ban;
+
+		if (!server_bans_line_entry(line, 100, &ban))
+			return 1;
+		printf("%s\n", ban.ref);
+		return 0;
+	}
+	/* (a key cut short, there before the first ref: test_refs) */
+	{
+		char path[1024];
+		FILE *file;
+
+		snprintf(path, sizeof(path), "%s/shared_bans.key", data_root);
+		file = fopen(path, "wb");
+		if (file)
+		{
+			fwrite("short", 1, 5, file);
+			fclose(file);
+		}
+	}
 	test_lines();
 	test_refs();
 	test_find();

@@ -479,9 +479,11 @@ boolean map_family_header_is_mcc(
 enum
 {
 	/* a cache file's header: 'head', its version, ..., its type (a short
-	at 0x60: 1 multiplayer) */
+	at 0x60: 0 campaign, 1 multiplayer) */
 	CACHE_HEADER_SIGNATURE = 'head',
 	CACHE_HEADER_TYPE_OFFSET = 0x60,
+	CACHE_TYPE_ANY = -1,
+	CACHE_TYPE_CAMPAIGN = 0,
 	CACHE_TYPE_MULTIPLAYER = 1,
 	CUSTOM_EDITION_CACHE_VERSION = 609,
 	HALO_PC_CACHE_VERSION = 7,
@@ -591,14 +593,14 @@ static void place_folder(
 	snprintf(path, (size_t)size, "%s%s", place->under_maps ? cache_files_map_directory() : "d:\\", place->folder);
 }
 
-/* whether a file is a cache file of a version (and a multiplayer map's, if
-asked); on the desktop, a map of the version compressed with Chimera's
+/* whether a file is a cache file of a version (and of a scenario type, if
+one is asked: CACHE_TYPE_ANY for any); on the desktop, a map of the version compressed with Chimera's
 chimera-compress too (port/linux/src/map_compressed.h), which keeps its
 header but for its version */
 static boolean cache_file_is(
 	char const *path,
 	long version,
-	boolean multiplayer)
+	long type)
 {
 	unsigned long header[(CACHE_HEADER_TYPE_OFFSET + 4) / 4];
 	unsigned long bytes_read = 0;
@@ -615,7 +617,7 @@ static boolean cache_file_is(
 				|| header[1] == (COMPRESSED_CACHE_VERSION_MARK | (unsigned long)version)
 #endif
 			) &&
-			(!multiplayer || (header[CACHE_HEADER_TYPE_OFFSET / 4] & 0xffff) == CACHE_TYPE_MULTIPLAYER);
+			(type == CACHE_TYPE_ANY || (long)(header[CACHE_HEADER_TYPE_OFFSET / 4] & 0xffff) == type);
 	}
 	CloseHandle(file);
 	return result;
@@ -625,7 +627,7 @@ static boolean cache_file_is(
 static boolean mcc_cache_file(
 	char const *path)
 {
-	return cache_file_is(path, (long)MCC_CACHE_VERSION, FALSE);
+	return cache_file_is(path, (long)MCC_CACHE_VERSION, CACHE_TYPE_ANY);
 }
 
 /* whether a file in a place is a cache file of a version (cache_file_is); a
@@ -636,7 +638,7 @@ static boolean place_cache_file(
 	long size,
 	long version)
 {
-	if (!cache_file_is(path, version, FALSE))
+	if (!cache_file_is(path, version, CACHE_TYPE_ANY))
 		return FALSE;
 #ifdef HALO_COMPRESSED_MAPS
 	return map_compressed_file_resolve(path, (int)size) ? TRUE : FALSE;
@@ -1251,11 +1253,12 @@ void map_family_set_game_version(
 	map_family_game.version = version;
 }
 
-/* every multiplayer map of a family in its folders of a cache version (the
-family's own, or MCC's) */
+/* every map of a scenario type of a family in its folders of a cache
+version (the family's own, or MCC's) */
 static void list_files(
 	short family,
 	long version,
+	long type,
 	void (*found)(char const *file, void *context),
 	void *context)
 {
@@ -1302,7 +1305,7 @@ static void list_files(
 			if (other < listed_count || listed_count >= MAXIMUM_LISTED_FILES)
 				continue;
 			snprintf(path, sizeof(path), "%s%s", folder, data.cFileName);
-			if (!cache_file_is(path, version, TRUE))
+			if (!cache_file_is(path, version, type))
 				continue;
 			snprintf(listed[listed_count++], MAP_FAMILY_FILE_LENGTH, "%s", file);
 			found(file, context);
@@ -1317,7 +1320,15 @@ void map_family_list(
 	void (*found)(char const *file, void *context),
 	void *context)
 {
-	list_files(family, family_cache_version(family), found, context);
+	list_files(family, family_cache_version(family), CACHE_TYPE_MULTIPLAYER, found, context);
+}
+
+void map_family_list_campaign(
+	short family,
+	void (*found)(char const *file, void *context),
+	void *context)
+{
+	list_files(family, family_cache_version(family), CACHE_TYPE_CAMPAIGN, found, context);
 }
 
 void map_family_list_mcc(
@@ -1326,7 +1337,7 @@ void map_family_list_mcc(
 	void *context)
 {
 	if (family == _map_family_custom_edition || family == _map_family_halo_pc)
-		list_files(family, (long)MCC_CACHE_VERSION, found, context);
+		list_files(family, (long)MCC_CACHE_VERSION, CACHE_TYPE_MULTIPLAYER, found, context);
 }
 
 #endif

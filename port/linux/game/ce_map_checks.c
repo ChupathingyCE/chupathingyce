@@ -46,8 +46,21 @@ paths, ce_resources.c).
 
 A map that fails a check is refused: it is not opened, the reason is logged
 to debug.txt and shown on the console, and the game goes on as for a map
-that is not there. The check is what the port reads; the game reads the
-rest of a map's tags as it reads the Xbox's maps, trusting them.
+that is not there. The check is what the port reads; the rest of a map's
+tags are checked as they load, against Halo PC's tag schema (tag_schema_pc.c,
+tag_validate.c), as the Xbox's maps' are against theirs.
+
+What the check read, the load reads again (the tags, the resource maps' tags
+copied in, the model data, each structure BSP as it loads): each is hashed
+(SHA-256) as it is checked, and again as it loads, and a map whose bytes
+are not the ones checked is refused then (ce_map_loaded_*), and checked
+again the next time it is opened. Each byte is hashed once each time: the
+tags as they are read, and then only what copying the resource maps' tags
+in wrote (ce_resources_place: the copies, the tags' addresses, a retail
+map's bitmaps and sounds it changed), not the tags whole again. The hashing uses the processor's SHA-256
+instructions where it has them (mcc_sha256.c). The original Xbox has none,
+and hashes nothing (CE_MAP_HASHED): its maps are checked, not compared
+with the check as they load.
 */
 
 #ifdef HALO_CUSTOM_EDITION
@@ -56,7 +69,9 @@ rest of a map's tags as it reads the Xbox's maps, trusting them.
 #include "cseries_windows.h"
 #include "errors.h"
 #include "main/console.h"
+#include "tag_files/tag_groups.h"
 #include "ce_map_checks.h"
+#include "mcc_sha256.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -196,10 +211,50 @@ static struct ce_bsp_reference ce_checked_bsps[CE_MAXIMUM_BSPS];
 static long ce_checked_bsp_count;
 static struct ce_bsp_reference ce_checking_bsps[CE_MAXIMUM_BSPS];
 static long ce_checking_bsp_count;
+/* what the map open was checked from, hashed (and that of the map being
+checked): its tag data as read, its tags with its resource maps' copied in
+(ce_resources.c), its model data and each of its BSPs as read. The load
+reads them again, and refuses a map whose bytes are not these
+(ce_map_loaded_*) */
+struct ce_map_digests
+{
+	byte tags[CE_DIGEST_SIZE];
+	byte resources[CE_DIGEST_SIZE];
+	byte model_data[CE_DIGEST_SIZE];
+	byte bsps[CE_MAXIMUM_BSPS][CE_DIGEST_SIZE];
+};
+static struct ce_map_digests ce_checked_digests;
+static struct ce_map_digests ce_checking_digests;
+/* the map open has changed since it was checked: a load of it found so
+(ce_map_loaded_changed), and the next open checks it again */
+static boolean ce_checked_stale;
+/* and the load under way found so, which stops it */
+static boolean ce_load_changed;
 
 long ce_map_cache_version = CE_CACHE_VERSION_CUSTOM_EDITION;
 
 /* ---------- private code */
+
+/* the SHA-256 of size bytes at data */
+static void ce_digest(
+	void const *data,
+	unsigned long size,
+	byte digest[CE_DIGEST_SIZE])
+{
+	struct mcc_sha256 context;
+	byte const *at = data;
+
+	mcc_sha256_begin(&context);
+	while (size)
+	{
+		unsigned long chunk = size < 0x40000000UL ? size : 0x40000000UL;
+
+		mcc_sha256_add(&context, at, (int)chunk);
+		at += chunk;
+		size -= chunk;
+	}
+	mcc_sha256_end(&context, digest);
+}
 
 static boolean ce_file_read(
 	HANDLE file,
@@ -511,8 +566,13 @@ static boolean ce_bsps_check(
 			ce_refusal_explain_memory();
 			return ce_refuse("no memory to check structure BSP %ld (%lu bytes)", index, reference.file_size);
 		}
-		valid = ce_file_read(file, reference.file_offset, bsp.data, reference.file_size) &&
-			ce_bsp_check(&bsp, &bytes);
+		valid = ce_file_read(file, reference.file_offset, bsp.data, reference.file_size);
+		if (valid)
+		{
+			if (CE_MAP_HASHED)
+				ce_digest(bsp.data, reference.file_size, ce_checking_digests.bsps[ce_checking_bsp_count]);
+			valid = ce_bsp_check(&bsp, &bytes);
+		}
 		if (bsp.data)
 			free(bsp.data);
 		if (!valid)
@@ -585,6 +645,8 @@ static boolean ce_map_check_tags(
 		ce_refuse("its tag data could not be read");
 		goto done;
 	}
+	if (CE_MAP_HASHED)
+		ce_digest(image.data, tag_data_size, ce_checking_digests.tags);
 	memcpy(&header, image.data, sizeof(header));
 	if (header.signature != CE_TAG_HEADER_SIGNATURE)
 	{
@@ -669,6 +731,11 @@ static boolean ce_map_check_tags(
 		ce_refuse("no memory to read its model data (%lu bytes), even in parts", header.model_data_size);
 		goto done;
 	}
+	if (CE_MAP_HASHED && !ce_model_data_digest(&models, ce_checking_digests.model_data))
+	{
+		ce_refuse("its model data (%lu bytes) could not be read", header.model_data_size);
+		goto done;
+	}
 #else
 	model_data = malloc(header.model_data_size ? header.model_data_size : 1);
 	if (!model_data || !ce_file_read(file, header.model_data_file_offset, model_data, header.model_data_size))
@@ -677,6 +744,8 @@ static boolean ce_map_check_tags(
 		goto done;
 	}
 	models.whole = model_data;
+	if (CE_MAP_HASHED)
+		ce_model_data_digest(&models, ce_checking_digests.model_data);
 #endif
 	if (!ce_models_check(&tags, instances, tag_count, &models, &model_bytes))
 		goto done;
@@ -1039,6 +1108,11 @@ tags were checked only as far as the port reads them, not read outside its
 tag cache (where its tags, resources, models and BSP are), but from zeroed
 bytes of their own, and logged; else, as always, the address */
 #define CE_TAGS_SCRATCH_LIMIT 0x40000UL
+#ifdef HALO_CUSTOM_EDITION
+/* (the bounds the consoles' inline TAG_BLOCK_GET_ELEMENT checks: tag_groups.h) */
+typedef char ce_tags_inline_bounds_assert[
+	TAG_GROUPS_CE_TAG_CACHE_BASE == CE_IMAGE_TAG_CACHE_BASE && TAG_GROUPS_CE_TAG_CACHE_SIZE == CE_IMAGE_TAG_CACHE_SIZE ? 1 : -1];
+#endif
 
 void *ce_tags_pointer(
 	unsigned long address,
@@ -1132,6 +1206,7 @@ boolean ce_map_check(
 	ce_message[0] = 0;
 	ce_checking = TRUE;
 	ce_checking_bsp_count = 0;
+	memset(&ce_checking_digests, 0, sizeof(ce_checking_digests));
 	/* (SPV3 mode's survey, logged before the checks: nothing in other modes) */
 	if (file_size != INVALID_FILE_SIZE && !file_size_high)
 		ce_spv3_survey(file, map_name, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
@@ -1170,6 +1245,8 @@ boolean ce_map_check(
 		/* (the map that passed is the one opened: cache_files_windows.c) */
 		memcpy(ce_checked_bsps, ce_checking_bsps, sizeof(ce_checked_bsps));
 		ce_checked_bsp_count = ce_checking_bsp_count;
+		ce_checked_digests = ce_checking_digests;
+		ce_checked_stale = FALSE;
 		error(_error_silent, "%s map %s: checked (%lu ms)", family, map_name, system_milliseconds() - started);
 	}
 	return valid;
@@ -1264,6 +1341,120 @@ boolean ce_map_bsp_reference_checked(
 		}
 	}
 	return FALSE;
+}
+
+/* ---------- what the load reads, against what was checked */
+
+/* (the first of a load's reads that is not what was checked: logged and
+shown as a refusal is, the load stopped, the map checked again when it is
+next opened) */
+static boolean ce_map_loaded_changed(
+	char const *what)
+{
+	char const *family = ce_map_family_name();
+
+	if (!ce_load_changed)
+	{
+		error(_error_silent, "%s map refused as it loaded: %s changed since the map was checked", family, what);
+		console_warning("%s map refused as it loaded: %s changed since the map was checked", family, what);
+	}
+	ce_load_changed = TRUE;
+	ce_checked_stale = TRUE;
+	return FALSE;
+}
+
+static boolean ce_map_loaded_matches(
+	void const *data,
+	unsigned long size,
+	byte const checked[CE_DIGEST_SIZE],
+	char const *what)
+{
+	byte digest[CE_DIGEST_SIZE];
+
+	ce_digest(data, size, digest);
+	return memcmp(digest, checked, CE_DIGEST_SIZE) ? ce_map_loaded_changed(what) : TRUE;
+}
+
+boolean ce_map_loaded_tags_unchanged(
+	void const *tag_data,
+	unsigned long size)
+{
+	ce_load_changed = FALSE;
+	if (!CE_MAP_HASHED)
+		return TRUE;
+	return ce_map_loaded_matches(tag_data, size, ce_checked_digests.tags, "its tag data");
+}
+
+void ce_resources_digest(
+	byte const digest[CE_DIGEST_SIZE])
+{
+	memcpy(ce_checking_digests.resources, digest, CE_DIGEST_SIZE);
+}
+
+boolean ce_map_loaded_resources_unchanged(
+	byte const digest[CE_DIGEST_SIZE])
+{
+	/* (none: they could not all be copied in, as they were when it was
+	checked) */
+	if (ce_load_changed)
+		return FALSE;
+	if (!digest)
+		return ce_map_loaded_changed("a resource map's tags");
+	if (!CE_MAP_HASHED)
+		return TRUE;
+	return memcmp(digest, ce_checked_digests.resources, CE_DIGEST_SIZE) ?
+		ce_map_loaded_changed("a resource map's tags") : TRUE;
+}
+
+boolean ce_map_loaded_model_data_unchanged(
+	byte const digest[CE_DIGEST_SIZE])
+{
+	if (ce_load_changed)
+		return FALSE;
+	if (!CE_MAP_HASHED)
+		return TRUE;
+	return memcmp(digest, ce_checked_digests.model_data, CE_DIGEST_SIZE) ? ce_map_loaded_changed("its model data") :
+		TRUE;
+}
+
+boolean ce_map_loaded_bsp_unchanged(
+	void const *reference,
+	void const *bsp,
+	unsigned long size)
+{
+	struct ce_bsp_reference loading;
+	long index;
+
+	memcpy(&loading, reference, sizeof(loading));
+	for (index = 0; index < ce_checked_bsp_count; index++)
+	{
+		struct ce_bsp_reference const *checked = &ce_checked_bsps[index];
+
+		if (loading.file_offset == checked->file_offset && loading.file_size == checked->file_size &&
+			loading.base_address == checked->base_address && loading.tag_index == checked->tag_index &&
+			size == checked->file_size)
+		{
+			/* (a BSP loads again and again as a game goes on: the map is
+			refused from its next load, not stopped now) */
+			ce_load_changed = FALSE;
+			if (!CE_MAP_HASHED)
+				return TRUE;
+			return ce_map_loaded_matches(bsp, size, ce_checked_digests.bsps[index], "a structure BSP");
+		}
+	}
+	return FALSE;
+}
+
+boolean ce_map_loaded_unchanged(
+	void)
+{
+	return !ce_load_changed;
+}
+
+boolean ce_map_check_stale(
+	void)
+{
+	return ce_checked_stale;
 }
 
 #endif

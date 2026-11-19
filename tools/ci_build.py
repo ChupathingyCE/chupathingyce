@@ -187,10 +187,14 @@ def main() -> int:
         if symbols.exists():
             shutil.rmtree(symbols)
         symbols.mkdir(parents=True)
+        # (and the program itself, which llvm-symbolizer reads the PDB
+        # through: the download's, so the symbols are whole on their own)
         for pdb in [ROOT / f"build/{args.platform}/chupathingy.pdb", ROOT / f"build/{args.platform}/chupathingy.map",
+                    ROOT / f"build/{args.platform}/chupathingy.exe",
                     *sorted((ROOT / "build/windows/third_party").glob(f"SDL3-*/lib/{sdl_arch}/SDL3.pdb"))]:
             shutil.copy2(pdb, symbols)
             print(f"{pdb.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
+        write_build_ids(symbols)
     keep_native_symbols(args.platform, args.config)
     write_licenses(dist, "game", game_features(args.platform))
     # internet play's MQTT brokers, a file beside the game (network.brokers_file;
@@ -257,6 +261,31 @@ def alpine_build(platform: str, config: str) -> int:
     return 0
 
 
+def write_build_ids(symbols: Path) -> None:
+    """build-ids.txt in a build's kept symbols: each program's build ID, the
+    one its crash reports send (port/linux/src/crash_report.h), with the
+    version and commit, so a report finds its symbols by its build_id
+    (tools/symbolize_crash.py checks them against each other)"""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import symbolize_crash  # noqa: E402
+
+    lines = [f"# {version()} {commit()}"]
+    for path in sorted(symbols.iterdir()):
+        identity = None
+        if path.suffix.lower() in (".exe", ".dll"):
+            identity = symbolize_crash.pe_codeview_id(path.read_bytes())
+        elif path.suffix.lower() == ".dsym":
+            for arch, uuid in sorted(symbolize_crash.macho_uuids(path).items()):
+                lines.append(f"{path.name} {arch} {uuid}")
+            continue
+        elif path.is_file() and path.read_bytes()[:4] == b"\x7fELF":
+            identity = symbolize_crash.elf_build_id(path.read_bytes())
+        if identity:
+            lines.append(f"{path.name} {identity}")
+    (symbols / "build-ids.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("\n".join(lines), flush=True)
+
+
 def keep_native_symbols(platform: str, config: str) -> None:
     """dist/chupathingyce-<platform>-<config>-symbols for the builds that are
     not Windows': the Linux programs with their debug information (the
@@ -286,6 +315,7 @@ def keep_native_symbols(platform: str, config: str) -> None:
                 result = subprocess.run(["dsymutil", str(program), "-o", str(symbols / f"{program.name}.dSYM")])
                 if result.returncode != 0:
                     print(f"warning: dsymutil failed for {program.name}", flush=True)
+    write_build_ids(symbols)
 
 
 def strip_debug(program: Path) -> None:
@@ -341,6 +371,7 @@ def server_dist(platform: str, config: str, output: str) -> int:
         shutil.copy2(playlist, dist / "playlists")
     # (sv_name_filter's list, read from the data folder)
     shutil.copy2(ROOT / "server/blocked_names.txt", dist / "blocked_names.txt")
+    write_build_ids(symbols)
     write_licenses(dist, "server", [])
     print(f"{output} -> {dist.relative_to(ROOT)}", flush=True)
     return 0

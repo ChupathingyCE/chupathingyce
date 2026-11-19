@@ -56,6 +56,7 @@ clock runs on).
 void platform_log(char const *format, ...);
 char const *config_string(char const *name);
 int platform_display_resolutions(long *widths, long *heights, int maximum);
+int platform_display_native_size(long *width, long *height);
 int platform_window_sizes(long *widths, long *heights, int maximum);
 int platform_audio_device_names(char const **names, int maximum);
 
@@ -63,7 +64,7 @@ int platform_audio_device_names(char const **names, int maximum);
 void *global_network_game_server_get(void);
 /* (game.c's, and its _game_connection_network_client: a joined machine) */
 short game_connection(void);
-enum { GAME_CONNECTION_NETWORK_CLIENT = 1 };
+enum { GAME_CONNECTION_NETWORK_CLIENT = 1, GAME_CONNECTION_NETWORK_SERVER = 2 };
 /* whether the pause menu has CHANGE TEAMS (team_change.c) */
 boolean team_change_pause_offered(void);
 int config_boolean(char const *name);
@@ -161,17 +162,7 @@ enum
 
 /* ---------- structures */
 
-struct cache_file_tag_instance
-{
-	long group_tag;
-	long parent_group_tags[2];
-	long tag_index;
-	/* Xbox addresses (as in cache_files.c) */
-	XPTR(char) name;
-	XPTR(void) base_address;
-	unsigned long unused[2];
-};
-
+/* (struct cache_file_tag_instance: tag_groups.h) */
 typedef char verify_cache_file_tag_instance_size[
 	sizeof(struct cache_file_tag_instance) == 0x20 ? 1 : -1];
 
@@ -865,7 +856,23 @@ static long spinner_split(struct halo_menu_widget const *widget, boolean values,
 		return count;
 	}
 	if (widget->setting && !strcmp(widget->setting, "display.resolution"))
+	{
+#ifdef HALO_GUIDE
+		/* (NATIVE shown as the display's own size, as the sizes after it
+		are, so a display larger than they are shows as larger; the
+		spinner has no room for both) */
+		long native_width, native_height;
+		char *native;
+
+		if (!values && count >= 1 && platform_display_native_size(&native_width, &native_height) &&
+			(native = allocate(32)) != NULL)
+		{
+			snprintf(native, 32, "%ld x %ld", native_width, native_height);
+			pieces[0] = native;
+		}
+#endif
 		added = platform_display_resolutions(widths, heights, (int)(MAXIMUM_STRINGS - count));
+	}
 	else if (widget->setting && !strcmp(widget->setting, "display.window_size"))
 	{
 		added = platform_window_sizes(widths, heights, MAXIMUM_STRINGS);
@@ -1722,11 +1729,20 @@ static boolean pause_controls_offered(void)
 #endif
 }
 
+/* (a campaign map's pause menu played on this machine alone, alone or split
+screen; not a network co-op game's, hosted or joined: pause_patch) */
+static boolean pause_campaign;
+
 /* whether the pause menus have DELTA (DELTA over the pause menu,
-port/linux/game/guide.c), as delta.pause_menu says, in every menu set */
+port/linux/game/guide.c), as delta.pause_menu says, in every menu set: a
+multiplayer map's and a network co-op game's (its invites and friends), not
+a campaign played on this machine alone, which has little use for it */
 static boolean pause_guide_offered(void)
 {
 #ifdef HALO_GUIDE
+	if (pause_campaign)
+		return FALSE;
+
 	/* (the Guide is the first player's: not with split screen, where the
 	row would be dead in the others' pause menus) */
 	extern unsigned char pc_menu_split_players(void);
@@ -1743,7 +1759,13 @@ this machine hosts, in a build with the screen */
 static boolean pause_moderation_offered(boolean host)
 {
 #ifdef HALO_GAME_BROWSER
-	return host;
+	/* (not in a split screen game of this machine's players alone, where
+	it has no one to act on and its row is one too many for the small
+	pause screens) */
+	extern unsigned char pc_menu_split_players(void);
+	extern boolean moderation_screen_others_in_game(void);
+
+	return host && (!pc_menu_split_players() || moderation_screen_others_in_game());
 #else
 	(void)host;
 	return FALSE;
@@ -2227,6 +2249,8 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	the multiplayer game engine's; a joined co-op game's, no REVERT or
 	RESTART (pause_row_replaced) */
 	pause_coop_joined = solo_screen != NONE && game_connection() == GAME_CONNECTION_NETWORK_CLIENT;
+	pause_campaign = solo_screen != NONE && game_connection() != GAME_CONNECTION_NETWORK_CLIENT &&
+		game_connection() != GAME_CONNECTION_NETWORK_SERVER;
 	if (solo_screen != NONE)
 	{
 		if (settings || pause_controls_offered() || pause_guide_offered() || pause_coop_joined)

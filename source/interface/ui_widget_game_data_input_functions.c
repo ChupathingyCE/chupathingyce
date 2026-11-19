@@ -2541,6 +2541,7 @@ static void game_options_menu_update_pic_desc(
 	struct ui_widget_definition *definition;
 	long description_index;
 	boolean pictured = TRUE;
+	boolean plain_gamepad = FALSE;
 
 	match_vassert(
 		"c:\\halo\\SOURCE\\interface\\ui_widget_game_data_input_functions.c",
@@ -2583,9 +2584,11 @@ static void game_options_menu_update_pic_desc(
 			if (column == widget->focused_child)
 			{
 				/* port: an extra item shows its spinner's last picture of its
-				own, or none where the picture has no frame for it (Bumper
-				Jumper: ui_widget.c) */
+				own, or none where the picture has no frame for it */
 				pictured = ui_widget_spinner_item_pictured(spinner_list,
+					spinner_list->parameters.list.selected_list_item_index);
+				/* (or the plain gamepad, for Bumper Jumper: warthog-xbox #108) */
+				plain_gamepad = ui_widget_spinner_item_plain_gamepad(spinner_list,
 					spinner_list->parameters.list.selected_list_item_index);
 				description_index += MIN(spinner_list->parameters.list.selected_list_item_index,
 					ui_widget_spinner_own_item_count(spinner_list) - 1);
@@ -2597,7 +2600,9 @@ static void game_options_menu_update_pic_desc(
 		}
 	}
 
-	extended_description->animation.current_frame_index = (short)description_index;
+	extended_description->animation.current_frame_index = plain_gamepad ?
+		UI_WIDGET_PLAIN_GAMEPAD_FRAME : (short)description_index;
+	pictured = pictured || plain_gamepad;
 	/* (hidden only while such an item is chosen, and shown again after) */
 	if (!pictured || extended_description == hidden_picture)
 	{
@@ -4414,12 +4419,13 @@ static void solo_level_select_list_update_displayed_items(
 		}
 
 #ifdef HALO_MAP_LIST
-		/* port: an MCC campaign map's card, after the ten levels: its row of
-		the menus' map list (name, picture, description), no markers */
+		/* port: an MCC campaign map's card, or another campaign map's, after
+		the ten levels: its row of the menus' map list (name, picture,
+		description), no markers */
 		if (displayed_item_indices[item_index] >= 10)
 		{
-			extern char const *ui_widget_port_mcc_campaign_level(short row);
-			char const *level = ui_widget_port_mcc_campaign_level((short)(displayed_item_indices[item_index] - 10));
+			extern char const *ui_widget_port_campaign_maps_level(short row);
+			char const *level = ui_widget_port_campaign_maps_level((short)(displayed_item_indices[item_index] - 10));
 			long row = level ? ui_map_list_lookup(level) : NONE;
 
 			map_name->parameters.text_box.string_list_index = ui_map_list_string_index(row, _ui_map_list_string_name);

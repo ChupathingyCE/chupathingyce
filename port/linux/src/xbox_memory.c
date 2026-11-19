@@ -52,6 +52,13 @@ takes the address as a hint, which every caller here checks it got) */
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#if defined(_WIN32) && !defined(HALO_64BIT) && !defined(HALO_SERVER)
+#include <stdlib.h>
+#include <SDL3/SDL.h>
+
+/* what a 32-bit Windows is told, where the window can't be reserved */
+#define XBOX_MEMORY_NEEDS_64_BIT "This build needs 64-bit Windows. For 32-bit systems, use Chupathingy32."
+#endif
 
 #ifdef HALO_64BIT
 #define PAGE_SIZE_BYTES 0x1000U
@@ -277,6 +284,13 @@ static void contiguous_arena_reserve(void)
 			munmap(result, PLATFORM_CONTIGUOUS_SIZE);
 		platform_log("cannot reserve the Xbox contiguous memory window at %p (%s)",
 			wanted, strerror(errno));
+#if defined(_WIN32) && !defined(HALO_SERVER)
+		/* (32-bit Windows gives a program 2 GB, all below the window: the
+		game would only run out of memory as it starts) */
+		platform_log("%s", XBOX_MEMORY_NEEDS_64_BIT);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", XBOX_MEMORY_NEEDS_64_BIT, NULL);
+		exit(EXIT_FAILURE);
+#endif
 #endif
 	}
 #if defined(HALO_CUSTOM_EDITION) && !defined(HALO_64BIT)

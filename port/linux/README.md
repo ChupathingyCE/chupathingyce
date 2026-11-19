@@ -689,7 +689,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.voice_range`, `network.voice_kbps` | `15`, `24` | `HALO_NET_VOICE_RANGE`, `HALO_NET_VOICE_KBPS` | How near is near for proximity voice, in world units (5 to 100), and the voice quality in kbps (8 to 64). Higher quality costs you more upload for each talker and each listener. |
 | `input.mouse_sensitivity` | `1.0` | `HALO_MOUSE_SENSITIVITY` | The multiplier for the mouse aim. |
 | `input.mouse_vertical_sensitivity` | `0.0` | `HALO_MOUSE_VERTICAL_SENSITIVITY` | The multiplier for the vertical mouse aim. `0`: the same as `input.mouse_sensitivity`. |
-| `input.invert_mouse` | `false` | `HALO_MOUSE_INVERT=1` sets `true` | `true`: the vertical mouse aim is inverted. |
+| `input.invert_mouse` | `false` | `HALO_MOUSE_INVERT=1` sets `true` | `true`: the vertical mouse aim is inverted. The Pillar of Autumn's look test sets it too when you answer it with the keyboard and mouse. |
 | `input.keyboard_prompts` | `true` | `HALO_KEYBOARD_PROMPTS` | Not in the menus: every button prompt follows the device used last. While the keyboard or mouse was used last (or, on the desktop, no controller is connected), the prompts show keys, as Halo PC's did: the HUD's messages name the bound key in brackets ("Hold [E] to pick up"), "Hold BACK for score" names the scoreboard key, and the menus' button pictures ("A = SELECT") become key caps of the keys that press them (Enter, Backspace, Tab, E). With the Chupathingy menus the keys are named in capitals, as the Xbox names BACK ("Hold [SPACE] to jump", "Hold TAB for score"); the Xbox's menus keep Halo PC's wording ("[Space]", 'Hold "Tab" for score'). A controller's button press switches them back. `false` keeps the controller's buttons everywhere, whatever was used last. |
 | `input.button_style` | `"auto"` | `HALO_BUTTON_STYLE` | The buttons the prompts show (`src/ui_overlay.c`): `"auto"`, the device used last; else one style for every pad: `"duke"`, `"xbox"`, `"playstation"` or `"switch"` (the keyboard keeps its key caps). The Duke's, and the PlayStation's and Switch's face buttons, are DKrumpp's HD buttons (`port/assets/buttons_hd`, in the builds with `HALO_HD_BUTTONS`); an Xbox pad's are snapchipper's. |
 | `input.button_look` | `"gem"` | `HALO_BUTTON_LOOK` | DKrumpp's buttons in the menus and the Delta Guide: `"gem"` or `"flat"`. |
@@ -717,6 +717,8 @@ the setting for one start of the game. It has priority over the file.
 | `game.language` | `""` | `HALO_LANGUAGE` | The language of the menus: `ja`, `de`, `fr`, `es` or `it`. Empty: English. |
 | `game.unlock_all_levels` | `false` | `HALO_UNLOCK_ALL_LEVELS` | `true`: a profile created afterward starts with all the campaign levels finished on all the difficulties. `false`: a new profile starts at The Pillar of Autumn, and each level opens when you finish the level before it, as on the Xbox. Existing profiles keep their progress. To start a profile over, type `profile_reset_campaign` in the console. |
 | `game.start_with_one_player` | `true` (`false` on the dedicated server) | `HALO_START_WITH_ONE_PLAYER` | A system link, internet or split screen game you host can start with you alone: press START GAME in the lobby. Others can join it in progress. `false` waits for a second machine (split screen: a second player), as on the Xbox. It is in config.toml and the setup screen's ALL, not the menus. Players who had it off are asked once, after an update, whether to use the new default. First written by Mootjuh as `debug.solo_game`. |
+| `lua.scripts` | `false` | `HALO_LUA_SCRIPTS` | Run mods' Lua scripts made for Chimera's Lua API, from the `lua` folder beside `maps` in Chimera's layout (`lua/scripts/global`, `lua/scripts/map/<map>.lua`, `lua/modules`, `lua/data`), and a map pack's own from `lua/<pack>` while its menus are in use (`game.pack_menus`). A script reads and writes files in its own `data` folder only, and loads modules from its own `modules` folder only. What a script asks for that the game does not do yet is written to `debug.txt` once, as `lua: ...`. The desktop builds only. |
+| `lua.twiddlings` | `true` | `HALO_LUA_TWIDDLINGS` | With `lua.scripts`: let the scripts read and change the game's memory through Twiddlings, which turns the Halo PC addresses they use into this game's: a map's tags, and the Halo PC globals the game knows. Any other address reads 0 and a write to it is refused, each written to `debug.txt` once. `false`: every read is 0 and every write is refused. |
 | `paths.data` | `""` | `HALO_DATA_ROOT` | The data root. Refer to "Start the game". |
 | `paths.saves` | `""` | `HALO_SAVE_ROOT` | The save root. Refer to "Files and folders". |
 | `paths.logs` | `""` | `HALO_LOG_ROOT` | The logs folder (`debug.txt`, `halo.log`, `crashes/`). Empty: `logs/` in the save root when `paths.saves` is set, else in the data root. Refer to "Files and folders". |
@@ -823,7 +825,7 @@ the setting for one start of the game. It has priority over the file.
 | `delta.hold_back` | `false` | `HALO_DELTA_HOLD_BACK` | Holding Back (a controller's, or F1) about 0.6 s in the menus opens the Delta Guide. While it is on, the menus get Back only once it is let go (a tap), never for a hold, so a hold on the main menu doesn't also ask to quit. Off by default, as the Xbox's Back acts on press. |
 | `delta.menu_item` | `false` (Android: `true`) | `HALO_DELTA_MENU_ITEM` | The Delta Guide on the main menu (DELTA before QUIT, in the Chupathingy menus), and under ONLINE GAMES in the Multiplayer menu, each opening it on PARTY. Off by default: the Delta Guide is summoned like an overlay (its key, the Guide button, Back held), and the main menu says so instead (`delta.hint_shown`). On by default on Android, where a touch screen has no Guide button. The Delta Guide's SETTINGS has SHOW IN MENUS. It takes effect the next time the menus load. |
 | `delta.hint_shown` | `0` | `HALO_DELTA_HINT_SHOWN` | How many times the main menu has said how to open the Delta Guide ("Press F3 for the Delta Guide", or a controller's way when one was used last: "Hold Back for the Delta Guide" with `delta.hold_back`, else "Press the Guide button", never on a Mac, where macOS often keeps the Home button). It says so the first 3 times the main menu is reached (counted once drawn), then no more, and never with `delta.menu_item` on. |
-| `delta.pause_menu` | `true` | `HALO_DELTA_PAUSE_MENU` | The Delta Guide in the pause menu, after CONTROLS, in both menu sets. |
+| `delta.pause_menu` | `true` | `HALO_DELTA_PAUSE_MENU` | The Delta Guide in the pause menu of a multiplayer game or a network co-op game, after CONTROLS, in both menu sets. A campaign played on one machine (alone or split screen) has none in its pause menu. |
 | `delta.guide_background` | `"auto"` | `HALO_DELTA_GUIDE_BACKGROUND` | What the Delta Guide draws behind its panel: `"plain"`, a dark shade over the game, `"cellwall"`, the Xbox dashboard's cell wall (a mesh inside a slowly turning sphere, as the TeamUIX site draws it) in the theme's colors (the dashboard's own per skin, from Theseus), or `"auto"`, the cell wall with Dashboard Green and the shade with the other themes. The Delta Guide's SETTINGS has BACKGROUND (AUTO, PLAIN, CELLWALL). OpenGL ES 2 builds draw the shade. |
 | `delta.notify_in_game` | `false` | `HALO_DELTA_NOTIFY_IN_GAME` | The Delta Guide's notifications (a new invite or friend request) during a game. They always show in the menus. |
 | `delta.notify_online` | `false` | `HALO_DELTA_NOTIFY_ONLINE` | A notification in the menus when a friend comes online. Never during a game. |
@@ -1585,6 +1587,15 @@ BSP as it loads:
   Values that the game sets as it runs are reset.
 - Checks that the schema cannot express run last: the BSPs' and the models'
   graphs, vertex and index buffers, and indices into other tags.
+
+Custom Edition and HaloMD maps go through the same checks as their tags
+load, in Halo PC's layout (`game/tag_schema_pc.c`): its own groups
+(gbxmodels and a few the Xbox has no tags of) before the Xbox's, which Halo
+PC's tags share. Their resources' tags are checked with them, after the
+repairs and before the conversions, and each BSP before its vertices are
+compressed. Halo PC's retail tools left some blocks overlapping others.
+In both kinds of map those are checked as their own, as HaloMD does, or
+made empty where the check would write over another tag.
 
 Each correction goes to `debug.txt`. The game's own maps need none.
 `build/linux/map_validate [--strict] map.map...` runs the same checks on map

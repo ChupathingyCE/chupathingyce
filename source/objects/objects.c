@@ -305,7 +305,9 @@ void *object_try_and_get_and_verify_type(
 	return result;
 }
 
-void *object_get_and_verify_type(
+/* (the name in parentheses: on the consoles it is also the inline form's
+macro, objects.h) */
+void *(object_get_and_verify_type)(
 	long object_index,
 	unsigned long valid_type_flags)
 {
@@ -1323,12 +1325,15 @@ short object_get_first_cluster(
 real_matrix4x3 *object_get_node_matrices(
 	long object_index)
 {
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
 	/* while a frame is drawn, the pose between the last two ticks
-	(port/linux/game/render_interpolation.c) */
+	(port/linux/game/render_interpolation.c; a console that moves only the
+	view between ticks keeps no poses, and is not asked) */
 	real_matrix4x3 *interpolated = render_interpolation_object_node_matrices(object_index);
 
 	if (interpolated)
 		return interpolated;
+#endif
 	return (real_matrix4x3 *)object_header_block_get(object_index, &object_get(object_index)->object.node_matrices);
 }
 
@@ -1337,10 +1342,13 @@ the last two ticks (port/linux/game/render_interpolation.c) */
 real *object_get_function_values(
 	long object_index)
 {
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	/* (a console draws them as sampled each tick: none between) */
 	real *interpolated = render_interpolation_object_function_values(object_index);
 
 	if (interpolated)
 		return interpolated;
+#endif
 	return object_get(object_index)->object.outgoing_function_values;
 }
 
@@ -1349,10 +1357,12 @@ last two ticks (port/linux/game/render_interpolation.c) */
 real_rgb_color *object_get_change_colors(
 	long object_index)
 {
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 	real_rgb_color *interpolated = render_interpolation_object_change_colors(object_index);
 
 	if (interpolated)
 		return interpolated;
+#endif
 	return object_get(object_index)->object.outgoing_change_colors;
 }
 
@@ -2002,12 +2012,14 @@ real_matrix4x3 *object_get_node_matrix(
 		}
 	}
 
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
 	{
 		real_matrix4x3 *interpolated = render_interpolation_object_node_matrices(object_index);
 
 		if (interpolated)
 			return &interpolated[node_index];
 	}
+#endif
 	return &((real_matrix4x3 *)object_header_block_get(object_index, &object_get(object_index)->object.node_matrices))[node_index];
 }
 
@@ -4764,6 +4776,11 @@ static void object_connect_lights(
 		{
 			if (!object->object.attachment_types[i] && object->object.attachment_indices[i]!=NONE)
 			{
+#ifdef HALO_CONSOLE_SKIP_DARK_LIGHTS
+				/* port: a dark light stays out of the clusters
+				(object_lights.c, light_port_connect_lit) */
+				light_port_connect_lit(object->object.attachment_indices[i], disconnect, reconnect);
+#else
 				if (disconnect)
 				{
 					light_disconnect_from_map(object->object.attachment_indices[i]);
@@ -4772,6 +4789,7 @@ static void object_connect_lights(
 				{
 					light_reconnect_to_map(object->object.attachment_indices[i]);
 				}
+#endif
 			}
 		}
 	}

@@ -1365,6 +1365,12 @@ static boolean shader_type_check(
 {
 	struct shader *shader = base;
 
+	/* (Halo PC's numbers: _tag_schema_layout_pc_shader_types_bit) */
+	if (TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_pc_shader_types_bit) &&
+		type > _shader_type_transparent_chicago)
+	{
+		type++;
+	}
 	if (shader->base.type != type)
 	{
 		tag_validate_correct(validation, "is a shader of type %d in a group of type %d: %d",
@@ -1489,10 +1495,22 @@ static boolean shader_transparent_chicago_extended_check(
 {
 	struct shader_transparent_chicago_extended_definition *chicago = base;
 
-	shader_type_check(validation, base, _shader_type_transparent_chicago);
+	/* (Halo PC's is a type of its own, 7, and its two stage maps its own:
+	it is made a chicago shader once it is checked, its extra flags where
+	the maps' count is, ce_models.c) */
+	boolean pc = TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_pc_shader_types_bit);
+
+	if (pc && chicago->shader.base.type != _shader_type_transparent_chicago + 1)
+	{
+		tag_validate_correct(validation, "is a shader of type %d in a group of type %d: %d",
+			chicago->shader.base.type, _shader_type_transparent_chicago + 1, _shader_type_transparent_chicago + 1);
+		chicago->shader.base.type = _shader_type_transparent_chicago + 1;
+	}
+	if (!pc)
+		shader_type_check(validation, base, _shader_type_transparent_chicago);
 	/* (it is drawn as a chicago shader, which reads its extra flags where
 	this one's two stage maps' count is: the game never reads the maps) */
-	if (chicago->two_stage_maps.count)
+	if (!pc && chicago->two_stage_maps.count)
 	{
 		tag_validate_correct(validation, "has %ld two stage maps, which the game reads as its flags: none",
 			chicago->two_stage_maps.count);
@@ -2020,7 +2038,7 @@ static struct tag_schema_definition const shader_texture_animation_schema =
 
 static struct tag_schema_field const shader_fields[] =
 {
-	TAG_SCHEMA_ENUM(struct shader, base.type, NUMBER_OF_SHADER_TYPES, 0),
+	TAG_SCHEMA_PC_ENUM(struct shader, base.type, NUMBER_OF_SHADER_TYPES, NUMBER_OF_SHADER_TYPES + 1, 0),
 	TAG_SCHEMA_END
 };
 

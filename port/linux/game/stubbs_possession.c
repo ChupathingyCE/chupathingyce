@@ -403,45 +403,10 @@ boolean stubbs_possession_begin(
 	return TRUE;
 }
 
-void stubbs_possession_release(
-	short local_player_index)
+void stubbs_possession_tags_new_map(void)
 {
-	struct stubbs_possession *possession;
-	long player_index, body_unit_index, hand_unit_index;
-
-	if (local_player_index < 0 || local_player_index >= MAXIMUM_STUBBS_LOCAL_PLAYERS)
-		return;
-	possession = &stubbs_possessions[local_player_index];
-	body_unit_index = possession->body_unit_index;
-	if (body_unit_index == NONE)
-		return;
-	player_index = local_player_get_player_index(local_player_index);
-	hand_unit_index = stubbs_engine_hand_unit(local_player_index);
-	if (player_index != NONE && player_get(player_index)->unit_index == body_unit_index)
-	{
-		long origin_unit_index = stubbs_engine_player_origin_unit(player_index);
-
-		if (origin_unit_index != NONE && origin_unit_index != body_unit_index)
-			players_set_local_player_unit(local_player_index, origin_unit_index);
-	}
-	/* (the hand gone from his head: stubbs_engine.c sees it go and has the
-	hand back on Stubbs's arm) */
-	if (hand_unit_index != NONE && object_try_and_get(hand_unit_index))
-	{
-		if (object_get(hand_unit_index)->object.parent_object_index != NONE)
-			object_detach(hand_unit_index);
-		object_delete(hand_unit_index);
-	}
-	stubbs_possession_give_back(local_player_index);
-	stubbs_possession_forget(local_player_index);
-}
-
-long stubbs_possession_body_unit(
-	short local_player_index)
-{
-	if (local_player_index < 0 || local_player_index >= MAXIMUM_STUBBS_LOCAL_PLAYERS)
-		return NONE;
-	return stubbs_possessions[local_player_index].body_unit_index;
+	/* (the map's tags noted afresh: stubbs_mode_convert_tags) */
+	stubbs_possessable_definitions_noted = FALSE;
 }
 
 void stubbs_possession_player_input(
@@ -452,8 +417,6 @@ void stubbs_possession_player_input(
 	long player_index, unit_index, hand_unit_index;
 	boolean melee_pressed, action_pressed;
 
-	/* (the next map's tags noted afresh) */
-	stubbs_possessable_definitions_noted = FALSE;
 	if (local_player_index < 0 || local_player_index >= MAXIMUM_STUBBS_LOCAL_PLAYERS)
 		return;
 	possession = &stubbs_possessions[local_player_index];

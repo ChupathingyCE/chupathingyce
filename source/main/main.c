@@ -404,6 +404,10 @@ symbols in this file:
 #include "mcc_main.h"
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_campaign.h" /* port: port/linux/game/stubbs_campaign.c */
+#include "halt_facts.h" /* port: the halt screen's facts */
+#ifdef HALO_GUIDE
+#include "halt_screen.h" /* port: port/linux/game/halt_screen.c */
+#endif
 
 /* port: the main loop's stage, for the console's bring-up watchdog
 (port/xbox/src/xbox_port.c); nothing elsewhere */
@@ -762,6 +766,60 @@ static struct _main_globals main_globals = { 0 };
 static long main_loss_last_tick;
 static long main_respawn_last_tick;
 static long main_save_last_tick;
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+/* port: a test build's trace of a checkpoint's wait, into the log
+(--console-checkpoint-trace, warthog-xbox #84): when it starts, each change
+in which safety check stops it (game_safe_to_save), and how it ends, with
+the ticks waited and the checks that said no */
+static struct
+{
+	boolean waiting;
+	long ticks;
+	long checks;
+	long unsafe_checks;
+	long lines;
+	char const *check;
+} main_save_trace;
+
+static void main_save_trace_check(
+	boolean safe)
+{
+	char const *check = safe ? NULL : game_save_unsafe_check;
+
+	if (!main_save_trace.waiting)
+	{
+		csmemset(&main_save_trace, 0, sizeof(main_save_trace));
+		main_save_trace.waiting = TRUE;
+		error(_error_silent, "checkpoint: waiting for a safe moment (tick %ld)", (long)game_time_get());
+	}
+	main_save_trace.checks++;
+	if (!safe)
+		main_save_trace.unsafe_checks++;
+	/* (a few lines a checkpoint: a check that keeps changing is counted) */
+	if (check != main_save_trace.check && main_save_trace.lines < 16)
+	{
+		main_save_trace.lines++;
+		if (check)
+			error(_error_silent, "checkpoint: not safe: %s (%ld ticks in)", check, main_save_trace.ticks);
+		else
+			error(_error_silent, "checkpoint: safe again after %s (%ld ticks in)", main_save_trace.check,
+				main_save_trace.ticks);
+	}
+	main_save_trace.check = check;
+}
+
+static void main_save_trace_end(
+	char const *how)
+{
+	if (main_save_trace.waiting)
+	{
+		error(_error_silent, "checkpoint: %s after %ld ticks (%ld of %ld checks not safe%s%s)", how,
+			main_save_trace.ticks, main_save_trace.unsafe_checks, main_save_trace.checks,
+			main_save_trace.check ? ", the last: " : "", main_save_trace.check ? main_save_trace.check : "");
+	}
+	main_save_trace.waiting = FALSE;
+}
+#endif
 boolean debug_force_frame_rate_update = FALSE;
 boolean debug_no_drawing = FALSE;
 boolean debug_game_save = FALSE;
@@ -1805,6 +1863,18 @@ static void main_new_map(
 			main_menu_load();
 			return;
 		}
+#ifdef HALO_GAME_BROWSER
+		/* port: the menus' own map that doesn't load (a pack's maps the game
+		can't read, as Stubbs maps a tool unpacked) goes back to the setup
+		screen, which says why, where it stopped on a blue screen. A run
+		nobody watches stops as before */
+		{
+			extern boolean pc_menu_setup_after_failed_menus(char const *map_name);
+
+			if (pc_menu_setup_after_failed_menus(options->map_name))
+				return;
+		}
+#endif
 		error(_error_immediate, "game_load() failed.");
 	}
 
@@ -2051,6 +2121,9 @@ void main_save_map_safe(
 {
 	if (!main_globals.saving_map || main_globals.save_map_timeout)
 	{
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+		main_save_trace_end("asked again");
+#endif
 		main_globals.saving_map = TRUE;
 		main_globals.save_map_safely = TRUE;
 		main_globals.save_map_timeout = TRUE;
@@ -2068,6 +2141,9 @@ void main_save_map_no_timeout(
 {
 	if (!main_globals.saving_map || main_globals.save_map_timeout)
 	{
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+		main_save_trace_end("asked again");
+#endif
 		main_globals.saving_map = TRUE;
 		main_globals.save_map_safely = TRUE;
 		main_globals.ticks_until_next_save_check = 0;
@@ -2154,6 +2230,14 @@ void main_crash(
 	/* BUG (original, deliberate): the "crash" script command ("crashes (for debugging).")
 	 * faults on purpose by storing this literal through the null pointer; the August and
 	 * September 2001 builds (debug and retail) and January all emit this one store. */
+	/* port: "crash halt" stops the game as a failed assert does, for testing
+	the halt screen (halt_and_catch_fire); any other string faults as before */
+	if (str && !csstrcmp(str, "halt"))
+	{
+		display_assert("crash halt: a halt asked for at the console", "c:\\halo\\SOURCE\\main\\main.c", __LINE__, TRUE);
+		halt_and_catch_fire();
+		return;
+	}
 	*(char **)NULL = "chucky was here!  NULL belongs to me!!!!!";
 	return;
 }
@@ -2265,6 +2349,18 @@ void main_load_ui_scenario(
 {
 	struct game_options options;
 
+#ifdef HALO_GAME_BROWSER
+	/* port: a menus' map that can't be copied into the cache (a pack's maps
+	the game can't read, as Stubbs maps a tool unpacked: no zlib stream)
+	goes back to the setup screen (main_new_map), where the copy's assert
+	stopped the game on a blue screen. Loaded, it is as before */
+	if (!game_precache_new_map_refusable("levels\\ui\\ui"))
+	{
+		extern boolean pc_menu_setup_after_failed_menus(char const *map_name);
+
+		pc_menu_setup_after_failed_menus("levels\\ui\\ui");
+	}
+#endif
 	game_precache_new_map("levels\\ui\\ui", TRUE);
 	match_assert("c:\\halo\\SOURCE\\main\\main.c", 1092,
 		!main_globals.main_menu_scenario_loaded);
@@ -2475,17 +2571,28 @@ static void main_save_map_private(
 
 			while (ticks-- > 0 && !save_map)
 			{
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+				main_save_trace.ticks++;
+#endif
 				if (main_globals.ticks_unable_to_save++ >= 240 &&
 					main_globals.save_map_timeout)
 				{
 					if (debug_game_save)
 						console_printf(FALSE, "gave up trying to save");
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+					main_save_trace_end("gave up");
+#endif
 					main_globals.saving_map = FALSE;
 					return;
 				}
 				else if (main_globals.ticks_until_next_save_check-- <= 0)
 				{
-					if (game_safe_to_save())
+					boolean safe = game_safe_to_save();
+
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+					main_save_trace_check(safe);
+#endif
+					if (safe)
 					{
 						if (main_globals.safe_intervals++ >= 3)
 							save_map = TRUE;
@@ -2507,6 +2614,10 @@ static void main_save_map_private(
 
 		if (save_map)
 		{
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+			if (save_map_safely)
+				main_save_trace_end("saved");
+#endif
 			/* port: remember where the players are, for network co-op respawns */
 			players_note_checkpoint();
 			hud_autosave(TRUE);
@@ -3623,6 +3734,117 @@ void main_framerate_render(
 	return;
 }
 
+/* port: the halt screen's facts (halt_facts.h), gathered once as the game
+stops: no tag lookup, no allocation */
+static struct halt_facts halt_screen_facts;
+/* (the log's end read into it) */
+static char halt_screen_log[8192];
+
+static void halt_screen_gather(
+	void)
+{
+	struct halt_facts *facts = &halt_screen_facts;
+	char const *reason;
+	char const *file;
+	long line;
+	FILE *log;
+
+	csmemset(facts, 0, sizeof(*facts));
+	reason = error_halt_place(&file, &line);
+	csstrncpy(facts->reason, reason[0] ? reason : "No reason given.", sizeof(facts->reason) - 1);
+	halt_facts_place(facts->place, (int)sizeof(facts->place), file, line);
+	halt_facts_map(facts->map, (int)sizeof(facts->map), cache_file_loaded_map_name());
+	if (stubbs_mode_active())
+	{
+		facts->mode = "Stubbs";
+	}
+	else if (mcc_cache_tags_loaded())
+	{
+		facts->mode = "MCC map";
+	}
+	else if (facts->map[0] && CACHE_FILE_TAGS_ARE_CE())
+	{
+		facts->mode = "Custom Edition map";
+	}
+	else
+	{
+		facts->mode = "Xbox map";
+	}
+	facts->build = port_build_identity();
+
+	/* the log's end, as debug.txt has it (its addresses and home folder
+	already taken out as the lines were written) */
+	log = fopen(error_log_path(), "rb");
+	if (log)
+	{
+		long size;
+		long length = 0;
+
+		fseek(log, 0, SEEK_END);
+		size = ftell(log);
+		if (size > 0)
+		{
+			fseek(log, size > (long)sizeof(halt_screen_log) ? size - (long)sizeof(halt_screen_log) : 0, SEEK_SET);
+			length = (long)fread(halt_screen_log, 1, sizeof(halt_screen_log), log);
+		}
+		fclose(log);
+		halt_facts_log_lines(facts, halt_screen_log, (int)length);
+	}
+
+	return;
+}
+
+/* the facts as text, for the game's terminal font (the screen without the
+overlay) */
+static char halt_screen_text[4096];
+
+static void halt_screen_text_build(
+	void)
+{
+	struct halt_facts const *facts = &halt_screen_facts;
+	long length;
+	long index;
+
+	length = snprintf(halt_screen_text, sizeof(halt_screen_text),
+		"The game stopped\r\n\r\n%s\r\n%s%sMap: %s%s%s%s\r\nBuild: %s\r\n\r\n",
+		facts->reason, facts->place, facts->place[0] ? "\r\n" : "", facts->map[0] ? facts->map : "none",
+		facts->map[0] ? " (" : "", facts->map[0] ? facts->mode : "", facts->map[0] ? ")" : "", facts->build);
+	for (index = 0; index < facts->line_count && length > 0 && length < (long)sizeof(halt_screen_text); index++)
+	{
+		length += snprintf(halt_screen_text + length, sizeof(halt_screen_text) - (size_t)length, "%s\r\n",
+			facts->lines[index]);
+	}
+
+	return;
+}
+
+/* port: a halt nobody sees (a run nobody watches, the dedicated server, a
+halt on a thread that cannot draw): its facts in the log, and the game
+ends with a failure, for what runs it to see. immediately: at once, once
+the log has it, without exit()'s handlers (a halt off the window's thread,
+where they could wait on locks the other threads hold) */
+static void halt_screen_exit(
+	boolean immediately)
+{
+	struct halt_facts const *facts = &halt_screen_facts;
+	char line[600];
+
+	snprintf(line, sizeof(line), "halt: %s%s%s (map %s, %s); exiting\r\n", facts->reason,
+		facts->place[0] ? " at " : "", facts->place, facts->map[0] ? facts->map : "none", facts->mode);
+	write_to_error_file(line, TRUE);
+#ifdef HALO_CONSOLE_LOG_BUFFER
+	error_log_flush();
+#endif
+	if (immediately)
+	{
+		/* (unistd.h's, and the C library's on Windows: this file is C89) */
+		void _exit(int status);
+
+		_exit(EXIT_FAILURE);
+	}
+	exit(EXIT_FAILURE);
+}
+
 void halt_and_catch_fire(
 	void)
 {
@@ -3631,6 +3853,7 @@ void halt_and_catch_fire(
 	struct scenario *scenario;
 	struct rasterizer_frame_begin_parameters frame_parameters;
 	struct rasterizer_window_begin_parameters window_parameters;
+	boolean overlay_shown = FALSE;
 
 #ifdef HALO_CONSOLE_HALT_TO_LAUNCHER
 	{
@@ -3659,15 +3882,57 @@ void halt_and_catch_fire(
 			}
 		}
 
-		if (scenario)
+		/* port: what stopped the game, for the screen */
+		halt_screen_gather();
+		halt_screen_text_build();
 		{
-			font_tag_index = interface_get_tag_index(_interface_font_terminal);
+			short choice = 0;
+			boolean exit_immediately = FALSE;
+
+#ifdef HALO_SERVER
+			/* port: the dedicated server stops, so that what runs it sees
+			the failure */
+			choice = 2;
+#endif
+#ifdef HALO_GUIDE
+			/* port: the menus' look and the ways out, when someone watches
+			from the window's own thread (halt_screen.c); else the game
+			ends */
+			int platform_on_event_thread(void);
+
+			switch (halt_screen_choose())
+			{
+			case HALT_SCREEN_SHOWN:
+				choice = 1;
+				break;
+			case HALT_SCREEN_EXIT:
+				choice = 2;
+				exit_immediately = !platform_on_event_thread();
+				break;
+			default:
+				break;
+			}
+#endif
+			overlay_shown = choice == 1;
+			if (choice == 2)
+			{
+				halt_screen_exit(exit_immediately);
+			}
 		}
-		if (!scenario || font_tag_index == NONE)
+
+		font_tag_index = NONE;
+		if (!overlay_shown)
 		{
-			font_tag_index = tag_loaded(
-				FONT_GROUP_TAG,
-				"old tags\\internal system plain");
+			if (scenario)
+			{
+				font_tag_index = interface_get_tag_index(_interface_font_terminal);
+			}
+			if (!scenario || font_tag_index == NONE)
+			{
+				font_tag_index = tag_loaded(
+					FONT_GROUP_TAG,
+					"old tags\\internal system plain");
+			}
 		}
 
 		while (TRUE)
@@ -3703,18 +3968,23 @@ void halt_and_catch_fire(
 				&window_parameters.frustum,
 				TRUE);
 			window_parameters.rasterizer_target = 0;
-			window_parameters.fog.atmospheric_color = *global_real_rgb_blue;
+			/* port: dark, as the menus' backdrop, rather than the Xbox's blue */
+			window_parameters.fog.atmospheric_color = *global_real_rgb_black;
 			window_parameters.fog.atmospheric_maximum_distance = 0.0f;
 			window_parameters.fog.atmospheric_minimum_distance = 0.0f;
 			window_parameters.fog.planar_mode = 0;
 			render.camera = window_parameters.camera;
 			rasterizer_window_begin(&window_parameters);
 
-			if (font_tag_index != NONE)
+			if (!overlay_shown && font_tag_index != NONE)
 			{
 				point2d cursor = { 0, 0 };
 				rectangle2d bounds = rasterizer_globals.reserved04.frame_bounds;
 
+				/* (inset from the screen's edges, as a television may cut
+				them) */
+				bounds.x0 += 24;
+				bounds.y0 += 24;
 				draw_string_set_draw_mode(
 					font_tag_index,
 					NONE,
@@ -3728,15 +3998,14 @@ void halt_and_catch_fire(
 					NULL,
 					&cursor,
 					-4,
-					port_build_identity());
-				bounds.y0 = cursor.y - 1;
-				rasterizer_draw_string(
-					&bounds,
-					NULL,
-					&cursor,
-					-4,
-					error_get());
+					halt_screen_text);
 			}
+#ifdef HALO_GUIDE
+			if (overlay_shown)
+			{
+				halt_screen_frame(&halt_screen_facts);
+			}
+#endif
 
 			rasterizer_transparent_geometry_draw(TRUE);
 			rasterizer_transparent_geometry_draw(FALSE);
@@ -3745,7 +4014,16 @@ void halt_and_catch_fire(
 			rasterizer_windows_end();
 			rasterizer_frame_end();
 			rasterizer_present(NULL, NULL);
+			/* port: the controllers read too, for the overlay's ways out */
+			if (overlay_shown)
+			{
+				input_frame_begin();
+			}
 			input_update();
+			if (overlay_shown)
+			{
+				input_frame_end();
+			}
 		}
 	}
 

@@ -1161,7 +1161,23 @@ void particles_update(
 		static long counted_frames, counted_alive, counted_most;
 		static real counted_seconds;
 
+#ifdef HALO_CONSOLE_SETTINGS_ON_CHANGE
+		{
+			/* (read again only when the settings change: halo_port_features.h) */
+			extern unsigned long config_changes(void);
+			static unsigned long limit_read_at = (unsigned long)-1;
+			static long limit;
+
+			if (limit_read_at != config_changes())
+			{
+				limit_read_at = config_changes();
+				limit = config_integer("display.particle_limit");
+			}
+			particles_limit = limit;
+		}
+#else
 		particles_limit = config_integer("display.particle_limit");
+#endif
 		{
 			/* (read again only when the settings change: a string's
 			lookup each frame on the consoles) */

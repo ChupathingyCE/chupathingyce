@@ -2850,6 +2850,7 @@ symbols in this file:
 #include "mcc_script_parameters.h"
 #include "mcc_scripts.h"
 #include "mcc_syntax.h"
+#include "lua_scripting.h" /* port: Lua's execute_script functions (port/linux/game/lua_scripting.c) */
 
 /* ---------- constants */
 
@@ -14590,6 +14591,12 @@ struct hs_function_definition *hs_function_get(
 		if (mcc_function)
 			return mcc_function;
 	}
+	/* port: a Lua script's execute_script's own (lua_scripting.h) */
+	{
+		struct hs_function_definition *lua_function = lua_scripting_hs_function(function_index);
+		if (lua_function)
+			return lua_function;
+	}
 	match_assert(
 		"c:\\halo\\SOURCE\\hs\\hs.c",
 		522,
@@ -14733,6 +14740,13 @@ short hs_find_function_by_name(
 		short mcc_index = mcc_script_find(name);
 		if (mcc_index != NONE)
 			return mcc_index;
+	}
+	/* port: while a Lua script's execute_script runs, its own (Halo PC's,
+	OpenSauce's: lua_scripting.h) */
+	{
+		short lua_index = lua_scripting_hs_function_find(name);
+		if (lua_index != NONE)
+			return lua_index;
 	}
 
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)

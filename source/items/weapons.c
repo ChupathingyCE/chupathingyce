@@ -1090,13 +1090,17 @@ void weapon_export_function_values(
 
 			/* port: Halo PC's (haloce.exe 1.0.10): the trigger's rate of fire while
 			its magazine has rounds and the weapon is neither overheated nor
-			reloading, not only in the tick after a shot; no Xbox map uses it */
+			reloading, not only in the tick after a shot; no Xbox map uses it.
+			Only while a unit holds it: a weapon on the ground exports 0, as
+			the Xbox does for these modes, so that a dropped one doesn't look
+			or sound as if it were firing */
 			case _weapon_function_primary_firing_on:
 			case _weapon_function_secondary_firing_on:
 				{
 					short trigger_index= (short)(*function_modes-_weapon_function_primary_firing_on);
 
-					if (trigger_index<weapon_definition->weapon.triggers.count &&
+					if (weapon_get_owner_object_index(weapon_index)!=NONE &&
+						trigger_index<weapon_definition->weapon.triggers.count &&
 						trigger_index<NUMBEROF(weapon->weapon.triggers) &&
 						weapon->weapon.magazines[trigger_index].rounds_loaded &&
 						!TEST_FLAG(weapon->weapon.flags, _weapon_overheated_bit) &&

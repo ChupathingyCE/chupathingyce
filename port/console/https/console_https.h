@@ -111,6 +111,12 @@ struct console_https_port
 	/* the console's clock: seconds since 1970-01-01 UTC. NULL: the console
 	has no clock it can read, and certificates' dates are not checked */
 	long long (*unix_seconds)(void);
+	/* on the requesting thread: 1 once the handshake is done and the
+	request is about to be sent, and 0 when that request ends. A port that
+	runs a background request below its game's priority, so the handshake
+	doesn't hitch the frames, can raise it for the send and the reply,
+	which a server times out on (warthog-xbox #140). NULL: nothing */
+	void (*sending)(int started);
 };
 
 enum

@@ -53,6 +53,29 @@ KEEP_ASSERTS_DIRECTORIES = ("source/memory/", "source/cseries/")
 # (--console-debug-tools): libtiff, whose only caller is the screenshots'
 # export (tiff_file.c)
 DEBUG_TOOLS_DIRECTORIES = ("source/bitmaps/libtiff/",)
+# the game's busiest units, where a console's release-style build reads tag
+# blocks, tags, datums and objects inline (HALO_CONSOLE_HOT_UNIT:
+# halo_port_features.h's HALO_CONSOLE_INLINE_ACCESSORS). Counted on a 4-player
+# Beaver Creek game, they make most of the accessors' calls a tick; inline in
+# every unit the original Xbox's code would be about 380 KB larger, in these
+# 51 KB (warthog-xbox #109)
+INLINE_ACCESSOR_SOURCES = (
+    "source/bitmaps/bitmap_group.c",
+    "source/cache/xbox_texture_cache.c",
+    "source/memory/lruv_cache.c",
+    "source/models/models.c",
+    "source/objects/object_lights.c",
+    "source/objects/object_types.c",
+    "source/objects/objects.c",
+    "source/physics/bsp3d.c",
+    "source/physics/collision_bsp.c",
+    "source/rasterizer/xbox/rasterizer_xbox.c",
+    "source/render/render_objects.c",
+    "source/structures/cluster_partitions.c",
+    "source/structures/structure_render.c",
+    "source/structures/structure_visibility.c",
+    "source/structures/structures.c",
+)
 
 
 def relative(path: Path) -> Path:
@@ -124,14 +147,18 @@ class ConsolePort:
 
     def game_units(self, sln: Any, config: Dict[str, Any]) -> Iterator[Tuple[Path, List[str]]]:
         """the game's C sources a console builds, each with the flags of its
-        own it takes: libtiff only with the developer tools, and the memory
-        checks a release-style build keeps (HALO_CONSOLE_KEEP_ASSERTS)"""
+        own it takes: libtiff only with the developer tools, the memory
+        checks a release-style build keeps (HALO_CONSOLE_KEEP_ASSERTS), and the
+        busiest units' inline accessors (HALO_CONSOLE_HOT_UNIT)"""
         debug_tools = getattr(sln, "console_debug_tools", False)
         for source in self.game_sources(config):
             name = self.game_relative(source)
             if not debug_tools and name.startswith(DEBUG_TOOLS_DIRECTORIES):
                 continue
-            yield source, (["-DHALO_CONSOLE_KEEP_ASSERTS"] if name.startswith(KEEP_ASSERTS_DIRECTORIES) else [])
+            flags = ["-DHALO_CONSOLE_KEEP_ASSERTS"] if name.startswith(KEEP_ASSERTS_DIRECTORIES) else []
+            if name in INLINE_ACCESSOR_SOURCES:
+                flags.append("-DHALO_CONSOLE_HOT_UNIT")
+            yield source, flags
 
     def game_headers(self) -> List[Path]:
         """the game's sources and headers (what tools/linux_msvc_semantics.py
@@ -190,6 +217,10 @@ def console_defines(sln: Any) -> List[str]:
         # --console-no-debug-asserts: the asserts compiled out, as retail
         # compiled them out, but for the memory checks (cseries.h)
         *(["-DHALO_CONSOLE_NO_DEBUG_ASSERTS"] if getattr(sln, "console_no_debug_asserts", False) else []),
+        # --console-checkpoint-trace: a test build's trace of checkpoints'
+        # waits and of one script into the log (source/main/main.c,
+        # source/hs/hs_runtime.c)
+        *(["-DHALO_CONSOLE_CHECKPOINT_TRACE"] if getattr(sln, "console_checkpoint_trace", False) else []),
         # --console-players: the players the network tables hold
         f"-DHALO_CONSOLE_PLAYERS={int(getattr(sln, 'console_players', 16) or 16)}",
     ]
@@ -218,6 +249,12 @@ def add_console_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="console builds: the debug decomp's developer tools (HALO_CONSOLE_DEBUG_TOOLS: the profiler, AI, "
         "render and collision debug, stack walker, libtiff and the bitmap tools), left out by default",
+    )
+    parser.add_argument(
+        "--console-checkpoint-trace",
+        action="store_true",
+        help="console builds: a test build that logs which safety check (game_safe_to_save) holds up each "
+        "checkpoint, and traces the script mission_shoot (HALO_CONSOLE_CHECKPOINT_TRACE). Off by default",
     )
     parser.add_argument(
         "--console-players",

@@ -19,6 +19,7 @@ tools/test_ce_bitmap_reduce.py
 tools/test_ce_effect_flags.py
 tools/test_ce_joins.py
 tools/test_ce_resource_maps.py
+tools/test_ce_vorbis_resample.py
 tools/test_conduct_rules.py
 tools/test_config_console_replace.py
 tools/test_console_claims.py
@@ -27,6 +28,7 @@ tools/test_console_gl_check.py
 tools/test_console_host_players.py
 tools/test_console_light_limits.py
 tools/test_console_link.py
+tools/test_console_log_view.py
 tools/test_console_meter_stages.py
 tools/test_console_shell.py
 tools/test_coop_level_prompt.py
@@ -50,6 +52,7 @@ tools/test_game_list_rules.py
 tools/test_gamespy_listing.py
 tools/test_guide_layout.py
 tools/test_guide_themes.py
+tools/test_halt_facts.py
 tools/test_host_cheats.py
 tools/test_host_console_objects.py
 tools/test_host_evidence.py
@@ -149,6 +152,7 @@ tools/test_steam_bridge.py
 tools/test_steam_content.py
 tools/test_steam_workshop.py
 tools/test_stubbs_regions.py
+tools/test_symbolize_crash.py
 tools/test_tag_swap_tables.py
 tools/test_third_party_notices.py
 tools/test_title_tool.py
@@ -164,3 +168,4 @@ tools/test_workshop_list.py
 tools/test_workshop_play_history.py
 tools/test_workshop_questions.py
 tools/test_xbox_audio.py
+tools/test_xbox_heap.py

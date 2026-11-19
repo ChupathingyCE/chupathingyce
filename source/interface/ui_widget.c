@@ -1609,7 +1609,8 @@ static wchar_t const *const kills_to_win_extra_descriptions[] =
 controls_screen.c) offers Bumper Jumper in the profile's own Button
 Layout, after the Xbox's five (player_ui.c sets it; the profile keeps it
 as _button_preset_bumper_jumper, the sixth). The controller picture has
-no frame for it, so it is hidden while the item is chosen */
+no frame for it, so the plain gamepad of the profile settings' list is
+drawn in its place while the item is chosen (warthog-xbox #108) */
 static wchar_t const *const button_config_extra_strings[] =
 {
 	L"BUMPER JUMPER",
@@ -1621,9 +1622,19 @@ static wchar_t const *const button_config_extra_descriptions[] =
 };
 #endif
 
+/* port: what the list's picture shows for a spinner's extra items */
+enum
+{
+	_spinner_extra_unpictured,
+	/* a frame of the picture's own */
+	_spinner_extra_pictured,
+	/* the plain gamepad (ui_widget_plain_gamepad) */
+	_spinner_extra_plain_gamepad,
+};
+
 /* port: the spinners' string lists with extra items, by tag name: their
 strings, their descriptions, how much wider the spinner draws (to the
-left), and whether the list's picture has a frame for them */
+left), and what the list's picture shows for them */
 static struct
 {
 	char const *tag_name;
@@ -1631,19 +1642,19 @@ static struct
 	wchar_t const *const *descriptions;
 	short count;
 	short wider;
-	boolean pictured;
+	short picture;
 } const spinner_extras[] =
 {
 	{
 		"ui\\shell\\main_menu\\settings_select\\multiplayer_setup\\playlist_edit\\slayer_edit\\var_kills_to_win",
 		kills_to_win_extra_strings, kills_to_win_extra_descriptions, NUMBEROF(kills_to_win_extra_strings),
-		SPINNER_EXTRA_WIDTH, TRUE,
+		SPINNER_EXTRA_WIDTH, _spinner_extra_pictured,
 	},
 #ifdef HALO_CONSOLE_NO_CONTROLS
 	{
 		"ui\\shell\\main_menu\\settings_select\\player_setup\\player_profile_edit\\controller_edit\\var_button_config",
 		button_config_extra_strings, button_config_extra_descriptions, NUMBEROF(button_config_extra_strings),
-		0, FALSE,
+		0, _spinner_extra_plain_gamepad,
 	},
 #endif
 };
@@ -2265,6 +2276,10 @@ boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name)
 	return TRUE;
 }
 
+/* port: whether the Chupathingy menus are up (port/linux/game/menu_tags.c) */
+boolean pc_menus_chupathingy(
+	void);
+
 /* the MCC catalog's campaign maps, after the campaign's ten levels in the
 Xbox's level select (ui_widget_event_handler_functions.c), at most this
 many: their level names, by row from 0 */
@@ -2282,6 +2297,39 @@ char const *ui_widget_port_mcc_campaign_level(short row)
 	short index = ui_widget_port_mcc_offered() ? mcc_maps_type_index(row, TRUE) : NONE;
 
 	return index != NONE ? mcc_maps_level_name(index) : NULL;
+}
+
+/* the rows after the campaign's ten levels in the level select: the MCC
+catalog's campaign maps, then, in the Chupathingy menus, the other campaign
+maps found (the maps folder's own, the map packs', Custom Edition's: the
+menus' map list, ui_map_list.c), at most this many */
+#define UI_WIDGET_PORT_CUSTOM_CAMPAIGN_ROWS 128
+
+static short ui_widget_port_custom_campaign_count(void)
+{
+#ifdef HALO_MAP_LIST
+	if (pc_menus_chupathingy())
+		return (short)MIN(ui_map_list_custom_campaign_count(), UI_WIDGET_PORT_CUSTOM_CAMPAIGN_ROWS);
+#endif
+	return 0;
+}
+
+short ui_widget_port_campaign_maps_count(void)
+{
+	return (short)(ui_widget_port_mcc_campaign_count() + ui_widget_port_custom_campaign_count());
+}
+
+char const *ui_widget_port_campaign_maps_level(short row)
+{
+	short mcc_count = ui_widget_port_mcc_campaign_count();
+
+	if (row < mcc_count)
+		return ui_widget_port_mcc_campaign_level(row);
+#ifdef HALO_MAP_LIST
+	if (row - mcc_count < ui_widget_port_custom_campaign_count())
+		return ui_map_list_custom_campaign_name(row - mcc_count);
+#endif
+	return NULL;
 }
 
 /* (the level and its co-op settings together, or nothing until the host
@@ -8911,6 +8959,26 @@ static void widget_instance_game_data_recursive(
 }
 
 #endif
+/* port: the plain gamepad: the profile settings' list's picture of its
+controller row (ui.map's profile_options, frame 1, 512x256), drawn by a
+picture whose frame is UI_WIDGET_PLAIN_GAMEPAD_FRAME, moved by this much in
+it to sit where Controller Setup's pictures (512x512) have their gamepad;
+NULL without that bitmap, and nothing is drawn */
+#define PLAIN_GAMEPAD_TAG "ui\\shell\\main_menu\\settings_select\\player_setup\\player_profile_edit\\profile_options"
+#define PLAIN_GAMEPAD_FRAME 1
+#define PLAIN_GAMEPAD_X 110
+#define PLAIN_GAMEPAD_Y 24
+
+static struct bitmap_data *ui_widget_plain_gamepad(
+	void)
+{
+	long bitmap_group_index = tag_loaded('bitm', PLAIN_GAMEPAD_TAG);
+
+	if (bitmap_group_index == NONE)
+		return NULL;
+	return bitmap_group_get_bitmap_from_sequence(bitmap_group_index, 0, PLAIN_GAMEPAD_FRAME);
+}
+
 static void widget_instance_render_recursive(
 	struct widget_instance *widget,
 	rectangle2d *clip_rect,
@@ -8928,6 +8996,8 @@ static void widget_instance_render_recursive(
 	/* port: an MCC map's picture (ui_map_list_mcc_picture), and the frame drawn */
 	short mcc_picture = NONE;
 	short picture_frame = widget->animation.current_frame_index;
+	/* port: the plain gamepad drawn instead (UI_WIDGET_PLAIN_GAMEPAD_FRAME) */
+	boolean plain_gamepad = picture_frame == UI_WIDGET_PLAIN_GAMEPAD_FRAME;
 
 	if (!use_nifty_plasma_fx &&
 		TEST_FLAG(definition->flags, _widget_always_render_with_nifty_fx_bit))
@@ -8952,6 +9022,12 @@ static void widget_instance_render_recursive(
 #ifndef HALO_XBOX_CONSOLE
 	ui_mouse_note_target(widget, definition, offset);
 #endif
+	if (plain_gamepad)
+	{
+		bitmap = ui_widget_plain_gamepad();
+	}
+	else
+	{
 #ifdef HALO_MAP_LIST
 	/* port: an MCC map's own picture (mcc_menu_preview_draw, below), with
 	the unknown level's in its place when it has none; a picture of the
@@ -8965,6 +9041,7 @@ static void widget_instance_render_recursive(
 		definition->background_bitmap.index,
 		0,
 		picture_frame);
+	}
 	if (bitmap)
 	{
 		real alpha = alpha_modifier;
@@ -9029,6 +9106,18 @@ static void widget_instance_render_recursive(
 				clip->x0 -= (short)extra;
 			if (clip->x1 >= 640)
 				clip->x1 = (short)(clip->x1 + extra);
+		}
+		if (plain_gamepad)
+		{
+			/* port: moved so its gamepad sits where Controller Setup's
+			pictures have theirs, one texel to a unit as they are drawn, and
+			cut off at the picture's own box: by its bounds, which are its
+			texels too (a clip moves the corners, not the texels, and would
+			squeeze it) */
+			bounds.x0 = (short)(bounds.x0 + PLAIN_GAMEPAD_X);
+			bounds.y0 = (short)(bounds.y0 + PLAIN_GAMEPAD_Y);
+			bounds.x1 = (short)MIN(bounds.x1, bounds.x0 + bitmap->width);
+			bounds.y1 = (short)MIN(bounds.y1, bounds.y0 + bitmap->height);
 		}
 		if (TEST_FLAG(definition->flags, _widget_flash_background_bitmap_bit))
 		{
@@ -9497,7 +9586,21 @@ boolean ui_widget_spinner_item_pictured(
 	struct ui_widget_definition *definition = ui_widget_definition_get(spinner->definition_tag_index);
 	short extra = spinner_string_list_extra(definition->text_label_string_list.index);
 
-	return item_index < ui_widget_spinner_own_item_count(spinner) || extra == NONE || spinner_extras[extra].pictured;
+	return item_index < ui_widget_spinner_own_item_count(spinner) || extra == NONE ||
+		spinner_extras[extra].picture == _spinner_extra_pictured;
+}
+
+/* whether a spinner's item is shown by the plain gamepad (an extra item
+whose list's picture has no frame for it) */
+boolean ui_widget_spinner_item_plain_gamepad(
+	struct widget_instance *spinner,
+	short item_index)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(spinner->definition_tag_index);
+	short extra = spinner_string_list_extra(definition->text_label_string_list.index);
+
+	return item_index >= ui_widget_spinner_own_item_count(spinner) && extra != NONE &&
+		spinner_extras[extra].picture == _spinner_extra_plain_gamepad;
 }
 
 /* a string of a string list, or of its extra strings past the tag's own */

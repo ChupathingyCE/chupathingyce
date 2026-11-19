@@ -2945,6 +2945,13 @@ int delta_peer_machine_legacy_version(const struct delta_peer *peer, int machine
 	return peer->peers[machine_index].hello.legacy_version;
 }
 
+int delta_peer_machine_platform(const struct delta_peer *peer, int machine_index)
+{
+	if (peer->mode != _mode_host || !valid_machine(machine_index) || !peer->peers[machine_index].used)
+		return 0;
+	return peer->peers[machine_index].hello.key.platform;
+}
+
 delta_u32 delta_peer_machine_modes(const struct delta_peer *peer, int machine_index)
 {
 	if (peer->mode != _mode_host || !valid_machine(machine_index) || !peer->peers[machine_index].used)

@@ -56,6 +56,7 @@ frame a tick) nothing is behind.
 #include "effects/particles.h"
 #include "render/render_cameras.h"
 #include "units/units.h"
+#include "lua_scripting.h" /* (a pose a mod's Lua script set) */
 
 /* port/linux/src/port_config.c */
 int config_boolean(const char *name);
@@ -726,6 +727,9 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 	long absolute_index;
 
 	if (!interpolation_rendering || !interpolated_objects || object_index == NONE)
+		return NULL;
+	/* (a pose a mod's Lua script set this frame, drawn as it set it) */
+	if (lua_scripting_object_posed(object_index))
 		return NULL;
 	absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index);
 	if (absolute_index >= MAXIMUM_INTERPOLATED_OBJECTS)

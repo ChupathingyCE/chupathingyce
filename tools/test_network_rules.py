@@ -251,5 +251,14 @@ def test_join_paths_know_the_hosts_number():
     assert "network_rules_join_request_tail(version, tail," in request
     # (the host's own game, joined at home with no advertisement: its
     # request made for the number it announces, which tools/test_net43_host.py
-    # runs for real)
-    assert "else if (global_network_game_server_get())\n\t\t\tnetwork_game_client_joined_version = (unsigned int)delta_legacy_announce();" in initiate
+    # runs for real; an advertised join is never taken for one)
+    assert ("else if (global_network_game_server_get())\n\t\t{\n"
+            "\t\t\tnetwork_game_client_joined_version = (unsigned int)delta_legacy_announce();\n"
+            "\t\t\tnetwork_game_client_joined_home = TRUE;\n\t\t}") in initiate
+    assert "network_game_client_joined_home = FALSE;" in initiate
+    # (and that number read again as the request goes out, since the host
+    # changes it as its game starts for an MCC map, #1372)
+    reread = joining.index("if (network_game_client_joined_home && global_network_game_server_get())")
+    announce = joining.index("unsigned int now = (unsigned int)delta_legacy_announce();", reread)
+    adopt = joining.index("network_game_client_joined_version = now;", announce)
+    assert adopt < joining.index("network_game_client_send_join_request(client, network_game_client_joined_version);", adopt)
