@@ -35,7 +35,10 @@ of changes to that map (each 8 bytes: what to change and a value), which
 reaches deeper into a real map than whole-file mutations do. Custom Edition
 maps' resource maps (bitmaps.map, sounds.map, loc.map) are read from the
 folder MAP_FUZZ_CE_RESOURCES names, if any: without them, a map that keeps
-tags there is refused as the game refuses it. The Xbox's ui.map, whose button
+tags there is refused as the game refuses it. Halo PC retail's own
+bitmaps.map and sounds.map, which a HaloMD map's stock bitmaps and sounds are
+read from when a player has them (maps_pc), are read from the folder
+MAP_FUZZ_PC_RESOURCES names, if any. The Xbox's ui.map, whose button
 icons a map's HUD is given (ce_hud.c), is read from MAP_FUZZ_XBOX_UI, if it
 names one: without it, HUD messages are left without them, as in the game.
 
@@ -236,7 +239,10 @@ static struct
 	char const *name;
 	unsigned char *data;
 	unsigned long size;
-} fuzz_resources[] = { { "bitmaps" }, { "sounds" }, { "loc" } };
+} fuzz_resources[] = { { "bitmaps" }, { "sounds" }, { "loc" }, { "pc_bitmaps" }, { "pc_sounds" } };
+/* (the first three Custom Edition's, MAP_FUZZ_CE_RESOURCES; the others Halo
+PC's own, MAP_FUZZ_PC_RESOURCES) */
+#define FUZZ_RESOURCE_COUNT ((long)(sizeof(fuzz_resources) / sizeof(fuzz_resources[0])))
 /* the Xbox's ui.map (MAP_FUZZ_XBOX_UI) */
 static unsigned char *fuzz_xbox_ui;
 static unsigned long fuzz_xbox_ui_size;
@@ -519,6 +525,12 @@ boolean map_family_resource(char const *name, char *path, long size)
 	return TRUE;
 }
 
+boolean map_family_halo_pc_resource(char const *name, char *path, long size)
+{
+	snprintf(path, (size_t)size, "pc_%s", name);
+	return TRUE;
+}
+
 /* (tag_groups.c's, as the game reads a block's element: a Custom Edition
 map's through ce_tags_pointer) */
 void *ce_tags_pointer(unsigned long address, long size);
@@ -627,7 +639,7 @@ HANDLE CreateFileA(char const *path, DWORD access, DWORD share, LPSECURITY_ATTRI
 		{
 			long resource;
 
-			for (resource = 0; resource < 3; resource++)
+			for (resource = 0; resource < FUZZ_RESOURCE_COUNT; resource++)
 			{
 				if (!strcmp(path, fuzz_resources[resource].name) && fuzz_resources[resource].data)
 				{
@@ -820,6 +832,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 {
 	char const *base = getenv("MAP_FUZZ_BASE");
 	char const *resources = getenv("MAP_FUZZ_CE_RESOURCES");
+	char const *pc_resources = getenv("MAP_FUZZ_PC_RESOURCES");
 	char const *xbox_ui = getenv("MAP_FUZZ_XBOX_UI");
 
 	fuzz_verbose = getenv("MAP_FUZZ_VERBOSE") != NULL;
@@ -849,6 +862,18 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 			char path[1024];
 
 			snprintf(path, sizeof(path), "%s/%s.map", resources, fuzz_resources[index].name);
+			fuzz_resources[index].data = fuzz_file_read(path, &fuzz_resources[index].size);
+		}
+	}
+	if (pc_resources && *pc_resources)
+	{
+		long index;
+
+		for (index = 3; index < FUZZ_RESOURCE_COUNT; index++)
+		{
+			char path[1024];
+
+			snprintf(path, sizeof(path), "%s/%s.map", pc_resources, fuzz_resources[index].name + 3);
 			fuzz_resources[index].data = fuzz_file_read(path, &fuzz_resources[index].size);
 		}
 	}
