@@ -83,6 +83,7 @@ symbols in this file:
 #include "effects/effect_definitions.h"
 #include "effects/effects.h"
 #include "effects/material_effects.h"
+#include "game/game.h"
 #include "game/players.h"
 #include "interface/first_person_weapons.h"
 #include "memory/data.h"
@@ -249,6 +250,8 @@ anyway - found in a ring of the particles in the order they were made; the
 first-person weapon's are never the ones let go. Read each frame; how many
 lived is said every 10 s of play. */
 static long particles_limit;
+/* the fewest particles a network game keeps (the Xbox's own limit) */
+#define PARTICLES_NETWORK_FLOOR 1024
 static long particles_refused;
 static long particles_retired;
 static long particles_made_order[HALO_PORT_MAXIMUM_PARTICLES];
@@ -1178,6 +1181,24 @@ void particles_update(
 #else
 		particles_limit = config_integer("display.particle_limit");
 #endif
+		/* port: in a network game nobody sees fewer particles than the Xbox
+		kept, its 1024: a lower display.particle_limit would take away smoke
+		and dust that hide players ([tuning] in config.toml is for what is
+		drawn, never for an edge). Said once a value */
+		if (particles_limit > 0 && particles_limit < PARTICLES_NETWORK_FLOOR &&
+			(game_connection() == _game_connection_network_client ||
+			game_connection() == _game_connection_network_server))
+		{
+			static long said_for;
+
+			if (said_for != particles_limit)
+			{
+				said_for = particles_limit;
+				platform_log("tuning: display.particle_limit %ld held at %d in a network game (the Xbox's own)",
+					particles_limit, PARTICLES_NETWORK_FLOOR);
+			}
+			particles_limit = PARTICLES_NETWORK_FLOOR;
+		}
 		{
 			/* (read again only when the settings change: a string's
 			lookup each frame on the consoles) */
