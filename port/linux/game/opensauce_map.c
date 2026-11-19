@@ -100,6 +100,8 @@ static struct
 	/* the gravity as it was, put back when the map unloads */
 	boolean gravity_changed;
 	real gravity_before;
+	/* (camouflage past 1 said once a map) */
+	boolean camouflage_logged;
 } opensauce_globals;
 
 static char const *const opensauce_flag_names[NUMBER_OF_OPENSAUCE_HEADER_FLAGS] =
@@ -334,13 +336,11 @@ void opensauce_map_set_gravity_scale(
 float opensauce_map_drawn_camouflage(
 	float amount)
 {
-	static boolean logged = FALSE;
-
 	if (!opensauce_globals.active || (amount >= 0.0f && amount <= 1.0f))
 		return amount;
-	if (!logged)
+	if (!opensauce_globals.camouflage_logged)
 	{
-		logged = TRUE;
+		opensauce_globals.camouflage_logged = TRUE;
 		opensauce_log("a unit's active camouflage is %.2f, past 1 (its scripts set it so): drawn fully on, the unit "
 			"keeping its value as it fades", (double)amount);
 	}
@@ -354,6 +354,7 @@ void opensauce_map_unloaded(
 	if (opensauce_globals.active)
 		opensauce_scripts_map_unloaded();
 	opensauce_globals.active = FALSE;
+	opensauce_globals.camouflage_logged = FALSE;
 }
 
 #endif
