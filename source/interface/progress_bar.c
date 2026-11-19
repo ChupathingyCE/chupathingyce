@@ -2304,6 +2304,7 @@ static void progress_bar_load_loading_texture(
 	D3DLOCKED_RECT locked_rect;
 	unsigned long *pixels;
 	FILE *file;
+	boolean picture_read= FALSE;
 
 	/* port: a console short of memory may not get it: no loading picture,
 	and the loading screen drawn plainly (progress_bar_make_stuff_ready) */
@@ -2326,6 +2327,15 @@ static void progress_bar_load_loading_texture(
 	sprintf(source_path, "z%sloading.tga", map_directory + 1);
 #endif
 	file= fopen(source_path, "rb");
+#ifdef HALO_CONSOLE_NO_LOADING_PICTURE
+	/* port: the disc's own when the utility drive has no copy of it
+	(progress_bar_initialize copies it there) */
+	if (!file)
+	{
+		sprintf(source_path, "d%sloading.tga", map_directory + 1);
+		file= fopen(source_path, "rb");
+	}
+#endif
 	if (file)
 	{
 		image.width= 0;
@@ -2339,8 +2349,20 @@ static void progress_bar_load_loading_texture(
 		{
 			image.pixels= pixels;
 			tgaLoadImageData(file, &image);
+			picture_read= TRUE;
 		}
 		fclose(file);
+	}
+	/* port: without the picture the texture is black, not whatever its
+	memory held before (on the original Xbox, colored streaks drawn as the
+	loading screen: warthog-xbox #171) */
+	if (!picture_read)
+	{
+		long row;
+
+		for (row= 0; row<240; row++)
+			csmemset((byte *)pixels + row*locked_rect.Pitch, 0, 320*sizeof(*pixels));
+		error(_error_silent, "loading screen: no 320x240 24-bit loading.tga in the maps folder; drawn without its picture");
 	}
 	IDirect3DTexture8_UnlockRect(*texture, 0);
 
