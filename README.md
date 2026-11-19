@@ -285,6 +285,11 @@ with their authors credited in each commit.
 - goatbutt and the OpenH1 team: the high-res text drawn from distance
   fields (sharp at any size), the fixed benchmark, the variable refresh
   cap and the camouflaged weapon fix.
+- [hkmodd](https://github.com/hkmodd) (OpenCE): HDR (`display.hdr`): the
+  OpenGL half-float path and the tone mapping curves, from his OpenCE pull
+  request 280 as it stood before OpenCE's license change. The glows past
+  white and the brightness in nits follow goatbutt's and the OpenH1 team's
+  HDR.
 - chestahh (GulchCE): lens flares and light
   glows back on AMD graphics, less stutter the first time a texture is drawn
   on Windows, host cheat and shadow setup fixes, and the Halo MCC map

@@ -50,6 +50,8 @@ static void main_set_multiplayer_map_name(const char *map_name) { snprintf(host_
 static void game_engine_override_map_name(const char *map_name) { (void)map_name; }
 static boolean network_game_server_send_game_data_pregame(struct network_game_server *server) { (void)server; sends++; return TRUE; }
 static void network_event(const char *format, ...) { (void)format; }
+/* (no virtual machine here: a dedicated server's Custom Edition clients') */
+static boolean network_game_server_client_machine_is_virtual(struct network_game_server_client_machine const *machine) { (void)machine; return FALSE; }
 static void error(int level, const char *format, ...) { (void)level; (void)format; }
 static void platform_log(const char *format, ...)
 {
