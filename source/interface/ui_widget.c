@@ -1939,6 +1939,28 @@ void draw_bitmap_in_rect(
 		points[3].x = (real)rectangle_x0;
 		points[3].y = (real)(rectangle_y0 + rectangle_height);
 
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
+		/* port: a Halo PC map's menus (Custom Edition's, HaloMD's,
+		OpenSauce's) on a screen wider than 640: a bitmap that covers the
+		whole 640x480 is stretched to the screen's edges, as Chimera's
+		widescreen fix draws it for Custom Edition's players (a menu's
+		background, tint or fade), and the rest stays in the centered 640
+		columns. The menus are drawn shifted right by half the extra width
+		(halo_screen_ui_offset), so the bitmap reaches out that far each way */
+		{
+			extern boolean cache_file_tags_are_ce(void);
+			long extra = halo_screen_width() - 640;
+
+			if (extra > 0 && cache_file_tags_are_ce() &&
+				rect->x0 <= 1 && rect->x1 >= 639 && rect->y0 <= 1 && rect->y1 >= 479 &&
+				(!clip_rect || (clip_rect->x0 <= 1 && clip_rect->x1 >= 639)))
+			{
+				points[0].x = points[3].x = (real)(rectangle_x0 - extra / 2);
+				points[1].x = points[2].x = (real)(rectangle_x0 + rectangle_width + (extra - extra / 2));
+				clip_rect = NULL;
+			}
+		}
+#endif
 		if (clip_rect)
 		{
 			if (clip_rect->x0 > rect->x0)
