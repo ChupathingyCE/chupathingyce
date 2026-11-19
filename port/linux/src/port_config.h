@@ -73,6 +73,23 @@ unsigned long config_changes(void);
 and its name, else 0 */
 int config_duplicate_setting(char *name, size_t size);
 
+/* ---------- [tuning]: performance presets and knobs that change only what
+is drawn (port_config.c's config_tuning_apply) */
+
+/* every knob's value in one short line, the same in the log, the crash
+reports and Send my logs: "preset=potato lights=8(preset) particles=512(hand)
+present=vblank ...", a value followed by where it came from when that is not
+the default: (preset), (hand), (clamped) or (invalid). Its length */
+int config_tuning_summary(char *text, size_t size);
+/* the log's "tuning: at=<where> <summary>" line (at=map at each map's start) */
+void config_tuning_log(const char *where);
+/* the knobs' settings in order ("display.particle_limit", ...): NULL past
+the last, "" for one that is not this build's */
+const char *config_tuning_knob(int index);
+/* the value a preset ("lan-party", "potato") gives a knob, as text: NULL
+for none (it keeps its default) */
+const char *config_tuning_preset_value(const char *preset, const char *name);
+
 /* ---------- every setting, for the setup screen's Settings (launcher.c) */
 
 enum

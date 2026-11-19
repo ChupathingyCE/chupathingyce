@@ -3141,6 +3141,31 @@ boolean _rasterizer_initialize(
 			global_frame_rate_throttle = TRUE;
 			break;
 		}
+#ifdef HALO_XBOX_CONSOLE
+		/* port: tuning.present_mode = "adaptive" (config.toml's [tuning]): a
+		frame that misses its vertical blank is shown at once, with a tear,
+		rather than a whole refresh later (the console's *_OR_IMMEDIATE
+		intervals). "vblank", the default, keeps the game's own */
+		{
+			extern const char *config_string(const char *name);
+			extern void platform_log(const char *format, ...);
+
+			if (!strcmp(config_string("tuning.present_mode"), "adaptive"))
+			{
+				unsigned long interval = d3d_present_parameters.FullScreen_PresentationInterval;
+
+				if (interval == D3DPRESENT_INTERVAL_DEFAULT || interval == D3DPRESENT_INTERVAL_ONE)
+					interval = D3DPRESENT_INTERVAL_ONE_OR_IMMEDIATE;
+				else if (interval == D3DPRESENT_INTERVAL_TWO)
+					interval = D3DPRESENT_INTERVAL_TWO_OR_IMMEDIATE;
+				if (interval != d3d_present_parameters.FullScreen_PresentationInterval)
+				{
+					d3d_present_parameters.FullScreen_PresentationInterval = interval;
+					platform_log("tuning: present=adaptive, a late frame shown at once");
+				}
+			}
+		}
+#endif
 		result = IDirect3D8_CreateDevice(
 			d3d,
 			D3DADAPTER_DEFAULT,

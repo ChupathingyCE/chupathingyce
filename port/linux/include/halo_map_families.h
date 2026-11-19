@@ -204,6 +204,12 @@ Halo PC's ui), in maps_ce or its older places: FALSE if there is none (path
 then the place it goes) */
 boolean map_family_resource(char const *name, char *path, long size);
 
+/* the path of Halo PC retail's own resource map (bitmaps or sounds), in
+maps_pc, which HaloMD's and Halo PC's maps read their stock bitmaps' pixels
+and sounds' samples from when it is there (ce_resources.c): FALSE if there is
+none (path then the place it goes). The player's own copy: never shipped */
+boolean map_family_halo_pc_resource(char const *name, char *path, long size);
+
 /* whether Custom Edition's resource maps (bitmaps.map, sounds.map, loc.map),
 which every family past the Xbox's reads, are in maps_ce or its older places
 and are Custom Edition's: FALSE if one is missing, is not a resource map of

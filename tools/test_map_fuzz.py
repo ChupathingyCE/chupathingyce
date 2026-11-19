@@ -695,6 +695,67 @@ int main(void)
 """
 
 
+def halo_pc_resource_map(kind, resources, size):
+    """a resource map of Halo PC retail's layout (kind 1 bitmaps, 2 sounds), size
+    bytes long: its header, then each resource's path, then its table (a path's
+    offset, a size and an offset each), of resources (path, size, offset); none
+    of a game's data"""
+    paths = bytearray()
+    table = bytearray()
+    for path, resource_size, offset in resources:
+        table += struct.pack("<III", len(paths), resource_size, offset)
+        paths += path + b"\0"
+    data = bytearray(struct.pack("<IIII", kind, 16, 16 + len(paths), len(resources))) + paths + table
+    assert len(data) <= size
+    return bytes(data + bytes(size - len(data)))
+
+
+def test_retail_sounds_from_halo_pc_sounds_map(built, tmp_path):
+    """a HaloMD map's (Halo PC retail's, version 7) stock sound, whose samples
+    are at an offset in Halo PC's own sounds.map: read from there when the
+    player has it in maps_pc and it has them (a resource there from that
+    offset, no shorter); else found in Custom Edition's sounds.map as before
+    (here, not there: the sound is silent), with lines on the player's HUD
+    that name the file to add. A Custom Edition sounds.map put in maps_pc, or a
+    resource past its file's end, is not taken"""
+    binaries, _ = built
+    adpcm, external = 1, 1
+    offset = 0x400
+    retail = bytearray(ce_map(sound=[(adpcm, 36, external, offset)]))
+    struct.pack_into("<i", retail, 4, 7)
+    path = tmp_path / "retail.map"
+    path.write_bytes(retail)
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    (custom / "sounds.map").write_bytes(struct.pack("<IIII", 2, 16, 16, 0))
+    (custom / "bitmaps.map").write_bytes(struct.pack("<IIII", 1, 16, 16, 0))
+    read = "0 bitmaps and 1 sounds read from Halo PC's own"
+    cases = (
+        ("halo_pc", [(b"fuzz_sound__0__0", 36, offset)], 0x1000, read, "HUD 0"),
+        ("longer", [(b"fuzz_sound__0__0", 72, offset)], 0x1000, read, None),
+        ("shorter", [(b"fuzz_sound__0__0", 30, offset)], 0x1000, "1 sounds silent", "HUD 0"),
+        ("elsewhere", [(b"fuzz_sound__0__0", 36, offset + 4)], 0x1000, "1 sounds silent", None),
+        ("past_its_end", [(b"fuzz_sound__0__0", 36, offset)], offset + 20, "1 sounds silent", None),
+        ("custom_edition", [(b"fuzz_sound__permutations", 36, offset)], 0x1000,
+         "HUD 0: The sounds.map in maps_pc isn't Halo PC's.", read),
+        ("missing", None, 0, "HUD 0: Copy Halo PC's sounds.map to maps_pc.\nHUD 0: Some sounds in this "
+         "map are silent.", read),
+    )
+    for name, resources, size, expected, unexpected in cases:
+        environment = {"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_RESOURCES": str(custom)}
+        if resources is not None:
+            folder = tmp_path / name
+            folder.mkdir()
+            (folder / "sounds.map").write_bytes(halo_pc_resource_map(2, resources, size))
+            environment["MAP_FUZZ_PC_RESOURCES"] = str(folder)
+        result = run(binaries["ce"], [path], environment=environment)
+        assert result.returncode == 0, (name, result.stderr[-4000:])
+        assert "refused" not in result.stderr, (name, result.stderr[-4000:])
+        assert expected in result.stderr, (name, result.stderr[-4000:])
+        if unexpected:
+            assert unexpected not in result.stderr, (name, result.stderr[-4000:])
+
+
 def test_conversions_write_nothing_over_the_tag_index(built, tmp_path):
     """a tag placed over the tag index, so that a conversion's write (a
     damage effect's transition made a valid one) lands on another tag's
@@ -886,6 +947,29 @@ def test_map_changed_after_the_checks(built, tmp_path):
         assert f"refused as it loaded: {what} changed since the map was checked" in result.stderr, \
             (part, result.stderr[-4000:])
         assert f"the load found its {part} changed" in result.stderr, (part, result.stderr[-4000:])
+
+
+def test_byte_swapped_functions_turned_back(built, tmp_path):
+    """a light's gel functions written in the other byte order by a HaloMD
+    tool (256 for 1, 512 for 2): turned back before the schema checks them,
+    not made the first function; a value that is no
+    function either way still is"""
+    binaries, _ = built
+    data, offsets = ce_map_of_tags([(b"ligh", 0x400)])
+    light = offsets["tags"][0]
+    # (its yaw, roll and pitch functions: ce_functions.c)
+    for offset, value in ((0x8E, 256), (0x96, 512), (0x9E, 0x1234)):
+        struct.pack_into("<h", data, light + offset, value)
+    path = tmp_path / "functions.map"
+    path.write_bytes(data)
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "names periodic function 256, made 1" in result.stderr, result.stderr[-4000:]
+    assert "names periodic function 512, made 2" in result.stderr, result.stderr[-4000:]
+    assert "names periodic function 4660, made 0" in result.stderr, result.stderr[-4000:]
+    assert "3 periodic and 0 transition functions" in result.stderr, result.stderr[-4000:]
+    assert "_function is" not in result.stderr, result.stderr[-4000:]
+    assert "map_fuzz: the map loaded" in result.stderr, result.stderr[-4000:]
 
 # ---------- longer runs
 

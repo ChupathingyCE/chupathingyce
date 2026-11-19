@@ -2092,6 +2092,15 @@ driver (XWayland, gamescope's own): SDL's Wayland one takes any interval
 above 1 as 1, so there a fraction keeps the clock's limit. Everywhere else
 vsync off is as it was, the clock's limit, for the least latency. Based on
 work by goatbutt and the OpenH1 team. */
+/* tuning.present_mode = "adaptive" (config.toml's [tuning]): with V-Sync, a
+frame that missed the display shown at once, with a tear, rather than a
+whole refresh later (a swap interval of -1, the drivers' late swap tearing).
+Not with VRR, which shows each frame as it is ready anyway. */
+static int platform_present_adaptive(void)
+{
+	return !strcmp(config_string("tuning.present_mode"), "adaptive") && !platform_vrr();
+}
+
 static int platform_swap_interval(int vsync, long maximum)
 {
 #ifdef SWAP_INTERVAL_IN_STEP
@@ -2103,7 +2112,7 @@ static int platform_swap_interval(int vsync, long maximum)
 #endif
 
 	if (vsync)
-		return 1;
+		return platform_present_adaptive() ? -1 : 1;
 #ifdef SWAP_INTERVAL_IN_STEP
 #ifdef HALO_BGFX
 	if (xgpu_bgfx)
@@ -2146,6 +2155,18 @@ static void platform_swap_interval_apply(BOOL force, int vsync, long maximum)
 	if (!platform_gl_context || (!force && wanted == platform_interval_wanted))
 		return;
 	platform_interval_wanted = wanted;
+	if (interval < 0)
+	{
+		if (SDL_GL_SetSwapInterval(interval))
+		{
+			platform_log("tuning: present=adaptive, a late frame shown at once");
+			platform_interval = interval;
+			return;
+		}
+		platform_log("tuning: present=adaptive refused by the driver (%s): each frame waits for the display",
+			SDL_GetError());
+		interval = 1;
+	}
 	if (!SDL_GL_SetSwapInterval(interval))
 	{
 		platform_log("frame rate: a swap interval of %d refused (%s): the clock paces the frames", interval,
