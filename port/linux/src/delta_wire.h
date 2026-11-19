@@ -645,7 +645,10 @@ enum
 	DELTA_WIRE_HOST_LATE_JOIN_HOLD = 0x04,
 	/* the host takes no new machines now (sv_lock) */
 	DELTA_WIRE_HOST_JOINS_LOCKED = 0x08,
-	DELTA_WIRE_HOST_KNOWN_FLAGS = 0x0F
+	/* a shot fired while turned in mid-air goes where the player aims (the
+	180 glitch fixed: network.air_turn_aim). Without it the Xbox's shot */
+	DELTA_WIRE_HOST_AIR_TURN_AIM = 0x10,
+	DELTA_WIRE_HOST_KNOWN_FLAGS = 0x1F
 };
 
 /* TRAITS's game kinds: what the traits are for */

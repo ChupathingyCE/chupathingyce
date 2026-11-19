@@ -1345,6 +1345,11 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"In games you host, players who join a game in progress watch until\n"
 		"the next game starts. Off spawns them at once, as Halo does." },
+	{ "network.air_turn_aim", _config_boolean, "false", "HALO_NET_AIR_TURN_AIM", _environment_value,
+		_platform_all,
+		"In games you host (and games you play alone), a shot fired while\n"
+		"turned around in mid-air goes where you aim (the \"180 glitch\" fixed).\n"
+		"Off plays as the Xbox did: the shot leaves at an angle." },
 #ifdef HALO_PORT_VOICE
 	/* ---- voice chat in games you host (port/linux/game/voice_game.c) */
 	{ "network.voice", _config_boolean, "true", "HALO_NET_VOICE", _environment_value, _platform_all,

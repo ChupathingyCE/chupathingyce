@@ -1343,6 +1343,15 @@ static void test_wire_report(void)
 		size = delta_wire_write_host_rules(data, 7, &rules);
 		CHECK(size > 0 && delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_HOST_RULES_SIZE,
 			&rules_in) && rules_in.flags == (DELTA_WIRE_HOST_LATE_JOIN_HOLD | DELTA_WIRE_HOST_JOINS_LOCKED));
+		/* (shots turned around in mid-air: 0x10; a flag this build doesn't
+		know is left out) */
+		rules.flags = DELTA_WIRE_HOST_AIR_TURN_AIM;
+		size = delta_wire_write_host_rules(data, 7, &rules);
+		CHECK(size > 0 && delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_HOST_RULES_SIZE,
+			&rules_in) && rules_in.flags == DELTA_WIRE_HOST_AIR_TURN_AIM);
+		data[DELTA_WIRE_HEADER_SIZE + 1] |= 0x20;
+		CHECK(delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_HOST_RULES_SIZE,
+			&rules_in) && rules_in.flags == DELTA_WIRE_HOST_AIR_TURN_AIM);
 	}
 }
 

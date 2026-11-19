@@ -263,7 +263,7 @@ a later version may append):
 | 26 | BADGE | host to client | nonce (32, the BADGE_ASK's), signature (64, the certificate's server key's, of the proof below), certificate length (2, at most 143; 0 for none), proof (1: 2, "chupathingy server badge proof v2\n", the nonce, the host's invite and the session, [server-badges.md](https://github.com/ChupathingyCE/chupathingyce/blob/main/docs/server-badges.md); 0, the first drafts' nonce alone, shows no badge), reserved (1), then the certificate |
 | 27 | UNIT_VITALS | host to client | count (1, at most 98), flags (1: 0x01 the last datagram of a full pass), reserved (2), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
 | 28 | OBJECT_NAMES | host to client | total (2, the host's named objects and removed names in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4; 0xFFFFFFFF for a removed name), its scenario name index (2), flags (1: 0x01 removed, a name the host had an object of this game and has none of now; others ignored), and for a removed name its unit's last vitals: shield flags (1, as UNIT_VITALS's), body vitality (2), shield vitality (2) (full for an object that was not a unit; 0 for the others) |
-| 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed, 0x04 late joiners wait for the next game, 0x08 joins are locked; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
+| 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed, 0x04 late joiners wait for the next game, 0x08 joins are locked, 0x10 shots turned around in mid-air go where the player aims; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
 | 30 | ID_CHALLENGE | host to client | version (1; 1 now, 0 refused, a later one read as this), binding length (1, at most 64), reserved (2), nonce (32: this session's), binding (printable ASCII) |
 | 31 | ID_PROOF | client to host | version (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the local player and nothing follows; else 148 to 168), name length (1, at most 20), flags (1: 0x01 bound), reserved (3), time (4, Unix seconds), signature (64), issuer certificate (CISS, 112), device certificate (CDEV, the length's bytes), name (the handle in the player's capitals: `A-Z a-z 0-9 _ -`) |
 | 32 | ID_CARD | host to client | version (1), machine index (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the card and nothing follows; else 148 to 168), name length (1, at most 20), reserved (3), flags (1, the proof's), reserved (3), time (4, the proof's), nonce (32: the one the host challenged that machine's session with), signature (64), CISS (112), CDEV, name. At most 412 bytes |
@@ -890,6 +890,21 @@ game, over `host_rules` (bit 19):
   players, or a player's host's players of other machines). The host's Delta
   List announcement says `locked=1`, which the site keeps as
   `joins_locked` (games.txt's field 25), and the game list shows it.
+- **Shots turned around in mid-air** (0x10, off by default: a player's
+  host's `network.air_turn_aim`, a dedicated server's `air_turn_aim`). A
+  player's aim is held within their body's aiming bounds, and a body turned
+  away in mid-air doesn't turn back until it lands, so on the Xbox a shot
+  fired after turning around in a jump leaves at an angle (the "180
+  glitch"). With the rule a player on foot shoots where they aim, from no
+  further back than their eye. It lifts the aim holding wherever it happens,
+  on the ground too (during some animations), not only in mid-air. Each
+  machine fires its own players' shots by its own build: only players on a
+  build that knows 0x10 get the fix, and OpenCE, Custom Edition, console and
+  older Chupathingy players fire as on the Xbox. A machine that knows the
+  rule draws every player's shots by it, though, so it shows an older or
+  OpenCE player's turned shot going where they look while their own machine
+  fired it at an angle. That's only what is drawn: hits follow each
+  shooter's own machine.
 - **A host that says nothing** (OpenCE's, an older Chupathingy, a console
   without Delta) gets the Xbox's rules: no extras. A game played alone
   (split screen) is its own host's.

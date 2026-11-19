@@ -10,7 +10,10 @@ HALO_DETERMINISM), for tools/test_determinism.py:
   tick by tick, so the same game runs again without anyone's input.
 
 Either way the game's random seed is debug.determinism_seed (written in the
-recording, and taken from it on replay), the menus' ticks are left out (the
+recording, and taken from it on replay), as are the host's rules that change
+the simulation (network.air_turn_aim: a replay plays by the recording's,
+whatever its own config.toml says; a recording from before them, "HDET1",
+by the Xbox's), the menus' ticks are left out (the
 first game past the main menu is the one checked), and once a tick has run
 a line of hashes of the simulation's state goes to debug.determinism_hashes:
 
@@ -43,6 +46,7 @@ the tick loop (game_time.c).
 #include "objects/objects.h"
 #include "units/units.h"
 #include "interface/ui_widget.h"
+#include "host_rules.h"
 #include "math/real_math.h"
 
 #ifndef HALO_CONSOLE_NO_NETWORK_TEST
@@ -63,7 +67,15 @@ const char *config_string(char const *name);
 long config_integer(char const *name);
 void platform_log(char const *format, ...);
 
-#define DETERMINISM_MAGIC "HDET1"
+#define DETERMINISM_MAGIC "HDET2"
+/* (a recording from before the host's rules were in it: the Xbox's rules) */
+#define DETERMINISM_MAGIC_1 "HDET1"
+
+/* the host's rules a recording keeps (after its seed, one long) */
+enum
+{
+	_determinism_rule_air_turn_aim_bit = 0,
+};
 
 enum
 {
@@ -174,21 +186,33 @@ static void determinism_read_settings(
 		fwrite(header, sizeof(header), 1, determinism_globals.inputs);
 		fwrite(sizes, sizeof(sizes), 1, determinism_globals.inputs);
 		fwrite(&determinism_globals.seed, sizeof(determinism_globals.seed), 1, determinism_globals.inputs);
+		{
+			long rules = host_rules_host_air_turn_aim() ? FLAG(_determinism_rule_air_turn_aim_bit) : 0;
+
+			fwrite(&rules, sizeof(rules), 1, determinism_globals.inputs);
+		}
 		determinism_globals.mode = _determinism_record;
 	}
 	else if (!strncmp(setting, "replay:", 7))
 	{
 		char header[8];
 		unsigned long sizes[2];
+		long rules = 0;
+		boolean first_version = FALSE;
 
 		determinism_globals.inputs = fopen(setting + 7, "rb");
+		if (determinism_globals.inputs &&
+			fread(header, sizeof(header), 1, determinism_globals.inputs) == 1)
+		{
+			first_version = !strncmp(header, DETERMINISM_MAGIC_1, sizeof(header));
+		}
 		if (!determinism_globals.inputs ||
-			fread(header, sizeof(header), 1, determinism_globals.inputs) != 1 ||
-			strncmp(header, DETERMINISM_MAGIC, sizeof(header)) ||
+			(!first_version && strncmp(header, DETERMINISM_MAGIC, sizeof(header))) ||
 			fread(sizes, sizeof(sizes), 1, determinism_globals.inputs) != 1 ||
 			sizes[0] != sizeof(struct player_action) ||
 			sizes[1] != HALO_PORT_MAXIMUM_NETWORK_PLAYERS ||
-			fread(&determinism_globals.seed, sizeof(determinism_globals.seed), 1, determinism_globals.inputs) != 1)
+			fread(&determinism_globals.seed, sizeof(determinism_globals.seed), 1, determinism_globals.inputs) != 1 ||
+			(!first_version && fread(&rules, sizeof(rules), 1, determinism_globals.inputs) != 1))
 		{
 			platform_log("determinism: %s is not a recording of this build", setting + 7);
 			if (determinism_globals.inputs)
@@ -196,6 +220,8 @@ static void determinism_read_settings(
 			determinism_globals.inputs = NULL;
 			return;
 		}
+		/* (the recording's rules, over this copy's config.toml) */
+		host_rules_set_air_turn_aim(TEST_FLAG(rules, _determinism_rule_air_turn_aim_bit) ? TRUE : FALSE);
 		determinism_globals.mode = _determinism_replay;
 		determinism_read_next();
 	}
@@ -218,8 +244,9 @@ static void determinism_read_settings(
 		if (!determinism_globals.positions)
 			platform_log("determinism: can't write %s", positions);
 	}
-	platform_log("determinism: %s, seed %lu", determinism_globals.mode == _determinism_record ? "recording" : "replaying",
-		determinism_globals.seed);
+	platform_log("determinism: %s, seed %lu, air_turn_aim %s",
+		determinism_globals.mode == _determinism_record ? "recording" : "replaying",
+		determinism_globals.seed, host_rules_host_air_turn_aim() ? "on" : "off");
 }
 
 static boolean determinism_active(
