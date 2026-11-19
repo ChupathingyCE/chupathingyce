@@ -59,6 +59,11 @@ enum halo_keyboard_action
 menu or the console is up */
 unsigned long halo_keyboard_actions(short controller_index);
 
+/* the letter keys (A to Z) down while the menus have the keyboard, bit 0
+for A to bit 25 for Z: none while the console, text chat, the Guide or a
+text box takes it (the main menu's Konami code, menu_functions.c) */
+unsigned long halo_keyboard_menu_letters(void);
+
 /* whether an action has a key or button bound to it */
 int halo_keyboard_action_bound(int action);
 

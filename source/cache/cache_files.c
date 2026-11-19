@@ -1894,6 +1894,15 @@ long scenario_tags_load(
 			cache_file_globals.tags_loaded = TRUE;
 			CACHE_FILE_TAG_COUNT_FOLLOW(TRUE);
 			menu_tags_loaded(cache_file_globals.header.name);
+			/* port: the MCC map's stock HUD sheets the high-res HUD stands
+			for (port/linux/game/hud_hires_tags.c) */
+#ifndef HALO_CONSOLE_NO_HIRES
+			{
+				extern void hud_hires_mcc_tags_loaded(void);
+
+				hud_hires_mcc_tags_loaded();
+			}
+#endif
 			{
 				if (!mcc_pause_runtime_load())
 				{
