@@ -1130,3 +1130,22 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def test_pc_actor_variant_grenade_type_past_the_games(built, tmp_path):
+    """an actor variant whose grenade type is OpenSauce's third or fourth (as
+    SPV3's maps have): in Halo PC's layout it is made the first, as an
+    equipment's past the game's two is, since the AI indexes the globals'
+    grenades and a unit's grenade counts by it; one within the game's two, and
+    the stock 'warthog gunner''s older-layout 0x7072, are left alone"""
+    binaries, _ = built
+    for grenade_type, corrected in ((3, True), (2, True), (1, False), (0x7072, False)):
+        data, offsets = ce_map_of_tags([(b"actv", 0x238)])
+        struct.pack_into("<h", data, offsets["tags"][0] + 0x180, grenade_type)
+        path = tmp_path / "actor_variant.map"
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert (f"grenade_combat.grenade_type is {grenade_type}, OpenSauce's, past the game's 2: 0"
+                in result.stderr) == corrected, \
+            result.stderr[-4000:]
