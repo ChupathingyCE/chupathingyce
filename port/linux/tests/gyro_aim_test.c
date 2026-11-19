@@ -162,6 +162,48 @@ static void test_slow_pan(void)
 	NEAR(angle[1], DEGREES((4.0 - 0.75) * 2.0), DEGREES(0.5));
 }
 
+/* a bias that is wrong by more than GYRO_FILTER_STILL_BIAS_CHANGE (the
+first still second was a slow pan, or the drift jumped) is replaced after
+GYRO_FILTER_STILL_RELEARN still seconds in a row, and the view stops
+creeping */
+static void test_relearn(void)
+{
+	struct gyro_filter filter;
+	float angle[3] = { 0.0f, 0.0f, 0.0f };
+	float still[3] = { 0.0f, 0.0f, 0.0f };
+	float pan[3] = { 0.0f, DEGREES(4.0), 0.0f };
+	float drift[3] = { 0.0f, DEGREES(2.0), 0.0f };
+
+	gyro_filter_reset(&filter);
+	run(&filter, pan, one_g, 1.2f, DEGREES(0.75), angle);
+	NEAR(filter.bias[1], DEGREES(4.0), DEGREES(0.05));
+	run(&filter, still, one_g, 4.5f, DEGREES(0.75), angle);
+	NEAR(filter.bias[1], 0.0f, DEGREES(0.05));
+	memset(angle, 0, sizeof(angle));
+	run(&filter, still, one_g, 60.0f, DEGREES(0.75), angle);
+	NEAR(angle[1], 0.0f, DEGREES(0.01));
+	/* the drift jumps by 2 degrees a second: learnt again */
+	run(&filter, drift, one_g, 4.5f, DEGREES(0.75), angle);
+	NEAR(filter.bias[1], drift[1], DEGREES(0.05));
+	memset(angle, 0, sizeof(angle));
+	run(&filter, drift, one_g, 60.0f, DEGREES(0.75), angle);
+	NEAR(angle[1], 0.0f, DEGREES(0.01));
+	/* still seconds away from the bias that are not in a row (moved in
+	between) replace nothing */
+	{
+		float shaking[3] = { 0.0f, 1.0f, 0.0f };
+		int round;
+
+		for (round = 0; round < 5; round++)
+		{
+			run(&filter, still, one_g, 2.5f, DEGREES(0.75), angle);
+			shaking[0] = 0.2f;
+			gyro_filter_sample(&filter, still, shaking, DT, DEGREES(0.75), angle);
+		}
+		NEAR(filter.bias[1], drift[1], DEGREES(0.05));
+	}
+}
+
 /* a real turn is never taken for the bias, and comes through whole */
 static void test_turn(void)
 {
@@ -340,6 +382,7 @@ int main(int argc, char **argv)
 	test_drift();
 	test_turn();
 	test_slow_pan();
+	test_relearn();
 	test_smoothing();
 	test_deadzone();
 	test_gaps();

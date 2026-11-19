@@ -83,7 +83,8 @@ static void gyro_window_start(struct gyro_filter *filter, const float rate[3], c
 
 /* the bias: learnt from each second the controller lies still (the first
 one taken as it is, later ones halfway, and only those within
-GYRO_FILTER_STILL_BIAS_CHANGE of the bias learnt) */
+GYRO_FILTER_STILL_BIAS_CHANGE of the bias learnt; GYRO_FILTER_STILL_RELEARN
+in a row that agree on another bias replace it) */
 static void gyro_calibrate(struct gyro_filter *filter, const float rate[3], const float accel[3], float dt)
 {
 	int axis, still = 1;
@@ -111,7 +112,9 @@ static void gyro_calibrate(struct gyro_filter *filter, const float rate[3], cons
 	}
 	if (!still)
 	{
-		/* (moved: a new window from this sample) */
+		/* (moved: a new window from this sample, and the still seconds
+		away from the bias are no longer in a row) */
+		filter->relearn_count = 0;
 		gyro_window_start(filter, rate, accel, dt);
 		return;
 	}
@@ -120,26 +123,46 @@ static void gyro_calibrate(struct gyro_filter *filter, const float rate[3], cons
 		filter->window_sum[axis] += rate[axis] * dt;
 	if (filter->window_time >= GYRO_FILTER_STILL_TIME)
 	{
+		float mean[3];
+		int near_bias = 1, near_relearn = filter->relearn_count > 0;
+
 		for (axis = 0; axis < 3; axis++)
 		{
-			float mean = filter->window_sum[axis] / filter->window_time;
-
+			mean[axis] = filter->window_sum[axis] / filter->window_time;
+			if (gyro_absolute(mean[axis]) > GYRO_FILTER_STILL_MEAN)
+				break;
 			/* (once a bias is learnt, a still second must be near it: a
 			slow steady pan, as smooth as a controller lying still, is not
 			taken for drift) */
-			if (gyro_absolute(mean) > GYRO_FILTER_STILL_MEAN ||
-				(filter->still_count && gyro_absolute(mean - filter->bias[axis]) > GYRO_FILTER_STILL_BIAS_CHANGE))
-				break;
+			if (filter->still_count && gyro_absolute(mean[axis] - filter->bias[axis]) > GYRO_FILTER_STILL_BIAS_CHANGE)
+				near_bias = 0;
+			if (gyro_absolute(mean[axis] - filter->relearn[axis]) > GYRO_FILTER_STILL_BIAS_CHANGE)
+				near_relearn = 0;
 		}
-		if (axis == 3)
+		if (axis < 3)
+			filter->relearn_count = 0;
+		else if (near_bias)
 		{
 			for (axis = 0; axis < 3; axis++)
-			{
-				float mean = filter->window_sum[axis] / filter->window_time;
-
-				filter->bias[axis] = filter->still_count ? 0.5f * (filter->bias[axis] + mean) : mean;
-			}
+				filter->bias[axis] = filter->still_count ? 0.5f * (filter->bias[axis] + mean[axis]) : mean[axis];
 			filter->still_count++;
+			filter->relearn_count = 0;
+		}
+		else
+		{
+			/* (away from the bias: replaced by enough such seconds in a
+			row that agree with each other) */
+			if (!near_relearn)
+				filter->relearn_count = 0;
+			for (axis = 0; axis < 3; axis++)
+				filter->relearn[axis] = filter->relearn_count ?
+					0.5f * (filter->relearn[axis] + mean[axis]) : mean[axis];
+			if (++filter->relearn_count >= GYRO_FILTER_STILL_RELEARN)
+			{
+				memcpy(filter->bias, filter->relearn, sizeof(filter->bias));
+				filter->still_count++;
+				filter->relearn_count = 0;
+			}
 		}
 		filter->window_time = 0.0f;
 	}

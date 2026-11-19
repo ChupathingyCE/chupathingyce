@@ -88,6 +88,10 @@ took any still second; a slow steady pan, 2 seconds at 4 degrees a second,
 passed for still and was learnt as 3 degrees a second of drift, so the
 view then crept the other way */
 #define GYRO_FILTER_STILL_BIAS_CHANGE 0.01745f
+/* still seconds in a row that agree with each other (within
+GYRO_FILTER_STILL_BIAS_CHANGE) but not with the bias replace it: the drift
+did change by more than that, or the first still second was a slow pan */
+#define GYRO_FILTER_STILL_RELEARN 3
 /* a gap longer than this (seconds) between two samples integrates nothing
 (BirchWood's Vita sampled at 60 Hz or more and had 0.05; a phone's and a
 Bluetooth controller's samples come further apart now and then) */
@@ -103,6 +107,9 @@ struct gyro_filter
 	it was learnt from */
 	float bias[3];
 	int still_count;
+	/* still seconds in a row away from the bias, and their mean */
+	int relearn_count;
+	float relearn[3];
 	/* the current still window */
 	float window_time;
 	float window_sum[3];
