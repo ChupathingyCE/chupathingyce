@@ -232,6 +232,9 @@ struct ce_map_digests
 	/* and the zeroes read after its tag data as its last tag's
 	(ce_tags_tail), which the load gives it too */
 	unsigned long tags_tail;
+	/* and the room it leaves free past what its models and BSP buffers
+	need (ce_map_checked_spare_room) */
+	unsigned long spare_room;
 };
 static struct ce_map_digests ce_checked_digests;
 static struct ce_map_digests ce_checking_digests;
@@ -823,6 +826,7 @@ static boolean ce_map_check_tags(
 				needed - room);
 			goto done;
 		}
+		ce_checking_digests.spare_room = room - model_bytes - bsp_bytes;
 	}
 	valid = ce_shaders_check(&tags, instances, tag_count) && ce_hud_check(&tags, instances, tag_count) &&
 		ce_animations_check(&tags, instances, tag_count) && ce_weapons_check(&tags, instances, tag_count);
@@ -1434,6 +1438,12 @@ unsigned long ce_map_checked_tags_tail(
 	void)
 {
 	return ce_checked_digests.tags_tail;
+}
+
+unsigned long ce_map_checked_spare_room(
+	void)
+{
+	return ce_checked_digests.spare_room;
 }
 
 long ce_map_header_tag_data_size(

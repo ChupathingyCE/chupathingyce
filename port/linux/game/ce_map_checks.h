@@ -241,6 +241,10 @@ its last tag's (a HaloMD map's that begins where its tag data ends,
 ce_map_checks.c's ce_tags_tail), or 0: the load puts the same there, and
 its resource maps' tags after them */
 unsigned long ce_map_checked_tags_tail(void);
+/* the bytes of the tag cache the map open was checked to leave free after
+its tags, past what its models and structure BSPs' buffers take
+(ce_resources_allocate_tags may give the tag validator that many) */
+unsigned long ce_map_checked_spare_room(void);
 /* a cache file's tag data size as its header gives it, or, a HaloMD map's
 (version 7) whose header gives the file's length there, as some HaloMD tool
 wrote it (greatwall_1, za_1), the rest of the file after its tag data's
