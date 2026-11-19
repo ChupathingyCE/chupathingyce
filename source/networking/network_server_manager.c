@@ -3984,7 +3984,8 @@ void network_game_server_begin_game_start_countdown(
 
 /**
  * @brief Whether a team game lacks a player on one of its teams, which
- * holds back the start. Never with game.start_with_one_player.
+ * holds back the start. Never with game.start_with_one_player, nor on a
+ * dedicated server with Custom Edition players in.
  * @param server the server whose game is asked about
  * @return TRUE if the start has to wait for more players
  */
