@@ -807,6 +807,17 @@ retain their existing geometry. Mercury Falling's pistol, ability counters
 and vehicle prompts exposed these separate cases; the rules do not depend
 on map or weapon names. Descent's custom layouts remain separate.
 
+With High-Res HUD on (`display.high_res_hud`, the default), an MCC map
+that uses MCC's stock HUD sheets draws the restored art the Xbox maps' HUD
+uses, laid out as MCC's sheets (`port/assets/hud/mcc`, made by
+`tools/hud_assets.py mcc-layout`). Each sheet is recognized as its map
+loads by its tag, bitmap index, size and the CRC-32 of its first mip level
+as the map stores it, before conversion (`hud_hires_tags.c`,
+`mcc_bitmaps.c`); a map's own art keeps its look whatever its tags are
+named. Cells the layout can't match surely, MCC's controller buttons among
+them, are copied from the map's own pixels into the texture. Meters are left
+as MCC draws them. Turning High-Res HUD off restores MCC's sheets at once.
+
 Visual checks must cover real stock/custom MCC HUDs at native resolution; synthetic
 tests alone cannot establish that every authored layout matches MCC.
 

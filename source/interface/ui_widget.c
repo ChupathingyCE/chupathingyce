@@ -700,6 +700,13 @@ struct widget_instance;
 /* port: Controller Buttons asking for a button (menu_functions.c) */
 boolean pc_menu_controller_capture(void);
 #endif
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+/* port: the Konami code on the Chupathingy main menu (menu_functions.c): a
+controller's press, whether the menu should not get it; and the keyboard's
+B and A letters, each frame */
+boolean pc_menu_konami_event(boolean button, short index, short value);
+void pc_menu_konami_keys(void);
+#endif
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 /* the in-game server browser (port/linux/game/browser_screen.c; the
 console's, port/xbox/game/xbox_browser_screen.c): a screen of code over the
@@ -10885,6 +10892,9 @@ void process_ui_widgets(
 	boolean pause_pressed;
 	boolean modal_widget_active[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 	long widget_index;
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+	boolean konami_on_main_menu;
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\interface\\ui_widget.c",
@@ -11072,6 +11082,13 @@ void process_ui_widgets(
 
 		return;
 	}
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+	/* port: the Konami code on the Chupathingy main menu, the keyboard's B
+	and A letters (menu_functions.c: the logo's duct tape) */
+	konami_on_main_menu = main_menu_screen_is_active() && pc_menus_chupathingy();
+	if (konami_on_main_menu)
+		pc_menu_konami_keys();
+#endif
 	pause_pressed = ui_check_for_pause_game();
 	any_modal_widget_active = FALSE;
 	for (widget_index = 0;
@@ -11121,6 +11138,18 @@ void process_ui_widgets(
 			{
 				do
 				{
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE)
+					/* port: the code's presses, seen first; its B and A
+					kept from the menu (B would ask to quit, A open a row) */
+					if (konami_on_main_menu &&
+						pc_menu_konami_event(
+							event.type == _event_type_button,
+							event.data.button.index,
+							event.data.button.value))
+					{
+						continue;
+					}
+#endif
 					if (!pause_pressed)
 					{
 						widget_instance_process_one_event_recursive(

@@ -31,3 +31,15 @@ meter's base (`hud_health_base__0.png`), the radar's blips
 (`hud_sweeper__0.png`, `hud_sweeper_mask__0.png`). Those redraws came with
 the code this project was forked from. They are not Aerocatia's or
 Jessie's work.
+
+## MCC maps
+
+The textures in `mcc/` are the same art laid out as the stock HUD sheets of
+Halo: The Master Chief Collection's Halo CE maps, which Workshop maps carry
+too, so that an MCC map that uses MCC's stock HUD draws ours as an Xbox map
+does. `tools/hud_assets.py mcc-layout` matches each cell of MCC's sheets
+with Aerocatia's and Jessie's art and writes `mcc_layout.json` (numbers
+only: no MCC art is in this folder). Cells it can't match surely, among
+them MCC's controller buttons, are left out of the textures, and the game
+draws the map's own pixels there. The radar's and the health meter's base
+are drawn from the redraws in `svg/`, as above. The same terms apply.
