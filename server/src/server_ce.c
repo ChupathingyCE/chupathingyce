@@ -93,7 +93,7 @@ enum
 	ITEM_UPDATE_TICKS = 5,
 	/* a still vehicle's place, again, this often */
 	VEHICLE_REFRESH_TICKS = 90,
-	/* a join waiting for a game to start or a seat, at most (a client gives
+	/* a join waiting for a game to start, at most (a client gives
 	up on an unanswered join after about 15 seconds) */
 	JOIN_WAIT_MILLISECONDS = 12000,
 	/* between games: the scores' keep-alive this often; a client's join
@@ -112,7 +112,7 @@ enum
 	/* the game over: its end and the scores told */
 	CE_PHASE_ENDED,
 	/* the next game up: told to reconnect (its client closes its connection
-	and connects again a second later, its seat kept for it) */
+	and connects again a second later, its machine kept for it) */
 	CE_PHASE_RECONNECTING,
 	/* joined an empty server between games: its player is in the lobby (so
 	the server starts a game for it), its join answered once that game plays */
@@ -264,7 +264,7 @@ static struct
 	struct ce_client clients[CE_CLIENTS];
 	/* each wire number's object */
 	long objects[NETWORK_OBJECTS + 1];
-	/* joins waiting for a game to start, or for a seat a leaving player still holds */
+	/* joins waiting for a game to start */
 	struct ce_event waiting[CE_GAME_PLAYERS];
 	unsigned long waiting_time[CE_GAME_PLAYERS];
 	int waiting_count;
@@ -848,7 +848,7 @@ static boolean map_playable(
 }
 
 /* what a client was told of the game, forgotten (it joins the next game
-afresh): it keeps its connection, name, address and seat */
+afresh): it keeps its connection, name, address and machine */
 static void client_reset(
 	struct ce_client *client)
 {
@@ -2296,7 +2296,7 @@ step by step (its client shows the scores), the scores' keep-alive while
 they're up, then, once the next game plays, the next game's settings
 without a map and the reconnect: its client closes its connection and
 connects again a second later, joining the next game as a new client would,
-and is given its seat back (join, rejoin). FALSE: it was let go */
+and is given its machine back (join, rejoin). FALSE: it was let go */
 static boolean between_games(
 	struct ce_client *client,
 	struct dedicated_status const *status)
@@ -2370,7 +2370,7 @@ static boolean between_games(
 				leave(client->peer);
 				return FALSE;
 			}
-			/* (its own player as itself, its seat kept for the next game) */
+			/* (its own player as itself, its machine kept for the next game) */
 			game_settings_for(client->peer, client->name, client_player(client), &settings, NULL);
 			settings.map[0] = 0;
 			ce_payload_begin(&payload, out, sizeof(out));
@@ -2449,7 +2449,7 @@ void server_ce_update(
 			}
 			break;
 		case CE_EVENT_LEFT:
-			/* (a client told to reconnect closes its connection: its seat
+			/* (a client told to reconnect closes its connection: its machine
 			waits for its new one) */
 			if (client && client->phase == CE_PHASE_RECONNECTING)
 				client->peer = NONE;

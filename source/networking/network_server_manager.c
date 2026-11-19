@@ -4111,9 +4111,9 @@ boolean server_has_enough_machines(
 
 #ifdef HALO_SERVER
 	{
-		/* port: a dedicated server's Custom Edition players are seats of its
-		own machine, so with one there its machine is enough
-		(server/src/server_ce.c) */
+		/* port: a dedicated server's Custom Edition players are machines of
+		its own making (virtual machines, below): with one there no other
+		machine is needed (server/src/server_ce.c) */
 		boolean server_ce_players_present(void);
 
 		if (server_ce_players_present())
@@ -4960,10 +4960,10 @@ void network_game_server_update_countdown(
 #ifdef HALO_SERVER
 					{
 						/* port: a dedicated server's Custom Edition players are
-						seats of its own machine (server_has_enough_machines):
-						with them there, the lobby counts down without another
-						machine, or a game with only them never starts
-						(server/src/server_ce.c) */
+						on virtual machines, which have no connection to count
+						(server_has_enough_machines): with them there, the
+						lobby counts down without another machine, or a game
+						with only them never starts (server/src/server_ce.c) */
 						boolean server_ce_players_present(void);
 
 						if (server_ce_players_present())
