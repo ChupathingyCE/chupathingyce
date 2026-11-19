@@ -59,3 +59,46 @@ void macos_window_toggle_full_screen_space(void *window)
 	if (window)
 		((toggle)objc_msgSend)(window, sel_registerName("toggleFullScreen:"), NULL);
 }
+
+/* (the Objective-C runtime's autorelease pools, for a thread of our own) */
+void *objc_autoreleasePoolPush(void);
+void objc_autoreleasePoolPop(void *pool);
+
+/* compiles a shader's Metal source on the device (an MTLDevice, bgfx's) as
+bgfx's Metal renderer does (renderer_mtl.h's newLibraryWithSource: invariance
+preserved), and lets the library go. Metal keeps what it compiled, so
+bgfx's own compile of the same source in its frame is quick. For bgfx's
+compiler threads (d3d8_bgfx.inl): a compile is tens of milliseconds the
+first time a build sees a shader, which a frame would otherwise wait for.
+0 if it did not compile */
+int macos_metal_library_prepare(void *device, const char *source)
+{
+	typedef void *(*object_message)(void *, SEL);
+	typedef void *(*string_message)(void *, SEL, const char *);
+	typedef void (*flag_message)(void *, SEL, signed char);
+	typedef signed char (*responds_message)(void *, SEL, SEL);
+	typedef void *(*library_message)(void *, SEL, void *, void *, void **);
+	void *pool, *string, *options, *library, *error = NULL;
+	Class string_class = objc_getClass("NSString"), options_class = objc_getClass("MTLCompileOptions");
+
+	if (!device || !source || !string_class || !options_class)
+		return 0;
+	pool = objc_autoreleasePoolPush();
+	string = ((string_message)objc_msgSend)(((object_message)objc_msgSend)((void *)string_class,
+		sel_registerName("alloc")), sel_registerName("initWithUTF8String:"), source);
+	options = ((object_message)objc_msgSend)(((object_message)objc_msgSend)((void *)options_class,
+		sel_registerName("alloc")), sel_registerName("init"));
+	if (options && ((responds_message)objc_msgSend)(options, sel_registerName("respondsToSelector:"),
+		sel_registerName("setPreserveInvariance:")))
+		((flag_message)objc_msgSend)(options, sel_registerName("setPreserveInvariance:"), 1);
+	library = string && options ? ((library_message)objc_msgSend)(device,
+		sel_registerName("newLibraryWithSource:options:error:"), string, options, &error) : NULL;
+	if (library)
+		((object_message)objc_msgSend)(library, sel_registerName("release"));
+	if (options)
+		((object_message)objc_msgSend)(options, sel_registerName("release"));
+	if (string)
+		((object_message)objc_msgSend)(string, sel_registerName("release"));
+	objc_autoreleasePoolPop(pool);
+	return library != NULL;
+}
