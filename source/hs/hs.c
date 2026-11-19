@@ -12215,15 +12215,17 @@ long const hs_function_table_count= 418 + 3 + 24 + HS_MODS_FUNCTIONS;
 long const hs_function_table_count= 418;
 #endif
 
+/* port: OpenSauce's functions and globals (a map with an OpenSauce header
+only: port/linux/game/opensauce_scripts.c); a build without them gets the
+header's empty ones, which hs_scenario_postprocess counts too */
+#include "opensauce_scripts.h"
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 /* port: Stubbs the Zombie's functions, a table of their own after Halo's
 (Stubbs mode only: port/linux/game/stubbs_functions.c) */
 #include "stubbs_mode.h"
 #include "stubbs_functions.h"
 #include "stubbs_campaign.h" /* (the map_name allowance) */
-/* port: and OpenSauce's, a table after them (a map with an OpenSauce header
-only: port/linux/game/opensauce_scripts.c) */
-#include "opensauce_scripts.h"
+/* port: and OpenSauce's, a table after them */
 #define HS_FUNCTION_COUNT() (hs_function_table_count + stubbs_function_count() + opensauce_script_function_count())
 #else
 #define HS_FUNCTION_COUNT() hs_function_table_count
