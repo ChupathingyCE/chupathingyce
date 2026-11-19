@@ -221,6 +221,10 @@ game takes: any map file name Halo PC takes, no path out of the maps folder */
 boolean network_game_client_map_name_is_valid(
 	char const *map_name,
 	long size);
+/* port: while this machine plays in a host's game, milliseconds since the
+host was last heard; NONE otherwise (the ping meter, latency_meter.c) */
+long network_game_client_silent_milliseconds(
+	void);
 
 /* ---------- globals */
 

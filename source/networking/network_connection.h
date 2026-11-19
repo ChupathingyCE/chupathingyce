@@ -82,6 +82,10 @@ boolean network_connection_active(
 	struct network_connection *connection);
 boolean network_connection_going_stale(
 	struct network_connection *connection);
+/* port: milliseconds since the other end was last heard (the time
+network_connection_idle's going stale and timeout count from) */
+unsigned long network_connection_silent_milliseconds(
+	struct network_connection *connection);
 void network_connection_keep_alive(
 	struct network_connection *connection);
 boolean network_connection_server_accept_client_connection(

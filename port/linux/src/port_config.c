@@ -590,6 +590,10 @@ static const struct config_setting config_settings[] =
 		"Show each Chupathingy player's platform logo on the scoreboard.\n"
 		"\"auto\" shows them only with the Chupathingy menus. \"on\" always\n"
 		"shows them, and \"off\" never does." },
+	{ "display.ping_meter", _config_boolean, "false", "HALO_PING_METER", _environment_value,
+		_platform_all | _platform_console_gl,
+		"Show your ping at the top right in a network game, with \"Connection\n"
+		"problem\" when the host goes quiet. The host sees its slowest player's." },
 	{ "display.show_quit_players", _config_boolean, "true", "HALO_SHOW_QUIT_PLAYERS", _environment_value,
 		_platform_all | _platform_xbox,
 		"Keep players who quit on the multiplayer scoreboard." },
