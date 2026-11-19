@@ -1636,14 +1636,24 @@ The monitor opens the Online Games screen, finds the game listed under
 that name (the same name, else the same name in any case, else the one game
 whose name holds it), and joins it as A on it does, once. It joins only a
 game with no password, open to joins, of a version it plays, and with
-`debug.monitor_free_slots` free after its own player (2 unless set). Its
-player is named `debug.monitor_name` ("Chupa" unless set) and plays
-nothing: no input, no chat; the tool turns voice, profile sharing, map
+`debug.monitor_free_slots` free after its own player (2 unless set, 1 at
+least). Its player is named `debug.monitor_name` ("Chupa" unless set) and
+plays nothing: no chat, and no input (this machine's gamepads, keyboard and
+mouse never reach the game); the tool turns voice, profile sharing, map
 downloads, the game list's reports and the lobby off. It leaves when
 `debug.monitor_minutes` are up and the game under way has ended (20
-minutes later at most), after `debug.monitor_games` games, at once when
-the game has fewer free slots than it keeps, and for good when the host
-drops it. Nothing it writes names an address.
+minutes later at most), after `debug.monitor_games` games (it won't run
+with neither), at once when the game has fewer free slots than it keeps,
+and for good when the host drops it. The tool runs it once a server at a
+time (a lock file), and not again on a server whose join failed or that
+dropped it until it is told to (`--clear-failed`).
+
+Nothing it writes names an address or a player. Games go by their listed
+names (a player's own game, often named after the player, only counted),
+and the server's lines by their channel, length and a hash: a line may
+name players, so its text goes only to a local file beside the output, and
+only with `debug.monitor_keep_text`; a report never has it. The game's log
+reaches a report only as counts of what kind of line it was.
 
 Every ten seconds a line of JSON goes to `debug.monitor_output`:
 
@@ -1663,10 +1673,10 @@ Every ten seconds a line of JSON goes to `debug.monitor_output`:
   up is the report's "unaccounted" row;
 - the server's lines, by how they came (Delta's chat, or the host's
   notices, OpenCE's servers' server messages, which a Delta client shows
-  on its console), and the players' chat, counted (the server's text kept,
-  a player's never);
-- the players, the bots (players sharing a machine: a dedicated server's
-  own plays no one), and how often the host told this machine of each;
+  on its console), and the players' chat, counted;
+- the players, the bots (on a dedicated server, players sharing a machine:
+  its own plays no one; a player's game's split screen is not counted as
+  bots), and how often the host told this machine of each;
 - this machine's own frames (the longest, those over 50 and 100 ms): a gap
   in the host's ticks while every frame here was short wasn't this
   machine's;

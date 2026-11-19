@@ -15,16 +15,23 @@ short Markdown page.
     python3 tools/server_monitor.py compare reports/a.json reports/b.json --out compare.md
 
 The guest's rules are the game's own (net_monitor.c): one connection, a
-plain player name (--name, "Chupa" unless set), no input, no chat, no voice,
-room kept for players (--free-slots, 2 unless set), short sessions, and no
-joining again when the host drops it. The tool never runs it twice at once
-for a server, and never again after a failed join. Nothing in a report names
-an address: the game is named by its listed name, and any address in a log
-line copied into a report is replaced with a tag.
+plain player name (--name, "Chupa" unless set), no input (this machine's
+gamepads, keyboard and mouse are shut out), no chat, no voice, room kept
+for players (--free-slots, 2 unless set, 1 at least), short sessions (it
+won't run with neither --minutes nor --games), and no joining again when the
+host drops it. The tool keeps it to one run a server at a time (a lock file
+in --work), and after a join that failed or a host that dropped it, it runs
+on that server no more until --clear-failed says so (a marker in --work).
+
+Nothing in a report names an address or a player: the game goes by its
+listed name, the server's lines by their channel, length and a hash (their
+text, which may name players, only in a local file with --keep-text, never
+the report), and the game's log only as counts of what kind of line it was.
 """
 
 import argparse
 import datetime
+import ipaddress
 import json
 import os
 import re
@@ -45,7 +52,13 @@ GAP_BOUNDS = ["<40", "40-49", "50-69", "70-99", "100-149", "150-249", "250-499",
 CORRECTION_KINDS = ["own_player", "remote_player", "own_vehicle", "remote_vehicle", "object", "actor", "host"]
 EXIT_REASONS = {0: "left as planned", 3: "not listed", 4: "not joinable", 5: "near full", 6: "join failed",
                 7: "dropped by the host"}
-ADDRESS = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b|\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b", re.I)
+# what may be an address: IPv4 (with a port), or anything of hex digits,
+# colons and dots with two colons or more (IPv6, compressed, bracketed, with a
+# zone and a port, or IPv4 mapped); each checked by ipaddress before it is
+# replaced
+ADDRESS = re.compile(r"\[?(?<![\w:.])(?:[0-9A-Fa-f]{0,4}:){2,7}(?:[0-9A-Fa-f]{0,4}|(?:\d{1,3}\.){3}\d{1,3})"
+                     r"(?:%[\w.-]+)?\]?(?::\d+)?(?![\w:.])"
+                     r"|(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?![\w.])")
 # the game's log lines worth a look, and ones that only look like it
 LOG_WORDS = ("warning", "desync", "out of sync", "mismatch", "refused", "dropped", "unable to join", "malformed",
              "unknown message", "timed out", "kicked", "disconnect")
@@ -55,8 +68,24 @@ DIP_TICKS = 27.0
 DIP_GAP_MS = 250
 
 
+def is_address(token):
+    """Whether a token found by ADDRESS is an address (brackets, a zone and a
+    port taken off)."""
+    candidate = token
+    if candidate.startswith("["):
+        candidate = candidate[1:].split("]", 1)[0]
+    elif candidate.count(":") == 1:
+        candidate = candidate.split(":", 1)[0]
+    candidate = candidate.split("%", 1)[0]
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        return False
+    return True
+
+
 def redact(text):
-    return ADDRESS.sub("[address]", text)
+    return ADDRESS.sub(lambda match: "[address]" if is_address(match.group(0)) else match.group(0), text)
 
 
 def kind_names():
@@ -159,9 +188,54 @@ def safe_name(name):
 
 # ---------- run
 
+# exit codes of a join that failed or a host that dropped the monitor
+# (net_monitor.c): no run on that server again until --clear-failed
+FAILED_EXITS = (6, 7)
+
+
+def take_lock(path):
+    """The server's lock file, made with this process's id; FALSE if another
+    living process holds it (one left by a process that is gone is taken)."""
+    for _ in range(2):
+        try:
+            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            try:
+                holder = int(open(path).read().strip() or 0)
+                os.kill(holder, 0)
+                return False
+            except (ValueError, ProcessLookupError):
+                os.unlink(path)
+                continue
+            except PermissionError:
+                return False
+        with os.fdopen(descriptor, "w") as file:
+            file.write(str(os.getpid()))
+        return True
+    return False
+
+
 def run(args):
     if not os.path.exists(args.game):
         sys.exit(f"server_monitor: no game at {args.game}")
+    work = os.path.abspath(args.work)
+    os.makedirs(work, exist_ok=True)
+    marker = os.path.join(work, f"{safe_name(args.server)}.join-failed")
+    if args.clear_failed and os.path.exists(marker):
+        os.unlink(marker)
+    if os.path.exists(marker):
+        sys.exit(f"server_monitor: {args.server}: an earlier join failed or the host dropped it "
+                 f"({open(marker).read().strip()}); not joining again (--clear-failed to allow it)")
+    lock = os.path.join(work, f"{safe_name(args.server)}.lock")
+    if not take_lock(lock):
+        sys.exit(f"server_monitor: {args.server}: already being monitored (lock {lock})")
+    try:
+        run_locked(args, marker)
+    finally:
+        os.unlink(lock)
+
+
+def run_locked(args, marker):
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     folder = os.path.join(os.path.abspath(args.work), f"{safe_name(args.server)}-{stamp}")
     home, saves, data = (os.path.join(folder, part) for part in ("home", "saves", "data"))
@@ -183,6 +257,7 @@ def run(args):
         "HALO_MONITOR_MINUTES": str(args.minutes),
         "HALO_MONITOR_GAMES": str(args.games),
         "HALO_MONITOR_FREE_SLOTS": str(args.free_slots),
+        "HALO_MONITOR_KEEP_TEXT": "true" if args.keep_text else "false",
         # a quiet guest: internet play to join, nothing listed or reported,
         # no voice, no profile, no map downloads, no updates, no Discord
         "HALO_NET_ONLINE": "true",
@@ -225,6 +300,9 @@ def run(args):
                 process.kill()
                 process.wait()
     meta["exit_code"] = process.returncode
+    if process.returncode in FAILED_EXITS:
+        with open(marker, "w") as file:
+            file.write(f"{EXIT_REASONS.get(process.returncode)} at {datetime.datetime.now().isoformat(timespec='seconds')}")
     meta["ended"] = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
     with open(os.path.join(folder, "run.json"), "w") as file:
         json.dump(meta, file, indent=1)
@@ -357,7 +435,7 @@ def make_report(folder):
                         "notices", "notice_bytes")}
     chat["server_lines_per_minute"] = round(chat["server_lines"] * 60 / seconds, 2) if seconds else 0
     chat["player_lines_per_minute"] = round(chat["player_lines"] * 60 / seconds, 2) if seconds else 0
-    chat["server_lines_heard"] = [{"text": redact(e.get("text", "")), "count": e.get("count")}
+    chat["server_lines_heard"] = [{"channel": e.get("channel"), "hash": e.get("hash"), "count": e.get("count")}
                                   for e in events if e["event"] == "server_line_total"]
     report["chat"] = chat
     # players and bots
@@ -376,7 +454,8 @@ def make_report(folder):
                                       "unsynchronized", "wrong_sender", "mcc")}
     report["accounting"] = accounting(windows)
     report["accounting_in_game"] = accounting(played)
-    report["server_lines"] = [{"t": e["t"], "phase": e.get("phase"), "text": redact(e.get("text", ""))}
+    report["server_lines"] = [{"t": e["t"], "phase": e.get("phase"), "channel": e.get("channel"),
+                               "length": e.get("length"), "hash": e.get("hash")}
                               for e in events if e["event"] == "server_line"]
     report["client"] = {
         "frame_longest_ms": max([w["client"]["frame_longest_ms"] for w in played], default=None),
@@ -408,15 +487,18 @@ def make_report(folder):
                          "the host's clock" if host.get("clock") and host["clock"] < 0.95 else "the host or the way"})
     report["dips"] = dips
     report["dip_windows_percent"] = round(100.0 * len(dips) / len(played), 1) if played else None
-    # the game's own warnings, by their words (numbers and addresses out)
+    # the game's own log, as counts by kind of line alone (a line may name a
+    # player or an address: none is copied)
     warned = {}
     for line in log_lines(folder):
         lower = line.lower()
-        if any(word in lower for word in LOG_WORDS) and not any(word in lower for word in LOG_IGNORED):
-            key = re.sub(r"\d+", "#", redact(line.split("] ", 1)[-1]))[:140]
-            warned[key] = warned.get(key, 0) + 1
-    report["log_warnings"] = [{"line": key, "count": count}
-                              for key, count in sorted(warned.items(), key=lambda item: -item[1])[:15]]
+        if any(word in lower for word in LOG_IGNORED):
+            continue
+        for word in LOG_WORDS:
+            if word in lower:
+                warned[word] = warned.get(word, 0) + 1
+    report["log_warnings"] = [{"kind": word, "count": count}
+                              for word, count in sorted(warned.items(), key=lambda item: -item[1])]
     return report
 
 
@@ -474,7 +556,8 @@ def markdown(report):
                                                                        for k, v in acc["dropped"].items()), ""]
     if report.get("server_lines"):
         lines += ["Server messages as they came:", ""]
-        lines += [f"- {l['t']} s ({l['phase']}): {l['text']}" for l in report["server_lines"]]
+        lines += [f"- {l['t']} s ({l['phase']}): {l['channel']}, {l['length']} characters (line {l['hash']})"
+                  for l in report["server_lines"]]
         lines.append("")
     lines += ["Gaps between the host's ticks: " + ", ".join(f"{k} ms {v}" for k, v in host["gaps"].items()), ""]
     top = list(report["messages_in"].items())[:8]
@@ -482,7 +565,8 @@ def markdown(report):
         lines += ["Messages in, a second: " + ", ".join(f"{name} {v['per_second']}" for name, v in top), ""]
     if report["chat"]["server_lines_heard"]:
         lines += ["Server lines heard:", ""]
-        lines += [f"- {entry['count']}x \"{entry['text']}\"" for entry in report["chat"]["server_lines_heard"]]
+        lines += [f"- {entry['count']}x line {entry['hash']} ({entry['channel']})"
+                  for entry in report["chat"]["server_lines_heard"]]
         lines.append("")
     if report["dips"]:
         lines += ["Dips (10 s windows):", "", "| time | ticks/s | largest gap | skipped | clock | our longest frame | corrections | side |",
@@ -491,8 +575,8 @@ def markdown(report):
                   f"{d['frame_longest_ms']} | {d['corrections']} | {d['side']} |" for d in report["dips"][:20]]
         lines.append("")
     if report["log_warnings"]:
-        lines += ["Log lines worth a look:", ""]
-        lines += [f"- {entry['count']}x `{entry['line']}`" for entry in report["log_warnings"]]
+        lines += ["Log lines worth a look, by kind (see the run's debug.txt): " +
+                  ", ".join(f"{entry['kind']} {entry['count']}" for entry in report["log_warnings"]), ""]
         lines.append("")
     return "\n".join(lines)
 
@@ -578,7 +662,11 @@ def main():
     command.add_argument("--name", default="Chupa", help="the monitor's player name")
     command.add_argument("--minutes", type=float, default=10.0)
     command.add_argument("--games", type=int, default=0)
-    command.add_argument("--free-slots", type=int, default=2)
+    command.add_argument("--free-slots", type=int, default=2, help="slots left free for players (1 at least)")
+    command.add_argument("--keep-text", action="store_true",
+                         help="keep the server's lines' text in a local file beside the run's output (never the report)")
+    command.add_argument("--clear-failed", action="store_true",
+                         help="allow a run on a server whose earlier join failed or that dropped the monitor")
     command.add_argument("--work", required=True)
     command.add_argument("--out", required=True)
     command.add_argument("--keep", action="store_true", help="keep the run's HOME")
@@ -590,6 +678,10 @@ def main():
     command.add_argument("--out")
     args = parser.parse_args()
     if args.command == "run":
+        if args.free_slots < 1:
+            parser.error("--free-slots must be 1 or more")
+        if args.minutes <= 0 and args.games <= 0:
+            parser.error("set --minutes or --games: a run needs an end")
         run(args)
     elif args.command == "report":
         write_report(make_report(args.work), args.out)

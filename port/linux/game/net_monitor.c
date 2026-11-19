@@ -22,10 +22,11 @@ monitor"). debug.network_test "monitor:<listed name>", headless
   corrections this machine made by what they moved (its own player, other
   players, vehicles, AI) with how far and how many were snaps, the
   distributed messages each way by kind, the datagrams and bytes each way,
-  the chat lines (the server's and the players', counted; the server's
-  text kept, a player's never), the players, the bots (players sharing one
-  machine: a dedicated server plays no one on its own, so its bots share
-  its machine) and how often the host told this machine about each kind,
+  the chat lines (the server's and the players', counted: the server's by
+  their channel, length and a hash), the players, the bots (on a dedicated
+  server, players sharing one machine: it plays no one on its own, so its
+  bots share its machine; a player's game's split screen is no bots) and
+  how often the host told this machine about each kind,
   this machine's own frames (the slow ones are this machine's, not the
   host's), and the warnings;
 - other lines say what happened: listed, joined, each map and game type,
@@ -37,7 +38,11 @@ monitor"). debug.network_test "monitor:<listed name>", headless
   again. Leaving is the map bot's way (map_share_client.c): the game's
   client let go, a second, then the program quits.
 
-Nothing it writes names an address: the game is named by its listed name.
+Nothing it writes names an address or a player: a game goes by its listed
+name (a player's own game only counted), a server's line by its hash (its
+text, which may name players, only with debug.monitor_keep_text, in a local
+file of its own beside the output). xinput_sdl.c shuts this machine's
+gamepads, keyboard and mouse out of a monitor's run.
 */
 
 #include "net_monitor.h"
@@ -200,6 +205,11 @@ static struct
 	char target[64];
 	char name[16];
 	char output[512];
+	/* debug.monitor_keep_text: the server's lines' text, to <output>.text
+	alone (a local file, never the report) */
+	boolean keep_text;
+	/* the listed game is a dedicated server's (its bots share a machine) */
+	boolean dedicated;
 	boolean write_failed;
 	unsigned long started;
 	unsigned long state_time;
@@ -226,6 +236,7 @@ static struct
 	struct monitor_window window;
 	/* the server's distinct lines (their text and count), over the run */
 	char server_lines[MAXIMUM_SERVER_LINES][SERVER_LINE_LENGTH];
+	unsigned long server_line_hashes[MAXIMUM_SERVER_LINES];
 	long server_line_counts[MAXIMUM_SERVER_LINES];
 	short server_line_count;
 	int exit_code;
@@ -379,7 +390,9 @@ static void monitor_players(
 				own++;
 				own_states += states;
 			}
-			else if (sharing > 1)
+			/* (a player's own game's split screen shares a machine too: no bots
+			there, they are a dedicated server's alone) */
+			else if (sharing > 1 && monitor.dedicated)
 			{
 				bots++;
 				bot_states += states;
@@ -652,18 +665,36 @@ void net_monitor_unit_state(
 
 /* the server's distinct lines, by channel: an event for each new one, the
 first ones kept and counted */
+/* (FNV-1a: a line told from another without its text) */
+static unsigned long monitor_hash(
+	char const *text,
+	int length)
+{
+	unsigned long hash = 2166136261UL;
+	int index;
+
+	for (index = 0; index < length; index++)
+		hash = ((hash ^ (unsigned char)text[index]) * 16777619UL) & 0xFFFFFFFFUL;
+	return hash;
+}
+
+/* the server's distinct lines, by channel: an event for each new one, its
+channel, length and hash alone (a line may name players: its text never goes
+in the lines the report reads; with debug.monitor_keep_text, to a local file
+of its own), and how often each came */
 static void monitor_server_line(
 	char const *channel,
 	char const *text,
 	int length)
 {
-	char kept[SERVER_LINE_LENGTH];
+	unsigned long hash;
 	short index;
 
-	snprintf(kept, sizeof(kept), "%s: %.*s", channel, MAX(0, MIN(length, (int)sizeof(kept) - 16)), text ? text : "");
+	length = MAX(0, MIN(length, SERVER_LINE_LENGTH - 1));
+	hash = monitor_hash(text ? text : "", text ? length : 0);
 	for (index = 0; index < monitor.server_line_count; index++)
 	{
-		if (!strcmp(monitor.server_lines[index], kept))
+		if (monitor.server_line_hashes[index] == hash && !strcmp(monitor.server_lines[index], channel))
 		{
 			monitor.server_line_counts[index]++;
 			return;
@@ -671,15 +702,27 @@ static void monitor_server_line(
 	}
 	if (monitor.server_line_count < MAXIMUM_SERVER_LINES)
 	{
-		char text_json[2 * SERVER_LINE_LENGTH];
-		char fields[3 * SERVER_LINE_LENGTH];
+		char fields[256];
 
-		snprintf(monitor.server_lines[monitor.server_line_count], SERVER_LINE_LENGTH, "%s", kept);
+		snprintf(monitor.server_lines[monitor.server_line_count], SERVER_LINE_LENGTH, "%s", channel);
+		monitor.server_line_hashes[monitor.server_line_count] = hash;
 		monitor.server_line_counts[monitor.server_line_count++] = 1;
-		monitor_json_text(text_json, sizeof(text_json), kept);
-		snprintf(fields, sizeof(fields), "\"text\": \"%s\", \"length\": %d, \"phase\": \"%s\"", text_json, length,
-			phase_names[monitor.phase]);
+		snprintf(fields, sizeof(fields), "\"channel\": \"%s\", \"hash\": \"%08lx\", \"length\": %d, \"phase\": \"%s\"",
+			channel, hash, length, phase_names[monitor.phase]);
 		monitor_event("server_line", fields);
+		if (monitor.keep_text && text)
+		{
+			char path[600];
+			char line[SERVER_LINE_LENGTH + 64];
+			char text_json[2 * SERVER_LINE_LENGTH];
+			char kept[SERVER_LINE_LENGTH];
+
+			snprintf(kept, sizeof(kept), "%.*s", length, text);
+			monitor_json_text(text_json, sizeof(text_json), kept);
+			snprintf(path, sizeof(path), "%s.text", monitor.output[0] ? monitor.output : "monitor.jsonl");
+			snprintf(line, sizeof(line), "{\"hash\": \"%08lx\", \"text\": \"%s\"}", hash, text_json);
+			map_share_append_line(path, line);
+		}
 	}
 }
 
@@ -797,15 +840,13 @@ static void monitor_leave(
 		return;
 	if (monitor.state == _monitor_joined)
 		monitor_window_write();
-	/* (the server's lines heard more than once: how often) */
+	/* (the server's distinct lines: how often each came, by hash) */
 	for (index = 0; index < monitor.server_line_count; index++)
 	{
-		char text_json[2 * SERVER_LINE_LENGTH];
-		char line_fields[3 * SERVER_LINE_LENGTH];
+		char line_fields[128];
 
-		monitor_json_text(text_json, sizeof(text_json), monitor.server_lines[index]);
-		snprintf(line_fields, sizeof(line_fields), "\"text\": \"%s\", \"count\": %ld", text_json,
-			monitor.server_line_counts[index]);
+		snprintf(line_fields, sizeof(line_fields), "\"channel\": \"%s\", \"hash\": \"%08lx\", \"count\": %ld",
+			monitor.server_lines[index], monitor.server_line_hashes[index], monitor.server_line_counts[index]);
 		monitor_event("server_line_total", line_fields);
 	}
 	snprintf(fields, sizeof(fields), "\"reason\": \"%s\", \"games_ended\": %ld", reason, monitor.games_ended);
@@ -829,7 +870,8 @@ static void monitor_read_settings(
 	snprintf(monitor.output, sizeof(monitor.output), "%s", config_string("debug.monitor_output"));
 	monitor.minutes = (real)config_real("debug.monitor_minutes");
 	monitor.games = config_integer("debug.monitor_games");
-	monitor.free_slots = MAX(0, config_integer("debug.monitor_free_slots"));
+	monitor.free_slots = MAX(1, config_integer("debug.monitor_free_slots"));
+	monitor.keep_text = config_boolean("debug.monitor_keep_text") != 0;
 	monitor.started = system_milliseconds();
 	monitor.host_tick = NONE;
 	monitor_state(_monitor_menu);
@@ -932,15 +974,24 @@ static void monitor_finding(
 			char listed[1024];
 			int length = 0;
 
-			/* (the names it had: public, as the list shows them) */
+			long players_games = 0;
+
+			/* (the servers it had, by their listed names; a player's own game,
+			often named after the player, only counted) */
 			listed[0] = 0;
 			for (index = 0; browser_screen_debug_listing(index, &game) && length < (int)sizeof(listed) - 40; index++)
 			{
+				if (game.hosting != BROWSER_HOSTING_DEDICATED && game.hosting != BROWSER_HOSTING_OFFICIAL &&
+					!game.opence_server)
+				{
+					players_games++;
+					continue;
+				}
 				monitor_listed_name(&game, name, sizeof(name));
 				monitor_json_text(name_json, sizeof(name_json), name);
-				monitor_append(listed, sizeof(listed), &length, "%s\"%s\"", index ? ", " : "", name_json);
+				monitor_append(listed, sizeof(listed), &length, "%s\"%s\"", length ? ", " : "", name_json);
 			}
-			snprintf(fields, sizeof(fields), "\"games\": [%.480s]", listed);
+			snprintf(fields, sizeof(fields), "\"servers\": [%.440s], \"players_games\": %ld", listed, players_games);
 			monitor_event("not_listed", fields);
 			monitor_leave("not listed", 3);
 		}
@@ -958,13 +1009,15 @@ static void monitor_finding(
 	monitor_json_text(name_json, sizeof(name_json), name);
 	monitor_json_text(map_json, sizeof(map_json), game.map);
 	snprintf(monitor.listed_name, sizeof(monitor.listed_name), "%s", name);
+	monitor.dedicated = game.hosting == BROWSER_HOSTING_DEDICATED || game.hosting == BROWSER_HOSTING_OFFICIAL ||
+		game.opence_server;
 	snprintf(monitor.listed_map, sizeof(monitor.listed_map), "%s", game.map);
 	room = game.maximum_players - game.players - 1;
 	snprintf(fields, sizeof(fields),
 		"\"name\": \"%s\", \"map\": \"%s\", \"players\": %d, \"maximum\": %d, \"version\": %u, \"password\": %d, "
-		"\"joins_locked\": %d, \"ping\": %d, \"region\": \"%.7s\", \"opence_server\": %d",
+		"\"joins_locked\": %d, \"ping\": %d, \"region\": \"%.7s\", \"opence_server\": %d, \"hosting\": %d",
 		name_json, map_json, game.players, game.maximum_players, (unsigned)game.version, game.locked,
-		game.joins_locked, game.ping, game.region, game.opence_server);
+		game.joins_locked, game.ping, game.region, game.opence_server, (int)game.hosting);
 	monitor_event("listed", fields);
 	/* (the good guest's rules: only a game with room to spare, open to
 	anyone, that this build plays) */
@@ -1098,6 +1151,12 @@ void net_monitor_update(
 	switch (monitor.state)
 	{
 	case _monitor_menu:
+		/* (a run with no end, neither minutes nor games, is not started) */
+		if (monitor.minutes <= 0.0f && monitor.games <= 0)
+		{
+			platform_log("server monitor: debug.monitor_minutes or debug.monitor_games must be set; not joining");
+			exit(2);
+		}
 		if (!main_menu_loaded)
 			return;
 		monitor.menu_seconds += seconds;

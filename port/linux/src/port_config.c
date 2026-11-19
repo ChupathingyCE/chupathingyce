@@ -1833,15 +1833,20 @@ static const struct config_setting config_settings[] =
 	{ "debug.monitor_minutes", _config_real, "10.0", "HALO_MONITOR_MINUTES", _environment_value, _platform_all,
 		"With debug.network_test's monitor: how long it stays, in minutes. It\n"
 		"leaves once the game under way ends, or 20 minutes later at most. 0\n"
-		"for no limit (debug.monitor_games then)." },
+		"for none, with debug.monitor_games set (it won't run with neither)." },
 	{ "debug.monitor_games", _config_integer, "0", "HALO_MONITOR_GAMES", _environment_value, _platform_all,
 		"With debug.network_test's monitor: it leaves after this many games\n"
 		"end. 0 for no limit." },
 	{ "debug.monitor_free_slots", _config_integer, "2", "HALO_MONITOR_FREE_SLOTS", _environment_value,
 		_platform_all,
 		"With debug.network_test's monitor: the slots it leaves free for\n"
-		"players. It joins only with this many free after its own player, and\n"
-		"leaves when fewer are." },
+		"players (1 at least). It joins only with this many free after its own\n"
+		"player, and leaves when fewer are." },
+	{ "debug.monitor_keep_text", _config_boolean, "false", "HALO_MONITOR_KEEP_TEXT", _environment_value,
+		_platform_all,
+		"With debug.network_test's monitor: the server's lines' text kept in a\n"
+		"local file beside its output (<output>.text). Its report never has\n"
+		"it: a line may name players." },
 	{ "debug.map_fetch_folder", _config_string, "\"\"", "HALO_MAP_FETCH_FOLDER", _environment_value,
 		_platform_all,
 		"With debug.network_test's fetch: the folder the host's map is written\n"
