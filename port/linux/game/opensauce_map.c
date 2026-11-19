@@ -32,6 +32,7 @@ project_yellow it honors at run time (the gravity scale, when it is above
 #include "errors.h"
 #include "opensauce.h"
 #include "spv3_mode.h"
+#include "opensauce_scripts.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -188,6 +189,9 @@ static void opensauce_gravity_restore(
 	}
 }
 
+/* the game's own gravity (physics.c's), whatever a map set it to */
+#define OPENSAUCE_STOCK_GRAVITY 0.0035651792f
+
 /* ---------- public code */
 
 boolean opensauce_header_read(
@@ -313,10 +317,26 @@ void opensauce_map_tags_loaded(
 	}
 }
 
+void opensauce_map_set_gravity_scale(
+	float scale)
+{
+	if (!opensauce_globals.active)
+		return;
+	if (!opensauce_globals.gravity_changed)
+	{
+		opensauce_globals.gravity_before = global_gravity;
+		opensauce_globals.gravity_changed = TRUE;
+	}
+	global_gravity = OPENSAUCE_STOCK_GRAVITY * scale;
+	opensauce_log("gravity scaled by %.3f by its scripts (physics_set_gravity)", (double)scale);
+}
+
 void opensauce_map_unloaded(
 	void)
 {
 	opensauce_gravity_restore();
+	if (opensauce_globals.active)
+		opensauce_scripts_map_unloaded();
 	opensauce_globals.active = FALSE;
 }
 

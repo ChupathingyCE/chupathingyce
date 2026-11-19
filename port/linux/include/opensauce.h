@@ -83,6 +83,11 @@ void opensauce_map_tags_loaded(
 	long tag_count,
 	unsigned long scenario_tag_index);
 
+/* gravity set to the game's own times scale, as OpenSauce's
+physics_set_gravity does: put back when the map unloads */
+void opensauce_map_set_gravity_scale(
+	float scale);
+
 /* the map unloaded: whatever it changed put back */
 void opensauce_map_unloaded(
 	void);

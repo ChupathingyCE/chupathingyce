@@ -126,6 +126,7 @@ symbols in this file:
 #include "mcc_cache.h"
 #include "mcc_checkpoint.h"
 #include "stubbs_regions.h"
+#include "opensauce_scripts.h"
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_invalidate(void);
 /* port: hs_runtime.c's and hs_globals_external.c's (game_state_image_accept) */
@@ -974,7 +975,9 @@ boolean game_state_image_accept(
 	if (global_scenario_index != NONE && hs_global_data && hs_global_data->valid)
 	{
 		struct data_array const *globals = game_state_image_pointer(image, hs_global_data);
-		long scenario_count = global_scenario_get()->hs_globals.count;
+		/* (and OpenSauce's after the map's, on an OpenSauce map:
+		port/linux/game/opensauce_scripts.c) */
+		long scenario_count = global_scenario_get()->hs_globals.count + opensauce_script_global_count();
 
 		if (!game_state_image_hs_globals_valid(globals->count, hs_external_global_count, scenario_count))
 		{
