@@ -6087,7 +6087,7 @@ static void distributed_handle_message(
 		}
 		console_warning("%s", text);
 #ifdef HALO_PORT_CHAT
-		/* (an OpenCE host's: in the chat too, as its own players see it) */
+		/* (in the chat too, as an OpenCE host's own players see it) */
 		chat_host_console_notice(text);
 #endif
 #ifdef HALO_CONSOLE_LOG_THROTTLE
