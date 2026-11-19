@@ -3022,6 +3022,52 @@ static void main_update_time_unthrottled(
 }
 
 #endif
+#ifdef HALO_CONSOLE_FRAME_RATE
+/* port: the vertical blanks a frame waits on a console whose display does
+not refresh at 60 Hz (halo_console_refresh_rate: a PAL television without
+PAL60 is 50 Hz). The game counted 60 blanks a second; at 50 its interval of
+2 drew 25 frames a second and its clock ran a sixth slow. A frame every
+blank is every blank at any rate. A frame a tick (30) can't be a whole
+number of 50 Hz blanks: the frame waits for the first blank at or after the
+next tick is due, 2, 2 and 1 blanks in turn, so that each frame draws one
+tick, as at 60. With no tick to wait for (a menu, a pause, a held clock) the
+same 2, 2, 1 by count */
+static short main_console_vblank_interval(
+	short refresh_rate,
+	short frames_per_second)
+{
+	static short cadence_index;
+	short longest;
+	short interval;
+	real fraction;
+	real speed;
+
+	if (frames_per_second <= 0 || frames_per_second >= refresh_rate)
+		return 1;
+	if (refresh_rate % frames_per_second == 0)
+		return (short)(refresh_rate / frames_per_second);
+	longest = (short)((refresh_rate + frames_per_second - 1) / frames_per_second);
+	fraction = game_time_get_tick_fraction();
+	speed = game_time_get_speed();
+	if (frames_per_second == TICKS_PER_SECOND && fraction < 1.0f && speed > 0.0f)
+	{
+		/* (a twentieth of a blank's slack, for the clock's rounding) */
+		real blanks = (1.0f - fraction) * (real)refresh_rate / (speed * (real)TICKS_PER_SECOND) - 0.05f;
+
+		interval = blanks > (real)longest ? longest : (short)blanks;
+		if (interval < longest && (real)interval < blanks)
+			interval++;
+	}
+	else
+	{
+		interval = (short)(((cadence_index + 1) * refresh_rate + frames_per_second - 1) / frames_per_second -
+			(cadence_index * refresh_rate + frames_per_second - 1) / frames_per_second);
+		cadence_index = (short)((cadence_index + 1) % frames_per_second);
+	}
+	return interval < 1 ? 1 : interval;
+}
+
+#endif
 static void main_update_time(
 	void)
 {
@@ -3058,6 +3104,13 @@ static void main_update_time(
 		{
 			requested_interval = (short)(
 				60 / (rasterizer_globals.framerate_throttle_target ? rasterizer_globals.framerate_throttle_target : 30));
+#ifdef HALO_CONSOLE_FRAME_RATE
+			if (halo_console_refresh_rate() != 60)
+			{
+				requested_interval = main_console_vblank_interval(halo_console_refresh_rate(),
+					rasterizer_globals.framerate_throttle_target ? rasterizer_globals.framerate_throttle_target : 30);
+			}
+#endif
 			main_globals.vblank_interval_requested = requested_interval;
 
 			if (rasterizer_globals.framerate_throttle_debug)
@@ -3232,6 +3285,23 @@ static void main_update_time(
 
 	if (framerate_throttle)
 	{
+#ifdef HALO_CONSOLE_FRAME_RATE
+		/* port: the display's own blanks (counted as 60 a second, a 50 Hz
+		console's clock ran a sixth slow, and fell behind everyone else's
+		in a network game). A blank's length is rounded up, as the game's
+		1/60 is: rounded down, a one-blank frame meant to reach the next
+		tick fell a hair short of it and drew no tick */
+		if (halo_console_refresh_rate() != 60)
+		{
+			real seconds_per_blank = 1.0f / (real)halo_console_refresh_rate();
+
+			seconds_per_blank += seconds_per_blank * 0.00000025f;
+			seconds_elapsed =
+				(real)(target_index - (__int64)main_globals.rasterizer_target_index) *
+				seconds_per_blank;
+		}
+		else
+#endif
 		seconds_elapsed =
 			(real)(target_index - (__int64)main_globals.rasterizer_target_index) *
 			0.01666666753590107f;
