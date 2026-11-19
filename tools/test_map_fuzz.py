@@ -887,6 +887,36 @@ def test_map_changed_after_the_checks(built, tmp_path):
             (part, result.stderr[-4000:])
         assert f"the load found its {part} changed" in result.stderr, (part, result.stderr[-4000:])
 
+
+def test_stubbs_image_effects_and_vegetation_checked(built, tmp_path):
+    """Stubbs's image effects (imef) and vegetation (vege), which Stubbs mode
+    reads, go through the schema: an image effect's stages past the 8 drawn
+    are cut, a stage's bitmap or a vegetation's model of another group is
+    none, and stages outside the tags refuse the map"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"imef", 0x1AC + 9 * 0xA4), (b"vege", 0x58)])
+    effect, vegetation = offsets["tags"]
+    struct.pack_into("<iI", data, effect + 0x1A0, 9, base + effect - 0x800 + 0x1AC)
+    # (the first stage's bitmap and the vegetation's model name the scenario)
+    struct.pack_into("<4sIII", data, effect + 0x1AC + 0x3C, b"mtib", 0, 0, 0xE1740000)
+    struct.pack_into("<4sIII", data, vegetation + 0x40, b"edom", 0, 0, 0xE1740000)
+    path = tmp_path / "stubbs.map"
+    path.write_bytes(data)
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "stages has 9 elements, more than the game's 8: cut to 8" in result.stderr, result.stderr[-4000:]
+    assert "(imef): stages[0].bitmap names e1740000, not a tag of bitm: none" in result.stderr, \
+        result.stderr[-4000:]
+    assert "(vege): model names e1740000" in result.stderr, result.stderr[-4000:]
+    assert "map_fuzz: the map loaded" in result.stderr, result.stderr[-4000:]
+    struct.pack_into("<iI", data, effect + 0x1A0, 2, base + 0x7FFFF0)
+    path.write_bytes(data)
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "(imef): stages has 2 elements" in result.stderr and "outside the tags" in result.stderr, \
+        result.stderr[-4000:]
+
 # ---------- longer runs
 
 
