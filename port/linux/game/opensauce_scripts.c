@@ -67,6 +67,9 @@ enum
 	MAXIMUM_OPENSAUCE_EFFECT_INSTANCES = 32,
 };
 
+/* the most physics_set_gravity takes */
+#define OPENSAUCE_MAXIMUM_GRAVITY_SCALE 10.0f
+
 /* ---------- structures */
 
 struct opensauce_script_function
@@ -227,6 +230,16 @@ static char const *opensauce_string_argument(
 	return string ? string : "";
 }
 
+/* whether a real a script sets is a number (not NaN or infinite: no field
+takes one) */
+static boolean opensauce_real_settable(
+	long argument)
+{
+	real value = opensauce_real_argument(argument);
+
+	return value == value && value > -1.0e30f && value < 1.0e30f;
+}
+
 /* whether the scripts may set a field (networked: one OpenSauce lets a
 network game change). Host-authoritative: in network co-op only the host
 runs a map's scripts (game.c) and its sync carries the results to clients
@@ -264,12 +277,17 @@ static real *opensauce_object_real(
 	long object_index,
 	char const *name,
 	char const *subname,
-	boolean *networked)
+	boolean *networked,
+	boolean *readonly)
 {
 	struct object_datum *object = object_try_and_get(object_index);
 	real_vector3d *vector = NULL;
 
 	*networked = FALSE;
+	/* (OpenSauce's read-only ones: the function outputs, radius, scale and
+	center, ObjectFieldDefinitions.inl) */
+	*readonly = !strcmp(name, "function_out") || !strcmp(name, "radius") || !strcmp(name, "scale") ||
+		!strcmp(name, "center");
 	if (!object)
 		return NULL;
 	if (!strcmp(name, "function_out"))
@@ -390,8 +408,9 @@ static boolean opensauce_unit_integer(
 		byte_field = &unit->unit.desired_zoom_level, writable = TRUE;
 	else if (!strcmp(name, "vehicle_seat_index"))
 		short_field = &unit->unit.parent_seat_index;
+	/* (read-only, as OpenSauce has it: ObjectFieldDefinitions.inl) */
 	else if (!strcmp(name, "current_weapon_index"))
-		short_field = &unit->unit.current_weapon_index, writable = TRUE;
+		short_field = &unit->unit.current_weapon_index;
 	else if (!strcmp(name, "feign_death_timer"))
 		short_field = &unit->unit.feign_death_timer;
 	else if (!strcmp(name, "killing_spree_count"))
@@ -470,13 +489,13 @@ static boolean opensauce_script_data(
 	}
 	else if (!strcmp(name, "object_data_get_real") || !strcmp(name, "object_data_set_real"))
 	{
-		boolean networked;
+		boolean networked, readonly;
 		real *field = arguments[0] != NONE ? opensauce_object_real(arguments[0], opensauce_string_argument(arguments[1]),
-			opensauce_string_argument(arguments[2]), &networked) : NULL;
+			opensauce_string_argument(arguments[2]), &networked, &readonly) : NULL;
 
 		if (name[12] == 'g')
 			*value = opensauce_real_result(field ? *field : -1.f);
-		else if (field && opensauce_script_may_set(networked))
+		else if (field && !readonly && opensauce_real_settable(arguments[3]) && opensauce_script_may_set(networked))
 			*field = opensauce_real_argument(arguments[3]);
 	}
 	else if (!strcmp(name, "weapon_data_get_real") || !strcmp(name, "weapon_data_set_real"))
@@ -497,7 +516,7 @@ static boolean opensauce_script_data(
 		}
 		if (name[12] == 'g')
 			*value = opensauce_real_result(field ? *field : -1.f);
-		else if (field && opensauce_script_may_set(FALSE))
+		else if (field && opensauce_real_settable(arguments[2]) && opensauce_script_may_set(FALSE))
 			*field = opensauce_real_argument(arguments[2]);
 	}
 	else if (!strcmp(name, "weapon_data_trigger_set_real"))
@@ -523,7 +542,7 @@ static boolean opensauce_script_data(
 					field = &trigger->initial_rate_of_fire;
 				else if (!strcmp(data_name, "rounds_per_second") && !strcmp(subname, "upper"))
 					field = &trigger->final_rate_of_fire;
-				if (field)
+				if (field && opensauce_real_settable(arguments[4]))
 					*field = opensauce_real_argument(arguments[4]);
 			}
 		}
@@ -565,7 +584,7 @@ static boolean opensauce_script_data(
 
 			if (name[10] == 'g')
 				*value = opensauce_real_result(field ? *field : -1.f);
-			else if (field && opensauce_script_may_set(FALSE))
+			else if (field && opensauce_real_settable(arguments[2]) && opensauce_script_may_set(FALSE))
 				*field = opensauce_real_argument(arguments[2]);
 		}
 	}
@@ -582,7 +601,8 @@ static boolean opensauce_script_data(
 	{
 		struct player_datum *player = opensauce_player_at((short)arguments[0]);
 
-		if (player && !strcmp(opensauce_string_argument(arguments[1]), "speed") && opensauce_script_may_set(FALSE))
+		if (player && !strcmp(opensauce_string_argument(arguments[1]), "speed") &&
+			opensauce_real_settable(arguments[2]) && opensauce_script_may_set(FALSE))
 			player->speed_multiplier = opensauce_real_argument(arguments[2]);
 	}
 	else if (!strcmp(name, "abs_real"))
@@ -600,8 +620,14 @@ static boolean opensauce_script_data(
 	}
 	else if (!strcmp(name, "physics_set_gravity"))
 	{
-		if (opensauce_script_may_set(FALSE))
-			opensauce_map_set_gravity_scale(opensauce_real_argument(arguments[0]));
+		real scale = opensauce_real_argument(arguments[0]);
+
+		/* (a scale the physics can't take, NaN, negative or huge, refused
+		and said: OpenSauce takes any) */
+		if (!opensauce_real_settable(arguments[0]) || scale < 0.f || scale > OPENSAUCE_MAXIMUM_GRAVITY_SCALE)
+			opensauce_script_log_once(function, "was given a gravity scale it can't take (not 0 to 10): ignored");
+		else if (opensauce_script_may_set(FALSE))
+			opensauce_map_set_gravity_scale(scale);
 	}
 	else
 		return FALSE;

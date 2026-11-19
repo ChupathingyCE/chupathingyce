@@ -63,3 +63,19 @@ def test_weapon_index_set_is_bounded():
 def test_clients_never_run_map_scripts():
     game = (ROOT / "source/game/game.c").read_text(encoding="latin-1")
     assert "if (!(network_game_distributed_client() && network_coop_active()))\n\t\ths_update();" in game
+
+
+def test_sets_take_only_numbers_and_writable_fields():
+    """a script's real is set only when it is a number, and never into a field
+    OpenSauce keeps read-only (function outputs, radius, scale, center, the
+    weapon index); a gravity scale only from 0 to 10"""
+    text = source()
+    assert "return value == value && value > -1.0e30f && value < 1.0e30f;" in text
+    for store in ("*field = opensauce_real_argument(arguments[3]);", "*field = opensauce_real_argument(arguments[4]);",
+                  "player->speed_multiplier = opensauce_real_argument(arguments[2]);"):
+        before = text[:text.index(store)]
+        assert "opensauce_real_settable" in before[-260:], store
+    assert ('*readonly = !strcmp(name, "function_out") || !strcmp(name, "radius") || !strcmp(name, "scale") ||\n'
+            '\t\t!strcmp(name, "center");') in text
+    assert "short_field = &unit->unit.current_weapon_index;\n" in text
+    assert "scale < 0.f || scale > OPENSAUCE_MAXIMUM_GRAVITY_SCALE" in text

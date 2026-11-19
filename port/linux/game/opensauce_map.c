@@ -97,7 +97,10 @@ static struct
 	boolean active;
 	struct opensauce_header header;
 	char map_name[64];
-	/* the gravity as it was, put back when the map unloads */
+	/* the gravity as it was, put back when the map unloads. It is the
+	physics' global, not the game state's, as OpenSauce keeps it
+	(GameState.cpp resets it at each map; its physics globals are the
+	engine's): a checkpoint's revert leaves it as the scripts last set it */
 	boolean gravity_changed;
 	real gravity_before;
 	/* (camouflage past 1 said once a map) */
