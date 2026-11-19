@@ -78,6 +78,7 @@ keeps fewer lines. HALO_CONSOLE_NO_CHAT leaves all of it out.
 #include "text/draw_string.h"
 #include "text/font_group.h"
 #include "text/unicode.h"
+#include "net_monitor.h"
 #include "halo_keyboard.h"
 #include "network_coop.h"
 #include "network_distributed.h"
@@ -493,6 +494,8 @@ static void line_heard(struct delta_wire_chat_line const *line)
 	short machine = line->speaker_machine == DELTA_WIRE_NO_MACHINE ? NONE : line->speaker_machine;
 	int blocked;
 
+	/* (the server monitor counts every line heard, and keeps the server's) */
+	net_monitor_chat(server, line->length, server ? line->text : NULL);
 	if (server)
 	{
 		if (!config_boolean("display.server_messages"))

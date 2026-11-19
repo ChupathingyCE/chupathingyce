@@ -289,6 +289,17 @@ int map_share_part_close(void *part, const char *path, const char *final, int ke
 	return ok;
 }
 
+int map_share_append_line(const char *path, const char *line)
+{
+	FILE *file = fopen(path, "a");
+	int ok;
+
+	if (!file)
+		return 0;
+	ok = fputs(line, file) >= 0 && fputc('\n', file) != EOF;
+	return fclose(file) == 0 && ok;
+}
+
 int map_share_write_text(const char *path, const char *text)
 {
 	char temporary[1024];

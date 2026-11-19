@@ -524,12 +524,69 @@ SOCKET WSAAPI halo_ws_accept(SOCKET socket, struct sockaddr *address, int *addre
 	return (SOCKET)result;
 }
 
-int WSAAPI halo_ws_send(SOCKET socket, const char *buffer, int length, int flags)
+/* the datagrams the game's sockets sent and received, and their bytes, for
+the server monitor (port/linux/game/net_monitor.c), counted once it first
+asks; any thread may count */
+static unsigned long xnet_datagrams[4];
+static int xnet_counting;
+
+static void xnet_count_datagram(int received, int length);
+
+/* (a connected socket's: counted when it is a datagram socket, the game's
+own connection, not a stream) */
+static void xnet_count_connected(SOCKET socket, int received, int length)
 {
-	return winsock_result(posix_socket_send((int)socket, buffer, length, flags));
+	int type = SOCK_STREAM;
+	int type_length = sizeof(type);
+
+	if (!__atomic_load_n(&xnet_counting, __ATOMIC_RELAXED) || length < 0)
+		return;
+	posix_socket_getsockopt((int)socket, SOL_SOCKET, SO_TYPE, &type, &type_length);
+	if (type == SOCK_DGRAM)
+		xnet_count_datagram(received, length);
 }
 
+int WSAAPI halo_ws_send(SOCKET socket, const char *buffer, int length, int flags)
+{
+	int result = winsock_result(posix_socket_send((int)socket, buffer, length, flags));
+
+	if (result != SOCKET_ERROR)
+		xnet_count_connected(socket, 0, result);
+	return result;
+}
+
+void xnet_datagram_counts(unsigned long *sent, unsigned long *sent_bytes, unsigned long *received,
+	unsigned long *received_bytes)
+{
+	__atomic_store_n(&xnet_counting, 1, __ATOMIC_RELAXED);
+	*sent = __atomic_load_n(&xnet_datagrams[0], __ATOMIC_RELAXED);
+	*sent_bytes = __atomic_load_n(&xnet_datagrams[1], __ATOMIC_RELAXED);
+	*received = __atomic_load_n(&xnet_datagrams[2], __ATOMIC_RELAXED);
+	*received_bytes = __atomic_load_n(&xnet_datagrams[3], __ATOMIC_RELAXED);
+}
+
+static void xnet_count_datagram(int received, int length)
+{
+	if (length < 0 || !__atomic_load_n(&xnet_counting, __ATOMIC_RELAXED))
+		return;
+	__atomic_fetch_add(&xnet_datagrams[received ? 2 : 0], 1UL, __ATOMIC_RELAXED);
+	__atomic_fetch_add(&xnet_datagrams[received ? 3 : 1], (unsigned long)length, __ATOMIC_RELAXED);
+}
+
+static int xnet_sendto(SOCKET socket, const char *buffer, int length, int flags,
+	const struct sockaddr *address, int address_length);
+
 int WSAAPI halo_ws_sendto(SOCKET socket, const char *buffer, int length, int flags,
+	const struct sockaddr *address, int address_length)
+{
+	int result = xnet_sendto(socket, buffer, length, flags, address, address_length);
+
+	if (result != SOCKET_ERROR)
+		xnet_count_datagram(0, result);
+	return result;
+}
+
+static int xnet_sendto(SOCKET socket, const char *buffer, int length, int flags,
 	const struct sockaddr *address, int address_length)
 {
 	/* the rewritten destination: it must outlive the send */
@@ -966,9 +1023,15 @@ static int delayed_receive(SOCKET socket, char *buffer, int length, int flags,
 
 int WSAAPI halo_ws_recv(SOCKET socket, char *buffer, int length, int flags)
 {
+	int result;
+
 	if (delayed_enabled())
-		return delayed_receive(socket, buffer, length, flags, NULL, NULL, 0);
-	return winsock_result(posix_socket_recv((int)socket, buffer, length, flags));
+		result = delayed_receive(socket, buffer, length, flags, NULL, NULL, 0);
+	else
+		result = winsock_result(posix_socket_recv((int)socket, buffer, length, flags));
+	if (result != SOCKET_ERROR)
+		xnet_count_connected(socket, 1, result);
+	return result;
 }
 
 int WSAAPI halo_ws_recvfrom(SOCKET socket, char *buffer, int length, int flags,
@@ -977,10 +1040,18 @@ int WSAAPI halo_ws_recvfrom(SOCKET socket, char *buffer, int length, int flags,
 	int result;
 
 	if (delayed_enabled())
-		return delayed_receive(socket, buffer, length, flags, address, address_length, 1);
+	{
+		result = delayed_receive(socket, buffer, length, flags, address, address_length, 1);
+		if (result != SOCKET_ERROR)
+			xnet_count_datagram(1, result);
+		return result;
+	}
 	result = posix_socket_recvfrom((int)socket, buffer, length, flags, address, address_length);
 	if (result >= 0)
+	{
 		peer_incoming_address(0, address, address_length);
+		xnet_count_datagram(1, result);
+	}
 	return winsock_result(result);
 }
 
