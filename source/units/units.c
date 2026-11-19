@@ -11990,6 +11990,16 @@ static void unit_verify_vectors(
 {
 	char buffer[512];
 
+	/* port: a console's release-style build (HALO_ASSERTS_COMPILED_OUT)
+	doesn't check: the check logs and asserts, seven times a tick for each
+	unit, and the retail game has neither the check nor its messages */
+#ifdef HALO_ASSERTS_COMPILED_OUT
+	(void)unit_index;
+	(void)debugstring;
+	(void)buffer;
+	return;
+#endif
+
 	if (!unit_vectors_are_valid(unit_index))
 	{
 		struct unit_datum *unit = unit_get(unit_index);
