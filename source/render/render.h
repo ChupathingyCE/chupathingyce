@@ -138,6 +138,31 @@ boolean render_location_visible(
 struct rendered_cluster *rendered_cluster_get(
 	short rendered_cluster_index);
 
+/* port: config.toml's [tuning] knobs for the drawing (render.c): the
+passes tuning.effects leaves out, held in a network game */
+enum
+{
+	/* the lights' shine and the specular lightmaps */
+	_render_tuning_specular_bit,
+	/* the reflections, their masks and the mirrors */
+	_render_tuning_reflections_bit,
+	_render_tuning_detail_objects_bit,
+	_render_tuning_decals_bit,
+	_render_tuning_weather_bit,
+	_render_tuning_contrails_bit,
+	/* the lens flares and their occlusion tests */
+	_render_tuning_lens_flares_bit,
+};
+
+void render_tuning_update(void);
+boolean render_tuning_draws(short pass);
+short render_tuning_particle_thinning(long loose_particle_count);
+short render_tuning_particle_system_thinning(void);
+boolean render_tuning_particle_kept(long particle_index, short thinning);
+real render_tuning_shadow_pixels(void);
+real render_tuning_object_cull_pixels(void);
+boolean render_tuning_object_type_culled(short object_type);
+
 /* ---------- prototypes/RENDER_CONTRAILS.C */
 
 void render_contrails_ground_mapped(

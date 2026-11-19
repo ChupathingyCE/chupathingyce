@@ -1444,6 +1444,9 @@ static void particle_system_render(
 	struct particle_system_datum *system = particle_system_get(system_index);
 	struct particle_system_definition *definition = particle_system_definition_get(system->definition_index);
 	short type_index;
+	/* port: one in how many of a system on no object's particles
+	tuning.particle_thinning draws (render.c: every one in a network game) */
+	short thinning = system->object_index == NONE ? render_tuning_particle_system_thinning() : 1;
 
 	/* port: no more types than the system holds (the map's count) */
 	for (type_index = 0; type_index < definition->types.count && type_index < MAXIMUM_PARTICLE_SYSTEM_TYPES_PER_SYSTEM; type_index++)
@@ -1597,6 +1600,15 @@ static void particle_system_render(
 						sprite_index = (short)particle->sprite_index % sequence->sprites.count;
 						if (sprite_index < 0)
 							sprite_index += (short)sequence->sprites.count;
+					}
+
+					/* port: a particle tuning.particle_thinning leaves out is
+					not built, after the game's own work for it above (its
+					first sprite's local random number) */
+					if (!render_tuning_particle_kept(particle_index, thinning))
+					{
+						state_weight = 0.0f;
+						transition_weight = 0.0f;
 					}
 
 					if (state_weight > 0.01f)

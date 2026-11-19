@@ -47,6 +47,10 @@ COSTS = {
     "display.resolution_scaling": "Drawing: \"original\" fills 640x480 instead of the window.",
     "tuning.present_mode": "Waiting, not work: \"adaptive\" shows a late frame at once, with a tear, instead of a refresh later.",
     "tuning.texture_cache": "Memory: a bigger cache loads fewer textures from the disc, and leaves less free.",
+    "tuning.particle_thinning": "Drawing: fewer sprites of loose particles; each is still moved and counted as before. In a network game only past the Xbox's 1024.",
+    "tuning.effects": "Drawing: \"reduced\" skips the shine, reflection and grass passes; \"minimal\" also decals, weather, contrails and lens flares. A network game keeps the grass, weather, contrails and flares.",
+    "tuning.shadow_pixels": "Drawing: each object's shadow redraws the level under it; an object too small for one is not lit for it either.",
+    "tuning.object_cull_pixels": "Drawing, and CPU a frame: small objects are neither lit nor drawn. In a network game only items lying around.",
 }
 
 PLATFORM_FLAGS = {

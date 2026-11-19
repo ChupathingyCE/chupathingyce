@@ -172,7 +172,218 @@ boolean render_particles_enabled = TRUE;
 boolean render_particle_systems_enabled = TRUE;
 boolean render_weather_particle_systems_enabled = TRUE;
 
+/* port: config.toml's [tuning] knobs for the drawing (port_config.c),
+read again only when the settings change (a string's lookup each frame
+is dear on the consoles). Each default draws what the Xbox draws, and
+none of them changes the simulation: they leave out only sprites and
+passes, after the game's own bookkeeping for them (render_particles.c,
+particle_systems.c, weather_particle_systems.c, render_objects.c). In a
+network game they are held so that nobody sees less of the players, their
+vehicles and shots, or of the cover and weather between them, than the
+Xbox shows everyone. */
+static struct
+{
+	unsigned long read_at;
+	boolean network_game;
+	short particle_thinning;
+	/* tuning.effects: 0 "full", 1 "reduced", 2 "minimal" */
+	short effects;
+	real shadow_pixels;
+	real cull_pixels;
+	/* the passes left out now (_render_tuning_*_bit) */
+	unsigned long passes_left_out;
+	/* a determinism check's replay (debug.determinism: tools/test_determinism.py,
+	tools/bench.py): a recorded game, alone on loopback, with nobody to be fair
+	to, where the knobs go as far as in a local game so that the check covers
+	everything they do */
+	boolean replay;
+	/* what the log last said was held in a network game: the knobs'
+	values, so each is said once a value */
+	long said_held;
+} render_tuning_globals = { (unsigned long)-1, FALSE, 1, 0, 30.0f, 0.0f, 0, FALSE, 0 };
+
+/* the particles the Xbox draws at most, which a network game never thins
+under (as display.particle_limit: particles.c's PARTICLES_NETWORK_FLOOR) */
+#define RENDER_TUNING_NETWORK_PARTICLES 1024
+
 /* ---------- public code */
+
+/* port: [tuning]'s knobs read again when the settings changed, and held
+when a network game starts or ends; a knob held says so once a value */
+void render_tuning_update(
+	void)
+{
+	extern unsigned long config_changes(void);
+	extern long config_integer(const char *name);
+	extern const char *config_string(const char *name);
+	extern void platform_log(const char *format, ...);
+	short connection = game_connection();
+	boolean network_game;
+	boolean changed = FALSE;
+
+	if (render_tuning_globals.read_at != config_changes())
+	{
+		const char *effects;
+		const char *determinism;
+
+		render_tuning_globals.read_at = config_changes();
+		determinism = config_string("debug.determinism");
+		render_tuning_globals.replay = determinism && !strncmp(determinism, "replay:", 7);
+		render_tuning_globals.particle_thinning =
+			(short)PIN(config_integer("tuning.particle_thinning"), 1, 4);
+		/* (one of its words, port_config.c sees to it: each starts with its
+		own letter, in any case) */
+		effects = config_string("tuning.effects");
+		render_tuning_globals.effects =
+			!effects ? 0 : (effects[0] | 0x20) == 'm' ? 2 : (effects[0] | 0x20) == 'r' ? 1 : 0;
+		render_tuning_globals.shadow_pixels =
+			(real)PIN(config_integer("tuning.shadow_pixels"), 30, 400);
+		render_tuning_globals.cull_pixels =
+			(real)PIN(config_integer("tuning.object_cull_pixels"), 0, 16);
+		changed = TRUE;
+	}
+	network_game =
+		(connection == _game_connection_network_client ||
+		connection == _game_connection_network_server) &&
+		!render_tuning_globals.replay;
+	if (changed || network_game != render_tuning_globals.network_game)
+	{
+		unsigned long left_out = 0;
+
+		render_tuning_globals.network_game = network_game;
+		if (render_tuning_globals.effects >= 1)
+		{
+			left_out |=
+				FLAG(_render_tuning_specular_bit) |
+				FLAG(_render_tuning_reflections_bit) |
+				FLAG(_render_tuning_detail_objects_bit);
+		}
+		if (render_tuning_globals.effects >= 2)
+		{
+			left_out |=
+				FLAG(_render_tuning_decals_bit) |
+				FLAG(_render_tuning_weather_bit) |
+				FLAG(_render_tuning_contrails_bit) |
+				FLAG(_render_tuning_lens_flares_bit);
+		}
+		if (network_game)
+		{
+			/* (what can hide a player, or shows a shot or blinds: as the Xbox
+			draws it for everyone) */
+			unsigned long kept = left_out & (
+				FLAG(_render_tuning_detail_objects_bit) |
+				FLAG(_render_tuning_weather_bit) |
+				FLAG(_render_tuning_contrails_bit) |
+				FLAG(_render_tuning_lens_flares_bit));
+			long held =
+				(kept ? render_tuning_globals.effects : 0) |
+				(render_tuning_globals.particle_thinning > 1 ? render_tuning_globals.particle_thinning << 4 : 0) |
+				((long)render_tuning_globals.cull_pixels << 8);
+			boolean say = held != render_tuning_globals.said_held;
+
+			render_tuning_globals.said_held = held;
+			left_out &= ~kept;
+			if (kept && say)
+			{
+				platform_log("tuning: effects=%s draws the grass, weather, contrails and lens flares in a network game",
+					render_tuning_globals.effects >= 2 ? "minimal" : "reduced");
+			}
+			if (render_tuning_globals.particle_thinning > 1 && say)
+			{
+				platform_log("tuning: particle_thinning=%d thins only past the Xbox's %d particles in a network game",
+					render_tuning_globals.particle_thinning, RENDER_TUNING_NETWORK_PARTICLES);
+			}
+			if (render_tuning_globals.cull_pixels > 0.0f && say)
+			{
+				platform_log("tuning: object_cull_pixels=%d leaves out only items lying around in a network game",
+					(int)render_tuning_globals.cull_pixels);
+			}
+		}
+		else
+		{
+			render_tuning_globals.said_held = 0;
+		}
+		render_tuning_globals.passes_left_out = left_out;
+	}
+
+	return;
+}
+
+/* port: whether a pass of tuning.effects (_render_tuning_*_bit) is drawn */
+boolean render_tuning_draws(
+	short pass)
+{
+	return !TEST_FLAG(render_tuning_globals.passes_left_out, pass);
+}
+
+/* port: tuning.particle_thinning for this frame's loose particles, of
+which loose_particle_count are in view: one in that many drawn. In a
+network game no fewer than the Xbox would draw, its most or every one
+in view when there are fewer: past 1024 only */
+short render_tuning_particle_thinning(
+	long loose_particle_count)
+{
+	short thinning = render_tuning_globals.particle_thinning;
+
+	if (render_tuning_globals.network_game)
+	{
+		long most = loose_particle_count / RENDER_TUNING_NETWORK_PARTICLES;
+
+		thinning = (short)PIN(most, 1, thinning);
+	}
+
+	return thinning;
+}
+
+/* port: tuning.particle_thinning for the particle systems' particles (the
+mist, steam and smoke a level and its effects hold): never in a network
+game, where the Xbox draws every one */
+short render_tuning_particle_system_thinning(
+	void)
+{
+	return render_tuning_globals.network_game ? 1 : render_tuning_globals.particle_thinning;
+}
+
+/* port: whether a thinned particle is drawn, by its slot, so that each one
+is drawn or not for its whole life; the slot mixed (Knuth's multiplier)
+so that a burst's neighboring slots are spread over the choices */
+boolean render_tuning_particle_kept(
+	long particle_index,
+	short thinning)
+{
+	unsigned long mixed;
+
+	if (thinning <= 1)
+		return TRUE;
+	mixed = ((unsigned long)(particle_index & 0xFFFF) * 2654435761UL) & 0xFFFFFFFFUL;
+
+	return (mixed >> 16) % (unsigned long)thinning == 0;
+}
+
+/* port: tuning.shadow_pixels, how big an object must look to cast a
+shadow (the Xbox's OBJECT_SHADOW_MINIMUM_PIXELS, 30, by default) */
+real render_tuning_shadow_pixels(
+	void)
+{
+	return render_tuning_globals.shadow_pixels;
+}
+
+/* port: tuning.object_cull_pixels, the size an object must look to be
+drawn (0: every one), and whether a network game lets it leave out an
+object of this type: only an item lying around (a weapon, equipment or
+debris), never a player, vehicle or shot, nor a thing that could stand
+between players (scenery, machines and the rest) */
+real render_tuning_object_cull_pixels(
+	void)
+{
+	return render_tuning_globals.cull_pixels;
+}
+
+boolean render_tuning_object_type_culled(
+	short object_type)
+{
+	return !render_tuning_globals.network_game || TEST_FLAG(_object_mask_item, object_type);
+}
 
 void render_effects(
 	boolean enable)
@@ -420,6 +631,10 @@ static void render_window(
 {
 	struct rasterizer_window_begin_parameters parameters;
 	short rendered_cluster_index;
+	/* port: the passes [tuning]'s tuning.effects leaves out (render_tuning_update):
+	"minimal" the decals' five layers, and the lens flares with their tests */
+	boolean decals = render_tuning_draws(_render_tuning_decals_bit);
+	boolean lens_flares = render_tuning_draws(_render_tuning_lens_flares_bit);
 
 	profile_render_window_start(TRUE);
 	render.scene_index++;
@@ -463,55 +678,76 @@ static void render_window(
 		structure_render_preprocess();
 		structure_render_lightmaps();
 		HALO_PERF_RENDER_PART(_halo_perf_render_lens_flares);
-		rasterizer_lens_flares_submit_occlusion_tests();
+		if (lens_flares)
+			rasterizer_lens_flares_submit_occlusion_tests();
 		HALO_PERF_RENDER_PART(_halo_perf_render_objects);
 		render_object_shadows();
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);
 		lights_render_diffuse();
 
-		rasterizer_decals_begin(_decal_layer_light);
-		for (rendered_cluster_index = 0;
-			rendered_cluster_index < render.rendered_cluster_count;
-			rendered_cluster_index++)
+		if (decals)
 		{
-			rasterizer_decals_draw(rendered_cluster_get(rendered_cluster_index)->cluster_index);
+			rasterizer_decals_begin(_decal_layer_light);
+			for (rendered_cluster_index = 0;
+				rendered_cluster_index < render.rendered_cluster_count;
+				rendered_cluster_index++)
+			{
+				rasterizer_decals_draw(rendered_cluster_get(rendered_cluster_index)->cluster_index);
+			}
+			rasterizer_decals_end();
 		}
-		rasterizer_decals_end();
 
-		rasterizer_decals_begin(_decal_layer_alpha_tested);
-		for (rendered_cluster_index = 0;
-			rendered_cluster_index < render.rendered_cluster_count;
-			rendered_cluster_index++)
+		if (decals)
 		{
-			rasterizer_decals_draw(rendered_cluster_get(rendered_cluster_index)->cluster_index);
+			rasterizer_decals_begin(_decal_layer_alpha_tested);
+			for (rendered_cluster_index = 0;
+				rendered_cluster_index < render.rendered_cluster_count;
+				rendered_cluster_index++)
+			{
+				rasterizer_decals_draw(rendered_cluster_get(rendered_cluster_index)->cluster_index);
+			}
+			rasterizer_decals_end();
 		}
-		rasterizer_decals_end();
 
 		structure_render_diffuse_texture();
 
-		rasterizer_decals_begin(_decal_layer_primary);
-		for (rendered_cluster_index = 0;
-			rendered_cluster_index < render.rendered_cluster_count;
-			rendered_cluster_index++)
+		if (decals)
 		{
-			rasterizer_decals_draw(rendered_cluster_get(rendered_cluster_index)->cluster_index);
+			rasterizer_decals_begin(_decal_layer_primary);
+			for (rendered_cluster_index = 0;
+				rendered_cluster_index < render.rendered_cluster_count;
+				rendered_cluster_index++)
+			{
+				rasterizer_decals_draw(rendered_cluster_get(rendered_cluster_index)->cluster_index);
+			}
+			rasterizer_decals_end();
 		}
-		rasterizer_decals_end();
 
-		rasterizer_decals_begin(_decal_layer_secondary);
-		for (rendered_cluster_index = 0;
-			rendered_cluster_index < render.rendered_cluster_count;
-			rendered_cluster_index++)
+		if (decals)
 		{
-			rasterizer_decals_draw(rendered_cluster_get(rendered_cluster_index)->cluster_index);
+			rasterizer_decals_begin(_decal_layer_secondary);
+			for (rendered_cluster_index = 0;
+				rendered_cluster_index < render.rendered_cluster_count;
+				rendered_cluster_index++)
+			{
+				rasterizer_decals_draw(rendered_cluster_get(rendered_cluster_index)->cluster_index);
+			}
+			rasterizer_decals_end();
 		}
-		rasterizer_decals_end();
 
-		lights_render_specular();
-		structure_render_specular_lightmaps();
-		structure_render_reflection_lightmap_masks();
-		structure_render_reflection_mirrors();
-		structure_render_reflections();
+		/* port: (tuning.effects = "reduced" leaves the shine and the
+		reflections out) */
+		if (render_tuning_draws(_render_tuning_specular_bit))
+		{
+			lights_render_specular();
+			structure_render_specular_lightmaps();
+		}
+		if (render_tuning_draws(_render_tuning_reflections_bit))
+		{
+			structure_render_reflection_lightmap_masks();
+			structure_render_reflection_mirrors();
+			structure_render_reflections();
+		}
 		HALO_PERF_RENDER_PART(_halo_perf_render_transparent);
 		structure_render_transparent_geometry();
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);
@@ -519,10 +755,13 @@ static void render_window(
 		HALO_PERF_RENDER_PART(_halo_perf_render_objects);
 		game_engine_post_rasterize_objects();
 		HALO_PERF_RENDER_PART(_halo_perf_render_effects);
+		/* (port: the weather's sprites left out in weather_particle_systems.c,
+		after its update) */
 		weather_particle_systems_render();
 		render_particles();
 		particle_systems_render();
-		render_contrails_normal();
+		if (render_tuning_draws(_render_tuning_contrails_bit))
+			render_contrails_normal();
 #ifdef HALO_SHADER_PREP
 		/* port: and every effect's (port/linux/game/render_enumerate.c) */
 		render_enumerate_effects();
@@ -531,23 +770,28 @@ static void render_window(
 		rasterizer_transparent_geometry_draw(TRUE);
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);
 
-		rasterizer_decals_begin(_decal_layer_water);
-		for (rendered_cluster_index = 0;
-			rendered_cluster_index < render.rendered_cluster_count;
-			rendered_cluster_index++)
+		if (decals)
 		{
-			rasterizer_decals_draw(rendered_cluster_get(rendered_cluster_index)->cluster_index);
+			rasterizer_decals_begin(_decal_layer_water);
+			for (rendered_cluster_index = 0;
+				rendered_cluster_index < render.rendered_cluster_count;
+				rendered_cluster_index++)
+			{
+				rasterizer_decals_draw(rendered_cluster_get(rendered_cluster_index)->cluster_index);
+			}
+			rasterizer_decals_end();
 		}
-		rasterizer_decals_end();
 
-		structure_render_detail_objects();
+		if (render_tuning_draws(_render_tuning_detail_objects_bit))
+			structure_render_detail_objects();
 		HALO_PERF_RENDER_PART(_halo_perf_render_transparent);
 		rasterizer_transparent_geometry_draw(FALSE);
 		rasterizer_transparent_geometry_stop();
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);
 		structure_render_fog_screen();
 		HALO_PERF_RENDER_PART(_halo_perf_render_lens_flares);
-		rasterizer_lens_flares_draw();
+		if (lens_flares)
+			rasterizer_lens_flares_draw();
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);
 		/* port: Stubbs mode's image effect over the 3D view
 		(port/linux/game/stubbs_image_effects.c) */
@@ -792,7 +1036,9 @@ static void render_player_frame(
 		&rasterizer_frustum,
 		TRUE);
 
-	if (main_get_window_count() == 1)
+	/* port: (and no mirror's view drawn where tuning.effects leaves the
+	reflections out) */
+	if (main_get_window_count() == 1 && render_tuning_draws(_render_tuning_reflections_bit))
 	{
 		if (structure_visibility_find_mirror(camera, &frustum, &mirror))
 		{
@@ -878,6 +1124,8 @@ void render_frame(
 	render.frame_index++;
 	render.time_delta_since_tick_sec = time_delta_since_tick_sec;
 	memset(&parameters, 0, sizeof(parameters));
+	/* port: [tuning]'s drawing knobs, for this frame */
+	render_tuning_update();
 	HALO_PERF_RENDER_PART(_halo_perf_render_begin);
 #ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	/* continuous between ticks (render_interpolation.c) */

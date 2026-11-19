@@ -435,6 +435,10 @@ void render_particles(
 	struct build_sprite_data sprite_data;
 	real_point3d position;
 	real_vector3d direction;
+	/* port: the loose particles in view (on no object, nor the first-person
+	weapon's), and one in how many of them tuning.particle_thinning draws */
+	long loose_particle_count = 0;
+	short thinning = 1;
 
 	rendered_particle_count = 0;
 	profile_enter(render_particles_section);
@@ -481,8 +485,14 @@ void render_particles(
 					TEST_FLAG(
 						particle->flags,
 						_particle_datum_dont_draw_third_person_bit);
+				if (!rendered_particle->attached_to_first_person_weapon &&
+					particle->object_index == NONE)
+				{
+					loose_particle_count++;
+				}
 			}
 		}
+		thinning = render_tuning_particle_thinning(loose_particle_count);
 
 		if (rendered_particle_count > 0)
 		{
@@ -691,18 +701,34 @@ void render_particles(
 											particle_flags,
 											_particle_datum_v_mirror_bit));
 
-									build_sprite(
-										&sprite_data,
-										definition->sprite_orientation,
-										particle->sequence_index,
-										particle->frame_index,
-										&position,
-										&direction,
-										particle->rotation,
-										scale,
-										&particle->color,
-										fade,
-										flags);
+									/* port: a loose particle tuning.particle_thinning
+									leaves out still counts as drawn (the game deletes
+									one not drawn for a while: particles.c), only its
+									sprite is not built, so the game goes on the same */
+									if (rendered_particle->attached_to_first_person_weapon ||
+										particle->object_index != NONE ||
+										render_tuning_particle_kept(
+											rendered_particle[particle_run_index].particle_index,
+											thinning))
+									{
+										build_sprite(
+											&sprite_data,
+											definition->sprite_orientation,
+											particle->sequence_index,
+											particle->frame_index,
+											&position,
+											&direction,
+											particle->rotation,
+											scale,
+											&particle->color,
+											fade,
+											flags);
+									}
+									else
+									{
+										built_particle_count--;
+										total_radius -= radius;
+									}
 
 									particle->last_rendered_frame_index =
 										render.frame_index;
