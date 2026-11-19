@@ -139,8 +139,10 @@ enum
 	/* the host's settings told each OpenCE machine again this often (as
 	OpenCE's host does: one that joined since learns them) */
 	BRIDGE_CONFIG_TIME = 3000,
-	/* an OpenCE host's console notices kept in the chat: the same line
-	again within this long (milliseconds) is left out, of the last few */
+	/* the server's lines kept in the chat, a host's notices and Delta's
+	server lines alike: the same line again within this long
+	(milliseconds) is left out, of the last few (a screen of notices sent
+	each second, or a host that sends a line both ways) */
 	NOTICE_REPEAT_TIME = 15000,
 	NOTICE_RECENT = 8,
 };
@@ -259,8 +261,8 @@ static struct
 	struct delta_chat_bridge_budget bridge_budgets[MACHINES];
 #endif
 	boolean bridge_logged;
-	/* an OpenCE host's console notices put in the chat lately (their
-	fingerprints, and when) */
+	/* the server's lines put in the chat lately (their fingerprints, and
+	when) */
 	delta_u32 notice_fingerprints[NOTICE_RECENT];
 	unsigned long notice_times[NOTICE_RECENT];
 	short notice_next;
@@ -478,6 +480,37 @@ static void filter_read(void)
 #endif
 }
 
+/* whether the server's line was put in the chat within NOTICE_REPEAT_TIME
+(its text, spaces at either end left out); if not, it is noted as put there
+now */
+static boolean server_line_repeated(char const *text, int length)
+{
+	unsigned long now = system_milliseconds();
+	delta_u32 fingerprint;
+	int index;
+
+	while (length > 0 && *text == ' ')
+	{
+		text++;
+		length--;
+	}
+	while (length > 0 && text[length - 1] == ' ')
+		length--;
+	fingerprint = delta_chat_fingerprint(text, length);
+	for (index = 0; index < NOTICE_RECENT; index++)
+	{
+		if (chat.notice_times[index] && chat.notice_fingerprints[index] == fingerprint &&
+			now - chat.notice_times[index] < NOTICE_REPEAT_TIME)
+		{
+			return TRUE;
+		}
+	}
+	chat.notice_fingerprints[chat.notice_next] = fingerprint;
+	chat.notice_times[chat.notice_next] = now ? now : 1;
+	chat.notice_next = (short)((chat.notice_next + 1) % NOTICE_RECENT);
+	return FALSE;
+}
+
 /* a player's or the server's line heard (or the host's own): kept, as the
 player's settings say */
 static void line_heard(struct delta_wire_chat_line const *line)
@@ -495,7 +528,7 @@ static void line_heard(struct delta_wire_chat_line const *line)
 
 	if (server)
 	{
-		if (!config_boolean("display.server_messages"))
+		if (!config_boolean("display.server_messages") || server_line_repeated(line->text, line->length))
 			return;
 	}
 	else
@@ -1275,19 +1308,17 @@ void chat_bridge_message(long machine_index, int type, void const *entry, int si
 	}
 }
 
-/* (a client) an OpenCE host's console notice as a system line too, as its
-own players see it in their chat. Blank lines are left out, and a line seen
-again within NOTICE_REPEAT_TIME (a screen of notices sent each second) */
+/* (a client) the host's console notice as a system line too, as an OpenCE
+host's own players see it in their chat: any host's, one with Delta's chat
+too (a dedicated server of ours, or one built on it, may send its welcome
+and its announcements this way). Blank lines are left out, and a line put
+in the chat within NOTICE_REPEAT_TIME, either way (line_heard) */
 void chat_host_console_notice(char const *text)
 {
 	struct delta_wire_chat_line line;
-	unsigned long now = system_milliseconds();
-	delta_u32 fingerprint;
-	int length, index;
+	int length;
 
-	/* (a host with Delta's chat says its lines there: its console notices
-	stay the console's) */
-	if (!text || game_connection() != _game_connection_network_client || delta_peer_game_chat_ready() ||
+	if (!text || game_connection() != _game_connection_network_client ||
 		delta_capability_disabled(_delta_capability_chat))
 	{
 		return;
@@ -1301,18 +1332,6 @@ void chat_host_console_notice(char const *text)
 		return;
 	if (length > DELTA_WIRE_CHAT_TEXT_SIZE)
 		length = DELTA_WIRE_CHAT_TEXT_SIZE;
-	fingerprint = delta_chat_fingerprint(text, length);
-	for (index = 0; index < NOTICE_RECENT; index++)
-	{
-		if (chat.notice_times[index] && chat.notice_fingerprints[index] == fingerprint &&
-			now - chat.notice_times[index] < NOTICE_REPEAT_TIME)
-		{
-			return;
-		}
-	}
-	chat.notice_fingerprints[chat.notice_next] = fingerprint;
-	chat.notice_times[chat.notice_next] = now ? now : 1;
-	chat.notice_next = (short)((chat.notice_next + 1) % NOTICE_RECENT);
 	csmemset(&line, 0, sizeof(line));
 	line.kind = _delta_chat_kind_system;
 	line.speaker_machine = DELTA_WIRE_NO_MACHINE;
