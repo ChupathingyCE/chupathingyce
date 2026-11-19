@@ -223,10 +223,12 @@ static struct
 	short local_players;
 	short local_players_added;
 	/* debug.network_test_split_leave: the seconds between leaves, whether
-	they join again, the controller who left last (0 none waiting), and
-	those out of the game */
+	they join again, the game times of the next leave and rejoin, the
+	controller who left last (0 none waiting), and those out of the game */
 	real split_leave_seconds;
 	boolean split_rejoin;
+	long split_leave_time;
+	long split_rejoin_time;
 	short split_left;
 	boolean split_out[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 	/* a game has run (a held start is asked again only before the first) */
@@ -1448,7 +1450,8 @@ static void network_test_password(
 player still in the game leaves, as Quit on their pause menu does
 (mcc_ui.c's MCC_PAUSE_ACTION_QUIT); with :rejoin, half the interval later
 they join again, as a split screen player joining the game in progress.
-Player 1 never leaves. Called once a second */
+Player 1 never leaves. Called once a second; the times are deadlines, so a
+slow frame that jumps past one second still leaves or joins */
 static void network_test_split_update(
 	void)
 {
@@ -1461,8 +1464,12 @@ static void network_test_split_update(
 	{
 		return;
 	}
-	if (now % interval < TICKS_PER_SECOND)
+	/* (a new game: its time starts over) */
+	if (network_test.split_leave_time == 0 || network_test.split_leave_time > now + interval)
+		network_test.split_leave_time = interval;
+	if (now >= network_test.split_leave_time)
 	{
+		network_test.split_leave_time = now + interval;
 		for (controller = network_test.local_players - 1; controller > 0; controller--)
 		{
 			if (!network_test.split_out[controller])
@@ -1479,10 +1486,10 @@ static void network_test_split_update(
 				player_ui_local_player_left_multiplayer_game(controller);
 			network_test.split_out[controller] = TRUE;
 			network_test.split_left = controller;
+			network_test.split_rejoin_time = now + interval / 2;
 		}
 	}
-	if (network_test.split_rejoin && network_test.split_left > 0 &&
-		(now + interval / 2) % interval < TICKS_PER_SECOND)
+	if (network_test.split_rejoin && network_test.split_left > 0 && now >= network_test.split_rejoin_time)
 	{
 		controller = network_test.split_left;
 		if (network_game_client_add_player(global_network_game_client_get(), controller))
