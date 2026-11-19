@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from harness import CHECK_FAILED, build, constant, enum_with, function, mutated, read, run, structure  # noqa: E402
 
-GUARD_CALL = ('\t\t\tif (game_connection() == _game_connection_network_client)\n'
+GUARD_CALL = ('\t\t\tif (game_connection() == _game_connection_network_client && !game_time_held())\n'
               '\t\t\t\tconnection = game_time_client_guard_cap(ticks_elapsed, connection);\n')
 CONTROLS = {
     # no guard: the spiral runs a second's ticks a frame
@@ -18,6 +18,9 @@ CONTROLS = {
                          'ticks_due > GAME_TIME_CLIENT_GUARD_TICKS', 'client:heavy:16:150'),
     # never off again: a client that fell behind once stays at a few
     'never-off': ('\t\tguard->engaged = FALSE;\n', '\t\t;\n', 'client:burst:16:150'),
+    # the guard while the clock waits for the host: a slow load reads as falling behind
+    'while-held': (' && !game_time_held())\n\t\t\t\tconnection = game_time_client_guard_cap',
+                   ')\n\t\t\t\tconnection = game_time_client_guard_cap', 'held-load'),
     # the host's clock never taken sooner
     'catch-up-second': ('? GAME_TIME_CLIENT_GUARD_TICKS : TICKS_PER_SECOND', '? TICKS_PER_SECOND : TICKS_PER_SECOND',
                         'spiral-capped'),
@@ -78,6 +81,11 @@ def test_spiral_capped():
     assert status == 0, output
 
 
+def test_held_load():
+    status, output = run(build('client_spiral_guard', generated()), 'held-load')
+    assert status == 0, output
+
+
 def test_spiral_trace_differs():
     """(a client in the spiral: the guard does change its ticks, at most its few a frame once on)"""
     status, guarded = run(build('client_spiral_guard', generated()), 'client:spiral:16:0')
@@ -94,7 +102,7 @@ def test_negative_control(control):
     case = CONTROLS[control][2]
     executable = build('client_spiral_guard', generated(control))
     status, output = run(executable, case)
-    if case == 'spiral-capped':
+    if case in ('spiral-capped', 'held-load'):
         assert status == CHECK_FAILED, f'{control} was not caught: {output}'
     else:
         status, guarded = run(build('client_spiral_guard', generated()), case)

@@ -38,7 +38,9 @@ static struct network_game_client client;
 static short game_connection(void) { return connection; }
 static struct network_game_client *global_network_game_client_get(void) { return &client; }
 static struct network_game_server *global_network_game_server_get(void) { return NULL; }
-static boolean network_game_client_server_has_started_game(struct network_game_client *c) { (void)c; return TRUE; }
+/* (FALSE: the clock waits for the host's first game update) */
+static boolean started = TRUE;
+static boolean network_game_client_server_has_started_game(struct network_game_client *c) { (void)c; return started; }
 static boolean network_game_distributed_client(void) { return connection == _game_connection_network_client; }
 static void update_client_local_ticks(long ticks) { (void)ticks; }
 static void network_game_server_update_ticks(struct network_game_server *s, short ticks) { (void)s; (void)ticks; }
@@ -118,6 +120,22 @@ int main(int argc, char **argv)
 			!strcmp(who, "host") ? _game_connection_network_server :
 			!strcmp(who, "film") ? _game_connection_film_playback : _game_connection_local;
 		trace(model, render, hitch, 3000);
+		return 0;
+	}
+	CASE("held-load")
+	{
+		/* (a client loading while its clock waits for the host: frames ever
+		longer, no tick run; no line, no ticks counted left unrun) */
+		int index;
+
+		connection = _game_connection_network_client;
+		started = FALSE;
+		for (index = 0; index < 10; index++)
+			game_time_update((real)(0.1 * (index + 1)));
+		CHECK(ticks_run == 0, "%ld ticks run while held", ticks_run);
+		CHECK(lines_logged == 0, "%d lines written while held", lines_logged);
+		CHECK(game_time_client_catch_up_ticks() == TICKS_PER_SECOND, "catch-up %ld after a held load",
+			game_time_client_catch_up_ticks());
 		return 0;
 	}
 	CASE("spiral-capped")

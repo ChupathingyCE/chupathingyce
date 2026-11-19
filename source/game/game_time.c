@@ -546,8 +546,10 @@ void game_time_update(
 			ticks_elapsed_real = (real)floor(game_time*ticks_per_second);
 			ticks_elapsed = (long)(ticks_elapsed_real <= (real)SOME_LARGE_NUMBER_OF_TICKS ?
 				ticks_elapsed_real : (real)SOME_LARGE_NUMBER_OF_TICKS);
-			/* port: a client that has fallen behind runs a few (the guard above) */
-			if (game_connection() == _game_connection_network_client)
+			/* port: a client that has fallen behind runs a few (the guard above;
+			not while its clock waits for the host's first update, which runs no
+			tick: a slow load would read as falling behind) */
+			if (game_connection() == _game_connection_network_client && !game_time_held())
 				connection = game_time_client_guard_cap(ticks_elapsed, connection);
 			if (ticks_elapsed > connection)
 			{
