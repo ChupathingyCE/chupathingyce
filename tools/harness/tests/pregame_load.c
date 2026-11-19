@@ -186,6 +186,12 @@ static boolean network_game_server_client_machine_is_local(struct network_game_s
 	(void)server;
 	return machine->machine_index == local_machine_index;
 }
+/* (no virtual machine here: a dedicated server's Custom Edition clients') */
+static boolean network_game_server_client_machine_is_virtual(struct network_game_server_client_machine const *machine)
+{
+	(void)machine;
+	return FALSE;
+}
 static boolean network_game_server_player_among(struct network_player const *player, struct network_player *players,
 	long count)
 {
