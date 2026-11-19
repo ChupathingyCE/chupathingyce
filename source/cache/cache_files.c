@@ -1082,6 +1082,26 @@ boolean cache_file_header_verify(
 		return FALSE;
 	}
 
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a HaloMD map whose header gives its file's length as its tag
+	data's size (as a HaloMD tool wrote nine of the archive's): its tag data
+	is the rest of the file, as Halo PC's loader read it
+	(port/linux/game/ce_map_checks.c) */
+	{
+		extern long ce_map_header_tag_data_size(long version, long file_length, long tag_data_offset,
+			long tag_data_size);
+		long tag_data_size = ce_map_header_tag_data_size(header->version, header->file_length,
+			header->tag_data_offset, header->tag_data_size);
+
+		if (tag_data_size != header->tag_data_size)
+		{
+			error(_error_silent, "HaloMD map %s: its header gives the file's length (%ld bytes) as its tag data's "
+				"size: read as the %ld bytes after its tag data's offset", scenario_name, header->file_length,
+				tag_data_size);
+			header->tag_data_size = tag_data_size;
+		}
+	}
+#endif
 	/* port: the map holds at least its header, and its tag data lies in it
 	and fits the tag cache, which it is read into whole (a size rounded up
 	to whole sectors still fits, the cache being whole sectors). Checked
@@ -1899,6 +1919,7 @@ long scenario_tags_load(
 		if (cache_file_is_ce && cache_file_header_verify(&cache_file_globals.header, scenario_name, TRUE))
 		{
 			struct cache_file_ce_tag_header *ce_header;
+			unsigned long ce_tags_tail;
 
 			/* port: an OpenSauce map's (one with OpenSauce's header) is
 			OpenSauce's module's from here until it unloads
@@ -1958,6 +1979,14 @@ long scenario_tags_load(
 
 				return NONE;
 			}
+			/* (a HaloMD map's last tag that begins where its tag data ends,
+			zeroes there, as it was checked: ce_map_checks.c) */
+			{
+				extern unsigned long ce_map_checked_tags_tail(void);
+
+				ce_tags_tail = ce_map_checked_tags_tail();
+				csmemset((byte *)tag_cache_base_address + cache_file_globals.header.tag_data_size, 0, ce_tags_tail);
+			}
 			cache_file_globals.tag_header = tag_cache_base_address;
 			global_tag_instances = xbox_pointer(ce_header->tag_instances);
 			cache_file_globals.tags_loaded = TRUE;
@@ -2013,7 +2042,7 @@ long scenario_tags_load(
 						ce_header->scenario_tag_index);
 				}
 				if (!ce_resources_tags_loaded(global_tag_instances, ce_header->tag_count,
-					CE_TAG_CACHE_BASE + cache_file_globals.header.tag_data_size, end_free))
+					CE_TAG_CACHE_BASE + cache_file_globals.header.tag_data_size + ce_tags_tail, end_free))
 				{
 					error(_error_silent, "Custom Edition map %s: its resources could not be loaded", scenario_name);
 				}
@@ -2053,10 +2082,11 @@ long scenario_tags_load(
 			{
 				extern unsigned long ce_resources_free_mark(void);
 				unsigned long tags_end = ce_resources_free_mark();
-				long tags_size = tags_end > CE_TAG_CACHE_BASE + (unsigned long)cache_file_globals.header.tag_data_size &&
+				unsigned long own_size = (unsigned long)cache_file_globals.header.tag_data_size + ce_tags_tail;
+				long tags_size = tags_end > CE_TAG_CACHE_BASE + own_size &&
 					tags_end <= CE_TAG_CACHE_BASE + CE_TAG_CACHE_SIZE ?
 					(long)(tags_end - CE_TAG_CACHE_BASE) :
-					cache_file_globals.header.tag_data_size;
+					(long)own_size;
 
 				/* (Custom Edition's and HaloMD's alike, overlapping blocks
 				walked as their own where safe, as HaloMD plays them:
