@@ -1055,16 +1055,19 @@ if __name__ == "__main__":
     main()
 
 
-def opensauce_map(header=True, widgets_outside=False, syntax_nodes=None):
+def opensauce_map(header=True, widgets_outside=False, syntax_nodes=None, netgame_flags=None):
     """a Custom Edition map with OpenSauce's header (no flags: the checks
     take it as they take any Custom Edition map) and its project_yellow
     (yelo) and project_yellow_globals (gelo) tags, the scenario's first
     reference naming the yelo tag as OpenSauce's tools make it; its yelo's
     scripted widgets one element far outside the tags if widgets_outside;
-    its scripts' syntax a data array of syntax_nodes nodes if given"""
+    its scripts' syntax a data array of syntax_nodes nodes if given; its
+    scenario's netgame flags that many, in a tag of room for 250, if given"""
     base = TAG_CACHE["ce"]
     # (the syntax, if any, after the gelo tag's root, in no tag's root)
     extra = [(b"yelo", 0x138), (b"gelo", 0x120 + (0x38 + syntax_nodes * 0x14 if syntax_nodes else 0))]
+    if netgame_flags is not None:
+        extra.append((b"zzzz", 250 * 0x94))
     data, offsets = ce_map_of_tags(extra)
     yelo, gelo = offsets["tags"][:2]
     scenario = struct.unpack_from("<I", data, offsets["instances"] + 0x14)[0] - base + 0x800
@@ -1086,9 +1089,27 @@ def opensauce_map(header=True, widgets_outside=False, syntax_nodes=None):
         syntax = gelo + 0x120
         struct.pack_into("<hh", data, syntax + 0x20, syntax_nodes, 0x14)
         struct.pack_into("<iIII", data, scenario + 0x474, 0x38 + syntax_nodes * 0x14, 0, 0, base + syntax - 0x800)
+    if netgame_flags is not None:
+        struct.pack_into("<iII", data, scenario + 0x378, netgame_flags, base + offsets["tags"][2] - 0x800, 0)
     if header:
         struct.pack_into("<4shH", data, 0x70, b"oley", 2, 0)
     return bytes(data)
+
+
+def test_opensauce_netgame_flags_past_200(built, tmp_path):
+    """OpenSauce's layout keeps Halo PC's maxima where it has none of its own:
+    an OpenSauce map's netgame flags past the tools' 200 are kept, as a Halo
+    PC map's are, up to a short's most"""
+    binaries, _ = built
+    for count, cut in ((250, False), (0x7FFF + 1, True)):
+        path = tmp_path / f"opensauce_netgame_{count}.map"
+        path.write_bytes(opensauce_map(netgame_flags=count))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "OpenSauce" in result.stderr, result.stderr[-4000:]
+        assert ("netgame_flags has 32768 elements, more than the game's 32767: cut to 32767" in result.stderr) == cut, \
+            (count, result.stderr[-4000:])
+        assert "more than the game's 200" not in result.stderr, (count, result.stderr[-4000:])
 
 
 def test_opensauce_maps_checked_by_their_own_layout(built, tmp_path):
