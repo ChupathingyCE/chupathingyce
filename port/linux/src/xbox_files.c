@@ -541,6 +541,14 @@ void platform_save_drive_folder(const char *folder)
 	snprintf(save_drive_folder, sizeof(save_drive_folder), "%s", folder ? folder : "");
 }
 
+/* a file by the host's own path (one under a folder platform_folder names),
+opened as it is: the game's units' fopen takes Xbox paths, which a host
+path is not (console.c's history) */
+FILE *platform_host_fopen(const char *path, const char *mode)
+{
+	return fopen(path, mode);
+}
+
 void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size)
 {
 	char resolved[1024];

@@ -28,14 +28,16 @@ def compiler():
     return None
 
 
-def test_rules(tmp_path):
-    """the rules' C tests, warnings as errors"""
+@pytest.mark.parametrize("defines", [["-DHALO_GAME_BROWSER"], []], ids=["desktop", "console"])
+def test_rules(tmp_path, defines):
+    """the rules' C tests, warnings as errors: as the desktop builds have
+    them, and as a console's (no HALO_GAME_BROWSER: no modes played)"""
     cc = compiler()
     if not cc:
         pytest.skip("no C compiler")
     binary = tmp_path / "network_rules_test"
     build = subprocess.run(
-        [cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
+        [cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1", *defines,
          str(ROOT / "port/linux/tests/network_rules_test.c"), str(ROOT / "port/linux/game/network_rules.c"),
          "-o", str(binary)],
         capture_output=True, text=True)
@@ -157,7 +159,7 @@ def test_the_version_and_the_wire():
     limits = (ROOT / "port/linux/include/halo_port_limits.h").read_text(encoding="utf-8")
     delta = (ROOT / "port/linux/include/delta.h").read_text(encoding="utf-8")
     assert "#define HALO_PORT_NETWORK_VERSION 32\n" in limits
-    assert '#define DELTA_WIRE "chupa-44a"' in delta
+    assert '#define DELTA_WIRE "chupa-44b"' in delta
     for number in (30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44):
         assert re.search(rf'X\({number}, "build-\d+", additive\)', delta)
     assert "#define HALO_PORT_NETWORK_VERSION_MAXIMUM 45\n" in limits
@@ -249,5 +251,14 @@ def test_join_paths_know_the_hosts_number():
     assert "network_rules_join_request_tail(version, tail," in request
     # (the host's own game, joined at home with no advertisement: its
     # request made for the number it announces, which tools/test_net43_host.py
-    # runs for real)
-    assert "else if (global_network_game_server_get())\n\t\t\tnetwork_game_client_joined_version = (unsigned int)delta_legacy_announce();" in initiate
+    # runs for real; an advertised join is never taken for one)
+    assert ("else if (global_network_game_server_get())\n\t\t{\n"
+            "\t\t\tnetwork_game_client_joined_version = (unsigned int)delta_legacy_announce();\n"
+            "\t\t\tnetwork_game_client_joined_home = TRUE;\n\t\t}") in initiate
+    assert "network_game_client_joined_home = FALSE;" in initiate
+    # (and that number read again as the request goes out, since the host
+    # changes it as its game starts for an MCC map, #1372)
+    reread = joining.index("if (network_game_client_joined_home && global_network_game_server_get())")
+    announce = joining.index("unsigned int now = (unsigned int)delta_legacy_announce();", reread)
+    adopt = joining.index("network_game_client_joined_version = now;", announce)
+    assert adopt < joining.index("network_game_client_send_join_request(client, network_game_client_joined_version);", adopt)

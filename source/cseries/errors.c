@@ -130,6 +130,108 @@ char *error_get(
 	return error_globals.message_buffer;
 }
 
+/* port: what stopped the game (errors.h) */
+static char error_halt_reason[256];
+static char error_halt_file[160];
+static long error_halt_line = 0;
+
+void error_halt_place_set(
+	char const *reason,
+	char const *file,
+	long line)
+{
+	long index;
+
+	for (index = 0; reason && reason[index] && index < (long)sizeof(error_halt_reason) - 1; index++)
+	{
+		error_halt_reason[index] = reason[index];
+	}
+	/* (a message's own line end left off) */
+	while (index > 0 && (error_halt_reason[index - 1] == '\r' || error_halt_reason[index - 1] == '\n'))
+	{
+		index--;
+	}
+	error_halt_reason[index] = 0;
+	for (index = 0; file && file[index] && index < (long)sizeof(error_halt_file) - 1; index++)
+	{
+		error_halt_file[index] = file[index];
+	}
+	error_halt_file[index] = 0;
+	error_halt_line = line;
+
+	return;
+}
+
+void error_halt_place_clear(
+	void)
+{
+	error_halt_place_set(NULL, NULL, 0);
+
+	return;
+}
+
+char const *error_halt_place(
+	char const **file,
+	long *line)
+{
+	if (file)
+	{
+		*file = error_halt_file;
+	}
+	if (line)
+	{
+		*line = error_halt_line;
+	}
+
+	return error_halt_reason;
+}
+
+/* port: debug.txt's drive: D:, the game's own folder. An Xbox whose D: is
+read-only (an emulator or XeFu running the game from its disc) writes to
+T: instead, the title's own folder on the hard disk; chosen at the first
+line, and every later file (debug.old.txt) goes on the same drive */
+static char debug_file_port_drive = 'd';
+
+static void debug_file_port_name(
+	char *path,
+	size_t size,
+	char const *name)
+{
+	snprintf(path, size, "%c:\\%s", debug_file_port_drive, name);
+}
+
+static FILE *debug_file_port_open(
+	char const *mode)
+{
+	char path[32];
+	FILE *file;
+
+	debug_file_port_name(path, sizeof(path), "debug.txt");
+	file = fopen(path, mode);
+#ifdef HALO_XBOX_CONSOLE
+	if (!file && debug_file_port_drive == 'd')
+	{
+		debug_file_port_drive = 't';
+		debug_file_port_name(path, sizeof(path), "debug.txt");
+		file = fopen(path, mode);
+		if (!file)
+			debug_file_port_drive = 'd';
+	}
+#endif
+	return file;
+}
+
+/* port: where debug.txt is now ("d:\\debug.txt", or T:'s), for the port's
+own lines (xbox_boot_log) */
+char const *error_log_path(
+	void)
+{
+	static char path[32];
+
+	debug_file_port_name(path, sizeof(path), "debug.txt");
+	return path;
+}
+
 #ifndef HALO_CONSOLE_LOG_BUFFER
 /* The native builds keep the log open and flush each line: opening and
 closing it per line takes milliseconds on Windows, and a host logs
@@ -192,7 +294,7 @@ static void write_to_debug_file(
 	file = debug_file_port;
 	if (!file)
 	{
-		file = fopen("d:\\debug.txt", "a+b");
+		file = debug_file_port_open("a+b");
 		if (!file)
 		{
 			__sync_lock_release(&debug_file_port_lock);
@@ -287,11 +389,15 @@ static void debug_file_port_write(
 	{
 		fclose(file);
 		debug_file_port = NULL;
-		remove("d:\\debug.old.txt");
-		/* (or, where it cannot be renamed, begun again in place) */
-		file = rename("d:\\debug.txt", "d:\\debug.old.txt") ?
-			fopen("d:\\debug.txt", "w+b") :
-			fopen("d:\\debug.txt", "a+b");
+		{
+			char path[32], old_path[32];
+
+			debug_file_port_name(path, sizeof(path), "debug.txt");
+			debug_file_port_name(old_path, sizeof(old_path), "debug.old.txt");
+			remove(old_path);
+			/* (or, where it cannot be renamed, begun again in place) */
+			file = rename(path, old_path) ? fopen(path, "w+b") : fopen(path, "a+b");
+		}
 		if (!file)
 		{
 			return;
@@ -343,7 +449,7 @@ void error_log_flush(
 	}
 	if (error_log_buffer_size > 0)
 	{
-		FILE *handle = fopen("d:\\debug.txt", "a+b");
+		FILE *handle = debug_file_port_open("a+b");
 
 		if (handle)
 		{
@@ -657,6 +763,11 @@ void error(
 
 		if (priority == _error_immediate)
 		{
+			/* (port: the halt screen's reason) */
+			if (format)
+			{
+				error_halt_place_set(string, NULL, 0);
+			}
 			system_exit(-4998);
 		}
 		error_globals.recursion_lock = FALSE;

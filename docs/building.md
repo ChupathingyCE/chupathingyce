@@ -121,6 +121,7 @@ options below, and every option by name in `sln.args`. While
 | `--release` | assertions are not checked; a failed one is logged and the game goes on |
 | `--console-players {16,24,32,64}` | the players the network tables hold (`HALO_CONSOLE_PLAYERS`). 16 is the original Xbox's; more are test builds |
 | `--console-debug-tools` | keeps the debug decomp's developer tools (`HALO_CONSOLE_DEBUG_TOOLS`), which console builds leave out by default |
+| `--console-checkpoint-trace` | a test build: the log says which safety check (`game_safe_to_save`) holds up each checkpoint, and traces the script `mission_shoot` (`HALO_CONSOLE_CHECKPOINT_TRACE`). Off by default |
 | `--console-no-debug-asserts` | the release-style build: the debug decomp's asserts compiled out as retail compiled them out, but for the memory checks of `source/memory` and `source/cseries` (`HALO_CONSOLE_NO_DEBUG_ASSERTS`) |
 
 A port adds its own options (toolchains and SDK libraries) with
@@ -160,7 +161,7 @@ and what each hook asks of the port, or on its compile lines:
 
 ### Link Profile on a console
 
-`port/console/link` is a console's Link Profile (docs/delta.md, "Delta
+`port/console/link` is a console's Link Profile (docs/delta/link.md, "Delta
 Link"): `console_link.c` (the device key, the code, the requests, plain C)
 and `console_link_panel.c` (the DELTA PROFILE panel over Online Games, game
 code). A port builds both, with `port/third_party/qrcodegen` and the

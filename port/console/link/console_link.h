@@ -5,7 +5,7 @@ Link Profile on a console without TLS (the original Xbox, the Xbox 360, the
 Wii U): the console links itself to a Delta profile on
 stats.chupathingy.org with a code, over the console list's plain HTTP,
 without sending anything secret (the site's console_link.py and
-/v1/console/link/ calls; docs/delta.md, "Delta Link").
+/v1/console/link/ calls; docs/delta/link.md, "Delta Link").
 
 - The console makes its own Ed25519 key the first time its player asks for
   a code. Its 32-byte seed is kept beside the settings (the port's key_path,

@@ -61,6 +61,28 @@ void write_to_error_file(
 	char *string,
 	boolean date);
 
+/* port: where debug.txt is now: "d:\\debug.txt", or an Xbox's T: when its D:
+can't be written (errors.c) */
+char const *error_log_path(
+	void);
+
+/* port: what stopped the game, for the halt screen (main.c): the fatal
+assert or halt's reason, file and line (display_assert), or an immediate
+error's message with no file (error). Kept in fixed buffers: nothing is
+allocated. error_halt_place_clear forgets it (a release build's assert that
+carries on: system_exit) */
+void error_halt_place_set(
+	char const *reason,
+	char const *file,
+	long line);
+void error_halt_place_clear(
+	void);
+/* the reason ("" for none); file ("" for none) and line through the
+pointers */
+char const *error_halt_place(
+	char const **file,
+	long *line);
+
 #ifdef HALO_CONSOLE_LOG_BUFFER
 /* port: the console's debug.txt lines wait in memory (errors.c): written out
 at once, and by the main loop once a second */

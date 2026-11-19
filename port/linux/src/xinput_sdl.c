@@ -841,6 +841,7 @@ static const char *const binding_settings[NUMBER_OF_HALO_KEYBOARD_ACTIONS] =
 	"controls.reload", "controls.zoom", "controls.switch_weapon", "controls.switch_grenade", "controls.action",
 	"controls.flashlight", "controls.scoreboard", "controls.pause", "controls.chat_all", "controls.chat_team",
 	"controls.chat_log", "controls.push_to_talk", "controls.voice_channel", "controls.vehicle_secondary_fire",
+	"controls.walk",
 };
 
 static const struct
@@ -1260,7 +1261,9 @@ key:<a key's name> (a key of the
 keyboard, as SDL names it: key:C; key:W+C holds both; hold:W keeps a key
 down all its second), the mouse's (move,
 click, rclick, wheel, below), shot, fire (the trigger held all its second),
-fireshot (fire, and a shot 600 ms in), the debug camera's fly tokens
+fireshot (fire, and a shot 600 ms in), press:<key> and type:<text>
+(keystrokes for a text box or the console: press:Ctrl+F, type:spv3:), the
+debug camera's fly tokens
 (test_input_debug_camera) or wait (none), separated by spaces or commas */
 static char test_input_menu[4096];
 static Uint64 test_input_menu_since;
@@ -1354,6 +1357,44 @@ click:<x>:<y>, rclick:<x>:<y> and wheel:<notches> (positive away from the
 user), at a point of the menus' 640x480 (the middle 640 of a wide screen);
 a click moves there first and clicks 300 ms later. And shot saves the
 window to debug.screenshot_directory. Each acts once in its second. */
+static void test_input_type(const char *text)
+{
+	if (!strncmp(text, "press:", 6))
+	{
+		char names[64];
+		char *name, *next;
+		int modifiers = 0;
+		SDL_Scancode scancode = SDL_SCANCODE_UNKNOWN;
+
+		snprintf(names, sizeof(names), "%s", text + 6);
+		for (name = names; name; name = next)
+		{
+			next = strchr(name, '+');
+			if (next)
+				*next++ = 0;
+			if (!SDL_strcasecmp(name, "ctrl"))
+				modifiers |= SDL_KMOD_LCTRL;
+			else if (!SDL_strcasecmp(name, "shift"))
+				modifiers |= SDL_KMOD_LSHIFT;
+			else if (!SDL_strcasecmp(name, "alt"))
+				modifiers |= SDL_KMOD_LALT;
+			else
+				scancode = SDL_GetScancodeFromName(name);
+		}
+		if (scancode != SDL_SCANCODE_UNKNOWN)
+			platform_test_keystroke(scancode, modifiers);
+		return;
+	}
+	for (text += 5; *text; text++)
+	{
+		SDL_Keymod modifiers = SDL_KMOD_NONE;
+		SDL_Scancode scancode = SDL_GetScancodeFromKey((SDL_Keycode)(unsigned char)*text, &modifiers);
+
+		if (scancode != SDL_SCANCODE_UNKNOWN)
+			platform_test_keystroke(scancode, modifiers);
+	}
+}
+
 static void test_input_menu_pointer(void)
 {
 	static Uint64 step_done = (Uint64)-1;
@@ -1407,6 +1448,16 @@ static void test_input_menu_pointer(void)
 	{
 		if (step_done != step)
 			halo_test_screenshot();
+		step_done = step;
+		return;
+	}
+	/* (press:<keys>, a key with its modifiers, as press:Ctrl+F or
+	press:Grave, and type:<text>, its characters one after another, into
+	the keystrokes a text box and the console read: platform_test_keystroke) */
+	if (!strncmp(text, "press:", 6) || !strncmp(text, "type:", 5))
+	{
+		if (step_done != step)
+			test_input_type(text);
 		step_done = step;
 		return;
 	}
@@ -2551,6 +2602,21 @@ static int controller_port(HANDLE device)
 and touchscreen are merged into the first gamepad's; runs on the game's main
 thread (touch_input_gamepad relies on it); returns ERROR_SUCCESS or
 ERROR_DEVICE_NOT_CONNECTED for an unknown port */
+/* the server monitor (debug.network_test "monitor:<name>",
+port/linux/game/net_monitor.c) plays nothing: no gamepad, keyboard or mouse
+of this machine reaches the game */
+static int input_blocked(void)
+{
+	static int checked, blocked;
+
+	if (!checked)
+	{
+		checked = 1;
+		blocked = !strncmp(config_string("debug.network_test"), "monitor:", 8);
+	}
+	return blocked;
+}
+
 DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 {
 	int port = controller_port(device);
@@ -2560,6 +2626,12 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 	memset(state, 0, sizeof(*state));
 	if (port < 0)
 		return ERROR_DEVICE_NOT_CONNECTED;
+	/* (its controller there, its buttons never pressed) */
+	if (input_blocked())
+	{
+		platform_pump_events();
+		return ERROR_SUCCESS;
+	}
 #if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_NO_TEST_GAMEPADS)
 	test_virtual_pads_update();
 #endif

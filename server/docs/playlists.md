@@ -138,6 +138,16 @@ own fields: `bomb.arm_time`, `bomb.reset_time` and `bomb.round_time`
 (seconds), `bomb.new_round_on_score`, `bomb.melee_only`, and `bomb.traits`
 (`"none"`, `"grifball"`, `"open_pitch"`).
 
+### SWAT and Hardcore
+
+The game modes ([docs/modes.md](../../docs/modes.md)) are OpenCE's game
+types played by their rules, so OpenCE players join them on a server
+announcing network version 35 or later. The built-ins are `swat`,
+`hardcore` (team Slayer), `hc_ctf`, `hc_oddball` and `hc_king`. A game type
+file with a Slayer base can set `mode = "swat"` (or `"none"`), and one with
+any base but Bomb `hardcore = true`. Chupathingy players on a build without
+the modes are dropped from such a game with a notice, as from a Bomb game.
+
 Settings of the server's (`config.toml`, or their environment
 variables) tune them:
 

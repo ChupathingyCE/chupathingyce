@@ -82,6 +82,8 @@ BOOL platform_run_is_quiet(void);
 not Game Mode, which shows the setup screen, drawn in the game's own window):
 no setup screen either */
 BOOL platform_run_is_unwatched(void);
+/* whether this is the thread with the window and its events */
+int platform_on_event_thread(void);
 
 /* the maps out of a file the player picked (the first start, the
 launcher's Add maps), on a thread of their own: the kind of file it is
@@ -125,6 +127,9 @@ display's modes the game can draw at, largest first, each once, but the
 display's own (Native), and display.resolution's where it is none of them;
 how many. None on Android. */
 int platform_display_resolutions(long *widths, long *heights, int maximum);
+/* the size Native is: the window's display's own, in pixels; 0 if not
+known (Android) */
+int platform_display_native_size(long *width, long *height);
 /* Video Setup's window sizes: those of each shape (4:3, 16:10, 16:9, 21:9)
 that fit the desktop, and display.window_size's; how many. None on
 Android. */
@@ -183,6 +188,8 @@ struct platform_ui_pointer
 	float down_x, down_y;
 	/* the pointer is the touchscreen (touch_input.c), not a mouse */
 	BOOL touch;
+	/* the left button held now (a scroll bar's drag); the mouse only */
+	BOOL left_down;
 };
 /* says whether a menu is up; the mouse is released for the menus (desktop),
 or the touchscreen goes to them (Android); a change of mode drops the gesture
@@ -200,6 +207,10 @@ void platform_test_pointer_event(float x, float y, int button, int wheel);
 which differ from the drawable's pixels on displays that scale */
 void platform_video_window_size(int *width, int *height);
 BOOL platform_next_keystroke(struct platform_keystroke *keystroke);
+/* debug.test_input's typing (press: and type:): a key pressed and let go,
+as the keyboard's would be, into the keystrokes the game reads (a text
+box's, the console's); modifiers are SDL's (SDL_KMOD_*) */
+void platform_test_keystroke(int scancode, int modifiers);
 /* nonzero when a key, mouse button or touch was pressed since the last call
 (which forgets them): a movie's skip (bink_playback.c) */
 int platform_movie_skip_pressed(void);

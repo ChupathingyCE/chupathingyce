@@ -712,6 +712,8 @@ boolean game_engine_should_spawn_player(
 	long player_index);
 void game_engine_client_respawn_countdown(
 	long player_index);
+void game_engine_client_respawned(
+	long player_index);
 void game_engine_postspawn_player_update(
 	long player_index);
 
@@ -846,6 +848,18 @@ void game_engine_load_stage(
 void game_engine_end_game(
 	void);
 
+/* port: the longest name game_engine_player_shown_name gives, with its
+terminator */
+#define GAME_ENGINE_SHOWN_NAME_LENGTH 22
+
+/* port: a player's name as the scoreboard shows it: a verified player's
+Delta name, an impersonation masked, else the game name (in buffer, or the
+player's own) */
+wchar_t const *game_engine_player_shown_name(
+	long player_index,
+	wchar_t *buffer,
+	long size);
+
 void ticks_to_unicode_time_string(
 	long ticks,
 	unsigned long character_count,
@@ -871,6 +885,8 @@ boolean game_engine_force_autopickup(
 
 void game_engine_play_multiplayer_sound(
 	long sound_index);
+/* port: the hit tone (audio.hit_sounds), where the map's globals have it */
+void game_engine_play_hit_sound(void);
 #ifdef HALO_GAME_BROWSER
 boolean game_engine_multiplayer_sound_exists(
 	long sound_index);

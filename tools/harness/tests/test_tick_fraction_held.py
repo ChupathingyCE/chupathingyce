@@ -25,12 +25,15 @@ def generated(control=None):
     waiting = re.search(r"^static boolean game_time_ticks_waiting = FALSE;", source, re.M).group(0)
     code = '\n'.join([
         'enum { SOME_LARGE_NUMBER_OF_TICKS = %d };' % constant(source, 'SOME_LARGE_NUMBER_OF_TICKS'),
+        'enum { GAME_TIME_CLIENT_GUARD_TICKS = %d };' % constant(source, 'GAME_TIME_CLIENT_GUARD_TICKS'),
         structure(source, 'game_time_globals_struct'),
         'static struct game_time_globals_struct *game_time_globals;',
         waiting,
+        structure(source, 'game_time_client_guard_state'),
+        'static struct game_time_client_guard_state game_time_client_guard;',
     ] + [function(source, name) for name in (
         'game_time_initialize_for_new_map', 'game_time_held', 'game_time_get_speed', 'game_time_get_tick_fraction',
-        'game_time_update')])
+        'game_time_client_guard_cap', 'game_time_update')])
     if control:
         before, after = CONTROLS[control][:2]
         code = mutated(code, before, after)

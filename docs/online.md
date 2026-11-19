@@ -20,14 +20,14 @@ Browser builds can't join our games, and we can't join theirs.
   without a new download. A change to how multiplayer plays still needs a
   release. The "Compatible with" line in the [README](../README.md#play-online)
   says which versions this release plays with.
-- **Delta** is Chupathingy's network family ([docs/delta.md](delta.md)):
+- **Delta** is Chupathingy's network family ([docs/delta](delta/README.md)):
   the game list, stats, profile links and dedicated server admin tools on
   [stats.chupathingy.org](https://stats.chupathingy.org), and a channel between
   Chupathingy machines for features of our own (how builds play together:
-  [docs/delta-compatibility.md](delta-compatibility.md)). Games with OpenCE players
+  [docs/delta/versioning.md](delta/versioning.md)). Games with OpenCE players
   use the shared game protocol, so everyone plays together. Other apps can
   sign players in there too, once registered
-  ([docs/delta-clients.md](delta-clients.md)).
+  ([docs/delta/clients.md](delta/clients.md)).
 
 ## Joining, hosting and invites
 

@@ -52,6 +52,8 @@ A few people look for most:
 | `display.title_font` | The font of the menus' titles: `"classic"` (the default, looks like Halo's own titles), `"cyborg"` (the same font as the menu text) or `"halo"` (the screens' titles in Halo's own lettering, made from your own `ui.map`; nothing is saved or shared). A change shows at once. The consoles have `"classic"` only. |
 | `display.high_res_font`, `display.high_res_font_large` | Your own font file for the sharp text and Online Games, in place of the built-in fonts: put it in `data/fonts` beside `maps` and give its name (`high_res_font = "MyFont.ttf"`), or a full path. `_large` sets one for the large text only. Empty uses the built-in fonts; a file that can't be read is noted in `logs/debug.txt` and the built-in font is used. The font is yours: Chupathingy ships none but its own free ones, and never sends yours anywhere. |
 | `display.field_of_view` | How wide the first-person view is, in degrees: 70 (the Xbox's) by default, 50 to 120. |
+| `display.reticle_scale` | The reticle's size, `0.5` to `2.0`; `1.0` (the default) is the Xbox's. Video Setup, View: Reticle Size. |
+| `display.first_person_weapon` | `false` hides your weapon and arms in first person; `true` (the default) draws them. Video Setup, View: Weapon Model. |
 | `display.camo_weapon_fix` | `false` (the default) lets a wall close by cut away your camouflaged first-person weapon, as on the Xbox. `true` draws it in front of walls. Drawing only. Video Setup, Advanced: Camo Weapon Fix. Based on work by goatbutt and the OpenH1 team. |
 | `display.plasma_sparks` | `false` (the default) leaves out the blue sparks off a live plasma grenade, as on the Xbox, which never drew them. `true` draws them, at any frame rate. Drawing only. Video Setup, Advanced: Plasma Sparks. Thanks to ugoboom for the idea. |
 | `display.doors_block_light` | `true` (the default) stops a light behind a closed door from lighting your side of it, such as a plasma bolt in the next room. `false` lets it through, as on the Xbox. Drawing only. Video Setup, Advanced: Doors Block Light. |
@@ -61,6 +63,7 @@ A few people look for most:
 | `display.player_names` | Names over players' heads: `"all"`, `"allies"`, `"enemies"` or `"none"` (the default, as on the Xbox). Only where the host allows them (`network.allow_player_names`). |
 | `display.follow_camera` | After you die, watch a living player's view: `"off"` (the default, as on the Xbox), `"long_waits"` (only during a long respawn wait) or `"always"`. LB and RB, or Q and E, switch players. Only where the host allows it (`network.allow_follow_camera`). |
 | `display.join_screen` | While a game is joined or its map downloads, the loading screen with what is going on and B to cancel (on by default). `false`: a small panel over the game list. Settings > Network Setup > Join Screen. |
+| `display.lobby` | The game lobby of the Chupathingy menus (on by default): the players with their teams and READY, the map and the host's menu, for a game you host or joined and for dedicated servers, and a preview of a game under way before you join it. `false`: the Xbox's System Link screen, as the Xbox menus have it. |
 | `display.xbox_loading_picture` | `true` (the default) shows the Xbox's own loading picture, `xbox_loading.tga` in your maps folder, and Chupathingy's when that file isn't there. `false` always shows Chupathingy's. Not on consoles. |
 | `game.unlock_all_levels` | `true` gives new profiles every campaign level. By default a new profile starts at The Pillar of Autumn, as on the Xbox. Profiles made by earlier versions had every level open; `profile_reset_campaign` in the console starts one over. |
 | `game.mods` | `true` plays the mods in the `mods` folder beside `maps` (tag files over a map's sounds, as a resource pack; see [mods.md](mods.md)). Nothing happens while the folder is empty. Local games only. |
@@ -73,6 +76,7 @@ A few people look for most:
 | `audio.voice_volume`, `audio.voice_volume_party`, `_team`, `_proximity`, `_everyone` | Voices' volume, and each channel's, from 0.0 to 2.0. A channel at 0 is off: the host sends you none of it. |
 | `audio.voice_input_device`, `audio.voice_open_mic_level`, `audio.voice_positional` | The microphone (empty for the system's), how loud you must be for open mic to send, and whether proximity voices use the game's 3D sound (else a plain pan and fade). |
 | `display.voice_speakers` | Show who is talking in voice chat, small, at the top right (on by default). Your own channel shows there while you talk either way. |
+| `audio.hit_sounds` | `true`: a short tone when your shot hits another player in multiplayer, as Halo PC had. `false` (the default) is the Xbox's: none. Audio Setup: Hit Sounds. |
 | `audio.doppler` | Moving sounds shift in pitch as on the Xbox (on by default). |
 | `audio.reverb` | Sounds echo to match the place you are in, as the Xbox's reverb did (on by default; off on the slowest consoles). |
 | `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |
@@ -81,6 +85,7 @@ A few people look for most:
 | `input.button_look` | The menus' and the Guide's buttons: `"gem"` (the default) or `"flat"`. |
 | `input.hud_buttons` | The buttons in a game's prompts ("Hold X to pick up"): `"classic"` (the default: the map's own) or `"hd"` (the style's flat buttons). |
 | `controls.*` | Every key: `controls.jump = "Space"`, or two at once, such as `"F, Mouse 4"`. |
+| `controls.walk` | A walk key for the keyboard: held, you move at half speed, as a stick pushed halfway. Empty (the default) is none. Controls Setup: Walk. |
 | `controls.delta`, `controls.delta_button` | The key that opens the Delta Guide: `"F3"` (on a Mac, F3 or the backslash key). OPEN KEY in the Delta Guide's SETTINGS. A controller's Guide button opens it too, unless Steam or the Xbox Game Bar takes that button. |
 | `controls.push_to_talk`, `controls.voice_channel` | Hold `"V"` to talk in voice chat, and press `"B"` to switch the voice channel. |
 | `controls.screenshot` | The screenshot key: `"F9"` by default, and Print Screen always works too. Screenshots go to `screenshots/` beside `maps/`, named after the map and the time. Desktop only. |
@@ -97,6 +102,7 @@ A few people look for most:
 | `network.team_change` | Team changes in team games you host: `"off"` (the default: players keep their team, as on the Xbox), `"balanced"` (a change is allowed while no team ends up more than `network.team_change_margin` players ahead, 1 by default) or `"allow"`. |
 | `network.hit_line_of_sight` | `true` (the default): in games you host, a hit through a wall is refused. The shot or the explosion needs a clear line to its target. Turn it off if good hits are refused. |
 | `network.late_join_wait` | `5` (the default): in games you host, how many seconds a machine that joins a game in progress waits after its first player is in, so the players on its other controllers can join too (split screen). 0 to 30; it starts sooner when the machine has four players. `0` starts it at once. |
+| `network.lobby_start` | In the game lobby of a game you host: `"button"` (the default) holds the countdown until you choose START GAME; `"auto"` lets it run by itself once enough players are in, as the Xbox's lobby does. |
 | `network.pregame_load_timeout` | `90` (the default): in games you host, how many seconds after the lobby's countdown ends the game waits for a player whose map hasn't loaded. Then that player is dropped and the game starts without them, so one stuck machine can't hold the lobby. `0` waits for ever. |
 | `network.map_share`, `network.map_share_upload` | `false` (the default): your game doesn't hand out its map. `true`: a player who joins without your Custom Edition map and asks gets it from you, the map file alone, over TCP port 5153, at most `network.map_share_upload` KB a second (`1024`; a game you host from the menus sends 256 unless you set it). A dedicated server's game and a game you host from the menus alike. Our [C] servers turn it on after the map bot's first invite test. Refer to "Map sharing" in [port/linux/README.md](../port/linux/README.md#map-sharing). |
 | `network.map_downloads` | A missing Custom Edition map from the community map repositories when you join: `"ask"` (the default), `"always"` or `"never"`. MAP DOWNLOADS in the network settings. See [docs/maps.md](maps.md). |
@@ -121,6 +127,76 @@ environment variable for one run (the file lists each one's name), which
 overrides the file.
 
 Every setting, with its environment variable and default, is in [port/linux/README.md](../port/linux/README.md#settings).
+
+## Tuning
+
+The `[tuning]` section is for players who want more frames and don't mind
+the game looking a bit plainer. Nothing in it changes how the game plays:
+only what is drawn. Leave it alone and nothing changes.
+
+| Setting | What it does |
+| --- | --- |
+| `tuning.preset` | `"retail"` (the default) changes nothing. `"lan-party"` caps the lights and particles of a big firefight (16 lights, 4 with shine, 2048 particles, particles moved once a tick) and shows a late frame at once (`present_mode = "adaptive"`). `"potato"` is the setup screen's POTATO: 8 lights, 2 with shine, 1024 particles, smaller shadows, no anti-aliasing, the Xbox's own lighting and the picture drawn at 640x480. A preset never raises a build's own limit. |
+| `tuning.present_mode` | With V-Sync on: `"vblank"` (the default) waits for the display before every frame. `"adaptive"` shows a frame that missed the display at once, with a tear, rather than a whole refresh later. OpenGL on Windows, Linux and Android, and the original Xbox. Elsewhere it waits. Read at start. |
+| `tuning.texture_cache` | Original Xbox only: the texture cache's size in MB, like `"20"`, or `"auto"` (the default) for the console's own. It's held between 19 MB and what the console's memory has room for. Read at start. |
+
+A preset fills in the settings it names only where you haven't set them
+yourself. The limits stay where they always were (`display.dynamic_light_limit`,
+`display.specular_light_limit`, `display.particle_limit` and the rest), so a
+value you set there wins over the preset. Turning PERFORMANCE to POTATO on
+the setup screen writes `preset = "potato"`.
+
+A value out of range is held in range, and a word the game doesn't know
+falls back to the default. Either way `logs/debug.txt` says so in a line
+starting `tuning:`. That file also says what every knob was at start
+(`tuning: at=boot`), at each map (`tuning: at=map`) and whenever one
+changes (`tuning: change`). A crash report and Send my logs carry the same
+line.
+
+In a network game nobody sees fewer particles than the Xbox kept (1024).
+Smoke and dust can hide players, and a lower limit would take them away.
+
+### Every knob, and what the presets do on the original Xbox
+
+No knob changes the simulation: the game tick costs the same whatever they
+say. They change only the drawing, the waiting for the display, or memory.
+On the original Xbox most of them aren't settings at all, and the console's
+own limits are already where the presets would put them, so:
+
+- `potato` changes nothing on the original Xbox. It is the same as `retail`
+  there, and the log says so at start (`tuning: preset=potato changes
+  nothing on this console`).
+- `lan-party` changes only the present mode (`adaptive`) on the original
+  Xbox. Its 16 lights and 2048 particles are above the console's own limits,
+  and a preset never raises those.
+- In big games (more than about 24 players) the original Xbox is held back
+  by the game tick, not the drawing, so no preset can make those games run
+  faster there.
+
+The table is made from the code by `tools/tuning_table.py`
+(`tools/test_tuning_table.py` checks it).
+
+<!-- tuning table: made by tools/tuning_table.py, don't edit by hand -->
+
+| Setting | lan-party sets | potato sets | On the original Xbox | Xbox default and range | lan-party on the Xbox | potato on the Xbox | What it costs or saves |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `display.dynamic_light_limit` | `16` | `8` | yes | `8`; 0 to 128 (0: no limit) | nothing | nothing | Drawing. Each dynamic light redraws the level it reaches twice; in a big firefight most of the GPU's time. |
+| `display.specular_light_limit` | `4` | `2` | yes | `2`; 0 to 128 (0: no limit) | nothing | nothing | Drawing. The shine pass of near lights, the costliest pass in a firefight. |
+| `display.particle_limit` | `2048` | `1024` | no | | | | Drawing, and a little CPU a frame for each particle alive. Never under 1024 in a network game. |
+| `display.particle_ticks` | `true` | `true` | no | | | | CPU a frame: moving loose particles once a tick saves two in three of their collision tests at 60 fps. |
+| `display.shadow_resolution` | nothing | `128` | no | | | | Drawing and video memory: bigger shadow maps. |
+| `display.anisotropic_filtering` | nothing | `0` | no | | | | Drawing: texture sampling on the GPU. |
+| `display.anti_aliasing` | nothing | `off` | no | | | | Drawing and video memory: extra samples or a filter pass. |
+| `display.per_pixel_lighting` | nothing | `false` | no | | | | Drawing: lighting work for each pixel instead of each vertex. |
+| `display.light_effects` | nothing | `off` | no | | | | Drawing: the projectile, muzzle and emitter lights, and their wall tests. |
+| `display.resolution_scaling` | nothing | `original` | no | | | | Drawing: "original" fills 640x480 instead of the window. |
+| `tuning.present_mode` | `adaptive` | nothing | yes | `vblank`; `vblank` or `adaptive` | `adaptive` | nothing | Waiting, not work: "adaptive" shows a late frame at once, with a tear, instead of a refresh later. |
+| `tuning.texture_cache` | nothing | nothing | yes | `auto`; "auto", or 19 to 512 MB (and what memory has room for) | nothing | nothing | Memory: a bigger cache loads fewer textures from the disc, and leaves less free. |
+
+<!-- end of tuning table -->
+
+More knobs (explosion particles, effect density, decal distance, tire
+tracks) come once testers' `console.perf_log` lines show what they'd save.
 
 <a id="a-new-renderer-to-test"></a>
 

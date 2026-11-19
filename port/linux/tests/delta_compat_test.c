@@ -402,7 +402,7 @@ static void dedicated(unsigned char *reserved, int announced, int slayer)
 		delta_compat_advertise_old(reserved, RESERVED, DELTA_MAJOR, "chupa-39a");
 }
 
-/* the neutral "OpenCE dedicated" label: an OpenCE dedicated server of 39 or
+/* the neutral "Legacy server" label: an OpenCE dedicated server of 39 or
 later (its flag, no Delta), never one of ours (the tag, or the old layout's
 Delta flag), never a player's game; and by a listing's flags, OpenCE's
 dedicated bit without ours */
@@ -519,7 +519,7 @@ static void test_host_wire(void)
 	CHECK(!delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire));
 }
 
-/* a host of the Delta tag (the layout of the hosts to come, docs/delta.md):
+/* a host of the Delta tag (the layout of the hosts to come, docs/delta/peer.md):
 OpenCE's bytes at the front (its version, no Delta flag, the game's kind 0),
 and the tag at the tail, written here by hand from the layout */
 static void tag_host(unsigned char *reserved, int announced, int major, const char *wire, const char *oldest)

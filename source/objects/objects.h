@@ -374,6 +374,9 @@ short object_get_next_cluster(struct object_cluster_iterator *iterator, long obj
 void *object_try_and_get_and_verify_type(long object_index, unsigned long valid_type_flags);
 void *object_get_and_verify_type(long object_index, unsigned long valid_type_flags);
 void object_iterator_new(struct object_iterator *iterator, unsigned long type_flags, byte flags);
+/* port: the object's region permutations and the regions they cover (its
+own eight, or Stubbs mode's sixteen: port/linux/game/stubbs_regions.c) */
+byte *object_get_region_permutations(long object_index, short *region_count);
 void *object_iterator_next(struct object_iterator *iterator);
 long object_get_ultimate_parent(long object_index);
 void object_add_scenario_permutation(long object_index, struct scenario_object_permutation *permutation);
@@ -496,6 +499,26 @@ extern struct cluster_partition collideable_object_cluster_partition;
 extern boolean debug_object_garbage_collection;
 
 extern struct data_array *object_header_data;
+
+#ifdef HALO_CONSOLE_INLINE_ACCESSORS
+/* port: a console's busiest units' object_get_and_verify_type
+(halo_port_features.h): the object without the call when its header is in
+use (datum_get's checks, data.h) and it is of one of the types asked for.
+Anything else is the function's, which asserts as always */
+static __inline__ void *object_get_and_verify_type_fast(
+	long object_index,
+	unsigned long valid_type_flags)
+{
+	struct object_header_datum *header = (struct object_header_datum *)datum_get_checked(object_header_data, object_index);
+
+	if (header && TEST_FLAG(valid_type_flags, header->datum->object.type))
+		return header->datum;
+
+	return (object_get_and_verify_type)(object_index, valid_type_flags);
+}
+#define object_get_and_verify_type(object_index, valid_type_flags) \
+	object_get_and_verify_type_fast((object_index), (valid_type_flags))
+#endif
 
 extern boolean debug_objects_position_velocity;
 extern boolean debug_objects_bounding_spheres;

@@ -186,6 +186,7 @@ symbols in this file:
 #include "cache/cache_files_decompress_windows.h"
 #include "cache/texture_cache.h"
 #include "interface/ui_widget.h"
+#include "interface/missing_maps_screen.h" /* port: a console with no ui.map */
 #ifdef HALO_CUSTOM_EDITION
 #include "main/console.h"
 #endif
@@ -463,6 +464,7 @@ compressed): it has a slot of its own, after theirs, which every read goes
 through as theirs do (cache_files.c loads its tags into its own tag cache,
 platform.h) */
 #include "halo_map_families.h"
+#include "spv3_mode.h" /* port: port/linux/game/spv3_mode.c */
 
 #define CE_MAP_FILE_INDEX NUMBER_OF_CACHED_MAP_FILES
 
@@ -474,6 +476,7 @@ static HANDLE ce_request_files[MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS];
 HANDLE ce_resources_file_for_tag(long tag_index);
 boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset,
 	long tag_data_size);
+boolean ce_map_check_stale(void);
 /* the version of the map checked or loaded (port/linux/game/ce_resources.c) */
 extern long ce_map_cache_version;
 /* the last map refused (ce_map_check), its size and checksum */
@@ -494,8 +497,9 @@ static boolean ce_map_refused_open;
 static boolean ce_map_name_is(
 	const char *map_name)
 {
-	/* (a pack's Xbox map, <file>@<pack>, is the Xbox loader's: not one of these) */
-	return !map_family_is_xbox_format(map_family_parse(map_name, NULL, 0));
+	/* (a pack's Xbox map, <file>@<pack>, is the Xbox loader's: not one of these.
+	SPV3's menus are a Custom Edition map, maps_spv3\ui.yelo: spv3_mode.c) */
+	return !map_family_is_xbox_format(map_family_parse(map_name, NULL, 0)) || spv3_mode_is_ui(map_name);
 }
 
 /* the map named <name>@ce, @md or @pc opened in its slot (once): FALSE if
@@ -521,7 +525,9 @@ static boolean ce_map_open(
 	}
 	ce_map_refused_open = FALSE;
 #endif
-	if (ce_map_file.file && !_stricmp(ce_map_name, map_name))
+	/* (the map open, unless a load found it changed since it was checked:
+	then it is opened and checked again, port/linux/game/ce_map_checks.c) */
+	if (ce_map_file.file && !_stricmp(ce_map_name, map_name) && !ce_map_check_stale())
 		return TRUE;
 	if (strlen(map_name) >= sizeof(ce_map_name) - 1)
 		return FALSE;
@@ -536,6 +542,12 @@ static boolean ce_map_open(
 		}
 	}
 	family = map_family_parse(map_name, file_name, sizeof(file_name));
+	/* (SPV3's menus: its ui.yelo, read as a Custom Edition map) */
+	if (spv3_mode_is_ui(map_name))
+	{
+		family = _map_family_custom_edition;
+		snprintf(file_name, sizeof(file_name), "ui");
+	}
 	if (!map_family_find(family, file_name, path, sizeof(path)))
 	{
 		/* (an MCC map is in the folder: said so, once, not "damaged") */
@@ -1069,6 +1081,12 @@ boolean cache_files_precache_map_begin(
 		{
 			error(_error_silent, "couldn't find map '%s' on the DVD", cache_map_name);
 			error(_error_silent, "full path name '%s'", map_name);
+#ifdef HALO_CONSOLE_MISSING_MAPS_SCREEN
+			/* port: no ui.map: the error screen is in it, so a console
+			showed nothing (#1344); a plain screen of its own says so */
+			if (!_stricmp(cache_map_name, "ui"))
+				missing_maps_screen(map_name);
+#endif
 			if (copy_map)
 			{
 				cache_files_display_map_error(map_name);

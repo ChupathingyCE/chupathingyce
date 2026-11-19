@@ -31,6 +31,17 @@ void server_gametype_variant_build(struct server_gametype const *gametype, struc
 long server_gametype_variant_value(short field, struct game_variant const *variant,
 	struct game_variant_options const *options);
 
+/* the gametype's further options (the game modes layer's 16 bytes,
+source/game/game_modes.c) a game type makes: its base's, with its mode and
+hardcore settings given to them; and a base's own value of the mode and
+hardcore settings (SERVER_GAMETYPE_MODE, _HARDCORE) */
+void server_gametype_mode_options(struct server_gametype const *gametype, unsigned char *modes);
+long server_gametype_base_mode_value(int base, short field);
+/* the mode and hardcore settings of a variant's further options added to a
+captured game type (server_gametype_variant_capture), where they differ from
+its base's */
+void server_gametype_variant_capture_modes(struct server_gametype *gametype, unsigned char const *modes);
+
 /* the built-in game type a variant is closest to (its index): its game
 engine's, played in teams as it is if there is one */
 int server_gametype_variant_base(struct game_variant const *variant);

@@ -39,7 +39,7 @@ is named as OpenCE's build-145 names it, custom_maps\<name>, and HaloMD's
 and Halo PC retail's maps maps_md\<name>.md and maps_pc\<name>.pc, and a
 pack's Xbox map maps_<pack>\<name>.<pack>, which no OpenCE client (nor a
 ChupathingyCE build before map packs) has (map_family_wire_name); Delta Peer carries each map's
-identity between ChupathingyCE machines (docs/delta.md).
+identity between ChupathingyCE machines (docs/delta/peer.md, Map identity).
 */
 
 #ifndef HALO_MAP_FAMILIES_H
@@ -204,6 +204,12 @@ Halo PC's ui), in maps_ce or its older places: FALSE if there is none (path
 then the place it goes) */
 boolean map_family_resource(char const *name, char *path, long size);
 
+/* the path of Halo PC retail's own resource map (bitmaps or sounds), in
+maps_pc, which HaloMD's and Halo PC's maps read their stock bitmaps' pixels
+and sounds' samples from when it is there (ce_resources.c): FALSE if there is
+none (path then the place it goes). The player's own copy: never shipped */
+boolean map_family_halo_pc_resource(char const *name, char *path, long size);
+
 /* whether Custom Edition's resource maps (bitmaps.map, sounds.map, loc.map),
 which every family past the Xbox's reads, are in maps_ce or its older places
 and are Custom Edition's: FALSE if one is missing, is not a resource map of
@@ -255,6 +261,9 @@ boolean map_family_find_mcc(short family, char const *file, char *path, long siz
 /* every multiplayer map of a family past the Xbox's, in its folders: each
 one's file's name (without the suffix, each once), passed to found */
 void map_family_list(short family, void (*found)(char const *file, void *context), void *context);
+/* the same for its campaign maps (the menus' campaign lists them after
+the Xbox's levels: ui_map_list.c) */
+void map_family_list_campaign(short family, void (*found)(char const *file, void *context), void *context);
 /* the same for the family's MCC maps, which the menus list greyed */
 void map_family_list_mcc(short family, void (*found)(char const *file, void *context), void *context);
 #endif

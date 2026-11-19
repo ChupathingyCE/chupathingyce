@@ -225,13 +225,13 @@ client is blocked until a host of 32 or later speaks, and a host never takes
 the message. A client's input entry says in its third byte (padding before)
 whether its player plays co-op without friendly fire; this host reads it and
 decides friendly fire by its own setting. Messages 87 to 89 are OpenCE's
-text chat, which Delta chat bridges (`docs/delta.md`, Chat): a build without
+text chat, which Delta chat bridges (`docs/delta/peer.md`, Chat): a build without
 them drops them as unknown, so they take no version of their own.
 
 Versions 33 to 41 are OpenCE's, which this build's clients play by the
 version the host advertised (`network_rules_of_version`; a host not known
 plays by the older rules). Its hosts announce the built-in 32, or the newest
-number the signed legacy table proves for hosting (docs/delta.md,
+number the signed legacy table proves for hosting (docs/delta/versioning.md,
 "Auto-announce"). Version 33 adds a
 second bit to the settings' co-op byte (bit 1: the players' hits do their AI
 allies no harm), which only a host acts on. Version 34 changes no message:
@@ -272,7 +272,7 @@ who votes, the first time in a game, that the host has no votes. Refusals 8 to 1
 plainly to the player. Versions 42 to 44 are built in from wire `chupa-43a` (44, OpenCE's
 build-355, is 43's layout under a new number: `chupa-44a`), and later ones
 are played by a signed table's layout facts, generic ones from
-`chupa-43a` (`docs/delta.md`, "Layouts"): a version word in the join request, more bytes in every
+`chupa-43a` (`docs/delta/versioning.md`, "Layouts"): a version word in the join request, more bytes in every
 distributed header (a checkpoint epoch, with the host's boundary message
 before its objects and at each co-op revert), unit state parts a reader
 passes over, and the height of a vehicle's up that throws its riders. A
@@ -313,10 +313,10 @@ draws no glow or overshield of its own. From 37 the advertisement's fourth
 reserved byte (the game's kind) is 0, and from 39 a dedicated server sets
 the advertisement's flag 0x04 and the internet listing's flag 32 (OpenCE's
 dedicated flags). A Delta host's own bytes are the Delta tag at the reserved
-bytes' tail (docs/delta.md, "The advertisement"). For released clients a
+bytes' tail (docs/delta/peer.md, "The advertisement"). For released clients a
 dedicated server that hosts with Delta also sets 0x04 and, in a game that
 is not Slayer, writes the old layout's major and slot from byte 3, where
-OpenCE names no kind (docs/delta.md, "The transition").
+OpenCE names no kind (docs/delta/peer.md, "The transition").
 
 A host never checks a joining client's version: the client reads the
 host's from its advertisement and joins only a version it plays with. That
@@ -327,7 +327,7 @@ or whose rules it plays by the host's version (above). This build has
 version 32 built in and joins hosts of 11 to 45: back to version 11, the
 newest breaking one, and one past the newest it knows (44), which it
 presumes additive. A signed legacy table widens the range without a
-release (docs/delta.md, "The legacy number"). The game browser lists the
+release (docs/delta/versioning.md, "The legacy number"). The game browser lists the
 range's games.
 
 `port/linux/network_format.txt` records the wire format of the current
@@ -530,7 +530,14 @@ a pregame keep-alive every five seconds from the host
      players' ammunition and grenade counts from the host only once a
      round trip has passed since it last fired, reloaded or threw (what
      the host says before then is from before). How old what a unit
-     carries is travels in 16 bits.
+     carries is travels in 16 bits. A change of weapons or grenades goes
+     the tick it happens (not at the next tenth of a second) and once more
+     a fifth of a second later, and a client keeps what the host says a
+     unit carries when the unit or a weapon in it has not come yet (the
+     objects come over the host's stream, what they carry in a datagram,
+     read first when both come at once: a spawned player's gun came a
+     second after it, at the host's next refresh) and applies it as soon
+     as they come.
    - Players take the units the host spawns them with, seats are the
      host's (a client's own player's once it has ridden otherwise for
      longer than a round trip), and the CTF flags and oddballs are the same

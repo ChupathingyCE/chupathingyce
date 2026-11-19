@@ -873,6 +873,7 @@ void network_rules_settings_layout_copy(unsigned char const *record, unsigned ch
 	int offset, int length, unsigned char *out);
 int network_rules_host_static_damage_reported(unsigned announce, unsigned delta_version);
 void network_rules_extended_options_default(unsigned char *options);
+#include "../../port/linux/game/network_rules.h" /* port: the game modes' rules (docs/modes.md) */
 #ifdef HALO_GAME_BROWSER
 int delta_peer_hosting_delta(void);
 /* (the advertisement's game engine, as delta.h's DELTA_ADVERTISED_KIND_ENGINE
@@ -1082,7 +1083,13 @@ static boolean network_game_server_send_settings_pieces(
 	/* (a record of another layout goes as it is) */
 	if (wire_size != NETWORK_GAME_SERVER_SETTINGS_SIZE)
 		size = wire_size;
-	network_rules_extended_options_default(further);
+	/* (port: the host's gametype's further options, the game modes layer's:
+	network_server_manager.c) */
+	{
+		unsigned char const *network_game_server_mode_options(void);
+
+		csmemcpy(further, network_game_server_mode_options(), sizeof(further));
+	}
 	for (offset = 0; offset < size; offset += sizeof(message.data))
 	{
 		void *encoded_message;
@@ -2214,10 +2221,14 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			game that is not Slayer, the old layout for released clients:
 			port/linux/src/delta_peer.h) */
 			{ unsigned char delta_peer_advertised_flags(void);
-			  void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine);
+			  void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine, int kind);
+			  unsigned char const *network_game_server_mode_options(void);
+			  int hardcore;
+			  int mode = network_rules_modes_mode(network_rules_modes_needed(network_game_server_mode_options(),
+				  game->variant.game_engine_index, game->variant.universal_variant.teams != 0), &hardcore);
 			  advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] |= delta_peer_advertised_flags();
 			  delta_peer_advertised_wire(advertisement.reserved, (int)sizeof(advertisement.reserved),
-				  (int)game->variant.game_engine_index); }
+				  (int)game->variant.game_engine_index, network_rules_kind_byte(mode, hardcore)); }
 #endif
 			if (network_game_server_get_state(server, NULL) != _network_game_server_state_pregame ||
 				network_game_server_game_is_loading(server))

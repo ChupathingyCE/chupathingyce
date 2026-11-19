@@ -934,6 +934,7 @@ symbols in this file:
 /* port: (saved games/playlist_profile.h's, whose other prototypes this unit
 declares its own way; the 64-bit build takes no implicit declarations) */
 boolean playlist_profile_get_options(long playlist_profile_index, struct game_variant_options *options);
+boolean playlist_profile_get_mode_options(long playlist_profile_index, byte *modes);
 #endif
 #include "text/unicode.h"
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
@@ -949,6 +950,7 @@ boolean playlist_profile_get_options(long playlist_profile_index, struct game_va
 /* port: network co-op from the Chupathingy menus' Select Map
 (port/linux/game/menu_functions.c) */
 boolean pc_menus_host_cooperative_shown(void);
+boolean pc_menus_coop_first_take(void);
 boolean pc_menus_host_cooperative_choose(struct widget_instance *widget, char const *map_name,
 	boolean *widget_deleted);
 #endif
@@ -1813,11 +1815,10 @@ port/linux/game/stubbs_campaign.c) */
 static char *ui_single_player_level(
 	long level_index)
 {
-	char *name = event_handler_functions.single_player_levels[level_index];
-
+	/* (Stubbs's twelve: the last two are past Halo's ten, never read) */
 	if (stubbs_mode_active())
-		name = (char *)stubbs_campaign_level_name((short)level_index, name);
-	return name;
+		return (char *)stubbs_campaign_level_name((short)level_index, NULL);
+	return event_handler_functions.single_player_levels[level_index];
 }
 
 #ifdef HALO_MAP_LIST
@@ -2036,8 +2037,10 @@ static boolean network_game_join_game_from_server_list(
 									focused_child_parent_widget_tag = widget->parent->definition_tag_index;
 								else
 									focused_child_parent_widget_tag = NONE;
+								/* port: the menus' own pregame screen where they have one
+								(port/linux/game/menu_tags.c), as every other join does */
 								if (!ui_widget_load_by_name_or_tag(
-									"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen",
+									pc_menus_screen("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen"),
 									NONE,
 									NULL,
 									NONE,
@@ -2086,9 +2089,21 @@ static boolean pause_game_restart_at_checkpoint(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	/* port: in co-op this would revert only this machine */
+	/* port: in network co-op only the host reverts, and everyone follows
+	(main.c's main_coop_host_revert); a joined machine's game is the host's,
+	and its menu has no such row (menu_tags.c) */
 	if (network_coop_active())
-		return FALSE;
+	{
+		if (!global_network_game_server_get())
+			return FALSE;
+		/* (nothing saved yet, or the save failed: the level starts over, as
+		the campaign's revert does then (game_state_revert), for everyone) */
+		if (!game_state_port_saved_game_valid())
+		{
+			main_coop_restart_level();
+			return TRUE;
+		}
+	}
 	main_revert_map();
 	return TRUE;
 }
@@ -2098,9 +2113,17 @@ static boolean pause_game_restart_level(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	/* port: in co-op this would restart only this machine */
+	/* port: in network co-op the host's restart takes everyone back to the
+	lobby with the same level, to start it again together (a reset here would
+	restart this machine alone); a joined machine's menu has no such row
+	(menu_tags.c) */
 	if (network_coop_active())
-		return FALSE;
+	{
+		if (!global_network_game_server_get())
+			return FALSE;
+		main_coop_restart_level();
+		return TRUE;
+	}
 	main_reset_map();
 	return TRUE;
 }
@@ -3157,6 +3180,24 @@ static boolean multiplayer_level_list_initialize(
 	if (level_count && mcc_maps_level_first(level_names[0]))
 		widget->parameters.list.selected_index = 0;
 #endif
+#ifdef HALO_GAME_BROWSER
+	/* port: from the co-op screen's ONLINE: on the campaign's first level,
+	after the multiplayer maps (menu_functions.c's coop_online) */
+	if (pc_menus_coop_first_take() && pc_menus_host_cooperative_shown())
+	{
+		char const *first_level = main_get_solo_level_name(0);
+		short row;
+
+		for (row = 0; first_level && row < level_count; row++)
+		{
+			if (ui_map_list_row_is_campaign(row) && !_stricmp(level_names[row], first_level))
+			{
+				widget->parameters.list.selected_index = row;
+				break;
+			}
+		}
+	}
+#endif
 #if defined(HALO_MAP_LIST) && !defined(HALO_CONSOLE_NO_DEBUG_TOOLS)
 	/* port: debug.menu_open's "#multiplayer_last": on the last map, for
 	screenshots */
@@ -4171,6 +4212,31 @@ static boolean playlist_profile_change_koth_rules(
 	return FALSE;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: the Xbox menus' rows of the game modes layer (docs/modes.md: MODE
+under Slayer's rules, HARDCORE under the player options), which menu_tags.c
+(editor_rows_xbox) puts one past each screen's own last row: the further
+options' byte at offset, NONE or OFF the spinner's first item. A list
+without the row (no row past the last) is left as it is */
+static void playlist_profile_mode_row(
+	struct widget_instance *list_item,
+	long offset,
+	boolean save)
+{
+	byte *modes = player_ui_get_edit_mode_options();
+	struct widget_instance *option_spinner = list_item ? list_item->child : NULL;
+
+	while (option_spinner && option_spinner->type != 2)
+		option_spinner = option_spinner->next;
+	if (!option_spinner || !modes)
+		return;
+	if (save)
+		modes[offset] = (byte)(option_spinner->parameters.list.selected_index == 1);
+	else
+		option_spinner->parameters.list.selected_index = modes[offset] ? 1 : 0;
+}
+#endif
+
 static boolean playlist_profile_change_slayer_rules(
 	struct widget_instance *widget,
 	struct event_record *event,
@@ -4253,6 +4319,9 @@ static boolean playlist_profile_change_slayer_rules(
 		case 1: profile[0x1C] = FALSE; break;
 		default: error(2, "unknown option selected in 'teams' option spinner list"); break;
 		}
+#ifdef HALO_GAME_BROWSER
+		playlist_profile_mode_row(list_item->next, 0, TRUE);
+#endif
 		ui_widgets_pop_stack(widget->local_player_index);
 		return TRUE;
 	}
@@ -4413,6 +4482,31 @@ static boolean solo_level_initialize_list_coop(
 	struct ui_widget_definition *definition;
 
 	memset(single_player_level_data, 0, sizeof(single_player_level_data));
+	/* port: Stubbs mode's twelve levels, those either player has reached
+	(port/linux/game/stubbs_campaign.c), as one player's list has them */
+	if (stubbs_mode_active())
+	{
+		short level;
+
+		for (level = 0; level < STUBBS_CAMPAIGN_LEVEL_COUNT; level++)
+		{
+			unsigned long flags = stubbs_campaign_level_flags(0, level) | stubbs_campaign_level_flags(1, level);
+
+			single_player_level_data[level].map_name = ui_single_player_level(level);
+			if (stubbs_campaign_level_available(0, level) || stubbs_campaign_level_available(1, level))
+			{
+				single_player_level_data[level].available = TRUE;
+				single_player_level_data[level].unknown5 = (flags >> 1) & 1;
+				single_player_level_data[level].unknown6 = (flags >> 2) & 1;
+				single_player_level_data[level].unknown7 = (flags >> 3) & 1;
+			}
+		}
+		widget->parameters.list.list_items = single_player_level_data;
+		widget->parameters.list.number_of_items = STUBBS_CAMPAIGN_LEVEL_COUNT;
+		widget->parameters.list.selected_index =
+			PIN(player_ui_get_last_single_player_level_played(0), 0, STUBBS_CAMPAIGN_LEVEL_COUNT - 1);
+		return TRUE;
+	}
 	{
 		player_ui_get_active_player_profile(0, &profile0);
 		player_profile_get_highest_completed_solo_level(&profile0, &highest_levels[0], &highest_difficulties[0]);
@@ -4536,28 +4630,32 @@ static boolean solo_level_set_next_map_name(
 	list_widget = widget;
 	result = FALSE;
 	/* port: Stubbs mode's twelve levels, its profiles' finished levels its
-	own (port/linux/game/stubbs_campaign.c) */
-	if (stubbs_mode_active() && player_spawn_count == 1)
+	own (port/linux/game/stubbs_campaign.c); with two players, either
+	player's */
+	if (stubbs_mode_active() && (player_spawn_count == 1 || player_spawn_count == 2))
 	{
 		short level = list_widget->parameters.list.selected_index;
 
-		if (!stubbs_campaign_level_available(0, level))
+		if (!stubbs_campaign_level_available(0, level) &&
+			(player_spawn_count != 2 || !stubbs_campaign_level_available(1, level)))
 		{
 			error(2, "this level is unavailable to you!");
 			ui_play_audio_feedback_sound(4);
 			return FALSE;
 		}
-		player_ui_remember_player1_profile(0);
+		if (player_spawn_count == 1)
+			player_ui_remember_player1_profile(0);
 		main_set_map_name(ui_single_player_level(level));
 		main_defer_map_map_change();
 		return TRUE;
 	}
 #ifdef HALO_MAP_LIST
-	/* port: an MCC campaign map's row, after the ten levels: always there */
+	/* port: an MCC campaign map's row, or another campaign map's, after the
+	ten levels: always there */
 	if (list_widget->parameters.list.selected_index >= 10)
 	{
-		extern char const *ui_widget_port_mcc_campaign_level(short row);
-		char const *level = ui_widget_port_mcc_campaign_level((short)(list_widget->parameters.list.selected_index - 10));
+		extern char const *ui_widget_port_campaign_maps_level(short row);
+		char const *level = ui_widget_port_campaign_maps_level((short)(list_widget->parameters.list.selected_index - 10));
 
 		if (!level)
 		{
@@ -5231,6 +5329,9 @@ static boolean playlist_profile_initialize_slayer_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3000, option_spinner, "expected 'teams' option spinner list");
+#ifdef HALO_GAME_BROWSER
+		playlist_profile_mode_row(list_item->next, 0, FALSE);
+#endif
 		switch (profile[0x1C])
 		{
 		case 0: option_spinner->parameters.list.selected_index = 1; return TRUE;
@@ -5649,6 +5750,9 @@ static boolean playlist_profile_initialize_player_options(
 		case 300: option_spinner->parameters.list.selected_index = 2; break;
 		case 450: option_spinner->parameters.list.selected_index = 3; break;
 		}
+#ifdef HALO_GAME_BROWSER
+		playlist_profile_mode_row(list_item->next, 1, FALSE);
+#endif
 		return TRUE;
 	}
 	error(2, "failed to retrieve editable game variant");
@@ -5916,6 +6020,9 @@ static boolean playlist_profile_change_player_options(
 			case 3: *(long *)(profile + 0x34) = 450; break;
 			default: error(2, "unknown option selected in 'suicide penalty' option spinner list"); break;
 			}
+#ifdef HALO_GAME_BROWSER
+			playlist_profile_mode_row(list_item->next, 1, TRUE);
+#endif
 		}
 	}
 	else
@@ -6155,9 +6262,13 @@ static boolean multiplayer_profile_set_for_game(
 		PC menus' choice gives them, ui_widget_port_gametype_choose) */
 		{
 			struct game_variant_options options;
+			byte modes[16];
 
 			if (playlist_profile_get_options(profile_index, &options))
 				player_ui_set_game_variant_options(&options);
+			/* (and its further options, the game modes layer's) */
+			if (playlist_profile_get_mode_options(profile_index, modes))
+				player_ui_set_game_mode_options(modes);
 		}
 		if (server)
 			network_game_server_change_game_variant(server, &profile);
@@ -6286,15 +6397,21 @@ static boolean solo_level_initialize_list_single_player(
 	widget->parameters.list.number_of_items = 10;
 	widget->parameters.list.selected_index = PIN(player_ui_get_last_single_player_level_played(0), 0, 9);
 #ifdef HALO_MAP_LIST
-	/* port: the MCC catalog's campaign maps after the ten levels, as the
-	menus' map lists have them (their cards: ui_widget_game_data_input_functions.c) */
+	/* port: the MCC catalog's campaign maps after the ten levels, then in
+	the Chupathingy menus the other campaign maps found, as the menus' map
+	lists have them (their cards: ui_widget_game_data_input_functions.c) */
 	{
 		extern short ui_widget_port_mcc_campaign_count(void);
+		extern short ui_widget_port_campaign_maps_count(void);
 		extern char const *config_string(char const *name);
 
-		/* (not in Stubbs mode, whose campaign is its own) */
+		/* (not in Stubbs mode, whose campaign is its own; the list found
+		anew, for maps added since) */
 		if (!stubbs_mode_active())
-			widget->parameters.list.number_of_items = (short)(10 + ui_widget_port_mcc_campaign_count());
+		{
+			ui_map_list_refresh(event_handler_functions.multiplayer_levels);
+			widget->parameters.list.number_of_items = (short)(10 + ui_widget_port_campaign_maps_count());
+		}
 		/* (on the Workshop item the Delta Guide's PLAY handed over: its
 		levels lead the MCC rows, mcc_maps.c) */
 		if (!stubbs_mode_active() && mcc_maps_take_first_focus() && ui_widget_port_mcc_campaign_count())
@@ -6576,12 +6693,16 @@ boolean ui_widget_port_gametype_choose(
 	if (saved_game_file_get_path_to_enclosing_directory(profile_index, directory_path))
 		saved_game_file_remember_last_used_multiplayer_variant_directory(directory_path);
 	player_ui_set_game_variant(&profile);
-	/* (and its PC options: game_engine.h) */
+	/* (and its PC options: game_engine.h; and its further options, the
+	game modes layer's) */
 	{
 		struct game_variant_options options;
+		byte modes[16];
 
 		playlist_profile_get_options(profile_index, &options);
 		player_ui_set_game_variant_options(&options);
+		playlist_profile_get_mode_options(profile_index, modes);
+		player_ui_set_game_mode_options(modes);
 	}
 	if (server)
 		network_game_server_change_game_variant(server, &profile);
@@ -6753,15 +6874,20 @@ boolean ui_widget_port_gametype_delete(
 	return TRUE;
 }
 
-/* the game's gametype (Server Setup's options' copy), the server's */
+/* the game's gametype (Server Setup's options' copy), the server's; and its
+further options (NULL: as they are) */
 boolean ui_widget_port_game_variant_set(
 	struct game_variant *variant,
-	struct game_variant_options const *options)
+	struct game_variant_options const *options,
+	byte const *modes)
 {
 	void *server = global_network_game_server_get();
+	byte kept[16];
 
+	csmemcpy(kept, player_ui_get_game_mode_options(), sizeof(kept));
 	player_ui_set_game_variant(variant);
 	player_ui_set_game_variant_options(options);
+	player_ui_set_game_mode_options(modes ? modes : kept);
 	if (server)
 		network_game_server_change_game_variant(server, variant);
 	return TRUE;

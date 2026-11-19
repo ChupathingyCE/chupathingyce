@@ -448,4 +448,12 @@ void stubbs_player_hud_show_special_attack(
 		SET_FLAG(stubbs_hud_special_attacks_shown, special_attack, show);
 }
 
+void stubbs_player_tags_new_map(
+	void)
+{
+	/* (the last level's shown attacks are not this one's: a10 shows the gut
+	grenade only once its tutorial reaches it) */
+	stubbs_hud_special_attacks_shown = 0;
+}
+
 #endif

@@ -24,7 +24,9 @@ rasterizer_xbox_environment.c, rasterizer_lights.c, shaders.c). Any other
 the game evaluates is evaluated as the first (periodic_functions.c).
 
 Every block and field read lies in the map's tag cache, or is passed over, and
-no field written lies over its tag header or tag index (ce_map_checks.h).
+no field written lies over its tag header or tag index (ce_map_checks.h): the
+tags are read before they are checked against Halo PC's layout, so nothing
+here trusts a count or address the checks have not seen.
 */
 
 #ifdef HALO_CUSTOM_EDITION
@@ -232,9 +234,11 @@ static void ce_lens_flare_reflections(
 
 /* ---------- public code */
 
-/* a Custom Edition map's tags loaded (cache_files.c), before its extended
-chicago shaders are made chicago ones (ce_models.c): every function field
-the game evaluates made one there is */
+/* a Custom Edition map's tags loaded (cache_files.c), before they are
+checked against Halo PC's layout (tag_validate.c, which would make a field
+naming no function the first, where one in the other byte order names one)
+and before its extended chicago shaders are made chicago ones (ce_models.c):
+every function field the game evaluates made one there is */
 void ce_functions_tags_loaded(
 	void *tag_instances,
 	long tag_count)

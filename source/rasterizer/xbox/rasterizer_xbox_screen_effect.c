@@ -170,6 +170,39 @@ enum
 
 /* ---------- macros */
 
+/* port: a screen effect bitmap's size on the screen and the scale from it to
+the texture's coordinates. The Xbox addresses a linear texture in texels; a
+Custom Edition map's linear bitmap is sampled from 0 to 1, as Halo PC samples
+every texture (the renderers keep a Halo PC-layout texture's coordinates:
+xbox_texture_cache.c's D3DCOMMON_PORT_PC_LAYOUT), as a swizzled one is. The
+screen's own copy (viewport_map, not from the map) stays in texels. A Custom
+Edition map's zoom mask is drawn at its bitmap group's high resolution scale,
+smaller on the screen than its size (hud_screen_effect_mask_scale, hud_draw.c):
+mask_scale, 1 for every other bitmap */
+static void rasterizer_screen_effect_bitmap_scale(
+	boolean linear,
+	boolean screen_copy,
+	boolean custom_edition_map,
+	real mask_scale,
+	real *size_i,
+	real *size_j,
+	real *scale_i,
+	real *scale_j)
+{
+	*size_i *= mask_scale;
+	*size_j *= mask_scale;
+	if (linear && (screen_copy || !custom_edition_map))
+	{
+		*scale_i = 1.0f / mask_scale;
+		*scale_j = 1.0f / mask_scale;
+	}
+	else
+	{
+		*scale_i = 1.0f / *size_i;
+		*scale_j = 1.0f / *size_j;
+	}
+}
+
 /* ---------- structures */
 
 typedef char rasterizer_screen_effect_debug_options_flashes_offset_assert[
@@ -320,36 +353,29 @@ static void rasterizer_screen_effect_set_texture_transforms(
 		default_scale.i = 1.0f;
 		default_scale.j = 1.0f;
 
-		convolution_scale = TEST_FLAG(convolution_bitmap->flags, _bitmap_linear_bit) ?
-			default_scale : vector2d_reciprocal(&convolution_size);
-#ifdef HALO_CUSTOM_EDITION
-		/* port: a Custom Edition map's zoom mask at its bitmap group's high
-		resolution scale, smaller on the screen than its size
-		(hud_screen_effect_mask_scale, hud_draw.c) */
-		if (convolution_bitmap == parameters->convolution_mask)
 		{
-			real mask_scale = hud_screen_effect_mask_scale(parameters->convolution_mask);
+			boolean custom_edition_map = FALSE;
+			real mask_scale = 1.0f;
 
-			if (mask_scale != 1.0f)
+#ifdef HALO_CUSTOM_EDITION
 			{
-				convolution_size.i *= mask_scale;
-				convolution_size.j *= mask_scale;
-				if (TEST_FLAG(convolution_bitmap->flags, _bitmap_linear_bit))
-				{
-					convolution_scale.i = 1.0f / mask_scale;
-					convolution_scale.j = 1.0f / mask_scale;
-				}
-				else
-					convolution_scale = vector2d_reciprocal(&convolution_size);
+				extern boolean cache_file_tags_are_ce(void);
+
+				custom_edition_map = cache_file_tags_are_ce();
 			}
-		}
+			if (convolution_bitmap == parameters->convolution_mask)
+				mask_scale = hud_screen_effect_mask_scale(parameters->convolution_mask);
 #endif
-
-		scanline_scale = TEST_FLAG(scanline_bitmap->flags, _bitmap_linear_bit) ?
-			default_scale : vector2d_reciprocal(&scanline_size);
-
-		noise_scale = TEST_FLAG(noise_bitmap->flags, _bitmap_linear_bit) ?
-			default_scale : vector2d_reciprocal(&noise_size);
+			rasterizer_screen_effect_bitmap_scale(TEST_FLAG(convolution_bitmap->flags, _bitmap_linear_bit),
+				convolution_bitmap == &viewport_map, custom_edition_map, mask_scale,
+				&convolution_size.i, &convolution_size.j, &convolution_scale.i, &convolution_scale.j);
+			rasterizer_screen_effect_bitmap_scale(TEST_FLAG(scanline_bitmap->flags, _bitmap_linear_bit),
+				scanline_bitmap == &viewport_map, custom_edition_map, 1.0f,
+				&scanline_size.i, &scanline_size.j, &scanline_scale.i, &scanline_scale.j);
+			rasterizer_screen_effect_bitmap_scale(TEST_FLAG(noise_bitmap->flags, _bitmap_linear_bit),
+				noise_bitmap == &viewport_map, custom_edition_map, 1.0f,
+				&noise_size.i, &noise_size.j, &noise_scale.i, &noise_scale.j);
+		}
 
 		screen_scale = TEST_FLAG(viewport_map.flags, _bitmap_linear_bit) ?
 			default_scale : vector2d_reciprocal(&screen_size);

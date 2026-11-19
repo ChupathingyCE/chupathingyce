@@ -142,7 +142,9 @@ symbols in this file:
 #include "mcc_ui_teams.h"
 #include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_regions.h" /* port: port/linux/game/stubbs_regions.c */
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
+#include "game/game_modes.h" /* port: SWAT's headshots (docs/modes.md) */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1038,6 +1040,10 @@ static void damage_data_validate_owner(
 		damage->owner_object_index = NONE;
 }
 
+#ifndef HALO_XBOX_CONSOLE
+static void damage_port_hit_sound(long object_index, struct damage_data const *damage, real total_damage);
+#endif
+
 static void object_damage_aftermath(
 	long object_index,
 	struct damage_data *damage,
@@ -1178,6 +1184,9 @@ static void object_damage_aftermath(
 
 	if (TEST_FLAG(_object_mask_unit, object->object.type))
 	{
+#ifndef HALO_XBOX_CONSOLE
+		damage_port_hit_sound(object_index, damage, shield_damage + body_damage);
+#endif
 		unit_damage_aftermath(
 			object_index,
 			damage,
@@ -1190,6 +1199,45 @@ static void object_damage_aftermath(
 
 	return;
 }
+
+#ifndef HALO_XBOX_CONSOLE
+/* port: audio.hit_sounds, as Halo PC's multiplayer had: a short tone for
+the local player whose damage hit another player's unit (the aftermath
+runs on the host, and on a client as a replay of the host's, so a client
+hears its own hits), once a tick however many hits land in it; off, the
+Xbox's, by default; not in the Xbox's build */
+static void damage_port_hit_sound(
+	long object_index,
+	struct damage_data const *damage,
+	real total_damage)
+{
+	extern int config_boolean(char const *name);
+	extern unsigned long config_changes(void);
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean enabled = FALSE;
+	static long played_tick = NONE;
+	long player_index;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		enabled = config_boolean("audio.hit_sounds") != 0;
+	}
+	if (!enabled || total_damage <= 0.0f || damage->owner_player_index == NONE || !game_engine_running())
+		return;
+	player_index = player_index_from_unit_index(object_index);
+	if (player_index == NONE || player_index == damage->owner_player_index ||
+		player_get(damage->owner_player_index)->local_player_index == NONE)
+	{
+		return;
+	}
+	if (played_tick == game_time_get())
+		return;
+	played_tick = game_time_get();
+	game_engine_play_hit_sound();
+	return;
+}
+#endif
 
 static void object_damage_body(
 	long object_index,
@@ -1264,9 +1312,28 @@ static void object_damage_body(
 
 	if (!TEST_FLAG(object->object.damage_flags, _object_cannot_take_damage_bit))
 	{
+		boolean headshots = TEST_FLAG(damage_definition->flags, _damage_can_cause_headshots_bit);
+
+#ifdef HALO_GAME_BROWSER
+		/* port: SWAT (game_modes.c, the host's rule): a shot (bullet,
+		sniper, plasma, needle or shotgun damage; not melee, not an
+		explosion) on a player's biped's head kills, as if the damage could
+		cause headshots */
+		if (!headshots && damage_amount > 0.f && object->object.type == _object_type_biped &&
+			unit_get(object_index)->unit.player_index != NONE &&
+			(damage_definition->category == _damage_category_bullet ||
+				damage_definition->category == _damage_category_sniper ||
+				damage_definition->category == _damage_category_plasma ||
+				damage_definition->category == _damage_category_needle ||
+				damage_definition->category == _damage_category_shotgun) &&
+			game_mode_swat_headshot(damage_definition->category))
+		{
+			headshots = TRUE;
+		}
+#endif
 		if (damage_amount > 0.f && TEST_FLAG(damage_material->flags, _damage_material_head_bit))
 		{
-			if (TEST_FLAG(damage_definition->flags, _damage_can_cause_headshots_bit))
+			if (headshots)
 			{
 				if (game_engine_running() ||
 					object->object.type != _object_type_biped ||
@@ -2746,12 +2813,14 @@ static void object_permutation_shield_regions(
 	struct collision_model *collision_model =
 		collision_model_definition_get(definition->object.collision_model.index);
 	short region_index;
+	short region_count;
+	byte *region_permutations = object_get_region_permutations(object_index, &region_count);
 
 	/* port: no more regions than the object's region_permutations holds (a
 	map's count; past them are the change colors and the node blocks; retail
 	has up to 5) */
 	for (region_index = 0;
-		region_index < MIN(collision_model->resistance.regions.count, MAXIMUM_REGIONS_PER_OBJECT);
+		region_index < MIN(collision_model->resistance.regions.count, region_count);
 		region_index++)
 	{
 		struct damage_region *region = TAG_BLOCK_GET_ELEMENT(
@@ -2762,9 +2831,10 @@ static void object_permutation_shield_regions(
 		if (TEST_FLAG(region->flags, _object_region_missing_when_shield_is_zero_bit) &&
 			region->permutations.count > 1)
 		{
-			object->object.region_permutations[region_index] = !active;
+			region_permutations[region_index] = !active;
 		}
 	}
+	stubbs_regions_changed(object_index); /* port: Stubbs mode only */
 
 	return;
 }

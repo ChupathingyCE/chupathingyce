@@ -55,7 +55,15 @@ or reads past a tag's end:
     (cache_files.c);
   - an effect's flags, in Gearbox's layout ("must be deterministic" in bit
     2, where the Xbox has it in bit 1: ce_effect_flags.h): read as the
-    Xbox's, so that its effects are deterministic where Halo PC's are.
+    Xbox's, so that its effects are deterministic where Halo PC's are;
+  - a block or data that runs on into the next tag's root, which Halo PC's
+    retail tools left (a HaloMD map's scenario's script syntax and strings,
+    sized to their most where the tool wrote only what was used, and the
+    retail UI's var_kill_penalty strings' last definition word): given room
+    of its own, the map's bytes copied and the rest zero, so that what the
+    game writes there (a console command's syntax) is no other tag's. As the
+    tags load only (it takes room in the tag cache), before Halo PC's tag
+    schema checks them (tag_schema_pc.c).
 
 The repairs are made before the map is opened, to the image it is checked
 in (ce_map_checks.c, so that its checks see the map as it will play), and
@@ -74,7 +82,9 @@ way (cache_files_windows.c).
 #include "structures/structure_bsp_definitions.h"
 #include "ce_map_checks.h"
 #include "ce_effect_flags.h"
+#include "ce_bitmap_reduce.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* ---------- constants */
@@ -96,6 +106,13 @@ enum
 	OBJECT_PREDICTED_RESOURCES_OFFSET = 0x170,
 	WEAPON_PREDICTED_RESOURCES_OFFSET = 0x4e4,
 	SCENARIO_PREDICTED_RESOURCES_OFFSET = 0xec,
+
+	/* the scenario's scripts' syntax and strings (scenario_definitions.h's
+	hs_syntax_data and hs_string_constants: tag data, its address at 0xc),
+	and a unicode string list's strings (a block of tag data) */
+	SCENARIO_SYNTAX_DATA_OFFSET = 0x474,
+	SCENARIO_STRING_CONSTANTS_OFFSET = 0x488,
+	UNICODE_STRING_SIZE = 0x14,
 	/* an object's modifier shader (object_definitions.h: a tag reference,
 	its tag index last) */
 	OBJECT_MODIFIER_SHADER_OFFSET = 0x90,
@@ -123,6 +140,13 @@ enum
 	BITMAP_COMPRESSED_FLAG = 0x02,
 	BITMAP_PORT_BC7_MARK = 0x4337,
 	BITMAP_STRAY_HIGH_FLAG = 0x8000,
+	/* a bitmap tag's type (bitmap_group.h's bitmap_group, its first
+	field) */
+	BITMAP_GROUP_TYPE_OFFSET = 0x00,
+	/* the most bytes of a HUD, menu or globals tag read for the bitmaps it
+	refers to (ce_interface_bitmaps_find; the largest in the maps tested,
+	a globals tag, has 33 KB) */
+	CE_INTERFACE_TAG_MOST_BYTES = 256 * 1024,
 
 	/* a model's shaders (model_definitions.h): each a tag reference and
 	a permutation */
@@ -157,6 +181,7 @@ struct ce_repair_counts
 	long parent_groups;
 	long bc7_bitmaps;
 	long deterministic_effects;
+	long bitmaps_reduced;
 };
 
 /* ---------- globals */
@@ -204,6 +229,10 @@ static struct
 /* the loaded map's tags (ce_repairs_tags_loaded), for its BSPs' */
 static struct ce_tag_instance *ce_loaded_instances;
 static long ce_loaded_tag_count;
+
+unsigned long ce_resources_allocate(unsigned long size);
+static long ce_overruns_repair(struct ce_image const *image, void *tag_instances, long tag_count,
+	unsigned long scenario_tag_index);
 
 /* ---------- private code */
 
@@ -535,8 +564,100 @@ static void ce_parent_groups_repair(
 	}
 }
 
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+extern int platform_ce_alias;
+int config_boolean(char const *name);
+
+/* whether a 64 MB console's Custom Edition map has its large bitmaps' top
+levels let go (ce_bitmap_reduce.h; console.ce_reduce_bitmaps), as its tags
+are repaired; and the map's bitmap tags a HUD, menu or globals tag refers
+to (ce_interface_bitmaps_find), by their tags' index, which keep every
+level */
+static boolean ce_bitmaps_reducing;
+static byte ce_interface_bitmaps[0x10000 / 8];
+
+/* the groups of the tags whose bitmaps the HUD and menus draw by the
+pixel (interface.c, ui_widget.c): the unit, weapon and grenade HUDs, the
+HUD's globals and its numbers, the menus' widgets, meters, the game's
+globals (the motion sensor's and the multiplayer HUD's) and the
+multiplayer map descriptions */
+static unsigned long const ce_interface_groups[] =
+{
+	'unhi', 'wphi', 'grhi', 'hudg', 'hud#', 'DeLa', 'metr', 'matg', 'mply',
+};
+
+/* the bitmap tags a HUD, menu or globals tag refers to, marked: each such
+tag's bytes, up to the next tag's (a map's tool lays out each tag's own
+blocks after it), read for a tag reference to a bitmap tag of the map (its
+group, then its handle 12 bytes on). By what the tags hold, not by their
+names: a protected map names every tag "<protected>" */
+static void ce_interface_bitmaps_find(
+	struct ce_image const *image,
+	void *tag_instances,
+	long tag_count)
+{
+	long index;
+
+	memset(ce_interface_bitmaps, 0, sizeof(ce_interface_bitmaps));
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance const *instance = ce_instance(tag_instances, index);
+		unsigned long start = instance->base_address, end = image->base + image->size;
+		long group, other;
+		byte *data;
+		unsigned long offset;
+
+		for (group = 0; group < (long)NUMBEROF(ce_interface_groups); group++)
+		{
+			if (instance->group_tag == ce_interface_groups[group])
+				break;
+		}
+		if (group == (long)NUMBEROF(ce_interface_groups) || start < image->base || start >= end)
+			continue;
+		for (other = 0; other < tag_count; other++)
+		{
+			unsigned long other_start = ce_instance(tag_instances, other)->base_address;
+
+			if (other_start > start && other_start < end)
+				end = other_start;
+		}
+		if (end - start > CE_INTERFACE_TAG_MOST_BYTES)
+			end = start + CE_INTERFACE_TAG_MOST_BYTES;
+		data = ce_image_pointer(image, start, end - start);
+		if (!data)
+			continue;
+		for (offset = 0; offset + 16 <= end - start; offset += 4)
+		{
+			unsigned long tag_index;
+			struct ce_tag_instance const *bitmap;
+
+			if (ce_read_long(data + offset) != 'bitm')
+				continue;
+			tag_index = ce_read_long(data + offset + 12);
+			bitmap = ce_instance_by_index(tag_instances, tag_count, tag_index);
+			if (bitmap && bitmap->tag_index == tag_index && bitmap->group_tag == 'bitm')
+				ce_interface_bitmaps[(tag_index & 0xffff) / 8] |= (byte)(1 << (tag_index & 7));
+		}
+	}
+}
+
+/* whether a bitmap tag is one the HUD or the menus draw: one a HUD, menu
+or globals tag refers to, or one under ui\ (the game finds some of those by
+their names: virtual_keyboard.c) */
+static boolean ce_interface_bitmap(
+	struct ce_image const *image,
+	struct ce_tag_instance const *instance)
+{
+	char const *name = ce_image_tag_name(image, instance);
+
+	return (ce_interface_bitmaps[(instance->tag_index & 0xffff) / 8] & (1 << (instance->tag_index & 7))) ||
+		(name && strncmp(name, "ui\\", 3) == 0);
+}
+#endif
+
 /* a bitmap tag's BC7 bitmaps made DXT5's format and marked; the mark taken
-from any other */
+from any other; on a 64 MB console, its large bitmaps' top levels let go
+(ce_bitmap_reduce) */
 static void ce_bitmaps_repair(
 	struct ce_image const *image,
 	struct ce_tag_instance const *instance,
@@ -545,6 +666,10 @@ static void ce_bitmaps_repair(
 	byte *group = ce_image_pointer(image, instance->base_address, BITMAP_GROUP_BITMAPS_OFFSET + 0xc);
 	byte *bitmaps;
 	long count, index;
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	short group_type = group ? ce_read_short(group + BITMAP_GROUP_TYPE_OFFSET) : 0;
+	boolean interface_drawn = group && ce_bitmaps_reducing && ce_interface_bitmap(image, instance);
+#endif
 
 	if (!group)
 		return;
@@ -573,6 +698,10 @@ static void ce_bitmaps_repair(
 		memcpy(bitmap + BITMAP_DATA_FORMAT_OFFSET, &format, sizeof(format));
 		memcpy(bitmap + BITMAP_DATA_FLAGS_OFFSET, &flags, sizeof(flags));
 		memcpy(bitmap + BITMAP_DATA_MIPMAP_PAD_OFFSET, &mark, sizeof(mark));
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+		if (ce_bitmaps_reducing && ce_bitmap_reduce(bitmap, group_type, interface_drawn))
+			counts->bitmaps_reduced++;
+#endif
 	}
 }
 
@@ -596,18 +725,24 @@ static void ce_effect_flags_repair(
 static void ce_repairs_log(
 	struct ce_repair_counts const *counts)
 {
+	char reduced[64] = "";
+
 	if (ce_map_checking() || !(counts->predicted_resources_dropped | counts->predicted_resources_salted |
 		counts->object_types | counts->modifier_shaders | counts->model_shaders | counts->node_links |
-		counts->parent_groups | counts->bc7_bitmaps | counts->deterministic_effects))
+		counts->parent_groups | counts->bc7_bitmaps | counts->deterministic_effects | counts->bitmaps_reduced))
 	{
 		return;
 	}
+	/* (a 64 MB console's alone: ce_bitmap_reduce.h) */
+	if (counts->bitmaps_reduced > 0)
+		snprintf(reduced, sizeof(reduced), "; %ld bitmaps without their top levels (a 64 MB console)",
+			counts->bitmaps_reduced);
 	error(_error_silent, "%s map: %ld predicted resources dropped and %ld given their tags' salts, %ld object "
 		"types, %ld modifier shaders and %ld model shaders repaired, %ld node links looping back or out of the nodes, "
-		"%ld tags' parent groups, %ld BC7 bitmaps; %ld effects deterministic", ce_map_family_name(),
+		"%ld tags' parent groups, %ld BC7 bitmaps; %ld effects deterministic%s", ce_map_family_name(),
 		counts->predicted_resources_dropped, counts->predicted_resources_salted, counts->object_types,
 		counts->modifier_shaders, counts->model_shaders, counts->node_links, counts->parent_groups,
-		counts->bc7_bitmaps, counts->deterministic_effects);
+		counts->bc7_bitmaps, counts->deterministic_effects, reduced);
 }
 
 /* ---------- public code */
@@ -665,6 +800,13 @@ void ce_repairs_apply(
 	/* (first: the repairs below find objects and shaders by their parents) */
 	for (index = 0; index < tag_count; index++)
 		ce_parent_groups_repair(ce_instance(tag_instances, index), &counts);
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	/* (and on a 64 MB console, the bitmaps the HUD and menus draw, which
+	keep every level) */
+	ce_bitmaps_reducing = platform_ce_alias && config_boolean("console.ce_reduce_bitmaps");
+	if (ce_bitmaps_reducing)
+		ce_interface_bitmaps_find(image, tag_instances, tag_count);
+#endif
 	for (index = 0; index < tag_count; index++)
 	{
 		struct ce_tag_instance *instance = ce_instance(tag_instances, index);
@@ -765,7 +907,128 @@ void ce_repairs_tags_loaded(
 	checked: ce_map_checks.h) */
 	ce_tags_guard_begin_loaded(tag_instances, tag_count);
 	ce_repairs_apply(&image, tag_instances, tag_count, scenario_tag_index);
+	{
+		long moved = ce_overruns_repair(&image, tag_instances, tag_count, scenario_tag_index);
+
+		if (moved)
+			error(_error_silent, "%s map: %ld blocks and data that ran on into the next tag given room of their own",
+				ce_map_family_name(), moved);
+	}
 	ce_tags_guard_end();
+}
+
+/* the bytes at address that the map's data there has before the next tag's
+root (another tag's that lies in them): size bytes if none does */
+static unsigned long ce_bytes_before_a_root(
+	void *tag_instances,
+	long tag_count,
+	unsigned long address,
+	unsigned long size)
+{
+	unsigned long before = size;
+	long index;
+
+	for (index = 0; index < tag_count; index++)
+	{
+		unsigned long root = ce_instance(tag_instances, index)->base_address;
+
+		if (root > address && root - address < before)
+			before = root - address;
+	}
+	return before;
+}
+
+/* a tag block or data at field (its address at address_offset in it, its
+bytes size) whose bytes run on into the next tag's root, which Halo PC's
+retail tools left so (a HaloMD map's scenario's script syntax and strings,
+sized to their most, and the retail UI's var_kill_penalty strings' last
+definition word): given room of their own in the tag cache, the map's
+bytes before the next tag copied there and the rest zero, so that what the
+game writes there as it runs (a console command's syntax and strings) is
+not another tag's, and Halo PC's tag schema finds every tag's bytes its own
+(tag_schema_pc.c). TRUE if it was moved */
+static boolean ce_overrun_repair(
+	struct ce_image const *image,
+	void *tag_instances,
+	long tag_count,
+	byte *field,
+	unsigned long address_offset,
+	unsigned long size,
+	unsigned long other)
+{
+	unsigned long address = ce_read_long(field + address_offset);
+	unsigned long before;
+	unsigned long room;
+	byte *from, *to;
+
+	if (!size || !address || !ce_image_pointer(image, address, size) ||
+		!ce_tags_writable(field + address_offset, sizeof(unsigned long)))
+	{
+		return FALSE;
+	}
+	before = ce_bytes_before_a_root(tag_instances, tag_count, address, size);
+	/* (or before the tag's other data, other, which may follow it there:
+	the scenario's script strings after its syntax) */
+	if (other > address && other - address < before)
+		before = other - address;
+	if (before >= size)
+		return FALSE;
+	room = ce_resources_allocate(size);
+	to = room ? ce_image_pointer(image, room, size) : NULL;
+	from = ce_image_pointer(image, address, size);
+	if (!to || !from)
+		return FALSE;
+	memcpy(to, from, before);
+	memset(to + before, 0, size - before);
+	ce_write_long(field + address_offset, room);
+	return TRUE;
+}
+
+/* the loaded map's blocks and data that run on into the next tag
+(ce_overrun_repair): the scenario's scripts' syntax and strings, and each
+unicode string list's strings; how many were moved */
+static long ce_overruns_repair(
+	struct ce_image const *image,
+	void *tag_instances,
+	long tag_count,
+	unsigned long scenario_tag_index)
+{
+	struct ce_tag_instance *scenario = ce_instance_by_index(tag_instances, tag_count, scenario_tag_index);
+	long moved = 0;
+	long index;
+
+	if (scenario && scenario->group_tag == 'scnr')
+	{
+		byte *root = ce_image_pointer(image, scenario->base_address, SCENARIO_STRING_CONSTANTS_OFFSET + 0x14);
+
+		if (root)
+		{
+			unsigned long syntax = ce_read_long(root + SCENARIO_SYNTAX_DATA_OFFSET + 0x0c);
+			unsigned long strings = ce_read_long(root + SCENARIO_STRING_CONSTANTS_OFFSET + 0x0c);
+
+			moved += ce_overrun_repair(image, tag_instances, tag_count, root + SCENARIO_SYNTAX_DATA_OFFSET, 0x0c,
+				ce_read_long(root + SCENARIO_SYNTAX_DATA_OFFSET), strings);
+			moved += ce_overrun_repair(image, tag_instances, tag_count, root + SCENARIO_STRING_CONSTANTS_OFFSET, 0x0c,
+				ce_read_long(root + SCENARIO_STRING_CONSTANTS_OFFSET), syntax);
+		}
+	}
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance *instance = ce_instance(tag_instances, index);
+		byte *root;
+		long count;
+
+		if (instance->group_tag != 'ustr')
+			continue;
+		root = ce_image_pointer(image, instance->base_address, 0x0c);
+		count = root ? (long)ce_read_long(root) : 0;
+		if (count > 0 && count <= CE_MAXIMUM_ELEMENTS)
+		{
+			moved += ce_overrun_repair(image, tag_instances, tag_count, root, 0x04,
+				(unsigned long)count * UNICODE_STRING_SIZE, 0);
+		}
+	}
+	return moved;
 }
 
 /* one of its structure BSPs loaded (cache_files.c): its clusters'

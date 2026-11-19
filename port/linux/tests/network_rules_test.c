@@ -524,6 +524,155 @@ static void test_listing_kind(void)
 	CHECK(network_rules_kind_name(0x00, 2, 0) == NULL);
 }
 
+/* the game modes layer's rules (docs/modes.md): the built-ins' bytes (spec
+7.3), what a game needs, what this build plays, the kind byte, the host's
+refusals (spec 3.2's table), the names */
+static void test_game_modes(void)
+{
+	static const uint8_t swat[16] = { 0x01, 0x00, 0x01, 0x96, 0xC8, 0x05, 0x0A, 0x01, 0x00, 0x01 };
+	static const uint8_t infection[16] = { 0x02, 0x00, 0x01, 0x96, 0xC8, 0x05, 0x0A, 0x01, 0x00, 0x01 };
+	static const uint8_t gun_game[16] = { 0x03, 0x00, 0x01, 0x96, 0xC8, 0x05, 0x0A, 0x01, 0x00, 0x01 };
+	static const uint8_t hardcore[16] = { 0x00, 0x01, 0x01, 0x96, 0xC8, 0x05, 0x0A, 0x01, 0x00, 0x01 };
+	static const uint8_t plain[16] = { 0x00, 0x00, 0x01, 0x96, 0xC8, 0x05, 0x0A, 0x01, 0x00, 0x01 };
+	uint8_t options[16];
+	int hardcore_out = -1;
+
+	/* the built-ins' bytes */
+	network_rules_mode_options_builtin(NETWORK_RULES_MODE_SWAT, 0, options);
+	CHECK(!memcmp(options, swat, 16));
+	network_rules_mode_options_builtin(NETWORK_RULES_MODE_INFECTION, 0, options);
+	CHECK(!memcmp(options, infection, 16));
+	network_rules_mode_options_builtin(NETWORK_RULES_MODE_GUN_GAME, 0, options);
+	CHECK(!memcmp(options, gun_game, 16));
+	network_rules_mode_options_builtin(NETWORK_RULES_MODE_NONE, 1, options);
+	CHECK(!memcmp(options, hardcore, 16));
+	network_rules_mode_options_builtin(NETWORK_RULES_MODE_NONE, 0, options);
+	CHECK(!memcmp(options, plain, 16));
+	/* (a hardcore of 7 is 1, a mode of 9 none) */
+	network_rules_mode_options_builtin(9, 7, options);
+	CHECK(!memcmp(options, hardcore, 16));
+
+	/* what a game needs: the mode on the Slayer engine (2) alone, Infection
+	with teams, Gun Game free for all; Hardcore on any engine but Bomb (6) */
+	CHECK(network_rules_modes_needed(swat, 2, 1) == NETWORK_RULES_MODES_SWAT);
+	CHECK(network_rules_modes_needed(swat, 2, 0) == NETWORK_RULES_MODES_SWAT);
+	CHECK(network_rules_modes_needed(swat, 1, 1) == 0);
+	CHECK(network_rules_modes_needed(infection, 2, 1) == NETWORK_RULES_MODES_INFECTION);
+	CHECK(network_rules_modes_needed(infection, 2, 0) == 0);
+	CHECK(network_rules_modes_needed(gun_game, 2, 0) == NETWORK_RULES_MODES_GUN_GAME);
+	CHECK(network_rules_modes_needed(gun_game, 2, 1) == 0);
+	CHECK(network_rules_modes_needed(hardcore, 1, 1) == NETWORK_RULES_MODES_HARDCORE);
+	CHECK(network_rules_modes_needed(hardcore, 4, 1) == NETWORK_RULES_MODES_HARDCORE);
+	CHECK(network_rules_modes_needed(hardcore, 6, 1) == 0);
+	CHECK(network_rules_modes_needed(plain, 2, 1) == 0);
+	memcpy(options, swat, 16);
+	options[1] = 1;
+	CHECK(network_rules_modes_needed(options, 2, 1) == (NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE));
+	CHECK(network_rules_modes_mode(NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE, &hardcore_out) ==
+		NETWORK_RULES_MODE_SWAT && hardcore_out == 1);
+	CHECK(network_rules_modes_mode(NETWORK_RULES_MODES_HARDCORE, &hardcore_out) == NETWORK_RULES_MODE_NONE &&
+		hardcore_out == 1);
+	CHECK(network_rules_modes_mode(0, &hardcore_out) == NETWORK_RULES_MODE_NONE && hardcore_out == 0);
+
+	/* what this build plays: SWAT and Hardcore where the rules are compiled
+	in, not Gun Game or Infection; nothing on a console */
+#ifdef HALO_GAME_BROWSER
+	CHECK(NETWORK_RULES_MODES_PLAYED == (NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE));
+	CHECK(network_rules_modes_played(NETWORK_RULES_MODES_PLAYED, NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE));
+	CHECK(network_rules_modes_unplayed(NETWORK_RULES_MODES_SWAT) == NULL);
+	CHECK(!strcmp(network_rules_modes_unplayed(NETWORK_RULES_MODES_INFECTION | NETWORK_RULES_MODES_HARDCORE), "Infection"));
+#else
+	CHECK(NETWORK_RULES_MODES_PLAYED == 0);
+	CHECK(!strcmp(network_rules_modes_unplayed(NETWORK_RULES_MODES_SWAT), "SWAT"));
+	CHECK(!strcmp(network_rules_modes_unplayed(NETWORK_RULES_MODES_HARDCORE), "Hardcore"));
+#endif
+	CHECK(network_rules_modes_played(NETWORK_RULES_MODES_PLAYED, 0));
+	CHECK(!network_rules_modes_played(NETWORK_RULES_MODES_PLAYED, NETWORK_RULES_MODES_INFECTION));
+	CHECK(!network_rules_modes_played(0, NETWORK_RULES_MODES_SWAT));
+	CHECK(!strcmp(network_rules_modes_unplayed(NETWORK_RULES_MODES_GUN_GAME), "Gun Game"));
+	CHECK(!strcmp(network_rules_modes_name(NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE), "SWAT"));
+	CHECK(!strcmp(network_rules_modes_name(NETWORK_RULES_MODES_HARDCORE), "Hardcore"));
+	CHECK(!strcmp(network_rules_modes_name(0), ""));
+
+	/* a host of this build sends no mode it does not play */
+	memcpy(options, infection, 16);
+	network_rules_mode_options_host(options);
+	CHECK(options[0] == 0 && !memcmp(options + 1, infection + 1, 15));
+	memcpy(options, swat, 16);
+	options[1] = 7;
+	options[15] = 0xFF;
+	network_rules_mode_options_host(options);
+#ifdef HALO_GAME_BROWSER
+	CHECK(options[0] == 1 && options[1] == 1 && options[15] == 0);
+#else
+	/* (a console host sends neither: it has not got their rules) */
+	CHECK(options[0] == 0 && options[1] == 0 && options[15] == 0);
+#endif
+
+	/* the kind byte (37) and what a listed game of a kind needs */
+	CHECK(network_rules_kind_byte(NETWORK_RULES_MODE_SWAT, 1) == 0x81);
+	CHECK(network_rules_kind_byte(NETWORK_RULES_MODE_GUN_GAME, 0) == 0x03);
+	CHECK(network_rules_kind_byte(NETWORK_RULES_MODE_NONE, 1) == 0x80);
+	CHECK(network_rules_kind_byte(9, 0) == 0x00);
+	CHECK(network_rules_kind_needed(0x81, 2) == (NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE));
+	CHECK(network_rules_kind_needed(0x81, 1) == NETWORK_RULES_MODES_HARDCORE);
+	CHECK(network_rules_kind_needed(0x02, 2) == NETWORK_RULES_MODES_INFECTION);
+	CHECK(network_rules_kind_needed(0x03, 2) == NETWORK_RULES_MODES_GUN_GAME);
+	CHECK(network_rules_kind_needed(0x80, 6) == 0);
+	CHECK(network_rules_kind_needed(0x00, 2) == 0);
+
+	/* the host's refusals, spec 3.2's table: a Delta machine with the mode
+	plays, one without is refused for its build; a machine without Delta
+	plays on a host announcing 35 or later and is refused for its version
+	before; a game that needs nothing plays with everyone */
+	CHECK(network_rules_mode_refusal(0, 0, 0, 0, 32) == NETWORK_RULES_MODE_PLAYS);
+	CHECK(network_rules_mode_refusal(NETWORK_RULES_MODES_SWAT, 1, 1, NETWORK_RULES_MODES_SWAT, 32) ==
+		NETWORK_RULES_MODE_PLAYS);
+	CHECK(network_rules_mode_refusal(NETWORK_RULES_MODES_SWAT, 1, 1, NETWORK_RULES_MODES_SWAT, 44) ==
+		NETWORK_RULES_MODE_PLAYS);
+	CHECK(network_rules_mode_refusal(NETWORK_RULES_MODES_SWAT, 1, 1, NETWORK_RULES_MODES_HARDCORE, 44) ==
+		NETWORK_RULES_MODE_REFUSE_BUILD);
+	CHECK(network_rules_mode_refusal(NETWORK_RULES_MODES_SWAT, 1, 0, 0, 44) == NETWORK_RULES_MODE_REFUSE_BUILD);
+	CHECK(network_rules_mode_refusal(NETWORK_RULES_MODES_SWAT, 0, 0, 0, 35) == NETWORK_RULES_MODE_PLAYS);
+	CHECK(network_rules_mode_refusal(NETWORK_RULES_MODES_SWAT, 0, 0, 0, 44) == NETWORK_RULES_MODE_PLAYS);
+	CHECK(network_rules_mode_refusal(NETWORK_RULES_MODES_SWAT, 0, 0, 0, 34) == NETWORK_RULES_MODE_REFUSE_VERSION);
+	CHECK(network_rules_mode_refusal(NETWORK_RULES_MODES_HARDCORE, 0, 0, 0, 32) == NETWORK_RULES_MODE_REFUSE_VERSION);
+}
+
+/* the host's 35+ record carries its mode bytes in front of the local data
+(golden bytes: a SWAT record of 13,136 has 01 at 0x333C and the older
+record's last 4 bytes at 0x334C) */
+static void test_mode_record(void)
+{
+	static uint8_t record[NETWORK_RULES_SETTINGS_SIZE];
+	uint8_t swat[16];
+	uint8_t out[NETWORK_RULES_SETTINGS_EXTENDED_SIZE];
+	int index;
+
+	for (index = 0; index < NETWORK_RULES_SETTINGS_SIZE; index++)
+		record[index] = (uint8_t)(index * 7);
+	network_rules_mode_options_builtin(NETWORK_RULES_MODE_SWAT, 1, swat);
+	network_rules_settings_layout_copy(record, swat, NETWORK_RULES_OPTIONS_EXTENDED_SIZE, 0,
+		NETWORK_RULES_SETTINGS_EXTENDED_SIZE, out);
+	CHECK(!memcmp(out, record, 0x333C));
+	CHECK(out[0x333C] == 0x01 && out[0x333D] == 0x01 && out[0x333E] == 0x01 && out[0x333F] == 0x96);
+	CHECK(!memcmp(out + 0x333C, swat, 16));
+	CHECK(!memcmp(out + 0x334C, record + 0x333C, 4));
+	/* and read back as a client reads it: folded, the bytes sanitized */
+	{
+		uint8_t folded[NETWORK_RULES_SETTINGS_EXTENDED_SIZE];
+		uint8_t extended[16];
+
+		memcpy(folded, out, sizeof(folded));
+		network_rules_settings_fold(folded, NETWORK_RULES_SETTINGS_EXTENDED_SIZE, NETWORK_RULES_OPTIONS_EXTENDED_SIZE,
+			extended);
+		network_rules_extended_options_sanitize(extended);
+		CHECK(!memcmp(extended, swat, 16));
+		CHECK(!memcmp(folded, record, NETWORK_RULES_SETTINGS_SIZE));
+		CHECK(network_rules_modes_needed(extended, 2, 1) == (NETWORK_RULES_MODES_SWAT | NETWORK_RULES_MODES_HARDCORE));
+	}
+}
+
 static void test_static_reach(void)
 {
 	float reach = network_rules_static_event_reach(1, 1.5f);
@@ -897,7 +1046,7 @@ static void test_layout_record(void)
 }
 
 /* the facts of OpenCE's network version 43 as a table row says them
-(docs/delta.md, "Layouts"): the record 64 bytes longer, the join request's
+(docs/delta/versioning.md, "Layouts"): the record 64 bytes longer, the join request's
 version word, the 12-byte header with its checkpoint epoch and boundary (96), the unit
 state's deck (bit 7, 28 bytes after the up) and scripted pose (bit 6, 30
 bytes last), riders thrown from a vehicle on its side, and the MCC-only
@@ -1464,6 +1613,8 @@ int main(void)
 	test_aim_device();
 	test_settings_size();
 	test_extended_options();
+	test_game_modes();
+	test_mode_record();
 	test_shield_effects_message();
 	test_listing_kind();
 	test_gametype_name();

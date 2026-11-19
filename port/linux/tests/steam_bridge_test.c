@@ -544,6 +544,31 @@ static void test_steamcmd_text(void)
 	CHECK(!steamcmd_account_valid("+quit"));
 }
 
+/* a long browse: more items looked at than the bridge watches, and a GET
+of one past them still goes (the idle ones asked about longest ago make
+room), #3274305742's "Failed" */
+static void test_many_items(void)
+{
+	struct steam_bridge_item item;
+	char id[24];
+	int index, waited = 0;
+
+	reset();
+	steam_bridge_open(0);
+	CHECK(settled() == STEAM_BRIDGE_READY);
+	for (index = 0; index < STEAM_BRIDGE_MAXIMUM_ITEMS + 40; index++)
+	{
+		snprintf(id, sizeof(id), "%lld", 2900000000LL + index);
+		steam_bridge_item(id, &item);
+	}
+	CHECK(steam_bridge_subscribe("3274305742"));
+	while (!fake.subscribe_calls && waited++ < 300)
+		usleep(10000);
+	CHECK(fake.subscribe_calls == 1 && fake.last_item == 3274305742ULL);
+	CHECK(item_when("3274305742", STEAM_BRIDGE_ITEM_QUEUED, &item) && item.subscribed);
+	reset();
+}
+
 int main(void)
 {
 	test_steamcmd_text();
@@ -552,6 +577,7 @@ int main(void)
 	test_offline();
 	test_subscribe_answers(0);
 	test_subscribe_answers(1);
+	test_many_items();
 	if (failures)
 		fprintf(stderr, "%d failed\n", failures);
 	else

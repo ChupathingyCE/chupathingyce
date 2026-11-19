@@ -535,6 +535,7 @@ static void render_object_list(
 	while (object_index != NONE)
 	{
 		struct object_datum *object = object_get(object_index);
+		short region_count; /* port: the regions an object's permutations cover */
 
 		if (!object_is_first_person_camera(object_index) || render.camera.mirrored)
 		{
@@ -676,7 +677,7 @@ static void render_object_list(
 						definition->object.model.index,
 						level_of_detail_pixels,
 						object_get_node_matrices(object_index),
-						object->object.region_permutations,
+						object_get_region_permutations(object_index, &region_count),
 						object_get_change_colors(object_index),
 						object_get_function_values(object_index),
 						data->lighting,
@@ -698,7 +699,7 @@ static void render_object_list(
 						definition->object.model.index,
 						level_of_detail_pixels * 0.3f,
 						object_get_node_matrices(object_index),
-						object->object.region_permutations,
+						object_get_region_permutations(object_index, &region_count),
 						object_get_change_colors(object_index),
 						object_get_function_values(object_index),
 						data->lighting,

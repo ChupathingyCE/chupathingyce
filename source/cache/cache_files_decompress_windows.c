@@ -1024,6 +1024,11 @@ static void cache_copy_yield(
 short cache_copy_get_status(
 	real *progress)
 {
+	/* port: whether the copy is complete is asked before its flags are read.
+	The copy thread sets a failure's flag, then its complete event: asked
+	after them, a copy that failed between the two reads (a map a tool
+	unpacked: no zlib stream) was taken for one that finished */
+	boolean complete = WaitForSingleObject(global_self->copy_complete_event, 0) == 0;
 	unsigned long flags = cache_copy_get_flags();
 	short status = 0;
 
@@ -1039,7 +1044,7 @@ short cache_copy_get_status(
 	{
 		if (global_self->header.size > 0)
 		{
-			status = (short)((WaitForSingleObject(global_self->copy_complete_event, 0) == 0) +
+			status = (short)(complete +
 				_cache_copy_in_progress);
 			if (WaitForSingleObject(global_self->progress_update_event, 0) == 0)
 			{

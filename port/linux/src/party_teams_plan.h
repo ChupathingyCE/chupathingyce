@@ -1,7 +1,7 @@
 /*
 PARTY_TEAMS_PLAN.H
 
-Keeping a party on one team (docs/delta.md, Party teams): the host's plan,
+Keeping a party on one team (docs/delta/peer.md, Party teams): the host's plan,
 one change at a time, from its players' teams and parties
 (port/linux/game/party_teams.c gathers them and makes the change). No game
 here, so its tests build anywhere (port/linux/tests/party_teams_test.c,

@@ -19,8 +19,9 @@ FUNCTIONS = (
     'network_game_server_start_late_joiner', 'network_game_server_late_joiner_loaded',
     'network_game_server_reset_to_pregame', 'network_game_server_client_machine_is_precached',
     'network_game_server_have_all_machines_have_precached', 'network_game_server_pregame_load_timeout_milliseconds',
-    'network_game_server_pregame_load_timeout')
-STATICS = ('late_joiner_players', 'network_game_server_late_joiner_waiting',
+    'network_game_server_pregame_load_timeout', 'network_game_server_late_joiners_allocate',
+    'network_game_server_late_joiners_free')
+STATICS = ('network_game_server_late_joiner_waiting',
            'network_game_server_late_joiner_first_added', 'network_game_server_frequent_updates_until',
            'network_game_server_pregame_load_held_since')
 STRUCTURES = ('message_server_begin_game', 'message_server_remove_player_ingame',
@@ -50,6 +51,8 @@ def generated(control=None):
     statics = []
     for name in STATICS:
         statics.append(re.search(r'^static [^;(]*\b' + name + r'\b[^;]*;', source, re.M).group(0))
+    # (the host's late joiners' players: a pointer to its table, allocated with the game)
+    statics.append(re.search(r'^static struct network_player \(\*late_joiner_players\)[^;]*;', source, re.M).group(0))
     statics.append(re.search(r'^static struct\n\{[^}]*\} network_game_server_ingame_additions\[[^;]*;',
                              source, re.M).group(0))
     enums = '\n'.join([

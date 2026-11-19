@@ -48,6 +48,19 @@ def test_server_bans(tmp_path):
     # (the queue's file: no address in it)
     log = (data / "reports.log").read_text(encoding="utf-8")
     assert "\"event\": \"report\"" in log and "\"event\": \"closed\"" in log
+    # (a key with a newline after it, as one copied in: its first 32 bytes,
+    # the same refs, and nothing kept aside)
+    key = data / "shared_bans.key"
+    assert len(key.read_bytes()) == 32
+    before = subprocess.run([str(binary), str(data), "ref"], capture_output=True, text=True)
+    assert before.returncode == 0, before.stdout + before.stderr
+    bad = sorted(path.name for path in data.glob("shared_bans.key.bad-*"))
+    key.write_bytes(key.read_bytes() + b"\n")
+    after = subprocess.run([str(binary), str(data), "ref"], capture_output=True, text=True)
+    assert after.returncode == 0, after.stdout + after.stderr
+    assert before.stdout.strip() and after.stdout == before.stdout
+    assert sorted(path.name for path in data.glob("shared_bans.key.bad-*")) == bad
+    assert len(key.read_bytes()) == 33
 
 
 def test_poll_sends_without_extras_before_failing():

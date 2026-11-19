@@ -389,11 +389,11 @@ static byte *samples_make(
 		}
 		for (index = 0; index < size / 2; index++)
 			made[index] = (short)(((unsigned)data[index * 2] << 8) | data[index * 2 + 1]);
-		/* (mono at 44 kHz comes down to the 22 kHz the Xbox's channels take:
-		each two frames averaged into one, in place) */
+		/* (mono at 44 kHz comes down to the 22 kHz the Xbox's channels take,
+		through ce_vorbis.c's half-band low pass, in place) */
 		if (rate != encoded_rate)
 		{
-			unsigned long frame;
+			int halved;
 
 			if (rate != encoded_rate * 2)
 			{
@@ -401,23 +401,14 @@ static byte *samples_make(
 				*reason = "a permutation's rate is neither the sound's nor twice it";
 				return NULL;
 			}
-			frames /= 2;
-			for (frame = 0; frame < frames; frame++)
-			{
-				long channel;
-
-				for (channel = 0; channel < channels; channel++)
-				{
-					made[frame * channels + channel] = (short)(((int)made[(2 * frame) * channels + channel] +
-						(int)made[(2 * frame + 1) * channels + channel]) / 2);
-				}
-			}
-			if (frames == 0)
+			halved = ce_vorbis_resample(&made, (int)frames, (int)channels, (int)rate, (int)encoded_rate);
+			if (halved <= 0)
 			{
 				free(made);
 				*reason = "a permutation's PCM samples are not whole frames";
 				return NULL;
 			}
+			frames = (unsigned long)halved;
 		}
 	}
 	else

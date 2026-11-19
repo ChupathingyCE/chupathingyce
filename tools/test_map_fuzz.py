@@ -74,6 +74,10 @@ CUSTOM_EDITION = [
     "port/linux/game/ce_hud.c",
     "port/linux/game/ce_repairs.c",
     "port/linux/game/ce_functions.c",
+    # (Halo PC's tag schema, which the tags go through as they load)
+    *VALIDATOR,
+    # (what the checks read, hashed: ce_map_checks.c)
+    "port/linux/game/mcc_sha256.c",
     "source/bitmaps/bitmaps.c",
     "source/rasterizer/rasterizer_geometry.c",
     "source/rasterizer/rasterizer_swizzle.c",
@@ -156,7 +160,27 @@ def xbox_map(name=b"fuzz"):
     return bytes(data)
 
 
-def ce_map(name=b"fuzz", sound=None, weapon_hud_statics=None, bsp_reference_unused=0):
+def ce_bsp(bsp_base, extra=0x40):
+    """a Custom Edition structure BSP that loads at bsp_base: its header, its
+    structure (0x288 bytes, its blocks empty but its collision BSP), extra
+    bytes, then its collision BSP of one node and one plane, which every
+    structure BSP has (Halo PC's tag schema refuses one without:
+    tag_schema_collision.c)"""
+    structure = 0x18
+    collision = structure + 0x288 + extra
+    bsp = bytearray(collision + 0x60 + 0x0C + 0x10)
+    struct.pack_into("<I", bsp, 0, bsp_base + structure)
+    struct.pack_into("<4s", bsp, 0x14, b"psbs")
+    struct.pack_into("<iI", bsp, structure + 0xB0, 1, bsp_base + collision)
+    # (its bsp3d nodes, then its planes: the node's plane 0, no children)
+    struct.pack_into("<iI", bsp, collision + 0x00, 1, bsp_base + collision + 0x60)
+    struct.pack_into("<iI", bsp, collision + 0x0C, 1, bsp_base + collision + 0x6C)
+    struct.pack_into("<iii", bsp, collision + 0x60, 0, -1, -1)
+    struct.pack_into("<ffff", bsp, collision + 0x6C, 0.0, 0.0, 1.0, 0.0)
+    return bsp
+
+
+def ce_map(name=b"fuzz", sound=None, weapon_hud_statics=None, bsp_reference_unused=0, sound_flags=0, sound_next=-1):
     """a Custom Edition map of a scenario and one empty structure BSP, its
     scripts' syntax an empty data array; with sound, a list of permutations
     (compression, samples' size, flags, offset), a sound tag of its own (not
@@ -199,21 +223,20 @@ def ce_map(name=b"fuzz", sound=None, weapon_hud_statics=None, bsp_reference_unus
         sound_permutations = len(tags)
         tags += bytes(0x7C * len(sound))
         struct.pack_into("<h", tags, sound_header + 0x6E, sound[0][0])
+        struct.pack_into("<I", tags, sound_header, sound_flags)
         struct.pack_into("<iII", tags, sound_header + 0x98, 1, base + sound_range, 0)
         struct.pack_into("<h", tags, sound_range + 0x2C, len(sound))
         struct.pack_into("<iII", tags, sound_range + 0x3C, len(sound), base + sound_permutations, 0)
         for index, (compression, size, flags, offset) in enumerate(sound):
             permutation = sound_permutations + index * 0x7C
-            struct.pack_into("<hh", tags, permutation + 0x28, compression, -1)
+            struct.pack_into("<hh", tags, permutation + 0x28, compression, sound_next)
             struct.pack_into("<iIIII", tags, permutation + 0x40, size, flags, offset, 0, 0)
         struct.pack_into("<4s4s4sIIIII", tags, instances + 0x40, b"!dns", b"\xff\xff\xff\xff", b"\xff\xff\xff\xff",
                          0xE1760002, base + sound_name, base + sound_header, 0, 0)
     tags += bytes((-len(tags)) % 16)
     tag_data_size = len(tags)
     bsp_offset = 0x800 + tag_data_size
-    bsp = bytearray(0x18 + 0x288 + 0x40)
-    struct.pack_into("<I", bsp, 0, base + 0x100000 + 0x18)
-    struct.pack_into("<4s", bsp, 0x14, b"psbs")
+    bsp = ce_bsp(base + 0x100000)
     model_offset = bsp_offset + len(bsp)
     # the tag header: instances, the scenario, checksum, count, model parts,
     # model data offset, model parts, vertex data size, model data size
@@ -254,9 +277,7 @@ def ce_map_bsp_materials(lightmaps, materials, vertex_count=1):
     lightmap_block = structure + 0x288
     material_block = lightmap_block + 0x20 * lightmaps
     vertices = material_block + 0x100 * materials
-    bsp = bytearray(vertices + 0x50)
-    struct.pack_into("<I", bsp, 0, bsp_base + structure)
-    struct.pack_into("<4s", bsp, 0x14, b"psbs")
+    bsp = ce_bsp(bsp_base, vertices + 0x50 - lightmap_block)
     struct.pack_into("<iI", bsp, structure + 0x104, lightmaps, bsp_base + lightmap_block)
     for lightmap in range(lightmaps):
         struct.pack_into("<iI", bsp, lightmap_block + 0x20 * lightmap + 0x14, materials, bsp_base + material_block)
@@ -299,9 +320,7 @@ def ce_map_of_tags(extra):
     tags += bytes((-len(tags)) % 16)
     tag_data_size = len(tags)
     bsp_offset = 0x800 + tag_data_size
-    bsp = bytearray(0x18 + 0x288 + 0x40)
-    struct.pack_into("<I", bsp, 0, base + 0x100000 + 0x18)
-    struct.pack_into("<4s", bsp, 0x14, b"psbs")
+    bsp = ce_bsp(base + 0x100000)
     model_offset = bsp_offset + len(bsp)
     struct.pack_into("<IIIIIIIII4s", tags, 0, base + instances, 0xE1740000, 0, tag_count, 0, model_offset, 0, 0, 0,
                      b"sgat")
@@ -414,8 +433,16 @@ def test_room_counted_without_wrapping(built, tmp_path):
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
     assert result.returncode == 0, result.stderr[-4000:]
     assert "vertex buffers need more than the tag cache's" in result.stderr, result.stderr[-4000:]
+    # (one block of materials shared by every lightmap, which no tool makes:
+    # Halo PC's tag schema walks it as overlapping, as HaloMD plays such
+    # maps, and each material is compressed once; the conversion alone,
+    # without it, does the same)
     path.write_bytes(ce_map_bsp_materials(4, 3))
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused" not in result.stderr, result.stderr[-4000:]
+    assert "3 BSP materials' vertices compressed" in result.stderr, result.stderr[-4000:]
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
     assert "fuzz: checked" in result.stderr and "3 BSP materials' vertices compressed" in result.stderr, \
         result.stderr[-4000:]
 
@@ -486,7 +513,12 @@ def test_bsp_reference_written_over(built, tmp_path):
     binaries, _ = built
     path = tmp_path / "hud_over_bsp.map"
     path.write_bytes(ce_map(weapon_hud_statics=-0x24, bsp_reference_unused=4))
+    # (Halo PC's tag schema refuses it, the HUD's root shorter than a weapon
+    # HUD's; without it, the BSP's load does)
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
     assert result.returncode == 0, result.stderr[-4000:]
     assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
     assert "not where it was checked" in result.stderr, result.stderr[-4000:]
@@ -506,10 +538,75 @@ def test_tags_checked_again_as_they_load(built, tmp_path):
     struct.pack_into("<I", data, 0x800 + instances + 0x40 + 0x14, syntax + 0x22 - 0x38)
     path = tmp_path / "damage_over_scripts.map"
     path.write_bytes(bytes(data))
+    # (Halo PC's tag schema refuses it first, the damage effect's root over
+    # the scripts' syntax; without it, the check after the conversions does)
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
     assert result.returncode == 0, result.stderr[-4000:]
     assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
     assert "refused as it loaded: its scripts' syntax" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_schema_walks_overlapping_blocks(built, tmp_path):
+    """a block of a group no conversion reads (an item collection's
+    permutations) laid over another tag's root: before Halo PC's tag schema,
+    nothing checked it and the map loaded; now it is given a copy of its own
+    past the tags and checked there, and the map loads, as HaloMD plays such
+    maps: a Custom Edition map's and a HaloMD map's alike"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"itmc", 0x5C), (b"itmc", 0x5C)])
+    first, second = offsets["tags"]
+    # (one permutation of 0x54 bytes, from 4 bytes into the second
+    # collection's root: its item reference, 0x24 in, none and named as the
+    # map's tags are)
+    name = struct.unpack_from("<I", data, offsets["instances"] + 0x10)[0]
+    struct.pack_into("<iI", data, first, 1, base + second + 4 - 0x800)
+    struct.pack_into("<4sIiI", data, second + 4 + 0x24, b"\xff\xff\xff\xff", name, 0, 0xFFFFFFFF)
+    path = tmp_path / "collection_over_collection.map"
+    for version in (609, 7):
+        struct.pack_into("<i", data, 4, version)
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "refused" not in result.stderr, result.stderr[-4000:]
+        assert "1 roots, blocks and data overlapping others' given their own copies" in result.stderr, result.stderr[-4000:]
+        assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_schema_takes_gbxmodels(built, tmp_path):
+    """an object whose model is a gbxmodel (Halo PC's, which the Xbox's
+    schema has no group for): Halo PC's tag schema takes it where a model is
+    asked for, and walks the gbxmodel's own layout, its parts 0x84 bytes"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"scen", 0x1FC), (b"mod2", 0xE8 + 0x30 + 2 * 0x84 + 0x9C)])
+    scenery, model = offsets["tags"]
+    # (scenery: its object type, its model; the model's tag index is the
+    # fourth tag's)
+    struct.pack_into("<h", data, scenery, 6)
+    struct.pack_into("<4sIiI", data, scenery + 0x28, b"2dom", 0, 0, ((0xE174 + 3) << 16) | 3)
+    # (the gbxmodel: one geometry of two parts, each its shader none and its
+    # centroid's nodes none: Halo PC's part layout, local nodes at its end)
+    geometry = model + 0xE8
+    parts = geometry + 0x30
+    struct.pack_into("<iI", data, model + 0xC4, 1, base + geometry - 0x800)
+    struct.pack_into("<iI", data, geometry + 0x24, 2, base + parts - 0x800)
+    for part in range(2):
+        struct.pack_into("<Ihbbhh", data, parts + part * 0x84, 0, -1, -1, -1, -1, -1)
+    # (and one node, the root of its tree)
+    node = parts + 2 * 0x84
+    struct.pack_into("<iI", data, model + 0xB8, 1, base + node - 0x800)
+    struct.pack_into("<hhh", data, node + 0x20, -1, -1, -1)
+    path = tmp_path / "gbxmodel.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused" not in result.stderr, result.stderr[-4000:]
+    assert "not a tag of mode" not in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
 
 
 def test_conversions_read_only_the_tags(built, tmp_path):
@@ -528,7 +625,12 @@ def test_conversions_read_only_the_tags(built, tmp_path):
         struct.pack_into("<iI", data, 0x800 + tag + 0x158, 1, address)
         path = tmp_path / "functions_past_tags.map"
         path.write_bytes(bytes(data))
+        # (Halo PC's tag schema refuses the map; the conversions, without
+        # it, pass the block over)
         result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "refused by Halo PC's tag schema" in result.stderr, result.stderr[-4000:]
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
         assert result.returncode == 0, result.stderr[-4000:]
         assert "fuzz: checked" in result.stderr, result.stderr[-4000:]
         assert "0 periodic and 0 transition functions" in result.stderr, result.stderr[-4000:]
@@ -594,6 +696,67 @@ int main(void)
 """
 
 
+def halo_pc_resource_map(kind, resources, size):
+    """a resource map of Halo PC retail's layout (kind 1 bitmaps, 2 sounds), size
+    bytes long: its header, then each resource's path, then its table (a path's
+    offset, a size and an offset each), of resources (path, size, offset); none
+    of a game's data"""
+    paths = bytearray()
+    table = bytearray()
+    for path, resource_size, offset in resources:
+        table += struct.pack("<III", len(paths), resource_size, offset)
+        paths += path + b"\0"
+    data = bytearray(struct.pack("<IIII", kind, 16, 16 + len(paths), len(resources))) + paths + table
+    assert len(data) <= size
+    return bytes(data + bytes(size - len(data)))
+
+
+def test_retail_sounds_from_halo_pc_sounds_map(built, tmp_path):
+    """a HaloMD map's (Halo PC retail's, version 7) stock sound, whose samples
+    are at an offset in Halo PC's own sounds.map: read from there when the
+    player has it in maps_pc and it has them (a resource there from that
+    offset, no shorter); else found in Custom Edition's sounds.map as before
+    (here, not there: the sound is silent), with lines on the player's HUD
+    that name the file to add. A Custom Edition sounds.map put in maps_pc, or a
+    resource past its file's end, is not taken"""
+    binaries, _ = built
+    adpcm, external = 1, 1
+    offset = 0x400
+    retail = bytearray(ce_map(sound=[(adpcm, 36, external, offset)]))
+    struct.pack_into("<i", retail, 4, 7)
+    path = tmp_path / "retail.map"
+    path.write_bytes(retail)
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    (custom / "sounds.map").write_bytes(struct.pack("<IIII", 2, 16, 16, 0))
+    (custom / "bitmaps.map").write_bytes(struct.pack("<IIII", 1, 16, 16, 0))
+    read = "0 bitmaps and 1 sounds read from Halo PC's own"
+    cases = (
+        ("halo_pc", [(b"fuzz_sound__0__0", 36, offset)], 0x1000, read, "HUD 0"),
+        ("longer", [(b"fuzz_sound__0__0", 72, offset)], 0x1000, read, None),
+        ("shorter", [(b"fuzz_sound__0__0", 30, offset)], 0x1000, "1 sounds silent", "HUD 0"),
+        ("elsewhere", [(b"fuzz_sound__0__0", 36, offset + 4)], 0x1000, "1 sounds silent", None),
+        ("past_its_end", [(b"fuzz_sound__0__0", 36, offset)], offset + 20, "1 sounds silent", None),
+        ("custom_edition", [(b"fuzz_sound__permutations", 36, offset)], 0x1000,
+         "HUD 0: The sounds.map in maps_pc isn't Halo PC's.", read),
+        ("missing", None, 0, "HUD 0: Copy Halo PC's sounds.map to maps_pc.\nHUD 0: Some sounds in this "
+         "map are silent.", read),
+    )
+    for name, resources, size, expected, unexpected in cases:
+        environment = {"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_RESOURCES": str(custom)}
+        if resources is not None:
+            folder = tmp_path / name
+            folder.mkdir()
+            (folder / "sounds.map").write_bytes(halo_pc_resource_map(2, resources, size))
+            environment["MAP_FUZZ_PC_RESOURCES"] = str(folder)
+        result = run(binaries["ce"], [path], environment=environment)
+        assert result.returncode == 0, (name, result.stderr[-4000:])
+        assert "refused" not in result.stderr, (name, result.stderr[-4000:])
+        assert expected in result.stderr, (name, result.stderr[-4000:])
+        if unexpected:
+            assert unexpected not in result.stderr, (name, result.stderr[-4000:])
+
+
 def test_conversions_write_nothing_over_the_tag_index(built, tmp_path):
     """a tag placed over the tag index, so that a conversion's write (a
     damage effect's transition made a valid one) lands on another tag's
@@ -611,7 +774,15 @@ def test_conversions_write_nothing_over_the_tag_index(built, tmp_path):
     struct.pack_into("<I", data, offsets["instances"] + 2 * 0x20 + 0x14, base + (shader_address + 2 - 0x38 - 0x800))
     path = tmp_path / "functions_over_index.map"
     path.write_bytes(bytes(data))
+    # (Halo PC's tag schema gives the damage effect's root, over the tag
+    # index, a copy of its own past the tags, which its corrections are
+    # made in, and the map loads; the conversions, without the schema,
+    # write nothing there)
     result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "has its own copy made: tag 'fuzz' (jpt!)" in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_SCHEMA": "0"})
     assert result.returncode == 0, result.stderr[-4000:]
     assert "refused" not in result.stderr, result.stderr[-4000:]
     assert "over its tag header or tag index" in result.stderr, result.stderr[-4000:]
@@ -728,6 +899,468 @@ def test_fuzz(built, target, tmp_path):
     assert result.returncode == 0, result.stderr[-6000:]
 
 
+
+def ce_map_with_model_data_and_string(model_data_size=0x40):
+    """ce_map_of_tags's map with model data no model reads (model_data_size
+    bytes after its structure BSP) and an indexed unicode string list (its
+    resource in loc.map, by its path): the map, and a loc.map holding that
+    resource last, as its last 12 bytes"""
+    data, offsets = ce_map_of_tags([(b"ustr", 0x10)])
+    tags = 0x800
+    instance = offsets["instances"] + 0x20 * 2
+    # (indexed: its resource is the first in loc.map, whose path is its name)
+    struct.pack_into("<II", data, instance + 0x14, 0, 1)
+    model_offset = len(data)
+    data += bytes(range(256)) * (model_data_size // 256) + bytes(model_data_size % 256)
+    struct.pack_into("<i", data, 8, len(data))
+    struct.pack_into("<III", data, tags + 0x14, model_offset, 0, 0)
+    struct.pack_into("<II", data, tags + 0x1C, 0, model_data_size)
+    # (loc.map: its header, the path, the table of one resource, the resource:
+    # a string list of no strings)
+    name = b"fuzz\0\0\0\0"
+    table = 16 + len(name)
+    resource = table + 12
+    loc = struct.pack("<IIII", 3, 16, table, 1) + name + struct.pack("<III", 0, 12, resource) + bytes(12)
+    return bytes(data), loc
+
+
+def test_map_changed_after_the_checks(built, tmp_path):
+    """a map whose file changes between its checks and its load (#1088): its
+    tag data, its model data, its structure BSP, or a resource map's tag
+    copied in, each found not to be what was checked as the load reads it,
+    and the map refused; unchanged, the same map loads"""
+    binaries, _ = built
+    data, loc = ce_map_with_model_data_and_string()
+    resources = tmp_path / "resources"
+    resources.mkdir()
+    (resources / "loc.map").write_bytes(loc)
+    path = tmp_path / "changed.map"
+    path.write_bytes(data)
+    environment = {"MAP_FUZZ_VERBOSE": "1", "MAP_FUZZ_CE_RESOURCES": str(resources)}
+    result = run(binaries["ce"], [path], environment=environment)
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "fuzz: checked" in result.stderr and "1 indexed tags copied in" in result.stderr, result.stderr[-4000:]
+    assert "changed since" not in result.stderr, result.stderr[-4000:]
+    for part, what in (("tags", "its tag data"), ("resources", "a resource map's tags"),
+                       ("model", "its model data"), ("bsp", "a structure BSP")):
+        result = run(binaries["ce"], [path], environment={**environment, "MAP_FUZZ_CE_CHANGE": part})
+        assert result.returncode == 0, (part, result.stderr[-4000:])
+        assert "fuzz: checked" in result.stderr, (part, result.stderr[-4000:])
+        assert f"refused as it loaded: {what} changed since the map was checked" in result.stderr, \
+            (part, result.stderr[-4000:])
+        assert f"the load found its {part} changed" in result.stderr, (part, result.stderr[-4000:])
+
+
+def test_halomd_tag_data_size_given_as_file_length(built, tmp_path):
+    """a HaloMD map (version 7) whose header gives its file's length as its
+    tag data's size, as a HaloMD tool wrote nine of the archive's maps: read
+    as the rest of the file after its tag data's offset, and loaded. Not a
+    Custom Edition map's (version 609), which stays refused"""
+    binaries, _ = built
+    data = bytearray(ce_map())
+    file_length = struct.unpack_from("<i", data, 8)[0]
+    struct.pack_into("<i", data, 0x14, file_length)
+    for version, loads in ((7, True), (609, False)):
+        struct.pack_into("<i", data, 4, version)
+        path = tmp_path / f"size_{version}.map"
+        path.write_bytes(data)
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert ("the header's tag data size is the file's length" in result.stderr) == loads, result.stderr[-4000:]
+        assert ("map_fuzz: the map loaded" in result.stderr) == loads, result.stderr[-4000:]
+
+
+def test_halomd_last_tag_at_the_end_of_its_tag_data(built, tmp_path):
+    """a HaloMD map whose last tag, a sound environment or a wind, begins
+    exactly where its tag data ends (ten of the archive's maps): read as an
+    empty one, zeroes after the tag data, and the map loaded. Any other
+    group there, a tag that is not the last, or a Custom Edition map's, is
+    still not in its tag data"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    cases = (((b"snde",), 7, True), ((b"wind",), 7, True), ((b"snde",), 609, False), ((b"ligh",), 7, False),
+             ((b"snde", b"wind"), 7, False))
+    for index, (groups, version, loads) in enumerate(cases):
+        data, offsets = ce_map_of_tags([(group, 0x48) for group in groups])
+        tag_data_size = struct.unpack_from("<i", data, 0x14)[0]
+        struct.pack_into("<i", data, 4, version)
+        # (the first extra tag's data at the end of the tag data: the last
+        # tag, unless there is another after it)
+        struct.pack_into("<I", data, offsets["instances"] + 0x20 * 2 + 0x14, base + tag_data_size)
+        path = tmp_path / f"end_{index}.map"
+        path.write_bytes(data)
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, (groups, version, result.stderr[-4000:])
+        assert ("begins where its tag data ends: read as an empty one" in result.stderr) == loads, \
+            (groups, version, result.stderr[-4000:])
+        assert ("map_fuzz: the map loaded" in result.stderr) == loads, (groups, version, result.stderr[-4000:])
+        if not loads:
+            assert "is not in its tag data" in result.stderr, (groups, version, result.stderr[-4000:])
+
+
+def test_stubbs_image_effects_and_vegetation_checked(built, tmp_path):
+    """Stubbs's image effects (imef) and vegetation (vege), which Stubbs mode
+    reads, go through the schema: an image effect's stages past the 8 drawn
+    are cut, a stage's bitmap or a vegetation's model of another group is
+    none, and stages outside the tags refuse the map"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"imef", 0x1AC + 9 * 0xA4), (b"vege", 0x58)])
+    effect, vegetation = offsets["tags"]
+    struct.pack_into("<iI", data, effect + 0x1A0, 9, base + effect - 0x800 + 0x1AC)
+    # (the first stage's bitmap and the vegetation's model name the scenario)
+    struct.pack_into("<4sIII", data, effect + 0x1AC + 0x3C, b"mtib", 0, 0, 0xE1740000)
+    struct.pack_into("<4sIII", data, vegetation + 0x40, b"edom", 0, 0, 0xE1740000)
+    path = tmp_path / "stubbs.map"
+    path.write_bytes(data)
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "stages has 9 elements, more than the game's 8: cut to 8" in result.stderr, result.stderr[-4000:]
+    assert "(imef): stages[0].bitmap names e1740000, not a tag of bitm: none" in result.stderr, \
+        result.stderr[-4000:]
+    assert "(vege): model names e1740000" in result.stderr, result.stderr[-4000:]
+    assert "map_fuzz: the map loaded" in result.stderr, result.stderr[-4000:]
+    struct.pack_into("<iI", data, effect + 0x1A0, 2, base + 0x7FFFF0)
+    path.write_bytes(data)
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "(imef): stages has 2 elements" in result.stderr and "outside the tags" in result.stderr, \
+        result.stderr[-4000:]
+
+
+def ustr_map_sharing_strings(version):
+    """two unicode string lists of one string each, the second's string
+    starting inside the first's ("Kill penalty: Off" and "Off", as Halo PC
+    retail's tools left the retail UI's strings), and its offsets"""
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"ustr", 0x80), (b"ustr", 0x80)])
+    first, second = offsets["tags"]
+    text = "Kill penalty: Off\0".encode("utf-16-le")
+    for tag in (first, second):
+        # (the list's one entry, 0x10 in, a data of 20 bytes)
+        struct.pack_into("<iII", data, tag, 1, base + tag + 0x10 - 0x800, 0)
+    struct.pack_into("<iiiII", data, first + 0x10, len(text), 0, 0, base + first + 0x24 - 0x800, 0)
+    data[first + 0x24:first + 0x24 + len(text)] = text
+    struct.pack_into("<iiiII", data, second + 0x10, 8, 0, 0, base + first + 0x24 + 14 * 2 - 0x800, 0)
+    struct.pack_into("<i", data, 4, version)
+    return data, offsets
+
+
+def test_pc_strings_sharing_bytes_given_their_own(built, tmp_path):
+    """a Halo PC map's string whose bytes are inside another tag's string
+    (66 HaloMD and Custom Edition maps' var_kill_penalty and HUD strings):
+    given a copy of its own past the tags, not made none, in a Custom
+    Edition map and a HaloMD map alike; the map loads, and its tags as
+    corrected are clean when checked again (map_fuzz.c)"""
+    binaries, _ = built
+    for version in (609, 7):
+        data, _ = ustr_map_sharing_strings(version)
+        path = tmp_path / f"strings_{version}.map"
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "strings[0].string has 8 bytes at" in result.stderr, result.stderr[-4000:]
+        assert "has its own copy made" in result.stderr, result.stderr[-4000:]
+        assert "overlapping another's: none" not in result.stderr, result.stderr[-4000:]
+        assert "1 roots, blocks and data overlapping others' given their own copies (8 bytes)" in result.stderr, \
+            result.stderr[-4000:]
+        assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_block_over_a_root_and_its_string_given_their_own(built, tmp_path):
+    """the same, and an item collection's permutation laid over the second
+    list's root and entry, which it reads as another structure: the
+    permutation is given a copy of its own first, then the string (whose
+    pointer is now in bytes only the list reads), and the map loads"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"ustr", 0x80), (b"itmc", 0x5C), (b"ustr", 0x80)])
+    first, collection, second = offsets["tags"]
+    text = "Kill penalty: Off\0".encode("utf-16-le")
+    for tag in (first, second):
+        struct.pack_into("<iII", data, tag, 1, base + tag + 0x10 - 0x800, 0)
+    struct.pack_into("<iiiII", data, first + 0x10, len(text), 0, 0, base + first + 0x24 - 0x800, 0)
+    data[first + 0x24:first + 0x24 + len(text)] = text
+    struct.pack_into("<iiiII", data, second + 0x10, 8, 0, 0, base + first + 0x24 + 14 * 2 - 0x800, 0)
+    # (one permutation of 0x54 bytes over the second list's root and entry:
+    # its item reference, 0x24 in, none and named as the map's tags are)
+    name = struct.unpack_from("<I", data, offsets["instances"] + 0x10)[0]
+    struct.pack_into("<iI", data, collection, 1, base + second - 0x800)
+    struct.pack_into("<4sIiI", data, second + 0x24, b"\xff\xff\xff\xff", name, 0, 0xFFFFFFFF)
+    path = tmp_path / "strings_in_walked_root.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "(itmc): permutations has 84 bytes at" in result.stderr, result.stderr[-4000:]
+    assert "(ustr): strings[0].string has 8 bytes at" in result.stderr, result.stderr[-4000:]
+    assert "2 roots, blocks and data overlapping others' given their own copies (92 bytes)" in result.stderr, \
+        result.stderr[-4000:]
+    assert "another's: none" not in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_string_over_another_tags_root_copied(built, tmp_path):
+    """a string list's entry, shared by two lists, whose string's bytes are
+    the next tag's root: its check, which terminates the string, wrote in
+    that root's block after the root was checked, and the next check read
+    the block's elements from what it wrote (a crash). The string is given
+    a copy of its own, as it is read as data and the root as a structure,
+    and the map loads"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"ustr", 0x40), (b"ustr", 0x40)])
+    first, second = offsets["tags"]
+    struct.pack_into("<iII", data, first, 1, base + first + 0x10 - 0x800, 0)
+    struct.pack_into("<iII", data, second, 1, base + first + 0x10 - 0x800, 0)
+    # (8 bytes at the second list's root, which a terminator would end)
+    struct.pack_into("<iiiII", data, first + 0x10, 8, 0, 0, base + second - 0x800, 0)
+    path = tmp_path / "string_over_root.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "strings[0].string has 8 bytes at" in result.stderr, result.stderr[-4000:]
+    assert "has its own copy made" in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
+def ce_map_long_ogg(frames, channels=1, rate=22050, size=0x48000, short_at=0, sound_flags=0, sound_next=-1):
+    """ce_map's map with one Ogg Vorbis permutation of its own of size bytes,
+    after the map's end: a stand-in stream map_fuzz.c decodes to that many
+    frames of a ramp (a 22 kHz mono sound's), a read stopping short at
+    frame short_at if it is not 0"""
+    data = ce_map(sound=[(3, size, 0, 0)], sound_flags=sound_flags, sound_next=sound_next)
+    data = bytearray(ce_map(sound=[(3, size, 0, len(data))], sound_flags=sound_flags, sound_next=sound_next))
+    fake = b"MAP_FUZZ_PCM" + struct.pack("<iiii", channels, rate, frames, short_at)
+    data += fake + bytes(size - len(fake))
+    struct.pack_into("<i", data, 8, len(data))
+    return bytes(data)
+
+
+def test_long_ogg_sounds_split(built, tmp_path):
+    """a long Ogg Vorbis permutation (a multiplayer map's song, 47 to 102 MB
+    decoded) is decoded a piece at a time and split into permutations the
+    sound cache holds, played one after another; past the 256 permutations
+    a pitch range may have the chunks are larger; past what a permutation
+    may decode to it is not decoded, and the map still loads"""
+    binaries, _ = built
+    cases = (
+        (3000000, "1 long Ogg Vorbis permutations decoded a piece at a time, 1 permutations of more samples",
+         "6000000 bytes of samples played as 16 permutations of 393216 bytes"),
+        # (past 256 permutations of 384 KB: chunks of 768 KB)
+        (70000000, "1 long Ogg Vorbis permutations decoded a piece at a time, 1 permutations of more samples",
+         "140000000 bytes of samples played as 179 permutations of 786432 bytes"),
+        # (a short one: written whole, not split)
+        (100000, "1 long Ogg Vorbis permutations decoded a piece at a time, 0 permutations of more samples", None),
+        # (400 MB: more than a permutation may decode to)
+        (200000000, "a long Ogg Vorbis permutation could not be decoded", None),
+    )
+    for frames, expected, split in cases:
+        path = tmp_path / f"long_{frames}.map"
+        path.write_bytes(ce_map_long_ogg(frames))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert expected in result.stderr, (frames, result.stderr[-4000:])
+        assert "the map loaded" in result.stderr, (frames, result.stderr[-4000:])
+        assert (split is not None) == ("bytes of samples played as" in result.stderr), (frames, result.stderr[-4000:])
+        if split:
+            assert split in result.stderr, (frames, result.stderr[-4000:])
+
+
+def test_long_ogg_sound_short_read_doubled(built, tmp_path):
+    """a long 11 kHz Ogg Vorbis permutation of a 22 kHz sound, whose decoder
+    gives a short piece before the stream's end (stb_vorbis does where it
+    skips a page it cannot read): the piece, doubled, is not read into again
+    (it was smaller than a piece, a heap overflow), and every frame is
+    written, twice over"""
+    binaries, _ = built
+    for short_at in (1000, 65536 + 30000):
+        path = tmp_path / f"short_{short_at}.map"
+        path.write_bytes(ce_map_long_ogg(3000000, rate=11025, short_at=short_at))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "12000000 bytes of samples played as 31 permutations of 393216 bytes" in result.stderr, \
+            (short_at, result.stderr[-4000:])
+        assert "the map loaded" in result.stderr, (short_at, result.stderr[-4000:])
+
+def xbox_map_of_tags(extra):
+    """an Xbox map of a scenario and the tags in extra (each a group and its
+    data's size, zeroed), uncompressed: its tags, their base address and the
+    offsets in them of each extra tag's data"""
+    base = TAG_CACHE["xbox"]
+    count = 1 + len(extra)
+    tags = bytearray(0x24 + 0x20 * count)
+    name = len(tags)
+    tags += b"fuzz\0\0\0\0"
+    root = len(tags)
+    tags += bytes(0x5B0 + 0x200)
+    datas = []
+    for group, size in extra:
+        datas.append(len(tags))
+        tags += bytes(size + (-size) % 16)
+    struct.pack_into("<IIIiiIiI4s", tags, 0, base + 0x24, 0xE1740000, 0, count, 0, 0, 0, 0, b"sgat")
+    for index, (group, address) in enumerate([(b"scnr", root)] + [(group, data) for (group, _), data in
+                                                                     zip(extra, datas)]):
+        struct.pack_into("<4s4s4sIIIII", tags, 0x24 + 0x20 * index, group[::-1], b"\xff\xff\xff\xff",
+                         b"\xff\xff\xff\xff", ((0xE174 + index) << 16) | index, base + name, base + address, 0, 0)
+    return tags, base, datas
+
+
+def test_xbox_string_over_another_tags_root_refused(built, tmp_path):
+    """the same string list over the next tag's root in an Xbox map: shared
+    there as data and as a structure, its check's terminator ended in the
+    other list's block after that was checked (a crash). Bytes shared as
+    another structure (as Halo CE+'s maps share a few) are checked again
+    after every check: changed, the map is refused before a check reads
+    through them"""
+    binaries, _ = built
+    tags, base, (first, second) = xbox_map_of_tags([(b"ustr", 0x40), (b"ustr", 0x40)])
+    struct.pack_into("<iII", tags, first, 1, base + first + 0x10, 0)
+    struct.pack_into("<iII", tags, second, 1, base + first + 0x10, 0)
+    struct.pack_into("<iiiII", tags, first + 0x10, 8, 0, 0, base + second, 0)
+    path = tmp_path / "xbox_string_over_root.map"
+    path.write_bytes(header(5, 0x800 + len(tags), 0x800, len(tags)) + bytes(tags))
+    result = run(binaries["xbox"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "reads them as another structure, and a correction changed them" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_copies_the_same_whatever_the_room(built, tmp_path):
+    """what a Halo PC map has copied apart depends on its tags alone, not on
+    the room past them a platform has (a console's conversion room is none):
+    with room, as little as the copies take, or none, it has the same copies
+    or is refused, never loaded without them"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"ustr", 0x40), (b"ustr", 0x40)])
+    first, second = offsets["tags"]
+    struct.pack_into("<iII", data, first, 1, base + first + 0x10 - 0x800, 0)
+    struct.pack_into("<iII", data, second, 1, base + first + 0x10 - 0x800, 0)
+    struct.pack_into("<iiiII", data, first + 0x10, 8, 0, 0, base + second - 0x800, 0)
+    path = tmp_path / "string_over_root.map"
+    path.write_bytes(bytes(data))
+    copies = {}
+    for room in (None, 16, 15, 0):
+        environment = {"MAP_FUZZ_VERBOSE": "1"}
+        if room is not None:
+            environment["MAP_FUZZ_COPY_ROOM"] = str(room)
+        result = run(binaries["ce"], [path], environment=environment)
+        assert result.returncode == 0, result.stderr[-4000:]
+        made = [line for line in result.stderr.splitlines() if "has its own copy made" in line]
+        if room is None or room >= 16:
+            assert "the map loaded" in result.stderr, (room, result.stderr[-4000:])
+            copies[room] = made
+        else:
+            assert "no room in the tag cache to copy them apart" in result.stderr, (room, result.stderr[-4000:])
+            assert "the map loaded" not in result.stderr, (room, result.stderr[-4000:])
+        assert "another's: none" not in result.stderr, (room, result.stderr[-4000:])
+    assert copies[None] and copies[None] == copies[16]
+
+
+def test_split_flag_is_the_loaders_alone(built, tmp_path):
+    """the flag the loader gives a sound it split (bit 31 of its flags), which
+    an impulse sound then plays through: a map's own is cleared as it loads,
+    a Halo PC map's and an Xbox map's alike, so that a sound whose permutation
+    follows itself is never played for ever; and a long sound split whose
+    chain comes back round has its chunks end it"""
+    binaries, _ = built
+    # (a short sound, its one permutation followed by itself, the flag set)
+    path = tmp_path / "flagged.map"
+    path.write_bytes(ce_map_long_ogg(1000, sound_flags=0x80000002, sound_next=0))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "1 sounds had the loader's split flag set: cleared" in result.stderr, result.stderr[-4000:]
+    assert "bytes of samples played as" not in result.stderr, result.stderr[-4000:]
+    # (a long one, followed by itself: split, its last chunk ending it)
+    path = tmp_path / "looped.map"
+    path.write_bytes(ce_map_long_ogg(3000000, sound_flags=0x80000002, sound_next=0))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "1 sounds had the loader's split flag set: cleared" in result.stderr, result.stderr[-4000:]
+    assert "a long permutation's chain comes back round; its chunks end it" in result.stderr, result.stderr[-4000:]
+    assert "6000000 bytes of samples played as 16 permutations" in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+    # (an Xbox map's sound with the flag: cleared by its checks)
+    tags, base, (sound,) = xbox_map_of_tags([(b"snd!", 0xA4)])
+    struct.pack_into("<I", tags, sound, 0x80000000)
+    path = tmp_path / "xbox_flagged.map"
+    path.write_bytes(header(5, 0x800 + len(tags), 0x800, len(tags)) + bytes(tags))
+    result = run(binaries["xbox"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "has the flag only the loader gives a sound it split: cleared" in result.stderr, result.stderr[-4000:]
+
+
+def test_extended_chicago_with_only_two_stage_maps(built, tmp_path):
+    """an extended chicago shader (Halo PC's scex) is made a chicago one with
+    its four-stage maps; one with none, only two-stage maps, which Halo PC
+    draws then on any card, is given its two-stage maps (as MCC's are,
+    mcc_tags.c), not left with nothing to draw"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    for four_stage, given in ((0, 1), (1, 0)):
+        data, offsets = ce_map_of_tags([(b"scex", 0x78 + 2 * 0xDC)])
+        shader = offsets["tags"][0]
+        maps = base + shader + 0x78 - 0x800
+        struct.pack_into("<h", data, shader + 0x24, 7)
+        struct.pack_into("<iII", data, shader + 0x54, four_stage, maps + 0xDC if four_stage else 0, 0)
+        struct.pack_into("<iII", data, shader + 0x60, 1, maps, 0)
+        for element in (0, 1):
+            # (each map's bitmap none: 0x6C in, a tag reference)
+            struct.pack_into("<4sIiI", data, shader + 0x78 + element * 0xDC + 0x6C, b"mtib", 0, 0, 0xFFFFFFFF)
+        path = tmp_path / f"scex_{four_stage}.map"
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "1 extended chicago shaders made chicago ones" in result.stderr, result.stderr[-4000:]
+        assert ("%d extended chicago shaders with no four-stage maps drawn with their two-stage maps" % given) in \
+            result.stderr, result.stderr[-4000:]
+        assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_netgame_flags_and_equipment_past_200(built, tmp_path):
+    """a Halo PC map's netgame flags and equipment past the tools' 200 (four
+    of HaloMD's maps have 202 to 317 flags, one 212 equipment): kept, as
+    Halo PC's engine read them, up to a short's most; more than that cut"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    for count, cut in ((250, False), (0x7FFF + 1, True)):
+        # (a count past a short's is cut before its elements are looked at:
+        # room for 250 of them)
+        data, offsets = ce_map_of_tags([(b"zzzz", 250 * 0x94), (b"zzzz", 250 * 0x90)])
+        scenario = struct.unpack_from("<I", data, offsets["instances"] + 0x14)[0] - base + 0x800
+        struct.pack_into("<iII", data, scenario + 0x378, count, base + offsets["tags"][0] - 0x800, 0)
+        struct.pack_into("<iII", data, scenario + 0x384, count, base + offsets["tags"][1] - 0x800, 0)
+        path = tmp_path / f"netgame_{count}.map"
+        path.write_bytes(data)
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert ("netgame_flags has 32768 elements, more than the game's 32767: cut to 32767" in result.stderr) == cut, \
+            (count, result.stderr[-4000:])
+        assert "more than the game's 200" not in result.stderr, (count, result.stderr[-4000:])
+        assert ("map_fuzz: the map loaded" in result.stderr) != cut, (count, result.stderr[-4000:])
+
+
+def test_byte_swapped_functions_turned_back(built, tmp_path):
+    """a light's gel functions written in the other byte order by a HaloMD
+    tool (256 for 1, 512 for 2): turned back before the schema checks them,
+    not made the first function; a value that is no
+    function either way still is"""
+    binaries, _ = built
+    data, offsets = ce_map_of_tags([(b"ligh", 0x400)])
+    light = offsets["tags"][0]
+    # (its yaw, roll and pitch functions: ce_functions.c)
+    for offset, value in ((0x8E, 256), (0x96, 512), (0x9E, 0x1234)):
+        struct.pack_into("<h", data, light + offset, value)
+    path = tmp_path / "functions.map"
+    path.write_bytes(data)
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "names periodic function 256, made 1" in result.stderr, result.stderr[-4000:]
+    assert "names periodic function 512, made 2" in result.stderr, result.stderr[-4000:]
+    assert "names periodic function 4660, made 0" in result.stderr, result.stderr[-4000:]
+    assert "3 periodic and 0 transition functions" in result.stderr, result.stderr[-4000:]
+    assert "_function is" not in result.stderr, result.stderr[-4000:]
+    assert "map_fuzz: the map loaded" in result.stderr, result.stderr[-4000:]
+
 # ---------- longer runs
 
 
@@ -783,6 +1416,147 @@ def main():
         arguments += [f"-jobs={options.jobs}", f"-workers={options.jobs}"]
     env = dict(os.environ, ASAN_OPTIONS="detect_leaks=0:allocator_may_return_null=1", **environment)
     sys.exit(subprocess.run([str(binary), *arguments, str(corpus)], env=env).returncode)
+
+
+def opensauce_map(header=True, widgets_outside=False, syntax_nodes=None, netgame_flags=None):
+    """a Custom Edition map with OpenSauce's header (no flags: the checks
+    take it as they take any Custom Edition map) and its project_yellow
+    (yelo) and project_yellow_globals (gelo) tags, the scenario's first
+    reference naming the yelo tag as OpenSauce's tools make it; its yelo's
+    scripted widgets one element far outside the tags if widgets_outside;
+    its scripts' syntax a data array of syntax_nodes nodes if given; its
+    scenario's netgame flags that many, in a tag of room for 250, if given"""
+    base = TAG_CACHE["ce"]
+    # (the syntax, if any, after the gelo tag's root, in no tag's root)
+    extra = [(b"yelo", 0x138), (b"gelo", 0x120 + (0x38 + syntax_nodes * 0x14 if syntax_nodes else 0))]
+    if netgame_flags is not None:
+        extra.append((b"zzzz", 250 * 0x94))
+    data, offsets = ce_map_of_tags(extra)
+    yelo, gelo = offsets["tags"][:2]
+    scenario = struct.unpack_from("<I", data, offsets["instances"] + 0x14)[0] - base + 0x800
+    # (the tags' handles: the third and fourth, ce_map_of_tags's numbering)
+    yelo_index, gelo_index = ((0xE174 + 2) << 16) | 2, ((0xE174 + 3) << 16) | 3
+    name = struct.unpack_from("<I", data, offsets["instances"] + 0x10)[0]
+    struct.pack_into("<4sIiI", data, scenario, b"oley", name, 0, yelo_index)
+    struct.pack_into("<hH", data, yelo, 2, 0)
+    struct.pack_into("<4sIiI", data, yelo + 0x04, b"oleg", name, 0, gelo_index)
+    for at in (0x14, 0x24):
+        struct.pack_into("<4sIiI", data, yelo + at, b"\xff\xff\xff\xff", 0, 0, 0xFFFFFFFF)
+    struct.pack_into("<f", data, yelo + 0x84, 1.0)
+    struct.pack_into("<f", data, yelo + 0x88, 1.0)
+    if widgets_outside:
+        struct.pack_into("<iI", data, yelo + 0x68, 1, base + 0x01000000)
+    struct.pack_into("<hH", data, gelo, 2, 0)
+    struct.pack_into("<4sIiI", data, gelo + 0x28, b"\xff\xff\xff\xff", 0, 0, 0xFFFFFFFF)
+    if syntax_nodes:
+        syntax = gelo + 0x120
+        struct.pack_into("<hh", data, syntax + 0x20, syntax_nodes, 0x14)
+        struct.pack_into("<iIII", data, scenario + 0x474, 0x38 + syntax_nodes * 0x14, 0, 0, base + syntax - 0x800)
+    if netgame_flags is not None:
+        struct.pack_into("<iII", data, scenario + 0x378, netgame_flags, base + offsets["tags"][2] - 0x800, 0)
+    if header:
+        struct.pack_into("<4shH", data, 0x70, b"oley", 2, 0)
+    return bytes(data)
+
+
+def test_opensauce_netgame_flags_past_200(built, tmp_path):
+    """OpenSauce's layout keeps Halo PC's maxima where it has none of its own:
+    an OpenSauce map's netgame flags past the tools' 200 are kept, as a Halo
+    PC map's are, up to a short's most"""
+    binaries, _ = built
+    for count, cut in ((250, False), (0x7FFF + 1, True)):
+        path = tmp_path / f"opensauce_netgame_{count}.map"
+        path.write_bytes(opensauce_map(netgame_flags=count))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert "OpenSauce" in result.stderr, result.stderr[-4000:]
+        assert ("netgame_flags has 32768 elements, more than the game's 32767: cut to 32767" in result.stderr) == cut, \
+            (count, result.stderr[-4000:])
+        assert "more than the game's 200" not in result.stderr, (count, result.stderr[-4000:])
+
+
+def test_opensauce_maps_checked_by_their_own_layout(built, tmp_path):
+    """a map with OpenSauce's header has its tags checked against
+    OpenSauce's layout (tag_schema_opensauce.c): its own groups are walked,
+    not passed over, and a block of one outside the tags refuses the map; a
+    map without the header is checked as Halo PC's, as before, its OpenSauce
+    tags of groups that layout has none of"""
+    binaries, _ = built
+    path = tmp_path / "opensauce.map"
+    path.write_bytes(opensauce_map())
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "OpenSauce's tag schema made" in result.stderr, result.stderr[-4000:]
+    assert "(yelo)" not in result.stderr and "(gelo)" not in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+    path.write_bytes(opensauce_map(widgets_outside=True))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "refused by OpenSauce's tag schema" in result.stderr, result.stderr[-4000:]
+
+    # (no header: Halo PC's layout, where the same tags are of groups it
+    # does not know, never walked, as starwarsb_3's are)
+    path.write_bytes(opensauce_map(header=False, widgets_outside=True))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "Halo PC's tag schema made" in result.stderr, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+
+
+def test_opensauce_scripts_syntax_kept(built, tmp_path):
+    """OpenSauce's memory upgrades: its scripts' syntax for 28501 nodes is
+    kept in its layout, and cut to the Xbox's 19001 in Halo PC's"""
+    binaries, _ = built
+    path = tmp_path / "opensauce_scripts.map"
+    path.write_bytes(opensauce_map(syntax_nodes=28501))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "more than the game's 380076" not in result.stderr, result.stderr[-4000:]
+    path.write_bytes(opensauce_map(header=False, syntax_nodes=28501))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "has 570076 bytes, more than the game's 380076" in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_linear_bitmap_with_packed_rows_stays_linear(built, tmp_path):
+    """a Halo PC linear bitmap whose rows are packed, a row's texels after the
+    last's, not whole 64-byte steps (SPV3's menu logo, 1193 wide; HUD icons):
+    Halo PC's tag schema keeps it linear, as the texture cache reads such rows
+    (any_pitch). Cleared, it was read as swizzled, and drew sheared"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"bitm", 0x6C + 0x30 + 3 * 2 * 4)])
+    group = offsets["tags"][0]
+    bitmap = group + 0x6C
+    # (one bitmap, 3x2 a8r8g8b8: a 12-byte pitch; linear; its pixels after it)
+    struct.pack_into("<iI", data, group + 0x60, 1, base + bitmap - 0x800)
+    struct.pack_into("<4shhhhhHhhhhii", data, bitmap, b"mtib", 3, 2, 1, 0, 11, 1 << 4, 0, 0, 0, 0, 0x30, 24)
+    path = tmp_path / "pc_linear.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+    assert "is linear, but" not in result.stderr, result.stderr[-4000:]
+
+
+def test_pc_actor_variant_grenade_type_past_the_games(built, tmp_path):
+    """an actor variant whose grenade type is OpenSauce's third or fourth (as
+    SPV3's maps have): in Halo PC's layout it is made the first, as an
+    equipment's past the game's two is, since the AI indexes the globals'
+    grenades and a unit's grenade counts by it; one within the game's two, and
+    the stock 'warthog gunner''s older-layout 0x7072, are left alone"""
+    binaries, _ = built
+    for grenade_type, corrected in ((3, True), (2, True), (1, False), (0x7072, False)):
+        data, offsets = ce_map_of_tags([(b"actv", 0x238)])
+        struct.pack_into("<h", data, offsets["tags"][0] + 0x180, grenade_type)
+        path = tmp_path / "actor_variant.map"
+        path.write_bytes(bytes(data))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+        assert result.returncode == 0, result.stderr[-4000:]
+        assert (f"grenade_combat.grenade_type is {grenade_type}, OpenSauce's, past the game's 2: 0"
+                in result.stderr) == corrected, \
+            result.stderr[-4000:]
 
 
 if __name__ == "__main__":

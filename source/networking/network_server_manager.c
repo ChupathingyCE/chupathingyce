@@ -481,6 +481,7 @@ symbols in this file:
 #ifdef HALO_GAME_BROWSER
 #include "../../port/linux/src/browser.h"
 #include "../../port/linux/game/party_teams.h"
+#include "../../port/linux/game/network_rules.h" /* port: the game modes' rules (docs/modes.md) */
 #endif
 #include "interface/player_ui.h"
 #include "tag_files/tag_files.h"
@@ -504,6 +505,12 @@ server browser's listing of a public game (p2p_lobby.c) */
 void p2p_set_game_player_counts(int count, int maximum);
 void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int open,
 	int in_progress, int has_teams);
+/* port: and the listed game's kind (version 37: an OpenCE game type and
+Hardcore, the game modes layer's) */
+void p2p_set_game_kind(int kind);
+/* (the modes the hosted game needs: below, with the gametype's further
+options) */
+static unsigned network_game_server_modes_needed(struct network_game_server *server);
 #ifdef HALO_GAME_BROWSER
 /* port: Delta Peer (port/linux/src/delta_peer.h), beside the game's
 protocol, which it leaves as it is: the hosted game's machines and players
@@ -1343,6 +1350,8 @@ static boolean network_game_server_machine_may_add_player_ingame(
 /* port: (port/linux/game/network_distributed.h) */
 boolean network_damage_host_tables_allocate(void);
 void network_damage_host_tables_free(void);
+static boolean network_game_server_late_joiners_allocate(void);
+static void network_game_server_late_joiners_free(void);
 
 /* ---------- public code */
 
@@ -1360,6 +1369,23 @@ struct network_game_server *network_game_server_create(
 
 	csmemset(server, 0, sizeof(*server));
 
+	/* port: the host's tables, which a machine that only joins doesn't
+	carry: its damage tables (network_damage.c) and its late joiners'
+	players. A game others can join isn't hosted without them (its clients'
+	hits couldn't be dealt): it says so and the menus go on as when the
+	server can't be made. A split-screen game takes no hit reports or late
+	joiners and goes on without them */
+	if ((!network_damage_host_tables_allocate() || !network_game_server_late_joiners_allocate()) &&
+		!network_game_port_hosting_local())
+	{
+		error(_error_silent, "network server: not hosting: no memory for the host's tables");
+		display_error_text_when_main_menu_loaded(L"Not enough memory to host a game.");
+		network_damage_host_tables_free();
+		network_game_server_late_joiners_free();
+		network_game_server_memory_do_not_use_directly_in_use = FALSE;
+		return NULL;
+	}
+
 	if (server != NULL)
 	{
 		server->connection = network_connection_new(
@@ -1374,10 +1400,6 @@ struct network_game_server *network_game_server_create(
 			transport_server_initialize();
 #endif
 
-			/* port: the host's damage tables (network_damage.c), which a
-			machine that only joins doesn't carry; a host without them
-			deals none of its clients' hits, and says so */
-			network_damage_host_tables_allocate();
 			server->state = _network_game_server_state_pregame;
 			server->flags = FLAG(_network_game_server_game_valid_bit);
 			csmemset(&server->game, 0, sizeof(server->game));
@@ -1426,6 +1448,8 @@ struct network_game_server *network_game_server_create(
 			which the dispose's machine check reads; the port in use, by
 			another copy of the game, gets here) */
 			network_game_server_memory_do_not_use_directly_in_use = FALSE;
+			network_damage_host_tables_free();
+			network_game_server_late_joiners_free();
 			server = NULL;
 		}
 	}
@@ -1788,8 +1812,9 @@ newer one the legacy table proves is taken: port/linux/src/delta.c) */
 
 	if (server->connection)
 		network_connection_delete(server->connection);
-	/* port: and its damage tables */
+	/* port: and its damage tables and its late joiners' players */
 	network_damage_host_tables_free();
+	network_game_server_late_joiners_free();
 
 #ifdef xbox
 	/* port: native transports flush before closing sockets, and unregistering
@@ -1910,6 +1935,15 @@ static void network_game_server_list(
 	/* (the scenario's name, not its path: the listing has 32 characters) */
 	p2p_set_game_listing(name, tag_name_strip_path(game->map.name), gametype, game->variant.game_engine_index, open,
 		in_progress, game->variant.universal_variant.teams);
+#ifdef HALO_GAME_BROWSER
+	/* (and its kind, version 37: an OpenCE game type and Hardcore) */
+	{
+		int hardcore;
+		int mode = network_rules_modes_mode(network_game_server_modes_needed(server), &hardcore);
+
+		p2p_set_game_kind(network_rules_kind_byte(mode, hardcore));
+	}
+#endif
 }
 
 boolean network_game_server_idle(
@@ -3297,8 +3331,38 @@ static void network_game_server_refuse_late_joiner(
 
 /* the players in the settings each machine joining the game in progress
 was started with (by machine index): those added and gone while it loaded
-it, whose messages it did not hear, it is told of once it has */
-static struct network_player late_joiner_players[MAXIMUM_NETWORK_MACHINE_COUNT][NUMBEROF(((struct network_game *)0)->players)];
+it, whose messages it did not hear, it is told of once it has. The host's
+alone: allocated with the game (network_game_server_late_joiners_allocate,
+from network_game_server_create), so that a machine that only joins doesn't
+carry it; NULL otherwise, or if there was no memory for it in a
+split-screen game (network_game_server_create hosts no other game without
+it) */
+static struct network_player (*late_joiner_players)[NUMBEROF(((struct network_game *)0)->players)];
+
+static boolean network_game_server_late_joiners_allocate(
+	void)
+{
+	unsigned long size = MAXIMUM_NETWORK_MACHINE_COUNT * sizeof(*late_joiner_players);
+
+	if (late_joiner_players)
+		return TRUE;
+	late_joiner_players = system_malloc(size);
+	if (!late_joiner_players)
+	{
+		error(_error_silent, "network server: no memory for the late joiners' players (%lu KB)", size / 1024);
+		return FALSE;
+	}
+	csmemset(late_joiner_players, 0, size);
+	return TRUE;
+}
+
+static void network_game_server_late_joiners_free(
+	void)
+{
+	if (late_joiner_players)
+		system_free(late_joiner_players);
+	late_joiner_players = NULL;
+}
 
 static boolean network_game_server_same_player(
 	struct network_player const *player0,
@@ -3511,7 +3575,7 @@ static void network_game_server_start_late_joiner(
 	machine at its index by this: network_game_server_late_joiner_loaded) */
 	SET_FLAG(machine->flags, _network_client_machine_started_late_bit, TRUE);
 	machine->last_heard_time = system_milliseconds();
-	if (machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT)
+	if (late_joiner_players && machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT)
 	{
 		csmemcpy(late_joiner_players[machine->machine_index], server->game.players,
 			sizeof(late_joiner_players[machine->machine_index]));
@@ -3726,7 +3790,7 @@ void network_game_server_late_joiner_loaded(
 		network_game_server_frequent_updates_until[machine->machine_index] =
 			server->next_update_number + TICKS_PER_SECOND;
 	}
-	if (server->state == _network_game_server_state_ingame &&
+	if (server->state == _network_game_server_state_ingame && late_joiner_players &&
 		machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT)
 	{
 		struct network_player *started = late_joiner_players[machine->machine_index];
@@ -4416,6 +4480,27 @@ void network_game_server_change_game_variant(
 	return;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: the game lobby (port/linux/game/lobby_screen.c): a hosted game back
+from a game with no game type (the next stage of a playlist the menus' game
+hasn't) gets the menus' game type again, as the postgame map select's
+gametype pick would set it */
+void network_game_server_keep_menus_variant(
+	struct network_game_server *server)
+{
+	struct game_variant chosen;
+
+	if (!server || server->state != _network_game_server_state_pregame ||
+		server->game.variant.game_engine_index > 0 ||
+		!player_ui_game_variant_specified(&chosen) || chosen.game_engine_index <= 0)
+	{
+		return;
+	}
+	server->game.maximum_teams = chosen.universal_variant.teams ? 2 : 1;
+	network_game_server_change_game_variant(server, &chosen);
+}
+#endif
+
 boolean network_game_server_remove_client_machine_from_game(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *client)
@@ -4844,9 +4929,24 @@ void network_game_server_update_countdown(
 				}
 				else
 				{
+					boolean other_players = network_game_server_get_client_machine_count(server) > 1;
+
+#ifdef HALO_SERVER
+					{
+						/* port: a dedicated server's Custom Edition players are
+						seats of its own machine (server_has_enough_machines):
+						with them there, the lobby counts down without another
+						machine, or a game with only them never starts
+						(server/src/server_ce.c) */
+						boolean server_ce_players_present(void);
+
+						if (server_ce_players_present())
+							other_players = TRUE;
+					}
+#endif
 					if (network_game_should_accept_remote_connections() == FALSE ||
 						network_game_solo_game() ||
-						network_game_server_get_client_machine_count(server) > 1)
+						other_players)
 					{
 						unsigned long countdown;
 
@@ -5129,6 +5229,19 @@ void network_game_server_port_cooperative_won(
 	network_game_server_reset_to_pregame(server);
 }
 
+/* port: the co-op host's RESTART LEVEL (main.c's main loop, from the pause
+menu): the round ends for everyone and the lobby has the same level, as a won
+level's does. Only while the game is on: a second request once the server is
+back in the pregame would rebuild it from the multiplayer playlist */
+void network_game_server_port_cooperative_restart(
+	void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	if (server && server->state == _network_game_server_state_ingame)
+		network_game_server_port_cooperative_won(NULL);
+}
+
 /* port: reapply the co-op settings after a won round, since the playlist
 the next round is set up from (network_game_server_setup_game_from_playlist)
 has a multiplayer gametype and map */
@@ -5212,8 +5325,52 @@ void network_game_server_port_set_cooperative_ally_damage(
 		network_event("network_game_server_port_set_cooperative_ally_damage() failed to send updated game settings to clients");
 }
 
+/* port: the gametype's further options of the game this machine hosts (the
+game modes layer's 16 bytes, source/game/game_modes.c; docs/modes.md),
+beside the game record, whose size the game's wire fixes: the menus' when
+the game is the menus' gametype, else none; sanitized, and never a mode
+this build does not play (network_rules_mode_options_host). What a 35+
+record carries (network_server_message_handler.c), and what the game plays
+by (network_game_mode_options) */
+static unsigned char network_game_server_mode_options_bytes[16];
+static boolean network_game_server_mode_options_given = FALSE;
+
+unsigned char const *network_game_server_mode_options(
+	void)
+{
+	if (!network_game_server_mode_options_given)
+	{
+		network_rules_extended_options_default(network_game_server_mode_options_bytes);
+		network_game_server_mode_options_given = TRUE;
+	}
+	return network_game_server_mode_options_bytes;
+}
+
+/* port: the further options the game plays by (network_game_manager.c, as
+the game's variant is set): the host's own, else a client's from its host's
+record (network_client_message_handler.c) */
+unsigned char const *network_game_mode_options(
+	void)
+{
+	unsigned char const *network_game_client_mode_options(void);
+
+	if (global_network_game_server_get())
+		return network_game_server_mode_options();
+	return network_game_client_mode_options();
+}
+
+/* port: the modes the hosted game needs of every machine
+(NETWORK_RULES_MODES_* bits; 0 for a game of no mode and no Hardcore) */
+static unsigned network_game_server_modes_needed(
+	struct network_game_server *server)
+{
+	return network_rules_modes_needed(network_game_server_mode_options(), server->game.variant.game_engine_index,
+		server->game.variant.universal_variant.teams != 0);
+}
+
 /* port: a gametype's PC options: the menus' (player_ui_set_game_variant_options)
-when it is the menus' gametype, else its defaults */
+when it is the menus' gametype, else its defaults; and its further options
+the same way */
 static void network_game_server_variant_options(
 	struct game_variant const *variant,
 	struct game_variant_options *options)
@@ -5221,9 +5378,18 @@ static void network_game_server_variant_options(
 	struct game_variant chosen;
 
 	if (player_ui_game_variant_specified(&chosen) && !csmemcmp(&chosen, variant, sizeof(chosen)))
+	{
 		*options = *player_ui_get_game_variant_options();
+		csmemcpy(network_game_server_mode_options_bytes, player_ui_get_game_mode_options(),
+			sizeof(network_game_server_mode_options_bytes));
+	}
 	else
+	{
 		game_variant_options_default(variant, options);
+		network_rules_extended_options_default(network_game_server_mode_options_bytes);
+	}
+	network_rules_mode_options_host(network_game_server_mode_options_bytes);
+	network_game_server_mode_options_given = TRUE;
 }
 
 /**
@@ -6298,7 +6464,10 @@ static boolean network_game_server_delta_only(
 	return server->game.variant.game_engine_index == game_engine_bomb ||
 		cache_files_map_needs_delta(server->game.map.name) ||
 		/* (an MCC map: its Delta machines must have mcc_maps) */
-		mcc_level_name(server->game.map.name);
+		mcc_level_name(server->game.map.name) ||
+		/* (a game of the game modes layer: its machines must have the mode,
+		or be OpenCE's at a number that carries it: docs/modes.md) */
+		network_game_server_modes_needed(server) != 0;
 }
 
 /* Bomb game types (docs/bomb.md) are played only between machines that agree
@@ -6312,7 +6481,9 @@ messages name definitions by tag index). Every Delta build offers the
 platform capability, consoles' too. Such a machine is dropped once its
 handshake's window is over, in the lobby or a game in progress (it may join
 again: the next game may be another), with a notice; the host plays on.
-Nothing happens in any other game */
+Nothing happens in any other game, but to a Delta machine whose HELLO is
+under its platform's floor in the legacy table in use (delta.h, "platform
+floors"), which is dropped the same way in any game */
 static void network_game_server_delta_refusals(
 	struct network_game_server *server)
 {
@@ -6323,16 +6494,28 @@ static void network_game_server_delta_refusals(
 	{
 		struct network_game_server_client_machine *machine = &server->client_machines[index];
 		unsigned long address;
-		boolean bomb = server->game.variant.game_engine_index == game_engine_bomb;
-		boolean mcc_map = !bomb && mcc_level_name(server->game.map.name);
-		boolean pack_map = !bomb && !mcc_map && cache_files_map_needs_delta(server->game.map.name);
+		/* (port: a Delta machine whose HELLO is under its platform's floor
+		in the legacy table in use (docs/delta/versioning.md, "Platform
+		floors"), in any game: judged by that alone) */
+		boolean under_floor = network_game_server_client_machine_is_joined_to_game(server, machine) &&
+			!network_game_server_client_machine_is_local(server, machine) &&
+			machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT &&
+			delta_peer_game_machine_under_floor(machine->machine_index);
+		boolean bomb = !under_floor && server->game.variant.game_engine_index == game_engine_bomb;
+		boolean mcc_map = !under_floor && !bomb && mcc_level_name(server->game.map.name);
+		boolean pack_map = !under_floor && !bomb && !mcc_map && cache_files_map_needs_delta(server->game.map.name);
 		/* (port: the number the game is played at changed since the machine
 		joined, as an MCC map's game at the MCC number does: only a Delta machine with
 		mcc_maps follows it, HOST_NUMBER; any other leaves with a notice) */
 		unsigned joined_number = network_game_server_machine_joined_number(server, machine);
-		boolean number_changed = joined_number && joined_number != (unsigned)delta_legacy_announce();
+		boolean number_changed = !under_floor && joined_number && joined_number != (unsigned)delta_legacy_announce();
+		/* (port: a game of the game modes layer (SWAT, Hardcore: docs/
+		modes.md): a Delta machine without the capability or the mode, or a
+		machine without Delta at a number before 35, cannot play it) */
+		unsigned modes_needed = bomb || under_floor ? 0 : network_game_server_modes_needed(server);
+		int mode_refusal = NETWORK_RULES_MODE_PLAYS;
 
-		if ((!bomb && !pack_map && !mcc_map && !number_changed) ||
+		if ((!under_floor && !bomb && !pack_map && !mcc_map && !number_changed && !modes_needed) ||
 			!network_game_server_client_machine_is_joined_to_game(server, machine) ||
 			network_game_server_client_machine_is_local(server, machine) ||
 			machine->machine_index < 0 || machine->machine_index >= MAXIMUM_NETWORK_MACHINE_COUNT)
@@ -6340,11 +6523,38 @@ static void network_game_server_delta_refusals(
 			refused_addresses[index] = 0;
 			continue;
 		}
+		/* (a machine still in its handshake's window may yet say HELLO: not
+		judged before it) */
+		if (modes_needed && !number_changed && !delta_peer_game_machine_pending(machine->machine_index))
+		{
+			mode_refusal = network_rules_mode_refusal(modes_needed,
+				!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform),
+				!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_game_modes),
+				delta_peer_game_machine_modes(machine->machine_index), (unsigned)delta_legacy_announce());
+			/* (a machine that plays the mode goes on to the other checks, or
+			stays, when there are none) */
+			if (mode_refusal == NETWORK_RULES_MODE_PLAYS && !pack_map && !mcc_map)
+				continue;
+		}
+		/* (still in its window, with only the mode to judge: wait for it; an
+		OpenCE machine never says HELLO and is judged by the number once the
+		window is over) */
+		else if (modes_needed && !number_changed && !pack_map && !mcc_map)
+		{
+			continue;
+		}
 		if (number_changed && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) &&
 			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps))
 		{
 			number_changed = FALSE;
-			if (!bomb && !pack_map && !mcc_map)
+			/* (a mode game's: judged by the mode too, as above) */
+			if (modes_needed)
+			{
+				mode_refusal = network_rules_mode_refusal(modes_needed, TRUE,
+					!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_game_modes),
+					delta_peer_game_machine_modes(machine->machine_index), (unsigned)delta_legacy_announce());
+			}
+			if (!bomb && !pack_map && !mcc_map && mode_refusal == NETWORK_RULES_MODE_PLAYS)
 				continue;
 		}
 		/* (bomb_traits: a Grifball test build 2 or 3 says TRAITS as 18) */
@@ -6353,11 +6563,15 @@ static void network_game_server_delta_refusals(
 		{
 			continue;
 		}
-		if (!number_changed && pack_map && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform))
+		if (!number_changed && pack_map && mode_refusal == NETWORK_RULES_MODE_PLAYS &&
+			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform))
+		{
 			continue;
+		}
 		/* (an MCC map: a machine without Delta, OpenCE's own, plays it by its own
-		MCC support; a Delta machine needs mcc_maps: docs/delta.md, bit 24) */
-		if (!number_changed && mcc_map && (delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) ||
+		MCC support; a Delta machine needs mcc_maps: docs/delta/registry.md, bit 24) */
+		if (!number_changed && mcc_map && mode_refusal == NETWORK_RULES_MODE_PLAYS &&
+			(delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform) ||
 			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_mcc_maps)))
 		{
 			continue;
@@ -6396,13 +6610,41 @@ static void network_game_server_delta_refusals(
 				}
 				names[length] = 0;
 			}
-			if (number_changed)
+			if (under_floor)
+			{
+				snprintf(notice, sizeof(notice), "%s left: needs a newer build for their platform",
+					names[0] ? names : "A player");
+				network_event("client machine #%ld says network version %d, under its platform's floor (%d): dropped",
+					(long)machine->machine_index, delta_peer_game_machine_legacy_version(machine->machine_index),
+					delta_platform_floor(delta_peer_game_machine_platform(machine->machine_index)));
+			}
+			else if (number_changed)
 			{
 				snprintf(notice, sizeof(notice), "%s left: %s", names[0] ? names : "A player",
 					mcc_map ? "Needs MCC maps (this game now plays an MCC map)" :
 						"this game now plays at another version");
 				network_event("client machine #%ld joined at network version %u, and the game is now at %d: dropped",
 					(long)machine->machine_index, joined_number, delta_legacy_announce());
+			}
+			else if (mode_refusal != NETWORK_RULES_MODE_PLAYS)
+			{
+				char const *mode_name = network_rules_modes_name(modes_needed);
+
+				if (mode_refusal == NETWORK_RULES_MODE_REFUSE_VERSION)
+				{
+					snprintf(notice, sizeof(notice), "%s can't play %s: it needs network version %d or later",
+						names[0] ? names : "A player", mode_name, NETWORK_RULES_MODES_VERSION);
+					network_event("modes: client machine #%ld has no Delta and the host announces %d, before %d: "
+						"it would read a record without the mode: dropped", (long)machine->machine_index,
+						delta_legacy_announce(), NETWORK_RULES_MODES_VERSION);
+				}
+				else
+				{
+					snprintf(notice, sizeof(notice), "%s can't play %s: their build doesn't have it",
+						names[0] ? names : "A player", mode_name);
+					network_event("modes: client machine #%ld lacks game_modes or the mode (%s): dropped",
+						(long)machine->machine_index, mode_name);
+				}
 			}
 			else if (mcc_map)
 			{

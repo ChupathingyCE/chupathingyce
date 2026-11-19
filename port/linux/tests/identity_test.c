@@ -2,7 +2,7 @@
 IDENTITY_TEST.C
 
 Tests of Delta's device identity (port/linux/src/identity.c): the shared
-test vectors of docs/delta.md ("Device identity", also
+test vectors of docs/delta/link.md ("Device identity", also
 port/linux/tests/identity_vectors.json, which tools/test_identity.py checks
 these against), malformed certificates and lists, the chain with root keys
 and without, the requests' text, the answers and the schedule. Built and
@@ -310,7 +310,7 @@ static const char *const lookalikes[][2] =
 	{ "milenko2", "miienko2" }, { "rnilenko", "miienko" }, { "\xD0\x9Cilenko", "miienko" },
 	{ "vvarthog", "warthog" }, { "Sarge_99", "sarge99" }, { "T3x", "tex" }, { "@pollo", "apoiio" },
 	{ "$arge", "sarge" }, { "Milenk\xC3\xB3", "miienko" }, { "Z\xC3\x84TCHBOT", "zatchbot" },
-	{ "\xC5\x81ord", "iord" }, { "milenko1", "miienkoi" },
+	{ "\xC5\x81ord", "iord" }, { "milenko1", "miienkoi" }, { "\xEF\xBC\xAD\xEF\xBD\x89\xEF\xBD\x8C\xEF\xBD\x85\xEF\xBD\x8E\xEF\xBD\x8B\xEF\xBC\x90", "miienko" },
 };
 
 static void test_lookalikes(void)
@@ -468,6 +468,19 @@ static void test_unverified_names(void)
 	CHECK(shows_as(name, "Mk"));
 	name[0] = 0x200B, name[1] = 0xFF20, name[2] = 'M', name[3] = 0xFE6B, name[4] = 'k', name[5] = 0;
 	CHECK(shows_as(name, "Mk"));
+	/* (the signs that read as an @, anywhere: the copyright sign, the
+	circled a's and the enclosing circle) */
+	name[0] = 0xA9, name[1] = 'M', name[2] = 0x24D0, name[3] = 'k', name[4] = 0x24B6, name[5] = 0;
+	CHECK(shows_as(name, "Mk"));
+	name[0] = 'a', name[1] = 0x20DD, name[2] = 'M', name[3] = 'k', name[4] = 0;
+	CHECK(shows_as(name, "aMk"));
+	/* (combining marks and the Hangul fillers, anywhere) */
+	name[0] = 0x3164, name[1] = 'M', name[2] = 0x301, name[3] = 0x20E3, name[4] = 'k', name[5] = 0x36F, name[6] = 0;
+	CHECK(shows_as(name, "Mk"));
+	name[0] = 0xFFA0, name[1] = 0x115F, name[2] = 0x1160, name[3] = 'M', name[4] = 0x20D0, name[5] = 'k', name[6] = 0;
+	CHECK(shows_as(name, "Mk"));
+	name[0] = 0x2FF, name[1] = 'M', name[2] = 0x370, name[3] = 'k', name[4] = 0x2100, name[5] = 0;
+	CHECK(identity_unverified_name(name, 12, name + 8, 8) == 5);
 	/* (the Delta mark, and the triangles that read as it, at the front) */
 	name[0] = 0x394, name[1] = 'M', name[2] = 'k', name[3] = 0;
 	CHECK(shows_as(name, "Mk"));

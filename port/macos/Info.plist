@@ -23,6 +23,8 @@
 	<string>dev</string>
 	<key>CFBundleVersion</key>
 	<string>dev</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.action-games</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSHighResolutionCapable</key>
