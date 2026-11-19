@@ -9,21 +9,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from harness import CHECK_FAILED, build, constant, enum_with, function, mutated, read, run, structure  # noqa: E402
 
 GUARD_CALL = ('\t\t\tif (game_connection() == _game_connection_network_client && !game_time_held())\n'
-              '\t\t\t\tconnection = game_time_client_guard_cap(ticks_elapsed, connection);\n')
+              '\t\t\t\tconnection = game_time_client_guard_cap(ticks_elapsed, connection,\n'
+              '\t\t\t\t\tticks_per_second/TICKS_PER_SECOND);\n')
 CONTROLS = {
     # no guard: the spiral runs a second's ticks a frame
     'no-guard': (GUARD_CALL, '', 'spiral-capped'),
     # the guard on from the first late frame: a single hitch is capped too
-    'first-late-frame': ('guard->previous_due > GAME_TIME_CLIENT_GUARD_TICKS &&\n\t\tticks_due > guard->previous_run',
-                         'ticks_due > GAME_TIME_CLIENT_GUARD_TICKS', 'client:heavy:16:150'),
+    'first-late-frame': ('guard->previous_due > limit && ticks_due > guard->previous_run && ticks_due > limit',
+                         'ticks_due > limit', 'client:heavy:16:150'),
+    # the few not grown with the game's speed: a fast game that keeps up is held to them
+    'unscaled': ('MAX(speed, 1.0f)', '1.0f', 'client:desktop:30:0:6'),
     # never off again: a client that fell behind once stays at a few
     'never-off': ('\t\tguard->engaged = FALSE;\n', '\t\t;\n', 'client:burst:16:150'),
     # the guard while the clock waits for the host: a slow load reads as falling behind
     'while-held': (' && !game_time_held())\n\t\t\t\tconnection = game_time_client_guard_cap',
                    ')\n\t\t\t\tconnection = game_time_client_guard_cap', 'held-load'),
     # the host's clock never taken sooner
-    'catch-up-second': ('? GAME_TIME_CLIENT_GUARD_TICKS : TICKS_PER_SECOND', '? TICKS_PER_SECOND : TICKS_PER_SECOND',
-                        'spiral-capped'),
+    'catch-up-second': ('game_time_client_guard.ticks_left <= 0', '1', 'spiral-capped'),
 }
 
 # frames that keep up: the same ticks with the guard as without
@@ -36,6 +38,9 @@ KEEPING_UP = [
     'client:fight:16:0',      # ticks of 30 ms: 5 a frame, slow but keeping up
     'client:desktop:4:0',     # a desktop client drawing 200 frames a second
     'client:desktop:4:40',
+    'client:desktop:30:0:6',  # an MCC map at game speed 6, 30 frames a second: 6-7 ticks a frame
+    'client:desktop:30:150:6',
+    'client:desktop:4:0:6',
 ]
 # never a client: the same ticks even when the machine can't keep up
 NOT_CLIENTS = [f'{who}:{model}:16:{hitch}' for who in ('host', 'local', 'film')

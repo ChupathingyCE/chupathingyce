@@ -133,6 +133,9 @@ struct game_time_client_guard_state
 	boolean engaged;
 	/* ticks left unrun since the host's clock was last taken */
 	long ticks_left;
+	/* the few at the game's speed (GAME_TIME_CLIENT_GUARD_TICKS at 1, more
+	when faster: 0 until a frame has run) */
+	long limit;
 	/* this map's line written */
 	boolean logged;
 };
@@ -420,32 +423,38 @@ frame that is due more still, and more than the last ran, runs only that
 many, as do the frames after it until one is due fewer. The rest are left
 unrun: the host's units are the host's, and its updates put them where
 they are; the host's clock is taken sooner (game_time_client_catch_up_ticks).
-A machine that keeps up is never due that many ticks two frames running
-with the second due more (one long frame, a load or a hitch, is followed by
-shorter ones), so its ticks are the same as before
-(tools/harness/tests/test_client_spiral_guard.py). Hosts, local games and
-films never have it. Five: a client keeps every tick while a tick costs up
+A machine that keeps up runs the ticks it did before: one long frame (a
+load, a hitch) is followed by shorter ones, and the guard needs two in a
+row with the second due more. Two growing stalls in a row on a machine
+that does keep up hold one frame to the few, and the next frame turns the
+guard off again: the host's clock covers what that frame left, as it did
+for the old cap of a second (tools/harness/tests/test_client_spiral_guard.py).
+Hosts, local games and films never have it. A faster game (an MCC map's
+game speed) is due more ticks a frame at the same frame rate, so the few
+grow with the speed. Five: a client keeps every tick while a tick costs up
 to about 30 ms on the Xbox (five a frame, with the drawing), and a spiral's
 frame of a second becomes about a fifth of one */
 static long game_time_client_guard_cap(
 	long ticks_due,
-	long cap)
+	long cap,
+	real speed)
 {
 	struct game_time_client_guard_state *guard = &game_time_client_guard;
+	long limit = (long)ceil(GAME_TIME_CLIENT_GUARD_TICKS * MAX(speed, 1.0f));
+	guard->limit = limit;
 
 	/* (on after two frames running due more than the few, the second more
 	than the first ran; off once a frame is due fewer) */
-	if (ticks_due < GAME_TIME_CLIENT_GUARD_TICKS)
+	if (ticks_due < limit)
 		guard->engaged = FALSE;
-	else if (guard->previous_due > GAME_TIME_CLIENT_GUARD_TICKS &&
-		ticks_due > guard->previous_run && ticks_due > GAME_TIME_CLIENT_GUARD_TICKS)
+	else if (guard->previous_due > limit && ticks_due > guard->previous_run && ticks_due > limit)
 		guard->engaged = TRUE;
 	guard->previous_due = ticks_due;
-	if (guard->engaged && ticks_due > GAME_TIME_CLIENT_GUARD_TICKS && cap > GAME_TIME_CLIENT_GUARD_TICKS)
+	if (guard->engaged && ticks_due > limit && cap > limit)
 	{
-		long left = MIN(ticks_due, cap) - GAME_TIME_CLIENT_GUARD_TICKS;
+		long left = MIN(ticks_due, cap) - limit;
 
-		cap = GAME_TIME_CLIENT_GUARD_TICKS;
+		cap = limit;
 		guard->ticks_left += left;
 		HALO_PERF_COUNT(_halo_perf_tick_guard_frames, 1);
 		HALO_PERF_COUNT(_halo_perf_tick_guard_ticks_left, left);
@@ -455,7 +464,7 @@ static long game_time_client_guard_cap(
 			error(_error_log,
 				"game time: this machine can't keep up with the game (%ld ticks due in a frame); "
 				"running %d a frame until it can, the host's clock for the rest",
-				ticks_due, (int)GAME_TIME_CLIENT_GUARD_TICKS);
+				ticks_due, (int)limit);
 		}
 	}
 	guard->previous_run = MIN(ticks_due, cap);
@@ -469,7 +478,9 @@ spiral guard has left ticks unrun, the guard's few */
 long game_time_client_catch_up_ticks(
 	void)
 {
-	return game_time_client_guard.ticks_left > 0 ? GAME_TIME_CLIENT_GUARD_TICKS : TICKS_PER_SECOND;
+	if (game_time_client_guard.ticks_left <= 0)
+		return TICKS_PER_SECOND;
+	return game_time_client_guard.limit > 0 ? game_time_client_guard.limit : GAME_TIME_CLIENT_GUARD_TICKS;
 }
 
 void game_time_update(
@@ -550,7 +561,8 @@ void game_time_update(
 			not while its clock waits for the host's first update, which runs no
 			tick: a slow load would read as falling behind) */
 			if (game_connection() == _game_connection_network_client && !game_time_held())
-				connection = game_time_client_guard_cap(ticks_elapsed, connection);
+				connection = game_time_client_guard_cap(ticks_elapsed, connection,
+					ticks_per_second/TICKS_PER_SECOND);
 			if (ticks_elapsed > connection)
 			{
 				ticks_elapsed = connection;
