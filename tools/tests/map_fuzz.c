@@ -1092,6 +1092,9 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 		return;
 	}
 	ce_repairs_tags_loaded(instances, (long)tag_count, scenario_tag_index);
+	/* (function fields made valid ones, those in the other byte order
+	turned back, before the schema checks them: scenario_tags_load) */
+	ce_functions_tags_loaded(instances, (long)tag_count);
 	/* (every tag, its own and its resources', through Halo PC's schema
 	before the conversions read them: scenario_tags_load refuses the map if
 	not; and the tags as corrected need no more correcting, as an Xbox
@@ -1136,7 +1139,6 @@ static void fuzz_ce_load(unsigned char const *data, struct map_header const *hea
 			fuzz_ce_refused("model");
 			return;
 		}
-		ce_functions_tags_loaded(instances, (long)tag_count);
 		ce_shaders_tags_loaded(instances, (long)tag_count);
 		system_free(model_data);
 	}

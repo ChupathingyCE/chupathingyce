@@ -887,6 +887,29 @@ def test_map_changed_after_the_checks(built, tmp_path):
             (part, result.stderr[-4000:])
         assert f"the load found its {part} changed" in result.stderr, (part, result.stderr[-4000:])
 
+
+def test_byte_swapped_functions_turned_back(built, tmp_path):
+    """a light's gel functions written in the other byte order by a HaloMD
+    tool (256 for 1, 512 for 2): turned back before the schema checks them,
+    not made the first function; a value that is no
+    function either way still is"""
+    binaries, _ = built
+    data, offsets = ce_map_of_tags([(b"ligh", 0x400)])
+    light = offsets["tags"][0]
+    # (its yaw, roll and pitch functions: ce_functions.c)
+    for offset, value in ((0x8E, 256), (0x96, 512), (0x9E, 0x1234)):
+        struct.pack_into("<h", data, light + offset, value)
+    path = tmp_path / "functions.map"
+    path.write_bytes(data)
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "names periodic function 256, made 1" in result.stderr, result.stderr[-4000:]
+    assert "names periodic function 512, made 2" in result.stderr, result.stderr[-4000:]
+    assert "names periodic function 4660, made 0" in result.stderr, result.stderr[-4000:]
+    assert "3 periodic and 0 transition functions" in result.stderr, result.stderr[-4000:]
+    assert "_function is" not in result.stderr, result.stderr[-4000:]
+    assert "map_fuzz: the map loaded" in result.stderr, result.stderr[-4000:]
+
 # ---------- longer runs
 
 
