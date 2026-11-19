@@ -38,8 +38,7 @@ the port's zlib (port/third_party/zlib: a menus folder's PNGs are anyone's).
 long hud_hires_asset_at(unsigned long address, long width, long height);
 
 /* (the HUD's, both sets of titles and the MCC maps' sheets: 84, 35, 35
-and 76 now; the titles made
-from the player's files are counted apart) */
+and 80 now; the titles made from the player's files are counted apart) */
 #define MAXIMUM_TEXTURES 256
 /* a PNG's inflated rows and its texels, which are held at once: 128 MB for
 a 4096 by 4096 sheet (the largest shipped, 2048 by 2048, takes 32 MB), and
