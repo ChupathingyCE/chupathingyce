@@ -1053,3 +1053,24 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def test_pc_linear_bitmap_with_packed_rows_stays_linear(built, tmp_path):
+    """a Halo PC linear bitmap whose rows are packed, a row's texels after the
+    last's, not whole 64-byte steps (SPV3's menu logo, 1193 wide; HUD icons):
+    Halo PC's tag schema keeps it linear, as the texture cache reads such rows
+    (any_pitch). Cleared, it was read as swizzled, and drew sheared"""
+    binaries, _ = built
+    base = TAG_CACHE["ce"]
+    data, offsets = ce_map_of_tags([(b"bitm", 0x6C + 0x30 + 3 * 2 * 4)])
+    group = offsets["tags"][0]
+    bitmap = group + 0x6C
+    # (one bitmap, 3x2 a8r8g8b8: a 12-byte pitch; linear; its pixels after it)
+    struct.pack_into("<iI", data, group + 0x60, 1, base + bitmap - 0x800)
+    struct.pack_into("<4shhhhhHhhhhii", data, bitmap, b"mtib", 3, 2, 1, 0, 11, 1 << 4, 0, 0, 0, 0, 0x30, 24)
+    path = tmp_path / "pc_linear.map"
+    path.write_bytes(bytes(data))
+    result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
+    assert result.returncode == 0, result.stderr[-4000:]
+    assert "the map loaded" in result.stderr, result.stderr[-4000:]
+    assert "is linear, but" not in result.stderr, result.stderr[-4000:]
