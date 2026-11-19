@@ -1,40 +1,76 @@
 # Forge
 
-Forge is a layout editor for the multiplayer maps. You fly the map as a monitor, place, move, turn and delete objects, put down your own spawn points, teleporters and game type objects (CTF flags, hill points, oddball spawns, race checkpoints), and save the result as a layout file. A saved layout can then be played as a normal game of any game type.
+Forge is a layout editor for the multiplayer maps. You fly the map as a monitor, place, move, turn and delete objects, put down your own spawn points, teleporters and game type objects (CTF flags, hill points, oddball spawns, race checkpoints), and save the result as a layout. A saved layout can then be played as a normal game of any game type.
 
-It's off by default. Turn it on with `game.forge = true` in `config.toml` (or `HALO_FORGE=1`). Until then the `forge` console commands only say that it's off, and nothing else of it runs. Forge is local only: a Forge game is a game you play alone, and a layout is played as a local game. Nothing of it is sent over the network (co-op editing on Delta is planned separately).
+It's off by default. Turn it on with FORGE in the Delta Guide's SETTINGS, or `game.forge = true` in `config.toml` (`HALO_FORGE=1`). The Multiplayer menu shows FORGE the next time the menus load. Forge is local only: a Forge game is a game you play alone, and a layout is played as a local game. Nothing of it is sent over the network.
 
-## Starting
+## Starting from the menus
 
-From the console:
+1. Main menu > MULTIPLAYER > FORGE. FORGE is in the Chupathingy menus (`display.menus = "chupathingy"`, the default); the Xbox menus stay as the Xbox has them.
 
-- `forge start bloodgulch` starts a Forge game of Blood Gulch (any of the Xbox multiplayer maps, by its short name: `beavercreek`, `hangemhigh`, `longest`...). You start as the monitor.
+   ![The Multiplayer menu with FORGE](screenshots/forge-multiplayer.jpg)
+
+2. The Forge lobby lists the multiplayer maps you have. Pick one with up and down, then A (or right) to go to its rows:
+   - on FORGE: NEW LAYOUT, or one of the map's saved layouts to carry on with it;
+   - on PLAY: GAME TYPE (left and right: slayer, team slayer, capture the flag, king of the hill, oddball, race), then a layout to play.
+
+   LB and RB (Q and E on the keyboard) switch between FORGE and PLAY. Y (Tab) on a layout deletes it; press it twice. B (Esc) goes back.
+
+   ![The Forge lobby](screenshots/forge-lobby.jpg)
+
+   ![Playing a layout as capture the flag](screenshots/forge-play.jpg)
+
+## Building
+
+You start as the monitor. The prompts at the bottom of the screen say what the buttons do right now. They show your controller's buttons (`input.button_style`, and `input.hud_buttons = "hd"` for the HD buttons) or, after you use the keyboard, its keys.
+
+![The monitor holding a Warthog](screenshots/forge-monitor.jpg)
+
+| Controller | Keyboard and mouse | Does |
+|---|---|---|
+| Left stick | Movement keys | Fly |
+| Right stick | Mouse | Look |
+| A / left stick click | Space / Left Ctrl, C | Fly up / down |
+| Left trigger (nothing held) | Left Shift | Fly faster |
+| Right trigger | Left mouse button | Grab what the crosshair is on, or let go of what you hold |
+| Left trigger held (holding) | Right mouse button held | Rotate mode: the right stick (the mouse) turns it; with the right trigger held too, it rolls. The left stick pushes it away and pulls it in |
+| — | Wheel | Push away / pull in what you hold |
+| Right stick click (rotate mode) | N | Nudge mode: small steps instead |
+| B | F | Copy what you hold or aim at |
+| Y | Delete, X | Delete what you hold or aim at |
+| RB (Black) | U | Set it upright |
+| LB (White) | Q | Flying speed; in rotate mode, the rotation snap (off, 15, 45, 90 degrees) |
+| X | E | The Forge menu |
+| Back + right stick click | M | Switch between the monitor and playing as the Spartan |
+
+The keyboard's keys are `controls.forge_*` in `config.toml` (see [settings.md](settings.md)). The Forge menu's OPTIONS > CONTROLS lists them as they are set.
+
+## The Forge menu
+
+X (E) opens the Forge menu over the game. It works like the Delta Guide: LB and RB (Q and E) change the tab, the d-pad (arrows or WASD) moves, A (Enter) chooses, B (Esc) goes back, and the mouse can click rows and prompts. X closes it.
+
+- OBJECTS: the categories (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, TELEPORTERS, OBJECTIVES, SPAWNING) with what each has, then the category's objects. A places the object in your hands. The heading shows the budget: 256 objects and markers.
+
+  ![OBJECTS](screenshots/forge-objects.jpg)
+
+- PROPERTIES: what you hold, if you placed it. It opens here when you hold something. Left and right change a value: team, respawn time, placed at start, yaw, pitch and roll, reset rotation, and physics (normal, fixed: never moves, phased: no collision, shots pass through). A spawn point has its team, game type, kind and facing; a teleporter its channel; a game type object its index (a CTF flag's team, a hill's number).
+
+  ![PROPERTIES](screenshots/forge-properties.jpg)
+
+- LAYOUTS: SAVE saves the layout under its title ("Blood Gulch Layout" for a new one). SAVE AS NEW saves a copy under a new title ("Blood Gulch Layout 2"). Below them are the map's saved layouts: A loads one in place of this one (press it twice, since what isn't saved is lost), Y deletes one (twice). CURRENT marks the one you're editing. To rename a layout, use the console: `forge save <title>`.
+
+  ![LAYOUTS](screenshots/forge-layouts.jpg)
+
+- OPTIONS: SNAP (a grid, and turns in steps), MOVE SPEED, ROTATION SNAP, UNDO and REDO, NEW ROUND (the map starts over with the layout placed again), PLAY AS SPARTAN and CONTROLS.
+
+A layout's spawn points replace the map's own for the players they fit (the game type, the team). A game type object replaces the map's own of that type (a CTF flag: that team's). Any type the layout has none of keeps the map's.
+
+## From the console
+
+- `forge start bloodgulch` starts a Forge game of Blood Gulch (any of the Xbox multiplayer maps, by its short name: `beavercreek`, `hangemhigh`, `longest`...).
 - `forge start bloodgulch my_layout` starts it with a saved layout placed.
-- `forge play bloodgulch my_layout ctf` plays a saved layout as a game of that type: `slayer` (the default), `teamslayer`, `ctf`, `king`, `oddball` or `race`.
+- `forge play bloodgulch my_layout ctf` plays a saved layout as `slayer` (the default), `teamslayer`, `ctf`, `king`, `oddball` or `race`.
 - `forge layouts` lists the saved layouts (a damaged one is listed as such, never read).
-
-## Controls
-
-As the monitor (the keyboard uses your bindings of these buttons):
-
-| Button | Does |
-|---|---|
-| Left stick, right stick / mouse | Fly, look |
-| A / left stick click | Fly up / down |
-| Left trigger | Hold to fly faster; holding an object: rotate it (right stick; right trigger too to roll). Right stick click switches to nudge mode (small steps) |
-| Right trigger | Grab the object or marker under the crosshair, let go of the one held |
-| Y | Delete the object held, or the one under the crosshair |
-| X | The Forge panel; holding something: its properties |
-| B | Copy the object held or under the crosshair |
-| White | Movement speed; in rotate mode, rotation snapping (off, 15, 45, 90 degrees) |
-| Black | Set the object upright |
-| Back + right stick click | Switch between the monitor and playing |
-
-The Forge panel: D-pad left and right pick a category (VEHICLES, WEAPONS, EQUIPMENT, SCENERY, TELEPORTERS, OBJECTIVES, SPAWNING) or FORGE (undo, redo, snap, save layout, new round, play as Spartan); up and down pick a row; A chooses, B closes.
-
-Properties: team, respawn time, placed at start, exact yaw, pitch and roll, and physics (normal, fixed: never moves, phased: no collision). A spawn point's are its team, game type, kind and facing; a teleporter's its channel; a game type object's its index (a CTF flag's team, a hill's number).
-
-The budget is 256 objects and markers. A layout's spawn points replace the map's own for the players they fit (the game type, the team); a game type object replaces the map's own of that type (a CTF flag: that team's), any type the layout has none of keeps the map's.
 
 ## Layout files
 
@@ -51,4 +87,4 @@ Every file goes through the validator before anything is read from it, whether y
 
 ## Console commands
 
-Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags` to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge panel <step>`, `forge shot`.
+Besides `start`, `play` and `layouts`: `forge` (switch monitor and Spartan), `forge save <title>`, `forge spawn <name>`, `forge marker respawn|initial|sender|receiver|flag|hill|oddball|race`, `forge grab [#id]`, `forge drop`, `forge delete [#id]`, `forge turn <degrees>`, `forge property <name> [-]`, `forge distance <world units>`, `forge nudge <direction>`, `forge snap [on|off]`, `forge undo`, `forge redo`, `forge deleteall <category>`, `forge round`, `forge camera x y z yaw pitch`, `forge list [category]`, and `forge where`, `budget`, `objects`, `spawns`, `netflags` to log the state. The tests' controller: `forge press`, `forge stick`, `forge look`, `forge menu open|close`, `forge shot`.
