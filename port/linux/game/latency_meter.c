@@ -53,8 +53,10 @@ enum
 	LATENCY_FAIR_MILLISECONDS = 150,
 	LATENCY_POOR_MILLISECONDS = 250,
 	LATENCY_BARS = 4,
-	/* the host silent this long is a connection problem */
+	/* the host silent this long is a connection problem ... */
 	LATENCY_SILENT_MILLISECONDS = 2000,
+	/* ... but a frame of this machine's own this long starts its count over */
+	LATENCY_STALL_MILLISECONDS = 500,
 	/* the largest number shown */
 	LATENCY_MAXIMUM_MILLISECONDS = 9999,
 	/* the meter's place: its right edge from the window's, its bars' width
@@ -183,16 +185,36 @@ static long latency_own_ping(
 	return NONE;
 }
 
+/* (a client) when this machine began listening without a break: its first
+frame with the meter up, or its first after a frame of its own that took
+longer than LATENCY_STALL_MILLISECONDS (a level loading, a BSP switching).
+Its own wait is not the host's silence: what came meanwhile is read in the
+frames after */
+static struct
+{
+	boolean listening;
+	unsigned long since;
+	unsigned long last_frame;
+} latency_listening;
+
 /* (a client) how long the host has been silent: its connection's stream and
-its game messages both quiet, NONE when it isn't playing in a host's game */
+its game messages both quiet, and this machine listening all that time;
+NONE when it isn't playing in a host's game */
 static long latency_host_silent_milliseconds(
 	void)
 {
+	unsigned long now = system_milliseconds();
 	long silent = network_game_client_silent_milliseconds();
 	long messages = distributed_host_silent_milliseconds();
 
+	if (!latency_listening.listening || now - latency_listening.last_frame > LATENCY_STALL_MILLISECONDS)
+		latency_listening.since = now;
+	latency_listening.listening = TRUE;
+	latency_listening.last_frame = now;
 	if (silent != NONE && messages != NONE)
 		silent = MIN(silent, messages);
+	if (silent != NONE)
+		silent = MIN(silent, (long)MIN(now - latency_listening.since, 3600000UL));
 	return silent;
 }
 
@@ -234,7 +256,10 @@ void latency_meter_draw(
 	rectangle2d bounds;
 
 	if (!latency_meter_shown())
+	{
+		latency_listening.listening = FALSE;
 		return;
+	}
 	silent = game_connection() == _game_connection_network_client ? latency_host_silent_milliseconds() : NONE;
 	if (cinematic_in_progress() && silent < LATENCY_SILENT_MILLISECONDS)
 		return;
