@@ -434,6 +434,42 @@ size_t crash_report_renderer(const char *log, size_t size, char *out, size_t out
 	return length;
 }
 
+size_t crash_report_tuning(const char *log, size_t size, char *out, size_t out_size)
+{
+	static const char key[] = "tuning: at=";
+	size_t index, found = 0, length = 0;
+	int any = 0;
+
+	if (!out_size)
+		return 0;
+	for (index = 0; log && index + sizeof(key) - 1 <= size; index++)
+	{
+		if (!memcmp(log + index, key, sizeof(key) - 1))
+		{
+			found = index + sizeof(key) - 1;
+			any = 1;
+		}
+	}
+	if (any)
+	{
+		/* (from "preset=", to the line's end) */
+		while (found < size && log[found] != ' ' && log[found] != '\n' && log[found] != '\r')
+			found++;
+		if (found < size && log[found] == ' ')
+			found++;
+		while (found + length < size && length + 1 < out_size && log[found + length] != '\n' &&
+			log[found + length] != '\r')
+		{
+			out[length] = log[found + length];
+			length++;
+		}
+		if (length < 7 || strncmp(out, "preset=", 7))
+			length = 0;
+	}
+	out[length] = 0;
+	return length;
+}
+
 char *crash_report_body(const char *report, const char *log, size_t log_size, const void *dump, size_t dump_size,
 	size_t *length)
 {
@@ -471,6 +507,14 @@ char *crash_report_body(const char *report, const char *log, size_t log_size, co
 
 		if (renderer_length)
 			json_field(&body, "renderer", renderer, renderer_length);
+	}
+	{
+		/* (the [tuning] knobs the game ran with) */
+		char tuning[512];
+		size_t tuning_length = crash_report_tuning(log, log_size, tuning, sizeof(tuning));
+
+		if (tuning_length)
+			json_field(&body, "tuning", tuning, tuning_length);
 	}
 	text_string(&body, ", \"frames\": [");
 	for (line = report; line && *line && frames < CRASH_REPORT_FRAMES;
