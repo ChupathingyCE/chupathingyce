@@ -2041,7 +2041,9 @@ static boolean hud_digits_elsewhere_allowed(
 {
 	static boolean logged = FALSE;
 
-	if (source_bitmap == number_bitmap || !opensauce_map_active())
+	/* (not a digit with no bitmap at all, a bad sprite's: it would be drawn
+	from none) */
+	if (!number_bitmap || source_bitmap == number_bitmap || !opensauce_map_active())
 		return FALSE;
 	if (!logged)
 	{
@@ -2248,7 +2250,7 @@ void hud_draw_numbers(
 							"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 							539,
 							!digits_on_one_bitmap || source_bitmap==number_bitmap ||
-						hud_digits_elsewhere_allowed(source_bitmap, number_bitmap));
+							hud_digits_elsewhere_allowed(source_bitmap, number_bitmap));
 						hud_draw_bitmap_direct(
 							number_bitmap,
 							absolute_placement->corner,
@@ -2284,7 +2286,7 @@ void hud_draw_numbers(
 							"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 							556,
 							!digits_on_one_bitmap || source_bitmap==number_bitmap ||
-						hud_digits_elsewhere_allowed(source_bitmap, number_bitmap));
+							hud_digits_elsewhere_allowed(source_bitmap, number_bitmap));
 						hud_draw_bitmap_direct(
 							number_bitmap,
 							absolute_placement->corner,
