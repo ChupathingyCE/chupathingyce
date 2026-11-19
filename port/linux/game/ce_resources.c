@@ -2172,6 +2172,9 @@ CE_SOUND_STREAM_MOST bytes (an hour of 44.1 kHz stereo is 635 MB) */
 #define CE_SOUND_STREAM_MOST 0x10000000
 #define CE_SOUND_MAXIMUM_PERMUTATIONS 256
 #define CE_SOUND_LINKED_PERMUTATIONS_FLAG 2
+/* (sound_definitions.h's _sound_definition_split_by_loader_bit: played
+through as an impulse sound too, sound_manager.c) */
+#define CE_SOUND_SPLIT_BY_LOADER_FLAG 0x80000000UL
 #define CE_PERMUTATION_BUFFER_SIZE_OFFSET 0x38
 
 /* (the silence a sound that is not looped is played from and into) */
@@ -2700,7 +2703,7 @@ static long ce_sound_split(byte *sound, byte *pitch_ranges, unsigned long pitch_
 		}
 		*(unsigned long *)(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET) = count + extra;
 		*(unsigned long *)(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET + 4) = address;
-		*(unsigned long *)sound |= CE_SOUND_LINKED_PERMUTATIONS_FLAG;
+		*(unsigned long *)sound |= CE_SOUND_LINKED_PERMUTATIONS_FLAG | CE_SOUND_SPLIT_BY_LOADER_FLAG;
 		linked = TRUE;
 	}
 	return split;
