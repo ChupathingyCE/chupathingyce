@@ -961,31 +961,41 @@ static const struct config_setting config_settings[] =
 	{ "input.touch_controls", _config_string, "\"on\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
 		"On-screen touch controls: \"on\" or \"off\". \"auto\" shows them only\n"
 		"when no controller is connected." },
-#ifdef HALO_SWITCH_CONSOLE
-	/* gyro aiming (port/linux/src/xinput_sdl.c): the controller's gyroscope,
-	each local player from their own */
-	{ "input.gyro_aim", _config_string, "\"false\"", "HALO_GYRO_AIM", _environment_value, _platform_android,
-		"Aim with the controller's gyroscope. Each local player uses their own:\n"
-		"a Pro Controller, the console held in your hands, or one Joy-Con. With\n"
-		"two Joy-Cons, the right one is used. \"true\" always aims with it, \"zoom\"\n"
-		"only while zoomed in with a scope, and \"false\" never. Gamepads > Gyro\n"
-		"Aim sets it too. Changes at once." },
+#ifdef HALO_PORT_GYRO_AIM
+	/* gyro aiming (port/linux/src/gyro_aim.c, xinput_sdl.c): the
+	controller's gyroscope, each local player from their own. Off by
+	default; the Switch's defaults as they were */
+	{ "input.gyro_aim", _config_string, "\"false\"", "HALO_GYRO_AIM", _environment_value, _platform_all,
+		"Aim with the controller's gyroscope (a DualSense, DualShock 4, Switch\n"
+		"Pro Controller or Joy-Con, the Steam Deck; on the Switch, the console\n"
+		"held in your hands too). Each local player uses their own. \"true\"\n"
+		"always aims with it, \"zoom\" only while zoomed in with a scope, and\n"
+		"\"false\" never. Changes at once." },
 	{ "input.gyro_sensitivity_horizontal", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_HORIZONTAL",
-		_environment_value, _platform_android,
+		_environment_value, _platform_all,
 		"How far the view turns left and right with the gyroscope, when\n"
 		"input.gyro_aim is on. 1 is the sensor's own turn. From 0.25 to 10." },
 	{ "input.gyro_sensitivity_vertical", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_VERTICAL",
-		_environment_value, _platform_android,
+		_environment_value, _platform_all,
 		"How far the view turns up and down with the gyroscope, when\n"
 		"input.gyro_aim is on. 1 is the sensor's own turn. From 0.25 to 10." },
 	{ "input.gyro_invert_horizontal", _config_boolean, "false", "HALO_GYRO_INVERT_HORIZONTAL",
-		_environment_value, _platform_android,
+		_environment_value, _platform_all,
 		"Invert the gyroscope's left and right. With true, turning the\n"
 		"controller right looks left. The stick's invert is separate." },
 	{ "input.gyro_invert_vertical", _config_boolean, "false", "HALO_GYRO_INVERT_VERTICAL",
-		_environment_value, _platform_android,
+		_environment_value, _platform_all,
 		"Invert the gyroscope's up and down. With true, tilting the controller\n"
 		"up looks down. The stick's invert is separate." },
+#ifdef HALO_PORT_GYRO_SDL
+	{ "input.gyro_horizontal_axis", _config_string, "\"yaw\"", "HALO_GYRO_HORIZONTAL_AXIS", _environment_value,
+		_platform_all,
+		"What turns the view left and right: \"yaw\", turning the controller,\n"
+		"or \"roll\", tilting it like a steering wheel." },
+	{ "input.gyro_deadzone", _config_real, "0.75", "HALO_GYRO_DEADZONE", _environment_value, _platform_all,
+		"Gyroscope motion slower than this many degrees a second does not\n"
+		"turn the view. From 0 to 10." },
+#endif
 #endif
 
 	/* ---- controls: the keyboard and mouse's own (port/linux/src/xinput_sdl.c) */

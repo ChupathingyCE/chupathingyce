@@ -85,7 +85,7 @@ public final class TouchControls extends View implements SensorEventListener, In
     private final Sensor gyroscope;
     private final Vibrator vibrator;
     private final GyroscopeAim gyroAim = new GyroscopeAim();
-    private final float[] gyroDelta = new float[2];
+    private final float[] gyroRates = new float[3];
     private boolean deviceInputActive, gyroRegistered;
     private int lastAmplitude;
     private long lastVibration;
@@ -121,6 +121,8 @@ public final class TouchControls extends View implements SensorEventListener, In
     private float logicalWidth = 960, logicalHeight = 540;
     private static native void nativeLook(float dx, float dy);
     private static native void nativeLookReset();
+    /** a gyroscope sample in the display's axes (GyroscopeAim), filtered and added to the view swipe */
+    private static native void nativeGyro(long time, float x, float y, float z, float scale, boolean restart);
     private int dragPointer = -1, dragControl = -1;
     private float dragOffsetX, dragOffsetY;
     private float scale = 1, offsetX, offsetY;
@@ -514,9 +516,9 @@ public final class TouchControls extends View implements SensorEventListener, In
         }
         int rotation = ((WindowManager)getContext().getSystemService(Context.WINDOW_SERVICE))
             .getDefaultDisplay().getRotation();
-        if (gyroAim.sample(event.timestamp, event.values[0], event.values[1], rotation, gyroDelta))
-            // nativeLook takes logical pixels (0.0022 radians per pixel).
-            nativeLook(-gyroDelta[0]/0.0022f*sensitivity, -gyroDelta[1]/0.0022f*sensitivity);
+        if (gyroAim.sample(event.timestamp, event.values[0], event.values[1], event.values[2], rotation, gyroRates))
+            // as nativeLook, logical pixels (0.0022 radians per pixel).
+            nativeGyro(event.timestamp, gyroRates[0], gyroRates[1], gyroRates[2], sensitivity/0.0022f, gyroAim.restart);
     }
 
     @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}

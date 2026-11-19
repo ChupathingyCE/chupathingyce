@@ -230,9 +230,11 @@ The buttons at the top of the screen:
   you push "Touch".
 - "Options" opens these items:
   - "General": the phone's vibration (on by default; it follows the
-    vibration setting of the game's profile), aiming with the gyroscope
-    (off by default), "Hide or add buttons" (hide a button, add a copy of
-    a button) and "Edit buttons size".
+    vibration setting of the game's profile), aiming with the phone's
+    gyroscope (off by default; its motion goes through the same filter as
+    a controller's gyro aim, `port/linux/src/gyro_aim.c`), "Hide or add
+    buttons" (hide a button, add a copy of a button) and "Edit buttons
+    size".
   - "Edit buttons layout": drag the controls to new positions, then push
     "Save and exit". "Export" and "Import" write and read a layout file
     with the file picker of the system.
@@ -240,6 +242,10 @@ The buttons at the top of the screen:
 
 The app keeps the layout in its own preferences, not in `config.toml`.
 Removing the app's data or the app removes the layout.
+
+A controller's gyroscope aims as on the desktop (`input.gyro_aim`, Controls
+Setup's GYRO page) where SDL can read it on Android; when it can't, the
+log says `gyro aim: <controller> has no gyroscope SDL can read`.
 
 ## Settings
 
