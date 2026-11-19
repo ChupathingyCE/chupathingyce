@@ -19,7 +19,7 @@ version (`GPL-3.0-or-later`). It comes with no warranty. The full text is in
   from 0.8.0.
 - **Delta.** Delta's code is GPL from 0.8.0 like the rest; earlier
   versions of it stay CC0 for anyone already using them. The protocol
-  itself ([docs/delta.md](delta.md)) is a description anyone may
+  itself ([docs/delta/README.md](delta/README.md)) is a description anyone may
   implement, under any license, without using this code.
 - **The Steam link code is MIT.** The Steam content client
   (`port/linux/src/steam_content`), the Steam bridge

@@ -6,6 +6,10 @@ SOUND_DSOUND_XBOX.C
 
 #include "cseries.h"
 #include "cseries/errors.h"
+#ifdef HALO_XBOX_CONSOLE
+#include "cache/cache_files.h"
+#include "tag_files/tag_files.h"
+#endif
 #include "cache/physical_memory_map.h"
 #include "cache/sound_cache.h"
 #include "math/real_math.h"
@@ -1309,8 +1313,124 @@ static long xbox_sound_started;
 static long xbox_sound_failures;
 static volatile long xbox_channel_packets[MAXIMUM_SOUND_CHANNELS];
 static boolean xbox_channel_watched[MAXIMUM_SOUND_CHANNELS];
+/* port: a channel found holding a permutation that is not in the map's tags
+(warthog-xbox #154: 0x06000000 in playing_permutation, a crash in
+dsound_channel_fill): the address and which of the two, kept for the main
+loop to log (the callback cannot), and whether this map logged it already */
+static struct sound_permutation *volatile xbox_channel_bad_permutation[MAXIMUM_SOUND_CHANNELS];
+static volatile short xbox_channel_bad_virtual[MAXIMUM_SOUND_CHANNELS];
+static volatile boolean xbox_channel_bad_queued[MAXIMUM_SOUND_CHANNELS];
+static volatile boolean xbox_channel_bad_pending;
+static boolean xbox_channel_bad_logged[MAXIMUM_SOUND_CHANNELS];
+/* port: what the packet callback saw that should not happen (warthog-xbox
+#154): a channel's packet count gone below 0 (a completion counted twice, or
+one that came after the channel was started again), and a completion on a
+channel that is idle and not stopping. Counted in the callback, said from the
+main loop the first time in a map (dsound_begin_scene), and the map's totals
+when it ends (dsound_flush) */
+static volatile long xbox_channel_negative_packets;
+static volatile long xbox_channel_idle_callbacks;
+static boolean xbox_channel_callbacks_logged;
+
+/* (the kernel's, which the SDK's headers leave out) */
+unsigned char __stdcall KeRaiseIrqlToDpcLevel(void);
+void __fastcall KfLowerIrql(unsigned char irql);
 
 unsigned long xbox_memory_free(void);
+long sound_manager_channel_definition_index(short channel_index);
+boolean tag_index_is_group(long tag_index, long group_tag);
+
+/* port: whether a permutation lies in the loaded map's tag data: the
+Xbox's tag cache, or a Custom Edition map's own (cache_files_tag_cache),
+where its sounds' tags and the resources copied in from sounds.map are */
+static boolean xbox_permutation_in_tags(
+	struct sound_permutation const *permutation)
+{
+	unsigned long size;
+	byte const *base= (byte const *)cache_files_tag_cache(&size);
+	byte const *address= (byte const *)permutation;
+
+	return base && address>=base && size>=sizeof(struct sound_permutation) &&
+		(unsigned long)(address-base)<=size-sizeof(struct sound_permutation);
+}
+
+/* port: a channel whose playing or queued permutation is not in the tags:
+noted for the log (dsound_begin_scene) and let go of, so nothing is filled
+from it; the packets already queued finish as they do, and the channel goes
+idle when the last one does (dsound_channel_callback). True when it was */
+static boolean xbox_channel_bad(
+	short index,
+	struct sound_channel *channel)
+{
+	struct sound_permutation *bad= NULL;
+	boolean queued= FALSE;
+
+	if (channel->playing_permutation && !xbox_permutation_in_tags(channel->playing_permutation))
+	{
+		bad= channel->playing_permutation;
+	}
+	else if (channel->queued_permutation && !xbox_permutation_in_tags(channel->queued_permutation))
+	{
+		bad= channel->queued_permutation;
+		queued= TRUE;
+	}
+	if (!bad)
+	{
+		return FALSE;
+	}
+
+	if (index>=0 && index<MAXIMUM_SOUND_CHANNELS && !xbox_channel_bad_permutation[index])
+	{
+		xbox_channel_bad_virtual[index]= channel->virtual_channel_index;
+		xbox_channel_bad_queued[index]= queued;
+		xbox_channel_bad_permutation[index]= bad;
+		xbox_channel_bad_pending= TRUE;
+	}
+	channel->playing_permutation= NULL;
+	channel->queued_permutation= NULL;
+	channel->sample_offset= 0;
+	if (channel->packet_count==0)
+	{
+		channel->state= _sound_channel_idle;
+	}
+
+	return TRUE;
+}
+
+/* port: the channels noted by xbox_channel_bad, each logged once a map
+(dsound_flush starts the next map's): the channel, which permutation and its
+address, and the sound's tag and definition index as the sound manager has
+them for the channel */
+static void xbox_channel_bad_log(
+	void)
+{
+	short index;
+
+	if (!xbox_channel_bad_pending)
+	{
+		return;
+	}
+	xbox_channel_bad_pending= FALSE;
+	for (index= 0; index<MAXIMUM_SOUND_CHANNELS; index++)
+	{
+		struct sound_permutation *bad= xbox_channel_bad_permutation[index];
+
+		if (bad && !xbox_channel_bad_logged[index])
+		{
+			short virtual_index= xbox_channel_bad_virtual[index];
+			long definition_index= virtual_index!=NONE ?
+				sound_manager_channel_definition_index(virtual_index) : NONE;
+			char const *name= tag_index_is_group(definition_index, SOUND_DEFINITION_TAG) ?
+				tag_get_name(definition_index) : NULL;
+
+			xbox_channel_bad_logged[index]= TRUE;
+			error(_error_silent, "sound: channel %d's %s permutation 0x%08lX is not in the tags, "
+				"channel skipped: sound %s (definition 0x%08lX, virtual channel %d)",
+				index, xbox_channel_bad_queued[index] ? "queued" : "playing", (unsigned long)bad,
+				name ? name : "?", (unsigned long)definition_index, virtual_index);
+		}
+	}
+}
 
 /* port: a sound that could not start, said (the first few a map, then
 counted into the map's summary): the name, why, and what memory is left. The
@@ -1484,6 +1604,7 @@ static void dsound_begin_scene(
 	interrupt_result= 0;
 
 #ifdef HALO_XBOX_CONSOLE
+	xbox_channel_bad_log();
 	{
 		short index;
 
@@ -1498,6 +1619,12 @@ static void dsound_begin_scene(
 					index, xbox_channel_packets[index], channel->gain);
 			}
 		}
+	}
+	if (!xbox_channel_callbacks_logged && (xbox_channel_negative_packets || xbox_channel_idle_callbacks))
+	{
+		xbox_channel_callbacks_logged= TRUE;
+		error(_error_silent, "sound: this map so far, %ld packet counts below 0 and %ld packets completed on an "
+			"idle channel (warthog-xbox #154)", xbox_channel_negative_packets, xbox_channel_idle_callbacks);
 	}
 #endif
 
@@ -1722,6 +1849,20 @@ static void dsound_flush(
 	xbox_sound_started= 0;
 	xbox_sound_failures= 0;
 	xbox_sound_log_lines= 0;
+	xbox_channel_bad_log();
+	for (index= 0; index<MAXIMUM_SOUND_CHANNELS; index++)
+	{
+		xbox_channel_bad_permutation[index]= NULL;
+		xbox_channel_bad_logged[index]= FALSE;
+	}
+	if (xbox_channel_negative_packets || xbox_channel_idle_callbacks)
+	{
+		error(_error_silent, "sound: this map, %ld packet counts below 0 and %ld packets completed on an idle channel",
+			xbox_channel_negative_packets, xbox_channel_idle_callbacks);
+	}
+	xbox_channel_negative_packets= 0;
+	xbox_channel_idle_callbacks= 0;
+	xbox_channel_callbacks_logged= FALSE;
 #endif
 
 	for (index= 0; index<dsound_globals.actual_channel_count; index++)
@@ -1747,6 +1888,10 @@ static void dsound_flush(
 
 			channel->packet_count= 0;
 		}
+
+		/* port: no sound queued behind the last one carries into the next
+		map, whose tags it isn't in (warthog-xbox #154) */
+		channel->queued_permutation= NULL;
 	}
 
 	return;
@@ -2352,9 +2497,21 @@ static void CALLBACK dsound_channel_callback(
 
 		if (status==XMEDIAPACKET_STATUS_SUCCESS || status==XMEDIAPACKET_STATUS_FLUSHED)
 		{
+#ifdef HALO_XBOX_CONSOLE
+			if (channel->state==_sound_channel_idle && !channel->stopping)
+			{
+				xbox_channel_idle_callbacks++;
+			}
+#endif
 			sound_cache_sound_hardware_unlock(packet_context);
 
 			channel->packet_count--;
+#ifdef HALO_XBOX_CONSOLE
+			if (channel->packet_count<0)
+			{
+				xbox_channel_negative_packets++;
+			}
+#endif
 
 			if (!dsound_globals.paused && !channel->stopping)
 			{
@@ -2788,7 +2945,17 @@ static void dsound_channel_fill(
 	while (channel->packet_count<MAXIMUM_SOUND_PACKETS && channel->playing_permutation)
 	{
 		unsigned long status;
-		HRESULT result= IDirectSoundStream_GetStatus(channel->stream, &status);
+		HRESULT result;
+
+#ifdef HALO_XBOX_CONSOLE
+		/* port: a permutation outside the tags is let go of, not read
+		(warthog-xbox #154) */
+		if (xbox_channel_bad(index, channel))
+		{
+			break;
+		}
+#endif
+		result= IDirectSoundStream_GetStatus(channel->stream, &status);
 
 		if (result<0)
 		{
@@ -2834,6 +3001,12 @@ static void dsound_channel_queue_sound(
 
 			channel->state= _sound_channel_playing;
 			channel->playing_permutation= sound;
+			/* port: and nothing queued behind it. Retail left this as it
+			was, counting on it being NULL by now, but a sound queued just
+			as the last packet of the one before went out was never
+			promoted, and the next short sound on the channel then played
+			it, perhaps from an earlier map's tags (warthog-xbox #154) */
+			channel->queued_permutation= NULL;
 			channel->sample_offset= 0;
 			channel->packet_count= 0;
 
@@ -2864,13 +3037,36 @@ static void dsound_channel_queue_sound(
 		}
 
 		case _sound_channel_playing:
-			channel->state= _sound_channel_queued;
-			channel->queued_permutation= sound;
-			break;
-
 		case _sound_channel_queued:
-			channel->queued_permutation= sound;
+		{
+			/* port: the queued sound stored before the state, and on the
+			Xbox with the packet callback held off (it runs at DPC level)
+			until both are: with the state stored first, a callback between
+			the two promoted the still empty queue, and the sound stored
+			after it was left over on the channel (warthog-xbox #154). The
+			state is read again there: a queued sound the callback has just
+			promoted leaves the channel playing, and one whose last packet
+			completed meanwhile left it idle, where the sound is started as
+			on any idle channel (it was queued there, and nothing played it) */
+#ifdef HALO_XBOX_CONSOLE
+			unsigned char irql= KeRaiseIrqlToDpcLevel();
+#endif
+			boolean idle= channel->state==_sound_channel_idle;
+
+			if (!idle)
+			{
+				channel->queued_permutation= sound;
+				channel->state= _sound_channel_queued;
+			}
+#ifdef HALO_XBOX_CONSOLE
+			KfLowerIrql(irql);
+#endif
+			if (idle)
+			{
+				dsound_channel_queue_sound(index, sound);
+			}
 			break;
+		}
 
 		default:
 			match_vassert(

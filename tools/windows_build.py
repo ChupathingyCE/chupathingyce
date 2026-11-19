@@ -39,7 +39,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence
 
 from .version import VERSION_SOURCES, identity_defines, release_build, resource_version, version
-from .linux_build import (LZMA_DIR, OPUS_DIR, VOICE_SOURCE, opus_cflags, opus_sources, COMPRESSED_MAP_DEFINES, MODS_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
+from .linux_build import (LUA_DEFINES, LUA_DIR, lua_sources, LZMA_DIR, OPUS_DIR, VOICE_SOURCE, opus_cflags, opus_sources, COMPRESSED_MAP_DEFINES, MODS_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
@@ -215,7 +215,8 @@ WINDOWS32 = WindowsTarget(
     # Halo PC's Custom Edition maps (linux_build.py, CUSTOM_EDITION_DEFINES),
     # as the 32-bit Linux build has them: their tag cache is mapped at the
     # host address they are linked to (port/linux/src/xbox_memory.c)
-    abi_flags=[*WINDOWS_ABI_FLAGS, *CUSTOM_EDITION_DEFINES, *MODS_DEFINES, *COMPRESSED_MAP_DEFINES],
+    abi_flags=[*WINDOWS_ABI_FLAGS, *CUSTOM_EDITION_DEFINES, *MODS_DEFINES, *COMPRESSED_MAP_DEFINES, *LUA_DEFINES,
+               f"-idirafter {LUA_DIR}"],
     game_flags=GAME_FLAGS,
     platform_flags=PLATFORM_FLAGS,
     win32_flags=WIN32_FLAGS,
@@ -246,6 +247,9 @@ WINDOWS64 = WindowsTarget(
         *CUSTOM_EDITION_DEFINES,
         *MODS_DEFINES,
         *COMPRESSED_MAP_DEFINES,
+        # mods' Lua scripts (linux_build.py, LUA_DEFINES)
+        *LUA_DEFINES,
+        f"-idirafter {LUA_DIR}",
     ],
     game_flags=[
         *(flag for flag in GAME_FLAGS if flag not in ("-w", "-Wno-error=int-conversion",
@@ -290,7 +294,9 @@ WINDOWS64_SERVER = replace(
     name="server-windows64",
     # (no mods folder on a server: port_mods.c reads archives through SDL's
     # IO, which the server does not link)
-    abi_flags=[*(flag for flag in WINDOWS64.abi_flags if flag not in MODS_DEFINES), "-DHALO_SERVER"],
+    abi_flags=[*(flag for flag in WINDOWS64.abi_flags
+                 if flag not in MODS_DEFINES and flag not in LUA_DEFINES and flag != f"-idirafter {LUA_DIR}"),
+               "-DHALO_SERVER"],
     comment="The dedicated server for 64-bit Windows (ninja server-windows64)",
     server=True,
     bgfx=False,
@@ -719,6 +725,11 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             add_object(EXPAT_DIR / name, " ".join([abi, "-std=gnu11", f"-I{EXPAT_DIR}", "-w"]))
         # internet play's reliable streams (port/third_party/kcp; p2p.c)
         add_object(KCP_DIR / "ikcp.c", " ".join([abi, "-std=gnu11", "-w"]))
+        # mods' Lua scripts' Lua (port/third_party/lua; lua_scripting.c):
+        # the game's, not the dedicated server's
+        if "-DHALO_LUA" in target.abi_flags:
+            for source in lua_sources():
+                add_object(source, " ".join([abi, "-std=gnu11", f"-I{LUA_DIR}", "-w"]))
         # Link Profile's QR code (port/third_party/qrcodegen; browser.c)
         add_object(QRCODEGEN_DIR / "qrcodegen.c", " ".join([abi, "-std=gnu11", "-w"]))
         # internet play's signatures, for public games' listings

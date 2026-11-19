@@ -188,6 +188,18 @@ real_rgb_color global_default_animation_colors[4];
 real global_default_animation_values[4];
 
 static struct king_globals king_globals = { 0 };
+
+#ifdef HALO_SERVER
+/* port: King of the Hill's scores (by team, a free-for-all's player its
+own) and its hill, as Custom Edition's clients are told them
+(server/src/server_ce.c) */
+long const *game_engine_king_get_state(
+	long *hill_id)
+{
+	*hill_id = king_globals.hill_id;
+	return king_globals.score;
+}
+#endif
 /* king_engine_num_hills: name from the 2003 PC demo PDB (file static short at king_globals+0x1AC),
  * corroborated by January: same .bss contribution offset, width and neighbours */
 static short king_engine_num_hills = 0;
@@ -541,6 +553,8 @@ static boolean king_engine_display_score(
 	boolean result = TRUE;
 	long string_list_index;
 	wchar_t *string;
+	/* port: (the name the scoreboard shows: game_engine_player_shown_name) */
+	wchar_t shown_name[GAME_ENGINE_SHOWN_NAME_LENGTH];
 
 	switch (message)
 	{
@@ -578,7 +592,8 @@ static boolean king_engine_display_score(
 				}
 				else
 					string = L"";
-				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"), other_player->name, score);
+				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"),
+					game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)), score);
 			}
 			else if (message == king_message_enemy_on_the_hill)
 			{
@@ -591,7 +606,8 @@ static boolean king_engine_display_score(
 				}
 				else
 					string = L"";
-				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"), other_player->name, score);
+				usnprintf(buffer, buffer_size, ustring_format_checked(string, "sd"),
+					game_engine_player_shown_name(message_player_index, shown_name, NUMBEROF(shown_name)), score);
 			}
 			else
 			{

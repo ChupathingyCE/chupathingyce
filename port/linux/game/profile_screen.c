@@ -1,8 +1,8 @@
 /*
 PROFILE_SCREEN.C
 
-Delta Profile in the game (configure.py --game-browser; docs/delta.md,
-Delta Profile): the player's own profile on the Chupathingy site, as this
+Delta Profile in the game (configure.py --game-browser; docs/delta-implementation.md,
+Delta Profile in the game): the player's own profile on the Chupathingy site, as this
 copy's player key reaches it (browser.c's browser_profile_*). The game
 shows it and links or unlinks this copy; it never makes, renames or deletes
 a profile, and account matters (password, email, two-step sign-in, export,
@@ -137,7 +137,7 @@ enum
 	_dialog_web,
 	_dialog_copies,
 	_dialog_clan,
-	/* the devices (docs/delta.md, Devices): the list (revoke another), this
+	/* the devices (docs/delta/link.md, Devices): the list (revoke another), this
 	one signed out, and another device's code entered (Link a device) */
 	_dialog_devices,
 	_dialog_sign_out,

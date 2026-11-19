@@ -715,6 +715,13 @@ boolean moderation_screen_active(void);
 void moderation_screen_update(boolean menu_open);
 void moderation_screen_process(void);
 void moderation_screen_render(void);
+/* port: the Chupathingy menus' game lobby over the Xbox's pregame screen
+(port/linux/game/lobby_screen.c, the game list's builds) */
+boolean lobby_screen_active(void);
+void lobby_screen_update(boolean menu_open);
+void lobby_screen_process(void);
+void lobby_screen_render(void);
+void lobby_screen_pointer(struct halo_ui_pointer const *pointer);
 /* the menus' pointer, while it is up (its own taps and clicks) */
 void browser_screen_pointer(struct halo_ui_pointer const *pointer);
 #ifndef HALO_CONSOLE_NO_CONTROLS
@@ -1403,6 +1410,12 @@ static void perform_filesystem_initialization(
 	void);
 static void ui_widget_delete_children_recursive(
 	struct widget_instance *widget);
+#ifndef HALO_XBOX_CONSOLE
+static void ui_mouse_forget_widget(
+	struct widget_instance *widget);
+static void ui_mouse_forget_all(
+	void);
+#endif
 static struct widget_instance *ui_widget_launch_widget(
 	struct widget_instance *widget,
 	long new_widget_tag_index);
@@ -1602,7 +1615,8 @@ static wchar_t const *const kills_to_win_extra_descriptions[] =
 controls_screen.c) offers Bumper Jumper in the profile's own Button
 Layout, after the Xbox's five (player_ui.c sets it; the profile keeps it
 as _button_preset_bumper_jumper, the sixth). The controller picture has
-no frame for it, so it is hidden while the item is chosen */
+no frame for it, so the plain gamepad of the profile settings' list is
+drawn in its place while the item is chosen (warthog-xbox #108) */
 static wchar_t const *const button_config_extra_strings[] =
 {
 	L"BUMPER JUMPER",
@@ -1614,9 +1628,19 @@ static wchar_t const *const button_config_extra_descriptions[] =
 };
 #endif
 
+/* port: what the list's picture shows for a spinner's extra items */
+enum
+{
+	_spinner_extra_unpictured,
+	/* a frame of the picture's own */
+	_spinner_extra_pictured,
+	/* the plain gamepad (ui_widget_plain_gamepad) */
+	_spinner_extra_plain_gamepad,
+};
+
 /* port: the spinners' string lists with extra items, by tag name: their
 strings, their descriptions, how much wider the spinner draws (to the
-left), and whether the list's picture has a frame for them */
+left), and what the list's picture shows for them */
 static struct
 {
 	char const *tag_name;
@@ -1624,19 +1648,19 @@ static struct
 	wchar_t const *const *descriptions;
 	short count;
 	short wider;
-	boolean pictured;
+	short picture;
 } const spinner_extras[] =
 {
 	{
 		"ui\\shell\\main_menu\\settings_select\\multiplayer_setup\\playlist_edit\\slayer_edit\\var_kills_to_win",
 		kills_to_win_extra_strings, kills_to_win_extra_descriptions, NUMBEROF(kills_to_win_extra_strings),
-		SPINNER_EXTRA_WIDTH, TRUE,
+		SPINNER_EXTRA_WIDTH, _spinner_extra_pictured,
 	},
 #ifdef HALO_CONSOLE_NO_CONTROLS
 	{
 		"ui\\shell\\main_menu\\settings_select\\player_setup\\player_profile_edit\\controller_edit\\var_button_config",
 		button_config_extra_strings, button_config_extra_descriptions, NUMBEROF(button_config_extra_strings),
-		0, FALSE,
+		0, _spinner_extra_plain_gamepad,
 	},
 #endif
 };
@@ -1921,6 +1945,28 @@ void draw_bitmap_in_rect(
 		points[3].x = (real)rectangle_x0;
 		points[3].y = (real)(rectangle_y0 + rectangle_height);
 
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
+		/* port: a Halo PC map's menus (Custom Edition's, HaloMD's,
+		OpenSauce's) on a screen wider than 640: a bitmap that covers the
+		whole 640x480 is stretched to the screen's edges, as Chimera's
+		widescreen fix draws it for Custom Edition's players (a menu's
+		background, tint or fade), and the rest stays in the centered 640
+		columns. The menus are drawn shifted right by half the extra width
+		(halo_screen_ui_offset), so the bitmap reaches out that far each way */
+		{
+			extern boolean cache_file_tags_are_ce(void);
+			long extra = halo_screen_width() - 640;
+
+			if (extra > 0 && cache_file_tags_are_ce() &&
+				rect->x0 <= 1 && rect->x1 >= 639 && rect->y0 <= 1 && rect->y1 >= 479 &&
+				(!clip_rect || (clip_rect->x0 <= 1 && clip_rect->x1 >= 639)))
+			{
+				points[0].x = points[3].x = (real)(rectangle_x0 - extra / 2);
+				points[1].x = points[2].x = (real)(rectangle_x0 + rectangle_width + (extra - extra / 2));
+				clip_rect = NULL;
+			}
+		}
+#endif
 		if (clip_rect)
 		{
 			if (clip_rect->x0 > rect->x0)
@@ -2258,6 +2304,10 @@ boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name)
 	return TRUE;
 }
 
+/* port: whether the Chupathingy menus are up (port/linux/game/menu_tags.c) */
+boolean pc_menus_chupathingy(
+	void);
+
 /* the MCC catalog's campaign maps, after the campaign's ten levels in the
 Xbox's level select (ui_widget_event_handler_functions.c), at most this
 many: their level names, by row from 0 */
@@ -2275,6 +2325,39 @@ char const *ui_widget_port_mcc_campaign_level(short row)
 	short index = ui_widget_port_mcc_offered() ? mcc_maps_type_index(row, TRUE) : NONE;
 
 	return index != NONE ? mcc_maps_level_name(index) : NULL;
+}
+
+/* the rows after the campaign's ten levels in the level select: the MCC
+catalog's campaign maps, then, in the Chupathingy menus, the other campaign
+maps found (the maps folder's own, the map packs', Custom Edition's: the
+menus' map list, ui_map_list.c), at most this many */
+#define UI_WIDGET_PORT_CUSTOM_CAMPAIGN_ROWS 128
+
+static short ui_widget_port_custom_campaign_count(void)
+{
+#ifdef HALO_MAP_LIST
+	if (pc_menus_chupathingy())
+		return (short)MIN(ui_map_list_custom_campaign_count(), UI_WIDGET_PORT_CUSTOM_CAMPAIGN_ROWS);
+#endif
+	return 0;
+}
+
+short ui_widget_port_campaign_maps_count(void)
+{
+	return (short)(ui_widget_port_mcc_campaign_count() + ui_widget_port_custom_campaign_count());
+}
+
+char const *ui_widget_port_campaign_maps_level(short row)
+{
+	short mcc_count = ui_widget_port_mcc_campaign_count();
+
+	if (row < mcc_count)
+		return ui_widget_port_mcc_campaign_level(row);
+#ifdef HALO_MAP_LIST
+	if (row - mcc_count < ui_widget_port_custom_campaign_count())
+		return ui_map_list_custom_campaign_name(row - mcc_count);
+#endif
+	return NULL;
 }
 
 /* (the level and its co-op settings together, or nothing until the host
@@ -2476,7 +2559,8 @@ static boolean ui_widget_screens_of_code_active(
 	void)
 {
 #ifdef HALO_GAME_BROWSER
-	boolean active = invite_prompt_active() || browser_screen_active() || moderation_screen_active();
+	boolean active = invite_prompt_active() || browser_screen_active() || moderation_screen_active() ||
+		lobby_screen_active();
 
 #ifdef HALO_GUIDE
 	active = active || guide_active();
@@ -2640,6 +2724,9 @@ void ui_widgets_dispose(
 	void)
 {
 	ui_widgets_close_all();
+#ifndef HALO_XBOX_CONSOLE
+	ui_mouse_forget_all();
+#endif
 	if (widget_memory_pool->base_address)
 		pool_free(widget_memory_pool->base_address);
 	widget_memory_pool->base_address = NULL;
@@ -2803,6 +2890,10 @@ void ui_widget_delete(
 			ui_widget_delete(widget->parameters.list.extended_description);
 		break;
 	}
+#ifndef HALO_XBOX_CONSOLE
+	/* port: the pointer's targets must not keep it (#1498) */
+	ui_mouse_forget_widget(widget);
+#endif
 	dispose_pointer(widget_memory_pool, widget);
 	for (widget_index = 0;
 		widget_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS;
@@ -3821,10 +3912,18 @@ enum
 	ONLINE_GAMES_SYSTEM_LINK = 2,
 	ONLINE_GAMES_POSITION = 3,
 	ONLINE_GAMES_MENU_ITEMS = 4,
+#ifdef HALO_GAME_BROWSER
+	/* ONLINE CO-OP, a copy under ONLINE GAMES with the Chupathingy menus,
+	which host network co-op (as it is when the tags load: online_games.coop):
+	the host flow, on the campaign (menu_functions.c's pc_menus_coop_online) */
+	COOP_ITEM_POSITION = ONLINE_GAMES_POSITION + 1,
+	ONLINE_GAMES_COOP_MOST = 1,
+#else
+	ONLINE_GAMES_COOP_MOST = 0,
+#endif
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	/* MAP BROWSER, a second copy of System Link's, under ONLINE GAMES
 	(port/xbox/game/xbox_maps_screen.c) */
-	MAP_BROWSER_POSITION = ONLINE_GAMES_POSITION + 1,
 	ONLINE_GAMES_MAP_BROWSER_ADDED = 1,
 #else
 	ONLINE_GAMES_MAP_BROWSER_ADDED = 0,
@@ -3832,10 +3931,9 @@ enum
 #ifdef HALO_GUIDE
 	/* DELTA (port/linux/game/guide.c), another copy, last, with
 	delta.menu_item (as it is when the tags load: online_games.added) */
-	DELTA_ITEM_POSITION = ONLINE_GAMES_POSITION + 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
-	ONLINE_GAMES_ITEMS_MOST = 2 + ONLINE_GAMES_MAP_BROWSER_ADDED,
+	ONLINE_GAMES_ITEMS_MOST = 2 + ONLINE_GAMES_MAP_BROWSER_ADDED + ONLINE_GAMES_COOP_MOST,
 #else
-	ONLINE_GAMES_ITEMS_MOST = 1 + ONLINE_GAMES_MAP_BROWSER_ADDED,
+	ONLINE_GAMES_ITEMS_MOST = 1 + ONLINE_GAMES_MAP_BROWSER_ADDED + ONLINE_GAMES_COOP_MOST,
 #endif
 	/* the items' spacing (their vertical offset, -33) */
 	ONLINE_GAMES_ROW = 33,
@@ -3855,11 +3953,17 @@ static struct
 	/* the DELTA row is in the list */
 	boolean delta;
 #endif
-	/* the items added (ONLINE GAMES, MAP BROWSER, DELTA) */
+	/* the items added (ONLINE GAMES, ONLINE CO-OP, MAP BROWSER, DELTA) */
 	short added;
+	/* the ONLINE CO-OP row is in the list (the Chupathingy menus') */
+	boolean coop;
+	boolean coop_described;
 } online_games = { NONE, NONE, NULL, FALSE };
 
 #define ONLINE_GAMES_ITEMS_ADDED online_games.added
+/* (the places after ONLINE GAMES: ONLINE CO-OP's, if it is there, first) */
+#define MAP_BROWSER_POSITION (ONLINE_GAMES_POSITION + 1 + online_games.coop)
+#define DELTA_ITEM_POSITION (ONLINE_GAMES_POSITION + 1 + online_games.coop + ONLINE_GAMES_MAP_BROWSER_ADDED)
 
 #ifdef HALO_GAME_BROWSER
 static void ui_widget_setup_entry_tags_loaded(void);
@@ -3902,6 +4006,15 @@ void ui_widget_online_games_tags_loaded(
 #else
 	online_games.added = ONLINE_GAMES_ITEMS_MOST;
 #endif
+#ifdef HALO_GAME_BROWSER
+	{
+		extern boolean pc_menus_chupathingy(void);
+
+		online_games.coop = pc_menus_chupathingy();
+		if (!online_games.coop)
+			online_games.added--;
+	}
+#endif
 	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ITEMS_MOST) * sizeof(*children));
 	online_games.children = children;
 	if (!children)
@@ -3909,6 +4022,10 @@ void ui_widget_online_games_tags_loaded(
 	old_children = (struct ui_widget_child_reference *)xbox_pointer(list->child_widgets.address);
 	csmemcpy(children, old_children, ONLINE_GAMES_POSITION * sizeof(*children));
 	children[ONLINE_GAMES_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+#ifdef HALO_GAME_BROWSER
+	if (online_games.coop)
+		children[COOP_ITEM_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+#endif
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	children[MAP_BROWSER_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
 #endif
@@ -4157,6 +4274,17 @@ boolean ui_widget_online_games_item(
 		ui_widget_list_position(widget) == ONLINE_GAMES_POSITION;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* the Multiplayer menu's ONLINE CO-OP (a copy of System Link's item) */
+boolean ui_widget_coop_item(
+	struct widget_instance *widget)
+{
+	return online_games.list_tag != NONE && online_games.coop && widget && widget->parent &&
+		widget->parent->definition_tag_index == online_games.list_tag &&
+		ui_widget_list_position(widget) == COOP_ITEM_POSITION;
+}
+#endif
+
 #ifdef HALO_GUIDE
 /* the Multiplayer menu's DELTA (a copy of System Link's item) */
 boolean ui_widget_delta_item(
@@ -4207,8 +4335,26 @@ boolean ui_online_games_start_server(void);
 Link's Y makes one: on maps that play multiplayer with the others, the
 server started, then the new game's map chosen, whose B goes back to the
 Multiplayer menu (which ends the game, ui_widget_event_handler_functions.c) */
+static boolean ui_widget_online_games_create_game_at(short position);
+
 boolean ui_widget_online_games_create_game(
 	void)
+{
+	return ui_widget_online_games_create_game_at(ONLINE_GAMES_POSITION);
+}
+
+#ifdef HALO_GAME_BROWSER
+/* ONLINE CO-OP's: the same, with the Multiplayer menu under it on ONLINE
+CO-OP, which Select Map's B goes back to */
+boolean ui_widget_online_games_create_coop_game(
+	void)
+{
+	return ui_widget_online_games_create_game_at(online_games.coop ? COOP_ITEM_POSITION : ONLINE_GAMES_POSITION);
+}
+#endif
+
+static boolean ui_widget_online_games_create_game_at(
+	short position)
 {
 	long map_select = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_MAP_SELECT);
 	long screen = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_SCREEN);
@@ -4224,7 +4370,7 @@ boolean ui_widget_online_games_create_game(
 	if (!ui_online_games_start_server())
 		return FALSE;
 	return ui_widget_load_by_name_or_tag(NULL, map_select, NULL, NONE, screen, online_games.list_tag,
-		ONLINE_GAMES_POSITION) != NULL;
+		position) != NULL;
 }
 #endif
 
@@ -4242,8 +4388,16 @@ short ui_widget_online_games_description(
 #ifdef HALO_GUIDE
 	online_games.delta_described = FALSE;
 #endif
+	online_games.coop_described = FALSE;
 	if (online_games.list_tag == NONE || list_widget->definition_tag_index != online_games.list_tag)
 		return index;
+#ifdef HALO_GAME_BROWSER
+	if (online_games.coop && index == COOP_ITEM_POSITION)
+	{
+		online_games.coop_described = TRUE;
+		return ONLINE_GAMES_SYSTEM_LINK;
+	}
+#endif
 	if (index == ONLINE_GAMES_POSITION)
 	{
 		online_games.described = TRUE;
@@ -4303,6 +4457,21 @@ static void event_handler_dispatch(
 		browser_screen_open();
 		return;
 	}
+#ifdef HALO_GAME_BROWSER
+	/* ONLINE CO-OP (System Link's item copied): Create Game's host flow, on
+	the campaign's first level, none of System Link's other buttons */
+	if (ui_widget_coop_item(widget))
+	{
+		if (handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start)
+		{
+			extern boolean pc_menus_coop_online(void);
+
+			if (pc_menus_coop_online())
+				ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+		}
+		return;
+	}
+#endif
 #ifdef HALO_GUIDE
 	/* DELTA (System Link's item copied): DELTA over the menu, on PARTY */
 	if (ui_widget_delta_item(widget) &&
@@ -5882,6 +6051,27 @@ void network_game_reset_to_pregame_ui(
 		if (global_network_game_server_get())
 		{
 			network_game_server_pause_countdown(global_network_game_server_get(), TRUE);
+#ifdef HALO_GAME_BROWSER
+			/* port: the Chupathingy menus' host lands in its lobby (the
+			countdown held, CHANGE MAP there), as Halo 2's does
+			(port/linux/game/lobby_screen.c) */
+			{
+				boolean lobby_screen_host_returns_to_lobby(void);
+				void lobby_screen_hosted_opened(void);
+
+				if (lobby_screen_host_returns_to_lobby())
+				{
+					lobby_screen_hosted_opened();
+					if (!ui_widget_load_by_name_or_tag(
+						"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen",
+						NONE, NULL, NONE, NONE, NONE, NONE))
+					{
+						error(_error_silent, "failed to load networked pregame status screen");
+					}
+					return;
+				}
+			}
+#endif
 			/* port: with the PC version's menus, theirs (port/linux/game/menu_tags.c) */
 			if (!ui_widget_load_by_name_or_tag(
 				pc_menus_screen("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\connected_map_select_postgame_wrapper"),
@@ -6556,6 +6746,12 @@ static void widget_instance_render_text_box(
 		/* (ONLINE GAMES' item and description share System Link's tags) */
 		if (ui_widget_online_games_item(widget))
 			string = L"ONLINE GAMES";
+#ifdef HALO_GAME_BROWSER
+		else if (ui_widget_coop_item(widget))
+			string = L"ONLINE CO-OP";
+		else if (online_games.coop_described && widget->definition_tag_index == online_games.description_text_tag)
+			string = L"Host the campaign for friends\r\nto join from their own\r\nmachines.";
+#endif
 #ifdef HALO_GUIDE
 		else if (ui_widget_delta_item(widget))
 			string = L"DELTA";
@@ -7251,6 +7447,8 @@ static void ui_debug_draw_targets(
 				0x8000ffff, 0xc0ff00ff };
 			short kind = ui_mouse_targets[index].kind;
 
+			if (kind == NONE)
+				continue;
 			ui_debug_draw_outline(&ui_mouse_targets[index].bounds, colors[PIN(kind, 0, 7)]);
 		}
 	}
@@ -7984,11 +8182,65 @@ static struct ui_mouse_target *ui_mouse_target_at(
 	{
 		rectangle2d const *bounds = &ui_mouse_targets[index].bounds;
 
+		if (ui_mouse_targets[index].kind == NONE)
+			continue;
 		if (x >= bounds->x0 && x < bounds->x1 && y >= bounds->y0 && y < bounds->y1)
 			return &ui_mouse_targets[index];
 	}
 
 	return NULL;
+}
+
+/* forgets a widget as ui_widget_delete deletes it. The targets are noted
+while the menus draw and read on the next frame, and between the two a
+screen can go: its own handlers, or the network sending the game back to
+the main menu when the host goes down (#1498), whose next frame gave the
+focus to a deleted widget. Its targets stay, with no kind and no area, so
+that nothing hits them, and a click on a screen that has gone is not taken
+for the A of a screen with nothing to pick; a button whose label goes keeps
+its area. A screen's deletion also drops the pointer's waiting hover and
+click, which were meant for it. */
+static void ui_mouse_forget_widget(
+	struct widget_instance *widget)
+{
+	long index;
+
+	for (index = 0; index < ui_mouse_target_count; index++)
+	{
+		struct ui_mouse_target *target = &ui_mouse_targets[index];
+
+		if (target->widget == widget)
+		{
+			target->widget = NULL;
+			target->label = NULL;
+			target->kind = NONE;
+			csmemset(&target->bounds, 0, sizeof(target->bounds));
+		}
+		else if (target->label == widget)
+		{
+			target->label = NULL;
+		}
+	}
+	if (!widget->parent)
+	{
+		ui_mouse_hover_pending = FALSE;
+		ui_mouse_click_pending = FALSE;
+	}
+
+	return;
+}
+
+/* forgets every target and the waiting hover and click: the widgets'
+memory goes (ui_widgets_dispose) */
+static void ui_mouse_forget_all(
+	void)
+{
+	ui_mouse_target_count = 0;
+	ui_mouse_targets_settled = FALSE;
+	ui_mouse_hover_pending = FALSE;
+	ui_mouse_click_pending = FALSE;
+
+	return;
 }
 
 static boolean ui_mouse_widget_has_focus(
@@ -8340,8 +8592,9 @@ static void ui_debug_log_targets(
 	{
 		struct ui_mouse_target const *target = &ui_mouse_targets[index];
 
-		platform_log("touch targets:   %s %s [%d,%d,%d,%d]", kinds[PIN(target->kind, 0, 7)],
-			tag_get_name(target->widget->definition_tag_index),
+		platform_log("touch targets:   %s %s [%d,%d,%d,%d]",
+			target->kind == NONE ? "deleted" : kinds[PIN(target->kind, 0, 7)],
+			target->widget ? tag_get_name(target->widget->definition_tag_index) : "-",
 			target->bounds.x0, target->bounds.y0, target->bounds.x1, target->bounds.y1);
 	}
 
@@ -8476,6 +8729,8 @@ static void ui_widgets_process_mouse(
 		browser_screen_pointer(&pointer);
 	else if (pointer_active && !keyboard_active && moderation_screen_active())
 		moderation_screen_pointer(&pointer);
+	else if (pointer_active && !keyboard_active && lobby_screen_active())
+		lobby_screen_pointer(&pointer);
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	else if (pointer_active && !keyboard_active && controls_screen_active())
 		controls_screen_pointer(&pointer);
@@ -8769,6 +9024,53 @@ static short ui_widget_port_key_cap_shift(
 }
 #endif
 
+#ifdef HALO_GAME_BROWSER
+/* port: a screen's game data functions (ui_widget_game_data_input_
+functions.c), its own and its children's, as its drawing runs them, for a
+screen of code drawn in its place (the game lobby over the Xbox's pregame
+screen, whose functions join this machine's players to the game) */
+static void widget_instance_game_data_recursive(
+	struct widget_instance *widget)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(widget->definition_tag_index);
+	struct widget_instance *child;
+	long input_index;
+
+	for (input_index = 0; input_index < definition->game_data_inputs.count; input_index++)
+	{
+		struct ui_widget_game_data_input_reference *input =
+			(struct ui_widget_game_data_input_reference *)xbox_pointer(definition->game_data_inputs.address) +
+			input_index;
+
+		ui_widget_game_data_function_invoke(widget, input->function);
+	}
+	if (!widget->visible)
+		return;
+	for (child = widget->child; child; child = child->next)
+		widget_instance_game_data_recursive(child);
+}
+
+#endif
+/* port: the plain gamepad: the profile settings' list's picture of its
+controller row (ui.map's profile_options, frame 1, 512x256), drawn by a
+picture whose frame is UI_WIDGET_PLAIN_GAMEPAD_FRAME, moved by this much in
+it to sit where Controller Setup's pictures (512x512) have their gamepad;
+NULL without that bitmap, and nothing is drawn */
+#define PLAIN_GAMEPAD_TAG "ui\\shell\\main_menu\\settings_select\\player_setup\\player_profile_edit\\profile_options"
+#define PLAIN_GAMEPAD_FRAME 1
+#define PLAIN_GAMEPAD_X 110
+#define PLAIN_GAMEPAD_Y 24
+
+static struct bitmap_data *ui_widget_plain_gamepad(
+	void)
+{
+	long bitmap_group_index = tag_loaded('bitm', PLAIN_GAMEPAD_TAG);
+
+	if (bitmap_group_index == NONE)
+		return NULL;
+	return bitmap_group_get_bitmap_from_sequence(bitmap_group_index, 0, PLAIN_GAMEPAD_FRAME);
+}
+
 static void widget_instance_render_recursive(
 	struct widget_instance *widget,
 	rectangle2d *clip_rect,
@@ -8786,6 +9088,8 @@ static void widget_instance_render_recursive(
 	/* port: an MCC map's picture (ui_map_list_mcc_picture), and the frame drawn */
 	short mcc_picture = NONE;
 	short picture_frame = widget->animation.current_frame_index;
+	/* port: the plain gamepad drawn instead (UI_WIDGET_PLAIN_GAMEPAD_FRAME) */
+	boolean plain_gamepad = picture_frame == UI_WIDGET_PLAIN_GAMEPAD_FRAME;
 
 	if (!use_nifty_plasma_fx &&
 		TEST_FLAG(definition->flags, _widget_always_render_with_nifty_fx_bit))
@@ -8810,6 +9114,12 @@ static void widget_instance_render_recursive(
 #ifndef HALO_XBOX_CONSOLE
 	ui_mouse_note_target(widget, definition, offset);
 #endif
+	if (plain_gamepad)
+	{
+		bitmap = ui_widget_plain_gamepad();
+	}
+	else
+	{
 #ifdef HALO_MAP_LIST
 	/* port: an MCC map's own picture (mcc_menu_preview_draw, below), with
 	the unknown level's in its place when it has none; a picture of the
@@ -8823,6 +9133,7 @@ static void widget_instance_render_recursive(
 		definition->background_bitmap.index,
 		0,
 		picture_frame);
+	}
 	if (bitmap)
 	{
 		real alpha = alpha_modifier;
@@ -8887,6 +9198,18 @@ static void widget_instance_render_recursive(
 				clip->x0 -= (short)extra;
 			if (clip->x1 >= 640)
 				clip->x1 = (short)(clip->x1 + extra);
+		}
+		if (plain_gamepad)
+		{
+			/* port: moved so its gamepad sits where Controller Setup's
+			pictures have theirs, one texel to a unit as they are drawn, and
+			cut off at the picture's own box: by its bounds, which are its
+			texels too (a clip moves the corners, not the texels, and would
+			squeeze it) */
+			bounds.x0 = (short)(bounds.x0 + PLAIN_GAMEPAD_X);
+			bounds.y0 = (short)(bounds.y0 + PLAIN_GAMEPAD_Y);
+			bounds.x1 = (short)MIN(bounds.x1, bounds.x0 + bitmap->width);
+			bounds.y1 = (short)MIN(bounds.y1, bounds.y0 + bitmap->height);
 		}
 		if (TEST_FLAG(definition->flags, _widget_flash_background_bitmap_bit))
 		{
@@ -9148,6 +9471,14 @@ void render_ui_widgets(
 			it, an error dialog still is) */
 			if (should_render && browser_screen_active() && !widget->widget_is_error_dialog)
 				should_render = FALSE;
+			/* (the game lobby covers the Xbox's pregame screen the same way;
+			the screen's game data still runs, undrawn: its players joined
+			to the game, its teams and countdown) */
+			if (should_render && lobby_screen_active() && !widget->widget_is_error_dialog)
+			{
+				should_render = FALSE;
+				widget_instance_game_data_recursive(widget);
+			}
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
 			/* (Delta Profile's screen of code too; its dialogs alone are
 			drawn over the menus) */
@@ -9250,6 +9581,10 @@ void render_ui_widgets(
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 	if (browser_screen_active())
 		browser_screen_render();
+#ifdef HALO_GAME_BROWSER
+	else if (lobby_screen_active())
+		lobby_screen_render();
+#endif
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
 	profile_screen_render();
 #endif
@@ -9343,7 +9678,21 @@ boolean ui_widget_spinner_item_pictured(
 	struct ui_widget_definition *definition = ui_widget_definition_get(spinner->definition_tag_index);
 	short extra = spinner_string_list_extra(definition->text_label_string_list.index);
 
-	return item_index < ui_widget_spinner_own_item_count(spinner) || extra == NONE || spinner_extras[extra].pictured;
+	return item_index < ui_widget_spinner_own_item_count(spinner) || extra == NONE ||
+		spinner_extras[extra].picture == _spinner_extra_pictured;
+}
+
+/* whether a spinner's item is shown by the plain gamepad (an extra item
+whose list's picture has no frame for it) */
+boolean ui_widget_spinner_item_plain_gamepad(
+	struct widget_instance *spinner,
+	short item_index)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(spinner->definition_tag_index);
+	short extra = spinner_string_list_extra(definition->text_label_string_list.index);
+
+	return item_index >= ui_widget_spinner_own_item_count(spinner) && extra != NONE &&
+		spinner_extras[extra].picture == _spinner_extra_plain_gamepad;
 }
 
 /* a string of a string list, or of its extra strings past the tag's own */
@@ -10560,6 +10909,17 @@ void process_ui_widgets(
 
 		return;
 	}
+#ifdef HALO_GAME_BROWSER
+	/* port: the Chupathingy menus' game lobby, over the Xbox's pregame
+	screen (the game list's builds: lobby_screen.c) */
+	lobby_screen_update(widget_globals.active_widgets[0] != NULL);
+	if (lobby_screen_active())
+	{
+		lobby_screen_process();
+
+		return;
+	}
+#endif
 #endif
 	if (attract_mode_should_start())
 	{
@@ -10895,6 +11255,115 @@ long ui_widget_port_history_top(
 Chupathingy menus' Delta Profile), as an item of it would open it: back
 returns to it */
 boolean ui_widget_port_open(struct widget_instance *widget, char const *name, boolean *widget_deleted);
+
+/* port: the screen up (the first player's), NULL for none (lobby_screen.c
+asks whether it is the Xbox's pregame screen) */
+struct widget_instance *ui_widget_port_top_screen(
+	void)
+{
+	return widget_globals.active_widgets[0];
+}
+
+/* port: where the game lobby's B goes (lobby_screen.c): the screen the
+game came from, as Halo 2's lobby leaves to it, not back through the new
+game's setup screens. The screen (NONE: none known) and its focused item */
+static struct
+{
+	long screen;
+	long list;
+	short item;
+} lobby_origin = { NONE, NONE, NONE };
+
+char const *pc_menus_main_menu_name(void);
+
+/* as a lobby opens: a game joined from the game list (the Multiplayer
+menu on ONLINE GAMES); else, a game made here, the screen under its map
+select in the first player's history (ONLINE GAMES' or System Link's).
+None there: a lobby back from a game (its history gone) keeps the last
+one; any other (System Link's join) has its own history */
+void ui_widget_port_lobby_origin_set(
+	boolean joined_from_online_games)
+{
+	long map_select = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_MAP_SELECT);
+	struct widget_stack_node *node;
+	boolean found = FALSE;
+
+	if (joined_from_online_games)
+	{
+		lobby_origin.screen = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_SCREEN);
+		lobby_origin.list = online_games.list_tag;
+		lobby_origin.item = ONLINE_GAMES_POSITION;
+		return;
+	}
+	/* (the deepest: CHANGE MAP's map select is another screen) */
+	for (node = widget_globals.widget_stack[0]; map_select != NONE && node; node = node->next)
+	{
+		if (node->data.previous_widget_tag == map_select && node->next)
+		{
+			lobby_origin.screen = node->next->data.previous_widget_tag;
+			lobby_origin.list = node->next->data.focused_child_parent_widget_tag;
+			lobby_origin.item = node->next->data.focused_child_index;
+			found = TRUE;
+		}
+	}
+	if (!found && widget_globals.widget_stack[0])
+		lobby_origin.screen = NONE;
+}
+
+/* whether the lobby's B lands on the Multiplayer menu's ONLINE GAMES (the
+game list opens over it then) */
+boolean ui_widget_port_lobby_origin_online_games(
+	void)
+{
+	return lobby_origin.screen != NONE &&
+		lobby_origin.screen == tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_SCREEN) &&
+		lobby_origin.item == ONLINE_GAMES_POSITION;
+}
+
+/* before the lobby's B (the Xbox pregame screen's own, which goes back):
+the first player's history made to end on the origin, the screens above
+it (the map select, Select Gametype, GAME SETUP) dropped; not in the
+history, the main menu then the origin. The origin ends the game left
+behind as it opens (the Multiplayer menu, System Link's list) */
+void ui_widget_port_lobby_leave_history(
+	void)
+{
+	struct widget_stack_node **top = &widget_globals.widget_stack[0];
+	struct widget_stack_node *node;
+	struct widget_stack_node *deepest = NULL;
+	struct widget_stack_data data;
+	long main_menu = tag_loaded(UI_WIDGET_DEFINITION_TAG, pc_menus_main_menu_name());
+	short local_player_index = widget_globals.active_widgets[0] ?
+		widget_globals.active_widgets[0]->local_player_index : NONE;
+
+	if (lobby_origin.screen == NONE)
+		return;
+	for (node = *top; node; node = node->next)
+	{
+		if (node->data.previous_widget_tag == lobby_origin.screen)
+			deepest = node;
+	}
+	if (deepest)
+	{
+		while (*top != deepest)
+			pop_widget(top, &data);
+		return;
+	}
+	dispose_widget_stack(top);
+	if (main_menu != NONE && main_menu != lobby_origin.screen)
+	{
+		data.previous_widget_tag = main_menu;
+		data.focused_child_parent_widget_tag = NONE;
+		data.focused_child_index = NONE;
+		data.local_player_index = local_player_index;
+		push_widget(top, &data);
+	}
+	data.previous_widget_tag = lobby_origin.screen;
+	data.focused_child_parent_widget_tag = lobby_origin.list;
+	data.focused_child_index = lobby_origin.item;
+	data.local_player_index = local_player_index;
+	push_widget(top, &data);
+}
 
 boolean ui_widget_port_open_screen(
 	char const *name)

@@ -117,6 +117,7 @@ DELTA counts what waits ("DELTA 2": invites and requests).
 #include "../src/capture.h"
 #endif
 #include "halo_ui_pointer.h"
+#include "../src/guide_layout.h"
 #include "halo_profile_screen.h"
 #include "chat.h"
 #include "voice_game.h"
@@ -179,7 +180,7 @@ boolean browser_screen_join_screen_shown(void);
 void platform_open_url(char const *url);
 #ifdef DELTA_PEER_IDENTITY_CARDS
 /* delta_peer_game.c's: a player verified in this game (the identity
-capability, docs/delta.md "Verified names") */
+capability, docs/delta/peer.md "Verified names") */
 int delta_peer_game_player_identity(int machine_index, int local_player, struct delta_peer_identity *identity);
 #endif
 
@@ -502,6 +503,8 @@ static struct
 	/* the first row shown of a long list, and of SETTINGS */
 	short first_row;
 	short settings_first;
+	/* SETTINGS' scroll bar, as last drawn, for the mouse */
+	struct guide_scroll_bar settings_bar;
 	unsigned int held;
 	unsigned int repeat_held;
 	unsigned long repeat_time;
@@ -4337,14 +4340,22 @@ static void render_settings(void)
 	}
 	/* (more rows than show: a slim bar in the panel's edge beside them, where
 	no row's value is) */
+	guide.settings_bar.thumb.height = 0;
 	if (shown < rows)
 	{
-		float track_top = BODY_Y, track_height = shown * (SETTING_HEIGHT + ROW_GAP) - ROW_GAP;
-		float thumb_height = MAX(12.0f, track_height * shown / rows);
-		float thumb_top = track_top + (track_height - thumb_height) * first / MAX(1, rows - shown);
+		struct guide_scroll_bar *bar = &guide.settings_bar;
+		struct guide_rect track = { CONTENT_RIGHT + 6, BODY_Y, 3, shown * (SETTING_HEIGHT + ROW_GAP) - ROW_GAP };
 
-		ui_overlay_rect(CONTENT_RIGHT + 6, track_top, 3, track_height, 1.5f, 0xFFFFFF1A);
-		ui_overlay_rect(CONTENT_RIGHT + 6, thumb_top, 3, thumb_height, 1.5f, COLOR_LABEL);
+		guide_layout_scroll_thumb(track, rows, shown, first, 12.0f, &bar->thumb);
+		bar->track = track;
+		bar->count = rows;
+		bar->shown = shown;
+		ui_overlay_rect(track.x, track.y, track.width, track.height, 1.5f, 0xFFFFFF1A);
+		/* (under the pointer or dragged: wider and brighter) */
+		if (bar->hover)
+			ui_overlay_rect(bar->thumb.x - 1, bar->thumb.y, bar->thumb.width + 2, bar->thumb.height, 2.0f, 0xFFFFFFFF);
+		else
+			ui_overlay_rect(bar->thumb.x, bar->thumb.y, bar->thumb.width, bar->thumb.height, 1.5f, COLOR_LABEL);
 	}
 	if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
 		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + 12, y + 4, UI_ALIGN_LEFT, guide.message);
@@ -4753,8 +4764,8 @@ static void prompt_add(struct ui_style_prompt *prompts, short *count, int button
 
 static void render_prompts(void)
 {
-	struct ui_style_prompt prompts[4];
-	float starts[4], ends[4];
+	struct ui_style_prompt prompts[6];
+	float starts[6], ends[6];
 	char const *word = NULL;
 	short count = 0, index;
 	boolean back = FALSE, add_friend = FALSE;
@@ -4805,11 +4816,12 @@ static void render_prompts(void)
 	case SOCIAL_SECTION_WORKSHOP:
 		word = guide_workshop_prompt();
 		back = guide_workshop_in_page();
-		/* (Steam's list a page at a time: RT, Page Down on a keyboard) */
+		/* (Steam's list a page at a time: LT and RT, Page Up and Page Down
+		on a keyboard; each shown while it goes somewhere) */
+		if (guide_workshop_page_offered(-1))
+			prompt_add(prompts, &count, UI_BUTTON_LEFT_TRIGGER, "PGUP", "PREVIOUS");
 		if (guide_workshop_page_offered(1))
 			prompt_add(prompts, &count, UI_BUTTON_RIGHT_TRIGGER, "PGDN", "NEXT PAGE");
-		else if (guide_workshop_page_offered(-1))
-			prompt_add(prompts, &count, UI_BUTTON_LEFT_TRIGGER, "PGUP", "PREVIOUS");
 		break;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
@@ -5648,11 +5660,47 @@ void guide_process(void)
 	handle(presses());
 }
 
+/* the scroll bars of the section showing, for the mouse: a press on a
+thumb drags it, one on a track pages, the thumb under the pointer lit
+(guide_layout_scroll_bar_pointer). TRUE when the press was a bar's */
+static boolean scroll_bars_pointer(struct halo_ui_pointer const *pointer)
+{
+	int taken = 0, scroll;
+
+	/* (no bar's turn: none left hovered or dragging, nothing stuck) */
+	if (!guide.open || guide.about || pointer->touch || guide_workshop_link_modal() || guide_logs_modal())
+	{
+		guide.settings_bar.hover = guide.settings_bar.dragging = 0;
+		guide_workshop_scroll_release();
+		return FALSE;
+	}
+	if (guide.section != SOCIAL_SECTION_SETTINGS)
+		guide.settings_bar.hover = guide.settings_bar.dragging = 0;
+	if (guide.section != SOCIAL_SECTION_WORKSHOP)
+		guide_workshop_scroll_release();
+	if (guide.section == SOCIAL_SECTION_WORKSHOP)
+		return guide_workshop_scroll_pointer(pointer);
+	if (guide.section != SOCIAL_SECTION_SETTINGS)
+		return FALSE;
+	/* (SETTINGS' rows follow the chosen one: it moves with them, kept in view) */
+	scroll = guide_layout_scroll_bar_pointer(&guide.settings_bar, guide.settings_first, pointer->x, pointer->y,
+		pointer->left_down, pointer->left_clicks > 0, pointer->click_x, pointer->click_y, &taken);
+	if (scroll >= 0)
+	{
+		guide.settings_first = (short)scroll;
+		guide.row[SOCIAL_SECTION_SETTINGS] = (short)PIN(guide.row[SOCIAL_SECTION_SETTINGS], scroll,
+			scroll + guide.settings_bar.shown - 1);
+	}
+	return taken != 0;
+}
+
 void guide_pointer(struct halo_ui_pointer const *pointer)
 {
 	short index;
 
 	if (!guide.open && !guide.follow_active)
+		return;
+	if (scroll_bars_pointer(pointer))
 		return;
 	if (pointer->right_clicks)
 	{

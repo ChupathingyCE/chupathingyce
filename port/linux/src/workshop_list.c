@@ -18,6 +18,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "json_reader.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum
@@ -319,12 +320,15 @@ static int read_details_item(struct json *json, struct workshop_browser_item *it
 					return 0;
 			}
 			else if (peek(json, '"') && (!strcmp(key, "publishedfileid") || !strcmp(key, "title") ||
-				!strcmp(key, "description") || !strcmp(key, "file_size") || !strcmp(key, "preview_url")))
+				!strcmp(key, "description") || !strcmp(key, "file_size") || !strcmp(key, "preview_url") ||
+				!strcmp(key, "creator")))
 			{
 				if (!lenient_string(json, text, (int)sizeof(text)))
 					return 0;
 				if (!strcmp(key, "publishedfileid"))
 					copy_cut(item->id, sizeof(item->id), workshop_browser_id_valid(text) ? text : "");
+				else if (!strcmp(key, "creator"))
+					copy_cut(item->creator, sizeof(item->creator), workshop_browser_id_valid(text) ? text : "");
 				else if (!strcmp(key, "title"))
 					copy_cut(item->title, sizeof(item->title), text);
 				else if (!strcmp(key, "description"))
@@ -436,7 +440,9 @@ int workshop_browser_read_details(const char *text, int length, struct workshop_
 	return found ? count : -1;
 }
 
-int workshop_browser_read_browse_ids(const char *text, int length, char (*ids)[WORKSHOP_BROWSER_ID_SIZE], int maximum)
+/* the item ids of the page's links to items, each once, in the page's order
+(the page's older form, without its list as data) */
+static int browse_link_ids(const char *text, int length, char (*ids)[WORKSHOP_BROWSER_ID_SIZE], int maximum)
 {
 	static const char marker[] = "filedetails/?id=";
 	const char *at = text, *end = text + (length > 0 ? length : 0);
@@ -471,6 +477,340 @@ int workshop_browser_read_browse_ids(const char *text, int length, char (*ids)[W
 			memcpy(ids[count++], id, (size_t)digits + 1);
 	}
 	return count;
+}
+
+/* ---------- the browse page's data: authors and pages */
+
+/* where needle first is in [at, end), or NULL */
+static const char *find_in(const char *at, const char *end, const char *needle)
+{
+	size_t length = strlen(needle);
+
+	for (; at && at < end && (size_t)(end - at) >= length; at++)
+	{
+		if (*at == *needle && !memcmp(at, needle, length))
+			return at;
+	}
+	return NULL;
+}
+
+/* the digits at at into out (1 to size - 1 of them): how many, 0 for none or too many */
+static int digits_at(const char *at, const char *end, char *out, int size)
+{
+	int count = 0;
+
+	while (at + count < end && at[count] >= '0' && at[count] <= '9')
+	{
+		if (count >= size - 1)
+			return 0;
+		out[count] = at[count];
+		count++;
+	}
+	out[count] = 0;
+	return count;
+}
+
+static int hex4(const char *at, const char *end, unsigned *value)
+{
+	int index;
+
+	*value = 0;
+	if (end - at < 4)
+		return 0;
+	for (index = 0; index < 4; index++)
+	{
+		char c = (char)(at[index] | 0x20);
+
+		*value <<= 4;
+		if (at[index] >= '0' && at[index] <= '9')
+			*value |= (unsigned)(at[index] - '0');
+		else if (c >= 'a' && c <= 'f')
+			*value |= (unsigned)(c - 'a' + 10);
+		else
+			return 0;
+	}
+	return 1;
+}
+
+/* a character's UTF-8 put at out + *length, whole or (no room: *full, and
+nothing more written after it) not at all */
+static void utf8_put(char *out, int *length, int size, int *full, unsigned code)
+{
+	char bytes[4];
+	int count;
+
+	if (code < 0x20 || *full)
+		return;
+	if (code < 0x80)
+	{
+		bytes[0] = (char)code;
+		count = 1;
+	}
+	else if (code < 0x800)
+	{
+		bytes[0] = (char)(0xC0 | (code >> 6));
+		bytes[1] = (char)(0x80 | (code & 0x3F));
+		count = 2;
+	}
+	else if (code < 0x10000)
+	{
+		bytes[0] = (char)(0xE0 | (code >> 12));
+		bytes[1] = (char)(0x80 | ((code >> 6) & 0x3F));
+		bytes[2] = (char)(0x80 | (code & 0x3F));
+		count = 3;
+	}
+	else
+	{
+		bytes[0] = (char)(0xF0 | (code >> 18));
+		bytes[1] = (char)(0x80 | ((code >> 12) & 0x3F));
+		bytes[2] = (char)(0x80 | ((code >> 6) & 0x3F));
+		bytes[3] = (char)(0x80 | (code & 0x3F));
+		count = 4;
+	}
+	if (*length + count > size - 1)
+	{
+		*full = 1;
+		return;
+	}
+	memcpy(out + *length, bytes, (size_t)count);
+	*length += count;
+}
+
+/* a \u escape's character (a surrogate pair's two, one character) at at,
+just past its "u": how many bytes it took, 0 when it isn't one */
+static int unicode_escape(const char *at, const char *end, const char *pair, unsigned *code)
+{
+	unsigned low;
+	size_t pair_length = strlen(pair);
+
+	if (!hex4(at, end, code))
+		return 0;
+	if (*code < 0xD800 || *code > 0xDFFF)
+		return 4;
+	/* (the high half, then the low half after the same escape) */
+	if (*code <= 0xDBFF && (size_t)(end - at) >= 4 + pair_length + 4 && !memcmp(at + 4, pair, pair_length) &&
+		hex4(at + 4 + pair_length, end, &low) && low >= 0xDC00 && low <= 0xDFFF)
+	{
+		*code = 0x10000 + ((*code - 0xD800) << 10) + (low - 0xDC00);
+		return 4 + (int)pair_length + 4;
+	}
+	*code = '?';
+	return 4;
+}
+
+/* a string of the page's data, which sits in a script's string: its quotes
+\", its own escapes doubled (\\\" a quote, \\\\ a backslash, \\u a
+character) and the script's \u too. Read from at (past its opening \") into
+out, cut whole characters to size; 1 when it ended where it should */
+static int page_string(const char *at, const char *end, char *out, int size)
+{
+	int length = 0, full = 0;
+
+	while (at < end)
+	{
+		unsigned code;
+		int taken;
+
+		if (*at != '\\')
+		{
+			unsigned char lead = (unsigned char)*at;
+			int count = lead < 0x80 ? 1 : lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 0;
+
+			if (*at == '"' || !count || end - at < count)
+				return 0;
+			if (lead >= 0x20 && !full && length + count <= size - 1)
+			{
+				memcpy(out + length, at, (size_t)count);
+				length += count;
+			}
+			else if (lead >= 0x20)
+				full = 1;
+			at += count;
+			continue;
+		}
+		if (end - at < 2)
+			return 0;
+		switch (at[1])
+		{
+		case '"':
+			out[length] = 0;
+			return 1;
+		case 'u':
+			if (!(taken = unicode_escape(at + 2, end, "\\u", &code)))
+				return 0;
+			utf8_put(out, &length, size, &full, code);
+			at += 2 + taken;
+			continue;
+		case '/':
+			utf8_put(out, &length, size, &full, '/');
+			at += 2;
+			continue;
+		case 'n': case 'r': case 't':
+			utf8_put(out, &length, size, &full, ' ');
+			at += 2;
+			continue;
+		case '\\':
+			break;
+		default:
+			return 0;
+		}
+		/* (the data's own escape, doubled) */
+		if (end - at < 3)
+			return 0;
+		if (at[2] == '\\' && end - at >= 4 && (at[3] == '"' || at[3] == '\\'))
+		{
+			utf8_put(out, &length, size, &full, (unsigned char)at[3]);
+			at += 4;
+		}
+		else if (at[2] == 'u' && (taken = unicode_escape(at + 3, end, "\\\\u", &code)) != 0)
+		{
+			utf8_put(out, &length, size, &full, code);
+			at += 3 + taken;
+		}
+		else if (at[2] == '/' || at[2] == 'n' || at[2] == 'r' || at[2] == 't')
+		{
+			utf8_put(out, &length, size, &full, at[2] == '/' ? '/' : ' ');
+			at += 3;
+		}
+		else
+			return 0;
+	}
+	return 0;
+}
+
+int workshop_browser_read_browse_authors(const char *text, int length, struct workshop_browser_author *authors,
+	int maximum)
+{
+	static const char item_key[] = "\\\"publishedfileid\\\":\\\"", creator_key[] = "\\\",\\\"creator\\\":\\\"";
+	static const char player_key[] = "\\\"steamid\\\":\\\"", name_key[] = "\\\"persona_name\\\":\\\"";
+	const char *end, *at, *results, *players;
+	int count = 0, index;
+
+	if (!text || length <= 0 || maximum <= 0)
+		return 0;
+	end = text + length;
+	/* (the list's items, each with its creator right after its id: nothing
+	else on the page, such as an item named in a description, is taken) */
+	if (!(results = find_in(text, end, "\\\"results\\\":[")))
+		return 0;
+	for (at = results; count < maximum && (at = find_in(at, end, item_key)) != NULL;)
+	{
+		struct workshop_browser_author *author = &authors[count];
+		int digits;
+
+		at += sizeof(item_key) - 1;
+		if (!(digits = digits_at(at, end, author->id, (int)sizeof(author->id))))
+			continue;
+		at += digits;
+		if ((size_t)(end - at) < sizeof(creator_key) - 1 || memcmp(at, creator_key, sizeof(creator_key) - 1))
+			continue;
+		at += sizeof(creator_key) - 1;
+		if (!digits_at(at, end, author->creator, (int)sizeof(author->creator)))
+			continue;
+		author->name[0] = 0;
+		for (index = 0; index < count && strcmp(authors[index].id, author->id); index++)
+			;
+		if (index == count)
+			count++;
+	}
+	/* (the creators' names, each beside its id) */
+	players = find_in(results, end, "\\\"creator_player_link_details\\\":[");
+	for (at = players; at && (at = find_in(at, end, player_key)) != NULL;)
+	{
+		char steam_id[WORKSHOP_BROWSER_ID_SIZE], name[WORKSHOP_BROWSER_AUTHOR_SIZE];
+		const char *next, *name_at;
+		int digits;
+
+		at += sizeof(player_key) - 1;
+		if (!(digits = digits_at(at, end, steam_id, (int)sizeof(steam_id))))
+			continue;
+		at += digits;
+		next = find_in(at, end, player_key);
+		name_at = find_in(at, next ? next : end, name_key);
+		if (!name_at || !page_string(name_at + sizeof(name_key) - 1, end, name, (int)sizeof(name)) || !name[0])
+			continue;
+		for (index = 0; index < count; index++)
+		{
+			if (!strcmp(authors[index].creator, steam_id) && !authors[index].name[0])
+				copy_cut(authors[index].name, sizeof(authors[index].name), name);
+		}
+	}
+	return count;
+}
+
+int workshop_browser_read_browse_ids(const char *text, int length, char (*ids)[WORKSHOP_BROWSER_ID_SIZE], int maximum)
+{
+	struct workshop_browser_author listed[64];
+	int count, index;
+
+	if (!text || length <= 0 || maximum <= 0)
+		return 0;
+	/* (the page's own list, where it has one: its items alone, in its order,
+	never an item that a description links to) */
+	count = workshop_browser_read_browse_authors(text, length, listed,
+		maximum < (int)(sizeof(listed) / sizeof(listed[0])) ? maximum : (int)(sizeof(listed) / sizeof(listed[0])));
+	if (count <= 0)
+		return browse_link_ids(text, length, ids, maximum);
+	for (index = 0; index < count; index++)
+		memcpy(ids[index], listed[index].id, sizeof(ids[index]));
+	return count;
+}
+
+int workshop_browser_read_browse_pages(const char *text, int length, int *pages, int *total)
+{
+	static const char pages_key[] = "\\\"total_pages\\\":", total_key[] = "\\\"total_count\\\":";
+	const char *end, *at;
+	char digits[12];
+	int found_pages, found_total = -1;
+
+	if (!text || length <= 0)
+		return 0;
+	end = text + length;
+	if (!(at = find_in(text, end, pages_key)) || !digits_at(at + sizeof(pages_key) - 1, end, digits, 10))
+		return 0;
+	found_pages = atoi(digits);
+	/* (no more pages than the browser goes to, whatever the page says) */
+	if (found_pages > WORKSHOP_BROWSER_MAXIMUM_PAGES)
+		found_pages = WORKSHOP_BROWSER_MAXIMUM_PAGES;
+	if ((at = find_in(text, end, total_key)) != NULL && digits_at(at + sizeof(total_key) - 1, end, digits, 10))
+		found_total = atoi(digits);
+	*pages = found_pages;
+	if (found_total >= 0)
+		*total = found_total;
+	return 1;
+}
+
+int workshop_browser_read_profile_name(const char *text, int length, char *name, int size)
+{
+	static const char open[] = "<steamID><![CDATA[", close[] = "]]></steamID>";
+	const char *end, *at, *stop;
+	int out = 0;
+
+	if (!text || length <= 0 || size <= 0)
+		return 0;
+	name[0] = 0;
+	end = text + length;
+	if (!(at = find_in(text, end, open)))
+		return 0;
+	at += sizeof(open) - 1;
+	if (!(stop = find_in(at, end, close)))
+		return 0;
+	/* (control characters left out; cut whole characters) */
+	for (; at < stop && out < size - 1; at++)
+	{
+		if ((unsigned char)*at >= 0x20 && *at != 0x7F)
+			name[out++] = *at;
+	}
+	/* (cut inside a character: the whole character left out) */
+	if (at < stop && (((unsigned char)*at) & 0xC0) == 0x80)
+	{
+		while (out > 0 && (((unsigned char)name[out - 1]) & 0xC0) == 0x80)
+			out--;
+		if (out > 0)
+			out--;
+	}
+	name[out] = 0;
+	return out > 0;
 }
 
 int workshop_browser_steam_url(const char *id, char *url, int size)

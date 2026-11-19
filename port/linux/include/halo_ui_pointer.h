@@ -30,6 +30,8 @@ struct halo_ui_pointer
 	the touchscreen reports them (debug.touch_targets shows them) */
 	unsigned char downs;
 	short down_x, down_y;
+	/* the mouse's left button held now (a scroll bar's thumb dragged) */
+	unsigned char left_down;
 };
 
 /* gives the menus the pointer; frees the mouse for the menus while

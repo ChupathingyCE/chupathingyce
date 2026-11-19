@@ -1,7 +1,7 @@
 /*
 DELTA_CHAT_GAME.H
 
-Text chat over Delta Peer, as the game sees it (docs/delta.md, Chat;
+Text chat over Delta Peer, as the game sees it (docs/delta/peer.md, Chat;
 delta_peer_game.c): plain types only, so the dedicated server's units
 (server/src) and the game's chat (port/linux/game/chat.c) both call it.
 

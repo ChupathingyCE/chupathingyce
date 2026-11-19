@@ -135,6 +135,10 @@ boolean director_inhibited_input(
 	short local_player_index);
 director_perspective director_get_perspective(
 	short local_player_index);
+/* port: whether a local player's camera is the first-person camera (Lua
+scripts ask: lua_twiddlings.c) */
+boolean director_port_first_person(
+	short local_player_index);
 short director_desired_perspective(
 	long unit_index,
 	director_perspective *perspective);

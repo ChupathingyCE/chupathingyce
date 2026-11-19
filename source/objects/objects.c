@@ -8,6 +8,7 @@ OBJECTS.C
 #include "objects.h"
 #include "mcc_object_names.h" /* port: port/linux/game/mcc_object_names.c */
 #include "mcc_objects.h" /* port: port/linux/game/mcc_objects.c */
+#include "stubbs_regions.h" /* port: port/linux/game/stubbs_regions.c */
 
 #include "damage.h"
 #include "light_definitions.h"
@@ -174,6 +175,26 @@ static long sort_dumps(struct dump_datum const *dump1, struct dump_datum const *
 static void object_add_to_dump(long object_index, struct dump_datum *dump);
 static void object_dump_write(FILE *stream, struct dump_datum *dump);
 static short object_find_region_permutations_available_with_variant(struct model_region *region, short variant_number, short *available_indices);
+
+/* port: the object's region permutations and how many regions they cover:
+its own eight, or in Stubbs mode sixteen kept beside it (Stubbs's
+characters have regions past eight: port/linux/game/stubbs_regions.c) */
+byte *object_get_region_permutations(
+	long object_index,
+	short *region_count)
+{
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	byte *permutations = stubbs_regions_permutations(object_index);
+
+	if (permutations)
+	{
+		*region_count = STUBBS_MAXIMUM_REGIONS_PER_OBJECT;
+		return permutations;
+	}
+#endif
+	*region_count = MAXIMUM_REGIONS_PER_OBJECT;
+	return object_get(object_index)->object.region_permutations;
+}
 static boolean object_select_random_region_permutations_by_variant(long object_index, struct model *model, short variant_number);
 static short object_determine_variant_number(long object_index, struct model *model);
 static void object_choose_random_region_permutations(long object_index);
@@ -284,7 +305,9 @@ void *object_try_and_get_and_verify_type(
 	return result;
 }
 
-void *object_get_and_verify_type(
+/* (the name in parentheses: on the consoles it is also the inline form's
+macro, objects.h) */
+void *(object_get_and_verify_type)(
 	long object_index,
 	unsigned long valid_type_flags)
 {
@@ -1302,12 +1325,15 @@ short object_get_first_cluster(
 real_matrix4x3 *object_get_node_matrices(
 	long object_index)
 {
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
 	/* while a frame is drawn, the pose between the last two ticks
-	(port/linux/game/render_interpolation.c) */
+	(port/linux/game/render_interpolation.c; a console that moves only the
+	view between ticks keeps no poses, and is not asked) */
 	real_matrix4x3 *interpolated = render_interpolation_object_node_matrices(object_index);
 
 	if (interpolated)
 		return interpolated;
+#endif
 	return (real_matrix4x3 *)object_header_block_get(object_index, &object_get(object_index)->object.node_matrices);
 }
 
@@ -1316,10 +1342,13 @@ the last two ticks (port/linux/game/render_interpolation.c) */
 real *object_get_function_values(
 	long object_index)
 {
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	/* (a console draws them as sampled each tick: none between) */
 	real *interpolated = render_interpolation_object_function_values(object_index);
 
 	if (interpolated)
 		return interpolated;
+#endif
 	return object_get(object_index)->object.outgoing_function_values;
 }
 
@@ -1328,10 +1357,12 @@ last two ticks (port/linux/game/render_interpolation.c) */
 real_rgb_color *object_get_change_colors(
 	long object_index)
 {
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 	real_rgb_color *interpolated = render_interpolation_object_change_colors(object_index);
 
 	if (interpolated)
 		return interpolated;
+#endif
 	return object_get(object_index)->object.outgoing_change_colors;
 }
 
@@ -1537,10 +1568,12 @@ void object_permute_region(
 	{
 		short region_index;
 		struct model* model = model_definition_get(object_definition->object.model.index);
+		short region_count;
+		byte *region_permutations = object_get_region_permutations(object_index, &region_count);
 		
 		/* port: no more regions than the object's region_permutations holds
 		(a map's count; retail has up to 8) */
-		for (region_index = 0; region_index<MIN(model->regions.count, MAXIMUM_REGIONS_PER_OBJECT); region_index++)
+		for (region_index = 0; region_index<MIN(model->regions.count, region_count); region_index++)
 		{
 			if (desired_region_index==NONE || desired_region_index==region_index)
 			{
@@ -1562,12 +1595,13 @@ void object_permute_region(
 					
 					if (!_stricmp(permutation->name, permutation_name))
 					{
-						object->object.region_permutations[region_index] = active_flag ? permutation_index : 0;
+						region_permutations[region_index] = active_flag ? permutation_index : 0;
 						break;
 					}
 				}
 			}
 		}
+		stubbs_regions_changed(object_index); /* port: Stubbs mode only */
 	}
 
 	return;
@@ -1978,12 +2012,14 @@ real_matrix4x3 *object_get_node_matrix(
 		}
 	}
 
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
 	{
 		real_matrix4x3 *interpolated = render_interpolation_object_node_matrices(object_index);
 
 		if (interpolated)
 			return &interpolated[node_index];
 	}
+#endif
 	return &((real_matrix4x3 *)object_header_block_get(object_index, &object_get(object_index)->object.node_matrices))[node_index];
 }
 
@@ -2002,11 +2038,12 @@ short object_get_marker_by_name(
 	the ticks too (port/linux/game/render_interpolation.c). While a tick runs,
 	which is when the game asks for markers, this is the same array. */
 	real_matrix4x3 const *matrices = object_get_node_matrices(object_index);
+	short region_count;
 
 	marker = model_get_marker_by_name(
 		object_definition->object.model.index,
 		name,
-		object->object.region_permutations,
+		object_get_region_permutations(object_index, &region_count),
 		FALSE,
 		NONE,
 		matrices,
@@ -2509,6 +2546,20 @@ if (!valid_real_matrix4x3(matrix)) \
 	ocnm_parent_matrix_internal(file, line, matrix, string); \
 }
 
+/* port: a console's release-style build (HALO_ASSERTS_COMPILED_OUT) doesn't
+check the node matrices it computes: the checks above only assert, and the
+root node's below only logs before them. The retail game has none of these
+checks or their messages. A desktop build checks them as before. */
+#ifdef HALO_ASSERTS_COMPILED_OUT
+#undef ocnm_root_matrix_custom
+#undef ocnm_parent_matrix_custom
+#define ocnm_root_matrix_custom(file, line, matrix, custom_string) ((void)(matrix))
+#define ocnm_parent_matrix_custom(file, line, matrix, custom_string) ((void)(matrix))
+#define OCNM_CHECKS_MATRICES FALSE
+#else
+#define OCNM_CHECKS_MATRICES TRUE
+#endif
+
 void object_compute_node_matrices(
 	long object_index)
 {
@@ -2820,7 +2871,7 @@ void object_compute_node_matrices(
 					object_nodes[node_stack_index] = node_matrix;
 				}
 
-				if (!valid_real_matrix4x3(&object_nodes[node_stack_index]))
+				if (OCNM_CHECKS_MATRICES && !valid_real_matrix4x3(&object_nodes[node_stack_index]))
 				{
 					real_matrix4x3 const *validated_root_node_matrix;
 
@@ -2943,7 +2994,7 @@ void object_compute_node_matrices(
 			if (node_stack_index==0)
 			{
 				real_matrix4x3 *final_matrix = &object_nodes[node_stack_index];
-				if (!valid_real_matrix4x3(final_matrix))
+				if (OCNM_CHECKS_MATRICES && !valid_real_matrix4x3(final_matrix))
 				{
 					char *name2 = tag_get_name(object->definition_index);
 					char *string = name2;
@@ -3010,6 +3061,7 @@ void object_compute_node_matrices(
 #undef ocnm_root_matrix_internal
 #undef ocnm_parent_matrix_custom
 #undef ocnm_parent_matrix_internal
+#undef OCNM_CHECKS_MATRICES
 
 static void object_postprocess_node_matrices(
 	long object_index)
@@ -3679,7 +3731,9 @@ long object_new(
 				}
 
 				object_choose_random_change_colors(object_index, data->change_colors);
+				stubbs_regions_object_new(object_index); /* port: Stubbs mode only */
 				object_choose_random_region_permutations(object_index);
+				stubbs_regions_changed(object_index); /* port: Stubbs mode only */
 				object_initialize_vitality(object_index, NULL, NULL);
 				object_compute_node_matrices(object_index);
 				object_reconnect_to_map(object_index, NULL);
@@ -3785,6 +3839,23 @@ void object_attach_to_node(
 		}
 	}
 
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Halo PC map's scripts that attach an object to one of its own
+	children are refused the attach and go on, as Halo PC's release does
+	(the debug build's assert stopped SPV3's d30): said once */
+	if (!valid && cache_file_tags_are_ce())
+	{
+		static boolean logged = FALSE;
+
+		if (!logged)
+		{
+			logged = TRUE;
+			error(_error_silent, "an object attached to one of its own children: not attached, as Halo PC "
+				"leaves it");
+		}
+	}
+	else
+#endif
 	match_vassert(
 		"c:\\halo\\SOURCE\\objects\\objects.c",
 		1225,
@@ -3904,8 +3975,43 @@ static int object_update_perf_phase(
 	}
 }
 #define OBJECT_UPDATE_PERF_PHASE(type) object_update_perf_phase(type)
+
+/* port: a biped's update timed by who drives it (halo_perf_log.h): this
+machine's players, other machines' players, or neither (the AI's actors,
+empty bodies: NONE, untimed). Begun here, inside objects bipeds; the caller
+ends the phase returned */
+static int object_update_perf_driver_begin(
+	long object_index,
+	short type)
+{
+	struct unit_datum *unit;
+	struct player_datum *player;
+	int phase;
+
+	if (!halo_perf_log_on || type != _object_type_biped)
+		return NONE;
+	HALO_PERF_COUNT(_halo_perf_bipeds_updated, 1);
+	unit = unit_get(object_index);
+	player = unit->unit.player_index != NONE ? player_try_and_get(unit->unit.player_index) : NULL;
+	if (!player)
+		return NONE;
+	if (player->local_player_index != NONE)
+	{
+		phase = _halo_perf_bipeds_local;
+		HALO_PERF_COUNT(_halo_perf_bipeds_local_updated, 1);
+	}
+	else
+	{
+		phase = _halo_perf_bipeds_remote;
+		HALO_PERF_COUNT(_halo_perf_bipeds_remote_updated, 1);
+	}
+	halo_perf_begin(phase);
+	return phase;
+}
+#define OBJECT_UPDATE_PERF_DRIVER_BEGIN(index, type) object_update_perf_driver_begin(index, type)
 #else
 #define OBJECT_UPDATE_PERF_PHASE(type) 0
+#define OBJECT_UPDATE_PERF_DRIVER_BEGIN(index, type) NONE
 #endif
 
 static boolean object_update(
@@ -3918,6 +4024,8 @@ static boolean object_update(
 	boolean result = TRUE;
 	boolean elevator_sampled = FALSE;
 	real_point3d elevator_sample;
+	/* port: the perf log's phase for who drives a biped */
+	int perf_driver;
 	if (!TEST_FLAG(header->flags, _object_header_do_not_update_bit))
 	{
 		if (TEST_FLAG(object->object.flags, _object_garbage_bit))
@@ -3941,7 +4049,10 @@ static boolean object_update(
 
 		HALO_PERF_COUNT(_halo_perf_objects_updated, 1);
 		HALO_PERF_BEGIN(OBJECT_UPDATE_PERF_PHASE(object->object.type));
+		perf_driver = OBJECT_UPDATE_PERF_DRIVER_BEGIN(object_index, object->object.type);
 		object_type_update(object_index);
+		if (perf_driver != NONE)
+			HALO_PERF_END(perf_driver);
 		HALO_PERF_END(OBJECT_UPDATE_PERF_PHASE(object->object.type));
 		if (object_definition->object.collision_model.index!=NONE)
 		{
@@ -4737,6 +4848,11 @@ static void object_connect_lights(
 		{
 			if (!object->object.attachment_types[i] && object->object.attachment_indices[i]!=NONE)
 			{
+#ifdef HALO_CONSOLE_SKIP_DARK_LIGHTS
+				/* port: a dark light stays out of the clusters
+				(object_lights.c, light_port_connect_lit) */
+				light_port_connect_lit(object->object.attachment_indices[i], disconnect, reconnect);
+#else
 				if (disconnect)
 				{
 					light_disconnect_from_map(object->object.attachment_indices[i]);
@@ -4745,6 +4861,7 @@ static void object_connect_lights(
 				{
 					light_reconnect_to_map(object->object.attachment_indices[i]);
 				}
+#endif
 			}
 		}
 	}
@@ -5064,14 +5181,14 @@ static boolean object_select_random_region_permutations_by_variant(
 {
 	short available_permutation_indices[32];
 	short region_index;
-
-	struct object_datum *object = object_get(object_index);
+	short region_count;
+	byte *region_permutations = object_get_region_permutations(object_index, &region_count);
 	boolean result = TRUE;
 
 	/* port: no more regions than the object's region_permutations holds (a
 	map's count; past them are the change colors and the node blocks; retail
 	has up to 8) */
-	for (region_index =0; region_index<MIN(model->regions.count, MAXIMUM_REGIONS_PER_OBJECT); region_index++)
+	for (region_index =0; region_index<MIN(model->regions.count, region_count); region_index++)
 	{
 		struct model_region *region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index, struct model_region);
 		short permutation_index = object_find_region_permutations_available_with_variant(region, variant_number, available_permutation_indices);
@@ -5083,13 +5200,13 @@ static boolean object_select_random_region_permutations_by_variant(
 
 		if (!permutation_index)
 		{
-			object->object.region_permutations[region_index] = 0;
+			region_permutations[region_index] = 0;
 			result = FALSE;
 		}
 		else
 		{
 			short permutation_num = permutation_index==1 ? 0 : random_range(0, permutation_index);
-			object->object.region_permutations[region_index] = available_permutation_indices[permutation_num];
+			region_permutations[region_index] = available_permutation_indices[permutation_num];
 		}
 	}
 
@@ -5101,20 +5218,20 @@ static short object_determine_variant_number(
 	struct model *model)
 {
 	short region_index;
-
-	struct object_datum *object = object_get(object_index);
+	short region_count;
+	byte *region_permutations = object_get_region_permutations(object_index, &region_count);
 	short result = 0;
 
 	/* port: the regions object_select_random_region_permutations_by_variant
 	chose for (a map's count) */
-	for (region_index =0; region_index<MIN(model->regions.count, MAXIMUM_REGIONS_PER_OBJECT)&& !result; region_index++)
+	for (region_index =0; region_index<MIN(model->regions.count, region_count)&& !result; region_index++)
 	{
 		struct model_region* region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index, struct model_region);
-		if (object->object.region_permutations[region_index] < region->permutations.count)
+		if (region_permutations[region_index] < region->permutations.count)
 		{
 			result = TAG_BLOCK_GET_ELEMENT(
 				&region->permutations,
-				object->object.region_permutations[region_index],
+				region_permutations[region_index],
 				struct model_region_permutation
 			)->variant_number;
 		}

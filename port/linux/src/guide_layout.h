@@ -109,4 +109,27 @@ int guide_layout_scroll_clamp(int scroll, int count, int shown);
 int guide_layout_scroll_thumb(struct guide_rect track, int count, int shown, int scroll, float min_height,
 	struct guide_rect *thumb);
 
+/* a scroll bar the mouse works: its owner fills track, thumb, count and
+shown as it draws the bar (thumb.height 0: no bar) and draws the thumb
+brighter while hover is set. Each pointer read goes to
+guide_layout_scroll_bar_pointer: a press on the thumb drags it (dragging
+until the button is up), a press on the track above or below it pages up
+or down, and the thumb under the pointer is hovered. The bar's hit area is
+GUIDE_SCROLL_BAR_REACH wider each side than its slim drawing */
+enum { GUIDE_SCROLL_BAR_REACH = 5 };
+struct guide_scroll_bar
+{
+	struct guide_rect track, thumb;
+	int count, shown;
+	int hover, dragging;
+	/* where on the thumb the drag took it */
+	float grab;
+};
+/* the pointer at x, y (down: the left button held; pressed: it went down
+at press_x, press_y since the last read): the new first line shown, or -1
+when the bar didn't change it. *taken is set when the press was the bar's
+(not a click for what lies under it) */
+int guide_layout_scroll_bar_pointer(struct guide_scroll_bar *bar, int scroll, float x, float y, int down,
+	int pressed, float press_x, float press_y, int *taken);
+
 #endif

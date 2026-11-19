@@ -78,7 +78,7 @@ int p2p_peer_address(const unsigned char *identifier, unsigned long *address);
 is open, and network.ping_games), the hosts asked about may be probed; never
 when internet play is off */
 void p2p_probe_browse(int on);
-/* Delta's doorbell (browser.c; docs/delta.md, "The doorbell"): listened
+/* Delta's doorbell (browser.c; docs/delta/link.md, "The doorbell"): listened
 for over the signalling connections to our brokers, NULL or "" for none
 (0 while internet play is off: nothing taken); and the rings heard since
 the last call */
@@ -252,6 +252,10 @@ struct p2p_listing
 	/* the host's (its XNADDR's abEnet once reached) */
 	unsigned char identifier[6];
 	char name[P2P_LISTING_NAME_SIZE + 1];
+	/* the name as the host sent it (UTF-8; control bytes as spaces), for
+	the blocked-names check: name is printable ASCII for the menus' font,
+	where a letter outside ASCII is '?', which the check can't see past */
+	char name_utf8[P2P_LISTING_NAME_SIZE + 1];
 	char map[P2P_LISTING_MAP_SIZE + 1];
 	char gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	unsigned char player_count, maximum_player_count, engine_type;

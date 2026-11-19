@@ -44,11 +44,35 @@ enum
 	CE_DELTA_UNIT_KILLED = 12,
 	CE_DELTA_CLIENT_UPDATE = 13,
 	CE_DELTA_CHAT = 15,
+	/* a weapon or equipment picked up: its HUD's note (the item's
+	definition, a message offset and a quantity) */
+	CE_DELTA_HUD_ADD_ITEM = 6,
 	CE_DELTA_SLAYER_SCORES = 16,
+	/* Capture the Flag's state: the flag swap timer, each team's score and
+	the team with the flag (the definitions of Kornner Studios' OpenSauce,
+	GPL-3.0, Halo1_CE.message_delta_definitions.xml) */
+	CE_DELTA_CTF_UPDATE = 17,
+	/* the other game types' states, each a run of 32-bit numbers (Kornner
+	Studios' OpenSauce definitions, lengths checked against our captures of
+	Custom Edition's server): Oddball each player's score, each team's and
+	each player's ball, if any (16 each); King each team's score (16) and the
+	hill; Race each team's laps, each player's first flag and laps' flags
+	(16 each), a whole lap's flags and the rally flag */
+	CE_DELTA_ODDBALL_UPDATE = 18,
+	CE_DELTA_KING_UPDATE = 19,
+	CE_DELTA_RACE_UPDATE = 20,
+	CE_GAME_TYPE_VALUES = 50,
 	CE_DELTA_PLAYER_STATISTICS = 21,
 	/* the game's end, step by step (a 32-bit number: 1 the delay before
 	the scores, 2 and 3 the scores coming up and shown) */
 	CE_DELTA_POSTGAME_MODE = 22,
+	/* a message on a player's HUD: the player, the game engine's message
+	number and its data (another player's handle, a team, a time) */
+	CE_DELTA_MULTIPLAYER_HUD_MESSAGE = 24,
+	/* one of the game's multiplayer sounds (globals' list, by index) */
+	CE_DELTA_MULTIPLAYER_SOUND = 25,
+	/* a unit lets its weapon in hand go (a flag, a ball) */
+	CE_DELTA_UNIT_DROP_CURRENT_WEAPON = 27,
 	CE_DELTA_LOCAL_PLAYER_UPDATE = 35,
 	CE_DELTA_LOCAL_VEHICLE_UPDATE = 36,
 	CE_DELTA_REMOTE_PLAYER_ACTIONS = 37,
@@ -107,7 +131,7 @@ struct ce_object_create
 	unsigned int definition;
 	/* 9 bits */
 	int object;
-	/* 0xffff: none */
+	/* the owner team (a biped's: its player's team), 0xffff: none */
 	int owner;
 	/* 5 bits, 0: none */
 	int player;
@@ -142,6 +166,7 @@ struct ce_biped_create
 	int unknown_6bits_a;
 	/* the first baseline number of its updates (1) */
 	int baseline;
+	/* by type (0 frag, 1 plasma) */
 	int grenades[2];
 	/* its vitality (ce_body_bits, ce_shield_bits) */
 	int body;
@@ -160,6 +185,7 @@ struct ce_biped_update
 	int object;
 	int baseline;
 	int apply_shield;
+	/* by type (0 frag, 1 plasma) */
 	int grenades[2];
 	int body;
 	int shield;
@@ -224,12 +250,14 @@ struct ce_vehicle_update
 	struct ce_vehicle_motion motion;
 };
 
-/* a player's biped and weapons, by object index (0: none) */
+/* a player's biped and weapons, by object index (0: none); its team (what
+its client's HUD shows as its own team); the field names follow Kornner
+Studios' OpenSauce (GPL-3.0) message delta definitions */
 struct ce_player_spawn
 {
 	int player;
 	int biped;
-	unsigned int unknown_large;
+	unsigned int team;
 	int unknown_object;
 	int unknown_medium;
 	int weapons[4];
@@ -249,9 +277,11 @@ struct ce_client_update
 	/* 2 bits a direction: forward/back, then left/right (ce_messages.c) */
 	int throttle;
 	int primary_trigger;
+	/* the weapon, grenade and zoom level it wants (3, 2 and 16 bits;
+	all set: none) */
 	int weapon;
 	int grenade;
-	int unknown_medium;
+	int zoom;
 };
 
 /* another player's actions, as a client animates them */
@@ -312,8 +342,8 @@ void ce_payload_put_message(struct ce_payload *payload, const unsigned char *mes
 /* the game settings delta, in full */
 void ce_payload_put_game_settings(struct ce_payload *payload, const struct ce_game_settings *settings);
 /* a player in the game: its slot in the game settings' players, its datum
-handle and its number on the wire (5 bits) */
-void ce_payload_put_player_add(struct ce_payload *payload, int list_index, unsigned int handle, int player);
+handle, its number on the wire (5 bits) and its team */
+void ce_payload_put_player_add(struct ce_payload *payload, int list_index, unsigned int handle, int player, int team);
 void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_weapon_create *weapon);
 void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_biped_create *biped);
 /* equipment (grenades, powerups) in the world, still; its first baseline
@@ -376,6 +406,18 @@ void ce_payload_put_player_statistics(struct ce_payload *payload, int player,
 void ce_payload_put_server_keep_alive(struct ce_payload *payload, int index, unsigned int value);
 /* the payload's length in bytes (written in its first 11 bits), or 0 */
 /* where the game is past its end (CE_DELTA_POSTGAME_MODE) */
+/* a game type's state (CE_DELTA_ODDBALL_UPDATE, ...): its numbers in order */
+void ce_payload_put_game_type_update(struct ce_payload *payload, int type, const unsigned int *values, int count);
+/* Capture the Flag's state */
+void ce_payload_put_ctf_update(struct ce_payload *payload, unsigned int flag_swap_timer, const int scores[2],
+	int team_with_flag);
+/* a HUD message for a player (its wire number) */
+void ce_payload_put_hud_message(struct ce_payload *payload, int player, unsigned int message, unsigned int data);
+void ce_payload_put_multiplayer_sound(struct ce_payload *payload, unsigned int sound);
+/* a unit (its object number) lets the weapon (its object number) go */
+void ce_payload_put_unit_drop_weapon(struct ce_payload *payload, int unit, int weapon, int immediate);
+/* an item's note on its new holder's HUD */
+void ce_payload_put_hud_add_item(struct ce_payload *payload, unsigned int definition, int offset, int quantity);
 void ce_payload_put_postgame_mode(struct ce_payload *payload, int mode);
 int ce_payload_end(struct ce_payload *payload);
 

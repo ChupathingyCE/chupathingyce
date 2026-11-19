@@ -281,6 +281,7 @@ symbols in this file:
 #include "mcc_movement.h" /* port: MCC weapon-authored movement penalties */
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_player.h" /* port: port/linux/game/stubbs_player.c */
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* port: port/linux/game/network_objects.c's (a client deletes the host's
 objects on the host's word alone) */
@@ -1626,7 +1627,18 @@ static void biped_verify_object_vectors(
 	long biped_index,
 	char const *state)
 {
-	struct biped_datum *biped = biped_get(biped_index);
+	struct biped_datum *biped;
+
+	/* port: a console's release-style build (HALO_ASSERTS_COMPILED_OUT)
+	doesn't check: the check only asserts, nine times a tick for each biped,
+	and the retail game has neither the check nor its message */
+#ifdef HALO_ASSERTS_COMPILED_OUT
+	(void)biped_index;
+	(void)state;
+	return;
+#endif
+
+	biped = biped_get(biped_index);
 
 	if (!valid_real_vector3d_axes2(&biped->object.forward, &biped->object.up))
 	{
@@ -4080,7 +4092,13 @@ static void biped_update_moving(
 	}
 	physics.in_flags = in_flags;
 
+	/* port: the bipeds' physics, which is the tick's physics too
+	(halo_perf_log.h: the vehicles' alone read 0 in a game with none) */
+	HALO_PERF_BEGIN(_halo_perf_tick_physics);
+	HALO_PERF_BEGIN(_halo_perf_bipeds_physics);
 	biped_update_physics(&physics);
+	HALO_PERF_END(_halo_perf_bipeds_physics);
+	HALO_PERF_END(_halo_perf_tick_physics);
 
 	if (physics.elevator_object_index == NONE)
 	{
@@ -4421,6 +4439,8 @@ boolean biped_update(
 			animation.crouching = FALSE;
 
 		biped_verify_object_vectors(biped_index, "pre-turning");
+		/* port: the movement's time (halo_perf_log.h) */
+		HALO_PERF_BEGIN(_halo_perf_bipeds_movement);
 		if (!TEST_FLAG(biped->object.damage_flags, _object_dead_bit))
 		{
 			biped_update_turning(biped_index, &animation);
@@ -4447,6 +4467,7 @@ boolean biped_update(
 			biped_update_slipping(biped_index, &animation);
 		}
 
+		HALO_PERF_END(_halo_perf_bipeds_movement);
 		biped_verify_object_vectors(biped_index, "post-dead/air/land/slip");
 
 		if (!biped->biped.player_melee_ticks)
@@ -4517,8 +4538,10 @@ boolean biped_update(
 		biped_check_discard(biped_index);
 	}
 
+	HALO_PERF_BEGIN(_halo_perf_bipeds_animation);
 	if (unit_update_animation(biped_index, &animation)==1)
 		biped_jump(biped_index);
+	HALO_PERF_END(_halo_perf_bipeds_animation);
 
 	if (TEST_FLAG(biped->object.damage_flags, _object_dead_bit) &&
 		TEST_FLAG(biped->object.flags, _object_at_rest_bit))

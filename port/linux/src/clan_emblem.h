@@ -1,7 +1,7 @@
 /*
 CLAN_EMBLEM.H
 
-A clan's emblem (docs/delta.md, Clans): a background shape in the
+A clan's emblem (docs/delta/link.md, Clans): a background shape in the
 background color, and a foreground shape in the primary and secondary
 colors, from Halo's 18 armor colors. The pieces are the site's
 (clan_emblem_table.h, made by tools/clan_emblem_table.py), so the game

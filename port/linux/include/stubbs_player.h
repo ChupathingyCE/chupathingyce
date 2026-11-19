@@ -52,6 +52,10 @@ void stubbs_player_hud_draw(short local_player_index, long unit_index);
 (stubbs_functions.c): nothing for now */
 void stubbs_player_hud_show_special_attack(short special_attack, boolean show);
 
+/* a new map's tags (stubbs_mode_convert_tags): no special attack shown
+until its scripts show one */
+void stubbs_player_tags_new_map(void);
+
 /* ---------- stubbs_image_effects.c */
 
 /* the script functions (image_effect_set <name>), (image_effect_start_blend
@@ -75,6 +79,7 @@ static __inline boolean stubbs_player_sprint(long biped_index, short *state_desi
 static __inline boolean stubbs_player_never_crouches(long biped_index) { (void)biped_index; return FALSE; }
 static __inline void stubbs_player_hud_draw(short local_player_index, long unit_index) { (void)local_player_index; (void)unit_index; }
 static __inline void stubbs_player_hud_show_special_attack(short special_attack, boolean show) { (void)special_attack; (void)show; }
+static __inline void stubbs_player_tags_new_map(void) { }
 static __inline void stubbs_image_effect_set(char const *name) { (void)name; }
 static __inline void stubbs_image_effect_start_blend(char const *name, real seconds) { (void)name; (void)seconds; }
 static __inline void stubbs_image_effect_end(void) { }

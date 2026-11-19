@@ -264,6 +264,120 @@ int network_rules_extended_options_mode(uint8_t const *options, int slayer, int 
 	return mode;
 }
 
+unsigned network_rules_modes_needed(uint8_t const *options, int engine, int teams)
+{
+	int hardcore = 0;
+	int mode;
+	unsigned needed = 0;
+
+	if (engine == NETWORK_RULES_ENGINE_BOMB)
+		return 0;
+	mode = network_rules_extended_options_mode(options, engine == NETWORK_RULES_ENGINE_SLAYER, teams, &hardcore);
+	if (mode == NETWORK_RULES_MODE_SWAT)
+		needed |= NETWORK_RULES_MODES_SWAT;
+	else if (mode == NETWORK_RULES_MODE_INFECTION)
+		needed |= NETWORK_RULES_MODES_INFECTION;
+	else if (mode == NETWORK_RULES_MODE_GUN_GAME)
+		needed |= NETWORK_RULES_MODES_GUN_GAME;
+	if (hardcore)
+		needed |= NETWORK_RULES_MODES_HARDCORE;
+	return needed;
+}
+
+int network_rules_modes_played(unsigned played, unsigned needed)
+{
+	return (needed & ~played) == 0;
+}
+
+int network_rules_modes_mode(unsigned needed, int *hardcore)
+{
+	*hardcore = (needed & NETWORK_RULES_MODES_HARDCORE) != 0;
+	if (needed & NETWORK_RULES_MODES_SWAT)
+		return NETWORK_RULES_MODE_SWAT;
+	if (needed & NETWORK_RULES_MODES_INFECTION)
+		return NETWORK_RULES_MODE_INFECTION;
+	if (needed & NETWORK_RULES_MODES_GUN_GAME)
+		return NETWORK_RULES_MODE_GUN_GAME;
+	return NETWORK_RULES_MODE_NONE;
+}
+
+void network_rules_mode_options_host(uint8_t *options)
+{
+	network_rules_extended_options_sanitize(options);
+	if ((options[NETWORK_RULES_OPTION_MODE] == NETWORK_RULES_MODE_SWAT &&
+			!(NETWORK_RULES_MODES_PLAYED & NETWORK_RULES_MODES_SWAT)) ||
+		(options[NETWORK_RULES_OPTION_MODE] == NETWORK_RULES_MODE_INFECTION &&
+			!(NETWORK_RULES_MODES_PLAYED & NETWORK_RULES_MODES_INFECTION)) ||
+		(options[NETWORK_RULES_OPTION_MODE] == NETWORK_RULES_MODE_GUN_GAME &&
+			!(NETWORK_RULES_MODES_PLAYED & NETWORK_RULES_MODES_GUN_GAME)))
+	{
+		options[NETWORK_RULES_OPTION_MODE] = NETWORK_RULES_MODE_NONE;
+	}
+	if (!(NETWORK_RULES_MODES_PLAYED & NETWORK_RULES_MODES_HARDCORE))
+		options[NETWORK_RULES_OPTION_HARDCORE] = 0;
+}
+
+void network_rules_mode_options_builtin(int mode, int hardcore, uint8_t *options)
+{
+	network_rules_extended_options_default(options);
+	options[NETWORK_RULES_OPTION_MODE] = (uint8_t)mode;
+	options[NETWORK_RULES_OPTION_HARDCORE] = hardcore != 0;
+	network_rules_extended_options_sanitize(options);
+}
+
+int network_rules_kind_byte(int mode, int hardcore)
+{
+	if (mode < 0 || mode >= NETWORK_RULES_NUMBER_OF_MODES)
+		mode = NETWORK_RULES_MODE_NONE;
+	return (mode & 0x7F) | (hardcore ? 0x80 : 0);
+}
+
+unsigned network_rules_kind_needed(int kind, int engine)
+{
+	uint8_t options[NETWORK_RULES_EXTENDED_OPTIONS_SIZE];
+
+	network_rules_extended_options_default(options);
+	options[NETWORK_RULES_OPTION_MODE] = (uint8_t)(kind & 0x7F);
+	options[NETWORK_RULES_OPTION_HARDCORE] = (kind & 0x80) != 0;
+	network_rules_extended_options_sanitize(options);
+	/* (a listing says nothing of teams: Infection and Gun Game are named
+	for the mode byte alone, as the kind's name is) */
+	return network_rules_modes_needed(options, engine,
+		options[NETWORK_RULES_OPTION_MODE] == NETWORK_RULES_MODE_INFECTION);
+}
+
+int network_rules_mode_refusal(unsigned needed, int has_delta, int has_capability, unsigned machine_modes,
+	unsigned announce)
+{
+	if (!needed)
+		return NETWORK_RULES_MODE_PLAYS;
+	if (!has_delta)
+		return announce >= NETWORK_RULES_MODES_VERSION ? NETWORK_RULES_MODE_PLAYS : NETWORK_RULES_MODE_REFUSE_VERSION;
+	if (!has_capability || !network_rules_modes_played(machine_modes, needed))
+		return NETWORK_RULES_MODE_REFUSE_BUILD;
+	return NETWORK_RULES_MODE_PLAYS;
+}
+
+char const *network_rules_modes_name(unsigned needed)
+{
+	if (needed & NETWORK_RULES_MODES_SWAT)
+		return "SWAT";
+	if (needed & NETWORK_RULES_MODES_INFECTION)
+		return "Infection";
+	if (needed & NETWORK_RULES_MODES_GUN_GAME)
+		return "Gun Game";
+	if (needed & NETWORK_RULES_MODES_HARDCORE)
+		return "Hardcore";
+	return "";
+}
+
+char const *network_rules_modes_unplayed(unsigned needed)
+{
+	unsigned unplayed = needed & ~(unsigned)NETWORK_RULES_MODES_PLAYED;
+
+	return unplayed ? network_rules_modes_name(unplayed) : NULL;
+}
+
 char const *network_rules_kind_name(int kind, int engine, int short_form)
 {
 	static char const *const modes[][2] = {

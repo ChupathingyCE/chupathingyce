@@ -73,6 +73,7 @@ symbols in this file:
 #include "hs/hs.h" /* port: the drop-down console's wording */
 #include "interface/player_ui.h" /* port: the drop-down console's prompt */
 #include "saved games/player_profile.h"
+#include <ctype.h>
 #include <stdarg.h>
 
 /* ---------- constants */
@@ -569,13 +570,16 @@ TERMINAL_SCROLLBACK_LINES, long ones wrapped at a space); and the prompt, a
 blue "> " and a block caret, under a rule. PgUp and PgDn, and the mouse
 wheel, scroll it; "^ ^ ^" under the scrollback says there is more below.
 Tab's candidates are a list under the panel, Tab and Shift+Tab choosing one.
+Ctrl+F filters the scrollback to the lines with what is typed ("spv3:"),
+Ctrl+Q hides the game's own notes, and Ctrl+Shift+C copies what is shown.
 
 Its lines are worded and colored for it as they are kept
 (terminal_scrollback_add): the commands typed after the shell's prompt
 (terminal_prompt), the script compiler's errors as a shell words them
 (terminal_wording, the one table of them: "chupathingy: command not found:
 sv_") in red, warnings in amber after "warning: ", answers in light
-grey-blue and the game's own notes in a dimmer grey. Retail's lines
+grey-blue and the game's own notes in a dimmer grey (a note with an
+error's words red, a warning's yellow: terminal_line_has). Retail's lines
 are never changed: "classic" draws the console as retail does, the prompt
 at the bottom and the last lines above it, fading, in retail's words. The
 game keeps running underneath, as retail's console let it (a network game
@@ -583,7 +587,9 @@ is never paused). The original Xbox and the consoles keep retail's console. */
 
 enum
 {
-	TERMINAL_SCROLLBACK_LINES = 512,
+	TERMINAL_SCROLLBACK_LINES = 2048,
+	/* the filter's text (Ctrl+F), at most */
+	TERMINAL_FILTER_LENGTH = 63,
 	/* the slide, open or shut, in milliseconds */
 	TERMINAL_DROPDOWN_SLIDE_TIME = 160,
 	/* Tab's candidates kept, and the rows of them shown */
@@ -606,7 +612,7 @@ panel's is laid on TERMINAL_PANEL_PASSES times: about 92% over the game) */
 static real_argb_color const terminal_color_output = { 1.f, 0.784f, 0.839f, 0.898f };   /* #C8D6E5 */
 static real_argb_color const terminal_color_command = { 1.f, 0.157f, 0.588f, 1.f };     /* #2896FF */
 static real_argb_color const terminal_color_error = { 1.f, 1.f, 0.42f, 0.42f };         /* #FF6B6B */
-static real_argb_color const terminal_color_warning = { 1.f, 1.f, 0.702f, 0.278f };     /* #FFB347 */
+static real_argb_color const terminal_color_warning = { 1.f, 1.f, 0.847f, 0.31f };      /* #FFD84F */
 static real_argb_color const terminal_color_ok = { 1.f, 0.486f, 1.f, 0.604f };          /* #7CFF9A */
 static real_argb_color const terminal_color_note = { 1.f, 0.541f, 0.608f, 0.69f };      /* #8A9BB0 */
 
@@ -629,6 +635,8 @@ static struct
 	/* an echoed command's prompt: where its user, host, path and "$ " end
 	(terminal_prompt); 0 for a line of one color */
 	short marks[4];
+	/* the game's own note (its chatter), which Ctrl+Q hides */
+	boolean noisy;
 } terminal_scrollback[TERMINAL_SCROLLBACK_LINES];
 /* the lines kept, and where the next goes */
 static long terminal_scrollback_count;
@@ -891,6 +899,132 @@ static void terminal_reword(
 	}
 }
 
+/* the words that make a note of the game's an error (red) or a warning
+(yellow), anywhere in it, in any case */
+static char const *const terminal_error_words[] =
+{
+	"error", "failed", "couldn't", "can't", "cannot", "invalid", "missing", NULL,
+};
+static char const *const terminal_warning_words[] =
+{
+	"warning", "warn:", NULL,
+};
+
+/* whether text has one of the words (any case); "0 failed" and "0 errors",
+a count of none, are no failure */
+static boolean terminal_line_has(
+	char const *text,
+	char const *const *words)
+{
+	char lower[TERMINAL_PRINTF_MAXIMUM_LINE_LENGTH + 1];
+	long index;
+
+	for (index = 0; text[index] && index < (long)sizeof(lower) - 1; index++)
+		lower[index] = (char)tolower((unsigned char)text[index]);
+	lower[index] = 0;
+	for (index = 0; words[index]; index++)
+	{
+		char const *found = strstr(lower, words[index]);
+
+		while (found && found >= lower + 2 && found[-1] == ' ' && found[-2] == '0' &&
+			(found == lower + 2 || found[-3] == ' ' || found[-3] == ','))
+		{
+			found = strstr(found + 1, words[index]);
+		}
+		if (found)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* ---------- Ctrl+F's filter and Ctrl+Q's quiet
+
+Ctrl+F begins a filter: the keys typed are what the scrollback's lines must
+have (any case: "spv3:", "lua:"), the scrollback showing only those as it is
+typed. Enter keeps it and goes back to the prompt ("filter: spv3:" in the
+header), Escape clears it, Ctrl+F again changes it. Ctrl+Q hides the game's
+own notes (its chatter), leaving the commands, their answers, the errors and
+the warnings, and shows them again. Neither changes what is kept. */
+static struct
+{
+	boolean editing;
+	char text[TERMINAL_FILTER_LENGTH + 1];
+	boolean quiet;
+} terminal_filter = { FALSE, "", FALSE };
+
+/* whether text has the filter's text, in any case */
+static boolean terminal_filter_matches(
+	char const *text)
+{
+	long length = (long)strlen(terminal_filter.text);
+	long at;
+	long index;
+
+	if (!length)
+		return TRUE;
+	for (at = 0; text[at]; at++)
+	{
+		for (index = 0; index < length && text[at + index] &&
+			tolower((unsigned char)text[at + index]) == tolower((unsigned char)terminal_filter.text[index]); index++)
+		{
+		}
+		if (index == length)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* whether a slot of the scrollback is shown, as the filter and quiet say */
+static boolean terminal_scrollback_shown(
+	long slot)
+{
+	if (terminal_filter.quiet && terminal_scrollback[slot].noisy)
+		return FALSE;
+	return terminal_filter_matches(terminal_scrollback[slot].text);
+}
+
+/* a slot's text as shown: with a filter, a listing's row (entries in
+columns, as help and Tab print them, two spaces or more apart) keeps only
+the entries that match, so that a row is not shown for its other column */
+static char const *terminal_scrollback_text(
+	long slot,
+	char *filtered,
+	long size)
+{
+	char const *text = terminal_scrollback[slot].text;
+	char const *cursor = text;
+	long length = 0;
+
+	if (!terminal_filter.text[0] || terminal_scrollback[slot].marks[3] || !strstr(text, "  "))
+		return text;
+	while (*cursor)
+	{
+		char entry[TERMINAL_PRINTF_MAXIMUM_LINE_LENGTH + 1];
+		long entry_length = 0;
+
+		while (*cursor == ' ')
+			cursor++;
+		/* (an entry ends at two spaces, or the line's end) */
+		while (*cursor && !(cursor[0] == ' ' && cursor[1] == ' ') && entry_length < (long)sizeof(entry) - 1)
+			entry[entry_length++] = *cursor++;
+		while (entry_length && entry[entry_length - 1] == ' ')
+			entry_length--;
+		entry[entry_length] = 0;
+		if (entry_length && terminal_filter_matches(entry) && length + entry_length + 3 < size)
+		{
+			if (length)
+			{
+				filtered[length++] = ' ';
+				filtered[length++] = ' ';
+			}
+			memcpy(filtered + length, entry, (size_t)entry_length);
+			length += entry_length;
+		}
+	}
+	filtered[length] = 0;
+	return length ? filtered : text;
+}
+
 /* a line into the scrollback as it is: its text and color */
 static void terminal_scrollback_put(
 	char const *text,
@@ -903,12 +1037,13 @@ static void terminal_scrollback_put(
 	terminal_scrollback[slot].text[NUMBEROF(terminal_scrollback[slot].text) - 1] = 0;
 	terminal_scrollback[slot].color = *color;
 	terminal_scrollback[slot].tabstop = tabstop;
+	terminal_scrollback[slot].noisy = color == &terminal_color_note;
 	csmemset(terminal_scrollback[slot].marks, 0, sizeof(terminal_scrollback[slot].marks));
 	terminal_scrollback_next = (slot + 1) % TERMINAL_SCROLLBACK_LINES;
 	if (terminal_scrollback_count < TERMINAL_SCROLLBACK_LINES)
 		terminal_scrollback_count++;
 	/* (a line printed while scrolled back keeps the view where it is) */
-	if (terminal_scrollback_offset)
+	if (terminal_scrollback_offset && terminal_scrollback_shown(slot))
 		terminal_scrollback_offset++;
 }
 
@@ -951,9 +1086,9 @@ static void terminal_scrollback_add(
 			terminal_scrollback_put(plain, &terminal_color_error, FALSE);
 			return;
 		}
-		if (!strncmp(start, "EXCEPTION", 9) || !strncmp(start, "ERROR", 5) || !strncmp(start, "error", 5))
+		if (!strncmp(start, "EXCEPTION", 9) || terminal_line_has(start, terminal_error_words))
 			color = &terminal_color_error;
-		else if (!strncmp(start, "WARNING", 7) || !strncmp(start, "warning", 7))
+		else if (terminal_line_has(start, terminal_warning_words))
 			color = &terminal_color_warning;
 		else
 			color = terminal_command_running ? &terminal_color_output : &terminal_color_note;
@@ -1247,6 +1382,57 @@ searches the history back (and, while it does, takes the keys typed),
 Ctrl+A and Ctrl+E go to the start and the end, Ctrl+U clears to the start,
 Ctrl+W deletes the word before, Ctrl+L clears the screen. TRUE when it took
 the key to itself (console.c does not see it); others go on as before */
+#if !defined(HALO_CONSOLE)
+void platform_clipboard_set(const char *text);
+#endif
+
+/* Ctrl+Shift+C: the scrollback's lines as shown (the filter's and quiet's),
+the newest that fit, oldest first, on the clipboard */
+static void terminal_scrollback_copy(
+	void)
+{
+#if !defined(HALO_CONSOLE)
+	static char text[64 * 1024];
+	long length = 0;
+	long first;
+	long line;
+
+	/* (the newest lines shown, as many as fit, whatever the view's scroll:
+	counted back from the newest, then written oldest first) */
+	for (first = 0; first < terminal_scrollback_count; first++)
+	{
+		long slot = (terminal_scrollback_next - 1 - first + 2 * TERMINAL_SCROLLBACK_LINES) % TERMINAL_SCROLLBACK_LINES;
+
+		if (!terminal_scrollback_shown(slot))
+			continue;
+		length += (long)strlen(terminal_scrollback[slot].text) + 1;
+		if (length >= (long)sizeof(text))
+			break;
+	}
+	length = 0;
+	for (line = first - 1; line >= 0; line--)
+	{
+		long slot = (terminal_scrollback_next - 1 - line + 2 * TERMINAL_SCROLLBACK_LINES) % TERMINAL_SCROLLBACK_LINES;
+		char filtered[TERMINAL_PRINTF_MAXIMUM_LINE_LENGTH + 1];
+		char const *shown;
+		long size;
+
+		if (!terminal_scrollback_shown(slot))
+			continue;
+		shown = terminal_scrollback_text(slot, filtered, sizeof(filtered));
+		size = (long)strlen(shown);
+		if (length + size + 2 > (long)sizeof(text))
+			break;
+		memcpy(text + length, shown, (size_t)size);
+		length += size;
+		text[length++] = '\n';
+	}
+	text[length] = 0;
+	if (length)
+		platform_clipboard_set(text);
+#endif
+}
+
 static boolean terminal_shell_key(
 	struct edit_text *edit,
 	struct key_stroke const *key)
@@ -1261,6 +1447,64 @@ static boolean terminal_shell_key(
 	}
 	if (key->key_code == _key_shift || key->key_code == _key_control || key->key_code == _key_alt)
 		return FALSE;
+	if (control && TEST_FLAG(key->modifier_flags, 0) && key->key_code == _key_c)
+	{
+		terminal_scrollback_copy();
+		return TRUE;
+	}
+	if (terminal_filter.editing)
+	{
+		long length = (long)strlen(terminal_filter.text);
+
+		/* (~ closes the console, as ever: the filter kept as typed) */
+		if (key->key_code == _key_backquote)
+		{
+			terminal_filter.editing = FALSE;
+			return FALSE;
+		}
+
+		if (key->key_code == _key_backspace)
+		{
+			if (length)
+				terminal_filter.text[length - 1] = 0;
+		}
+		else if (key->key_code == _key_escape)
+		{
+			terminal_filter.editing = FALSE;
+			terminal_filter.text[0] = 0;
+		}
+		else if (key->key_code == _key_return || key->key_code == _keypad_enter || (control && key->key_code == _key_f))
+		{
+			terminal_filter.editing = FALSE;
+		}
+		else if (!control && key->ascii_code >= ' ' && key->ascii_code < 127 && length < TERMINAL_FILTER_LENGTH)
+		{
+			terminal_filter.text[length] = key->ascii_code;
+			terminal_filter.text[length + 1] = 0;
+		}
+		else if (key->key_code == _key_page_up || key->key_code == _key_page_down)
+		{
+			/* (scrolled as ever: edit_text's keys) */
+			return FALSE;
+		}
+		/* (the view from the newest of what it shows) */
+		terminal_scrollback_offset = 0;
+		return TRUE;
+	}
+	if (control && key->key_code == _key_f)
+	{
+		/* (a filter kept is changed, not begun again) */
+		terminal_search.active = FALSE;
+		terminal_filter.editing = TRUE;
+		terminal_scrollback_offset = 0;
+		return TRUE;
+	}
+	if (control && key->key_code == _key_q)
+	{
+		terminal_filter.quiet = !terminal_filter.quiet;
+		terminal_scrollback_offset = 0;
+		return TRUE;
+	}
 	if (terminal_search.active)
 	{
 		long length = (long)strlen(terminal_search.query);
@@ -1547,6 +1791,9 @@ static boolean terminal_dropdown_draw(
 	slide's) */
 	step = PIN(step, 0.f, 1.f);
 	terminal_dropdown.openness = PIN(terminal_dropdown.openness + (open ? step : -step), 0.f, 1.f);
+	/* (a filter being typed ends as the console closes; one kept stays) */
+	if (!open)
+		terminal_filter.editing = FALSE;
 	if (terminal_dropdown.openness <= 0.f)
 	{
 		terminal_scrollback_offset = 0;
@@ -1578,6 +1825,7 @@ static boolean terminal_dropdown_draw(
 		char const *hints;
 		boolean hi_res = terminal_font_scale() != 1.f;
 		boolean keyboard = TRUE;
+		long state_columns = 0;
 
 #if !defined(HALO_CONSOLE)
 		keyboard = halo_keyboard_prompts() != 0;
@@ -1588,8 +1836,8 @@ static boolean terminal_dropdown_draw(
 		if (keyboard)
 		{
 			hints = hi_res ?
-				"Tab complete \xB7 Ctrl+R search \xB7 PgUp/PgDn scroll \xB7 ~ close" :
-				"Tab complete - Ctrl+R search - PgUp/PgDn scroll - ~ close";
+				"Tab complete \xB7 Ctrl+R search \xB7 Ctrl+F filter \xB7 Ctrl+Q quiet \xB7 PgUp/PgDn scroll \xB7 ~ close" :
+				"Tab complete - Ctrl+R search - Ctrl+F filter - Ctrl+Q quiet - PgUp/PgDn scroll - ~ close";
 		}
 		else
 		{
@@ -1601,8 +1849,22 @@ static boolean terminal_dropdown_draw(
 		bounds.x0 = text_left;
 		bounds.x1 = window.x1;
 		terminal_dropdown_text(font_tag_index, &bounds, "CONSOLE", 7, &terminal_color_command, FALSE);
-		bounds.x0 = (short)MAX(text_left + 10 * width, window.x1 - padding - (real)strlen(hints) * width);
-		terminal_dropdown_text(font_tag_index, &bounds, hints, (short)strlen(hints), &terminal_color_note, FALSE);
+		/* (what the scrollback shows, when not all of it) */
+		if (terminal_filter.text[0] || terminal_filter.editing || terminal_filter.quiet)
+		{
+			char state[TERMINAL_FILTER_LENGTH + 32];
+
+			snprintf(state, sizeof(state), "%s%s%s%s", terminal_filter.text[0] || terminal_filter.editing ? "filter: " : "",
+				terminal_filter.text, terminal_filter.editing ? "_" : "",
+				terminal_filter.quiet ? (terminal_filter.text[0] || terminal_filter.editing ? "  quiet" : "quiet") : "");
+			bounds.x0 = (short)(text_left + 9 * width);
+			terminal_dropdown_text(font_tag_index, &bounds, state, (short)strlen(state), &terminal_color_warning, FALSE);
+			state_columns = (long)strlen(state) + 2;
+		}
+		/* (the keys at the right, where they fit beside the rest) */
+		bounds.x0 = (short)MAX(text_left + (10 + state_columns) * width, window.x1 - padding - (real)strlen(hints) * width);
+		if (!state_columns || bounds.x0 + (real)strlen(hints) * width <= window.x1)
+			terminal_dropdown_text(font_tag_index, &bounds, hints, (short)strlen(hints), &terminal_color_note, FALSE);
 	}
 
 	/* the prompt line, under a rule: a blue "> ", the input, and a block
@@ -1702,13 +1964,21 @@ static boolean terminal_dropdown_draw(
 		{
 			long slot = (terminal_scrollback_next - 1 - line + 2 * TERMINAL_SCROLLBACK_LINES) % TERMINAL_SCROLLBACK_LINES;
 			short starts[TERMINAL_PRINTF_MAXIMUM_LINE_LENGTH / 8 + 2];
-			short count = terminal_wrap(terminal_scrollback[slot].text, terminal_scrollback[slot].tabstop, columns,
-				starts, (short)NUMBEROF(starts));
+			short count;
 			short row;
+			char filtered[TERMINAL_PRINTF_MAXIMUM_LINE_LENGTH + 1];
+			char const *text;
+
+			/* (the filter's and quiet's lines only) */
+			if (!terminal_scrollback_shown(slot))
+				continue;
+			text = terminal_scrollback_text(slot, filtered, sizeof(filtered));
+			count = terminal_wrap(text, terminal_scrollback[slot].tabstop, columns,
+				starts, (short)NUMBEROF(starts));
 
 			for (row = (short)(count - 1); row >= 0 && y - line_height >= top; row--)
 			{
-				short end = row + 1 < count ? starts[row + 1] : (short)strlen(terminal_scrollback[slot].text);
+				short end = row + 1 < count ? starts[row + 1] : (short)strlen(text);
 
 				if (rows_to_skip > 0)
 				{
@@ -1720,12 +1990,12 @@ static boolean terminal_dropdown_draw(
 				y = bounds.y0;
 				if (!starts[row] && terminal_scrollback[slot].marks[3])
 				{
-					terminal_dropdown_prompt_text(font_tag_index, &bounds, terminal_scrollback[slot].text, end,
+					terminal_dropdown_prompt_text(font_tag_index, &bounds, text, end,
 						terminal_scrollback[slot].marks, &terminal_scrollback[slot].color, width);
 				}
 				else
 				{
-					terminal_dropdown_text(font_tag_index, &bounds, terminal_scrollback[slot].text + starts[row],
+					terminal_dropdown_text(font_tag_index, &bounds, text + starts[row],
 						(short)(end - starts[row]), &terminal_scrollback[slot].color, terminal_scrollback[slot].tabstop);
 				}
 			}

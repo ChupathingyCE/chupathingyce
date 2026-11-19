@@ -408,12 +408,16 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 			global_d3d_device,
 			map_index,
 			D3DTSS_ADDRESSU,
-			parameters->map_wrapped[map_index] ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP);
+			/* port: 2, mirrored across (a full-screen HUD bitmap carried
+			past its 4:3 edges: hud_draw.c) */
+			parameters->map_wrapped[map_index] == 2 ? D3DTADDRESS_MIRROR :
+				parameters->map_wrapped[map_index] ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP);
 		IDirect3DDevice8_SetTextureStageState(
 			global_d3d_device,
 			map_index,
 			D3DTSS_ADDRESSV,
-			parameters->map_wrapped[map_index] ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP);
+			parameters->map_wrapped[map_index] == 2 ? D3DTADDRESS_CLAMP :
+				parameters->map_wrapped[map_index] ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP);
 		IDirect3DDevice8_SetTextureStageState(
 			global_d3d_device,
 			map_index,

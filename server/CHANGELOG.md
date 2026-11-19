@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+- `opence_welcome` (off by default): each OpenCE player gets one line in
+  their chat once they join, that this is a Chupathingy server.
+  `opence_welcome_text` sets the line, up to 63 characters. Chupathingy
+  players never see it.
 - A playlist entry whose map isn't installed on the server is skipped,
   and a playlist with no installed map at all isn't hosted (the console
   and the log say so) instead of the game ending at the switch.

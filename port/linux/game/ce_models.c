@@ -59,6 +59,7 @@ listed, with a cache block, a texture and channels of its own
 #include "bitmaps/bitmap_group.h"
 #include "rasterizer/rasterizer_geometry.h"
 #include "ce_map_checks.h"
+#include "mcc_sha256.h"
 
 #include <xtl.h>
 #include <stdlib.h>
@@ -95,8 +96,11 @@ enum
 	transparent chicago shader's extra flags (rasterizer_xbox_transparent_geometry.c),
 	and an extended one's (after its two-stage maps) */
 	SHADER_TYPE_OFFSET = 0x24,
+	CHICAGO_MAPS_OFFSET = 0x54,
 	CHICAGO_EXTRA_FLAGS_OFFSET = 0x60,
+	CHICAGO_EXTENDED_TWO_STAGE_MAPS_OFFSET = 0x60,
 	CHICAGO_EXTENDED_EXTRA_FLAGS_OFFSET = 0x6c,
+	CHICAGO_BLOCK_SIZE = 12,
 	CE_SHADER_TYPE_TRANSPARENT_CHICAGO = 6,
 	CE_SHADER_TYPE_TRANSPARENT_CHICAGO_EXTENDED = 7,
 
@@ -778,6 +782,36 @@ boolean ce_model_data_begin(
 	return data->windows != NULL;
 }
 
+boolean ce_model_data_digest(
+	struct ce_model_data *data,
+	byte digest[CE_DIGEST_SIZE])
+{
+	struct mcc_sha256 context;
+	unsigned long offset = 0;
+
+	mcc_sha256_begin(&context);
+	while (offset < data->size)
+	{
+		unsigned long chunk = MIN(data->size - offset, (unsigned long)CE_MODEL_DATA_WINDOW_SIZE);
+		byte const *at;
+
+		if (data->whole)
+			at = data->whole + offset;
+		else
+		{
+			/* (the first window's, which is then moved on) */
+			data->window_sizes[0] = 0;
+			if (!data->read(data->context, offset, data->windows, chunk))
+				return FALSE;
+			at = data->windows;
+		}
+		mcc_sha256_add(&context, at, (int)chunk);
+		offset += chunk;
+	}
+	mcc_sha256_end(&context, digest);
+	return TRUE;
+}
+
 void ce_model_data_end(
 	struct ce_model_data *data)
 {
@@ -810,6 +844,16 @@ boolean ce_models_tags_loaded(
 	data.whole = model_data;
 	data.size = model_data_size;
 	data.vertex_data_size = vertex_data_size;
+	/* (only as it was checked: ce_map_checks.c) */
+	{
+		byte digest[CE_DIGEST_SIZE];
+
+		if (CE_MAP_HASHED &&
+			(!ce_model_data_digest(&data, digest) || !ce_map_loaded_model_data_unchanged(digest)))
+		{
+			return FALSE;
+		}
+	}
 	return ce_models_convert_guarded(tag_instances, tag_count, &data);
 }
 
@@ -834,6 +878,17 @@ boolean ce_models_tags_loaded_read(
 	data.context = &file_offset;
 	if (!ce_model_data_begin(&data))
 		return FALSE;
+	/* (only as it was checked: ce_map_checks.c) */
+	{
+		byte digest[CE_DIGEST_SIZE];
+
+		if (CE_MAP_HASHED &&
+			(!ce_model_data_digest(&data, digest) || !ce_map_loaded_model_data_unchanged(digest)))
+		{
+			ce_model_data_end(&data);
+			return FALSE;
+		}
+	}
 	converted = ce_models_convert_guarded(tag_instances, tag_count, &data);
 	ce_model_data_end(&data);
 	return converted;
@@ -845,14 +900,16 @@ added a shader type after transparent chicago (7, transparent chicago
 extended, scex), so its later types are one more than the Xbox's (water 8,
 glass 9, meter 10, plasma 11; the Xbox's 7 to 10). Each type is put back;
 each extended chicago shader becomes a chicago one (schi): its four-stage
-maps are where a chicago shader's maps are, its two-stage maps (the fallback
-for older graphics cards) are dropped, and its extra flags move up to where
-a chicago shader's are */
+maps are where a chicago shader's maps are, and its extra flags move up to
+where a chicago shader's are. Its two-stage maps are what Halo PC drew on
+graphics cards of two texture stages, and where it has no four-stage maps,
+on every card: there, they are its maps (as MCC's are, mcc_tags.c), not
+nothing drawn. Elsewhere they are not needed, and are let go */
 void ce_shaders_tags_loaded(
 	void *tag_instances,
 	long tag_count)
 {
-	long extended = 0, shifted = 0;
+	long extended = 0, shifted = 0, two_stage = 0;
 	long index;
 
 	ce_tags_guard_begin_loaded(tag_instances, tag_count);
@@ -877,15 +934,32 @@ void ce_shaders_tags_loaded(
 			continue;
 		}
 		if (!ce_tags_writable(shader + SHADER_TYPE_OFFSET, sizeof(short)) ||
-			(instance->group_tag == 'scex' && !ce_tags_writable(shader + CHICAGO_EXTRA_FLAGS_OFFSET, 4)))
+			(instance->group_tag == 'scex' &&
+				!ce_tags_writable(shader + CHICAGO_MAPS_OFFSET,
+					CHICAGO_EXTENDED_EXTRA_FLAGS_OFFSET - CHICAGO_MAPS_OFFSET)))
 		{
 			continue;
 		}
 		type = (short *)(shader + SHADER_TYPE_OFFSET);
 		if (instance->group_tag == 'scex')
 		{
-			*(unsigned long *)(shader + CHICAGO_EXTRA_FLAGS_OFFSET) =
-				*(unsigned long *)(shader + CHICAGO_EXTENDED_EXTRA_FLAGS_OFFSET);
+			unsigned long extra_flags = *(unsigned long *)(shader + CHICAGO_EXTENDED_EXTRA_FLAGS_OFFSET);
+
+			/* (its two-stage maps where it has no four-stage ones: a block
+			of the same maps, checked as its own by Halo PC's tag schema,
+			tag_schema_render.c) */
+			if (*(long *)(shader + CHICAGO_MAPS_OFFSET) <= 0 &&
+				*(long *)(shader + CHICAGO_EXTENDED_TWO_STAGE_MAPS_OFFSET) > 0)
+			{
+				memcpy(shader + CHICAGO_MAPS_OFFSET, shader + CHICAGO_EXTENDED_TWO_STAGE_MAPS_OFFSET,
+					CHICAGO_BLOCK_SIZE);
+				two_stage++;
+			}
+			/* (and where a chicago shader's flags and padding are, its flags
+			and nothing of its two-stage maps' block) */
+			memset(shader + CHICAGO_EXTRA_FLAGS_OFFSET, 0,
+				CHICAGO_EXTENDED_EXTRA_FLAGS_OFFSET - CHICAGO_EXTRA_FLAGS_OFFSET);
+			*(unsigned long *)(shader + CHICAGO_EXTRA_FLAGS_OFFSET) = extra_flags;
 			*type = CE_SHADER_TYPE_TRANSPARENT_CHICAGO;
 			instance->group_tag = 'schi';
 			instance->parent_group_tags[0] = 'shdr';
@@ -901,6 +975,8 @@ void ce_shaders_tags_loaded(
 	ce_tags_guard_end();
 	error(_error_silent, "Custom Edition maps: %ld extended chicago shaders made chicago ones, %ld shader types moved",
 		extended, shifted);
+	error(_error_silent, "Custom Edition maps: %ld extended chicago shaders with no four-stage maps drawn with their "
+		"two-stage maps", two_stage);
 	error(_error_silent, "Custom Edition maps: %ld multipurpose bitmaps sampled in Halo PC's channels",
 		ce_multipurpose_bitmaps_find(tag_instances, tag_count));
 }
@@ -926,7 +1002,9 @@ void ce_models_tags_unloaded(
 	loaded: scenario_tags_unload) */
 	for (index = 0; index < ce_multipurpose_copy_count; index++)
 		free(ce_multipurpose_copies[index].copy);
-	free(ce_multipurpose_copies);
+	/* (none made: the debug allocator refuses a NULL) */
+	if (ce_multipurpose_copies)
+		free(ce_multipurpose_copies);
 	ce_multipurpose_copies = NULL;
 	ce_multipurpose_copy_count = 0;
 }

@@ -1,7 +1,7 @@
 /*
 LATE_JOIN.C
 
-Late joiners waiting for the next game (docs/delta.md, Host rules). A host
+Late joiners waiting for the next game (docs/delta/peer.md, Host rules). A host
 option, off by default: Halo spawns a player who joins a game in progress
 at once. With it on (a player's host's network.late_join_hold, a dedicated
 server's late_join_hold), they wait until the next game starts and watch

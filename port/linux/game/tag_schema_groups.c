@@ -7,6 +7,7 @@ The tag groups' schemas (tag_schema.h), from each tag_schema_*.c.
 /* ---------- headers */
 
 #include "cseries.h"
+#include "cache/physical_memory_map.h"
 #include "tag_schema.h"
 
 /* ---------- globals */
@@ -20,4 +21,14 @@ struct tag_schema_group const *const tag_schema_group_lists[] =
 	tag_schema_effect_groups,
 	tag_schema_scenario_groups,
 	NULL
+};
+
+/* (cache/physical_memory_map.h's tag cache) */
+struct tag_schema_layout const tag_schema_xbox_layout =
+{
+	"Xbox",
+	tag_schema_group_lists,
+	NULL,
+	TAG_CACHE_SIZE,
+	0
 };

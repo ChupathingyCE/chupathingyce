@@ -1,7 +1,7 @@
 /*
 DELTA_MODERATION.H
 
-Delta Peer's moderation, as the game sees it (docs/delta.md, Moderation;
+Delta Peer's moderation, as the game sees it (docs/delta/peer.md, Moderation;
 delta_peer_game.c): plain types only, so the dedicated server's units
 (server/src) and the game's screens both call it.
 

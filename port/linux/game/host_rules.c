@@ -1,7 +1,7 @@
 /*
 HOST_RULES.C
 
-The host's rules for its players' extras (docs/delta.md, Host rules). The
+The host's rules for its players' extras (docs/delta/peer.md, Host rules). The
 game plays as the Xbox did by default; an extra that changes what a player
 sees of the others (names above heads, a follow camera on them while
 waiting to respawn) is the host's to allow, so that one rule holds for

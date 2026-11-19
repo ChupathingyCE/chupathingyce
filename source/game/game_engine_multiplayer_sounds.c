@@ -235,6 +235,13 @@ static long get_sound_length_in_ticks(
 void game_engine_play_multiplayer_sound(
 	long sound_index)
 {
+#ifdef HALO_SERVER
+	/* port: Custom Edition players' clients hear the game's sounds as
+	Custom Edition's own server sends them (server/src/server_ce.c) */
+	void server_ce_multiplayer_sound(long sound_index);
+
+	server_ce_multiplayer_sound(sound_index);
+#endif
 	if (sound_is_queueable[sound_index])
 	{
 		push_queued_sound(
@@ -274,6 +281,22 @@ boolean game_engine_multiplayer_sound_exists(
 	return sound && sound->index != NONE;
 }
 #endif
+
+/* port: audio.hit_sounds' tone, played at once, never queued, at the tag's
+own gain: the globals' "ting" (sound 0x2B, which Halo PC's HUD played on a
+hit; Custom Edition's maps have it, at full gain), or, on the Xbox's maps,
+whose globals end at countdown_timer_end and have no ting, the countdown's
+tick, a short soft beep every map has. The damage code
+(source/objects/damage.c) asks for it. */
+void game_engine_play_hit_sound(
+	void)
+{
+#ifdef HALO_GAME_BROWSER
+	_game_engine_play_multiplayer_sound(game_engine_multiplayer_sound_exists(_multiplayer_sound_ting) ?
+		_multiplayer_sound_ting : _multiplayer_sound_countdown_timer);
+#endif
+	return;
+}
 
 void game_engine_intialize_queued_sounds(
 	void)

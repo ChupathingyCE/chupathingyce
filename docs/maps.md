@@ -52,8 +52,8 @@ and their Map Browser (Multiplayer > MAP BROWSER) downloads them. Each kind has 
 | Folder | What goes in it | Played online as |
 | --- | --- | --- |
 | `maps_ce` | Halo PC Custom Edition maps, with Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` | `<name>@ce` |
-| `maps_md` | HaloMD maps (below) | `<name>@md` |
-| `maps_pc` | the maps of your own Halo PC (retail) disc | `<name>@pc` |
+| `maps_md` | HaloMD maps (below); they read Custom Edition's resource maps from `maps_ce` | `<name>@md` |
+| `maps_pc` | the maps of your own Halo PC (retail) disc, with its `bitmaps.map` and `sounds.map` | `<name>@pc` |
 
 Where the game's `maps` folder is:
 
@@ -75,6 +75,13 @@ marked [CE], [MD] or [PC]. In Online Games, a game on a Halo PC map is
 badged, and it can be joined only by players who have that map: the game
 says which file is missing and where it goes. The Xbox maps from your disc
 image are still needed. Chupathingy doesn't come with any of these files.
+
+**Custom Edition maps on a 64 MB Xbox.** A stock 64 MB Xbox loads a
+Custom Edition map's large textures at half size (a 2048x2048 lightmap at a
+quarter), so a Halo 2 map's frame fits its texture memory, as the Xbox's own
+maps were made to. The HUD and the menus keep theirs. `console.ce_reduce_bitmaps
+= false` in the Xbox's `config.toml` loads every texture whole, which can halt a
+large map. A console with 128 MB or more always loads them whole.
 
 **HD HUDs on Custom Edition maps.** Custom Edition maps can draw their HUD in
 high resolution. For the HD HUD on every map that uses Custom Edition's shared
@@ -285,6 +292,14 @@ the maps you want from HaloMD's mod list, and put their `.map` files in
 They need Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` in
 `maps_ce` too: a HaloMD map keeps Halo's own textures and sounds in those
 shared files, and the game reads them from Custom Edition's copies.
+
+HaloMD maps were made for Halo PC's own `bitmaps.map` and `sounds.map`,
+which hold more than Custom Edition's (the campaign's textures and sounds,
+which many HaloMD maps use). Copy those two files from your Halo PC (retail)
+install into `maps_pc`, and the game reads each map's stock textures and
+sounds from them, as Halo PC did. Without them, those textures are stand-ins
+and those sounds are silent, and the game says on screen which file to add.
+Chupathingy never ships or downloads these files: they are yours.
 
 The maps appear in the multiplayer map list after the Halo PC maps, marked
 [MD], with their names from HaloMD's list. Online, a HaloMD map is played as

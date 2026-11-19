@@ -628,6 +628,8 @@ boolean cache_file_tags_are_ce(void);
 #include "mcc_objects.h"
 #include "mcc_player.h"
 #include "mcc_ui_teams.h"
+#include "game_modes.h" /* port: the game modes layer (docs/modes.md) */
+#include "game_engine_playlist.h" /* port: the built-ins' builders */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -648,6 +650,9 @@ enum
 	MULTIPLAYER_MAXIMUM_PLAYERS = HALO_PORT_MAXIMUM_NETWORK_PLAYERS,
 	/* ui\multiplayer_game_text only has strings for the first 16 places */
 	NUMBER_OF_PLACE_STRINGS = 16,
+	/* port: the most duplicate netgame flags a map's check logs
+	(netgame_flag_verify_no_team_duplicates) */
+	MAXIMUM_NETGAME_FLAG_DUPLICATES_REPORTED = 16,
 };
 
 /* scenario_starting_equipment.flags (HCEX names) */
@@ -1536,7 +1541,21 @@ int config_boolean(const char *name);
 static boolean scoreboard_in_game_only(
 	void)
 {
+#ifdef HALO_CONSOLE_SETTINGS_ON_CHANGE
+	/* (read again only when the settings change: halo_port_features.h) */
+	extern unsigned long config_changes(void);
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean in_game_only;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		in_game_only = !config_boolean("display.show_quit_players");
+	}
+	return in_game_only;
+#else
 	return !config_boolean("display.show_quit_players");
+#endif
 }
 
 long populate_statistic_buffer(
@@ -1924,7 +1943,7 @@ as a game name's: a longer name is cut with "...") */
 #define POSTGAME_PROFILE_NAME_LENGTH 12
 /* (the HUD's lines, the kill feed's and the crosshair's: a whole handle
 with its mark, the Delta, and 20 letters) */
-#define EVENT_PROFILE_NAME_LENGTH 22
+#define EVENT_PROFILE_NAME_LENGTH GAME_ENGINE_SHOWN_NAME_LENGTH
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port/linux/game/profile_names.c's */
 boolean profile_names_player(long player_index, wchar_t *name, long size);
@@ -1980,6 +1999,16 @@ static wchar_t const *scoreboard_player_name(
 	(void)size;
 #endif
 	return player->name;
+}
+
+/* port: a player's name as the scoreboard shows it (scoreboard_player_name),
+for the HUD's nameplates and the game types' lines (game_engine.h) */
+wchar_t const *game_engine_player_shown_name(
+	long player_index,
+	wchar_t *buffer,
+	long size)
+{
+	return scoreboard_player_name(player_index, player_get(player_index), buffer, size);
 }
 
 #ifdef HALO_GAME_BROWSER
@@ -2091,6 +2120,24 @@ columns), and whether it showed last frame (opened, it shows the viewer's
 own player) */
 static long scoreboard_scroll = 0;
 static boolean scoreboard_open = FALSE;
+
+#ifdef HALO_CONSOLE_SETTINGS_ON_CHANGE
+/* display.scoreboard_icons, read again only when the settings change
+(halo_port_features.h): asked for each row */
+static boolean scoreboard_icons_shown(
+	void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean shown;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		shown = config_boolean("display.scoreboard_icons") != 0;
+	}
+	return shown;
+}
+#endif
 
 /* display.scoreboard_team_layout: a team game's players in a column for each
 team ("teams", the red team's on the left), or all in order of score
@@ -2209,7 +2256,11 @@ static void game_engine_rasterize_scoreboard(
 #endif
 	/* (the verified mark's room only when a player has it; neither it nor
 	the logos with display.scoreboard_icons off: names and scores alone) */
+#ifdef HALO_CONSOLE_SETTINGS_ON_CHANGE
+	for (index = 0; index < ranked_count && scoreboard_icons_shown(); index++)
+#else
 	for (index = 0; index < ranked_count && config_boolean("display.scoreboard_icons"); index++)
+#endif
 	{
 		if (!campaign && scoreboard_player_verified(ranked[index].player_index))
 		{
@@ -2523,6 +2574,8 @@ static void game_engine_rasterize_in_game_score(
 		wchar_t *status_string;
 		wchar_t *place_string;
 		real_argb_color *row_color;
+		/* port: (the name the scoreboard shows: scoreboard_player_name) */
+		wchar_t shown_name[GAME_ENGINE_SHOWN_NAME_LENGTH];
 
 		is_current_player = player_index == entry_player_index;
 		if (player)
@@ -2574,7 +2627,7 @@ static void game_engine_rasterize_in_game_score(
 				NUMBEROF(row_string),
 				L"\t%s\t%s\t%s",
 				place_string,
-				player->name,
+				scoreboard_player_name(entry_player_index, player, shown_name, NUMBEROF(shown_name)),
 				status_string);
 			row_string[NUMBEROF(row_string) - 1] = 0;
 
@@ -3344,8 +3397,23 @@ static void game_show_score_one_player(
 	long message,
 	long message_data)
 {
+#ifdef HALO_SERVER
+	/* port: a Custom Edition player's client is told the message, as Custom
+	Edition's own server tells it (server/src/server_ce.c); the sounds the
+	message plays as it is shown here (a double kill's) are its client's
+	to play, not everyone's */
+	void server_ce_multiplayer_message(long player_index, long message, long message_data);
+	void server_ce_showing_message(boolean showing);
+
+	if (message != NONE)
+		server_ce_multiplayer_message(player_index, message, message_data);
+	server_ce_showing_message(TRUE);
+#endif
 	if (message != NONE)
 		multiplayer_message(player_index, message, message_data);
+#ifdef HALO_SERVER
+	server_ce_showing_message(FALSE);
+#endif
 
 	return;
 }
@@ -5243,6 +5311,10 @@ void game_engine_player_killed(
 			dead_player_index,
 			friendly_fire);
 	}
+#ifdef HALO_GAME_BROWSER
+	/* port: Hardcore's restore of the killer (game_modes.c), the host's */
+	game_mode_player_killed(killing_player_index, dead_player_index, friendly_fire);
+#endif
 
 	same_player = killing_player_index == dead_player_index;
 	if (killing_player_index != NONE && dead_player_index != NONE)
@@ -5575,6 +5647,11 @@ boolean game_engine_draw_object_in_motion_sensor(
 
 	if (game_engine)
 		draw_object = TEST_FLAG(global_variant.universal_variant.flags, _game_variant_draw_object_in_motion_sensor_bit);
+#ifdef HALO_GAME_BROWSER
+	/* port: Hardcore draws no motion sensor (game_modes.c) */
+	if (draw_object && game_engine && game_mode_hides_motion_sensor())
+		draw_object = FALSE;
+#endif
 	/* port: friends only: the viewer's team's */
 	if (draw_object && game_engine && global_variant.universal_variant.teams &&
 		game_variant_options_get()->radar_players == _radar_players_friends &&
@@ -5606,6 +5683,11 @@ boolean game_engine_hud_draw_motion_sensor(
 			default_draw_motion_sensor = FALSE;
 
 		draw_motion_sensor |= default_draw_motion_sensor;
+#ifdef HALO_GAME_BROWSER
+		/* port: Hardcore draws no motion sensor (game_modes.c) */
+		if (game_mode_hides_motion_sensor())
+			draw_motion_sensor = FALSE;
+#endif
 	}
 
 	return draw_motion_sensor;
@@ -7640,6 +7722,17 @@ struct game_variant *game_engine_get_variant_by_name(
 		result = *build_game_variant_grifball(&temporary);
 	else if (csstrcmp(name, "grifball_open_pitch") == 0)
 		result = *build_game_variant_grifball_open_pitch(&temporary);
+	/* (the game modes layer's: game_modes.c) */
+	else if (csstrcmp(name, "swat") == 0)
+		result = *build_game_variant_swat(&temporary);
+	else if (csstrcmp(name, "hardcore") == 0)
+		result = *build_game_variant_hardcore(&temporary);
+	else if (csstrcmp(name, "hc_ctf") == 0)
+		result = *build_game_variant_hc_ctf(&temporary);
+	else if (csstrcmp(name, "hc_oddball") == 0)
+		result = *build_game_variant_hc_oddball(&temporary);
+	else if (csstrcmp(name, "hc_king") == 0)
+		result = *build_game_variant_hc_king(&temporary);
 #endif
 
 	*variant = result;
@@ -7767,6 +7860,71 @@ boolean game_engine_allow_integrated_lights(
 
 	return allow_integrated_lights;
 }
+
+#ifdef HALO_GAME_BROWSER
+/* port: the game modes layer's built-ins (game_modes.c, docs/modes.md). The
+settings are OpenCE's built-ins' as our specification lists them; each one's
+PC options and further options are game_mode_builtin_options's */
+struct game_variant *build_game_variant_swat(
+	struct game_variant *variant)
+{
+	struct game_variant result;
+
+	/* team Slayer: no shields, no grenades, no vehicles, a 5-second
+	respawn, nobody on the motion sensor, goals by nav point */
+	build_game_variant_team_slayer(&result);
+	ustrncpy(result.human_readable_game_description, L"SWAT",
+		NUMBEROF(result.human_readable_game_description) - 1);
+	SET_FLAG(result.universal_variant.flags, _game_variant_no_shields_bit, TRUE);
+	SET_FLAG(result.universal_variant.flags, _game_variant_draw_object_in_motion_sensor_bit, FALSE);
+	result.universal_variant.goal_radar = _radar_nav_point;
+	result.universal_variant.respawn_time = 150;
+	result.universal_variant.weapon_set = _game_engine_weapons_no_grenades;
+	result.universal_variant.vehicle_set = _game_engine_vehicles_none;
+	*variant = result;
+	return variant;
+}
+
+/* (Hardcore: the engine's team game type, nobody on the motion sensor,
+which Hardcore does not draw; friendly fire on is the PC options') */
+static struct game_variant *build_game_variant_hardcore_of(
+	struct game_variant *variant,
+	struct game_variant *(*build)(struct game_variant *variant),
+	wchar_t const *name)
+{
+	struct game_variant result;
+
+	build(&result);
+	ustrncpy(result.human_readable_game_description, name, NUMBEROF(result.human_readable_game_description) - 1);
+	SET_FLAG(result.universal_variant.flags, _game_variant_draw_object_in_motion_sensor_bit, FALSE);
+	*variant = result;
+	return variant;
+}
+
+struct game_variant *build_game_variant_hardcore(
+	struct game_variant *variant)
+{
+	return build_game_variant_hardcore_of(variant, build_game_variant_team_slayer, L"Hardcore");
+}
+
+struct game_variant *build_game_variant_hc_ctf(
+	struct game_variant *variant)
+{
+	return build_game_variant_hardcore_of(variant, build_game_variant_ctf, L"HC CTF");
+}
+
+struct game_variant *build_game_variant_hc_oddball(
+	struct game_variant *variant)
+{
+	return build_game_variant_hardcore_of(variant, build_game_variant_team_oddball, L"HC Oddball");
+}
+
+struct game_variant *build_game_variant_hc_king(
+	struct game_variant *variant)
+{
+	return build_game_variant_hardcore_of(variant, build_game_variant_team_king, L"HC King");
+}
+#endif
 
 void game_engine_variant_cleanup(
 	struct game_variant *variant)
@@ -8623,9 +8781,14 @@ static void netgame_flag_verify_no_team_duplicates(
 	struct scenario *scenario = global_scenario_get();
 	/* port: long counters, for a map's long count */
 	long flag_index;
+	/* port: no more lines than a few: a Halo PC map may have 32767 flags
+	(tag_schema_scenario.c), whose pairs of one team would be half a
+	billion lines, each written to debug.txt as the map loads */
+	long reported_count = 0;
 
 	for (flag_index = 0;
-		flag_index < scenario->netgame_flags.count;
+		flag_index < scenario->netgame_flags.count &&
+			reported_count < MAXIMUM_NETGAME_FLAG_DUPLICATES_REPORTED;
 		flag_index++)
 	{
 		struct scenario_netgame_flag *flag = TAG_BLOCK_GET_ELEMENT(
@@ -8638,7 +8801,8 @@ static void netgame_flag_verify_no_team_duplicates(
 			continue;
 
 		for (duplicate_index = flag_index + 1;
-			duplicate_index < scenario->netgame_flags.count;
+			duplicate_index < scenario->netgame_flags.count &&
+				reported_count < MAXIMUM_NETGAME_FLAG_DUPLICATES_REPORTED;
 			duplicate_index++)
 		{
 			struct scenario_netgame_flag *duplicate = TAG_BLOCK_GET_ELEMENT(
@@ -8653,6 +8817,7 @@ static void netgame_flag_verify_no_team_duplicates(
 					_error_silent,
 					error_message,
 					duplicate->team_index);
+				reported_count++;
 			}
 		}
 	}
@@ -9997,6 +10162,27 @@ void game_engine_client_respawn_countdown(
 	player->respawn_timer--;
 	if (player->local_player_index != NONE && player->respawn_timer == 1)
 		game_engine_play_multiplayer_sound(_multiplayer_sound_respawn);
+
+	return;
+}
+
+/* port: a distributed client's player given the unit the host spawned it
+with (network_distributed.c) before its own countdown ended, as it is when
+this machine's ticks run behind the host's: the countdown's last, higher
+beep played then, which the countdown would have played a tick before */
+void game_engine_client_respawned(
+	long player_index)
+{
+	struct player_datum *player;
+
+	if (!game_engine)
+		return;
+	player = player_get(player_index);
+	if (player->local_player_index != NONE && player->statistics.deaths > 0 && player->respawn_timer > 1)
+	{
+		player->respawn_timer = 1;
+		game_engine_play_multiplayer_sound(_multiplayer_sound_respawn);
+	}
 
 	return;
 }

@@ -1,8 +1,8 @@
 /*
 DELTA_KEY.H
 
-The public keys a signed legacy table (delta.c; docs/delta.md, "The legacy
-table as config") is accepted from: Ed25519, 32 bytes each. CI signs each
+The public keys a signed legacy table (delta.c; docs/delta/versioning.md,
+"The signed table") is accepted from: Ed25519, 32 bytes each. CI signs each
 table it publishes (tools/delta_table.py sign) with the matching private key,
 which lives only in CI's secrets, never in this repository. The keys are
 public: anyone building on Delta can check a table with them. They are

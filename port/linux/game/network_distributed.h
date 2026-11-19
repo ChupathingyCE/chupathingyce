@@ -149,9 +149,11 @@ tick, drawn as it goes; further, it is put there, drawn gliding
 #define HOST_VEHICLE_BLEND_DISTANCE 0.5f
 #define REMOTE_BLEND_DISTANCE 1.0f
 /* world units: how far a remote unit may be from where the host says
-before it is put there, and how far from the origin a unit can be */
+before it is put there, and how far from the origin a unit can be (the
+world's, as the camera that follows it has it: observer.c's
+valid_world_real) */
 #define REMOTE_CORRECTION_TOLERANCE 0.05f
-#define UNIT_WORLD_BOUND 32768.0f
+#define UNIT_WORLD_BOUND 5000.0f
 #define REMOTE_VEHICLE_BLEND_DISTANCE 2.0f
 
 enum
@@ -221,6 +223,11 @@ void distributed_client_send_identity(void);
 void distributed_send_to_machine(long machine_index, void *message, byte type, short count, word size);
 /* ... reliably to one client (the host) */
 void distributed_send_to_machine_reliably(long machine_index, void *message, byte type, short count, word size);
+/* (the host) a text in one client's console and, on a client that shows
+its host's notices there, its chat (_distributed_message_notice, as OpenCE's
+servers send their server messages): printable ASCII, cut to the notice's
+159 characters */
+void distributed_send_notice_to_machine(long machine_index, char const *text);
 /* the player at an absolute index, or NULL */
 struct player_datum *distributed_player(short player_index);
 /* a player's absolute index for a message, NO_PLAYER for none; and back */
@@ -232,7 +239,10 @@ boolean distributed_player_is_local(long player_index);
 long distributed_living_unit(struct player_datum const *player);
 /* whether the player is one of that client machine's (the host) */
 boolean distributed_machine_has_player(long machine_index, short player_index);
-void distributed_count_correction(void);
+/* a correction made (this machine moved a unit or vehicle toward the
+host's word): what it moved (net_monitor.h's _net_monitor_*), how far
+(world units) and whether it moved all the way at once (a snap) */
+void distributed_count_correction(int kind, real distance, boolean snap);
 /* (the host) the client machines in the game, but for its own; their count */
 short distributed_client_machines(long *machine_indices, short maximum);
 /* (the host) how long a message takes that client and its answer back, in

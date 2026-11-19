@@ -1,7 +1,7 @@
 /*
 MODERATION_SCREEN.C
 
-Moderation in the game (configure.py --game-browser; docs/delta.md,
+Moderation in the game (configure.py --game-browser; docs/delta/peer.md,
 Moderation): on a dedicated server that speaks Delta Peer and offers
 moderation (delta_moderation.h), a moderator signs in with the moderator
 key made from their player key, and warns, kicks or bans players and ends
@@ -496,6 +496,26 @@ static void open_screen(
 }
 
 /* ---------- public code */
+
+/* whether a player of another machine is in the game (the pause menu's
+MODERATION has someone to act on: menu_tags.c) */
+boolean moderation_screen_others_in_game(
+	void)
+{
+	struct network_game_client *client = global_network_game_client_get();
+	struct network_game *game = client ? network_game_client_get_game(client) : NULL;
+	short local_machine = network_game_client_get_local_machine_index();
+	long index;
+
+	if (!game)
+		return FALSE;
+	for (index = 0; index < HALO_PORT_MAXIMUM_NETWORK_PLAYERS; index++)
+	{
+		if (network_player_is_valid(&game->players[index]) && game->players[index].machine_index != local_machine)
+			return TRUE;
+	}
+	return FALSE;
+}
 
 boolean moderation_screen_active(
 	void)

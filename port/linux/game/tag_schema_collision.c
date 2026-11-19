@@ -1310,7 +1310,15 @@ static void structure_material_check(
 	struct structure_surface *surfaces = xbox_pointer(structure_bsp->surfaces.address);
 	struct structure_lightmap const *lightmap = (struct structure_lightmap const *)xbox_pointer(structure_bsp->lightmaps.address) +
 		lightmap_index;
-	long vertex_data_size = material->compressed_vertex_data.size;
+	/* (Halo PC's bsp keeps its vertices uncompressed, in its uncompressed
+	data, and its buffers are made once it is checked: ce_bsp.c) */
+	boolean uncompressed = TEST_FLAG(tag_validate_layout_flags(validation),
+		_tag_schema_layout_uncompressed_bsp_vertices_bit);
+	long vertex_data_size = uncompressed ? material->uncompressed_vertex_data.size :
+		material->compressed_vertex_data.size;
+	long vertex_size = uncompressed ? UNCOMPRESSED_ENVIRONMENT_VERTEX_SIZE : COMPRESSED_ENVIRONMENT_VERTEX_SIZE;
+	long lightmap_vertex_size = uncompressed ? UNCOMPRESSED_ENVIRONMENT_LIGHTMAP_VERTEX_SIZE :
+		COMPRESSED_ENVIRONMENT_LIGHTMAP_VERTEX_SIZE;
 	long vertex_count;
 	long surface_index;
 	long end;
@@ -1331,6 +1339,13 @@ static void structure_material_check(
 			lightmap_index, material_index, material->vertices.type);
 		material->vertices.type = _rasterizer_vertex_type_environment_compressed;
 	}
+	/* (Halo PC's tools leave its lightmap vertices' type unset: they are
+	uncompressed, as its vertices are) */
+	if (uncompressed && material->lightmap_vertices.type != _rasterizer_vertex_type_environment_lightmap_uncompressed &&
+		material->lightmap_vertices.type != _rasterizer_vertex_type_environment_lightmap_compressed)
+	{
+		material->lightmap_vertices.type = _rasterizer_vertex_type_environment_lightmap_uncompressed;
+	}
 	if (material->lightmap_vertices.type != _rasterizer_vertex_type_environment_lightmap_uncompressed &&
 		material->lightmap_vertices.type != _rasterizer_vertex_type_environment_lightmap_compressed)
 	{
@@ -1343,23 +1358,28 @@ static void structure_material_check(
 	if (material->vertices.count < 0 || material->lightmap_vertices.count < 0 ||
 		material->vertices.count > MAXIMUM_VERTICES_PER_STRUCTURE_MATERIAL ||
 		material->lightmap_vertices.count > MAXIMUM_VERTICES_PER_STRUCTURE_MATERIAL ||
-		material->vertices.count * COMPRESSED_ENVIRONMENT_VERTEX_SIZE +
-			material->lightmap_vertices.count * COMPRESSED_ENVIRONMENT_LIGHTMAP_VERTEX_SIZE > vertex_data_size)
+		material->vertices.count * vertex_size + material->lightmap_vertices.count * lightmap_vertex_size >
+			vertex_data_size)
 	{
 		long fit_count = PIN(material->vertices.count, 0,
-			MIN(vertex_data_size / COMPRESSED_ENVIRONMENT_VERTEX_SIZE, MAXIMUM_VERTICES_PER_STRUCTURE_MATERIAL));
+			MIN(vertex_data_size / vertex_size, MAXIMUM_VERTICES_PER_STRUCTURE_MATERIAL));
 		/* (its lightmap vertices follow its vertices: with fewer of those,
 		they are not where they would be read, and there are none) */
 		long fit_lightmap_count = fit_count != material->vertices.count ? 0 :
 			PIN(material->lightmap_vertices.count, 0,
-				MIN((vertex_data_size - fit_count * COMPRESSED_ENVIRONMENT_VERTEX_SIZE) /
-					COMPRESSED_ENVIRONMENT_LIGHTMAP_VERTEX_SIZE, MAXIMUM_VERTICES_PER_STRUCTURE_MATERIAL));
+				MIN((vertex_data_size - fit_count * vertex_size) / lightmap_vertex_size,
+					MAXIMUM_VERTICES_PER_STRUCTURE_MATERIAL));
 
 		tag_validate_correct(validation, "lightmap %d's material %d's %ld vertices and %ld lightmap vertices are not in"
 			" its %ld bytes: %ld and %ld", lightmap_index, material_index, material->vertices.count,
 			material->lightmap_vertices.count, vertex_data_size, fit_count, fit_lightmap_count);
 		material->vertices.count = fit_count;
 		material->lightmap_vertices.count = fit_lightmap_count;
+	}
+	if (uncompressed)
+	{
+		material->vertices.hardware_format = XBOX_NULL;
+		material->lightmap_vertices.hardware_format = XBOX_NULL;
 	}
 	structure_vertex_buffer_check(validation, &material->vertices, FALSE, lightmap_index, material_index);
 	structure_vertex_buffer_check(validation, &material->lightmap_vertices, TRUE, lightmap_index, material_index);

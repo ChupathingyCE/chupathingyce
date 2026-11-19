@@ -197,7 +197,7 @@ enum
 	SOCIAL_MAXIMUM_FRIENDS = 200,
 	SOCIAL_MAXIMUM_REQUESTS = 50,
 	/* (the handles this player blocks: FRIENDS' BLOCKED) */
-	SOCIAL_MAXIMUM_BLOCKED = 50,
+	SOCIAL_MAXIMUM_BLOCKED = 500, /* (the site keeps up to 500) */
 	SOCIAL_MAXIMUM_INVITES = 20,
 };
 

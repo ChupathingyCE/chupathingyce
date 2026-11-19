@@ -30,6 +30,7 @@ packs never take these paths.
 #include "stubbs_mode.h"
 #include "stubbs_engine.h" /* (its special attacks, before the rewrite) */
 #include "stubbs_possession.h" /* (its possession seat, before the rewrite) */
+#include "stubbs_player.h" /* (its HUD's shown special attacks) */
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -272,13 +273,104 @@ static void *stubbs_animation_data;
 static unsigned long stubbs_animation_data_bytes;
 static boolean (*stubbs_file_read)(long offset, long size, void *buffer);
 
+/* An animation can share another one's frame data (the same frames under
+two names, or in another graph): Halo's unused translation words (Halo's
+layout, 0x64 and 0x68) hold the owning graph's tag handle and the owner's
+index in it, -1 when the animation has data of its own. A sharing
+animation's file offset is not one (a small number the game never reads),
+so its data is the owner's, and its own frame size, flags and compressed
+offset read it. Halo's maps hold 0 there, but this is only ever Stubbs's
+(stubbs_mode_convert_tags) */
+enum
+{
+	ANIMATION_SHARED_GRAPH_OFFSET = 0x64,
+	ANIMATION_SHARED_INDEX_OFFSET = 0x68,
+	MAXIMUM_SHARED_ANIMATION_DEPTH = 4,
+};
+
+static unsigned long stubbs_tags_instances;
+static unsigned long stubbs_tags_count;
+
+static boolean stubbs_animation_shares_data(unsigned char *animation)
+{
+	short index;
+
+	memcpy(&index, animation + ANIMATION_SHARED_INDEX_OFFSET, 2);
+	return index != -1;
+}
+
+/* the animation whose data a sharing one reads (NULL: none the tags have) */
+static unsigned char *stubbs_animation_data_owner(unsigned char *animation)
+{
+	int depth;
+
+	for (depth = 0; depth < MAXIMUM_SHARED_ANIMATION_DEPTH && stubbs_animation_shares_data(animation); depth++)
+	{
+		unsigned long handle, group, address, animation_count, animations_address;
+		short index;
+		unsigned char *instance, *graph, *animations;
+
+		memcpy(&handle, animation + ANIMATION_SHARED_GRAPH_OFFSET, 4);
+		memcpy(&index, animation + ANIMATION_SHARED_INDEX_OFFSET, 2);
+		instance = stubbs_host(stubbs_tags_base, stubbs_tags_size, stubbs_tags_instances, stubbs_tags_count * 0x20);
+		if (!instance || index < 0 || (handle & 0xFFFF) >= stubbs_tags_count)
+			return NULL;
+		instance += (handle & 0xFFFF) * 0x20;
+		memcpy(&group, instance, 4);
+		memcpy(&address, instance + 0x14, 4);
+		if (group != 'antr' || !(graph = stubbs_host(stubbs_tags_base, stubbs_tags_size, address, 0x80)))
+			return NULL;
+		memcpy(&animation_count, graph + ANIMATION_GRAPH_ANIMATIONS_OFFSET, 4);
+		memcpy(&animations_address, graph + ANIMATION_GRAPH_ANIMATIONS_OFFSET + 4, 4);
+		if ((unsigned long)index >= animation_count || animation_count > 0x1000 ||
+			!(animations = stubbs_host(stubbs_tags_base, stubbs_tags_size, animations_address,
+				animation_count * HALO_ANIMATION_SIZE)))
+		{
+			return NULL;
+		}
+		animation = animations + index * HALO_ANIMATION_SIZE;
+	}
+	return stubbs_animation_shares_data(animation) ? NULL : animation;
+}
+
 static unsigned long stubbs_animation_data_size(unsigned char *animation)
 {
 	long data_size, address;
 
 	memcpy(&data_size, animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_SIZE_OFFSET, 4);
 	memcpy(&address, animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_ADDRESS_OFFSET, 4);
-	return data_size > 0 && !address ? (unsigned long)data_size : 0;
+	return data_size > 0 && !address && !stubbs_animation_shares_data(animation) ? (unsigned long)data_size : 0;
+}
+
+/* a sharing animation reads its owner's data (after the owners' are read);
+one whose owner the tags don't have, or whose owner's data wasn't read,
+plays no data, as the Xbox's game does (its size made 0: data with a size
+and no address would refuse the map, tag_validate.c) */
+static unsigned long stubbs_animation_data_share(unsigned char *animation, unsigned char *into)
+{
+	unsigned char *owner;
+	long data_size, owner_size = 0;
+	unsigned long address = 0;
+
+	(void)into;
+	memcpy(&data_size, animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_SIZE_OFFSET, 4);
+	if (data_size <= 0 || !stubbs_animation_shares_data(animation))
+		return 0;
+	if ((owner = stubbs_animation_data_owner(animation)) != NULL)
+	{
+		memcpy(&owner_size, owner + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_SIZE_OFFSET, 4);
+		memcpy(&address, owner + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_ADDRESS_OFFSET, 4);
+	}
+	if (!address || owner_size < data_size)
+	{
+		long none = 0;
+
+		memcpy(animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_SIZE_OFFSET, &none, 4);
+		memcpy(animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_ADDRESS_OFFSET, &none, 4);
+		return 0;
+	}
+	memcpy(animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_ADDRESS_OFFSET, &address, 4);
+	return 1;
 }
 
 static unsigned long stubbs_animation_data_read(unsigned char *animation, unsigned char *into)
@@ -359,7 +451,7 @@ static long stubbs_animation_convert(unsigned char *base, unsigned long size, un
 			first_set = set_count ? stubbs_host(base, size, sets_address, STUBBS_ANIMATION_SET_SIZE) : NULL;
 			if (first_set)
 			{
-				memcpy(block, first_set + STUBBS_ANIMATION_SET_ANIMATIONS_OFFSET, 12);
+				memmove(block, first_set + STUBBS_ANIMATION_SET_ANIMATIONS_OFFSET, 12);
 				stubbs_weapon_class_animations_order(base, size, block,
 					set_count < 0x100 ? stubbs_host(base, size, sets_address, set_count * STUBBS_ANIMATION_SET_SIZE) : NULL,
 					set_count);
@@ -755,6 +847,14 @@ void stubbs_mode_convert_tags(
 	memcpy(&count, base + 0x0C, 4);
 	stubbs_tags_base = base;
 	stubbs_tags_size = tag_data_size;
+	stubbs_tags_instances = instances;
+	stubbs_tags_count = count;
+	/* (this map's units noted afresh, not added to the last map's: their
+	pointers are into the tag cache this map replaced, so they go even when
+	this map's tags turn out not to be Stubbs's) */
+	stubbs_engine_tags_new_map();
+	stubbs_possession_tags_new_map();
+	stubbs_player_tags_new_map();
 	/* (no more tags than a tag index holds: a count past it would wrap the
 	32-bit size of the index checked below) */
 	if (count > 0xFFFF || !stubbs_host(base, tag_data_size, instances, count * 0x20))
@@ -849,6 +949,9 @@ void stubbs_mode_convert_tags(
 		stubbs_mode_log("animation frame data: %lu bytes in the map file, %lu read", needed, read);
 		stubbs_mode_log("%lu animations' default data packed as Halo's",
 			stubbs_animations_each(base, tag_data_size, instances, count, stubbs_animation_defaults_pack, NULL));
+		/* (last: nothing after it rewrites an animation) */
+		stubbs_mode_log("%lu animations read the frame data of another they share it with",
+			stubbs_animations_each(base, tag_data_size, instances, count, stubbs_animation_data_share, NULL));
 	}
 }
 

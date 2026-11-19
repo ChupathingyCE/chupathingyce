@@ -3,7 +3,7 @@ VOICE.H
 
 Voice chat's audio (voice.c): the microphone, Opus, and the voices heard,
 played through the game's mixer (dsound_sdl.c). What goes over the network
-and who hears whom are Delta Peer's and the host's (docs/delta.md, Voice;
+and who hears whom are Delta Peer's and the host's (docs/delta/peer.md, Voice;
 port/linux/game/voice_game.c); this side only turns sound into frames and
 frames into sound.
 

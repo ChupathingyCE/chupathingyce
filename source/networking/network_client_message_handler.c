@@ -206,6 +206,7 @@ symbols in this file:
 #ifdef HALO_GAME_BROWSER
 #include "networking/network_connection.h"
 #include "map_share.h" /* port: map sharing's messages to the map bot's fetch */
+#include "net_monitor.h" /* port: the server monitor (port/linux/game/net_monitor.c) */
 #endif
 unsigned delta_peer_game_host_number(void); /* port/linux/src/delta_peer_game.c */
 int delta_peer_game_host_agreed_mcc_maps(void); /* port/linux/src/delta_peer_game.c */
@@ -511,6 +512,13 @@ boolean network_game_client_handle_message(
 		client && message && (message_size == GET_MESSAGE_SIZE(*message)) && source_address);
 
 	message_type = (byte)GET_MESSAGE_TYPE(*message);
+#ifdef HALO_GAME_BROWSER
+	/* port: the server monitor counts every message read, whatever becomes
+	of it (port/linux/game/net_monitor.c) */
+	net_monitor_game_message(message_type,
+		message_type == _message_type_packet ? ((byte *)message)[message_size - 1] : 0, message_size,
+		!network_connection_last_read_was_unreliable());
+#endif
 	if (GET_MESSAGE_FLAGS(*message))
 	{
 		network_event("client received client message with invalid flags");
@@ -1131,6 +1139,8 @@ void network_rules_settings_fold(unsigned char *record, int total_size, int opti
 void network_rules_extended_options_default(unsigned char *options);
 void network_rules_extended_options_sanitize(unsigned char *options);
 int network_rules_extended_options_mode(unsigned char const *options, int slayer, int teams, int *hardcore);
+unsigned network_rules_modes_needed(unsigned char const *options, int engine, int teams);
+char const *network_rules_modes_unplayed(unsigned needed);
 void display_error_text_deferred(wchar_t const *text, short local_player_index);
 void display_error_text_when_main_menu_loaded(wchar_t const *text);
 
@@ -1150,35 +1160,40 @@ typedef char network_game_client_settings_size_assert[
 
 static byte network_game_client_extended_options[16];
 
+/* port: the host's gametype's further options as this client last read them
+(the game modes layer's, source/game/game_modes.c: SWAT, Hardcore) */
+byte const *network_game_client_mode_options(
+	void)
+{
+	return network_game_client_extended_options;
+}
+
 /* the OpenCE game type the record plays that this build does not (its name
-for the player and the log), or NULL: Infection, Gun Game and SWAT on the
-Slayer engine, Hardcore on any (network_rules_extended_options_mode) */
+for the player and the log), or NULL: Infection and Gun Game on the Slayer
+engine (SWAT and Hardcore are played: source/game/game_modes.c,
+NETWORK_RULES_MODES_PLAYED) */
 static wchar_t const *network_game_client_unsupported_game_type(
 	struct network_game const *game,
 	char const **name)
 {
-	int hardcore;
-	int mode = network_rules_extended_options_mode(network_game_client_extended_options,
-		game->variant.game_engine_index == game_engine_slayer, game->variant.universal_variant.teams != 0, &hardcore);
+	static wchar_t text[96];
+	static wchar_t const head[] = L"Uses a game type\r\nChupathingy doesn't have yet:\r\n";
+	unsigned needed = network_rules_modes_needed(network_game_client_extended_options,
+		game->variant.game_engine_index, game->variant.universal_variant.teams != 0);
+	char const *unplayed = network_rules_modes_unplayed(needed);
+	long length = 0;
+	char const *character;
 
-	switch (mode)
-	{
-	case 1:
-		*name = "SWAT";
-		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nSWAT.";
-	case 2:
-		*name = "Infection";
-		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nInfection.";
-	case 3:
-		*name = "Gun Game";
-		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nGun Game.";
-	}
-	if (hardcore)
-	{
-		*name = "Hardcore";
-		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nHardcore.";
-	}
-	return NULL;
+	if (!unplayed)
+		return NULL;
+	*name = unplayed;
+	for (character = NULL; length < (long)NUMBEROF(head) - 1; length++)
+		text[length] = head[length];
+	for (character = unplayed; *character && length < (long)NUMBEROF(text) - 2; character++)
+		text[length++] = (wchar_t)*character;
+	text[length++] = L'.';
+	text[length] = 0;
+	return text;
 }
 
 /* port: a game of one of OpenCE's game types this build does not play is

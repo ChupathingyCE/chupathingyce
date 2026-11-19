@@ -8,7 +8,7 @@ map.version), the scenario's tag path, the game types it has netgame flags
 for, its spawn count and its structure BSP's world bounds.
 
 It is a JSON object, built here and sent in a Delta Stats batch as the
-game's "map_info", beside its "map" (game_events.c; docs/delta.md, "Map
+game's "map_info", beside its "map" (game_events.c; docs/delta/stats.md, "Map
 facts"). Facts about the map only: no pictures, no file contents, nothing
 about players or machines. Plain C89 and plain types (the game's units, whose
 long 64-bit builds rewrite, fill it in), no game headers, so the tests build

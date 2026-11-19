@@ -172,7 +172,10 @@ static boolean follow_camera_long_wait(
 	return player->respawn_timer > follow_camera_after_ticks();
 }
 
-/* whether a player can be followed: alive and not this one */
+/* whether a player can be followed: alive and not this one. A late joiner
+waiting for the next game (late_join.c) in a team game follows its own team
+only, even with none of them alive: it is not in the game yet, and must not
+see where the other team is */
 static boolean follow_camera_can_watch(
 	long self,
 	long player_index)
@@ -182,7 +185,11 @@ static boolean follow_camera_can_watch(
 	if (player_index == NONE || player_index == self)
 		return FALSE;
 	player = player_try_and_get(player_index);
-	return player && player->unit_index != NONE && !player->quit_out_of_game;
+	if (!player || player->unit_index == NONE || player->quit_out_of_game)
+		return FALSE;
+	if (game_engine_has_teams() && late_join_waiting(self) && player->team_index != player_get(self)->team_index)
+		return FALSE;
+	return TRUE;
 }
 
 /* The next player to follow after `after` (or the first, if it is NONE),
