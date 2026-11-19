@@ -216,6 +216,8 @@ long network_connection_new(void);
 long network_connection_new(void) { return 0; }
 long network_connection_read(void);
 long network_connection_read(void) { return 0; }
+long network_connection_silent_milliseconds(void);
+long network_connection_silent_milliseconds(void) { return 0; }
 long network_game_abort(void);
 long network_game_abort(void) { return 0; }
 long network_game_client_all_local_players_have_quit(void);

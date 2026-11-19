@@ -656,6 +656,13 @@ boolean network_connection_going_stale(
 	return TEST_FLAG(connection->flags, _connection_going_stale_bit);
 }
 
+unsigned long network_connection_silent_milliseconds(
+	struct network_connection *connection)
+{
+	/* (a difference, which the millisecond clock's wrap leaves right) */
+	return system_milliseconds() - connection->last_keep_alive_time;
+}
+
 static boolean network_client_unreliable_connection_read(
 	struct network_connection *connection,
 	void *message,

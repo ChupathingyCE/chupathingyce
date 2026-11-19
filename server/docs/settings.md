@@ -12,7 +12,7 @@ the file.
 | `HALO_DEDICATED` | (none) | The playlist, a path inside the data folder: `playlists/free_for_all.txt`. Without it, a server whose control panel is on waits for its [first-run setup](moderation.md#first-run-setup-no-console-needed), where you pick the playlist. With the panel off, it only says how to start one. |
 | `HALO_DEDICATED_NAME` | `Dedicated` | The server's name on the lists. 15 characters at most, the game's limit. |
 | `HALO_DEDICATED_MINIMUM_PLAYERS` | `1` | The players a game waits for before its countdown starts. |
-| `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players a game takes, up to 128 (`sv_maxplayers` in [admin.md](admin.md) changes it while running, until a restart: set here, the environment wins over the settings file). |
+| `HALO_DEDICATED_MAXIMUM_PLAYERS` | `16` | The players a game takes, up to 128 (`sv_maxplayers` in [admin.md](admin.md) changes it while running, until a restart: set here, the environment wins over the settings file). |
 | `HALO_DEDICATED_IDLE_LIMIT` | `5` | A game in which nobody scores for this many minutes ends. `0`: never. |
 | `HALO_DEDICATED_PUBLIC` | `true` | A public game, listed in every in-game Server Browser (OpenCE's and Chupathingy's) through internet play's brokers. `false`: not listed there; the game list still lists it, and its invite still works. |
 | `HALO_DEDICATED_NAME_FILTER` | `false` | `true`: players with a blocked name are warned and kicked ([below](#blocked-names)); `sv_name_filter 1` on the console does the same. |
