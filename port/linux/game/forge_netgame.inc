@@ -96,8 +96,11 @@ static struct
 	/* the layout's CTF flags' places as last warned about (any change, a
 	flag placed, moved or given to the other team: said again) */
 	unsigned long flags_hash;
-	/* the block's flags: the map's own, then the layout's */
-	struct scenario_netgame_flag flags[FORGE_NETGAME_MAXIMUM_FLAGS];
+	/* the block's flags: the map's own, then the layout's. From the game's
+	heap (system_malloc), the first time a Forge game needs them: a tag
+	block's address is an Xbox address, and on the 64-bit builds only the
+	game's heap lies in the Xbox address space (a static array does not) */
+	struct scenario_netgame_flag *flags;
 	long count;
 	long own_count;
 	/* (the log's teleports) each player's unit where it was the last frame */
@@ -122,7 +125,9 @@ or a layout played, of the loaded map */
 static boolean forge_netgame_wanted(
 	void)
 {
-	return forge_globals.game_active;
+	/* (a local game's only: a network game, hosted or joined, always has
+	the map's own flags, whatever Forge last did) */
+	return forge_globals.game_active && game_connection() == _game_connection_local;
 }
 
 static boolean forge_spawn_is_teleporter(
@@ -282,7 +287,7 @@ static void forge_netgame_changed(
 static void forge_netgame_restore(
 	struct scenario *scenario)
 {
-	if (scenario && scenario->netgame_flags.address == (void *)forge_netgame.flags)
+	if (scenario && forge_netgame.flags && scenario->netgame_flags.address == XBOX_ADDRESS(forge_netgame.flags))
 	{
 		scenario->netgame_flags = forge_netgame.original;
 		platform_log("forge: the map's own %ld netgame flags back", (long)scenario->netgame_flags.count);
@@ -382,13 +387,23 @@ static void forge_netgame_flags_build(
 	if (global_scenario_index == NONE || (scenario = global_scenario_get()) == NULL)
 		return;
 	/* (the map's own: as it had them, the first time; ours since) */
-	if (scenario->netgame_flags.address != (void *)forge_netgame.flags)
+	if (!forge_netgame.flags || scenario->netgame_flags.address != XBOX_ADDRESS(forge_netgame.flags))
 		forge_netgame.original = scenario->netgame_flags;
 	own = &forge_netgame.original;
 	if (!forge_netgame_wanted() || (!forge_teleporters_count(NONE, NONE) && !forge_objectives_count(NONE, NONE)))
 	{
 		forge_netgame_restore(scenario);
 		return;
+	}
+	if (!forge_netgame.flags)
+	{
+		forge_netgame.flags = system_malloc((long)(FORGE_NETGAME_MAXIMUM_FLAGS * sizeof(*forge_netgame.flags)));
+		if (!forge_netgame.flags)
+		{
+			platform_log("forge: netgame flags: no memory: the map's own kept");
+			forge_netgame_restore(scenario);
+			return;
+		}
 	}
 	forge_netgame.count = 0;
 	/* (the map's own, in order, but for those of a type the layout has) */
@@ -442,7 +457,7 @@ static void forge_netgame_flags_build(
 		added++;
 	}
 	scenario->netgame_flags.count = forge_netgame.count;
-	scenario->netgame_flags.address = forge_netgame.flags;
+	scenario->netgame_flags.address = XBOX_ADDRESS(forge_netgame.flags);
 	forge_netgame.scenario = scenario;
 	forge_netgame_players_resync();
 	platform_log("forge: netgame flags: the map's %ld and %d teleporters (%d senders, %d receivers)", forge_netgame.own_count,
@@ -675,7 +690,8 @@ static void forge_netgame_log(
 	if (global_scenario_index == NONE || (scenario = global_scenario_get()) == NULL)
 		return;
 	platform_log("forge: netgame flags: %ld (%s)", (long)scenario->netgame_flags.count,
-		scenario->netgame_flags.address == (void *)forge_netgame.flags ? "Forge's" : "the map's own");
+		forge_netgame.flags && scenario->netgame_flags.address == XBOX_ADDRESS(forge_netgame.flags) ? "Forge's" :
+		"the map's own");
 	for (index = 0; index < scenario->netgame_flags.count; index++)
 	{
 		struct scenario_netgame_flag const *flag = TAG_BLOCK_GET_ELEMENT(&scenario->netgame_flags, index,

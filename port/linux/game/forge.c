@@ -129,6 +129,7 @@ The console's commands (forge_command; each logs what it did, "forge: ..."):
 */
 
 #include "cseries.h"
+#include "cseries/cseries_windows.h"
 #include "real_math.h"
 #include "cache/cache_files.h"
 #include "camera/observer.h"

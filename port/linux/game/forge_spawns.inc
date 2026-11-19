@@ -773,7 +773,8 @@ short forge_spawn_location(
 	long now = game_time_get();
 	unsigned long spawn_seed;
 
-	if (!forge_globals.game_active || player_index == NONE)
+	/* (a local game's only, as forge_netgame_wanted) */
+	if (!forge_globals.game_active || player_index == NONE || game_connection() != _game_connection_local)
 		return _forge_spawn_location_map;
 	player = player_get(player_index);
 	absolute = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
