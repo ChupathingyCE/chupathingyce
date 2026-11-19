@@ -477,6 +477,9 @@ static const struct config_setting config_settings[] =
 		"Which menus to use: \"chupathingy\" or \"xbox\".\n"
 		"Put your own menus in a menus folder next to config.toml.\n"
 		"Restart Chupathingy after a change." },
+	{ "display.duct_tape_logo", _config_boolean, "false", "HALO_DUCT_TAPE_LOGO", _environment_value, _platform_all,
+		"Tape over the main menu's logo, in the Chupathingy menus. A certain\n"
+		"code on the main menu changes it." },
 	{ "display.map_show_new_game", _config_string, "\"all\"", "HALO_MAP_SHOW_NEW_GAME", _environment_value,
 		_platform_all,
 		"Which maps New Game's multiplayer list shows: \"all\", \"xbox\", \"ce\",\n"

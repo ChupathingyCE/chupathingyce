@@ -130,6 +130,12 @@ unsigned long halo_keyboard_actions(short controller_index)
 	return 0;
 }
 
+/* (the main menu's letters: the server has no keyboard) */
+unsigned long halo_keyboard_menu_letters(void)
+{
+	return 0;
+}
+
 int halo_keyboard_prompts(void)
 {
 	return 0;
