@@ -376,7 +376,13 @@ HALO_CONSOLE_FRAME_RATE
 	rasterizer_initialize makes it) and whether frames are drawn between
 	the ticks (halo_interpolation_enabled, the same answer for the whole
 	run). At 60 the frame pacer steps down to 30 while a scene can't hold
-	60 and back up when it can (main_update_time's stabilization)
+	60 and back up when it can (main_update_time's stabilization). The
+	port also says the display's refresh rate once the device is made
+	(halo_console_refresh_rate: 60, or 50 on a PAL television without
+	PAL60). The game's clock counts that display's vertical blanks, and
+	its frames are paced to them: at 50 Hz, 60 is a frame every blank (50
+	a second) and 30 a frame each tick, on the first blank after it is due
+	(main_update_time); the ticks stay 30 a second on every display
 HALO_CONSOLE_VIEW_INTERPOLATION
 	the frames between ticks move the view only, with no memory of their
 	own (port/linux/game/render_interpolation.c): on foot in first person
@@ -475,6 +481,7 @@ compile lines: source/cseries/xbox_address.h).
 #ifdef HALO_CONSOLE_FRAME_RATE
 /* (defined by the port) */
 short halo_console_frame_rate(void);
+short halo_console_refresh_rate(void);
 int halo_interpolation_enabled(void);
 /* (a console draws its ticks only, unless its setting asks for more) */
 #define halo_port_frames_between_ticks() (halo_interpolation_enabled() != 0)
