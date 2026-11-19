@@ -76,15 +76,15 @@ int main(void)
 	/* a range a table widened */
 	CHECK(game_list_joinable(47, 0, 11, 47));
 	CHECK(!game_list_joinable(48, 0, 11, 47));
-	/* broker listings: only 35 and newer are listed */
-	CHECK(GAME_LIST_BROKER_MINIMUM_VERSION == 35u);
-	CHECK(!game_list_broker_listed(0));
-	CHECK(!game_list_broker_listed(26));
-	CHECK(!game_list_broker_listed(34));
-	CHECK(game_list_broker_listed(35));
-	CHECK(game_list_broker_listed(44));
-	/* (the closed bit is not a newer number) */
-	CHECK(!game_list_broker_listed(0x8000u | 26));
+	/* broker listings go by the same rules: an old build's game (network
+	22, 26, 34) is listed like a current one's; still never a closed one,
+	nor one of a number this build does not join */
+	CHECK(shown(22, 0));
+	CHECK(shown(26, 0));
+	CHECK(shown(34, 0));
+	CHECK(shown(35, 0));
+	CHECK(!shown(0x8000u | 22, 0));
+	CHECK(!shown(0, 0));
 	/* blocked names, as the site compares them (case, look-alikes, spaces,
 	digits at the end, repeated letters); the list's words are in ROT13 */
 	{
@@ -105,6 +105,10 @@ int main(void)
 		CHECK(!server_names_list_blocked_text(&other, "hello there"));
 		CHECK(!server_names_list_blocked_text(&list, "hello"));
 		CHECK(!server_names_list_blocked_text(NULL, "Adolf Hitler"));
+		/* a network 22 broker game: listed by its number, hidden by its
+		name when the name is blocked */
+		CHECK(shown(22, 0) && !server_names_list_blocked_text(&list, "Blood Gulch 24/7"));
+		CHECK(shown(22, 0) && server_names_list_blocked_text(&list, "ADOLF H1TL3R"));
 	}
 	if (failures)
 		printf("%d failed\n", failures);

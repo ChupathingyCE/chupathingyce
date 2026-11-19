@@ -288,10 +288,6 @@ int browser_version_state(int version);
 /* the same as browser_game_shown for a bare network version (a broker
 listing the game list lacks). Every build */
 int browser_version_shown(int version);
-/* the same for a listing heard only on the brokers: also not one of an
-older build's than GAME_LIST_BROKER_MINIMUM_VERSION (game_list_rules.h),
-though such a game is still joined by its invite. Every build */
-int browser_listing_shown(int version);
 /* whether a game's name is on the blocked names list (the site's, else the
 built-in copy: server_names.h), so the lists hide it, whatever
 debug.show_all_games says: a name in UTF-8, or the game's own (UTF-16, at
