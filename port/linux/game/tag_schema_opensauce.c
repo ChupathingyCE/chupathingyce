@@ -1054,14 +1054,16 @@ static char const *const tag_schema_opensauce_placements[][2] =
 	{ "sound_scenery", "sound_scenery" },
 };
 
-/* OpenSauce's maps' maxima where they are not the Xbox's: the scenario's
+/* OpenSauce's maps' maxima where they are not Halo PC's: the scenario's
 scripts' syntax is for 28501 nodes (scenario_check_scripts checks it as such
-in this layout), and its object placements are as many as there are */
+in this layout), and its object placements are as many as there are; any
+other field keeps the one the checks take (maximum) */
 static long tag_schema_opensauce_field_maximum(
-	struct tag_schema_field const *field)
+	struct tag_schema_field const *field,
+	long maximum)
 {
 	if (!field->name)
-		return field->maximum;
+		return maximum;
 	if (field->type == _tag_schema_data && !strcmp(field->name, "hs_syntax_data"))
 		return OPENSAUCE_HS_SYNTAX_DATA_SIZE;
 	if (field->type == _tag_schema_block && field->definition)
@@ -1078,7 +1080,7 @@ static long tag_schema_opensauce_field_maximum(
 			}
 		}
 	}
-	return field->maximum;
+	return maximum;
 }
 
 struct tag_schema_layout const tag_schema_opensauce_layout =

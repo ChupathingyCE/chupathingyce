@@ -308,9 +308,10 @@ struct tag_schema_layout
 	/* the tag cache the tags (and their structure bsps) are in */
 	unsigned long tag_cache_size;
 	unsigned long flags;
-	/* a block's most elements or a data's most bytes in this layout, where
-	it is not the field's (OpenSauce's memory upgrades); NULL: the field's */
-	long (*field_maximum)(struct tag_schema_field const *field);
+	/* a block's most elements or a data's most bytes in this layout, given
+	the one the checks would take otherwise (the field's): its own where it
+	has one (OpenSauce's memory upgrades), else that one; NULL: that one */
+	long (*field_maximum)(struct tag_schema_field const *field, long maximum);
 };
 
 /* ---------- prototypes/TAG_SCHEMA_*.C */

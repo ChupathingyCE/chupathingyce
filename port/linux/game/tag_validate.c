@@ -1027,13 +1027,14 @@ static struct tag_block const *block_index_target(
 	return (struct tag_block const *)(base + field->target_offset);
 }
 
-/* a field's most elements or bytes in the layout being checked: the field's,
-or the layout's own (tag_schema_layout's field_maximum) */
+/* a field's most elements or bytes in the layout being checked: the one
+given (the field's), or the layout's own (tag_schema_layout's field_maximum) */
 static long field_maximum(
-	struct tag_schema_field const *field)
+	struct tag_schema_field const *field,
+	long maximum)
 {
 	return tag_validate_globals.layout && tag_validate_globals.layout->field_maximum ?
-		tag_validate_globals.layout->field_maximum(field) : field->maximum;
+		tag_validate_globals.layout->field_maximum(field, maximum) : maximum;
 }
 
 static void validate_block_extent(
@@ -1042,7 +1043,7 @@ static void validate_block_extent(
 	struct tag_schema_field const *field)
 {
 	struct tag_schema_definition const *definition = field->definition;
-	long maximum = field_maximum(field);
+	long maximum = field_maximum(field, field->maximum);
 
 	block->definition = XBOX_NULL;
 	if (block->count < 0)
@@ -1100,7 +1101,7 @@ static void validate_data_extent(
 	struct tag_data *data,
 	struct tag_schema_field const *field)
 {
-	long maximum = field_maximum(field);
+	long maximum = field_maximum(field, field->maximum);
 
 	data->definition = XBOX_NULL;
 	if (data->size < 0)
