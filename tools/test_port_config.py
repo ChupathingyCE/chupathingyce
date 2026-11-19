@@ -1267,6 +1267,8 @@ def test_tuning(program, directory, defaults, kind):
 	check(knobs["shadows"] == ("128", "(preset)"), f"tuning/potato: {knobs}")
 	check(lines[1].startswith("tuning: differs from the defaults: preset=potato ") and "particles=512(hand)" in lines[1]
 		and "aniso=" not in lines[1], f"tuning/potato: {lines[1]!r}")
+	# (potato sets knobs here: nothing to own up to)
+	check(not any("changes nothing" in line for line in lines), f"tuning/potato: {lines}")
 	# (each potato knob this build has is at the preset's value but the one set by hand)
 	for name, value in potato.items():
 		if name != "display.particle_limit":
@@ -1348,6 +1350,20 @@ def test_xbox_tuning(program, directory):
 		# (lan-party's 16 lights never more than the console's own)
 		lights = int(values["display.dynamic_light_limit"])
 		check(lights == 16 if own == 0 else lights == min(own, 16), f"xbox/tuning: lights {lights}, own {own}")
+		# (lan-party sets the present mode here: nothing to own up to)
+		check(not any("changes nothing" in line for line in tuning_lines(output)), f"xbox/tuning: {tuning_lines(output)}")
+	# potato on the Xbox: its limits are the console's own and the rest not
+	# its settings, so it sets nothing, and says so in one line at boot
+	for preset, honest in (('"potato"', 1), ('"retail"', 0), ('"lan-party"', 0)):
+		text = re.sub(r"^#? ?texture_cache = .*$", '# texture_cache = "auto"', case.text(), flags=re.M)
+		text = re.sub(r"^#? ?preset = .*$", f"preset = {preset}", text, flags=re.M)
+		case.path.write_text(text)
+		_, output = case.get("display.dynamic_light_limit")
+		said = [line for line in tuning_lines(output) if "changes nothing" in line]
+		check(len(said) == honest, f"xbox/tuning: {preset}: {said}")
+		if honest:
+			check(said[0].startswith(f"tuning: preset={preset.strip(chr(34))} changes nothing on this console"),
+				f"xbox/tuning: {said}")
 
 
 def test_xbox_follows_new_defaults(program, directory):

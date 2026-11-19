@@ -160,6 +160,7 @@ tools/test_third_party_notices.py
 tools/test_title_tool.py
 tools/test_touch_menu.py
 tools/test_tricks.py
+tools/test_tuning_table.py
 tools/test_ui_point.py
 tools/test_update_channels.py
 tools/test_update_manifest.py

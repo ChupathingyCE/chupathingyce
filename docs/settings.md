@@ -156,6 +156,45 @@ line.
 In a network game nobody sees fewer particles than the Xbox kept (1024).
 Smoke and dust can hide players, and a lower limit would take them away.
 
+### Every knob, and what the presets do on the original Xbox
+
+No knob changes the simulation: the game tick costs the same whatever they
+say. They change only the drawing, the waiting for the display, or memory.
+On the original Xbox most of them aren't settings at all, and the console's
+own limits are already where the presets would put them, so:
+
+- `potato` changes nothing on the original Xbox. It is the same as `retail`
+  there, and the log says so at start (`tuning: preset=potato changes
+  nothing on this console`).
+- `lan-party` changes only the present mode (`adaptive`) on the original
+  Xbox. Its 16 lights and 2048 particles are above the console's own limits,
+  and a preset never raises those.
+- In big games (more than about 24 players) the original Xbox is held back
+  by the game tick, not the drawing, so no preset can make those games run
+  faster there.
+
+The table is made from the code by `tools/tuning_table.py`
+(`tools/test_tuning_table.py` checks it).
+
+<!-- tuning table: made by tools/tuning_table.py, don't edit by hand -->
+
+| Setting | lan-party sets | potato sets | On the original Xbox | Xbox default and range | lan-party on the Xbox | potato on the Xbox | What it costs or saves |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `display.dynamic_light_limit` | `16` | `8` | yes | `8`; 0 to 128 (0: no limit) | nothing | nothing | Drawing. Each dynamic light redraws the level it reaches twice; in a big firefight most of the GPU's time. |
+| `display.specular_light_limit` | `4` | `2` | yes | `2`; 0 to 128 (0: no limit) | nothing | nothing | Drawing. The shine pass of near lights, the costliest pass in a firefight. |
+| `display.particle_limit` | `2048` | `1024` | no | | | | Drawing, and a little CPU a frame for each particle alive. Never under 1024 in a network game. |
+| `display.particle_ticks` | `true` | `true` | no | | | | CPU a frame: moving loose particles once a tick saves two in three of their collision tests at 60 fps. |
+| `display.shadow_resolution` | nothing | `128` | no | | | | Drawing and video memory: bigger shadow maps. |
+| `display.anisotropic_filtering` | nothing | `0` | no | | | | Drawing: texture sampling on the GPU. |
+| `display.anti_aliasing` | nothing | `off` | no | | | | Drawing and video memory: extra samples or a filter pass. |
+| `display.per_pixel_lighting` | nothing | `false` | no | | | | Drawing: lighting work for each pixel instead of each vertex. |
+| `display.light_effects` | nothing | `off` | no | | | | Drawing: the projectile, muzzle and emitter lights, and their wall tests. |
+| `display.resolution_scaling` | nothing | `original` | no | | | | Drawing: "original" fills 640x480 instead of the window. |
+| `tuning.present_mode` | `adaptive` | nothing | yes | `vblank`; `vblank` or `adaptive` | `adaptive` | nothing | Waiting, not work: "adaptive" shows a late frame at once, with a tear, instead of a refresh later. |
+| `tuning.texture_cache` | nothing | nothing | yes | `auto`; "auto", or 19 to 512 MB (and what memory has room for) | nothing | nothing | Memory: a bigger cache loads fewer textures from the disc, and leaves less free. |
+
+<!-- end of tuning table -->
+
 More knobs (explosion particles, effect density, decal distance, tire
 tracks) come once testers' `console.perf_log` lines show what they'd save.
 

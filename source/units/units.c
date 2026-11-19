@@ -706,6 +706,7 @@ symbols in this file:
 #include "mcc_grenades.h"
 #include "mcc_skulls.h" /* port: MCC's skulls on MCC maps */
 #include "mcc_campaign.h" /* port: an MCC map's unlimited ammunition */
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* port: the control and animation impulses the host's actors give their
 units go to the clients' copies (port/linux/game/network_actors.c) */
@@ -5516,6 +5517,8 @@ boolean unit_update(
 	boolean allow_integrated_lights = game_engine_allow_integrated_lights(unit_index);
 
 	profile_enter(unit_update_section);
+	/* port: the bipeds' unit part (halo_perf_log.h: a vehicle's is not timed) */
+	HALO_PERF_BEGIN(_halo_perf_bipeds_unit);
 
 	unit_verify_vectors(unit_index, "unit-update-begin");
 
@@ -6344,6 +6347,7 @@ boolean unit_update(
 
 	unit_verify_vectors(unit_index, "unit-update-end");
 	
+	HALO_PERF_END(_halo_perf_bipeds_unit);
 	profile_exit(unit_update_section);
 	
 	return TRUE;

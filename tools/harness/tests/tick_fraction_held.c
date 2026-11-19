@@ -14,6 +14,8 @@
 #define HALO_PERF_BEGIN(x) ((void)0)
 #define HALO_PERF_END(x) ((void)0)
 #define HALO_PERF_COUNT(x, n) ((void)0)
+#define _error_log 0
+static void error(int type, const char *format, ...) { (void)type; (void)format; }
 #define HALO_CONSOLE_NO_NETWORK_TEST
 /* (game.h's connections) */
 #include "connections.inc"

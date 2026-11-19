@@ -1859,8 +1859,9 @@ boolean network_game_client_handle_game_update(
 	behind the host for the rest of the game. The host's time is when it
 	sent the update, before this machine's by the way there, so a clock in
 	step is never moved; one behind is, at the next update (once a second at
-	least) */
-	else if (message_packet->game_time > game_time_get() + TICKS_PER_SECOND)
+	least). Once the spiral guard has left ticks unrun on a machine that
+	can't keep up (game_time_update), a few ticks ahead is enough */
+	else if (message_packet->game_time > game_time_get() + game_time_client_catch_up_ticks())
 	{
 		network_event(
 			"the host's clock is %ld ticks ahead of this machine's; taking its game tick #%ld",

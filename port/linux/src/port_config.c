@@ -728,16 +728,15 @@ static const struct config_setting config_settings[] =
 		"and floor. The rest light only the objects near them. 0 means no limit,\n"
 		"as on the Xbox. Each light redraws the level it reaches twice, and in a\n"
 		"big firefight that is most of the GPU's time. The default is 0 on the\n"
-		"desktop and the original Xbox, and 8 on the other consoles. Changes at\n"
-		"once." },
+		"desktop, and 8 on the consoles. Changes at once." },
 	{ "display.specular_light_limit", _config_integer, DEFAULT_SPECULAR_LIGHT_LIMIT, "HALO_SPECULAR_LIGHT_LIMIT",
 		_environment_value, _platform_all | _platform_xbox,
 		"Of those lights, the most that also add their shine to metal and wet\n"
 		"floors. The first-person weapon's go first, then the biggest on screen.\n"
 		"The others still light the level, without the shine. 0 means no limit,\n"
 		"as on the Xbox. Near lights' shine is the costliest pass in a firefight.\n"
-		"The default is 0 on the desktop and the original Xbox, and 2 on the\n"
-		"other consoles. Changes at once." },
+		"The default is 0 on the desktop, and 2 on the consoles. Changes at\n"
+		"once." },
 	{ "display.texture_decode", _config_string, "\"auto\"", "HALO_TEXTURE_DECODE", _environment_value,
 		_platform_android,
 		"Where compressed textures are unpacked: \"gpu\" or \"cpu\". \"cpu\"\n"
@@ -5130,6 +5129,27 @@ static void config_tuning_apply(long changed)
 		{
 			platform_log("tuning: change preset=%s->%s", config_tuning_presets[config_tuning_said_preset < 0 ?
 				_tuning_preset_retail : config_tuning_said_preset], config_tuning_presets[preset]);
+		}
+		/* a preset that sets nothing on this build (on the original Xbox,
+		potato: its limits are the console's own, the rest not its
+		settings) says so, rather than look like it did something */
+		if (preset != _tuning_preset_retail && (start || config_tuning_said_preset != preset))
+		{
+			int preset_set = 0;
+
+			for (knob = 0; knob < NUMBER_OF_TUNING_KNOBS; knob++)
+				preset_set |= config_tuning_setting(knob) >= 0 && config_tuning_source[knob] == _tuning_preset;
+			if (!preset_set)
+			{
+				platform_log("tuning: preset=%s changes nothing on this %s: its values are this build's own, "
+					"set by hand or not its settings (docs/settings.md)", config_tuning_presets[preset],
+#if defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER) || defined(HALO_SWITCH_CONSOLE)
+					"console"
+#else
+					"machine"
+#endif
+					);
+			}
 		}
 	}
 	config_tuning_said_preset = preset;
