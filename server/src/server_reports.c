@@ -2,14 +2,14 @@
 SERVER_REPORTS.C
 
 Players' reports, as the dedicated server takes them (server_reports.h;
-docs/delta.md, Reports). The server is Delta Peer's report host: a
+docs/delta/peer.md, Reports). The server is Delta Peer's report host: a
 ChupathingyCE player's REPORT names another player of the game and a
 reason. This unit checks it (the player there, not the reporter's own, a
 player once a game from one reporter, 3 a minute and 10 a game from one
 reporter, at most 5 a game of one player: each counted by their verified
 account, else by the player this game, never by the machine's slot) and
 makes the report the moderators see: both players' names,
-their verified handles and accounts (docs/delta.md, "Verified names") when
+their verified handles and accounts (docs/delta/peer.md, "Verified names") when
 they proved them, the map, the game type and the server's refusals of the
 reported machine this game (host_evidence.h). Never an address. A clip is
 asked for only when the server is linked to the site, where it goes.
@@ -25,6 +25,7 @@ asked for only when the server is linked to the site, where it goes.
 #include "game/players.h"
 #include "memory/data.h"
 #include "networking/network_game_globals.h"
+#include "networking/network_server_manager.h"
 #include "dedicated.h"
 #include "server_moderation.h"
 #include "server_reports.h"
@@ -169,6 +170,10 @@ static void who_is(
 	who->player = player_index;
 	who->has_account = server_moderation_machine_account(machine_index, local_player, who->account, handle,
 		sizeof(handle)) ? 1 : 0;
+	/* (an unverified player's machine's address, for the address limit:
+	compared in memory alone) */
+	if (!who->has_account)
+		who->address = network_game_server_machine_address(machine_index);
 }
 
 static int hex_value(

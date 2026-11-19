@@ -74,6 +74,10 @@ void main_lost_map(
 void main_revert_map(
 	void);
 
+/* port: the network co-op host's RESTART LEVEL, done in the main loop */
+void main_coop_restart_level(
+	void);
+
 void main_skip_cinematic(
 	void);
 

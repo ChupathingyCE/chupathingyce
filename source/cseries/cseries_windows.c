@@ -116,6 +116,8 @@ void system_exit(
 	if (code == -1 && display_assert_skipped)
 	{
 		display_assert_skipped = FALSE;
+		/* (port: not what stops the game: the halt screen's place forgotten) */
+		error_halt_place_clear();
 		return;
 	}
 #endif

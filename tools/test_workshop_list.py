@@ -1,6 +1,11 @@
 """Runs the C tests of the Delta Guide's Workshop list document
 (port/linux/src/workshop_list.c), with the build machine's C compiler. The
-unit has no SDL, game or file system dependency, so it compiles anywhere."""
+unit has no SDL, game or file system dependency, so it compiles anywhere.
+
+SPDX-FileCopyrightText: 2026 The Chupathingy contributors
+SPDX-FileCopyrightText: 2026 Milenko x Horrible Dev
+SPDX-License-Identifier: GPL-3.0-or-later
+"""
 import os
 import shutil
 import subprocess
@@ -57,6 +62,10 @@ def test_workshop_list_fuzz(tmp_path):
         b'"tags":[{"tag":"Halo1"},{"tag":"Multiplayer"}]}]}}')
     (seeds / "browse").write_bytes(b"\x02" + b'<a href="https://steamcommunity.com/sharedfiles/filedetails/?id=123">')
     (seeds / "id").write_bytes(b"\x03" + b"2886943774")
+    (seeds / "authors").write_bytes(
+        b"\x04" + b'\\"total_pages\\":23,\\"results\\":[{\\"publishedfileid\\":\\"5\\",\\"creator\\":\\"6\\"}],'
+        b'\\"creator_player_link_details\\":[{\\"steamid\\":\\"6\\",\\"persona_name\\":\\"a\\\\\\"b\\u00e9\\"}]')
+    (seeds / "profile").write_bytes(b"\x05" + b"<steamID><![CDATA[Name]]></steamID>")
     result = fuzz_support.run_fuzzer(binary, tmp_path, int(os.environ.get("HALO_FUZZ_SECONDS", "20")), seeds=[seeds],
                                      max_len=16384)
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]

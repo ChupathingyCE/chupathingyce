@@ -67,6 +67,12 @@ int CloseHandle(HANDLE handle);
 STUBS = r"""
 #include <dirent.h>
 #include <sys/stat.h>
+#include "spv3_mode.h"
+/* (SPV3 mode, spv3_mode.c, not in the harness: always off) */
+boolean spv3_mode_active(void) { return FALSE; }
+boolean spv3_mode_pack_present(char const *pack) { (void)pack; return FALSE; }
+boolean spv3_mode_map_path(char const *file, char *path, long size) { (void)file; (void)path; (void)size; return FALSE; }
+void spv3_mode_log(char const *format, ...) { (void)format; }
 /* (a pattern of one '*', any case: "*.map", "maps_*") */
 static int harness_match(const char *pattern, const char *name)
 {
@@ -278,7 +284,8 @@ def build(tmp_path_factory, library_header=None):
     (work / "cseries.h").write_text(STUB_CSERIES)
     (work / "cseries" / "cseries_windows.h").write_text(STUB_WINDOWS)
     (work / "harness.c").write_text(HARNESS + STUBS)
-    for header in ("halo_map_families.h", "halo_map_packs.h", "halo_join_reasons.h"):
+    for header in ("halo_map_families.h", "halo_map_packs.h", "halo_join_reasons.h", "spv3_mode.h",
+                   "stubbs_mode.h"):
         shutil.copy(ROOT / "port/linux/include" / header, work / header)
     if library_header is None:
         shutil.copy(ROOT / "port/linux/game/xbox_mod_maps.h", work / "xbox_mod_maps.h")

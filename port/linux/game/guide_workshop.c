@@ -53,6 +53,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 #include "../src/settings_rows.h"
 #include "../src/guide_layout.h"
 #include "guide_workshop.h"
+#include "halo_ui_pointer.h"
 #include "mcc_maps.h"
 
 /* menu_functions.c's: PLAY handed to the menus' own flows */
@@ -244,6 +245,9 @@ static struct
 	it took the focus (guide_layout_marquee) */
 	int marquee_key;
 	unsigned long marquee_time, marquee_drawn;
+	/* the list's and the description's scroll bars, as last drawn, for the
+	mouse (guide_layout_scroll_bar_pointer) */
+	struct guide_scroll_bar list_bar, description_bar;
 } workshop_view;
 
 /* ---------- private code */
@@ -894,6 +898,22 @@ static void text_line(int kind, float x, float y, float width, int align, char c
 	}
 #endif
 	ui_style_text(kind, x, y, align, shown);
+}
+
+/* an item's line of facts and its author's name, as much as fits with the
+name whole: "Kind - 48 MB - by Name", else without the size, else the name
+alone (cut only when even that is too wide) */
+static void facts_line(int kind, float x, float y, float width, char const *what, char const *size,
+	char const *author)
+{
+	char line[160];
+
+	snprintf(line, sizeof(line), "%s%s%s%s%s", what, size[0] ? " - " : "", size, author[0] ? " - by " : "", author);
+	if (author[0] && kind_width(kind, line) > width + 0.5f && size[0])
+		snprintf(line, sizeof(line), "%s - by %s", what, author);
+	if (author[0] && kind_width(kind, line) > width + 0.5f)
+		snprintf(line, sizeof(line), "by %s", author);
+	text_line(kind, x, y, width, UI_ALIGN_LEFT, line);
 }
 
 /* (a focused line not drawn for this long lost the focus in between) */
@@ -1647,6 +1667,33 @@ boolean guide_workshop_wheel(short x, short y, short steps)
 	return FALSE;
 }
 
+boolean guide_workshop_scroll_pointer(struct halo_ui_pointer const *pointer)
+{
+	int taken_list = 0, taken_description = 0, scroll;
+	boolean pressed = pointer->left_clicks > 0;
+
+	/* (the list: its rows move, the focus where it was, as the wheel) */
+	scroll = guide_layout_scroll_bar_pointer(&workshop_view.list_bar, workshop_view.first, pointer->x, pointer->y,
+		pointer->left_down, pressed, pointer->click_x, pointer->click_y, &taken_list);
+	if (scroll >= 0)
+	{
+		workshop_view.first = (short)scroll;
+		workshop_view.follow = FALSE;
+	}
+	scroll = guide_layout_scroll_bar_pointer(&workshop_view.description_bar, workshop_view.description_scroll,
+		pointer->x, pointer->y, pointer->left_down, pressed && !taken_list, pointer->click_x, pointer->click_y,
+		&taken_description);
+	if (scroll >= 0)
+		workshop_view.description_scroll = (short)scroll;
+	return taken_list || taken_description;
+}
+
+void guide_workshop_scroll_release(void)
+{
+	workshop_view.list_bar.hover = workshop_view.list_bar.dragging = 0;
+	workshop_view.description_bar.hover = workshop_view.description_bar.dragging = 0;
+}
+
 boolean guide_workshop_click(short x, short y)
 {
 	if (!over_description(x, y) || workshop_view.description_count <= workshop_view.description_shown)
@@ -1717,7 +1764,7 @@ char const *guide_workshop_prompt(void)
 	{
 	case _row_show:
 	case _row_sort: return "CHANGE";
-	case _row_page: return "NEXT PAGE";
+	case _row_page: return workshop_browser_page_offered(1) ? "NEXT PAGE" : "PREVIOUS";
 	case _row_search: return "SEARCH";
 	case _row_steam: return "LINK";
 	case _row_retry: return "RETRY";
@@ -1878,9 +1925,19 @@ static void description_render(struct workshop_browser_item const *item, struct 
 	track.height = lines * DESCRIPTION_LINE - 2;
 	if (guide_layout_scroll_thumb(track, count, lines, workshop_view.description_scroll, 8.0f, &thumb))
 	{
+		struct guide_scroll_bar *bar = &workshop_view.description_bar;
+
+		bar->track = track;
+		bar->thumb = thumb;
+		bar->count = count;
+		bar->shown = lines;
 		ui_overlay_rect(track.x, track.y, track.width, track.height, 1.5f, 0xFFFFFF1F);
-		ui_overlay_rect(thumb.x, thumb.y, thumb.width, thumb.height, 1.5f,
-			workshop_view.description_on && workshop_view.page ? COLOR_VALUE : 0xFFFFFF80);
+		/* (under the pointer or dragged: wider and brighter) */
+		if (bar->hover)
+			ui_overlay_rect(thumb.x - 1, thumb.y, thumb.width + 2, thumb.height, 2.0f, COLOR_VALUE);
+		else
+			ui_overlay_rect(thumb.x, thumb.y, thumb.width, thumb.height, 1.5f,
+				workshop_view.description_on && workshop_view.page ? COLOR_VALUE : 0xFFFFFF80);
 	}
 }
 
@@ -1939,17 +1996,21 @@ static void heading_render(float left, float top, short status)
 	float right = left + LIST_WIDTH;
 	int busy = workshop_browser_busy_seconds();
 
-	if (workshop_browser_filter() != WORKSHOP_FILTER_INSTALLED)
-		snprintf(heading, sizeof(heading), "MCC WORKSHOP - PAGE %d", workshop_browser_page());
-	else
+	if (workshop_browser_filter() == WORKSHOP_FILTER_INSTALLED)
 		snprintf(heading, sizeof(heading), "MCC WORKSHOP");
+	else if (workshop_browser_page_count() > 0)
+		snprintf(heading, sizeof(heading), "MCC WORKSHOP - PAGE %d OF %d", workshop_browser_page(),
+			workshop_browser_page_count());
+	else
+		snprintf(heading, sizeof(heading), "MCC WORKSHOP - PAGE %d", workshop_browser_page());
 	ui_style_text(UI_TEXT_HEADING, left, top, UI_ALIGN_LEFT, heading);
 	word[0] = 0;
+	/* (also when the page asked for failed and the list kept the one before) */
 	if (status == WORKSHOP_LIST_LOADING)
 		snprintf(word, sizeof(word), "Loading");
-	else if (status == WORKSHOP_LIST_FAILED && busy)
+	else if (workshop_browser_list_why()[0] && busy)
 		snprintf(word, sizeof(word), "Steam busy, %ds", busy);
-	else if (status == WORKSHOP_LIST_FAILED)
+	else
 		snprintf(word, sizeof(word), "%s", workshop_browser_list_why());
 	if (word[0])
 		ui_style_text(UI_TEXT_LABEL, right, top + 1, UI_ALIGN_RIGHT, word);
@@ -2036,7 +2097,10 @@ static void control_render(short row, float left, float y, boolean on,
 		row_arrows(row, left, y, LIST_WIDTH, CONTROL_HEIGHT, value, target);
 		return;
 	case _row_page:
-		snprintf(value, sizeof(value), "%d", workshop_browser_page());
+		if (workshop_browser_page_count() > 0)
+			snprintf(value, sizeof(value), "%d OF %d", workshop_browser_page(), workshop_browser_page_count());
+		else
+			snprintf(value, sizeof(value), "%d", workshop_browser_page());
 		ui_style_setting(left, y, LIST_WIDTH, CONTROL_HEIGHT, 0.9f, "PAGE", NULL, value, on);
 		row_arrows(row, left, y, LIST_WIDTH, CONTROL_HEIGHT, value, target);
 		return;
@@ -2045,11 +2109,13 @@ static void control_render(short row, float left, float y, boolean on,
 	}
 }
 
-static void item_row_render(short row, float left, float y, boolean on)
+/* on: the row with the focus; chosen: the item whose page is open beside
+the list, the focus on its page */
+static void item_row_render(short row, float left, float y, boolean on, boolean chosen)
 {
 	struct workshop_browser_item const *item = row_item(row);
 	short view = workshop_view.row_view[row];
-	char line[160], shown[GUIDE_LAYOUT_LINE_SIZE];
+	char shown[GUIDE_LAYOUT_LINE_SIZE];
 	char const *state;
 	float state_width;
 
@@ -2057,20 +2123,18 @@ static void item_row_render(short row, float left, float y, boolean on)
 		return;
 	state = item_word(item, view);
 	state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 8.0f, state) + 8 : 0;
-	ui_style_row(left, y, LIST_WIDTH, ROW_HEIGHT, on);
+	if (chosen && !on)
+		ui_style_row_chosen(left, y, LIST_WIDTH, ROW_HEIGHT);
+	else
+		ui_style_row(left, y, LIST_WIDTH, ROW_HEIGHT, on);
 	if (on)
 		text_line_focused(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, shown_title(item), 1 + row);
 	else
 		text_line(UI_TEXT_NAME, left + 10, y + 3, LIST_WIDTH - 20, UI_ALIGN_LEFT, shown_title(item));
 	/* (an author's name of letters the font lacks: left out, as a title's) */
 	ui_overlay_text_shown(UI_FONT_MENU, item->author, shown, sizeof(shown));
-	if (item->setup)
-		snprintf(line, sizeof(line), "%s", "Setup");
-	else if (shown[0])
-		snprintf(line, sizeof(line), "%s - %s", workshop_browser_kind_name(item->kind), shown);
-	else
-		snprintf(line, sizeof(line), "%s", workshop_browser_kind_name(item->kind));
-	text_line(UI_TEXT_STATUS, left + 10, y + 17, LIST_WIDTH - 20 - state_width, UI_ALIGN_LEFT, line);
+	facts_line(UI_TEXT_STATUS, left + 10, y + 17, LIST_WIDTH - 20 - state_width,
+		item->setup ? "Setup" : workshop_browser_kind_name(item->kind), "", shown);
 	ui_overlay_text(UI_FONT_MENU, 8.0f, left + LIST_WIDTH - 10, y + 17, UI_ALIGN_RIGHT, item_color(item, view), state);
 }
 
@@ -2110,7 +2174,7 @@ static void list_render(float left, float top, float bottom,
 		boolean on = row == workshop_view.row && !workshop_view.page;
 
 		if (workshop_view.row_kind[row] == _row_item)
-			item_row_render(row, left, y, on);
+			item_row_render(row, left, y, on, workshop_view.page && row == page_row());
 		else
 			control_render(row, left, y, on, target);
 		if (target)
@@ -2150,8 +2214,18 @@ static void list_render(float left, float top, float bottom,
 		if (guide_layout_scroll_thumb(track, workshop_view.row_count, workshop_view.shown_rows, workshop_view.first,
 			10.0f, &thumb))
 		{
+			struct guide_scroll_bar *bar = &workshop_view.list_bar;
+
+			bar->track = track;
+			bar->thumb = thumb;
+			bar->count = workshop_view.row_count;
+			bar->shown = workshop_view.shown_rows;
 			ui_overlay_rect(track.x, track.y, track.width, track.height, 1.5f, 0xFFFFFF1A);
-			ui_overlay_rect(thumb.x, thumb.y, thumb.width, thumb.height, 1.5f, 0xFFFFFF80);
+			/* (under the pointer or dragged: wider and brighter) */
+			if (bar->hover)
+				ui_overlay_rect(thumb.x - 1, thumb.y, thumb.width + 2, thumb.height, 2.0f, COLOR_VALUE);
+			else
+				ui_overlay_rect(thumb.x, thumb.y, thumb.width, thumb.height, 1.5f, 0xFFFFFF80);
 		}
 	}
 }
@@ -2164,7 +2238,7 @@ static void page_render(short row, float x, float top, float width, float bottom
 	struct guide_rect pane = { x, top, width, bottom - top };
 	struct guide_page_layout layout;
 	short options[MAXIMUM_OPTIONS], option_count, index;
-	char note_text[96], line[160], size[24], shown[GUIDE_LAYOUT_LINE_SIZE];
+	char note_text[96], size[24], shown[GUIDE_LAYOUT_LINE_SIZE];
 	float bar, state_width;
 	char const *note, *state;
 	boolean live = row == workshop_view.row;
@@ -2182,15 +2256,14 @@ static void page_render(short row, float x, float top, float width, float bottom
 		text_line(UI_TEXT_TITLE, layout.title.x, layout.title.y, layout.title.width, UI_ALIGN_LEFT, shown_title(item));
 	/* (its kind and size, its author, and where it stands) */
 	workshop_browser_size_text(item->size, size, sizeof(size));
+	state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 9.0f, state) + 8 : 0;
 	{
 		char author[WORKSHOP_BROWSER_AUTHOR_SIZE];
 
 		ui_overlay_text_shown(UI_FONT_MENU, item->author, author, sizeof(author));
-		snprintf(line, sizeof(line), "%s%s%s%s%s", item->setup ? "Setup" : workshop_browser_kind_name(item->kind),
-			size[0] ? " - " : "", size, author[0] ? " - by " : "", author);
+		facts_line(UI_TEXT_LINE, layout.status.x, layout.status.y, layout.status.width - state_width,
+			item->setup ? "Setup" : workshop_browser_kind_name(item->kind), size, author);
 	}
-	state_width = state[0] ? ui_overlay_text_width(UI_FONT_MENU, 9.0f, state) + 8 : 0;
-	text_line(UI_TEXT_LINE, layout.status.x, layout.status.y, layout.status.width - state_width, UI_ALIGN_LEFT, line);
 	ui_overlay_text(UI_FONT_MENU, 9.0f, layout.status.x + layout.status.width, layout.status.y + 1, UI_ALIGN_RIGHT,
 		item_color(item, view), state);
 	/* (its picture in its box, the item's own or Steam's; until it comes, or
@@ -2285,6 +2358,9 @@ void guide_workshop_render(float left, float top, float right, float bottom,
 
 	rows_sync();
 	workshop_view.description_x0 = workshop_view.description_x1 = 0;
+	/* (each bar there only while drawn this frame) */
+	workshop_view.list_bar.thumb.height = 0;
+	workshop_view.description_bar.thumb.height = 0;
 	list_render(left, top, bottom, target);
 	/* the chosen item's page (the last one chosen while the focus is above
 	the items) */

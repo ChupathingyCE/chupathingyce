@@ -19,6 +19,9 @@ struct server_settings;
 /* a game type, by its name in a playlist: a built-in's (slayer, ctf, ...),
 else its file's (admin/gametypes/<name>.toml), built on its base. TRUE,
 else FALSE and why in problem */
+/* (and the gametype's further options, the game modes layer's 16 bytes, of
+the game type last resolved: a built-in's or its file's) */
+unsigned char const *server_gametype_resolved_modes(void);
 boolean server_gametype_resolve(char const *name, struct game_variant *variant, struct game_variant_options *options,
 	char *problem, long problem_size);
 

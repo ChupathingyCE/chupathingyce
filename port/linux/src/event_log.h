@@ -1,7 +1,7 @@
 /*
 EVENT_LOG.H
 
-Delta Stats' event log (docs/delta.md, "Delta Stats"): what happened in a
+Delta Stats' event log (docs/delta/stats.md, "Delta Stats"): what happened in a
 game this machine hosts, gathered on the game's thread by
 port/linux/game/game_events.c, kept within fixed limits here
 (event_log.c), and made into the game's batch (schema 2, JSON) at its end,
@@ -25,7 +25,7 @@ team and this game's score, place, kills and deaths (event_log.c).
 
 #include <stddef.h>
 
-/* the batch's "schema" (docs/delta.md: later versions only add fields) */
+/* the batch's "schema" (docs/delta/stats.md: later versions only add fields) */
 #define EVENT_LOG_SCHEMA 2
 
 enum

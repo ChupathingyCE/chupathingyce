@@ -1,6 +1,7 @@
 """Delta on a big-endian machine: the C tests of Delta Peer
 (port/linux/tests/delta_test.c, its wire byte order among them) and of the
-wire compatibility ranges (port/linux/tests/delta_compat_test.c), built for
+wire compatibility ranges (port/linux/tests/delta_compat_test.c), and the
+reference client for ports (tools/delta-ref), built for
 a big-endian Linux and run under QEMU's user mode. The Xbox 360 and the Wii U
 are big-endian PowerPC, the PCs and the original Xbox little-endian: the wire
 is little-endian, and these say a big-endian build writes and reads the same
@@ -75,3 +76,12 @@ def test_compat_big_endian(tmp_path):
     output = build_and_run(tmp_path, "delta_compat_test",
                            [ROOT / "port" / "linux" / "tests" / "delta_compat_test.c", SRC / "delta_compat.c"], [])
     assert "delta_compat_test: ok" in output
+
+
+def test_reference_client_big_endian(tmp_path):
+    """the reference client for ports (tools/delta-ref) writes and reads the
+    same bytes as the game's code on a big-endian machine (the N64's, the
+    PowerPC consoles')"""
+    kit = ROOT / "tools" / "delta-ref"
+    output = build_and_run(tmp_path, "delta_ref_test", [kit / "delta_ref.c", kit / "delta_ref_test.c"], ["20000"])
+    assert "delta_ref_test: ok" in output

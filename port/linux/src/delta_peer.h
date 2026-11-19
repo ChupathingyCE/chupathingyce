@@ -1,7 +1,7 @@
 /*
 DELTA_PEER.H
 
-Delta Peer (docs/delta.md): ChupathingyCE's own messages between the
+Delta Peer (docs/delta/peer.md): ChupathingyCE's own messages between the
 machines of one game, beside OpenCE's game protocol, which stays as it is.
 
 - A host that speaks it listens on DELTA_PEER_PORT (the game's port + 10)
@@ -120,7 +120,7 @@ enum
 	DELTA_PEER_MODERATION_SIGNATURE_BURST = 2,
 	DELTA_PEER_MODERATION_BIND_TIME = 120000,
 
-	/* chat (docs/delta.md, Chat): the host takes CHAT_SAY from a machine at
+	/* chat (docs/delta/peer.md, Chat): the host takes CHAT_SAY from a machine at
 	most this often (and at once), says CHAT_CONFIG again this often (and on
 	a change, no sooner than the roster's gap); a client takes CHAT_LINE at
 	most this often (and at once), and keeps the last lines it heard */
@@ -138,6 +138,11 @@ enum
 	own rules space them out further: team_change.c) */
 	DELTA_PEER_TEAM_RATE = 1,
 	DELTA_PEER_TEAM_BURST = 3,
+	/* the lobby's READY: LOBBY_READY a host takes from one machine, and
+	how often the state goes to each client unchanged */
+	DELTA_PEER_LOBBY_RATE = 2,
+	DELTA_PEER_LOBBY_BURST = 8,
+	DELTA_PEER_LOBBY_STATE_INTERVAL = 3000,
 
 	/* server badges (docs/server-badges.md): the client asks its host this
 	often, at most this many times a session; the host answers one machine
@@ -151,7 +156,7 @@ enum
 	DELTA_PEER_REPORT_RATE = 1,
 	DELTA_PEER_REPORT_BURST = 3,
 
-	/* voice (docs/delta.md, Voice), budgets of its own beside the ones
+	/* voice (docs/delta/peer.md, Voice), budgets of its own beside the ones
 	above (50 frames a second would take a machine's whole budget): VOICE_UP
 	a host takes from a machine, a second (and at once), and VOICE_DOWN a
 	client takes from its host; the machines talking at once, on a dedicated
@@ -176,7 +181,7 @@ enum
 	DELTA_PEER_VOICE_CONFIG_EXPIRY = 25000,
 	DELTA_PEER_VOICE_FRAME_DATAGRAMS = 256,
 
-	/* verified names (docs/delta.md, Verified names; milliseconds where a
+	/* verified names (docs/delta/peer.md, Verified names; milliseconds where a
 	time): the host says ID_CHALLENGE this often; checks a machine's proofs
 	at most this often (and at once: one for each local player); sends every
 	card to every client again this often, at most this many cards a frame
@@ -227,7 +232,7 @@ may have (a console leaves verified names out for now, and keeps one) */
 #define DELTA_PEER_IDENTITY_CARDS DELTA_PEER_MAXIMUM_PLAYERS
 #endif
 
-/* a verified player, as a checked proof says (docs/delta.md, Verified
+/* a verified player, as a checked proof says (docs/delta/peer.md, Verified
 names): the device certificate's account, handle and the rest, and the tag
 its proof claims (the site's own card has the last word on it) */
 struct delta_peer_identity
@@ -385,6 +390,16 @@ struct delta_peer_team_host
 	int (*request)(void *context, int machine_index, int player, int team, int *team_now, int *seconds);
 };
 
+/* a host's lobby (the game's: port/linux/game/lobby_screen.c); a host with
+none (a dedicated server, the Xbox menus) does not offer lobby_ready */
+struct delta_peer_lobby_host
+{
+	void *context;
+	/* a machine says one of its players (the game's player list index) is
+	ready, or not any more: 1 taken, 0 not (no such player of the machine) */
+	int (*ready)(void *context, int machine_index, int player, int ready);
+};
+
 /* a host's reports (the dedicated server's: server/src/server_reports.c); a
 host with none does not offer reports */
 struct delta_peer_report_host
@@ -448,7 +463,7 @@ struct delta_peer_host_voice
 	delta_u32 config_time;
 };
 
-/* the client's object sync (docs/delta.md, Object sync): what its host's
+/* the client's object sync (docs/delta/peer.md, Object sync): what its host's
 UNIT_VITALS and OBJECT_NAMES said, each as it comes (both agreed to
 object_sync; read and checked for their shape, not what they name) */
 struct delta_peer_objects_client
@@ -590,6 +605,9 @@ struct delta_peer_card
 struct delta_peer_local
 {
 	delta_u32 capabilities;
+	/* the game modes it plays (network_rules.h's NETWORK_RULES_MODES_*),
+	said in its HELLO and WELCOME (docs/modes.md) */
+	delta_u32 modes;
 	unsigned short legacy_version;
 	/* (with no legacy_table_serial in the env: this, which never changes) */
 	delta_u32 legacy_table_serial;
@@ -686,6 +704,12 @@ struct delta_peer_host_peer
 	/* reports: the last REPORT's sequence, and their rate */
 	delta_u32 report_sequence;
 	struct delta_rate report_rate;
+	/* the lobby's READY: the last LOBBY_READY's sequence and their rate,
+	and the lobby's state as last sent to it (lobby_generation), and when */
+	delta_u32 lobby_sequence;
+	struct delta_rate lobby_rate;
+	delta_u32 lobby_sent_generation;
+	delta_u32 lobby_time;
 	struct delta_peer_host_voice voice;
 	/* verified names: its proofs' rate, the challenge last said, and each
 	card's generation as last sent to it (0: not sent), and when every card
@@ -764,6 +788,12 @@ struct delta_peer
 	each time they change (0: none set) */
 	struct delta_wire_host_rules rules;
 	delta_u32 rules_generation;
+	/* the lobby's state (delta_peer_set_lobby_state): its generation is
+	the state's own (0: none set) */
+	struct delta_wire_lobby_state lobby_state;
+	/* whether it is sent (the lobby up): off between lobbies, its generation
+	kept, so that the next lobby's state is newer than any a client holds */
+	int lobby_state_active;
 	/* the host's number (delta_peer_set_host_number), and a number raised
 	each time it changes (0: none set) */
 	unsigned number;
@@ -804,6 +834,10 @@ struct delta_peer
 	change (0: none heard) */
 	struct delta_wire_host_rules host_rules;
 	delta_u32 host_rules_generation;
+	/* the lobby's state (LOBBY_STATE) as last heard (its generation 0:
+	none heard), and the client's last LOBBY_READY's sequence */
+	struct delta_wire_lobby_state host_lobby_state;
+	delta_u32 lobby_sequence;
 	/* the host's number (HOST_NUMBER), and a number raised each time it
 	changes (0: none heard) */
 	unsigned host_number;
@@ -853,6 +887,8 @@ struct delta_peer
 	delta_u32 team_sequence;
 	delta_u32 team_results;
 	struct delta_wire_team_result team_result;
+	/* the lobby's READY: the host's (NULL: none, not offered) */
+	const struct delta_peer_lobby_host *lobby_host;
 	/* reports: the host's (NULL: none, not offered); the client's last
 	REPORT's sequence, and the results heard (how many, the last) */
 	const struct delta_peer_report_host *report_host;
@@ -986,17 +1022,29 @@ cannot reach the host). 0 for one that has it, one still in its window, the
 host's own, or a machine not in the game; a capability this host does not
 offer itself is lacked by every other machine */
 int delta_peer_machine_lacks(const struct delta_peer *peer, delta_u32 now, int machine_index, int capability);
+/* (the host's) the game modes a machine's HELLO said it plays (0 while this
+machine is not the host, the machine has no session, or its build said none:
+docs/modes.md) */
+delta_u32 delta_peer_machine_modes(const struct delta_peer *peer, int machine_index);
 /* ... and whether one is still in its window: in the game, not the host's,
 no session yet and its window not over (a game that needs the capability
 waits for it) */
 int delta_peer_machine_pending(const struct delta_peer *peer, delta_u32 now, int machine_index);
+/* ... and whether a machine of the game speaks Delta with the host: 1 a
+session, 0 none after its window (an OpenCE machine, or one whose Delta
+cannot reach the host), -1 not known (still in its window, the host's own,
+a machine not in the game, or not the host) */
+int delta_peer_machine_session(const struct delta_peer *peer, delta_u32 now, int machine_index);
 /* ... and the OpenCE network version a machine of the game said in its
 HELLO, the newest whose rules it plays (DELTA_LEGACY_NEWEST; earlier builds
 said their HALO_PORT_NETWORK_VERSION, 32 or older): 0 for one without a session
 (an OpenCE machine, or one whose HELLO has not come yet) */
 int delta_peer_machine_legacy_version(const struct delta_peer *peer, int machine_index);
+/* ... and the platform its HELLO's key names: 0 (unknown) for one without a
+session */
+int delta_peer_machine_platform(const struct delta_peer *peer, int machine_index);
 
-/* ---------- moderation (docs/delta.md, Moderation)
+/* ---------- moderation (docs/delta/peer.md, Moderation)
 
 The host's: a client that agreed to moderation is sent a challenge (a nonce
 of its session, and the host's binding); it signs in by signing it with its
@@ -1038,7 +1086,7 @@ delta_u32 delta_peer_client_moderation_action(struct delta_peer *peer, int actio
 /* (client) the player's answer to the waiting bind: 1 if sent */
 int delta_peer_client_moderation_bind_answer(struct delta_peer *peer, int accepted);
 
-/* ---------- chat (docs/delta.md, Chat)
+/* ---------- chat (docs/delta/peer.md, Chat)
 
 Player lines need chat agreed by both sides; the host's own lines (server
 and system kinds) need server_messages. The host checks each CHAT_SAY's
@@ -1076,7 +1124,7 @@ number index of them: 1 if it is still kept */
 delta_u32 delta_peer_client_chat_received(const struct delta_peer *peer);
 int delta_peer_client_chat_get(const struct delta_peer *peer, delta_u32 index, struct delta_wire_chat_line *line);
 
-/* ---------- team changes (docs/delta.md, Team changes)
+/* ---------- team changes (docs/delta/peer.md, Team changes)
 
 A client asks for its player to change teams (TEAM_REQUEST, both agreed to
 team_change); the host checks the session, the rising sequence and its
@@ -1095,7 +1143,31 @@ delta_u32 delta_peer_client_team_request(struct delta_peer *peer, int player, in
 last in result */
 delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct delta_wire_team_result *result);
 
-/* ---------- party teams (docs/delta.md, Party teams)
+/* ---------- the lobby's READY (docs/delta/peer.md, Lobby ready)
+
+A client says one of its players is ready, or not any more (LOBBY_READY,
+both agreed to lobby_ready); the host keeps who is ready and tells every
+client that agreed (LOBBY_STATE) at once when it changes and every few
+seconds. A machine without lobby_ready counts as ready: the host decides
+that, not the wire. */
+
+/* (host) its lobby (NULL: none; lobby_ready is then not offered to clients
+that say HELLO from now) */
+void delta_peer_set_lobby_host(struct delta_peer *peer, const struct delta_peer_lobby_host *host);
+/* (host) the lobby's state, sent to each client that agreed to lobby_ready
+(NULL: none, nothing sent). Called each frame; the state's generation is
+raised here each time it differs from the last */
+void delta_peer_set_lobby_state(struct delta_peer *peer, const struct delta_wire_lobby_state *state);
+/* (client) whether the host agreed to lobby_ready */
+int delta_peer_client_lobby_ready(const struct delta_peer *peer);
+/* (client) its player (the game's player list index) is ready, or not any
+more: the message's sequence, 0 if not sent */
+delta_u32 delta_peer_client_lobby_say(struct delta_peer *peer, int player, int ready);
+/* (client) the lobby's state as last heard, in state, and its generation
+(0: none heard) */
+delta_u32 delta_peer_client_lobby_state(const struct delta_peer *peer, struct delta_wire_lobby_state *state);
+
+/* ---------- party teams (docs/delta/peer.md, Party teams)
 
 A client in a party sends its host the party's tag (PARTY_TAG, both agreed
 to party_teams), as it changes and every DELTA_PEER_PARTY_TAG_INTERVAL; the
@@ -1108,7 +1180,7 @@ void delta_peer_client_set_party_tag(struct delta_peer *peer, const unsigned cha
 not agreed, in no party) */
 int delta_peer_machine_party_tag(const struct delta_peer *peer, int machine_index, unsigned char *tag);
 
-/* ---------- reports (docs/delta.md, Reports)
+/* ---------- reports (docs/delta/peer.md, Reports)
 
 A client's player reports another (REPORT, both agreed to reports); the
 host checks the session, the rising sequence and its budget, then asks its
@@ -1125,7 +1197,7 @@ delta_u32 delta_peer_client_report(struct delta_peer *peer, const struct delta_w
 last in result */
 delta_u32 delta_peer_client_report_result(const struct delta_peer *peer, struct delta_wire_report_result *result);
 
-/* ---------- object sync (docs/delta.md, Object sync)
+/* ---------- object sync (docs/delta/peer.md, Object sync)
 
 The host's game says what the game's own messages leave out of its objects:
 units' shield and health (UNIT_VITALS) and objects' scenario names
@@ -1142,7 +1214,7 @@ int delta_peer_client_objects_ready(const struct delta_peer *peer);
 /* (client) where what the host says goes (NULL: nowhere, dropped) */
 void delta_peer_set_objects_client(struct delta_peer *peer, const struct delta_peer_objects_client *client);
 
-/* ---------- voice (docs/delta.md, Voice)
+/* ---------- voice (docs/delta/peer.md, Voice)
 
 A client says its player's frames on a channel (VOICE_UP); with no frame,
 every DELTA_PEER_VOICE_HEARS_INTERVAL, it says the channels it hears and its
@@ -1188,7 +1260,7 @@ is global for any listener of the same party) */
 int delta_peer_voice_route(const struct delta_wire_voice_config *rules, const struct delta_peer_voice_world *world,
 	int speaker_machine, int listener_machine, int channel);
 
-/* ---------- verified names (docs/delta.md, Verified names)
+/* ---------- verified names (docs/delta/peer.md, Verified names)
 
 With identity agreed, the host challenges each client's session with a
 nonce of its own and its binding (ID_CHALLENGE); each local player whose
@@ -1269,8 +1341,8 @@ and flags: the kind (0: this build plays none of OpenCE's game types), and
 while hosting with Delta the Delta tag at their tail (delta_compat.h), and,
 with the flag 0x04 already in the flags and a game engine (engine, its stock
 index) other than DELTA_ADVERTISED_KIND_ENGINE, the old layout's major and
-slot for released clients (docs/delta.md, "The transition") */
-void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine);
+slot for released clients (docs/delta/peer.md, "The transition") */
+void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine, int kind);
 /* whether this host's advertisement has had the old layout: then a released
 client from before the tag may say HELLO with an older network version
 (DELTA_TAG_OLDEST_LEGACY, delta.h) */
@@ -1353,14 +1425,33 @@ unsigned delta_peer_game_host_number(void);
 int delta_peer_game_host_agreed_mcc_maps(void);
 delta_u32 delta_peer_game_host_rules(struct delta_wire_host_rules *rules);
 int delta_peer_game_machine_lacks(int machine_index, int capability);
+/* ... and the game modes its HELLO said it plays (delta_peer_machine_modes;
+0 while this host has no Delta, or the machine no session) */
+unsigned delta_peer_game_machine_modes(int machine_index);
+/* (the client's) the game modes its host's WELCOME said it plays (0: none,
+or not a client of a Delta host) */
+unsigned delta_peer_game_host_modes(void);
 /* whether a player's machine agreed to a capability with the host, as this
 machine knows it (its own, the host's, the roster's); none for a player
 without one */
 int delta_peer_game_player_has(int player_index, int capability);
 int delta_peer_game_machine_pending(int machine_index);
+/* ... and whether it speaks Delta with this host (delta_peer_machine_session;
+-1 while this host has no Delta) */
+int delta_peer_game_machine_session(int machine_index);
 /* ... and the network version its HELLO said (delta_peer_machine_legacy_version;
 0 while this host has no Delta, or the machine no session) */
 int delta_peer_game_machine_legacy_version(int machine_index);
+/* ... and whether its HELLO is under its platform's floor in the legacy
+table in use (delta_platform_floor_refuses: delta.h): 0 while this host has
+no Delta, or the machine no session */
+int delta_peer_game_machine_under_floor(int machine_index);
+/* ... and the platform its HELLO's key names (0 as for the version) */
+int delta_peer_game_machine_platform(int machine_index);
+/* whether this machine is under its own platform's floor in the legacy
+table in use, by the network version its HELLO says: a host of ours drops
+it, so it joins no Delta host (and the floor, through *oldest, if asked) */
+int delta_peer_game_under_floor(int *oldest);
 /* the game's room: delta_peer_room_has and _room_limit of the session */
 int delta_peer_game_room_has(int capability);
 int delta_peer_game_room_limit(int limit);
@@ -1392,6 +1483,15 @@ reporter would attach one, and the results heard (a clip goes with the
 token the host sent back) */
 void delta_peer_game_set_report_host(const struct delta_peer_report_host *host);
 int delta_peer_game_report_ready(void);
+/* the lobby's READY (port/linux/game/lobby_screen.c): the host's lobby
+(NULL: none, lobby_ready not offered) and its state for the clients; the
+client's word for its player, and the host's state as last heard (its
+generation, 0 for none) */
+void delta_peer_game_set_lobby_host(const struct delta_peer_lobby_host *host);
+void delta_peer_game_set_lobby_state(const struct delta_wire_lobby_state *state);
+int delta_peer_game_lobby_ready(void);
+unsigned int delta_peer_game_lobby_say(int player, int ready);
+unsigned int delta_peer_game_lobby_state(struct delta_wire_lobby_state *state);
 unsigned int delta_peer_game_report(int machine_index, int player, int reason, int clip);
 unsigned int delta_peer_game_report_result(struct delta_wire_report_result *result);
 
@@ -1425,7 +1525,7 @@ int delta_peer_game_voice_config(struct delta_wire_voice_config *config);
 int delta_peer_game_voice_talking(int machine_index);
 
 /* ---------- what Delta List says of a hosted game (browser.c's
-announcement; docs/delta.md, Delta List) */
+announcement; docs/delta/list.md, Delta List) */
 
 /* a game's machines by platform: the registry's numbers, then those
 without Delta (OpenCE's) */

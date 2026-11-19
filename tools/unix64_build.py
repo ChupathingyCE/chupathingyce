@@ -246,6 +246,7 @@ def generate_unix64_build(n: Writer, sln: Any) -> None:
         excluded=set(lp64_excluded()),
         host_sources=[UNIX_HOST_SOURCE],
         ffmpeg_cflags=ffmpeg_cflags,
+        lua=True,
     )
     # Link-time optimisation of the units with the Xbox's ABI, as in the Linux
     # builds (the host-ABI units have a 32-bit wchar_t and stay native objects)

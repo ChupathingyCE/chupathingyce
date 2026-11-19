@@ -18,6 +18,13 @@ the masters the last heartbeat). Its notices go to standard output.
                                 (a payload of one unit killed, as hex)
   gamespy_harness scores        (a payload of Slayer's scores and a player's
                                  numbers, all zero as a new game's, as hex)
+  gamespy_harness ctf <step>    (a payload of Capture the Flag's messages, as
+                                 hex: "grab" the flag sound, HUD note and
+                                 pickup; "drop" a carrier's drop; "message" a
+                                 HUD message; "state" a new game's state)
+  gamespy_harness gametype <type> <count>
+                                (a payload of a game type's state, all zero
+                                 as a new game's, as hex)
   gamespy_harness postgame <mode> [over]
                                 (a payload of the game's end at that step,
                                  and game over after it, as hex)
@@ -90,9 +97,9 @@ int main(int argc, char **argv)
 				payload[index] = (unsigned char)byte;
 			}
 			printf("read %d", ce_payload_read_client_updates(payload, length, &update, NULL, NULL));
-			printf(" id %d ticks %d flags %u yaw %.4f pitch %.4f throttle %d trigger %d weapon %d grenade %d medium %d\n",
+			printf(" id %d ticks %d flags %u yaw %.4f pitch %.4f throttle %d trigger %d weapon %d grenade %d zoom %d\n",
 				update.update_id, update.ticks, update.control_flags, update.yaw, update.pitch, update.throttle,
-				update.primary_trigger, update.weapon, update.grenade, update.unknown_medium);
+				update.primary_trigger, update.weapon, update.grenade, update.zoom);
 		}
 		return 0;
 	}
@@ -147,7 +154,7 @@ int main(int argc, char **argv)
 		spawn.unknown_medium = 0xffff;
 		spawn.weapons[0] = 49;
 		ce_payload_begin(&payload, out, sizeof(out));
-		ce_payload_put_player_add(&payload, 0, 0xec700000u, 1);
+		ce_payload_put_player_add(&payload, 0, 0xec700000u, 1, 0);
 		ce_payload_put_weapon_create(&payload, &weapon);
 		ce_payload_put_biped_create(&payload, &biped);
 		ce_payload_put_player_spawn(&payload, &spawn);
@@ -196,6 +203,63 @@ int main(int argc, char **argv)
 
 		ce_payload_begin(&payload, out, sizeof(out));
 		ce_payload_put_chat(&payload, atoi(argv[2]), atoi(argv[3]), argv[4]);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		return 0;
+	}
+	if (argc == 4 && !strcmp(argv[1], "gametype"))
+	{
+		static const unsigned int zero[CE_GAME_TYPE_VALUES] = { 0 };
+		struct ce_payload payload;
+		unsigned char out[256];
+		int length, count = atoi(argv[3]);
+
+		if (count < 0 || count > CE_GAME_TYPE_VALUES)
+			return 1;
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_game_type_update(&payload, atoi(argv[2]), zero, count);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		return 0;
+	}
+	if (argc == 3 && !strcmp(argv[1], "ctf"))
+	{
+		struct ce_payload payload;
+		unsigned char out[64];
+		int length;
+
+		/* (as our capture of Custom Edition's server has them: player 1
+		grabs the blue flag, object 2; drops it from its biped, object 52;
+		is told fifteen minutes are left) */
+		ce_payload_begin(&payload, out, sizeof(out));
+		if (!strcmp(argv[2], "grab"))
+		{
+			struct ce_action_result result;
+
+			memset(&result, 0, sizeof(result));
+			result.player = 1;
+			result.weapon_pickup = 1;
+			result.object = 2;
+			result.result = 7;
+			result.seat = 0xffff;
+			ce_payload_put_multiplayer_sound(&payload, 11);
+			ce_payload_put_hud_add_item(&payload, 3897165526u, 0, 0);
+			ce_payload_put_action_result(&payload, &result);
+		}
+		else if (!strcmp(argv[2], "drop"))
+			ce_payload_put_unit_drop_weapon(&payload, 52, 2, 1);
+		else if (!strcmp(argv[2], "message"))
+			ce_payload_put_hud_message(&payload, 1, 30, 27000);
+		else
+		{
+			static const int scores[2] = { 0, 0 };
+
+			ce_payload_put_ctf_update(&payload, 0, scores, 0);
+		}
 		length = ce_payload_end(&payload);
 		for (index = 0; index < length; index++)
 			printf("%02x", out[index]);

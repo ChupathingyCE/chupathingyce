@@ -24,7 +24,7 @@ site relays as a command line, JSON as the link reads it).
 #include "../platform/control_roles.h"
 #include "../platform/control_link_protocol.h"
 #include "../src/command_line.h"
-#include "../src/server_names.h"
+#include "../../port/linux/src/server_names.h"
 
 #include <stdint.h>
 #include <stdlib.h>

@@ -1,7 +1,7 @@
 /*
 GAME_EVENTS.C
 
-Delta Stats' recorder (docs/delta.md, "Delta Stats"; port/linux/src/
+Delta Stats' recorder (docs/delta/stats.md, "Delta Stats"; port/linux/src/
 event_log.h): what happens in a game this machine hosts, when
 network.report_events is on (event_upload_enabled; on by default), for
 the game list's match pages, heatmaps and leaderboards. It watches the

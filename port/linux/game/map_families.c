@@ -14,6 +14,7 @@ play it); the files are looked for only on the builds that play such maps
 #include "halo_join_reasons.h"
 #ifdef HALO_MAP_LIST
 #include "halo_map_packs.h"
+#include "spv3_mode.h"
 #endif
 #include "../src/map_archive.h"
 #include "../src/map_file_hash.h"
@@ -478,9 +479,11 @@ boolean map_family_header_is_mcc(
 enum
 {
 	/* a cache file's header: 'head', its version, ..., its type (a short
-	at 0x60: 1 multiplayer) */
+	at 0x60: 0 campaign, 1 multiplayer) */
 	CACHE_HEADER_SIGNATURE = 'head',
 	CACHE_HEADER_TYPE_OFFSET = 0x60,
+	CACHE_TYPE_ANY = -1,
+	CACHE_TYPE_CAMPAIGN = 0,
 	CACHE_TYPE_MULTIPLAYER = 1,
 	CUSTOM_EDITION_CACHE_VERSION = 609,
 	HALO_PC_CACHE_VERSION = 7,
@@ -546,6 +549,14 @@ static struct map_family_place const resource_places[] =
 	{ FALSE, "custom_maps\\", "" },
 };
 
+/* where Halo PC retail's own resource maps (bitmaps.map, sounds.map) are,
+which HaloMD's and Halo PC's maps read their stock bitmaps and sounds from
+when a player has them: Halo PC's maps folder */
+static struct map_family_place const halo_pc_resource_places[] =
+{
+	{ FALSE, "maps_pc\\", "" },
+};
+
 /* ---------- prototypes */
 
 void platform_log(char const *format, ...);
@@ -590,14 +601,14 @@ static void place_folder(
 	snprintf(path, (size_t)size, "%s%s", place->under_maps ? cache_files_map_directory() : "d:\\", place->folder);
 }
 
-/* whether a file is a cache file of a version (and a multiplayer map's, if
-asked); on the desktop, a map of the version compressed with Chimera's
+/* whether a file is a cache file of a version (and of a scenario type, if
+one is asked: CACHE_TYPE_ANY for any); on the desktop, a map of the version compressed with Chimera's
 chimera-compress too (port/linux/src/map_compressed.h), which keeps its
 header but for its version */
 static boolean cache_file_is(
 	char const *path,
 	long version,
-	boolean multiplayer)
+	long type)
 {
 	unsigned long header[(CACHE_HEADER_TYPE_OFFSET + 4) / 4];
 	unsigned long bytes_read = 0;
@@ -614,7 +625,7 @@ static boolean cache_file_is(
 				|| header[1] == (COMPRESSED_CACHE_VERSION_MARK | (unsigned long)version)
 #endif
 			) &&
-			(!multiplayer || (header[CACHE_HEADER_TYPE_OFFSET / 4] & 0xffff) == CACHE_TYPE_MULTIPLAYER);
+			(type == CACHE_TYPE_ANY || (long)(header[CACHE_HEADER_TYPE_OFFSET / 4] & 0xffff) == type);
 	}
 	CloseHandle(file);
 	return result;
@@ -624,7 +635,7 @@ static boolean cache_file_is(
 static boolean mcc_cache_file(
 	char const *path)
 {
-	return cache_file_is(path, (long)MCC_CACHE_VERSION, FALSE);
+	return cache_file_is(path, (long)MCC_CACHE_VERSION, CACHE_TYPE_ANY);
 }
 
 /* whether a file in a place is a cache file of a version (cache_file_is); a
@@ -635,7 +646,7 @@ static boolean place_cache_file(
 	long size,
 	long version)
 {
-	if (!cache_file_is(path, version, FALSE))
+	if (!cache_file_is(path, version, CACHE_TYPE_ANY))
 		return FALSE;
 #ifdef HALO_COMPRESSED_MAPS
 	return map_compressed_file_resolve(path, (int)size) ? TRUE : FALSE;
@@ -736,6 +747,14 @@ static boolean place_file(
 	long count, index;
 	struct map_family_place const *places = family_places(family, &count);
 
+#ifdef HALO_MAP_LIST
+	/* (in SPV3 mode, its maps first: maps_spv3\<file>.yelo, spv3_mode.c) */
+	if (family == _map_family_custom_edition && spv3_mode_map_path(file, path, size) &&
+		place_cache_file(path, size, family_cache_version(family)))
+	{
+		return TRUE;
+	}
+#endif
 	for (index = 0; index < count; index++)
 	{
 		char folder[256];
@@ -1011,6 +1030,23 @@ boolean map_family_resource(
 {
 	long index;
 
+#ifdef HALO_MAP_LIST
+	/* (in SPV3 mode, SPV3's own: maps_spv3\bitmaps.map and the rest, which
+	its maps' resources are offsets into, spv3_mode.c) */
+	if (spv3_mode_active())
+	{
+		HANDLE file;
+
+		snprintf(path, (size_t)size, "d:\\%s\\%s.map", SPV3_MODE_FOLDER, name);
+		file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (file != INVALID_HANDLE_VALUE)
+		{
+			CloseHandle(file);
+			return TRUE;
+		}
+		spv3_mode_log("%s.map is not in %s: Custom Edition's places are read instead", name, SPV3_MODE_FOLDER);
+	}
+#endif
 	for (index = 0; index < NUMBEROF(resource_places); index++)
 	{
 		char folder[256];
@@ -1027,6 +1063,31 @@ boolean map_family_resource(
 	}
 	/* (where it goes: the first place) */
 	snprintf(path, (size_t)size, "d:\\%s%s.map", resource_places[0].folder, name);
+	return FALSE;
+}
+
+boolean map_family_halo_pc_resource(
+	char const *name,
+	char *path,
+	long size)
+{
+	long index;
+
+	for (index = 0; index < NUMBEROF(halo_pc_resource_places); index++)
+	{
+		char folder[256];
+		HANDLE file;
+
+		place_folder(&halo_pc_resource_places[index], folder, sizeof(folder));
+		snprintf(path, (size_t)size, "%s%s.map", folder, name);
+		file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (file != INVALID_HANDLE_VALUE)
+		{
+			CloseHandle(file);
+			return TRUE;
+		}
+	}
+	snprintf(path, (size_t)size, "d:\\%s%s.map", halo_pc_resource_places[0].folder, name);
 	return FALSE;
 }
 
@@ -1225,11 +1286,12 @@ void map_family_set_game_version(
 	map_family_game.version = version;
 }
 
-/* every multiplayer map of a family in its folders of a cache version (the
-family's own, or MCC's) */
+/* every map of a scenario type of a family in its folders of a cache
+version (the family's own, or MCC's) */
 static void list_files(
 	short family,
 	long version,
+	long type,
 	void (*found)(char const *file, void *context),
 	void *context)
 {
@@ -1276,7 +1338,7 @@ static void list_files(
 			if (other < listed_count || listed_count >= MAXIMUM_LISTED_FILES)
 				continue;
 			snprintf(path, sizeof(path), "%s%s", folder, data.cFileName);
-			if (!cache_file_is(path, version, TRUE))
+			if (!cache_file_is(path, version, type))
 				continue;
 			snprintf(listed[listed_count++], MAP_FAMILY_FILE_LENGTH, "%s", file);
 			found(file, context);
@@ -1291,7 +1353,15 @@ void map_family_list(
 	void (*found)(char const *file, void *context),
 	void *context)
 {
-	list_files(family, family_cache_version(family), found, context);
+	list_files(family, family_cache_version(family), CACHE_TYPE_MULTIPLAYER, found, context);
+}
+
+void map_family_list_campaign(
+	short family,
+	void (*found)(char const *file, void *context),
+	void *context)
+{
+	list_files(family, family_cache_version(family), CACHE_TYPE_CAMPAIGN, found, context);
 }
 
 void map_family_list_mcc(
@@ -1300,7 +1370,7 @@ void map_family_list_mcc(
 	void *context)
 {
 	if (family == _map_family_custom_edition || family == _map_family_halo_pc)
-		list_files(family, (long)MCC_CACHE_VERSION, found, context);
+		list_files(family, (long)MCC_CACHE_VERSION, CACHE_TYPE_MULTIPLAYER, found, context);
 }
 
 #endif

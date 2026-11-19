@@ -455,6 +455,17 @@ boolean network_game_has_free_player_slot(
 	if (game->player_count >= HALO_CONSOLE_HOST_PLAYERS)
 		return FALSE;
 #endif
+#ifdef HALO_SERVER
+	/* port: a dedicated server with Custom Edition players takes 16 players,
+	the most a Custom Edition client's game holds (server/src/server_ce.c);
+	without them, its own limit */
+	{
+		boolean server_ce_players_present(void);
+
+		if (game->player_count >= 16 && server_ce_players_present())
+			return FALSE;
+	}
+#endif
 #ifdef HALO_GAME_BROWSER
 	/* port: no more players than a Delta machine of the hosted game says it
 	takes (its platform key: a console; port/linux/src/delta_peer.h). No
@@ -902,6 +913,16 @@ boolean network_game_create_game_objects(
 		game_set_game_variant(&game->variant);
 		/* port: and its PC options */
 		game_set_game_variant_options(&game->variant_options);
+#ifdef HALO_GAME_BROWSER
+		/* port: and the gametype's further options (the game modes layer,
+		docs/modes.md): the host's own, or a client's from its host's record
+		(network_server_manager.c) */
+		{
+			unsigned char const *network_game_mode_options(void);
+
+			game_set_game_mode_options(network_game_mode_options());
+		}
+#endif
 	}
 
 	if (game_load(&options))

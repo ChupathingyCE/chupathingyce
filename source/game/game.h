@@ -159,11 +159,20 @@ defaults once it is set, then the network game's */
 struct game_variant_options;
 void game_set_game_variant_options(struct game_variant_options const *options);
 struct game_variant_options const *game_variant_options_get(void);
+/* port: and the gametype's further options (source/game/game_modes.c): the
+game modes layer's, given after the variant and the PC options, as the
+network game's are; the layer's forced settings go on the game's own copy
+of the variant (NULL: the defaults, no mode) */
+void game_set_game_mode_options(unsigned char const *options);
 void game_set_game_engine_index(short index);
 boolean game_all_quiet(
 	void);
 boolean game_safe_to_save(
 	void);
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+/* port: the check that made game_safe_to_save's last answer no, or NULL */
+extern char const *game_save_unsafe_check;
+#endif
 boolean game_safe_to_speak(
 	void);
 boolean game_is_cooperative(void);
@@ -192,6 +201,7 @@ boolean game_map_loaded(void);
 boolean game_time_get_paused(void);
 /* whether a client's clock waits for the host's first game update */
 boolean game_time_held(void);
+long game_time_client_catch_up_ticks(void);
 void game_time_set_paused(boolean paused);
 real game_time_get_speed(void);
 void game_time_set_speed(real speed);

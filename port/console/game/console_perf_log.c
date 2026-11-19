@@ -71,8 +71,9 @@ static struct
 
 void halo_perf_begin(int phase)
 {
-	/* (the collision tests: the game tick's only) */
-	if (phase == _halo_perf_tick_collision && !perf.phase_depth[_halo_perf_tick])
+	/* (the collision tests: the game tick's only; the bipeds' parts: the
+	bipeds' update's only) */
+	if (HALO_PERF_PHASE_OUTSIDE(phase, perf.phase_depth))
 		return;
 	if (perf.phase_depth[phase]++)
 		return;
@@ -81,7 +82,7 @@ void halo_perf_begin(int phase)
 
 void halo_perf_end(int phase)
 {
-	if (phase == _halo_perf_tick_collision && !perf.phase_depth[_halo_perf_tick])
+	if (HALO_PERF_PHASE_OUTSIDE(phase, perf.phase_depth))
 		return;
 	if (perf.phase_depth[phase] <= 0 || --perf.phase_depth[phase])
 		return;
@@ -153,7 +154,8 @@ static void perf_second_log(perf_time now)
 		"tick %.1f (%.1f ticks: units %.1f ai %.1f effects %.1f game engine %.1f objects %.1f (physics %.1f) "
 		"other %.1f; collision tests %.1f), netcode %.1f, render %.1f (world %.1f objects %.1f transparent %.1f effects %.1f hud %.1f), "
 		"sound %.1f, network %.1f, present %.1f, vsync wait %.1f; "
-		"%.0f draws, %.0f objects, %.0f models (%.0f high lod) a frame; zoom %d",
+		"%.0f draws, %.0f objects, %.0f models (%.0f high lod) a frame; zoom %d; "
+		"tick guard %lu frames (%lu ticks left)",
 		frames, elapsed,
 		perf_milliseconds(perf.frame_total, frames),
 		perf_milliseconds(perf.frame_maximum, 1),
@@ -183,7 +185,9 @@ static void perf_second_log(perf_time now)
 		(double)halo_perf_counters[_halo_perf_objects] / frame_count,
 		(double)halo_perf_counters[_halo_perf_models] / frame_count,
 		(double)halo_perf_counters[_halo_perf_models_high_lod] / frame_count,
-		perf.zoom_level + 1);
+		perf.zoom_level + 1,
+		halo_perf_counters[_halo_perf_tick_guard_frames],
+		halo_perf_counters[_halo_perf_tick_guard_ticks_left]);
 
 	{
 		static int const render_parts[] =
@@ -221,6 +225,36 @@ static void perf_second_log(perf_time now)
 			perf_milliseconds(perf.phase_total[_halo_perf_occlusion_wait], frames),
 			perf_milliseconds(perf.phase_total[_halo_perf_texture_wait], frames),
 			(double)halo_perf_counters[_halo_perf_texture_loads] / frame_count);
+	}
+
+	/* the bipeds' update split (biped_update), in a second that ran it */
+	if (perf.phase_total[_halo_perf_objects_bipeds] > 0)
+	{
+		double ticks = halo_perf_counters[_halo_perf_ticks] > 0 ? (double)halo_perf_counters[_halo_perf_ticks] : 1.0;
+		perf_time others = perf.phase_total[_halo_perf_objects_bipeds] -
+			perf.phase_total[_halo_perf_bipeds_local] - perf.phase_total[_halo_perf_bipeds_remote];
+		/* (the bipeds' update less its parts: the facing, the melee, the
+		footsteps, the checks; the physics and the collision tests nest) */
+		perf_time other = perf.phase_total[_halo_perf_objects_bipeds] -
+			perf.phase_total[_halo_perf_bipeds_unit] - perf.phase_total[_halo_perf_bipeds_movement] -
+			perf.phase_total[_halo_perf_bipeds_animation];
+
+		error(_error_log,
+			"perf: bipeds detail: %.1f updated a tick (%.1f local players, %.1f remote players); "
+			"local %.1f remote %.1f others %.1f; unit %.1f movement %.1f (physics %.1f) animation %.1f "
+			"other %.1f; collision tests %.1f",
+			(double)halo_perf_counters[_halo_perf_bipeds_updated] / ticks,
+			(double)halo_perf_counters[_halo_perf_bipeds_local_updated] / ticks,
+			(double)halo_perf_counters[_halo_perf_bipeds_remote_updated] / ticks,
+			perf_milliseconds(perf.phase_total[_halo_perf_bipeds_local], frames),
+			perf_milliseconds(perf.phase_total[_halo_perf_bipeds_remote], frames),
+			perf_milliseconds(others, frames),
+			perf_milliseconds(perf.phase_total[_halo_perf_bipeds_unit], frames),
+			perf_milliseconds(perf.phase_total[_halo_perf_bipeds_movement], frames),
+			perf_milliseconds(perf.phase_total[_halo_perf_bipeds_physics], frames),
+			perf_milliseconds(perf.phase_total[_halo_perf_bipeds_animation], frames),
+			perf_milliseconds(other, frames),
+			perf_milliseconds(perf.phase_total[_halo_perf_bipeds_collision], frames));
 	}
 }
 

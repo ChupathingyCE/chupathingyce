@@ -89,7 +89,7 @@ def wire_key(name):
 
 def test_console_floor():
     """every wire from the console floor on reaches back to it
-    (DELTA_WIRE_CONSOLE_FLOOR, docs/delta.md, "The console floor"): the
+    (DELTA_WIRE_CONSOLE_FLOOR, docs/delta/versioning.md, "The console floor"): the
     oldest wire a console build in the wild plays, so that a new PC wire
     never splits the consoles from the PCs. Raise the floor only when every
     console port has shipped a newer wire."""
@@ -701,9 +701,9 @@ def test_loader_says_once_that_no_table_is_published(checker, tmp_path):
 
 # each released wire's newest version (DELTA_WIRE_LEGACY_NEWEST): never
 # changed once released, a build that learns a newer version's rules has a
-# new wire (docs/delta.md, "When the wire changes")
+# new wire (docs/delta/versioning.md, "When the wire changes")
 RELEASED_WIRE_NEWEST = {"chupa-28a": 28, "chupa-29a": 29, "chupa-32a": 33, "chupa-38a": 38, "chupa-39a": 39,
-                       "chupa-41a": 41, "chupa-43a": 43}
+                       "chupa-41a": 41, "chupa-43a": 43, "chupa-44a": 44}
 
 
 def test_wire_changes_with_the_rules():
@@ -717,10 +717,13 @@ def test_wire_changes_with_the_rules():
     assert delta_table.wire() in ledger, "DELTA_WIRE has no row in DELTA_WIRE_LEGACY_NEWEST"
     assert ledger[delta_table.wire()] == define(text, "DELTA_LEGACY_NEWEST") == rows()[-1][0], \
         "a build that learns a newer version's rules (DELTA_LEGACY_VERSIONS' newest) needs a new DELTA_WIRE"
-    # (each wire's row once, in order, and each plays with older wires)
+    # (each wire's row once, in order, and each plays with older wires; a
+    # wire that learns a behavior at the same OpenCE number takes the next
+    # letter, chupa-44b after chupa-44a)
     names = list(ledger)
-    numbers = [int(re.fullmatch(r"chupa-(\d+)[a-z]", name).group(1)) for name in names]
-    assert numbers == sorted(set(numbers))
+    ids = [(int(match.group(1)), match.group(2)) for match in
+           (re.fullmatch(r"chupa-(\d+)([a-z])", name) for name in names)]
+    assert ids == sorted(set(ids))
     assert list(ledger.values()) == sorted(ledger.values())
     compatibility = text[text.index("#define DELTA_WIRE_COMPATIBILITY(X)"):]
     compatibility = compatibility[:compatibility.index("\n\n")]
@@ -977,7 +980,7 @@ def test_loader_drops_bad_layouts(keys, checker, tmp_path, name, layouts):
     assert " serial 0 " in state_line(output)[0], name
 
 
-# OpenCE's 43 as a row of the table (chupa-43a's facts; docs/delta.md, "Layouts")
+# OpenCE's 43 as a row of the table (chupa-43a's facts; docs/delta/versioning.md, "Layouts")
 FACT_43 = {"settings_size": 13200, "join_request_extra": 236, "join_request_fill": "zeros",
            "join_request_version_at": 234, "header_extra": 4, "epoch_kind": 96,
            "unit_state_parts": [{"bit": 7, "size": 28, "at": "after_up"}, {"bit": 6, "size": 30, "at": "last"}],
@@ -1326,3 +1329,128 @@ def test_loader_override_requires(checker, tmp_path):
     local.write_bytes(document(serial=1, row=row))
     output = run_checker(checker, tmp_path, "state", override=local)
     assert state_line(output)[0] == "state 41 11 42 serial 0 override 1 disabled 0 signed 0"
+
+
+# ---------- platform floors (docs/delta/versioning.md, "Platform floors")
+
+
+def test_floor_section_is_checked():
+    """platform_floors: by a platform delta.h lists, {"network": N}; the tool
+    refuses anything a build would drop or read otherwise"""
+    table = delta_table.parse(document(platform_floors={"dreamcast": {"network": 42}, "xbox": {"network": 32}}))
+    assert table["platform_floors"]["dreamcast"] == {"network": 42}
+    delta_table.parse(document(platform_floors={}))
+    for bad in ([], {"dreamcast": 42}, {"dreamcast": {}}, {"dreamcast": {"network": 0}},
+                {"dreamcast": {"network": 70000}}, {"dreamcast": {"network": 4.5}},
+                {"dreamcast": {"network": 42, "wire": "chupa-32a"}}, {"unknown": {"network": 11}},
+                {"Dreamcast": {"network": 42}}, {"not_a_platform": {"network": 42}}):
+        with pytest.raises(delta_table.TableError):
+            delta_table.parse(document(platform_floors=bad))
+    with pytest.raises(delta_table.TableError, match="appears twice"):
+        delta_table.parse(b'{"delta_legacy": 1, "serial": 3, "wires": {}, '
+                          b'"platform_floors": {"n64": {"network": 40}, "n64": {"network": 41}}}')
+
+
+def test_floor_maximum_is_the_games():
+    """the tool's row cap is delta.h's, and every platform delta.h names fits"""
+    text = DELTA.read_text(encoding="utf-8")
+    assert delta_table.FLOORS_MAXIMUM == define(text, "DELTA_PLATFORM_FLOORS_MAXIMUM")
+    keys = delta_table.platform_keys()
+    assert "unknown" not in keys and keys["dreamcast"] == 22 and len(keys) < delta_table.FLOORS_MAXIMUM
+
+
+def test_make_floors(tmp_path):
+    """--floor sets a platform's floor and none takes it away; a make keeps
+    the floors of --from, and never writes one our clients don't join"""
+    first = json.loads(delta_table.make(5, issued=1, floors=[("dreamcast", 42), ("n64", 40)]))
+    assert first["platform_floors"] == {"n64": {"network": 40}, "dreamcast": {"network": 42}}
+    second = json.loads(delta_table.make(6, issued=1, previous=first, floors=[("xbox", 32), ("n64", None)]))
+    assert second["platform_floors"] == {"xbox": {"network": 32}, "dreamcast": {"network": 42}}
+    assert "platform_floors" not in json.loads(delta_table.make(7, issued=1, previous=first,
+                                                                floors=[("dreamcast", None), ("n64", None)]))
+    assert "platform_floors" not in json.loads(delta_table.make(8, issued=1))
+    assert delta_table.parse_floor("dreamcast=42") == ("dreamcast", 42)
+    assert delta_table.parse_floor("dreamcast=none") == ("dreamcast", None)
+    for bad in ("dreamcast", "dreamcast=", "unknown=42", "nope=42", f"dreamcast={floor()['minimum'] - 1}",
+                f"dreamcast={floor()['maximum'] + 1}", "dreamcast=4x"):
+        with pytest.raises(delta_table.TableError):
+            delta_table.parse_floor(bad)
+    out = tmp_path / "legacy.json"
+    tool = [sys.executable, str(ROOT / "tools" / "delta_table.py")]
+    subprocess.run([*tool, "make", "--serial", "9", "--floor", "dreamcast=42", "--out", str(out)], check=True)
+    assert json.loads(out.read_bytes())["platform_floors"] == {"dreamcast": {"network": 42}}
+
+
+def test_loader_without_floors_is_as_before(keys, checker, tmp_path):
+    """a table without the section, and the built-in numbers, judge no
+    platform: every HELLO plays"""
+    output = run_checker(checker, tmp_path, "floor", 22, 11, "floor", 6, 0,
+                         "offer", write_signed(keys, tmp_path / "t10", document(serial=10)),
+                         "floor", 22, 11, "floor", 6, 0, "floor", 17, 1)
+    assert "offer 1" in output
+    assert [line for line in output.splitlines() if line.startswith("floor")] == \
+        ["floor 22 0 refuses 0", "floor 6 0 refuses 0", "floor 22 0 refuses 0", "floor 6 0 refuses 0",
+         "floor 17 0 refuses 0"]
+
+
+def test_loader_floor_rule(keys, checker, tmp_path):
+    """a platform's floor refuses a HELLO under it alone: at the floor and
+    past it plays, other platforms are untouched, the unknown platform and
+    out-of-range ones are never judged, and an unknown platform's key in the
+    table is passed over"""
+    data = document(serial=11, platform_floors={"dreamcast": {"network": 42}, "n64": {"network": 40, "later": [1]},
+                                                "a_later_platform": {"network": 50}, "unknown": {"network": 60}})
+    # (the tool refuses those last keys; a later tool's table may have them)
+    table = write_signed(keys, tmp_path / "t11", data)
+    output = run_checker(checker, tmp_path, "offer", table, "floor", 22, 41, "floor", 22, 42, "floor", 22, 44,
+                         "floor", 17, 39, "floor", 17, 40, "floor", 6, 32, "floor", 7, 11, "floor", 0, 1,
+                         "floor", 23, 1, "floor", -1, 1)
+    assert "offer 1" in output
+    assert "platform floors (the oldest network version each plays with our hosts): n64 40, dreamcast 42" in output
+    assert [line for line in output.splitlines() if line.startswith("floor")] == [
+        "floor 22 42 refuses 1", "floor 22 42 refuses 0", "floor 22 42 refuses 0",
+        "floor 17 40 refuses 1", "floor 17 40 refuses 0", "floor 6 0 refuses 0", "floor 7 0 refuses 0",
+        "floor 0 0 refuses 0", "floor 23 0 refuses 0", "floor -1 0 refuses 0"]
+    # (a newer table without the section takes every floor away)
+    output = run_checker(checker, tmp_path, "offer", write_signed(keys, tmp_path / "t12", document(serial=12)),
+                         "floor", 22, 41)
+    assert "offer 1" in output and "floor 22 0 refuses 0" in output
+
+
+@pytest.mark.parametrize("floors", [
+    b'[]', b'{"dreamcast": 42}', b'{"dreamcast": {}}', b'{"dreamcast": {"network": 0}}',
+    b'{"dreamcast": {"network": 70000}}', b'{"dreamcast": {"network": 42, "network": 43}}',
+    b'{"dreamcast": {"network": 42}, "dreamcast": {"network": 43}}', b'{"dreamcast": {"network": "42"}}',
+    b'{"dreamcast": {"network": 42.0}}',
+])
+def test_loader_drops_bad_floors(keys, checker, tmp_path, floors):
+    """a section a build can't read whole drops the table, as any bad row does"""
+    data = document(serial=13)[:-1] + b', "platform_floors": ' + floors + b"}"
+    output = run_checker(checker, tmp_path, "offer", write_signed(keys, tmp_path / "t13", data), "state")
+    assert "offer 0" in output and " serial 0 " in state_line(output)[0]
+
+
+def test_loader_floor_cap(keys, checker, tmp_path):
+    """at most DELTA_PLATFORM_FLOORS_MAXIMUM rows, known or not"""
+    many = {f"later_{index}": {"network": 11} for index in range(delta_table.FLOORS_MAXIMUM)}
+    output = run_checker(checker, tmp_path, "offer", write_signed(keys, tmp_path / "t14", document(
+        serial=14, platform_floors=many)), "offer", write_signed(keys, tmp_path / "t15", document(
+            serial=15, platform_floors=dict(many, dreamcast={"network": 42}))), "floor", 22, 41, "state")
+    assert output.splitlines()[0:1] and "offer 1" in output and "offer 0" in output
+    assert "floor 22 0 refuses 0" in output and " serial 14 " in state_line(output)[0]
+
+
+def test_loader_override_floors(checker, tmp_path):
+    """a local table's floors are used too"""
+    local = tmp_path / "local.json"
+    local.write_bytes(document(serial=1, row={"announce": 20, "minimum": 19, "maximum": 21},
+                               platform_floors={"n64": {"network": 40}}))
+    output = run_checker(checker, tmp_path, "floor", 17, 39, override=local)
+    assert "the local legacy table's platform floors: n64 40" in output and "floor 17 40 refuses 1" in output
+
+
+def test_older_builds_skip_floors():
+    """the section is a top-level key the parsers before it pass over, at a
+    depth they read (the document 1, a floor's fields 3)"""
+    table = json.loads(delta_table.make(5, issued=1, floors=[("dreamcast", 42)]))
+    assert delta_table.depth({"platform_floors": table["platform_floors"]}) == 3 < delta_table.JSON_DEPTH

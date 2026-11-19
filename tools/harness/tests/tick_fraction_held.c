@@ -9,11 +9,14 @@
 #include "harness.h"
 #define TICKS_PER_SECOND 30
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define PIN(x, lo, hi) ((x) < (lo) ? (lo) : (x) > (hi) ? (hi) : (x))
 #define valid_real(x) (!isnan(x) && !isinf(x))
 #define HALO_PERF_BEGIN(x) ((void)0)
 #define HALO_PERF_END(x) ((void)0)
 #define HALO_PERF_COUNT(x, n) ((void)0)
+#define _error_log 0
+static void error(int type, const char *format, ...) { (void)type; (void)format; }
 #define HALO_CONSOLE_NO_NETWORK_TEST
 /* (game.h's connections) */
 #include "connections.inc"

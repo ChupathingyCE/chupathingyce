@@ -145,6 +145,8 @@ struct listing
 	unsigned char sealed_token[P2P_SEALED_TOKEN_SIZE];
 	int player_count, maximum_player_count, engine_type;
 	char name[P2P_LISTING_NAME_SIZE + 1];
+	/* (as sent, for the blocked-names check: struct p2p_listing's) */
+	char name_utf8[P2P_LISTING_NAME_SIZE + 1];
 	char map[P2P_LISTING_MAP_SIZE + 1];
 	char gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	/* the stamp's first byte: the game's kind (version 37; the rest of the
@@ -190,6 +192,9 @@ static struct
 	char map[P2P_LISTING_MAP_SIZE + 1];
 	char gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	int engine_type;
+	/* the game's kind (version 37: the game modes layer's mode and
+	Hardcore), the stamp's first byte to a host announcing 37 or later */
+	int kind;
 	int flags;
 	/* a dedicated server hosts (p2p_set_hosting_dedicated) */
 	int dedicated;
@@ -337,6 +342,8 @@ static int listing_make(unsigned char *bytes, int flags)
 	size += put_text(bytes + size, lobby.map, P2P_LISTING_MAP_SIZE);
 	size += put_text(bytes + size, lobby.gametype, P2P_LISTING_GAMETYPE_SIZE);
 	memset(bytes + size, 0, STAMP_SIZE);
+	if (version >= HALO_PORT_ADVERTISED_KIND_VERSION && !(flags & _listing_closed))
+		bytes[size] = (unsigned char)lobby.kind;
 	size += STAMP_SIZE;
 	memcpy(data, signature_label, sizeof(signature_label) - 1);
 	memcpy(data + sizeof(signature_label) - 1, signed_part, (size_t)size);
@@ -356,6 +363,21 @@ static int get_text(const unsigned char *bytes, int size, int *offset, char *tex
 	sanitize(text, maximum, (const char *)bytes + *offset, length);
 	*offset += length;
 	return 1;
+}
+
+/* a text field as sent (UTF-8), control bytes as spaces, cut to size: the
+blocked-names check's copy of a name (struct p2p_listing's name_utf8) */
+static void copy_utf8(char *destination, int size, const char *source, int source_size)
+{
+	int index;
+
+	for (index = 0; index < size && index < source_size && source[index]; index++)
+	{
+		unsigned char character = (unsigned char)source[index];
+
+		destination[index] = character < 0x20 || character == 0x7F ? ' ' : (char)character;
+	}
+	destination[index] = 0;
 }
 
 /* reads a listing (not its signature); 0 if it is malformed */
@@ -395,6 +417,11 @@ static int listing_read(const unsigned char *bytes, int size, struct listing *li
 	listing->player_count = bytes[offset++];
 	listing->maximum_player_count = bytes[offset++];
 	listing->engine_type = bytes[offset++];
+	/* (the name's bytes as sent, before get_text makes them ASCII) */
+	if (offset < size && bytes[offset] <= P2P_LISTING_NAME_SIZE && offset + 1 + bytes[offset] <= size)
+		copy_utf8(listing->name_utf8, P2P_LISTING_NAME_SIZE, (const char *)bytes + offset + 1, bytes[offset]);
+	else
+		listing->name_utf8[0] = 0;
 	if (!get_text(bytes, size, &offset, listing->name, P2P_LISTING_NAME_SIZE) ||
 		!get_text(bytes, size, &offset, listing->map, P2P_LISTING_MAP_SIZE) ||
 		!get_text(bytes, size, &offset, listing->gametype, P2P_LISTING_GAMETYPE_SIZE))
@@ -750,6 +777,7 @@ static void listing_take(const struct queued *queued, const struct listing *list
 	}
 	p2p_identifier_from_hash(queued->key_hash, shown->identifier);
 	memcpy(shown->name, listing->name, sizeof(shown->name));
+	memcpy(shown->name_utf8, listing->name_utf8, sizeof(shown->name_utf8));
 	memcpy(shown->map, listing->map, sizeof(shown->map));
 	memcpy(shown->gametype, listing->gametype, sizeof(shown->gametype));
 	shown->player_count = (unsigned char)listing->player_count;
@@ -903,6 +931,18 @@ void p2p_set_hosting_password(const char *password)
 	pthread_mutex_unlock(&p2p_lock);
 	memset(key, 0, sizeof(key));
 	memset(join_key, 0, sizeof(join_key));
+}
+
+void p2p_set_game_kind(int kind)
+{
+	kind &= 0xFF;
+	if (kind == lobby.kind)
+		return;
+	pthread_mutex_lock(&p2p_lock);
+	lobby.kind = kind;
+	if (lobby.listed)
+		republish_soon(0);
+	pthread_mutex_unlock(&p2p_lock);
 }
 
 void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int open,

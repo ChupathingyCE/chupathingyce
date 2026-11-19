@@ -2871,6 +2871,8 @@ int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 {
 	struct platform_ui_pointer state;
 
+	/* (a platform's read that predates a field leaves it 0) */
+	memset(&state, 0, sizeof(state));
 	platform_menus_set_active(menus_active != 0);
 	platform_ui_pointer_set_active(menus_active != 0);
 #ifdef HALO_BGFX
@@ -2891,6 +2893,7 @@ int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 	pointer->right_clicks = (unsigned char)(state.right_clicks < 255 ? state.right_clicks : 255);
 	pointer->wheel_steps = (signed char)(state.wheel_steps < -8 ? -8 : state.wheel_steps > 8 ? 8 : state.wheel_steps);
 	pointer->touch = state.touch != FALSE;
+	pointer->left_down = state.left_down != FALSE;
 	pointer->downs = (unsigned char)(state.downs < 255 ? state.downs : 255);
 	ui_point_from_window_now(state.down_x, state.down_y, &pointer->down_x, &pointer->down_y);
 	return 1;
@@ -4499,7 +4502,11 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 					(const D3DCOLOR *)PLATFORM_PHYSICAL_TO_VIRTUAL(device.palettes[stage]->Data) : NULL;
 
 				gl_texture = xgpu_texture_get((const DWORD *)texture, palette, &gl_target, &description);
-				if (description.linear)
+				/* port: a Halo PC map's linear bitmap is sampled as Halo PC samples every
+				texture, its coordinates 0 to 1 (the game's draws of its bitmaps give
+				them so: xbox_texture_cache.c's D3DCOMMON_PORT_PC_LAYOUT); the Xbox's own
+				linear textures by texel */
+				if (description.linear && !(texture->Common & D3DCOMMON_PORT_PC_LAYOUT))
 				{
 					texture_scale[stage][0] = 1.0f / (float)description.width;
 					texture_scale[stage][1] = 1.0f / (float)description.height;

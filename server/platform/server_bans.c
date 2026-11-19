@@ -1,7 +1,7 @@
 /*
 SERVER_BANS.C
 
-Shared ban lists (server_bans.h; docs/delta.md, "Shared ban lists"). What
+Shared ban lists (server_bans.h; docs/delta/control.md, "Shared ban lists"). What
 goes to the site is read from bans.txt (the lines that name an account or
 a device, never an address or hardware ID), and sent again only when it
 changed since the site last said what it has. What comes from the site is
@@ -27,6 +27,7 @@ kept here, under one lock, and in shared_bans.cache by the link
 
 /* the platform layer's (xbox_files.c): plain types */
 const char *platform_data_root(void);
+void platform_log(const char *format, ...);
 
 /* ---------- constants */
 
@@ -212,7 +213,11 @@ static int excepted(const char *ref)
 the data folder, 32 random bytes made the first time. A ref is the line
 keyed with it, so it says nothing of the line (its address or hardware
 ID) to anyone without the key, and stays the same while the line does.
-1, else 0 */
+A longer one is used by its first 32 bytes (a key copied with a newline
+after it keeps its refs). One under 32 bytes (cut short) is kept beside it
+as shared_bans.key.bad-<unix time> and said so in the log before a new one
+is made: a new key changes the ref of every ban this server shares. 1,
+else 0 */
 static int ref_key(void)
 {
 	char path[1024], temporary[1040];
@@ -224,10 +229,26 @@ static int ref_key(void)
 	file = fopen(path, "rb");
 	if (file)
 	{
-		bans.ref_key_read = fread(bans.ref_key, 1, sizeof(bans.ref_key), file) == sizeof(bans.ref_key);
+		size_t got = fread(bans.ref_key, 1, sizeof(bans.ref_key), file);
+
+		bans.ref_key_read = got == sizeof(bans.ref_key);
 		fclose(file);
 		if (bans.ref_key_read)
 			return 1;
+		{
+			char backup[1080];
+			long long when = now_seconds();
+
+			snprintf(backup, sizeof(backup), "%s.bad-%lld", path, when);
+			if (rename(path, backup) != 0)
+			{
+				platform_log("Shared bans: %s is not a key (under 32 bytes) and could not be kept aside: shared bans "
+					"keep no refs until it is fixed or removed", REF_KEY_FILE);
+				return 0;
+			}
+			platform_log("Shared bans: %s is not a key (under 32 bytes): kept as %s.bad-%lld, and a new one made. "
+				"Every ban this server shares gets a new ref", REF_KEY_FILE, REF_KEY_FILE, when);
+		}
 	}
 	if (!host_random_bytes(bans.ref_key, sizeof(bans.ref_key)))
 		return 0;
@@ -611,22 +632,32 @@ int server_bans_except(const char *ref, int except)
 	read_exceptions();
 	if (except && !excepted(ref) && bans.exception_count >= MAXIMUM_EXCEPTIONS)
 	{
-		/* (full: the exceptions for entries no list has now go first) */
-		int kept = 0, entry;
+		/* (full: the oldest exception for an entry no list has now makes
+		room, that one alone. With no lists at all (the site's answer was
+		empty, or the server took none yet) none goes: the lists may come
+		back, and the owners' exceptions with them) */
+		int entry;
 
-		for (index = 0; index < bans.exception_count; index++)
+		index = bans.exception_count;
+		if (bans.shared_count > 0)
 		{
-			for (entry = 0; entry < bans.shared_count && strcmp(bans.shared[entry].ref, bans.exceptions[index]); entry++)
-				;
-			if (entry < bans.shared_count)
-				memmove(bans.exceptions[kept++], bans.exceptions[index], sizeof(bans.exceptions[0]));
+			for (index = 0; index < bans.exception_count; index++)
+			{
+				for (entry = 0; entry < bans.shared_count && strcmp(bans.shared[entry].ref, bans.exceptions[index]);
+					entry++)
+					;
+				if (entry == bans.shared_count)
+					break;
+			}
 		}
-		bans.exception_count = kept;
-		if (bans.exception_count >= MAXIMUM_EXCEPTIONS)
+		if (index == bans.exception_count)
 		{
 			pthread_mutex_unlock(&bans_mutex);
 			return 0;
 		}
+		memmove(bans.exceptions[index], bans.exceptions[index + 1],
+			(size_t)(bans.exception_count - index - 1) * sizeof(bans.exceptions[0]));
+		bans.exception_count--;
 	}
 	if (except && !excepted(ref))
 		snprintf(bans.exceptions[bans.exception_count++], SERVER_BAN_REF_SIZE, "%s", ref);

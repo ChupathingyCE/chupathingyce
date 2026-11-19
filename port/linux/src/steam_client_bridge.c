@@ -35,6 +35,8 @@ struct watched_item
 	unsigned long long value;
 	/* the tab's ask: 1 subscribe, 2 unsubscribe, 3 remove, 4 update; taken by the thread */
 	int want;
+	/* when the tab last asked about it (system_milliseconds) */
+	unsigned long seen;
 	struct steam_bridge_item state;
 };
 
@@ -96,16 +98,51 @@ static struct watched_item *find(const char *id)
 	return NULL;
 }
 
+/* an item nothing waits on (no ask pending, not queued or downloading),
+asked about longest ago; NULL if every one is busy (the lock held) */
+static struct watched_item *idle_oldest(void)
+{
+	struct watched_item *oldest = NULL;
+	unsigned long now = system_milliseconds();
+	int index;
+
+	for (index = 0; index < bridge.count; index++)
+	{
+		struct watched_item *item = &bridge.items[index];
+
+		if (item->want || item->state.state == STEAM_BRIDGE_ITEM_QUEUED ||
+			item->state.state == STEAM_BRIDGE_ITEM_DOWNLOADING)
+		{
+			continue;
+		}
+		if (!oldest || now - item->seen > now - oldest->seen)
+			oldest = item;
+	}
+	return oldest;
+}
+
 /* (the lock held) */
 static struct watched_item *watch(const char *id)
 {
 	struct watched_item *item = find(id);
 	unsigned long long value;
 
-	if (item || !id_value(id, &value) || bridge.count >= STEAM_BRIDGE_MAXIMUM_ITEMS)
+	if (item)
+	{
+		item->seen = system_milliseconds();
 		return item;
-	item = &bridge.items[bridge.count++];
+	}
+	if (!id_value(id, &value))
+		return NULL;
+	/* (full, as a long browse fills it: the idle item asked about longest
+	ago makes room; the thread's turn writes back by id, so it only loses
+	that item's answer, which the next ask gets again) */
+	if (bridge.count < STEAM_BRIDGE_MAXIMUM_ITEMS)
+		item = &bridge.items[bridge.count++];
+	else if ((item = idle_oldest()) == NULL)
+		return NULL;
 	memset(item, 0, sizeof(*item));
+	item->seen = system_milliseconds();
 	snprintf(item->id, sizeof(item->id), "%s", id);
 	item->value = value;
 	return item;
@@ -435,11 +472,13 @@ int steam_bridge_item(const char *id, struct steam_bridge_item *item)
 
 static int ask(const char *id, int want, int needs)
 {
-	struct watched_item *item;
-	int asked = 0;
+	struct watched_item *item = NULL;
+	int asked = 0, status, connected;
 
 	pthread_mutex_lock(&bridge.lock);
-	if (bridge.status == STEAM_BRIDGE_READY && (bridge.connected & needs) && (item = watch(id)) != NULL)
+	status = bridge.status;
+	connected = bridge.connected;
+	if (status == STEAM_BRIDGE_READY && (connected & needs) && (item = watch(id)) != NULL)
 	{
 		item->want = want;
 		if (want == 1 && item->state.state != STEAM_BRIDGE_ITEM_INSTALLED &&
@@ -452,6 +491,13 @@ static int ask(const char *id, int want, int needs)
 		asked = 1;
 	}
 	pthread_mutex_unlock(&bridge.lock);
+	/* (why it wasn't asked, which the tab only calls Failed) */
+	if (!asked)
+	{
+		platform_log("Workshop: item %s not asked of Steam: %s", id ? id : "", status != STEAM_BRIDGE_READY ?
+			"the bridge isn't ready" : !(connected & needs) ? "no backend for it is connected" :
+			"every watched item is busy");
+	}
 	return asked;
 }
 

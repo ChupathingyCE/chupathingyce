@@ -289,6 +289,7 @@ symbols in this file:
 #include "cseries/cseries_windows.h"
 #endif
 #include "mcc_scripts.h"
+#include "lua_scripting.h" /* port: Lua's execute_script functions */
 
 /* port: bipeds.c's; cheats.c's (hs_evaluate_set) */
 extern boolean rider_ejection;
@@ -782,6 +783,7 @@ evaluation, as before */
 demand, and a console's header gives the empty one) */
 #include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
 #include "stubbs_functions.h" /* port: port/linux/game/stubbs_functions.c */
+#include "opensauce_scripts.h" /* port: port/linux/game/opensauce_scripts.c */
 
 void hs_runtime_initialize(
 	void)
@@ -894,6 +896,17 @@ void hs_runtime_initialize_for_new_map(
 
 		hs_thread_delete(internal_thread_index);
 
+		/* port: OpenSauce's and Halo PC's globals an OpenSauce map's scripts
+		use, after the scenario's, at their starting values (none on any
+		other map: port/linux/game/opensauce_scripts.c) */
+		for (global_index = 0; global_index<opensauce_script_global_count(); global_index++)
+		{
+			global_datum_index = hs_external_global_count+scenario->hs_globals.count+global_index;
+			datum_new_at_index(hs_global_data, DATUM_INDEX_NEW(global_datum_index, 0xaced));
+			global_datum = datum_get(hs_global_data, global_datum_index);
+			global_datum->value = opensauce_script_global_initial(global_index);
+		}
+
 		for (script_index = 0;
 			script_index<scenario->hs_scripts.count;
 			script_index++)
@@ -968,6 +981,9 @@ static char const *expression_get_function_name(
 				struct hs_function_definition *mcc_function = mcc_script_function(syntax_node->index);
 				if (mcc_function)
 					return mcc_function->name;
+				mcc_function = lua_scripting_hs_function(syntax_node->index);
+				if (mcc_function)
+					return mcc_function->name;
 			}
 			if ((word)syntax_node->index>=hs_function_count())
 				return "(corrupt function)";
@@ -1011,6 +1027,36 @@ boolean hs_runtime_waiting_on_call(
 	caller = hs_syntax_get(frame->previous->expression_index);
 
 	return !TEST_FLAG(caller->flags, _hs_syntax_node_script_bit) && caller->function_index == _hs_function_sleep_until;
+}
+
+/* port: a map's own script global by its name (the case kept), for a Lua
+script's get_global and set_global (port/linux/game/lua_chimera_api.c, as
+Chimera's read_global): its type, _hs_unparsed for none, and where its
+value is kept */
+short hs_runtime_scenario_global(
+	char const *name,
+	long **value)
+{
+	struct scenario *scenario;
+	short global_index;
+
+	*value = NULL;
+	if (!hs_runtime_globals.initialized || global_scenario_index==NONE || !hs_global_data || !name)
+		return _hs_unparsed;
+	scenario = global_scenario_get();
+	for (global_index = 0; global_index<scenario->hs_globals.count; global_index++)
+	{
+		struct hs_global const *global = TAG_BLOCK_GET_ELEMENT(&scenario->hs_globals, global_index, struct hs_global);
+		struct hs_global_datum *datum;
+
+		if (strcmp(name, global->name))
+			continue;
+		/* (as hs_global_evaluate finds it) */
+		datum = (struct hs_global_datum *)datum_get(hs_global_data, global_index+hs_external_global_count);
+		*value = &datum->value;
+		return global->type;
+	}
+	return _hs_unparsed;
 }
 
 char const *hs_runtime_get_executing_thread_name(
@@ -1315,7 +1361,16 @@ long hs_runtime_evaluate(
 				return NONE;
 			}
 
-			return thread->result;
+			/* port: an expression that is done at once (a constant, a
+			global, or a call a map's scripts may not make, which
+			hs_scenario_functions_check skips) leaves no frame to run: its
+			thread is let go here. It was kept, and hs_runtime_update then
+			ran a console command with nothing on its stack (a halt in
+			hs_thread_main, as from SPV3's menu scripts) */
+			result = thread->result;
+			hs_thread_delete(thread_index);
+
+			return result;
 		}
 
 		error(_error_silent, "there are not enough threads to execute that command.");
@@ -1531,12 +1586,29 @@ static void hs_stack_pop(
 	return;
 }
 
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+static boolean hs_trace_script(
+	struct hs_script const *script);
+#endif
+
 static void hs_wake(
 	long thread_index)
 {
 	struct hs_thread_datum *thread;
 
 	thread = datum_get(hs_thread_data, thread_index);
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+	if (thread->type==_hs_thread_type_script && thread->script_index>=0 &&
+		thread->script_index<global_scenario_get()->hs_scripts.count)
+	{
+		struct hs_script *woken = TAG_BLOCK_GET_ELEMENT(&global_scenario_get()->hs_scripts,
+			thread->script_index, struct hs_script);
+
+		if (hs_trace_script(woken))
+			error(_error_silent, "script %.32s: woken at tick %ld (it slept until %ld)", woken->name,
+				(long)game_time_get(), thread->sleep_until);
+	}
+#endif
 	if (thread->sleep_until != NONE)
 	{
 		thread->sleep_until = 0;
@@ -2808,12 +2880,76 @@ void hs_evaluate_sleep(
 	return;
 }
 
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+/* port: a test build's trace of one script into the log
+(--console-checkpoint-trace, warthog-xbox #84): each time its thread runs,
+the functions and scripts it calls, and when it sleeps until. A run that
+calls the same as the one before (a sleep_until testing its condition) is
+counted, not said again, so the lines show where the script moves on */
+#ifndef HALO_CONSOLE_SCRIPT_TRACE
+#define HALO_CONSOLE_SCRIPT_TRACE "mission_shoot"
+#endif
+
+static char hs_trace_run[480];
+static char hs_trace_last[480];
+static long hs_trace_repeats;
+static long hs_trace_lines;
+
+static boolean hs_trace_script(
+	struct hs_script const *script)
+{
+	return script && !strncmp(script->name, HALO_CONSOLE_SCRIPT_TRACE, sizeof(script->name));
+}
+
+static void hs_trace_call(
+	char const *name)
+{
+	size_t used = strlen(hs_trace_run);
+	size_t length;
+
+	if (!name)
+		name = "?";
+	length = strlen(name);
+	/* (what doesn't fit is left out) */
+	if (used + length + 2 < sizeof(hs_trace_run))
+	{
+		if (used)
+			hs_trace_run[used++] = ' ';
+		memcpy(hs_trace_run + used, name, length + 1);
+	}
+}
+
+static void hs_trace_end(
+	struct hs_script const *script,
+	long sleep_until)
+{
+	if (!strcmp(hs_trace_run, hs_trace_last))
+	{
+		hs_trace_repeats++;
+	}
+	else if (hs_trace_lines < 200)
+	{
+		hs_trace_lines++;
+		if (hs_trace_repeats)
+			error(_error_silent, "script %.32s: (the run before ran %ld more times)", script->name, hs_trace_repeats);
+		error(_error_silent, "script %.32s, tick %ld: %s; sleeps until %ld", script->name, (long)game_time_get(),
+			hs_trace_run[0] ? hs_trace_run : "(nothing called)", sleep_until);
+		strcpy(hs_trace_last, hs_trace_run);
+		hs_trace_repeats = 0;
+	}
+	hs_trace_run[0] = 0;
+}
+#endif
+
 static void hs_thread_main(
 	long thread_index)
 {
 	struct hs_thread_datum *thread = hs_thread_get(thread_index);
 	struct hs_script *script = NULL;
 	long *root_result;
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+	boolean traced;
+#endif
 
 	hs_runtime_globals.executing_thread_index = (short)thread_index;
 	if (thread->type==_hs_thread_type_script)
@@ -2856,10 +2992,30 @@ static void hs_thread_main(
 		}
 	}
 
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+	traced = hs_trace_script(script);
+	if (traced)
+		hs_trace_run[0] = 0;
+#endif
 	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x2bd, thread_index,
 		valid_thread(thread), "corrupted stack.");
 
 	thread->sleep_until = 0;
+	/* port: a thread with nothing on its stack that is no script's has
+	nothing to run: it is let go, and logged, where the assert below stopped
+	the game (hs_runtime_evaluate no longer leaves one) */
+	if (thread->stack==(struct hs_stack_frame *)thread->stack_data && !script)
+	{
+		error(_error_silent, "hs thread %s #%08lX has nothing to run; dropping it",
+			hs_thread_format(thread_index), (unsigned long)thread_index);
+		if (thread->type==_hs_thread_type_console_command)
+			hs_thread_delete(thread_index);
+		else
+			thread->sleep_until = NONE;
+		hs_runtime_globals.executing_thread_index = NONE;
+
+		return;
+	}
 	if (thread->stack==(struct hs_stack_frame *)thread->stack_data)
 	{
 		match_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x2c3, script);
@@ -2890,8 +3046,11 @@ static void hs_thread_main(
 			global_scenario_get()->hs_scripts.count :
 			hs_function_count();
 		{
-			if (!TEST_FLAG(expression->flags, _hs_syntax_node_script_bit) && mcc_script_function(expression->index))
+			if (!TEST_FLAG(expression->flags, _hs_syntax_node_script_bit) &&
+				(mcc_script_function(expression->index) || lua_scripting_hs_function(expression->index)))
+			{
 				index_count = expression->index + 1;
+			}
 		}
 		if (expression->index<0 || expression->index>=index_count)
 		{
@@ -2903,6 +3062,10 @@ static void hs_thread_main(
 
 			match_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x2d8, function->evaluate);
 
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+			if (traced && initialize)
+				hs_trace_call(function->name);
+#endif
 			/* port: MCC may release a completed conditional frame before
 			entering its selected branch; legacy evaluation is unchanged. */
 			if (!mcc_hs_if_tail(expression->index, thread_index, initialize))
@@ -2913,6 +3076,11 @@ static void hs_thread_main(
 		}
 		else
 		{
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+			if (traced && initialize)
+				hs_trace_call(TAG_BLOCK_GET_ELEMENT(&global_scenario_get()->hs_scripts, expression->index,
+					struct hs_script)->name);
+#endif
 			hs_script_evaluate(expression->index, thread_index, initialize);
 		}
 
@@ -2943,6 +3111,10 @@ static void hs_thread_main(
 		}
 	}
 
+#ifdef HALO_CONSOLE_CHECKPOINT_TRACE
+	if (traced)
+		hs_trace_end(script, thread->sleep_until);
+#endif
 	hs_runtime_globals.executing_thread_index = NONE;
 
 	return;

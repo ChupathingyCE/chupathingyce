@@ -16,9 +16,10 @@ server forgets a game it is not told about for a while, so a copy of the
 game that quits without withdrawing drops off by itself.
 
 Browsing: browser_get_games asks for the list when the last one is more
-than LIST_INTERVAL old, and returns what it has meanwhile. Games of another
-network version than this machine can join are kept too, for the screens to
-mark (browser_game_version_state); never this machine's own. The list is
+than LIST_INTERVAL old, and returns what it has meanwhile: only the games
+this build can join (browser_game_shown, game_list_rules.h; all of them
+with debug.show_all_games, which the screens mark: browser_game_version_state),
+never this machine's own. The list is
 the main source; the public listings heard on the brokers (p2p_lobby.c,
 mqtt.chupathingy.org among them) add the games it lacks (direct): OpenCE's
 (legacy) while it answers, and every host's while it is down. So losing
@@ -47,6 +48,7 @@ with it under the lock.
 #include "browser_ping.h"
 #include "qrcodegen.h"
 #include "delta_profile.h"
+#include "server_names.h"
 #ifndef HALO_CONSOLE_NO_GUIDE
 #include "social.h"
 #endif
@@ -255,7 +257,7 @@ static struct
 	/* the code is Quick Connect's (the device key's), not the player key's */
 	int connect_quick;
 
-	/* the devices (docs/delta.md, Devices): this one signed out, another
+	/* the devices (docs/delta/link.md, Devices): this one signed out, another
 	revoked (its ID), and another device's code approved (Link a device:
 	its state, what the site said, and when it was last asked) */
 	int device_sign_out_wanted;
@@ -599,7 +601,7 @@ static int safe_for_key(const char *url)
 	return http_url_safe_for_secret(url);
 }
 
-/* ---------- Delta's device identity (identity.c; docs/delta.md, "Device
+/* ---------- Delta's device identity (identity.c; docs/delta/link.md, "Device
 identity")
 
 Beside the player key, each copy has a device key of its own
@@ -1162,7 +1164,7 @@ int browser_identity_moderator_sign(const unsigned char *message, int size, unsi
 #endif
 
 #ifdef HALO_DELTA_PEER_IDENTITY
-/* ---------- verified names: the revocation list (docs/delta.md, Verified
+/* ---------- verified names: the revocation list (docs/delta/peer.md, Verified
 names). Asked of the site every ten minutes (GET /v1/identity/revoked),
 checked (its issuer by the root keys, the list by its issuer, a serial past
 the one kept) and kept in delta_revoked.bin in the save root, so a host or
@@ -1569,7 +1571,7 @@ static void connect_failed(int serial, const char *message)
 }
 
 #ifdef HALO_DELTA_IDENTITY
-/* ---------- sign-in by code (Quick Connect; docs/delta.md, Devices)
+/* ---------- sign-in by code (Quick Connect; docs/delta/link.md, Devices)
 
 On a site that speaks device identity, Link Profile asks for a code with
 this copy's device key (POST /v1/identity/device/start, signed) and works
@@ -2761,7 +2763,7 @@ static const char *local_platform_name(void)
 	return delta_peer_platform_name(key.platform);
 }
 
-/* the announcement's fields about the host (Delta List, docs/delta.md):
+/* the announcement's fields about the host (Delta List, docs/delta/list.md):
 the Delta major it hosts with (0: the legacy protocol alone), its platform
 key, architecture, build, capabilities and its game's machines by platform
 (counts only). A list from before them ignores them */
@@ -3161,7 +3163,7 @@ static void parse_roster(char *text, struct browser_game *game)
 }
 
 /* the host's fields (?fields=17: platform, hosting, protocol, machines;
-docs/delta.md, Delta List): what is not known is left 0 */
+docs/delta/list.md, Delta List): what is not known is left 0 */
 static void parse_host(char **fields, struct browser_game *game)
 {
 	char *entry;
@@ -3771,7 +3773,7 @@ static void social_action(int action, const char *handle, char *response, struct
 		social_log(BROWSER_SOCIAL_LOADED, read);
 }
 
-/* ---------- the doorbell (docs/delta.md, "The doorbell")
+/* ---------- the doorbell (docs/delta/link.md, "The doorbell")
 
 While this copy is linked, the site gave it a doorbell and network.doorbell
 is on, internet play's signalling listens for it on our own brokers, over
@@ -4003,7 +4005,7 @@ static void update_party(void)
 
 #endif /* HALO_CONSOLE_NO_GUIDE */
 
-/* ---------- a report's clip (docs/delta.md, Reports)
+/* ---------- a report's clip (docs/delta/peer.md, Reports)
 
 A report a linked server took with REPORT_RESULT's "send the clip": the
 clip's file goes to the site with the token the server made (the report it
@@ -4196,6 +4198,57 @@ int browser_clip_state(void)
 	return state;
 }
 
+/* the site's blocked names (/v1/blocked-names: blocked_names.txt's lines,
+the site's own additions among them), read again each NAMES_INTERVAL and
+handed to the game's thread (take_list_names); until one is read, and when
+the site has none, the lists use the built-in copy */
+enum { NAMES_INTERVAL = 3600, NAMES_RETRY = 300, NAMES_RESPONSE_SIZE = 32768 };
+static unsigned long names_asked;
+/* (read, not yet taken: under browser_lock) */
+static struct server_names_list *names_pending;
+
+/* the length of a blocked-names response's whole lines: all of it, unless it
+filled the buffer, when its last line may be cut short (a word cut short
+blocks other names than the site meant), so that line is left out */
+static size_t names_complete_length(const char *response)
+{
+	size_t length = strlen(response);
+	const char *last;
+
+	if (length < NAMES_RESPONSE_SIZE - 1)
+		return length;
+	last = strrchr(response, '\n');
+	return last ? (size_t)(last - response) + 1 : 0;
+}
+
+static void update_names(void)
+{
+	char url[512], error[256];
+	struct server_names_list *list;
+	char *response;
+	time_t now = time(NULL);
+
+	if (now <= 0 || (names_asked && (unsigned long)now < names_asked))
+		return;
+	names_asked = (unsigned long)now + NAMES_RETRY;
+	server_url("/v1/blocked-names", url, sizeof(url));
+	response = malloc(NAMES_RESPONSE_SIZE);
+	list = malloc(sizeof(*list));
+	if (response && list &&
+		posix_browser_request(url, NULL, NULL, response, NAMES_RESPONSE_SIZE, error, sizeof(error)) == 200 &&
+		server_names_list_parse(list, response, names_complete_length(response)) > 0)
+	{
+		pthread_mutex_lock(&browser_lock);
+		free(names_pending);
+		names_pending = list;
+		list = NULL;
+		pthread_mutex_unlock(&browser_lock);
+		names_asked = (unsigned long)now + NAMES_INTERVAL;
+	}
+	free(response);
+	free(list);
+}
+
 static void *browser_thread(void *unused)
 {
 	(void)unused;
@@ -4226,6 +4279,7 @@ static void *browser_thread(void *unused)
 			update_party();
 #endif
 			update_cards();
+			update_names();
 			update_list();
 			update_anchors();
 			update_clip_upload();
@@ -4870,7 +4924,11 @@ static int add_direct(struct browser_game *games, int count, int maximum_count, 
 			locked_code(listing, sealed);
 			code = sealed;
 		}
-		if (strlen(code) != BROWSER_INVITE_LENGTH ||
+		/* (a blocked name, checked on the name as the host sent it: the
+		names here are ASCII, where a letter outside it is '?') */
+		if (browser_name_blocked_text(listing->name_utf8))
+			continue;
+		if (strlen(code) != BROWSER_INVITE_LENGTH || !browser_version_shown(listing->version) ||
 			!SDL_strncasecmp(code, own, 2 * P2P_KEY_HASH_SIZE) || listing_on_list(listing, code, games, listed))
 		{
 			continue;
@@ -4956,8 +5014,55 @@ static void add_known(struct browser_game *games, int count)
 /* (every build, with the game browser or without: the menus' lobbies ask
 it too, port/linux/game/menu_functions.c) */
 #include "browser.h"
+#include "delta_chat.h"
+#include "game_list_rules.h"
+#include "port_config.h"
+#include "server_names.h"
 
+#include <stdlib.h>
 #include <string.h>
+
+/* the blocked names the lists hide games of (server_names.h, compared as the
+site compares them): the site's (update_names), else the built-in copy of
+the list (delta_chat_blocked_words). The game's thread's alone */
+static struct server_names_list *list_names;
+
+/* the site's list, once the browser thread has read one */
+static void take_list_names(void)
+{
+#ifdef HALO_GAME_BROWSER
+	struct server_names_list *list;
+
+	pthread_mutex_lock(&browser_lock);
+	list = names_pending;
+	names_pending = NULL;
+	pthread_mutex_unlock(&browser_lock);
+	if (list)
+	{
+		free(list_names);
+		list_names = list;
+	}
+#endif
+	if (!list_names && (list_names = malloc(sizeof(*list_names))) != NULL)
+		server_names_list_parse(list_names, delta_chat_blocked_words, strlen(delta_chat_blocked_words));
+}
+
+int browser_name_blocked_text(const char *name)
+{
+	take_list_names();
+	return server_names_list_blocked_text(list_names, name);
+}
+
+int browser_name_blocked(const unsigned short *name, int length)
+{
+	unsigned int characters[64];
+	int count;
+
+	take_list_names();
+	for (count = 0; count < length && count < 64 && name[count]; count++)
+		characters[count] = name[count];
+	return server_names_list_blocked(list_names, characters, count);
+}
 
 /* whether two names are the same, ASCII letters in either case (every
 build has this: the server's and Android's link no SDL string functions) */
@@ -5047,6 +5152,17 @@ int browser_version_state(int version)
 	return version > delta_legacy_maximum() ? 1 : 0;
 }
 
+int browser_show_all_games(void)
+{
+	return config_boolean("debug.show_all_games");
+}
+
+int browser_version_shown(int version)
+{
+	return browser_show_all_games() ||
+		game_list_joinable((unsigned int)version, 0, delta_legacy_minimum(), delta_legacy_maximum());
+}
+
 #ifdef HALO_GAME_BROWSER
 
 int browser_game_host_cheats(const struct browser_game *game)
@@ -5060,6 +5176,48 @@ int browser_game_version_state(const struct browser_game *game)
 	if (game->protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence)
 		return 0;
 	return browser_version_state(game->version);
+}
+
+int browser_game_shown(const struct browser_game *game)
+{
+	return browser_show_all_games() || game_list_joinable(game->version,
+		game->protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence,
+		delta_legacy_minimum(), delta_legacy_maximum());
+}
+
+/* the games of count that the lists show (browser_game_shown), in their
+order; returns how many */
+static int keep_shown(struct browser_game *games, int count)
+{
+	int delta = delta_peer_protocol() != _delta_peer_protocol_opence;
+	int minimum = delta_legacy_minimum(), maximum = delta_legacy_maximum();
+	int index, kept;
+
+	if (browser_show_all_games())
+		return count;
+	for (index = kept = 0; index < count; index++)
+	{
+		if (game_list_joinable(games[index].version, delta && games[index].protocol == BROWSER_PROTOCOL_DELTA,
+			minimum, maximum))
+		{
+			games[kept++] = games[index];
+		}
+	}
+	return kept;
+}
+
+/* the games of count whose names are not blocked (browser_name_blocked,
+even with debug.show_all_games), in their order; returns how many */
+static int keep_named(struct browser_game *games, int count)
+{
+	int index, kept;
+
+	for (index = kept = 0; index < count; index++)
+	{
+		if (!browser_name_blocked(games[index].name, BROWSER_NAME_LENGTH))
+			games[kept++] = games[index];
+	}
+	return kept;
 }
 
 int browser_get_games(struct browser_game *games, int maximum_count)
@@ -5086,7 +5244,13 @@ int browser_get_games(struct browser_game *games, int maximum_count)
 	}
 	pthread_mutex_unlock(&browser_lock);
 	read_listings();
+	/* (only the games this build can join, game_list_rules.h: the list's
+	first, so that those hidden leave their room to the games heard
+	directly, then those) */
+	count = keep_shown(games, count);
 	count = add_direct(games, count, maximum_count, browser_list_status() == BROWSER_LIST_ANSWERED);
+	count = keep_shown(games, count);
+	count = keep_named(games, count);
 	add_known(games, count);
 	return count;
 }

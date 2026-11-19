@@ -1,7 +1,7 @@
 /*
 IDENTITY.C
 
-Delta's device identity, stage A (identity.h; docs/delta.md, "Device
+Delta's device identity, stage A (identity.h; docs/delta/link.md, "Device
 identity"). No SDL and no game: the certificates, the signed messages, the
 requests' text and the schedule. browser.c's thread holds the files and
 does the asking.
@@ -1258,6 +1258,11 @@ static char lookalike_letter(unsigned long c)
 		return digits[c - '0'];
 	if (c >= 0xC0 && c < 0x180)
 		return accents[c - 0xC0] == '_' ? 0 : accents[c - 0xC0];
+	/* (full-width digits and Latin letters as the plain ones) */
+	if (c >= 0xFF10 && c <= 0xFF19)
+		return digits[c - 0xFF10];
+	if ((c >= 0xFF21 && c <= 0xFF3A) || (c >= 0xFF41 && c <= 0xFF5A))
+		return (char)('a' + (c - 0xFF21) % 0x20);
 	for (index = 0; index < (int)(sizeof(others) / sizeof(others[0])); index++)
 	{
 		if (others[index].code == c)
@@ -1316,10 +1321,21 @@ int identity_lookalike_key(const char *name, char *out)
 	return used;
 }
 
-/* an @ or one of its forms (full-width, small) */
+/* an @ or one of its forms (full-width, small), and the signs that read as
+one: the copyright sign, the circled a (small and capital) and the
+combining enclosing circle, which rings the letter before it */
 static int at_sign(unsigned long c)
 {
-	return c == '@' || c == 0xFF20 || c == 0xFE6B;
+	return c == '@' || c == 0xFF20 || c == 0xFE6B || c == 0xA9 || c == 0x24D0 || c == 0x24B6 || c == 0x20DD;
+}
+
+/* what an unverified name never keeps, wherever it is: combining marks
+(which can draw a ring or a dot over the letter before them) and the
+Hangul fillers, which draw nothing */
+static int invisible_mark(unsigned long c)
+{
+	return (c >= 0x300 && c <= 0x36F) || (c >= 0x20D0 && c <= 0x20FF) || c == 0x3164 || c == 0xFFA0 ||
+		c == 0x115F || c == 0x1160;
 }
 
 /* what may not lead an unverified name: spaces, invisible marks and dots */
@@ -1347,7 +1363,8 @@ int identity_unverified_name(const unsigned short *name, int length, unsigned sh
 		return 0;
 	for (index = 0; name && index < length && name[index] && used < size - 1; index++)
 	{
-		if (at_sign(name[index]) || (!used && (leading_junk(name[index]) || delta_sign(name[index]))))
+		if (at_sign(name[index]) || invisible_mark(name[index]) ||
+			(!used && (leading_junk(name[index]) || delta_sign(name[index]))))
 			continue;
 		out[used++] = name[index];
 	}

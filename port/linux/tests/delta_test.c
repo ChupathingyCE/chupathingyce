@@ -54,6 +54,7 @@ build 2 or 3's) */
 #define VOICE_BIT ((delta_u32)1 << _delta_capability_voice)
 #define SERVER_BADGE_BIT ((delta_u32)1 << _delta_capability_server_badge)
 #define PARTY_TEAMS_BIT ((delta_u32)1 << _delta_capability_party_teams)
+#define LOBBY_READY_BIT ((delta_u32)1 << _delta_capability_lobby_ready)
 
 /* ---------- a simulated network */
 
@@ -1480,6 +1481,231 @@ static void test_wire_host_rules(void)
 	CHECK(!delta_wire_write_host_rules(data, 1, &rules));
 }
 
+/* ---------- the lobby's READY */
+
+/* LOBBY_READY and LOBBY_STATE: written and read, their bytes as
+docs/delta.md lays them out (golden), a later state read, bad values refused */
+static void test_wire_lobby(void)
+{
+	static const unsigned char expected_ready[] = {
+		'D', 'P', DELTA_MAJOR, _delta_message_lobby_ready, 0x08, 0x00, 0x00, 0x00, 0x78, 0x56, 0x34, 0x12,
+		0x07, 0x00, 0x00, 0x00, 0x05, 0x01, 0x00, 0x00
+	};
+	static const unsigned char expected_state[] = {
+		'D', 'P', DELTA_MAJOR, _delta_message_lobby_state, 0x18, 0x00, 0x00, 0x00, 0x78, 0x56, 0x34, 0x12,
+		DELTA_WIRE_LOBBY_STATE_VERSION, DELTA_WIRE_LOBBY_STARTED | DELTA_WIRE_LOBBY_WAITS, 0x00, 0x00,
+		0x2A, 0x00, 0x00, 0x00,
+		0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80
+	};
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	struct delta_wire_lobby_ready ready, ready_in;
+	struct delta_wire_lobby_state state, state_in;
+	int size;
+
+	memset(&ready, 0, sizeof(ready));
+	ready.sequence = 7;
+	ready.player = 5;
+	ready.ready = 1;
+	size = delta_wire_write_lobby_ready(data, 0x12345678u, &ready);
+	CHECK(size == (int)sizeof(expected_ready) && !memcmp(data, expected_ready, sizeof(expected_ready)));
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_lobby_ready &&
+		header.length == DELTA_WIRE_LOBBY_READY_SIZE && header.session == 0x12345678u);
+	CHECK(delta_wire_read_lobby_ready(data + DELTA_WIRE_HEADER_SIZE, header.length, &ready_in) &&
+		ready_in.sequence == 7 && ready_in.player == 5 && ready_in.ready == 1);
+	/* too short, a ready past 1, a player past the sessions' 128: refused */
+	CHECK(!delta_wire_read_lobby_ready(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_LOBBY_READY_SIZE - 1, &ready_in));
+	data[DELTA_WIRE_HEADER_SIZE + 5] = 2;
+	CHECK(!delta_wire_read_lobby_ready(data + DELTA_WIRE_HEADER_SIZE, header.length, &ready_in) && !ready_in.sequence);
+	data[DELTA_WIRE_HEADER_SIZE + 5] = 0;
+	data[DELTA_WIRE_HEADER_SIZE + 4] = DELTA_WIRE_LOBBY_PLAYERS;
+	CHECK(!delta_wire_read_lobby_ready(data + DELTA_WIRE_HEADER_SIZE, header.length, &ready_in));
+	ready.ready = 2;
+	CHECK(!delta_wire_write_lobby_ready(data, 1, &ready));
+	ready.ready = 0;
+	ready.player = DELTA_WIRE_LOBBY_PLAYERS;
+	CHECK(!delta_wire_write_lobby_ready(data, 1, &ready));
+
+	memset(&state, 0, sizeof(state));
+	state.flags = DELTA_WIRE_LOBBY_STARTED | DELTA_WIRE_LOBBY_WAITS;
+	state.generation = 42;
+	delta_wire_lobby_state_set(&state, 0, 1);
+	delta_wire_lobby_state_set(&state, 5, 1);
+	delta_wire_lobby_state_set(&state, 127, 1);
+	delta_wire_lobby_state_set(&state, 3, 1);
+	delta_wire_lobby_state_set(&state, 3, 0);
+	/* (past the players: nothing set, nothing read) */
+	delta_wire_lobby_state_set(&state, 128, 1);
+	delta_wire_lobby_state_set(&state, -1, 1);
+	CHECK(delta_wire_lobby_state_ready(&state, 0) && delta_wire_lobby_state_ready(&state, 5) &&
+		delta_wire_lobby_state_ready(&state, 127) && !delta_wire_lobby_state_ready(&state, 3) &&
+		!delta_wire_lobby_state_ready(&state, 128) && !delta_wire_lobby_state_ready(&state, -1) &&
+		!delta_wire_lobby_state_ready(NULL, 0));
+	size = delta_wire_write_lobby_state(data, 0x12345678u, &state);
+	CHECK(size == (int)sizeof(expected_state) && !memcmp(data, expected_state, sizeof(expected_state)));
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_lobby_state &&
+		header.length == DELTA_WIRE_LOBBY_STATE_SIZE);
+	CHECK(delta_wire_read_lobby_state(data + DELTA_WIRE_HEADER_SIZE, header.length, &state_in) &&
+		!memcmp(&state_in, &state, sizeof(state)));
+	/* (a later version's: longer, unknown flags ignored) */
+	data[DELTA_WIRE_HEADER_SIZE] = 9;
+	data[DELTA_WIRE_HEADER_SIZE + 1] |= 0x40;
+	CHECK(delta_wire_read_lobby_state(data + DELTA_WIRE_HEADER_SIZE, header.length + 16, &state_in) &&
+		state_in.flags == (DELTA_WIRE_LOBBY_STARTED | DELTA_WIRE_LOBBY_WAITS) && state_in.generation == 42 &&
+		delta_wire_lobby_state_ready(&state_in, 127));
+	/* too short, version 0, generation 0: refused */
+	CHECK(!delta_wire_read_lobby_state(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_LOBBY_STATE_SIZE - 1, &state_in));
+	data[DELTA_WIRE_HEADER_SIZE] = 0;
+	CHECK(!delta_wire_read_lobby_state(data + DELTA_WIRE_HEADER_SIZE, header.length, &state_in) && !state_in.flags);
+	data[DELTA_WIRE_HEADER_SIZE] = 1;
+	memset(data + DELTA_WIRE_HEADER_SIZE + 4, 0, 4);
+	CHECK(!delta_wire_read_lobby_state(data + DELTA_WIRE_HEADER_SIZE, header.length, &state_in));
+	state.generation = 0;
+	CHECK(!delta_wire_write_lobby_state(data, 1, &state));
+	state.generation = 1;
+	state.flags = 0x80;
+	CHECK(!delta_wire_write_lobby_state(data, 1, &state));
+}
+
+static struct
+{
+	int heard;
+	int machine;
+	int player;
+	int ready;
+} host_lobby;
+
+static int test_lobby_ready(void *context, int machine_index, int player, int ready)
+{
+	(void)context;
+	host_lobby.heard++;
+	host_lobby.machine = machine_index;
+	host_lobby.player = player;
+	host_lobby.ready = ready;
+	return 1;
+}
+
+static const struct delta_peer_lobby_host test_lobby_host = { NULL, test_lobby_ready };
+
+/* a client says READY, the host hears it and its state reaches every
+client that agreed; a machine without lobby_ready is sent nothing and can
+say nothing; the state is sent again unchanged every few seconds; the host
+offers lobby_ready only with a lobby */
+static void test_lobby(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	struct delta_wire_lobby_state state, heard;
+	delta_u32 now = 5000, generation, sequence;
+	int step, round;
+
+	memset(&host_lobby, 0, sizeof(host_lobby));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, LOBBY_READY_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, LOBBY_READY_BIT, _delta_platform_pc_linux, 0, 0);
+	/* (a Delta machine without the lobby's READY: an older build) */
+	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_macos, 0, 0);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	/* (a host with no lobby: not offered, so not agreed) */
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(!delta_peer_client_lobby_ready(&nodes[1].peer));
+	CHECK(!delta_peer_client_lobby_say(&nodes[1].peer, 1, 1));
+
+	/* a new session with a lobby: offered and agreed */
+	delta_peer_set_lobby_host(&nodes[0].peer, &test_lobby_host);
+	node_start(1, 0x0300007F, 40001, LOBBY_READY_BIT, _delta_platform_pc_linux, 0, 0);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_client_lobby_ready(&nodes[1].peer) && !delta_peer_client_lobby_ready(&nodes[2].peer));
+	CHECK(!delta_peer_client_lobby_say(&nodes[2].peer, 2, 1));
+	/* (no state yet: none heard) */
+	CHECK(!delta_peer_client_lobby_state(&nodes[1].peer, &heard));
+
+	/* the client says ready; the host hears it */
+	sequence = delta_peer_client_lobby_say(&nodes[1].peer, 1, 1);
+	CHECK(sequence);
+	deliver(now);
+	CHECK(host_lobby.heard == 1 && host_lobby.machine == 1 && host_lobby.player == 1 && host_lobby.ready == 1);
+	/* (the same sequence again, as a replay would: dropped) */
+	CHECK(delta_peer_client_lobby_say(&nodes[1].peer, 1, 0) == sequence + 1);
+	deliver(now);
+	CHECK(host_lobby.heard == 2 && host_lobby.ready == 0);
+	/* (a player past the sessions' limit: not sent) */
+	CHECK(!delta_peer_client_lobby_say(&nodes[1].peer, DELTA_WIRE_LOBBY_PLAYERS, 1));
+
+	/* the host's state reaches the client that agreed, not the other */
+	memset(&state, 0, sizeof(state));
+	state.flags = DELTA_WIRE_LOBBY_WAITS;
+	delta_wire_lobby_state_set(&state, 0, 1);
+	delta_wire_lobby_state_set(&state, 2, 1);
+	delta_peer_set_lobby_state(&nodes[0].peer, &state);
+	frame(now, 3, joined, 1);
+	generation = delta_peer_client_lobby_state(&nodes[1].peer, &heard);
+	CHECK(generation && heard.flags == DELTA_WIRE_LOBBY_WAITS && delta_wire_lobby_state_ready(&heard, 0) &&
+		delta_wire_lobby_state_ready(&heard, 2) && !delta_wire_lobby_state_ready(&heard, 1));
+	CHECK(!delta_peer_client_lobby_state(&nodes[2].peer, NULL));
+	/* the same state again: nothing new; changed: sent at once */
+	now += 300;
+	delta_peer_set_lobby_state(&nodes[0].peer, &state);
+	frame(now, 3, joined, 1);
+	CHECK(delta_peer_client_lobby_state(&nodes[1].peer, NULL) == generation);
+	now += 300;
+	delta_wire_lobby_state_set(&state, 1, 1);
+	state.flags |= DELTA_WIRE_LOBBY_STARTED;
+	delta_peer_set_lobby_state(&nodes[0].peer, &state);
+	frame(now, 3, joined, 1);
+	CHECK(delta_peer_client_lobby_state(&nodes[1].peer, &heard) == generation + 1 &&
+		(heard.flags & DELTA_WIRE_LOBBY_STARTED) && delta_wire_lobby_state_ready(&heard, 1));
+	/* unchanged, it is sent again every few seconds (a client that missed one) */
+	nodes[1].peer.host_lobby_state.generation = 0;
+	now += DELTA_PEER_LOBBY_STATE_INTERVAL + 100;
+	frame(now, 3, joined, 1);
+	CHECK(delta_peer_client_lobby_state(&nodes[1].peer, &heard) == generation + 1);
+	/* a client that left forgets it, and hears it again on joining */
+	node_start(1, 0x0300007F, 40001, LOBBY_READY_BIT, _delta_platform_pc_linux, 0, 0);
+	CHECK(!delta_peer_client_lobby_state(&nodes[1].peer, NULL));
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_client_lobby_state(&nodes[1].peer, &heard) && delta_wire_lobby_state_ready(&heard, 1));
+	/* a game, or GAME SETUP or CHANGE MAP over the lobby, then the lobby
+	back: none in between (nothing sent), and the next state newer than
+	what the client holds, its READY marks the new lobby's */
+	generation = delta_peer_client_lobby_state(&nodes[1].peer, NULL);
+	for (round = 0; round < 2; round++)
+	{
+		delta_peer_set_lobby_state(&nodes[0].peer, NULL);
+		now += DELTA_PEER_LOBBY_STATE_INTERVAL + 100;
+		frame(now, 3, joined, 1);
+		CHECK(delta_peer_client_lobby_state(&nodes[1].peer, NULL) == generation);
+		memset(&state, 0, sizeof(state));
+		state.flags = DELTA_WIRE_LOBBY_WAITS;
+		delta_wire_lobby_state_set(&state, 0, 1);
+		delta_peer_set_lobby_state(&nodes[0].peer, &state);
+		now += 300;
+		frame(now, 3, joined, 1);
+		CHECK(delta_peer_client_lobby_state(&nodes[1].peer, &heard) > generation &&
+			delta_wire_lobby_state_ready(&heard, 0) && !delta_wire_lobby_state_ready(&heard, 1) &&
+			!(heard.flags & DELTA_WIRE_LOBBY_STARTED));
+		generation = delta_peer_client_lobby_state(&nodes[1].peer, NULL);
+		/* (the client's READY in the new lobby is heard and sent back) */
+		delta_wire_lobby_state_set(&state, 1, 1);
+		delta_peer_set_lobby_state(&nodes[0].peer, &state);
+		now += 300;
+		frame(now, 3, joined, 1);
+		CHECK(delta_peer_client_lobby_state(&nodes[1].peer, &heard) == generation + 1 &&
+			delta_wire_lobby_state_ready(&heard, 1));
+		generation++;
+	}
+	/* the lobby gone: no state sent, the next session not offered it */
+	delta_peer_set_lobby_state(&nodes[0].peer, NULL);
+	delta_peer_set_lobby_host(&nodes[0].peer, NULL);
+	node_start(1, 0x0300007F, 40001, LOBBY_READY_BIT, _delta_platform_pc_linux, 0, 0);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(!delta_peer_client_lobby_ready(&nodes[1].peer) && !delta_peer_client_lobby_state(&nodes[1].peer, NULL));
+}
+
 /* the host's number (HOST_NUMBER): written and read, little-endian; 0 and
 version 0 refused; a later version read */
 static void test_host_number_wire(void)
@@ -2582,10 +2808,12 @@ static void test_platform_names(void)
 static void test_wire_byte_order(void)
 {
 	static const unsigned char expected[] = {
-		'D', 'P', DELTA_MAJOR, _delta_message_hello, 0x1B, 0x00, 0x00, 0x00, 0x01, 0xEF, 0xCD, 0xAB,
+		'D', 'P', DELTA_MAJOR, _delta_message_hello, 0x1F, 0x00, 0x00, 0x00, 0x01, 0xEF, 0xCD, 0xAB,
 		0x04, 0x03, 0x02, 0x01, 0x27, 0x01, 0x07, 0x07, 0xD4, 0xC3, 0xB2, 0xA1,
 		_delta_platform_xbox360, DELTA_PLATFORM_KEY_VERSION, 0x00, 0x10, 0x10, 0x80, 0x09, 0x00,
-		'W', 'a', 'r', 't', 'h', 'o', 'g'
+		'W', 'a', 'r', 't', 'h', 'o', 'g',
+		/* (the game modes, after the build text: SWAT and Hardcore) */
+		0x03, 0x00, 0x00, 0x00
 	};
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
 	struct delta_wire_header header;
@@ -2604,14 +2832,20 @@ static void test_wire_byte_order(void)
 	hello.key.join_players_opt_in = 128;
 	hello.key.memory_class = 9;
 	strcpy(hello.build, "Warthog");
+	hello.modes = 0x03;
 	size = delta_wire_write_hello(data, 0xABCDEF01u, &hello);
 	CHECK(size == (int)sizeof(expected) && !memcmp(data, expected, sizeof(expected)));
 	CHECK(delta_wire_read_header(expected, (int)sizeof(expected), &header));
-	CHECK(header.session == 0xABCDEF01u && header.length == 0x1B);
+	CHECK(header.session == 0xABCDEF01u && header.length == 0x1F);
 	CHECK(delta_wire_read_hello(expected + 12, header.length, &hello_back));
 	CHECK(hello_back.capabilities == 0x01020304u && hello_back.legacy_version == 0x0127);
 	CHECK(hello_back.legacy_table_serial == 0xA1B2C3D4u && hello_back.key.platform == _delta_platform_xbox360);
 	CHECK(hello_back.key.join_players_opt_in == 128 && !strcmp(hello_back.build, "Warthog"));
+	CHECK(hello_back.modes == 0x03);
+	/* (a HELLO from a build before the modes ends with the build text: read,
+	with no modes) */
+	CHECK(delta_wire_read_hello(expected + 12, 0x1B, &hello_back) && hello_back.modes == 0 &&
+		!strcmp(hello_back.build, "Warthog"));
 }
 
 static void test_wire(void)
@@ -2633,8 +2867,9 @@ static void test_wire(void)
 	hello.legacy_table_serial = 42;
 	pc_key(&hello.key, _delta_platform_pc_linux);
 	strcpy(hello.build, "ChupathingyCE 0.6.5b");
+	hello.modes = 0x02;
 	size = delta_wire_write_hello(data, 0xABCDEF01u, &hello);
-	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HELLO_SIZE + (int)strlen(hello.build));
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HELLO_SIZE + (int)strlen(hello.build) + DELTA_WIRE_MODES_SIZE);
 	CHECK(data[0] == 'D' && data[1] == 'P' && data[2] == DELTA_MAJOR && data[3] == _delta_message_hello);
 	CHECK(delta_wire_read_header(data, size, &header));
 	CHECK(header.session == 0xABCDEF01u && header.type == _delta_message_hello && header.length == size - 12);
@@ -2642,6 +2877,7 @@ static void test_wire(void)
 	CHECK(hello_back.capabilities == 3 && hello_back.legacy_version == 18 && hello_back.machine_index == 7);
 	CHECK(hello_back.legacy_table_serial == 42 && !strcmp(hello_back.build, hello.build));
 	CHECK(!memcmp(&hello_back.key, &hello.key, sizeof(hello.key)));
+	CHECK(hello_back.modes == 0x02);
 	/* (every shorter datagram is refused: the header's length, or the
 	payload's fields) */
 	for (cut = 0; cut < size; cut++)
@@ -2675,11 +2911,16 @@ static void test_wire(void)
 	pc_key(&welcome.key, _delta_platform_pc_macos);
 	welcome.key.flags = DELTA_PLATFORM_KEY_DEDICATED;
 	strcpy(welcome.build, "server");
+	welcome.modes = 0x03;
 	size = delta_wire_write_welcome(data, 5, &welcome);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_WELCOME_SIZE + 6 + DELTA_WIRE_MODES_SIZE);
 	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_welcome);
 	CHECK(delta_wire_read_welcome(data + 12, header.length, &welcome_back));
 	CHECK(welcome_back.agreed == 1 && welcome_back.host_machine_index == 0xFF && welcome_back.legacy_table_serial == 9);
 	CHECK(!memcmp(&welcome_back.key, &welcome.key, sizeof(welcome.key)) && !strcmp(welcome_back.build, "server"));
+	CHECK(welcome_back.modes == 0x03);
+	/* (a WELCOME from a host before the modes: none) */
+	CHECK(delta_wire_read_welcome(data + 12, DELTA_WIRE_WELCOME_SIZE + 6, &welcome_back) && welcome_back.modes == 0);
 	for (cut = 0; cut < DELTA_WIRE_WELCOME_SIZE + 6; cut++)
 		CHECK(!delta_wire_read_welcome(data + 12, cut, &welcome_back));
 
@@ -3340,6 +3581,8 @@ static void test_bomb(void)
 	CHECK(!delta_peer_machine_pending(&nodes[0].peer, now, 0));
 	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
 	CHECK(delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 0) == -1);
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 3) == -1);
 	for (step = 0; step < 3; step++, now += 300)
 		frame(now, 4, joined, 1);
 	/* the handshakes: one agreed, one did not (at once), one silent */
@@ -3356,6 +3599,15 @@ static void test_bomb(void)
 		frame(now, 4, joined, 1);
 	CHECK(delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
 	CHECK(!delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	/* (sessions: the two of ours, the silent one none; the host's own and
+	machines not in the game not known) */
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 1) == 1);
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 2) == 1);
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 3) == 0);
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 0) == -1);
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 7) == -1);
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, -1) == -1);
+	CHECK(delta_peer_machine_session(&nodes[1].peer, now, 3) == -1);
 	/* (machines not in the game, and nonsense, lack nothing) */
 	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 7, _delta_capability_bomb));
 	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, -1, _delta_capability_bomb));
@@ -3368,6 +3620,7 @@ static void test_bomb(void)
 	game_add(3);
 	frame(now, 4, joined, 1);
 	CHECK(delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	CHECK(delta_peer_machine_session(&nodes[0].peer, now, 3) == -1);
 	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
 	/* ... the room has bomb once every machine does */
 	game_remove(2);
@@ -5237,6 +5490,8 @@ int main(int argc, char **argv)
 	test_host_rules();
 	test_host_number_wire();
 	test_host_number_lost();
+	test_wire_lobby();
+	test_lobby();
 	test_wire_badge();
 	test_badge();
 	test_wire_objects();

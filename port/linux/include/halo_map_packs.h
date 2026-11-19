@@ -126,6 +126,12 @@ files, version 5, of multiplayer maps; not a pack's ui.map, nor its campaign
 levels): each one's pack and file's name (without .map), passed to found */
 void map_pack_list(void (*found)(char const *pack, char const *file, void *context), void *context);
 
+/* every campaign map that isn't one of the Xbox's levels: the maps folder's
+own (pack NULL; not a10 to d40), then every pack's (each maps_<pack>
+folder's Xbox cache files, version 5, of campaign maps; not Stubbs mode's
+pack, whose levels are its own campaign's), passed to found */
+void map_pack_list_campaign(void (*found)(char const *pack, char const *file, void *context), void *context);
+
 /* the pack whose own menus are played (game.pack_menus names it, and its
 folder has a ui.map; read once, at the first ask), or NULL; whether that
 ui.map is the library's (its scripts may then switch levels) */

@@ -41,6 +41,10 @@ Automated system link sessions for testing the netcode without the menus
   internet invite as a machine with no player, asks the host for its
   current Custom Edition map, downloads it, writes it and a result
   (debug.map_fetch_*), leaves and quits;
+- "monitor:<listed name>" is the server monitor (net_monitor.c): it joins
+  the game listed under that name from the Online Games screen, as a quiet
+  guest that plays nothing, writes how the host behaves to
+  debug.monitor_output, leaves and quits;
 - "browse" opens the Online Games screen once the main menu is up, as the
   Multiplayer menu's ONLINE GAMES does, and logs each listed game's ping
   every few seconds (measured or estimated, never an address) with its
@@ -107,6 +111,7 @@ network_test_update, which does nothing there */
 #include "networking/network_server_manager.h"
 #include "game/game.h"
 #include "game/game_engine.h"
+#include "game/game_modes.h" /* the game modes layer's built-ins (swat, hardcore, ...) */
 #include "game/players.h"
 #include "objects/objects.h"
 #include "units/units.h"
@@ -127,6 +132,7 @@ network_test_update, which does nothing there */
 #include "../src/map_download.h"
 #ifdef HALO_GAME_BROWSER
 #include "map_share.h"
+#include "net_monitor.h"
 #endif
 #ifdef HALO_GAME_BROWSER
 #include "../src/browser.h"
@@ -175,6 +181,8 @@ enum
 	_network_test_browse,
 	/* the map bot's fetch (map_share_client.c) */
 	_network_test_fetch,
+	/* the server monitor (net_monitor.c) */
+	_network_test_monitor,
 };
 
 static struct
@@ -403,6 +411,10 @@ static void network_test_read_settings(
 	else if (!strncmp(setting, "fetch:", 6) && setting[6])
 	{
 		network_test.mode = _network_test_fetch;
+	}
+	else if (!strncmp(setting, "monitor:", 8) && setting[8])
+	{
+		network_test.mode = _network_test_monitor;
 	}
 #endif
 	else if (!strncmp(setting, "find:", 5) && setting[5])
@@ -1451,6 +1463,17 @@ void network_test_update(
 		map_share_fetch_update(main_menu_loaded, seconds);
 		return;
 	}
+	if (network_test.mode == _network_test_monitor)
+	{
+		/* (the intro movie skipped first, as a button press does) */
+		if (bink_playback_in_progress())
+		{
+			bink_playback_stop();
+			return;
+		}
+		net_monitor_update(main_menu_loaded, seconds);
+		return;
+	}
 #endif
 	if (network_test.mode == _network_test_find)
 	{
@@ -1953,6 +1976,23 @@ void network_test_update(
 					if (network_test.score_to_win > 0)
 						variant.universal_variant.score_to_win = network_test.score_to_win;
 					player_ui_set_game_variant(&variant);
+#ifdef HALO_GAME_BROWSER
+					/* (a game modes layer built-in: its PC options and further
+					options too, as choosing it in the menus gives them) */
+					{
+						long builtin = game_mode_builtin_named(variant_name);
+
+						if (builtin != NONE)
+						{
+							struct game_variant_options options;
+							byte modes[16];
+
+							game_mode_builtin_options(builtin, &variant, &options, modes);
+							player_ui_set_game_variant_options(&options);
+							player_ui_set_game_mode_options(modes);
+						}
+					}
+#endif
 					network_game_server_change_game_variant(global_network_game_server_get(), &variant);
 				}
 				network_test.map_set = TRUE;

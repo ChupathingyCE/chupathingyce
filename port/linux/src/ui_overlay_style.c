@@ -612,6 +612,11 @@ void ui_style_row(float x, float y, float width, float height, int selected)
 		ui_style_glass(x, y, width, height, 7, PALETTE(ROW), PALETTE(ROW_EDGE));
 }
 
+void ui_style_row_chosen(float x, float y, float width, float height)
+{
+	ui_style_glass(x, y, width, height, 7, PALETTE(ROW), PALETTE(SELECTED_EDGE));
+}
+
 /* a setting's value in room (UI_FONT_MENU at size): as it is, or cut with
 "..." (a path's at its start) */
 static void value_fit(const char *value, float size, float room, char *out, int out_size)

@@ -1259,13 +1259,17 @@ static boolean bitmap_data_check(
 		bitmap->mipmap_count = (short)PIN(bitmap->mipmap_count, 0, maximum_mipmap_count);
 	}
 	/* (a linear texture has a format with a linear form, and a pitch of
-	64-byte steps) */
+	64-byte steps; Halo PC's rows are packed, a row's texels after the
+	last's, whatever the pitch, and the texture cache reads them so:
+	cache/xbox_texture_cache.c's any_pitch. Its pitch is not a reason to
+	read it as swizzled, which shears it) */
 	if (TEST_FLAG(bitmap->flags, _bitmap_linear_bit))
 	{
 		long pitch = (long)bitmap->width * bitmap_format_bits_per_pixel[bitmap->format] / 8;
+		boolean packed_rows = TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_pc_header_bit);
 
 		if (compressed || bitmap->format == _bitmap_format_p8_bump || bitmap->type != _bitmap_type_2d ||
-			pitch % BITMAP_PITCH_ALIGNMENT || pitch > MAXIMUM_BITMAP_PITCH)
+			(pitch % BITMAP_PITCH_ALIGNMENT && !packed_rows) || pitch > MAXIMUM_BITMAP_PITCH)
 		{
 			tag_validate_correct(validation, "is linear, but of format %d, type %d, pitch %ld: not linear",
 				bitmap->format, bitmap->type, pitch);
@@ -1365,6 +1369,12 @@ static boolean shader_type_check(
 {
 	struct shader *shader = base;
 
+	/* (Halo PC's numbers: _tag_schema_layout_pc_shader_types_bit) */
+	if (TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_pc_shader_types_bit) &&
+		type > _shader_type_transparent_chicago)
+	{
+		type++;
+	}
 	if (shader->base.type != type)
 	{
 		tag_validate_correct(validation, "is a shader of type %d in a group of type %d: %d",
@@ -1489,18 +1499,34 @@ static boolean shader_transparent_chicago_extended_check(
 {
 	struct shader_transparent_chicago_extended_definition *chicago = base;
 
-	shader_type_check(validation, base, _shader_type_transparent_chicago);
+	/* (Halo PC's is a type of its own, 7, and its two stage maps its own:
+	it is made a chicago shader once it is checked, its extra flags where
+	the maps' count is, ce_models.c) */
+	boolean pc = TEST_FLAG(tag_validate_layout_flags(validation), _tag_schema_layout_pc_shader_types_bit);
+
+	if (pc && chicago->shader.base.type != _shader_type_transparent_chicago + 1)
+	{
+		tag_validate_correct(validation, "is a shader of type %d in a group of type %d: %d",
+			chicago->shader.base.type, _shader_type_transparent_chicago + 1, _shader_type_transparent_chicago + 1);
+		chicago->shader.base.type = _shader_type_transparent_chicago + 1;
+	}
+	if (!pc)
+		shader_type_check(validation, base, _shader_type_transparent_chicago);
 	/* (it is drawn as a chicago shader, which reads its extra flags where
 	this one's two stage maps' count is: the game never reads the maps) */
-	if (chicago->two_stage_maps.count)
+	if (!pc && chicago->two_stage_maps.count)
 	{
 		tag_validate_correct(validation, "has %ld two stage maps, which the game reads as its flags: none",
 			chicago->two_stage_maps.count);
 		chicago->two_stage_maps.count = 0;
 		chicago->two_stage_maps.address = XBOX_NULL;
 	}
+	/* (Halo PC's draws its two-stage maps where it has no four-stage ones,
+	ce_models.c: the first of those is its first map then) */
 	shader_transparent_check(validation, &chicago->transparent, chicago->transparent.maps.count ?
-		&((struct shader_transparent_chicago_map *)xbox_pointer(chicago->transparent.maps.address))->map : NULL);
+		&((struct shader_transparent_chicago_map *)xbox_pointer(chicago->transparent.maps.address))->map :
+		pc && chicago->two_stage_maps.count > 0 ?
+		&((struct shader_transparent_chicago_map *)xbox_pointer(chicago->two_stage_maps.address))->map : NULL);
 
 	return TRUE;
 }
@@ -2020,7 +2046,7 @@ static struct tag_schema_definition const shader_texture_animation_schema =
 
 static struct tag_schema_field const shader_fields[] =
 {
-	TAG_SCHEMA_ENUM(struct shader, base.type, NUMBER_OF_SHADER_TYPES, 0),
+	TAG_SCHEMA_PC_ENUM(struct shader, base.type, NUMBER_OF_SHADER_TYPES, NUMBER_OF_SHADER_TYPES + 1, 0),
 	TAG_SCHEMA_END
 };
 

@@ -73,6 +73,8 @@ symbols in this file:
 #include "game/game.h"
 #include "math/real_math.h"
 #include "objects/objects.h"
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#include "stubbs_regions.h" /* port: port/linux/game/stubbs_regions.c */
 #include "rasterizer/rasterizer.h"
 #include "rasterizer/rasterizer_geometry.h"
 #include "render/render.h"
@@ -944,7 +946,7 @@ short model_get_marker_by_name(
 			/* port: a marker on a region or node the model doesn't have is
 			skipped (a map's indices); the permutations passed in are an
 			object's (retail's markers are on regions 5 at most) */
-			if ((region_permutations && instance->region_index>=MAXIMUM_REGIONS_PER_OBJECT) ||
+			if ((region_permutations && instance->region_index>=(stubbs_mode_active() ? STUBBS_MAXIMUM_REGIONS_PER_OBJECT : MAXIMUM_REGIONS_PER_OBJECT)) ||
 				instance->node_index>=MIN(model->nodes.count, MAXIMUM_NODES_PER_MODEL))
 			{
 				model_data_error(model, "marker");
@@ -1113,7 +1115,7 @@ void render_model(
 		/* port: how many regions the permutations passed in hold (an
 		object's; the default's otherwise) */
 		short region_permutation_count = region_permutation_indices ?
-			MAXIMUM_REGIONS_PER_OBJECT :
+			(stubbs_mode_active() ? STUBBS_MAXIMUM_REGIONS_PER_OBJECT : MAXIMUM_REGIONS_PER_OBJECT) :
 			MAXIMUM_REGIONS_PER_MODEL;
 		/* port: no more nodes than relative_node_matrices holds (a map's count) */
 		short node_count = (short)MIN(model->nodes.count, MAXIMUM_NODES_PER_MODEL);

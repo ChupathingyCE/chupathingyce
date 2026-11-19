@@ -139,7 +139,9 @@ THIRD = ["game.start_with_one_player"]
 FOURTH = ["audio.hrtf"]
 FIFTH = ["display.player_names", "display.follow_camera", "network.team_change"]
 LATEST = ["audio.resampling"]
-GENERATION = "6"
+# (the seventh, the original Xbox's 4:3 picture, is the Xbox's only, which
+# asks nothing: test_xbox_follows_new_defaults)
+GENERATION = "7"
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
@@ -637,7 +639,8 @@ def test_readded_by_older_version(program, directory, defaults, kind):
 			"high_res_hud": "false"}
 		block = "".join(f"\n# An older version's comment for {key}.\n# (for one run: HALO_X=<value>)\n{key} = {value}\n"
 			for key, value in old.items())
-		audio = text.index("\n[audio]")
+		# (at the end of [display], before the next section's header)
+		audio = text.index("\n[", text.index("\n[display]") + 1)
 		text = text[:audio].rstrip("\n") + "\n" + block + text[audio:]
 		case.path.write_text(text)
 		values, _ = case.get("display.shadow_resolution", "display.anti_aliasing", "display.interpolation",
@@ -1179,6 +1182,190 @@ def test_follow_file(program, directory, defaults, kind):
 	check(float(match.group(1)) < 200.0, f"follow/{kind}: config_changes takes {match.group(1)} ns a call")
 
 
+# the [tuning] lines (port_config.c's config_tuning_apply): short, stable,
+# one knob after another as "name=value" with where it came from after a
+# value that is not the default
+TUNING_SOURCE = r"(?:\((?:preset|hand|clamped|invalid)\))?"
+TUNING_KNOB = rf"[a-z_]+=[^ ()]+{TUNING_SOURCE}"
+TUNING_SUMMARY = rf"preset=(?:retail|lan-party|potato)(?: {TUNING_KNOB})*"
+
+
+def tuning_lines(output):
+	"""The log's tuning: lines, without the test's "log: "."""
+	return [line[len("log: "):] for line in output.splitlines() if line.startswith("log: tuning:")]
+
+
+def tuning_knobs(line):
+	"""A summary's knobs: {short name: (value, source)}."""
+	line = line[line.index("preset="):]
+	return {name: (value, source) for name, value, source in
+		re.findall(r"(?:^| )([a-z_]+)=([^ ()]+)(\([a-z]+\))?", line)}
+
+
+def set_tuning_file(case, kind, values):
+	"""A new file with values written in place of their commented lines:
+	{"section.key": "value as TOML"}."""
+	text = fresh_file(case, kind)
+	for name, value in values.items():
+		key = name.split(".", 1)[1]
+		text, count = re.subn(rf"^# {key} = .*$", f"{key} = {value}", text, count=1, flags=re.M)
+		check(count == 1, f"tuning: no {name} line to set")
+	case.path.write_text(text)
+
+
+def test_tuning(program, directory, defaults, kind):
+	"""[tuning]: its section in a new file; retail changes nothing; a preset
+	fills in only the knobs the player left unset, never raises a build's own
+	limit, and the Potato knobs are the setup screen's; a value out of range
+	is held in it and a word that is none of a knob's is its default, each
+	said in the log; the boot, map and change lines keep their form; and the
+	dedicated server has no knobs and says nothing."""
+	case = Case(program, directory / "tuning")
+	values, output = case.get("tuning.preset", "tuning.present_mode", "display.particle_limit")
+	lines = tuning_lines(output)
+	if kind == "server":
+		check(not lines, f"tuning/server: lines {lines}")
+		check("[tuning]" not in case.text(), "tuning/server: a [tuning] section")
+		return
+	text = case.text()
+	check("\n[tuning]\n" in text and '# preset = "retail"' in text and '# present_mode = "vblank"' in text,
+		"tuning: not in a new file")
+	check("texture_cache" not in text, "tuning: the original Xbox's texture_cache in another build's file")
+	check(values["tuning.preset"] == "retail" and values["tuning.present_mode"] == "vblank", f"tuning: {values}")
+	check(values["display.particle_limit"] == defaults.get("display.particle_limit", "4096"), f"tuning: {values}")
+	check(len(lines) == 2, f"tuning: boot lines {lines}")
+	check(re.fullmatch(rf"tuning: at=boot {TUNING_SUMMARY}", lines[0]), f"tuning: boot line {lines[0]!r}")
+	check(lines[1] == "tuning: differs from the defaults: none", f"tuning: {lines[1]!r}")
+	check("(" not in lines[0], f"tuning: retail marks a knob: {lines[0]}")
+	retail = tuning_knobs(lines[0])
+	check({"lights", "specular", "particles", "present"} <= set(retail), f"tuning: knobs {sorted(retail)}")
+	# (the summary function and the map line say the same)
+	_, output = case.run("tuning")
+	summary = re.search(r"^tuning_summary=(.*)$", output, re.M).group(1)
+	check(f"log: tuning: at=map {summary}" in output, f"tuning: map line {output}")
+	check(summary == lines[0][len("tuning: at=boot "):], f"tuning: summary {summary!r}")
+	check(len(summary) < 300, f"tuning: summary {len(summary)} long")
+	check(not re.search(r"\d+\.\d+\.\d+\.\d+|/Users/|/home/|\\\\", summary), f"tuning: summary {summary}")
+	potato = dict(re.findall(r"^potato\.([a-z_.]+)=(.*)$", output, re.M))
+	check(potato.get("display.particle_limit") == "1024" and potato.get("display.dynamic_light_limit") == "8",
+		f"tuning: Potato's knobs {potato}")
+
+	# potato, with the particles set by hand
+	case = Case(program, directory / "tuning_potato")
+	set_tuning_file(case, kind, {"tuning.preset": '"potato"', "display.particle_limit": "512"})
+	values, output = case.get("display.particle_limit", "display.dynamic_light_limit", "display.specular_light_limit",
+		"display.particle_ticks", "display.shadow_resolution")
+	check(values["display.particle_limit"] == "512", f"tuning/potato: the player's 512 lost: {values}")
+	check(values["display.dynamic_light_limit"] == "8" and values["display.specular_light_limit"] == "2",
+		f"tuning/potato: {values}")
+	check(values["display.particle_ticks"] == "true" and values["display.shadow_resolution"] == "128",
+		f"tuning/potato: {values}")
+	lines = tuning_lines(output)
+	knobs = tuning_knobs(lines[0])
+	check(re.fullmatch(rf"tuning: at=boot {TUNING_SUMMARY}", lines[0]), f"tuning/potato: {lines[0]!r}")
+	check(knobs["preset"] == ("potato", "") and knobs["particles"] == ("512", "(hand)"), f"tuning/potato: {knobs}")
+	check(knobs["shadows"] == ("128", "(preset)"), f"tuning/potato: {knobs}")
+	check(lines[1].startswith("tuning: differs from the defaults: preset=potato ") and "particles=512(hand)" in lines[1]
+		and "aniso=" not in lines[1], f"tuning/potato: {lines[1]!r}")
+	# (potato sets knobs here: nothing to own up to)
+	check(not any("changes nothing" in line for line in lines), f"tuning/potato: {lines}")
+	# (each potato knob this build has is at the preset's value but the one set by hand)
+	for name, value in potato.items():
+		if name != "display.particle_limit":
+			got, _ = case.get(name)
+			check(got[name] == value, f"tuning/potato: {name} is {got[name]}, not {value}")
+	# the preset changed by the menus: change lines; the knob set by hand stays
+	_, output = case.run("write", "tuning.preset", "lan-party")
+	changes = [line for line in tuning_lines(output) if line.startswith("tuning: change")]
+	check("tuning: change preset=potato->lan-party" in changes, f"tuning/change: {changes}")
+	check(all(re.fullmatch(rf"tuning: change (?:preset=[a-z-]+->[a-z-]+|{TUNING_KNOB.replace('=[^ ()]+', '=[^ ()]+->[^ ()]+')})",
+		line) for line in changes), f"tuning/change: {changes}")
+	check(not any(line.startswith("tuning: change particles=") for line in changes), f"tuning/change: {changes}")
+	values, _ = case.get("display.dynamic_light_limit", "display.particle_limit", "display.shadow_resolution",
+		"tuning.present_mode")
+	check(values["display.particle_limit"] == "512" and values["display.shadow_resolution"] == defaults["display.shadow_resolution"],
+		f"tuning/lan-party: {values}")
+	check(values["display.dynamic_light_limit"] == "16" and values["tuning.present_mode"] == "adaptive",
+		f"tuning/lan-party: {values}")
+	# the player's knob back to its default: it follows the preset again
+	_, output = case.run("reset", "display.particle_limit")
+	check("tuning: change particles=512->2048(preset)" in tuning_lines(output), f"tuning/reset: {tuning_lines(output)}")
+
+	# out of range and not a word: held, or the default, said once each
+	case = Case(program, directory / "tuning_bad")
+	set_tuning_file(case, kind, {"tuning.preset": '"turbo"', "tuning.present_mode": '"sometimes"',
+		"display.dynamic_light_limit": "-5", "display.particle_limit": "999999"})
+	values, output = case.get("tuning.preset", "tuning.present_mode", "display.dynamic_light_limit",
+		"display.particle_limit")
+	lines = tuning_lines(output)
+	check(values["tuning.preset"] == "retail" and values["tuning.present_mode"] == "vblank", f"tuning/bad: {values}")
+	check(values["display.dynamic_light_limit"] == "0", f"tuning/bad: {values}")
+	most = int(values["display.particle_limit"])
+	check(0 < most < 999999, f"tuning/bad: {values}")
+	check(sum("tuning.preset" in line and "turbo" in line for line in lines) == 1, f"tuning/bad: {lines}")
+	check(sum("present_mode" in line and "sometimes" in line for line in lines) == 1, f"tuning/bad: {lines}")
+	check(sum("display.particle_limit = 999999 is out of" in line for line in lines) == 1, f"tuning/bad: {lines}")
+	knobs = tuning_knobs(next(line for line in lines if line.startswith("tuning: at=boot")))
+	check(knobs["lights"] == ("0", "(clamped)") and knobs["particles"] == (str(most), "(clamped)") and
+		knobs["present"] == ("vblank", "(invalid)"), f"tuning/bad: {knobs}")
+	# (the file is left as the player wrote it)
+	check('preset = "turbo"' in case.text(), "tuning/bad: the file was changed")
+
+	# the environment is the player's too
+	case = Case(program, directory / "tuning_environment")
+	values, output = case.run("get", "display.dynamic_light_limit", "display.particle_limit",
+		environment_extra={"HALO_TUNING_PRESET": "potato", "HALO_PARTICLE_LIMIT": "3000"})
+	check(values["display.dynamic_light_limit"] == "8" and values["display.particle_limit"] == "3000",
+		f"tuning/environment: {values}")
+
+
+def test_xbox_tuning(program, directory):
+	"""The original Xbox's [tuning]: config.toml is its only screen. The
+	knobs it has are in its file (tuning.texture_cache its own), the ones it
+	hasn't are not; a preset never raises the console's own limit; the
+	texture cache is "auto" or MB in range."""
+	case = Case(program, directory / "xbox_tuning")
+	case.path = case.folder / "d:\\config.toml"
+	text = fresh_file(case, "xbox")
+	for line in ('# preset = "retail"', '# present_mode = "vblank"', '# texture_cache = "auto"'):
+		check(line in text, f"xbox/tuning: no {line}")
+	check("particle_limit" not in text and "shadow_resolution" not in text, "xbox/tuning: a desktop knob in the file")
+	values, output = case.get("display.dynamic_light_limit")
+	lines = tuning_lines(output)
+	check(re.fullmatch(rf"tuning: at=boot {TUNING_SUMMARY}", lines[0]), f"xbox/tuning: {lines}")
+	check(set(tuning_knobs(lines[0])) == {"preset", "lights", "specular", "present", "texture_cache"},
+		f"xbox/tuning: knobs {lines[0]}")
+	own = int(values["display.dynamic_light_limit"])
+	for texture, wanted, source in (('"auto"', "auto", "(hand)"), ('"24"', "24", "(hand)"), ('"4"', "19", "(clamped)"),
+			('"600"', "512", "(clamped)"), ('"lots"', "auto", "(invalid)")):
+		text = re.sub(r"^#? ?texture_cache = .*$", f"texture_cache = {texture}", case.text(), flags=re.M)
+		text = re.sub(r"^#? ?preset = .*$", 'preset = "lan-party"', text, flags=re.M)
+		case.path.write_text(text)
+		values, output = case.get("tuning.texture_cache", "display.dynamic_light_limit")
+		knobs = tuning_knobs(next(line for line in tuning_lines(output) if line.startswith("tuning: at=boot")))
+		check(values["tuning.texture_cache"] == wanted and knobs["texture_cache"] == (wanted, source),
+			f"xbox/tuning: texture_cache {texture}: {values} {knobs}")
+		differs = next(line for line in tuning_lines(output) if line.startswith("tuning: differs"))
+		check(("texture_cache=" in differs) == (wanted != "auto"), f"xbox/tuning: {differs}")
+		# (lan-party's 16 lights never more than the console's own)
+		lights = int(values["display.dynamic_light_limit"])
+		check(lights == 16 if own == 0 else lights == min(own, 16), f"xbox/tuning: lights {lights}, own {own}")
+		# (lan-party sets the present mode here: nothing to own up to)
+		check(not any("changes nothing" in line for line in tuning_lines(output)), f"xbox/tuning: {tuning_lines(output)}")
+	# potato on the Xbox: its limits are the console's own and the rest not
+	# its settings, so it sets nothing, and says so in one line at boot
+	for preset, honest in (('"potato"', 1), ('"retail"', 0), ('"lan-party"', 0)):
+		text = re.sub(r"^#? ?texture_cache = .*$", '# texture_cache = "auto"', case.text(), flags=re.M)
+		text = re.sub(r"^#? ?preset = .*$", f"preset = {preset}", text, flags=re.M)
+		case.path.write_text(text)
+		_, output = case.get("display.dynamic_light_limit")
+		said = [line for line in tuning_lines(output) if "changes nothing" in line]
+		check(len(said) == honest, f"xbox/tuning: {preset}: {said}")
+		if honest:
+			check(said[0].startswith(f"tuning: preset={preset.strip(chr(34))} changes nothing on this console"),
+				f"xbox/tuning: {said}")
+
+
 def test_xbox_follows_new_defaults(program, directory):
 	"""The original Xbox has no screen to ask about new defaults on: a file it
 	wrote before one changed, the setting commented out at the old default,
@@ -1190,21 +1377,24 @@ def test_xbox_follows_new_defaults(program, directory):
 	# folder the test runs in)
 	case.path = case.folder / "d:\\config.toml"
 	text = fresh_file(case, "xbox")
-	for key, old in (("start_with_one_player", "false"), ("follow_camera", '"long_waits"')):
+	for key, old in (("start_with_one_player", "false"), ("follow_camera", '"long_waits"'),
+			("widescreen", '"dashboard"')):
 		text = re.sub(rf"^# {key} = .*$", f"# {key} = {old}", text, flags=re.M)
 	case.path.write_text(text)
 	count, output = pending(case)
 	check(count == 0, f"xbox/follow: asked: {count} {output}")
-	values, _ = case.get("game.start_with_one_player", "display.follow_camera")
-	check(values["game.start_with_one_player"] == "true" and values["display.follow_camera"] == "off",
-		f"xbox/follow: {values}")
+	values, _ = case.get("game.start_with_one_player", "display.follow_camera", "display.widescreen")
+	check(values["game.start_with_one_player"] == "true" and values["display.follow_camera"] == "off" and
+		values["display.widescreen"] == "off", f"xbox/follow: {values}")
 	case = Case(program, directory / "xbox_chosen")
 	case.path = case.folder / "d:\\config.toml"
 	text = fresh_file(case, "xbox")
 	text = re.sub(r"^# start_with_one_player = .*$", "start_with_one_player = false", text, flags=re.M)
+	text = re.sub(r"^# widescreen = .*$", 'widescreen = "dashboard"', text, flags=re.M)
 	case.path.write_text(text)
-	values, _ = case.get("game.start_with_one_player")
-	check(values["game.start_with_one_player"] == "false", f"xbox/chosen: {values}")
+	values, _ = case.get("game.start_with_one_player", "display.widescreen")
+	check(values["game.start_with_one_player"] == "false" and values["display.widescreen"] == "dashboard",
+		f"xbox/chosen: {values}")
 
 
 def main():
@@ -1215,12 +1405,13 @@ def main():
 	with tempfile.TemporaryDirectory() as directory:
 		directory = Path(directory)
 		program = build(arguments.cc, "xbox", directory / "xbox")
-		try:
-			test_xbox_follows_new_defaults(program, directory / "xbox" / "cases")
-			print("ok   xbox: test_xbox_follows_new_defaults")
-		except AssertionError as error:
-			print(f"FAIL xbox: test_xbox_follows_new_defaults: {error}")
-			failures += 1
+		for test in (test_xbox_follows_new_defaults, test_xbox_tuning):
+			try:
+				test(program, directory / "xbox" / "cases")
+				print(f"ok   xbox: {test.__name__}")
+			except AssertionError as error:
+				print(f"FAIL xbox: {test.__name__}: {error}")
+				failures += 1
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
 			if kind == "desktop32":
@@ -1230,7 +1421,7 @@ def main():
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
 				test_retired_setting, test_delta_renamed, test_interrupted_write, test_layout, test_old_browser_address, test_gearbox_menus_retired, test_packaged_install,
-				test_server_file, test_follow_file):
+				test_server_file, test_follow_file, test_tuning):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

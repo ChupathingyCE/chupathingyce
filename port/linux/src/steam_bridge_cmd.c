@@ -434,6 +434,8 @@ static void cmd_tick(void)
 		case STEAMCMD_LINE_ITEM_FAILED:
 			if ((item = known(read.id)) != NULL)
 				item->state = STEAM_BRIDGE_ITEM_FAILED;
+			/* (steamcmd's own words: its reason, in brackets) */
+			platform_log("Workshop: steamcmd: %s", line);
 			break;
 		case STEAMCMD_LINE_DEPOT_DONE:
 			if (cmd.depot_count < 2)

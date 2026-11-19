@@ -2850,6 +2850,7 @@ symbols in this file:
 #include "mcc_script_parameters.h"
 #include "mcc_scripts.h"
 #include "mcc_syntax.h"
+#include "lua_scripting.h" /* port: Lua's execute_script functions (port/linux/game/lua_scripting.c) */
 
 /* ---------- constants */
 
@@ -3670,6 +3671,17 @@ boolean hs_scenario_postprocess(
 /* ---------- constants */
 
 #define MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO 19001
+/* port: OpenSauce's maps' (1.5 times as many: blam_memory_upgrades.hpp), read
+in SPV3 mode only (port/linux/game/spv3_mode.c); the tables kept per node
+below are sized for them */
+#define OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO 28501
+#if defined(HALO_64BIT) && !defined(HALO_WINDOW_TRANSLATED)
+#define HS_SYNTAX_NODES_CAPACITY OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO
+#else
+/* (the builds that can't map OpenSauce's tag window keep Halo's: xbox_heap.c) */
+#define HS_SYNTAX_NODES_CAPACITY MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO
+#endif
+#include "spv3_mode.h"
 /* port: the console's stand-in array (hs_allocate) */
 #define HS_SYNTAX_STAND_IN_NODES 2048
 /* port: the size of the "hs globals" array (hs_runtime_initialize), which
@@ -3729,9 +3741,9 @@ static unsigned long hs_scenario_disabled_scripts[BIT_VECTOR_SIZE_IN_LONGS(MAXIM
 static unsigned long hs_scenario_disabled_globals[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_GLOBALS)];
 /* port: the map's calls and sets a map's scripts may not make, skipped where
 they are while the rest of their scripts runs (hs_scenario_functions_check) */
-static unsigned long hs_scenario_skipped_nodes[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)];
+static unsigned long hs_scenario_skipped_nodes[BIT_VECTOR_SIZE_IN_LONGS(HS_SYNTAX_NODES_CAPACITY)];
 /* port: the nodes linked to, then walked (hs_scenario_functions_check) */
-static unsigned long hs_syntax_nodes_marked[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)];
+static unsigned long hs_syntax_nodes_marked[BIT_VECTOR_SIZE_IN_LONGS(HS_SYNTAX_NODES_CAPACITY)];
 #define hs_token_enumerators hs_function_table.token_enumerators
 struct data_array *hs_syntax_data;
 extern long global_scenario_index;
@@ -12203,13 +12215,18 @@ long const hs_function_table_count= 418 + 3 + 24 + HS_MODS_FUNCTIONS;
 long const hs_function_table_count= 418;
 #endif
 
+/* port: OpenSauce's functions and globals (a map with an OpenSauce header
+only: port/linux/game/opensauce_scripts.c); a build without them gets the
+header's empty ones, which hs_scenario_postprocess counts too */
+#include "opensauce_scripts.h"
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 /* port: Stubbs the Zombie's functions, a table of their own after Halo's
 (Stubbs mode only: port/linux/game/stubbs_functions.c) */
 #include "stubbs_mode.h"
 #include "stubbs_functions.h"
 #include "stubbs_campaign.h" /* (the map_name allowance) */
-#define HS_FUNCTION_COUNT() (hs_function_table_count + stubbs_function_count())
+/* port: and OpenSauce's, a table after them */
+#define HS_FUNCTION_COUNT() (hs_function_table_count + stubbs_function_count() + opensauce_script_function_count())
 #else
 #define HS_FUNCTION_COUNT() hs_function_table_count
 #endif
@@ -13375,8 +13392,14 @@ static char const *hs_scenario_syntax_data_problem(
 		if (mcc_valid >= 0)
 			return mcc_valid ? NULL : "its MCC script syntax data is damaged";
 	}
+	/* port: in SPV3 mode, OpenSauce's larger array too (spv3_mode.c) */
+	long const maximum_nodes =
+		HS_SYNTAX_NODES_CAPACITY == OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO && spv3_mode_active() &&
+		scenario->hs_syntax_data.size ==
+			(long)(sizeof(struct data_array)+OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO*sizeof(struct hs_syntax_node)) ?
+		OPENSAUCE_HS_SYNTAX_NODES_PER_SCENARIO : MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO;
 	long const syntax_data_size =
-		sizeof(struct data_array)+MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO*sizeof(struct hs_syntax_node);
+		sizeof(struct data_array)+maximum_nodes*sizeof(struct hs_syntax_node);
 	/* (the tag cache the map's tags are in: a Custom Edition map's is its
 	own, cache_files.c) */
 	unsigned long tag_cache_size;
@@ -13412,11 +13435,13 @@ static char const *hs_scenario_syntax_data_problem(
 		if (cache_file_tags_are_ce())
 		{
 			if (data->signature != 'd@t@' ||
-				data->maximum_count != MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO ||
+				data->maximum_count != maximum_nodes ||
 				data->size != sizeof(struct hs_syntax_node))
 			{
 				return "its header isn't a script node array's";
 			}
+			if (maximum_nodes != MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)
+				spv3_mode_log("scripts: OpenSauce's script node array (%ld nodes) read in place", maximum_nodes);
 			return hs_scenario_string_constants_valid(scenario) ? NULL : "its strings aren't inside the map's tag data";
 		}
 	}
@@ -13818,7 +13843,7 @@ static short hs_expression_refusal(
 		/* (only a map whose nodes are not sound gets here: the stack, 74 KB on
 		the console, is made for the walk and given back by the check) */
 		stack = hs_expression_refusal_stack = (long *)debug_malloc(
-			sizeof(long) * (MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO+1), FALSE, "c:\\halo\\SOURCE\\hs\\hs.c", 13536);
+			sizeof(long) * (HS_SYNTAX_NODES_CAPACITY+1), FALSE, "c:\\halo\\SOURCE\\hs\\hs.c", 13536);
 		if (!stack)
 			return _hs_node_refusal_damaged;
 	}
@@ -13936,7 +13961,7 @@ static short hs_mcc_node_refusal(
 	{
 		long absolute_index = (long)(expression - (struct hs_syntax_node const *)(hs_syntax_data + 1));
 
-		if (absolute_index >= 0 && absolute_index < MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)
+		if (absolute_index >= 0 && absolute_index < HS_SYNTAX_NODES_CAPACITY)
 		{
 			if (!hs_mcc_skipped_count++)
 				error(_error_silent, "mcc: skipped a script call to %s, which a map's scripts may not call; the script still runs",
@@ -14148,7 +14173,7 @@ boolean hs_scenario_node_skipped(
 
 	if (expression_index == NONE ||
 		absolute_index<0 ||
-		absolute_index>=MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO ||
+		absolute_index>=HS_SYNTAX_NODES_CAPACITY ||
 		!BIT_VECTOR_TEST_FLAG(hs_scenario_skipped_nodes, absolute_index))
 	{
 		return FALSE;
@@ -14571,6 +14596,12 @@ struct hs_function_definition *hs_function_get(
 		if (mcc_function)
 			return mcc_function;
 	}
+	/* port: a Lua script's execute_script's own (lua_scripting.h) */
+	{
+		struct hs_function_definition *lua_function = lua_scripting_hs_function(function_index);
+		if (lua_function)
+			return lua_function;
+	}
 	match_assert(
 		"c:\\halo\\SOURCE\\hs\\hs.c",
 		522,
@@ -14578,7 +14609,13 @@ struct hs_function_definition *hs_function_get(
 
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 	if (function_index>=hs_function_table_count)
-		return stubbs_function_get(function_index - hs_function_table_count);
+	{
+		long index = function_index - hs_function_table_count;
+
+		if (index >= stubbs_function_count())
+			return opensauce_script_function_get(index - stubbs_function_count());
+		return stubbs_function_get(index);
+	}
 #endif
 	return hs_function_table.functions[function_index];
 }
@@ -14633,6 +14670,13 @@ short hs_find_global_by_name(
 			if (_stricmp(name, global->name) == 0)
 				return global_index & ~0x8000;
 		}
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+		/* port: OpenSauce's and Halo PC's that an OpenSauce map's scripts
+		use, after the scenario's (port/linux/game/opensauce_scripts.c) */
+		global_index = opensauce_script_global_find(name);
+		if (global_index != NONE)
+			return (short)(scenario->hs_globals.count + global_index) & ~0x8000;
+#endif
 	}
 
 	return NONE;
@@ -14685,7 +14729,15 @@ short hs_global_get_type(
 		return hs_global_external_get(global_index & 0x7FFF)->type;
 	}
 	if ((global_index & 0x7FFF) >= global_scenario_get()->hs_globals.count)
+	{
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+		/* (OpenSauce's, after the scenario's: opensauce_scripts.c) */
+		return opensauce_script_global_type(
+			(short)((global_index & 0x7FFF) - global_scenario_get()->hs_globals.count));
+#else
 		return _hs_unparsed;
+#endif
+	}
 
 	return TAG_BLOCK_GET_ELEMENT(
 		&global_scenario_get()->hs_globals,
@@ -14698,6 +14750,12 @@ char const *hs_global_get_name(
 {
 	if (global_index & 0x8000)
 		return hs_global_external_get(global_index & 0x7FFF)->name;
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* (OpenSauce's, after the scenario's: opensauce_scripts.c) */
+	if ((global_index & 0x7FFF) >= global_scenario_get()->hs_globals.count && opensauce_script_global_count())
+		return opensauce_script_global_name(
+			(short)((global_index & 0x7FFF) - global_scenario_get()->hs_globals.count));
+#endif
 
 	return TAG_BLOCK_GET_ELEMENT(
 		&global_scenario_get()->hs_globals,
@@ -14715,6 +14773,13 @@ short hs_find_function_by_name(
 		if (mcc_index != NONE)
 			return mcc_index;
 	}
+	/* port: while a Lua script's execute_script runs, its own (Halo PC's,
+	OpenSauce's: lua_scripting.h) */
+	{
+		short lua_index = lua_scripting_hs_function_find(name);
+		if (lua_index != NONE)
+			return lua_index;
+	}
 
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 	/* (Stubbs mode's first: some take other arguments than Halo's of their
@@ -14731,6 +14796,16 @@ short hs_find_function_by_name(
 		if (_stricmp(hs_function_table.functions[function_index]->name, name) == 0)
 			return function_index;
 	}
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* (OpenSauce's after Halo's, on an OpenSauce map only: none shares a
+	name with one of Halo's) */
+	{
+		long opensauce_index = opensauce_script_function_find(name);
+
+		if (opensauce_index != NONE)
+			return (short)(hs_function_table_count + stubbs_function_count() + opensauce_index);
+	}
+#endif
 
 	return NONE;
 }
@@ -16360,12 +16435,14 @@ boolean hs_scenario_postprocess(
 	which the casts' and the type names' tables are looked up by. A map
 	whose globals aren't so runs no scripts. The shipped maps' all are, and
 	have far fewer */
+	/* port: (and room for OpenSauce's, on an OpenSauce map:
+	port/linux/game/opensauce_scripts.c) */
 	if (scenario->hs_globals.count<0 ||
-		scenario->hs_globals.count>MAXIMUM_HS_GLOBALS-hs_external_global_count)
+		scenario->hs_globals.count>MAXIMUM_HS_GLOBALS-hs_external_global_count-opensauce_script_global_count())
 	{
 		error(_error_log, "the scenario has %ld script globals, more than the %d there is room for; its scripts won't run",
 			scenario->hs_globals.count,
-			MAXIMUM_HS_GLOBALS-hs_external_global_count);
+			MAXIMUM_HS_GLOBALS-hs_external_global_count-opensauce_script_global_count());
 		hs_scenario_scripts_disable(scenario);
 	}
 	else
