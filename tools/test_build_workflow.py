@@ -543,11 +543,13 @@ def test_rerun_only_a_failed_first_attempt():
     assert "actions/checkout" not in text
 
 
-@pytest.mark.parametrize("annotation, rerun", [
-    ("The job was not acquired by Runner of type hosted even after multiple attempts", True),
-    ("Canceling since a higher priority waiting request for build-refs/heads/main exists", False),
+@pytest.mark.parametrize("annotation, newest, rerun", [
+    ("The job was not acquired by Runner of type hosted even after multiple attempts", "42", True),
+    ("Canceling since a higher priority waiting request for build-refs/heads/main exists", "42", False),
+    # (a newer run of the branch, which running this one again would cancel)
+    ("The job was not acquired by Runner of type hosted even after multiple attempts", "43", False),
 ])
-def test_rerun_when_no_runner_took_a_job(tmp_path, annotation, rerun):
+def test_rerun_when_no_runner_took_a_job(tmp_path, annotation, newest, rerun):
     folder = tmp_path / "bin"
     folder.mkdir()
     (tmp_path / "annotation").write_text(annotation + "\n")
@@ -557,11 +559,12 @@ echo "$*" >> {tmp_path}/calls
 case "$*" in
   *"/jobs?"*) printf '%s\\n' "7 macos" ;;
   *"/check-runs/7/annotations"*) cat {tmp_path}/annotation ;;
+  *"/workflows/9/runs"*) echo {newest} ;;
 esac
 """)
     gh.chmod(0o755)
     environment = {**os.environ, "PATH": f"{folder}:{os.environ['PATH']}", "REPOSITORY": "ChupathingyCE/chupathingyce",
-                   "RUN": "42"}
+                   "RUN": "42", "WORKFLOW": "9", "BRANCH": "main", "EVENT": "push"}
     result = subprocess.run(["bash", "-e", "-c", rerun_script()], capture_output=True, text=True, env=environment)
     assert result.returncode == 0, result.stdout + result.stderr
     calls = (tmp_path / "calls").read_text().splitlines()

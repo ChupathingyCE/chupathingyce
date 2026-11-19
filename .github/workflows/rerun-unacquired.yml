@@ -29,6 +29,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           RUN: ${{ github.event.workflow_run.id }}
+          WORKFLOW: ${{ github.event.workflow_run.workflow_id }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT: ${{ github.event.workflow_run.event }}
         run: |
           set -euo pipefail
           # (canceled jobs that never had a runner, and why: their annotations)
@@ -45,6 +48,16 @@ jobs:
           if [ -z "$unacquired" ]; then
             echo "every job of run $RUN had a runner: nothing to do"
             exit 0
+          fi
+          # (a branch's runs share a concurrency group that cancels the one in
+          # progress: a run again of an older commit would cancel its newer run)
+          if [ "$EVENT" != workflow_dispatch ]; then
+            newest=$(gh api -X GET "repos/$REPOSITORY/actions/workflows/$WORKFLOW/runs" \
+              -f branch="$BRANCH" -f event="$EVENT" -F per_page=1 --jq '.workflow_runs[0].id')
+            if [ "$newest" != "$RUN" ]; then
+              echo "no runner took:$unacquired; run $newest is newer on $BRANCH: nothing to do"
+              exit 0
+            fi
           fi
           echo "::notice::no runner took:$unacquired; running run $RUN's failed jobs again"
           gh run rerun "$RUN" --failed -R "$REPOSITORY"
