@@ -153,17 +153,6 @@ and more). The site takes any key (at most 64 a line) and counts the ones
 it knows (`site.js`, `MEDALS`); its checks hold a line's multikill medals
 to its kills, and its sprees, five kills each, too.
 
-The names and icons are the site's too, one set for both. `tools/medal_assets.py`,
-run by hand with a checkout of ChupathingyCE/puma, reads `site.js`'s
-tables (`MEDALS`, `TIERS`, `SHAPES`, `GLYPHS`), draws each icon as the
-site's `medalSVG` does, and writes `port/assets/medals` (`medals.json` and
-an atlas of 64 pixels a medal, which the builds embed, and one of 32
-for a console later) and `port/linux/src/medal_icons.h`.
-puma's `test_medals_sync.py` keeps the digest of the tables the game was
-made from, so a change on the site says to run it again;
-`tools/test_medal_rules.py` checks every key of `medal_rules.h` has its
-entry and icon.
-
 With `display.medals` on, the HUD shows each medal you earn as its icon at
 the end of the kill's line in the kill feed, at the text's height
 (`port/linux/game/medal_hud.c`, from `source/interface/hud_messaging.c`,

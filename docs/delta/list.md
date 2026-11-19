@@ -131,8 +131,3 @@ an estimate or nothing. A site from before field 19 gives no capabilities:
 no probes, estimates only if it has anchors. Nothing else changes meaning,
 and the legacy table's per-capability kill switch turns `ping` off (no
 answering, no probing). No pings at all with online play off.
-
-`port/linux/tests/ping_test.c` tests the formats
-with hostile input, the host's limits, the prober's measuring, the anchors
-and the Ping column's order; `HALO_NETWORK_TEST=browse` opens Online Games
-and logs each game's ping, for two copies on one machine.
