@@ -1068,8 +1068,11 @@ static boolean string_valid(
 	game copies and formats names into buffers of that size) */
 	if (region_contains(validation, string, 1))
 	{
-		return memchr(string, 0, MIN(validation->region_size - offset, (unsigned long)MAXIMUM_TAG_NAME_LENGTH)) !=
-			NULL;
+		/* (one in the copies past the tags, overlap_copied, ends in them) */
+		unsigned long left = offset < validation->region_size ? validation->region_size - offset :
+			tag_validate_copies.end - offset;
+
+		return memchr(string, 0, MIN(left, (unsigned long)MAXIMUM_TAG_NAME_LENGTH)) != NULL;
 	}
 	if (tags && POINTER_BITS(string) >= POINTER_BITS(tags) &&
 		tags_offset < (unsigned long)tag_validate_globals.tag_data_size)
