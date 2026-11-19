@@ -1605,7 +1605,7 @@ static void particle_system_render(
 					/* port: a particle tuning.particle_thinning leaves out is
 					not built, after the game's own work for it above (its
 					first sprite's local random number) */
-					if (!render_tuning_particle_kept(particle_index, thinning))
+					if (thinning > 1 && !render_tuning_particle_kept(particle_index, thinning))
 					{
 						state_weight = 0.0f;
 						transition_weight = 0.0f;

@@ -217,18 +217,23 @@ void render_tuning_update(
 	extern long config_integer(const char *name);
 	extern const char *config_string(const char *name);
 	extern void platform_log(const char *format, ...);
+#ifndef HALO_CONSOLE_NO_NETWORK_TEST
+	extern boolean determinism_check_replaying(void);
+#endif
 	short connection = game_connection();
 	boolean network_game;
 	boolean changed = FALSE;
 
+	/* (a replay playing a recording now, not a setting that only names
+	one: that would lift the network game's holds by config.toml) */
+#ifndef HALO_CONSOLE_NO_NETWORK_TEST
+	render_tuning_globals.replay = determinism_check_replaying();
+#endif
 	if (render_tuning_globals.read_at != config_changes())
 	{
 		const char *effects;
-		const char *determinism;
 
 		render_tuning_globals.read_at = config_changes();
-		determinism = config_string("debug.determinism");
-		render_tuning_globals.replay = determinism && !strncmp(determinism, "replay:", 7);
 		render_tuning_globals.particle_thinning =
 			(short)PIN(config_integer("tuning.particle_thinning"), 1, 4);
 		/* (one of its words, port_config.c sees to it: each starts with its

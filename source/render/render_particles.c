@@ -705,7 +705,8 @@ void render_particles(
 									leaves out still counts as drawn (the game deletes
 									one not drawn for a while: particles.c), only its
 									sprite is not built, so the game goes on the same */
-									if (rendered_particle->attached_to_first_person_weapon ||
+									if (thinning <= 1 ||
+										rendered_particle->attached_to_first_person_weapon ||
 										particle->object_index != NONE ||
 										render_tuning_particle_kept(
 											rendered_particle[particle_run_index].particle_index,
