@@ -1105,10 +1105,12 @@ void net_monitor_update(
 		{
 			char fields[256];
 			char target[128];
+			char name[2 * sizeof(monitor.name)];
 
 			monitor_json_text(target, sizeof(target), monitor.target);
+			monitor_json_text(name, sizeof(name), monitor.name);
 			snprintf(fields, sizeof(fields), "\"target\": \"%s\", \"player\": \"%s\", \"minutes\": %.1f, \"games\": %ld",
-				target, monitor.name, (double)monitor.minutes, monitor.games);
+				target, name, (double)monitor.minutes, monitor.games);
 			monitor_event("start", fields);
 			browser_screen_open();
 			monitor_state(_monitor_finding);
