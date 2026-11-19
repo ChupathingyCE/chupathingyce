@@ -919,6 +919,42 @@ void sound_reconnect_to_structure_bsp(
 
 			sound_index = data_next_index(sound_data, sound_index);
 		}
+
+		/* port: the looping sounds' locations too. A sound that tracks a
+		looping sound copies the loop's location each time it is refreshed
+		(track_loop_track_sound, track_loop_impulse_sound). On the Xbox no
+		loop's location outlived a switch: game_sound_update gives every
+		audible loop a new one each frame, and the same frame's
+		process_looping_sounds deletes the loops it did not refresh. A loop
+		refreshed in a frame without sound_render (debug_no_drawing, or a
+		frame the port does not draw) still matches the manager's flip flop
+		after a switch, so it is kept with the old structure's cluster
+		though its object is no longer in the map: going into a10's
+		two-cluster cinematic structure, a dozen loops kept cluster 2 and
+		compute_sound_obstruction looked it up in the new structure's
+		tables. Made again here, such a loop has the new structure's
+		cluster for its point, or none, until it is refreshed or deleted */
+		{
+			long looping_sound_index = data_next_index(looping_sound_data, NONE);
+
+			while (looping_sound_index != NONE)
+			{
+				struct looping_sound_datum *looping_sound =
+					looping_sound_get(looping_sound_index);
+
+				if (looping_sound->source.spatialization_mode ==
+					_sound_spatialization_mode_absolute)
+				{
+					scenario_location_from_point(
+						&looping_sound->source.location.game_location,
+						&looping_sound->source.location.position);
+				}
+
+				looping_sound_index = data_next_index(
+					looping_sound_data,
+					looping_sound_index);
+			}
+		}
 	}
 
 	return;
