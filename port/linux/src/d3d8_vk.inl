@@ -1366,7 +1366,11 @@ static void textures_make(struct vk_command_draw *draw, struct nv2a_pixel_shader
 					}
 				}
 			}
-			if (description.linear)
+			/* port: a Halo PC map's linear bitmap is sampled as Halo PC samples every
+			texture, its coordinates 0 to 1 (the game's draws of its bitmaps give
+			them so: xbox_texture_cache.c's D3DCOMMON_PORT_PC_LAYOUT); the Xbox's own
+			linear textures by texel */
+			if (description.linear && !(texture->Common & D3DCOMMON_PORT_PC_LAYOUT))
 			{
 				texture_scale[stage][0] = 1.0f / (float)description.width;
 				texture_scale[stage][1] = 1.0f / (float)description.height;
